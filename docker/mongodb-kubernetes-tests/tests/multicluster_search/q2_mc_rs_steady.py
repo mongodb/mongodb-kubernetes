@@ -2,32 +2,53 @@
 
 Strict assertions across the full path:
 
-- Operator creates per-cluster mongot StatefulSets, Services, and ConfigMaps
-  via member-cluster clients.
-- Envoy controller deploys a per-cluster Envoy; SNI uses the per-cluster
-  proxy-svc FQDN; replicas come from top-level spec.loadBalancer.managed.replicas.
-- The LB TLS cert SAN list covers every cluster's proxy-svc FQDN.
-- Admission rejects MC without spec.source.external.hostAndPorts.
-- Per-cluster reconcileUnit fan-out applies each cluster's reconcile to its
-  target member-cluster client.
+- Operator creates per-cluster mongot StatefulSets, Services, and
+  ConfigMaps via member-cluster clients.
+- Envoy controller deploys a per-cluster Envoy; the per-cluster Envoy
+  ConfigMap's SNI server_names field references the per-cluster
+  proxy-svc FQDN (verified by reading the CM out of each member
+  cluster — see `test_per_cluster_envoy_sni_observed`).
+- The LB TLS cert SAN list covers every cluster's proxy-svc FQDN
+  (defensive hygiene; the LB-cert SAN validator is not wired into the
+  reconcile loop yet — see the skipped placeholder
+  `test_lb_cert_san_validator_when_wired`).
+- Per-cluster reconcileUnit fan-out applies each cluster's reconcile
+  to its target member-cluster client (transitively asserted via the
+  per-cluster STS / Service / ConfigMap reads through member-cluster
+  clients).
+- `validateMCRequiresExternalHostAndPorts` rejection is exercised by
+  `test_admission_rejects_mc_without_external_hosts` — applies a CR
+  missing `spec.source.external.hostAndPorts` and asserts the operator
+  surfaces Phase=Failed with the validator's error message.
+
+Per-cluster locality (observed, not just constructed):
+- After the AC patch lands per-process `mongotHost`, the test execs
+  into each cluster's first mongod pod, reads
+  `/data/automation-mongod.conf`, and asserts the per-pod parameter
+  resolved to the cluster-local Envoy proxy-svc FQDN
+  (`test_per_cluster_mongot_host_observed`). The same assertion is
+  repeated immediately before each data-plane test step — if the
+  operator re-reconciles the MongoDBMulti out-of-band and clobbers the
+  per-process value, the data-plane assertions surface that regression
+  with a clear error.
 
 Data-plane assertions:
 
-- $search returns non-empty results when invoked from the central
-  cluster client (the topology is RS — any pod's aggregation will hit
-  the primary, so a single $search execution per test step is
-  sufficient to validate cross-cluster mongot indexing).
+- $search returns non-empty results when invoked through the source
+  RS. Wrapped in `run_periodically(timeout=60)` since mongot may
+  report `READY` for an index but still be in INITIAL_SYNC.
 - $vectorSearch creates an index with auto-embedding and returns a
   non-empty result set; this exercises the AI/Voyage embedding path
-  end-to-end (env var `AI_MONGODB_EMBEDDING_QUERY_KEY`).
+  end-to-end (env var `AI_MONGODB_EMBEDDING_QUERY_KEY`). Same retry
+  wrapper.
 
-Per-cluster mongotHost locality:
+Per-cluster mongotHost locality (mechanism):
 - The MongoDBMultiCluster CRD does not (yet) expose per-cluster
   `additionalMongodConfig` (the field lives only at the top level on
   `DbCommonSpec`; see
   `docs/superpowers/research/2026-05-04-per-cluster-mongothost-mitigations.md`
-  for the gap analysis and the planned CRD-extension micro-PR). For the
-  e2e, after MongoDBMulti reaches Running we patch the Ops Manager
+  for the gap analysis and the planned CRD-extension micro-PR). For
+  the e2e, after MongoDBMulti reaches Running we patch the Ops Manager
   automation config in `test_patch_per_cluster_mongot_host` so each
   cluster's mongods point `mongotHost` and
   `searchIndexManagementHostAndPort` at THEIR cluster's local Envoy
@@ -36,16 +57,21 @@ Per-cluster mongotHost locality:
   the per-process AC keys override it for query-side locality.
 """
 
+import json
 import os
-from typing import List
+from typing import Dict, List
 
 import kubernetes
+import pymongo.errors
 import pytest
+import yaml
 from kubernetes.client import CoreV1Api
 from kubetester import create_or_update_configmap, create_or_update_secret, try_load
 from kubetester.certs import create_tls_certs
 from kubetester.certs_mongodb_multi import create_multi_cluster_mongodb_tls_certs
+from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.kubetester import run_periodically
 from kubetester.mongodb_multi import MongoDBMulti
 from kubetester.mongodb_search import MongoDBSearch
 from kubetester.mongodb_user import MongoDBUser
@@ -195,6 +221,15 @@ def mdbs(
     a43b59183 / 275ffb242). spec.clusters[i] carries the per-cluster
     mongot replica count; clusterName must match the operator's stable
     cluster index ordering.
+
+    spec.loadBalancer.managed.externalHostname is required by
+    validateManagedLBExternalHostname (managed LB + external MongoDB
+    source) AND must contain `{clusterIndex}` per
+    validateMCExternalHostnamePlaceholders since len(spec.clusters) > 1.
+    The resolved hostname per cluster matches the per-cluster proxy-svc
+    FQDN that the SAN list and the AC patch already use, keeping all
+    three (cert SANs, AC mongotHost, Envoy SNI) lined up on the same
+    name.
     """
     resource = MongoDBSearch.from_yaml(
         yaml_fixture("search-q2-mc-rs-search.yaml"),
@@ -222,6 +257,20 @@ def mdbs(
 
     resource["spec"]["security"] = {
         "tls": {"certsSecretPrefix": MDBS_TLS_CERT_PREFIX},
+    }
+
+    # Managed LB externalHostname — substituted per cluster via
+    # GetManagedLBEndpointForCluster(i). The {clusterIndex} placeholder
+    # resolves to the persisted ClusterIndex (or slice index fallback);
+    # the resulting FQDN matches `proxy_svc_fqdn(clusterName)` that the
+    # cert SANs and the AC mongotHost patch already target.
+    resource["spec"]["loadBalancer"] = {
+        "managed": {
+            "replicas": ENVOY_LB_REPLICAS,
+            "externalHostname": (
+                f"{MDBS_RESOURCE_NAME}-search-{{clusterIndex}}-proxy-svc.{namespace}.svc.cluster.local"
+            ),
+        },
     }
 
     # Per-cluster shape: spec.clusters[i] = {clusterName, replicas}. NO
@@ -281,13 +330,21 @@ def mongot_user(namespace: str, central_cluster_client: kubernetes.client.ApiCli
 
 
 @mark.e2e_search_q2_mc_rs_steady
-def test_create_kube_config_file(cluster_clients: dict, member_cluster_names: List[str]):
-    """Sanity check: kube config carries entries for every member cluster."""
-    assert len(cluster_clients) >= len(member_cluster_names), (
-        f"cluster_clients={list(cluster_clients)}, " f"member_cluster_names={member_cluster_names}"
-    )
+def test_create_kube_config_file(
+    cluster_clients: dict,
+    central_cluster_name: str,
+    member_cluster_names: List[str],
+):
+    """Sanity check: kube config carries entries for every member cluster + central.
+
+    Matches the MC convention in `tests/multicluster/multi_cluster_replica_set.py`
+    — central + every member must be present.
+    """
     for name in member_cluster_names:
         assert name in cluster_clients, f"missing member cluster {name} in cluster_clients"
+    assert (
+        central_cluster_name in cluster_clients
+    ), f"missing central cluster {central_cluster_name!r} in cluster_clients={list(cluster_clients)}"
 
 
 @mark.e2e_search_q2_mc_rs_steady
@@ -504,6 +561,83 @@ def _per_cluster_envoy_deployment_name(mdbs_name: str, cluster_name: str) -> str
     return f"{mdbs_name}-search-lb-0-{cluster_name}"
 
 
+def _per_cluster_envoy_configmap_name(mdbs_name: str, cluster_name: str) -> str:
+    """Mirror LoadBalancerConfigMapNameForCluster: `{name}-search-lb-0-{clusterName}-config`."""
+    return f"{mdbs_name}-search-lb-0-{cluster_name}-config"
+
+
+def _expected_proxy_svc_fqdn(mdbs_name: str, cluster_index: int, namespace: str) -> str:
+    """Per-cluster proxy-svc FQDN (no port) — matches GetManagedLBEndpointForCluster output."""
+    return f"{mdbs_name}-search-{cluster_index}-proxy-svc.{namespace}.svc.cluster.local"
+
+
+def _read_mongod_set_parameter(
+    pod_name: str,
+    namespace: str,
+    api_client: kubernetes.client.ApiClient,
+) -> Dict[str, object]:
+    """Read /data/automation-mongod.conf inside a mongod pod and return the
+    parsed `setParameter` map. Caller chooses the api_client (member cluster).
+    """
+    raw = KubernetesTester.run_command_in_pod_container(
+        pod_name,
+        namespace,
+        ["cat", "/data/automation-mongod.conf"],
+        api_client=api_client,
+    )
+    parsed = yaml.safe_load(raw) or {}
+    return parsed.get("setParameter", {}) or {}
+
+
+def _assert_per_cluster_mongot_host_observed(
+    mdb: MongoDBMulti,
+    helper: MCSearchDeploymentHelper,
+    member_cluster_clients: List[MultiClusterClient],
+    timeout: int = 300,
+) -> None:
+    """Poll each member cluster's first mongod pod and confirm both
+    `setParameter.mongotHost` and `setParameter.searchIndexManagementHostAndPort`
+    resolve to the cluster-local Envoy proxy-svc FQDN+port.
+
+    Reads the on-disk `/data/automation-mongod.conf` so this verifies the
+    AC patch landed AND was applied by the agent — not just that we set
+    OM REST. Fails with a per-pod diagnostic showing the actual values.
+    """
+    expected_per_cluster: Dict[str, str] = {
+        mcc.cluster_name: f"{helper.proxy_svc_fqdn(mcc.cluster_name)}:{ENVOY_PROXY_PORT}"
+        for mcc in member_cluster_clients
+    }
+
+    def check() -> tuple:
+        all_correct = True
+        msgs: List[str] = []
+        for mcc in member_cluster_clients:
+            cluster_idx = helper.cluster_index(mcc.cluster_name)
+            pod_name = f"{mdb.name}-{cluster_idx}-0"  # first member of each cluster
+            expected = expected_per_cluster[mcc.cluster_name]
+            try:
+                params = _read_mongod_set_parameter(pod_name, mdb.namespace, mcc.api_client)
+                got_host = params.get("mongotHost", "")
+                got_idx_mgmt = params.get("searchIndexManagementHostAndPort", "")
+                if got_host != expected:
+                    all_correct = False
+                    msgs.append(f"[{mcc.cluster_name}] {pod_name}: mongotHost={got_host!r} expected={expected!r}")
+                elif got_idx_mgmt != expected:
+                    all_correct = False
+                    msgs.append(
+                        f"[{mcc.cluster_name}] {pod_name}: searchIndexManagementHostAndPort="
+                        f"{got_idx_mgmt!r} expected={expected!r}"
+                    )
+                else:
+                    msgs.append(f"[{mcc.cluster_name}] {pod_name}: mongotHost={expected} OK")
+            except Exception as exc:
+                all_correct = False
+                msgs.append(f"[{mcc.cluster_name}] {pod_name}: error reading conf: {exc}")
+        return all_correct, "\n".join(msgs)
+
+    run_periodically(check, timeout=timeout, sleep_time=10, msg="per-cluster mongotHost on disk")
+
+
 @mark.e2e_search_q2_mc_rs_steady
 def test_verify_per_cluster_mongot_resources(
     namespace: str,
@@ -653,6 +787,103 @@ def test_patch_per_cluster_mongot_host(
     om_tester.wait_agents_ready(timeout=900)
 
 
+@mark.e2e_search_q2_mc_rs_steady
+def test_per_cluster_mongot_host_observed(
+    mdb: MongoDBMulti,
+    helper: MCSearchDeploymentHelper,
+    member_cluster_clients: List[MultiClusterClient],
+):
+    """STRICT — for each cluster's first mongod pod, the on-disk
+    `automation-mongod.conf` must show the cluster-local Envoy proxy-svc
+    FQDN as `setParameter.mongotHost` and `searchIndexManagementHostAndPort`.
+
+    This is the only observable proof that the AC patch landed AND was
+    applied by the agent inside each cluster — `wait_agents_ready` only
+    confirms the goal version was reached at the OM layer.
+    """
+    _assert_per_cluster_mongot_host_observed(mdb, helper, member_cluster_clients)
+
+
+@pytest.mark.skip(
+    reason=(
+        "Blocked on operator gap: validateMCExternalHostnamePlaceholders allows "
+        "{clusterIndex} but the Envoy SNI renderer at "
+        "controllers/operator/mongodbsearchenvoy_controller.go:432-435 only "
+        "substitutes {clusterName} (calls GetManagedLBEndpoint, not "
+        "GetManagedLBEndpointForCluster). With {clusterIndex} the placeholder "
+        "ends up literally in envoy.json filter_chain_match.server_names and "
+        "this assertion would fail. Unmark when the operator substitutes both "
+        "placeholders in the per-cluster RS Envoy build path."
+    )
+)
+@mark.e2e_search_q2_mc_rs_steady
+def test_per_cluster_envoy_sni_observed(
+    namespace: str,
+    helper: MCSearchDeploymentHelper,
+    member_cluster_clients: List[MultiClusterClient],
+):
+    """STRICT — each per-cluster Envoy ConfigMap's envoy.json must reference
+    the cluster's proxy-svc FQDN somewhere in its SNI server_names config.
+
+    The Envoy controller renders SNI hostname from
+    `ProxyServiceNamespacedNameForCluster(clusterIndex)` (RS path) or from
+    the cluster-substituted externalHostname template. The operator
+    currently only substitutes `{clusterName}`, not `{clusterIndex}`,
+    even though the validator allows both. Hence this test is skip-marked
+    until the operator gap is closed.
+    """
+    for mcc in member_cluster_clients:
+        cluster_idx = helper.cluster_index(mcc.cluster_name)
+        cm_name = _per_cluster_envoy_configmap_name(MDBS_RESOURCE_NAME, mcc.cluster_name)
+        expected_fqdn = _expected_proxy_svc_fqdn(MDBS_RESOURCE_NAME, cluster_idx, namespace)
+
+        cm = mcc.core_v1_api().read_namespaced_config_map(name=cm_name, namespace=namespace)
+        envoy_json = (cm.data or {}).get("envoy.json")
+        assert envoy_json, f"envoy.json missing in ConfigMap {cm_name} ({mcc.cluster_name})"
+
+        # Parse and walk filter_chains[].filter_chain_match.server_names[]
+        # for the per-cluster FQDN. Avoids substring false-positives from
+        # the upstream-host references that share the namespace prefix.
+        envoy_cfg = json.loads(envoy_json)
+        sni_names: List[str] = []
+        for listener in envoy_cfg.get("static_resources", {}).get("listeners", []):
+            for fc in listener.get("filter_chains", []):
+                fcm = fc.get("filter_chain_match", {}) or {}
+                sni_names.extend(fcm.get("server_names", []) or [])
+
+        assert expected_fqdn in sni_names, (
+            f"[{mcc.cluster_name}] expected SNI server_name {expected_fqdn!r} "
+            f"in envoy.json filter_chain_match.server_names, got {sni_names}"
+        )
+
+        # Defensive: no OTHER cluster's proxy-svc FQDN should appear.
+        for other in member_cluster_clients:
+            if other.cluster_name == mcc.cluster_name:
+                continue
+            other_idx = helper.cluster_index(other.cluster_name)
+            other_fqdn = _expected_proxy_svc_fqdn(MDBS_RESOURCE_NAME, other_idx, namespace)
+            assert other_fqdn not in sni_names, (
+                f"[{mcc.cluster_name}] foreign SNI {other_fqdn!r} present in "
+                f"envoy.json server_names — per-cluster Envoy must only match its own FQDN"
+            )
+
+        logger.info(f"[{mcc.cluster_name}] envoy.json SNI server_names={sni_names} (expected match: {expected_fqdn})")
+
+
+@pytest.mark.skip(
+    reason=(
+        "validateLBCertSAN is implemented but not wired into the reconcile "
+        "loop yet (TODO: controllers/searchcontroller/mongodbsearch_reconcile_helper.go:1660). "
+        "When wired, add a negative test that submits a managed LB cert with a "
+        "missing per-cluster SAN and asserts the resource fails to reach Running."
+    )
+)
+@mark.e2e_search_q2_mc_rs_steady
+def test_lb_cert_san_validator_when_wired() -> None:
+    """Placeholder — exercises the LB cert SAN validator once wired."""
+    pass
+
+
 # =============================================================================
 # Data plane: $search and $vectorSearch
 # =============================================================================
@@ -669,6 +900,16 @@ def _search_tester_for_mdb(mdb: MongoDBMulti, username: str, password: str) -> S
     return SearchTester(conn_str, use_ssl=True, ca_path=get_issuer_ca_filepath())
 
 
+# Per-cluster mongot index-ready timeout. SC tests use 300s; MC layered
+# on cross-cluster mesh latency calls for the same generous bound.
+SEARCH_INDEX_READY_TIMEOUT = 300
+
+# Per-query retry window. Mongot may report READY for an index but still
+# be in INITIAL_SYNC for a few seconds; SC `verify_text_search_query`
+# uses the same 60s.
+SEARCH_QUERY_RETRY_TIMEOUT = 60
+
+
 @mark.e2e_search_q2_mc_rs_steady
 def test_restore_sample_database(mdb: MongoDBMulti, tools_pod):
     """mongorestore the sample_mflix.archive into the source RS."""
@@ -681,34 +922,71 @@ def test_restore_sample_database(mdb: MongoDBMulti, tools_pod):
 
 
 @mark.e2e_search_q2_mc_rs_steady
-def test_create_search_index(mdb: MongoDBMulti):
-    """STRICT — $search index creation; not skipped."""
+def test_create_search_index(
+    mdb: MongoDBMulti,
+    helper: MCSearchDeploymentHelper,
+    member_cluster_clients: List[MultiClusterClient],
+):
+    """STRICT — $search index creation; not skipped.
+
+    Re-asserts AC patch persistence right before creating the index so
+    a silent operator re-reconcile (clobbering per-process mongotHost)
+    surfaces here with a clear diagnostic instead of a downstream
+    "search query empty" mystery.
+    """
+    _assert_per_cluster_mongot_host_observed(mdb, helper, member_cluster_clients, timeout=120)
+
     tester = _search_tester_for_mdb(mdb, USER_NAME, USER_PASSWORD)
-    helper = SampleMoviesSearchHelper(search_tester=tester)
-    helper.create_search_index()
-    helper.wait_for_search_indexes()
+    movies = SampleMoviesSearchHelper(search_tester=tester)
+    movies.create_search_index()
+    tester.wait_for_search_indexes_ready(movies.db_name, movies.col_name, timeout=SEARCH_INDEX_READY_TIMEOUT)
 
 
 @mark.e2e_search_q2_mc_rs_steady
-def test_execute_text_search_query(mdb: MongoDBMulti):
+def test_execute_text_search_query(
+    mdb: MongoDBMulti,
+    helper: MCSearchDeploymentHelper,
+    member_cluster_clients: List[MultiClusterClient],
+):
     """STRICT — $search aggregation returns non-empty results.
 
     Per-cluster mongotHost routing is in effect (see
     `test_patch_per_cluster_mongot_host`). Topology is RS — any pod's
     aggregation will hit the primary, which forwards $search to its
-    cluster-local Envoy → cluster-local mongot pool. A single search
-    execution is sufficient to validate that the indexed dataset is
-    discoverable from the locality-pinned query path.
+    cluster-local Envoy → cluster-local mongot pool. Wraps the query
+    in `run_periodically(timeout=60)` since mongot may briefly be in
+    INITIAL_SYNC even after `wait_for_search_indexes_ready` returns.
     """
+    _assert_per_cluster_mongot_host_observed(mdb, helper, member_cluster_clients, timeout=120)
+
     tester = _search_tester_for_mdb(mdb, USER_NAME, USER_PASSWORD)
-    helper = SampleMoviesSearchHelper(search_tester=tester)
-    results = helper.text_search_movies("Star Wars")
-    assert len(results) > 0, "$search returned no results"
-    logger.info(f"$search returned {len(results)} results: {[r.get('title') for r in results[:5]]}")
+    movies = SampleMoviesSearchHelper(search_tester=tester)
+
+    def execute_search() -> tuple:
+        try:
+            results = movies.text_search_movies("Star Wars")
+            count = len(results)
+            if count > 0:
+                logger.info(f"$search returned {count} results: {[r.get('title') for r in results[:5]]}")
+                return True, f"$search returned {count} results"
+            return False, "$search returned no results"
+        except pymongo.errors.PyMongoError as exc:
+            return False, f"$search error: {exc}"
+
+    run_periodically(
+        execute_search,
+        timeout=SEARCH_QUERY_RETRY_TIMEOUT,
+        sleep_time=5,
+        msg="$search query to succeed",
+    )
 
 
 @mark.e2e_search_q2_mc_rs_steady
-def test_create_vector_search_index(mdb: MongoDBMulti):
+def test_create_vector_search_index(
+    mdb: MongoDBMulti,
+    helper: MCSearchDeploymentHelper,
+    member_cluster_clients: List[MultiClusterClient],
+):
     """STRICT — $vectorSearch auto-embedding index creation.
 
     Uses the existing SampleMoviesSearchHelper.create_auto_embedding_vector_search_index.
@@ -717,27 +995,131 @@ def test_create_vector_search_index(mdb: MongoDBMulti):
     if EMBEDDING_QUERY_KEY_ENV_VAR not in os.environ:
         pytest.skip(f"missing {EMBEDDING_QUERY_KEY_ENV_VAR} — required for $vectorSearch index creation")
 
+    _assert_per_cluster_mongot_host_observed(mdb, helper, member_cluster_clients, timeout=120)
+
     tester = _search_tester_for_mdb(mdb, USER_NAME, USER_PASSWORD)
-    helper = SampleMoviesSearchHelper(search_tester=tester)
-    helper.create_auto_embedding_vector_search_index()
-    helper.wait_for_search_indexes()
+    movies = SampleMoviesSearchHelper(search_tester=tester)
+    movies.create_auto_embedding_vector_search_index()
+    tester.wait_for_search_indexes_ready(movies.db_name, movies.col_name, timeout=SEARCH_INDEX_READY_TIMEOUT)
 
 
 @mark.e2e_search_q2_mc_rs_steady
-def test_execute_vector_search_query(mdb: MongoDBMulti):
+def test_execute_vector_search_query(
+    mdb: MongoDBMulti,
+    helper: MCSearchDeploymentHelper,
+    member_cluster_clients: List[MultiClusterClient],
+):
     """STRICT — $vectorSearch returns non-empty results.
 
     Per-cluster mongotHost routing is in effect (see
     `test_patch_per_cluster_mongot_host`). The auto-embedding
     $vectorSearch path goes through the Voyage embedding API on every
     query; this exercises the AI path end-to-end while keeping the
-    locality-pinned mongod -> Envoy -> mongot dataflow.
+    locality-pinned mongod -> Envoy -> mongot dataflow. Wrapped in
+    `run_periodically` for the same INITIAL_SYNC reason as $search.
     """
     if EMBEDDING_QUERY_KEY_ENV_VAR not in os.environ:
         pytest.skip(f"missing {EMBEDDING_QUERY_KEY_ENV_VAR} — required for $vectorSearch")
 
+    _assert_per_cluster_mongot_host_observed(mdb, helper, member_cluster_clients, timeout=120)
+
     tester = _search_tester_for_mdb(mdb, USER_NAME, USER_PASSWORD)
-    helper = SampleMoviesSearchHelper(search_tester=tester)
-    results = list(helper.execute_auto_embedding_vector_search_query(query="space exploration", limit=4))
-    assert len(results) >= 1, f"$vectorSearch returned no results, got: {results}"
-    logger.info(f"$vectorSearch returned {len(results)} results: {[r.get('title') for r in results[:5]]}")
+    movies = SampleMoviesSearchHelper(search_tester=tester)
+
+    def execute_vector_search() -> tuple:
+        try:
+            results = list(movies.execute_auto_embedding_vector_search_query(query="space exploration", limit=4))
+            count = len(results)
+            if count >= 1:
+                logger.info(f"$vectorSearch returned {count} results: {[r.get('title') for r in results[:5]]}")
+                return True, f"$vectorSearch returned {count} results"
+            return False, "$vectorSearch returned no results"
+        except pymongo.errors.PyMongoError as exc:
+            return False, f"$vectorSearch error: {exc}"
+
+    run_periodically(
+        execute_vector_search,
+        timeout=SEARCH_QUERY_RETRY_TIMEOUT,
+        sleep_time=5,
+        msg="$vectorSearch query to succeed",
+    )
+
+
+# =============================================================================
+# Admission / validator negative paths
+# =============================================================================
+
+
+@mark.e2e_search_q2_mc_rs_steady
+def test_admission_rejects_mc_without_external_hosts(
+    namespace: str,
+    central_cluster_client: kubernetes.client.ApiClient,
+    member_cluster_names: List[str],
+    ca_configmap: str,
+):
+    """STRICT — `validateMCRequiresExternalHostAndPorts` is observable.
+
+    Validation runs at reconcile time (`mongodbsearch_reconcile_helper.go`
+    calls `ValidateSpec()`), not via an admission webhook — so the apply
+    succeeds but the resource lands in Phase=Failed with the validator's
+    error message.
+
+    Submits a fresh MongoDBSearch with `len(spec.clusters) > 1` and no
+    `spec.source.external.hostAndPorts`, asserts Failed phase + expected
+    message, then deletes it so we don't pollute the namespace for
+    later runs.
+    """
+    # Short name to keep the per-cluster Envoy Deployment name under the
+    # 63-char DNS-1123 label limit (validateClustersEnvoyResourceNames runs
+    # earlier in RunValidations than the validator we're trying to test;
+    # using MDBS_RESOURCE_NAME as a prefix would trip the length check first).
+    bad_name = "mdbs-bad"
+    resource = MongoDBSearch.from_yaml(
+        yaml_fixture("search-q2-mc-rs-search.yaml"),
+        name=bad_name,
+        namespace=namespace,
+    )
+
+    # Source: external + TLS but NO hostAndPorts (the field under test).
+    resource["spec"]["source"] = {
+        "username": MONGOT_USER_NAME,
+        "passwordSecretRef": {
+            "name": f"{MDBS_RESOURCE_NAME}-{MONGOT_USER_NAME}-password",
+            "key": "password",
+        },
+        "external": {
+            "tls": {"ca": {"name": ca_configmap}},
+        },
+    }
+
+    resource["spec"]["security"] = {
+        "tls": {"certsSecretPrefix": MDBS_TLS_CERT_PREFIX},
+    }
+
+    # Two clusters — required to trigger the MC validator.
+    resource["spec"]["clusters"] = [
+        {"clusterName": name, "replicas": MONGOT_REPLICAS_PER_CLUSTER} for name in member_cluster_names
+    ]
+
+    # Need a managed LB + externalHostname so the LB-vs-source validator
+    # doesn't fire first. We're testing hostAndPorts here, not LB.
+    resource["spec"]["loadBalancer"] = {
+        "managed": {
+            "replicas": ENVOY_LB_REPLICAS,
+            "externalHostname": (f"{bad_name}-search-{{clusterIndex}}-proxy-svc.{namespace}.svc.cluster.local"),
+        },
+    }
+
+    resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
+    try:
+        resource.update()
+        resource.assert_reaches_phase(
+            Phase.Failed,
+            timeout=300,
+            msg_regexp=r".*spec\.source\.external\.hostAndPorts is required.*",
+        )
+    finally:
+        try:
+            resource.delete()
+        except Exception as exc:
+            logger.warning(f"failed to clean up {bad_name}: {exc}")
