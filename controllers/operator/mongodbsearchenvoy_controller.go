@@ -684,9 +684,9 @@ func defaultEnvoyResourceRequirements() corev1.ResourceRequirements {
 // owner refs don't GC).
 func envoyLabelsForCluster(search *searchv1.MongoDBSearch, clusterID string) map[string]string {
 	labels := map[string]string{
-		"app":                                     search.LoadBalancerDeploymentNameForCluster(clusterID),
-		"component":                               labelName,
-		khandler.MongoDBSearchOwnerNameLabel:      search.Name,
+		"app":                                search.LoadBalancerDeploymentNameForCluster(clusterID),
+		"component":                          labelName,
+		khandler.MongoDBSearchOwnerNameLabel: search.Name,
 		khandler.MongoDBSearchOwnerNamespaceLabel: search.Namespace,
 	}
 	if clusterID != "" {
