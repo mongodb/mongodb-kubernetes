@@ -419,8 +419,8 @@ type TLS struct {
 // Invariant: Phase == WorstOfPhase(Clusters[*].Phase) when len(Clusters) > 0.
 // Single-cluster (len(Clusters) == 0) keeps Phase as the legacy single-cluster
 // Envoy reconcile outcome and Clusters stays nil. This invariant is enforced
-// by the Envoy controller's reconcile loop and verified by
-// TestUpdateLBStatus_WorstOfPhase_Invariant.
+// by the Envoy controller's reconcile loop (worstOfClusterPhases) and
+// verified by TestWorstOfClusterPhases.
 type LoadBalancerStatus struct {
 	Phase   status.Phase `json:"phase"`
 	Message string       `json:"message,omitempty"`

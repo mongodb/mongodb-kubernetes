@@ -980,10 +980,10 @@ func TestValidateClustersEnvoyResourceNames(t *testing.T) {
 // admission would never fire it — the rule is effectively dead.
 //
 // The test parses mongodbsearch_validation.go's AST to:
-//   1. Enumerate every package-level function whose signature matches
-//      `func(*MongoDBSearch) v1.ValidationResult` — the validator contract.
-//   2. Enumerate every identifier referenced inside the validators slice
-//      literal in RunValidations.
+//  1. Enumerate every package-level function whose signature matches
+//     `func(*MongoDBSearch) v1.ValidationResult` — the validator contract.
+//  2. Enumerate every identifier referenced inside the validators slice
+//     literal in RunValidations.
 //
 // The two sets must match exactly. A validator added without registration is
 // in (1) but not in (2); a stale slice entry is in (2) but not in (1).

@@ -168,8 +168,8 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 	}
 
 	// Canonical invariant: top-level Phase = WorstOfPhase(per-cluster Phases).
-	// Documented on LoadBalancerStatus and exercised by
-	// TestUpdateLBStatus_WorstOfPhase_Invariant.
+	// Documented on LoadBalancerStatus; verified by TestWorstOfClusterPhases
+	// (unit) and TestReconcile_PerClusterStatus_Aggregated (integration).
 	worstPhase := worstOfClusterPhases(perClusterStatuses)
 	if multiCluster {
 		mdbSearch.Status.LoadBalancer = &searchv1.LoadBalancerStatus{
