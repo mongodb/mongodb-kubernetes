@@ -94,39 +94,50 @@ func TestPredicatesForMongoDB(t *testing.T) {
 	})
 }
 
-func annotatedSearchObj(ann map[string]string) *corev1.ConfigMap {
-	return &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "x", Namespace: "ns", Annotations: ann}}
+func labeledSearchObj(labels map[string]string) *corev1.ConfigMap {
+	return &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "x", Namespace: "ns", Labels: labels}}
+}
+
+func searchOwnerLabels(name, ns string) map[string]string {
+	return map[string]string{
+		handler.MongoDBSearchOwnerNameLabel:      name,
+		handler.MongoDBSearchOwnerNamespaceLabel: ns,
+	}
 }
 
 func TestPredicatesForMultiClusterSearchResource_Create(t *testing.T) {
 	p := PredicatesForMultiClusterSearchResource()
 
-	assert.True(t, p.CreateFunc(event.CreateEvent{Object: annotatedSearchObj(map[string]string{handler.MongoDBSearchResourceAnnotation: "s"})}))
-	assert.False(t, p.CreateFunc(event.CreateEvent{Object: annotatedSearchObj(nil)}))
-	assert.False(t, p.CreateFunc(event.CreateEvent{Object: annotatedSearchObj(map[string]string{"unrelated": "x"})}))
+	assert.True(t, p.CreateFunc(event.CreateEvent{Object: labeledSearchObj(searchOwnerLabels("s", "ns"))}))
+	assert.False(t, p.CreateFunc(event.CreateEvent{Object: labeledSearchObj(nil)}))
+	assert.False(t, p.CreateFunc(event.CreateEvent{Object: labeledSearchObj(map[string]string{"unrelated": "x"})}))
+	// Partial label set must not pass — both name and namespace are required.
+	assert.False(t, p.CreateFunc(event.CreateEvent{Object: labeledSearchObj(map[string]string{
+		handler.MongoDBSearchOwnerNameLabel: "s",
+	})}))
 }
 
 func TestPredicatesForMultiClusterSearchResource_Update(t *testing.T) {
 	p := PredicatesForMultiClusterSearchResource()
 
-	annotatedNew := annotatedSearchObj(map[string]string{handler.MongoDBSearchResourceAnnotation: "s"})
-	annotatedOld := annotatedSearchObj(map[string]string{handler.MongoDBSearchResourceAnnotation: "s"})
-	plain := annotatedSearchObj(nil)
+	labeledNew := labeledSearchObj(searchOwnerLabels("s", "ns"))
+	labeledOld := labeledSearchObj(searchOwnerLabels("s", "ns"))
+	plain := labeledSearchObj(nil)
 
-	assert.True(t, p.UpdateFunc(event.UpdateEvent{ObjectOld: annotatedOld, ObjectNew: annotatedNew}))
-	assert.True(t, p.UpdateFunc(event.UpdateEvent{ObjectOld: plain, ObjectNew: annotatedNew}), "newly annotated must enqueue")
-	assert.True(t, p.UpdateFunc(event.UpdateEvent{ObjectOld: annotatedOld, ObjectNew: plain}), "annotation removal must enqueue")
+	assert.True(t, p.UpdateFunc(event.UpdateEvent{ObjectOld: labeledOld, ObjectNew: labeledNew}))
+	assert.True(t, p.UpdateFunc(event.UpdateEvent{ObjectOld: plain, ObjectNew: labeledNew}), "newly labeled must enqueue")
+	assert.True(t, p.UpdateFunc(event.UpdateEvent{ObjectOld: labeledOld, ObjectNew: plain}), "label removal must enqueue")
 	assert.False(t, p.UpdateFunc(event.UpdateEvent{ObjectOld: plain, ObjectNew: plain}))
 }
 
 func TestPredicatesForMultiClusterSearchResource_Delete(t *testing.T) {
 	p := PredicatesForMultiClusterSearchResource()
 
-	assert.True(t, p.DeleteFunc(event.DeleteEvent{Object: annotatedSearchObj(map[string]string{handler.MongoDBSearchResourceAnnotation: "s"})}))
-	assert.False(t, p.DeleteFunc(event.DeleteEvent{Object: annotatedSearchObj(nil)}))
+	assert.True(t, p.DeleteFunc(event.DeleteEvent{Object: labeledSearchObj(searchOwnerLabels("s", "ns"))}))
+	assert.False(t, p.DeleteFunc(event.DeleteEvent{Object: labeledSearchObj(nil)}))
 }
 
 func TestPredicatesForMultiClusterSearchResource_Generic_AlwaysFalse(t *testing.T) {
 	p := PredicatesForMultiClusterSearchResource()
-	assert.False(t, p.GenericFunc(event.GenericEvent{Object: annotatedSearchObj(map[string]string{handler.MongoDBSearchResourceAnnotation: "s"})}))
+	assert.False(t, p.GenericFunc(event.GenericEvent{Object: labeledSearchObj(searchOwnerLabels("s", "ns"))}))
 }
