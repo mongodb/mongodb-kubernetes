@@ -171,11 +171,15 @@ type SyncSourceSelector struct {
 }
 
 // PerClusterLoadBalancerConfig narrows LoadBalancerConfig to the subset that
-// is overridable per-cluster: only Managed sub-fields. Unmanaged is top-level only.
+// is overridable per-cluster: only Managed sub-fields, and only those exposed
+// via PerClusterManagedLBConfig (a strict subset of ManagedLBConfig — Replicas
+// is intentionally absent). Unmanaged is top-level only.
 type PerClusterLoadBalancerConfig struct {
 	// Managed deep-merges into the top-level spec.loadBalancer.managed for this cluster.
+	// Only the fields in PerClusterManagedLBConfig are overridable per-cluster — see
+	// the type doc.
 	// +optional
-	Managed *ManagedLBConfig `json:"managed,omitempty"`
+	Managed *PerClusterManagedLBConfig `json:"managed,omitempty"`
 }
 
 // ShardOverride lets sharded MongoDBSearch deployments tune one or more shards
@@ -262,13 +266,34 @@ type ManagedLBConfig struct {
 	// Follows the same convention as spec.statefulSet on MongoDB resources.
 	// +optional
 	Deployment *common.DeploymentConfiguration `json:"deployment,omitempty"`
-	// Replicas is the number of Envoy pods the operator deploys.
-	// In multi-cluster deployments, top-level spec.loadBalancer.managed.replicas is the
-	// default; per-cluster spec.clusters[].loadBalancer.managed.replicas overrides for
-	// that cluster. Default 1 when unset.
+	// Replicas is the number of Envoy pods per per-cluster Envoy Deployment. The
+	// same count is applied to every cluster's Envoy Deployment; per-cluster
+	// overrides are not supported by the schema (PerClusterManagedLBConfig
+	// excludes Replicas). Default 1 when unset.
 	// +optional
 	// +kubebuilder:validation:Minimum=1
 	Replicas *int32 `json:"replicas,omitempty"`
+}
+
+// PerClusterManagedLBConfig configures the per-cluster Envoy override. It's a
+// strict subset of ManagedLBConfig — Replicas is intentionally absent because
+// per-cluster Envoy replica overrides are not supported (replicas are applied
+// uniformly across every per-cluster Envoy Deployment from
+// spec.loadBalancer.managed.replicas).
+type PerClusterManagedLBConfig struct {
+	// ExternalHostname is the hostname Envoy expects for SNI matching on incoming requests.
+	// For sharded clusters, may contain a {shardName} placeholder.
+	// In multi-cluster deployments, may contain a {clusterName} placeholder so per-cluster
+	// SNI hostnames stay distinct.
+	// Required when MongoDB is externally managed. Ignored for operator-managed MongoDB.
+	// +optional
+	ExternalHostname string `json:"externalHostname,omitempty"`
+	// ResourceRequirements for the Envoy container.
+	// +optional
+	ResourceRequirements *corev1.ResourceRequirements `json:"resourceRequirements,omitempty"`
+	// Deployment holds optional overrides merged into the operator-created Envoy Deployment.
+	// +optional
+	Deployment *common.DeploymentConfiguration `json:"deployment,omitempty"`
 }
 
 // UnmanagedLBConfig configures a user-provided (BYO) L7 load balancer.
