@@ -1,6 +1,6 @@
 # Q2-RS-MC to Green — Design Spec (Base + Phase 2)
 
-**Date:** 2026-05-03 (updated; scope narrowed to Base + Phase 2 only)
+**Date:** 2026-05-03 (scope narrowed to Base + Phase 2 only); 2026-05-04 update reflects what actually shipped vs. what was planned (per-cluster Envoy `Replicas` removed via PR #1050; per-cluster `mongotHost` resolved as customer-side OM AC PUT — no CRD extension; canonical flat status shape via PR #1053; label-based cross-cluster watch routing; LB cert SAN validator landed but not yet wired into reconcile; G2 e2e authored from scratch, currently in Evergreen iteration).
 
 **Verification target:** Real `$search` *and* `$vectorSearch` queries return correct results from each cluster's local mongot pool in a 2-cluster `MongoDBSearch` against an external (unmanaged) `MongoDBMulti` ReplicaSet source. Existing single-cluster RS+sharded e2e tests stay green throughout. Phase 2 is the user's named verification target for MC search MVP.
 
@@ -110,8 +110,9 @@ Zero migration: customers add tags when ready; nothing else moves.
 
 | Layer | What | Targets | Notes |
 |-------|------|---------|-------|
-| **Base** | Stacked B-section PR train (B1, B14+B18, B16, B3+B4+B13, B5, B8, B9) + new MC E2E harness PR | `search/ga-base` | Foundation everyone needs (incl. later phases). Existing 7-8 stacked review-decomposed PRs collectively form the base; harness lands as a single new PR after the train. |
-| **Phase 2** | Q2-RS-MC operator + tightened MC RS E2E + `$vectorSearch` | `search/ga-base` | One clean PR off ga-base. **Verification target gate G2.** |
+| **Base** | Stacked B-section PR train (B1, B14+B18, B16, B3+B4+B13, B5, B8, B9) + MC E2E harness PR | `search/ga-base` | DONE — all merged. PR #1027 (B1), #1030 (B14+B18), #1029 (B5), #1028 (B8), #1036 (B16), #1034 (B3+B4+B13), #1033 (B9), #1047 (harness). |
+| **Base — review fix-ups** | PR #1050 (per-cluster Envoy `Replicas` type-split removal); PR #1053 (label-based watch routing unification + flat status canonical shape) | `search/ga-base` | #1050 MERGED. #1053 OPEN — addresses 1 blocker + 4 concerns from PR #1052's review. |
+| **Phase 2** | Q2-RS-MC operator + tightened MC RS E2E + `$vectorSearch` | `search/ga-base` | One clean PR off ga-base. **Verification target gate G2.** Branch `mc-search-phase2-q2-rs` carries the work; G2 Evergreen patch in flight (v1, v2, v3, v4 all failed; iterating). |
 
 When Base + Phase 2 land, the work continues with the later-phases doc. The user's verification target is delivered at end of Phase 2 — earliest possible point.
 
@@ -156,7 +157,14 @@ Envoy is the load balancer that fronts each cluster's local mongot pool and term
 | Sync-source TLS CA (`ConfigMap` or `Secret` per `spec.source.external.tls.ca`) | Customer-supplied | B5 — Secret/ConfigMap presence check per cluster; cross-cluster replication is the harness's job in tests. |
 | Mongot user password `Secret` (`{search-name}-{username}-password`) | Customer-supplied via `spec.source.passwordSecretRef` | B5 — same presence-check rule; harness replicates in tests. |
 
-**Per-cluster everything:** every per-cluster object name carries the cluster index (or cluster name) as a suffix, so MCK's central client can address each cluster's resources unambiguously. mongod's `mongotHost` is a per-cluster value: cluster A's mongod points at `{name}-search-0-proxy-svc.{ns}.svc.cluster.local`, cluster B's mongod at `{name}-search-1-proxy-svc.{ns}.svc.cluster.local`. In MongoDBMulti, this is set via `spec.clusterSpecList[i].additionalMongodConfig.setParameter.mongotHost` — the per-cluster override field. There is no shared-name DNS-magic; names are unique end-to-end.
+**Per-cluster everything:** every per-cluster object name carries the cluster index (or cluster name) as a suffix, so MCK's central client can address each cluster's resources unambiguously. mongod's `mongotHost` is a per-cluster value: cluster A's mongod points at `{name}-search-0-proxy-svc.{ns}.svc.cluster.local`, cluster B's mongod at `{name}-search-1-proxy-svc.{ns}.svc.cluster.local`. There is no shared-name DNS-magic; names are unique end-to-end.
+
+**How per-cluster `mongotHost` actually gets set on each cluster's mongod processes** is a question the MongoDBMulti CRD does NOT answer — `additionalMongodConfig` lives only at the top level on `DbCommonSpec`, not on each `clusterSpecList[i]` entry. The MVP resolution (per [memory: per-cluster mongotHost — no CRD extension needed](file:///Users/anand.singh/.claude/projects/-Users-anand-singh-workspace-repos-mongodb-kubernetes/memory/project_per_cluster_mongothost_resolved.md); see also closed PR #1051):
+
+- **Q2 (external mongod, customer-managed)**: customer modifies their **own Ops Manager automation config** to set per-process `setParameter.mongotHost` (and `searchIndexManagementHostAndPort`). The operator does not manage external mongods and does not write their AC. The Phase 2 e2e test `test_patch_per_cluster_mongot_host` simulates this customer-side flow via `OmTester.om_request("put", "/automationConfig", ...)`: it reads the AC after MongoDBMulti is Running, mutates each process's `args2_6.setParameter` keyed by the cluster index encoded in the process name, bumps the AC version, and re-PUTs. This is the canonical Q2 model.
+- **Q3 (operator-managed mongod, post-MVP)**: the operator already manages automation config end-to-end; per-cluster `mongotHost` flows through that existing path when Q3 lands. Whatever pipeline operator-managed mongods use today for `setParameter` overrides will plumb per-cluster `mongotHost` — no new schema and no new mechanism required.
+
+**No CRD extension is needed.** The closed PR #1051 had recommended a `MongoDBMultiCluster` CRD extension to add `clusterSpecList[i].additionalMongodConfig`; the user overruled with the resolution above. The data plane already supports per-process AC overrides via OM; no schema change is justified.
 
 **Envoy filter chain (B16):**
 
@@ -166,6 +174,13 @@ Each cluster's Envoy config (rendered by `controllers/operator/mongodbsearchenvo
 - SNI filter chain match: `server_names: [{name}-search-{clusterIndex}-proxy-svc.{ns}.svc.cluster.local]`. mongod opens TLS to its cluster's `mongotHost` with that SNI; Envoy matches the chain.
 - Cluster definition pointing to local mongot pool (`{search-name}-search-{clusterIndex}` headless Service in the same member cluster).
 - A "cluster ID" tag baked into the cluster name so per-cluster filter chains stay distinct in metrics / config (commit `e574935a8`).
+
+**Envoy `Replicas` is uniform across clusters — no per-cluster override.** Per PR #1050 (merged on `search/ga-base`), the type split is:
+
+- Top-level `spec.loadBalancer.managed.replicas` (default `1`) — applies uniformly to every per-cluster Envoy Deployment.
+- Per-cluster override `spec.clusters[i].loadBalancer.managed` is typed as `PerClusterManagedLBConfig`, which is a **strict subset of `ManagedLBConfig` that intentionally excludes `Replicas`**. Per-cluster Envoy replica count is NOT a knob in MVP. If a customer needs different Envoy capacity per cluster, that's a post-MVP request — not Phase 2.
+
+The rationale is operational simplicity: per-cluster Envoy replica heterogeneity multiplies failure modes (some clusters may be under-replicated for their query load) and adds nothing the customer can't get with a uniform replica count + cluster-scoped HPA later.
 
 **Cluster-local mongod → mongot data path (the customer-facing query lane):**
 
@@ -186,6 +201,22 @@ mongot-A pods                                    mongot-B pods
 ```
 
 This is the path B16 + Phase 2 together deliver. Cluster-local end-to-end; every layer carries the cluster index in its name. Cross-cluster `mongot → mongod` sync direction (the indexing path, not shown) is a different lane and not cluster-local in MVP — see "Routing strategy" earlier in the doc.
+
+### Cross-cluster watch routing — label-based
+
+Cross-cluster owner references do NOT garbage-collect. So when a member-cluster resource (per-cluster mongot StatefulSet, Service, ConfigMap, Envoy Deployment) changes, the central operator needs another mechanism to map that event back to the parent `MongoDBSearch` CR.
+
+PR #1053 unified the search controllers on a **label-based** mapping scheme via `pkg/handler/enqueue_owner_multi_search.go`. Every per-cluster write site stamps these labels on the object:
+
+- `MongoDBSearchOwnerNameLabel` (= the parent `MongoDBSearch.Name`)
+- `MongoDBSearchOwnerNamespaceLabel` (= the parent `MongoDBSearch.Namespace`)
+- (Multi-cluster only) the cluster-name label, set by the Envoy controller for the `mapEnvoyObjectToSearch` arm.
+
+Member-cluster watches read those labels back via `EnqueueRequestForSearchOwnerMultiCluster` and `mapEnvoyObjectToSearch` — both readers import the same constants from `pkg/handler`, so there's a single label scheme across both controllers. The original annotation `mongodb.com/v1.MongoDBSearchResource` was the dead arm (zero writers anywhere) and has been **removed entirely**.
+
+When PR #1053 lands on `search/ga-base`, this becomes the only routing mechanism. Until then, ga-base still has the annotation handler in tree (B8 from PR #1028). Any new per-cluster write site Phase 2 introduces stamps the labels — that's a hard requirement called out in PR #1053's TODO.
+
+**Cluster index mapping** (separate from the watch routing question above): each `MongoDBSearch` carries a stable `cluster-index` annotation written by B3 mapping `clusterName → clusterIndex`. That annotation is internal to the central cluster; it's not the cross-cluster watch mechanism.
 
 ### Data flow — Q2-RS-MC happy path (verification target gate G2)
 
@@ -226,8 +257,8 @@ This is the path B16 + Phase 2 together deliver. Cluster-local end-to-end; every
           │  mongod-A-{0,1,2}                │                │  mongod-B-{0,1,2}                │
           │   (mongotHost = {name}-search-   │                │   (mongotHost = {name}-search-   │
           │    0-proxy-svc.{ns}.svc...       │                │    1-proxy-svc.{ns}.svc...       │
-          │    via clusterSpecList[0]        │                │    via clusterSpecList[1]        │
-          │    .additionalMongodConfig)      │                │    .additionalMongodConfig)      │
+          │    set by customer via OM AC     │                │    set by customer via OM AC     │
+          │    PUT for cluster-A processes)  │                │    PUT for cluster-B processes)  │
           └──────────────────────────────────┘                └──────────────────────────────────┘
                           │                                                         │
                           │  $search / $vectorSearch                                │
@@ -244,8 +275,9 @@ This is the path B16 + Phase 2 together deliver. Cluster-local end-to-end; every
 |---|---|
 | `clusterName` not registered with operator's MC manager | Reconcile `Failed`, message names the cluster (existing rule from B3+B4+B13). |
 | Customer-replicated Secret missing in member cluster | Reconcile `Pending` with B5's per-cluster presence check; message names the missing Secret + cluster. |
-| Per-cluster Envoy not ready | `clusterStatusList[i].loadBalancer.phase = Pending`; aggregated phase Pending. Q2: no operator gating — customer's mongods may try to talk to a not-yet-ready Envoy and retry naturally. |
+| Per-cluster Envoy not ready | `status.loadBalancer.clusters[i].phase = Pending` (canonical flat shape per PR #1053); top-level `status.loadBalancer.phase = WorstOfPhase(clusters[*].phase) = Pending`. The deprecated nested `clusterStatusList[i].loadBalancer` field is still populated until PR #1053's CRD bump removes it. Q2: no operator gating — customer's mongods may try to talk to a not-yet-ready Envoy and retry naturally. |
 | `external.hostAndPorts` empty for `len(clusters) > 1` | Admission rejects: top-level field is the canonical source list for MC mode. |
+| LB cert SAN doesn't cover all per-cluster proxy-svc FQDNs | TODAY: not surfaced via reconcile (`validateLBCertSAN` exists but is not wired in — see Phase 2 operator changes for the gap). The Envoy TLS handshake fails server-side and surfaces in Envoy pod logs. END STATE: validator runs at reconcile, surfaces `Failed` naming the missing FQDN. |
 | Cross-cluster member ↔ Envoy network partition | Out of scope (Phase 6 lifecycle / Phase 7 health checks). |
 
 ### Hard-design rules (carry from program)
@@ -277,16 +309,17 @@ search/ga-base
 2. `#1030` (B14+B18) → `search/ga-base` after rebase off the new ga-base tip.
 3. `#1029` (B5), `#1028` (B8) → `search/ga-base` after rebase. Independent of `#1030`.
 4. `#1036` (B16), `#1034` (B3+B4+B13), `#1033` (B9) → `search/ga-base` after rebase off `#1030`.
-5. `#1041` (Q2 e2e scaffold) — **DO NOT MERGE.** Phase 2 PR supersedes its assertions; the relaxed test scaffold gets replaced by the tightened version in Phase 2's PR.
+5. `#1041` (Q2 e2e scaffold) — **DISCARDED.** Phase 2 authors `q2_mc_rs_steady.py` from scratch with strict assertions; #1041's relaxed scaffold is not a base to revert from.
+6. **Base review fix-ups** that landed (or are landing) on `search/ga-base` after the B-train: `#1050` (per-cluster Envoy `Replicas` removal — type split), `#1053` (label-based watch routing unification + flat status canonical shape; OPEN). Phase 2 builds on the post-#1053 surface where it applies — see "Cross-cluster watch routing" and the status-shape note in error handling.
 
 **MC E2E harness PR** lands AFTER the B-section train converges on ga-base. New files:
 
 - `docker/mongodb-kubernetes-tests/tests/common/multicluster_search/secret_replicator.py` — copies a Secret from central → all member clusters by name. Idempotent. Used by tests at `setup_method` time after Secrets are created in central.
 - `docker/mongodb-kubernetes-tests/tests/common/multicluster_search/mc_search_deployment_helper.py` — extends `SearchDeploymentHelper` with `member_cluster_clients` awareness; encapsulates two-cluster MongoDBMulti fixture deployment + per-cluster wait helpers.
 - `docker/mongodb-kubernetes-tests/tests/common/multicluster_search/per_cluster_assertions.py` — `assert_resource_in_cluster(...)`, `assert_pod_ready_in_cluster(...)`, `assert_envoy_deployment_ready_in_cluster(...)`. Default `require_ready=True`; the relaxed-test override stays at the call site only.
-- `docker/mongodb-kubernetes-tests/tests/multicluster_search/helpers.py` — re-exports the new helpers; deletes the relaxed-test fallbacks added in iter-5.
+- (Originally planned: `docker/mongodb-kubernetes-tests/tests/multicluster_search/helpers.py` re-export shim, plus `mc_search_harness_smoke.py` smoke test. Both DROPPED — there is no PR #1041 scaffold to "delete relaxed-test fallbacks" from since #1041 was discarded; and the smoke test was redundant with PR #1047's unit-level coverage of the harness primitives plus their integration use inside `q2_mc_rs_steady.py`.)
 
-**Acceptance (gate G1):** `git log --oneline master..search/ga-base` shows all eight B-train commits + the harness commit; existing single-cluster RS+sharded e2e tests still green; a harness-only smoke test (`mc_search_harness_smoke.py`) deploys a 2-cluster MongoDBMulti, replicates a fake Secret to both members, asserts presence in each, tears down, all green on Evergreen.
+**Acceptance (gate G1):** `git log --oneline master..search/ga-base` shows all eight B-train commits + the harness commit (PR #1047); existing single-cluster RS+sharded e2e tests still green on Evergreen. (The originally planned harness smoke test was DROPPED; G1 no longer gates on it.)
 
 ### Phase 2 — Q2-RS-MC (unmanaged) — VERIFICATION TARGET
 
@@ -296,22 +329,32 @@ search/ga-base
 - **CRD admission rule (`len(spec.clusters) > 1`):** `spec.source.external.hostAndPorts` is required (non-empty). `spec.clusters[i].syncSourceSelector.matchTags` is accepted but not consumed by Phase 2 — the field exists in the CRD already (B14+B3 deliverables) and gets activated post-MVP when mongot supports `readPreferenceTags`. Today, customers leaving it empty is the canonical MC shape. Customers populating `matchTags` today get a no-op + (optional) warning event noting the field is reserved for post-MVP use.
 - **Single-cluster shape unchanged.** `len(spec.clusters) ≤ 1` continues to render mongot config from top-level `external.hostAndPorts` exactly as it does today.
 - **No automation-config writes.** Q2 = customer-managed mongods (delivery plan §Phase 5 line 133, applies to RS too).
+- **LB cert SAN validator (`validateLBCertSAN`)**: Phase 2 adds the function at `controllers/searchcontroller/mongodbsearch_reconcile_helper.go`. For `len(clusters) > 1`, it iterates `spec.clusters[]`, derives each cluster's expected proxy-svc FQDN, and asserts the cert's SAN list covers all of them. **Status as of c0faf52b9: function landed (Task 19, commit `dbdd35b0c`); reconcile-wiring is NOT yet wired in.** The cert is mounted as a Volume by Envoy but never read into bytes during MongoDBSearch reconcile, so the validator is never called from the live reconcile loop. The function carries a `TODO(MC search Phase 2)` comment marking the wiring as a follow-up. This is honest gap: a missing SAN today does NOT surface as `Failed` until the cert is loaded server-side and Envoy fails the TLS handshake — which still produces a useful error in the per-cluster Envoy pod logs, so the failure mode is observable, just not surfaced cleanly to MongoDBSearch's status. Phase 2's PR plan tracks the wiring as the last operator-side task before the Phase 2 PR opens.
 
 **E2E changes** (`docker/mongodb-kubernetes-tests/tests/multicluster_search/q2_mc_rs_steady.py`):
 
-- Revert iter-5 (`fca043e71`) and iter-4 (`afb098a02`) tolerance changes.
-- Restore iter-3's (`058191651`) strict assertions:
-  - `test_create_search_resource` waits `Phase=Running` (timeout 600s).
-  - `test_verify_per_cluster_envoy_deployment` runs with `require_ready=True`.
-  - `test_verify_lb_status` asserts `phase=Running`.
-  - `test_verify_per_cluster_status` requires `clusterStatusList` populated.
-- Remove `@pytest.mark.skip` markers from `test_create_search_index` + `test_execute_text_search_query_per_cluster`.
-- Restore `mongotHost` on the MongoDBMulti fixture (test-side, since Q2 = customer-applied). **Per-cluster value, set via `spec.clusterSpecList[i].additionalMongodConfig.setParameter.mongotHost`** — cluster A's mongods point at `{name}-search-0-proxy-svc.{ns}.svc.cluster.local`, cluster B's at `{name}-search-1-proxy-svc.{ns}.svc.cluster.local`. The relaxed test scaffold (iter-3 / iter-4) set this at the top level of the MongoDBMulti spec on the assumption that the proxy Service had a shared name across clusters; that was wrong. Phase 2 fixture sets it under `clusterSpecList[i]`.
-- **Drop per-cluster `syncSourceSelector.hosts` from the CR fixture** — these were added in iter-1 (`fc5575b31`) under the assumption that mongot would honor them as a literal allowed set; agent verification disproved that. Phase 2's CR shape is just `clusters: [{clusterName, replicas}, ...]` with the source list at top-level `external.hostAndPorts`.
-- **Drop the `REGION_TAGS` pinning** on the MongoDBMulti source — the `memberConfig[].tags.region` annotations only mattered if mongot was going to consume `readPreferenceTags`. Mongot doesn't yet, and we're not setting `matchTags` either, so the tags are unused.
-- New tests:
-  - `test_create_vector_search_index` — calls `SampleMoviesSearchHelper.create_auto_embedding_vector_search_index` and waits READY.
-  - `test_execute_vector_search_query_per_cluster` — runs `$vectorSearch` from each member cluster's local pod with a Voyage-embedded query string, asserts ≥1 row returned.
+The original `q2_mc_rs_steady.py` scaffold (PR #1041, iter-1 through iter-5) was **DISCARDED** rather than incrementally reverted. Phase 2 authors the test from scratch with strict assertions from line one, drawing on the harness primitives in `tests/common/multicluster_search/` (PR #1047) and existing single-cluster Q2 helpers in `tests/common/search/q2_shared.py`.
+
+The from-scratch test is the only Q2-MC-RS test on the branch; there are no `@pytest.mark.skip` decorators, no `require_ready=False` toggles, no relaxed `if status is None: return` branches. Strict assertions throughout:
+
+- `test_create_search_resource`: waits `Phase=Running` (timeout 600s).
+- `test_verify_per_cluster_envoy_deployment`: runs with `require_ready=True`.
+- `test_verify_lb_status`: asserts `status.loadBalancer.phase=Running` (and once PR #1053 merges into ga-base, `status.loadBalancer.clusters[i].phase=Running` for each cluster).
+- `test_verify_per_cluster_status`: requires `status.clusterStatusList` populated, one entry per `spec.clusters[i]`.
+- `test_create_search_index` + `test_execute_text_search_query_per_cluster`: data-plane assertions enabled; real `$search` returns non-empty results.
+- `test_replicate_secrets_to_members`: cross-cluster Secret + ConfigMap replication wired in via PR #1047's harness — runs after the LB cert is created and before the search resource is created (Secrets must exist in member clusters before the mongot pods start).
+- `test_patch_per_cluster_mongot_host`: per-cluster `mongotHost` is set via post-deploy Ops Manager **automation config PUT**. The MongoDBMulti CR is deployed with top-level `spec.additionalMongodConfig.setParameter.mongotHost` set to cluster-0's proxy-svc FQDN (this satisfies startup-time validation; `searchTLSMode=requireTLS` requires `mongotHost` to be set or the source RS won't reach Running). After MongoDBMulti is Running, the test reads the AC, mutates each process's `args2_6.setParameter.mongotHost` keyed by the cluster index encoded in the process name, bumps the AC version, and re-PUTs. **There is no `clusterSpecList[i].additionalMongodConfig` field on the MongoDBMulti CRD** — that was the closed PR #1051 proposal; the resolved decision (per memory file referenced in the architecture section) is that per-cluster `mongotHost` is the customer's responsibility, applied via OM AC. The e2e test simulates that customer-side flow.
+- Test fixture's `MongoDBSearch.spec.clusters` shape is the bare:
+  ```yaml
+  clusters:
+  - clusterName: kind-e2e-cluster-1
+    replicas: 2
+  - clusterName: kind-e2e-cluster-2
+    replicas: 2
+  ```
+  No per-cluster `syncSourceSelector.hosts` (verification proved mongot uses the host list as a seed, not an allowed set — see "Verified mongot behavior" earlier). No `REGION_TAGS` either (mongot doesn't yet consume `readPreferenceTags`).
+- `test_create_vector_search_index`: calls `SampleMoviesSearchHelper.create_auto_embedding_vector_search_index` and waits READY.
+- `test_execute_vector_search_query_per_cluster`: runs `$vectorSearch` from each member cluster's local pod with a Voyage-embedded query string; asserts ≥1 row returned.
 - Voyage API key from existing `AI_MONGODB_EMBEDDING_QUERY_KEY` env var (single-cluster auto-embedding tests already use it).
 
 **Existing single-cluster Q2 RS regression bar:** `search_replicaset_external_mongodb_multi_mongot_managed_lb.py` and `search_replicaset_external_mongodb_multi_mongot_unmanaged_lb.py` continue to pass.
@@ -324,10 +367,14 @@ search/ga-base
 
 | Gate | What's green | When |
 |------|--------------|------|
-| G1 | Base merged: B-train + harness on `search/ga-base`; existing single-cluster e2es still green; harness smoke test green | End of Base |
+| G1 | Base merged: B-train + harness on `search/ga-base`; existing single-cluster e2es still green | End of Base |
 | **G2 (named target)** | `q2_mc_rs_steady.py` green with strict assertions, real `$search` + `$vectorSearch` data plane | End of Phase 2 |
 
 When G1 + G2 are green, the next iteration (Phase 3 Q2-Sh-MC) starts from the later-phases doc.
+
+**G2 — known weakness (acknowledged):** as of commit `eebd61b6e`, `q2_mc_rs_steady.py` asserts per-cluster locality **by construction** (the test patches each cluster's mongods to point at THAT cluster's local Envoy proxy-svc) but does **not assert it by observation** (e.g., reading `/data/automation-mongod.conf` in each cluster's mongod pod, or scraping each cluster's Envoy access log to verify that the cluster-A query traffic only ever hits cluster-A mongot pods). The validation report on the v3/v4 patch failures flagged this gap: a misconfigured operator that wires *all* clusters' mongods to *one* Envoy would still pass the current G2 — the test only checks "$search returns rows", not "$search hits the correct local mongot". The proper end-state for G2 is real-locality verification by inspecting per-cluster mongod AC and per-cluster Envoy access logs. That work is a Phase 2 follow-up; the current G2 is sufficient to gate Phase 2 PR (it catches the operator-code defects unit tests miss), but the locality-by-observation upgrade should land before declaring Phase 2 the canonical MVP signal.
+
+**G1 note:** The originally planned harness smoke test (`mc_search_harness_smoke.py`) was DROPPED — the harness primitives ship with unit-test coverage (PR #1047) and are exercised end-to-end inside `q2_mc_rs_steady.py` itself. G1's runtime gate is the B-train merge + single-cluster e2e regression staying green; the smoke test would have added Evergreen cost without independent signal.
 
 ---
 
@@ -340,6 +387,8 @@ When G1 + G2 are green, the next iteration (Phase 3 Q2-Sh-MC) starts from the la
 - **CLARIFY-1 (resolved by simplification)** — moot now. Phase 2 renders every mongot config from top-level `external.hostAndPorts`, no per-cluster hosts plumbing. The B14+B16 scaffolding handles the per-cluster reconcile loop; Phase 2 just plugs the same source list into each iteration.
 - **Voyage API key in CI** — `AI_MONGODB_EMBEDDING_QUERY_KEY` already wired for single-cluster auto-embedding tests; Phase 2 just reuses it. Verify the new MC RS Evergreen task projection includes it.
 - **Docker image pinning** — mongot version floor check is deferred (Phase 8). MVP assumes all member clusters run a mongot that already supports auto-embedding pod-0 leader. If a cluster runs an older mongot, `$vectorSearch` will fail with a non-friendly error; documented as a known limitation, not a defect.
+- **G2 locality verified by construction, not by observation** (open 2026-05-04). `q2_mc_rs_steady.py` patches each cluster's mongods via OM AC PUT to point `mongotHost` at THAT cluster's local proxy-svc — locality is set by the test, not observed in the running system. A misconfigured operator that wires *all* clusters' mongods to *one* Envoy would still pass G2 because the test only checks "$search returns rows", not "the query traffic crosses each cluster's local Envoy". The proper end-state for G2 is real-locality verification (e.g., reading `/data/automation-mongod.conf` in each cluster's mongod, scraping per-cluster Envoy access logs to confirm that cluster-A queries hit only cluster-A mongot pods). Tracked as a Phase 2 follow-up; current G2 is sufficient to gate the Phase 2 PR but the locality-by-observation upgrade should land before declaring Phase 2 the canonical MVP signal.
+- **`validateLBCertSAN` not wired into reconcile** (open 2026-05-04). Function landed at commit `dbdd35b0c` with a `TODO(MC search Phase 2)` comment; reconcile never reads the cert bytes so the validator never runs. Failure mode is observable in Envoy pod logs (TLS handshake failure), but not surfaced to MongoDBSearch's `status`. Fix is the last operator-side task before the Phase 2 PR opens.
 
 ## Cross-references
 

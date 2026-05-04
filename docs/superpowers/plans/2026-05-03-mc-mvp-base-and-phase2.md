@@ -4,7 +4,7 @@
 
 **Goal:** Land the foundation for multi-cluster `MongoDBSearch` (the stacked B-section PR train + a reusable MC E2E harness), then ship Q2-RS-MC operator code so a 2-cluster `MongoDBSearch` against an unmanaged ReplicaSet source executes real `$search` and `$vectorSearch` queries end-to-end, with the existing Q2 e2e test (`q2_mc_rs_steady.py`) flipped from scaffold-level green to real-coverage green.
 
-**Architecture:** Base lands the spec.clusters[] CRD shape (B14+B18+B3+B4+B13), member-cluster client wiring (B1+B8), per-cluster Envoy Deployment+ConfigMap (B16), Secret presence checks (B5), and per-cluster status writes (B9) onto the integration branch `search/ga-base`, then adds a test-only MC E2E harness for cross-cluster Secret replication. Phase 2 extends the search controller's per-cluster reconcile loop to create per-cluster mongot StatefulSets, ConfigMaps, and proxy Services in each member cluster — each cluster gets its own `{name}-search-{clusterIndex}-proxy-svc` (cluster-index-suffixed; no shared-name DNS magic) and its own mongot config seeded from the shared top-level `spec.source.external.hostAndPorts`. mongod's `mongotHost` is set per-cluster via `MongoDBMulti.spec.clusterSpecList[i].additionalMongodConfig`. Per-cluster locality on the query path comes from the per-cluster Envoy + per-cluster proxy Service; the mongot→mongod sync direction crosses clusters via Istio mesh (acceptable for MVP because `$search`/`$vectorSearch` correctness only requires *some* mongot has indexed the data).
+**Architecture:** Base lands the spec.clusters[] CRD shape (B14+B18+B3+B4+B13), member-cluster client wiring (B1+B8), per-cluster Envoy Deployment+ConfigMap (B16), Secret presence checks (B5), and per-cluster status writes (B9) onto the integration branch `search/ga-base`, then adds a test-only MC E2E harness for cross-cluster Secret replication. Phase 2 extends the search controller's per-cluster reconcile loop to create per-cluster mongot StatefulSets, ConfigMaps, and proxy Services in each member cluster — each cluster gets its own `{name}-search-{clusterIndex}-proxy-svc` (cluster-index-suffixed; no shared-name DNS magic) and its own mongot config seeded from the shared top-level `spec.source.external.hostAndPorts`. Per-cluster `mongotHost` for **Q2 (external/customer-managed mongods)** is the **customer's responsibility**: the customer applies the per-process `setParameter.mongotHost` override to their own Ops Manager automation config (no MongoDBMulti CRD extension required — the e2e test simulates this customer-side flow via `OmTester.om_request("put", ...)` in `test_patch_per_cluster_mongot_host`; see [memory: per-cluster mongotHost — no CRD extension needed](file:///Users/anand.singh/.claude/projects/-Users-anand-singh-workspace-repos-mongodb-kubernetes/memory/project_per_cluster_mongothost_resolved.md) and the closed PR #1051 that initially proposed the CRD extension). For Q3 (operator-managed mongods, post-MVP), per-cluster `mongotHost` flows through whatever path the operator's existing automation-config writer wires when Q3 lands — TBD then. Per-cluster locality on the query path comes from the per-cluster Envoy + per-cluster proxy Service; the mongot→mongod sync direction crosses clusters via Istio mesh (acceptable for MVP because `$search`/`$vectorSearch` correctness only requires *some* mongot has indexed the data).
 
 **Tech Stack:** Go 1.24 (operator); Python 3 + pytest + kubetester (e2e tests); Envoy Proxy (TLS LB); MongoDBMulti CRD (RS source); Voyage AI auto-embedding for `$vectorSearch`; Evergreen CI; Istio service mesh (cross-cluster connectivity in test envs).
 
@@ -16,32 +16,33 @@
 
 | File | Responsibility | Layer |
 |------|----------------|-------|
-| Existing PR #1027 | B1 — member-cluster client wiring | Already coded; merge into `search/ga-base` |
-| Existing PR #1030 | B14+B18 — `spec.clusters[]` types + defaulting | Already coded; merge after B1 |
-| Existing PR #1029 | B5 — customer-replicated Secret presence checks | Already coded; merge after B1 |
-| Existing PR #1028 | B8 — per-member-cluster watches | Already coded; merge after B1 |
-| Existing PR #1036 | B16 — per-cluster Envoy Deployment + ConfigMap | Already coded; merge after B14 |
-| Existing PR #1034 | B3+B4+B13 — cluster-index + placeholders + admission | Already coded; merge after B14 |
-| Existing PR #1033 | B9 — per-cluster status writer (minimal) | Already coded; merge after B14 |
-| `docker/mongodb-kubernetes-tests/tests/common/multicluster_search/__init__.py` | Package init for new harness | Net-new |
-| `docker/mongodb-kubernetes-tests/tests/common/multicluster_search/secret_replicator.py` | Cross-cluster Secret replicator | Net-new |
-| `docker/mongodb-kubernetes-tests/tests/common/multicluster_search/mc_search_deployment_helper.py` | 2-cluster MongoDBMulti fixture lifecycle | Net-new |
-| `docker/mongodb-kubernetes-tests/tests/common/multicluster_search/per_cluster_assertions.py` | Per-cluster resource/pod readiness assertions | Net-new |
-| `docker/mongodb-kubernetes-tests/tests/multicluster_search/mc_search_harness_smoke.py` | Smoke test that exercises the harness | Net-new |
-| `.evergreen-tasks.yml` | Register `e2e_mc_search_harness_smoke` task | Modified |
+| PR #1027 (commit `6a25caeb7`) | B1 — member-cluster client wiring | DONE — merged into `search/ga-base` |
+| PR #1030 (commit `7fd0ecb3e`) | B14+B18 — `spec.clusters[]` types + defaulting | DONE — merged after B1 |
+| PR #1029 (commit `24f3b6765`) | B5 — customer-replicated Secret presence checks | DONE — merged after B1 |
+| PR #1028 (commit `2807a8275`) | B8 — per-member-cluster watches | DONE — merged after B1 |
+| PR #1036 (commit `c5df7e30e`) | B16 — per-cluster Envoy Deployment + ConfigMap | DONE — merged after B14 |
+| PR #1034 (commit `0c9031b5a`) | B3+B4+B13 — cluster-index + placeholders + admission | DONE — merged after B14 |
+| PR #1033 (commit `36b318d09`) | B9 — per-cluster status writer (minimal) | DONE — merged after B14 |
+| PR #1047 (commit `5c37b5145`) | MC E2E harness PR — Secret replicator + helpers | DONE — merged after B-train |
+| `docker/mongodb-kubernetes-tests/tests/common/multicluster_search/__init__.py` | Package init for new harness | DONE — merged in #1047 |
+| `docker/mongodb-kubernetes-tests/tests/common/multicluster_search/secret_replicator.py` | Cross-cluster Secret replicator | DONE — merged in #1047 |
+| `docker/mongodb-kubernetes-tests/tests/common/multicluster_search/mc_search_deployment_helper.py` | 2-cluster MongoDBMulti fixture lifecycle | DONE — merged in #1047 |
+| `docker/mongodb-kubernetes-tests/tests/common/multicluster_search/per_cluster_assertions.py` | Per-cluster resource/pod readiness assertions | DONE — merged in #1047 |
 
 ### Phase 2 — files created/modified
 
+Status as of commit `eebd61b6e` (PR #1055 merged): tasks 14-20 + the from-scratch e2e (Tasks 22-27) are landed on branch `mc-search-phase2-q2-rs`; G2 Evergreen patch is in iteration (v1, v2, v3, v4 all failed; user is iterating on the test). Phase 2 PR (Task 29) is pending.
+
 | File | Responsibility | Layer |
 |------|----------------|-------|
-| `api/v1/search/mongodbsearch_types.go` | Add `ProxyServiceNamespacedNameForCluster(clusterIndex int)` and `MongotConfigConfigMapNameForCluster(clusterIndex int)`; per-cluster naming | Modified (existing file) |
-| `controllers/searchcontroller/mongodbsearch_reconcile_helper.go` | Extend `reconcilePlan` units to one-per-cluster for RS topology; per-cluster proxy Service creation; per-cluster mongot StatefulSet+ConfigMap | Modified |
-| `controllers/searchcontroller/external_search_source.go` | External-source per-cluster fan-out: render every cluster's mongot config from top-level `spec.source.external.hostAndPorts` | Modified |
-| `controllers/operator/mongodbsearchenvoy_controller.go` | Update Envoy filter chain SNI to use per-cluster proxy-svc FQDN | Modified |
-| `api/v1/search/mongodbsearch_validation.go` | New CEL/Go admission rule: `external.hostAndPorts` non-empty when `len(spec.clusters) > 1` | Modified |
-| `docker/mongodb-kubernetes-tests/tests/multicluster_search/q2_mc_rs_steady.py` | Drop iter-4/iter-5 tolerance; restore strict assertions; switch `mongotHost` to `clusterSpecList[i].additionalMongodConfig`; drop iter-1 per-cluster `syncSourceSelector.hosts` and `REGION_TAGS`; add `$vectorSearch` tests | Modified |
-| `docker/mongodb-kubernetes-tests/tests/multicluster_search/fixtures/search-q2-mc-rs.yaml` | CR shape: top-level `external.hostAndPorts` only; bare `clusters: [{clusterName, replicas}]` | Modified |
-| `controllers/searchcontroller/external_search_source_test.go` (new in B16 worktree) and adjacent unit tests | Per-cluster rendering unit tests | Modified |
+| `api/v1/search/mongodbsearch_types.go` | Add `ProxyServiceNamespacedNameForCluster(clusterIndex int)` and `MongotConfigConfigMapNameForCluster(clusterIndex int)`; per-cluster naming. NB: per-cluster Envoy `Replicas` override was REMOVED via PR #1050 (type split: `PerClusterManagedLBConfig` excludes `Replicas`); top-level `spec.loadBalancer.managed.replicas` (default 1) applies uniformly. | DONE — commits `d614ffc03` (Task 14) + `a43b59183` (Task 15) |
+| `controllers/searchcontroller/mongodbsearch_reconcile_helper.go` | Extend `reconcilePlan` units to one-per-cluster for RS topology; per-cluster proxy Service creation; per-cluster mongot StatefulSet+ConfigMap; `validateLBCertSAN` (NOT yet wired into reconcile — see Task 19 note). | DONE — commits `a43b59183`, `275ffb242`, `dbdd35b0c`, `9e82022b9` |
+| `controllers/searchcontroller/external_search_source.go` | External-source per-cluster fan-out: render every cluster's mongot config from top-level `spec.source.external.hostAndPorts` | DONE — commit `66985422b` |
+| `controllers/operator/mongodbsearchenvoy_controller.go` | Update Envoy filter chain SNI to use per-cluster proxy-svc FQDN; per-cluster Pod CM volume name (cherry-pick `90d9cad2a`). | DONE — commits `ffc0a2802`, `90d9cad2a` |
+| `api/v1/search/mongodbsearch_validation.go` | New Go admission rule: `external.hostAndPorts` non-empty when `len(spec.clusters) > 1` | DONE — commit `1a58c4980` |
+| `docker/mongodb-kubernetes-tests/tests/multicluster_search/q2_mc_rs_steady.py` | Author from scratch with strict assertions: real `Phase=Running`, real Envoy Ready, real `$search` data plane, post-deploy OM AC PUT for per-cluster `mongotHost` (`test_patch_per_cluster_mongot_host`), `$vectorSearch` index + query. | DONE — commit `29083c171` (initial) + later naming/locality fixes (`2842cf745`, `0884aee14`); test still failing v1/v2/v3/v4 of G2 (Task 28 in flight) |
+| `docker/mongodb-kubernetes-tests/tests/multicluster_search/fixtures/search-q2-mc-rs.yaml` | CR shape: top-level `external.hostAndPorts` only; bare `clusters: [{clusterName, replicas}]`. PR #1041 (`q2_mc_rs_steady.py` scaffold) was DISCARDED — fixture authored from scratch. | DONE — commit `29083c171` |
+| `controllers/searchcontroller/mongodbsearch_reconcile_full_mc_test.go` (new) | Comprehensive Go full-reconcile MC unit tests for Tasks 14-20 (firm gate before Evergreen). | DONE — commit `e14cc28c0` |
 
 ---
 
@@ -87,6 +88,8 @@ Expected: at least 3 contexts (`kind-e2e-cluster-1`, `kind-e2e-cluster-2`, `kind
 Goal: every commit on `search/ga-base` after this phase contains the full MC foundation (B1+B14+B18+B16+B3+B4+B13+B5+B8+B9) plus a working MC E2E harness. Existing single-cluster e2e tests stay green throughout.
 
 ## Task 1: Land B1 (member-cluster client wiring) onto `search/ga-base`
+
+**Status: DONE** — PR #1027 merged into `search/ga-base` at commit `6a25caeb7` (Multi-cluster wiring foundation for MongoDBSearch (B1)).
 
 **Files:**
 - Modify: PR #1027 (`mc-search-b1-foundation` branch)
@@ -141,6 +144,8 @@ git fetch origin search/ga-base
 
 ## Task 2: Land B14+B18 (`spec.clusters[]` + defaulting) onto `search/ga-base`
 
+**Status: DONE** — PR #1030 merged at commit `7fd0ecb3e` (B14+B18: spec.clusters[] types, defaulting, and auto-promotion).
+
 **Files:**
 - Modify: PR #1030 (`mc-search-b14-distribution` branch)
 
@@ -186,6 +191,8 @@ gh pr merge 1030 -R mongodb/mongodb-kubernetes --squash --delete-branch=false
 
 ## Task 3: Land B5 (Secret presence checks) onto `search/ga-base`
 
+**Status: DONE** — PR #1029 merged at commit `24f3b6765` (B5: Per-cluster customer-replicated secrets presence checks).
+
 **Files:**
 - Modify: PR #1029 (`mc-search-b5-secrets-presence` branch)
 
@@ -214,6 +221,8 @@ gh pr merge 1029 -R mongodb/mongodb-kubernetes --squash --delete-branch=false
 
 ## Task 4: Land B8 (per-member-cluster watches) onto `search/ga-base`
 
+**Status: DONE** — PR #1028 merged at commit `2807a8275` (B8: Per-member-cluster watches for MongoDBSearch resources). Note: the watch handler initially landed annotation-based; the cross-cluster watch routing was unified onto a label-based scheme in PR #1053 (currently OPEN against `search/ga-base`) — see "Phase 2 follow-ups landing on `search/ga-base`" note in the spec.
+
 **Files:**
 - Modify: PR #1028 (`mc-search-b8-watches` branch)
 
@@ -241,6 +250,8 @@ gh pr merge 1028 -R mongodb/mongodb-kubernetes --squash --delete-branch=false
 ```
 
 ## Task 5: Land B16 (per-cluster Envoy) onto `search/ga-base`
+
+**Status: DONE** — PR #1036 merged at commit `c5df7e30e` (B16: Per-cluster Envoy Deployment + ConfigMap). Follow-up: PR #1050 (commit landed on ga-base) split the LB type so `PerClusterManagedLBConfig` excludes `Replicas` — per-cluster Envoy `Replicas` is **not** supported; the top-level `spec.loadBalancer.managed.replicas` (default 1) applies uniformly to every per-cluster Envoy Deployment. Phase 2 still uses default 1 throughout.
 
 **Files:**
 - Modify: PR #1036 (`mc-search-b16-envoy-mc` branch)
@@ -278,6 +289,8 @@ gh pr merge 1036 -R mongodb/mongodb-kubernetes --squash --delete-branch=false
 
 ## Task 6: Land B3+B4+B13 (cluster index + placeholders + admission) onto `search/ga-base`
 
+**Status: DONE** — PR #1034 merged at commit `0c9031b5a` (B3+B4+B13: cluster index, placeholders, MC admission validators).
+
 **Files:**
 - Modify: PR #1034 (`mc-search-b3-b4-cluster-index-placeholders` branch)
 
@@ -309,6 +322,8 @@ gh pr merge 1034 -R mongodb/mongodb-kubernetes --squash --delete-branch=false
 
 ## Task 7: Land B9 (per-cluster status writer minimal) onto `search/ga-base`
 
+**Status: DONE** — PR #1033 merged at commit `36b318d09` (B9: Per-cluster status surface (minimal)). PR #1053 (OPEN) chose `status.loadBalancer.clusters[]` (flat sibling) as the canonical per-cluster LB-phase location and marked `SearchClusterStatusItem.LoadBalancer` `Deprecated:`; `LoadBalancerStatus.Phase = WorstOfPhase(Clusters[*].Phase)` is the documented invariant. The flat shape lands when #1053 merges into ga-base.
+
 **Files:**
 - Modify: PR #1033 (`mc-search-b9-status` branch)
 
@@ -338,6 +353,8 @@ gh pr merge 1033 -R mongodb/mongodb-kubernetes --squash --delete-branch=false
 
 ## Task 8: Verify single-cluster e2e regression on `search/ga-base`
 
+**Status: DONE** — single-cluster RS+sharded e2es green on ga-base after the B-train; tagged `base-pr-train-green` (rollback target).
+
 **Files:** none (CI verification only)
 
 - [ ] **Step 8.1: Pull current `search/ga-base`**
@@ -355,10 +372,12 @@ git pull
 git add -A  # ensure no untracked test fixtures left behind
 evergreen patch \
   --project mongodb-kubernetes \
-  --variants e2e_static_mongodb_kind_ubi \
+  --variants e2e_static_mdb_kind_ubi_cloudqa \
   --tasks e2e_search_replicaset_external_mongodb_multi_mongot_managed_lb,e2e_search_replicaset_external_mongodb_multi_mongot_unmanaged_lb,e2e_search_sharded_external_mongodb_multi_mongot_unmanaged_lb,e2e_search_sharded_enterprise_external_mongod_managed_lb \
   -y -d "verify single-cluster e2e regression on ga-base after B-section train"
 ```
+
+(Variant: `e2e_static_mdb_kind_ubi_cloudqa` — the standard single-cluster kind variant. The original plan referenced `e2e_static_mongodb_kind_ubi` which does not exist.)
 
 Capture the patch ID from the output.
 
@@ -381,6 +400,8 @@ git push origin base-pr-train-green
 This tag is the rollback target if any subsequent harness/Phase 2 work breaks ga-base.
 
 ## Task 9: Build the cross-cluster Secret replicator
+
+**Status: DONE** — landed in PR #1047 (commit `5c37b5145`).
 
 **Files:**
 - Create: `docker/mongodb-kubernetes-tests/tests/common/multicluster_search/__init__.py`
@@ -590,6 +611,8 @@ git commit -m "feat(test/search): add cross-cluster Secret replicator for MC e2e
 
 ## Task 10: Build the MC search deployment helper (2-cluster MongoDBMulti fixture)
 
+**Status: DONE** — landed in PR #1047 (commit `5c37b5145`).
+
 **Files:**
 - Create: `docker/mongodb-kubernetes-tests/tests/common/multicluster_search/mc_search_deployment_helper.py`
 - Create: `docker/mongodb-kubernetes-tests/tests/common/multicluster_search/test_mc_search_deployment_helper.py`
@@ -752,6 +775,8 @@ git commit -m "feat(test/search): add MCSearchDeploymentHelper with per-cluster 
 
 ## Task 11: Build per-cluster assertion helpers
 
+**Status: DONE** — landed in PR #1047 (commit `5c37b5145`).
+
 **Files:**
 - Create: `docker/mongodb-kubernetes-tests/tests/common/multicluster_search/per_cluster_assertions.py`
 - Create: `docker/mongodb-kubernetes-tests/tests/common/multicluster_search/test_per_cluster_assertions.py`
@@ -897,212 +922,15 @@ git add docker/mongodb-kubernetes-tests/tests/common/multicluster_search/
 git commit -m "feat(test/search): add per-cluster Deployment/resource assertion helpers"
 ```
 
-## Task 12: Write the harness smoke test (e2e)
+## Task 12: Write the harness smoke test (e2e) — DROPPED
 
-**Files:**
-- Create: `docker/mongodb-kubernetes-tests/tests/multicluster_search/mc_search_harness_smoke.py`
+**Status: DROPPED** per user direction. Original intent was a stand-alone e2e test exercising only the harness primitives (Secret replicator + assertion helpers), but the user judged that running the harness inside the actual Phase 2 e2e test (`q2_mc_rs_steady.py`) is sufficient signal — a separate smoke test would only add CI cost and noise. The PR #1047 unit tests for `secret_replicator`, `mc_search_deployment_helper`, and `per_cluster_assertions` carry the equivalent coverage at the unit level; the integration signal comes from Task 25.5 (cross-cluster Secret replication wired into `q2_mc_rs_steady.py`'s setup).
 
-- [ ] **Step 12.1: Write the test**
+## Task 13: Register the harness smoke test in Evergreen — DROPPED
 
-`docker/mongodb-kubernetes-tests/tests/multicluster_search/mc_search_harness_smoke.py`:
+**Status: DROPPED** along with Task 12. No new Evergreen task added.
 
-```python
-"""MC E2E harness smoke test.
-
-Exercises the harness primitives end-to-end against a real 2-cluster
-kind setup:
-  1. Create a fake Secret in the central cluster.
-  2. Replicate it to each member cluster.
-  3. Assert presence in each member cluster.
-  4. Tear down.
-
-This test does NOT exercise any MongoDBSearch / MongoDBMulti operator
-code — it's solely a harness smoke. If this fails, MC e2e tests
-that depend on the harness will also fail in non-obvious ways.
-"""
-from kubernetes.client import CoreV1Api, V1ObjectMeta, V1Secret
-from pytest import fixture, mark
-
-from tests import test_logger
-from tests.common.multicluster_search.per_cluster_assertions import (
-    assert_resource_in_cluster,
-)
-from tests.common.multicluster_search.secret_replicator import replicate_secret
-
-logger = test_logger.get_test_logger(__name__)
-
-SECRET_NAME = "mc-harness-smoke-fake-secret"
-
-
-@fixture(scope="module")
-def central_core(central_cluster_client) -> CoreV1Api:
-    return CoreV1Api(api_client=central_cluster_client)
-
-
-@fixture(scope="module")
-def member_cores(member_cluster_clients) -> dict[str, CoreV1Api]:
-    return {mcc.cluster_name: CoreV1Api(api_client=mcc.api_client) for mcc in member_cluster_clients}
-
-
-@mark.e2e_mc_search_harness_smoke
-def test_create_fake_secret_in_central(central_core: CoreV1Api, namespace: str):
-    body = V1Secret(
-        metadata=V1ObjectMeta(name=SECRET_NAME, namespace=namespace),
-        type="Opaque",
-        data={"smoke.txt": b"aGVsbG8="},  # base64("hello")
-    )
-    central_core.create_namespaced_secret(namespace=namespace, body=body)
-    logger.info(f"created fake Secret {SECRET_NAME} in central cluster, ns={namespace}")
-
-
-@mark.e2e_mc_search_harness_smoke
-def test_replicate_secret_to_members(
-    central_core: CoreV1Api,
-    member_cores: dict[str, CoreV1Api],
-    namespace: str,
-):
-    replicate_secret(
-        secret_name=SECRET_NAME,
-        namespace=namespace,
-        central_client=central_core,
-        member_clients=member_cores,
-    )
-
-
-@mark.e2e_mc_search_harness_smoke
-def test_assert_secret_present_in_each_member(
-    member_cores: dict[str, CoreV1Api],
-    namespace: str,
-):
-    for cluster_name, core in member_cores.items():
-        assert_resource_in_cluster(
-            core, kind="Secret", name=SECRET_NAME, namespace=namespace
-        )
-        logger.info(f"verified {SECRET_NAME} present in cluster {cluster_name}")
-
-
-@mark.e2e_mc_search_harness_smoke
-def test_replicate_idempotent_on_second_call(
-    central_core: CoreV1Api,
-    member_cores: dict[str, CoreV1Api],
-    namespace: str,
-):
-    replicate_secret(
-        secret_name=SECRET_NAME,
-        namespace=namespace,
-        central_client=central_core,
-        member_clients=member_cores,
-    )
-
-
-@mark.e2e_mc_search_harness_smoke
-def test_cleanup(central_core: CoreV1Api, member_cores: dict[str, CoreV1Api], namespace: str):
-    central_core.delete_namespaced_secret(name=SECRET_NAME, namespace=namespace)
-    for core in member_cores.values():
-        try:
-            core.delete_namespaced_secret(name=SECRET_NAME, namespace=namespace)
-        except Exception as e:
-            logger.debug(f"cleanup: {e}")
-```
-
-- [ ] **Step 12.2: Lint with the project's tools**
-
-```bash
-cd docker/mongodb-kubernetes-tests
-python3 -m black tests/common/multicluster_search/ tests/multicluster_search/mc_search_harness_smoke.py --line-length 120
-python3 -m isort tests/common/multicluster_search/ tests/multicluster_search/mc_search_harness_smoke.py --profile black --line-length 120
-```
-
-- [ ] **Step 12.3: Commit**
-
-```bash
-cd /Users/anand.singh/workspace/repos/mongodb-kubernetes/.claude/worktrees/vigilant-mahavira-456daf
-git add docker/mongodb-kubernetes-tests/tests/multicluster_search/mc_search_harness_smoke.py
-git commit -m "feat(test/search): add MC e2e harness smoke test"
-```
-
-## Task 13: Register the harness smoke test in Evergreen
-
-**Files:**
-- Modify: `.evergreen-tasks.yml`
-
-- [ ] **Step 13.1: Inspect existing MC e2e task definitions**
-
-```bash
-grep -A 5 "e2e_search_q2_mc" .evergreen-tasks.yml | head -30
-```
-
-Capture the closest existing task definition pattern (likely `e2e_search_q2_mc_rs_steady`).
-
-- [ ] **Step 13.2: Add the new task entry**
-
-In `.evergreen-tasks.yml`, find the section that lists `e2e_search_q2_mc_rs_steady` and add a sibling entry — same pattern, swapping the test marker. Example (verify line numbers / surrounding context first):
-
-```yaml
-- name: e2e_mc_search_harness_smoke
-  tags: ["search", "mc-search", "harness"]
-  commands:
-    - func: e2e_test
-      vars:
-        test_name: mc_search_harness_smoke
-```
-
-- [ ] **Step 13.3: Add it to the relevant variant's task list**
-
-```bash
-grep -n "e2e_search_q2_mc_rs_steady" .evergreen.yml
-```
-
-Find each variant that includes `e2e_search_q2_mc_rs_steady` and add `e2e_mc_search_harness_smoke` next to it (same indent).
-
-- [ ] **Step 13.4: Submit Evergreen patch**
-
-```bash
-git add .evergreen-tasks.yml .evergreen.yml docker/mongodb-kubernetes-tests/
-git commit -m "ci(search): wire mc_search_harness_smoke e2e task into Evergreen"
-git push origin mc-search-harness
-evergreen patch --project mongodb-kubernetes \
-  --variants e2e_static_mongodb_kind_ubi \
-  --tasks e2e_mc_search_harness_smoke \
-  -y -d "MC e2e harness smoke"
-```
-
-Capture the patch ID. Run `evergreen finalize-patch -i <patch-id>`.
-
-- [ ] **Step 13.5: Watch the patch and verify it's green**
-
-```bash
-evergreen list --patches | head -3
-```
-
-Expected: `e2e_mc_search_harness_smoke` succeeds. If it fails, diagnose by reading the test pod logs from the patch's task page; common failures include cross-cluster RBAC missing, kind networking misconfigured, or a Python import error.
-
-- [ ] **Step 13.6: Open the harness PR**
-
-```bash
-gh pr create --base search/ga-base --head mc-search-harness \
-  --title "MC search e2e harness: cross-cluster Secret replicator + helpers" \
-  --body "$(cat <<'EOF'
-## Summary
-- Cross-cluster Secret replicator (test-only — no operator code change)
-- `MCSearchDeploymentHelper` for 2-cluster fixture lifecycle + per-cluster proxy-svc FQDN
-- Per-cluster resource/Deployment-readiness assertion helpers
-- Smoke test exercising the harness end-to-end on a 2-cluster kind setup
-
-## Test plan
-- [x] Unit tests: `pytest tests/common/multicluster_search/`
-- [x] Evergreen: `e2e_mc_search_harness_smoke` green (patch attached)
-- [x] Existing single-cluster Q2 RS+sharded e2es still green (verified via Task 8 of plan)
-
-## Acceptance gate
-G1 — Base merged: harness smoke green; existing single-cluster e2es still green.
-EOF
-)"
-```
-
-After CI passes and review accepts, merge with `gh pr merge <pr-number> -R mongodb/mongodb-kubernetes --squash --delete-branch=false`.
-
-**Phase 1 / Base done.** `search/ga-base` now contains the full B-section foundation + working MC E2E harness. Acceptance gate G1 met.
+**Phase 1 / Base done.** `search/ga-base` now contains the full B-section foundation + working MC E2E harness. Acceptance gate G1 met (B-train merged + harness PR #1047 merged + single-cluster e2e regression green).
 
 ---
 
@@ -1111,6 +939,8 @@ After CI passes and review accepts, merge with `gh pr merge <pr-number> -R mongo
 Goal: extend the search reconciler to create per-cluster mongot StatefulSets, ConfigMaps, and proxy Services across member clusters; flip `q2_mc_rs_steady.py` from scaffold-level green to real-coverage green with `$search` AND `$vectorSearch` data plane assertions.
 
 ## Task 14: Add per-cluster naming helpers (`ProxyServiceNamespacedNameForCluster`, `MongotConfigConfigMapNameForCluster`)
+
+**Status: DONE** — landed on branch `mc-search-phase2-q2-rs` at commit `d614ffc03` (feat(search): add per-cluster ProxyService and MongotConfig name helpers).
 
 **Files:**
 - Modify: `api/v1/search/mongodbsearch_types.go` (around lines 492-510)
@@ -1181,8 +1011,11 @@ In `api/v1/search/mongodbsearch_types.go`, add after `ProxyServiceNamespacedName
 // Each cluster's proxy Service has a distinct name with the cluster index as a
 // suffix; this avoids relying on per-cluster ClusterIP DNS scoping for
 // disambiguation. mongod's `mongotHost` should be set to this name's FQDN
-// per cluster (via `clusterSpecList[i].additionalMongodConfig` on the
-// MongoDBMulti source).
+// per cluster. For Q2 (external/customer-managed mongods), the customer
+// applies that per-process `setParameter.mongotHost` to their own Ops Manager
+// automation config — there is NO MongoDBMulti CRD field for per-cluster
+// `additionalMongodConfig`. See the spec's "Per-cluster Envoy topology" section
+// for the resolved Q2 / Q3 mongotHost story.
 func (s *MongoDBSearch) ProxyServiceNamespacedNameForCluster(clusterIndex int) types.NamespacedName {
 	return types.NamespacedName{
 		Name:      fmt.Sprintf("%s-search-%d-%s", s.Name, clusterIndex, ProxyServiceSuffix),
@@ -1227,6 +1060,8 @@ git commit -m "feat(search): add per-cluster ProxyService and MongotConfig name 
 ```
 
 ## Task 15: Extend `reconcilePlan` to per-cluster RS units
+
+**Status: DONE** — landed at commit `a43b59183` (feat(search): per-cluster reconcileUnit fan-out for RS topology).
 
 **Files:**
 - Modify: `controllers/searchcontroller/mongodbsearch_reconcile_helper.go` (around lines 140-170 — `buildReplicaSetPlan`)
@@ -1469,6 +1304,8 @@ git commit -m "feat(search): per-cluster reconcileUnit fan-out for RS topology"
 
 ## Task 16: Per-cluster client selection in unit reconcile
 
+**Status: DONE** — landed at commit `275ffb242` (feat(search): apply per-cluster reconcileUnit to its target member-cluster client). Subsequent fix at `9e82022b9` (fix(search): thread member-cluster clients from controller into reconcile helper) — initial wiring was missing the controller→helper hand-off.
+
 **Files:**
 - Modify: `controllers/searchcontroller/mongodbsearch_reconcile_helper.go` — wherever `reconcileUnit` is consumed (search the file for `for _, unit := range plan.units`)
 
@@ -1600,6 +1437,8 @@ git commit -m "feat(search): apply per-cluster reconcileUnit to its target membe
 
 ## Task 17: Per-cluster mongot ConfigMap renders top-level `external.hostAndPorts`
 
+**Status: DONE** — landed at commit `66985422b` (test(search): assert external HostSeeds returns top-level list for every cluster). Implementation already correct; this task added the explicit assertion test.
+
 **Files:**
 - Modify: `controllers/searchcontroller/external_search_source.go`
 - Modify: `controllers/searchcontroller/external_search_source_test.go` (or `mongodbsearch_reconcile_helper_test.go`)
@@ -1681,6 +1520,8 @@ git commit -m "test(search): assert external HostSeeds returns top-level list fo
 ```
 
 ## Task 18: Update Envoy filter chain to use per-cluster proxy-svc SNI
+
+**Status: DONE** — landed at commit `ffc0a2802` (feat(search-envoy): SNI server_name uses per-cluster proxy-svc FQDN). Follow-up at `90d9cad2a` (fix(search-envoy): per-cluster Envoy pod mounts the per-cluster ConfigMap volume) cherry-picked into PR #1053 for ga-base.
 
 **Files:**
 - Modify: `controllers/operator/mongodbsearchenvoy_controller.go`
@@ -1770,6 +1611,8 @@ git commit -m "feat(search-envoy): SNI server_name uses per-cluster proxy-svc FQ
 ```
 
 ## Task 19: LB cert SAN must include each cluster's proxy-svc FQDN
+
+**Status: PARTIALLY DONE** — `validateLBCertSAN` function landed at commit `dbdd35b0c` (feat(search): LB cert SAN must enumerate each cluster's proxy-svc FQDN) at `controllers/searchcontroller/mongodbsearch_reconcile_helper.go`, **BUT IS NOT YET WIRED INTO RECONCILE.** The cert is mounted as a Volume by Envoy but never read into bytes during MongoDBSearch reconcile, so `validateLBCertSAN` is never called. The function carries a `TODO(MC search Phase 2)` comment marking the wiring as a follow-up. Step 19.5 below is the unfinished work — it must be completed before declaring Phase 2 fully done OR explicitly punted to a Phase 2 follow-up PR with a tracked ticket.
 
 **Files:**
 - Modify: `controllers/searchcontroller/mongodbsearch_reconcile_helper.go` — wherever the cert validation runs (search for `LoadBalancerServerCert` use)
@@ -1882,6 +1725,8 @@ git commit -m "feat(search): LB cert SAN must enumerate each cluster's proxy-svc
 ```
 
 ## Task 20: Admission rule — `external.hostAndPorts` non-empty when `len(spec.clusters) > 1`
+
+**Status: DONE** — landed at commit `1a58c4980` (feat(search): admission rejects MC without spec.source.external.hostAndPorts).
 
 **Files:**
 - Modify: `api/v1/search/mongodbsearch_validation.go` (Go-side admission)
@@ -2028,7 +1873,13 @@ git add api/v1/search/ helm_chart/crds/
 git commit -m "feat(search): admission requires external.hostAndPorts non-empty for MC mode"
 ```
 
-## Task 21: Lint and full unit-test pass
+## Task 21: Comprehensive Go full-reconcile unit tests + lint (firm gate before Evergreen)
+
+**Status: DONE** — comprehensive MC full-reconcile tests landed at commit `e14cc28c0` (test(search): comprehensive MC full-reconcile tests for Tasks 14-20) at `controllers/searchcontroller/mongodbsearch_reconcile_full_mc_test.go`. Lint + unit-test pass green prior to first G2 patch submission.
+
+Per the user's testing-principle directive, this task expanded from "lint and full unit-test pass" to **comprehensive Go full-reconcile unit tests** as the firm gate before any Evergreen patch. Rationale: Evergreen patches for MC e2e are slow + flaky, so every defect catchable via Go-level full-reconcile assertion (per-cluster client routing, per-cluster naming, per-cluster Envoy CM volume mount, SAN coverage, admission rejection) MUST be caught at the Go layer first — Evergreen is reserved for verifying real cross-cluster integration that can't be unit-tested.
+
+The full-reconcile test exercises the complete MC reconcile flow against fake clients for a 2-cluster fixture and asserts each cluster's resources land in the correct member-cluster client.
 
 - [ ] **Step 21.1: Run pre-commit on the operator changes**
 
@@ -2040,6 +1891,7 @@ pre-commit run --files \
   api/v1/search/mongodbsearch_validation_test.go \
   controllers/searchcontroller/mongodbsearch_reconcile_helper.go \
   controllers/searchcontroller/mongodbsearch_reconcile_helper_test.go \
+  controllers/searchcontroller/mongodbsearch_reconcile_full_mc_test.go \
   controllers/searchcontroller/external_search_source.go \
   controllers/searchcontroller/external_search_source_test.go \
   controllers/operator/mongodbsearchenvoy_controller.go \
@@ -2047,19 +1899,19 @@ pre-commit run --files \
   helm_chart/crds/mongodb.com_mongodbsearch.yaml
 ```
 
-Expected: all hooks pass (gci import grouping, ty static type check, gofmt). If a hook auto-fixes, commit the fixes:
+Expected: all hooks pass (gci import grouping, ty static type check, gofmt). If a hook auto-fixes, commit the fixes (do NOT --amend; create a new commit per repo convention):
 
 ```bash
-git add -u && git commit --amend --no-edit
+git add -u && git commit -m "chore: pre-commit auto-fixes"
 ```
 
-- [ ] **Step 21.2: Run full unit-test suite**
+- [ ] **Step 21.2: Run full unit-test suite, including the comprehensive MC full-reconcile tests**
 
 ```bash
 go test ./api/v1/search/... ./controllers/searchcontroller/... ./controllers/operator/... -count=1 -v
 ```
 
-Expected: ALL pass.
+Expected: ALL pass — particularly the new `mongodbsearch_reconcile_full_mc_test.go` cases (per-cluster client routing, per-cluster naming, SAN validation, admission rejection of MC without `external.hostAndPorts`). This is the firm gate before pushing the branch and submitting any Evergreen patch.
 
 - [ ] **Step 21.3: Push the branch**
 
@@ -2067,197 +1919,136 @@ Expected: ALL pass.
 git push origin mc-search-phase2-q2-rs
 ```
 
-## Task 22: Update `q2_mc_rs_steady.py` — drop iter-4/iter-5 tolerance
+## Task 22: Author `q2_mc_rs_steady.py` from scratch with strict assertions
+
+**Status: DONE** — landed at commit `29083c171` (test(search): MC RS — author q2_mc_rs_steady.py from scratch with strict assertions). Subsequent fix at commit `2842cf745` (test(search): MC RS — fix per-cluster resource naming to match operator helpers).
 
 **Files:**
-- Modify: `docker/mongodb-kubernetes-tests/tests/multicluster_search/q2_mc_rs_steady.py`
+- Create: `docker/mongodb-kubernetes-tests/tests/multicluster_search/q2_mc_rs_steady.py`
+- Create: `docker/mongodb-kubernetes-tests/tests/multicluster_search/fixtures/search-q2-mc-rs.yaml`
 
-The current scaffold-level relaxed test was committed at `fca043e71`. Restore strict assertions.
+**Important context shift:** PR #1041 (the original Q2 MC e2e scaffold at `q2_mc_rs_steady.py` with relaxed assertions) was **DISCARDED**, not modified. Phase 2 authors the test from scratch with strict assertions from line one. The original plan task descriptions referenced reverting iter-1/iter-3/iter-4/iter-5 commits and restoring previous-iteration assertions — that history is no longer relevant; the from-scratch author is shorter and cleaner than archeology on PR #1041.
 
-- [ ] **Step 22.1: Show the relaxed assertion sites**
+The from-scratch test asserts:
+
+- Strict `Phase=Running` on `MongoDBSearch` (timeout 600s).
+- Strict `require_ready=True` for per-cluster Envoy Deployment readiness.
+- Strict per-cluster status: `status.clusterStatusList[i]` populated; `status.loadBalancer.phase=Running` (and once #1053 merges, `status.loadBalancer.clusters[i].phase=Running`).
+- Real `$search` data plane returning non-empty results.
+- Real `$vectorSearch` data plane (auto-embedding via Voyage) returning non-empty results.
+- Per-cluster `mongotHost` set via post-deploy OM AC PUT (not via CRD field — see Task 24).
+- Cross-cluster Secret + ConfigMap replication wired in via `test_replicate_secrets_to_members` (see Task 25.5).
+
+The file no longer references `@pytest.mark.skip`, `require_ready=False`, or any "scaffold" / "tolerance" language — those have all been deleted with PR #1041. The from-scratch test stands as the only Q2-MC-RS test on the branch.
+
+- [ ] **Step 22.1: Stub the file with strict-assertion helpers from `tests/common/multicluster_search/`**
+
+Use the harness primitives from PR #1047 (`secret_replicator`, `mc_search_deployment_helper`, `per_cluster_assertions`) plus existing single-cluster Q2 helpers (`tests/common/search/q2_shared.py` for `q2_create_search_index`, etc.).
+
+- [ ] **Step 22.2: Author each test step with strict assertions only**
+
+Each `test_*` function asserts the strict invariant directly — no `if condition: skip` branches, no `require_ready=False` toggles. Phase 2 operator code makes the strict invariants reachable.
+
+- [ ] **Step 22.3: Commit**
 
 ```bash
-grep -n "require_ready=False\|@pytest.mark.skip\|don't assert Phase=Running\|tolerant" docker/mongodb-kubernetes-tests/tests/multicluster_search/q2_mc_rs_steady.py
+git add docker/mongodb-kubernetes-tests/tests/multicluster_search/q2_mc_rs_steady.py \
+        docker/mongodb-kubernetes-tests/tests/multicluster_search/fixtures/search-q2-mc-rs.yaml
+git commit -m "test(search): MC RS — author q2_mc_rs_steady.py from scratch with strict assertions"
 ```
 
-- [ ] **Step 22.2: Restore strict `Phase=Running` for the search resource**
+## Task 23: Include data plane tests in `q2_mc_rs_steady.py` from-scratch author
 
-Find `test_create_search_resource` and change:
+**Status: DONE** — folded into the from-scratch author at commit `29083c171`. With PR #1041 discarded, there are no `@pytest.mark.skip` decorators to remove — the data-plane tests (`test_create_search_index`, `test_execute_text_search_query_per_cluster`) are authored as enabled-from-the-start.
+
+**Files:**
+- Create: `docker/mongodb-kubernetes-tests/tests/multicluster_search/q2_mc_rs_steady.py` (Task 22)
+
+The data-plane test calls reuse helpers from `tests/common/search/q2_shared.py` (`q2_create_search_index`, `get_search_tester`) against the now-real per-cluster mongot pools delivered by Phase 2's operator code.
+
+## Task 24: Per-cluster `mongotHost` via post-deploy Ops Manager Automation Config PUT
+
+**Status: DONE** — landed at commit `0884aee14` (test(search): MC RS — patch per-cluster mongotHost via Ops Manager AC after MongoDBMulti is Running).
+
+**Files:**
+- Modify: `docker/mongodb-kubernetes-tests/tests/multicluster_search/q2_mc_rs_steady.py` — adds `test_patch_per_cluster_mongot_host`
+
+**Important correction from the original plan task:** The original task description said "set `mongotHost` via `clusterSpecList[i].additionalMongodConfig`". **That CRD field does not exist on `MongoDBMultiCluster`** — `additionalMongodConfig` lives only at the top level on `DbCommonSpec`, not on each `clusterSpecList[i]` entry. PR #1051 had proposed extending the CRD to add the field; the user **closed PR #1051** with the resolution: per-cluster `mongotHost` is the customer's responsibility, not the operator's. See [memory: per-cluster mongotHost — no CRD extension needed](file:///Users/anand.singh/.claude/projects/-Users-anand-singh-workspace-repos-mongodb-kubernetes/memory/project_per_cluster_mongothost_resolved.md).
+
+**The actual implementation:**
+
+The MongoDBMulti CR is deployed with `mongotHost` set at the **top level** of `spec.additionalMongodConfig` to a single value (cluster-0's proxy-svc FQDN). This is required because the source RS can't reach `Phase=Running` with `searchTLSMode=requireTLS` if `mongotHost` is unset — startup-time validation fails. After MongoDBMulti is Running, the e2e test patches the OM automation config directly via `OmTester.om_request("put", ...)`: it reads the current AC, mutates each process's `args2_6.setParameter.mongotHost` keyed by the cluster index encoded in the process name, bumps the AC version, and re-PUTs. `wait_agents_ready` confirms each cluster's mongod picks up its new `mongotHost`.
+
+This pattern is the **canonical Q2 model** for per-cluster `mongotHost`: customer manages their own automation config; the operator is uninvolved. For Q3 (operator-managed mongods, post-MVP), the operator's existing automation-config writer will plumb per-cluster `mongotHost` through the same OM-AC path — no schema change needed.
+
+- [ ] **Step 24.1: Set top-level `mongotHost` in the MongoDBMulti CR fixture (cluster-0's proxy-svc FQDN)**
+
+Set on `spec.additionalMongodConfig.setParameter.mongotHost` (top-level only — there's no per-cluster CRD field). This satisfies startup-time validation; the per-cluster override happens post-Running via OM AC PUT in Step 24.2.
+
+- [ ] **Step 24.2: Add `test_patch_per_cluster_mongot_host` step**
+
+After `MongoDBMulti.assert_reaches_phase(Running)`, in the same e2e test file, add:
 
 ```python
 @mark.e2e_search_q2_mc_rs_steady
-def test_create_search_resource(mdbs: MongoDBSearch):
-    mdbs.update()
-    # Strict — Phase 2 operator code makes Running real now.
-    mdbs.assert_reaches_phase(Phase.Running, timeout=600)
-```
-
-- [ ] **Step 22.3: Restore strict Envoy readiness**
-
-Find `test_verify_per_cluster_envoy_deployment` and remove `require_ready=False`:
-
-```python
-@mark.e2e_search_q2_mc_rs_steady
-def test_verify_per_cluster_envoy_deployment(
-    namespace: str,
+def test_patch_per_cluster_mongot_host(
+    mdb: MongoDBMulti,
+    helper: MCSearchDeploymentHelper,
     member_cluster_clients: List[MultiClusterClient],
 ):
-    assert_envoy_ready_in_each_cluster(
-        namespace, MDBS_RESOURCE_NAME, member_cluster_clients, require_ready=True
-    )
+    """Patch Ops Manager AC so each cluster's mongods point `mongotHost`
+    and `searchIndexManagementHostAndPort` at THEIR cluster's local Envoy
+    proxy-svc FQDN.
+
+    Q2 (external/customer-managed mongods): customer modifies their own
+    Ops Manager automation config to set per-process setParameter.mongotHost.
+    The operator does not manage external mongods. This test simulates
+    that customer-side flow via OmTester.om_request("put", ...).
+    """
+    om_tester = mdb.get_om_tester()
+    ac = om_tester.om_request("get", "/automationConfig")
+    for proc in ac["processes"]:
+        # Process names encode the cluster index: <mdb-name>-<clusterIndex>-<podOrdinal>
+        cluster_idx = int(proc["name"].split("-")[-2])
+        cluster_name = helper.cluster_name_for_index(cluster_idx)
+        proxy_fqdn = helper.proxy_svc_fqdn(cluster_name)
+        proc["args2_6"]["setParameter"]["mongotHost"] = f"{proxy_fqdn}:{ENVOY_PROXY_PORT}"
+        proc["args2_6"]["setParameter"]["searchIndexManagementHostAndPort"] = f"{proxy_fqdn}:{ENVOY_PROXY_PORT}"
+    ac["version"] += 1
+    om_tester.om_request("put", "/automationConfig", json=ac)
+    mdb.wait_agents_ready()
 ```
 
-- [ ] **Step 22.4: Restore strict per-cluster status**
-
-Find `test_verify_per_cluster_status` and remove the `if cluster_statuses is None: return` branch — clusterStatusList must be populated now (B9 lands in Base).
-
-- [ ] **Step 22.5: Restore strict LB phase**
-
-Find `test_verify_lb_status` and ensure `mdbs.assert_lb_status()` runs without the existence-only fallback.
-
-- [ ] **Step 22.6: Commit**
+- [ ] **Step 24.3: Commit**
 
 ```bash
 git add docker/mongodb-kubernetes-tests/tests/multicluster_search/q2_mc_rs_steady.py
-git commit -m "test(search): MC RS — restore strict Phase=Running and require_ready=True assertions"
+git commit -m "test(search): MC RS — patch per-cluster mongotHost via Ops Manager AC after MongoDBMulti is Running"
 ```
 
-## Task 23: Un-skip data plane tests in `q2_mc_rs_steady.py`
+## Task 25: From-scratch fixture omits `syncSourceSelector.hosts` and `REGION_TAGS`
+
+**Status: DONE** — folded into the from-scratch author at commit `29083c171`. The fixture authored fresh has no per-cluster `syncSourceSelector.hosts` and no `REGION_TAGS` import — the original revert-iter-1 task is moot now that the iter-1 commits never landed on this branch.
 
 **Files:**
-- Modify: `docker/mongodb-kubernetes-tests/tests/multicluster_search/q2_mc_rs_steady.py`
+- Create: `docker/mongodb-kubernetes-tests/tests/multicluster_search/q2_mc_rs_steady.py` (Task 22)
 
-- [ ] **Step 23.1: Remove `@pytest.mark.skip`**
+The from-scratch fixture's `MongoDBSearch.spec.clusters` shape is the bare:
 
-Find:
-
-```python
-@mark.e2e_search_q2_mc_rs_steady
-@pytest.mark.skip(
-    reason="Data plane deferred to Phase 3..."
-)
-def test_create_search_index(mdb: MongoDBMulti):
-    ...
+```yaml
+spec:
+  clusters:
+  - clusterName: kind-e2e-cluster-1
+    replicas: 2
+  - clusterName: kind-e2e-cluster-2
+    replicas: 2
 ```
 
-Remove the `@pytest.mark.skip` decorator. Same for `test_execute_text_search_query_per_cluster`.
-
-- [ ] **Step 23.2: Verify the test bodies are still valid**
-
-The bodies were not deleted; only the `skip` decorator was added. Verify the test code calls `q2_create_search_index(mdb, get_search_tester)` and similar helpers from `tests/common/search/q2_shared.py` — they should still work against the now-real per-cluster mongot pools.
-
-- [ ] **Step 23.3: Commit**
-
-```bash
-git add docker/mongodb-kubernetes-tests/tests/multicluster_search/q2_mc_rs_steady.py
-git commit -m "test(search): MC RS — un-skip data plane tests now that Phase 2 lands per-cluster mongot"
-```
-
-## Task 24: Switch `mongotHost` fixture to per-cluster `clusterSpecList[i].additionalMongodConfig`
-
-**Files:**
-- Modify: `docker/mongodb-kubernetes-tests/tests/multicluster_search/q2_mc_rs_steady.py` — the `mdb` fixture
-- Possibly: `docker/mongodb-kubernetes-tests/tests/multicluster_search/fixtures/search-q2-mc-rs.yaml` if mongotHost is in the YAML
-
-- [ ] **Step 24.1: Find the current mongotHost setting in the fixture**
-
-```bash
-grep -n "mongotHost\|additionalMongodConfig\|setParameter" docker/mongodb-kubernetes-tests/tests/multicluster_search/q2_mc_rs_steady.py docker/mongodb-kubernetes-tests/tests/multicluster_search/fixtures/search-q2-mc-rs.yaml 2>/dev/null
-```
-
-- [ ] **Step 24.2: Update the fixture to set `mongotHost` per-cluster**
-
-In the `mdb` fixture (likely around line 175-210 of `q2_mc_rs_steady.py`), replace top-level `additionalMongodConfig.setParameter.mongotHost` with per-cluster:
-
-```python
-@fixture(scope="function")
-def mdb(
-    namespace: str,
-    member_cluster_clients: List[MultiClusterClient],
-    helper: MCSearchDeploymentHelper,
-) -> MongoDBMulti:
-    """2-cluster MongoDBMulti RS source with TLS+SCRAM, per-cluster mongotHost."""
-    resource = MongoDBMulti.from_yaml(
-        yaml_fixture("search-q2-mc-rs.yaml"),
-        namespace=namespace,
-        name=MDB_RESOURCE_NAME,
-    )
-    # Per-cluster mongotHost: each cluster's mongods point at THIS cluster's
-    # proxy Service, which has a cluster-index-suffixed name.
-    cluster_spec = []
-    for mcc in member_cluster_clients:
-        idx = helper.cluster_index(mcc.cluster_name)
-        proxy_fqdn = helper.proxy_svc_fqdn(mcc.cluster_name)
-        cluster_spec.append({
-            "clusterName": mcc.cluster_name,
-            "members": 3,
-            "additionalMongodConfig": {
-                "setParameter": {
-                    "mongotHost": f"{proxy_fqdn}:{ENVOY_PROXY_PORT}",
-                    "searchIndexManagementHostAndPort": f"{proxy_fqdn}:{ENVOY_PROXY_PORT}",
-                    "searchTLSMode": "requireTLS",
-                },
-            },
-        })
-    resource["spec"]["clusterSpecList"] = cluster_spec
-    return resource
-```
-
-- [ ] **Step 24.3: Remove top-level `additionalMongodConfig.setParameter.mongotHost` from the YAML fixture**
-
-If `search-q2-mc-rs.yaml` carries it at the top of `spec`, remove it — `clusterSpecList[i]` overrides override it but cleaner to just remove.
-
-- [ ] **Step 24.4: Lint and commit**
-
-```bash
-python3 -m black docker/mongodb-kubernetes-tests/tests/multicluster_search/q2_mc_rs_steady.py --line-length 120
-python3 -m isort docker/mongodb-kubernetes-tests/tests/multicluster_search/q2_mc_rs_steady.py --profile black --line-length 120
-git add docker/mongodb-kubernetes-tests/tests/multicluster_search/
-git commit -m "test(search): MC RS — set mongotHost per-cluster via clusterSpecList[i].additionalMongodConfig"
-```
-
-## Task 25: Drop per-cluster `syncSourceSelector.hosts` and `REGION_TAGS` from fixture
-
-**Files:**
-- Modify: `docker/mongodb-kubernetes-tests/tests/multicluster_search/q2_mc_rs_steady.py`
-
-- [ ] **Step 25.1: Find and remove iter-1 `syncSourceSelector.hosts` plumbing**
-
-```bash
-grep -n "syncSourceSelector\|REGION_TAGS\|matchTags" docker/mongodb-kubernetes-tests/tests/multicluster_search/q2_mc_rs_steady.py
-```
-
-In the `mdbs` fixture, remove any block that sets `clusters[i].syncSourceSelector.hosts`. The `clusters` shape becomes:
-
-```python
-resource["spec"]["clusters"] = [
-    {"clusterName": mcc.cluster_name, "replicas": 2}
-    for mcc in member_cluster_clients
-]
-```
-
-- [ ] **Step 25.2: Remove REGION_TAGS pinning on the MongoDBMulti source**
-
-In the `mdb` fixture, remove any `tags` setting on `clusterSpecList[i].memberConfig[*].tags`. (The `mongotHost`-bearing `clusterSpecList[i]` from Task 24 stays; just the `tags` go.)
-
-- [ ] **Step 25.3: Drop the import of `REGION_TAGS` from `q2_topology`**
-
-```bash
-grep -n "REGION_TAGS" docker/mongodb-kubernetes-tests/tests/multicluster_search/q2_mc_rs_steady.py docker/mongodb-kubernetes-tests/tests/common/search/q2_topology.py
-```
-
-Remove the import line. If `REGION_TAGS` is unused elsewhere, also delete its definition in `q2_topology.py`.
-
-- [ ] **Step 25.4: Lint and commit**
-
-```bash
-python3 -m black docker/mongodb-kubernetes-tests/tests/multicluster_search/q2_mc_rs_steady.py --line-length 120
-python3 -m isort docker/mongodb-kubernetes-tests/tests/multicluster_search/q2_mc_rs_steady.py --profile black --line-length 120
-git add docker/mongodb-kubernetes-tests/
-git commit -m "test(search): MC RS — drop unused per-cluster syncSourceSelector.hosts and REGION_TAGS"
-```
+No per-cluster `syncSourceSelector.hosts` (the agent verification in the spec showed mongot uses the host list as a seed, not an exclusive allowed set — per-cluster hosts add no routing benefit in MVP). No `REGION_TAGS` either (mongot doesn't yet consume `readPreferenceTags`; tags are post-MVP polish).
 
 ## Task 25.5: Wire cross-cluster Secret replication into the e2e test setup
+
+**Status: DONE** — landed as `test_replicate_secrets_to_members` in `q2_mc_rs_steady.py` as part of the from-scratch author at commit `29083c171`. Verified at eebd61b6e:docker/mongodb-kubernetes-tests/tests/multicluster_search/q2_mc_rs_steady.py:434.
 
 **Files:**
 - Modify: `docker/mongodb-kubernetes-tests/tests/multicluster_search/q2_mc_rs_steady.py`
@@ -2358,6 +2149,8 @@ git commit -m "test(search): MC RS — replicate LB cert, source CA, mongot pass
 
 ## Task 26: Add `$vectorSearch` index creation test
 
+**Status: DONE** — folded into the from-scratch author at commit `29083c171`.
+
 **Files:**
 - Modify: `docker/mongodb-kubernetes-tests/tests/multicluster_search/q2_mc_rs_steady.py`
 
@@ -2395,6 +2188,8 @@ git commit -m "test(search): MC RS — add \$vectorSearch index creation"
 ```
 
 ## Task 27: Add `$vectorSearch` query execution test
+
+**Status: DONE** — folded into the from-scratch author at commit `29083c171`.
 
 **Files:**
 - Modify: `docker/mongodb-kubernetes-tests/tests/multicluster_search/q2_mc_rs_steady.py`
@@ -2489,9 +2284,16 @@ git add docker/mongodb-kubernetes-tests/
 git commit -m "test(search): MC RS — add \$vectorSearch query execution per cluster"
 ```
 
-## Task 28: Push and trigger Phase 2 Evergreen patch
+## Task 28: Push and trigger Phase 2 Evergreen patch (G2)
+
+**Status: IN FLIGHT** — v1, v2, v3, v4 all failed; user is iterating on the test. The pre-Evergreen firm gate (Task 21 — full Go MC reconcile tests + lint) is green; patch failures so far have been integration-level discoveries (per-cluster Envoy CM volume mismatch, LB cert SAN coverage, locality verification, etc.) that the unit-level tests don't catch.
 
 **Files:** none (CI only)
+
+**Important variant correction from the original plan task:** the original referenced `e2e_static_mongodb_kind_ubi` — **that variant does not exist**. Correct variant names (verified from `.evergreen.yml`):
+
+- **MC test (`e2e_search_q2_mc_rs_steady`)**: variant `e2e_static_multi_cluster_2_clusters` (the 2-cluster MC variant; this is the variant that has the kind setup with two member clusters).
+- **SC regression (`e2e_search_replicaset_external_*`, `e2e_search_sharded_*`)**: variant `e2e_static_mdb_kind_ubi_cloudqa` (or `_large` for the larger fleet).
 
 - [ ] **Step 28.1: Push the branch**
 
@@ -2499,17 +2301,26 @@ git commit -m "test(search): MC RS — add \$vectorSearch query execution per cl
 git push origin mc-search-phase2-q2-rs
 ```
 
-- [ ] **Step 28.2: Trigger Evergreen patch**
+- [ ] **Step 28.2: Trigger Evergreen patch (split by variant since MC and SC live on different variants)**
 
 ```bash
+# MC test on the 2-cluster variant
 evergreen patch \
   --project mongodb-kubernetes \
-  --variants e2e_static_mongodb_kind_ubi \
-  --tasks e2e_search_q2_mc_rs_steady,e2e_search_replicaset_external_mongodb_multi_mongot_managed_lb,e2e_search_replicaset_external_mongodb_multi_mongot_unmanaged_lb \
-  -y -d "Phase 2: Q2-RS-MC operator + tightened MC RS e2e + \$vectorSearch"
+  --variants e2e_static_multi_cluster_2_clusters \
+  --tasks e2e_search_q2_mc_rs_steady \
+  -y -d "Phase 2 G2: Q2-RS-MC operator + tightened MC RS e2e + \$vectorSearch"
+# Capture patch ID.
+
+# Single-cluster regression on the standard SC kind variant
+evergreen patch \
+  --project mongodb-kubernetes \
+  --variants e2e_static_mdb_kind_ubi_cloudqa \
+  --tasks e2e_search_replicaset_external_mongodb_multi_mongot_managed_lb,e2e_search_replicaset_external_mongodb_multi_mongot_unmanaged_lb \
+  -y -d "Phase 2 G2: SC RS regression bar"
 ```
 
-Capture the patch ID. Run `evergreen finalize-patch -i <patch-id>`.
+Capture each patch ID. Run `evergreen finalize-patch -i <patch-id>` for each (`-y` does NOT auto-finalize).
 
 - [ ] **Step 28.3: Watch the patch**
 
@@ -2532,30 +2343,32 @@ If `e2e_search_q2_mc_rs_steady` fails, examine the patch's task page for the fai
 
 ## Task 29: Open Phase 2 PR
 
+**Status: PENDING** — gated on Task 28 (G2 Evergreen patch green). Branch `mc-search-phase2-q2-rs` carries all Tasks 14-27 work plus the Phase 2 follow-ups. Out-of-band landed already: PR #1055 (commit `eebd61b6e` (#1055): fix(test): pin q2_mc_rs_steady source mongod to 8.2.0-ent) — small fix that unblocked v2/v3 patch progress without needing to wait for the full Phase 2 PR.
+
 - [ ] **Step 29.1: Create the PR**
 
 ```bash
-gh pr create --base search/ga-base --head mc-search-phase2-q2-rs \
-  --title "Phase 2: Q2-RS-MC operator + tightened MC RS e2e + \$vectorSearch" \
+gh pr create --draft --base search/ga-base --head mc-search-phase2-q2-rs \
+  --title "Phase 2: Q2-RS-MC operator + strict MC RS e2e + \$vectorSearch" \
   --body "$(cat <<'EOF'
 ## Summary
 - Per-cluster mongot StatefulSet, ConfigMap, and proxy Service creation in each member cluster
 - Per-cluster naming helpers (`ProxyServiceNamespacedNameForCluster`, `MongotConfigConfigMapNameForCluster`, `StatefulSetNamespacedNameForCluster`, `SearchServiceNamespacedNameForCluster`)
-- Per-cluster Envoy filter chain SNI from per-cluster proxy-svc FQDN
-- LB cert SAN validator: must enumerate each cluster's distinct proxy-svc FQDN
+- Per-cluster Envoy filter chain SNI from per-cluster proxy-svc FQDN; per-cluster Pod CM volume name (cherry-picked into PR #1053 already)
+- LB cert SAN validator function added; reconcile-wiring is a Phase 2 follow-up (TODO landed on the function)
 - Admission rule: `external.hostAndPorts` non-empty when `len(spec.clusters) > 1`
-- Tightened `q2_mc_rs_steady.py`: real `Phase=Running`, real Envoy Ready, real per-cluster status, real `$search` data plane
-- Per-cluster `mongotHost` set via `clusterSpecList[i].additionalMongodConfig` (matches per-cluster proxy-svc FQDN)
-- Drops iter-1 per-cluster `syncSourceSelector.hosts` and `REGION_TAGS` (no functional effect; mongot uses host list as a seed)
-- Adds `$vectorSearch` coverage: index creation + query execution per cluster
+- `q2_mc_rs_steady.py` authored from scratch with strict assertions (PR #1041 scaffold discarded, not modified): real `Phase=Running`, real Envoy Ready, real per-cluster status, real `\$search` + `\$vectorSearch` data plane
+- Per-cluster `mongotHost` set via post-deploy Ops Manager AC PUT (`test_patch_per_cluster_mongot_host`) — Q2 customer-side flow; no MongoDBMulti CRD extension (closed PR #1051)
+- Cross-cluster Secret + CA ConfigMap replication wired into the e2e setup via PR #1047's harness
+- Comprehensive Go full-reconcile unit tests in `mongodbsearch_reconcile_full_mc_test.go` — firm gate before any Evergreen patch
 
 ## Test plan
-- [x] Unit tests: `go test ./api/v1/search/... ./controllers/searchcontroller/... ./controllers/operator/...` green
-- [x] Evergreen: `e2e_search_q2_mc_rs_steady` green with strict assertions + `$vectorSearch` (patch attached)
-- [x] Single-cluster Q2 RS regression: `e2e_search_replicaset_external_mongodb_multi_mongot_managed_lb` and `unmanaged_lb` green
+- [x] Unit tests including full-reconcile MC: `go test ./api/v1/search/... ./controllers/searchcontroller/... ./controllers/operator/...` green
+- [ ] Evergreen MC: `e2e_search_q2_mc_rs_steady` on `e2e_static_multi_cluster_2_clusters` (in flight; v1-v4 failed; iterating)
+- [ ] Evergreen SC regression: `e2e_search_replicaset_external_mongodb_multi_mongot_{managed,unmanaged}_lb` on `e2e_static_mdb_kind_ubi_cloudqa` green
 
 ## Acceptance gate
-G2 (named verification target) — `q2_mc_rs_steady.py` green with strict assertions, real `$search` + `$vectorSearch` data plane.
+G2 (named verification target) — `q2_mc_rs_steady.py` green with strict assertions, real `\$search` + `\$vectorSearch` data plane. Known weakness: per-cluster locality is asserted by construction (test PUTs each cluster's `mongotHost` to that cluster's local proxy-svc FQDN) rather than by observation (e.g., reading `/data/automation-mongod.conf` in each mongod). Locality-by-observation is a Phase 2 follow-up.
 
 ## Spec
 docs/superpowers/specs/2026-04-30-rs-mc-mvp-to-green-design.md
@@ -2584,24 +2397,24 @@ gh pr merge <pr-number> -R mongodb/mongodb-kubernetes --squash --delete-branch=f
 | MC E2E harness — Secret replicator | Task 9 |
 | MC E2E harness — deployment helper | Task 10 |
 | MC E2E harness — per-cluster assertions | Task 11 |
-| Harness smoke test | Tasks 12, 13 |
+| Harness smoke test | DROPPED (Tasks 12, 13) — covered at unit level + integration via Task 25.5 |
 | Per-cluster naming helpers (ProxyService, MongotConfigCM, StatefulSet, SearchService) | Tasks 14, 15 |
 | `reconcileUnit` per-cluster fan-out | Task 15 |
 | Per-cluster client routing | Task 16 |
 | External-source per-cluster mongot config rendering | Task 17 |
 | Envoy filter chain per-cluster SNI | Task 18 |
-| LB cert SAN multi-cluster validation | Task 19 |
+| LB cert SAN multi-cluster validation (function landed; reconcile-wiring is a Phase 2 follow-up) | Task 19 |
 | Admission: `external.hostAndPorts` required for MC | Task 20 |
-| Lint + full unit-test pass | Task 21 |
-| q2_mc_rs_steady tightening: strict Phase=Running, Envoy Ready, status | Task 22 |
-| q2_mc_rs_steady un-skip data plane | Task 23 |
-| Per-cluster mongotHost via clusterSpecList | Task 24 |
-| Drop syncSourceSelector.hosts and REGION_TAGS | Task 25 |
+| Comprehensive Go full-reconcile unit tests + lint (firm gate before Evergreen) | Task 21 |
+| q2_mc_rs_steady authored from scratch with strict assertions | Task 22 |
+| q2_mc_rs_steady data-plane tests included from line one | Task 23 |
+| Per-cluster mongotHost via post-deploy OM AC PUT (Q2 customer-side flow) | Task 24 |
+| From-scratch fixture omits unused syncSourceSelector.hosts and REGION_TAGS | Task 25 |
 | Cross-cluster Secret replication wired into e2e setup | Task 25.5 |
 | `$vectorSearch` index creation | Task 26 |
 | `$vectorSearch` query execution | Task 27 |
-| Evergreen patch + acceptance gate G2 | Task 28 |
-| PR creation | Task 29 |
+| Evergreen patch + acceptance gate G2 | Task 28 (in flight; v1-v4 failed) |
+| PR creation | Task 29 (pending) |
 
 No gaps.
 
@@ -2609,11 +2422,9 @@ No gaps.
 
 - `ProxyServiceNamespacedNameForCluster(clusterIndex int) types.NamespacedName` used in Tasks 14, 15, 16, 18, 19. Same signature throughout.
 - `MongotConfigConfigMapNameForCluster(clusterIndex int) types.NamespacedName` defined in Task 14, used in Task 15.
-- `MCSearchDeploymentHelper.proxy_svc_fqdn(cluster_name: str) -> str` defined in Task 10, used in Task 24.
-- `replicate_secret(secret_name, namespace, central_client, member_clients)` signature consistent across Tasks 9, 12.
-- `assert_resource_in_cluster(client, *, kind, name, namespace)` consistent in Tasks 11, 12.
+- `MCSearchDeploymentHelper.proxy_svc_fqdn(cluster_name: str) -> str` defined in Task 10, used in Tasks 24, 25.5.
+- `replicate_secret(secret_name, namespace, central_client, member_clients)` signature consistent across Tasks 9, 25.5.
+- `assert_resource_in_cluster(client, *, kind, name, namespace)` consistent in Task 11.
 - `validateLBCertSAN(mdb, certSecret) error` consistent in Task 19.
 
 No drift.
-
-**Placeholder scan:** No "TBD", "TODO", "implement later" in any step. All steps include exact code, exact paths, exact commands. Tasks 19, 20, 22, 24, 25 reference current-codebase structure (line ranges, function names) that the implementer verifies at kickoff — these are honest "find this in the file" instructions, not placeholders.
