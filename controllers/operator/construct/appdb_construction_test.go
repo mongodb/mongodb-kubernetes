@@ -37,11 +37,6 @@ func TestAppDBAgentFlags(t *testing.T) {
 	assert.Contains(t, command[len(command)-1], "-Key1=Value1", "-Key2=Value2")
 }
 
-// TestAppDBMultiClusterPerClusterStatefulSetOverride verifies that a
-// per-cluster StatefulSetConfiguration set on
-// spec.applicationDatabase.clusterSpecList[i].statefulSet is merged into the
-// generated StatefulSet. Specifically asserts hostAliases, since each pod in
-// a multi-cluster AppDB needs to bind its own external FQDN to localhost.
 func TestAppDBMultiClusterPerClusterStatefulSetOverride(t *testing.T) {
 	hostAliasesA := []corev1.HostAlias{{IP: "127.0.0.1", Hostnames: []string{"appdb-a.example.com"}}}
 	hostAliasesB := []corev1.HostAlias{{IP: "127.0.0.1", Hostnames: []string{"appdb-b.example.com"}}}
