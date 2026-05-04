@@ -80,6 +80,14 @@ rules:
       - opsmanagers/status
       - mongodbmulticluster/status
       - mongodbsearch/status
+  - apiGroups:
+      - ai.mongodb.com
+    verbs:
+      - '*'
+    resources:
+      - voyageai
+      - voyageai/finalizers
+      - voyageai/status
 ---
 # Source: mongodb-kubernetes/templates/operator-roles-base.yaml
 kind: RoleBinding
@@ -340,6 +348,7 @@ spec:
             - -watch-resource=mongodbusers
             - -watch-resource=mongodbcommunity
             - -watch-resource=mongodbsearch
+            - -watch-resource=voyageai
             - -watch-resource=mongodbmulticluster
             - -watch-resource=clustermongodbroles
           command:
@@ -435,6 +444,10 @@ spec:
               value: "0.64.0"
             - name: MDB_ENVOY_IMAGE
               value: "envoyproxy/envoy:v1.37-latest"
+            - name: MDB_VOYAGEAI_REPO_URL
+              value: "268558157000.dkr.ecr.us-east-1.amazonaws.com"
+            - name: MDB_VOYAGEAI_VERSION
+              value: "2026-04-10-alpha"
       volumes:
         - name: webhook-server-dir
           emptyDir: {}

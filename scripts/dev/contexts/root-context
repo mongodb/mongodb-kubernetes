@@ -138,6 +138,10 @@ export MDB_SEARCH_REPO_URL="268558157000.dkr.ecr.us-east-1.amazonaws.com"
 export MDB_SEARCH_VERSION="f85ffd3e5a"
 export MDB_ENVOY_IMAGE="envoyproxy/envoy:v1.37-latest"
 
+# Voyage AI
+export MDB_VOYAGEAI_REPO_URL="268558157000.dkr.ecr.us-east-1.amazonaws.com"
+export MDB_VOYAGEAI_VERSION="2026-04-10-alpha"
+
 if [[ ${MDB_BASH_DEBUG:-0} == 1 ]]; then
   export PS4='+(${BASH_SOURCE}:${LINENO})[^$?]: ${FUNCNAME[0]:+${FUNCNAME[0]}(): }'
 fi

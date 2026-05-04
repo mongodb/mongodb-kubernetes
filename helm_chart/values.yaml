@@ -26,6 +26,7 @@ operator:
   - mongodbusers
   - mongodbcommunity
   - mongodbsearch
+  - voyageai
 
   nodeSelector: {}
 
@@ -225,3 +226,10 @@ search:
   # default MongoDB Search version used; can be overridden by setting MongoDBSearch.spec.version field.
   version: 0.64.0
   envoyImage: envoyproxy/envoy:v1.37-latest
+
+# VoyageAI settings
+voyageai:
+  # Base registry path for VoyageAI images. Full image will be {voyageai.repo}/voyageai/{model}:{voyageai.version}
+  repo: 268558157000.dkr.ecr.us-east-1.amazonaws.com
+  # default VoyageAI image version; can be overridden by setting VoyageAI.spec.version field.
+  version: 2026-04-10-alpha
