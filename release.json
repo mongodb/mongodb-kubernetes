@@ -30,8 +30,8 @@
     },
     {
       "8": {
-        "opsManagerVersion": "8.0.22",
-        "agentVersion": "108.0.22.8983-1"
+        "opsManagerVersion": "8.0.23",
+        "agentVersion": "108.0.23.8997-1"
       }
     }
   ],
