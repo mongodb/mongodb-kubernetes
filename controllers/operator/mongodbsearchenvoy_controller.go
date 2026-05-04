@@ -153,15 +153,20 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 	var firstFailure error
 	multiCluster := len(workList) > 1 || (len(workList) == 1 && workList[0].ClusterName != "")
 
+	// Always append a per-cluster status entry per work item, even in single-
+	// cluster mode. This keeps worstOfClusterPhases below as the single source
+	// of truth for the top-level Phase regardless of cluster count — without it,
+	// a single-cluster failed reconcile would downgrade to Pending in the
+	// firstFailure branch (worstPhase would default to Running).
+	// The `multiCluster` flag only gates the patch back into Status.LoadBalancer
+	// so single-cluster installs keep the legacy on-disk shape (no Clusters[]).
 	for _, w := range workList {
 		st := r.reconcileForCluster(ctx, mdbSearch, searchSource, tlsEnabled, tlsCfg, w.ClusterName, log)
-		if multiCluster {
-			perClusterStatuses = append(perClusterStatuses, searchv1.ClusterLoadBalancerStatus{
-				ClusterName: w.ClusterName,
-				Phase:       st.Phase(),
-				Message:     searchcontroller.MessageFromStatus(st),
-			})
-		}
+		perClusterStatuses = append(perClusterStatuses, searchv1.ClusterLoadBalancerStatus{
+			ClusterName: w.ClusterName,
+			Phase:       st.Phase(),
+			Message:     searchcontroller.MessageFromStatus(st),
+		})
 		if !st.IsOK() && firstFailure == nil {
 			firstFailure = fmt.Errorf("cluster %q: %s", w.ClusterName, searchcontroller.MessageFromStatus(st))
 		}

@@ -938,6 +938,25 @@ func TestReconcile_AllClustersFailed_TopLevelPhaseIsFailed(t *testing.T) {
 		"all-Failed clusters must aggregate to top-level Failed, not Pending")
 }
 
+// TestWorstOfClusterPhases_SingleCluster_PreservesFailed regresses the
+// downgrade bug introduced when worstOfClusterPhases replaced isWorsePhase:
+// in single-cluster mode, the per-cluster status slice was previously only
+// appended when multiCluster == true, leaving worstOfClusterPhases returning
+// the empty-default PhaseRunning. The Reconcile firstFailure branch then
+// fell through to workflow.Pending — the top-level Phase reported Pending
+// while the underlying reconcile had Failed.
+//
+// Always-appending one entry (with ClusterName == "") fixes it; this test
+// asserts the worstOfClusterPhases helper computes Failed for the
+// single-entry-with-empty-name case the way Reconcile now feeds it.
+func TestWorstOfClusterPhases_SingleCluster_PreservesFailed(t *testing.T) {
+	got := worstOfClusterPhases([]searchv1.ClusterLoadBalancerStatus{
+		{ClusterName: "", Phase: status.PhaseFailed},
+	})
+	assert.Equal(t, status.PhaseFailed, got,
+		"single-cluster degenerate path (one entry with empty ClusterName) must propagate Failed, not downgrade to Running")
+}
+
 // failingWriteClient wraps a client.Client and rejects every write so we can
 // simulate a per-cluster Failed status without needing a real envtest.
 type failingWriteClient struct {
