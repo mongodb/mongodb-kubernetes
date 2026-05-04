@@ -486,7 +486,7 @@ func (r *MongoDBSearchEnvoyReconciler) ensureConfigMap(ctx context.Context, sear
 func (r *MongoDBSearchEnvoyReconciler) ensureDeployment(ctx context.Context, search *searchv1.MongoDBSearch, envoyJSON, clusterName string, tlsCfg *searchcontroller.TLSSourceConfig, log *zap.SugaredLogger) error {
 	c := selectEnvoyClient(clusterName, r.kubeClient, r.memberClusterClientsMap)
 	configHash := fmt.Sprintf("%x", sha256.Sum256([]byte(envoyJSON)))
-	replicas := envoyReplicasForCluster(search, clusterName)
+	replicas := envoyReplicas(search)
 	labels := envoyLabelsForCluster(search, clusterName)
 	podLabels := envoyPodLabelsForCluster(search, clusterName)
 	tlsEnabled := search.IsTLSConfigured()
@@ -700,24 +700,10 @@ func selectEnvoyClient(clusterName string, central kubernetesClient.Client, memb
 	return central
 }
 
-// envoyReplicasForCluster returns the desired Envoy replica count for one
-// member cluster, applying the precedence:
-//
-//	clusters[i].loadBalancer.managed.replicas  >  spec.loadBalancer.managed.replicas  >  envoyReplicasDefault
-//
-// In single-cluster (clusterName == "") the per-cluster lookup is skipped.
-func envoyReplicasForCluster(search *searchv1.MongoDBSearch, clusterName string) int32 {
-	if clusterName != "" && search.Spec.Clusters != nil {
-		for _, c := range *search.Spec.Clusters {
-			if c.ClusterName != clusterName {
-				continue
-			}
-			if c.LoadBalancer != nil && c.LoadBalancer.Managed != nil && c.LoadBalancer.Managed.Replicas != nil {
-				return *c.LoadBalancer.Managed.Replicas
-			}
-			break
-		}
-	}
+// envoyReplicas returns the desired Envoy replica count, applied uniformly
+// across every per-cluster Envoy Deployment.
+// Precedence: spec.loadBalancer.managed.replicas > envoyReplicasDefault.
+func envoyReplicas(search *searchv1.MongoDBSearch) int32 {
 	if search.Spec.LoadBalancer != nil && search.Spec.LoadBalancer.Managed != nil && search.Spec.LoadBalancer.Managed.Replicas != nil {
 		return *search.Spec.LoadBalancer.Managed.Replicas
 	}

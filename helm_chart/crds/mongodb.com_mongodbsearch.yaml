@@ -118,13 +118,14 @@ spec:
                         Only managed sub-fields are overridable per-cluster.
                       properties:
                         managed:
-                          description: Managed deep-merges into the top-level spec.loadBalancer.managed
-                            for this cluster.
+                          description: |-
+                            Managed deep-merges into the top-level spec.loadBalancer.managed for this cluster.
+                            Only the fields in PerClusterManagedLBConfig are overridable per-cluster — see
+                            the type doc.
                           properties:
                             deployment:
-                              description: |-
-                                Deployment holds optional overrides merged into the operator-created Envoy Deployment.
-                                Follows the same convention as spec.statefulSet on MongoDB resources.
+                              description: Deployment holds optional overrides merged
+                                into the operator-created Envoy Deployment.
                               properties:
                                 metadata:
                                   description: DeploymentMetadataWrapper is a wrapper
@@ -153,19 +154,8 @@ spec:
                                 SNI hostnames stay distinct.
                                 Required when MongoDB is externally managed. Ignored for operator-managed MongoDB.
                               type: string
-                            replicas:
-                              description: |-
-                                Replicas is the number of Envoy pods the operator deploys.
-                                In multi-cluster deployments, top-level spec.loadBalancer.managed.replicas is the
-                                default; per-cluster spec.clusters[].loadBalancer.managed.replicas overrides for
-                                that cluster. Default 1 when unset.
-                              format: int32
-                              minimum: 1
-                              type: integer
                             resourceRequirements:
-                              description: |-
-                                ResourceRequirements for the Envoy container.
-                                When not set, defaults to requests: {cpu: 100m, memory: 128Mi}, limits: {cpu: 500m, memory: 512Mi}.
+                              description: ResourceRequirements for the Envoy container.
                               properties:
                                 claims:
                                   description: |-
@@ -605,10 +595,10 @@ spec:
                         type: string
                       replicas:
                         description: |-
-                          Replicas is the number of Envoy pods the operator deploys.
-                          In multi-cluster deployments, top-level spec.loadBalancer.managed.replicas is the
-                          default; per-cluster spec.clusters[].loadBalancer.managed.replicas overrides for
-                          that cluster. Default 1 when unset.
+                          Replicas is the number of Envoy pods per per-cluster Envoy Deployment. The
+                          same count is applied to every cluster's Envoy Deployment; per-cluster
+                          overrides are not supported by the schema (PerClusterManagedLBConfig
+                          excludes Replicas). Default 1 when unset.
                         format: int32
                         minimum: 1
                         type: integer

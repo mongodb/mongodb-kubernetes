@@ -463,14 +463,14 @@ func TestEnvoyLabels_StampsCrossClusterEnqueueLabels(t *testing.T) {
 	assert.Equal(t, "us-east-k8s", mc[envoyClusterNameLabel])
 }
 
-// --- per-cluster replicas defaulting ------------------------------------------
+// --- envoy replicas defaulting ------------------------------------------
 
-func TestEnvoyReplicasForCluster_SingleCluster_DefaultsTo1(t *testing.T) {
+func TestEnvoyReplicas_DefaultsTo1(t *testing.T) {
 	search := &searchv1.MongoDBSearch{ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"}}
-	assert.Equal(t, int32(1), envoyReplicasForCluster(search, ""))
+	assert.Equal(t, int32(1), envoyReplicas(search))
 }
 
-func TestEnvoyReplicasForCluster_TopLevelOnly(t *testing.T) {
+func TestEnvoyReplicas_TopLevelOnly(t *testing.T) {
 	three := int32(3)
 	search := &searchv1.MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"},
@@ -480,8 +480,7 @@ func TestEnvoyReplicasForCluster_TopLevelOnly(t *testing.T) {
 			},
 		},
 	}
-	assert.Equal(t, int32(3), envoyReplicasForCluster(search, ""))
-	assert.Equal(t, int32(3), envoyReplicasForCluster(search, "us-east-k8s"))
+	assert.Equal(t, int32(3), envoyReplicas(search))
 }
 
 // envoyTestScheme returns a runtime.Scheme registered for the types ensureDeployment/
@@ -570,38 +569,6 @@ func TestEnsureConfigMap_MultiCluster_NoOwnerRef(t *testing.T) {
 
 	// Cross-cluster: no owner ref (k8s GC does not span clusters).
 	assert.Empty(t, cm.OwnerReferences)
-}
-
-func TestEnsureDeployment_PerClusterReplicas_FromClustersSpec(t *testing.T) {
-	scheme := envoyTestScheme(t)
-	central := fake.NewClientBuilder().WithScheme(scheme).Build()
-	memberA := fake.NewClientBuilder().WithScheme(scheme).Build()
-
-	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", map[string]client.Client{"a": memberA})
-
-	five := int32(5)
-	search := &searchv1.MongoDBSearch{
-		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"},
-		Spec: searchv1.MongoDBSearchSpec{
-			LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{}},
-			Clusters: &[]searchv1.ClusterSpec{
-				{
-					ClusterName: "a",
-					LoadBalancer: &searchv1.PerClusterLoadBalancerConfig{
-						Managed: &searchv1.ManagedLBConfig{Replicas: &five},
-					},
-				},
-			},
-		},
-	}
-
-	require.NoError(t, r.ensureDeployment(context.Background(), search, `{"x":1}`, "a", nil, zap.S()))
-
-	dep := &appsv1.Deployment{}
-	require.NoError(t, memberA.Get(context.Background(),
-		types.NamespacedName{Name: search.LoadBalancerDeploymentNameForCluster("a"), Namespace: "ns"}, dep))
-	require.NotNil(t, dep.Spec.Replicas)
-	assert.Equal(t, int32(5), *dep.Spec.Replicas)
 }
 
 // --- reconcile loop + per-cluster status --------------------------------------
@@ -756,30 +723,6 @@ func TestEnsureDeployment_PerClusterReplicas_DefaultsTo1(t *testing.T) {
 		types.NamespacedName{Name: search.LoadBalancerDeploymentNameForCluster("a"), Namespace: "ns"}, dep))
 	require.NotNil(t, dep.Spec.Replicas)
 	assert.Equal(t, int32(1), *dep.Spec.Replicas, "per-cluster replicas must default to 1 when unset")
-}
-
-func TestEnvoyReplicasForCluster_PerClusterOverride(t *testing.T) {
-	top := int32(2)
-	override := int32(5)
-	search := &searchv1.MongoDBSearch{
-		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"},
-		Spec: searchv1.MongoDBSearchSpec{
-			LoadBalancer: &searchv1.LoadBalancerConfig{
-				Managed: &searchv1.ManagedLBConfig{Replicas: &top},
-			},
-			Clusters: &[]searchv1.ClusterSpec{
-				{
-					ClusterName: "us-east-k8s",
-					LoadBalancer: &searchv1.PerClusterLoadBalancerConfig{
-						Managed: &searchv1.ManagedLBConfig{Replicas: &override},
-					},
-				},
-				{ClusterName: "eu-west-k8s"}, // inherits top-level (2)
-			},
-		},
-	}
-	assert.Equal(t, int32(5), envoyReplicasForCluster(search, "us-east-k8s"))
-	assert.Equal(t, int32(2), envoyReplicasForCluster(search, "eu-west-k8s"))
 }
 
 // --- end-to-end Reconcile + status aggregation -------------------------------
