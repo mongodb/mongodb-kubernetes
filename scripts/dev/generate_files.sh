@@ -17,7 +17,7 @@ mkdir -p "$(go env GOPATH)/bin"
 
 update_mco_tests() {
   echo "Regenerating MCO evergreen tests configuration"
-  python scripts/evergreen/e2e/mco/create_mco_tests.py >.evergreen-mco.yml
+  scripts/dev/run_python.sh scripts/evergreen/e2e/mco/create_mco_tests.py > .evergreen-mco.yml
 }
 
 # Generates a yaml file to install the operator from the helm sources.
@@ -73,19 +73,19 @@ generate_manifests() {
 update_values_yaml_files() {
   # ensure that all helm values files are up to date.
   # shellcheck disable=SC2154
-  python scripts/evergreen/release/update_helm_values_files.py
+  scripts/dev/run_python.sh scripts/evergreen/release/update_helm_values_files.py
 }
 
 update_mongodb_operator_version() {
   # ensure that release.json:mongodbOperator matches calculate_next_version output.
   # MUST run before update_release_json, which propagates this field to dependents.
-  python scripts/release/update_mongodb_operator_version.py
+  scripts/dev/run_python.sh scripts/release/update_mongodb_operator_version.py
 }
 
 update_release_json() {
   # ensure that release.json is up 2 date
   # shellcheck disable=SC2154
-  python scripts/evergreen/release/update_release.py
+  scripts/dev/run_python.sh scripts/evergreen/release/update_release.py
 }
 
 regenerate_public_rbac_multi_cluster() {
