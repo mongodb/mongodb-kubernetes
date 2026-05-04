@@ -66,8 +66,9 @@ class TestValidationFunctions(unittest.TestCase):
         self.agent_version = "13.5.2.7785"
 
 
-class TestBuildArgumentFailFast(unittest.TestCase):
-    """Build-arg generation must fail fast when a requested platform cannot be satisfied."""
+class TestBuildArgumentSkipsUnresolvable(unittest.TestCase):
+    """Build-arg generation skips platforms whose agent or tools tarball cannot be resolved
+    (e.g. when an old agent's S3 artifact has aged out). Callers handle the consequences."""
 
     def setUp(self):
         self.platforms = ["linux/amd64", "linux/s390x"]
@@ -75,16 +76,16 @@ class TestBuildArgumentFailFast(unittest.TestCase):
         self.agent_version = "13.5.2.7785"
 
     @patch("scripts.release.agent.validation._validate_url_exists")
-    def test_generate_tools_build_args_raises_when_platform_unresolvable(self, mock_validate):
-        # Tools available for amd64 but not s390x.
+    def test_generate_tools_build_args_skips_unresolvable_platform(self, mock_validate):
         mock_validate.side_effect = lambda url, timeout=30: "s390x" not in url
 
-        with self.assertRaisesRegex(RuntimeError, r"linux/s390x"):
-            generate_tools_build_args(self.platforms, self.tools_version)
+        build_args = generate_tools_build_args(self.platforms, self.tools_version)
+
+        self.assertIn("mongodb_tools_version_amd64", build_args)
+        self.assertNotIn("mongodb_tools_version_s390x", build_args)
 
     @patch("scripts.release.agent.validation._validate_url_exists")
-    def test_generate_agent_build_args_raises_when_agent_missing_for_platform(self, mock_validate):
-        # Agent missing for s390x (matches the cloud_manager 13.51.0.10584-1 regression).
+    def test_generate_agent_build_args_skips_when_agent_missing_for_platform(self, mock_validate):
         def side_effect(url, timeout=30):
             if "automation-agent" in url and "s390x" in url:
                 return False
@@ -92,11 +93,15 @@ class TestBuildArgumentFailFast(unittest.TestCase):
 
         mock_validate.side_effect = side_effect
 
-        with self.assertRaisesRegex(RuntimeError, r"agent.*linux/s390x"):
-            generate_agent_build_args(self.platforms, self.agent_version, self.tools_version)
+        build_args = generate_agent_build_args(self.platforms, self.agent_version, self.tools_version)
+
+        self.assertIn("mongodb_agent_version_amd64", build_args)
+        self.assertIn("mongodb_tools_version_amd64", build_args)
+        self.assertNotIn("mongodb_agent_version_s390x", build_args)
+        self.assertNotIn("mongodb_tools_version_s390x", build_args)
 
     @patch("scripts.release.agent.validation._validate_url_exists")
-    def test_generate_agent_build_args_raises_when_tools_missing_for_platform(self, mock_validate):
+    def test_generate_agent_build_args_skips_when_tools_missing_for_platform(self, mock_validate):
         def side_effect(url, timeout=30):
             if "database-tools" in url and "s390x" in url:
                 return False
@@ -104,8 +109,11 @@ class TestBuildArgumentFailFast(unittest.TestCase):
 
         mock_validate.side_effect = side_effect
 
-        with self.assertRaisesRegex(RuntimeError, r"tools.*linux/s390x"):
-            generate_agent_build_args(self.platforms, self.agent_version, self.tools_version)
+        build_args = generate_agent_build_args(self.platforms, self.agent_version, self.tools_version)
+
+        self.assertIn("mongodb_agent_version_amd64", build_args)
+        self.assertNotIn("mongodb_agent_version_s390x", build_args)
+        self.assertNotIn("mongodb_tools_version_s390x", build_args)
 
     def test_generate_tools_build_args_raises_for_unknown_platform(self):
         with self.assertRaisesRegex(RuntimeError, r"unknown/arch"):

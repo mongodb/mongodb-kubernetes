@@ -34,10 +34,6 @@ class PlatformConfiguration:
 
         Returns:
             Dictionary of build arguments for docker build (tools only)
-
-        Raises:
-            RuntimeError: if a requested platform is unknown or no working tools
-                filename can be resolved for it.
         """
         build_args = {}
 
@@ -47,12 +43,13 @@ class PlatformConfiguration:
 
             arch = platform.split("/")[-1]
 
+            # Use the same logic as validation to get the working tools filename
             tools_filename = get_working_tools_filename(tools_version, platform)
-            if not tools_filename:
-                raise RuntimeError(
-                    f"No working tools filename found for platform {platform} (tools version {tools_version})"
-                )
-            build_args[f"mongodb_tools_version_{arch}"] = tools_filename
+            if tools_filename:
+                build_args[f"mongodb_tools_version_{arch}"] = tools_filename
+            else:
+                logger.error(f"No working tools filename found for platform {platform}")
+                continue
 
         return build_args
 
@@ -67,10 +64,6 @@ class PlatformConfiguration:
 
         Returns:
             Dictionary of build arguments for docker build
-
-        Raises:
-            RuntimeError: if a requested platform is unknown or no working agent
-                or tools filename can be resolved for it.
         """
         build_args = {}
 
@@ -81,21 +74,19 @@ class PlatformConfiguration:
             arch = platform.split("/")[-1]
 
             agent_filename = get_working_agent_filename(agent_version, platform)
-            if not agent_filename:
-                raise RuntimeError(
-                    f"No working agent filename found for platform {platform} (agent version {agent_version})"
-                )
             tools_filename = get_working_tools_filename(tools_version, platform)
-            if not tools_filename:
-                raise RuntimeError(
-                    f"No working tools filename found for platform {platform} (tools version {tools_version})"
-                )
 
-            build_args[f"mongodb_agent_version_{arch}"] = agent_filename
-            build_args[f"mongodb_tools_version_{arch}"] = tools_filename
-            logger.debug(
-                f"Validated agent and tools versions for {platform}: agent={agent_filename}, tools={tools_filename}"
-            )
+            # Only add build args if we have valid filenames
+            if agent_filename and tools_filename:
+                build_args[f"mongodb_agent_version_{arch}"] = agent_filename
+                build_args[f"mongodb_tools_version_{arch}"] = tools_filename
+                logger.debug(
+                    f"Validated agent and tools versions for {platform}: agent={agent_filename}, tools={tools_filename}"
+                )
+            else:
+                logger.warning(f"Skipping build args for {platform} - missing agent or tools filename")
+                logger.debug(f"  agent_filename: {agent_filename}")
+                logger.debug(f"  tools_filename: {tools_filename}")
 
         return build_args
 
@@ -179,7 +170,7 @@ def _find_working_filename(
         else:
             logger.debug(f"{version_type.title()} version {version} not found for platform {platform} at {url}")
 
-    logger.warning(f"No working {version_type} filename found for {platform}")
+    logger.warning(f"No working {version_type} filename found for {platform}, platform will be skipped")
     return ""
 
 
