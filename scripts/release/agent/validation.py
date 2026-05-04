@@ -1,5 +1,4 @@
 import json
-import sys
 from typing import Callable, Dict, List
 
 import requests
@@ -35,23 +34,25 @@ class PlatformConfiguration:
 
         Returns:
             Dictionary of build arguments for docker build (tools only)
+
+        Raises:
+            RuntimeError: if a requested platform is unknown or no working tools
+                filename can be resolved for it.
         """
         build_args = {}
 
         for platform in platforms:
             if platform not in self.agent_info["platforms"]:
-                logger.error(f"Platform {platform} not found in agent mappings, skipping")
-                continue
+                raise RuntimeError(f"Platform {platform} not found in agent mappings")
 
             arch = platform.split("/")[-1]
 
-            # Use the same logic as validation to get the working tools filename
             tools_filename = get_working_tools_filename(tools_version, platform)
-            if tools_filename:
-                build_args[f"mongodb_tools_version_{arch}"] = tools_filename
-            else:
-                logger.error(f"No working tools filename found for platform {platform}")
-                continue
+            if not tools_filename:
+                raise RuntimeError(
+                    f"No working tools filename found for platform {platform} (tools version {tools_version})"
+                )
+            build_args[f"mongodb_tools_version_{arch}"] = tools_filename
 
         return build_args
 
@@ -66,30 +67,35 @@ class PlatformConfiguration:
 
         Returns:
             Dictionary of build arguments for docker build
+
+        Raises:
+            RuntimeError: if a requested platform is unknown or no working agent
+                or tools filename can be resolved for it.
         """
         build_args = {}
 
         for platform in platforms:
             if platform not in self.agent_info["platforms"]:
-                logger.warning(f"Platform {platform} not found in agent mappings, skipping")
-                continue
+                raise RuntimeError(f"Platform {platform} not found in agent mappings")
 
             arch = platform.split("/")[-1]
 
             agent_filename = get_working_agent_filename(agent_version, platform)
-            tools_filename = get_working_tools_filename(tools_version, platform)
-
-            # Only add build args if we have valid filenames
-            if agent_filename and tools_filename:
-                build_args[f"mongodb_agent_version_{arch}"] = agent_filename
-                build_args[f"mongodb_tools_version_{arch}"] = tools_filename
-                logger.debug(
-                    f"Validated agent and tools versions for {platform}: agent={agent_filename}, tools={tools_filename}"
+            if not agent_filename:
+                raise RuntimeError(
+                    f"No working agent filename found for platform {platform} (agent version {agent_version})"
                 )
-            else:
-                logger.warning(f"Skipping build args for {platform} - missing agent or tools filename")
-                logger.debug(f"  agent_filename: {agent_filename}")
-                logger.debug(f"  tools_filename: {tools_filename}")
+            tools_filename = get_working_tools_filename(tools_version, platform)
+            if not tools_filename:
+                raise RuntimeError(
+                    f"No working tools filename found for platform {platform} (tools version {tools_version})"
+                )
+
+            build_args[f"mongodb_agent_version_{arch}"] = agent_filename
+            build_args[f"mongodb_tools_version_{arch}"] = tools_filename
+            logger.debug(
+                f"Validated agent and tools versions for {platform}: agent={agent_filename}, tools={tools_filename}"
+            )
 
         return build_args
 
@@ -173,42 +179,8 @@ def _find_working_filename(
         else:
             logger.debug(f"{version_type.title()} version {version} not found for platform {platform} at {url}")
 
-    logger.warning(f"No working {version_type} filename found for {platform}, platform will be skipped")
+    logger.warning(f"No working {version_type} filename found for {platform}")
     return ""
-
-
-def _get_available_platforms(
-    version: str,
-    platforms: List[str],
-    base_url: str,
-    filenames_builder: Callable[[dict, str, str], List[str]],
-    version_type: str,
-) -> List[str]:
-    """
-    Generic function to get the list of platforms where a version is actually available,
-    trying multiple filename possibilities for each platform.
-
-    Args:
-        version: Version to check
-        platforms: List of platforms to check
-        base_url: Base URL for downloads
-        filenames_builder: Function that builds list of filenames from (agent_info, version, platform)
-        version_type: Type of version being validated (for logging)
-
-    Returns:
-        List of platforms where the version exists
-    """
-    available_platforms = []
-
-    for platform in platforms:
-        working_filename = _find_working_filename(version, platform, base_url, filenames_builder, version_type)
-        if working_filename:
-            available_platforms.append(platform)
-            logger.debug(
-                f"{version_type.title()} version {version} available for platform {platform} using {working_filename}"
-            )
-
-    return available_platforms
 
 
 def get_working_agent_filename(agent_version: str, platform: str) -> str:

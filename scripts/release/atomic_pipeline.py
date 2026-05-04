@@ -5,11 +5,10 @@ and where to fetch and calculate parameters."""
 import datetime
 import json
 import os
-import shutil
 from concurrent.futures import ProcessPoolExecutor
 from copy import copy
 from queue import Queue
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 import requests
 from opentelemetry import trace
@@ -239,9 +238,6 @@ def build_init_database_image(build_configuration: ImageBuildConfiguration):
     platform_build_args = generate_tools_build_args(
         platforms=build_configuration.platforms, tools_version=tools_version
     )
-    if not platform_build_args:
-        logger.warning(f"Skipping build for init-database - tools version {tools_version} not found in repository")
-        return
 
     args = {
         "version": build_configuration.version,
@@ -311,7 +307,6 @@ def build_agent(build_configuration: ImageBuildConfiguration):
             _build_agent(
                 agent_tools_version,
                 build_configuration,
-                build_configuration.platforms,
                 executor,
                 tasks_queue,
             )
@@ -322,33 +317,28 @@ def build_agent(build_configuration: ImageBuildConfiguration):
 def _build_agent(
     agent_tools_version: Tuple[str, str],
     build_configuration: ImageBuildConfiguration,
-    available_platforms: List[str],
     executor: ProcessPoolExecutor,
     tasks_queue: Queue,
 ):
     agent_version = agent_tools_version[0]
     tools_version = agent_tools_version[1]
 
-    tasks_queue.put(
-        executor.submit(build_agent_pipeline, build_configuration, agent_version, tools_version, available_platforms)
-    )
+    tasks_queue.put(executor.submit(build_agent_pipeline, build_configuration, agent_version, tools_version))
 
 
 def build_agent_pipeline(
     build_configuration: ImageBuildConfiguration,
     agent_version: str,
     tools_version: str,
-    available_platforms: List[str],
 ):
     build_configuration_copy = copy(build_configuration)
     build_configuration_copy.version = agent_version
-    build_configuration_copy.platforms = available_platforms  # Use only available platforms
     print(
         f"======== Building agent pipeline for version {agent_version}, build configuration version: {build_configuration.version}"
     )
 
     platform_build_args = generate_agent_build_args(
-        platforms=available_platforms, agent_version=agent_version, tools_version=tools_version
+        platforms=build_configuration.platforms, agent_version=agent_version, tools_version=tools_version
     )
 
     agent_base_url = (
