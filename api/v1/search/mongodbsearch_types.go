@@ -43,10 +43,8 @@ const (
 	ForceWireprotoAnnotation = "mongodb.com/v1.force-search-wireproto"
 
 	// LastClusterNumMapping holds the JSON-encoded clusterName -> clusterIndex
-	// mapping for spec.clusters[]. Mirrors mdbmulti.LastClusterNumMapping; the
-	// string value is intentionally identical so a future shared util can collapse
-	// the two without breaking existing CR annotations. Index never reused on
-	// remove/re-add (see api/v1/search/cluster_index.go).
+	// mapping for spec.clusters[]. Index never reused on remove/re-add
+	// (see api/v1/search/cluster_index.go).
 	LastClusterNumMapping = "mongodb.com/v1.lastClusterNumMapping"
 
 	MongoDBSearchIndexFieldName = "mdbsearch-for-mongodbresourceref-index"
@@ -465,31 +463,11 @@ type SearchClusterStatusItem struct {
 	// Common carries the per-cluster phase, message, lastTransition, and observedGeneration.
 	status.Common `json:",inline"`
 	// ObservedReplicas is the number of mongot pods this cluster currently has Ready.
-	// Used by the load-test harness as the readiness gate.
-	//
-	// TODO(phase-2): not yet written by either controller — ga-base does not
-	// fan-out per-cluster mongot StatefulSets, so there is no per-cluster
-	// Ready-replica count to observe. Phase 2's reconcile fan-out
-	// (controllers/searchcontroller/mongodbsearch_reconcile_helper.go) is
-	// where per-cluster STSs land; populate this then.
 	// +optional
 	ObservedReplicas int32 `json:"observedReplicas,omitempty"`
-	// Warnings is the per-cluster warnings list (e.g. customer-replicated
-	// secret missing in this cluster).
-	//
-	// Populated by buildPerClusterStatusItems in the search controller from
-	// the SecretCheckResult slice for each cluster name that matches a
-	// spec.clusters[i] entry. Central-only warnings (Cluster == "") flow
-	// through the operator log instead of this field.
 	// +optional
 	Warnings []status.Warning `json:"warnings,omitempty"`
-	// LoadBalancer is unused by either controller and is kept only to avoid
-	// CRD removal until the next API rev. The canonical per-cluster managed-LB
-	// phase lives in status.loadBalancer.clusters[i] (flat sibling), written
-	// by the Envoy controller in mongodbsearchenvoy_controller.go.
-	//
-	// Deprecated: read status.loadBalancer.clusters[i] instead. Phase 2 may
-	// remove this field together with the next CRD bump.
+	// Deprecated: read status.loadBalancer.clusters[i] instead.
 	// +optional
 	LoadBalancer *LoadBalancerStatus `json:"loadBalancer,omitempty"`
 }
@@ -520,11 +498,6 @@ type MongoDBSearchStatus struct {
 	// phase for sharded multi-cluster deployments. Flat map-of-map keyed by
 	// clusterName then shardName, matching MongoDB sharded's *InClusters
 	// precedent (api/v1/status/scaling_status.go).
-	//
-	// TODO(phase-3): not yet written by either controller — ga-base only
-	// surfaces per-(cluster) LB status via status.loadBalancer.clusters[]. The
-	// per-(cluster, shard) split lands when sharded MC search supports
-	// per-shard Envoy SNI routing.
 	// +optional
 	ShardLoadBalancerStatusInClusters map[string]map[string]*ShardLoadBalancerStatus `json:"shardLoadBalancerStatusInClusters,omitempty"`
 }

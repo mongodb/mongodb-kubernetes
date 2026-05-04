@@ -292,22 +292,8 @@ func AddMongoDBSearchController(
 			return err
 		}
 
-		// Per-member-cluster watches for resources the search controller manages there.
-		// Owner references do not cross cluster boundaries, so the
-		// EnqueueRequestForSearchOwnerMultiCluster handler reads the search-owner
-		// labels (khandler.MongoDBSearchOwnerNameLabel +
-		// MongoDBSearchOwnerNamespaceLabel) off the watched object — same scheme
-		// the Envoy controller's mapEnvoyObjectToSearch uses.
-		// PredicatesForMultiClusterSearchResource filters out unrelated churn.
-		// Backoff on unreachable member API is handled by controller-runtime's
-		// informer cache and surfaced via the health-check goroutine above.
-		//
-		// TODO(phase-2): the search controller does NOT yet write per-cluster
-		// member resources (STS / Service / ConfigMap / Secret); ga-base scope
-		// is single-cluster. Phase 2's reconcile fan-out
-		// (controllers/searchcontroller/mongodbsearch_reconcile_helper.go) must
-		// stamp these labels on every per-cluster write so the watches above
-		// actually fire — until then the routing is correct but inert.
+		// Per-member-cluster watches map events back to the parent MongoDBSearch
+		// via the search-owner labels (cross-cluster owner refs do not GC).
 		searchOwnerHandler := &khandler.EnqueueRequestForSearchOwnerMultiCluster{}
 		searchOwnerPredicate := watch.PredicatesForMultiClusterSearchResource()
 		watchedTypes := []client.Object{

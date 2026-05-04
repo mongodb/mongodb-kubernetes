@@ -94,9 +94,6 @@ func TestPredicatesForMongoDB(t *testing.T) {
 	})
 }
 
-// labeledSearchObj returns a ConfigMap stamped with the supplied labels.
-// Used by the search-owner predicate tests; mirrors the labels both
-// controllers stamp on member-cluster writes (search-owner name + namespace).
 func labeledSearchObj(labels map[string]string) *corev1.ConfigMap {
 	return &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "x", Namespace: "ns", Labels: labels}}
 }

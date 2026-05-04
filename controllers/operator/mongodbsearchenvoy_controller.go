@@ -8,7 +8,6 @@ import (
 
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/api/resource"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -61,12 +60,6 @@ const (
 	envoyConfigHashAnnotation = "mongodb.com/envoy-config-hash"
 
 	labelName = "search-proxy"
-
-	// envoyClusterNameLabel records which member cluster owns this resource.
-	// Cross-cluster enqueue labels (search-owner name + namespace) live in
-	// pkg/handler so both controllers can share them — see
-	// khandler.MongoDBSearchOwnerNameLabel / MongoDBSearchOwnerNamespaceLabel.
-	envoyClusterNameLabel = "mongodb.com/cluster-name"
 )
 
 // envoyRoute defines routing information for one Envoy entrypoint (one per shard, or one for RS).
@@ -153,13 +146,9 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 	var firstFailure error
 	multiCluster := len(workList) > 1 || (len(workList) == 1 && workList[0].ClusterName != "")
 
-	// Always append a per-cluster status entry per work item, even in single-
-	// cluster mode. This keeps worstOfClusterPhases below as the single source
-	// of truth for the top-level Phase regardless of cluster count — without it,
-	// a single-cluster failed reconcile would downgrade to Pending in the
-	// firstFailure branch (worstPhase would default to Running).
-	// The `multiCluster` flag only gates the patch back into Status.LoadBalancer
-	// so single-cluster installs keep the legacy on-disk shape (no Clusters[]).
+	// Append a per-cluster status entry for every work item, including the
+	// single-cluster degenerate case, so worstOfClusterPhases sees the actual
+	// failure phase rather than defaulting to Running.
 	for _, w := range workList {
 		st := r.reconcileForCluster(ctx, mdbSearch, searchSource, tlsEnabled, tlsCfg, w.ClusterName, log)
 		perClusterStatuses = append(perClusterStatuses, searchv1.ClusterLoadBalancerStatus{
@@ -173,8 +162,6 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 	}
 
 	// Canonical invariant: top-level Phase = WorstOfPhase(per-cluster Phases).
-	// Documented on LoadBalancerStatus; verified by TestWorstOfClusterPhases
-	// (unit) and TestReconcile_PerClusterStatus_Aggregated (integration).
 	worstPhase := worstOfClusterPhases(perClusterStatuses)
 	if multiCluster {
 		mdbSearch.Status.LoadBalancer = &searchv1.LoadBalancerStatus{
@@ -690,7 +677,7 @@ func envoyLabelsForCluster(search *searchv1.MongoDBSearch, clusterID string) map
 		khandler.MongoDBSearchOwnerNamespaceLabel: search.Namespace,
 	}
 	if clusterID != "" {
-		labels[envoyClusterNameLabel] = clusterID
+		labels[khandler.MongoDBSearchClusterNameLabel] = clusterID
 	}
 	return labels
 }
@@ -729,21 +716,12 @@ func envoyPodLabelsForCluster(search *searchv1.MongoDBSearch, clusterID string) 
 	}
 }
 
-// mapEnvoyObjectToSearch maps an Envoy Deployment or ConfigMap (in any cluster)
-// back to its owning MongoDBSearch. Cross-cluster owner refs do not GC, so the
-// label-based mapper is the only path home for member-cluster watches.
-//
-// Reads the same search-owner labels that the search controller's
-// EnqueueRequestForSearchOwnerMultiCluster reads — single label scheme across
-// both controllers (see pkg/handler/enqueue_owner_multi_search.go).
 func mapEnvoyObjectToSearch(_ context.Context, obj client.Object) []reconcile.Request {
-	labels := obj.GetLabels()
-	name := labels[khandler.MongoDBSearchOwnerNameLabel]
-	ns := labels[khandler.MongoDBSearchOwnerNamespaceLabel]
-	if name == "" || ns == "" {
+	req := khandler.MapMemberClusterObjectToSearch(obj)
+	if req == (reconcile.Request{}) {
 		return nil
 	}
-	return []reconcile.Request{{NamespacedName: types.NamespacedName{Name: name, Namespace: ns}}}
+	return []reconcile.Request{req}
 }
 
 // Controller Registration

@@ -19,17 +19,12 @@ func newQueue() workqueue.TypedRateLimitingInterface[reconcile.Request] {
 	return workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[reconcile.Request]())
 }
 
-// labeledConfigMap returns a ConfigMap stamped with the provided labels.
-// Used by the search-owner enqueue tests; mirrors the labels both controllers
-// stamp on member-cluster writes (search-owner name + namespace).
 func labeledConfigMap(ns, name string, labels map[string]string) client.Object {
 	return &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: name, Labels: labels},
 	}
 }
 
-// ownerLabels is shorthand for the search-owner label set; constructs the
-// pair (search-name, search-namespace) the enqueue handler reads.
 func ownerLabels(name, ns string) map[string]string {
 	return map[string]string{
 		MongoDBSearchOwnerNameLabel:      name,

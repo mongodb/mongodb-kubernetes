@@ -506,14 +506,14 @@ func TestEnvoyLabels_StampsCrossClusterEnqueueLabels(t *testing.T) {
 	single := envoyLabelsForCluster(search, "")
 	assert.Equal(t, "mdb-search", single[khandler.MongoDBSearchOwnerNameLabel])
 	assert.Equal(t, "ns", single[khandler.MongoDBSearchOwnerNamespaceLabel])
-	_, hasCluster := single[envoyClusterNameLabel]
+	_, hasCluster := single[khandler.MongoDBSearchClusterNameLabel]
 	assert.False(t, hasCluster)
 
 	// Multi-cluster: all three labels present.
 	mc := envoyLabelsForCluster(search, "us-east-k8s")
 	assert.Equal(t, "mdb-search", mc[khandler.MongoDBSearchOwnerNameLabel])
 	assert.Equal(t, "ns", mc[khandler.MongoDBSearchOwnerNamespaceLabel])
-	assert.Equal(t, "us-east-k8s", mc[envoyClusterNameLabel])
+	assert.Equal(t, "us-east-k8s", mc[khandler.MongoDBSearchClusterNameLabel])
 }
 
 // --- envoy replicas defaulting ------------------------------------------
@@ -571,7 +571,7 @@ func TestEnsureConfigMap_WritesToCorrectMemberCluster(t *testing.T) {
 		types.NamespacedName{Name: search.LoadBalancerConfigMapNameForCluster("a"), Namespace: "ns"}, cmA))
 	assert.Equal(t, `{"x":1}`, cmA.Data["envoy.json"])
 	// Cluster name label stamped.
-	assert.Equal(t, "a", cmA.Labels[envoyClusterNameLabel])
+	assert.Equal(t, "a", cmA.Labels[khandler.MongoDBSearchClusterNameLabel])
 	assert.Equal(t, "mdb-search", cmA.Labels[khandler.MongoDBSearchOwnerNameLabel])
 
 	// Central and member B do not.
@@ -668,12 +668,6 @@ func TestBuildClusterWorkList_MultiCluster_OneItemPerSpecEntry(t *testing.T) {
 // TestWorstOfClusterPhases regresses the canonical invariant declared on
 // LoadBalancerStatus: top-level Phase must equal WorstOfPhase across the
 // per-cluster Clusters[*].Phase entries when len(Clusters) > 0.
-//
-// This replaces the previous TestIsWorsePhase, which exercised a partial
-// rank function (only Failed/Pending/Running were ordered). The new helper
-// delegates to searchv1.WorstOfPhase, picking up the full Phase ordering
-// (Failed > Pending > Running > Updated > Disabled > Unsupported) from a
-// single source of truth.
 func TestWorstOfClusterPhases(t *testing.T) {
 	cases := []struct {
 		name string
@@ -751,7 +745,7 @@ func TestMapEnvoyObjectToSearch(t *testing.T) {
 			Labels: map[string]string{
 				khandler.MongoDBSearchOwnerNameLabel:      "mdb-search",
 				khandler.MongoDBSearchOwnerNamespaceLabel: "ns",
-				envoyClusterNameLabel:                     "a",
+				khandler.MongoDBSearchClusterNameLabel:                     "a",
 			},
 		},
 	}
@@ -938,17 +932,9 @@ func TestReconcile_AllClustersFailed_TopLevelPhaseIsFailed(t *testing.T) {
 		"all-Failed clusters must aggregate to top-level Failed, not Pending")
 }
 
-// TestWorstOfClusterPhases_SingleCluster_PreservesFailed regresses the
-// downgrade bug introduced when worstOfClusterPhases replaced isWorsePhase:
-// in single-cluster mode, the per-cluster status slice was previously only
-// appended when multiCluster == true, leaving worstOfClusterPhases returning
-// the empty-default PhaseRunning. The Reconcile firstFailure branch then
-// fell through to workflow.Pending — the top-level Phase reported Pending
-// while the underlying reconcile had Failed.
-//
-// Always-appending one entry (with ClusterName == "") fixes it; this test
-// asserts the worstOfClusterPhases helper computes Failed for the
-// single-entry-with-empty-name case the way Reconcile now feeds it.
+// TestWorstOfClusterPhases_SingleCluster_PreservesFailed asserts that the
+// single-cluster degenerate path (one entry with empty ClusterName) propagates
+// Failed rather than the empty-slice default of Running.
 func TestWorstOfClusterPhases_SingleCluster_PreservesFailed(t *testing.T) {
 	got := worstOfClusterPhases([]searchv1.ClusterLoadBalancerStatus{
 		{ClusterName: "", Phase: status.PhaseFailed},
