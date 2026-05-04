@@ -2,10 +2,16 @@ package search
 
 import (
 	"encoding/json"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"k8s.io/utils/ptr"
 
 	corev1 "k8s.io/api/core/v1"
@@ -965,4 +971,132 @@ func TestValidateClustersEnvoyResourceNames(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestRunValidations_AllValidatorsRegistered guards against the silent-drift
+// bug where a new validateXxx function is defined in mongodbsearch_validation.go
+// but accidentally not appended to the validators slice in RunValidations. Such
+// a validator would compile, all unit tests targeting it would still pass, but
+// admission would never fire it — the rule is effectively dead.
+//
+// The test parses mongodbsearch_validation.go's AST to:
+//  1. Enumerate every package-level function whose signature matches
+//     `func(*MongoDBSearch) v1.ValidationResult` — the validator contract.
+//  2. Enumerate every identifier referenced inside the validators slice
+//     literal in RunValidations.
+//
+// The two sets must match exactly. A validator added without registration is
+// in (1) but not in (2); a stale slice entry is in (2) but not in (1).
+func TestRunValidations_AllValidatorsRegistered(t *testing.T) {
+	defined := definedValidatorNames(t)
+	registered := registeredValidatorNames(t)
+
+	sort.Strings(defined)
+	sort.Strings(registered)
+
+	assert.Equal(t, defined, registered,
+		"validators slice in RunValidations is out of sync with defined validateXxx functions; "+
+			"every validator function must be both defined and registered")
+}
+
+// definedValidatorNames parses mongodbsearch_validation.go and returns the
+// names of every package-level function whose signature matches
+//
+//	func validateXxx(s *MongoDBSearch) v1.ValidationResult
+func definedValidatorNames(t *testing.T) []string {
+	t.Helper()
+	f := parseValidationFile(t)
+
+	var names []string
+	for _, decl := range f.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Recv != nil {
+			continue
+		}
+		if funcTypeMatchesValidator(fn.Type) {
+			names = append(names, fn.Name.Name)
+		}
+	}
+	return names
+}
+
+// registeredValidatorNames extracts the function names referenced in the
+// validators slice literal inside RunValidations. The slice is the canonical
+// admission roster; a function defined but absent here is dead code.
+func registeredValidatorNames(t *testing.T) []string {
+	t.Helper()
+	f := parseValidationFile(t)
+
+	var names []string
+	ast.Inspect(f, func(n ast.Node) bool {
+		fn, ok := n.(*ast.FuncDecl)
+		if !ok || fn.Name.Name != "RunValidations" {
+			return true
+		}
+		ast.Inspect(fn.Body, func(n ast.Node) bool {
+			cl, ok := n.(*ast.CompositeLit)
+			if !ok {
+				return true
+			}
+			arr, ok := cl.Type.(*ast.ArrayType)
+			if !ok {
+				return true
+			}
+			ft, ok := arr.Elt.(*ast.FuncType)
+			if !ok || !funcTypeMatchesValidator(ft) {
+				return true
+			}
+			for _, elt := range cl.Elts {
+				if ident, ok := elt.(*ast.Ident); ok {
+					names = append(names, ident.Name)
+				}
+			}
+			return false
+		})
+		return false
+	})
+
+	require.NotEmpty(t, names,
+		"could not locate the validators slice literal in RunValidations — test parser is stale")
+	return names
+}
+
+// funcTypeMatchesValidator returns true when the AST function-type matches
+// `func(*MongoDBSearch) v1.ValidationResult`. Used both to filter top-level
+// function declarations and to identify the validators slice element type.
+func funcTypeMatchesValidator(ft *ast.FuncType) bool {
+	if ft.Params == nil || len(ft.Params.List) != 1 {
+		return false
+	}
+	if ft.Results == nil || len(ft.Results.List) != 1 {
+		return false
+	}
+	starExpr, ok := ft.Params.List[0].Type.(*ast.StarExpr)
+	if !ok {
+		return false
+	}
+	ident, ok := starExpr.X.(*ast.Ident)
+	if !ok || ident.Name != "MongoDBSearch" {
+		return false
+	}
+	sel, ok := ft.Results.List[0].Type.(*ast.SelectorExpr)
+	if !ok {
+		return false
+	}
+	pkgIdent, ok := sel.X.(*ast.Ident)
+	if !ok || pkgIdent.Name != "v1" || sel.Sel.Name != "ValidationResult" {
+		return false
+	}
+	return true
+}
+
+func parseValidationFile(t *testing.T) *ast.File {
+	t.Helper()
+	path, err := filepath.Abs("mongodbsearch_validation.go")
+	require.NoError(t, err)
+
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, path, nil, parser.AllErrors)
+	require.NoError(t, err, "failed to parse %s", path)
+	return f
 }
