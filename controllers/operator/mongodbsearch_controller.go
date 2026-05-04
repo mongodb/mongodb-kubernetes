@@ -126,18 +126,23 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 		r.watch.AddWatchedResourceIfNotAdded(mdbSearch.Spec.AutoEmbedding.EmbeddingModelAPIKeySecret.Name, mdbSearch.Namespace, watch.Secret, mdbSearch.NamespacedName())
 	}
 
+	memberClients := make(map[string]client.Client, len(r.memberClusterClientsMap))
+	for name, kc := range r.memberClusterClientsMap {
+		memberClients[name] = kc
+	}
+	// Run the customer-replicated-secret presence check up front so the helper
+	// can fold gaps into the per-cluster status patch in a single writeback,
+	// rather than requiring a follow-up patch from this controller.
+	gaps := searchcontroller.CheckSecretsPresence(ctx, mdbSearch, r.kubeClient, memberClients)
+
 	reconcileHelper := searchcontroller.NewMongoDBSearchReconcileHelper(r.kubeClient, mdbSearch, searchSource, r.operatorSearchConfig)
+	reconcileHelper.SetSecretGaps(gaps)
 
 	result, err := reconcileHelper.Reconcile(ctx, log).ReconcileResult()
 	if err != nil {
 		return result, err
 	}
 
-	memberClients := make(map[string]client.Client, len(r.memberClusterClientsMap))
-	for name, kc := range r.memberClusterClientsMap {
-		memberClients[name] = kc
-	}
-	gaps := searchcontroller.CheckSecretsPresence(ctx, mdbSearch, r.kubeClient, memberClients)
 	if len(gaps) > 0 {
 		r.surfaceMissingSecrets(gaps, log)
 		if result.RequeueAfter == 0 {
@@ -287,13 +292,8 @@ func AddMongoDBSearchController(
 			return err
 		}
 
-		// Per-member-cluster watches for resources the search controller manages there.
-		// Owner references do not cross cluster boundaries, so the
-		// EnqueueRequestForSearchOwnerMultiCluster handler reads the
-		// MongoDBSearchResourceAnnotation off the watched object instead.
-		// PredicatesForMultiClusterSearchResource filters out unrelated churn.
-		// Backoff on unreachable member API is handled by controller-runtime's
-		// informer cache and surfaced via the health-check goroutine above.
+		// Per-member-cluster watches map events back to the parent MongoDBSearch
+		// via the search-owner labels (cross-cluster owner refs do not GC).
 		searchOwnerHandler := &khandler.EnqueueRequestForSearchOwnerMultiCluster{}
 		searchOwnerPredicate := watch.PredicatesForMultiClusterSearchResource()
 		watchedTypes := []client.Object{
