@@ -26,15 +26,19 @@ Data-plane assertions:
   non-empty result set; this exercises the AI/Voyage embedding path
   end-to-end (env var `AI_MONGODB_EMBEDDING_QUERY_KEY`).
 
-Known MVP gap (out of scope for this test):
-- Per-cluster mongotHost via spec.clusterSpecList[i].additionalMongodConfig
-  is described in the spec doc but is not yet a CRD field on
-  MongoDBMultiCluster. Until the CRD is extended, the top-level
-  `additionalMongodConfig.setParameter.mongotHost` is set to
-  cluster-0's proxy-svc FQDN; cross-cluster mongod traffic is
-  resolved by the kind cluster mesh. Per-cluster Envoy *creation* and
-  *readiness* are still asserted in each cluster, so the operator-side
-  per-cluster reconcile coverage is real.
+Per-cluster mongotHost locality:
+- The MongoDBMultiCluster CRD does not (yet) expose per-cluster
+  `additionalMongodConfig` (the field lives only at the top level on
+  `DbCommonSpec`; see
+  `docs/superpowers/research/2026-05-04-per-cluster-mongothost-mitigations.md`
+  for the gap analysis and the planned CRD-extension micro-PR). For the
+  e2e, after MongoDBMulti reaches Running we patch the Ops Manager
+  automation config in `test_patch_per_cluster_mongot_host` so each
+  cluster's mongods point `mongotHost` and
+  `searchIndexManagementHostAndPort` at THEIR cluster's local Envoy
+  proxy-svc FQDN. The top-level spec value still names cluster-0's
+  proxy-svc (so the source RS can reach Running before the patch), and
+  the per-process AC keys override it for query-side locality.
 """
 
 import os
@@ -140,11 +144,13 @@ def mdb(
 ) -> MongoDBMulti:
     """2-cluster MongoDBMulti RS source with TLS+SCRAM.
 
-    `mongotHost` is set top-level to cluster-0's proxy-svc FQDN. Per-cluster
-    `mongotHost` would require a CRD extension on MongoDBMultiCluster
-    (spec.clusterSpecList[i].additionalMongodConfig) which is out of
-    scope for Phase 2 ops code; cross-cluster mongod traffic is resolved
-    by the kind cluster mesh.
+    `mongotHost` is set top-level to cluster-0's proxy-svc FQDN to keep
+    every mongod's startup-time validation happy (the source RS can't
+    reach Running with `searchTLSMode=requireTLS` if `mongotHost` is
+    missing). Per-process per-cluster locality is then applied via a
+    post-deploy AC patch in `test_patch_per_cluster_mongot_host` —
+    operator does not yet expose
+    `clusterSpecList[i].additionalMongodConfig`.
     """
     resource = MongoDBMulti.from_yaml(
         yaml_fixture("search-q2-mc-rs.yaml"),
@@ -580,6 +586,78 @@ def test_verify_lb_status(mdbs: MongoDBSearch):
     mdbs.assert_lb_status()
 
 
+@mark.e2e_search_q2_mc_rs_steady
+def test_patch_per_cluster_mongot_host(
+    mdb: MongoDBMulti,
+    helper: MCSearchDeploymentHelper,
+    member_cluster_clients: List[MultiClusterClient],
+):
+    """Patch Ops Manager AC so each cluster's mongods point `mongotHost`
+    and `searchIndexManagementHostAndPort` at THEIR cluster's local Envoy
+    proxy-svc FQDN.
+
+    The MongoDBMultiCluster CRD does NOT yet expose per-cluster
+    `additionalMongodConfig`. The CRD-extension path (Option A in
+    `docs/superpowers/research/2026-05-04-per-cluster-mongothost-mitigations.md`)
+    is the production fix; for the e2e we instead read the AC, mutate
+    each process's `args2_6.setParameter` based on the cluster index
+    encoded in the process name (`{mdb.name}-{clusterIdx}-{podIdx}`),
+    bump the AC version, and PUT the result back via the OM REST API.
+    `wait_agents_ready` then blocks until every mongod has rolled to
+    the new goal version.
+
+    The top-level `additionalMongodConfig.setParameter.mongotHost` in
+    spec keeps pointing at cluster-0's proxy-svc — the source RS
+    cannot reach Running with `searchTLSMode=requireTLS` and a missing
+    `mongotHost` at startup. The per-process AC keys we set here
+    override the top-level value at the AC layer.
+    """
+    om_tester = mdb.get_om_tester()
+    ac_path = f"/groups/{om_tester.context.project_id}/automationConfig"
+    ac = om_tester.om_request("get", ac_path).json()
+
+    proxy_by_cluster_idx = {
+        helper.cluster_index(mcc.cluster_name): f"{helper.proxy_svc_fqdn(mcc.cluster_name)}:{ENVOY_PROXY_PORT}"
+        for mcc in member_cluster_clients
+    }
+    logger.info(f"per-cluster mongotHost map: {proxy_by_cluster_idx}")
+
+    # Process name is `{mdb.name}-{clusterIdx}-{podIdx}` per
+    # CreateMongodProcessesWithLimitMulti in controllers/om/process/om_process.go.
+    process_prefix = f"{mdb.name}-"
+    patched_processes: List[str] = []
+    for process in ac.get("processes", []):
+        process_name = process.get("name", "")
+        if not process_name.startswith(process_prefix):
+            continue
+        try:
+            cluster_idx = int(process_name[len(process_prefix) :].split("-")[0])
+        except ValueError:
+            continue
+        if cluster_idx not in proxy_by_cluster_idx:
+            continue
+
+        mongot_host = proxy_by_cluster_idx[cluster_idx]
+        set_parameter = process.setdefault("args2_6", {}).setdefault("setParameter", {})
+        set_parameter["mongotHost"] = mongot_host
+        set_parameter["searchIndexManagementHostAndPort"] = mongot_host
+        patched_processes.append(f"{process_name}->{mongot_host}")
+
+    assert patched_processes, (
+        f"no AC processes matched prefix {process_prefix!r}; "
+        f"AC contained {[p.get('name') for p in ac.get('processes', [])]}"
+    )
+    logger.info(f"patched {len(patched_processes)} processes: {patched_processes}")
+
+    ac["version"] = ac.get("version", 0) + 1
+    om_tester.om_request("put", ac_path, json_object=ac)
+    logger.info(f"PUT automation config v{ac['version']} with per-cluster mongotHost")
+
+    # Block until every mongod has applied the new goal version — setParameter
+    # changes here require a process restart.
+    om_tester.wait_agents_ready(timeout=900)
+
+
 # =============================================================================
 # Data plane: $search and $vectorSearch
 # =============================================================================
@@ -620,10 +698,12 @@ def test_create_search_index(mdb: MongoDBMulti):
 def test_execute_text_search_query(mdb: MongoDBMulti):
     """STRICT — $search aggregation returns non-empty results.
 
-    Topology is RS — any pod's aggregation will hit the primary.
-    A single search execution from cluster-0/member-0 is sufficient
-    to validate cross-cluster mongot indexing, given that the same
-    top-level external host list seeds every cluster's mongot.
+    Per-cluster mongotHost routing is in effect (see
+    `test_patch_per_cluster_mongot_host`). Topology is RS — any pod's
+    aggregation will hit the primary, which forwards $search to its
+    cluster-local Envoy → cluster-local mongot pool. A single search
+    execution is sufficient to validate that the indexed dataset is
+    discoverable from the locality-pinned query path.
     """
     tester = _search_tester_for_mdb(mdb, USER_NAME, USER_PASSWORD)
     helper = SampleMoviesSearchHelper(search_tester=tester)
@@ -652,11 +732,11 @@ def test_create_vector_search_index(mdb: MongoDBMulti):
 def test_execute_vector_search_query(mdb: MongoDBMulti):
     """STRICT — $vectorSearch returns non-empty results.
 
-    The auto-embedding $vectorSearch path goes through the Voyage
-    embedding API on every query; this exercises the AI path
-    end-to-end and validates that mongot has indexed the data
-    (even though every mongot was seeded from the same top-level
-    external host list).
+    Per-cluster mongotHost routing is in effect (see
+    `test_patch_per_cluster_mongot_host`). The auto-embedding
+    $vectorSearch path goes through the Voyage embedding API on every
+    query; this exercises the AI path end-to-end while keeping the
+    locality-pinned mongod -> Envoy -> mongot dataflow.
     """
     if EMBEDDING_QUERY_KEY_ENV_VAR not in os.environ:
         pytest.skip(f"missing {EMBEDDING_QUERY_KEY_ENV_VAR} — required for $vectorSearch")
