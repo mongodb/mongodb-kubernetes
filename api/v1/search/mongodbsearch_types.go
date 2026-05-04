@@ -409,6 +409,18 @@ type TLS struct {
 }
 
 // LoadBalancerStatus reports the state of the operator-managed load balancer (Envoy).
+//
+// Canonical phase shape (multi-cluster):
+//   - Clusters[i].Phase is the ground truth — one entry per spec.clusters[i],
+//     written by the Envoy controller after each per-cluster reconcile.
+//   - Top-level Phase is the worst-of(Clusters[*].Phase) under the rank used by
+//     WorstOfPhase (Failed > Pending > Running > Updated > Disabled > Unsupported).
+//
+// Invariant: Phase == WorstOfPhase(Clusters[*].Phase) when len(Clusters) > 0.
+// Single-cluster (len(Clusters) == 0) keeps Phase as the legacy single-cluster
+// Envoy reconcile outcome and Clusters stays nil. This invariant is enforced
+// by the Envoy controller's reconcile loop and verified by
+// TestUpdateLBStatus_WorstOfPhase_Invariant.
 type LoadBalancerStatus struct {
 	Phase   status.Phase `json:"phase"`
 	Message string       `json:"message,omitempty"`
@@ -460,9 +472,13 @@ type SearchClusterStatusItem struct {
 	// secret missing in this cluster).
 	// +optional
 	Warnings []status.Warning `json:"warnings,omitempty"`
-	// LoadBalancer reports the per-cluster managed-LB phase for ReplicaSet
-	// topologies. Sharded per-(cluster, shard) LB phase lives on the
-	// top-level ShardLoadBalancerStatusInClusters map.
+	// LoadBalancer is unused by either controller and is kept only to avoid
+	// CRD removal until the next API rev. The canonical per-cluster managed-LB
+	// phase lives in status.loadBalancer.clusters[i] (flat sibling), written
+	// by the Envoy controller in mongodbsearchenvoy_controller.go.
+	//
+	// Deprecated: read status.loadBalancer.clusters[i] instead. Phase 2 may
+	// remove this field together with the next CRD bump.
 	// +optional
 	LoadBalancer *LoadBalancerStatus `json:"loadBalancer,omitempty"`
 }

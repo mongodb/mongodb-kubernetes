@@ -150,7 +150,6 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 
 	workList := r.buildClusterWorkList(mdbSearch)
 	perClusterStatuses := make([]searchv1.ClusterLoadBalancerStatus, 0, len(workList))
-	worstPhase := status.PhaseRunning
 	var firstFailure error
 	multiCluster := len(workList) > 1 || (len(workList) == 1 && workList[0].ClusterName != "")
 
@@ -163,14 +162,15 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 				Message:     searchcontroller.MessageFromStatus(st),
 			})
 		}
-		if isWorsePhase(st.Phase(), worstPhase) {
-			worstPhase = st.Phase()
-		}
 		if !st.IsOK() && firstFailure == nil {
 			firstFailure = fmt.Errorf("cluster %q: %s", w.ClusterName, searchcontroller.MessageFromStatus(st))
 		}
 	}
 
+	// Canonical invariant: top-level Phase = WorstOfPhase(per-cluster Phases).
+	// Documented on LoadBalancerStatus and exercised by
+	// TestUpdateLBStatus_WorstOfPhase_Invariant.
+	worstPhase := worstOfClusterPhases(perClusterStatuses)
 	if multiCluster {
 		mdbSearch.Status.LoadBalancer = &searchv1.LoadBalancerStatus{
 			Phase:    worstPhase,
@@ -253,23 +253,23 @@ func (r *MongoDBSearchEnvoyReconciler) reconcileForCluster(
 	return workflow.OK()
 }
 
-// isWorsePhase returns true if a is "worse" than b in the ordering
-// Failed > Pending > Running. Used to compute the top-level Phase from
-// per-cluster phases.
-func isWorsePhase(a, b status.Phase) bool {
-	rank := func(p status.Phase) int {
-		switch p {
-		case status.PhaseFailed:
-			return 3
-		case status.PhasePending:
-			return 2
-		case status.PhaseRunning:
-			return 1
-		default:
-			return 0
-		}
+// worstOfClusterPhases returns the worst-of phase across the supplied
+// per-cluster LB statuses, defaulting to PhaseRunning when the slice is empty
+// (single-cluster path that never appends per-cluster items). This thin
+// wrapper centralises the canonical invariant declared on LoadBalancerStatus:
+//
+//	LoadBalancerStatus.Phase == WorstOfPhase(LoadBalancerStatus.Clusters[*].Phase)
+//
+// when len(Clusters) > 0.
+func worstOfClusterPhases(items []searchv1.ClusterLoadBalancerStatus) status.Phase {
+	if len(items) == 0 {
+		return status.PhaseRunning
 	}
-	return rank(a) > rank(b)
+	phases := make([]status.Phase, 0, len(items))
+	for _, it := range items {
+		phases = append(phases, it.Phase)
+	}
+	return searchv1.WorstOfPhase(phases...)
 }
 
 // updateLBStatus patches the loadBalancer sub-status on the MongoDBSearch CR

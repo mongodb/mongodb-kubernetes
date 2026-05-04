@@ -664,12 +664,64 @@ func TestBuildClusterWorkList_MultiCluster_OneItemPerSpecEntry(t *testing.T) {
 	assert.Equal(t, "b", wl[1].ClusterName)
 }
 
-func TestIsWorsePhase(t *testing.T) {
-	assert.True(t, isWorsePhase(status.PhaseFailed, status.PhaseRunning))
-	assert.True(t, isWorsePhase(status.PhasePending, status.PhaseRunning))
-	assert.True(t, isWorsePhase(status.PhaseFailed, status.PhasePending))
-	assert.False(t, isWorsePhase(status.PhaseRunning, status.PhasePending))
-	assert.False(t, isWorsePhase(status.PhaseRunning, status.PhaseRunning))
+// TestWorstOfClusterPhases regresses the canonical invariant declared on
+// LoadBalancerStatus: top-level Phase must equal WorstOfPhase across the
+// per-cluster Clusters[*].Phase entries when len(Clusters) > 0.
+//
+// This replaces the previous TestIsWorsePhase, which exercised a partial
+// rank function (only Failed/Pending/Running were ordered). The new helper
+// delegates to searchv1.WorstOfPhase, picking up the full Phase ordering
+// (Failed > Pending > Running > Updated > Disabled > Unsupported) from a
+// single source of truth.
+func TestWorstOfClusterPhases(t *testing.T) {
+	cases := []struct {
+		name string
+		in   []searchv1.ClusterLoadBalancerStatus
+		want status.Phase
+	}{
+		{
+			name: "empty slice — single-cluster degenerate path",
+			in:   nil,
+			want: status.PhaseRunning,
+		},
+		{
+			name: "single Running",
+			in:   []searchv1.ClusterLoadBalancerStatus{{Phase: status.PhaseRunning}},
+			want: status.PhaseRunning,
+		},
+		{
+			name: "Failed beats Running",
+			in: []searchv1.ClusterLoadBalancerStatus{
+				{Phase: status.PhaseRunning},
+				{Phase: status.PhaseFailed},
+			},
+			want: status.PhaseFailed,
+		},
+		{
+			name: "Pending beats Running",
+			in: []searchv1.ClusterLoadBalancerStatus{
+				{Phase: status.PhaseRunning},
+				{Phase: status.PhasePending},
+				{Phase: status.PhaseRunning},
+			},
+			want: status.PhasePending,
+		},
+		{
+			name: "Failed beats Pending",
+			in: []searchv1.ClusterLoadBalancerStatus{
+				{Phase: status.PhasePending},
+				{Phase: status.PhaseFailed},
+				{Phase: status.PhaseRunning},
+			},
+			want: status.PhaseFailed,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, worstOfClusterPhases(tc.in))
+		})
+	}
 }
 
 func TestReconcileForCluster_UnknownClusterPending(t *testing.T) {
