@@ -695,16 +695,16 @@ def test_verify_per_cluster_envoy_deployment(
 
 @mark.e2e_search_q2_mc_rs_steady
 def test_verify_per_cluster_status(mdbs: MongoDBSearch):
-    """STRICT — status.clusterStatusList must include every spec.clusters[] entry."""
+    """STRICT — status.clusterStatusList.clusterStatuses must include every spec.clusters[] entry."""
     mdbs.load()
-    cluster_statuses = mdbs["status"].get("clusterStatusList")
-    assert cluster_statuses, f"status.clusterStatusList empty/missing: {cluster_statuses}"
+    cluster_statuses = (mdbs["status"].get("clusterStatusList") or {}).get("clusterStatuses") or []
+    assert cluster_statuses, f"status.clusterStatusList.clusterStatuses empty/missing: {cluster_statuses}"
 
     spec_cluster_names = {c["clusterName"] for c in mdbs["spec"].get("clusters") or []}
     status_cluster_names = {entry.get("clusterName") for entry in cluster_statuses}
     assert spec_cluster_names <= status_cluster_names, (
         f"spec.clusters names {spec_cluster_names} not all present in "
-        f"status.clusterStatusList: {status_cluster_names}"
+        f"status.clusterStatusList.clusterStatuses: {status_cluster_names}"
     )
     logger.info(f"status.clusterStatusList covers all spec.clusters[] entries: {sorted(status_cluster_names)}")
 
