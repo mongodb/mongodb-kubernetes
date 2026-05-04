@@ -3,11 +3,13 @@
 **Date:** 2026-05-03
 **Status:** WORKING DRAFT — to be re-brainstormed once Phase 2 (Q2-RS-MC) is green. Content carved out of `2026-04-30-rs-mc-mvp-to-green-design.md` to keep the active spec narrowly focused on Base + Phase 2.
 
+> **Scope status (2026-05-04):** Of the phases below, only Phase 3 (Q2-Sh-MC, externally-managed sharded) remains a candidate for *future* MVP expansion under the externally-managed-mongod-only constraint set on this date. **Phase 4 (Q1-RS-MC) and Phase 5 (Q1-Sh-MC) are operator-managed-mongod and therefore explicitly OUT OF MVP.** Treat them as post-MVP design parking only.
+
 This doc is a holding pen for design content covering:
 
 - **Phase 3** — Q2-Sh-MC (unmanaged sharded external)
-- **Phase 4** — Q1-RS-MC (managed RS internal)
-- **Phase 5** — Q1-Sh-MC (managed sharded internal)
+- **Phase 4** — Q1-RS-MC (managed RS internal) — **POST-MVP / NOT IN MVP (operator-managed mongod)**
+- **Phase 5** — Q1-Sh-MC (managed sharded internal) — **POST-MVP / NOT IN MVP (operator-managed mongod)**
 
 The intent: re-brainstorm each phase as its own focused spec when its turn comes (Phase 3 next, then 4 and 5 in parallel). Treat the content below as research input, not as committed design. Anything here may be revised once we have Phase 2 learnings.
 
@@ -67,7 +69,7 @@ Phases 2 + 3 parallel after Base. Phases 4 + 5 parallel after their respective Q
 
 ---
 
-## Phase 4 — Q1-RS-MC (managed RS internal)
+## POST-MVP / NOT IN MVP — operator-managed mongod — Phase 4 — Q1-RS-MC (managed RS internal)
 
 **Depends on:** Phase 2 (per-cluster RS mongot ConfigMap renderer).
 
@@ -92,7 +94,7 @@ Phases 2 + 3 parallel after Base. Phases 4 + 5 parallel after their respective Q
 
 ---
 
-## Phase 5 — Q1-Sh-MC (managed sharded internal)
+## POST-MVP / NOT IN MVP — operator-managed mongod — Phase 5 — Q1-Sh-MC (managed sharded internal)
 
 **Depends on:** Phase 3 (cross-product reconcile + cluster-level Envoy filter chain).
 

@@ -4,7 +4,7 @@
 
 **Goal:** Land the foundation for multi-cluster `MongoDBSearch` (the stacked B-section PR train + a reusable MC E2E harness), then ship Q2-RS-MC operator code so a 2-cluster `MongoDBSearch` against an unmanaged ReplicaSet source executes real `$search` and `$vectorSearch` queries end-to-end, with the existing Q2 e2e test (`q2_mc_rs_steady.py`) flipped from scaffold-level green to real-coverage green.
 
-**Architecture:** Base lands the spec.clusters[] CRD shape (B14+B18+B3+B4+B13), member-cluster client wiring (B1+B8), per-cluster Envoy Deployment+ConfigMap (B16), Secret presence checks (B5), and per-cluster status writes (B9) onto the integration branch `search/ga-base`, then adds a test-only MC E2E harness for cross-cluster Secret replication. Phase 2 extends the search controller's per-cluster reconcile loop to create per-cluster mongot StatefulSets, ConfigMaps, and proxy Services in each member cluster — each cluster gets its own `{name}-search-{clusterIndex}-proxy-svc` (cluster-index-suffixed; no shared-name DNS magic) and its own mongot config seeded from the shared top-level `spec.source.external.hostAndPorts`. Per-cluster `mongotHost` for **Q2 (external/customer-managed mongods)** is the **customer's responsibility**: the customer applies the per-process `setParameter.mongotHost` override to their own Ops Manager automation config (no MongoDBMulti CRD extension required — the e2e test simulates this customer-side flow via `OmTester.om_request("put", ...)` in `test_patch_per_cluster_mongot_host`; see [memory: per-cluster mongotHost — no CRD extension needed](file:///Users/anand.singh/.claude/projects/-Users-anand-singh-workspace-repos-mongodb-kubernetes/memory/project_per_cluster_mongothost_resolved.md) and the closed PR #1051 that initially proposed the CRD extension). For Q3 (operator-managed mongods, post-MVP), per-cluster `mongotHost` flows through whatever path the operator's existing automation-config writer wires when Q3 lands — TBD then. Per-cluster locality on the query path comes from the per-cluster Envoy + per-cluster proxy Service; the mongot→mongod sync direction crosses clusters via Istio mesh (acceptable for MVP because `$search`/`$vectorSearch` correctness only requires *some* mongot has indexed the data).
+**Architecture:** Base lands the spec.clusters[] CRD shape (B14+B18+B3+B4+B13), member-cluster client wiring (B1+B8), per-cluster Envoy Deployment+ConfigMap (B16), Secret presence checks (B5), and per-cluster status writes (B9) onto the integration branch `search/ga-base`, then adds a test-only MC E2E harness for cross-cluster Secret replication. Phase 2 extends the search controller's per-cluster reconcile loop to create per-cluster mongot StatefulSets, ConfigMaps, and proxy Services in each member cluster — each cluster gets its own `{name}-search-{clusterIndex}-proxy-svc` (cluster-index-suffixed; no shared-name DNS magic) and its own mongot config seeded from the shared top-level `spec.source.external.hostAndPorts`. Per-cluster `mongotHost` for **Q2 (external/customer-managed mongods)** is the **customer's responsibility**: the customer applies the per-process `setParameter.mongotHost` override to their own Ops Manager automation config (no MongoDBMulti CRD extension required — the e2e test simulates this customer-side flow via `OmTester.om_request("put", ...)` in `test_patch_per_cluster_mongot_host`; see [memory: per-cluster mongotHost — no CRD extension needed](file:///Users/anand.singh/.claude/projects/-Users-anand-singh-workspace-repos-mongodb-kubernetes/memory/project_per_cluster_mongothost_resolved.md) and the closed PR #1051 that initially proposed the CRD extension). For Q3 (operator-managed mongods) — **out of MVP entirely (2026-05-04 scope clarification: "We will only support externally managed mongod in MVP and no operator managed mongod"; Phase 4/5/Q3 are post-MVP, separate program)** — if ever pursued, per-cluster `mongotHost` would flow through whatever path the operator's existing automation-config writer wires; TBD if/when that program starts. Per-cluster locality on the query path comes from the per-cluster Envoy + per-cluster proxy Service; the mongot→mongod sync direction crosses clusters via Istio mesh (acceptable for MVP because `$search`/`$vectorSearch` correctness only requires *some* mongot has indexed the data).
 
 **Tech Stack:** Go 1.24 (operator); Python 3 + pytest + kubetester (e2e tests); Envoy Proxy (TLS LB); MongoDBMulti CRD (RS source); Voyage AI auto-embedding for `$vectorSearch`; Evergreen CI; Istio service mesh (cross-cluster connectivity in test envs).
 
@@ -1014,7 +1014,9 @@ In `api/v1/search/mongodbsearch_types.go`, add after `ProxyServiceNamespacedName
 // per cluster. For Q2 (external/customer-managed mongods), the customer
 // applies that per-process `setParameter.mongotHost` to their own Ops Manager
 // automation config — there is NO MongoDBMulti CRD field for per-cluster
-// `additionalMongodConfig`. See the spec's "Per-cluster Envoy topology" section
+// `additionalMongodConfig`. Q3 (operator-managed mongods) is OUT OF MVP
+// entirely per the 2026-05-04 scope clarification (post-MVP, separate
+// program). See the spec's "Per-cluster Envoy topology" section
 // for the resolved Q2 / Q3 mongotHost story.
 func (s *MongoDBSearch) ProxyServiceNamespacedNameForCluster(clusterIndex int) types.NamespacedName {
 	return types.NamespacedName{
@@ -1504,7 +1506,7 @@ func (e *externalSearchSource) HostSeeds(_ string) ([]string, error) {
 }
 ```
 
-The cluster argument is ignored on purpose — top-level seed list goes to every cluster. The signature has a clusterName parameter for symmetry with `SearchSourceReplicaSet`'s interface, where managed sources (Phase 4) WILL use it.
+The cluster argument is ignored on purpose — top-level seed list goes to every cluster. The signature has a clusterName parameter for symmetry with `SearchSourceReplicaSet`'s interface, where managed sources WILL use it. (Phase 4 = Q1-RS-MC managed is **out of MVP entirely** per the 2026-05-04 scope clarification — post-MVP, separate program; the symmetry rationale still applies for any future managed-source implementation.)
 
 - [ ] **Step 17.4: Confirm pass**
 
@@ -1826,7 +1828,7 @@ func (s *MongoDBSearch) validateExternalHostAndPortsForMC() error {
 		return nil
 	}
 	if s.Spec.Source == nil || s.Spec.Source.ExternalMongoDBSource == nil {
-		return nil // managed-source MC handled separately (Phase 4)
+		return nil // managed-source MC handled separately (Phase 4 — out of MVP entirely per 2026-05-04 scope clarification; post-MVP, separate program)
 	}
 	if len(s.Spec.Source.ExternalMongoDBSource.HostAndPorts) == 0 {
 		return fmt.Errorf(
@@ -1979,7 +1981,7 @@ The data-plane test calls reuse helpers from `tests/common/search/q2_shared.py` 
 
 The MongoDBMulti CR is deployed with `mongotHost` set at the **top level** of `spec.additionalMongodConfig` to a single value (cluster-0's proxy-svc FQDN). This is required because the source RS can't reach `Phase=Running` with `searchTLSMode=requireTLS` if `mongotHost` is unset — startup-time validation fails. After MongoDBMulti is Running, the e2e test patches the OM automation config directly via `OmTester.om_request("put", ...)`: it reads the current AC, mutates each process's `args2_6.setParameter.mongotHost` keyed by the cluster index encoded in the process name, bumps the AC version, and re-PUTs. `wait_agents_ready` confirms each cluster's mongod picks up its new `mongotHost`.
 
-This pattern is the **canonical Q2 model** for per-cluster `mongotHost`: customer manages their own automation config; the operator is uninvolved. For Q3 (operator-managed mongods, post-MVP), the operator's existing automation-config writer will plumb per-cluster `mongotHost` through the same OM-AC path — no schema change needed.
+This pattern is the **canonical Q2 model** for per-cluster `mongotHost`: customer manages their own automation config; the operator is uninvolved. Q3 (operator-managed mongods) is **out of MVP entirely** per the 2026-05-04 scope clarification (post-MVP, separate program); if ever pursued, the operator's existing automation-config writer would plumb per-cluster `mongotHost` through the same OM-AC path — no schema change needed.
 
 - [ ] **Step 24.1: Set top-level `mongotHost` in the MongoDBMulti CR fixture (cluster-0's proxy-svc FQDN)**
 
