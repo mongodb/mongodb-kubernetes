@@ -787,7 +787,7 @@ func buildHeadlessService(search *searchv1.MongoDBSearch, unit reconcileUnit) co
 func buildProxyService(search *searchv1.MongoDBSearch, unit reconcileUnit) corev1.Service {
 	var selector map[string]string
 	if search.IsLBModeManaged() && search.IsLoadBalancerReady() {
-		selector = map[string]string{appLabelKey: search.LoadBalancerDeploymentName()}
+		selector = map[string]string{appLabelKey: search.LoadBalancerDeploymentNameForCluster(0)}
 	} else {
 		selector = map[string]string{appLabelKey: unit.podLabels[appLabelKey]}
 	}

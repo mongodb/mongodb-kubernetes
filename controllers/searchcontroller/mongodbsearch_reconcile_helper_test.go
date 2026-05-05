@@ -347,8 +347,9 @@ func TestBuildProxyService_ManagedLB_Ready(t *testing.T) {
 	unit := newTestRSUnit(search)
 	svc := buildProxyService(search, unit)
 
-	// Selector flips to Envoy pods when LB is ready
-	assert.Equal(t, map[string]string{"app": "test-search-lb-0"}, svc.Spec.Selector)
+	// Selector flips to Envoy pods when LB is ready; must match the index-0 Deployment label
+	// so that traffic is not black-holed after the Commit-2 app-label rename.
+	assert.Equal(t, search.LoadBalancerDeploymentNameForCluster(0), svc.Spec.Selector["app"])
 	assert.Equal(t, int32(27028), svc.Spec.Ports[0].TargetPort.IntVal)
 }
 
@@ -379,7 +380,7 @@ func TestBuildProxyServiceForShard_ManagedLB_Ready(t *testing.T) {
 	unit := newTestShardUnit(search, "shard-0")
 	svc := buildProxyService(search, unit)
 
-	assert.Equal(t, map[string]string{"app": "test-search-lb-0"}, svc.Spec.Selector)
+	assert.Equal(t, search.LoadBalancerDeploymentNameForCluster(0), svc.Spec.Selector["app"])
 }
 
 func assertServiceBasicProperties(t *testing.T, svc corev1.Service, mdbSearch *searchv1.MongoDBSearch) {

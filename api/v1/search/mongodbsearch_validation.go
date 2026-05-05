@@ -387,19 +387,19 @@ func validateClustersEnvoyResourceNames(s *MongoDBSearch) v1.ValidationResult {
 	if s.Spec.Clusters == nil {
 		return v1.ValidationSuccess()
 	}
-	for _, c := range *s.Spec.Clusters {
+	for i, c := range *s.Spec.Clusters {
 		if c.ClusterName == "" {
 			continue
 		}
 		resources := []shardResourceName{
 			{
 				ResourceType: "Envoy Deployment (per cluster)",
-				Name:         s.LoadBalancerDeploymentNameForCluster(c.ClusterName),
+				Name:         s.LoadBalancerDeploymentNameForCluster(i),
 				Standard:     dnsLabel,
 			},
 			{
 				ResourceType: "Envoy ConfigMap (per cluster)",
-				Name:         s.LoadBalancerConfigMapNameForCluster(c.ClusterName),
+				Name:         s.LoadBalancerConfigMapNameForCluster(i),
 				Standard:     dnsSubdomain,
 			},
 		}
@@ -464,7 +464,6 @@ func validateClustersAndTopLevelFieldsMutuallyExclusive(s *MongoDBSearch) v1.Val
 	}
 	return v1.ValidationSuccess()
 }
-
 
 func ValidateShardNameRFC1123(shardName string) error {
 	if shardName == "" {

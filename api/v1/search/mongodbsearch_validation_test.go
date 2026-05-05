@@ -866,9 +866,11 @@ func TestValidateClustersEnvoyResourceNames(t *testing.T) {
 			clusterNames: nil,
 		},
 		{
+			// Deployment name: <name>-search-lb-0-<index>
+			// suffix "-search-lb-0-0" is 14 chars; need len(name) > 49 to exceed 63.
 			name:          "Deployment name >63 chars rejected",
-			searchName:    strings.Repeat("a", 40),
-			clusterNames:  []string{strings.Repeat("c", 30)},
+			searchName:    strings.Repeat("a", 50),
+			clusterNames:  []string{"us-east-k8s"},
 			errorContains: "exceeds",
 		},
 	}

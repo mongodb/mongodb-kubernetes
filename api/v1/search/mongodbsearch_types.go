@@ -1004,25 +1004,19 @@ func (s *MongoDBSearch) LoadBalancerConfigMapName() string {
 }
 
 // LoadBalancerDeploymentNameForCluster returns the name of the managed Envoy
-// Deployment for one member cluster. When clusterName is empty the result
-// matches LoadBalancerDeploymentName for back-compat with single-cluster installs.
-// In multi-cluster, the cluster identifier is appended so per-cluster Deployments
-// in the same namespace stay distinct (resource-name length is checked at
-// admission via validateClustersEnvoyResourceNames).
-func (s *MongoDBSearch) LoadBalancerDeploymentNameForCluster(clusterName string) string {
-	if clusterName == "" {
-		return s.LoadBalancerDeploymentName()
-	}
-	return s.LoadBalancerDeploymentName() + "-" + clusterName
+// Deployment for one member cluster. The cluster index (from the persisted
+// StateStore mapping) is appended so per-cluster Deployments in the same
+// namespace stay distinct without encoding user-supplied cluster names into
+// resource names (name length is checked at admission via
+// validateClustersEnvoyResourceNames).
+func (s *MongoDBSearch) LoadBalancerDeploymentNameForCluster(clusterIndex int) string {
+	return fmt.Sprintf("%s-%d", s.LoadBalancerDeploymentName(), clusterIndex)
 }
 
 // LoadBalancerConfigMapNameForCluster returns the name of the managed Envoy
 // ConfigMap for one member cluster. See LoadBalancerDeploymentNameForCluster.
-func (s *MongoDBSearch) LoadBalancerConfigMapNameForCluster(clusterName string) string {
-	if clusterName == "" {
-		return s.LoadBalancerConfigMapName()
-	}
-	return s.Name + "-search-lb-0-" + clusterName + "-config"
+func (s *MongoDBSearch) LoadBalancerConfigMapNameForCluster(clusterIndex int) string {
+	return fmt.Sprintf("%s-search-lb-0-%d-config", s.Name, clusterIndex)
 }
 
 // LoadBalancerServerCert returns the namespaced name of the TLS server certificate secret for the
