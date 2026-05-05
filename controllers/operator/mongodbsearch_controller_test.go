@@ -420,6 +420,9 @@ func TestMongoDBSearchReconcile_MissingSecret_Requeues(t *testing.T) {
 	require.True(t, res.RequeueAfter > 0, "must requeue when a customer-replicated secret is missing")
 }
 
+// TODO(@anandsyncs PR #1064): refactor StateConfigMap reconcile-loop tests
+// (this one + _NoOpOnStableMapping, _OperatorRestart, _ReAddCluster) into a
+// single table-driven test.
 func TestMongoDBSearchControllerReconcile_StateConfigMap(t *testing.T) {
 	ctx := context.Background()
 
