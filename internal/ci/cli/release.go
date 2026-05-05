@@ -10,6 +10,7 @@ func newReleaseCmd() *cobra.Command {
 			return cmd.Help()
 		},
 	}
+	cmd.AddCommand(newReleasePromoteCmd())
 	cmd.AddCommand(newReleaseVerifyCmd())
 	return cmd
 }
