@@ -339,7 +339,7 @@ def build_agent_pipeline(
     )
 
     platform_build_args = generate_agent_build_args(
-        platforms=build_configuration.platforms, agent_version=agent_version, tools_version=tools_version
+        platforms=build_configuration_copy.platforms, agent_version=agent_version, tools_version=tools_version
     )
 
     agent_base_url = (
