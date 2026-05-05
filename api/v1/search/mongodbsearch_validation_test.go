@@ -1,7 +1,6 @@
 package search
 
 import (
-	"encoding/json"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -810,85 +809,6 @@ func newSearch(name string, shards []ExternalShardConfig, tlsPrefix string, isTL
 	return search
 }
 
-func TestValidateClustersNoRename(t *testing.T) {
-	withMapping := func(s *MongoDBSearch, m map[string]int) *MongoDBSearch {
-		if s.Annotations == nil {
-			s.Annotations = map[string]string{}
-		}
-		b, _ := json.Marshal(m)
-		s.Annotations[LastClusterNumMapping] = string(b)
-		return s
-	}
-	tests := []struct {
-		name          string
-		search        *MongoDBSearch
-		errorContains string
-	}{
-		{
-			name: "no annotation: nothing to compare against",
-			search: &MongoDBSearch{
-				ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"},
-				Spec:       MongoDBSearchSpec{Clusters: &[]ClusterSpec{{ClusterName: "us-east"}}},
-			},
-		},
-		{
-			name: "first-time set: persisted mapping is empty",
-			search: withMapping(&MongoDBSearch{
-				ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"},
-				Spec:       MongoDBSearchSpec{Clusters: &[]ClusterSpec{{ClusterName: "us-east"}, {ClusterName: "us-west"}}},
-			}, map[string]int{}),
-		},
-		{
-			name: "names unchanged",
-			search: withMapping(&MongoDBSearch{
-				ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"},
-				Spec:       MongoDBSearchSpec{Clusters: &[]ClusterSpec{{ClusterName: "us-east"}, {ClusterName: "us-west"}}},
-			}, map[string]int{"us-east": 0, "us-west": 1}),
-		},
-		{
-			name: "pure remove: us-west missing from spec but no new name added — allowed",
-			search: withMapping(&MongoDBSearch{
-				ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"},
-				Spec:       MongoDBSearchSpec{Clusters: &[]ClusterSpec{{ClusterName: "us-east"}}},
-			}, map[string]int{"us-east": 0, "us-west": 1}),
-		},
-		{
-			name: "pure add: eu-central new but no name removed — allowed",
-			search: withMapping(&MongoDBSearch{
-				ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"},
-				Spec: MongoDBSearchSpec{Clusters: &[]ClusterSpec{
-					{ClusterName: "us-east"}, {ClusterName: "us-west"}, {ClusterName: "eu-central"},
-				}},
-			}, map[string]int{"us-east": 0, "us-west": 1}),
-		},
-		{
-			name: "rename: us-west removed and eu-central added — rejected",
-			search: withMapping(&MongoDBSearch{
-				ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"},
-				Spec:       MongoDBSearchSpec{Clusters: &[]ClusterSpec{{ClusterName: "us-east"}, {ClusterName: "eu-central"}}},
-			}, map[string]int{"us-east": 0, "us-west": 1}),
-			errorContains: "clusterName changes are not allowed",
-		},
-		{
-			name: "remove-then-readd via two separate updates is allowed",
-			search: withMapping(&MongoDBSearch{
-				ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"},
-				Spec:       MongoDBSearchSpec{Clusters: &[]ClusterSpec{{ClusterName: "us-east"}, {ClusterName: "us-west"}}},
-			}, map[string]int{"us-east": 0, "us-west": 1}),
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			res := validateClustersNoRename(tt.search)
-			if tt.errorContains != "" {
-				assert.Equal(t, v1.ErrorLevel, res.Level)
-				assert.Contains(t, res.Msg, tt.errorContains)
-			} else {
-				assert.Equal(t, v1.SuccessLevel, res.Level)
-			}
-		})
-	}
-}
 
 // TestManagedLBConfig_Replicas_FieldExists is a smoke test: the Replicas
 // field on ManagedLBConfig is wired so per-cluster managed LB can specify a

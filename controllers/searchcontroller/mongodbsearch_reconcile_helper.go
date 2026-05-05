@@ -28,7 +28,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/annotations"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/podtemplatespec"
@@ -293,10 +292,6 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 		return workflow.Invalid("%s", err.Error())
 	}
 
-	if err := r.ensureClusterIndexAnnotation(ctx, log); err != nil {
-		return workflow.Failed(err)
-	}
-
 	if err := r.db.Validate(); err != nil {
 		return workflow.Failed(err)
 	}
@@ -433,50 +428,6 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 	return workflow.OK().WithAdditionalOptions(searchv1.NewMongoDBSearchVersionOption(imageVersion))
 }
 
-// ensureClusterIndexAnnotation persists the MongoDBSearch CR's clusterName -> clusterIndex
-// mapping into the LastClusterNumMapping annotation. It preserves every previously-assigned
-// index and appends new clusters monotonically (see search.AssignClusterIndices); a removed
-// cluster's index is never reused. The annotation is the single source of truth for the
-// ClusterIndex read API used by placeholder resolution and SNI route ordering.
-//
-// No-ops when spec.clusters is nil or empty (single-cluster path) and when the new mapping
-// matches the current annotation byte-for-byte.
-func (r *MongoDBSearchReconcileHelper) ensureClusterIndexAnnotation(ctx context.Context, log *zap.SugaredLogger) error {
-	if r.mdbSearch.Spec.Clusters == nil || len(*r.mdbSearch.Spec.Clusters) == 0 {
-		return nil
-	}
-
-	currentNames := make([]string, 0, len(*r.mdbSearch.Spec.Clusters))
-	for _, c := range *r.mdbSearch.Spec.Clusters {
-		currentNames = append(currentNames, c.ClusterName)
-	}
-
-	rawExisting := r.mdbSearch.Annotations[searchv1.LastClusterNumMapping]
-	existing := map[string]int{}
-	if rawExisting != "" {
-		if err := json.Unmarshal([]byte(rawExisting), &existing); err != nil {
-			// Malformed annotation is recoverable — start from scratch and let
-			// AssignClusterIndices rebuild a sane mapping. Log because this should
-			// never happen except via direct hand-edit.
-			log.Warnf("LastClusterNumMapping annotation is malformed (%v); rebuilding from spec.clusters", err)
-			existing = map[string]int{}
-		}
-	}
-
-	newMapping := searchv1.AssignClusterIndices(existing, currentNames)
-	newBytes, err := json.Marshal(newMapping)
-	if err != nil {
-		return xerrors.Errorf("marshalling cluster index mapping: %w", err)
-	}
-
-	if rawExisting == string(newBytes) {
-		return nil
-	}
-
-	return annotations.SetAnnotations(ctx, r.mdbSearch, map[string]string{
-		searchv1.LastClusterNumMapping: string(newBytes),
-	}, r.client)
-}
 
 // isOwnedBy returns true if the object has an owner reference pointing to the given owner.
 // Unlike metav1.IsControlledBy, this does not require the controller: true field,

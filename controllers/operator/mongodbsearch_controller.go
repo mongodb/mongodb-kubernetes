@@ -2,6 +2,7 @@ package operator
 
 import (
 	"context"
+	"reflect"
 	"time"
 
 	"go.uber.org/zap"
@@ -29,6 +30,7 @@ import (
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
 	khandler "github.com/mongodb/mongodb-kubernetes/pkg/handler"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/commoncontroller"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster/memberwatch"
@@ -41,6 +43,37 @@ import (
 // (Result{RequeueAfter: secretsCheckRequeueAfter}, nil) so we don't trigger
 // exponential backoff while the customer is fixing the gap.
 const secretsCheckRequeueAfter = 30 * time.Second
+
+type SearchDeploymentState struct {
+	CommonDeploymentState `json:",inline"`
+}
+
+func NewSearchDeploymentState() *SearchDeploymentState {
+	return &SearchDeploymentState{
+		CommonDeploymentState: CommonDeploymentState{ClusterMapping: map[string]int{}},
+	}
+}
+
+// loadOrInitSearchState reads the per-CR state ConfigMap, treating NotFound as
+// fresh state. Returns the state plus the bound store so callers can WriteState.
+func loadOrInitSearchState(
+	ctx context.Context,
+	c kubernetesClient.Client,
+	search *searchv1.MongoDBSearch,
+) (*SearchDeploymentState, *StateStore[SearchDeploymentState], error) {
+	store := NewStateStore[SearchDeploymentState](search, kube.BaseOwnerReference(search), c)
+	state, err := store.ReadState(ctx)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return NewSearchDeploymentState(), store, nil
+		}
+		return nil, nil, err
+	}
+	if state.ClusterMapping == nil {
+		state.ClusterMapping = map[string]int{}
+	}
+	return state, store, nil
+}
 
 type MongoDBSearchReconciler struct {
 	kubeClient           kubernetesClient.Client
@@ -134,6 +167,24 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 	// can fold gaps into the per-cluster status patch in a single writeback,
 	// rather than requiring a follow-up patch from this controller.
 	gaps := searchcontroller.CheckSecretsPresence(ctx, mdbSearch, r.kubeClient, memberClients)
+
+	state, stateStore, err := loadOrInitSearchState(ctx, r.kubeClient, mdbSearch)
+	if err != nil {
+		return commoncontroller.UpdateStatus(ctx, r.kubeClient, mdbSearch, workflow.Failed(err), log)
+	}
+	var currentNames []string
+	if mdbSearch.Spec.Clusters != nil {
+		for _, c := range *mdbSearch.Spec.Clusters {
+			currentNames = append(currentNames, c.ClusterName)
+		}
+	}
+	newMapping := searchv1.AssignClusterIndices(state.ClusterMapping, currentNames)
+	if !reflect.DeepEqual(newMapping, state.ClusterMapping) {
+		state.ClusterMapping = newMapping
+		if err := stateStore.WriteState(ctx, state, log); err != nil {
+			return commoncontroller.UpdateStatus(ctx, r.kubeClient, mdbSearch, workflow.Failed(err), log)
+		}
+	}
 
 	reconcileHelper := searchcontroller.NewMongoDBSearchReconcileHelper(r.kubeClient, mdbSearch, searchSource, r.operatorSearchConfig)
 	reconcileHelper.SetSecretGaps(gaps)

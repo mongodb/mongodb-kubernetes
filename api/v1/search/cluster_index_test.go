@@ -4,8 +4,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func TestAssignClusterIndices(t *testing.T) {
@@ -78,35 +76,3 @@ func TestAssignClusterIndicesDoesNotMutateExisting(t *testing.T) {
 	assert.Equal(t, map[string]int{"a": 0, "b": 1}, existing, "existing must not be mutated")
 }
 
-func TestClusterIndex(t *testing.T) {
-	withAnnotation := func(value string) *MongoDBSearch {
-		return &MongoDBSearch{
-			ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns", Annotations: map[string]string{LastClusterNumMapping: value}},
-		}
-	}
-	tests := []struct {
-		name        string
-		search      *MongoDBSearch
-		clusterName string
-		wantIdx     int
-		wantOK      bool
-	}{
-		{name: "nil search", search: nil, clusterName: "us-east", wantOK: false},
-		{name: "no annotations", search: &MongoDBSearch{ObjectMeta: metav1.ObjectMeta{Name: "s"}}, clusterName: "us-east", wantOK: false},
-		{name: "annotation missing", search: &MongoDBSearch{ObjectMeta: metav1.ObjectMeta{Name: "s", Annotations: map[string]string{}}}, clusterName: "us-east", wantOK: false},
-		{name: "annotation empty string", search: withAnnotation(""), clusterName: "us-east", wantOK: false},
-		{name: "annotation malformed JSON", search: withAnnotation("{not-json"), clusterName: "us-east", wantOK: false},
-		{name: "name present", search: withAnnotation(`{"us-east":0,"us-west":1}`), clusterName: "us-east", wantIdx: 0, wantOK: true},
-		{name: "name missing in valid mapping", search: withAnnotation(`{"us-east":0,"us-west":1}`), clusterName: "eu-central", wantOK: false},
-		{name: "removed-but-still-mapped name returns persisted idx", search: withAnnotation(`{"us-east":0,"us-west":1}`), clusterName: "us-west", wantIdx: 1, wantOK: true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			gotIdx, gotOK := ClusterIndex(tt.search, tt.clusterName)
-			assert.Equal(t, tt.wantOK, gotOK)
-			if tt.wantOK {
-				assert.Equal(t, tt.wantIdx, gotIdx)
-			}
-		})
-	}
-}

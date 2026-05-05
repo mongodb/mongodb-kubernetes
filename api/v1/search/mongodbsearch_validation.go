@@ -53,7 +53,6 @@ func (s *MongoDBSearch) RunValidations() []v1.ValidationResult {
 		validateClustersShardOverrides,
 		validateClustersAndTopLevelFieldsMutuallyExclusive,
 		validateClustersEnvoyResourceNames,
-		validateClustersNoRename,
 		validateMCExternalHostnamePlaceholders,
 		validateExternalHostnameDNSLength,
 		validateMCRejectsUnmanagedLB,
@@ -466,54 +465,6 @@ func validateClustersAndTopLevelFieldsMutuallyExclusive(s *MongoDBSearch) v1.Val
 	return v1.ValidationSuccess()
 }
 
-// validateClustersNoRename rejects an Update where a clusterName has been removed
-// from spec.clusters AND a different clusterName has been added in the same update.
-// Pure rename (one removed, one added) is the operation we forbid; pure remove or
-// pure add is allowed (the index mapping handles both safely — removed indices are
-// preserved, added clusters get the next monotonic index).
-//
-// This is a soft, single-update rule: a remove-then-readd in two separate updates
-// is indistinguishable from a real rename. We accept that — the index is preserved
-// in both cases, so the worst case is that a real rename slips through across two
-// updates and the user sees no observable difference. There is no admission webhook
-// for MongoDBSearch today; all the more reason to keep the rule tight enough to
-// catch the obvious mistake but loose enough not to false-positive on benign edits.
-func validateClustersNoRename(s *MongoDBSearch) v1.ValidationResult {
-	raw, ok := s.Annotations[LastClusterNumMapping]
-	if !ok || raw == "" {
-		return v1.ValidationSuccess()
-	}
-	previous := parseClusterMapping(raw)
-	if len(previous) == 0 {
-		return v1.ValidationSuccess()
-	}
-	if s.Spec.Clusters == nil {
-		return v1.ValidationSuccess()
-	}
-	currentSet := make(map[string]struct{}, len(*s.Spec.Clusters))
-	for _, c := range *s.Spec.Clusters {
-		currentSet[c.ClusterName] = struct{}{}
-	}
-	var removed []string
-	for name := range previous {
-		if _, ok := currentSet[name]; !ok {
-			removed = append(removed, name)
-		}
-	}
-	var added []string
-	for name := range currentSet {
-		if _, ok := previous[name]; !ok {
-			added = append(added, name)
-		}
-	}
-	if len(removed) > 0 && len(added) > 0 {
-		return v1.ValidationError(
-			"clusterName changes are not allowed: removed=%v added=%v. To rename a cluster, recreate the MongoDBSearch resource",
-			removed, added,
-		)
-	}
-	return v1.ValidationSuccess()
-}
 
 func ValidateShardNameRFC1123(shardName string) error {
 	if shardName == "" {
