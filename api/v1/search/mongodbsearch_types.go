@@ -7,6 +7,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -16,6 +17,8 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/v1/user"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
 // ShardNamePlaceholder is the placeholder used in endpoint templates for sharded clusters
@@ -27,10 +30,14 @@ const ShardNamePlaceholder = "{shardName}"
 // member cluster name so per-cluster SNI hostnames stay distinct.
 const ClusterNamePlaceholder = "{clusterName}"
 
-// ClusterIndexPlaceholder is substituted with the stable cluster-index assigned
-// by the LastClusterNumMapping annotation for spec.clusters[i]. The index is
-// monotonic and never reused on remove/re-add (see api/v1/search/cluster_index.go).
+// ClusterIndexPlaceholder is substituted with the stable cluster-index for
+// spec.clusters[i]. The index is monotonic and never reused on remove/re-add
+// (see api/v1/search/cluster_index.go).
 const ClusterIndexPlaceholder = "{clusterIndex}"
+
+// LabelResourceOwner is the label key used to identify the MongoDBSearch CR that
+// owns a resource. Used as part of GetOwnerLabels for StateStore ConfigMap selection.
+const LabelResourceOwner = "mongodb.com/v1.mongodbSearchResourceOwner"
 
 const (
 	MongotDefaultWireprotoPort      int32 = 27027
@@ -41,11 +48,6 @@ const (
 	MongotDefaultSyncSourceUsername       = "search-sync-source"
 
 	ForceWireprotoAnnotation = "mongodb.com/v1.force-search-wireproto"
-
-	// LastClusterNumMapping holds the JSON-encoded clusterName -> clusterIndex
-	// mapping for spec.clusters[]. Index never reused on remove/re-add
-	// (see api/v1/search/cluster_index.go).
-	LastClusterNumMapping = "mongodb.com/v1.lastClusterNumMapping"
 
 	MongoDBSearchIndexFieldName = "mdbsearch-for-mongodbresourceref-index"
 
@@ -951,6 +953,8 @@ func (s *MongoDBSearch) GetManagedLBEndpointForShard(shardName string) string {
 //     this path with a placeholder-bearing legacy template is malformed.
 //   - Out-of-range i: placeholders are left untouched (defensive — call sites
 //     iterate over len(*spec.clusters)).
+//
+// {clusterIndex} is resolved using the slice index i directly.
 func (s *MongoDBSearch) GetManagedLBEndpointForCluster(i int) string {
 	if !s.IsLBModeManaged() || s.Spec.LoadBalancer.Managed.ExternalHostname == "" {
 		return ""
@@ -964,15 +968,7 @@ func (s *MongoDBSearch) GetManagedLBEndpointForCluster(i int) string {
 		return out
 	}
 	out = strings.ReplaceAll(out, ClusterNamePlaceholder, clusters[i].ClusterName)
-	// {clusterIndex} resolves to the persisted monotonic index from the
-	// LastClusterNumMapping annotation when available; otherwise it falls back
-	// to the slice index. The fallback covers legacy specs that have not yet
-	// been re-reconciled to populate the annotation.
-	idx := i
-	if persisted, ok := ClusterIndex(s, clusters[i].ClusterName); ok {
-		idx = persisted
-	}
-	out = strings.ReplaceAll(out, ClusterIndexPlaceholder, strconv.Itoa(idx))
+	out = strings.ReplaceAll(out, ClusterIndexPlaceholder, strconv.Itoa(i))
 	return out
 }
 
@@ -1008,25 +1004,19 @@ func (s *MongoDBSearch) LoadBalancerConfigMapName() string {
 }
 
 // LoadBalancerDeploymentNameForCluster returns the name of the managed Envoy
-// Deployment for one member cluster. When clusterName is empty the result
-// matches LoadBalancerDeploymentName for back-compat with single-cluster installs.
-// In multi-cluster, the cluster identifier is appended so per-cluster Deployments
-// in the same namespace stay distinct (resource-name length is checked at
-// admission via validateClustersEnvoyResourceNames).
-func (s *MongoDBSearch) LoadBalancerDeploymentNameForCluster(clusterName string) string {
-	if clusterName == "" {
-		return s.LoadBalancerDeploymentName()
-	}
-	return s.LoadBalancerDeploymentName() + "-" + clusterName
+// Deployment for one member cluster. The cluster index (from the persisted
+// StateStore mapping) is appended so per-cluster Deployments in the same
+// namespace stay distinct without encoding user-supplied cluster names into
+// resource names (name length is checked at admission via
+// validateClustersEnvoyResourceNames).
+func (s *MongoDBSearch) LoadBalancerDeploymentNameForCluster(clusterIndex int) string {
+	return fmt.Sprintf("%s-%d", s.LoadBalancerDeploymentName(), clusterIndex)
 }
 
 // LoadBalancerConfigMapNameForCluster returns the name of the managed Envoy
 // ConfigMap for one member cluster. See LoadBalancerDeploymentNameForCluster.
-func (s *MongoDBSearch) LoadBalancerConfigMapNameForCluster(clusterName string) string {
-	if clusterName == "" {
-		return s.LoadBalancerConfigMapName()
-	}
-	return s.Name + "-search-lb-0-" + clusterName + "-config"
+func (s *MongoDBSearch) LoadBalancerConfigMapNameForCluster(clusterIndex int) string {
+	return fmt.Sprintf("%s-search-lb-0-%d-config", s.Name, clusterIndex)
 }
 
 // LoadBalancerServerCert returns the namespaced name of the TLS server certificate secret for the
@@ -1069,4 +1059,23 @@ func (s *MongoDBSearch) LoadBalancerClientCert() types.NamespacedName {
 		}
 	}
 	return types.NamespacedName{Name: fmt.Sprintf("%s-search-lb-0-client-cert", s.Name), Namespace: s.Namespace}
+}
+
+// ObjectKey implements v1.ResourceOwner.
+func (s *MongoDBSearch) ObjectKey() client.ObjectKey {
+	return kube.ObjectKey(s.Namespace, s.Name)
+}
+
+// GetOwnerLabels implements v1.ResourceOwner. Returns labels used to identify
+// the state ConfigMap owned by this MongoDBSearch.
+func (s *MongoDBSearch) GetOwnerLabels() map[string]string {
+	return map[string]string{
+		util.OperatorLabelName: util.OperatorLabelValue,
+		LabelResourceOwner:     s.Name,
+	}
+}
+
+// GetKind implements v1.ObjectOwner.
+func (s *MongoDBSearch) GetKind() string {
+	return "MongoDBSearch"
 }
