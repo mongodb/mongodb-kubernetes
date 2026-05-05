@@ -32,6 +32,7 @@ func TestConfigureScramSha256(t *testing.T) {
 		ProcessNames:     []string{"process-1", "process-2", "process-3"},
 		Mechanisms:       []string{"SCRAM"},
 		AgentMechanism:   "SCRAM",
+		KeyfilePath:      util.AutomationAgentKeyFilePathInContainer,
 		MongoDBResource:  mongoDBResource,
 	}
 
@@ -62,6 +63,7 @@ func TestConfigureX509(t *testing.T) {
 		Mechanisms:         []string{"X509"},
 		AgentMechanism:     "X509",
 		ClientCertificates: util.RequireClientCertificates,
+		KeyfilePath:        util.AutomationAgentKeyFilePathInContainer,
 		UserOptions: UserOptions{
 			AutomationSubject: validSubject("automation"),
 		},
@@ -94,6 +96,7 @@ func TestConfigureScramSha1(t *testing.T) {
 		ProcessNames:     []string{"process-1", "process-2", "process-3"},
 		Mechanisms:       []string{"SCRAM-SHA-1"},
 		AgentMechanism:   "SCRAM-SHA-1",
+		KeyfilePath:      util.AutomationAgentKeyFilePathInContainer,
 		MongoDBResource:  mongoDBResource,
 	}
 
@@ -121,6 +124,7 @@ func TestConfigureMultipleAuthenticationMechanisms(t *testing.T) {
 		ProcessNames:     []string{"process-1", "process-2", "process-3"},
 		Mechanisms:       []string{"X509", "SCRAM"},
 		AgentMechanism:   "SCRAM",
+		KeyfilePath:      util.AutomationAgentKeyFilePathInContainer,
 		UserOptions: UserOptions{
 			AutomationSubject: validSubject("automation"),
 		},
@@ -312,6 +316,9 @@ func assertAgentAuthenticationDisabled(t *testing.T, authMechanism Mechanism, co
 	kubeClient, _ := mock.NewDefaultFakeClient()
 	mongoDBResource := types.NamespacedName{Namespace: "test", Name: "test"}
 	opts.MongoDBResource = mongoDBResource
+	if opts.KeyfilePath == "" {
+		opts.KeyfilePath = util.AutomationAgentKeyFilePathInContainer
+	}
 
 	err := authMechanism.EnableAgentAuthentication(ctx, kubeClient, conn, opts, zap.S())
 	require.NoError(t, err)
