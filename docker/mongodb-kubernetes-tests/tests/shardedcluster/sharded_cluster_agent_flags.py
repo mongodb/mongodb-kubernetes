@@ -16,7 +16,7 @@ custom_download_base = "/var/lib/mongodb-mms-automation-custom"
 brand_new_download_base = "/custom/custom-download-base"
 
 
-@fixture(scope="function")
+@fixture(scope="module")
 def sc(namespace: str, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(find_fixture("sharded-cluster.yaml"), namespace=namespace)
 
