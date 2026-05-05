@@ -11,6 +11,6 @@ func newReleaseCmd() *cobra.Command {
 		},
 	}
 	cmd.AddCommand(newReleasePromoteCmd())
-	cmd.AddCommand(newReleaseVerifyCmd())
+	cmd.AddCommand(newReleaseTagCmd())
 	return cmd
 }
