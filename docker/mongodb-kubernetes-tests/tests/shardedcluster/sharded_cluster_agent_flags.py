@@ -58,34 +58,6 @@ def test_default_download_base_in_automation_config(sc: MongoDB):
 
 
 @mark.e2e_sharded_cluster_agent_flags
-def test_set_custom_download_base(sc: MongoDB):
-    sc.load()
-    sc["spec"]["downloadBase"] = custom_download_base
-    sc.update()
-    sc.assert_reaches_phase(Phase.Running, timeout=2500 if is_default_architecture_static() else 3500)
-
-
-@mark.e2e_sharded_cluster_agent_flags
-def test_custom_download_base_in_automation_config(sc: MongoDB):
-    options = sc.get_automation_config_tester().automation_config.get("options", {})
-    assert options.get("downloadBase") == custom_download_base
-
-
-@mark.e2e_sharded_cluster_agent_flags
-def test_set_brand_new_download_base(sc: MongoDB):
-    sc.load()
-    sc["spec"]["downloadBase"] = brand_new_download_base
-    sc.update()
-    sc.assert_reaches_phase(Phase.Running, timeout=2500 if is_default_architecture_static() else 3500)
-
-
-@mark.e2e_sharded_cluster_agent_flags
-def test_brand_new_download_base_in_automation_config(sc: MongoDB):
-    options = sc.get_automation_config_tester().automation_config.get("options", {})
-    assert options.get("downloadBase") == brand_new_download_base
-
-
-@mark.e2e_sharded_cluster_agent_flags
 def test_sharded_cluster_has_agent_flags(sc: MongoDB):
     for cluster_member_client in get_member_cluster_clients_using_cluster_mapping(sc.name, sc.namespace):
         cluster_idx = cluster_member_client.cluster_index
@@ -158,6 +130,34 @@ def test_enable_audit_log(sc: MongoDB):
 @mark.e2e_sharded_cluster_agent_flags
 def test_log_types_with_audit_enabled(sc: MongoDB):
     _assert_log_types_in_pods(sc, get_all_log_types())
+
+
+@mark.e2e_sharded_cluster_agent_flags
+def test_set_custom_download_base(sc: MongoDB):
+    sc.load()
+    sc["spec"]["downloadBase"] = custom_download_base
+    sc.update()
+    sc.assert_reaches_phase(Phase.Running, timeout=2500 if is_default_architecture_static() else 3500)
+
+
+@mark.e2e_sharded_cluster_agent_flags
+def test_custom_download_base_in_automation_config(sc: MongoDB):
+    options = sc.get_automation_config_tester().automation_config.get("options", {})
+    assert options.get("downloadBase") == custom_download_base
+
+
+@mark.e2e_sharded_cluster_agent_flags
+def test_set_brand_new_download_base(sc: MongoDB):
+    sc.load()
+    sc["spec"]["downloadBase"] = brand_new_download_base
+    sc.update()
+    sc.assert_reaches_phase(Phase.Running, timeout=2500 if is_default_architecture_static() else 3500)
+
+
+@mark.e2e_sharded_cluster_agent_flags
+def test_brand_new_download_base_in_automation_config(sc: MongoDB):
+    options = sc.get_automation_config_tester().automation_config.get("options", {})
+    assert options.get("downloadBase") == brand_new_download_base
 
 
 def _assert_log_types_in_pods(sc: MongoDB, expected_log_types: set[str]):
