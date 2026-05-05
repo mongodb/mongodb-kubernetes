@@ -60,7 +60,7 @@ github.com/prometheus/procfs,v0.16.1,https://github.com/prometheus/procfs/blob/v
 github.com/r3labs/diff/v3,v3.0.2,https://github.com/r3labs/diff/blob/v3.0.2/LICENSE,MPL-2.0
 github.com/ryanuber/go-glob,v1.0.0,https://github.com/ryanuber/go-glob/blob/v1.0.0/LICENSE,MIT
 github.com/spf13/cast,v1.10.0,https://github.com/spf13/cast/blob/v1.10.0/LICENSE,MIT
-github.com/spf13/pflag,v1.0.9,https://github.com/spf13/pflag/blob/v1.0.9/LICENSE,BSD-3-Clause
+github.com/spf13/pflag,v1.0.10,https://github.com/spf13/pflag/blob/v1.0.10/LICENSE,BSD-3-Clause
 github.com/stretchr/objx,v0.5.3,https://github.com/stretchr/objx/blob/v0.5.3/LICENSE,MIT
 github.com/stretchr/testify/assert,v1.11.1,https://github.com/stretchr/testify/blob/v1.11.1/LICENSE,MIT
 github.com/vmihailenco/msgpack/v5,v5.4.1,https://github.com/vmihailenco/msgpack/blob/v5.4.1/LICENSE,BSD-2-Clause
