@@ -160,6 +160,26 @@ def test_brand_new_download_base_in_automation_config(sc: MongoDB):
     assert options.get("downloadBase") == brand_new_download_base
 
 
+@mark.e2e_sharded_cluster_agent_flags
+def test_enable_scram_auth(sc: MongoDB):
+    sc.load()
+    sc["spec"]["security"] = sc["spec"].get("security", {})
+    sc["spec"]["security"]["authentication"] = {
+        "enabled": True,
+        "modes": ["SCRAM"],
+    }
+    sc.update()
+    sc.assert_reaches_phase(Phase.Running, timeout=2500 if is_default_architecture_static() else 3500)
+
+
+@mark.e2e_sharded_cluster_agent_flags
+def test_keyfile_follows_download_base_by_default(sc: MongoDB):
+    sc.load()
+    expected_keyfile = f"{sc['spec']['downloadBase']}/keyfile"
+    auth = sc.get_automation_config_tester().automation_config.get("auth", {})
+    assert auth.get("keyfile") == expected_keyfile
+
+
 def _assert_log_types_in_pods(sc: MongoDB, expected_log_types: set[str]):
     for cluster_member_client in get_member_cluster_clients_using_cluster_mapping(sc.name, sc.namespace):
         cluster_idx = cluster_member_client.cluster_index
