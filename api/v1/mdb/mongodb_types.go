@@ -1012,6 +1012,13 @@ type Authentication struct {
 	RequiresClientTLSAuthentication bool `json:"requireClientTLSAuthentication,omitempty"`
 }
 
+// GetKeyfile returns the keyfile path derived from downloadBase, matching how
+// Ops Manager builds the path so that changing spec.downloadBase moves the
+// keyfile with it.
+func (a *Authentication) GetKeyfile(downloadBase string) string {
+	return downloadBase + "/keyfile"
+}
+
 // +kubebuilder:validation:Enum=X509;SCRAM;SCRAM-SHA-1;MONGODB-CR;SCRAM-SHA-256;LDAP;OIDC
 type AuthMode string
 

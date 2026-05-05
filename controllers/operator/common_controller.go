@@ -562,7 +562,7 @@ func (r *ReconcileCommonController) updateOmAuthentication(ctx context.Context, 
 		CAFilePath:         caFilepath,
 		MongoDBResource:    types.NamespacedName{Namespace: ar.GetNamespace(), Name: ar.GetName()},
 		DownloadBase:       downloadBase,
-		KeyfilePath:        downloadBase + "/keyfile",
+		KeyfilePath:        ar.GetSecurity().Authentication.GetKeyfile(downloadBase),
 	}
 	var databaseSecretPath string
 	if r.VaultClient != nil {
@@ -1007,7 +1007,6 @@ func publishAutomationConfigFirst(ctx context.Context, getter kubernetesClient.C
 	currentSts, err := getter.GetStatefulSet(ctx, namespacedName)
 	if err != nil {
 		if apiErrors.IsNotFound(err) {
-			// No need to publish state as this is a new StatefulSet
 			log.Debugf("New StatefulSet %s", namespacedName)
 			return false
 		}
