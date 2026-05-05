@@ -137,6 +137,9 @@ type DatabaseStatefulSetOptions struct {
 	AgentDebugImage string
 
 	DownloadBase string
+	// PreviousDownloadBase carries the last achieved downloadBase from controller state.
+	// It is used to keep an extra compatibility alias during custom->custom transitions.
+	PreviousDownloadBase string
 }
 
 func (d DatabaseStatefulSetOptions) IsMongos() bool {
@@ -185,6 +188,7 @@ func StandaloneOptions(additionalOpts ...func(options *DatabaseStatefulSetOption
 			StatefulSetSpecOverride: stsSpec,
 			MultiClusterMode:        mdb.Spec.IsMultiCluster(),
 			StsType:                 Standalone,
+			DownloadBase:            mdb.Spec.GetDownloadBase(),
 		}
 
 		for _, opt := range additionalOpts {
@@ -263,6 +267,7 @@ func shardedOptions(cfg shardedOptionCfg, additionalOpts ...func(options *Databa
 		MultiClusterMode:        cfg.mdb.Spec.IsMultiCluster(),
 		Persistent:              cfg.persistent,
 		StsType:                 cfg.stsType,
+		DownloadBase:            cfg.mdb.Spec.GetDownloadBase(),
 	}
 
 	if cfg.mdb.Spec.IsMultiCluster() {
@@ -720,7 +725,16 @@ func getVolumesAndVolumeMounts(mdb databaseStatefulSetSource, databaseOpts Datab
 		volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(AgentAPIKeyVolumeName, AgentAPIKeySecretPath))
 	}
 
-	volumesToAdd, volumeMounts = GetNonPersistentAgentVolumeMounts(volumesToAdd, volumeMounts, databaseOpts.DownloadBase)
+	// Mount the MMS volume at the effective download base (spec.downloadBase or default) so the
+	// writable path matches automation config options.downloadBase and MMS_DOWNLOAD_BASE.
+	// Also carry the previous last-achieved downloadBase as a temporary alias to support
+	// custom->custom transitions while Ops Manager still converges on the new path.
+	volumesToAdd, volumeMounts = GetNonPersistentAgentVolumeMounts(
+		volumesToAdd,
+		volumeMounts,
+		databaseOpts.DownloadBase,
+		databaseOpts.PreviousDownloadBase,
+	)
 
 	return volumesToAdd, volumeMounts
 }
@@ -963,8 +977,9 @@ func staticContainersEnvVars(mdb databaseStatefulSetSource) []corev1.EnvVar {
 	var envVars []corev1.EnvVar
 	if architectures.IsRunningStaticArchitecture(mdb.GetAnnotations()) {
 		envVars = append(envVars, corev1.EnvVar{Name: "MDB_STATIC_CONTAINERS_ARCHITECTURE", Value: "true"})
-		envVars = append(envVars, corev1.EnvVar{Name: DownloadBaseEnv, Value: mdb.GetDownloadBase()})
 	}
+	// MMS_DOWNLOAD_BASE must match the MMS volume mount path (see GetNonPersistentAgentVolumeMounts).
+	envVars = append(envVars, corev1.EnvVar{Name: DownloadBaseEnv, Value: mdb.GetDownloadBase()})
 	return envVars
 }
 
@@ -1141,16 +1156,52 @@ func GetNonPersistentMongoDBVolumeMounts(volumes []corev1.Volume, volumeMounts [
 }
 
 // GetNonPersistentAgentVolumeMounts returns two arrays of non-persistent, empty volumes and corresponding mounts for the Agent container.
-func GetNonPersistentAgentVolumeMounts(volumes []corev1.Volume, volumeMounts []corev1.VolumeMount, downloadBase string) ([]corev1.Volume, []corev1.VolumeMount) {
+func GetNonPersistentAgentVolumeMounts(
+	volumes []corev1.Volume,
+	volumeMounts []corev1.VolumeMount,
+	downloadBase string,
+	lastAchievedDownloadBase string,
+) ([]corev1.Volume, []corev1.VolumeMount) {
 	volumes = append(volumes, statefulset.CreateVolumeFromEmptyDir(util.PvMms))
 
 	// The agent reads and writes into its own directory. It also contains a subdirectory called downloads.
 	// This one is published by the Dockerfile
 	volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.PvMms, downloadBase, statefulset.WithSubPath(util.PvcMms)))
+	// If we're transitioning between custom downloadBase values, keep the previously achieved path
+	// mounted as a compatibility alias until OM converges and stops referring to it.
+	if lastAchievedDownloadBase != "" &&
+		lastAchievedDownloadBase != downloadBase &&
+		lastAchievedDownloadBase != util.DefaultPvcMmsMountPath {
+		volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.PvMms, lastAchievedDownloadBase, statefulset.WithSubPath(util.PvcMms)))
+	}
+	// When spec.downloadBase is custom, also bind the same volume subPath at the historical default
+	// path. Ops Manager may still reference options.downloadBase=/var/lib/mongodb-mms-automation until
+	// the deployment updates; both paths then see identical files without requiring reconcile ordering.
+	if downloadBase != util.DefaultPvcMmsMountPath {
+		volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.PvMms, util.DefaultPvcMmsMountPath, statefulset.WithSubPath(util.PvcMms)))
+	}
 
 	// Runtime data for MMS
 	volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.PvMms, util.PvcMmsHomeMountPath, statefulset.WithSubPath(util.PvcMmsHome)))
 
 	volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.PvMms, util.PvcMountPathTmp, statefulset.WithSubPath(util.PvcNameTmp)))
 	return volumes, volumeMounts
+}
+
+// DownloadBaseMountPathFromVolumeMounts returns the mount path where the operator attaches the
+// MongoDB Agent MMS download directory (volume util.PvMms, subPath util.PvcMms). It returns ""
+// if that mount is absent. When both default and custom downloadBase mounts are present, prefer
+// the custom mount path.
+func DownloadBaseMountPathFromVolumeMounts(volumeMounts []corev1.VolumeMount) string {
+	var defaultPath string
+	for _, vm := range volumeMounts {
+		if vm.Name != util.PvMms || vm.SubPath != util.PvcMms {
+			continue
+		}
+		if vm.MountPath != util.DefaultPvcMmsMountPath {
+			return vm.MountPath
+		}
+		defaultPath = vm.MountPath
+	}
+	return defaultPath
 }

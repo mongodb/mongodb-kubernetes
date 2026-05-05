@@ -462,12 +462,17 @@ type DbCommonSpec struct {
 	// +optional
 	Topology string `json:"topology,omitempty"`
 
+	// DownloadBase is the absolute path of the directory where Ops Manager downloads
+	// automatic versions and runs starting scripts. When unset, it defaults to
+	// /var/lib/mongodb-mms-automation.
+	// +kubebuilder:validation:Pattern=`^/[^\0]*$`
+	// +optional
+	DownloadBase string `json:"downloadBase,omitempty"`
+
 	// +optional
 	ExternalMembers []ExternalMember `json:"externalMembers,omitempty"`
 
 	ReplicaSetNameOverride string `json:"replicaSetNameOverride,omitempty"`
-
-	DownloadBase string `json:"downloadBase,omitempty"`
 }
 
 type MongoDbSpec struct {

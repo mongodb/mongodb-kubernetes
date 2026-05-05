@@ -146,6 +146,13 @@ type ReconcileMongoDbStandalone struct {
 	agentDebugImage string
 }
 
+func (r *ReconcileMongoDbStandalone) previousDownloadBase(lastSpec *mdbv1.MongoDbSpec) string {
+	if lastSpec == nil {
+		return ""
+	}
+	return lastSpec.GetDownloadBase()
+}
+
 func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reconcile.Request) (res reconcile.Result, e error) {
 	log := zap.S().With("Standalone", request.NamespacedName)
 	s := &mdbv1.MongoDB{}
@@ -268,6 +275,10 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 			return r.updateStatus(ctx, s, status, log)
 		}
 	}
+	lastSpec, err := s.GetLastSpec()
+	if err != nil {
+		lastSpec = &mdbv1.MongoDbSpec{}
+	}
 
 	standaloneOpts := construct.StandaloneOptions(
 		CertificateHash(pem.ReadHashFromSecret(ctx, r.SecretClient, s.Namespace, standaloneCertSecretName, databaseSecretPath, log)),
@@ -284,6 +295,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 		WithAgentDebug(r.agentDebug),
 		WithAgentDebugImage(r.agentDebugImage),
 		WithExternalAgentVersion(externalAgentVersion),
+		WithPreviousDownloadBase(r.previousDownloadBase(lastSpec)),
 	)
 
 	sts := construct.DatabaseStatefulSet(*s, standaloneOpts, log)
@@ -291,11 +303,6 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 	workflowStatus := create.HandlePVCResize(ctx, r.client, &sts, log)
 	if !workflowStatus.IsOK() {
 		return r.updateStatus(ctx, s, workflowStatus, log)
-	}
-
-	lastSpec, err := s.GetLastSpec()
-	if err != nil {
-		lastSpec = &mdbv1.MongoDbSpec{}
 	}
 
 	status := workflow.RunInGivenOrder(publishAutomationConfigFirst(ctx, r.client, *s, lastSpec, standaloneOpts, log),
