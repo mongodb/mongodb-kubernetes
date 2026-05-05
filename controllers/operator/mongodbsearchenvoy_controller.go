@@ -138,10 +138,16 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 		return r.updateLBStatus(ctx, mdbSearch, workflow.Pending("Waiting for search source: %s", err), log)
 	}
 
+	// Load the per-CR state to get the stable clusterName → clusterIndex mapping.
+	state, _, err := loadOrInitSearchState(ctx, r.kubeClient, mdbSearch)
+	if err != nil {
+		return r.updateLBStatus(ctx, mdbSearch, workflow.Pending("Waiting for search state: %s", err), log)
+	}
+
 	tlsCfg := searchSource.TLSConfig()
 	tlsEnabled := mdbSearch.IsTLSConfigured()
 
-	workList := r.buildClusterWorkList(mdbSearch)
+	workList := r.buildClusterWorkList(mdbSearch, state.ClusterMapping)
 	perClusterStatuses := make([]searchv1.ClusterLoadBalancerStatus, 0, len(workList))
 	var firstFailure error
 	multiCluster := len(workList) > 1 || (len(workList) == 1 && workList[0].ClusterName != "")
@@ -150,7 +156,14 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 	// single-cluster degenerate case, so worstOfClusterPhases sees the actual
 	// failure phase rather than defaulting to Running.
 	for _, w := range workList {
-		st := r.reconcileForCluster(ctx, mdbSearch, searchSource, tlsEnabled, tlsCfg, w.ClusterName, log)
+		var st workflow.Status
+		if w.ClusterIndex == -1 {
+			// Cluster not yet registered in state mapping; Envoy controller
+			// reconciles after the main search controller writes the mapping.
+			st = workflow.Pending("Waiting for cluster %q to be registered in search state", w.ClusterName)
+		} else {
+			st = r.reconcileForCluster(ctx, mdbSearch, searchSource, tlsEnabled, tlsCfg, w.ClusterName, w.ClusterIndex, log)
+		}
 		perClusterStatuses = append(perClusterStatuses, searchv1.ClusterLoadBalancerStatus{
 			ClusterName: w.ClusterName,
 			Phase:       st.Phase(),
@@ -184,32 +197,40 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 	return r.updateLBStatus(ctx, mdbSearch, workflow.OK(), log)
 }
 
-// clusterWorkItem represents one (clusterName) unit the reconciler must process.
+// clusterWorkItem represents one (clusterName, clusterIndex) unit the reconciler must process.
 // In single-cluster (no spec.clusters or empty memberClusterClientsMap) the slice
-// has one entry with ClusterName == "" and writes go to the central cluster.
+// has one entry with ClusterName == "" and ClusterIndex == 0.
+// ClusterIndex == -1 is a sentinel meaning the cluster has not yet been registered
+// in the state mapping; the reconciler surfaces a per-cluster Pending for those.
 type clusterWorkItem struct {
-	ClusterName string
+	ClusterName  string
+	ClusterIndex int
 }
 
 // buildClusterWorkList expands spec.clusters[] into the per-cluster work units
 // the reconciler will iterate over. Membership rules:
-//   - len(memberClusterClientsMap) == 0 → single-cluster install; one work item with "".
-//   - len(spec.clusters) == 0 → single-cluster degenerate; one work item with "".
-//   - otherwise → one work item per spec.clusters[i]. Member clusters in the
-//     reconciler's map but absent from spec.clusters[] are intentionally ignored
-//     (the CR drives, not the operator's membership).
-func (r *MongoDBSearchEnvoyReconciler) buildClusterWorkList(search *searchv1.MongoDBSearch) []clusterWorkItem {
+//   - len(memberClusterClientsMap) == 0 → single-cluster install; one work item with ClusterName="" and ClusterIndex=0.
+//   - len(spec.clusters) == 0 → single-cluster degenerate; one work item with ClusterName="" and ClusterIndex=0.
+//   - otherwise → one work item per spec.clusters[i]. ClusterIndex is resolved from
+//     mapping; -1 if the cluster is not yet in the mapping (first reconcile race).
+func (r *MongoDBSearchEnvoyReconciler) buildClusterWorkList(search *searchv1.MongoDBSearch, mapping map[string]int) []clusterWorkItem {
 	if len(r.memberClusterClientsMap) == 0 || search.Spec.Clusters == nil || len(*search.Spec.Clusters) == 0 {
-		return []clusterWorkItem{{ClusterName: ""}}
+		return []clusterWorkItem{{ClusterName: "", ClusterIndex: 0}}
 	}
 	work := make([]clusterWorkItem, 0, len(*search.Spec.Clusters))
 	for _, c := range *search.Spec.Clusters {
-		work = append(work, clusterWorkItem{ClusterName: c.ClusterName})
+		idx, ok := mapping[c.ClusterName]
+		if !ok {
+			idx = -1
+		}
+		work = append(work, clusterWorkItem{ClusterName: c.ClusterName, ClusterIndex: idx})
 	}
 	return work
 }
 
 // reconcileForCluster runs the ConfigMap + Deployment ensure for one cluster.
+// clusterName is used for client lookup and log context; clusterIndex is used
+// for resource naming.
 // Returns a workflow.Status describing the per-cluster outcome.
 func (r *MongoDBSearchEnvoyReconciler) reconcileForCluster(
 	ctx context.Context,
@@ -218,6 +239,7 @@ func (r *MongoDBSearchEnvoyReconciler) reconcileForCluster(
 	tlsEnabled bool,
 	tlsCfg *searchcontroller.TLSSourceConfig,
 	clusterName string,
+	clusterIndex int,
 	log *zap.SugaredLogger,
 ) workflow.Status {
 	if clusterName != "" {
@@ -236,10 +258,10 @@ func (r *MongoDBSearchEnvoyReconciler) reconcileForCluster(
 	if err != nil {
 		return workflow.Failed(fmt.Errorf("cluster=%q: %w", clusterName, err))
 	}
-	if err := r.ensureConfigMap(ctx, search, envoyJSON, clusterName, log); err != nil {
+	if err := r.ensureConfigMap(ctx, search, envoyJSON, clusterName, clusterIndex, log); err != nil {
 		return workflow.Failed(fmt.Errorf("cluster=%q: %w", clusterName, err))
 	}
-	if err := r.ensureDeployment(ctx, search, envoyJSON, clusterName, tlsCfg, log); err != nil {
+	if err := r.ensureDeployment(ctx, search, envoyJSON, clusterName, clusterIndex, tlsCfg, log); err != nil {
 		return workflow.Failed(fmt.Errorf("cluster=%q: %w", clusterName, err))
 	}
 	return workflow.OK()
@@ -287,6 +309,9 @@ func (r *MongoDBSearchEnvoyReconciler) clearLBStatus(ctx context.Context, search
 // created when managed LB was active. This is called exactly once per LB removal,
 // gated by Status.LoadBalancer != nil (cleared immediately after).
 //
+// Single-cluster installs use index 0, matching the index assigned by
+// buildClusterWorkList for the single-cluster degenerate path.
+//
 // This still walks only the central cluster. Member-cluster Deployments +
 // ConfigMaps will leak on managed→unmanaged transitions and on CR delete because
 // cross-cluster owner refs do not GC; graceful drain on cluster removal will
@@ -294,14 +319,14 @@ func (r *MongoDBSearchEnvoyReconciler) clearLBStatus(ctx context.Context, search
 func (r *MongoDBSearchEnvoyReconciler) deleteEnvoyResources(ctx context.Context, search *searchv1.MongoDBSearch, log *zap.SugaredLogger) {
 	ns := search.Namespace
 
-	dep := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: search.LoadBalancerDeploymentName(), Namespace: ns}}
+	dep := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: search.LoadBalancerDeploymentNameForCluster(0), Namespace: ns}}
 	if err := r.kubeClient.Delete(ctx, dep); err != nil && !apierrors.IsNotFound(err) {
 		log.Warnf("Failed to delete Envoy Deployment %s: %s", dep.Name, err)
 	} else if err == nil {
 		log.Infof("Deleted Envoy Deployment %s", dep.Name)
 	}
 
-	cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: search.LoadBalancerConfigMapName(), Namespace: ns}}
+	cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: search.LoadBalancerConfigMapNameForCluster(0), Namespace: ns}}
 	if err := r.kubeClient.Delete(ctx, cm); err != nil && !apierrors.IsNotFound(err) {
 		log.Warnf("Failed to delete Envoy ConfigMap %s: %s", cm.Name, err)
 	} else if err == nil {
@@ -442,22 +467,24 @@ func applyClusterIDToSNI(sni, clusterName string, templated bool) string {
 
 // ensureConfigMap creates or updates the Envoy ConfigMap in the cluster
 // indicated by clusterName ("" = central cluster, single-cluster path).
+// clusterIndex is used for resource naming; clusterName is used for client
+// lookup and labels.
 //
 // Cross-cluster ownership note: Kubernetes garbage collection does not span
 // clusters, so we only set an OwnerReference when writing into the central
 // cluster (clusterName == ""). Cleanup of member-cluster objects is handled
 // explicitly in deleteEnvoyResources.
-func (r *MongoDBSearchEnvoyReconciler) ensureConfigMap(ctx context.Context, search *searchv1.MongoDBSearch, envoyJSON, clusterName string, log *zap.SugaredLogger) error {
+func (r *MongoDBSearchEnvoyReconciler) ensureConfigMap(ctx context.Context, search *searchv1.MongoDBSearch, envoyJSON, clusterName string, clusterIndex int, log *zap.SugaredLogger) error {
 	c := selectEnvoyClient(clusterName, r.kubeClient, r.memberClusterClientsMap)
 	cm := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      search.LoadBalancerConfigMapNameForCluster(clusterName),
+			Name:      search.LoadBalancerConfigMapNameForCluster(clusterIndex),
 			Namespace: search.Namespace,
 		},
 	}
 
 	_, err := controllerutil.CreateOrUpdate(ctx, c, cm, func() error {
-		cm.Labels = envoyLabelsForCluster(search, clusterName)
+		cm.Labels = envoyLabelsForCluster(search, clusterName, clusterIndex)
 		cm.Data = map[string]string{"envoy.json": envoyJSON}
 		if clusterName == "" {
 			return controllerutil.SetOwnerReference(search, cm, c.Scheme())
@@ -474,13 +501,15 @@ func (r *MongoDBSearchEnvoyReconciler) ensureConfigMap(ctx context.Context, sear
 
 // ensureDeployment creates or updates the Envoy Deployment in the cluster
 // indicated by clusterName ("" = central cluster, single-cluster path).
+// clusterIndex is used for resource naming; clusterName is used for client
+// lookup and labels.
 // See ensureConfigMap for the cross-cluster ownership rule.
-func (r *MongoDBSearchEnvoyReconciler) ensureDeployment(ctx context.Context, search *searchv1.MongoDBSearch, envoyJSON, clusterName string, tlsCfg *searchcontroller.TLSSourceConfig, log *zap.SugaredLogger) error {
+func (r *MongoDBSearchEnvoyReconciler) ensureDeployment(ctx context.Context, search *searchv1.MongoDBSearch, envoyJSON, clusterName string, clusterIndex int, tlsCfg *searchcontroller.TLSSourceConfig, log *zap.SugaredLogger) error {
 	c := selectEnvoyClient(clusterName, r.kubeClient, r.memberClusterClientsMap)
 	configHash := fmt.Sprintf("%x", sha256.Sum256([]byte(envoyJSON)))
 	replicas := envoyReplicas(search)
-	labels := envoyLabelsForCluster(search, clusterName)
-	podLabels := envoyPodLabelsForCluster(search, clusterName)
+	labels := envoyLabelsForCluster(search, clusterName, clusterIndex)
+	podLabels := envoyPodLabelsForCluster(search, clusterIndex)
 	tlsEnabled := search.IsTLSConfigured()
 	image, err := r.envoyContainerImage()
 	if err != nil {
@@ -491,7 +520,7 @@ func (r *MongoDBSearchEnvoyReconciler) ensureDeployment(ctx context.Context, sea
 
 	dep := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      search.LoadBalancerDeploymentNameForCluster(clusterName),
+			Name:      search.LoadBalancerDeploymentNameForCluster(clusterIndex),
 			Namespace: search.Namespace,
 		},
 	}
@@ -511,7 +540,7 @@ func (r *MongoDBSearchEnvoyReconciler) ensureDeployment(ctx context.Context, sea
 						envoyConfigHashAnnotation: configHash,
 					},
 				},
-				Spec: buildEnvoyPodSpec(search, clusterName, tlsCfg, tlsEnabled, image, resources, managedSecurityContext),
+				Spec: buildEnvoyPodSpec(search, clusterIndex, tlsCfg, tlsEnabled, image, resources, managedSecurityContext),
 			},
 		}
 
@@ -538,17 +567,16 @@ func (r *MongoDBSearchEnvoyReconciler) ensureDeployment(ctx context.Context, sea
 // buildEnvoyPodSpec builds the PodSpec for the Envoy Deployment.
 // tlsCfg may be nil if TLS is not configured on the source.
 //
-// clusterName selects the per-cluster ConfigMap volume name in MC mode
-// (clusterName == "" preserves the single-cluster path's legacy unsuffixed
-// name). Without this, MC pods mount a ConfigMap that does not exist in the
-// member cluster and Envoy never starts.
-func buildEnvoyPodSpec(search *searchv1.MongoDBSearch, clusterName string, tlsCfg *searchcontroller.TLSSourceConfig, tlsEnabled bool, image string, resources corev1.ResourceRequirements, managedSecurityContext bool) corev1.PodSpec {
+// clusterIndex selects the per-cluster ConfigMap volume name. Without this,
+// MC pods mount a ConfigMap that does not exist in the member cluster and
+// Envoy never starts.
+func buildEnvoyPodSpec(search *searchv1.MongoDBSearch, clusterIndex int, tlsCfg *searchcontroller.TLSSourceConfig, tlsEnabled bool, image string, resources corev1.ResourceRequirements, managedSecurityContext bool) corev1.PodSpec {
 	volumes := []corev1.Volume{
 		{
 			Name: "envoy-config",
 			VolumeSource: corev1.VolumeSource{
 				ConfigMap: &corev1.ConfigMapVolumeSource{
-					LocalObjectReference: corev1.LocalObjectReference{Name: search.LoadBalancerConfigMapNameForCluster(clusterName)},
+					LocalObjectReference: corev1.LocalObjectReference{Name: search.LoadBalancerConfigMapNameForCluster(clusterIndex)},
 				},
 			},
 		},
@@ -664,20 +692,22 @@ func defaultEnvoyResourceRequirements() corev1.ResourceRequirements {
 }
 
 // envoyLabelsForCluster returns Envoy resource labels including the cross-cluster
-// enqueue labels and an optional cluster-name label. In single-cluster (clusterID
+// enqueue labels and an optional cluster-name label. In single-cluster (clusterName
 // == "") the cluster-name label is omitted. Both stamp the cross-cluster enqueue
 // labels so the label-based mapper can route Deployment/ConfigMap events back
 // to the owning MongoDBSearch even when objects live in a member cluster (where
 // owner refs don't GC).
-func envoyLabelsForCluster(search *searchv1.MongoDBSearch, clusterID string) map[string]string {
+// clusterIndex is used for the "app" label (resource name); clusterName is used
+// for the cluster-name label so label selectors remain name-keyed.
+func envoyLabelsForCluster(search *searchv1.MongoDBSearch, clusterName string, clusterIndex int) map[string]string {
 	labels := map[string]string{
-		"app":                                search.LoadBalancerDeploymentNameForCluster(clusterID),
+		"app":                                search.LoadBalancerDeploymentNameForCluster(clusterIndex),
 		"component":                          labelName,
 		khandler.MongoDBSearchOwnerNameLabel: search.Name,
 		khandler.MongoDBSearchOwnerNamespaceLabel: search.Namespace,
 	}
-	if clusterID != "" {
-		labels[khandler.MongoDBSearchClusterNameLabel] = clusterID
+	if clusterName != "" {
+		labels[khandler.MongoDBSearchClusterNameLabel] = clusterName
 	}
 	return labels
 }
@@ -710,9 +740,9 @@ func envoyReplicas(search *searchv1.MongoDBSearch) int32 {
 // envoyPodLabelsForCluster returns Envoy pod-selection labels for one cluster.
 // The "app" label uses the per-cluster Deployment name so Pods stay distinct
 // per (cluster, namespace) — Pod names already carry the Deployment prefix.
-func envoyPodLabelsForCluster(search *searchv1.MongoDBSearch, clusterID string) map[string]string {
+func envoyPodLabelsForCluster(search *searchv1.MongoDBSearch, clusterIndex int) map[string]string {
 	return map[string]string{
-		"app": search.LoadBalancerDeploymentNameForCluster(clusterID),
+		"app": search.LoadBalancerDeploymentNameForCluster(clusterIndex),
 	}
 }
 
