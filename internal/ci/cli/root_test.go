@@ -11,6 +11,7 @@ func TestNewRoot_RegistersExpectedSubcommands(t *testing.T) {
 
 	want := map[string]bool{
 		"version": false,
+		"release": false,
 	}
 	for _, sub := range root.Commands() {
 		if _, ok := want[sub.Name()]; ok {
