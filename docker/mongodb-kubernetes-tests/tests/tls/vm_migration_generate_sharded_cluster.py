@@ -26,7 +26,7 @@ from tests.tls.vm_migration_helpers import (
     deploy_vm_service,
     deploy_vm_statefulset,
     promote_and_prune_sharded,
-    run_migrate_generate,
+    run_generate_cr,
 )
 
 RESOURCE_NAME = "my-sharded-cluster"
@@ -155,7 +155,7 @@ def _configure_sharded_ac(namespace: str, om_tester: OMTester, vm_sts: dict, vm_
 
 @fixture(scope="module")
 def generated_cr_yaml(namespace: str) -> str:
-    return run_migrate_generate(namespace)
+    return run_generate_cr(namespace)
 
 
 @fixture(scope="module")
