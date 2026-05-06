@@ -2,6 +2,7 @@
 
 import os
 import subprocess
+import tempfile
 import time
 from typing import List, Optional
 
@@ -88,19 +89,32 @@ def _run_migrate_subcommand(
 
 def run_migrate_generate(
     namespace: str,
-    passwords: list[str] | None = None,
+    user_secrets: dict[str, str] | None = None,
     certs_secret_prefix: str | None = None,
 ) -> str:
     """Run migrate mongodb + migrate users and return the combined CR YAML bundle.
 
     certs_secret_prefix is fed to stdin for the migrate mongodb TLS prompt.
-    passwords are fed to stdin for migrate users SCRAM prompts.
+    user_secrets maps "username:database" to a pre-created Secret name. Create each
+    Secret before calling this function:
+      kubectl create secret generic <name> --from-literal=password=<password> -n <namespace>
     """
     mongodb_stdin = (certs_secret_prefix + "\n") if certs_secret_prefix is not None else None
     mongodb_yaml = _run_migrate_subcommand("mongodb", ["--namespace", namespace], stdin_text=mongodb_stdin)
 
-    users_stdin = "\n".join(passwords) + "\n" if passwords else None
-    users_yaml = _run_migrate_subcommand("users", ["--namespace", namespace], stdin_text=users_stdin)
+    users_flags = ["--namespace", namespace]
+    tmpfile = None
+    if user_secrets:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
+            for user_db, secret_name in user_secrets.items():
+                f.write(f"{user_db},{secret_name}\n")
+            tmpfile = f.name
+        users_flags += ["--users-secrets-file", tmpfile]
+    try:
+        users_yaml = _run_migrate_subcommand("users", users_flags, stdin_text=None)
+    finally:
+        if tmpfile:
+            os.unlink(tmpfile)
 
     parts = [p for p in (mongodb_yaml.strip(), users_yaml.strip()) if p]
     return "\n---\n".join(parts) + "\n" if parts else ""
@@ -137,21 +151,8 @@ def get_user_docs(generated_cr_yaml: str) -> List[dict]:
     return [d for d in docs if d and d.get("kind") == "MongoDBUser"]
 
 
-def _apply_secrets(generated_cr_yaml: str, namespace: str):
-    """Apply any Secrets from the generated YAML output to the cluster."""
-    docs = list(yaml.safe_load_all(generated_cr_yaml))
-    for doc in docs:
-        if not doc or doc.get("kind") != "Secret":
-            continue
-        secret_name = doc["metadata"]["name"]
-        string_data = doc.get("stringData", {})
-        if string_data:
-            create_or_update_secret(namespace, secret_name, string_data)
-
-
 def apply_user_crs_and_verify_ac(generated_cr_yaml: str, namespace: str, om_tester: OMTester):
-    """Apply every password Secret and MongoDBUser CR, then assert correct AC state."""
-    _apply_secrets(generated_cr_yaml, namespace)
+    """Apply MongoDBUser CRs from the generated YAML, then assert correct AC state."""
     user_docs = get_user_docs(generated_cr_yaml)
     for doc in user_docs:
         user = MongoDBUser(name=doc["metadata"]["name"], namespace=namespace)

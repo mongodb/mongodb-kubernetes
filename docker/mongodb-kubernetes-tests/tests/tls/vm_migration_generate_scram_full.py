@@ -10,12 +10,12 @@ Configures a realistic automation config with:
   - Member tags (region / role)
   - FCV
 
-Provides SCRAM user passwords to the migrate tool via stdin, then runs the
-full promote-and-prune lifecycle.
+Pre-creates Kubernetes Secrets for each SCRAM user, then passes them to
+the migrate tool via --users-secrets-file. Runs the full promote-and-prune lifecycle.
 """
 
 import yaml
-from kubetester import get_statefulset, try_load
+from kubetester import create_or_update_secret, get_statefulset, try_load
 from kubetester.kubetester import KubernetesTester, ensure_ent_version, fcv_from_version
 from kubetester.mongodb import MongoDB
 from kubetester.omtester import OMContext, OMTester
@@ -257,7 +257,15 @@ def _configure_ac(namespace: str, om_tester: OMTester, vm_sts: dict, vm_service:
 
 @fixture(scope="module")
 def generated_cr_yaml(namespace: str) -> str:
-    return run_migrate_generate(namespace, passwords=[APP_USER_PASSWORD, REPORTING_USER_PASSWORD])
+    create_or_update_secret(namespace, "app-user-secret", {"password": APP_USER_PASSWORD})
+    create_or_update_secret(namespace, "reporting-user-secret", {"password": REPORTING_USER_PASSWORD})
+    return run_migrate_generate(
+        namespace,
+        user_secrets={
+            "app-user:admin": "app-user-secret",
+            "reporting-user:admin": "reporting-user-secret",
+        },
+    )
 
 
 @fixture(scope="module")
