@@ -33,16 +33,54 @@ var mFlags mongodbFlags
 var MongodbCmd = &cobra.Command{
 	Use:   "mongodb",
 	Short: "Generate a MongoDB Kubernetes CR",
-	Long: `Generates a MongoDB Kubernetes CR from an Ops Manager/Cloud Manager
-automation config. The automation config is validated before generation. If any blockers are
-found, the command fails without producing output.
+	Long: `Generate a MongoDB CR from an Ops Manager or Cloud Manager automation config.
 
-Requires a ConfigMap (baseUrl, orgId, projectName) and a Secret (publicKey,
-privateKey) in the same format used by the operator.
+The automation config is validated before output is produced. The command exits
+with an error if any blockers are found.
 
-Example:
+PREREQUISITES
 
-kubectl mongodb migrate mongodb --config-map-name my-project --secret-name my-credentials --namespace mongodb`,
+  A ConfigMap and a Secret must exist in the target namespace before running this
+  command:
+
+    kubectl create configmap my-project \
+      --from-literal=baseUrl=<url> \
+      --from-literal=orgId=<id> \
+      --from-literal=projectName=<name>
+
+    kubectl create secret generic my-credentials \
+      --from-literal=publicKey=<key> \
+      --from-literal=privateKey=<key>
+
+  If Prometheus is enabled, create a Secret containing the Prometheus password:
+
+    kubectl create secret generic <secret-name> \
+      --from-literal=password=<password> \
+      -n <namespace>
+
+USAGE
+
+  When TLS is enabled, the command prompts for spec.security.certsSecretPrefix.
+  Pass --certs-secret-prefix to skip the prompt.
+
+  When Prometheus is enabled, the command prompts for the name of the password
+  Secret. Pass --prometheus-secret-name to skip the prompt.
+
+EXAMPLES
+
+  Interactive:
+    kubectl mongodb migrate mongodb \
+      --config-map-name my-project \
+      --secret-name my-credentials \
+      --namespace mongodb
+
+  Non-interactive:
+    kubectl mongodb migrate mongodb \
+      --config-map-name my-project \
+      --secret-name my-credentials \
+      --namespace mongodb \
+      --certs-secret-prefix mdb \
+      --prometheus-secret-name prom-secret`,
 	RunE: runGenerateMongodb,
 }
 
