@@ -36,8 +36,8 @@ if [[ "${IMAGE_VERSION:-}" != "" ]]; then
 fi
 
 # For agent builds, pass tools version if explicitly provided
-if [[ "${IMAGE_NAME}" == "agent" && "${TOOLS_VERSION:-}" != "" ]]; then
-    args+=(--agent-tools-version "${TOOLS_VERSION}")
+if [[ "${IMAGE_NAME}" == "agent" && "${AGENT_TOOLS_VERSION:-}" != "" ]]; then
+    args+=(--agent-tools-version "${AGENT_TOOLS_VERSION}")
 fi
 
 if [[ "${FLAGS:-}" != "" ]]; then

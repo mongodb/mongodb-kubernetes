@@ -45,6 +45,7 @@ func AllReachedGoalState(ctx context.Context, sts appsv1.StatefulSet, podGetter 
 		if !podState.Found {
 			podsNotFound = append(podsNotFound, podState.PodName.Name)
 		} else if !podState.ReachedGoalState {
+			log.Infof("The Pod '%s' hasn't reached the goal state yet", podState.PodName.Name)
 			return false, nil
 		}
 	}

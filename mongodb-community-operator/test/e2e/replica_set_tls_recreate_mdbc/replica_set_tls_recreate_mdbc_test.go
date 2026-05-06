@@ -26,7 +26,7 @@ func TestReplicaSetTLSRecreateMdbc(t *testing.T) {
 	ctx := context.Background()
 	resourceName := "mdb-tls"
 
-	testCtx, testConfig := setup.SetupWithTLS(ctx, t, resourceName)
+	testCtx, testConfig := setup.SetupWithTLS(ctx, t, resourceName, true, false)
 	defer testCtx.Teardown()
 
 	mdb1, user := e2eutil.NewTestMongoDB(testCtx, resourceName, testConfig.Namespace)

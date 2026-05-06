@@ -1,7 +1,7 @@
 import logging
 import os
 from operator import attrgetter
-from typing import Dict, Optional
+from typing import Dict, Iterator, Optional
 
 from kubernetes import client
 from kubetester import (
@@ -95,7 +95,7 @@ def new_om_data_store(
 
 
 @fixture(scope="module")
-def s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> str:
+def s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> Iterator[str]:
     create_aws_secret(aws_s3_client, S3_SECRET_NAME, namespace)
     yield from create_s3_bucket(aws_s3_client, "test-bucket-s3")
 

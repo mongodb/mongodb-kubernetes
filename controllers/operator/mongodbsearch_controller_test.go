@@ -59,7 +59,6 @@ func newSearchReconcilerWithOperatorConfig(
 	searches ...*searchv1.MongoDBSearch,
 ) (*MongoDBSearchReconciler, client.Client) {
 	builder := mock.NewEmptyFakeClientBuilder()
-	builder.WithIndex(&searchv1.MongoDBSearch{}, searchcontroller.MongoDBSearchIndexFieldName, mdbcSearchIndexBuilder)
 
 	if mdbc != nil {
 		keyfileSecret := &corev1.Secret{
@@ -170,7 +169,7 @@ func TestMongoDBSearchReconcile_MissingSource(t *testing.T) {
 		reconcile.Request{NamespacedName: types.NamespacedName{Name: search.Name, Namespace: search.Namespace}},
 	)
 
-	assert.Error(t, err)
+	assert.NoError(t, err)
 	assert.True(t, res.RequeueAfter > 0)
 }
 

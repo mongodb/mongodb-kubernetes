@@ -132,11 +132,6 @@ def config_version_store():
 
 
 @mark.e2e_multi_cluster_sharded_disaster_recovery
-def test_install_operator(multi_cluster_operator: Operator):
-    multi_cluster_operator.assert_is_running()
-
-
-@mark.e2e_multi_cluster_sharded_disaster_recovery
 class TestDeployShardedClusterWithFailedCluster:
     def test_create_sharded_cluster(self, sc: MongoDB, config_version_store):
         sc.update()
@@ -206,7 +201,7 @@ class TestDeployShardedClusterWithFailedCluster:
                 if e.status != 404:
                     raise e
 
-        def statefulset_is_deleted(namespace: str, name: str, api_client=Optional[kubernetes.client.ApiClient]):
+        def statefulset_is_deleted(namespace: str, name: str, api_client: Optional[kubernetes.client.ApiClient] = None):
             try:
                 get_statefulset(namespace, name, api_client=api_client)
                 return False

@@ -76,6 +76,7 @@ class TestOpsManagerCreation:
         for _, cluster_spec_item in ops_manager.get_om_indexed_cluster_spec_items():
             internal, external = ops_manager.services(cluster_spec_item["clusterName"])
             assert external is None
+            assert internal is not None
             assert internal.spec.type == "ClusterIP"
             if not ops_manager.is_om_multi_cluster():
                 assert internal.spec.cluster_ip == "None"

@@ -66,8 +66,9 @@ update_files() {
     done
 }
 
-# Extract version from go.mod (source of truth)
-FULL_VERSION=$(go list -m -f '{{.GoVersion}}')
+# Extract version from go.mod (source of truth).
+# FULL_VERSION override bypasses `go list` when the target toolchain is not installed.
+FULL_VERSION="${FULL_VERSION:-$(go list -m -f '{{.GoVersion}}')}"
 if [[ -z "${FULL_VERSION}" ]]; then
     echo "Error: Could not extract Go version from go.mod"
     exit 1
