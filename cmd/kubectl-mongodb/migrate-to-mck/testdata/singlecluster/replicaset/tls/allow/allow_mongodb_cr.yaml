@@ -1,0 +1,47 @@
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  annotations:
+    mongodb.com/migrate-tool-version: latest
+    mongodb.com/migration-dry-run: "true"
+  name: allow-rs
+  namespace: mongodb
+spec:
+  additionalMongodConfig:
+    net:
+      tls:
+        mode: allowTLS
+  agent:
+    maxLogFileDurationHours: 0
+    mongod:
+      systemLog:
+        destination: file
+        logAppend: false
+        path: /var/log/mongodb/mongod.log
+  credentials: my-credentials
+  externalMembers:
+  - hostname: vm-0.example.com:27017
+    processName: allow-rs-0
+    replicaSetName: allow-rs
+    type: mongod
+  - hostname: vm-1.example.com:27017
+    processName: allow-rs-1
+    replicaSetName: allow-rs
+    type: mongod
+  featureCompatibilityVersion: "8.0"
+  opsManager:
+    configMapRef:
+      name: my-om-config
+  security:
+    authentication:
+      agents:
+        mode: SCRAM
+      enabled: true
+      ignoreUnknownUsers: true
+      modes:
+      - SCRAM
+    certsSecretPrefix: mdb
+    tls:
+      ca: allow-rs-ca
+  type: ReplicaSet
+  version: 8.0.4-ent
