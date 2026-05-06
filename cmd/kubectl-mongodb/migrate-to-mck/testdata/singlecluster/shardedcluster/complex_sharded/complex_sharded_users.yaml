@@ -9,7 +9,7 @@ spec:
     name: mycluster-v1
   passwordSecretKeyRef:
     key: password
-    name: appuser-secret
+    name: appuser-password
   roles:
   - db: appdb
     name: readWrite
