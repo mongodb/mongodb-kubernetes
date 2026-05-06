@@ -6,9 +6,7 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	k8svalidation "k8s.io/apimachinery/pkg/util/validation"
 
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/v1/user"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
@@ -16,9 +14,8 @@ import (
 )
 
 // GenerateUserCRs creates MongoDBUser CRs for each user in the automation config, skipping the agent user.
-// When ExistingUserSecrets is set, each SCRAM user references a pre-created Secret, otherwise new Secrets
-// are generated from UserPasswords. External users (X509 and LDAP) never produce a Secret.
-// Output is ordered with each MongoDBUser followed by its Secret when one is generated.
+// Each SCRAM user references a pre-created Secret from ExistingUserSecrets.
+// External users (X.509 and LDAP) never produce a Secret.
 func GenerateUserCRs(ac *om.AutomationConfig, mongodbResourceName, namespace string, opts GenerateOptions) ([]client.Object, error) {
 	if ac.Auth == nil || len(ac.Auth.Users) == 0 {
 		return nil, nil
@@ -61,28 +58,13 @@ func GenerateUserCRs(ac *om.AutomationConfig, mongodbResourceName, namespace str
 			Roles: roles,
 		}
 
-		var passwordSecret *corev1.Secret
 		if user.Database != externalDatabase {
-			if opts.ExistingUserSecrets != nil {
-				sName, ok := opts.ExistingUserSecrets[userKey(user.Username, user.Database)]
-				if !ok {
-					fmt.Fprintf(os.Stderr, "[WARNING] skipping user %q (db: %s): not found in --users-secrets-file\n", user.Username, user.Database)
-					continue
-				}
-				spec.PasswordSecretKeyRef = userv1.SecretKeyRef{Name: sName, Key: passwordSecretDataKey}
-			} else {
-				passwordSecretName := crName + "-password"
-				if errs := k8svalidation.IsDNS1123Subdomain(passwordSecretName); len(errs) > 0 {
-					return nil, fmt.Errorf("generated password Secret name %q is not a valid Kubernetes name. Rename user %q before migration: %s", passwordSecretName, user.Username, errs[0])
-				}
-				password, ok := opts.UserPasswords[userKey(user.Username, user.Database)]
-				if !ok {
-					fmt.Fprintf(os.Stderr, "[WARNING] skipping user %q (db: %s): no password provided\n", user.Username, user.Database)
-					continue
-				}
-				spec.PasswordSecretKeyRef = userv1.SecretKeyRef{Name: passwordSecretName, Key: passwordSecretDataKey}
-				passwordSecret = GeneratePasswordSecret(passwordSecretName, namespace, password)
+			sName, ok := opts.ExistingUserSecrets[userKey(user.Username, user.Database)]
+			if !ok {
+				fmt.Fprintf(os.Stderr, "[WARNING] skipping user %q (db: %s): no Secret name provided\n", user.Username, user.Database)
+				continue
 			}
+			spec.PasswordSecretKeyRef = userv1.SecretKeyRef{Name: sName, Key: passwordSecretDataKey}
 		}
 
 		results = append(results, &userv1.MongoDBUser{
@@ -90,9 +72,6 @@ func GenerateUserCRs(ac *om.AutomationConfig, mongodbResourceName, namespace str
 			ObjectMeta: metav1.ObjectMeta{Name: crName, Namespace: namespace},
 			Spec:       spec,
 		})
-		if passwordSecret != nil {
-			results = append(results, passwordSecret)
-		}
 	}
 
 	return results, nil

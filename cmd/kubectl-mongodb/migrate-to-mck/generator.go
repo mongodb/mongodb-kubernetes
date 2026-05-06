@@ -46,13 +46,12 @@ type GenerateOptions struct {
 	// Output of ValidateMigration — the process used as the template for spec fields (e.g. version, args).
 	SourceProcess *om.Process
 
-	// Interactive flow (prompted at runtime)
-	UserPasswords      map[string]string // maps "username:database" to plaintext passwords, a Secret is generated for each
-	PrometheusPassword string            // plaintext password, a prometheus Secret is generated from it
+	// User credentials — maps "username:database" to a pre-created Secret name; no Secret YAML is written
+	ExistingUserSecrets map[string]string
 
-	// Non-interactive flow (supplied via flags)
-	ExistingUserSecrets  map[string]string // maps "username:database" to a precreated Secret name, no Secret YAML written
-	PrometheusSecretName string            // name of a precreated prometheus Secret, no Secret YAML written
+	// Prometheus credentials
+	PrometheusPassword   string // plaintext password; a Secret is generated when set
+	PrometheusSecretName string // name of a pre-created Secret; no Secret YAML is written when set
 }
 
 // GenerateMongoDBCR generates a MongoDB CR for the given topology.
