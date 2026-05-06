@@ -17,14 +17,6 @@ spec:
     name: read
   username: app-user
 ---
-apiVersion: v1
-kind: Secret
-metadata:
-  name: app-user-password
-  namespace: mongodb
-stringData:
-  password: test-password
----
 apiVersion: mongodb.com/v1
 kind: MongoDBUser
 metadata:
