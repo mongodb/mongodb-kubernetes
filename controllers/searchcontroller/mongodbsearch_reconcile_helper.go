@@ -27,6 +27,7 @@ import (
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
+	khandler "github.com/mongodb/mongodb-kubernetes/pkg/handler"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/container"
@@ -94,6 +95,20 @@ type MongoDBSearchReconcileHelper struct {
 // NewMongoDBSearchReconcileHelper constructs a reconcile helper. Pass nil/nil for memberClusterClients
 // and clusterMapping on single-cluster installs.
 func NewMongoDBSearchReconcileHelper(
+	client kubernetesClient.Client,
+	mdbSearch *searchv1.MongoDBSearch,
+	db SearchSourceDBResource,
+	operatorSearchConfig OperatorSearchConfig,
+	memberClusterClients map[string]kubernetesClient.Client,
+	clusterMapping map[string]int,
+) *MongoDBSearchReconcileHelper {
+	return NewMongoDBSearchReconcileHelperWithMembers(client, mdbSearch, db, operatorSearchConfig, nil, nil)
+}
+
+// NewMongoDBSearchReconcileHelperWithMembers constructs a helper with the
+// per-member-cluster client map and persisted clusterMapping populated.
+// Pass nil/empty for single-cluster.
+func NewMongoDBSearchReconcileHelperWithMembers(
 	client kubernetesClient.Client,
 	mdbSearch *searchv1.MongoDBSearch,
 	db SearchSourceDBResource,
@@ -1575,3 +1590,4 @@ func extractImageTag(image string) string {
 
 	return ""
 }
+
