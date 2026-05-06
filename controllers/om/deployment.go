@@ -184,6 +184,11 @@ func (d Deployment) MergeReplicaSet(operatorRs ReplicaSetWithProcesses, specArgs
 	d.limitVotingMembers(operatorRs.Rs.Name())
 }
 
+// DownloadBase returns the options.downloadBase value from the deployment, or empty if absent.
+func (d Deployment) DownloadBase() string {
+	return maputil.ReadMapValueAsString(d, "options", "downloadBase")
+}
+
 // ConfigurePrometheus adds Prometheus configuration to `Deployment` resource.
 //
 // If basic auth is enabled, then `hash` and `salt` need to be calculated by caller and passed in.
@@ -858,6 +863,21 @@ func (d Deployment) GetAllProcessNames() (names []string) {
 	return names
 }
 
+// GetProcesses returns the processes in the deployment.
+func (d Deployment) GetProcesses() []Process {
+	return d.getProcesses()
+}
+
+// ProcessMap returns a map of process name to Process. Names are unique within a deployment.
+func (d Deployment) ProcessMap() map[string]Process {
+	processes := d.getProcesses()
+	m := make(map[string]Process, len(processes))
+	for _, p := range processes {
+		m[p.Name()] = p
+	}
+	return m
+}
+
 func (d Deployment) getProcesses() []Process {
 	if _, ok := d["processes"]; !ok {
 		return []Process{}
@@ -979,6 +999,11 @@ func (d Deployment) setReplicaSets(replicaSets []ReplicaSet) {
 
 func (d Deployment) addReplicaSet(rs ReplicaSet) {
 	d.setReplicaSets(append(d.GetReplicaSets(), rs))
+}
+
+// GetShardedClusters returns the sharded clusters in the deployment.
+func (d Deployment) GetShardedClusters() []ShardedCluster {
+	return d.getShardedClusters()
 }
 
 func (d Deployment) getShardedClusters() []ShardedCluster {
