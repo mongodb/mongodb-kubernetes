@@ -1,9 +1,11 @@
 package migratetomck
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -11,6 +13,9 @@ import (
 )
 
 const defaultNamespace = "default"
+
+// promptOutput is the writer used for interactive prompts. Override in tests to suppress stderr noise.
+var promptOutput io.Writer = os.Stderr
 
 var MigrateCmd = &cobra.Command{
 	Use:   "migrate-to-mck",
@@ -53,4 +58,32 @@ func printValidationResults(w io.Writer, results []ValidationResult) int {
 		_, _ = fmt.Fprintf(w, "[%s] %s\n\n", r.Severity, r.Message)
 	}
 	return errorCount
+}
+
+func writeOutput(resources, outputFile string) error {
+	if outputFile == "" {
+		_, err := fmt.Fprint(os.Stdout, resources)
+		return err
+	}
+	f, err := os.OpenFile(outputFile, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return fmt.Errorf("failed to open output file %q: %w", outputFile, err)
+	}
+	defer func() { _ = f.Close() }()
+	if _, err := fmt.Fprint(f, resources); err != nil {
+		return fmt.Errorf("failed to write output: %w", err)
+	}
+	fmt.Fprintf(os.Stderr, "CRs written to %s\n", outputFile)
+	return nil
+}
+
+func promptLine(scanner *bufio.Scanner, prompt string) (string, error) {
+	_, _ = fmt.Fprint(promptOutput, prompt)
+	if !scanner.Scan() {
+		if err := scanner.Err(); err != nil {
+			return "", err
+		}
+		return "", fmt.Errorf("input cancelled")
+	}
+	return strings.TrimSpace(scanner.Text()), nil
 }
