@@ -6,19 +6,11 @@ metadata:
 spec:
   db: admin
   mongodbResourceRef:
-    name: my-cluster-v1
+    name: mycluster-v1
   passwordSecretKeyRef:
     key: password
-    name: appuser-password
+    name: appuser-secret
   roles:
   - db: appdb
     name: readWrite
   username: appuser
----
-apiVersion: v1
-kind: Secret
-metadata:
-  name: appuser-password
-  namespace: mongodb
-stringData:
-  password: test-password

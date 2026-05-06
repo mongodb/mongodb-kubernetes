@@ -141,7 +141,32 @@ func TestFixtureMatch_ReplicaSet(t *testing.T) {
 			fixture: "singlecluster/replicaset/member_options/member_options",
 		},
 	}
+	runFixtureCases(t, cases)
+}
 
+// TestFixtureMatch_ShardedCluster covers sharded-cluster generator output. To regenerate fixtures: go test -run TestFixtureMatch -update-fixtures
+func TestFixtureMatch_ShardedCluster(t *testing.T) {
+	cases := []fixtureCase{
+		{
+			name:     "sharded cluster — SCRAM users, split shard names, config server RS",
+			fixture:  "singlecluster/shardedcluster/complex_sharded/complex_sharded",
+			hasUsers: true,
+			opts:     GenerateOptions{CertsSecretPrefix: "mdb"},
+		},
+		{
+			name:    "sharded cluster — default config RS name",
+			fixture: "singlecluster/shardedcluster/default_config_rs/default_config_rs",
+		},
+		{
+			name:    "sharded cluster — split shard names",
+			fixture: "singlecluster/shardedcluster/split_shard_names/split_shard_names",
+		},
+	}
+	runFixtureCases(t, cases)
+}
+
+func runFixtureCases(t *testing.T, cases []fixtureCase) {
+	t.Helper()
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
 			opts := withDefaultBoilerplate(tt.opts)

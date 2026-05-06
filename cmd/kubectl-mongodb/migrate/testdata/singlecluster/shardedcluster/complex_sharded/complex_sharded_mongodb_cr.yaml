@@ -3,7 +3,7 @@ kind: MongoDB
 metadata:
   annotations:
     mongodb.com/migrate-tool-version: latest
-  name: my-cluster-v1
+  name: mycluster-v1
   namespace: mongodb
 spec:
   additionalMongodConfig:
@@ -61,15 +61,15 @@ spec:
       - SCRAM
     certsSecretPrefix: mdb
     tls:
-      ca: my-cluster-v1-ca
+      ca: mycluster-v1-ca
   shardCount: 2
   # configServerNameOverride: "csrs"
   # shardNameOverrides:
   #   - shardId: "shardA"
   #     replicasetName: "shard0-rs"
-  #     shardName: "my-cluster-v1-0"
+  #     shardName: "mycluster-v1-0"
   #   - shardId: "shardB"
   #     replicasetName: "shard1-rs"
-  #     shardName: "my-cluster-v1-1"
+  #     shardName: "mycluster-v1-1"
   type: ShardedCluster
   version: 7.0.12-ent
