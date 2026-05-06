@@ -1,0 +1,64 @@
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  annotations:
+    mongodb.com/migrate-tool-version: latest
+    mongodb.com/migration-dry-run: "true"
+  name: my-sharded-cluster
+  namespace: mongodb
+spec:
+  additionalMongodConfig:
+    net:
+      port: 27018
+  agent:
+    maxLogFileDurationHours: 0
+    mongod:
+      systemLog:
+        destination: file
+        logAppend: false
+        path: /var/log/mongodb-mms-automation/mongodb.log
+  configServerCount: 2
+  credentials: my-credentials
+  externalMembers:
+  - hostname: config-a.example.com:27019
+    processName: my-sharded-cluster-config-0
+    replicaSetName: my-sharded-cluster-config
+    type: mongod
+  - hostname: config-b.example.com:27019
+    processName: my-sharded-cluster-config-1
+    replicaSetName: my-sharded-cluster-config
+    type: mongod
+  - hostname: shard0-a.example.com:27018
+    processName: shard0-0
+    replicaSetName: shard0
+    type: mongod
+  - hostname: shard0-b.example.com:27018
+    processName: shard0-1
+    replicaSetName: shard0
+    type: mongod
+  - hostname: shard1-a.example.com:27018
+    processName: shard1-0
+    replicaSetName: shard1
+    type: mongod
+  - hostname: shard1-b.example.com:27018
+    processName: shard1-1
+    replicaSetName: shard1
+    type: mongod
+  - hostname: mongos-0.example.com:27017
+    processName: mongos-0
+    type: mongos
+  - hostname: mongos-1.example.com:27017
+    processName: mongos-1
+    type: mongos
+  featureCompatibilityVersion: "7.0"
+  mongodsPerShardCount: 2
+  mongosCount: 2
+  opsManager:
+    configMapRef:
+      name: my-om-config
+  shardCount: 2
+  # shardNameOverrides:
+  #   - shardName: "my-sharded-cluster-0"
+  #   - shardName: "my-sharded-cluster-1"
+  type: ShardedCluster
+  version: 7.0.12-ent

@@ -41,6 +41,7 @@ func ValidateMigration(ac *om.AutomationConfig, processMap map[string]om.Process
 
 	results = append(results, validateOneDeploymentPerProject(ac.Deployment)...)
 	results = append(results, validateReplicaSetsExist(ac.Deployment)...)
+	results = append(results, validateEmbeddedConfigServer(ac.Deployment)...)
 	for _, r := range results {
 		if r.Severity == SeverityError {
 			return results, nil
@@ -93,14 +94,35 @@ func pickSourceProcess(members []om.ReplicaSetMember, processMap map[string]om.P
 	return nil, fmt.Errorf("no voting+priority member found in replica set. Cannot determine source process")
 }
 
-// validateOneDeploymentPerProject ensures the project has exactly one replica set.
-// Sharded cluster support will be added in a follow-up PR.
+// validateOneDeploymentPerProject ensures the project has exactly one logical deployment:
+// either a single replica set or a single sharded cluster with no extra replica sets.
 func validateOneDeploymentPerProject(d om.Deployment) []ValidationResult {
-	if len(d.GetShardedClusters()) > 0 {
+	shardedClusters := d.GetShardedClusters()
+	if len(shardedClusters) > 1 {
 		return []ValidationResult{{
 			Severity: SeverityError,
-			Message:  "Sharded cluster migration is not yet supported. Only replica set deployments can be migrated.",
+			Message:  fmt.Sprintf("The project contains %d sharded clusters. The operator requires exactly one deployment per project. Split the project before migrating.", len(shardedClusters)),
 		}}
+	}
+	if len(shardedClusters) == 1 {
+		sc := shardedClusters[0]
+		expected := map[string]bool{sc.ConfigServerRsName(): true}
+		for _, shard := range sc.Shards() {
+			expected[shard.Rs()] = true
+		}
+		var extras []string
+		for _, rs := range d.GetReplicaSets() {
+			if !expected[rs.Name()] {
+				extras = append(extras, rs.Name())
+			}
+		}
+		if len(extras) > 0 {
+			return []ValidationResult{{
+				Severity: SeverityError,
+				Message:  fmt.Sprintf("The project contains replica sets %v that are not part of the sharded cluster. The operator requires exactly one deployment per project. Split the project before migrating.", extras),
+			}}
+		}
+		return nil
 	}
 	count := len(d.GetReplicaSets())
 	if count <= 1 {
@@ -110,6 +132,43 @@ func validateOneDeploymentPerProject(d om.Deployment) []ValidationResult {
 		Severity: SeverityError,
 		Message:  fmt.Sprintf("The project contains %d deployments. The operator requires exactly one deployment per project. Split the project before migrating.", count),
 	}}
+}
+
+// validateEmbeddedConfigServer rejects a shard sharing a replica set with the config server.
+// The check considers two AC signals:
+//   - sharding.configServerReplica colliding with a shard's rs
+//   - a process declaring sharding.clusterRole = configsvr inside a shard's replica set
+func validateEmbeddedConfigServer(d om.Deployment) []ValidationResult {
+	replicaSetsWithConfigsvrRole := map[string]bool{}
+	for _, proc := range d.GetProcesses() {
+		if proc.ClusterRole() == om.ClusterRoleConfigSrv {
+			replicaSetsWithConfigsvrRole[proc.ReplicaSetName()] = true
+		}
+	}
+
+	var results []ValidationResult
+	for _, sc := range d.GetShardedClusters() {
+		for _, shard := range sc.Shards() {
+			var reason string
+			switch {
+			case shard.Rs() == sc.ConfigServerRsName():
+				reason = "configServerReplica points to a shard replica set"
+			case replicaSetsWithConfigsvrRole[shard.Rs()]:
+				reason = "a process in this replica set declares sharding.clusterRole = configsvr"
+			default:
+				continue
+			}
+			results = append(results, ValidationResult{
+				Severity: SeverityError,
+				Message: fmt.Sprintf(
+					"Sharded cluster %q has shard %q backed by replica set %q which is also the config server (%s). "+
+						"The operator does not support an embedded config server. Move the config server to a dedicated replica set before migrating.",
+					sc.Name(), shard.Id(), shard.Rs(), reason,
+				),
+			})
+		}
+	}
+	return results
 }
 
 func validateReplicaSetsExist(d om.Deployment) []ValidationResult {

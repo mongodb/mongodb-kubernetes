@@ -161,8 +161,8 @@ func TestMergeShardedCluster_ShardedClusterModified(t *testing.T) {
 
 	// These OM changes must be overriden
 	(*d.getShardedClusterByName("cluster")).setConfigServerRsName("fake")
-	(*d.getShardedClusterByName("cluster")).setShards(d.getShardedClusterByName("cluster").shards()[0:2])
-	(*d.getShardedClusterByName("cluster")).setShards(append(d.getShardedClusterByName("cluster").shards(), newShard("fakeShard")))
+	(*d.getShardedClusterByName("cluster")).setShards(d.getShardedClusterByName("cluster").Shards()[0:2])
+	(*d.getShardedClusterByName("cluster")).setShards(append(d.getShardedClusterByName("cluster").Shards(), newShard("fakeShard")))
 
 	mergeReplicaSet(d, "fakeShard", createReplicaSetProcesses("fakeShard"))
 
@@ -387,8 +387,8 @@ func TestMergeShardedCluster_ScaleUpShardMergeFirstProcess(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Emulating changes to current shards by OM
-	for _, s := range d.getShardedClusters()[0].shards() {
-		shardRs := d.getReplicaSetByName(s.rs())
+	for _, s := range d.getShardedClusters()[0].Shards() {
+		shardRs := d.getReplicaSetByName(s.Rs())
 		for _, m := range shardRs.Members() {
 			process := d.getProcessByName(m.Name())
 			process.Args()["security"] = map[string]interface{}{"clusterAuthMode": "sendX509"}

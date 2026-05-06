@@ -1,0 +1,202 @@
+{
+  "agentVersion": {
+    "directoryUrl": "https://s3.amazonaws.com/mciuploads/mms-automation/mongodb-mms-build-agent/builds/automation-agent/qa/",
+    "name": "13.48.0.10348-1"
+  },
+  "atlasProxies": [],
+  "atlasUISes": [],
+  "auth": {
+    "usersWanted": [],
+    "usersDeleted": [],
+    "disabled": true,
+    "authoritativeSet": false,
+    "autoAuthMechanism": "MONGODB-CR",
+    "autoAuthMechanisms": [],
+    "autoAuthRestrictions": []
+  },
+  "backupVersions": [],
+  "balancer": {},
+  "clusterWideConfigurations": {},
+  "cpsModules": [],
+  "dbCheckModules": [],
+  "filebeat": {},
+  "indexConfigs": [],
+  "kerberos": {"serviceName": "mongodb"},
+  "ldap": {},
+  "lifecycleManagementModules": [],
+  "maintainedEnvoys": [],
+  "maintainedMonarchComponents": [],
+  "maintainedMongotunes": [],
+  "maintainedRamis": [],
+  "mongoDbVersions": [
+    {
+      "builds": [
+        {
+          "architecture": "amd64",
+          "gitVersion": "abc123",
+          "platform": "linux",
+          "url": "https://downloads.mongodb.com/linux/mongodb-linux-x86_64-enterprise-rhel80-7.0.12.tgz"
+        }
+      ],
+      "name": "7.0.12-ent"
+    }
+  ],
+  "mongosqlds": [],
+  "mongots": [],
+  "monitoringVersions": [],
+  "oidcProviderConfigs": [],
+  "onlineArchiveModules": [],
+  "options": {
+    "downloadBase": "/var/lib/mongodb-mms-automation",
+    "downloadBaseWindows": "%SystemDrive%\\MMSAutomation\\versions"
+  },
+  "processes": [
+    {
+      "args2_6": {
+        "net": {"port": 27018, "tls": {"mode": "disabled"}},
+        "replication": {"replSetName": "shard0"},
+        "sharding": {"clusterRole": "shardsvr"},
+        "storage": {"dbPath": "/data/shard0"},
+        "systemLog": {"destination": "file", "path": "/var/log/mongodb-mms-automation/mongodb.log"}
+      },
+      "featureCompatibilityVersion": "7.0",
+      "hostname": "shard0-a.example.com",
+      "name": "shard0-0",
+      "processType": "mongod",
+      "version": "7.0.12-ent"
+    },
+    {
+      "args2_6": {
+        "net": {"port": 27018, "tls": {"mode": "disabled"}},
+        "replication": {"replSetName": "shard0"},
+        "sharding": {"clusterRole": "shardsvr"},
+        "storage": {"dbPath": "/data/shard0"},
+        "systemLog": {"destination": "file", "path": "/var/log/mongodb-mms-automation/mongodb.log"}
+      },
+      "featureCompatibilityVersion": "7.0",
+      "hostname": "shard0-b.example.com",
+      "name": "shard0-1",
+      "processType": "mongod",
+      "version": "7.0.12-ent"
+    },
+    {
+      "args2_6": {
+        "net": {"port": 27018, "tls": {"mode": "disabled"}},
+        "replication": {"replSetName": "shard1"},
+        "sharding": {"clusterRole": "shardsvr"},
+        "storage": {"dbPath": "/data/shard1"},
+        "systemLog": {"destination": "file", "path": "/var/log/mongodb-mms-automation/mongodb.log"}
+      },
+      "featureCompatibilityVersion": "7.0",
+      "hostname": "shard1-a.example.com",
+      "name": "shard1-0",
+      "processType": "mongod",
+      "version": "7.0.12-ent"
+    },
+    {
+      "args2_6": {
+        "net": {"port": 27018, "tls": {"mode": "disabled"}},
+        "replication": {"replSetName": "shard1"},
+        "sharding": {"clusterRole": "shardsvr"},
+        "storage": {"dbPath": "/data/shard1"},
+        "systemLog": {"destination": "file", "path": "/var/log/mongodb-mms-automation/mongodb.log"}
+      },
+      "featureCompatibilityVersion": "7.0",
+      "hostname": "shard1-b.example.com",
+      "name": "shard1-1",
+      "processType": "mongod",
+      "version": "7.0.12-ent"
+    },
+    {
+      "args2_6": {
+        "net": {"port": 27019, "tls": {"mode": "disabled"}},
+        "replication": {"replSetName": "my-sharded-cluster-config"},
+        "sharding": {"clusterRole": "configsvr"},
+        "storage": {"dbPath": "/data/config"},
+        "systemLog": {"destination": "file", "path": "/var/log/mongodb-mms-automation/mongodb.log"}
+      },
+      "featureCompatibilityVersion": "7.0",
+      "hostname": "config-a.example.com",
+      "name": "my-sharded-cluster-config-0",
+      "processType": "mongod",
+      "version": "7.0.12-ent"
+    },
+    {
+      "args2_6": {
+        "net": {"port": 27019, "tls": {"mode": "disabled"}},
+        "replication": {"replSetName": "my-sharded-cluster-config"},
+        "sharding": {"clusterRole": "configsvr"},
+        "storage": {"dbPath": "/data/config"},
+        "systemLog": {"destination": "file", "path": "/var/log/mongodb-mms-automation/mongodb.log"}
+      },
+      "featureCompatibilityVersion": "7.0",
+      "hostname": "config-b.example.com",
+      "name": "my-sharded-cluster-config-1",
+      "processType": "mongod",
+      "version": "7.0.12-ent"
+    },
+    {
+      "args2_6": {
+        "net": {"port": 27017},
+        "systemLog": {"destination": "file", "path": "/var/log/mongodb-mms-automation/mongos.log"}
+      },
+      "hostname": "mongos-0.example.com",
+      "name": "mongos-0",
+      "processType": "mongos",
+      "version": "7.0.12-ent"
+    },
+    {
+      "args2_6": {
+        "net": {"port": 27017},
+        "systemLog": {"destination": "file", "path": "/var/log/mongodb-mms-automation/mongos.log"}
+      },
+      "hostname": "mongos-1.example.com",
+      "name": "mongos-1",
+      "processType": "mongos",
+      "version": "7.0.12-ent"
+    }
+  ],
+  "replicaSets": [
+    {
+      "_id": "shard0",
+      "members": [
+        {"_id": 0, "arbiterOnly": false, "buildIndexes": true, "hidden": false, "host": "shard0-0", "priority": 1, "secondaryDelaySecs": 0, "votes": 1, "tags": {}},
+        {"_id": 1, "arbiterOnly": false, "buildIndexes": true, "hidden": false, "host": "shard0-1", "priority": 1, "secondaryDelaySecs": 0, "votes": 1, "tags": {}}
+      ],
+      "protocolVersion": "1"
+    },
+    {
+      "_id": "shard1",
+      "members": [
+        {"_id": 0, "arbiterOnly": false, "buildIndexes": true, "hidden": false, "host": "shard1-0", "priority": 1, "secondaryDelaySecs": 0, "votes": 1, "tags": {}},
+        {"_id": 1, "arbiterOnly": false, "buildIndexes": true, "hidden": false, "host": "shard1-1", "priority": 1, "secondaryDelaySecs": 0, "votes": 1, "tags": {}}
+      ],
+      "protocolVersion": "1"
+    },
+    {
+      "_id": "my-sharded-cluster-config",
+      "members": [
+        {"_id": 0, "arbiterOnly": false, "buildIndexes": true, "hidden": false, "host": "my-sharded-cluster-config-0", "priority": 1, "secondaryDelaySecs": 0, "votes": 1, "tags": {}},
+        {"_id": 1, "arbiterOnly": false, "buildIndexes": true, "hidden": false, "host": "my-sharded-cluster-config-1", "priority": 1, "secondaryDelaySecs": 0, "votes": 1, "tags": {}}
+      ],
+      "protocolVersion": "1"
+    }
+  ],
+  "roles": [],
+  "serverlessStateCacheMaintainers": [],
+  "sharding": [
+    {
+      "_id": "my-sharded-cluster",
+      "name": "my-sharded-cluster",
+      "configServerReplica": "my-sharded-cluster-config",
+      "shards": [
+        {"_id": "shard0", "rs": "shard0"},
+        {"_id": "shard1", "rs": "shard1"}
+      ]
+    }
+  ],
+  "tls": {
+    "clientCertificateMode": "OPTIONAL"
+  },
+  "version": 5
+}
