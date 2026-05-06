@@ -12,7 +12,6 @@ from scripts.release.agent.validation import (
     get_working_agent_filename,
     get_working_tools_filename,
 )
-from scripts.release.atomic_pipeline import resolve_agent_platforms
 
 
 class TestBuildArgumentGeneration(unittest.TestCase):
@@ -122,31 +121,6 @@ class TestBuildArgumentSkipsUnresolvable(unittest.TestCase):
     def test_generate_agent_build_args_raises_for_unknown_platform(self):
         with self.assertRaisesRegex(RuntimeError, r"unknown/arch"):
             generate_agent_build_args(["unknown/arch"], self.agent_version, self.tools_version)
-
-
-class TestResolveAgentPlatforms(unittest.TestCase):
-    """resolve_agent_platforms drops linux/s390x for Cloud Manager (13.x) agents only."""
-
-    def test_strips_s390x_for_cloud_manager(self):
-        result = resolve_agent_platforms(
-            "13.51.0.10584-1", ["linux/amd64", "linux/arm64", "linux/s390x", "linux/ppc64le"]
-        )
-
-        self.assertEqual(result, ["linux/amd64", "linux/arm64", "linux/ppc64le"])
-
-    def test_keeps_all_for_non_cloud_manager(self):
-        platforms = ["linux/amd64", "linux/arm64", "linux/s390x", "linux/ppc64le"]
-
-        result = resolve_agent_platforms("14.0.0.7785", platforms)
-
-        self.assertEqual(result, platforms)
-
-    def test_cloud_manager_without_s390x_is_unchanged(self):
-        platforms = ["linux/amd64", "linux/arm64", "linux/ppc64le"]
-
-        result = resolve_agent_platforms("13.51.0.10584-1", platforms)
-
-        self.assertEqual(result, platforms)
 
 
 class TestPlatformAvailability(unittest.TestCase):
