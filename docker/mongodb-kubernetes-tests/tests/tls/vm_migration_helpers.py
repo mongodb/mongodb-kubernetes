@@ -1,4 +1,4 @@
-"""Shared helpers for VM-to-Kubernetes migration tests that use kubectl-mongodb migrate."""
+"""Shared helpers for VM-to-Kubernetes migration tests that use kubectl-mongodb generate-custom-resource."""
 
 import os
 import subprocess
@@ -20,8 +20,8 @@ from tests.constants import KUBECONFIG_FILEPATH
 logger = test_logger.get_test_logger(__name__)
 
 MIGRATE_TOOL = os.getenv("KUBECTL_MONGODB_PATH", "kubectl-mongodb")
-MIGRATE_FLAGS = ["--config-map-name", "my-project", "--secret-name", "my-credentials"]
-_MIGRATE_ENV = {**os.environ, "KUBECONFIG": os.environ.get("KUBECONFIG", KUBECONFIG_FILEPATH)}
+GENERATE_CR_FLAGS = ["--config-map-name", "my-project", "--secret-name", "my-credentials"]
+_GENERATE_CR_ENV = {**os.environ, "KUBECONFIG": os.environ.get("KUBECONFIG", KUBECONFIG_FILEPATH)}
 
 
 def deploy_vm_statefulset(
@@ -66,41 +66,41 @@ def deploy_vm_service(namespace: str):
     return service_body
 
 
-def _run_migrate_subcommand(
+def _run_generate_cr_subcommand(
     subcommand: str,
     extra_flags: list[str],
     stdin_text: str | None,
 ) -> str:
-    """Run a kubectl-mongodb migrate subcommand and return stdout."""
+    """Run a kubectl-mongodb generate-custom-resource subcommand and return stdout."""
     proc = subprocess.run(
-        [MIGRATE_TOOL, "migrate", subcommand, *MIGRATE_FLAGS, *extra_flags],
+        [MIGRATE_TOOL, "generate-custom-resource", subcommand, *GENERATE_CR_FLAGS, *extra_flags],
         input=stdin_text,
         capture_output=True,
         text=True,
-        env=_MIGRATE_ENV,
+        env=_GENERATE_CR_ENV,
     )
     if proc.returncode != 0:
-        logger.error("migrate %s stderr:\n%s", subcommand, proc.stderr)
+        logger.error("generate-custom-resource %s stderr:\n%s", subcommand, proc.stderr)
         raise subprocess.CalledProcessError(proc.returncode, proc.args, proc.stdout, proc.stderr)
     if proc.stderr:
-        logger.info("migrate %s stderr:\n%s", subcommand, proc.stderr)
+        logger.info("generate-custom-resource %s stderr:\n%s", subcommand, proc.stderr)
     return proc.stdout
 
 
-def run_migrate_generate(
+def run_generate_cr(
     namespace: str,
     user_secrets: dict[str, str] | None = None,
     certs_secret_prefix: str | None = None,
 ) -> str:
-    """Run migrate mongodb + migrate users and return the combined CR YAML bundle.
+    """Run generate-custom-resource mongodb + generate-custom-resource users and return the combined CR YAML bundle.
 
-    certs_secret_prefix is fed to stdin for the migrate mongodb TLS prompt.
+    certs_secret_prefix is fed to stdin for the generate-custom-resource mongodb TLS prompt.
     user_secrets maps "username:database" to a pre-created Secret name. Create each
     Secret before calling this function:
       kubectl create secret generic <name> --from-literal=password=<password> -n <namespace>
     """
     mongodb_stdin = (certs_secret_prefix + "\n") if certs_secret_prefix is not None else None
-    mongodb_yaml = _run_migrate_subcommand("mongodb", ["--namespace", namespace], stdin_text=mongodb_stdin)
+    mongodb_yaml = _run_generate_cr_subcommand("mongodb", ["--namespace", namespace], stdin_text=mongodb_stdin)
 
     users_flags = ["--namespace", namespace]
     tmpfile = None
@@ -111,7 +111,7 @@ def run_migrate_generate(
             tmpfile = f.name
         users_flags += ["--users-secrets-file", tmpfile]
     try:
-        users_yaml = _run_migrate_subcommand("users", users_flags, stdin_text=None)
+        users_yaml = _run_generate_cr_subcommand("users", users_flags, stdin_text=None)
     finally:
         if tmpfile:
             os.unlink(tmpfile)
