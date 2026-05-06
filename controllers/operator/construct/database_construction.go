@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"path/filepath"
 	"sort"
 	"strconv"
 
@@ -115,6 +116,14 @@ type DatabaseStatefulSetOptions struct {
 	ExtraEnvs   []corev1.EnvVar
 	Labels      map[string]string
 	StsLabels   map[string]string
+
+	// ExternalAgentVersion sets the agent version to download when spec.externalMembers is non-empty:
+	// databaseEnvVars forwards it as MDB_AGENT_VERSION.
+	ExternalAgentVersion string
+
+	// AgentCertPath is the absolute path to the agent PEM (Ops Manager tls.autoPEMKeyFilePath). When set and not
+	// equal to AgentCertMountPath/<AgentCertHash>, the StatefulSet uses an items-based secret mount at this path.
+	AgentCertPath string
 
 	// These fields are only relevant for multi-cluster
 	MultiClusterMode bool // should always be "false" in single-cluster
@@ -666,13 +675,33 @@ func getVolumesAndVolumeMounts(mdb databaseStatefulSetSource, databaseOpts Datab
 	volumeMounts = append(volumeMounts, prometheusVolumeMounts...)
 
 	if !vault.IsVaultSecretBackend() && mdb.GetSecurity().ShouldUseX509(databaseOpts.CurrentAgentAuthMode) || mdb.GetSecurity().ShouldUseClientCertificates() {
-		agentSecretVolume := statefulset.CreateVolumeFromSecret(util.AgentSecretName, agentCertsSecretName)
-		volumeMounts = append(volumeMounts, corev1.VolumeMount{
-			MountPath: util.AgentCertMountPath,
-			Name:      agentSecretVolume.Name,
-			ReadOnly:  true,
-		})
-		volumesToAdd = append(volumesToAdd, agentSecretVolume)
+		defaultAgentCertPath := filepath.Join(util.AgentCertMountPath, databaseOpts.AgentCertHash)
+		if databaseOpts.AgentCertPath != "" && databaseOpts.AgentCertPath != defaultAgentCertPath {
+			// Custom PEM path (e.g. spec.agents.autoPEMKeyFilePath): items mount (key=AgentCertHash, path=basename).
+			certFileName := filepath.Base(databaseOpts.AgentCertPath)
+			certDir := filepath.Dir(databaseOpts.AgentCertPath)
+			agentSecretVolume := statefulset.CreateVolumeFromSecret(util.AgentSecretName, agentCertsSecretName, func(v *corev1.Volume) {
+				v.VolumeSource.Secret.Items = []corev1.KeyToPath{
+					{Key: databaseOpts.AgentCertHash, Path: certFileName},
+				}
+			})
+			volumeMounts = append(volumeMounts, corev1.VolumeMount{
+				MountPath: certDir,
+				Name:      agentSecretVolume.Name,
+				ReadOnly:  true,
+			})
+			volumesToAdd = append(volumesToAdd, agentSecretVolume)
+		} else {
+			// Normal mode: mount the whole secret as a directory at AgentCertMountPath.
+			// All hash-keyed cert files are accessible; hash changes trigger StatefulSet rollout.
+			agentSecretVolume := statefulset.CreateVolumeFromSecret(util.AgentSecretName, agentCertsSecretName)
+			volumeMounts = append(volumeMounts, corev1.VolumeMount{
+				MountPath: util.AgentCertMountPath,
+				Name:      agentSecretVolume.Name,
+				ReadOnly:  true,
+			})
+			volumesToAdd = append(volumesToAdd, agentSecretVolume)
+		}
 	}
 
 	// add volume for x509 cert used in internal cluster authentication
@@ -1034,10 +1063,13 @@ func databaseEnvVars(opts DatabaseStatefulSetOptions) []corev1.EnvVar {
 		)
 	}
 
-	// This is only used for debugging
 	if agentVersion := os.Getenv(util.EnvVarAgentVersion); agentVersion != "" { // nolint:forbidigo
-		zap.S().Debugf("using a custom agent version: %s", agentVersion)
+		zap.S().Debugf("using a custom agent version from operator env: %s", agentVersion)
 		vars = append(vars, corev1.EnvVar{Name: util.EnvVarAgentVersion, Value: agentVersion})
+	} else if opts.ExternalAgentVersion != "" {
+		// Non-static pods download the agent
+		zap.S().Debugf("using external agent version for: %s", opts.ExternalAgentVersion)
+		vars = append(vars, corev1.EnvVar{Name: util.EnvVarAgentVersion, Value: opts.ExternalAgentVersion})
 	}
 
 	// append any additional env vars specified.

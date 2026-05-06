@@ -3,8 +3,13 @@ package operator
 import (
 	"context"
 	"fmt"
+	"slices"
+	"sort"
+	"strings"
+
 	"github.com/google/go-cmp/cmp"
 	"github.com/hashicorp/go-multierror"
+	"github.com/mongodb/mongodb-kubernetes/pkg/agentVersionManagement"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -19,9 +24,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
-	"slices"
-	"sort"
-	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -1003,7 +1005,7 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 
 	r.commonController.SetupCommonWatchers(sc, getTLSSecretNames(sc), getInternalAuthSecretNames(sc), sc.Name)
 
-	reconcileResult := checkIfHasExcessProcesses(conn, sc.Name, log)
+	reconcileResult := checkIfHasExcessProcesses(conn, sc.Name, "", sc.Spec.GetExternalMemberProcessNames(), log)
 	if !reconcileResult.IsOK() {
 		return reconcileResult
 	}
@@ -1028,12 +1030,6 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 	prometheusCertHash, err := certs.EnsureTLSCertsForPrometheus(ctx, r.commonController.SecretClient, sc.GetNamespace(), sc.GetPrometheus(), certs.Database, log)
 	if err != nil {
 		return workflow.Failed(xerrors.Errorf("Could not generate certificates for Prometheus: %w", err))
-	}
-
-	opts := deploymentOptions{
-		podEnvVars:           podEnvVars,
-		currentAgentAuthMode: currentAgentAuthMode,
-		certTLSType:          certSecretTypesForSTS,
 	}
 
 	if err = r.prepareScaleDownShardedCluster(conn, log); err != nil {
@@ -1073,9 +1069,10 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 	}
 
 	agentCertSecretName := sc.GetSecurity().AgentClientCertificateSecretName(sc.Name)
-	agentCertHash, agentCertPath := r.commonController.agentCertHashAndPath(ctx, log, sc.Namespace, agentCertSecretName, databaseSecretPath)
+	agentCertHash, defaultAgentCertPath := r.commonController.agentCertHashAndPath(ctx, log, sc.Namespace, agentCertSecretName, databaseSecretPath)
+	agentCertPath := EffectiveAgentCertPEMPath(defaultAgentCertPath, sc.Spec.GetSecurity())
 
-	opts = deploymentOptions{
+	opts := deploymentOptions{
 		podEnvVars:           podEnvVars,
 		currentAgentAuthMode: currentAgentAuthMode,
 		caFilePath:           caFilePath,
@@ -1824,6 +1821,8 @@ type deploymentOptions struct {
 	finalizing           bool
 	processNames         []string
 	prometheusCertHash   string
+	// externalAgentVersion is set from OM when spec.externalMembers is non-empty (see updateOmDeploymentShardedCluster).
+	externalAgentVersion string
 }
 
 // updateOmDeploymentShardedCluster performs OM registration operation for the sharded cluster. So the changes will be finally propagated
@@ -1849,12 +1848,17 @@ func (r *ShardedClusterReconcileHelper) updateOmDeploymentShardedCluster(ctx con
 			return workflow.Failed(err)
 		}
 		logWarnIgnoredDueToRecovery(log, err)
+	} else if len(sc.Spec.GetExternalMembers()) > 0 {
+		opts.externalAgentVersion, err = agentVersionManagement.GetAgentVersionFromOpsManager(conn)
+		if err != nil {
+			return workflow.Failed(xerrors.Errorf("Failed to retrieve agent version from Ops Manager: %w", err))
+		}
 	}
 
 	opts.finalizing = false
 	opts.processNames = dep.GetProcessNames(om.ShardedCluster{}, sc.Name)
 
-	processNames, shardsRemoving, workflowStatus := r.publishDeployment(ctx, conn, sc, &opts, isRecovering, log)
+	processNames, shardsRemoving, workflowStatus := r.publishDeployment(ctx, conn, sc, opts, isRecovering, log)
 
 	if !workflowStatus.IsOK() {
 		if !isRecovering {
@@ -1879,7 +1883,7 @@ func (r *ShardedClusterReconcileHelper) updateOmDeploymentShardedCluster(ctx con
 		opts.finalizing = true
 
 		log.Infof("Some shards were removed from the sharded cluster, we need to remove them from the deployment completely")
-		processNames, _, workflowStatus := r.publishDeployment(ctx, conn, sc, &opts, isRecovering, log)
+		processNames, _, workflowStatus := r.publishDeployment(ctx, conn, sc, opts, isRecovering, log)
 		if !workflowStatus.IsOK() {
 			if !isRecovering {
 				return workflowStatus
@@ -1918,13 +1922,13 @@ func (r *ShardedClusterReconcileHelper) updateOmDeploymentShardedCluster(ctx con
 	return workflow.OK()
 }
 
-func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, conn om.Connection, sc *mdbv1.MongoDB, opts *deploymentOptions, isRecovering bool, log *zap.SugaredLogger) ([]string, bool, workflow.Status) {
+func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, conn om.Connection, sc *mdbv1.MongoDB, opts deploymentOptions, isRecovering bool, log *zap.SugaredLogger) ([]string, bool, workflow.Status) {
 	// Mongos
 	var mongosProcesses []om.Process
 	// We take here the first cluster arbitrarily because the options are used for irrelevant stuff below, same for
 	// config servers and shards below
 	mongosMemberCluster := r.mongosMemberClusters[0]
-	mongosOptionsFunc := r.getMongosOptions(ctx, *sc, *opts, log, mongosMemberCluster)
+	mongosOptionsFunc := r.getMongosOptions(ctx, *sc, opts, log, mongosMemberCluster)
 	mongosOptions := mongosOptionsFunc(*r.sc)
 	mongosInternalClusterPath := fmt.Sprintf("%s/%s", util.InternalClusterAuthMountPath, mongosOptions.InternalClusterHash)
 	mongosMemberCertPath := fmt.Sprintf("%s/%s", util.TLSCertMountPath, mongosOptions.CertificateHash)
@@ -1935,7 +1939,7 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 
 	// Config server
 	configSrvMemberCluster := r.configSrvMemberClusters[0]
-	configSrvOptionsFunc := r.getConfigServerOptions(ctx, *sc, *opts, log, configSrvMemberCluster)
+	configSrvOptionsFunc := r.getConfigServerOptions(ctx, *sc, opts, log, configSrvMemberCluster)
 	configSrvOptions := configSrvOptionsFunc(*r.sc)
 
 	configSrvInternalClusterPath := fmt.Sprintf("%s/%s", util.InternalClusterAuthMountPath, configSrvOptions.InternalClusterHash)
@@ -1956,7 +1960,7 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 	shards := make([]om.ReplicaSetWithProcesses, sc.Spec.ShardCount)
 	var shardInternalClusterPaths []string
 	for shardIdx := 0; shardIdx < r.sc.Spec.ShardCount; shardIdx++ {
-		shardOptionsFunc := r.getShardOptions(ctx, *sc, shardIdx, *opts, log, r.shardsMemberClustersMap[shardIdx][0])
+		shardOptionsFunc := r.getShardOptions(ctx, *sc, shardIdx, opts, log, r.shardsMemberClustersMap[shardIdx][0])
 		shardOptions := shardOptionsFunc(*r.sc)
 		shardInternalClusterPaths = append(shardInternalClusterPaths, fmt.Sprintf("%s/%s", util.InternalClusterAuthMountPath, shardOptions.InternalClusterHash))
 		shardMemberCertPath := fmt.Sprintf("%s/%s", util.TLSCertMountPath, shardOptions.CertificateHash)
@@ -1994,7 +1998,7 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 			if sc.Spec.Security.GetInternalClusterAuthenticationMode() == "" && d.ExistingProcessesHaveInternalClusterAuthentication(allProcesses) {
 				return xerrors.Errorf("cannot disable x509 internal cluster authentication")
 			}
-			numberOfOtherMembers := d.GetNumberOfExcessProcesses(sc.Name)
+			numberOfOtherMembers := d.GetNumberOfExcessProcesses(sc.Name, "", sc.Spec.GetExternalMemberProcessNames())
 			if numberOfOtherMembers > 0 {
 				return xerrors.Errorf("cannot have more than 1 MongoDB Cluster per project (see https://docs.mongodb.com/kubernetes-operator/stable/tutorial/migrate-to-single-resource/)")
 			}
@@ -2269,7 +2273,7 @@ func createMongodProcessForShardedCluster(mongoDBImage string, forceEnterprise b
 // buildReplicaSetFromProcesses creates the 'ReplicaSetWithProcesses' with specified processes. This is of use only
 // for sharded cluster (config server, shards)
 func buildReplicaSetFromProcesses(name string, members []om.Process, mdb *mdbv1.MongoDB, memberOptions []automationconfig.MemberOptions, deployment om.Deployment) (om.ReplicaSetWithProcesses, error) {
-	replicaSet := om.NewReplicaSet(name, mdb.Spec.GetMongoDBVersion())
+	replicaSet := om.NewReplicaSet(name, "", mdb.Spec.GetMongoDBVersion())
 
 	existingProcessIds := getReplicaSetProcessIdsFromReplicaSets(replicaSet.Name(), deployment)
 	var rsWithProcesses om.ReplicaSetWithProcesses
@@ -2318,6 +2322,8 @@ func (r *ShardedClusterReconcileHelper) getConfigServerOptions(ctx context.Conte
 		WithMongodbImage(images.GetOfficialImage(r.imageUrls, sc.Spec.Version, sc.GetAnnotations())),
 		WithAgentDebug(r.agentDebug),
 		WithAgentDebugImage(r.agentDebugImage),
+		WithExternalAgentVersion(opts.externalAgentVersion),
+		WithAgentCertPath(opts.agentCertPath),
 	)
 }
 
@@ -2349,6 +2355,8 @@ func (r *ShardedClusterReconcileHelper) getMongosOptions(ctx context.Context, sc
 		WithMongodbImage(images.GetOfficialImage(r.imageUrls, sc.Spec.Version, sc.GetAnnotations())),
 		WithAgentDebug(r.agentDebug),
 		WithAgentDebugImage(r.agentDebugImage),
+		WithExternalAgentVersion(opts.externalAgentVersion),
+		WithAgentCertPath(opts.agentCertPath),
 	)
 }
 
@@ -2382,6 +2390,8 @@ func (r *ShardedClusterReconcileHelper) getShardOptions(ctx context.Context, sc 
 		WithMongodbImage(images.GetOfficialImage(r.imageUrls, sc.Spec.Version, sc.GetAnnotations())),
 		WithAgentDebug(r.agentDebug),
 		WithAgentDebugImage(r.agentDebugImage),
+		WithExternalAgentVersion(opts.externalAgentVersion),
+		WithAgentCertPath(opts.agentCertPath),
 	)
 }
 

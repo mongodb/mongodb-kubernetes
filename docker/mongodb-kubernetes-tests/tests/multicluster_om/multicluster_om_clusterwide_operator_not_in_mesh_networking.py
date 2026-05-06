@@ -152,7 +152,7 @@ class MultiClusterOMClusterWideTestHelper:
         ## Force creating headless services for internal connectivity
         resource["spec"]["internalConnectivity"] = {
             "type": "ClusterIP",
-            "ClusterIP": "None",
+            "clusterIP": "None",
         }
         resource["spec"]["clusterSpecList"] = cluster_spec_list(
             [MEMBER_CLUSTER_2], [1], backup_configs=[{"members": 1}]

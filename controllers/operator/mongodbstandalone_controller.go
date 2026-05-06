@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/hashicorp/go-multierror"
+	"github.com/mongodb/mongodb-kubernetes/pkg/agentVersionManagement"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -184,7 +185,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 
 	r.SetupCommonWatchers(s, nil, nil, s.Name)
 
-	reconcileResult := checkIfHasExcessProcesses(conn, s.Name, log)
+	reconcileResult := checkIfHasExcessProcesses(conn, s.Name, "", nil, log)
 	if !reconcileResult.IsOK() {
 		return r.updateStatus(ctx, s, reconcileResult, log)
 	}
@@ -241,6 +242,10 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 		databaseSecretPath = r.VaultClient.DatabaseSecretPath()
 	}
 
+	agentCertSecretName := s.GetSecurity().AgentClientCertificateSecretName(s.Name)
+	agentCertHash, defaultAgentCertPath := r.agentCertHashAndPath(ctx, log, s.Namespace, agentCertSecretName, databaseSecretPath)
+	agentCertPath := EffectiveAgentCertPEMPath(defaultAgentCertPath, s.Spec.GetSecurity())
+
 	var automationAgentVersion string
 	if architectures.IsRunningStaticArchitecture(s.Annotations) {
 		// In case the Agent *is* overridden, its version will be merged into the StatefulSet. The merging process
@@ -255,8 +260,19 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 		}
 	}
 
+	var externalAgentVersion string
+	if len(s.Spec.GetExternalMembers()) > 0 {
+		externalAgentVersion, err = agentVersionManagement.GetAgentVersionFromOpsManager(conn)
+		if err != nil {
+			status := workflow.Failed(xerrors.Errorf("Failed to retrieve agent version from Ops Manager: %w", err))
+			return r.updateStatus(ctx, s, status, log)
+		}
+	}
+
 	standaloneOpts := construct.StandaloneOptions(
 		CertificateHash(pem.ReadHashFromSecret(ctx, r.SecretClient, s.Namespace, standaloneCertSecretName, databaseSecretPath, log)),
+		AgentCertHash(agentCertHash),
+		WithAgentCertPath(agentCertPath),
 		CurrentAgentAuthMechanism(currentAgentAuthMode),
 		PodEnvVars(podVars),
 		WithVaultConfig(vaultConfig),
@@ -267,6 +283,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 		WithMongodbImage(images.GetOfficialImage(r.imageUrls, s.Spec.Version, s.GetAnnotations())),
 		WithAgentDebug(r.agentDebug),
 		WithAgentDebugImage(r.agentDebugImage),
+		WithExternalAgentVersion(externalAgentVersion),
 	)
 
 	sts := construct.DatabaseStatefulSet(*s, standaloneOpts, log)
@@ -280,9 +297,6 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 	if err != nil {
 		lastSpec = &mdbv1.MongoDbSpec{}
 	}
-
-	agentCertSecretName := s.GetSecurity().AgentClientCertificateSecretName(s.Name)
-	_, agentCertPath := r.agentCertHashAndPath(ctx, log, s.Namespace, agentCertSecretName, databaseSecretPath)
 
 	status := workflow.RunInGivenOrder(publishAutomationConfigFirst(ctx, r.client, *s, lastSpec, standaloneOpts, log),
 		func() workflow.Status {
@@ -356,7 +370,7 @@ func (r *ReconcileMongoDbStandalone) updateOmDeployment(ctx context.Context, con
 	standaloneOmObject := createProcess(r.imageUrls[mcoConstruct.MongodbImageEnv], r.forceEnterprise, set, util.DatabaseContainerName, s)
 	err := conn.ReadUpdateDeployment(
 		func(d om.Deployment) error {
-			excessProcesses := d.GetNumberOfExcessProcesses(s.Name)
+			excessProcesses := d.GetNumberOfExcessProcesses(s.Name, "", nil)
 			if excessProcesses > 0 {
 				return xerrors.Errorf("cannot have more than 1 MongoDB Cluster per project (see https://docs.mongodb.com/kubernetes-operator/stable/tutorial/migrate-to-single-resource/)")
 			}

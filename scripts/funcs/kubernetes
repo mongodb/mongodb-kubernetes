@@ -138,12 +138,27 @@ create_image_registries_secret() {
       echo "Using Docker config: ${config_file}"
     fi
 
+    if kubectl --context "${context}" get secret "${secret_name}" -n "${namespace}" &>/dev/null; then
+      echo "${context}: Secret ${namespace}/${secret_name} already exists, skipping"
+      return
+    fi
+
     # shellcheck disable=SC2154
     if kubectl --context "${context}" get namespace "${namespace}"; then
-      kubectl --context "${context}" -n "${namespace}" delete secret "${secret_name}" --ignore-not-found
-      echo "${context}: Creating ${namespace}/${secret_name} pull secret"
-      kubectl --context "${context}" -n "${namespace}" create secret generic "${secret_name}" \
-        --from-file=.dockerconfigjson="${config_file}" --type=kubernetes.io/dockerconfigjson
+      echo "${context}: Applying ${namespace}/${secret_name} pull secret"
+      # Use kubectl apply for idempotency (faster than delete+create on repeated runs)
+      local config_base64
+      config_base64=$(base64 < "${config_file}" | tr -d '\n')
+      kubectl --context "${context}" apply -f - <<EOF
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ${secret_name}
+  namespace: ${namespace}
+type: kubernetes.io/dockerconfigjson
+data:
+  .dockerconfigjson: ${config_base64}
+EOF
     else
       echo "Skipping creating pull secret in ${context}/${namespace}. The namespace doesn't exist yet."
     fi

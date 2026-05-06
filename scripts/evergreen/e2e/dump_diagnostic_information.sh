@@ -343,6 +343,41 @@ download_test_results() {
     fi
 }
 
+# dump_job_pod_logs finds all Jobs in the namespace and writes each Job's pod container logs
+# to logs/ so they are uploaded to S3. Output: logs/${prefix}job_pod_output.log
+dump_job_pod_logs() {
+    local context="${1}"
+    local namespace="${2}"
+    local prefix="${3}"
+
+    local out_file="logs/${prefix}job_pod_output.log"
+    local jobs
+    jobs=$(kubectl --context="${context}" get jobs -n "${namespace}" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null)
+    if [[ -z "${jobs}" ]]; then
+        return
+    fi
+
+    for job in ${jobs}; do
+        echo "=== Job: ${job} ===" >> "${out_file}"
+        local pods
+        pods=$(kubectl --context="${context}" get pods -n "${namespace}" -l job-name="${job}" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null)
+        if [[ -z "${pods}" ]]; then
+            echo "(no pods for this job)" >> "${out_file}"
+            echo "" >> "${out_file}"
+            continue
+        fi
+        for pod in ${pods}; do
+            echo "--- Pod: ${pod} ---" >> "${out_file}"
+            for container in $(kubectl --context="${context}" get pod -n "${namespace}" "${pod}" -o jsonpath='{.spec.containers[*].name}' 2>/dev/null); do
+                echo "---- container: ${container} ----" >> "${out_file}"
+                kubectl --context="${context}" logs -n "${namespace}" "${pod}" -c "${container}" >> "${out_file}" 2>&1 || true
+                echo "" >> "${out_file}"
+            done
+        done
+        echo "" >> "${out_file}"
+    done
+}
+
 # dump_events gets all events from a namespace and saves them to a file
 dump_events() {
     local context="${1}"
@@ -386,6 +421,10 @@ dump_namespace() {
     # Download test results from the test pod in community
     download_test_results "${context}" "${namespace}" "e2e-test"
 
+    # Explicitly capture job/test runner pod logs
+    dump_job_pod_logs "${context}" "${namespace}" "${prefix}"
+
+    dump_objects "${context}" jobs "Jobs" "${namespace}" "get -o yaml" "logs/${prefix}z_jobs.txt"
     dump_objects "${context}" pvc "Persistent Volume Claims" "${namespace}" "get -o yaml" "logs/${prefix}z_persistent_volume_claims.txt"
     dump_objects "${context}" deploy "Deployments" "${namespace}" "get -o yaml" "logs/${prefix}z_deployments.txt"
     dump_objects "${context}" deploy "Deployments" "${namespace}" "describe" "logs/${prefix}z_deployments_describe.txt"

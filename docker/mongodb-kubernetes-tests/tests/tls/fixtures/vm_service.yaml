@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: vm-mongodb
+  labels:
+    app: vm-mongodb
+spec:
+  type: ClusterIP
+  clusterIP: None  # headless: vm-mongodb-0.vm-mongodb.ns.svc.cluster.local resolves to pod IP
+  selector:
+    app: vm-mongodb
+  ports:
+    - port: 27017
+      targetPort: 27017
+      name: mongodb

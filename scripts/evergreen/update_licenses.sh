@@ -27,7 +27,7 @@ process_licenses() {
     # This ensures that when go-licenses calls 'go', it gets the one in go.mod
     PATH="${REAL_GOROOT}/bin:$(go env GOPATH)/bin:${PATH}" \
     GOTOOLCHAIN=local GOROOT="${REAL_GOROOT}" \
-    GOOS=linux GOARCH=amd64 GOFLAGS="-mod=mod" \
+    GOOS=linux GOARCH=amd64 \
     go-licenses report . --template "${SCRIPTS_DIR}/update_licenses.tpl" > licenses_full.csv
 
     # Filter and sort the licenses report

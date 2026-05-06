@@ -96,10 +96,10 @@ class TestShardedClusterCreation:
                 hostname = sc.shard_hostname(0, member_idx, cluster_member_client.cluster_index)
                 hosts.append(hostname)
 
-        client = KubernetesTester.get_populated_mongo_client(hosts=hosts)
+        client = KubernetesTester.get_connected_mongo_client(hosts=hosts)
 
         assert client.primary is not None
-        assert len(client.secondaries) == 2
+        assert len(KubernetesTester.get_replica_set_secondaries(client)) == 2
 
     def test_pvc_are_bound(self, sc: MongoDB):
         for cluster_member_client in get_member_cluster_clients_using_cluster_mapping(sc.name, sc.namespace):

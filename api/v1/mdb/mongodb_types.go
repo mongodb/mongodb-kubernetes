@@ -8,6 +8,7 @@ import (
 
 	"github.com/blang/semver"
 	"github.com/pkg/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/labels"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -370,12 +371,37 @@ type MongoDbStatus struct {
 	Link                                   string                                     `json:"link,omitempty"`
 	FeatureCompatibilityVersion            string                                     `json:"featureCompatibilityVersion,omitempty"`
 	Warnings                               []status.Warning                           `json:"warnings,omitempty"`
+	// +listType=map
+	// +listMapKey=type
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
 type BackupMode string
 
 type BackupStatus struct {
 	StatusName string `json:"statusName"`
+}
+
+type ExternalMember struct {
+	// ProcessName contains the name of the external process as it appears in the `processes` field in the AC.
+	// +kubebuilder:validation:Required
+	ProcessName string `json:"processName"`
+
+	// Hostname contains the hostname and port of the external process, as it appears in the `processes` field in the AC.
+	// +kubebuilder:validation:Required
+	Hostname string `json:"hostname"`
+
+	// Type specifies the type of the external member, whether it's a mongod or mongos process.
+	// This field is not required when the deployment we migrate is a Replica Set since it only contains mongods.
+	// However, for a Sharded Cluster deployment, this field is required to distinguish between mongod and mongos processes in the cluster.
+	// +kubebuilder:validation:Enum=mongod;mongos
+	Type string `json:"type"`
+
+	// ReplicaSetName is required only for mongod processes in a Sharded Cluster deployment
+	// It specifies the name of the Replica Set that the mongod process belongs to.
+	// This field will help to determine whether the mongod process belongs to the config server or a shard (and in which shard).
+	// +optional
+	ReplicaSetName string `json:"replicaSetName"`
 }
 
 type DbCommonSpec struct {
@@ -435,6 +461,11 @@ type DbCommonSpec struct {
 	// +kubebuilder:validation:Enum=SingleCluster;MultiCluster
 	// +optional
 	Topology string `json:"topology,omitempty"`
+
+	// +optional
+	ExternalMembers []ExternalMember `json:"externalMembers,omitempty"`
+
+	ReplicaSetNameOverride string `json:"replicaSetNameOverride,omitempty"`
 
 	DownloadBase string `json:"downloadBase,omitempty"`
 }
@@ -824,6 +855,18 @@ func (d *DbCommonSpec) GetDownloadBase() string {
 	return util.DefaultPvcMmsMountPath
 }
 
+func (d *DbCommonSpec) GetExternalMembers() []ExternalMember {
+	return d.ExternalMembers
+}
+
+func (d *DbCommonSpec) GetExternalMemberProcessNames() []string {
+	var processNames []string
+	for _, m := range d.ExternalMembers {
+		processNames = append(processNames, m.ProcessName)
+	}
+	return processNames
+}
+
 func (s *Security) IsTLSEnabled() bool {
 	if s == nil {
 		return false
@@ -891,6 +934,14 @@ func (s Security) AgentClientCertificateSecretName(resourceName string) string {
 // even when no x509 agent-auth has been enabled.
 func (s Security) ShouldUseClientCertificates() bool {
 	return s.Authentication != nil && s.Authentication.Agents.ClientCertificateSecretRefWrap.ClientCertificateSecretRef.Name != ""
+}
+
+// GetAgentAutoPEMKeyFilePath returns security.authentication.agents.autoPEMKeyFilePath when set (trimmed).
+func (s *Security) GetAgentAutoPEMKeyFilePath() string {
+	if s == nil || s.Authentication == nil {
+		return ""
+	}
+	return strings.TrimSpace(s.Authentication.Agents.AutoPEMKeyFilePath)
 }
 
 func (s Security) InternalClusterAuthSecretName(defaultName string) string {
@@ -1020,6 +1071,13 @@ type MongoDBRole struct {
 type AgentAuthentication struct {
 	// Mode is the desired Authentication mode that the agents will use
 	Mode string `json:"mode"`
+	// AutoPEMKeyFilePath is the absolute path to the automation agent’s combined PEM (cert+key) inside
+	// database pods (replica set, sharded cluster, standalone, and multi-cluster). When set, the operator configures Ops Manager tls.autoPEMKeyFilePath to this value
+	// and mounts the clientCertificateSecretRef PEM at this path (for example when migrating from VMs
+	// that already use a non-default path). When empty, the operator uses AgentCertMountPath with the
+	// hash derived from the TLS secret. Requires clientCertificateSecretRef when non-empty.
+	// +optional
+	AutoPEMKeyFilePath string `json:"autoPEMKeyFilePath,omitempty"`
 	// +optional
 	AutomationUserName string `json:"automationUserName"`
 	// +optional
@@ -1304,6 +1362,11 @@ func (m *MongoDB) UpdateStatus(phase status.Phase, statusOptions ...status.Optio
 	}
 	if option, exists := status.GetOption(statusOptions, status.BaseUrlOption{}); exists {
 		m.Status.Link = option.(status.BaseUrlOption).BaseUrl
+	}
+	if option, exists := status.GetOption(statusOptions, status.MigrationConditionOption{}); exists {
+		c := option.(status.MigrationConditionOption).Condition
+		c.ObservedGeneration = m.GetGeneration()
+		_ = meta.SetStatusCondition(&m.Status.Conditions, c)
 	}
 	switch m.Spec.ResourceType {
 	case ReplicaSet:
