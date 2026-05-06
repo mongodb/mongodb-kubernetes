@@ -1,4 +1,4 @@
-"""Shared helpers for VM-to-Kubernetes migration tests that use kubectl-mongodb generate-custom-resource."""
+"""Shared helpers for VM-to-Kubernetes migration tests that use kubectl-mongodb migrate-to-mck."""
 
 import os
 import subprocess
@@ -71,19 +71,19 @@ def _run_generate_cr_subcommand(
     extra_flags: list[str],
     stdin_text: str | None,
 ) -> str:
-    """Run a kubectl-mongodb generate-custom-resource subcommand and return stdout."""
+    """Run a kubectl-mongodb migrate-to-mck subcommand and return stdout."""
     proc = subprocess.run(
-        [KUBECTL_MONGODB, "generate-custom-resource", subcommand, *GENERATE_CR_FLAGS, *extra_flags],
+        [KUBECTL_MONGODB, "migrate-to-mck", subcommand, *GENERATE_CR_FLAGS, *extra_flags],
         input=stdin_text,
         capture_output=True,
         text=True,
         env=_GENERATE_CR_ENV,
     )
     if proc.returncode != 0:
-        logger.error("generate-custom-resource %s stderr:\n%s", subcommand, proc.stderr)
+        logger.error("migrate-to-mck %s stderr:\n%s", subcommand, proc.stderr)
         raise subprocess.CalledProcessError(proc.returncode, proc.args, proc.stdout, proc.stderr)
     if proc.stderr:
-        logger.info("generate-custom-resource %s stderr:\n%s", subcommand, proc.stderr)
+        logger.info("migrate-to-mck %s stderr:\n%s", subcommand, proc.stderr)
     return proc.stdout
 
 
@@ -92,9 +92,9 @@ def run_generate_cr(
     user_secrets: dict[str, str] | None = None,
     certs_secret_prefix: str | None = None,
 ) -> str:
-    """Run generate-custom-resource mongodb + generate-custom-resource users and return the combined CR YAML bundle.
+    """Run migrate-to-mck mongodb and migrate-to-mck users and return the combined CR YAML bundle.
 
-    certs_secret_prefix is fed to stdin for the generate-custom-resource mongodb TLS prompt.
+    certs_secret_prefix is fed to stdin for the migrate-to-mck mongodb TLS prompt.
     user_secrets maps "username:database" to a pre-created Secret name. Create each
     Secret before calling this function:
       kubectl create secret generic <name> --from-literal=password=<password> -n <namespace>
@@ -144,6 +144,18 @@ def vm_replica_set_tester(namespace: str, use_ssl: bool = False, ca_path: Option
         servicename="vm-mongodb",
     )
     return MongoTester(cnx_string, use_ssl, ca_path)
+
+
+MIGRATION_DRY_RUN_ANNOTATION = "mongodb.com/migration-dry-run"
+
+
+def assert_migration_dry_run_annotation(generated_cr_yaml: str) -> None:
+    """Assert the first document in the generated YAML carries the migration-dry-run annotation."""
+    cr = next(yaml.safe_load_all(generated_cr_yaml))
+    annotations = cr.get("metadata", {}).get("annotations", {})
+    assert annotations.get(MIGRATION_DRY_RUN_ANNOTATION) == "true", (
+        f"Expected annotation {MIGRATION_DRY_RUN_ANNOTATION}=true in generated CR, got: {annotations}"
+    )
 
 
 def get_user_docs(generated_cr_yaml: str) -> List[dict]:
