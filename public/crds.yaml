@@ -932,6 +932,11 @@ spec:
                 description: Name of the Secret holding credentials information
                 type: string
               downloadBase:
+                description: |-
+                  DownloadBase is the absolute path of the directory where Ops Manager downloads
+                  automatic versions and runs starting scripts. When unset, it defaults to
+                  /var/lib/mongodb-mms-automation.
+                pattern: ^/[^\0]*$
                 type: string
               duplicateServiceObjects:
                 description: |-
@@ -3520,6 +3525,11 @@ spec:
                 description: Name of the Secret holding credentials information
                 type: string
               downloadBase:
+                description: |-
+                  DownloadBase is the absolute path of the directory where Ops Manager downloads
+                  automatic versions and runs starting scripts. When unset, it defaults to
+                  /var/lib/mongodb-mms-automation.
+                pattern: ^/[^\0]*$
                 type: string
               duplicateServiceObjects:
                 description: |-

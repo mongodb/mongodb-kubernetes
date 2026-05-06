@@ -1,5 +1,5 @@
 from kubetester import find_fixture, try_load
-from kubetester.kubetester import KubernetesTester, ensure_ent_version
+from kubetester.kubetester import KubernetesTester, ensure_ent_version, is_default_architecture_static
 from kubetester.mongodb import MongoDB
 from kubetester.operator import Operator
 from kubetester.phase import Phase
@@ -11,8 +11,12 @@ from tests.shardedcluster.conftest import (
     get_member_cluster_clients_using_cluster_mapping,
 )
 
+default_download_base = "/var/lib/mongodb-mms-automation"
+custom_download_base = "/var/lib/mongodb-mms-automation-custom"
+brand_new_download_base = "/custom/custom-download-base"
 
-@fixture(scope="function")
+
+@fixture(scope="module")
 def sc(namespace: str, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(find_fixture("sharded-cluster.yaml"), namespace=namespace)
 
@@ -44,7 +48,13 @@ def test_install_operator(operator: Operator):
 @mark.e2e_sharded_cluster_agent_flags
 def test_create_sharded_cluster(sc: MongoDB):
     sc.update()
-    sc.assert_reaches_phase(Phase.Running, timeout=1000)
+    sc.assert_reaches_phase(Phase.Running, timeout=1000 if is_default_architecture_static() else 2000)
+
+
+@mark.e2e_sharded_cluster_agent_flags
+def test_default_download_base_in_automation_config(sc: MongoDB):
+    options = sc.get_automation_config_tester().automation_config.get("options", {})
+    assert options.get("downloadBase") == default_download_base
 
 
 @mark.e2e_sharded_cluster_agent_flags
@@ -120,6 +130,34 @@ def test_enable_audit_log(sc: MongoDB):
 @mark.e2e_sharded_cluster_agent_flags
 def test_log_types_with_audit_enabled(sc: MongoDB):
     _assert_log_types_in_pods(sc, get_all_log_types())
+
+
+@mark.e2e_sharded_cluster_agent_flags
+def test_set_custom_download_base(sc: MongoDB):
+    sc.load()
+    sc["spec"]["downloadBase"] = custom_download_base
+    sc.update()
+    sc.assert_reaches_phase(Phase.Running, timeout=2500 if is_default_architecture_static() else 3500)
+
+
+@mark.e2e_sharded_cluster_agent_flags
+def test_custom_download_base_in_automation_config(sc: MongoDB):
+    options = sc.get_automation_config_tester().automation_config.get("options", {})
+    assert options.get("downloadBase") == custom_download_base
+
+
+@mark.e2e_sharded_cluster_agent_flags
+def test_set_brand_new_download_base(sc: MongoDB):
+    sc.load()
+    sc["spec"]["downloadBase"] = brand_new_download_base
+    sc.update()
+    sc.assert_reaches_phase(Phase.Running, timeout=2500 if is_default_architecture_static() else 3500)
+
+
+@mark.e2e_sharded_cluster_agent_flags
+def test_brand_new_download_base_in_automation_config(sc: MongoDB):
+    options = sc.get_automation_config_tester().automation_config.get("options", {})
+    assert options.get("downloadBase") == brand_new_download_base
 
 
 def _assert_log_types_in_pods(sc: MongoDB, expected_log_types: set[str]):

@@ -36,6 +36,13 @@ func WithAgentCertPath(path string) func(options *construct.DatabaseStatefulSetO
 	}
 }
 
+// WithPreviousDownloadBase sets the previous last-achieved downloadBase for transition aliases.
+func WithPreviousDownloadBase(path string) func(options *construct.DatabaseStatefulSetOptions) {
+	return func(options *construct.DatabaseStatefulSetOptions) {
+		options.PreviousDownloadBase = path
+	}
+}
+
 // Replicas will set the given number of replicas when building a StatefulSet.
 func Replicas(replicas int) func(options *construct.DatabaseStatefulSetOptions) {
 	return func(options *construct.DatabaseStatefulSetOptions) {

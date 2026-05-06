@@ -726,6 +726,13 @@ func newShardedClusterReconcilerHelper(
 	return helper, nil
 }
 
+func (r *ShardedClusterReconcileHelper) previousDownloadBase() string {
+	if r.deploymentState.LastAchievedSpec == nil {
+		return ""
+	}
+	return r.deploymentState.LastAchievedSpec.GetDownloadBase()
+}
+
 func blockScalingBothWays(desiredReplicasScalers []interfaces.MultiClusterReplicaSetScaler) error {
 	scalingUp := false
 	scalingDown := false
@@ -2044,6 +2051,8 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 
 			_ = UpdatePrometheus(ctx, &d, conn, sc.GetPrometheus(), r.commonController.SecretClient, sc.GetNamespace(), opts.prometheusCertHash, log)
 
+			d.SetDownloadBase(sc.Spec.GetDownloadBase())
+
 			finalProcesses = d.GetProcessNames(om.ShardedCluster{}, sc.Name)
 
 			return nil
@@ -2324,6 +2333,7 @@ func (r *ShardedClusterReconcileHelper) getConfigServerOptions(ctx context.Conte
 		WithAgentDebugImage(r.agentDebugImage),
 		WithExternalAgentVersion(opts.externalAgentVersion),
 		WithAgentCertPath(opts.agentCertPath),
+		WithPreviousDownloadBase(r.previousDownloadBase()),
 	)
 }
 
@@ -2357,6 +2367,7 @@ func (r *ShardedClusterReconcileHelper) getMongosOptions(ctx context.Context, sc
 		WithAgentDebugImage(r.agentDebugImage),
 		WithExternalAgentVersion(opts.externalAgentVersion),
 		WithAgentCertPath(opts.agentCertPath),
+		WithPreviousDownloadBase(r.previousDownloadBase()),
 	)
 }
 
@@ -2392,6 +2403,7 @@ func (r *ShardedClusterReconcileHelper) getShardOptions(ctx context.Context, sc 
 		WithAgentDebugImage(r.agentDebugImage),
 		WithExternalAgentVersion(opts.externalAgentVersion),
 		WithAgentCertPath(opts.agentCertPath),
+		WithPreviousDownloadBase(r.previousDownloadBase()),
 	)
 }
 

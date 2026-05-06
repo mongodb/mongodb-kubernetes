@@ -146,6 +146,13 @@ func (r *ReplicaSetReconcilerHelper) readState() (*replicaSetDeploymentState, er
 	}, nil
 }
 
+func (r *ReplicaSetReconcilerHelper) previousDownloadBase() string {
+	if r.deploymentState.LastAchievedSpec == nil {
+		return ""
+	}
+	return r.deploymentState.LastAchievedSpec.GetDownloadBase()
+}
+
 // getVaultAnnotations gets vault secret version annotations to write to the CR.
 func (r *ReplicaSetReconcilerHelper) getVaultAnnotations() map[string]string {
 	if !vault.IsVaultSecretBackend() {
@@ -442,12 +449,13 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 	return helper.Reconcile(ctx)
 }
 
+// publishAutomationConfigFirstRS returns whether the Ops Manager automation config must be
+// published before the StatefulSet is updated.
 func publishAutomationConfigFirstRS(ctx context.Context, getter kubernetesClient.Client, mdb mdbv1.MongoDB, lastSpec *mdbv1.MongoDbSpec, currentAgentAuthMode string, sslMMSCAConfigMap string, log *zap.SugaredLogger) bool {
 	namespacedName := kube.ObjectKey(mdb.Namespace, mdb.Name)
 	currentSts, err := getter.GetStatefulSet(ctx, namespacedName)
 	if err != nil {
 		if errors.IsNotFound(err) {
-			// No need to publish state as this is a new StatefulSet
 			log.Debugf("New StatefulSet %s", namespacedName)
 			return false
 		}
@@ -644,7 +652,6 @@ func (r *ReplicaSetReconcilerHelper) buildStatefulSetOptions(ctx context.Context
 	if len(rs.Spec.GetExternalMembers()) > 0 {
 		externalAgentVersion = deploymentOptions.externalAgentVersion
 	}
-
 	rsConfig := construct.ReplicaSetOptions(
 		PodEnvVars(newPodVars(conn, projectConfig, rs.Spec.LogLevel)),
 		CurrentAgentAuthMechanism(deploymentOptions.currentAgentAuthMode),
@@ -663,6 +670,7 @@ func (r *ReplicaSetReconcilerHelper) buildStatefulSetOptions(ctx context.Context
 		WithAgentDebugImage(reconciler.agentDebugImage),
 		WithExternalAgentVersion(externalAgentVersion),
 		WithAgentCertPath(deploymentOptions.agentCertPath),
+		WithPreviousDownloadBase(r.previousDownloadBase()),
 	)
 
 	return rsConfig, nil

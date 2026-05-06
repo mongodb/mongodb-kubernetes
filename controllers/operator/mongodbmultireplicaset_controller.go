@@ -92,6 +92,17 @@ type ReconcileMongoDbMultiReplicaSet struct {
 	agentDebugImage string
 }
 
+func (r *ReconcileMongoDbMultiReplicaSet) previousDownloadBase(mrs *mdbmultiv1.MongoDBMultiCluster) (string, error) {
+	lastAchievedSpec, err := mrs.ReadLastAchievedSpec()
+	if err != nil {
+		return "", xerrors.Errorf("failed to read last achieved spec: %w", err)
+	}
+	if lastAchievedSpec == nil {
+		return "", nil
+	}
+	return lastAchievedSpec.GetDownloadBase(), nil
+}
+
 var _ reconcile.Reconciler = &ReconcileMongoDbMultiReplicaSet{}
 
 func newMultiClusterReplicaSetReconciler(ctx context.Context, kubeClient client.Client, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, omFunc om.ConnectionFactory, memberClustersMap map[string]client.Client) *ReconcileMongoDbMultiReplicaSet {
@@ -279,8 +290,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) publishAutomationConfigFirstMultiClust
 	firstStatefulSet, err := r.firstStatefulSet(ctx, mrs)
 	if err != nil {
 		if apiErrors.IsNotFound(err) {
-			// No need to publish state as this is a new StatefulSet
-			log.Debugf("New StatefulSet %s", firstStatefulSet.GetName())
+			log.Debugf("StatefulSet not found for MongoDBMultiCluster %s/%s", mrs.Namespace, mrs.Name)
 			return false, nil
 		}
 		return false, err
@@ -430,6 +440,11 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 	scalingFirstTime := len(processes) == 0
 
 	var workflowStatus workflow.Status = workflow.OK()
+	previousDownloadBase, err := r.previousDownloadBase(mrs)
+	if err != nil {
+		return workflow.Failed(err)
+	}
+
 	for _, item := range clusterSpecList {
 		if stringutil.Contains(failedClusterNames, item.ClusterName) {
 			log.Warnf(fmt.Sprintf("failed to reconcile statefulset: cluster %s is marked as failed", item.ClusterName))
@@ -543,6 +558,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 			WithAgentDebug(r.agentDebug),
 			WithAgentDebugImage(r.agentDebugImage),
 			WithExternalAgentVersion(externalAgentVersion),
+			WithPreviousDownloadBase(previousDownloadBase),
 		)
 
 		sts := mconstruct.MultiClusterStatefulSet(*mrs, opts)
