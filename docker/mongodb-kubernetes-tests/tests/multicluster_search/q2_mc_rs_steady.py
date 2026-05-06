@@ -78,6 +78,7 @@ def _assert_search_owner_labels(obj_labels: Dict[str, str], cluster_name: str, w
     )
 
 
+
 ADMIN_USER_NAME = "mdb-admin-user"
 ADMIN_USER_PASSWORD = "mdb-admin-user-pass"
 
@@ -593,6 +594,7 @@ def test_verify_per_cluster_mongot_resources(
             f"!= expected seed list {expected_hosts}"
         )
 
+
         logger.info(
             f"per-cluster mongot resources verified in cluster {mcc.cluster_name} "
             f"(idx={idx}): {sts_name}, {svc_name}, {cm_name}, {proxy_svc_name}"
@@ -620,6 +622,7 @@ def test_verify_per_cluster_envoy_deployment(
             envoy_deploy.metadata.labels or {}, mcc.cluster_name, f"Envoy Deployment {envoy_deployment_name}"
         )
         _assert_search_owner_labels(envoy_cm.metadata.labels or {}, mcc.cluster_name, f"Envoy CM {envoy_cm_name}")
+
 
         logger.info(f"Envoy Deployment {envoy_deployment_name} ready in cluster {mcc.cluster_name} (idx={cluster_idx})")
 

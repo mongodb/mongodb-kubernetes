@@ -465,6 +465,9 @@ func TestProxyServiceNamespacedNameForCluster(t *testing.T) {
 
 	got1 := s.ProxyServiceNamespacedNameForCluster(1)
 	assert.Equal(t, "mdb-search-search-1-proxy-svc", got1.Name)
+
+	got2 := s.ProxyServiceNamespacedNameForCluster(2)
+	assert.Equal(t, "mdb-search-search-2-proxy-svc", got2.Name)
 }
 
 func TestMongotConfigConfigMapNameForCluster(t *testing.T) {
