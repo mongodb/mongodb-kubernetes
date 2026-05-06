@@ -19,7 +19,7 @@ from tests.constants import KUBECONFIG_FILEPATH
 
 logger = test_logger.get_test_logger(__name__)
 
-MIGRATE_TOOL = os.getenv("KUBECTL_MONGODB_PATH", "kubectl-mongodb")
+KUBECTL_MONGODB = os.getenv("KUBECTL_MONGODB_PATH", "kubectl-mongodb")
 GENERATE_CR_FLAGS = ["--config-map-name", "my-project", "--secret-name", "my-credentials"]
 _GENERATE_CR_ENV = {**os.environ, "KUBECONFIG": os.environ.get("KUBECONFIG", KUBECONFIG_FILEPATH)}
 
@@ -73,7 +73,7 @@ def _run_generate_cr_subcommand(
 ) -> str:
     """Run a kubectl-mongodb generate-custom-resource subcommand and return stdout."""
     proc = subprocess.run(
-        [MIGRATE_TOOL, "generate-custom-resource", subcommand, *GENERATE_CR_FLAGS, *extra_flags],
+        [KUBECTL_MONGODB, "generate-custom-resource", subcommand, *GENERATE_CR_FLAGS, *extra_flags],
         input=stdin_text,
         capture_output=True,
         text=True,
