@@ -1093,6 +1093,7 @@ task_groups:
     tasks:
       - e2e_multi_cluster_2_clusters_replica_set
       - e2e_multi_cluster_2_clusters_clusterwide
+      - e2e_search_q2_mc_rs_steady
     <<: *teardown_group
 
   - name: e2e_multi_cluster_om_appdb_task_group

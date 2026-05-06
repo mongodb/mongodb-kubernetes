@@ -1,0 +1,21 @@
+---
+# MongoDBMultiCluster source RS for Q2-MC-RS e2e.
+#
+# clusterSpecList is overridden in the test fixture so member-cluster
+# names match the test runner's MEMBER_CLUSTERS env var. The .members
+# count per cluster is also set there.
+apiVersion: mongodb.com/v1
+kind: MongoDBMultiCluster
+metadata:
+  name: mdb-mc-rs-ext-lb
+spec:
+  type: ReplicaSet
+  # Search-aware mongod required for additionalMongodConfig.setParameter.searchIndexManagementHostAndPort
+  # (the test sets that in q2_mc_rs_steady.py). 6.x mongods reject it at startup.
+  version: 8.2.0-ent
+  duplicateServiceObjects: false
+  credentials: my-credentials
+  opsManager:
+    configMapRef:
+      name: my-project
+  clusterSpecList: []

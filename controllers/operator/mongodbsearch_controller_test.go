@@ -15,6 +15,7 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -22,6 +23,7 @@ import (
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	apiv1 "github.com/mongodb/mongodb-kubernetes/api/v1"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/v1/user"
@@ -402,6 +404,55 @@ func TestNewMongoDBSearchReconciler_MultiCluster(t *testing.T) {
 	assert.NotNil(t, r.memberClusterClientsMap["eu-west-k8s"])
 	assert.NotNil(t, r.memberClusterSecretClientsMap["us-east-k8s"].KubeClient)
 	assert.NotNil(t, r.memberClusterSecretClientsMap["eu-west-k8s"].KubeClient)
+}
+
+// TestOperatorSchemeKnowsMongoDBSearch is a regression test for the v5 e2e
+// failure where per-cluster Service writes failed with
+// "no kind is registered for the type search.MongoDBSearch in scheme".
+//
+// Production path: main.go init() calls apiv1.AddToScheme(scheme), which
+// transitively registers MongoDBSearch via the init() at
+// api/v1/search/mongodbsearch_types.go:60-62 (calls
+// v1.SchemeBuilder.Register(&MongoDBSearch{}, ...)). Then main.go threads that
+// scheme into every per-member-cluster runtime_cluster.New via
+// options.Scheme = scheme so SetOwnerReference can resolve the owner kind.
+//
+// This test exercises both halves of that contract:
+//  1. Starting from runtime.NewScheme() and calling only apiv1.AddToScheme is
+//     enough to recognise MongoDBSearch (the central scheme story).
+//  2. controllerutil.SetOwnerReference(mdbs, svc, scheme) succeeds with that
+//     scheme — the exact call site that broke in v5 at
+//     mongodbsearch_reconcile_helper.go:811 when the member-cluster client's
+//     scheme lacked searchv1.
+func TestOperatorSchemeKnowsMongoDBSearch(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, corev1.AddToScheme(scheme))
+	require.NoError(t, apiv1.AddToScheme(scheme))
+
+	gvks, _, err := scheme.ObjectKinds(&searchv1.MongoDBSearch{})
+	require.NoError(t, err, "scheme must resolve MongoDBSearch after apiv1.AddToScheme")
+	require.NotEmpty(t, gvks, "no GVK registered for searchv1.MongoDBSearch")
+
+	gvk := gvks[0]
+	assert.Equal(t, "mongodb.com", gvk.Group)
+	assert.Equal(t, "v1", gvk.Version)
+	assert.Equal(t, "MongoDBSearch", gvk.Kind)
+
+	// SetOwnerReference is the call that failed at v5's
+	// mongodbsearch_reconcile_helper.go:811 when the per-member-cluster client
+	// fell back to the default scheme (no searchv1 registered). Asserting that
+	// it succeeds here pins down the contract main.go's options.Scheme = scheme
+	// thread-through depends on.
+	mdbs := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns", UID: "00000000-0000-0000-0000-000000000001"},
+	}
+	svc := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search-search-0-svc", Namespace: "ns"},
+	}
+	require.NoError(t, controllerutil.SetOwnerReference(mdbs, svc, scheme))
+	require.Len(t, svc.OwnerReferences, 1)
+	assert.Equal(t, "MongoDBSearch", svc.OwnerReferences[0].Kind)
+	assert.Equal(t, "mongodb.com/v1", svc.OwnerReferences[0].APIVersion)
 }
 
 func TestMongoDBSearchReconcile_MissingSecret_Requeues(t *testing.T) {
