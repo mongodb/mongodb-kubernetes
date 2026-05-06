@@ -760,6 +760,48 @@ func newSearch(name string, shards []ExternalShardConfig, tlsPrefix string, isTL
 }
 
 
+func TestValidateMCRequiresExternalHostAndPorts(t *testing.T) {
+	mdbBad := &MongoDBSearch{
+		Spec: MongoDBSearchSpec{
+			Clusters: &[]ClusterSpec{
+				{ClusterName: "cluster-a"},
+				{ClusterName: "cluster-b"},
+			},
+		},
+	}
+	resBad := validateMCRequiresExternalHostAndPorts(mdbBad)
+	assert.Equal(t, v1.ErrorLevel, resBad.Level, "expected validation error for MC without external.hostAndPorts")
+	assert.Contains(t, resBad.Msg, "spec.source.external.hostAndPorts")
+	assert.Contains(t, resBad.Msg, "len(spec.clusters) > 1")
+
+	mdbOK := &MongoDBSearch{
+		Spec: MongoDBSearchSpec{
+			Clusters: &[]ClusterSpec{
+				{ClusterName: "cluster-a"},
+				{ClusterName: "cluster-b"},
+			},
+			Source: &MongoDBSource{
+				ExternalMongoDBSource: &ExternalMongoDBSource{
+					HostAndPorts: []string{"a.example:27017"},
+				},
+			},
+		},
+	}
+	assert.Equal(t, v1.SuccessLevel, validateMCRequiresExternalHostAndPorts(mdbOK).Level)
+
+	mdbSC := &MongoDBSearch{
+		Spec: MongoDBSearchSpec{
+			Clusters: &[]ClusterSpec{{ClusterName: "cluster-a"}},
+		},
+	}
+	assert.Equal(t, v1.SuccessLevel, validateMCRequiresExternalHostAndPorts(mdbSC).Level, "single-cluster path is a no-op")
+
+	mdbLegacy := &MongoDBSearch{
+		Spec: MongoDBSearchSpec{},
+	}
+	assert.Equal(t, v1.SuccessLevel, validateMCRequiresExternalHostAndPorts(mdbLegacy).Level)
+}
+
 // TestValidateClustersEnvoyResourceNames is the admission check for the
 // per-cluster Envoy Deployment + ConfigMap resource names. The Deployment name
 // follows DNS-1123 label rules (<=63 chars); the ConfigMap follows DNS-1123

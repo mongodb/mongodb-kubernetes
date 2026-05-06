@@ -450,6 +450,16 @@ func (s *MongoDBSearch) ProxyServiceNamespacedName() types.NamespacedName {
 	return types.NamespacedName{Name: s.Name + "-search-0-" + ProxyServiceSuffix, Namespace: s.Namespace}
 }
 
+// ProxyServiceNamespacedNameForCluster returns the index-suffixed proxy Service
+// name for one member cluster. mongod's per-cluster mongotHost FQDN resolves to
+// this name.
+func (s *MongoDBSearch) ProxyServiceNamespacedNameForCluster(clusterIndex int) types.NamespacedName {
+	return types.NamespacedName{
+		Name:      fmt.Sprintf("%s-search-%d-%s", s.Name, clusterIndex, ProxyServiceSuffix),
+		Namespace: s.Namespace,
+	}
+}
+
 // ProxyServiceNameForShard returns the stable proxy Service name for a specific shard.
 func (s *MongoDBSearch) ProxyServiceNameForShard(shardName string) types.NamespacedName {
 	return types.NamespacedName{
@@ -460,6 +470,33 @@ func (s *MongoDBSearch) ProxyServiceNameForShard(shardName string) types.Namespa
 
 func (s *MongoDBSearch) MongotConfigConfigMapNamespacedName() types.NamespacedName {
 	return types.NamespacedName{Name: s.Name + "-search-config", Namespace: s.Namespace}
+}
+
+// MongotConfigConfigMapNameForCluster returns the per-cluster mongot ConfigMap name.
+func (s *MongoDBSearch) MongotConfigConfigMapNameForCluster(clusterIndex int) types.NamespacedName {
+	return types.NamespacedName{
+		Name:      fmt.Sprintf("%s-search-%d-config", s.Name, clusterIndex),
+		Namespace: s.Namespace,
+	}
+}
+
+// StatefulSetNamespacedNameForCluster returns the index-suffixed StatefulSet
+// name (`<name>-search-<idx>`). The unindexed name from
+// StatefulSetNamespacedName is reserved for the single-cluster path.
+func (s *MongoDBSearch) StatefulSetNamespacedNameForCluster(clusterIndex int) types.NamespacedName {
+	return types.NamespacedName{
+		Name:      fmt.Sprintf("%s-search-%d", s.Name, clusterIndex),
+		Namespace: s.Namespace,
+	}
+}
+
+// SearchServiceNamespacedNameForCluster returns the index-suffixed headless
+// Service name; the unindexed name is single-cluster-only.
+func (s *MongoDBSearch) SearchServiceNamespacedNameForCluster(clusterIndex int) types.NamespacedName {
+	return types.NamespacedName{
+		Name:      fmt.Sprintf("%s-search-%d-svc", s.Name, clusterIndex),
+		Namespace: s.Namespace,
+	}
 }
 
 func (s *MongoDBSearch) SourceUserPasswordSecretRef() *userv1.SecretKeyRef {

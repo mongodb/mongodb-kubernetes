@@ -15,6 +15,7 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -22,6 +23,7 @@ import (
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	apiv1 "github.com/mongodb/mongodb-kubernetes/api/v1"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/v1/user"
@@ -404,6 +406,35 @@ func TestNewMongoDBSearchReconciler_MultiCluster(t *testing.T) {
 	assert.NotNil(t, r.memberClusterSecretClientsMap["eu-west-k8s"].KubeClient)
 }
 
+// Regression: per-cluster Service writes failed with "no kind is registered
+// for type search.MongoDBSearch in scheme" when member-cluster clients used a
+// scheme without searchv1; apiv1.AddToScheme must register MongoDBSearch.
+func TestOperatorSchemeKnowsMongoDBSearch(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, corev1.AddToScheme(scheme))
+	require.NoError(t, apiv1.AddToScheme(scheme))
+
+	gvks, _, err := scheme.ObjectKinds(&searchv1.MongoDBSearch{})
+	require.NoError(t, err, "scheme must resolve MongoDBSearch after apiv1.AddToScheme")
+	require.NotEmpty(t, gvks, "no GVK registered for searchv1.MongoDBSearch")
+
+	gvk := gvks[0]
+	assert.Equal(t, "mongodb.com", gvk.Group)
+	assert.Equal(t, "v1", gvk.Version)
+	assert.Equal(t, "MongoDBSearch", gvk.Kind)
+
+	mdbs := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns", UID: "00000000-0000-0000-0000-000000000001"},
+	}
+	svc := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search-search-0-svc", Namespace: "ns"},
+	}
+	require.NoError(t, controllerutil.SetOwnerReference(mdbs, svc, scheme))
+	require.Len(t, svc.OwnerReferences, 1)
+	assert.Equal(t, "MongoDBSearch", svc.OwnerReferences[0].Kind)
+	assert.Equal(t, "mongodb.com/v1", svc.OwnerReferences[0].APIVersion)
+}
+
 func TestMongoDBSearchReconcile_MissingSecret_Requeues(t *testing.T) {
 	ctx := context.Background()
 	search := newMongoDBSearch("search", mock.TestNamespace, "mdb")
@@ -606,3 +637,28 @@ func TestMongoDBSearchControllerReconcile_StateConfigMap_ReAddCluster(t *testing
 	assert.Equal(t, map[string]int{"us-east": 0, "us-west": 1, "eu-central": 2}, gotState.ClusterMapping,
 		"re-added cluster must reclaim its original index")
 }
+
+// newSearchReconcilerWithMembers builds a MongoDBSearchReconciler that is pre-wired
+// with the given member-cluster clients. The central fake client is built from
+// mock.NewEmptyFakeClientBuilder() so all search-related types are registered.
+func newSearchReconcilerWithMembers(
+	t *testing.T,
+	mdbc *mdbcv1.MongoDBCommunity,
+	memberClients map[string]client.Client,
+	searches ...*searchv1.MongoDBSearch,
+) (*MongoDBSearchReconciler, client.Client) {
+	t.Helper()
+	builder := mock.NewEmptyFakeClientBuilder().WithStatusSubresource(&searchv1.MongoDBSearch{})
+
+	if mdbc != nil {
+		builder.WithObjects(mdbc)
+	}
+	for _, s := range searches {
+		if s != nil {
+			builder.WithObjects(s)
+		}
+	}
+	centralClient := builder.Build()
+	return newMongoDBSearchReconciler(centralClient, searchcontroller.OperatorSearchConfig{}, memberClients), centralClient
+}
+
