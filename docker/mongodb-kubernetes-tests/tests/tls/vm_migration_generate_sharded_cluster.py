@@ -155,7 +155,7 @@ def _configure_sharded_ac(namespace: str, om_tester: OMTester, vm_sts: dict, vm_
 
 @fixture(scope="module")
 def generated_cr_yaml(namespace: str) -> str:
-    return run_migrate_generate(namespace, passwords=None)
+    return run_migrate_generate(namespace)
 
 
 @fixture(scope="module")
