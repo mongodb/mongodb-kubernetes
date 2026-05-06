@@ -5170,6 +5170,9 @@ spec:
                             type: object
                           type: array
                         warnings:
+                          description: |-
+                            Warnings is the per-cluster warnings list (e.g. customer-replicated
+                            secret missing in this cluster).
                           items:
                             type: string
                           type: array

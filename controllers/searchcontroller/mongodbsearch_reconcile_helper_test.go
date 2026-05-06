@@ -2,19 +2,28 @@ package searchcontroller
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"fmt"
+	"math/big"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ghodss/yaml"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
@@ -381,6 +390,60 @@ func TestBuildProxyServiceForShard_ManagedLB_Ready(t *testing.T) {
 	svc := buildProxyService(search, unit)
 
 	assert.Equal(t, search.LoadBalancerDeploymentNameForCluster(0), svc.Spec.Selector["app"])
+}
+
+// TestBuildProxyService_ManagedLB_Ready_PerCluster asserts that in MC mode the
+// per-cluster proxy Service selector matches the per-cluster Envoy Deployment's
+// pod label, which is LoadBalancerDeploymentNameForCluster(clusterName) (see
+// envoyPodLabelsForCluster). Regression bar for the bug where the selector was
+// fixed to LoadBalancerDeploymentName() (bare base) and yielded zero endpoints
+// for every per-cluster proxy Service in MC installs.
+func TestBuildProxyService_ManagedLB_Ready_PerCluster(t *testing.T) {
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "ns"},
+		Spec: searchv1.MongoDBSearchSpec{
+			LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{}},
+		},
+		Status: searchv1.MongoDBSearchStatus{
+			LoadBalancer: &searchv1.LoadBalancerStatus{Phase: status.PhaseRunning},
+		},
+	}
+	unit := newTestRSUnit(search)
+	unit.clusterName = "kind-e2e-cluster-1"
+	unit.clusterIndex = 0
+
+	svc := buildProxyService(search, unit)
+
+	// Must match the per-cluster Envoy Deployment name produced by
+	// LoadBalancerDeploymentNameForCluster(clusterIndex) — "<resource>-search-lb-0-<clusterIndex>".
+	expected := search.LoadBalancerDeploymentNameForCluster(0)
+	assert.Equal(t, map[string]string{"app": expected}, svc.Spec.Selector)
+	assert.Equal(t, "test-search-lb-0-0", expected,
+		"naming convention must match the per-cluster Envoy Deployment name")
+}
+
+// TestBuildProxyService_ManagedLB_Ready_SingleCluster pins single-cluster
+// behavior: when unit.clusterName == "", the selector must continue using the
+// bare LoadBalancerDeploymentName() value for back-compat with installs that
+// pre-date MC support.
+func TestBuildProxyService_ManagedLB_Ready_SingleCluster(t *testing.T) {
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "ns"},
+		Spec: searchv1.MongoDBSearchSpec{
+			LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{}},
+		},
+		Status: searchv1.MongoDBSearchStatus{
+			LoadBalancer: &searchv1.LoadBalancerStatus{Phase: status.PhaseRunning},
+		},
+	}
+	unit := newTestRSUnit(search)
+	// unit.clusterName left empty (single-cluster install); clusterIndex=0.
+
+	svc := buildProxyService(search, unit)
+
+	// Single-cluster path also uses the per-cluster Envoy Deployment name with
+	// clusterIndex=0; matches LoadBalancerDeploymentNameForCluster(0).
+	assert.Equal(t, map[string]string{"app": "test-search-lb-0-0"}, svc.Spec.Selector)
 }
 
 func assertServiceBasicProperties(t *testing.T, svc corev1.Service, mdbSearch *searchv1.MongoDBSearch) {
@@ -834,7 +897,7 @@ func TestEnsureMongotConfig_PerPodModes(t *testing.T) {
 			embeddingMod := func(c *mongot.Config) {
 				c.Embedding = &mongot.EmbeddingConfig{IsAutoEmbeddingViewWriter: ptr.To(true)}
 			}
-			_, err := helper.ensureMongotConfig(t.Context(), zap.S(), cmName, stsName, embeddingMod)
+			_, err := helper.ensureMongotConfig(t.Context(), zap.S(), fakeClient, cmName, stsName, embeddingMod)
 			require.NoError(t, err)
 
 			cm, err := fakeClient.GetConfigMap(t.Context(), cmName)
@@ -872,12 +935,12 @@ func TestEnsureMongotConfig_TransitionBetweenModes(t *testing.T) {
 	}
 
 	// Create ConfigMap in single config mode
-	_, err := helper.ensureMongotConfig(t.Context(), zap.S(), cmName, stsName, embeddingMod)
+	_, err := helper.ensureMongotConfig(t.Context(), zap.S(), fakeClient, cmName, stsName, embeddingMod)
 	require.NoError(t, err)
 
 	// Transition to per-pod config mode - verify old key is cleaned up
 	search.Spec.AutoEmbedding = &searchv1.EmbeddingConfig{}
-	_, err = helper.ensureMongotConfig(t.Context(), zap.S(), cmName, stsName, embeddingMod)
+	_, err = helper.ensureMongotConfig(t.Context(), zap.S(), fakeClient, cmName, stsName, embeddingMod)
 	require.NoError(t, err)
 
 	cm, err := fakeClient.GetConfigMap(t.Context(), cmName)
@@ -886,7 +949,7 @@ func TestEnsureMongotConfig_TransitionBetweenModes(t *testing.T) {
 
 	// Transition back to single config mode - verify per-pod keys are cleaned up
 	search.Spec.AutoEmbedding = nil
-	_, err = helper.ensureMongotConfig(t.Context(), zap.S(), cmName, stsName, embeddingMod)
+	_, err = helper.ensureMongotConfig(t.Context(), zap.S(), fakeClient, cmName, stsName, embeddingMod)
 	require.NoError(t, err)
 
 	cm, err = fakeClient.GetConfigMap(t.Context(), cmName)
@@ -2529,3 +2592,209 @@ func TestReconcileReplicaSet_CreatesResources(t *testing.T) {
 	assert.Contains(t, cm.Data, MongotConfigFilename)
 }
 
+// fakeExternalSource is a minimal SearchSourceReplicaSet stub for buildReplicaSetPlan tests.
+// It only implements the HostSeeds method needed by the per-cluster RS plan path.
+type fakeExternalSource struct {
+	hosts []string
+}
+
+func (f *fakeExternalSource) HostSeeds(_ string) ([]string, error) {
+	return f.hosts, nil
+}
+
+func TestBuildReplicaSetPlan_PerClusterUnitsForMC(t *testing.T) {
+	mdb := newTestMongoDBSearch("mdb-search", "ns")
+	clusters := []searchv1.ClusterSpec{
+		{ClusterName: "cluster-a", Replicas: ptr.To(int32(2))},
+		{ClusterName: "cluster-b", Replicas: ptr.To(int32(2))},
+	}
+	mdb.Spec.Clusters = &clusters
+	mdb.Spec.Source = &searchv1.MongoDBSource{
+		ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{
+			HostAndPorts: []string{"a.example:27017", "b.example:27017"},
+		},
+	}
+
+	r := &MongoDBSearchReconcileHelper{mdbSearch: mdb}
+	source := &fakeExternalSource{hosts: mdb.Spec.Source.ExternalMongoDBSource.HostAndPorts}
+
+	plan, err := r.buildReplicaSetPlan(source)
+	require.NoError(t, err)
+	require.Len(t, plan.units, 2, "expected one unit per cluster")
+
+	// Cluster A (index 0)
+	assert.Equal(t, "mdb-search-search-0", plan.units[0].stsName.Name)
+	assert.Equal(t, "mdb-search-search-0-proxy-svc", plan.units[0].proxySvc.Name)
+	assert.Equal(t, "cluster-a", plan.units[0].clusterName)
+	assert.Equal(t, 0, plan.units[0].clusterIndex)
+
+	// Cluster B (index 1)
+	assert.Equal(t, "mdb-search-search-1", plan.units[1].stsName.Name)
+	assert.Equal(t, "mdb-search-search-1-proxy-svc", plan.units[1].proxySvc.Name)
+	assert.Equal(t, "cluster-b", plan.units[1].clusterName)
+	assert.Equal(t, 1, plan.units[1].clusterIndex)
+}
+
+func TestBuildReplicaSetPlan_SingleClusterPreservesLegacyNames(t *testing.T) {
+	mdb := newTestMongoDBSearch("mdb-search", "ns")
+	// no spec.clusters → legacy single-cluster path
+	mdb.Spec.Source = &searchv1.MongoDBSource{
+		ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{
+			HostAndPorts: []string{"a.example:27017"},
+		},
+	}
+	r := &MongoDBSearchReconcileHelper{mdbSearch: mdb}
+	source := &fakeExternalSource{hosts: mdb.Spec.Source.ExternalMongoDBSource.HostAndPorts}
+
+	plan, err := r.buildReplicaSetPlan(source)
+	require.NoError(t, err)
+	require.Len(t, plan.units, 1)
+	assert.Equal(t, "mdb-search-search", plan.units[0].stsName.Name)
+	assert.Equal(t, "mdb-search-search-0-proxy-svc", plan.units[0].proxySvc.Name)
+}
+
+// TestReconcilePlan_UsesPerClusterClient verifies that when buildReplicaSetPlan
+// produces per-cluster reconcileUnits, applyReconcileUnit writes
+// each unit's resources (StatefulSet, headless+proxy Services, mongot
+// ConfigMap) to the member-cluster client matched by clusterName — not to the
+// central client. This is the wiring that makes spec.clusters[i] objects
+// materialize in the right Kubernetes API server. The test asserts on the
+// StatefulSet and ConfigMap as representative resources; ensureSearchService,
+// ensureMongotConfig, and createOrUpdateStatefulSet all share the same
+// per-unit client selection inside applyReconcileUnit, so a regression in
+// any one of them surfaces here.
+func TestReconcilePlan_UsesPerClusterClient(t *testing.T) {
+	mdb := newTestMongoDBSearch("mdb-search", "ns")
+	clusters := []searchv1.ClusterSpec{
+		{ClusterName: "cluster-a", Replicas: ptr.To(int32(2))},
+		{ClusterName: "cluster-b", Replicas: ptr.To(int32(2))},
+	}
+	mdb.Spec.Clusters = &clusters
+	mdb.Spec.Source = &searchv1.MongoDBSource{
+		ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{
+			HostAndPorts: []string{"a.example:27017"},
+		},
+	}
+
+	// mock.NewEmptyFakeClientBuilder registers searchv1 on the scheme so that
+	// controllerutil.SetOwnerReference can resolve MongoDBSearch's GVK.
+	centralClient := kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().Build())
+	clusterAClient := kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().Build())
+	clusterBClient := kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().Build())
+
+	memberClients := map[string]kubernetesClient.Client{
+		"cluster-a": clusterAClient,
+		"cluster-b": clusterBClient,
+	}
+
+	r := &MongoDBSearchReconcileHelper{
+		mdbSearch:            mdb,
+		client:               centralClient,
+		memberClusterClients: memberClients,
+		operatorSearchConfig: newTestOperatorSearchConfig(),
+	}
+
+	source := &fakeExternalSource{hosts: mdb.Spec.Source.ExternalMongoDBSource.HostAndPorts}
+	plan, err := r.buildReplicaSetPlan(source)
+	require.NoError(t, err)
+	require.Len(t, plan.units, 2)
+
+	// Apply each unit. Cluster A's StatefulSet must end up in clusterAClient,
+	// cluster B's in clusterBClient — NOT in the central client.
+	for _, unit := range plan.units {
+		_, err := r.applyReconcileUnit(t.Context(), zap.S(), plan, unit, reconcileUnitMods{})
+		require.NoError(t, err)
+	}
+
+	// Cluster A's STS lands in clusterAClient (index-0 indexed name).
+	stsA := &appsv1.StatefulSet{}
+	require.NoError(t, clusterAClient.Get(t.Context(),
+		types.NamespacedName{Name: "mdb-search-search-0", Namespace: "ns"}, stsA))
+
+	// Cluster B's STS lands in clusterBClient (index-1 indexed name).
+	stsB := &appsv1.StatefulSet{}
+	require.NoError(t, clusterBClient.Get(t.Context(),
+		types.NamespacedName{Name: "mdb-search-search-1", Namespace: "ns"}, stsB))
+
+	// Cluster B's ConfigMap also lands in clusterBClient (index-1 indexed
+	// name; cluster A's CM keeps the legacy unindexed name for back-compat per
+	// MongotConfigConfigMapNameForCluster). Asserting on the CM in addition
+	// to the STS guards against ensureMongotConfig regressing to r.client.
+	cmB := &corev1.ConfigMap{}
+	require.NoError(t, clusterBClient.Get(t.Context(),
+		types.NamespacedName{Name: "mdb-search-search-1-config", Namespace: "ns"}, cmB))
+
+	// Central client must NOT have either per-cluster STS.
+	stsCentral := &appsv1.StatefulSet{}
+	err = centralClient.Get(t.Context(),
+		types.NamespacedName{Name: "mdb-search-search-0", Namespace: "ns"}, stsCentral)
+	assert.True(t, apierrors.IsNotFound(err), "central client must NOT have cluster-a STS")
+	err = centralClient.Get(t.Context(),
+		types.NamespacedName{Name: "mdb-search-search-1", Namespace: "ns"}, stsCentral)
+	assert.True(t, apierrors.IsNotFound(err), "central client must NOT have cluster-b STS")
+
+	// Cross-cluster contamination check: cluster A's STS must not be in cluster B's client.
+	err = clusterBClient.Get(t.Context(),
+		types.NamespacedName{Name: "mdb-search-search-0", Namespace: "ns"}, &appsv1.StatefulSet{})
+	assert.True(t, apierrors.IsNotFound(err), "cluster B client must NOT have cluster A STS")
+}
+
+// makeFakeCertSecret builds a *corev1.Secret whose tls.crt is a real PEM-encoded
+// self-signed x509 certificate carrying the given DNS SANs. Test helper for
+// validateLBCertSAN / extractCertDNSNames.
+func makeFakeCertSecret(t *testing.T, dnsNames []string) *corev1.Secret {
+	t.Helper()
+
+	priv, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "test-lb-cert"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		DNSNames:     dnsNames,
+	}
+
+	derBytes, err := x509.CreateCertificate(rand.Reader, template, template, &priv.PublicKey, priv)
+	require.NoError(t, err)
+
+	pemBytes := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: derBytes})
+	return &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "lb-server-cert", Namespace: "ns"},
+		Data:       map[string][]byte{corev1.TLSCertKey: pemBytes},
+	}
+}
+
+func TestValidateLBCertSANCoversAllClusters(t *testing.T) {
+	mdb := newTestMongoDBSearch("mdb-search", "ns")
+	mdb.Spec.Clusters = &[]searchv1.ClusterSpec{
+		{ClusterName: "cluster-a", Replicas: ptr.To(int32(2))},
+		{ClusterName: "cluster-b", Replicas: ptr.To(int32(2))},
+	}
+
+	// Cert SAN includes only cluster A's proxy-svc FQDN — should fail with cluster B mention.
+	certShortSANs := makeFakeCertSecret(t, []string{
+		"mdb-search-search-0-proxy-svc.ns.svc.cluster.local",
+	})
+	err := validateLBCertSAN(mdb, certShortSANs)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cluster-b")
+	assert.Contains(t, err.Error(), "mdb-search-search-1-proxy-svc.ns.svc.cluster.local")
+
+	// Cert SAN with both — should pass.
+	certFullSANs := makeFakeCertSecret(t, []string{
+		"mdb-search-search-0-proxy-svc.ns.svc.cluster.local",
+		"mdb-search-search-1-proxy-svc.ns.svc.cluster.local",
+	})
+	require.NoError(t, validateLBCertSAN(mdb, certFullSANs))
+}
+
+func TestValidateLBCertSANCoversAllClusters_SingleCluster_NoOp(t *testing.T) {
+	mdb := newTestMongoDBSearch("mdb-search", "ns")
+	// no Spec.Clusters — single cluster path; validator is no-op
+	cert := makeFakeCertSecret(t, []string{"unrelated.example.com"})
+	require.NoError(t, validateLBCertSAN(mdb, cert))
+}

@@ -103,6 +103,93 @@ func TestBuildReplicaSetRoute(t *testing.T) {
 	}
 }
 
+// TestBuildReplicaSetRouteForCluster_PerClusterPlaceholders regresses the
+// MC-mode SNI rendering: the externalHostname template must substitute both
+// {clusterName} and {clusterIndex}. Previously the path called
+// applyClusterIDToSNI(GetManagedLBEndpoint, clusterName) which only handled
+// {clusterName} — leaving {clusterIndex} literal in envoy.json filter chain
+// server_names and breaking SNI matching against the per-cluster proxy-svc
+// FQDN.
+func TestBuildReplicaSetRouteForCluster_PerClusterPlaceholders(t *testing.T) {
+	clusters := []searchv1.ClusterSpec{
+		{ClusterName: "kind-e2e-cluster-1"},
+		{ClusterName: "kind-e2e-cluster-2"},
+	}
+
+	tests := []struct {
+		name         string
+		endpoint     string
+		expectedSNIs []string
+	}{
+		{
+			name:     "no endpoint: per-cluster proxy-svc FQDN",
+			endpoint: "",
+			expectedSNIs: []string{
+				"mdb-search-search-0-proxy-svc.test-ns.svc.cluster.local",
+				"mdb-search-search-1-proxy-svc.test-ns.svc.cluster.local",
+			},
+		},
+		{
+			name:     "{clusterIndex} placeholder substitutes per cluster",
+			endpoint: "mdb-search-search-{clusterIndex}-proxy-svc.test-ns.svc.cluster.local",
+			expectedSNIs: []string{
+				"mdb-search-search-0-proxy-svc.test-ns.svc.cluster.local",
+				"mdb-search-search-1-proxy-svc.test-ns.svc.cluster.local",
+			},
+		},
+		{
+			name:     "{clusterName} placeholder substitutes per cluster",
+			endpoint: "mongot-{clusterName}.apps.example.com",
+			expectedSNIs: []string{
+				"mongot-kind-e2e-cluster-1.apps.example.com",
+				"mongot-kind-e2e-cluster-2.apps.example.com",
+			},
+		},
+		{
+			name:     "{clusterName} and {clusterIndex} both substituted",
+			endpoint: "{clusterName}-{clusterIndex}.apps.example.com",
+			expectedSNIs: []string{
+				"kind-e2e-cluster-1-0.apps.example.com",
+				"kind-e2e-cluster-2-1.apps.example.com",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cs := append([]searchv1.ClusterSpec{}, clusters...)
+			search := &searchv1.MongoDBSearch{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "mdb-search",
+					Namespace: "test-ns",
+				},
+			}
+			search.Spec.Clusters = &cs
+			if tt.endpoint != "" {
+				search.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
+					Managed: &searchv1.ManagedLBConfig{ExternalHostname: tt.endpoint},
+				}
+			}
+
+			for i, c := range cs {
+				route := buildReplicaSetRouteForCluster(search, i, c.ClusterName)
+				assert.Equal(t, tt.expectedSNIs[i], route.SNIHostname,
+					"cluster %d (%s)", i, c.ClusterName)
+				assert.Equal(t, "rs", route.Name)
+				assert.Equal(t, c.ClusterName, route.ClusterID)
+				// MC mode: each Envoy's upstream points at THAT cluster's mongot
+				// Service (`<resource>-search-<idx>-svc`), not the bare unindexed
+				// SC name. STRICT_DNS in Envoy fails closed on NXDOMAIN, so a
+				// missing index leads to "Error connecting to Search Index
+				// Management service" (code 125) at create_search_index.
+				expectedUpstream := fmt.Sprintf("mdb-search-search-%d-svc.test-ns.svc.cluster.local", i)
+				assert.Equal(t, expectedUpstream, route.UpstreamHost,
+					"cluster %d (%s) UpstreamHost", i, c.ClusterName)
+			}
+		})
+	}
+}
+
 func TestBuildShardRoutes(t *testing.T) {
 	shardNames := []string{"mdb-sh-0", "mdb-sh-1"}
 
@@ -364,16 +451,17 @@ func TestBuildRoutesForCluster_RS_TemplateSubstitutesClusterName(t *testing.T) {
 		},
 	}
 
-	routes := buildRoutesForCluster(search, nil, "us-east-k8s")
+	routes := buildRoutesForCluster(search, nil, 0, "us-east-k8s")
 	require.Len(t, routes, 1)
 	assert.Equal(t, "rs", routes[0].Name)
 	assert.Equal(t, "us-east-k8s", routes[0].ClusterID)
 	assert.Equal(t, "mongot-us-east-k8s.example.com", routes[0].SNIHostname)
 }
 
-func TestBuildRoutesForCluster_RS_NoTemplateAppendsClusterIDToServiceFQDN(t *testing.T) {
-	// No externalHostname template — controller appends -<clusterID> to the service-FQDN base
-	// so SNI strings stay distinct per cluster.
+func TestBuildRoutesForCluster_RS_NoTemplateUsesPerClusterProxySvcFQDN(t *testing.T) {
+	// No externalHostname template — SNI is the per-cluster proxy-svc FQDN
+	// produced by ProxyServiceNamespacedNameForCluster(clusterIndex). Per-cluster
+	// distinctness comes from the index baked into the Service name.
 	one := int32(1)
 	search := &searchv1.MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "test-ns"},
@@ -384,11 +472,11 @@ func TestBuildRoutesForCluster_RS_NoTemplateAppendsClusterIDToServiceFQDN(t *tes
 		},
 	}
 
-	routes := buildRoutesForCluster(search, nil, "us-east-k8s")
+	routes := buildRoutesForCluster(search, nil, 0, "us-east-k8s")
 	require.Len(t, routes, 1)
 	assert.Equal(t, "us-east-k8s", routes[0].ClusterID)
-	assert.Contains(t, routes[0].SNIHostname, "us-east-k8s",
-		"per-cluster SNI must encode the cluster identifier when no externalHostname template is provided")
+	assert.Equal(t, "mdb-search-search-0-proxy-svc.test-ns.svc.cluster.local", routes[0].SNIHostname,
+		"SNI must be the per-cluster proxy-svc FQDN from ProxyServiceNamespacedNameForCluster")
 }
 
 func TestBuildRoutesForCluster_SingleClusterUnchanged(t *testing.T) {
@@ -397,7 +485,7 @@ func TestBuildRoutesForCluster_SingleClusterUnchanged(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "test-ns"},
 	}
 
-	mc := buildRoutesForCluster(search, nil, "")
+	mc := buildRoutesForCluster(search, nil, 0, "")
 	sc := []envoyRoute{buildReplicaSetRoute(search)}
 
 	require.Len(t, mc, 1)
@@ -406,7 +494,7 @@ func TestBuildRoutesForCluster_SingleClusterUnchanged(t *testing.T) {
 	assert.Equal(t, sc[0].UpstreamHost, mc[0].UpstreamHost)
 }
 
-// mockShardedSourceForEnvoy is a minimal SearchSourceShardedDeployment double for these tests.
+// mockShardedSourceForEnvoy is a minimal SearchSourceShardedDeployment double for tests.
 type mockShardedSourceForEnvoy struct {
 	shardNames []string
 }
@@ -441,8 +529,8 @@ func TestBuildRoutesForCluster_Sharded_PerClusterShardSNI(t *testing.T) {
 	}
 	src := &mockShardedSourceForEnvoy{shardNames: []string{"mdb-sh-0", "mdb-sh-1"}}
 
-	east := buildRoutesForCluster(search, src, "us-east-k8s")
-	west := buildRoutesForCluster(search, src, "eu-west-k8s")
+	east := buildRoutesForCluster(search, src, 0, "us-east-k8s")
+	west := buildRoutesForCluster(search, src, 1, "eu-west-k8s")
 
 	require.Len(t, east, 2)
 	require.Len(t, west, 2)
@@ -463,7 +551,72 @@ func TestBuildRoutesForCluster_Sharded_PerClusterShardSNI(t *testing.T) {
 	assert.Len(t, seen, 4, "per-(cluster, shard) SNIs must all be distinct")
 }
 
-// --- reconciler constructor with member-cluster client maps -------------------
+// TestEnvoyFilterChain_PerClusterSNI verifies that for each member cluster, the
+// rendered Envoy filter chain SNI server_names match the per-cluster proxy
+// Service FQDN produced by ProxyServiceNamespacedNameForCluster(clusterIndex)
+// and NOT the legacy single-cluster proxy-svc name. The invariant: each
+// cluster's Envoy must terminate TLS for its own proxy-svc and must not
+// collide with another cluster's proxy-svc.
+func TestEnvoyFilterChain_PerClusterSNI(t *testing.T) {
+	one := int32(1)
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"},
+		Spec: searchv1.MongoDBSearchSpec{
+			Clusters: &[]searchv1.ClusterSpec{
+				{ClusterName: "us-east-k8s", Replicas: &one},
+				{ClusterName: "eu-west-k8s", Replicas: &one},
+			},
+		},
+	}
+
+	type expected struct {
+		idx     int
+		cluster string
+		// own proxy-svc FQDN that this cluster's filter chain MUST match.
+		ownSNI string
+		// other cluster's proxy-svc FQDN that this cluster's filter chain
+		// MUST NOT match (no collisions across clusters).
+		otherSNI string
+	}
+	cases := []expected{
+		{
+			idx:      0,
+			cluster:  "us-east-k8s",
+			ownSNI:   "mdb-search-search-0-proxy-svc.ns.svc.cluster.local",
+			otherSNI: "mdb-search-search-1-proxy-svc.ns.svc.cluster.local",
+		},
+		{
+			idx:      1,
+			cluster:  "eu-west-k8s",
+			ownSNI:   "mdb-search-search-1-proxy-svc.ns.svc.cluster.local",
+			otherSNI: "mdb-search-search-0-proxy-svc.ns.svc.cluster.local",
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.cluster, func(t *testing.T) {
+			routes := buildRoutesForCluster(search, nil, c.idx, c.cluster)
+			require.Len(t, routes, 1)
+			assert.Equal(t, c.cluster, routes[0].ClusterID)
+			assert.Equal(t, c.ownSNI, routes[0].SNIHostname,
+				"cluster %q must use its own per-cluster proxy-svc FQDN as SNI", c.cluster)
+			assert.NotEqual(t, c.otherSNI, routes[0].SNIHostname,
+				"cluster %q SNI must not collide with another cluster's proxy-svc FQDN", c.cluster)
+		})
+	}
+
+	// All cluster SNIs together must be unique (no two clusters share an SNI).
+	allSNIs := map[string]struct{}{}
+	for _, c := range cases {
+		routes := buildRoutesForCluster(search, nil, c.idx, c.cluster)
+		require.Len(t, routes, 1)
+		allSNIs[routes[0].SNIHostname] = struct{}{}
+	}
+	assert.Len(t, allSNIs, len(cases),
+		"per-cluster SNIs must all be distinct; collisions break per-cluster TLS routing")
+}
+
+// --- reconciler constructor with member-cluster client maps ------------------
 
 func TestNewMongoDBSearchEnvoyReconciler_AcceptsMemberClusters(t *testing.T) {
 	central := fake.NewClientBuilder().Build()
