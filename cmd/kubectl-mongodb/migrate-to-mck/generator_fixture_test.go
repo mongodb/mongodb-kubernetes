@@ -1,4 +1,4 @@
-package migrate
+package migratetomck
 
 import (
 	"flag"
@@ -37,8 +37,8 @@ func runUsers(t *testing.T, ac *om.AutomationConfig, opts GenerateOptions) strin
 	opts.Namespace = "mongodb"
 	_, crName, err := GenerateMongoDBCR(ac, withDeploymentData(ac, opts))
 	require.NoError(t, err)
-	if opts.UserPasswords == nil {
-		opts.UserPasswords = make(map[string]string)
+	if opts.ExistingUserSecrets == nil {
+		opts.ExistingUserSecrets = make(map[string]string)
 		if ac.Auth != nil {
 			for _, user := range ac.Auth.Users {
 				if user == nil || user.Database == externalDatabase {
@@ -47,7 +47,7 @@ func runUsers(t *testing.T, ac *om.AutomationConfig, opts GenerateOptions) strin
 				if user.Username == ac.Auth.AutoUser {
 					continue
 				}
-				opts.UserPasswords[userKey(user.Username, user.Database)] = "test-password"
+				opts.ExistingUserSecrets[userKey(user.Username, user.Database)] = user.Username + "-password"
 			}
 		}
 	}

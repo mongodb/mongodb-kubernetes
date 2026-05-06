@@ -16,11 +16,3 @@ spec:
   - db: reporting
     name: read
   username: app-user
----
-apiVersion: v1
-kind: Secret
-metadata:
-  name: app-user-password
-  namespace: mongodb
-stringData:
-  password: test-password
