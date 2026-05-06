@@ -28,7 +28,7 @@ from tests.tls.vm_migration_helpers import (
     deploy_vm_statefulset,
     promote_and_prune,
     rotate_password_and_verify,
-    run_migrate_generate,
+    run_generate_cr,
     vm_replica_set_tester,
 )
 
@@ -259,7 +259,7 @@ def _configure_ac(namespace: str, om_tester: OMTester, vm_sts: dict, vm_service:
 def generated_cr_yaml(namespace: str) -> str:
     create_or_update_secret(namespace, "app-user-secret", {"password": APP_USER_PASSWORD})
     create_or_update_secret(namespace, "reporting-user-secret", {"password": REPORTING_USER_PASSWORD})
-    return run_migrate_generate(
+    return run_generate_cr(
         namespace,
         user_secrets={
             "app-user:admin": "app-user-secret",

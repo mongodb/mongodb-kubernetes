@@ -23,7 +23,7 @@ from tests.tls.vm_migration_helpers import (
     deploy_vm_service,
     deploy_vm_statefulset,
     promote_and_prune,
-    run_migrate_generate,
+    run_generate_cr,
     vm_replica_set_tester,
 )
 
@@ -123,7 +123,7 @@ def _configure_ac_no_auth(namespace: str, om_tester: OMTester, vm_sts: dict, vm_
 @fixture(scope="module")
 def generated_cr_yaml(namespace: str) -> str:
     """Raw stdout from migrate (no SCRAM users, so no secrets needed)."""
-    return run_migrate_generate(namespace)
+    return run_generate_cr(namespace)
 
 
 @fixture(scope="module")
