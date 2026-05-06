@@ -23,6 +23,7 @@ const (
 	LdapCAKey                    = "ca.pem"
 
 	migrateToolVersionAnnotation = "mongodb.com/migrate-tool-version"
+	MigrationDryRunAnnotation    = "mongodb.com/migration-dry-run"
 
 	externalDatabase = "$external" // MongoDB virtual database for X.509 and LDAP users.
 
@@ -158,6 +159,7 @@ func buildCRObjectMeta(name, namespace string) metav1.ObjectMeta {
 		Namespace: namespace,
 		Annotations: map[string]string{
 			migrateToolVersionAnnotation: versionutil.StaticContainersOperatorVersion(),
+			MigrationDryRunAnnotation:    "true",
 		},
 	}
 }
