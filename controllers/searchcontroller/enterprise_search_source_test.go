@@ -448,7 +448,9 @@ func TestEnterpriseResourceSearchSource_HostSeeds(t *testing.T) {
 					},
 				},
 			}
-			assert.Equal(t, c.expectedSeeds, src.HostSeeds())
+			seeds, err := src.HostSeeds("")
+			assert.NoError(t, err)
+			assert.Equal(t, c.expectedSeeds, seeds)
 		})
 	}
 }
