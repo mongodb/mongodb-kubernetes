@@ -195,18 +195,6 @@ def test_migration_dry_run_annotation_present(generated_cr_yaml: str):
 
 
 @mark.e2e_vm_migration_generate_no_auth
-def test_migration_dry_run_annotation_present(generated_cr_yaml: str):
-    """Generated MongoDB CR must carry the migration-dry-run annotation."""
-    assert_migration_dry_run_annotation(generated_cr_yaml)
-
-
-@mark.e2e_vm_migration_generate_no_auth
-def test_migration_dry_run_connectivity_passes(mdb_migration: MongoDB):
-    """Operator validates connectivity to all externalMembers, then the annotation is removed."""
-    run_migration_dry_run_connectivity_passes(mdb_migration)
-
-
-@mark.e2e_vm_migration_generate_no_auth
 def test_no_security_in_cr(generated_cr: dict):
     """Auth is disabled -- the generated CR must not contain a security section."""
     spec = generated_cr.get("spec", {})

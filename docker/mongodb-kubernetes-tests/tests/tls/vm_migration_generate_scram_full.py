@@ -340,18 +340,6 @@ def test_user_crs_emitted(generated_cr_yaml: str):
 
 
 @mark.e2e_vm_migration_generate_scram_full
-def test_migration_dry_run_annotation_present(generated_cr_yaml: str):
-    """Generated MongoDB CR must carry the migration-dry-run annotation."""
-    assert_migration_dry_run_annotation(generated_cr_yaml)
-
-
-@mark.e2e_vm_migration_generate_scram_full
-def test_migration_dry_run_connectivity_passes(mdb_migration: MongoDB):
-    """Operator validates connectivity to all externalMembers, then the annotation is removed."""
-    run_migration_dry_run_connectivity_passes(mdb_migration)
-
-
-@mark.e2e_vm_migration_generate_scram_full
 def test_settings_sourced_from_source_process(generated_cr_yaml: str):
     """When per-member config diverges, settings are taken from the source process (member 0).
     Member 2 has logAppend=False and no oplogSizeMB -- neither should affect the generated CR."""
