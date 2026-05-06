@@ -153,9 +153,9 @@ def assert_migration_dry_run_annotation(generated_cr_yaml: str) -> None:
     """Assert the first document in the generated YAML carries the migration-dry-run annotation."""
     cr = next(yaml.safe_load_all(generated_cr_yaml))
     annotations = cr.get("metadata", {}).get("annotations", {})
-    assert annotations.get(MIGRATION_DRY_RUN_ANNOTATION) == "true", (
-        f"Expected annotation {MIGRATION_DRY_RUN_ANNOTATION}=true in generated CR, got: {annotations}"
-    )
+    assert (
+        annotations.get(MIGRATION_DRY_RUN_ANNOTATION) == "true"
+    ), f"Expected annotation {MIGRATION_DRY_RUN_ANNOTATION}=true in generated CR, got: {annotations}"
 
 
 def get_user_docs(generated_cr_yaml: str) -> List[dict]:
