@@ -22,8 +22,10 @@ from kubetester.omtester import OMContext, OMTester
 from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
+from tests.tls.vm_migration_dry_run import run_migration_dry_run_connectivity_passes
 from tests.tls.vm_migration_helpers import (
     apply_user_crs_and_verify_ac,
+    assert_migration_dry_run_annotation,
     deploy_vm_service,
     deploy_vm_statefulset,
     promote_and_prune,
@@ -385,6 +387,18 @@ def test_security_auth_present(generated_cr: dict):
     auth = generated_cr["spec"]["security"].get("authentication", {})
     assert auth.get("enabled") is True
     assert "SCRAM" in auth.get("modes", [])
+
+
+@mark.e2e_vm_migration_generate_mongod_tls
+def test_migration_dry_run_annotation_present(generated_cr_yaml: str):
+    """Generated MongoDB CR must carry the migration-dry-run annotation."""
+    assert_migration_dry_run_annotation(generated_cr_yaml)
+
+
+@mark.e2e_vm_migration_generate_mongod_tls
+def test_migration_dry_run_connectivity_passes(mdb_migration: MongoDB):
+    """Operator validates connectivity to all externalMembers, then the annotation is removed."""
+    run_migration_dry_run_connectivity_passes(mdb_migration)
 
 
 @mark.e2e_vm_migration_generate_mongod_tls
