@@ -1,4 +1,4 @@
-package migrate
+package migratetomck
 
 import (
 	"fmt"
@@ -13,7 +13,7 @@ import (
 const defaultNamespace = "default"
 
 var MigrateCmd = &cobra.Command{
-	Use:   "migrate",
+	Use:   "migrate-to-mck",
 	Short: "Migrate MongoDB deployments to Kubernetes",
 	Long: `Generates Kubernetes Custom Resources from an Ops Manager/Cloud Manager automation
 config for migrating existing deployments to the operator.
