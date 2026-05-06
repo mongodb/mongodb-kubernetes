@@ -7,6 +7,7 @@ import (
 	"k8s.io/utils/ptr"
 
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
@@ -333,4 +334,35 @@ func TestGetManagedLBEndpointForClusterShard_ClusterIndex(t *testing.T) {
 func TestGetManagedLBEndpointForClusterShard_NotManaged(t *testing.T) {
 	s := &MongoDBSearch{Spec: MongoDBSearchSpec{}}
 	assert.Equal(t, "", s.GetManagedLBEndpointForClusterShard(0, "shard-0"))
+}
+
+func TestProxyServiceNamespacedNameForCluster(t *testing.T) {
+	s := &MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"},
+	}
+
+	// Single-cluster (clusterIndex=0) preserves the legacy single-cluster name.
+	got := s.ProxyServiceNamespacedNameForCluster(0)
+	assert.Equal(t, "mdb-search-search-0-proxy-svc", got.Name)
+	assert.Equal(t, "ns", got.Namespace)
+	// Same as legacy ProxyServiceNamespacedName when index=0.
+	assert.Equal(t, s.ProxyServiceNamespacedName(), got)
+
+	// Per-cluster index suffix differs.
+	got1 := s.ProxyServiceNamespacedNameForCluster(1)
+	assert.Equal(t, "mdb-search-search-1-proxy-svc", got1.Name)
+
+	got2 := s.ProxyServiceNamespacedNameForCluster(2)
+	assert.Equal(t, "mdb-search-search-2-proxy-svc", got2.Name)
+}
+
+func TestMongotConfigConfigMapNameForCluster(t *testing.T) {
+	s := &MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"},
+	}
+
+	got0 := s.MongotConfigConfigMapNameForCluster(0)
+	assert.Equal(t, "mdb-search-search-config", got0.Name) // legacy match for index 0
+	got1 := s.MongotConfigConfigMapNameForCluster(1)
+	assert.Equal(t, "mdb-search-search-1-config", got1.Name)
 }
