@@ -42,11 +42,11 @@ spec:
       emptyDir: { }
     - name: diagnostics
       emptyDir: { }
-  {{ if .Values.multiCluster.memberClusters }}
     - name: kube-config-volume
       secret:
         defaultMode: 420
         secretName: test-pod-kubeconfig
+  {{ if .Values.multiCluster.memberClusters }}
     - name: multi-cluster-config
       secret:
         defaultMode: 420
@@ -118,9 +118,9 @@ spec:
       value: "{{ .Values.versionId }}"
     - name: REGISTRY
       value: "{{ .Values.registry }}"
-    {{- if .Values.multiCluster.memberClusters }}
     - name: KUBECONFIG
       value: /etc/config/kubeconfig
+    {{- if .Values.multiCluster.memberClusters }}
     - name: MEMBER_CLUSTERS
       value: "{{ .Values.multiCluster.memberClusters }}"
     - name: CENTRAL_CLUSTER
@@ -218,9 +218,9 @@ spec:
         mountPath: /tmp/results
       - name: diagnostics
         mountPath: /tmp/diagnostics
-    {{ if .Values.multiCluster.memberClusters }}
       - mountPath: /etc/config
         name: kube-config-volume
+    {{ if .Values.multiCluster.memberClusters }}
       - mountPath: /etc/multicluster
         name: multi-cluster-config
     {{ end }}
