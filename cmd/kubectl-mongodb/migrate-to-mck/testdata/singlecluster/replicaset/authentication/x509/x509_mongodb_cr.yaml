@@ -3,6 +3,7 @@ kind: MongoDB
 metadata:
   annotations:
     mongodb.com/migrate-tool-version: latest
+    mongodb.com/migration-dry-run: "true"
   name: x509-rs
   namespace: mongodb
 spec:
