@@ -133,6 +133,25 @@ def test_log_types_with_audit_enabled(sc: MongoDB):
 
 
 @mark.e2e_sharded_cluster_agent_flags
+def test_enable_scram_auth(sc: MongoDB):
+    sc.load()
+    sc["spec"]["security"] = sc["spec"].get("security", {})
+    sc["spec"]["security"]["authentication"] = {
+        "enabled": True,
+        "modes": ["SCRAM"],
+    }
+    sc.update()
+    sc.assert_reaches_phase(Phase.Running, timeout=2500 if is_default_architecture_static() else 3500)
+
+
+@mark.e2e_sharded_cluster_agent_flags
+def test_default_download_base_keyfile_in_automation_config(sc: MongoDB):
+    expected_keyfile = f"{default_download_base}/keyfile"
+    auth = sc.get_automation_config_tester().automation_config.get("auth", {})
+    assert auth.get("keyfile") == expected_keyfile
+
+
+@mark.e2e_sharded_cluster_agent_flags
 def test_set_custom_download_base(sc: MongoDB):
     sc.load()
     sc["spec"]["downloadBase"] = custom_download_base
@@ -144,6 +163,14 @@ def test_set_custom_download_base(sc: MongoDB):
 def test_custom_download_base_in_automation_config(sc: MongoDB):
     options = sc.get_automation_config_tester().automation_config.get("options", {})
     assert options.get("downloadBase") == custom_download_base
+
+
+@mark.e2e_sharded_cluster_agent_flags
+def test_custom_download_base_keyfile_in_automation_config(sc: MongoDB):
+    sc.load()
+    expected_keyfile = f"{sc['spec']['downloadBase']}/keyfile"
+    auth = sc.get_automation_config_tester().automation_config.get("auth", {})
+    assert auth.get("keyfile") == expected_keyfile
 
 
 @mark.e2e_sharded_cluster_agent_flags
@@ -161,19 +188,7 @@ def test_brand_new_download_base_in_automation_config(sc: MongoDB):
 
 
 @mark.e2e_sharded_cluster_agent_flags
-def test_enable_scram_auth(sc: MongoDB):
-    sc.load()
-    sc["spec"]["security"] = sc["spec"].get("security", {})
-    sc["spec"]["security"]["authentication"] = {
-        "enabled": True,
-        "modes": ["SCRAM"],
-    }
-    sc.update()
-    sc.assert_reaches_phase(Phase.Running, timeout=2500 if is_default_architecture_static() else 3500)
-
-
-@mark.e2e_sharded_cluster_agent_flags
-def test_keyfile_follows_download_base_by_default(sc: MongoDB):
+def test_brand_new_download_base_keyfile_in_automation_config(sc: MongoDB):
     sc.load()
     expected_keyfile = f"{sc['spec']['downloadBase']}/keyfile"
     auth = sc.get_automation_config_tester().automation_config.get("auth", {})

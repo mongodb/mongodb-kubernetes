@@ -142,6 +142,25 @@ def test_default_download_base_in_automation_config(replica_set: MongoDB):
 
 
 @mark.e2e_replica_set_agent_flags_and_readinessProbe
+def test_enable_scram_auth(replica_set: MongoDB):
+    replica_set.load()
+    replica_set["spec"]["security"] = replica_set["spec"].get("security", {})
+    replica_set["spec"]["security"]["authentication"] = {
+        "enabled": True,
+        "modes": ["SCRAM"],
+    }
+    replica_set.update()
+    replica_set.assert_reaches_phase(Phase.Running, timeout=600 if is_default_architecture_static() else 900)
+
+
+@mark.e2e_replica_set_agent_flags_and_readinessProbe
+def test_default_download_base_keyfile_in_automation_config(replica_set: MongoDB):
+    expected_keyfile = f"{default_download_base}/keyfile"
+    auth = replica_set.get_automation_config_tester().automation_config.get("auth", {})
+    assert auth.get("keyfile") == expected_keyfile
+
+
+@mark.e2e_replica_set_agent_flags_and_readinessProbe
 def test_set_custom_download_base(replica_set: MongoDB):
     replica_set.load()
     replica_set["spec"]["downloadBase"] = custom_download_base
@@ -159,6 +178,14 @@ def test_custom_download_base_in_automation_config(replica_set: MongoDB):
 
 
 @mark.e2e_replica_set_agent_flags_and_readinessProbe
+def test_custom_download_base_keyfile_in_automation_config(replica_set: MongoDB):
+    replica_set.load()
+    expected_keyfile = f"{replica_set['spec']['downloadBase']}/keyfile"
+    auth = replica_set.get_automation_config_tester().automation_config.get("auth", {})
+    assert auth.get("keyfile") == expected_keyfile
+
+
+@mark.e2e_replica_set_agent_flags_and_readinessProbe
 def test_set_brand_new_download_base(replica_set: MongoDB):
     replica_set.load()
     replica_set["spec"]["downloadBase"] = brand_new_download_base
@@ -173,19 +200,7 @@ def test_brand_new_download_base_in_automation_config(replica_set: MongoDB):
 
 
 @mark.e2e_replica_set_agent_flags_and_readinessProbe
-def test_enable_scram_auth(replica_set: MongoDB):
-    replica_set.load()
-    replica_set["spec"]["security"] = replica_set["spec"].get("security", {})
-    replica_set["spec"]["security"]["authentication"] = {
-        "enabled": True,
-        "modes": ["SCRAM"],
-    }
-    replica_set.update()
-    replica_set.assert_reaches_phase(Phase.Running, timeout=600 if is_default_architecture_static() else 900)
-
-
-@mark.e2e_replica_set_agent_flags_and_readinessProbe
-def test_keyfile_follows_download_base_by_default(replica_set: MongoDB):
+def test_brand_new_download_base_keyfile_in_automation_config(replica_set: MongoDB):
     replica_set.load()
     expected_keyfile = f"{replica_set['spec']['downloadBase']}/keyfile"
     auth = replica_set.get_automation_config_tester().automation_config.get("auth", {})
