@@ -402,6 +402,18 @@ def test_security_auth_present(generated_cr: dict):
 
 
 @mark.e2e_vm_migration_generate_mongod_tls
+def test_migration_dry_run_annotation_present(generated_cr_yaml: str):
+    """Generated MongoDB CR must carry the migration-dry-run annotation."""
+    assert_migration_dry_run_annotation(generated_cr_yaml)
+
+
+@mark.e2e_vm_migration_generate_mongod_tls
+def test_migration_dry_run_connectivity_passes(mdb_migration: MongoDB):
+    """Operator validates connectivity to all externalMembers, then the annotation is removed."""
+    run_migration_dry_run_connectivity_passes(mdb_migration)
+
+
+@mark.e2e_vm_migration_generate_mongod_tls
 def test_user_cr_emitted(generated_cr_yaml: str):
     docs = list(yaml.safe_load_all(generated_cr_yaml))
     user_docs = [d for d in docs if d and d.get("kind") == "MongoDBUser"]
