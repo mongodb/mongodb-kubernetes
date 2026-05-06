@@ -448,6 +448,67 @@ func TestGetTransportSecurity(t *testing.T) {
 	}
 }
 
+func TestGetDownloadBase(t *testing.T) {
+	tests := []struct {
+		name     string
+		spec     DbCommonSpec
+		expected string
+	}{
+		{
+			name:     "unset falls back to default mount path",
+			spec:     DbCommonSpec{},
+			expected: util.DefaultPvcMmsMountPath,
+		},
+		{
+			name:     "explicit value is returned as-is",
+			spec:     DbCommonSpec{DownloadBase: "/var/lib/mongodb-mms-automation-custom"},
+			expected: "/var/lib/mongodb-mms-automation-custom",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, tt.spec.GetDownloadBase())
+		})
+	}
+}
+
+func TestAuthentication_GetKeyfile(t *testing.T) {
+	const customDownloadBase = "/var/lib/mongodb-mms-automation-custom"
+
+	tests := []struct {
+		name         string
+		auth         *Authentication
+		downloadBase string
+		expected     string
+	}{
+		{
+			name:         "nil receiver returns <downloadBase>/keyfile",
+			auth:         nil,
+			downloadBase: customDownloadBase,
+			expected:     customDownloadBase + "/keyfile",
+		},
+		{
+			name:         "returns <downloadBase>/keyfile",
+			auth:         &Authentication{},
+			downloadBase: customDownloadBase,
+			expected:     customDownloadBase + "/keyfile",
+		},
+		{
+			name:         "default downloadBase produces historical path",
+			auth:         &Authentication{},
+			downloadBase: util.DefaultPvcMmsMountPath,
+			expected:     util.AutomationAgentKeyFilePathInContainer,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, tt.auth.GetKeyfile(tt.downloadBase))
+		})
+	}
+}
+
 func TestAdditionalMongodConfigMarshalJSON(t *testing.T) {
 	mdb := MongoDB{Spec: MongoDbSpec{DbCommonSpec: DbCommonSpec{Version: "4.2.1"}}}
 	mdb.InitDefaults()

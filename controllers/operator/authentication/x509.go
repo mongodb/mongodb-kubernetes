@@ -129,6 +129,10 @@ func (x *connectionX509) IsAgentAuthenticationConfigured(ac *om.AutomationConfig
 		return false
 	}
 
+	if opts.KeyfilePath != "" && ac.Auth.KeyFile != opts.KeyfilePath {
+		return false
+	}
+
 	if ac.AgentSSL != nil && ac.AgentSSL.AutoPEMKeyFilePath != opts.AutoPEMKeyFilePath {
 		return false
 	}
