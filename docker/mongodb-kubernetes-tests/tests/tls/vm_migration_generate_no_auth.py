@@ -122,8 +122,8 @@ def _configure_ac_no_auth(namespace: str, om_tester: OMTester, vm_sts: dict, vm_
 
 @fixture(scope="module")
 def generated_cr_yaml(namespace: str) -> str:
-    """Raw stdout from migrate (no passwords needed)."""
-    return run_migrate_generate(namespace, passwords=None)
+    """Raw stdout from migrate (no SCRAM users, so no secrets needed)."""
+    return run_migrate_generate(namespace)
 
 
 @fixture(scope="module")
