@@ -289,6 +289,11 @@ def mdb_migration(namespace: str, generated_cr_yaml: str) -> MongoDB:
     return resource
 
 
+# ---------------------------------------------------------------------------
+# Tests
+# ---------------------------------------------------------------------------
+
+
 @mark.e2e_vm_migration_generate_scram_full
 def test_deploy_vm(namespace: str, vm_sts, vm_service):
     def sts_is_ready():
@@ -316,12 +321,7 @@ def test_install_operator(operator: Operator):
     operator.assert_is_running()
 
 
-@mark.e2e_vm_migration_generate_scram_full
-def test_user_crs_emitted(generated_cr_yaml: str):
-    docs = list(yaml.safe_load_all(generated_cr_yaml))
-    user_docs = [d for d in docs if d and d.get("kind") == "MongoDBUser"]
-    usernames = {d["spec"]["username"] for d in user_docs}
-    assert usernames == {"app-user", "reporting-user"}, f"Unexpected user CRs: {usernames}"
+# --- Generated CR checks (all run immediately after generation, before any lifecycle test) ---
 
 
 @mark.e2e_vm_migration_generate_scram_full
@@ -331,21 +331,32 @@ def test_migration_dry_run_annotation_present(generated_cr_yaml: str):
 
 
 @mark.e2e_vm_migration_generate_scram_full
-def test_migration_dry_run_connectivity_passes(mdb_migration: MongoDB):
-    """Operator validates connectivity to all externalMembers, then the annotation is removed."""
-    run_migration_dry_run_connectivity_passes(mdb_migration)
+def test_user_crs_emitted(generated_cr_yaml: str):
+    docs = list(yaml.safe_load_all(generated_cr_yaml))
+    user_docs = [d for d in docs if d and d.get("kind") == "MongoDBUser"]
+    usernames = {d["spec"]["username"] for d in user_docs}
+    assert usernames == {"app-user", "reporting-user"}, f"Unexpected user CRs: {usernames}"
 
 
 @mark.e2e_vm_migration_generate_scram_full
 def test_settings_sourced_from_source_process(generated_cr_yaml: str):
     """When per-member config diverges, settings are taken from the source process (member 0).
-    Member 2 has logAppend=False and no oplogSizeMB — neither should affect the generated CR."""
+    Member 2 has logAppend=False and no oplogSizeMB -- neither should affect the generated CR."""
     cr = next(yaml.safe_load_all(generated_cr_yaml))
     sl = cr["spec"].get("agent", {}).get("mongod", {}).get("systemLog", {})
     assert sl.get("destination") == "file", f"Expected destination=file, got: {sl}"
     assert sl.get("path") == "/data/mongodb.log", f"Expected path=/data/mongodb.log, got: {sl}"
     repl = cr["spec"].get("additionalMongodConfig", {}).get("replication", {})
     assert repl.get("oplogSizeMB") == 2048, f"Expected oplogSizeMB=2048 from source process, got: {repl}"
+
+
+# --- Lifecycle tests ---
+
+
+@mark.e2e_vm_migration_generate_scram_full
+def test_migration_dry_run_connectivity_passes(mdb_migration: MongoDB):
+    """Operator validates connectivity to all externalMembers, then the annotation is removed."""
+    run_migration_dry_run_connectivity_passes(mdb_migration)
 
 
 @mark.e2e_vm_migration_generate_scram_full
