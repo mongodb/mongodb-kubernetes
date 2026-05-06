@@ -467,6 +467,8 @@ type SearchClusterStatusItem struct {
 	// ObservedReplicas is the number of mongot pods this cluster currently has Ready.
 	// +optional
 	ObservedReplicas int32 `json:"observedReplicas,omitempty"`
+	// Warnings is the per-cluster warnings list (e.g. customer-replicated
+	// secret missing in this cluster).
 	// +optional
 	Warnings []status.Warning `json:"warnings,omitempty"`
 	// Deprecated: read status.loadBalancer.clusters[i] instead.
@@ -597,6 +599,22 @@ func (s *MongoDBSearch) ProxyServiceNamespacedName() types.NamespacedName {
 	return types.NamespacedName{Name: s.Name + "-search-0-" + ProxyServiceSuffix, Namespace: s.Namespace}
 }
 
+// ProxyServiceNamespacedNameForCluster returns the proxy Service name for one
+// member cluster identified by its cluster index. clusterIndex 0 matches the
+// legacy single-cluster ProxyServiceNamespacedName for backward compatibility.
+//
+// Each cluster's proxy Service has a distinct name with the cluster index as a
+// suffix; this avoids relying on per-cluster ClusterIP DNS scoping for
+// disambiguation. mongod's `mongotHost` should be set to this name's FQDN
+// per cluster (via `clusterSpecList[i].additionalMongodConfig` on the
+// MongoDBMulti source).
+func (s *MongoDBSearch) ProxyServiceNamespacedNameForCluster(clusterIndex int) types.NamespacedName {
+	return types.NamespacedName{
+		Name:      fmt.Sprintf("%s-search-%d-%s", s.Name, clusterIndex, ProxyServiceSuffix),
+		Namespace: s.Namespace,
+	}
+}
+
 // ProxyServiceNameForShard returns the stable proxy Service name for a specific shard.
 func (s *MongoDBSearch) ProxyServiceNameForShard(shardName string) types.NamespacedName {
 	return types.NamespacedName{
@@ -607,6 +625,42 @@ func (s *MongoDBSearch) ProxyServiceNameForShard(shardName string) types.Namespa
 
 func (s *MongoDBSearch) MongotConfigConfigMapNamespacedName() types.NamespacedName {
 	return types.NamespacedName{Name: s.Name + "-search-config", Namespace: s.Namespace}
+}
+
+// MongotConfigConfigMapNameForCluster returns the per-cluster mongot ConfigMap
+// name. Index 0 matches the legacy single-cluster name for back-compat.
+func (s *MongoDBSearch) MongotConfigConfigMapNameForCluster(clusterIndex int) types.NamespacedName {
+	if clusterIndex == 0 {
+		return s.MongotConfigConfigMapNamespacedName()
+	}
+	return types.NamespacedName{
+		Name:      fmt.Sprintf("%s-search-%d-config", s.Name, clusterIndex),
+		Namespace: s.Namespace,
+	}
+}
+
+// StatefulSetNamespacedNameForCluster returns the StatefulSet name for one
+// member cluster identified by its cluster index. The per-cluster path always
+// uses index-suffixed names (`<name>-search-<idx>`); the legacy unindexed
+// `<name>-search` from StatefulSetNamespacedName is reserved for the
+// single-cluster degenerate path (Spec.Clusters nil/empty), which calls that
+// helper directly.
+func (s *MongoDBSearch) StatefulSetNamespacedNameForCluster(clusterIndex int) types.NamespacedName {
+	return types.NamespacedName{
+		Name:      fmt.Sprintf("%s-search-%d", s.Name, clusterIndex),
+		Namespace: s.Namespace,
+	}
+}
+
+// SearchServiceNamespacedNameForCluster returns the headless Service name for
+// one member cluster. Like StatefulSetNamespacedNameForCluster, it always
+// produces an index-suffixed name; the legacy unindexed name comes from
+// SearchServiceNamespacedName on the single-cluster path.
+func (s *MongoDBSearch) SearchServiceNamespacedNameForCluster(clusterIndex int) types.NamespacedName {
+	return types.NamespacedName{
+		Name:      fmt.Sprintf("%s-search-%d-svc", s.Name, clusterIndex),
+		Namespace: s.Namespace,
+	}
 }
 
 func (s *MongoDBSearch) SourceUserPasswordSecretRef() *userv1.SecretKeyRef {

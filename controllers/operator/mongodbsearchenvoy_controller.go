@@ -60,6 +60,13 @@ const (
 	envoyConfigHashAnnotation = "mongodb.com/envoy-config-hash"
 
 	labelName = "search-proxy"
+
+	// Cross-cluster enqueue labels. Cross-cluster owner refs do not GC,
+	// so a label-based mapper is the only path back to the parent MongoDBSearch
+	// for member-cluster Deployment/ConfigMap watches.
+	envoyOwnerSearchNameLabel      = "mongodb.com/search-name"
+	envoyOwnerSearchNamespaceLabel = "mongodb.com/search-namespace"
+	envoyClusterNameLabel          = "mongodb.com/cluster-name"
 )
 
 // envoyRoute defines routing information for one Envoy entrypoint (one per shard, or one for RS).
@@ -232,6 +239,10 @@ func (r *MongoDBSearchEnvoyReconciler) buildClusterWorkList(search *searchv1.Mon
 // clusterName is used for client lookup and log context; clusterIndex is used
 // for resource naming.
 // Returns a workflow.Status describing the per-cluster outcome.
+//
+// clusterIndex matches the position of the cluster in spec.Clusters[] and drives
+// per-cluster proxy-svc naming. Index 0 / empty clusterName is the legacy
+// single-cluster path.
 func (r *MongoDBSearchEnvoyReconciler) reconcileForCluster(
 	ctx context.Context,
 	search *searchv1.MongoDBSearch,
@@ -248,7 +259,7 @@ func (r *MongoDBSearchEnvoyReconciler) reconcileForCluster(
 		}
 	}
 
-	routes := buildRoutesForCluster(search, source, clusterName)
+	routes := buildRoutesForCluster(search, source, clusterIndex, clusterName)
 	if len(routes) == 0 {
 		return workflow.Pending("No routes to configure for load balancer (cluster=%q)", clusterName)
 	}
@@ -401,16 +412,21 @@ func buildReplicaSetRoute(search *searchv1.MongoDBSearch) envoyRoute {
 
 // buildRoutesForCluster returns the Envoy routes for one member cluster.
 // When clusterName is empty, this is the single-cluster install path and
-// behaves identically to buildRoutes (back-compat).
+// behaves identically to buildRoutes (back-compat). clusterIndex matches the
+// position of the cluster in spec.Clusters[] and is the source of truth for
+// per-cluster proxy-svc naming via ProxyServiceNamespacedNameForCluster.
 //
 // In multi-cluster (clusterName != ""):
-//   - SNI hostnames must be distinct per cluster, so the externalHostname template
-//     is expected to contain {clusterName}; if it doesn't, the controller appends
-//     -<clusterName> to the default proxy-service-FQDN base so SNI strings stay
-//     unique. For sharded sources, the {shardName} placeholder is also substituted.
+//   - The default SNI hostname is the per-cluster proxy-svc FQDN
+//     (<name>-search-<idx>-proxy-svc.<ns>.svc.cluster.local), produced by
+//     ProxyServiceNamespacedNameForCluster(clusterIndex). Because the index is
+//     baked into the Service name, per-cluster SNIs are automatically distinct.
+//   - When the user supplies an externalHostname template containing
+//     {clusterName} (and, for sharded sources, {shardName}) the template wins
+//     and substitutions are applied.
 //   - The ClusterID field on each envoyRoute carries the member cluster name for
 //     downstream consumers (Deployment naming, status writes).
-func buildRoutesForCluster(search *searchv1.MongoDBSearch, source searchcontroller.SearchSourceDBResource, clusterName string) []envoyRoute {
+func buildRoutesForCluster(search *searchv1.MongoDBSearch, source searchcontroller.SearchSourceDBResource, clusterIndex int, clusterName string) []envoyRoute {
 	if clusterName == "" {
 		return buildRoutes(search, source)
 	}
@@ -418,35 +434,79 @@ func buildRoutesForCluster(search *searchv1.MongoDBSearch, source searchcontroll
 	if shardedSource, ok := source.(searchcontroller.SearchSourceShardedDeployment); ok {
 		return buildShardRoutesForCluster(search, shardedSource.GetShardNames(), clusterName)
 	}
-	return []envoyRoute{buildReplicaSetRouteForCluster(search, clusterName)}
+	return []envoyRoute{buildReplicaSetRouteForCluster(search, clusterIndex, clusterName)}
 }
 
 // buildReplicaSetRouteForCluster builds a single RS-mode route for one cluster.
-func buildReplicaSetRouteForCluster(search *searchv1.MongoDBSearch, clusterName string) envoyRoute {
-	route := buildReplicaSetRoute(search)
-	route.ClusterID = clusterName
-	route.SNIHostname = applyClusterIDToSNI(route.SNIHostname, clusterName, search.GetManagedLBEndpoint() != "")
-	return route
+// The SNI hostname is the per-cluster proxy-svc FQDN derived from
+// ProxyServiceNamespacedNameForCluster(clusterIndex). When the user supplies a
+// managed-LB externalHostname template, GetManagedLBEndpointForCluster handles
+// substitution of both {clusterName} and {clusterIndex} placeholders.
+//
+// MC mode: each cluster's Envoy upstream points at THAT cluster's mongot
+// headless Service, which is named with the cluster index suffix
+// (`<resource>-search-<idx>-svc`) by SearchServiceNamespacedNameForCluster.
+// The legacy unindexed name (`<resource>-search-svc`) is single-cluster only;
+// using it here would produce a STRICT_DNS NXDOMAIN at every per-cluster
+// Envoy, making the upstream cluster unhealthy and fast-failing mongod's
+// gRPC stream with code 125 ("Error connecting to Search Index Management
+// service") at create_search_index time.
+func buildReplicaSetRouteForCluster(search *searchv1.MongoDBSearch, clusterIndex int, clusterName string) envoyRoute {
+	mongotServiceName := search.SearchServiceNamespacedNameForCluster(clusterIndex).Name
+	namespace := search.Namespace
+	mongotPort := search.GetMongotGrpcPort()
+
+	sniServiceName := search.ProxyServiceNamespacedNameForCluster(clusterIndex).Name
+	sniHostname := fmt.Sprintf("%s.%s.svc.cluster.local", sniServiceName, namespace)
+	if endpoint := search.GetManagedLBEndpointForCluster(clusterIndex); endpoint != "" {
+		sniHostname = endpoint
+	}
+
+	return envoyRoute{
+		Name:         "rs",
+		NameSafe:     "rs",
+		ClusterID:    clusterName,
+		SNIHostname:  sniHostname,
+		UpstreamHost: fmt.Sprintf("%s.%s.svc.cluster.local", mongotServiceName, namespace),
+		UpstreamPort: mongotPort,
+	}
 }
 
-// buildShardRoutesForCluster builds per-shard routes for one cluster.
+// buildShardRoutesForCluster builds per-shard routes for one cluster. SNI naming
+// for sharded topologies still flows through ProxyServiceNameForShard +
+// applyClusterIDToSNI for now (no per-(cluster, shard) Service helper exists);
+// the {clusterName}/{shardName} externalHostname template is the supported MC
+// path.
 func buildShardRoutesForCluster(search *searchv1.MongoDBSearch, shardNames []string, clusterName string) []envoyRoute {
 	base := buildShardRoutes(search, shardNames)
 	templated := search.GetManagedLBEndpoint() != ""
 	for i := range base {
 		base[i].ClusterID = clusterName
-		base[i].SNIHostname = applyClusterIDToSNI(base[i].SNIHostname, clusterName, templated)
+		base[i].SNIHostname = applyShardClusterIDToSNI(base[i].SNIHostname, clusterName, templated)
 	}
 	return base
 }
 
-// applyClusterIDToSNI substitutes the {clusterName} placeholder in the given SNI
-// hostname. If the placeholder isn't present and the user supplied an
-// externalHostname template (templated == true), the original is returned unchanged
-// (the user-supplied template wins). Otherwise (no template, default service-FQDN
-// base) -<clusterName> is inserted before the first dot so per-cluster SNIs stay
-// distinct.
-func applyClusterIDToSNI(sni, clusterName string, templated bool) string {
+// applyClusterIDToSNI substitutes the {clusterName} placeholder when present.
+// Used for the externalHostname-template path (RS mode); the default
+// service-FQDN path is now produced directly by ProxyServiceNamespacedNameForCluster
+// and does not flow through this helper.
+func applyClusterIDToSNI(sni, clusterName string) string {
+	if strings.Contains(sni, searchv1.ClusterNamePlaceholder) {
+		return strings.ReplaceAll(sni, searchv1.ClusterNamePlaceholder, clusterName)
+	}
+	// User supplied an externalHostname template without {clusterName}; honour
+	// it as-is. Multi-cluster users are expected to include the placeholder;
+	// admission rejects multi-cluster specs that omit it.
+	return sni
+}
+
+// applyShardClusterIDToSNI handles the sharded SNI rewrite. Until a
+// per-(cluster, shard) proxy-svc helper exists, the default service-FQDN base
+// is suffixed with -<clusterName> after the first DNS label to keep per-cluster
+// SNIs distinct; templated paths (managed-LB externalHostname) get
+// {clusterName} substituted when present.
+func applyShardClusterIDToSNI(sni, clusterName string, templated bool) string {
 	if strings.Contains(sni, searchv1.ClusterNamePlaceholder) {
 		return strings.ReplaceAll(sni, searchv1.ClusterNamePlaceholder, clusterName)
 	}
@@ -456,8 +516,6 @@ func applyClusterIDToSNI(sni, clusterName string, templated bool) string {
 		// admission rejects multi-cluster specs that omit it.
 		return sni
 	}
-	// Default service-FQDN base: <name>.<ns>.svc.cluster.local — append cluster
-	// suffix to the first DNS label so the FQDN stays well-formed.
 	idx := strings.Index(sni, ".")
 	if idx == -1 {
 		return sni + "-" + clusterName
@@ -538,6 +596,18 @@ func (r *MongoDBSearchEnvoyReconciler) ensureDeployment(ctx context.Context, sea
 					Labels: podLabels,
 					Annotations: map[string]string{
 						envoyConfigHashAnnotation: configHash,
+						// MC mode: namespaces with Istio sidecar injection capture
+						// inbound traffic via the istio-proxy in REDIRECT mode and
+						// terminate it as Istio mTLS. mongod's gRPC connection to
+						// `mongotHost` / `searchIndexManagementHostAndPort` arrives as
+						// raw application TLS (using the LB server cert), so the
+						// Istio sidecar's mTLS handshake never completes — mongod
+						// sees a 20s connect timeout and returns code 125 ("Error
+						// connecting to Search Index Management service"). Excluding
+						// the proxy port from Istio inbound capture lets mongod's
+						// TLS reach Envoy directly. Single-cluster installs without
+						// Istio injection treat the annotation as a no-op.
+						"traffic.sidecar.istio.io/excludeInboundPorts": fmt.Sprintf("%d", searchv1.EnvoyDefaultProxyPort),
 					},
 				},
 				Spec: buildEnvoyPodSpec(search, clusterIndex, tlsCfg, tlsEnabled, image, resources, managedSecurityContext),
