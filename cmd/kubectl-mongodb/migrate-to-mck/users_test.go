@@ -9,10 +9,30 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
 )
+
+func newFakeSecret(name, password string) *corev1.Secret {
+	return &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
+		Data:       map[string][]byte{passwordSecretDataKey: []byte(password)},
+	}
+}
+
+func newFakeKubeClient(objects ...runtime.Object) kubernetesClient.Client {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+	clientObjs := make([]runtime.Object, len(objects))
+	copy(clientObjs, objects)
+	return kubernetesClient.NewClient(fake.NewClientBuilder().WithScheme(scheme).WithRuntimeObjects(clientObjs...).Build())
+}
 
 func writeTempFile(t *testing.T, content string) string {
 	t.Helper()
@@ -110,25 +130,7 @@ func TestGenerateUserCRs_ExistingSecrets_SkipsUnmappedUsers(t *testing.T) {
 	assert.Contains(t, y, "alice")
 }
 
-func TestCollectUserPasswords_WrongPasswordThenSkip(t *testing.T) {
-	ac := om.NewAutomationConfig(om.Deployment{
-		"processes":   []any{},
-		"replicaSets": []any{},
-	})
-	ac.Auth.AutoUser = "mms-automation"
-	ac.Auth.Users = []*om.MongoDBUser{
-		{Username: "alice", Database: "admin", Roles: []*om.Role{{Role: "read", Database: "test"}}},
-	}
-
-	opts := &GenerateOptions{}
-	// wrong password (no SCRAM hashes stored so any password fails), then Enter to skip
-	scanner := bufio.NewScanner(strings.NewReader("wrongpassword\n\n"))
-	err := collectUserPasswords(ac, opts, scanner)
-	require.NoError(t, err)
-	assert.Empty(t, opts.UserPasswords)
-}
-
-func TestCollectUserPasswords_WrongPasswordThenCorrect(t *testing.T) {
+func TestCollectUserSecretNamesInteractively_ExplicitName(t *testing.T) {
 	ac := om.NewAutomationConfig(om.Deployment{
 		"processes":   []any{},
 		"replicaSets": []any{},
@@ -139,27 +141,45 @@ func TestCollectUserPasswords_WrongPasswordThenCorrect(t *testing.T) {
 	_, err := authentication.ConfigureScramCredentials(alice, "correct-password", ac)
 	require.NoError(t, err)
 
-	opts := &GenerateOptions{}
-	scanner := bufio.NewScanner(strings.NewReader("wrongpassword\ncorrect-password\n"))
-	err = collectUserPasswords(ac, opts, scanner)
+	secret := newFakeSecret("my-alice-secret", "correct-password")
+	kubeClient := newFakeKubeClient(secret)
+	opts := &GenerateOptions{Namespace: "default"}
+	scanner := bufio.NewScanner(strings.NewReader("my-alice-secret\n"))
+	err = collectUserSecretNamesInteractively(t.Context(), kubeClient, ac, opts, scanner)
 	require.NoError(t, err)
-	assert.Equal(t, "correct-password", opts.UserPasswords["alice:admin"])
+	assert.Equal(t, "my-alice-secret", opts.ExistingUserSecrets["alice:admin"])
 }
 
-func TestCollectUserPasswords_SkipOnEnter(t *testing.T) {
+func TestCollectUserSecretNamesInteractively_DefaultName(t *testing.T) {
 	ac := om.NewAutomationConfig(om.Deployment{
 		"processes":   []any{},
 		"replicaSets": []any{},
 	})
 	ac.Auth.AutoUser = "mms-automation"
-	ac.Auth.Users = []*om.MongoDBUser{
-		{Username: "alice", Database: "admin", Roles: []*om.Role{{Role: "read", Database: "test"}}},
-		{Username: "bob", Database: "admin", Roles: []*om.Role{{Role: "read", Database: "test"}}},
-	}
-
-	opts := &GenerateOptions{}
-	scanner := bufio.NewScanner(strings.NewReader("\n\n"))
-	err := collectUserPasswords(ac, opts, scanner)
+	alice := &om.MongoDBUser{Username: "alice", Database: "admin", Roles: []*om.Role{{Role: "read", Database: "test"}}}
+	ac.Auth.Users = []*om.MongoDBUser{alice}
+	_, err := authentication.ConfigureScramCredentials(alice, "correct-password", ac)
 	require.NoError(t, err)
-	assert.Empty(t, opts.UserPasswords)
+
+	// suggested name is "alice-password"
+	secret := newFakeSecret("alice-password", "correct-password")
+	kubeClient := newFakeKubeClient(secret)
+	opts := &GenerateOptions{Namespace: "default"}
+	scanner := bufio.NewScanner(strings.NewReader("\n")) // press Enter to accept suggested name
+	err = collectUserSecretNamesInteractively(t.Context(), kubeClient, ac, opts, scanner)
+	require.NoError(t, err)
+	assert.Equal(t, "alice-password", opts.ExistingUserSecrets["alice:admin"])
+}
+
+func TestCollectUserSecretNamesInteractively_NoUsers(t *testing.T) {
+	ac := om.NewAutomationConfig(om.Deployment{
+		"processes":   []any{},
+		"replicaSets": []any{},
+	})
+	ac.Auth.AutoUser = "mms-automation"
+	opts := &GenerateOptions{Namespace: "default"}
+	scanner := bufio.NewScanner(strings.NewReader(""))
+	err := collectUserSecretNamesInteractively(t.Context(), nil, ac, opts, scanner)
+	require.NoError(t, err)
+	assert.Nil(t, opts.ExistingUserSecrets)
 }
