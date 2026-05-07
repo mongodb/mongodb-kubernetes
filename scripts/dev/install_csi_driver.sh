@@ -7,13 +7,14 @@ source scripts/funcs/kubernetes
 
 # Path to the deploy script
 DEPLOY_SCRIPT_PATH="./deploy/kubernetes-latest/deploy.sh"
-EXTRACTED_DIR="csi-driver-host-path-1.14.1"
+HOST_PATH_VERSION="1.14.1"
+EXTRACTED_DIR="/tmp/csi-driver-host-path-${HOST_PATH_VERSION}"
 
 csi_driver_download() {
     echo "install resizable csi"
     # Define variables
-    REPO_URL="https://github.com/kubernetes-csi/csi-driver-host-path/archive/refs/tags/v1.14.1.tar.gz"
-    TAR_FILE="csi-driver-host-path-v1.14.1.tar.gz"
+    REPO_URL="https://github.com/kubernetes-csi/csi-driver-host-path/archive/refs/tags/v${HOST_PATH_VERSION}.tar.gz"
+    TAR_FILE="/tmp/csi-driver-host-path-v${HOST_PATH_VERSION}.tar.gz"
 
     # Download the tar.gz file
     echo "Downloading ${REPO_URL}..."
@@ -21,7 +22,7 @@ csi_driver_download() {
 
     # Extract the tar.gz file
     echo "Extracting ${TAR_FILE}..."
-    tar -xzf "${TAR_FILE}"
+    tar -xzf "${TAR_FILE}" -C /tmp
 }
 
 # Function to deploy to a single cluster
