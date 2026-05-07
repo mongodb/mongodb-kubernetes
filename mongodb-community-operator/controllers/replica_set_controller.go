@@ -397,19 +397,24 @@ func (r *ReplicaSetReconciler) deployAutomationConfig(ctx context.Context, mdb m
 
 // shouldRunInOrder returns true if the order of execution of the AutomationConfig & StatefulSet
 // functions should be sequential or not. A value of false indicates they will run in reversed order.
-func (r *ReplicaSetReconciler) shouldRunInOrder(ctx context.Context, mdb mdbv1.MongoDBCommunity) bool {
-	// The only case when we push the StatefulSet first is when we are ensuring TLS for the already existing ReplicaSet
-	sts, err := r.client.GetStatefulSet(ctx, mdb.NamespacedName())
-	if !statefulset.IsReady(sts, mdb.StatefulSetReplicasThisReconciliation()) && mdb.Spec.Security.TLS.Enabled {
-		r.log.Debug("Enabling TLS on a deployment with a StatefulSet that is not Ready, the Automation Config must be updated first")
-		return true
-	}
-	if err == nil && mdb.Spec.Security.TLS.Enabled {
-		r.log.Debug("Enabling TLS on an existing deployment, the StatefulSet must be updated first")
-		return false
-	}
+//
+// Ordering rules (evaluated in priority order):
+//  1. Scaling up                        → STS first (false)
+//     When TLS is being enabled simultaneously with scale-up, we scale
+//     all members first then apply TLS to all members at once via AC.
+//     This avoids mixed TLS/non-TLS state and cert-not-found errors that
+//     occur when AC enables TLS before STS has mounted cert volumes on pods.
+//  2. TLS enabled on stable deployment  → STS first (false)
+//     Only fires when scaling is fully complete to ensure TLS is applied
+//     to all members at once, not to an intermediate member count.
+//  3. TLS enabled but STS not ready     → AC first (true)
+//  4. Scaling down                      → AC first (true)
+//  5. Version change                    → STS first (false)
+//  6. Default                           → AC first (true)
 
-	// if we are scaling up, we need to make sure the StatefulSet is scaled up first.
+func (r *ReplicaSetReconciler) shouldRunInOrder(ctx context.Context, mdb mdbv1.MongoDBCommunity) bool {
+	sts, err := r.client.GetStatefulSet(ctx, mdb.NamespacedName())
+
 	if scale.IsScalingUp(&mdb) || mdb.CurrentArbiters() < mdb.DesiredArbiters() {
 		if scale.HasZeroReplicas(&mdb) {
 			r.log.Debug("Scaling up the ReplicaSet when there is no replicas, the Automation Config must be updated first")
@@ -419,13 +424,21 @@ func (r *ReplicaSetReconciler) shouldRunInOrder(ctx context.Context, mdb mdbv1.M
 		return false
 	}
 
+	if err == nil && mdb.Spec.Security.TLS.Enabled && !scale.IsScalingDown(&mdb) && !scale.IsStillScaling(&mdb) {
+		r.log.Debug("Enabling TLS on an existing deployment, the StatefulSet must be updated first")
+		return false
+	}
+
+	if !statefulset.IsReady(sts, mdb.StatefulSetReplicasThisReconciliation()) && mdb.Spec.Security.TLS.Enabled {
+		r.log.Debug("Enabling TLS on a deployment with a StatefulSet that is not Ready, the Automation Config must be updated first")
+		return true
+	}
+
 	if scale.IsScalingDown(&mdb) {
 		r.log.Debug("Scaling down the ReplicaSet, the Automation Config must be updated first")
 		return true
 	}
 
-	// when we change version, we need the StatefulSet images to be updated first, then the agent can get to goal
-	// state on the new version.
 	if mdb.IsChangingVersion() {
 		r.log.Debug("Version change in progress, the StatefulSet must be updated first")
 		return false
