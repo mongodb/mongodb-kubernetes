@@ -170,6 +170,7 @@ def test_deploy_vm(namespace: str, vm_sts, vm_service):
 @mark.e2e_vm_migration_generate_no_auth
 def test_configure_ac(namespace: str, om_tester: OMTester, vm_sts, vm_service, custom_mdb_version):
     _configure_ac_no_auth(namespace, om_tester, vm_sts, vm_service, custom_mdb_version)
+    om_tester.wait_agents_ready(timeout=600)
 
 
 @mark.e2e_vm_migration_generate_no_auth
