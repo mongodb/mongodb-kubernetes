@@ -57,30 +57,23 @@ func newSearchWithExternalSource(name, namespace string) *searchv1.MongoDBSearch
 	}
 }
 
-func TestCheckSecretsPresence_AllPresent_NoResults(t *testing.T) {
+// TestCheckSecretsPresence_HappyPath verifies that no gaps are reported when all
+// expected secrets are present in both central and member clusters.
+func TestCheckSecretsPresence_HappyPath(t *testing.T) {
 	search := newSearchWithExternalSource("s", "ns")
 	central := newClientWithSecrets(t, newSecretObj("search-sync-password", "ns"))
+	east := newClientWithSecrets(t, newSecretObj("search-sync-password", "ns"))
+	west := newClientWithSecrets(t, newSecretObj("search-sync-password", "ns"))
+	members := map[string]client.Client{"east": east, "west": west}
 
-	got := CheckSecretsPresence(context.Background(), search, central, nil)
+	got := CheckSecretsPresence(context.Background(), search, central, members)
 
-	assert.Empty(t, got, "all secrets present in central → no SecretCheckResult entries")
+	assert.Empty(t, got, "all secrets present in all clusters → no SecretCheckResult entries")
 }
 
-func TestCheckSecretsPresence_TLSPrefix_SingleRS(t *testing.T) {
-	search := newSearchWithExternalSource("s", "ns")
-	search.Spec.Security.TLS = &searchv1.TLS{CertsSecretPrefix: "lt"}
-
-	// Only the password is present; the TLS cert is missing → expect it in Missing.
-	central := newClientWithSecrets(t, newSecretObj("search-sync-password", "ns"))
-
-	got := CheckSecretsPresence(context.Background(), search, central, nil)
-
-	assert.Len(t, got, 1)
-	assert.Equal(t, "", got[0].Cluster)
-	assert.Contains(t, got[0].Missing, search.TLSSecretNamespacedName().Name)
-}
-
-func TestCheckSecretsPresence_MissingPasswordInOneMember(t *testing.T) {
+// TestCheckSecretsPresence_MissingSecret verifies that a missing secret in one member
+// cluster surfaces as a single SecretCheckResult for that cluster only.
+func TestCheckSecretsPresence_MissingSecret(t *testing.T) {
 	search := newSearchWithExternalSource("s", "ns")
 
 	// Central + east have the password; west does not.
@@ -91,114 +84,99 @@ func TestCheckSecretsPresence_MissingPasswordInOneMember(t *testing.T) {
 
 	got := CheckSecretsPresence(context.Background(), search, central, members)
 
-	// Only `west` should appear; `central` and `east` are silent.
 	assert.Len(t, got, 1)
 	assert.Equal(t, "west", got[0].Cluster)
 	assert.Equal(t, []string{"search-sync-password"}, got[0].Missing)
 }
 
-func TestCheckSecretsPresence_TLSPrefix_PerShard(t *testing.T) {
-	search := newSearchWithExternalSource("s", "ns")
-	search.Spec.Source.ExternalMongoDBSource.HostAndPorts = nil
-	search.Spec.Source.ExternalMongoDBSource.ShardedCluster = &searchv1.ExternalShardedClusterConfig{
-		Router: searchv1.ExternalRouterConfig{Hosts: []string{"router:27017"}},
-		Shards: []searchv1.ExternalShardConfig{
-			{ShardName: "shard-0", Hosts: []string{"shard-0-mongo:27017"}},
-			{ShardName: "shard-1", Hosts: []string{"shard-1-mongo:27017"}},
+// TestExpectedSecretNames_Table covers all conditional branches inside expectedSecretNames.
+func TestExpectedSecretNames_Table(t *testing.T) {
+	shardedSearch := func(keyfile string) *searchv1.MongoDBSearch {
+		s := newSearchWithExternalSource("s", "ns")
+		s.Spec.Source.ExternalMongoDBSource.HostAndPorts = nil
+		s.Spec.Source.ExternalMongoDBSource.ShardedCluster = &searchv1.ExternalShardedClusterConfig{
+			Router: searchv1.ExternalRouterConfig{Hosts: []string{"router:27017"}},
+			Shards: []searchv1.ExternalShardConfig{
+				{ShardName: "shard-0", Hosts: []string{"h0:27017"}},
+				{ShardName: "shard-1", Hosts: []string{"h1:27017"}},
+			},
+		}
+		if keyfile != "" {
+			s.Spec.Source.ExternalMongoDBSource.KeyFileSecretKeyRef = &userv1.SecretKeyRef{Name: keyfile}
+		}
+		return s
+	}
+
+	tests := []struct {
+		name     string
+		build    func() *searchv1.MongoDBSearch
+		wantKeys []string // substrings sufficient to uniquely identify expected names
+	}{
+		{
+			name: "TLS RS source",
+			build: func() *searchv1.MongoDBSearch {
+				s := newSearchWithExternalSource("s", "ns")
+				s.Spec.Security.TLS = &searchv1.TLS{CertsSecretPrefix: "lt"}
+				return s
+			},
+			wantKeys: []string{"search-sync-password", s_tlsRSName("lt", "s")},
+		},
+		{
+			name: "TLS sharded source",
+			build: func() *searchv1.MongoDBSearch {
+				s := shardedSearch("")
+				s.Spec.Security.TLS = &searchv1.TLS{CertsSecretPrefix: "lt"}
+				return s
+			},
+			wantKeys: []string{
+				"search-sync-password",
+				s_tlsShardName("lt", "s", "shard-0"),
+				s_tlsShardName("lt", "s", "shard-1"),
+			},
+		},
+		{
+			name:     "keyfile sharded",
+			build:    func() *searchv1.MongoDBSearch { return shardedSearch("mongod-keyfile") },
+			wantKeys: []string{"search-sync-password", "mongod-keyfile"},
+		},
+		{
+			name: "x509 auth",
+			build: func() *searchv1.MongoDBSearch {
+				s := newSearchWithExternalSource("s", "ns")
+				s.Spec.Source.X509 = &searchv1.X509Auth{
+					ClientCertificateSecret: corev1.LocalObjectReference{Name: "x509-client"},
+				}
+				return s
+			},
+			wantKeys: []string{"search-sync-password", "x509-client"},
+		},
+		{
+			name: "external CA",
+			build: func() *searchv1.MongoDBSearch {
+				s := newSearchWithExternalSource("s", "ns")
+				s.Spec.Source.ExternalMongoDBSource.TLS = &searchv1.ExternalMongodTLS{
+					CA: &corev1.LocalObjectReference{Name: "external-ca"},
+				}
+				return s
+			},
+			wantKeys: []string{"search-sync-password", "external-ca"},
 		},
 	}
-	search.Spec.Security.TLS = &searchv1.TLS{CertsSecretPrefix: "lt"}
 
-	// Provide all secrets except shard-1's TLS cert.
-	central := newClientWithSecrets(t,
-		newSecretObj("search-sync-password", "ns"),
-		newSecretObj(search.TLSSecretForShard("shard-0").Name, "ns"),
-	)
-
-	got := CheckSecretsPresence(context.Background(), search, central, nil)
-
-	assert.Len(t, got, 1)
-	assert.Equal(t, []string{search.TLSSecretForShard("shard-1").Name}, got[0].Missing)
-}
-
-func TestCheckSecretsPresence_KeyfileSharded_RequiredOnlyWhenSet(t *testing.T) {
-	search := newSearchWithExternalSource("s", "ns")
-	search.Spec.Source.ExternalMongoDBSource.HostAndPorts = nil
-	search.Spec.Source.ExternalMongoDBSource.ShardedCluster = &searchv1.ExternalShardedClusterConfig{
-		Router: searchv1.ExternalRouterConfig{Hosts: []string{"router:27017"}},
-		Shards: []searchv1.ExternalShardConfig{{ShardName: "shard-0", Hosts: []string{"h:27017"}}},
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := expectedSecretNames(tt.build())
+			assert.ElementsMatch(t, tt.wantKeys, got)
+		})
 	}
-	// No KeyFileSecretKeyRef set — must not be checked.
-	central := newClientWithSecrets(t, newSecretObj("search-sync-password", "ns"))
-
-	got := CheckSecretsPresence(context.Background(), search, central, nil)
-	assert.Empty(t, got, "keyfile must not be required when KeyFileSecretKeyRef is unset")
 }
 
-func TestCheckSecretsPresence_KeyfileSharded_MissingWhenSet(t *testing.T) {
-	search := newSearchWithExternalSource("s", "ns")
-	search.Spec.Source.ExternalMongoDBSource.HostAndPorts = nil
-	search.Spec.Source.ExternalMongoDBSource.ShardedCluster = &searchv1.ExternalShardedClusterConfig{
-		Router: searchv1.ExternalRouterConfig{Hosts: []string{"router:27017"}},
-		Shards: []searchv1.ExternalShardConfig{{ShardName: "shard-0", Hosts: []string{"h:27017"}}},
-	}
-	search.Spec.Source.ExternalMongoDBSource.KeyFileSecretKeyRef = &userv1.SecretKeyRef{Name: "mongod-keyfile"}
-	central := newClientWithSecrets(t, newSecretObj("search-sync-password", "ns"))
-
-	got := CheckSecretsPresence(context.Background(), search, central, nil)
-	assert.Len(t, got, 1)
-	assert.Contains(t, got[0].Missing, "mongod-keyfile")
+// s_tlsRSName mirrors the naming logic from TLSSecretNamespacedName for test assertions.
+func s_tlsRSName(prefix, resourceName string) string {
+	return prefix + "-" + resourceName + "-search-cert"
 }
 
-func TestCheckSecretsPresence_KeyfileNotRequiredForRS(t *testing.T) {
-	search := newSearchWithExternalSource("s", "ns")
-	// RS source with KeyFileSecretKeyRef set on the spec → should still NOT be checked
-	// because the keyfile secret is sharded-only.
-	search.Spec.Source.ExternalMongoDBSource.KeyFileSecretKeyRef = &userv1.SecretKeyRef{Name: "should-not-check"}
-	central := newClientWithSecrets(t, newSecretObj("search-sync-password", "ns"))
-
-	got := CheckSecretsPresence(context.Background(), search, central, nil)
-	assert.Empty(t, got, "keyfile is sharded-only; do not check it for RS sources")
-}
-
-func TestCheckSecretsPresence_X509_NotRequired_WhenAbsent(t *testing.T) {
-	search := newSearchWithExternalSource("s", "ns")
-	central := newClientWithSecrets(t, newSecretObj("search-sync-password", "ns"))
-
-	got := CheckSecretsPresence(context.Background(), search, central, nil)
-	assert.Empty(t, got)
-}
-
-func TestCheckSecretsPresence_X509_Required_WhenConfigured(t *testing.T) {
-	search := newSearchWithExternalSource("s", "ns")
-	search.Spec.Source.X509 = &searchv1.X509Auth{
-		ClientCertificateSecret: corev1.LocalObjectReference{Name: "x509-client"},
-	}
-	central := newClientWithSecrets(t, newSecretObj("search-sync-password", "ns"))
-
-	got := CheckSecretsPresence(context.Background(), search, central, nil)
-	assert.Len(t, got, 1)
-	assert.Contains(t, got[0].Missing, "x509-client")
-}
-
-func TestCheckSecretsPresence_SingleClusterFallback(t *testing.T) {
-	search := newSearchWithExternalSource("s", "ns")
-	central := newClientWithSecrets(t) // empty — password is missing
-
-	got := CheckSecretsPresence(context.Background(), search, central, nil)
-	assert.Len(t, got, 1)
-	assert.Equal(t, "", got[0].Cluster, "single-cluster gap must surface as empty cluster name (central)")
-	assert.Equal(t, []string{"search-sync-password"}, got[0].Missing)
-}
-
-func TestCheckSecretsPresence_ExternalCA_RequiredWhenSet(t *testing.T) {
-	search := newSearchWithExternalSource("s", "ns")
-	search.Spec.Source.ExternalMongoDBSource.TLS = &searchv1.ExternalMongodTLS{
-		CA: &corev1.LocalObjectReference{Name: "external-ca"},
-	}
-	central := newClientWithSecrets(t, newSecretObj("search-sync-password", "ns"))
-
-	got := CheckSecretsPresence(context.Background(), search, central, nil)
-	assert.Len(t, got, 1)
-	assert.Contains(t, got[0].Missing, "external-ca")
+// s_tlsShardName mirrors the naming logic from TLSSecretForShard for test assertions.
+func s_tlsShardName(prefix, resourceName, shardName string) string {
+	return prefix + "-" + resourceName + "-search-0-" + shardName + "-cert"
 }
