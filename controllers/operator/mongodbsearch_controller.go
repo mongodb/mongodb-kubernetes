@@ -338,7 +338,12 @@ func AddMongoDBSearchController(
 
 		// Per-member-cluster watches map events back to the parent MongoDBSearch
 		// via the search-owner labels (cross-cluster owner refs do not GC).
-		searchOwnerHandler := &khandler.EnqueueRequestForSearchOwnerMultiCluster{}
+		searchOwnerHandler := handler.EnqueueRequestsFromMapFunc(func(_ context.Context, obj client.Object) []reconcile.Request {
+			if req := khandler.MapMemberClusterObjectToSearch(obj); req != (reconcile.Request{}) {
+				return []reconcile.Request{req}
+			}
+			return nil
+		})
 		searchOwnerPredicate := watch.PredicatesForMultiClusterSearchResource()
 		watchedTypes := []client.Object{
 			&appsv1.StatefulSet{},
