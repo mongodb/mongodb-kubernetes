@@ -27,17 +27,12 @@ from tests.conftest import (
     get_member_cluster_clients,
     update_coredns_hosts,
 )
-from tests.multicluster_appdb.conftest import (
-    create_s3_bucket_blockstore,
-    create_s3_bucket_oplog,
-)
+from tests.multicluster_appdb.conftest import create_s3_bucket_blockstore, create_s3_bucket_oplog
 
 from .. import test_logger
 from ..common.cert.cert_issuer import create_appdb_certs
 from ..common.constants import MEMBER_CLUSTER_1, MEMBER_CLUSTER_2, MEMBER_CLUSTER_3
-from ..common.ops_manager.multi_cluster import (
-    ops_manager_multi_cluster_with_tls_s3_backups,
-)
+from ..common.ops_manager.multi_cluster import ops_manager_multi_cluster_with_tls_s3_backups
 from ..constants import TELEMETRY_CONFIGMAP_NAME
 from ..multicluster.conftest import cluster_spec_list
 
@@ -242,9 +237,6 @@ def ops_manager(
         namespace, OM_NAME, central_cluster_client, custom_appdb_version, s3_bucket_blockstore, s3_bucket_oplog
     )
 
-    if try_load(resource):
-        return resource
-
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
     resource["spec"]["version"] = custom_version
     resource["spec"]["topology"] = "MultiCluster"
@@ -380,6 +372,7 @@ def ops_manager(
         },
     ]
 
+    try_load(resource)
     return resource
 
 
@@ -410,9 +403,9 @@ def mongodb_multi_collection(mongodb_multi: MongoDBMulti, ca_path: str):
         ca_path=ca_path,
     )
 
-    collection = pymongo.MongoClient(tester.cnx_string, **tester.default_opts)["testdb"]
+    db: pymongo.database.Database = pymongo.MongoClient(tester.cnx_string, **tester.default_opts)["testdb"]
 
-    return collection["testcollection"]
+    return db["testcollection"]
 
 
 @fixture(scope="function")
@@ -525,8 +518,10 @@ def mongodb_multi(
 
 def create_project_config_map(om: MongoDBOpsManager, mdb_name, project_name, client, custom_ca):
     name = f"{mdb_name}-config"
-    data = {
-        "baseUrl": om.om_status().get_url(),
+    base_url = om.om_status().get_url()
+    assert base_url is not None, "OpsManager URL must not be None"
+    data: dict[str, str] = {
+        "baseUrl": base_url,
         "projectName": project_name,
         "sslMMSCAConfigMap": custom_ca,
         "orgId": "",
@@ -615,6 +610,7 @@ def test_telemetry_configmap(namespace: str):
 
     try:
         payload_string = config.get("lastSendPayloadDeployments")
+        assert payload_string is not None
         payload = json.loads(payload_string)
         # Perform a rudimentary check
         assert isinstance(payload, list), "payload should be a list"
@@ -625,4 +621,4 @@ def test_telemetry_configmap(namespace: str):
         assert payload[1]["properties"]["type"] == "OpsManager"
         assert payload[1]["properties"]["externalDomains"] == "Mixed"
     except json.JSONDecodeError:
-        pytest.fail("payload contains invalid JSON data")
+        pytest.fail("payload contains invalid JSON data")  # ty: ignore[invalid-argument-type]

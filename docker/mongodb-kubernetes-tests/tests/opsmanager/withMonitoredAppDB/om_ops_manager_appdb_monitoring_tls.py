@@ -42,9 +42,6 @@ def ops_manager(
     om.set_version(custom_version)
     om.set_appdb_version(custom_appdb_version)
 
-    if try_load(om):
-        return om
-
     create_or_update_secret(namespace, "appdb-secret", {"password": "Hello-World!"})
 
     # ensure the requests library will use this CA when communicating with Ops Manager
@@ -53,12 +50,13 @@ def ops_manager(
     if is_multi_cluster():
         enable_multi_cluster_deployment(om)
 
-    om.update()
+    try_load(om)
     return om
 
 
 @mark.e2e_om_appdb_monitoring_tls
 def test_om_created(ops_manager: MongoDBOpsManager):
+    ops_manager.update()
     ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
     ops_manager.assert_appdb_preferred_hostnames_are_added()
@@ -92,7 +90,7 @@ def test_appdb_password_can_be_changed(ops_manager: MongoDBOpsManager):
 def test_new_database_is_monitored_after_restart(ops_manager: MongoDBOpsManager):
     # Connect with the new connection string
     connection_string = ops_manager.read_appdb_connection_url()
-    client = pymongo.MongoClient(connection_string, tlsAllowInvalidCertificates=True)
+    client: pymongo.MongoClient = pymongo.MongoClient(connection_string, tlsAllowInvalidCertificates=True)
     database_name = "new_database"
     database = client[database_name]
     collection = database["new_collection"]

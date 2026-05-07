@@ -1,6 +1,6 @@
 # Summary
 
-<!-- Enter your issue summary here.-->
+<!-- Enter your PR summary here. Try to emphasize on WHY this change is needed, followed by what's being done in the PR. -->
 
 ## Proof of Work
 

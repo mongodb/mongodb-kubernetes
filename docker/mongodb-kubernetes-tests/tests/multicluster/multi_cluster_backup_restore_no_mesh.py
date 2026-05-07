@@ -19,7 +19,7 @@ from kubetester import (
 from kubetester.certs import create_ops_manager_tls_certs
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.kubetester import skip_if_local
+from kubetester.kubetester import run_periodically, skip_if_local
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_multi import MongoDBMulti
 from kubetester.mongodb_user import MongoDBUser
@@ -65,8 +65,10 @@ def ops_manager_certs(
 
 def create_project_config_map(om: MongoDBOpsManager, mdb_name, project_name, client, custom_ca):
     name = f"{mdb_name}-config"
-    data = {
-        "baseUrl": om.om_status().get_url(),
+    base_url = om.om_status().get_url()
+    assert base_url is not None, "OpsManager URL must not be None"
+    data: dict[str, str] = {
+        "baseUrl": base_url,
         "projectName": project_name,
         "sslMMSCAConfigMap": custom_ca,
         "orgId": "",
@@ -151,7 +153,8 @@ def oplog_replica_set(
     resource["spec"]["security"] = {"authentication": {"enabled": True, "modes": ["SCRAM"]}}
 
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    yield resource.update()
+    try_load(resource)
+    return resource
 
 
 @fixture(scope="module")
@@ -180,7 +183,8 @@ def blockstore_replica_set(
 
     resource.set_version(custom_mdb_version)
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    yield resource.update()
+    try_load(resource)
+    return resource
 
 
 @fixture(scope="module")
@@ -204,7 +208,8 @@ def blockstore_user(
     )
 
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    yield resource.update()
+    try_load(resource)
+    return resource
 
 
 @fixture(scope="module")
@@ -234,7 +239,8 @@ def oplog_user(
     )
 
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    yield resource.update()
+    try_load(resource)
+    return resource
 
 
 @fixture(scope="module")
@@ -379,10 +385,13 @@ class TestBackupDatabasesAdded:
         blockstore_replica_set: MongoDB,
     ):
         """Creates mongodb databases all at once"""
+        oplog_replica_set.update()
         oplog_replica_set.assert_reaches_phase(Phase.Running)
+        blockstore_replica_set.update()
         blockstore_replica_set.assert_reaches_phase(Phase.Running)
 
     def test_oplog_user_created(self, oplog_user: MongoDBUser):
+        oplog_user.update()
         oplog_user.assert_reaches_phase(Phase.Updated)
 
     def test_om_failed_oplog_no_user_ref(self, ops_manager: MongoDBOpsManager):
@@ -452,9 +461,9 @@ class TestBackupForMongodb:
             external=True,
         )
 
-        collection = pymongo.MongoClient(tester.cnx_string, **tester.default_opts)["testdb"]
+        db: pymongo.database.Database = pymongo.MongoClient(tester.cnx_string, **tester.default_opts)["testdb"]
 
-        return collection["testcollection"]
+        return db["testcollection"]
 
     @fixture(scope="module")
     def mongodb_multi_one(
@@ -572,7 +581,8 @@ class TestBackupForMongodb:
             api_client=central_cluster_client,
         )
 
-        return resource.update()
+        try_load(resource)
+        return resource
 
     @mark.e2e_multi_cluster_backup_restore_no_mesh
     def test_setup_om_connection(
@@ -619,21 +629,22 @@ class TestBackupForMongodb:
 
     @mark.e2e_multi_cluster_backup_restore_no_mesh
     def test_mongodb_multi_one_running_state(self, mongodb_multi_one: MongoDBMulti):
+        mongodb_multi_one.update()
         # we might fail connection in the beginning since we set a custom dns in coredns
         mongodb_multi_one.assert_reaches_phase(Phase.Running, ignore_errors=True, timeout=1500)
 
     @skip_if_local
     @mark.e2e_multi_cluster_backup_restore_no_mesh
     def test_add_test_data(self, mongodb_multi_one_collection):
-        max_attempts = 100
-        while max_attempts > 0:
+        def insert_test_data():
             try:
                 mongodb_multi_one_collection.insert_one(TEST_DATA)
-                return
+                return True
             except Exception as e:
                 print(e)
-                max_attempts -= 1
-                time.sleep(6)
+                return False
+
+        run_periodically(insert_test_data, timeout=600, msg="test data insertion")
 
     @mark.e2e_multi_cluster_backup_restore_no_mesh
     def test_mdb_backed_up(self, project_one: OMTester):
@@ -641,17 +652,17 @@ class TestBackupForMongodb:
 
     @mark.e2e_multi_cluster_backup_restore_no_mesh
     def test_change_mdb_data(self, mongodb_multi_one_collection):
-        now_millis = time_to_millis(datetime.datetime.now())
+        now_millis = time_to_millis(datetime.datetime.now(tz=datetime.timezone.utc))
         print("\nCurrent time (millis): {}".format(now_millis))
         time.sleep(30)
         mongodb_multi_one_collection.insert_one({"foo": "bar"})
 
     @mark.e2e_multi_cluster_backup_restore_no_mesh
     def test_pit_restore(self, project_one: OMTester):
-        now_millis = time_to_millis(datetime.datetime.now())
+        now_millis = time_to_millis(datetime.datetime.now(tz=datetime.timezone.utc))
         print("\nCurrent time (millis): {}".format(now_millis))
 
-        pit_datetme = datetime.datetime.now() - datetime.timedelta(seconds=15)
+        pit_datetme = datetime.datetime.now(tz=datetime.timezone.utc) - datetime.timedelta(seconds=15)
         pit_millis = time_to_millis(pit_datetme)
         print("Restoring back to the moment 15 seconds ago (millis): {}".format(pit_millis))
 
@@ -672,6 +683,6 @@ class TestBackupForMongodb:
 
 def time_to_millis(date_time) -> int:
     """https://stackoverflow.com/a/11111177/614239"""
-    epoch = datetime.datetime.utcfromtimestamp(0)
+    epoch = datetime.datetime.fromtimestamp(0, tz=datetime.timezone.utc)
     pit_millis = (date_time - epoch).total_seconds() * 1000
     return pit_millis

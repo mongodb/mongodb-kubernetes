@@ -1,3 +1,5 @@
+//go:build community_e2e
+
 package replica_set_operator_upgrade
 
 import (
@@ -63,7 +65,7 @@ func TestReplicaSetOperatorUpgradeMCOToMCK(t *testing.T) {
 
 	// Step 3: Install the new MCK chart
 	t.Log("Step 2: Installing MCK operator")
-	err = setup.DeployMCKOperator(ctx, t, testConfig, resourceName, false, false, setup.HelmArg{
+	err = setup.DeployMCKOperator(ctx, t, testConfig, false, false, setup.HelmArg{
 		Name:  "operator.name",
 		Value: setup.MCKHelmChartAndDeploymentName,
 	})
@@ -142,7 +144,7 @@ func TestReplicaSetOperatorUpgrade(t *testing.T) {
 
 	// upgrade the operator to master
 	config := setup.LoadTestConfigFromEnv()
-	err = setup.DeployMCKOperator(ctx, t, config, resourceName, true, false)
+	err = setup.DeployMCKOperator(ctx, t, config, true, false)
 	assert.NoError(t, err)
 
 	// Perform the basic tests
@@ -203,7 +205,7 @@ func TestReplicaSetOperatorUpgradeFrom0_7_2(t *testing.T) {
 	// rescale helm operator deployment to zero and run local operator then.
 
 	testConfig = setup.LoadTestConfigFromEnv()
-	err = setup.DeployMCKOperator(ctx, t, testConfig, resourceName, true, false)
+	err = setup.DeployMCKOperator(ctx, t, testConfig, true, false)
 	assert.NoError(t, err)
 
 	runTests(t)

@@ -8,10 +8,7 @@ from kubetester.mongodb_multi import MongoDBMulti
 from kubetester.multicluster_client import MultiClusterClient
 from kubetester.operator import Operator
 from kubetester.phase import Phase
-from tests.conftest import (
-    run_kube_config_creation_tool,
-    run_multi_cluster_recovery_tool,
-)
+from tests.conftest import run_kube_config_creation_tool, run_multi_cluster_recovery_tool
 from tests.constants import MULTI_CLUSTER_OPERATOR_NAME
 from tests.multicluster.conftest import cluster_spec_list
 

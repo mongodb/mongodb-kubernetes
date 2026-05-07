@@ -16,9 +16,7 @@ def mdbc(namespace: str) -> MongoDBCommunity:
         namespace=namespace,
     )
 
-    if try_load(resource):
-        return resource
-
+    try_load(resource)
     return resource
 
 

@@ -171,6 +171,13 @@ func (m *MongoDB) GetOwnerLabels() map[string]string {
 	}
 }
 
+// GetKind returns the Kind of the MongoDB resource. This is needed because
+// when objects are retrieved from the Kubernetes API, the TypeMeta
+// (which contains Kind and APIVersion) is not populated.
+func (m *MongoDB) GetKind() string {
+	return "MongoDB"
+}
+
 // GetSecretsMountedIntoDBPod returns a list of all the optional secret names that are used by this resource.
 func (m *MongoDB) GetSecretsMountedIntoDBPod() []string {
 	secrets := []string{}
@@ -688,10 +695,10 @@ func (m *MongoDbSpec) GetClusterDomain() string {
 
 func (m *MongoDbSpec) MinimumMajorVersion() uint64 {
 	if m.FeatureCompatibilityVersion != nil && *m.FeatureCompatibilityVersion != "" {
-		fcv := *m.FeatureCompatibilityVersion
+		fcvString := *m.FeatureCompatibilityVersion
 
 		// ignore errors here as the format of FCV/version is handled by CRD validation
-		semverFcv, _ := semver.Make(fmt.Sprintf("%s.0", fcv))
+		semverFcv, _ := fcv.FeatureCompatibilityVersionToSemverFormat(fcvString)
 		return semverFcv.Major
 	}
 	semverVersion, _ := semver.Make(m.GetMongoDBVersion())
@@ -703,8 +710,6 @@ type ProjectConfig struct {
 	BaseURL     string
 	ProjectName string
 	OrgID       string
-	Credentials string
-	UseCustomCA bool
 	env.SSLProjectConfig
 }
 
@@ -1194,6 +1199,20 @@ func (m *MongoDB) GetLastSpec() (*MongoDbSpec, error) {
 	return &lastSpec, nil
 }
 
+func (m *MongoDB) GetLastConfiguredRoles() ([]string, error) {
+	lastRolesStr := annotations.GetAnnotation(m, util.LastConfiguredRoles)
+	if lastRolesStr == "" {
+		return nil, nil
+	}
+
+	lastRoles := []string{}
+	if err := json.Unmarshal([]byte(lastRolesStr), &lastRoles); err != nil {
+		return nil, err
+	}
+
+	return lastRoles, nil
+}
+
 func (m *MongoDB) ServiceName() string {
 	if m.Spec.StatefulSetConfiguration != nil {
 		svc := m.Spec.StatefulSetConfiguration.SpecWrapper.Spec.ServiceName
@@ -1229,6 +1248,14 @@ func (m *MongoDB) ShardRsName(i int) string {
 	// Unfortunately the pattern used by OM (name_idx) doesn't work as Kubernetes doesn't create the stateful set with an
 	// exception: "a DNS-1123 subdomain must consist of lower case alphanumeric characters, '-' or '.'"
 	return fmt.Sprintf("%s-%d", m.Name, i)
+}
+
+func (m *MongoDB) ShardRsNames() []string {
+	names := make([]string, m.Spec.ShardCount)
+	for i := range m.Spec.ShardCount {
+		names[i] = m.ShardRsName(i)
+	}
+	return names
 }
 
 func (m *MongoDB) MultiShardRsName(clusterIdx int, shardIdx int) string {
@@ -1649,6 +1676,14 @@ func (m *MongoDB) GetAuthenticationModes() []string {
 
 func (m *MongoDB) CalculateFeatureCompatibilityVersion() string {
 	return fcv.CalculateFeatureCompatibilityVersion(m.Spec.Version, m.Status.FeatureCompatibilityVersion, m.Spec.FeatureCompatibilityVersion)
+}
+
+func (m *MongoDB) ShardNames() []string {
+	shardNames := make([]string, m.Spec.ShardCount)
+	for shardIdx := 0; shardIdx < m.Spec.ShardCount; shardIdx++ {
+		shardNames[shardIdx] = m.ShardRsName(shardIdx)
+	}
+	return shardNames
 }
 
 func (m *MongoDbSpec) IsInChangeVersion(lastSpec *MongoDbSpec) bool {

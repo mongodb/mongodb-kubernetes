@@ -25,6 +25,7 @@ variables:
       - ecr_registry_needs_auth
       - execution
       - github_commit
+      - github_pr_head_branch
       - image_name
       - is_patch
       - mms_eng_test_aws_access_key
@@ -50,6 +51,8 @@ variables:
       - VERSION_UPGRADE_HOOK_VERSION
       - BUILD_SCENARIO
       - MDB_BASH_DEBUG
+      - AI_MONGODB_EMBEDDING_INDEXING_KEY
+      - AI_MONGODB_EMBEDDING_QUERY_KEY
 
 functions:
 
@@ -58,6 +61,7 @@ functions:
   setup_jq: &setup_jq
     command: subprocess.exec
     type: setup
+    retry_on_failure: true
     params:
       <<: *e2e_include_expansions_in_env
       add_to_path:
@@ -94,6 +98,7 @@ functions:
   python_venv: &python_venv
     command: subprocess.exec
     type: setup
+    retry_on_failure: true
     params:
       working_dir: src/github.com/mongodb/mongodb-kubernetes
       command: scripts/dev/recreate_python_venv.sh
@@ -121,22 +126,15 @@ functions:
   setup_kubectl: &setup_kubectl
     command: subprocess.exec
     type: setup
+    retry_on_failure: true
     params:
       working_dir: src/github.com/mongodb/mongodb-kubernetes
       binary: scripts/evergreen/setup_kubectl.sh
 
-  setup_shellcheck:
-    command: subprocess.exec
-    type: setup
-    params:
-      working_dir: src/github.com/mongodb/mongodb-kubernetes
-      add_to_path:
-        - ${workdir}/bin
-      binary: scripts/evergreen/setup_shellcheck.sh
-
   setup_aws: &setup_aws
     command: subprocess.exec
     type: setup
+    retry_on_failure: true
     params:
       working_dir: src/github.com/mongodb/mongodb-kubernetes
       add_to_path:
@@ -146,6 +144,7 @@ functions:
   setup_gcloud_cli:
     command: subprocess.exec
     type: setup
+    retry_on_failure: true
     params:
       working_dir: src/github.com/mongodb/mongodb-kubernetes
       include_expansions_in_env:
@@ -157,6 +156,7 @@ functions:
   setup_mongosh:
     command: subprocess.exec
     type: setup
+    retry_on_failure: true
     params:
       working_dir: src/github.com/mongodb/mongodb-kubernetes
       add_to_path:
@@ -167,6 +167,7 @@ functions:
   setup_kind: &setup_kind
     command: subprocess.exec
     type: setup
+    retry_on_failure: true
     params:
       working_dir: src/github.com/mongodb/mongodb-kubernetes
       add_to_path:
@@ -201,6 +202,7 @@ functions:
   install_olm:
     - command: subprocess.exec
       type: setup
+      retry_on_failure: true
       params:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         add_to_path:
@@ -223,23 +225,39 @@ functions:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         binary: scripts/evergreen/setup_docker_sbom.sh
 
-  helm_registry_login:
+  helm_registry_login_prod: &helm_registry_login_prod
     command: subprocess.exec
     type: setup
+    retry_on_failure: true
     params:
       working_dir: src/github.com/mongodb/mongodb-kubernetes
-      include_expansions_in_env:
-        - quay_prod_username
-        - quay_prod_robot_token
       add_to_path:
         - ${workdir}/bin
         - ${PROJECT_DIR}/bin
+      env:
+        QUAY_USERNAME: ${quay_prod_username}
+        QUAY_PASSWORD: ${quay_prod_robot_token}
+      binary: scripts/release/helm_registry_login.sh
+
+  helm_registry_login_staging: &helm_registry_login_staging
+    command: subprocess.exec
+    type: setup
+    retry_on_failure: true
+    params:
+      working_dir: src/github.com/mongodb/mongodb-kubernetes
+      add_to_path:
+        - ${workdir}/bin
+        - ${PROJECT_DIR}/bin
+      env:
+        QUAY_USERNAME: ${quay_staging_username}
+        QUAY_PASSWORD: ${quay_staging_robot_token}
       binary: scripts/release/helm_registry_login.sh
 
   # Logs into all used registries
   configure_docker_auth: &configure_docker_auth
     command: subprocess.exec
     type: setup
+    retry_on_failure: true
     params:
       working_dir: src/github.com/mongodb/mongodb-kubernetes
       add_to_path:
@@ -249,6 +267,7 @@ functions:
   setup_evg_host: &setup_evg_host
     command: subprocess.exec
     type: setup
+    retry_on_failure: true
     params:
       working_dir: src/github.com/mongodb/mongodb-kubernetes
       add_to_path:
@@ -294,10 +313,10 @@ functions:
   setup_building_host_minikube:
     - command: subprocess.exec
       type: setup
+      retry_on_failure: true
       params:
         env:
           SKIP_MINIKUBE_SETUP: ${skip_minikube_setup!|false}
-          SKIP_INSTALL_REQUIREMENTS: ${skip_install_python_requirements!|true}
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         add_to_path:
           - ${workdir}/bin
@@ -339,6 +358,7 @@ functions:
   setup_kubernetes_environment_p: &setup_kubernetes_environment_p
     command: subprocess.exec
     type: setup
+    retry_on_failure: true
     params:
       working_dir: src/github.com/mongodb/mongodb-kubernetes
       add_to_path:
@@ -349,6 +369,47 @@ functions:
     - *setup_kubernetes_environment_p
     # After setting up KUBE, we need to update the KUBECONFIG and other env vars.
     - *switch_context
+
+  setup_gh: &setup_gh
+    command: subprocess.exec
+    type: setup
+    retry_on_failure: true
+    params:
+      working_dir: src/github.com/mongodb/mongodb-kubernetes
+      add_to_path:
+        - ${workdir}/bin
+      include_expansions_in_env:
+        - workdir
+      binary: scripts/evergreen/setup_gh.sh
+
+  # Downloads the oc binary and logs into the OpenShift cluster.
+  setup_openshift_client:
+    command: subprocess.exec
+    type: setup
+    retry_on_failure: true
+    params:
+      working_dir: src/github.com/mongodb/mongodb-kubernetes
+      add_to_path:
+        - ${workdir}/bin
+      include_expansions_in_env:
+        - workdir
+      env:
+        OPENSHIFT_TOKEN: ${openshift_token}
+        OPENSHIFT_URL: ${openshift_url}
+      binary: scripts/evergreen/setup_openshift_client.sh
+
+  # Checks whether the live OpenShift cluster version matches kubernetes-versions.json.
+  # On mismatch, opens a PR to update the file (if one doesn't already exist).
+  check_ocp_version_drift:
+    command: subprocess.exec
+    type: test
+    params:
+      working_dir: src/github.com/mongodb/mongodb-kubernetes
+      add_to_path:
+        - ${workdir}/bin
+      env:
+        GH_TOKEN: ${GH_TOKEN}
+      binary: scripts/check-ocp-version-drift.sh
 
   # cleanup_exec_environment is a very generic name when the only thing this function
   # does is to clean the logs directory. In the future, more "commands" can be
@@ -364,12 +425,25 @@ functions:
   quay_login:
     - command: subprocess.exec
       type: setup
+      retry_on_failure: true
       params:
         command: "docker login quay.io -u ${quay_prod_username} -p ${quay_prod_robot_token}"
+
+  quay_staging_login:
+    - command: subprocess.exec
+      type: setup
+      retry_on_failure: true
+      params:
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        env:
+          QUAY_STAGING_USERNAME: ${quay_staging_username}
+          QUAY_STAGING_PASSWORD: ${quay_staging_robot_token}
+        binary: scripts/release/quay_staging_login.sh
 
   setup_cloud_qa:
     - command: shell.exec
       type: setup
+      retry_on_failure: true
       params:
         shell: bash
         working_dir: src/github.com/mongodb/mongodb-kubernetes
@@ -396,29 +470,6 @@ functions:
           - bin
         binary: scripts/evergreen/e2e/dump_diagnostic_information_from_all_namespaces.sh
 
-  ### Publish and release image ###
-
-  # Tags and pushes an image into an external Docker registry. The source image
-  # needs to exist before it can be pushed to a remote registry.
-  # It is expected that IMAGE_SOURCE is accessible with no authentication (like a
-  # local image), and the IMAGE_TARGET will be authenticated with DOCKER_* series of
-  # environment variables.
-  release_docker_image_to_registry:
-    - command: subprocess.exec
-      type: system
-      params:
-        working_dir: src/github.com/mongodb/mongodb-kubernetes
-        add_to_path:
-          - ${workdir}/bin
-        include_expansions_in_env:
-          - tag_source
-          - tag_dest
-          - image_source
-          - image_target
-          - docker_username
-          - docker_password
-        binary: scripts/evergreen/tag_push_docker_image.sh
-
   #
   # Performs some AWS cleanup
   #
@@ -431,39 +482,26 @@ functions:
         - ${workdir}/bin
       command: scripts/evergreen/prepare_aws.sh
 
-  build-dockerfiles:
-    - command: subprocess.exec
-      type: setup
-      params:
-        add_to_path:
-          - ${workdir}/bin
-        working_dir: src/github.com/mongodb/mongodb-kubernetes
-        binary: scripts/dev/run_python.sh scripts/update_supported_dockerfiles.py
-    - command: subprocess.exec
-      type: setup
-      params:
-        working_dir: src/github.com/mongodb/mongodb-kubernetes
-        include_expansions_in_env:
-          - triggered_by_git_tag
-        # if you ever change the target folder structure, the same needs to be reflected in PCT
-        command: "tar -czvf ./public/dockerfiles-${triggered_by_git_tag}.tgz ./public/dockerfiles"
-
-  enable_QEMU:
-    - command: shell.exec
-      type: setup
-      params:
-        shell: bash
-        working_dir: src/github.com/mongodb/mongodb-kubernetes
-        script: |
-          echo "Enabling QEMU building for Docker"
-          docker run --rm --privileged 268558157000.dkr.ecr.eu-west-1.amazonaws.com/docker-hub-mirrors/multiarch/qemu-user-static --reset -p yes
-
   # upload_e2e_logs has the responsibility of dumping as much information as
   # possible into the S3 bucket that corresponds to this ${version}. The
   # Kubernetes cluster where the test finished running, should still be
   # reachable. Note that after a timeout, Evergreen kills the running process
   # and any running container in the host (which kills Kind).
   upload_e2e_logs:
+    # Upload HTML reports with proper content type so they render in browser
+    - command: s3.put
+      params:
+        continue_on_err: true
+        aws_key: ${enterprise_aws_access_key_id}
+        aws_secret: ${enterprise_aws_secret_access_key}
+        local_files_include_filter:
+          - src/github.com/mongodb/mongodb-kubernetes/logs/*.html
+        remote_file: logs/${task_id}/${execution}/
+        bucket: operator-e2e-artifacts
+        permissions: private
+        visibility: signed
+        content_type: text/html
+    # Upload all other log files as plain text
     - command: s3.put
       params:
         continue_on_err: true
@@ -476,6 +514,7 @@ functions:
         permissions: private
         visibility: signed
         content_type: text/plain
+        skip_existing: true  # Don't overwrite HTML files already uploaded with correct content type
     - command: attach.xunit_results
       params:
         continue_on_err: true
@@ -500,13 +539,50 @@ functions:
   preflight_image:
     - command: subprocess.exec
       params:
+        shell: bash
+        <<: *e2e_include_expansions_in_env
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         add_to_path:
           - ${workdir}/bin
-        include_expansions_in_env:
-          - image_version
-          - rh_pyxis
-        binary: scripts/dev/run_python.sh scripts/preflight_images.py --image ${image_name} --submit "${preflight_submit}"
+        binary: scripts/dev/run_python.sh
+        args:
+          - scripts/preflight_images.py
+          - --image
+          - ${image_name}
+          - --version
+          - ${mongodbOperator}
+          - --submit
+          - ${preflight_submit}
+
+  # Same OM/agent versions as scripts/release/release_om_and_agents.py (after that task on master).
+  run_preflight_om_and_agents:
+    - command: subprocess.exec
+      params:
+        shell: bash
+        <<: *e2e_include_expansions_in_env
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        add_to_path:
+          - ${workdir}/bin
+        binary: scripts/dev/run_python.sh scripts/evergreen/preflight_om_and_agents.py
+        env:
+          PREFLIGHT_SUBMIT: ${preflight_submit}
+
+  # Preflight all mongodb-enterprise-server tags from Quay (no fixed version - scans dynamically).
+  preflight_enterprise_server:
+    - command: subprocess.exec
+      params:
+        shell: bash
+        <<: *e2e_include_expansions_in_env
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        add_to_path:
+          - ${workdir}/bin
+        binary: scripts/dev/run_python.sh
+        args:
+          - scripts/preflight_images.py
+          - --image
+          - mongodb-enterprise-server
+          - --submit
+          - ${preflight_submit}
 
   # publish_helm_chart packages and publishes the MCK helm chart to the OCI container registry
   publish_helm_chart:
@@ -546,6 +622,8 @@ functions:
           IMAGE_NAME: ${image_name}
           BUILD_SCENARIO_OVERRIDE: ${build_scenario}
           FLAGS: ${flags}
+          AGENT_VERSION_OVERRIDE: ${agent_version}
+          AGENT_TOOLS_VERSION: ${agent_tools_version}
 
   teardown_cloud_qa_all:
     - command: shell.exec
@@ -624,6 +702,7 @@ functions:
   e2e_test:
     - command: subprocess.exec
       type: test
+      retry_on_failure: true
       params:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         include_expansions_in_env:
@@ -634,6 +713,8 @@ functions:
           - github_pr_number
           - project_identifier
           - revision_order_id
+          - AI_MONGODB_EMBEDDING_INDEXING_KEY
+          - AI_MONGODB_EMBEDDING_QUERY_KEY
         add_to_path:
           - ${workdir}/bin
         binary: scripts/evergreen/e2e/e2e.sh
@@ -641,6 +722,7 @@ functions:
   e2e_test_perf:
     - command: subprocess.exec
       type: test
+      retry_on_failure: true
       params:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         include_expansions_in_env:
@@ -662,19 +744,19 @@ functions:
   test_golang_unit:
     - command: shell.exec
       type: test
+      retry_on_failure: true
       params:
         shell: bash
         working_dir: src/github.com/mongodb/mongodb-kubernetes
-        script: |
-          source .generated/context.export.env
-          make test-race
-    - command: gotest.parse_files
-      params:
-        files: [ "src/github.com/mongodb/mongodb-kubernetes/*.suite", "src/github.com/mongodb/mongodb-kubernetes/docker/mongodb-kubernetes-init-ops-manager/mmsconfiguration/*.suite" ]
+        env:
+          USE_RACE: "true"
+          USE_COVERAGE: "true"
+        script: scripts/evergreen/unit-tests-golang.sh
 
   test_helm_unit:
     - command: shell.exec
       type: test
+      retry_on_failure: true
       params:
         shell: bash
         working_dir: src/github.com/mongodb/mongodb-kubernetes
@@ -685,22 +767,28 @@ functions:
   test_python_unit:
     - command: shell.exec
       type: test
+      retry_on_failure: true
       params:
         shell: bash
         working_dir: src/github.com/mongodb/mongodb-kubernetes
-        script: |
-          source .generated/context.export.env
-          make python-tests
+        script: scripts/evergreen/unit-tests-python.sh
 
-  test_sboms:
+  test_python_sbom:
+    - command: shell.exec
+      type: test
+      retry_on_failure: true
+      params:
+        shell: bash
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        script: scripts/evergreen/unit-tests-sbom.sh
+
+  test_go_bump_policy:
     - command: shell.exec
       type: test
       params:
         shell: bash
         working_dir: src/github.com/mongodb/mongodb-kubernetes
-        script: |
-          source .generated/context.export.env
-          make sbom-tests
+        script: scripts/test-check-go-bump-policy-examples.sh
 
   generate_perf_tests_tasks:
     - command: shell.exec
@@ -719,21 +807,6 @@ functions:
           - evergreen_tasks.json
 
   ### Other ###
-
-  run_retry_script:
-    - command: shell.exec
-      type: test
-      params:
-        shell: bash
-        working_dir: src/github.com/mongodb/mongodb-kubernetes
-        include_expansions_in_env:
-          - EVERGREEN_API_KEY
-          - EVERGREEN_USER
-          - evergreen_retry
-        env:
-          EVERGREEN_RETRY: ${evergreen_retry}
-        script: |
-          scripts/evergreen/retry-evergreen.sh ${version_id}
 
   # This is a generic function for conditionally running given task.
   # It works by appending <task> to <variant> if <condition_script> returns no error.
@@ -793,6 +866,8 @@ functions:
           - code_snippets_reset
           - task_name
           - MDB_BASH_DEBUG
+          - AI_MONGODB_EMBEDDING_INDEXING_KEY
+          - AI_MONGODB_EMBEDDING_QUERY_KEY
         add_to_path:
           - ${workdir}/bin
         script: |
@@ -828,6 +903,20 @@ functions:
           GH_TOKEN: ${GH_TOKEN}
         binary: scripts/dev/run_python.sh scripts/release/create_chart_release_pr.py --chart_version ${OPERATOR_VERSION|*triggered_by_git_tag}
 
+  add_releaseinfo_to_github_assets:
+    - command: github.generate_token
+      params:
+        expansion_name: GH_TOKEN
+    - command: subprocess.exec
+      type: setup
+      params:
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        include_expansions_in_env:
+          - OPERATOR_VERSION
+        env:
+          GH_TOKEN: ${GH_TOKEN}
+        binary: scripts/dev/run_python.sh scripts/release/release_info.py --version ${OPERATOR_VERSION|*triggered_by_git_tag}
+
   release_kubectl_mongodb_plugin:
     - command: github.generate_token
       params:
@@ -855,3 +944,16 @@ functions:
           MACOS_NOTARY_SECRET: ${macos_notary_secret}
           GH_TOKEN: ${GH_TOKEN}
         binary: scripts/dev/run_python.sh scripts/release/kubectl_mongodb/promote_kubectl_plugin.py
+
+  # Notify Slack channel about master build failures
+  notify_master_failures:
+    - command: subprocess.exec
+      type: setup
+      params:
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        include_expansions_in_env:
+          - EVERGREEN_USER
+          - EVERGREEN_API_KEY
+          - SLACK_WEBHOOK_URL
+          - version_id
+        binary: scripts/dev/run_python.sh scripts/evergreen/notify_master_failures.py

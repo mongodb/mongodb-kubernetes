@@ -14,6 +14,7 @@ runs:
     - name: Install dependencies
       shell: bash
       run: |
+        sudo apt-get update
         sudo apt-get install libldap2-dev libsasl2-dev # Required for python-ldap
         pip install --upgrade pip
         pip install -r requirements.txt

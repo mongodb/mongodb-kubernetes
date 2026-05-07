@@ -492,16 +492,8 @@ func (m *AppDBSpec) GetMemberClusterSpecByName(memberClusterName string) mdbv1.C
 		}
 	}
 
-	// In case the member cluster is not found in the cluster spec list, we return an empty ClusterSpecItem
-	// with 0 members to handle the case of removing a cluster from the spec list without a panic.
-	//
-	// This is not ideal, because we don't consider other fields that were removed i.e.MemberConfig.
-	// When scaling down we should consider the full spec that was used to create the cluster.
-	// https://jira.mongodb.org/browse/CLOUDP-349925
-	return mdbv1.ClusterSpecItem{
-		ClusterName: memberClusterName,
-		Members:     0,
-	}
+	// It should never occur - we preprocess all clusterSpecLists
+	panic(fmt.Errorf("cluster with name %s could not be found in AppDB's clusterSpecList", memberClusterName))
 }
 
 func (m *AppDBSpec) BuildConnectionURL(username, password string, scheme connectionstring.Scheme, connectionParams map[string]string, multiClusterHostnames []string) string {

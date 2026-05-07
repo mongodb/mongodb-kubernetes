@@ -1,3 +1,5 @@
+//go:build community_e2e
+
 package replica_set_tls_rotate_delete_sts
 
 import (
@@ -25,7 +27,7 @@ func TestReplicaSetTLSRotateDeleteSts(t *testing.T) {
 	ctx := context.Background()
 	resourceName := "mdb-tls"
 
-	testCtx, testConfig := setup.SetupWithTLS(ctx, t, resourceName)
+	testCtx, testConfig := setup.SetupWithTLS(ctx, t, resourceName, true, false)
 	defer testCtx.Teardown()
 
 	mdb, user := e2eutil.NewTestMongoDB(testCtx, resourceName, testConfig.Namespace)

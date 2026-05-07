@@ -48,12 +48,15 @@ variables:
         variant: init_test_run
       - name: build_test_image
         variant: init_test_run
-      - name: build_init_appdb_images_ubi
-        variant: init_test_run
       - name: build_init_om_images_ubi
         variant: init_test_run
       - name: build_agent_images_ubi
         variant: init_test_run
+      # Wait for OM images to be published to quay.io on commit builds (staging).
+      # On patch builds, this dependency is skipped (task doesn't exist).
+      - name: release_om_and_agents
+        variant: release_om_and_agents
+        patch_optional: true
 
 functions:
   upload_code_snippets_logs:
@@ -118,6 +121,30 @@ tasks:
       - func: test_code_snippets
       - func: archive_snippets_output
 
+  - name: test_kind_search_external_sharded_managed_lb_snippets.sh
+    tags: [ "code_snippets", "patch-run" ]
+    commands:
+      - func: test_code_snippets
+      - func: archive_snippets_output
+
+  - name: test_kind_search_sharded_managed_lb_snippets.sh
+    tags: [ "code_snippets", "patch-run" ]
+    commands:
+      - func: test_code_snippets
+      - func: archive_snippets_output
+
+  - name: test_kind_search_external_rs_managed_lb_snippets.sh
+    tags: [ "code_snippets", "patch-run" ]
+    commands:
+      - func: test_code_snippets
+      - func: archive_snippets_output
+
+  - name: test_kind_search_rs_managed_lb_snippets.sh
+    tags: [ "code_snippets", "patch-run" ]
+    commands:
+      - func: test_code_snippets
+      - func: archive_snippets_output
+
 task_groups:
   - name: gke_code_snippets_task_group
     <<: *setup_and_teardown_group_gke_code_snippets
@@ -133,6 +160,10 @@ task_groups:
       - test_kind_search_community_snippets.sh
       - test_kind_search_enterprise_snippets.sh
       - test_kind_search_external_mongod_snippets.sh
+      - test_kind_search_external_sharded_managed_lb_snippets.sh
+      - test_kind_search_sharded_managed_lb_snippets.sh
+      - test_kind_search_external_rs_managed_lb_snippets.sh
+      - test_kind_search_rs_managed_lb_snippets.sh
 
 buildvariants:
   # These variants are used to test the code snippets and each one can be used in patches

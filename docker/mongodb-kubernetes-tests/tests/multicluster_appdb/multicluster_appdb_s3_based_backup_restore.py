@@ -13,15 +13,8 @@ from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 from pymongo.errors import ServerSelectionTimeoutError
 from pytest import fixture, mark
-from tests.common.constants import (
-    MONGODB_PORT,
-    S3_BLOCKSTORE_NAME,
-    S3_OPLOG_NAME,
-    TEST_DATA,
-)
-from tests.common.ops_manager.multi_cluster import (
-    ops_manager_multi_cluster_with_tls_s3_backups,
-)
+from tests.common.constants import MONGODB_PORT, S3_BLOCKSTORE_NAME, S3_OPLOG_NAME, TEST_DATA
+from tests.common.ops_manager.multi_cluster import ops_manager_multi_cluster_with_tls_s3_backups
 from tests.conftest import assert_data_got_restored
 from tests.constants import AWS_REGION
 from tests.multicluster.conftest import cluster_spec_list
@@ -34,8 +27,10 @@ def appdb_member_cluster_names() -> list[str]:
 
 def create_project_config_map(om: MongoDBOpsManager, mdb_name, project_name, client, custom_ca):
     name = f"{mdb_name}-config"
-    data = {
-        "baseUrl": om.om_status().get_url(),
+    base_url = om.om_status().get_url()
+    assert base_url is not None, "OpsManager URL must not be None"
+    data: dict[str, str] = {
+        "baseUrl": base_url,
         "projectName": project_name,
         "sslMMSCAConfigMap": custom_ca,
         "orgId": "",
@@ -59,7 +54,8 @@ def multi_cluster_s3_replica_set(
     resource["spec"]["clusterSpecList"] = cluster_spec_list(appdb_member_cluster_names, [1, 2])
     resource.set_version(ensure_ent_version(custom_mdb_version))
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    yield resource.update()
+    try_load(resource)
+    return resource
 
 
 @fixture(scope="module")
@@ -87,9 +83,7 @@ def ops_manager(
     del resource["spec"]["security"]
     del resource["spec"]["applicationDatabase"]["security"]
 
-    if try_load(resource):
-        return resource
-
+    try_load(resource)
     return resource
 
 
@@ -127,6 +121,7 @@ class TestOpsManagerCreation:
         multi_cluster_s3_replica_set: MongoDBMulti,
         ops_manager: MongoDBOpsManager,
     ):
+        multi_cluster_s3_replica_set.update()
         multi_cluster_s3_replica_set.assert_reaches_phase(Phase.Running, timeout=1000)
 
         # configure metadatastore in om, use dedicate MDB instead of AppDB
@@ -167,12 +162,12 @@ class TestBackupForMongodb:
     @fixture(scope="module")
     def mongodb_multi_one_collection(self, mongodb_multi_one: MongoDBMulti):
         # we instantiate the pymongo client per test to avoid flakiness as the primary and secondary might swap
-        collection = pymongo.MongoClient(
+        db: pymongo.database.Database = pymongo.MongoClient(
             mongodb_multi_one.tester(port=MONGODB_PORT).cnx_string,
             **mongodb_multi_one.tester(port=MONGODB_PORT).default_opts,
         )["testdb"]
 
-        return collection["testcollection"]
+        return db["testcollection"]
 
     @fixture(scope="module")
     def mongodb_multi_one(
@@ -199,9 +194,11 @@ class TestBackupForMongodb:
         resource.configure_backup(mode="enabled")
         resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
 
-        return resource.update()
+        try_load(resource)
+        return resource
 
     def test_mongodb_multi_one_running_state(self, mongodb_multi_one: MongoDBMulti):
+        mongodb_multi_one.update()
         # we might fail connection in the beginning since we set a custom dns in coredns
         mongodb_multi_one.assert_reaches_phase(Phase.Running, ignore_errors=True, timeout=600)
 
@@ -213,16 +210,16 @@ class TestBackupForMongodb:
         project_one.wait_until_backup_snapshots_are_ready(expected_count=1)
 
     def test_change_mdb_data(self, mongodb_multi_one_collection):
-        now_millis = time_to_millis(datetime.datetime.now())
+        now_millis = time_to_millis(datetime.datetime.now(tz=datetime.timezone.utc))
         print("\nCurrent time (millis): {}".format(now_millis))
         time.sleep(30)
         mongodb_multi_one_collection.insert_one({"foo": "bar"})
 
     def test_pit_restore(self, project_one: OMTester):
-        now_millis = time_to_millis(datetime.datetime.now())
+        now_millis = time_to_millis(datetime.datetime.now(tz=datetime.timezone.utc))
         print("\nCurrent time (millis): {}".format(now_millis))
 
-        pit_datetme = datetime.datetime.now() - datetime.timedelta(seconds=15)
+        pit_datetme = datetime.datetime.now(tz=datetime.timezone.utc) - datetime.timedelta(seconds=15)
         pit_millis = time_to_millis(pit_datetme)
         print("Restoring back to the moment 15 seconds ago (millis): {}".format(pit_millis))
 
@@ -234,6 +231,6 @@ class TestBackupForMongodb:
 
 def time_to_millis(date_time) -> int:
     """https://stackoverflow.com/a/11111177/614239"""
-    epoch = datetime.datetime.utcfromtimestamp(0)
+    epoch = datetime.datetime.fromtimestamp(0, tz=datetime.timezone.utc)
     pit_millis = (date_time - epoch).total_seconds() * 1000
     return pit_millis

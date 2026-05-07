@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -48,7 +48,7 @@ func TestBuildService(t *testing.T) {
 
 	assert.Len(t, svc.OwnerReferences, 1)
 	assert.Equal(t, mdb.Name, svc.OwnerReferences[0].Name)
-	assert.Equal(t, mdb.GetObjectKind().GroupVersionKind().Kind, svc.OwnerReferences[0].Kind)
+	assert.Equal(t, "MongoDB", svc.OwnerReferences[0].Kind)
 	assert.Equal(t, mock.TestNamespace, svc.Namespace)
 	assert.Equal(t, "my-svc", svc.Name)
 	assert.Equal(t, "loadbalancerip", svc.Spec.LoadBalancerIP)
@@ -67,7 +67,7 @@ func TestBuildService(t *testing.T) {
 
 	assert.Len(t, svc.OwnerReferences, 1)
 	assert.Equal(t, mdb.Name, svc.OwnerReferences[0].Name)
-	assert.Equal(t, mdb.GetObjectKind().GroupVersionKind().Kind, svc.OwnerReferences[0].Kind)
+	assert.Equal(t, "MongoDB", svc.OwnerReferences[0].Kind)
 	assert.Equal(t, mock.TestNamespace, svc.Namespace)
 	assert.Equal(t, "my-svc", svc.Name)
 	assert.Equal(t, "loadbalancerip", svc.Spec.LoadBalancerIP)
@@ -102,8 +102,9 @@ func TestOpsManagerInKubernetes_InternalConnectivityOverride(t *testing.T) {
 	sts, err := construct.OpsManagerStatefulSet(ctx, secretsClient, testOm, memberCluster, zap.S())
 	assert.NoError(t, err)
 
-	err = OpsManagerInKubernetes(ctx, memberCluster, testOm, sts, zap.S())
+	mutatedSts, err := OpsManagerInKubernetes(ctx, memberCluster, testOm, sts, zap.S())
 	assert.NoError(t, err)
+	assert.NotNil(t, mutatedSts)
 
 	svc, err := fakeClient.GetService(ctx, kube.ObjectKey(testOm.Namespace, testOm.SvcName()))
 	assert.NoError(t, err, "Internal service exists")
@@ -141,8 +142,9 @@ func TestOpsManagerInKubernetes_DefaultInternalServiceForMultiCluster(t *testing
 	sts, err := construct.OpsManagerStatefulSet(ctx, secretsClient, testOm, memberCluster, zap.S())
 	assert.NoError(t, err)
 
-	err = OpsManagerInKubernetes(ctx, memberCluster, testOm, sts, zap.S())
+	mutatedSts, err := OpsManagerInKubernetes(ctx, memberCluster, testOm, sts, zap.S())
 	assert.NoError(t, err)
+	assert.NotNil(t, mutatedSts)
 
 	svc, err := fakeClient.GetService(ctx, kube.ObjectKey(testOm.Namespace, testOm.SvcName()))
 	assert.NoError(t, err, "Internal service exists")
@@ -201,6 +203,7 @@ func TestOpsManagerInKubernetes_ClusterSpecificExternalConnectivity(t *testing.T
 						OwnerReferences: []metav1.OwnerReference{
 							{
 								APIVersion:         "mongodb.com/v1",
+								Kind:               "MongoDBOpsManager",
 								Name:               "test-om",
 								Controller:         ptr.To(true),
 								BlockOwnerDeletion: ptr.To(true),
@@ -227,7 +230,7 @@ func TestOpsManagerInKubernetes_ClusterSpecificExternalConnectivity(t *testing.T
 							util.OperatorLabelName: util.OperatorLabelValue,
 						},
 						Type:                     corev1.ServiceTypeNodePort,
-						PublishNotReadyAddresses: true,
+						PublishNotReadyAddresses: false,
 					},
 				},
 				memberClusterName3: {
@@ -242,6 +245,7 @@ func TestOpsManagerInKubernetes_ClusterSpecificExternalConnectivity(t *testing.T
 						OwnerReferences: []metav1.OwnerReference{
 							{
 								APIVersion:         "mongodb.com/v1",
+								Kind:               "MongoDBOpsManager",
 								Name:               "test-om",
 								Controller:         ptr.To(true),
 								BlockOwnerDeletion: ptr.To(true),
@@ -268,7 +272,7 @@ func TestOpsManagerInKubernetes_ClusterSpecificExternalConnectivity(t *testing.T
 						},
 						Type:                     corev1.ServiceTypeLoadBalancer,
 						LoadBalancerIP:           "10.10.10.1",
-						PublishNotReadyAddresses: true,
+						PublishNotReadyAddresses: false,
 					},
 				},
 			},
@@ -318,6 +322,7 @@ func TestOpsManagerInKubernetes_ClusterSpecificExternalConnectivity(t *testing.T
 						OwnerReferences: []metav1.OwnerReference{
 							{
 								APIVersion:         "mongodb.com/v1",
+								Kind:               "MongoDBOpsManager",
 								Name:               "test-om",
 								Controller:         ptr.To(true),
 								BlockOwnerDeletion: ptr.To(true),
@@ -344,7 +349,7 @@ func TestOpsManagerInKubernetes_ClusterSpecificExternalConnectivity(t *testing.T
 							util.OperatorLabelName: util.OperatorLabelValue,
 						},
 						Type:                     corev1.ServiceTypeNodePort,
-						PublishNotReadyAddresses: true,
+						PublishNotReadyAddresses: false,
 					},
 				},
 				memberClusterName2: {
@@ -359,6 +364,7 @@ func TestOpsManagerInKubernetes_ClusterSpecificExternalConnectivity(t *testing.T
 						OwnerReferences: []metav1.OwnerReference{
 							{
 								APIVersion:         "mongodb.com/v1",
+								Kind:               "MongoDBOpsManager",
 								Name:               "test-om",
 								Controller:         ptr.To(true),
 								BlockOwnerDeletion: ptr.To(true),
@@ -388,7 +394,7 @@ func TestOpsManagerInKubernetes_ClusterSpecificExternalConnectivity(t *testing.T
 						},
 						Type:                     corev1.ServiceTypeLoadBalancer,
 						LoadBalancerIP:           "20.20.20.2",
-						PublishNotReadyAddresses: true,
+						PublishNotReadyAddresses: false,
 					},
 				},
 				memberClusterName3: {
@@ -403,6 +409,7 @@ func TestOpsManagerInKubernetes_ClusterSpecificExternalConnectivity(t *testing.T
 						OwnerReferences: []metav1.OwnerReference{
 							{
 								APIVersion:         "mongodb.com/v1",
+								Kind:               "MongoDBOpsManager",
 								Name:               "test-om",
 								Controller:         ptr.To(true),
 								BlockOwnerDeletion: ptr.To(true),
@@ -429,7 +436,7 @@ func TestOpsManagerInKubernetes_ClusterSpecificExternalConnectivity(t *testing.T
 						},
 						Type:                     corev1.ServiceTypeLoadBalancer,
 						LoadBalancerIP:           "10.10.10.1",
-						PublishNotReadyAddresses: true,
+						PublishNotReadyAddresses: false,
 					},
 				},
 			},
@@ -476,8 +483,9 @@ func TestOpsManagerInKubernetes_ClusterSpecificExternalConnectivity(t *testing.T
 				sts, err := construct.OpsManagerStatefulSet(ctx, memberCluster.SecretClient, testOm, memberCluster, zap.S())
 				assert.NoError(t, err)
 
-				err = OpsManagerInKubernetes(ctx, memberCluster, testOm, sts, zap.S())
+				mutatedSts, err := OpsManagerInKubernetes(ctx, memberCluster, testOm, sts, zap.S())
 				assert.NoError(t, err)
+				assert.NotNil(t, mutatedSts)
 
 				expectedService, ok := tc.expectedServices[memberCluster.Name]
 				svc, err := memberCluster.Client.GetService(ctx, kube.ObjectKey(testOm.Namespace, testOm.ExternalSvcName()))
@@ -511,8 +519,9 @@ func TestBackupServiceCreated_NoExternalConnectivity(t *testing.T) {
 	sts, err := construct.OpsManagerStatefulSet(ctx, secretsClient, testOm, memberCluster, zap.S())
 	assert.NoError(t, err)
 
-	err = OpsManagerInKubernetes(ctx, memberCluster, testOm, sts, zap.S())
+	mutatedSts, err := OpsManagerInKubernetes(ctx, memberCluster, testOm, sts, zap.S())
 	assert.NoError(t, err)
+	assert.NotNil(t, mutatedSts)
 
 	_, err = fakeClient.GetService(ctx, kube.ObjectKey(testOm.Namespace, testOm.SvcName()+"-ext"))
 	assert.Error(t, err, "No external service should have been created")
@@ -555,8 +564,9 @@ func TestBackupServiceCreated_ExternalConnectivity(t *testing.T) {
 	sts, err := construct.OpsManagerStatefulSet(ctx, secretsClient, testOm, memberCluster, zap.S())
 	assert.NoError(t, err)
 
-	err = OpsManagerInKubernetes(ctx, memberCluster, testOm, sts, zap.S())
+	mutatedSts, err := OpsManagerInKubernetes(ctx, memberCluster, testOm, sts, zap.S())
 	assert.NoError(t, err)
+	assert.NotNil(t, mutatedSts)
 
 	externalService, err := fakeClient.GetService(ctx, kube.ObjectKey(testOm.Namespace, testOm.SvcName()+"-ext"))
 	assert.NoError(t, err, "An External service should have been created")
@@ -837,7 +847,7 @@ func testDatabaseInKubernetesExternalServices(ctx context.Context, t *testing.T,
 	mdb.Spec.ExternalAccessConfiguration = &externalAccessConfiguration
 
 	sts := construct.DatabaseStatefulSet(*mdb, construct.ReplicaSetOptions(construct.GetPodEnvOptions()), log)
-	err := DatabaseInKubernetes(ctx, fakeClient, *mdb, sts, construct.ReplicaSetOptions(), log)
+	_, err := DatabaseInKubernetes(ctx, fakeClient, *mdb, sts, construct.ReplicaSetOptions(), log)
 	assert.NoError(t, err)
 
 	// we only test a subset of fields from service spec, which are the most relevant for external services
@@ -860,7 +870,7 @@ func testDatabaseInKubernetesExternalServices(ctx context.Context, t *testing.T,
 
 	// disable external access -> remove external services
 	mdb.Spec.ExternalAccessConfiguration = nil
-	err = DatabaseInKubernetes(ctx, fakeClient, *mdb, sts, construct.ReplicaSetOptions(), log)
+	_, err = DatabaseInKubernetes(ctx, fakeClient, *mdb, sts, construct.ReplicaSetOptions(), log)
 	assert.NoError(t, err)
 
 	for _, expectedService := range expectedServices {
@@ -930,21 +940,25 @@ func createMongosSpec(sc *mdbv1.MongoDB) *mdbv1.ShardedClusterComponentSpec {
 func createShardSts(ctx context.Context, t *testing.T, mdb *mdbv1.MongoDB, log *zap.SugaredLogger, kubeClient kubernetesClient.Client) {
 	shardSpec, memberCluster := createShardSpecAndDefaultCluster(kubeClient, mdb)
 	sts := construct.DatabaseStatefulSet(*mdb, construct.ShardOptions(1, shardSpec, memberCluster.Name, construct.GetPodEnvOptions()), log)
-	err := DatabaseInKubernetes(ctx, kubeClient, *mdb, sts, construct.ShardOptions(1, shardSpec, memberCluster.Name), log)
+	mutatedSts, err := DatabaseInKubernetes(ctx, kubeClient, *mdb, sts, construct.ShardOptions(1, shardSpec, memberCluster.Name), log)
 	assert.NoError(t, err)
+	assert.NotNil(t, mutatedSts)
 }
 
 func createMongosSts(ctx context.Context, t *testing.T, mdb *mdbv1.MongoDB, log *zap.SugaredLogger, kubeClient kubernetesClient.Client) {
 	mongosSpec := createMongosSpec(mdb)
 	sts := construct.DatabaseStatefulSet(*mdb, construct.MongosOptions(mongosSpec, multicluster.LegacyCentralClusterName, construct.GetPodEnvOptions()), log)
-	err := DatabaseInKubernetes(ctx, kubeClient, *mdb, sts, construct.MongosOptions(mongosSpec, multicluster.LegacyCentralClusterName), log)
+	mutatedSts, err := DatabaseInKubernetes(ctx, kubeClient, *mdb, sts, construct.MongosOptions(mongosSpec, multicluster.LegacyCentralClusterName), log)
 	assert.NoError(t, err)
+	assert.NotNil(t, mutatedSts)
 }
 
 func TestResizePVCsStorage(t *testing.T) {
 	fakeClient, _ := mock.NewDefaultFakeClient()
 
-	initialSts := createStatefulSet("20Gi", "20Gi", "20Gi")
+	const testStsName = "test"
+	const testStsNamespace = "mongodb-test"
+	initialSts := createStatefulSet(testStsName, testStsNamespace, "20Gi", "20Gi", "20Gi")
 
 	// Create the StatefulSet that we want to resize the PVC to
 	err := fakeClient.CreateStatefulSet(context.TODO(), *initialSts)
@@ -952,26 +966,64 @@ func TestResizePVCsStorage(t *testing.T) {
 
 	for _, template := range initialSts.Spec.VolumeClaimTemplates {
 		for i := range *initialSts.Spec.Replicas {
-			pvc := createPVCFromTemplate(template, initialSts.Name, i)
+			pvc := createPVCFromTemplate(template, initialSts.Name, initialSts.Namespace, i)
 			err = fakeClient.Create(context.TODO(), pvc)
 			assert.NoError(t, err)
 		}
 	}
 
-	err = resizePVCsStorage(fakeClient, createStatefulSet("30Gi", "30Gi", "20Gi"))
+	// PVCs from different STS (same name, but different namespace) should be ignored and not resized
+	// Previously, we had not taken into account namespace when listing PVCs https://jira.mongodb.org/browse/HELP-85556
+	const otherTestStsNamespace = "mongodb-test-2"
+	otherSts := createStatefulSet(testStsName, otherTestStsNamespace, "25Gi", "20Gi", "15Gi")
+
+	// Create the StatefulSet that we want to resize the PVC to
+	err = fakeClient.CreateStatefulSet(context.TODO(), *otherSts)
+	assert.NoError(t, err)
+
+	for _, template := range otherSts.Spec.VolumeClaimTemplates {
+		for i := range *otherSts.Spec.Replicas {
+			pvc := createPVCFromTemplate(template, otherSts.Name, otherSts.Namespace, i)
+			err = fakeClient.Create(context.TODO(), pvc)
+			assert.NoError(t, err)
+		}
+	}
+
+	// We are resizing only initialSts PVCs here and otherSts PVCs should remain unchanged
+	err = resizePVCsStorage(context.TODO(), fakeClient, createStatefulSet(testStsName, testStsNamespace, "30Gi", "30Gi", "20Gi"), zap.S())
 	assert.NoError(t, err)
 
 	pvcList := corev1.PersistentVolumeClaimList{}
 	err = fakeClient.List(context.TODO(), &pvcList)
 	assert.NoError(t, err)
 
+	expectedPVCSizesPerNamespace := map[string]map[string]string{
+		// PVCs from the STS namespace that was resized should have the new sizes
+		testStsNamespace: {
+			"data":    "30Gi",
+			"journal": "30Gi",
+			"logs":    "20Gi",
+		},
+		// PVCs from other namespace should remain unchanged
+		otherTestStsNamespace: {
+			"data":    "25Gi",
+			"journal": "20Gi",
+			"logs":    "15Gi",
+		},
+	}
+
 	for _, pvc := range pvcList.Items {
+		pvcSizes, ok := expectedPVCSizesPerNamespace[pvc.Namespace]
+		if !ok {
+			t.Fatalf("unexpected namespace %s for pvc %s", pvc.Namespace, pvc.Name)
+		}
+
 		if strings.HasPrefix(pvc.Name, "data") {
-			assert.Equal(t, pvc.Spec.Resources.Requests.Storage().String(), "30Gi")
+			assert.Equal(t, pvc.Spec.Resources.Requests.Storage().String(), pvcSizes["data"])
 		} else if strings.HasPrefix(pvc.Name, "journal") {
-			assert.Equal(t, pvc.Spec.Resources.Requests.Storage().String(), "30Gi")
+			assert.Equal(t, pvc.Spec.Resources.Requests.Storage().String(), pvcSizes["journal"])
 		} else if strings.HasPrefix(pvc.Name, "logs") {
-			assert.Equal(t, pvc.Spec.Resources.Requests.Storage().String(), "20Gi")
+			assert.Equal(t, pvc.Spec.Resources.Requests.Storage().String(), pvcSizes["logs"])
 		} else {
 			t.Fatal("no pvc was compared while we should have at least detected and compared one")
 		}
@@ -979,10 +1031,11 @@ func TestResizePVCsStorage(t *testing.T) {
 }
 
 // Helper function to create a StatefulSet
-func createStatefulSet(size1, size2, size3 string) *appsv1.StatefulSet {
+func createStatefulSet(name, namespace, size1, size2, size3 string) *appsv1.StatefulSet {
 	return &appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: "test",
+			Name:      name,
+			Namespace: namespace,
 		},
 		Spec: appsv1.StatefulSetSpec{
 			Replicas: ptr.To(int32(3)),
@@ -1028,12 +1081,12 @@ func createStatefulSet(size1, size2, size3 string) *appsv1.StatefulSet {
 	}
 }
 
-func createPVCFromTemplate(pvcTemplate corev1.PersistentVolumeClaim, stsName string, ordinal int32) *corev1.PersistentVolumeClaim {
+func createPVCFromTemplate(pvcTemplate corev1.PersistentVolumeClaim, stsName string, namespace string, ordinal int32) *corev1.PersistentVolumeClaim {
 	pvcName := fmt.Sprintf("%s-%s-%d", pvcTemplate.Name, stsName, ordinal)
 	return &corev1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      pvcName,
-			Namespace: "default",
+			Namespace: namespace,
 		},
 		Spec: pvcTemplate.Spec,
 	}
@@ -1142,9 +1195,11 @@ func TestResourceStorageHasChanged(t *testing.T) {
 }
 
 func TestHasFinishedResizing(t *testing.T) {
-	stsName := "test"
-	desiredSts := &appsv1.StatefulSet{
-		ObjectMeta: metav1.ObjectMeta{Name: stsName},
+	sts := &appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test",
+			Namespace: "mongodb-test",
+		},
 		Spec: appsv1.StatefulSetSpec{
 			VolumeClaimTemplates: []corev1.PersistentVolumeClaim{
 				{
@@ -1179,17 +1234,21 @@ func TestHasFinishedResizing(t *testing.T) {
 	{
 		fakeClient, _ := mock.NewDefaultFakeClient()
 		// Scenario 1: All PVCs have finished resizing
-		pvc1 := createPVCWithCapacity("data-"+stsName+"-0", "20Gi")
-		pvc2 := createPVCWithCapacity("logs-"+stsName+"-0", "30Gi")
-		notPartOfSts := createPVCWithCapacity("random-sts-0", "30Gi")
+		pvc1 := createPVCWithCapacity("data-"+sts.Name+"-0", sts.Namespace, "20Gi")
+		pvc2 := createPVCWithCapacity("logs-"+sts.Name+"-0", sts.Namespace, "30Gi")
+		// PVCs in different namespace, but same name, should be ignored and not taken into account when checking resizing status
+		pvc1InDifferentNamespace := createPVCWithCapacity("data-"+sts.Name+"-0", "mongodb-test-2", "15Gi")
+		pvc2InDifferentNamespace := createPVCWithCapacity("logs-"+sts.Name+"-0", "mongodb-test-2", "10Gi")
 		err := fakeClient.Create(ctx, pvc1)
 		assert.NoError(t, err)
 		err = fakeClient.Create(ctx, pvc2)
 		assert.NoError(t, err)
-		err = fakeClient.Create(ctx, notPartOfSts)
+		err = fakeClient.Create(ctx, pvc1InDifferentNamespace)
+		assert.NoError(t, err)
+		err = fakeClient.Create(ctx, pvc2InDifferentNamespace)
 		assert.NoError(t, err)
 
-		finished, err := hasFinishedResizing(ctx, fakeClient, desiredSts)
+		finished, err := hasFinishedResizing(ctx, fakeClient, sts)
 		assert.NoError(t, err)
 		assert.True(t, finished, "PVCs should be finished resizing")
 	}
@@ -1197,22 +1256,22 @@ func TestHasFinishedResizing(t *testing.T) {
 	{
 		// Scenario 2: Some PVCs are still resizing
 		fakeClient, _ := mock.NewDefaultFakeClient()
-		pvc2Incomplete := createPVCWithCapacity("logs-"+stsName+"-0", "10Gi")
+		pvc2Incomplete := createPVCWithCapacity("logs-"+sts.Name+"-0", sts.Namespace, "10Gi")
 		err := fakeClient.Create(ctx, pvc2Incomplete)
 		assert.NoError(t, err)
 
-		finished, err := hasFinishedResizing(ctx, fakeClient, desiredSts)
+		finished, err := hasFinishedResizing(ctx, fakeClient, sts)
 		assert.NoError(t, err)
 		assert.False(t, finished, "PVCs should not be finished resizing")
 	}
 }
 
 // Helper function to create a PVC with a specific capacity and status
-func createPVCWithCapacity(name string, capacity string) *corev1.PersistentVolumeClaim {
+func createPVCWithCapacity(name string, namespace string, capacity string) *corev1.PersistentVolumeClaim {
 	return &corev1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
-			Namespace: "default",
+			Namespace: namespace,
 		},
 		Spec: corev1.PersistentVolumeClaimSpec{
 			Resources: corev1.VolumeResourceRequirements{
@@ -1345,7 +1404,7 @@ func TestGetMatchingPVCTemplateFromSTS(t *testing.T) {
 
 func TestCheckStatefulsetIsDeleted(t *testing.T) {
 	ctx := context.TODO()
-	sleepDuration := 10 * time.Millisecond
+	sleepDuration := 100 * time.Millisecond
 	log := zap.NewNop().Sugar()
 
 	namespace := "default"
@@ -1359,52 +1418,49 @@ func TestCheckStatefulsetIsDeleted(t *testing.T) {
 	}
 
 	t.Run("StatefulSet is deleted", func(t *testing.T) {
-		fakeClient, _ := mock.NewDefaultFakeClient()
-		err := fakeClient.CreateStatefulSet(ctx, *desiredSts)
-		assert.NoError(t, err)
+		synctest.Test(t, func(t *testing.T) {
+			fakeClient, _ := mock.NewDefaultFakeClient()
+			err := fakeClient.CreateStatefulSet(ctx, *desiredSts)
+			assert.NoError(t, err)
 
-		// Simulate the deletion by deleting the StatefulSet
-		err = fakeClient.DeleteStatefulSet(ctx, kube.ObjectKey(desiredSts.Namespace, desiredSts.Name))
-		assert.NoError(t, err)
+			// Delete before calling the function
+			err = fakeClient.DeleteStatefulSet(ctx, kube.ObjectKey(desiredSts.Namespace, desiredSts.Name))
+			assert.NoError(t, err)
 
-		// Check if the StatefulSet is detected as deleted
-		result := checkStatefulsetIsDeleted(ctx, fakeClient, desiredSts, sleepDuration, log)
+			result := checkStatefulsetIsDeleted(ctx, fakeClient, desiredSts, sleepDuration, log)
 
-		assert.True(t, result, "StatefulSet should be detected as deleted")
+			assert.True(t, result, "StatefulSet should be detected as deleted")
+		})
 	})
 
 	t.Run("StatefulSet is not deleted", func(t *testing.T) {
-		fakeClient, _ := mock.NewDefaultFakeClient()
-		err := fakeClient.CreateStatefulSet(ctx, *desiredSts)
-		assert.NoError(t, err)
+		synctest.Test(t, func(t *testing.T) {
+			fakeClient, _ := mock.NewDefaultFakeClient()
+			err := fakeClient.CreateStatefulSet(ctx, *desiredSts)
+			assert.NoError(t, err)
 
-		// Do not delete the StatefulSet, to simulate it still existing
-		// Check if the StatefulSet is detected as not deleted
-		result := checkStatefulsetIsDeleted(ctx, fakeClient, desiredSts, sleepDuration, log)
+			// Don't delete - should return false after exhausting retries
+			result := checkStatefulsetIsDeleted(ctx, fakeClient, desiredSts, sleepDuration, log)
 
-		assert.False(t, result, "StatefulSet should not be detected as deleted")
+			assert.False(t, result, "StatefulSet should not be detected as deleted")
+		})
 	})
 
 	t.Run("StatefulSet is deleted after some retries", func(t *testing.T) {
-		fakeClient, _ := mock.NewDefaultFakeClient()
-		err := fakeClient.CreateStatefulSet(ctx, *desiredSts)
-		assert.NoError(t, err)
-
-		var wg sync.WaitGroup
-		wg.Add(1)
-		// Use a goroutine to delete the StatefulSet after a delay, making it race-safe
-		go func() {
-			defer wg.Done()
-			time.Sleep(20 * time.Millisecond) // Wait for a bit longer than the first sleep
-			err = fakeClient.DeleteStatefulSet(ctx, kube.ObjectKey(desiredSts.Namespace, desiredSts.Name))
+		synctest.Test(t, func(t *testing.T) {
+			fakeClient, _ := mock.NewDefaultFakeClient()
+			err := fakeClient.CreateStatefulSet(ctx, *desiredSts)
 			assert.NoError(t, err)
-		}()
 
-		// Check if the StatefulSet is detected as deleted after retries
-		result := checkStatefulsetIsDeleted(ctx, fakeClient, desiredSts, sleepDuration, log)
+			// Delete after 150ms - will be found on second retry (after 200ms of sleeps)
+			go func() {
+				time.Sleep(150 * time.Millisecond)
+				_ = fakeClient.DeleteStatefulSet(ctx, kube.ObjectKey(desiredSts.Namespace, desiredSts.Name))
+			}()
 
-		wg.Wait()
+			result := checkStatefulsetIsDeleted(ctx, fakeClient, desiredSts, sleepDuration, log)
 
-		assert.True(t, result, "StatefulSet should be detected as deleted after retries")
+			assert.True(t, result, "StatefulSet should be detected as deleted")
+		})
 	})
 }

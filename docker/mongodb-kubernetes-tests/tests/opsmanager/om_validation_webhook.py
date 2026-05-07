@@ -2,14 +2,12 @@
 Ensures that validation warnings for ops manager reflect its current state
 """
 
-from typing import Optional
-
 import pytest
 from kubernetes.client.rest import ApiException
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.operator import Operator
 from kubetester.opsmanager import MongoDBOpsManager
-from pytest import fixture, mark
+from pytest import mark
 
 APPDB_SHARD_COUNT_WARNING = "ShardCount field is not configurable for application databases as it is for sharded clusters and appdbs are replica sets"
 
@@ -57,14 +55,6 @@ def test_appdb_version(namespace: str):
     om["spec"]["applicationDatabase"]["version"] = "3.6.12"
     with pytest.raises(ApiException, match=r"the version of Application Database must be \\u003e= 4.0"):
         om.create()
-
-
-@fixture(scope="module")
-def ops_manager(namespace: str, custom_version: Optional[str], custom_appdb_version: str) -> MongoDBOpsManager:
-    om: MongoDBOpsManager = MongoDBOpsManager.from_yaml(yaml_fixture("om_ops_manager_basic.yaml"), namespace=namespace)
-    om.set_version(custom_version)
-    om.set_appdb_version(custom_appdb_version)
-    return om.create()
 
 
 @mark.e2e_om_validation_webhook

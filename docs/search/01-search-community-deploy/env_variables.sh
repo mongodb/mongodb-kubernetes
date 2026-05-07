@@ -19,8 +19,7 @@ export MDB_TLS_SELF_SIGNED_ISSUER="${MDB_RESOURCE_NAME}-selfsigned-cluster-issue
 export MDB_TLS_CA_CERT_NAME="${MDB_RESOURCE_NAME}-selfsigned-ca"
 export MDB_TLS_CA_ISSUER="${MDB_RESOURCE_NAME}-cluster-issuer"
 
-# minimum required MongoDB version for running MongoDB Search is 8.2.0
-export MDB_VERSION="8.2.0"
+export MDB_VERSION="8.2.6"
 
 # root admin user for convenience, not used here at all in this guide
 export MDB_ADMIN_USER_PASSWORD="admin-user-password-CHANGE-ME"
@@ -37,3 +36,10 @@ export OPERATOR_ADDITIONAL_HELM_VALUES=""
 export MDB_CONNECTION_STRING="mongodb://mdb-user:${MDB_USER_PASSWORD}@${MDB_RESOURCE_NAME}-0.${MDB_RESOURCE_NAME}-svc.${MDB_NS}.svc.cluster.local:27017/?replicaSet=${MDB_RESOURCE_NAME}&tls=true&tlsCAFile=/tls/ca.crt"
 
 export CERT_MANAGER_NAMESPACE="cert-manager"
+
+# Vector Search auto embedding related configurations
+export AUTO_EMBEDDING_API_KEY_SECRET_NAME="voyage-api-keys"
+export AUTO_EMBEDDING_API_QUERY_KEY="<embedding-model-query-key>"
+export AUTO_EMBEDDING_API_INDEXING_KEY="<embedding-model-indexing-key>"
+export PROVIDER_ENDPOINT="https://ai.mongodb.com/v1/embeddings"
+export EMBEDDING_MODEL="voyage-4"

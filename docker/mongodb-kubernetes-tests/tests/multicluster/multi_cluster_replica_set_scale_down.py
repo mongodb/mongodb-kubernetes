@@ -60,10 +60,8 @@ def server_certs(
 
 @pytest.fixture(scope="module")
 def mongodb_multi(mongodb_multi_unmarshalled: MongoDBMulti, server_certs: str) -> MongoDBMulti:
-    if try_load(mongodb_multi_unmarshalled):
-        return mongodb_multi_unmarshalled
-
-    return mongodb_multi_unmarshalled.update()
+    try_load(mongodb_multi_unmarshalled)
+    return mongodb_multi_unmarshalled
 
 
 @pytest.mark.e2e_multi_cluster_replica_set_scale_down
@@ -73,6 +71,7 @@ def test_deploy_operator(multi_cluster_operator: Operator):
 
 @pytest.mark.e2e_multi_cluster_replica_set_scale_down
 def test_create_mongodb_multi(mongodb_multi: MongoDBMulti):
+    mongodb_multi.update()
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1200)
 
 

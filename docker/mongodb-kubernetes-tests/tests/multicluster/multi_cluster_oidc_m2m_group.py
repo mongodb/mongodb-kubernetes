@@ -22,11 +22,8 @@ def mongodb_multi(
     custom_mdb_version: str,
 ) -> MongoDBMulti:
     resource = MongoDBMulti.from_yaml(yaml_fixture("oidc/mongodb-multi-m2m-group.yaml"), MDB_RESOURCE, namespace)
-    if try_load(resource):
-        return resource
-
     oidc_provider_configs = resource.get_oidc_provider_configs()
-
+    assert oidc_provider_configs
     oidc_provider_configs[0]["clientId"] = oidc.get_cognito_workload_client_id()
     oidc_provider_configs[0]["audience"] = oidc.get_cognito_workload_client_id()
     oidc_provider_configs[0]["issuerURI"] = oidc.get_cognito_workload_url()
@@ -35,7 +32,8 @@ def mongodb_multi(
 
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
 
-    return resource.update()
+    try_load(resource)
+    return resource
 
 
 @pytest.mark.e2e_multi_cluster_oidc_m2m_group
@@ -44,6 +42,7 @@ class TestOIDCMultiCluster(KubernetesTester):
         multi_cluster_operator.assert_is_running()
 
     def test_create_oidc_replica_set(self, mongodb_multi: MongoDBMulti):
+        mongodb_multi.update()
         mongodb_multi.assert_reaches_phase(Phase.Running, timeout=800)
 
     def test_assert_connectivity(self, mongodb_multi: MongoDBMulti):

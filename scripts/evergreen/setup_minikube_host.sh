@@ -38,9 +38,30 @@ run_setup_step() {
     fi
 }
 
+# Install libsodium from source on s390x — RHEL9 ships 1.0.18 which is too old for pynacl>=1.6
+if [[ "$(uname -m)" == "s390x" ]]; then
+    echo ""
+    echo ">>> Running: libsodium installation (s390x only)"
+    LIBSODIUM_VERSION="1.0.20"
+    if pkg-config --exists libsodium 2>/dev/null && [[ "$(pkg-config --modversion libsodium)" == "${LIBSODIUM_VERSION}" ]]; then
+        echo "✅ libsodium ${LIBSODIUM_VERSION} already installed, skipping installation"
+    else
+        echo ">>> Building libsodium ${LIBSODIUM_VERSION} from source..."
+        tmp_dir=$(mktemp -d)
+        curl --fail --retry 3 -L -o "${tmp_dir}/libsodium.tar.gz" \
+            "https://download.libsodium.org/libsodium/releases/libsodium-${LIBSODIUM_VERSION}.tar.gz"
+        tar xzf "${tmp_dir}/libsodium.tar.gz" -C "${tmp_dir}"
+        (cd "${tmp_dir}/libsodium-${LIBSODIUM_VERSION}" && ./configure --prefix=/usr/local && make -j"$(nproc)" && sudo make install)
+        # Ensure /usr/local/lib is in ldconfig search paths (RHEL9 doesn't include it by default)
+        echo "/usr/local/lib" | sudo tee /etc/ld.so.conf.d/local.conf
+        sudo ldconfig
+        rm -rf "${tmp_dir}"
+        echo "✅ libsodium ${LIBSODIUM_VERSION} installed successfully"
+    fi
+fi
+
 # Setup Python environment (needed for AWS CLI pip installation)
 export GRPC_PYTHON_BUILD_SYSTEM_OPENSSL=1
-export SKIP_INSTALL_REQUIREMENTS=${SKIP_INSTALL_REQUIREMENTS:-true}
 run_setup_step "Python Virtual Environment" "scripts/dev/recreate_python_venv.sh"
 
 run_setup_step "AWS CLI Setup" "scripts/evergreen/setup_aws.sh"

@@ -3,6 +3,8 @@ package backup
 import (
 	"context"
 	"reflect"
+	"strings"
+	"time"
 
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
@@ -27,7 +29,7 @@ type ConfigReaderUpdater interface {
 
 // EnsureBackupConfigurationInOpsManager updates the backup configuration based on the MongoDB resource
 // specification.
-func EnsureBackupConfigurationInOpsManager(ctx context.Context, mdb ConfigReaderUpdater, secretsReader secrets.SecretClient, projectId string, configReadUpdater ConfigHostReadUpdater, groupConfigReader GroupConfigReader, groupConfigUpdater GroupConfigUpdater, log *zap.SugaredLogger) (workflow.Status, []status.Option) {
+func EnsureBackupConfigurationInOpsManager(ctx context.Context, mdb ConfigReaderUpdater, secretsReader secrets.SecretClient, projectId string, configReadUpdater ConfigHostReadUpdater, groupConfigReader GroupConfigReader, groupConfigUpdater GroupConfigUpdater, log *zap.SugaredLogger, backupEnableDelay time.Duration) (workflow.Status, []status.Option) {
 	if mdb.GetBackupSpec() == nil {
 		return workflow.OK(), nil
 	}
@@ -50,7 +52,7 @@ func EnsureBackupConfigurationInOpsManager(ctx context.Context, mdb ConfigReader
 		return workflow.Failed(err), nil
 	}
 
-	return ensureBackupConfigStatuses(mdb, projectConfigs, desiredConfig, log, configReadUpdater)
+	return ensureBackupConfigStatuses(mdb, projectConfigs, desiredConfig, log, configReadUpdater, backupEnableDelay)
 }
 
 func ensureGroupConfig(ctx context.Context, mdb ConfigReaderUpdater, secretsReader secrets.SecretClient, reader GroupConfigReader, updater GroupConfigUpdater) error {
@@ -105,10 +107,10 @@ func ensureGroupConfig(ctx context.Context, mdb ConfigReaderUpdater, secretsRead
 }
 
 // ensureBackupConfigStatuses makes sure that every config in the project has reached the desired state.
-func ensureBackupConfigStatuses(mdb ConfigReaderUpdater, projectConfigs []*Config, desiredConfig *Config, log *zap.SugaredLogger, configReadUpdater ConfigHostReadUpdater) (workflow.Status, []status.Option) {
-	result := workflow.OK()
-
+func ensureBackupConfigStatuses(mdb ConfigReaderUpdater, projectConfigs []*Config, desiredConfig *Config, log *zap.SugaredLogger, configReadUpdater ConfigHostReadUpdater, backupEnableDelay time.Duration) (workflow.Status, []status.Option) {
 	for _, config := range projectConfigs {
+		var result workflow.Status = workflow.OK()
+
 		desiredConfig.ClusterId = config.ClusterId
 
 		cluster, err := configReadUpdater.ReadHostCluster(config.ClusterId)
@@ -146,7 +148,7 @@ func ensureBackupConfigStatuses(mdb ConfigReaderUpdater, projectConfigs []*Confi
 
 		intermediateStepRequired := desiredStatus != desiredConfig.Status
 		if intermediateStepRequired {
-			result.Requeue()
+			result = workflow.Pending("Backup configuration %s requires intermediate step to reach desired status", config.ClusterId).Requeue()
 		}
 
 		desiredConfig.Status = desiredStatus
@@ -173,6 +175,12 @@ func ensureBackupConfigStatuses(mdb ConfigReaderUpdater, projectConfigs []*Confi
 			// if we attempt to send the desired state again we get
 			// CANNOT_START_BACKUP_INVALID_STATE: Cannot start backup unless the cluster is in the INACTIVE or STOPPED state.
 			continue
+		}
+
+		if isShardedCluster && (desiredConfig.Status == Started && (config.Status == Inactive || config.Status == Stopped)) {
+			if s := applyShardedClusterBackupEnableDelay(mdb, backupEnableDelay, log); !s.IsOK() {
+				return s, nil
+			}
 		}
 
 		updatedConfig, err := configReadUpdater.UpdateBackupConfig(desiredConfig)
@@ -202,10 +210,40 @@ func ensureBackupConfigStatuses(mdb ConfigReaderUpdater, projectConfigs []*Confi
 		if err != nil {
 			return workflow.Failed(err), nil
 		}
+
 		return result, backupOpts
 	}
 
-	return result, nil
+	return workflow.OK(), nil
+}
+
+// applyShardedClusterBackupEnableDelay waits before enabling backup for sharded clusters.
+// It uses the CR's LastTransition timestamp to measure elapsed time across reconciles.
+// See CLOUDP-389867.
+func applyShardedClusterBackupEnableDelay(mdb status.Reader, backupEnableDelay time.Duration, log *zap.SugaredLogger) workflow.Status {
+	if backupEnableDelay <= 0 {
+		return workflow.OK()
+	}
+
+	commonStatus := mdb.GetCommonStatus()
+	if commonStatus.Phase == status.PhasePending && strings.Contains(commonStatus.Message, BackupEnableDelayPendingMessage) {
+		// Already in waiting state — check whether the delay has elapsed using LastTransition.
+		startTime, err := time.Parse(time.RFC3339, commonStatus.LastTransition)
+		if err != nil {
+			// Cannot parse timestamp; treat delay as elapsed to avoid getting stuck in the delay loop.
+			log.Errorf("Backup enable delay: could not parse LastTransition timestamp: %s", err)
+			return workflow.OK()
+		}
+		if remaining := max(time.Until(startTime.Add(backupEnableDelay)), 0); remaining > 0 {
+			return workflow.Pending(BackupEnableDelayPendingMessage)
+		}
+		log.Debugf("Backup enable delay has elapsed, proceeding with backup enable")
+		return workflow.OK()
+	}
+
+	// First entry into the waiting state — return Pending so the controller writes the status and
+	// records LastTransition. The next reconcile will measure elapsed time from that timestamp.
+	return workflow.Pending(BackupEnableDelayPendingMessage)
 }
 
 func updateSnapshotSchedule(specSnapshotSchedule *mdbv1.SnapshotSchedule, configReadUpdater ConfigHostReadUpdater, config *Config, log *zap.SugaredLogger) error {

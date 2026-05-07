@@ -1,3 +1,5 @@
+//go:build community_e2e
+
 package replica_set_x509
 
 import (
@@ -31,11 +33,7 @@ func TestMain(m *testing.M) {
 func TestReplicaSetX509(t *testing.T) {
 	ctx := context.Background()
 	resourceName := "mdb-tls"
-	helmArgs := []setup.HelmArg{
-		{Name: "community.resource.tls.useX509", Value: "true"},
-		{Name: "community.resource.tls.sampleX509User", Value: "true"},
-	}
-	testCtx, testConfig := setup.SetupWithTLS(ctx, t, resourceName, helmArgs...)
+	testCtx, testConfig := setup.SetupWithTLS(ctx, t, resourceName, true, true)
 	defer testCtx.Teardown()
 
 	mdb, _ := e2eutil.NewTestMongoDB(testCtx, resourceName, testConfig.Namespace)

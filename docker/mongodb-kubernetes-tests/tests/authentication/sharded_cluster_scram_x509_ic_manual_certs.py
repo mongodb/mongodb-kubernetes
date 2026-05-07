@@ -1,3 +1,4 @@
+from kubetester import try_load
 from kubetester.certs import SetProperties, create_mongodb_tls_certs
 from kubetester.kubetester import fixture as _fixture
 from kubetester.mongodb import MongoDB
@@ -54,16 +55,18 @@ def sharded_cluster(
     all_certs,
     issuer_ca_configmap: str,
 ) -> MongoDB:
-    mdb: MongoDB = MongoDB.from_yaml(
+    resource: MongoDB = MongoDB.from_yaml(
         _fixture("sharded-cluster-scram-sha-256-x509-internal-cluster.yaml"),
         namespace=namespace,
     )
-    mdb["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
-    return mdb.create()
+    resource["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
+    try_load(resource)
+    return resource
 
 
 @mark.e2e_sharded_cluster_scram_x509_ic_manual_certs
 def test_create_replica_set_with_x509_internal_cluster(sharded_cluster: MongoDB):
+    sharded_cluster.update()
     sharded_cluster.assert_reaches_phase(Phase.Running, timeout=1200)
 
 

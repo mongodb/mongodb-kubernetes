@@ -1,7 +1,7 @@
 import time
 from typing import Dict, List
 
-from kubetester import wait_until
+from kubetester import try_load, wait_until
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.ldap import LDAPUser, OpenLDAP
@@ -37,7 +37,8 @@ def sharded_cluster(
     resource["spec"]["security"]["authentication"]["agents"] = {"mode": "SCRAM"}
     resource["spec"]["security"]["authentication"]["modes"] = ["LDAP", "SCRAM"]
 
-    return resource.create()
+    try_load(resource)
+    return resource
 
 
 @fixture(scope="module")
@@ -58,7 +59,8 @@ def ldap_user_mongodb(replica_set: MongoDB, namespace: str, ldap_mongodb_user_tl
         ]
     )
 
-    return user.create()
+    try_load(user)
+    return user
 
 
 @mark.e2e_sharded_cluster_ldap
@@ -67,6 +69,7 @@ def test_sharded_cluster_pending_CLOUDP_229222(sharded_cluster: MongoDB):
     This function tests CLOUDP-229222. The resource needs to enter the "Pending" state and without the automatic
     recovery, it would stay like this forever (since we wouldn't push the new AC with a fix).
     """
+    sharded_cluster.update()
     sharded_cluster.assert_reaches_phase(Phase.Pending, timeout=100)
 
 

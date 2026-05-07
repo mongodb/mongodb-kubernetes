@@ -48,14 +48,11 @@ deploy_test_app() {
     BUILD_ID="${BUILD_ID:-default_build_id}"
     BUILD_VARIANT="${BUILD_VARIANT:-default_build_variant}"
 
-    if ! chart_info=$(scripts/dev/run_python.sh scripts/release/oci_chart_info.py --build-scenario "${BUILD_SCENARIO}" 2>&1); then
-        echo "${chart_info}"
-        exit 1
-    fi
-    helm_oci_registry=$(echo "${chart_info}" | jq -r '.registry' )
-    helm_oci_repository=$(echo "${chart_info}" | jq -r '.repository' )
-    helm_oci_registry_region=$(echo "${chart_info}" | jq -r '.region' )
-    helm_oci_version_prefix=$(echo "${chart_info}" | jq -r '.version_prefix // empty' )
+    chart_info=$(scripts/dev/run_python.sh scripts/release/oci_chart_info.py --build-scenario "${BUILD_SCENARIO}") || { echo "Failed to generate chart_info" ; exit 1; }
+
+    helm_oci_repository=$(echo "${chart_info}" | jq -r '.repository') || { echo "Failed to parse repository from chart_info"; exit 1; }
+    helm_oci_registry="${helm_oci_repository%%/*}"
+    helm_oci_version_prefix=$(echo "${chart_info}" | jq -r '.version_prefix // empty') || { echo "Failed to parse version_prefix from chart_info"; exit 1; }
     helm_oci_version="${helm_oci_version_prefix:-}${OPERATOR_VERSION}"
 
     # note, that the 4 last parameters are used only for Mongodb resource testing - not for Ops Manager
@@ -77,7 +74,6 @@ deploy_test_app() {
         "--set" "managedSecurityContext=${MANAGED_SECURITY_CONTEXT:-false}"
         "--set" "registry=${REGISTRY}"
         "--set" "mdbDefaultArchitecture=${MDB_DEFAULT_ARCHITECTURE:-'non-static'}"
-        "--set" "mdbImageType=${MDB_IMAGE_TYPE:-'ubi8'}"
         "--set" "clusterDomain=${CLUSTER_DOMAIN:-'cluster.local'}"
         "--set" "cognito_user_pool_id=${cognito_user_pool_id}"
         "--set" "cognito_workload_federation_client_id=${cognito_workload_federation_client_id}"
@@ -89,7 +85,8 @@ deploy_test_app() {
         "--set" "helm.oci.version=${helm_oci_version}"
         "--set" "helm.oci.registry=${helm_oci_registry}"
         "--set" "helm.oci.repository=${helm_oci_repository}"
-        "--set" "helm.oci.region=${helm_oci_registry_region}"
+        "--set" "autoEmbedding.providerMongoDB.indexingKey=${AI_MONGODB_EMBEDDING_INDEXING_KEY}"
+        "--set" "autoEmbedding.providerMongoDB.queryKey=${AI_MONGODB_EMBEDDING_QUERY_KEY}"
     )
 
     # shellcheck disable=SC2154
@@ -110,6 +107,9 @@ deploy_test_app() {
     # As soon as we are having one OTEL expansion it means we want to trace and send everything to our trace provider.
     # otel_parent_id is a special case (hence lower cased) since it is directly coming from evergreen and not via our
     # make switch mechanism. We need the "freshest" parent_id otherwise we are attaching to the wrong parent span.
+    # PYTEST_OTEL_ENABLED is set to false on s390x (via root-context) where pytest-opentelemetry is unavailable.
+    helm_params+=("--set" "pytestOtelEnabled=${PYTEST_OTEL_ENABLED:-true}")
+
     if [[ -n "${otel_parent_id:-}" ]]; then
         otel_resource_attributes="evergreen.version.id=${VERSION_ID:-},evergreen.version.requester=${requester:-},mck.git_branch=${branch_name:-},evergreen.version.pr_num=${github_pr_number:-},mck.git_commit=${github_commit:-},mck.revision=${revision:-},is_patch=${IS_PATCH},evergreen.task.name=${TASK_NAME},evergreen.task.execution=${EXECUTION},evergreen.build.id=${BUILD_ID},evergreen.build.name=${BUILD_VARIANT},evergreen.task.id=${task_id},evergreen.project.id=${project_identifier:-}"
         # shellcheck disable=SC2001
@@ -244,6 +244,7 @@ run_tests() {
 
     # We need to make sure to access this file after the test has finished
     kubectl --context "${test_pod_context}" -n "${NAMESPACE}" -c keepalive cp "${TEST_APP_PODNAME}":/tmp/results/myreport.xml logs/myreport.xml
+    kubectl --context "${test_pod_context}" -n "${NAMESPACE}" -c keepalive cp "${TEST_APP_PODNAME}":/tmp/results/pytest-debug.log logs/pytest-debug.log 2>/dev/null || true
     kubectl --context "${test_pod_context}" -n "${NAMESPACE}" -c keepalive cp "${TEST_APP_PODNAME}":/tmp/diagnostics logs
 
     status="$(kubectl --context "${test_pod_context}" get pod "${TEST_APP_PODNAME}" -n "${NAMESPACE}" -o jsonpath="{ .status }" | jq -r '.containerStatuses[] | select(.name == "mongodb-enterprise-operator-tests")'.state.terminated.reason)"

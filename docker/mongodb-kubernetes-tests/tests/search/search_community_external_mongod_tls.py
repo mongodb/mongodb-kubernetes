@@ -6,7 +6,8 @@ from kubetester.mongodb_search import MongoDBSearch
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests import test_logger
-from tests.common.search import movies_search_helper
+from tests.common.mongodb_tools_pod import mongodb_tools_pod
+from tests.common.search import movies_search_helper, search_resource_names
 from tests.common.search.movies_search_helper import SampleMoviesSearchHelper
 from tests.common.search.search_tester import SearchTester
 from tests.conftest import get_default_operator
@@ -26,7 +27,8 @@ MDBC_RESOURCE_NAME = "mdbc-rs"
 MDBS_RESOURCE_NAME = "mdbs"
 TLS_SECRET_NAME = "tls-secret"
 TLS_CA_SECRET_NAME = "tls-ca-secret"
-MDBS_TLS_SECRET_NAME = "mdbs-tls-secret"
+# MongoDBSearch TLS configuration — convention: {name}-search-cert
+MDBS_TLS_SECRET_NAME = search_resource_names.mongot_tls_cert_name(MDBS_RESOURCE_NAME)
 
 
 @fixture(scope="function")
@@ -37,10 +39,7 @@ def mdbc(namespace: str) -> MongoDBCommunity:
         namespace=namespace,
     )
 
-    if try_load(resource):
-        return resource
-
-    mongot_host = f"{MDBS_RESOURCE_NAME}-search-svc.{namespace}.svc.cluster.local:27028"
+    mongot_host = search_resource_names.mongot_service_host(MDBS_RESOURCE_NAME, namespace, 27028)
     if "additionalMongodConfig" not in resource["spec"]:
         resource["spec"]["additionalMongodConfig"] = {}
     if "setParameter" not in resource["spec"]["additionalMongodConfig"]:
@@ -62,6 +61,7 @@ def mdbc(namespace: str) -> MongoDBCommunity:
         "caCertificateSecretRef": {"name": TLS_SECRET_NAME},
     }
 
+    try_load(resource)
     return resource
 
 
@@ -73,19 +73,17 @@ def mdbs(namespace: str, mdbc: MongoDBCommunity) -> MongoDBSearch:
         namespace=namespace,
     )
 
-    if try_load(resource):
-        return resource
-
+    try_load(resource)
     return resource
 
 
-@mark.e2e_search_external_tls
+@mark.e2e_search_community_external_mongod_tls
 def test_install_operator(namespace: str, operator_installation_config: dict[str, str]):
     operator = get_default_operator(namespace, operator_installation_config=operator_installation_config)
     operator.assert_is_running()
 
 
-@mark.e2e_search_external_tls
+@mark.e2e_search_community_external_mongod_tls
 def test_install_secrets(namespace: str, mdbs: MongoDBSearch):
     create_or_update_secret(namespace=namespace, name=f"{USER_NAME}-password", data={"password": USER_PASSWORD})
     create_or_update_secret(
@@ -98,17 +96,17 @@ def test_install_secrets(namespace: str, mdbs: MongoDBSearch):
     )
 
 
-@mark.e2e_search_external_tls
+@mark.e2e_search_community_external_mongod_tls
 def test_install_tls_secrets_and_configmaps(
     namespace: str, mdbc: MongoDBCommunity, mdbs: MongoDBSearch, issuer: str, issuer_ca_filepath: str
 ):
     create_tls_certs(issuer, namespace, mdbc.name, mdbc["spec"]["members"], secret_name=TLS_SECRET_NAME)
 
-    search_service_name = f"{mdbs.name}-search-svc"
+    search_service_name = search_resource_names.mongot_service_name(mdbs.name)
     create_tls_certs(
         issuer,
         namespace,
-        f"{mdbs.name}-search",
+        search_resource_names.mongot_statefulset_name(mdbs.name),
         replicas=1,
         service_name=search_service_name,
         additional_domains=[f"{search_service_name}.{namespace}.svc.cluster.local"],
@@ -121,13 +119,13 @@ def test_install_tls_secrets_and_configmaps(
     create_or_update_secret(namespace=namespace, name=ca_secret_name, data={"ca.crt": ca})
 
 
-@mark.e2e_search_external_tls
+@mark.e2e_search_community_external_mongod_tls
 def test_create_database_resource(mdbc: MongoDBCommunity):
     mdbc.update()
     mdbc.assert_reaches_phase(Phase.Running, timeout=300)
 
 
-@mark.e2e_search_external_tls
+@mark.e2e_search_community_external_mongod_tls
 def test_create_search_resource(mdbs: MongoDBSearch, mdbc: MongoDBCommunity):
     seeds = [
         f"{mdbc.name}-{i}.{mdbc.name}-svc.{mdbc.namespace}.svc.cluster.local:27017"
@@ -151,39 +149,29 @@ def test_create_search_resource(mdbs: MongoDBSearch, mdbc: MongoDBCommunity):
     mdbs.assert_reaches_phase(Phase.Running, timeout=300)
 
 
-@mark.e2e_search_external_tls
+@mark.e2e_search_community_external_mongod_tls
 def test_wait_for_community_resource_ready(mdbc: MongoDBCommunity):
     mdbc.assert_reaches_phase(Phase.Running, timeout=300)
 
 
 @fixture(scope="function")
-def sample_movies_helper(mdbc: MongoDBCommunity, issuer_ca_filepath: str) -> SampleMoviesSearchHelper:
+def sample_movies_helper(mdbc: MongoDBCommunity, issuer_ca_filepath: str, namespace: str) -> SampleMoviesSearchHelper:
     return movies_search_helper.SampleMoviesSearchHelper(
-        SearchTester(
-            get_connection_string(mdbc, USER_NAME, USER_PASSWORD),
-            use_ssl=True,
-            ca_path=issuer_ca_filepath,
-        )
+        SearchTester.for_replicaset(mdbc, USER_NAME, USER_PASSWORD, use_ssl=True, ca_path=issuer_ca_filepath),
+        tools_pod=mongodb_tools_pod.get_tools_pod(namespace),
     )
 
 
-@mark.e2e_search_external_tls
+@mark.e2e_search_community_external_mongod_tls
 def test_search_restore_sample_database(sample_movies_helper: SampleMoviesSearchHelper):
     sample_movies_helper.restore_sample_database()
 
 
-@mark.e2e_search_external_tls
+@mark.e2e_search_community_external_mongod_tls
 def test_search_create_search_index(sample_movies_helper: SampleMoviesSearchHelper):
     sample_movies_helper.create_search_index()
 
 
-@mark.e2e_search_external_tls
+@mark.e2e_search_community_external_mongod_tls
 def test_search_assert_search_query(sample_movies_helper: SampleMoviesSearchHelper):
     sample_movies_helper.assert_search_query(retry_timeout=60)
-
-
-def get_connection_string(mdbc: MongoDBCommunity, user_name: str, user_password: str) -> str:
-    return (
-        f"mongodb://{user_name}:{user_password}@{mdbc.name}-0.{mdbc.name}-svc.{mdbc.namespace}.svc.cluster.local:27017/"
-        f"?replicaSet={mdbc.name}"
-    )

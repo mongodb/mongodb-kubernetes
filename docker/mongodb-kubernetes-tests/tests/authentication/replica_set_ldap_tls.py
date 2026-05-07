@@ -1,6 +1,6 @@
 from typing import Dict
 
-from kubetester import create_or_update_secret, find_fixture, wait_until
+from kubetester import create_or_update_secret, find_fixture, try_load, wait_until
 from kubetester.ldap import LDAP_AUTHENTICATION_MECHANISM, LDAPUser, OpenLDAP
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_user import MongoDBUser, Role, generic_user
@@ -72,7 +72,8 @@ def ldap_user_mongodb(replica_set: MongoDB, namespace: str, ldap_mongodb_user_tl
         ]
     )
 
-    return user.create()
+    try_load(user)
+    return user
 
 
 @mark.e2e_replica_set_ldap_tls
@@ -122,6 +123,7 @@ def test_replica_set_CLOUDP_189433(replica_set: MongoDB):
 
 @mark.e2e_replica_set_ldap_tls
 def test_create_ldap_user(replica_set: MongoDB, ldap_user_mongodb: MongoDBUser):
+    ldap_user_mongodb.update()
     ldap_user_mongodb.assert_reaches_phase(Phase.Updated)
 
     ac = replica_set.get_automation_config_tester()

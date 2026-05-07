@@ -4,9 +4,45 @@ import os
 import subprocess
 import tempfile
 import time
-from typing import Any, Callable, Dict, List, Optional
+from http import HTTPStatus
+from pathlib import Path
+from typing import Any, Callable, Dict, Iterator, List, Optional
+
+from dotenv import load_dotenv  # ty: ignore[unresolved-import]
+
+if os.environ.get("PYTEST_OTEL_ENABLED", "true") == "false":
+    # otel_plugin.py requires pytest-opentelemetry which is disabled via PYTEST_OTEL_ENABLED=false on s390x.
+    # Exclude it from collection when OTel is disabled so pytest doesn't try to import it.
+    # More info on collect_ignore pytest configuration https://docs.pytest.org/en/7.1.x/reference/reference.html#globalvar-collect_ignore
+    collect_ignore = ["otel_plugin.py"]
+else:
+    # Importing otel_plugin.pytest_configure and otel_plugin.pytest_sessionstart hook is enough to configure OTEL plugin
+    from tests.otel_plugin import pytest_configure, pytest_sessionstart  # noqa: F401
+
+
+def _load_env_from_local_file_for_development():
+    """Load environment variables from .generated/context.env for local development.
+    Similar to operator's loadEnvFromLocalFileForDevelopment() - only loads if
+    NAMESPACE env var is not already set (i.e., not running in CI/Evergreen).
+    """
+    # Path relative to this file: tests/conftest.py -> ../../../.. -> repo root
+    env_file = Path(__file__).joinpath("..", "..", "..", "..", ".generated", "context.env").resolve()
+
+    if not env_file.exists():
+        return
+
+    if os.environ.get("NAMESPACE"):
+        print(f"NAMESPACE already set, skipping loading environment variables from {env_file}")
+        return
+
+    load_dotenv(env_file)
+    print(f"Loaded environment variables from file {env_file}")
+
+
+_load_env_from_local_file_for_development()
 
 import kubernetes
+import kubernetes.client.rest
 import requests
 from kubernetes import client
 from kubernetes.client import ApiextensionsV1Api
@@ -20,20 +56,15 @@ from kubetester import (
     update_configmap,
 )
 from kubetester.awss3client import AwsS3Client
-from kubetester.helm import (
-    helm_chart_path_and_version,
-    helm_install_from_chart,
-    helm_repo_add,
-)
+from kubetester.helm import helm_chart_path_and_version, helm_install_from_chart, helm_repo_add
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as _fixture
 from kubetester.kubetester import running_locally
 from kubetester.multicluster_client import MultiClusterClient
 from kubetester.omtester import OMContext, OMTester
 from kubetester.operator import Operator
-from opentelemetry.trace import NonRecordingSpan
 from pymongo.errors import ServerSelectionTimeoutError
-from pytest import fixture
+from pytest import fixture, hookimpl
 from tests import test_logger
 from tests.constants import (
     CLUSTER_HOST_MAPPING,
@@ -316,7 +347,10 @@ def multi_cluster_issuer_ca_configmap(
 
 
 def create_issuer_ca_configmap(
-    issuer_ca_filepath: str, namespace: str, name: str = "issuer-ca", api_client: kubernetes.client.ApiClient = None
+    issuer_ca_filepath: str,
+    namespace: str,
+    name: str = "issuer-ca",
+    api_client: kubernetes.client.ApiClient | None = None,
 ):
     """This is the CA file which verifies the certificates signed by it."""
     ca = open(issuer_ca_filepath).read()
@@ -373,7 +407,7 @@ def app_db_issuer_ca_configmap(issuer_ca_filepath: str, namespace: str) -> str:
 
 
 @fixture(scope="module")
-def issuer_ca_plus(issuer_ca_filepath: str, namespace: str) -> str:
+def issuer_ca_plus(issuer_ca_filepath: str, namespace: str) -> Iterator[str]:
     """Returns the name of a ConfigMap which includes a custom CA and the full
     certificate chain for downloads.mongodb.com, fastdl.mongodb.org,
     downloads.mongodb.org. This allows for the use of a custom CA while still
@@ -549,7 +583,7 @@ def member_cluster_names() -> List[str]:
     return get_member_cluster_names()
 
 
-def get_member_cluster_clients(cluster_mapping: dict[str, int] = None) -> List[MultiClusterClient]:
+def get_member_cluster_clients(cluster_mapping: Optional[dict[str, int]] = None) -> List[MultiClusterClient]:
     if not is_multi_cluster():
         return [MultiClusterClient(kubernetes.client.ApiClient(), LEGACY_CENTRAL_CLUSTER_NAME)]
 
@@ -567,7 +601,7 @@ def get_member_cluster_clients(cluster_mapping: dict[str, int] = None) -> List[M
     return member_cluster_clients
 
 
-def get_member_cluster_client_map(deployment_state: dict[str, Any] = None) -> dict[str, MultiClusterClient]:
+def get_member_cluster_client_map(deployment_state: Optional[dict[str, Any]] = None) -> dict[str, MultiClusterClient]:
     return {
         multi_cluster_client.cluster_name: multi_cluster_client
         for multi_cluster_client in get_member_cluster_clients(deployment_state)
@@ -578,6 +612,7 @@ def get_member_cluster_api_client(
     member_cluster_name: Optional[str],
 ) -> kubernetes.client.ApiClient:
     if is_member_cluster(member_cluster_name):
+        assert member_cluster_name is not None
         return get_cluster_clients()[member_cluster_name]
     else:
         return kubernetes.client.ApiClient()
@@ -819,7 +854,9 @@ def _install_multi_cluster_operator(
     # The Operator will be installed from the following repo, so adding it first
     helm_repo_add("mongodb", "https://mongodb.github.io/helm-charts")
 
-    helm_chart_path, operator_version = helm_chart_path_and_version(helm_chart_path, custom_operator_version)
+    helm_chart_path, operator_version = helm_chart_path_and_version(
+        helm_chart_path or "", custom_operator_version or ""
+    )
 
     prepare_multi_cluster_namespaces(
         namespace,
@@ -961,9 +998,29 @@ def install_official_operator(
         "operator.mdbDefaultArchitecture": operator_installation_config["operator.mdbDefaultArchitecture"],
     }
 
+    # For upgrade tests in patch builds, we need to use ECR registries for workload images
+    # (OpsManager, Agent, etc.) since new versions may not be released to quay.io yet.
+    # The operator itself still comes from the official helm chart, but resources it creates
+    # should use the dev registries where unreleased images are available.
+    # For staging/release builds, images are already published to quay.io, so we use quay.io
+    # to verify the actual public release path.
+    build_scenario = operator_installation_config.get("buildScenario", "")
+    if build_scenario == "patch":
+        logger.debug("Patch build detected: using ECR registries for workload images in upgrade tests")
+        # Override OM registry for ALL operators (including legacy) - OM version tags are standard (e.g., 7.0.21)
+        if "registry.opsManager" in operator_installation_config:
+            helm_args["registry.opsManager"] = operator_installation_config["registry.opsManager"]
+
+        # Only override Agent registry for current operator (not legacy) because legacy operators
+        # use different agent tag formats (e.g., 13.21.0.9059-1_1.27.0) that don't exist in ECR.
+        # Init images are already released to quay.io and don't need ECR override.
+        if custom_operator_version is None and "registry.agent" in operator_installation_config:
+            helm_args["registry.agent"] = operator_installation_config["registry.agent"]
+
     # Note, that we don't intend to install the official Operator to standalone clusters (kops/openshift) as we want to
     # avoid damaged CRDs. But we may need to install the "openshift like" environment to Kind instead of the "ubi"
     # images are used for installing the dev Operator
+    assert operator_image is not None
     helm_args["operator.operator_image_name"] = operator_image
 
     # Note:
@@ -988,6 +1045,9 @@ def install_official_operator(
     """
 
     if is_multi_cluster():
+        assert member_cluster_names is not None
+        assert operator_name is not None
+        assert central_cluster_name is not None
         os.environ["HELM_KUBECONTEXT"] = central_cluster_name
         # when running with the local operator, this is executed by scripts/dev/prepare_local_e2e_run.sh
         if not local_operator():
@@ -1008,9 +1068,11 @@ def install_official_operator(
                 "multiCluster.clusters": operator_installation_config["multiCluster.clusters"],
             }
         )
-        # The "official" Operator will be installed, from the Helm Repo ("mongodb/enterprise-operator")
-        # We pass helm_args as operator installation config below instead of the full configmap data, otherwise
-        # it overwrites registries and image versions, and we wouldn't use the official images but the dev ones
+        # The "official" Operator will be installed from the Helm Repo ("mongodb/enterprise-operator")
+        # but workload images (OpsManager, Agent, etc.) will use dev registries from operator_installation_config
+        # to support testing unreleased versions in patch builds.
+        assert member_cluster_clients is not None
+        assert central_cluster_client is not None
         return _install_multi_cluster_operator(
             namespace,
             helm_args,
@@ -1048,14 +1110,14 @@ def log_deployment_and_images(deployments):
 
 # Extract container images and deployments names from the nested dict returned by kubetester
 # Handles any missing key gracefully
-def extract_container_images_and_deployments(deployments) -> (dict[str, str], List[str]):
-    deployment_images = {}
-    deployment_names = []
+def extract_container_images_and_deployments(deployments) -> tuple[dict[str, list[str]], list[str]]:
+    deployment_images: dict[str, list[str]] = {}
+    deployment_names: list[str] = []
     deployments = deployments.to_dict()
 
     if "items" not in deployments:
         logger.debug("Error: 'items' field not found in the response.")
-        return deployment_images
+        return deployment_images, deployment_names
 
     for deployment in deployments.get("items", []):
         try:
@@ -1167,6 +1229,7 @@ def install_cert_manager(
 ) -> str:
     if is_member_cluster(cluster_name):
         # ensure we cert-manager in the member clusters.
+        assert cluster_name is not None
         os.environ["HELM_KUBECONTEXT"] = cluster_name
 
     install_required = True
@@ -1275,12 +1338,12 @@ def run_kube_config_creation_tool(
     member_namespace: str,
     member_cluster_names: List[str],
     cluster_scoped: Optional[bool] = False,
-    service_account_name: Optional[str] = "mongodb-kubernetes-operator-multi-cluster",
-    operator_name: Optional[str] = OPERATOR_NAME,
+    service_account_name: str = "mongodb-kubernetes-operator-multi-cluster",
+    operator_name: str = OPERATOR_NAME,
 ):
     central_cluster = _read_multi_cluster_config_value("central_cluster")
     member_clusters_str = ",".join(member_clusters)
-    args = [
+    args: list[str] = [
         os.getenv(
             "MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH",
             "multi-cluster-kube-config-creator",
@@ -1354,12 +1417,12 @@ def run_multi_cluster_recovery_tool(
     central_namespace: str,
     member_namespace: str,
     cluster_scoped: Optional[bool] = False,
-    service_account_name: Optional[str] = "mongodb-kubernetes-operator-multi-cluster",
-    operator_name: Optional[str] = OPERATOR_NAME,
+    service_account_name: str = "mongodb-kubernetes-operator-multi-cluster",
+    operator_name: str = OPERATOR_NAME,
 ) -> int:
     central_cluster = _read_multi_cluster_config_value("central_cluster")
     member_clusters_str = ",".join(member_clusters)
-    args = [
+    args: list[str] = [
         os.getenv(
             "MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH",
             "multi-cluster-kube-config-creator",
@@ -1488,7 +1551,7 @@ def update_coredns_hosts(
     host_mappings: list[tuple[str, str]],
     cluster_name: Optional[str] = None,
     api_client: Optional[kubernetes.client.ApiClient] = None,
-    additional_rules: list[str] = None,
+    additional_rules: Optional[list[str]] = None,
 ):
     """Updates kube-system/coredns config map with given host_mappings."""
 
@@ -1513,7 +1576,7 @@ def update_coredns_hosts(
     update_configmap("kube-system", "coredns", config_data, api_client=api_client)
 
 
-def coredns_config(tld: str, mappings: str, additional_rules: str = None):
+def coredns_config(tld: str, mappings: str, additional_rules: Optional[str] = None):
     """Returns coredns config map data with mappings inserted."""
     return f"""
 .:53 {{
@@ -1546,110 +1609,13 @@ def coredns_config(tld: str, mappings: str, additional_rules: str = None):
 """
 
 
-import pytest
-from _pytest.main import Session
-from _pytest.nodes import Node
-from _pytest.reports import TestReport
-from _pytest.runner import CallInfo
-from opentelemetry import trace
-from opentelemetry.sdk.trace import ReadableSpan, SpanProcessor, TracerProvider
-from pytest_opentelemetry.instrumentation import OpenTelemetryPlugin
-
-
-class PrefixProcessor(SpanProcessor):
-    def on_start(self, span: trace.Span, parent_context=None):
-        # Create a new dictionary for updated attributes, span.attribute is immutable
-        prefixed_attributes = EnhancedOpenTelemetryPlugin._prefix_attributes(span.attributes)
-        span.set_attributes(prefixed_attributes)
-
-    def on_end(self, span: ReadableSpan):
-        pass
-
-
-#  We are using a custom OpenTelemetryPlugin to ensure we are able to add more
-#  important failure information, outcome etc.
-class EnhancedOpenTelemetryPlugin(OpenTelemetryPlugin):
-    # This ensures that our pytest finish runs first before the plugins and we can attach spans before
-    # they are getting flushed.
-    def pytest_sessionfinish(self, session: Session, exitstatus: int = None) -> None:
-        # Add the exit status as an attribute if available
-        self.session_span.set_attribute("mck.pytest.overall_exit_status", int(session.exitstatus))
-
-        # Call the parent implementation
-        super().pytest_sessionfinish(session)
-
-    @staticmethod
-    def pytest_exception_interact(
-        node: Node,
-        call: CallInfo[Any],
-        report: TestReport,
-    ) -> None:
-        current_span = trace.get_current_span()
-        if isinstance(current_span, NonRecordingSpan):
-            return
-        prefixed_attributes = EnhancedOpenTelemetryPlugin._prefix_attributes(current_span.attributes)
-        prefixed_attributes["mck.pytest.error_details"] = str(report.longrepr)
-        current_span.set_attributes(prefixed_attributes)
-
-        OpenTelemetryPlugin.pytest_exception_interact(node, call, report)
-
-    # Add this helper method
-    @staticmethod
-    def _prefix_attributes(attributes):
-        """Add 'mck.' prefix to attribute keys that don't already have it."""
-        prefixed_attributes = {}
-        for k, v in attributes.items():
-            if not k.startswith("mck."):
-                prefixed_attributes[f"mck.{k}"] = v
-            else:
-                prefixed_attributes[k] = v
-        return prefixed_attributes
-
-    @pytest.hookimpl(hookwrapper=True)
-    def pytest_runtest_makereport(self, item, call):
-        outcome = yield
-        report = outcome.get_result()
-        current_span = trace.get_current_span()
-        if not current_span:
-            return
-
-        attributes = self._attributes_from_item(item)
-        prefixed_attributes = self._prefix_attributes(attributes)
-        current_span.set_attributes(prefixed_attributes)
-        current_span.set_attribute(f"mck.pytest.outcome.{call.when}", report.outcome)
-
-
-def configure_telemetry():
-    # Get the existing tracer provider that was set up by pytest-opentelemetry
-    tracer_provider = trace.get_tracer_provider()
-
-    if isinstance(tracer_provider, TracerProvider):
-        prefix_processor = PrefixProcessor()
-        tracer_provider.add_span_processor(prefix_processor)
-
-
-# Remove the OpenTelemetryPlugin from the list and replace it with our custom generated one.
-# That's why we run our pytest last.
-@pytest.hookimpl(trylast=True)
-def pytest_configure(config):
-    # Remove the default plugin if already registered
-    for i, plugin_instance in enumerate(config.pluginmanager.get_plugins()):
-        if isinstance(plugin_instance, OpenTelemetryPlugin):
-            config.pluginmanager.unregister(plugin=plugin_instance)
-            break
-
-    config.pluginmanager.register(EnhancedOpenTelemetryPlugin())
-
-
-def pytest_sessionstart():
-    configure_telemetry()
-
-
-@pytest.hookimpl(tryfirst=True)
+@hookimpl(tryfirst=True)
 def pytest_sessionfinish(session, exitstatus):
     project_id = os.environ.get("OM_PROJECT_ID", "")
     if project_id:
         base_url = os.environ.get("OM_HOST")
+        if base_url is None:
+            return
         user = os.environ.get("OM_USER")
         key = os.environ.get("OM_API_KEY")
         ids = project_id.split(",")
@@ -1666,7 +1632,7 @@ def pytest_sessionfinish(session, exitstatus):
 
                 # let's only access om if its healthy and around.
                 status_code, _ = tester.request_health(base_url)
-                if status_code == requests.status_codes.codes.OK:
+                if status_code == HTTPStatus.OK:
                     ev = tester.get_project_events().json()["results"]
                     with open(f"/tmp/diagnostics/{project_id}-events.json", "w", encoding="utf-8") as f:
                         json.dump(ev, f, ensure_ascii=False, indent=4)
@@ -1702,10 +1668,10 @@ def install_multi_cluster_operator_cluster_scoped(
     namespace: str = get_namespace(),
     central_cluster_name: str = get_central_cluster_name(),
     central_cluster_client: client.ApiClient = get_central_cluster_client(),
-    multi_cluster_operator_installation_config: dict[str, str] = None,
-    member_cluster_clients: list[kubernetes.client.ApiClient] = None,
-    cluster_clients: dict[str, kubernetes.client.ApiClient] = None,
-    member_cluster_names: list[str] = None,
+    multi_cluster_operator_installation_config: Optional[dict[str, str]] = None,
+    member_cluster_clients: Optional[list[MultiClusterClient]] = None,
+    cluster_clients: Optional[dict[str, kubernetes.client.ApiClient]] = None,
+    member_cluster_names: Optional[list[str]] = None,
 ) -> Operator:
     if multi_cluster_operator_installation_config is None:
         multi_cluster_operator_installation_config = get_multi_cluster_operator_installation_config(namespace).copy()
@@ -1800,7 +1766,7 @@ def assert_data_got_restored(test_data, collection1, collection2=None, timeout=3
             # We ignore Exception as there is usually a blip in connection (backup restore
             # results in reelection or whatever)
             # "Connection reset by peer" or "not master and slaveOk=false"
-            logger.error("Exception happened while waiting for db data restore: ", e)
+            logger.error("Exception happened while waiting for db data restore: %s", e)
             # this is definitely the sign of a problem - no need continuing as each connection times out
             # after many minutes
             if "Connection refused" in str(e):

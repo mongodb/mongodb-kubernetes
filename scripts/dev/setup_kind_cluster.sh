@@ -68,7 +68,8 @@ metrics_server_version="v0.7.2"
 
 reg_name='kind-registry'
 reg_port='5000'
-kind_image="${registry}/kindest/node:v1.34.0@sha256:7416a61b42b1662ca6ca89f02028ac133a309a2a30ba309614e8ec94d976dc5a"
+kube_max_version=$(jq -r '.kubernetes.max' kubernetes-versions.json)
+kind_image="${registry}/kindest/node:v${kube_max_version}"
 
 kind_delete_cluster() {
   kind delete cluster --name "${cluster_name}" || true
@@ -119,10 +120,6 @@ kubeadmConfigPatches:
   kind: ClusterConfiguration
   networking:
     dnsDomain: "${cluster_domain}"
-containerdConfigPatches:
-- |-
-  [plugins."io.containerd.grpc.v1.cri".registry.mirrors."localhost:${reg_port}"]
-    endpoint = ["http://${reg_name}:${reg_port}"]
 EOF
 }
 
@@ -145,10 +142,6 @@ kubeadmConfigPatches:
   kind: ClusterConfiguration
   networking:
     dnsDomain: "${cluster_domain}"
-containerdConfigPatches:
-- |-
-  [plugins."io.containerd.grpc.v1.cri".registry.mirrors."localhost:${reg_port}"]
-    endpoint = ["http://${reg_name}:${reg_port}"]
 EOF
   echo "finished installing kind"
 }
@@ -157,6 +150,16 @@ kind_configure_local_registry(){
   echo "configuring local registry"
   # Document the local registry (from  https://kind.sigs.k8s.io/docs/user/local-registry/)
   # https://github.com/kubernetes/enhancements/tree/master/keps/sig-cluster-lifecycle/generic/1755-communicating-a-local-registry
+
+  REGISTRY_DIR="/etc/containerd/certs.d/localhost:${reg_port}"
+  for node in $(kind get nodes --name "${cluster_name}"); do
+    docker exec "${node}" mkdir -p "${REGISTRY_DIR}"
+    cat <<EOF | docker exec -i "${node}" cp /dev/stdin "${REGISTRY_DIR}/hosts.toml"
+[host."http://${reg_name}:${reg_port}"]
+EOF
+  done
+
+
   cat <<EOF | kubectl apply --kubeconfig "${kubeconfig_path}" -f -
 apiVersion: v1
 kind: ConfigMap

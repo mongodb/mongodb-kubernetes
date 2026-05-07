@@ -4,12 +4,7 @@ import time
 from typing import List, Optional
 
 import pymongo
-from kubetester import (
-    create_or_update_namespace,
-    create_or_update_secret,
-    read_secret,
-    try_load,
-)
+from kubetester import create_or_update_namespace, create_or_update_secret, read_secret, try_load
 from kubetester.certs import create_mongodb_tls_certs, create_ops_manager_tls_certs
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
@@ -20,13 +15,10 @@ from kubetester.phase import Phase
 from pymongo import ReadPreference
 from pytest import fixture, mark
 from tests.common.cert.cert_issuer import create_appdb_certs
-from tests.conftest import assert_data_got_restored, is_multi_cluster
+from tests.conftest import assert_data_got_restored, get_evergreen_task_id, is_multi_cluster
 from tests.opsmanager.conftest import mino_operator_install, mino_tenant_install
 from tests.opsmanager.om_ops_manager_backup import S3_SECRET_NAME
-from tests.opsmanager.om_ops_manager_backup_tls_custom_ca import (
-    FIRST_PROJECT_RS_NAME,
-    SECOND_PROJECT_RS_NAME,
-)
+from tests.opsmanager.om_ops_manager_backup_tls_custom_ca import FIRST_PROJECT_RS_NAME, SECOND_PROJECT_RS_NAME
 from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
 
 TEST_DATA = {"_id": "unique_id", "name": "John", "address": "Highway 37", "age": 30}
@@ -48,7 +40,11 @@ def ops_manager_certs(namespace: str, issuer: str, tenant_domains: List[str]):
 # To make it work, we generate these from our existing tls secret and copy them over.
 @fixture(scope="module")
 def copy_manager_certs_for_minio(namespace: str, ops_manager_certs: str, tenant_name: str) -> str:
-    create_or_update_namespace(tenant_name)
+    create_or_update_namespace(
+        tenant_name,
+        labels={"evg": "task"},
+        annotations={"evg/task": f"https://evergreen.mongodb.com/task/{get_evergreen_task_id()}"},
+    )
 
     data = read_secret(namespace, ops_manager_certs)
     crt = data["tls.crt"]
@@ -152,9 +148,6 @@ def ops_manager(
         yaml_fixture("om_ops_manager_backup_light.yaml"), namespace=namespace
     )
 
-    if try_load(resource):
-        return resource
-
     # these values come from the tenant creation in minio.
     create_or_update_secret(
         namespace,
@@ -187,12 +180,17 @@ def ops_manager(
 
     resource["spec"]["security"] = {"tls": {"ca": issuer_ca_configmap, "secretRef": {"name": ops_manager_certs}}}
     resource["spec"]["applicationDatabase"]["security"] = {
-        "tls": {"ca": issuer_ca_configmap, "secretRef": {"prefix": appdb_certs}}
+        "certsSecretPrefix": appdb_certs,
+        "tls": {"ca": issuer_ca_configmap},
     }
+
+    # Disable validation only for backup tests using minio
+    resource["spec"]["configuration"]["brs.s3.validation.testing"] = "disabled"
 
     if is_multi_cluster():
         enable_multi_cluster_deployment(resource)
 
+    try_load(resource)
     return resource
 
 
@@ -270,13 +268,10 @@ def mdb_latest_project(ops_manager: MongoDBOpsManager) -> OMTester:
 @mark.e2e_om_ops_manager_backup_restore_minio
 class TestMinioCreation:
     def test_install_minio(
-        self,
-        tenant_name: str,
-        issuer_ca_configmap: str,
-        copy_manager_certs_for_minio: str,
+        self, tenant_name: str, issuer_ca_configmap: str, copy_manager_certs_for_minio: str, issuer_ca_filepath: str
     ):
         mino_operator_install(namespace=tenant_name)
-        mino_tenant_install(namespace=tenant_name)
+        mino_tenant_install(namespace=tenant_name, issuer_ca_filepath=issuer_ca_filepath)
 
 
 @mark.e2e_om_ops_manager_backup_restore_minio
@@ -370,7 +365,7 @@ class TestBackupRestorePIT:
         """Changes the MDB documents to check that restore rollbacks this change later.
         Note, that we need to wait for some time to ensure the PIT timestamp gets to the range
         [snapshot_created <= PIT <= changes_applied]"""
-        now_millis = time_to_millis(datetime.datetime.now())
+        now_millis = time_to_millis(datetime.datetime.now(tz=datetime.timezone.utc))
         print("\nCurrent time (millis): {}".format(now_millis))
         time.sleep(30)
 
@@ -378,10 +373,10 @@ class TestBackupRestorePIT:
         mdb_latest_test_collection.insert_one({"foo": "bar"})
 
     def test_mdbs_pit_restore(self, mdb_prev_project: OMTester, mdb_latest_project: OMTester):
-        now_millis = time_to_millis(datetime.datetime.now())
+        now_millis = time_to_millis(datetime.datetime.now(tz=datetime.timezone.utc))
         print("\nCurrent time (millis): {}".format(now_millis))
 
-        pit_datetme = datetime.datetime.now() - datetime.timedelta(seconds=15)
+        pit_datetme = datetime.datetime.now(tz=datetime.timezone.utc) - datetime.timedelta(seconds=15)
         pit_millis = time_to_millis(pit_datetme)
         print("Restoring back to the moment 15 seconds ago (millis): {}".format(pit_millis))
 
@@ -438,6 +433,6 @@ class TestBackupRestoreFromSnapshot:
 
 def time_to_millis(date_time) -> int:
     """https://stackoverflow.com/a/11111177/614239"""
-    epoch = datetime.datetime.utcfromtimestamp(0)
+    epoch = datetime.datetime.fromtimestamp(0, tz=datetime.timezone.utc)
     pit_millis = (date_time - epoch).total_seconds() * 1000
     return pit_millis

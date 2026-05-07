@@ -21,20 +21,44 @@ type Config struct {
 	Metrics     ConfigMetrics     `json:"metrics"`
 	HealthCheck ConfigHealthCheck `json:"healthCheck"`
 	Logging     ConfigLogging     `json:"logging"`
+	Embedding   *EmbeddingConfig  `json:"embedding,omitempty"`
+}
+
+type EmbeddingConfig struct {
+	QueryKeyFile              string `json:"queryKeyFile" yaml:"queryKeyFile,omitempty"`
+	IndexingKeyFile           string `json:"indexingKeyFile" yaml:"indexingKeyFile,omitempty"`
+	ProviderEndpoint          string `json:"providerEndpoint" yaml:"providerEndpoint,omitempty"`
+	IsAutoEmbeddingViewWriter *bool  `json:"isAutoEmbeddingViewWriter" yaml:"isAutoEmbeddingViewWriter,omitempty"`
 }
 
 type ConfigSyncSource struct {
 	ReplicaSet               ConfigReplicaSet `json:"replicaSet"`
+	Router                   *ConfigRouter    `json:"router,omitempty"`
 	CertificateAuthorityFile *string          `json:"caFile,omitempty"`
 }
 
+type ConfigRouter struct {
+	HostAndPort  []string    `json:"hostAndPort"`
+	Username     string      `json:"username,omitempty"`
+	PasswordFile string      `json:"passwordFile,omitempty"`
+	TLS          *bool       `json:"tls,omitempty"`
+	AuthSource   *string     `json:"authSource,omitempty"`
+	X509         *ConfigX509 `json:"x509,omitempty"`
+}
+
 type ConfigReplicaSet struct {
-	HostAndPort    []string `json:"hostAndPort"`
-	Username       string   `json:"username"`
-	PasswordFile   string   `json:"passwordFile"`
-	TLS            *bool    `json:"tls,omitempty"`
-	ReadPreference *string  `json:"readPreference,omitempty"`
-	AuthSource     *string  `json:"authSource,omitempty"`
+	HostAndPort    []string    `json:"hostAndPort"`
+	Username       string      `json:"username,omitempty"`
+	PasswordFile   string      `json:"passwordFile,omitempty"`
+	TLS            *bool       `json:"tls,omitempty"`
+	ReadPreference *string     `json:"readPreference,omitempty"`
+	AuthSource     *string     `json:"authSource,omitempty"`
+	X509           *ConfigX509 `json:"x509,omitempty"`
+}
+
+type ConfigX509 struct {
+	TLSCertificateKeyFile             *string `json:"tlsCertificateKeyFile,omitempty"`
+	TLSCertificateKeyFilePasswordFile *string `json:"tlsCertificateKeyFilePasswordFile,omitempty"`
 }
 
 type ConfigStorage struct {

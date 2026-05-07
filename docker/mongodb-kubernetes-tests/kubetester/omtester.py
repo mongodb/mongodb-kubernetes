@@ -6,7 +6,7 @@ import re
 import tempfile
 import time
 import urllib.parse
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Dict, List, Optional
 
@@ -15,12 +15,7 @@ import pytest
 import requests
 import semver
 from kubetester.automation_config_tester import AutomationConfigTester
-from kubetester.kubetester import (
-    KubernetesTester,
-    build_agent_auth,
-    build_auth,
-    run_periodically,
-)
+from kubetester.kubetester import KubernetesTester, build_agent_auth, build_auth, run_periodically
 from kubetester.mongotester import BackgroundHealthChecker
 from kubetester.om_queryable_backups import OMQueryableBackup
 from opentelemetry import trace
@@ -132,9 +127,15 @@ class OMTester(object):
     def get_latest_backup_completion_time(self):
         return self.latest_backup_completion_time or 0
 
-    def create_restore_job_pit(self, pit_milliseconds: int, retry: int = 120):
-        """creates a restore job to restore the mongodb cluster to some version specified by the parameter."""
+    def create_restore_job_pit(self, pit_milliseconds: int, retry: int = 120, timeout_seconds: int = 600):
+        """Creates a restore job to restore the mongodb cluster to some version specified by the parameter.
+
+        Retries on 409 Conflict or 'Invalid restore point' until the request succeeds or
+        timeout_seconds is reached (the API can return 409 temporarily until the restore point is available).
+        """
         cluster_id = self.get_backup_cluster_id()
+        start_time = time.time()
+        attempt = 0
         while retry > 0:
             try:
                 span = trace.get_current_span()
@@ -142,10 +143,22 @@ class OMTester(object):
                 self.api_create_restore_job_pit(cluster_id, pit_milliseconds)
                 return
             except Exception as e:
-                # this exception is usually raised for some time (some oplog slices not received or whatever)
-                # but eventually is gone and restore job is started.
-                if "Invalid restore point:" not in str(e):
+                elapsed = time.time() - start_time
+                if elapsed >= timeout_seconds:
+                    raise Exception(
+                        f"Failed to create PIT restore job after {timeout_seconds}s (last error: {e})"
+                    ) from e
+                # Retry on 409 Conflict or invalid restore point; both can clear once the restore point is ready.
+                error_str = str(e)
+                if " 409 " not in error_str and "Invalid restore point:" not in error_str:
                     raise e
+                attempt += 1
+                logger.info(
+                    "PIT restore returned 409 or invalid restore point (attempt %d, %.0fs elapsed), retrying: %s",
+                    attempt,
+                    elapsed,
+                    error_str[:200],
+                )
             retry -= 1
             time.sleep(1)
         raise Exception("Failed to create a restore job!")
@@ -178,7 +191,7 @@ class OMTester(object):
                 snapshot_timestamp = latest_snapshot["created"]["date"]
                 print(f"Current Backup Snapshots: {snapshots}")
                 self.set_latest_backup_completion_time(
-                    time_to_millis(datetime.fromisoformat(snapshot_timestamp.replace("Z", "")))
+                    time_to_millis(datetime.fromisoformat(snapshot_timestamp.replace("Z", "+00:00")))
                 )
                 return
             time.sleep(3)
@@ -230,6 +243,7 @@ class OMTester(object):
         for cluster in clusters:
             if cluster["typeName"] == "SHARDED_REPLICA_SET":
                 return cluster["id"]
+        raise AssertionError("No SHARDED_REPLICA_SET cluster found")
 
     def assert_healthiness(self):
         self.do_assert_healthiness(self.context.base_url)
@@ -347,11 +361,11 @@ class OMTester(object):
     def assert_om_version(self, expected_version: str):
         assert self.api_get_om_version() == expected_version
 
-    def check_healthiness(self) -> tuple[str, str]:
+    def check_healthiness(self) -> tuple[int, str]:
         return OMTester.request_health(self.context.base_url)
 
     @staticmethod
-    def request_health(base_url: str) -> tuple[str, str]:
+    def request_health(base_url: str) -> tuple[int, str]:
         endpoint = base_url + "/monitor/health"
         response = requests.request("get", endpoint, verify=False)
         return response.status_code, response.text
@@ -364,8 +378,10 @@ class OMTester(object):
         ), "Expected HTTP 200 from Ops Manager but got {} ({})".format(status_code, datetime.now())
 
     def om_request(self, method, path, json_object: Optional[Dict] = None, retries=3, agent_endpoint=False):
-        """performs the digest API request to Ops Manager. Note that the paths don't need to be prefixed with
-        '/api../v1.0' as the method does it internally."""
+        """Performs the digest API request to Ops Manager. Note that the paths don't need to be prefixed with
+        '/api../v1.0' as the method does it internally.
+
+        Only retries on 5xx server errors. Raises for any non-2xx status (3xx, 4xx, 5xx after retries exhausted)."""
         span = trace.get_current_span()
 
         headers = {"Content-Type": "application/json"}
@@ -388,47 +404,43 @@ class OMTester(object):
         sanitized_path = pattern.sub("/{id}", path)
         span.set_attribute(key=f"mck.om.request.resource", value=sanitized_path)
 
-        def om_request():
-            try:
-                response = session.request(
-                    url=endpoint,
-                    method=method,
-                    auth=auth,
-                    headers=headers,
-                    json=json_object,
-                    timeout=30,
-                    verify=False,
-                )
-            except Exception as e:
-                print("failed connecting to om")
-                raise e
-
+        retry_count = retries
+        while True:
+            response = session.request(
+                url=endpoint,
+                method=method,
+                auth=auth,
+                headers=headers,
+                json=json_object,
+                timeout=30,
+                verify=False,
+            )
             span.set_attribute(key=f"mck.om.request.duration", value=time.time() - start_time)
             span.set_attribute(key=f"mck.om.request.fullpath", value=path)
 
-            if response.status_code >= 300:
-                raise Exception(
-                    "Error sending request to Ops Manager API. {} ({}).\n Request details: {} {} (data: {})".format(
-                        response.status_code, response.text, method, endpoint, json_object
-                    )
+            # Only retry on 5xx server errors; for 3xx/4xx raise immediately, for 2xx return
+            if 500 <= response.status_code < 600 and retry_count > 0:
+                print(
+                    f"Ops Manager API returned {response.status_code}, retrying ({retries - retry_count + 1}/{retries})"
                 )
-            return response
-
-        retry_count = retries
-        last_exception = Exception("Failed unexpectedly while retrying OM request")
-        while retry_count >= 0:
-            try:
-                resp = om_request()
                 span.set_attribute(key=f"mck.om.request.retries", value=retries - retry_count)
-                return resp
-            except Exception as e:
-                print(f"Encountered exception: {e} on retry number {retries - retry_count}")
-                span.set_attribute(key=f"mck.om.request.exception", value=str(e))
-                last_exception = e
-                time.sleep(1)
                 retry_count -= 1
-
-        raise last_exception
+                time.sleep(1)
+                continue
+            span.set_attribute(key=f"mck.om.request.retries", value=retries - retry_count)
+            if response.status_code >= 300:
+                message = "Error sending request to Ops Manager API. {} ({}).\n Request details: {} {}".format(
+                    response.status_code,
+                    response.text,
+                    method,
+                    endpoint,
+                )
+                logger.error(message)
+                # Include the response body in the exception message so callers
+                # can inspect it (e.g. PIT restore helpers looking for 409/invalid restore point)
+                # and implement their own retry/timeout logic.
+                raise Exception(message)
+            return response
 
     def get_feature_controls(self):
         return self.om_request("get", f"/groups/{self.context.project_id}/controlledFeature").json()
@@ -581,7 +593,7 @@ class OMTester(object):
             "results"
         ]
 
-    def api_get_clusters(self) -> List:
+    def api_get_clusters(self) -> Dict:
         return self.om_request("get", f"/groups/{self.context.project_id}/clusters/").json()
 
     def api_create_restore_job_pit(self, cluster_id: str, pit_milliseconds: int):
@@ -667,7 +679,7 @@ class OMTester(object):
         clientPem.write(connParams.client_pem)
         clientPem.flush()
 
-        dbClient = pymongo.MongoClient(
+        dbClient: pymongo.database.Database = pymongo.MongoClient(
             host=connParams.host,
             tls=True,
             tlsCAFile=caPem.name,
@@ -861,6 +873,6 @@ def should_include_tag(version: Optional[Dict[str, str]]) -> bool:
 
 def time_to_millis(date_time) -> int:
     """https://stackoverflow.com/a/11111177/614239"""
-    epoch = datetime.utcfromtimestamp(0)
+    epoch = datetime.fromtimestamp(0, tz=timezone.utc)
     pit_millis = (date_time - epoch).total_seconds() * 1000
     return pit_millis

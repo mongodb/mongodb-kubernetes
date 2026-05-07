@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"sort"
 	"testing"
+	"testing/synctest"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -172,128 +173,130 @@ func TestMultiReplicaSetClusterReconcileContainerImagesWithStaticArchitecture(t 
 }
 
 func TestReconcilePVCResizeMultiCluster(t *testing.T) {
-	ctx := context.Background()
+	synctest.Test(t, func(t *testing.T) {
+		ctx := context.Background()
 
-	configuration := common.StatefulSetConfiguration{
-		SpecWrapper: common.StatefulSetSpecWrapper{
-			Spec: appsv1.StatefulSetSpec{
-				VolumeClaimTemplates: []corev1.PersistentVolumeClaim{
-					{
-						ObjectMeta: metav1.ObjectMeta{
-							Name: "data",
-						},
-						Spec: corev1.PersistentVolumeClaimSpec{
-							StorageClassName: ptr.To("test"),
-							Resources: corev1.VolumeResourceRequirements{
-								Requests: map[corev1.ResourceName]resource.Quantity{corev1.ResourceStorage: resource.MustParse("1Gi")},
+		configuration := common.StatefulSetConfiguration{
+			SpecWrapper: common.StatefulSetSpecWrapper{
+				Spec: appsv1.StatefulSetSpec{
+					VolumeClaimTemplates: []corev1.PersistentVolumeClaim{
+						{
+							ObjectMeta: metav1.ObjectMeta{
+								Name: "data",
+							},
+							Spec: corev1.PersistentVolumeClaimSpec{
+								StorageClassName: ptr.To("test"),
+								Resources: corev1.VolumeResourceRequirements{
+									Requests: map[corev1.ResourceName]resource.Quantity{corev1.ResourceStorage: resource.MustParse("1Gi")},
+								},
 							},
 						},
 					},
 				},
 			},
-		},
-	}
-	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
-	mrs.Spec.StatefulSetConfiguration = &configuration
+		}
+		mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
+		mrs.Spec.StatefulSetConfiguration = &configuration
 
-	reconciler, c, clusterMap, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs)
+		reconciler, c, clusterMap, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs)
 
-	// first, we create the shardedCluster with sts and pvc,
-	// no resize happening, even after running reconcile multiple times
-	checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, c, false)
-	testNoResizeMulti(t, c, ctx, mrs)
+		// first, we create the shardedCluster with sts and pvc,
+		// no resize happening, even after running reconcile multiple times
+		checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, c, false)
+		testNoResizeMulti(t, c, ctx, mrs)
 
-	checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, c, false)
-	testNoResizeMulti(t, c, ctx, mrs)
+		checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, c, false)
+		testNoResizeMulti(t, c, ctx, mrs)
 
-	createdConfigPVCs := getPVCsMulti(t, ctx, mrs, clusterMap)
+		createdConfigPVCs := getPVCsMulti(t, ctx, mrs, clusterMap)
 
-	newSize := "2Gi"
-	configuration.SpecWrapper.Spec.VolumeClaimTemplates[0].Spec.Resources.Requests = map[corev1.ResourceName]resource.Quantity{corev1.ResourceStorage: resource.MustParse(newSize)}
-	mrs.Spec.StatefulSetConfiguration = &configuration
-	err := c.Update(ctx, mrs)
-	assert.NoError(t, err)
+		newSize := "2Gi"
+		configuration.SpecWrapper.Spec.VolumeClaimTemplates[0].Spec.Resources.Requests = map[corev1.ResourceName]resource.Quantity{corev1.ResourceStorage: resource.MustParse(newSize)}
+		mrs.Spec.StatefulSetConfiguration = &configuration
+		err := c.Update(ctx, mrs)
+		assert.NoError(t, err)
 
-	_, e := reconciler.Reconcile(ctx, requestFromObject(mrs))
-	assert.NoError(t, e)
+		_, e := reconciler.Reconcile(ctx, requestFromObject(mrs))
+		assert.NoError(t, e)
 
-	// its only one sts in the pvc status, since we haven't started the next one yet
-	testMDBStatusMulti(t, c, ctx, mrs, status.PhasePending, status.PVCS{{Phase: pvc.PhasePVCResize, StatefulsetName: "temple-0"}})
+		// its only one sts in the pvc status, since we haven't started the next one yet
+		testMDBStatusMulti(t, c, ctx, mrs, status.PhasePending, status.PVCS{{Phase: pvc.PhasePVCResize, StatefulsetName: "temple-0"}})
 
-	testPVCSizeHasIncreased(t, createdConfigPVCs[0].client, ctx, newSize, "temple-0")
+		testPVCSizeHasIncreased(t, createdConfigPVCs[0].client, ctx, newSize, "temple-0")
 
-	// Running the same resize makes no difference, we are still resizing
-	_, e = reconciler.Reconcile(ctx, requestFromObject(mrs))
-	assert.NoError(t, e)
+		// Running the same resize makes no difference, we are still resizing
+		_, e = reconciler.Reconcile(ctx, requestFromObject(mrs))
+		assert.NoError(t, e)
 
-	testMDBStatusMulti(t, c, ctx, mrs, status.PhasePending, status.PVCS{{Phase: pvc.PhasePVCResize, StatefulsetName: "temple-0"}})
+		testMDBStatusMulti(t, c, ctx, mrs, status.PhasePending, status.PVCS{{Phase: pvc.PhasePVCResize, StatefulsetName: "temple-0"}})
 
-	// update the first stses pvc to be ready
-	for _, claim := range createdConfigPVCs[0].persistentVolumeClaims {
-		setPVCWithUpdatedResource(ctx, t, createdConfigPVCs[0].client, &claim)
-	}
+		// update the first stses pvc to be ready
+		for _, claim := range createdConfigPVCs[0].persistentVolumeClaims {
+			setPVCWithUpdatedResource(ctx, t, createdConfigPVCs[0].client, &claim)
+		}
 
-	// Running reconcile again should go into orphan
-	_, e = reconciler.Reconcile(ctx, requestFromObject(mrs))
-	assert.NoError(t, e)
+		// Running reconcile again should go into orphan
+		_, e = reconciler.Reconcile(ctx, requestFromObject(mrs))
+		assert.NoError(t, e)
 
-	// the second pvc is now getting resized
-	testMDBStatusMulti(t, c, ctx, mrs, status.PhasePending, status.PVCS{
-		{Phase: pvc.PhaseSTSOrphaned, StatefulsetName: "temple-0"},
-		{Phase: pvc.PhasePVCResize, StatefulsetName: "temple-1"},
+		// the second pvc is now getting resized
+		testMDBStatusMulti(t, c, ctx, mrs, status.PhasePending, status.PVCS{
+			{Phase: pvc.PhaseSTSOrphaned, StatefulsetName: "temple-0"},
+			{Phase: pvc.PhasePVCResize, StatefulsetName: "temple-1"},
+		})
+		// Running reconcile again second pvcState should go into orphan, third one should start
+
+		// update the first stse pvc to be ready
+		for _, claim := range createdConfigPVCs[1].persistentVolumeClaims {
+			setPVCWithUpdatedResource(ctx, t, createdConfigPVCs[1].client, &claim)
+		}
+
+		_, e = reconciler.Reconcile(ctx, requestFromObject(mrs))
+		assert.NoError(t, e)
+
+		testMDBStatusMulti(t, c, ctx, mrs, status.PhasePending, status.PVCS{
+			{Phase: pvc.PhaseSTSOrphaned, StatefulsetName: "temple-0"},
+			{Phase: pvc.PhaseSTSOrphaned, StatefulsetName: "temple-1"},
+			{Phase: pvc.PhasePVCResize, StatefulsetName: "temple-2"},
+		})
+
+		// pvc aren't resized. therefore same status expected
+		_, e = reconciler.Reconcile(ctx, requestFromObject(mrs))
+		assert.NoError(t, e)
+
+		testMDBStatusMulti(t, c, ctx, mrs, status.PhasePending, status.PVCS{
+			{Phase: pvc.PhaseSTSOrphaned, StatefulsetName: "temple-0"},
+			{Phase: pvc.PhaseSTSOrphaned, StatefulsetName: "temple-1"},
+			{Phase: pvc.PhasePVCResize, StatefulsetName: "temple-2"},
+		})
+
+		// update the first stse pvc to be ready
+		for _, claim := range createdConfigPVCs[2].persistentVolumeClaims {
+			setPVCWithUpdatedResource(ctx, t, createdConfigPVCs[2].client, &claim)
+		}
+
+		// We move from resize → orphaned and in the final call in the reconciling to running and
+		// remove the PVCs.
+		_, err = reconciler.Reconcile(ctx, requestFromObject(mrs))
+		assert.NoError(t, err)
+
+		// We are now in the running phase, since all statefulsets have finished resizing; therefore,
+		// no pvc phase is shown anymore
+		testMDBStatusMulti(t, c, ctx, mrs, status.PhaseRunning, nil)
+
+		for _, item := range mrs.Spec.ClusterSpecList {
+			c := clusterMap[item.ClusterName]
+			stsName := mrs.MultiStatefulsetName(mrs.ClusterNum(item.ClusterName))
+			testStatefulsetHasAnnotationAndCorrectSize(t, c, ctx, mrs.Namespace, stsName)
+		}
+
+		_, e = reconciler.Reconcile(ctx, requestFromObject(mrs))
+		require.NoError(t, e)
+
+		// We are now in the running phase, since all statefulsets have finished resizing; therefore,
+		// no pvc phase is shown anymore
+		testMDBStatusMulti(t, c, ctx, mrs, status.PhaseRunning, nil)
 	})
-	// Running reconcile again second pvcState should go into orphan, third one should start
-
-	// update the first stse pvc to be ready
-	for _, claim := range createdConfigPVCs[1].persistentVolumeClaims {
-		setPVCWithUpdatedResource(ctx, t, createdConfigPVCs[1].client, &claim)
-	}
-
-	_, e = reconciler.Reconcile(ctx, requestFromObject(mrs))
-	assert.NoError(t, e)
-
-	testMDBStatusMulti(t, c, ctx, mrs, status.PhasePending, status.PVCS{
-		{Phase: pvc.PhaseSTSOrphaned, StatefulsetName: "temple-0"},
-		{Phase: pvc.PhaseSTSOrphaned, StatefulsetName: "temple-1"},
-		{Phase: pvc.PhasePVCResize, StatefulsetName: "temple-2"},
-	})
-
-	// pvc aren't resized. therefore same status expected
-	_, e = reconciler.Reconcile(ctx, requestFromObject(mrs))
-	assert.NoError(t, e)
-
-	testMDBStatusMulti(t, c, ctx, mrs, status.PhasePending, status.PVCS{
-		{Phase: pvc.PhaseSTSOrphaned, StatefulsetName: "temple-0"},
-		{Phase: pvc.PhaseSTSOrphaned, StatefulsetName: "temple-1"},
-		{Phase: pvc.PhasePVCResize, StatefulsetName: "temple-2"},
-	})
-
-	// update the first stse pvc to be ready
-	for _, claim := range createdConfigPVCs[2].persistentVolumeClaims {
-		setPVCWithUpdatedResource(ctx, t, createdConfigPVCs[2].client, &claim)
-	}
-
-	// We move from resize → orphaned and in the final call in the reconciling to running and
-	// remove the PVCs.
-	_, err = reconciler.Reconcile(ctx, requestFromObject(mrs))
-	assert.NoError(t, err)
-
-	// We are now in the running phase, since all statefulsets have finished resizing; therefore,
-	// no pvc phase is shown anymore
-	testMDBStatusMulti(t, c, ctx, mrs, status.PhaseRunning, nil)
-
-	for _, item := range mrs.Spec.ClusterSpecList {
-		c := clusterMap[item.ClusterName]
-		stsName := mrs.MultiStatefulsetName(mrs.ClusterNum(item.ClusterName))
-		testStatefulsetHasAnnotationAndCorrectSize(t, c, ctx, mrs.Namespace, stsName)
-	}
-
-	_, e = reconciler.Reconcile(ctx, requestFromObject(mrs))
-	require.NoError(t, e)
-
-	// We are now in the running phase, since all statefulsets have finished resizing; therefore,
-	// no pvc phase is shown anymore
-	testMDBStatusMulti(t, c, ctx, mrs, status.PhaseRunning, nil)
 }
 
 type pvcClient struct {
@@ -548,102 +551,135 @@ func TestHeadlessServiceCreation(t *testing.T) {
 }
 
 func TestResourceDeletion(t *testing.T) {
-	ctx := context.Background()
-	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
-	reconciler, client, memberClients, omConnectionFactory := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs)
-	checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
-
-	t.Run("Resources are created", func(t *testing.T) {
-		clusterSpecs, err := mrs.GetClusterSpecItems()
-		if err != nil {
-			assert.NoError(t, err)
-		}
-		for _, item := range clusterSpecs {
-			c := memberClients[item.ClusterName]
-			t.Run("Stateful Set in each member cluster has been created", func(t *testing.T) {
-				ctx := context.Background()
-				sts := appsv1.StatefulSet{}
-				err := c.Get(ctx, kube.ObjectKey(mrs.Namespace, mrs.MultiStatefulsetName(mrs.ClusterNum(item.ClusterName))), &sts)
-				assert.NoError(t, err)
-			})
-
-			t.Run("Services in each member cluster have been created", func(t *testing.T) {
-				ctx := context.Background()
-				svcList := corev1.ServiceList{}
-				err := c.List(ctx, &svcList)
-				assert.NoError(t, err)
-				assert.Len(t, svcList.Items, item.Members+2)
-			})
-
-			t.Run("Configmaps in each member cluster have been created", func(t *testing.T) {
-				ctx := context.Background()
-				configMapList := corev1.ConfigMapList{}
-				err := c.List(ctx, &configMapList)
-				assert.NoError(t, err)
-				assert.Len(t, configMapList.Items, 1)
-			})
-			t.Run("Secrets in each member cluster have been created", func(t *testing.T) {
-				ctx := context.Background()
-				secretList := corev1.SecretList{}
-				err := c.List(ctx, &secretList)
-				assert.NoError(t, err)
-				assert.Len(t, secretList.Items, 1)
-			})
-		}
-	})
-
-	err := reconciler.deleteManagedResources(ctx, *mrs, zap.S())
-	assert.NoError(t, err)
-
-	clusterSpecs, err := mrs.GetClusterSpecItems()
-	if err != nil {
-		assert.NoError(t, err)
-	}
-	for _, item := range clusterSpecs {
-		c := memberClients[item.ClusterName]
-		t.Run("Stateful Set in each member cluster has been removed", func(t *testing.T) {
-			ctx := context.Background()
-			sts := appsv1.StatefulSet{}
-			err := c.Get(ctx, kube.ObjectKey(mrs.Namespace, mrs.MultiStatefulsetName(mrs.ClusterNum(item.ClusterName))), &sts)
-			assert.Error(t, err)
-		})
-
-		t.Run("Services in each member cluster have been removed", func(t *testing.T) {
-			ctx := context.Background()
-			svcList := corev1.ServiceList{}
-			err := c.List(ctx, &svcList)
-			assert.NoError(t, err)
-			assert.Empty(t, svcList.Items)
-		})
-
-		t.Run("Configmaps in each member cluster have been removed", func(t *testing.T) {
-			ctx := context.Background()
-			configMapList := corev1.ConfigMapList{}
-			err := c.List(ctx, &configMapList)
-			assert.NoError(t, err)
-			assert.Len(t, configMapList.Items, 0)
-		})
-
-		t.Run("Secrets in each member cluster have been removed", func(t *testing.T) {
-			ctx := context.Background()
-			secretList := corev1.SecretList{}
-			err := c.List(ctx, &secretList)
-			assert.NoError(t, err)
-			assert.Len(t, secretList.Items, 0)
-		})
+	testCases := []struct {
+		name   string
+		create func() *mdbmulti.MongoDBMultiCluster
+	}{
+		{
+			name: "WithoutExternalDomain",
+			create: func() *mdbmulti.MongoDBMultiCluster {
+				return mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
+			},
+		},
+		{
+			name: "WithExternalDomain",
+			create: func() *mdbmulti.MongoDBMultiCluster {
+				return mdbmulti.DefaultMultiReplicaSetBuilder().
+					SetClusterSpecList(clusters).
+					SetExternalAccess(
+						mdb.ExternalAccessConfiguration{ExternalDomain: ptr.To("cluster-%d.testing")},
+						ptr.To("cluster-%d.testing"),
+					).
+					Build()
+			},
+		},
 	}
 
-	t.Run("Ops Manager state has been cleaned", func(t *testing.T) {
-		processes := omConnectionFactory.GetConnection().(*om.MockedOmConnection).GetProcesses()
-		assert.Len(t, processes, 0)
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			mrs := tc.create()
+			reconciler, client, memberClients, omConnectionFactory := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs)
+			checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
 
-		ac, err := omConnectionFactory.GetConnection().ReadAutomationConfig()
-		assert.NoError(t, err)
+			t.Run("Resources are created", func(t *testing.T) {
+				clusterSpecs, err := mrs.GetClusterSpecItems()
+				if err != nil {
+					assert.NoError(t, err)
+				}
+				for _, item := range clusterSpecs {
+					c := memberClients[item.ClusterName]
+					t.Run("Stateful Set in each member cluster has been created", func(t *testing.T) {
+						ctx := context.Background()
+						sts := appsv1.StatefulSet{}
+						err := c.Get(ctx, kube.ObjectKey(mrs.Namespace, mrs.MultiStatefulsetName(mrs.ClusterNum(item.ClusterName))), &sts)
+						assert.NoError(t, err)
+					})
 
-		assert.Empty(t, ac.Auth.AutoAuthMechanisms)
-		assert.Empty(t, ac.Auth.DeploymentAuthMechanisms)
-		assert.False(t, ac.Auth.IsEnabled())
-	})
+					t.Run("Services in each member cluster have been created", func(t *testing.T) {
+						ctx := context.Background()
+						svcList := corev1.ServiceList{}
+						err := c.List(ctx, &svcList)
+						assert.NoError(t, err)
+						assert.Len(t, svcList.Items, item.Members+2)
+					})
+
+					t.Run("Configmaps in each member cluster have been created", func(t *testing.T) {
+						ctx := context.Background()
+						configMapList := corev1.ConfigMapList{}
+						err := c.List(ctx, &configMapList)
+						assert.NoError(t, err)
+						assert.Len(t, configMapList.Items, 1)
+					})
+					t.Run("Secrets in each member cluster have been created", func(t *testing.T) {
+						ctx := context.Background()
+						secretList := corev1.SecretList{}
+						err := c.List(ctx, &secretList)
+						assert.NoError(t, err)
+						assert.Len(t, secretList.Items, 1)
+					})
+				}
+			})
+
+			err := reconciler.deleteManagedResources(ctx, *mrs, zap.S())
+			assert.NoError(t, err)
+
+			clusterSpecs, err := mrs.GetClusterSpecItems()
+			if err != nil {
+				assert.NoError(t, err)
+			}
+			for _, item := range clusterSpecs {
+				c := memberClients[item.ClusterName]
+				t.Run("Stateful Set in each member cluster has been removed", func(t *testing.T) {
+					ctx := context.Background()
+					sts := appsv1.StatefulSet{}
+					err := c.Get(ctx, kube.ObjectKey(mrs.Namespace, mrs.MultiStatefulsetName(mrs.ClusterNum(item.ClusterName))), &sts)
+					assert.Error(t, err)
+				})
+
+				t.Run("Services in each member cluster have been removed", func(t *testing.T) {
+					ctx := context.Background()
+					svcList := corev1.ServiceList{}
+					err := c.List(ctx, &svcList)
+					assert.NoError(t, err)
+					assert.Empty(t, svcList.Items)
+				})
+
+				t.Run("Configmaps in each member cluster have been removed", func(t *testing.T) {
+					ctx := context.Background()
+					configMapList := corev1.ConfigMapList{}
+					err := c.List(ctx, &configMapList)
+					assert.NoError(t, err)
+					assert.Len(t, configMapList.Items, 0)
+				})
+
+				t.Run("Secrets in each member cluster have been removed", func(t *testing.T) {
+					ctx := context.Background()
+					secretList := corev1.SecretList{}
+					err := c.List(ctx, &secretList)
+					assert.NoError(t, err)
+					assert.Len(t, secretList.Items, 0)
+				})
+			}
+
+			t.Run("Ops Manager state has been cleaned", func(t *testing.T) {
+				processes := omConnectionFactory.GetConnection().(*om.MockedOmConnection).GetProcesses()
+				assert.Len(t, processes, 0)
+
+				hosts, err := omConnectionFactory.GetConnection().(*om.MockedOmConnection).GetHosts()
+				assert.NoError(t, err)
+				assert.NotNil(t, hosts)
+				assert.Len(t, hosts.Results, 0)
+
+				ac, err := omConnectionFactory.GetConnection().ReadAutomationConfig()
+				assert.NoError(t, err)
+
+				assert.Empty(t, ac.Auth.AutoAuthMechanisms)
+				assert.Empty(t, ac.Auth.DeploymentAuthMechanisms)
+				assert.False(t, ac.Auth.IsEnabled())
+			})
+		})
+	}
 }
 
 func TestGroupSecret_IsCopied_ToEveryMemberCluster(t *testing.T) {
@@ -757,7 +793,7 @@ func TestMultiReplicaSetRace(t *testing.T) {
 
 	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory().WithResourceToProjectMapping(resourceToProjectMapping)
 	memberClusterMap := getFakeMultiClusterMapWithConfiguredInterceptor(clusters, omConnectionFactory, true, true)
-	reconciler := newMultiClusterReplicaSetReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, omConnectionFactory.GetConnectionFunc, memberClusterMap)
+	reconciler := newMultiClusterReplicaSetReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", omConnectionFactory.GetConnectionFunc, memberClusterMap)
 
 	testConcurrentReconciles(ctx, t, fakeClient, reconciler, rs1, rs2, rs3)
 }
@@ -911,7 +947,7 @@ func TestScaling(t *testing.T) {
 		dep, err := omConnectionFactory.GetConnection().ReadDeployment()
 		assert.NoError(t, err)
 
-		replicaSets := dep.ReplicaSets()
+		replicaSets := dep.GetReplicaSets()
 
 		assert.Len(t, replicaSets, 1)
 		members := replicaSets[0].Members()
@@ -932,7 +968,7 @@ func TestScaling(t *testing.T) {
 		dep, err = omConnectionFactory.GetConnection().ReadDeployment()
 		assert.NoError(t, err)
 
-		replicaSets = dep.ReplicaSets()
+		replicaSets = dep.GetReplicaSets()
 
 		assert.Len(t, replicaSets, 1)
 		members = replicaSets[0].Members()
@@ -1425,6 +1461,43 @@ func TestValidationsRunOnReconcile(t *testing.T) {
 	assert.Equal(t, fmt.Sprintf("Multiple clusters with the same name (%s) are not allowed", duplicateName), mrs.Status.Message)
 }
 
+func TestRoleAnnotationIsSet(t *testing.T) {
+	ctx := context.Background()
+
+	role := mdb.MongoDBRole{
+		Role: "embedded-role",
+		Db:   "admin",
+		Roles: []mdb.InheritedRole{{
+			Db:   "admin",
+			Role: "read",
+		}},
+	}
+
+	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).SetRoles([]mdb.MongoDBRole{role}).Build()
+	reconciler, client, _, omConnectionFactory := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs)
+	checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
+
+	roleString, _ := json.Marshal([]string{"embedded-role@admin"})
+
+	// Assert that the member ids are saved in the annotation
+	assert.Equal(t, mrs.GetAnnotations()[util.LastConfiguredRoles], string(roleString))
+
+	roles := omConnectionFactory.GetConnection().(*om.MockedOmConnection).GetRoles()
+	assert.Len(t, roles, 1)
+
+	mrs.GetSecurity().Roles = []mdb.MongoDBRole{}
+	err := client.Update(ctx, mrs)
+	assert.NoError(t, err)
+
+	checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
+
+	// Assert that the roles annotation is updated and role is removed
+	assert.Equal(t, mrs.GetAnnotations()[util.LastConfiguredRoles], "[]")
+
+	roles = omConnectionFactory.GetConnection().(*om.MockedOmConnection).GetRoles()
+	assert.Len(t, roles, 0)
+}
+
 func assertClusterpresent(t *testing.T, m map[string]int, specs mdb.ClusterSpecList, arr []int) {
 	tmp := make([]int, 0)
 	for _, s := range specs {
@@ -1513,7 +1586,7 @@ func calculateHostNamesForExternalDomains(m *mdbmulti.MongoDBMultiCluster) []str
 func multiReplicaSetReconciler(ctx context.Context, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, m *mdbmulti.MongoDBMultiCluster) (*ReconcileMongoDbMultiReplicaSet, kubernetesClient.Client, map[string]client.Client, *om.CachedOMConnectionFactory) {
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(m)
 	memberClusterMap := getFakeMultiClusterMap(omConnectionFactory)
-	return newMultiClusterReplicaSetReconciler(ctx, kubeClient, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, false, false, omConnectionFactory.GetConnectionFunc, memberClusterMap), kubeClient, memberClusterMap, omConnectionFactory
+	return newMultiClusterReplicaSetReconciler(ctx, kubeClient, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, false, false, false, "", omConnectionFactory.GetConnectionFunc, memberClusterMap), kubeClient, memberClusterMap, omConnectionFactory
 }
 
 func getFakeMultiClusterMap(omConnectionFactory *om.CachedOMConnectionFactory) map[string]client.Client {

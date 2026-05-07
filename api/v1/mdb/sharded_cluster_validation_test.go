@@ -1,6 +1,7 @@
 package mdb
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"testing"
@@ -23,17 +24,20 @@ func makeMemberConfig(members int) []automationconfig.MemberOptions {
 
 var defaultMemberConfig = makeMemberConfig(1)
 
+var ctx = context.Background()
+var validator = &MongoDBValidator{}
+
 func TestShardCountIsSpecified(t *testing.T) {
 	errString := "shardCount must be specified"
 	scSingle := NewDefaultShardedClusterBuilder().Build()
 	scSingle.Spec.ShardCount = 0
-	_, err := scSingle.ValidateCreate()
+	_, err := validator.ValidateCreate(ctx, scSingle)
 	require.Error(t, err)
 	assert.Equal(t, errString, err.Error())
 
 	scMulti := NewDefaultMultiShardedClusterBuilder().Build()
 	scMulti.Spec.ShardCount = 0
-	_, err = scMulti.ValidateCreate()
+	_, err = validator.ValidateCreate(ctx, scMulti)
 	require.Error(t, err)
 	assert.Equal(t, errString, err.Error())
 }
@@ -41,7 +45,7 @@ func TestShardCountIsSpecified(t *testing.T) {
 func TestMandatorySingleClusterFieldsAreSpecified(t *testing.T) {
 	scSingle := NewDefaultShardedClusterBuilder().Build()
 	scSingle.Spec.MongosCount = 0
-	_, err := scSingle.ValidateCreate()
+	_, err := validator.ValidateCreate(ctx, scSingle)
 	require.Error(t, err)
 	assert.Equal(t, "The following fields must be specified in single cluster topology: mongodsPerShardCount, mongosCount, configServerCount", err.Error())
 }
@@ -154,7 +158,7 @@ func TestShardOverridesAreCorrect(t *testing.T) {
 			sc.Spec.ShardCount = tt.shardCount
 			sc.Spec.ShardOverrides = tt.shardOverrides
 
-			_, err := sc.ValidateCreate()
+			_, err := validator.ValidateCreate(ctx, sc)
 
 			if tt.expectError {
 				require.Error(t, err)
@@ -220,7 +224,7 @@ func TestValidClusterSpecLists(t *testing.T) {
 			sc.Spec.Members = tt.members
 			sc.Spec.MemberConfig = make([]automationconfig.MemberOptions, tt.memberConfig)
 
-			_, err := sc.ValidateCreate()
+			_, err := validator.ValidateCreate(ctx, sc)
 
 			if tt.expectError {
 				require.Error(t, err)
@@ -238,6 +242,10 @@ func TestNoIgnoredFieldUsed(t *testing.T) {
 			Spec: corev1.PodSpec{},
 		}},
 	}
+
+	// when tests are executed with env set from current context, some kubeconfig validation tests might stop working
+	t.Setenv(multicluster.KubeConfigPathEnv, "")
+
 	tests := []struct {
 		name              string
 		isMultiCluster    bool
@@ -377,7 +385,7 @@ func TestNoIgnoredFieldUsed(t *testing.T) {
 				sc.Spec.ShardCount = 3
 			}
 
-			_, err := sc.ValidateCreate()
+			_, err := validator.ValidateCreate(ctx, sc)
 			// In case there is a validation error, we cannot expect warnings as well, the validation will stop with
 			// the error
 			if tt.expectError {
@@ -404,7 +412,7 @@ func TestPodSpecTemplatesWarnings(t *testing.T) {
 	sc.Spec.ShardSpec.ClusterSpecList[0].PodSpec = mongoPodSpec
 	sc.Spec.ConfigSrvSpec.ClusterSpecList[0].PodSpec = mongoPodSpec
 	sc.Spec.MongosSpec.ClusterSpecList[0].PodSpec = mongoPodSpec
-	_, err := sc.ValidateCreate()
+	_, err := validator.ValidateCreate(ctx, sc)
 	assert.NoError(t, err)
 	expectedWarnings := []status.Warning{
 		"spec.shard.clusterSpecList.podSpec.podTemplate is ignored in Multi Cluster topology. Use instead: spec.shard.clusterSpecList.statefulSetConfiguration",
@@ -420,7 +428,7 @@ func TestDuplicateServiceObjectsIsIgnoredInSingleCluster(t *testing.T) {
 	sc := NewDefaultShardedClusterBuilder().Build()
 	truePointer := ptr.To(true)
 	sc.Spec.DuplicateServiceObjects = truePointer
-	_, err := sc.ValidateCreate()
+	_, err := validator.ValidateCreate(ctx, sc)
 	assert.NoError(t, err)
 	assertWarningExists(t, sc.Status.Warnings, "In Single Cluster topology, spec.duplicateServiceObjects field is ignored")
 }
@@ -435,7 +443,7 @@ func TestEmptyClusterSpecListInOverrides(t *testing.T) {
 			},
 		},
 	}
-	_, err := sc.ValidateCreate()
+	_, err := validator.ValidateCreate(ctx, sc)
 	require.Error(t, err)
 	assert.Equal(t, "cluster spec list in spec.shardOverrides must be empty in Single Cluster topology", err.Error())
 }
@@ -515,7 +523,7 @@ func TestValidateShardName(t *testing.T) {
 func TestNoTopologyMigration(t *testing.T) {
 	scSingle := NewDefaultShardedClusterBuilder().Build()
 	scMulti := NewDefaultShardedClusterBuilder().SetMultiClusterTopology().Build()
-	_, err := scSingle.ValidateUpdate(scMulti)
+	_, err := validator.ValidateUpdate(ctx, scMulti, scSingle)
 	require.Error(t, err)
 	assert.Equal(t, "Automatic Topology Migration (Single/Multi Cluster) is not supported for MongoDB resource", err.Error())
 }
@@ -622,7 +630,7 @@ func TestValidateMemberClusterIsSubsetOfKubeConfig(t *testing.T) {
 				SetAllClusterSpecLists(tt.clusterSpec).
 				SetShardOverrides(tt.shardOverrides).
 				Build()
-			_, err := sc.ValidateCreate()
+			_, err := validator.ValidateCreate(ctx, sc)
 
 			if tt.expectedWarning {
 				require.NoError(t, err)

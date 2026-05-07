@@ -1,6 +1,6 @@
 import datetime
 import time
-from typing import Optional
+from typing import Iterator, Optional
 
 import pymongo
 from kubetester import try_load
@@ -15,11 +15,7 @@ from pymongo import ReadPreference
 from pymongo.errors import ServerSelectionTimeoutError
 from pytest import fixture, mark
 from tests.conftest import assert_data_got_restored, is_multi_cluster
-from tests.opsmanager.om_ops_manager_backup import (
-    S3_SECRET_NAME,
-    create_aws_secret,
-    create_s3_bucket,
-)
+from tests.opsmanager.om_ops_manager_backup import S3_SECRET_NAME, create_aws_secret, create_s3_bucket
 from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
 
 """
@@ -33,13 +29,13 @@ OPLOG_SECRET_NAME = S3_SECRET_NAME + "-oplog"
 
 
 @fixture(scope="module")
-def s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> str:
+def s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> Iterator[str]:
     create_aws_secret(aws_s3_client, S3_SECRET_NAME, namespace)
     yield from create_s3_bucket(aws_s3_client, "test-bucket-s3")
 
 
 @fixture(scope="module")
-def oplog_s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> str:
+def oplog_s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> Iterator[str]:
     create_aws_secret(aws_s3_client, OPLOG_SECRET_NAME, namespace)
     yield from create_s3_bucket(aws_s3_client, "test-bucket-oplog")
 
@@ -62,7 +58,7 @@ def ops_manager(
     if is_multi_cluster():
         enable_multi_cluster_deployment(resource)
 
-    resource.update()
+    try_load(resource)
     return resource
 
 
@@ -124,6 +120,7 @@ def mdb_latest_project(ops_manager: MongoDBOpsManager) -> OMTester:
 class TestOpsManagerCreation:
     def test_create_om(self, ops_manager: MongoDBOpsManager):
         """creates a s3 bucket and an OM resource, the S3 configs get created using AppDB. Oplog store is still required."""
+        ops_manager.update()
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
         ops_manager.backup_status().assert_reaches_phase(
             Phase.Pending,
@@ -184,7 +181,7 @@ class TestBackupRestorePIT:
         """Changes the MDB documents to check that restore rollbacks this change later.
         Note, that we need to wait for some time to ensure the PIT timestamp gets to the range
         [snapshot_created <= PIT <= changes_applied]"""
-        now_millis = time_to_millis(datetime.datetime.now())
+        now_millis = time_to_millis(datetime.datetime.now(tz=datetime.timezone.utc))
         print("\nCurrent time (millis): {}".format(now_millis))
         time.sleep(30)
 
@@ -192,10 +189,10 @@ class TestBackupRestorePIT:
         mdb_latest_test_collection.insert_one({"foo": "bar"})
 
     def test_mdbs_pit_restore(self, mdb_prev_project: OMTester, mdb_latest_project: OMTester):
-        now_millis = time_to_millis(datetime.datetime.now())
+        now_millis = time_to_millis(datetime.datetime.now(tz=datetime.timezone.utc))
         print("\nCurrent time (millis): {}".format(now_millis))
 
-        pit_datetme = datetime.datetime.now() - datetime.timedelta(seconds=15)
+        pit_datetme = datetime.datetime.now(tz=datetime.timezone.utc) - datetime.timedelta(seconds=15)
         pit_millis = time_to_millis(pit_datetme)
         print("Restoring back to the moment 15 seconds ago (millis): {}".format(pit_millis))
 
@@ -252,6 +249,6 @@ class TestBackupRestoreFromSnapshot:
 
 def time_to_millis(date_time) -> int:
     """https://stackoverflow.com/a/11111177/614239"""
-    epoch = datetime.datetime.utcfromtimestamp(0)
+    epoch = datetime.datetime.fromtimestamp(0, tz=datetime.timezone.utc)
     pit_millis = (date_time - epoch).total_seconds() * 1000
     return pit_millis

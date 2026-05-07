@@ -42,7 +42,8 @@ echo "Detected a branch that should be bumped."
 
 git checkout "${ORIGINAL_BRANCH}"
 
-EVERGREEN_MODE=true .githooks/pre-commit
+# Run pre-commit - allow failure (exit 1 means files were modified)
+EVERGREEN_MODE=true .githooks/pre-commit || true
 
 git add .
 

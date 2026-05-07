@@ -15,9 +15,6 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, Tuple
 
 import requests
-from evergreen.release.agent_matrix import (
-    get_supported_version_for_image,
-)
 
 LOGLEVEL = os.environ.get("LOGLEVEL", "INFO").upper()
 logging.basicConfig(level=LOGLEVEL)
@@ -61,11 +58,6 @@ def args_for_image(image: str) -> Dict[str, str]:
             rh_cert_project_id="643daaa56da4ecc48795693a",
         ),
         image_config(
-            image="init-appdb",
-            rh_cert_project_id="6809ec113193c2e55779b8dc",
-            name_suffix="",
-        ),
-        image_config(
             image="init-database",
             rh_cert_project_id="680a22928e2dc72376f34990",
             name_suffix="",
@@ -98,10 +90,6 @@ def args_for_image(image: str) -> Dict[str, str]:
 def get_api_token():
     token = os.environ.get("rh_pyxis", "")
     return token
-
-
-def get_release() -> Dict[str, str]:
-    return json.load(open("release.json"))
 
 
 def create_auth_file():
@@ -139,7 +127,7 @@ def run_preflight_check(image: str, version: str, submit: bool = False) -> int:
                 [
                     "--submit",
                     f"--pyxis-api-token={get_api_token()}",
-                    f"--certification-project-id={args_for_image(image)['rh_cert_project_id']}",
+                    f"--certification-component-id={args_for_image(image)['rh_cert_project_id']}",
                 ]
             )
         preflight_command.append("--docker-config=./temp-authfile.json")
@@ -234,34 +222,28 @@ def main() -> int:
         versions = get_filtered_tags_parallel(
             image=image_args["image"], max_pages=10, regex_filter=r"^[0-9]+\.[0-9]+\.[0-9]+-ubi[89]$"
         )
-    else:
-        # these are the images we own, we preflight all of them as long as we officially support them in release.json
-        versions = get_supported_version_for_image(args.image)
+        logging.info(f"preflight for image: {image_args['image']}")
+        logging.info(f"preflight for versions: {versions}")
+        create_auth_file()
+        return_codes_version = preflight_parallel(args, versions, submit)
+        logging.info("preflight complete, printing summary")
+        found_error = False
+        for return_code, version in return_codes_version:
+            if return_code != 0:
+                found_error = True
+                logging.error(f"failed image: {args.image}:{version} with exit code: {return_code}")
+            else:
+                logging.info(f"succeeded image: {args.image}:{version}")
+        return 1 if found_error else 0
 
-    # Attempt to run a pre-flight check on a single version of the image
-    if image_version is not None:
-        return preflight_single_image(args, image_version, submit, versions)
-
-    # Attempt to run pre-flight checks on all the supported and unpublished versions of the image
-    logging.info(f"preflight for image: {image_args['image']}")
-    logging.info(f"preflight for versions: {versions}")
-
-    create_auth_file()
-
-    # Note: if running preflight on image tag (not daily tag) we in turn preflight the corresponding sha it is pointing to.
-    return_codes_version = preflight_parallel(args, versions, submit)
-    logging.info("preflight complete, printing summary")
-    found_error = False
-    for return_code, version in return_codes_version:
-        if return_code != 0:
-            found_error = True
-            logging.error(f"failed image: {args.image}:{version} with exit code: {return_code}")
-        else:
-            logging.info(f"succeeded image: {args.image}:{version}")
-
-    if found_error:
+    if image_version is None:
+        logging.error(
+            "No image version specified. Pass --version or set image_version in the environment "
+            "(Evergreen sets this per image from release.json)."
+        )
         return 1
-    return 0
+
+    return preflight_single_image(args, image_version, submit)
 
 
 def preflight_parallel(args, versions, submit):
@@ -288,21 +270,15 @@ def preflight_parallel(args, versions, submit):
     return return_codes
 
 
-def preflight_single_image(args, image_version, submit, versions):
+def preflight_single_image(args, image_version, submit):
     logging.info("Submitting preflight check for a single image version")
-    if image_version not in versions:
+    create_auth_file()
+    return_code = run_preflight_check(args.image, image_version, submit=submit)
+    if return_code != 0:
         logging.error(
-            f"Version {image_version} for image {args.image} is not supported. Supported versions: {versions}"
+            f"Running preflight check for image: {args.image}:{image_version} failed with exit code: {return_code}"
         )
-        return 1
-    else:
-        create_auth_file()
-        return_code = run_preflight_check(args.image, image_version, submit=submit)
-        if return_code != 0:
-            logging.error(
-                f"Running preflight check for image: {args.image}:{image_version} failed with exit code: {return_code}"
-            )
-        return return_code
+    return return_code
 
 
 if __name__ == "__main__":

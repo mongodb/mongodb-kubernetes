@@ -57,6 +57,7 @@ func (bac *BackupAgentConfig) EnableX509Authentication(backupAgentSubject, autom
 func (bac *BackupAgentConfig) DisableX509Authentication() {
 	bac.BackupAgentTemplate.SSLPemKeyFile = util.MergoDelete
 	bac.UnsetAgentUsername()
+	bac.UnsetAgentPassword()
 }
 
 func (bac *BackupAgentConfig) EnableLdapAuthentication(backupAgentSubject string, backupAgentPwd string) {

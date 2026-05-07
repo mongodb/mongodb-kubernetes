@@ -1,7 +1,7 @@
 import time
 
 from kubernetes import client
-from kubetester import create_or_update_secret, random_k8s_name
+from kubetester import create_or_update_secret, random_k8s_name, try_load
 from kubetester.certs import create_mongodb_tls_certs
 from kubetester.http import https_endpoint_is_reachable
 from kubetester.kubetester import ensure_ent_version
@@ -87,7 +87,8 @@ def sharded_cluster(ops_manager: MongoDBOpsManager, namespace: str, issuer: str,
     resource.configure(ops_manager, namespace)
     resource.set_version(ensure_ent_version(custom_mdb_version))
 
-    yield resource.create()
+    try_load(resource)
+    return resource
 
 
 @fixture(scope="module")
@@ -112,7 +113,8 @@ def replica_set(
             "name": prom_cert_secret,
         },
     }
-    yield resource.create()
+    try_load(resource)
+    return resource
 
 
 @mark.e2e_om_ops_manager_prometheus
@@ -123,6 +125,7 @@ def test_create_om(ops_manager: MongoDBOpsManager):
 
 @mark.e2e_om_ops_manager_prometheus
 def test_create_replica_set(replica_set: MongoDB):
+    replica_set.update()
     replica_set.assert_reaches_phase(Phase.Running, timeout=600)
 
 
@@ -162,6 +165,7 @@ def test_prometheus_endpoint_works_on_every_pod_with_changed_username(replica_se
 
 @mark.e2e_om_ops_manager_prometheus
 def test_create_sharded_cluster(sharded_cluster: MongoDB):
+    sharded_cluster.update()
     sharded_cluster.assert_reaches_phase(Phase.Running, timeout=600)
 
 

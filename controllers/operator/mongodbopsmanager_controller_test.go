@@ -219,6 +219,87 @@ func TestOpsManagerReconciler_removeWatchedResources(t *testing.T) {
 	assert.Zero(t, len(reconciler.resourceWatcher.GetWatchedResources()))
 }
 
+// TestOpsManagerReconciler_OnDeleteClusterResourceCleanup verifies the DeleteAllOf behavior:
+// - In single-cluster mode: DeleteAllOf should NOT be called (OwnerReferences handle cleanup)
+// - In multi-cluster mode: DeleteAllOf SHOULD be called (can't use OwnerReferences cross-cluster)
+func TestOpsManagerReconciler_OnDeleteClusterResourceCleanup(t *testing.T) {
+	multiClusterSpecItems := []omv1.ClusterSpecOMItem{
+		{ClusterName: "cluster-a", Members: 1},
+		{ClusterName: "cluster-b", Members: 1},
+	}
+
+	testCases := []struct {
+		name             string
+		isMultiCluster   bool
+		clusterSpecItems []omv1.ClusterSpecOMItem
+	}{
+		{
+			name:             "SingleCluster_SkipsDeleteAllOf",
+			isMultiCluster:   false,
+			clusterSpecItems: nil,
+		},
+		{
+			name:             "MultiCluster_CallsDeleteAllOf",
+			isMultiCluster:   true,
+			clusterSpecItems: multiClusterSpecItems,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			deleteAllOfCallCount := 0
+			omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+
+			omBuilder := DefaultOpsManagerBuilder()
+			var memberClustersMap map[string]client.Client
+
+			// Create fake client with interceptor that tracks DeleteAllOf calls
+			deleteAllOfInterceptor := func(ctx context.Context, client client.WithWatch, obj client.Object, opts ...client.DeleteAllOfOption) error {
+				deleteAllOfCallCount++
+				return nil
+			}
+
+			if tc.isMultiCluster {
+				omBuilder.SetOpsManagerTopology(omv1.ClusterTopologyMultiCluster).
+					SetOpsManagerClusterSpecList(tc.clusterSpecItems)
+				memberClustersMap = make(map[string]client.Client)
+				for _, clusterSpec := range tc.clusterSpecItems {
+					memberFakeClientBuilder := mock.NewEmptyFakeClientBuilder()
+					memberFakeClientBuilder.WithInterceptorFuncs(interceptor.Funcs{
+						Get:         mock.GetFakeClientInterceptorGetFunc(omConnectionFactory, true, true),
+						DeleteAllOf: deleteAllOfInterceptor,
+					})
+					memberClustersMap[clusterSpec.ClusterName] = memberFakeClientBuilder.Build()
+				}
+			}
+
+			testOm := omBuilder.Build()
+			assert.Equal(t, tc.isMultiCluster, testOm.Spec.IsMultiCluster(), "topology mismatch")
+
+			fakeClientBuilder := mock.NewEmptyFakeClientBuilder()
+			fakeClientBuilder.WithObjects(testOm.DeepCopy())
+			fakeClientBuilder.WithInterceptorFuncs(interceptor.Funcs{
+				Get:         mock.GetFakeClientInterceptorGetFunc(omConnectionFactory, true, true),
+				DeleteAllOf: deleteAllOfInterceptor,
+			})
+			kubeClient := kubernetesClient.NewClient(fakeClientBuilder.Build())
+
+			reconciler := NewOpsManagerReconciler(ctx, kubeClient, memberClustersMap, images.ImageUrls{}, "", "", omConnectionFactory.GetConnectionFunc, &MockedInitializer{expectedOmURL: testOm.CentralURL(), t: t}, func(baseUrl string, user string, publicApiKey string, ca *string) api.OpsManagerAdmin {
+				return api.NewMockedAdminProvider(baseUrl, user, publicApiKey, true).(*api.MockedOmAdmin)
+			})
+
+			reconciler.OnDelete(ctx, testOm, zap.S())
+
+			if tc.isMultiCluster {
+				assert.Greater(t, deleteAllOfCallCount, 0, "DeleteAllOf should be called in multi-cluster mode")
+			} else {
+				assert.Equal(t, 0, deleteAllOfCallCount, "DeleteAllOf should not be called in single-cluster mode; cleanup relies on OwnerReferences")
+			}
+		})
+	}
+}
+
 func TestOpsManagerReconciler_prepareOpsManager(t *testing.T) {
 	ctx := context.Background()
 	testOm := DefaultOpsManagerBuilder().Build()
@@ -482,17 +563,17 @@ func TestOpsManagerReconcileContainerImages(t *testing.T) {
 	initOpsManagerRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_1_2_3", util.InitOpsManagerImageUrl)
 	opsManagerRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_8_0_0", util.OpsManagerImageUrl)
 	mongodbRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_8_0_0", mcoConstruct.MongodbImageEnv)
-	initAppdbRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_3_4_5", util.InitAppdbImageUrlEnv)
+	initDatabaseRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_3_4_5", util.InitDatabaseImageUrlEnv)
 
 	imageUrlsMock := images.ImageUrls{
-		// Ops manager & backup deamon images
-		initOpsManagerRelatedImageEnv: "quay.io/mongodb/mongodb-kubernetes-init-ops-manager:@sha256:MONGODB_INIT_APPDB",
+		// Ops manager & backup daemon images
+		initOpsManagerRelatedImageEnv: "quay.io/mongodb/mongodb-kubernetes-init-ops-manager:@sha256:MONGODB_INIT_OPS_MANAGER",
 		opsManagerRelatedImageEnv:     "quay.io/mongodb/mongodb-enterprise-ops-manager:@sha256:MONGODB_OPS_MANAGER",
 
 		// AppDB images
-		mcoConstruct.AgentImageEnv: "quay.io/mongodb/mongodb-agent@sha256:AGENT_SHA", // In non-static architecture, this env var holds full container image uri
-		mongodbRelatedImageEnv:     "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi@sha256:MONGODB_SHA",
-		initAppdbRelatedImageEnv:   "quay.io/mongodb/mongodb-kubernetes-init-appdb@sha256:INIT_APPDB_SHA",
+		mcoConstruct.AgentImageEnv:  "quay.io/mongodb/mongodb-agent@sha256:AGENT_SHA", // In non-static architecture, this env var holds full container image uri
+		mongodbRelatedImageEnv:      "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi@sha256:MONGODB_SHA",
+		initDatabaseRelatedImageEnv: "quay.io/mongodb/mongodb-kubernetes-init-database@sha256:INIT_DATABASE_SHA",
 	}
 
 	ctx := context.Background()
@@ -521,7 +602,7 @@ func TestOpsManagerReconcileContainerImages(t *testing.T) {
 			require.Len(t, sts.Spec.Template.Spec.InitContainers, 1)
 			require.Len(t, sts.Spec.Template.Spec.Containers, 1)
 
-			assert.Equal(t, "quay.io/mongodb/mongodb-kubernetes-init-ops-manager:@sha256:MONGODB_INIT_APPDB", sts.Spec.Template.Spec.InitContainers[0].Image)
+			assert.Equal(t, "quay.io/mongodb/mongodb-kubernetes-init-ops-manager:@sha256:MONGODB_INIT_OPS_MANAGER", sts.Spec.Template.Spec.InitContainers[0].Image)
 			assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-ops-manager:@sha256:MONGODB_OPS_MANAGER", sts.Spec.Template.Spec.Containers[0].Image)
 		})
 	}
@@ -533,7 +614,7 @@ func TestOpsManagerReconcileContainerImages(t *testing.T) {
 	require.Len(t, appDBSts.Spec.Template.Spec.InitContainers, 1)
 	require.Len(t, appDBSts.Spec.Template.Spec.Containers, 3)
 
-	assert.Equal(t, "quay.io/mongodb/mongodb-kubernetes-init-appdb@sha256:INIT_APPDB_SHA", appDBSts.Spec.Template.Spec.InitContainers[0].Image)
+	assert.Equal(t, "quay.io/mongodb/mongodb-kubernetes-init-database@sha256:INIT_DATABASE_SHA", appDBSts.Spec.Template.Spec.InitContainers[0].Image)
 	assert.Equal(t, "quay.io/mongodb/mongodb-agent@sha256:AGENT_SHA", appDBSts.Spec.Template.Spec.Containers[0].Image)
 	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi@sha256:MONGODB_SHA", appDBSts.Spec.Template.Spec.Containers[1].Image)
 	assert.NotContains(t, appDBSts.Spec.Template.Spec.Containers[2].Image, util.OperatorVersion)
@@ -546,7 +627,7 @@ func TestOpsManagerReconcileContainerImagesWithStaticArchitecture(t *testing.T) 
 	mongodbRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_8_0_0", mcoConstruct.MongodbImageEnv)
 
 	imageUrlsMock := images.ImageUrls{
-		// Ops manager & backup deamon images
+		// Ops manager & backup daemon images
 		opsManagerRelatedImageEnv: "quay.io/mongodb/mongodb-enterprise-ops-manager:@sha256:MONGODB_OPS_MANAGER",
 
 		// AppDB images
@@ -749,6 +830,58 @@ func TestOpsManagerBackupAssignmentLabels(t *testing.T) {
 	assert.Equal(t, assignmentLabels, daemonConfigs[0].Labels)
 }
 
+func TestOpsManagerBackupObjectLock(t *testing.T) {
+	ctx := context.Background()
+
+	testOm := DefaultOpsManagerBuilder().
+		SetVersion("8.0.19").
+		AddOplogStoreConfig("oplog-store-2", "my-user", types.NamespacedName{Name: "config-0-mdb", Namespace: mock.TestNamespace}).
+		AddS3SnapshotStore(omv1.S3Config{Name: "s3-config", S3SecretRef: &omv1.SecretRef{Name: "s3-secret"}, ObjectLockEnabled: util.BooleanRef(true)}).
+		Build()
+
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+	reconciler, client, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory)
+	configureBackupResources(ctx, client, testOm)
+
+	mockedAdmin := api.NewMockedAdminProvider("testUrl", "publicApiKey", "privateApiKey", true)
+	defer mockedAdmin.(*api.MockedOmAdmin).Reset()
+
+	reconcilerHelper, err := NewOpsManagerReconcilerHelper(ctx, reconciler, testOm, nil, zap.S())
+	require.NoError(t, err)
+
+	// when
+	reconciler.prepareBackupInOpsManager(ctx, reconcilerHelper, testOm, mockedAdmin, "", zap.S())
+	s3Configs, _ := mockedAdmin.ReadS3Configs()
+	// then
+	assert.Equal(t, true, *s3Configs[0].ObjectLockEnabled)
+}
+
+func TestOpsManagerBackupObjectLockNotSentWhenUnset(t *testing.T) {
+	ctx := context.Background()
+
+	testOm := DefaultOpsManagerBuilder().
+		SetVersion("8.0.19").
+		AddOplogStoreConfig("oplog-store-2", "my-user", types.NamespacedName{Name: "config-0-mdb", Namespace: mock.TestNamespace}).
+		AddS3SnapshotStore(omv1.S3Config{Name: "s3-config", S3SecretRef: &omv1.SecretRef{Name: "s3-secret"}}).
+		Build()
+
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+	reconciler, client, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory)
+	configureBackupResources(ctx, client, testOm)
+
+	mockedAdmin := api.NewMockedAdminProvider("testUrl", "publicApiKey", "privateApiKey", true)
+	defer mockedAdmin.(*api.MockedOmAdmin).Reset()
+
+	reconcilerHelper, err := NewOpsManagerReconcilerHelper(ctx, reconciler, testOm, nil, zap.S())
+	require.NoError(t, err)
+
+	// when
+	reconciler.prepareBackupInOpsManager(ctx, reconcilerHelper, testOm, mockedAdmin, "", zap.S())
+	s3Configs, _ := mockedAdmin.ReadS3Configs()
+	// then
+	assert.Nil(t, s3Configs[0].ObjectLockEnabled)
+}
+
 func TestTriggerOmChangedEventIfNeeded(t *testing.T) {
 	ctx := context.Background()
 	t.Run("Om changed event got triggered, major version update", func(t *testing.T) {
@@ -891,7 +1024,7 @@ func TestOpsManagerRace(t *testing.T) {
 
 	initializer := &MockedInitializer{expectedOmURL: opsManager1.CentralURL(), t: t, skipChecks: true}
 
-	reconciler := NewOpsManagerReconciler(ctx, kubeClient, nil, nil, "fake-initAppdbVersion", "fake-initOpsManagerImageVersion", omConnectionFactory.GetConnectionFunc, initializer, func(baseUrl string, user string, publicApiKey string, ca *string) api.OpsManagerAdmin {
+	reconciler := NewOpsManagerReconciler(ctx, kubeClient, nil, nil, "fake-initDatabaseVersion", "fake-initOpsManagerImageVersion", omConnectionFactory.GetConnectionFunc, initializer, func(baseUrl string, user string, publicApiKey string, ca *string) api.OpsManagerAdmin {
 		return api.NewMockedAdminProvider(baseUrl, user, publicApiKey, false).(*api.MockedOmAdmin)
 	})
 
@@ -1160,6 +1293,7 @@ func TestDependentResources_AreRemoved_WhenBackupIsDisabled(t *testing.T) {
 }
 
 func TestUniqueClusterNames(t *testing.T) {
+	ctx := context.Background()
 	testOm := DefaultOpsManagerBuilder().Build()
 	testOm.Spec.AppDB.Topology = "MultiCluster"
 	testOm.Spec.AppDB.ClusterSpecList = mdbv1.ClusterSpecList{
@@ -1177,7 +1311,8 @@ func TestUniqueClusterNames(t *testing.T) {
 		},
 	}
 
-	_, err := testOm.ValidateCreate()
+	validator := &omv1.MongoDBOpsManagerValidator{}
+	_, err := validator.ValidateCreate(ctx, testOm)
 	require.Error(t, err)
 	assert.Equal(t, "Multiple clusters with the same name (abc) are not allowed", err.Error())
 }
@@ -1242,7 +1377,7 @@ func configureBackupResources(ctx context.Context, m kubernetesClient.Client, te
 	}
 }
 
-func defaultTestOmReconciler(ctx context.Context, t *testing.T, imageUrls images.ImageUrls, initAppdbVersion, initOpsManagerImageVersion string, opsManager *omv1.MongoDBOpsManager, globalMemberClustersMap map[string]client.Client, omConnectionFactory *om.CachedOMConnectionFactory) (*OpsManagerReconciler, kubernetesClient.Client, *MockedInitializer) {
+func defaultTestOmReconciler(ctx context.Context, t *testing.T, imageUrls images.ImageUrls, initDatabaseVersion, initOpsManagerImageVersion string, opsManager *omv1.MongoDBOpsManager, globalMemberClustersMap map[string]client.Client, omConnectionFactory *om.CachedOMConnectionFactory) (*OpsManagerReconciler, kubernetesClient.Client, *MockedInitializer) {
 	kubeClient := mock.NewEmptyFakeClientWithInterceptor(omConnectionFactory, opsManager.DeepCopy())
 
 	// create an admin user secret
@@ -1258,7 +1393,7 @@ func defaultTestOmReconciler(ctx context.Context, t *testing.T, imageUrls images
 
 	initializer := &MockedInitializer{expectedOmURL: opsManager.CentralURL(), t: t}
 
-	reconciler := NewOpsManagerReconciler(ctx, kubeClient, globalMemberClustersMap, imageUrls, initAppdbVersion, initOpsManagerImageVersion, omConnectionFactory.GetConnectionFunc, initializer, func(baseUrl string, user string, publicApiKey string, ca *string) api.OpsManagerAdmin {
+	reconciler := NewOpsManagerReconciler(ctx, kubeClient, globalMemberClustersMap, imageUrls, initDatabaseVersion, initOpsManagerImageVersion, omConnectionFactory.GetConnectionFunc, initializer, func(baseUrl string, user string, publicApiKey string, ca *string) api.OpsManagerAdmin {
 		if api.CurrMockedAdmin == nil {
 			api.CurrMockedAdmin = api.NewMockedAdminProvider(baseUrl, user, publicApiKey, true).(*api.MockedOmAdmin)
 		}

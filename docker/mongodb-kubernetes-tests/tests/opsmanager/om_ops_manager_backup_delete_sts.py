@@ -1,7 +1,7 @@
 from typing import Optional
 
 import semver
-from kubetester import wait_until
+from kubetester import try_load, wait_until
 from kubetester.kubetester import ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
@@ -39,7 +39,7 @@ def ops_manager(
     if is_multi_cluster():
         enable_multi_cluster_deployment(resource)
 
-    resource.update()
+    try_load(resource)
     return resource
 
 
@@ -54,7 +54,8 @@ def oplog_replica_set(ops_manager, namespace, custom_mdb_version) -> MongoDB:
 
     setup_log_rotate_for_agents(resource, supports_process_log_rotation)
 
-    return resource.update()
+    try_load(resource)
+    return resource
 
 
 @fixture(scope="module")
@@ -69,17 +70,21 @@ def blockstore_replica_set(
     ).configure(ops_manager, "blockstore")
     resource.set_version(ensure_ent_version(custom_mdb_version))
 
-    return resource.update()
+    try_load(resource)
+    return resource
 
 
 @mark.e2e_om_ops_manager_backup_delete_sts_and_log_rotation
 def test_create_om(ops_manager: MongoDBOpsManager):
+    ops_manager.update()
     ops_manager.om_status().assert_reaches_phase(Phase.Running)
 
 
 @mark.e2e_om_ops_manager_backup_delete_sts_and_log_rotation
 def test_create_backing_replica_sets(oplog_replica_set: MongoDB, blockstore_replica_set: MongoDB):
+    oplog_replica_set.update()
     oplog_replica_set.assert_reaches_phase(Phase.Running)
+    blockstore_replica_set.update()
     blockstore_replica_set.assert_reaches_phase(Phase.Running)
 
 

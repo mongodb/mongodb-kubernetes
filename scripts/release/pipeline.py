@@ -4,14 +4,8 @@ from functools import partial
 from typing import Callable, Dict
 
 from opentelemetry import context, trace
-from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
-    OTLPSpanExporter as OTLPSpanGrpcExporter,
-)
 from opentelemetry.sdk.resources import SERVICE_NAME, Resource
-from opentelemetry.sdk.trace import (
-    SynchronousMultiSpanProcessor,
-    TracerProvider,
-)
+from opentelemetry.sdk.trace import SynchronousMultiSpanProcessor, TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.trace import NonRecordingSpan, SpanContext, TraceFlags
 
@@ -25,7 +19,6 @@ from scripts.release.argparse_utils import (
 from scripts.release.atomic_pipeline import (
     build_agent,
     build_database_image,
-    build_init_appdb_image,
     build_init_database_image,
     build_init_om_image,
     build_mco_tests_image,
@@ -38,7 +31,6 @@ from scripts.release.atomic_pipeline import (
 from scripts.release.build.build_info import (
     AGENT_IMAGE,
     DATABASE_IMAGE,
-    INIT_APPDB_IMAGE,
     INIT_DATABASE_IMAGE,
     INIT_OPS_MANAGER_IMAGE,
     MCO_TESTS_IMAGE,
@@ -53,14 +45,12 @@ from scripts.release.build.build_info import (
     UPGRADE_HOOK_IMAGE,
     load_build_info,
 )
-from scripts.release.build.build_scenario import (
-    SUPPORTED_SCENARIOS,
-    BuildScenario,
-)
-from scripts.release.build.image_build_configuration import (
-    ImageBuildConfiguration,
-)
+from scripts.release.build.build_scenario import SUPPORTED_SCENARIOS, BuildScenario
+from scripts.release.build.image_build_configuration import ImageBuildConfiguration
 from scripts.release.build.image_build_process import PodmanImageBuilder
+
+CURRENT_AGENTS = "current"
+ALL_AGENTS = "all"
 
 """
 The goal of main.py, image_build_configuration.py and build_context.py is to provide a single source of truth for the build
@@ -85,7 +75,6 @@ def get_builder_function_for_image_name() -> Dict[str, Callable]:
         DATABASE_IMAGE: build_database_image,
         AGENT_IMAGE: build_agent,
         # Init images
-        INIT_APPDB_IMAGE: build_init_appdb_image,
         INIT_DATABASE_IMAGE: build_init_database_image,
         INIT_OPS_MANAGER_IMAGE: build_init_om_image,
         # Ops Manager image
@@ -120,12 +109,19 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
     version = args.version
     dockerfile_path = image_build_info.dockerfile_path
     builder = get_image_builder_from_arg(image_build_info.builder)
-    latest_tag = image_build_info.latest_tag
+    latest_tag = (
+        image_build_info.latest_tag
+        and os.environ.get("requester", "") == "commit"
+        and os.environ.get("branch_name") == "master"
+    )
     olm_tag = image_build_info.olm_tag
     if args.registry:
         registries = [args.registry]
     else:
-        registries = image_build_info.repositories
+        registries = [image_build_info.repository]
+        if image_build_info.secondary_repositories is not None:
+            registries.extend(image_build_info.secondary_repositories)
+
     platforms = get_platforms_from_arg(args.platform) or image_build_info.platforms
     sign = args.sign if args.sign is not None else image_build_info.sign
     skip_if_exists = args.skip_if_exists if args.skip_if_exists is not None else image_build_info.skip_if_exists
@@ -139,9 +135,25 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
     if type(builder) is PodmanImageBuilder and len(platforms) > 1:
         raise ValueError("Cannot use Podman builder with multi-platform builds")
 
-    # Validate version - only agent can have None version as the versions are managed by the agent
-    # which are externally retrieved from release.json
-    if version is None and image != "agent":
+    # Get agent_tools_version for agent builds (from --agent-tools-version arg)
+    agent_tools_version = getattr(args, "agent_tools_version", None)
+
+    # Validate version requirements
+    if image == "agent":
+        # Agent builds: version can be "all", "current", or explicit version (requires agent_tools_version)
+        if version is None:
+            raise ValueError(
+                "Agent build requires --version. Use one of:\n"
+                "  --version all                                      (for all agents in release.json)\n"
+                "  --version current                                  (for currently used agents)\n"
+                "  --version <ver> --agent-tools-version <tools_ver>  (for specific agent)"
+            )
+        is_special_version = version in (ALL_AGENTS, CURRENT_AGENTS)
+        if not is_special_version and agent_tools_version is None:
+            raise ValueError(
+                f"For agent builds with explicit version '{version}', --agent-tools-version must also be provided."
+            )
+    elif version is None:
         raise ValueError(f"Version cannot be empty for {image}.")
 
     return ImageBuildConfiguration(
@@ -157,19 +169,29 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
         skip_if_exists=skip_if_exists,
         parallel=args.parallel,
         parallel_factor=args.parallel_factor,
-        all_agents=args.all_agents,
-        currently_used_agents=args.current_agents,
         architecture_suffix=architecture_suffix,
+        agent_tools_version=agent_tools_version,
     )
 
 
 def _setup_tracing():
+    if os.environ.get("PYTEST_OTEL_ENABLED", "true") == "false":
+        logger.info("PYTEST_OTEL_ENABLED is false, not setting up tracing")
+        return
+
     trace_id = os.environ.get("otel_trace_id")
     parent_id = os.environ.get("otel_parent_id")
     endpoint = os.environ.get("otel_collector_endpoint")
     if any(value is None for value in [trace_id, parent_id, endpoint]):
         logger.info("tracing environment variables are missing, not configuring tracing")
         return
+
+    # Import lazily to avoid loading grpcio C extension when tracing is not used.
+    # grpcio registers at exit handlers that segfault on s390x + Python 3.13.
+    from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (  # noqa: PLC0415
+        OTLPSpanExporter as OTLPSpanGrpcExporter,
+    )
+
     logger.info(f"parent_id is {parent_id}")
     logger.info(f"trace_id is {trace_id}")
     logger.info(f"endpoint is {endpoint}")
@@ -274,14 +296,11 @@ Options: {", ".join(SUPPORTED_SCENARIOS)}. For '{BuildScenario.DEVELOPMENT}' the
         help="Number of agent builds to run in parallel, defaults to number of cores",
     )
     parser.add_argument(
-        "--all-agents",
-        action="store_true",
-        help="Build all agent images.",
-    )
-    parser.add_argument(
-        "--current-agents",
-        action="store_true",
-        help="Build all currently used agent images.",
+        "--agent-tools-version",
+        metavar="",
+        action="store",
+        type=str,
+        help="Tools version to use when building agent image. Required when --version is an explicit version (not 'all' or 'current').",
     )
     parser.add_argument(
         "--architecture-suffix",

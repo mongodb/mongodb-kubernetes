@@ -1,37 +1,43 @@
 package mdb
 
 import (
+	"context"
 	"errors"
+	"net/url"
 	"strconv"
 	"strings"
 
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/utils/strings/slices"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
+	"github.com/mongodb/mongodb-kubernetes/pkg/fcv"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 )
 
-var _ webhook.Validator = &MongoDB{}
+type MongoDBValidator struct {
+}
+
+var _ admission.CustomValidator = &MongoDBValidator{}
 
 // ValidateCreate and ValidateUpdate should be the same if we intend to do this
 // on every reconciliation as well
-func (m *MongoDB) ValidateCreate() (admission.Warnings, error) {
-	return nil, m.ProcessValidationsOnReconcile(nil)
+func (m *MongoDBValidator) ValidateCreate(_ context.Context, obj runtime.Object) (warnings admission.Warnings, err error) {
+	return nil, obj.(*MongoDB).ProcessValidationsOnReconcile(nil)
 }
 
-func (m *MongoDB) ValidateUpdate(old runtime.Object) (admission.Warnings, error) {
-	return nil, m.ProcessValidationsOnReconcile(old.(*MongoDB))
+func (m *MongoDBValidator) ValidateUpdate(_ context.Context, oldObj, newObj runtime.Object) (warnings admission.Warnings, err error) {
+	return nil, newObj.(*MongoDB).ProcessValidationsOnReconcile(oldObj.(*MongoDB))
 }
 
 // ValidateDelete does nothing as we assume validation on deletion is
 // unnecessary
-func (m *MongoDB) ValidateDelete() (admission.Warnings, error) {
+func (m *MongoDBValidator) ValidateDelete(_ context.Context, _ runtime.Object) (warnings admission.Warnings, err error) {
 	return nil, nil
 }
 
@@ -46,6 +52,19 @@ func horizonsMustEqualMembers(ms MongoDbSpec) v1.ValidationResult {
 	numHorizonMembers := len(ms.Connectivity.ReplicaSetHorizons)
 	if numHorizonMembers > 0 && numHorizonMembers != ms.Members {
 		return v1.ValidationError("Number of horizons must be equal to number of members in replica set")
+	}
+	return v1.ValidationSuccess()
+}
+
+func horizonDomainNamesMustBeValid(ms MongoDbSpec) v1.ValidationResult {
+	for _, horizon := range ms.Connectivity.ReplicaSetHorizons {
+		for _, address := range horizon {
+			URL := url.URL{Host: address}
+			errs := validation.IsDNS1123Subdomain(URL.Hostname())
+			if len(errs) > 0 {
+				return v1.ValidationError("Horizons must have valid domain names")
+			}
+		}
 	}
 	return v1.ValidationSuccess()
 }
@@ -400,7 +419,7 @@ func specWithExactlyOneSchema(d DbCommonSpec) v1.ValidationResult {
 	}
 
 	if count != 1 {
-		return v1.ValidationError("must validate one and only one schema")
+		return v1.ValidationError("either spec.cloudManager or spec.opsManager can be set")
 	}
 	return v1.ValidationSuccess()
 }
@@ -430,15 +449,21 @@ func featureCompatibilityVersionValidation(d DbCommonSpec) v1.ValidationResult {
 	return ValidateFCV(fcv)
 }
 
-func ValidateFCV(fcv *string) v1.ValidationResult {
-	if fcv != nil {
-		f := *fcv
-		if f == util.AlwaysMatchVersionFCV {
+func ValidateFCV(fcvStringPointer *string) v1.ValidationResult {
+	if fcvStringPointer != nil {
+		fcvString := *fcvStringPointer
+		if fcvString == util.AlwaysMatchVersionFCV {
 			return v1.ValidationSuccess()
 		}
-		splitted := strings.Split(f, ".")
+
+		splitted := strings.Split(fcvString, ".")
 		if len(splitted) != 2 {
-			return v1.ValidationError("invalid feature compatibility version: %s, possible values are: '%s' or 'major.minor'", f, util.AlwaysMatchVersionFCV)
+			return v1.ValidationError("invalid feature compatibility version %q, possible values are: '%s' or 'major.minor'", fcvString, util.AlwaysMatchVersionFCV)
+		}
+
+		_, err := fcv.FeatureCompatibilityVersionToSemverFormat(fcvString)
+		if err != nil {
+			return v1.ValidationError("invalid feature compatibility version %q: %s", fcvString, err)
 		}
 	}
 	return v1.ValidationResult{}
@@ -449,6 +474,7 @@ func (m *MongoDB) RunValidations(old *MongoDB) []v1.ValidationResult {
 	// Topology field
 	mongoDBValidators := []func(m MongoDbSpec) v1.ValidationResult{
 		horizonsMustEqualMembers,
+		horizonDomainNamesMustBeValid,
 		additionalMongodConfig,
 		replicasetMemberIsSpecified,
 	}

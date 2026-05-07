@@ -4,6 +4,9 @@ all: manager
 
 export MAKEFLAGS="-j 16" # enable parallelism
 
+# Version tag used for locally built dev images (override with: make target DEV_VERSION=custom)
+DEV_VERSION ?= $(USER)-dev
+
 usage:
 	@ echo "Development utility to work with Operator on daily basis. Just edit your configuration in '~/.operator-dev/contexts', "
 	@ echo "switch to it using 'make switch', make sure Ops Manager is running (use 'make om') "
@@ -16,18 +19,7 @@ usage:
 	@ echo "  switch:                         switch current dev context, e.g 'make switch context=kops'. Note, that it switches"
 	@ echo "                                  kubectl context as well and sets the current namespace to the one configured as the default"
 	@ echo "                                  one"
-	@ echo "  operator:                       build and push Operator image, deploy it to the Kubernetes cluster"
-	@ echo "                                  Use the 'debug' flag to build and deploy the Operator in debug mode - you need"
-	@ echo "                                  to ensure the 30042 port on the K8s node is open"
-	@ echo "                                  Use the 'watch_namespace' flag to specify a namespace to watch or leave empty to watch project namespace."
 	@ echo "  database:                       build and push Database image"
-	@ echo "  full:                           ('make' is an alias for this command) ensures K8s cluster is up, cleans Kubernetes"
-	@ echo "                                  resources, build-push-deploy operator, push-deploy database, create secrets, "
-	@ echo "                                  config map, resources etc"
-	@ echo "  appdb:                          build and push AppDB image. Specify 'OM_VERSION' in format '4.2.1' to provide the already released Ops Manager"
-	@ echo "                                  version which will be used to find the matching tag and find the Automation Agent version. Add 'om_branch' "
-	@ echo "                                  if Ops Manager is not released yet and you want to have some git branch as the source "
-	@ echo "                                  parameters in ~/operator-dev/om"
 	@ echo "  reset:                          cleans all Operator related state from Kubernetes and Ops Manager. Pass the 'light=true'"
 	@ echo "                                  to perform a \"light\" cleanup - delete only Mongodb resources"
 	@ echo "  e2e:                            runs the e2e test, e.g. 'make e2e test=e2e_sharded_cluster_pv'. The Operator is redeployed before"
@@ -38,17 +30,7 @@ usage:
 	@ echo "                                  Use a 'skip=true' to skip cleaning resources (this may help developing long-running tests like for Ops Manager)"
 	@ echo "                                  Sometimes you may need to pass some custom configuration, this can be done this way:"
 	@ echo "                                  make e2e test=e2e_om_ops_manager_upgrade CUSTOM_OM_VERSION=4.2.8"
-	@ echo "  recreate-e2e-kops:              deletes and creates a specified e2e cluster 'cluster' using kops (note, that you don't need to switch to the correct"
-	@ echo "                                  kubectl context - the script will handle everything). Pass the flag 'imsure=yes' to make it work."
-	@ echo "                                  Pass 'cluster' parameter for a cluster name if it's different from default ('e2e.mongokubernetes.com')"
-	@ echo "                                  Possible values are: 'e2e.om.mongokubernetes.com', 'e2e.multinamespace.mongokubernetes.com'"
-	@ echo "  recreate-e2e-openshift:         deletes and creates an e2e Openshift cluster"
 	@ echo "  recreate-e2e-multicluster-kind  Recreates local (Kind-based) development environment for running tests"
-	@ echo "  log:                            reads the Operator log"
-	@ echo "  status:                         prints the current context and the state of Kubernetes cluster"
-	@ echo "  dashboard:                      opens the Kubernetes dashboard. Make sure the cluster was installed using current Makefile as"
-	@ echo "                                  dashboard is not installed by default and the script ensures it's installed and permissions"
-	@ echo "                                  are configured."
 	@ echo "  open-automation-config/ac:      displays the contents of the Automation Config in in $EDITOR using ~/.operator-dev configuration"
 
 
@@ -57,40 +39,16 @@ prerequisites:
 	@ scripts/dev/install.sh
 
 precommit:
-	@ .githooks/pre-commit
+	@ source scripts/dev/set_env_context.sh && pre-commit run --all-files
 
-precommit-with-licenses:
-	@ MDB_UPDATE_LICENSES=true .githooks/pre-commit
+precommit-full:
+	@ source scripts/dev/set_env_context.sh && MDB_UPDATE_LICENSES=true MDB_REGENERATE_RBAC=true pre-commit run --all-files
 
 switch:
 	@ scripts/dev/switch_context.sh $(context) $(additional_override)
 
 switcht:
 	@ scripts/dev/switch_context_by_test.sh $(test)
-
-# builds the Operator binary file and docker image and pushes it to the remote registry if using a remote registry. Deploys it to
-# k8s cluster
-operator: configure-operator build-and-push-operator-image
-	@ $(MAKE) deploy-operator
-
-# build-push, (todo) restart database
-database: aws_login
-	@ scripts/dev/run_python.sh scripts/release/pipeline.py database
-
-readiness_probe: aws_login
-	@ scripts/dev/run_python.sh scripts/release/pipeline.py readiness-probe
-
-upgrade_hook: aws_login
-	@ scripts/dev/run_python.sh scripts/release/pipeline.py upgrade-hook
-
-# ensures cluster is up, cleans Kubernetes + OM, build-push-deploy operator,
-# push-deploy database, create secrets, config map, resources etc
-full: build-and-push-images
-	@ $(MAKE) deploy-and-configure-operator
-
-# build-push appdb image
-appdb: aws_login
-	@ scripts/dev/run_python.sh scripts/release/pipeline.py --include appdb
 
 # runs the e2e test: make e2e test=e2e_sharded_cluster_pv. The Operator is redeployed before the test, the namespace is cleaned.
 # The e2e test image is built and pushed together with all main ones (operator, database, init containers)
@@ -110,11 +68,6 @@ mco-e2e: aws_login build-and-push-mco-test-image
 	fi
 	@ scripts/dev/launch_e2e.sh
 
-generate-env-file: ## generates a local-test.env for local testing
-	mkdir -p .generated
-	{ scripts/dev/run_python.sh mongodb-community-operator/scripts/dev/get_e2e_env_vars.py ".generated/config.json" | tee >(cut -d' ' -f2 > .generated/mco-test.env) ;} > .generated/mco-test.export.env
-	. .generated/mco-test.export.env
-
 reset-helm-leftovers: ## sometimes you didn't cleanly uninstall a helm release, this cleans the existing helm artifacts
 	@ scripts/dev/reset_helm.sh
 
@@ -123,13 +76,10 @@ e2e-telepresence: build-and-push-test-image
 
 # clean all kubernetes cluster resources and OM state
 reset: reset-mco
-	go run scripts/dev/reset.go
+	go build -o bin/reset ./scripts/dev/reset/ && bin/reset
 
 reset-mco: ## Cleans up e2e test env
 	kubectl delete mdbc,all,secrets -l e2e-test=true || true
-
-status:
-	@ scripts/dev/status
 
 # opens the automation config in your editor
 open-automation-config: ac
@@ -154,56 +104,65 @@ aws_cleanup:
 	@ scripts/evergreen/prepare_aws.sh
 
 build-and-push-operator-image: aws_login
-	@ scripts/dev/run_python.sh scripts/release/pipeline.py operator
-
-build-and-push-database-image: aws_login
-	@ scripts/dev/build_push_database_image
+	@ $(MAKE) operator-image
 
 build-and-push-test-image: aws_login
 	@ if [[ -z "$(local)" ]]; then \
-		scripts/dev/run_python.sh scripts/release/pipeline.py test; \
+		$(MAKE) test-image; \
 	fi
 
 build-and-push-mco-test-image: aws_login
 	@ if [[ -z "$(local)" ]]; then \
-		scripts/dev/run_python.sh scripts/release/pipeline.py mco-test; \
+		$(MAKE) mco-test-image; \
 	fi
 
 # builds all app images in parallel
-# note that we cannot build both appdb and database init images in parallel as they change the same docker file
-build-and-push-images: build-and-push-operator-image appdb-init-image om-init-image database operator-image database-init-image
+build-and-push-images: build-and-push-operator-image om-init-image database operator-image database-init-image
 	@ $(MAKE) agent-image
 
 # builds all init images
-build-and-push-init-images: appdb-init-image om-init-image database-init-image
+build-and-push-init-images: om-init-image database-init-image
+
+database:
+	@ scripts/dev/run_python.sh scripts/release/pipeline.py database -b patch -v $(DEV_VERSION)
 
 database-init-image:
-	@ scripts/dev/run_python.sh scripts/release/pipeline.py init-database
-
-appdb-init-image:
-	@ scripts/dev/run_python.sh scripts/release/pipeline.py init-appdb
+	@ scripts/dev/run_python.sh scripts/release/pipeline.py init-database -b patch -v $(DEV_VERSION)
 
 # Not setting a parallel-factor will default to 0 which will lead to using all CPUs, that can cause docker to die.
 # Here we are defaulting to 6, a higher value might work for you.
 agent-image:
-	@ scripts/dev/run_python.sh scripts/release/pipeline.py --parallel --parallel-factor 6 agent
+	@ scripts/dev/run_python.sh scripts/release/pipeline.py --parallel --parallel-factor 6 agent -b patch -v current
 
 agent-image-slow:
-	@ scripts/dev/run_python.sh scripts/release/pipeline.py --parallel-factor 1 agent
+	@ scripts/dev/run_python.sh scripts/release/pipeline.py --parallel-factor 1 agent -b patch -v current
 
 operator-image:
-	@ scripts/dev/run_python.sh scripts/release/pipeline.py operator
+	@ scripts/dev/run_python.sh scripts/release/pipeline.py operator -b patch -v $(DEV_VERSION)
+
+operator-image-staging:
+	@ scripts/dev/run_python.sh scripts/release/pipeline.py operator -b staging -v $(DEV_VERSION)
 
 om-init-image:
-	@ scripts/dev/run_python.sh scripts/release/pipeline.py init-ops-manager
+	@ scripts/dev/run_python.sh scripts/release/pipeline.py init-ops-manager -b patch -v $(DEV_VERSION)
 
 om-image:
-	@ scripts/dev/run_python.sh scripts/release/pipeline.py ops-manager
+	@ scripts/dev/run_python.sh scripts/release/pipeline.py ops-manager -b patch -v 8.0.19
+
+test-image:
+	@ scripts/dev/run_python.sh scripts/release/pipeline.py meko-tests -b patch -v $(DEV_VERSION)
+
+mco-test-image:
+	@ scripts/dev/run_python.sh scripts/release/pipeline.py mco-tests -b patch -v $(DEV_VERSION)
+
+readiness_probe: aws_login
+	@ scripts/dev/run_python.sh scripts/release/pipeline.py readiness-probe -b patch -v $(DEV_VERSION)
+
+upgrade_hook: aws_login
+	@ scripts/dev/run_python.sh scripts/release/pipeline.py upgrade-hook -b patch -v $(DEV_VERSION)
 
 configure-operator:
 	@ scripts/dev/configure_operator.sh
-
-deploy-and-configure-operator: deploy-operator configure-operator
 
 cert:
 	@ openssl req  -nodes -new -x509  -keyout ca-tls.key -out ca-tls.crt -extensions v3_ca -days 3650
@@ -271,23 +230,19 @@ GOBIN=$(shell go env GOBIN)
 endif
 
 
-# Run tests
-ENVTEST_ASSETS_DIR=$(shell pwd)/testbin
-
 golang-tests:
-	scripts/evergreen/unit-tests.sh
+	USE_RACE=false USE_COVERAGE=false scripts/evergreen/unit-tests-golang.sh
 
 golang-tests-race:
-	USE_RACE=true scripts/evergreen/unit-tests.sh
+	USE_RACE=true USE_COVERAGE=true scripts/evergreen/unit-tests-golang.sh
 
 sbom-tests:
-	@ scripts/dev/run_python.sh -m pytest generate_ssdlc_report_test.py
+	scripts/evergreen/unit-tests-sbom.sh
 
 # e2e tests are also in python and we will need to ignore them as they are in the docker/mongodb-kubernetes-tests folder
 # additionally, we have one lib which we want to test which is in the =docker/mongodb-kubernetes-tests folder.
 python-tests:
-	@ scripts/dev/run_python.sh -m pytest docker/mongodb-kubernetes-tests/kubeobject
-	@ scripts/dev/run_python.sh -m pytest --ignore=docker/mongodb-kubernetes-tests
+	scripts/evergreen/unit-tests-python.sh
 
 generate-ssdlc-report:
 	@ scripts/dev/run_python.sh generate_ssdlc_report.py
@@ -300,8 +255,11 @@ test: generate fmt vet manifests golang-tests
 # helm-tests will run helm chart unit tests
 helm-tests:
 	@echo "Running helm chart unit tests..."
-	@if ! helm plugin list | grep -q unittest; then \
-		echo "Installing helm-unittest plugin..."; \
+	helm version
+	helm plugin list || true
+	@if ! helm unittest --help >/dev/null 2>&1; then \
+		echo "helm-unittest plugin not working/not installed, reinstalling..."; \
+		helm plugin uninstall unittest 2>/dev/null || true; \
 		helm plugin install https://github.com/helm-unittest/helm-unittest; \
 	fi
 	helm unittest helm_chart --color
@@ -335,11 +293,19 @@ undeploy:
 	$(KUSTOMIZE) build config/default | kubectl delete -f -
 
 # Generate manifests e.g. CRD etc.
-manifests: controller-gen
+# Uses a sentinel file so Make skips regeneration when api/ sources are unchanged. (the step takes a few second)
+CRD_SENTINEL := .generated/crd.sentinel
+API_SOURCES := $(shell find api -name "*.go")
+
+manifests: $(CRD_SENTINEL)
+
+$(CRD_SENTINEL): $(API_SOURCES) | controller-gen
+	@echo "API sources changed. Regenerating CRDs..."
+	@mkdir -p .generated
 	export PATH="$(PATH)"; export GOROOT=$(GOROOT); $(CONTROLLER_GEN) $(CRD_OPTIONS) paths=./... output:crd:artifacts:config=config/crd/bases
-	# copy the CRDs to the public folder
 	cp config/crd/bases/* helm_chart/crds/
 	cat "helm_chart/crds/"* > public/crds.yaml
+	@touch $(CRD_SENTINEL)
 
 
 # Run go fmt against code
@@ -354,21 +320,13 @@ vet:
 generate: controller-gen
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./..."
 
-# Build the docker image
-docker-build: test
-	docker build -t $(IMG) .
-
-# Push the docker image
-docker-push:
-	docker push $(IMG)
-
 # Download controller-gen locally if necessary
 CONTROLLER_GEN = $(shell pwd)/bin/controller-gen
 controller-gen:
 	$(call go-install-tool,$(CONTROLLER_GEN),sigs.k8s.io/controller-tools/cmd/controller-gen@v0.18.0)
 
 # Download kustomize locally if necessary
-KUSTOMIZE = $(shell pwd)/bin/kustomize
+KUSTOMIZE ?= $(shell which kustomize 2>/dev/null || echo $(shell pwd)/bin/kustomize)
 kustomize:
 	$(call go-install-tool,$(KUSTOMIZE),sigs.k8s.io/kustomize/kustomize/v4@v4.5.4)
 
@@ -378,6 +336,7 @@ define go-install-tool
 @[ -f $(1) ] || { \
 set -e ;\
 TMP_DIR=$$(mktemp -d) ;\
+cp $(PROJECT_DIR)/.tool-versions $$TMP_DIR/.tool-versions || true ;\
 cd $$TMP_DIR ;\
 go mod init tmp ;\
 echo "Downloading $(2)" ;\
@@ -402,11 +361,6 @@ bundle: manifests kustomize
 .PHONY: bundle-build
 bundle-build:
 	docker build $(EXPIRES) --platform linux/amd64 -f ./bundle/$(VERSION)/bundle.Dockerfile -t $(BUNDLE_IMG) .
-
-.PHONY: dockerfiles
-dockerfiles:
-	python scripts/update_supported_dockerfiles.py
-	tar -czvf ./public/dockerfiles-$(VERSION).tgz ./public/dockerfiles
 
 prepare-local-e2e: reset-mco # prepares the local environment to run a local operator
 	scripts/dev/prepare_local_e2e_run.sh
