@@ -182,24 +182,6 @@ type PerClusterLoadBalancerConfig struct {
 	Managed *PerClusterManagedLBConfig `json:"managed,omitempty"`
 }
 
-// ShardOverride lets sharded MongoDBSearch deployments tune one or more shards
-// beyond the per-cluster defaults. Only valid for sharded sources.
-type ShardOverride struct {
-	// ShardNames is the set of shard names this override applies to.
-	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:MinItems=1
-	ShardNames []string `json:"shardNames"`
-	// +optional
-	// +kubebuilder:validation:Minimum=1
-	Replicas *int32 `json:"replicas,omitempty"`
-	// +optional
-	ResourceRequirements *corev1.ResourceRequirements `json:"resourceRequirements,omitempty"`
-	// +optional
-	Persistence *common.Persistence `json:"persistence,omitempty"`
-	// +optional
-	StatefulSetConfiguration *common.StatefulSetConfiguration `json:"statefulSet,omitempty"`
-}
-
 // ClusterSpec is one entry in spec.clusters[]. ClusterName is required and immutable
 // when len(spec.clusters) > 1; optional in the single-cluster degenerate case.
 // All other fields override the corresponding top-level value when set; nil/omitted inherits.
@@ -229,9 +211,6 @@ type ClusterSpec struct {
 	// Only managed sub-fields are overridable per-cluster.
 	// +optional
 	LoadBalancer *PerClusterLoadBalancerConfig `json:"loadBalancer,omitempty"`
-	// ShardOverrides applies only to sharded sources.
-	// +optional
-	ShardOverrides []ShardOverride `json:"shardOverrides,omitempty"`
 	// JVMFlags overrides spec.jvmFlags for this cluster's mongot pods. Replace, not merge.
 	// +optional
 	JVMFlags []string `json:"jvmFlags,omitempty"`
