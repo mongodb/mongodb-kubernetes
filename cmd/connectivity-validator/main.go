@@ -36,6 +36,7 @@ func main() {
 		CertPath:         os.Getenv("CERT_PATH"),
 		CAPath:           os.Getenv("CA_PATH"),
 		SubjectDN:        os.Getenv("SUBJECT_DN"),
+		MongodTLSCAPath:  os.Getenv("MONGOD_TLS_CA_PATH"),
 	}
 	if cfg.ConnectionString == "" {
 		log.Error("CONNECTION_STRING is required")

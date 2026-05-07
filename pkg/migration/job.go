@@ -105,8 +105,30 @@ func volumesAndMountsFromStatefulSet(sts *appsv1.StatefulSet) ([]corev1.Volume, 
 // volumes and mounts as the given StatefulSet, so STS and Job share the same code path.
 // agentCertHash is the hash key of the agent cert PEM file (path becomes AgentCertMountPath/hash).
 // subjectDN is the automation agent X.509 subject (RFC 4514) for MONGODB-X509; empty for SCRAM.
-func BuildJobFromStatefulSet(rs *mdbv1.MongoDB, sts *appsv1.StatefulSet, operatorImage, connectionString string, externalMembers []string, currentAgentAuthMode, agentCertHash, subjectDN string) *batchv1.Job {
+// keyfileSecretName is the name of a Secret whose "keyfile" key holds the SCRAM keyfile content;
+// when non-empty it is mounted at InternalClusterAuthMountPath so the validator can authenticate.
+func BuildJobFromStatefulSet(rs *mdbv1.MongoDB, sts *appsv1.StatefulSet, operatorImage, connectionString string, externalMembers []string, currentAgentAuthMode, agentCertHash, subjectDN, keyfileSecretName string) *batchv1.Job {
 	volumes, volumeMounts := volumesAndMountsFromStatefulSet(sts)
+
+	// Mount the SCRAM keyfile secret when provided. The secret's "keyfile" key is mounted
+	// at InternalClusterAuthMountPath, shadowing the emptyDir at that subpath so the
+	// validator binary can read the VM keyfile via the standard KEYFILE_PATH env var.
+	if keyfileSecretName != "" {
+		keyfileVol := corev1.Volume{
+			Name: "migration-keyfile",
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{SecretName: keyfileSecretName},
+			},
+		}
+		keyfileMount := corev1.VolumeMount{
+			Name:      "migration-keyfile",
+			MountPath: util.InternalClusterAuthMountPath,
+			ReadOnly:  true,
+		}
+		volumes = append(volumes, keyfileVol)
+		volumeMounts = append(volumeMounts, keyfileMount)
+	}
+
 	security := rs.GetSecurity()
 	automationAuthEnabled := security != nil && security.Authentication != nil && security.Authentication.Enabled
 	currentAgentMechanism := security.GetAgentMechanism(currentAgentAuthMode)
@@ -132,6 +154,11 @@ func BuildJobFromStatefulSet(rs *mdbv1.MongoDB, sts *appsv1.StatefulSet, operato
 		caPath = util.CAFilePathInContainer
 	}
 
+	mongodTLSCAPath := ""
+	if security.IsTLSEnabled() {
+		mongodTLSCAPath = util.TLSCaMountPath + "/ca-pem"
+	}
+
 	envVars := []corev1.EnvVar{
 		{Name: "CONNECTION_STRING", Value: connectionString},
 		{Name: "AUTH_MECHANISM", Value: authMechanism},
@@ -140,6 +167,7 @@ func BuildJobFromStatefulSet(rs *mdbv1.MongoDB, sts *appsv1.StatefulSet, operato
 		{Name: "CERT_PATH", Value: certPath},
 		{Name: "CA_PATH", Value: caPath},
 		{Name: "SUBJECT_DN", Value: subjectDN},
+		{Name: "MONGOD_TLS_CA_PATH", Value: mongodTLSCAPath},
 	}
 
 	backoffLimit := int32(0)
