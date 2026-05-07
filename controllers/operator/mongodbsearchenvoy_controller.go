@@ -148,13 +148,9 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 	tlsEnabled := mdbSearch.IsTLSConfigured()
 
 	workList := r.buildClusterWorkList(mdbSearch, state.ClusterMapping)
-	perClusterStatuses := make([]searchv1.ClusterLoadBalancerStatus, 0, len(workList))
 	var firstFailure error
-	multiCluster := len(workList) > 1 || (len(workList) == 1 && workList[0].ClusterName != "")
+	var worstPhase status.Phase
 
-	// Append a per-cluster status entry for every work item, including the
-	// single-cluster degenerate case, so worstOfClusterPhases sees the actual
-	// failure phase rather than defaulting to Running.
 	for _, w := range workList {
 		var st workflow.Status
 		if w.ClusterIndex == -1 {
@@ -164,29 +160,15 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 		} else {
 			st = r.reconcileForCluster(ctx, mdbSearch, searchSource, tlsEnabled, tlsCfg, w.ClusterName, w.ClusterIndex, log)
 		}
-		perClusterStatuses = append(perClusterStatuses, searchv1.ClusterLoadBalancerStatus{
-			ClusterName: w.ClusterName,
-			Phase:       st.Phase(),
-			Message:     searchcontroller.MessageFromStatus(st),
-		})
+		worstPhase = searchv1.WorstOfPhase(worstPhase, st.Phase())
 		if !st.IsOK() && firstFailure == nil {
 			firstFailure = fmt.Errorf("cluster %q: %s", w.ClusterName, searchcontroller.MessageFromStatus(st))
 		}
 	}
 
-	// Canonical invariant: top-level Phase = WorstOfPhase(per-cluster Phases).
-	worstPhase := worstOfClusterPhases(perClusterStatuses)
-	if multiCluster {
-		mdbSearch.Status.LoadBalancer = &searchv1.LoadBalancerStatus{
-			Phase:    worstPhase,
-			Clusters: perClusterStatuses,
-		}
-	}
-
 	if firstFailure != nil {
 		// Preserve the worst-of phase computed across clusters; without this branch,
-		// the JSON patch would downgrade Failed → Pending and contradict the
-		// per-cluster entries.
+		// the JSON patch would downgrade Failed → Pending.
 		if worstPhase == status.PhaseFailed {
 			return r.updateLBStatus(ctx, mdbSearch, workflow.Failed(firstFailure), log)
 		}
@@ -265,25 +247,6 @@ func (r *MongoDBSearchEnvoyReconciler) reconcileForCluster(
 		return workflow.Failed(fmt.Errorf("cluster=%q: %w", clusterName, err))
 	}
 	return workflow.OK()
-}
-
-// worstOfClusterPhases returns the worst-of phase across the supplied
-// per-cluster LB statuses, defaulting to PhaseRunning when the slice is empty
-// (single-cluster path that never appends per-cluster items). This thin
-// wrapper centralises the canonical invariant declared on LoadBalancerStatus:
-//
-//	LoadBalancerStatus.Phase == WorstOfPhase(LoadBalancerStatus.Clusters[*].Phase)
-//
-// when len(Clusters) > 0.
-func worstOfClusterPhases(items []searchv1.ClusterLoadBalancerStatus) status.Phase {
-	if len(items) == 0 {
-		return status.PhaseRunning
-	}
-	phases := make([]status.Phase, 0, len(items))
-	for _, it := range items {
-		phases = append(phases, it.Phase)
-	}
-	return searchv1.WorstOfPhase(phases...)
 }
 
 // updateLBStatus patches the loadBalancer sub-status on the MongoDBSearch CR
@@ -727,13 +690,9 @@ func selectEnvoyClient(clusterName string, central kubernetesClient.Client, memb
 	return central
 }
 
-// envoyReplicas returns the desired Envoy replica count, applied uniformly
-// across every per-cluster Envoy Deployment.
-// Precedence: spec.loadBalancer.managed.replicas > envoyReplicasDefault.
-func envoyReplicas(search *searchv1.MongoDBSearch) int32 {
-	if search.Spec.LoadBalancer != nil && search.Spec.LoadBalancer.Managed != nil && search.Spec.LoadBalancer.Managed.Replicas != nil {
-		return *search.Spec.LoadBalancer.Managed.Replicas
-	}
+// envoyReplicas returns the desired Envoy replica count. Hardcoded to 1 (envoyReplicasDefault);
+// per-cluster replica overrides are not supported at GA scope.
+func envoyReplicas(_ *searchv1.MongoDBSearch) int32 {
 	return envoyReplicasDefault
 }
 
