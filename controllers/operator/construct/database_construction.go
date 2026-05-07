@@ -185,6 +185,7 @@ func StandaloneOptions(additionalOpts ...func(options *DatabaseStatefulSetOption
 			StatefulSetSpecOverride: stsSpec,
 			MultiClusterMode:        mdb.Spec.IsMultiCluster(),
 			StsType:                 Standalone,
+			DownloadBase:            mdb.Spec.GetDownloadBase(),
 		}
 
 		for _, opt := range additionalOpts {
@@ -263,6 +264,7 @@ func shardedOptions(cfg shardedOptionCfg, additionalOpts ...func(options *Databa
 		MultiClusterMode:        cfg.mdb.Spec.IsMultiCluster(),
 		Persistent:              cfg.persistent,
 		StsType:                 cfg.stsType,
+		DownloadBase:            cfg.mdb.Spec.GetDownloadBase(),
 	}
 
 	if cfg.mdb.Spec.IsMultiCluster() {
@@ -963,8 +965,9 @@ func staticContainersEnvVars(mdb databaseStatefulSetSource) []corev1.EnvVar {
 	var envVars []corev1.EnvVar
 	if architectures.IsRunningStaticArchitecture(mdb.GetAnnotations()) {
 		envVars = append(envVars, corev1.EnvVar{Name: "MDB_STATIC_CONTAINERS_ARCHITECTURE", Value: "true"})
-		envVars = append(envVars, corev1.EnvVar{Name: DownloadBaseEnv, Value: mdb.GetDownloadBase()})
 	}
+	// MMS_DOWNLOAD_BASE must match the MMS volume mount path (see GetNonPersistentAgentVolumeMounts).
+	envVars = append(envVars, corev1.EnvVar{Name: DownloadBaseEnv, Value: mdb.GetDownloadBase()})
 	return envVars
 }
 

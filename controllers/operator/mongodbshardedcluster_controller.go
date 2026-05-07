@@ -2044,6 +2044,10 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 
 			_ = UpdatePrometheus(ctx, &d, conn, sc.GetPrometheus(), r.commonController.SecretClient, sc.GetNamespace(), opts.prometheusCertHash, log)
 
+			if newBase := sc.Spec.GetDownloadBase(); newBase != d.GetDownloadBase() {
+				d.SetDownloadBase(newBase)
+			}
+
 			finalProcesses = d.GetProcessNames(om.ShardedCluster{}, sc.Name)
 
 			return nil

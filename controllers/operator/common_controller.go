@@ -562,7 +562,7 @@ func (r *ReconcileCommonController) updateOmAuthentication(ctx context.Context, 
 		CAFilePath:         caFilepath,
 		MongoDBResource:    types.NamespacedName{Namespace: ar.GetNamespace(), Name: ar.GetName()},
 		DownloadBase:       downloadBase,
-		KeyfilePath:        downloadBase + "/keyfile",
+		KeyfilePath:        util.AutomationAgentKeyFilePathInContainer,
 	}
 	var databaseSecretPath string
 	if r.VaultClient != nil {
@@ -1105,7 +1105,9 @@ func ReconcileReplicaSetAC(ctx context.Context, d om.Deployment, spec mdbv1.DbCo
 		_ = UpdatePrometheus(ctx, &d, pc.conn, pc.prometheus, pc.secretsClient, pc.namespace, pc.prometheusCertHash, log)
 	}
 
-	d.SetDownloadBase(spec.GetDownloadBase())
+	if newBase := spec.GetDownloadBase(); newBase != d.GetDownloadBase() {
+		d.SetDownloadBase(newBase)
+	}
 
 	return nil
 }

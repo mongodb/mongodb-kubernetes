@@ -28,7 +28,13 @@ func (x *connectionX509) EnableAgentAuthentication(_ context.Context, _ kubernet
 		auth.AutoPwd = util.MergoDelete
 		auth.Disabled = false
 		auth.AuthoritativeSet = opts.AuthoritativeSet
-		auth.KeyFile = opts.KeyfilePath
+		newKeyFile := util.AutomationAgentKeyFilePathInContainer
+		if opts.KeyfilePath != "" {
+			newKeyFile = opts.KeyfilePath
+		}
+		if auth.KeyFile != newKeyFile {
+			auth.KeyFile = newKeyFile
+		}
 		auth.KeyFileWindows = util.AutomationAgentWindowsKeyFilePath
 		ac.AgentSSL = &om.AgentSSL{
 			AutoPEMKeyFilePath:    opts.AutoPEMKeyFilePath,
