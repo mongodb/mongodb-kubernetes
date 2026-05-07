@@ -141,9 +141,6 @@ type MongoDBSearchSpec struct {
 	// deployments (len > 1); when omitted, the reconciler defaults it to a single
 	// entry built from the top-level fields. Pointer-of-slice so omitted vs.
 	// empty is distinguishable.
-	// MaxItems is set so the apiserver can bound the cost of the clusterName
-	// uniqueness CEL rule below; 50 is well above any realistic multi-cluster
-	// deployment.
 	// +optional
 	// +kubebuilder:validation:MaxItems=50
 	// +kubebuilder:validation:XValidation:rule="self.all(c1, self.exists_one(c2, c2.clusterName == c1.clusterName))",message="clusters[].clusterName must be unique"
@@ -152,9 +149,6 @@ type MongoDBSearchSpec struct {
 
 // SyncSourceSelector picks which mongods this cluster's mongot fleet syncs from.
 // At-most-one of MatchTags or Hosts may be set.
-// MaxProperties / MaxItems / MaxLength on the children are required so the
-// apiserver can bound the schema-cost contribution that the XValidation rule
-// reads via has().
 // +kubebuilder:validation:XValidation:rule="!(has(self.matchTags) && has(self.hosts))",message="syncSourceSelector.matchTags and syncSourceSelector.hosts are mutually exclusive"
 type SyncSourceSelector struct {
 	// MatchTags renders into mongot's readPreferenceTags; the operator picks
@@ -196,7 +190,6 @@ type ClusterSpec struct {
 	// +optional
 	SyncSourceSelector *SyncSourceSelector `json:"syncSourceSelector,omitempty"`
 	// LoadBalancer per-cluster override; deep-merged into spec.loadBalancer.managed.
-	// Only managed sub-fields are overridable per-cluster.
 	// +optional
 	LoadBalancer *LoadBalancerConfig `json:"loadBalancer,omitempty"`
 	// JVMFlags overrides spec.jvmFlags for this cluster's mongot pods. Replace, not merge.

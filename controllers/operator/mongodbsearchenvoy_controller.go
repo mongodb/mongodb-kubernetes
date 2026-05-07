@@ -167,8 +167,8 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 	}
 
 	if firstFailure != nil {
-		// Preserve the worst-of phase computed across clusters; without this branch,
-		// the JSON patch would downgrade Failed → Pending.
+		// Worst-of phase: preserve the most severe phase seen across clusters.
+		// Without this branch the JSON patch would downgrade Failed → Pending.
 		if worstPhase == status.PhaseFailed {
 			return r.updateLBStatus(ctx, mdbSearch, workflow.Failed(firstFailure), log)
 		}
@@ -230,6 +230,8 @@ func (r *MongoDBSearchEnvoyReconciler) reconcileForCluster(
 	c kubernetesClient.Client,
 	log *zap.SugaredLogger,
 ) workflow.Status {
+	// defensive: belt-and-braces guard against an unknown-name path that should
+	// already be caught by ClusterIndex == -1 upstream in the work-list loop.
 	if clusterName != "" {
 		if _, ok := r.memberClusterClientsMap[clusterName]; !ok {
 			return workflow.Pending("Member cluster %q not registered with the operator", clusterName)
@@ -469,8 +471,7 @@ func (r *MongoDBSearchEnvoyReconciler) ensureConfigMap(ctx context.Context, sear
 
 // ensureDeployment creates or updates the Envoy Deployment in the cluster
 // indicated by clusterName ("" = central cluster, single-cluster path).
-// clusterIndex is used for resource naming; clusterName is used for client
-// lookup and labels.
+// clusterIndex is used for resource naming; clusterName is used for labels.
 // See ensureConfigMap for the cross-cluster ownership rule.
 func (r *MongoDBSearchEnvoyReconciler) ensureDeployment(ctx context.Context, search *searchv1.MongoDBSearch, envoyJSON, clusterName string, clusterIndex int, c kubernetesClient.Client, tlsCfg *searchcontroller.TLSSourceConfig, log *zap.SugaredLogger) error {
 	configHash := fmt.Sprintf("%x", sha256.Sum256([]byte(envoyJSON)))
