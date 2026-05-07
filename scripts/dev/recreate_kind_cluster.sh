@@ -18,8 +18,17 @@ fi
 docker_create_kind_network
 docker_run_local_registry "kind-registry" "5000"
 
-scripts/dev/setup_kind_cluster.sh -r -e -n "${cluster_name}" -l "172.18.255.200-172.18.255.250" -c "${CLUSTER_DOMAIN}"
+# shellcheck source=../funcs/kind_network
+source scripts/funcs/kind_network
+scripts/dev/setup_kind_cluster.sh -r -e -n "${cluster_name}" -l "${KIND_METALLB_RANGE_SINGLE}" -c "${CLUSTER_DOMAIN}"
 
 source scripts/dev/install_csi_driver.sh
 csi_driver_download
-csi_driver_deploy "${cluster_name}-kind"
+csi_driver_deploy "kind-${cluster_name}"
+
+# Stamp the canonical per-side kubeconfig path so downstream tooling has
+# one source of truth for "kind cluster was just created on this host" —
+# the same artifact whether this runs on a laptop (local-kind) or an EVG
+# runner (EVG-CI). Mirrors recreate_kind_clusters.sh's tail.
+mkdir -p .generated
+cp -f "${HOME}/.kube/${cluster_name}" .generated/current.kubeconfig

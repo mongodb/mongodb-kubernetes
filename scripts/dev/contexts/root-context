@@ -2,12 +2,127 @@
 
 set -Eeou pipefail
 
+# PROJECT_DIR is set by scripts/dev/contexts/site-context (sourced before
+# this file by switch_context.sh). We read it here to locate release.json
+# but DO NOT export it — that's site-context's job.
+: "${PROJECT_DIR:?PROJECT_DIR must be set by site-context before sourcing root-context}"
+
 script_name=$(readlink -f "${BASH_SOURCE[0]}")
 script_dir=$(dirname "${script_name}")
 source "${script_dir}/private-context"
 
-PROJECT_DIR="$(realpath "${script_dir}/../../..")"
-export PROJECT_DIR
+# Per-worktree OM project name isolation.
+#
+# Cloud-qa OM is shared across all worktrees on a host, but kube namespaces are
+# per-cluster. Devcontainer-mode worktrees each get a unique numeric
+# MCK_DEVC_NET_PREFIX (0..2047, the per-stack /23 index picked by `wt-ctl`) and
+# pass it into the container env via .devcontainer/.env + compose.yml. Reuse
+# that index to also make NAMESPACE unique per worktree, so the OM projects
+# that downstream code creates as ${NAMESPACE} / ${NAMESPACE}-* (single-cluster
+# configure_operator.sh, multi-cluster prepare-multi-cluster, ~15 pytest
+# fixtures, delete_om_projects.sh's filter) are automatically scoped.
+#
+# Load MCK_DEVC_* vars from .devcontainer/.env if they aren't in env yet, so
+# host-side `make switch` (run before the container is up) picks up the same
+# stack identity as the in-container flow. Five derived vars are written by
+# `wt-ctl network allocate`: PREFIX (stack index 0..2047), NET_X / NET_Y_BASE /
+# NET_Y_VIP (the /23 octets), and PROXY_PORT (8000+PREFIX). host-side scripts
+# (evg_host.sh's kubeconfig patch) need PROXY_PORT; root-context's NAMESPACE
+# suffix below needs PREFIX. Skip whatever is already exported.
+if [[ -f "${PROJECT_DIR}/.devcontainer/.env" ]]; then
+  while IFS= read -r devc_env_line; do
+    case "${devc_env_line}" in
+      MCK_DEVC_*=*)
+        devc_env_key="${devc_env_line%%=*}"
+        if [[ -z "${!devc_env_key:-}" ]]; then
+          export "${devc_env_line?}"
+        fi
+        ;;
+    esac
+  done < "${PROJECT_DIR}/.devcontainer/.env"
+  unset devc_env_line devc_env_key
+fi
+
+# Whatever NAMESPACE the user picked in private-context, suffix it with the
+# prefix so cloud-qa OM project names don't collide across parallel worktrees.
+# Idempotent: skip if NAMESPACE already ends in `-${MCK_DEVC_NET_PREFIX}` so
+# re-sourcing this file (e.g. nested `make switch`) doesn't pile suffixes.
+#
+# WATCH_NAMESPACE is normally set to the same base value as NAMESPACE in
+# private-context (e.g. both "ls"). If we only prefix NAMESPACE, the operator
+# ends up watching the un-prefixed namespace; every list/watch then 403s
+# because the SA RBAC is on the prefixed namespace, cache sync times out at
+# ~120s, and the operator exits. Apply the same prefix to WATCH_NAMESPACE
+# whenever it matches the un-prefixed NAMESPACE — leave it alone if the
+# user set it to something else on purpose.
+# EVG-CI runs each task on its own EVG host with its own kind cluster — there
+# are no parallel worktree stacks sharing OM projects, so the per-worktree
+# NAMESPACE suffix is unnecessary AND actively harmful: the EVG host's
+# `make switch` (no MCK_DEVC_NET_PREFIX) produces NAMESPACE=a-..., while the
+# devcontainer's on-create `make switch` sees MCK_DEVC_NET_PREFIX=0 from the
+# compose default and produces NAMESPACE=a-...-0. The host-side setup
+# (prepare_operator_config_map) and the in-devc pytest then look at different
+# namespaces and the test 404s on operator-installation-config.
+if [[ -z "${EVR_TASK_ID:-}" && -n "${MCK_DEVC_NET_PREFIX:-}" && -n "${NAMESPACE:-}" \
+      && "${NAMESPACE}" != *"-${MCK_DEVC_NET_PREFIX}" ]]; then
+  if [[ -n "${WATCH_NAMESPACE:-}" && "${WATCH_NAMESPACE}" == "${NAMESPACE}" ]]; then
+    export WATCH_NAMESPACE="${WATCH_NAMESPACE}-${MCK_DEVC_NET_PREFIX}"
+  fi
+  export NAMESPACE="${NAMESPACE}-${MCK_DEVC_NET_PREFIX}"
+fi
+
+# Non-EVG modes: the kubeconfig is the source of truth for the active
+# cluster context name. Override CLUSTER_NAME with the kubeconfig's
+# `current-context` so kubectl matches what the cluster preparation stage
+# (recreate_kind_cluster.sh, BYOC copy) actually produced. Variant
+# contexts can still override this later in the chain by setting
+# CLUSTER_NAME after sourcing root-context.
+#
+# EVG-host mode (next block) wins over this: the proxy chain expects the
+# host's CLUSTER_NAME convention, not the local kubeconfig's view.
+if [[ ! -f "${PROJECT_DIR}/.generated/.current-evg-host" \
+      && -f "${PROJECT_DIR}/.generated/current.kubeconfig" ]]; then
+  kc_ctx=$(yq '."current-context"' "${PROJECT_DIR}/.generated/current.kubeconfig" 2>/dev/null || echo "")
+  if [[ -n "${kc_ctx}" && "${kc_ctx}" != "null" ]]; then
+    CLUSTER_NAME="${kc_ctx}"
+    export CLUSTER_NAME
+    # No remote EVG host in these modes — strip any stale EVG_HOST_NAME
+    # left over from private-context or a prior session.
+    EVG_HOST_NAME=""
+    export EVG_HOST_NAME
+  fi
+  unset kc_ctx
+fi
+
+if [[ -f "${PROJECT_DIR}/.generated/.current-evg-host" ]]; then
+  EVG_HOST_NAME="$(cat "${PROJECT_DIR}/.generated/.current-evg-host")"
+  export EVG_HOST_NAME
+
+  # Resolve EVG_HOST_ADDRESS via the evergreen CLI and cache it in .generated/.
+  # Re-resolved on every sourcing so spawning a new host or recreating the
+  # current one is picked up automatically. The cache file is what the
+  # evg-host-proxy autossh sidecar reads (it doesn't have evergreen CLI).
+  evg_host_address_file="${PROJECT_DIR}/.generated/.current-evg-host-address"
+  if command -v evergreen >/dev/null 2>&1; then
+    # Pick the first running match by displayName. `wt-ctl evg spawn` is the
+    # only spawn path now and resumes idempotently on displayName, so the
+    # duplicate-host hazard that used to live here (AWS reserves the 'name'
+    # tag and silently rejects evg spawn_host's resume-by-tag attempt) is
+    # already side-stepped at spawn time. Picking the first running match
+    # remains the safe fallback for the rare cross-user duplicate.
+    evg_resolved="$(evergreen host list --json 2>/dev/null \
+      | jq -r --arg name "${EVG_HOST_NAME}" \
+          '[.[] | select(.name == $name and .status == "running")] | first | .host_name // empty' \
+          2>/dev/null || true)"
+    if [[ -n "${evg_resolved}" ]]; then
+      echo "${evg_resolved}" > "${evg_host_address_file}"
+    fi
+  fi
+  if [[ -s "${evg_host_address_file}" ]]; then
+    EVG_HOST_ADDRESS="$(cat "${evg_host_address_file}")"
+    export EVG_HOST_ADDRESS
+  fi
+fi
 export IMAGE_TYPE=ubi
 export UBI_IMAGE_WITHOUT_SUFFIX=true
 export WATCH_NAMESPACE=${WATCH_NAMESPACE:-${NAMESPACE}}
@@ -22,16 +137,9 @@ export TEST_POD_CLUSTER="${CLUSTER_NAME}"
 
 export CENTRAL_CLUSTER="${CLUSTER_NAME}"
 export MULTI_CLUSTER_CREATE_SERVICE_ACCOUNT_TOKEN_SECRETS=true
-export MULTI_CLUSTER_CONFIG_DIR=${PROJECT_DIR}/.multi_cluster_local_test_files
-export MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH=${PROJECT_DIR}/docker/mongodb-kubernetes-tests/multi-cluster-kube-config-creator
 
 # override for /etc/config/kubeconfig file mounted in operator's pod
 if [[ "${LOCAL_OPERATOR}" == "true" ]]; then
-  # This env var is used by the local operator to load multi-cluster kubeconfig.
-  # Normally, the pod is loading it from a path that is mounted from the mongodb-enterprise-operator-multi-cluster-kubeconfig secret.
-  # When running locally, we use cli tool to generate that kubeconfig secret and write it to this file.
-  # This way, the local operator is using kubeconfig create by cli tool the same way as it's used when running in a pod.
-  export KUBE_CONFIG_PATH=~/.operator-dev/multicluster_kubeconfig
   export PERFORM_FAILOVER=false
 fi
 
@@ -87,18 +195,6 @@ export READINESS_PROBE_IMAGE="${READINESS_PROBE_REGISTRY}/mongodb-kubernetes-rea
 export VERSION_UPGRADE_HOOK_IMAGE="${VERSION_UPGRADE_HOOK_REGISTRY}/mongodb-kubernetes-operator-version-upgrade-post-start-hook:${VERSION_UPGRADE_HOOK_VERSION}"
 
 export KUBE_ENVIRONMENT_NAME=kind
-
-# when using EVG ec2 instance, we copy kubeconfig locally and use it
-if [[ "${EVG_HOST_NAME:-}" != "" ]]; then
-  KUBECONFIG=~/.operator-dev/evg-host.kubeconfig
-else
-  KUBECONFIG=~/.kube/config
-fi
-export KUBECONFIG
-
-if [[ "$(uname)" == "Linux" ]]; then
-  export GOROOT=/opt/golang/go1.25
-fi
 
 export SIGNING_PUBLIC_KEY_URL="https://cosign.mongodb.com/mongodb-enterprise-kubernetes-operator.pem"
 
@@ -160,14 +256,3 @@ export OPERATOR_CLUSTER_SCOPED=false
 # for downloading helm and kubectl binaries
 export HELM_VERSION="v3.19.4"
 export KUBECTL_VERSION="v1.35.0"
-
-# s390x-specific feature flags — use ${VAR:-default} so they can be overridden before sourcing this context.
-# PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION: s390x requires pure Python protobuf implementation
-#   https://github.com/protocolbuffers/protobuf/issues/24103
-# SODIUM_INSTALL: pynacl must link against system libsodium (RHEL9 ships 1.0.18; bundled build broken on s390x+Python 3.13)
-# PYTEST_OTEL_ENABLED: grpcio segfaults at exit on s390x+Python 3.13; pytest-opentelemetry excluded from requirements
-if [[ "$(uname -m)" == "s390x" ]]; then
-  export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION="${PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION:-python}"
-  export SODIUM_INSTALL="${SODIUM_INSTALL:-system}"
-  export PYTEST_OTEL_ENABLED="${PYTEST_OTEL_ENABLED:-false}"
-fi

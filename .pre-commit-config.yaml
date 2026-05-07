@@ -99,7 +99,22 @@ repos:
         exclude: |
           (?x)^(
             vendor/.*|
-            testdata/.*
+            testdata/.*|
+            \.devcontainer/devcontainer\.json$|
+            \.devcontainer/features/.*/devcontainer-feature\.json$
+          )
+
+  - repo: local
+    hooks:
+      - id: check-jsonc
+        name: check-jsonc
+        description: Validate JSONC files (JSON with //, /*…*/ comments and trailing commas).
+        entry: python3 scripts/dev/validate_jsonc.py
+        language: system
+        files: |
+          (?x)^(
+            \.devcontainer/devcontainer\.json$|
+            \.devcontainer/features/.*/devcontainer-feature\.json$
           )
 
   - repo: https://github.com/psf/black
@@ -155,4 +170,5 @@ repos:
       - id: golangci-lint
         args: [--timeout=10m]
         language_version: 1.26.3
+
 

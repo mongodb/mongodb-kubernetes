@@ -33,9 +33,11 @@ cluster_name=${CLUSTER_NAME:-"kind"}
 cluster_domain="cluster.local"
 export_kubeconfig=0
 recreate=0
+# shellcheck source=../funcs/kind_network
+source "$(dirname "${BASH_SOURCE[0]}")/../funcs/kind_network"
 pod_network="10.244.0.0/16"
 service_network="10.96.0.0/16"
-metallb_ip_range="172.18.255.200-172.18.255.250"
+metallb_ip_range="${KIND_METALLB_RANGE_SINGLE}"
 install_registry=0
 configure_docker_network=0
 while getopts ':n:p:s:c:l:egrhk' opt; do
@@ -70,6 +72,11 @@ reg_name='kind-registry'
 reg_port='5000'
 kube_max_version=$(jq -r '.kubernetes.max' kubernetes-versions.json)
 kind_image="${registry}/kindest/node:v${kube_max_version}"
+
+api_server_address="127.0.0.1"
+if [[ ${REMOTE_CONTAINERS:-false} == "true" ]]; then
+  api_server_address=$(ip addr show eth0 | awk '/inet /{print $2}' | cut -d/ -f1)
+fi
 
 kind_delete_cluster() {
   kind delete cluster --name "${cluster_name}" || true
@@ -114,12 +121,16 @@ nodes:
 networking:
   podSubnet: "${pod_network}"
   serviceSubnet: "${service_network}"
+  apiServerAddress: "${api_server_address}"
 kubeadmConfigPatches:
 - |
   apiVersion: kubeadm.k8s.io/v1beta3
   kind: ClusterConfiguration
   networking:
     dnsDomain: "${cluster_domain}"
+  apiServer:
+    certSANs:
+      - "${api_server_address}"
 EOF
 }
 
@@ -136,12 +147,16 @@ nodes:
 networking:
   podSubnet: "${pod_network}"
   serviceSubnet: "${service_network}"
+  apiServerAddress: "${api_server_address}"
 kubeadmConfigPatches:
 - |
   apiVersion: kubeadm.k8s.io/v1beta3
   kind: ClusterConfiguration
   networking:
     dnsDomain: "${cluster_domain}"
+  apiServer:
+    certSANs:
+      - "${api_server_address}"
 EOF
   echo "finished installing kind"
 }
@@ -243,6 +258,20 @@ kind_configure_local_registry
 kind_wait_for_nodes_are_ready
 kind_install_metallb
 kind_install_metrics_server
+
+if [[ -n "${K8S_FWD_PROXY:-}" ]]; then
+  # Feed the kubeconfig to the proxy so it can resolve this new cluster.
+  # Best-effort: when this script is run on an EVG host (via
+  # `evg_host.sh recreate-kind-cluster`), there is no host-side kfp
+  # listening on 127.0.0.1:11616 — the in-container k8s-proxy registration
+  # is handled later by the orchestrator's `kubeconfig` phase
+  # (`evg_host.sh get-kubeconfig`'s `configure()` does the in-container PATCH).
+  # Mirroring `.devcontainer/scripts/post-start.sh`'s pattern: short timeout,
+  # log the outcome, never fail the kind setup over a missing proxy.
+  curl --max-time 5 -fsS -X PATCH --data-binary @"${kubeconfig_path}" "http://${K8S_FWD_PROXY}/kubeconfig" \
+    && echo "registered kubeconfig with kfp at ${K8S_FWD_PROXY}" \
+    || echo "kfp not reachable at ${K8S_FWD_PROXY}; skipping kubeconfig registration"
+fi
 
 if [[ "${export_kubeconfig}" == "1" ]]; then
   export_kubeconfig
