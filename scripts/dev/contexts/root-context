@@ -8,6 +8,28 @@ source "${script_dir}/private-context"
 
 PROJECT_DIR="$(realpath "${script_dir}/../../..")"
 export PROJECT_DIR
+
+if [[ -f "${PROJECT_DIR}/.generated/.current-evg-host" ]]; then
+  EVG_HOST_NAME="$(cat "${PROJECT_DIR}/.generated/.current-evg-host")"
+  export EVG_HOST_NAME
+
+  # Resolve EVG_HOST_ADDRESS via the evergreen CLI and cache it in .generated/.
+  # Re-resolved on every sourcing so spawning a new host or recreating the
+  # current one is picked up automatically. The cache file is what the
+  # evg-host-proxy autossh sidecar reads (it doesn't have evergreen CLI).
+  evg_host_address_file="${PROJECT_DIR}/.generated/.current-evg-host-address"
+  if command -v evergreen >/dev/null 2>&1; then
+    evg_resolved="$(evergreen host list --json 2>/dev/null \
+      | jq -r ".[] | select (.name==\"${EVG_HOST_NAME}\") | .host_name" 2>/dev/null || true)"
+    if [[ -n "${evg_resolved}" ]]; then
+      echo "${evg_resolved}" > "${evg_host_address_file}"
+    fi
+  fi
+  if [[ -s "${evg_host_address_file}" ]]; then
+    EVG_HOST_ADDRESS="$(cat "${evg_host_address_file}")"
+    export EVG_HOST_ADDRESS
+  fi
+fi
 export IMAGE_TYPE=ubi
 export UBI_IMAGE_WITHOUT_SUFFIX=true
 export WATCH_NAMESPACE=${WATCH_NAMESPACE:-${NAMESPACE}}
@@ -90,14 +112,15 @@ export KUBE_ENVIRONMENT_NAME=kind
 
 # when using EVG ec2 instance, we copy kubeconfig locally and use it
 if [[ "${EVG_HOST_NAME:-}" != "" ]]; then
-  KUBECONFIG=~/.operator-dev/evg-host.kubeconfig
+  KUBECONFIG="${PROJECT_DIR}/.generated/evg-host.kubeconfig"
 else
   KUBECONFIG=~/.kube/config
 fi
 export KUBECONFIG
 
-if [[ "$(uname)" == "Linux" ]]; then
-  export GOROOT=/opt/golang/go1.25
+if command -v go >/dev/null 2>&1; then
+  GOROOT="$(go env GOROOT)"
+  export GOROOT
 fi
 
 export SIGNING_PUBLIC_KEY_URL="https://cosign.mongodb.com/mongodb-enterprise-kubernetes-operator.pem"
