@@ -30,6 +30,10 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/versionutil"
 )
 
+const (
+	InstallerEnvVar = "MCK_INSTALLER"
+)
+
 // Logger should default to the global default from zap. Running into the main function of this package
 // should reconfigure zap.
 var Logger = zap.S()
@@ -175,6 +179,7 @@ func collectOperatorSnapshot(ctx context.Context, memberClusterMap map[string]Co
 		uid := getKubernetesClusterUUID(ctx, uncachedClient)
 		kubeClusterUUIDList = append(kubeClusterUUIDList, uid)
 	}
+	installMethod := envvar.GetEnvOrDefault(InstallerEnvVar, "")
 
 	slices.Sort(kubeClusterUUIDList)
 
@@ -186,6 +191,7 @@ func collectOperatorSnapshot(ctx context.Context, memberClusterMap map[string]Co
 		OperatorType:         MEKO,
 		OperatorArchitecture: runtime.GOARCH,
 		OperatorOS:           runtime.GOOS,
+		OperatorInstaller:    installMethod,
 	}
 
 	event := createEvent(operatorEvent, time.Now(), Operators)

@@ -22,6 +22,7 @@ type OperatorUsageSnapshotProperties struct {
 	OperatorType         OperatorType `json:"operatorType"`         // MEKO, MCK, MCO (here meko)
 	OperatorArchitecture string       `json:"operatorArchitecture"` // Architecture of the operator binary (amd64, arm64, s390x, ppc64le)
 	OperatorOS           string       `json:"operatorOS"`           // Operating system of the operator binary (linux, darwin, windows)
+	OperatorInstaller    string       `json:"operatorInstaller"`    // Installation method of the operator (helm, olm, yaml, unknown)
 }
 
 func (p OperatorUsageSnapshotProperties) ConvertToFlatMap() (map[string]any, error) {
