@@ -828,12 +828,19 @@ func (s *MongoDBSearch) GetReplicas() int {
 // applying the EffectiveClusters cascade (cluster-set wins, top-level is the
 // default, "1" if neither is set). clusterName="" returns the single-cluster
 // auto-promoted value (equivalent to GetReplicas).
+//
+// An explicit 0 is honored, matching the documented contract on GetReplicas:
+// callers (and the connectivity-tool / availability-tester e2e tests) take
+// mongot offline by setting spec.replicas=0 on the MongoDBSearch CR. The
+// earlier `*r > 0` guard silently clamped that to 1, so the operator never
+// actually scaled the mongot StatefulSet down and the tests waiting on the
+// scale-to-0 timed out.
 func (s *MongoDBSearch) GetReplicasForCluster(clusterName string) int {
 	c, err := s.EffectiveClusterFor(clusterName)
 	if err != nil {
 		return 1
 	}
-	if r := c.Replicas; r != nil && *r > 0 {
+	if r := c.Replicas; r != nil {
 		return int(*r)
 	}
 	return 1
