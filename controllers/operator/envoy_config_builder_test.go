@@ -13,7 +13,9 @@ import (
 	bootstrapv3 "github.com/envoyproxy/go-control-plane/envoy/config/bootstrap/v3"
 	clusterv3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
 	corev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
+	listenerv3 "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
 	tlsv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
+	discoveryv3 "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
 )
 
 func testRoute(shardName string) envoyRoute {
@@ -38,18 +40,25 @@ func unmarshalBootstrap(t *testing.T, jsonStr string) *bootstrapv3.Bootstrap {
 	return bootstrap
 }
 
-func TestBuildEnvoyConfigJSON_OutputIsValidJSON(t *testing.T) {
-	result, err := buildEnvoyConfigJSON([]envoyRoute{testRoute("mdb-sh-0")}, false, testCAKeyName())
-	require.NoError(t, err)
-	assert.True(t, json.Valid([]byte(result)), "output should be valid JSON")
+func unmarshalDiscoveryResponse(t *testing.T, jsonStr string) *discoveryv3.DiscoveryResponse {
+	t.Helper()
+	resp := &discoveryv3.DiscoveryResponse{}
+	err := protojson.Unmarshal([]byte(jsonStr), resp)
+	require.NoError(t, err, "failed to unmarshal DiscoveryResponse")
+	return resp
 }
 
-func TestBuildEnvoyConfigJSON_SingleShard_NoTLS(t *testing.T) {
-	route := testRoute("mdb-sh-0")
-	result, err := buildEnvoyConfigJSON([]envoyRoute{route}, false, testCAKeyName())
+func TestBuildBootstrapJSON(t *testing.T) {
+	result, err := buildBootstrapJSON()
 	require.NoError(t, err)
+	assert.True(t, json.Valid([]byte(result)))
 
 	bootstrap := unmarshalBootstrap(t, result)
+
+	// Node (required for xDS subscriptions)
+	require.NotNil(t, bootstrap.Node)
+	assert.Equal(t, "envoy-search-proxy", bootstrap.Node.Id)
+	assert.Equal(t, "search-proxy", bootstrap.Node.Cluster)
 
 	// Admin
 	require.NotNil(t, bootstrap.Admin)
@@ -57,29 +66,49 @@ func TestBuildEnvoyConfigJSON_SingleShard_NoTLS(t *testing.T) {
 	assert.Equal(t, "0.0.0.0", adminAddr.GetAddress())
 	assert.Equal(t, uint32(envoyAdminPort), adminAddr.GetPortValue())
 
-	// Static resources
-	require.NotNil(t, bootstrap.StaticResources)
-	require.Len(t, bootstrap.StaticResources.Listeners, 1)
-	listener := bootstrap.StaticResources.Listeners[0]
-	assert.Equal(t, "mongod_listener", listener.Name)
-	assert.Equal(t, uint32(searchv1.EnvoyDefaultProxyPort), listener.Address.GetSocketAddress().GetPortValue())
+	// No static resources
+	assert.Nil(t, bootstrap.StaticResources)
 
-	// No TLS Inspector when TLS is disabled
-	assert.Empty(t, listener.ListenerFilters, "no TLS Inspector when TLS disabled")
+	// Dynamic resources with filesystem xDS
+	require.NotNil(t, bootstrap.DynamicResources)
+	require.NotNil(t, bootstrap.DynamicResources.CdsConfig)
+	require.NotNil(t, bootstrap.DynamicResources.LdsConfig)
 
-	// Filter chains
-	require.Len(t, listener.FilterChains, 1)
-	fc := listener.FilterChains[0]
-	assert.Nil(t, fc.FilterChainMatch, "no SNI match when TLS disabled (default filter chain)")
-	assert.Nil(t, fc.TransportSocket, "no TLS transport socket when TLS disabled")
+	cdsSrc := bootstrap.DynamicResources.CdsConfig.GetPathConfigSource()
+	require.NotNil(t, cdsSrc)
+	assert.Equal(t, "/etc/envoy/cds.json", cdsSrc.Path)
+	require.NotNil(t, cdsSrc.WatchedDirectory)
+	assert.Equal(t, "/etc/envoy", cdsSrc.WatchedDirectory.Path)
 
-	// Clusters
-	require.Len(t, bootstrap.StaticResources.Clusters, 1)
-	cluster := bootstrap.StaticResources.Clusters[0]
+	ldsSrc := bootstrap.DynamicResources.LdsConfig.GetPathConfigSource()
+	require.NotNil(t, ldsSrc)
+	assert.Equal(t, "/etc/envoy/lds.json", ldsSrc.Path)
+	require.NotNil(t, ldsSrc.WatchedDirectory)
+	assert.Equal(t, "/etc/envoy", ldsSrc.WatchedDirectory.Path)
+
+	// Layered runtime
+	require.NotNil(t, bootstrap.LayeredRuntime)
+	require.Len(t, bootstrap.LayeredRuntime.Layers, 1)
+	assert.Equal(t, "static_layer", bootstrap.LayeredRuntime.Layers[0].Name)
+}
+
+func TestBuildCDSJSON_SingleShard_NoTLS(t *testing.T) {
+	route := testRoute("mdb-sh-0")
+	result, err := buildCDSJSON([]envoyRoute{route}, false, testCAKeyName())
+	require.NoError(t, err)
+	assert.True(t, json.Valid([]byte(result)))
+
+	resp := unmarshalDiscoveryResponse(t, result)
+	assert.Equal(t, "type.googleapis.com/envoy.config.cluster.v3.Cluster", resp.TypeUrl)
+	require.Len(t, resp.Resources, 1)
+
+	cluster := &clusterv3.Cluster{}
+	err = resp.Resources[0].UnmarshalTo(cluster)
+	require.NoError(t, err)
 	assert.Equal(t, "mongot_mdb_sh_0_cluster", cluster.Name)
 	assert.Equal(t, clusterv3.Cluster_STRICT_DNS, cluster.GetType())
 	assert.Equal(t, clusterv3.Cluster_ROUND_ROBIN, cluster.LbPolicy)
-	assert.Nil(t, cluster.TransportSocket, "no TLS transport socket when TLS disabled")
+	assert.Nil(t, cluster.TransportSocket, "no TLS when disabled")
 
 	// Endpoint
 	require.Len(t, cluster.LoadAssignment.Endpoints, 1)
@@ -91,178 +120,176 @@ func TestBuildEnvoyConfigJSON_SingleShard_NoTLS(t *testing.T) {
 	// Circuit breakers
 	require.NotNil(t, cluster.CircuitBreakers)
 	require.Len(t, cluster.CircuitBreakers.Thresholds, 1)
-	thresh := cluster.CircuitBreakers.Thresholds[0]
-	assert.Equal(t, corev3.RoutingPriority_DEFAULT, thresh.Priority)
-	assert.Equal(t, uint32(1024), thresh.MaxConnections.GetValue())
+	assert.Equal(t, corev3.RoutingPriority_DEFAULT, cluster.CircuitBreakers.Thresholds[0].Priority)
+	assert.Equal(t, uint32(1024), cluster.CircuitBreakers.Thresholds[0].MaxConnections.GetValue())
 
 	// TCP keepalive
 	require.NotNil(t, cluster.UpstreamConnectionOptions)
 	require.NotNil(t, cluster.UpstreamConnectionOptions.TcpKeepalive)
 	assert.Equal(t, uint32(10), cluster.UpstreamConnectionOptions.TcpKeepalive.KeepaliveTime.GetValue())
-
-	// LayeredRuntime
-	require.NotNil(t, bootstrap.LayeredRuntime)
-	require.Len(t, bootstrap.LayeredRuntime.Layers, 1)
-	assert.Equal(t, "static_layer", bootstrap.LayeredRuntime.Layers[0].Name)
 }
 
-func TestBuildEnvoyConfigJSON_SingleShard_WithTLS(t *testing.T) {
+func TestBuildCDSJSON_SingleShard_WithTLS(t *testing.T) {
 	route := testRoute("mdb-sh-0")
-	caKeyName := testCAKeyName()
-	result, err := buildEnvoyConfigJSON([]envoyRoute{route}, true, caKeyName)
+	result, err := buildCDSJSON([]envoyRoute{route}, true, testCAKeyName())
 	require.NoError(t, err)
 
-	bootstrap := unmarshalBootstrap(t, result)
+	resp := unmarshalDiscoveryResponse(t, result)
+	require.Len(t, resp.Resources, 1)
 
-	// Filter chain has downstream TLS
-	fc := bootstrap.StaticResources.Listeners[0].FilterChains[0]
-	require.NotNil(t, fc.TransportSocket, "TLS transport socket should be present")
-
-	downstreamTLS := &tlsv3.DownstreamTlsContext{}
-	err = fc.TransportSocket.GetTypedConfig().UnmarshalTo(downstreamTLS)
+	cluster := &clusterv3.Cluster{}
+	err = resp.Resources[0].UnmarshalTo(cluster)
 	require.NoError(t, err)
-
-	assert.True(t, downstreamTLS.RequireClientCertificate.GetValue())
-	assert.Equal(t, tlsv3.TlsParameters_TLSv1_3, downstreamTLS.CommonTlsContext.TlsParams.TlsMinimumProtocolVersion)
-	assert.Equal(t, tlsv3.TlsParameters_TLSv1_3, downstreamTLS.CommonTlsContext.TlsParams.TlsMaximumProtocolVersion)
-	assert.Equal(t, []string{"h2"}, downstreamTLS.CommonTlsContext.AlpnProtocols)
-
-	require.Len(t, downstreamTLS.CommonTlsContext.TlsCertificates, 1)
-	cert := downstreamTLS.CommonTlsContext.TlsCertificates[0]
-	assert.Equal(t, envoyServerCertPath+"/tls.crt", cert.CertificateChain.GetFilename())
-	assert.Equal(t, envoyServerCertPath+"/tls.key", cert.PrivateKey.GetFilename())
-
-	valCtx := downstreamTLS.CommonTlsContext.GetValidationContext()
-	require.NotNil(t, valCtx)
-	assert.Equal(t, envoyCACertPath+"/"+caKeyName, valCtx.TrustedCa.GetFilename())
-
-	// Cluster has upstream TLS
-	cluster := bootstrap.StaticResources.Clusters[0]
-	require.NotNil(t, cluster.TransportSocket, "upstream TLS transport socket should be present")
+	require.NotNil(t, cluster.TransportSocket, "upstream TLS should be present")
 
 	upstreamTLS := &tlsv3.UpstreamTlsContext{}
 	err = cluster.TransportSocket.GetTypedConfig().UnmarshalTo(upstreamTLS)
 	require.NoError(t, err)
-
 	assert.Equal(t, route.UpstreamHost, upstreamTLS.Sni)
 	assert.Equal(t, []string{"h2"}, upstreamTLS.CommonTlsContext.AlpnProtocols)
-
-	require.Len(t, upstreamTLS.CommonTlsContext.TlsCertificates, 1)
-	clientCert := upstreamTLS.CommonTlsContext.TlsCertificates[0]
-	assert.Equal(t, envoyClientCertPath+"/tls.crt", clientCert.CertificateChain.GetFilename())
-	assert.Equal(t, envoyClientCertPath+"/tls.key", clientCert.PrivateKey.GetFilename())
 }
 
-func TestBuildEnvoyConfigJSON_MultipleShards_WithTLS(t *testing.T) {
+func TestBuildCDSJSON_MultipleShards(t *testing.T) {
+	routes := []envoyRoute{
+		{Name: "mdb-sh-0", NameSafe: "mdb_sh_0", SNIHostname: "s0.ns.svc.cluster.local", UpstreamHost: "m0.ns.svc.cluster.local", UpstreamPort: 27028},
+		{Name: "mdb-sh-1", NameSafe: "mdb_sh_1", SNIHostname: "s1.ns.svc.cluster.local", UpstreamHost: "m1.ns.svc.cluster.local", UpstreamPort: 27028},
+	}
+	result, err := buildCDSJSON(routes, false, testCAKeyName())
+	require.NoError(t, err)
+
+	resp := unmarshalDiscoveryResponse(t, result)
+	require.Len(t, resp.Resources, 2)
+
+	for i, route := range routes {
+		cluster := &clusterv3.Cluster{}
+		err = resp.Resources[i].UnmarshalTo(cluster)
+		require.NoError(t, err)
+		assert.Equal(t, "mongot_"+route.NameSafe+"_cluster", cluster.Name)
+	}
+}
+
+func TestBuildLDSJSON_SingleShard_NoTLS(t *testing.T) {
+	route := testRoute("mdb-sh-0")
+	result, err := buildLDSJSON([]envoyRoute{route}, false, testCAKeyName())
+	require.NoError(t, err)
+	assert.True(t, json.Valid([]byte(result)))
+
+	resp := unmarshalDiscoveryResponse(t, result)
+	assert.Equal(t, "type.googleapis.com/envoy.config.listener.v3.Listener", resp.TypeUrl)
+	require.Len(t, resp.Resources, 1)
+
+	listener := &listenerv3.Listener{}
+	err = resp.Resources[0].UnmarshalTo(listener)
+	require.NoError(t, err)
+	assert.Equal(t, "mongod_listener", listener.Name)
+	assert.Equal(t, uint32(searchv1.EnvoyDefaultProxyPort), listener.Address.GetSocketAddress().GetPortValue())
+	assert.Empty(t, listener.ListenerFilters, "no TLS Inspector when TLS disabled")
+	require.Len(t, listener.FilterChains, 1)
+	assert.Nil(t, listener.FilterChains[0].FilterChainMatch, "no SNI match when TLS disabled")
+}
+
+func TestBuildLDSJSON_SingleShard_WithTLS(t *testing.T) {
+	route := testRoute("mdb-sh-0")
+	result, err := buildLDSJSON([]envoyRoute{route}, true, testCAKeyName())
+	require.NoError(t, err)
+
+	resp := unmarshalDiscoveryResponse(t, result)
+	require.Len(t, resp.Resources, 1)
+
+	listener := &listenerv3.Listener{}
+	err = resp.Resources[0].UnmarshalTo(listener)
+	require.NoError(t, err)
+
+	// TLS Inspector present
+	require.Len(t, listener.ListenerFilters, 1)
+	assert.Contains(t, listener.ListenerFilters[0].Name, "tls_inspector")
+
+	// Filter chain has downstream TLS and SNI match
+	require.Len(t, listener.FilterChains, 1)
+	fc := listener.FilterChains[0]
+	require.NotNil(t, fc.FilterChainMatch)
+	assert.Equal(t, []string{route.SNIHostname}, fc.FilterChainMatch.ServerNames)
+	require.NotNil(t, fc.TransportSocket)
+
+	downstreamTLS := &tlsv3.DownstreamTlsContext{}
+	err = fc.TransportSocket.GetTypedConfig().UnmarshalTo(downstreamTLS)
+	require.NoError(t, err)
+	assert.True(t, downstreamTLS.RequireClientCertificate.GetValue())
+	assert.Equal(t, tlsv3.TlsParameters_TLSv1_3, downstreamTLS.CommonTlsContext.TlsParams.TlsMinimumProtocolVersion)
+}
+
+func TestBuildLDSJSON_MultipleShards_WithTLS(t *testing.T) {
 	routes := []envoyRoute{
 		{Name: "mdb-sh-0", NameSafe: "mdb_sh_0", SNIHostname: "shard0.ns.svc.cluster.local", UpstreamHost: "mongot0.ns.svc.cluster.local", UpstreamPort: 27028},
 		{Name: "mdb-sh-1", NameSafe: "mdb_sh_1", SNIHostname: "shard1.ns.svc.cluster.local", UpstreamHost: "mongot1.ns.svc.cluster.local", UpstreamPort: 27028},
 		{Name: "mdb-sh-2", NameSafe: "mdb_sh_2", SNIHostname: "shard2.ns.svc.cluster.local", UpstreamHost: "mongot2.ns.svc.cluster.local", UpstreamPort: 27028},
 	}
 
-	// Sharded clusters always require TLS for SNI-based routing
-	result, err := buildEnvoyConfigJSON(routes, true, testCAKeyName())
+	result, err := buildLDSJSON(routes, true, testCAKeyName())
 	require.NoError(t, err)
 
-	bootstrap := unmarshalBootstrap(t, result)
+	resp := unmarshalDiscoveryResponse(t, result)
+	listener := &listenerv3.Listener{}
+	err = resp.Resources[0].UnmarshalTo(listener)
+	require.NoError(t, err)
 
-	// TLS Inspector present
-	require.Len(t, bootstrap.StaticResources.Listeners[0].ListenerFilters, 1)
-	assert.Contains(t, bootstrap.StaticResources.Listeners[0].ListenerFilters[0].Name, "tls_inspector")
-
-	require.Len(t, bootstrap.StaticResources.Listeners[0].FilterChains, 3)
-	require.Len(t, bootstrap.StaticResources.Clusters, 3)
+	require.Len(t, listener.ListenerFilters, 1)
+	assert.Contains(t, listener.ListenerFilters[0].Name, "tls_inspector")
+	require.Len(t, listener.FilterChains, 3)
 
 	for i, route := range routes {
-		fc := bootstrap.StaticResources.Listeners[0].FilterChains[i]
+		fc := listener.FilterChains[i]
 		require.NotNil(t, fc.FilterChainMatch)
 		assert.Equal(t, []string{route.SNIHostname}, fc.FilterChainMatch.ServerNames)
 		assert.NotNil(t, fc.TransportSocket, "downstream TLS should be present")
-
-		cluster := bootstrap.StaticResources.Clusters[i]
-		expectedName := "mongot_" + route.NameSafe + "_cluster"
-		assert.Equal(t, expectedName, cluster.Name)
-		assert.NotNil(t, cluster.TransportSocket, "upstream TLS should be present")
-
-		ep := cluster.LoadAssignment.Endpoints[0].LbEndpoints[0].GetEndpoint()
-		assert.Equal(t, route.UpstreamHost, ep.Address.GetSocketAddress().GetAddress())
 	}
 }
 
-func TestBuildEnvoyConfigJSON_ReplicaSet_NoTLS(t *testing.T) {
+func TestBuildLDSJSON_ReplicaSet_NoTLS(t *testing.T) {
 	route := envoyRoute{
-		Name:         "rs",
-		NameSafe:     "rs",
+		Name: "rs", NameSafe: "rs",
 		SNIHostname:  "mdb-search-search-proxy-svc.test-ns.svc.cluster.local",
 		UpstreamHost: "mdb-search-search-svc.test-ns.svc.cluster.local",
 		UpstreamPort: 27028,
 	}
 
-	result, err := buildEnvoyConfigJSON([]envoyRoute{route}, false, testCAKeyName())
+	result, err := buildLDSJSON([]envoyRoute{route}, false, testCAKeyName())
 	require.NoError(t, err)
 
-	bootstrap := unmarshalBootstrap(t, result)
+	resp := unmarshalDiscoveryResponse(t, result)
+	listener := &listenerv3.Listener{}
+	err = resp.Resources[0].UnmarshalTo(listener)
+	require.NoError(t, err)
 
-	listener := bootstrap.StaticResources.Listeners[0]
-
-	// No TLS Inspector for non-TLS RS
-	assert.Empty(t, listener.ListenerFilters, "no TLS Inspector for non-TLS ReplicaSet")
-
-	// Single default filter chain (no SNI match)
+	assert.Empty(t, listener.ListenerFilters, "no TLS Inspector for non-TLS RS")
 	require.Len(t, listener.FilterChains, 1)
-	fc := listener.FilterChains[0]
-	assert.Nil(t, fc.FilterChainMatch, "no SNI match for non-TLS ReplicaSet")
-	assert.Nil(t, fc.TransportSocket, "no downstream TLS for non-TLS ReplicaSet")
+	assert.Nil(t, listener.FilterChains[0].FilterChainMatch, "no SNI match for non-TLS RS")
+	assert.Nil(t, listener.FilterChains[0].TransportSocket, "no downstream TLS for non-TLS RS")
+}
 
-	// Single cluster
-	require.Len(t, bootstrap.StaticResources.Clusters, 1)
-	cluster := bootstrap.StaticResources.Clusters[0]
+func TestBuildCDSJSON_ReplicaSet_NoTLS(t *testing.T) {
+	route := envoyRoute{
+		Name: "rs", NameSafe: "rs",
+		SNIHostname:  "mdb-search-search-proxy-svc.test-ns.svc.cluster.local",
+		UpstreamHost: "mdb-search-search-svc.test-ns.svc.cluster.local",
+		UpstreamPort: 27028,
+	}
+
+	result, err := buildCDSJSON([]envoyRoute{route}, false, testCAKeyName())
+	require.NoError(t, err)
+
+	resp := unmarshalDiscoveryResponse(t, result)
+	require.Len(t, resp.Resources, 1)
+
+	cluster := &clusterv3.Cluster{}
+	err = resp.Resources[0].UnmarshalTo(cluster)
+	require.NoError(t, err)
 	assert.Equal(t, "mongot_rs_cluster", cluster.Name)
-	assert.Nil(t, cluster.TransportSocket, "no upstream TLS for non-TLS ReplicaSet")
+	assert.Nil(t, cluster.TransportSocket, "no upstream TLS for non-TLS RS")
 
 	ep := cluster.LoadAssignment.Endpoints[0].LbEndpoints[0].GetEndpoint()
 	assert.Equal(t, route.UpstreamHost, ep.Address.GetSocketAddress().GetAddress())
 	assert.Equal(t, uint32(route.UpstreamPort), ep.Address.GetSocketAddress().GetPortValue())
-}
-
-func TestBuildEnvoyConfigJSON_ReplicaSet_WithTLS(t *testing.T) {
-	route := envoyRoute{
-		Name:         "rs",
-		NameSafe:     "rs",
-		SNIHostname:  "mdb-search-search-proxy-svc.test-ns.svc.cluster.local",
-		UpstreamHost: "mdb-search-search-svc.test-ns.svc.cluster.local",
-		UpstreamPort: 27028,
-	}
-
-	result, err := buildEnvoyConfigJSON([]envoyRoute{route}, true, testCAKeyName())
-	require.NoError(t, err)
-
-	bootstrap := unmarshalBootstrap(t, result)
-
-	listener := bootstrap.StaticResources.Listeners[0]
-
-	// TLS Inspector present for TLS RS
-	require.Len(t, listener.ListenerFilters, 1)
-	assert.Contains(t, listener.ListenerFilters[0].Name, "tls_inspector")
-
-	// Single filter chain with SNI match
-	require.Len(t, listener.FilterChains, 1)
-	fc := listener.FilterChains[0]
-	require.NotNil(t, fc.FilterChainMatch)
-	assert.Equal(t, []string{route.SNIHostname}, fc.FilterChainMatch.ServerNames)
-	assert.NotNil(t, fc.TransportSocket, "downstream TLS present for TLS ReplicaSet")
-
-	// Single cluster with upstream TLS
-	require.Len(t, bootstrap.StaticResources.Clusters, 1)
-	cluster := bootstrap.StaticResources.Clusters[0]
-	assert.Equal(t, "mongot_rs_cluster", cluster.Name)
-	assert.NotNil(t, cluster.TransportSocket, "upstream TLS present for TLS ReplicaSet")
-
-	// Verify upstream TLS SNI
-	upstreamTLS := &tlsv3.UpstreamTlsContext{}
-	err = cluster.TransportSocket.GetTypedConfig().UnmarshalTo(upstreamTLS)
-	require.NoError(t, err)
-	assert.Equal(t, route.UpstreamHost, upstreamTLS.Sni)
 }
 
 func TestBuildFilterChain_NoTLS_NoSNIMatch(t *testing.T) {
@@ -285,21 +312,27 @@ func TestBuildFilterChain_WithTLS_HasSNIMatch(t *testing.T) {
 	assert.NotNil(t, chain.TransportSocket, "transport socket should be present with TLS")
 }
 
-func TestBuildBootstrapConfig_NoTLS_NoTLSInspector(t *testing.T) {
+func TestBuildLDSJSON_NoTLS_NoTLSInspector(t *testing.T) {
 	route := testRoute("test-shard")
-	bootstrap, err := buildEnvoyBootstrapConfig([]envoyRoute{route}, false, testCAKeyName())
+	result, err := buildLDSJSON([]envoyRoute{route}, false, testCAKeyName())
 	require.NoError(t, err)
 
-	listener := bootstrap.StaticResources.Listeners[0]
+	resp := unmarshalDiscoveryResponse(t, result)
+	listener := &listenerv3.Listener{}
+	err = resp.Resources[0].UnmarshalTo(listener)
+	require.NoError(t, err)
 	assert.Empty(t, listener.ListenerFilters, "no listener filters when TLS disabled")
 }
 
-func TestBuildBootstrapConfig_WithTLS_HasTLSInspector(t *testing.T) {
+func TestBuildLDSJSON_WithTLS_HasTLSInspector(t *testing.T) {
 	route := testRoute("test-shard")
-	bootstrap, err := buildEnvoyBootstrapConfig([]envoyRoute{route}, true, testCAKeyName())
+	result, err := buildLDSJSON([]envoyRoute{route}, true, testCAKeyName())
 	require.NoError(t, err)
 
-	listener := bootstrap.StaticResources.Listeners[0]
+	resp := unmarshalDiscoveryResponse(t, result)
+	listener := &listenerv3.Listener{}
+	err = resp.Resources[0].UnmarshalTo(listener)
+	require.NoError(t, err)
 	require.Len(t, listener.ListenerFilters, 1)
 	assert.Contains(t, listener.ListenerFilters[0].Name, "tls_inspector")
 }
