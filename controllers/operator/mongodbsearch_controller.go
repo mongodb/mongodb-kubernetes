@@ -305,30 +305,24 @@ func AddMongoDBSearchController(
 		return err
 	}
 
-	if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), &searchv1.MongoDBSearch{}, &handler.EnqueueRequestForObject{})); err != nil {
-		return err
-	}
-	if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), &mdbv1.MongoDB{}, &watch.ResourcesHandler{ResourceType: watch.MongoDB, ResourceWatcher: r.watch})); err != nil {
-		return err
-	}
-	if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), &mdbcv1.MongoDBCommunity{}, &watch.ResourcesHandler{ResourceType: "MongoDBCommunity", ResourceWatcher: r.watch})); err != nil {
-		return err
-	}
-	if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), &corev1.Secret{}, &watch.ResourcesHandler{ResourceType: watch.Secret, ResourceWatcher: r.watch})); err != nil {
-		return err
-	}
-	if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), &corev1.ConfigMap{}, &watch.ResourcesHandler{ResourceType: watch.ConfigMap, ResourceWatcher: r.watch})); err != nil {
-		return err
-	}
 	ownerHandler := handler.EnqueueRequestForOwner(mgr.GetScheme(), mgr.GetRESTMapper(), &searchv1.MongoDBSearch{}, handler.OnlyControllerOwner())
-	if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), &appsv1.StatefulSet{}, ownerHandler)); err != nil {
-		return err
+	centralWatches := []struct {
+		obj     client.Object
+		handler handler.EventHandler
+	}{
+		{&searchv1.MongoDBSearch{}, &handler.EnqueueRequestForObject{}},
+		{&mdbv1.MongoDB{}, &watch.ResourcesHandler{ResourceType: watch.MongoDB, ResourceWatcher: r.watch}},
+		{&mdbcv1.MongoDBCommunity{}, &watch.ResourcesHandler{ResourceType: "MongoDBCommunity", ResourceWatcher: r.watch}},
+		{&corev1.Secret{}, &watch.ResourcesHandler{ResourceType: watch.Secret, ResourceWatcher: r.watch}},
+		{&corev1.ConfigMap{}, &watch.ResourcesHandler{ResourceType: watch.ConfigMap, ResourceWatcher: r.watch}},
+		{&appsv1.StatefulSet{}, ownerHandler},
+		{&corev1.Service{}, ownerHandler},
+		{&corev1.Secret{}, ownerHandler},
 	}
-	if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), &corev1.Service{}, ownerHandler)); err != nil {
-		return err
-	}
-	if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), &corev1.Secret{}, ownerHandler)); err != nil {
-		return err
+	for _, w := range centralWatches {
+		if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), w.obj, w.handler)); err != nil {
+			return xerrors.Errorf("failed to set MongoDBSearch central watch for %T: %w", w.obj, err)
+		}
 	}
 
 	// Health-check goroutine fans out per-cluster reachability changes onto a
