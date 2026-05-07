@@ -1,6 +1,7 @@
 package util
 
 import (
+	"os"
 	"strings"
 	"time"
 )
@@ -355,6 +356,14 @@ var LogAutomationConfigDiff string
 
 func ShouldLogAutomationConfigDiff() bool {
 	return strings.EqualFold(LogAutomationConfigDiff, "true")
+}
+
+// ShouldSnapshotAC returns true when the MDB_AC_SNAPSHOT=true env var is set at operator runtime.
+// When enabled, every Deployment PUT is written as a numbered step to a
+// <resource-name>-ac-snapshot ConfigMap in the resource namespace.
+// This is a debug-only feature — enable it only when diagnosing AC change sequences.
+func ShouldSnapshotAC() bool {
+	return strings.EqualFold(os.Getenv("MDB_AC_SNAPSHOT"), "true")
 }
 
 const (

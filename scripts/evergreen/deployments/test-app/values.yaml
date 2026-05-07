@@ -44,6 +44,9 @@ mdbDefaultArchitecture: "non-static"
 # set to "true" to set OM_DEBUG_HTTP=true for the operator
 omDebugHttp:
 
+# set to "true" to set MDB_AC_SNAPSHOT=true for the operator (AC diff steps in a ConfigMap)
+mdbAcSnapshot:
+
 # sets the configuration using which we can figure out the helm OCI repo of the MCK operator while deploying it
 # to run a test.
 helm:

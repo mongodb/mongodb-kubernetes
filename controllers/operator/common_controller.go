@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/blang/semver"
 	"github.com/hashicorp/go-multierror"
+	"github.com/r3labs/diff/v3"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/types"
@@ -1101,4 +1103,150 @@ func ReconcileLogRotateSetting(conn om.Connection, agentConfig mdbv1.AgentConfig
 		return workflow.Failed(err), err
 	}
 	return workflow.OK(), nil
+}
+
+// acSnapshotIgnoredFields contains Ops Manager auto-managed field names (case-insensitive).
+// Any diff.Change whose Path contains one of these keys is dropped from the recorded changelog.
+var acSnapshotIgnoredFields = map[string]struct{}{
+	"mongodbversions":     {},
+	"agentversion":        {},
+	"backupversions":      {},
+	"monitoringversions":  {},
+	"backupagenttemplate": {},
+	"cpsmodules":          {},
+	"uibaseurl":           {},
+	"builds":              {},
+}
+
+// acSnapshotFilter removes changelog entries that touch any ignored field.
+func acSnapshotFilter(changelog diff.Changelog) diff.Changelog {
+	filtered := make(diff.Changelog, 0, len(changelog))
+	for _, c := range changelog {
+		skip := false
+		for _, p := range c.Path {
+			if _, ok := acSnapshotIgnoredFields[strings.ToLower(p)]; ok {
+				skip = true
+				break
+			}
+		}
+		if !skip {
+			filtered = append(filtered, c)
+		}
+	}
+	return filtered
+}
+
+// stripIgnoredDeploymentTopKeys returns a copy of dep without auto-managed top-level keys,
+// for persisting as _previous so the next reconcile stays under the ConfigMap size limit.
+func stripIgnoredDeploymentTopKeys(dep om.Deployment) om.Deployment {
+	stripped := make(om.Deployment, len(dep))
+	for k, v := range dep {
+		if _, ok := acSnapshotIgnoredFields[strings.ToLower(k)]; !ok {
+			stripped[k] = v
+		}
+	}
+	return stripped
+}
+
+// acSnapshotChangelog computes the filtered r3labs/diff changelog from previous to next deployment.
+func acSnapshotChangelog(previous, next om.Deployment) (diff.Changelog, error) {
+	from := previous
+	if from == nil {
+		from = om.Deployment{}
+	}
+	changelog, err := diff.Diff(from, next, diff.AllowTypeMismatch(true))
+	if err != nil {
+		return nil, err
+	}
+	return acSnapshotFilter(changelog), nil
+}
+
+// acSnapshotState is mutable hook state seeded from an existing ConfigMap so step numbering
+// and diff baseline carry across reconciles.
+type acSnapshotState struct {
+	// accumulated is the in-memory ConfigMap payload, it contains all the automation config steps
+	// with previous for diffing.
+	accumulated map[string]string
+	// previous is the automationConfig deployment after the last successful PUT,
+	// used as the diff "from" baseline for the next changelog.
+	previous om.Deployment
+	// lastWrittenStep is the highest step-NNN index already in accumulated after load; each PUT
+	// increments it before writing the next step-%03d entry.
+	lastWrittenStep int
+}
+
+func loadACSnapshotStateFromConfigMap(ctx context.Context, client kubernetesClient.Client, namespace, cmName string) acSnapshotState {
+	s := acSnapshotState{accumulated: make(map[string]string)}
+	existing := corev1.ConfigMap{}
+	if err := client.Get(ctx, types.NamespacedName{Name: cmName, Namespace: namespace}, &existing); err != nil {
+		return s
+	}
+	for k, v := range existing.Data {
+		if k == "_previous" {
+			var dep om.Deployment
+			if json.Unmarshal([]byte(v), &dep) == nil {
+				s.previous = dep
+			}
+			continue
+		}
+		s.accumulated[k] = v
+	}
+	s.lastWrittenStep = len(s.accumulated)
+	return s
+}
+
+func (s *acSnapshotState) persistAutomationConfigSnapshot(ctx context.Context, client kubernetesClient.Client, namespace, cmName string, body []byte, log *zap.SugaredLogger) {
+	var dep om.Deployment
+	if err := json.Unmarshal(body, &dep); err != nil {
+		log.Warnw("AC snapshot: failed to unmarshal deployment", "error", err)
+		return
+	}
+	s.lastWrittenStep++
+	changelog, err := acSnapshotChangelog(s.previous, dep)
+	if err != nil {
+		log.Warnw("AC snapshot: failed to diff deployment", "lastWrittenStep", s.lastWrittenStep, "error", err)
+		return
+	}
+	data, err := json.Marshal(changelog)
+	if err != nil {
+		log.Warnw("AC snapshot: failed to marshal diff", "lastWrittenStep", s.lastWrittenStep, "error", err)
+		return
+	}
+	if copied, copyErr := util.MapDeepCopy(dep); copyErr == nil {
+		s.previous = copied
+	}
+	s.accumulated[fmt.Sprintf("step-%03d", s.lastWrittenStep)] = string(data)
+	if prevData, marshalErr := json.Marshal(stripIgnoredDeploymentTopKeys(dep)); marshalErr == nil {
+		s.accumulated["_previous"] = string(prevData)
+	}
+	cm := corev1.ConfigMap{}
+	cm.Name = cmName
+	cm.Namespace = namespace
+	cm.Data = s.accumulated
+	if err := configmap.CreateOrUpdate(ctx, client, cm); err != nil {
+		log.Warnw("AC snapshot: failed to write ConfigMap", "name", cmName, "error", err)
+	}
+}
+
+// attachACSnapshotHook sets a debug hook on the underlying HTTP client of conn that fires after every
+// successful PUT to the main automationConfig endpoint. Each entry in the ConfigMap named
+// <resourceName>-ac-snapshot is the r3labs/diff Changelog from the previous step, with
+// auto-managed fields (mongodbVersions etc.) filtered out by path.
+// Enable with MDB_AC_SNAPSHOT=true on the operator Pod. No-ops when conn is not *om.HTTPOmConnection.
+func attachACSnapshotHook(ctx context.Context, client kubernetesClient.Client, conn om.Connection, namespace, resourceName string, log *zap.SugaredLogger) {
+	hConn, ok := conn.(*om.HTTPOmConnection)
+	if !ok {
+		return
+	}
+	cmName := resourceName + "-ac-snapshot"
+	state := loadACSnapshotStateFromConfigMap(ctx, client, namespace, cmName)
+
+	hConn.SetPUTHook(func(path string, body []byte) {
+		// Only capture the main automationConfig endpoint, not sub-endpoints
+		// (backupAgentConfig, monitoringAgentConfig, etc.)
+		if !strings.HasSuffix(path, "/automationConfig") {
+			return
+		}
+		state.persistAutomationConfigSnapshot(ctx, client, namespace, cmName, body, log)
+	})
 }

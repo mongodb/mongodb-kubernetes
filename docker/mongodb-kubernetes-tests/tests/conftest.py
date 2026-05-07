@@ -114,6 +114,16 @@ def get_version_id():
     return os.environ.get("VERSION_ID", "latest")
 
 
+def _append_operator_debug_custom_env_vars(config: dict[str, str]) -> None:
+    """Append operator debug flags from the test pod env (Evergreen/Helm injects these)."""
+    if os.getenv("OM_DEBUG_HTTP") == "true":
+        logger.debug("Adding OM_DEBUG_HTTP=true to operator_installation_config")
+        config["customEnvVars"] += "\&OM_DEBUG_HTTP=true"
+    if os.getenv("MDB_AC_SNAPSHOT") == "true":
+        logger.debug("Adding MDB_AC_SNAPSHOT=true to operator_installation_config")
+        config["customEnvVars"] += "\&MDB_AC_SNAPSHOT=true"
+
+
 @fixture(scope="module")
 def operator_installation_config(namespace: str) -> dict[str, str]:
     return get_operator_installation_config(namespace)
@@ -124,9 +134,7 @@ def get_operator_installation_config(namespace):
     Created in the single_e2e.sh"""
     config = KubernetesTester.read_configmap(namespace, "operator-installation-config")
     config["customEnvVars"] = f"OPS_MANAGER_MONITOR_APPDB={MONITOR_APPDB_E2E_DEFAULT}"
-    if os.getenv("OM_DEBUG_HTTP") == "true":
-        logger.debug("Adding OM_DEBUG_HTTP=true to operator_installation_config")
-        config["customEnvVars"] += "\&OM_DEBUG_HTTP=true"
+    _append_operator_debug_custom_env_vars(config)
 
     if local_operator():
         config["operator.replicas"] = "0"
@@ -152,6 +160,7 @@ def get_multi_cluster_operator_installation_config(namespace: str) -> dict[str, 
         api_client=get_central_cluster_client(),
     )
     config["customEnvVars"] = f"OPS_MANAGER_MONITOR_APPDB={MONITOR_APPDB_E2E_DEFAULT}"
+    _append_operator_debug_custom_env_vars(config)
     return config
 
 
