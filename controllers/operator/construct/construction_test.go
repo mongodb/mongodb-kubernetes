@@ -90,6 +90,39 @@ func TestBuildStatefulSet_PersistentVolumeClaimSingle(t *testing.T) {
 	})
 }
 
+func TestBuildStatefulSet_NonStaticCustomDownloadBaseMountAndEnv(t *testing.T) {
+	t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.NonStatic))
+
+	customBase := "/var/lib/mongodb-mms-automation-custom"
+	labels := map[string]string{"app": "foo"}
+	persistence := mdbv1.NewPersistenceBuilder("40G").SetStorageClass("fast").SetLabelSelector(labels)
+	podSpec := mdbv1.NewPodSpecWrapperBuilder().SetSinglePersistence(persistence).Build().MongoDbPodSpec
+	rs := mdbv1.NewReplicaSetBuilder().SetPersistent(nil).SetPodSpec(&podSpec).Build()
+	rs.Spec.DownloadBase = customBase
+
+	set := DatabaseStatefulSet(*rs, ReplicaSetOptions(GetPodEnvOptions()), zap.S())
+
+	checkMounts(t, set, []corev1.VolumeMount{
+		{Name: util.PvMms, MountPath: util.PvcMmsHomeMountPath, SubPath: util.PvcMmsHome},
+		{Name: util.PvMms, MountPath: util.PvcMountPathTmp, SubPath: util.PvcNameTmp},
+		{Name: util.PvMms, MountPath: customBase, SubPath: util.PvcMms},
+		{Name: AgentAPIKeyVolumeName, MountPath: AgentAPIKeySecretPath},
+		{Name: util.PvcNameData, MountPath: util.PvcMountPathData, SubPath: util.PvcNameData},
+		{Name: util.PvcNameData, MountPath: util.PvcMountPathJournal, SubPath: util.PvcNameJournal},
+		{Name: util.PvcNameData, MountPath: util.PvcMountPathLogs, SubPath: util.PvcNameLogs},
+		{Name: PvcNameDatabaseScripts, MountPath: PvcMountPathScripts, ReadOnly: true},
+	})
+
+	var sawDownloadBaseEnv bool
+	for _, e := range set.Spec.Template.Spec.Containers[0].Env {
+		if e.Name == DownloadBaseEnv && e.Value == customBase {
+			sawDownloadBaseEnv = true
+			break
+		}
+	}
+	assert.True(t, sawDownloadBaseEnv, "non-static pod should set MMS_DOWNLOAD_BASE to match spec.downloadBase")
+}
+
 // TestBuildStatefulSet_PersistentVolumeClaimSingle checks that one persistent volume claim is created that is mounted by
 // 3 points
 func TestBuildStatefulSet_PersistentVolumeClaimSingleStatic(t *testing.T) {
