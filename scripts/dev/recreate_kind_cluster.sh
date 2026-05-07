@@ -22,4 +22,4 @@ scripts/dev/setup_kind_cluster.sh -r -e -n "${cluster_name}" -l "172.18.255.200-
 
 source scripts/dev/install_csi_driver.sh
 csi_driver_download
-csi_driver_deploy "${cluster_name}-kind"
+csi_driver_deploy "kind-${cluster_name}"
