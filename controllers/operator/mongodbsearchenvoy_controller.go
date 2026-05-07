@@ -274,6 +274,35 @@ func (r *MongoDBSearchEnvoyReconciler) clearLBStatus(ctx context.Context, search
 	}
 }
 
+// DeleteEnvoyResourcesForCluster removes the Envoy Deployment and ConfigMap for
+// one (clusterName, clusterIndex, client) triple. It is called both from the
+// reconcile-time managed→unmanaged transition path and from the search
+// controller's finalizer-driven CR-delete fan-out.
+//
+// NotFound is treated as success: if the resource is already gone, the cleanup
+// is idempotent.
+func DeleteEnvoyResourcesForCluster(ctx context.Context, search *searchv1.MongoDBSearch, clusterName string, clusterIndex int, c kubernetesClient.Client, log *zap.SugaredLogger) error {
+	ns := search.Namespace
+
+	dep := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: search.LoadBalancerDeploymentNameForCluster(clusterIndex), Namespace: ns}}
+	if err := c.Delete(ctx, dep); err != nil && !apierrors.IsNotFound(err) {
+		log.Warnf("Failed to delete Envoy Deployment %s (cluster=%q): %s", dep.Name, clusterName, err)
+		return err
+	} else if err == nil {
+		log.Infof("Deleted Envoy Deployment %s (cluster=%q)", dep.Name, clusterName)
+	}
+
+	cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: search.LoadBalancerConfigMapNameForCluster(clusterIndex), Namespace: ns}}
+	if err := c.Delete(ctx, cm); err != nil && !apierrors.IsNotFound(err) {
+		log.Warnf("Failed to delete Envoy ConfigMap %s (cluster=%q): %s", cm.Name, clusterName, err)
+		return err
+	} else if err == nil {
+		log.Infof("Deleted Envoy ConfigMap %s (cluster=%q)", cm.Name, clusterName)
+	}
+
+	return nil
+}
+
 // deleteEnvoyResources removes the Envoy Deployment and ConfigMap that were
 // created when managed LB was active. This is called exactly once per LB removal,
 // gated by Status.LoadBalancer != nil (cleared immediately after).
@@ -286,20 +315,8 @@ func (r *MongoDBSearchEnvoyReconciler) clearLBStatus(ctx context.Context, search
 // cross-cluster owner refs do not GC; graceful drain on cluster removal will
 // extend this to all member clusters in memberClusterClientsMap.
 func (r *MongoDBSearchEnvoyReconciler) deleteEnvoyResources(ctx context.Context, search *searchv1.MongoDBSearch, log *zap.SugaredLogger) {
-	ns := search.Namespace
-
-	dep := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: search.LoadBalancerDeploymentNameForCluster(0), Namespace: ns}}
-	if err := r.kubeClient.Delete(ctx, dep); err != nil && !apierrors.IsNotFound(err) {
-		log.Warnf("Failed to delete Envoy Deployment %s: %s", dep.Name, err)
-	} else if err == nil {
-		log.Infof("Deleted Envoy Deployment %s", dep.Name)
-	}
-
-	cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: search.LoadBalancerConfigMapNameForCluster(0), Namespace: ns}}
-	if err := r.kubeClient.Delete(ctx, cm); err != nil && !apierrors.IsNotFound(err) {
-		log.Warnf("Failed to delete Envoy ConfigMap %s: %s", cm.Name, err)
-	} else if err == nil {
-		log.Infof("Deleted Envoy ConfigMap %s", cm.Name)
+	if err := DeleteEnvoyResourcesForCluster(ctx, search, "", 0, r.kubeClient, log); err != nil {
+		log.Warnf("Failed to delete central Envoy resources: %s", err)
 	}
 }
 

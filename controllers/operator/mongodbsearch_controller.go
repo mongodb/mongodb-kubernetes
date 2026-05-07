@@ -2,6 +2,7 @@ package operator
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -119,6 +121,28 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 		return result, err
 	}
 
+	// Finalizer: cross-cluster Envoy GC.
+	if !mdbSearch.DeletionTimestamp.IsZero() {
+		if !controllerutil.ContainsFinalizer(mdbSearch, searchv1.SearchFinalizer) {
+			// Already cleaned up by a prior reconcile.
+			return reconcile.Result{}, nil
+		}
+		if err := r.deleteAllEnvoyResources(ctx, mdbSearch, log); err != nil {
+			return reconcile.Result{}, err
+		}
+		controllerutil.RemoveFinalizer(mdbSearch, searchv1.SearchFinalizer)
+		if err := r.kubeClient.Update(ctx, mdbSearch); err != nil {
+			return reconcile.Result{}, err
+		}
+		return reconcile.Result{}, nil
+	}
+
+	if controllerutil.AddFinalizer(mdbSearch, searchv1.SearchFinalizer) {
+		if err := r.kubeClient.Update(ctx, mdbSearch); err != nil {
+			return reconcile.Result{}, err
+		}
+	}
+
 	searchSource, err := r.getSourceMongoDBForSearch(ctx, r.kubeClient, mdbSearch, log)
 	if err != nil {
 		return commoncontroller.UpdateStatus(ctx, r.kubeClient, mdbSearch, workflow.Failed(xerrors.Errorf("Waiting for MongoDB source: %s", err)), log)
@@ -219,6 +243,52 @@ func (r *MongoDBSearchReconciler) surfaceMissingSecrets(
 			"missing", g.Missing,
 		)
 	}
+}
+
+// deleteAllEnvoyResources fans out cross-cluster Envoy Deployment + ConfigMap
+// deletion for every cluster in r.memberClusterClientsMap plus the central
+// cluster. It is called from the finalizer-driven CR-delete path only.
+//
+// The per-cluster resource names are derived from the cluster indices stored in
+// the state CM (written by the search controller's Reconcile). If the state CM
+// does not exist (CR was never reconciled past the initial step) there is nothing
+// to clean up — return nil.
+//
+// For the single-cluster path (no member clusters), the central cluster uses
+// index 0, matching the degenerate buildClusterWorkList entry.
+func (r *MongoDBSearchReconciler) deleteAllEnvoyResources(ctx context.Context, mdbSearch *searchv1.MongoDBSearch, log *zap.SugaredLogger) error {
+	state, _, err := loadOrInitSearchState(ctx, r.kubeClient, mdbSearch)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			// State CM never written; no Envoy resources to clean.
+			return nil
+		}
+		return err
+	}
+
+	// Central cluster: single-cluster installs always use index 0; multi-cluster
+	// installs do not stamp central-cluster Envoy resources (member clusters do),
+	// but calling with index 0 is safe (NotFound is ignored).
+	if err := DeleteEnvoyResourcesForCluster(ctx, mdbSearch, "", 0, r.kubeClient, log); err != nil {
+		return fmt.Errorf("central cluster Envoy cleanup: %w", err)
+	}
+
+	var firstErr error
+	for memberName, memberClient := range r.memberClusterClientsMap {
+		idx, ok := state.ClusterMapping[memberName]
+		if !ok {
+			// Cluster was never registered in the mapping; nothing was created.
+			log.Infof("Skipping Envoy cleanup for unregistered cluster %q", memberName)
+			continue
+		}
+		if err := DeleteEnvoyResourcesForCluster(ctx, mdbSearch, memberName, idx, memberClient, log); err != nil {
+			log.Errorf("Failed to delete Envoy resources for cluster %q: %s", memberName, err)
+			if firstErr == nil {
+				firstErr = fmt.Errorf("cluster %q Envoy cleanup: %w", memberName, err)
+			}
+		}
+	}
+	return firstErr
 }
 
 func (r *MongoDBSearchReconciler) getSourceMongoDBForSearch(ctx context.Context, kubeClient client.Client, search *searchv1.MongoDBSearch, log *zap.SugaredLogger) (searchcontroller.SearchSourceDBResource, error) {

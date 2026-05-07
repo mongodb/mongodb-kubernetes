@@ -39,6 +39,12 @@ const ClusterIndexPlaceholder = "{clusterIndex}"
 // owns a resource. Used as part of GetOwnerLabels for StateStore ConfigMap selection.
 const LabelResourceOwner = "mongodb.com/v1.mongodbSearchResourceOwner"
 
+// SearchFinalizer is placed on every MongoDBSearch CR so the search controller can
+// fan out cross-cluster Envoy Deployment + ConfigMap deletion before the CR is removed.
+// Kubernetes GC does not span clusters, so owner-ref-based cleanup is insufficient for
+// member-cluster resources; the finalizer ensures graceful cleanup on CR delete.
+const SearchFinalizer = "mongodb.com/search-finalizer"
+
 const (
 	MongotDefaultWireprotoPort      int32 = 27027
 	MongotDefaultGrpcPort           int32 = 27028

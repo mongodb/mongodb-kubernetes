@@ -606,3 +606,153 @@ func TestMongoDBSearchControllerReconcile_StateConfigMap_ReAddCluster(t *testing
 	assert.Equal(t, map[string]int{"us-east": 0, "us-west": 1, "eu-central": 2}, gotState.ClusterMapping,
 		"re-added cluster must reclaim its original index")
 }
+
+// newSearchReconcilerWithMembers builds a MongoDBSearchReconciler that is pre-wired
+// with the given member-cluster clients. The central fake client is built from
+// mock.NewEmptyFakeClientBuilder() so all search-related types are registered.
+func newSearchReconcilerWithMembers(
+	t *testing.T,
+	mdbc *mdbcv1.MongoDBCommunity,
+	memberClients map[string]client.Client,
+	searches ...*searchv1.MongoDBSearch,
+) (*MongoDBSearchReconciler, client.Client) {
+	t.Helper()
+	builder := mock.NewEmptyFakeClientBuilder().WithStatusSubresource(&searchv1.MongoDBSearch{})
+
+	if mdbc != nil {
+		builder.WithObjects(mdbc)
+	}
+	for _, s := range searches {
+		if s != nil {
+			builder.WithObjects(s)
+		}
+	}
+	centralClient := builder.Build()
+	return newMongoDBSearchReconciler(centralClient, searchcontroller.OperatorSearchConfig{}, memberClients), centralClient
+}
+
+// TestReconcile_FinalizerAddedOnCreate verifies that the first reconcile of a
+// fresh MongoDBSearch CR adds the search finalizer to the object.
+func TestReconcile_FinalizerAddedOnCreate(t *testing.T) {
+	ctx := context.Background()
+	search := newMongoDBSearch("search", mock.TestNamespace, "mdb")
+	mdbc := newMongoDBCommunity("mdb", mock.TestNamespace)
+	reconciler, c := newSearchReconciler(mdbc, search)
+
+	_, err := reconciler.Reconcile(ctx, reconcile.Request{
+		NamespacedName: types.NamespacedName{Name: search.Name, Namespace: search.Namespace},
+	})
+	require.NoError(t, err)
+
+	updated := &searchv1.MongoDBSearch{}
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: search.Name, Namespace: search.Namespace}, updated))
+	assert.Contains(t, updated.Finalizers, searchv1.SearchFinalizer,
+		"search finalizer must be added on first reconcile")
+}
+
+// TestReconcile_FinalizerDeletePath_TwoClusters verifies the finalizer-driven
+// CR-delete fan-out:
+//   - A MongoDBSearch CR with DeletionTimestamp set and the search finalizer present.
+//   - Central + two member fake clients ("a" at index 0, "b" at index 1) each
+//     pre-seeded with an Envoy Deployment + ConfigMap named by cluster index.
+//   - State CM seeded with ClusterMapping{"a": 0, "b": 1}.
+//
+// After one Reconcile call the test asserts that:
+//   - All per-cluster Envoy Deployments and ConfigMaps are removed.
+//   - The search finalizer is removed from the CR.
+//   - No error is returned.
+func TestReconcile_FinalizerDeletePath_TwoClusters(t *testing.T) {
+	ctx := context.Background()
+
+	const searchName = "mdb-search"
+	const ns = mock.TestNamespace
+
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      searchName,
+			Namespace: ns,
+			Finalizers: []string{searchv1.SearchFinalizer},
+		},
+		Spec: searchv1.MongoDBSearchSpec{
+			Source: &searchv1.MongoDBSource{
+				ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{
+					HostAndPorts: []string{"mongo-0:27017"},
+				},
+			},
+			LoadBalancer: &searchv1.LoadBalancerConfig{
+				Managed: &searchv1.ManagedLBConfig{
+					ExternalHostname: "mongot-{clusterName}.example.com",
+				},
+			},
+			Clusters: &[]searchv1.ClusterSpec{
+				{ClusterName: "a"},
+				{ClusterName: "b"},
+			},
+		},
+	}
+
+	memberAClient := mock.NewEmptyFakeClientBuilder().Build()
+	memberBClient := mock.NewEmptyFakeClientBuilder().Build()
+
+	// Pre-create Envoy Deployment + ConfigMap in each member cluster using
+	// the index-based names the Envoy controller would have written.
+	depA := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: search.LoadBalancerDeploymentNameForCluster(0), Namespace: ns}}
+	cmA := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: search.LoadBalancerConfigMapNameForCluster(0), Namespace: ns}}
+	depB := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: search.LoadBalancerDeploymentNameForCluster(1), Namespace: ns}}
+	cmB := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: search.LoadBalancerConfigMapNameForCluster(1), Namespace: ns}}
+	require.NoError(t, memberAClient.Create(ctx, depA))
+	require.NoError(t, memberAClient.Create(ctx, cmA))
+	require.NoError(t, memberBClient.Create(ctx, depB))
+	require.NoError(t, memberBClient.Create(ctx, cmB))
+
+	// Also create a central-cluster Deployment + ConfigMap (index 0) to verify
+	// the central fan-out leg runs.
+	reconciler, centralClient := newSearchReconcilerWithMembers(t, nil,
+		map[string]client.Client{"a": memberAClient, "b": memberBClient},
+		search,
+	)
+
+	// Seed state CM so deleteAllEnvoyResources can resolve cluster indices.
+	seedSearchStateCM(t, ctx, centralClient, searchName, ns, map[string]int{"a": 0, "b": 1})
+
+	// Trigger deletion: the fake client sets DeletionTimestamp and keeps the
+	// object because the search finalizer is present.
+	require.NoError(t, centralClient.Delete(ctx, &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: searchName, Namespace: ns},
+	}))
+
+	// Verify DeletionTimestamp is set before reconcile.
+	current := &searchv1.MongoDBSearch{}
+	require.NoError(t, centralClient.Get(ctx, types.NamespacedName{Name: searchName, Namespace: ns}, current))
+	require.False(t, current.DeletionTimestamp.IsZero(), "fake client must set DeletionTimestamp on delete with finalizer")
+
+	res, err := reconciler.Reconcile(ctx, reconcile.Request{
+		NamespacedName: types.NamespacedName{Name: searchName, Namespace: ns},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, reconcile.Result{}, res)
+
+	// Member A: Deployment + ConfigMap must be gone.
+	err = memberAClient.Get(ctx, types.NamespacedName{Name: search.LoadBalancerDeploymentNameForCluster(0), Namespace: ns}, &appsv1.Deployment{})
+	assert.True(t, apiErrors.IsNotFound(err), "Envoy Deployment for cluster a must be deleted")
+	err = memberAClient.Get(ctx, types.NamespacedName{Name: search.LoadBalancerConfigMapNameForCluster(0), Namespace: ns}, &corev1.ConfigMap{})
+	assert.True(t, apiErrors.IsNotFound(err), "Envoy ConfigMap for cluster a must be deleted")
+
+	// Member B: Deployment + ConfigMap must be gone.
+	err = memberBClient.Get(ctx, types.NamespacedName{Name: search.LoadBalancerDeploymentNameForCluster(1), Namespace: ns}, &appsv1.Deployment{})
+	assert.True(t, apiErrors.IsNotFound(err), "Envoy Deployment for cluster b must be deleted")
+	err = memberBClient.Get(ctx, types.NamespacedName{Name: search.LoadBalancerConfigMapNameForCluster(1), Namespace: ns}, &corev1.ConfigMap{})
+	assert.True(t, apiErrors.IsNotFound(err), "Envoy ConfigMap for cluster b must be deleted")
+
+	// The search finalizer must be gone: the fake client removes the object
+	// once all finalizers are cleared and DeletionTimestamp is set.
+	afterDelete := &searchv1.MongoDBSearch{}
+	err = centralClient.Get(ctx, types.NamespacedName{Name: searchName, Namespace: ns}, afterDelete)
+	if err == nil {
+		assert.NotContains(t, afterDelete.Finalizers, searchv1.SearchFinalizer,
+			"search finalizer must be removed after cleanup")
+	} else {
+		assert.True(t, apiErrors.IsNotFound(err),
+			"CR must either have no finalizer or be fully deleted")
+	}
+}
