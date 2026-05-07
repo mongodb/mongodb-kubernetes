@@ -431,6 +431,54 @@ def test_scale_up_verify_search(mdb: MongoDB):
     logger.info("Search verification passed after scale-up to %d shards", SCALED_UP_SHARD_COUNT)
 
 
+@MARKER
+def test_scale_up_move_chunk_to_new_shard(mdb: MongoDB):
+    """Move a chunk from an original shard to the newly added shard.
+
+    This ensures the new shard actually holds data, so the subsequent search
+    verification proves the new shard's mongot group is functional.
+    moveChunk does not drop search indexes (unlike reshardCollection).
+    """
+    search_tester = get_search_tester(mdb, ADMIN_USER_NAME, ADMIN_USER_PASSWORD, use_ssl=True)
+    admin_client = search_tester.client
+
+    new_shard_name = f"{MDB_RESOURCE_NAME}-{SCALED_UP_SHARD_COUNT - 1}"
+
+    # Get the collection UUID from config.collections (required for config.chunks on 6.0+)
+    coll_doc = admin_client["config"]["collections"].find_one({"_id": "sample_mflix.movies"})
+    assert coll_doc is not None, "sample_mflix.movies not found in config.collections"
+    collection_uuid = coll_doc["uuid"]
+
+    # Find a chunk that lives on one of the original shards
+    chunk = admin_client["config"]["chunks"].find_one(
+        {"uuid": collection_uuid, "shard": {"$ne": new_shard_name}}
+    )
+    assert chunk is not None, f"No chunk found on shards other than {new_shard_name}"
+    logger.info(f"Moving chunk (min={chunk['min']}) from shard {chunk['shard']} to {new_shard_name}")
+
+    admin_client.admin.command(
+        "moveChunk",
+        "sample_mflix.movies",
+        find=chunk["min"], # moves a chunk, whose key range contains chunk["min"] value, to the new shard
+        to=new_shard_name,
+    )
+    logger.info(f"Chunk successfully moved to {new_shard_name}")
+
+
+@MARKER
+def test_scale_up_verify_search_on_new_shard(mdb: MongoDB):
+    """Verify search results include documents from the newly added shard.
+
+    After moveChunk, the source shard's mongot removes the moved documents from
+    its index and the destination shard's mongot indexes them via change stream.
+    We poll until the wildcard search count matches the total document count,
+    which proves the new shard's mongot is serving search results.
+    """
+    search_tester = get_search_tester(mdb, USER_NAME, USER_PASSWORD, use_ssl=True)
+    verify_search_results_from_all_shards(search_tester)
+    logger.info("Search results verified on new shard after moveChunk")
+
+
 # ===========================================================================
 # Phase 3: Scale DOWN (3 -> 2 shards)
 # ===========================================================================
