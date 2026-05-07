@@ -200,22 +200,6 @@ community:
     version: 108.0.2.8729-1
   registry:
     agent: quay.io/mongodb
-  resource:
-    name: mongodb-replica-set
-    version: 4.4.0
-    members: 3
-    tls:
-      # when tls.enabled == true and tls.useCertManager == true then Cert Manager's Issuer and Certificate resources will be created
-      enabled: false
-      # Installs Cert-Manager in this cluster.
-      useX509: false
-      sampleX509User: false
-      useCertManager: true
-      certificateKeySecretRef: tls-certificate
-      caCertificateSecretRef: tls-ca-key-pair
-      certManager:
-        certDuration: 8760h  # 365 days
-        renewCertBefore: 720h  # 30 days
 
 # MongoDBSearch settings
 search:
