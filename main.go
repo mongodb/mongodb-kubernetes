@@ -288,7 +288,7 @@ func run() error {
 		}
 	}
 	if slices.Contains(crds, mongoDBSearchCRDPlural) {
-		if err := setupMongoDBSearchCRD(ctx, mgr); err != nil {
+		if err := setupMongoDBSearchCRD(ctx, mgr, memberClusterObjectsMap); err != nil {
 			return err
 		}
 	}
@@ -406,19 +406,23 @@ func setupMongoDBMultiClusterCRD(ctx context.Context, mgr manager.Manager, image
 		Complete()
 }
 
-func setupMongoDBSearchCRD(ctx context.Context, mgr manager.Manager) error {
+func setupMongoDBSearchCRD(
+	ctx context.Context,
+	mgr manager.Manager,
+	memberClusterObjectsMap map[string]runtime_cluster.Cluster,
+) error {
 	if err := operator.AddMongoDBSearchController(ctx, mgr, searchcontroller.OperatorSearchConfig{
 		SearchRepo:    env.ReadOrPanic(util.SearchRepoURLEnv),
 		SearchName:    env.ReadOrPanic(util.SearchNameEnv),
 		SearchVersion: env.ReadOrPanic(util.SearchVersionEnv),
-	}); err != nil {
+	}, memberClusterObjectsMap); err != nil {
 		return err
 	}
 
 	// We cannot use ReadOrPanic here because this variable is only needed when Search is used with a managed load
 	// balancer
 	envoyImage := env.ReadOrDefault(util.EnvoyImageEnv, "")
-	if err := operator.AddMongoDBSearchEnvoyController(ctx, mgr, envoyImage); err != nil {
+	if err := operator.AddMongoDBSearchEnvoyController(ctx, mgr, envoyImage, memberClusterObjectsMap); err != nil {
 		return err
 	}
 

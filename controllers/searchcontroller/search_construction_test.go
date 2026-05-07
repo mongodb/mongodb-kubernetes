@@ -99,6 +99,7 @@ func TestCreateSearchStatefulSetFunc_JVMFlags(t *testing.T) {
 			search := newTestMongoDBSearch("test-search", "default", func(s *searchv1.MongoDBSearch) {
 				s.Spec.JVMFlags = tc.userProvidedJVMFlags
 				if tc.userProvidedMemory != "" {
+					//nolint:staticcheck // SA1019: exercising the legacy single-cluster auto-promotion path.
 					s.Spec.ResourceRequirements = &corev1.ResourceRequirements{
 						Requests: corev1.ResourceList{
 							corev1.ResourceMemory: resource.MustParse(tc.userProvidedMemory),

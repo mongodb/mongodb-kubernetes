@@ -13,6 +13,7 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -22,9 +23,9 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
+	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
@@ -78,6 +79,11 @@ type MongoDBSearchReconcileHelper struct {
 	mdbSearch            *searchv1.MongoDBSearch
 	db                   SearchSourceDBResource
 	operatorSearchConfig OperatorSearchConfig
+	// secretGaps records per-cluster customer-replicated-secret gaps reported
+	// by the parent controller's CheckSecretsPresence call. The helper folds
+	// these into the per-cluster status patch so warnings surface in
+	// status.clusterStatusList[i].warnings without a second writeback.
+	secretGaps []SecretCheckResult
 }
 
 func NewMongoDBSearchReconcileHelper(
@@ -92,6 +98,15 @@ func NewMongoDBSearchReconcileHelper(
 		mdbSearch:            mdbSearch,
 		db:                   db,
 	}
+}
+
+// SetSecretGaps supplies the helper with the per-cluster results of
+// CheckSecretsPresence so that gaps can be surfaced as warnings in the
+// per-cluster status patch the helper builds. nil / empty means "no gaps".
+//
+// Called by the controller before Reconcile.
+func (r *MongoDBSearchReconcileHelper) SetSecretGaps(gaps []SecretCheckResult) {
+	r.secretGaps = gaps
 }
 
 // reconcileUnit captures all per-unit (per-shard or single-RS) resource names, labels, and
@@ -116,10 +131,10 @@ type reconcileUnit struct {
 // topology-wide knobs and hooks that surround the loop. Everything sharded-specific lives
 // here in hook closures so the reconcile body stays a straight, unbranched sequence.
 type reconcilePlan struct {
-	units        []reconcileUnit
-	manageProxySvc bool                                                              // topology-wide: true when the operator owns the proxy Service lifecycle (i.e. the LB is not user-managed)
-	preflight    func(context.Context, *zap.SugaredLogger) workflow.Status           // runs before the loop; must return workflow.OK() to proceed
-	cleanup      func(context.Context, *zap.SugaredLogger)                           // runs after the loop; best-effort, errors logged
+	units          []reconcileUnit
+	manageProxySvc bool                                                      // topology-wide: true when the operator owns the proxy Service lifecycle (i.e. the LB is not user-managed)
+	preflight      func(context.Context, *zap.SugaredLogger) workflow.Status // runs before the loop; must return workflow.OK() to proceed
+	cleanup        func(context.Context, *zap.SugaredLogger)                 // runs after the loop; best-effort, errors logged
 }
 
 // buildReconcilePlan returns the full reconcile plan for the current topology.
@@ -162,8 +177,8 @@ func (r *MongoDBSearchReconcileHelper) buildReplicaSetPlan() (reconcilePlan, err
 			mongotConfigFn:     mongot.Apply(baseMongotConfig(r.mdbSearch, hostSeeds), wireprotoMongotMod(r.mdbSearch)),
 		}},
 		manageProxySvc: !r.mdbSearch.IsReplicaSetUnmanagedLB(),
-		preflight:    func(context.Context, *zap.SugaredLogger) workflow.Status { return workflow.OK() },
-		cleanup:      func(context.Context, *zap.SugaredLogger) {},
+		preflight:      func(context.Context, *zap.SugaredLogger) workflow.Status { return workflow.OK() },
+		cleanup:        func(context.Context, *zap.SugaredLogger) {},
 	}, nil
 }
 
@@ -193,7 +208,7 @@ func (r *MongoDBSearchReconcileHelper) buildShardedPlan(shardedSource SearchSour
 	}
 
 	return reconcilePlan{
-		units:        units,
+		units:          units,
 		manageProxySvc: !r.mdbSearch.IsShardedUnmanagedLB(),
 		preflight: func(ctx context.Context, log *zap.SugaredLogger) workflow.Status {
 			return r.validatePerShardTLSSecrets(ctx, log, shardNames)
@@ -208,10 +223,65 @@ func (r *MongoDBSearchReconcileHelper) buildShardedPlan(shardedSource SearchSour
 
 func (r *MongoDBSearchReconcileHelper) Reconcile(ctx context.Context, log *zap.SugaredLogger) workflow.Status {
 	workflowStatus := r.reconcile(ctx, log)
+
+	// Populate the per-cluster status surface from spec.clusters[i] before the
+	// patch goes out. No-op when spec.clusters is nil/empty (legacy single-cluster
+	// install) — top-level fields keep their existing semantics.
+	r.mdbSearch.AggregateClusterStatuses(buildPerClusterStatusItems(r.mdbSearch, workflowStatus, r.secretGaps))
+
 	if _, err := commoncontroller.UpdateStatus(ctx, r.client, r.mdbSearch, workflowStatus, log); err != nil {
 		return workflow.Failed(err)
 	}
 	return workflowStatus
+}
+
+// buildPerClusterStatusItems returns one SearchClusterStatusItem per
+// spec.clusters[i]. Every entry copies the workflow outcome's phase + message
+// into its inlined status.Common, and folds in any matching customer-replicated
+// secret gaps as per-cluster warnings (so users can see which cluster is
+// missing which secrets without scraping logs). Returns nil when spec.clusters
+// is nil or empty (legacy single-cluster); the top-level Phase keeps its
+// existing semantics.
+func buildPerClusterStatusItems(mdb *searchv1.MongoDBSearch, st workflow.Status, gaps []SecretCheckResult) []searchv1.SearchClusterStatusItem {
+	if mdb.Spec.Clusters == nil || len(*mdb.Spec.Clusters) == 0 {
+		return nil
+	}
+	gapsByCluster := make(map[string][]string, len(gaps))
+	for _, g := range gaps {
+		gapsByCluster[g.Cluster] = g.Missing
+	}
+
+	message := MessageFromStatus(st)
+	items := make([]searchv1.SearchClusterStatusItem, 0, len(*mdb.Spec.Clusters))
+	for _, c := range *mdb.Spec.Clusters {
+		item := searchv1.SearchClusterStatusItem{
+			ClusterName: c.ClusterName,
+			Common: status.Common{
+				Phase:   st.Phase(),
+				Message: message,
+			},
+		}
+		if missing := gapsByCluster[c.ClusterName]; len(missing) > 0 {
+			item.Warnings = []status.Warning{
+				status.Warning(fmt.Sprintf("Customer-replicated secrets missing in cluster %q: %s", c.ClusterName, strings.Join(missing, ", "))),
+			}
+		}
+		items = append(items, item)
+	}
+	return items
+}
+
+// MessageFromStatus extracts the user-visible message from a workflow.Status.
+// workflow.Status does not expose Message() directly; the message is carried
+// in StatusOptions() as a MessageOption.
+func MessageFromStatus(st workflow.Status) string {
+	if st == nil {
+		return ""
+	}
+	if opt, ok := status.GetOption(st.StatusOptions(), status.MessageOption{}); ok {
+		return opt.(status.MessageOption).Message
+	}
+	return ""
 }
 
 func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.SugaredLogger) workflow.Status {
@@ -357,6 +427,7 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 	}
 	return workflow.OK().WithAdditionalOptions(searchv1.NewMongoDBSearchVersionOption(imageVersion))
 }
+
 
 // isOwnedBy returns true if the object has an owner reference pointing to the given owner.
 // Unlike metav1.IsControlledBy, this does not require the controller: true field,
@@ -716,7 +787,7 @@ func buildHeadlessService(search *searchv1.MongoDBSearch, unit reconcileUnit) co
 func buildProxyService(search *searchv1.MongoDBSearch, unit reconcileUnit) corev1.Service {
 	var selector map[string]string
 	if search.IsLBModeManaged() && search.IsLoadBalancerReady() {
-		selector = map[string]string{appLabelKey: search.LoadBalancerDeploymentName()}
+		selector = map[string]string{appLabelKey: search.LoadBalancerDeploymentNameForCluster(0)}
 	} else {
 		selector = map[string]string{appLabelKey: unit.podLabels[appLabelKey]}
 	}
@@ -748,7 +819,6 @@ func buildProxyService(search *searchv1.MongoDBSearch, unit reconcileUnit) corev
 
 	return serviceBuilder.Build()
 }
-
 
 // EnsureEmbeddingAPIKeySecret makes sure that the scret that is provided in MDBSearch resource
 // for embedding model's keys is present and has expected keys.
@@ -1311,11 +1381,12 @@ func (r *MongoDBSearchReconcileHelper) getMongotVersion() string {
 		return version
 	}
 
-	if r.mdbSearch.Spec.StatefulSetConfiguration == nil {
+	effective := searchv1.EffectiveClusters(r.mdbSearch)
+	if len(effective) == 0 || effective[0].StatefulSetConfiguration == nil {
 		return ""
 	}
 
-	for _, container := range r.mdbSearch.Spec.StatefulSetConfiguration.SpecWrapper.Spec.Template.Spec.Containers {
+	for _, container := range effective[0].StatefulSetConfiguration.SpecWrapper.Spec.Template.Spec.Containers {
 		if container.Name == MongotContainerName {
 			return extractImageTag(container.Image)
 		}

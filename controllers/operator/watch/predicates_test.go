@@ -6,10 +6,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/v1/om"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/user"
+	"github.com/mongodb/mongodb-kubernetes/pkg/handler"
 )
 
 func TestPredicatesForUser(t *testing.T) {
@@ -88,4 +92,52 @@ func TestPredicatesForMongoDB(t *testing.T) {
 			event.UpdateEvent{ObjectOld: oldMdb, ObjectNew: newMdb}),
 		)
 	})
+}
+
+func labeledSearchObj(labels map[string]string) *corev1.ConfigMap {
+	return &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "x", Namespace: "ns", Labels: labels}}
+}
+
+func searchOwnerLabels(name, ns string) map[string]string {
+	return map[string]string{
+		handler.MongoDBSearchOwnerNameLabel:      name,
+		handler.MongoDBSearchOwnerNamespaceLabel: ns,
+	}
+}
+
+func TestPredicatesForMultiClusterSearchResource_Create(t *testing.T) {
+	p := PredicatesForMultiClusterSearchResource()
+
+	assert.True(t, p.CreateFunc(event.CreateEvent{Object: labeledSearchObj(searchOwnerLabels("s", "ns"))}))
+	assert.False(t, p.CreateFunc(event.CreateEvent{Object: labeledSearchObj(nil)}))
+	assert.False(t, p.CreateFunc(event.CreateEvent{Object: labeledSearchObj(map[string]string{"unrelated": "x"})}))
+	// Partial label set must not pass — both name and namespace are required.
+	assert.False(t, p.CreateFunc(event.CreateEvent{Object: labeledSearchObj(map[string]string{
+		handler.MongoDBSearchOwnerNameLabel: "s",
+	})}))
+}
+
+func TestPredicatesForMultiClusterSearchResource_Update(t *testing.T) {
+	p := PredicatesForMultiClusterSearchResource()
+
+	labeledNew := labeledSearchObj(searchOwnerLabels("s", "ns"))
+	labeledOld := labeledSearchObj(searchOwnerLabels("s", "ns"))
+	plain := labeledSearchObj(nil)
+
+	assert.True(t, p.UpdateFunc(event.UpdateEvent{ObjectOld: labeledOld, ObjectNew: labeledNew}))
+	assert.True(t, p.UpdateFunc(event.UpdateEvent{ObjectOld: plain, ObjectNew: labeledNew}), "newly labeled must enqueue")
+	assert.True(t, p.UpdateFunc(event.UpdateEvent{ObjectOld: labeledOld, ObjectNew: plain}), "label removal must enqueue")
+	assert.False(t, p.UpdateFunc(event.UpdateEvent{ObjectOld: plain, ObjectNew: plain}))
+}
+
+func TestPredicatesForMultiClusterSearchResource_Delete(t *testing.T) {
+	p := PredicatesForMultiClusterSearchResource()
+
+	assert.True(t, p.DeleteFunc(event.DeleteEvent{Object: labeledSearchObj(searchOwnerLabels("s", "ns"))}))
+	assert.False(t, p.DeleteFunc(event.DeleteEvent{Object: labeledSearchObj(nil)}))
+}
+
+func TestPredicatesForMultiClusterSearchResource_Generic_AlwaysFalse(t *testing.T) {
+	p := PredicatesForMultiClusterSearchResource()
+	assert.False(t, p.GenericFunc(event.GenericEvent{Object: labeledSearchObj(searchOwnerLabels("s", "ns"))}))
 }

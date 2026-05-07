@@ -2,43 +2,110 @@ package operator
 
 import (
 	"context"
+	"reflect"
+	"time"
 
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	ctrl "sigs.k8s.io/controller-runtime"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
+	khandler "github.com/mongodb/mongodb-kubernetes/pkg/handler"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/commoncontroller"
+	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
+	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster/memberwatch"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 )
+
+// secretsCheckRequeueAfter is the requeue interval used when CheckSecretsPresence
+// reports any per-cluster customer-replicated secret missing. Reconcile returns
+// (Result{RequeueAfter: secretsCheckRequeueAfter}, nil) so we don't trigger
+// exponential backoff while the customer is fixing the gap.
+const secretsCheckRequeueAfter = 30 * time.Second
+
+type SearchDeploymentState struct {
+	CommonDeploymentState `json:",inline"`
+}
+
+func NewSearchDeploymentState() *SearchDeploymentState {
+	return &SearchDeploymentState{
+		CommonDeploymentState: CommonDeploymentState{ClusterMapping: map[string]int{}},
+	}
+}
+
+// loadOrInitSearchState reads the per-CR state ConfigMap, treating NotFound as
+// fresh state. Returns the state plus the bound store so callers can WriteState.
+func loadOrInitSearchState(
+	ctx context.Context,
+	c kubernetesClient.Client,
+	search *searchv1.MongoDBSearch,
+) (*SearchDeploymentState, *StateStore[SearchDeploymentState], error) {
+	store := NewStateStore[SearchDeploymentState](search, kube.BaseOwnerReference(search), c)
+	state, err := store.ReadState(ctx)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return NewSearchDeploymentState(), store, nil
+		}
+		return nil, nil, err
+	}
+	if state.ClusterMapping == nil {
+		state.ClusterMapping = map[string]int{}
+	}
+	return state, store, nil
+}
 
 type MongoDBSearchReconciler struct {
 	kubeClient           kubernetesClient.Client
 	watch                *watch.ResourceWatcher
 	operatorSearchConfig searchcontroller.OperatorSearchConfig
+
+	memberClusterClientsMap       map[string]kubernetesClient.Client // per-cluster Kubernetes client; empty in single-cluster installs
+	memberClusterSecretClientsMap map[string]secrets.SecretClient    // per-cluster secret client; empty in single-cluster installs
 }
 
-func newMongoDBSearchReconciler(client client.Client, operatorSearchConfig searchcontroller.OperatorSearchConfig) *MongoDBSearchReconciler {
+func newMongoDBSearchReconciler(
+	kubeClient client.Client,
+	operatorSearchConfig searchcontroller.OperatorSearchConfig,
+	memberClustersMap map[string]client.Client,
+) *MongoDBSearchReconciler {
+	clientsMap := make(map[string]kubernetesClient.Client, len(memberClustersMap))
+	secretClientsMap := make(map[string]secrets.SecretClient, len(memberClustersMap))
+
+	for k, v := range memberClustersMap {
+		clientsMap[k] = kubernetesClient.NewClient(v)
+		secretClientsMap[k] = secrets.SecretClient{
+			VaultClient: nil, // Vault is not supported on multicluster
+			KubeClient:  clientsMap[k],
+		}
+	}
+
 	return &MongoDBSearchReconciler{
-		kubeClient:           kubernetesClient.NewClient(client),
-		watch:                watch.NewResourceWatcher(),
-		operatorSearchConfig: operatorSearchConfig,
+		kubeClient:                    kubernetesClient.NewClient(kubeClient),
+		watch:                         watch.NewResourceWatcher(),
+		operatorSearchConfig:          operatorSearchConfig,
+		memberClusterClientsMap:       clientsMap,
+		memberClusterSecretClientsMap: secretClientsMap,
 	}
 }
 
@@ -92,9 +159,67 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 		r.watch.AddWatchedResourceIfNotAdded(mdbSearch.Spec.AutoEmbedding.EmbeddingModelAPIKeySecret.Name, mdbSearch.Namespace, watch.Secret, mdbSearch.NamespacedName())
 	}
 
-	reconcileHelper := searchcontroller.NewMongoDBSearchReconcileHelper(kubernetesClient.NewClient(r.kubeClient), mdbSearch, searchSource, r.operatorSearchConfig)
+	memberClients := make(map[string]client.Client, len(r.memberClusterClientsMap))
+	for name, kc := range r.memberClusterClientsMap {
+		memberClients[name] = kc
+	}
+	// Run the customer-replicated-secret presence check up front so the helper
+	// can fold gaps into the per-cluster status patch in a single writeback,
+	// rather than requiring a follow-up patch from this controller.
+	gaps := searchcontroller.CheckSecretsPresence(ctx, mdbSearch, r.kubeClient, memberClients)
 
-	return reconcileHelper.Reconcile(ctx, log).ReconcileResult()
+	state, stateStore, err := loadOrInitSearchState(ctx, r.kubeClient, mdbSearch)
+	if err != nil {
+		return commoncontroller.UpdateStatus(ctx, r.kubeClient, mdbSearch, workflow.Failed(err), log)
+	}
+	var currentNames []string
+	if mdbSearch.Spec.Clusters != nil {
+		for _, c := range *mdbSearch.Spec.Clusters {
+			currentNames = append(currentNames, c.ClusterName)
+		}
+	}
+	newMapping := searchv1.AssignClusterIndices(state.ClusterMapping, currentNames)
+	if !reflect.DeepEqual(newMapping, state.ClusterMapping) {
+		state.ClusterMapping = newMapping
+		if err := stateStore.WriteState(ctx, state, log); err != nil {
+			return commoncontroller.UpdateStatus(ctx, r.kubeClient, mdbSearch, workflow.Failed(err), log)
+		}
+	}
+
+	reconcileHelper := searchcontroller.NewMongoDBSearchReconcileHelper(r.kubeClient, mdbSearch, searchSource, r.operatorSearchConfig)
+	reconcileHelper.SetSecretGaps(gaps)
+
+	result, err := reconcileHelper.Reconcile(ctx, log).ReconcileResult()
+	if err != nil {
+		return result, err
+	}
+
+	if len(gaps) > 0 {
+		r.surfaceMissingSecrets(gaps, log)
+		if result.RequeueAfter == 0 {
+			result.RequeueAfter = secretsCheckRequeueAfter
+		}
+	}
+	return result, nil
+}
+
+// surfaceMissingSecrets logs one entry per cluster that has gaps. The reconcile
+// loop returns RequeueAfter so the controller waits without exponential backoff
+// while the customer replicates the missing secrets.
+func (r *MongoDBSearchReconciler) surfaceMissingSecrets(
+	gaps []searchcontroller.SecretCheckResult,
+	log *zap.SugaredLogger,
+) {
+	for _, g := range gaps {
+		clusterLabel := g.Cluster
+		if clusterLabel == "" {
+			clusterLabel = "central"
+		}
+		log.Infow("MongoDBSearch missing customer-replicated secrets",
+			"cluster", clusterLabel,
+			"missing", g.Missing,
+		)
+	}
 }
 
 func (r *MongoDBSearchReconciler) getSourceMongoDBForSearch(ctx context.Context, kubeClient client.Client, search *searchv1.MongoDBSearch, log *zap.SugaredLogger) (searchcontroller.SearchSourceDBResource, error) {
@@ -156,22 +281,87 @@ func mdbcSearchIndexBuilder(rawObj client.Object) []string {
 	return []string{resourceRef.Namespace + "/" + resourceRef.Name}
 }
 
-func AddMongoDBSearchController(ctx context.Context, mgr manager.Manager, operatorSearchConfig searchcontroller.OperatorSearchConfig) error {
+func AddMongoDBSearchController(
+	ctx context.Context,
+	mgr manager.Manager,
+	operatorSearchConfig searchcontroller.OperatorSearchConfig,
+	memberClusterObjectsMap map[string]cluster.Cluster,
+) error {
 	if err := mgr.GetFieldIndexer().IndexField(ctx, &searchv1.MongoDBSearch{}, searchv1.MongoDBSearchIndexFieldName, mdbcSearchIndexBuilder); err != nil {
 		return err
 	}
 
-	r := newMongoDBSearchReconciler(kubernetesClient.NewClient(mgr.GetClient()), operatorSearchConfig)
+	r := newMongoDBSearchReconciler(
+		mgr.GetClient(),
+		operatorSearchConfig,
+		multicluster.ClustersMapToClientMap(memberClusterObjectsMap),
+	)
 
-	return ctrl.NewControllerManagedBy(mgr).
-		WithOptions(controller.Options{MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)}). // nolint:forbidigo
-		For(&searchv1.MongoDBSearch{}).
-		Watches(&mdbv1.MongoDB{}, &watch.ResourcesHandler{ResourceType: watch.MongoDB, ResourceWatcher: r.watch}).
-		Watches(&mdbcv1.MongoDBCommunity{}, &watch.ResourcesHandler{ResourceType: "MongoDBCommunity", ResourceWatcher: r.watch}).
-		Watches(&corev1.Secret{}, &watch.ResourcesHandler{ResourceType: watch.Secret, ResourceWatcher: r.watch}).
-		Watches(&corev1.ConfigMap{}, &watch.ResourcesHandler{ResourceType: watch.ConfigMap, ResourceWatcher: r.watch}).
-		Owns(&appsv1.StatefulSet{}).
-		Owns(&corev1.Service{}).
-		Owns(&corev1.Secret{}).
-		Complete(r)
+	c, err := controller.New(util.MongoDbSearchController, mgr, controller.Options{
+		Reconciler:              r,
+		MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1), // nolint:forbidigo
+	})
+	if err != nil {
+		return err
+	}
+
+	if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), &searchv1.MongoDBSearch{}, &handler.EnqueueRequestForObject{})); err != nil {
+		return err
+	}
+	if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), &mdbv1.MongoDB{}, &watch.ResourcesHandler{ResourceType: watch.MongoDB, ResourceWatcher: r.watch})); err != nil {
+		return err
+	}
+	if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), &mdbcv1.MongoDBCommunity{}, &watch.ResourcesHandler{ResourceType: "MongoDBCommunity", ResourceWatcher: r.watch})); err != nil {
+		return err
+	}
+	if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), &corev1.Secret{}, &watch.ResourcesHandler{ResourceType: watch.Secret, ResourceWatcher: r.watch})); err != nil {
+		return err
+	}
+	if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), &corev1.ConfigMap{}, &watch.ResourcesHandler{ResourceType: watch.ConfigMap, ResourceWatcher: r.watch})); err != nil {
+		return err
+	}
+	ownerHandler := handler.EnqueueRequestForOwner(mgr.GetScheme(), mgr.GetRESTMapper(), &searchv1.MongoDBSearch{}, handler.OnlyControllerOwner())
+	if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), &appsv1.StatefulSet{}, ownerHandler)); err != nil {
+		return err
+	}
+	if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), &corev1.Service{}, ownerHandler)); err != nil {
+		return err
+	}
+	if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), &corev1.Secret{}, ownerHandler)); err != nil {
+		return err
+	}
+
+	// Health-check goroutine fans out per-cluster reachability changes onto a
+	// GenericEvent channel that the controller watches. Empty memberClusterObjectsMap
+	// (single-cluster install) skips the goroutine entirely — there is nothing to watch.
+	if len(memberClusterObjectsMap) > 0 {
+		eventChannel := make(chan event.GenericEvent)
+		healthChecker := memberwatch.MemberClusterHealthChecker{Cache: make(map[string]*memberwatch.MemberHeathCheck)}
+		go healthChecker.WatchMemberClusterHealth(ctx, zap.S(), eventChannel, r.kubeClient, memberClusterObjectsMap)
+
+		if err := c.Watch(source.Channel[client.Object](eventChannel, &handler.EnqueueRequestForObject{})); err != nil {
+			return err
+		}
+
+		// Per-member-cluster watches map events back to the parent MongoDBSearch
+		// via the search-owner labels (cross-cluster owner refs do not GC).
+		searchOwnerHandler := &khandler.EnqueueRequestForSearchOwnerMultiCluster{}
+		searchOwnerPredicate := watch.PredicatesForMultiClusterSearchResource()
+		watchedTypes := []client.Object{
+			&appsv1.StatefulSet{},
+			&corev1.Service{},
+			&appsv1.Deployment{},
+			&corev1.ConfigMap{},
+			&corev1.Secret{},
+		}
+		for k, v := range memberClusterObjectsMap {
+			for _, gvk := range watchedTypes {
+				if err := c.Watch(source.Kind[client.Object](v.GetCache(), gvk, searchOwnerHandler, searchOwnerPredicate)); err != nil {
+					return xerrors.Errorf("failed to set MongoDBSearch member-cluster watch on %s for %T: %w", k, gvk, err)
+				}
+			}
+		}
+	}
+
+	return nil
 }

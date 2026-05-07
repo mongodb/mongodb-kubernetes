@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/ghodss/yaml"
-	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
@@ -18,6 +17,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/v1/user"
@@ -347,8 +347,9 @@ func TestBuildProxyService_ManagedLB_Ready(t *testing.T) {
 	unit := newTestRSUnit(search)
 	svc := buildProxyService(search, unit)
 
-	// Selector flips to Envoy pods when LB is ready
-	assert.Equal(t, map[string]string{"app": "test-search-lb-0"}, svc.Spec.Selector)
+	// Selector flips to Envoy pods when LB is ready; must match the index-0 Deployment label
+	// so that traffic is not black-holed after the Commit-2 app-label rename.
+	assert.Equal(t, search.LoadBalancerDeploymentNameForCluster(0), svc.Spec.Selector["app"])
 	assert.Equal(t, int32(27028), svc.Spec.Ports[0].TargetPort.IntVal)
 }
 
@@ -379,7 +380,7 @@ func TestBuildProxyServiceForShard_ManagedLB_Ready(t *testing.T) {
 	unit := newTestShardUnit(search, "shard-0")
 	svc := buildProxyService(search, unit)
 
-	assert.Equal(t, map[string]string{"app": "test-search-lb-0"}, svc.Spec.Selector)
+	assert.Equal(t, search.LoadBalancerDeploymentNameForCluster(0), svc.Spec.Selector["app"])
 }
 
 func assertServiceBasicProperties(t *testing.T, svc corev1.Service, mdbSearch *searchv1.MongoDBSearch) {
@@ -464,26 +465,29 @@ func TestMongoDBSearchReconcileHelper_ServiceCreation(t *testing.T) {
 	}
 }
 
-var testApiKeySecretName = "api-key-secret"
-var embeddingWriterTrue = true
-var mode = int32(400)
-var expectedVolumes = []corev1.Volume{
-	{
-		Name: embeddingKeyVolumeName,
-		VolumeSource: corev1.VolumeSource{
-			Secret: &corev1.SecretVolumeSource{
-				SecretName:  testApiKeySecretName,
-				DefaultMode: &mode,
+var (
+	testApiKeySecretName = "api-key-secret"
+	embeddingWriterTrue  = true
+	mode                 = int32(400)
+	expectedVolumes      = []corev1.Volume{
+		{
+			Name: embeddingKeyVolumeName,
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName:  testApiKeySecretName,
+					DefaultMode: &mode,
+				},
 			},
 		},
-	},
-	{
-		Name: apiKeysTempVolumeName,
-		VolumeSource: corev1.VolumeSource{
-			EmptyDir: &corev1.EmptyDirVolumeSource{},
+		{
+			Name: apiKeysTempVolumeName,
+			VolumeSource: corev1.VolumeSource{
+				EmptyDir: &corev1.EmptyDirVolumeSource{},
+			},
 		},
-	},
-}
+	}
+)
+
 var expectedVolumeMount = []corev1.VolumeMount{
 	{
 		Name:      apiKeysTempVolumeName,
@@ -786,7 +790,7 @@ func TestValidateSearchResource(t *testing.T) {
 func TestEnsureMongotConfig_PerPodModes(t *testing.T) {
 	cases := []struct {
 		name             string
-		replicas         int
+		replicas         int32
 		hasAutoEmbedding bool
 		expectedKeys     []string
 		notExpectedKeys  []string
@@ -817,7 +821,8 @@ func TestEnsureMongotConfig_PerPodModes(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			search := newTestMongoDBSearch("test-search", "test-ns")
-			search.Spec.Replicas = tc.replicas
+			//nolint:staticcheck // SA1019: exercising the legacy single-cluster auto-promotion path.
+			search.Spec.Replicas = ptr.To(tc.replicas)
 			if tc.hasAutoEmbedding {
 				search.Spec.AutoEmbedding = &searchv1.EmbeddingConfig{}
 			}
@@ -855,7 +860,8 @@ func TestEnsureMongotConfig_PerPodModes(t *testing.T) {
 
 func TestEnsureMongotConfig_TransitionBetweenModes(t *testing.T) {
 	search := newTestMongoDBSearch("test-search", "test-ns")
-	search.Spec.Replicas = 1
+	//nolint:staticcheck // SA1019: exercising the legacy single-cluster auto-promotion path.
+	search.Spec.Replicas = ptr.To(int32(1))
 	fakeClient := newTestFakeClient(search)
 	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, newTestOperatorSearchConfig())
 	cmName := search.MongotConfigConfigMapNamespacedName()
@@ -1226,7 +1232,7 @@ func TestValidateMultipleReplicasConfig(t *testing.T) {
 					Namespace: "test",
 				},
 				Spec: searchv1.MongoDBSearchSpec{
-					Replicas: 3,
+					Replicas: ptr.To(int32(3)),
 					Source: &searchv1.MongoDBSource{
 						MongoDBResourceRef: &userv1.MongoDBResourceRef{
 							Name: "test-mongodb",
@@ -1244,7 +1250,7 @@ func TestValidateMultipleReplicasConfig(t *testing.T) {
 					Namespace: "test",
 				},
 				Spec: searchv1.MongoDBSearchSpec{
-					Replicas: 3,
+					Replicas: ptr.To(int32(3)),
 					Source: &searchv1.MongoDBSource{
 						MongoDBResourceRef: &userv1.MongoDBResourceRef{
 							Name: "test-mongodb",
@@ -2522,3 +2528,4 @@ func TestReconcileReplicaSet_CreatesResources(t *testing.T) {
 	assert.Equal(t, "test-search-search-config", cm.Name)
 	assert.Contains(t, cm.Data, MongotConfigFilename)
 }
+
