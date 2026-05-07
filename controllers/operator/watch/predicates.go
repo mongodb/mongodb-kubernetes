@@ -3,8 +3,10 @@ package watch
 import (
 	"reflect"
 
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	appsv1 "k8s.io/api/apps/v1"
 
@@ -164,10 +166,8 @@ func PredicatesForStatefulSet() predicate.Funcs {
 // Aligned with the Envoy controller's mapEnvoyObjectToSearch — both readers
 // share the same label scheme.
 func PredicatesForMultiClusterSearchResource() predicate.Funcs {
-	hasOwnerLabels := func(obj interface{ GetLabels() map[string]string }) bool {
-		labels := obj.GetLabels()
-		return labels[handler.MongoDBSearchOwnerNameLabel] != "" &&
-			labels[handler.MongoDBSearchOwnerNamespaceLabel] != ""
+	hasOwnerLabels := func(obj client.Object) bool {
+		return handler.MapMemberClusterObjectToSearch(obj) != (reconcile.Request{})
 	}
 	return predicate.Funcs{
 		CreateFunc:  func(e event.CreateEvent) bool { return hasOwnerLabels(e.Object) },
