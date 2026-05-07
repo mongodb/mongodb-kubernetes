@@ -118,14 +118,13 @@ spec:
                         Only managed sub-fields are overridable per-cluster.
                       properties:
                         managed:
-                          description: |-
-                            Managed deep-merges into the top-level spec.loadBalancer.managed for this cluster.
-                            Only the fields in PerClusterManagedLBConfig are overridable per-cluster — see
-                            the type doc.
+                          description: Managed configures an operator-managed Envoy
+                            load balancer.
                           properties:
                             deployment:
-                              description: Deployment holds optional overrides merged
-                                into the operator-created Envoy Deployment.
+                              description: |-
+                                Deployment holds optional overrides merged into the operator-created Envoy Deployment.
+                                Follows the same convention as spec.statefulSet on MongoDB resources.
                               properties:
                                 metadata:
                                   description: DeploymentMetadataWrapper is a wrapper
@@ -155,7 +154,9 @@ spec:
                                 Required when MongoDB is externally managed. Ignored for operator-managed MongoDB.
                               type: string
                             resourceRequirements:
-                              description: ResourceRequirements for the Envoy container.
+                              description: |-
+                                ResourceRequirements for the Envoy container.
+                                When not set, defaults to requests: {cpu: 100m, memory: 128Mi}, limits: {cpu: 500m, memory: 512Mi}.
                               properties:
                                 claims:
                                   description: |-
@@ -215,7 +216,21 @@ spec:
                                   type: object
                               type: object
                           type: object
+                        unmanaged:
+                          description: Unmanaged configures a user-provided (BYO)
+                            L7 load balancer.
+                          properties:
+                            endpoint:
+                              description: |-
+                                Endpoint is the full host:port of the BYO load balancer written into mongod config.
+                                For sharded clusters, must contain a {shardName} placeholder.
+                              type: string
+                          type: object
                       type: object
+                      x-kubernetes-validations:
+                      - message: exactly one of managed or unmanaged must be set
+                        rule: (has(self.managed) && !has(self.unmanaged)) || (!has(self.managed)
+                          && has(self.unmanaged))
                     persistence:
                       properties:
                         multiple:

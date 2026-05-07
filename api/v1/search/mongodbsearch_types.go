@@ -170,17 +170,6 @@ type SyncSourceSelector struct {
 	Hosts []string `json:"hosts,omitempty"`
 }
 
-// PerClusterLoadBalancerConfig narrows LoadBalancerConfig to the subset that
-// is overridable per-cluster: only Managed sub-fields, and only those exposed
-// via PerClusterManagedLBConfig. Unmanaged is top-level only.
-type PerClusterLoadBalancerConfig struct {
-	// Managed deep-merges into the top-level spec.loadBalancer.managed for this cluster.
-	// Only the fields in PerClusterManagedLBConfig are overridable per-cluster — see
-	// the type doc.
-	// +optional
-	Managed *PerClusterManagedLBConfig `json:"managed,omitempty"`
-}
-
 // ClusterSpec is one entry in spec.clusters[]. ClusterName is required and immutable
 // when len(spec.clusters) > 1; optional in the single-cluster degenerate case.
 // All other fields override the corresponding top-level value when set; nil/omitted inherits.
@@ -209,7 +198,7 @@ type ClusterSpec struct {
 	// LoadBalancer per-cluster override; deep-merged into spec.loadBalancer.managed.
 	// Only managed sub-fields are overridable per-cluster.
 	// +optional
-	LoadBalancer *PerClusterLoadBalancerConfig `json:"loadBalancer,omitempty"`
+	LoadBalancer *LoadBalancerConfig `json:"loadBalancer,omitempty"`
 	// JVMFlags overrides spec.jvmFlags for this cluster's mongot pods. Replace, not merge.
 	// +optional
 	JVMFlags []string `json:"jvmFlags,omitempty"`
@@ -242,24 +231,6 @@ type ManagedLBConfig struct {
 	ResourceRequirements *corev1.ResourceRequirements `json:"resourceRequirements,omitempty"`
 	// Deployment holds optional overrides merged into the operator-created Envoy Deployment.
 	// Follows the same convention as spec.statefulSet on MongoDB resources.
-	// +optional
-	Deployment *common.DeploymentConfiguration `json:"deployment,omitempty"`
-}
-
-// PerClusterManagedLBConfig configures the per-cluster Envoy override. It's a
-// strict subset of ManagedLBConfig.
-type PerClusterManagedLBConfig struct {
-	// ExternalHostname is the hostname Envoy expects for SNI matching on incoming requests.
-	// For sharded clusters, may contain a {shardName} placeholder.
-	// In multi-cluster deployments, may contain a {clusterName} placeholder so per-cluster
-	// SNI hostnames stay distinct.
-	// Required when MongoDB is externally managed. Ignored for operator-managed MongoDB.
-	// +optional
-	ExternalHostname string `json:"externalHostname,omitempty"`
-	// ResourceRequirements for the Envoy container.
-	// +optional
-	ResourceRequirements *corev1.ResourceRequirements `json:"resourceRequirements,omitempty"`
-	// Deployment holds optional overrides merged into the operator-created Envoy Deployment.
 	// +optional
 	Deployment *common.DeploymentConfiguration `json:"deployment,omitempty"`
 }
