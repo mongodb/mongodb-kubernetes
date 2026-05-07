@@ -50,7 +50,6 @@ func (s *MongoDBSearch) RunValidations() []v1.ValidationResult {
 		validateClustersClusterNameNonEmpty,
 		validateClustersUniqueClusterName,
 		validateClustersSyncSourceSelector,
-		validateClustersShardOverrides,
 		validateClustersAndTopLevelFieldsMutuallyExclusive,
 		validateClustersEnvoyResourceNames,
 		validateMCExternalHostnamePlaceholders,
@@ -406,24 +405,6 @@ func validateClustersEnvoyResourceNames(s *MongoDBSearch) v1.ValidationResult {
 		for _, resource := range resources {
 			if err := validateResourceName(resource, s.Name, c.ClusterName); err != nil {
 				return v1.ValidationError("%s", err.Error())
-			}
-		}
-	}
-	return v1.ValidationSuccess()
-}
-
-// validateClustersShardOverrides enforces shardNames non-empty per ShardOverride.
-func validateClustersShardOverrides(s *MongoDBSearch) v1.ValidationResult {
-	if s.Spec.Clusters == nil {
-		return v1.ValidationSuccess()
-	}
-	for i, c := range *s.Spec.Clusters {
-		for j, ov := range c.ShardOverrides {
-			if len(ov.ShardNames) == 0 {
-				return v1.ValidationError(
-					"spec.clusters[%d].shardOverrides[%d].shardNames must have at least one entry",
-					i, j,
-				)
 			}
 		}
 	}
