@@ -501,7 +501,7 @@ func TestSelectEnvoyClient(t *testing.T) {
 	assert.Equal(t, central, selectEnvoyClient("", central, members))
 	// Known member name → that member
 	assert.Equal(t, memberA, selectEnvoyClient("a", central, members))
-	// Unknown member name → silent fallback to central (mirrors searchcontroller.SelectClusterClient)
+	// Unknown member name → silent fallback to central
 	assert.Equal(t, central, selectEnvoyClient("zzz", central, members))
 }
 

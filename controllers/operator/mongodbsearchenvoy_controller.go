@@ -713,10 +713,10 @@ func envoyLabelsForCluster(search *searchv1.MongoDBSearch, clusterName string, c
 }
 
 // selectEnvoyClient picks the right Kubernetes client for one member cluster.
-// Mirrors searchcontroller.SelectClusterClient: empty clusterName means
-// single-cluster (return central); known member name returns the member client;
-// unknown name silently falls back to central. The reconcile loop is responsible
-// for surfacing unknown ClusterNames as Pending in per-cluster status.
+// Empty clusterName means single-cluster (return central); known member name
+// returns the member client; unknown name silently falls back to central. The
+// reconcile loop is responsible for surfacing unknown ClusterNames as Pending
+// in per-cluster status.
 func selectEnvoyClient(clusterName string, central kubernetesClient.Client, members map[string]kubernetesClient.Client) kubernetesClient.Client {
 	if clusterName == "" {
 		return central
