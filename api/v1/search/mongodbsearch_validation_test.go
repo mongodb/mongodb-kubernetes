@@ -771,39 +771,6 @@ func newSearch(name string, shards []ExternalShardConfig, tlsPrefix string, isTL
 }
 
 
-// TestManagedLBConfig_Replicas_FieldExists is a smoke test: the Replicas
-// field on ManagedLBConfig is wired so per-cluster managed LB can specify a
-// replica count and the Envoy reconciler can default it to 1 when unset.
-func TestManagedLBConfig_Replicas_FieldExists(t *testing.T) {
-	one := int32(1)
-	s := &MongoDBSearch{
-		Spec: MongoDBSearchSpec{
-			LoadBalancer: &LoadBalancerConfig{
-				Managed: &ManagedLBConfig{Replicas: &one},
-			},
-		},
-	}
-	assert.NotNil(t, s.Spec.LoadBalancer.Managed.Replicas)
-	assert.Equal(t, int32(1), *s.Spec.LoadBalancer.Managed.Replicas)
-}
-
-// TestLoadBalancerStatus_ClustersFieldExists is a smoke test: the per-cluster
-// slice exists on LoadBalancerStatus so the Envoy reconciler can write
-// per-cluster phases.
-func TestLoadBalancerStatus_ClustersFieldExists(t *testing.T) {
-	s := &MongoDBSearch{
-		Status: MongoDBSearchStatus{
-			LoadBalancer: &LoadBalancerStatus{
-				Clusters: []ClusterLoadBalancerStatus{
-					{ClusterName: "us-east-k8s"},
-				},
-			},
-		},
-	}
-	assert.Len(t, s.Status.LoadBalancer.Clusters, 1)
-	assert.Equal(t, "us-east-k8s", s.Status.LoadBalancer.Clusters[0].ClusterName)
-}
-
 // TestValidateClustersEnvoyResourceNames is the admission check for the
 // per-cluster Envoy Deployment + ConfigMap resource names. The Deployment name
 // follows DNS-1123 label rules (<=63 chars); the ConfigMap follows DNS-1123

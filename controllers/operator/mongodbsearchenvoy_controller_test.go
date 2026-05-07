@@ -549,19 +549,6 @@ func TestEnvoyReplicas_DefaultsTo1(t *testing.T) {
 	assert.Equal(t, int32(1), envoyReplicas(search))
 }
 
-func TestEnvoyReplicas_TopLevelOnly(t *testing.T) {
-	three := int32(3)
-	search := &searchv1.MongoDBSearch{
-		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"},
-		Spec: searchv1.MongoDBSearchSpec{
-			LoadBalancer: &searchv1.LoadBalancerConfig{
-				Managed: &searchv1.ManagedLBConfig{Replicas: &three},
-			},
-		},
-	}
-	assert.Equal(t, int32(3), envoyReplicas(search))
-}
-
 // envoyTestScheme returns a runtime.Scheme registered for the types ensureDeployment/
 // ensureConfigMap interact with. Using a per-test scheme avoids depending on the
 // global scheme initialization order and keeps these unit tests self-contained.
@@ -716,60 +703,6 @@ func TestBuildClusterWorkList_MissingFromMapping_SentinelIndex(t *testing.T) {
 	assert.Equal(t, -1, wl[0].ClusterIndex, "missing cluster must use sentinel -1")
 }
 
-// TestWorstOfClusterPhases regresses the canonical invariant declared on
-// LoadBalancerStatus: top-level Phase must equal WorstOfPhase across the
-// per-cluster Clusters[*].Phase entries when len(Clusters) > 0.
-func TestWorstOfClusterPhases(t *testing.T) {
-	cases := []struct {
-		name string
-		in   []searchv1.ClusterLoadBalancerStatus
-		want status.Phase
-	}{
-		{
-			name: "empty slice — single-cluster degenerate path",
-			in:   nil,
-			want: status.PhaseRunning,
-		},
-		{
-			name: "single Running",
-			in:   []searchv1.ClusterLoadBalancerStatus{{Phase: status.PhaseRunning}},
-			want: status.PhaseRunning,
-		},
-		{
-			name: "Failed beats Running",
-			in: []searchv1.ClusterLoadBalancerStatus{
-				{Phase: status.PhaseRunning},
-				{Phase: status.PhaseFailed},
-			},
-			want: status.PhaseFailed,
-		},
-		{
-			name: "Pending beats Running",
-			in: []searchv1.ClusterLoadBalancerStatus{
-				{Phase: status.PhaseRunning},
-				{Phase: status.PhasePending},
-				{Phase: status.PhaseRunning},
-			},
-			want: status.PhasePending,
-		},
-		{
-			name: "Failed beats Pending",
-			in: []searchv1.ClusterLoadBalancerStatus{
-				{Phase: status.PhasePending},
-				{Phase: status.PhaseFailed},
-				{Phase: status.PhaseRunning},
-			},
-			want: status.PhaseFailed,
-		},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, worstOfClusterPhases(tc.in))
-		})
-	}
-}
-
 func TestReconcileForCluster_UnknownClusterPending(t *testing.T) {
 	scheme := envoyTestScheme(t)
 	central := fake.NewClientBuilder().WithScheme(scheme).Build()
@@ -879,12 +812,11 @@ func TestEnsureDeployment_Replicas_DefaultsTo1(t *testing.T) {
 
 // --- end-to-end Reconcile + status aggregation -------------------------------
 
-// TestReconcile_PerClusterStatus_Aggregated exercises the full Reconcile path:
+// TestReconcile_WorstOfPhase_Aggregated exercises the full Reconcile path:
 // two clusters in spec.clusters[]; one is a member registered with the operator
-// (succeeds), the other isn't (Pending). The status.loadBalancer.clusters slice
-// must hold one entry per cluster, and the aggregated top-level Phase must be
-// the worst-of (Pending here).
-func TestReconcile_PerClusterStatus_Aggregated(t *testing.T) {
+// (succeeds), the other isn't (Pending). The top-level Phase must be the
+// worst-of across both clusters (Pending here).
+func TestReconcile_WorstOfPhase_Aggregated(t *testing.T) {
 	ctx := context.Background()
 	scheme := envoyTestScheme(t)
 	memberA := fake.NewClientBuilder().WithScheme(scheme).Build()
@@ -931,14 +863,6 @@ func TestReconcile_PerClusterStatus_Aggregated(t *testing.T) {
 		types.NamespacedName{Name: "mdb-search", Namespace: "ns"}, patched))
 	require.NotNil(t, patched.Status.LoadBalancer, "status.loadBalancer must be populated")
 	assert.Equal(t, status.PhasePending, patched.Status.LoadBalancer.Phase, "worst-of (Running, Pending) is Pending")
-	require.Len(t, patched.Status.LoadBalancer.Clusters, 2, "one per-cluster status entry per spec.clusters[i]")
-
-	byName := map[string]searchv1.ClusterLoadBalancerStatus{}
-	for _, c := range patched.Status.LoadBalancer.Clusters {
-		byName[c.ClusterName] = c
-	}
-	assert.Equal(t, status.PhaseRunning, byName["a"].Phase)
-	assert.Equal(t, status.PhasePending, byName["missing"].Phase)
 
 	// Cluster "a" (index 0) got its Deployment + ConfigMap in the member-cluster client.
 	require.NoError(t, memberA.Get(ctx,
@@ -993,17 +917,6 @@ func TestReconcile_AllClustersFailed_TopLevelPhaseIsFailed(t *testing.T) {
 		"all-Failed clusters must aggregate to top-level Failed, not Pending")
 }
 
-// TestWorstOfClusterPhases_SingleCluster_PreservesFailed asserts that the
-// single-cluster degenerate path (one entry with empty ClusterName) propagates
-// Failed rather than the empty-slice default of Running.
-func TestWorstOfClusterPhases_SingleCluster_PreservesFailed(t *testing.T) {
-	got := worstOfClusterPhases([]searchv1.ClusterLoadBalancerStatus{
-		{ClusterName: "", Phase: status.PhaseFailed},
-	})
-	assert.Equal(t, status.PhaseFailed, got,
-		"single-cluster degenerate path (one entry with empty ClusterName) must propagate Failed, not downgrade to Running")
-}
-
 // --- index-based naming reconcile loop tests ----------------------------------
 
 // TestReconcile_NoStateCM_ClustersPending asserts that when no <name>-state
@@ -1047,9 +960,6 @@ func TestReconcile_NoStateCM_ClustersPending(t *testing.T) {
 	require.NoError(t, central.Get(ctx, types.NamespacedName{Name: "mdb-search", Namespace: "ns"}, patched))
 	require.NotNil(t, patched.Status.LoadBalancer)
 	assert.Equal(t, status.PhasePending, patched.Status.LoadBalancer.Phase, "no state CM must produce Pending")
-	for _, cs := range patched.Status.LoadBalancer.Clusters {
-		assert.Equal(t, status.PhasePending, cs.Phase, "each cluster must be Pending when not in state mapping")
-	}
 
 	// No Envoy Deployments should have been created.
 	depList := &appsv1.DeploymentList{}

@@ -187,7 +187,6 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 	}
 
 	reconcileHelper := searchcontroller.NewMongoDBSearchReconcileHelper(r.kubeClient, mdbSearch, searchSource, r.operatorSearchConfig)
-	reconcileHelper.SetSecretGaps(gaps)
 
 	result, err := reconcileHelper.Reconcile(ctx, log).ReconcileResult()
 	if err != nil {
