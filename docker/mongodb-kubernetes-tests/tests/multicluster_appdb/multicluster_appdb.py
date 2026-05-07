@@ -11,6 +11,21 @@ from tests.multicluster.conftest import cluster_spec_list
 CERT_PREFIX = "prefix"
 
 
+def appdb_cluster_spec_list_with_overrides(cluster_names: list[str], members: list[int | None]) -> list[dict]:
+    """Wraps cluster_spec_list and re-applies the per-cluster hostAliases override
+    so it is preserved across reconciliations (KUBE-47)."""
+    spec_list = cluster_spec_list(cluster_names, members)
+    for item in spec_list:
+        item["statefulSet"] = {
+            "spec": {
+                "template": {
+                    "spec": {"hostAliases": [{"ip": "127.0.0.1", "hostnames": [f"appdb-{item['clusterName']}.local"]}]}
+                }
+            }
+        }
+    return spec_list
+
+
 @fixture(scope="module")
 def appdb_member_cluster_names() -> list[str]:
     return ["kind-e2e-cluster-2", "kind-e2e-cluster-3"]
@@ -39,7 +54,7 @@ def ops_manager_unmarshalled(
     resource["spec"]["backup"] = {"enabled": False}
     resource["spec"]["applicationDatabase"] = {
         "topology": "MultiCluster",
-        "clusterSpecList": cluster_spec_list(appdb_member_cluster_names, [2, 3]),
+        "clusterSpecList": appdb_cluster_spec_list_with_overrides(appdb_member_cluster_names, [2, 3]),
         "version": custom_appdb_version,
         "agent": {"logLevel": "DEBUG"},
         "security": {
@@ -85,17 +100,27 @@ def test_patch_central_namespace(namespace: str, central_cluster_client: kuberne
 
 @mark.usefixtures("multi_cluster_operator")
 @mark.e2e_multi_cluster_appdb
-def test_create_om(ops_manager: MongoDBOpsManager):
+def test_create_om(ops_manager: MongoDBOpsManager, appdb_member_cluster_names: list[str]):
     ops_manager.load()
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
     ops_manager.assert_appdb_preferred_hostnames_are_added()
     ops_manager.assert_appdb_hostnames_are_correct()
 
+    # Verify the per-cluster statefulSet override (hostAliases) set in the fixture
+    # was merged into each cluster's AppDB StatefulSet.
+    for cluster_name in appdb_member_cluster_names:
+        sts = ops_manager.read_appdb_statefulset(member_cluster_name=cluster_name)
+        host_aliases = sts.spec.template.spec.host_aliases or []
+        hostnames = [h for alias in host_aliases for h in (alias.hostnames or [])]
+        assert (
+            f"appdb-{cluster_name}.local" in hostnames
+        ), f"per-cluster hostAlias missing on AppDB STS in {cluster_name}: got {hostnames}"
+
 
 @mark.e2e_multi_cluster_appdb
 def test_scale_up_one_cluster(ops_manager: MongoDBOpsManager, appdb_member_cluster_names):
     ops_manager.load()
-    ops_manager["spec"]["applicationDatabase"]["clusterSpecList"] = cluster_spec_list(
+    ops_manager["spec"]["applicationDatabase"]["clusterSpecList"] = appdb_cluster_spec_list_with_overrides(
         appdb_member_cluster_names, [4, 3]
     )
     ops_manager.update()
@@ -107,7 +132,7 @@ def test_scale_up_one_cluster(ops_manager: MongoDBOpsManager, appdb_member_clust
 @mark.e2e_multi_cluster_appdb
 def test_scale_down_one_cluster(ops_manager: MongoDBOpsManager, appdb_member_cluster_names):
     ops_manager.load()
-    ops_manager["spec"]["applicationDatabase"]["clusterSpecList"] = cluster_spec_list(
+    ops_manager["spec"]["applicationDatabase"]["clusterSpecList"] = appdb_cluster_spec_list_with_overrides(
         appdb_member_cluster_names, [4, 1]
     )
     ops_manager.update()
@@ -123,7 +148,7 @@ def test_hosts_removed_after_scale_down_one_cluster(ops_manager: MongoDBOpsManag
 @mark.e2e_multi_cluster_appdb
 def test_scale_up_two_clusters(ops_manager: MongoDBOpsManager, appdb_member_cluster_names):
     ops_manager.load()
-    ops_manager["spec"]["applicationDatabase"]["clusterSpecList"] = cluster_spec_list(
+    ops_manager["spec"]["applicationDatabase"]["clusterSpecList"] = appdb_cluster_spec_list_with_overrides(
         appdb_member_cluster_names, [5, 2]
     )
     ops_manager.update()
@@ -133,7 +158,7 @@ def test_scale_up_two_clusters(ops_manager: MongoDBOpsManager, appdb_member_clus
 @mark.e2e_multi_cluster_appdb
 def test_scale_down_two_clusters(ops_manager: MongoDBOpsManager, appdb_member_cluster_names):
     ops_manager.load()
-    ops_manager["spec"]["applicationDatabase"]["clusterSpecList"] = cluster_spec_list(
+    ops_manager["spec"]["applicationDatabase"]["clusterSpecList"] = appdb_cluster_spec_list_with_overrides(
         appdb_member_cluster_names, [2, 1]
     )
     ops_manager.update()
@@ -144,7 +169,9 @@ def test_scale_down_two_clusters(ops_manager: MongoDBOpsManager, appdb_member_cl
 def test_add_cluster_to_cluster_spec(ops_manager: MongoDBOpsManager, appdb_member_cluster_names):
     ops_manager.load()
     cluster_names = ["kind-e2e-cluster-1"] + appdb_member_cluster_names
-    ops_manager["spec"]["applicationDatabase"]["clusterSpecList"] = cluster_spec_list(cluster_names, [2, 2, 1])
+    ops_manager["spec"]["applicationDatabase"]["clusterSpecList"] = appdb_cluster_spec_list_with_overrides(
+        cluster_names, [2, 2, 1]
+    )
     ops_manager.update()
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
 
@@ -154,14 +181,18 @@ def test_remove_cluster_from_cluster_spec(ops_manager: MongoDBOpsManager, appdb_
     # Before removing, we need to scale down the cluster to zero
     ops_manager.load()
     cluster_names = ["kind-e2e-cluster-1"] + appdb_member_cluster_names
-    ops_manager["spec"]["applicationDatabase"]["clusterSpecList"] = cluster_spec_list(cluster_names, [2, 0, 1])
+    ops_manager["spec"]["applicationDatabase"]["clusterSpecList"] = appdb_cluster_spec_list_with_overrides(
+        cluster_names, [2, 0, 1]
+    )
     ops_manager.update()
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
 
     # Now we can remove the cluster from the spec
     ops_manager.load()
     cluster_names = ["kind-e2e-cluster-1"] + appdb_member_cluster_names[1:]
-    ops_manager["spec"]["applicationDatabase"]["clusterSpecList"] = cluster_spec_list(cluster_names, [2, 1])
+    ops_manager["spec"]["applicationDatabase"]["clusterSpecList"] = appdb_cluster_spec_list_with_overrides(
+        cluster_names, [2, 1]
+    )
     ops_manager.update()
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
 
@@ -170,6 +201,8 @@ def test_remove_cluster_from_cluster_spec(ops_manager: MongoDBOpsManager, appdb_
 def test_read_cluster_to_cluster_spec(ops_manager: MongoDBOpsManager, appdb_member_cluster_names):
     ops_manager.load()
     cluster_names = ["kind-e2e-cluster-1"] + appdb_member_cluster_names
-    ops_manager["spec"]["applicationDatabase"]["clusterSpecList"] = cluster_spec_list(cluster_names, [2, 2, 1])
+    ops_manager["spec"]["applicationDatabase"]["clusterSpecList"] = appdb_cluster_spec_list_with_overrides(
+        cluster_names, [2, 2, 1]
+    )
     ops_manager.update()
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
