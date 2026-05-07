@@ -1,0 +1,111 @@
+#!/usr/bin/env bash
+#
+# site-context — site-derived environment variables (per-side bytes).
+#
+# Sourced by scripts/dev/switch_context.sh in an `env -i` subshell, ON the
+# side that ran `make switch`. The values it exports depend on the
+# filesystem layout of the running side (PROJECT_DIR), the running shell's
+# Go install (GOROOT), the architecture (s390x conditionals), and the
+# in-container vs. on-host k8s-forwarding-proxy address (K8S_FWD_PROXY).
+#
+# Companion: scripts/dev/contexts/root-context (logical, side-agnostic).
+
+set -Eeou pipefail
+
+script_name=$(readlink -f "${BASH_SOURCE[0]}")
+script_dir=$(dirname "${script_name}")
+
+PROJECT_DIR="$(realpath "${script_dir}/../../..")"
+export PROJECT_DIR
+
+# In-container k8s-forwarding-proxy is reachable at 172.X.Y_BASE.10
+# (computed from the /23 stack allocator's NET_X / NET_Y_BASE pair).
+# compose.yml's `x-k8s-proxy-config` anchor passes the resolved value
+# into the devcontainer service's environment as K8S_FWD_PROXY, so any
+# pre-existing value is the authoritative one — we just inherit it.
+# On host, the host-side kfp listens on 127.0.0.1:11616 (registered by
+# `.devcontainer/scripts/post-start.sh`); set the var there too so
+# `setup_kind_cluster.sh` and `evg_host.sh`'s kfp registration paths
+# Just Work when invoked from a host shell.
+#
+# Historical note: this file used to set `K8S_FWD_PROXY=172.${PREFIX}.0.10`
+# unconditionally, clobbering the compose-provided value. Under the /23
+# stack allocator MCK_DEVC_NET_PREFIX is a port-number suffix
+# (e.g. 30 → gost-proxy port 8030), not a network octet, so the
+# override yielded a bogus 172.30.0.10 — registration silently failed,
+# the devc-side k8s-proxy had an empty kubeconfig, and every
+# `*.svc.cluster.local` lookup from inside the devc returned NXDOMAIN.
+# e2e tests that connect from devc to mongod via FQDN broke at
+# pymongo's server selection step.
+if [[ -f /.dockerenv ]]; then
+  : "${K8S_FWD_PROXY:?K8S_FWD_PROXY must be set in devc env (compose.yml passes it via x-k8s-proxy-config)}"
+else
+  K8S_FWD_PROXY="127.0.0.1:11616"
+fi
+export K8S_FWD_PROXY
+
+# KUBECONFIG — pick the canonical per-side kubeconfig unconditionally.
+# Both files are produced by the writers (evg_host.sh::get-kubeconfig for
+# EVG-host worktrees, recreate_kind_clusters.sh for the local-kind path).
+# Host file has proxy-url=http://127.0.0.1:${MCK_DEVC_PROXY_PORT};
+# devc file has proxy-url=http://gost-proxy:8080. If a file is missing
+# kubectl returns "no such file" — clearer than the old fallback to
+# ${HOME}/.kube/config, which silently targeted whatever the user's
+# Docker Desktop / generic kubeconfig happened to point at.
+if [[ -f /.dockerenv ]]; then
+  KUBECONFIG="${PROJECT_DIR}/.generated/current.devc.kubeconfig"
+else
+  KUBECONFIG="${PROJECT_DIR}/.generated/current.kubeconfig"
+fi
+export KUBECONFIG
+
+# Multi-cluster kubeconfig path. The operator only consults it when
+# LOCAL_OPERATOR=true (set by private-context, which is sourced AFTER
+# this file in the switch_context.sh chain — so we can't condition on
+# LOCAL_OPERATOR here without missing the signal). Set the path
+# unconditionally; it's harmless when LOCAL_OPERATOR is unset.
+export KUBE_CONFIG_PATH="${PROJECT_DIR}/.generated/multicluster_kubeconfig"
+
+export MULTI_CLUSTER_CONFIG_DIR="${PROJECT_DIR}/.multi_cluster_local_test_files"
+export MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH="${PROJECT_DIR}/docker/mongodb-kubernetes-tests/multi-cluster-kube-config-creator"
+
+# PROJECT_DIR-derived path defaults that local-defaults-context also sets
+# (and which root-context / private-context may further override). We mirror
+# them here so the switch_context.sh subtraction algorithm classifies them
+# as site bytes — they MUST end up in context.<side>.env, not the shared
+# logical context.env, because their values include the worktree's
+# absolute path which differs between host and devc.
+#
+# `workdir` is a deprecated alias for PROJECT_DIR retained for legacy
+# evergreen scripts (scripts/evergreen/setup_*.sh).
+export workdir="${PROJECT_DIR}"
+export MDB_OM_VERSION_MAPPING_PATH="${PROJECT_DIR}/release.json"
+export ENV_FILE="${PROJECT_DIR}/.ops-manager-env"
+export NAMESPACE_FILE="${PROJECT_DIR}/.namespace"
+export DEFAULT_HELM_CHART_PATH="${PROJECT_DIR}/helm_chart"
+
+# GOPATH is HOME-derived. private-context sets `export GOPATH=~/gosd`
+# which expands to ${HOME}/gosd — different per side. Set a default here
+# so site_keys captures the variable name; switch_context.sh then writes
+# the user's final value (after private-context override) into
+# context.<side>.env, preserving overrides per side.
+export GOPATH="${GOPATH:-${HOME}/gosd}"
+
+if command -v go >/dev/null 2>&1; then
+  GOROOT="$(go env GOROOT)"
+  export GOROOT
+fi
+
+# s390x-specific feature flags — use ${VAR:-default} so the caller can
+# override before sourcing.
+# PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION: s390x requires pure-Python
+#   protobuf; C++ extension crashes at import.
+#   https://github.com/protocolbuffers/protobuf/issues/24103
+# SODIUM_INSTALL: pynacl must link against system libsodium; bundled
+#   build broken on s390x+Python 3.13.
+# PYTEST_OTEL_ENABLED: grpcio segfaults at exit on s390x+Python 3.13.
+if [[ "$(uname -m)" == "s390x" ]]; then
+  export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION="${PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION:-python}"
+  export SODIUM_INSTALL="${SODIUM_INSTALL:-system}"
+  export PYTEST_OTEL_ENABLED="${PYTEST_OTEL_ENABLED:-false}"
+fi
