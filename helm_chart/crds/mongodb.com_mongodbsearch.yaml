@@ -88,9 +88,6 @@ spec:
                   deployments (len > 1); when omitted, the reconciler defaults it to a single
                   entry built from the top-level fields. Pointer-of-slice so omitted vs.
                   empty is distinguishable.
-                  MaxItems is set so the apiserver can bound the cost of the clusterName
-                  uniqueness CEL rule below; 50 is well above any realistic multi-cluster
-                  deployment.
                 items:
                   description: |-
                     ClusterSpec is one entry in spec.clusters[]. ClusterName is required and immutable
@@ -113,9 +110,8 @@ spec:
                         type: string
                       type: array
                     loadBalancer:
-                      description: |-
-                        LoadBalancer per-cluster override; deep-merged into spec.loadBalancer.managed.
-                        Only managed sub-fields are overridable per-cluster.
+                      description: LoadBalancer per-cluster override; deep-merged
+                        into spec.loadBalancer.managed.
                       properties:
                         managed:
                           description: Managed configures an operator-managed Envoy
@@ -372,9 +368,6 @@ spec:
                       description: |-
                         SyncSourceSelector picks which mongods this cluster's mongot fleet syncs from.
                         At-most-one of MatchTags or Hosts may be set.
-                        MaxProperties / MaxItems / MaxLength on the children are required so the
-                        apiserver can bound the schema-cost contribution that the XValidation rule
-                        reads via has().
                       properties:
                         hosts:
                           description: |-
