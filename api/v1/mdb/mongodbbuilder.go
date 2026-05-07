@@ -197,6 +197,18 @@ func (b *MongoDBBuilder) SetShardCountSpec(count int) *MongoDBBuilder {
 	return b
 }
 
+// SetShardsSpec configures the explicit shards list form (spec.shards).
+// It clears spec.shardCount to enforce the mutual-exclusion contract that the
+// webhook validator requires.
+func (b *MongoDBBuilder) SetShardsSpec(shards []Shard) *MongoDBBuilder {
+	if b.mdb.Spec.ResourceType != ShardedCluster {
+		panic("Only sharded cluster can have shards configuration")
+	}
+	b.mdb.Spec.Shards = shards
+	b.mdb.Spec.ShardCount = 0
+	return b
+}
+
 func (b *MongoDBBuilder) SetMongodsPerShardCountSpec(count int) *MongoDBBuilder {
 	if b.mdb.Spec.ResourceType != ShardedCluster {
 		panic("Only sharded cluster can have shards configuration")

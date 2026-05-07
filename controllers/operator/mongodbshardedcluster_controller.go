@@ -114,11 +114,28 @@ func newShardedClusterReconciler(ctx context.Context, kubeClient client.Client, 
 	}
 }
 
+// ShardStateEntry is the persistent source of truth for each shard's runtime
+// identity. It is populated at the end of a successful reconcile so that the
+// next reconcile can diff against the previously deployed shard list by name.
+// This avoids relying on positional indices when removing shards and makes the
+// transition from spec.shardCount to spec.shards byte-identical from the OM /
+// k8s resource perspective.
+type ShardStateEntry struct {
+	ShardName string `json:"shardName"`
+	ShardId   string `json:"shardId"`
+}
+
 type ShardedClusterDeploymentState struct {
 	CommonDeploymentState `json:",inline"`
 	LastAchievedSpec      *mdbv1.MongoDbSpec   `json:"lastAchievedSpec"`
 	LastConfiguredRoles   []string             `json:"lastConfiguredRoles"`
 	Status                *mdbv1.MongoDbStatus `json:"status"`
+	// Shards is the persisted list of deployed shards in reconcile order.
+	// Populated at the end of a successful reconcile and used as the source
+	// of truth for name-based shard diffing. Empty for state written by
+	// operator versions that predate named shards; callers must fall back to
+	// synthesising from Status.ShardCount in that case.
+	Shards []ShardStateEntry `json:"shards,omitempty"`
 }
 
 // updateStatusFromResourceStatus updates the status in the deployment state with values from the resource status with additional ensurance that no data is accidentally lost.
@@ -708,6 +725,14 @@ func newShardedClusterReconcilerHelper(
 	}
 
 	helper.sc = sc
+	// When spec.shards is set (named shards), normalise spec.shardCount to
+	// len(spec.shards) so every downstream iteration that still reads
+	// Spec.ShardCount continues to produce the correct count. The mutual
+	// exclusion (only one of shardCount/shards may be non-zero) is enforced
+	// by the webhook validator.
+	if len(sc.Spec.Shards) > 0 {
+		sc.Spec.ShardCount = len(sc.Spec.Shards)
+	}
 	helper.deploymentState = NewShardedClusterDeploymentState()
 	if err := helper.initializeStateStore(ctx, reconciler, sc, log); err != nil {
 		return nil, xerrors.Errorf("failed to initialize sharded cluster state store: %w", err)
@@ -830,6 +855,14 @@ func (r *ReconcileMongoDbShardedCluster) Reconcile(ctx context.Context, request 
 		return reconcileResult, err
 	}
 
+	// Validate the spec BEFORE the reconcile helper is created. The helper
+	// normalises spec.shardCount from spec.shards when named shards are used,
+	// which would confuse the shardsOrShardCountSpecified validator if run
+	// afterwards.
+	if err := sc.ProcessValidationsOnReconcile(nil); err != nil {
+		return r.updateStatus(ctx, sc, workflow.Invalid("%s", err.Error()), log)
+	}
+
 	reconcilerHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, r.imageUrls, r.initDatabaseNonStaticImageVersion, r.databaseNonStaticImageVersion, r.forceEnterprise, r.enableClusterMongoDBRoles, r.agentDebug, r.agentDebugImage, sc, r.memberClustersMap, r.omConnectionFactory, log, r.backupEnableDelay)
 	if err != nil {
 		return r.updateStatus(ctx, sc, workflow.Failed(xerrors.Errorf("Failed to initialize sharded cluster reconciler: %w", err)), log)
@@ -848,9 +881,10 @@ func (r *ReconcileMongoDbShardedCluster) OnDelete(ctx context.Context, obj runti
 
 func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.SugaredLogger) (res reconcile.Result, e error) {
 	sc := r.sc
-	if err := sc.ProcessValidationsOnReconcile(nil); err != nil {
-		return r.commonController.updateStatus(ctx, sc, workflow.Invalid("%s", err.Error()), log)
-	}
+	// Validation is now performed in ReconcileMongoDbShardedCluster.Reconcile
+	// before the helper is created, so that validators (e.g. the mutual
+	// exclusion between spec.shardCount and spec.shards) see the original
+	// unnormalised spec.
 
 	log.Info("-> ShardedCluster.Reconcile")
 	log.Infow("ShardedCluster.Spec", "spec", sc.Spec)
@@ -949,11 +983,12 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 		), log, mdbstatus.ShardedClusterSizeConfigOption{SizeConfig: sizeStatus}, mdbstatus.ShardedClusterSizeStatusInClustersOption{SizeConfigInClusters: sizeStatusInClusters})
 	}
 
-	// Only remove any stateful sets if we are scaling down.
+	// Only remove any stateful sets if there are shards that were deployed previously but are not in the
+	// desired spec. With named shards this can include same-count changes (simultaneous add + remove).
 	// This is executed only after the replicaset which are going to be removed are properly drained and
 	// all the processes in the cluster reports ready state. At this point the statefulsets are
 	// no longer part of the replicaset and are safe to remove - all the data from them is migrated (drained) to other shards.
-	if sc.Spec.ShardCount < r.deploymentState.Status.ShardCount {
+	if r.hasShardsToRemove(sc) {
 		r.removeUnusedStatefulsets(ctx, sc, log)
 	}
 
@@ -990,6 +1025,12 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 
 	// Save last achieved spec in state
 	r.deploymentState.LastAchievedSpec = &sc.Spec
+	// Persist the resolved shard list so that subsequent reconciles can diff by name.
+	resolvedShards := sc.ResolvedShards()
+	r.deploymentState.Shards = make([]ShardStateEntry, len(resolvedShards))
+	for i, s := range resolvedShards {
+		r.deploymentState.Shards[i] = ShardStateEntry{ShardName: s.ShardName, ShardId: s.ShardId}
+	}
 	log.Infof("Finished reconciliation for Sharded Cluster! %s", completionMessage(conn.BaseURL(), conn.GroupID()))
 	// It's the second place in the reconcile logic we're updating sizes of all the components
 	// We're also updating the shardCount here - it's the only place we're doing that.
@@ -1364,21 +1405,89 @@ func getHealthyMemberClusters(memberClusters []multicluster.MemberCluster) []mul
 	return result
 }
 
-func (r *ShardedClusterReconcileHelper) removeUnusedStatefulsets(ctx context.Context, sc *mdbv1.MongoDB, log *zap.SugaredLogger) {
-	statefulsetsToRemove := r.deploymentState.Status.ShardCount - sc.Spec.ShardCount
-	shardsCount := r.deploymentState.Status.ShardCount
+// hasShardsToRemove reports whether any previously deployed shard name is
+// absent from the desired spec. Handles both scale-down (count decreases) and
+// named-shard swaps (same count, different names).
+func (r *ShardedClusterReconcileHelper) hasShardsToRemove(sc *mdbv1.MongoDB) bool {
+	desiredNames := make(map[string]struct{}, sc.Spec.ShardCount)
+	for _, name := range sc.ShardRsNames() {
+		desiredNames[name] = struct{}{}
+	}
+	for _, name := range r.deployedShardNames() {
+		if _, stillDesired := desiredNames[name]; !stillDesired {
+			return true
+		}
+	}
+	return false
+}
 
-	// we iterate over last 'statefulsetsToRemove' shards if any
-	for i := shardsCount - statefulsetsToRemove; i < shardsCount; i++ {
-		for _, memberCluster := range r.shardsMemberClustersMap[i] {
-			key := kube.ObjectKey(sc.Namespace, r.GetShardStsName(i, memberCluster))
-			err := memberCluster.Client.DeleteStatefulSet(ctx, key)
-			if err != nil {
-				// Most of all the error won't be recoverable, also our sharded cluster is in good shape - we can just warn
-				// the error and leave the cleanup work for the admins
+// deployedShardNames returns the list of shard names that were deployed at the
+// end of the previous reconcile, in reconcile order. Prefers the persisted
+// deploymentState.Shards (populated by current operator versions). Falls back
+// to LastAchievedSpec.Shards, then to synthesising from Status.ShardCount so
+// that operator upgrades from versions predating named shards continue to
+// produce the correct legacy "<mdb-name>-<i>" names.
+func (r *ShardedClusterReconcileHelper) deployedShardNames() []string {
+	if len(r.deploymentState.Shards) > 0 {
+		names := make([]string, len(r.deploymentState.Shards))
+		for i, s := range r.deploymentState.Shards {
+			names[i] = s.ShardName
+		}
+		return names
+	}
+
+	if r.deploymentState.LastAchievedSpec != nil && len(r.deploymentState.LastAchievedSpec.Shards) > 0 {
+		names := make([]string, len(r.deploymentState.LastAchievedSpec.Shards))
+		for i, s := range r.deploymentState.LastAchievedSpec.Shards {
+			names[i] = s.ShardName
+		}
+		return names
+	}
+
+	count := r.deploymentState.Status.ShardCount
+	names := make([]string, count)
+	for i := 0; i < count; i++ {
+		names[i] = mdbv1.SynthesizedShardName(r.sc.Name, i)
+	}
+	return names
+}
+
+// shardStsNameForMemberCluster returns the StatefulSet name for the shard with
+// the given stem name on the given member cluster. Mirrors GetShardStsName but
+// works from a shard name directly so that it stays correct for shards that
+// are no longer present in sc.Spec (i.e. being removed).
+func (r *ShardedClusterReconcileHelper) shardStsNameForMemberCluster(shardName string, memberCluster multicluster.MemberCluster) string {
+	if memberCluster.Legacy {
+		return shardName
+	}
+	return fmt.Sprintf("%s-%d", shardName, memberCluster.Index)
+}
+
+// removeUnusedStatefulsets deletes StatefulSets for shards that were present in
+// the previous reconcile but are no longer in the desired spec. Comparison is
+// by shard name, so removing a shard from the middle of the list works
+// correctly for named shards (and continues to work for legacy shardCount
+// which only ever removes tail shards).
+func (r *ShardedClusterReconcileHelper) removeUnusedStatefulsets(ctx context.Context, sc *mdbv1.MongoDB, log *zap.SugaredLogger) {
+	desiredNames := make(map[string]struct{}, sc.Spec.ShardCount)
+	for _, name := range sc.ShardRsNames() {
+		desiredNames[name] = struct{}{}
+	}
+
+	deployedNames := r.deployedShardNames()
+	for _, name := range deployedNames {
+		if _, stillDesired := desiredNames[name]; stillDesired {
+			continue
+		}
+		for _, memberCluster := range r.allShardsMemberClusters {
+			key := kube.ObjectKey(sc.Namespace, r.shardStsNameForMemberCluster(name, memberCluster))
+			if err := memberCluster.Client.DeleteStatefulSet(ctx, key); err != nil {
+				// Most of the time the error won't be recoverable and our sharded cluster is in good shape;
+				// warn and leave the cleanup for the admins.
 				log.Warnf("Failed to delete the statefulset %s in cluster %s: %s", key, memberCluster.Name, err)
+				continue
 			}
-			log.Infof("Removed statefulset %s in cluster %s as it's was removed from sharded cluster", key, memberCluster.Name)
+			log.Infof("Removed statefulset %s in cluster %s as it was removed from sharded cluster", key, memberCluster.Name)
 		}
 	}
 }
@@ -2101,15 +2210,18 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 	configRs, _ := buildReplicaSetFromProcesses(sc.ConfigRsName(), configSrvProcesses, sc, configSrvMemberOptions, existingDeployment)
 
 	// Shards
-	shards := make([]om.ReplicaSetWithProcesses, sc.Spec.ShardCount)
+	resolvedShards := r.sc.ResolvedShards()
+	shards := make([]om.ReplicaSetWithProcesses, len(resolvedShards))
+	shardIds := make([]string, len(resolvedShards))
 	var shardInternalClusterPaths []string
-	for shardIdx := 0; shardIdx < r.sc.Spec.ShardCount; shardIdx++ {
+	for shardIdx, resolved := range resolvedShards {
 		shardOptionsFunc := r.getShardOptions(ctx, *sc, shardIdx, *opts, log, r.shardsMemberClustersMap[shardIdx][0])
 		shardOptions := shardOptionsFunc(*r.sc)
 		shardInternalClusterPaths = append(shardInternalClusterPaths, fmt.Sprintf("%s/%s", util.InternalClusterAuthMountPath, shardOptions.InternalClusterHash))
 		shardMemberCertPath := fmt.Sprintf("%s/%s", util.TLSCertMountPath, shardOptions.CertificateHash)
 		desiredShardProcesses, desiredShardMemberOptions := r.createDesiredShardProcessesAndMemberOptions(shardIdx, shardMemberCertPath)
-		shards[shardIdx], _ = buildReplicaSetFromProcesses(r.sc.ShardRsName(shardIdx), desiredShardProcesses, sc, desiredShardMemberOptions, existingDeployment)
+		shards[shardIdx], _ = buildReplicaSetFromProcesses(resolved.ShardName, desiredShardProcesses, sc, desiredShardMemberOptions, existingDeployment)
+		shardIds[shardIdx] = resolved.ShardId
 	}
 
 	// updateOmAuthentication normally takes care of the certfile rotation code, but since sharded-cluster is special pertaining multiple clusterfiles, we code this part here for now.
@@ -2167,6 +2279,7 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 				MongosProcesses:                      mongosProcesses,
 				ConfigServerRs:                       configRs,
 				Shards:                               shards,
+				ShardIds:                             shardIds,
 				Finalizing:                           opts.finalizing,
 				ConfigServerAdditionalOptionsPrev:    lastConfigServerConf.ToMap(),
 				ConfigServerAdditionalOptionsDesired: sc.Spec.ConfigSrvSpec.AdditionalMongodConfig.ToMap(),

@@ -183,8 +183,8 @@ func (m *MongoDB) GetSecretsMountedIntoDBPod() []string {
 	secrets := []string{}
 	var tls string
 	if m.Spec.ResourceType == ShardedCluster {
-		for i := 0; i < m.Spec.ShardCount; i++ {
-			tls = m.GetSecurity().MemberCertificateSecretName(m.ShardRsName(i))
+		for _, shardName := range m.ShardRsNames() {
+			tls = m.GetSecurity().MemberCertificateSecretName(shardName)
 			if tls != "" {
 				secrets = append(secrets, tls)
 			}
@@ -1244,22 +1244,89 @@ func (m *MongoDB) ConfigRsName() string {
 	return m.Name + "-config"
 }
 
-func (m *MongoDB) ShardRsName(i int) string {
+// ResolvedShard is the runtime view of a shard: a stable Kubernetes-safe name,
+// a stable Ops Manager identity, and the positional index within the resolved
+// shard list. It is derived from spec.shards when set, or synthesised from
+// spec.shardCount otherwise.
+type ResolvedShard struct {
+	ShardName string
+	ShardId   string
+	// ShardIdx is the position in the resolved list. It is used to preserve
+	// continuity of multi-cluster StatefulSet naming (<shardName>-<clusterIdx>)
+	// for pre-existing deployments that used spec.shardCount.
+	ShardIdx int
+}
+
+// ResolvedShards returns the canonical list of shards for the current spec,
+// collapsing the spec.shardCount and spec.shards forms into a single
+// representation. When spec.shards is unset (the default), the list is
+// synthesised from spec.shardCount so that every derived resource name is
+// byte-identical to the legacy behaviour.
+func (m *MongoDB) ResolvedShards() []ResolvedShard {
+	if len(m.Spec.Shards) > 0 {
+		result := make([]ResolvedShard, len(m.Spec.Shards))
+		for i, s := range m.Spec.Shards {
+			result[i] = ResolvedShard{
+				ShardName: s.ShardName,
+				ShardId:   s.GetShardId(),
+				ShardIdx:  i,
+			}
+		}
+		return result
+	}
+
+	result := make([]ResolvedShard, m.Spec.ShardCount)
+	for i := 0; i < m.Spec.ShardCount; i++ {
+		name := SynthesizedShardName(m.Name, i)
+		result[i] = ResolvedShard{
+			ShardName: name,
+			ShardId:   name,
+			ShardIdx:  i,
+		}
+	}
+	return result
+}
+
+// ResolvedShardCount is the effective number of shards (len of resolved list).
+func (m *MongoDB) ResolvedShardCount() int {
+	if len(m.Spec.Shards) > 0 {
+		return len(m.Spec.Shards)
+	}
+	return m.Spec.ShardCount
+}
+
+// SynthesizedShardName produces the default shard name used when
+// spec.shardCount is set and spec.shards is empty.
+func SynthesizedShardName(mdbName string, shardIdx int) string {
 	// Unfortunately the pattern used by OM (name_idx) doesn't work as Kubernetes doesn't create the stateful set with an
 	// exception: "a DNS-1123 subdomain must consist of lower case alphanumeric characters, '-' or '.'"
-	return fmt.Sprintf("%s-%d", m.Name, i)
+	return fmt.Sprintf("%s-%d", mdbName, shardIdx)
+}
+
+func (m *MongoDB) ShardRsName(i int) string {
+	if len(m.Spec.Shards) > 0 {
+		if i >= 0 && i < len(m.Spec.Shards) {
+			return m.Spec.Shards[i].ShardName
+		}
+	}
+	return SynthesizedShardName(m.Name, i)
 }
 
 func (m *MongoDB) ShardRsNames() []string {
-	names := make([]string, m.Spec.ShardCount)
-	for i := range m.Spec.ShardCount {
-		names[i] = m.ShardRsName(i)
+	resolved := m.ResolvedShards()
+	names := make([]string, len(resolved))
+	for i, s := range resolved {
+		names[i] = s.ShardName
 	}
 	return names
 }
 
+// MultiShardRsName returns the StatefulSet name for a shard in multi-cluster
+// topology. The stem is the resolved shard name so that named shards flow
+// through unchanged, and the legacy shardCount form continues to produce
+// "<mdb-name>-<shardIdx>-<clusterIdx>".
 func (m *MongoDB) MultiShardRsName(clusterIdx int, shardIdx int) string {
-	return fmt.Sprintf("%s-%d-%d", m.Name, shardIdx, clusterIdx)
+	return fmt.Sprintf("%s-%d", m.ShardRsName(shardIdx), clusterIdx)
 }
 
 func (m *MongoDB) MultiMongosRsName(clusterIdx int) string {
@@ -1679,11 +1746,7 @@ func (m *MongoDB) CalculateFeatureCompatibilityVersion() string {
 }
 
 func (m *MongoDB) ShardNames() []string {
-	shardNames := make([]string, m.Spec.ShardCount)
-	for shardIdx := 0; shardIdx < m.Spec.ShardCount; shardIdx++ {
-		shardNames[shardIdx] = m.ShardRsName(shardIdx)
-	}
-	return shardNames
+	return m.ShardRsNames()
 }
 
 func (m *MongoDbSpec) IsInChangeVersion(lastSpec *MongoDbSpec) bool {

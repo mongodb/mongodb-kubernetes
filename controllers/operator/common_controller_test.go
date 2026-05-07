@@ -879,13 +879,17 @@ func checkReconcileSuccessful(ctx context.Context, t *testing.T, reconciler reco
 	case mdbv1.ReplicaSet:
 		assert.Equal(t, object.Spec.Members, object.Status.Members)
 	case mdbv1.ShardedCluster:
+		// ResolvedShardCount collapses both spec forms (spec.shardCount and
+		// spec.shards) so the assertion holds regardless of which API the CR
+		// uses.
+		expectedShardCount := object.ResolvedShardCount()
 		if object.Spec.IsMultiCluster() {
-			assert.Equal(t, object.Spec.ShardCount, object.Status.ShardCount)
+			assert.Equal(t, expectedShardCount, object.Status.ShardCount)
 		} else {
 			assert.Equal(t, object.Spec.ConfigServerCount, object.Status.ConfigServerCount)
 			assert.Equal(t, object.Spec.MongosCount, object.Status.MongosCount)
 			assert.Equal(t, object.Spec.MongodsPerShardCount, object.Status.MongodsPerShardCount)
-			assert.Equal(t, object.Spec.ShardCount, object.Status.ShardCount)
+			assert.Equal(t, expectedShardCount, object.Status.ShardCount)
 		}
 	}
 	require.NoError(t, client.Get(ctx, kube.ObjectKeyFromApiObject(object), object))

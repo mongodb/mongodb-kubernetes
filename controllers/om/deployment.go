@@ -225,6 +225,10 @@ type DeploymentShardedClusterMergeOptions struct {
 	MongosProcesses                      []Process
 	ConfigServerRs                       ReplicaSetWithProcesses
 	Shards                               []ReplicaSetWithProcesses
+	// ShardIds is a parallel slice to Shards giving the stable OM _id for
+	// each shard. When empty (the legacy spec.shardCount path), the replica
+	// set name is used as _id, which is byte-identical to prior behaviour.
+	ShardIds                             []string
 	Finalizing                           bool
 	ConfigServerAdditionalOptionsDesired map[string]interface{}
 	MongosAdditionalOptionsDesired       map[string]interface{}
@@ -792,7 +796,7 @@ func (d Deployment) mergeShards(opts DeploymentShardedClusterMergeOptions, log *
 	for _, v := range opts.Shards {
 		d.MergeReplicaSet(v, opts.ShardAdditionalOptionsDesired, opts.ShardAdditionalOptionsPrev, log)
 	}
-	cluster := NewShardedCluster(opts.Name, opts.ConfigServerRs.Rs.Name(), opts.Shards)
+	cluster := NewShardedCluster(opts.Name, opts.ConfigServerRs.Rs.Name(), opts.Shards, opts.ShardIds)
 
 	// Merging "sharding" json value
 	for _, s := range d.getShardedClusters() {

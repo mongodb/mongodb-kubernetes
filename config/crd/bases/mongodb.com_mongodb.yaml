@@ -2589,6 +2589,40 @@ spec:
                       x-kubernetes-preserve-unknown-fields: true
                   type: object
                 type: array
+              shards:
+                description: |-
+                  Shards, when specified, declares an explicit list of shards with stable
+                  identities. Exactly one of spec.shards or spec.shardCount must be set.
+
+                  When spec.shardCount is used, the operator derives an implicit list of
+                  the form [{shardName: "<mdb-name>-0"}, ..., {shardName: "<mdb-name>-(N-1)"}].
+                  For an existing cluster created with spec.shardCount, migrating to
+                  spec.shards is a no-op at the Kubernetes layer as long as each shardName
+                  is set to its corresponding implicit value.
+                items:
+                  description: |-
+                    Shard is an explicit declaration of a single shard in a sharded cluster.
+                    It is an element of spec.shards.
+                  properties:
+                    shardId:
+                      description: |-
+                        ShardId is the shard identity used in Ops Manager automation config
+                        (sharded-cluster shard "_id" and replica-set "_id"/"rs").
+                        It defaults to ShardName. Set explicitly only when migrating an existing
+                        VM/OM deployment whose shard identifier contains characters that are not
+                        valid in a Kubernetes resource name (e.g. underscores).
+                        Immutable after the shard is created.
+                      type: string
+                    shardName:
+                      description: |-
+                        ShardName is the stem of every Kubernetes resource created for this
+                        shard (StatefulSet, Pods, PVCs, headless Service, secrets, config maps).
+                        It must be a DNS-1123 label and is immutable after the shard is created.
+                      type: string
+                  required:
+                  - shardName
+                  type: object
+                type: array
               statefulSet:
                 description: |-
                   StatefulSetConfiguration provides the statefulset override for each of the cluster's statefulset

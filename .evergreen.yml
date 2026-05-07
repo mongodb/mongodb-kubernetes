@@ -782,6 +782,7 @@ task_groups:
       - e2e_replica_set_readiness_probe
       - e2e_replica_set_update_delete_parallel
       - e2e_sharded_cluster_scale_shards
+      - e2e_sharded_cluster_named_shards
       - e2e_sharded_cluster_shard_overrides
       - e2e_sharded_cluster_mongod_options_and_log_rotation
       - e2e_tls_rs_external_access
@@ -1071,6 +1072,7 @@ task_groups:
       - e2e_sharded_cluster_custom_podspec
       - e2e_sharded_cluster_mongod_options_and_log_rotation
       - e2e_sharded_cluster_migration
+      - e2e_sharded_cluster_named_shards
       - e2e_sharded_cluster_pv
       - e2e_sharded_cluster_pv_resize
       - e2e_sharded_cluster_recovery

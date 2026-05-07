@@ -65,16 +65,24 @@ func NewShardedClusterFromInterface(i interface{}) ShardedCluster {
 	return i.(map[string]interface{})
 }
 
-// NewShardedCluster builds a shard configuration with shards by replicasets names
-func NewShardedCluster(name, configRsName string, replicaSets []ReplicaSetWithProcesses) ShardedCluster {
+// NewShardedCluster builds a shard configuration with shards by replicasets names.
+// shardIds is a parallel slice giving the stable OM _id for each shard; when
+// empty, or when a given entry is empty, the replica set name is used as the
+// _id (legacy behaviour, which is exactly what the shardCount-only form
+// produces because shard name == shard id in that path).
+func NewShardedCluster(name, configRsName string, replicaSets []ReplicaSetWithProcesses, shardIds []string) ShardedCluster {
 	ans := ShardedCluster{}
 	ans.setName(name)
 	ans.setConfigServerRsName(configRsName)
 
 	shards := make([]Shard, len(replicaSets))
 	for k, v := range replicaSets {
-		s := newShard(v.Rs.Name())
-		shards[k] = s
+		rsName := v.Rs.Name()
+		id := rsName
+		if k < len(shardIds) && shardIds[k] != "" {
+			id = shardIds[k]
+		}
+		shards[k] = newShard(id, rsName)
 	}
 	ans.setShards(shards)
 	return ans
@@ -90,10 +98,10 @@ func (s ShardedCluster) ConfigServerRsName() string {
 
 // ***************************************** Private methods ***********************************************************
 
-func newShard(name string) Shard {
+func newShard(id, rsName string) Shard {
 	s := Shard{}
-	s.setId(name)
-	s.setRs(name)
+	s.setId(id)
+	s.setRs(rsName)
 	return s
 }
 

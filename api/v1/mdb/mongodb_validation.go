@@ -538,6 +538,15 @@ func (m *MongoDB) RunValidations(old *MongoDB) []v1.ValidationResult {
 		}
 	}
 
+	if m.GetResourceType() == ShardedCluster {
+		for _, validator := range ShardedClusterUpdateValidators() {
+			res := validator(*m, *old)
+			if res.Level > 0 {
+				validationResults = append(validationResults, res)
+			}
+		}
+	}
+
 	return validationResults
 }
 
