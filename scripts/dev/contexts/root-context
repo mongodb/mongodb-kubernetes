@@ -9,6 +9,34 @@ source "${script_dir}/private-context"
 PROJECT_DIR="$(realpath "${script_dir}/../../..")"
 export PROJECT_DIR
 
+# Per-worktree OM project name isolation.
+#
+# Cloud-qa OM is shared across all worktrees on a host, but kube namespaces are
+# per-cluster. Devcontainer-mode worktrees each get a unique numeric
+# MCK_DEVC_NET_PREFIX (16..31, picked by scripts/dev/dc_select_network.sh) and
+# pass it into the container env via .devcontainer/.env + compose.yml. Reuse
+# that prefix to also make NAMESPACE unique per worktree, so the OM projects
+# that downstream code creates as ${NAMESPACE} / ${NAMESPACE}-* (single-cluster
+# configure_operator.sh, multi-cluster prepare-multi-cluster, ~15 pytest
+# fixtures, delete_om_projects.sh's filter) are automatically scoped.
+#
+# Load MCK_DEVC_NET_PREFIX from .devcontainer/.env if it isn't in env yet, so
+# host-side `make switch` (run before the container is up) picks up the same
+# prefix as the in-container flow.
+if [[ -z "${MCK_DEVC_NET_PREFIX:-}" && -f "${PROJECT_DIR}/.devcontainer/.env" ]]; then
+  devc_prefix_line="$(grep '^MCK_DEVC_NET_PREFIX=' "${PROJECT_DIR}/.devcontainer/.env" 2>/dev/null | tail -n1 || true)"
+  if [[ -n "${devc_prefix_line}" ]]; then
+    export "${devc_prefix_line?}"
+  fi
+  unset devc_prefix_line
+fi
+
+# Only applies when NAMESPACE is the default 'ls' — explicit user overrides
+# (custom values in private-context, EVG CI's per-task random namespace) win.
+if [[ -n "${MCK_DEVC_NET_PREFIX:-}" && "${NAMESPACE:-}" == "ls" ]]; then
+  export NAMESPACE="ls-${MCK_DEVC_NET_PREFIX}"
+fi
+
 if [[ -f "${PROJECT_DIR}/.generated/.current-evg-host" ]]; then
   EVG_HOST_NAME="$(cat "${PROJECT_DIR}/.generated/.current-evg-host")"
   export EVG_HOST_NAME
