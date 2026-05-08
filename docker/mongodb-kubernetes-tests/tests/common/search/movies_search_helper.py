@@ -2,6 +2,7 @@ import os
 from typing import Optional
 
 import pymongo.errors
+import pytest
 import requests
 from kubetester import kubetester
 from pymongo.operations import SearchIndexModel
@@ -232,13 +233,17 @@ class EmbeddedMoviesSearchHelper:
         Returns:
             A list of floats representing the embedding vector (2048 dimensions).
 
+        Skips the calling test if the API key env var is unset (the key is sourced
+        from EVG project expansions; local devcontainer runs may not have it).
+
         Raises:
-            ValueError: If the API key env var is not set.
             requests.HTTPError: If the API call fails.
         """
         api_key = os.getenv(EMBEDDING_QUERY_KEY_ENV_VAR)
         if not api_key:
-            raise ValueError(f"Missing required environment variable: {EMBEDDING_QUERY_KEY_ENV_VAR}")
+            pytest.skip(
+                f"{EMBEDDING_QUERY_KEY_ENV_VAR} not set; embedding-API leg requires the key from EVG project expansions"
+            )
 
         response = requests.post(
             VOYAGE_EMBEDDING_ENDPOINT,
