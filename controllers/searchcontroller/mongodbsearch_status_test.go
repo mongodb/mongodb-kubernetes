@@ -156,8 +156,8 @@ func TestBuildPerClusterStatusItems_StampsObservedReplicas(t *testing.T) {
 		},
 	}
 	readyByCluster := map[string]int32{
-		"us-east-k8s":  2,
-		"eu-west-k8s":  1,
+		"us-east-k8s": 2,
+		"eu-west-k8s": 1,
 		// ap-south-k8s deliberately absent → STS not yet created → 0.
 	}
 	items := buildPerClusterStatusItems(mdb, workflow.OK(), nil, readyByCluster)
