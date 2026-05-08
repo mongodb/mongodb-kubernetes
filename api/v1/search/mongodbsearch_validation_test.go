@@ -809,7 +809,6 @@ func newSearch(name string, shards []ExternalShardConfig, tlsPrefix string, isTL
 	return search
 }
 
-
 // TestManagedLBConfig_Replicas_FieldExists is a smoke test: the Replicas field
 // on ManagedLBConfig is wired so per-cluster managed LB can specify a replica
 // count and the Envoy reconciler can default it to 1 when unset.

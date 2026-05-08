@@ -60,13 +60,6 @@ const (
 	envoyConfigHashAnnotation = "mongodb.com/envoy-config-hash"
 
 	labelName = "search-proxy"
-
-	// Cross-cluster enqueue labels. Cross-cluster owner refs do not GC,
-	// so a label-based mapper is the only path back to the parent MongoDBSearch
-	// for member-cluster Deployment/ConfigMap watches.
-	envoyOwnerSearchNameLabel      = "mongodb.com/search-name"
-	envoyOwnerSearchNamespaceLabel = "mongodb.com/search-namespace"
-	envoyClusterNameLabel          = "mongodb.com/cluster-name"
 )
 
 // envoyRoute defines routing information for one Envoy entrypoint (one per shard, or one for RS).
@@ -474,7 +467,7 @@ func buildReplicaSetRouteForCluster(search *searchv1.MongoDBSearch, clusterIndex
 
 // buildShardRoutesForCluster builds per-shard routes for one cluster. SNI naming
 // for sharded topologies still flows through ProxyServiceNameForShard +
-// applyClusterIDToSNI for now (no per-(cluster, shard) Service helper exists);
+// applyShardClusterIDToSNI for now (no per-(cluster, shard) Service helper exists);
 // the {clusterName}/{shardName} externalHostname template is the supported MC
 // path.
 func buildShardRoutesForCluster(search *searchv1.MongoDBSearch, shardNames []string, clusterName string) []envoyRoute {
@@ -485,20 +478,6 @@ func buildShardRoutesForCluster(search *searchv1.MongoDBSearch, shardNames []str
 		base[i].SNIHostname = applyShardClusterIDToSNI(base[i].SNIHostname, clusterName, templated)
 	}
 	return base
-}
-
-// applyClusterIDToSNI substitutes the {clusterName} placeholder when present.
-// Used for the externalHostname-template path (RS mode); the default
-// service-FQDN path is now produced directly by ProxyServiceNamespacedNameForCluster
-// and does not flow through this helper.
-func applyClusterIDToSNI(sni, clusterName string) string {
-	if strings.Contains(sni, searchv1.ClusterNamePlaceholder) {
-		return strings.ReplaceAll(sni, searchv1.ClusterNamePlaceholder, clusterName)
-	}
-	// User supplied an externalHostname template without {clusterName}; honour
-	// it as-is. Multi-cluster users are expected to include the placeholder;
-	// admission rejects multi-cluster specs that omit it.
-	return sni
 }
 
 // applyShardClusterIDToSNI handles the sharded SNI rewrite. Until a

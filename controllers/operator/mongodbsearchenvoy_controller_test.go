@@ -949,7 +949,7 @@ func TestMapEnvoyObjectToSearch(t *testing.T) {
 			Labels: map[string]string{
 				khandler.MongoDBSearchOwnerNameLabel:      "mdb-search",
 				khandler.MongoDBSearchOwnerNamespaceLabel: "ns",
-				khandler.MongoDBSearchClusterNameLabel:                     "a",
+				khandler.MongoDBSearchClusterNameLabel:    "a",
 			},
 		},
 	}

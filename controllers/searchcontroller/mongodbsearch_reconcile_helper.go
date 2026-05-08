@@ -633,7 +633,6 @@ func (r *MongoDBSearchReconcileHelper) applyReconcileUnit(
 	return mutatedSts, nil
 }
 
-
 // isOwnedBy returns true if the object has an owner reference pointing to the given owner.
 // Unlike metav1.IsControlledBy, this does not require the controller: true field,
 // which is not set by controllerutil.SetOwnerReference.
