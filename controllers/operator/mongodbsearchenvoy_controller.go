@@ -402,8 +402,11 @@ func buildReplicaSetRouteForCluster(search *searchv1.MongoDBSearch, clusterIndex
 	}
 }
 
-// buildShardRoutesForCluster builds per-shard routes for one cluster. The
-// supported MC path is a templated externalHostname with {clusterName}/{shardName}.
+// buildShardRoutesForCluster builds per-shard routes for one cluster. SNI naming
+// for sharded topologies still flows through ProxyServiceNameForShard +
+// applyShardClusterIDToSNI for now (no per-(cluster, shard) Service helper exists);
+// the {clusterName}/{shardName} externalHostname template is the supported MC
+// path.
 func buildShardRoutesForCluster(search *searchv1.MongoDBSearch, shardNames []string, clusterName string) []envoyRoute {
 	base := buildShardRoutes(search, shardNames)
 	templated := search.GetManagedLBEndpoint() != ""
