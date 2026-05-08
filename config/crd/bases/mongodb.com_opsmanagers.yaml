@@ -8,7 +8,7 @@ metadata:
 spec:
   group: mongodb.com
   names:
-    kind: MongoDBOpsManager
+1    kind: MongoDBOpsManager
     listKind: MongoDBOpsManagerList
     plural: opsmanagers
     shortNames:

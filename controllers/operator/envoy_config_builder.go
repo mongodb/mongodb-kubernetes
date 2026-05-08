@@ -11,20 +11,22 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
-	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
-
+	accesslogv3 "github.com/envoyproxy/go-control-plane/envoy/config/accesslog/v3"
 	bootstrapv3 "github.com/envoyproxy/go-control-plane/envoy/config/bootstrap/v3"
 	clusterv3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
 	corev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	endpointv3 "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
 	listenerv3 "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
 	routev3 "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
+	stdoutaccesslogv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/access_loggers/stream/v3"
 	routerv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/router/v3"
 	tlsinspectorv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/listener/tls_inspector/v3"
 	hcmv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
 	tlsv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
 	upstreamhttpv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/upstreams/http/v3"
 	matcherv3 "github.com/envoyproxy/go-control-plane/envoy/type/matcher/v3"
+
+	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
 )
 
 // buildEnvoyConfigJSON builds the Envoy bootstrap configuration using
@@ -93,12 +95,13 @@ func buildEnvoyBootstrapConfig(routes []envoyRoute, tlsEnabled bool, caKeyName s
 
 	return &bootstrapv3.Bootstrap{
 		Admin: &bootstrapv3.Admin{
-			Address: socketAddress("0.0.0.0", uint32(envoyAdminPort)),
-			// enable just some endpoints because it's recommended to not enable al the admin endpoints by default
+			Address: socketAddress("0.0.0.0", uint32(EnvoyAdminPort)),
+			// enable just some endpoints because it's recommended to not enable all the admin endpoints by default.
 			AllowPaths: []*matcherv3.StringMatcher{
 				{MatchPattern: &matcherv3.StringMatcher_Exact{Exact: "/ready"}},
 				{MatchPattern: &matcherv3.StringMatcher_Prefix{Prefix: "/stats"}},
 				{MatchPattern: &matcherv3.StringMatcher_Exact{Exact: "/drain_listeners"}},
+				{MatchPattern: &matcherv3.StringMatcher_Prefix{Prefix: "/logging"}},
 			},
 		},
 		StaticResources: &bootstrapv3.Bootstrap_StaticResources{
@@ -146,6 +149,11 @@ func buildFilterChain(route envoyRoute, tlsEnabled bool, caKeyName string) (*lis
 		return nil, fmt.Errorf("failed to marshal router filter config: %w", err)
 	}
 
+	accessLog, err := buildHCMAccessLog()
+	if err != nil {
+		return nil, err
+	}
+
 	hcm := &hcmv3.HttpConnectionManager{
 		StatPrefix: fmt.Sprintf("ingress_%s", route.NameSafe),
 		CodecType:  hcmv3.HttpConnectionManager_AUTO,
@@ -186,6 +194,7 @@ func buildFilterChain(route envoyRoute, tlsEnabled bool, caKeyName string) (*lis
 		},
 		StreamIdleTimeout: durationpb.New(300 * time.Second),
 		RequestTimeout:    durationpb.New(300 * time.Second),
+		AccessLog:         accessLog,
 	}
 
 	hcmAny, err := anypb.New(hcm)
@@ -339,6 +348,74 @@ func buildDownstreamTLSTransportSocket(caKeyName string) (*corev3.TransportSocke
 	return &corev3.TransportSocket{
 		Name:       wellknown.TransportSocketTLS,
 		ConfigType: &corev3.TransportSocket_TypedConfig{TypedConfig: tlsAny},
+	}, nil
+}
+
+// buildHCMAccessLog returns the HCM access_log entries that emit one
+// JSON-formatted line to stdout per HTTP/HTTP2 stream close.
+//
+// Envoy emits exactly ONE access-log record per gRPC bidi stream — at
+// stream close — unless per-frame access logging is opted into (out of
+// scope for failure-mode tests). The single close record still captures
+// the load-bearing signals we need cross-side:
+//
+//   - %REQ(MONGODB-CLIENTID)% — the UUID the mongodb client puts on the
+//     request header. The exact same UUID mongod logs as
+//     attr.session.clientId at network:2 (id=7401401), giving us a
+//     deterministic envoy ↔ mongod join key without any time tolerance.
+//   - %RESPONSE_FLAGS% — envoy's encoded response disposition; surfaces
+//     UF/UR/etc when a mongot pod dies mid-stream so failure-mode tests
+//     can assert on the envoy-side signal in addition to mongod's
+//     "Remote error from mongot" / "RST_STREAM" surface error.
+//   - %UPSTREAM_HOST% — which mongot endpoint envoy actually picked.
+//   - %BYTES_RECEIVED% / %BYTES_SENT% / %DURATION% — basic per-stream
+//     traffic stats.
+func buildHCMAccessLog() ([]*accesslogv3.AccessLog, error) {
+	// Top-level keys (time / level / logger / message) match the envoy
+	// runtime --log-format template in mongodbsearchenvoy_controller.go.
+	// Tools that consume the envoy pod's stdout (analyzer, lnav, jq
+	// pipelines) only have to know one shape — the access-specific
+	// fields hang off the same record.
+	jsonFields, err := structpb.NewStruct(map[string]interface{}{
+		"time":           "%START_TIME(%Y-%m-%dT%H:%M:%E3S%Ez)%",
+		"level":          "info",
+		"logger":         "access",
+		"message":        "stream upstream=%UPSTREAM_HOST% path=%REQ(:PATH)% resp=%RESPONSE_CODE% grpc=%GRPC_STATUS% flags=%RESPONSE_FLAGS% dur=%DURATION%ms",
+		"duration_ms":    "%DURATION%",
+		"response_flags": "%RESPONSE_FLAGS%",
+		"response_code":  "%RESPONSE_CODE%",
+		"grpc_status":    "%GRPC_STATUS%",
+		"upstream_host":  "%UPSTREAM_HOST%",
+		"bytes_in":       "%BYTES_RECEIVED%",
+		"bytes_out":      "%BYTES_SENT%",
+		"client_id":      "%REQ(MONGODB-CLIENTID)%",
+		"path":           "%REQ(:PATH)%",
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to build access-log json format struct: %w", err)
+	}
+
+	stdoutLog := &stdoutaccesslogv3.StdoutAccessLog{
+		AccessLogFormat: &stdoutaccesslogv3.StdoutAccessLog_LogFormat{
+			LogFormat: &corev3.SubstitutionFormatString{
+				Format: &corev3.SubstitutionFormatString_JsonFormat{
+					JsonFormat: jsonFields,
+				},
+			},
+		},
+	}
+	stdoutAny, err := anypb.New(stdoutLog)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal stdout access-log config: %w", err)
+	}
+
+	return []*accesslogv3.AccessLog{
+		{
+			Name: "envoy.access_loggers.stdout",
+			ConfigType: &accesslogv3.AccessLog_TypedConfig{
+				TypedConfig: stdoutAny,
+			},
+		},
 	}, nil
 }
 

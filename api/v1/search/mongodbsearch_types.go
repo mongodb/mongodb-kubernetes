@@ -49,6 +49,12 @@ const (
 
 	ForceWireprotoAnnotation = "mongodb.com/v1.force-search-wireproto"
 
+	// ResourceDisabledAnnotation, when set to "true" on a MongoDBSearch CR,
+	// short-circuits the reconciler: it returns Result{} + nil without
+	// mutating any owned objects. Useful for tests that need to mutate
+	// owned StatefulSets directly without the operator reverting them.
+	ResourceDisabledAnnotation = "mongodb.com/resourceDisabled"
+
 	MongoDBSearchIndexFieldName = "mdbsearch-for-mongodbresourceref-index"
 
 	// ProxyServiceSuffix is the suffix used for the stable proxy Service that mongod connects to.
@@ -90,8 +96,11 @@ type MongoDBSearchSpec struct {
 	// For Sharded source: the number mongot pods per shard.
 	// When Replicas > 1, a load balancer configuration (spec.loadBalancer)
 	// is required to distribute traffic across mongot instances.
+	// 0 is allowed so operators (and operator-driven test harnesses) can
+	// take mongot offline cleanly via the CR — the StatefulSet is scaled
+	// to 0 by the reconciler; the MongoDBSearch CR itself stays around.
 	// +optional
-	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Minimum=0
 	Replicas *int32 `json:"replicas,omitempty"`
 	// Deprecated: In multi-cluster deployments, prefer spec.clusters[].statefulSet. When
 	// spec.clusters is omitted, this value auto-promotes into spec.clusters[0].statefulSet.
@@ -178,8 +187,9 @@ type ClusterSpec struct {
 	ClusterName string `json:"clusterName,omitempty"`
 	// Replicas overrides spec.replicas for this cluster's mongot StatefulSet.
 	// For sharded sources, this is mongot pods per shard, not total.
+	// 0 is allowed (StatefulSet scales to 0 — see spec.replicas docs).
 	// +optional
-	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Minimum=0
 	Replicas *int32 `json:"replicas,omitempty"`
 	// +optional
 	ResourceRequirements *corev1.ResourceRequirements `json:"resourceRequirements,omitempty"`
@@ -825,11 +835,11 @@ func (s *MongoDBSearch) EffectiveClusterFor(clusterName string) (ClusterSpec, er
 
 func (s *MongoDBSearch) GetReplicas() int {
 	// Single legitimate read of the deprecated top-level field — this is the
-	// operator-side default ("1 when unset") for the legacy single-cluster path
-	// and for validators that only look at the top-level value.
-	// Multi-cluster reconcile readers should use GetReplicasForCluster instead.
+	// operator-side default ("1 when unset") for the legacy single-cluster path.
+	// An explicit 0 is honored (callers can take mongot offline via the CR).
+	// Multi-cluster readers go through EffectiveClusters() instead.
 	//nolint:staticcheck // SA1019: deprecated field is the documented fallback.
-	if s.Spec.Replicas != nil && *s.Spec.Replicas > 0 {
+	if s.Spec.Replicas != nil {
 		return int(*s.Spec.Replicas)
 	}
 	return 1

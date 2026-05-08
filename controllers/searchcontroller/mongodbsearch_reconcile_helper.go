@@ -1132,6 +1132,14 @@ func buildProxyService(search *searchv1.MongoDBSearch, unit reconcileUnit) corev
 		Port:       search.GetEffectiveMongotPort(),
 		TargetPort: intstr.FromInt32(targetPort),
 	})
+	serviceBuilder.AddPort(&corev1.ServicePort{
+		Name:     "admin",
+		Protocol: corev1.ProtocolTCP,
+		Port:     9901,
+		// TODO cyclic import - move envoy controller into searchcontroller pkg
+		//Port:       operator.EnvoyAdminPort,
+		TargetPort: intstr.FromString("admin"),
+	})
 
 	return serviceBuilder.Build()
 }
@@ -1322,11 +1330,11 @@ type x509AuthResource struct {
 }
 
 func (x *x509AuthResource) TLSSecretNamespacedName() types.NamespacedName {
-	return x.MongoDBSearch.X509ClientCertSecret()
+	return x.X509ClientCertSecret()
 }
 
 func (x *x509AuthResource) TLSOperatorSecretNamespacedName() types.NamespacedName {
-	return x.MongoDBSearch.X509OperatorManagedSecret()
+	return x.X509OperatorManagedSecret()
 }
 
 // ensureX509ClientCertConfig processes x509 client certificate configuration for the sync source in case of mongot to mongod communication.
@@ -1432,12 +1440,12 @@ type perShardTLSResource struct {
 
 // TLSSecretNamespacedName returns the per-(cluster, shard) source secret name.
 func (p *perShardTLSResource) TLSSecretNamespacedName() types.NamespacedName {
-	return p.MongoDBSearch.TLSSecretForClusterShard(p.clusterIndex, p.shardName)
+	return p.TLSSecretForClusterShard(p.clusterIndex, p.shardName)
 }
 
 // TLSOperatorSecretNamespacedName returns the per-(cluster, shard) operator-managed secret name.
 func (p *perShardTLSResource) TLSOperatorSecretNamespacedName() types.NamespacedName {
-	return p.MongoDBSearch.TLSOperatorSecretForClusterShard(p.clusterIndex, p.shardName)
+	return p.TLSOperatorSecretForClusterShard(p.clusterIndex, p.shardName)
 }
 
 func (r *MongoDBSearchReconcileHelper) ensureEgressTlsConfig(ctx context.Context) (mongot.Modification, statefulset.Modification) {
