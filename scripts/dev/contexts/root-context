@@ -19,8 +19,20 @@ if [[ -f "${PROJECT_DIR}/.generated/.current-evg-host" ]]; then
   # evg-host-proxy autossh sidecar reads (it doesn't have evergreen CLI).
   evg_host_address_file="${PROJECT_DIR}/.generated/.current-evg-host-address"
   if command -v evergreen >/dev/null 2>&1; then
+    # Pick the first running match. If duplicates exist (the upstream evg
+    # spawn_host CLI resumes by an AWS instance tag that AWS reserves and
+    # silently rejects, so every rerun creates a fresh host with the same
+    # display name) one stable address is better than a multi-line value
+    # that breaks every consumer of EVG_HOST_ADDRESS. The upstream fix
+    # lives on branch `lsierant/evg-spawn-host-displayname-resume` in
+    # core-platforms-ai-tools (not yet merged to main as of 2026-05);
+    # `scripts/dev/evg_prepare.sh` already side-steps the bug by resuming
+    # via evg-query's displayName lookup, but the duplicate-on-resume
+    # window still exists for users who haven't picked up that flow.
     evg_resolved="$(evergreen host list --json 2>/dev/null \
-      | jq -r ".[] | select (.name==\"${EVG_HOST_NAME}\") | .host_name" 2>/dev/null || true)"
+      | jq -r --arg name "${EVG_HOST_NAME}" \
+          '[.[] | select(.name == $name and .status == "running")] | first | .host_name // empty' \
+          2>/dev/null || true)"
     if [[ -n "${evg_resolved}" ]]; then
       echo "${evg_resolved}" > "${evg_host_address_file}"
     fi
@@ -50,10 +62,13 @@ export MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH=${PROJECT_DIR}/docker/mongodb-kube
 # override for /etc/config/kubeconfig file mounted in operator's pod
 if [[ "${LOCAL_OPERATOR}" == "true" ]]; then
   # This env var is used by the local operator to load multi-cluster kubeconfig.
-  # Normally, the pod is loading it from a path that is mounted from the mongodb-enterprise-operator-multi-cluster-kubeconfig secret.
-  # When running locally, we use cli tool to generate that kubeconfig secret and write it to this file.
-  # This way, the local operator is using kubeconfig create by cli tool the same way as it's used when running in a pod.
-  export KUBE_CONFIG_PATH=~/.operator-dev/multicluster_kubeconfig
+  # Normally the pod loads it from the
+  # mongodb-enterprise-operator-multi-cluster-kubeconfig secret mounted into
+  # its container. When running locally we generate that kubeconfig with the
+  # kubectl-mongodb CLI and write it under the worktree's .generated/
+  # directory — same pattern as evg-host.kubeconfig — so multiple parallel
+  # worktrees don't clobber each other's kubeconfig at a shared path.
+  export KUBE_CONFIG_PATH="${PROJECT_DIR}/.generated/multicluster_kubeconfig"
   export PERFORM_FAILOVER=false
 fi
 

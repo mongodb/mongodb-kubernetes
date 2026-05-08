@@ -25,6 +25,9 @@ screen -wipe >/dev/null 2>&1 || true
 # (Docker Desktop restart, system sleep/wake, agent rotation) socat exits.
 # Without the loop the autossh sidecar would poll forever waiting for the
 # socket to come back, since post-start.sh only fires on devcontainer start.
+# SSH_AUTH_SOCK is expanded here on purpose so the value gets baked into the
+# command run inside the screen subshell. Everything else stays literal.
+# shellcheck disable=SC2016  # The $(...) / ${...} inside the body run in screen's bash, not here.
 screen -dmS ssh-agent-proxy bash -c '
     while true; do
         rm -f /ssh-agent/socket

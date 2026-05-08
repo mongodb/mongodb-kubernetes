@@ -289,4 +289,14 @@ run_multi_cluster_kube_config_creator() {
   ${MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH} multicluster setup "${params[@]}"
 
   kubectl get secret --context "${CENTRAL_CLUSTER}" -n "${NAMESPACE}" mongodb-enterprise-operator-multi-cluster-kubeconfig -o json | jq -rc '.data.kubeconfig' | base64 -d >"${KUBE_CONFIG_PATH}"
+
+  # Inside the devcontainer, EVG_HOST_PROXY points at gost-proxy:8080,
+  # which routes through the SSH tunnel to the EVG host. Member-cluster
+  # API server URLs in the just-written kubeconfig are 127.0.0.1:<port>
+  # on the EVG host's loopback — unreachable from the container without
+  # the proxy. Patch in proxy-url so the local operator can reach them.
+  if [[ -n "${EVG_HOST_PROXY:-}" ]]; then
+    echo "Patching multi-cluster kubeconfig (${KUBE_CONFIG_PATH}) with proxy-url ${EVG_HOST_PROXY}"
+    yq -i ".clusters[].cluster.proxy-url |= \"${EVG_HOST_PROXY}\"" "${KUBE_CONFIG_PATH}"
+  fi
 }

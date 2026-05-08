@@ -105,18 +105,47 @@ remote-prepare-local-e2e-run() {
     -e ssh \
     "${host_url}:/home/ubuntu/mongodb-kubernetes/.multi_cluster_local_test_files" \
     ./ &
-  scp "${host_url}:/home/ubuntu/.operator-dev/multicluster_kubeconfig" "${KUBE_CONFIG_PATH}" &
+  # KUBE_CONFIG_PATH on the remote also resolves to
+  # /home/ubuntu/mongodb-kubernetes/.generated/multicluster_kubeconfig
+  # (root-context expands ${PROJECT_DIR}/.generated/multicluster_kubeconfig
+  # against the remote checkout) — so the source path is fixed, the
+  # destination follows the local worktree's KUBE_CONFIG_PATH.
+  scp "${host_url}:/home/ubuntu/mongodb-kubernetes/.generated/multicluster_kubeconfig" "${KUBE_CONFIG_PATH}" &
 
   wait
 }
 
 get-kubeconfig() {
-  # The EVG host's default kubeconfig (where `kind export kubeconfig` writes
-  # because KUBECONFIG is unset on the remote) -> the worktree-local copy.
-  remote_path="${host_url}:/home/ubuntu/.kube/config"
-  echo "Copying remote kubeconfig from ${remote_path} to ${kubeconfig_path}"
-  mkdir -p "$(dirname "${kubeconfig_path}")"
-  scp "${remote_path}" "${kubeconfig_path}"
+  # Pull the EVG host's checked-in kubeconfig down to the worktree, then
+  # patch in the proxy-url and register with the kube-forwarding-proxy if
+  # we're inside an environment that has them set (devcontainer).
+  #
+  # Usage: get-kubeconfig [--no-fetch]
+  #   --no-fetch  Skip the scp step. Use when the kubeconfig already lives
+  #               in this filesystem (e.g. inside the devcontainer where
+  #               .generated/ is bind-mounted from the host) and we just
+  #               need to apply the proxy-url + k8s-proxy registration.
+  shift || true
+  local no_fetch=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --no-fetch) no_fetch=1; shift ;;
+      *) echo "Unknown argument to get-kubeconfig: $1" >&2; return 1 ;;
+    esac
+  done
+
+  if [[ ${no_fetch} -eq 0 ]]; then
+    # The remote `kind export kubeconfig` writes to ${KUBECONFIG}, which on
+    # the EVG host root-context resolves to
+    # /home/ubuntu/mongodb-kubernetes/.generated/evg-host.kubeconfig
+    # (because EVG_HOST_NAME is non-empty there). Scp from that exact path.
+    remote_path="${host_url}:/home/ubuntu/mongodb-kubernetes/.generated/evg-host.kubeconfig"
+    echo "Copying remote kubeconfig from ${remote_path} to ${kubeconfig_path}"
+    mkdir -p "$(dirname "${kubeconfig_path}")"
+    scp "${remote_path}" "${kubeconfig_path}"
+  else
+    echo "Skipping kubeconfig fetch (--no-fetch); using existing ${kubeconfig_path}"
+  fi
 
   if [[ -n "${EVG_HOST_PROXY:-}" ]]; then
     echo "Patching kubeconfig to use EVG_HOST_PROXY ${EVG_HOST_PROXY}"
@@ -236,7 +265,7 @@ case ${cmd} in
 configure) configure "$@" ;;
 recreate-kind-clusters) recreate-kind-clusters "$@" ;;
 recreate-kind-cluster) recreate-kind-cluster "$@" ;;
-get-kubeconfig) get-kubeconfig ;;
+get-kubeconfig) get-kubeconfig "$@" ;;
 remote-prepare-local-e2e-run) remote-prepare-local-e2e-run ;;
 ssh) ssh_to_host "$@" ;;
 tunnel) retry_with_sleep tunnel "$@" ;;
