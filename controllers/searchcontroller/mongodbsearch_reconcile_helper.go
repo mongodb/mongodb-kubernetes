@@ -326,7 +326,8 @@ func (r *MongoDBSearchReconcileHelper) Reconcile(ctx context.Context, log *zap.S
 	// Populate the per-cluster status surface from spec.clusters[i] before the
 	// patch goes out. No-op when spec.clusters is nil/empty (legacy single-cluster
 	// install) — top-level fields keep their existing semantics.
-	r.mdbSearch.AggregateClusterStatuses(buildPerClusterStatusItems(r.mdbSearch, workflowStatus, r.secretGaps))
+	readyByCluster := r.readyReplicasByCluster(ctx, log)
+	r.mdbSearch.AggregateClusterStatuses(buildPerClusterStatusItems(r.mdbSearch, workflowStatus, r.secretGaps, readyByCluster))
 
 	if _, err := commoncontroller.UpdateStatus(ctx, r.client, r.mdbSearch, workflowStatus, log); err != nil {
 		return workflow.Failed(err)
@@ -334,14 +335,46 @@ func (r *MongoDBSearchReconcileHelper) Reconcile(ctx context.Context, log *zap.S
 	return workflowStatus
 }
 
+// readyReplicasByCluster fetches the live ReadyReplicas count for each
+// spec.clusters[i] mongot StatefulSet, indexed by clusterName. The lookup
+// uses the per-cluster client routing (SelectClusterClient), matching where
+// the StatefulSet actually lives. Returns nil when spec.clusters is
+// nil/empty so the legacy single-cluster path stays untouched. Errors are
+// logged and the cluster's entry is dropped — downstream callers treat a
+// missing entry as ObservedReplicas=0 (the same as "STS not yet created").
+func (r *MongoDBSearchReconcileHelper) readyReplicasByCluster(ctx context.Context, log *zap.SugaredLogger) map[string]int32 {
+	if r.mdbSearch.Spec.Clusters == nil || len(*r.mdbSearch.Spec.Clusters) == 0 {
+		return nil
+	}
+	clusters := *r.mdbSearch.Spec.Clusters
+	out := make(map[string]int32, len(clusters))
+	for idx, c := range clusters {
+		unitClient, ok := SelectClusterClient(c.ClusterName, r.client, r.memberClusterClients)
+		if !ok {
+			continue
+		}
+		stsName := r.mdbSearch.StatefulSetNamespacedNameForCluster(idx)
+		var sts appsv1.StatefulSet
+		if err := unitClient.Get(ctx, stsName, &sts); err != nil {
+			if !apierrors.IsNotFound(err) {
+				log.Warnf("Failed to read StatefulSet %s for cluster %q: %s", stsName.Name, c.ClusterName, err)
+			}
+			continue
+		}
+		out[c.ClusterName] = sts.Status.ReadyReplicas
+	}
+	return out
+}
+
 // buildPerClusterStatusItems returns one SearchClusterStatusItem per
 // spec.clusters[i]. Every entry copies the workflow outcome's phase + message
-// into its inlined status.Common, and folds in any matching customer-replicated
+// into its inlined status.Common, folds in any matching customer-replicated
 // secret gaps as per-cluster warnings (so users can see which cluster is
-// missing which secrets without scraping logs). Returns nil when spec.clusters
-// is nil or empty (legacy single-cluster); the top-level Phase keeps its
-// existing semantics.
-func buildPerClusterStatusItems(mdb *searchv1.MongoDBSearch, st workflow.Status, gaps []SecretCheckResult) []searchv1.SearchClusterStatusItem {
+// missing which secrets without scraping logs), and stamps the live mongot
+// StatefulSet ReadyReplicas count looked up from readyByCluster. Returns nil
+// when spec.clusters is nil or empty (legacy single-cluster); the top-level
+// Phase keeps its existing semantics.
+func buildPerClusterStatusItems(mdb *searchv1.MongoDBSearch, st workflow.Status, gaps []SecretCheckResult, readyByCluster map[string]int32) []searchv1.SearchClusterStatusItem {
 	if mdb.Spec.Clusters == nil || len(*mdb.Spec.Clusters) == 0 {
 		return nil
 	}
@@ -359,6 +392,7 @@ func buildPerClusterStatusItems(mdb *searchv1.MongoDBSearch, st workflow.Status,
 				Phase:   st.Phase(),
 				Message: message,
 			},
+			ObservedReplicas: readyByCluster[c.ClusterName],
 		}
 		if missing := gapsByCluster[c.ClusterName]; len(missing) > 0 {
 			item.Warnings = []status.Warning{

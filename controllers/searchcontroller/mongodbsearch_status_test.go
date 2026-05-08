@@ -19,7 +19,7 @@ func TestBuildPerClusterStatusItems_Legacy_NoClusters(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"},
 		Spec:       searchv1.MongoDBSearchSpec{},
 	}
-	items := buildPerClusterStatusItems(mdb, workflow.OK(), nil)
+	items := buildPerClusterStatusItems(mdb, workflow.OK(), nil, nil)
 	assert.Empty(t, items, "legacy single-cluster reconcile must produce no per-cluster items")
 }
 
@@ -31,7 +31,7 @@ func TestBuildPerClusterStatusItems_LegacyEmptySlice_NoClusters(t *testing.T) {
 			Clusters: &emptyClusters,
 		},
 	}
-	items := buildPerClusterStatusItems(mdb, workflow.OK(), nil)
+	items := buildPerClusterStatusItems(mdb, workflow.OK(), nil, nil)
 	assert.Empty(t, items, "empty spec.clusters slice must also be treated as legacy")
 }
 
@@ -46,7 +46,7 @@ func TestBuildPerClusterStatusItems_MultiCluster_OneItemPerSpec(t *testing.T) {
 			Clusters: &clusters,
 		},
 	}
-	items := buildPerClusterStatusItems(mdb, workflow.OK(), nil)
+	items := buildPerClusterStatusItems(mdb, workflow.OK(), nil, nil)
 	require.Len(t, items, 2)
 	assert.Equal(t, "us-east-k8s", items[0].ClusterName)
 	assert.Equal(t, "eu-west-k8s", items[1].ClusterName)
@@ -65,7 +65,7 @@ func TestBuildPerClusterStatusItems_FailedReconcileFlowsToEachCluster(t *testing
 			Clusters: &clusters,
 		},
 	}
-	items := buildPerClusterStatusItems(mdb, workflow.Failed(fmt.Errorf("boom")), nil)
+	items := buildPerClusterStatusItems(mdb, workflow.Failed(fmt.Errorf("boom")), nil, nil)
 	require.Len(t, items, 2)
 	assert.Equal(t, status.PhaseFailed, items[0].Phase)
 	assert.Equal(t, status.PhaseFailed, items[1].Phase)
@@ -81,7 +81,7 @@ func TestBuildPerClusterStatusItems_PendingReconcileFlows(t *testing.T) {
 			Clusters: &clusters,
 		},
 	}
-	items := buildPerClusterStatusItems(mdb, workflow.Pending("waiting for LB"), nil)
+	items := buildPerClusterStatusItems(mdb, workflow.Pending("waiting for LB"), nil, nil)
 	require.Len(t, items, 1)
 	assert.Equal(t, status.PhasePending, items[0].Phase)
 	assert.Contains(t, items[0].Message, "waiting for LB")
@@ -111,7 +111,7 @@ func TestBuildPerClusterStatusItems_FoldsSecretGapsToWarnings(t *testing.T) {
 		{Cluster: "us-east-k8s", Missing: []string{"keyfile-secret"}},
 		{Cluster: "eu-west-k8s", Missing: []string{"keyfile-secret", "tls-cert-secret"}},
 	}
-	items := buildPerClusterStatusItems(mdb, workflow.Pending("waiting for secrets"), gaps)
+	items := buildPerClusterStatusItems(mdb, workflow.Pending("waiting for secrets"), gaps, nil)
 	require.Len(t, items, 2)
 
 	require.Len(t, items[0].Warnings, 1, "us-east-k8s gets one missing secret rolled into Warnings")
@@ -133,7 +133,36 @@ func TestBuildPerClusterStatusItems_NoGaps_NoWarnings(t *testing.T) {
 			Clusters: &clusters,
 		},
 	}
-	items := buildPerClusterStatusItems(mdb, workflow.OK(), nil)
+	items := buildPerClusterStatusItems(mdb, workflow.OK(), nil, nil)
 	require.Len(t, items, 1)
 	assert.Empty(t, items[0].Warnings)
+}
+
+// TestBuildPerClusterStatusItems_StampsObservedReplicas verifies that the
+// per-cluster ready-replica counts looked up from the live StatefulSets
+// flow into status.clusterStatusList[i].observedReplicas. A missing entry
+// in the map (cluster's STS not yet created) defaults to 0, which is the
+// same shape as "no replicas Ready yet".
+func TestBuildPerClusterStatusItems_StampsObservedReplicas(t *testing.T) {
+	clusters := []searchv1.ClusterSpec{
+		{ClusterName: "us-east-k8s"},
+		{ClusterName: "eu-west-k8s"},
+		{ClusterName: "ap-south-k8s"},
+	}
+	mdb := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"},
+		Spec: searchv1.MongoDBSearchSpec{
+			Clusters: &clusters,
+		},
+	}
+	readyByCluster := map[string]int32{
+		"us-east-k8s":  2,
+		"eu-west-k8s":  1,
+		// ap-south-k8s deliberately absent → STS not yet created → 0.
+	}
+	items := buildPerClusterStatusItems(mdb, workflow.OK(), nil, readyByCluster)
+	require.Len(t, items, 3)
+	assert.Equal(t, int32(2), items[0].ObservedReplicas)
+	assert.Equal(t, int32(1), items[1].ObservedReplicas)
+	assert.Equal(t, int32(0), items[2].ObservedReplicas)
 }
