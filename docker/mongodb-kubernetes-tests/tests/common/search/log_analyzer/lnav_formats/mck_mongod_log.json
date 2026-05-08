@@ -1,0 +1,92 @@
+{
+    "$schema": "https://lnav.org/schemas/format-v1.schema.json",
+    "mck_mongod_log": {
+        "title": "MCK mongod/mongos log",
+        "description": "mongod / mongos structured-JSON log records. Two shapes in the wild — both handled here. (1) raw form: a flat mongod JSON object (t.$date, s, c, id, ctx, msg, attr) — emitted when the collector reads the on-disk log file at /var/log/mongodb-mms-automation/mongodb.log via `fetch_database_log_files`. (2) wrapped form: same record inside an MCK launcher envelope ({\"logType\":\"mongodb\",\"contents\":\"<inner-json>\"}) — emitted when the collector reads pod stdout via `read_namespaced_pod_log`. Regex-based because the wrapped form embeds the inner record as an escaped string rather than a sibling JSON tree.",
+        "url": "https://www.mongodb.com/docs/manual/reference/log-messages/",
+        "file-pattern": "(?:mdb-[a-z0-9\\-]+-[0-9]+|mdb-sh-.*-(?:mongos|config(?:svr)?)-[0-9]+)\\.log$",
+        "multiline": false,
+        "line-format": [
+            {"field": "__timestamp__"},
+            " ",
+            {"field": "__level__", "min-width": 5},
+            "  ",
+            {"field": "component", "min-width": 8},
+            "  id=",
+            {"field": "msg_id"},
+            "  ctx=",
+            {"field": "ctx", "max-width": 24},
+            "  ",
+            {"field": "body"}
+        ],
+        "regex": {
+            "raw": {
+                "pattern": "^\\{\"t\":\\{\"\\$date\":\"(?<timestamp>[0-9T:.+\\-Z]+)\"\\},\"s\":\"(?<level>[A-Z][0-9]?)\"\\s*,\\s*\"c\":\"(?<component>[A-Z\\-]+)\"\\s*,\\s*\"id\":(?<msg_id>[0-9]+)\\s*,\\s*(?:\"svc\":\"(?<svc>[^\"]*)\",\\s*)?\"ctx\":\"(?<ctx>[^\"]+)\"\\s*,\\s*\"msg\":\"(?<body>(?:[^\"\\\\]|\\\\.)*)\".*\\}\\s*$"
+            },
+            "wrapped": {
+                "pattern": "^\\{\"logType\":\"mongodb\",\"contents\":\"\\{\\\\\"t\\\\\":\\{\\\\\"\\$date\\\\\":\\\\\"(?<timestamp>[0-9T:.+\\-Z]+)\\\\\"\\},\\\\\"s\\\\\":\\\\\"(?<level>[A-Z][0-9]?)\\\\\"\\s*,\\s*\\\\\"c\\\\\":\\\\\"(?<component>[A-Z\\-]+)\\\\\"\\s*,\\s*\\\\\"id\\\\\":(?<msg_id>[0-9]+)\\s*,\\s*(?:\\\\\"svc\\\\\":\\\\\"(?<svc>[^\"\\\\]*)\\\\\",\\s*)?\\\\\"ctx\\\\\":\\\\\"(?<ctx>[^\"\\\\]+)\\\\\"\\s*,\\s*\\\\\"msg\\\\\":\\\\\"(?<body>(?:[^\"\\\\]|\\\\\\\\.)*)\\\\\".*\\}\"\\}\\s*$"
+            }
+        },
+        "timestamp-format": [
+            "%Y-%m-%dT%H:%M:%S.%L%z",
+            "%Y-%m-%dT%H:%M:%S.%LZ",
+            "%Y-%m-%dT%H:%M:%S.%L%Z"
+        ],
+        "level-field": "level",
+        "body-field": "body",
+        "level": {
+            "trace": "D5|D4|D3",
+            "debug": "D2|D1|D",
+            "info": "I",
+            "warning": "W",
+            "error": "E",
+            "fatal": "F"
+        },
+        "value": {
+            "component": {
+                "kind": "string",
+                "identifier": true,
+                "description": "MongoDB component (NETWORK, COMMAND, ACCESS, QUERY, ...)."
+            },
+            "svc": {
+                "kind": "string",
+                "identifier": true,
+                "description": "Service role tag — present on mongos lines (R=router, S=shard, -=none). Absent on standalone/replica mongod."
+            },
+            "msg_id": {
+                "kind": "integer",
+                "identifier": true,
+                "description": "Log-message id (e.g. 51803 = Slow query, 7401401 = grpc session open, 7401403 = grpc session close)."
+            },
+            "ctx": {
+                "kind": "string",
+                "identifier": true,
+                "description": "Operation context — typically conn<N> for client-driven ops; matches the server_connection_id we join on."
+            }
+        },
+        "highlights": {
+            "search_stage": {
+                "pattern": "\\$search|search_stage|mongot",
+                "color": "magenta"
+            },
+            "errmsg": {
+                "pattern": "errMsg|errName|HostUnreachable|Socket closed",
+                "color": "red"
+            }
+        },
+        "sample": [
+            {
+                "line": "{\"t\":{\"$date\":\"2026-05-26T09:47:57.342+00:00\"},\"s\":\"I\",  \"c\":\"NETWORK\",  \"id\":6723804, \"ctx\":\"conn6859\",\"msg\":\"Ingress TLS handshake complete\",\"attr\":{\"durationMillis\":58}}"
+            },
+            {
+                "line": "{\"t\":{\"$date\":\"2026-05-25T11:40:35.314+00:00\"},\"s\":\"I\",  \"c\":\"NETWORK\",  \"id\":22944,   \"svc\":\"R\", \"ctx\":\"conn228\",\"msg\":\"Connection ended\",\"attr\":{\"remote\":\"127.0.0.1:35614\",\"connectionId\":228}}"
+            },
+            {
+                "line": "{\"logType\":\"mongodb\",\"contents\":\"{\\\"t\\\":{\\\"$date\\\":\\\"2026-05-26T09:47:57.342+00:00\\\"},\\\"s\\\":\\\"I\\\",  \\\"c\\\":\\\"NETWORK\\\",  \\\"id\\\":6723804, \\\"ctx\\\":\\\"conn6859\\\",\\\"msg\\\":\\\"Ingress TLS handshake complete\\\",\\\"attr\\\":{\\\"durationMillis\\\":58}}\"}"
+            },
+            {
+                "line": "{\"logType\":\"mongodb\",\"contents\":\"{\\\"t\\\":{\\\"$date\\\":\\\"2026-05-25T11:40:35.314+00:00\\\"},\\\"s\\\":\\\"I\\\",  \\\"c\\\":\\\"NETWORK\\\",  \\\"id\\\":22944,   \\\"svc\\\":\\\"R\\\", \\\"ctx\\\":\\\"conn228\\\",\\\"msg\\\":\\\"Connection ended\\\",\\\"attr\\\":{\\\"remote\\\":\\\"127.0.0.1:35614\\\",\\\"connectionId\\\":228}}\"}"
+            }
+        ]
+    }
+}

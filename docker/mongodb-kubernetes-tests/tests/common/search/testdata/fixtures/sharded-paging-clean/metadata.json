@@ -1,0 +1,36 @@
+{
+  "scenario": "sharded-paging-clean",
+  "namespace": "ls-25",
+  "mdb_name": "mdb-sh-conn-tool",
+  "mdbs_name": "mdb-sh-conn-tool",
+  "topology": "sharded",
+  "started_at": "2026-05-19T14:18:48.945306+00:00",
+  "finished_at": "2026-05-19T14:19:03.620052+00:00",
+  "elapsed_seconds": 9.232751,
+  "pages_requested": 5,
+  "pages_read": 5,
+  "batch_size": 10,
+  "interval_seconds": 0.5,
+  "fault": null,
+  "pods": {
+    "mongos": [
+      "mdb-sh-conn-tool-mongos-0"
+    ],
+    "mongod": [
+      "mdb-sh-conn-tool-0-0",
+      "mdb-sh-conn-tool-1-0"
+    ],
+    "mongot": [
+      "mdb-sh-conn-tool-search-0-mdb-sh-conn-tool-0-0",
+      "mdb-sh-conn-tool-search-0-mdb-sh-conn-tool-0-1",
+      "mdb-sh-conn-tool-search-0-mdb-sh-conn-tool-1-0",
+      "mdb-sh-conn-tool-search-0-mdb-sh-conn-tool-1-1"
+    ],
+    "envoy": [
+      "mdb-sh-conn-tool-search-lb-0-0-7679877b8f-v4vrd"
+    ]
+  },
+  "wire_op_count": 12,
+  "admin_user_env": "mdb-sh-admin-user",
+  "verbosity_bumped": true
+}

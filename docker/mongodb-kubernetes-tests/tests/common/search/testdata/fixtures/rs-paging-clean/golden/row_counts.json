@@ -1,0 +1,23 @@
+{
+  "scenario": "rs-paging-clean",
+  "topology": "rs",
+  "rows": {
+    "mongod_commands": 11,
+    "mongod_sessions": 1,
+    "mongos_commands": 0,
+    "mongos_remote_requests": 0,
+    "envoy_streams": 1,
+    "envoy_access": 1,
+    "mongot_streams": 1,
+    "mongot_batches": 1,
+    "mongot_stream_opens": 1,
+    "mongot_cmds": 2,
+    "client_wire_ops": 12
+  },
+  "lsids": [
+    "b4430433a44d4e46986069d152cfb52c",
+    "f451848680094ef4821e248fdf14cf63"
+  ],
+  "timeline_events": 32,
+  "cursor_trees": 1
+}

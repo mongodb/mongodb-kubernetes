@@ -1,0 +1,4 @@
+
+=== detected lsids in window — 2 ===
+  f451848680094ef4821e248fdf14cf63  cursor_id=4965231678156617002  mongos=-  num_shards=-  events=12
+  b4430433a44d4e46986069d152cfb52c  cursor_id=?  mongos=-  num_shards=-  events=1

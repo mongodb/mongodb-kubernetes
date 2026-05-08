@@ -1,0 +1,19 @@
+
+=== single-lsid interleaved timeline — lsid=f451848680094ef4821e248fdf14cf63  events=17 ===
+[c?    ]  2026-05-19T14:18:18.345714+00:00  client         pod=-  kind=aggregate.started  cursor_id=?  lsid=f4518486  request_id=783368690
+[c?    ]  2026-05-19T14:18:18.422000+00:00  mongod.cmd     pod=mdb-rs-conn-tool-1  kind=aggregate  cursor_id=?  lsid=f4518486  namespace=sample_mflix.movies duration_ms=19 has_search_stage=True
+[c496…002]  2026-05-19T14:18:18.426892+00:00  client         pod=-  kind=aggregate.succeeded  cursor_id=4965231678156617002  lsid=f4518486  request_id=783368690 duration_micros=81300 n_returned=10
+[c496…002]  2026-05-19T14:18:18.933072+00:00  client         pod=-  kind=getMore.started  cursor_id=4965231678156617002  lsid=f4518486  request_id=1102520059
+[c496…002]  2026-05-19T14:18:18.992000+00:00  mongod.cmd     pod=mdb-rs-conn-tool-1  kind=getMore  cursor_id=4965231678156617002  lsid=f4518486  namespace=sample_mflix.movies duration_ms=0 has_search_stage=False
+[c496…002]  2026-05-19T14:18:18.993001+00:00  client         pod=-  kind=getMore.succeeded  cursor_id=4965231678156617002  lsid=f4518486  request_id=1102520059 duration_micros=59982 n_returned=10
+[c496…002]  2026-05-19T14:18:19.495846+00:00  client         pod=-  kind=getMore.started  cursor_id=4965231678156617002  lsid=f4518486  request_id=2044897763
+[c496…002]  2026-05-19T14:18:19.553000+00:00  mongod.cmd     pod=mdb-rs-conn-tool-1  kind=getMore  cursor_id=4965231678156617002  lsid=f4518486  namespace=sample_mflix.movies duration_ms=0 has_search_stage=False
+[c496…002]  2026-05-19T14:18:19.553369+00:00  client         pod=-  kind=getMore.succeeded  cursor_id=4965231678156617002  lsid=f4518486  request_id=2044897763 duration_micros=57710 n_returned=10
+[c496…002]  2026-05-19T14:18:20.056488+00:00  client         pod=-  kind=getMore.started  cursor_id=4965231678156617002  lsid=f4518486  request_id=1967513926
+[c496…002]  2026-05-19T14:18:20.113707+00:00  client         pod=-  kind=getMore.succeeded  cursor_id=4965231678156617002  lsid=f4518486  request_id=1967513926 duration_micros=57532 n_returned=10
+[c496…002]  2026-05-19T14:18:20.115000+00:00  mongod.cmd     pod=mdb-rs-conn-tool-1  kind=getMore  cursor_id=4965231678156617002  lsid=f4518486  namespace=sample_mflix.movies duration_ms=0 has_search_stage=False
+[c496…002]  2026-05-19T14:18:20.615868+00:00  client         pod=-  kind=getMore.started  cursor_id=4965231678156617002  lsid=f4518486  request_id=1365180540
+[c496…002]  2026-05-19T14:18:20.673773+00:00  client         pod=-  kind=getMore.succeeded  cursor_id=4965231678156617002  lsid=f4518486  request_id=1365180540 duration_micros=58002 n_returned=10
+[c496…002]  2026-05-19T14:18:20.674000+00:00  mongod.cmd     pod=mdb-rs-conn-tool-1  kind=getMore  cursor_id=4965231678156617002  lsid=f4518486  namespace=sample_mflix.movies duration_ms=0 has_search_stage=False
+[c496…002]  2026-05-19T14:18:20.674639+00:00  client         pod=-  kind=killCursors.started  cursor_id=4965231678156617002  lsid=f4518486  request_id=1540383426
+[c496…002]  2026-05-19T14:18:20.731000+00:00  mongod.cmd     pod=mdb-rs-conn-tool-1  kind=killCursors  cursor_id=4965231678156617002  lsid=f4518486  namespace=sample_mflix.movies duration_ms=0 has_search_stage=False

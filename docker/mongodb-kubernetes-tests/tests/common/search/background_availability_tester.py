@@ -227,6 +227,57 @@ class SearchAvailabilityBackgroundTester(threading.Thread):
         self._cursor = None
         self._cursor_pages_consumed = 0
 
+    def get_results(self) -> list[QueryResult]:
+        """Return a snapshot of all recorded ``QueryResult``s so far."""
+        with self._results_lock:
+            return list(self._results)
+
+    def assert_steady_state(
+        self,
+        min_iterations: int = 5,
+        max_failed: int = 0,
+    ) -> ConnectivityVerdict:
+        """Assert the verdict shows uninterrupted availability; return it.
+
+        Raises ``AssertionError`` if fewer than ``min_iterations`` ran or if
+        more than ``max_failed`` failures were recorded.
+        """
+        v = self.verdict
+        if v.total < min_iterations:
+            raise AssertionError(
+                f"too few iterations to trust verdict: total={v.total} < {min_iterations}; " f"verdict={v.as_dict()}"
+            )
+        if v.failed > max_failed:
+            raise AssertionError(
+                f"verdict surfaced failures during a no-outage window: failed={v.failed} > {max_failed}; "
+                f"verdict={v.as_dict()}"
+            )
+        return v
+
+    def assert_outage_detected(
+        self,
+        accept_classes: Optional[tuple[str, ...]] = None,
+    ) -> ConnectivityVerdict:
+        """Assert at least one failure of an accepted class surfaced; return verdict.
+
+        Default accepted set is ``("cursor_lost", "transient_network")``.
+        """
+        v = self.verdict
+        accept = accept_classes or ("cursor_lost", "transient_network")
+        if v.total == 0:
+            raise AssertionError(f"verdict has no iterations — the harness never ran. verdict={v.as_dict()}")
+        observed = {
+            "cursor_lost": v.cursor_lost,
+            "transient_network": v.transient_network,
+            "other": v.other_failed,
+        }
+        if not any(observed[c] > 0 for c in accept):
+            raise AssertionError(
+                f"verdict did not surface a {' or '.join(accept)} failure — "
+                f"the background tester missed the fault. verdict={v.as_dict()}"
+            )
+        return v
+
 
 def assert_no_outage(verdict: ConnectivityVerdict, min_operations: int = 5) -> None:
     """Primary assertion: the verdict shows uninterrupted availability.

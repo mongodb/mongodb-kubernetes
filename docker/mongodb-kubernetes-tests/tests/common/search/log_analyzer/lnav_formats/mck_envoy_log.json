@@ -1,0 +1,97 @@
+{
+    "$schema": "https://lnav.org/schemas/format-v1.schema.json",
+    "mck_envoy_log": {
+        "title": "MCK envoy log (runtime + access)",
+        "description": "Envoy stdout from search-lb proxy pods. Both runtime logs (envoy --log-format template) and per-stream HCM access entries (buildHCMAccessLog) share a unified JSON shape — time / level / logger / message — so this single json:true format covers everything. Access entries carry extra fields (grpc_status, upstream_host, response_code, response_flags, client_id, path, duration_ms, bytes_in, bytes_out) hanging off the same record. Runtime entries carry logger=<component>, thread, loc=<file:line>; access entries carry logger=access. The source-location field is named 'loc' (not 'source') to avoid lnav's built-in JSON-graylog demuxer (which keys on source+message).",
+        "url": "https://www.envoyproxy.io/docs/envoy/latest/operations/cli#cmdoption-log-format",
+        "json": true,
+        "file-pattern": "mdb-.*-search-lb-.*\\.log$",
+        "line-format": [
+            {"field": "__timestamp__"},
+            " ",
+            {"field": "__level__", "min-width": 5},
+            "  ",
+            {"field": "logger", "min-width": 12, "max-width": 12},
+            "  ",
+            {"field": "message"}
+        ],
+        "timestamp-field": "time",
+        "timestamp-format": [
+            "%Y-%m-%dT%H:%M:%S.%L%z",
+            "%Y-%m-%dT%H:%M:%S.%LZ"
+        ],
+        "level-field": "level",
+        "body-field": "message",
+        "level": {
+            "trace": "trace",
+            "debug": "debug",
+            "info": "info",
+            "warning": "warning|warn",
+            "error": "error|critical",
+            "fatal": "fatal"
+        },
+        "value": {
+            "logger": {
+                "kind": "string",
+                "identifier": true,
+                "description": "Component (http, http2, connection, upstream, ...) on runtime lines; 'access' on access-log lines."
+            },
+            "thread": {
+                "kind": "integer",
+                "identifier": true,
+                "description": "Envoy worker thread id. Runtime only."
+            },
+            "loc": {
+                "kind": "string",
+                "description": "C++ source file:line emitting the runtime record (envoy %g:%#). Runtime only."
+            },
+            "client_id": {
+                "kind": "string",
+                "identifier": true,
+                "description": "mongodb-clientid header — cross-layer join key to mongod NETWORK + mongot interceptor. Access-log only."
+            },
+            "upstream_host": {
+                "kind": "string",
+                "identifier": true,
+                "description": "Resolved upstream <ip>:<port>. Access-log only."
+            },
+            "path": {
+                "kind": "string",
+                "identifier": true,
+                "description": ":path header — gRPC method. Access-log only."
+            },
+            "grpc_status": {
+                "kind": "string",
+                "identifier": true,
+                "description": "gRPC final status text (OK / Unavailable / ...). Access-log only."
+            },
+            "response_code": {
+                "kind": "integer",
+                "identifier": true,
+                "description": "HTTP/2 response status. Access-log only."
+            },
+            "response_flags": {
+                "kind": "string",
+                "identifier": true,
+                "description": "Envoy upstream-disposition short-form (UH, UF, NR, -, ...). Access-log only."
+            },
+            "duration_ms": {
+                "kind": "integer",
+                "description": "Stream duration in ms. Access-log only."
+            },
+            "bytes_in": {"kind": "integer"},
+            "bytes_out": {"kind": "integer"}
+        },
+        "sample": [
+            {
+                "line": "{\"time\":\"2026-05-26T07:34:42.085+00:00\",\"level\":\"info\",\"logger\":\"main\",\"thread\":1,\"loc\":\"source/server/server.cc:467\",\"message\":\"initializing epoch 0 (base id=0, hot restart version=11.104)\"}"
+            },
+            {
+                "line": "{\"time\":\"2026-05-26T07:34:48.122+00:00\",\"level\":\"debug\",\"logger\":\"connection\",\"thread\":1,\"loc\":\"source/common/network/connection_impl.cc:781\",\"message\":\"[Tags: ConnectionId:7] remote close\"}"
+            },
+            {
+                "line": "{\"time\":\"2026-05-26T08:57:50.055+00:00\",\"level\":\"info\",\"logger\":\"access\",\"message\":\"stream upstream=10.244.0.163:27028 path=/mongodb.CommandService/UnauthenticatedCommandStream resp=200 grpc=OK flags=- dur=15ms\",\"duration_ms\":15,\"response_flags\":\"-\",\"response_code\":200,\"grpc_status\":\"OK\",\"upstream_host\":\"10.244.0.163:27028\",\"bytes_in\":517,\"bytes_out\":169,\"client_id\":\"a9a9fe8c-4be0-4e10-bdb9-c6fa4609dadc\",\"path\":\"/mongodb.CommandService/UnauthenticatedCommandStream\"}"
+            }
+        ]
+    }
+}

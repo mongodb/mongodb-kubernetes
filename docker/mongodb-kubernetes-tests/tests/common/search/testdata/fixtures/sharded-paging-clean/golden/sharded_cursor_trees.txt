@@ -1,0 +1,10 @@
+
+=== per-sharded-cursor tree view — 1 cursor(s) ===
+
+  cursor 6216190576695441574  lsid=628a6b198d7142848bef97dc15a362e0  mongos=mdb-sh-conn-tool-mongos-0  num_shards=2  branches=0  wire_ops=6
+    mongos.aggregate  ts=2026-05-19T14:18:52.782000+00:00  dur_ms=2422  nShards=2
+    mongos.getMore  ts=2026-05-19T14:18:53.343000+00:00  dur_ms=0  nShards=2
+    mongos.getMore  ts=2026-05-19T14:18:53.899000+00:00  dur_ms=0  nShards=2
+    mongos.getMore  ts=2026-05-19T14:18:54.454000+00:00  dur_ms=0  nShards=2
+    mongos.getMore  ts=2026-05-19T14:18:55.008000+00:00  dur_ms=0  nShards=2
+    mongos.killCursors  ts=2026-05-19T14:18:55.063000+00:00  dur_ms=0  nShards=None

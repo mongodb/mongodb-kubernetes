@@ -1,0 +1,32 @@
+{
+  "scenario": "rs-paging-clean",
+  "namespace": "ls-25",
+  "mdb_name": "mdb-rs-conn-tool",
+  "mdbs_name": "mdb-rs-conn-tool",
+  "topology": "rs",
+  "started_at": "2026-05-19T14:18:16.361110+00:00",
+  "finished_at": "2026-05-19T14:18:27.080815+00:00",
+  "elapsed_seconds": 7.478262,
+  "pages_requested": 5,
+  "pages_read": 5,
+  "batch_size": 10,
+  "interval_seconds": 0.5,
+  "fault": null,
+  "pods": {
+    "mongos": [],
+    "mongod": [
+      "mdb-rs-conn-tool-0",
+      "mdb-rs-conn-tool-1",
+      "mdb-rs-conn-tool-2"
+    ],
+    "mongot": [
+      "mdb-rs-conn-tool-search-0"
+    ],
+    "envoy": [
+      "mdb-rs-conn-tool-search-lb-0-0-689f6c5d4b-2pnsq"
+    ]
+  },
+  "wire_op_count": 12,
+  "admin_user_env": "mdb-admin-user",
+  "verbosity_bumped": true
+}
