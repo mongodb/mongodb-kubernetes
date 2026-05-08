@@ -146,7 +146,7 @@ if [[ ${skip_devcontainer} -eq 0 ]]; then
     # Reuse the previously-chosen prefix for this worktree.
     chosen_line="$(grep '^MCK_DEVC_NET_PREFIX=' "${net_env_file}" | tail -n1)"
   else
-    chosen_line="$(bash scripts/dev/dc_select_network.sh)"
+    chosen_line="$(bash scripts/dev/dc_select_network.sh --branch-dir "${branch_dir}")"
     echo "${chosen_line}" >> "${net_env_file}"
   fi
   export "${chosen_line?}"

@@ -4,6 +4,7 @@
 #   - stop & remove the devcontainer compose stack
 #   - terminate the EVG host with that displayName
 #   - remove the git worktree directory
+#   - free the host-local network-prefix registry slot for the branch
 #   - optionally delete the branch (--delete-branch)
 #
 # Usage:
@@ -14,6 +15,7 @@
 #   --keep-evg-host     Don't terminate the EVG host (default: terminate).
 #   --keep-stack        Don't run `docker compose down` (default: down).
 #   --keep-worktree     Don't `git worktree remove` (default: remove).
+#   --keep-net-slot     Don't free the network-prefix registry slot.
 #   --evg-host-name N   Override EVG host display name (default: worktree dir).
 #   -h, --help
 #
@@ -30,6 +32,7 @@ delete_branch=0
 keep_evg_host=0
 keep_stack=0
 keep_worktree=0
+keep_net_slot=0
 evg_host_name=""
 positional=()
 while [[ $# -gt 0 ]]; do
@@ -38,6 +41,7 @@ while [[ $# -gt 0 ]]; do
     --keep-evg-host)  keep_evg_host=1; shift ;;
     --keep-stack)     keep_stack=1; shift ;;
     --keep-worktree)  keep_worktree=1; shift ;;
+    --keep-net-slot)  keep_net_slot=1; shift ;;
     --evg-host-name)  evg_host_name="$2"; shift 2 ;;
     -h|--help)        usage; exit 0 ;;
     -*) echo "Unknown option: $1" >&2; usage; exit 1 ;;
@@ -108,7 +112,16 @@ if [[ ${keep_worktree} -eq 0 ]]; then
   git -C "${src_repo_root}" worktree prune 2>&1 | sed 's/^/    /' || true
 fi
 
-# 4. Optionally delete the branch.
+# 4. Free the network-prefix registry slot for this branch_dir.
+# Done under the registry's own mkdir-lock so it can't race with a concurrent
+# wt_setup. No-op if the entry isn't there.
+if [[ ${keep_net_slot} -eq 0 ]]; then
+  echo "==> Freeing network-prefix registry slot for '${branch_dir}'"
+  bash "${src_repo_root}/scripts/dev/dc_select_network.sh" --free "${branch_dir}" \
+    2>&1 | sed 's/^/    /' || true
+fi
+
+# 5. Optionally delete the branch.
 if [[ ${delete_branch} -eq 1 ]]; then
   if git -C "${src_repo_root}" show-ref --verify --quiet "refs/heads/${branch}"; then
     echo "==> Deleting local branch '${branch}'"
