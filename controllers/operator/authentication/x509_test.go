@@ -27,6 +27,7 @@ func TestX509EnableAgentAuthentication(t *testing.T) {
 	options := Options{
 		AgentMechanism:     "X509",
 		ClientCertificates: util.RequireClientCertificates,
+		KeyfilePath:        util.AutomationAgentKeyFilePathInContainer,
 		UserOptions: UserOptions{
 			AutomationSubject: validSubject("automation"),
 		},
@@ -59,6 +60,7 @@ func TestX509_DisableAgentAuthentication(t *testing.T) {
 	conn := om.NewMockedOmConnection(om.NewDeployment())
 
 	opts := Options{
+		KeyfilePath: util.AutomationAgentKeyFilePathInContainer,
 		UserOptions: UserOptions{
 			AutomationSubject: validSubject("automation"),
 		},
