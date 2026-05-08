@@ -11,15 +11,39 @@
 #      like wt_teardown.sh delete the right scope without first refreshing the
 #      worktree's context).
 #
-# Tests run against the real project files. The only state mutated is
-# .devcontainer/.env (and only when a test needs to verify the file-loading
-# fallback); setup() snapshots it and teardown() restores it so the tests
-# don't leave a dirty worktree behind.
+# Tests run against the real `scripts/dev/contexts/root-context` and the real
+# `scripts/dev/delete_om_projects.sh`. Two files are mutated for the duration
+# of each test and restored in teardown(), so the tests don't leave a dirty
+# worktree behind:
+#   - .devcontainer/.env       (controls .devcontainer/.env-loading fallback)
+#   - scripts/dev/contexts/private-context  (stubbed to set a known NAMESPACE
+#                                           so the test is deterministic in
+#                                           any environment, including EVG CI
+#                                           where the file may use the
+#                                           NAMESPACE_FILE-driven evg shape).
+# Bats guarantees teardown() runs even if the test crashes mid-execution.
 
 setup() {
     PROJECT_DIR="$(git rev-parse --show-toplevel)"
     cd "${PROJECT_DIR}"
 
+    # Stub private-context with a known NAMESPACE.
+    PC_FILE="${PROJECT_DIR}/scripts/dev/contexts/private-context"
+    PC_BACKUP="${BATS_TEST_TMPDIR}/private-context.bak"
+    if [[ -f "${PC_FILE}" ]]; then
+        cp -p "${PC_FILE}" "${PC_BACKUP}"
+        PC_HAD_FILE=1
+    else
+        PC_HAD_FILE=0
+    fi
+    KNOWN_NS="bats-namespace"
+    cat >"${PC_FILE}" <<EOF
+#!/bin/bash
+export NAMESPACE="${KNOWN_NS}"
+EOF
+
+    # Snapshot .devcontainer/.env (some tests mutate it to verify the
+    # file-loading fallback).
     DEVC_ENV_FILE="${PROJECT_DIR}/.devcontainer/.env"
     DEVC_ENV_BACKUP="${BATS_TEST_TMPDIR}/devcontainer.env.bak"
     if [[ -f "${DEVC_ENV_FILE}" ]]; then
@@ -31,6 +55,11 @@ setup() {
 }
 
 teardown() {
+    if [[ "${PC_HAD_FILE}" == "1" ]]; then
+        mv "${PC_BACKUP}" "${PC_FILE}"
+    else
+        rm -f "${PC_FILE}"
+    fi
     if [[ "${DEVC_ENV_HAD_FILE}" == "1" ]]; then
         mv "${DEVC_ENV_BACKUP}" "${DEVC_ENV_FILE}"
     else
@@ -57,13 +86,10 @@ namespace_after_root_context() {
 # ---------------------------------------------------------------------------
 
 @test "root-context: appends -PREFIX to the user's NAMESPACE" {
-    NAMESPACE_in_pc="$(grep -E '^export NAMESPACE=' scripts/dev/contexts/private-context | tail -1 | sed -E 's/.*"([^"]+)".*/\1/')"
-    [[ -n "${NAMESPACE_in_pc}" ]]
-
     export MCK_DEVC_NET_PREFIX=20
     result="$(namespace_after_root_context)"
 
-    [[ "${result}" == "${NAMESPACE_in_pc}-20" ]]
+    [[ "${result}" == "${KNOWN_NS}-20" ]]
 }
 
 @test "root-context: idempotent — already-suffixed NAMESPACE is left alone" {
@@ -85,42 +111,36 @@ namespace_after_root_context() {
     first="${result%%|*}"
     second="${result#*|}"
     [[ "${first}" == "${second}" ]]
-    [[ "${first}" == *-20 ]]
+    [[ "${first}" == "${KNOWN_NS}-20" ]]
 }
 
 @test "root-context: no MCK_DEVC_NET_PREFIX in env or .devcontainer/.env -> NAMESPACE untouched" {
-    NAMESPACE_in_pc="$(grep -E '^export NAMESPACE=' scripts/dev/contexts/private-context | tail -1 | sed -E 's/.*"([^"]+)".*/\1/')"
-
     unset MCK_DEVC_NET_PREFIX
     rm -f "${DEVC_ENV_FILE}"
 
     result="$(namespace_after_root_context)"
 
-    [[ "${result}" == "${NAMESPACE_in_pc}" ]]
+    [[ "${result}" == "${KNOWN_NS}" ]]
 }
 
 @test "root-context: loads MCK_DEVC_NET_PREFIX from .devcontainer/.env when not in env" {
-    NAMESPACE_in_pc="$(grep -E '^export NAMESPACE=' scripts/dev/contexts/private-context | tail -1 | sed -E 's/.*"([^"]+)".*/\1/')"
-
     unset MCK_DEVC_NET_PREFIX
     mkdir -p "$(dirname "${DEVC_ENV_FILE}")"
     echo "MCK_DEVC_NET_PREFIX=24" > "${DEVC_ENV_FILE}"
 
     result="$(namespace_after_root_context)"
 
-    [[ "${result}" == "${NAMESPACE_in_pc}-24" ]]
+    [[ "${result}" == "${KNOWN_NS}-24" ]]
 }
 
 @test "root-context: env-set MCK_DEVC_NET_PREFIX wins over .devcontainer/.env" {
-    NAMESPACE_in_pc="$(grep -E '^export NAMESPACE=' scripts/dev/contexts/private-context | tail -1 | sed -E 's/.*"([^"]+)".*/\1/')"
-
     export MCK_DEVC_NET_PREFIX=18
     mkdir -p "$(dirname "${DEVC_ENV_FILE}")"
     echo "MCK_DEVC_NET_PREFIX=24" > "${DEVC_ENV_FILE}"
 
     result="$(namespace_after_root_context)"
 
-    [[ "${result}" == "${NAMESPACE_in_pc}-18" ]]
+    [[ "${result}" == "${KNOWN_NS}-18" ]]
 }
 
 # ---------------------------------------------------------------------------
