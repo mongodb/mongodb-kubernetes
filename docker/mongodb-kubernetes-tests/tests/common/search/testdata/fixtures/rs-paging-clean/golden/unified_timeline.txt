@@ -1,0 +1,34 @@
+
+=== unified cross-layer timeline — 32 event(s) ===
+  2026-05-19T14:18:18.345714+00:00  client         pod=-  kind=aggregate.started  lsid=f451848680094ef4821e248fdf14cf63  conn_id=7399  request_id=783368690
+  2026-05-19T14:18:18.402000+00:00  envoy          pod=mdb-rs-conn-tool-search-lb-0-0-689f6c5d4b-2pnsq  kind=stream_close  client_id=9d9dcc9e-c025-4be0-972d-2ff4136a9adc  stream_id=-1  grpc_status=OK rst_stream=False outbound_bytes=0 outbound_data_frames=0 upstream_host=10.244.0.232:27028 response_code=200 response_flags=-
+  2026-05-19T14:18:18.403000+00:00  mongot.frame   pod=mdb-rs-conn-tool-search-0  kind=stream_open  stream_id=3  grpc_path=/mongodb.CommandService/UnauthenticatedCommandStream peer=10.244.0.233:57724]
+  2026-05-19T14:18:18.404000+00:00  mongot.frame   pod=mdb-rs-conn-tool-search-0  kind=interceptor_stream_open  client_id=9d9dcc9e-c025-4be0-972d-2ff4136a9adc  path=mongodb.CommandService/UnauthenticatedCommandStream
+  2026-05-19T14:18:18.406000+00:00  mongod.net     pod=mdb-rs-conn-tool-1  kind=session_open  client_id=9d9dcc9e-c025-4be0-972d-2ff4136a9adc  session_id=7400  remote=mdb-rs-conn-tool-search-0-proxy-svc.ls-25.svc.cluster.local:27028
+  2026-05-19T14:18:18.415000+00:00  mongot.batch   pod=mdb-rs-conn-tool-search-0  kind=SearchCommand  cursor_id=5129174669623039525
+  2026-05-19T14:18:18.418000+00:00  mongot.batch   pod=mdb-rs-conn-tool-search-0  kind=batch_prepared  size=108
+  2026-05-19T14:18:18.422000+00:00  mongod.cmd     pod=mdb-rs-conn-tool-1  kind=aggregate  lsid=f451848680094ef4821e248fdf14cf63  conn_id=7399  namespace=sample_mflix.movies duration_ms=19 has_search_stage=True
+  2026-05-19T14:18:18.426892+00:00  client         pod=-  kind=aggregate.succeeded  cursor_id=4965231678156617002  conn_id=7399  request_id=783368690 duration_micros=81300 n_returned=10
+  2026-05-19T14:18:18.465000+00:00  mongod.cmd     pod=mdb-rs-conn-tool-1  kind=getMore  cursor_id=8368028267106132853  conn_id=181  namespace=local.oplog.rs duration_ms=4993 has_search_stage=False
+  2026-05-19T14:18:18.465000+00:00  mongod.cmd     pod=mdb-rs-conn-tool-1  kind=getMore  cursor_id=1435813626688586023  conn_id=174  namespace=local.oplog.rs duration_ms=4993 has_search_stage=False
+  2026-05-19T14:18:18.467000+00:00  mongod.cmd     pod=mdb-rs-conn-tool-1  kind=getMore  cursor_id=1435813626688586023  conn_id=174  namespace=local.oplog.rs duration_ms=1 has_search_stage=False
+  2026-05-19T14:18:18.467000+00:00  mongod.cmd     pod=mdb-rs-conn-tool-1  kind=getMore  cursor_id=8368028267106132853  conn_id=181  namespace=local.oplog.rs duration_ms=1 has_search_stage=False
+  2026-05-19T14:18:18.933072+00:00  client         pod=-  kind=getMore.started  lsid=f451848680094ef4821e248fdf14cf63  cursor_id=4965231678156617002  conn_id=7399  request_id=1102520059
+  2026-05-19T14:18:18.992000+00:00  mongod.cmd     pod=mdb-rs-conn-tool-1  kind=getMore  lsid=f451848680094ef4821e248fdf14cf63  cursor_id=4965231678156617002  conn_id=7399  namespace=sample_mflix.movies duration_ms=0 has_search_stage=False
+  2026-05-19T14:18:18.993001+00:00  client         pod=-  kind=getMore.succeeded  cursor_id=4965231678156617002  conn_id=7399  request_id=1102520059 duration_micros=59982 n_returned=10
+  2026-05-19T14:18:19.495846+00:00  client         pod=-  kind=getMore.started  lsid=f451848680094ef4821e248fdf14cf63  cursor_id=4965231678156617002  conn_id=7399  request_id=2044897763
+  2026-05-19T14:18:19.553000+00:00  mongod.cmd     pod=mdb-rs-conn-tool-1  kind=getMore  lsid=f451848680094ef4821e248fdf14cf63  cursor_id=4965231678156617002  conn_id=7399  namespace=sample_mflix.movies duration_ms=0 has_search_stage=False
+  2026-05-19T14:18:19.553369+00:00  client         pod=-  kind=getMore.succeeded  cursor_id=4965231678156617002  conn_id=7399  request_id=2044897763 duration_micros=57710 n_returned=10
+  2026-05-19T14:18:20.056488+00:00  client         pod=-  kind=getMore.started  lsid=f451848680094ef4821e248fdf14cf63  cursor_id=4965231678156617002  conn_id=7399  request_id=1967513926
+  2026-05-19T14:18:20.113707+00:00  client         pod=-  kind=getMore.succeeded  cursor_id=4965231678156617002  conn_id=7399  request_id=1967513926 duration_micros=57532 n_returned=10
+  2026-05-19T14:18:20.115000+00:00  mongod.cmd     pod=mdb-rs-conn-tool-1  kind=getMore  lsid=f451848680094ef4821e248fdf14cf63  cursor_id=4965231678156617002  conn_id=7399  namespace=sample_mflix.movies duration_ms=0 has_search_stage=False
+  2026-05-19T14:18:20.615868+00:00  client         pod=-  kind=getMore.started  lsid=f451848680094ef4821e248fdf14cf63  cursor_id=4965231678156617002  conn_id=7399  request_id=1365180540
+  2026-05-19T14:18:20.673773+00:00  client         pod=-  kind=getMore.succeeded  cursor_id=4965231678156617002  conn_id=7399  request_id=1365180540 duration_micros=58002 n_returned=10
+  2026-05-19T14:18:20.674000+00:00  mongod.cmd     pod=mdb-rs-conn-tool-1  kind=getMore  lsid=f451848680094ef4821e248fdf14cf63  cursor_id=4965231678156617002  conn_id=7399  namespace=sample_mflix.movies duration_ms=0 has_search_stage=False
+  2026-05-19T14:18:20.674639+00:00  client         pod=-  kind=killCursors.started  lsid=f451848680094ef4821e248fdf14cf63  cursor_id=4965231678156617002  conn_id=7399  request_id=1540383426
+  2026-05-19T14:18:20.691000+00:00  mongod.cmd     pod=mdb-rs-conn-tool-1  kind=aggregate  lsid=b4430433a44d4e46986069d152cfb52c  conn_id=7321  namespace=local.oplog.rs duration_ms=0 has_search_stage=False
+  2026-05-19T14:18:20.728639+00:00  client         pod=-  kind=killCursors.succeeded  conn_id=7399  request_id=1540383426 duration_micros=54128 n_returned=0
+  2026-05-19T14:18:20.731000+00:00  mongod.cmd     pod=mdb-rs-conn-tool-1  kind=killCursors  lsid=f451848680094ef4821e248fdf14cf63  cursor_id=4965231678156617002  conn_id=7399  namespace=sample_mflix.movies duration_ms=0 has_search_stage=False
+  2026-05-19T14:18:20.734000+00:00  mongot.batch   pod=mdb-rs-conn-tool-search-0  kind=KillCursorsCommand
+  2026-05-19T14:18:20.738000+00:00  mongot.frame   pod=mdb-rs-conn-tool-search-0  kind=stream_close  stream_id=3  grpc_status=200 rst_stream=False outbound_bytes=5487 outbound_data_frames=2
+  2026-05-19T14:18:20.739000+00:00  mongod.net     pod=mdb-rs-conn-tool-1  kind=session_close  client_id=9d9dcc9e-c025-4be0-972d-2ff4136a9adc  session_id=7400  status={'code': 0, 'codeName': 'OK'} remote=mdb-rs-conn-tool-search-0-proxy-svc.ls-25.svc.cluster.local:27028

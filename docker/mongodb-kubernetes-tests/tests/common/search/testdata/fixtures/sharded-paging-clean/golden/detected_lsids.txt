@@ -1,0 +1,3 @@
+
+=== detected lsids in window — 1 ===
+  628a6b198d7142848bef97dc15a362e0  cursor_id=780421185956221731  mongos=mdb-sh-conn-tool-mongos-0  num_shards=2  events=14

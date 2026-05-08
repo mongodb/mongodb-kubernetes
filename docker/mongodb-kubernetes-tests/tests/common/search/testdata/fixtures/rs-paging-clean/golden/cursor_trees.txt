@@ -1,0 +1,22 @@
+
+=== per-cursor tree view — 1 cursor(s) ===
+
+  cursor 4965231678156617002  lsid=f451848680094ef4821e248fdf14cf63  mongod=mdb-rs-conn-tool-1  mongot=mdb-rs-conn-tool-search-0  clientId=9d9dcc9e-c025-4be0-972d-2ff4136a9adc  streamId=3
+  ├─ client.aggregate  req_id=783368690  conn_id=7399  +0.000s  dur=81ms  n=10
+  │   └─ mongod.cmd.aggregate  ns=sample_mflix.movies  dur_ms=19  (has_search_stage)
+  │       └─ mongod.net.session_open  session_id=7400  client_id=9d9dcc9e-c025-4be0-972d-2ff4136a9adc
+  │           └─ envoy.stream  stream_id=?  client_id=9d9dcc9e-c025-4be0-972d-2ff4136a9adc  upstream=10.244.0.232:27028  resp=200  grpc=OK  flags=-  path=/mongodb.CommandService/UnauthenticatedCommandStream
+  │               └─ mongot.stream_open  pod=mdb-rs-conn-tool-search-0  streamId=3  path=mongodb.CommandService/UnauthenticatedCommandStream
+  │                   └─ mongot.batch  size=108
+  ├─ client.getMore  req_id=1102520059  conn_id=7399  +0.587s  dur=60ms  n=10   (cached)
+  │   └─ mongod.cmd.getMore  ns=sample_mflix.movies  dur_ms=0  cursor_id=4965231678156617002
+  ├─ client.getMore  req_id=2044897763  conn_id=7399  +1.150s  dur=58ms  n=10   (cached)
+  │   └─ mongod.cmd.getMore  ns=sample_mflix.movies  dur_ms=0  cursor_id=4965231678156617002
+  ├─ client.getMore  req_id=1967513926  conn_id=7399  +1.711s  dur=58ms  n=10   (cached)
+  │   └─ mongod.cmd.getMore  ns=sample_mflix.movies  dur_ms=0  cursor_id=4965231678156617002
+  ├─ client.getMore  req_id=1365180540  conn_id=7399  +2.270s  dur=58ms  n=10   (cached)
+  │   └─ mongod.cmd.getMore  ns=sample_mflix.movies  dur_ms=0  cursor_id=4965231678156617002
+  └─ client.killCursors  req_id=1540383426  conn_id=7399  +2.329s  dur=54ms  n=0
+      └─ mongod.cmd.killCursors  ns=sample_mflix.movies  dur_ms=0  cursor_id=4965231678156617002
+          └─ mongod.net.session_close  session_id=7400  client_id=9d9dcc9e-c025-4be0-972d-2ff4136a9adc  status={'code': 0, 'codeName': 'OK'}
+              └─ mongot.stream_close  streamId=3  status=200  rst=False

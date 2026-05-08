@@ -1,0 +1,68 @@
+{
+    "$schema": "https://lnav.org/schemas/format-v1.schema.json",
+    "mck_mongot_log": {
+        "title": "MCK mongot log",
+        "description": "Logback JSON output emitted by mongot pods (one $search backend). Captured by tests/common/search/log_analyzer/collector.fetch_pod_logs into <pod>.log under /tmp/pod-logs-*. Top-level keys: t, s, svc=MONGOT, ctx, n (logger name), msg, optional attr.",
+        "url": "https://github.com/10gen/mongot",
+        "json": true,
+        "file-pattern": "mdb-.*-search-(?:[0-9]+|[a-z0-9]+-[a-z0-9]+)\\.log$",
+        "line-format": [
+            {"field": "__timestamp__"},
+            " ",
+            {"field": "__level__", "min-width": 5},
+            "  svc=",
+            {"field": "svc"},
+            "  ctx=",
+            {"field": "ctx", "max-width": 32},
+            "  ",
+            {"field": "n", "max-width": 48},
+            "  ",
+            {"field": "msg"}
+        ],
+        "timestamp-field": "t",
+        "timestamp-format": [
+            "%Y-%m-%dT%H:%M:%S.%L%z",
+            "%Y-%m-%dT%H:%M:%S.%L%Z"
+        ],
+        "level-field": "s",
+        "body-field": "msg",
+        "level": {
+            "trace": "TRACE",
+            "debug": "DEBUG",
+            "info": "INFO",
+            "warning": "WARN",
+            "error": "ERROR",
+            "fatal": "FATAL"
+        },
+        "value": {
+            "svc": {
+                "kind": "string",
+                "identifier": true,
+                "description": "Mongot service tag — always 'MONGOT' for production mongot pods."
+            },
+            "ctx": {
+                "kind": "string",
+                "identifier": true,
+                "description": "Thread / executor context that emitted the line."
+            },
+            "n": {
+                "kind": "string",
+                "identifier": true,
+                "description": "Java logger name (e.g. io.grpc.netty.NettyServerHandler)."
+            },
+            "attr": {
+                "kind": "json",
+                "hidden": true,
+                "description": "Optional attribute map — present on a minority of records."
+            }
+        },
+        "sample": [
+            {
+                "line": "{\"t\":\"2026-05-26T09:47:56.707+0000\",\"s\":\"DEBUG\",\"svc\":\"MONGOT\",\"ctx\":\"change-stream-sync-dispatcher\",\"n\":\"org.mongodb.driver.protocol.command\",\"msg\":\"Command getMore succeeded.\"}"
+            },
+            {
+                "line": "{\"t\":\"2026-05-26T09:47:56.707+0000\",\"s\":\"DEBUG\",\"svc\":\"MONGOT\",\"ctx\":\"change-stream-sync-dispatcher\",\"n\":\"org.mongodb.driver.connection\",\"msg\":\"Connection checked in\"}"
+            }
+        ]
+    }
+}

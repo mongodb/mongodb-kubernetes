@@ -1,0 +1,22 @@
+{
+  "scenario": "sharded-paging-clean",
+  "topology": "sharded",
+  "rows": {
+    "mongod_commands": 2,
+    "mongod_sessions": 0,
+    "mongos_commands": 6,
+    "mongos_remote_requests": 29,
+    "envoy_streams": 3,
+    "envoy_access": 3,
+    "mongot_streams": 2,
+    "mongot_batches": 662,
+    "mongot_stream_opens": 3,
+    "mongot_cmds": 660,
+    "client_wire_ops": 12
+  },
+  "lsids": [
+    "628a6b198d7142848bef97dc15a362e0"
+  ],
+  "timeline_events": 1352,
+  "cursor_trees": 1
+}

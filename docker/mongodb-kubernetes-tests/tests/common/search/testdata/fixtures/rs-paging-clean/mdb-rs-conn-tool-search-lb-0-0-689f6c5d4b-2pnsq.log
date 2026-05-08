@@ -1,0 +1,1 @@
+{"bytes_in":1034,"bytes_out":5487,"client_id":"9d9dcc9e-c025-4be0-972d-2ff4136a9adc","duration_ms":2336,"grpc_status":"OK","path":"/mongodb.CommandService/UnauthenticatedCommandStream","response_code":200,"response_flags":"-","ts":"2026-05-19T14:18:18.402Z","upstream_host":"10.244.0.232:27028"}
