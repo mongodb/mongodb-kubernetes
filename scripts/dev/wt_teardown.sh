@@ -16,7 +16,7 @@
 #   --keep-stack        Don't run `docker compose down` (default: down).
 #   --keep-worktree     Don't `git worktree remove` (default: remove).
 #   --keep-om-projects  Don't run delete_om_projects.sh against the worktree's
-#                       ls-${MCK_DEVC_NET_PREFIX}-* scope (default: delete).
+#                       ${NAMESPACE}-${MCK_DEVC_NET_PREFIX}-* scope (default: delete).
 #   --evg-host-name N   Override EVG host display name (default: worktree dir).
 #   -h, --help
 #
@@ -69,11 +69,12 @@ echo "==> teardown: branch=${branch}, worktree=${worktree_path}, evg_host=${evg_
 # 1. Delete the per-worktree cloud-qa OM projects.
 #
 # delete_om_projects.sh's NAMESPACE-based filter is the only thing scoping
-# the cleanup; with per-worktree NAMESPACE=ls-${MCK_DEVC_NET_PREFIX} (set by
-# root-context when this worktree's .devcontainer/.env carries the prefix)
-# the script only deletes this worktree's projects. Run this BEFORE compose
-# teardown so failures here don't leave the stack hanging, and BEFORE
-# worktree removal so the script can read the worktree's .devcontainer/.env.
+# the cleanup; with per-worktree NAMESPACE suffixed by MCK_DEVC_NET_PREFIX
+# (set by root-context when this worktree's .devcontainer/.env carries the
+# prefix) the script only deletes this worktree's projects. Run this BEFORE
+# compose teardown so failures here don't leave the stack hanging, and
+# BEFORE worktree removal so the script can read the worktree's
+# .devcontainer/.env.
 if [[ ${keep_om_projects} -eq 0 && -d "${worktree_path}" ]]; then
   if [[ -f "${worktree_path}/.devcontainer/.env" ]] \
        && grep -q '^MCK_DEVC_NET_PREFIX=' "${worktree_path}/.devcontainer/.env"; then

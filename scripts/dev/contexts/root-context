@@ -31,10 +31,13 @@ if [[ -z "${MCK_DEVC_NET_PREFIX:-}" && -f "${PROJECT_DIR}/.devcontainer/.env" ]]
   unset devc_prefix_line
 fi
 
-# Only applies when NAMESPACE is the default 'ls' — explicit user overrides
-# (custom values in private-context, EVG CI's per-task random namespace) win.
-if [[ -n "${MCK_DEVC_NET_PREFIX:-}" && "${NAMESPACE:-}" == "ls" ]]; then
-  export NAMESPACE="ls-${MCK_DEVC_NET_PREFIX}"
+# Whatever NAMESPACE the user picked in private-context, suffix it with the
+# prefix so cloud-qa OM project names don't collide across parallel worktrees.
+# Idempotent: skip if NAMESPACE already ends in `-${MCK_DEVC_NET_PREFIX}` so
+# re-sourcing this file (e.g. nested `make switch`) doesn't pile suffixes.
+if [[ -n "${MCK_DEVC_NET_PREFIX:-}" && -n "${NAMESPACE:-}" \
+      && "${NAMESPACE}" != *"-${MCK_DEVC_NET_PREFIX}" ]]; then
+  export NAMESPACE="${NAMESPACE}-${MCK_DEVC_NET_PREFIX}"
 fi
 
 if [[ -f "${PROJECT_DIR}/.generated/.current-evg-host" ]]; then
