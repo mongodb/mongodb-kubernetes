@@ -48,6 +48,7 @@ func TestAgentsAuthentication(t *testing.T) {
 			opts := Options{
 				AuthoritativeSet: true,
 				CAFilePath:       util.CAFilePathInContainer,
+				KeyfilePath:      util.AutomationAgentKeyFilePathInContainer,
 				MongoDBResource:  mongoDBResource,
 			}
 

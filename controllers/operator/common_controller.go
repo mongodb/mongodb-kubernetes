@@ -562,7 +562,7 @@ func (r *ReconcileCommonController) updateOmAuthentication(ctx context.Context, 
 		CAFilePath:         caFilepath,
 		MongoDBResource:    types.NamespacedName{Namespace: ar.GetNamespace(), Name: ar.GetName()},
 		DownloadBase:       downloadBase,
-		KeyfilePath:        util.AutomationAgentKeyFilePathInContainer,
+		KeyfilePath:        ar.GetSecurity().Authentication.GetKeyfile(downloadBase),
 	}
 	var databaseSecretPath string
 	if r.VaultClient != nil {
@@ -1007,7 +1007,6 @@ func publishAutomationConfigFirst(ctx context.Context, getter kubernetesClient.C
 	currentSts, err := getter.GetStatefulSet(ctx, namespacedName)
 	if err != nil {
 		if apiErrors.IsNotFound(err) {
-			// No need to publish state as this is a new StatefulSet
 			log.Debugf("New StatefulSet %s", namespacedName)
 			return false
 		}
@@ -1105,8 +1104,8 @@ func ReconcileReplicaSetAC(ctx context.Context, d om.Deployment, spec mdbv1.DbCo
 		_ = UpdatePrometheus(ctx, &d, pc.conn, pc.prometheus, pc.secretsClient, pc.namespace, pc.prometheusCertHash, log)
 	}
 
-	if newBase := spec.GetDownloadBase(); newBase != d.GetDownloadBase() {
-		d.SetDownloadBase(newBase)
+	if db := spec.GetDownloadBase(); db != util.DefaultPvcMmsMountPath {
+		d.SetDownloadBase(db)
 	}
 
 	return nil

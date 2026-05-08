@@ -659,18 +659,8 @@ func (d Deployment) Debug(l *zap.SugaredLogger) {
 	l.Debugf(">> Deployment: \n %s \n", string(b))
 }
 
-func (d Deployment) GetDownloadBase() string {
-	if opts, ok := d["options"].(map[string]interface{}); ok {
-		if v, ok := opts["downloadBase"].(string); ok {
-			return v
-		}
-	}
-	return ""
-}
-
 func (d Deployment) SetDownloadBase(downloadBase string) {
-	opts := util.ReadOrCreateMap(d, "options")
-	opts["downloadBase"] = downloadBase
+	d["options"] = map[string]string{"downloadBase": downloadBase}
 }
 
 // ProcessesCopy returns the COPY of processes in the deployment.

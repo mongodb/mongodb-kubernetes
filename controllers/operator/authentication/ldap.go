@@ -102,7 +102,7 @@ func (l *ldapAuthMechanism) DisableDeploymentAuthentication(conn om.Connection, 
 	}, log)
 }
 
-func (l *ldapAuthMechanism) IsAgentAuthenticationConfigured(ac *om.AutomationConfig, _ Options) bool {
+func (l *ldapAuthMechanism) IsAgentAuthenticationConfigured(ac *om.AutomationConfig, opts Options) bool {
 	if ac.Auth.Disabled {
 		return false
 	}
@@ -112,6 +112,10 @@ func (l *ldapAuthMechanism) IsAgentAuthenticationConfigured(ac *om.AutomationCon
 	}
 
 	if ac.Auth.AutoUser == "" || ac.Auth.AutoPwd == "" {
+		return false
+	}
+
+	if opts.KeyfilePath != "" && ac.Auth.KeyFile != opts.KeyfilePath {
 		return false
 	}
 

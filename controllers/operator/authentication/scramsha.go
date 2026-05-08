@@ -71,7 +71,7 @@ func (s *automationConfigScramSha) EnableDeploymentAuthentication(conn om.Connec
 	}, log)
 }
 
-func (s *automationConfigScramSha) IsAgentAuthenticationConfigured(ac *om.AutomationConfig, _ Options) bool {
+func (s *automationConfigScramSha) IsAgentAuthenticationConfigured(ac *om.AutomationConfig, opts Options) bool {
 	if ac.Auth.Disabled {
 		return false
 	}
@@ -85,6 +85,10 @@ func (s *automationConfigScramSha) IsAgentAuthenticationConfigured(ac *om.Automa
 	}
 
 	if ac.Auth.Key == "" || ac.Auth.KeyFile == "" || ac.Auth.KeyFileWindows == "" {
+		return false
+	}
+
+	if opts.KeyfilePath != "" && ac.Auth.KeyFile != opts.KeyfilePath {
 		return false
 	}
 
