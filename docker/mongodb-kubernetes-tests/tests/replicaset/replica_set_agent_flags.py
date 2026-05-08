@@ -9,6 +9,7 @@ from tests.pod_logs import assert_log_types_in_structured_json_pod_log, get_all_
 
 custom_agent_log_path = "/var/log/mongodb-mms-automation/customLogFile"
 custom_readiness_log_path = "/var/log/mongodb-mms-automation/customReadinessLogFile"
+custom_download_base = "/custom/download-base"
 
 
 @fixture(scope="module")
@@ -52,6 +53,7 @@ def replica_set(namespace: str, first_project: str, custom_mdb_version: str) -> 
     resource.set_version(ensure_ent_version(custom_mdb_version))
     resource.set_architecture_annotation()
     resource["spec"]["opsManager"]["configMapRef"]["name"] = first_project
+    resource["spec"]["downloadBase"] = custom_download_base
 
     try_load(resource)
     return resource
@@ -161,6 +163,12 @@ def test_enable_audit_log(replica_set: MongoDB):
 @mark.e2e_replica_set_agent_flags_and_readinessProbe
 def test_log_types_with_audit_enabled(replica_set: MongoDB):
     assert_pod_log_types(replica_set, get_all_log_types())
+
+
+@mark.e2e_replica_set_agent_flags_and_readinessProbe
+def test_custom_download_base_in_automation_config(replica_set: MongoDB):
+    options = replica_set.get_automation_config_tester().automation_config.get("options", {})
+    assert options.get("downloadBase") == custom_download_base
 
 
 def assert_pod_log_types(replica_set: MongoDB, expected_log_types: Optional[set[str]]):

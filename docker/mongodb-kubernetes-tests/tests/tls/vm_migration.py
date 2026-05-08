@@ -14,7 +14,6 @@ from kubetester.omtester import OMContext, OMTester
 from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
-
 from tests.tls.vm_migration_dry_run import run_migration_dry_run_connectivity_passes
 
 
