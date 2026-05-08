@@ -6,6 +6,7 @@ test "${MDB_BASH_DEBUG:-0}" -eq 1 && set -x
 source scripts/dev/set_env_context.sh
 source scripts/funcs/kubernetes
 source scripts/funcs/printing
+source scripts/funcs/kind_network
 
 docker_cleanup() {
   echo "Deleting all kind clusters"
@@ -24,16 +25,20 @@ docker_create_kind_network
 docker_run_local_registry "kind-registry" "5000"
 
 # To future maintainers: whenever modifying this bit, make sure you also update coredns.yaml
-(scripts/dev/setup_kind_cluster.sh -n "e2e-operator" -p "10.244.0.0/16" -s "10.96.0.0/16" -l "172.18.255.200-172.18.255.210" -c "${CLUSTER_DOMAIN}" 2>&1 | prepend "e2e-operator") &
-(scripts/dev/setup_kind_cluster.sh -n "e2e-cluster-1" -p "10.245.0.0/16" -s "10.97.0.0/16" -l "172.18.255.210-172.18.255.220" -c "${CLUSTER_DOMAIN}" 2>&1 | prepend "e2e-cluster-1") &
-(scripts/dev/setup_kind_cluster.sh -n "e2e-cluster-2" -p "10.246.0.0/16" -s "10.98.0.0/16" -l "172.18.255.220-172.18.255.230" -c "${CLUSTER_DOMAIN}" 2>&1 | prepend "e2e-cluster-2") &
-(scripts/dev/setup_kind_cluster.sh -n "e2e-cluster-3" -p "10.247.0.0/16" -s "10.99.0.0/16" -l "172.18.255.230-172.18.255.240" -c "${CLUSTER_DOMAIN}" 2>&1 | prepend "e2e-cluster-3") &
-(scripts/dev/setup_kind_cluster.sh -n "kind" -l "172.18.255.200-172.18.255.250" -c "${CLUSTER_DOMAIN}" 2>&1 | prepend "kind") &
+(scripts/dev/setup_kind_cluster.sh -n "e2e-operator" -p "10.244.0.0/16" -s "10.96.0.0/16" -l "${KIND_METALLB_RANGE_OPERATOR}" -c "${CLUSTER_DOMAIN}" 2>&1 | prepend "e2e-operator") &
+(scripts/dev/setup_kind_cluster.sh -n "e2e-cluster-1" -p "10.245.0.0/16" -s "10.97.0.0/16" -l "${KIND_METALLB_RANGE_CLUSTER_1}" -c "${CLUSTER_DOMAIN}" 2>&1 | prepend "e2e-cluster-1") &
+(scripts/dev/setup_kind_cluster.sh -n "e2e-cluster-2" -p "10.246.0.0/16" -s "10.98.0.0/16" -l "${KIND_METALLB_RANGE_CLUSTER_2}" -c "${CLUSTER_DOMAIN}" 2>&1 | prepend "e2e-cluster-2") &
+(scripts/dev/setup_kind_cluster.sh -n "e2e-cluster-3" -p "10.247.0.0/16" -s "10.99.0.0/16" -l "${KIND_METALLB_RANGE_CLUSTER_3}" -c "${CLUSTER_DOMAIN}" 2>&1 | prepend "e2e-cluster-3") &
+(scripts/dev/setup_kind_cluster.sh -n "kind" -l "${KIND_METALLB_RANGE_SINGLE}" -c "${CLUSTER_DOMAIN}" 2>&1 | prepend "kind") &
 
 echo "Waiting for all kind clusters to be created"
 wait
 
 # we do exports sequentially as setup_kind_cluster.sh is run in parallel and we hit kube config locks
+# These exports go to ${KUBECONFIG} (set by set_env_context.sh sourced above);
+# when EVG_HOST_NAME is set on this host, root-context points KUBECONFIG at
+# ${PROJECT_DIR}/.generated/evg-host.kubeconfig — which is exactly where
+# evg_host.sh::get-kubeconfig expects to scp from.
 kind export kubeconfig --name "e2e-operator"
 kind export kubeconfig --name "e2e-cluster-1"
 kind export kubeconfig --name "e2e-cluster-2"

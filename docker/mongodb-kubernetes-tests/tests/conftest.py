@@ -87,9 +87,7 @@ try:
     # Merge kubeconfig and honor per-cluster proxy-url (e.g. gost-proxy in devcontainer).
     # The plain load_kube_config() ignores proxy-url, which breaks API access from inside
     # the devcontainer where the host-mapped 127.0.0.1:<port> is unreachable directly.
-    _merger = kubernetes.config.kube_config.KubeConfigMerger(
-        kubernetes.config.kube_config.KUBE_CONFIG_DEFAULT_LOCATION
-    )
+    _merger = kubernetes.config.kube_config.KubeConfigMerger(kubernetes.config.kube_config.KUBE_CONFIG_DEFAULT_LOCATION)
     _configuration = kubernetes.client.Configuration()
     kubernetes.config.load_kube_config_from_dict(_merger.config, client_configuration=_configuration)
     load_proxy_config(_merger.config, _configuration)
@@ -1220,7 +1218,9 @@ def _get_client_for_cluster(
     configuration = kubernetes.client.Configuration()
     merger = kubernetes.config.kube_config.KubeConfigMerger(os.environ.get("KUBECONFIG", KUBECONFIG_FILEPATH))
     load_proxy_config(merger.config, configuration, cluster_name)
-    kubernetes.config.load_kube_config_from_dict(merger.config, context=cluster_name, client_configuration=configuration)
+    kubernetes.config.load_kube_config_from_dict(
+        merger.config, context=cluster_name, client_configuration=configuration
+    )
 
     configuration.host = CLUSTER_HOST_MAPPING.get(cluster_name, configuration.host)
 

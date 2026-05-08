@@ -124,16 +124,30 @@ SLEEP_TIME = 2
 INFINITY = -1
 
 
-def load_proxy_config(kube_config: config.kube_config.ConfigNode, configuration: kubernetes.client.Configuration, context_name: Optional[str] = None):
+def load_proxy_config(
+    kube_config: config.kube_config.ConfigNode,
+    configuration: kubernetes.client.Configuration,
+    context_name: Optional[str] = None,
+):
     """
     Loads proxy configuration from kubeconfig if it exists for the current context and sets it in the provided configuration object.
     Returns True if proxy configuration was found and set, False otherwise.
     """
     context_name = context_name or (str(kube_config["current-context"]) if "current-context" in kube_config else None)
-    context_entry = next((c for c in kube_config["contexts"] if c["name"] == context_name), None) if "contexts" in kube_config else None
+    context_entry = (
+        next((c for c in kube_config["contexts"] if c["name"] == context_name), None)
+        if "contexts" in kube_config
+        else None
+    )
     cluster_name = context_entry["context"]["cluster"] if context_entry else None
-    cluster_entry = next((c for c in kube_config["clusters"] if c["name"] == cluster_name), None) if "clusters" in kube_config else None
-    proxy_url = cluster_entry["cluster"]["proxy-url"] if cluster_entry and "proxy-url" in cluster_entry["cluster"] else None
+    cluster_entry = (
+        next((c for c in kube_config["clusters"] if c["name"] == cluster_name), None)
+        if "clusters" in kube_config
+        else None
+    )
+    proxy_url = (
+        cluster_entry["cluster"]["proxy-url"] if cluster_entry and "proxy-url" in cluster_entry["cluster"] else None
+    )
 
     if isinstance(proxy_url, str) and len(proxy_url) > 0:
         configuration.proxy = proxy_url
