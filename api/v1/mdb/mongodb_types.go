@@ -467,6 +467,12 @@ type DbCommonSpec struct {
 
 	ReplicaSetNameOverride string `json:"replicaSetNameOverride,omitempty"`
 
+	// DownloadBase is the absolute path of the directory where Ops Manager downloads
+	// automatic versions and runs starting scripts. When unset, it defaults to
+	// /var/lib/mongodb-mms-automation. For migration use only.
+	// This field must not be changed after the resource is created.
+	// +kubebuilder:validation:Pattern=`^/[^\0]*$`
+	// +optional
 	DownloadBase string `json:"downloadBase,omitempty"`
 }
 

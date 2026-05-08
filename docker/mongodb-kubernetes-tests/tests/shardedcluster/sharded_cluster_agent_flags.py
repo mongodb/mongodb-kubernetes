@@ -11,8 +11,10 @@ from tests.shardedcluster.conftest import (
     get_member_cluster_clients_using_cluster_mapping,
 )
 
+custom_download_base = "/custom/download-base"
 
-@fixture(scope="function")
+
+@fixture(scope="module")
 def sc(namespace: str, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(find_fixture("sharded-cluster.yaml"), namespace=namespace)
 
@@ -28,6 +30,7 @@ def sc(namespace: str, custom_mdb_version: str) -> MongoDB:
     resource["spec"]["shard"] = {
         "agent": {"startupOptions": {"logFile": "/var/log/mongodb-mms-automation/customLogFileShard"}}
     }
+    resource["spec"]["downloadBase"] = custom_download_base
 
     if is_multi_cluster():
         enable_multi_cluster_deployment(resource)
@@ -120,6 +123,12 @@ def test_enable_audit_log(sc: MongoDB):
 @mark.e2e_sharded_cluster_agent_flags
 def test_log_types_with_audit_enabled(sc: MongoDB):
     _assert_log_types_in_pods(sc, get_all_log_types())
+
+
+@mark.e2e_sharded_cluster_agent_flags
+def test_custom_download_base_in_automation_config(sc: MongoDB):
+    options = sc.get_automation_config_tester().automation_config.get("options", {})
+    assert options.get("downloadBase") == custom_download_base
 
 
 def _assert_log_types_in_pods(sc: MongoDB, expected_log_types: set[str]):

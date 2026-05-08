@@ -211,13 +211,13 @@ else
     MONGOD_ROOT="/proc/${MONGOD_PID}/root"
     mkdir -p "${MMS_DOWNLOAD_BASE}/mongod"
     mkdir -p "${MMS_DOWNLOAD_BASE}/mongod/bin"
-    ln -sf "${MONGOD_ROOT}/bin/mongo" ${MMS_DOWNLOAD_BASE}/mongod/bin/mongo
-    ln -sf "${MONGOD_ROOT}/bin/mongod" ${MMS_DOWNLOAD_BASE}/mongod/bin/mongod
-    ln -sf "${MONGOD_ROOT}/bin/mongos" ${MMS_DOWNLOAD_BASE}/mongod/bin/mongos
+    ln -sf "${MONGOD_ROOT}/bin/mongo" "${MMS_DOWNLOAD_BASE}/mongod/bin/mongo"
+    ln -sf "${MONGOD_ROOT}/bin/mongod" "${MMS_DOWNLOAD_BASE}/mongod/bin/mongod"
+    ln -sf "${MONGOD_ROOT}/bin/mongos" "${MMS_DOWNLOAD_BASE}/mongod/bin/mongos"
 
     for tool in mongoimport mongodump mongorestore mongoexport; do
       [ -e "/tools/${tool}" ] || { echo "/tools/${tool} not found"; exit 1; }
-      ln -sf "/tools/${tool}" ${MMS_DOWNLOAD_BASE}/mongod/bin/${tool}
+      ln -sf "/tools/${tool}" "${MMS_DOWNLOAD_BASE}/mongod/bin/${tool}"
     done
   else
     echo "Mongod PID not found within the specified time."
