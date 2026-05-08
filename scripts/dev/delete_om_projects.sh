@@ -11,6 +11,29 @@ test "${MDB_BASH_DEBUG:-0}" -eq 1 && set -x
 
 source scripts/dev/set_env_context.sh
 
+# Per-worktree OM project name isolation (mirrors root-context derivation).
+#
+# When MCK_DEVC_NET_PREFIX is set (devcontainer-mode worktree dev), suffix
+# NAMESPACE with the prefix so the cleanup filter only matches this worktree's
+# `${NAMESPACE}-${prefix}` / `${NAMESPACE}-${prefix}-*` projects. Without this
+# mirror the script would delete every parallel worktree's OM projects, which
+# is the bug this PR fixes. The same logic lives in root-context so `make
+# switch` writes the suffixed NAMESPACE into .generated/context.export.env;
+# this local copy lets host-side callers (e.g. wt_teardown.sh, or any rerun
+# made before the worktree context is refreshed) delete the right scope.
+if [[ -z "${MCK_DEVC_NET_PREFIX:-}" && -f "${PROJECT_DIR:-.}/.devcontainer/.env" ]]; then
+  devc_prefix_line="$(grep '^MCK_DEVC_NET_PREFIX=' "${PROJECT_DIR:-.}/.devcontainer/.env" 2>/dev/null | tail -n1 || true)"
+  if [[ -n "${devc_prefix_line}" ]]; then
+    export "${devc_prefix_line?}"
+  fi
+  unset devc_prefix_line
+fi
+if [[ -n "${MCK_DEVC_NET_PREFIX:-}" && -n "${NAMESPACE:-}" \
+      && "${NAMESPACE}" != *"-${MCK_DEVC_NET_PREFIX}" ]]; then
+  NAMESPACE="${NAMESPACE}-${MCK_DEVC_NET_PREFIX}"
+  WATCH_NAMESPACE="${WATCH_NAMESPACE:-${NAMESPACE}}"
+fi
+
 delete_project() {
   project_name=$1
   echo "Deleting project id of ${project_name} from ${OM_HOST}"

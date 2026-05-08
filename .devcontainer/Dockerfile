@@ -10,11 +10,15 @@ RUN apt-get update && apt-get install -y \
     libsasl2-dev \
     # Log navigator for browsing operator/agent logs
     lnav \
+    # pip is used a few lines below to install tmuxp into the system
+    # python; keeps the layer count small.
+    python3-pip \
     # Socat for ssh-agent socket forwarding
     screen \
     socat \
     # Terminal multiplexer for the default workflow
-    tmux
+    tmux \
+ && pip3 install --break-system-packages tmuxp
 
 # Install Claude Code for the vscode user.
 # State (auth, plugins, marketplaces, memory) lives under ~/.claude which is
@@ -27,10 +31,13 @@ RUN su -l vscode -c 'curl -fsSL https://claude.ai/install.sh | bash' \
 # prefer zsh; bash users can still `bash -l` explicitly).
 RUN chsh -s /usr/bin/zsh vscode
 
-# Auto-attach interactive shells to a single tmux session named "mck".
-# Guarded so it only triggers in interactive shells and never nests.
-# Installed in both .bashrc and .zshrc so it fires regardless of login shell.
-RUN echo '[[ -z "${TMUX:-}" && $- == *i* ]] && exec tmux new-session -A -s mck' \
+# Workspace context loader + tmuxp auto-attach, sourced from .bashrc /
+# .zshrc on every shell start. The actual logic lives in shell-init.sh
+# (multi-line, version-controlled, easier to edit) — we just bake a
+# one-liner sourcing it into both rc files.
+COPY shell-init.sh /etc/mck/shell-init.sh
+RUN chmod 0644 /etc/mck/shell-init.sh \
+ && echo '[[ -f /etc/mck/shell-init.sh ]] && source /etc/mck/shell-init.sh' \
     | tee -a /home/vscode/.bashrc /home/vscode/.zshrc > /dev/null
 
 RUN bash -c 'mkdir -p /workspace/.generated /home/vscode/.cache/{go-build,pip,helm}' && \

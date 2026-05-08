@@ -1,0 +1,54 @@
+# tmuxp session for the MCK devcontainer.
+#
+# Loaded automatically when the user attaches to the devcontainer (see
+# .devcontainer/shell-init.sh) or via `scripts/dev/dc_attach.sh`. If a
+# session named 'mck' already exists, tmuxp attaches to it instead of
+# rebuilding it (because the shell-init invocation passes -y).
+#
+# Layout (main-horizontal):
+#
+#     +--------------------------------------------+
+#     |                                            |
+#     |                k9s                         |
+#     |                                            |
+#     +-----------+----------------+---------------+
+#     | operator  | e2e test       | zsh -l        |
+#     | log       | log            |               |
+#     +-----------+----------------+---------------+
+#
+# Both log panes use .devcontainer/scripts/log_follower.sh so they keep
+# showing logs across file truncation, rotation, and not-yet-existence.
+
+session_name: mck
+start_directory: /workspace
+
+windows:
+  - window_name: mck
+    # main-horizontal puts the first pane on top spanning full width
+    # and stacks the remaining panes side-by-side underneath.
+    layout: main-horizontal
+    options:
+      # tmux >= 3.2 accepts a percentage; gives the top (k9s) pane the
+      # bulk of the vertical space.
+      main-pane-height: 70%
+    panes:
+      # Top pane (k9s). The kubeconfig is the one switch_context
+      # pinned for the active EVG host; k9s reloads it when it
+      # changes on disk, so context switches inside the container
+      # propagate without restarting this pane.
+      - shell_command:
+          - exec k9s --kubeconfig /workspace/.generated/evg-host.kubeconfig
+      # Bottom-left: operator log (logs/operator.log is the stable
+      # symlink op_run.sh maintains across runs).
+      - shell_command:
+          - exec /workspace/.devcontainer/scripts/log_follower.sh /workspace/logs/operator.log operator
+      # Bottom-middle: latest e2e test log (logs/test.log is the
+      # stable symlink e2e_run.sh maintains across runs).
+      - shell_command:
+          - exec /workspace/.devcontainer/scripts/log_follower.sh /workspace/logs/test.log e2e
+      # Bottom-right: an interactive zsh. The shell-init sourced from
+      # .zshrc loads /workspace/.generated/context.export.env and
+      # activates the venv before the prompt appears.
+      - shell_command:
+          - exec zsh -l
+        focus: true

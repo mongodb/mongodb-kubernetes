@@ -1,5 +1,5 @@
 x-k8s-proxy-config:
-  proxy_address: &proxy_address 172.28.0.10
+  proxy_address: &proxy_address 172.${MCK_DEVC_NET_PREFIX:-28}.0.10
 
 services:
   devcontainer:
@@ -9,6 +9,12 @@ services:
       K8S_FWD_PROXY: *proxy_address
       EVG_HOST_PROXY: "http://gost-proxy:8080"
       GOTOOLCHAIN: local
+      # Forward the per-worktree network prefix so root-context (sourced inside
+      # the container during `make switch`) can derive a per-worktree NAMESPACE
+      # (ls-${MCK_DEVC_NET_PREFIX}). That makes cloud-qa OM project names
+      # (which everything downstream composes from ${NAMESPACE}) unique per
+      # worktree, so parallel worktrees don't delete each other's OM projects.
+      MCK_DEVC_NET_PREFIX: ${MCK_DEVC_NET_PREFIX:-28}
 
     volumes:
       # Workspace
@@ -54,9 +60,9 @@ services:
       - NET_ADMIN
     environment:
       # Bind DNS to the container's assigned IP on devcontainer.
-      # VIPs (172.28.1.x) are also added to that interface.
+      # VIPs (172.X.1.x where X = MCK_DEVC_NET_PREFIX) are also added to that interface.
       INTERFACE: *proxy_address
-      VIP_CIDR: 172.28.1.0/24
+      VIP_CIDR: 172.${MCK_DEVC_NET_PREFIX:-28}.1.0/24
       DNS_LISTEN: :53
       HTTP_LISTEN: :80
       CLUSTER_DOMAIN: svc.cluster.local
@@ -137,5 +143,5 @@ networks:
     driver: bridge
     ipam:
       config:
-        - subnet: 172.28.0.0/16
-          ip_range: 172.28.0.0/24
+        - subnet: 172.${MCK_DEVC_NET_PREFIX:-28}.0.0/16
+          ip_range: 172.${MCK_DEVC_NET_PREFIX:-28}.0.0/24
