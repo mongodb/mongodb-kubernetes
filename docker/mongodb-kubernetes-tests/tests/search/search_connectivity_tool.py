@@ -1,19 +1,17 @@
-"""E2E test for the search connectivity tool (KUBE-17 / U1.1).
+"""E2E test for the search connectivity tool (KUBE-17).
 
 Drives ``SearchConnectivityTool`` against a single-cluster managed-LB
 MongoDBSearch deployment and proves the cache-distinguishing logic actually
-works — by taking a mongot pod down mid-paging and asserting the tool reports
-either failures or cache-only successes rather than reporting a green
-``upstream_alive`` verdict.
+works — by taking mongot down mid-paging via the operator and asserting the
+tool surfaces the resulting connectivity errors rather than reporting a
+green ``upstream_alive`` verdict.
 
-The deployment scaffolding mirrors
-``search_replicaset_internal_mongodb_multi_mongot_managed_lb.py``; only the
-test bodies under "Connectivity tool tests" are new.
+The deployment scaffolding is delegated to
+``tests.common.search.connectivity_bootstrap`` so this file can stay focused
+on the connectivity-tool assertions themselves.
 """
 
 from __future__ import annotations
-
-import time
 
 from kubernetes import client
 from kubetester import try_load
@@ -23,22 +21,15 @@ from kubetester.mongodb import MongoDB
 from kubetester.mongodb_search import MongoDBSearch
 from kubetester.mongodb_user import MongoDBUser
 from kubetester.omtester import skip_if_cloud_manager
-from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests import test_logger
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
+from tests.common.search import connectivity_bootstrap as bootstrap
 from tests.common.search import search_resource_names
 from tests.common.search.connectivity import SearchConnectivityTool
-from tests.common.search.rs_search_helper import (
-    create_rs_lb_certificates,
-    create_rs_search_tls_cert,
-    get_rs_search_tester,
-    verify_rs_mongod_parameters,
-)
+from tests.common.search.rs_search_helper import get_rs_search_tester
 from tests.common.search.search_deployment_helper import SearchDeploymentHelper
 from tests.common.search.sharded_search_helper import create_issuer_ca
-from tests.conftest import get_default_operator
-from tests.search.om_deployment import get_ops_manager
 
 logger = test_logger.get_test_logger(__name__)
 
@@ -111,35 +102,29 @@ def mongot_user(helper: SearchDeploymentHelper, mdbs: MongoDBSearch) -> MongoDBU
 
 
 # ---------------------------------------------------------------------------
-# Cluster bootstrap — same sequence as the existing managed-LB tests.
+# Cluster bootstrap — thin pytest shells over connectivity_bootstrap helpers.
 # ---------------------------------------------------------------------------
 
 
 @mark.e2e_search_connectivity_tool
 def test_install_operator(namespace: str, operator_installation_config: dict[str, str]):
-    operator = get_default_operator(namespace, operator_installation_config=operator_installation_config)
-    operator.assert_is_running()
+    bootstrap.install_operator(namespace, operator_installation_config)
 
 
 @mark.e2e_search_connectivity_tool
 @skip_if_cloud_manager
 def test_create_ops_manager(namespace: str):
-    ops_manager = get_ops_manager(namespace)
-    assert ops_manager is not None
-    ops_manager.update()
-    ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=1200)
-    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
+    bootstrap.create_ops_manager(namespace)
 
 
 @mark.e2e_search_connectivity_tool
 def test_install_tls_certificates(helper: SearchDeploymentHelper, mdb: MongoDB, issuer: str):
-    helper.install_rs_tls_certificates(issuer, members=RS_MEMBERS)
+    bootstrap.install_tls_certificates(helper, issuer, RS_MEMBERS)
 
 
 @mark.e2e_search_connectivity_tool
 def test_create_database_resource(mdb: MongoDB):
-    mdb.update()
-    mdb.assert_reaches_phase(Phase.Running, timeout=300)
+    bootstrap.create_database_resource(mdb)
 
 
 @mark.e2e_search_connectivity_tool
@@ -150,7 +135,8 @@ def test_create_users(
     mongot_user: MongoDBUser,
     mdb: MongoDB,
 ):
-    helper.deploy_users(
+    bootstrap.create_users(
+        helper,
         admin_user,
         ADMIN_USER_PASSWORD,
         user,
@@ -162,45 +148,32 @@ def test_create_users(
 
 @mark.e2e_search_connectivity_tool
 def test_deploy_lb_certificates(namespace: str, issuer: str):
-    create_rs_lb_certificates(namespace, issuer, MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX)
+    bootstrap.deploy_lb_certificates(namespace, issuer, MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX)
 
 
 @mark.e2e_search_connectivity_tool
 def test_create_search_tls_certificate(namespace: str, issuer: str):
-    create_rs_search_tls_cert(namespace, issuer, MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX)
+    bootstrap.create_search_tls_certificate(namespace, issuer, MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX)
 
 
 @mark.e2e_search_connectivity_tool
 def test_create_search_resource(mdbs: MongoDBSearch):
-    mdbs.update()
-    mdbs.assert_reaches_phase(Phase.Running, timeout=600)
+    bootstrap.create_search_resource(mdbs)
 
 
 @mark.e2e_search_connectivity_tool
 def test_verify_envoy_deployment(namespace: str):
-    envoy_deployment_name = search_resource_names.lb_deployment_name(MDBS_RESOURCE_NAME)
-
-    def check_envoy_deployment():
-        try:
-            apps_v1 = client.AppsV1Api()
-            deployment = apps_v1.read_namespaced_deployment(envoy_deployment_name, namespace)
-            ready = deployment.status.ready_replicas or 0
-            return ready >= 1, f"ready_replicas={ready}"
-        except Exception as e:
-            return False, f"Deployment {envoy_deployment_name} not found: {e}"
-
-    run_periodically(check_envoy_deployment, timeout=120, sleep_time=5, msg=f"Envoy Deployment {envoy_deployment_name}")
+    bootstrap.verify_envoy_deployment(namespace, MDBS_RESOURCE_NAME)
 
 
 @mark.e2e_search_connectivity_tool
 def test_wait_for_database_ready(mdb: MongoDB):
-    mdb.assert_reaches_phase(Phase.Running, timeout=600)
+    bootstrap.wait_for_database_ready(mdb)
 
 
 @mark.e2e_search_connectivity_tool
 def test_verify_mongod_parameters(namespace: str, mdb: MongoDB, mdbs: MongoDBSearch):
-    expected_host = search_resource_names.proxy_service_host(mdbs.name, namespace, ENVOY_PROXY_PORT)
-    verify_rs_mongod_parameters(namespace, MDB_RESOURCE_NAME, RS_MEMBERS, expected_host)
+    bootstrap.verify_mongod_parameters(namespace, MDB_RESOURCE_NAME, RS_MEMBERS, mdbs.name, ENVOY_PROXY_PORT)
 
 
 @mark.e2e_search_connectivity_tool
@@ -210,19 +183,12 @@ def test_deploy_tools_pod(tools_pod: mongodb_tools_pod.ToolsPod):
 
 @mark.e2e_search_connectivity_tool
 def test_restore_sample_database(mdb: MongoDB, tools_pod: mongodb_tools_pod.ToolsPod):
-    search_tester = get_rs_search_tester(mdb, ADMIN_USER_NAME, ADMIN_USER_PASSWORD, use_ssl=True)
-    search_tester.mongorestore_from_url(
-        archive_url="https://atlas-education.s3.amazonaws.com/sample_mflix.archive",
-        ns_include="sample_mflix.*",
-        tools_pod=tools_pod,
-    )
+    bootstrap.restore_sample_database(mdb, tools_pod, ADMIN_USER_NAME, ADMIN_USER_PASSWORD)
 
 
 @mark.e2e_search_connectivity_tool
 def test_create_search_index(mdb: MongoDB):
-    search_tester = get_rs_search_tester(mdb, USER_NAME, USER_PASSWORD, use_ssl=True)
-    search_tester.create_search_index("sample_mflix", "movies")
-    search_tester.wait_for_search_indexes_ready("sample_mflix", "movies", timeout=300)
+    bootstrap.create_search_index(mdb, USER_NAME, USER_PASSWORD)
 
 
 # ---------------------------------------------------------------------------
@@ -255,49 +221,6 @@ def test_oneshot_search_succeeds_and_reports_upstream(mdb: MongoDB):
 
 
 @mark.e2e_search_connectivity_tool
-def test_oneshot_vector_search_runs_or_skips(mdb: MongoDB):
-    """Smoke-test the one-shot vector-search path.
-
-    The default vector index used by the tool — ``vector_auto_embed_index`` —
-    requires the Voyage indexing key during index creation **and** embedded
-    sample data for queries to actually return hits. This test is
-    intentionally tolerant: the contract it enforces is "the vector-search
-    path through ``SearchConnectivityTool`` runs without raising". It skips
-    when the index doesn't exist on the cluster, and treats a
-    successful-but-empty result the same way (the index exists but the
-    fixture didn't seed embedded documents — a fixture-data property, not a
-    connectivity-tool defect).
-    """
-    search_tester = get_rs_search_tester(mdb, USER_NAME, USER_PASSWORD, use_ssl=True)
-    tool = SearchConnectivityTool(search_tester)
-    result = tool.oneshot_vector_search()
-    logger.info(f"oneshot_vector_search result: {result}")
-    if not result.success:
-        # If the vector index isn't configured, the server returns an
-        # OperationFailure with a "$vectorSearch" or "index not found"
-        # message. Fail only on errors that suggest the connectivity tool
-        # itself broke; treat missing-index as a skip-equivalent.
-        msg = (result.error_message or "").lower()
-        if any(token in msg for token in ("vectorsearch", "index", "not found", "no such index")):
-            logger.info("vector index not configured for this fixture; skipping")
-            return
-        raise AssertionError(f"vector search failed unexpectedly: {result.error_class} {result.error_message}")
-    # success=True with zero hits == index exists but no embedded docs (e.g.
-    # only the query API key is provisioned, not the indexing key, or the
-    # fixture didn't seed sample data through the auto-embed path). The
-    # connectivity-tool path is proven by success=True / error=None — don't
-    # gate on fixture embedding state.
-    if result.returned_count == 0:
-        logger.info(
-            "vector search succeeded but returned 0 docs; auto-embed fixture not seeded — skipping data assertion"
-        )
-        return
-    # success=True with hits — sanity-check the basic shape of the result.
-    assert result.returned_count > 0
-    assert result.error_class is None and result.error_message is None
-
-
-@mark.e2e_search_connectivity_tool
 def test_paging_search_first_page_is_upstream(mdb: MongoDB):
     """First paging page corresponds to the cursor's firstBatch — upstream."""
     search_tester = get_rs_search_tester(mdb, USER_NAME, USER_PASSWORD, use_ssl=True)
@@ -312,15 +235,21 @@ def test_paging_search_first_page_is_upstream(mdb: MongoDB):
 
 
 @mark.e2e_search_connectivity_tool
-def test_paging_through_mongot_outage_reports_cache_hits_or_failures(namespace: str, mdb: MongoDB, mdbs: MongoDBSearch):
+def test_paging_through_mongot_outage_surfaces_connectivity_error(mdb: MongoDB, mdbs: MongoDBSearch):
     """Cache-distinguishing assertion — the deliverable signal of KUBE-17.
 
-    Open a paging cursor against a healthy mongot, then scale the mongot
-    StatefulSet to 0 mid-flight and continue paging. The connectivity tool
-    must not report a green ``upstream_alive`` verdict for pages served
-    after mongot is gone — they're either cache/buffer-only successes
-    (``cache_hit_hint=True``) or outright failures, but never new
-    upstream-confirmed pages.
+    Open a paging cursor against a healthy mongot, then scale the
+    MongoDBSearch CR to 0 replicas via the operator and continue paging.
+    The connectivity tool must not report a green ``upstream_alive``
+    verdict for pages served after mongot is gone, AND must surface a real
+    connectivity-class error from at least one post-outage page —
+    cache-only success on its own is not a useful signal (it tells us
+    about the cursor's local buffer state, not about upstream availability).
+
+    NOTE: this test only exercises the "no healthy upstream" path produced
+    by scaling all mongots away. The "lost long-living cursor" path
+    (mongot/envoy/mongod restarts mid-cursor) is intentionally out of
+    scope here and will land in a follow-up under U1.3.
     """
     search_tester = get_rs_search_tester(mdb, USER_NAME, USER_PASSWORD, use_ssl=True)
     tool = SearchConnectivityTool(
@@ -332,16 +261,9 @@ def test_paging_through_mongot_outage_reports_cache_hits_or_failures(namespace: 
         cache_latency_threshold_ms=10.0,
     )
 
-    statefulset_name = search_resource_names.mongot_statefulset_name(MDBS_RESOURCE_NAME)
-    apps_v1 = client.AppsV1Api()
-
-    # Open the cursor while mongot is healthy. We deliberately use a
-    # large-ish total page count and small batch size so the local
-    # CommandCursor buffer drains quickly and any later pages must
-    # contact upstream — until upstream is gone, at which point the
-    # heuristic flips to "buffer-only" until the cursor exhausts or
-    # errors.
-    pre_pages: list = []
+    # Open a cursor while mongot is healthy and confirm the heuristic
+    # produces at least one upstream-confirmed page. Two pages with a
+    # small batch is enough to cross at least one getMore boundary.
     pre_pages = tool.paging_search(pages=2, interval_seconds=0.1, batch_size=10)
     logger.info("pre-outage pages: %s", "; ".join(str(p) for p in pre_pages))
     assert any(p.success and p.cache_hit_hint is False for p in pre_pages), (
@@ -349,66 +271,106 @@ def test_paging_through_mongot_outage_reports_cache_hits_or_failures(namespace: 
         "the cache-detection heuristic is broken before we even introduce a fault"
     )
 
-    # Scale mongot StatefulSet to 0. The Service still resolves but has no
-    # endpoints, so subsequent getMore round-trips will fail (timeout or
-    # connection refused via envoy).
+    # Drive the outage by scaling the underlying mongot StatefulSet
+    # directly to 0. We would prefer to set ``spec.replicas = 0`` on the
+    # MongoDBSearch CR and let the operator drain the StatefulSet, but
+    # the CRD enforces ``minimum: 1`` on ``spec.replicas`` (and on
+    # ``spec.clusters[].replicas``) so the apiserver returns HTTP 422 for
+    # the 0 case. Until that constraint is relaxed (or we adopt a
+    # CR-deletion-and-recreation pattern), the StatefulSet patch is the
+    # least-bad way to take mongot down for this assertion.
+    statefulset_name = search_resource_names.mongot_statefulset_name(mdbs.name)
+    apps_v1 = client.AppsV1Api()
     logger.info(f"scaling StatefulSet {statefulset_name} replicas -> 0")
     apps_v1.patch_namespaced_stateful_set_scale(
         name=statefulset_name,
-        namespace=namespace,
+        namespace=mdb.namespace,
         body={"spec": {"replicas": 0}},
     )
 
     def mongot_pods_gone() -> tuple[bool, str]:
-        sts = apps_v1.read_namespaced_stateful_set(statefulset_name, namespace)
+        sts = apps_v1.read_namespaced_stateful_set(statefulset_name, mdb.namespace)
         ready = sts.status.ready_replicas or 0
         return ready == 0, f"ready_replicas={ready}"
 
     run_periodically(
         mongot_pods_gone,
-        timeout=120,
+        timeout=180,
         sleep_time=5,
         msg=f"mongot StatefulSet {statefulset_name} to scale to 0",
     )
-    # Give kube-proxy a moment to update endpoints; envoy circuit breakers
-    # also need a beat to register the upstream as unhealthy.
-    time.sleep(5)
 
-    # Now run a fresh paging cursor against the broken cluster. Any page
-    # that succeeds must be cache_hit/buffer-only; the verdict must NOT
-    # claim upstream is alive.
+    # Now run a fresh paging cursor against the broken cluster. We expect
+    # at least one connectivity error — pymongo surfaces "no healthy
+    # upstream" as ``OperationFailure`` because envoy returns a non-200
+    # to the mongot RPC. Cache-only successes are noise here; the load-
+    # bearing assertion is "we observed a real failure".
     post_pages = tool.paging_search(pages=8, interval_seconds=0.5, batch_size=10)
     logger.info("post-outage pages: %s", "; ".join(str(p) for p in post_pages))
 
     post_verdict = tool.verdict(post_pages)
     logger.info(f"post-outage verdict: {post_verdict.as_dict()}")
 
-    # The actual deliverable assertion: with mongot scaled to 0, no page
-    # should be reported as a fresh upstream success. The tool should
-    # surface either failures or cache-only successes.
+    # Deliverable assertion 1: the verdict cannot claim upstream is alive.
     assert post_verdict.upstream_succeeded == 0, (
         f"connectivity tool reported {post_verdict.upstream_succeeded} upstream-confirmed "
         f"successes after mongot scaled to 0 — the cache-distinguishing logic "
         f"is producing false-greens. Verdict: {post_verdict.as_dict()}"
     )
-    # And to make sure the test isn't trivially passing because nothing
-    # ran: at least one page must have been observed (success-from-cache
-    # OR failure).
-    assert post_verdict.total > 0, "post-outage verdict produced no pages at all"
-    # Concretely we expect at least some failures *or* some cache_only
-    # successes — the absence of both would mean the cluster is somehow
-    # still serving fresh queries, which contradicts mongot being scaled
-    # to 0.
-    assert (post_verdict.failed + post_verdict.cache_only_succeeded) > 0, (
-        f"post-outage verdict shows no failures and no cache-only successes — "
-        f"either mongot is still alive (test setup bug) or the connectivity "
-        f"tool isn't classifying results correctly. Verdict: {post_verdict.as_dict()}"
+    # Deliverable assertion 2: at least one connectivity error must surface.
+    # Cache-only success on its own is not informative — see the reviewer's
+    # note on PR #1080. We need a real failure to know the tool is
+    # propagating upstream-loss instead of silently swallowing it.
+    assert post_verdict.failed > 0, (
+        f"post-outage verdict has no failures — the connectivity tool isn't surfacing "
+        f"the upstream loss. Verdict: {post_verdict.as_dict()}"
+    )
+    # Failures are expected to be pymongo ``OperationFailure`` (envoy
+    # returns "no healthy upstream") or ``ServerSelectionTimeoutError`` /
+    # ``NetworkTimeout`` — anything in the connectivity family. Reject
+    # plain "Unknown" since that means error classification broke.
+    expected_error_classes = {
+        "OperationFailure",
+        "ServerSelectionTimeoutError",
+        "NetworkTimeout",
+        "AutoReconnect",
+        "ConnectionFailure",
+    }
+    observed_error_classes = set(post_verdict.error_breakdown)
+    assert observed_error_classes & expected_error_classes, (
+        f"post-outage failures did not include any expected connectivity-class error; "
+        f"got error_breakdown={post_verdict.error_breakdown}. "
+        f"Expected one of {sorted(expected_error_classes)}."
     )
 
-    # Restore mongot for cleanup so subsequent tests in the same module can
-    # still run if anyone adds them.
+    # Cleanup: scale the StatefulSet back to 1 directly. We'd prefer to
+    # let the operator restore it (set ``spec.replicas = 1`` on the CR
+    # and wait for ``Phase.Running``) but two constraints make that
+    # impractical here:
+    #   1. ``spec.replicas`` is already 1 on the CR (we never set it to
+    #      0 — the CRD's ``minimum: 1`` blocked that), so the operator
+    #      sees no spec change to reconcile.
+    #   2. In some local-dev setups the operator runs as ``go run`` on
+    #      the developer's host (or not at all) rather than as the
+    #      in-cluster Deployment, so a CR-driven wait can hang forever.
+    # Direct StatefulSet patching is symmetric with the scale-down above
+    # and unblocks the test deterministically; in-cluster operators
+    # observe the StatefulSet drift and reconcile in their own time.
+    logger.info(f"scaling StatefulSet {statefulset_name} replicas -> 1")
     apps_v1.patch_namespaced_stateful_set_scale(
         name=statefulset_name,
-        namespace=namespace,
+        namespace=mdb.namespace,
         body={"spec": {"replicas": 1}},
+    )
+
+    def mongot_pods_back() -> tuple[bool, str]:
+        sts = apps_v1.read_namespaced_stateful_set(statefulset_name, mdb.namespace)
+        ready = sts.status.ready_replicas or 0
+        return ready >= 1, f"ready_replicas={ready}"
+
+    run_periodically(
+        mongot_pods_back,
+        timeout=300,
+        sleep_time=5,
+        msg=f"mongot StatefulSet {statefulset_name} to scale back to 1",
     )

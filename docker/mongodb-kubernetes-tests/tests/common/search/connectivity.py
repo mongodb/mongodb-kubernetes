@@ -45,8 +45,8 @@ page, so a long-running tester that wants a high-confidence verdict can simply
 filter to pages where ``cache_hit_hint is False`` and assert at least one such
 page succeeded over the observation window.
 
-Per the U1.1 plan: no unit tests with mocks — verified end-to-end on real
-systems via the e2e tests under ``tests/search/``.
+No unit tests with mocks — verified end-to-end on real systems via the e2e
+tests under ``tests/search/``.
 """
 
 from __future__ import annotations
@@ -182,6 +182,14 @@ class SearchConnectivityTool:
 
     @staticmethod
     def _classify_error(exc: BaseException) -> tuple[str, Optional[int]]:
+        """Normalise a pymongo exception into ``(class_name, server_error_code)``.
+
+        We use the class name as a coarse, stringly-typed bucket for verdict
+        aggregation (``ConnectivityVerdict.error_breakdown`` keys on this) so
+        callers can do ``error_breakdown["OperationFailure"] > 0`` style
+        checks without importing pymongo. The server error code is only
+        present for ``OperationFailure`` (network errors don't have codes).
+        """
         klass = type(exc).__name__
         code: Optional[int] = None
         if isinstance(exc, pymongo.errors.OperationFailure):
@@ -191,13 +199,19 @@ class SearchConnectivityTool:
     def make_cache_buster_query(self, base_term: str = "movie") -> tuple[dict, str]:
         """Build a ``$search`` pipeline that mongot cannot serve from cache.
 
-        The pipeline pairs a stable ``must`` clause (so the query reliably
-        matches some documents) with a unique random token in the ``should``
-        clause. mongot keys its query cache by query identity, so a fresh
-        token guarantees a real evaluation. Returns ``(pipeline_stage, token)``
-        — the caller is responsible for building the full aggregation pipeline.
+        The pipeline pairs a stable ``must`` clause with a unique random
+        token in the ``should`` clause. ``must`` filters the result set —
+        documents that don't match are excluded; ``should`` only contributes
+        to the relevance score (a document still appears in the result even
+        if it doesn't match ``should``, just with a lower score). So the
+        random ``should`` token does not change *which* documents come
+        back; what it changes is the **query identity** — mongot keys its
+        per-query cache on the full query text, and a fresh token forces a
+        real evaluation rather than a cache lookup. Returns
+        ``(pipeline_stage, token)`` — the caller is responsible for
+        building the full aggregation pipeline.
         """
-        token = f"kube17_{uuid.uuid4().hex[:12]}"
+        token = f"cb_{uuid.uuid4().hex[:12]}"
         stage = {
             "$search": {
                 "compound": {
@@ -583,23 +597,52 @@ class SearchConnectivityTool:
     # Sentinel propagation — strongest "really upstream" check
     # ------------------------------------------------------------------
 
-    def insert_sentinel(self, prefix: str = "kube17_sentinel") -> str:
-        """Insert a sentinel document and return its title.
+    def insert_sentinel(self, prefix: str = "sentinel") -> str:
+        """Insert a sentinel document and return its (fully random) title.
 
-        The title is unique per call. After waiting for the search index to
-        re-tokenize (typically a few seconds), a ``$search`` for the title
-        SHOULD return the document — if it doesn't, mongot is either stale
-        or unreachable. This is the strongest "the upstream search index is
-        actually current" check we can run from a client.
+        The title is generated as ``{prefix}_{uuid.uuid4().hex[:12]}`` so
+        every call produces a unique, server-unseen value. After mongot has
+        rebuilt the search index against the underlying collection,
+        ``search_for_sentinel`` will find this document — if it doesn't,
+        mongot is either stale or unreachable. This is the strongest "the
+        upstream search index is actually current" check we can run from a
+        client.
+
+        Note: the index-rebuild is asynchronous; callers must poll for the
+        sentinel via ``search_for_sentinel`` (which polls internally) or
+        their own equivalent — never sleep a fixed amount and assume the
+        document is queryable, that's racy.
         """
         title = f"{prefix}_{uuid.uuid4().hex[:12]}"
-        self._collection.insert_one({"title": title, "plot": "kube17 sentinel doc"})
+        self._collection.insert_one({"title": title, "plot": "sentinel doc"})
         return title
 
-    def search_for_sentinel(self, title: str, timeout_ms: int = 2000) -> QueryResult:
-        """Search for a sentinel document inserted via ``insert_sentinel``."""
+    def search_for_sentinel(
+        self,
+        title: str,
+        overall_timeout_seconds: float = 60.0,
+        poll_interval_seconds: float = 1.0,
+        per_query_timeout_ms: int = 2000,
+    ) -> QueryResult:
+        """Poll ``$search`` for a sentinel until it appears or we time out.
+
+        mongot rebuilds the search index asynchronously after a write — the
+        sentinel doc is not queryable immediately. We poll instead of
+        sleeping a fixed amount because the rebuild latency is variable
+        (especially under load) and any single fixed sleep is either
+        wasteful or racy. Returns the first ``QueryResult`` whose
+        ``returned_count > 0`` (success), or the last attempt's result if
+        the overall timeout elapses without the sentinel appearing.
+        """
         stage = {"$search": {"text": {"query": title, "path": "title"}}}
-        return self.oneshot_search(query=stage, limit=5, timeout_ms=timeout_ms)
+        deadline = time.monotonic() + overall_timeout_seconds
+        while True:
+            result = self.oneshot_search(query=stage, cache_buster=False, limit=5, timeout_ms=per_query_timeout_ms)
+            if result.success and result.returned_count > 0:
+                return result
+            if time.monotonic() >= deadline:
+                return result
+            time.sleep(poll_interval_seconds)
 
     # ------------------------------------------------------------------
     # Verdict
