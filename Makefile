@@ -50,6 +50,22 @@ switch:
 switcht:
 	@ scripts/dev/switch_context_by_test.sh $(test)
 
+# Re-run switch_context against whatever context is currently pinned in
+# .generated/.current_context. Useful after crossing the host/devcontainer
+# boundary: the side-stamp guard in set_env_context.sh refuses to source a
+# context.export.env generated on the OTHER side, and `make
+# regenerate-context` is the canonical fix-it-now command. Falls back to a
+# clear error if no context has been picked yet.
+regenerate-context:
+	@ if [[ ! -s .generated/.current_context ]]; then \
+		echo "ERROR: .generated/.current_context is missing or empty." >&2; \
+		echo "Run 'make switch context=<name>' first." >&2; \
+		exit 1; \
+	fi; \
+	current="$$(cat .generated/.current_context)"; \
+	echo "Regenerating context for: $${current}"; \
+	scripts/dev/switch_context.sh "$${current}"
+
 # runs the e2e test: make e2e test=e2e_sharded_cluster_pv. The Operator is redeployed before the test, the namespace is cleaned.
 # The e2e test image is built and pushed together with all main ones (operator, database, init containers)
 # Use 'light=true' parameter to skip images rebuilding - use this mode when you are focused on e2e tests development only
