@@ -152,6 +152,14 @@ get-kubeconfig() {
     yq -i ".clusters[].cluster.proxy-url |= \"${EVG_HOST_PROXY}\"" "${kubeconfig_path}"
   fi
 
+  # Write the host-side variant alongside the in-container one. The host kfp
+  # piggybacks on the gost-proxy port published to 127.0.0.1:80${MCK_DEVC_NET_PREFIX}.
+  host_kubeconfig_path="${PROJECT_DIR}/.generated/evg-host.host.kubeconfig"
+  host_proxy_port="80${MCK_DEVC_NET_PREFIX:-28}"
+  echo "Writing host-side kubeconfig variant to ${host_kubeconfig_path} (proxy 127.0.0.1:${host_proxy_port})"
+  cp "${kubeconfig_path}" "${host_kubeconfig_path}"
+  yq -i ".clusters[].cluster.proxy-url |= \"http://127.0.0.1:${host_proxy_port}\"" "${host_kubeconfig_path}"
+
   if [[ -n "${K8S_FWD_PROXY:-}" ]]; then
     echo "Loading kubeconfig onto ${K8S_FWD_PROXY}"
     curl -X PATCH --data-binary @"${kubeconfig_path}" "http://${K8S_FWD_PROXY}/kubeconfig"
