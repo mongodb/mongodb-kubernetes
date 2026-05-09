@@ -52,6 +52,7 @@ tests under ``tests/search/``.
 from __future__ import annotations
 
 import os
+import re
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -72,6 +73,107 @@ EMBEDDING_QUERY_KEY_ENV_VAR = "AI_MONGODB_EMBEDDING_QUERY_KEY"
 VOYAGE_EMBEDDING_ENDPOINT = "https://ai.mongodb.com/v1/embeddings"
 VOYAGE_MODEL = "voyage-3-large"
 VOYAGE_DIMENSIONS = 2048
+
+
+# ----------------------------------------------------------------------
+# Failure-class taxonomy
+# ----------------------------------------------------------------------
+#
+# Tests that exercise upstream availability need to distinguish between
+# failures that mean "the server has lost the cursor's state" (a hard,
+# non-retryable signal that the long-living cursor is dead) and failures
+# that mean "we couldn't reach the server right now" (a soft, often-
+# retryable signal that doesn't on its own tell us anything about the
+# cursor's state). Three buckets:
+#
+#   FAILURE_CURSOR_LOST       — the cursor's server-side state is gone
+#                                and retrying on the same cursor cannot
+#                                help. Three signal patterns:
+#                                  (a) pymongo's CursorNotFound (server
+#                                      error code 43) — the canonical
+#                                      server-side cursor-killed signal
+#                                      (TTL expiry, killCursors, etc.).
+#                                  (b) OperationFailure messages
+#                                      matching "cursor id N not found"
+#                                      / "cursor id N was killed" —
+#                                      same condition surfaced by some
+#                                      pymongo paths via the parent
+#                                      class instead of CursorNotFound.
+#                                  (c) For $search cursors specifically:
+#                                      mongod returns InternalError
+#                                      (code 1) wrapping a mongot-side
+#                                      "Remote error from mongot" or
+#                                      "RST_STREAM" message when the
+#                                      gRPC stream between mongod and
+#                                      mongot is torn down (e.g. mongot
+#                                      pod restart). The cursor's
+#                                      mongot-side session is gone; the
+#                                      cursor is dead even though the
+#                                      surface error code isn't 43.
+#                                NEVER retried.
+#   FAILURE_TRANSIENT_NETWORK — we couldn't talk to the server: a hard
+#                                pymongo network class (NetworkTimeout,
+#                                AutoReconnect, ConnectionFailure,
+#                                ServerSelectionTimeoutError) OR an
+#                                OperationFailure whose message says the
+#                                LB returned 503 / "no healthy upstream"
+#                                / "connection refused" (envoy's response
+#                                when no mongot is healthy). Retried
+#                                ONCE internally before being recorded.
+#   FAILURE_OTHER             — anything else (genuine server-side query
+#                                errors, schema problems, etc). Recorded
+#                                as-is; never retried.
+FAILURE_CURSOR_LOST = "cursor_lost"
+FAILURE_TRANSIENT_NETWORK = "transient_network"
+FAILURE_OTHER = "other"
+
+_CURSOR_LOST_MESSAGE_RE = re.compile(
+    r"cursor id .*?(not found|was killed)|"
+    r"remote error from mongot|"
+    r"rst_stream",
+    re.IGNORECASE,
+)
+_TRANSIENT_NETWORK_MESSAGE_RE = re.compile(
+    r"no healthy upstream|connection refused|connection reset|broken pipe",
+    re.IGNORECASE,
+)
+_TRANSIENT_NETWORK_CLASSES = frozenset(
+    {
+        "NetworkTimeout",
+        "AutoReconnect",
+        "ConnectionFailure",
+        "ServerSelectionTimeoutError",
+    }
+)
+
+
+def classify_failure(error_class: str, error_code: Optional[int], error_message: str) -> str:
+    """Map a pymongo-derived ``(class, code, message)`` triple to one of the
+    three failure buckets above.
+
+    Pure function on three primitives so callers (and unit tests) don't have
+    to reconstruct the original exception object. The original exception is
+    already classified into ``error_class`` / ``error_code`` /
+    ``error_message`` by ``SearchConnectivityTool._classify_error`` upstream.
+
+    Cursor-lost takes precedence over transient_network when both might
+    match. Concretely, a "Remote error from mongot" surfacing during a
+    transient mongot restart is a cursor-lost: mongot has lost the
+    cursor's stream-side state and won't recover it, even though mongot
+    itself comes back. Treating it as transient_network would incorrectly
+    suggest that retrying the same cursor would succeed.
+    """
+    # CursorNotFound is the ground-truth signal. Pymongo also surfaces it via
+    # OperationFailure(code=43) on some code paths, so check both.
+    if error_class == "CursorNotFound" or error_code == 43:
+        return FAILURE_CURSOR_LOST
+    if _CURSOR_LOST_MESSAGE_RE.search(error_message or ""):
+        return FAILURE_CURSOR_LOST
+    if error_class in _TRANSIENT_NETWORK_CLASSES:
+        return FAILURE_TRANSIENT_NETWORK
+    if error_class == "OperationFailure" and _TRANSIENT_NETWORK_MESSAGE_RE.search(error_message or ""):
+        return FAILURE_TRANSIENT_NETWORK
+    return FAILURE_OTHER
 
 
 @dataclass
@@ -103,6 +205,14 @@ class QueryResult:
     # True iff the page was returned entirely from the client-local batch
     # buffer with no getMore round-trip to the server. None for one-shot.
     from_buffer_only: Optional[bool] = None
+    # Failure classification — see FAILURE_* constants. None on success.
+    failure_class: Optional[str] = None
+    # Set to True when the result represents a transient_network failure
+    # that survived an internal retry, OR a success that recovered from a
+    # transient blip on the same call. Surfaced in the verdict so tests
+    # can distinguish "clean signal" from "noisy signal" without needing
+    # to introspect every QueryResult.
+    noted: bool = False
 
     def __str__(self) -> str:
         bits = [
@@ -113,6 +223,10 @@ class QueryResult:
         ]
         if self.cache_hit_hint is not None:
             bits.append(f"cache_hit={self.cache_hit_hint}")
+        if self.failure_class:
+            bits.append(f"failure={self.failure_class}")
+        if self.noted:
+            bits.append("noted")
         if self.error_class:
             bits.append(f"err={self.error_class}({self.error_code})")
         return " ".join(bits)
@@ -128,6 +242,12 @@ class ConnectivityVerdict:
     upstream_succeeded: int = 0  # success with cache_hit_hint=False
     cache_only_succeeded: int = 0  # success with cache_hit_hint=True
     unknown_succeeded: int = 0  # success with cache_hit_hint=None
+    # Failure-class buckets. Sum of these equals ``failed``.
+    cursor_lost: int = 0
+    transient_network: int = 0
+    other_failed: int = 0
+    # Successes that survived a transient retry; subset of ``succeeded``.
+    succeeded_with_retry: int = 0
     error_breakdown: dict[str, int] = field(default_factory=dict)
     first_error: Optional[str] = None
     last_error: Optional[str] = None
@@ -137,15 +257,30 @@ class ConnectivityVerdict:
         """True iff at least one query was confirmed to reach upstream."""
         return self.upstream_succeeded > 0
 
+    @property
+    def cursor_lost_observed(self) -> bool:
+        """True iff at least one page surfaced a cursor-lost failure.
+
+        This is the deliverable signal for tests that prove a long-living
+        cursor's server-side state is gone (e.g. mongot pod restart) — a
+        different semantics from a transient-network blip.
+        """
+        return self.cursor_lost > 0
+
     def as_dict(self) -> dict[str, Any]:
         return {
             "total": self.total,
             "succeeded": self.succeeded,
+            "succeeded_with_retry": self.succeeded_with_retry,
             "failed": self.failed,
+            "cursor_lost": self.cursor_lost,
+            "transient_network": self.transient_network,
+            "other_failed": self.other_failed,
             "upstream_succeeded": self.upstream_succeeded,
             "cache_only_succeeded": self.cache_only_succeeded,
             "unknown_succeeded": self.unknown_succeeded,
             "upstream_alive": self.upstream_alive,
+            "cursor_lost_observed": self.cursor_lost_observed,
             "error_breakdown": dict(self.error_breakdown),
             "first_error": self.first_error,
             "last_error": self.last_error,
@@ -329,6 +464,7 @@ class SearchConnectivityTool:
         except pymongo.errors.PyMongoError as exc:
             elapsed_ms = (time.monotonic() - started) * 1000.0
             klass, code = self._classify_error(exc)
+            msg = str(exc)
             logger.debug(f"oneshot_search failed in {elapsed_ms:.1f}ms: {klass}({code}) {exc}")
             return QueryResult(
                 success=False,
@@ -336,7 +472,8 @@ class SearchConnectivityTool:
                 latency_ms=elapsed_ms,
                 error_class=klass,
                 error_code=code,
-                error_message=str(exc),
+                error_message=msg,
+                failure_class=classify_failure(klass, code, msg),
                 query_kind="search",
                 query_token=token,
             )
@@ -432,166 +569,268 @@ class SearchConnectivityTool:
     ) -> list[QueryResult]:
         """Open a ``$search`` cursor and page through it.
 
-        Each "page" pulls up to ``batch_size`` documents from the cursor and
-        records latency, success, error, cursor state, and a buffer-vs-getMore
-        flag (see ``QueryResult.from_buffer_only``).
-
-        The first page always corresponds to the cursor's ``firstBatch`` and
-        therefore always contacts upstream — it gets ``cache_hit_hint=False``.
-        Subsequent pages get ``cache_hit_hint=True`` if they were served
-        entirely from the local buffer (no upstream contact this iteration)
-        and ``cache_hit_hint=False`` if at least one document required a
-        ``getMore``.
-
-        Args:
-            query: optional ``$search`` stage; defaults to a stable wildcard
-                that matches a large fraction of the sample-mflix corpus so
-                the paging cursor has plenty of data to stream.
-            pages: number of pages to fetch (must be >= 1).
-            interval_seconds: sleep between pages.
-            batch_size: max docs per page (also the cursor's ``batchSize``).
-            on_page: optional callback invoked after each page completes.
-            stop_on_error: if True, stop iteration on the first error.
-            timeout_ms: optional aggregate-level ``maxTimeMS``.
+        Convenience wrapper around ``paging_cursor_open`` +
+        ``paging_cursor_read_pages``: opens the cursor, reads ``pages``
+        pages, and closes. For tests that need to keep the same cursor
+        alive across a fault (e.g. mongot pod restart), call those two
+        helpers directly instead.
         """
-        if pages < 1:
-            raise ValueError(f"pages must be >= 1; got {pages}")
+        cursor, results, page_index_offset = self._paging_open_and_first_error(
+            query=query,
+            batch_size=batch_size,
+            timeout_ms=timeout_ms,
+        )
+        if cursor is None:
+            return results
+        try:
+            tail = self.paging_cursor_read_pages(
+                cursor,
+                pages=pages,
+                interval_seconds=interval_seconds,
+                batch_size=batch_size,
+                on_page=on_page,
+                stop_on_error=stop_on_error,
+                first_page_index=page_index_offset,
+            )
+        finally:
+            try:
+                cursor.close()
+            except Exception:  # pragma: no cover
+                logger.debug("cursor.close() raised on cleanup")
+        return results + tail
+
+    def paging_cursor_open(
+        self,
+        query: Optional[dict] = None,
+        batch_size: int = 50,
+        timeout_ms: Optional[int] = None,
+    ):
+        """Open a ``$search`` aggregation cursor and return it.
+
+        The caller takes ownership of the returned pymongo CommandCursor
+        (must close it; ``paging_cursor_read_pages`` does not). Use this
+        when a test needs to read pages, do something with the cursor's
+        server-side state intact (e.g. restart mongot to invalidate it),
+        then continue reading on the *same* cursor.
+        """
         if batch_size < 1:
             raise ValueError(f"batch_size must be >= 1; got {batch_size}")
-
-        if query is None:
-            # Use a wildcard search so the corpus is large enough to support
-            # extended paging without exhausting after a couple of pages.
-            stage = {
-                "$search": {
-                    "wildcard": {
-                        "query": "*",
-                        "path": "title",
-                        "allowAnalyzedField": True,
-                    }
-                }
-            }
-        else:
-            stage = query
-
+        stage = query if query is not None else self._default_paging_stage()
         pipeline = [stage, {"$project": {"_id": 0, "title": 1}}]
         agg_kwargs: dict[str, Any] = {"batchSize": batch_size}
         if timeout_ms is not None:
             agg_kwargs["maxTimeMS"] = timeout_ms
+        return self._collection.aggregate(pipeline, **agg_kwargs)
 
+    def paging_cursor_read_pages(
+        self,
+        cursor,
+        pages: int,
+        interval_seconds: float = 1.0,
+        batch_size: int = 50,
+        on_page: Optional[Callable[[QueryResult], None]] = None,
+        stop_on_error: bool = False,
+        first_page_index: int = 0,
+        retry_transient_once: bool = True,
+    ) -> list[QueryResult]:
+        """Read ``pages`` pages from an already-open paging cursor.
+
+        Each page pulls up to ``batch_size`` documents and records latency,
+        success/failure, failure_class, cursor state, and the buffer-vs-
+        getMore flag.
+
+        ``first_page_index`` is the page index assigned to the first page
+        produced by THIS call. Tests that read pages, do a fault, and read
+        more should pass ``first_page_index=N`` on the second call where N
+        is one past the last index from the first call — that way the page
+        timeline in the resulting list is contiguous and easy to reason about.
+
+        Retry semantics
+        ---------------
+        When ``retry_transient_once`` is True (the default), a single
+        ``next(cursor)`` call that raises a ``transient_network`` failure
+        (per ``classify_failure``) is retried one more time before being
+        recorded. If the retry succeeds, the page result has ``noted=True``
+        so the verdict can flag that there was a transient hiccup. If the
+        retry fails, the page is recorded as a transient_network failure
+        with ``noted=True`` to make clear this isn't an instantaneous
+        signal but a persistent network condition.
+
+        Cursor-lost and "other" failures are NEVER retried — they're
+        recorded immediately because retrying on a dead cursor doesn't
+        help, and "other" means the query itself is wrong.
+        """
+        if pages < 1:
+            raise ValueError(f"pages must be >= 1; got {pages}")
         results: list[QueryResult] = []
-        cursor = None
         cursor_alive = True
-        try:
-            cursor = self._collection.aggregate(pipeline, **agg_kwargs)
-        except pymongo.errors.PyMongoError as exc:
-            klass, code = self._classify_error(exc)
-            logger.debug(f"paging_search aggregate() failed: {klass}({code}) {exc}")
-            results.append(
-                QueryResult(
-                    success=False,
-                    started_at=time.monotonic(),
-                    latency_ms=0.0,
-                    error_class=klass,
-                    error_code=code,
-                    error_message=str(exc),
-                    query_kind="search",
-                    page_index=0,
-                )
-            )
-            return results
+        for page_offset in range(pages):
+            page_index = first_page_index + page_offset
+            page_started = time.monotonic()
+            docs: list[Any] = []
+            page_error: Optional[QueryResult] = None
+            had_transient_retry = False
+            any_getmore = False
+            buffer_probed_at_least_once = False
 
-        try:
-            for page_index in range(pages):
-                page_started = time.monotonic()
-                docs: list[Any] = []
-                page_error: Optional[QueryResult] = None
-                # We track whether ANY of the up-to-batch_size next() calls in
-                # this page found the local buffer empty (i.e. issued a
-                # getMore). If even one did, we know the page contacted
-                # upstream. If none did, the page was buffer-only and tells
-                # us nothing about upstream availability.
-                any_getmore = False
-                buffer_probed_at_least_once = False
+            for _ in range(batch_size):
+                if not cursor_alive:
+                    break
+                pre_buffer = self._cursor_buffer_size(cursor)
+                if pre_buffer is not None:
+                    buffer_probed_at_least_once = True
+                    if pre_buffer == 0:
+                        any_getmore = True
+                try:
+                    docs.append(next(cursor))
+                    continue
+                except StopIteration:
+                    cursor_alive = False
+                    break
+                except pymongo.errors.PyMongoError as exc:
+                    klass, code = self._classify_error(exc)
+                    msg = str(exc)
+                    fclass = classify_failure(klass, code, msg)
 
-                for _ in range(batch_size):
-                    if not cursor_alive:
-                        break
-                    pre_buffer = self._cursor_buffer_size(cursor)
-                    if pre_buffer is not None:
-                        buffer_probed_at_least_once = True
-                        if pre_buffer == 0:
-                            any_getmore = True
+                # Retry-once-noted only for transient_network. Cursor-lost
+                # and other failures fall through to record immediately.
+                if (
+                    retry_transient_once
+                    and fclass == FAILURE_TRANSIENT_NETWORK
+                    and not had_transient_retry
+                ):
+                    had_transient_retry = True
+                    logger.debug(
+                        f"paging_cursor_read_pages: transient_network on page={page_index} "
+                        f"({klass}({code}) {msg!r}); retrying once"
+                    )
                     try:
                         docs.append(next(cursor))
+                        continue
                     except StopIteration:
                         cursor_alive = False
                         break
-                    except pymongo.errors.PyMongoError as exc:
-                        klass, code = self._classify_error(exc)
-                        elapsed = (time.monotonic() - page_started) * 1000.0
-                        page_error = QueryResult(
-                            success=False,
-                            started_at=page_started,
-                            latency_ms=elapsed,
-                            error_class=klass,
-                            error_code=code,
-                            error_message=str(exc),
-                            query_kind="search",
-                            page_index=page_index,
-                            cursor_id=self._cursor_id(cursor),
-                        )
-                        cursor_alive = False
-                        break
+                    except pymongo.errors.PyMongoError as exc2:
+                        klass, code = self._classify_error(exc2)
+                        msg = str(exc2)
+                        fclass = classify_failure(klass, code, msg)
 
-                elapsed_ms = (time.monotonic() - page_started) * 1000.0
+                elapsed = (time.monotonic() - page_started) * 1000.0
+                page_error = QueryResult(
+                    success=False,
+                    started_at=page_started,
+                    latency_ms=elapsed,
+                    error_class=klass,
+                    error_code=code,
+                    error_message=msg,
+                    failure_class=fclass,
+                    noted=had_transient_retry,
+                    query_kind="search",
+                    page_index=page_index,
+                    cursor_id=self._cursor_id(cursor),
+                )
+                cursor_alive = False
+                break
 
-                if page_error is not None:
-                    result = page_error
+            elapsed_ms = (time.monotonic() - page_started) * 1000.0
+
+            if page_error is not None:
+                result = page_error
+            else:
+                # Page 0 of a freshly-opened cursor corresponds to its
+                # firstBatch and required a round-trip to open + fetch.
+                # In the cursor-reuse case (first_page_index > 0) we lose
+                # that guarantee — by then the cursor may have buffered
+                # data — so we fall back to the buffer-probe heuristic.
+                if page_index == 0:
+                    cache_hit = False
+                elif not buffer_probed_at_least_once:
+                    cache_hit = None
                 else:
-                    # Page 0 always corresponds to the cursor's firstBatch,
-                    # which by definition required a round-trip to open the
-                    # cursor and fetch the initial documents. We mark it as
-                    # upstream-confirmed regardless of buffer-probe state.
-                    if page_index == 0:
-                        cache_hit = False
-                    elif not buffer_probed_at_least_once:
-                        cache_hit = None  # heuristic unavailable
-                    else:
-                        cache_hit = not any_getmore
-                    result = QueryResult(
-                        success=True,
-                        started_at=page_started,
-                        latency_ms=elapsed_ms,
-                        returned_count=len(docs),
-                        cache_hit_hint=cache_hit,
-                        query_kind="search",
-                        page_index=page_index,
-                        cursor_id=self._cursor_id(cursor),
-                        from_buffer_only=(None if not buffer_probed_at_least_once else not any_getmore),
-                    )
+                    cache_hit = not any_getmore
+                result = QueryResult(
+                    success=True,
+                    started_at=page_started,
+                    latency_ms=elapsed_ms,
+                    returned_count=len(docs),
+                    cache_hit_hint=cache_hit,
+                    query_kind="search",
+                    page_index=page_index,
+                    cursor_id=self._cursor_id(cursor),
+                    from_buffer_only=(None if not buffer_probed_at_least_once else not any_getmore),
+                    noted=had_transient_retry,
+                )
 
-                results.append(result)
-                if on_page is not None:
-                    try:
-                        on_page(result)
-                    except Exception:  # pragma: no cover — purely callback-side
-                        logger.exception("on_page callback raised; continuing")
+            results.append(result)
+            if on_page is not None:
+                try:
+                    on_page(result)
+                except Exception:  # pragma: no cover — purely callback-side
+                    logger.exception("on_page callback raised; continuing")
 
-                if not result.success and stop_on_error:
-                    break
-                if not cursor_alive:
-                    break
-                if interval_seconds > 0 and page_index + 1 < pages:
-                    time.sleep(interval_seconds)
-        finally:
-            try:
-                if cursor is not None:
-                    cursor.close()
-            except Exception:  # pragma: no cover
-                logger.debug("cursor.close() raised on cleanup")
+            if not result.success and stop_on_error:
+                break
+            if not cursor_alive:
+                break
+            if interval_seconds > 0 and page_offset + 1 < pages:
+                time.sleep(interval_seconds)
 
         return results
+
+    @staticmethod
+    def _default_paging_stage() -> dict:
+        """Default ``$search`` stage used when callers don't supply one.
+
+        A wildcard text search over ``title`` matches a large fraction of
+        the sample-mflix corpus, giving paging tests plenty of data.
+        """
+        return {
+            "$search": {
+                "wildcard": {
+                    "query": "*",
+                    "path": "title",
+                    "allowAnalyzedField": True,
+                }
+            }
+        }
+
+    def _paging_open_and_first_error(
+        self,
+        query: Optional[dict],
+        batch_size: int,
+        timeout_ms: Optional[int],
+    ) -> tuple[Any, list[QueryResult], int]:
+        """Internal helper for ``paging_search``: open the cursor, or
+        return a synthetic page-0 failure if ``aggregate()`` itself raises.
+
+        Returns ``(cursor, error_results, next_page_index)``.
+        On success: ``(cursor, [], 0)``.
+        On failure: ``(None, [<one failure result>], -)``.
+        """
+        try:
+            cursor = self.paging_cursor_open(query=query, batch_size=batch_size, timeout_ms=timeout_ms)
+            return cursor, [], 0
+        except pymongo.errors.PyMongoError as exc:
+            klass, code = self._classify_error(exc)
+            msg = str(exc)
+            logger.debug(f"paging_search aggregate() failed: {klass}({code}) {exc}")
+            return (
+                None,
+                [
+                    QueryResult(
+                        success=False,
+                        started_at=time.monotonic(),
+                        latency_ms=0.0,
+                        error_class=klass,
+                        error_code=code,
+                        error_message=msg,
+                        failure_class=classify_failure(klass, code, msg),
+                        query_kind="search",
+                        page_index=0,
+                    )
+                ],
+                0,
+            )
 
     # ------------------------------------------------------------------
     # Sentinel propagation — strongest "really upstream" check
@@ -649,12 +888,22 @@ class SearchConnectivityTool:
     # ------------------------------------------------------------------
 
     def verdict(self, results: list[QueryResult]) -> ConnectivityVerdict:
-        """Aggregate a list of ``QueryResult``s into a single verdict."""
+        """Aggregate a list of ``QueryResult``s into a single verdict.
+
+        Beyond the cache-hit / success-vs-failure split, the verdict also
+        breaks failures down by ``failure_class`` (cursor_lost /
+        transient_network / other). ``cursor_lost`` is the load-bearing
+        signal for tests that prove a server-side cursor is gone (mongot
+        pod restart); ``transient_network`` represents recoverable blips
+        and is informational rather than diagnostic.
+        """
         v = ConnectivityVerdict()
         for r in results:
             v.total += 1
             if r.success:
                 v.succeeded += 1
+                if r.noted:
+                    v.succeeded_with_retry += 1
                 if r.cache_hit_hint is True:
                     v.cache_only_succeeded += 1
                 elif r.cache_hit_hint is False:
@@ -663,6 +912,12 @@ class SearchConnectivityTool:
                     v.unknown_succeeded += 1
             else:
                 v.failed += 1
+                if r.failure_class == FAILURE_CURSOR_LOST:
+                    v.cursor_lost += 1
+                elif r.failure_class == FAILURE_TRANSIENT_NETWORK:
+                    v.transient_network += 1
+                else:
+                    v.other_failed += 1
                 klass = r.error_class or "Unknown"
                 v.error_breakdown[klass] = v.error_breakdown.get(klass, 0) + 1
                 msg = r.error_message or klass

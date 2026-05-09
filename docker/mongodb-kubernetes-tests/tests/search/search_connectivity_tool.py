@@ -347,3 +347,153 @@ def test_paging_through_mongot_outage_surfaces_connectivity_error(mdb: MongoDB, 
     mdbs["spec"]["replicas"] = 1
     mdbs.update()
     mdbs.assert_reaches_phase(Phase.Running, timeout=300)
+
+
+@mark.e2e_search_connectivity_tool
+def test_paging_through_mongot_pod_restart_surfaces_lost_cursor(mdb: MongoDB, mdbs: MongoDBSearch):
+    """Cursor-lost assertion — pod restart kills the cursor's server-side state.
+
+    Distinct failure mode from ``test_paging_through_mongot_outage_surfaces_connectivity_error``.
+    That test takes mongot offline entirely (envoy returns 503 → ``no
+    healthy upstream``); here we leave the StatefulSet at replicas=1 and
+    just delete the mongot pod, so the StatefulSet immediately recreates
+    a fresh pod. The new pod has no memory of the open cursor's
+    server-side state, so the next ``getMore`` on that cursor surfaces a
+    cursor-lost error rather than a transient blip.
+
+    The surface error here is NOT pymongo's classic ``CursorNotFound``
+    (server error code 43). Mongod surfaces the mongot-side stream
+    death as ``OperationFailure(code=1, codeName=InternalError)`` whose
+    message reads ``"Executor error during getMore :: caused by ::
+    Remote error from mongot :: caused by :: Received RST_STREAM with
+    error code 2"`` — the gRPC stream between mongod and mongot was
+    reset when the mongot pod died, and the new mongot pod has no
+    record of the cursor's session-side state.
+    ``classify_failure`` recognises both the canonical CursorNotFound
+    and the "Remote error from mongot" / "RST_STREAM" signal patterns,
+    mapping both to the ``cursor_lost`` bucket.
+
+    Transient ``no_healthy_upstream`` errors that pop up while the new
+    pod is starting are absorbed by the retry-once-noted path in
+    ``paging_cursor_read_pages``; the test asserts on the
+    ``cursor_lost`` bucket of the post-restart verdict rather than on
+    the raw error_breakdown so flakiness on the transient side doesn't
+    fail the test.
+
+    Why ``paging_cursor_open`` + ``paging_cursor_read_pages`` rather than
+    a single ``paging_search`` call: this test needs to keep the SAME
+    cursor across the pod restart, so we open it explicitly, do a
+    fault, and continue reading on the same handle. The wrapper
+    ``paging_search`` always opens + closes inside one call, which would
+    not exercise the cursor-lost path.
+    """
+    search_tester = get_rs_search_tester(mdb, USER_NAME, USER_PASSWORD, use_ssl=True)
+    tool = SearchConnectivityTool(search_tester)
+
+    statefulset_name = search_resource_names.mongot_statefulset_name(mdbs.name)
+    core_v1 = client.CoreV1Api()
+    namespace = mdb.namespace
+
+    # Open a paging cursor while mongot is healthy and read a couple of
+    # pages to confirm it's alive and we're crossing at least one
+    # getMore boundary on the buffer-probe heuristic.
+    cursor = tool.paging_cursor_open(batch_size=10)
+    try:
+        pre_pages = tool.paging_cursor_read_pages(
+            cursor,
+            pages=2,
+            interval_seconds=0.1,
+            batch_size=10,
+            first_page_index=0,
+        )
+        logger.info("pre-restart pages: %s", "; ".join(str(p) for p in pre_pages))
+        assert all(p.success for p in pre_pages), (
+            f"pre-restart pages failed before we even introduced a fault: "
+            f"{[(p.page_index, p.error_class, p.error_message) for p in pre_pages if not p.success]}"
+        )
+        assert any(p.success and p.cache_hit_hint is False for p in pre_pages), (
+            "expected at least one upstream-confirmed pre-restart page; "
+            "cursor isn't actually contacting mongot"
+        )
+
+        # Identify the pod backing this cursor's mongot replica. With
+        # spec.replicas=1 there's only one mongot pod and it owns the
+        # cursor's server-side state. Delete it; the StatefulSet's
+        # controller recreates a fresh pod with the same name but a
+        # new uid, with no prior cursor state on the new instance.
+        # We list by name prefix rather than label selector so this
+        # stays robust to label-key drift across operator releases.
+        mongot_pod_names = [
+            p.metadata.name
+            for p in core_v1.list_namespaced_pod(namespace=namespace).items
+            if p.metadata.name.startswith(statefulset_name + "-")
+        ]
+        assert mongot_pod_names, f"no mongot pods found for StatefulSet {statefulset_name}"
+        target_pod = mongot_pod_names[0]
+        logger.info(f"deleting mongot pod {target_pod} to invalidate the cursor's server-side state")
+        original_uid = core_v1.read_namespaced_pod(name=target_pod, namespace=namespace).metadata.uid
+        core_v1.delete_namespaced_pod(name=target_pod, namespace=namespace)
+
+        # Wait for the StatefulSet to bring the pod back. We watch by
+        # UID change rather than ready_replicas swing because on a
+        # fast-recreate the StatefulSet may never observe ready_replicas
+        # actually drop to 0 (the controller finishes the delete and
+        # recreate before the watch fires).
+        def mongot_pod_replaced() -> tuple[bool, str]:
+            try:
+                pod = core_v1.read_namespaced_pod(name=target_pod, namespace=namespace)
+            except client.exceptions.ApiException as exc:
+                if exc.status == 404:
+                    return False, f"{target_pod} still terminating"
+                raise
+            if pod.metadata.uid == original_uid:
+                return False, f"{target_pod} same uid (delete still pending)"
+            ready = any(
+                c.type == "Ready" and c.status == "True" for c in (pod.status.conditions or [])
+            )
+            return ready, f"{target_pod} uid={pod.metadata.uid[:8]} ready={ready}"
+
+        run_periodically(
+            mongot_pod_replaced,
+            timeout=180,
+            sleep_time=3,
+            msg=f"mongot pod {target_pod} to be replaced by a fresh instance",
+        )
+
+        # Continue paging on the SAME cursor. The fresh mongot pod has
+        # no memory of this cursor's server-side state, so the next
+        # getMore should produce a cursor-lost error. We page a generous
+        # number of times because the retry-once-noted path will absorb
+        # any transient envoy 503 that fires while the new pod is just
+        # coming up — we want to keep paging until the cursor-lost is
+        # surfaced.
+        post_pages = tool.paging_cursor_read_pages(
+            cursor,
+            pages=10,
+            interval_seconds=0.5,
+            batch_size=10,
+            first_page_index=len(pre_pages),
+        )
+        logger.info("post-restart pages: %s", "; ".join(str(p) for p in post_pages))
+
+        post_verdict = tool.verdict(post_pages)
+        logger.info(f"post-restart verdict: {post_verdict.as_dict()}")
+
+        # Deliverable assertion: cursor-lost surfaced. Plain transient_network
+        # is informational here (envoy may flap during the restart), but
+        # the load-bearing signal is the server saying "your cursor is
+        # gone".
+        assert post_verdict.cursor_lost > 0, (
+            f"connectivity tool did not surface a cursor-lost failure after the "
+            f"mongot pod was restarted. Verdict: {post_verdict.as_dict()}. "
+            f"Either the cursor's mongot-side state survived the pod restart "
+            f"(which would mean the test isn't actually testing what we think "
+            f"it is), or the cursor-lost signal pattern surfaced as something "
+            f"``classify_failure`` doesn't yet recognise — extend the regex to "
+            f"cover this code path."
+        )
+    finally:
+        try:
+            cursor.close()
+        except Exception:  # pragma: no cover — cleanup best-effort
+            logger.debug("cursor.close() raised on cleanup; cursor may already be dead")
