@@ -3,6 +3,25 @@
 
 set -euo pipefail
 
+# In-container k8s-proxy doesn't persist its registered kubeconfig, so
+# every restart (force-recreate from a compose.user.yml override
+# reconcile, OOM, manual `docker compose restart`) drops it and silently
+# breaks cluster.local DNS. Re-PATCH on every container start so the
+# source-of-truth lives in /workspace/.generated/ (bind-mounted) rather
+# than the proxy's volatile memory. Best-effort, non-fatal: if the proxy
+# isn't reachable yet (e.g. the container is mid-boot) we skip.
+container_kubeconfig=/workspace/.generated/evg-host.devc.kubeconfig
+if [[ -s "${container_kubeconfig}" ]]; then
+  curl --max-time 5 -fsS -X PATCH \
+    -H 'Content-Type: application/yaml' \
+    --data-binary @"${container_kubeconfig}" \
+    "http://k8s-proxy:80/kubeconfig" \
+    && echo "registered with in-container k8s-proxy on k8s-proxy:80" \
+    || echo "in-container k8s-proxy not reachable on k8s-proxy:80; skipping registration"
+else
+  echo "no .generated/evg-host.devc.kubeconfig yet; skipping in-container k8s-proxy registration"
+fi
+
 # VS Code automatically forwards the host's ssh-agent socket and sets
 # SSH_AUTH_SOCK; the bare `devcontainer` CLI does not. If the var is unset we
 # simply skip the fan-out — the autossh sidecar will fail until the agent is
