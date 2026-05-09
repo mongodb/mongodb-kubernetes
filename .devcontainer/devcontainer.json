@@ -73,7 +73,7 @@
                 "timonwong.shellcheck"
             ],
             "settings": {
-                "vs-kubernetes.kubeconfig": "/workspace/.generated/evg-host.kubeconfig"
+                "vs-kubernetes.kubeconfig": "/workspace/.generated/evg-host.devc.kubeconfig"
             }
         }
     },
