@@ -32,24 +32,31 @@ windows:
       # bulk of the vertical space.
       main-pane-height: 70%
     panes:
+      # All panes (except the dedicated zsh) are wrapped in pane_runner.sh.
+      # Ctrl-C / clean-exit drops the user into an interactive zsh with
+      # the wrapped command pre-loaded into history (Up / !!), instead of
+      # closing the pane. Recover from a crash without rebuilding the
+      # whole tmux session.
+      #
       # Top pane (k9s). The .devc.kubeconfig variant has its proxy-url
       # patched to http://gost-proxy:8080 so it routes through the
       # in-container HTTP-CONNECT tunnel. k9s reloads on disk change,
       # so context switches inside the container propagate without
       # restarting this pane.
       - shell_command:
-          - exec k9s --kubeconfig /workspace/.generated/evg-host.devc.kubeconfig
+          - exec /workspace/.devcontainer/scripts/pane_runner.sh k9s --kubeconfig /workspace/.generated/evg-host.devc.kubeconfig
       # Bottom-left: operator log (logs/operator.log is the stable
       # symlink op_run.sh maintains across runs).
       - shell_command:
-          - exec /workspace/.devcontainer/scripts/log_follower.sh /workspace/logs/operator.log operator
+          - exec /workspace/.devcontainer/scripts/pane_runner.sh /workspace/.devcontainer/scripts/log_follower.sh /workspace/logs/operator.log operator
       # Bottom-middle: latest e2e test log (logs/test.log is the
       # stable symlink e2e_run.sh maintains across runs).
       - shell_command:
-          - exec /workspace/.devcontainer/scripts/log_follower.sh /workspace/logs/test.log e2e
+          - exec /workspace/.devcontainer/scripts/pane_runner.sh /workspace/.devcontainer/scripts/log_follower.sh /workspace/logs/test.log e2e
       # Bottom-right: an interactive zsh. The shell-init sourced from
       # .zshrc loads /workspace/.generated/context.export.env and
-      # activates the venv before the prompt appears.
+      # activates the venv before the prompt appears. Not wrapped — it's
+      # already a shell.
       - shell_command:
           - exec zsh -l
         focus: true
