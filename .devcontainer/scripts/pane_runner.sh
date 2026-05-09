@@ -37,7 +37,7 @@ fi
 # invocation faithfully (whitespace, special chars).
 quoted=""
 for a in "$@"; do
-  quoted+=" $(printf '%q' "$a")"
+  quoted+=" $(printf '%q' "${a}")"
 done
 quoted="${quoted# }"
 
