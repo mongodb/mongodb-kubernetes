@@ -87,9 +87,12 @@ if [[ ${keep_om_projects} -eq 0 && -d "${worktree_path}" ]]; then
   fi
 fi
 
-# 2. docker compose down (project name = <basename>_devcontainer).
+# 2. docker compose down (project name = lowercased <basename>_devcontainer).
+# docker compose normalizes project names to lowercase, so a literal
+# uppercase branch_dir would silently miss a running stack and let stale
+# containers survive recreate.
 if [[ ${keep_stack} -eq 0 ]]; then
-  project_name="${branch_dir}_devcontainer"
+  project_name="$(printf '%s' "${branch_dir}" | tr '[:upper:]' '[:lower:]')_devcontainer"
   if docker compose -p "${project_name}" ps --format '{{.Name}}' 2>/dev/null | grep -q .; then
     echo "==> Stopping devcontainer stack '${project_name}'"
     docker compose -p "${project_name}" down --remove-orphans 2>&1 | sed 's/^/    /' || true
