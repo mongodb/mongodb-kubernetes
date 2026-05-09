@@ -95,8 +95,11 @@ if ! echo "${current_envs}" | grep -q "^workdir="; then
   echo "workdir=\"${workdir:-.}\"" >> "${destination_envs_file}.env"
 fi
 
-# We need to tail +5 lines due to above generated comment.
-awk '{print "export " $0}' < "${destination_envs_file}".env | tail -n +5 > "${destination_envs_file}".export.env
+# Build .export.env from the canonical .env: emit only key=value lines as
+# `export key=value`; skip header comments and blank lines so the file is
+# safe to `source` regardless of how many comment lines the canonical file
+# carries (was previously hard-coded to skip the first 4 lines).
+awk '/^[A-Za-z_][A-Za-z0-9_]*=/ {print "export " $0}' < "${destination_envs_file}".env > "${destination_envs_file}".export.env
 
 scripts/dev/print_operator_env.sh | sort | uniq >"${destination_envs_file}.operator.env"
 awk 'NF {print "export " $0}' < "${destination_envs_file}".operator.env > "${destination_envs_file}".operator.export.env
