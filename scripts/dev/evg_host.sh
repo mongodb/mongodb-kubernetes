@@ -147,22 +147,33 @@ get-kubeconfig() {
     echo "Skipping kubeconfig fetch (--no-fetch); using existing ${kubeconfig_path}"
   fi
 
+  # Two variants:
+  #   - .generated/evg-host.kubeconfig       proxy-url = http://127.0.0.1:80${MCK_DEVC_NET_PREFIX}
+  #     The host's view. The bare filename matches the bare context (host
+  #     shell) so tools that hard-code .generated/evg-host.kubeconfig keep
+  #     working on the host. Patched unconditionally — host port is derived
+  #     from MCK_DEVC_NET_PREFIX, no devcontainer env required.
+  #   - .generated/evg-host.devc.kubeconfig  proxy-url = ${EVG_HOST_PROXY}
+  #     The devcontainer's view. Written only when EVG_HOST_PROXY is set
+  #     (we're inside the container or were handed it explicitly). Avoids
+  #     a host-side run reverting an existing in-container patch.
+  host_proxy_port="80${MCK_DEVC_NET_PREFIX:-28}"
+  echo "Patching kubeconfig with host-side proxy-url http://127.0.0.1:${host_proxy_port}"
+  yq -i ".clusters[].cluster.proxy-url |= \"http://127.0.0.1:${host_proxy_port}\"" "${kubeconfig_path}"
+
   if [[ -n "${EVG_HOST_PROXY:-}" ]]; then
-    echo "Patching kubeconfig to use EVG_HOST_PROXY ${EVG_HOST_PROXY}"
-    yq -i ".clusters[].cluster.proxy-url |= \"${EVG_HOST_PROXY}\"" "${kubeconfig_path}"
+    devc_kubeconfig_path="${PROJECT_DIR}/.generated/evg-host.devc.kubeconfig"
+    echo "Writing devcontainer-side kubeconfig variant to ${devc_kubeconfig_path} (proxy ${EVG_HOST_PROXY})"
+    cp "${kubeconfig_path}" "${devc_kubeconfig_path}"
+    yq -i ".clusters[].cluster.proxy-url |= \"${EVG_HOST_PROXY}\"" "${devc_kubeconfig_path}"
   fi
 
-  # Write the host-side variant alongside the in-container one. The host kfp
-  # piggybacks on the gost-proxy port published to 127.0.0.1:80${MCK_DEVC_NET_PREFIX}.
-  host_kubeconfig_path="${PROJECT_DIR}/.generated/evg-host.host.kubeconfig"
-  host_proxy_port="80${MCK_DEVC_NET_PREFIX:-28}"
-  echo "Writing host-side kubeconfig variant to ${host_kubeconfig_path} (proxy 127.0.0.1:${host_proxy_port})"
-  cp "${kubeconfig_path}" "${host_kubeconfig_path}"
-  yq -i ".clusters[].cluster.proxy-url |= \"http://127.0.0.1:${host_proxy_port}\"" "${host_kubeconfig_path}"
-
   if [[ -n "${K8S_FWD_PROXY:-}" ]]; then
-    echo "Loading kubeconfig onto ${K8S_FWD_PROXY}"
-    curl -X PATCH --data-binary @"${kubeconfig_path}" "http://${K8S_FWD_PROXY}/kubeconfig"
+    # Inside the container we register the devc variant with the in-container
+    # k8s-proxy (DNS + dynamic port-forwards for *.svc.cluster.local).
+    register_path="${devc_kubeconfig_path:-${kubeconfig_path}}"
+    echo "Loading kubeconfig from ${register_path} onto ${K8S_FWD_PROXY}"
+    curl -X PATCH --data-binary @"${register_path}" "http://${K8S_FWD_PROXY}/kubeconfig"
   fi
 }
 

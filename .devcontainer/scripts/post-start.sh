@@ -42,8 +42,10 @@ screen -dmS ssh-agent-proxy bash -c '
 
 # Best-effort registration with the host kube-forwarding-proxy. If the host
 # kfp isn't running (or the host-variant kubeconfig hasn't been generated
-# yet) we silently skip — this hook is non-fatal by design.
-host_kubeconfig=/workspace/.generated/evg-host.host.kubeconfig
+# yet) we silently skip — this hook is non-fatal by design. The bare
+# evg-host.kubeconfig IS the host variant (proxy-url 127.0.0.1:80${PREFIX});
+# the .devc.kubeconfig sibling is for in-container use.
+host_kubeconfig=/workspace/.generated/evg-host.kubeconfig
 if [[ -s "${host_kubeconfig}" ]]; then
   curl --max-time 2 -fsS -X PATCH \
     -H 'Content-Type: application/yaml' \
@@ -52,5 +54,5 @@ if [[ -s "${host_kubeconfig}" ]]; then
     && echo "registered with host kfp on 127.0.0.1:11616" \
     || echo "host kfp not reachable on 127.0.0.1:11616; skipping registration"
 else
-  echo "no .generated/evg-host.host.kubeconfig yet; skipping host kfp registration"
+  echo "no .generated/evg-host.kubeconfig yet; skipping host kfp registration"
 fi

@@ -32,12 +32,13 @@ windows:
       # bulk of the vertical space.
       main-pane-height: 70%
     panes:
-      # Top pane (k9s). The kubeconfig is the one switch_context
-      # pinned for the active EVG host; k9s reloads it when it
-      # changes on disk, so context switches inside the container
-      # propagate without restarting this pane.
+      # Top pane (k9s). The .devc.kubeconfig variant has its proxy-url
+      # patched to http://gost-proxy:8080 so it routes through the
+      # in-container HTTP-CONNECT tunnel. k9s reloads on disk change,
+      # so context switches inside the container propagate without
+      # restarting this pane.
       - shell_command:
-          - exec k9s --kubeconfig /workspace/.generated/evg-host.kubeconfig
+          - exec k9s --kubeconfig /workspace/.generated/evg-host.devc.kubeconfig
       # Bottom-left: operator log (logs/operator.log is the stable
       # symlink op_run.sh maintains across runs).
       - shell_command:
