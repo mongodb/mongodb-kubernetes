@@ -412,8 +412,7 @@ def test_paging_through_mongot_pod_restart_surfaces_lost_cursor(mdb: MongoDB, md
             f"{[(p.page_index, p.error_class, p.error_message) for p in pre_pages if not p.success]}"
         )
         assert any(p.success and p.cache_hit_hint is False for p in pre_pages), (
-            "expected at least one upstream-confirmed pre-restart page; "
-            "cursor isn't actually contacting mongot"
+            "expected at least one upstream-confirmed pre-restart page; " "cursor isn't actually contacting mongot"
         )
 
         # Identify the pod backing this cursor's mongot replica. With
@@ -448,9 +447,7 @@ def test_paging_through_mongot_pod_restart_surfaces_lost_cursor(mdb: MongoDB, md
                 raise
             if pod.metadata.uid == original_uid:
                 return False, f"{target_pod} same uid (delete still pending)"
-            ready = any(
-                c.type == "Ready" and c.status == "True" for c in (pod.status.conditions or [])
-            )
+            ready = any(c.type == "Ready" and c.status == "True" for c in (pod.status.conditions or []))
             return ready, f"{target_pod} uid={pod.metadata.uid[:8]} ready={ready}"
 
         run_periodically(

@@ -128,9 +128,7 @@ FAILURE_TRANSIENT_NETWORK = "transient_network"
 FAILURE_OTHER = "other"
 
 _CURSOR_LOST_MESSAGE_RE = re.compile(
-    r"cursor id .*?(not found|was killed)|"
-    r"remote error from mongot|"
-    r"rst_stream",
+    r"cursor id .*?(not found|was killed)|" r"remote error from mongot|" r"rst_stream",
     re.IGNORECASE,
 )
 _TRANSIENT_NETWORK_MESSAGE_RE = re.compile(
@@ -694,11 +692,7 @@ class SearchConnectivityTool:
 
                 # Retry-once-noted only for transient_network. Cursor-lost
                 # and other failures fall through to record immediately.
-                if (
-                    retry_transient_once
-                    and fclass == FAILURE_TRANSIENT_NETWORK
-                    and not had_transient_retry
-                ):
+                if retry_transient_once and fclass == FAILURE_TRANSIENT_NETWORK and not had_transient_retry:
                     had_transient_retry = True
                     logger.debug(
                         f"paging_cursor_read_pages: transient_network on page={page_index} "
