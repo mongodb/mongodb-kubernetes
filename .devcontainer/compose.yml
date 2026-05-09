@@ -121,6 +121,8 @@ services:
       - evg-host-proxy
     networks:
       - devcontainer
+    ports:
+      - "127.0.0.1:80${MCK_DEVC_NET_PREFIX:-28}:8080"
     command: ["-L", "http://:8080", "-F", "socks5://evg-host-proxy:1080"]
 
 # Volumes with an explicit name are shared globally, otherwise they are prefixed with the project name generated for this compose stack
