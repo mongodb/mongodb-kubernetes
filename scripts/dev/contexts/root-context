@@ -156,9 +156,17 @@ export VERSION_UPGRADE_HOOK_IMAGE="${VERSION_UPGRADE_HOOK_REGISTRY}/mongodb-kube
 
 export KUBE_ENVIRONMENT_NAME=kind
 
-# when using EVG ec2 instance, we copy kubeconfig locally and use it
+# when using EVG ec2 instance, we copy kubeconfig locally and use it.
+# Two variants exist:
+#  - .generated/evg-host.kubeconfig:      proxy-url=http://gost-proxy:8080 (in-container view)
+#  - .generated/evg-host.host.kubeconfig: proxy-url=http://127.0.0.1:80${MCK_DEVC_NET_PREFIX} (host view)
+# /.dockerenv only exists inside a container, so it's a reliable side-detector.
 if [[ "${EVG_HOST_NAME:-}" != "" ]]; then
-  KUBECONFIG="${PROJECT_DIR}/.generated/evg-host.kubeconfig"
+  if [[ -f /.dockerenv ]]; then
+    KUBECONFIG="${PROJECT_DIR}/.generated/evg-host.kubeconfig"
+  else
+    KUBECONFIG="${PROJECT_DIR}/.generated/evg-host.host.kubeconfig"
+  fi
 else
   KUBECONFIG=~/.kube/config
 fi
