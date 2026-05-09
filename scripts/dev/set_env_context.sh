@@ -14,6 +14,17 @@ if [[ ! -f ${context_file} ]]; then
     fatal "File ${context_file} not found! Make sure to follow this guide to get started: https://wiki.corp.mongodb.com/display/MMS/Setting+up+local+development+and+E2E+testing#SettinguplocaldevelopmentandE2Etesting-GettingStartedGuide(VariantSwitching)"
 fi
 
+# Side guard: refuse to source a context.export.env that was generated on the
+# OTHER side (host vs. devcontainer). Without this, sourcing a container-side
+# file from the host clobbers PATH with /workspace/bin:/go/bin:... and breaks
+# every host command. switch_context.sh writes a `## Side: host|container`
+# stamp; we read it (without sourcing) and compare against /.dockerenv.
+file_side="$(grep -m1 '^## Side: ' "${context_file}" | awk '{print $3}' || true)"
+current_side="$([[ -f /.dockerenv ]] && echo container || echo host)"
+if [[ -n "${file_side}" && "${file_side}" != "${current_side}" ]]; then
+    fatal "${context_file} was generated on side='${file_side}' but you're sourcing it on side='${current_side}'. Re-run 'make switch' (or scripts/dev/switch_context.sh <ctx>) on the ${current_side} side to regenerate it."
+fi
+
 # shellcheck disable=SC1090
 source "${context_file}"
 
