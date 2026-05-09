@@ -30,6 +30,18 @@ fi
 echo "==> devcontainer up (workspace=${workspace})"
 devcontainer up --workspace-folder "${workspace}" "${extra_args[@]}"
 
+# devcontainer CLI fires postStartCommand on container create, but can
+# short-circuit when reusing an existing container (e.g. after a partial
+# teardown), and any manual `docker compose down && up` recovery path
+# skips lifecycle hooks entirely. post-start.sh is idempotent (rm -f
+# stale ssh-agent socket, restart screen, best-effort PATCH host kfp),
+# so re-firing is safe and closes that gap.
+echo "==> Re-firing postStartCommand (defensive)"
+devcontainer exec --workspace-folder "${workspace}" \
+  bash /workspace/.devcontainer/scripts/post-start.sh 2>&1 \
+  | sed 's/^/    /' \
+  || echo "    (post-start.sh hit a non-fatal error; continuing)"
+
 echo
 echo "Devcontainer ready. To attach a shell from the host:"
 echo "  devcontainer exec --workspace-folder \"${workspace}\" bash"
