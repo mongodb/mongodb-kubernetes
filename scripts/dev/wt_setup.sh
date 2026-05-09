@@ -42,7 +42,15 @@
 set -Eeou pipefail
 test "${MDB_BASH_DEBUG:-0}" -eq 1 && set -x
 
-source scripts/funcs/printing
+# Resolve script-dir-relative path so the source works regardless of caller cwd.
+# wt_setup.sh is often invoked from the main repo while the script itself
+# lives in a sibling worktree (e.g. wt_setup.sh on branch X invoked from
+# worktree Y to bootstrap branch Z); the previous cwd-relative `source
+# scripts/funcs/printing` silently failed in that case, leaving filter_buildx_noise
+# and prepend undefined and the parallel phases dying with rc=127.
+_wt_setup_script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../funcs/printing
+source "${_wt_setup_script_dir}/../funcs/printing"
 
 usage() { sed -n '3,33p' "$0"; }
 
