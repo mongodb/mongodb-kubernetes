@@ -21,6 +21,7 @@ from kubetester.mongodb import MongoDB
 from kubetester.mongodb_search import MongoDBSearch
 from kubetester.mongodb_user import MongoDBUser
 from kubetester.omtester import skip_if_cloud_manager
+from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests import test_logger
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
@@ -247,9 +248,9 @@ def test_paging_through_mongot_outage_surfaces_connectivity_error(mdb: MongoDB, 
     about the cursor's local buffer state, not about upstream availability).
 
     NOTE: this test only exercises the "no healthy upstream" path produced
-    by scaling all mongots away. The "lost long-living cursor" path
-    (mongot/envoy/mongod restarts mid-cursor) is intentionally out of
-    scope here and will land in a follow-up under U1.3.
+    by taking all mongots away via the operator. The "lost long-living
+    cursor" path (mongot/envoy/mongod restarts mid-cursor) is intentionally
+    out of scope here and will land in a follow-up KUBE ticket.
     """
     search_tester = get_rs_search_tester(mdb, USER_NAME, USER_PASSWORD, use_ssl=True)
     tool = SearchConnectivityTool(
@@ -271,22 +272,16 @@ def test_paging_through_mongot_outage_surfaces_connectivity_error(mdb: MongoDB, 
         "the cache-detection heuristic is broken before we even introduce a fault"
     )
 
-    # Drive the outage by scaling the underlying mongot StatefulSet
-    # directly to 0. We would prefer to set ``spec.replicas = 0`` on the
-    # MongoDBSearch CR and let the operator drain the StatefulSet, but
-    # the CRD enforces ``minimum: 1`` on ``spec.replicas`` (and on
-    # ``spec.clusters[].replicas``) so the apiserver returns HTTP 422 for
-    # the 0 case. Until that constraint is relaxed (or we adopt a
-    # CR-deletion-and-recreation pattern), the StatefulSet patch is the
-    # least-bad way to take mongot down for this assertion.
+    # Drive the outage via the operator: set spec.replicas=0 on the
+    # MongoDBSearch CR and let the reconciler drain the underlying mongot
+    # StatefulSet. The CRD allows minimum: 0 on spec.replicas (and on
+    # spec.clusters[].replicas) precisely so callers like this test can
+    # take mongot offline cleanly without bypassing the operator.
     statefulset_name = search_resource_names.mongot_statefulset_name(mdbs.name)
     apps_v1 = client.AppsV1Api()
-    logger.info(f"scaling StatefulSet {statefulset_name} replicas -> 0")
-    apps_v1.patch_namespaced_stateful_set_scale(
-        name=statefulset_name,
-        namespace=mdb.namespace,
-        body={"spec": {"replicas": 0}},
-    )
+    logger.info(f"setting MongoDBSearch {mdbs.name} spec.replicas -> 0 via operator")
+    mdbs["spec"]["replicas"] = 0
+    mdbs.update()
 
     def mongot_pods_gone() -> tuple[bool, str]:
         sts = apps_v1.read_namespaced_stateful_set(statefulset_name, mdb.namespace)
@@ -343,34 +338,12 @@ def test_paging_through_mongot_outage_surfaces_connectivity_error(mdb: MongoDB, 
         f"Expected one of {sorted(expected_error_classes)}."
     )
 
-    # Cleanup: scale the StatefulSet back to 1 directly. We'd prefer to
-    # let the operator restore it (set ``spec.replicas = 1`` on the CR
-    # and wait for ``Phase.Running``) but two constraints make that
-    # impractical here:
-    #   1. ``spec.replicas`` is already 1 on the CR (we never set it to
-    #      0 — the CRD's ``minimum: 1`` blocked that), so the operator
-    #      sees no spec change to reconcile.
-    #   2. In some local-dev setups the operator runs as ``go run`` on
-    #      the developer's host (or not at all) rather than as the
-    #      in-cluster Deployment, so a CR-driven wait can hang forever.
-    # Direct StatefulSet patching is symmetric with the scale-down above
-    # and unblocks the test deterministically; in-cluster operators
-    # observe the StatefulSet drift and reconcile in their own time.
-    logger.info(f"scaling StatefulSet {statefulset_name} replicas -> 1")
-    apps_v1.patch_namespaced_stateful_set_scale(
-        name=statefulset_name,
-        namespace=mdb.namespace,
-        body={"spec": {"replicas": 1}},
-    )
-
-    def mongot_pods_back() -> tuple[bool, str]:
-        sts = apps_v1.read_namespaced_stateful_set(statefulset_name, mdb.namespace)
-        ready = sts.status.ready_replicas or 0
-        return ready >= 1, f"ready_replicas={ready}"
-
-    run_periodically(
-        mongot_pods_back,
-        timeout=300,
-        sleep_time=5,
-        msg=f"mongot StatefulSet {statefulset_name} to scale back to 1",
-    )
+    # Cleanup: bring mongot back via the operator. Setting
+    # spec.replicas=1 on the CR and waiting for Phase.Running is the
+    # symmetric counterpart to the scale-down above, and exercises the
+    # operator's recovery path (StatefulSet recreation + readiness)
+    # rather than bypassing it with a direct StatefulSet patch.
+    logger.info(f"setting MongoDBSearch {mdbs.name} spec.replicas -> 1 via operator")
+    mdbs["spec"]["replicas"] = 1
+    mdbs.update()
+    mdbs.assert_reaches_phase(Phase.Running, timeout=300)
