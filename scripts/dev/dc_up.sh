@@ -30,6 +30,32 @@ fi
 echo "==> devcontainer up (workspace=${workspace})"
 devcontainer up --workspace-folder "${workspace}" "${extra_args[@]}"
 
+# Reconcile sidecar services with compose.user.yml overrides. devcontainer
+# CLI's `up` uses --no-recreate, so when compose.user.yml changes a
+# sidecar's image (e.g. pinning k8s-proxy to a locally-built tag instead
+# of the canonical ghcr image) the running container keeps the OLD image
+# and the override silently has no effect. Detect every service named in
+# compose.user.yml and force-recreate just those (with --no-deps, so the
+# devcontainer service itself isn't disturbed).
+user_compose="${workspace}/.devcontainer/compose.user.yml"
+if [[ -s "${user_compose}" ]] && command -v yq >/dev/null 2>&1; then
+  overridden=()
+  while IFS= read -r svc; do
+    [[ -n "${svc}" && "${svc}" != "null" ]] && overridden+=("${svc}")
+  done < <(yq -r '.services // {} | keys | .[]?' "${user_compose}" 2>/dev/null)
+  if (( ${#overridden[@]} > 0 )); then
+    proj="$(basename "${workspace}" | tr '[:upper:]' '[:lower:]')_devcontainer"
+    echo "==> Reconciling compose.user.yml overrides: ${overridden[*]}"
+    docker compose -p "${proj}" \
+      -f "${workspace}/.devcontainer/compose.yml" \
+      -f "${workspace}/.devcontainer/compose.generated.yml" \
+      -f "${user_compose}" \
+      up -d --force-recreate --no-deps "${overridden[@]}" 2>&1 \
+      | sed 's/^/    /' \
+      || echo "    (override reconcile hit a non-fatal error; continuing)"
+  fi
+fi
+
 # devcontainer CLI fires postStartCommand on container create, but can
 # short-circuit when reusing an existing container (e.g. after a partial
 # teardown), and any manual `docker compose down && up` recovery path
