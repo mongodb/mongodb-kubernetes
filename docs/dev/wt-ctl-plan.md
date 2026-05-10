@@ -356,6 +356,31 @@ Deliverables:
 
 Out of scope: 255-prefix expansion (task #16). Done after Phase 2.5 lands.
 
+### Phase 2.6 — on-host kfp daemon integration
+
+The on-host kube-forwarding-proxy at `~/mdb/kube-forwarding-proxy/bin/proxy`
+listens on `127.0.0.1:11616` (HTTP control) + `127.0.0.1:11617` (DNS) +
+`127.0.0.1:11618` (SOCKS, when enabled). It is required for the EVG host's
+`setup_kind_cluster.sh` and `evg_host.sh` to PATCH freshly-minted kind
+cluster kubeconfigs back to the developer laptop (via the reverse SSH
+tunnel set up by the test worktree's `evg-host-proxy` autossh sidecar).
+
+Phase 2's workarounds (commits `29cf4cee9`, `c8e2ebe47`) make those
+PATCH calls best-effort so a missing kfp daemon doesn't poison the
+pipeline. **Keep them defensively.** The proper fix is to ensure the
+daemon is running before phases that depend on it.
+
+Folded into **Phase 3** (next phase). Deliverables there:
+1. `wt-ctl/domains/kfp.py` — `is_running()` (lsof or curl healthz),
+   `start()` (nohup the binary, write pidfile under `~/.cache/mck-devc/host-kfp/`),
+   `stop()`, `health()`.
+2. `wt-ctl status` adds a row: `host-kfp  running  pid=...  http=127.0.0.1:11616  health=ok`
+   (or `not running — wt-ctl create will start it automatically`).
+3. Pre-flight in `wt-ctl create`: ensure host kfp is running before
+   `evg_prepare`. Don't fail if start fails (still best-effort) — log
+   warning and continue.
+4. `wt-ctl kfp start|stop|status` subcommand for explicit control.
+
 ### Phase 3 — end-to-end validation on real EVG host + search e2e
 
 1. Use `wt-ctl create lsierant/wtctl-e2e` (a fresh disposable branch from
