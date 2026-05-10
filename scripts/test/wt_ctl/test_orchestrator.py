@@ -205,7 +205,14 @@ class CreatePipelineTests(unittest.TestCase):
             # Registry.allocate() (no specific value — just confirm the line
             # is present and well-formed).
             env_text = (target / ".devcontainer" / ".env").read_text()
-            self.assertRegex(env_text, r"^MCK_DEVC_NET_PREFIX=\d+$")
+            # The .env was written with the 5-line stack-params block by
+            # the native Registry.allocate(): MCK_DEVC_NET_PREFIX (the
+            # stack index) plus four derived vars compose.yml reads.
+            self.assertRegex(env_text, r"(?m)^MCK_DEVC_NET_PREFIX=\d+$")
+            self.assertRegex(env_text, r"(?m)^MCK_DEVC_NET_X=\d+$")
+            self.assertRegex(env_text, r"(?m)^MCK_DEVC_NET_Y_BASE=\d+$")
+            self.assertRegex(env_text, r"(?m)^MCK_DEVC_NET_Y_VIP=\d+$")
+            self.assertRegex(env_text, r"(?m)^MCK_DEVC_PROXY_PORT=\d+$")
 
     def test_phase_order_is_canonical(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -224,7 +231,14 @@ class CreatePipelineTests(unittest.TestCase):
                 self.assertEqual(state.phases[name].status, ostate.OK,
                                  f"{name} not ok")
             env_text = (target / ".devcontainer" / ".env").read_text()
-            self.assertRegex(env_text, r"^MCK_DEVC_NET_PREFIX=\d+$")
+            # The .env was written with the 5-line stack-params block by
+            # the native Registry.allocate(): MCK_DEVC_NET_PREFIX (the
+            # stack index) plus four derived vars compose.yml reads.
+            self.assertRegex(env_text, r"(?m)^MCK_DEVC_NET_PREFIX=\d+$")
+            self.assertRegex(env_text, r"(?m)^MCK_DEVC_NET_X=\d+$")
+            self.assertRegex(env_text, r"(?m)^MCK_DEVC_NET_Y_BASE=\d+$")
+            self.assertRegex(env_text, r"(?m)^MCK_DEVC_NET_Y_VIP=\d+$")
+            self.assertRegex(env_text, r"(?m)^MCK_DEVC_PROXY_PORT=\d+$")
             # Subprocess-detectable phase order still tolerates the
             # parallel pair (evg_prepare, dc_build) in either order.
             sigs = []
