@@ -120,8 +120,11 @@ def build_parser() -> argparse.ArgumentParser:
     sn_sub.add_parser("list")
     sn_pr = sn_sub.add_parser("prune")
     sn_pr.add_argument("--dry-run", action="store_true")
+    sn_pr.add_argument("--networks", action="store_true",
+                       help="also remove orphan docker networks (172.[16-31].x).")
     sn_rl = sn_sub.add_parser("release")
     sn_rl.add_argument("branch", nargs="?")
+    sn_rl.add_argument("--dry-run", action="store_true")
     sn_al = sn_sub.add_parser("allocate")
     sn_al.add_argument("branch", nargs="?")
 
@@ -527,14 +530,20 @@ def cmd_network(runner: Runner, refs: WorktreeRefs, args: argparse.Namespace) ->
     nw = NetworkDomain(runner, refs.worktree_root)
     sub = args.net_cmd or "list"
     if sub == "list":
-        sys.stdout.write(nw.list_raw())
+        # `script_self` is the legacy bash invocation path so the pruning-info
+        # block byte-matches what users had before Phase 2.5.
+        legacy_self = str(refs.worktree_root / "scripts" / "dev" / "dc_select_network.sh")
+        sys.stdout.write(nw.list_raw(script_self=legacy_self))
         return 0
     if sub == "prune":
-        sys.stdout.write(nw.prune(dry_run=args.dry_run))
+        sys.stdout.write(nw.prune(
+            dry_run=args.dry_run,
+            prune_networks=getattr(args, "networks", False),
+        ))
         return 0
     if sub == "release":
         target = args.branch or refs.branch_dir
-        sys.stdout.write(nw.release(target))
+        sys.stdout.write(nw.release(target, dry_run=getattr(args, "dry_run", False)))
         return 0
     if sub == "allocate":
         target = args.branch or refs.branch_dir
