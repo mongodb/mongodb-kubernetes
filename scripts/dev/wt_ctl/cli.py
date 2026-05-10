@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 from typing import Callable, Optional
 
-from . import display
+from . import display, orchestrator_state
 from .domains.compose import ComposeDomain, project_name_for
 from .domains.contextsw import ContextDomain
 from .domains.devcontainer import DevcontainerDomain
@@ -28,10 +28,17 @@ from .errors import (
     ExternalCommandFailed,
     NotInWorktree,
     ParallelPhaseFailures,
+    StateConflict,
     ToolMissing,
     WtCtlError,
 )
 from .header import emit_banner
+from .orchestrator import (
+    CreateInputs,
+    CreateOrchestrator,
+    DeleteInputs,
+    DeleteOrchestrator,
+)
 from .paths import WorktreeRefs, logs_dir, resolve_worktree
 from .runner import Runner
 from .state import (
@@ -65,6 +72,34 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("status", help="status of current worktree (default) or all (--all).")
     s.add_argument("branch", nargs="?")
     s.add_argument("--all", dest="all_", action="store_true")
+
+    sc = sub.add_parser(
+        "create",
+        help="bring up a worktree end-to-end (worktree + EVG + devc + kubeconfig).",
+    )
+    sc.add_argument("branch")
+    sc.add_argument("--context", help="run `make switch context=CTX` after worktree_init.")
+    sc.add_argument("--multi-cluster", dest="multi_cluster", action="store_true")
+    sc.add_argument("--skip-recreate", dest="skip_recreate", action="store_true")
+    sc.add_argument("--skip-evg", dest="skip_evg", action="store_true")
+    sc.add_argument("--skip-devcontainer", dest="skip_devcontainer", action="store_true")
+    sc.add_argument("--skip-prepare-e2e", dest="skip_prepare_e2e", action="store_true")
+    sc.add_argument("--force", action="store_true")
+    sc.add_argument("--evg-host-name", dest="evg_host_name")
+    sc.add_argument("--resume", action="store_true")
+    sc.add_argument("--restart-from", dest="restart_from", default=None)
+
+    sd = sub.add_parser(
+        "delete",
+        help="tear down a worktree (OM clean, compose down, EVG terminate, worktree remove, prefix release).",
+    )
+    sd.add_argument("branch", nargs="?")
+    sd.add_argument("--delete-branch", dest="delete_branch", action="store_true")
+    sd.add_argument("--keep-evg", dest="keep_evg", action="store_true")
+    sd.add_argument("--keep-worktree", dest="keep_worktree", action="store_true")
+    sd.add_argument("--keep-stack", dest="keep_stack", action="store_true")
+    sd.add_argument("--keep-om-projects", dest="keep_om_projects", action="store_true")
+    sd.add_argument("--evg-host-name", dest="evg_host_name")
 
     sub.add_parser("up", help="bring devcontainer up (idempotent).")
     sub.add_parser("down", help="stop the compose stack for this worktree.")
@@ -133,12 +168,26 @@ def main(argv: list[str]) -> int:
     args = parser.parse_args(argv)
     runner = Runner()
 
-    # --all status doesn't require being in a worktree; everything else does.
-    needs_wt = not (args.cmd == "status" and getattr(args, "all_", False))
+    # `status --all`, `create <branch>`, and `delete <branch>` are allowed
+    # outside any worktree (they take an explicit target). Everything else
+    # resolves the cwd worktree first.
+    cmd = args.cmd
+    skip_wt = (
+        (cmd == "status" and getattr(args, "all_", False))
+        or cmd == "create"
+        or (cmd == "delete" and getattr(args, "branch", None))
+    )
     refs: Optional[WorktreeRefs] = None
     try:
-        if needs_wt:
+        if not skip_wt:
             refs = resolve_worktree(runner)
+        else:
+            # Best-effort resolution: still useful for `delete` with no
+            # branch (default to current worktree's branch).
+            try:
+                refs = resolve_worktree(runner)
+            except WtCtlError:
+                refs = None
         emit_banner(refs, quiet=args.quiet)
         return _dispatch(args, runner, refs)
     except WtCtlError as exc:
@@ -156,6 +205,10 @@ def _dispatch(args: argparse.Namespace, runner: Runner, refs: Optional[WorktreeR
             return cmd_status_all(runner, args)
         assert refs is not None
         return cmd_status(runner, refs, args)
+    if cmd == "create":
+        return cmd_create(runner, refs, args)
+    if cmd == "delete":
+        return cmd_delete(runner, refs, args)
     if cmd == "up":
         assert refs is not None
         DevcontainerDomain(runner).up(refs.worktree_root)
@@ -282,7 +335,11 @@ def cmd_status(runner: Runner, refs: WorktreeRefs, args: argparse.Namespace) -> 
         om=om,
         next_hints=next_hints,
     )
-    print(display.render_status(snap, color=args.color))
+    rendered = display.render_status(snap, color=args.color)
+    extra = _orchestrator_status_line(refs.worktree_root, refs.branch)
+    if extra:
+        rendered = rendered + "\n\n" + extra
+    print(rendered)
     return 0
 
 
@@ -327,6 +384,15 @@ def cmd_status_all(runner: Runner, args: argparse.Namespace) -> int:
         devc = cp_dom.project_state(wt.path)
         if devc:
             devc_state = devc.state
+        # Surface "incomplete" when the orchestrator state.json shows any
+        # non-OK phase. We render this as devc_state because the column is
+        # already there and a stalled create is exactly a partial devc.
+        try:
+            wt_state = orchestrator_state.load(wt.path)
+        except WtCtlError:
+            wt_state = None
+        if wt_state is not None and wt_state.first_non_ok() is not None:
+            devc_state = "incomplete" if devc_state in ("-", "exited", "running") else devc_state
 
         # By convention the EVG host display name == branch_dir.
         host = hosts_by_name.get(branch_dir)
@@ -618,6 +684,149 @@ def _find_worktree_by_branch(wd: WorktreeDomain, repo: Path, branch: str) -> Opt
 # ---------------------------------------------------------------------------
 # small helpers
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# create / delete (Phase 2)
+# ---------------------------------------------------------------------------
+
+def cmd_create(runner: Runner, refs: Optional[WorktreeRefs], args: argparse.Namespace) -> int:
+    branch: str = args.branch
+    branch_dir = branch.replace("/", "_")
+    main_repo, worktree_path = _resolve_create_paths(runner, refs, branch_dir)
+    inputs = CreateInputs(
+        branch=branch,
+        branch_dir=branch_dir,
+        worktree_path=worktree_path,
+        main_repo_root=main_repo,
+        context=args.context,
+        multi_cluster=args.multi_cluster,
+        skip_recreate=args.skip_recreate,
+        skip_evg=args.skip_evg,
+        skip_devcontainer=args.skip_devcontainer,
+        skip_prepare_e2e=args.skip_prepare_e2e,
+        force=args.force,
+        evg_host_name=args.evg_host_name,
+    )
+    orch = CreateOrchestrator(runner, inputs)
+    # Inject a context-switch step between worktree_init and initialize_hook
+    # if --context was passed; we do this here (in the CLI) instead of the
+    # orchestrator to keep the phase list canonical and the side-effect
+    # explicit.
+    try:
+        orch.run(
+            resume=args.resume,
+            restart_from=args.restart_from,
+            emit=lambda msg: sys.stderr.write(msg + "\n"),
+        )
+        if args.context:
+            # If we got this far the worktree exists; switch context inside it.
+            ContextDomain(runner).switch(worktree_path, args.context)
+    except WtCtlError as exc:
+        # Record the failing phase + resume hint for the user.
+        sys.stderr.write(
+            f"[wt-ctl] error: {exc.render()}\n"
+            f"[wt-ctl] resume with: scripts/dev/wt-ctl create {branch} --resume\n"
+        )
+        return getattr(exc, "exit_code", 1)
+    return 0
+
+
+def cmd_delete(runner: Runner, refs: Optional[WorktreeRefs], args: argparse.Namespace) -> int:
+    # Default to the current worktree's branch when no positional arg was given.
+    branch: Optional[str] = args.branch
+    if not branch:
+        if refs is None:
+            sys.stderr.write(
+                "[wt-ctl] error: no branch given and not inside a worktree.\n"
+            )
+            return 2
+        branch = refs.branch
+    if not branch or branch == "HEAD":
+        sys.stderr.write("[wt-ctl] error: refusing to delete a detached HEAD\n")
+        return 2
+
+    branch_dir = branch.replace("/", "_")
+    main_repo, worktree_path = _resolve_create_paths(runner, refs, branch_dir)
+
+    inputs = DeleteInputs(
+        branch=branch,
+        branch_dir=branch_dir,
+        worktree_path=worktree_path,
+        main_repo_root=main_repo,
+        delete_branch=args.delete_branch,
+        keep_evg=args.keep_evg,
+        keep_worktree=args.keep_worktree,
+        keep_stack=args.keep_stack,
+        keep_om_projects=args.keep_om_projects,
+        evg_host_name=args.evg_host_name,
+    )
+    orch = DeleteOrchestrator(runner, inputs)
+    orch.run(emit=lambda msg: sys.stderr.write(msg + "\n"))
+    return 0
+
+
+def _resolve_create_paths(
+    runner: Runner,
+    refs: Optional[WorktreeRefs],
+    branch_dir: str,
+) -> tuple[Path, Path]:
+    """Compute (main_repo_root, target_worktree_path) for a create/delete.
+
+    The convention (see ``wt_setup.sh``): worktrees are siblings of the main
+    repo. When invoked from a worktree, that worktree's parent is the
+    sibling-host. When invoked from the main repo's parent (rare) we still
+    expect ``../<branch_dir>``.
+    """
+    if refs is not None:
+        # Sibling of the *current* worktree, matching wt_setup.sh's convention.
+        anchor = refs.worktree_root
+        target = (anchor.parent / branch_dir).resolve()
+        return refs.main_repo_root, target
+    # No refs: best-effort resolve main repo from cwd.
+    main_repo = _resolve_main_repo(runner)
+    target = (main_repo.parent / branch_dir).resolve()
+    return main_repo, target
+
+
+# ---------------------------------------------------------------------------
+# status integration with orchestrator state
+# ---------------------------------------------------------------------------
+
+def _orchestrator_status_line(worktree_root: Path, branch: str) -> Optional[str]:
+    """If ``.wt-ctl/state.json`` exists and any phase is non-OK, return a
+    one-liner the status renderer can append; otherwise None.
+    """
+    try:
+        st = orchestrator_state.load(worktree_root)
+    except WtCtlError:
+        return None
+    if st is None:
+        return None
+    failed = next(
+        (
+            name for name, rec in st.phases.items()
+            if rec.status in (orchestrator_state.FAILED, orchestrator_state.IN_PROGRESS)
+        ),
+        None,
+    )
+    if not failed:
+        # Find first non-OK to surface "incomplete" state.
+        non_ok = next(
+            (name for name in orchestrator_state.PHASE_ORDER
+             if (rec := st.phases.get(name)) is None or rec.status != orchestrator_state.OK),
+            None,
+        )
+        if non_ok is None:
+            return None
+        return (
+            f"last_create  incomplete at {non_ok}  "
+            f"(resume: wt-ctl create {branch} --resume)"
+        )
+    return (
+        f"last_create  failed at {failed}  "
+        f"(resume: wt-ctl create {branch} --resume)"
+    )
+
 
 def _read_context_env(worktree_root: Path) -> dict[str, str]:
     """Mirror of OmDomain helper, kept here so ``status`` doesn't need to
