@@ -23,7 +23,8 @@
 #         - just `exit` to close the pane (same as a normal shell)
 #
 # We use zsh because the rest of the devcontainer's shell-init lives in
-# zsh (.zshrc sources context.export.env, activates the venv, etc.).
+# zsh (.zshrc invokes mck-env which sources context.env + context.devc.env
+# via scripts/dev/devenv, activates the venv, etc.).
 # Falls back to bash if zsh is missing.
 
 set -u

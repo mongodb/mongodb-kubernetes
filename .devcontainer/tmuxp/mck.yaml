@@ -54,9 +54,10 @@ windows:
       - shell_command:
           - exec /workspace/.devcontainer/scripts/pane_runner.sh /workspace/.devcontainer/scripts/log_follower.sh /workspace/logs/test.log e2e
       # Bottom-right: an interactive zsh. The shell-init sourced from
-      # .zshrc loads /workspace/.generated/context.export.env and
-      # activates the venv before the prompt appears. Not wrapped — it's
-      # already a shell.
+      # .zshrc loads /workspace/.generated/context.env +
+      # context.devc.env (via scripts/dev/devenv / mck-env) and activates
+      # the venv before the prompt appears. Not wrapped — it's already a
+      # shell.
       - shell_command:
           - exec zsh -l
         focus: true

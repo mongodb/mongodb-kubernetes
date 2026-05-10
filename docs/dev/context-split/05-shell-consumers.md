@@ -397,3 +397,167 @@ Step 5/6 of docs/dev/context-split.
 - Previous steps: [`03-devenv-bootstrap.md`](03-devenv-bootstrap.md),
   [`04-godotenv-consumers.md`](04-godotenv-consumers.md)
 - Final step: [`06-verification.md`](06-verification.md)
+
+## Notes (implementation)
+
+Implemented on `lsierant/devcontainer` as a single commit migrating every
+shell consumer of the old `.export.env` files to the new `devenv`
+bootstrap, and rewriting `set_env_context.sh` as a thin wrapper.
+
+### Files changed
+
+- `scripts/dev/set_env_context.sh` — full rewrite per plan section 1.
+  Now `unset`s its private vars (`_set_env_context_*`) at the bottom
+  and delegates to `${root}/scripts/dev/devenv` via `.`. Side-stamp
+  guard and `${PROJECT_DIR}/bin` PATH prepend both removed.
+- `scripts/dev/op_run.sh` — both occurrences updated. Top-level (lines
+  ~26-32) replaced with `. scripts/dev/devenv`. Inner tmux command
+  (line ~75) now runs `bash -lc 'cd …; . scripts/dev/devenv; … go
+  run ./main.go …'`. The `-l` flag preserved so
+  `/etc/profile.d/mck-bin.sh` puts `/workspace/bin` on PATH.
+- `scripts/dev/e2e_run.sh` — `set -a; source …; set +a` block
+  replaced with `. scripts/dev/devenv`. The explicit
+  `source venv/bin/activate` block kept for its loud error path
+  (`venv` missing → fail with a useful message); `devenv` activates
+  idempotently so the duplication is harmless.
+- `scripts/dev/evg_host.sh` — line 72 SSH command updated. EVG host's
+  remote shell now runs `. scripts/dev/devenv` after
+  `switch_context.sh root-context`. Side resolves to host (no
+  `/.dockerenv`).
+- `scripts/dev/create_worktree.sh` — line 75 `source .generated/…`
+  replaced with `. scripts/dev/devenv`. The explicit
+  `source venv/bin/activate` on line 74 kept for clarity (devenv
+  activates again, idempotent).
+
+### Comment-only / message-string updates
+
+- `scripts/dev/switch_context.sh` — the `rm -f *.export.env` cleanup
+  comment now says "All consumers now go through scripts/dev/devenv".
+- `scripts/dev/delete_om_projects.sh:21` — comment switched from
+  `context.export.env` to `context.env`.
+- `.devcontainer/tmuxp/mck.yaml:57` — comment now describes
+  `mck-env`/`devenv` loading `context.env` + `context.devc.env`.
+- `.devcontainer/scripts/pane_runner.sh:26` — same wording update.
+- `.devcontainer/scripts/on-create/01-switch-context.sh` — header
+  comment now references the new file pair (`context.env` +
+  `context.devc.env`) and `devenv`.
+- `.devcontainer/shell-init.sh` — header comment updated to describe
+  the new env-loading shape (already invokes `devenv` at line 24,
+  per step 03).
+- `Makefile` — comment above `regenerate-context` updated; the old
+  side-stamp guard explanation is gone (no guard exists anymore),
+  replaced with a description of why the OTHER side's site bytes
+  don't clobber this side's (separate per-side filenames).
+- `scripts/test/bash/run.sh:57` — `[[ -f .generated/context.export.env
+  ]]` precondition flipped to `[[ -f .generated/context.env ]]`.
+  Functional change (the file the script tests for exists), not just
+  a comment.
+- `scripts/test/bash/worktree/test_om_project_namespace.bats` — the
+  comment-only reference to `context.export.env` updated.
+
+### Deviations from the plan
+
+1. **`scripts/test/bash/run.sh` was missing from the plan's checklist
+   but had a functional reference.** Found it via the audit grep
+   (line 57: `[[ -f .generated/context.export.env … ]]`). Updated to
+   `context.env`. Without this, bats subshells stop sourcing
+   `set_env_context.sh` after step 02 stops emitting the old file —
+   not catastrophic (the conditional silently no-ops), but it would
+   leave the original "fail-with-unbound-variable" issue in place.
+
+2. **`.devcontainer/shell-init.sh` had a comment-only reference**
+   that wasn't in the plan's section-6 list. Updated for consistency
+   with the rest of the migrated files.
+
+3. **`Makefile` comment above `regenerate-context`** explicitly
+   referenced the side-stamp guard. After this step the guard is
+   gone, so I rewrote the comment to describe the new rationale
+   (separate per-side filenames make side mismatch impossible by
+   construction). The plan listed Makefile as touched only via
+   "lines 42, 45, 394 — they source set_env_context.sh"; it didn't
+   call out the comment block at lines 53-58. Caught by the audit
+   grep.
+
+4. **`setup_evg_host.sh` left untouched.** Plan's pitfalls section
+   said: "if it has a host PATH-prepend expectation, add a one-line
+   `export PATH="${PROJECT_DIR}/bin:${PATH}"`." Read the file end-to-end:
+   downloads `kind`, `kubectl`, `helm` to `/usr/local/bin` and uses
+   only system binaries (`curl`, `sudo`, `tee`, `tar`, etc.). No
+   `${PROJECT_DIR}/bin/` reference. No PATH manipulation needed. EVG
+   host has no `/etc/profile.d/mck-bin.sh` but doesn't need one for
+   this script's purpose.
+
+5. **`.devcontainer/scripts/post-start.sh` left untouched** per the
+   plan's section 7 (verified — it does not source the context env;
+   it only PATCHes a kubeconfig to the in-container k8s-proxy).
+
+### Stubs removed
+
+```
+.generated/context.export.env
+.generated/context.operator.export.env
+```
+
+Both were re-emitted as workarounds during steps 02, 03, and 04 so
+`pre-commit` could run. After step 05 they are no longer needed and
+are gone. Confirmed `make switch` does NOT regenerate them (the
+`rm -f` line at the end of `switch_context.sh` keeps them out).
+
+### Verification snippets
+
+Audit grep — zero matches:
+
+```
+$ grep -rn 'context\.export\.env' scripts/ .devcontainer/ docker/ Makefile 2>/dev/null
+(empty)
+```
+
+`set_env_context.sh` sources cleanly with no stubs:
+
+```
+$ rm -f .generated/context.export.env .generated/context.operator.export.env
+$ bash -c 'source scripts/dev/set_env_context.sh && \
+    echo "NAMESPACE=${NAMESPACE}" && echo "PROJECT_DIR=${PROJECT_DIR}"'
+NAMESPACE=ls
+PROJECT_DIR=/Users/.../lsierant_devcontainer
+```
+
+`make precommit` — clean run, no `.export.env` errors:
+
+```
+$ make precommit 2>&1 | tail -5
+isort....................................................................Passed
+ShellCheck v0.10.0.......................................................Passed
+ty.......................................................................Passed
+govulncheck..............................................................Passed
+golangci-lint............................................................Passed
+```
+
+(The earlier-step Notes' "temporary stub" workaround is now obsolete;
+pre-commit no longer needs the stub `.export.env` files.)
+
+`bash -n` on every touched script: all parse.
+
+EVG-CI smoke (`EVR_TASK_ID=fake make switch context=root-context`):
+exits clean, writes the same three files, no `.export.env` artifacts.
+
+### Issues uncovered for step 06
+
+- **`scripts/evergreen/*` and many other scripts source
+  `set_env_context.sh`.** All of them now flow through `devenv`. No
+  visible breakage in pre-commit, but step 06 should exercise an EVG
+  patch (precommit + unit + at least one e2e variant) to confirm the
+  Evergreen runner side works end-to-end.
+
+- **`bash -lc` vs. `bash -c` in op_run.sh's tmux command.** Kept the
+  `-l` per the plan's pitfall note. Without `-l`, the tmux pane's PATH
+  wouldn't include `/workspace/bin` (the new
+  `/etc/profile.d/mck-bin.sh` only fires for login shells). End-to-end
+  smoke (operator startup) belongs to step 06.
+
+- **`devenv` activates the venv** as a side effect. Two consumers
+  (`e2e_run.sh`, `create_worktree.sh`) still have an explicit
+  `source venv/bin/activate` after the `devenv` source. It's
+  idempotent — running it twice is a no-op — but a future pass could
+  drop the explicit line and rely on `devenv` alone. Out of scope for
+  step 05; flagged for cleanup in step 06's verification.

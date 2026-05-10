@@ -18,7 +18,7 @@ source scripts/dev/set_env_context.sh
 # `${NAMESPACE}-${prefix}` / `${NAMESPACE}-${prefix}-*` projects. Without this
 # mirror the script would delete every parallel worktree's OM projects, which
 # is the bug this PR fixes. The same logic lives in root-context so `make
-# switch` writes the suffixed NAMESPACE into .generated/context.export.env;
+# switch` writes the suffixed NAMESPACE into .generated/context.env;
 # this local copy lets host-side callers (e.g. wt_teardown.sh, or any rerun
 # made before the worktree context is refreshed) delete the right scope.
 if [[ -z "${MCK_DEVC_NET_PREFIX:-}" && -f "${PROJECT_DIR:-.}/.devcontainer/.env" ]]; then

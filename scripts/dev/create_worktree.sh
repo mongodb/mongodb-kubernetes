@@ -72,7 +72,7 @@ fi
   cd "${worktree_path}"
   make switch context="$(cat ".generated/.current_context")"
   source venv/bin/activate
-  source .generated/context.export.env
+  . scripts/dev/devenv
 )
 
 echo "Worktree $(realpath "${worktree_path}") has been prepared"
