@@ -278,6 +278,55 @@ class EvgSpawnTests(unittest.TestCase):
             )
         self.assertIn("timed out", str(ctx.exception).lower())
 
+    # ------------------------------------------------------------------
+    def test_placeholder_resolves_via_pre_create_snapshot_diff(self) -> None:
+        """When ``host create`` returns only an ``evg-*`` placeholder id and
+        a sibling spawn is running concurrently (so the list payload has
+        multiple untagged hosts), the poll loop must pick the right host by
+        diffing the pre-create snapshot — *not* by display_name (still
+        empty) nor by "freshest untagged" (ambiguous).
+        """
+        runner = FakeRunner()
+        # Pre-existing sibling host (already in flight before our create).
+        # Note: _RE_AWS_ID requires the id-suffix to be hex (0-9a-f) — so
+        # we use ``ab1...`` / ``cd2...`` here, not human-readable labels.
+        sibling = {"id": "i-ab1aaaaa", "name": "",
+                   "status": "starting", "host_name": "",
+                   "user": "ubuntu"}
+        # Our new host appears post-create with an unfamiliar id.
+        ours_starting = {"id": "i-cd2bbbbb", "name": "",
+                         "status": "starting", "host_name": "",
+                         "user": "ubuntu"}
+        ours_running = {"id": "i-cd2bbbbb", "name": "wt-x",
+                        "status": "running",
+                        "host_name": "ec2-2-2-2-2.compute.amazonaws.com",
+                        "user": "ubuntu"}
+        q = _ListQueue([
+            [sibling],                       # resume probe: no match by name
+            [sibling],                       # pre-create snapshot: only sibling
+            [sibling, ours_starting],        # first poll: ours appears, unnamed
+            [sibling, ours_running],         # second poll: ours running, named
+        ])
+        runner.add_fn(_MatchArgv.host_list, q)
+        # create returns the placeholder id (no i-* in stdout).
+        runner.add(
+            _MatchArgv.host_create,
+            _ok(stdout="Host evg-ubuntu2204-9999 spawned.\n"),
+        )
+        runner.add(_MatchArgv.host_modify, _ok())
+        runner.add(_MatchArgv.ssh, _ok())
+        host_id = self._domain(runner).spawn(
+            name="wt-x", poll_interval_s=0.0, timeout_s=5.0,
+        )
+        # The poll loop must transition placeholder → i-cd2bbbbb (ours),
+        # *not* i-ab1aaaaa (sibling).
+        self.assertEqual(host_id, "i-cd2bbbbb")
+        # Sibling id must never appear in any host modify call.
+        modify_calls = [c for c in runner.calls if c[:3] == ["evergreen", "host", "modify"]]
+        self.assertTrue(modify_calls)
+        for c in modify_calls:
+            self.assertNotIn("i-ab1aaaaa", c)
+
 
 _KEYS_LIST_STDOUT = (
     "Public keys stored in Evergreen:\n"

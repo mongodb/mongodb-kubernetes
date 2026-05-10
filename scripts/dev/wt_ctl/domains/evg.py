@@ -198,6 +198,20 @@ class EvgDomain:
             f"[wt-ctl evg spawn] spawning: distro={distro} region={region} "
             f"key={resolved_key} displayName={name!r}"
         )
+        # Snapshot known --mine host ids *before* the create call. This lets
+        # the poll loop disambiguate our newly-spawned host from concurrent
+        # spawns by other orchestrators in the same Evergreen account: any
+        # id present in the post-create list but absent here must be ours.
+        # Without this snapshot, the placeholder ``evg-*`` id returned by
+        # ``host create`` never resolves (AWS assigns the real ``i-*`` id
+        # async; until tagged, list payloads show empty ``name``, so a
+        # name-based fallback can't pick the right host among siblings).
+        try:
+            pre_known_ids = {
+                h.get("id") for h in self._list_my_hosts_json() if h.get("id")
+            }
+        except ExternalCommandFailed:
+            pre_known_ids = set()
         create_res = self.runner.run(
             [
                 "evergreen", "host", "create",
@@ -231,6 +245,7 @@ class EvgDomain:
             poll_interval_s=poll_interval_s,
             timeout_s=timeout_s,
             emit=_emit,
+            pre_known_ids=pre_known_ids,
         )
 
     # ------------------------------------------------------------------
@@ -360,6 +375,7 @@ class EvgDomain:
         poll_interval_s: float,
         timeout_s: float,
         emit: Callable[[str], None],
+        pre_known_ids: Optional[set[str]] = None,
     ) -> str:
         """Poll ``host list`` until our host reaches status=running.
 
@@ -368,6 +384,13 @@ class EvgDomain:
         once. Failures of the modify step are swallowed (warn-only) — the
         spawn itself isn't compromised by a missing display name.
 
+        ``pre_known_ids`` is a snapshot of all --mine host ids taken just
+        before ``host create``. The poll loop uses set-diff against the
+        current list to disambiguate our new host from any sibling spawn
+        running concurrently — this is the only reliable signal when the
+        upstream returns an ``evg-*`` placeholder (the real ``i-*`` is
+        assigned async) and ``name`` is still empty pre-tag.
+
         Returns the (possibly-updated) host id when status=running; raises
         ``WtCtlError`` on terminal status or timeout.
         """
@@ -375,6 +398,8 @@ class EvgDomain:
         tagged = False
         last_status: Optional[str] = None
         current_id = host_id
+        if pre_known_ids is None:
+            pre_known_ids = set()
         while True:
             hosts = self._list_my_hosts_json()
             host = self._find_host_by_id(hosts, current_id)
@@ -382,6 +407,21 @@ class EvgDomain:
                 # Sometimes the host id we have is an ``evg-*`` placeholder
                 # that flips to ``i-*``; try matching by name as a fallback.
                 host = self._find_live_by_display_name(name)
+                if host is None and not _RE_AWS_ID.match(current_id):
+                    # Placeholder ``evg-*`` not in list and name not yet
+                    # tagged → fall back to "any new id we didn't see before
+                    # the create call". With concurrent spawns by sibling
+                    # orchestrators the pre-snapshot diff is the only way to
+                    # pick the right host.
+                    new_candidates = [
+                        h for h in hosts
+                        if h.get("id") and h.get("id") not in pre_known_ids
+                        and _RE_AWS_ID.match(h.get("id") or "")
+                    ]
+                    # Only flip the id when exactly one candidate is new —
+                    # otherwise (zero or 2+) keep polling for clarity.
+                    if len(new_candidates) == 1:
+                        host = new_candidates[0]
                 if host is not None and host.get("id"):
                     new_id = host["id"]
                     if new_id != current_id:
