@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+#
+# wt-ctl — unified worktree + devcontainer control plane.
+#
+# Thin shim that locates the wt_ctl python package in this repo, sets
+# PYTHONPATH so ``import wt_ctl`` works regardless of cwd, and execs
+# ``python3 -m wt_ctl "$@"``. See ``docs/dev/wt-ctl-plan.md``.
+#
+set -Eeuo pipefail
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+pkg_parent="${script_dir}"  # wt_ctl/ lives at scripts/dev/wt_ctl
+
+if [[ -n "${PYTHONPATH:-}" ]]; then
+  PYTHONPATH="${pkg_parent}:${PYTHONPATH}"
+else
+  PYTHONPATH="${pkg_parent}"
+fi
+export PYTHONPATH
+
+exec python3 -m wt_ctl "$@"
