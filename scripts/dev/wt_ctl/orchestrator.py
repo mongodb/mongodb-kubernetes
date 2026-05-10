@@ -26,7 +26,11 @@ from typing import Callable, Iterable, Optional
 
 from . import orchestrator_state as ostate
 from .domains.compose import project_name_for
-from .domains.network import NetworkDomain
+from .domains.network import (
+    DERIVED_ENV_KEYS,
+    NetworkDomain,
+    migrate_legacy_env,
+)
 from .errors import (
     ExternalCommandFailed,
     ParallelPhaseFailures,
@@ -266,16 +270,23 @@ class CreateOrchestrator:
             env_file = wt / ".devcontainer" / ".env"
             existing_prefix = _read_existing_prefix(env_file)
             if existing_prefix is not None:
+                # Existing legacy ``.env`` may carry only the bare
+                # ``MCK_DEVC_NET_PREFIX=NN`` line. Top up the four derived
+                # vars so compose.yml sees them. Idempotent: a second
+                # call is a no-op when all four are already present.
+                if env_file.is_file():
+                    migrate_legacy_env(env_file)
                 return
-            line = NetworkDomain(self.runner, wt).allocate(i.branch_dir).rstrip("\n")
-            if not line.startswith("MCK_DEVC_NET_PREFIX="):
+            block = NetworkDomain(self.runner, wt).allocate(i.branch_dir)
+            if not block.startswith("MCK_DEVC_NET_PREFIX="):
                 raise WtCtlError(
-                    f"NetworkDomain.allocate produced unexpected output: {line!r}"
+                    f"NetworkDomain.allocate produced unexpected output: {block!r}"
                 )
-            # Append to .devcontainer/.env (preserves any other keys).
+            # Append all 5 lines (MCK_DEVC_NET_PREFIX + 4 derived vars)
+            # to .devcontainer/.env, preserving any other keys.
             env_file.parent.mkdir(parents=True, exist_ok=True)
             with env_file.open("a") as fh:
-                fh.write(line + "\n")
+                fh.write(block)
 
         # ---- evg_prepare --------------------------------------------------
         def _do_evg_prepare() -> None:
