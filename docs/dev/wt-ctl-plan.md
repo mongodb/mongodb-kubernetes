@@ -21,9 +21,13 @@ maintainable Python tool, `scripts/dev/wt-ctl`, that:
 - `wt-ctl source` (sourceable env). Dropped — devenv already does this and
   layered concerns (site-context + venv) make it premature.
 - Native Python rewrite of `create_worktree.sh` (kept as a wrapper).
-- Rewrite of `dc_select_network.sh` registry/locking logic (wrapped).
 - Rewrite of `evg_prepare.sh`, `evg_host.sh`, `delete_om_projects.sh`,
   `.devcontainer/scripts/*` (all wrapped).
+
+In scope (added 2026-05-10):
+- Native Python rewrite of `dc_select_network.sh` — see Phase 2.5. Phase 1
+  and Phase 2 wrap the bash version; Phase 2.5 replaces the implementation
+  with native Python and reduces `dc_select_network.sh` to a thin shim.
 - A `kind` subcommand. Plain `kubectl get nodes` / `kind get clusters` are
   sufficient.
 - A `--json` flag. The single output format is concise human-readable.
@@ -300,6 +304,57 @@ Acceptance:
   prefix allocation.
 - `wt-ctl delete <branch>` cleans up everything and `wt-ctl status
   --all` no longer lists the worktree or its registry entry.
+
+### Phase 2.5 — native Python rewrite of `dc_select_network.sh`
+
+Replace the bash registry script with native Python. Phase 1 and Phase 2
+already invoke it through `domains/network.py`; this phase moves the
+implementation into Python and reduces the bash file to a thin shim.
+
+Deliverables:
+1. New module `wt_ctl/domains/network_registry.py` (or fold into
+   `network.py`) containing:
+   - On-disk format unchanged: `~/.cache/mck-devc/net-prefix-registry`
+     with one line per allocation: `<prefix> <branch_dir> <iso8601_ts>`.
+     Lock dir at `~/.cache/mck-devc/net-prefix-registry.lock` (mkdir-based,
+     stale-lock detection by pid + age).
+   - `list()` — read registry; return `[NetEntry]` plus `[OrphanEntry]`
+     where the registered branch_dir has no corresponding worktree dir.
+   - `release(branch_dir)` — drop matching entry under lock.
+   - `prune(dry_run=False)` — detect and (optionally) drop entries whose
+     worktree no longer exists AND no live container/network references
+     them. Re-implement the orphan-network detection (Docker network
+     name matching `*_devcontainer_devcontainer` AND container count == 0
+     AND no surviving worktree).
+   - `allocate(branch_dir, *, auto_prune=True)` — scan free prefix slots
+     in 16..31 (current range; expansion is task #16, out of scope here),
+     auto-prune stale entries on demand, write the new entry. Return the
+     prefix.
+2. Tests under `scripts/test/wt_ctl/test_network_registry.py`:
+   - registry round-trip (write → read).
+   - locking (concurrent allocate via two threads should serialize).
+   - orphan detection: synthesize a registry entry without a matching
+     worktree, confirm `list()` flags it, confirm `prune()` removes it.
+   - allocate auto-prune: stale entry occupying slot 24, fresh allocate
+     should reclaim it.
+3. Reduce `scripts/dev/dc_select_network.sh` to a thin shim:
+   ```sh
+   #!/usr/bin/env bash
+   exec "$(dirname "$0")/wt-ctl" network "$@"
+   ```
+   …with a translator for the existing flags (`--list`, `--prune
+   [--dry-run]`, `--release <branch_dir>`, `--branch-dir <dir>` for
+   allocate). Deprecation note on stderr.
+4. `wt-ctl network *` subcommands now call the native module directly
+   (no subprocess hop).
+5. Acceptance:
+   - All Phase 1 + Phase 2 tests still green.
+   - `wt-ctl network list` output matches what the bash version produced
+     pre-rewrite (recorded as a fixture during Phase 2 validation).
+   - `dc_select_network.sh --list` shim produces identical output.
+   - Allocate-under-contention test passes.
+
+Out of scope: 255-prefix expansion (task #16). Done after Phase 2.5 lands.
 
 ### Phase 3 — end-to-end validation on real EVG host + search e2e
 
