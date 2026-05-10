@@ -843,10 +843,18 @@ class DeleteOrchestrator:
 
     def _step_prefix_release(self, emit: Callable[[str], None]) -> None:
         emit(f"[wt-ctl] network: releasing registry entry for '{self.inputs.branch_dir}'")
-        # The worktree's scripts may already be gone; fall back to main repo.
-        script = self.inputs.worktree_path / "scripts" / "dev" / "dc_select_network.sh"
-        if not script.is_file():
-            script = self.scripts / "dc_select_network.sh"
+        # The target worktree's scripts have already been removed by the
+        # preceding _step_worktree_remove. main_repo_root points at the bare
+        # `.git` parent which typically has no working tree, so fall back
+        # candidates in order: target worktree (still there if --keep-worktree),
+        # main_repo_root, then the cwd (the user invoked wt-ctl from
+        # somewhere — usually a sibling worktree which has the script).
+        candidates = [
+            self.inputs.worktree_path / "scripts" / "dev" / "dc_select_network.sh",
+            self.scripts / "dc_select_network.sh",
+            Path(os.getcwd()) / "scripts" / "dev" / "dc_select_network.sh",
+        ]
+        script = next((c for c in candidates if c.is_file()), candidates[0])
         try:
             self.runner.run_streaming(
                 [str(script), "--release", self.inputs.branch_dir],

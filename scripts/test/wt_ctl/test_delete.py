@@ -197,6 +197,40 @@ class DeletePipelineTests(unittest.TestCase):
             joined = [" ".join(c) for c in runner.calls]
             self.assertFalse(any("delete_om_projects.sh" in j for j in joined))
 
+    def test_prefix_release_falls_back_to_main_repo_when_worktree_gone(self) -> None:
+        """After ``_step_worktree_remove`` deletes the target dir the
+        in-target script is gone; the release step must fall back to the
+        main_repo's checked-out scripts/dev/ — and if that's empty too,
+        try cwd as a last resort. We simulate "worktree already removed"
+        by deleting the target's scripts/dev/ before run().
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, target, runner = _make_fixture(
+                Path(tmp), with_compose_running=False, with_evg_host=False,
+            )
+            # Pretend the worktree has already been removed: delete its
+            # scripts/dev/ tree so the in-target candidate fails .is_file().
+            for f in (target / "scripts" / "dev").glob("*"):
+                f.unlink()
+            (target / "scripts" / "dev").rmdir()
+            inputs = DeleteInputs(
+                branch="topic/x", branch_dir="topic_x",
+                worktree_path=target, main_repo_root=repo,
+            )
+            DeleteOrchestrator(runner, inputs).run()
+            joined = [" ".join(c) for c in runner.calls]
+            # Release call still fired, using the main_repo fallback.
+            self.assertTrue(
+                any("dc_select_network.sh --release topic_x" in j for j in joined),
+                msg=f"release didn't fire; calls: {joined}",
+            )
+            # And the chosen path was the main_repo one (the one that exists).
+            release_call = next(
+                c for c in runner.calls
+                if any("dc_select_network.sh" in a for a in c) and "--release" in c
+            )
+            self.assertIn(str(repo / "scripts" / "dev" / "dc_select_network.sh"), release_call)
+
     def test_failure_in_one_step_does_not_abort_pipeline(self) -> None:
         """Best-effort: a failure in evg_terminate must not stop the
         remaining steps (worktree remove, prefix release).
