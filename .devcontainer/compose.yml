@@ -1,5 +1,8 @@
 x-k8s-proxy-config:
-  proxy_address: &proxy_address 172.${MCK_DEVC_NET_PREFIX:-28}.0.10
+  # proxy_address = 172.X.Y_BASE.10. Defaults pinned to the legacy prefix=28
+  # equivalent (X=28, Y_BASE=0) so an ad-hoc invocation without the wt-ctl
+  # registry still produces the pre-expansion address.
+  proxy_address: &proxy_address 172.${MCK_DEVC_NET_X:-28}.${MCK_DEVC_NET_Y_BASE:-0}.10
 
 services:
   devcontainer:
@@ -62,7 +65,7 @@ services:
       # Bind DNS to the container's assigned IP on devcontainer.
       # VIPs (172.X.1.x where X = MCK_DEVC_NET_PREFIX) are also added to that interface.
       INTERFACE: *proxy_address
-      VIP_CIDR: 172.${MCK_DEVC_NET_PREFIX:-28}.1.0/24
+      VIP_CIDR: 172.${MCK_DEVC_NET_X:-28}.${MCK_DEVC_NET_Y_VIP:-1}.0/24
       DNS_LISTEN: :53
       HTTP_LISTEN: :80
       CLUSTER_DOMAIN: svc.cluster.local
@@ -122,7 +125,7 @@ services:
     networks:
       - devcontainer
     ports:
-      - "127.0.0.1:80${MCK_DEVC_NET_PREFIX:-28}:8080"
+      - "127.0.0.1:${MCK_DEVC_PROXY_PORT:-8028}:8080"
     command: ["-L", "http://:8080", "-F", "socks5://evg-host-proxy:1080"]
 
 # Volumes with an explicit name are shared globally, otherwise they are prefixed with the project name generated for this compose stack
@@ -145,5 +148,8 @@ networks:
     driver: bridge
     ipam:
       config:
-        - subnet: 172.${MCK_DEVC_NET_PREFIX:-28}.0.0/16
-          ip_range: 172.${MCK_DEVC_NET_PREFIX:-28}.0.0/24
+        # Per-stack /23 carved out of 172.16.0.0/12. ip_range is the
+        # bottom /24 (where containers actually bind); the other /24
+        # (Y_VIP) is reserved for k8s-proxy VIPs.
+        - subnet: 172.${MCK_DEVC_NET_X:-28}.${MCK_DEVC_NET_Y_BASE:-0}.0/23
+          ip_range: 172.${MCK_DEVC_NET_X:-28}.${MCK_DEVC_NET_Y_BASE:-0}.0/24
