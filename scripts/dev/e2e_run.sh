@@ -24,9 +24,7 @@ target="$1"
 cd "$(git rev-parse --show-toplevel 2>/dev/null || echo /workspace)"
 
 # shellcheck disable=SC1091
-set -a
-source .generated/context.export.env
-set +a
+. scripts/dev/devenv
 
 if [[ ! -d venv ]]; then
   echo "ERROR: venv not found at $(pwd)/venv. Run scripts/dev/recreate_python_venv.sh first." >&2

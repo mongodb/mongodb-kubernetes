@@ -23,13 +23,14 @@ done
 
 cd "$(git rev-parse --show-toplevel 2>/dev/null || echo /workspace)"
 
-# Source context. Operator-specific env (CRD-related, search images, etc.)
-# lives in context.operator.export.env.
+# Source the per-side env via the canonical bootstrap. devenv handles:
+#   - side detection via /.dockerenv
+#   - logical .generated/context.env + site .generated/context.<side>.env
+#   - venv activation if present
+# Operator-specific overlay (.generated/context.operator.env) is loaded
+# by main.go's loadEnvFromLocalFileForDevelopment, not by this shell.
 # shellcheck disable=SC1091
-set -a
-source .generated/context.export.env
-source .generated/context.operator.export.env
-set +a
+. scripts/dev/devenv
 
 mkdir -p logs
 log_path="logs/operator-$(date +%Y%m%d-%H%M%S).log"
@@ -72,7 +73,7 @@ fi
 
 tmux kill-session -t mck-operator 2>/dev/null || true
 tmux new-session -d -s mck-operator \
-  "bash -lc 'set -a; source .generated/context.export.env; source .generated/context.operator.export.env; set +a; cd \"$(pwd)\"; ${proxy_env} go run ./main.go ${operator_args} 2>&1 | tee ${log_path}'"
+  "bash -lc 'cd \"$(pwd)\"; . scripts/dev/devenv; ${proxy_env} go run ./main.go ${operator_args} 2>&1 | tee ${log_path}'"
 
 echo "Operator started in tmux session 'mck-operator'."
 echo "  log: ${log_path}  (symlinked as logs/operator.log)"

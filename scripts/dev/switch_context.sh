@@ -188,6 +188,8 @@ scripts/dev/print_operator_env.sh \
 
 # Drop legacy .export.env files on regenerate so stale copies from prior runs
 # (when the generator still emitted them) don't get sourced by accident.
+# All consumers now go through scripts/dev/devenv (or set_env_context.sh which
+# wraps it) and load context.env + context.<side>.env directly.
 rm -f "${destination_envs_file}.export.env" "${destination_envs_file}.operator.export.env"
 
 echo -n "${context}" > "${destination_envs_dir}/.current_context"

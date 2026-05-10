@@ -52,10 +52,11 @@ switcht:
 
 # Re-run switch_context against whatever context is currently pinned in
 # .generated/.current_context. Useful after crossing the host/devcontainer
-# boundary: the side-stamp guard in set_env_context.sh refuses to source a
-# context.export.env generated on the OTHER side, and `make
-# regenerate-context` is the canonical fix-it-now command. Falls back to a
-# clear error if no context has been picked yet.
+# boundary: per-side files are .generated/context.<side>.env, so the OTHER
+# side's site bytes are written into a different file and don't clobber
+# this side's. `make regenerate-context` is the canonical fix-it-now
+# command (e.g. after a worktree move that changes PROJECT_DIR). Falls
+# back to a clear error if no context has been picked yet.
 regenerate-context:
 	@ if [[ ! -s .generated/.current_context ]]; then \
 		echo "ERROR: .generated/.current_context is missing or empty." >&2; \

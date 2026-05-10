@@ -6,7 +6,7 @@
 # already chose, with an idempotency guard so re-sourcing root-context doesn't
 # pile suffixes. The same logic lives in two places, both verified here:
 #   1. scripts/dev/contexts/root-context  (sourced by `make switch`, drives the
-#      generated context.export.env that bakes NAMESPACE into the env)
+#      generated context.env that bakes NAMESPACE into the env)
 #   2. scripts/dev/delete_om_projects.sh  (mirror, so host-side cleanup callers
 #      like wt_teardown.sh delete the right scope without first refreshing the
 #      worktree's context).

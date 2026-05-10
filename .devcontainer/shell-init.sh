@@ -4,10 +4,11 @@
 # start (sourced, not exec'd, so it cannot use shebang/set semantics).
 #
 # Two responsibilities:
-#   1. For interactive shells, cd into /workspace, source the per-context
-#      .generated/context.export.env, and activate the project venv. This
-#      means every tmux pane and every `dc_attach.sh <cmd>` shell starts
-#      with the same env the e2e scripts assume.
+#   1. For interactive shells, cd into /workspace, source the per-side env
+#      (.generated/context.env + .generated/context.devc.env via
+#      scripts/dev/devenv), and activate the project venv. This means every
+#      tmux pane and every `dc_attach.sh <cmd>` shell starts with the same
+#      env the e2e scripts assume.
 #   2. For interactive shells with no $TMUX (i.e. the user just attached
 #      to the devcontainer), exec the 'mck' tmuxp session. Set
 #      MCK_NO_TMUX=1 to opt out (dc_attach.sh does this when given args).

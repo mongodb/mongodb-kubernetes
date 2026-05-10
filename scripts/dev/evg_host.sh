@@ -69,7 +69,7 @@ configure() {
 
   sync | prepend "sync"
 
-  ssh -T -q "${host_url}" "cd ~/mongodb-kubernetes; scripts/dev/switch_context.sh root-context; source .generated/context.export.env; scripts/dev/setup_evg_host.sh ${auto_recreate}"
+  ssh -T -q "${host_url}" "cd ~/mongodb-kubernetes; scripts/dev/switch_context.sh root-context; . scripts/dev/devenv; scripts/dev/setup_evg_host.sh ${auto_recreate}"
 }
 
 sync() {
