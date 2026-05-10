@@ -8,24 +8,12 @@
 #
 # Usage: dc_build.sh [--workspace-folder DIR] [extra-args...]
 #
-
+# DEPRECATED: prefer `wt-ctl build`. Shim preserved through the Phase-1/2/3
+# transition so existing skills + scripts continue to work.
+#
 set -Eeou pipefail
 test "${MDB_BASH_DEBUG:-0}" -eq 1 && set -x
 
-workspace="$(pwd)"
-extra_args=()
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --workspace-folder) workspace="$2"; shift 2 ;;
-    -h|--help) echo "Usage: $0 [--workspace-folder DIR] [extra-args...]"; exit 0 ;;
-    *) extra_args+=("$1"); shift ;;
-  esac
-done
-
-if ! command -v devcontainer >/dev/null 2>&1; then
-  echo "ERROR: devcontainer CLI not found in PATH." >&2
-  exit 1
-fi
-
-echo "==> devcontainer build (workspace=${workspace})"
-devcontainer build --workspace-folder "${workspace}" "${extra_args[@]}"
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+echo "[deprecated] dc_build.sh — use 'wt-ctl build' instead" >&2
+exec "${script_dir}/wt-ctl" build "$@"
