@@ -469,9 +469,23 @@ class CreateOrchestrator:
                 log_relpath="logs/setup_worktree/initialize_hook.log",
             ),
             Phase(
+                # net_allocate's idempotency key includes the env-file's
+                # actual completeness — if a prior run wrote only
+                # MCK_DEVC_NET_PREFIX (the first line of the 5-line block)
+                # but crashed before the derived NET_X / NET_Y_BASE / Y_VIP /
+                # PROXY_PORT lines, resume must re-enter the phase so the
+                # repair branch can append the missing lines. Hashing only
+                # by branch_dir would keep the phase ``ok`` and let
+                # docker-compose's ``${VAR:-default}`` fall back to
+                # 172.16.0.0/23 — colliding with sibling worktrees.
                 name="net_allocate",
                 run=_do_net_allocate,
-                input_hash=lambda: _h({"branch_dir": i.branch_dir}),
+                input_hash=lambda: _h({
+                    "branch_dir": i.branch_dir,
+                    "missing_derived": _missing_derived_env_keys(
+                        i.worktree_path_or_main() / ".devcontainer" / ".env",
+                    ),
+                }),
                 skip=lambda: i.skip_devcontainer,
             ),
             Phase(
