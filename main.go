@@ -538,15 +538,41 @@ func initializeEnvironment() {
 	printEnvVariables()
 }
 
-// loadEnvFromLocalFileForDevelopment loads env vars from .generated/context.operator.env if not running in "prod" env
+// loadEnvFromLocalFileForDevelopment loads dev-mode env vars from
+// .generated/context.{env,<side>.env,operator.env} when not running in
+// "prod" env. Side is detected by /.dockerenv: present -> devc, absent
+// -> host. Files are loaded with godotenv.Overload so later files win,
+// matching the layering of:
+//
+//	context.env       (logical, identical bytes regardless of side)
+//	context.<side>.env (site bytes: PROJECT_DIR, KUBECONFIG, K8S_FWD_PROXY, ...)
+//	context.operator.env (logical operator overlay; KUBECONFIG/KUBE_CONFIG_PATH
+//	                      already provided by context.<side>.env and stripped
+//	                      from this file by switch_context.sh)
+//
+// Each file is independently optional — missing ones log a warning.
+// See docs/dev/context-split/README.md.
 func loadEnvFromLocalFileForDevelopment() {
 	if getOperatorEnv() == util.OperatorEnvironmentProd {
 		return
 	}
 
-	envFile := ".generated/context.operator.env"
-	if _, err := os.Stat(envFile); err == nil {
-		if err := godotenv.Load(envFile); err != nil {
+	side := "host"
+	if _, err := os.Stat("/.dockerenv"); err == nil {
+		side = "devc"
+	}
+
+	envFiles := []string{
+		".generated/context.env",
+		fmt.Sprintf(".generated/context.%s.env", side),
+		".generated/context.operator.env",
+	}
+	for _, envFile := range envFiles {
+		if _, err := os.Stat(envFile); err != nil {
+			log.Warnf("Env file %s not found (run 'make switch' on the %s side); skipping.", envFile, side)
+			continue
+		}
+		if err := godotenv.Overload(envFile); err != nil {
 			log.Warnf("Failed to load environment variables from file %s: %v", envFile, err)
 		} else {
 			log.Infof("Loaded environment variables from file %s", envFile)
