@@ -41,7 +41,11 @@ from unittest.mock import patch
 
 from _common import FakePopenFactory, fake_which  # noqa: E402
 
-from wt_ctl.domains.network import Registry  # noqa: E402
+from wt_ctl.domains.network import (  # noqa: E402
+    Registry,
+    _RegistryRow,
+    stack_params,
+)
 from wt_ctl.runner import Runner  # noqa: E402
 
 
@@ -94,16 +98,38 @@ def _normalize(text: str) -> str:
     parent prefix varies between fixture-time and test-time. We rewrite
     the path column to ``<WT>/<branch_dir>`` so column widths and the
     branch_dir spelling are still load-bearing.
+
+    The /23-expansion adds two pieces the legacy fixture doesn't have:
+
+      - A stack-params extension table (``BRANCH_DIR  N  X  Y_BASE  ...``)
+        immediately after the Summary line. We drop it entirely on the
+        actual side.
+      - The ``Free range:`` line gained a parenthetical about the new
+        scheme. We collapse it to a placeholder so both sides match.
     """
     out_lines: list[str] = []
     in_registry_table = False
     in_docker_body = False
+    in_stack_params = False
     for line in text.splitlines():
         if line.startswith("Registry: "):
             out_lines.append("Registry: <PATH>")
             continue
         if line.startswith("Worktree parent (conventional): "):
             out_lines.append("Worktree parent (conventional): <PARENT>")
+            continue
+        # Stack-params extension table — drop completely on either side.
+        if re.match(r"^BRANCH_DIR\s+N\s+X\s+Y_BASE\s+Y_VIP\s+PORT\s+SCHEME\s*$", line):
+            in_stack_params = True
+            continue
+        if in_stack_params:
+            if not line.strip():
+                in_stack_params = False
+                # collapse leading blank line that the table left behind
+                continue
+            continue
+        if line.startswith("Free range: "):
+            out_lines.append("Free range: <RANGE>")
             continue
         if re.match(r"^BRANCH_DIR\s+PREFIX\s+STATUS\s+WORKTREE\s*$", line):
             in_registry_table = True
@@ -191,7 +217,13 @@ class NetworkListFormatTests(unittest.TestCase):
                     which=fake_which,
                 )
                 reg = Registry(runner, worktree_parent=tmp_parent)
-                reg._write([(bd, pref) for bd, pref, _ in rows])
+                # Fixtures are pre-expansion (all prefixes are 16..31, the
+                # legacy /16 band), so synthesize them as legacy rows that
+                # round-trip through the bare-int form.
+                reg._write([
+                    _RegistryRow(bd, stack_params(pref, scheme="legacy"))
+                    for bd, pref, _ in rows
+                ])
 
                 rendered = reg.render_list(
                     repo_root=None,
