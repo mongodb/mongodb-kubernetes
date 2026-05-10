@@ -161,11 +161,17 @@ class Runner:
             except FileNotFoundError as exc:
                 raise ToolMissing(argv[0], hint=str(exc)) from exc
             assert proc.stdout is not None
+            tty = sys.stderr.isatty()
             for line in proc.stdout:
-                if prefix:
-                    sys.stderr.write(f"{prefix}{line}")
-                else:
-                    sys.stderr.write(line)
+                out = f"{prefix}{line}" if prefix else line
+                # Some upstream tools (devcontainer exec, anything reading a
+                # PTY in raw mode) emit bare \n. When stderr is a terminal
+                # whose tty driver isn't applying ONLCR for whatever reason,
+                # bare \n leaves the cursor mid-line and we get a staircase.
+                # Normalize to CRLF on TTY only — log files stay LF.
+                if tty:
+                    out = out.replace("\r\n", "\n").replace("\n", "\r\n")
+                sys.stderr.write(out)
                 sys.stderr.flush()
                 if log_fh is not None:
                     log_fh.write(line)
