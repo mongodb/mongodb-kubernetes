@@ -365,9 +365,29 @@ class CreateOrchestrator:
 
         # ---- kubeconfig ---------------------------------------------------
         def _do_kubeconfig() -> None:
+            # Two non-obvious things going on:
+            #
+            # 1. `bash -lc` is a non-interactive login shell. shell-init.sh
+            #    only auto-sources scripts/dev/devenv for interactive shells
+            #    (`[[ $- == *i* ]]`), so we explicitly source devenv to
+            #    export PROJECT_DIR / KUBECONFIG / EVG_HOST_NAME before
+            #    invoking make.
+            #
+            # 2. `make switch` re-renders context.devc.env. Its
+            #    site-context fragment sets KUBECONFIG correctly only when
+            #    EVG_HOST_NAME is set in the calling shell (switch_context.sh
+            #    runs site-context inside `env -i ... bash -c` and forwards
+            #    only a fixed list of vars). We export EVG_HOST_NAME from
+            #    the just-pinned `.generated/.current-evg-host` so the first
+            #    container-side make switch produces the right KUBECONFIG
+            #    even when devenv loaded a stale context.devc.env.
             cmd = (
                 "set -Eeou pipefail; "
                 "cd /workspace; "
+                "if [[ -f scripts/dev/devenv ]]; then . scripts/dev/devenv 2>/dev/null || true; fi; "
+                "if [[ -s .generated/.current-evg-host ]]; then "
+                'export EVG_HOST_NAME="$(cat .generated/.current-evg-host)"; '
+                "fi; "
                 'make switch context="$(cat .generated/.current_context)"; '
                 "bash scripts/dev/evg_host.sh get-kubeconfig --no-fetch"
             )
@@ -384,7 +404,15 @@ class CreateOrchestrator:
 
         # ---- prepare_e2e --------------------------------------------------
         def _do_prepare_e2e() -> None:
-            cmd = "set -Eeou pipefail; cd /workspace && make prepare-local-e2e"
+            # Same devenv-source rationale as the kubeconfig phase:
+            # `make prepare-local-e2e` shells out to scripts that expect
+            # KUBECONFIG / PROJECT_DIR / context.env to be already exported.
+            cmd = (
+                "set -Eeou pipefail; "
+                "cd /workspace; "
+                ". scripts/dev/devenv; "
+                "make prepare-local-e2e"
+            )
             self.runner.run_streaming(
                 [
                     "devcontainer", "exec",
