@@ -301,6 +301,39 @@ class CreatePipelineTests(unittest.TestCase):
             # Phases after the failed step never started.
             self.assertEqual(state.phases["dc_up"].status, ostate.PENDING)
 
+    def test_net_allocate_repairs_partial_env(self) -> None:
+        """A previous wt-ctl version (or an interrupted first write) can
+        leave ``.devcontainer/.env`` with only ``MCK_DEVC_NET_PREFIX=<N>``
+        and none of the four derived keys. Resume must repair the file
+        instead of treating the prefix line as ``done`` — without the
+        derived keys compose.yml's defaults (``X=16, Y_BASE=0``) clobber
+        every other worktree's subnet (172.16.0.0/23 reused everywhere).
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, target, branch, branch_dir = _make_repo_fixture(Path(tmp))
+            # Seed a partial .env that previous runs left behind.
+            env_file = target / ".devcontainer" / ".env"
+            env_file.parent.mkdir(parents=True, exist_ok=True)
+            env_file.write_text("MCK_DEVC_NET_PREFIX=29\n")
+            inputs = _make_inputs(
+                repo, target, branch, branch_dir, skip_prepare_e2e=True,
+            )
+            runner = FakeRunner()
+            CreateOrchestrator(runner, inputs).run()
+            text = env_file.read_text()
+            # Prefix line preserved exactly — we don't re-allocate when
+            # the prefix is already pinned, we only repair the derived
+            # keys that were never written.
+            self.assertIn("MCK_DEVC_NET_PREFIX=29", text)
+            # Derived keys are now present, computed from prefix 29
+            # (stack_params(29) → X=16, Y_BASE=58, Y_VIP=59, PORT=8029).
+            self.assertIn("MCK_DEVC_NET_X=16", text)
+            self.assertIn("MCK_DEVC_NET_Y_BASE=58", text)
+            self.assertIn("MCK_DEVC_NET_Y_VIP=59", text)
+            self.assertIn("MCK_DEVC_PROXY_PORT=8029", text)
+            # No duplicate prefix line.
+            self.assertEqual(text.count("MCK_DEVC_NET_PREFIX="), 1)
+
     def test_resume_skips_ok_phases(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo, target, branch, branch_dir = _make_repo_fixture(Path(tmp))
