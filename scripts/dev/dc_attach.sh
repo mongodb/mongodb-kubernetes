@@ -17,20 +17,12 @@
 # worktree's `dc_attach.sh` always targets that worktree's compose
 # stack — no risk of attaching to a different worktree's container).
 #
-
+# DEPRECATED: prefer `wt-ctl attach`. This shim execs into wt-ctl so
+# existing skills + scripts keep working through the Phase-1/2/3 transition.
+#
 set -Eeou pipefail
 test "${MDB_BASH_DEBUG:-0}" -eq 1 && set -x
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-worktree_root="$(cd "${script_dir}/../.." && pwd)"
-
-if [[ $# -eq 0 ]]; then
-    # bash -lc so the shell-init runs (loads context + venv) before
-    # tmuxp takes over via exec. tmuxp's -y answers "attach to existing
-    # session" if 'mck' is already up.
-    exec devcontainer exec --workspace-folder "${worktree_root}" \
-        bash -lc 'exec tmuxp load -y /workspace/.devcontainer/tmuxp/mck.yaml'
-fi
-
-exec devcontainer exec --workspace-folder "${worktree_root}" \
-    env MCK_NO_TMUX=1 "$@"
+echo "[deprecated] dc_attach.sh — use 'wt-ctl attach' instead" >&2
+exec "${script_dir}/wt-ctl" attach "$@"
