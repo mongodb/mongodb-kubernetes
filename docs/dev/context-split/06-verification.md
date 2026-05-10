@@ -497,12 +497,18 @@ will exercise these on real CI.
 ### Test-stack disposition
 
 The test worktree at `/Users/lukasz.sierant/mdb/lsierant_context-split-test`
-and its devcontainer compose stack are **left running** so the user
-can pick up V9/V10 without rebuilding. Tear down with:
+and its devcontainer compose stack were **torn down** at the end of the
+verification round via:
 
 ```bash
-bash scripts/dev/wt_teardown.sh --delete-branch lsierant/context-split-test
+bash scripts/dev/wt_teardown.sh --delete-branch --keep-om-projects \
+  --keep-evg-host lsierant/context-split-test
 ```
+
+The teardown succeeded cleanly (compose stop+rm, network removal,
+worktree remove, branch delete). `--keep-evg-host` was a no-op since
+`wt_setup.sh --skip-evg` had not created one. This doubles as a smoke
+test of the `wt_teardown.sh` path against the new bootstrap.
 
 `make precommit` (host) was re-run after every fix to confirm no
 regression in the daily flow; final run clean.
