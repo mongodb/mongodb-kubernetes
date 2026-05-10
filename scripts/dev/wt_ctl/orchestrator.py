@@ -853,6 +853,19 @@ class DeleteOrchestrator:
             emit("[wt-ctl] worktree: skipped (--keep-worktree)")
             return
         wt = self.inputs.worktree_path
+        # Pre-emptively move our cwd off the worktree we're about to delete.
+        # If wt-ctl was invoked from inside the worktree (the canonical
+        # case), the directory we're sitting in is about to vanish — and
+        # any later `subprocess.Popen` / `os.getcwd()` then raises
+        # FileNotFoundError on Linux/macOS. Hop to the worktree's parent;
+        # it always exists.
+        try:
+            cwd = os.getcwd()
+            if Path(cwd).resolve() == wt.resolve() or wt in Path(cwd).resolve().parents:
+                os.chdir(wt.parent)
+        except (FileNotFoundError, OSError):
+            # Cwd is already gone (rare race). Hop to a guaranteed-safe spot.
+            os.chdir(Path.home())
         if wt.is_dir():
             emit(f"[wt-ctl] worktree: removing {wt}")
             try:
