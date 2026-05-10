@@ -40,5 +40,14 @@ RUN chmod 0644 /etc/mck/shell-init.sh \
  && echo '[[ -f /etc/mck/shell-init.sh ]] && source /etc/mck/shell-init.sh' \
     | tee -a /home/vscode/.bashrc /home/vscode/.zshrc > /dev/null
 
+# Add /workspace/bin (per-worktree project binaries: kubectl, helm, etc.
+# pinned via Makefile install targets) to PATH for every login shell.
+# This replaces the PATH prepend that lived in scripts/dev/set_env_context.sh
+# in the old design. Keep it container-only — host devs add the
+# equivalent to their ~/.zshrc themselves. See docs/dev/context-split/.
+RUN printf 'export PATH="/workspace/bin:${PATH}"\n' \
+        > /etc/profile.d/mck-bin.sh \
+ && chmod 0644 /etc/profile.d/mck-bin.sh
+
 RUN bash -c 'mkdir -p /workspace/.generated /home/vscode/.cache/{go-build,pip,helm}' && \
     chown -R vscode:vscode /workspace/.generated /home/vscode/.cache

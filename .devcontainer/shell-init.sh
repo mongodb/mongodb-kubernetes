@@ -14,17 +14,24 @@
 
 if [[ $- == *i* ]]; then
     cd /workspace 2>/dev/null || true
-    if [[ -f /workspace/.generated/context.export.env ]]; then
-        # context.export.env already uses 'export', so plain source works
-        # for both bash and zsh.
+    # Source the per-side env (logical + site) and activate venv via the
+    # canonical bootstrap. devenv detects /.dockerenv and picks
+    # context.devc.env automatically. If files are missing (on-create
+    # not finished, or fresh worktree without make switch), devenv
+    # prints a loud warning and the rest of shell-init still runs.
+    if [[ -f /workspace/scripts/dev/devenv ]]; then
         # shellcheck disable=SC1091
-        source /workspace/.generated/context.export.env
-    fi
-    if [[ -f /workspace/venv/bin/activate ]]; then
-        # shellcheck disable=SC1091
-        source /workspace/venv/bin/activate
+        . /workspace/scripts/dev/devenv || true
     fi
 fi
+
+# mck-env: ergonomic re-source after `make switch`. Defined for every
+# shell, interactive or not, so scripts and dev shells share the same
+# entry point. Fails non-zero if files are missing — propagates to caller.
+mck-env() {
+    # shellcheck disable=SC1091
+    . /workspace/scripts/dev/devenv
+}
 
 if [[ -z "${TMUX:-}" && $- == *i* && -z "${MCK_NO_TMUX:-}" ]]; then
     if command -v tmuxp >/dev/null 2>&1 \
