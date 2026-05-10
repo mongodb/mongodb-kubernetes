@@ -46,11 +46,12 @@ else
 fi
 export KUBECONFIG
 
-# When LOCAL_OPERATOR=true, the multi-cluster kubeconfig is written under
-# ${PROJECT_DIR}/.generated/multicluster_kubeconfig (filesystem-specific).
-if [[ "${LOCAL_OPERATOR:-}" == "true" ]]; then
-  export KUBE_CONFIG_PATH="${PROJECT_DIR}/.generated/multicluster_kubeconfig"
-fi
+# Multi-cluster kubeconfig path. The operator only consults it when
+# LOCAL_OPERATOR=true (set by private-context, which is sourced AFTER
+# this file in the switch_context.sh chain — so we can't condition on
+# LOCAL_OPERATOR here without missing the signal). Set the path
+# unconditionally; it's harmless when LOCAL_OPERATOR is unset.
+export KUBE_CONFIG_PATH="${PROJECT_DIR}/.generated/multicluster_kubeconfig"
 
 export MULTI_CLUSTER_CONFIG_DIR="${PROJECT_DIR}/.multi_cluster_local_test_files"
 export MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH="${PROJECT_DIR}/docker/mongodb-kubernetes-tests/multi-cluster-kube-config-creator"
