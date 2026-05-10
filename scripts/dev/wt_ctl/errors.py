@@ -101,3 +101,28 @@ class RegistryError(WtCtlError):
     """Network registry parse / write error."""
 
     exit_code = 1
+
+
+class LockTimeout(WtCtlError):
+    """Failed to acquire a lock within the configured timeout."""
+
+    exit_code = 1
+
+    def __init__(self, lock_path: str, timeout_s: float):
+        super().__init__(
+            f"could not acquire lock at {lock_path} within {timeout_s:g}s "
+            f"(if stale: rmdir it)"
+        )
+        self.lock_path = lock_path
+        self.timeout_s = timeout_s
+
+
+class OrphanDetected(WtCtlError):
+    """Raised when a destructive op finds an unexpected orphan registration.
+
+    Currently unused by ``Registry`` — orphans are surfaced as data
+    (``NetEntry.status='stale'``). Reserved for future callers that want
+    to raise rather than render.
+    """
+
+    exit_code = 2
