@@ -21,22 +21,36 @@ else:
 
 
 def _load_env_from_local_file_for_development():
-    """Load environment variables from .generated/context.env for local development.
-    Similar to operator's loadEnvFromLocalFileForDevelopment() - only loads if
-    NAMESPACE env var is not already set (i.e., not running in CI/Evergreen).
+    """Load environment variables from .generated/context.{env,<side>.env}
+    for local development. Mirrors the operator's
+    loadEnvFromLocalFileForDevelopment() — only loads if NAMESPACE env var
+    is not already set (i.e. not running in CI/Evergreen).
+
+    Side detection follows the same /.dockerenv rule used by
+    scripts/dev/devenv and main.go's env loader. Files are loaded with
+    override=True so site bytes layer over logical bytes correctly.
+    See docs/dev/context-split/README.md.
     """
-    # Path relative to this file: tests/conftest.py -> ../../../.. -> repo root
-    env_file = Path(__file__).joinpath("..", "..", "..", "..", ".generated", "context.env").resolve()
-
-    if not env_file.exists():
-        return
-
     if os.environ.get("NAMESPACE"):
-        print(f"NAMESPACE already set, skipping loading environment variables from {env_file}")
+        print("NAMESPACE already set, skipping loading environment variables from .generated/")
         return
 
-    load_dotenv(env_file)
-    print(f"Loaded environment variables from file {env_file}")
+    # Path relative to this file: tests/conftest.py -> ../../../.. -> repo root
+    repo_root = Path(__file__).joinpath("..", "..", "..", "..").resolve()
+    side = "devc" if Path("/.dockerenv").exists() else "host"
+
+    env_files = [
+        repo_root / ".generated" / "context.env",
+        repo_root / ".generated" / f"context.{side}.env",
+    ]
+    for env_file in env_files:
+        if not env_file.exists():
+            print(
+                f"WARN: env file {env_file} not found (run 'make switch' on the {side} side); skipping.",
+            )
+            continue
+        load_dotenv(env_file, override=True)
+        print(f"Loaded environment variables from file {env_file}")
 
 
 _load_env_from_local_file_for_development()

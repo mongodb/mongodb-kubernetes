@@ -295,3 +295,89 @@ Step 4/6 of docs/dev/context-split.
 - Previous step: [`02-switch-context.md`](02-switch-context.md)
 - Parallelisable with: [`03-devenv-bootstrap.md`](03-devenv-bootstrap.md)
 - Next step: [`05-shell-consumers.md`](05-shell-consumers.md)
+
+## Notes (implementation)
+
+Implemented on `lsierant/devcontainer` as a single commit covering both
+the Go and Python consumers.
+
+### Files changed
+
+- `main.go`: replaced `loadEnvFromLocalFileForDevelopment` body per
+  section 1 of the plan. Loads three files in order (`context.env`,
+  `context.<side>.env`, `context.operator.env`) via `godotenv.Overload`.
+  Side detected via `os.Stat("/.dockerenv")`. Missing files log a
+  warning and continue. Early-return on `OperatorEnv == prod`
+  preserved. `fmt` was already in the import block — no import changes.
+- `docker/mongodb-kubernetes-tests/tests/conftest.py`: replaced
+  `_load_env_from_local_file_for_development` body per section 2.
+  Loads two files (`context.env`, `context.<side>.env`) — no
+  `context.operator.env` for pytest, by design. Side detected via
+  `Path("/.dockerenv").exists()`. Uses `load_dotenv(env_file,
+  override=True)`. Early `NAMESPACE` short-circuit kept at the top so
+  CI/Evergreen contexts skip the local load entirely.
+
+### Deviations from the plan
+
+None. The plan's pseudocode dropped in cleanly for both files.
+
+### Verification
+
+Go side (clean):
+
+```bash
+go build ./...   # clean
+go vet ./...     # clean
+```
+
+Python side (host, NAMESPACE unset, venv activated):
+
+```
+$ . venv/bin/activate && cd docker/mongodb-kubernetes-tests \
+    && env -u NAMESPACE PYTEST_OTEL_ENABLED=false \
+       python -m pytest --collect-only tests/ 2>&1 \
+       | grep -E "Loaded environment variables from file|WARN: env file" | head
+Loaded environment variables from file /Users/.../.generated/context.env
+Loaded environment variables from file /Users/.../.generated/context.host.env
+```
+
+Python side (NAMESPACE pre-set, simulating CI):
+
+```
+$ NAMESPACE=ci-fake PYTEST_OTEL_ENABLED=false python -m pytest --collect-only tests/ 2>&1 \
+    | grep -E "NAMESPACE already set"
+NAMESPACE already set, skipping loading environment variables from .generated/
+```
+
+(Pytest collection in the NAMESPACE-set path subsequently fails inside
+`kubernetes.config.load_incluster_config()` because we're on host, not
+in a cluster — unrelated to env loading and out of scope for this
+step.)
+
+`pre-commit run --files main.go docker/mongodb-kubernetes-tests/tests/conftest.py`
+— all hooks pass after re-creating the temporary `.export.env` stubs
+documented in step 02 Notes (the shell-consumer hooks still rely on
+`.generated/context.export.env` until step 05 migrates them).
+
+### Issues uncovered for steps 05/06
+
+- **`.export.env` stub still required for pre-commit until step 05.**
+  Step 02's note documents that `update-release-json`,
+  `update-values-yaml`, `generate-standalone-yaml`,
+  `generate-and-update`, and `validate-helm-charts` all source
+  `set_env_context.sh` → `.generated/context.export.env`. With step 02's
+  cleanup, these hooks fail without a stub. Re-created the stubs
+  before running pre-commit on this step's files. Step 05 must
+  migrate `set_env_context.sh` to source the new pair (`context.env`
+  + `context.<side>.env`) so the stubs are no longer needed.
+
+- **No operator startup smoke test from this step.** The plan's step 5
+  (`bash scripts/dev/op_run.sh --wait` + tmux capture) requires the
+  devc with the new `op_run.sh` env-loading pattern, which is
+  step-05 work. The Go-side function compiles and is unit-load-correct
+  here; end-to-end "operator logs three Loaded environment variables…
+  lines" verification belongs to step 06.
+
+- **`godotenv.Overload` availability.** `joho/godotenv` is at v1.5.1 in
+  `go.mod` (`grep godotenv go.mod`), well above the v1.4 floor where
+  `Overload` is available. No go.mod changes needed.
