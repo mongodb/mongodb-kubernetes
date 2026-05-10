@@ -276,5 +276,98 @@ class EvgSpawnTests(unittest.TestCase):
         self.assertIn("timed out", str(ctx.exception).lower())
 
 
+_KEYS_LIST_STDOUT = (
+    "Public keys stored in Evergreen:\n"
+    "Name: 'lukasz.sierant@mongodb.com', Key: 'ssh-rsa AAAA... lukasz.sierant@mongodb.com'\n"
+    "Name: 'evg-host', Key: 'ssh-ed25519 AAAAC3... evg-host'\n"
+)
+
+
+class ResolveKeyNameTests(unittest.TestCase):
+    """Cover _resolve_key_name's three resolution branches.
+
+    Order is: MCK_DEVC_EVG_KEY_NAME env var → 'evg-host' if registered →
+    first listed key. The upstream ``evergreen keys list`` is plain text
+    (no ``--json`` flag), so we parse ``Name: '...'`` lines.
+    """
+
+    def setUp(self) -> None:
+        self._prev_key = os.environ.pop("MCK_DEVC_EVG_KEY_NAME", None)
+
+    def tearDown(self) -> None:
+        if self._prev_key is not None:
+            os.environ["MCK_DEVC_EVG_KEY_NAME"] = self._prev_key
+
+    def _domain(self, runner: FakeRunner) -> EvgDomain:
+        return EvgDomain(runner=runner, repo_root=Path("/tmp/repo"))
+
+    def test_env_var_takes_precedence(self) -> None:
+        os.environ["MCK_DEVC_EVG_KEY_NAME"] = "custom-key"
+        runner = FakeRunner()
+        # No keys_list handler registered — must not be called.
+        self.assertEqual(self._domain(runner)._resolve_key_name(), "custom-key")
+        self.assertFalse(
+            any(c[:3] == ["evergreen", "keys", "list"] for c in runner.calls)
+        )
+
+    def test_prefers_evg_host_when_listed(self) -> None:
+        runner = FakeRunner()
+        runner.add(_MatchArgv.keys_list, _ok(stdout=_KEYS_LIST_STDOUT))
+        self.assertEqual(self._domain(runner)._resolve_key_name(), "evg-host")
+
+    def test_falls_back_to_first_listed_key(self) -> None:
+        runner = FakeRunner()
+        runner.add(
+            _MatchArgv.keys_list,
+            _ok(stdout=(
+                "Public keys stored in Evergreen:\n"
+                "Name: 'only-one', Key: 'ssh-rsa AAAA only-one'\n"
+            )),
+        )
+        self.assertEqual(self._domain(runner)._resolve_key_name(), "only-one")
+
+    def test_returns_empty_when_keys_list_fails(self) -> None:
+        runner = FakeRunner()
+        runner.add(
+            _MatchArgv.keys_list,
+            CmdResult(argv=[], rc=1, stdout="", stderr="boom", duration_s=0.0),
+        )
+        self.assertEqual(self._domain(runner)._resolve_key_name(), "")
+
+    def test_returns_empty_when_no_keys_listed(self) -> None:
+        runner = FakeRunner()
+        runner.add(
+            _MatchArgv.keys_list,
+            _ok(stdout="Public keys stored in Evergreen:\n"),
+        )
+        self.assertEqual(self._domain(runner)._resolve_key_name(), "")
+
+    def test_spawn_uses_evg_host_when_env_var_unset(self) -> None:
+        """End-to-end: with the env var unset, fresh spawn passes
+        ``--key evg-host`` to ``evergreen host create``.
+        """
+        runner = FakeRunner()
+        # No live host with this displayName, so resume detection misses.
+        runner.add_fn(_MatchArgv.host_list, _ListQueue([
+            [],
+            [{"id": "i-9999", "display_name": "wt-x",
+              "status": "running",
+              "host_name": "ec2-1-1-1-1.compute.amazonaws.com",
+              "user": "ubuntu"}],
+        ]))
+        runner.add(_MatchArgv.keys_list, _ok(stdout=_KEYS_LIST_STDOUT))
+        runner.add(_MatchArgv.host_create, _ok(stdout="Host i-9999 spawned.\n"))
+        runner.add(_MatchArgv.host_modify, _ok())
+        runner.add(_MatchArgv.ssh, _ok())
+        self._domain(runner).spawn(
+            name="wt-x", poll_interval_s=0.0, timeout_s=2.0,
+        )
+        create_calls = [c for c in runner.calls if c[:3] == ["evergreen", "host", "create"]]
+        self.assertEqual(len(create_calls), 1)
+        self.assertIn("--key", create_calls[0])
+        ki = create_calls[0].index("--key")
+        self.assertEqual(create_calls[0][ki + 1], "evg-host")
+
+
 if __name__ == "__main__":
     unittest.main()

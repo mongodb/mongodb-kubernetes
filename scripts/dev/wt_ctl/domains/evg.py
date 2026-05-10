@@ -188,7 +188,7 @@ class EvgDomain:
             raise WtCtlError(
                 "evg spawn: cannot resolve a public-key name. Set "
                 "MCK_DEVC_EVG_KEY_NAME or pass --key (see "
-                "'evergreen keys list --json')."
+                "'evergreen keys list')."
             )
         _emit(
             f"[wt-ctl evg spawn] spawning: distro={distro} region={region} "
@@ -294,27 +294,34 @@ class EvgDomain:
     def _resolve_key_name(self) -> str:
         """Return the EVG-managed public-key *name* to pass to ``--key``.
 
-        Order: ``MCK_DEVC_EVG_KEY_NAME`` env var → first key from
-        ``evergreen keys list --json``.
+        Order:
+        1. ``MCK_DEVC_EVG_KEY_NAME`` env var.
+        2. ``evg-host`` if the user has it registered (canonical per the
+           project's SSH policy — the evg-host private key lives in
+           ``~/.ssh/evg-host`` and ``evg_host.sh`` uses it for SSH probes).
+        3. First key listed by ``evergreen keys list``.
+
+        The upstream CLI has no ``--json`` flag for ``keys list``; output
+        is plain text of the form ``Name: 'NAME', Key: 'TYPE KEYBLOB COMMENT'``.
         """
         env_name = os.environ.get("MCK_DEVC_EVG_KEY_NAME", "").strip()
         if env_name:
             return env_name
         res = self.runner.run(
-            ["evergreen", "keys", "list", "--json"], check=False,
+            ["evergreen", "keys", "list"], check=False,
         )
         if res.rc != 0:
             return ""
-        try:
-            data = json.loads(res.stdout or "[]")
-        except json.JSONDecodeError:
+        names: list[str] = []
+        for line in (res.stdout or "").splitlines():
+            m = re.match(r"^\s*Name:\s*'([^']+)'", line)
+            if m:
+                names.append(m.group(1))
+        if not names:
             return ""
-        if not isinstance(data, list) or not data:
-            return ""
-        first = data[0]
-        if isinstance(first, dict):
-            return first.get("name") or ""
-        return ""
+        if "evg-host" in names:
+            return "evg-host"
+        return names[0]
 
     def _parse_host_id_from_create(self, stdout: str) -> Optional[str]:
         """Best-effort host-id parse from ``evergreen host create`` stdout."""
