@@ -238,7 +238,10 @@ class EvgSpawnTests(unittest.TestCase):
         self.assertIn("--name", argv)
         self.assertEqual(argv[argv.index("--name") + 1], "delta")
         self.assertIn("--tag", argv)
-        self.assertEqual(argv[argv.index("--tag") + 1], "name=delta")
+        # Evergreen reserves the ``name`` tag key — using it triggers a
+        # 400 from the API, so wt-ctl uses ``wt-ctl=<name>`` as a side
+        # label instead.
+        self.assertEqual(argv[argv.index("--tag") + 1], "wt-ctl=delta")
 
     # ------------------------------------------------------------------
     def test_terminal_failure_status_raises(self) -> None:
@@ -305,7 +308,9 @@ class ResolveKeyNameTests(unittest.TestCase):
         os.environ["MCK_DEVC_EVG_KEY_NAME"] = "custom-key"
         runner = FakeRunner()
         # No keys_list handler registered — must not be called.
-        self.assertEqual(self._domain(runner)._resolve_key_name(), "custom-key")
+        self.assertEqual(
+            self._domain(runner)._resolve_key_name(), ("custom-key", "")
+        )
         self.assertFalse(
             any(c[:3] == ["evergreen", "keys", "list"] for c in runner.calls)
         )
@@ -313,7 +318,9 @@ class ResolveKeyNameTests(unittest.TestCase):
     def test_prefers_evg_host_when_listed(self) -> None:
         runner = FakeRunner()
         runner.add(_MatchArgv.keys_list, _ok(stdout=_KEYS_LIST_STDOUT))
-        self.assertEqual(self._domain(runner)._resolve_key_name(), "evg-host")
+        self.assertEqual(
+            self._domain(runner)._resolve_key_name(), ("evg-host", "")
+        )
 
     def test_falls_back_to_first_listed_key(self) -> None:
         runner = FakeRunner()
@@ -324,7 +331,9 @@ class ResolveKeyNameTests(unittest.TestCase):
                 "Name: 'only-one', Key: 'ssh-rsa AAAA only-one'\n"
             )),
         )
-        self.assertEqual(self._domain(runner)._resolve_key_name(), "only-one")
+        self.assertEqual(
+            self._domain(runner)._resolve_key_name(), ("only-one", "")
+        )
 
     def test_returns_empty_when_keys_list_fails(self) -> None:
         runner = FakeRunner()
@@ -332,7 +341,10 @@ class ResolveKeyNameTests(unittest.TestCase):
             _MatchArgv.keys_list,
             CmdResult(argv=[], rc=1, stdout="", stderr="boom", duration_s=0.0),
         )
-        self.assertEqual(self._domain(runner)._resolve_key_name(), "")
+        name, diag = self._domain(runner)._resolve_key_name()
+        self.assertEqual(name, "")
+        self.assertIn("rc=1", diag)
+        self.assertIn("boom", diag)
 
     def test_returns_empty_when_no_keys_listed(self) -> None:
         runner = FakeRunner()
@@ -340,7 +352,9 @@ class ResolveKeyNameTests(unittest.TestCase):
             _MatchArgv.keys_list,
             _ok(stdout="Public keys stored in Evergreen:\n"),
         )
-        self.assertEqual(self._domain(runner)._resolve_key_name(), "")
+        name, diag = self._domain(runner)._resolve_key_name()
+        self.assertEqual(name, "")
+        self.assertIn("no parseable", diag)
 
     def test_spawn_uses_evg_host_when_env_var_unset(self) -> None:
         """End-to-end: with the env var unset, fresh spawn passes

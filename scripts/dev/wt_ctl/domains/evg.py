@@ -183,12 +183,16 @@ class EvgDomain:
             )
 
         # 2. Fresh spawn.
-        resolved_key = key_name or self._resolve_key_name()
+        if key_name:
+            resolved_key, resolve_diag = key_name, ""
+        else:
+            resolved_key, resolve_diag = self._resolve_key_name()
         if not resolved_key:
             raise WtCtlError(
                 "evg spawn: cannot resolve a public-key name. Set "
                 "MCK_DEVC_EVG_KEY_NAME or pass --key (see "
-                "'evergreen keys list')."
+                "'evergreen keys list'). "
+                f"Diagnostic: {resolve_diag or 'no key candidates'}"
             )
         _emit(
             f"[wt-ctl evg spawn] spawning: distro={distro} region={region} "
@@ -291,7 +295,7 @@ class EvgDomain:
         candidates.sort(reverse=True)
         return candidates[0][1]
 
-    def _resolve_key_name(self) -> str:
+    def _resolve_key_name(self) -> tuple[str, str]:
         """Return the EVG-managed public-key *name* to pass to ``--key``.
 
         Order:
@@ -303,25 +307,39 @@ class EvgDomain:
 
         The upstream CLI has no ``--json`` flag for ``keys list``; output
         is plain text of the form ``Name: 'NAME', Key: 'TYPE KEYBLOB COMMENT'``.
+
+        Returns ``(name, diag)`` where ``name`` is empty when resolution
+        failed and ``diag`` is a short human-readable reason for the empty
+        result — useful in the spawn-time error message because the
+        upstream ``evergreen keys list`` itself can fail transiently
+        (e.g. when several wt-ctl runs hit the API concurrently).
         """
         env_name = os.environ.get("MCK_DEVC_EVG_KEY_NAME", "").strip()
         if env_name:
-            return env_name
+            return env_name, ""
         res = self.runner.run(
             ["evergreen", "keys", "list"], check=False,
         )
         if res.rc != 0:
-            return ""
+            tail_stderr = (res.stderr or "").strip().splitlines()[-3:]
+            return "", (
+                f"`evergreen keys list` failed rc={res.rc} "
+                f"stderr_tail={tail_stderr!r}"
+            )
         names: list[str] = []
         for line in (res.stdout or "").splitlines():
             m = re.match(r"^\s*Name:\s*'([^']+)'", line)
             if m:
                 names.append(m.group(1))
         if not names:
-            return ""
+            head_stdout = (res.stdout or "").strip().splitlines()[:3]
+            return "", (
+                "`evergreen keys list` returned no parseable 'Name: ...' "
+                f"entries; stdout_head={head_stdout!r}"
+            )
         if "evg-host" in names:
-            return "evg-host"
-        return names[0]
+            return "evg-host", ""
+        return names[0], ""
 
     def _parse_host_id_from_create(self, stdout: str) -> Optional[str]:
         """Best-effort host-id parse from ``evergreen host create`` stdout."""
@@ -383,12 +401,17 @@ class EvgDomain:
                 )
             # Tag + rename once we have a real AWS id and we haven't yet.
             if not tagged and host is not None and _RE_AWS_ID.match(current_id):
+                # Evergreen reserves the ``name`` tag key (400 from the API
+                # when you try to set it). Use a side-label tag instead — the
+                # CLI requires at least one tag/expire/type op for ``modify``
+                # to validate, so we ride a ``wt-ctl=<name>`` tag along with
+                # the ``--name`` rename in a single call.
                 tag_res = self.runner.run(
                     [
                         "evergreen", "host", "modify",
                         "--host", current_id,
                         "--name", name,
-                        "--tag", f"name={name}",
+                        "--tag", f"wt-ctl={name}",
                     ],
                     check=False,
                 )
