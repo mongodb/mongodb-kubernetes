@@ -130,13 +130,51 @@ def build_parser() -> argparse.ArgumentParser:
     sn_al = sn_sub.add_parser("allocate")
     sn_al.add_argument("branch", nargs="?")
 
-    se = sub.add_parser("evg", help="EVG host primitives.")
+    se = sub.add_parser(
+        "evg",
+        help="EVG host primitives (status / kubeconfig / spawn / terminate / extend).",
+    )
     se_sub = se.add_subparsers(dest="evg_cmd")
-    se_sub.add_parser("status")
-    se_sub.add_parser("kubeconfig")
-    se_t = se_sub.add_parser("terminate")
+    se_sub.add_parser(
+        "status",
+        help="render the EVG host pinned to this worktree (name/id/status/ssh).",
+    )
+    se_sub.add_parser(
+        "kubeconfig",
+        help="fetch (or print cached) kubeconfig for this worktree's EVG host.",
+    )
+    se_sp = se_sub.add_parser(
+        "spawn",
+        help="spawn (or resume) an EVG host with displayName=<name>.",
+    )
+    se_sp.add_argument("--name", required=True, help="EVG displayName to spawn / resume.")
+    se_sp.add_argument(
+        "--distro",
+        default="ubuntu2204-latest-large",
+        help="evergreen distro (default: ubuntu2204-latest-large).",
+    )
+    se_sp.add_argument(
+        "--region",
+        default="eu-west-1",
+        help="AWS region (default: eu-west-1).",
+    )
+    se_sp.add_argument(
+        "--key",
+        dest="key_name",
+        help=(
+            "evergreen-managed public-key name "
+            "(default: $MCK_DEVC_EVG_KEY_NAME or first key from 'evergreen keys list')."
+        ),
+    )
+    se_t = se_sub.add_parser(
+        "terminate",
+        help="terminate the EVG host pinned to this worktree (or --host-id).",
+    )
     se_t.add_argument("--host-id")
-    se_e = se_sub.add_parser("extend")
+    se_e = se_sub.add_parser(
+        "extend",
+        help="extend the EVG host expiration by --hours (default: 4).",
+    )
     se_e.add_argument("--hours", type=int, default=4)
     se_e.add_argument("--host-id")
 
@@ -612,6 +650,16 @@ def cmd_evg(runner: Runner, refs: WorktreeRefs, args: argparse.Namespace) -> int
             sys.stderr.write("[wt-ctl] error: no host id (pass --host-id)\n")
             return 2
         sys.stdout.write(ev.extend(host_id, args.hours))
+        return 0
+    if sub == "spawn":
+        host_id = ev.spawn(
+            name=args.name,
+            distro=args.distro,
+            region=args.region,
+            key_name=args.key_name,
+            emit=lambda m: sys.stderr.write(m + "\n"),
+        )
+        print(host_id)
         return 0
     sys.stderr.write(f"[wt-ctl] error: unknown evg subcommand: {sub}\n")
     return 2
