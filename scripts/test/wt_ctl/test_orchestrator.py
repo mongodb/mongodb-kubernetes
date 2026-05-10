@@ -1,0 +1,358 @@
+"""Phase 2: ``wt-ctl create`` orchestrator.
+
+We drive ``CreateOrchestrator.run`` with a fake Runner whose ``run`` /
+``run_streaming`` are recorded. The fake injects canned outputs for
+``dc_select_network.sh`` and lets every other call succeed. We then assert:
+
+* the canonical phase order is honored (per the plan),
+* state.json transitions through ok / failed / pending correctly,
+* on resume only non-OK phases re-run,
+* on restart-from a phase, that phase + later phases re-run,
+* the parallel pair (evg_prepare + dc_build) runs both children and records
+  each individually.
+"""
+
+from __future__ import annotations
+
+import threading
+import time
+import tempfile
+import unittest
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Callable, Optional
+
+from _common import FakePopenFactory, fake_which  # noqa: E402
+
+from wt_ctl import orchestrator_state as ostate  # noqa: E402
+from wt_ctl.errors import ExternalCommandFailed, StateConflict  # noqa: E402
+from wt_ctl.orchestrator import (  # noqa: E402
+    CreateInputs,
+    CreateOrchestrator,
+)
+from wt_ctl.runner import CmdResult  # noqa: E402
+
+
+@dataclass
+class FakeRunner:
+    """In-test runner that records calls and returns canned results.
+
+    Per-argv handlers are looked up by an "argv signature" function so we
+    don't have to enumerate every shell invocation up front.
+    """
+
+    calls: list[list[str]] = field(default_factory=list)
+    handlers: list[tuple[Callable[[list[str]], bool], Callable[[list[str]], CmdResult]]] = field(
+        default_factory=list
+    )
+    parallel_lock: threading.Lock = field(default_factory=threading.Lock)
+    concurrent_max: int = 0
+    concurrent_now: int = 0
+
+    def add(
+        self,
+        match: Callable[[list[str]], bool],
+        result: CmdResult,
+    ) -> None:
+        self.handlers.append((match, lambda _argv, r=result: r))
+
+    def add_failure(
+        self,
+        match: Callable[[list[str]], bool],
+        rc: int = 1,
+        stderr: str = "boom",
+    ) -> None:
+        def _fail(argv: list[str]):
+            raise ExternalCommandFailed(argv=list(argv), rc=rc, stdout="", stderr=stderr)
+        self.handlers.append((match, _fail))
+
+    def have(self, _name: str) -> bool:
+        return True
+
+    def _resolve(self, argv: list[str]) -> CmdResult:
+        with self.parallel_lock:
+            self.concurrent_now += 1
+            if self.concurrent_now > self.concurrent_max:
+                self.concurrent_max = self.concurrent_now
+        try:
+            for match, handler in self.handlers:
+                if match(argv):
+                    return handler(argv)
+            return CmdResult(argv=list(argv), rc=0, stdout="", stderr="", duration_s=0.0)
+        finally:
+            with self.parallel_lock:
+                self.concurrent_now -= 1
+
+    def run(self, argv, *, check=True, capture=True, env=None, cwd=None, timeout=None, input_text=None):
+        self.calls.append(list(argv))
+        result = self._resolve(list(argv))
+        if check and result.rc != 0:
+            raise ExternalCommandFailed(argv=list(argv), rc=result.rc, stdout=result.stdout, stderr=result.stderr)
+        return result
+
+    def run_streaming(self, argv, *, prefix="", log_path=None, env=None, cwd=None):
+        self.calls.append(list(argv))
+        with self.parallel_lock:
+            self.concurrent_now += 1
+            if self.concurrent_now > self.concurrent_max:
+                self.concurrent_max = self.concurrent_now
+        try:
+            # Slow down the parallel pair so the other thread can observe
+            # concurrent_now=2.
+            joined = " ".join(argv)
+            if "evg_prepare.sh" in joined or ("devcontainer" in argv and "build" in argv):
+                time.sleep(0.05)
+            for match, handler in self.handlers:
+                if match(argv):
+                    return handler(argv)
+            return CmdResult(argv=list(argv), rc=0, stdout="", stderr="", duration_s=0.0)
+        finally:
+            with self.parallel_lock:
+                self.concurrent_now -= 1
+
+    def run_parallel(self, jobs):  # not used by the orchestrator directly
+        raise NotImplementedError
+
+    def exec_replace(self, argv, *, env=None, cwd=None):
+        raise NotImplementedError("not exercised by the orchestrator tests")
+
+
+def _make_repo_fixture(tmp: Path) -> tuple[Path, Path, str, str]:
+    """Build a fake main repo + (target) worktree dir layout that satisfies
+    the orchestrator's filesystem assumptions:
+
+      tmp/
+        main_repo/
+          scripts/dev/{create_worktree.sh,dc_select_network.sh,evg_prepare.sh}
+          .devcontainer/scripts/initialize.sh
+          .devcontainer/.env  (we let the orchestrator append to this)
+          .generated/.current_context
+        target/        <- target worktree dir; created by worktree_init.
+    """
+    repo = tmp / "main_repo"
+    (repo / "scripts" / "dev").mkdir(parents=True)
+    (repo / ".devcontainer" / "scripts").mkdir(parents=True)
+    (repo / ".generated").mkdir(parents=True)
+    # Stub scripts so existence checks pass.
+    for script in ("create_worktree.sh", "dc_select_network.sh", "evg_prepare.sh", "delete_om_projects.sh"):
+        (repo / "scripts" / "dev" / script).write_text("#!/bin/sh\n")
+        (repo / "scripts" / "dev" / script).chmod(0o755)
+    target = tmp / "target_wt"
+
+    # The target worktree's scripts/dev tree must also exist (orchestrator
+    # invokes them inside the target after worktree_init). We pre-create
+    # the directory so the orchestrator can write its state.json.
+    (target / "scripts" / "dev").mkdir(parents=True)
+    for script in ("dc_select_network.sh", "evg_prepare.sh", "delete_om_projects.sh"):
+        (target / "scripts" / "dev" / script).write_text("#!/bin/sh\n")
+        (target / "scripts" / "dev" / script).chmod(0o755)
+    (target / ".devcontainer").mkdir(parents=True)
+    (target / ".devcontainer" / "scripts").mkdir(parents=True)
+    # initialize.sh is detected via .is_file(); we leave it absent in some
+    # tests and present in others.
+    return repo, target, "topic/x", "topic_x"
+
+
+def _make_inputs(repo: Path, target: Path, branch: str, branch_dir: str, **overrides) -> CreateInputs:
+    return CreateInputs(
+        branch=branch,
+        branch_dir=branch_dir,
+        worktree_path=target,
+        main_repo_root=repo,
+        **overrides,
+    )
+
+
+class CreatePipelineTests(unittest.TestCase):
+    def test_full_pipeline_records_all_phases_ok(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, target, branch, branch_dir = _make_repo_fixture(Path(tmp))
+            # initialize.sh present so initialize_hook actually runs.
+            (target / ".devcontainer" / "scripts" / "initialize.sh").write_text("#!/bin/sh\n")
+            inputs = _make_inputs(repo, target, branch, branch_dir, skip_prepare_e2e=True)
+            runner = FakeRunner()
+            # dc_select_network.sh emits the prefix line.
+            runner.add(
+                lambda argv: argv[0].endswith("dc_select_network.sh") and "--branch-dir" in argv,
+                CmdResult(argv=[], rc=0, stdout="MCK_DEVC_NET_PREFIX=29\n", stderr="", duration_s=0.0),
+            )
+            orch = CreateOrchestrator(runner, inputs)
+            orch.run()
+            state = ostate.load(target)
+            self.assertIsNotNone(state)
+            assert state is not None
+            for name in ostate.PHASE_ORDER:
+                if name == "prepare_e2e":
+                    self.assertEqual(state.phases[name].status, ostate.PENDING)
+                    continue
+                self.assertEqual(
+                    state.phases[name].status, ostate.OK,
+                    f"phase {name} not ok: {state.phases[name]}",
+                )
+            # The .env file was written with the prefix line.
+            env_text = (target / ".devcontainer" / ".env").read_text()
+            self.assertIn("MCK_DEVC_NET_PREFIX=29", env_text)
+
+    def test_phase_order_is_canonical(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, target, branch, branch_dir = _make_repo_fixture(Path(tmp))
+            inputs = _make_inputs(repo, target, branch, branch_dir, skip_prepare_e2e=True)
+            runner = FakeRunner()
+            runner.add(
+                lambda argv: argv[0].endswith("dc_select_network.sh") and "--branch-dir" in argv,
+                CmdResult(argv=[], rc=0, stdout="MCK_DEVC_NET_PREFIX=20\n", stderr="", duration_s=0.0),
+            )
+            orch = CreateOrchestrator(runner, inputs)
+            orch.run()
+            # Inspect calls — the order of *first* mention of each phase's
+            # signature command is what we check. We tolerate the parallel
+            # pair (evg_prepare, dc_build) appearing in either order.
+            sigs = []
+            for argv in runner.calls:
+                joined = " ".join(argv)
+                if "create_worktree.sh" in joined: sigs.append("worktree_init")
+                elif joined.startswith("bash ") and joined.endswith("/initialize.sh"):
+                    sigs.append("initialize_hook")
+                elif "dc_select_network.sh" in joined and "--branch-dir" in joined:
+                    sigs.append("net_allocate")
+                elif "evg_prepare.sh" in joined:
+                    sigs.append("evg_prepare")
+                elif "devcontainer" in argv and "build" in argv:
+                    sigs.append("dc_build")
+                elif "devcontainer" in argv and "up" in argv:
+                    sigs.append("dc_up")
+                elif "post-start.sh" in joined:
+                    sigs.append("post_start")
+                elif "get-kubeconfig" in joined:
+                    sigs.append("kubeconfig")
+            # First-occurrence order, deduplicated.
+            seen = []
+            for s in sigs:
+                if s not in seen:
+                    seen.append(s)
+            # We don't have an initialize.sh in this fixture, so it's missing.
+            expected = [
+                "worktree_init", "net_allocate",
+                # parallel pair: order can vary
+                "evg_prepare", "dc_build",
+                "dc_up", "post_start", "kubeconfig",
+            ]
+            # Allow evg/build swap.
+            allowed = [
+                expected,
+                ["worktree_init", "net_allocate", "dc_build", "evg_prepare", "dc_up", "post_start", "kubeconfig"],
+            ]
+            self.assertIn(seen, allowed, msg=f"unexpected order: {seen}")
+
+    def test_parallel_pair_runs_concurrently(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, target, branch, branch_dir = _make_repo_fixture(Path(tmp))
+            inputs = _make_inputs(repo, target, branch, branch_dir, skip_prepare_e2e=True)
+            runner = FakeRunner()
+            runner.add(
+                lambda argv: argv[0].endswith("dc_select_network.sh") and "--branch-dir" in argv,
+                CmdResult(argv=[], rc=0, stdout="MCK_DEVC_NET_PREFIX=21\n", stderr="", duration_s=0.0),
+            )
+            orch = CreateOrchestrator(runner, inputs)
+            orch.run()
+            self.assertGreaterEqual(
+                runner.concurrent_max, 2,
+                msg=f"expected 2 concurrent runners during parallel pair, got {runner.concurrent_max}",
+            )
+
+    def test_failure_marks_phase_failed_and_records_resume_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, target, branch, branch_dir = _make_repo_fixture(Path(tmp))
+            inputs = _make_inputs(repo, target, branch, branch_dir, skip_prepare_e2e=True)
+            runner = FakeRunner()
+            runner.add(
+                lambda argv: argv[0].endswith("dc_select_network.sh") and "--branch-dir" in argv,
+                CmdResult(argv=[], rc=0, stdout="MCK_DEVC_NET_PREFIX=22\n", stderr="", duration_s=0.0),
+            )
+            # Make evg_prepare fail.
+            runner.add_failure(
+                lambda argv: any(a.endswith("evg_prepare.sh") for a in argv), rc=42,
+            )
+            orch = CreateOrchestrator(runner, inputs)
+            with self.assertRaises(Exception):
+                orch.run()
+            state = ostate.load(target)
+            assert state is not None
+            self.assertEqual(state.phases["evg_prepare"].status, ostate.FAILED)
+            # dc_build runs in parallel with evg_prepare; it should still
+            # have completed OK (the FakeRunner is a no-op).
+            self.assertEqual(state.phases["dc_build"].status, ostate.OK)
+            # Phases after the failed step never started.
+            self.assertEqual(state.phases["dc_up"].status, ostate.PENDING)
+
+    def test_resume_skips_ok_phases(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, target, branch, branch_dir = _make_repo_fixture(Path(tmp))
+            inputs = _make_inputs(repo, target, branch, branch_dir, skip_prepare_e2e=True)
+            runner = FakeRunner()
+            runner.add(
+                lambda argv: argv[0].endswith("dc_select_network.sh") and "--branch-dir" in argv,
+                CmdResult(argv=[], rc=0, stdout="MCK_DEVC_NET_PREFIX=23\n", stderr="", duration_s=0.0),
+            )
+            CreateOrchestrator(runner, inputs).run()
+            # Now corrupt state so kubeconfig is failed.
+            state = ostate.load(target)
+            assert state is not None
+            state.set_status("kubeconfig", ostate.FAILED, input_hash=state.phases["kubeconfig"].input_hash)
+            ostate.save(target, state)
+            # Resume: only kubeconfig should re-run.
+            runner2 = FakeRunner()
+            runner2.add(
+                lambda argv: argv[0].endswith("dc_select_network.sh") and "--branch-dir" in argv,
+                CmdResult(argv=[], rc=0, stdout="MCK_DEVC_NET_PREFIX=23\n", stderr="", duration_s=0.0),
+            )
+            CreateOrchestrator(runner2, inputs).run(resume=True)
+            kc_calls = [c for c in runner2.calls if any("get-kubeconfig" in a for a in c)]
+            self.assertEqual(len(kc_calls), 1)
+            # Worktree_init should NOT have re-run.
+            wi_calls = [c for c in runner2.calls if any(a.endswith("create_worktree.sh") for a in c)]
+            self.assertEqual(len(wi_calls), 0)
+            state = ostate.load(target)
+            assert state is not None
+            self.assertEqual(state.phases["kubeconfig"].status, ostate.OK)
+
+    def test_restart_from_clears_phase_and_later(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, target, branch, branch_dir = _make_repo_fixture(Path(tmp))
+            inputs = _make_inputs(repo, target, branch, branch_dir, skip_prepare_e2e=True)
+            runner = FakeRunner()
+            runner.add(
+                lambda argv: argv[0].endswith("dc_select_network.sh") and "--branch-dir" in argv,
+                CmdResult(argv=[], rc=0, stdout="MCK_DEVC_NET_PREFIX=24\n", stderr="", duration_s=0.0),
+            )
+            CreateOrchestrator(runner, inputs).run()
+            # Restart from reconcile: only reconcile + post_start + kubeconfig should re-run.
+            runner2 = FakeRunner()
+            runner2.add(
+                lambda argv: argv[0].endswith("dc_select_network.sh") and "--branch-dir" in argv,
+                CmdResult(argv=[], rc=0, stdout="MCK_DEVC_NET_PREFIX=24\n", stderr="", duration_s=0.0),
+            )
+            CreateOrchestrator(runner2, inputs).run(restart_from="reconcile")
+            # No worktree_init / evg_prepare / dc_build / dc_up should fire.
+            for keyword in ("create_worktree.sh", "evg_prepare.sh"):
+                cs = [c for c in runner2.calls if any(keyword in a for a in c)]
+                self.assertEqual(cs, [], f"phase ran when it shouldn't: {keyword}")
+            # kubeconfig DID re-run.
+            kc = [c for c in runner2.calls if any("get-kubeconfig" in a for a in c)]
+            self.assertEqual(len(kc), 1)
+
+    def test_default_run_with_in_progress_state_raises(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, target, branch, branch_dir = _make_repo_fixture(Path(tmp))
+            inputs = _make_inputs(repo, target, branch, branch_dir)
+            # Pre-write state where evg_prepare is in_progress.
+            state = ostate.OrchestratorState.initial(branch=branch, inputs=inputs.to_dict())
+            state.set_status("evg_prepare", ostate.IN_PROGRESS, input_hash="x")
+            ostate.save(target, state)
+            runner = FakeRunner()
+            with self.assertRaises(StateConflict):
+                CreateOrchestrator(runner, inputs).run()
+
+
+if __name__ == "__main__":
+    unittest.main()
