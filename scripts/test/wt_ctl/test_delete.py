@@ -115,10 +115,15 @@ class DeletePipelineTests(unittest.TestCase):
         else:
             os.environ["MCK_DEVC_REGISTRY_DIR"] = self._prev_reg
 
-    def _seed_registry(self, branch_dir: str, prefix: int = 24) -> Path:
+    def _seed_registry(self, branch_dir: str, index: int = 24) -> Path:
         reg = Path(self._reg_tmp.name) / "net-prefix-registry"
         reg.parent.mkdir(parents=True, exist_ok=True)
-        reg.write_text(f"{branch_dir}={prefix}\n")
+        # Composite registry form: N:X:Y_BASE:Y_VIP:PORT for stack index N.
+        x = 16 + (index >> 7)
+        y_base = (index & 0x7F) << 1
+        y_vip = y_base + 1
+        port = 8000 + index
+        reg.write_text(f"{branch_dir}={index}:{x}:{y_base}:{y_vip}:{port}\n")
         return reg
 
     def test_default_runs_five_substeps(self) -> None:

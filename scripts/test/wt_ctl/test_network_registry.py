@@ -1,10 +1,9 @@
-"""Native Registry tests (Phase 2.5 + /23 expansion).
+"""Native Registry tests.
 
 Cover:
 - index -> StackParams math: round-trip on boundary indices
 - /23 allocator: empty registry → first free index, allocator skips
-  legacy /16 blocked second octets, mixed legacy/new round-trip
-- migrate_legacy_env: legacy `.env` gets four derived vars; idempotent
+  X-octets occupied by foreign docker networks (kind, etc.)
 - locking: two threads call ``allocate`` -> distinct indices, no corruption
 - stale-lock recovery: lock dir owned by a dead PID is force-released
 - orphan detection: registry entry without a matching worktree dir flags
@@ -19,7 +18,6 @@ from __future__ import annotations
 
 import os
 import threading
-import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -30,8 +28,6 @@ from wt_ctl.domains.network import (  # noqa: E402
     DERIVED_ENV_KEYS,
     INDEX_HI,
     INDEX_LO,
-    LEGACY_X_HI,
-    LEGACY_X_LO,
     Registry,
     StackParams,
     VALID_RANGE_HI,
@@ -40,7 +36,6 @@ from wt_ctl.domains.network import (  # noqa: E402
     _format_rhs,
     _parse_rhs,
     env_lines_for,
-    migrate_legacy_env,
     stack_params,
 )
 from wt_ctl.errors import RegistryError  # noqa: E402
@@ -83,13 +78,12 @@ class StackParamsMathTests(unittest.TestCase):
     """Confirm the index -> X/Y/PORT mapping at every load-bearing boundary."""
 
     def _check(self, n: int, x: int, y_base: int, y_vip: int, port: int) -> None:
-        p = stack_params(n, scheme="new")
+        p = stack_params(n)
         self.assertEqual(p.index, n)
         self.assertEqual(p.x, x)
         self.assertEqual(p.y_base, y_base)
         self.assertEqual(p.y_vip, y_vip)
         self.assertEqual(p.port, port)
-        self.assertEqual(p.scheme, "new")
         # Subnet/ip_range/vip_cidr/proxy_address are derived consistently.
         self.assertEqual(p.subnet, f"172.{x}.{y_base}.0/23")
         self.assertEqual(p.ip_range, f"172.{x}.{y_base}.0/24")
@@ -97,45 +91,25 @@ class StackParamsMathTests(unittest.TestCase):
         self.assertEqual(p.proxy_address, f"172.{x}.{y_base}.10")
 
     def test_n0(self) -> None:
-        # Smallest index: X=16, Y_BASE=0, Y_VIP=1, PORT=8000.
         self._check(0, x=16, y_base=0, y_vip=1, port=8000)
 
     def test_n127_last_in_x16(self) -> None:
-        # Last index whose X==16: (127 >> 7) == 0, (127 & 0x7F) << 1 == 254.
         self._check(127, x=16, y_base=254, y_vip=255, port=8127)
 
     def test_n128_first_in_x17(self) -> None:
-        # First index whose X==17: (128 >> 7) == 1, (128 & 0x7F) << 1 == 0.
         self._check(128, x=17, y_base=0, y_vip=1, port=8128)
 
     def test_n1023(self) -> None:
-        # Mid-range: (1023 >> 7) == 7, (1023 & 0x7F) == 127, *2 == 254.
         self._check(1023, x=23, y_base=254, y_vip=255, port=9023)
 
     def test_n2047_max(self) -> None:
-        # Largest index: X=31, Y_BASE=254, Y_VIP=255, PORT=10047.
         self._check(2047, x=31, y_base=254, y_vip=255, port=10047)
 
     def test_out_of_range_raises(self) -> None:
         with self.assertRaises(RegistryError):
-            stack_params(-1, scheme="new")
+            stack_params(-1)
         with self.assertRaises(RegistryError):
-            stack_params(INDEX_HI + 1, scheme="new")
-
-    def test_legacy_scheme_pinned_values(self) -> None:
-        for nn in (LEGACY_X_LO, 24, LEGACY_X_HI):
-            p = stack_params(nn, scheme="legacy")
-            self.assertEqual(p.x, nn)
-            self.assertEqual(p.y_base, 0)
-            self.assertEqual(p.y_vip, 1)
-            self.assertEqual(p.port, 8000 + nn)
-            self.assertEqual(p.subnet, f"172.{nn}.0.0/16")
-
-    def test_legacy_out_of_range_raises(self) -> None:
-        with self.assertRaises(RegistryError):
-            stack_params(15, scheme="legacy")
-        with self.assertRaises(RegistryError):
-            stack_params(32, scheme="legacy")
+            stack_params(INDEX_HI + 1)
 
 
 # ---------------------------------------------------------------------------
@@ -143,26 +117,19 @@ class StackParamsMathTests(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class RowFormatTests(unittest.TestCase):
-    def test_legacy_bare_int_round_trip(self) -> None:
-        row = _parse_rhs("foo", "24")
-        assert row is not None
-        self.assertEqual(row.params.scheme, "legacy")
-        self.assertEqual(row.params.x, 24)
-        self.assertEqual(_format_rhs(row.params), "24")
-
-    def test_new_composite_round_trip(self) -> None:
+    def test_composite_round_trip(self) -> None:
         # N=128 -> X=17, Y_BASE=0, Y_VIP=1, PORT=8128
         row = _parse_rhs("bar", "128:17:0:1:8128")
         assert row is not None
-        self.assertEqual(row.params.scheme, "new")
         self.assertEqual(row.params.index, 128)
         self.assertEqual(_format_rhs(row.params), "128:17:0:1:8128")
 
     def test_malformed_drops(self) -> None:
         self.assertIsNone(_parse_rhs("x", "not-a-number"))
-        self.assertIsNone(_parse_rhs("x", "9999"))   # outside legacy band
-        self.assertIsNone(_parse_rhs("x", "1:2:3"))  # wrong arity
-        self.assertIsNone(_parse_rhs("x", "12"))     # outside legacy band
+        self.assertIsNone(_parse_rhs("x", "1:2:3"))    # wrong arity
+        self.assertIsNone(_parse_rhs("x", "24"))       # bare-int legacy form (rejected)
+        self.assertIsNone(_parse_rhs("x", "9999"))     # out of index range
+        self.assertIsNone(_parse_rhs("x", "9999:1:2:3:4"))
 
     def test_inconsistent_composite_falls_back_to_derived(self) -> None:
         # Claim N=0 (which derives X=16) but write X=99 — registry must
@@ -174,11 +141,11 @@ class RowFormatTests(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# round-trip — write then read with mixed schemes
+# round-trip — write then read
 # ---------------------------------------------------------------------------
 
 class RoundTripTests(unittest.TestCase):
-    def test_write_then_read_mixed(self) -> None:
+    def test_write_then_read(self) -> None:
         import tempfile
         with tempfile.TemporaryDirectory() as td:
             with _patch_registry_dir(Path(td)):
@@ -190,39 +157,36 @@ class RoundTripTests(unittest.TestCase):
                 runner = _MakeFakes().runner()
                 reg = Registry(runner, worktree_parent=wt_parent)
                 rows = [
-                    _RegistryRow("alpha", stack_params(24, scheme="legacy")),
-                    _RegistryRow("beta", stack_params(28, scheme="legacy")),
-                    _RegistryRow("gamma", stack_params(0, scheme="new")),
-                    _RegistryRow("delta", stack_params(1023, scheme="new")),
+                    _RegistryRow("alpha", stack_params(0)),
+                    _RegistryRow("beta", stack_params(127)),
+                    _RegistryRow("gamma", stack_params(128)),
+                    _RegistryRow("delta", stack_params(1023)),
                 ]
                 reg._write(rows)
                 rows_back = reg._read()
                 self.assertEqual(
-                    [(r.branch_dir, r.params.index, r.params.scheme) for r in rows_back],
+                    [(r.branch_dir, r.params.index) for r in rows_back],
                     [
-                        ("alpha", 24, "legacy"),
-                        ("beta", 28, "legacy"),
-                        ("gamma", 0, "new"),
-                        ("delta", 1023, "new"),
+                        ("alpha", 0),
+                        ("beta", 127),
+                        ("gamma", 128),
+                        ("delta", 1023),
                     ],
                 )
                 entries, _ = reg.list()
-                # NetEntry.prefix carries the second octet for legacy (24/28)
-                # and the index for new (0/1023). All four are "active"
-                # because their dirs exist.
                 self.assertEqual(
                     [(e.branch_dir, e.prefix, e.status) for e in entries],
                     [
-                        ("alpha", 24, "active"),
-                        ("beta", 28, "active"),
-                        ("gamma", 0, "active"),
+                        ("alpha", 0, "active"),
+                        ("beta", 127, "active"),
+                        ("gamma", 128, "active"),
                         ("delta", 1023, "active"),
                     ],
                 )
 
 
 # ---------------------------------------------------------------------------
-# allocate — empty registry hits index 0
+# allocate
 # ---------------------------------------------------------------------------
 
 class AllocateTests(unittest.TestCase):
@@ -242,93 +206,62 @@ class AllocateTests(unittest.TestCase):
                 )
                 self.assertEqual(params.index, 0)
                 self.assertEqual(params.x, 16)
-                self.assertEqual(params.scheme, "new")
 
-    def test_allocator_skips_x_blocked_by_legacy_entry(self) -> None:
-        """A legacy entry at X=24 must block all 128 indices whose X==24."""
+    def test_allocator_skips_blocked_x_octet(self) -> None:
+        """A foreign docker network at X=16 (e.g. kind) blocks all 128
+        indices whose X==16; the allocator returns the first index in X=17.
+        """
         import tempfile
         with tempfile.TemporaryDirectory() as td:
             with _patch_registry_dir(Path(td)):
                 wt_parent = Path(td) / "mdb"
                 wt_parent.mkdir()
-                # Pre-fill: legacy /16 owner at X=24 + every non-X=24 index
-                # in 0..1023 occupied (so the allocator must scan past them).
-                # Simpler: mark every X != 24 candidate up to the threshold
-                # by occupying a single blocking legacy entry, and also
-                # block X=16 with a legacy entry, then check the next free.
-                (wt_parent / "legacy_24").mkdir()
-                runner = _MakeFakes().runner()
-                reg = Registry(runner, worktree_parent=wt_parent)
-                reg._write([
-                    _RegistryRow("legacy_24", stack_params(24, scheme="legacy")),
-                ])
                 (wt_parent / "newcomer").mkdir()
+
+                # Fake a docker network at 172.16.0.0/16 (e.g. "kind").
+                fake = FakePopenFactory(
+                    mapping={
+                        ("docker", "network", "ls", "--format", "{{.Name}}"):
+                            ("kind\n", "", 0),
+                        ("docker", "network", "inspect", "kind",
+                         "--format", "{{range .IPAM.Config}}{{.Subnet}}{{end}}"):
+                            ("172.16.0.0/16", "", 0),
+                    },
+                    default=("", "", 0),
+                )
+                runner = Runner(popen_factory=fake, which=fake_which)
+                reg = Registry(runner, worktree_parent=wt_parent)
                 params = reg.allocate(
                     branch_dir="newcomer",
                     auto_prune=False,
                     emit_warning=lambda _m: None,
                 )
-                # Index 0 is X=16 (not blocked), so allocator returns 0.
-                self.assertEqual(params.index, 0)
-                self.assertEqual(params.x, 16)
-                # Now legacy_24 blocks X=24. Force the allocator to scan
-                # into the X=24 band by occupying every preceding index.
-                reg._write([
-                    _RegistryRow("legacy_24", stack_params(24, scheme="legacy")),
-                    *[
-                        _RegistryRow(f"slot_{n}", stack_params(n, scheme="new"))
-                        for n in range(0, 1024) if (16 + (n >> 7)) != 24
-                    ],
-                ])
-                # Make matching worktree dirs so they don't auto-prune.
-                for n in range(0, 1024):
-                    if (16 + (n >> 7)) == 24:
-                        continue
-                    p = wt_parent / f"slot_{n}"
-                    if not p.exists():
-                        p.mkdir()
-                params = reg.allocate(
-                    branch_dir="post_block",
-                    auto_prune=False,
-                    emit_warning=lambda _m: None,
-                )
-                # Every X in [16,23] is exhausted; X=24 is blocked; first
-                # free index lives at X=25 (which is index 128 * 9 = 1152).
-                # 1152 >> 7 == 9; X = 16 + 9 == 25.
-                self.assertEqual(params.x, 25)
-                self.assertEqual(params.index, 1152)
+                # X=16 is blocked, so first free index is 128 (X=17, Y_BASE=0).
+                self.assertEqual(params.x, 17)
+                self.assertEqual(params.index, 128)
 
 
 # ---------------------------------------------------------------------------
-# mixed legacy / new round-trip via list + release + re-allocate
+# release + re-allocate round-trip
 # ---------------------------------------------------------------------------
 
-class MixedRoundTripTests(unittest.TestCase):
-    def test_two_legacy_three_new_then_release_and_realloc(self) -> None:
+class ReleaseRoundTripTests(unittest.TestCase):
+    def test_release_frees_index_for_reallocation(self) -> None:
         import tempfile
         with tempfile.TemporaryDirectory() as td:
             with _patch_registry_dir(Path(td)):
                 wt_parent = Path(td) / "mdb"
                 wt_parent.mkdir()
-                names = ["leg22", "leg30", "new0", "new200", "new300"]
+                names = ["a0", "a200", "a300"]
                 for bd in names:
                     (wt_parent / bd).mkdir()
                 runner = _MakeFakes().runner()
                 reg = Registry(runner, worktree_parent=wt_parent)
                 reg._write([
-                    _RegistryRow("leg22", stack_params(22, scheme="legacy")),
-                    _RegistryRow("leg30", stack_params(30, scheme="legacy")),
-                    _RegistryRow("new0", stack_params(0, scheme="new")),
-                    _RegistryRow("new200", stack_params(200, scheme="new")),
-                    _RegistryRow("new300", stack_params(300, scheme="new")),
+                    _RegistryRow("a0", stack_params(0)),
+                    _RegistryRow("a200", stack_params(200)),
+                    _RegistryRow("a300", stack_params(300)),
                 ])
-                rows = reg._read()
-                schemes = {r.branch_dir: r.params.scheme for r in rows}
-                self.assertEqual(schemes, {
-                    "leg22": "legacy", "leg30": "legacy",
-                    "new0": "new", "new200": "new", "new300": "new",
-                })
-                # Release each cleanly and confirm the line is gone.
                 for bd in names:
                     reg.release(bd)
                 self.assertEqual(reg._read(), [])
@@ -343,72 +276,12 @@ class MixedRoundTripTests(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# migrate_legacy_env
-# ---------------------------------------------------------------------------
-
-class MigrateLegacyEnvTests(unittest.TestCase):
-    def test_legacy_env_gets_four_derived_vars(self) -> None:
-        import tempfile
-        with tempfile.TemporaryDirectory() as td:
-            env = Path(td) / ".env"
-            env.write_text("MCK_DEVC_NET_PREFIX=24\n")
-            changed, msg = migrate_legacy_env(env)
-            self.assertTrue(changed, msg=msg)
-            text = env.read_text()
-            for k in DERIVED_ENV_KEYS:
-                self.assertIn(f"{k}=", text, msg=f"missing {k} in {text!r}")
-            # legacy 24 -> X=24, Y_BASE=0, Y_VIP=1, PORT=8024
-            self.assertIn("MCK_DEVC_NET_X=24\n", text)
-            self.assertIn("MCK_DEVC_NET_Y_BASE=0\n", text)
-            self.assertIn("MCK_DEVC_NET_Y_VIP=1\n", text)
-            self.assertIn("MCK_DEVC_PROXY_PORT=8024\n", text)
-            # Each derived var appears exactly once.
-            for k in DERIVED_ENV_KEYS:
-                self.assertEqual(text.count(f"{k}="), 1, msg=f"{k} duplicated: {text!r}")
-
-    def test_idempotent(self) -> None:
-        import tempfile
-        with tempfile.TemporaryDirectory() as td:
-            env = Path(td) / ".env"
-            env.write_text("MCK_DEVC_NET_PREFIX=24\n")
-            migrate_legacy_env(env)
-            first = env.read_text()
-            changed, msg = migrate_legacy_env(env)
-            self.assertFalse(changed, msg=msg)
-            self.assertEqual(env.read_text(), first)
-
-    def test_new_scheme_env_top_up(self) -> None:
-        """A .env with a new-scheme prefix (e.g. N=200) but missing some
-        derived vars gets topped up; an already-complete .env is no-op.
-        """
-        import tempfile
-        with tempfile.TemporaryDirectory() as td:
-            env = Path(td) / ".env"
-            env.write_text("MCK_DEVC_NET_PREFIX=200\n")
-            changed, _ = migrate_legacy_env(env)
-            self.assertTrue(changed)
-            params = stack_params(200, scheme="new")
-            text = env.read_text()
-            self.assertIn(f"MCK_DEVC_NET_X={params.x}\n", text)
-            self.assertIn(f"MCK_DEVC_NET_Y_BASE={params.y_base}\n", text)
-            self.assertIn(f"MCK_DEVC_NET_Y_VIP={params.y_vip}\n", text)
-            self.assertIn(f"MCK_DEVC_PROXY_PORT={params.port}\n", text)
-
-    def test_missing_env_is_noop(self) -> None:
-        import tempfile
-        with tempfile.TemporaryDirectory() as td:
-            env = Path(td) / "nonexistent.env"
-            changed, msg = migrate_legacy_env(env)
-            self.assertFalse(changed)
-
-
-# ---------------------------------------------------------------------------
 # env_lines_for
 # ---------------------------------------------------------------------------
 
 class EnvLinesTests(unittest.TestCase):
-    def test_new_scheme_block(self) -> None:
-        params = stack_params(0, scheme="new")
+    def test_index_zero_block(self) -> None:
+        params = stack_params(0)
         lines = env_lines_for(params)
         self.assertEqual(lines, [
             "MCK_DEVC_NET_PREFIX=0",
@@ -418,16 +291,20 @@ class EnvLinesTests(unittest.TestCase):
             "MCK_DEVC_PROXY_PORT=8000",
         ])
 
-    def test_legacy_scheme_block(self) -> None:
-        params = stack_params(24, scheme="legacy")
-        lines = env_lines_for(params)
-        # MCK_DEVC_NET_PREFIX is the index field; for legacy that's the
-        # second octet (24).
-        self.assertEqual(lines[0], "MCK_DEVC_NET_PREFIX=24")
-        self.assertEqual(lines[1], "MCK_DEVC_NET_X=24")
-        self.assertEqual(lines[2], "MCK_DEVC_NET_Y_BASE=0")
-        self.assertEqual(lines[3], "MCK_DEVC_NET_Y_VIP=1")
-        self.assertEqual(lines[4], "MCK_DEVC_PROXY_PORT=8024")
+    def test_mid_range_block(self) -> None:
+        params = stack_params(200)
+        # 200 >> 7 == 1 -> X=17; 200 & 0x7F == 72; 72*2 == 144
+        self.assertEqual(env_lines_for(params), [
+            "MCK_DEVC_NET_PREFIX=200",
+            "MCK_DEVC_NET_X=17",
+            "MCK_DEVC_NET_Y_BASE=144",
+            "MCK_DEVC_NET_Y_VIP=145",
+            "MCK_DEVC_PROXY_PORT=8200",
+        ])
+
+    def test_derived_keys_present(self) -> None:
+        for k in DERIVED_ENV_KEYS:
+            self.assertTrue(k.startswith("MCK_DEVC_"))
 
 
 # ---------------------------------------------------------------------------
@@ -543,8 +420,8 @@ class OrphanTests(unittest.TestCase):
                 runner = _MakeFakes().runner()
                 reg = Registry(runner, worktree_parent=wt_parent)
                 reg._write([
-                    _RegistryRow("live", stack_params(0, scheme="new")),
-                    _RegistryRow("dead", stack_params(1, scheme="new")),
+                    _RegistryRow("live", stack_params(0)),
+                    _RegistryRow("dead", stack_params(1)),
                 ])
 
                 entries, _ = reg.list()
@@ -577,7 +454,7 @@ class AutoPruneTests(unittest.TestCase):
                 reg = Registry(runner, worktree_parent=wt_parent)
 
                 # Occupy index 0 with a stale entry (no matching dir).
-                reg._write([_RegistryRow("ghost", stack_params(0, scheme="new"))])
+                reg._write([_RegistryRow("ghost", stack_params(0))])
 
                 (wt_parent / "newcomer").mkdir()
                 params = reg.allocate(
@@ -608,29 +485,14 @@ class ReleaseTests(unittest.TestCase):
                 runner = _MakeFakes().runner()
                 reg = Registry(runner, worktree_parent=wt_parent)
                 reg._write([
-                    _RegistryRow("alpha", stack_params(0, scheme="new")),
-                    _RegistryRow("beta", stack_params(1, scheme="new")),
+                    _RegistryRow("alpha", stack_params(0)),
+                    _RegistryRow("beta", stack_params(1)),
                 ])
                 out = reg.release("alpha")
                 self.assertIn("Released alpha=", out)
                 rows = reg._read()
                 self.assertEqual(len(rows), 1)
                 self.assertEqual(rows[0].branch_dir, "beta")
-
-    def test_release_legacy_entry(self) -> None:
-        import tempfile
-        with tempfile.TemporaryDirectory() as td:
-            with _patch_registry_dir(Path(td)):
-                wt_parent = Path(td) / "mdb"
-                wt_parent.mkdir()
-                (wt_parent / "leg").mkdir()
-                runner = _MakeFakes().runner()
-                reg = Registry(runner, worktree_parent=wt_parent)
-                reg._write([_RegistryRow("leg", stack_params(24, scheme="legacy"))])
-                out = reg.release("leg")
-                # The bare-int form round-trips for legacy.
-                self.assertIn("Released leg=24", out)
-                self.assertEqual(reg._read(), [])
 
     def test_release_unknown_is_noop(self) -> None:
         import tempfile
@@ -640,7 +502,7 @@ class ReleaseTests(unittest.TestCase):
                 wt_parent.mkdir()
                 runner = _MakeFakes().runner()
                 reg = Registry(runner, worktree_parent=wt_parent)
-                reg._write([_RegistryRow("alpha", stack_params(0, scheme="new"))])
+                reg._write([_RegistryRow("alpha", stack_params(0))])
                 out = reg.release("nope")
                 self.assertIn("nothing to release", out)
                 rows = reg._read()

@@ -15,9 +15,9 @@ source "${script_dir}/private-context"
 #
 # Cloud-qa OM is shared across all worktrees on a host, but kube namespaces are
 # per-cluster. Devcontainer-mode worktrees each get a unique numeric
-# MCK_DEVC_NET_PREFIX (16..31, picked by scripts/dev/dc_select_network.sh) and
+# MCK_DEVC_NET_PREFIX (0..2047, the per-stack /23 index picked by `wt-ctl`) and
 # pass it into the container env via .devcontainer/.env + compose.yml. Reuse
-# that prefix to also make NAMESPACE unique per worktree, so the OM projects
+# that index to also make NAMESPACE unique per worktree, so the OM projects
 # that downstream code creates as ${NAMESPACE} / ${NAMESPACE}-* (single-cluster
 # configure_operator.sh, multi-cluster prepare-multi-cluster, ~15 pytest
 # fixtures, delete_om_projects.sh's filter) are automatically scoped.
