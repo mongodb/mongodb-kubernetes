@@ -221,10 +221,18 @@ class CreateOrchestrator:
                 # wt_setup.sh's convention. Falling back to main_repo_root
                 # only when we have no worktree context.
                 env = {"PROJECT_DIR": str(host)}
+                # The log lives in the *host* worktree's logs dir — git
+                # worktree add refuses to populate a non-empty target dir,
+                # and run_streaming auto-creates log_path.parent. We name
+                # the log per-target so multiple parallel `wt-ctl create`s
+                # don't collide.
+                host_log = (
+                    logs_dir(host) / f"worktree_init-{i.branch_dir}.log"
+                )
                 self.runner.run_streaming(
                     argv,
                     prefix="[worktree] ",
-                    log_path=log_dir / "worktree_init.log",
+                    log_path=host_log,
                     env=env,
                     cwd=host,
                 )
