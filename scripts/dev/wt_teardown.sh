@@ -137,7 +137,15 @@ if [[ ${keep_worktree} -eq 0 ]]; then
   git -C "${src_repo_root}" worktree prune 2>&1 | sed 's/^/    /' || true
 fi
 
-# 5. Optionally delete the branch.
+# 5. Release the prefix-registry entry so the prefix can be reused. Run
+#    AFTER docker compose down (so the live network is gone) and AFTER
+#    worktree removal (so a re-allocation request immediately after this
+#    script can't find the old worktree dir and decline to auto-prune).
+echo "==> Releasing devc-net-prefix registry entry for '${branch_dir}'"
+bash "${script_dir}/dc_select_network.sh" --release "${branch_dir}" 2>&1 | sed 's/^/    /' || \
+  echo "    (release failed; run 'scripts/dev/dc_select_network.sh --list' to inspect)"
+
+# 6. Optionally delete the branch.
 if [[ ${delete_branch} -eq 1 ]]; then
   if git -C "${src_repo_root}" show-ref --verify --quiet "refs/heads/${branch}"; then
     echo "==> Deleting local branch '${branch}'"
