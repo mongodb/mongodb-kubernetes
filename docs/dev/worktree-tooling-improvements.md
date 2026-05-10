@@ -19,7 +19,7 @@ backlog.
 
 | # | Title | Effort | Risk | File(s) | Status |
 |---|---|---|---|---|---|
-| 1 | `op_run.sh` shouldn't inherit host-side `PATH` from `context.export.env` | S | low | `scripts/dev/op_run.sh`, `scripts/dev/contexts/root-context` | open |
+| 1 | `op_run.sh` shouldn't inherit host-side `PATH` from `context.export.env` | S | low | `scripts/dev/op_run.sh`, `scripts/dev/contexts/root-context` | **resolved** — see [`context-split/`](context-split/) |
 | 2 | `set_env_context.sh` should fail-fast (not just warn) on side-mismatch | S | low | `scripts/dev/set_env_context.sh` | open |
 | 3 | `k8s-proxy` should reload its kubeconfig on container start, not via HTTP PATCH only | M | medium (cross-repo) | `kube-forwarding-proxy` (separate repo) + `.devcontainer/compose.yml` | open |
 | 4 | `wt_setup.sh` tunnel-probe should retry kubeconfig re-push, not just retry kubectl | S | low | `scripts/dev/wt_setup.sh` | open |
