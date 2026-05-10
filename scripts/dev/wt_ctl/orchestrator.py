@@ -29,6 +29,8 @@ from .domains.compose import project_name_for
 from .domains.network import (
     DERIVED_ENV_KEYS,
     NetworkDomain,
+    env_lines_for,
+    stack_params,
 )
 from .errors import (
     ExternalCommandFailed,
@@ -269,6 +271,33 @@ class CreateOrchestrator:
             env_file = wt / ".devcontainer" / ".env"
             existing_prefix = _read_existing_prefix(env_file)
             if existing_prefix is not None:
+                # A previous run pinned the prefix. The four derived vars
+                # (NET_X / NET_Y_BASE / NET_Y_VIP / PROXY_PORT) must also be
+                # present — without them docker-compose falls back to the
+                # ``${VAR:-default}`` baked into compose.yml (X=16, Y_BASE=0)
+                # and clobbers other worktrees' subnets. Catch and repair
+                # this case in-place rather than re-allocating, so we stay
+                # on the index that the registry still owns for us.
+                missing_derived = _missing_derived_env_keys(env_file)
+                if missing_derived:
+                    params = stack_params(existing_prefix)
+                    # ``env_lines_for`` returns all 5 lines — filter to just
+                    # the ones the file is missing, in DERIVED_ENV_KEYS order.
+                    all_lines = env_lines_for(params)
+                    key_to_line = {ln.split("=", 1)[0]: ln for ln in all_lines}
+                    repair_lines = [
+                        key_to_line[key]
+                        for key in DERIVED_ENV_KEYS
+                        if key in missing_derived and key in key_to_line
+                    ]
+                    if repair_lines:
+                        with env_file.open("a") as fh:
+                            # Make sure we're on a clean newline before
+                            # appending so we never merge with a prior key.
+                            cur = env_file.read_text()
+                            if cur and not cur.endswith("\n"):
+                                fh.write("\n")
+                            fh.write("\n".join(repair_lines) + "\n")
                 return
             block = NetworkDomain(self.runner, wt).allocate(i.branch_dir)
             if not block.startswith("MCK_DEVC_NET_PREFIX="):
@@ -943,6 +972,29 @@ def _read_existing_prefix(env_file: Path) -> Optional[int]:
     except OSError:
         return None
     return None
+
+
+def _missing_derived_env_keys(env_file: Path) -> list[str]:
+    """Return ``DERIVED_ENV_KEYS`` entries absent from ``env_file``.
+
+    Used by ``net_allocate`` resume to recover from a partial first-write
+    that landed only ``MCK_DEVC_NET_PREFIX=<N>`` — a state which would
+    otherwise let compose.yml's default ``X=16, Y_BASE=0`` collide with
+    other worktrees' /23 subnets.
+    """
+    if not env_file.is_file():
+        return list(DERIVED_ENV_KEYS)
+    try:
+        text = env_file.read_text()
+    except OSError:
+        return list(DERIVED_ENV_KEYS)
+    present: set[str] = set()
+    for line in text.splitlines():
+        line = line.strip()
+        for key in DERIVED_ENV_KEYS:
+            if line.startswith(f"{key}="):
+                present.add(key)
+    return [k for k in DERIVED_ENV_KEYS if k not in present]
 
 
 def _services_in(compose_yml: Path) -> list[str]:
