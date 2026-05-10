@@ -55,6 +55,28 @@ fi
 export MULTI_CLUSTER_CONFIG_DIR="${PROJECT_DIR}/.multi_cluster_local_test_files"
 export MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH="${PROJECT_DIR}/docker/mongodb-kubernetes-tests/multi-cluster-kube-config-creator"
 
+# PROJECT_DIR-derived path defaults that local-defaults-context also sets
+# (and which root-context / private-context may further override). We mirror
+# them here so the switch_context.sh subtraction algorithm classifies them
+# as site bytes — they MUST end up in context.<side>.env, not the shared
+# logical context.env, because their values include the worktree's
+# absolute path which differs between host and devc.
+#
+# `workdir` is a deprecated alias for PROJECT_DIR retained for legacy
+# evergreen scripts (scripts/evergreen/setup_*.sh).
+export workdir="${PROJECT_DIR}"
+export MDB_OM_VERSION_MAPPING_PATH="${PROJECT_DIR}/release.json"
+export ENV_FILE="${PROJECT_DIR}/.ops-manager-env"
+export NAMESPACE_FILE="${PROJECT_DIR}/.namespace"
+export DEFAULT_HELM_CHART_PATH="${PROJECT_DIR}/helm_chart"
+
+# GOPATH is HOME-derived. private-context sets `export GOPATH=~/gosd`
+# which expands to ${HOME}/gosd — different per side. Set a default here
+# so site_keys captures the variable name; switch_context.sh then writes
+# the user's final value (after private-context override) into
+# context.<side>.env, preserving overrides per side.
+export GOPATH="${GOPATH:-${HOME}/gosd}"
+
 if command -v go >/dev/null 2>&1; then
   GOROOT="$(go env GOROOT)"
   export GOROOT
