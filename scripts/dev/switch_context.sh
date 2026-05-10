@@ -122,12 +122,12 @@ fi
 
 # convert declare -x key=value or export key=value into key=value
 # filter out variables that don't have value (missing '=')
-current_envs=$(echo "${current_envs[@]}" | grep '=' | sed 's/^declare -x //g' | sed 's/^export //g' | sort | uniq)
+current_envs=$(echo "${current_envs[@]}" | grep '=' | sed 's/^declare -x //g' | sed 's/^export //g' | LC_ALL=C sort | uniq)
 
 if [ -z "${EVR_TASK_ID-}" ]; then
     # Same normalization for the site-only capture (local-dev branch only;
     # the EVG-CI branch doesn't use site_envs).
-    site_envs=$(echo "${site_envs[@]}" | grep '=' | sed 's/^declare -x //g' | sed 's/^export //g' | sort | uniq)
+    site_envs=$(echo "${site_envs[@]}" | grep '=' | sed 's/^declare -x //g' | sed 's/^export //g' | LC_ALL=C sort | uniq)
 
     # Drop the env -i passthrough keys from both captures. These are vars
     # we forwarded into the env -i subshell so site-context could read
@@ -143,7 +143,7 @@ if [ -z "${EVR_TASK_ID-}" ]; then
     # Logical = current_envs minus any line whose KEY appears in site_envs.
     # Variable names per POSIX are [A-Za-z_][A-Za-z0-9_]*, so '|' can never
     # appear in a name — safe to use as the alternation separator.
-    site_keys=$(echo "${site_envs}" | sed 's/=.*//' | sort -u)
+    site_keys=$(echo "${site_envs}" | sed 's/=.*//' | LC_ALL=C sort -u)
     if [ -n "${site_keys}" ]; then
         keys_alt=$(echo "${site_keys}" | paste -sd '|' -)
         logical_envs=$(echo "${current_envs}" | awk -F= -v keys="${keys_alt}" '
@@ -195,7 +195,7 @@ fi
 # Generate the operator overlay, stripping site-derived bytes
 # (KUBECONFIG and KUBE_CONFIG_PATH come from .generated/context.<side>.env).
 scripts/dev/print_operator_env.sh \
-    | sort | uniq \
+    | LC_ALL=C sort | uniq \
     | grep -Ev '^(KUBECONFIG|KUBE_CONFIG_PATH)=' \
     > "${destination_envs_file}.operator.env"
 
