@@ -43,8 +43,13 @@ windows:
       # in-container HTTP-CONNECT tunnel. k9s reloads on disk change,
       # so context switches inside the container propagate without
       # restarting this pane.
+      #
+      # Source devenv so NAMESPACE is exported, then launch k9s pinned to
+      # the worktree's namespace and the pods view (otherwise k9s lands
+      # on the welcome screen / empty default namespace).
       - shell_command:
-          - exec /workspace/.devcontainer/scripts/pane_runner.sh k9s --kubeconfig /workspace/.generated/evg-host.devc.kubeconfig
+          - . /workspace/scripts/dev/devenv 2>/dev/null
+          - exec /workspace/.devcontainer/scripts/pane_runner.sh k9s --kubeconfig /workspace/.generated/evg-host.devc.kubeconfig -n "${NAMESPACE:-default}" -c pods
       # Bottom-left: operator log (logs/operator.log is the stable
       # symlink op_run.sh maintains across runs).
       - shell_command:
