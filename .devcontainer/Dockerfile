@@ -45,9 +45,16 @@ RUN chmod 0644 /etc/mck/shell-init.sh \
 # This replaces the PATH prepend that lived in scripts/dev/set_env_context.sh
 # in the old design. Keep it container-only — host devs add the
 # equivalent to their ~/.zshrc themselves. See docs/dev/context-split/.
+#
+# Debian/Ubuntu's stock /etc/zsh/zprofile is comments only — it does NOT
+# source /etc/profile, so /etc/profile.d/* never fires for zsh login
+# shells. Append an explicit sourcing line so zsh login shells get the
+# same PATH as bash login shells.
 RUN printf 'export PATH="/workspace/bin:${PATH}"\n' \
         > /etc/profile.d/mck-bin.sh \
- && chmod 0644 /etc/profile.d/mck-bin.sh
+ && chmod 0644 /etc/profile.d/mck-bin.sh \
+ && printf '\n# MCK: source /etc/profile.d/* for zsh login shells (Debian default zprofile is comment-only).\nemulate sh -c '\''source /etc/profile'\''\n' \
+        >> /etc/zsh/zprofile
 
 RUN bash -c 'mkdir -p /workspace/.generated /home/vscode/.cache/{go-build,pip,helm}' && \
     chown -R vscode:vscode /workspace/.generated /home/vscode/.cache
