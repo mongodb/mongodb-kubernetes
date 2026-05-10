@@ -26,6 +26,7 @@ from typing import Callable, Iterable, Optional
 
 from . import orchestrator_state as ostate
 from .domains.compose import project_name_for
+from .domains.network import NetworkDomain
 from .errors import (
     ExternalCommandFailed,
     ParallelPhaseFailures,
@@ -266,17 +267,10 @@ class CreateOrchestrator:
             existing_prefix = _read_existing_prefix(env_file)
             if existing_prefix is not None:
                 return
-            res = self.runner.run(
-                [
-                    str(wt / "scripts" / "dev" / "dc_select_network.sh"),
-                    "--branch-dir", i.branch_dir,
-                ],
-                cwd=wt,
-            )
-            line = (res.stdout or "").strip()
+            line = NetworkDomain(self.runner, wt).allocate(i.branch_dir).rstrip("\n")
             if not line.startswith("MCK_DEVC_NET_PREFIX="):
                 raise WtCtlError(
-                    f"dc_select_network.sh produced unexpected output: {line!r}"
+                    f"NetworkDomain.allocate produced unexpected output: {line!r}"
                 )
             # Append to .devcontainer/.env (preserves any other keys).
             env_file.parent.mkdir(parents=True, exist_ok=True)
@@ -871,23 +865,15 @@ class DeleteOrchestrator:
 
     def _step_prefix_release(self, emit: Callable[[str], None]) -> None:
         emit(f"[wt-ctl] network: releasing registry entry for '{self.inputs.branch_dir}'")
-        # The target worktree's scripts have already been removed by the
-        # preceding _step_worktree_remove. main_repo_root points at the bare
-        # `.git` parent which typically has no working tree, so fall back
-        # candidates in order: target worktree (still there if --keep-worktree),
-        # main_repo_root, then the cwd (the user invoked wt-ctl from
-        # somewhere — usually a sibling worktree which has the script).
-        candidates = [
-            self.inputs.worktree_path / "scripts" / "dev" / "dc_select_network.sh",
-            self.scripts / "dc_select_network.sh",
-            Path(os.getcwd()) / "scripts" / "dev" / "dc_select_network.sh",
-        ]
-        script = next((c for c in candidates if c.is_file()), candidates[0])
+        # Native Registry.release() — no shim hop, no path-resolution
+        # gymnastics across deleted worktrees.
         try:
-            self.runner.run_streaming(
-                [str(script), "--release", self.inputs.branch_dir],
-                prefix="[net-release] ",
-            )
+            # release() doesn't consult worktree_parent — any sensible
+            # repo_root works. main_repo_root is canonical and always set.
+            domain = NetworkDomain(self.runner, self.inputs.main_repo_root)
+            output = domain.release(self.inputs.branch_dir).rstrip("\n")
+            if output:
+                emit(f"[net-release] {output}")
         except (ExternalCommandFailed, ToolMissing, WtCtlError) as exc:
             emit(f"[wt-ctl] network: release failed (continuing): {exc.render()}")
 

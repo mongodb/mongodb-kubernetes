@@ -8,6 +8,7 @@ the right step.
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 import unittest
 from dataclasses import dataclass, field
@@ -100,6 +101,26 @@ def _make_fixture(tmp: Path, *, with_compose_running: bool, with_evg_host: bool)
 
 
 class DeletePipelineTests(unittest.TestCase):
+    def setUp(self) -> None:
+        # Isolate the network-prefix registry per test so we never write to
+        # the real ~/.cache/mck-devc/* during unit tests.
+        self._reg_tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._reg_tmp.cleanup)
+        self._prev_reg = os.environ.get("MCK_DEVC_REGISTRY_DIR")
+        os.environ["MCK_DEVC_REGISTRY_DIR"] = self._reg_tmp.name
+
+    def tearDown(self) -> None:
+        if self._prev_reg is None:
+            os.environ.pop("MCK_DEVC_REGISTRY_DIR", None)
+        else:
+            os.environ["MCK_DEVC_REGISTRY_DIR"] = self._prev_reg
+
+    def _seed_registry(self, branch_dir: str, prefix: int = 24) -> Path:
+        reg = Path(self._reg_tmp.name) / "net-prefix-registry"
+        reg.parent.mkdir(parents=True, exist_ok=True)
+        reg.write_text(f"{branch_dir}={prefix}\n")
+        return reg
+
     def test_default_runs_five_substeps(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo, target, runner = _make_fixture(
@@ -109,6 +130,7 @@ class DeletePipelineTests(unittest.TestCase):
                 branch="topic/x", branch_dir="topic_x",
                 worktree_path=target, main_repo_root=repo,
             )
+            reg = self._seed_registry("topic_x")
             DeleteOrchestrator(runner, inputs).run()
             joined = [" ".join(c) for c in runner.calls]
             # 1) om clean (delete_om_projects.sh) ran.
@@ -121,8 +143,8 @@ class DeletePipelineTests(unittest.TestCase):
             # 4) git worktree remove + prune.
             self.assertTrue(any("worktree remove --force" in j for j in joined))
             self.assertTrue(any("worktree prune" in j for j in joined))
-            # 5) network release.
-            self.assertTrue(any("dc_select_network.sh --release topic_x" in j for j in joined))
+            # 5) network release happened natively (not via subprocess).
+            self.assertNotIn("topic_x", reg.read_text())
             # 6) NO branch delete (delete_branch=False default).
             self.assertFalse(any("branch -D" in j for j in joined))
 
@@ -197,39 +219,26 @@ class DeletePipelineTests(unittest.TestCase):
             joined = [" ".join(c) for c in runner.calls]
             self.assertFalse(any("delete_om_projects.sh" in j for j in joined))
 
-    def test_prefix_release_falls_back_to_main_repo_when_worktree_gone(self) -> None:
-        """After ``_step_worktree_remove`` deletes the target dir the
-        in-target script is gone; the release step must fall back to the
-        main_repo's checked-out scripts/dev/ — and if that's empty too,
-        try cwd as a last resort. We simulate "worktree already removed"
-        by deleting the target's scripts/dev/ before run().
+    def test_prefix_release_works_after_worktree_dir_is_gone(self) -> None:
+        """Native Registry.release() doesn't depend on any script living
+        inside the (already-removed) target worktree. Simulate "worktree
+        already removed" by deleting the target's scripts/dev/ before
+        run() and verify the release still happened.
         """
         with tempfile.TemporaryDirectory() as tmp:
             repo, target, runner = _make_fixture(
                 Path(tmp), with_compose_running=False, with_evg_host=False,
             )
-            # Pretend the worktree has already been removed: delete its
-            # scripts/dev/ tree so the in-target candidate fails .is_file().
             for f in (target / "scripts" / "dev").glob("*"):
                 f.unlink()
             (target / "scripts" / "dev").rmdir()
+            reg = self._seed_registry("topic_x")
             inputs = DeleteInputs(
                 branch="topic/x", branch_dir="topic_x",
                 worktree_path=target, main_repo_root=repo,
             )
             DeleteOrchestrator(runner, inputs).run()
-            joined = [" ".join(c) for c in runner.calls]
-            # Release call still fired, using the main_repo fallback.
-            self.assertTrue(
-                any("dc_select_network.sh --release topic_x" in j for j in joined),
-                msg=f"release didn't fire; calls: {joined}",
-            )
-            # And the chosen path was the main_repo one (the one that exists).
-            release_call = next(
-                c for c in runner.calls
-                if any("dc_select_network.sh" in a for a in c) and "--release" in c
-            )
-            self.assertIn(str(repo / "scripts" / "dev" / "dc_select_network.sh"), release_call)
+            self.assertNotIn("topic_x", reg.read_text())
 
     def test_failure_in_one_step_does_not_abort_pipeline(self) -> None:
         """Best-effort: a failure in evg_terminate must not stop the
@@ -249,6 +258,7 @@ class DeletePipelineTests(unittest.TestCase):
                     _term,
                 ),
             )
+            reg = self._seed_registry("topic_x")
             inputs = DeleteInputs(
                 branch="topic/x", branch_dir="topic_x",
                 worktree_path=target, main_repo_root=repo,
@@ -257,7 +267,8 @@ class DeletePipelineTests(unittest.TestCase):
             joined = [" ".join(c) for c in runner.calls]
             # Subsequent steps still ran.
             self.assertTrue(any("worktree remove" in j for j in joined))
-            self.assertTrue(any("dc_select_network.sh --release" in j for j in joined))
+            # network release is now native — verify registry was touched.
+            self.assertNotIn("topic_x", reg.read_text())
 
 
 if __name__ == "__main__":
