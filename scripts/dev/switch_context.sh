@@ -5,6 +5,11 @@ set -Eeou pipefail
 
 source scripts/funcs/errors
 
+# Side detection: /.dockerenv exists only inside containers.
+# Used to pick which .generated/context.<side>.env file we write here,
+# and is the same rule used by scripts/dev/devenv at source time.
+side=$([[ -f /.dockerenv ]] && echo devc || echo host)
+
 script_name=$(readlink -f "${BASH_SOURCE[0]}")
 script_dir=$(dirname "${script_name}")
 
@@ -49,60 +54,141 @@ echo "Generating context files from: ${context}"
 # If running locally, we don't need them since they are defined in the private-context already, so we don't need
 # any kind of current env var expansions
 if [ -n "${EVR_TASK_ID-}" ]; then
-  # shellcheck disable=SC1090
+    # site-context expects PROJECT_DIR to be set; on EVG we derive it from
+    # the script location (the EVG runner has its own filesystem layout).
+    : "${PROJECT_DIR:=$(realpath "${script_dir}/../..")}"
+    export PROJECT_DIR
+    # site-context computes other site-derived bytes for THIS side
+    # (the EVG runner — which has no /.dockerenv → side=host).
+    # shellcheck disable=SC1091
+    source "${contexts_dir}/site-context"
+    # shellcheck disable=SC1090
     source "${context_file}"
     # shellcheck disable=SC2207
     export CURRENT_VARIANT_CONTEXT="${context}"
     current_envs=$(export -p)
 else
-  # env -i makes sure to start the shell with an empty shell, such that we only save into context.env the env vars we have
-  # defined.
-  base_command="source ${local_development_default_file} && source ${context_file}"
-  if [ -n "${additional_override}" ]; then
-      echo "Using additional override file: ${additional_override_file}."
-      base_command+=" && source ${additional_override_file}"
-  elif [ -f "${override_context_file}" ]; then
-      echo "Using override file: ${override_context_file}. If you do not want to use one, remove the file or its contents."
-      base_command+=" && source ${override_context_file}"
-  fi
-  # Execute the command in a clean environment and capture exported variables
-  # Let's use our PATH as a base to have utilities available.
-  current_envs=$(env -i PWD="${PWD}" PATH="${PATH}" CURRENT_VARIANT_CONTEXT="${context}" bash -c "${base_command} && export -p")
+    # env -i makes sure to start the shell with an empty shell, such that we only save into context.env the env vars we have
+    # defined.
 
-  # `export -p` instead of `env` ensures we can safely re-source variables which we rely on further
-  # below like our operator.print.env script
-  # eval ensures we only use the exports and don't run the whole script against as done in base_command
-  eval "${current_envs}"
+    # Step (a): capture site exports alone. site-context introspects the
+    # running shell (PROJECT_DIR, GOROOT, /.dockerenv → KUBECONFIG variant,
+    # K8S_FWD_PROXY, s390x conditionals).
+    site_envs=$(env -i \
+        PWD="${PWD}" \
+        PATH="${PATH}" \
+        HOME="${HOME}" \
+        MCK_DEVC_NET_PREFIX="${MCK_DEVC_NET_PREFIX:-}" \
+        EVG_HOST_NAME="${EVG_HOST_NAME:-}" \
+        LOCAL_OPERATOR="${LOCAL_OPERATOR:-}" \
+        bash -c "source ${contexts_dir}/site-context && export -p")
+
+    # Step (b): capture site + logical together. Source site first (so
+    # PROJECT_DIR is set for root-context), then local-defaults, then the
+    # per-context profile (which sources root-context), then any override
+    # file. The result includes both site and logical exports.
+    base_command="source ${contexts_dir}/site-context"
+    base_command+=" && source ${local_development_default_file}"
+    base_command+=" && source ${context_file}"
+    if [ -n "${additional_override}" ]; then
+        echo "Using additional override file: ${additional_override_file}."
+        base_command+=" && source ${additional_override_file}"
+    elif [ -f "${override_context_file}" ]; then
+        echo "Using override file: ${override_context_file}. If you do not want to use one, remove the file or its contents."
+        base_command+=" && source ${override_context_file}"
+    fi
+    # Execute the command in a clean environment and capture exported variables.
+    # Use our PATH as a base so utilities are available.
+    all_envs=$(env -i \
+        PWD="${PWD}" \
+        PATH="${PATH}" \
+        HOME="${HOME}" \
+        MCK_DEVC_NET_PREFIX="${MCK_DEVC_NET_PREFIX:-}" \
+        EVG_HOST_NAME="${EVG_HOST_NAME:-}" \
+        LOCAL_OPERATOR="${LOCAL_OPERATOR:-}" \
+        CURRENT_VARIANT_CONTEXT="${context}" \
+        bash -c "${base_command} && export -p")
+
+    # `export -p` instead of `env` ensures we can safely re-source variables
+    # which we rely on further below like print_operator_env.sh.
+    # eval ensures we only use the exports and don't run the whole script
+    # again as done in base_command.
+    eval "${all_envs}"
+
+    # Keep current_envs as the canonical "everything captured" view for the
+    # post-processing below.
+    current_envs="${all_envs}"
 fi
 
 # convert declare -x key=value or export key=value into key=value
 # filter out variables that don't have value (missing '=')
-current_envs=$(echo "${current_envs[@]}" | grep '=' | sed 's/^declare -x //g' | sed 's/^export //g' | sed 's/=/=/'| sort | uniq)
+current_envs=$(echo "${current_envs[@]}" | grep '=' | sed 's/^declare -x //g' | sed 's/^export //g' | sort | uniq)
+
+if [ -z "${EVR_TASK_ID-}" ]; then
+    # Same normalization for the site-only capture (local-dev branch only;
+    # the EVG-CI branch doesn't use site_envs).
+    site_envs=$(echo "${site_envs[@]}" | grep '=' | sed 's/^declare -x //g' | sed 's/^export //g' | sort | uniq)
+
+    # Drop the env -i passthrough keys from both captures. These are vars
+    # we forwarded into the env -i subshell so site-context could read
+    # them as inputs; they show up in `export -p` because env -i marks
+    # them exported, but they are NOT site-derived and we don't want
+    # them written to either context.<side>.env (PATH, HOME, PWD, SHLVL)
+    # or stripped from context.env when they are logically configured
+    # (EVG_HOST_NAME, MCK_DEVC_NET_PREFIX, LOCAL_OPERATOR, CURRENT_VARIANT_CONTEXT).
+    passthrough_re='^(PWD|PATH|HOME|SHLVL|_|MCK_DEVC_NET_PREFIX|EVG_HOST_NAME|LOCAL_OPERATOR|CURRENT_VARIANT_CONTEXT)='
+    site_envs=$(echo "${site_envs}" | grep -Ev "${passthrough_re}" || true)
+    current_envs=$(echo "${current_envs}" | grep -Ev '^(PWD|PATH|HOME|SHLVL|_)=' || true)
+
+    # Logical = current_envs minus any line whose KEY appears in site_envs.
+    # Variable names per POSIX are [A-Za-z_][A-Za-z0-9_]*, so '|' can never
+    # appear in a name — safe to use as the alternation separator.
+    site_keys=$(echo "${site_envs}" | sed 's/=.*//' | sort -u)
+    if [ -n "${site_keys}" ]; then
+        logical_envs=$(echo "${current_envs}" | awk -F= -v keys="$(echo "${site_keys}" | paste -sd '|' -)" '
+            $1 !~ "^("keys")$" { print }
+        ')
+    else
+        logical_envs="${current_envs}"
+    fi
+else
+    # EVG-CI branch: no per-side split. Treat everything as logical.
+    logical_envs="${current_envs}"
+    site_envs=""
+fi
 
 echo -e "## This file is automatically generated by switch_context.sh\n## Do not edit it!" > "${destination_envs_file}.env"
 # shellcheck disable=SC2129
 echo -e "## Regenerated at $(date)\n" >> "${destination_envs_file}.env"
-# Side-stamp: which side of the host/devcontainer split wrote this file. Used by
-# tooling and humans to spot stale context.*.env left over from the wrong side
-# (host-baked .generated/context.export.env getting sourced inside the
-# devcontainer, or vice versa). /.dockerenv exists only inside containers.
-echo -e "## Side: $([[ -f /.dockerenv ]] && echo container || echo host)\n" >> "${destination_envs_file}.env"
-echo "${current_envs}" >> "${destination_envs_file}.env"
+echo "${logical_envs}" >> "${destination_envs_file}.env"
 
 # Below is a list of special cases of variables that are called the same in EVG and local context.
 # This piece should probably be refactored as it's super easy to make a mistake and shadow the proper variable.
-if ! echo "${current_envs}" | grep -q "^workdir="; then
-  echo "workdir=\"${workdir:-.}\"" >> "${destination_envs_file}.env"
+if ! echo "${logical_envs}" | grep -q "^workdir="; then
+    echo "workdir=\"${workdir:-.}\"" >> "${destination_envs_file}.env"
 fi
 
-# Build .export.env from the canonical .env: emit only key=value lines as
-# `export key=value`; skip header comments and blank lines so the file is
-# safe to `source` regardless of how many comment lines the canonical file
-# carries (was previously hard-coded to skip the first 4 lines).
-awk '/^[A-Za-z_][A-Za-z0-9_]*=/ {print "export " $0}' < "${destination_envs_file}".env > "${destination_envs_file}".export.env
+# Write the per-side site bytes to .generated/context.<side>.env. The other
+# side's file is left untouched, so a host `make switch` does not clobber the
+# devc's site bytes (and vice versa).
+if [ -z "${EVR_TASK_ID-}" ]; then
+    site_destination="${destination_envs_dir}/context.${side}.env"
+    echo -e "## This file is automatically generated by switch_context.sh\n## Do not edit it!" > "${site_destination}"
+    # shellcheck disable=SC2129
+    echo -e "## Regenerated at $(date)\n## Side: ${side}\n" >> "${site_destination}"
+    echo "${site_envs}" >> "${site_destination}"
+fi
 
-scripts/dev/print_operator_env.sh | sort | uniq >"${destination_envs_file}.operator.env"
-awk 'NF {print "export " $0}' < "${destination_envs_file}".operator.env > "${destination_envs_file}".operator.export.env
+# Generate the operator overlay, stripping site-derived bytes
+# (KUBECONFIG and KUBE_CONFIG_PATH come from .generated/context.<side>.env).
+scripts/dev/print_operator_env.sh \
+    | sort | uniq \
+    | grep -Ev '^(KUBECONFIG|KUBE_CONFIG_PATH)=' \
+    > "${destination_envs_file}.operator.env"
+
+# Drop legacy .export.env files on regenerate so stale copies from prior runs
+# (when the generator still emitted them) don't get sourced by accident.
+rm -f "${destination_envs_file}.export.env" "${destination_envs_file}.operator.export.env"
 
 echo -n "${context}" > "${destination_envs_dir}/.current_context"
 
