@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+#
+# site-context — site-derived environment variables (per-side bytes).
+#
+# Sourced by scripts/dev/switch_context.sh in an `env -i` subshell, ON the
+# side that ran `make switch`. The values it exports depend on the
+# filesystem layout of the running side (PROJECT_DIR), the running shell's
+# Go install (GOROOT), the architecture (s390x conditionals), and the
+# in-container vs. on-host k8s-forwarding-proxy address (K8S_FWD_PROXY).
+#
+# Companion: scripts/dev/contexts/root-context (logical, side-agnostic).
+
+set -Eeou pipefail
+
+script_name=$(readlink -f "${BASH_SOURCE[0]}")
+script_dir=$(dirname "${script_name}")
+
+PROJECT_DIR="$(realpath "${script_dir}/../../..")"
+export PROJECT_DIR
+
+# In-container k8s-forwarding-proxy is reachable at the compose-fixed IP
+# 172.${MCK_DEVC_NET_PREFIX}.0.10. On host, the kfp listens on
+# 127.0.0.1:11616 (registered by `.devcontainer/scripts/post-start.sh`).
+# Today this var is only set in compose for the devc service; surfacing
+# it on host too means `setup_kind_cluster.sh` and `evg_host.sh`'s kfp
+# registration paths Just Work when invoked from a host shell.
+if [[ -f /.dockerenv ]]; then
+  : "${MCK_DEVC_NET_PREFIX:?MCK_DEVC_NET_PREFIX must be set in devc (compose)}"
+  K8S_FWD_PROXY="172.${MCK_DEVC_NET_PREFIX}.0.10"
+else
+  K8S_FWD_PROXY="127.0.0.1:11616"
+fi
+export K8S_FWD_PROXY
+
+# KUBECONFIG variant — host kubeconfig has proxy-url=127.0.0.1:80${PREFIX};
+# devc kubeconfig has proxy-url=gost-proxy:8080. Both managed by
+# scripts/dev/evg_host.sh; we only pick the path here.
+if [[ "${EVG_HOST_NAME:-}" != "" ]]; then
+  if [[ -f /.dockerenv ]]; then
+    KUBECONFIG="${PROJECT_DIR}/.generated/evg-host.devc.kubeconfig"
+  else
+    KUBECONFIG="${PROJECT_DIR}/.generated/evg-host.kubeconfig"
+  fi
+else
+  KUBECONFIG="${HOME}/.kube/config"
+fi
+export KUBECONFIG
+
+# When LOCAL_OPERATOR=true, the multi-cluster kubeconfig is written under
+# ${PROJECT_DIR}/.generated/multicluster_kubeconfig (filesystem-specific).
+if [[ "${LOCAL_OPERATOR:-}" == "true" ]]; then
+  export KUBE_CONFIG_PATH="${PROJECT_DIR}/.generated/multicluster_kubeconfig"
+fi
+
+export MULTI_CLUSTER_CONFIG_DIR="${PROJECT_DIR}/.multi_cluster_local_test_files"
+export MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH="${PROJECT_DIR}/docker/mongodb-kubernetes-tests/multi-cluster-kube-config-creator"
+
+if command -v go >/dev/null 2>&1; then
+  GOROOT="$(go env GOROOT)"
+  export GOROOT
+fi
+
+# s390x-specific feature flags — use ${VAR:-default} so the caller can
+# override before sourcing.
+# PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION: s390x requires pure-Python
+#   protobuf; C++ extension crashes at import.
+#   https://github.com/protocolbuffers/protobuf/issues/24103
+# SODIUM_INSTALL: pynacl must link against system libsodium; bundled
+#   build broken on s390x+Python 3.13.
+# PYTEST_OTEL_ENABLED: grpcio segfaults at exit on s390x+Python 3.13.
+if [[ "$(uname -m)" == "s390x" ]]; then
+  export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION="${PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION:-python}"
+  export SODIUM_INSTALL="${SODIUM_INSTALL:-system}"
+  export PYTEST_OTEL_ENABLED="${PYTEST_OTEL_ENABLED:-false}"
+fi

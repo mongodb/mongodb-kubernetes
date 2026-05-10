@@ -2,12 +2,14 @@
 
 set -Eeou pipefail
 
+# PROJECT_DIR is set by scripts/dev/contexts/site-context (sourced before
+# this file by switch_context.sh). We read it here to locate release.json
+# but DO NOT export it — that's site-context's job.
+: "${PROJECT_DIR:?PROJECT_DIR must be set by site-context before sourcing root-context}"
+
 script_name=$(readlink -f "${BASH_SOURCE[0]}")
 script_dir=$(dirname "${script_name}")
 source "${script_dir}/private-context"
-
-PROJECT_DIR="$(realpath "${script_dir}/../../..")"
-export PROJECT_DIR
 
 # Per-worktree OM project name isolation.
 #
@@ -87,19 +89,9 @@ export TEST_POD_CLUSTER="${CLUSTER_NAME}"
 
 export CENTRAL_CLUSTER="${CLUSTER_NAME}"
 export MULTI_CLUSTER_CREATE_SERVICE_ACCOUNT_TOKEN_SECRETS=true
-export MULTI_CLUSTER_CONFIG_DIR=${PROJECT_DIR}/.multi_cluster_local_test_files
-export MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH=${PROJECT_DIR}/docker/mongodb-kubernetes-tests/multi-cluster-kube-config-creator
 
 # override for /etc/config/kubeconfig file mounted in operator's pod
 if [[ "${LOCAL_OPERATOR}" == "true" ]]; then
-  # This env var is used by the local operator to load multi-cluster kubeconfig.
-  # Normally the pod loads it from the
-  # mongodb-enterprise-operator-multi-cluster-kubeconfig secret mounted into
-  # its container. When running locally we generate that kubeconfig with the
-  # kubectl-mongodb CLI and write it under the worktree's .generated/
-  # directory — same pattern as evg-host.kubeconfig — so multiple parallel
-  # worktrees don't clobber each other's kubeconfig at a shared path.
-  export KUBE_CONFIG_PATH="${PROJECT_DIR}/.generated/multicluster_kubeconfig"
   export PERFORM_FAILOVER=false
 fi
 
@@ -155,29 +147,6 @@ export READINESS_PROBE_IMAGE="${READINESS_PROBE_REGISTRY}/mongodb-kubernetes-rea
 export VERSION_UPGRADE_HOOK_IMAGE="${VERSION_UPGRADE_HOOK_REGISTRY}/mongodb-kubernetes-operator-version-upgrade-post-start-hook:${VERSION_UPGRADE_HOOK_VERSION}"
 
 export KUBE_ENVIRONMENT_NAME=kind
-
-# when using EVG ec2 instance, we copy kubeconfig locally and use it.
-# Two variants exist:
-#  - .generated/evg-host.kubeconfig:      proxy-url=http://127.0.0.1:80${MCK_DEVC_NET_PREFIX} (host view)
-#  - .generated/evg-host.devc.kubeconfig: proxy-url=http://gost-proxy:8080 (in-container view)
-# The bare filename serves the host side so tools that hard-code
-# .generated/evg-host.kubeconfig keep working on the host. /.dockerenv
-# only exists inside a container, so it's a reliable side-detector.
-if [[ "${EVG_HOST_NAME:-}" != "" ]]; then
-  if [[ -f /.dockerenv ]]; then
-    KUBECONFIG="${PROJECT_DIR}/.generated/evg-host.devc.kubeconfig"
-  else
-    KUBECONFIG="${PROJECT_DIR}/.generated/evg-host.kubeconfig"
-  fi
-else
-  KUBECONFIG=~/.kube/config
-fi
-export KUBECONFIG
-
-if command -v go >/dev/null 2>&1; then
-  GOROOT="$(go env GOROOT)"
-  export GOROOT
-fi
 
 export SIGNING_PUBLIC_KEY_URL="https://cosign.mongodb.com/mongodb-enterprise-kubernetes-operator.pem"
 
@@ -239,14 +208,3 @@ export OPERATOR_CLUSTER_SCOPED=false
 # for downloading helm and kubectl binaries
 export HELM_VERSION="v3.19.4"
 export KUBECTL_VERSION="v1.35.0"
-
-# s390x-specific feature flags — use ${VAR:-default} so they can be overridden before sourcing this context.
-# PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION: s390x requires pure Python protobuf implementation
-#   https://github.com/protocolbuffers/protobuf/issues/24103
-# SODIUM_INSTALL: pynacl must link against system libsodium (RHEL9 ships 1.0.18; bundled build broken on s390x+Python 3.13)
-# PYTEST_OTEL_ENABLED: grpcio segfaults at exit on s390x+Python 3.13; pytest-opentelemetry excluded from requirements
-if [[ "$(uname -m)" == "s390x" ]]; then
-  export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION="${PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION:-python}"
-  export SODIUM_INSTALL="${SODIUM_INSTALL:-system}"
-  export PYTEST_OTEL_ENABLED="${PYTEST_OTEL_ENABLED:-false}"
-fi

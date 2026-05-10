@@ -305,3 +305,106 @@ Pre-commit must be clean (`pre-commit run --all-files`).
 - Master plan: [`README.md`](README.md)
 - Next step: [`02-switch-context.md`](02-switch-context.md)
 - Backlog item: `docs/dev/worktree-tooling-improvements.md` #1
+
+## Notes (implementation)
+
+Implemented on `lsierant/devcontainer` as commit
+`contexts: split root-context into logical + site-context`.
+
+### What changed
+
+- **New**: `scripts/dev/contexts/site-context` (mode 0755) — exact bytes from
+  the plan's section 1.
+- **Modified**: `scripts/dev/contexts/root-context` —
+  - Replaced the `PROJECT_DIR=…; export PROJECT_DIR` block with the
+    `: "${PROJECT_DIR:?…}"` guard at the top.
+  - Removed `MULTI_CLUSTER_CONFIG_DIR`, `MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH`.
+  - Stripped the `KUBE_CONFIG_PATH` export from the `LOCAL_OPERATOR=true`
+    branch; kept `PERFORM_FAILOVER=false`.
+  - Removed the `KUBECONFIG` / `EVG_HOST_NAME` block.
+  - Removed the `GOROOT` block.
+  - Removed the s390x conditional block at the bottom.
+
+### Deviations from the plan
+
+1. **Kept `script_dir` / `script_name` in `root-context`.** Section 2a
+   says to delete them along with the PROJECT_DIR block. That's incorrect
+   in this codebase — those vars are still required by the very next line
+   `source "${script_dir}/private-context"`, and the plan explicitly
+   carves out that `private-context*` is not touched in this step. Left
+   them in place; the file still passes shellcheck and verification.
+   **Action for step 02 author:** if private-context sourcing moves out
+   of root-context (e.g. into `switch_context.sh` or
+   `local-defaults-context`), then `script_dir`/`script_name` can finally
+   be removed from root-context.
+
+2. **`site-context` mode is 0755 per the plan body**, not 0644 like
+   `root-context`. The instruction text in this doc and the agent prompt
+   both say "match root-context's mode (0755)" but the actual mode of
+   `root-context` on disk is 0644. I followed the explicit numeric
+   directive (0755) rather than the "match" hint. Net effect is harmless
+   — both files are sourced, never executed. **Action for step 02:**
+   decide whether to normalize both to 0644 or both to 0755; pick one
+   convention and apply it.
+
+3. **Verification block needed extra env passed through `env -i`.** As
+   written in the plan, the first verification (`env -i bash -c
+   'source site-context …'`) fails under `set -u` because `HOME` is
+   stripped and the `KUBECONFIG="${HOME}/.kube/config"` fallback dereferences
+   it. Worked around by adding `HOME="${HOME}"` to the `env -i`
+   invocation; same fix for `PATH` so that `command -v go` finds the Go
+   toolchain and the `GOROOT` line shows up in the output. The
+   `site-context` file itself was NOT changed — this is a verification-
+   only adjustment. **Action for step 02:** when `switch_context.sh`
+   sources `site-context` from inside `env -i`, it must pass `HOME` and
+   `PATH` through (the existing call already passes `PATH`; add `HOME`).
+
+4. **Third verification (`env -i PROJECT_DIR=… PATH=… bash -c 'source
+   root-context …'`) failed on `REGISTRY: unbound variable`.** This is a
+   pre-existing dependency: `root-context` line `export
+   REGISTRY=${REGISTRY}` requires `REGISTRY` to be set by
+   `local-defaults-context`, which `switch_context.sh` sources before
+   `root-context`. The plan's verification block sourced `root-context`
+   alone (no `local-defaults-context`), which exposed this old coupling.
+   I confirmed the property the verification was actually checking
+   (root-context emits no `KUBECONFIG=` / `GOROOT=` lines) by adding
+   `REGISTRY="dummy/reg"` to the `env -i` invocation; with that, the
+   command exits 0 and the only matching line is the passed-in
+   `PROJECT_DIR=`. **Action for step 02:** the new
+   `switch_context.sh` flow needs to source `local-defaults-context`
+   BEFORE `root-context` (current behavior — preserve it) so REGISTRY
+   chain stays intact. Alternative: move REGISTRY default into
+   `root-context` itself with `${REGISTRY:-${BASE_REPO_URL_SHARED:-}}`
+   fallback, but that's out of scope here.
+
+### Verification output (relevant lines)
+
+site-context (with `HOME`, `PATH` passed through):
+
+```
+declare -x GOROOT="/Users/lukasz.sierant/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.25.9.darwin-arm64"
+declare -x K8S_FWD_PROXY="127.0.0.1:11616"
+declare -x KUBECONFIG="/Users/lukasz.sierant/.kube/config"
+declare -x MULTI_CLUSTER_CONFIG_DIR="…/lsierant_devcontainer/.multi_cluster_local_test_files"
+declare -x MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH="…/multi-cluster-kube-config-creator"
+declare -x PROJECT_DIR="/Users/lukasz.sierant/mdb/lsierant_devcontainer"
+```
+
+root-context fails fast without PROJECT_DIR:
+
+```
+scripts/dev/contexts/root-context: line 8: PROJECT_DIR: PROJECT_DIR must be set by site-context before sourcing root-context
+```
+
+root-context succeeds with `PROJECT_DIR` + `REGISTRY` pre-set; emits no
+KUBECONFIG/GOROOT:
+
+```
+PROJECT_DIR=/Users/lukasz.sierant/mdb/lsierant_devcontainer
+```
+
+(Only the inherited `PROJECT_DIR` shows; root-context no longer adds
+`KUBECONFIG=` or `GOROOT=` lines, which is the property under test.)
+
+`pre-commit run --files scripts/dev/contexts/site-context
+scripts/dev/contexts/root-context` clean (ShellCheck passed).
