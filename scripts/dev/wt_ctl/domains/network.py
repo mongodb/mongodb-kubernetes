@@ -618,7 +618,8 @@ class Registry:
             out.write(f"  - Stale registry entries:  {self_ref} {stale_arg} [--dry-run]\n")
             out.write(f"  - Plus orphan docker nets: {self_ref} {nets_arg} [--dry-run]\n")
             out.write(f"  - Specific entry:          {self_ref} {rel_arg} <branch_dir>\n")
-            out.write("  - When you tear down a worktree via wt_teardown.sh, the registry\n")
+            tear_ref = "wt-ctl delete" if not legacy_style else "wt_teardown.sh"
+            out.write(f"  - When you tear down a worktree via {tear_ref}, the registry\n")
             out.write("    entry is released automatically.\n")
         return out.getvalue()
 

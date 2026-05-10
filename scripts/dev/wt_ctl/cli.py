@@ -551,10 +551,10 @@ def cmd_network(runner: Runner, refs: WorktreeRefs, args: argparse.Namespace) ->
     nw = NetworkDomain(runner, refs.worktree_root)
     sub = args.net_cmd or "list"
     if sub == "list":
-        # `script_self` is the legacy bash invocation path so the pruning-info
-        # block byte-matches what users had before Phase 2.5.
-        legacy_self = str(refs.worktree_root / "scripts" / "dev" / "dc_select_network.sh")
-        sys.stdout.write(nw.list_raw(script_self=legacy_self))
+        # Default rendering uses the new `wt-ctl network` entry-point spelling
+        # in pruning hints — the bash shim and its byte-compat fixture
+        # were retired in the Phase 4 cleanup.
+        sys.stdout.write(nw.list_raw())
         return 0
     if sub == "prune":
         sys.stdout.write(nw.prune(
