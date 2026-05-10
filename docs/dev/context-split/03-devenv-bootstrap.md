@@ -315,3 +315,119 @@ Step 3/6 of docs/dev/context-split.
 - Parallelisable with: [`04-godotenv-consumers.md`](04-godotenv-consumers.md)
 - Next step: [`05-shell-consumers.md`](05-shell-consumers.md) depends
   on this step (consumers will source `devenv`).
+
+## Notes (implementation)
+
+Implemented on `lsierant/devcontainer` as a single commit. No image
+rebuild in this step (verification skipped per the step's own guidance —
+step 06 covers the live container test).
+
+### What changed
+
+- **`scripts/dev/devenv`** (new, mode 0644, sourceable, no shebang).
+  Body matches the plan verbatim except for one addition: a
+  `# shellcheck disable=SC2317` directive near the top of the file
+  (after the file-level header comment, before `__mck_root=`). Without
+  it, ShellCheck v0.10.0 flags the three
+  `return 1 2>/dev/null || exit 1` lines as SC2317 (unreachable). The
+  dual-form is intentional — sourceable scripts that may also be
+  exec'd — and the disable is the documented escape hatch.
+- **`.devcontainer/Dockerfile`** — added a new `RUN` block immediately
+  after the `COPY shell-init.sh … && tee … .bashrc /home/vscode/.zshrc`
+  block (i.e. after the last existing `RUN` for shell-init wiring,
+  before the `mkdir /workspace/.generated` `RUN`). Block writes
+  `/etc/profile.d/mck-bin.sh` with `export PATH="/workspace/bin:${PATH}"`,
+  mode 0644. Verbatim from plan section 2.
+- **`.devcontainer/shell-init.sh`** — replaced the `if [[ -f
+  /workspace/.generated/context.export.env ]]; then source …; fi` /
+  `venv/bin/activate` block with a single `. /workspace/scripts/dev/devenv
+  || true` (devenv handles the venv activation itself). Added the
+  `mck-env` shell function definition outside the `$- == *i*` guard
+  so non-interactive scripts that source shell-init.sh also get the
+  function. The trailing tmux exec block is unchanged.
+- **`docs/dev/context-split/host-setup.md`** (new). Verbatim from
+  plan section 4.
+
+### Deviations from the plan
+
+1. **`# shellcheck disable=SC2317` in `scripts/dev/devenv`.** Not in
+   the plan; necessary to make pre-commit's ShellCheck hook pass on
+   the `return 1 2>/dev/null || exit 1` dual-form. SC1090/SC1091 (the
+   ones the plan does call out) are also disabled inline at the
+   `source` lines — those came from the plan.
+
+2. **No image rebuild done.** The plan's verification block walks
+   through `dc_build.sh`/`dc_up.sh` and `devcontainer exec`. Per the
+   step instructions in the kickoff message, the rebuild is deferred
+   to step 06; this step verified script bodies via host-side syntax
+   and source tests instead.
+
+3. **Pre-commit `.export.env` stub workaround still required.**
+   Step 02's notes flagged that `set_env_context.sh` consumers (used
+   by pre-commit hooks `update-release-json`, `update-values-yaml`,
+   `generate-standalone-yaml`, `generate-and-update`,
+   `validate-helm-charts`) source `.generated/context.export.env`,
+   which is no longer emitted. Same workaround applies here: I
+   regenerated the stub from `context.env` + `context.host.env` (and
+   `context.operator.export.env` from `context.operator.env`) before
+   running pre-commit. Step 05 should remove the dependency entirely
+   in `set_env_context.sh`.
+
+### Issues uncovered for steps 05/06
+
+- **`shell-init.sh` source path is hardcoded to `/workspace/`.** That's
+  intentional — shell-init.sh is container-only — but it means the
+  `mck-env` function defined there only works inside the devcontainer.
+  Host devs install their own `mck-env` (one-liner pointed at
+  `git rev-parse --show-toplevel`) per `host-setup.md`. Step 06's
+  V1–V10 should exercise both paths; this step only verifies the
+  container path's body parses.
+
+- **`/etc/profile.d/mck-bin.sh` only takes effect on rebuild.** Step 02
+  notes already flagged the consumer-breakage window between step 02
+  and step 05. Step 03 doesn't change that window — `set_env_context.sh`
+  still bridges to `.export.env` until step 05 lands. The new PATH
+  prepend layer is dormant until the image is rebuilt; the existing
+  `set_env_context.sh` PATH prepend keeps working in the meantime.
+
+- **`mck-env` defined outside the `$- == *i*` guard.** The plan calls
+  this out as a feature (scripts and dev shells share the entry
+  point). One side effect: any `bash -c '. /etc/mck/shell-init.sh; …'`
+  invocation now has `mck-env` available. No known caller does this,
+  but if a future consumer relies on shell-init.sh being a no-op for
+  non-interactive shells, the function definition leaks. Acceptable
+  per plan.
+
+### Verification snippets
+
+`bash -n scripts/dev/devenv` and `bash -n .devcontainer/shell-init.sh`
+both pass.
+
+`shellcheck scripts/dev/devenv` and `shellcheck .devcontainer/shell-init.sh`
+both pass after the SC2317 directive was added.
+
+Sourcing on host succeeds:
+
+```
+$ bash -c '. scripts/dev/devenv && echo "PROJECT_DIR=${PROJECT_DIR}"'
+PROJECT_DIR=/Users/.../lsierant_devcontainer
+```
+
+Loud-fail when `context.host.env` is missing:
+
+```
+$ mv .generated/context.host.env /tmp/saved && \
+  bash -c '. scripts/dev/devenv'; echo "exit=$?"
+ERROR: /Users/.../.generated/context.host.env not found.
+       You're on the host side; run 'make switch' here to
+       generate it, then re-source.
+exit=1
+```
+
+`pre-commit run --files scripts/dev/devenv .devcontainer/Dockerfile
+.devcontainer/shell-init.sh docs/dev/context-split/host-setup.md` —
+all hooks pass (after re-emitting the temporary `.export.env` stubs
+described above).
+
+`hadolint` not on PATH; Dockerfile lint skipped per the step's own
+guidance.
