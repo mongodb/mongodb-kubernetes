@@ -372,3 +372,253 @@ Step 2/6 of docs/dev/context-split.
 - Next steps: [`03-devenv-bootstrap.md`](03-devenv-bootstrap.md) and
   [`04-godotenv-consumers.md`](04-godotenv-consumers.md) can run in
   parallel after this step.
+
+## Notes (implementation)
+
+Implemented on `lsierant/devcontainer` as a single commit modifying
+`scripts/dev/switch_context.sh` (file/line summary below).
+
+### What changed
+
+`scripts/dev/switch_context.sh`:
+
+- Added `side=$([[ -f /.dockerenv ]] && echo devc || echo host)` near the
+  top, right after `source scripts/funcs/errors`.
+- EVG-CI branch (`EVR_TASK_ID` set): now sets `PROJECT_DIR` to
+  `realpath script_dir/../..` if unset, exports it, then sources
+  `${contexts_dir}/site-context` BEFORE `${context_file}`. The rest of
+  that branch (export `CURRENT_VARIANT_CONTEXT`, capture `current_envs`)
+  is unchanged.
+- Local-dev branch (`else`): replaced single capture with two-step
+  capture. Step (a) — `site_envs` from a `bash -c "source site-context"`
+  in `env -i`, with `PWD/PATH/HOME/MCK_DEVC_NET_PREFIX/EVG_HOST_NAME/
+  LOCAL_OPERATOR` passed through. Step (b) — `all_envs` from the same
+  `env -i` with the original full chain (`site-context` →
+  `local-defaults-context` → `${context_file}` → optional override),
+  plus `CURRENT_VARIANT_CONTEXT`. `eval "${all_envs}"` keeps the rest of
+  the script's expectations (e.g. `print_operator_env.sh`) intact.
+  `current_envs` is set to `all_envs` for back-compat with the existing
+  normalization line.
+- Normalization: applied the same `grep '=' | sed 's/^declare -x //g' |
+  sed 's/^export //g' | sort | uniq` to `site_envs` (in the local-dev
+  branch only). Removed the no-op `sed 's/=/=/'` that was in the
+  original.
+- Subtraction: computes `site_keys` from `site_envs` keys, then
+  `logical_envs = current_envs` minus any line whose KEY appears in
+  `site_keys`, using `awk -F= -v keys="<piped>"`.
+- Write order:
+  - `${destination_envs_file}.env`: header + date + blank line + the
+    logical-only set (no `## Side:` stamp). Workdir default appended
+    if missing (unchanged behavior).
+  - `${destination_envs_dir}/context.${side}.env`: header + date +
+    `## Side: ${side}` informational comment + blank line + site
+    bytes. Local-dev branch only; CI branch skips it.
+- Operator overlay: `print_operator_env.sh | sort | uniq | grep -Ev
+  '^(KUBECONFIG|KUBE_CONFIG_PATH)=' > .../context.operator.env`. No
+  `.operator.export.env`.
+- Cleanup: `rm -f` the legacy `${destination_envs_file}.export.env` and
+  `${destination_envs_file}.operator.export.env` near the bottom of the
+  script (before the final `ls`). Idempotent — silent no-op if they
+  don't exist.
+
+### Deviations from the plan
+
+1. **Extra passthrough filter for `env -i` mechanics keys.** The plan's
+   subtraction algorithm is correct in principle (`logical = all -
+   site`), but `bash -c` under `env -i` re-marks every passthrough
+   variable as exported. Result: `PATH`, `HOME`, `PWD`, `SHLVL`, `_`,
+   plus any input vars we pass for `site-context` to introspect
+   (`MCK_DEVC_NET_PREFIX`, `EVG_HOST_NAME`, `LOCAL_OPERATOR`,
+   `CURRENT_VARIANT_CONTEXT`) all show up in `export -p` output even
+   though `site-context` itself never `export`s them. Without filtering:
+   - `PATH`/`HOME`/`PWD`/`SHLVL` end up in `context.host.env`
+     (gigantic noise — host-side PATH leaking into the file we're
+     trying to keep clean).
+   - `EVG_HOST_NAME`/`MCK_DEVC_NET_PREFIX`/`LOCAL_OPERATOR` are
+     classified as **logical** in `README.md` §3 (set by
+     `root-context`), but they'd be subtracted out of `logical_envs`
+     and written to `context.host.env` instead.
+
+   Added two passthrough filters before the subtraction:
+
+   ```bash
+   passthrough_re='^(PWD|PATH|HOME|SHLVL|_|MCK_DEVC_NET_PREFIX|EVG_HOST_NAME|LOCAL_OPERATOR|CURRENT_VARIANT_CONTEXT)='
+   site_envs=$(echo "${site_envs}" | grep -Ev "${passthrough_re}" || true)
+   current_envs=$(echo "${current_envs}" | grep -Ev '^(PWD|PATH|HOME|SHLVL|_)=' || true)
+   ```
+
+   Two distinct lists on purpose: the env-mechanics keys
+   (`PWD/PATH/HOME/SHLVL/_`) are dropped from BOTH captures (we never
+   want them in any generated file). The logical-input keys
+   (`MCK_DEVC_NET_PREFIX/EVG_HOST_NAME/LOCAL_OPERATOR/
+   CURRENT_VARIANT_CONTEXT`) are dropped only from `site_envs` so the
+   subtraction doesn't pull them out of `logical_envs` — they remain
+   in `current_envs` because `root-context` does export them, and we
+   want them in `context.env`.
+
+   **Action for steps 03/04/05:** when consumers source
+   `context.<side>.env`, they will NOT get a PATH from it (which is
+   correct — `/etc/profile.d/mck-bin.sh` and dev's `~/.zshrc` own
+   PATH, per the README design). Confirm `op_run.sh`/`e2e_run.sh`
+   migrations don't accidentally re-introduce PATH from
+   `context.export.env` muscle memory.
+
+2. **`HOME` passed through `env -i`.** Step 01 Notes flagged that the
+   verification's `env -i` invocations strip `HOME`, which causes
+   `site-context` to fail under `set -u` because of
+   `${HOME}/.kube/config`. Confirmed: added `HOME="${HOME}"` to BOTH
+   `env -i` invocations in `switch_context.sh` (steps a and b above).
+
+3. **`script_dir` / `script_name` left as-is in `root-context`.** Step
+   01 Notes flagged this; not modified in this step.
+
+4. **`site-context` (0755) vs. `root-context` (0644) mode mismatch.**
+   Step 01 Notes flagged this; intentionally not normalized in this
+   step. Both files are sourced, never executed; the mismatch is
+   harmless. A follow-up step (or a pre-commit hook) can pick a
+   convention.
+
+### Issues uncovered for steps 03/04/05
+
+- **`set_env_context.sh` and pre-commit hooks.** Pre-commit hooks
+  (`update-release-json`, `update-values-yaml`, `generate-standalone-yaml`,
+  `generate-and-update`, `validate-helm-charts`) all invoke shell
+  scripts (`generate_files.sh`, `lint_helm_chart.sh`) that
+  `source scripts/dev/set_env_context.sh`, which in turn sources
+  `.generated/context.export.env`. With step 02's cleanup
+  (`rm -f *.export.env` at the end of `switch_context.sh`), these
+  hooks fail with `realpath: ...context.export.env: No such file or
+  directory`. To get this commit through pre-commit, I temporarily
+  re-emitted `.export.env` files outside `switch_context.sh` (vanilla
+  `awk '/^[A-Za-z_][A-Za-z0-9_]*=/ {print "export " $0}'` of
+  `context.env` + `context.host.env`, plus `context.operator.env`).
+  Step 05 must update `set_env_context.sh` to use the new pattern
+  (`set -a; source context.env; source context.<side>.env; set +a`)
+  so pre-commit goes back to passing without the stub files. Note
+  that the side guard in `set_env_context.sh` reads the `## Side:`
+  stamp from `context.env` — that stamp is gone in this step's
+  output; step 05 should remove the side guard entirely.
+
+- **Other shell consumers** (`op_run.sh`, `e2e_run.sh`, `evg_host.sh`,
+  `create_worktree.sh`, `delete_om_projects.sh`, `run.sh`) all source
+  `.generated/context.export.env` directly. They will all break until
+  step 05. The step 05 author should grep for `context.export.env`
+  and `context.operator.export.env` to find every site:
+
+  ```
+  scripts/dev/op_run.sh:30 + 75
+  scripts/dev/e2e_run.sh:28
+  scripts/dev/evg_host.sh:72
+  scripts/dev/create_worktree.sh:75
+  scripts/dev/delete_om_projects.sh:21 (comment only)
+  scripts/dev/set_env_context.sh:11, 17, 21, 23
+  scripts/test/bash/run.sh:57
+  scripts/test/bash/worktree/test_om_project_namespace.bats:9, 96 (comments only)
+  Makefile:56 (comment only)
+  ```
+
+- **CI (EVG) branch surface area.** The CI branch now sources
+  `site-context` (which sets `K8S_FWD_PROXY`, `KUBECONFIG`, `GOROOT`,
+  `MULTI_CLUSTER_*`, s390x conditionals) before `${context_file}`. EVG
+  variant scripts that rely on those vars being unset before
+  `evergreen.yml` expansions will see them set now. Specifically:
+  `KUBECONFIG="${HOME}/.kube/config"` will fire on the EVG runner
+  (which has no `EVG_HOST_NAME`); EVG variants that override
+  `KUBECONFIG` later in the chain still work because `${context_file}`
+  is sourced after. Smoke-tested with `EVR_TASK_ID=fake make switch
+  context=root-context` — exits clean and writes a logical-only
+  `context.env`. Real EVG end-to-end smoke happens in step 06.
+
+- **`local-defaults-context` exports `PROJECT_DIR` and `workdir`.** It
+  runs AFTER `site-context` in the chain (step (b) above). Its
+  `PROJECT_DIR` redefinition is identical to `site-context`'s value
+  on the local-dev side (both compute `realpath script_dir/../../../`
+  from their respective files, which resolves to the same worktree
+  root). After the subtraction, `PROJECT_DIR` ends up only in
+  `context.<side>.env` (not in `context.env`) — correct per design.
+  `workdir` is logical (per README §3) and stays in `context.env`.
+  No action needed; flagged for future contributors who may try to
+  remove the redundant export from `local-defaults-context`.
+
+### Verification output (relevant lines)
+
+`make switch context=root-context` (host side):
+
+```
+Generating context files from: root-context
+Generated env files in /Users/.../.generated:
+context.env
+context.host.env
+context.operator.env
+```
+
+`ls .generated/context*.env` — only the three files; no `*.export.env`:
+
+```
+.generated/context.env
+.generated/context.host.env
+.generated/context.operator.env
+```
+
+`grep -E '^(PROJECT_DIR|KUBECONFIG|GOROOT)=' .generated/context.env` —
+no matches (logical only):
+
+```
+(empty; exit 1)
+```
+
+`grep -E '^PROJECT_DIR=' .generated/context.host.env` — site bytes
+present:
+
+```
+PROJECT_DIR="/Users/.../lsierant_devcontainer"
+```
+
+`context.host.env` full body (filtered):
+
+```
+## This file is automatically generated by switch_context.sh
+## Do not edit it!
+## Regenerated at Sun May 10 09:36:42 CEST 2026
+## Side: host
+
+GOROOT="/Users/.../golang.org/toolchain@v0.0.1-go1.25.9.darwin-arm64"
+K8S_FWD_PROXY="127.0.0.1:11616"
+KUBE_CONFIG_PATH=".../.generated/multicluster_kubeconfig"
+KUBECONFIG=".../.generated/evg-host.kubeconfig"
+MULTI_CLUSTER_CONFIG_DIR=".../.multi_cluster_local_test_files"
+MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH=".../multi-cluster-kube-config-creator"
+PROJECT_DIR="/Users/.../lsierant_devcontainer"
+```
+
+`grep -E '^(KUBECONFIG|KUBE_CONFIG_PATH)=' .generated/context.operator.env`
+— no matches (stripped):
+
+```
+(empty; exit 1)
+```
+
+`context.env` head (no `## Side:` stamp):
+
+```
+## This file is automatically generated by switch_context.sh
+## Do not edit it!
+## Regenerated at Sun May 10 09:36:42 CEST 2026
+
+AGENT_IMAGE="..."
+```
+
+`EVR_TASK_ID=fake make switch context=root-context` (CI smoke) — exits
+clean, writes `context.env` (treats everything as logical, no
+`context.<side>.env` written):
+
+```
+Generating context files from: root-context
+Generated env files in /Users/.../.generated:
+context.env
+context.host.env       <-- left untouched from prior local run
+context.operator.env
+```
+
+`pre-commit run --all-files` — all hooks pass (after the temporary
+stub `.export.env` workaround documented above).
