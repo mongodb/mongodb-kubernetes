@@ -697,7 +697,14 @@ class Registry:
             used_indices: set[int] = set()
             for row in rows:
                 if row.params.scheme == "legacy":
+                    # Legacy entry occupies the entire 172.NN.0.0/16 — block
+                    # every new index whose X falls in there. Also reserve
+                    # the raw value (16..31) as a used index: ``root-context``
+                    # builds NAMESPACE=<base>-<MCK_DEVC_NET_PREFIX>, so two
+                    # stacks with the same numeric value would collide on
+                    # namespace even though their IP ranges don't.
                     blocked_xs.add(row.params.x)
+                    used_indices.add(row.params.index)
                 else:
                     used_indices.add(row.params.index)
             for net in self._docker_networks_in_range():
