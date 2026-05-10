@@ -141,14 +141,23 @@ don't abort.
 ### Site → `context.<side>.env`
 
 - `PROJECT_DIR` (host: `/Users/.../<worktree>`; devc: `/workspace`)
+- `workdir` (deprecated alias for `PROJECT_DIR`; retained for
+  evergreen scripts)
 - `KUBECONFIG` (host: `${PROJECT_DIR}/.generated/evg-host.kubeconfig`;
   devc: `${PROJECT_DIR}/.generated/evg-host.devc.kubeconfig`)
-- `KUBE_CONFIG_PATH` (when `LOCAL_OPERATOR=true`):
-  `${PROJECT_DIR}/.generated/multicluster_kubeconfig`
+- `KUBE_CONFIG_PATH`: `${PROJECT_DIR}/.generated/multicluster_kubeconfig`
+  (set unconditionally; only consulted by the operator when
+  `LOCAL_OPERATOR=true`)
 - `MULTI_CLUSTER_CONFIG_DIR`
   (`${PROJECT_DIR}/.multi_cluster_local_test_files`)
 - `MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH`
   (`${PROJECT_DIR}/docker/mongodb-kubernetes-tests/multi-cluster-kube-config-creator`)
+- `MDB_OM_VERSION_MAPPING_PATH` (`${PROJECT_DIR}/release.json`)
+- `ENV_FILE` (`${PROJECT_DIR}/.ops-manager-env`)
+- `NAMESPACE_FILE` (`${PROJECT_DIR}/.namespace`)
+- `DEFAULT_HELM_CHART_PATH` (`${PROJECT_DIR}/helm_chart`)
+- `GOPATH` (`${HOME}/gosd` default; private-context override
+  preserved per side via the subtraction)
 - `GOROOT` (`go env GOROOT` differs per side)
 - `K8S_FWD_PROXY` (host: `127.0.0.1:11616`;
   devc: `172.${MCK_DEVC_NET_PREFIX}.0.10`) — **new addition** to host file
