@@ -20,6 +20,7 @@ from .domains.kubeconfig import KubeconfigDomain
 from .domains.network import (
     NetworkDomain,
     gost_proxy_for,
+    migrate_legacy_env,
     parse_devc_env,
     subnet_for,
 )
@@ -129,6 +130,14 @@ def build_parser() -> argparse.ArgumentParser:
     sn_rl.add_argument("--dry-run", action="store_true")
     sn_al = sn_sub.add_parser("allocate")
     sn_al.add_argument("branch", nargs="?")
+    sn_me = sn_sub.add_parser(
+        "migrate-env",
+        help="append the four derived MCK_DEVC_NET_* vars to a legacy .env (idempotent).",
+    )
+    sn_me.add_argument(
+        "--branch",
+        help="branch_dir under the worktree parent (default: current worktree).",
+    )
 
     se = sub.add_parser("evg", help="EVG host primitives.")
     se_sub = se.add_subparsers(dest="evg_cmd")
@@ -569,6 +578,17 @@ def cmd_network(runner: Runner, refs: WorktreeRefs, args: argparse.Namespace) ->
     if sub == "allocate":
         target = args.branch or refs.branch_dir
         sys.stdout.write(nw.allocate(target))
+        return 0
+    if sub == "migrate-env":
+        # Either --branch <branch_dir> (which must live under the
+        # worktree parent), or the current worktree's .devcontainer/.env.
+        if args.branch:
+            target_root = (refs.worktree_root.parent / args.branch).resolve()
+        else:
+            target_root = refs.worktree_root
+        env_file = target_root / ".devcontainer" / ".env"
+        changed, msg = migrate_legacy_env(env_file)
+        sys.stdout.write(msg + "\n")
         return 0
     sys.stderr.write(f"[wt-ctl] error: unknown network subcommand: {sub}\n")
     return 2
