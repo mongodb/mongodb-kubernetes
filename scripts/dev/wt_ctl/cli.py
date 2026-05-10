@@ -154,6 +154,14 @@ def build_parser() -> argparse.ArgumentParser:
     sk_sub.add_parser("status")
     sk_sub.add_parser("start")
     sk_sub.add_parser("stop")
+    sk_rg = sk_sub.add_parser(
+        "register",
+        help="PATCH a kubeconfig to the on-host kfp daemon's /kubeconfig endpoint.",
+    )
+    sk_rg.add_argument(
+        "--kubeconfig",
+        help="kubeconfig path to register (default: <worktree>/.generated/evg-host.kubeconfig).",
+    )
 
     so = sub.add_parser("om", help="cloud-qa OM project primitives.")
     so_sub = so.add_subparsers(dest="om_cmd")
@@ -681,6 +689,26 @@ def cmd_kfp(runner: Runner, args: argparse.Namespace) -> int:
             print("not_running")
         else:
             print(f"stopped    pid={pid}")
+        return 0
+    if sub == "register":
+        explicit = getattr(args, "kubeconfig", None)
+        if explicit:
+            kc_path = Path(explicit).expanduser()
+        else:
+            # Default: current worktree's host-side kubeconfig.
+            try:
+                wt = resolve_worktree(runner, Path.cwd())
+            except NotInWorktree:
+                sys.stderr.write(
+                    "[wt-ctl] kfp register: not inside a worktree; "
+                    "pass --kubeconfig PATH explicitly.\n"
+                )
+                return 2
+            kc_path = wt.worktree_root / ".generated" / "evg-host.kubeconfig"
+        body = kfp.register(kc_path)
+        print(f"registered    kubeconfig={kc_path}")
+        if body.strip():
+            print(f"  daemon response: {body.strip()}")
         return 0
     sys.stderr.write(f"[wt-ctl] error: unknown kfp subcommand: {sub}\n")
     return 2

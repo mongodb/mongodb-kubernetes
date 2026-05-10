@@ -208,6 +208,38 @@ class KfpDomain:
             + (f"\n--- log tail ---\n{tail}" if tail else "")
         )
 
+    def register(self, kubeconfig_path: Path) -> str:
+        """PATCH the kubeconfig file's contents to the on-host kfp daemon
+        at ``http://127.0.0.1:11616/kubeconfig``. Mirrors what
+        ``setup_kind_cluster.sh`` and ``evg_host.sh`` curl on the EVG
+        host's side.
+
+        Returns the response body. Raises ``WtCtlError`` if the file is
+        missing, the daemon isn't listening, or the HTTP call fails.
+        """
+        if not kubeconfig_path.is_file():
+            raise WtCtlError(f"kubeconfig not found: {kubeconfig_path}")
+        if not self.is_listening():
+            raise WtCtlError(
+                f"kfp daemon not listening at {KFP_HOST}:{KFP_HTTP_PORT}; "
+                f"start it first with `wt-ctl kfp start`"
+            )
+        body = kubeconfig_path.read_bytes()
+        req = urllib.request.Request(
+            f"http://{KFP_HOST}:{KFP_HTTP_PORT}/kubeconfig",
+            data=body,
+            method="PATCH",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                return resp.read().decode("utf-8", errors="replace")
+        except urllib.error.HTTPError as exc:
+            raise WtCtlError(
+                f"kfp register failed: HTTP {exc.code} {exc.reason}"
+            ) from exc
+        except (urllib.error.URLError, OSError) as exc:
+            raise WtCtlError(f"kfp register failed: {exc}") from exc
+
     def stop(self) -> Optional[int]:
         """Best-effort: kill the recorded PID, remove the pidfile.
 
