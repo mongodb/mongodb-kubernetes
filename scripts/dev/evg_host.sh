@@ -199,6 +199,15 @@ recreate-kind-cluster() {
   echo "Recreating kind cluster ${cluster_name} on ${EVG_HOST_NAME} (${host_url})..."
   # shellcheck disable=SC2088
   ssh -T "${host_url}" "cd ~/mongodb-kubernetes; scripts/dev/recreate_kind_cluster.sh ${cluster_name}"
+  # `setup_kind_cluster.sh` runs under root-context on the EVG host, where
+  # KUBECONFIG resolves to ~/.kube/config. Its `-e` export step writes the
+  # cluster's kubeconfig to ~/.kube/${cluster_name}. The subsequent
+  # `get-kubeconfig` call expects the file at
+  # ~/mongodb-kubernetes/.generated/evg-host.kubeconfig (the path KUBECONFIG
+  # resolves to in the laptop's worktree-context). Copy it into place so
+  # the scp in `get-kubeconfig` succeeds.
+  ssh -T -q "${host_url}" \
+    "mkdir -p ~/mongodb-kubernetes/.generated && cp -f ~/.kube/${cluster_name} ~/mongodb-kubernetes/.generated/evg-host.kubeconfig"
   echo "Copying kubeconfig to ${kubeconfig_path}"
   get-kubeconfig
 }
