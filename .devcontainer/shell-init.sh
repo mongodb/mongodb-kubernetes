@@ -4,26 +4,26 @@
 # start (sourced, not exec'd, so it cannot use shebang/set semantics).
 #
 # Two responsibilities:
-#   1. For interactive shells, cd into /workspace, source the per-side env
-#      (.generated/context.env + .generated/context.devc.env via
-#      scripts/dev/devenv), and activate the project venv. This means every
-#      tmux pane and every `dc_attach.sh <cmd>` shell starts with the same
-#      env the e2e scripts assume.
+#   1. ALWAYS source the per-side env (.generated/context.env +
+#      .generated/context.devc.env via scripts/dev/devenv) and activate the
+#      project venv whenever devenv exists, regardless of shell mode.
+#      Bash interactive panes, zsh tmuxp panes, and orchestrator-spawned
+#      `bash -lc` shells must all see the same PROJECT_DIR / KUBECONFIG /
+#      NAMESPACE / PATH. Earlier versions gated this on `[[ $- == *i* ]]`
+#      which silently failed in some zsh contexts (tmuxp panes), leaving
+#      the prompt without the project env.
 #   2. For interactive shells with no $TMUX (i.e. the user just attached
 #      to the devcontainer), exec the 'mck' tmuxp session. Set
 #      MCK_NO_TMUX=1 to opt out (dc_attach.sh does this when given args).
 
-if [[ $- == *i* ]]; then
+if [[ -f /workspace/scripts/dev/devenv ]]; then
     cd /workspace 2>/dev/null || true
-    # Source the per-side env (logical + site) and activate venv via the
-    # canonical bootstrap. devenv detects /.dockerenv and picks
-    # context.devc.env automatically. If files are missing (on-create
-    # not finished, or fresh worktree without make switch), devenv
-    # prints a loud warning and the rest of shell-init still runs.
-    if [[ -f /workspace/scripts/dev/devenv ]]; then
-        # shellcheck disable=SC1091
-        . /workspace/scripts/dev/devenv || true
-    fi
+    # devenv detects /.dockerenv and picks context.devc.env automatically.
+    # If files are missing (on-create not finished, or fresh worktree
+    # without `make switch`), devenv prints a loud warning and we
+    # continue.
+    # shellcheck disable=SC1091
+    . /workspace/scripts/dev/devenv || true
 fi
 
 # mck-env: ergonomic re-source after `make switch`. Defined for every
