@@ -159,6 +159,7 @@ def _make_inputs(repo: Path, target: Path, branch: str, branch_dir: str, **overr
         branch_dir=branch_dir,
         worktree_path=target,
         main_repo_root=repo,
+        host_worktree_root=repo,
         **overrides,
     )
 

@@ -692,12 +692,13 @@ def _find_worktree_by_branch(wd: WorktreeDomain, repo: Path, branch: str) -> Opt
 def cmd_create(runner: Runner, refs: Optional[WorktreeRefs], args: argparse.Namespace) -> int:
     branch: str = args.branch
     branch_dir = branch.replace("/", "_")
-    main_repo, worktree_path = _resolve_create_paths(runner, refs, branch_dir)
+    main_repo, worktree_path, host_worktree = _resolve_create_paths(runner, refs, branch_dir)
     inputs = CreateInputs(
         branch=branch,
         branch_dir=branch_dir,
         worktree_path=worktree_path,
         main_repo_root=main_repo,
+        host_worktree_root=host_worktree,
         context=args.context,
         multi_cluster=args.multi_cluster,
         skip_recreate=args.skip_recreate,
@@ -708,19 +709,12 @@ def cmd_create(runner: Runner, refs: Optional[WorktreeRefs], args: argparse.Name
         evg_host_name=args.evg_host_name,
     )
     orch = CreateOrchestrator(runner, inputs)
-    # Inject a context-switch step between worktree_init and initialize_hook
-    # if --context was passed; we do this here (in the CLI) instead of the
-    # orchestrator to keep the phase list canonical and the side-effect
-    # explicit.
     try:
         orch.run(
             resume=args.resume,
             restart_from=args.restart_from,
             emit=lambda msg: sys.stderr.write(msg + "\n"),
         )
-        if args.context:
-            # If we got this far the worktree exists; switch context inside it.
-            ContextDomain(runner).switch(worktree_path, args.context)
     except WtCtlError as exc:
         # Record the failing phase + resume hint for the user.
         sys.stderr.write(
@@ -746,7 +740,7 @@ def cmd_delete(runner: Runner, refs: Optional[WorktreeRefs], args: argparse.Name
         return 2
 
     branch_dir = branch.replace("/", "_")
-    main_repo, worktree_path = _resolve_create_paths(runner, refs, branch_dir)
+    main_repo, worktree_path, _host = _resolve_create_paths(runner, refs, branch_dir)
 
     inputs = DeleteInputs(
         branch=branch,
@@ -769,23 +763,20 @@ def _resolve_create_paths(
     runner: Runner,
     refs: Optional[WorktreeRefs],
     branch_dir: str,
-) -> tuple[Path, Path]:
-    """Compute (main_repo_root, target_worktree_path) for a create/delete.
+) -> tuple[Path, Path, Path]:
+    """Compute (main_repo_root, target_worktree_path, host_worktree_root).
 
-    The convention (see ``wt_setup.sh``): worktrees are siblings of the main
-    repo. When invoked from a worktree, that worktree's parent is the
-    sibling-host. When invoked from the main repo's parent (rare) we still
-    expect ``../<branch_dir>``.
+    The convention (see ``wt_setup.sh``): the new worktree is a sibling of
+    the calling worktree. When the user invokes wt-ctl from outside any
+    worktree, we fall back to the main repo's parent for the sibling slot.
     """
     if refs is not None:
-        # Sibling of the *current* worktree, matching wt_setup.sh's convention.
         anchor = refs.worktree_root
         target = (anchor.parent / branch_dir).resolve()
-        return refs.main_repo_root, target
-    # No refs: best-effort resolve main repo from cwd.
+        return refs.main_repo_root, target, refs.worktree_root
     main_repo = _resolve_main_repo(runner)
     target = (main_repo.parent / branch_dir).resolve()
-    return main_repo, target
+    return main_repo, target, main_repo
 
 
 # ---------------------------------------------------------------------------

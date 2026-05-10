@@ -50,7 +50,12 @@ class CreateInputs:
     branch: str
     branch_dir: str
     worktree_path: Path           # target worktree root (may not yet exist)
-    main_repo_root: Path
+    main_repo_root: Path           # the main repo (parent of .git/common dir)
+    host_worktree_root: Path       # the worktree the user invoked from; used
+                                   # as PROJECT_DIR for create_worktree.sh so
+                                   # the new worktree is its sibling. Falls
+                                   # back to main_repo_root when outside any
+                                   # worktree.
     context: Optional[str] = None
     multi_cluster: bool = False
     skip_recreate: bool = False
@@ -69,6 +74,7 @@ class CreateInputs:
             "branch_dir": self.branch_dir,
             "worktree_path": str(self.worktree_path),
             "main_repo_root": str(self.main_repo_root),
+            "host_worktree_root": str(self.host_worktree_root),
             "context": self.context,
             "multi_cluster": self.multi_cluster,
             "skip_recreate": self.skip_recreate,
@@ -145,12 +151,14 @@ class CreateOrchestrator:
 
         if state is None:
             # First-ever invocation. Build a fresh state object from the
-            # canonical phase order.
+            # canonical phase order — but DON'T save it yet. Saving creates
+            # .wt-ctl/state.json under the target worktree path, which
+            # `git worktree add` would then refuse to populate. We persist
+            # for the first time after worktree_init has run.
             state = ostate.OrchestratorState.initial(
                 branch=self.inputs.branch,
                 inputs=self.inputs.to_dict(),
             )
-            ostate.save(self.inputs.worktree_path_or_main(), state)
         else:
             # Resume / restart: keep the existing state, but update inputs
             # so future hash comparisons are against the *current* command.
@@ -196,23 +204,41 @@ class CreateOrchestrator:
 
         # ---- worktree_init ------------------------------------------------
         def _do_worktree_init() -> None:
-            # Already inside the target worktree? Skip the script.
-            if _is_same_path(self.runner_cwd_or_main(), wt) and wt.exists():
-                return
-            argv = [
-                str(self.scripts / "create_worktree.sh"),
-            ]
-            if i.force:
-                argv.append("-f")
-            argv.append(i.branch)
-            env = {"PROJECT_DIR": str(i.main_repo_root)}
-            self.runner.run_streaming(
-                argv,
-                prefix="[worktree] ",
-                log_path=log_dir / "worktree_init.log",
-                env=env,
-                cwd=i.main_repo_root,
-            )
+            # Already inside the target worktree? Skip create_worktree.sh —
+            # but still apply --context if requested (it's a worktree-init-
+            # adjacent side effect per the plan).
+            already_inside = _is_same_path(self.runner_cwd_or_main(), wt) and wt.exists()
+            if not already_inside:
+                host = i.host_worktree_root
+                argv = [
+                    str(host / "scripts" / "dev" / "create_worktree.sh"),
+                ]
+                if i.force:
+                    argv.append("-f")
+                argv.append(i.branch)
+                # create_worktree.sh expects PROJECT_DIR to be the dir under
+                # which siblings live — that's the calling worktree, matching
+                # wt_setup.sh's convention. Falling back to main_repo_root
+                # only when we have no worktree context.
+                env = {"PROJECT_DIR": str(host)}
+                self.runner.run_streaming(
+                    argv,
+                    prefix="[worktree] ",
+                    log_path=log_dir / "worktree_init.log",
+                    env=env,
+                    cwd=host,
+                )
+            # --context CTX is injected here (between worktree_init and
+            # initialize_hook per the plan) so the new worktree is on the
+            # right context before .devcontainer/scripts/initialize.sh
+            # renders compose.generated.yml.
+            if i.context:
+                self.runner.run_streaming(
+                    ["make", "switch", f"context={i.context}"],
+                    prefix="[ctx] ",
+                    log_path=log_dir / "context_switch.log",
+                    cwd=wt,
+                )
 
         # ---- initialize_hook ---------------------------------------------
         def _do_initialize_hook() -> None:
@@ -474,7 +500,9 @@ class CreateOrchestrator:
         """
         if restart_from:
             state.clear_from(restart_from)
-            ostate.save(self.inputs.worktree_path_or_main(), state)
+            host = self.inputs.worktree_path_or_main()
+            if host.is_dir():
+                ostate.save(host, state)
 
         if resume:
             # Find the earliest non-OK or hash-mismatched phase among
@@ -516,8 +544,13 @@ class CreateOrchestrator:
         emit: Callable[[str], None],
     ) -> None:
         emit(f"[wt-ctl] phase: {phase.name}")
-        state.set_status(phase.name, ostate.IN_PROGRESS, log=phase.log_relpath)
-        ostate.save(self.inputs.worktree_path_or_main(), state)
+        # We only write state once the host directory exists. Pre-worktree_init
+        # the target dir doesn't exist; writing .wt-ctl/ would prevent
+        # git worktree add from populating it. Save lazily.
+        host = self.inputs.worktree_path_or_main()
+        if host.is_dir():
+            state.set_status(phase.name, ostate.IN_PROGRESS, log=phase.log_relpath)
+            ostate.save(host, state)
         try:
             phase.run()
         except (ExternalCommandFailed, ToolMissing, WtCtlError) as exc:
@@ -527,7 +560,10 @@ class CreateOrchestrator:
                 input_hash=phase.input_hash(),
                 log=phase.log_relpath,
             )
-            ostate.save(self.inputs.worktree_path_or_main(), state)
+            # The worktree may now exist (worktree_init failed mid-way) — try
+            # to save; tolerate a missing host dir silently.
+            if host.is_dir():
+                ostate.save(host, state)
             raise
         state.set_status(
             phase.name,
@@ -535,7 +571,10 @@ class CreateOrchestrator:
             input_hash=phase.input_hash(),
             log=phase.log_relpath,
         )
-        ostate.save(self.inputs.worktree_path_or_main(), state)
+        # After worktree_init succeeds the dir exists — save now persists
+        # the just-completed phase's record.
+        if host.is_dir():
+            ostate.save(host, state)
 
     def _run_parallel_pair(
         self,
@@ -549,9 +588,11 @@ class CreateOrchestrator:
         individually (as the plan requires).
         """
         emit(f"[wt-ctl] parallel phases: {a.name} + {b.name}")
+        host = self.inputs.worktree_path_or_main()
         for ph in (a, b):
             state.set_status(ph.name, ostate.IN_PROGRESS, log=ph.log_relpath)
-        ostate.save(self.inputs.worktree_path_or_main(), state)
+        if host.is_dir():
+            ostate.save(host, state)
 
         # Use threads directly (rather than Runner.run_parallel) so we can
         # capture per-phase failures and update state for each. The plan
@@ -589,7 +630,8 @@ class CreateOrchestrator:
                     input_hash=ph.input_hash(),
                     log=ph.log_relpath,
                 )
-        ostate.save(self.inputs.worktree_path_or_main(), state)
+        if host.is_dir():
+            ostate.save(host, state)
 
         failures = {
             name: err for name, err in results.items() if err is not None
@@ -618,7 +660,11 @@ class CreateOrchestrator:
         restart_from: Optional[str],
     ) -> Optional[ostate.OrchestratorState]:
         host = self.inputs.worktree_path_or_main()
-        host.mkdir(parents=True, exist_ok=True)
+        # Don't mkdir the worktree path here — git worktree add refuses to
+        # add into a non-empty directory. We let save() create .wt-ctl/ on
+        # demand once worktree_init has populated the worktree dir.
+        if not host.is_dir():
+            return None
         return ostate.load(host)
 
     def runner_cwd_or_main(self) -> Path:
