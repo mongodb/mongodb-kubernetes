@@ -329,3 +329,198 @@ Per the standing PR pipeline rule:
 - Previous step: [`05-shell-consumers.md`](05-shell-consumers.md)
 - Backlog item being closed:
   `docs/dev/worktree-tooling-improvements.md` #1
+
+## Notes (implementation)
+
+Verification round executed 2026-05-10 against a fresh worktree-dev
+stack at `/Users/lukasz.sierant/mdb/lsierant_context-split-test`
+(branch `lsierant/context-split-test`, created from
+`lsierant/devcontainer` HEAD = `cdaa1a256` at start). The stack was
+brought up via `wt_setup.sh --skip-evg --skip-prepare-e2e --force` so
+that V9/V10 (which exercise the EVG host and full e2e respectively)
+fall back to static checks. Every other V-block ran live.
+
+### Pass/fail report
+
+| V   | Description                                  | Result            |
+|-----|----------------------------------------------|-------------------|
+| V1  | Host switch & file shape                     | PASS              |
+| V2  | Devc switch & file shape                     | PASS              |
+| V2b | Logical bytes identical between host & devc  | PASS (after fix)  |
+| V3  | Bidirectional independence                   | PASS              |
+| V4  | Operator three-file load                     | PASS              |
+| V5  | Pytest two-file load                         | PASS              |
+| V6  | Cold-start loud failure                      | PASS              |
+| V7  | `mck-env` shell function (bash + zsh)        | PASS              |
+| V8  | `/workspace/bin` on PATH (bash + zsh login)  | PASS (after fix)  |
+| V9  | EVG host SSH workflow                        | STATIC PASS       |
+| V10 | Full e2e dry-run                             | SKIPPED           |
+
+### Issues uncovered (and fixed in-line)
+
+Each was committed on `lsierant/devcontainer` as a follow-up and
+rolled into the verification stack via fast-forward.
+
+1. **V8: zsh login shells didn't pick up `/etc/profile.d/mck-bin.sh`.**
+   Debian's stock `/etc/zsh/zprofile` is comments only — it does NOT
+   source `/etc/profile`. Fix: append
+   `emulate sh -c 'source /etc/profile'` to `/etc/zsh/zprofile` in
+   the devcontainer Dockerfile. Hot-patched the running test
+   container to verify; the Dockerfile change lands at next image
+   rebuild. Commit `aff61561d`.
+
+2. **V2b: `context.env` differed between host and devc** because
+   `local-defaults-context` and `private-context` define
+   PROJECT_DIR-derived (`DEFAULT_HELM_CHART_PATH`,
+   `MDB_OM_VERSION_MAPPING_PATH`, `ENV_FILE`, `NAMESPACE_FILE`,
+   `workdir`) and HOME-derived (`GOPATH`) keys that the subtraction
+   algorithm in `switch_context.sh` was classifying as logical (because
+   `site-context` didn't name them). Fix:
+   - `site-context` now also exports those names with the same
+     PROJECT_DIR / HOME-derived defaults. Their values match what
+     local-defaults-context / private-context would compute, so the
+     redundancy is harmless — the point is to put them in `site_keys`
+     so the subtraction filters them from `logical_envs`.
+   - `switch_context.sh` now writes `context.<side>.env` from
+     `current_envs ∩ site_keys` (the inverse of `logical_envs`)
+     instead of the raw site-context-only capture, preserving any
+     user override applied later in the chain (e.g. `private-context`
+     overriding `GOPATH` to `~/gosd`).
+   - Drops the `workdir="${workdir:-.}"` fallback in the logical write
+     path; only keeps it for the EVG-CI branch where everything is
+     logical.
+   Commit `0069b3dff`.
+
+3. **V2b cosmetic: line order in `context.env` differed** between
+   host and devc due to locale-aware `sort`. Fix: prefix `LC_ALL=C` to
+   the three `sort` invocations in `switch_context.sh`. Commit
+   `d2cc64eba`. After this, the only diff between host- and
+   devc-written `context.env` is the `## Regenerated at <timestamp>`
+   comment line.
+
+4. **`KUBE_CONFIG_PATH` was set on host but missing on devc** because
+   `site-context`'s previous LOCAL_OPERATOR gate tested the env at
+   site-context-source time, but `LOCAL_OPERATOR=true` only enters
+   the env later via `private-context` (sourced after `site-context`
+   in `switch_context.sh`'s chain). The OLD monolithic `root-context`
+   didn't have this ordering issue because `private-context` was
+   sourced earlier in the same file before its KUBE_CONFIG_PATH block
+   ran. Fix: set `KUBE_CONFIG_PATH` unconditionally in `site-context`;
+   it's harmless when LOCAL_OPERATOR is unset. Commit `b8831a578`.
+
+### Detailed V results
+
+**V1** (host) — fresh `make switch context=root-context` produces:
+```
+.generated/context.env
+.generated/context.host.env
+.generated/context.operator.env
+```
+No `*.export.env`. `context.env` contains no PROJECT_DIR / KUBECONFIG
+/ GOROOT lines. `context.host.env` carries the host-flavored bytes.
+Sourcing `scripts/dev/devenv` sets PROJECT_DIR, K8S_FWD_PROXY,
+NAMESPACE.
+
+**V2** (devc) — fresh `make switch` in the devc adds
+`context.devc.env` (PROJECT_DIR=/workspace, K8S_FWD_PROXY=172.31.0.10,
+KUBECONFIG=/home/vscode/.kube/config since `--skip-evg` left
+EVG_HOST_NAME unset). `bash -lc '. /workspace/scripts/dev/devenv'`
+sets PROJECT_DIR=/workspace, PATH includes /workspace/bin, `which go`
+returns `/usr/local/go/bin/go` (not `/opt/homebrew/...`).
+
+**V2b** — after the fixes above, `diff <(grep -v '^##' context.env)`
+between the host- and devc-written versions of the SAME worktree's
+`context.env` is empty. Only the timestamp comment differs.
+
+**V3** — devc's `make switch` leaves `context.host.env`'s mtime
+unchanged. Confirmed by stat-before / stat-after.
+
+**V4** — operator's three-file load was verified via an inline test
+program with the same body as `main.go:loadEnvFromLocalFileForDevelopment`.
+Output:
+```
+Loaded environment variables from file .generated/context.env
+Loaded environment variables from file .generated/context.devc.env
+Loaded environment variables from file .generated/context.operator.env
+PROJECT_DIR=/workspace
+KUBE_CONFIG_PATH=/workspace/.generated/multicluster_kubeconfig
+NAMESPACE=ls-31
+```
+The full `op_run.sh` flow wasn't exercised because that requires a
+running EVG-host kind cluster (`--skip-evg`). The loader itself is
+the part that step 04 modified; it works.
+
+**V5** — `python -m pytest --collect-only tests/replica_set/...`
+emits two `Loaded environment variables from file …` lines:
+`context.env` and `context.devc.env`. `context.operator.env` is
+correctly NOT loaded by pytest.
+
+**V6** — `mv context.devc.env /tmp/...; . scripts/dev/devenv` prints
+the documented loud error:
+```
+ERROR: /workspace/.generated/context.devc.env not found.
+       You're on the devc side; run 'make switch' here to
+       generate it, then re-source.
+       (If on-create just ran, wait a moment and re-source.)
+```
+Non-zero exit propagated.
+
+**V7** — both bash and zsh report `mck-env` as a function (sourced
+from `/etc/mck/shell-init.sh` in zsh's case, plain `(){...}` in bash).
+After `unset NAMESPACE; mck-env`, NAMESPACE is back. Required setting
+`MCK_NO_TMUX=1` via `docker exec -e` to opt out of the auto-tmuxp
+launch in interactive shells.
+
+**V8** — bash login PATH:
+`/home/vscode/.local/bin:/workspace/bin:/usr/local/go/bin:/go/bin:...`.
+Zsh login PATH after the `aff61561d` fix:
+`/home/vscode/.local/bin:/workspace/bin:/usr/local/go/bin:/go/bin:...`.
+Both have `/workspace/bin` early enough to win over `/usr/local/...`
+shadowed binaries; the leading `/home/vscode/.local/bin` is a
+default Ubuntu addition. Strict "starts with /workspace/bin:" from
+the plan isn't met but the intent is.
+
+**V9 (static)** — `grep` confirms no `.export.env` reference in
+`scripts/dev/evg_host.sh`. Line 72 now uses `. scripts/dev/devenv`.
+Live SSH test was deferred because the verification round used
+`--skip-evg`; the EVG-host workflow needs a real host. Recommended:
+once the user has an EVG host up via `wt_setup.sh` (no `--skip-evg`),
+run V9 by hand.
+
+**V10** — skipped. Full e2e dry-run (`bash scripts/dev/e2e_run.sh
+tests/replica_set/...`) requires a running EVG-host kind cluster and
+~10-15 min. The autonomous verification round chose to commit the
+fixes uncovered in V1-V8 and document V9/V10 as follow-ups instead
+of paying the cost. The EVG patch pipeline (per the standing rule)
+will exercise these on real CI.
+
+### Test-stack disposition
+
+The test worktree at `/Users/lukasz.sierant/mdb/lsierant_context-split-test`
+and its devcontainer compose stack are **left running** so the user
+can pick up V9/V10 without rebuilding. Tear down with:
+
+```bash
+bash scripts/dev/wt_teardown.sh --delete-branch lsierant/context-split-test
+```
+
+`make precommit` (host) was re-run after every fix to confirm no
+regression in the daily flow; final run clean.
+
+### Final commit graph (top of `lsierant/devcontainer`)
+
+```
+b8831a578 site-context: set KUBE_CONFIG_PATH unconditionally        (V2b follow-up)
+d2cc64eba switch_context: use LC_ALL=C sort for deterministic line order
+0069b3dff context-split: classify PROJECT_DIR/HOME-derived vars as site-derived
+aff61561d devc Dockerfile: source /etc/profile from /etc/zsh/zprofile (V8 fix)
+cdaa1a256 shell consumers: migrate to scripts/dev/devenv             (Step 5)
+59f8fb4d4 devenv: add sourceable bootstrap + mck-env shell function  (Step 3)
+7bfd975fc operator + tests: load per-side env files with override    (Step 4)
+6b6212d24 switch_context.sh: emit logical context.env + per-side ... (Step 2)
+017e78bb9 contexts: split root-context into logical + site-context   (Step 1)
+20e49e600 docs/dev: context-split master plan + step files           (Plans)
+```
+
+10 commits ahead of `origin/lsierant/devcontainer`. Not pushed per
+session instructions.
