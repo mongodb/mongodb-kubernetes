@@ -164,6 +164,24 @@ def render_status(status: WorktreeStatus, *, color: str = "auto") -> str:
         )
         t.add("kubeconfig", line)
 
+    if status.kfp is not None:
+        k = status.kfp
+        if k.listening:
+            state_str = _wrap("running", _Ansi.GREEN, enabled)
+            pid_part = f"pid={k.pid}" if k.pid is not None else "pid=?"
+            health_part = f"health={k.health or 'unreachable'}"
+            t.add(
+                "host-kfp",
+                f"{state_str}    {pid_part}    "
+                f"http={k.http_endpoint}    {health_part}",
+            )
+        else:
+            state_str = _wrap("not_running", _Ansi.YELLOW, enabled)
+            t.add(
+                "host-kfp",
+                f"{state_str}    (wt-ctl create will start it on demand)",
+            )
+
     if status.om is not None:
         om = status.om
         count = om.project_count if om.project_count is not None else "?"

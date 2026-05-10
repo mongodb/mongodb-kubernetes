@@ -182,6 +182,75 @@ class Runner:
         return result
 
     # ------------------------------------------------------------------
+    # detached spawn (for the on-host kfp daemon)
+    # ------------------------------------------------------------------
+    def run_detached(
+        self,
+        argv: list[str],
+        *,
+        stdout_path: Optional[Path] = None,
+        stderr_path: Optional[Path] = None,
+        env: Optional[dict] = None,
+        cwd: Optional[Path] = None,
+    ) -> int:
+        """Start ``argv`` in the background, fully detached from this process.
+
+        - New session (``setsid``) so it survives the orchestrator exiting.
+        - stdin attached to /dev/null.
+        - stdout/stderr redirected to the given file paths (each opened in
+          append mode); when both point at the same path we open it once.
+        - Returns the spawned PID immediately. Does NOT wait for the child
+          to come up; callers should health-check.
+        """
+        if not argv:
+            raise ValueError("argv must be non-empty")
+        merged_env = self._merge_env(env)
+        out_fh = None
+        err_fh = None
+        try:
+            stdin_fh = open(os.devnull, "rb")
+            if stdout_path is not None:
+                stdout_path.parent.mkdir(parents=True, exist_ok=True)
+                out_fh = open(stdout_path, "ab")
+            if stderr_path is not None:
+                if stderr_path == stdout_path and out_fh is not None:
+                    err_fh = out_fh
+                else:
+                    stderr_path.parent.mkdir(parents=True, exist_ok=True)
+                    err_fh = open(stderr_path, "ab")
+            try:
+                proc = self._popen(
+                    argv,
+                    stdin=stdin_fh,
+                    stdout=out_fh if out_fh is not None else subprocess.DEVNULL,
+                    stderr=err_fh if err_fh is not None else subprocess.DEVNULL,
+                    env=merged_env,
+                    cwd=str(cwd) if cwd else None,
+                    start_new_session=True,
+                    close_fds=True,
+                )
+            except FileNotFoundError as exc:
+                raise ToolMissing(argv[0], hint=str(exc)) from exc
+            return proc.pid
+        finally:
+            # Close our copies of the FDs in the parent — the child has its
+            # own duplicates from Popen.
+            try:
+                stdin_fh.close()
+            except (OSError, NameError):
+                pass
+            try:
+                if out_fh is not None:
+                    out_fh.close()
+            except OSError:
+                pass
+            if err_fh is not None and err_fh is not out_fh:
+                try:
+                    err_fh.close()
+                except OSError:
+                    pass
+
+    # ------------------------------------------------------------------
     # exec-replace (for `wt-ctl attach`)
     # ------------------------------------------------------------------
     def exec_replace(

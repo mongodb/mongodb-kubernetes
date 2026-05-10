@@ -65,6 +65,15 @@ class KubeconfigState:
 
 
 @dataclass
+class KfpHostState:
+    """On-host kube-forwarding-proxy daemon snapshot."""
+    listening: bool
+    pid: Optional[int]
+    health: Optional[str]              # "ok" when /healthz is happy
+    http_endpoint: str                 # "127.0.0.1:11616"
+
+
+@dataclass
 class OmState:
     namespace: Optional[str]
     project_count: Optional[int]
@@ -83,6 +92,7 @@ class WorktreeStatus:
     evg: Optional[EvgHostState]
     kubeconfig: Optional[KubeconfigState]
     om: Optional[OmState]
+    kfp: Optional[KfpHostState] = None
     next_hints: list[str] = field(default_factory=list)
 
 

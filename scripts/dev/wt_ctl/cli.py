@@ -15,6 +15,7 @@ from .domains.compose import ComposeDomain, project_name_for
 from .domains.contextsw import ContextDomain
 from .domains.devcontainer import DevcontainerDomain
 from .domains.evg import EvgDomain
+from .domains.kfp import KfpDomain, KfpStartFailed
 from .domains.kubeconfig import KubeconfigDomain
 from .domains.network import (
     NetworkDomain,
@@ -43,6 +44,7 @@ from .paths import WorktreeRefs, logs_dir, resolve_worktree
 from .runner import Runner
 from .state import (
     GlobalStatus,
+    KfpHostState,
     NetState,
     OrphanRegistration,
     WorktreeRow,
@@ -138,6 +140,12 @@ def build_parser() -> argparse.ArgumentParser:
     se_e.add_argument("--hours", type=int, default=4)
     se_e.add_argument("--host-id")
 
+    sk = sub.add_parser("kfp", help="on-host kube-forwarding-proxy daemon.")
+    sk_sub = sk.add_subparsers(dest="kfp_cmd")
+    sk_sub.add_parser("status")
+    sk_sub.add_parser("start")
+    sk_sub.add_parser("stop")
+
     so = sub.add_parser("om", help="cloud-qa OM project primitives.")
     so_sub = so.add_subparsers(dest="om_cmd")
     so_sub.add_parser("list")
@@ -179,6 +187,7 @@ def main(argv: list[str]) -> int:
         (cmd == "status" and getattr(args, "all_", False))
         or cmd == "create"
         or (cmd == "delete" and getattr(args, "branch", None))
+        or cmd == "kfp"
     )
     refs: Optional[WorktreeRefs] = None
     try:
@@ -241,6 +250,8 @@ def _dispatch(args: argparse.Namespace, runner: Runner, refs: Optional[WorktreeR
     if cmd == "evg":
         assert refs is not None
         return cmd_evg(runner, refs, args)
+    if cmd == "kfp":
+        return cmd_kfp(runner, args)
     if cmd == "om":
         assert refs is not None
         return cmd_om(runner, refs, args)
@@ -317,6 +328,15 @@ def cmd_status(runner: Runner, refs: WorktreeRefs, args: argparse.Namespace) -> 
     om = om_dom.state_for(refs.worktree_root)
     ctx = ctx_dom.current(refs.worktree_root)
 
+    kfp_dom = KfpDomain(runner)
+    kfp_st = kfp_dom.status()
+    kfp_state = KfpHostState(
+        listening=kfp_st.listening,
+        pid=kfp_st.pid,
+        health=kfp_st.health,
+        http_endpoint=kfp_st.http_endpoint,
+    )
+
     next_hints = []
     if devc and devc.state == "running":
         next_hints.append("wt-ctl attach          # tmuxp mck")
@@ -336,6 +356,7 @@ def cmd_status(runner: Runner, refs: WorktreeRefs, args: argparse.Namespace) -> 
         evg=evg,
         kubeconfig=kc,
         om=om,
+        kfp=kfp_state,
         next_hints=next_hints,
     )
     rendered = display.render_status(snap, color=args.color)
@@ -603,6 +624,49 @@ def _evg_state_pairs(st):
 
 
 # ---------------------------------------------------------------------------
+# kfp primitives
+# ---------------------------------------------------------------------------
+
+def cmd_kfp(runner: Runner, args: argparse.Namespace) -> int:
+    kfp = KfpDomain(runner)
+    sub = args.kfp_cmd or "status"
+    if sub == "status":
+        st = kfp.status()
+        if st.listening:
+            pid_str = f"pid={st.pid}" if st.pid is not None else "pid=?"
+            health = st.health or "unreachable"
+            print(
+                f"running    {pid_str}    "
+                f"http={st.http_endpoint}    health={health}"
+            )
+            return 0
+        print(
+            f"not_running    (start: scripts/dev/wt-ctl kfp start)"
+        )
+        return 0
+    if sub == "start":
+        try:
+            pid = kfp.start()
+        except KfpStartFailed as exc:
+            sys.stderr.write(f"[wt-ctl] kfp start failed: {exc.render()}\n")
+            return 1
+        if pid:
+            print(f"started    pid={pid}")
+        else:
+            print("already_running    (no pidfile owned by wt-ctl)")
+        return 0
+    if sub == "stop":
+        pid = kfp.stop()
+        if pid is None:
+            print("not_running")
+        else:
+            print(f"stopped    pid={pid}")
+        return 0
+    sys.stderr.write(f"[wt-ctl] error: unknown kfp subcommand: {sub}\n")
+    return 2
+
+
+# ---------------------------------------------------------------------------
 # om primitives
 # ---------------------------------------------------------------------------
 
@@ -717,6 +781,12 @@ def cmd_create(runner: Runner, refs: Optional[WorktreeRefs], args: argparse.Name
         force=args.force,
         evg_host_name=args.evg_host_name,
     )
+    # Pre-flight: ensure the on-host kfp daemon is up before evg_prepare.
+    # Best-effort — defensive workarounds in setup_kind_cluster.sh and
+    # evg_host.sh (commits 29cf4cee9, c8e2ebe47) handle a missing daemon,
+    # so a failed start here only logs a warning.
+    _ensure_host_kfp(runner, args.skip_evg)
+
     orch = CreateOrchestrator(runner, inputs)
     try:
         orch.run(
@@ -766,6 +836,40 @@ def cmd_delete(runner: Runner, refs: Optional[WorktreeRefs], args: argparse.Name
     orch = DeleteOrchestrator(runner, inputs)
     orch.run(emit=lambda msg: sys.stderr.write(msg + "\n"))
     return 0
+
+
+def _ensure_host_kfp(runner: Runner, skip_evg: bool) -> None:
+    """Pre-flight for ``wt-ctl create``: start the on-host kfp daemon if it
+    isn't already listening on 127.0.0.1:11616.
+
+    Best-effort by design — the in-pipeline workarounds (commits
+    ``29cf4cee9`` + ``c8e2ebe47``) PATCH kfp opportunistically, so a
+    missing daemon only degrades the kubeconfig refresh; it does not fail
+    create. We log clearly so the user knows what happened.
+    """
+    if skip_evg:
+        sys.stderr.write(
+            "[wt-ctl] kfp pre-flight: skipped (--skip-evg)\n"
+        )
+        return
+    kfp = KfpDomain(runner)
+    if kfp.is_listening():
+        sys.stderr.write("[wt-ctl] kfp pre-flight: already running\n")
+        return
+    sys.stderr.write(
+        "[wt-ctl] kfp pre-flight: not listening, starting on-host daemon\n"
+    )
+    try:
+        pid = kfp.start()
+    except KfpStartFailed as exc:
+        sys.stderr.write(
+            f"[wt-ctl] kfp pre-flight: WARN start failed (continuing best-effort): "
+            f"{exc.render()}\n"
+        )
+        return
+    sys.stderr.write(
+        f"[wt-ctl] kfp pre-flight: started pid={pid}\n"
+    )
 
 
 def _resolve_create_paths(
