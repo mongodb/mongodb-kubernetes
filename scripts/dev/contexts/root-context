@@ -52,16 +52,12 @@ if [[ -f "${PROJECT_DIR}/.generated/.current-evg-host" ]]; then
   # evg-host-proxy autossh sidecar reads (it doesn't have evergreen CLI).
   evg_host_address_file="${PROJECT_DIR}/.generated/.current-evg-host-address"
   if command -v evergreen >/dev/null 2>&1; then
-    # Pick the first running match. If duplicates exist (the upstream evg
-    # spawn_host CLI resumes by an AWS instance tag that AWS reserves and
-    # silently rejects, so every rerun creates a fresh host with the same
-    # display name) one stable address is better than a multi-line value
-    # that breaks every consumer of EVG_HOST_ADDRESS. The upstream fix
-    # lives on branch `lsierant/evg-spawn-host-displayname-resume` in
-    # core-platforms-ai-tools (not yet merged to main as of 2026-05);
-    # `scripts/dev/evg_prepare.sh` already side-steps the bug by resuming
-    # via evg-query's displayName lookup, but the duplicate-on-resume
-    # window still exists for users who haven't picked up that flow.
+    # Pick the first running match by displayName. `wt-ctl evg spawn` is the
+    # only spawn path now and resumes idempotently on displayName, so the
+    # duplicate-host hazard that used to live here (AWS reserves the 'name'
+    # tag and silently rejects evg spawn_host's resume-by-tag attempt) is
+    # already side-stepped at spawn time. Picking the first running match
+    # remains the safe fallback for the rare cross-user duplicate.
     evg_resolved="$(evergreen host list --json 2>/dev/null \
       | jq -r --arg name "${EVG_HOST_NAME}" \
           '[.[] | select(.name == $name and .status == "running")] | first | .host_name // empty' \
