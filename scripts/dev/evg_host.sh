@@ -170,10 +170,15 @@ get-kubeconfig() {
 
   if [[ -n "${K8S_FWD_PROXY:-}" ]]; then
     # Inside the container we register the devc variant with the in-container
-    # k8s-proxy (DNS + dynamic port-forwards for *.svc.cluster.local).
+    # k8s-proxy (DNS + dynamic port-forwards for *.svc.cluster.local). On
+    # the host the same K8S_FWD_PROXY var resolves to 127.0.0.1:11616 — a
+    # daemon that may or may not be running locally. Best-effort: log the
+    # outcome and continue, mirroring `.devcontainer/scripts/post-start.sh`.
     register_path="${devc_kubeconfig_path:-${kubeconfig_path}}"
     echo "Loading kubeconfig from ${register_path} onto ${K8S_FWD_PROXY}"
-    curl -X PATCH --data-binary @"${register_path}" "http://${K8S_FWD_PROXY}/kubeconfig"
+    curl --max-time 5 -fsS -X PATCH --data-binary @"${register_path}" "http://${K8S_FWD_PROXY}/kubeconfig" \
+      && echo "registered kubeconfig with kfp at ${K8S_FWD_PROXY}" \
+      || echo "kfp not reachable at ${K8S_FWD_PROXY}; skipping kubeconfig registration"
   fi
 }
 
