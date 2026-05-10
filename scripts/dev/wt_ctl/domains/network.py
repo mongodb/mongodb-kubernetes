@@ -1,20 +1,15 @@
-"""Network prefix domain — **native Python registry** (Phase 2.5 + /23 expansion).
+"""Network prefix domain — native Python registry.
 
-Replaces the bash ``dc_select_network.sh`` body. The bash file is now a thin
-shim that execs ``wt-ctl network ...``. Public surface preserved for
-backwards-compat with Phase 1 + Phase 2 callers:
+Replaces the bash ``dc_select_network.sh`` (now retired). Public surface:
 
   - ``NetworkDomain.list_entries()`` -> ``[NetEntry]``
-  - ``NetworkDomain.list_raw()``     -> str (byte-compat with the bash
-                                       ``--list`` output, modulo dynamic
-                                       ``Worktree parent`` line)
+  - ``NetworkDomain.list_raw()``     -> str (rendered table for ``network list``)
   - ``NetworkDomain.prefix_for(branch_dir)``
   - ``NetworkDomain.prune(dry_run=False)`` -> str
   - ``NetworkDomain.release(branch_dir)``  -> str
-  - ``NetworkDomain.allocate(branch_dir)`` -> str (always
-                                       ``MCK_DEVC_NET_PREFIX=<N>\n`` plus,
-                                       for new-scheme allocations, four
-                                       companion lines for X/Y/PORT)
+  - ``NetworkDomain.allocate(branch_dir)`` -> str (5 ``KEY=VALUE`` lines:
+        ``MCK_DEVC_NET_PREFIX``, ``MCK_DEVC_NET_X``, ``MCK_DEVC_NET_Y_BASE``,
+        ``MCK_DEVC_NET_Y_VIP``, ``MCK_DEVC_PROXY_PORT``)
 
 # Address-space layout — /23 per stack within 172.16.0.0/12
 
@@ -34,27 +29,11 @@ Per-stack:
 - proxy_address: ``172.X.Y_BASE.10``
 - gost-proxy:    ``127.0.0.1:PORT``
 
-# Legacy /16 scheme (16..31)
-
-Pre-expansion stacks owned a full /16 (``172.NN.0.0/16`` for NN in 16..31).
-We continue to recognise registry rows that carry only a bare integer in
-that range, treating them as if X=NN, Y_BASE=0, Y_VIP=1, PORT=80NN.
-
-When the new allocator picks a free index it skips any candidate whose
-computed X falls inside a legacy entry's /16 — that "wastes" 128 indices
-per legacy stack but keeps both schemes safe to coexist on the same host.
-
 # Persisted format
 
 ```
-<branch_dir>=<N>                        # legacy: 16 <= N <= 31
-<branch_dir>=<N>:<X>:<Y_BASE>:<Y_VIP>:<PORT>   # new scheme
+<branch_dir>=<N>:<X>:<Y_BASE>:<Y_VIP>:<PORT>
 ```
-
-The ``Registry`` parser handles both. ``release`` removes by branch_dir
-regardless of which form the line was written in. New allocations always
-emit the composite form so all four derived octets/port round-trip
-intact.
 
 Subprocess discipline: this module **never** imports subprocess. Docker
 network discovery and ``git worktree list`` go through the injected
@@ -87,11 +66,6 @@ from ..state import NetEntry
 INDEX_LO = 0
 INDEX_HI = 2047
 
-# Legacy /16 second-octet range. Backwards-compat parsers treat a bare
-# integer in this band as a full /16 occupation.
-LEGACY_X_LO = 16
-LEGACY_X_HI = 31
-
 # Public aliases preserved for any out-of-tree callers / tests.
 VALID_RANGE_LO = INDEX_LO
 VALID_RANGE_HI = INDEX_HI
@@ -107,30 +81,19 @@ LOCK_STALE_SECS = 60            # force-release a lock dir older than this
 
 @dataclass(frozen=True)
 class StackParams:
-    """All four derived address-space parameters for a stack index ``N``.
-
-    ``scheme='legacy'`` is reserved for /16-occupying entries: those still
-    set ``index`` to the second octet (16..31) so callers that filter on
-    ``index`` continue to work, but expose Y/PORT shaped like a degenerate
-    /23 occupying the bottom of the /16.
-    """
+    """All four derived address-space parameters for a stack index ``N``."""
     index: int
     x: int
     y_base: int
     y_vip: int
     port: int
-    scheme: str = "new"   # "new" | "legacy"
 
     @property
     def subnet(self) -> str:
-        if self.scheme == "legacy":
-            return f"172.{self.x}.0.0/16"
         return f"172.{self.x}.{self.y_base}.0/23"
 
     @property
     def ip_range(self) -> str:
-        if self.scheme == "legacy":
-            return f"172.{self.x}.0.0/24"
         return f"172.{self.x}.{self.y_base}.0/24"
 
     @property
@@ -142,31 +105,13 @@ class StackParams:
         return f"172.{self.x}.{self.y_base}.10"
 
 
-def stack_params(index: int, *, scheme: str = "new") -> StackParams:
-    """Compute (X, Y_BASE, Y_VIP, PORT) for stack index ``index``.
-
-    For ``scheme='legacy'`` the index *is* the /16 second octet (16..31)
-    and Y/PORT are pinned to the legacy-equivalent values
-    (Y_BASE=0, Y_VIP=1, PORT=80<NN>).
-    """
-    if scheme == "legacy":
-        if not (LEGACY_X_LO <= index <= LEGACY_X_HI):
-            raise RegistryError(
-                f"legacy prefix {index} outside [{LEGACY_X_LO},{LEGACY_X_HI}]"
-            )
-        return StackParams(
-            index=index,
-            x=index,
-            y_base=0,
-            y_vip=1,
-            port=8000 + index,
-            scheme="legacy",
-        )
+def stack_params(index: int) -> StackParams:
+    """Compute (X, Y_BASE, Y_VIP, PORT) for stack index ``index``."""
     if not (INDEX_LO <= index <= INDEX_HI):
         raise RegistryError(
             f"stack index {index} outside [{INDEX_LO},{INDEX_HI}]"
         )
-    x = LEGACY_X_LO + (index >> 7)
+    x = 16 + (index >> 7)
     y_base = (index & 0x7F) << 1
     y_vip = y_base + 1
     port = 8000 + index
@@ -176,7 +121,6 @@ def stack_params(index: int, *, scheme: str = "new") -> StackParams:
         y_base=y_base,
         y_vip=y_vip,
         port=port,
-        scheme="new",
     )
 
 
@@ -314,7 +258,7 @@ def _try_force_release(lock: Path, stale_after: float,
 
 @dataclass
 class _OrphanNetwork:
-    """Docker network in 172.[16-31].0.0/16 with name pattern
+    """Docker network in 172.[16-31].x.x with name pattern
     ``*_devcontainer_devcontainer``, 0 attached containers, and no
     surviving worktree.
     """
@@ -332,9 +276,7 @@ class _DockerNet:
 class _RegistryRow:
     """One persisted registry line, parsed.
 
-    For legacy entries ``params.scheme == 'legacy'`` and ``params.index``
-    equals the second octet (16..31). For new entries
-    ``params.scheme == 'new'`` and ``params.index`` is 0..2047.
+    ``params.index`` is 0..2047 (a /23 stack index).
     """
     branch_dir: str
     params: StackParams
@@ -373,6 +315,10 @@ class Registry:
                 continue
             row = _parse_rhs(bd, rhs)
             if row is None:
+                sys.stderr.write(
+                    f"[wt-ctl] network: WARN dropping unparseable registry "
+                    f"row {bd}={rhs}\n"
+                )
                 continue
             out.append(row)
         return out
@@ -455,7 +401,7 @@ class Registry:
             if not m:
                 continue
             x = int(m.group(1))
-            if LEGACY_X_LO <= x <= LEGACY_X_HI:
+            if 16 <= x <= 31:
                 out.append(_DockerNet(name=name, prefix=x))
         return out
 
@@ -485,10 +431,9 @@ class Registry:
 
         We return both lists for forward-compat with the plan's
         ``OrphanEntry`` notion, but in this codebase orphans are
-        represented as rows with ``status="stale"`` inside the same list
-        (matches the bash script's behavior). Callers that want the
-        explicit orphan view can filter on status. The second tuple slot
-        is reserved for future divergence.
+        represented as rows with ``status="stale"`` inside the same list.
+        Callers that want the explicit orphan view can filter on status.
+        The second tuple slot is reserved for future divergence.
         """
         with _registry_lock():
             return self._list_locked(repo_root=repo_root)
@@ -501,20 +446,11 @@ class Registry:
         entries: list[NetEntry] = []
         for row in rows:
             bd = row.branch_dir
-            # ``NetEntry.prefix`` carries:
-            #   - legacy: the second octet (16..31)
-            #   - new:    the stack index (0..2047)
-            # That makes the field load-bearing for the renderer (it shows
-            # legacy entries' /16 numbers verbatim) without needing to
-            # widen the dataclass mid-flight.
-            pref_for_entry = (
-                row.params.x if row.params.scheme == "legacy" else row.params.index
-            )
             if self._is_stale_branch_dir(bd, git_basenames=git_names):
                 entries.append(
                     NetEntry(
                         branch_dir=bd,
-                        prefix=pref_for_entry,
+                        prefix=row.params.index,
                         status="stale",
                         worktree_path=None,
                     )
@@ -523,7 +459,7 @@ class Registry:
                 entries.append(
                     NetEntry(
                         branch_dir=bd,
-                        prefix=pref_for_entry,
+                        prefix=row.params.index,
                         status="active",
                         worktree_path=str(self.worktree_parent / bd),
                     )
@@ -533,7 +469,7 @@ class Registry:
     def list_rows(self) -> list[_RegistryRow]:
         """Return the parsed registry rows verbatim (no liveness check).
 
-        Exposes scheme/X/Y/PORT to callers (CLI ``network list`` renderer).
+        Exposes index/X/Y/PORT to callers (CLI ``network list`` renderer).
         """
         with _registry_lock():
             return self._read()
@@ -560,10 +496,7 @@ class Registry:
     def prune(self, *, dry_run: bool = False, prune_networks: bool = False,
               repo_root: Optional[Path] = None) -> str:
         """Drop stale registry entries. Optionally also remove orphan
-        docker networks (``--networks`` in the bash CLI).
-
-        Mirrors the bash script's stdout exactly enough that scripts /
-        skills parsing the output continue to work.
+        docker networks (``--networks``).
         """
         out = StringIO()
         with _registry_lock():
@@ -615,14 +548,14 @@ class Registry:
                      if self.worktree_parent.is_dir() else set()
             if branch_lc in wt_lc:
                 out.write(
-                    f"Skipping {net.name} (172.{net.prefix}.0.0/16): worktree '{branch_lc}' still exists. "
+                    f"Skipping {net.name} (172.{net.prefix}.x.x): worktree '{branch_lc}' still exists. "
                     f"Use 'docker network rm {net.name}' if you really want it gone.\n"
                 )
                 continue
             if dry_run:
-                out.write(f"[dry-run] orphan docker network: {net.name} (172.{net.prefix}.0.0/16)\n")
+                out.write(f"[dry-run] orphan docker network: {net.name} (172.{net.prefix}.x.x)\n")
             else:
-                out.write(f"Removing orphan docker network: {net.name} (172.{net.prefix}.0.0/16)\n")
+                out.write(f"Removing orphan docker network: {net.name} (172.{net.prefix}.x.x)\n")
                 try:
                     res = self.runner.run(
                         ["docker", "network", "rm", net.name],
@@ -645,23 +578,17 @@ class Registry:
 
         ``MCK_DEVC_NET_PREFIX`` env override is honored — caller takes
         ownership; we skip both the registry and the docker scan and
-        return a synthesized StackParams (legacy when 16..31, new
-        otherwise).
+        return synthesized StackParams.
         """
         env_pref = os.environ.get("MCK_DEVC_NET_PREFIX")
         if env_pref:
             if env_pref.isdigit():
                 v = int(env_pref)
-                if LEGACY_X_LO <= v <= LEGACY_X_HI:
-                    # Honor the legacy contract — env override at a /16
-                    # band always means "use that whole /16".
-                    return stack_params(v, scheme="legacy")
                 if INDEX_LO <= v <= INDEX_HI:
-                    return stack_params(v, scheme="new")
+                    return stack_params(v)
             raise RegistryError(
                 f"MCK_DEVC_NET_PREFIX='{env_pref}' is not a valid stack index "
-                f"(legacy /16: [{LEGACY_X_LO},{LEGACY_X_HI}]; "
-                f"new index: [{INDEX_LO},{INDEX_HI}])"
+                f"[{INDEX_LO},{INDEX_HI}]"
             )
 
         warn = emit_warning if emit_warning is not None else (lambda m: sys.stderr.write(m + "\n"))
@@ -690,30 +617,19 @@ class Registry:
                     self._write(kept)
                     rows = kept
 
-            # Build "blocked second octets" from legacy registry entries +
-            # any /16 docker network in the legacy band. Each blocked X
-            # eats 128 candidate indices (those with X(N) == that octet).
+            # Used indices come from existing rows. blocked_xs comes from
+            # docker networks in 172.[16-31].x.x that aren't ours
+            # (e.g. kind, custom user networks): each blocked X eats 128
+            # candidate indices.
+            used_indices: set[int] = {row.params.index for row in rows}
             blocked_xs: set[int] = set()
-            used_indices: set[int] = set()
-            for row in rows:
-                if row.params.scheme == "legacy":
-                    # Legacy entry occupies the entire 172.NN.0.0/16 — block
-                    # every new index whose X falls in there. Also reserve
-                    # the raw value (16..31) as a used index: ``root-context``
-                    # builds NAMESPACE=<base>-<MCK_DEVC_NET_PREFIX>, so two
-                    # stacks with the same numeric value would collide on
-                    # namespace even though their IP ranges don't.
-                    blocked_xs.add(row.params.x)
-                    used_indices.add(row.params.index)
-                else:
-                    used_indices.add(row.params.index)
             for net in self._docker_networks_in_range():
                 blocked_xs.add(net.prefix)
 
             for cand in range(INDEX_LO, INDEX_HI + 1):
                 if cand in used_indices:
                     continue
-                params = stack_params(cand, scheme="new")
+                params = stack_params(cand)
                 if params.x in blocked_xs:
                     continue
                 if branch_dir:
@@ -727,17 +643,12 @@ class Registry:
             )
 
     # ------------------------------------------------------------------
-    # rendering — must byte-match the bash --list output (modulo dynamic
-    # `Worktree parent` line, which depends on caller cwd)
+    # rendering
     # ------------------------------------------------------------------
     def render_list(self, *, repo_root: Optional[Path] = None,
                     script_self: Optional[str] = None) -> str:
-        """Return the full ``--list`` text body (registry table +
-        summary + docker networks + pruning hints). Byte-compatible with
-        the legacy bash output for the columns it always carried; the new
-        scheme/X/Y/PORT data is shown in a small extension table after
-        the canonical PREFIX/STATUS/WORKTREE table so existing parsers
-        keep working.
+        """Return the full ``network list`` text body (registry table +
+        summary + docker networks + pruning hints).
         """
         out = StringIO()
         rfile = _registry_file()
@@ -745,14 +656,12 @@ class Registry:
         out.write(f"Worktree parent (conventional): {self.worktree_parent}\n")
         out.write("\n")
 
-        # Header (column widths chosen to match the bash printf format).
         out.write(f"{'BRANCH_DIR':<55}  {'PREFIX':<6}  {'STATUS':<6}  WORKTREE\n")
         out.write(f"{'----------':<55}  {'------':<6}  {'------':<6}  --------\n")
 
         with _registry_lock():
             entries, _ = self._list_locked(repo_root=repo_root)
             rows = self._read()
-            row_by_bd = {r.branch_dir: r for r in rows}
             stale = active = 0
             for e in entries:
                 if e.status == "stale":
@@ -767,124 +676,83 @@ class Registry:
                 f"Summary: {active} active, {stale} stale (run with --prune to GC).\n"
             )
 
-            # Stack-params extension table: shows N/X/Y_BASE/Y_VIP/PORT
-            # for both schemes. Only emitted when the registry is non-
-            # empty so the legacy fixture (empty registry) round-trips
-            # byte-identical.
+            # Stack-params extension table: shows N/X/Y_BASE/Y_VIP/PORT.
+            # Only emitted when the registry is non-empty.
             if rows:
                 out.write("\n")
-                out.write(f"{'BRANCH_DIR':<55}  {'N':>5}  {'X':>3}  {'Y_BASE':>6}  {'Y_VIP':>5}  {'PORT':>5}  SCHEME\n")
-                out.write(f"{'----------':<55}  {'-':>5}  {'-':>3}  {'------':>6}  {'-----':>5}  {'----':>5}  ------\n")
+                out.write(f"{'BRANCH_DIR':<55}  {'N':>5}  {'X':>3}  {'Y_BASE':>6}  {'Y_VIP':>5}  {'PORT':>5}\n")
+                out.write(f"{'----------':<55}  {'-':>5}  {'-':>3}  {'------':>6}  {'-----':>5}  {'----':>5}\n")
                 for row in rows:
                     p = row.params
                     out.write(
                         f"{row.branch_dir:<55}  "
-                        f"{p.index:>5}  {p.x:>3}  {p.y_base:>6}  {p.y_vip:>5}  {p.port:>5}  "
-                        f"{p.scheme}\n"
+                        f"{p.index:>5}  {p.x:>3}  {p.y_base:>6}  {p.y_vip:>5}  {p.port:>5}\n"
                     )
 
             out.write("\n")
-            out.write(
-                f"Docker networks in 172.[{LEGACY_X_LO}-{LEGACY_X_HI}].0.0/16:\n"
-            )
-            out.write(f"{'NETWORK':<65}  PREFIX\n")
-            out.write(f"{'-------':<65}  ------\n")
+            out.write("Docker networks in 172.[16-31].x.x:\n")
+            out.write(f"{'NETWORK':<65}  X\n")
+            out.write(f"{'-------':<65}  -\n")
             nets = sorted(self._docker_networks_in_range(), key=lambda n: n.prefix)
             for net in nets:
                 out.write(f"{net.name:<65}  {net.prefix}\n")
             out.write("\n")
             out.write(
-                f"Free range: 172.[{LEGACY_X_LO}-{LEGACY_X_HI}].0.0/16 (legacy) "
-                f"+ 172.16.0.0/12 /23 stacks (new scheme, indices [{INDEX_LO},{INDEX_HI}]).\n"
+                f"Free range: 172.16.0.0/12 carved into /23 stacks "
+                f"(indices [{INDEX_LO},{INDEX_HI}]). "
+                "Used by registry + docker networks listed above are blocked.\n"
             )
-            out.write("Used by registry + docker networks listed above are blocked.\n")
             out.write("\n")
-            # Render the pruning hints with the legacy bash flag style when
-            # ``script_self`` points at a `dc_select_network.sh` path — that
-            # keeps the output byte-equal to the pre-Phase-2.5 bash version
-            # so skills/scripts grepping the line continue to work. When
-            # invoked through the new entry-point name (``wt-ctl network``)
-            # we use the new subcommand spelling.
             self_ref = script_self or "wt-ctl network"
-            legacy_style = self_ref.endswith("dc_select_network.sh")
-            if legacy_style:
-                stale_arg = "--prune"
-                nets_arg = "--prune --networks"
-                rel_arg = "--release"
-            else:
-                stale_arg = "prune"
-                nets_arg = "prune --networks"
-                rel_arg = "release"
             out.write("Pruning info:\n")
-            out.write(f"  - Stale registry entries:  {self_ref} {stale_arg} [--dry-run]\n")
-            out.write(f"  - Plus orphan docker nets: {self_ref} {nets_arg} [--dry-run]\n")
-            out.write(f"  - Specific entry:          {self_ref} {rel_arg} <branch_dir>\n")
-            tear_ref = "wt-ctl delete" if not legacy_style else "wt_teardown.sh"
-            out.write(f"  - When you tear down a worktree via {tear_ref}, the registry\n")
+            out.write(f"  - Stale registry entries:  {self_ref} prune [--dry-run]\n")
+            out.write(f"  - Plus orphan docker nets: {self_ref} prune --networks [--dry-run]\n")
+            out.write(f"  - Specific entry:          {self_ref} release <branch_dir>\n")
+            out.write("  - When you tear down a worktree via wt-ctl delete, the registry\n")
             out.write("    entry is released automatically.\n")
         return out.getvalue()
 
 
 # ---------------------------------------------------------------------------
-# row parsing/formatting — handles BOTH legacy (bare int) and new
-# (composite ``N:X:Y:VIP:PORT``) registry rows.
+# row parsing/formatting
 # ---------------------------------------------------------------------------
 
 def _parse_rhs(branch_dir: str, rhs: str) -> Optional[_RegistryRow]:
-    """Parse the right-hand side of a registry line.
-
-    Accepts:
-      - bare ``<N>`` where 16 <= N <= 31  -> legacy /16 occupation
-      - ``<N>:<X>:<Y_BASE>:<Y_VIP>:<PORT>`` -> new scheme
+    """Parse ``<N>:<X>:<Y_BASE>:<Y_VIP>:<PORT>``.
 
     Returns ``None`` for any malformed line so the registry tolerates a
-    user hand-edit (mirrors the bash parser's tolerance).
+    user hand-edit. Bare-int legacy rows (``<NN>`` alone) are no longer
+    supported and are reported as malformed.
     """
-    if ":" in rhs:
-        parts = rhs.split(":")
-        if len(parts) != 5:
-            return None
-        try:
-            n, x, y_base, y_vip, port = (int(s) for s in parts)
-        except ValueError:
-            return None
-        if not (INDEX_LO <= n <= INDEX_HI):
-            return None
-        # Trust the persisted X/Y/PORT verbatim (don't recompute) so a
-        # human-edited registry round-trips. We DO sanity-check that
-        # it's internally consistent — if a row claims a different X
-        # than stack_params says, log and skip rather than mis-route
-        # traffic.
-        derived = stack_params(n, scheme="new")
-        if (x, y_base, y_vip, port) != (derived.x, derived.y_base, derived.y_vip, derived.port):
-            sys.stderr.write(
-                f"[wt-ctl] network: WARN registry row {branch_dir}={rhs} "
-                f"is internally inconsistent — using derived values.\n"
-            )
-            params = derived
-        else:
-            params = StackParams(
-                index=n, x=x, y_base=y_base, y_vip=y_vip, port=port, scheme="new"
-            )
-        return _RegistryRow(branch_dir=branch_dir, params=params)
-    # Bare integer: legacy /16 or — for forward-compat — a new-scheme
-    # index without companion fields. We ONLY accept the legacy band
-    # here; a bare number outside [16,31] is treated as malformed.
+    parts = rhs.split(":")
+    if len(parts) != 5:
+        return None
     try:
-        v = int(rhs)
+        n, x, y_base, y_vip, port = (int(s) for s in parts)
     except ValueError:
         return None
-    if LEGACY_X_LO <= v <= LEGACY_X_HI:
-        return _RegistryRow(
-            branch_dir=branch_dir,
-            params=stack_params(v, scheme="legacy"),
+    if not (INDEX_LO <= n <= INDEX_HI):
+        return None
+    # Trust the persisted X/Y/PORT verbatim (don't recompute) so a
+    # human-edited registry round-trips. We DO sanity-check that
+    # it's internally consistent — if a row claims a different X
+    # than stack_params says, log and skip rather than mis-route
+    # traffic.
+    derived = stack_params(n)
+    if (x, y_base, y_vip, port) != (derived.x, derived.y_base, derived.y_vip, derived.port):
+        sys.stderr.write(
+            f"[wt-ctl] network: WARN registry row {branch_dir}={rhs} "
+            f"is internally inconsistent — using derived values.\n"
         )
-    return None
+        params = derived
+    else:
+        params = StackParams(
+            index=n, x=x, y_base=y_base, y_vip=y_vip, port=port
+        )
+    return _RegistryRow(branch_dir=branch_dir, params=params)
 
 
 def _format_rhs(p: StackParams) -> str:
-    if p.scheme == "legacy":
-        return str(p.x)  # round-trip the bare-int form
     return f"{p.index}:{p.x}:{p.y_base}:{p.y_vip}:{p.port}"
 
 
@@ -893,7 +761,7 @@ def _format_row(row: _RegistryRow) -> str:
 
 
 # ---------------------------------------------------------------------------
-# .env migration helper
+# .env helpers
 # ---------------------------------------------------------------------------
 
 # Names of the four derived env-vars compose.yml reads.
@@ -918,80 +786,6 @@ def env_lines_for(params: StackParams) -> list[str]:
     ]
 
 
-def migrate_legacy_env(env_file: Path) -> tuple[bool, str]:
-    """Append the four derived MCK_DEVC_NET_* vars to ``env_file`` if it
-    has only the legacy bare ``MCK_DEVC_NET_PREFIX`` line.
-
-    Returns ``(changed, message)``:
-      - ``changed=True`` when the file was modified
-      - ``changed=False`` when the file already had all four derived vars
-        (idempotent re-run) or the file is missing / has no prefix line
-        (we don't manufacture state)
-
-    Behavior:
-      - If MCK_DEVC_NET_PREFIX is in the legacy band (16..31), derive
-        params via ``stack_params(scheme='legacy')`` and append any
-        missing derived var lines.
-      - If MCK_DEVC_NET_PREFIX is in the new index band (0..2047) and at
-        least one of the derived vars is missing, append the missing
-        ones from ``stack_params(scheme='new')``.
-      - If all four derived vars are already present, no-op.
-    """
-    if not env_file.is_file():
-        return False, f"{env_file}: not present (skipping)"
-    try:
-        text = env_file.read_text()
-    except OSError as exc:
-        raise RegistryError(f"failed to read {env_file}: {exc}") from exc
-
-    parsed: dict[str, str] = {}
-    for raw in text.splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        k, v = line.split("=", 1)
-        parsed[k.strip()] = v.strip()
-
-    pref_str = parsed.get("MCK_DEVC_NET_PREFIX")
-    if pref_str is None or not pref_str.isdigit():
-        return False, f"{env_file}: no MCK_DEVC_NET_PREFIX (skipping)"
-    pref = int(pref_str)
-
-    if LEGACY_X_LO <= pref <= LEGACY_X_HI:
-        params = stack_params(pref, scheme="legacy")
-    elif INDEX_LO <= pref <= INDEX_HI:
-        params = stack_params(pref, scheme="new")
-    else:
-        return False, f"{env_file}: prefix {pref} out of range (skipping)"
-
-    missing: list[str] = []
-    desired = {
-        "MCK_DEVC_NET_X": str(params.x),
-        "MCK_DEVC_NET_Y_BASE": str(params.y_base),
-        "MCK_DEVC_NET_Y_VIP": str(params.y_vip),
-        "MCK_DEVC_PROXY_PORT": str(params.port),
-    }
-    for key, val in desired.items():
-        if key not in parsed:
-            missing.append(f"{key}={val}")
-
-    if not missing:
-        return False, f"{env_file}: already has all derived vars (no change)"
-
-    # Append the missing lines; preserve the trailing newline state.
-    sep = "" if text.endswith("\n") or not text else "\n"
-    addition = sep + "\n".join(missing) + "\n"
-    try:
-        with env_file.open("a") as fh:
-            fh.write(addition)
-    except OSError as exc:
-        raise RegistryError(f"failed to write {env_file}: {exc}") from exc
-    return True, (
-        f"{env_file}: appended {len(missing)} derived var(s) "
-        f"(scheme={params.scheme}, N={params.index})"
-    )
-
-
 # ---------------------------------------------------------------------------
 # NetworkDomain — adapter that preserves the Phase-1 public surface
 # ---------------------------------------------------------------------------
@@ -1010,9 +804,6 @@ class NetworkDomain:
     def __init__(self, runner: Runner, repo_root: Path) -> None:
         self.runner = runner
         self.repo_root = repo_root
-        # The bash script lives at ``<wt>/scripts/dev/dc_select_network.sh``
-        # for callers that still want to refer to it.
-        self.script = repo_root / "scripts/dev/dc_select_network.sh"
         self._registry = Registry(runner, worktree_parent=repo_root.parent)
 
     # ------------------------------------------------------------------
@@ -1058,10 +849,6 @@ class NetworkDomain:
             MCK_DEVC_NET_Y_BASE=<Y_BASE>
             MCK_DEVC_NET_Y_VIP=<Y_VIP>
             MCK_DEVC_PROXY_PORT=<PORT>
-
-        Legacy-band allocations (env override at 16..31) emit the same
-        block — the four derived vars are pinned to legacy-equivalent
-        values (Y_BASE=0, Y_VIP=1, PORT=80NN).
         """
         params = self._registry.allocate(
             branch_dir=branch_dir,
@@ -1124,39 +911,23 @@ def _parse_list_output(text: str) -> list[NetEntry]:
 # ---------------------------------------------------------------------------
 
 def subnet_for(prefix: int) -> str:
-    """Status-renderer helper. Preserves the legacy `/16` rendering for
-    legacy-band values (16..31) so existing worktrees' status output
-    doesn't change shape mid-migration. New-scheme indices render as
-    ``172.X.Y_BASE.0/23``.
+    """Status-renderer helper. Renders a stack index as ``172.X.Y_BASE.0/23``.
     """
-    if LEGACY_X_LO <= prefix <= LEGACY_X_HI:
-        # Legacy band: keep the /16 rendering for back-compat.
-        return f"172.{prefix}.0.0/16"
     if INDEX_LO <= prefix <= INDEX_HI:
-        p = stack_params(prefix, scheme="new")
-        return p.subnet
-    return f"172.{prefix}.0.0/16"  # out-of-range fallback (renders something)
+        return stack_params(prefix).subnet
+    return f"<out-of-range {prefix}>"
 
 
 def gost_proxy_for(prefix: int) -> str:
-    """Map a stack index (or legacy /16 second octet) to the gost-proxy URL.
-
-    Legacy band -> ``http://127.0.0.1:80<NN>`` (port 8016..8031). Same
-    formula as the new scheme (port = 8000 + index), which is why the
-    legacy renderer keeps working unchanged.
-    """
-    if LEGACY_X_LO <= prefix <= LEGACY_X_HI:
-        return f"http://127.0.0.1:80{prefix:02d}"
+    """Map a stack index to the gost-proxy URL (``port = 8000 + index``)."""
     if INDEX_LO <= prefix <= INDEX_HI:
-        port = 8000 + prefix
-        return f"http://127.0.0.1:{port}"
-    return f"http://127.0.0.1:80{prefix:02d}"
+        return f"http://127.0.0.1:{8000 + prefix}"
+    return f"<out-of-range {prefix}>"
 
 
 def namespace_for_prefix(prefix: int, base: str = "mck-devc") -> str:
-    """NAMESPACE construction continues to use the prefix verbatim — for
-    legacy entries that's the /16 second octet, for new it's the stack
-    index. Either way the namespace is unique per stack.
+    """NAMESPACE construction uses the stack index verbatim as a unique
+    per-stack suffix.
     """
     return f"{base}-{prefix}-mongodb-test"
 

@@ -29,7 +29,6 @@ from .domains.compose import project_name_for
 from .domains.network import (
     DERIVED_ENV_KEYS,
     NetworkDomain,
-    migrate_legacy_env,
 )
 from .errors import (
     ExternalCommandFailed,
@@ -270,12 +269,6 @@ class CreateOrchestrator:
             env_file = wt / ".devcontainer" / ".env"
             existing_prefix = _read_existing_prefix(env_file)
             if existing_prefix is not None:
-                # Existing legacy ``.env`` may carry only the bare
-                # ``MCK_DEVC_NET_PREFIX=NN`` line. Top up the four derived
-                # vars so compose.yml sees them. Idempotent: a second
-                # call is a no-op when all four are already present.
-                if env_file.is_file():
-                    migrate_legacy_env(env_file)
                 return
             block = NetworkDomain(self.runner, wt).allocate(i.branch_dir)
             if not block.startswith("MCK_DEVC_NET_PREFIX="):
