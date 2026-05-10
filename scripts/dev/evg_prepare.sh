@@ -93,13 +93,16 @@ fi
 # rerun ends up creating a duplicate. Work around it by resuming via the
 # Evergreen displayName (which `evg spawn_host` does set successfully).
 echo "==> Looking up existing Evergreen host with displayName='${evg_host_name}'"
+# Include hosts still bringing themselves up (starting / provisioning /
+# uninitialized) so a resume kicked off mid-spawn doesn't create a duplicate.
+# Only treat terminal/dead states as "no match".
 existing_host_id="$("${evg_query_cli}" get_my_hosts 2>/dev/null \
   | jq -r --arg name "${evg_host_name}" \
-      '[.[] | select(.displayName == $name and .status == "running")] | first | .id // empty')"
+      '[.[] | select(.displayName == $name and (.status | ascii_downcase | IN("terminated","decommissioned","quarantined","failed") | not))] | first | .id // empty')"
 if [[ -n "${existing_host_id}" ]]; then
-  echo "==> Found running host ${existing_host_id} with that displayName; skipping spawn."
+  echo "==> Found existing host ${existing_host_id} with that displayName; skipping spawn."
 else
-  echo "==> No matching running host; spawning a new one"
+  echo "==> No matching live host; spawning a new one"
   "${evg_cli}" spawn_host --name "${evg_host_name}"
 fi
 
