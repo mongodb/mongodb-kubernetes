@@ -1,0 +1,108 @@
+[wt-ctl] worktree=lsierant_KUBE-27-failure-modes  branch=lsierant/KUBE-27-failure-modes
+[wt-ctl] kfp pre-flight: already running
+[wt-ctl] phase: dc_up
+[up] [2026-05-11T06:24:21.095Z] @devcontainers/cli 0.84.1. Node.js v24.3.0. darwin 25.4.0 arm64.
+[up] [2026-05-11T06:24:21.547Z] Running the initializeCommand from devcontainer.json...
+[up] 
+[up] [2026-05-11T06:24:21.547Z] Start: Run: /bin/sh -c bash .devcontainer/scripts/initialize.sh
+[up] [2026-05-11T06:24:23.036Z] Set EVERGREEN_CLI_URL=https://evg-bucket-evergreen.s3.amazonaws.com/evergreen/clients/evergreen_99505b3a546c08bda04938e85fa4bf716068cd87/linux_arm64/evergreen on devcontainer service in compose.generated.yml
+[up] [2026-05-11T06:24:23.104Z] 
+[up] [2026-05-11T06:24:23.563Z] Start: Run: docker compose -f /Users/lukasz.sierant/mdb/lsierant_KUBE-27-failure-modes/.devcontainer/compose.yml -f /Users/lukasz.sierant/mdb/lsierant_KUBE-27-failure-modes/.devcontainer/compose.generated.yml -f /Users/lukasz.sierant/mdb/lsierant_KUBE-27-failure-modes/.devcontainer/compose.user.yml --profile * config
+[up] [2026-05-11T06:24:23.742Z] Running the postStartCommand from devcontainer.json...
+[up] 
+[up] [2026-05-11T06:24:23.917Z] registered with in-container k8s-proxy on k8s-proxy:80
+[up] SSH_AUTH_SOCK: /ssh-auth.sock
+[up] [2026-05-11T06:24:23.955Z] registered with host kfp on 127.0.0.1:11616
+[up] {"outcome":"success","containerId":"779a25e21c94afcc9501e5f45a9635aad38e7403f2b6c0e665d7da0e64cc1372","composeProjectName":"lsierant_kube-27-failure-modes_devcontainer","remoteUser":"vscode","remoteWorkspaceFolder":"/workspace"}
+[wt-ctl] phase: reconcile
+[reconcile k8s-proxy]  Container lsierant_kube-27-failure-modes_devcontainer-k8s-proxy-1 Recreate 
+[reconcile k8s-proxy]  Container lsierant_kube-27-failure-modes_devcontainer-k8s-proxy-1 Recreated 
+[reconcile k8s-proxy]  Container lsierant_kube-27-failure-modes_devcontainer-k8s-proxy-1 Starting 
+[reconcile k8s-proxy]  Container lsierant_kube-27-failure-modes_devcontainer-k8s-proxy-1 Started 
+[wt-ctl] phase: post_start
+[post-start] ssh-agent socket already present
+[wt-ctl] phase: kubeconfig
+[refresh] Generating context files from: e2e_mdb_kind_ubi_cloudqa
+[refresh] Generated env files in /workspace/.generated:
+[refresh] -rw-r--r-- 1 vscode vscode  759 May 11 06:24 context.devc.env
+[refresh] -rw-r--r-- 1 vscode vscode 6055 May 11 06:24 context.env
+[refresh] -rw-r--r-- 1 vscode vscode 1246 May 10 22:57 context.host.env
+[refresh] -rw-r--r-- 1 vscode vscode 2186 May 11 06:24 context.operator.env
+[refresh] Switched to context "kind-kind".
+[refresh] Generated context: e2e_mdb_kind_ubi_cloudqa, set default kubectl context: kind-kind, namespace=ls-30
+[refresh] Skipping kubeconfig fetch (--no-fetch); using existing /workspace/.generated/evg-host.kubeconfig
+[refresh] Patching kubeconfig with host-side proxy-url http://127.0.0.1:8030
+[refresh] Writing devcontainer-side kubeconfig variant to /workspace/.generated/evg-host.devc.kubeconfig (proxy http://gost-proxy:8080)
+[refresh] Loading kubeconfig from /workspace/.generated/evg-host.devc.kubeconfig onto 172.30.0.10
+[refresh] curl: (7) Failed to connect to 172.30.0.10 port 80 after 0 ms: Couldn't connect to server
+[refresh] kfp not reachable at 172.30.0.10; skipping kubeconfig registration
+[wt-ctl] phase: prepare_e2e
+[prepare-e2e] kubectl delete mdbc,all,secrets -l e2e-test=true || true
+[prepare-e2e] E0511 06:24:25.822581    2174 memcache.go:265] "Unhandled Error" err="couldn't get current server API group list: Get \"https://127.0.0.1:39367/api?timeout=32s\": Service Unavailable"
+[prepare-e2e] E0511 06:24:25.823211    2174 memcache.go:265] "Unhandled Error" err="couldn't get current server API group list: Get \"https://127.0.0.1:39367/api?timeout=32s\": Service Unavailable"
+[prepare-e2e] E0511 06:24:25.825699    2174 memcache.go:265] "Unhandled Error" err="couldn't get current server API group list: Get \"https://127.0.0.1:39367/api?timeout=32s\": Service Unavailable"
+[prepare-e2e] E0511 06:24:25.826408    2174 memcache.go:265] "Unhandled Error" err="couldn't get current server API group list: Get \"https://127.0.0.1:39367/api?timeout=32s\": Service Unavailable"
+[prepare-e2e] E0511 06:24:25.828680    2174 memcache.go:265] "Unhandled Error" err="couldn't get current server API group list: Get \"https://127.0.0.1:39367/api?timeout=32s\": Service Unavailable"
+[prepare-e2e] E0511 06:24:25.829138    2174 memcache.go:265] "Unhandled Error" err="couldn't get current server API group list: Get \"https://127.0.0.1:39367/api?timeout=32s\": Service Unavailable"
+[prepare-e2e] E0511 06:24:25.831556    2174 memcache.go:265] "Unhandled Error" err="couldn't get current server API group list: Get \"https://127.0.0.1:39367/api?timeout=32s\": Service Unavailable"
+[prepare-e2e] Unable to connect to the server: Service Unavailable
+[prepare-e2e] scripts/dev/prepare_local_e2e_run.sh
+[prepare-e2e] Running reset script...
+[prepare-e2e] go: downloading k8s.io/apimachinery v0.33.10
+[prepare-e2e] go: downloading k8s.io/client-go v0.33.10
+[prepare-e2e] go: downloading github.com/spf13/cast v1.10.0
+[prepare-e2e] go: downloading go.uber.org/zap v1.27.1
+[prepare-e2e] go: downloading k8s.io/api v0.33.10
+[prepare-e2e] go: downloading go.uber.org/multierr v1.11.0
+[prepare-e2e] go: downloading k8s.io/utils v0.0.0-20241104100929-3ea5e8cea738
+[prepare-e2e] go: downloading github.com/gogo/protobuf v1.3.2
+[prepare-e2e] go: downloading sigs.k8s.io/randfill v1.0.0
+[prepare-e2e] go: downloading k8s.io/klog/v2 v2.140.0
+[prepare-e2e] go: downloading sigs.k8s.io/structured-merge-diff/v4 v4.6.0
+[prepare-e2e] go: downloading sigs.k8s.io/json v0.0.0-20241010143419-9aa6b5e7a4b3
+[prepare-e2e] go: downloading gopkg.in/inf.v0 v0.9.1
+[prepare-e2e] go: downloading github.com/fxamacker/cbor/v2 v2.7.0
+[prepare-e2e] go: downloading golang.org/x/net v0.53.0
+[prepare-e2e] go: downloading github.com/go-logr/logr v1.4.3
+[prepare-e2e] go: downloading github.com/spf13/pflag v1.0.9
+[prepare-e2e] go: downloading golang.org/x/term v0.42.0
+[prepare-e2e] go: downloading github.com/google/gnostic-models v0.6.9
+[prepare-e2e] go: downloading google.golang.org/protobuf v1.36.11
+[prepare-e2e] go: downloading github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822
+[prepare-e2e] go: downloading golang.org/x/time v0.12.0
+[prepare-e2e] go: downloading k8s.io/kube-openapi v0.0.0-20250318190949-c8a335a9a2ff
+[prepare-e2e] go: downloading sigs.k8s.io/yaml v1.6.0
+[prepare-e2e] go: downloading github.com/google/go-cmp v0.7.0
+[prepare-e2e] go: downloading github.com/json-iterator/go v1.1.12
+[prepare-e2e] go: downloading golang.org/x/oauth2 v0.35.0
+[prepare-e2e] go: downloading github.com/x448/float16 v0.8.4
+[prepare-e2e] go: downloading golang.org/x/sys v0.43.0
+[prepare-e2e] go: downloading gopkg.in/evanphx/json-patch.v4 v4.12.0
+[prepare-e2e] go: downloading gopkg.in/yaml.v3 v3.0.1
+[prepare-e2e] go: downloading github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc
+[prepare-e2e] go: downloading go.yaml.in/yaml/v2 v2.4.2
+[prepare-e2e] go: downloading github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd
+[prepare-e2e] go: downloading github.com/modern-go/reflect2 v1.0.2
+[prepare-e2e] go: downloading golang.org/x/text v0.36.0
+[prepare-e2e] go: downloading github.com/google/uuid v1.6.0
+[prepare-e2e] go: downloading github.com/go-openapi/swag v0.23.0
+[prepare-e2e] go: downloading github.com/go-openapi/jsonreference v0.20.2
+[prepare-e2e] go: downloading github.com/pkg/errors v0.9.1
+[prepare-e2e] go: downloading github.com/emicklei/go-restful/v3 v3.11.0
+[prepare-e2e] go: downloading github.com/go-openapi/jsonpointer v0.21.0
+[prepare-e2e] go: downloading github.com/mailru/easyjson v0.7.7
+[prepare-e2e] go: downloading github.com/josharian/intern v1.0.0
+[prepare-e2e] reset: Resetting clusters:
+[prepare-e2e] reset: map[kind-kind:true]
+[prepare-e2e] reset: Resetting context kind-kind
+[prepare-e2e] reset: Errors occurred during reset:
+[prepare-e2e] reset: Cluster kind-kind:
+[prepare-e2e] reset:   failed to list ClusterRoleBindings in context kind-kind: Get "https://127.0.0.1:39367/apis/rbac.authorization.k8s.io/v1/clusterrolebindings": Service Unavailable
+[prepare-e2e] reset:   failed to list ClusterRoles in context kind-kind: Get "https://127.0.0.1:39367/apis/rbac.authorization.k8s.io/v1/clusterroles": Service Unavailable
+[prepare-e2e] reset:   failed to list TestNamespaces in context kind-kind: failed to list namespaces for context kind-kind: Get "https://127.0.0.1:39367/api/v1/namespaces?labelSelector=evg%3Dtask": Service Unavailable
+[prepare-e2e] 
+[prepare-e2e] An error occurred during execution. Execute the script again.
+[prepare-e2e] 
+[prepare-e2e] make: *** [Makefile:388: prepare-local-e2e] Error 1
+[wt-ctl] error: command failed (rc=2): devcontainer exec --workspace-folder /Users/lukasz.sierant/mdb/lsierant_KUBE-27-failure-modes bash -lc set -Eeou pipefail; cd /workspace; . scripts/dev/devenv; make prepare-local-e2e
+[wt-ctl] resume with: scripts/dev/wt-ctl create lsierant/KUBE-27-failure-modes --resume

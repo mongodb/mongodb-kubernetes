@@ -1,0 +1,18 @@
+worktree    lsierant_KUBE-26-background-tester  (dirty, 70 ahead/13 behind origin/lsierant/KUBE-26-background-tester)
+path        /Users/lukasz.sierant/mdb/lsierant_KUBE-26-background-tester
+context     e2e_mdb_kind_ubi_cloudqa
+
+devc        -    no compose stack found
+network     172.26.0.0/23    prefix=1280    registered=yes    orphans=0
+namespace   ls-1280
+gost-proxy  http://127.0.0.1:9280
+
+evg host    running    name=lsierant_KUBE-26-background-tester    id=i-038421310d55e1497
+ssh         ssh ubuntu@ec2-54-155-4-40.eu-west-1.compute.amazonaws.com
+kubeconfig  /Users/lukasz.sierant/mdb/lsierant_KUBE-26-background-tester/.generated/evg-host.kubeconfig    last_patch=14m_ago    kfp_registered=yes
+host-kfp    running    pid=?    http=127.0.0.1:11616    health=ok
+om          0 projects in scope `ls-1280, ls-1280-*`
+
+next        wt-ctl up              # boot devcontainer
+
+last_create  failed at post_start  (resume: wt-ctl create lsierant/KUBE-26-background-tester --resume)
