@@ -11,7 +11,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/lifecycle"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/probes"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/resourcerequirements"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/envvar"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/envvar"
 )
 
 func TestContainer(t *testing.T) {

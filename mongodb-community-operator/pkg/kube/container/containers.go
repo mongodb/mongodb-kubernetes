@@ -7,7 +7,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/lifecycle"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/envvar"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/envvar"
 )
 
 type Modification func(*corev1.Container)

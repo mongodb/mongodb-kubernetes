@@ -20,9 +20,9 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/authentication/authtypes"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/annotations"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/constants"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/envvar"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/scale"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/envvar"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/scale"
 )
 
 type Type string

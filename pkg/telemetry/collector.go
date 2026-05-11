@@ -23,7 +23,7 @@ import (
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/v1/user"
 	mcov1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/envvar"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/envvar"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
