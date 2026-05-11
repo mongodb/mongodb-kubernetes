@@ -14,7 +14,7 @@ import urllib.request
 from pathlib import Path
 from typing import Optional
 
-from ..errors import ExternalCommandFailed, ToolMissing
+from ..errors import ExternalCommandFailed, ToolMissing, WtCtlError
 from ..runner import Runner
 from ..state import OmState
 
@@ -74,7 +74,13 @@ class OmDomain:
         """Single GET against /api/public/v1.0/groups, filter client-side by
         the same prefix that delete_om_projects.sh uses (``${ns}`` and
         ``${ns}-*``).
+
+        Raises ``WtCtlError`` on any non-transient failure (HTTP error,
+        auth, bad JSON). Network OSErrors (DNS, timeout) return ``[]``
+        with a stderr warning — those are routinely flaky and we don't
+        want ``wt-ctl status`` to die on a slow VPN.
         """
+        import sys
         host = ctx.get("OM_HOST") or os.environ.get("OM_HOST")
         user = ctx.get("OM_USER") or os.environ.get("OM_USER")
         api_key = ctx.get("OM_API_KEY") or os.environ.get("OM_API_KEY")
@@ -83,7 +89,17 @@ class OmDomain:
         url = f"{host.rstrip('/')}/api/public/v1.0/groups?itemsPerPage=200"
         try:
             data = _digest_get_json(url, user, api_key)
-        except OSError:
+        except urllib.error.HTTPError as exc:
+            raise WtCtlError(
+                f"OM /groups query failed: HTTP {exc.code} {exc.reason} "
+                f"(host={host}, user={user}); check OM_USER/OM_API_KEY in "
+                f"context.env"
+            ) from exc
+        except urllib.error.URLError as exc:
+            sys.stderr.write(
+                f"[wt-ctl om] WARN: network error querying {host} ({exc}); "
+                f"reporting 0 projects.\n"
+            )
             return []
         if not isinstance(data, dict):
             return []
@@ -99,7 +115,15 @@ class OmDomain:
         ns = ctx.get("NAMESPACE")
         if not ns:
             return None
-        return len(self._fetch_projects(ctx, ns))
+        try:
+            return len(self._fetch_projects(ctx, ns))
+        except WtCtlError as exc:
+            # `om` is a status-time call; render-error path: report None so
+            # the row reads "om <err>: ..." instead of dying the whole
+            # `wt-ctl status` render.
+            import sys
+            sys.stderr.write(f"[wt-ctl om] WARN: {exc}\n")
+            return None
 
 
 # ---------------------------------------------------------------------------
@@ -107,9 +131,19 @@ class OmDomain:
 # ---------------------------------------------------------------------------
 
 def _digest_get_json(url: str, user: str, api_key: str):
-    """Minimal HTTP-Digest GET. We avoid pip deps; OM uses MD5 digest auth."""
-    handler = urllib.request.HTTPDigestAuthHandler()
-    handler.add_password("api", url, user, api_key)
+    """Minimal HTTP-Digest GET. We avoid pip deps; OM uses MD5 digest auth.
+
+    Realm is left unset (None) so the digest handler matches whatever the
+    server advertises in its WWW-Authenticate header. Pinning a specific
+    realm (e.g. "api") here was a long-standing bug: when the realm
+    differs from the server's, urllib silently skips the credentialed
+    retry and the outer `except OSError` swallowed the resulting 401
+    as "no projects". OM's realm is "MMS Public API" but we don't need
+    to hardcode it — `None` matches whatever shows up.
+    """
+    mgr = urllib.request.HTTPPasswordMgrWithDefaultRealm()
+    mgr.add_password(None, url, user, api_key)
+    handler = urllib.request.HTTPDigestAuthHandler(mgr)
     opener = urllib.request.build_opener(handler)
     req = urllib.request.Request(url, headers={"Accept": "application/json"})
     # Very short timeout — `om list` is a status-time call and we don't want
