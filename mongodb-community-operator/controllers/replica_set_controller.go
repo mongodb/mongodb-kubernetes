@@ -35,7 +35,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/predicates"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/validation"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/watch"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/agent"
+	"github.com/mongodb/mongodb-kubernetes/pkg/agent"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/authentication"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
