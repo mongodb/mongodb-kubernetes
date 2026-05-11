@@ -148,16 +148,24 @@ get-kubeconfig() {
   fi
 
   # Two variants:
-  #   - .generated/evg-host.kubeconfig       proxy-url = http://127.0.0.1:80${MCK_DEVC_NET_PREFIX}
+  #   - .generated/evg-host.kubeconfig       proxy-url = http://127.0.0.1:${MCK_DEVC_PROXY_PORT}
   #     The host's view. The bare filename matches the bare context (host
   #     shell) so tools that hard-code .generated/evg-host.kubeconfig keep
-  #     working on the host. Patched unconditionally — host port is derived
-  #     from MCK_DEVC_NET_PREFIX, no devcontainer env required.
+  #     working on the host. Patched unconditionally — host port is the
+  #     gost-proxy loopback port from the /23 stack allocator (8000+index).
   #   - .generated/evg-host.devc.kubeconfig  proxy-url = ${EVG_HOST_PROXY}
   #     The devcontainer's view. Written only when EVG_HOST_PROXY is set
   #     (we're inside the container or were handed it explicitly). Avoids
   #     a host-side run reverting an existing in-container patch.
-  host_proxy_port="80${MCK_DEVC_NET_PREFIX:-28}"
+  #
+  # MCK_DEVC_PROXY_PORT is loaded from .devcontainer/.env by root-context.
+  # Historical note: this used to be `80${MCK_DEVC_NET_PREFIX}` — fine in the
+  # legacy /16 scheme where PREFIX was 16..31 (so the formula yielded 8016..
+  # 8031), but under the /23 expansion PREFIX is the stack index 0..2047, so
+  # any prefix >= 100 produced an out-of-range "port" like 80640. Use the
+  # explicit PROXY_PORT var.
+  : "${MCK_DEVC_PROXY_PORT:?MCK_DEVC_PROXY_PORT must be set (run \`make switch\` first to source .devcontainer/.env via root-context)}"
+  host_proxy_port="${MCK_DEVC_PROXY_PORT}"
   echo "Patching kubeconfig with host-side proxy-url http://127.0.0.1:${host_proxy_port}"
   yq -i ".clusters[].cluster.proxy-url |= \"http://127.0.0.1:${host_proxy_port}\"" "${kubeconfig_path}"
 
