@@ -273,7 +273,6 @@ def mdbs(
     # cert SANs and the AC mongotHost patch already target.
     resource["spec"]["loadBalancer"] = {
         "managed": {
-            "replicas": ENVOY_LB_REPLICAS,
             "externalHostname": (
                 f"{MDBS_RESOURCE_NAME}-search-{{clusterIndex}}-proxy-svc.{namespace}.svc.cluster.local"
             ),
@@ -1220,7 +1219,6 @@ def test_admission_rejects_mc_without_external_hosts(
     # doesn't fire first. We're testing hostAndPorts here, not LB.
     resource["spec"]["loadBalancer"] = {
         "managed": {
-            "replicas": ENVOY_LB_REPLICAS,
             "externalHostname": (f"{bad_name}-search-{{clusterIndex}}-proxy-svc.{namespace}.svc.cluster.local"),
         },
     }

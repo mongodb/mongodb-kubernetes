@@ -7,9 +7,8 @@
 # - spec.clusters[] (filled in the test fixture) carries per-cluster
 #   replica counts; when omitted, the reconciler defaults to a single
 #   entry built from the top-level fields.
-# - spec.loadBalancer.managed.replicas seeds the per-cluster Envoy
-#   Deployment replica count; per-cluster overrides via
-#   spec.clusters[i].loadBalancer.managed.replicas are not used here.
+# - Envoy replica count is hardcoded to 1 per per-cluster Deployment;
+#   spec.loadBalancer.managed.replicas was removed in 98209bb9c.
 apiVersion: mongodb.com/v1
 kind: MongoDBSearch
 metadata:
@@ -18,5 +17,4 @@ spec:
   logLevel: DEBUG
   clusters: []
   loadBalancer:
-    managed:
-      replicas: 2
+    managed: {}
