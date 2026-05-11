@@ -5,7 +5,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
-	"github.com/mongodb/mongodb-kubernetes/pkg/util/envvar"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
 )
 
@@ -310,7 +310,7 @@ func FindContainerByName(name string, podTemplateSpec *corev1.PodTemplateSpec) *
 }
 
 func WithDefaultSecurityContextsModifications() (Modification, container.Modification) {
-	managedSecurityContext := envvar.ReadBool(ManagedSecurityContextEnv) // nolint:forbidigo
+	managedSecurityContext := env.ReadBoolOrDefault(ManagedSecurityContextEnv, false) // nolint:forbidigo
 	configureContainerSecurityContext := container.NOOP()
 	configurePodSpecSecurityContext := NOOP()
 	if !managedSecurityContext {

@@ -21,12 +21,12 @@ import (
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/helm"
-	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
-	"github.com/mongodb/mongodb-kubernetes/pkg/util/envvar"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/generate"
 	e2eutil "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e"
 	waite2e "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e/util/wait"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 )
 
 type HelmArg struct {
@@ -42,7 +42,7 @@ const (
 )
 
 func Setup(ctx context.Context, t *testing.T) *e2eutil.TestContext {
-	testCtx, err := e2eutil.NewContext(ctx, t, envvar.ReadBool(performCleanupEnv)) // nolint:forbidigo
+	testCtx, err := e2eutil.NewContext(ctx, t, env.ReadBoolOrDefault(performCleanupEnv, false)) // nolint:forbidigo
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +56,7 @@ func Setup(ctx context.Context, t *testing.T) *e2eutil.TestContext {
 }
 
 func SetupWithTLS(ctx context.Context, t *testing.T, resourceName string, useX509 bool, userX509Cert bool, additionalHelmArgs ...HelmArg) (*e2eutil.TestContext, TestConfig) {
-	textCtx, err := e2eutil.NewContext(ctx, t, envvar.ReadBool(performCleanupEnv)) // nolint:forbidigo
+	textCtx, err := e2eutil.NewContext(ctx, t, env.ReadBoolOrDefault(performCleanupEnv, false)) // nolint:forbidigo
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +78,7 @@ func SetupWithTLS(ctx context.Context, t *testing.T, resourceName string, useX50
 }
 
 func SetupWithTestConfig(ctx context.Context, t *testing.T, testConfig TestConfig, withTLS, defaultOperator bool, resourceName string) *e2eutil.TestContext {
-	testCtx, err := e2eutil.NewContext(ctx, t, envvar.ReadBool(performCleanupEnv)) // nolint:forbidigo
+	testCtx, err := e2eutil.NewContext(ctx, t, env.ReadBoolOrDefault(performCleanupEnv, false)) // nolint:forbidigo
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +97,7 @@ func SetupWithTestConfig(ctx context.Context, t *testing.T, testConfig TestConfi
 }
 
 func SetupWithTestConfigNoOperator(ctx context.Context, t *testing.T, testConfig TestConfig, withTLS bool) *e2eutil.TestContext {
-	testCtx, err := e2eutil.NewContext(ctx, t, envvar.ReadBool(performCleanupEnv)) // nolint:forbidigo
+	testCtx, err := e2eutil.NewContext(ctx, t, env.ReadBoolOrDefault(performCleanupEnv, false)) // nolint:forbidigo
 	if err != nil {
 		t.Fatal(err)
 	}
