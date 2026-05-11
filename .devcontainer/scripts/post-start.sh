@@ -33,6 +33,22 @@ fi
 
 echo "SSH_AUTH_SOCK: ${SSH_AUTH_SOCK}"
 
+# The mounted host ssh-agent socket (Docker Desktop's
+# /run/host-services/ssh-auth.sock on macOS) is owned root:root mode 0660,
+# so the non-root user we run as (vscode) can't connect through it. socat
+# silently fails its upstream connect with "Permission denied" — the listen
+# socket /ssh-agent/socket accepts client connections but every forward
+# returns an error, autossh sees publickey-denied for every restart, and
+# kubectl through gost-proxy returns "Service Unavailable". chmod up the
+# mounted socket so the socat process can speak to the host agent.
+# Best-effort: the mount may be read-only on some hosts, so we don't fail
+# if it doesn't take.
+if [[ -S "${SSH_AUTH_SOCK}" ]]; then
+    sudo -n chmod 0666 "${SSH_AUTH_SOCK}" 2>/dev/null \
+        || chmod 0666 "${SSH_AUTH_SOCK}" 2>/dev/null \
+        || echo "post-start: warn: could not chmod ${SSH_AUTH_SOCK}; ssh-agent fan-out may fail"
+fi
+
 # Remove any stale socket from a previous run before socat tries to bind it
 # (socat refuses to bind UNIX-LISTEN if the path already exists). Also wipe
 # any dead screen sessions left over from a previous container start so the
