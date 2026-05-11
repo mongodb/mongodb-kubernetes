@@ -1,0 +1,19 @@
+[wt-ctl] worktree=lsierant_KUBE-26-background-tester  branch=lsierant/KUBE-26-background-tester
+worktree    lsierant_KUBE-26-background-tester  (dirty, 70 ahead/13 behind origin/lsierant/KUBE-26-background-tester)
+path        /Users/lukasz.sierant/mdb/lsierant_KUBE-26-background-tester
+context     e2e_mdb_kind_ubi_cloudqa
+
+devc        running    project=lsierant_kube-26-background-tester_devcontainer  services=4/4  image_age=7h
+network     172.26.0.0/23    prefix=1280    registered=yes    orphans=0
+namespace   ls-1280
+gost-proxy  http://127.0.0.1:9280
+
+evg host    not-found    name=lsierant_KUBE-26-background-tester
+kubeconfig  /Users/lukasz.sierant/mdb/lsierant_KUBE-26-background-tester/.generated/evg-host.kubeconfig    last_patch=7h_ago    kfp_registered=yes
+host-kfp    running    pid=?    http=127.0.0.1:11616    health=ok
+om          0 projects in scope `ls-1280, ls-1280-*`
+
+next        wt-ctl attach          # tmuxp mck
+            wt-ctl attach zsh      # bare shell
+
+last_create  failed at dc_up  (resume: wt-ctl create lsierant/KUBE-26-background-tester --resume)

@@ -1,0 +1,556 @@
+[wt-ctl] worktree=lsierant_KUBE-26-background-tester  branch=lsierant/KUBE-26-background-tester
+[wt-ctl] kfp pre-flight: already running
+[wt-ctl] phase: dc_up
+[up] [2026-05-11T06:30:42.981Z] @devcontainers/cli 0.84.1. Node.js v24.3.0. darwin 25.4.0 arm64.
+[up] [2026-05-11T06:30:45.047Z] Running the initializeCommand from devcontainer.json...
+[up] 
+[up] [2026-05-11T06:30:45.047Z] Start: Run: /bin/sh -c bash .devcontainer/scripts/initialize.sh
+[up] [2026-05-11T06:30:45.247Z] Set EVERGREEN_CLI_URL=https://evg-bucket-evergreen.s3.amazonaws.com/evergreen/clients/evergreen_99505b3a546c08bda04938e85fa4bf716068cd87/linux_arm64/evergreen on devcontainer service in compose.generated.yml
+[up] [2026-05-11T06:30:45.330Z] 
+[up] [2026-05-11T06:30:45.371Z] Start: Run: docker compose -f /Users/lukasz.sierant/mdb/lsierant_KUBE-26-background-tester/.devcontainer/compose.yml -f /Users/lukasz.sierant/mdb/lsierant_KUBE-26-background-tester/.devcontainer/compose.generated.yml -f /Users/lukasz.sierant/mdb/lsierant_KUBE-26-background-tester/.devcontainer/compose.user.yml --profile * config
+[up] [2026-05-11T06:30:45.463Z] Start: Run: docker compose -f /Users/lukasz.sierant/mdb/lsierant_KUBE-26-background-tester/.devcontainer/compose.yml -f /Users/lukasz.sierant/mdb/lsierant_KUBE-26-background-tester/.devcontainer/compose.generated.yml -f /Users/lukasz.sierant/mdb/lsierant_KUBE-26-background-tester/.devcontainer/compose.user.yml --profile * config
+[up] [2026-05-11T06:30:45.524Z] name: devcontainer
+[up] services:
+[up]   devcontainer:
+[up]     build:
+[up]       context: /Users/lukasz.sierant/mdb/lsierant_KUBE-26-background-tester/.devcontainer
+[up]       dockerfile: Dockerfile
+[up]     command:
+[up]       - sleep
+[up]       - infinity
+[up]     depends_on:
+[up]       k8s-proxy:
+[up]         condition: service_started
+[up]         required: true
+[up]     dns:
+[up]       - 172.26.0.10
+[up]       - 127.0.0.11
+[up]     environment:
+[up]       EVERGREEN_CLI_URL: https://evg-bucket-evergreen.s3.amazonaws.com/evergreen/clients/evergreen_99505b3a546c08bda04938e85fa4bf716068cd87/linux_arm64/evergreen
+[up]       EVG_HOST_PROXY: http://gost-proxy:8080
+[up]       GOTOOLCHAIN: local
+[up]       K8S_FWD_PROXY: 172.26.0.10
+[up]       MCK_DEVC_NET_PREFIX: "1280"
+[up]       SSH_AUTH_SOCK: /ssh-auth.sock
+[up]     extra_hosts:
+[up]       - host.docker.internal=host-gateway
+[up]     networks:
+[up]       devcontainer: null
+[up]     volumes:
+[up]       - type: bind
+[up]         source: /Users/lukasz.sierant/mdb/lsierant_KUBE-26-background-tester
+[up]         target: /workspace
+[up]         bind: {}
+[up]       - type: volume
+[up]         source: venv
+[up]         target: /workspace/venv
+[up]         volume: {}
+[up]       - type: volume
+[up]         source: bin
+[up]         target: /workspace/bin
+[up]         volume: {}
+[up]       - type: volume
+[up]         source: gomodcache
+[up]         target: /go/pkg/mod
+[up]         volume: {}
+[up]       - type: volume
+[up]         source: gocache
+[up]         target: /home/vscode/.cache/go-build
+[up]         volume: {}
+[up]       - type: volume
+[up]         source: uvcache
+[up]         target: /home/vscode/.cache/uv
+[up]         volume: {}
+[up]       - type: volume
+[up]         source: helmcache
+[up]         target: /home/vscode/.cache/helm
+[up]         volume: {}
+[up]       - type: bind
+[up]         source: /Users/lukasz.sierant/.evergreen.yml
+[up]         target: /home/vscode/.evergreen.yml
+[up]         bind: {}
+[up]       - type: bind
+[up]         source: /Users/lukasz.sierant/.kanopy
+[up]         target: /Users/lukasz.sierant/.kanopy
+[up]         bind: {}
+[up]       - type: bind
+[up]         source: /Users/lukasz.sierant/.claude
+[up]         target: /home/vscode/.claude
+[up]         bind: {}
+[up]       - type: volume
+[up]         source: ssh-auth-sock
+[up]         target: /ssh-agent
+[up]         volume: {}
+[up]       - type: bind
+[up]         source: /Users/lukasz.sierant/mdb/mongodb-kubernetes/.git
+[up]         target: /Users/lukasz.sierant/mdb/mongodb-kubernetes/.git
+[up]         bind: {}
+[up]       - type: bind
+[up]         source: /run/host-services/ssh-auth.sock
+[up]         target: /ssh-auth.sock
+[up]         bind: {}
+[up]       - type: bind
+[up]         source: /Users/lukasz.sierant/.tmux.conf
+[up]         target: /home/vscode/.tmux.conf
+[up]         read_only: true
+[up]         bind: {}
+[up]   evg-host-proxy:
+[up]     build:
+[up]       context: /Users/lukasz.sierant/mdb/lsierant_KUBE-26-background-tester/.devcontainer
+[up]       dockerfile: autossh.Dockerfile
+[up]     command:
+[up]       - bash
+[up]       - -c
+[up]       - |
+[up] 
+[up]           set -Eeo pipefail
+[up]           echo "evg-host-proxy: starting..."
+[up]           # EVG_HOST_ADDRESS may be passed via compose env (e.g. compose.user.yml
+[up]           # override). Otherwise fall back to the auto-resolved cache file.
+[up]           # ($$ escapes the dollar so compose passes the variable name through to bash.)
+[up]           if [ -z "$$EVG_HOST_ADDRESS" ] && [ -s /generated/.current-evg-host-address ]; then
+[up]             EVG_HOST_ADDRESS=$$(cat /generated/.current-evg-host-address)
+[up]           fi
+[up]           if [ -z "$$EVG_HOST_ADDRESS" ]; then
+[up]             echo "ERROR: EVG_HOST_ADDRESS is empty." >&2
+[up]             echo "Either run make switch (auto-resolves from .generated/.current-evg-host)" >&2
+[up]             echo "or set EVG_HOST_ADDRESS as a sidecar env in compose.user.yml." >&2
+[up]             exit 1
+[up]           fi
+[up]           echo "evg-host-proxy: waiting for ssh-agent socket at $$SSH_AUTH_SOCK..."
+[up]           until [ -S "$$SSH_AUTH_SOCK" ]; do sleep 1; done
+[up]           echo "evg-host-proxy: ssh-agent ready; starting autossh to ubuntu@$$EVG_HOST_ADDRESS"
+[up]           exec autossh -M 0 -N \
+[up]             -o "ServerAliveInterval 30" \
+[up]             -o "ServerAliveCountMax 3" \
+[up]             -D 0.0.0.0:1080 \
+[up]             ubuntu@$$EVG_HOST_ADDRESS
+[up]     environment:
+[up]       SSH_AUTH_SOCK: /ssh-agent/socket
+[up]     networks:
+[up]       devcontainer: null
+[up]     restart: unless-stopped
+[up]     volumes:
+[up]       - type: bind
+[up]         source: /Users/lukasz.sierant/mdb/lsierant_KUBE-26-background-tester/.generated
+[up]         target: /generated
+[up]         read_only: true
+[up]         bind: {}
+[up]       - type: volume
+[up]         source: ssh-auth-sock
+[up]         target: /ssh-agent
+[up]         volume: {}
+[up]       - type: bind
+[up]         source: /Users/lukasz.sierant/.ssh/known_hosts
+[up]         target: /etc/ssh/ssh_known_hosts
+[up]         read_only: true
+[up]         bind: {}
+[up]   gost-proxy:
+[up]     command:
+[up]       - -L
+[up]       - http://:8080
+[up]       - -F
+[up]       - socks5://evg-host-proxy:1080
+[up]     depends_on:
+[up]       evg-host-proxy:
+[up]         condition: service_started
+[up]         required: true
+[up]     image: gogost/gost
+[up]     networks:
+[up]       devcontainer: null
+[up]     ports:
+[up]       - mode: ingress
+[up]         host_ip: 127.0.0.1
+[up]         target: 8080
+[up]         published: "9280"
+[up]         protocol: tcp
+[up]   k8s-proxy:
+[up]     cap_add:
+[up]       - NET_ADMIN
+[up]     command:
+[up]       - --dns
+[up]     environment:
+[up]       CLUSTER_DOMAIN: svc.cluster.local
+[up]       DNS_LISTEN: :53
+[up]       HTTP_LISTEN: :80
+[up]       INTERFACE: 172.26.0.10
+[up]       LOG_LEVEL: info
+[up]       VIP_CIDR: 172.26.1.0/24
+[up]     image: k8s-service-proxy:local
+[up]     networks:
+[up]       devcontainer:
+[up]         ipv4_address: 172.26.0.10
+[up] networks:
+[up]   devcontainer:
+[up]     name: devcontainer_devcontainer
+[up]     driver: bridge
+[up]     ipam:
+[up]       config:
+[up]         - subnet: 172.26.0.0/23
+[up]           ip_range: 172.26.0.0/24
+[up] volumes:
+[up]   bin:
+[up]     name: devcontainer_bin
+[up]   gocache:
+[up]     name: mck-devcontainer-gocache
+[up]   gomodcache:
+[up]     name: mck-devcontainer-gomodcache
+[up]   helmcache:
+[up]     name: mck-devcontainer-helmcache
+[up]   ssh-auth-sock:
+[up]     name: devcontainer_ssh-auth-sock
+[up]   uvcache:
+[up]     name: mck-devcontainer-uvcache
+[up]   venv:
+[up]     name: devcontainer_venv
+[up] x-k8s-proxy-config:
+[up]   proxy_address: 172.26.0.10
+[up] [2026-05-11T06:30:45.525Z] Start: Run: docker inspect --type image mcr.microsoft.com/devcontainers/base:ubuntu-24.04
+[up] [2026-05-11T06:30:45.564Z] Resolving Feature dependencies for 'ghcr.io/devcontainers/features/go:1'...
+[up] [2026-05-11T06:30:45.564Z] * Processing feature: ghcr.io/devcontainers/features/go:1
+[up] [2026-05-11T06:30:47.792Z] * Processing feature: ghcr.io/devcontainers/features/common-utils
+[up] [2026-05-11T06:30:48.972Z] Resolving Feature dependencies for 'ghcr.io/devcontainers-extra/features/uv:1'...
+[up] [2026-05-11T06:30:48.972Z] * Processing feature: ghcr.io/devcontainers-extra/features/uv:1
+[up] [2026-05-11T06:30:49.787Z] Resolving Feature dependencies for 'ghcr.io/devcontainers/features/kubectl-helm-minikube:1'...
+[up] [2026-05-11T06:30:49.787Z] * Processing feature: ghcr.io/devcontainers/features/kubectl-helm-minikube:1
+[up] [2026-05-11T06:30:50.424Z] * Processing feature: ghcr.io/devcontainers/features/common-utils
+[up] [2026-05-11T06:30:50.767Z] Resolving Feature dependencies for './features/helm-unittest'...
+[up] [2026-05-11T06:30:50.767Z] * Processing feature: ./features/helm-unittest
+[up] [2026-05-11T06:30:50.767Z] Local disk feature.
+[up] [2026-05-11T06:30:50.769Z] * Processing feature: ghcr.io/devcontainers/features/kubectl-helm-minikube:1
+[up] [2026-05-11T06:30:51.069Z] Resolving Feature dependencies for 'ghcr.io/devcontainers/features/docker-in-docker:2'...
+[up] [2026-05-11T06:30:51.069Z] * Processing feature: ghcr.io/devcontainers/features/docker-in-docker:2
+[up] [2026-05-11T06:30:51.673Z] * Processing feature: ghcr.io/devcontainers/features/common-utils
+[up] [2026-05-11T06:30:52.065Z] Resolving Feature dependencies for 'ghcr.io/devcontainers/features/aws-cli:1'...
+[up] [2026-05-11T06:30:52.066Z] * Processing feature: ghcr.io/devcontainers/features/aws-cli:1
+[up] [2026-05-11T06:30:53.123Z] * Processing feature: ghcr.io/devcontainers/features/common-utils
+[up] [2026-05-11T06:30:53.557Z] Resolving Feature dependencies for 'ghcr.io/devcontainers-extra/features/jira-cli:1'...
+[up] [2026-05-11T06:30:53.557Z] * Processing feature: ghcr.io/devcontainers-extra/features/jira-cli:1
+[up] [2026-05-11T06:30:54.216Z] * Processing feature: ghcr.io/devcontainers-extra/features/gh-release
+[up] [2026-05-11T06:30:54.594Z] Resolving Feature dependencies for 'ghcr.io/devcontainers-extra/features/shellcheck:1'...
+[up] [2026-05-11T06:30:54.594Z] * Processing feature: ghcr.io/devcontainers-extra/features/shellcheck:1
+[up] [2026-05-11T06:30:55.162Z] Resolving Feature dependencies for 'ghcr.io/eitsupi/devcontainer-features/jq-likes:2'...
+[up] [2026-05-11T06:30:55.162Z] * Processing feature: ghcr.io/eitsupi/devcontainer-features/jq-likes:2
+[up] [2026-05-11T06:30:55.501Z] * Processing feature: ghcr.io/devcontainers/features/common-utils
+[up] [2026-05-11T06:30:56.147Z] * Processing feature: ghcr.io/devcontainers/features/powershell
+[up] [2026-05-11T06:30:56.445Z] * Processing feature: ghcr.io/meaningful-ooo/devcontainer-features/fish
+[up] [2026-05-11T06:30:57.056Z] Resolving Feature dependencies for 'ghcr.io/devcontainers-extra/features/fzf:1'...
+[up] [2026-05-11T06:30:57.056Z] * Processing feature: ghcr.io/devcontainers-extra/features/fzf:1
+[up] [2026-05-11T06:30:57.364Z] * Processing feature: ghcr.io/devcontainers-extra/features/gh-release
+[up] [2026-05-11T06:30:57.905Z] Resolving Feature dependencies for 'ghcr.io/mpriscella/features/kind:1'...
+[up] [2026-05-11T06:30:57.905Z] * Processing feature: ghcr.io/mpriscella/features/kind:1
+[up] [2026-05-11T06:31:00.523Z] Files to omit: ''
+[up] [2026-05-11T06:31:00.538Z] Resolving Feature dependencies for 'ghcr.io/mpriscella/features/helm-chart-testing:1'...
+[up] [2026-05-11T06:31:00.538Z] * Processing feature: ghcr.io/mpriscella/features/helm-chart-testing:1
+[up] [2026-05-11T06:31:01.123Z] Resolving Feature dependencies for 'ghcr.io/dhoeric/features/k9s:1'...
+[up] [2026-05-11T06:31:01.123Z] * Processing feature: ghcr.io/dhoeric/features/k9s:1
+[up] [2026-05-11T06:31:02.893Z] Files to omit: ''
+[up] [2026-05-11T06:31:02.897Z] * Processing feature: ghcr.io/devcontainers/features/common-utils
+[up] [2026-05-11T06:31:03.559Z] Resolving Feature dependencies for 'ghcr.io/devcontainers-extra/features/pre-commit:2'...
+[up] [2026-05-11T06:31:03.559Z] * Processing feature: ghcr.io/devcontainers-extra/features/pre-commit:2
+[up] [2026-05-11T06:31:04.134Z] * Processing feature: ghcr.io/devcontainers-extra/features/pipx-package
+[up] [2026-05-11T06:31:04.728Z] * Processing feature: ghcr.io/devcontainers/features/python
+[up] [2026-05-11T06:31:05.042Z] Soft-dependency 'ghcr.io/devcontainers/features/common-utils' is not required.  Removing from installation order...
+[up] [2026-05-11T06:31:05.042Z] Soft-dependency 'ghcr.io/devcontainers/features/common-utils' is not required.  Removing from installation order...
+[up] [2026-05-11T06:31:05.042Z] Soft-dependency 'ghcr.io/devcontainers/features/common-utils' is not required.  Removing from installation order...
+[up] [2026-05-11T06:31:05.042Z] Soft-dependency 'ghcr.io/devcontainers/features/common-utils' is not required.  Removing from installation order...
+[up] [2026-05-11T06:31:05.042Z] Soft-dependency 'ghcr.io/devcontainers-extra/features/gh-release' is not required.  Removing from installation order...
+[up] [2026-05-11T06:31:05.042Z] Soft-dependency 'ghcr.io/meaningful-ooo/devcontainer-features/fish' is not required.  Removing from installation order...
+[up] [2026-05-11T06:31:05.042Z] Soft-dependency 'ghcr.io/devcontainers/features/powershell' is not required.  Removing from installation order...
+[up] [2026-05-11T06:31:05.042Z] Soft-dependency 'ghcr.io/devcontainers/features/common-utils' is not required.  Removing from installation order...
+[up] [2026-05-11T06:31:05.042Z] Soft-dependency 'ghcr.io/devcontainers-extra/features/gh-release' is not required.  Removing from installation order...
+[up] [2026-05-11T06:31:05.042Z] Soft-dependency 'ghcr.io/devcontainers/features/common-utils' is not required.  Removing from installation order...
+[up] [2026-05-11T06:31:05.042Z] Soft-dependency 'ghcr.io/devcontainers/features/python' is not required.  Removing from installation order...
+[up] [2026-05-11T06:31:05.042Z] Soft-dependency 'ghcr.io/devcontainers-extra/features/pipx-package' is not required.  Removing from installation order...
+[up] [2026-05-11T06:31:05.047Z] * Fetching feature: fzf_0_oci
+[up] [2026-05-11T06:31:06.189Z] Files to omit: ''
+[up] [2026-05-11T06:31:06.192Z] * Fetched feature: fzf_0_oci version 1.0.15
+[up] [2026-05-11T06:31:06.192Z] * Fetching feature: jira-cli_1_oci
+[up] [2026-05-11T06:31:06.810Z] Files to omit: ''
+[up] [2026-05-11T06:31:06.814Z] * Fetched feature: jira-cli_1_oci version 1.0.8
+[up] [2026-05-11T06:31:06.815Z] * Fetching feature: pre-commit_2_oci
+[up] [2026-05-11T06:31:07.962Z] Files to omit: ''
+[up] [2026-05-11T06:31:07.965Z] * Fetched feature: pre-commit_2_oci version 2.0.18
+[up] [2026-05-11T06:31:07.965Z] * Fetching feature: shellcheck_3_oci
+[up] [2026-05-11T06:31:09.131Z] Files to omit: ''
+[up] [2026-05-11T06:31:09.135Z] * Fetched feature: shellcheck_3_oci version 1.1.0
+[up] [2026-05-11T06:31:09.135Z] * Fetching feature: uv_4_oci
+[up] [2026-05-11T06:31:10.431Z] Files to omit: ''
+[up] [2026-05-11T06:31:10.433Z] * Fetched feature: uv_4_oci version 1.0.2
+[up] [2026-05-11T06:31:10.433Z] * Fetching feature: aws-cli_5_oci
+[up] [2026-05-11T06:31:11.699Z] Files to omit: ''
+[up] [2026-05-11T06:31:11.704Z] * Fetched feature: aws-cli_5_oci version 1.1.4
+[up] [2026-05-11T06:31:11.704Z] * Fetching feature: docker-in-docker_6_oci
+[up] [2026-05-11T06:31:12.583Z] Files to omit: ''
+[up] [2026-05-11T06:31:12.588Z] * Fetched feature: docker-in-docker_6_oci version 2.16.1
+[up] [2026-05-11T06:31:12.588Z] * Fetching feature: go_7_oci
+[up] [2026-05-11T06:31:13.631Z] Files to omit: ''
+[up] [2026-05-11T06:31:13.633Z] * Fetched feature: go_7_oci version 1.3.4
+[up] [2026-05-11T06:31:13.633Z] * Fetching feature: kubectl-helm-minikube_8_oci
+[up] [2026-05-11T06:31:14.335Z] Files to omit: ''
+[up] [2026-05-11T06:31:14.339Z] * Fetched feature: kubectl-helm-minikube_8_oci version 1.3.1
+[up] [2026-05-11T06:31:14.339Z] * Fetching feature: k9s_9_oci
+[up] [2026-05-11T06:31:14.858Z] Files to omit: ''
+[up] [2026-05-11T06:31:14.865Z] * Fetched feature: k9s_9_oci version 1.0.1
+[up] [2026-05-11T06:31:14.865Z] * Fetching feature: jq-likes_10_oci
+[up] [2026-05-11T06:31:15.502Z] Files to omit: ''
+[up] [2026-05-11T06:31:15.505Z] * Fetched feature: jq-likes_10_oci version 2.1.1
+[up] [2026-05-11T06:31:15.505Z] * Fetching feature: helm-chart-testing_11_oci
+[up] [2026-05-11T06:31:16.072Z] Files to omit: ''
+[up] [2026-05-11T06:31:16.074Z] * Fetched feature: helm-chart-testing_11_oci version 1.0.0
+[up] [2026-05-11T06:31:16.074Z] * Fetching feature: kind_12_oci
+[up] [2026-05-11T06:31:16.588Z] Files to omit: ''
+[up] [2026-05-11T06:31:16.591Z] * Fetched feature: kind_12_oci version 1.0.1
+[up] [2026-05-11T06:31:16.591Z] * Fetching feature: helm-unittest_13_file-path
+[up] [2026-05-11T06:31:16.623Z] Docker Compose override file for building image:
+[up] services:
+[up]   devcontainer:
+[up]     build:
+[up]       dockerfile: /var/folders/_l/xlckyyss4nsf1hd_0wf1pt3r0000gp/T/devcontainercli/container-features/0.84.1-1778481045563/Dockerfile-with-features
+[up]       args:
+[up]         - BUILDKIT_INLINE_CACHE=1
+[up]         - _DEV_CONTAINERS_BASE_IMAGE=dev_container_auto_added_stage_label
+[up]         - _DEV_CONTAINERS_IMAGE_USER=root
+[up]         - _DEV_CONTAINERS_FEATURE_CONTENT_SOURCE=dev_container_feature_content_temp
+[up]       additional_contexts:
+[up]         - dev_containers_feature_content_source=/var/folders/_l/xlckyyss4nsf1hd_0wf1pt3r0000gp/T/devcontainercli/container-features/0.84.1-1778481045563
+[up] 
+[up] [2026-05-11T06:31:16.628Z] Start: Run: docker compose --project-name lsierant_kube-26-background-tester_devcontainer -f /Users/lukasz.sierant/mdb/lsierant_KUBE-26-background-tester/.devcontainer/compose.yml -f /Users/lukasz.sierant/mdb/lsierant_KUBE-26-background-tester/.devcontainer/compose.generated.yml -f /Users/lukasz.sierant/mdb/lsierant_KUBE-26-background-tester/.devcontainer/compose.user.yml -f /var/folders/_l/xlckyyss4nsf1hd_0wf1pt3r0000gp/T/devcontainercli/docker-compose/docker-compose.devcontainer.build-1778481076623.yml build
+[up] [2026-05-11T06:31:16.741Z]  Image lsierant_kube-26-background-tester_devcontainer-devcontainer Building 
+[up] 
+[up] [2026-05-11T06:31:16.741Z]  Image lsierant_kube-26-background-tester_devcontainer-evg-host-proxy Building 
+[up] 
+[up] [2026-05-11T06:31:16.818Z] #1 [internal] load local bake definitions
+[up] [2026-05-11T06:31:16.969Z] #1 reading from stdin 1.85kB done
+[up] [2026-05-11T06:31:16.970Z] #1 DONE 0.0s
+[up] [2026-05-11T06:31:17.293Z] 
+[up] #2 [devcontainer internal] load build definition from Dockerfile-with-features
+[up] [2026-05-11T06:31:17.293Z] #2 transferring dockerfile: 14.55kB done
+[up] #2 DONE 0.0s
+[up] 
+[up] #3 [evg-host-proxy internal] load build definition from autossh.Dockerfile
+[up] #3 transferring dockerfile: 150B done
+[up] #3 DONE 0.0s
+[up] 
+[up] #4 [devcontainer context dev_containers_feature_content_source] load .dockerignore
+[up] #4 transferring dev_containers_feature_content_source: 2B done
+[up] #4 DONE 0.0s
+[up] 
+[up] #5 [devcontainer internal] load metadata for mcr.microsoft.com/devcontainers/base:ubuntu-24.04
+[up] [2026-05-11T06:31:21.726Z] #5 DONE 4.5s
+[up] 
+[up] #6 [devcontainer internal] load .dockerignore
+[up] #6 transferring context: 2B done
+[up] #6 DONE 0.0s
+[up] 
+[up] #7 [evg-host-proxy 1/2] FROM mcr.microsoft.com/devcontainers/base:ubuntu-24.04@sha256:d94c97dd9cacf183d0a6fd12a8e87b526e9e928307674ae9c94139139c0c6eae
+[up] #7 resolve mcr.microsoft.com/devcontainers/base:ubuntu-24.04@sha256:d94c97dd9cacf183d0a6fd12a8e87b526e9e928307674ae9c94139139c0c6eae 0.0s done
+[up] #7 DONE 0.0s
+[up] 
+[up] #8 [evg-host-proxy 2/2] RUN apt-get update && apt-get install -y autossh
+[up] #8 CACHED
+[up] 
+[up] #9 [devcontainer context dev_containers_feature_content_source] load from client
+[up] #9 transferring dev_containers_feature_content_source: 2.27kB done
+[up] #9 DONE 0.0s
+[up] 
+[up] #10 [devcontainer internal] load build context
+[up] #10 transferring context: 35B done
+[up] #10 DONE 0.0s
+[up] 
+[up] #11 [devcontainer context dev_containers_feature_content_source] load from client
+[up] #11 transferring dev_containers_feature_content_source: 3.04kB done
+[up] [2026-05-11T06:31:21.726Z] #11 DONE 0.0s
+[up] 
+[up] #12 [devcontainer context dev_containers_feature_content_source] load from client
+[up] #12 transferring dev_containers_feature_content_source: 8.75kB done
+[up] #12 DONE 0.0s
+[up] 
+[up] #13 [evg-host-proxy] exporting to image
+[up] #13 exporting layers done
+[up] #13 exporting manifest sha256:45a757be98a68d89e58e9cb601975dc61fd36ccb7d22c872c457eff1cf52423e done
+[up] #13 exporting config sha256:2fc6c0fcce28bb0b9a3873671184c7c115c72b6bc5e7fd41690203c010061637 done
+[up] #13 exporting attestation manifest sha256:36b09807bc7f71f80c835cc993b5976b11576404ce0ab1ac1664f582d0430fc4 0.0s done
+[up] #13 exporting manifest list sha256:f7e74579aee1164eac6957c1dbf1e6ce87990ed375dacb2e608f25732a0a90a4 done
+[up] #13 naming to docker.io/library/lsierant_kube-26-background-tester_devcontainer-evg-host-proxy:latest done
+[up] #13 unpacking to docker.io/library/lsierant_kube-26-background-tester_devcontainer-evg-host-proxy:latest done
+[up] [2026-05-11T06:31:21.948Z] #13 DONE 0.1s
+[up] 
+[up] [2026-05-11T06:31:21.948Z] #14 [devcontainer context dev_containers_feature_content_source] load from client
+[up] #14 transferring dev_containers_feature_content_source: 3.38kB done
+[up] #14 DONE 0.1s
+[up] 
+[up] #15 [devcontainer context dev_containers_feature_content_source] load from client
+[up] #15 transferring dev_containers_feature_content_source: 16.52kB done
+[up] #15 DONE 0.1s
+[up] 
+[up] #16 [devcontainer context dev_containers_feature_content_source] load from client
+[up] #16 transferring dev_containers_feature_content_source: 8.49kB done
+[up] #16 DONE 0.1s
+[up] 
+[up] #17 [devcontainer context dev_containers_feature_content_source] load from client
+[up] #17 transferring dev_containers_feature_content_source: 101B done
+[up] #17 DONE 0.1s
+[up] 
+[up] #18 [devcontainer context dev_containers_feature_content_source] load from client
+[up] #18 transferring dev_containers_feature_content_source: 6.66kB done
+[up] #18 DONE 0.1s
+[up] 
+[up] #19 [devcontainer context dev_containers_feature_content_source] load from client
+[up] #19 transferring dev_containers_feature_content_source: 22.88kB done
+[up] #19 DONE 0.1s
+[up] 
+[up] #20 [devcontainer context dev_containers_feature_content_source] load from client
+[up] #20 transferring dev_containers_feature_content_source: 17.54kB done
+[up] #20 DONE 0.1s
+[up] 
+[up] #21 [devcontainer context dev_containers_feature_content_source] load from client
+[up] #21 transferring dev_containers_feature_content_source: 8.80kB done
+[up] #21 DONE 0.1s
+[up] 
+[up] #22 [devcontainer context dev_containers_feature_content_source] load from client
+[up] #22 transferring dev_containers_feature_content_source: 13.21kB done
+[up] #22 DONE 0.1s
+[up] 
+[up] #23 [devcontainer context dev_containers_feature_content_source] load from client
+[up] #23 transferring dev_containers_feature_content_source: 9.19kB done
+[up] #23 DONE 0.1s
+[up] 
+[up] #24 [devcontainer context dev_containers_feature_content_source] load from client
+[up] #24 transferring dev_containers_feature_content_source: 8.74kB done
+[up] #24 DONE 0.1s
+[up] 
+[up] #25 [devcontainer context dev_containers_feature_content_source] load from client
+[up] #25 transferring dev_containers_feature_content_source: 56.66kB done
+[up] #25 DONE 0.1s
+[up] 
+[up] #26 [devcontainer dev_container_auto_added_stage_label 5/8] COPY shell-init.sh /etc/mck/shell-init.sh
+[up] #26 CACHED
+[up] 
+[up] #27 [devcontainer dev_container_auto_added_stage_label 8/8] RUN bash -c 'mkdir -p /workspace/.generated /home/vscode/.cache/{go-build,pip,helm}' &&     chown -R vscode:vscode /workspace/.generated /home/vscode/.cache
+[up] #27 CACHED
+[up] 
+[up] #28 [devcontainer dev_containers_target_stage  9/17] RUN --mount=type=bind,from=dev_containers_feature_content_source,source=aws-cli_5,target=/tmp/build-features-src/aws-cli_5     cp -ar /tmp/build-features-src/aws-cli_5 /tmp/dev-container-features  && chmod -R 0755 /tmp/dev-container-features/aws-cli_5  && cd /tmp/dev-container-features/aws-cli_5  && chmod +x ./devcontainer-features-install.sh  && ./devcontainer-features-install.sh  && rm -rf /tmp/dev-container-features/aws-cli_5
+[up] #28 CACHED
+[up] 
+[up] #29 [devcontainer dev_containers_target_stage  3/17] RUN echo "_CONTAINER_USER_HOME=$( (command -v getent >/dev/null 2>&1 && getent passwd 'root' || grep -E '^root|^[^:]*:[^:]*:root:' /etc/passwd || true) | cut -d: -f6)" >> /tmp/dev-container-features/devcontainer-features.builtin.env && echo "_REMOTE_USER_HOME=$( (command -v getent >/dev/null 2>&1 && getent passwd 'vscode' || grep -E '^vscode|^[^:]*:[^:]*:vscode:' /etc/passwd || true) | cut -d: -f6)" >> /tmp/dev-container-features/devcontainer-features.builtin.env
+[up] #29 CACHED
+[up] 
+[up] #30 [devcontainer dev_containers_target_stage  1/17] RUN mkdir -p /tmp/dev-container-features
+[up] [2026-05-11T06:31:21.948Z] #30 CACHED
+[up] 
+[up] #31 [devcontainer dev_containers_feature_content_normalize 2/2] RUN chmod -R 0755 /tmp/build-features/
+[up] #31 CACHED
+[up] 
+[up] #32 [devcontainer dev_containers_target_stage 16/17] RUN --mount=type=bind,from=dev_containers_feature_content_source,source=kind_12,target=/tmp/build-features-src/kind_12     cp -ar /tmp/build-features-src/kind_12 /tmp/dev-container-features  && chmod -R 0755 /tmp/dev-container-features/kind_12  && cd /tmp/dev-container-features/kind_12  && chmod +x ./devcontainer-features-install.sh  && ./devcontainer-features-install.sh  && rm -rf /tmp/dev-container-features/kind_12
+[up] #32 CACHED
+[up] 
+[up] #33 [devcontainer dev_containers_target_stage 15/17] RUN --mount=type=bind,from=dev_containers_feature_content_source,source=helm-chart-testing_11,target=/tmp/build-features-src/helm-chart-testing_11     cp -ar /tmp/build-features-src/helm-chart-testing_11 /tmp/dev-container-features  && chmod -R 0755 /tmp/dev-container-features/helm-chart-testing_11  && cd /tmp/dev-container-features/helm-chart-testing_11  && chmod +x ./devcontainer-features-install.sh  && ./devcontainer-features-install.sh  && rm -rf /tmp/dev-container-features/helm-chart-testing_11
+[up] #33 CACHED
+[up] 
+[up] #34 [devcontainer dev_containers_target_stage  4/17] RUN --mount=type=bind,from=dev_containers_feature_content_source,source=fzf_0,target=/tmp/build-features-src/fzf_0     cp -ar /tmp/build-features-src/fzf_0 /tmp/dev-container-features  && chmod -R 0755 /tmp/dev-container-features/fzf_0  && cd /tmp/dev-container-features/fzf_0  && chmod +x ./devcontainer-features-install.sh  && ./devcontainer-features-install.sh  && rm -rf /tmp/dev-container-features/fzf_0
+[up] #34 CACHED
+[up] 
+[up] #35 [devcontainer dev_containers_target_stage 14/17] RUN --mount=type=bind,from=dev_containers_feature_content_source,source=jq-likes_10,target=/tmp/build-features-src/jq-likes_10     cp -ar /tmp/build-features-src/jq-likes_10 /tmp/dev-container-features  && chmod -R 0755 /tmp/dev-container-features/jq-likes_10  && cd /tmp/dev-container-features/jq-likes_10  && chmod +x ./devcontainer-features-install.sh  && ./devcontainer-features-install.sh  && rm -rf /tmp/dev-container-features/jq-likes_10
+[up] #35 CACHED
+[up] 
+[up] #36 [devcontainer dev_container_auto_added_stage_label 6/8] RUN chmod 0644 /etc/mck/shell-init.sh  && echo '[[ -f /etc/mck/shell-init.sh ]] && source /etc/mck/shell-init.sh'     | tee -a /home/vscode/.bashrc /home/vscode/.zshrc > /dev/null
+[up] #36 CACHED
+[up] 
+[up] #37 [devcontainer dev_containers_target_stage  7/17] RUN --mount=type=bind,from=dev_containers_feature_content_source,source=shellcheck_3,target=/tmp/build-features-src/shellcheck_3     cp -ar /tmp/build-features-src/shellcheck_3 /tmp/dev-container-features  && chmod -R 0755 /tmp/dev-container-features/shellcheck_3  && cd /tmp/dev-container-features/shellcheck_3  && chmod +x ./devcontainer-features-install.sh  && ./devcontainer-features-install.sh  && rm -rf /tmp/dev-container-features/shellcheck_3
+[up] #37 CACHED
+[up] 
+[up] #38 [devcontainer dev_containers_target_stage 13/17] RUN --mount=type=bind,from=dev_containers_feature_content_source,source=k9s_9,target=/tmp/build-features-src/k9s_9     cp -ar /tmp/build-features-src/k9s_9 /tmp/dev-container-features  && chmod -R 0755 /tmp/dev-container-features/k9s_9  && cd /tmp/dev-container-features/k9s_9  && chmod +x ./devcontainer-features-install.sh  && ./devcontainer-features-install.sh  && rm -rf /tmp/dev-container-features/k9s_9
+[up] #38 CACHED
+[up] 
+[up] #39 [devcontainer dev_container_auto_added_stage_label 7/8] RUN printf 'export PATH="/workspace/bin:${PATH}"\n'         > /etc/profile.d/mck-bin.sh  && chmod 0644 /etc/profile.d/mck-bin.sh  && printf '\n# MCK: source /etc/profile.d/* for zsh login shells (Debian default zprofile is comment-only).\nemulate sh -c '''source /etc/profile'''\n'         >> /etc/zsh/zprofile
+[up] #39 CACHED
+[up] 
+[up] #40 [devcontainer dev_container_auto_added_stage_label 4/8] RUN chsh -s /usr/bin/zsh vscode
+[up] #40 CACHED
+[up] 
+[up] #41 [devcontainer dev_containers_feature_content_normalize 1/2] COPY --from=dev_containers_feature_content_source devcontainer-features.builtin.env /tmp/build-features/
+[up] #41 CACHED
+[up] 
+[up] #42 [devcontainer dev_containers_target_stage 10/17] RUN --mount=type=bind,from=dev_containers_feature_content_source,source=docker-in-docker_6,target=/tmp/build-features-src/docker-in-docker_6     cp -ar /tmp/build-features-src/docker-in-docker_6 /tmp/dev-container-features  && chmod -R 0755 /tmp/dev-container-features/docker-in-docker_6  && cd /tmp/dev-container-features/docker-in-docker_6  && chmod +x ./devcontainer-features-install.sh  && ./devcontainer-features-install.sh  && rm -rf /tmp/dev-container-features/docker-in-docker_6
+[up] #42 CACHED
+[up] 
+[up] #43 [devcontainer dev_container_auto_added_stage_label 2/8] RUN apt-get update && apt-get install -y     libldap2-dev     libsasl2-dev     lnav     python3-pip     screen     socat     tmux  && pip3 install --break-system-packages tmuxp
+[up] #43 CACHED
+[up] 
+[up] #44 [devcontainer dev_containers_target_stage  2/17] COPY --from=dev_containers_feature_content_normalize /tmp/build-features/ /tmp/dev-container-features
+[up] #44 CACHED
+[up] 
+[up] #45 [devcontainer dev_containers_target_stage 12/17] RUN --mount=type=bind,from=dev_containers_feature_content_source,source=kubectl-helm-minikube_8,target=/tmp/build-features-src/kubectl-helm-minikube_8     cp -ar /tmp/build-features-src/kubectl-helm-minikube_8 /tmp/dev-container-features  && chmod -R 0755 /tmp/dev-container-features/kubectl-helm-minikube_8  && cd /tmp/dev-container-features/kubectl-helm-minikube_8  && chmod +x ./devcontainer-features-install.sh  && ./devcontainer-features-install.sh  && rm -rf /tmp/dev-container-features/kubectl-helm-minikube_8
+[up] #45 CACHED
+[up] [2026-05-11T06:31:21.948Z] 
+[up] #46 [devcontainer dev_container_auto_added_stage_label 3/8] RUN su -l vscode -c 'curl -fsSL https://claude.ai/install.sh | bash'     || echo "Claude Code install failed; install manually with: curl -fsSL https://claude.ai/install.sh | bash"
+[up] #46 CACHED
+[up] 
+[up] #47 [devcontainer dev_containers_target_stage  5/17] RUN --mount=type=bind,from=dev_containers_feature_content_source,source=jira-cli_1,target=/tmp/build-features-src/jira-cli_1     cp -ar /tmp/build-features-src/jira-cli_1 /tmp/dev-container-features  && chmod -R 0755 /tmp/dev-container-features/jira-cli_1  && cd /tmp/dev-container-features/jira-cli_1  && chmod +x ./devcontainer-features-install.sh  && ./devcontainer-features-install.sh  && rm -rf /tmp/dev-container-features/jira-cli_1
+[up] #47 CACHED
+[up] 
+[up] #48 [devcontainer dev_containers_target_stage  8/17] RUN --mount=type=bind,from=dev_containers_feature_content_source,source=uv_4,target=/tmp/build-features-src/uv_4     cp -ar /tmp/build-features-src/uv_4 /tmp/dev-container-features  && chmod -R 0755 /tmp/dev-container-features/uv_4  && cd /tmp/dev-container-features/uv_4  && chmod +x ./devcontainer-features-install.sh  && ./devcontainer-features-install.sh  && rm -rf /tmp/dev-container-features/uv_4
+[up] #48 CACHED
+[up] 
+[up] #49 [devcontainer dev_containers_target_stage 11/17] RUN --mount=type=bind,from=dev_containers_feature_content_source,source=go_7,target=/tmp/build-features-src/go_7     cp -ar /tmp/build-features-src/go_7 /tmp/dev-container-features  && chmod -R 0755 /tmp/dev-container-features/go_7  && cd /tmp/dev-container-features/go_7  && chmod +x ./devcontainer-features-install.sh  && ./devcontainer-features-install.sh  && rm -rf /tmp/dev-container-features/go_7
+[up] #49 CACHED
+[up] 
+[up] #50 [devcontainer dev_containers_target_stage  6/17] RUN --mount=type=bind,from=dev_containers_feature_content_source,source=pre-commit_2,target=/tmp/build-features-src/pre-commit_2     cp -ar /tmp/build-features-src/pre-commit_2 /tmp/dev-container-features  && chmod -R 0755 /tmp/dev-container-features/pre-commit_2  && cd /tmp/dev-container-features/pre-commit_2  && chmod +x ./devcontainer-features-install.sh  && ./devcontainer-features-install.sh  && rm -rf /tmp/dev-container-features/pre-commit_2
+[up] #50 CACHED
+[up] 
+[up] #51 [devcontainer dev_containers_target_stage 17/17] RUN --mount=type=bind,from=dev_containers_feature_content_source,source=helm-unittest_13,target=/tmp/build-features-src/helm-unittest_13     cp -ar /tmp/build-features-src/helm-unittest_13 /tmp/dev-container-features  && chmod -R 0755 /tmp/dev-container-features/helm-unittest_13  && cd /tmp/dev-container-features/helm-unittest_13  && chmod +x ./devcontainer-features-install.sh  && ./devcontainer-features-install.sh  && rm -rf /tmp/dev-container-features/helm-unittest_13
+[up] #51 CACHED
+[up] 
+[up] #52 [evg-host-proxy] resolving provenance for metadata file
+[up] #52 DONE 0.0s
+[up] 
+[up] #53 [devcontainer] exporting to image
+[up] #53 exporting layers done
+[up] #53 preparing layers for inline cache
+[up] [2026-05-11T06:31:22.774Z] #53 preparing layers for inline cache 1.0s done
+[up] #53 exporting manifest sha256:0672d81847fd49a2e434b3ac6755c02a7d30a2f04ba58b06c3ec2a200b6cd71f
+[up] [2026-05-11T06:31:22.971Z] #53 exporting manifest sha256:0672d81847fd49a2e434b3ac6755c02a7d30a2f04ba58b06c3ec2a200b6cd71f done
+[up] #53 exporting config sha256:aac4916912025ee3298824d79416fc5f0bc263cfc2ba1c23971efe72dfba2cf8 done
+[up] #53 exporting attestation manifest sha256:a33e423a6f09e4f14032e78da246bff04a356923b7a943a25b9c01ac24112c38 done
+[up] #53 exporting manifest list sha256:5ea432348043c1f73f659679ab406fed3a61051ae064ad351fc318527378277b done
+[up] #53 naming to docker.io/library/lsierant_kube-26-background-tester_devcontainer-devcontainer:latest done
+[up] #53 unpacking to docker.io/library/lsierant_kube-26-background-tester_devcontainer-devcontainer:latest done
+[up] [2026-05-11T06:31:22.971Z] #53 DONE 1.1s
+[up] [2026-05-11T06:31:22.993Z] 
+[up] #54 [devcontainer] resolving provenance for metadata file
+[up] [2026-05-11T06:31:23.026Z] #54 DONE 0.0s
+[up] [2026-05-11T06:31:23.026Z]  Image lsierant_kube-26-background-tester_devcontainer-devcontainer Built 
+[up]  Image lsierant_kube-26-background-tester_devcontainer-evg-host-proxy Built 
+[up] 
+[up] [2026-05-11T06:31:23.110Z] Start: Run: docker compose --project-name lsierant_kube-26-background-tester_devcontainer -f /Users/lukasz.sierant/mdb/lsierant_KUBE-26-background-tester/.devcontainer/compose.yml -f /Users/lukasz.sierant/mdb/lsierant_KUBE-26-background-tester/.devcontainer/compose.generated.yml -f /Users/lukasz.sierant/mdb/lsierant_KUBE-26-background-tester/.devcontainer/compose.user.yml -f /var/folders/_l/xlckyyss4nsf1hd_0wf1pt3r0000gp/T/devcontainercli/docker-compose/docker-compose.devcontainer.build-1778481076623.yml -f /var/folders/_l/xlckyyss4nsf1hd_0wf1pt3r0000gp/T/devcontainercli/docker-compose/docker-compose.devcontainer.containerFeatures-1778481083109-9aeba2c2-27cb-40a5-a54e-ef77d506da65.yml up -d
+[up] [2026-05-11T06:31:23.989Z] Running the onCreateCommand from devcontainer.json...
+[up] 
+[up] [2026-05-11T06:31:25.207Z] Generating context files from: e2e_mdb_kind_ubi_cloudqa
+[up] [2026-05-11T06:31:25.246Z] Generated env files in /workspace/.generated:
+[up] [2026-05-11T06:31:25.247Z] -rw-r--r-- 1 vscode vscode  740 May 11 06:31 context.devc.env
+[up] -rw-r--r-- 1 vscode vscode 6062 May 11 06:31 context.env
+[up] -rw-r--r-- 1 vscode vscode 1282 May 11 06:13 context.host.env
+[up] -rw-r--r-- 1 vscode vscode 2188 May 11 06:31 context.operator.env
+[up] [2026-05-11T06:31:25.264Z] error: no context exists with the name: "kind-kind"
+[up] [2026-05-11T06:31:25.264Z] Warning: failed to switch kubectl context to: kind-kind
+[up] Does a matching Kubernetes context exist?
+[up] [2026-05-11T06:31:25.283Z] error: current-context is not set
+[up] [2026-05-11T06:31:25.300Z] Generated context: e2e_mdb_kind_ubi_cloudqa, set default kubectl context: kind-kind, namespace=ls-1280
+[up] [2026-05-11T06:31:25.301Z] Installing evergreen CLI from https://evg-bucket-evergreen.s3.amazonaws.com/evergreen/clients/evergreen_99505b3a546c08bda04938e85fa4bf716068cd87/linux_arm64/evergreen
+[up] [2026-05-11T06:31:33.313Z] curl: (6) Could not resolve host: evg-bucket-evergreen.s3.amazonaws.com
+[up] [2026-05-11T06:31:33.327Z] onCreateCommand from devcontainer.json failed with exit code 6. Skipping any further user-provided commands.
+[up] Error: Command failed: /bin/sh -c bash .devcontainer/scripts/on-create.sh
+[up]     at E (/opt/homebrew/lib/node_modules/@devcontainers/cli/dist/spec-node/devContainersSpecCLI.js:233:157)
+[up]     at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+[up]     at async Promise.allSettled (index 0)
+[up]     at async Jq (/opt/homebrew/lib/node_modules/@devcontainers/cli/dist/spec-node/devContainersSpecCLI.js:235:119)
+[up]     at async Jd (/opt/homebrew/lib/node_modules/@devcontainers/cli/dist/spec-node/devContainersSpecCLI.js:224:4668)
+[up]     at async Ld (/opt/homebrew/lib/node_modules/@devcontainers/cli/dist/spec-node/devContainersSpecCLI.js:224:4013)
+[up]     at async xd (/opt/homebrew/lib/node_modules/@devcontainers/cli/dist/spec-node/devContainersSpecCLI.js:224:3020)
+[up]     at async ng (/opt/homebrew/lib/node_modules/@devcontainers/cli/dist/spec-node/devContainersSpecCLI.js:224:2623)
+[up]     at async DV (/opt/homebrew/lib/node_modules/@devcontainers/cli/dist/spec-node/devContainersSpecCLI.js:410:4063)
+[up]     at async jV (/opt/homebrew/lib/node_modules/@devcontainers/cli/dist/spec-node/devContainersSpecCLI.js:483:4043)
+[up] {"outcome":"error","message":"Command failed: /bin/sh -c bash .devcontainer/scripts/on-create.sh","description":"onCreateCommand from devcontainer.json failed.","containerId":"9df9da156a9b2a0fd877b059e37087ab538f9deeb31777ef5a2520c7d0fa5a6c"}
+[wt-ctl] error: command failed (rc=1): devcontainer up --workspace-folder /Users/lukasz.sierant/mdb/lsierant_KUBE-26-background-tester
+[wt-ctl] resume with: scripts/dev/wt-ctl create lsierant/KUBE-26-background-tester --resume

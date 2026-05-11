@@ -1,0 +1,1524 @@
+[wt-ctl] worktree=lsierant_KUBE-27-failure-modes  branch=lsierant/KUBE-27-failure-modes
+[wt-ctl] kfp pre-flight: already running
+[wt-ctl] phase: net_allocate
+[wt-ctl] parallel phases: evg_prepare + dc_build
+[evg-host] ==> evg_prepare: worktree=/Users/lukasz.sierant/mdb/lsierant_KUBE-27-failure-modes, host=lsierant_KUBE-27-failure-modes
+[evg-host] ==> Spawning / resuming EVG host displayName='lsierant_KUBE-27-failure-modes'
+[build] [2026-05-10T22:57:01.518Z] @devcontainers/cli 0.84.1. Node.js v24.3.0. darwin 25.4.0 arm64.
+[build] [2026-05-10T22:57:02.705Z] Start: Run: docker compose -f /Users/lukasz.sierant/mdb/lsierant_KUBE-27-failure-modes/.devcontainer/compose.yml -f /Users/lukasz.sierant/mdb/lsierant_KUBE-27-failure-modes/.devcontainer/compose.generated.yml -f /Users/lukasz.sierant/mdb/lsierant_KUBE-27-failure-modes/.devcontainer/compose.user.yml --profile * config
+[build] [2026-05-10T22:57:02.772Z] Start: Run: docker compose -f /Users/lukasz.sierant/mdb/lsierant_KUBE-27-failure-modes/.devcontainer/compose.yml -f /Users/lukasz.sierant/mdb/lsierant_KUBE-27-failure-modes/.devcontainer/compose.generated.yml -f /Users/lukasz.sierant/mdb/lsierant_KUBE-27-failure-modes/.devcontainer/compose.user.yml --profile * config
+[build] [2026-05-10T22:57:02.833Z] name: devcontainer
+[build] services:
+[build]   devcontainer:
+[build]     build:
+[build]       context: /Users/lukasz.sierant/mdb/lsierant_KUBE-27-failure-modes/.devcontainer
+[build]       dockerfile: Dockerfile
+[build]     command:
+[build]       - sleep
+[build]       - infinity
+[build]     depends_on:
+[build]       k8s-proxy:
+[build]         condition: service_started
+[build]         required: true
+[build]     dns:
+[build]       - 172.16.60.10
+[build]       - 127.0.0.11
+[build]     environment:
+[build]       EVERGREEN_CLI_URL: https://evg-bucket-evergreen.s3.amazonaws.com/evergreen/clients/evergreen_99505b3a546c08bda04938e85fa4bf716068cd87/linux_arm64/evergreen
+[build]       EVG_HOST_PROXY: http://gost-proxy:8080
+[build]       GOTOOLCHAIN: local
+[build]       K8S_FWD_PROXY: 172.16.60.10
+[build]       MCK_DEVC_NET_PREFIX: "30"
+[build]       SSH_AUTH_SOCK: /ssh-auth.sock
+[build]     extra_hosts:
+[build]       - host.docker.internal=host-gateway
+[build]     networks:
+[build]       devcontainer: null
+[build]     volumes:
+[build]       - type: bind
+[build]         source: /Users/lukasz.sierant/mdb/lsierant_KUBE-27-failure-modes
+[build]         target: /workspace
+[build]         bind: {}
+[build]       - type: volume
+[build]         source: venv
+[build]         target: /workspace/venv
+[build]         volume: {}
+[build]       - type: volume
+[build]         source: bin
+[build]         target: /workspace/bin
+[build]         volume: {}
+[build]       - type: volume
+[build]         source: gomodcache
+[build]         target: /go/pkg/mod
+[build]         volume: {}
+[build]       - type: volume
+[build]         source: gocache
+[build]         target: /home/vscode/.cache/go-build
+[build]         volume: {}
+[build]       - type: volume
+[build]         source: uvcache
+[build]         target: /home/vscode/.cache/uv
+[build]         volume: {}
+[build]       - type: volume
+[build]         source: helmcache
+[build]         target: /home/vscode/.cache/helm
+[build]         volume: {}
+[build]       - type: bind
+[build]         source: /Users/lukasz.sierant/.evergreen.yml
+[build]         target: /home/vscode/.evergreen.yml
+[build]         bind: {}
+[build]       - type: bind
+[build]         source: /Users/lukasz.sierant/.kanopy
+[build]         target: /Users/lukasz.sierant/.kanopy
+[build]         bind: {}
+[build]       - type: bind
+[build]         source: /Users/lukasz.sierant/.claude
+[build]         target: /home/vscode/.claude
+[build]         bind: {}
+[build]       - type: volume
+[build]         source: ssh-auth-sock
+[build]         target: /ssh-agent
+[build]         volume: {}
+[build]       - type: bind
+[build]         source: /Users/lukasz.sierant/mdb/mongodb-kubernetes/.git
+[build]         target: /Users/lukasz.sierant/mdb/mongodb-kubernetes/.git
+[build]         bind: {}
+[build]       - type: bind
+[build]         source: /run/host-services/ssh-auth.sock
+[build]         target: /ssh-auth.sock
+[build]         bind: {}
+[build]       - type: bind
+[build]         source: /Users/lukasz.sierant/.tmux.conf
+[build]         target: /home/vscode/.tmux.conf
+[build]         read_only: true
+[build]         bind: {}
+[build]   evg-host-proxy:
+[build]     build:
+[build]       context: /Users/lukasz.sierant/mdb/lsierant_KUBE-27-failure-modes/.devcontainer
+[build]       dockerfile: autossh.Dockerfile
+[build]     command:
+[build]       - bash
+[build]       - -c
+[build]       - |
+[build] 
+[build]           set -Eeo pipefail
+[build]           echo "evg-host-proxy: starting..."
+[build]           # EVG_HOST_ADDRESS may be passed via compose env (e.g. compose.user.yml
+[build]           # override). Otherwise fall back to the auto-resolved cache file.
+[build]           # ($$ escapes the dollar so compose passes the variable name through to bash.)
+[build]           if [ -z "$$EVG_HOST_ADDRESS" ] && [ -s /generated/.current-evg-host-address ]; then
+[build]             EVG_HOST_ADDRESS=$$(cat /generated/.current-evg-host-address)
+[build]           fi
+[build]           if [ -z "$$EVG_HOST_ADDRESS" ]; then
+[build]             echo "ERROR: EVG_HOST_ADDRESS is empty." >&2
+[build]             echo "Either run make switch (auto-resolves from .generated/.current-evg-host)" >&2
+[build]             echo "or set EVG_HOST_ADDRESS as a sidecar env in compose.user.yml." >&2
+[build]             exit 1
+[build]           fi
+[build]           echo "evg-host-proxy: waiting for ssh-agent socket at $$SSH_AUTH_SOCK..."
+[build]           until [ -S "$$SSH_AUTH_SOCK" ]; do sleep 1; done
+[build]           echo "evg-host-proxy: ssh-agent ready; starting autossh to ubuntu@$$EVG_HOST_ADDRESS"
+[build]           exec autossh -M 0 -N \
+[build]             -o "ServerAliveInterval 30" \
+[build]             -o "ServerAliveCountMax 3" \
+[build]             -D 0.0.0.0:1080 \
+[build]             ubuntu@$$EVG_HOST_ADDRESS
+[build]     environment:
+[build]       SSH_AUTH_SOCK: /ssh-agent/socket
+[build]     networks:
+[build]       devcontainer: null
+[build]     restart: unless-stopped
+[build]     volumes:
+[build]       - type: bind
+[build]         source: /Users/lukasz.sierant/mdb/lsierant_KUBE-27-failure-modes/.generated
+[build]         target: /generated
+[build]         read_only: true
+[build]         bind: {}
+[build]       - type: volume
+[build]         source: ssh-auth-sock
+[build]         target: /ssh-agent
+[build]         volume: {}
+[build]       - type: bind
+[build]         source: /Users/lukasz.sierant/.ssh/known_hosts
+[build]         target: /etc/ssh/ssh_known_hosts
+[build]         read_only: true
+[build]         bind: {}
+[build]   gost-proxy:
+[build]     command:
+[build]       - -L
+[build]       - http://:8080
+[build]       - -F
+[build]       - socks5://evg-host-proxy:1080
+[build]     depends_on:
+[build]       evg-host-proxy:
+[build]         condition: service_started
+[build]         required: true
+[build]     image: gogost/gost
+[build]     networks:
+[build]       devcontainer: null
+[build]     ports:
+[build]       - mode: ingress
+[build]         host_ip: 127.0.0.1
+[build]         target: 8080
+[build]         published: "8030"
+[build]         protocol: tcp
+[build]   k8s-proxy:
+[build]     cap_add:
+[build]       - NET_ADMIN
+[build]     command:
+[build]       - --dns
+[build]     environment:
+[build]       CLUSTER_DOMAIN: svc.cluster.local
+[build]       DNS_LISTEN: :53
+[build]       HTTP_LISTEN: :80
+[build]       INTERFACE: 172.16.60.10
+[build]       LOG_LEVEL: info
+[build]       VIP_CIDR: 172.16.61.0/24
+[build]     image: k8s-service-proxy:local
+[build]     networks:
+[build]       devcontainer:
+[build]         ipv4_address: 172.16.60.10
+[build] networks:
+[build]   devcontainer:
+[build]     name: devcontainer_devcontainer
+[build]     driver: bridge
+[build]     ipam:
+[build]       config:
+[build]         - subnet: 172.16.60.0/23
+[build]           ip_range: 172.16.60.0/24
+[build] volumes:
+[build]   bin:
+[build]     name: devcontainer_bin
+[build]   gocache:
+[build]     name: mck-devcontainer-gocache
+[build]   gomodcache:
+[build]     name: mck-devcontainer-gomodcache
+[build]   helmcache:
+[build]     name: mck-devcontainer-helmcache
+[build]   ssh-auth-sock:
+[build]     name: devcontainer_ssh-auth-sock
+[build]   uvcache:
+[build]     name: mck-devcontainer-uvcache
+[build]   venv:
+[build]     name: devcontainer_venv
+[build] x-k8s-proxy-config:
+[build]   proxy_address: 172.16.60.10
+[build] [2026-05-10T22:57:02.835Z] Start: Run: docker inspect --type image mcr.microsoft.com/devcontainers/base:ubuntu-24.04
+[build] [2026-05-10T22:57:02.869Z] Resolving Feature dependencies for 'ghcr.io/devcontainers/features/go:1'...
+[build] [2026-05-10T22:57:02.869Z] * Processing feature: ghcr.io/devcontainers/features/go:1
+[evg-host] [wt-ctl evg spawn] resume: existing host i-067399fa25956abe2 displayName='lsierant_KUBE-27-failure-modes' status='running'
+[build] [2026-05-10T22:57:07.788Z] * Processing feature: ghcr.io/devcontainers/features/common-utils
+[build] [2026-05-10T22:57:08.128Z] Resolving Feature dependencies for 'ghcr.io/devcontainers-extra/features/uv:1'...
+[build] [2026-05-10T22:57:08.128Z] * Processing feature: ghcr.io/devcontainers-extra/features/uv:1
+[evg-host] [wt-ctl evg spawn] SSH verify ok: ubuntu@ec2-34-241-153-9.eu-west-1.compute.amazonaws.com
+[evg-host] i-067399fa25956abe2
+[evg-host] ==> Regenerating context files (context=e2e_mdb_kind_ubi_cloudqa)
+[evg-host] Generating context files from: e2e_mdb_kind_ubi_cloudqa
+[build] [2026-05-10T22:57:08.909Z] Resolving Feature dependencies for 'ghcr.io/devcontainers/features/kubectl-helm-minikube:1'...
+[build] [2026-05-10T22:57:08.909Z] * Processing feature: ghcr.io/devcontainers/features/kubectl-helm-minikube:1
+[build] [2026-05-10T22:57:09.309Z] * Processing feature: ghcr.io/devcontainers/features/common-utils
+[build] [2026-05-10T22:57:09.592Z] Resolving Feature dependencies for './features/helm-unittest'...
+[build] [2026-05-10T22:57:09.593Z] * Processing feature: ./features/helm-unittest
+[build] [2026-05-10T22:57:09.593Z] Local disk feature.
+[build] [2026-05-10T22:57:09.595Z] * Processing feature: ghcr.io/devcontainers/features/kubectl-helm-minikube:1
+[build] [2026-05-10T22:57:09.886Z] Resolving Feature dependencies for 'ghcr.io/devcontainers/features/docker-in-docker:2'...
+[build] [2026-05-10T22:57:09.886Z] * Processing feature: ghcr.io/devcontainers/features/docker-in-docker:2
+[build] [2026-05-10T22:57:10.497Z] * Processing feature: ghcr.io/devcontainers/features/common-utils
+[build] [2026-05-10T22:57:10.897Z] Resolving Feature dependencies for 'ghcr.io/devcontainers/features/aws-cli:1'...
+[build] [2026-05-10T22:57:10.897Z] * Processing feature: ghcr.io/devcontainers/features/aws-cli:1
+[build] [2026-05-10T22:57:11.318Z] * Processing feature: ghcr.io/devcontainers/features/common-utils
+[build] [2026-05-10T22:57:11.704Z] Resolving Feature dependencies for 'ghcr.io/devcontainers-extra/features/jira-cli:1'...
+[build] [2026-05-10T22:57:11.704Z] * Processing feature: ghcr.io/devcontainers-extra/features/jira-cli:1
+[evg-host] Generated env files in /Users/lukasz.sierant/mdb/lsierant_KUBE-27-failure-modes/.generated:
+[evg-host] context.env
+[evg-host] context.host.env
+[evg-host] context.operator.env
+[build] [2026-05-10T22:57:12.060Z] * Processing feature: ghcr.io/devcontainers-extra/features/gh-release
+[evg-host] Switched to context "kind-kind".
+[evg-host] Generated context: e2e_mdb_kind_ubi_cloudqa, set default kubectl context: kind-kind, namespace=ls-30
+[evg-host] ==> Verifying SSH to lsierant_KUBE-27-failure-modes via evg_host.sh
+[build] [2026-05-10T22:57:12.784Z] Resolving Feature dependencies for 'ghcr.io/devcontainers-extra/features/shellcheck:1'...
+[build] [2026-05-10T22:57:12.784Z] * Processing feature: ghcr.io/devcontainers-extra/features/shellcheck:1
+[build] [2026-05-10T22:57:13.112Z] Resolving Feature dependencies for 'ghcr.io/eitsupi/devcontainer-features/jq-likes:2'...
+[build] [2026-05-10T22:57:13.112Z] * Processing feature: ghcr.io/eitsupi/devcontainer-features/jq-likes:2
+[evg-host] evg_host_ready
+[evg-host] ==> Recreating single kind cluster on lsierant_KUBE-27-failure-modes
+[evg-host] evg_host.sh configure: Configuring EVG host lsierant_KUBE-27-failure-modes (ubuntu@ec2-34-241-153-9.eu-west-1.compute.amazonaws.com) (auto_recreate: false)
+[build] [2026-05-10T22:57:13.852Z] * Processing feature: ghcr.io/devcontainers/features/common-utils
+[build] [2026-05-10T22:57:14.611Z] * Processing feature: ghcr.io/devcontainers/features/powershell
+[build] [2026-05-10T22:57:15.372Z] * Processing feature: ghcr.io/meaningful-ooo/devcontainer-features/fish
+[build] [2026-05-10T22:57:16.092Z] Resolving Feature dependencies for 'ghcr.io/devcontainers-extra/features/fzf:1'...
+[build] [2026-05-10T22:57:16.092Z] * Processing feature: ghcr.io/devcontainers-extra/features/fzf:1
+[build] [2026-05-10T22:57:16.857Z] * Processing feature: ghcr.io/devcontainers-extra/features/gh-release
+[build] [2026-05-10T22:57:17.594Z] Resolving Feature dependencies for 'ghcr.io/mpriscella/features/kind:1'...
+[build] [2026-05-10T22:57:17.594Z] * Processing feature: ghcr.io/mpriscella/features/kind:1
+[evg-host] evg_host.sh configure: Copying local ~/.docker/config.json authorization credentials to EVG host
+[build] [2026-05-10T22:57:19.721Z] Files to omit: ''
+[build] [2026-05-10T22:57:19.732Z] Resolving Feature dependencies for 'ghcr.io/mpriscella/features/helm-chart-testing:1'...
+[build] [2026-05-10T22:57:19.732Z] * Processing feature: ghcr.io/mpriscella/features/helm-chart-testing:1
+[build] [2026-05-10T22:57:20.572Z] Resolving Feature dependencies for 'ghcr.io/dhoeric/features/k9s:1'...
+[build] [2026-05-10T22:57:20.572Z] * Processing feature: ghcr.io/dhoeric/features/k9s:1
+[build] [2026-05-10T22:57:22.313Z] Files to omit: ''
+[build] [2026-05-10T22:57:22.320Z] * Processing feature: ghcr.io/devcontainers/features/common-utils
+[build] [2026-05-10T22:57:23.193Z] Resolving Feature dependencies for 'ghcr.io/devcontainers-extra/features/pre-commit:2'...
+[build] [2026-05-10T22:57:23.193Z] * Processing feature: ghcr.io/devcontainers-extra/features/pre-commit:2
+[build] [2026-05-10T22:57:23.950Z] * Processing feature: ghcr.io/devcontainers-extra/features/pipx-package
+[build] [2026-05-10T22:57:24.707Z] * Processing feature: ghcr.io/devcontainers/features/python
+[build] [2026-05-10T22:57:25.438Z] Soft-dependency 'ghcr.io/devcontainers/features/common-utils' is not required.  Removing from installation order...
+[build] [2026-05-10T22:57:25.438Z] Soft-dependency 'ghcr.io/devcontainers/features/common-utils' is not required.  Removing from installation order...
+[build] [2026-05-10T22:57:25.438Z] Soft-dependency 'ghcr.io/devcontainers/features/common-utils' is not required.  Removing from installation order...
+[build] [2026-05-10T22:57:25.438Z] Soft-dependency 'ghcr.io/devcontainers/features/common-utils' is not required.  Removing from installation order...
+[build] [2026-05-10T22:57:25.438Z] Soft-dependency 'ghcr.io/devcontainers-extra/features/gh-release' is not required.  Removing from installation order...
+[build] [2026-05-10T22:57:25.438Z] Soft-dependency 'ghcr.io/meaningful-ooo/devcontainer-features/fish' is not required.  Removing from installation order...
+[build] [2026-05-10T22:57:25.438Z] Soft-dependency 'ghcr.io/devcontainers/features/powershell' is not required.  Removing from installation order...
+[build] [2026-05-10T22:57:25.438Z] Soft-dependency 'ghcr.io/devcontainers/features/common-utils' is not required.  Removing from installation order...
+[build] [2026-05-10T22:57:25.438Z] Soft-dependency 'ghcr.io/devcontainers-extra/features/gh-release' is not required.  Removing from installation order...
+[build] [2026-05-10T22:57:25.438Z] Soft-dependency 'ghcr.io/devcontainers/features/common-utils' is not required.  Removing from installation order...
+[build] [2026-05-10T22:57:25.438Z] Soft-dependency 'ghcr.io/devcontainers/features/python' is not required.  Removing from installation order...
+[build] [2026-05-10T22:57:25.438Z] Soft-dependency 'ghcr.io/devcontainers-extra/features/pipx-package' is not required.  Removing from installation order...
+[build] [2026-05-10T22:57:25.441Z] * Fetching feature: fzf_0_oci
+[build] [2026-05-10T22:57:26.427Z] Files to omit: ''
+[build] [2026-05-10T22:57:26.429Z] * Fetched feature: fzf_0_oci version 1.0.15
+[build] [2026-05-10T22:57:26.429Z] * Fetching feature: jira-cli_1_oci
+[build] [2026-05-10T22:57:27.782Z] Files to omit: ''
+[build] [2026-05-10T22:57:27.788Z] * Fetched feature: jira-cli_1_oci version 1.0.8
+[build] [2026-05-10T22:57:27.788Z] * Fetching feature: pre-commit_2_oci
+[evg-host] evg_host.sh configure: sync: Transfer starting: 2559 files
+[evg-host] evg_host.sh configure: sync: deleting .generated/evg-host.kubeconfig
+[evg-host] evg_host.sh configure: sync: deleting .generated/context.operator.env
+[evg-host] evg_host.sh configure: sync: deleting .generated/context.host.env
+[evg-host] evg_host.sh configure: sync: deleting .generated/context.env
+[evg-host] evg_host.sh configure: sync: deleting .generated/.current_context
+[evg-host] evg_host.sh configure: sync: deleting .generated/
+[evg-host] evg_host.sh configure: sync: ./
+[evg-host] evg_host.sh configure: sync: .devcontainer/
+[evg-host] evg_host.sh configure: sync: .wt-ctl/
+[evg-host] evg_host.sh configure: sync: .wt-ctl/state.json
+[evg-host] evg_host.sh configure: sync:            2265 100%   10.90MB/s   00:00:00 (xfer#1, to-check=112/2559)
+[evg-host] evg_host.sh configure: sync: docker/mongodb-kubernetes-tests/tests/common/search/
+[evg-host] evg_host.sh configure: sync: docker/mongodb-kubernetes-tests/tests/common/search/availability_tester.py
+[evg-host] evg_host.sh configure: sync:           12659 100%   30.10MB/s   00:00:00 (xfer#2, to-check=841/2559)
+[evg-host] evg_host.sh configure: sync: docker/mongodb-kubernetes-tests/tests/search/
+[evg-host] evg_host.sh configure: sync: docker/mongodb-kubernetes-tests/tests/search/search_availability_background_tester.py
+[evg-host] evg_host.sh configure: sync:           15948 100%   38.90MB/s   00:00:00 (xfer#3, to-check=1142/2559)
+[evg-host] evg_host.sh configure: sync: docker/mongodb-kubernetes-tests/tests/search/search_failure_modes.py
+[evg-host] evg_host.sh configure: sync:           14765 100%   34.95MB/s   00:00:00 (xfer#4, to-check=1153/2559)
+[evg-host] evg_host.sh configure: sync: scripts/dev/wt_ctl/
+[evg-host] evg_host.sh configure: sync: scripts/dev/wt_ctl/orchestrator.py
+[evg-host] evg_host.sh configure: sync:           44367 100%   38.74MB/s   00:00:00 (xfer#5, to-check=2311/2559)
+[evg-host] evg_host.sh configure: sync: scripts/test/wt_ctl/
+[evg-host] evg_host.sh configure: sync: scripts/test/wt_ctl/test_orchestrator.py
+[evg-host] evg_host.sh configure: sync:           19775 100%    3.77MB/s   00:00:00 (xfer#6, to-check=2555/2559)
+[evg-host] evg_host.sh configure: sync: 
+[evg-host] evg_host.sh configure: sync: sent 213k bytes  received 1112 bytes  1008k bytes/sec
+[evg-host] evg_host.sh configure: sync: total size is 16292k  speedup is 76.21
+[build] [2026-05-10T22:57:28.748Z] Files to omit: ''
+[build] [2026-05-10T22:57:28.753Z] * Fetched feature: pre-commit_2_oci version 2.0.18
+[build] [2026-05-10T22:57:28.753Z] * Fetching feature: shellcheck_3_oci
+[build] [2026-05-10T22:57:30.232Z] Files to omit: ''
+[build] [2026-05-10T22:57:30.235Z] * Fetched feature: shellcheck_3_oci version 1.1.0
+[build] [2026-05-10T22:57:30.236Z] * Fetching feature: uv_4_oci
+[build] [2026-05-10T22:57:31.712Z] Files to omit: ''
+[build] [2026-05-10T22:57:31.715Z] * Fetched feature: uv_4_oci version 1.0.2
+[build] [2026-05-10T22:57:31.715Z] * Fetching feature: aws-cli_5_oci
+[build] [2026-05-10T22:57:33.191Z] Files to omit: ''
+[build] [2026-05-10T22:57:33.201Z] * Fetched feature: aws-cli_5_oci version 1.1.4
+[build] [2026-05-10T22:57:33.201Z] * Fetching feature: docker-in-docker_6_oci
+[build] [2026-05-10T22:57:34.674Z] Files to omit: ''
+[build] [2026-05-10T22:57:34.679Z] * Fetched feature: docker-in-docker_6_oci version 2.16.1
+[build] [2026-05-10T22:57:34.679Z] * Fetching feature: go_7_oci
+[build] [2026-05-10T22:57:35.791Z] Files to omit: ''
+[build] [2026-05-10T22:57:35.795Z] * Fetched feature: go_7_oci version 1.3.4
+[build] [2026-05-10T22:57:35.795Z] * Fetching feature: kubectl-helm-minikube_8_oci
+[evg-host] evg_host.sh configure: sync: Transfer starting: 3 files
+[evg-host] evg_host.sh configure: sync: 
+[evg-host] evg_host.sh configure: sync: sent 214 bytes  received 20 bytes  1461 bytes/sec
+[evg-host] evg_host.sh configure: sync: total size is 28168  speedup is 120.38
+[build] [2026-05-10T22:57:37.385Z] Files to omit: ''
+[build] [2026-05-10T22:57:37.391Z] * Fetched feature: kubectl-helm-minikube_8_oci version 1.3.1
+[build] [2026-05-10T22:57:37.391Z] * Fetching feature: k9s_9_oci
+[build] [2026-05-10T22:57:38.394Z] Files to omit: ''
+[build] [2026-05-10T22:57:38.398Z] * Fetched feature: k9s_9_oci version 1.0.1
+[build] [2026-05-10T22:57:38.398Z] * Fetching feature: jq-likes_10_oci
+[evg-host] evg_host.sh configure: Generating context files from: root-context
+[evg-host] evg_host.sh configure: /home/ubuntu/mongodb-kubernetes/scripts/dev/contexts/private-context: line 53: .user: command not found
+[evg-host] evg_host.sh configure: /home/ubuntu/mongodb-kubernetes/scripts/dev/contexts/private-context: line 55: .api_key: command not found
+[evg-host] evg_host.sh configure: Generated env files in /home/ubuntu/mongodb-kubernetes/.generated:
+[evg-host] evg_host.sh configure: -rw-rw-r-- 1 ubuntu ubuntu 5770 May 10 22:57 context.env
+[evg-host] evg_host.sh configure: -rw-rw-r-- 1 ubuntu ubuntu  908 May 10 22:57 context.host.env
+[evg-host] evg_host.sh configure: -rw-rw-r-- 1 ubuntu ubuntu 2193 May 10 22:57 context.operator.env
+[evg-host] evg_host.sh configure: Switched to context "kind-kind".
+[evg-host] evg_host.sh configure: Generated context: root-context, set default kubectl context: kind-kind, namespace=ls
+[evg-host] evg_host.sh configure: Detected architecture: amd64
+[evg-host] evg_host.sh configure: set_limits: Increasing fs.inotify.max_user_instances
+[evg-host] evg_host.sh configure: set_limits: fs.inotify.max_user_instances = 8192
+[evg-host] evg_host.sh configure: set_limits: Increasing fs.inotify.max_user_watches
+[evg-host] evg_host.sh configure: set_limits: fs.inotify.max_user_watches = 10485760
+[evg-host] evg_host.sh configure: set_limits: Increasing the number of open files
+[evg-host] evg_host.sh configure: set_limits:   root hard nofile 1048576
+[evg-host] evg_host.sh configure: set_limits:   root hard nproc 64000
+[evg-host] evg_host.sh configure: set_limits:   root soft nofile 1048576
+[evg-host] evg_host.sh configure: set_limits:   root soft nproc 64000
+[evg-host] evg_host.sh configure: set_limits:   * hard nofile 1048576
+[evg-host] evg_host.sh configure: set_limits:   * hard nproc 64000
+[evg-host] evg_host.sh configure: set_limits:   * soft nofile 1048576
+[evg-host] evg_host.sh configure: set_limits:   * soft nproc 64000
+[evg-host] evg_host.sh configure: download_kubectl: Downloading kubectl v1.35.0 for amd64...
+[evg-host] evg_host.sh configure: download_kubectl: Adding 23s jitter to spread out concurrent downloads...
+[evg-host] evg_host.sh configure: download_helm: Downloading helm v3.19.4 for amd64...
+[evg-host] evg_host.sh configure: download_helm: Adding 16s jitter to spread out concurrent downloads...
+[evg-host] evg_host.sh configure: download_kind: Saving kind to /usr/local/bin
+[evg-host] evg_host.sh configure: download_kind: Adding 12s jitter to spread out concurrent downloads...
+[build] [2026-05-10T22:57:39.241Z] Files to omit: ''
+[build] [2026-05-10T22:57:39.246Z] * Fetched feature: jq-likes_10_oci version 2.1.1
+[build] [2026-05-10T22:57:39.246Z] * Fetching feature: helm-chart-testing_11_oci
+[build] [2026-05-10T22:57:40.648Z] Files to omit: ''
+[build] [2026-05-10T22:57:40.651Z] * Fetched feature: helm-chart-testing_11_oci version 1.0.0
+[build] [2026-05-10T22:57:40.651Z] * Fetching feature: kind_12_oci
+[build] [2026-05-10T22:57:42.114Z] Files to omit: ''
+[build] [2026-05-10T22:57:42.117Z] * Fetched feature: kind_12_oci version 1.0.1
+[build] [2026-05-10T22:57:42.117Z] * Fetching feature: helm-unittest_13_file-path
+[build] [2026-05-10T22:57:42.128Z] Docker Compose override file for building image:
+[build] services:
+[build]   devcontainer:
+[build]     build:
+[build]       dockerfile: /var/folders/_l/xlckyyss4nsf1hd_0wf1pt3r0000gp/T/devcontainercli/container-features/0.84.1-1778453822868/Dockerfile-with-features
+[build]       args:
+[build]         - BUILDKIT_INLINE_CACHE=1
+[build]         - _DEV_CONTAINERS_BASE_IMAGE=dev_container_auto_added_stage_label
+[build]         - _DEV_CONTAINERS_IMAGE_USER=root
+[build]         - _DEV_CONTAINERS_FEATURE_CONTENT_SOURCE=dev_container_feature_content_temp
+[build]       additional_contexts:
+[build]         - dev_containers_feature_content_source=/var/folders/_l/xlckyyss4nsf1hd_0wf1pt3r0000gp/T/devcontainercli/container-features/0.84.1-1778453822868
+[build] 
+[build] [2026-05-10T22:57:42.129Z] Start: Run: docker compose --project-name lsierant_kube-27-failure-modes_devcontainer -f /Users/lukasz.sierant/mdb/lsierant_KUBE-27-failure-modes/.devcontainer/compose.yml -f /Users/lukasz.sierant/mdb/lsierant_KUBE-27-failure-modes/.devcontainer/compose.generated.yml -f /Users/lukasz.sierant/mdb/lsierant_KUBE-27-failure-modes/.devcontainer/compose.user.yml -f /var/folders/_l/xlckyyss4nsf1hd_0wf1pt3r0000gp/T/devcontainercli/docker-compose/docker-compose.devcontainer.build-1778453862128.yml build devcontainer
+[build] [2026-05-10T22:57:42.222Z]  Image lsierant_kube-27-failure-modes_devcontainer-devcontainer Building 
+[build] 
+[build] [2026-05-10T22:57:42.290Z] #1 [internal] load local bake definitions
+[build] [2026-05-10T22:57:42.442Z] #1 reading from stdin 1.20kB done
+[build] #1 DONE 0.0s
+[build] [2026-05-10T22:57:42.625Z] 
+[build] #2 [internal] load build definition from Dockerfile-with-features
+[build] #2 transferring dockerfile: 14.55kB done
+[build] [2026-05-10T22:57:42.625Z] #2 DONE 0.0s
+[build] 
+[build] #3 [context dev_containers_feature_content_source] load .dockerignore
+[build] #3 transferring dev_containers_feature_content_source: 2B done
+[build] #3 DONE 0.0s
+[build] 
+[build] #4 [internal] load metadata for mcr.microsoft.com/devcontainers/base:ubuntu-24.04
+[build] [2026-05-10T22:57:46.147Z] #4 DONE 3.7s
+[build] [2026-05-10T22:57:46.247Z] 
+[build] #5 [internal] load .dockerignore
+[build] #5 transferring context: 2B done
+[build] #5 DONE 0.0s
+[build] 
+[build] #6 [context dev_containers_feature_content_source] load from client
+[build] #6 transferring dev_containers_feature_content_source: 2.27kB done
+[build] #6 DONE 0.0s
+[build] 
+[build] #7 [dev_container_auto_added_stage_label 1/8] FROM mcr.microsoft.com/devcontainers/base:ubuntu-24.04@sha256:d94c97dd9cacf183d0a6fd12a8e87b526e9e928307674ae9c94139139c0c6eae
+[build] #7 resolve mcr.microsoft.com/devcontainers/base:ubuntu-24.04@sha256:d94c97dd9cacf183d0a6fd12a8e87b526e9e928307674ae9c94139139c0c6eae 0.0s done
+[build] #7 DONE 0.0s
+[build] 
+[build] #8 [internal] load build context
+[build] #8 transferring context: 35B done
+[build] #8 DONE 0.0s
+[build] 
+[build] #9 [context dev_containers_feature_content_source] load from client
+[build] #9 transferring dev_containers_feature_content_source: 3.04kB done
+[build] #9 DONE 0.0s
+[build] 
+[build] [2026-05-10T22:57:46.247Z] #10 [context dev_containers_feature_content_source] load from client
+[build] #10 transferring dev_containers_feature_content_source: 8.80kB done
+[build] #10 DONE 0.1s
+[build] 
+[build] #11 [context dev_containers_feature_content_source] load from client
+[build] #11 transferring dev_containers_feature_content_source: 56.66kB done
+[build] [2026-05-10T22:57:46.425Z] #11 DONE 0.1s
+[build] 
+[build] #12 [context dev_containers_feature_content_source] load from client
+[build] [2026-05-10T22:57:46.425Z] #12 transferring dev_containers_feature_content_source: 17.54kB done
+[build] #12 DONE 0.1s
+[build] 
+[build] #13 [context dev_containers_feature_content_source] load from client
+[build] #13 transferring dev_containers_feature_content_source: 8.75kB done
+[build] #13 DONE 0.1s
+[build] 
+[build] #14 [context dev_containers_feature_content_source] load from client
+[build] #14 transferring dev_containers_feature_content_source: 101B done
+[build] #14 DONE 0.1s
+[build] 
+[build] #15 [context dev_containers_feature_content_source] load from client
+[build] #15 transferring dev_containers_feature_content_source: 13.21kB done
+[build] #15 DONE 0.1s
+[build] 
+[build] #16 [context dev_containers_feature_content_source] load from client
+[build] #16 transferring dev_containers_feature_content_source: 3.38kB done
+[build] #16 DONE 0.1s
+[build] 
+[build] #17 [context dev_containers_feature_content_source] load from client
+[build] #17 transferring dev_containers_feature_content_source: 6.66kB done
+[build] #17 DONE 0.1s
+[build] 
+[build] #18 [context dev_containers_feature_content_source] load from client
+[build] #18 transferring dev_containers_feature_content_source: 8.74kB done
+[build] #18 DONE 0.1s
+[build] 
+[build] #19 [context dev_containers_feature_content_source] load from client
+[build] #19 transferring dev_containers_feature_content_source: 16.52kB done
+[build] #19 DONE 0.1s
+[build] 
+[build] #20 [context dev_containers_feature_content_source] load from client
+[build] #20 transferring dev_containers_feature_content_source: 22.88kB done
+[build] #20 DONE 0.1s
+[build] 
+[build] #21 [context dev_containers_feature_content_source] load from client
+[build] #21 transferring dev_containers_feature_content_source: 9.19kB done
+[build] #21 DONE 0.1s
+[build] 
+[build] #22 [context dev_containers_feature_content_source] load from client
+[build] #22 transferring dev_containers_feature_content_source: 8.49kB done
+[build] #22 DONE 0.1s
+[build] 
+[build] #23 [dev_containers_target_stage 15/17] RUN --mount=type=bind,from=dev_containers_feature_content_source,source=helm-chart-testing_11,target=/tmp/build-features-src/helm-chart-testing_11     cp -ar /tmp/build-features-src/helm-chart-testing_11 /tmp/dev-container-features  && chmod -R 0755 /tmp/dev-container-features/helm-chart-testing_11  && cd /tmp/dev-container-features/helm-chart-testing_11  && chmod +x ./devcontainer-features-install.sh  && ./devcontainer-features-install.sh  && rm -rf /tmp/dev-container-features/helm-chart-testing_11
+[build] #23 CACHED
+[build] 
+[build] #24 [dev_containers_target_stage  2/17] COPY --from=dev_containers_feature_content_normalize /tmp/build-features/ /tmp/dev-container-features
+[build] #24 CACHED
+[build] 
+[build] #25 [dev_containers_target_stage 10/17] RUN --mount=type=bind,from=dev_containers_feature_content_source,source=docker-in-docker_6,target=/tmp/build-features-src/docker-in-docker_6     cp -ar /tmp/build-features-src/docker-in-docker_6 /tmp/dev-container-features  && chmod -R 0755 /tmp/dev-container-features/docker-in-docker_6  && cd /tmp/dev-container-features/docker-in-docker_6  && chmod +x ./devcontainer-features-install.sh  && ./devcontainer-features-install.sh  && rm -rf /tmp/dev-container-features/docker-in-docker_6
+[build] #25 CACHED
+[build] 
+[build] #26 [dev_containers_target_stage  9/17] RUN --mount=type=bind,from=dev_containers_feature_content_source,source=aws-cli_5,target=/tmp/build-features-src/aws-cli_5     cp -ar /tmp/build-features-src/aws-cli_5 /tmp/dev-container-features  && chmod -R 0755 /tmp/dev-container-features/aws-cli_5  && cd /tmp/dev-container-features/aws-cli_5  && chmod +x ./devcontainer-features-install.sh  && ./devcontainer-features-install.sh  && rm -rf /tmp/dev-container-features/aws-cli_5
+[build] #26 CACHED
+[build] 
+[build] #27 [dev_containers_target_stage 11/17] RUN --mount=type=bind,from=dev_containers_feature_content_source,source=go_7,target=/tmp/build-features-src/go_7     cp -ar /tmp/build-features-src/go_7 /tmp/dev-container-features  && chmod -R 0755 /tmp/dev-container-features/go_7  && cd /tmp/dev-container-features/go_7  && chmod +x ./devcontainer-features-install.sh  && ./devcontainer-features-install.sh  && rm -rf /tmp/dev-container-features/go_7
+[build] #27 CACHED
+[build] 
+[build] #28 [dev_container_auto_added_stage_label 8/8] RUN bash -c 'mkdir -p /workspace/.generated /home/vscode/.cache/{go-build,pip,helm}' &&     chown -R vscode:vscode /workspace/.generated /home/vscode/.cache
+[build] #28 CACHED
+[build] 
+[build] #29 [dev_containers_target_stage 12/17] RUN --mount=type=bind,from=dev_containers_feature_content_source,source=kubectl-helm-minikube_8,target=/tmp/build-features-src/kubectl-helm-minikube_8     cp -ar /tmp/build-features-src/kubectl-helm-minikube_8 /tmp/dev-container-features  && chmod -R 0755 /tmp/dev-container-features/kubectl-helm-minikube_8  && cd /tmp/dev-container-features/kubectl-helm-minikube_8  && chmod +x ./devcontainer-features-install.sh  && ./devcontainer-features-install.sh  && rm -rf /tmp/dev-container-features/kubectl-helm-minikube_8
+[build] #29 CACHED
+[build] 
+[build] #30 [dev_containers_target_stage  6/17] RUN --mount=type=bind,from=dev_containers_feature_content_source,source=pre-commit_2,target=/tmp/build-features-src/pre-commit_2     cp -ar /tmp/build-features-src/pre-commit_2 /tmp/dev-container-features  && chmod -R 0755 /tmp/dev-container-features/pre-commit_2  && cd /tmp/dev-container-features/pre-commit_2  && chmod +x ./devcontainer-features-install.sh  && ./devcontainer-features-install.sh  && rm -rf /tmp/dev-container-features/pre-commit_2
+[build] #30 CACHED
+[build] 
+[build] #31 [dev_containers_target_stage  1/17] RUN mkdir -p /tmp/dev-container-features
+[build] #31 CACHED
+[build] 
+[build] #32 [dev_containers_target_stage 13/17] RUN --mount=type=bind,from=dev_containers_feature_content_source,source=k9s_9,target=/tmp/build-features-src/k9s_9     cp -ar /tmp/build-features-src/k9s_9 /tmp/dev-container-features  && chmod -R 0755 /tmp/dev-container-features/k9s_9  && cd /tmp/dev-container-features/k9s_9  && chmod +x ./devcontainer-features-install.sh  && ./devcontainer-features-install.sh  && rm -rf /tmp/dev-container-features/k9s_9
+[build] #32 CACHED
+[build] 
+[build] #33 [dev_containers_target_stage  4/17] RUN --mount=type=bind,from=dev_containers_feature_content_source,source=fzf_0,target=/tmp/build-features-src/fzf_0     cp -ar /tmp/build-features-src/fzf_0 /tmp/dev-container-features  && chmod -R 0755 /tmp/dev-container-features/fzf_0  && cd /tmp/dev-container-features/fzf_0  && chmod +x ./devcontainer-features-install.sh  && ./devcontainer-features-install.sh  && rm -rf /tmp/dev-container-features/fzf_0
+[build] #33 CACHED
+[build] 
+[build] #34 [dev_container_auto_added_stage_label 5/8] COPY shell-init.sh /etc/mck/shell-init.sh
+[build] #34 CACHED
+[build] 
+[build] #35 [dev_containers_target_stage  8/17] RUN --mount=type=bind,from=dev_containers_feature_content_source,source=uv_4,target=/tmp/build-features-src/uv_4     cp -ar /tmp/build-features-src/uv_4 /tmp/dev-container-features  && chmod -R 0755 /tmp/dev-container-features/uv_4  && cd /tmp/dev-container-features/uv_4  && chmod +x ./devcontainer-features-install.sh  && ./devcontainer-features-install.sh  && rm -rf /tmp/dev-container-features/uv_4
+[build] #35 CACHED
+[build] 
+[build] #36 [dev_container_auto_added_stage_label 4/8] RUN chsh -s /usr/bin/zsh vscode
+[build] #36 CACHED
+[build] 
+[build] #37 [dev_containers_target_stage  7/17] RUN --mount=type=bind,from=dev_containers_feature_content_source,source=shellcheck_3,target=/tmp/build-features-src/shellcheck_3     cp -ar /tmp/build-features-src/shellcheck_3 /tmp/dev-container-features  && chmod -R 0755 /tmp/dev-container-features/shellcheck_3  && cd /tmp/dev-container-features/shellcheck_3  && chmod +x ./devcontainer-features-install.sh  && ./devcontainer-features-install.sh  && rm -rf /tmp/dev-container-features/shellcheck_3
+[build] #37 CACHED
+[build] 
+[build] #38 [dev_containers_feature_content_normalize 2/2] RUN chmod -R 0755 /tmp/build-features/
+[build] #38 CACHED
+[build] 
+[build] #39 [dev_container_auto_added_stage_label 2/8] RUN apt-get update && apt-get install -y     libldap2-dev     libsasl2-dev     lnav     python3-pip     screen     socat     tmux  && pip3 install --break-system-packages tmuxp
+[build] #39 CACHED
+[build] 
+[build] #40 [dev_container_auto_added_stage_label 7/8] RUN printf 'export PATH="/workspace/bin:${PATH}"\n'         > /etc/profile.d/mck-bin.sh  && chmod 0644 /etc/profile.d/mck-bin.sh  && printf '\n# MCK: source /etc/profile.d/* for zsh login shells (Debian default zprofile is comment-only).\nemulate sh -c '''source /etc/profile'''\n'         >> /etc/zsh/zprofile
+[build] #40 CACHED
+[build] 
+[build] #41 [dev_container_auto_added_stage_label 6/8] RUN chmod 0644 /etc/mck/shell-init.sh  && echo '[[ -f /etc/mck/shell-init.sh ]] && source /etc/mck/shell-init.sh'     | tee -a /home/vscode/.bashrc /home/vscode/.zshrc > /dev/null
+[build] #41 CACHED
+[build] 
+[build] #42 [dev_containers_target_stage  5/17] RUN --mount=type=bind,from=dev_containers_feature_content_source,source=jira-cli_1,target=/tmp/build-features-src/jira-cli_1     cp -ar /tmp/build-features-src/jira-cli_1 /tmp/dev-container-features  && chmod -R 0755 /tmp/dev-container-features/jira-cli_1  && cd /tmp/dev-container-features/jira-cli_1  && chmod +x ./devcontainer-features-install.sh  && ./devcontainer-features-install.sh  && rm -rf /tmp/dev-container-features/jira-cli_1
+[build] #42 CACHED
+[build] 
+[build] #43 [dev_containers_feature_content_normalize 1/2] COPY --from=dev_containers_feature_content_source devcontainer-features.builtin.env /tmp/build-features/
+[build] #43 CACHED
+[build] 
+[build] #44 [dev_container_auto_added_stage_label 3/8] RUN su -l vscode -c 'curl -fsSL https://claude.ai/install.sh | bash'     || echo "Claude Code install failed; install manually with: curl -fsSL https://claude.ai/install.sh | bash"
+[build] #44 CACHED
+[build] 
+[build] #45 [dev_containers_target_stage 16/17] RUN --mount=type=bind,from=dev_containers_feature_content_source,source=kind_12,target=/tmp/build-features-src/kind_12     cp -ar /tmp/build-features-src/kind_12 /tmp/dev-container-features  && chmod -R 0755 /tmp/dev-container-features/kind_12  && cd /tmp/dev-container-features/kind_12  && chmod +x ./devcontainer-features-install.sh  && ./devcontainer-features-install.sh  && rm -rf /tmp/dev-container-features/kind_12
+[build] #45 CACHED
+[build] 
+[build] #46 [dev_containers_target_stage  3/17] RUN echo "_CONTAINER_USER_HOME=$( (command -v getent >/dev/null 2>&1 && getent passwd 'root' || grep -E '^root|^[^:]*:[^:]*:root:' /etc/passwd || true) | cut -d: -f6)" >> /tmp/dev-container-features/devcontainer-features.builtin.env && echo "_REMOTE_USER_HOME=$( (command -v getent >/dev/null 2>&1 && getent passwd 'vscode' || grep -E '^vscode|^[^:]*:[^:]*:vscode:' /etc/passwd || true) | cut -d: -f6)" >> /tmp/dev-container-features/devcontainer-features.builtin.env
+[build] #46 CACHED
+[build] 
+[build] #47 [dev_containers_target_stage 14/17] RUN --mount=type=bind,from=dev_containers_feature_content_source,source=jq-likes_10,target=/tmp/build-features-src/jq-likes_10     cp -ar /tmp/build-features-src/jq-likes_10 /tmp/dev-container-features  && chmod -R 0755 /tmp/dev-container-features/jq-likes_10  && cd /tmp/dev-container-features/jq-likes_10  && chmod +x ./devcontainer-features-install.sh  && ./devcontainer-features-install.sh  && rm -rf /tmp/dev-container-features/jq-likes_10
+[build] #47 CACHED
+[build] 
+[build] #48 [dev_containers_target_stage 17/17] RUN --mount=type=bind,from=dev_containers_feature_content_source,source=helm-unittest_13,target=/tmp/build-features-src/helm-unittest_13     cp -ar /tmp/build-features-src/helm-unittest_13 /tmp/dev-container-features  && chmod -R 0755 /tmp/dev-container-features/helm-unittest_13  && cd /tmp/dev-container-features/helm-unittest_13  && chmod +x ./devcontainer-features-install.sh  && ./devcontainer-features-install.sh  && rm -rf /tmp/dev-container-features/helm-unittest_13
+[build] #48 CACHED
+[build] 
+[build] #49 exporting to image
+[build] #49 exporting layers done
+[build] #49 preparing layers for inline cache
+[build] [2026-05-10T22:57:46.976Z] #49 preparing layers for inline cache 0.7s done
+[build] #49 exporting manifest sha256:faac3772cfe67eb44f0d43a76e46ed93764c26a2f8a6ee8f50586b90bb4cef90
+[build] [2026-05-10T22:57:47.178Z] #49 exporting manifest sha256:faac3772cfe67eb44f0d43a76e46ed93764c26a2f8a6ee8f50586b90bb4cef90 done
+[build] #49 exporting config sha256:714b2dc96c99581be98e135b7898ed5fc696d2170ece26b16b0e2c0de0c10fb3 done
+[build] #49 exporting attestation manifest sha256:3df42de04b7382e334db31284a399f00e7f5ba20f5fa5e2a97978773da790d67 done
+[build] #49 exporting manifest list sha256:3c5adde4b9d58743d9626007028a0eb5ca079be98a30bae1612a16d3fb7579db done
+[build] #49 naming to docker.io/library/lsierant_kube-27-failure-modes_devcontainer-devcontainer:latest done
+[build] #49 unpacking to docker.io/library/lsierant_kube-27-failure-modes_devcontainer-devcontainer:latest done
+[build] #49 DONE 0.8s
+[build] [2026-05-10T22:57:47.189Z] 
+[build] #50 resolving provenance for metadata file
+[build] [2026-05-10T22:57:47.208Z] #50 DONE 0.0s
+[build] [2026-05-10T22:57:47.208Z]  Image lsierant_kube-27-failure-modes_devcontainer-devcontainer Built 
+[build] 
+[build] {"outcome":"success","imageName":"lsierant_kube-27-failure-modes_devcontainer-devcontainer"}
+[evg-host] evg_host.sh configure:   % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+[evg-host] evg_host.sh configure:                                  Dload  Upload   Total   Spent    Left  Speed
+[evg-host] evg_host.sh configure: 
+[evg-host]   0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+[evg-host]   0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+[evg-host] evg_host.sh configure: 
+[evg-host] 100 10.5M  100 10.5M    0     0  31.4M      0 --:--:-- --:--:-- --:--:-- 31.4M
+[evg-host] evg_host.sh configure: download_kind: Installed kind in /usr/local/bin
+[evg-host] Recreating kind cluster kind on lsierant_KUBE-27-failure-modes (ubuntu@ec2-34-241-153-9.eu-west-1.compute.amazonaws.com)...
+[evg-host] Docker network 'kind' exists.
+[evg-host] Stopping containers kind-control-plane  using kind network...
+[evg-host] kind-control-plane
+[evg-host] Deleted Containers:
+[evg-host] 3651063e4c18ef9e9bee92dadcd3e28d71df4523648c75be8350c274dcd258fc
+[evg-host] 
+[evg-host] Total reclaimed space: 3.07MB
+[evg-host] kind
+[evg-host] a70027a9127720ec42a3dfab5769a85be340f9edc6d20f742bef867a63e7e7d4
+[evg-host] Deleting cluster "kind" ...
+[evg-host] Creating cluster "kind" ...
+[evg-host]  • Ensuring node image (docker.io/kindest/node:v1.35.0) 🖼  ...
+[evg-host] DEBUG: docker/images.go:58] Image: docker.io/kindest/node:v1.35.0 present locally
+[evg-host]  ✓ Ensuring node image (docker.io/kindest/node:v1.35.0) 🖼
+[evg-host]  • Preparing nodes 📦   ...
+[evg-host]  ✓ Preparing nodes 📦 
+[evg-host]  • Writing configuration 📜  ...
+[evg-host] DEBUG: config/config.go:96] Using the following kubeadm config for node kind-control-plane:
+[evg-host] apiServer:
+[evg-host]   certSANs:
+[evg-host]   - 127.0.0.1
+[evg-host]   extraArgs:
+[evg-host]     runtime-config: ""
+[evg-host] apiVersion: kubeadm.k8s.io/v1beta3
+[evg-host] clusterName: kind
+[evg-host] controlPlaneEndpoint: kind-control-plane:6443
+[evg-host] controllerManager:
+[evg-host]   extraArgs:
+[evg-host]     enable-hostpath-provisioner: "true"
+[evg-host] kind: ClusterConfiguration
+[evg-host] kubernetesVersion: v1.35.0
+[evg-host] networking:
+[evg-host]   dnsDomain: cluster.local
+[evg-host]   podSubnet: 10.244.0.0/16
+[evg-host]   serviceSubnet: 10.96.0.0/16
+[evg-host] scheduler:
+[evg-host]   extraArgs: null
+[evg-host] ---
+[evg-host] apiVersion: kubeadm.k8s.io/v1beta3
+[evg-host] bootstrapTokens:
+[evg-host] - token: abcdef.0123456789abcdef
+[evg-host] kind: InitConfiguration
+[evg-host] localAPIEndpoint:
+[evg-host]   advertiseAddress: 172.18.0.2
+[evg-host]   bindPort: 6443
+[evg-host] nodeRegistration:
+[evg-host]   criSocket: unix:///run/containerd/containerd.sock
+[evg-host]   kubeletExtraArgs:
+[evg-host]     node-ip: 172.18.0.2
+[evg-host]     node-labels: ""
+[evg-host]     provider-id: kind://docker/kind/kind-control-plane
+[evg-host] skipPhases:
+[evg-host] - preflight
+[evg-host] ---
+[evg-host] apiVersion: kubeadm.k8s.io/v1beta3
+[evg-host] controlPlane:
+[evg-host]   localAPIEndpoint:
+[evg-host]     advertiseAddress: 172.18.0.2
+[evg-host]     bindPort: 6443
+[evg-host] discovery:
+[evg-host]   bootstrapToken:
+[evg-host]     apiServerEndpoint: kind-control-plane:6443
+[evg-host]     token: abcdef.0123456789abcdef
+[evg-host]     unsafeSkipCAVerification: true
+[evg-host] kind: JoinConfiguration
+[evg-host] nodeRegistration:
+[evg-host]   criSocket: unix:///run/containerd/containerd.sock
+[evg-host]   kubeletExtraArgs:
+[evg-host]     node-ip: 172.18.0.2
+[evg-host]     node-labels: ""
+[evg-host]     provider-id: kind://docker/kind/kind-control-plane
+[evg-host] skipPhases:
+[evg-host] - preflight
+[evg-host] ---
+[evg-host] apiVersion: kubelet.config.k8s.io/v1beta1
+[evg-host] cgroupDriver: systemd
+[evg-host] cgroupRoot: /kubelet
+[evg-host] evictionHard:
+[evg-host]   imagefs.available: 0%
+[evg-host]   nodefs.available: 0%
+[evg-host]   nodefs.inodesFree: 0%
+[evg-host] failSwapOn: false
+[evg-host] imageGCHighThresholdPercent: 100
+[evg-host] kind: KubeletConfiguration
+[evg-host] ---
+[evg-host] apiVersion: kubeproxy.config.k8s.io/v1alpha1
+[evg-host] conntrack:
+[evg-host]   maxPerCore: 0
+[evg-host] iptables:
+[evg-host]   minSyncPeriod: 1s
+[evg-host] kind: KubeProxyConfiguration
+[evg-host] mode: iptables
+[evg-host]  ✓ Writing configuration 📜
+[evg-host]  • Starting control-plane 🕹️  ...
+[evg-host] DEBUG: kubeadminit/init.go:96] I0510 22:58:19.992859     183 initconfiguration.go:260] loading configuration from "/kind/kubeadm.conf"
+[evg-host] W0510 22:58:19.993275     183 common.go:100] your configuration file uses a deprecated API spec: "kubeadm.k8s.io/v1beta3" (kind: "ClusterConfiguration"). Please use 'kubeadm config migrate --old-config old-config-file --new-config new-config-file', which will write the new, similar spec using a newer API version.
+[evg-host] W0510 22:58:19.993688     183 common.go:100] your configuration file uses a deprecated API spec: "kubeadm.k8s.io/v1beta3" (kind: "InitConfiguration"). Please use 'kubeadm config migrate --old-config old-config-file --new-config new-config-file', which will write the new, similar spec using a newer API version.
+[evg-host] W0510 22:58:19.993956     183 common.go:100] your configuration file uses a deprecated API spec: "kubeadm.k8s.io/v1beta3" (kind: "JoinConfiguration"). Please use 'kubeadm config migrate --old-config old-config-file --new-config new-config-file', which will write the new, similar spec using a newer API version.
+[evg-host] W0510 22:58:19.994115     183 initconfiguration.go:361] [config] WARNING: Ignored configuration document with GroupVersionKind kubeadm.k8s.io/v1beta3, Kind=JoinConfiguration
+[evg-host] [init] Using Kubernetes version: v1.35.0
+[evg-host] [certs] Using certificateDir folder "/etc/kubernetes/pki"
+[evg-host] I0510 22:58:19.995127     183 certs.go:111] creating a new certificate authority for ca
+[evg-host] [certs] Generating "ca" certificate and key
+[evg-host] I0510 22:58:20.088861     183 certs.go:472] validating certificate period for ca certificate
+[evg-host] [certs] Generating "apiserver" certificate and key
+[evg-host] [certs] apiserver serving cert is signed for DNS names [kind-control-plane kubernetes kubernetes.default kubernetes.default.svc kubernetes.default.svc.cluster.local] and IPs [10.96.0.1 172.18.0.2 127.0.0.1]
+[evg-host] [certs] Generating "apiserver-kubelet-client" certificate and key
+[evg-host] I0510 22:58:20.237135     183 certs.go:111] creating a new certificate authority for front-proxy-ca
+[evg-host] I0510 22:58:20.336540     183 certs.go:472] validating certificate period for front-proxy-ca certificate
+[evg-host] [certs] Generating "front-proxy-ca" certificate and key
+[evg-host] [certs] Generating "front-proxy-client" certificate and key
+[evg-host] I0510 22:58:20.378653     183 certs.go:111] creating a new certificate authority for etcd-ca
+[evg-host] [certs] Generating "etcd/ca" certificate and key
+[evg-host] I0510 22:58:20.468876     183 certs.go:472] validating certificate period for etcd/ca certificate
+[evg-host] [certs] Generating "etcd/server" certificate and key
+[evg-host] [certs] etcd/server serving cert is signed for DNS names [kind-control-plane localhost] and IPs [172.18.0.2 127.0.0.1 ::1]
+[evg-host] [certs] Generating "etcd/peer" certificate and key
+[evg-host] [certs] etcd/peer serving cert is signed for DNS names [kind-control-plane localhost] and IPs [172.18.0.2 127.0.0.1 ::1]
+[evg-host] [certs] Generating "etcd/healthcheck-client" certificate and key
+[evg-host] [certs] Generating "apiserver-etcd-client" certificate and key
+[evg-host] I0510 22:58:20.851208     183 certs.go:77] creating new public/private key files for signing service account users
+[evg-host] [certs] Generating "sa" key and public key
+[evg-host] [kubeconfig] Using kubeconfig folder "/etc/kubernetes"
+[evg-host] I0510 22:58:20.907432     183 kubeconfig.go:111] creating kubeconfig file for admin.conf
+[evg-host] [kubeconfig] Writing "admin.conf" kubeconfig file
+[evg-host] I0510 22:58:21.123196     183 kubeconfig.go:111] creating kubeconfig file for super-admin.conf
+[evg-host] [kubeconfig] Writing "super-admin.conf" kubeconfig file
+[evg-host] I0510 22:58:21.235632     183 kubeconfig.go:111] creating kubeconfig file for kubelet.conf
+[evg-host] [kubeconfig] Writing "kubelet.conf" kubeconfig file
+[evg-host] I0510 22:58:21.295963     183 kubeconfig.go:111] creating kubeconfig file for controller-manager.conf
+[evg-host] [kubeconfig] Writing "controller-manager.conf" kubeconfig file
+[evg-host] I0510 22:58:21.340663     183 kubeconfig.go:111] creating kubeconfig file for scheduler.conf
+[evg-host] [kubeconfig] Writing "scheduler.conf" kubeconfig file
+[evg-host] [etcd] Creating static Pod manifest for local etcd in "/etc/kubernetes/manifests"
+[evg-host] [control-plane] Using manifest folder "/etc/kubernetes/manifests"
+[evg-host] [control-plane] Creating static Pod manifest for "kube-apiserver"
+[evg-host] I0510 22:58:21.472845     183 local.go:67] [etcd] wrote Static Pod manifest for a local etcd member to "/etc/kubernetes/manifests/etcd.yaml"
+[evg-host] I0510 22:58:21.472876     183 manifests.go:125] [control-plane] getting StaticPodSpecs
+[evg-host] I0510 22:58:21.473018     183 certs.go:472] validating certificate period for CA certificate
+[evg-host] I0510 22:58:21.473063     183 manifests.go:151] [control-plane] adding volume "ca-certs" for component "kube-apiserver"
+[evg-host] I0510 22:58:21.473071     183 manifests.go:151] [control-plane] adding volume "etc-ca-certificates" for component "kube-apiserver"
+[evg-host] I0510 22:58:21.473074     183 manifests.go:151] [control-plane] adding volume "k8s-certs" for component "kube-apiserver"
+[evg-host] I0510 22:58:21.473078     183 manifests.go:151] [control-plane] adding volume "usr-local-share-ca-certificates" for component "kube-apiserver"
+[evg-host] I0510 22:58:21.473081     183 manifests.go:151] [control-plane] adding volume "usr-share-ca-certificates" for component "kube-apiserver"
+[evg-host] I0510 22:58:21.473972     183 manifests.go:178] [control-plane] wrote static Pod manifest for component "kube-apiserver" to "/etc/kubernetes/manifests/kube-apiserver.yaml"
+[evg-host] I0510 22:58:21.473986     183 manifests.go:125] [control-plane] getting StaticPodSpecs
+[evg-host] [control-plane] Creating static Pod manifest for "kube-controller-manager"
+[evg-host] I0510 22:58:21.474106     183 manifests.go:151] [control-plane] adding volume "ca-certs" for component "kube-controller-manager"
+[evg-host] I0510 22:58:21.474115     183 manifests.go:151] [control-plane] adding volume "etc-ca-certificates" for component "kube-controller-manager"
+[evg-host] I0510 22:58:21.474119     183 manifests.go:151] [control-plane] adding volume "flexvolume-dir" for component "kube-controller-manager"
+[evg-host] I0510 22:58:21.474123     183 manifests.go:151] [control-plane] adding volume "k8s-certs" for component "kube-controller-manager"
+[evg-host] I0510 22:58:21.474126     183 manifests.go:151] [control-plane] adding volume "kubeconfig" for component "kube-controller-manager"
+[evg-host] I0510 22:58:21.474129     183 manifests.go:151] [control-plane] adding volume "usr-local-share-ca-certificates" for component "kube-controller-manager"
+[evg-host] I0510 22:58:21.474132     183 manifests.go:151] [control-plane] adding volume "usr-share-ca-certificates" for component "kube-controller-manager"
+[evg-host] I0510 22:58:21.474630     183 manifests.go:178] [control-plane] wrote static Pod manifest for component "kube-controller-manager" to "/etc/kubernetes/manifests/kube-controller-manager.yaml"
+[evg-host] I0510 22:58:21.474645     183 manifests.go:125] [control-plane] getting StaticPodSpecs
+[evg-host] I0510 22:58:21.474754     183 manifests.go:151] [control-plane] adding volume "kubeconfig" for component "kube-scheduler"
+[evg-host] I0510 22:58:21.475121     183 manifests.go:178] [control-plane] wrote static Pod manifest for component "kube-scheduler" to "/etc/kubernetes/manifests/kube-scheduler.yaml"
+[evg-host] I0510 22:58:21.475135     183 kubelet.go:69] Stopping the kubelet
+[evg-host] [control-plane] Creating static Pod manifest for "kube-scheduler"
+[evg-host] [kubelet-start] Writing kubelet environment file with flags to file "/var/lib/kubelet/kubeadm-flags.env"
+[evg-host] [kubelet-start] Writing kubelet configuration to file "/var/lib/kubelet/instance-config.yaml"
+[evg-host] [patches] Applied patch of type "application/strategic-merge-patch+json" to target "kubeletconfiguration"
+[evg-host] [kubelet-start] Writing kubelet configuration to file "/var/lib/kubelet/config.yaml"
+[evg-host] [kubelet-start] Starting the kubelet
+[evg-host] I0510 22:58:21.605987     183 loader.go:405] Config loaded from file:  /etc/kubernetes/admin.conf
+[evg-host] I0510 22:58:21.606290     183 envvar.go:172] "Feature gate default state" feature="ClientsAllowCBOR" enabled=false
+[evg-host] I0510 22:58:21.606305     183 envvar.go:172] "Feature gate default state" feature="ClientsPreferCBOR" enabled=false
+[evg-host] I0510 22:58:21.606310     183 envvar.go:172] "Feature gate default state" feature="InOrderInformers" enabled=true
+[evg-host] I0510 22:58:21.606314     183 envvar.go:172] "Feature gate default state" feature="InOrderInformersBatchProcess" enabled=true
+[evg-host] I0510 22:58:21.606318     183 envvar.go:172] "Feature gate default state" feature="InformerResourceVersion" enabled=true
+[evg-host] I0510 22:58:21.606323     183 envvar.go:172] "Feature gate default state" feature="WatchListClient" enabled=true
+[evg-host] [wait-control-plane] Waiting for the kubelet to boot up the control plane as static Pods from directory "/etc/kubernetes/manifests"
+[evg-host] [kubelet-check] Waiting for a healthy kubelet at http://127.0.0.1:10248/healthz. This can take up to 4m0s
+[evg-host] [kubelet-check] The kubelet is healthy after 501.912864ms
+[evg-host] [control-plane-check] Waiting for healthy control plane components. This can take up to 4m0s
+[evg-host] [control-plane-check] Checking kube-apiserver at https://172.18.0.2:6443/livez
+[evg-host] [control-plane-check] Checking kube-controller-manager at https://127.0.0.1:10257/healthz
+[evg-host] [control-plane-check] Checking kube-scheduler at https://127.0.0.1:10259/livez
+[evg-host] I0510 22:58:22.110952     183 wait.go:290] kube-controller-manager check failed at https://127.0.0.1:10257/healthz: Get "https://127.0.0.1:10257/healthz": dial tcp 127.0.0.1:10257: connect: connection refused
+[evg-host] I0510 22:58:22.110952     183 wait.go:290] kube-scheduler check failed at https://127.0.0.1:10259/livez: Get "https://127.0.0.1:10259/livez": dial tcp 127.0.0.1:10259: connect: connection refused
+[evg-host] I0510 22:58:22.110968     183 round_trippers.go:632] "Response" verb="GET" url="https://172.18.0.2:6443/livez?timeout=10s" status="" milliseconds=0
+[evg-host] I0510 22:58:22.111022     183 wait.go:283] kube-apiserver check failed at https://172.18.0.2:6443/livez: Get "https://172.18.0.2:6443/livez?timeout=10s": dial tcp 172.18.0.2:6443: connect: connection refused
+[evg-host] I0510 22:58:22.612689     183 round_trippers.go:632] "Response" verb="GET" url="https://172.18.0.2:6443/livez?timeout=10s" status="" milliseconds=0
+[evg-host] I0510 22:58:22.612701     183 wait.go:290] kube-controller-manager check failed at https://127.0.0.1:10257/healthz: Get "https://127.0.0.1:10257/healthz": dial tcp 127.0.0.1:10257: connect: connection refused
+[evg-host] I0510 22:58:22.613115     183 wait.go:290] kube-scheduler check failed at https://127.0.0.1:10259/livez: Get "https://127.0.0.1:10259/livez": dial tcp 127.0.0.1:10259: connect: connection refused
+[evg-host] I0510 22:58:22.613220     183 wait.go:283] kube-apiserver check failed at https://172.18.0.2:6443/livez: Get "https://172.18.0.2:6443/livez?timeout=10s": dial tcp 172.18.0.2:6443: connect: connection refused
+[evg-host] I0510 22:58:23.112019     183 wait.go:290] kube-controller-manager check failed at https://127.0.0.1:10257/healthz: Get "https://127.0.0.1:10257/healthz": dial tcp 127.0.0.1:10257: connect: connection refused
+[evg-host] I0510 22:58:23.112033     183 wait.go:290] kube-scheduler check failed at https://127.0.0.1:10259/livez: Get "https://127.0.0.1:10259/livez": dial tcp 127.0.0.1:10259: connect: connection refused
+[evg-host] I0510 22:58:23.112022     183 round_trippers.go:632] "Response" verb="GET" url="https://172.18.0.2:6443/livez?timeout=10s" status="" milliseconds=0
+[evg-host] I0510 22:58:23.112079     183 wait.go:283] kube-apiserver check failed at https://172.18.0.2:6443/livez: Get "https://172.18.0.2:6443/livez?timeout=10s": dial tcp 172.18.0.2:6443: connect: connection refused
+[evg-host] I0510 22:58:23.611225     183 wait.go:290] kube-scheduler check failed at https://127.0.0.1:10259/livez: Get "https://127.0.0.1:10259/livez": dial tcp 127.0.0.1:10259: connect: connection refused
+[evg-host] I0510 22:58:23.611232     183 wait.go:290] kube-controller-manager check failed at https://127.0.0.1:10257/healthz: Get "https://127.0.0.1:10257/healthz": dial tcp 127.0.0.1:10257: connect: connection refused
+[evg-host] I0510 22:58:23.611249     183 round_trippers.go:632] "Response" verb="GET" url="https://172.18.0.2:6443/livez?timeout=10s" status="" milliseconds=0
+[evg-host] I0510 22:58:23.611298     183 wait.go:283] kube-apiserver check failed at https://172.18.0.2:6443/livez: Get "https://172.18.0.2:6443/livez?timeout=10s": dial tcp 172.18.0.2:6443: connect: connection refused
+[evg-host] [control-plane-check] kube-scheduler is healthy after 2.00406223s
+[evg-host] [control-plane-check] kube-controller-manager is healthy after 2.004771948s
+[evg-host] I0510 22:58:25.358641     183 round_trippers.go:632] "Response" verb="GET" url="https://172.18.0.2:6443/livez?timeout=10s" status="403 Forbidden" milliseconds=1247
+[evg-host] I0510 22:58:25.360238     183 wait.go:283] kube-apiserver check failed at https://172.18.0.2:6443/livez: forbidden: User "kubernetes-admin" cannot get path "/livez"
+[evg-host] I0510 22:58:25.361927     183 round_trippers.go:632] "Response" verb="GET" url="https://172.18.0.2:6443/livez?timeout=10s" status="403 Forbidden" milliseconds=1
+[evg-host] I0510 22:58:25.362129     183 wait.go:283] kube-apiserver check failed at https://172.18.0.2:6443/livez: forbidden: User "kubernetes-admin" cannot get path "/livez"
+[evg-host] I0510 22:58:25.613523     183 round_trippers.go:632] "Response" verb="GET" url="https://172.18.0.2:6443/livez?timeout=10s" status="403 Forbidden" milliseconds=1
+[evg-host] I0510 22:58:25.613648     183 wait.go:283] kube-apiserver check failed at https://172.18.0.2:6443/livez: forbidden: User "kubernetes-admin" cannot get path "/livez"
+[evg-host] I0510 22:58:26.112853     183 round_trippers.go:632] "Response" verb="GET" url="https://172.18.0.2:6443/livez?timeout=10s" status="403 Forbidden" milliseconds=1
+[evg-host] I0510 22:58:26.112969     183 wait.go:283] kube-apiserver check failed at https://172.18.0.2:6443/livez: forbidden: User "kubernetes-admin" cannot get path "/livez"
+[evg-host] I0510 22:58:26.611606     183 round_trippers.go:632] "Response" verb="GET" url="https://172.18.0.2:6443/livez?timeout=10s" status="403 Forbidden" milliseconds=0
+[evg-host] I0510 22:58:26.611736     183 wait.go:283] kube-apiserver check failed at https://172.18.0.2:6443/livez: forbidden: User "kubernetes-admin" cannot get path "/livez"
+[evg-host] I0510 22:58:27.113426     183 round_trippers.go:632] "Response" verb="GET" url="https://172.18.0.2:6443/livez?timeout=10s" status="200 OK" milliseconds=1
+[evg-host] [control-plane-check] kube-apiserver is healthy after 5.002730131s
+[evg-host] I0510 22:58:27.114218     183 loader.go:405] Config loaded from file:  /etc/kubernetes/admin.conf
+[evg-host] I0510 22:58:27.114666     183 loader.go:405] Config loaded from file:  /etc/kubernetes/super-admin.conf
+[evg-host] I0510 22:58:27.114999     183 kubeconfig.go:657] ensuring that the ClusterRoleBinding for the kubeadm:cluster-admins Group exists
+[evg-host] I0510 22:58:27.122751     183 round_trippers.go:632] "Response" verb="POST" url="https://kind-control-plane:6443/apis/rbac.authorization.k8s.io/v1/clusterrolebindings?timeout=10s" status="403 Forbidden" milliseconds=7
+[evg-host] I0510 22:58:27.122834     183 kubeconfig.go:730] creating the ClusterRoleBinding for the kubeadm:cluster-admins Group by using super-admin.conf
+[evg-host] [upload-config] Storing the configuration used in ConfigMap "kubeadm-config" in the "kube-system" Namespace
+[evg-host] I0510 22:58:27.133330     183 round_trippers.go:632] "Response" verb="POST" url="https://kind-control-plane:6443/apis/rbac.authorization.k8s.io/v1/clusterrolebindings?timeout=10s" status="201 Created" milliseconds=10
+[evg-host] I0510 22:58:27.133405     183 uploadconfig.go:111] [upload-config] Uploading the kubeadm ClusterConfiguration to a ConfigMap
+[evg-host] I0510 22:58:27.137545     183 round_trippers.go:632] "Response" verb="POST" url="https://kind-control-plane:6443/api/v1/namespaces/kube-system/configmaps?timeout=10s" status="201 Created" milliseconds=3
+[evg-host] I0510 22:58:27.141351     183 round_trippers.go:632] "Response" verb="POST" url="https://kind-control-plane:6443/apis/rbac.authorization.k8s.io/v1/namespaces/kube-system/roles?timeout=10s" status="201 Created" milliseconds=3
+[evg-host] I0510 22:58:27.144741     183 round_trippers.go:632] "Response" verb="POST" url="https://kind-control-plane:6443/apis/rbac.authorization.k8s.io/v1/namespaces/kube-system/rolebindings?timeout=10s" status="201 Created" milliseconds=3
+[evg-host] [kubelet] Creating a ConfigMap "kubelet-config" in namespace kube-system with the configuration for the kubelets in the cluster
+[evg-host] I0510 22:58:27.144816     183 uploadconfig.go:125] [upload-config] Uploading the kubelet component config to a ConfigMap
+[evg-host] I0510 22:58:27.148216     183 round_trippers.go:632] "Response" verb="POST" url="https://kind-control-plane:6443/api/v1/namespaces/kube-system/configmaps?timeout=10s" status="201 Created" milliseconds=3
+[evg-host] I0510 22:58:27.151019     183 round_trippers.go:632] "Response" verb="POST" url="https://kind-control-plane:6443/apis/rbac.authorization.k8s.io/v1/namespaces/kube-system/roles?timeout=10s" status="201 Created" milliseconds=2
+[evg-host] I0510 22:58:27.155262     183 round_trippers.go:632] "Response" verb="POST" url="https://kind-control-plane:6443/apis/rbac.authorization.k8s.io/v1/namespaces/kube-system/rolebindings?timeout=10s" status="201 Created" milliseconds=3
+[evg-host] [upload-certs] Skipping phase. Please see --upload-certs
+[evg-host] [mark-control-plane] Marking the node kind-control-plane as control-plane by adding the labels: [node-role.kubernetes.io/control-plane node.kubernetes.io/exclude-from-external-load-balancers]
+[evg-host] [mark-control-plane] Marking the node kind-control-plane as control-plane by adding the taints [node-role.kubernetes.io/control-plane:NoSchedule]
+[evg-host] I0510 22:58:27.156576     183 round_trippers.go:632] "Response" verb="GET" url="https://kind-control-plane:6443/api/v1/nodes/kind-control-plane?timeout=10s" status="200 OK" milliseconds=1
+[evg-host] I0510 22:58:27.162656     183 round_trippers.go:632] "Response" verb="PATCH" url="https://kind-control-plane:6443/api/v1/nodes/kind-control-plane?timeout=10s" status="200 OK" milliseconds=4
+[evg-host] I0510 22:58:27.163061     183 loader.go:405] Config loaded from file:  /etc/kubernetes/admin.conf
+[evg-host] [bootstrap-token] Configuring bootstrap tokens, cluster-info ConfigMap, RBAC Roles
+[evg-host] I0510 22:58:27.164189     183 round_trippers.go:632] "Response" verb="GET" url="https://kind-control-plane:6443/api/v1/namespaces/kube-system/secrets/bootstrap-token-abcdef?timeout=10s" status="404 Not Found" milliseconds=1
+[evg-host] [bootstrap-token] Configured RBAC rules to allow Node Bootstrap tokens to get nodes
+[evg-host] I0510 22:58:27.166812     183 round_trippers.go:632] "Response" verb="POST" url="https://kind-control-plane:6443/api/v1/namespaces/kube-system/secrets?timeout=10s" status="201 Created" milliseconds=2
+[evg-host] I0510 22:58:27.170388     183 round_trippers.go:632] "Response" verb="POST" url="https://kind-control-plane:6443/apis/rbac.authorization.k8s.io/v1/clusterroles?timeout=10s" status="201 Created" milliseconds=3
+[evg-host] I0510 22:58:27.173543     183 round_trippers.go:632] "Response" verb="POST" url="https://kind-control-plane:6443/apis/rbac.authorization.k8s.io/v1/clusterrolebindings?timeout=10s" status="201 Created" milliseconds=3
+[evg-host] [bootstrap-token] Configured RBAC rules to allow Node Bootstrap tokens to post CSRs in order for nodes to get long term certificate credentials
+[evg-host] I0510 22:58:27.177297     183 round_trippers.go:632] "Response" verb="POST" url="https://kind-control-plane:6443/apis/rbac.authorization.k8s.io/v1/clusterrolebindings?timeout=10s" status="201 Created" milliseconds=3
+[evg-host] [bootstrap-token] Configured RBAC rules to allow the csrapprover controller automatically approve CSRs from a Node Bootstrap Token
+[evg-host] I0510 22:58:27.180835     183 round_trippers.go:632] "Response" verb="POST" url="https://kind-control-plane:6443/apis/rbac.authorization.k8s.io/v1/clusterrolebindings?timeout=10s" status="201 Created" milliseconds=3
+[evg-host] [bootstrap-token] Configured RBAC rules to allow certificate rotation for all node client certificates in the cluster
+[evg-host] I0510 22:58:27.183296     183 round_trippers.go:632] "Response" verb="POST" url="https://kind-control-plane:6443/apis/rbac.authorization.k8s.io/v1/clusterrolebindings?timeout=10s" status="201 Created" milliseconds=2
+[evg-host] [bootstrap-token] Creating the "cluster-info" ConfigMap in the "kube-public" namespace
+[evg-host] I0510 22:58:27.183379     183 clusterinfo.go:58] [bootstrap-token] copying the cluster from admin.conf to the bootstrap kubeconfig
+[evg-host] I0510 22:58:27.183551     183 clusterinfo.go:70] [bootstrap-token] creating/updating ConfigMap in kube-public namespace
+[evg-host] I0510 22:58:27.188278     183 round_trippers.go:632] "Response" verb="POST" url="https://kind-control-plane:6443/api/v1/namespaces/kube-public/configmaps?timeout=10s" status="201 Created" milliseconds=4
+[evg-host] I0510 22:58:27.188377     183 clusterinfo.go:84] creating the RBAC rules for exposing the cluster-info ConfigMap in the kube-public namespace
+[evg-host] I0510 22:58:27.315835     183 request.go:683] "Waited before sending request" delay="127.369624ms" reason="client-side throttling, not priority and fairness" verb="POST" URL="https://kind-control-plane:6443/apis/rbac.authorization.k8s.io/v1/namespaces/kube-public/roles?timeout=10s"
+[evg-host] I0510 22:58:27.318799     183 round_trippers.go:632] "Response" verb="POST" url="https://kind-control-plane:6443/apis/rbac.authorization.k8s.io/v1/namespaces/kube-public/roles?timeout=10s" status="201 Created" milliseconds=2
+[evg-host] I0510 22:58:27.515224     183 request.go:683] "Waited before sending request" delay="196.258148ms" reason="client-side throttling, not priority and fairness" verb="POST" URL="https://kind-control-plane:6443/apis/rbac.authorization.k8s.io/v1/namespaces/kube-public/rolebindings?timeout=10s"
+[evg-host] I0510 22:58:27.518767     183 round_trippers.go:632] "Response" verb="POST" url="https://kind-control-plane:6443/apis/rbac.authorization.k8s.io/v1/namespaces/kube-public/rolebindings?timeout=10s" status="201 Created" milliseconds=3
+[evg-host] I0510 22:58:27.518920     183 kubeletfinalize.go:90] [kubelet-finalize] Assuming that kubelet client certificate rotation is enabled: found "/var/lib/kubelet/pki/kubelet-client-current.pem"
+[evg-host] [kubelet-finalize] Updating "/etc/kubernetes/kubelet.conf" to point to a rotatable kubelet client certificate and key
+[evg-host] I0510 22:58:27.519250     183 loader.go:405] Config loaded from file:  /etc/kubernetes/kubelet.conf
+[evg-host] I0510 22:58:27.519607     183 kubeletfinalize.go:144] [kubelet-finalize] Restarting the kubelet to enable client certificate rotation
+[evg-host] I0510 22:58:27.680342     183 round_trippers.go:632] "Response" verb="GET" url="https://kind-control-plane:6443/apis/apps/v1/namespaces/kube-system/deployments?labelSelector=k8s-app%3Dkube-dns" status="200 OK" milliseconds=3
+[evg-host] I0510 22:58:27.682449     183 round_trippers.go:632] "Response" verb="GET" url="https://kind-control-plane:6443/api/v1/namespaces/kube-system/configmaps/coredns?timeout=10s" status="404 Not Found" milliseconds=1
+[evg-host] I0510 22:58:27.686315     183 round_trippers.go:632] "Response" verb="POST" url="https://kind-control-plane:6443/api/v1/namespaces/kube-system/configmaps?timeout=10s" status="201 Created" milliseconds=2
+[evg-host] I0510 22:58:27.719097     183 round_trippers.go:632] "Response" verb="POST" url="https://kind-control-plane:6443/apis/rbac.authorization.k8s.io/v1/clusterroles?timeout=10s" status="201 Created" milliseconds=3
+[evg-host] I0510 22:58:27.915669     183 request.go:683] "Waited before sending request" delay="196.26893ms" reason="client-side throttling, not priority and fairness" verb="POST" URL="https://kind-control-plane:6443/apis/rbac.authorization.k8s.io/v1/clusterrolebindings?timeout=10s"
+[evg-host] I0510 22:58:27.919037     183 round_trippers.go:632] "Response" verb="POST" url="https://kind-control-plane:6443/apis/rbac.authorization.k8s.io/v1/clusterrolebindings?timeout=10s" status="201 Created" milliseconds=3
+[evg-host] I0510 22:58:27.926619     183 round_trippers.go:632] "Response" verb="POST" url="https://kind-control-plane:6443/api/v1/namespaces/kube-system/serviceaccounts?timeout=10s" status="201 Created" milliseconds=6
+[evg-host] I0510 22:58:27.933906     183 round_trippers.go:632] "Response" verb="POST" url="https://kind-control-plane:6443/apis/apps/v1/namespaces/kube-system/deployments?timeout=10s" status="201 Created" milliseconds=6
+[evg-host] I0510 22:58:27.944099     183 round_trippers.go:632] "Response" verb="POST" url="https://kind-control-plane:6443/api/v1/namespaces/kube-system/services?timeout=10s" status="201 Created" milliseconds=9
+[evg-host] [addons] Applied essential addon: CoreDNS
+[evg-host] I0510 22:58:27.949459     183 round_trippers.go:632] "Response" verb="POST" url="https://kind-control-plane:6443/api/v1/namespaces/kube-system/configmaps?timeout=10s" status="201 Created" milliseconds=4
+[evg-host] I0510 22:58:27.956300     183 round_trippers.go:632] "Response" verb="POST" url="https://kind-control-plane:6443/apis/apps/v1/namespaces/kube-system/daemonsets?timeout=10s" status="201 Created" milliseconds=5
+[evg-host] I0510 22:58:27.960210     183 round_trippers.go:632] "Response" verb="POST" url="https://kind-control-plane:6443/api/v1/namespaces/kube-system/serviceaccounts?timeout=10s" status="201 Created" milliseconds=3
+[evg-host] I0510 22:58:28.116122     183 request.go:683] "Waited before sending request" delay="155.796765ms" reason="client-side throttling, not priority and fairness" verb="POST" URL="https://kind-control-plane:6443/apis/rbac.authorization.k8s.io/v1/clusterrolebindings?timeout=10s"
+[evg-host] I0510 22:58:28.120534     183 round_trippers.go:632] "Response" verb="POST" url="https://kind-control-plane:6443/apis/rbac.authorization.k8s.io/v1/clusterrolebindings?timeout=10s" status="201 Created" milliseconds=4
+[evg-host] I0510 22:58:28.316024     183 request.go:683] "Waited before sending request" delay="195.330626ms" reason="client-side throttling, not priority and fairness" verb="POST" URL="https://kind-control-plane:6443/apis/rbac.authorization.k8s.io/v1/namespaces/kube-system/roles?timeout=10s"
+[evg-host] I0510 22:58:28.321500     183 round_trippers.go:632] "Response" verb="POST" url="https://kind-control-plane:6443/apis/rbac.authorization.k8s.io/v1/namespaces/kube-system/roles?timeout=10s" status="201 Created" milliseconds=5
+[evg-host] I0510 22:58:28.516008     183 request.go:683] "Waited before sending request" delay="194.333699ms" reason="client-side throttling, not priority and fairness" verb="POST" URL="https://kind-control-plane:6443/apis/rbac.authorization.k8s.io/v1/namespaces/kube-system/rolebindings?timeout=10s"
+[evg-host] I0510 22:58:28.520711     183 round_trippers.go:632] "Response" verb="POST" url="https://kind-control-plane:6443/apis/rbac.authorization.k8s.io/v1/namespaces/kube-system/rolebindings?timeout=10s" status="201 Created" milliseconds=3
+[evg-host] [addons] Applied essential addon: kube-proxy
+[evg-host] I0510 22:58:28.521516     183 loader.go:405] Config loaded from file:  /etc/kubernetes/admin.conf
+[evg-host] I0510 22:58:28.521850     183 loader.go:405] Config loaded from file:  /etc/kubernetes/admin.conf
+[evg-host] 
+[evg-host] Your Kubernetes control-plane has initialized successfully!
+[evg-host] 
+[evg-host] To start using your cluster, you need to run the following as a regular user:
+[evg-host] 
+[evg-host]   mkdir -p $HOME/.kube
+[evg-host]   sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+[evg-host]   sudo chown $(id -u):$(id -g) $HOME/.kube/config
+[evg-host] 
+[evg-host] Alternatively, if you are the root user, you can run:
+[evg-host] 
+[evg-host]   export KUBECONFIG=/etc/kubernetes/admin.conf
+[evg-host] 
+[evg-host] You should now deploy a pod network to the cluster.
+[evg-host] Run "kubectl apply -f [podnetwork].yaml" with one of the options listed at:
+[evg-host]   https://kubernetes.io/docs/concepts/cluster-administration/addons/
+[evg-host] 
+[evg-host] You can now join any number of control-plane nodes by copying certificate authorities
+[evg-host] and service account keys on each node and then running the following as root:
+[evg-host] 
+[evg-host]   kubeadm join kind-control-plane:6443 --token <value withheld> \
+[evg-host] 	--discovery-token-ca-cert-hash sha256:39826d6a45018281f9e894efa811f03fd436659bd4ffc10475b7cd463391e963 \
+[evg-host] 	--control-plane 
+[evg-host] 
+[evg-host] Then you can join any number of worker nodes by running the following on each as root:
+[evg-host] 
+[evg-host] kubeadm join kind-control-plane:6443 --token <value withheld> \
+[evg-host] 	--discovery-token-ca-cert-hash sha256:39826d6a45018281f9e894efa811f03fd436659bd4ffc10475b7cd463391e963 
+[evg-host]  ✓ Starting control-plane 🕹️
+[evg-host]  • Installing CNI 🔌  ...
+[evg-host] DEBUG: installcni/cni.go:120] Using the following Kindnetd config:
+[evg-host] null
+[evg-host] ---
+[evg-host] apiVersion: rbac.authorization.k8s.io/v1
+[evg-host] kind: ClusterRole
+[evg-host] metadata:
+[evg-host]   name: kindnet
+[evg-host] rules:
+[evg-host] - apiGroups:
+[evg-host]   - policy
+[evg-host]   resourceNames:
+[evg-host]   - kindnet
+[evg-host]   resources:
+[evg-host]   - podsecuritypolicies
+[evg-host]   verbs:
+[evg-host]   - use
+[evg-host] - apiGroups:
+[evg-host]   - ""
+[evg-host]   resources:
+[evg-host]   - nodes
+[evg-host]   - pods
+[evg-host]   - namespaces
+[evg-host]   verbs:
+[evg-host]   - list
+[evg-host]   - watch
+[evg-host] - apiGroups:
+[evg-host]   - networking.k8s.io
+[evg-host]   resources:
+[evg-host]   - networkpolicies
+[evg-host]   verbs:
+[evg-host]   - list
+[evg-host]   - watch
+[evg-host] ---
+[evg-host] apiVersion: rbac.authorization.k8s.io/v1
+[evg-host] kind: ClusterRoleBinding
+[evg-host] metadata:
+[evg-host]   name: kindnet
+[evg-host] roleRef:
+[evg-host]   apiGroup: rbac.authorization.k8s.io
+[evg-host]   kind: ClusterRole
+[evg-host]   name: kindnet
+[evg-host] subjects:
+[evg-host] - kind: ServiceAccount
+[evg-host]   name: kindnet
+[evg-host]   namespace: kube-system
+[evg-host] ---
+[evg-host] apiVersion: v1
+[evg-host] kind: ServiceAccount
+[evg-host] metadata:
+[evg-host]   name: kindnet
+[evg-host]   namespace: kube-system
+[evg-host] ---
+[evg-host] apiVersion: apps/v1
+[evg-host] kind: DaemonSet
+[evg-host] metadata:
+[evg-host]   labels:
+[evg-host]     app: kindnet
+[evg-host]     k8s-app: kindnet
+[evg-host]     tier: node
+[evg-host]   name: kindnet
+[evg-host]   namespace: kube-system
+[evg-host] spec:
+[evg-host]   selector:
+[evg-host]     matchLabels:
+[evg-host]       app: kindnet
+[evg-host]   template:
+[evg-host]     metadata:
+[evg-host]       labels:
+[evg-host]         app: kindnet
+[evg-host]         k8s-app: kindnet
+[evg-host]         tier: node
+[evg-host]     spec:
+[evg-host]       containers:
+[evg-host]       - env:
+[evg-host]         - name: HOST_IP
+[evg-host]           valueFrom:
+[evg-host]             fieldRef:
+[evg-host]               fieldPath: status.hostIP
+[evg-host]         - name: POD_IP
+[evg-host]           valueFrom:
+[evg-host]             fieldRef:
+[evg-host]               fieldPath: status.podIP
+[evg-host]         - name: POD_SUBNET
+[evg-host]           value: 10.244.0.0/16
+[evg-host]         - name: CONTROL_PLANE_ENDPOINT
+[evg-host]           value: kind-control-plane:6443
+[evg-host]         image: docker.io/kindest/kindnetd:v20251212-v0.29.0-alpha-105-g20ccfc88
+[evg-host]         name: kindnet-cni
+[evg-host]         resources:
+[evg-host]           limits:
+[evg-host]             cpu: 100m
+[evg-host]             memory: 50Mi
+[evg-host]           requests:
+[evg-host]             cpu: 100m
+[evg-host]             memory: 50Mi
+[evg-host]         securityContext:
+[evg-host]           capabilities:
+[evg-host]             add:
+[evg-host]             - NET_RAW
+[evg-host]             - NET_ADMIN
+[evg-host]           privileged: false
+[evg-host]         volumeMounts:
+[evg-host]         - mountPath: /etc/cni/net.d
+[evg-host]           name: cni-cfg
+[evg-host]         - mountPath: /run/xtables.lock
+[evg-host]           name: xtables-lock
+[evg-host]           readOnly: false
+[evg-host]         - mountPath: /lib/modules
+[evg-host]           name: lib-modules
+[evg-host]           readOnly: true
+[evg-host]         - mountPath: /var/run/nri
+[evg-host]           name: nri-plugin
+[evg-host]       hostNetwork: true
+[evg-host]       nodeSelector:
+[evg-host]         kubernetes.io/os: linux
+[evg-host]       priorityClassName: system-node-critical
+[evg-host]       serviceAccountName: kindnet
+[evg-host]       tolerations:
+[evg-host]       - operator: Exists
+[evg-host]       volumes:
+[evg-host]       - hostPath:
+[evg-host]           path: /etc/cni/net.d
+[evg-host]         name: cni-cfg
+[evg-host]       - hostPath:
+[evg-host]           path: /run/xtables.lock
+[evg-host]           type: FileOrCreate
+[evg-host]         name: xtables-lock
+[evg-host]       - hostPath:
+[evg-host]           path: /lib/modules
+[evg-host]         name: lib-modules
+[evg-host]       - hostPath:
+[evg-host]           path: /var/run/nri
+[evg-host]         name: nri-plugin
+[evg-host]  ✓ Installing CNI 🔌
+[evg-host]  • Installing StorageClass 💾  ...
+[evg-host]  ✓ Installing StorageClass 💾
+[evg-host]  • Waiting ≤ 11m40s for control-plane = Ready ⏳  ...
+[evg-host]  ✓ Waiting ≤ 11m40s for control-plane = Ready ⏳
+[evg-host]  • Ready after 18s 💚
+[evg-host] Set kubectl context to "kind-kind"
+[evg-host] You can now use your cluster with:
+[evg-host] 
+[evg-host] kubectl cluster-info --context kind-kind --kubeconfig /home/ubuntu/.kube/kind
+[evg-host] 
+[evg-host] Thanks for using kind! 😊
+[evg-host] finished installing kind
+[evg-host] configuring local registry
+[evg-host] configmap/local-registry-hosting created
+[evg-host] testing for nodes to be ready
+[evg-host] installing metallb
+[evg-host] NAME                 STATUS   ROLES           AGE   VERSION   INTERNAL-IP   EXTERNAL-IP   OS-IMAGE                         KERNEL-VERSION   CONTAINER-RUNTIME
+[evg-host] kind-control-plane   Ready    control-plane   23s   v1.35.0   172.18.0.2    <none>        Debian GNU/Linux 12 (bookworm)   6.8.0-1052-aws   containerd://2.2.0
+[evg-host] namespace/metallb-system created
+[evg-host] customresourcedefinition.apiextensions.k8s.io/addresspools.metallb.io created
+[evg-host] customresourcedefinition.apiextensions.k8s.io/bfdprofiles.metallb.io created
+[evg-host] customresourcedefinition.apiextensions.k8s.io/bgpadvertisements.metallb.io created
+[evg-host] customresourcedefinition.apiextensions.k8s.io/bgppeers.metallb.io created
+[evg-host] customresourcedefinition.apiextensions.k8s.io/communities.metallb.io created
+[evg-host] customresourcedefinition.apiextensions.k8s.io/ipaddresspools.metallb.io created
+[evg-host] customresourcedefinition.apiextensions.k8s.io/l2advertisements.metallb.io created
+[evg-host] serviceaccount/controller created
+[evg-host] serviceaccount/speaker created
+[evg-host] role.rbac.authorization.k8s.io/controller created
+[evg-host] role.rbac.authorization.k8s.io/pod-lister created
+[evg-host] clusterrole.rbac.authorization.k8s.io/metallb-system:controller created
+[evg-host] clusterrole.rbac.authorization.k8s.io/metallb-system:speaker created
+[evg-host] rolebinding.rbac.authorization.k8s.io/controller created
+[evg-host] rolebinding.rbac.authorization.k8s.io/pod-lister created
+[evg-host] clusterrolebinding.rbac.authorization.k8s.io/metallb-system:controller created
+[evg-host] clusterrolebinding.rbac.authorization.k8s.io/metallb-system:speaker created
+[evg-host] secret/webhook-server-cert created
+[evg-host] service/webhook-service created
+[evg-host] deployment.apps/controller created
+[evg-host] daemonset.apps/speaker created
+[evg-host] validatingwebhookconfiguration.admissionregistration.k8s.io/metallb-webhook-configuration created
+[evg-host] waiting metallb to be ready
+[evg-host] pod/controller-6769488856-j7nbr condition met
+[evg-host] pod/speaker-gzqwv condition met
+[evg-host] install metallb to be ready
+[evg-host] ipaddresspool.metallb.io/default-address-pool created
+[evg-host] l2advertisement.metallb.io/empty created
+[evg-host] serviceaccount/metrics-server created
+[evg-host] clusterrole.rbac.authorization.k8s.io/system:aggregated-metrics-reader created
+[evg-host] clusterrole.rbac.authorization.k8s.io/system:metrics-server created
+[evg-host] rolebinding.rbac.authorization.k8s.io/metrics-server-auth-reader created
+[evg-host] clusterrolebinding.rbac.authorization.k8s.io/metrics-server:system:auth-delegator created
+[evg-host] clusterrolebinding.rbac.authorization.k8s.io/system:metrics-server created
+[evg-host] service/metrics-server created
+[evg-host] deployment.apps/metrics-server created
+[evg-host] apiservice.apiregistration.k8s.io/v1beta1.metrics.k8s.io created
+[evg-host] deployment.apps/metrics-server patched
+[evg-host] deployment.apps/metrics-server patched
+[evg-host] curl: (7) Failed to connect to 127.0.0.1 port 11616 after 0 ms: Connection refused
+[evg-host] kfp not reachable at 127.0.0.1:11616; skipping kubeconfig registration
+[evg-host] Set kubectl context to "kind-kind"
+[evg-host] install resizable csi
+[evg-host] Downloading https://github.com/kubernetes-csi/csi-driver-host-path/archive/refs/tags/v1.14.1.tar.gz...
+[evg-host]   % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+[evg-host]                                  Dload  Upload   Total   Spent    Left  Speed
+[evg-host] 
+[evg-host]   0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+[evg-host]   0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+[evg-host]   0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+[evg-host] 
+[evg-host] 100 3908k    0 3908k    0     0  3744k      0 --:--:--  0:00:01 --:--:-- 3744k
+[evg-host] Extracting /tmp/csi-driver-host-path-v1.14.1.tar.gz...
+[evg-host] customresourcedefinition.apiextensions.k8s.io/volumesnapshotclasses.snapshot.storage.k8s.io created
+[evg-host] customresourcedefinition.apiextensions.k8s.io/volumesnapshotcontents.snapshot.storage.k8s.io created
+[evg-host] customresourcedefinition.apiextensions.k8s.io/volumesnapshots.snapshot.storage.k8s.io created
+[evg-host] serviceaccount/snapshot-controller created
+[evg-host] clusterrole.rbac.authorization.k8s.io/snapshot-controller-runner created
+[evg-host] clusterrolebinding.rbac.authorization.k8s.io/snapshot-controller-role created
+[evg-host] role.rbac.authorization.k8s.io/snapshot-controller-leaderelection created
+[evg-host] rolebinding.rbac.authorization.k8s.io/snapshot-controller-leaderelection created
+[evg-host] deployment.apps/snapshot-controller created
+[evg-host] Running script ./deploy/kubernetes-latest/deploy.sh with kubectl wrapped for context kind-kind
+[evg-host] applying RBAC rules
+[evg-host] curl https://raw.githubusercontent.com/kubernetes-csi/external-provisioner/v5.0.1/deploy/kubernetes/rbac.yaml --output /tmp/tmp.pZ4wirzVOI/rbac.yaml --silent --location
+[evg-host] kubectl apply --kustomize /tmp/tmp.pZ4wirzVOI
+[evg-host] # Warning: 'commonLabels' is deprecated. Please use 'labels' instead. Run 'kustomize edit fix' to update your Kustomization automatically.
+[evg-host] serviceaccount/csi-provisioner created
+[evg-host] role.rbac.authorization.k8s.io/external-provisioner-cfg created
+[evg-host] clusterrole.rbac.authorization.k8s.io/external-provisioner-runner created
+[evg-host] rolebinding.rbac.authorization.k8s.io/csi-provisioner-role-cfg created
+[evg-host] clusterrolebinding.rbac.authorization.k8s.io/csi-provisioner-role created
+[evg-host] curl https://raw.githubusercontent.com/kubernetes-csi/external-attacher/v4.6.1/deploy/kubernetes/rbac.yaml --output /tmp/tmp.pZ4wirzVOI/rbac.yaml --silent --location
+[evg-host] kubectl apply --kustomize /tmp/tmp.pZ4wirzVOI
+[evg-host] # Warning: 'commonLabels' is deprecated. Please use 'labels' instead. Run 'kustomize edit fix' to update your Kustomization automatically.
+[evg-host] serviceaccount/csi-attacher created
+[evg-host] role.rbac.authorization.k8s.io/external-attacher-cfg created
+[evg-host] clusterrole.rbac.authorization.k8s.io/external-attacher-runner created
+[evg-host] rolebinding.rbac.authorization.k8s.io/csi-attacher-role-cfg created
+[evg-host] clusterrolebinding.rbac.authorization.k8s.io/csi-attacher-role created
+[evg-host] curl https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/v8.0.1/deploy/kubernetes/csi-snapshotter/rbac-csi-snapshotter.yaml --output /tmp/tmp.pZ4wirzVOI/rbac.yaml --silent --location
+[evg-host] kubectl apply --kustomize /tmp/tmp.pZ4wirzVOI
+[evg-host] # Warning: 'commonLabels' is deprecated. Please use 'labels' instead. Run 'kustomize edit fix' to update your Kustomization automatically.
+[evg-host] serviceaccount/csi-snapshotter created
+[evg-host] role.rbac.authorization.k8s.io/external-snapshotter-leaderelection created
+[evg-host] clusterrole.rbac.authorization.k8s.io/external-snapshotter-runner created
+[evg-host] rolebinding.rbac.authorization.k8s.io/external-snapshotter-leaderelection created
+[evg-host] clusterrolebinding.rbac.authorization.k8s.io/csi-snapshotter-role created
+[evg-host] curl https://raw.githubusercontent.com/kubernetes-csi/external-resizer/v1.11.2/deploy/kubernetes/rbac.yaml --output /tmp/tmp.pZ4wirzVOI/rbac.yaml --silent --location
+[evg-host] kubectl apply --kustomize /tmp/tmp.pZ4wirzVOI
+[evg-host] # Warning: 'commonLabels' is deprecated. Please use 'labels' instead. Run 'kustomize edit fix' to update your Kustomization automatically.
+[evg-host] serviceaccount/csi-resizer created
+[evg-host] role.rbac.authorization.k8s.io/external-resizer-cfg created
+[evg-host] clusterrole.rbac.authorization.k8s.io/external-resizer-runner created
+[evg-host] rolebinding.rbac.authorization.k8s.io/csi-resizer-role-cfg created
+[evg-host] clusterrolebinding.rbac.authorization.k8s.io/csi-resizer-role created
+[evg-host] curl https://raw.githubusercontent.com/kubernetes-csi/external-health-monitor/v0.12.1/deploy/kubernetes/external-health-monitor-controller/rbac.yaml --output /tmp/tmp.pZ4wirzVOI/rbac.yaml --silent --location
+[evg-host] kubectl apply --kustomize /tmp/tmp.pZ4wirzVOI
+[evg-host] # Warning: 'commonLabels' is deprecated. Please use 'labels' instead. Run 'kustomize edit fix' to update your Kustomization automatically.
+[evg-host] serviceaccount/csi-external-health-monitor-controller created
+[evg-host] role.rbac.authorization.k8s.io/external-health-monitor-controller-cfg created
+[evg-host] clusterrole.rbac.authorization.k8s.io/external-health-monitor-controller-runner created
+[evg-host] rolebinding.rbac.authorization.k8s.io/csi-external-health-monitor-controller-role-cfg created
+[evg-host] clusterrolebinding.rbac.authorization.k8s.io/csi-external-health-monitor-controller-role created
+[evg-host] deploying hostpath components
+[evg-host]    /tmp/csi-driver-host-path-1.14.1/deploy/kubernetes-latest/hostpath/csi-hostpath-driverinfo.yaml
+[evg-host] csidriver.storage.k8s.io/hostpath.csi.k8s.io created
+[evg-host]    /tmp/csi-driver-host-path-1.14.1/deploy/kubernetes-latest/hostpath/csi-hostpath-plugin.yaml
+[evg-host]         using           image: registry.k8s.io/sig-storage/hostpathplugin:v1.14.0
+[evg-host]         using           image: registry.k8s.io/sig-storage/csi-external-health-monitor-controller:v0.12.1
+[evg-host]         using           image: registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.10.1
+[evg-host]         using           image: registry.k8s.io/sig-storage/livenessprobe:v2.12.0
+[evg-host]         using           image: registry.k8s.io/sig-storage/csi-attacher:v4.6.1
+[evg-host]         using           image: registry.k8s.io/sig-storage/csi-provisioner:v5.0.1
+[evg-host]         using           image: registry.k8s.io/sig-storage/csi-resizer:v1.11.2
+[evg-host]         using           image: registry.k8s.io/sig-storage/csi-snapshotter:v8.0.1
+[evg-host] serviceaccount/csi-hostpathplugin-sa created
+[evg-host] clusterrolebinding.rbac.authorization.k8s.io/csi-hostpathplugin-attacher-cluster-role created
+[evg-host] clusterrolebinding.rbac.authorization.k8s.io/csi-hostpathplugin-health-monitor-controller-cluster-role created
+[evg-host] clusterrolebinding.rbac.authorization.k8s.io/csi-hostpathplugin-provisioner-cluster-role created
+[evg-host] clusterrolebinding.rbac.authorization.k8s.io/csi-hostpathplugin-resizer-cluster-role created
+[evg-host] clusterrolebinding.rbac.authorization.k8s.io/csi-hostpathplugin-snapshotter-cluster-role created
+[evg-host] rolebinding.rbac.authorization.k8s.io/csi-hostpathplugin-attacher-role created
+[evg-host] rolebinding.rbac.authorization.k8s.io/csi-hostpathplugin-health-monitor-controller-role created
+[evg-host] rolebinding.rbac.authorization.k8s.io/csi-hostpathplugin-provisioner-role created
+[evg-host] rolebinding.rbac.authorization.k8s.io/csi-hostpathplugin-resizer-role created
+[evg-host] rolebinding.rbac.authorization.k8s.io/csi-hostpathplugin-snapshotter-role created
+[evg-host] statefulset.apps/csi-hostpathplugin created
+[evg-host]    /tmp/csi-driver-host-path-1.14.1/deploy/kubernetes-latest/hostpath/csi-hostpath-snapshotclass.yaml
+[evg-host] volumesnapshotclass.snapshot.storage.k8s.io/csi-hostpath-snapclass created
+[evg-host]    /tmp/csi-driver-host-path-1.14.1/deploy/kubernetes-latest/hostpath/csi-hostpath-testing.yaml
+[evg-host]         using           image: registry.k8s.io/sig-storage/hostpathplugin:v1.14.0
+[evg-host] service/hostpath-service created
+[evg-host] statefulset.apps/csi-hostpath-socat created
+[evg-host] 22:59:25 waiting for hostpath deployment to complete, attempt #0
+[evg-host] 22:59:35 waiting for hostpath deployment to complete, attempt #1
+[evg-host] Installing csi storageClass
+[evg-host] storageclass.storage.k8s.io/csi-hostpath-sc created
+[evg-host] Deployment successful on kind-kind
+[evg-host] Copying kubeconfig to /Users/lukasz.sierant/mdb/lsierant_KUBE-27-failure-modes/.generated/evg-host.kubeconfig
+[evg-host] Copying remote kubeconfig from ubuntu@ec2-34-241-153-9.eu-west-1.compute.amazonaws.com:/home/ubuntu/mongodb-kubernetes/.generated/evg-host.kubeconfig to /Users/lukasz.sierant/mdb/lsierant_KUBE-27-failure-modes/.generated/evg-host.kubeconfig
+[evg-host] Patching kubeconfig with host-side proxy-url http://127.0.0.1:8030
+[evg-host] Loading kubeconfig from /Users/lukasz.sierant/mdb/lsierant_KUBE-27-failure-modes/.generated/evg-host.kubeconfig onto 127.0.0.1:11616
+[evg-host] registered kubeconfig with kfp at 127.0.0.1:11616
+[evg-host] ==> evg_prepare: done — host=lsierant_KUBE-27-failure-modes
+[wt-ctl] phase: dc_up
+[up] [2026-05-10T22:59:50.464Z] @devcontainers/cli 0.84.1. Node.js v24.3.0. darwin 25.4.0 arm64.
+[up] [2026-05-10T22:59:50.603Z] Running the initializeCommand from devcontainer.json...
+[up] 
+[up] [2026-05-10T22:59:50.603Z] Start: Run: /bin/sh -c bash .devcontainer/scripts/initialize.sh
+[up] [2026-05-10T22:59:50.710Z] Set EVERGREEN_CLI_URL=https://evg-bucket-evergreen.s3.amazonaws.com/evergreen/clients/evergreen_99505b3a546c08bda04938e85fa4bf716068cd87/linux_arm64/evergreen on devcontainer service in compose.generated.yml
+[up] [2026-05-10T22:59:50.790Z] 
+[up] [2026-05-10T22:59:50.829Z] Start: Run: docker compose -f /Users/lukasz.sierant/mdb/lsierant_KUBE-27-failure-modes/.devcontainer/compose.yml -f /Users/lukasz.sierant/mdb/lsierant_KUBE-27-failure-modes/.devcontainer/compose.generated.yml -f /Users/lukasz.sierant/mdb/lsierant_KUBE-27-failure-modes/.devcontainer/compose.user.yml --profile * config
+[up] [2026-05-10T22:59:50.946Z] Expected /var/folders/_l/xlckyyss4nsf1hd_0wf1pt3r0000gp/T/devcontainercli/docker-compose/docker-compose.devcontainer.build-1778375175415.yml to exist, but it did not
+[up] [2026-05-10T22:59:50.946Z] Expected /var/folders/_l/xlckyyss4nsf1hd_0wf1pt3r0000gp/T/devcontainercli/docker-compose/docker-compose.devcontainer.containerFeatures-1778375181464-e2a16fe3-95dc-4f71-83fb-7ed51d81c448.yml to exist, but it did not
+[up] [2026-05-10T22:59:50.947Z] Start: Run: docker compose -f /Users/lukasz.sierant/mdb/lsierant_KUBE-27-failure-modes/.devcontainer/compose.yml -f /Users/lukasz.sierant/mdb/lsierant_KUBE-27-failure-modes/.devcontainer/compose.generated.yml -f /Users/lukasz.sierant/mdb/lsierant_KUBE-27-failure-modes/.devcontainer/compose.user.yml --profile * config
+[up] [2026-05-10T22:59:51.002Z] name: devcontainer
+[up] services:
+[up]   devcontainer:
+[up]     build:
+[up]       context: /Users/lukasz.sierant/mdb/lsierant_KUBE-27-failure-modes/.devcontainer
+[up]       dockerfile: Dockerfile
+[up]     command:
+[up]       - sleep
+[up]       - infinity
+[up]     depends_on:
+[up]       k8s-proxy:
+[up]         condition: service_started
+[up]         required: true
+[up]     dns:
+[up]       - 172.16.60.10
+[up]       - 127.0.0.11
+[up]     environment:
+[up]       EVERGREEN_CLI_URL: https://evg-bucket-evergreen.s3.amazonaws.com/evergreen/clients/evergreen_99505b3a546c08bda04938e85fa4bf716068cd87/linux_arm64/evergreen
+[up]       EVG_HOST_PROXY: http://gost-proxy:8080
+[up]       GOTOOLCHAIN: local
+[up]       K8S_FWD_PROXY: 172.16.60.10
+[up]       MCK_DEVC_NET_PREFIX: "30"
+[up]       SSH_AUTH_SOCK: /ssh-auth.sock
+[up]     extra_hosts:
+[up]       - host.docker.internal=host-gateway
+[up]     networks:
+[up]       devcontainer: null
+[up]     volumes:
+[up]       - type: bind
+[up]         source: /Users/lukasz.sierant/mdb/lsierant_KUBE-27-failure-modes
+[up]         target: /workspace
+[up]         bind: {}
+[up]       - type: volume
+[up]         source: venv
+[up]         target: /workspace/venv
+[up]         volume: {}
+[up]       - type: volume
+[up]         source: bin
+[up]         target: /workspace/bin
+[up]         volume: {}
+[up]       - type: volume
+[up]         source: gomodcache
+[up]         target: /go/pkg/mod
+[up]         volume: {}
+[up]       - type: volume
+[up]         source: gocache
+[up]         target: /home/vscode/.cache/go-build
+[up]         volume: {}
+[up]       - type: volume
+[up]         source: uvcache
+[up]         target: /home/vscode/.cache/uv
+[up]         volume: {}
+[up]       - type: volume
+[up]         source: helmcache
+[up]         target: /home/vscode/.cache/helm
+[up]         volume: {}
+[up]       - type: bind
+[up]         source: /Users/lukasz.sierant/.evergreen.yml
+[up]         target: /home/vscode/.evergreen.yml
+[up]         bind: {}
+[up]       - type: bind
+[up]         source: /Users/lukasz.sierant/.kanopy
+[up]         target: /Users/lukasz.sierant/.kanopy
+[up]         bind: {}
+[up]       - type: bind
+[up]         source: /Users/lukasz.sierant/.claude
+[up]         target: /home/vscode/.claude
+[up]         bind: {}
+[up]       - type: volume
+[up]         source: ssh-auth-sock
+[up]         target: /ssh-agent
+[up]         volume: {}
+[up]       - type: bind
+[up]         source: /Users/lukasz.sierant/mdb/mongodb-kubernetes/.git
+[up]         target: /Users/lukasz.sierant/mdb/mongodb-kubernetes/.git
+[up]         bind: {}
+[up]       - type: bind
+[up]         source: /run/host-services/ssh-auth.sock
+[up]         target: /ssh-auth.sock
+[up]         bind: {}
+[up]       - type: bind
+[up]         source: /Users/lukasz.sierant/.tmux.conf
+[up]         target: /home/vscode/.tmux.conf
+[up]         read_only: true
+[up]         bind: {}
+[up]   evg-host-proxy:
+[up]     build:
+[up]       context: /Users/lukasz.sierant/mdb/lsierant_KUBE-27-failure-modes/.devcontainer
+[up]       dockerfile: autossh.Dockerfile
+[up]     command:
+[up]       - bash
+[up]       - -c
+[up]       - |
+[up] 
+[up]           set -Eeo pipefail
+[up]           echo "evg-host-proxy: starting..."
+[up]           # EVG_HOST_ADDRESS may be passed via compose env (e.g. compose.user.yml
+[up]           # override). Otherwise fall back to the auto-resolved cache file.
+[up]           # ($$ escapes the dollar so compose passes the variable name through to bash.)
+[up]           if [ -z "$$EVG_HOST_ADDRESS" ] && [ -s /generated/.current-evg-host-address ]; then
+[up]             EVG_HOST_ADDRESS=$$(cat /generated/.current-evg-host-address)
+[up]           fi
+[up]           if [ -z "$$EVG_HOST_ADDRESS" ]; then
+[up]             echo "ERROR: EVG_HOST_ADDRESS is empty." >&2
+[up]             echo "Either run make switch (auto-resolves from .generated/.current-evg-host)" >&2
+[up]             echo "or set EVG_HOST_ADDRESS as a sidecar env in compose.user.yml." >&2
+[up]             exit 1
+[up]           fi
+[up]           echo "evg-host-proxy: waiting for ssh-agent socket at $$SSH_AUTH_SOCK..."
+[up]           until [ -S "$$SSH_AUTH_SOCK" ]; do sleep 1; done
+[up]           echo "evg-host-proxy: ssh-agent ready; starting autossh to ubuntu@$$EVG_HOST_ADDRESS"
+[up]           exec autossh -M 0 -N \
+[up]             -o "ServerAliveInterval 30" \
+[up]             -o "ServerAliveCountMax 3" \
+[up]             -D 0.0.0.0:1080 \
+[up]             ubuntu@$$EVG_HOST_ADDRESS
+[up]     environment:
+[up]       SSH_AUTH_SOCK: /ssh-agent/socket
+[up]     networks:
+[up]       devcontainer: null
+[up]     restart: unless-stopped
+[up]     volumes:
+[up]       - type: bind
+[up]         source: /Users/lukasz.sierant/mdb/lsierant_KUBE-27-failure-modes/.generated
+[up]         target: /generated
+[up]         read_only: true
+[up]         bind: {}
+[up]       - type: volume
+[up]         source: ssh-auth-sock
+[up]         target: /ssh-agent
+[up]         volume: {}
+[up]       - type: bind
+[up]         source: /Users/lukasz.sierant/.ssh/known_hosts
+[up]         target: /etc/ssh/ssh_known_hosts
+[up]         read_only: true
+[up]         bind: {}
+[up]   gost-proxy:
+[up]     command:
+[up]       - -L
+[up]       - http://:8080
+[up]       - -F
+[up]       - socks5://evg-host-proxy:1080
+[up]     depends_on:
+[up]       evg-host-proxy:
+[up]         condition: service_started
+[up]         required: true
+[up]     image: gogost/gost
+[up]     networks:
+[up]       devcontainer: null
+[up]     ports:
+[up]       - mode: ingress
+[up]         host_ip: 127.0.0.1
+[up]         target: 8080
+[up]         published: "8030"
+[up]         protocol: tcp
+[up]   k8s-proxy:
+[up]     cap_add:
+[up]       - NET_ADMIN
+[up]     command:
+[up]       - --dns
+[up]     environment:
+[up]       CLUSTER_DOMAIN: svc.cluster.local
+[up]       DNS_LISTEN: :53
+[up]       HTTP_LISTEN: :80
+[up]       INTERFACE: 172.16.60.10
+[up]       LOG_LEVEL: info
+[up]       VIP_CIDR: 172.16.61.0/24
+[up]     image: k8s-service-proxy:local
+[up]     networks:
+[up]       devcontainer:
+[up]         ipv4_address: 172.16.60.10
+[up] networks:
+[up]   devcontainer:
+[up]     name: devcontainer_devcontainer
+[up]     driver: bridge
+[up]     ipam:
+[up]       config:
+[up]         - subnet: 172.16.60.0/23
+[up]           ip_range: 172.16.60.0/24
+[up] volumes:
+[up]   bin:
+[up]     name: devcontainer_bin
+[up]   gocache:
+[up]     name: mck-devcontainer-gocache
+[up]   gomodcache:
+[up]     name: mck-devcontainer-gomodcache
+[up]   helmcache:
+[up]     name: mck-devcontainer-helmcache
+[up]   ssh-auth-sock:
+[up]     name: devcontainer_ssh-auth-sock
+[up]   uvcache:
+[up]     name: mck-devcontainer-uvcache
+[up]   venv:
+[up]     name: devcontainer_venv
+[up] x-k8s-proxy-config:
+[up]   proxy_address: 172.16.60.10
+[up] [2026-05-10T22:59:51.005Z] Start: Run: docker inspect --type image mcr.microsoft.com/devcontainers/base:ubuntu-24.04
+[up] [2026-05-10T22:59:51.034Z] Resolving Feature dependencies for 'ghcr.io/devcontainers/features/go:1'...
+[up] [2026-05-10T22:59:51.034Z] * Processing feature: ghcr.io/devcontainers/features/go:1
+[up] [2026-05-10T22:59:53.080Z] * Processing feature: ghcr.io/devcontainers/features/common-utils
+[up] [2026-05-10T22:59:53.852Z] Resolving Feature dependencies for 'ghcr.io/devcontainers-extra/features/uv:1'...
+[up] [2026-05-10T22:59:53.852Z] * Processing feature: ghcr.io/devcontainers-extra/features/uv:1
+[up] [2026-05-10T22:59:54.088Z] Resolving Feature dependencies for 'ghcr.io/devcontainers/features/kubectl-helm-minikube:1'...
+[up] [2026-05-10T22:59:54.088Z] * Processing feature: ghcr.io/devcontainers/features/kubectl-helm-minikube:1
+[up] [2026-05-10T22:59:54.376Z] * Processing feature: ghcr.io/devcontainers/features/common-utils
+[up] [2026-05-10T22:59:54.665Z] Resolving Feature dependencies for './features/helm-unittest'...
+[up] [2026-05-10T22:59:54.665Z] * Processing feature: ./features/helm-unittest
+[up] [2026-05-10T22:59:54.665Z] Local disk feature.
+[up] [2026-05-10T22:59:54.666Z] * Processing feature: ghcr.io/devcontainers/features/kubectl-helm-minikube:1
+[up] [2026-05-10T22:59:55.032Z] Resolving Feature dependencies for 'ghcr.io/devcontainers/features/docker-in-docker:2'...
+[up] [2026-05-10T22:59:55.032Z] * Processing feature: ghcr.io/devcontainers/features/docker-in-docker:2
+[up] [2026-05-10T22:59:55.311Z] * Processing feature: ghcr.io/devcontainers/features/common-utils
+[up] [2026-05-10T22:59:56.049Z] Resolving Feature dependencies for 'ghcr.io/devcontainers/features/aws-cli:1'...
+[up] [2026-05-10T22:59:56.049Z] * Processing feature: ghcr.io/devcontainers/features/aws-cli:1
+[up] [2026-05-10T22:59:56.850Z] * Processing feature: ghcr.io/devcontainers/features/common-utils
+[up] [2026-05-10T22:59:57.584Z] Resolving Feature dependencies for 'ghcr.io/devcontainers-extra/features/jira-cli:1'...
+[up] [2026-05-10T22:59:57.584Z] * Processing feature: ghcr.io/devcontainers-extra/features/jira-cli:1
+[up] [2026-05-10T22:59:57.962Z] * Processing feature: ghcr.io/devcontainers-extra/features/gh-release
+[up] [2026-05-10T22:59:58.735Z] Resolving Feature dependencies for 'ghcr.io/devcontainers-extra/features/shellcheck:1'...
+[up] [2026-05-10T22:59:58.735Z] * Processing feature: ghcr.io/devcontainers-extra/features/shellcheck:1
+[up] [2026-05-10T22:59:59.092Z] Resolving Feature dependencies for 'ghcr.io/eitsupi/devcontainer-features/jq-likes:2'...
+[up] [2026-05-10T22:59:59.093Z] * Processing feature: ghcr.io/eitsupi/devcontainer-features/jq-likes:2
+[up] [2026-05-10T22:59:59.479Z] * Processing feature: ghcr.io/devcontainers/features/common-utils
+[up] [2026-05-10T22:59:59.864Z] * Processing feature: ghcr.io/devcontainers/features/powershell
+[up] [2026-05-10T23:00:01.031Z] * Processing feature: ghcr.io/meaningful-ooo/devcontainer-features/fish
+[up] [2026-05-10T23:00:05.424Z] Resolving Feature dependencies for 'ghcr.io/devcontainers-extra/features/fzf:1'...
+[up] [2026-05-10T23:00:05.424Z] * Processing feature: ghcr.io/devcontainers-extra/features/fzf:1
+[up] [2026-05-10T23:00:07.402Z] * Processing feature: ghcr.io/devcontainers-extra/features/gh-release
+[up] [2026-05-10T23:00:12.027Z] Resolving Feature dependencies for 'ghcr.io/mpriscella/features/kind:1'...
+[up] [2026-05-10T23:00:12.027Z] * Processing feature: ghcr.io/mpriscella/features/kind:1
+[up] [2026-05-10T23:00:14.286Z] Files to omit: ''
+[up] [2026-05-10T23:00:14.290Z] Resolving Feature dependencies for 'ghcr.io/mpriscella/features/helm-chart-testing:1'...
+[up] [2026-05-10T23:00:14.290Z] * Processing feature: ghcr.io/mpriscella/features/helm-chart-testing:1
+[up] [2026-05-10T23:00:18.021Z] Resolving Feature dependencies for 'ghcr.io/dhoeric/features/k9s:1'...
+[up] [2026-05-10T23:00:18.021Z] * Processing feature: ghcr.io/dhoeric/features/k9s:1
+[up] [2026-05-10T23:00:19.935Z] Files to omit: ''
+[up] [2026-05-10T23:00:19.938Z] * Processing feature: ghcr.io/devcontainers/features/common-utils
+[up] [2026-05-10T23:00:20.347Z] Resolving Feature dependencies for 'ghcr.io/devcontainers-extra/features/pre-commit:2'...
+[up] [2026-05-10T23:00:20.347Z] * Processing feature: ghcr.io/devcontainers-extra/features/pre-commit:2
+[up] [2026-05-10T23:00:20.985Z] * Processing feature: ghcr.io/devcontainers-extra/features/pipx-package
+[up] [2026-05-10T23:00:21.474Z] * Processing feature: ghcr.io/devcontainers/features/python
+[up] [2026-05-10T23:00:21.900Z] Soft-dependency 'ghcr.io/devcontainers/features/common-utils' is not required.  Removing from installation order...
+[up] [2026-05-10T23:00:21.900Z] Soft-dependency 'ghcr.io/devcontainers/features/common-utils' is not required.  Removing from installation order...
+[up] [2026-05-10T23:00:21.900Z] Soft-dependency 'ghcr.io/devcontainers/features/common-utils' is not required.  Removing from installation order...
+[up] [2026-05-10T23:00:21.900Z] Soft-dependency 'ghcr.io/devcontainers/features/common-utils' is not required.  Removing from installation order...
+[up] [2026-05-10T23:00:21.900Z] Soft-dependency 'ghcr.io/devcontainers-extra/features/gh-release' is not required.  Removing from installation order...
+[up] [2026-05-10T23:00:21.900Z] Soft-dependency 'ghcr.io/meaningful-ooo/devcontainer-features/fish' is not required.  Removing from installation order...
+[up] [2026-05-10T23:00:21.900Z] Soft-dependency 'ghcr.io/devcontainers/features/powershell' is not required.  Removing from installation order...
+[up] [2026-05-10T23:00:21.900Z] Soft-dependency 'ghcr.io/devcontainers/features/common-utils' is not required.  Removing from installation order...
+[up] [2026-05-10T23:00:21.900Z] Soft-dependency 'ghcr.io/devcontainers-extra/features/gh-release' is not required.  Removing from installation order...
+[up] [2026-05-10T23:00:21.900Z] Soft-dependency 'ghcr.io/devcontainers/features/common-utils' is not required.  Removing from installation order...
+[up] [2026-05-10T23:00:21.900Z] Soft-dependency 'ghcr.io/devcontainers/features/python' is not required.  Removing from installation order...
+[up] [2026-05-10T23:00:21.900Z] Soft-dependency 'ghcr.io/devcontainers-extra/features/pipx-package' is not required.  Removing from installation order...
+[up] [2026-05-10T23:00:21.901Z] * Fetching feature: fzf_0_oci
+[up] [2026-05-10T23:00:22.946Z] Files to omit: ''
+[up] [2026-05-10T23:00:22.948Z] * Fetched feature: fzf_0_oci version 1.0.15
+[up] [2026-05-10T23:00:22.948Z] * Fetching feature: jira-cli_1_oci
+[up] [2026-05-10T23:00:23.703Z] Files to omit: ''
+[up] [2026-05-10T23:00:23.707Z] * Fetched feature: jira-cli_1_oci version 1.0.8
+[up] [2026-05-10T23:00:23.707Z] * Fetching feature: pre-commit_2_oci
+[up] [2026-05-10T23:00:24.818Z] Files to omit: ''
+[up] [2026-05-10T23:00:24.820Z] * Fetched feature: pre-commit_2_oci version 2.0.18
+[up] [2026-05-10T23:00:24.820Z] * Fetching feature: shellcheck_3_oci
+[up] [2026-05-10T23:00:29.290Z] Files to omit: ''
+[up] [2026-05-10T23:00:29.295Z] * Fetched feature: shellcheck_3_oci version 1.1.0
+[up] [2026-05-10T23:00:29.295Z] * Fetching feature: uv_4_oci
+[up] [2026-05-10T23:00:30.829Z] Files to omit: ''
+[up] [2026-05-10T23:00:30.834Z] * Fetched feature: uv_4_oci version 1.0.2
+[up] [2026-05-10T23:00:30.834Z] * Fetching feature: aws-cli_5_oci
+[up] [2026-05-10T23:00:32.706Z] Files to omit: ''
+[up] [2026-05-10T23:00:32.711Z] * Fetched feature: aws-cli_5_oci version 1.1.4
+[up] [2026-05-10T23:00:32.711Z] * Fetching feature: docker-in-docker_6_oci
+[up] [2026-05-10T23:00:39.957Z] Files to omit: ''
+[up] [2026-05-10T23:00:39.962Z] * Fetched feature: docker-in-docker_6_oci version 2.16.1
+[up] [2026-05-10T23:00:39.962Z] * Fetching feature: go_7_oci
+[up] [2026-05-10T23:00:41.389Z] Files to omit: ''
+[up] [2026-05-10T23:00:41.392Z] * Fetched feature: go_7_oci version 1.3.4
+[up] [2026-05-10T23:00:41.392Z] * Fetching feature: kubectl-helm-minikube_8_oci
+[up] [2026-05-10T23:00:43.169Z] Files to omit: ''
+[up] [2026-05-10T23:00:43.173Z] * Fetched feature: kubectl-helm-minikube_8_oci version 1.3.1
+[up] [2026-05-10T23:00:43.173Z] * Fetching feature: k9s_9_oci
+[up] [2026-05-10T23:00:44.588Z] Files to omit: ''
+[up] [2026-05-10T23:00:44.591Z] * Fetched feature: k9s_9_oci version 1.0.1
+[up] [2026-05-10T23:00:44.591Z] * Fetching feature: jq-likes_10_oci
+[up] [2026-05-10T23:00:45.451Z] Files to omit: ''
+[up] [2026-05-10T23:00:45.455Z] * Fetched feature: jq-likes_10_oci version 2.1.1
+[up] [2026-05-10T23:00:45.455Z] * Fetching feature: helm-chart-testing_11_oci
+[up] [2026-05-10T23:00:46.736Z] Files to omit: ''
+[up] [2026-05-10T23:00:46.741Z] * Fetched feature: helm-chart-testing_11_oci version 1.0.0
+[up] [2026-05-10T23:00:46.741Z] * Fetching feature: kind_12_oci
+[up] [2026-05-10T23:00:47.282Z] Files to omit: ''
+[up] [2026-05-10T23:00:47.283Z] * Fetched feature: kind_12_oci version 1.0.1
+[up] [2026-05-10T23:00:47.283Z] * Fetching feature: helm-unittest_13_file-path
+[up] [2026-05-10T23:00:47.293Z] Docker Compose override file for building image:
+[up] services:
+[up]   devcontainer:
+[up]     build:
+[up]       dockerfile: /var/folders/_l/xlckyyss4nsf1hd_0wf1pt3r0000gp/T/devcontainercli/container-features/0.84.1-1778453991033/Dockerfile-with-features
+[up]       args:
+[up]         - BUILDKIT_INLINE_CACHE=1
+[up]         - _DEV_CONTAINERS_BASE_IMAGE=dev_container_auto_added_stage_label
+[up]         - _DEV_CONTAINERS_IMAGE_USER=root
+[up]         - _DEV_CONTAINERS_FEATURE_CONTENT_SOURCE=dev_container_feature_content_temp
+[up]       additional_contexts:
+[up]         - dev_containers_feature_content_source=/var/folders/_l/xlckyyss4nsf1hd_0wf1pt3r0000gp/T/devcontainercli/container-features/0.84.1-1778453991033
+[up] 
+[up] [2026-05-10T23:00:47.339Z] Start: Run: docker compose --project-name lsierant_kube-27-failure-modes_devcontainer -f /Users/lukasz.sierant/mdb/lsierant_KUBE-27-failure-modes/.devcontainer/compose.yml -f /Users/lukasz.sierant/mdb/lsierant_KUBE-27-failure-modes/.devcontainer/compose.generated.yml -f /Users/lukasz.sierant/mdb/lsierant_KUBE-27-failure-modes/.devcontainer/compose.user.yml -f /var/folders/_l/xlckyyss4nsf1hd_0wf1pt3r0000gp/T/devcontainercli/docker-compose/docker-compose.devcontainer.build-1778454047293.yml -f /var/folders/_l/xlckyyss4nsf1hd_0wf1pt3r0000gp/T/devcontainercli/docker-compose/docker-compose.devcontainer.containerFeatures-1778454047338-7ab4d144-6e02-4f1b-a963-a1a6d001e6f9.yml up -d --no-recreate
+[up] Error: Command failed: docker compose --project-name lsierant_kube-27-failure-modes_devcontainer -f /Users/lukasz.sierant/mdb/lsierant_KUBE-27-failure-modes/.devcontainer/compose.yml -f /Users/lukasz.sierant/mdb/lsierant_KUBE-27-failure-modes/.devcontainer/compose.generated.yml -f /Users/lukasz.sierant/mdb/lsierant_KUBE-27-failure-modes/.devcontainer/compose.user.yml -f /var/folders/_l/xlckyyss4nsf1hd_0wf1pt3r0000gp/T/devcontainercli/docker-compose/docker-compose.devcontainer.build-1778454047293.yml -f /var/folders/_l/xlckyyss4nsf1hd_0wf1pt3r0000gp/T/devcontainercli/docker-compose/docker-compose.devcontainer.containerFeatures-1778454047338-7ab4d144-6e02-4f1b-a963-a1a6d001e6f9.yml up -d --no-recreate
+[up]     at wV (/opt/homebrew/lib/node_modules/@devcontainers/cli/dist/spec-node/devContainersSpecCLI.js:430:3340)
+[up]     at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+[up]     at async DV (/opt/homebrew/lib/node_modules/@devcontainers/cli/dist/spec-node/devContainersSpecCLI.js:410:3860)
+[up]     at async jV (/opt/homebrew/lib/node_modules/@devcontainers/cli/dist/spec-node/devContainersSpecCLI.js:483:4043)
+[up]     at async FI (/opt/homebrew/lib/node_modules/@devcontainers/cli/dist/spec-node/devContainersSpecCLI.js:483:4989)
+[up]     at async SZ (/opt/homebrew/lib/node_modules/@devcontainers/cli/dist/spec-node/devContainersSpecCLI.js:664:205)
+[up]     at async FZ (/opt/homebrew/lib/node_modules/@devcontainers/cli/dist/spec-node/devContainersSpecCLI.js:663:15080)
+[up]     at async /opt/homebrew/lib/node_modules/@devcontainers/cli/dist/spec-node/devContainersSpecCLI.js:483:1188
+[up] {"outcome":"error","message":"Command failed: docker compose --project-name lsierant_kube-27-failure-modes_devcontainer -f /Users/lukasz.sierant/mdb/lsierant_KUBE-27-failure-modes/.devcontainer/compose.yml -f /Users/lukasz.sierant/mdb/lsierant_KUBE-27-failure-modes/.devcontainer/compose.generated.yml -f /Users/lukasz.sierant/mdb/lsierant_KUBE-27-failure-modes/.devcontainer/compose.user.yml -f /var/folders/_l/xlckyyss4nsf1hd_0wf1pt3r0000gp/T/devcontainercli/docker-compose/docker-compose.devcontainer.build-1778454047293.yml -f /var/folders/_l/xlckyyss4nsf1hd_0wf1pt3r0000gp/T/devcontainercli/docker-compose/docker-compose.devcontainer.containerFeatures-1778454047338-7ab4d144-6e02-4f1b-a963-a1a6d001e6f9.yml up -d --no-recreate","description":"An error occurred starting Docker Compose up.","containerId":"f5a285201e7d38a098f1f64c24bff74458cd9a9eaa5ec161a73e6ca207385289"}
+[wt-ctl] error: command failed (rc=1): devcontainer up --workspace-folder /Users/lukasz.sierant/mdb/lsierant_KUBE-27-failure-modes
+[wt-ctl] resume with: scripts/dev/wt-ctl create lsierant/KUBE-27-failure-modes --resume
