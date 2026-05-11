@@ -208,11 +208,19 @@ class KfpDomain:
             + (f"\n--- log tail ---\n{tail}" if tail else "")
         )
 
-    def register(self, kubeconfig_path: Path) -> str:
-        """PATCH the kubeconfig file's contents to the on-host kfp daemon
+    def register(self, kubeconfig_path: Path, *, replace: bool = False) -> str:
+        """Send the kubeconfig file's contents to the on-host kfp daemon
         at ``http://127.0.0.1:11616/kubeconfig``. Mirrors what
         ``setup_kind_cluster.sh`` and ``evg_host.sh`` curl on the EVG
         host's side.
+
+        ``replace=False`` (default): HTTP PATCH — merge into the existing
+        dynamic config. Use when multiple worktrees share the daemon.
+
+        ``replace=True``: HTTP PUT — replace the entire dynamic config
+        with this single kubeconfig. Use to wipe stale entries (e.g. from
+        prior runs whose proxy-url's were invalid); be aware that any
+        sibling worktrees' registrations will need to be re-registered.
 
         Returns the response body. Raises ``WtCtlError`` if the file is
         missing, the daemon isn't listening, or the HTTP call fails.
@@ -225,20 +233,49 @@ class KfpDomain:
                 f"start it first with `wt-ctl kfp start`"
             )
         body = kubeconfig_path.read_bytes()
+        method = "PUT" if replace else "PATCH"
         req = urllib.request.Request(
             f"http://{KFP_HOST}:{KFP_HTTP_PORT}/kubeconfig",
             data=body,
-            method="PATCH",
+            method=method,
         )
         try:
             with urllib.request.urlopen(req, timeout=10) as resp:
                 return resp.read().decode("utf-8", errors="replace")
         except urllib.error.HTTPError as exc:
             raise WtCtlError(
-                f"kfp register failed: HTTP {exc.code} {exc.reason}"
+                f"kfp {method.lower()} failed: HTTP {exc.code} {exc.reason}"
             ) from exc
         except (urllib.error.URLError, OSError) as exc:
-            raise WtCtlError(f"kfp register failed: {exc}") from exc
+            raise WtCtlError(f"kfp {method.lower()} failed: {exc}") from exc
+
+    def reset(self) -> None:
+        """HTTP DELETE the daemon's dynamic kubeconfig — wipes all
+        registered contexts. Use to clean up stale entries from prior
+        runs whose proxy-url ports were invalid (e.g. legacy
+        ``kind-kind-80640``) before re-registering active worktrees.
+
+        Raises ``WtCtlError`` if the daemon isn't listening or the
+        HTTP call fails.
+        """
+        if not self.is_listening():
+            raise WtCtlError(
+                f"kfp daemon not listening at {KFP_HOST}:{KFP_HTTP_PORT}"
+            )
+        req = urllib.request.Request(
+            f"http://{KFP_HOST}:{KFP_HTTP_PORT}/kubeconfig",
+            method="DELETE",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                # 204 No Content on success
+                _ = resp.read()
+        except urllib.error.HTTPError as exc:
+            raise WtCtlError(
+                f"kfp delete failed: HTTP {exc.code} {exc.reason}"
+            ) from exc
+        except (urllib.error.URLError, OSError) as exc:
+            raise WtCtlError(f"kfp delete failed: {exc}") from exc
 
     def stop(self) -> Optional[int]:
         """Best-effort: kill the recorded PID, remove the pidfile.

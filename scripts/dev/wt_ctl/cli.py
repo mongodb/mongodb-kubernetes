@@ -191,6 +191,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--kubeconfig",
         help="kubeconfig path to register (default: <worktree>/.generated/evg-host.kubeconfig).",
     )
+    sk_rg.add_argument(
+        "--replace",
+        action="store_true",
+        help="HTTP PUT instead of PATCH — wipes any sibling registrations first. Use to clear stale entries.",
+    )
+    sk_sub.add_parser(
+        "reset",
+        help="HTTP DELETE the daemon's dynamic kubeconfig (wipes all registrations).",
+    )
 
     so = sub.add_parser("om", help="cloud-qa OM project primitives.")
     so_sub = so.add_subparsers(dest="om_cmd")
@@ -720,6 +729,7 @@ def cmd_kfp(runner: Runner, args: argparse.Namespace) -> int:
         return 0
     if sub == "register":
         explicit = getattr(args, "kubeconfig", None)
+        replace = getattr(args, "replace", False)
         if explicit:
             kc_path = Path(explicit).expanduser()
         else:
@@ -733,10 +743,16 @@ def cmd_kfp(runner: Runner, args: argparse.Namespace) -> int:
                 )
                 return 2
             kc_path = wt.worktree_root / ".generated" / "evg-host.kubeconfig"
-        body = kfp.register(kc_path)
-        print(f"registered    kubeconfig={kc_path}")
+        body = kfp.register(kc_path, replace=replace)
+        verb = "replaced" if replace else "registered"
+        print(f"{verb}    kubeconfig={kc_path}")
         if body.strip():
             print(f"  daemon response: {body.strip()}")
+        return 0
+    if sub == "reset":
+        kfp.reset()
+        print("reset    (kfp dynamic kubeconfig wiped)")
+        return 0
         return 0
     sys.stderr.write(f"[wt-ctl] error: unknown kfp subcommand: {sub}\n")
     return 2
