@@ -62,13 +62,12 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/annotations"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/configmap"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/service"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/merge"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/scale"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
-	mekoService "github.com/mongodb/mongodb-kubernetes/pkg/kube/service"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/service"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
@@ -2764,7 +2763,7 @@ func (r *ShardedClusterReconcileHelper) reconcileServices(ctx context.Context, l
 			// the pod services created in their respective clusters will be updated twice here, but this way the code is cleaner
 			for _, svc := range allServices {
 				log.Debugf("creating duplicated services for %s in cluster: %s", svc.Name, memberCluster.Name)
-				err := mekoService.CreateOrUpdateService(ctx, memberCluster.Client, *svc)
+				err := service.CreateOrUpdateService(ctx, memberCluster.Client, *svc)
 				if err != nil {
 					return xerrors.Errorf("failed to create (duplicate) pod service %s in cluster: %s, err: %w", svc.Name, memberCluster.Name, err)
 				}
@@ -2795,7 +2794,7 @@ func (r *ShardedClusterReconcileHelper) reconcileConfigServerServices(ctx contex
 			if err != nil {
 				return xerrors.Errorf("failed to build an external service %s in cluster: %s, err: %w", dns.GetMultiExternalServiceName(r.sc.ConfigSrvServiceName(), memberCluster.Index, podNum), memberCluster.Name, err)
 			}
-			if err = mekoService.CreateOrUpdateService(ctx, memberCluster.Client, svc); err != nil && !errors.IsAlreadyExists(err) {
+			if err = service.CreateOrUpdateService(ctx, memberCluster.Client, svc); err != nil && !errors.IsAlreadyExists(err) {
 				return xerrors.Errorf("failed to create external service %s in cluster: %s, err: %w", svc.Name, memberCluster.Name, err)
 			}
 		}
@@ -2803,7 +2802,7 @@ func (r *ShardedClusterReconcileHelper) reconcileConfigServerServices(ctx contex
 		if configServerExternalAccess == nil || configServerExternalAccess.ExternalDomain == nil {
 			log.Debugf("creating internal services for %s in cluster: %s", r.sc.ConfigRsName(), memberCluster.Name)
 			svc := r.getPodService(r.sc.ConfigRsName(), memberCluster, podNum, portOrDefault)
-			if err := mekoService.CreateOrUpdateService(ctx, memberCluster.Client, svc); err != nil && !errors.IsAlreadyExists(err) {
+			if err := service.CreateOrUpdateService(ctx, memberCluster.Client, svc); err != nil && !errors.IsAlreadyExists(err) {
 				return xerrors.Errorf("failed to create pod service %s in cluster: %s, err: %w", svc.Name, memberCluster.Name, err)
 			}
 			_ = append(allServices, &svc)
@@ -2836,7 +2835,7 @@ func (r *ShardedClusterReconcileHelper) reconcileShardServices(ctx context.Conte
 			if err != nil {
 				return xerrors.Errorf("failed to build an external service %s in cluster: %s, err: %w", dns.GetMultiExternalServiceName(r.sc.ShardRsName(shardIdx), memberCluster.Index, podNum), memberCluster.Name, err)
 			}
-			if err = mekoService.CreateOrUpdateService(ctx, memberCluster.Client, svc); err != nil && !errors.IsAlreadyExists(err) {
+			if err = service.CreateOrUpdateService(ctx, memberCluster.Client, svc); err != nil && !errors.IsAlreadyExists(err) {
 				return xerrors.Errorf("failed to create external service %s in cluster: %s, err: %w", svc.Name, memberCluster.Name, err)
 			}
 		}
@@ -2844,7 +2843,7 @@ func (r *ShardedClusterReconcileHelper) reconcileShardServices(ctx context.Conte
 		if shardsExternalAccess == nil || shardsExternalAccess.ExternalDomain == nil {
 			log.Debugf("creating internal services for %s in cluster: %s", r.sc.ShardRsName(shardIdx), memberCluster.Name)
 			svc := r.getPodService(r.sc.ShardRsName(shardIdx), memberCluster, podNum, portOrDefault)
-			if err := mekoService.CreateOrUpdateService(ctx, memberCluster.Client, svc); err != nil {
+			if err := service.CreateOrUpdateService(ctx, memberCluster.Client, svc); err != nil {
 				return xerrors.Errorf("failed to create pod service %s in cluster: %s, err: %w", svc.Name, memberCluster.Name, err)
 			}
 
@@ -2877,7 +2876,7 @@ func (r *ShardedClusterReconcileHelper) reconcileMongosServices(ctx context.Cont
 			if err != nil {
 				return xerrors.Errorf("failed to build an external service %s in cluster: %s, err: %w", dns.GetMultiExternalServiceName(r.sc.MongosRsName(), memberCluster.Index, podNum), memberCluster.Name, err)
 			}
-			if err = mekoService.CreateOrUpdateService(ctx, memberCluster.Client, svc); err != nil && !errors.IsAlreadyExists(err) {
+			if err = service.CreateOrUpdateService(ctx, memberCluster.Client, svc); err != nil && !errors.IsAlreadyExists(err) {
 				return xerrors.Errorf("failed to create external service %s in cluster: %s, err: %w", svc.Name, memberCluster.Name, err)
 			}
 		}
@@ -2885,7 +2884,7 @@ func (r *ShardedClusterReconcileHelper) reconcileMongosServices(ctx context.Cont
 		if mongosExternalAccess == nil || mongosExternalAccess.ExternalDomain == nil {
 			log.Debugf("creating internal services for %s in cluster: %s", r.sc.MongosRsName(), memberCluster.Name)
 			svc := r.getPodService(r.sc.MongosRsName(), memberCluster, podNum, portOrDefault)
-			if err := mekoService.CreateOrUpdateService(ctx, memberCluster.Client, svc); err != nil && !errors.IsAlreadyExists(err) {
+			if err := service.CreateOrUpdateService(ctx, memberCluster.Client, svc); err != nil && !errors.IsAlreadyExists(err) {
 				return xerrors.Errorf("failed to create pod service %s in cluster: %s, err: %w", svc.Name, memberCluster.Name, err)
 			}
 
@@ -2908,7 +2907,7 @@ func (r *ShardedClusterReconcileHelper) createHeadlessServiceForStatefulSet(ctx 
 	headlessServiceName := dns.GetMultiHeadlessServiceName(stsName, memberCluster.Index)
 	nameSpacedName := kube.ObjectKey(r.sc.Namespace, headlessServiceName)
 	headlessService := create.BuildService(nameSpacedName, r.sc, ptr.To(headlessServiceName), nil, port, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
-	if err := mekoService.CreateOrUpdateService(ctx, memberCluster.Client, headlessService); err != nil && !errors.IsAlreadyExists(err) {
+	if err := service.CreateOrUpdateService(ctx, memberCluster.Client, headlessService); err != nil && !errors.IsAlreadyExists(err) {
 		return xerrors.Errorf("failed to create pod service %s in cluster: %s, err: %w", headlessService.Name, memberCluster.Name, err)
 	}
 	return nil

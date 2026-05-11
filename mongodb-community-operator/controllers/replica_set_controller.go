@@ -42,12 +42,12 @@ import (
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/podtemplatespec"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/service"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/functions"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/merge"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/result"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/scale"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/status"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/service"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 )
 
