@@ -3,7 +3,7 @@ package mdb
 import (
 	"fmt"
 
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
+	"github.com/mongodb/mongodb-kubernetes/api/v1/common"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 )
 
