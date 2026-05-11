@@ -115,3 +115,6 @@ scripts/code_snippets/tests/outputs/*
 
 .claude
 
+# wt-ctl overnight run logs / reports (development artefacts, not PR content)
+docs/dev/_overnight-runs/
+
