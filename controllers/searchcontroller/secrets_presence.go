@@ -44,13 +44,15 @@ func CheckSecretsPresence(
 		return nil
 	}
 
-	results := make([]SecretCheckResult, 0, len(members)+1)
-
-	if missing := missingSecretsIn(ctx, central, search.Namespace, expected); len(missing) > 0 {
-		results = append(results, SecretCheckResult{Cluster: "", Missing: missing})
+	// Sentinel key "" represents central; member names follow.
+	all := make(map[string]client.Client, len(members)+1)
+	all[""] = central
+	for name, c := range members {
+		all[name] = c
 	}
 
-	for clusterName, c := range members {
+	results := make([]SecretCheckResult, 0, len(all))
+	for clusterName, c := range all {
 		if missing := missingSecretsIn(ctx, c, search.Namespace, expected); len(missing) > 0 {
 			results = append(results, SecretCheckResult{Cluster: clusterName, Missing: missing})
 		}
@@ -59,48 +61,47 @@ func CheckSecretsPresence(
 	return results
 }
 
-// expectedSecretNames returns the deduplicated list of secret names the customer is
-// expected to replicate into every member cluster's namespace, derived from the CR.
-// Order is stable so logs and test assertions are deterministic.
+// expectedSecretNames returns the deduplicated, sorted list of secret names the
+// customer is expected to replicate into every member cluster's namespace, derived
+// from the CR.
 func expectedSecretNames(search *searchv1.MongoDBSearch) []string {
 	var names []string
 
 	// Sync-source password — always required when a password ref is configured.
 	if ref := search.SourceUserPasswordSecretRef(); ref != nil && ref.Name != "" {
-		names = appendUnique(names, ref.Name)
+		names = append(names, ref.Name)
 	}
 
 	// External CA bundle — only required for external MongoDB sources.
 	if search.IsExternalMongoDBSource() {
 		ext := search.Spec.Source.ExternalMongoDBSource
 		if ext.TLS != nil && ext.TLS.CA != nil && ext.TLS.CA.Name != "" {
-			names = appendUnique(names, ext.TLS.CA.Name)
+			names = append(names, ext.TLS.CA.Name)
 		}
 		// Keyfile — sharded only.
 		if search.IsExternalSourceSharded() && ext.KeyFileSecretKeyRef != nil && ext.KeyFileSecretKeyRef.Name != "" {
-			names = appendUnique(names, ext.KeyFileSecretKeyRef.Name)
+			names = append(names, ext.KeyFileSecretKeyRef.Name)
 		}
 	}
 
 	// mongot server TLS cert per unit (single RS or per shard) + Envoy server TLS cert.
-	// Both share the same `<prefix>-...-cert` family so listing the mongot cert covers
-	// the Envoy expectation where Envoy reuses the per-shard cert.
 	if search.Spec.Security.TLS != nil {
 		if search.IsExternalSourceSharded() {
 			for _, shard := range search.Spec.Source.ExternalMongoDBSource.ShardedCluster.Shards {
-				names = appendUnique(names, search.TLSSecretForShard(shard.ShardName).Name)
+				names = append(names, search.TLSSecretForShard(shard.ShardName).Name)
 			}
 		} else {
-			names = appendUnique(names, search.TLSSecretNamespacedName().Name)
+			names = append(names, search.TLSSecretNamespacedName().Name)
 		}
 	}
 
 	// x509 client cert — only when x509 auth is configured.
 	if search.IsX509Auth() {
-		names = appendUnique(names, search.X509ClientCertSecret().Name)
+		names = append(names, search.X509ClientCertSecret().Name)
 	}
 
-	return names
+	slices.Sort(names)
+	return slices.Compact(names)
 }
 
 // missingSecretsIn does a Get on each name and returns names that are not accessible.
@@ -118,11 +119,4 @@ func missingSecretsIn(ctx context.Context, c client.Client, namespace string, na
 		}
 	}
 	return missing
-}
-
-func appendUnique(in []string, name string) []string {
-	if slices.Contains(in, name) {
-		return in
-	}
-	return append(in, name)
 }

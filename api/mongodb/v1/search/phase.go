@@ -45,23 +45,3 @@ func WorstOfPhase(phases ...status.Phase) status.Phase {
 	}
 	return worst
 }
-
-// AggregateClusterStatuses populates Status.ClusterStatusList.ClusterStatuses
-// with the supplied per-cluster items and rolls the top-level Status.Phase to
-// the worst-of any per-cluster Phase. When items is empty (legacy
-// single-cluster reconcile), this is a no-op: top-level fields keep the
-// semantics they have today.
-func (s *MongoDBSearch) AggregateClusterStatuses(items []SearchClusterStatusItem) {
-	if len(items) == 0 {
-		return
-	}
-	s.Status.ClusterStatusList.ClusterStatuses = items
-
-	phases := make([]status.Phase, 0, len(items))
-	for _, it := range items {
-		phases = append(phases, it.Phase)
-	}
-	if worst := WorstOfPhase(phases...); worst != "" {
-		s.Status.Phase = worst
-	}
-}
