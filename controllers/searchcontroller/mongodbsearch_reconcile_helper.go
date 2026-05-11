@@ -570,7 +570,7 @@ func (r *MongoDBSearchReconcileHelper) applyReconcileUnit(
 		log,
 		unitClient,
 		unit.stsName,
-		CreateSearchStatefulSetFunc(r.mdbSearch, unit.stsName.Name, r.mdbSearch.Namespace, unit.headlessSvc.Name, unit.configMapName.Name, unit.podLabels, mods.searchImage, mods.usePerPodConfig),
+		CreateSearchStatefulSetFunc(r.mdbSearch, unit.clusterName, unit.stsName.Name, r.mdbSearch.Namespace, unit.headlessSvc.Name, unit.configMapName.Name, unit.podLabels, mods.searchImage, mods.usePerPodConfig),
 		withSearchOwnerLabels(r.mdbSearch, unit.clusterName),
 		mods.passwordAuthSts,
 		configHashModification,

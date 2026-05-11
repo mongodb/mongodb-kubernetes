@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"k8s.io/utils/ptr"
 
 	corev1 "k8s.io/api/core/v1"
@@ -61,7 +62,7 @@ func TestEffectiveClusters(t *testing.T) {
 			}},
 		},
 		{
-			name: "spec.clusters set, returned unchanged",
+			name: "spec.clusters set, no top-level cascade fields — returned unchanged",
 			spec: MongoDBSearchSpec{
 				Clusters: &[]ClusterSpec{
 					{ClusterName: "us-east", Replicas: ptr.To(int32(2))},
@@ -86,6 +87,88 @@ func TestEffectiveClusters(t *testing.T) {
 			assert.Equal(t, tt.expected, got)
 		})
 	}
+}
+
+// TestEffectiveClustersCascade verifies REPLACE-if-nil cascade of the top-level
+// Persistence / ResourceRequirements / StatefulSetConfiguration defaults into
+// each ClusterSpec entry when spec.clusters is set.
+func TestEffectiveClustersCascade(t *testing.T) {
+	topPersistence := &common.Persistence{}
+	topResources := &corev1.ResourceRequirements{}
+	topSTS := &common.StatefulSetConfiguration{}
+
+	clusterAPersistence := &common.Persistence{}
+	clusterBResources := &corev1.ResourceRequirements{}
+
+	spec := MongoDBSearchSpec{
+		ResourceRequirements:     topResources,
+		Persistence:              topPersistence,
+		StatefulSetConfiguration: topSTS,
+		Clusters: &[]ClusterSpec{
+			{ClusterName: "cluster-a", Persistence: clusterAPersistence}, // override Persistence only
+			{ClusterName: "cluster-b", ResourceRequirements: clusterBResources}, // override ResourceRequirements only
+			{ClusterName: "cluster-c"}, // no overrides — inherit all three top-level defaults
+		},
+	}
+	s := &MongoDBSearch{Spec: spec}
+	got := EffectiveClusters(s)
+
+	require.Len(t, got, 3)
+
+	// cluster-a: own Persistence, inherits ResourceRequirements + STSConfig
+	assert.Same(t, clusterAPersistence, got[0].Persistence, "cluster-a Persistence override wins")
+	assert.Same(t, topResources, got[0].ResourceRequirements, "cluster-a inherits top-level ResourceRequirements")
+	assert.Same(t, topSTS, got[0].StatefulSetConfiguration, "cluster-a inherits top-level STSConfig")
+
+	// cluster-b: own ResourceRequirements, inherits Persistence + STSConfig
+	assert.Same(t, topPersistence, got[1].Persistence, "cluster-b inherits top-level Persistence")
+	assert.Same(t, clusterBResources, got[1].ResourceRequirements, "cluster-b ResourceRequirements override wins")
+	assert.Same(t, topSTS, got[1].StatefulSetConfiguration, "cluster-b inherits top-level STSConfig")
+
+	// cluster-c: all three inherited
+	assert.Same(t, topPersistence, got[2].Persistence)
+	assert.Same(t, topResources, got[2].ResourceRequirements)
+	assert.Same(t, topSTS, got[2].StatefulSetConfiguration)
+
+	// Cascade must NOT mutate the original spec — top-level pointers still point
+	// to the originals; per-cluster overrides on cluster-a/cluster-b are unchanged.
+	assert.Same(t, topPersistence, spec.Persistence)
+	assert.Same(t, topResources, spec.ResourceRequirements)
+	assert.Same(t, topSTS, spec.StatefulSetConfiguration)
+	assert.Same(t, clusterAPersistence, (*spec.Clusters)[0].Persistence)
+	assert.Nil(t, (*spec.Clusters)[0].ResourceRequirements)
+	assert.Nil(t, (*spec.Clusters)[2].Persistence)
+}
+
+func TestEffectiveClusterFor(t *testing.T) {
+	topResources := &corev1.ResourceRequirements{}
+	clusterBResources := &corev1.ResourceRequirements{}
+
+	t.Run("empty clusterName returns first auto-promoted entry", func(t *testing.T) {
+		s := &MongoDBSearch{Spec: MongoDBSearchSpec{ResourceRequirements: topResources}}
+		got := s.EffectiveClusterFor("")
+		assert.Same(t, topResources, got.ResourceRequirements)
+	})
+
+	t.Run("matches by clusterName with cascade applied", func(t *testing.T) {
+		s := &MongoDBSearch{Spec: MongoDBSearchSpec{
+			ResourceRequirements: topResources,
+			Clusters: &[]ClusterSpec{
+				{ClusterName: "cluster-a"},
+				{ClusterName: "cluster-b", ResourceRequirements: clusterBResources},
+			},
+		}}
+		assert.Same(t, topResources, s.EffectiveClusterFor("cluster-a").ResourceRequirements)
+		assert.Same(t, clusterBResources, s.EffectiveClusterFor("cluster-b").ResourceRequirements)
+	})
+
+	t.Run("unknown clusterName returns zero spec", func(t *testing.T) {
+		s := &MongoDBSearch{Spec: MongoDBSearchSpec{
+			Clusters: &[]ClusterSpec{{ClusterName: "only"}},
+		}}
+		got := s.EffectiveClusterFor("missing")
+		assert.Equal(t, ClusterSpec{}, got)
+	})
 }
 
 func TestEffectiveClustersDoesNotMutate(t *testing.T) {

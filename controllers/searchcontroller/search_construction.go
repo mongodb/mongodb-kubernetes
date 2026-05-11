@@ -76,7 +76,11 @@ type TLSSourceConfig struct {
 
 // CreateSearchStatefulSetFunc returns a statefulset.Modification that configures a mongot StatefulSet.
 // It works for both non-sharded and per-shard deployments.
-func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, stsName, namespace, svcName, configMapName string, labels map[string]string, searchImage string, usePerPodConfig bool) statefulset.Modification {
+//
+// clusterName selects which entry of EffectiveClusters() is read for the per-cluster
+// Persistence / ResourceRequirements / StatefulSetConfiguration fields. Empty string
+// = legacy single-cluster path (uses the auto-promoted top-level fields).
+func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, clusterName, stsName, namespace, svcName, configMapName string, labels map[string]string, searchImage string, usePerPodConfig bool) statefulset.Modification {
 	tmpVolume := statefulset.CreateVolumeFromEmptyDir("tmp")
 	tmpVolumeMount := statefulset.CreateVolumeMount(tmpVolume.Name, tempVolumePath, statefulset.WithReadOnly(false))
 
@@ -94,15 +98,10 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, stsName, nam
 		mongotConfigVolumeMount = statefulset.CreateVolumeMount(mongotConfigVolumeName, MongotConfigPath, statefulset.WithReadOnly(true), statefulset.WithSubPath(MongotConfigFilename))
 	}
 
-	// EffectiveClusters auto-promotes the legacy top-level fields when spec.clusters
-	// is unset, so this normally returns one entry. Guard against the empty-slice
-	// corner case (user posted spec.clusters: []) so we degrade to "no override"
-	// rather than panic.
-	effective := searchv1.EffectiveClusters(mdbSearch)
-	var perCluster searchv1.ClusterSpec
-	if len(effective) > 0 {
-		perCluster = effective[0]
-	}
+	// Per-cluster spec for THIS cluster, cascaded over the top-level defaults
+	// (REPLACE-if-nil for Persistence / ResourceRequirements /
+	// StatefulSetConfiguration). Empty clusterName == single-cluster path.
+	perCluster := mdbSearch.EffectiveClusterFor(clusterName)
 
 	var persistenceConfig *common.PersistenceConfig
 	if perCluster.Persistence != nil && perCluster.Persistence.SingleConfig != nil {
@@ -141,7 +140,7 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, stsName, nam
 				podtemplatespec.WithPodLabels(labels),
 				podtemplatespec.WithVolumes(volumes),
 				podtemplatespec.WithServiceAccount(util.MongoDBServiceAccount),
-				podtemplatespec.WithContainer(MongotContainerName, mongodbSearchContainer(mdbSearch, volumeMounts, searchImage, usePerPodConfig)),
+				podtemplatespec.WithContainer(MongotContainerName, mongodbSearchContainer(mdbSearch, clusterName, volumeMounts, searchImage, usePerPodConfig)),
 			),
 		),
 	}
@@ -221,14 +220,10 @@ func jvmFlags(mdbSearch *searchv1.MongoDBSearch, resourceRequirements corev1.Res
 	return fmt.Sprintf(`--jvm-flags "%s"`, flagsValue)
 }
 
-func mongodbSearchContainer(mdbSearch *searchv1.MongoDBSearch, volumeMounts []corev1.VolumeMount, searchImage string, usePerPodConfig bool) container.Modification {
+func mongodbSearchContainer(mdbSearch *searchv1.MongoDBSearch, clusterName string, volumeMounts []corev1.VolumeMount, searchImage string, usePerPodConfig bool) container.Modification {
 	_, containerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
-	effective := searchv1.EffectiveClusters(mdbSearch)
-	var rr *corev1.ResourceRequirements
-	if len(effective) > 0 {
-		rr = effective[0].ResourceRequirements
-	}
-	resourceRequirements := createSearchResourceRequirements(rr)
+	perCluster := mdbSearch.EffectiveClusterFor(clusterName)
+	resourceRequirements := createSearchResourceRequirements(perCluster.ResourceRequirements)
 	jvmFlags := jvmFlags(mdbSearch, resourceRequirements)
 
 	var mongotStartCommand string

@@ -736,29 +736,79 @@ func (s *MongoDBSearch) GetEndpointForShard(shardName string) string {
 }
 
 // EffectiveClusters returns the per-cluster distribution slice the reconcile
-// loop should iterate over.
+// loop should iterate over, with the top-level
+// Persistence/ResourceRequirements/StatefulSetConfiguration cascaded into each
+// entry as a REPLACE-if-nil default.
 //
-//   - When spec.clusters is non-nil (including the explicitly-empty slice),
-//     it is returned as-is. The empty-slice case is reached only when admission
-//     allows it; readers that index [0] must guard.
-//   - When spec.clusters is nil, it auto-promotes the top-level
-//     Replicas/ResourceRequirements/Persistence/StatefulSetConfiguration into
-//     a one-element ClusterSpec for the legacy single-cluster path.
+//   - When spec.clusters is nil, it auto-promotes the top-level fields into a
+//     one-element ClusterSpec for the legacy single-cluster path.
+//   - When spec.clusters is non-nil, each entry is returned with any nil
+//     Persistence/ResourceRequirements/StatefulSetConfiguration field replaced
+//     by the top-level spec.X value. Atomic per field — to override one
+//     sub-field of a struct (e.g. one container's image), spell out the full
+//     struct at cluster level. Matches sharded MC's processClusterSpecList
+//     semantics (REPLACE-if-nil; no recursive merge for MVP).
+//
+// Note: ClusterSpec.Replicas and ClusterSpec.JVMFlags are NOT cascaded in MVP
+// — those two fields are not yet read by any consumer (top-level
+// spec.replicas / spec.jvmFlags is what reaches mongot pods).
 //
 // The function is pure — no mutation of s, no side effects.
 func EffectiveClusters(s *MongoDBSearch) []ClusterSpec {
-	if s.Spec.Clusters != nil {
-		return *s.Spec.Clusters
+	//nolint:staticcheck // SA1019: deprecated top-level fields are the documented default for the cascade.
+	topResReq := s.Spec.ResourceRequirements
+	//nolint:staticcheck // SA1019
+	topPersistence := s.Spec.Persistence
+	//nolint:staticcheck // SA1019
+	topSTSConfig := s.Spec.StatefulSetConfiguration
+
+	if s.Spec.Clusters == nil {
+		//nolint:staticcheck // SA1019: single-cluster auto-promotion of deprecated top-level fields.
+		return []ClusterSpec{{
+			Replicas:                 s.Spec.Replicas,
+			ResourceRequirements:     topResReq,
+			Persistence:              topPersistence,
+			StatefulSetConfiguration: topSTSConfig,
+		}}
 	}
-	// Single legitimate read of the deprecated top-level distribution fields:
-	// the auto-promotion fallback. Per-cluster readers go through this function.
-	//nolint:staticcheck // SA1019: deprecated fields are the documented fallback path.
-	return []ClusterSpec{{
-		Replicas:                 s.Spec.Replicas,
-		ResourceRequirements:     s.Spec.ResourceRequirements,
-		Persistence:              s.Spec.Persistence,
-		StatefulSetConfiguration: s.Spec.StatefulSetConfiguration,
-	}}
+
+	clusters := *s.Spec.Clusters
+	out := make([]ClusterSpec, 0, len(clusters))
+	for _, c := range clusters {
+		resolved := c
+		if resolved.ResourceRequirements == nil {
+			resolved.ResourceRequirements = topResReq
+		}
+		if resolved.Persistence == nil {
+			resolved.Persistence = topPersistence
+		}
+		if resolved.StatefulSetConfiguration == nil {
+			resolved.StatefulSetConfiguration = topSTSConfig
+		}
+		out = append(out, resolved)
+	}
+	return out
+}
+
+// EffectiveClusterFor returns the cascaded ClusterSpec for a specific cluster
+// name. Returns the auto-promoted single-cluster spec when clusterName is empty
+// (legacy/single-cluster path). Returns a zero ClusterSpec if the named cluster
+// is not in spec.clusters[] (defensive — shouldn't happen in healthy reconcile
+// state but avoids panic).
+func (s *MongoDBSearch) EffectiveClusterFor(clusterName string) ClusterSpec {
+	effective := EffectiveClusters(s)
+	if clusterName == "" {
+		if len(effective) > 0 {
+			return effective[0]
+		}
+		return ClusterSpec{}
+	}
+	for _, c := range effective {
+		if c.ClusterName == clusterName {
+			return c
+		}
+	}
+	return ClusterSpec{}
 }
 
 func (s *MongoDBSearch) GetReplicas() int {
