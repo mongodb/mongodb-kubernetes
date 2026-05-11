@@ -1,7 +1,7 @@
 package merge
 
 import (
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
+	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 )
 
 // AutomationConfigs merges the values in "override" into the "original" Wrapper.
