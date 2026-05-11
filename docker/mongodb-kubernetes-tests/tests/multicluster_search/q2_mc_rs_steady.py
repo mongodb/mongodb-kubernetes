@@ -31,14 +31,18 @@ from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests import test_logger
-from tests.common.multicluster.multicluster_utils import assert_deployment_ready_in_cluster
 from tests.common.search import search_resource_names
+from tests.common.search.multicluster_search_helper import (
+    MCSearchDeploymentHelper,
+    assert_deployment_ready_in_cluster,
+    assert_resource_in_cluster,
+    replicate_secret,
+)
 from tests.common.search.movies_search_helper import (
     EMBEDDING_QUERY_KEY_ENV_VAR,
     EmbeddedMoviesSearchHelper,
     SampleMoviesSearchHelper,
 )
-from tests.common.search.search_deployment_helper import MCSearchDeploymentHelper
 from tests.common.search.search_tester import SearchTester
 from tests.common.search.sharded_search_helper import create_issuer_ca
 from tests.conftest import get_issuer_ca_filepath
