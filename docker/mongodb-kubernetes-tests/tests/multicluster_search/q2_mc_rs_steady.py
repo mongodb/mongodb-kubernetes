@@ -117,6 +117,30 @@ ENVOY_LB_REPLICAS = 2
 # Ports
 ENVOY_PROXY_PORT = 27028
 
+# Cross-cluster owner labels stamped on every per-cluster write site by the
+# operator (canonical: pkg/handler/labels_search.go). Used by both
+# MapMemberClusterObjectToSearch event routing AND by tests asserting that
+# per-cluster resources carry the expected provenance.
+SEARCH_OWNER_NAME_LABEL = "mongodb.com/search-name"
+SEARCH_OWNER_NAMESPACE_LABEL = "mongodb.com/search-namespace"
+SEARCH_CLUSTER_NAME_LABEL = "mongodb.com/cluster-name"
+
+
+def _assert_search_owner_labels(obj_labels: Dict[str, str], cluster_name: str, where: str) -> None:
+    """Assert all three search-owner labels are present and correct on a per-cluster resource."""
+    assert obj_labels.get(SEARCH_OWNER_NAME_LABEL) == MDBS_RESOURCE_NAME, (
+        f"{where}: missing/wrong {SEARCH_OWNER_NAME_LABEL!r}; got {obj_labels.get(SEARCH_OWNER_NAME_LABEL)!r}"
+    )
+    # The operator stamps the search's namespace, not the central namespace, so this
+    # equals `namespace` (the test-time namespace where both CR and members run).
+    assert obj_labels.get(SEARCH_OWNER_NAMESPACE_LABEL), (
+        f"{where}: missing {SEARCH_OWNER_NAMESPACE_LABEL!r}"
+    )
+    assert obj_labels.get(SEARCH_CLUSTER_NAME_LABEL) == cluster_name, (
+        f"{where}: missing/wrong {SEARCH_CLUSTER_NAME_LABEL!r}; got "
+        f"{obj_labels.get(SEARCH_CLUSTER_NAME_LABEL)!r}, want {cluster_name!r}"
+    )
+
 # User credentials
 ADMIN_USER_NAME = "mdb-admin-user"
 ADMIN_USER_PASSWORD = "mdb-admin-user-pass"
@@ -649,16 +673,25 @@ def _assert_per_cluster_mongot_host_observed(
 
 @mark.e2e_search_q2_mc_rs_steady
 def test_verify_per_cluster_mongot_resources(
+    mdb: MongoDBMulti,
     namespace: str,
     helper: MCSearchDeploymentHelper,
     member_cluster_clients: List[MultiClusterClient],
 ):
     """Each cluster has its own mongot StatefulSet, Service, ConfigMap.
 
-    The operator creates per-cluster resources via cluster-index-suffixed
-    names — except the ConfigMap for cluster index 0, which keeps the legacy
-    unindexed name for single-cluster back-compat.
+    Strict checks:
+    - per-cluster resources exist on the owning member-cluster client
+    - every per-cluster write site carries the three canonical owner labels
+      (search-name, search-namespace, cluster-name) — used by
+      MapMemberClusterObjectToSearch for cross-cluster watch routing; cross-
+      cluster owner refs do not GC, so labels are the actual provenance link
+    - the mongot ConfigMap on each cluster lists `spec.source.external.hostAndPorts`
+      from the seed list (Phase 2 fan-out: top-level external host list is
+      rendered into every cluster's mongot CM)
     """
+    expected_hosts = sorted(f"{svc}.{namespace}.svc.cluster.local:27017" for svc in mdb.service_names())
+
     for mcc in member_cluster_clients:
         idx = helper.cluster_index(mcc.cluster_name)
         sts_name = f"{MDBS_RESOURCE_NAME}-search-{idx}"
@@ -672,6 +705,28 @@ def test_verify_per_cluster_mongot_resources(
         assert_resource_in_cluster(core, kind="Service", name=svc_name, namespace=namespace)
         assert_resource_in_cluster(core, kind="ConfigMap", name=cm_name, namespace=namespace)
         assert_resource_in_cluster(core, kind="Service", name=proxy_svc_name, namespace=namespace)
+
+        # Owner-label provenance on every per-cluster write site.
+        sts = apps.read_namespaced_stateful_set(name=sts_name, namespace=namespace)
+        headless = core.read_namespaced_service(name=svc_name, namespace=namespace)
+        proxy = core.read_namespaced_service(name=proxy_svc_name, namespace=namespace)
+        cm = core.read_namespaced_config_map(name=cm_name, namespace=namespace)
+        _assert_search_owner_labels(sts.metadata.labels or {}, mcc.cluster_name, f"STS {sts_name}")
+        _assert_search_owner_labels(headless.metadata.labels or {}, mcc.cluster_name, f"headless Service {svc_name}")
+        _assert_search_owner_labels(proxy.metadata.labels or {}, mcc.cluster_name, f"proxy Service {proxy_svc_name}")
+        _assert_search_owner_labels(cm.metadata.labels or {}, mcc.cluster_name, f"mongot CM {cm_name}")
+
+        # mongot CM source-hosts content — the Phase 2 fan-out renders the
+        # top-level spec.source.external.hostAndPorts into every cluster's CM.
+        config_yaml = cm.data.get("config.yml") or cm.data.get("mongot.yaml")
+        assert config_yaml, f"mongot CM {cm_name} missing config payload; data keys={list(cm.data or {})}"
+        parsed = yaml.safe_load(config_yaml)
+        cm_hosts = parsed.get("syncSource", {}).get("replicaSet", {}).get("hostAndPort", [])
+        assert sorted(cm_hosts) == expected_hosts, (
+            f"mongot CM {cm_name} in cluster {mcc.cluster_name}: hostAndPort {sorted(cm_hosts)} "
+            f"!= expected seed list {expected_hosts}"
+        )
+
         logger.info(
             f"per-cluster mongot resources verified in cluster {mcc.cluster_name} "
             f"(idx={idx}): {sts_name}, {svc_name}, {cm_name}, {proxy_svc_name}"
@@ -684,19 +739,61 @@ def test_verify_per_cluster_envoy_deployment(
     helper: MCSearchDeploymentHelper,
     member_cluster_clients: List[MultiClusterClient],
 ):
-    """STRICT — every cluster's Envoy Deployment exists and is fully ready.
-
-    Per-cluster Envoy Deployment name pattern is
-    `{search-name}-search-lb-0-{clusterIndex}` — see
-    LoadBalancerDeploymentNameForCluster in mongodbsearch_types.go.
+    """STRICT — every cluster's Envoy Deployment + ConfigMap exist and the
+    Deployment is fully ready, carrying owner labels for cross-cluster watch
+    routing. Names: `{search-name}-search-lb-0-{clusterIndex}` (deploy) and
+    `{search-name}-search-lb-0-{clusterIndex}-config` (CM).
     """
     for mcc in member_cluster_clients:
         cluster_idx = helper.cluster_index(mcc.cluster_name)
         envoy_deployment_name = _per_cluster_envoy_deployment_name(MDBS_RESOURCE_NAME, cluster_idx)
+        envoy_cm_name = _per_cluster_envoy_configmap_name(MDBS_RESOURCE_NAME, cluster_idx)
         apps = mcc.apps_v1_api()
+        core = mcc.core_v1_api()
         assert_resource_in_cluster(apps, kind="Deployment", name=envoy_deployment_name, namespace=namespace)
         assert_deployment_ready_in_cluster(apps, name=envoy_deployment_name, namespace=namespace)
+        assert_resource_in_cluster(core, kind="ConfigMap", name=envoy_cm_name, namespace=namespace)
+
+        # Owner-label provenance on Envoy resources.
+        envoy_deploy = apps.read_namespaced_deployment(name=envoy_deployment_name, namespace=namespace)
+        envoy_cm = core.read_namespaced_config_map(name=envoy_cm_name, namespace=namespace)
+        _assert_search_owner_labels(envoy_deploy.metadata.labels or {}, mcc.cluster_name, f"Envoy Deployment {envoy_deployment_name}")
+        _assert_search_owner_labels(envoy_cm.metadata.labels or {}, mcc.cluster_name, f"Envoy CM {envoy_cm_name}")
+
         logger.info(f"Envoy Deployment {envoy_deployment_name} ready in cluster {mcc.cluster_name} (idx={cluster_idx})")
+
+
+@mark.e2e_search_q2_mc_rs_steady
+def test_verify_persisted_cluster_mapping(
+    namespace: str,
+    central_cluster_client: kubernetes.client.ApiClient,
+    helper: MCSearchDeploymentHelper,
+):
+    """STRICT — the `<name>-state` ConfigMap on the central cluster carries the
+    persisted ClusterMapping the operator uses to assign indexes.
+
+    This is the operator's source of truth for cluster-index pinning across
+    spec.clusters[] reorders and across operator restarts. The mapping must
+    contain every member cluster the test declared, with indexes matching
+    what `MCSearchDeploymentHelper.cluster_index()` returned (which itself
+    mirrors the declaration order).
+    """
+    state_cm_name = f"{MDBS_RESOURCE_NAME}-state"
+    core = CoreV1Api(api_client=central_cluster_client)
+    state_cm = core.read_namespaced_config_map(name=state_cm_name, namespace=namespace)
+
+    raw = (state_cm.data or {}).get("state")
+    assert raw, f"state ConfigMap {state_cm_name} missing 'state' key; got {list((state_cm.data or {}).keys())}"
+    state = json.loads(raw)
+    mapping = state.get("clusterMapping") or {}
+
+    for cluster_name in helper.member_cluster_names():
+        expected_idx = helper.cluster_index(cluster_name)
+        assert mapping.get(cluster_name) == expected_idx, (
+            f"state CM {state_cm_name}: clusterMapping[{cluster_name!r}]={mapping.get(cluster_name)!r}, "
+            f"want {expected_idx} (helper says cluster_index={expected_idx})"
+        )
+    logger.info(f"persisted ClusterMapping matches helper: {mapping}")
 
 
 @mark.e2e_search_q2_mc_rs_steady
