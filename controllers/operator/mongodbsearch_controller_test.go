@@ -742,6 +742,25 @@ func TestMongoDBSearchReconcile_Success_MultiCluster(t *testing.T) {
 				assert.Equal(t, search.Namespace, labels[khandler.MongoDBSearchOwnerNamespaceLabel], "owner-namespace label on %T", obj)
 				assert.Equal(t, tc.clusterName, labels[khandler.MongoDBSearchClusterNameLabel], "cluster-name label on %T", obj)
 			}
+
+			// Per-cluster resources do NOT leak onto the other member client or
+			// onto the central client. Cross-cluster owner refs don't GC, so a
+			// stray write here would silently leak forever.
+			leaks := []struct {
+				name types.NamespacedName
+				obj  client.Object
+			}{
+				{stsName, &appsv1.StatefulSet{}},
+				{headlessName, &corev1.Service{}},
+				{proxyName, &corev1.Service{}},
+				{cmName, &corev1.ConfigMap{}},
+			}
+			for _, l := range leaks {
+				assert.True(t, apiErrors.IsNotFound(tc.otherMC.Get(ctx, l.name, l.obj)),
+					"%s must NOT be on the other member client", l.name)
+				assert.True(t, apiErrors.IsNotFound(centralClient.Get(ctx, l.name, l.obj)),
+					"%s must NOT be on the central client", l.name)
+			}
 		})
 	}
 }
