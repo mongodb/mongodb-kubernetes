@@ -11,7 +11,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/lifecycle"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/probes"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/resourcerequirements"
-	"github.com/mongodb/mongodb-kubernetes/pkg/util/envvar"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 )
 
 func TestContainer(t *testing.T) {
@@ -146,7 +146,7 @@ func TestMergeEnvs(t *testing.T) {
 		},
 	}
 
-	merged := envvar.MergeWithOverride(existing, desired) // nolint:forbidigo
+	merged := env.MergeWithOverride(existing, desired) // nolint:forbidigo
 
 	t.Run("EnvVars should be sorted", func(t *testing.T) {
 		assert.Equal(t, "A_env", merged[0].Name)

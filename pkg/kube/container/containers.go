@@ -7,7 +7,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/lifecycle"
-	"github.com/mongodb/mongodb-kubernetes/pkg/util/envvar"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 )
 
 type Modification func(*corev1.Container)
@@ -135,7 +135,7 @@ func WithLifecycle(lifeCycleMod lifecycle.Modification) Modification {
 // WithEnvs ensures all of the provided envs exist in the container
 func WithEnvs(envs ...corev1.EnvVar) Modification {
 	return func(container *corev1.Container) {
-		container.Env = envvar.MergeWithOverride(container.Env, envs) // nolint:forbidigo
+		container.Env = env.MergeWithOverride(container.Env, envs) // nolint:forbidigo
 	}
 }
 

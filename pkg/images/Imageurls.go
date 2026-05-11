@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/construct"
-	"github.com/mongodb/mongodb-kubernetes/pkg/util/envvar"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
@@ -120,7 +119,7 @@ func GetOfficialImage(imageUrls ImageUrls, version string, annotations map[strin
 	repoUrl := imageUrls[construct.MongodbRepoUrlEnv]
 	// TODO: rethink the logic of handling custom image types. We are currently only handling ubi9 and ubi8 and we never
 	// were really handling erroneus types, we just leave them be if specified (e.g. -ubuntu).
-	// envvar.GetEnvOrDefault(construct.MongoDBImageType, string(architectures.DefaultImageType))
+	// env.ReadOrDefault(construct.MongoDBImageType, string(architectures.DefaultImageType))
 	var imageType string
 
 	if architectures.IsRunningStaticArchitecture(annotations) {
@@ -137,7 +136,7 @@ func GetOfficialImage(imageUrls ImageUrls, version string, annotations map[strin
 		repoUrl = strings.TrimRight(repoUrl, "/")
 	}
 
-	assumeOldFormat := envvar.ReadBool(util.MdbAppdbAssumeOldFormat) // nolint:forbidigo
+	assumeOldFormat := env.ReadBoolOrDefault(util.MdbAppdbAssumeOldFormat, false) // nolint:forbidigo
 	if IsEnterpriseImage(imageURL) && !assumeOldFormat {
 		// 5.0.6-ent -> 5.0.6-ubi8
 		if strings.HasSuffix(version, "-ent") {

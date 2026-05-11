@@ -21,7 +21,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
-	"github.com/mongodb/mongodb-kubernetes/pkg/util/envvar"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/scale"
 )
 
@@ -1151,7 +1151,7 @@ func (m MongoDBCommunitySpec) GetClusterDomain() string {
 	if m.ClusterDomain != "" {
 		return m.ClusterDomain
 	}
-	return envvar.GetEnvOrDefault(constants.ClusterDomainEnv, defaultClusterDomain) // nolint:forbidigo
+	return env.ReadOrDefault(constants.ClusterDomainEnv, defaultClusterDomain) // nolint:forbidigo
 }
 
 type automationConfigReplicasScaler struct {
