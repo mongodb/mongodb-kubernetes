@@ -34,11 +34,18 @@ docker_run_local_registry "kind-registry" "5000"
 echo "Waiting for all kind clusters to be created"
 wait
 
-# we do exports sequentially as setup_kind_cluster.sh is run in parallel and we hit kube config locks
-# These exports go to ${KUBECONFIG} (set by set_env_context.sh sourced above);
-# when EVG_HOST_NAME is set on this host, root-context points KUBECONFIG at
-# ${PROJECT_DIR}/.generated/evg-host.kubeconfig — which is exactly where
-# evg_host.sh::get-kubeconfig expects to scp from.
+# Write the merged kubeconfig to the path `evg_host.sh::get-kubeconfig`
+# expects to scp from, regardless of what the sourced context resolved
+# `KUBECONFIG` to. site-context picks KUBECONFIG before root-context sets
+# EVG_HOST_NAME, so on the remote KUBECONFIG falls back to ~/.kube/config
+# even when EVG_HOST_NAME ends up non-empty — relying on that resolution
+# made multi-cluster recreate silently land kubeconfigs in ~/.kube/ and
+# the subsequent scp failed.
+#
+# Exports are sequential because setup_kind_cluster.sh runs in parallel
+# and we hit kube config locks.
+mkdir -p .generated
+export KUBECONFIG="${PWD}/.generated/evg-host.kubeconfig"
 kind export kubeconfig --name "e2e-operator"
 kind export kubeconfig --name "e2e-cluster-1"
 kind export kubeconfig --name "e2e-cluster-2"
