@@ -83,6 +83,8 @@ def _assert_search_owner_labels(obj_labels: Dict[str, str], cluster_name: str, w
 
 
 
+
+
 ADMIN_USER_NAME = "mdb-admin-user"
 ADMIN_USER_PASSWORD = "mdb-admin-user-pass"
 
@@ -629,6 +631,39 @@ def test_verify_per_cluster_envoy_deployment(
 
 
         logger.info(f"Envoy Deployment {envoy_deployment_name} ready in cluster {mcc.cluster_name} (idx={cluster_idx})")
+
+
+@mark.e2e_search_q2_mc_rs_steady
+def test_verify_persisted_cluster_mapping(
+    namespace: str,
+    central_cluster_client: kubernetes.client.ApiClient,
+    helper: MCSearchDeploymentHelper,
+):
+    """STRICT — the `<name>-state` ConfigMap on the central cluster carries the
+    persisted ClusterMapping the operator uses to assign indexes.
+
+    This is the operator's source of truth for cluster-index pinning across
+    spec.clusters[] reorders and across operator restarts. The mapping must
+    contain every member cluster the test declared, with indexes matching
+    what `MCSearchDeploymentHelper.cluster_index()` returned (which itself
+    mirrors the declaration order).
+    """
+    state_cm_name = f"{MDBS_RESOURCE_NAME}-state"
+    core = CoreV1Api(api_client=central_cluster_client)
+    state_cm = core.read_namespaced_config_map(name=state_cm_name, namespace=namespace)
+
+    raw = (state_cm.data or {}).get("state")
+    assert raw, f"state ConfigMap {state_cm_name} missing 'state' key; got {list((state_cm.data or {}).keys())}"
+    state = json.loads(raw)
+    mapping = state.get("clusterMapping") or {}
+
+    for cluster_name in helper.member_cluster_names():
+        expected_idx = helper.cluster_index(cluster_name)
+        assert mapping.get(cluster_name) == expected_idx, (
+            f"state CM {state_cm_name}: clusterMapping[{cluster_name!r}]={mapping.get(cluster_name)!r}, "
+            f"want {expected_idx} (helper says cluster_index={expected_idx})"
+        )
+    logger.info(f"persisted ClusterMapping matches helper: {mapping}")
 
 
 @mark.e2e_search_q2_mc_rs_steady
