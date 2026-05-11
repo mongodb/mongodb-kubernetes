@@ -10,7 +10,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
-	kubeClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
+	kubeClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 )
 
 func TestReplicaSetReconcilerCleanupScramSecrets(t *testing.T) {
