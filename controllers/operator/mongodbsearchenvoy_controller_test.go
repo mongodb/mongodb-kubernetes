@@ -27,7 +27,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/merge"
 	khandler "github.com/mongodb/mongodb-kubernetes/pkg/handler"
 )
@@ -490,19 +489,33 @@ func TestNewMongoDBSearchEnvoyReconciler_NilMembersMap(t *testing.T) {
 	assert.Empty(t, r.memberClusterSecretClientsMap)
 }
 
-// --- selectEnvoyClient --------------------------------------------------------
+// --- clusterWorkItem.Client population ----------------------------------------
 
-func TestSelectEnvoyClient(t *testing.T) {
-	central := kubernetesClient.NewClient(fake.NewClientBuilder().Build())
-	memberA := kubernetesClient.NewClient(fake.NewClientBuilder().Build())
-	members := map[string]kubernetesClient.Client{"a": memberA}
+func TestBuildClusterWorkList_ClientPopulation(t *testing.T) {
+	centralRaw := fake.NewClientBuilder().Build()
+	memberARaw := fake.NewClientBuilder().Build()
+	r := newMongoDBSearchEnvoyReconciler(centralRaw, "envoy:latest", map[string]client.Client{"a": memberARaw})
 
-	// Empty cluster name → central (single-cluster path)
-	assert.Equal(t, central, selectEnvoyClient("", central, members))
-	// Known member name → that member
-	assert.Equal(t, memberA, selectEnvoyClient("a", central, members))
-	// Unknown member name → silent fallback to central (mirrors searchcontroller.SelectClusterClient)
-	assert.Equal(t, central, selectEnvoyClient("zzz", central, members))
+	// Single-cluster degenerate: Client must be the central client.
+	singleSearch := &searchv1.MongoDBSearch{}
+	wl := r.buildClusterWorkList(singleSearch, nil)
+	require.Len(t, wl, 1)
+	assert.Equal(t, r.kubeClient, wl[0].Client, "single-cluster path must use central client")
+
+	// Multi-cluster: known member → member client; unknown member → central fallback.
+	mcSearch := &searchv1.MongoDBSearch{
+		Spec: searchv1.MongoDBSearchSpec{
+			Clusters: &[]searchv1.ClusterSpec{
+				{ClusterName: "a"},
+				{ClusterName: "unknown"},
+			},
+		},
+	}
+	mapping := map[string]int{"a": 0, "unknown": 1}
+	wl = r.buildClusterWorkList(mcSearch, mapping)
+	require.Len(t, wl, 2)
+	assert.Equal(t, r.memberClusterClientsMap["a"], wl[0].Client, "known member must use member client")
+	assert.Equal(t, r.kubeClient, wl[1].Client, "unknown member must fall back to central client")
 }
 
 // --- per-cluster name helpers + cross-cluster enqueue labels ------------------
@@ -549,19 +562,6 @@ func TestEnvoyReplicas_DefaultsTo1(t *testing.T) {
 	assert.Equal(t, int32(1), envoyReplicas(search))
 }
 
-func TestEnvoyReplicas_TopLevelOnly(t *testing.T) {
-	three := int32(3)
-	search := &searchv1.MongoDBSearch{
-		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"},
-		Spec: searchv1.MongoDBSearchSpec{
-			LoadBalancer: &searchv1.LoadBalancerConfig{
-				Managed: &searchv1.ManagedLBConfig{Replicas: &three},
-			},
-		},
-	}
-	assert.Equal(t, int32(3), envoyReplicas(search))
-}
-
 // envoyTestScheme returns a runtime.Scheme registered for the types ensureDeployment/
 // ensureConfigMap interact with. Using a per-test scheme avoids depending on the
 // global scheme initialization order and keeps these unit tests self-contained.
@@ -590,7 +590,7 @@ func TestEnsureConfigMap_WritesToCorrectMemberCluster(t *testing.T) {
 
 	search := &searchv1.MongoDBSearch{ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"}}
 	// cluster "a" is at index 0 in the mapping.
-	require.NoError(t, r.ensureConfigMap(context.Background(), search, `{"x":1}`, "a", 0, zap.S()))
+	require.NoError(t, r.ensureConfigMap(context.Background(), search, `{"x":1}`, "a", 0, r.memberClusterClientsMap["a"], zap.S()))
 
 	// Member A has the ConfigMap named with index 0.
 	cmA := &corev1.ConfigMap{}
@@ -621,7 +621,7 @@ func TestEnsureConfigMap_SingleCluster_WritesToCentralWithOwnerRef(t *testing.T)
 		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns", UID: "abc"},
 	}
 	// Single-cluster uses index 0.
-	require.NoError(t, r.ensureConfigMap(context.Background(), search, `{"x":1}`, "", 0, zap.S()))
+	require.NoError(t, r.ensureConfigMap(context.Background(), search, `{"x":1}`, "", 0, r.kubeClient, zap.S()))
 
 	cm := &corev1.ConfigMap{}
 	require.NoError(t, central.Get(context.Background(),
@@ -643,7 +643,7 @@ func TestEnsureConfigMap_MultiCluster_NoOwnerRef(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns", UID: "abc"},
 	}
 	// cluster "a" is at index 0.
-	require.NoError(t, r.ensureConfigMap(context.Background(), search, `{"x":1}`, "a", 0, zap.S()))
+	require.NoError(t, r.ensureConfigMap(context.Background(), search, `{"x":1}`, "a", 0, r.memberClusterClientsMap["a"], zap.S()))
 
 	cm := &corev1.ConfigMap{}
 	require.NoError(t, memberA.Get(context.Background(),
@@ -716,60 +716,6 @@ func TestBuildClusterWorkList_MissingFromMapping_SentinelIndex(t *testing.T) {
 	assert.Equal(t, -1, wl[0].ClusterIndex, "missing cluster must use sentinel -1")
 }
 
-// TestWorstOfClusterPhases regresses the canonical invariant declared on
-// LoadBalancerStatus: top-level Phase must equal WorstOfPhase across the
-// per-cluster Clusters[*].Phase entries when len(Clusters) > 0.
-func TestWorstOfClusterPhases(t *testing.T) {
-	cases := []struct {
-		name string
-		in   []searchv1.ClusterLoadBalancerStatus
-		want status.Phase
-	}{
-		{
-			name: "empty slice — single-cluster degenerate path",
-			in:   nil,
-			want: status.PhaseRunning,
-		},
-		{
-			name: "single Running",
-			in:   []searchv1.ClusterLoadBalancerStatus{{Phase: status.PhaseRunning}},
-			want: status.PhaseRunning,
-		},
-		{
-			name: "Failed beats Running",
-			in: []searchv1.ClusterLoadBalancerStatus{
-				{Phase: status.PhaseRunning},
-				{Phase: status.PhaseFailed},
-			},
-			want: status.PhaseFailed,
-		},
-		{
-			name: "Pending beats Running",
-			in: []searchv1.ClusterLoadBalancerStatus{
-				{Phase: status.PhaseRunning},
-				{Phase: status.PhasePending},
-				{Phase: status.PhaseRunning},
-			},
-			want: status.PhasePending,
-		},
-		{
-			name: "Failed beats Pending",
-			in: []searchv1.ClusterLoadBalancerStatus{
-				{Phase: status.PhasePending},
-				{Phase: status.PhaseFailed},
-				{Phase: status.PhaseRunning},
-			},
-			want: status.PhaseFailed,
-		},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, worstOfClusterPhases(tc.in))
-		})
-	}
-}
-
 func TestReconcileForCluster_UnknownClusterPending(t *testing.T) {
 	scheme := envoyTestScheme(t)
 	central := fake.NewClientBuilder().WithScheme(scheme).Build()
@@ -782,7 +728,7 @@ func TestReconcileForCluster_UnknownClusterPending(t *testing.T) {
 			Clusters: &[]searchv1.ClusterSpec{{ClusterName: "missing-cluster"}},
 		},
 	}
-	st := r.reconcileForCluster(context.Background(), search, nil, false, nil, "missing-cluster", 0, zap.S())
+	st := r.reconcileForCluster(context.Background(), search, nil, false, nil, "missing-cluster", 0, r.kubeClient, zap.S())
 	assert.Equal(t, status.PhasePending, st.Phase())
 	assert.Contains(t, searchcontroller.MessageFromStatus(st), "missing-cluster")
 }
@@ -796,7 +742,7 @@ func TestMapEnvoyObjectToSearch(t *testing.T) {
 			Labels: map[string]string{
 				khandler.MongoDBSearchOwnerNameLabel:      "mdb-search",
 				khandler.MongoDBSearchOwnerNamespaceLabel: "ns",
-				khandler.MongoDBSearchClusterNameLabel:                     "a",
+				khandler.MongoDBSearchClusterNameLabel:    "a",
 			},
 		},
 	}
@@ -837,7 +783,7 @@ func TestReconcileForCluster_RendersInMemberCluster(t *testing.T) {
 	}
 
 	// cluster "a" is at index 0 in the mapping.
-	st := r.reconcileForCluster(context.Background(), search, nil, false, nil, "a", 0, zap.S())
+	st := r.reconcileForCluster(context.Background(), search, nil, false, nil, "a", 0, r.memberClusterClientsMap["a"], zap.S())
 	require.True(t, st.IsOK(), "expected OK, got %s: %s", st.Phase(), searchcontroller.MessageFromStatus(st))
 
 	// Member cluster has Deployment + ConfigMap; central does not.
@@ -868,7 +814,7 @@ func TestEnsureDeployment_Replicas_DefaultsTo1(t *testing.T) {
 		},
 	}
 	// cluster "a" is at index 0.
-	require.NoError(t, r.ensureDeployment(context.Background(), search, `{"x":1}`, "a", 0, nil, zap.S()))
+	require.NoError(t, r.ensureDeployment(context.Background(), search, `{"x":1}`, "a", 0, r.memberClusterClientsMap["a"], nil, zap.S()))
 
 	dep := &appsv1.Deployment{}
 	require.NoError(t, memberA.Get(context.Background(),
@@ -879,12 +825,11 @@ func TestEnsureDeployment_Replicas_DefaultsTo1(t *testing.T) {
 
 // --- end-to-end Reconcile + status aggregation -------------------------------
 
-// TestReconcile_PerClusterStatus_Aggregated exercises the full Reconcile path:
+// TestReconcile_WorstOfPhase_Aggregated exercises the full Reconcile path:
 // two clusters in spec.clusters[]; one is a member registered with the operator
-// (succeeds), the other isn't (Pending). The status.loadBalancer.clusters slice
-// must hold one entry per cluster, and the aggregated top-level Phase must be
-// the worst-of (Pending here).
-func TestReconcile_PerClusterStatus_Aggregated(t *testing.T) {
+// (succeeds), the other isn't (Pending). The top-level Phase must be the
+// worst-of across both clusters (Pending here).
+func TestReconcile_WorstOfPhase_Aggregated(t *testing.T) {
 	ctx := context.Background()
 	scheme := envoyTestScheme(t)
 	memberA := fake.NewClientBuilder().WithScheme(scheme).Build()
@@ -931,14 +876,6 @@ func TestReconcile_PerClusterStatus_Aggregated(t *testing.T) {
 		types.NamespacedName{Name: "mdb-search", Namespace: "ns"}, patched))
 	require.NotNil(t, patched.Status.LoadBalancer, "status.loadBalancer must be populated")
 	assert.Equal(t, status.PhasePending, patched.Status.LoadBalancer.Phase, "worst-of (Running, Pending) is Pending")
-	require.Len(t, patched.Status.LoadBalancer.Clusters, 2, "one per-cluster status entry per spec.clusters[i]")
-
-	byName := map[string]searchv1.ClusterLoadBalancerStatus{}
-	for _, c := range patched.Status.LoadBalancer.Clusters {
-		byName[c.ClusterName] = c
-	}
-	assert.Equal(t, status.PhaseRunning, byName["a"].Phase)
-	assert.Equal(t, status.PhasePending, byName["missing"].Phase)
 
 	// Cluster "a" (index 0) got its Deployment + ConfigMap in the member-cluster client.
 	require.NoError(t, memberA.Get(ctx,
@@ -993,17 +930,6 @@ func TestReconcile_AllClustersFailed_TopLevelPhaseIsFailed(t *testing.T) {
 		"all-Failed clusters must aggregate to top-level Failed, not Pending")
 }
 
-// TestWorstOfClusterPhases_SingleCluster_PreservesFailed asserts that the
-// single-cluster degenerate path (one entry with empty ClusterName) propagates
-// Failed rather than the empty-slice default of Running.
-func TestWorstOfClusterPhases_SingleCluster_PreservesFailed(t *testing.T) {
-	got := worstOfClusterPhases([]searchv1.ClusterLoadBalancerStatus{
-		{ClusterName: "", Phase: status.PhaseFailed},
-	})
-	assert.Equal(t, status.PhaseFailed, got,
-		"single-cluster degenerate path (one entry with empty ClusterName) must propagate Failed, not downgrade to Running")
-}
-
 // --- index-based naming reconcile loop tests ----------------------------------
 
 // TestReconcile_NoStateCM_ClustersPending asserts that when no <name>-state
@@ -1047,9 +973,6 @@ func TestReconcile_NoStateCM_ClustersPending(t *testing.T) {
 	require.NoError(t, central.Get(ctx, types.NamespacedName{Name: "mdb-search", Namespace: "ns"}, patched))
 	require.NotNil(t, patched.Status.LoadBalancer)
 	assert.Equal(t, status.PhasePending, patched.Status.LoadBalancer.Phase, "no state CM must produce Pending")
-	for _, cs := range patched.Status.LoadBalancer.Clusters {
-		assert.Equal(t, status.PhasePending, cs.Phase, "each cluster must be Pending when not in state mapping")
-	}
 
 	// No Envoy Deployments should have been created.
 	depList := &appsv1.DeploymentList{}
