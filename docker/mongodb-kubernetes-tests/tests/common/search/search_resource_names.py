@@ -111,6 +111,22 @@ def shard_proxy_service_host(search_name: str, shard_name: str, namespace: str, 
 
 
 # ============================================================================
+# Multi-cluster resources
+# ============================================================================
+
+
+def mc_proxy_svc_fqdn(search_name: str, namespace: str, cluster_index: int) -> str:
+    """Cluster-index-suffixed proxy Service FQDN for multi-cluster deployments.
+
+    Pattern: ``{search_name}-search-{cluster_index}-proxy-svc.{namespace}.svc.cluster.local``
+
+    This is the value for ``mongotHost`` on the per-cluster mongod.  It does NOT
+    include the port; callers append ``:<port>`` as needed.
+    """
+    return f"{search_name}-search-{cluster_index}-proxy-svc.{namespace}.svc.cluster.local"
+
+
+# ============================================================================
 # Managed load balancer resources
 # ============================================================================
 
