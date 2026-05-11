@@ -7,8 +7,8 @@ import (
 
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/authentication/authtypes"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/constants"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/contains"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/contains"
 )
 
 // enableAgentAuthentication updates the provided auth struct and configures scram authentication based on the provided

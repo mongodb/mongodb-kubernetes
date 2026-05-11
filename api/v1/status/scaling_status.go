@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct/scalers/interfaces"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/scale"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/scale"
 )
 
 func MembersOption(replicaSetscaler scale.ReplicaSetScaler) Option {

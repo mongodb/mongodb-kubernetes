@@ -5,7 +5,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/contains"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/contains"
 )
 
 func PodTemplateSpecs(original, override corev1.PodTemplateSpec) corev1.PodTemplateSpec {
