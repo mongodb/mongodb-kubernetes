@@ -797,4 +797,3 @@ func newSearchReconcilerWithMembers(
 	centralClient := builder.Build()
 	return newMongoDBSearchReconciler(centralClient, searchcontroller.OperatorSearchConfig{}, memberClients), centralClient
 }
-

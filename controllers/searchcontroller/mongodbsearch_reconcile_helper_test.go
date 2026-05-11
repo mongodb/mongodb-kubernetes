@@ -2700,4 +2700,3 @@ func TestReconcilePlan_UsesPerClusterClient(t *testing.T) {
 		types.NamespacedName{Name: "mdb-search-search-0", Namespace: "ns"}, &appsv1.StatefulSet{})
 	assert.True(t, apierrors.IsNotFound(err), "cluster B client must NOT have cluster A STS")
 }
-

@@ -27,7 +27,6 @@ import (
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
-	khandler "github.com/mongodb/mongodb-kubernetes/pkg/handler"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/container"
@@ -36,6 +35,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/service"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/mongot"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/tls"
+	khandler "github.com/mongodb/mongodb-kubernetes/pkg/handler"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/commoncontroller"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
@@ -586,7 +586,6 @@ func (r *MongoDBSearchReconcileHelper) applyReconcileUnit(
 
 	return mutatedSts, unitClient, nil
 }
-
 
 // isOwnedBy returns true if the object has an owner reference pointing to the given owner.
 // Unlike metav1.IsControlledBy, this does not require the controller: true field,
@@ -1587,4 +1586,3 @@ func extractImageTag(image string) string {
 
 	return ""
 }
-

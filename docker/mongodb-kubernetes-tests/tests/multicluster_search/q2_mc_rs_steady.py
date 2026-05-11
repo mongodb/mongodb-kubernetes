@@ -128,18 +128,17 @@ SEARCH_CLUSTER_NAME_LABEL = "mongodb.com/cluster-name"
 
 def _assert_search_owner_labels(obj_labels: Dict[str, str], cluster_name: str, where: str) -> None:
     """Assert all three search-owner labels are present and correct on a per-cluster resource."""
-    assert obj_labels.get(SEARCH_OWNER_NAME_LABEL) == MDBS_RESOURCE_NAME, (
-        f"{where}: missing/wrong {SEARCH_OWNER_NAME_LABEL!r}; got {obj_labels.get(SEARCH_OWNER_NAME_LABEL)!r}"
-    )
+    assert (
+        obj_labels.get(SEARCH_OWNER_NAME_LABEL) == MDBS_RESOURCE_NAME
+    ), f"{where}: missing/wrong {SEARCH_OWNER_NAME_LABEL!r}; got {obj_labels.get(SEARCH_OWNER_NAME_LABEL)!r}"
     # The operator stamps the search's namespace, not the central namespace, so this
     # equals `namespace` (the test-time namespace where both CR and members run).
-    assert obj_labels.get(SEARCH_OWNER_NAMESPACE_LABEL), (
-        f"{where}: missing {SEARCH_OWNER_NAMESPACE_LABEL!r}"
-    )
+    assert obj_labels.get(SEARCH_OWNER_NAMESPACE_LABEL), f"{where}: missing {SEARCH_OWNER_NAMESPACE_LABEL!r}"
     assert obj_labels.get(SEARCH_CLUSTER_NAME_LABEL) == cluster_name, (
         f"{where}: missing/wrong {SEARCH_CLUSTER_NAME_LABEL!r}; got "
         f"{obj_labels.get(SEARCH_CLUSTER_NAME_LABEL)!r}, want {cluster_name!r}"
     )
+
 
 # User credentials
 ADMIN_USER_NAME = "mdb-admin-user"
@@ -757,7 +756,9 @@ def test_verify_per_cluster_envoy_deployment(
         # Owner-label provenance on Envoy resources.
         envoy_deploy = apps.read_namespaced_deployment(name=envoy_deployment_name, namespace=namespace)
         envoy_cm = core.read_namespaced_config_map(name=envoy_cm_name, namespace=namespace)
-        _assert_search_owner_labels(envoy_deploy.metadata.labels or {}, mcc.cluster_name, f"Envoy Deployment {envoy_deployment_name}")
+        _assert_search_owner_labels(
+            envoy_deploy.metadata.labels or {}, mcc.cluster_name, f"Envoy Deployment {envoy_deployment_name}"
+        )
         _assert_search_owner_labels(envoy_cm.metadata.labels or {}, mcc.cluster_name, f"Envoy CM {envoy_cm_name}")
 
         logger.info(f"Envoy Deployment {envoy_deployment_name} ready in cluster {mcc.cluster_name} (idx={cluster_idx})")

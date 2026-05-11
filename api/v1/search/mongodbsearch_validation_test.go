@@ -759,7 +759,6 @@ func newSearch(name string, shards []ExternalShardConfig, tlsPrefix string, isTL
 	return search
 }
 
-
 func TestValidateMCRequiresExternalHostAndPorts(t *testing.T) {
 	mdbBad := &MongoDBSearch{
 		Spec: MongoDBSearchSpec{
@@ -853,4 +852,3 @@ func TestValidateClustersEnvoyResourceNames(t *testing.T) {
 		})
 	}
 }
-

@@ -114,11 +114,11 @@ func TestEffectiveClustersCascade(t *testing.T) {
 		StatefulSetConfiguration: topSTS,
 		JVMFlags:                 topJVMFlags,
 		Clusters: &[]ClusterSpec{
-			{ClusterName: "cluster-a", Persistence: clusterAPersistence},              // override Persistence only
-			{ClusterName: "cluster-b", ResourceRequirements: clusterBResources},       // override ResourceRequirements only
-			{ClusterName: "cluster-c"},                                                // no overrides — inherit all five top-level defaults
-			{ClusterName: "cluster-d", Replicas: clusterDReplicas},                    // override Replicas only
-			{ClusterName: "cluster-e", JVMFlags: clusterEJVMFlags},                    // override JVMFlags only (REPLACE-if-empty: no append)
+			{ClusterName: "cluster-a", Persistence: clusterAPersistence},        // override Persistence only
+			{ClusterName: "cluster-b", ResourceRequirements: clusterBResources}, // override ResourceRequirements only
+			{ClusterName: "cluster-c"},                                          // no overrides — inherit all five top-level defaults
+			{ClusterName: "cluster-d", Replicas: clusterDReplicas},              // override Replicas only
+			{ClusterName: "cluster-e", JVMFlags: clusterEJVMFlags},              // override JVMFlags only (REPLACE-if-empty: no append)
 		},
 	}
 	s := &MongoDBSearch{Spec: spec}
@@ -182,7 +182,7 @@ func TestGetReplicasForCluster(t *testing.T) {
 		s := &MongoDBSearch{Spec: MongoDBSearchSpec{
 			Replicas: ptr.To(int32(2)),
 			Clusters: &[]ClusterSpec{
-				{ClusterName: "cluster-a"},                            // inherits top-level => 2
+				{ClusterName: "cluster-a"},                             // inherits top-level => 2
 				{ClusterName: "cluster-b", Replicas: ptr.To(int32(5))}, // override => 5
 			},
 		}}
