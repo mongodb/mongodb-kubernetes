@@ -7,6 +7,10 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY mongodb-community-operator /go/src/github.com/mongodb/mongodb-kubernetes/mongodb-community-operator
+# The versionhook cmd transitively imports shared packages relocated to root
+# pkg/ as part of the mongodb-community-operator decoupling refactor; the build
+# context must include them so `go build` can resolve those imports.
+COPY pkg /go/src/github.com/mongodb/mongodb-kubernetes/pkg
 
 ARG TARGETARCH
 ARG TARGETOS
