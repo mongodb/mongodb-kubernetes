@@ -105,39 +105,40 @@ func searchOwnerLabels(name, ns string) map[string]string {
 	}
 }
 
-func TestPredicatesForMultiClusterSearchResource_Create(t *testing.T) {
+func TestPredicatesForMultiClusterSearchResource(t *testing.T) {
 	p := PredicatesForMultiClusterSearchResource()
-
-	assert.True(t, p.CreateFunc(event.CreateEvent{Object: labeledSearchObj(searchOwnerLabels("s", "ns"))}))
-	assert.False(t, p.CreateFunc(event.CreateEvent{Object: labeledSearchObj(nil)}))
-	assert.False(t, p.CreateFunc(event.CreateEvent{Object: labeledSearchObj(map[string]string{"unrelated": "x"})}))
-	// Partial label set must not pass — both name and namespace are required.
-	assert.False(t, p.CreateFunc(event.CreateEvent{Object: labeledSearchObj(map[string]string{
-		handler.MongoDBSearchOwnerNameLabel: "s",
-	})}))
-}
-
-func TestPredicatesForMultiClusterSearchResource_Update(t *testing.T) {
-	p := PredicatesForMultiClusterSearchResource()
-
-	labeledNew := labeledSearchObj(searchOwnerLabels("s", "ns"))
-	labeledOld := labeledSearchObj(searchOwnerLabels("s", "ns"))
+	labeled := labeledSearchObj(searchOwnerLabels("s", "ns"))
 	plain := labeledSearchObj(nil)
+	unrelated := labeledSearchObj(map[string]string{"unrelated": "x"})
+	partialName := labeledSearchObj(map[string]string{handler.MongoDBSearchOwnerNameLabel: "s"})
+	partialNs := labeledSearchObj(map[string]string{handler.MongoDBSearchOwnerNamespaceLabel: "ns"})
 
-	assert.True(t, p.UpdateFunc(event.UpdateEvent{ObjectOld: labeledOld, ObjectNew: labeledNew}))
-	assert.True(t, p.UpdateFunc(event.UpdateEvent{ObjectOld: plain, ObjectNew: labeledNew}), "newly labeled must enqueue")
-	assert.True(t, p.UpdateFunc(event.UpdateEvent{ObjectOld: labeledOld, ObjectNew: plain}), "label removal must enqueue")
-	assert.False(t, p.UpdateFunc(event.UpdateEvent{ObjectOld: plain, ObjectNew: plain}))
-}
-
-func TestPredicatesForMultiClusterSearchResource_Delete(t *testing.T) {
-	p := PredicatesForMultiClusterSearchResource()
-
-	assert.True(t, p.DeleteFunc(event.DeleteEvent{Object: labeledSearchObj(searchOwnerLabels("s", "ns"))}))
-	assert.False(t, p.DeleteFunc(event.DeleteEvent{Object: labeledSearchObj(nil)}))
-}
-
-func TestPredicatesForMultiClusterSearchResource_Generic_AlwaysFalse(t *testing.T) {
-	p := PredicatesForMultiClusterSearchResource()
-	assert.False(t, p.GenericFunc(event.GenericEvent{Object: labeledSearchObj(searchOwnerLabels("s", "ns"))}))
+	tests := []struct {
+		name string
+		want bool
+		eval func() bool
+	}{
+		// Create
+		{"Create/labeled passes", true, func() bool { return p.CreateFunc(event.CreateEvent{Object: labeled}) }},
+		{"Create/plain fails", false, func() bool { return p.CreateFunc(event.CreateEvent{Object: plain}) }},
+		{"Create/unrelated fails", false, func() bool { return p.CreateFunc(event.CreateEvent{Object: unrelated}) }},
+		{"Create/partial name-only fails", false, func() bool { return p.CreateFunc(event.CreateEvent{Object: partialName}) }},
+		{"Create/partial ns-only fails", false, func() bool { return p.CreateFunc(event.CreateEvent{Object: partialNs}) }},
+		// Update
+		{"Update/both labeled passes", true, func() bool { return p.UpdateFunc(event.UpdateEvent{ObjectOld: labeled, ObjectNew: labeled}) }},
+		{"Update/newly labeled passes", true, func() bool { return p.UpdateFunc(event.UpdateEvent{ObjectOld: plain, ObjectNew: labeled}) }},
+		{"Update/label removed passes", true, func() bool { return p.UpdateFunc(event.UpdateEvent{ObjectOld: labeled, ObjectNew: plain}) }},
+		{"Update/both plain fails", false, func() bool { return p.UpdateFunc(event.UpdateEvent{ObjectOld: plain, ObjectNew: plain}) }},
+		// Delete
+		{"Delete/labeled passes", true, func() bool { return p.DeleteFunc(event.DeleteEvent{Object: labeled}) }},
+		{"Delete/plain fails", false, func() bool { return p.DeleteFunc(event.DeleteEvent{Object: plain}) }},
+		// Generic
+		{"Generic/labeled always false", false, func() bool { return p.GenericFunc(event.GenericEvent{Object: labeled}) }},
+		{"Generic/plain always false", false, func() bool { return p.GenericFunc(event.GenericEvent{Object: plain}) }},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, tc.eval())
+		})
+	}
 }
