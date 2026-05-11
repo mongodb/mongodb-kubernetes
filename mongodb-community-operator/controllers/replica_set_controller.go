@@ -37,7 +37,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/watch"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/agent"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/authentication"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
+	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
