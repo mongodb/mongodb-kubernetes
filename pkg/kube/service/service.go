@@ -32,11 +32,6 @@ type GetDeleter interface {
 	Deleter
 }
 
-type GetUpdater interface {
-	Getter
-	Updater
-}
-
 type GetUpdateCreator interface {
 	Getter
 	Updater
