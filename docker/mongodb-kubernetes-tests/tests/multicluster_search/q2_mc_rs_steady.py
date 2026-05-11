@@ -561,9 +561,7 @@ def test_create_search_resource(mdbs: MongoDBSearch):
 
 
 def _per_cluster_mongot_config_name(mdbs_name: str, cluster_index: int) -> str:
-    """Mirror MongotConfigConfigMapNameForCluster: idx 0 → legacy unindexed name."""
-    if cluster_index == 0:
-        return f"{mdbs_name}-search-config"
+    """Mirror MongotConfigConfigMapNameForCluster."""
     return f"{mdbs_name}-search-{cluster_index}-config"
 
 
