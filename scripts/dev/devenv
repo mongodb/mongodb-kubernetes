@@ -56,9 +56,20 @@ set -a
 . "${__mck_root}/.generated/context.${__mck_side}.env"
 set +a
 
+if [[ -f "${__mck_root}/.generated/.current_context" ]]; then
+    echo "Current context: $(cat "${__mck_root}/.generated/.current_context")"
+fi
+
 if [[ -f "${__mck_root}/venv/bin/activate" ]]; then
+    type deactivate &>/dev/null && deactivate
     # shellcheck disable=SC1091
     . "${__mck_root}/venv/bin/activate"
+    echo "Activated venv ($(python --version 2>&1)): $(command -v python)"
+fi
+
+if [[ -f "${__mck_root}/scripts/aliases/aliases" ]]; then
+    # shellcheck disable=SC1091
+    . "${__mck_root}/scripts/aliases/aliases" && echo "Sourced aliases from scripts/aliases/aliases"
 fi
 
 unset __mck_root __mck_side
