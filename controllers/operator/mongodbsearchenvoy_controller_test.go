@@ -12,7 +12,7 @@ import (
 
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/merge"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
 )
 
 // TODO: Add full Reconcile() integration tests covering:
