@@ -50,7 +50,6 @@ func (s *MongoDBSearch) RunValidations() []v1.ValidationResult {
 		validateClustersClusterNameNonEmpty,
 		validateClustersUniqueClusterName,
 		validateClustersSyncSourceSelector,
-		validateClustersShardOverrides,
 		validateClustersAndTopLevelFieldsMutuallyExclusive,
 		validateClustersEnvoyResourceNames,
 		validateMCExternalHostnamePlaceholders,
@@ -412,24 +411,6 @@ func validateClustersEnvoyResourceNames(s *MongoDBSearch) v1.ValidationResult {
 	return v1.ValidationSuccess()
 }
 
-// validateClustersShardOverrides enforces shardNames non-empty per ShardOverride.
-func validateClustersShardOverrides(s *MongoDBSearch) v1.ValidationResult {
-	if s.Spec.Clusters == nil {
-		return v1.ValidationSuccess()
-	}
-	for i, c := range *s.Spec.Clusters {
-		for j, ov := range c.ShardOverrides {
-			if len(ov.ShardNames) == 0 {
-				return v1.ValidationError(
-					"spec.clusters[%d].shardOverrides[%d].shardNames must have at least one entry",
-					i, j,
-				)
-			}
-		}
-	}
-	return v1.ValidationSuccess()
-}
-
 // validateClustersAndTopLevelFieldsMutuallyExclusive enforces the mutual-exclusion
 // rule: when spec.clusters is set, none of the auto-promotion-eligible top-level
 // distribution fields (spec.replicas, spec.resourceRequirements, spec.persistence,
@@ -438,9 +419,7 @@ func validateClustersShardOverrides(s *MongoDBSearch) v1.ValidationResult {
 // the new per-cluster shape (spec.clusters only).
 //
 // jvmFlags and loadBalancer remain top-level + per-cluster combinable on purpose
-// (top-level is the default that per-cluster overrides; managed.replicas is uniform
-// across clusters, enforced at the schema level via PerClusterManagedLBConfig
-// which is a strict subset of ManagedLBConfig minus Replicas) and are intentionally
+// (top-level is the default that per-cluster overrides) and are intentionally
 // excluded from this check.
 func validateClustersAndTopLevelFieldsMutuallyExclusive(s *MongoDBSearch) v1.ValidationResult {
 	if s.Spec.Clusters == nil {

@@ -141,9 +141,6 @@ type MongoDBSearchSpec struct {
 	// deployments (len > 1); when omitted, the reconciler defaults it to a single
 	// entry built from the top-level fields. Pointer-of-slice so omitted vs.
 	// empty is distinguishable.
-	// MaxItems is set so the apiserver can bound the cost of the clusterName
-	// uniqueness CEL rule below; 50 is well above any realistic multi-cluster
-	// deployment.
 	// +optional
 	// +kubebuilder:validation:MaxItems=50
 	// +kubebuilder:validation:XValidation:rule="self.all(c1, self.exists_one(c2, c2.clusterName == c1.clusterName))",message="clusters[].clusterName must be unique"
@@ -152,9 +149,6 @@ type MongoDBSearchSpec struct {
 
 // SyncSourceSelector picks which mongods this cluster's mongot fleet syncs from.
 // At-most-one of MatchTags or Hosts may be set.
-// MaxProperties / MaxItems / MaxLength on the children are required so the
-// apiserver can bound the schema-cost contribution that the XValidation rule
-// reads via has().
 // +kubebuilder:validation:XValidation:rule="!(has(self.matchTags) && has(self.hosts))",message="syncSourceSelector.matchTags and syncSourceSelector.hosts are mutually exclusive"
 type SyncSourceSelector struct {
 	// MatchTags renders into mongot's readPreferenceTags; the operator picks
@@ -168,36 +162,6 @@ type SyncSourceSelector struct {
 	// +kubebuilder:validation:MaxItems=100
 	// +kubebuilder:validation:items:MaxLength=253
 	Hosts []string `json:"hosts,omitempty"`
-}
-
-// PerClusterLoadBalancerConfig narrows LoadBalancerConfig to the subset that
-// is overridable per-cluster: only Managed sub-fields, and only those exposed
-// via PerClusterManagedLBConfig (a strict subset of ManagedLBConfig — Replicas
-// is intentionally absent). Unmanaged is top-level only.
-type PerClusterLoadBalancerConfig struct {
-	// Managed deep-merges into the top-level spec.loadBalancer.managed for this cluster.
-	// Only the fields in PerClusterManagedLBConfig are overridable per-cluster — see
-	// the type doc.
-	// +optional
-	Managed *PerClusterManagedLBConfig `json:"managed,omitempty"`
-}
-
-// ShardOverride lets sharded MongoDBSearch deployments tune one or more shards
-// beyond the per-cluster defaults. Only valid for sharded sources.
-type ShardOverride struct {
-	// ShardNames is the set of shard names this override applies to.
-	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:MinItems=1
-	ShardNames []string `json:"shardNames"`
-	// +optional
-	// +kubebuilder:validation:Minimum=1
-	Replicas *int32 `json:"replicas,omitempty"`
-	// +optional
-	ResourceRequirements *corev1.ResourceRequirements `json:"resourceRequirements,omitempty"`
-	// +optional
-	Persistence *common.Persistence `json:"persistence,omitempty"`
-	// +optional
-	StatefulSetConfiguration *common.StatefulSetConfiguration `json:"statefulSet,omitempty"`
 }
 
 // ClusterSpec is one entry in spec.clusters[]. ClusterName is required and immutable
@@ -226,12 +190,8 @@ type ClusterSpec struct {
 	// +optional
 	SyncSourceSelector *SyncSourceSelector `json:"syncSourceSelector,omitempty"`
 	// LoadBalancer per-cluster override; deep-merged into spec.loadBalancer.managed.
-	// Only managed sub-fields are overridable per-cluster.
 	// +optional
-	LoadBalancer *PerClusterLoadBalancerConfig `json:"loadBalancer,omitempty"`
-	// ShardOverrides applies only to sharded sources.
-	// +optional
-	ShardOverrides []ShardOverride `json:"shardOverrides,omitempty"`
+	LoadBalancer *LoadBalancerConfig `json:"loadBalancer,omitempty"`
 	// JVMFlags overrides spec.jvmFlags for this cluster's mongot pods. Replace, not merge.
 	// +optional
 	JVMFlags []string `json:"jvmFlags,omitempty"`
@@ -266,34 +226,6 @@ type ManagedLBConfig struct {
 	// Follows the same convention as spec.statefulSet on MongoDB resources.
 	// +optional
 	Deployment *v1.DeploymentConfiguration `json:"deployment,omitempty"`
-	// Replicas is the number of Envoy pods per per-cluster Envoy Deployment. The
-	// same count is applied to every cluster's Envoy Deployment; per-cluster
-	// overrides are not supported by the schema (PerClusterManagedLBConfig
-	// excludes Replicas). Default 1 when unset.
-	// +optional
-	// +kubebuilder:validation:Minimum=1
-	Replicas *int32 `json:"replicas,omitempty"`
-}
-
-// PerClusterManagedLBConfig configures the per-cluster Envoy override. It's a
-// strict subset of ManagedLBConfig — Replicas is intentionally absent because
-// per-cluster Envoy replica overrides are not supported (replicas are applied
-// uniformly across every per-cluster Envoy Deployment from
-// spec.loadBalancer.managed.replicas).
-type PerClusterManagedLBConfig struct {
-	// ExternalHostname is the hostname Envoy expects for SNI matching on incoming requests.
-	// For sharded clusters, may contain a {shardName} placeholder.
-	// In multi-cluster deployments, may contain a {clusterName} placeholder so per-cluster
-	// SNI hostnames stay distinct.
-	// Required when MongoDB is externally managed. Ignored for operator-managed MongoDB.
-	// +optional
-	ExternalHostname string `json:"externalHostname,omitempty"`
-	// ResourceRequirements for the Envoy container.
-	// +optional
-	ResourceRequirements *corev1.ResourceRequirements `json:"resourceRequirements,omitempty"`
-	// Deployment holds optional overrides merged into the operator-created Envoy Deployment.
-	// +optional
-	Deployment *common.DeploymentConfiguration `json:"deployment,omitempty"`
 }
 
 // UnmanagedLBConfig configures a user-provided (BYO) L7 load balancer.
@@ -409,76 +341,10 @@ type TLS struct {
 }
 
 // LoadBalancerStatus reports the state of the operator-managed load balancer (Envoy).
-//
-// Canonical phase shape (multi-cluster):
-//   - Clusters[i].Phase is the ground truth — one entry per spec.clusters[i],
-//     written by the Envoy controller after each per-cluster reconcile.
-//   - Top-level Phase is the worst-of(Clusters[*].Phase) under the rank used by
-//     WorstOfPhase (Failed > Pending > Running > Updated > Disabled > Unsupported).
-//
-// Invariant: Phase == WorstOfPhase(Clusters[*].Phase) when len(Clusters) > 0.
-// Single-cluster (len(Clusters) == 0) keeps Phase as the legacy single-cluster
-// Envoy reconcile outcome and Clusters stays nil. This invariant is enforced
-// by the Envoy controller's reconcile loop (worstOfClusterPhases) and
-// verified by TestWorstOfClusterPhases.
+// Phase is the worst-of phase across all per-cluster Envoy reconciles.
 type LoadBalancerStatus struct {
 	Phase   status.Phase `json:"phase"`
 	Message string       `json:"message,omitempty"`
-	// Clusters is the per-cluster managed-LB phase. Only populated when
-	// len(spec.clusters) > 0 — single-cluster keeps the existing top-level Phase.
-	// +optional
-	Clusters []ClusterLoadBalancerStatus `json:"clusters,omitempty"`
-}
-
-// ClusterLoadBalancerStatus reports per-cluster managed LB state.
-type ClusterLoadBalancerStatus struct {
-	// ClusterName is the member cluster this status entry belongs to.
-	ClusterName string `json:"clusterName"`
-	// Phase mirrors LoadBalancerStatus.Phase but for one cluster.
-	Phase status.Phase `json:"phase"`
-	// Message is an optional explanation for the per-cluster phase.
-	// +optional
-	Message string `json:"message,omitempty"`
-}
-
-// ShardLoadBalancerStatus reports the state of a single (cluster, shard)'s
-// managed Envoy load balancer. Used in the flat per-cluster-per-shard map on
-// MongoDBSearchStatus for sharded multi-cluster deployments. Mirrors
-// LoadBalancerStatus but lives keyed by (clusterName, shardName) at the
-// top level rather than nested under the per-cluster item, matching the
-// MongoDB-sharded *InClusters precedent (api/v1/status/scaling_status.go).
-type ShardLoadBalancerStatus struct {
-	Phase   status.Phase `json:"phase"`
-	Message string       `json:"message,omitempty"`
-}
-
-// SearchClusterStatusItem is the per-Kubernetes-cluster status entry, one
-// entry per spec.clusters[i]. Mirrors the MongoDBMultiCluster
-// ClusterStatusItem precedent (api/v1/mdbmulti/mongodb_multi_types.go) and
-// adds an optional per-cluster managed-LB phase. Search is the first MCK
-// CRD to surface a load-balancer phase per cluster.
-type SearchClusterStatusItem struct {
-	// ClusterName is the Kubernetes cluster name from spec.clusters[i].clusterName.
-	// Empty in the single-cluster degenerate case (no spec.clusters entry).
-	// +optional
-	ClusterName string `json:"clusterName,omitempty"`
-	// Common carries the per-cluster phase, message, lastTransition, and observedGeneration.
-	status.Common `json:",inline"`
-	// ObservedReplicas is the number of mongot pods this cluster currently has Ready.
-	// +optional
-	ObservedReplicas int32 `json:"observedReplicas,omitempty"`
-	// +optional
-	Warnings []status.Warning `json:"warnings,omitempty"`
-	// Deprecated: read status.loadBalancer.clusters[i] instead.
-	// +optional
-	LoadBalancer *LoadBalancerStatus `json:"loadBalancer,omitempty"`
-}
-
-// SearchClusterStatusList is the per-cluster status surface for MongoDBSearch.
-// Mirrors the MongoDBMultiCluster pattern.
-type SearchClusterStatusList struct {
-	// +optional
-	ClusterStatuses []SearchClusterStatusItem `json:"clusterStatuses,omitempty"`
 }
 
 type MongoDBSearchStatus struct {
@@ -487,21 +353,8 @@ type MongoDBSearchStatus struct {
 	Warnings      []status.Warning `json:"warnings,omitempty"`
 	// LoadBalancer reports the state of the operator-managed load balancer.
 	// Only populated when spec.loadBalancer.managed is set.
-	// In multi-cluster (len(spec.clusters) > 1) deployments, the per-cluster
-	// LB phase lives on status.clusterStatusList.clusterStatuses[i].loadBalancer.
-	// This top-level field stays for single-cluster back-compat.
 	// +optional
 	LoadBalancer *LoadBalancerStatus `json:"loadBalancer,omitempty"`
-	// ClusterStatusList is the per-cluster status surface, one entry per
-	// spec.clusters[i]. Empty in single-cluster (legacy) deployments.
-	// +optional
-	ClusterStatusList SearchClusterStatusList `json:"clusterStatusList,omitempty"`
-	// ShardLoadBalancerStatusInClusters reports per-(cluster, shard) managed-LB
-	// phase for sharded multi-cluster deployments. Flat map-of-map keyed by
-	// clusterName then shardName, matching MongoDB sharded's *InClusters
-	// precedent (api/v1/status/scaling_status.go).
-	// +optional
-	ShardLoadBalancerStatusInClusters map[string]map[string]*ShardLoadBalancerStatus `json:"shardLoadBalancerStatusInClusters,omitempty"`
 }
 
 // +k8s:deepcopy-gen=true
