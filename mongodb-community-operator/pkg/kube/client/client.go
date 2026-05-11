@@ -13,7 +13,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/configmap"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/pod"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/secret"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/service"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/service"
 )
 
 func NewClient(c k8sClient.Client) Client {

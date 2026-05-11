@@ -10,7 +10,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/configmap"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/service"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/service"
 )
 
 func TestMockedClient(t *testing.T) {
