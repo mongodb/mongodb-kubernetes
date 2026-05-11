@@ -750,7 +750,7 @@ func (r *MongoDBSearchReconcileHelper) ensureSearchService(ctx context.Context, 
 // auto-embedding is configured, generates leader/follower config files plus
 // pod-name role keys.
 func (r *MongoDBSearchReconcileHelper) ensureMongotConfig(ctx context.Context, log *zap.SugaredLogger, kubeClient kubernetesClient.Client, cmName types.NamespacedName, stsName, clusterName string, modifications ...mongot.Modification) (string, error) {
-	replicas := r.mdbSearch.GetReplicas()
+	replicas := r.mdbSearch.GetReplicasForCluster(clusterName)
 	usePerPodConfig := r.mdbSearch.HasAutoEmbedding()
 
 	mongotConfig := mongot.Config{}

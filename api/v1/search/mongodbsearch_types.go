@@ -737,38 +737,39 @@ func (s *MongoDBSearch) GetEndpointForShard(shardName string) string {
 
 // EffectiveClusters returns the per-cluster distribution slice the reconcile
 // loop should iterate over, with the top-level
-// Persistence/ResourceRequirements/StatefulSetConfiguration cascaded into each
-// entry as a REPLACE-if-nil default.
+// Replicas/ResourceRequirements/Persistence/StatefulSetConfiguration/JVMFlags
+// cascaded into each entry as defaults.
 //
 //   - When spec.clusters is nil, it auto-promotes the top-level fields into a
 //     one-element ClusterSpec for the legacy single-cluster path.
-//   - When spec.clusters is non-nil, each entry is returned with any nil
-//     Persistence/ResourceRequirements/StatefulSetConfiguration field replaced
-//     by the top-level spec.X value. Atomic per field — to override one
+//   - When spec.clusters is non-nil, each entry is returned with the cascade
+//     applied: pointer / struct fields are REPLACE-if-nil (cluster-set wins;
+//     nil inherits top-level); JVMFlags is REPLACE-if-empty (non-empty
+//     per-cluster slice wins; no append). Atomic per field — to override one
 //     sub-field of a struct (e.g. one container's image), spell out the full
 //     struct at cluster level. Matches sharded MC's processClusterSpecList
-//     semantics (REPLACE-if-nil; no recursive merge for MVP).
-//
-// Note: ClusterSpec.Replicas and ClusterSpec.JVMFlags are NOT cascaded in MVP
-// — those two fields are not yet read by any consumer (top-level
-// spec.replicas / spec.jvmFlags is what reaches mongot pods).
+//     semantics (no recursive merge for MVP).
 //
 // The function is pure — no mutation of s, no side effects.
 func EffectiveClusters(s *MongoDBSearch) []ClusterSpec {
 	//nolint:staticcheck // SA1019: deprecated top-level fields are the documented default for the cascade.
+	topReplicas := s.Spec.Replicas
+	//nolint:staticcheck // SA1019
 	topResReq := s.Spec.ResourceRequirements
 	//nolint:staticcheck // SA1019
 	topPersistence := s.Spec.Persistence
 	//nolint:staticcheck // SA1019
 	topSTSConfig := s.Spec.StatefulSetConfiguration
+	//nolint:staticcheck // SA1019
+	topJVMFlags := s.Spec.JVMFlags
 
 	if s.Spec.Clusters == nil {
-		//nolint:staticcheck // SA1019: single-cluster auto-promotion of deprecated top-level fields.
 		return []ClusterSpec{{
-			Replicas:                 s.Spec.Replicas,
+			Replicas:                 topReplicas,
 			ResourceRequirements:     topResReq,
 			Persistence:              topPersistence,
 			StatefulSetConfiguration: topSTSConfig,
+			JVMFlags:                 topJVMFlags,
 		}}
 	}
 
@@ -776,6 +777,9 @@ func EffectiveClusters(s *MongoDBSearch) []ClusterSpec {
 	out := make([]ClusterSpec, 0, len(clusters))
 	for _, c := range clusters {
 		resolved := c
+		if resolved.Replicas == nil {
+			resolved.Replicas = topReplicas
+		}
 		if resolved.ResourceRequirements == nil {
 			resolved.ResourceRequirements = topResReq
 		}
@@ -784,6 +788,9 @@ func EffectiveClusters(s *MongoDBSearch) []ClusterSpec {
 		}
 		if resolved.StatefulSetConfiguration == nil {
 			resolved.StatefulSetConfiguration = topSTSConfig
+		}
+		if len(resolved.JVMFlags) == 0 {
+			resolved.JVMFlags = topJVMFlags
 		}
 		out = append(out, resolved)
 	}
@@ -813,11 +820,23 @@ func (s *MongoDBSearch) EffectiveClusterFor(clusterName string) ClusterSpec {
 
 func (s *MongoDBSearch) GetReplicas() int {
 	// Single legitimate read of the deprecated top-level field — this is the
-	// operator-side default ("1 when unset") for the legacy single-cluster path.
-	// Multi-cluster readers go through EffectiveClusters() instead.
+	// operator-side default ("1 when unset") for the legacy single-cluster path
+	// and for validators that only look at the top-level value.
+	// Multi-cluster reconcile readers should use GetReplicasForCluster instead.
 	//nolint:staticcheck // SA1019: deprecated field is the documented fallback.
 	if s.Spec.Replicas != nil && *s.Spec.Replicas > 0 {
 		return int(*s.Spec.Replicas)
+	}
+	return 1
+}
+
+// GetReplicasForCluster returns the per-cluster mongot replica count after
+// applying the EffectiveClusters cascade (cluster-set wins, top-level is the
+// default, "1" if neither is set). clusterName="" returns the single-cluster
+// auto-promoted value (equivalent to GetReplicas).
+func (s *MongoDBSearch) GetReplicasForCluster(clusterName string) int {
+	if r := s.EffectiveClusterFor(clusterName).Replicas; r != nil && *r > 0 {
+		return int(*r)
 	}
 	return 1
 }

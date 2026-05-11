@@ -89,55 +89,110 @@ func TestEffectiveClusters(t *testing.T) {
 	}
 }
 
-// TestEffectiveClustersCascade verifies REPLACE-if-nil cascade of the top-level
-// Persistence / ResourceRequirements / StatefulSetConfiguration defaults into
-// each ClusterSpec entry when spec.clusters is set.
+// TestEffectiveClustersCascade verifies the full cascade across all five fields:
+//   - Replicas (*int32): REPLACE-if-nil
+//   - ResourceRequirements (*corev1.ResourceRequirements): REPLACE-if-nil
+//   - Persistence (*common.Persistence): REPLACE-if-nil
+//   - StatefulSetConfiguration (*common.StatefulSetConfiguration): REPLACE-if-nil
+//   - JVMFlags ([]string): REPLACE-if-empty (non-empty cluster slice wins; no append)
 func TestEffectiveClustersCascade(t *testing.T) {
+	topReplicas := ptr.To(int32(2))
 	topPersistence := &common.Persistence{}
 	topResources := &corev1.ResourceRequirements{}
 	topSTS := &common.StatefulSetConfiguration{}
+	topJVMFlags := []string{"-Xmx2g", "-XX:+UseG1GC"}
 
 	clusterAPersistence := &common.Persistence{}
 	clusterBResources := &corev1.ResourceRequirements{}
+	clusterDReplicas := ptr.To(int32(5))
+	clusterEJVMFlags := []string{"-Xmx8g"}
 
 	spec := MongoDBSearchSpec{
+		Replicas:                 topReplicas,
 		ResourceRequirements:     topResources,
 		Persistence:              topPersistence,
 		StatefulSetConfiguration: topSTS,
+		JVMFlags:                 topJVMFlags,
 		Clusters: &[]ClusterSpec{
-			{ClusterName: "cluster-a", Persistence: clusterAPersistence}, // override Persistence only
-			{ClusterName: "cluster-b", ResourceRequirements: clusterBResources}, // override ResourceRequirements only
-			{ClusterName: "cluster-c"}, // no overrides — inherit all three top-level defaults
+			{ClusterName: "cluster-a", Persistence: clusterAPersistence},              // override Persistence only
+			{ClusterName: "cluster-b", ResourceRequirements: clusterBResources},       // override ResourceRequirements only
+			{ClusterName: "cluster-c"},                                                // no overrides — inherit all five top-level defaults
+			{ClusterName: "cluster-d", Replicas: clusterDReplicas},                    // override Replicas only
+			{ClusterName: "cluster-e", JVMFlags: clusterEJVMFlags},                    // override JVMFlags only (REPLACE-if-empty: no append)
 		},
 	}
 	s := &MongoDBSearch{Spec: spec}
 	got := EffectiveClusters(s)
 
-	require.Len(t, got, 3)
+	require.Len(t, got, 5)
 
-	// cluster-a: own Persistence, inherits ResourceRequirements + STSConfig
+	// cluster-a: own Persistence, inherits the rest
 	assert.Same(t, clusterAPersistence, got[0].Persistence, "cluster-a Persistence override wins")
-	assert.Same(t, topResources, got[0].ResourceRequirements, "cluster-a inherits top-level ResourceRequirements")
-	assert.Same(t, topSTS, got[0].StatefulSetConfiguration, "cluster-a inherits top-level STSConfig")
+	assert.Same(t, topResources, got[0].ResourceRequirements)
+	assert.Same(t, topSTS, got[0].StatefulSetConfiguration)
+	assert.Equal(t, topReplicas, got[0].Replicas)
+	assert.Equal(t, topJVMFlags, got[0].JVMFlags)
 
-	// cluster-b: own ResourceRequirements, inherits Persistence + STSConfig
-	assert.Same(t, topPersistence, got[1].Persistence, "cluster-b inherits top-level Persistence")
+	// cluster-b: own ResourceRequirements, inherits the rest
+	assert.Same(t, topPersistence, got[1].Persistence)
 	assert.Same(t, clusterBResources, got[1].ResourceRequirements, "cluster-b ResourceRequirements override wins")
-	assert.Same(t, topSTS, got[1].StatefulSetConfiguration, "cluster-b inherits top-level STSConfig")
+	assert.Same(t, topSTS, got[1].StatefulSetConfiguration)
+	assert.Equal(t, topReplicas, got[1].Replicas)
+	assert.Equal(t, topJVMFlags, got[1].JVMFlags)
 
-	// cluster-c: all three inherited
+	// cluster-c: all five inherited
 	assert.Same(t, topPersistence, got[2].Persistence)
 	assert.Same(t, topResources, got[2].ResourceRequirements)
 	assert.Same(t, topSTS, got[2].StatefulSetConfiguration)
+	assert.Equal(t, topReplicas, got[2].Replicas)
+	assert.Equal(t, topJVMFlags, got[2].JVMFlags)
 
-	// Cascade must NOT mutate the original spec — top-level pointers still point
-	// to the originals; per-cluster overrides on cluster-a/cluster-b are unchanged.
+	// cluster-d: own Replicas, inherits the rest
+	assert.Equal(t, clusterDReplicas, got[3].Replicas, "cluster-d Replicas override wins")
+	assert.Equal(t, topJVMFlags, got[3].JVMFlags)
+
+	// cluster-e: own JVMFlags (REPLACE — does NOT append top-level "-XX:+UseG1GC")
+	assert.Equal(t, clusterEJVMFlags, got[4].JVMFlags, "cluster-e JVMFlags override wins atomically")
+	assert.Equal(t, topReplicas, got[4].Replicas)
+
+	// Cascade must NOT mutate the original spec.
 	assert.Same(t, topPersistence, spec.Persistence)
 	assert.Same(t, topResources, spec.ResourceRequirements)
 	assert.Same(t, topSTS, spec.StatefulSetConfiguration)
+	assert.Equal(t, topReplicas, spec.Replicas)
+	assert.Equal(t, topJVMFlags, spec.JVMFlags)
 	assert.Same(t, clusterAPersistence, (*spec.Clusters)[0].Persistence)
 	assert.Nil(t, (*spec.Clusters)[0].ResourceRequirements)
 	assert.Nil(t, (*spec.Clusters)[2].Persistence)
+	assert.Nil(t, (*spec.Clusters)[2].Replicas)
+	assert.Empty(t, (*spec.Clusters)[2].JVMFlags)
+}
+
+// TestGetReplicasForCluster verifies the cascade-aware per-cluster replica accessor.
+func TestGetReplicasForCluster(t *testing.T) {
+	t.Run("empty clusterName + top-level set", func(t *testing.T) {
+		s := &MongoDBSearch{Spec: MongoDBSearchSpec{Replicas: ptr.To(int32(4))}}
+		assert.Equal(t, 4, s.GetReplicasForCluster(""))
+	})
+	t.Run("empty clusterName + nothing set defaults to 1", func(t *testing.T) {
+		s := &MongoDBSearch{}
+		assert.Equal(t, 1, s.GetReplicasForCluster(""))
+	})
+	t.Run("cluster-set wins over top-level default", func(t *testing.T) {
+		s := &MongoDBSearch{Spec: MongoDBSearchSpec{
+			Replicas: ptr.To(int32(2)),
+			Clusters: &[]ClusterSpec{
+				{ClusterName: "cluster-a"},                            // inherits top-level => 2
+				{ClusterName: "cluster-b", Replicas: ptr.To(int32(5))}, // override => 5
+			},
+		}}
+		assert.Equal(t, 2, s.GetReplicasForCluster("cluster-a"))
+		assert.Equal(t, 5, s.GetReplicasForCluster("cluster-b"))
+	})
+	t.Run("unknown clusterName defaults to 1", func(t *testing.T) {
+		s := &MongoDBSearch{Spec: MongoDBSearchSpec{Replicas: ptr.To(int32(7))}}
+		assert.Equal(t, 1, s.GetReplicasForCluster("missing"))
+	})
 }
 
 func TestEffectiveClusterFor(t *testing.T) {

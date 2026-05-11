@@ -131,7 +131,7 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, clusterName,
 		statefulset.WithLabels(labels),
 		statefulset.WithOwnerReference(mdbSearch.GetOwnerReferences()),
 		statefulset.WithMatchLabels(labels),
-		statefulset.WithReplicas(mdbSearch.GetReplicas()),
+		statefulset.WithReplicas(mdbSearch.GetReplicasForCluster(clusterName)),
 		statefulset.WithUpdateStrategyType(appsv1.RollingUpdateStatefulSetStrategyType),
 		dataVolumeClaim,
 		statefulset.WithPodSpecTemplate(
@@ -193,11 +193,15 @@ func CreateKeyfileModificationFunc(keyfileSecretName string) statefulset.Modific
 	)
 }
 
-func jvmFlags(mdbSearch *searchv1.MongoDBSearch, resourceRequirements corev1.ResourceRequirements) string {
+// jvmFlags builds the --jvm-flags argument from the per-cluster user-provided
+// JVMFlags slice plus a default heap-size pair derived from memory requests.
+// Caller passes the cascaded per-cluster JVMFlags so per-cluster overrides
+// take effect.
+func jvmFlags(userJVMFlags []string, resourceRequirements corev1.ResourceRequirements) string {
 	flags := []string{}
 
 	var heapConfigured bool
-	for _, jvmFlag := range mdbSearch.Spec.JVMFlags {
+	for _, jvmFlag := range userJVMFlags {
 		if strings.HasPrefix(jvmFlag, "-Xms") || strings.HasPrefix(jvmFlag, "-Xmx") {
 			heapConfigured = true
 			break
@@ -216,7 +220,7 @@ func jvmFlags(mdbSearch *searchv1.MongoDBSearch, resourceRequirements corev1.Res
 		flags = append(flags, fmt.Sprintf("-Xms%dm", halfMB))
 	}
 
-	flagsValue := strings.Join(append(flags, mdbSearch.Spec.JVMFlags...), " ")
+	flagsValue := strings.Join(append(flags, userJVMFlags...), " ")
 	return fmt.Sprintf(`--jvm-flags "%s"`, flagsValue)
 }
 
@@ -224,7 +228,7 @@ func mongodbSearchContainer(mdbSearch *searchv1.MongoDBSearch, clusterName strin
 	_, containerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
 	perCluster := mdbSearch.EffectiveClusterFor(clusterName)
 	resourceRequirements := createSearchResourceRequirements(perCluster.ResourceRequirements)
-	jvmFlags := jvmFlags(mdbSearch, resourceRequirements)
+	jvmFlags := jvmFlags(perCluster.JVMFlags, resourceRequirements)
 
 	var mongotStartCommand string
 	if usePerPodConfig {
