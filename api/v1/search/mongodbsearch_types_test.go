@@ -182,7 +182,7 @@ func TestGetReplicasForCluster(t *testing.T) {
 		s := &MongoDBSearch{Spec: MongoDBSearchSpec{
 			Replicas: ptr.To(int32(2)),
 			Clusters: &[]ClusterSpec{
-				{ClusterName: "cluster-a"},                            // inherits top-level => 2
+				{ClusterName: "cluster-a"},                             // inherits top-level => 2
 				{ClusterName: "cluster-b", Replicas: ptr.To(int32(5))}, // override => 5
 			},
 		}}

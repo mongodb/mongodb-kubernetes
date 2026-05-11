@@ -2,7 +2,6 @@ from typing import Mapping
 
 from kubernetes.client import AppsV1Api, CoreV1Api, V1ObjectMeta, V1Secret
 from kubernetes.client.exceptions import ApiException
-
 from tests import test_logger
 
 logger = test_logger.get_test_logger(__name__)
