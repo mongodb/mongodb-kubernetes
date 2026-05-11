@@ -18,15 +18,27 @@ script_dir=$(dirname "${script_name}")
 PROJECT_DIR="$(realpath "${script_dir}/../../..")"
 export PROJECT_DIR
 
-# In-container k8s-forwarding-proxy is reachable at the compose-fixed IP
-# 172.${MCK_DEVC_NET_PREFIX}.0.10. On host, the kfp listens on
-# 127.0.0.1:11616 (registered by `.devcontainer/scripts/post-start.sh`).
-# Today this var is only set in compose for the devc service; surfacing
-# it on host too means `setup_kind_cluster.sh` and `evg_host.sh`'s kfp
-# registration paths Just Work when invoked from a host shell.
+# In-container k8s-forwarding-proxy is reachable at 172.X.Y_BASE.10
+# (computed from the /23 stack allocator's NET_X / NET_Y_BASE pair).
+# compose.yml's `x-k8s-proxy-config` anchor passes the resolved value
+# into the devcontainer service's environment as K8S_FWD_PROXY, so any
+# pre-existing value is the authoritative one — we just inherit it.
+# On host, the host-side kfp listens on 127.0.0.1:11616 (registered by
+# `.devcontainer/scripts/post-start.sh`); set the var there too so
+# `setup_kind_cluster.sh` and `evg_host.sh`'s kfp registration paths
+# Just Work when invoked from a host shell.
+#
+# Historical note: this file used to set `K8S_FWD_PROXY=172.${PREFIX}.0.10`
+# unconditionally, clobbering the compose-provided value. Under the /23
+# stack allocator MCK_DEVC_NET_PREFIX is a port-number suffix
+# (e.g. 30 → gost-proxy port 8030), not a network octet, so the
+# override yielded a bogus 172.30.0.10 — registration silently failed,
+# the devc-side k8s-proxy had an empty kubeconfig, and every
+# `*.svc.cluster.local` lookup from inside the devc returned NXDOMAIN.
+# e2e tests that connect from devc to mongod via FQDN broke at
+# pymongo's server selection step.
 if [[ -f /.dockerenv ]]; then
-  : "${MCK_DEVC_NET_PREFIX:?MCK_DEVC_NET_PREFIX must be set in devc (compose)}"
-  K8S_FWD_PROXY="172.${MCK_DEVC_NET_PREFIX}.0.10"
+  : "${K8S_FWD_PROXY:?K8S_FWD_PROXY must be set in devc env (compose.yml passes it via x-k8s-proxy-config)}"
 else
   K8S_FWD_PROXY="127.0.0.1:11616"
 fi
