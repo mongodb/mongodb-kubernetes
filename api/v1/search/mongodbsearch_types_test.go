@@ -168,6 +168,33 @@ func TestEffectiveClustersCascade(t *testing.T) {
 	assert.Empty(t, (*spec.Clusters)[2].JVMFlags)
 }
 
+// TestGetReplicasForCluster verifies the cascade-aware per-cluster replica accessor.
+func TestGetReplicasForCluster(t *testing.T) {
+	t.Run("empty clusterName + top-level set", func(t *testing.T) {
+		s := &MongoDBSearch{Spec: MongoDBSearchSpec{Replicas: ptr.To(int32(4))}}
+		assert.Equal(t, 4, s.GetReplicasForCluster(""))
+	})
+	t.Run("empty clusterName + nothing set defaults to 1", func(t *testing.T) {
+		s := &MongoDBSearch{}
+		assert.Equal(t, 1, s.GetReplicasForCluster(""))
+	})
+	t.Run("cluster-set wins over top-level default", func(t *testing.T) {
+		s := &MongoDBSearch{Spec: MongoDBSearchSpec{
+			Replicas: ptr.To(int32(2)),
+			Clusters: &[]ClusterSpec{
+				{ClusterName: "cluster-a"},                            // inherits top-level => 2
+				{ClusterName: "cluster-b", Replicas: ptr.To(int32(5))}, // override => 5
+			},
+		}}
+		assert.Equal(t, 2, s.GetReplicasForCluster("cluster-a"))
+		assert.Equal(t, 5, s.GetReplicasForCluster("cluster-b"))
+	})
+	t.Run("unknown clusterName defaults to 1", func(t *testing.T) {
+		s := &MongoDBSearch{Spec: MongoDBSearchSpec{Replicas: ptr.To(int32(7))}}
+		assert.Equal(t, 1, s.GetReplicasForCluster("missing"))
+	})
+}
+
 func TestEffectiveClusterFor(t *testing.T) {
 	topResources := &corev1.ResourceRequirements{}
 	clusterBResources := &corev1.ResourceRequirements{}
