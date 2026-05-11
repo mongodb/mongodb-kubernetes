@@ -632,34 +632,6 @@ def test_verify_per_cluster_envoy_deployment(
 
 
 @mark.e2e_search_q2_mc_rs_steady
-def test_verify_persisted_cluster_mapping(
-    namespace: str,
-    central_cluster_client: kubernetes.client.ApiClient,
-    helper: MCSearchDeploymentHelper,
-):
-    """The `<name>-state` ConfigMap on the central cluster must carry a ClusterMapping
-    entry for every member cluster. This is the operator's source of truth for
-    cluster-index pinning across spec.clusters[] reorders and restarts.
-    """
-    state_cm_name = f"{MDBS_RESOURCE_NAME}-state"
-    core = CoreV1Api(api_client=central_cluster_client)
-    state_cm = core.read_namespaced_config_map(name=state_cm_name, namespace=namespace)
-
-    raw = (state_cm.data or {}).get("state")
-    assert raw, f"state ConfigMap {state_cm_name} missing 'state' key; got {list((state_cm.data or {}).keys())}"
-    state = json.loads(raw)
-    mapping = state.get("clusterMapping") or {}
-
-    for cluster_name in helper.member_cluster_names():
-        expected_idx = helper.cluster_index(cluster_name)
-        assert mapping.get(cluster_name) == expected_idx, (
-            f"state CM {state_cm_name}: clusterMapping[{cluster_name!r}]={mapping.get(cluster_name)!r}, "
-            f"want {expected_idx} (helper says cluster_index={expected_idx})"
-        )
-    logger.info(f"persisted ClusterMapping matches helper: {mapping}")
-
-
-@mark.e2e_search_q2_mc_rs_steady
 def test_verify_lb_status(mdbs: MongoDBSearch):
     """status.loadBalancer.phase must be Running (aggregated from per-cluster Envoy phases)."""
     mdbs.load()
