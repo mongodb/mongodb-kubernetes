@@ -13,8 +13,8 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 
+	"github.com/mongodb/mongodb-kubernetes/api/v1/common"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
-	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/fcv"
 	"github.com/mongodb/mongodb-kubernetes/pkg/tls"
@@ -186,7 +186,7 @@ func (d Deployment) MergeReplicaSet(operatorRs ReplicaSetWithProcesses, specArgs
 // ConfigurePrometheus adds Prometheus configuration to `Deployment` resource.
 //
 // If basic auth is enabled, then `hash` and `salt` need to be calculated by caller and passed in.
-func (d Deployment) ConfigurePrometheus(prom *mdbcv1.Prometheus, hash string, salt string, certName string) automationconfig.Prometheus {
+func (d Deployment) ConfigurePrometheus(prom *common.Prometheus, hash string, salt string, certName string) automationconfig.Prometheus {
 	if prom == nil {
 		// No prometheus configuration this time
 		return automationconfig.Prometheus{}

@@ -10,6 +10,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"github.com/mongodb/mongodb-kubernetes/api/v1/common"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/podtemplatespec"
@@ -65,7 +66,7 @@ func TestManagedSecurityContext(t *testing.T) {
 
 func TestMongod_Container(t *testing.T) {
 	const mongodbImageMock = "fake-mongodbImage"
-	c := container.New(mongodbContainer(mongodbImageMock, []corev1.VolumeMount{}, mdbv1.NewMongodConfiguration(), false))
+	c := container.New(mongodbContainer(mongodbImageMock, []corev1.VolumeMount{}, common.NewMongodConfiguration(), false))
 
 	t.Run("Has correct Env vars", func(t *testing.T) {
 		assert.Len(t, c.Env, 1)
@@ -83,14 +84,14 @@ func TestMongod_Container(t *testing.T) {
 }
 
 func TestMongoDBAgentCommand(t *testing.T) {
-	cmd := AutomationAgentCommand(false, false, mdbv1.LogLevelInfo, "testfile", 24)
+	cmd := AutomationAgentCommand(false, false, common.LogLevelInfo, "testfile", 24)
 	baseCmd := MongodbUserCommand + BaseAgentCommand() + " -cluster=" + clusterFilePath + automationAgentOptions
 	assert.Len(t, cmd, 3)
 	assert.Equal(t, cmd[0], "/bin/bash")
 	assert.Equal(t, cmd[1], "-c")
 	assert.Equal(t, cmd[2], baseCmd+" -logFile testfile -logLevel INFO -maxLogFileDurationHrs 24")
 
-	cmd = AutomationAgentCommand(false, false, mdbv1.LogLevelInfo, "/dev/stdout", 24)
+	cmd = AutomationAgentCommand(false, false, common.LogLevelInfo, "/dev/stdout", 24)
 	assert.Len(t, cmd, 3)
 	assert.Equal(t, cmd[0], "/bin/bash")
 	assert.Equal(t, cmd[1], "-c")

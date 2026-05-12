@@ -21,13 +21,12 @@ limitations under the License.
 package om
 
 import (
+	"github.com/mongodb/mongodb-kubernetes/api/v1/common"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/user"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
-	"github.com/mongodb/mongodb-kubernetes/api/v1/common"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
-	corev1 "k8s.io/api/core/v1"
+	"k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
@@ -105,12 +104,12 @@ func (in *AppDBSpec) DeepCopyInto(out *AppDBSpec) {
 	}
 	if in.Prometheus != nil {
 		in, out := &in.Prometheus, &out.Prometheus
-		*out = new(v1.Prometheus)
+		*out = new(common.Prometheus)
 		**out = **in
 	}
 	if in.AutomationConfigOverride != nil {
 		in, out := &in.AutomationConfigOverride, &out.AutomationConfigOverride
-		*out = new(v1.AutomationConfigOverride)
+		*out = new(common.AutomationConfigOverride)
 		(*in).DeepCopyInto(*out)
 	}
 	if in.MemberConfig != nil {
@@ -801,7 +800,7 @@ func (in *S3Config) DeepCopyInto(out *S3Config) {
 	}
 	if in.CustomCertificateSecretRefs != nil {
 		in, out := &in.CustomCertificateSecretRefs, &out.CustomCertificateSecretRefs
-		*out = make([]corev1.SecretKeySelector, len(*in))
+		*out = make([]v1.SecretKeySelector, len(*in))
 		for i := range *in {
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
