@@ -174,7 +174,8 @@ func TestEffectiveClusterFor(t *testing.T) {
 
 	t.Run("empty clusterName returns first auto-promoted entry", func(t *testing.T) {
 		s := &MongoDBSearch{Spec: MongoDBSearchSpec{ResourceRequirements: topResources}}
-		got := s.EffectiveClusterFor("")
+		got, err := s.EffectiveClusterFor("")
+		require.NoError(t, err)
 		assert.Same(t, topResources, got.ResourceRequirements)
 	})
 
@@ -186,15 +187,20 @@ func TestEffectiveClusterFor(t *testing.T) {
 				{ClusterName: "cluster-b", ResourceRequirements: clusterBResources},
 			},
 		}}
-		assert.Same(t, topResources, s.EffectiveClusterFor("cluster-a").ResourceRequirements)
-		assert.Same(t, clusterBResources, s.EffectiveClusterFor("cluster-b").ResourceRequirements)
+		gotA, err := s.EffectiveClusterFor("cluster-a")
+		require.NoError(t, err)
+		assert.Same(t, topResources, gotA.ResourceRequirements)
+		gotB, err := s.EffectiveClusterFor("cluster-b")
+		require.NoError(t, err)
+		assert.Same(t, clusterBResources, gotB.ResourceRequirements)
 	})
 
-	t.Run("unknown clusterName returns zero spec", func(t *testing.T) {
+	t.Run("unknown clusterName returns error", func(t *testing.T) {
 		s := &MongoDBSearch{Spec: MongoDBSearchSpec{
 			Clusters: &[]ClusterSpec{{ClusterName: "only"}},
 		}}
-		got := s.EffectiveClusterFor("missing")
+		got, err := s.EffectiveClusterFor("missing")
+		require.Error(t, err)
 		assert.Equal(t, ClusterSpec{}, got)
 	})
 }

@@ -793,25 +793,23 @@ func EffectiveClusters(s *MongoDBSearch) []ClusterSpec {
 	return out
 }
 
-// EffectiveClusterFor returns the cascaded ClusterSpec for a specific cluster
-// name. Returns the auto-promoted single-cluster spec when clusterName is empty
-// (legacy/single-cluster path). Returns a zero ClusterSpec if the named cluster
-// is not in spec.clusters[] (defensive — shouldn't happen in healthy reconcile
-// state but avoids panic).
-func (s *MongoDBSearch) EffectiveClusterFor(clusterName string) ClusterSpec {
+// EffectiveClusterFor returns the cascaded ClusterSpec for the named cluster.
+// Empty clusterName returns the auto-promoted single-cluster entry (legacy path).
+// Returns an error if the named cluster is not found in spec.clusters[].
+func (s *MongoDBSearch) EffectiveClusterFor(clusterName string) (ClusterSpec, error) {
 	effective := EffectiveClusters(s)
 	if clusterName == "" {
 		if len(effective) > 0 {
-			return effective[0]
+			return effective[0], nil
 		}
-		return ClusterSpec{}
+		return ClusterSpec{}, fmt.Errorf("cluster %q not found in spec.clusters", clusterName)
 	}
 	for _, c := range effective {
 		if c.ClusterName == clusterName {
-			return c
+			return c, nil
 		}
 	}
-	return ClusterSpec{}
+	return ClusterSpec{}, fmt.Errorf("cluster %q not found in spec.clusters", clusterName)
 }
 
 func (s *MongoDBSearch) GetReplicas() int {
@@ -831,7 +829,11 @@ func (s *MongoDBSearch) GetReplicas() int {
 // default, "1" if neither is set). clusterName="" returns the single-cluster
 // auto-promoted value (equivalent to GetReplicas).
 func (s *MongoDBSearch) GetReplicasForCluster(clusterName string) int {
-	if r := s.EffectiveClusterFor(clusterName).Replicas; r != nil && *r > 0 {
+	c, err := s.EffectiveClusterFor(clusterName)
+	if err != nil {
+		return 1
+	}
+	if r := c.Replicas; r != nil && *r > 0 {
 		return int(*r)
 	}
 	return 1

@@ -80,7 +80,7 @@ type TLSSourceConfig struct {
 // clusterName selects which entry of EffectiveClusters() is read for the per-cluster
 // Persistence / ResourceRequirements / StatefulSetConfiguration fields. Empty string
 // = legacy single-cluster path (uses the auto-promoted top-level fields).
-func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, clusterName, stsName, namespace, svcName, configMapName string, labels map[string]string, searchImage string, usePerPodConfig bool) statefulset.Modification {
+func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, clusterName, stsName, namespace, svcName, configMapName string, labels map[string]string, searchImage string, usePerPodConfig bool) (statefulset.Modification, error) {
 	tmpVolume := statefulset.CreateVolumeFromEmptyDir("tmp")
 	tmpVolumeMount := statefulset.CreateVolumeMount(tmpVolume.Name, tempVolumePath, statefulset.WithReadOnly(false))
 
@@ -101,7 +101,10 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, clusterName,
 	// Per-cluster spec for THIS cluster, cascaded over the top-level defaults
 	// (REPLACE-if-nil for Persistence / ResourceRequirements /
 	// StatefulSetConfiguration). Empty clusterName == single-cluster path.
-	perCluster := mdbSearch.EffectiveClusterFor(clusterName)
+	perCluster, err := mdbSearch.EffectiveClusterFor(clusterName)
+	if err != nil {
+		return nil, err
+	}
 
 	var persistenceConfig *common.PersistenceConfig
 	if perCluster.Persistence != nil && perCluster.Persistence.SingleConfig != nil {
@@ -140,7 +143,7 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, clusterName,
 				podtemplatespec.WithPodLabels(labels),
 				podtemplatespec.WithVolumes(volumes),
 				podtemplatespec.WithServiceAccount(util.MongoDBServiceAccount),
-				podtemplatespec.WithContainer(MongotContainerName, mongodbSearchContainer(mdbSearch, clusterName, volumeMounts, searchImage, usePerPodConfig)),
+				podtemplatespec.WithContainer(MongotContainerName, mongodbSearchContainer(mdbSearch, perCluster, volumeMounts, searchImage, usePerPodConfig)),
 			),
 		),
 	}
@@ -153,7 +156,7 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, clusterName,
 		))
 	}
 
-	return statefulset.Apply(stsModifications...)
+	return statefulset.Apply(stsModifications...), nil
 }
 
 // PasswordAuthModification returns a statefulset.Modification that mounts the password secret
@@ -224,9 +227,8 @@ func jvmFlags(userJVMFlags []string, resourceRequirements corev1.ResourceRequire
 	return fmt.Sprintf(`--jvm-flags "%s"`, flagsValue)
 }
 
-func mongodbSearchContainer(mdbSearch *searchv1.MongoDBSearch, clusterName string, volumeMounts []corev1.VolumeMount, searchImage string, usePerPodConfig bool) container.Modification {
+func mongodbSearchContainer(mdbSearch *searchv1.MongoDBSearch, perCluster searchv1.ClusterSpec, volumeMounts []corev1.VolumeMount, searchImage string, usePerPodConfig bool) container.Modification {
 	_, containerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
-	perCluster := mdbSearch.EffectiveClusterFor(clusterName)
 	resourceRequirements := createSearchResourceRequirements(perCluster.ResourceRequirements)
 	jvmFlags := jvmFlags(perCluster.JVMFlags, resourceRequirements)
 

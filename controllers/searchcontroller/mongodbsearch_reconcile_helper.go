@@ -91,19 +91,9 @@ type MongoDBSearchReconcileHelper struct {
 	clusterMapping map[string]int
 }
 
+// NewMongoDBSearchReconcileHelper constructs a reconcile helper. Pass nil/nil for memberClusterClients
+// and clusterMapping on single-cluster installs.
 func NewMongoDBSearchReconcileHelper(
-	client kubernetesClient.Client,
-	mdbSearch *searchv1.MongoDBSearch,
-	db SearchSourceDBResource,
-	operatorSearchConfig OperatorSearchConfig,
-) *MongoDBSearchReconcileHelper {
-	return NewMongoDBSearchReconcileHelperWithMembers(client, mdbSearch, db, operatorSearchConfig, nil, nil)
-}
-
-// NewMongoDBSearchReconcileHelperWithMembers constructs a helper with the
-// per-member-cluster client map and persisted clusterMapping populated.
-// Pass nil/empty for single-cluster.
-func NewMongoDBSearchReconcileHelperWithMembers(
 	client kubernetesClient.Client,
 	mdbSearch *searchv1.MongoDBSearch,
 	db SearchSourceDBResource,
@@ -563,11 +553,15 @@ func (r *MongoDBSearchReconcileHelper) applyReconcileUnit(
 		},
 	))
 
+	stsFunc, err := CreateSearchStatefulSetFunc(r.mdbSearch, unit.clusterName, unit.stsName.Name, r.mdbSearch.Namespace, unit.headlessSvc.Name, unit.configMapName.Name, unit.podLabels, mods.searchImage, mods.usePerPodConfig)
+	if err != nil {
+		return nil, nil, err
+	}
 	mutatedSts, err := r.createOrUpdateStatefulSet(ctx,
 		log,
 		unitClient,
 		unit.stsName,
-		CreateSearchStatefulSetFunc(r.mdbSearch, unit.clusterName, unit.stsName.Name, r.mdbSearch.Namespace, unit.headlessSvc.Name, unit.configMapName.Name, unit.podLabels, mods.searchImage, mods.usePerPodConfig),
+		stsFunc,
 		withSearchOwnerLabels(r.mdbSearch, unit.clusterName),
 		mods.passwordAuthSts,
 		configHashModification,
