@@ -221,15 +221,24 @@ fi
 
 if [[ "${KUBECTL_CMD}" != "kubectl" ]] || which kubectl > /dev/null; then
     if [ "${CLUSTER_NAME-}" ]; then
-        # The convention: the cluster name must match the name of kubectl context
-        # We expect this not to be true if kubernetes cluster is still to be created (minikube/kops)
-        if ! "${KUBECTL_CMD}" config use-context "${CLUSTER_NAME}"; then
+        # The convention: the cluster name must match the name of kubectl context.
+        # Tolerated failure modes: kubernetes cluster still to be created
+        # (minikube/kops), or this runs inside the devcontainer at on-create time
+        # before the devc-side kubeconfig has been populated by the orchestrator's
+        # later phases — silence stderr so the kubectl error doesn't look like a
+        # real failure in the log.
+        if ! "${KUBECTL_CMD}" config use-context "${CLUSTER_NAME}" 2>/dev/null; then
             echo "Warning: failed to switch kubectl context to: ${CLUSTER_NAME}"
             echo "Does a matching Kubernetes context exist?"
         fi
 
-        # Setting the default namespace for current context
-        "${KUBECTL_CMD}" config set-context "$("${KUBECTL_CMD}" config current-context)" "--namespace=${NAMESPACE}" &>/dev/null || true
+        # Set the default namespace on the current context if there is one.
+        # Split the read so a failing inner command substitution (no contexts
+        # at all) doesn't trip set -e under newer bash.
+        current_ctx="$("${KUBECTL_CMD}" config current-context 2>/dev/null || true)"
+        if [[ -n "${current_ctx}" ]]; then
+            "${KUBECTL_CMD}" config set-context "${current_ctx}" "--namespace=${NAMESPACE}" &>/dev/null || true
+        fi
 
         # shellcheck disable=SC2153
         echo "Generated context: ${context}, set default kubectl context: ${CLUSTER_NAME}, namespace=${NAMESPACE}"
