@@ -28,26 +28,15 @@ from typing import Callable, Iterable, Optional
 
 from . import orchestrator_state as ostate
 from .domains.compose import project_name_for
-from .domains.network import (
-    DERIVED_ENV_KEYS,
-    NetworkDomain,
-    env_lines_for,
-    stack_params,
-)
-from .errors import (
-    ExternalCommandFailed,
-    ParallelPhaseFailures,
-    StateConflict,
-    ToolMissing,
-    WtCtlError,
-)
+from .domains.network import DERIVED_ENV_KEYS, NetworkDomain, env_lines_for, stack_params
+from .errors import ExternalCommandFailed, ParallelPhaseFailures, StateConflict, ToolMissing, WtCtlError
 from .paths import logs_dir
 from .runner import Runner
-
 
 # ---------------------------------------------------------------------------
 # shared helpers
 # ---------------------------------------------------------------------------
+
 
 def _devc_bash(wt: Path, script: str) -> list[str]:
     """Build the canonical ``devcontainer exec ... bash -lc <script>`` argv.
@@ -59,15 +48,20 @@ def _devc_bash(wt: Path, script: str) -> list[str]:
     <action>`` chain.
     """
     return [
-        "devcontainer", "exec",
-        "--workspace-folder", str(wt),
-        "bash", "-lc", script,
+        "devcontainer",
+        "exec",
+        "--workspace-folder",
+        str(wt),
+        "bash",
+        "-lc",
+        script,
     ]
 
 
 # ---------------------------------------------------------------------------
 # inputs the user passes to `wt-ctl create`
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class CreateInputs:
@@ -77,13 +71,13 @@ class CreateInputs:
 
     branch: str
     branch_dir: str
-    worktree_path: Path           # target worktree root (may not yet exist)
-    main_repo_root: Path           # the main repo (parent of .git/common dir)
-    host_worktree_root: Path       # the worktree the user invoked from; used
-                                   # as PROJECT_DIR for create_worktree.sh so
-                                   # the new worktree is its sibling. Falls
-                                   # back to main_repo_root when outside any
-                                   # worktree.
+    worktree_path: Path  # target worktree root (may not yet exist)
+    main_repo_root: Path  # the main repo (parent of .git/common dir)
+    host_worktree_root: Path  # the worktree the user invoked from; used
+    # as PROJECT_DIR for create_worktree.sh so
+    # the new worktree is its sibling. Falls
+    # back to main_repo_root when outside any
+    # worktree.
     context: Optional[str] = None
     multi_cluster: bool = False
     skip_recreate: bool = False
@@ -128,18 +122,20 @@ class CreateInputs:
 # Phase
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class Phase:
     name: str
-    run: Callable[[], None]                                 # idempotent action
-    input_hash: Callable[[], str]                           # hash inputs
-    skip: Callable[[], bool] = lambda: False                 # static skip (e.g. --skip-evg)
-    log_relpath: Optional[str] = None                       # for state.log
+    run: Callable[[], None]  # idempotent action
+    input_hash: Callable[[], str]  # hash inputs
+    skip: Callable[[], bool] = lambda: False  # static skip (e.g. --skip-evg)
+    log_relpath: Optional[str] = None  # for state.log
 
 
 # ---------------------------------------------------------------------------
 # CreateOrchestrator
 # ---------------------------------------------------------------------------
+
 
 class CreateOrchestrator:
     """End-to-end ``wt-ctl create``."""
@@ -254,9 +250,7 @@ class CreateOrchestrator:
                 # and run_streaming auto-creates log_path.parent. We name
                 # the log per-target so multiple parallel `wt-ctl create`s
                 # don't collide.
-                host_log = (
-                    logs_dir(host) / f"worktree_init-{i.branch_dir}.log"
-                )
+                host_log = logs_dir(host) / f"worktree_init-{i.branch_dir}.log"
                 self.runner.run_streaming(
                     argv,
                     prefix="[worktree] ",
@@ -308,9 +302,7 @@ class CreateOrchestrator:
                     all_lines = env_lines_for(params)
                     key_to_line = {ln.split("=", 1)[0]: ln for ln in all_lines}
                     repair_lines = [
-                        key_to_line[key]
-                        for key in DERIVED_ENV_KEYS
-                        if key in missing_derived and key in key_to_line
+                        key_to_line[key] for key in DERIVED_ENV_KEYS if key in missing_derived and key in key_to_line
                     ]
                     if repair_lines:
                         with env_file.open("a") as fh:
@@ -323,9 +315,7 @@ class CreateOrchestrator:
                 return
             block = NetworkDomain(self.runner, wt).allocate(i.branch_dir)
             if not block.startswith("MCK_DEVC_NET_PREFIX="):
-                raise WtCtlError(
-                    f"NetworkDomain.allocate produced unexpected output: {block!r}"
-                )
+                raise WtCtlError(f"NetworkDomain.allocate produced unexpected output: {block!r}")
             # Append all 5 lines (MCK_DEVC_NET_PREFIX + 4 derived vars)
             # to .devcontainer/.env, preserving any other keys.
             env_file.parent.mkdir(parents=True, exist_ok=True)
@@ -336,7 +326,8 @@ class CreateOrchestrator:
         def _do_evg_prepare() -> None:
             argv = [
                 str(wt / "scripts" / "dev" / "evg_prepare.sh"),
-                "--name", i.resolved_evg_host_name(),
+                "--name",
+                i.resolved_evg_host_name(),
             ]
             if i.multi_cluster:
                 argv.append("--multi")
@@ -450,10 +441,7 @@ class CreateOrchestrator:
             self.runner.run_streaming(
                 _devc_bash(
                     wt,
-                    "set -Eeou pipefail; "
-                    "cd /workspace; "
-                    ". scripts/dev/devenv; "
-                    "make prepare-local-e2e",
+                    "set -Eeou pipefail; " "cd /workspace; " ". scripts/dev/devenv; " "make prepare-local-e2e",
                 ),
                 prefix="[prepare-e2e] ",
                 log_path=log_dir / "prepare_local_e2e.log",
@@ -489,12 +477,14 @@ class CreateOrchestrator:
                 # 172.16.0.0/23 — colliding with sibling worktrees.
                 name="net_allocate",
                 run=_do_net_allocate,
-                input_hash=lambda: _h({
-                    "branch_dir": i.branch_dir,
-                    "missing_derived": _missing_derived_env_keys(
-                        i.worktree_path_or_main() / ".devcontainer" / ".env",
-                    ),
-                }),
+                input_hash=lambda: _h(
+                    {
+                        "branch_dir": i.branch_dir,
+                        "missing_derived": _missing_derived_env_keys(
+                            i.worktree_path_or_main() / ".devcontainer" / ".env",
+                        ),
+                    }
+                ),
                 skip=lambda: i.skip_devcontainer,
             ),
             Phase(
@@ -706,30 +696,27 @@ class CreateOrchestrator:
             err = results[ph.name]
             if err is None:
                 state.set_status(
-                    ph.name, ostate.OK,
+                    ph.name,
+                    ostate.OK,
                     input_hash=ph.input_hash(),
                     log=ph.log_relpath,
                 )
             else:
                 state.set_status(
-                    ph.name, ostate.FAILED,
+                    ph.name,
+                    ostate.FAILED,
                     input_hash=ph.input_hash(),
                     log=ph.log_relpath,
                 )
         if host.is_dir():
             ostate.save(host, state)
 
-        failures = {
-            name: err for name, err in results.items() if err is not None
-        }
+        failures = {name: err for name, err in results.items() if err is not None}
         if failures:
             # Aggregate as ExternalCommandFailed where possible; otherwise
             # raise the first exception. Any non-ECF exceptions get re-raised
             # as the first failure.
-            ecfs = {
-                name: err for name, err in failures.items()
-                if isinstance(err, ExternalCommandFailed)
-            }
+            ecfs = {name: err for name, err in failures.items() if isinstance(err, ExternalCommandFailed)}
             if ecfs:
                 raise ParallelPhaseFailures(failures=ecfs)
             # Single non-ECF failure: just re-raise it.
@@ -794,8 +781,7 @@ class CreateOrchestrator:
             result = self.runner.run(argv, check=False, cwd=wt)
             if result.rc == 0:
                 sys.stderr.write(
-                    f"[prepare-e2e] apiserver ready after "
-                    f"{attempts} probe{'' if attempts == 1 else 's'}\n"
+                    f"[prepare-e2e] apiserver ready after " f"{attempts} probe{'' if attempts == 1 else 's'}\n"
                 )
                 return
             last_stderr = (result.stderr or result.stdout or "").strip()
@@ -819,12 +805,14 @@ class CreateOrchestrator:
 # DeleteOrchestrator
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class DeleteInputs:
     """Opt-in delete targets. Every flag defaults False — ``wt-ctl delete``
     with no flags is a deliberate no-op (the CLI layer prints help). Git
     branches are NEVER deleted; the branch field is metadata only.
     """
+
     branch: str
     branch_dir: str
     worktree_path: Path
@@ -839,10 +827,14 @@ class DeleteInputs:
         return self.evg_host_name or self.branch_dir
 
     def any_target(self) -> bool:
-        return any([
-            self.delete_om, self.delete_devc,
-            self.delete_evg, self.delete_worktree,
-        ])
+        return any(
+            [
+                self.delete_om,
+                self.delete_devc,
+                self.delete_evg,
+                self.delete_worktree,
+            ]
+        )
 
 
 class DeleteOrchestrator:
@@ -859,12 +851,19 @@ class DeleteOrchestrator:
 
     def run(self, *, emit: Callable[[str], None] = lambda _msg: None) -> None:
         i = self.inputs
-        targets = ", ".join(
-            t for t, on in [
-                ("om", i.delete_om), ("devc", i.delete_devc),
-                ("evg", i.delete_evg), ("worktree", i.delete_worktree),
-            ] if on
-        ) or "(none)"
+        targets = (
+            ", ".join(
+                t
+                for t, on in [
+                    ("om", i.delete_om),
+                    ("devc", i.delete_devc),
+                    ("evg", i.delete_evg),
+                    ("worktree", i.delete_worktree),
+                ]
+                if on
+            )
+            or "(none)"
+        )
         emit(
             f"[wt-ctl] delete: branch={i.branch} targets=[{targets}] "
             f"worktree={i.worktree_path} evg_host={i.resolved_evg_host_name()}"
@@ -935,18 +934,13 @@ class DeleteOrchestrator:
             emit(f"[wt-ctl] evg: host list failed rc={res.rc} — skipping termination")
             return
         host_id = _find_host_id_by_name(
-            res.stdout or "[]", self.inputs.resolved_evg_host_name(),
+            res.stdout or "[]",
+            self.inputs.resolved_evg_host_name(),
         )
         if host_id is None:
-            emit(
-                f"[wt-ctl] evg: no running host with displayName "
-                f"'{self.inputs.resolved_evg_host_name()}'"
-            )
+            emit(f"[wt-ctl] evg: no running host with displayName " f"'{self.inputs.resolved_evg_host_name()}'")
             return
-        emit(
-            f"[wt-ctl] evg: terminating "
-            f"'{self.inputs.resolved_evg_host_name()}' (host_id={host_id})"
-        )
+        emit(f"[wt-ctl] evg: terminating " f"'{self.inputs.resolved_evg_host_name()}' (host_id={host_id})")
         try:
             self.runner.run_streaming(
                 ["evergreen", "host", "terminate", "--host", host_id],
@@ -975,8 +969,13 @@ class DeleteOrchestrator:
             try:
                 self.runner.run(
                     [
-                        "git", "-C", str(self.inputs.main_repo_root),
-                        "worktree", "remove", "--force", str(wt),
+                        "git",
+                        "-C",
+                        str(self.inputs.main_repo_root),
+                        "worktree",
+                        "remove",
+                        "--force",
+                        str(wt),
                     ],
                 )
             except (ExternalCommandFailed, ToolMissing, WtCtlError) as exc:
@@ -1005,9 +1004,11 @@ class DeleteOrchestrator:
         except (ExternalCommandFailed, ToolMissing, WtCtlError) as exc:
             emit(f"[wt-ctl] network: release failed (continuing): {exc.render()}")
 
+
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
+
 
 def _is_same_path(a: Path, b: Path) -> bool:
     try:
@@ -1094,6 +1095,7 @@ def _find_host_id_by_name(json_text: str, name: str) -> Optional[str]:
     host whose name matches. Skips terminated/decommissioned hosts.
     """
     import json
+
     try:
         data = json.loads(json_text or "[]")
     except json.JSONDecodeError:
@@ -1113,5 +1115,3 @@ def _find_host_id_by_name(json_text: str, name: str) -> Optional[str]:
         if host_id:
             return host_id
     return None
-
-

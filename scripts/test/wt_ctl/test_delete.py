@@ -20,7 +20,6 @@ from pathlib import Path
 from typing import Callable
 
 from _common import FakePopenFactory  # noqa: E402,F401  (path side-effect only)
-
 from wt_ctl.errors import ExternalCommandFailed  # noqa: E402
 from wt_ctl.orchestrator import DeleteInputs, DeleteOrchestrator  # noqa: E402
 from wt_ctl.runner import CmdResult  # noqa: E402
@@ -29,9 +28,7 @@ from wt_ctl.runner import CmdResult  # noqa: E402
 @dataclass
 class FakeRunner:
     calls: list[list[str]] = field(default_factory=list)
-    handlers: list[tuple[Callable[[list[str]], bool], Callable[[list[str]], CmdResult]]] = field(
-        default_factory=list
-    )
+    handlers: list[tuple[Callable[[list[str]], bool], Callable[[list[str]], CmdResult]]] = field(default_factory=list)
 
     def add(self, match, result: CmdResult) -> None:
         self.handlers.append((match, lambda _argv, r=result: r))
@@ -124,15 +121,19 @@ class DeletePipelineTests(unittest.TestCase):
 
     def _inputs(self, repo: Path, target: Path, **flags) -> DeleteInputs:
         return DeleteInputs(
-            branch="topic/x", branch_dir="topic_x",
-            worktree_path=target, main_repo_root=repo,
+            branch="topic/x",
+            branch_dir="topic_x",
+            worktree_path=target,
+            main_repo_root=repo,
             **flags,
         )
 
     def test_no_targets_is_a_noop(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo, target, runner = _make_fixture(
-                Path(tmp), with_compose_running=True, with_evg_host=True,
+                Path(tmp),
+                with_compose_running=True,
+                with_evg_host=True,
             )
             self._seed_registry("topic_x")
             DeleteOrchestrator(runner, self._inputs(repo, target)).run()
@@ -142,13 +143,18 @@ class DeletePipelineTests(unittest.TestCase):
     def test_all_targets_runs_every_step(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo, target, runner = _make_fixture(
-                Path(tmp), with_compose_running=True, with_evg_host=True,
+                Path(tmp),
+                with_compose_running=True,
+                with_evg_host=True,
             )
             reg = self._seed_registry("topic_x")
             inputs = self._inputs(
-                repo, target,
-                delete_om=True, delete_devc=True,
-                delete_evg=True, delete_worktree=True,
+                repo,
+                target,
+                delete_om=True,
+                delete_devc=True,
+                delete_evg=True,
+                delete_worktree=True,
             )
             DeleteOrchestrator(runner, inputs).run()
             joined = [" ".join(c) for c in runner.calls]
@@ -165,11 +171,14 @@ class DeletePipelineTests(unittest.TestCase):
     def test_only_evg_terminates_just_the_host(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo, target, runner = _make_fixture(
-                Path(tmp), with_compose_running=True, with_evg_host=True,
+                Path(tmp),
+                with_compose_running=True,
+                with_evg_host=True,
             )
             reg = self._seed_registry("topic_x")
             DeleteOrchestrator(
-                runner, self._inputs(repo, target, delete_evg=True),
+                runner,
+                self._inputs(repo, target, delete_evg=True),
             ).run()
             joined = [" ".join(c) for c in runner.calls]
             self.assertTrue(any("evergreen host terminate" in j for j in joined))
@@ -182,10 +191,13 @@ class DeletePipelineTests(unittest.TestCase):
     def test_only_devc_runs_compose_down_only(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo, target, runner = _make_fixture(
-                Path(tmp), with_compose_running=True, with_evg_host=True,
+                Path(tmp),
+                with_compose_running=True,
+                with_evg_host=True,
             )
             DeleteOrchestrator(
-                runner, self._inputs(repo, target, delete_devc=True),
+                runner,
+                self._inputs(repo, target, delete_devc=True),
             ).run()
             joined = [" ".join(c) for c in runner.calls]
             self.assertTrue(any("docker compose -p topic_x_devcontainer down" in j for j in joined))
@@ -195,11 +207,14 @@ class DeletePipelineTests(unittest.TestCase):
     def test_worktree_target_releases_prefix(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo, target, runner = _make_fixture(
-                Path(tmp), with_compose_running=False, with_evg_host=False,
+                Path(tmp),
+                with_compose_running=False,
+                with_evg_host=False,
             )
             reg = self._seed_registry("topic_x")
             DeleteOrchestrator(
-                runner, self._inputs(repo, target, delete_worktree=True),
+                runner,
+                self._inputs(repo, target, delete_worktree=True),
             ).run()
             joined = [" ".join(c) for c in runner.calls]
             self.assertTrue(any("worktree remove --force" in j for j in joined))
@@ -209,10 +224,13 @@ class DeletePipelineTests(unittest.TestCase):
     def test_only_om_runs_om_clean(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo, target, runner = _make_fixture(
-                Path(tmp), with_compose_running=False, with_evg_host=False,
+                Path(tmp),
+                with_compose_running=False,
+                with_evg_host=False,
             )
             DeleteOrchestrator(
-                runner, self._inputs(repo, target, delete_om=True),
+                runner,
+                self._inputs(repo, target, delete_om=True),
             ).run()
             joined = [" ".join(c) for c in runner.calls]
             self.assertTrue(any("delete_om_projects.sh" in j for j in joined))
@@ -225,21 +243,26 @@ class DeletePipelineTests(unittest.TestCase):
         """
         with tempfile.TemporaryDirectory() as tmp:
             repo, target, runner = _make_fixture(
-                Path(tmp), with_compose_running=False, with_evg_host=False,
+                Path(tmp),
+                with_compose_running=False,
+                with_evg_host=False,
             )
             for f in (target / "scripts" / "dev").glob("*"):
                 f.unlink()
             (target / "scripts" / "dev").rmdir()
             reg = self._seed_registry("topic_x")
             DeleteOrchestrator(
-                runner, self._inputs(repo, target, delete_worktree=True),
+                runner,
+                self._inputs(repo, target, delete_worktree=True),
             ).run()
             self.assertNotIn("topic_x", reg.read_text())
 
     def test_failure_in_one_step_does_not_abort_pipeline(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo, target, runner = _make_fixture(
-                Path(tmp), with_compose_running=True, with_evg_host=True,
+                Path(tmp),
+                with_compose_running=True,
+                with_evg_host=True,
             )
 
             def _term(_argv):
@@ -256,9 +279,12 @@ class DeletePipelineTests(unittest.TestCase):
             DeleteOrchestrator(
                 runner,
                 self._inputs(
-                    repo, target,
-                    delete_om=True, delete_devc=True,
-                    delete_evg=True, delete_worktree=True,
+                    repo,
+                    target,
+                    delete_om=True,
+                    delete_devc=True,
+                    delete_evg=True,
+                    delete_worktree=True,
                 ),
             ).run()
             joined = [" ".join(c) for c in runner.calls]

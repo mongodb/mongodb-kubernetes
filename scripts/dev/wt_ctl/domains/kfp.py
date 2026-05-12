@@ -57,7 +57,6 @@ from typing import Optional
 from ..errors import WtCtlError
 from ..runner import Runner
 
-
 KFP_HOST = "127.0.0.1"
 KFP_HTTP_PORT = 11616
 KFP_DNS_PORT = 11617
@@ -75,8 +74,9 @@ class _BinaryResolution:
     path ``resolve_binary()`` returned; the other fields are what each
     step saw, for use in the error trace.
     """
+
     chosen: Path
-    env_value: str            # "" when $MCK_KFP_BINARY is unset/empty
+    env_value: str  # "" when $MCK_KFP_BINARY is unset/empty
     path_lookup: Optional[Path]  # None when k8s-service-proxy not on PATH
 
     def trace(self) -> str:
@@ -116,7 +116,9 @@ def resolve_binary_with_trace(
     else:
         chosen = LEGACY_BINARY
     return _BinaryResolution(
-        chosen=chosen, env_value=env_value, path_lookup=path_lookup,
+        chosen=chosen,
+        env_value=env_value,
+        path_lookup=path_lookup,
     )
 
 
@@ -132,6 +134,7 @@ def binary_resolution_trace() -> str:
     wrapper for callers that only need the trace string.
     """
     return resolve_binary_with_trace().trace()
+
 
 LISTEN_PROBE_TIMEOUT_S = 0.25
 HEALTH_PROBE_TIMEOUT_S = 1.0
@@ -204,9 +207,7 @@ class KfpDomain:
         ``ok``; otherwise ``None``. Never raises.
         """
         try:
-            with urllib.request.urlopen(
-                KFP_HEALTH_URL, timeout=HEALTH_PROBE_TIMEOUT_S
-            ) as resp:
+            with urllib.request.urlopen(KFP_HEALTH_URL, timeout=HEALTH_PROBE_TIMEOUT_S) as resp:
                 if resp.status != 200:
                     return None
                 body = resp.read().decode("utf-8", errors="replace").strip()
@@ -295,8 +296,7 @@ class KfpDomain:
         tail = _tail(self.log_file, 20)
         raise KfpStartFailed(
             f"kfp /healthz did not respond within {START_HEALTH_DEADLINE_S:g}s "
-            f"(pid={new_pid}, log={self.log_file})"
-            + (f"\n--- log tail ---\n{tail}" if tail else "")
+            f"(pid={new_pid}, log={self.log_file})" + (f"\n--- log tail ---\n{tail}" if tail else "")
         )
 
     def register(self, kubeconfig_path: Path, *, replace: bool = False) -> str:
@@ -329,8 +329,7 @@ class KfpDomain:
             raise WtCtlError(f"kubeconfig not found: {kubeconfig_path}")
         if not self.is_listening():
             raise WtCtlError(
-                f"kfp daemon not listening at {KFP_HOST}:{KFP_HTTP_PORT}; "
-                f"start it first with `wt-ctl kfp start`"
+                f"kfp daemon not listening at {KFP_HOST}:{KFP_HTTP_PORT}; " f"start it first with `wt-ctl kfp start`"
             )
         body = kubeconfig_path.read_bytes()
         method = "PUT" if replace else "PATCH"
@@ -343,9 +342,7 @@ class KfpDomain:
             with urllib.request.urlopen(req, timeout=10) as resp:
                 return resp.read().decode("utf-8", errors="replace")
         except urllib.error.HTTPError as exc:
-            raise WtCtlError(
-                f"kfp {method.lower()} failed: HTTP {exc.code} {exc.reason}"
-            ) from exc
+            raise WtCtlError(f"kfp {method.lower()} failed: HTTP {exc.code} {exc.reason}") from exc
         except (urllib.error.URLError, OSError) as exc:
             raise WtCtlError(f"kfp {method.lower()} failed: {exc}") from exc
 
@@ -359,9 +356,7 @@ class KfpDomain:
         HTTP call fails.
         """
         if not self.is_listening():
-            raise WtCtlError(
-                f"kfp daemon not listening at {KFP_HOST}:{KFP_HTTP_PORT}"
-            )
+            raise WtCtlError(f"kfp daemon not listening at {KFP_HOST}:{KFP_HTTP_PORT}")
         req = urllib.request.Request(
             f"http://{KFP_HOST}:{KFP_HTTP_PORT}/kubeconfig",
             method="DELETE",
@@ -371,9 +366,7 @@ class KfpDomain:
                 # 204 No Content on success
                 _ = resp.read()
         except urllib.error.HTTPError as exc:
-            raise WtCtlError(
-                f"kfp delete failed: HTTP {exc.code} {exc.reason}"
-            ) from exc
+            raise WtCtlError(f"kfp delete failed: HTTP {exc.code} {exc.reason}") from exc
         except (urllib.error.URLError, OSError) as exc:
             raise WtCtlError(f"kfp delete failed: {exc}") from exc
 
@@ -416,6 +409,7 @@ class KfpDomain:
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
+
 
 def _pid_alive(pid: int) -> bool:
     if pid <= 0:

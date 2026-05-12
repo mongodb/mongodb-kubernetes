@@ -17,44 +17,20 @@ from .domains.devcontainer import DevcontainerDomain
 from .domains.evg import EvgDomain
 from .domains.kfp import KfpDomain, KfpStartFailed
 from .domains.kubeconfig import KubeconfigDomain
-from .domains.network import (
-    NetworkDomain,
-    gost_proxy_for,
-    parse_devc_env,
-    subnet_for,
-)
+from .domains.network import NetworkDomain, gost_proxy_for, parse_devc_env, subnet_for
 from .domains.omprojects import OmDomain
 from .domains.worktree import WorktreeDomain
-from .errors import (
-    ExternalCommandFailed,
-    NotInWorktree,
-    ParallelPhaseFailures,
-    StateConflict,
-    ToolMissing,
-    WtCtlError,
-)
+from .errors import ExternalCommandFailed, NotInWorktree, ParallelPhaseFailures, StateConflict, ToolMissing, WtCtlError
 from .header import emit_banner
-from .orchestrator import (
-    CreateInputs,
-    CreateOrchestrator,
-    DeleteInputs,
-    DeleteOrchestrator,
-)
+from .orchestrator import CreateInputs, CreateOrchestrator, DeleteInputs, DeleteOrchestrator
 from .paths import WorktreeRefs, logs_dir, resolve_worktree
 from .runner import Runner
-from .state import (
-    GlobalStatus,
-    KfpHostState,
-    NetState,
-    OrphanRegistration,
-    WorktreeRow,
-    WorktreeStatus,
-)
-
+from .state import GlobalStatus, KfpHostState, NetState, OrphanRegistration, WorktreeRow, WorktreeStatus
 
 # ---------------------------------------------------------------------------
 # top-level argparse
 # ---------------------------------------------------------------------------
+
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
@@ -102,24 +78,33 @@ def build_parser() -> argparse.ArgumentParser:
     sd.add_argument("branch", nargs="?")
     # Opt-in target flags. Without any of these, the command is a no-op.
     sd.add_argument(
-        "--all", dest="delete_all", action="store_true",
+        "--all",
+        dest="delete_all",
+        action="store_true",
         help="select every target below; combine with --keep-* to opt out.",
     )
     sd.add_argument(
-        "--evg", dest="delete_evg", action="store_true",
+        "--evg",
+        dest="delete_evg",
+        action="store_true",
         help="terminate the EVG host pinned to this worktree.",
     )
     sd.add_argument(
-        "--devc", dest="delete_devc", action="store_true",
+        "--devc",
+        dest="delete_devc",
+        action="store_true",
         help="docker compose down the devcontainer stack for this worktree.",
     )
     sd.add_argument(
-        "--worktree", dest="delete_worktree", action="store_true",
-        help="git-remove the worktree dir + release the net-prefix entry. "
-             "(Branches are never deleted.)",
+        "--worktree",
+        dest="delete_worktree",
+        action="store_true",
+        help="git-remove the worktree dir + release the net-prefix entry. " "(Branches are never deleted.)",
     )
     sd.add_argument(
-        "--om", dest="delete_om", action="store_true",
+        "--om",
+        dest="delete_om",
+        action="store_true",
         help="clean cloud-qa OM projects scoped to this worktree.",
     )
     # Opt-out modifiers (only meaningful with --all).
@@ -148,8 +133,7 @@ def build_parser() -> argparse.ArgumentParser:
     sn_sub.add_parser("list")
     sn_pr = sn_sub.add_parser("prune")
     sn_pr.add_argument("--dry-run", action="store_true")
-    sn_pr.add_argument("--networks", action="store_true",
-                       help="also remove orphan docker networks (172.[16-31].x).")
+    sn_pr.add_argument("--networks", action="store_true", help="also remove orphan docker networks (172.[16-31].x).")
     sn_rl = sn_sub.add_parser("release")
     sn_rl.add_argument("branch", nargs="?")
     sn_rl.add_argument("--dry-run", action="store_true")
@@ -259,6 +243,7 @@ def build_parser() -> argparse.ArgumentParser:
 # dispatch
 # ---------------------------------------------------------------------------
 
+
 def main(argv: list[str]) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -353,6 +338,7 @@ def _dispatch(args: argparse.Namespace, runner: Runner, refs: Optional[WorktreeR
 # ---------------------------------------------------------------------------
 # status
 # ---------------------------------------------------------------------------
+
 
 def cmd_status(runner: Runner, refs: WorktreeRefs, args: argparse.Namespace) -> int:
     wt_dom = WorktreeDomain(runner)
@@ -607,6 +593,7 @@ def _resolve_main_repo(runner: Runner) -> Path:
 # logs
 # ---------------------------------------------------------------------------
 
+
 def cmd_logs(refs: WorktreeRefs, args: argparse.Namespace) -> int:
     phase = args.phase or "build"
     log_path = logs_dir(refs.worktree_root) / f"{phase}.log"
@@ -616,9 +603,7 @@ def cmd_logs(refs: WorktreeRefs, args: argparse.Namespace) -> int:
         if legacy.is_file():
             log_path = legacy
         else:
-            sys.stderr.write(
-                f"[wt-ctl] no log at {log_path} (and no legacy dc_{phase}.log)\n"
-            )
+            sys.stderr.write(f"[wt-ctl] no log at {log_path} (and no legacy dc_{phase}.log)\n")
             return 0
     if args.follow:
         # Use exec_replace so Ctrl-C reaches `tail` directly.
@@ -632,6 +617,7 @@ def cmd_logs(refs: WorktreeRefs, args: argparse.Namespace) -> int:
 # network primitives
 # ---------------------------------------------------------------------------
 
+
 def cmd_network(runner: Runner, refs: WorktreeRefs, args: argparse.Namespace) -> int:
     nw = NetworkDomain(runner, refs.worktree_root)
     sub = args.net_cmd or "list"
@@ -642,10 +628,12 @@ def cmd_network(runner: Runner, refs: WorktreeRefs, args: argparse.Namespace) ->
         sys.stdout.write(nw.list_raw())
         return 0
     if sub == "prune":
-        sys.stdout.write(nw.prune(
-            dry_run=args.dry_run,
-            prune_networks=getattr(args, "networks", False),
-        ))
+        sys.stdout.write(
+            nw.prune(
+                dry_run=args.dry_run,
+                prune_networks=getattr(args, "networks", False),
+            )
+        )
         return 0
     if sub == "release":
         target = args.branch or refs.branch_dir
@@ -662,6 +650,7 @@ def cmd_network(runner: Runner, refs: WorktreeRefs, args: argparse.Namespace) ->
 # ---------------------------------------------------------------------------
 # evg primitives
 # ---------------------------------------------------------------------------
+
 
 def cmd_evg(runner: Runner, refs: WorktreeRefs, args: argparse.Namespace) -> int:
     ev = EvgDomain(runner, refs.worktree_root)
@@ -722,6 +711,7 @@ def _evg_state_pairs(st):
 # kfp primitives
 # ---------------------------------------------------------------------------
 
+
 def cmd_kfp(runner: Runner, args: argparse.Namespace) -> int:
     kfp = KfpDomain(runner)
     sub = args.kfp_cmd or "status"
@@ -730,14 +720,9 @@ def cmd_kfp(runner: Runner, args: argparse.Namespace) -> int:
         if st.listening:
             pid_str = f"pid={st.pid}" if st.pid is not None else "pid=?"
             health = st.health or "unreachable"
-            print(
-                f"running    {pid_str}    "
-                f"http={st.http_endpoint}    health={health}"
-            )
+            print(f"running    {pid_str}    " f"http={st.http_endpoint}    health={health}")
             return 0
-        print(
-            f"not_running    (start: scripts/dev/wt-ctl kfp start)"
-        )
+        print(f"not_running    (start: scripts/dev/wt-ctl kfp start)")
         return 0
     if sub == "start":
         try:
@@ -768,8 +753,7 @@ def cmd_kfp(runner: Runner, args: argparse.Namespace) -> int:
                 wt = resolve_worktree(runner, Path.cwd())
             except NotInWorktree:
                 sys.stderr.write(
-                    "[wt-ctl] kfp register: not inside a worktree; "
-                    "pass --kubeconfig PATH explicitly.\n"
+                    "[wt-ctl] kfp register: not inside a worktree; " "pass --kubeconfig PATH explicitly.\n"
                 )
                 return 2
             kc_path = wt.worktree_root / ".generated" / "current.kubeconfig"
@@ -791,6 +775,7 @@ def cmd_kfp(runner: Runner, args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 # om primitives
 # ---------------------------------------------------------------------------
+
 
 def cmd_om(runner: Runner, refs: WorktreeRefs, args: argparse.Namespace) -> int:
     om = OmDomain(runner, refs.worktree_root)
@@ -814,6 +799,7 @@ def cmd_om(runner: Runner, refs: WorktreeRefs, args: argparse.Namespace) -> int:
 # ctx primitives
 # ---------------------------------------------------------------------------
 
+
 def cmd_ctx(runner: Runner, refs: WorktreeRefs, args: argparse.Namespace) -> int:
     cx = ContextDomain(runner)
     sub = args.ctx_cmd or "show"
@@ -834,6 +820,7 @@ def cmd_ctx(runner: Runner, refs: WorktreeRefs, args: argparse.Namespace) -> int
 # ---------------------------------------------------------------------------
 # wt primitives
 # ---------------------------------------------------------------------------
+
 
 def cmd_wt(runner: Runner, refs: WorktreeRefs, args: argparse.Namespace) -> int:
     wd = WorktreeDomain(runner)
@@ -856,9 +843,7 @@ def cmd_wt(runner: Runner, refs: WorktreeRefs, args: argparse.Namespace) -> int:
         return 0
     if sub == "rm":
         target = (
-            refs.worktree_root
-            if not args.branch
-            else _find_worktree_by_branch(wd, refs.main_repo_root, args.branch)
+            refs.worktree_root if not args.branch else _find_worktree_by_branch(wd, refs.main_repo_root, args.branch)
         )
         if target is None:
             sys.stderr.write(f"[wt-ctl] error: no worktree for branch '{args.branch}'\n")
@@ -883,6 +868,7 @@ def _find_worktree_by_branch(wd: WorktreeDomain, repo: Path, branch: str) -> Opt
 # ---------------------------------------------------------------------------
 # create / delete (Phase 2)
 # ---------------------------------------------------------------------------
+
 
 def cmd_create(runner: Runner, refs: Optional[WorktreeRefs], args: argparse.Namespace) -> int:
     branch: str = args.branch
@@ -919,8 +905,7 @@ def cmd_create(runner: Runner, refs: Optional[WorktreeRefs], args: argparse.Name
     except WtCtlError as exc:
         # Record the failing phase + resume hint for the user.
         sys.stderr.write(
-            f"[wt-ctl] error: {exc.render()}\n"
-            f"[wt-ctl] resume with: scripts/dev/wt-ctl create {branch} --resume\n"
+            f"[wt-ctl] error: {exc.render()}\n" f"[wt-ctl] resume with: scripts/dev/wt-ctl create {branch} --resume\n"
         )
         return getattr(exc, "exit_code", 1)
     return 0
@@ -951,9 +936,7 @@ def cmd_delete(runner: Runner, refs: Optional[WorktreeRefs], args: argparse.Name
     branch: Optional[str] = args.branch
     if not branch:
         if refs is None:
-            sys.stderr.write(
-                "[wt-ctl] error: no branch given and not inside a worktree.\n"
-            )
+            sys.stderr.write("[wt-ctl] error: no branch given and not inside a worktree.\n")
             return 2
         branch = refs.branch
     if not branch or branch == "HEAD":
@@ -1007,28 +990,19 @@ def _ensure_host_kfp(runner: Runner, skip_evg: bool) -> None:
     create. We log clearly so the user knows what happened.
     """
     if skip_evg:
-        sys.stderr.write(
-            "[wt-ctl] kfp pre-flight: skipped (--skip-evg)\n"
-        )
+        sys.stderr.write("[wt-ctl] kfp pre-flight: skipped (--skip-evg)\n")
         return
     kfp = KfpDomain(runner)
     if kfp.is_listening():
         sys.stderr.write("[wt-ctl] kfp pre-flight: already running\n")
         return
-    sys.stderr.write(
-        "[wt-ctl] kfp pre-flight: not listening, starting on-host daemon\n"
-    )
+    sys.stderr.write("[wt-ctl] kfp pre-flight: not listening, starting on-host daemon\n")
     try:
         pid = kfp.start()
     except KfpStartFailed as exc:
-        sys.stderr.write(
-            f"[wt-ctl] kfp pre-flight: WARN start failed (continuing best-effort): "
-            f"{exc.render()}\n"
-        )
+        sys.stderr.write(f"[wt-ctl] kfp pre-flight: WARN start failed (continuing best-effort): " f"{exc.render()}\n")
         return
-    sys.stderr.write(
-        f"[wt-ctl] kfp pre-flight: started pid={pid}\n"
-    )
+    sys.stderr.write(f"[wt-ctl] kfp pre-flight: started pid={pid}\n")
 
 
 def _resolve_create_paths(
@@ -1055,6 +1029,7 @@ def _resolve_create_paths(
 # status integration with orchestrator state
 # ---------------------------------------------------------------------------
 
+
 def _orchestrator_status_line(worktree_root: Path, branch: str) -> Optional[str]:
     """If ``.generated/wt-ctl/state.json`` exists and any phase is non-OK,
     return a one-liner the status renderer can append; otherwise None.
@@ -1067,7 +1042,8 @@ def _orchestrator_status_line(worktree_root: Path, branch: str) -> Optional[str]
         return None
     failed = next(
         (
-            name for name, rec in st.phases.items()
+            name
+            for name, rec in st.phases.items()
             if rec.status in (orchestrator_state.FAILED, orchestrator_state.IN_PROGRESS)
         ),
         None,
@@ -1075,20 +1051,17 @@ def _orchestrator_status_line(worktree_root: Path, branch: str) -> Optional[str]
     if not failed:
         # Find first non-OK to surface "incomplete" state.
         non_ok = next(
-            (name for name in orchestrator_state.PHASE_ORDER
-             if (rec := st.phases.get(name)) is None or rec.status != orchestrator_state.OK),
+            (
+                name
+                for name in orchestrator_state.PHASE_ORDER
+                if (rec := st.phases.get(name)) is None or rec.status != orchestrator_state.OK
+            ),
             None,
         )
         if non_ok is None:
             return None
-        return (
-            f"last_create  incomplete at {non_ok}  "
-            f"(resume: wt-ctl create {branch} --resume)"
-        )
-    return (
-        f"last_create  failed at {failed}  "
-        f"(resume: wt-ctl create {branch} --resume)"
-    )
+        return f"last_create  incomplete at {non_ok}  " f"(resume: wt-ctl create {branch} --resume)"
+    return f"last_create  failed at {failed}  " f"(resume: wt-ctl create {branch} --resume)"
 
 
 def _read_context_env(worktree_root: Path) -> dict[str, str]:
