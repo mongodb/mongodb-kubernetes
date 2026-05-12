@@ -62,7 +62,15 @@ install_uv
 ensure_required_python
 
 echo "Creating venv with Python ${PYTHON_VERSION} using uv..."
-uv venv venv --python "${PYTHON_VERSION}" --clear
+# When venv/ is itself a mount point (devcontainer named volume), `uv --clear`
+# can't unlink the directory itself. Wipe the contents in place and let uv
+# rebuild without --clear.
+if [[ -d venv ]] && mountpoint -q venv 2>/dev/null; then
+    find venv -mindepth 1 -delete 2>/dev/null || true
+    uv venv venv --python "${PYTHON_VERSION}"
+else
+    uv venv venv --python "${PYTHON_VERSION}" --clear
+fi
 
 # uv's python build statically link OpenSSL and that might get confused by the system-wide OpenSSL config.
 # see https://github.com/astral-sh/python-build-standalone/issues/999
