@@ -228,7 +228,7 @@ func TestPVCOverride(t *testing.T) {
 	}
 
 	t.Setenv(images.NonStaticEnterpriseImageEnv, "some-registry")
-	t.Setenv(images.InitDatabaseImageRepoEnv, "some-registry")
+	t.Setenv(images.InitDatabaseImageUrlEnv, "some-registry")
 
 	for _, tt := range tests {
 		mdbm := getMultiClusterMongoDB()

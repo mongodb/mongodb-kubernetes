@@ -17,9 +17,9 @@ const (
 	AgentImageEnv     = "AGENT_IMAGE"
 
 	// Enterprise operator images
-	OpsManagerImageRepoEnv      = "OPS_MANAGER_IMAGE_REPOSITORY"
-	InitOpsManagerImageRepoEnv  = "INIT_OPS_MANAGER_IMAGE_REPOSITORY"
-	InitDatabaseImageRepoEnv    = "INIT_DATABASE_IMAGE_REPOSITORY"
+	OpsManagerImageUrlEnv       = "OPS_MANAGER_IMAGE_REPOSITORY"
+	InitOpsManagerImageUrlEnv   = "INIT_OPS_MANAGER_IMAGE_REPOSITORY"
+	InitDatabaseImageUrlEnv     = "INIT_DATABASE_IMAGE_REPOSITORY"
 	NonStaticEnterpriseImageEnv = "MONGODB_ENTERPRISE_DATABASE_IMAGE"
 	AgentDebugImageEnv          = "MDB_AGENT_DEBUG_IMAGE"
 	EnvoyImageEnv               = "MDB_ENVOY_IMAGE"
@@ -27,8 +27,8 @@ const (
 	SearchRepoUrlEnv            = "MDB_SEARCH_REPO_URL"
 
 	// Agent image repository
-	AgentImageRepoEnv     = "MDB_AGENT_IMAGE_REPOSITORY"
-	AgentImageRepoDefault = "quay.io/mongodb/mongodb-agent"
+	AgentImageUrlEnv     = "MDB_AGENT_IMAGE_REPOSITORY"
+	AgentImageUrlDefault = "quay.io/mongodb/mongodb-agent"
 
 	// Official image name strings (used for detection, not env var names)
 	OfficialEnterpriseServerImage = "mongodb-enterprise-server"
@@ -86,12 +86,12 @@ func LoadImageUrlsFromEnv() ImageUrls {
 		//     and it will be used in container for MongoDB workfloads
 		MongodbRepoUrlEnv:          "",
 		MongodbImageEnv:            "",
-		InitOpsManagerImageRepoEnv: "",
-		OpsManagerImageRepoEnv:     "",
-		InitDatabaseImageRepoEnv:   "",
+		InitOpsManagerImageUrlEnv:   "",
+		OpsManagerImageUrlEnv:       "",
+		InitDatabaseImageUrlEnv:     "",
 		NonStaticEnterpriseImageEnv: "",
-		AgentImageEnv:              "",
-		AgentImageRepoEnv:          AgentImageRepoDefault,
+		AgentImageEnv:               "",
+		AgentImageUrlEnv:            AgentImageUrlDefault,
 	} {
 		imageUrls[imageName] = env.ReadOrDefault(imageName, defaultValue) // nolint:forbidigo
 	}

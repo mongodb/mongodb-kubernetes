@@ -70,8 +70,9 @@ const (
 	EnvVarLogLevel  = "LOG_LEVEL"
 
 	// EnvVarDebug is used to decide whether we want to start the agent in debug mode
-	EnvVarDebug        = "MDB_AGENT_DEBUG"
-	EnvVarAgentVersion = "MDB_AGENT_VERSION"
+	EnvVarDebug            = "MDB_AGENT_DEBUG"
+	EnvVarDebugImage       = "MDB_AGENT_DEBUG_IMAGE"
+	EnvVarAgentVersion     = "MDB_AGENT_VERSION"
 	EnvVarMultiClusterMode = "MULTI_CLUSTER_MODE"
 
 	// EnvVarSSLRequireValidMMSCertificates bla bla
@@ -181,9 +182,13 @@ const (
 	// Operator Env configuration properties. Please note that when adding environment variables to this list,
 	// make sure you append them to util.go:PrintEnvVars function's `printableEnvPrefixes` if you need the
 	// new variable to be printed at operator start.
-	InitOpsManagerVersion          = "INIT_OPS_MANAGER_VERSION"
-	OpsManagerPullPolicy           = "OPS_MANAGER_IMAGE_PULL_POLICY"
-	AutomationAgentImagePullPolicy = "IMAGE_PULL_POLICY"
+	OpsManagerImageUrl               = "OPS_MANAGER_IMAGE_REPOSITORY"
+	InitOpsManagerImageUrl           = "INIT_OPS_MANAGER_IMAGE_REPOSITORY"
+	InitOpsManagerVersion            = "INIT_OPS_MANAGER_VERSION"
+	InitDatabaseImageUrlEnv          = "INIT_DATABASE_IMAGE_REPOSITORY"
+	OpsManagerPullPolicy             = "OPS_MANAGER_IMAGE_PULL_POLICY"
+	NonStaticDatabaseEnterpriseImage = "MONGODB_ENTERPRISE_DATABASE_IMAGE"
+	AutomationAgentImagePullPolicy   = "IMAGE_PULL_POLICY"
 	ImagePullSecrets                 = "IMAGE_PULL_SECRETS" //nolint
 	OmOperatorEnv                    = "OPERATOR_ENV"
 	MemberListConfigMapName          = OperatorName + "-member-list"
@@ -194,7 +199,8 @@ const (
 	CurrentNamespace                 = "NAMESPACE"
 	OperatorNameEnv                  = "OPERATOR_NAME"
 	WatchNamespace                   = "WATCH_NAMESPACE"
-	OpsManagerMonitorAppDB = "OPS_MANAGER_MONITOR_APPDB"
+	OpsManagerMonitorAppDB           = "OPS_MANAGER_MONITOR_APPDB"
+	MongodbCommunityAgentImageEnv    = "MDB_COMMUNITY_AGENT_IMAGE"
 
 	MdbWebhookRegisterConfigurationEnv = "MDB_WEBHOOK_REGISTER_CONFIGURATION"
 	MdbWebhookPortEnv                  = "MDB_WEBHOOK_PORT"
@@ -203,8 +209,10 @@ const (
 	MaxConcurrentReconcilesEnv = "MDB_MAX_CONCURRENT_RECONCILES"
 
 	// Search environment variables
+	SearchRepoURLEnv = "MDB_SEARCH_REPO_URL"
 	SearchNameEnv    = "MDB_SEARCH_NAME"
 	SearchVersionEnv = "MDB_SEARCH_VERSION"
+	EnvoyImageEnv    = "MDB_ENVOY_IMAGE"
 
 	// Different default configuration values
 	DefaultMongodStorageSize           = "16G"
@@ -314,6 +322,10 @@ const (
 	MethodNotAllowed            = "405 (Method Not Allowed)"
 
 	RetryTimeSec = 10
+
+	DeprecatedImageAppdbUbiUrl = "mongodb-enterprise-appdb-database-ubi"
+
+	OfficialEnterpriseServerImageUrl = "mongodb-enterprise-server"
 
 	MdbAppdbAssumeOldFormat = "MDB_APPDB_ASSUME_OLD_FORMAT"
 

@@ -24,12 +24,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/scale"
 )
 
-const (
-	MongoDBAssumeEnterpriseEnv = "MDB_ASSUME_ENTERPRISE"
-	AgentName                  = "mongodb-agent"
-	MongodbName                = "mongod"
-)
-
+// MCO only
 const (
 	VersionUpgradeHookImageEnv   = "VERSION_UPGRADE_HOOK_IMAGE"
 	ReadinessProbeImageEnv       = "READINESS_PROBE_IMAGE"
@@ -39,6 +34,9 @@ const (
 )
 
 const (
+	AgentName   = "mongodb-agent"
+	MongodbName = "mongod"
+
 	DefaultImageType = "ubi8"
 
 	versionUpgradeHookName            = "mongod-posthook"
@@ -51,9 +49,10 @@ const (
 
 	OfficialMongodbEnterpriseServerImageName = "mongodb-enterprise-server"
 
-	headlessAgentEnv    = "HEADLESS_AGENT"
-	podNamespaceEnv     = "POD_NAMESPACE"
-	automationConfigEnv = "AUTOMATION_CONFIG_MAP"
+	headlessAgentEnv           = "HEADLESS_AGENT"
+	podNamespaceEnv            = "POD_NAMESPACE"
+	automationConfigEnv        = "AUTOMATION_CONFIG_MAP"
+	MongoDBAssumeEnterpriseEnv = "MDB_ASSUME_ENTERPRISE"
 
 	automationMongodConfFileName = "automation-mongod.conf"
 	keyfileFilePath              = "/var/lib/mongodb-mms-automation/authentication/keyfile"

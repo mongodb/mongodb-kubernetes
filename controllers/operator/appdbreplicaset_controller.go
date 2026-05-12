@@ -589,7 +589,7 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 	}
 
 	appdbOpts := construct.AppDBStatefulSetOptions{
-		InitAppDBImage: images.ContainerImage(r.imageUrls, images.InitDatabaseImageRepoEnv, r.initDatabaseVersion),
+		InitAppDBImage: images.ContainerImage(r.imageUrls, images.InitDatabaseImageUrlEnv, r.initDatabaseVersion),
 		MongodbImage:   images.GetOfficialImage(r.imageUrls, opsManager.Spec.AppDB.Version, opsManager.GetAnnotations()),
 	}
 	if architectures.IsRunningStaticArchitecture(opsManager.Annotations) {
@@ -603,7 +603,7 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 				return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("Failed to get agent version: %w. Please use spec.statefulSet to supply proper Agent version", err)), log)
 			}
 
-			appdbOpts.AgentImage = images.ContainerImage(r.imageUrls, images.AgentImageRepoEnv, agentVersion)
+			appdbOpts.AgentImage = images.ContainerImage(r.imageUrls, images.AgentImageUrlEnv, agentVersion)
 		}
 	} else {
 		// instead of using a hard-coded monitoring version, we use the "newest" one based on the release.json.

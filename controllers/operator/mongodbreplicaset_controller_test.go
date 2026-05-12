@@ -100,7 +100,7 @@ func TestReplicaSetRace(t *testing.T) {
 
 func TestReplicaSetClusterReconcileContainerImages(t *testing.T) {
 	databaseRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_1_0_0", images.NonStaticEnterpriseImageEnv)
-	initDatabaseRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_2_0_0", images.InitDatabaseImageRepoEnv)
+	initDatabaseRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_2_0_0", images.InitDatabaseImageUrlEnv)
 
 	imageUrlsMock := images.ImageUrls{
 		databaseRelatedImageEnv:     "quay.io/mongodb/mongodb-kubernetes-database:@sha256:MONGODB_DATABASE",
@@ -130,7 +130,7 @@ func TestReplicaSetClusterReconcileContainerImagesWithStaticArchitecture(t *test
 	databaseRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_8_0_0_ubi9", images.MongodbImageEnv)
 
 	imageUrlsMock := images.ImageUrls{
-		images.AgentImageRepoEnv: "quay.io/mongodb/mongodb-agent",
+		images.AgentImageUrlEnv: "quay.io/mongodb/mongodb-agent",
 		images.MongodbImageEnv:    "quay.io/mongodb/mongodb-enterprise-server",
 		databaseRelatedImageEnv:         "quay.io/mongodb/mongodb-enterprise-server:@sha256:MONGODB_DATABASE",
 	}

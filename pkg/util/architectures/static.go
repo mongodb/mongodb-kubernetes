@@ -4,6 +4,8 @@ import (
 	"strings"
 
 	"k8s.io/utils/env"
+
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
 type DefaultArchitecture string
@@ -74,7 +76,7 @@ func GetMongoVersionForAutomationConfig(mongoDBImage, version string, forceEnter
 		return version
 	}
 	// the image repo should be	either mongodb / mongodb-enterprise-server or mongodb / mongodb-community-server
-	if strings.Contains(mongoDBImage, "mongodb-enterprise-server") || forceEnterprise {
+	if strings.Contains(mongoDBImage, util.OfficialEnterpriseServerImageUrl) || forceEnterprise {
 		if !strings.HasSuffix(version, "-ent") {
 			version = version + "-ent"
 		}

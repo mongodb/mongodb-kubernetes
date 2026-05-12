@@ -12,9 +12,9 @@ import (
 func InitDefaultEnvVariables() {
 	_ = os.Setenv(images.NonStaticEnterpriseImageEnv, "mongodb-enterprise-database")
 	_ = os.Setenv(util.AutomationAgentImagePullPolicy, "Never")
-	_ = os.Setenv(images.OpsManagerImageRepoEnv, "quay.io/mongodb/mongodb-enterprise-ops-manager")
-	_ = os.Setenv(images.InitOpsManagerImageRepoEnv, "quay.io/mongodb/mongodb-kubernetes-init-ops-manager")
-	_ = os.Setenv(images.InitDatabaseImageRepoEnv, "quay.io/mongodb/mongodb-kubernetes-init-database")
+	_ = os.Setenv(images.OpsManagerImageUrlEnv, "quay.io/mongodb/mongodb-enterprise-ops-manager")
+	_ = os.Setenv(images.InitOpsManagerImageUrlEnv, "quay.io/mongodb/mongodb-kubernetes-init-ops-manager")
+	_ = os.Setenv(images.InitDatabaseImageUrlEnv, "quay.io/mongodb/mongodb-kubernetes-init-database")
 	_ = os.Setenv(util.OpsManagerPullPolicy, "Never")
 	_ = os.Setenv(util.OmOperatorEnv, "test")
 	_ = os.Setenv(util.PodWaitSecondsEnv, "1")

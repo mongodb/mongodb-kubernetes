@@ -469,8 +469,8 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 		}
 	}
 
-	initOpsManagerImage := images.ContainerImage(r.imageUrls, images.InitOpsManagerImageRepoEnv, r.initOpsManagerImageVersion)
-	opsManagerImage := images.ContainerImage(r.imageUrls, images.OpsManagerImageRepoEnv, opsManager.Spec.Version)
+	initOpsManagerImage := images.ContainerImage(r.imageUrls, images.InitOpsManagerImageUrlEnv, r.initOpsManagerImageVersion)
+	opsManagerImage := images.ContainerImage(r.imageUrls, images.OpsManagerImageUrlEnv, opsManager.Spec.Version)
 
 	// 2. Reconcile Ops Manager
 	status, omAdmin := r.reconcileOpsManager(ctx, opsManagerReconcilerHelper, opsManager, appDBConnectionString, initOpsManagerImage, opsManagerImage, log)
