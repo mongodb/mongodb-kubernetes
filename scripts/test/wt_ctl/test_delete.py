@@ -1,8 +1,12 @@
-"""Phase 2: ``wt-ctl delete`` orchestrator.
+"""``wt-ctl delete`` orchestrator — opt-in semantics.
 
-We drive ``DeleteOrchestrator.run`` with a fake Runner and verify each of
-the 6 sub-steps fires by default, and that --keep-* flags suppress
-the right step.
+Each target step runs only when its ``delete_*`` flag is True. Default
+``DeleteInputs(...)`` is a no-op (no calls). The CLI layer handles the
+"no targets => print help" branch; here we only exercise the
+orchestrator's dispatch.
+
+Branch deletion was removed from the orchestrator deliberately: branches
+are never deleted from the git repo (see DeleteInputs docstring).
 """
 
 from __future__ import annotations
@@ -13,9 +17,9 @@ import tempfile
 import unittest
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable
 
-from _common import FakePopenFactory  # noqa: E402  (path side-effect only)
+from _common import FakePopenFactory  # noqa: E402,F401  (path side-effect only)
 
 from wt_ctl.errors import ExternalCommandFailed  # noqa: E402
 from wt_ctl.orchestrator import DeleteInputs, DeleteOrchestrator  # noqa: E402
@@ -70,7 +74,6 @@ def _make_fixture(tmp: Path, *, with_compose_running: bool, with_evg_host: bool)
         (repo / "scripts" / "dev" / script).write_text("#!/bin/sh\n")
         (repo / "scripts" / "dev" / script).chmod(0o755)
     runner = FakeRunner()
-    # docker compose ps tells delete whether a stack is up.
     runner.add(
         lambda argv: argv[:2] == ["docker", "compose"] and "ps" in argv,
         CmdResult(
@@ -81,7 +84,6 @@ def _make_fixture(tmp: Path, *, with_compose_running: bool, with_evg_host: bool)
             duration_s=0.0,
         ),
     )
-    # evergreen host list --mine --json — used to find host id.
     runner.add(
         lambda argv: argv[:3] == ["evergreen", "host", "list"],
         CmdResult(
@@ -91,11 +93,6 @@ def _make_fixture(tmp: Path, *, with_compose_running: bool, with_evg_host: bool)
             stderr="",
             duration_s=0.0,
         ),
-    )
-    # git show-ref (used when --delete-branch is set): exit 0 => branch exists.
-    runner.add(
-        lambda argv: argv[:1] == ["git"] and "show-ref" in argv,
-        CmdResult(argv=[], rc=0, stdout="", stderr="", duration_s=0.0),
     )
     return repo, target, runner
 
@@ -118,7 +115,6 @@ class DeletePipelineTests(unittest.TestCase):
     def _seed_registry(self, branch_dir: str, index: int = 24) -> Path:
         reg = Path(self._reg_tmp.name) / "net-prefix-registry"
         reg.parent.mkdir(parents=True, exist_ok=True)
-        # Composite registry form: N:X:Y_BASE:Y_VIP:PORT for stack index N.
         x = 16 + (index >> 7)
         y_base = (index & 0x7F) << 1
         y_vip = y_base + 1
@@ -126,109 +122,106 @@ class DeletePipelineTests(unittest.TestCase):
         reg.write_text(f"{branch_dir}={index}:{x}:{y_base}:{y_vip}:{port}\n")
         return reg
 
-    def test_default_runs_five_substeps(self) -> None:
+    def _inputs(self, repo: Path, target: Path, **flags) -> DeleteInputs:
+        return DeleteInputs(
+            branch="topic/x", branch_dir="topic_x",
+            worktree_path=target, main_repo_root=repo,
+            **flags,
+        )
+
+    def test_no_targets_is_a_noop(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo, target, runner = _make_fixture(
                 Path(tmp), with_compose_running=True, with_evg_host=True,
             )
-            inputs = DeleteInputs(
-                branch="topic/x", branch_dir="topic_x",
-                worktree_path=target, main_repo_root=repo,
+            self._seed_registry("topic_x")
+            DeleteOrchestrator(runner, self._inputs(repo, target)).run()
+            # Zero side-effect calls. Even docker compose ps wasn't probed.
+            self.assertEqual(runner.calls, [])
+
+    def test_all_targets_runs_every_step(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, target, runner = _make_fixture(
+                Path(tmp), with_compose_running=True, with_evg_host=True,
             )
             reg = self._seed_registry("topic_x")
+            inputs = self._inputs(
+                repo, target,
+                delete_om=True, delete_devc=True,
+                delete_evg=True, delete_worktree=True,
+            )
             DeleteOrchestrator(runner, inputs).run()
             joined = [" ".join(c) for c in runner.calls]
-            # 1) om clean (delete_om_projects.sh) ran.
             self.assertTrue(any("delete_om_projects.sh" in j for j in joined))
-            # 2) compose down ran.
             self.assertTrue(any("docker compose -p topic_x_devcontainer down" in j for j in joined))
-            # 3) evergreen host list + terminate ran.
             self.assertTrue(any("evergreen host list" in j for j in joined))
             self.assertTrue(any("evergreen host terminate" in j and "i-deadbeef" in j for j in joined))
-            # 4) git worktree remove + prune.
             self.assertTrue(any("worktree remove --force" in j for j in joined))
             self.assertTrue(any("worktree prune" in j for j in joined))
-            # 5) network release happened natively (not via subprocess).
             self.assertNotIn("topic_x", reg.read_text())
-            # 6) NO branch delete (delete_branch=False default).
+            # Branch is never deleted, regardless of flag combinations.
             self.assertFalse(any("branch -D" in j for j in joined))
 
-    def test_delete_branch_runs_branch_delete(self) -> None:
+    def test_only_evg_terminates_just_the_host(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo, target, runner = _make_fixture(
-                Path(tmp), with_compose_running=False, with_evg_host=False,
+                Path(tmp), with_compose_running=True, with_evg_host=True,
             )
-            inputs = DeleteInputs(
-                branch="topic/x", branch_dir="topic_x",
-                worktree_path=target, main_repo_root=repo,
-                delete_branch=True,
-            )
-            DeleteOrchestrator(runner, inputs).run()
+            reg = self._seed_registry("topic_x")
+            DeleteOrchestrator(
+                runner, self._inputs(repo, target, delete_evg=True),
+            ).run()
             joined = [" ".join(c) for c in runner.calls]
-            self.assertTrue(any("branch -D topic/x" in j for j in joined))
-
-    def test_keep_evg_skips_terminate(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            repo, target, runner = _make_fixture(
-                Path(tmp), with_compose_running=False, with_evg_host=True,
-            )
-            inputs = DeleteInputs(
-                branch="topic/x", branch_dir="topic_x",
-                worktree_path=target, main_repo_root=repo,
-                keep_evg=True,
-            )
-            DeleteOrchestrator(runner, inputs).run()
-            joined = [" ".join(c) for c in runner.calls]
-            self.assertFalse(any("evergreen host" in j for j in joined))
-
-    def test_keep_stack_skips_compose_down(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            repo, target, runner = _make_fixture(
-                Path(tmp), with_compose_running=True, with_evg_host=False,
-            )
-            inputs = DeleteInputs(
-                branch="topic/x", branch_dir="topic_x",
-                worktree_path=target, main_repo_root=repo,
-                keep_stack=True,
-            )
-            DeleteOrchestrator(runner, inputs).run()
-            joined = [" ".join(c) for c in runner.calls]
+            self.assertTrue(any("evergreen host terminate" in j for j in joined))
             self.assertFalse(any("docker compose" in j for j in joined))
-
-    def test_keep_worktree_skips_worktree_remove(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            repo, target, runner = _make_fixture(
-                Path(tmp), with_compose_running=False, with_evg_host=False,
-            )
-            inputs = DeleteInputs(
-                branch="topic/x", branch_dir="topic_x",
-                worktree_path=target, main_repo_root=repo,
-                keep_worktree=True,
-            )
-            DeleteOrchestrator(runner, inputs).run()
-            joined = [" ".join(c) for c in runner.calls]
             self.assertFalse(any("worktree remove" in j for j in joined))
-            self.assertFalse(any("worktree prune" in j for j in joined))
+            self.assertFalse(any("delete_om_projects" in j for j in joined))
+            # Net registry untouched when --worktree wasn't selected.
+            self.assertIn("topic_x", reg.read_text())
 
-    def test_keep_om_projects_skips_om_clean(self) -> None:
+    def test_only_devc_runs_compose_down_only(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, target, runner = _make_fixture(
+                Path(tmp), with_compose_running=True, with_evg_host=True,
+            )
+            DeleteOrchestrator(
+                runner, self._inputs(repo, target, delete_devc=True),
+            ).run()
+            joined = [" ".join(c) for c in runner.calls]
+            self.assertTrue(any("docker compose -p topic_x_devcontainer down" in j for j in joined))
+            self.assertFalse(any("evergreen host" in j for j in joined))
+            self.assertFalse(any("worktree remove" in j for j in joined))
+
+    def test_worktree_target_releases_prefix(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo, target, runner = _make_fixture(
                 Path(tmp), with_compose_running=False, with_evg_host=False,
             )
-            inputs = DeleteInputs(
-                branch="topic/x", branch_dir="topic_x",
-                worktree_path=target, main_repo_root=repo,
-                keep_om_projects=True,
-            )
-            DeleteOrchestrator(runner, inputs).run()
+            reg = self._seed_registry("topic_x")
+            DeleteOrchestrator(
+                runner, self._inputs(repo, target, delete_worktree=True),
+            ).run()
             joined = [" ".join(c) for c in runner.calls]
-            self.assertFalse(any("delete_om_projects.sh" in j for j in joined))
+            self.assertTrue(any("worktree remove --force" in j for j in joined))
+            self.assertTrue(any("worktree prune" in j for j in joined))
+            self.assertNotIn("topic_x", reg.read_text())
+
+    def test_only_om_runs_om_clean(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, target, runner = _make_fixture(
+                Path(tmp), with_compose_running=False, with_evg_host=False,
+            )
+            DeleteOrchestrator(
+                runner, self._inputs(repo, target, delete_om=True),
+            ).run()
+            joined = [" ".join(c) for c in runner.calls]
+            self.assertTrue(any("delete_om_projects.sh" in j for j in joined))
+            self.assertFalse(any("docker compose" in j for j in joined))
+            self.assertFalse(any("worktree remove" in j for j in joined))
 
     def test_prefix_release_works_after_worktree_dir_is_gone(self) -> None:
         """Native Registry.release() doesn't depend on any script living
-        inside the (already-removed) target worktree. Simulate "worktree
-        already removed" by deleting the target's scripts/dev/ before
-        run() and verify the release still happened.
+        inside the (already-removed) target worktree.
         """
         with tempfile.TemporaryDirectory() as tmp:
             repo, target, runner = _make_fixture(
@@ -238,24 +231,20 @@ class DeletePipelineTests(unittest.TestCase):
                 f.unlink()
             (target / "scripts" / "dev").rmdir()
             reg = self._seed_registry("topic_x")
-            inputs = DeleteInputs(
-                branch="topic/x", branch_dir="topic_x",
-                worktree_path=target, main_repo_root=repo,
-            )
-            DeleteOrchestrator(runner, inputs).run()
+            DeleteOrchestrator(
+                runner, self._inputs(repo, target, delete_worktree=True),
+            ).run()
             self.assertNotIn("topic_x", reg.read_text())
 
     def test_failure_in_one_step_does_not_abort_pipeline(self) -> None:
-        """Best-effort: a failure in evg_terminate must not stop the
-        remaining steps (worktree remove, prefix release).
-        """
         with tempfile.TemporaryDirectory() as tmp:
             repo, target, runner = _make_fixture(
                 Path(tmp), with_compose_running=True, with_evg_host=True,
             )
-            # Override evergreen host terminate to fail.
+
             def _term(_argv):
                 raise ExternalCommandFailed(argv=list(_argv), rc=2, stdout="", stderr="boom")
+
             runner.handlers.insert(
                 0,
                 (
@@ -264,15 +253,16 @@ class DeletePipelineTests(unittest.TestCase):
                 ),
             )
             reg = self._seed_registry("topic_x")
-            inputs = DeleteInputs(
-                branch="topic/x", branch_dir="topic_x",
-                worktree_path=target, main_repo_root=repo,
-            )
-            DeleteOrchestrator(runner, inputs).run()
+            DeleteOrchestrator(
+                runner,
+                self._inputs(
+                    repo, target,
+                    delete_om=True, delete_devc=True,
+                    delete_evg=True, delete_worktree=True,
+                ),
+            ).run()
             joined = [" ".join(c) for c in runner.calls]
-            # Subsequent steps still ran.
             self.assertTrue(any("worktree remove" in j for j in joined))
-            # network release is now native — verify registry was touched.
             self.assertNotIn("topic_x", reg.read_text())
 
 

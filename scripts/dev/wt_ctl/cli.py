@@ -93,14 +93,40 @@ def build_parser() -> argparse.ArgumentParser:
 
     sd = sub.add_parser(
         "delete",
-        help="tear down a worktree (OM clean, compose down, EVG terminate, worktree remove, prefix release).",
+        help=(
+            "opt-in teardown: --evg / --devc / --worktree / --om "
+            "(or --all). Without targets, prints help. Branches are "
+            "never deleted from the git repo."
+        ),
     )
     sd.add_argument("branch", nargs="?")
-    sd.add_argument("--delete-branch", dest="delete_branch", action="store_true")
+    # Opt-in target flags. Without any of these, the command is a no-op.
+    sd.add_argument(
+        "--all", dest="delete_all", action="store_true",
+        help="select every target below; combine with --keep-* to opt out.",
+    )
+    sd.add_argument(
+        "--evg", dest="delete_evg", action="store_true",
+        help="terminate the EVG host pinned to this worktree.",
+    )
+    sd.add_argument(
+        "--devc", dest="delete_devc", action="store_true",
+        help="docker compose down the devcontainer stack for this worktree.",
+    )
+    sd.add_argument(
+        "--worktree", dest="delete_worktree", action="store_true",
+        help="git-remove the worktree dir + release the net-prefix entry. "
+             "(Branches are never deleted.)",
+    )
+    sd.add_argument(
+        "--om", dest="delete_om", action="store_true",
+        help="clean cloud-qa OM projects scoped to this worktree.",
+    )
+    # Opt-out modifiers (only meaningful with --all).
     sd.add_argument("--keep-evg", dest="keep_evg", action="store_true")
+    sd.add_argument("--keep-devc", dest="keep_devc", action="store_true")
     sd.add_argument("--keep-worktree", dest="keep_worktree", action="store_true")
-    sd.add_argument("--keep-stack", dest="keep_stack", action="store_true")
-    sd.add_argument("--keep-om-projects", dest="keep_om_projects", action="store_true")
+    sd.add_argument("--keep-om", dest="keep_om", action="store_true")
     sd.add_argument("--evg-host-name", dest="evg_host_name")
 
     sub.add_parser("up", help="bring devcontainer up (idempotent).")
@@ -900,6 +926,26 @@ def cmd_create(runner: Runner, refs: Optional[WorktreeRefs], args: argparse.Name
     return 0
 
 
+_DELETE_HELP = """\
+[wt-ctl] delete: no targets selected — nothing was deleted.
+
+Select what to tear down. Branches are NEVER deleted from the git repo.
+
+  --evg          terminate the EVG host
+  --devc         compose down the devcontainer stack
+  --worktree     remove the worktree dir + release the net-prefix entry
+  --om           clean cloud-qa OM projects for this worktree
+  --all          all of the above
+                 (combine with --keep-* to opt out of one target)
+
+Examples:
+  wt-ctl delete --evg --devc            # release cloud resources, keep worktree
+  wt-ctl delete --all                   # tear everything down
+  wt-ctl delete --all --keep-worktree   # everything but keep the worktree dir
+  wt-ctl delete --worktree --om         # local-only cleanup
+"""
+
+
 def cmd_delete(runner: Runner, refs: Optional[WorktreeRefs], args: argparse.Namespace) -> int:
     # Default to the current worktree's branch when no positional arg was given.
     branch: Optional[str] = args.branch
@@ -914,6 +960,24 @@ def cmd_delete(runner: Runner, refs: Optional[WorktreeRefs], args: argparse.Name
         sys.stderr.write("[wt-ctl] error: refusing to delete a detached HEAD\n")
         return 2
 
+    # Resolve target set: --all expands to everything, then --keep-* opts out.
+    delete_evg = args.delete_evg or args.delete_all
+    delete_devc = args.delete_devc or args.delete_all
+    delete_worktree = args.delete_worktree or args.delete_all
+    delete_om = args.delete_om or args.delete_all
+    if args.keep_evg:
+        delete_evg = False
+    if args.keep_devc:
+        delete_devc = False
+    if args.keep_worktree:
+        delete_worktree = False
+    if args.keep_om:
+        delete_om = False
+
+    if not (delete_evg or delete_devc or delete_worktree or delete_om):
+        sys.stderr.write(_DELETE_HELP)
+        return 0
+
     branch_dir = branch.replace("/", "_")
     main_repo, worktree_path, _host = _resolve_create_paths(runner, refs, branch_dir)
 
@@ -922,11 +986,10 @@ def cmd_delete(runner: Runner, refs: Optional[WorktreeRefs], args: argparse.Name
         branch_dir=branch_dir,
         worktree_path=worktree_path,
         main_repo_root=main_repo,
-        delete_branch=args.delete_branch,
-        keep_evg=args.keep_evg,
-        keep_worktree=args.keep_worktree,
-        keep_stack=args.keep_stack,
-        keep_om_projects=args.keep_om_projects,
+        delete_om=delete_om,
+        delete_devc=delete_devc,
+        delete_evg=delete_evg,
+        delete_worktree=delete_worktree,
         evg_host_name=args.evg_host_name,
     )
     orch = DeleteOrchestrator(runner, inputs)

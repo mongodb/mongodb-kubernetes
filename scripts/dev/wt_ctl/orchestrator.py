@@ -46,6 +46,26 @@ from .runner import Runner
 
 
 # ---------------------------------------------------------------------------
+# shared helpers
+# ---------------------------------------------------------------------------
+
+def _devc_bash(wt: Path, script: str) -> list[str]:
+    """Build the canonical ``devcontainer exec ... bash -lc <script>`` argv.
+
+    Every devcontainer-exec call site in this module uses the same wrapper:
+    a non-interactive login shell (``bash -lc``) targeting the worktree's
+    devcontainer workspace. The script string is the inner shell command —
+    typically a ``set -Eeou pipefail; cd /workspace; . scripts/dev/devenv;
+    <action>`` chain.
+    """
+    return [
+        "devcontainer", "exec",
+        "--workspace-folder", str(wt),
+        "bash", "-lc", script,
+    ]
+
+
+# ---------------------------------------------------------------------------
 # inputs the user passes to `wt-ctl create`
 # ---------------------------------------------------------------------------
 
@@ -382,11 +402,7 @@ class CreateOrchestrator:
                 "else echo 'ssh-agent socket already present'; fi"
             )
             self.runner.run_streaming(
-                [
-                    "devcontainer", "exec",
-                    "--workspace-folder", str(wt),
-                    "bash", "-lc", cmd,
-                ],
+                _devc_bash(wt, cmd),
                 prefix="[post-start] ",
                 log_path=log_dir / "post_start.log",
                 cwd=wt,
@@ -409,11 +425,7 @@ class CreateOrchestrator:
                 "bash scripts/dev/evg_host.sh get-kubeconfig --no-fetch"
             )
             self.runner.run_streaming(
-                [
-                    "devcontainer", "exec",
-                    "--workspace-folder", str(wt),
-                    "bash", "-lc", cmd,
-                ],
+                _devc_bash(wt, cmd),
                 prefix="[refresh] ",
                 log_path=log_dir / "refresh_kubeconfig.log",
                 cwd=wt,
@@ -431,21 +443,18 @@ class CreateOrchestrator:
                 wt,
                 deadline_s=60.0,
                 interval_s=2.0,
-                log_path=log_dir / "prepare_local_e2e.log",
             )
             # Same devenv-source rationale as the kubeconfig phase:
             # `make prepare-local-e2e` shells out to scripts that expect
             # KUBECONFIG / PROJECT_DIR / context.env to be already exported.
             self.runner.run_streaming(
-                [
-                    "devcontainer", "exec",
-                    "--workspace-folder", str(wt),
-                    "bash", "-lc",
+                _devc_bash(
+                    wt,
                     "set -Eeou pipefail; "
                     "cd /workspace; "
                     ". scripts/dev/devenv; "
                     "make prepare-local-e2e",
-                ],
+                ),
                 prefix="[prepare-e2e] ",
                 log_path=log_dir / "prepare_local_e2e.log",
                 cwd=wt,
@@ -760,30 +769,23 @@ class CreateOrchestrator:
         *,
         deadline_s: float,
         interval_s: float,
-        log_path: Optional[Path] = None,
     ) -> None:
         """Poll ``kubectl get --raw=/readyz`` inside the devcontainer until
-        it returns 200 or the deadline elapses. Raises ``WtCtlError``
-        on timeout. Probes are non-fatal — a failed probe (rc != 0) just
+        it returns 200 or the deadline elapses. Raises ``WtCtlError`` on
+        timeout. Probes are non-fatal — a failed probe (rc != 0) just
         triggers another sleep.
 
-        The probe runs through ``devcontainer exec`` so it inherits the
-        same KUBECONFIG / proxy-url resolution path that the subsequent
-        ``make prepare-local-e2e`` will use. Output is appended to
-        ``log_path`` when given so the readiness exchange is captured
-        alongside the phase log.
+        Probe output goes only to stderr; the surrounding phase's
+        ``run_streaming`` writes the eventual ``make prepare-local-e2e``
+        output to the phase log so we don't double-log.
         """
-        argv = [
-            "devcontainer", "exec",
-            "--workspace-folder", str(wt),
-            "bash", "-lc",
+        argv = _devc_bash(
+            wt,
             "set -Eeou pipefail; "
             "cd /workspace; "
             ". scripts/dev/devenv; "
             "kubectl --request-timeout=3s get --raw=/readyz",
-        ]
-        if log_path is not None:
-            log_path.parent.mkdir(parents=True, exist_ok=True)
+        )
         deadline = time.monotonic() + deadline_s
         attempts = 0
         last_stderr = ""
@@ -792,25 +794,24 @@ class CreateOrchestrator:
             result = self.runner.run(argv, check=False, cwd=wt)
             if result.rc == 0:
                 sys.stderr.write(
-                    f"[prepare-e2e] apiserver ready after {attempts} probe(s)\n"
+                    f"[prepare-e2e] apiserver ready after "
+                    f"{attempts} probe{'' if attempts == 1 else 's'}\n"
                 )
-                if log_path is not None:
-                    with log_path.open("a") as fh:
-                        fh.write(
-                            f"[prepare-e2e] apiserver ready after {attempts} probe(s)\n"
-                        )
                 return
             last_stderr = (result.stderr or result.stdout or "").strip()
+            # Emit a liveness tick every 5 probes so the user sees
+            # progress during a slow handshake instead of silence.
+            if attempts % 5 == 0:
+                sys.stderr.write(
+                    f"[prepare-e2e] still waiting for apiserver "
+                    f"(probe {attempts}, last: {last_stderr or '(empty)'})\n"
+                )
             if time.monotonic() >= deadline:
-                msg = (
+                raise WtCtlError(
                     f"apiserver readyz never returned 200 after "
                     f"{int(deadline_s)}s ({attempts} probes); last stderr: "
                     f"{last_stderr or '(empty)'}"
                 )
-                if log_path is not None:
-                    with log_path.open("a") as fh:
-                        fh.write(f"[prepare-e2e] ERROR: {msg}\n")
-                raise WtCtlError(msg)
             time.sleep(interval_s)
 
 
@@ -820,24 +821,35 @@ class CreateOrchestrator:
 
 @dataclass
 class DeleteInputs:
+    """Opt-in delete targets. Every flag defaults False — ``wt-ctl delete``
+    with no flags is a deliberate no-op (the CLI layer prints help). Git
+    branches are NEVER deleted; the branch field is metadata only.
+    """
     branch: str
     branch_dir: str
     worktree_path: Path
     main_repo_root: Path
-    delete_branch: bool = False
-    keep_evg: bool = False
-    keep_worktree: bool = False
-    keep_stack: bool = False
-    keep_om_projects: bool = False
+    delete_om: bool = False
+    delete_devc: bool = False
+    delete_evg: bool = False
+    delete_worktree: bool = False
     evg_host_name: Optional[str] = None
 
     def resolved_evg_host_name(self) -> str:
         return self.evg_host_name or self.branch_dir
 
+    def any_target(self) -> bool:
+        return any([
+            self.delete_om, self.delete_devc,
+            self.delete_evg, self.delete_worktree,
+        ])
+
 
 class DeleteOrchestrator:
-    """Mirrors ``wt_teardown.sh``. Each step is best-effort; failures log
-    and the next step still runs. No state file is written.
+    """Opt-in teardown. Each step runs only when its target flag is set;
+    failures inside a step log and continue (other targets still run).
+    Branch deletion was removed deliberately — recreating worktrees is
+    cheap, recreating lost work isn't.
     """
 
     def __init__(self, runner: Runner, inputs: DeleteInputs) -> None:
@@ -846,27 +858,32 @@ class DeleteOrchestrator:
         self.scripts = inputs.main_repo_root / "scripts" / "dev"
 
     def run(self, *, emit: Callable[[str], None] = lambda _msg: None) -> None:
+        i = self.inputs
+        targets = ", ".join(
+            t for t, on in [
+                ("om", i.delete_om), ("devc", i.delete_devc),
+                ("evg", i.delete_evg), ("worktree", i.delete_worktree),
+            ] if on
+        ) or "(none)"
         emit(
-            f"[wt-ctl] delete: branch={self.inputs.branch} "
-            f"worktree={self.inputs.worktree_path} "
-            f"evg_host={self.inputs.resolved_evg_host_name()}"
+            f"[wt-ctl] delete: branch={i.branch} targets=[{targets}] "
+            f"worktree={i.worktree_path} evg_host={i.resolved_evg_host_name()}"
         )
-        # Each step catches its own typed errors and logs; the orchestrator
-        # never re-raises until everything has run.
-        self._step_om_clean(emit)
-        self._step_compose_down(emit)
-        self._step_evg_terminate(emit)
-        self._step_worktree_remove(emit)
-        self._step_prefix_release(emit)
-        if self.inputs.delete_branch:
-            self._step_branch_delete(emit)
+        if i.delete_om:
+            self._step_om_clean(emit)
+        if i.delete_devc:
+            self._step_compose_down(emit)
+        if i.delete_evg:
+            self._step_evg_terminate(emit)
+        if i.delete_worktree:
+            self._step_worktree_remove(emit)
+            # Network registry entry is tied to the worktree's net prefix;
+            # release it only when the worktree itself goes away.
+            self._step_prefix_release(emit)
         emit("[wt-ctl] delete: done")
 
     # ------------------------------------------------------------------
     def _step_om_clean(self, emit: Callable[[str], None]) -> None:
-        if self.inputs.keep_om_projects:
-            emit("[wt-ctl] om: skipped (--keep-om-projects)")
-            return
         wt = self.inputs.worktree_path
         if not wt.is_dir():
             emit("[wt-ctl] om: skipped (worktree dir gone)")
@@ -887,9 +904,6 @@ class DeleteOrchestrator:
             emit(f"[wt-ctl] om: cleanup hit an error (continuing): {exc.render()}")
 
     def _step_compose_down(self, emit: Callable[[str], None]) -> None:
-        if self.inputs.keep_stack:
-            emit("[wt-ctl] compose: skipped (--keep-stack)")
-            return
         project = f"{self.inputs.branch_dir.lower()}_devcontainer"
         # Ask docker compose if anything's there before we down.
         ps = self.runner.run(
@@ -909,9 +923,6 @@ class DeleteOrchestrator:
             emit(f"[wt-ctl] compose: down failed (continuing): {exc.render()}")
 
     def _step_evg_terminate(self, emit: Callable[[str], None]) -> None:
-        if self.inputs.keep_evg:
-            emit("[wt-ctl] evg: skipped (--keep-evg)")
-            return
         if not self.runner.have("evergreen"):
             emit("[wt-ctl] evg: evergreen CLI not on PATH — skipping termination")
             return
@@ -945,9 +956,6 @@ class DeleteOrchestrator:
             emit(f"[wt-ctl] evg: terminate failed (continuing): {exc.render()}")
 
     def _step_worktree_remove(self, emit: Callable[[str], None]) -> None:
-        if self.inputs.keep_worktree:
-            emit("[wt-ctl] worktree: skipped (--keep-worktree)")
-            return
         wt = self.inputs.worktree_path
         # Pre-emptively move our cwd off the worktree we're about to delete.
         # If wt-ctl was invoked from inside the worktree (the canonical
@@ -996,31 +1004,6 @@ class DeleteOrchestrator:
                 emit(f"[net-release] {output}")
         except (ExternalCommandFailed, ToolMissing, WtCtlError) as exc:
             emit(f"[wt-ctl] network: release failed (continuing): {exc.render()}")
-
-    def _step_branch_delete(self, emit: Callable[[str], None]) -> None:
-        # Verify the branch exists locally first.
-        check = self.runner.run(
-            [
-                "git", "-C", str(self.inputs.main_repo_root),
-                "show-ref", "--verify", "--quiet",
-                f"refs/heads/{self.inputs.branch}",
-            ],
-            check=False,
-        )
-        if check.rc != 0:
-            emit(f"[wt-ctl] branch: '{self.inputs.branch}' doesn't exist locally")
-            return
-        emit(f"[wt-ctl] branch: deleting '{self.inputs.branch}'")
-        try:
-            self.runner.run(
-                [
-                    "git", "-C", str(self.inputs.main_repo_root),
-                    "branch", "-D", self.inputs.branch,
-                ],
-            )
-        except (ExternalCommandFailed, ToolMissing, WtCtlError) as exc:
-            emit(f"[wt-ctl] branch: delete failed (continuing): {exc.render()}")
-
 
 # ---------------------------------------------------------------------------
 # helpers
