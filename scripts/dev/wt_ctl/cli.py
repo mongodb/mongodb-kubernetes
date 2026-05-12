@@ -194,7 +194,11 @@ def build_parser() -> argparse.ArgumentParser:
     sk_rg.add_argument(
         "--replace",
         action="store_true",
-        help="HTTP PUT instead of PATCH — wipes any sibling registrations first. Use to clear stale entries.",
+        help=(
+            "HTTP PUT instead of PATCH — WIPES every sibling worktree's "
+            "registration. Default PATCH already overwrites same-name "
+            "entries idempotently; prefer the default."
+        ),
     )
     sk_sub.add_parser(
         "reset",

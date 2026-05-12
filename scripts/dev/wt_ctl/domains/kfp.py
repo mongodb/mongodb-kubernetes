@@ -215,12 +215,21 @@ class KfpDomain:
         host's side.
 
         ``replace=False`` (default): HTTP PATCH — merge into the existing
-        dynamic config. Use when multiple worktrees share the daemon.
+        dynamic config, overwriting same-name entries (the registrant's
+        worktree-suffixed context names ensure peer worktrees don't
+        collide on names). With the daemon's per-context shutdown the
+        re-registration is idempotent AND non-disruptive for peer
+        worktrees' in-flight listeners. **This is what you want
+        99% of the time.**
 
-        ``replace=True``: HTTP PUT — replace the entire dynamic config
-        with this single kubeconfig. Use to wipe stale entries (e.g. from
-        prior runs whose proxy-url's were invalid); be aware that any
-        sibling worktrees' registrations will need to be re-registered.
+        ``replace=True``: HTTP PUT — wipe the entire dynamic config and
+        replace it with just this kubeconfig. **This blows away every
+        peer worktree's registration**; the daemon's per-context
+        shutdown will correctly tear down those peer listeners and
+        release their VIPs, but peers will have to re-register before
+        their host-side tooling works again. Reserve for the rare
+        "I want a clean slate" case where ``kfp reset && register`` is
+        what you'd otherwise type.
 
         Returns the response body. Raises ``WtCtlError`` if the file is
         missing, the daemon isn't listening, or the HTTP call fails.
