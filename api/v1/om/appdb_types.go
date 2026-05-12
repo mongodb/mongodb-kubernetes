@@ -9,10 +9,10 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 
+	"github.com/mongodb/mongodb-kubernetes/api/v1/common"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/v1/user"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connectionstring"
-	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/pkg/authentication/authtypes"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
@@ -72,7 +72,7 @@ type AppDBSpec struct {
 	PasswordSecretKeyRef *userv1.SecretKeyRef `json:"passwordSecretKeyRef,omitempty"`
 
 	// Enables Prometheus integration on the AppDB.
-	Prometheus *mdbcv1.Prometheus `json:"prometheus,omitempty"`
+	Prometheus *common.Prometheus `json:"prometheus,omitempty"`
 
 	// Transient fields.
 	// These fields are cleaned before serialization, see 'MarshalJSON()'
@@ -86,7 +86,7 @@ type AppDBSpec struct {
 
 	// AutomationConfigOverride holds any fields that will be merged on top of the Automation Config
 	// that the operator creates for the AppDB. Currently only the process.disabled and logRotate field is recognized.
-	AutomationConfigOverride *mdbcv1.AutomationConfigOverride `json:"automationConfig,omitempty"`
+	AutomationConfigOverride *common.AutomationConfigOverride `json:"automationConfig,omitempty"`
 
 	UpdateStrategyType appsv1.StatefulSetUpdateStrategyType `json:"-"`
 
@@ -105,10 +105,10 @@ func (m *AppDBSpec) GetAgentConfig() mdbv1.AgentConfig {
 	return m.AutomationAgent
 }
 
-func (m *AppDBSpec) GetAgentLogLevel() mdbcv1.LogLevel {
-	agentLogLevel := mdbcv1.LogLevelInfo
+func (m *AppDBSpec) GetAgentLogLevel() common.LogLevel {
+	agentLogLevel := common.LogLevelInfo
 	if m.AutomationAgent.LogLevel != "" {
-		agentLogLevel = mdbcv1.LogLevel(m.AutomationAgent.LogLevel)
+		agentLogLevel = common.LogLevel(m.AutomationAgent.LogLevel)
 	}
 	return agentLogLevel
 }
@@ -138,8 +138,8 @@ func (m *AppDBSpec) GetConnectionSpec() *mdbv1.ConnectionSpec {
 	return nil
 }
 
-func (m *AppDBSpec) GetMongodConfiguration() mdbcv1.MongodConfiguration {
-	mongodConfig := mdbcv1.NewMongodConfiguration()
+func (m *AppDBSpec) GetMongodConfiguration() common.MongodConfiguration {
+	mongodConfig := common.NewMongodConfiguration()
 	if m.GetAdditionalMongodConfig() == nil || m.AdditionalMongodConfig.ToMap() == nil {
 		return mongodConfig
 	}

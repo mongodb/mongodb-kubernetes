@@ -23,6 +23,7 @@ import (
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"github.com/mongodb/mongodb-kubernetes/api/v1/common"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/v1/om"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
@@ -41,7 +42,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
-	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/pkg/authentication/scram"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/generate"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/result"
@@ -2219,7 +2219,7 @@ func markAppDBAsBackingProject(conn om.Connection, log *zap.SugaredLogger) error
 
 const ListenAddress = "0.0.0.0"
 
-func OverrideToAutomationConfig(override mdbcv1.AutomationConfigOverride) automationconfig.AutomationConfig {
+func OverrideToAutomationConfig(override common.AutomationConfigOverride) automationconfig.AutomationConfig {
 	var processes []automationconfig.Process
 	for _, o := range override.Processes {
 		p := automationconfig.Process{

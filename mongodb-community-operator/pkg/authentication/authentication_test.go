@@ -9,6 +9,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"github.com/mongodb/mongodb-kubernetes/api/v1/common"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/pkg/authentication/authtypes"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/authentication/mocks"
@@ -147,7 +148,7 @@ func TestGetDeletedUsers(t *testing.T) {
 		Users: []mdbv1.MongoDBUser{
 			{
 				Name: "testUser",
-				PasswordSecretRef: mdbv1.SecretKeyReference{
+				PasswordSecretRef: common.SecretKeyReference{
 					Name: "password-secret-name",
 				},
 				ConnectionStringSecretName: "connection-string-secret",
@@ -177,7 +178,7 @@ func TestGetDeletedUsers(t *testing.T) {
 			Users: []mdbv1.MongoDBUser{
 				{
 					Name: "testUser",
-					PasswordSecretRef: mdbv1.SecretKeyReference{
+					PasswordSecretRef: common.SecretKeyReference{
 						Name: "password-secret-name",
 					},
 					ConnectionStringSecretName: "connection-string-secret",
@@ -185,7 +186,7 @@ func TestGetDeletedUsers(t *testing.T) {
 				},
 				{
 					Name: "newUser",
-					PasswordSecretRef: mdbv1.SecretKeyReference{
+					PasswordSecretRef: common.SecretKeyReference{
 						Name: "new-password-secret-name",
 					},
 					ConnectionStringSecretName: "new-connection-string-secret",

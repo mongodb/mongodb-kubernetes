@@ -15,11 +15,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
+	"github.com/mongodb/mongodb-kubernetes/api/v1/common"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connectionstring"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/ldap"
-	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
-	"github.com/mongodb/mongodb-kubernetes/api/v1/common"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
@@ -144,7 +143,7 @@ func (m *MongoDB) GetConnectionSpec() *ConnectionSpec {
 	return &m.Spec.ConnectionSpec
 }
 
-func (m *MongoDB) GetPrometheus() *mdbcv1.Prometheus {
+func (m *MongoDB) GetPrometheus() *common.Prometheus {
 	return m.Spec.Prometheus
 }
 
@@ -401,7 +400,7 @@ type DbCommonSpec struct {
 
 	// Prometheus configurations.
 	// +optional
-	Prometheus *mdbcv1.Prometheus `json:"prometheus,omitempty"`
+	Prometheus *common.Prometheus `json:"prometheus,omitempty"`
 
 	// +optional
 	// StatefulSetConfiguration provides the statefulset override for each of the cluster's statefulset

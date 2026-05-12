@@ -5,10 +5,9 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 
+	"github.com/mongodb/mongodb-kubernetes/api/v1/common"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/v1/user"
-	mdbc "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
-	"github.com/mongodb/mongodb-kubernetes/api/v1/common"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 )
 
@@ -211,7 +210,7 @@ func (b *OpsManagerBuilder) SetAppDBPassword(secretName, key string) *OpsManager
 	return b
 }
 
-func (b *OpsManagerBuilder) SetAppDBAutomationConfigOverride(acOverride mdbc.AutomationConfigOverride) *OpsManagerBuilder {
+func (b *OpsManagerBuilder) SetAppDBAutomationConfigOverride(acOverride common.AutomationConfigOverride) *OpsManagerBuilder {
 	b.om.Spec.AppDB.AutomationConfigOverride = &acOverride
 	return b
 }

@@ -70,7 +70,7 @@ func NewTestMongoDB(ctx *TestContext, name string, namespace string) (mdbv1.Mong
 			Users: []mdbv1.MongoDBUser{
 				{
 					Name: fmt.Sprintf("%s-user", name),
-					PasswordSecretRef: mdbv1.SecretKeyReference{
+					PasswordSecretRef: common.SecretKeyReference{
 						Key:  fmt.Sprintf("%s-password", name),
 						Name: fmt.Sprintf("%s-%s-password-secret", name, ctx.ExecutionId),
 					},
@@ -157,7 +157,7 @@ func NewTestTLSConfig(optional bool) mdbv1.TLS {
 	}
 }
 
-func NewPrometheusConfig(ctx context.Context, namespace string) *mdbv1.Prometheus {
+func NewPrometheusConfig(ctx context.Context, namespace string) *common.Prometheus {
 	sec := secret.Builder().
 		SetName("prom-secret").
 		SetNamespace(namespace).
@@ -170,9 +170,9 @@ func NewPrometheusConfig(ctx context.Context, namespace string) *mdbv1.Prometheu
 		}
 	}
 
-	return &mdbv1.Prometheus{
+	return &common.Prometheus{
 		Username: "prom-user",
-		PasswordSecretRef: mdbv1.SecretKeyReference{
+		PasswordSecretRef: common.SecretKeyReference{
 			Name: "prom-secret",
 		},
 	}

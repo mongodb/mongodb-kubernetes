@@ -467,7 +467,7 @@ func TestService_changesMongodPortOnRunningClusterWithArbiters(t *testing.T) {
 	ctx := context.Background()
 	mdb := newScramReplicaSet(mdbv1.MongoDBUser{
 		Name: "testuser",
-		PasswordSecretRef: mdbv1.SecretKeyReference{
+		PasswordSecretRef: common.SecretKeyReference{
 			Name: "password-secret-name",
 		},
 		ScramCredentialsSecretName: "scram-credentials",
@@ -509,7 +509,7 @@ func TestService_changesMongodPortOnRunningClusterWithArbiters(t *testing.T) {
 		assertStatefulsetReady(ctx, t, mgr, namespacedName, 3)
 		assertStatefulsetReady(ctx, t, mgr, arbiterNamespacedName, 1)
 
-		mdb.Spec.AdditionalMongodConfig = mdbv1.NewMongodConfiguration()
+		mdb.Spec.AdditionalMongodConfig = common.NewMongodConfiguration()
 		mdb.Spec.AdditionalMongodConfig.SetDBPort(newPort)
 
 		err = mgr.GetClient().Update(ctx, &mdb)
@@ -696,7 +696,7 @@ func TestService_connectionStringSecretAnnotationsAreApplied(t *testing.T) {
 
 	mdb := newScramReplicaSet(mdbv1.MongoDBUser{
 		Name: "testuser",
-		PasswordSecretRef: mdbv1.SecretKeyReference{
+		PasswordSecretRef: common.SecretKeyReference{
 			Name: "password-secret-name",
 		},
 		ScramCredentialsSecretName:        "scram-credentials",
@@ -727,9 +727,9 @@ func assertConnectionStringSecretAnnotations(ctx context.Context, t *testing.T, 
 func TestService_configuresPrometheusCustomPorts(t *testing.T) {
 	ctx := context.Background()
 	mdb := newTestReplicaSet()
-	mdb.Spec.Prometheus = &mdbv1.Prometheus{
+	mdb.Spec.Prometheus = &common.Prometheus{
 		Username: "username",
-		PasswordSecretRef: mdbv1.SecretKeyReference{
+		PasswordSecretRef: common.SecretKeyReference{
 			Name: "secret",
 		},
 		Port: 4321,
@@ -769,9 +769,9 @@ func TestService_configuresPrometheusCustomPorts(t *testing.T) {
 func TestService_configuresPrometheus(t *testing.T) {
 	ctx := context.Background()
 	mdb := newTestReplicaSet()
-	mdb.Spec.Prometheus = &mdbv1.Prometheus{
+	mdb.Spec.Prometheus = &common.Prometheus{
 		Username: "username",
-		PasswordSecretRef: mdbv1.SecretKeyReference{
+		PasswordSecretRef: common.SecretKeyReference{
 			Name: "secret",
 		},
 	}

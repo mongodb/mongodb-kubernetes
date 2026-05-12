@@ -34,7 +34,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
-	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/common"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
@@ -1247,8 +1246,8 @@ func TestAppDBSkipsReconciliation_IfAnyProcessesAreDisabled(t *testing.T) {
 
 		reconciler := createReconcilerWithAllRequiredSecrets(opsManager, true)
 
-		opsManager = DefaultOpsManagerBuilder().SetName(omName).SetAppDBAutomationConfigOverride(mdbcv1.AutomationConfigOverride{
-			Processes: []mdbcv1.OverrideProcess{
+		opsManager = DefaultOpsManagerBuilder().SetName(omName).SetAppDBAutomationConfigOverride(common.AutomationConfigOverride{
+			Processes: []common.OverrideProcess{
 				{
 					// disable the process
 					Name:     fmt.Sprintf("%s-db-0", omName),
@@ -1267,8 +1266,8 @@ func TestAppDBSkipsReconciliation_IfAnyProcessesAreDisabled(t *testing.T) {
 		// should not take place (since we are not changing a process back from disabled).
 
 		omName := "test-om"
-		opsManager := DefaultOpsManagerBuilder().SetName(omName).SetAppDBAutomationConfigOverride(mdbcv1.AutomationConfigOverride{
-			Processes: []mdbcv1.OverrideProcess{
+		opsManager := DefaultOpsManagerBuilder().SetName(omName).SetAppDBAutomationConfigOverride(common.AutomationConfigOverride{
+			Processes: []common.OverrideProcess{
 				{
 					// disable the process
 					Name:     fmt.Sprintf("%s-db-0", omName),
@@ -1286,8 +1285,8 @@ func TestAppDBSkipsReconciliation_IfAnyProcessesAreDisabled(t *testing.T) {
 
 	t.Run("Reconciliation should happen if no automation config is present", func(t *testing.T) {
 		omName := "test-om"
-		opsManager := DefaultOpsManagerBuilder().SetName(omName).SetAppDBAutomationConfigOverride(mdbcv1.AutomationConfigOverride{
-			Processes: []mdbcv1.OverrideProcess{
+		opsManager := DefaultOpsManagerBuilder().SetName(omName).SetAppDBAutomationConfigOverride(common.AutomationConfigOverride{
+			Processes: []common.OverrideProcess{
 				{
 					// disable the process
 					Name:     fmt.Sprintf("%s-db-0", omName),
@@ -1305,8 +1304,8 @@ func TestAppDBSkipsReconciliation_IfAnyProcessesAreDisabled(t *testing.T) {
 
 	t.Run("Reconciliation should happen we are re-enabling a process", func(t *testing.T) {
 		omName := "test-om"
-		opsManager := DefaultOpsManagerBuilder().SetName(omName).SetAppDBAutomationConfigOverride(mdbcv1.AutomationConfigOverride{
-			Processes: []mdbcv1.OverrideProcess{
+		opsManager := DefaultOpsManagerBuilder().SetName(omName).SetAppDBAutomationConfigOverride(common.AutomationConfigOverride{
+			Processes: []common.OverrideProcess{
 				{
 					// disable the process
 					Name:     fmt.Sprintf("%s-db-0", omName),
