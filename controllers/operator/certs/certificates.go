@@ -81,7 +81,7 @@ func updateSecretDataWithPreviousCert(ctx context.Context, secretClient secrets.
 	newData[util.LatestHashSecretKey] = newLatestHash
 
 	existingSecretData, err := secretClient.ReadSecret(ctx, operatorGeneratedSecret, basePath)
-	if secrets.SecretNotExist(err) {
+	if secret.SecretNotExist(err) {
 		// Case: creating the PEM secret the first time (example: enabling TLS)
 		return newData, nil
 	} else if err != nil {

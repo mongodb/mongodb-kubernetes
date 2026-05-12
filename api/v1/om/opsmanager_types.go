@@ -23,6 +23,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/common"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/fcv"
@@ -863,7 +864,7 @@ func (om *MongoDBOpsManager) APIKeySecretName(ctx context.Context, client secret
 
 	_, err := client.ReadSecret(ctx, oldAPIKeySecretNamespacedName, fmt.Sprintf("%s/%s/%s", operatorSecretPath, operatorNamespace, oldAPISecretName))
 	if err != nil {
-		if secrets.SecretNotExist(err) {
+		if secret.SecretNotExist(err) {
 			return fmt.Sprintf("%s-%s-admin-key", om.Namespace, om.Name), nil
 		}
 

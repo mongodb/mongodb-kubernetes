@@ -46,7 +46,7 @@ func EnsureAgentKeySecretExists(ctx context.Context, secretClient secrets.Secret
 	log = log.With("secret", secretName)
 	agentKeySecret, err := secretClient.ReadSecret(ctx, kube.ObjectKey(namespace, secretName), basePath)
 	if err != nil {
-		if !secrets.SecretNotExist(err) {
+		if !secret.SecretNotExist(err) {
 			return "", xerrors.Errorf("error reading agent key secret: %w", err)
 		}
 

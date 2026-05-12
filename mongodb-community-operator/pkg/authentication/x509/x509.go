@@ -18,11 +18,11 @@ import (
 	"k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/authentication/authtypes"
+	"github.com/mongodb/mongodb-kubernetes/pkg/authentication/authtypes"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/generate"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/generate"
 )
 
 // Enable will configure all of the required Kubernetes resources for X509 to be enabled.
@@ -33,7 +33,7 @@ func Enable(ctx context.Context, auth *automationconfig.Auth, secretGetUpdateCre
 
 	desiredUsers := convertMongoDBResourceUsersToAutomationConfigUsers(mdb)
 
-	if opts.AutoAuthMechanism == constants.X509 {
+	if opts.AutoAuthMechanism == constants.X509WireProtocol {
 		if err := ensureAgent(ctx, auth, secretGetUpdateCreateDeleter, mdb, agentCertSecret); err != nil {
 			return err
 		}

@@ -10,7 +10,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/authentication/authtypes"
+	"github.com/mongodb/mongodb-kubernetes/pkg/authentication/authtypes"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/authentication/mocks"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
@@ -55,9 +55,9 @@ func TestEnable(t *testing.T) {
 			},
 			Disabled:                 false,
 			AuthoritativeSet:         false,
-			AutoAuthMechanisms:       []string{constants.X509},
-			AutoAuthMechanism:        constants.X509,
-			DeploymentAuthMechanisms: []string{constants.X509},
+			AutoAuthMechanisms:       []string{constants.X509WireProtocol},
+			AutoAuthMechanism:        constants.X509WireProtocol,
+			DeploymentAuthMechanisms: []string{constants.X509WireProtocol},
 			AutoUser:                 "CN=mms-automation-agent,OU=ENG,O=MongoDB,C=US",
 			Key:                      "RuPeMaIe2g0SNTTa",
 			KeyFile:                  "/path/to/keyfile",
@@ -95,7 +95,7 @@ func TestEnable(t *testing.T) {
 			}},
 			Disabled:                 false,
 			AuthoritativeSet:         false,
-			DeploymentAuthMechanisms: []string{constants.X509},
+			DeploymentAuthMechanisms: []string{constants.X509WireProtocol},
 		}
 
 		assert.Equal(t, expected, auth)
@@ -234,8 +234,8 @@ func buildX509Configurable(name string, users ...authtypes.User) mocks.MockConfi
 		authtypes.Options{
 			AuthoritativeSet:  false,
 			KeyFile:           "/path/to/keyfile",
-			AuthMechanisms:    []string{constants.X509},
-			AutoAuthMechanism: constants.X509,
+			AuthMechanisms:    []string{constants.X509WireProtocol},
+			AutoAuthMechanism: constants.X509WireProtocol,
 		},
 		users,
 		types.NamespacedName{
@@ -255,7 +255,7 @@ func buildScramConfigurable(name string, users ...authtypes.User) mocks.MockConf
 		authtypes.Options{
 			AuthoritativeSet:  false,
 			KeyFile:           "/path/to/keyfile",
-			AuthMechanisms:    []string{constants.Sha256, constants.X509},
+			AuthMechanisms:    []string{constants.Sha256, constants.X509WireProtocol},
 			AgentName:         constants.AgentName,
 			AutoAuthMechanism: constants.Sha256,
 		},

@@ -10,7 +10,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/authentication/authtypes"
+	"github.com/mongodb/mongodb-kubernetes/pkg/authentication/authtypes"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
 )
 
@@ -478,7 +478,7 @@ func TestMongoDBCommunity_MongoAuthUserSRVURI(t *testing.T) {
 }
 
 func TestConvertAuthModeToAuthMechanism(t *testing.T) {
-	assert.Equal(t, constants.X509, ConvertAuthModeToAuthMechanism("X509"))
+	assert.Equal(t, constants.X509WireProtocol, ConvertAuthModeToAuthMechanism("X509"))
 	assert.Equal(t, constants.Sha256, ConvertAuthModeToAuthMechanism("SCRAM"))
 	assert.Equal(t, constants.Sha256, ConvertAuthModeToAuthMechanism("SCRAM-SHA-256"))
 	assert.Equal(t, constants.Sha1, ConvertAuthModeToAuthMechanism("SCRAM-SHA-1"))
@@ -492,15 +492,15 @@ func TestMongoDBCommunity_GetAuthOptions(t *testing.T) {
 	opts := mdb.GetAuthOptions()
 
 	assert.Equal(t, constants.Sha256, opts.AutoAuthMechanism)
-	assert.Equal(t, []string{constants.Sha256, constants.X509}, opts.AuthMechanisms)
+	assert.Equal(t, []string{constants.Sha256, constants.X509WireProtocol}, opts.AuthMechanisms)
 	assert.Equal(t, false, opts.AuthoritativeSet)
 
 	mdb.Spec.Security.Authentication.Modes = []AuthMode{"X509"}
 	mdb.Spec.Security.Authentication.AgentMode = "X509"
 
 	opts = mdb.GetAuthOptions()
-	assert.Equal(t, constants.X509, opts.AutoAuthMechanism)
-	assert.Equal(t, []string{constants.X509}, opts.AuthMechanisms)
+	assert.Equal(t, constants.X509WireProtocol, opts.AutoAuthMechanism)
+	assert.Equal(t, []string{constants.X509WireProtocol}, opts.AuthMechanisms)
 }
 
 func TestMongoDBCommunity_GetAuthUsers(t *testing.T) {

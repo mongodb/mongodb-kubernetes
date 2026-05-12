@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/authentication/authtypes"
+	"github.com/mongodb/mongodb-kubernetes/pkg/authentication/authtypes"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
 )
@@ -15,9 +15,9 @@ func TestX509AutomationConfig(t *testing.T) {
 		auth := automationconfig.Auth{}
 		opts := authtypes.Options{
 			AuthoritativeSet:  false,
-			KeyFile:           constants.AutomationAgentKeyFilePathInContainer,
-			AuthMechanisms:    []string{constants.X509},
-			AutoAuthMechanism: constants.X509,
+			KeyFile:           constants.AutomationAgentAuthKeyFilePathInContainer,
+			AuthMechanisms:    []string{constants.X509WireProtocol},
+			AutoAuthMechanism: constants.X509WireProtocol,
 		}
 		err := configureInAutomationConfig(&auth, "keyfilecontents", "CN=my-agent,O=MongoDB", []automationconfig.MongoDBUser{}, opts)
 		assert.NoError(t, err)
@@ -26,18 +26,18 @@ func TestX509AutomationConfig(t *testing.T) {
 			assert.Equal(t, "CN=my-agent,O=MongoDB", auth.AutoUser)
 			assert.Equal(t, "keyfilecontents", auth.Key)
 			assert.Equal(t, "", auth.AutoPwd)
-			assert.Equal(t, constants.X509, auth.AutoAuthMechanism)
+			assert.Equal(t, constants.X509WireProtocol, auth.AutoAuthMechanism)
 			assert.Len(t, auth.DeploymentAuthMechanisms, 1)
 			assert.Len(t, auth.AutoAuthMechanisms, 1)
-			assert.Equal(t, []string{constants.X509}, auth.DeploymentAuthMechanisms)
-			assert.Equal(t, []string{constants.X509}, auth.AutoAuthMechanisms)
-			assert.Equal(t, constants.AutomationAgentKeyFilePathInContainer, auth.KeyFile)
+			assert.Equal(t, []string{constants.X509WireProtocol}, auth.DeploymentAuthMechanisms)
+			assert.Equal(t, []string{constants.X509WireProtocol}, auth.AutoAuthMechanisms)
+			assert.Equal(t, constants.AutomationAgentAuthKeyFilePathInContainer, auth.KeyFile)
 			assert.Equal(t, constants.AutomationAgentWindowsKeyFilePath, auth.KeyFileWindows)
 		})
 		t.Run("Subsequent configuration doesn't add to deployment auth mechanisms", func(t *testing.T) {
 			err := configureInAutomationConfig(&auth, "keyfilecontents", "CN=my-agent,O=MongoDB", []automationconfig.MongoDBUser{}, opts)
 			assert.NoError(t, err)
-			assert.Equal(t, []string{constants.X509}, auth.DeploymentAuthMechanisms)
+			assert.Equal(t, []string{constants.X509WireProtocol}, auth.DeploymentAuthMechanisms)
 		})
 	})
 
@@ -45,9 +45,9 @@ func TestX509AutomationConfig(t *testing.T) {
 		auth := automationconfig.Auth{}
 		opts := authtypes.Options{
 			AuthoritativeSet:  false,
-			KeyFile:           constants.AutomationAgentKeyFilePathInContainer,
-			AuthMechanisms:    []string{constants.X509, constants.Sha256},
-			AutoAuthMechanism: constants.X509,
+			KeyFile:           constants.AutomationAgentAuthKeyFilePathInContainer,
+			AuthMechanisms:    []string{constants.X509WireProtocol, constants.Sha256},
+			AutoAuthMechanism: constants.X509WireProtocol,
 		}
 		err := configureInAutomationConfig(&auth, "keyfilecontents", "CN=my-agent,O=MongoDB", []automationconfig.MongoDBUser{}, opts)
 		assert.NoError(t, err)
@@ -56,18 +56,18 @@ func TestX509AutomationConfig(t *testing.T) {
 			assert.Equal(t, "CN=my-agent,O=MongoDB", auth.AutoUser)
 			assert.Equal(t, "keyfilecontents", auth.Key)
 			assert.Equal(t, "", auth.AutoPwd)
-			assert.Equal(t, constants.X509, auth.AutoAuthMechanism)
+			assert.Equal(t, constants.X509WireProtocol, auth.AutoAuthMechanism)
 			assert.Len(t, auth.DeploymentAuthMechanisms, 1)
 			assert.Len(t, auth.AutoAuthMechanisms, 1)
-			assert.Equal(t, []string{constants.X509}, auth.DeploymentAuthMechanisms)
-			assert.Equal(t, []string{constants.X509}, auth.AutoAuthMechanisms)
-			assert.Equal(t, constants.AutomationAgentKeyFilePathInContainer, auth.KeyFile)
+			assert.Equal(t, []string{constants.X509WireProtocol}, auth.DeploymentAuthMechanisms)
+			assert.Equal(t, []string{constants.X509WireProtocol}, auth.AutoAuthMechanisms)
+			assert.Equal(t, constants.AutomationAgentAuthKeyFilePathInContainer, auth.KeyFile)
 			assert.Equal(t, constants.AutomationAgentWindowsKeyFilePath, auth.KeyFileWindows)
 		})
 		t.Run("Subsequent configuration doesn't add to deployment auth mechanisms", func(t *testing.T) {
 			err := configureInAutomationConfig(&auth, "keyfilecontents", "CN=my-agent,O=MongoDB", []automationconfig.MongoDBUser{}, opts)
 			assert.NoError(t, err)
-			assert.Equal(t, []string{constants.X509}, auth.DeploymentAuthMechanisms)
+			assert.Equal(t, []string{constants.X509WireProtocol}, auth.DeploymentAuthMechanisms)
 		})
 	})
 
@@ -75,9 +75,9 @@ func TestX509AutomationConfig(t *testing.T) {
 		auth := automationconfig.Auth{}
 		opts := authtypes.Options{
 			AuthoritativeSet:  false,
-			KeyFile:           constants.AutomationAgentKeyFilePathInContainer,
+			KeyFile:           constants.AutomationAgentAuthKeyFilePathInContainer,
 			AuthMechanisms:    []string{},
-			AutoAuthMechanism: constants.X509,
+			AutoAuthMechanism: constants.X509WireProtocol,
 		}
 		err := configureInAutomationConfig(&auth, "keyfilecontents", "CN=my-agent,O=MongoDB", []automationconfig.MongoDBUser{}, opts)
 		assert.Error(t, err)
@@ -85,8 +85,8 @@ func TestX509AutomationConfig(t *testing.T) {
 		auth = automationconfig.Auth{}
 		opts = authtypes.Options{
 			AuthoritativeSet:  false,
-			KeyFile:           constants.AutomationAgentKeyFilePathInContainer,
-			AuthMechanisms:    []string{constants.X509},
+			KeyFile:           constants.AutomationAgentAuthKeyFilePathInContainer,
+			AuthMechanisms:    []string{constants.X509WireProtocol},
 			AutoAuthMechanism: "",
 		}
 		err = configureInAutomationConfig(&auth, "keyfilecontents", "CN=my-agent,O=MongoDB", []automationconfig.MongoDBUser{}, opts)

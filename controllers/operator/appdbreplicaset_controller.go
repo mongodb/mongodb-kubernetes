@@ -42,8 +42,8 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/authentication/scram"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/generate"
+	"github.com/mongodb/mongodb-kubernetes/pkg/authentication/scram"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/generate"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/result"
 	"github.com/mongodb/mongodb-kubernetes/pkg/agent"
 	"github.com/mongodb/mongodb-kubernetes/pkg/agentVersionManagement"
@@ -1599,7 +1599,7 @@ func (r *ReconcileAppDbReplicaSet) ensureAppDbPassword(ctx context.Context, opsM
 		}
 		password, err := secret.ReadKey(ctx, r.SecretClient, passwordRef.Key, kube.ObjectKey(opsManager.Namespace, passwordRef.Name))
 		if err != nil {
-			if secrets.SecretNotExist(err) {
+			if secret.SecretNotExist(err) {
 				log.Debugf("Generated AppDB password and storing in secret/%s", opsManager.Spec.AppDB.GetOpsManagerUserPasswordSecretName())
 				return r.generatePasswordAndCreateSecret(ctx, opsManager, log)
 			}
@@ -1619,7 +1619,7 @@ func (r *ReconcileAppDbReplicaSet) ensureAppDbPassword(ctx context.Context, opsM
 		// delete the auto generated password, we don't need it anymore. We can just generate a new one if
 		// the user password is deleted
 		log.Debugf("Deleting Operator managed password secret/%s from namespace %s", opsManager.Spec.AppDB.GetOpsManagerUserPasswordSecretName(), opsManager.Namespace)
-		if err := r.DeleteSecret(ctx, kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.GetOpsManagerUserPasswordSecretName())); err != nil && !secrets.SecretNotExist(err) {
+		if err := r.DeleteSecret(ctx, kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.GetOpsManagerUserPasswordSecretName())); err != nil && !secret.SecretNotExist(err) {
 			return "", err
 		}
 		return password, nil
@@ -1629,7 +1629,7 @@ func (r *ReconcileAppDbReplicaSet) ensureAppDbPassword(ctx context.Context, opsM
 	secretObjectKey := kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.GetOpsManagerUserPasswordSecretName())
 	appDbPasswordSecretStringData, err := secret.ReadStringData(ctx, r.SecretClient, secretObjectKey)
 
-	if secrets.SecretNotExist(err) {
+	if secret.SecretNotExist(err) {
 		// create the password
 		if password, err := r.generatePasswordAndCreateSecret(ctx, opsManager, log); err != nil {
 			return "", err
@@ -1680,7 +1680,7 @@ func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(ctx contex
 
 	cred, err := project.ReadCredentials(ctx, r.SecretClient, kube.ObjectKey(operatorNamespace(), APIKeySecretName), log)
 	if err != nil {
-		if secrets.SecretNotExist(err) {
+		if secret.SecretNotExist(err) {
 			log.Debugf("Ops Manager has not yet been created, not configuring monitoring: %s", err)
 			return env.PodEnvVars{}, nil
 		}
