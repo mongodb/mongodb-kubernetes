@@ -34,18 +34,15 @@ docker_run_local_registry "kind-registry" "5000"
 echo "Waiting for all kind clusters to be created"
 wait
 
-# Write the merged kubeconfig to the path `evg_host.sh::get-kubeconfig`
-# expects to scp from, regardless of what the sourced context resolved
-# `KUBECONFIG` to. site-context picks KUBECONFIG before root-context sets
-# EVG_HOST_NAME, so on the remote KUBECONFIG falls back to ~/.kube/config
-# even when EVG_HOST_NAME ends up non-empty — relying on that resolution
-# made multi-cluster recreate silently land kubeconfigs in ~/.kube/ and
-# the subsequent scp failed.
-#
-# Exports are sequential because setup_kind_cluster.sh runs in parallel
-# and we hit kube config locks.
-mkdir -p .generated
-export KUBECONFIG="${PWD}/.generated/evg-host.kubeconfig"
+# we do exports sequentially as setup_kind_cluster.sh is run in parallel and we hit kube config locks
+# These exports go to ${KUBECONFIG} (set by set_env_context.sh sourced above).
+# Don't override KUBECONFIG here — downstream helpers (interconnect, istio,
+# csi) re-source set_env_context.sh and so re-resolve KUBECONFIG from the
+# baked context env, which on the remote points at ~/.kube/config (because
+# site-context picks KUBECONFIG before root-context sets EVG_HOST_NAME).
+# Leaving exports at the default keeps every helper looking at the same
+# file. The merged kubeconfig is copied to .generated/evg-host.kubeconfig
+# at the end of this script, where evg_host.sh::get-kubeconfig scp's from.
 kind export kubeconfig --name "e2e-operator"
 kind export kubeconfig --name "e2e-cluster-1"
 kind export kubeconfig --name "e2e-cluster-2"
@@ -74,3 +71,9 @@ csi_driver_deploy kind-e2e-cluster-3 2>&1 | prepend "install_csi_driver.sh kind-
 csi_driver_deploy kind-kind 2>&1 | prepend "install_csi_driver.sh kind-kind" &
 
 wait
+
+# Make the merged kubeconfig available at the canonical worktree path so
+# evg_host.sh::get-kubeconfig (run from the laptop after this script
+# finishes on the remote) can scp it back.
+mkdir -p .generated
+cp -f "${KUBECONFIG:-${HOME}/.kube/config}" .generated/evg-host.kubeconfig
