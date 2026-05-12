@@ -41,7 +41,7 @@ linters:
         - pattern: os\.(Clearenv|Unsetenv|Setenv)
           pkg: os
           msg: "Modifying environment variables is prohibited."
-        - pattern: env\.(Read.*?|EnsureVar)
+        - pattern: env\.(Read.*?|EnsureVar|MergeWithOverride|ToMap|PrintWithPrefix)
           pkg: github.com/mongodb/mongodb-kubernetes/pkg/util/env
           msg: "Using this env package here is prohibited. Please work with environment variables in the main package."
       # Rules with the `pkg` depend on it
