@@ -49,7 +49,7 @@ windows:
       # on the welcome screen / empty default namespace).
       - shell_command:
           - . /workspace/scripts/dev/devenv 2>/dev/null
-          - exec /workspace/.devcontainer/scripts/pane_runner.sh k9s --kubeconfig /workspace/.generated/evg-host.devc.kubeconfig -n "${NAMESPACE:-default}" -c pods
+          - exec /workspace/.devcontainer/scripts/pane_runner.sh k9s --kubeconfig /workspace/.generated/current.devc.kubeconfig -n "${NAMESPACE:-default}" -c pods
       # Bottom-left: operator log (logs/operator.log is the stable
       # symlink op_run.sh maintains across runs).
       - shell_command:
