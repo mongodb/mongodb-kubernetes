@@ -99,6 +99,7 @@ func reconcileMongoDBSearch(ctx context.Context, fakeClient kubernetesClient.Cli
 		mdbSearch,
 		NewCommunityResourceSearchSource(mdbc),
 		operatorConfig,
+		nil, nil,
 	)
 
 	return helper.Reconcile(ctx, zap.S())
@@ -171,7 +172,7 @@ func TestMongoDBSearchReconcileHelper_ValidateSingleMongoDBSearchForSearchSource
 				clientBuilder.WithObjects(v)
 			}
 
-			helper := NewMongoDBSearchReconcileHelper(kubernetesClient.NewClient(clientBuilder.Build()), mdbSearch, NewCommunityResourceSearchSource(mdbc), OperatorSearchConfig{})
+			helper := NewMongoDBSearchReconcileHelper(kubernetesClient.NewClient(clientBuilder.Build()), mdbSearch, NewCommunityResourceSearchSource(mdbc), OperatorSearchConfig{}, nil, nil)
 			err := helper.ValidateSingleMongoDBSearchForSearchSource(t.Context())
 			if c.expectedError == "" {
 				assert.NoError(t, err)
@@ -602,7 +603,7 @@ func TestEnsureEmbeddingConfig_APIKeySecretAndProviderEndpont(t *testing.T) {
 	fakeClient := newTestFakeClient(search, apiKeySecret)
 	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, OperatorSearchConfig{
 		SearchVersion: "0.60.0",
-	})
+	}, nil, nil)
 	mongotModif, stsModif, err := helper.ensureEmbeddingConfig(ctx, nil)
 	assert.Nil(t, err)
 
@@ -633,7 +634,7 @@ syncSource:
 	fakeClient := newTestFakeClient(search)
 	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, OperatorSearchConfig{
 		SearchVersion: "0.58.0",
-	})
+	}, nil, nil)
 	ctx := context.TODO()
 	mongotModif, stsModif, err := helper.ensureEmbeddingConfig(ctx, nil)
 	assert.Nil(t, err)
@@ -682,7 +683,7 @@ func TestEnsureEmbeddingConfig_JustAPIKeys(t *testing.T) {
 	fakeClient := newTestFakeClient(search, apiKeySecret)
 	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, OperatorSearchConfig{
 		SearchVersion: "0.60.0",
-	})
+	}, nil, nil)
 	ctx := context.TODO()
 	mongotModif, stsModif, err := helper.ensureEmbeddingConfig(ctx, nil)
 	assert.Nil(t, err)
@@ -823,7 +824,7 @@ func TestValidateSearchResource(t *testing.T) {
 		fakeClient := newTestFakeClient(search, tc.apiKeySecret)
 		helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, OperatorSearchConfig{
 			SearchVersion: tc.searchVersion,
-		})
+		}, nil, nil)
 		_, _, err := helper.ensureEmbeddingConfig(ctx, nil)
 		tc.errAssertion(t, err)
 		if tc.errMsg != "" {
@@ -872,7 +873,7 @@ func TestEnsureMongotConfig_PerPodModes(t *testing.T) {
 				search.Spec.AutoEmbedding = &searchv1.EmbeddingConfig{}
 			}
 			fakeClient := newTestFakeClient(search)
-			helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, newTestOperatorSearchConfig())
+			helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, newTestOperatorSearchConfig(), nil, nil)
 			cmName := search.MongotConfigConfigMapNamespacedName()
 			stsName := search.StatefulSetNamespacedName().Name
 
@@ -908,7 +909,7 @@ func TestEnsureMongotConfig_TransitionBetweenModes(t *testing.T) {
 	//nolint:staticcheck // SA1019: exercising the legacy single-cluster auto-promotion path.
 	search.Spec.Replicas = ptr.To(int32(1))
 	fakeClient := newTestFakeClient(search)
-	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, newTestOperatorSearchConfig())
+	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, newTestOperatorSearchConfig(), nil, nil)
 	cmName := search.MongotConfigConfigMapNamespacedName()
 	stsName := search.StatefulSetNamespacedName().Name
 
@@ -948,12 +949,16 @@ func TestCreateSearchStatefulSetFunc_ConfigMounting(t *testing.T) {
 
 	// Single config mode
 	sts := &appsv1.StatefulSet{}
-	CreateSearchStatefulSetFunc(search, "", "sts", "ns", "svc", "cm", labels, "img:v1", false)(sts)
+	stsFunc, err := CreateSearchStatefulSetFunc(search, "", "sts", "ns", "svc", "cm", labels, "img:v1", false)
+	require.NoError(t, err)
+	stsFunc(sts)
 	assert.Contains(t, sts.Spec.Template.Spec.Containers[0].Args[1], MongotConfigPath)
 
 	// Per-pod config mode
 	sts = &appsv1.StatefulSet{}
-	CreateSearchStatefulSetFunc(search, "", "sts", "ns", "svc", "cm", labels, "img:v1", true)(sts)
+	stsFunc, err = CreateSearchStatefulSetFunc(search, "", "sts", "ns", "svc", "cm", labels, "img:v1", true)
+	require.NoError(t, err)
+	stsFunc(sts)
 	startupCmd := sts.Spec.Template.Spec.Containers[0].Args[1]
 	assert.Contains(t, startupCmd, MongotPerPodConfigDirPath)
 	assert.Contains(t, startupCmd, "ROLE=$(cat")
@@ -1320,6 +1325,7 @@ func TestValidateMultipleReplicasConfig(t *testing.T) {
 				tc.search,
 				NewCommunityResourceSearchSource(mdbc),
 				OperatorSearchConfig{},
+				nil, nil,
 			)
 
 			err := helper.ValidateMultipleReplicasConfig()
@@ -1396,6 +1402,7 @@ func TestValidateManagedLBShardedTLS(t *testing.T) {
 				tc.search,
 				tc.source,
 				OperatorSearchConfig{},
+				nil, nil,
 			)
 
 			err := helper.ValidateManagedLBShardedTLS()
@@ -1985,6 +1992,7 @@ func TestReconcileSharded_CertificateKeySecretRefRejected(t *testing.T) {
 		search,
 		shardedSource,
 		newTestOperatorSearchConfig(),
+		nil, nil,
 	)
 
 	result := helper.reconcile(t.Context(), zap.S())
@@ -2105,6 +2113,7 @@ func TestValidatePerShardTLSSecrets(t *testing.T) {
 				search,
 				shardedSource,
 				newTestOperatorSearchConfig(),
+				nil, nil,
 			)
 
 			status := helper.validatePerShardTLSSecrets(t.Context(), zap.S(), tc.shardNames)
@@ -2159,6 +2168,7 @@ func TestValidatePerShardTLSSecretsAllExist(t *testing.T) {
 		search,
 		shardedSource,
 		newTestOperatorSearchConfig(),
+		nil, nil,
 	)
 
 	status := helper.validatePerShardTLSSecrets(t.Context(), zap.S(), shardNames)
@@ -2169,7 +2179,7 @@ func TestEnsureX509ClientCertConfig_NoopWhenNotConfigured(t *testing.T) {
 	search := newTestMongoDBSearch("test-search", "test-ns")
 
 	fakeClient := newTestFakeClient(search)
-	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, newTestOperatorSearchConfig())
+	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, newTestOperatorSearchConfig(), nil, nil)
 
 	mongotMod, stsMod, err := helper.ensureX509ClientCertConfig(t.Context())
 	require.NoError(t, err)
@@ -2208,7 +2218,7 @@ func TestEnsureX509ClientCertConfig_ErrorWhenTLSNotConfigured(t *testing.T) {
 	dbSource := &mockShardedSource{tlsConfig: nil} // No TLS on source
 
 	fakeClient := newTestFakeClient(search)
-	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, dbSource, newTestOperatorSearchConfig())
+	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, dbSource, newTestOperatorSearchConfig(), nil, nil)
 
 	_, _, err := helper.ensureX509ClientCertConfig(t.Context())
 	require.Error(t, err)
@@ -2233,7 +2243,7 @@ func TestEnsureX509ClientCertConfig_MongotAndStsModification(t *testing.T) {
 	}
 
 	fakeClient := newTestFakeClient(search, x509Secret)
-	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, dbSource, newTestOperatorSearchConfig())
+	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, dbSource, newTestOperatorSearchConfig(), nil, nil)
 
 	mongotMod, stsMod, err := helper.ensureX509ClientCertConfig(t.Context())
 	require.NoError(t, err)
@@ -2326,7 +2336,7 @@ func TestEnsureX509ClientCertConfig_KeyPassword(t *testing.T) {
 	}
 
 	fakeClient := newTestFakeClient(search, x509Secret)
-	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, dbSource, newTestOperatorSearchConfig())
+	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, dbSource, newTestOperatorSearchConfig(), nil, nil)
 
 	mongotMod, stsMod, err := helper.ensureX509ClientCertConfig(t.Context())
 	require.NoError(t, err)
@@ -2415,6 +2425,7 @@ func TestReconcileSharded_CreatesPerShardResources(t *testing.T) {
 		search,
 		shardedSource,
 		newTestOperatorSearchConfig(),
+		nil, nil,
 	)
 
 	// Pass 1: creates shard-0 resources, returns Pending (StatefulSet not ready)
@@ -2501,7 +2512,7 @@ func TestCleanupStaleShardResources(t *testing.T) {
 		proxySvc("shard-2", true),  // stale, owned
 		proxySvc("shard-x", false), // different owner
 	)
-	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, newTestOperatorSearchConfig())
+	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, newTestOperatorSearchConfig(), nil, nil)
 	require.NoError(t, helper.cleanupStaleShardResources(t.Context(), zap.S(), []string{"shard-0", "shard-1"}))
 
 	_, err := fakeClient.GetService(t.Context(), search.ProxyServiceNameForShard("shard-0"))
@@ -2524,6 +2535,7 @@ func TestReconcileReplicaSet_CreatesResources(t *testing.T) {
 		search,
 		NewCommunityResourceSearchSource(mdbc),
 		newTestOperatorSearchConfig(),
+		nil, nil,
 	)
 
 	// Pass 1: creates resources, returns Pending (StatefulSet not ready)

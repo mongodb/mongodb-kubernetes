@@ -102,8 +102,6 @@ func TestBuildReplicaSetRoute(t *testing.T) {
 	}
 }
 
-// Regression: externalHostname template must substitute both {clusterName}
-// and {clusterIndex}; an earlier path left {clusterIndex} literal in SNI.
 func TestBuildReplicaSetRouteForCluster_PerClusterPlaceholders(t *testing.T) {
 	clusters := []searchv1.ClusterSpec{
 		{ClusterName: "kind-e2e-cluster-1"},

@@ -363,9 +363,7 @@ func buildReplicaSetRoute(search *searchv1.MongoDBSearch) envoyRoute {
 }
 
 // buildRoutesForCluster returns the Envoy routes for one member cluster.
-// clusterName == "" is the single-cluster path (delegates to buildRoutes).
-// For MC, the user-supplied externalHostname template wins; otherwise the
-// default SNI is the index-suffixed proxy-svc FQDN.
+// Empty clusterName is the single-cluster path.
 func buildRoutesForCluster(search *searchv1.MongoDBSearch, source searchcontroller.SearchSourceDBResource, clusterIndex int, clusterName string) []envoyRoute {
 	if clusterName == "" {
 		return buildRoutes(search, source)
@@ -378,9 +376,8 @@ func buildRoutesForCluster(search *searchv1.MongoDBSearch, source searchcontroll
 }
 
 // buildReplicaSetRouteForCluster builds the RS-mode route for one cluster.
-// Upstream MUST be the index-suffixed mongot Service for this cluster: the
-// legacy unindexed name would NXDOMAIN under STRICT_DNS and fast-fail mongod's
-// gRPC with code 125 ("Error connecting to Search Index Management service").
+// Upstream is the index-suffixed mongot Service — the unindexed name NXDOMAINs
+// under STRICT_DNS and fails mongod's gRPC with code 125.
 func buildReplicaSetRouteForCluster(search *searchv1.MongoDBSearch, clusterIndex int, clusterName string) envoyRoute {
 	mongotServiceName := search.SearchServiceNamespacedNameForCluster(clusterIndex).Name
 	namespace := search.Namespace
