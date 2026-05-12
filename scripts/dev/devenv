@@ -13,6 +13,11 @@
 # Fails loudly if either file is missing — first thing devs should do
 # on a fresh worktree is `make switch`. After switch, re-source.
 #
+# EVG-CI exception: switch_context.sh writes a single context.env when
+# EVR_TASK_ID is set (no per-side split there). Detect the same way and
+# skip both the requirement and the load of context.<side>.env in that
+# mode.
+#
 # This file is sourceable, not executable. Do not add a shebang or
 # `set -Eeou` — it would change behavior in the calling shell.
 
@@ -31,21 +36,28 @@ fi
 
 __mck_side=$([[ -f /.dockerenv ]] && echo devc || echo host)
 
+# EVG-CI runs as a single side: switch_context.sh writes everything into
+# context.env and deliberately skips the context.<side>.env split (see the
+# EVR_TASK_ID guard there). Detect the same way and don't require — or load —
+# the side file in that mode.
+__mck_evg_ci=$([[ -n "${EVR_TASK_ID:-}" ]] && echo 1 || echo 0)
+
 if [[ ! -f "${__mck_root}/.generated/context.env" ]]; then
     echo "ERROR: ${__mck_root}/.generated/context.env not found." >&2
     echo "       Run 'make switch' first to generate it, then re-source." >&2
-    unset __mck_root __mck_side
+    unset __mck_root __mck_side __mck_evg_ci
     return 1 2>/dev/null || exit 1
 fi
 
-if [[ ! -f "${__mck_root}/.generated/context.${__mck_side}.env" ]]; then
+if [[ "${__mck_evg_ci}" == "0" \
+      && ! -f "${__mck_root}/.generated/context.${__mck_side}.env" ]]; then
     echo "ERROR: ${__mck_root}/.generated/context.${__mck_side}.env not found." >&2
     echo "       You're on the ${__mck_side} side; run 'make switch' here to" >&2
     echo "       generate it, then re-source." >&2
     if [[ "${__mck_side}" == "devc" ]]; then
         echo "       (If on-create just ran, wait a moment and re-source.)" >&2
     fi
-    unset __mck_root __mck_side
+    unset __mck_root __mck_side __mck_evg_ci
     return 1 2>/dev/null || exit 1
 fi
 
@@ -66,10 +78,16 @@ fi
 # generated files as-is without regenerating.
 if [[ "${MCK_DEVENV_NO_AUTO_SWITCH:-}" != "1" ]] \
    && [[ -s "${__mck_root}/.generated/.current_context" ]]; then
-    __mck_stale=$(find "${__mck_root}/scripts/dev/contexts" -type f \
-        \( -newer "${__mck_root}/.generated/context.env" \
-        -o -newer "${__mck_root}/.generated/context.${__mck_side}.env" \) \
-        -print -quit 2>/dev/null)
+    if [[ "${__mck_evg_ci}" == "1" ]]; then
+        __mck_stale=$(find "${__mck_root}/scripts/dev/contexts" -type f \
+            -newer "${__mck_root}/.generated/context.env" \
+            -print -quit 2>/dev/null)
+    else
+        __mck_stale=$(find "${__mck_root}/scripts/dev/contexts" -type f \
+            \( -newer "${__mck_root}/.generated/context.env" \
+            -o -newer "${__mck_root}/.generated/context.${__mck_side}.env" \) \
+            -print -quit 2>/dev/null)
+    fi
     if [[ -n "${__mck_stale}" ]]; then
         echo "devenv: scripts/dev/contexts/ is newer than .generated/context.{env,${__mck_side}.env};" >&2
         echo "        regenerating via switch_context.sh ($(cat "${__mck_root}/.generated/.current_context"))..." >&2
@@ -80,7 +98,7 @@ if [[ "${MCK_DEVENV_NO_AUTO_SWITCH:-}" != "1" ]] \
         if ! ( cd "${__mck_root}" && scripts/dev/switch_context.sh \
                "$(cat "${__mck_root}/.generated/.current_context")" >&2 ); then
             echo "ERROR: switch_context.sh regeneration failed." >&2
-            unset __mck_root __mck_side __mck_stale
+            unset __mck_root __mck_side __mck_evg_ci __mck_stale
             return 1 2>/dev/null || exit 1
         fi
     fi
@@ -90,8 +108,10 @@ fi
 set -a
 # shellcheck disable=SC1090,SC1091
 . "${__mck_root}/.generated/context.env"
-# shellcheck disable=SC1090,SC1091
-. "${__mck_root}/.generated/context.${__mck_side}.env"
+if [[ "${__mck_evg_ci}" == "0" ]]; then
+    # shellcheck disable=SC1090,SC1091
+    . "${__mck_root}/.generated/context.${__mck_side}.env"
+fi
 set +a
 
 if [[ -f "${__mck_root}/.generated/.current_context" ]]; then
@@ -110,4 +130,4 @@ if [[ -f "${__mck_root}/scripts/aliases/aliases" ]]; then
     . "${__mck_root}/scripts/aliases/aliases" && echo "Sourced aliases from scripts/aliases/aliases"
 fi
 
-unset __mck_root __mck_side
+unset __mck_root __mck_side __mck_evg_ci
