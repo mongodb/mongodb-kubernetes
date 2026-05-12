@@ -1,14 +1,4 @@
 ---
-# MongoDBSearch (multi-cluster) for Q2-MC-RS e2e.
-#
-# - spec.source.external.hostAndPorts is set in the test fixture from
-#   the MongoDBMulti source's per-cluster pod FQDNs (Phase 2 ops code
-#   renders the same top-level seed list to every cluster's mongot).
-# - spec.clusters[] (filled in the test fixture) carries per-cluster
-#   replica counts; when omitted, the reconciler defaults to a single
-#   entry built from the top-level fields.
-# - Envoy replica count is hardcoded to 1 per per-cluster Deployment;
-#   spec.loadBalancer.managed.replicas was removed in 98209bb9c.
 apiVersion: mongodb.com/v1
 kind: MongoDBSearch
 metadata:

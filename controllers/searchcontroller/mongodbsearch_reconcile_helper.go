@@ -170,10 +170,8 @@ type reconcileUnit struct {
 	logFields           []any                // k/v fields attached to the per-unit logger (nil for single-unit topologies)
 	tlsResource         tls.TLSConfigurableResource
 	mongotConfigFn      mongot.Modification
-
-	// Per-cluster routing fields; clusterName == "" means central client.
-	clusterName  string
-	clusterIndex int
+	clusterName         string // "" routes to the central client (single-cluster)
+	clusterIndex        int
 }
 
 // SearchSourceReplicaSet is the subset of SearchSourceDBResource the RS plan
