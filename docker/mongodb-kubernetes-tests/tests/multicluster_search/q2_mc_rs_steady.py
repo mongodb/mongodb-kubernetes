@@ -31,10 +31,7 @@ from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests import test_logger
-from tests.common.multicluster.multicluster_utils import (
-    assert_deployment_ready_in_cluster,
-    assert_resource_in_cluster,
-)
+from tests.common.multicluster.multicluster_utils import assert_deployment_ready_in_cluster
 from tests.common.search import search_resource_names
 from tests.common.search.movies_search_helper import (
     EMBEDDING_QUERY_KEY_ENV_VAR,
@@ -580,12 +577,6 @@ def test_verify_per_cluster_mongot_resources(
 
         apps = mcc.apps_v1_api()
         core = mcc.core_v1_api()
-        assert_resource_in_cluster(apps, kind="StatefulSet", name=sts_name, namespace=namespace)
-        assert_resource_in_cluster(core, kind="Service", name=svc_name, namespace=namespace)
-        assert_resource_in_cluster(core, kind="ConfigMap", name=cm_name, namespace=namespace)
-        assert_resource_in_cluster(core, kind="Service", name=proxy_svc_name, namespace=namespace)
-
-        # Owner-label provenance on every per-cluster write site.
         sts = apps.read_namespaced_stateful_set(name=sts_name, namespace=namespace)
         headless = core.read_namespaced_service(name=svc_name, namespace=namespace)
         proxy = core.read_namespaced_service(name=proxy_svc_name, namespace=namespace)
@@ -625,11 +616,7 @@ def test_verify_per_cluster_envoy_deployment(
         envoy_cm_name = _per_cluster_envoy_configmap_name(MDBS_RESOURCE_NAME, cluster_idx)
         apps = mcc.apps_v1_api()
         core = mcc.core_v1_api()
-        assert_resource_in_cluster(apps, kind="Deployment", name=envoy_deployment_name, namespace=namespace)
         assert_deployment_ready_in_cluster(apps, name=envoy_deployment_name, namespace=namespace)
-        assert_resource_in_cluster(core, kind="ConfigMap", name=envoy_cm_name, namespace=namespace)
-
-        # Owner-label provenance on Envoy resources.
         envoy_deploy = apps.read_namespaced_deployment(name=envoy_deployment_name, namespace=namespace)
         envoy_cm = core.read_namespaced_config_map(name=envoy_cm_name, namespace=namespace)
         _assert_search_owner_labels(
