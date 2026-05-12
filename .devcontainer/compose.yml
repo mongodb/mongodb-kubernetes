@@ -59,7 +59,12 @@ services:
 
     command: sleep infinity
   k8s-proxy:
-    image: ghcr.io/fealebenpae/kube-forwarding-proxy:0.8.0
+    # Local build from a sibling clone of kube-forwarding-proxy. Temporary —
+    # revert to a pinned `image:` once the multi-context shutdown fix
+    # (lsierant/macos-support) is published to a public registry tag.
+    build:
+      context: ../../kube-forwarding-proxy
+    image: k8s-service-proxy:local
     cap_add:
       - NET_ADMIN
     environment:
