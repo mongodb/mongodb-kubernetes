@@ -196,7 +196,7 @@ func TestAgentFlags(t *testing.T) {
 
 	mdb := mdbv1.NewReplicaSetBuilder().SetAgentConfig(mdbv1.AgentConfig{StartupParameters: agentStartupParameters}).Build()
 	sts := DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions()), zap.S())
-	variablesMap := env.ToMap(sts.Spec.Template.Spec.Containers[0].Env...)
+	variablesMap := env.ToMap(sts.Spec.Template.Spec.Containers[0].Env...) // nolint:forbidigo
 	val, ok := variablesMap["AGENT_FLAGS"]
 	assert.True(t, ok)
 	// AGENT_FLAGS environment variable is sorted
