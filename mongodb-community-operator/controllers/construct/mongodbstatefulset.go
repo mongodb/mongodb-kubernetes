@@ -25,15 +25,10 @@ import (
 )
 
 const (
-	MongodbRepoUrlEnv          = "MONGODB_REPO_URL"
-	MongodbImageEnv            = "MONGODB_IMAGE"
-	AgentImageEnv              = "AGENT_IMAGE"
 	MongoDBAssumeEnterpriseEnv = "MDB_ASSUME_ENTERPRISE"
 	AgentName                  = "mongodb-agent"
 	MongodbName                = "mongod"
 )
-
-var OfficialMongodbRepoUrls = []string{"docker.io/mongodb", "quay.io/mongodb"}
 
 const (
 	VersionUpgradeHookImageEnv   = "VERSION_UPGRADE_HOOK_IMAGE"
