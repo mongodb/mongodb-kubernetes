@@ -34,7 +34,6 @@ from tests import test_logger
 from tests.common.multicluster.multicluster_utils import (
     assert_deployment_ready_in_cluster,
     assert_resource_in_cluster,
-    replicate_secret,
 )
 from tests.common.search import search_resource_names
 from tests.common.search.movies_search_helper import (
@@ -639,14 +638,9 @@ def test_verify_persisted_cluster_mapping(
     central_cluster_client: kubernetes.client.ApiClient,
     helper: MCSearchDeploymentHelper,
 ):
-    """STRICT — the `<name>-state` ConfigMap on the central cluster carries the
-    persisted ClusterMapping the operator uses to assign indexes.
-
-    This is the operator's source of truth for cluster-index pinning across
-    spec.clusters[] reorders and across operator restarts. The mapping must
-    contain every member cluster the test declared, with indexes matching
-    what `MCSearchDeploymentHelper.cluster_index()` returned (which itself
-    mirrors the declaration order).
+    """The `<name>-state` ConfigMap on the central cluster must carry a ClusterMapping
+    entry for every member cluster. This is the operator's source of truth for
+    cluster-index pinning across spec.clusters[] reorders and restarts.
     """
     state_cm_name = f"{MDBS_RESOURCE_NAME}-state"
     core = CoreV1Api(api_client=central_cluster_client)
