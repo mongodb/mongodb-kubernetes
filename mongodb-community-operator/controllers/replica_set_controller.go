@@ -592,9 +592,9 @@ func guessEnterprise(mdb mdbv1.MongoDBCommunity, mongodbImage string) bool {
 		}
 	}
 	if len(overriddenImage) > 0 {
-		return strings.Contains(overriddenImage, construct.OfficialMongodbEnterpriseServerImageName)
+		return strings.Contains(overriddenImage, images.OfficialEnterpriseServerImage)
 	}
-	return mongodbImage == construct.OfficialMongodbEnterpriseServerImageName
+	return mongodbImage == images.OfficialEnterpriseServerImage
 }
 
 // buildService creates a Service that will be used for the Replica Set StatefulSet

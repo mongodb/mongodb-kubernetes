@@ -47,8 +47,6 @@ const (
 	mongodbDatabaseServiceAccountName = "mongodb-kubernetes-appdb"
 	agentHealthStatusFilePathValue    = "/var/log/mongodb-mms-automation/healthstatus/agent-health-status.json"
 
-	OfficialMongodbEnterpriseServerImageName = "mongodb-enterprise-server"
-
 	headlessAgentEnv           = "HEADLESS_AGENT"
 	podNamespaceEnv            = "POD_NAMESPACE"
 	automationConfigEnv        = "AUTOMATION_CONFIG_MAP"
