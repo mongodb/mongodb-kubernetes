@@ -39,7 +39,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/common"
-	mcoConstruct "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/construct"
+	pkgconstruct "github.com/mongodb/mongodb-kubernetes/pkg/construct"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
@@ -295,14 +295,14 @@ func TestShardedClusterReconcileContainerImages(t *testing.T) {
 func TestShardedClusterReconcileContainerImagesWithStaticArchitecture(t *testing.T) {
 	t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.Static))
 
-	databaseRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_8_0_0_ubi9", mcoConstruct.MongodbImageEnv)
+	databaseRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_8_0_0_ubi9", pkgconstruct.MongodbImageEnv)
 
 	ctx := context.Background()
 	sc := test.DefaultClusterBuilder().SetVersion("8.0.0").SetShardCountSpec(1).Build()
 
 	imageUrlsMock := images.ImageUrls{
 		architectures.MdbAgentImageRepo: "quay.io/mongodb/mongodb-agent",
-		mcoConstruct.MongodbImageEnv:    "quay.io/mongodb/mongodb-enterprise-server",
+		pkgconstruct.MongodbImageEnv:    "quay.io/mongodb/mongodb-enterprise-server",
 		databaseRelatedImageEnv:         "quay.io/mongodb/mongodb-enterprise-server:@sha256:MONGODB_DATABASE",
 	}
 

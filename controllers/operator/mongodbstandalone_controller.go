@@ -36,7 +36,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/project"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
-	mcoConstruct "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/construct"
+	pkgconstruct "github.com/mongodb/mongodb-kubernetes/pkg/construct"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
@@ -353,7 +353,7 @@ func (r *ReconcileMongoDbStandalone) updateOmDeployment(ctx context.Context, con
 		return status
 	}
 
-	standaloneOmObject := createProcess(r.imageUrls[mcoConstruct.MongodbImageEnv], r.forceEnterprise, set, util.DatabaseContainerName, s)
+	standaloneOmObject := createProcess(r.imageUrls[pkgconstruct.MongodbImageEnv], r.forceEnterprise, set, util.DatabaseContainerName, s)
 	err := conn.ReadUpdateDeployment(
 		func(d om.Deployment) error {
 			excessProcesses := d.GetNumberOfExcessProcesses(s.Name)

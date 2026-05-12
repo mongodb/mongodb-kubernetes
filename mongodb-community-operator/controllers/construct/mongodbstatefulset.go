@@ -12,26 +12,32 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/readiness/config"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
+	pkgconstruct "github.com/mongodb/mongodb-kubernetes/pkg/construct"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/persistentvolumeclaim"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/podtemplatespec"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/probes"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/resourcerequirements"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/readiness/config"
-	"github.com/mongodb/mongodb-kubernetes/pkg/util/scale"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/scale"
 )
 
-var OfficialMongodbRepoUrls = []string{"docker.io/mongodb", "quay.io/mongodb"}
-
-// Environment variables used to configure the MongoDB StatefulSet.
+// Re-export shared constants from pkg/construct so that MCO-internal code and
+// any remaining MCO importers continue to compile without import changes.
 const (
-	MongodbRepoUrlEnv = "MONGODB_REPO_URL"
-	MongodbImageEnv   = "MONGODB_IMAGE"
-	AgentImageEnv     = "AGENT_IMAGE"
+	MongodbRepoUrlEnv          = pkgconstruct.MongodbRepoUrlEnv
+	MongodbImageEnv            = pkgconstruct.MongodbImageEnv
+	AgentImageEnv              = pkgconstruct.AgentImageEnv
+	MongoDBAssumeEnterpriseEnv = pkgconstruct.MongoDBAssumeEnterpriseEnv
+	AgentName                  = pkgconstruct.AgentName
+	MongodbName                = pkgconstruct.MongodbName
 )
+
+// OfficialMongodbRepoUrls re-exports the shared slice from pkg/construct.
+var OfficialMongodbRepoUrls = pkgconstruct.OfficialMongodbRepoUrls
 
 // MCO only
 const (
@@ -43,9 +49,6 @@ const (
 )
 
 const (
-	AgentName   = "mongodb-agent"
-	MongodbName = "mongod"
-
 	DefaultImageType = "ubi8"
 
 	versionUpgradeHookName            = "mongod-posthook"
@@ -58,10 +61,9 @@ const (
 
 	OfficialMongodbEnterpriseServerImageName = "mongodb-enterprise-server"
 
-	headlessAgentEnv           = "HEADLESS_AGENT"
-	podNamespaceEnv            = "POD_NAMESPACE"
-	automationConfigEnv        = "AUTOMATION_CONFIG_MAP"
-	MongoDBAssumeEnterpriseEnv = "MDB_ASSUME_ENTERPRISE"
+	headlessAgentEnv    = "HEADLESS_AGENT"
+	podNamespaceEnv     = "POD_NAMESPACE"
+	automationConfigEnv = "AUTOMATION_CONFIG_MAP"
 
 	automationMongodConfFileName = "automation-mongod.conf"
 	keyfileFilePath              = "/var/lib/mongodb-mms-automation/authentication/keyfile"

@@ -25,7 +25,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/controlledfeature"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
-	mcoConstruct "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/construct"
+	pkgconstruct "github.com/mongodb/mongodb-kubernetes/pkg/construct"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
@@ -107,11 +107,11 @@ func TestStandaloneClusterReconcileContainerImages(t *testing.T) {
 func TestStandaloneClusterReconcileContainerImagesWithStaticArchitecture(t *testing.T) {
 	t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.Static))
 
-	databaseRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_8_0_0_ubi9", mcoConstruct.MongodbImageEnv)
+	databaseRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_8_0_0_ubi9", pkgconstruct.MongodbImageEnv)
 
 	imageUrlsMock := images.ImageUrls{
 		architectures.MdbAgentImageRepo: "quay.io/mongodb/mongodb-agent",
-		mcoConstruct.MongodbImageEnv:    "quay.io/mongodb/mongodb-enterprise-server",
+		pkgconstruct.MongodbImageEnv:    "quay.io/mongodb/mongodb-enterprise-server",
 		databaseRelatedImageEnv:         "quay.io/mongodb/mongodb-enterprise-server:@sha256:MONGODB_DATABASE",
 	}
 

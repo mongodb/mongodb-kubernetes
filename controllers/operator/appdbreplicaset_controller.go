@@ -42,13 +42,13 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
-	mcoConstruct "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/construct"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/authentication/scram"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/generate"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/result"
 	"github.com/mongodb/mongodb-kubernetes/pkg/agent"
 	"github.com/mongodb/mongodb-kubernetes/pkg/agentVersionManagement"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
+	pkgconstruct "github.com/mongodb/mongodb-kubernetes/pkg/construct"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
@@ -614,12 +614,12 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 			return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("Error reading monitoring agent version: %w", err)), log, appDbStatusOption)
 		}
 
-		appdbOpts.LegacyMonitoringAgentImage = images.ContainerImage(r.imageUrls, mcoConstruct.AgentImageEnv, legacyMonitoringAgentVersion)
+		appdbOpts.LegacyMonitoringAgentImage = images.ContainerImage(r.imageUrls, pkgconstruct.AgentImageEnv, legacyMonitoringAgentVersion)
 
 		// AgentImageEnv contains the full container image uri e.g. quay.io/mongodb/mongodb-agent:107.0.0.8502-1
 		// In non-static containers we don't ask OM for the correct version, therefore we just rely on the provided
 		// environment variable.
-		appdbOpts.AgentImage = r.imageUrls[mcoConstruct.AgentImageEnv]
+		appdbOpts.AgentImage = r.imageUrls[pkgconstruct.AgentImageEnv]
 	}
 
 	workflowStatus := r.ensureTLSSecretAndCreatePEMIfNeeded(ctx, opsManager, log)
