@@ -20,6 +20,8 @@ Design:
 from __future__ import annotations
 
 import os
+import sys
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Iterable, Optional
@@ -419,20 +421,30 @@ class CreateOrchestrator:
 
         # ---- prepare_e2e --------------------------------------------------
         def _do_prepare_e2e() -> None:
+            # `bin/reset` (called by prepare-local-e2e) issues its first
+            # kubectl request without buffering and can race with k8s-proxy
+            # / autossh stabilisation right after `wt-ctl up`. A 503 there
+            # aborts the whole phase even though the apiserver is fine
+            # seconds later. Poll readyz from Python until it returns 200
+            # before kicking off make.
+            self._wait_apiserver_ready(
+                wt,
+                deadline_s=60.0,
+                interval_s=2.0,
+                log_path=log_dir / "prepare_local_e2e.log",
+            )
             # Same devenv-source rationale as the kubeconfig phase:
             # `make prepare-local-e2e` shells out to scripts that expect
             # KUBECONFIG / PROJECT_DIR / context.env to be already exported.
-            cmd = (
-                "set -Eeou pipefail; "
-                "cd /workspace; "
-                ". scripts/dev/devenv; "
-                "make prepare-local-e2e"
-            )
             self.runner.run_streaming(
                 [
                     "devcontainer", "exec",
                     "--workspace-folder", str(wt),
-                    "bash", "-lc", cmd,
+                    "bash", "-lc",
+                    "set -Eeou pipefail; "
+                    "cd /workspace; "
+                    ". scripts/dev/devenv; "
+                    "make prepare-local-e2e",
                 ],
                 prefix="[prepare-e2e] ",
                 log_path=log_dir / "prepare_local_e2e.log",
@@ -741,6 +753,65 @@ class CreateOrchestrator:
             return Path(os.getcwd()).resolve()
         except OSError:
             return self.inputs.main_repo_root
+
+    def _wait_apiserver_ready(
+        self,
+        wt: Path,
+        *,
+        deadline_s: float,
+        interval_s: float,
+        log_path: Optional[Path] = None,
+    ) -> None:
+        """Poll ``kubectl get --raw=/readyz`` inside the devcontainer until
+        it returns 200 or the deadline elapses. Raises ``WtCtlError``
+        on timeout. Probes are non-fatal — a failed probe (rc != 0) just
+        triggers another sleep.
+
+        The probe runs through ``devcontainer exec`` so it inherits the
+        same KUBECONFIG / proxy-url resolution path that the subsequent
+        ``make prepare-local-e2e`` will use. Output is appended to
+        ``log_path`` when given so the readiness exchange is captured
+        alongside the phase log.
+        """
+        argv = [
+            "devcontainer", "exec",
+            "--workspace-folder", str(wt),
+            "bash", "-lc",
+            "set -Eeou pipefail; "
+            "cd /workspace; "
+            ". scripts/dev/devenv; "
+            "kubectl --request-timeout=3s get --raw=/readyz",
+        ]
+        if log_path is not None:
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+        deadline = time.monotonic() + deadline_s
+        attempts = 0
+        last_stderr = ""
+        while True:
+            attempts += 1
+            result = self.runner.run(argv, check=False, cwd=wt)
+            if result.rc == 0:
+                sys.stderr.write(
+                    f"[prepare-e2e] apiserver ready after {attempts} probe(s)\n"
+                )
+                if log_path is not None:
+                    with log_path.open("a") as fh:
+                        fh.write(
+                            f"[prepare-e2e] apiserver ready after {attempts} probe(s)\n"
+                        )
+                return
+            last_stderr = (result.stderr or result.stdout or "").strip()
+            if time.monotonic() >= deadline:
+                msg = (
+                    f"apiserver readyz never returned 200 after "
+                    f"{int(deadline_s)}s ({attempts} probes); last stderr: "
+                    f"{last_stderr or '(empty)'}"
+                )
+                if log_path is not None:
+                    with log_path.open("a") as fh:
+                        fh.write(f"[prepare-e2e] ERROR: {msg}\n")
+                raise WtCtlError(msg)
+            time.sleep(interval_s)
 
 
 # ---------------------------------------------------------------------------
