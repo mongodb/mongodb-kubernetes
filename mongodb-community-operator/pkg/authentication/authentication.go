@@ -7,8 +7,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/authentication/authtypes"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/authentication/scram"
+	"github.com/mongodb/mongodb-kubernetes/pkg/authentication/authtypes"
+	"github.com/mongodb/mongodb-kubernetes/pkg/authentication/scram"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/authentication/x509"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
@@ -26,7 +26,7 @@ func Enable(ctx context.Context, auth *automationconfig.Auth, secretGetUpdateCre
 				}
 				scramEnabled = true
 			}
-		case constants.X509:
+		case constants.X509WireProtocol:
 			if err := x509.Enable(ctx, auth, secretGetUpdateCreateDeleter, mdb, agentCertSecret); err != nil {
 				return fmt.Errorf("could not configure x509 authentication: %s", err)
 			}

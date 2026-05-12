@@ -8,7 +8,7 @@ import (
 	"go.uber.org/zap"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/authentication/authtypes"
+	"github.com/mongodb/mongodb-kubernetes/pkg/authentication/authtypes"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
 )
 
@@ -98,7 +98,7 @@ func validateUsers(mdb mdbv1.MongoDBCommunity) error {
 		}
 
 		if user.Database == constants.ExternalDB {
-			if _, ok := expectedAuthMethods[constants.X509]; !ok {
+			if _, ok := expectedAuthMethods[constants.X509WireProtocol]; !ok {
 				return fmt.Errorf("X.509 user %s present but X.509 is not enabled", user.Username)
 			}
 			if user.PasswordSecretKey != "" {
@@ -167,7 +167,7 @@ func validateAuthModeSpec(mdb mdbv1.MongoDBCommunity, log *zap.SugaredLogger) er
 	for _, mode := range allModes {
 		if value := mdbv1.ConvertAuthModeToAuthMechanism(mode); value == "" {
 			return fmt.Errorf("unexpected value (%q) defined for supported authentication modes", value)
-		} else if value == constants.X509 && !mdb.Spec.Security.TLS.Enabled {
+		} else if value == constants.X509WireProtocol && !mdb.Spec.Security.TLS.Enabled {
 			return fmt.Errorf("TLS must be enabled when using X.509 authentication")
 		}
 		mapMechanisms[mdbv1.ConvertAuthModeToAuthMechanism(mode)] = struct{}{}

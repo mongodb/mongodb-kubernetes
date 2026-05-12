@@ -14,7 +14,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/authentication/authtypes"
+	"github.com/mongodb/mongodb-kubernetes/pkg/authentication/authtypes"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
@@ -447,7 +447,7 @@ func ConvertAuthModeToAuthMechanism(authModeLabel AuthMode) string {
 	case "SCRAM-SHA-1":
 		return constants.Sha1
 	case X509AuthMode:
-		return constants.X509
+		return constants.X509WireProtocol
 	default:
 		return ""
 	}
@@ -544,7 +544,7 @@ func (m *MongoDBCommunity) GetAuthOptions() authtypes.Options {
 
 	return authtypes.Options{
 		AuthoritativeSet:  !ignoreUnknownUsers,
-		KeyFile:           constants.AutomationAgentKeyFilePathInContainer,
+		KeyFile:           constants.AutomationAgentAuthKeyFilePathInContainer,
 		AuthMechanisms:    authMechanisms,
 		AgentName:         constants.AgentName,
 		AutoAuthMechanism: autoAuthMechanism,

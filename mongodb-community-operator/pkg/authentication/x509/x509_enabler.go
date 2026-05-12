@@ -5,7 +5,7 @@ import (
 
 	"github.com/hashicorp/go-multierror"
 
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/authentication/authtypes"
+	"github.com/mongodb/mongodb-kubernetes/pkg/authentication/authtypes"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/contains"
@@ -29,13 +29,13 @@ func enableAgentAuthentication(auth *automationconfig.Auth, agentKeyFileContents
 	// windows file is specified to pass validation, this will never be used
 	auth.KeyFileWindows = constants.AutomationAgentWindowsKeyFilePath
 
-	auth.AutoAuthMechanisms = []string{constants.X509}
+	auth.AutoAuthMechanisms = []string{constants.X509WireProtocol}
 
 	// the username of the MongoDB Agent
 	auth.AutoUser = agentName
 
 	// the mechanism used by the Agent
-	auth.AutoAuthMechanism = constants.X509
+	auth.AutoAuthMechanism = constants.X509WireProtocol
 
 	// the password for the Agent user
 	auth.AutoPwd = ""
@@ -49,7 +49,7 @@ func enableClientAuthentication(auth *automationconfig.Auth, opts authtypes.Opti
 	}
 
 	if !contains.X509(auth.DeploymentAuthMechanisms) {
-		auth.DeploymentAuthMechanisms = append(auth.DeploymentAuthMechanisms, constants.X509)
+		auth.DeploymentAuthMechanisms = append(auth.DeploymentAuthMechanisms, constants.X509WireProtocol)
 	}
 
 	auth.Users = append(auth.Users, users...)
