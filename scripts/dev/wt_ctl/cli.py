@@ -989,8 +989,8 @@ def _resolve_create_paths(
 # ---------------------------------------------------------------------------
 
 def _orchestrator_status_line(worktree_root: Path, branch: str) -> Optional[str]:
-    """If ``.wt-ctl/state.json`` exists and any phase is non-OK, return a
-    one-liner the status renderer can append; otherwise None.
+    """If ``.generated/wt-ctl/state.json`` exists and any phase is non-OK,
+    return a one-liner the status renderer can append; otherwise None.
     """
     try:
         st = orchestrator_state.load(worktree_root)

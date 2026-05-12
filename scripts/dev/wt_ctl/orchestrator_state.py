@@ -1,8 +1,9 @@
 """State file for the ``wt-ctl create`` orchestrator.
 
-Persists per-phase status + input hash to ``<worktree>/.wt-ctl/state.json`` so
-``--resume`` and ``--restart-from`` can pick up after a failure. Read/write is
-atomic via ``os.replace`` on a tempfile sibling.
+Persists per-phase status + input hash to
+``<worktree>/.generated/wt-ctl/state.json`` so ``--resume`` and
+``--restart-from`` can pick up after a failure. Read/write is atomic via
+``os.replace`` on a tempfile sibling.
 
 No subprocess. No domain imports.
 """
@@ -19,6 +20,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from .errors import StateConflict, WtCtlError
+from .paths import state_dir
 
 
 SCHEMA_VERSION = 1
@@ -190,7 +192,7 @@ def _now_iso() -> str:
 
 
 def state_path(worktree_root: Path) -> Path:
-    return worktree_root / ".wt-ctl" / "state.json"
+    return state_dir(worktree_root) / "state.json"
 
 
 def load(worktree_root: Path) -> Optional[OrchestratorState]:
@@ -212,7 +214,8 @@ def load(worktree_root: Path) -> Optional[OrchestratorState]:
 
 
 def save(worktree_root: Path, state: OrchestratorState) -> Path:
-    """Atomically persist the state to ``<worktree>/.wt-ctl/state.json``."""
+    """Atomically persist the state to
+    ``<worktree>/.generated/wt-ctl/state.json``."""
     state.updated_at = _now_iso()
     path = state_path(worktree_root)
     path.parent.mkdir(parents=True, exist_ok=True)

@@ -96,8 +96,8 @@ class CreateInputs:
 
         Always the target worktree dir — Phase 2 keeps it simple: we mkdir
         it ahead of create_worktree.sh, which tolerates an existing empty
-        directory. After teardown the .wt-ctl/ inside it goes with the
-        worktree.
+        directory. After teardown the .generated/wt-ctl/ inside it goes
+        with the worktree.
         """
         return self.worktree_path
 
@@ -158,9 +158,9 @@ class CreateOrchestrator:
         if state is None:
             # First-ever invocation. Build a fresh state object from the
             # canonical phase order — but DON'T save it yet. Saving creates
-            # .wt-ctl/state.json under the target worktree path, which
-            # `git worktree add` would then refuse to populate. We persist
-            # for the first time after worktree_init has run.
+            # .generated/wt-ctl/state.json under the target worktree path,
+            # which `git worktree add` would then refuse to populate. We
+            # persist for the first time after worktree_init has run.
             state = ostate.OrchestratorState.initial(
                 branch=self.inputs.branch,
                 inputs=self.inputs.to_dict(),
@@ -622,8 +622,8 @@ class CreateOrchestrator:
     ) -> None:
         emit(f"[wt-ctl] phase: {phase.name}")
         # We only write state once the host directory exists. Pre-worktree_init
-        # the target dir doesn't exist; writing .wt-ctl/ would prevent
-        # git worktree add from populating it. Save lazily.
+        # the target dir doesn't exist; writing .generated/wt-ctl/ would
+        # prevent git worktree add from populating it. Save lazily.
         host = self.inputs.worktree_path_or_main()
         if host.is_dir():
             state.set_status(phase.name, ostate.IN_PROGRESS, log=phase.log_relpath)
@@ -738,8 +738,9 @@ class CreateOrchestrator:
     ) -> Optional[ostate.OrchestratorState]:
         host = self.inputs.worktree_path_or_main()
         # Don't mkdir the worktree path here — git worktree add refuses to
-        # add into a non-empty directory. We let save() create .wt-ctl/ on
-        # demand once worktree_init has populated the worktree dir.
+        # add into a non-empty directory. We let save() create
+        # .generated/wt-ctl/ on demand once worktree_init has populated
+        # the worktree dir.
         if not host.is_dir():
             return None
         return ostate.load(host)

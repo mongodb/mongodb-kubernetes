@@ -98,8 +98,13 @@ def logs_dir(worktree_root: Path) -> Path:
 
 
 def state_dir(worktree_root: Path) -> Path:
-    """Phase-2 state location (created lazily by `create`)."""
-    return worktree_root / ".wt-ctl"
+    """Phase-2 state location (created lazily by `create`).
+
+    Lives under ``.generated/`` alongside the other generated artefacts
+    (``context.env``, ``current.kubeconfig``, …) so the worktree root stays
+    clean and a single gitignore entry covers everything.
+    """
+    return worktree_root / ".generated" / "wt-ctl"
 
 
 def package_root() -> Path:

@@ -1,4 +1,4 @@
-"""Phase 2: orchestrator state file (.wt-ctl/state.json).
+"""Phase 2: orchestrator state file (.generated/wt-ctl/state.json).
 
 Covers:
 * round-trip read/write,
@@ -57,8 +57,8 @@ class StateRoundTripTests(unittest.TestCase):
     def test_load_raises_on_invalid_json(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             wt = Path(tmp) / "wt"
-            (wt / ".wt-ctl").mkdir(parents=True)
-            (wt / ".wt-ctl" / "state.json").write_text("{not-json")
+            (wt / ".generated" / "wt-ctl").mkdir(parents=True)
+            (wt / ".generated" / "wt-ctl" / "state.json").write_text("{not-json")
             with self.assertRaises(StateConflict):
                 ostate.load(wt)
 
@@ -68,7 +68,7 @@ class StateRoundTripTests(unittest.TestCase):
             st = ostate.OrchestratorState.initial(branch="b", inputs={})
             ostate.save(wt, st)
             # Should be exactly state.json + nothing else (no leaked tempfile).
-            files = sorted(p.name for p in (wt / ".wt-ctl").iterdir())
+            files = sorted(p.name for p in (wt / ".generated" / "wt-ctl").iterdir())
             self.assertEqual(files, ["state.json"])
 
 
