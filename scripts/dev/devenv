@@ -49,6 +49,44 @@ if [[ ! -f "${__mck_root}/.generated/context.${__mck_side}.env" ]]; then
     return 1 2>/dev/null || exit 1
 fi
 
+# Staleness check: .generated/context.env and .generated/context.<side>.env
+# are deterministic outputs of the scripts under scripts/dev/contexts/ and
+# the logical inputs (EVG_HOST_NAME, MCK_DEVC_NET_PREFIX, K8S_FWD_PROXY,
+# LOCAL_OPERATOR) at the time switch_context.sh last ran. If any file
+# under scripts/dev/contexts/ is newer than either generated file, the
+# generated values no longer reflect what the current context scripts
+# would produce — re-run switch_context.sh to bring them back in sync
+# before sourcing.
+#
+# We pre-load context.env so the logical inputs reach switch_context.sh:
+# site-context reads them directly, and switch_context.sh's env -i block
+# only forwards them to its subshell if they're set in the calling shell.
+#
+# Opt out with MCK_DEVENV_NO_AUTO_SWITCH=1 when you want to source the
+# generated files as-is without regenerating.
+if [[ "${MCK_DEVENV_NO_AUTO_SWITCH:-}" != "1" ]] \
+   && [[ -s "${__mck_root}/.generated/.current_context" ]]; then
+    __mck_stale=$(find "${__mck_root}/scripts/dev/contexts" -type f \
+        \( -newer "${__mck_root}/.generated/context.env" \
+        -o -newer "${__mck_root}/.generated/context.${__mck_side}.env" \) \
+        -print -quit 2>/dev/null)
+    if [[ -n "${__mck_stale}" ]]; then
+        echo "devenv: scripts/dev/contexts/ is newer than .generated/context.{env,${__mck_side}.env};" >&2
+        echo "        regenerating via switch_context.sh ($(cat "${__mck_root}/.generated/.current_context"))..." >&2
+        set -a
+        # shellcheck disable=SC1090,SC1091
+        . "${__mck_root}/.generated/context.env"
+        set +a
+        if ! ( cd "${__mck_root}" && scripts/dev/switch_context.sh \
+               "$(cat "${__mck_root}/.generated/.current_context")" >&2 ); then
+            echo "ERROR: switch_context.sh regeneration failed." >&2
+            unset __mck_root __mck_side __mck_stale
+            return 1 2>/dev/null || exit 1
+        fi
+    fi
+    unset __mck_stale
+fi
+
 set -a
 # shellcheck disable=SC1090,SC1091
 . "${__mck_root}/.generated/context.env"
