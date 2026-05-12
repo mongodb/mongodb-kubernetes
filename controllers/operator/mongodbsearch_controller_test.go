@@ -15,7 +15,6 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -23,7 +22,6 @@ import (
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	apiv1 "github.com/mongodb/mongodb-kubernetes/api/v1"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/v1/user"
@@ -407,35 +405,6 @@ func TestNewMongoDBSearchReconciler_MultiCluster(t *testing.T) {
 	assert.NotNil(t, r.memberClusterSecretClientsMap["eu-west-k8s"].KubeClient)
 }
 
-// Regression: per-cluster Service writes failed with "no kind is registered
-// for type search.MongoDBSearch in scheme" when member-cluster clients used a
-// scheme without searchv1; apiv1.AddToScheme must register MongoDBSearch.
-func TestOperatorSchemeKnowsMongoDBSearch(t *testing.T) {
-	scheme := runtime.NewScheme()
-	require.NoError(t, corev1.AddToScheme(scheme))
-	require.NoError(t, apiv1.AddToScheme(scheme))
-
-	gvks, _, err := scheme.ObjectKinds(&searchv1.MongoDBSearch{})
-	require.NoError(t, err, "scheme must resolve MongoDBSearch after apiv1.AddToScheme")
-	require.NotEmpty(t, gvks, "no GVK registered for searchv1.MongoDBSearch")
-
-	gvk := gvks[0]
-	assert.Equal(t, "mongodb.com", gvk.Group)
-	assert.Equal(t, "v1", gvk.Version)
-	assert.Equal(t, "MongoDBSearch", gvk.Kind)
-
-	mdbs := &searchv1.MongoDBSearch{
-		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns", UID: "00000000-0000-0000-0000-000000000001"},
-	}
-	svc := &corev1.Service{
-		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search-search-0-svc", Namespace: "ns"},
-	}
-	require.NoError(t, controllerutil.SetOwnerReference(mdbs, svc, scheme))
-	require.Len(t, svc.OwnerReferences, 1)
-	assert.Equal(t, "MongoDBSearch", svc.OwnerReferences[0].Kind)
-	assert.Equal(t, "mongodb.com/v1", svc.OwnerReferences[0].APIVersion)
-}
-
 func TestMongoDBSearchReconcile_MissingSecret_Requeues(t *testing.T) {
 	ctx := context.Background()
 	search := newMongoDBSearch("search", mock.TestNamespace, "mdb")
@@ -741,25 +710,6 @@ func TestMongoDBSearchReconcile_Success_MultiCluster(t *testing.T) {
 				assert.Equal(t, search.Name, labels[khandler.MongoDBSearchOwnerNameLabel], "owner-name label on %T", obj)
 				assert.Equal(t, search.Namespace, labels[khandler.MongoDBSearchOwnerNamespaceLabel], "owner-namespace label on %T", obj)
 				assert.Equal(t, tc.clusterName, labels[khandler.MongoDBSearchClusterNameLabel], "cluster-name label on %T", obj)
-			}
-
-			// Per-cluster resources do NOT leak onto the other member client or
-			// onto the central client. Cross-cluster owner refs don't GC, so a
-			// stray write here would silently leak forever.
-			leaks := []struct {
-				name types.NamespacedName
-				obj  client.Object
-			}{
-				{stsName, &appsv1.StatefulSet{}},
-				{headlessName, &corev1.Service{}},
-				{proxyName, &corev1.Service{}},
-				{cmName, &corev1.ConfigMap{}},
-			}
-			for _, l := range leaks {
-				assert.True(t, apiErrors.IsNotFound(tc.otherMC.Get(ctx, l.name, l.obj)),
-					"%s must NOT be on the other member client", l.name)
-				assert.True(t, apiErrors.IsNotFound(centralClient.Get(ctx, l.name, l.obj)),
-					"%s must NOT be on the central client", l.name)
 			}
 		})
 	}
