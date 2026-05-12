@@ -47,8 +47,19 @@ fi
 # prefix so cloud-qa OM project names don't collide across parallel worktrees.
 # Idempotent: skip if NAMESPACE already ends in `-${MCK_DEVC_NET_PREFIX}` so
 # re-sourcing this file (e.g. nested `make switch`) doesn't pile suffixes.
+#
+# WATCH_NAMESPACE is normally set to the same base value as NAMESPACE in
+# private-context (e.g. both "ls"). If we only prefix NAMESPACE, the operator
+# ends up watching the un-prefixed namespace; every list/watch then 403s
+# because the SA RBAC is on the prefixed namespace, cache sync times out at
+# ~120s, and the operator exits. Apply the same prefix to WATCH_NAMESPACE
+# whenever it matches the un-prefixed NAMESPACE — leave it alone if the
+# user set it to something else on purpose.
 if [[ -n "${MCK_DEVC_NET_PREFIX:-}" && -n "${NAMESPACE:-}" \
       && "${NAMESPACE}" != *"-${MCK_DEVC_NET_PREFIX}" ]]; then
+  if [[ -n "${WATCH_NAMESPACE:-}" && "${WATCH_NAMESPACE}" == "${NAMESPACE}" ]]; then
+    export WATCH_NAMESPACE="${WATCH_NAMESPACE}-${MCK_DEVC_NET_PREFIX}"
+  fi
   export NAMESPACE="${NAMESPACE}-${MCK_DEVC_NET_PREFIX}"
 fi
 

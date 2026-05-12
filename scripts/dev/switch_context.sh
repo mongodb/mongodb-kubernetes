@@ -209,6 +209,13 @@ rm -f "${destination_envs_file}.export.env" "${destination_envs_file}.operator.e
 
 echo -n "${context}" > "${destination_envs_dir}/.current_context"
 
+# Persist the resolved (prefix-suffixed) namespace as a single source of
+# truth for downstream tools, analogous to .current-evg-host. Cheaper than
+# re-deriving from context.env via sed/grep, and clearer in `ls .generated/`.
+if [ -n "${NAMESPACE:-}" ]; then
+    echo -n "${NAMESPACE}" > "${destination_envs_dir}/.current-namespace"
+fi
+
 echo "Generated env files in $(readlink -f "${destination_envs_dir}"):"
 # shellcheck disable=SC2010
 ls -l1 "${destination_envs_dir}" | grep "context"
