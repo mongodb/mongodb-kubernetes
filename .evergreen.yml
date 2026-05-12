@@ -202,6 +202,10 @@ parameters:
     value: "0"
     description: set this to 1 if you want shell scripts to enable set -x
 
+  - key: TEST_RUN_MODE
+    value: "pod"
+    description: 'How e2e tests execute. "pod" (default) deploys the mongodb-enterprise-operator-tests helm chart and runs pytest in a Kubernetes pod. "local" brings up the project devcontainer on the EVG task host and runs pytest inside it.'
+
 # Triggered manually or by PCT.
 patch_aliases:
   - alias: "periodic_teardowns"

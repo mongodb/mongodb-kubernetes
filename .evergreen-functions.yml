@@ -725,6 +725,10 @@ functions:
           - revision_order_id
           - AI_MONGODB_EMBEDDING_INDEXING_KEY
           - AI_MONGODB_EMBEDDING_QUERY_KEY
+          # TEST_RUN_MODE: "pod" (default, deploys mongodb-enterprise-operator-tests
+          # pod via helm chart) or "local" (runs pytest directly inside the
+          # devcontainer brought up on the EVG task host).
+          - TEST_RUN_MODE
         add_to_path:
           - ${workdir}/bin
         binary: scripts/evergreen/e2e/e2e.sh
