@@ -284,7 +284,19 @@ def test_paging_through_mongot_outage_surfaces_connectivity_error(mdb: MongoDB, 
     mdbs.update()
 
     def mongot_pods_gone() -> tuple[bool, str]:
-        sts = apps_v1.read_namespaced_stateful_set(statefulset_name, mdb.namespace)
+        # The MongoDBSearch controller's reconciler does NOT scale the
+        # mongot StatefulSet to 0 when ``spec.replicas: 0`` — it deletes
+        # the StatefulSet entirely. So treating the resulting 404 as
+        # "pods gone" is correct here (and the only way this loop will
+        # ever return True). ``run_periodically`` swallows exceptions
+        # and retries, which would otherwise hide this behavior behind
+        # a 3-minute timeout.
+        try:
+            sts = apps_v1.read_namespaced_stateful_set(statefulset_name, mdb.namespace)
+        except client.exceptions.ApiException as exc:
+            if exc.status == 404:
+                return True, "statefulset deleted by reconciler"
+            raise
         ready = sts.status.ready_replicas or 0
         return ready == 0, f"ready_replicas={ready}"
 
@@ -292,7 +304,7 @@ def test_paging_through_mongot_outage_surfaces_connectivity_error(mdb: MongoDB, 
         mongot_pods_gone,
         timeout=180,
         sleep_time=5,
-        msg=f"mongot StatefulSet {statefulset_name} to scale to 0",
+        msg=f"mongot StatefulSet {statefulset_name} to drain (delete or scale to 0)",
     )
 
     # Now run a fresh paging cursor against the broken cluster. We expect
