@@ -31,7 +31,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/commoncontroller"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/podtemplatespec"
-	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
@@ -422,7 +421,7 @@ func buildEnvoyPodSpec(search *searchv1.MongoDBSearch, tlsCfg *searchcontroller.
 // Returns an error if the env var is not set.
 func (r *MongoDBSearchEnvoyReconciler) envoyContainerImage() (string, error) {
 	if r.defaultEnvoyImage == "" {
-		return "", fmt.Errorf("%s environment variable must be set on the operator to use managed load balancer", images.EnvoyImageEnv)
+		return "", fmt.Errorf("%s environment variable must be set on the operator to use managed load balancer", util.EnvoyImageEnv)
 	}
 	return r.defaultEnvoyImage, nil
 }

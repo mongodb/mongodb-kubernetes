@@ -35,21 +35,22 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/predicates"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/validation"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/watch"
-	"github.com/mongodb/mongodb-kubernetes/pkg/agent"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/authentication"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/functions"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/result"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/status"
+	"github.com/mongodb/mongodb-kubernetes/pkg/agent"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/podtemplatespec"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/functions"
-	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/result"
-	"github.com/mongodb/mongodb-kubernetes/pkg/util/scale"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/status"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/service"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/scale"
 )
 
 const (
@@ -592,9 +593,9 @@ func guessEnterprise(mdb mdbv1.MongoDBCommunity, mongodbImage string) bool {
 		}
 	}
 	if len(overriddenImage) > 0 {
-		return strings.Contains(overriddenImage, images.OfficialEnterpriseServerImage)
+		return strings.Contains(overriddenImage, util.OfficialEnterpriseServerImageUrl)
 	}
-	return mongodbImage == images.OfficialEnterpriseServerImage
+	return mongodbImage == util.OfficialEnterpriseServerImageUrl
 }
 
 // buildService creates a Service that will be used for the Replica Set StatefulSet

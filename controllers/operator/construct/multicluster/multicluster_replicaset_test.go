@@ -17,7 +17,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/common"
-	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 )
@@ -227,8 +226,8 @@ func TestPVCOverride(t *testing.T) {
 		},
 	}
 
-	t.Setenv(images.NonStaticEnterpriseImageEnv, "some-registry")
-	t.Setenv(images.InitDatabaseImageUrlEnv, "some-registry")
+	t.Setenv(util.NonStaticDatabaseEnterpriseImage, "some-registry")
+	t.Setenv(util.InitDatabaseImageUrlEnv, "some-registry")
 
 	for _, tt := range tests {
 		mdbm := getMultiClusterMongoDB()
