@@ -29,7 +29,7 @@ func Sha1(slice []string) bool {
 }
 
 func X509(slice []string) bool {
-	return String(slice, constants.X509WireProtocol)
+	return String(slice, constants.X509)
 }
 
 func NamespacedName(nsNames []types.NamespacedName, nsName types.NamespacedName) bool {

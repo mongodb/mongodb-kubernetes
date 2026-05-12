@@ -26,7 +26,7 @@ func Enable(ctx context.Context, auth *automationconfig.Auth, secretGetUpdateCre
 				}
 				scramEnabled = true
 			}
-		case constants.X509WireProtocol:
+		case constants.X509:
 			if err := x509.Enable(ctx, auth, secretGetUpdateCreateDeleter, mdb, agentCertSecret); err != nil {
 				return fmt.Errorf("could not configure x509 authentication: %s", err)
 			}

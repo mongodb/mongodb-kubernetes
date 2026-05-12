@@ -626,7 +626,7 @@ func ConvertAuthModeToAuthMechanism(authModeLabel AuthMode) string {
 	case "SCRAM-SHA-1":
 		return constants.Sha1
 	case X509AuthMode:
-		return constants.X509WireProtocol
+		return constants.X509
 	default:
 		return ""
 	}
@@ -723,7 +723,7 @@ func (m *MongoDBCommunity) GetAuthOptions() authtypes.Options {
 
 	return authtypes.Options{
 		AuthoritativeSet:  !ignoreUnknownUsers,
-		KeyFile:           constants.AutomationAgentAuthKeyFilePathInContainer,
+		KeyFile:           constants.AutomationAgentKeyFilePathInContainer,
 		AuthMechanisms:    authMechanisms,
 		AgentName:         constants.AgentName,
 		AutoAuthMechanism: autoAuthMechanism,
