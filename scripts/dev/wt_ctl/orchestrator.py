@@ -392,29 +392,17 @@ class CreateOrchestrator:
 
         # ---- kubeconfig ---------------------------------------------------
         def _do_kubeconfig() -> None:
-            # Two non-obvious things going on:
-            #
-            # 1. `bash -lc` is a non-interactive login shell. shell-init.sh
-            #    only auto-sources scripts/dev/devenv for interactive shells
-            #    (`[[ $- == *i* ]]`), so we explicitly source devenv to
-            #    export PROJECT_DIR / KUBECONFIG / EVG_HOST_NAME before
-            #    invoking make.
-            #
-            # 2. `make switch` re-renders context.devc.env. Its
-            #    site-context fragment sets KUBECONFIG correctly only when
-            #    EVG_HOST_NAME is set in the calling shell (switch_context.sh
-            #    runs site-context inside `env -i ... bash -c` and forwards
-            #    only a fixed list of vars). We export EVG_HOST_NAME from
-            #    the just-pinned `.generated/.current-evg-host` so the first
-            #    container-side make switch produces the right KUBECONFIG
-            #    even when devenv loaded a stale context.devc.env.
+            # `bash -lc` is a non-interactive login shell. shell-init.sh
+            # only auto-sources scripts/dev/devenv for interactive shells
+            # (`[[ $- == *i* ]]`), so we explicitly source devenv to export
+            # PROJECT_DIR / KUBECONFIG before invoking make. site-context
+            # picks KUBECONFIG by side alone (no EVG_HOST_NAME dependency),
+            # so make switch produces the right context.devc.env without
+            # any pre-export dance from the caller.
             cmd = (
                 "set -Eeou pipefail; "
                 "cd /workspace; "
                 "if [[ -f scripts/dev/devenv ]]; then . scripts/dev/devenv 2>/dev/null || true; fi; "
-                "if [[ -s .generated/.current-evg-host ]]; then "
-                'export EVG_HOST_NAME="$(cat .generated/.current-evg-host)"; '
-                "fi; "
                 'make switch context="$(cat .generated/.current_context)"; '
                 "bash scripts/dev/evg_host.sh get-kubeconfig --no-fetch"
             )

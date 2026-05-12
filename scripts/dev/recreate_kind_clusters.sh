@@ -37,12 +37,11 @@ wait
 # we do exports sequentially as setup_kind_cluster.sh is run in parallel and we hit kube config locks
 # These exports go to ${KUBECONFIG} (set by set_env_context.sh sourced above).
 # Don't override KUBECONFIG here — downstream helpers (interconnect, istio,
-# csi) re-source set_env_context.sh and so re-resolve KUBECONFIG from the
-# baked context env, which on the remote points at ~/.kube/config (because
-# site-context picks KUBECONFIG before root-context sets EVG_HOST_NAME).
-# Leaving exports at the default keeps every helper looking at the same
-# file. The merged kubeconfig is copied to .generated/evg-host.kubeconfig
-# at the end of this script, where evg_host.sh::get-kubeconfig scp's from.
+# csi) re-source set_env_context.sh and re-resolve KUBECONFIG from the
+# baked context env. Leaving exports at the default keeps every helper
+# looking at the same file. The merged kubeconfig is copied to
+# .generated/current.kubeconfig at the end of this script, where
+# evg_host.sh::get-kubeconfig scp's from.
 kind export kubeconfig --name "e2e-operator"
 kind export kubeconfig --name "e2e-cluster-1"
 kind export kubeconfig --name "e2e-cluster-2"
@@ -76,4 +75,4 @@ wait
 # evg_host.sh::get-kubeconfig (run from the laptop after this script
 # finishes on the remote) can scp it back.
 mkdir -p .generated
-cp -f "${KUBECONFIG:-${HOME}/.kube/config}" .generated/evg-host.kubeconfig
+cp -f "${KUBECONFIG:-${HOME}/.kube/config}" .generated/current.kubeconfig

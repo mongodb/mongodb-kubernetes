@@ -47,7 +47,7 @@ def _fixture() -> WorktreeStatus:
             ssh="ssh ubuntu@ec2-1-2-3-4.compute-1.amazonaws.com",
         ),
         kubeconfig=KubeconfigState(
-            path="/x/.generated/evg-host.kubeconfig",
+            path="/x/.generated/current.kubeconfig",
             last_patch="12m_ago", kfp_registered=True,
         ),
         om=OmState(

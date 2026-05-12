@@ -10,7 +10,7 @@
 # Example (in tmuxp):
 #   shell_command:
 #     - exec /workspace/.devcontainer/scripts/pane_runner.sh \
-#         k9s --kubeconfig /workspace/.generated/evg-host.devc.kubeconfig
+#         k9s --kubeconfig /workspace/.generated/current.devc.kubeconfig
 #
 # Behaviour:
 #   1. The command (joined and quoted) is pre-loaded into ${HISTFILE} so

@@ -44,17 +44,18 @@ else
 fi
 export K8S_FWD_PROXY
 
-# KUBECONFIG variant — host kubeconfig has proxy-url=127.0.0.1:80${PREFIX};
-# devc kubeconfig has proxy-url=gost-proxy:8080. Both managed by
-# scripts/dev/evg_host.sh; we only pick the path here.
-if [[ "${EVG_HOST_NAME:-}" != "" ]]; then
-  if [[ -f /.dockerenv ]]; then
-    KUBECONFIG="${PROJECT_DIR}/.generated/evg-host.devc.kubeconfig"
-  else
-    KUBECONFIG="${PROJECT_DIR}/.generated/evg-host.kubeconfig"
-  fi
+# KUBECONFIG — pick the canonical per-side kubeconfig unconditionally.
+# Both files are produced by the writers (evg_host.sh::get-kubeconfig for
+# EVG-host worktrees, recreate_kind_clusters.sh for the local-kind path).
+# Host file has proxy-url=http://127.0.0.1:${MCK_DEVC_PROXY_PORT};
+# devc file has proxy-url=http://gost-proxy:8080. If a file is missing
+# kubectl returns "no such file" — clearer than the old fallback to
+# ${HOME}/.kube/config, which silently targeted whatever the user's
+# Docker Desktop / generic kubeconfig happened to point at.
+if [[ -f /.dockerenv ]]; then
+  KUBECONFIG="${PROJECT_DIR}/.generated/current.devc.kubeconfig"
 else
-  KUBECONFIG="${HOME}/.kube/config"
+  KUBECONFIG="${PROJECT_DIR}/.generated/current.kubeconfig"
 fi
 export KUBECONFIG
 

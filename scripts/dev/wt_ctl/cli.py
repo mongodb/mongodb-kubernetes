@@ -189,7 +189,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sk_rg.add_argument(
         "--kubeconfig",
-        help="kubeconfig path to register (default: <worktree>/.generated/evg-host.kubeconfig).",
+        help="kubeconfig path to register (default: <worktree>/.generated/current.kubeconfig).",
     )
     sk_rg.add_argument(
         "--replace",
@@ -742,7 +742,7 @@ def cmd_kfp(runner: Runner, args: argparse.Namespace) -> int:
                     "pass --kubeconfig PATH explicitly.\n"
                 )
                 return 2
-            kc_path = wt.worktree_root / ".generated" / "evg-host.kubeconfig"
+            kc_path = wt.worktree_root / ".generated" / "current.kubeconfig"
         body = kfp.register(kc_path, replace=replace)
         verb = "replaced" if replace else "registered"
         print(f"{verb}    kubeconfig={kc_path}")

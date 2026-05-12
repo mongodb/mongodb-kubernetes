@@ -80,7 +80,6 @@ else
         HOME="${HOME}" \
         MCK_DEVC_NET_PREFIX="${MCK_DEVC_NET_PREFIX:-}" \
         K8S_FWD_PROXY="${K8S_FWD_PROXY:-}" \
-        EVG_HOST_NAME="${EVG_HOST_NAME:-}" \
         LOCAL_OPERATOR="${LOCAL_OPERATOR:-}" \
         bash -c "source ${contexts_dir}/site-context && export -p")
 
@@ -106,7 +105,6 @@ else
         HOME="${HOME}" \
         MCK_DEVC_NET_PREFIX="${MCK_DEVC_NET_PREFIX:-}" \
         K8S_FWD_PROXY="${K8S_FWD_PROXY:-}" \
-        EVG_HOST_NAME="${EVG_HOST_NAME:-}" \
         LOCAL_OPERATOR="${LOCAL_OPERATOR:-}" \
         CURRENT_VARIANT_CONTEXT="${context}" \
         bash -c "${base_command} && export -p")
@@ -137,8 +135,10 @@ if [ -z "${EVR_TASK_ID-}" ]; then
     # them exported, but they are NOT site-derived and we don't want
     # them written to either context.<side>.env (PATH, HOME, PWD, SHLVL)
     # or stripped from context.env when they are logically configured
-    # (EVG_HOST_NAME, MCK_DEVC_NET_PREFIX, LOCAL_OPERATOR, CURRENT_VARIANT_CONTEXT).
-    passthrough_re='^(PWD|PATH|HOME|SHLVL|_|MCK_DEVC_NET_PREFIX|EVG_HOST_NAME|LOCAL_OPERATOR|CURRENT_VARIANT_CONTEXT)='
+    # (MCK_DEVC_NET_PREFIX, LOCAL_OPERATOR, CURRENT_VARIANT_CONTEXT).
+    # EVG_HOST_NAME is resolved by root-context from .generated/.current-evg-host
+    # so it does not need to cross the env -i boundary.
+    passthrough_re='^(PWD|PATH|HOME|SHLVL|_|MCK_DEVC_NET_PREFIX|LOCAL_OPERATOR|CURRENT_VARIANT_CONTEXT)='
     site_envs=$(echo "${site_envs}" | grep -Ev "${passthrough_re}" || true)
     current_envs=$(echo "${current_envs}" | grep -Ev '^(PWD|PATH|HOME|SHLVL|_)=' || true)
 

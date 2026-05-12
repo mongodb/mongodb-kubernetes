@@ -39,8 +39,8 @@ class KubeconfigDomain:
     def state_for(self, worktree_root: Path) -> Optional[KubeconfigState]:
         gen = worktree_root / ".generated"
         # Prefer the host-side file; fall back to the devc variant.
-        host_kc = gen / "evg-host.kubeconfig"
-        devc_kc = gen / "evg-host.devc.kubeconfig"
+        host_kc = gen / "current.kubeconfig"
+        devc_kc = gen / "current.devc.kubeconfig"
         path = host_kc if host_kc.is_file() else (devc_kc if devc_kc.is_file() else None)
         if path is None:
             return None

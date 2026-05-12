@@ -38,7 +38,7 @@ if [[ "${cmd}" != "" && "${cmd}" != "help" ]]; then
   host_url=$(get_host_url)
 fi
 
-kubeconfig_path="${PROJECT_DIR}/.generated/evg-host.kubeconfig"
+kubeconfig_path="${PROJECT_DIR}/.generated/current.kubeconfig"
 
 configure() {
   shift || true
@@ -136,10 +136,10 @@ get-kubeconfig() {
 
   if [[ ${no_fetch} -eq 0 ]]; then
     # The remote `kind export kubeconfig` writes to ${KUBECONFIG}, which on
-    # the EVG host root-context resolves to
-    # /home/ubuntu/mongodb-kubernetes/.generated/evg-host.kubeconfig
-    # (because EVG_HOST_NAME is non-empty there). Scp from that exact path.
-    remote_path="${host_url}:/home/ubuntu/mongodb-kubernetes/.generated/evg-host.kubeconfig"
+    # the EVG host site-context resolves to
+    # /home/ubuntu/mongodb-kubernetes/.generated/current.kubeconfig
+    # (the canonical per-side kubeconfig path). Scp from that exact path.
+    remote_path="${host_url}:/home/ubuntu/mongodb-kubernetes/.generated/current.kubeconfig"
     echo "Copying remote kubeconfig from ${remote_path} to ${kubeconfig_path}"
     mkdir -p "$(dirname "${kubeconfig_path}")"
     scp "${remote_path}" "${kubeconfig_path}"
@@ -147,13 +147,12 @@ get-kubeconfig() {
     echo "Skipping kubeconfig fetch (--no-fetch); using existing ${kubeconfig_path}"
   fi
 
-  # Two variants:
-  #   - .generated/evg-host.kubeconfig       proxy-url = http://127.0.0.1:${MCK_DEVC_PROXY_PORT}
-  #     The host's view. The bare filename matches the bare context (host
-  #     shell) so tools that hard-code .generated/evg-host.kubeconfig keep
-  #     working on the host. Patched unconditionally — host port is the
+  # Two variants of the canonical per-side kubeconfig:
+  #   - .generated/current.kubeconfig       proxy-url = http://127.0.0.1:${MCK_DEVC_PROXY_PORT}
+  #     The host's view. site-context picks this when not inside the
+  #     devcontainer. Patched unconditionally — host port is the
   #     gost-proxy loopback port from the /23 stack allocator (8000+index).
-  #   - .generated/evg-host.devc.kubeconfig  proxy-url = ${EVG_HOST_PROXY}
+  #   - .generated/current.devc.kubeconfig  proxy-url = ${EVG_HOST_PROXY}
   #     The devcontainer's view. Written only when EVG_HOST_PROXY is set
   #     (we're inside the container or were handed it explicitly). Avoids
   #     a host-side run reverting an existing in-container patch.
@@ -170,7 +169,7 @@ get-kubeconfig() {
   yq -i ".clusters[].cluster.proxy-url |= \"http://127.0.0.1:${host_proxy_port}\"" "${kubeconfig_path}"
 
   if [[ -n "${EVG_HOST_PROXY:-}" ]]; then
-    devc_kubeconfig_path="${PROJECT_DIR}/.generated/evg-host.devc.kubeconfig"
+    devc_kubeconfig_path="${PROJECT_DIR}/.generated/current.devc.kubeconfig"
     echo "Writing devcontainer-side kubeconfig variant to ${devc_kubeconfig_path} (proxy ${EVG_HOST_PROXY})"
     cp "${kubeconfig_path}" "${devc_kubeconfig_path}"
     yq -i ".clusters[].cluster.proxy-url |= \"${EVG_HOST_PROXY}\"" "${devc_kubeconfig_path}"
@@ -211,11 +210,11 @@ recreate-kind-cluster() {
   # KUBECONFIG resolves to ~/.kube/config. Its `-e` export step writes the
   # cluster's kubeconfig to ~/.kube/${cluster_name}. The subsequent
   # `get-kubeconfig` call expects the file at
-  # ~/mongodb-kubernetes/.generated/evg-host.kubeconfig (the path KUBECONFIG
-  # resolves to in the laptop's worktree-context). Copy it into place so
-  # the scp in `get-kubeconfig` succeeds.
+  # ~/mongodb-kubernetes/.generated/current.kubeconfig (the canonical
+  # per-side kubeconfig path). Copy it into place so the scp in
+  # `get-kubeconfig` succeeds.
   ssh -T -q "${host_url}" \
-    "mkdir -p ~/mongodb-kubernetes/.generated && cp -f ~/.kube/${cluster_name} ~/mongodb-kubernetes/.generated/evg-host.kubeconfig"
+    "mkdir -p ~/mongodb-kubernetes/.generated && cp -f ~/.kube/${cluster_name} ~/mongodb-kubernetes/.generated/current.kubeconfig"
   echo "Copying kubeconfig to ${kubeconfig_path}"
   get-kubeconfig
 }
@@ -293,7 +292,7 @@ COMMANDS:
   sync                                  rsync of project directory (.git is intentionally not synced)
   recreate-kind-cluster test-cluster    executes scripts/dev/recreate_kind_cluster.sh test-cluster and executes get-kubeconfig
   remote-prepare-local-e2e-run          executes prepare-local-e2e on the remote evg host
-  get-kubeconfig                        copies remote ~/.kube/config locally to .generated/evg-host.kubeconfig
+  get-kubeconfig                        copies remote ~/.kube/config locally to .generated/current.kubeconfig (and current.devc.kubeconfig when in devc)
   tunnel [args]                         creates ssh session with tunneling to all API servers
   ssh [args]                            creates ssh session passing optional arguments to ssh
   cmd [command with args]               execute command as if being on evg host

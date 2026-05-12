@@ -10,7 +10,7 @@ set -euo pipefail
 # source-of-truth lives in /workspace/.generated/ (bind-mounted) rather
 # than the proxy's volatile memory. Best-effort, non-fatal: if the proxy
 # isn't reachable yet (e.g. the container is mid-boot) we skip.
-container_kubeconfig=/workspace/.generated/evg-host.devc.kubeconfig
+container_kubeconfig=/workspace/.generated/current.devc.kubeconfig
 if [[ -s "${container_kubeconfig}" ]]; then
   curl --max-time 5 -fsS -X PATCH \
     -H 'Content-Type: application/yaml' \
@@ -19,7 +19,7 @@ if [[ -s "${container_kubeconfig}" ]]; then
     && echo "registered with in-container k8s-proxy on k8s-proxy:80" \
     || echo "in-container k8s-proxy not reachable on k8s-proxy:80; skipping registration"
 else
-  echo "no .generated/evg-host.devc.kubeconfig yet; skipping in-container k8s-proxy registration"
+  echo "no .generated/current.devc.kubeconfig yet; skipping in-container k8s-proxy registration"
 fi
 
 # VS Code automatically forwards the host's ssh-agent socket and sets
@@ -77,10 +77,10 @@ screen -dmS ssh-agent-proxy bash -c '
 
 # Best-effort registration with the host kube-forwarding-proxy. If the host
 # kfp isn't running (or the host-variant kubeconfig hasn't been generated
-# yet) we silently skip — this hook is non-fatal by design. The bare
-# evg-host.kubeconfig IS the host variant (proxy-url 127.0.0.1:80${PREFIX});
-# the .devc.kubeconfig sibling is for in-container use.
-host_kubeconfig=/workspace/.generated/evg-host.kubeconfig
+# yet) we silently skip — this hook is non-fatal by design. current.kubeconfig
+# IS the host variant (proxy-url 127.0.0.1:${MCK_DEVC_PROXY_PORT}); the
+# current.devc.kubeconfig sibling is for in-container use.
+host_kubeconfig=/workspace/.generated/current.kubeconfig
 if [[ -s "${host_kubeconfig}" ]]; then
   curl --max-time 2 -fsS -X PATCH \
     -H 'Content-Type: application/yaml' \
@@ -89,5 +89,5 @@ if [[ -s "${host_kubeconfig}" ]]; then
     && echo "registered with host kfp on 127.0.0.1:11616" \
     || echo "host kfp not reachable on 127.0.0.1:11616; skipping registration"
 else
-  echo "no .generated/evg-host.kubeconfig yet; skipping host kfp registration"
+  echo "no .generated/current.kubeconfig yet; skipping host kfp registration"
 fi
