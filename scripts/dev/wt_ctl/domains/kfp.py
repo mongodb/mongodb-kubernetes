@@ -69,42 +69,69 @@ LEGACY_BINARY = Path.home() / "mdb" / "kube-forwarding-proxy" / "bin" / "proxy"
 DEFAULT_STATE_DIR = Path.home() / ".cache" / "mck-devc" / "host-kfp"
 
 
-def resolve_binary(explicit: Optional[Path] = None) -> Path:
-    """Return the kfp binary path that ``start()`` will exec.
+@dataclass(frozen=True)
+class _BinaryResolution:
+    """Snapshot of the chain at one resolution moment. ``chosen`` is the
+    path ``resolve_binary()`` returned; the other fields are what each
+    step saw, for use in the error trace.
+    """
+    chosen: Path
+    env_value: str            # "" when $MCK_KFP_BINARY is unset/empty
+    path_lookup: Optional[Path]  # None when k8s-service-proxy not on PATH
+
+    def trace(self) -> str:
+        return (
+            f"resolution: ${BINARY_ENV_VAR}={self.env_value or '(unset)'}, "
+            f"PATH lookup '{BINARY_PATH_NAME}'="
+            f"{self.path_lookup or '(not found)'}, "
+            f"legacy {LEGACY_BINARY}"
+        )
+
+
+def resolve_binary_with_trace(
+    explicit: Optional[Path] = None,
+) -> _BinaryResolution:
+    """Resolve the kfp binary path and capture the trace in one pass.
 
     Order:
-      1. ``explicit`` (caller-supplied override).
+      1. ``explicit`` (caller-supplied override) — bypasses the chain.
       2. ``$MCK_KFP_BINARY`` env var.
-      3. ``$PATH`` lookup for ``k8s-service-proxy``.
+      3. ``$PATH`` lookup for ``k8s-service-proxy`` (the binary's
+         installed name from kfp's Dockerfile).
       4. The legacy ``~/mdb/kube-forwarding-proxy/bin/proxy`` checkout.
 
-    Returns the first path that resolves; no existence check here so
-    ``status``/``stop`` can report a sensible value even when nothing
-    is installed yet. ``start()`` does the ``is_file()`` check at the
-    actual spawn site and raises with the resolution chain in scope.
+    Returning the chain alongside ``chosen`` lets ``start()``'s error
+    message reflect exactly what ``resolve_binary()`` saw, even if
+    ``$PATH`` / ``$MCK_KFP_BINARY`` change between calls.
     """
-    if explicit is not None:
-        return Path(explicit)
-    env = os.environ.get(BINARY_ENV_VAR, "").strip()
-    if env:
-        return Path(env).expanduser()
+    env_value = os.environ.get(BINARY_ENV_VAR, "").strip()
     on_path = shutil.which(BINARY_PATH_NAME)
-    if on_path:
-        return Path(on_path)
-    return LEGACY_BINARY
+    path_lookup = Path(on_path) if on_path else None
+    if explicit is not None:
+        chosen = Path(explicit)
+    elif env_value:
+        chosen = Path(env_value).expanduser()
+    elif path_lookup is not None:
+        chosen = path_lookup
+    else:
+        chosen = LEGACY_BINARY
+    return _BinaryResolution(
+        chosen=chosen, env_value=env_value, path_lookup=path_lookup,
+    )
+
+
+def resolve_binary(explicit: Optional[Path] = None) -> Path:
+    """Return the kfp binary path that ``start()`` will exec. See
+    ``resolve_binary_with_trace`` for the resolution chain.
+    """
+    return resolve_binary_with_trace(explicit).chosen
 
 
 def binary_resolution_trace() -> str:
-    """One-line summary of the binary-resolution chain — used in the
-    'not found' error so the user sees exactly which paths were tried.
+    """One-line summary of the binary-resolution chain. Convenience
+    wrapper for callers that only need the trace string.
     """
-    env = os.environ.get(BINARY_ENV_VAR, "").strip()
-    on_path = shutil.which(BINARY_PATH_NAME)
-    return (
-        f"resolution: ${BINARY_ENV_VAR}={env or '(unset)'}, "
-        f"PATH lookup '{BINARY_PATH_NAME}'={on_path or '(not found)'}, "
-        f"legacy {LEGACY_BINARY}"
-    )
+    return resolve_binary_with_trace().trace()
 
 LISTEN_PROBE_TIMEOUT_S = 0.25
 HEALTH_PROBE_TIMEOUT_S = 1.0
@@ -128,7 +155,13 @@ class KfpStatus:
 
 
 class KfpDomain:
-    """Thin lifecycle wrapper around the on-host kfp binary."""
+    """Thin lifecycle wrapper around the on-host kfp binary.
+
+    The binary path is resolved at construction time via
+    ``resolve_binary_with_trace`` (see module docstring for the chain),
+    so a subsequent ``$PATH`` / ``$MCK_KFP_BINARY`` change doesn't make
+    the error message contradict ``self.binary``.
+    """
 
     def __init__(
         self,
@@ -138,7 +171,12 @@ class KfpDomain:
         state_dir: Optional[Path] = None,
     ) -> None:
         self.runner = runner
-        self.binary = resolve_binary(binary)
+        # Resolve binary + trace together so start()'s error message
+        # reflects the exact chain that picked self.binary, even if the
+        # env/PATH later changes.
+        resolution = resolve_binary_with_trace(binary)
+        self.binary = resolution.chosen
+        self._binary_trace = resolution.trace()
         self.state_dir = state_dir or DEFAULT_STATE_DIR
         self.pid_file = self.state_dir / "pid"
         self.log_file = self.state_dir / "log"
@@ -220,7 +258,7 @@ class KfpDomain:
         if not self.binary.is_file():
             raise KfpStartFailed(
                 f"kfp binary not found at {self.binary}. "
-                f"{binary_resolution_trace()}. "
+                f"{self._binary_trace}. "
                 f"Either install '{BINARY_PATH_NAME}' on PATH, set "
                 f"${BINARY_ENV_VAR}=/abs/path/to/proxy, or build from "
                 f"source into {LEGACY_BINARY}."
