@@ -34,22 +34,33 @@ if [[ -n "${MCK_DEVC_NET_PREFIX:-}" && -n "${NAMESPACE:-}" \
   WATCH_NAMESPACE="${WATCH_NAMESPACE:-${NAMESPACE}}"
 fi
 
+_om_curl() {
+  # Silent + show-errors, fail on HTTP >=400, drop response body. Pin a
+  # generous timeout so a slow cloud-qa can't hang prepare-local-e2e.
+  curl -sS --digest -u "${OM_USER}:${OM_API_KEY}" \
+    --fail --max-time 30 --retry 2 --retry-delay 2 \
+    -o /dev/null "$@"
+}
+
 delete_project() {
-  project_name=$1
+  local project_name=$1
   echo "Deleting project id of ${project_name} from ${OM_HOST}"
-  project_id=$(curl -s -u "${OM_USER}:${OM_API_KEY}" --digest "${OM_HOST}/api/public/v1.0/groups/byName/${project_name}" | jq -r .id)
+  local project_id
+  project_id=$(curl -sS --digest -u "${OM_USER}:${OM_API_KEY}" \
+    --max-time 30 --retry 2 --retry-delay 2 \
+    "${OM_HOST}/api/public/v1.0/groups/byName/${project_name}" | jq -r .id)
   if [[ "${project_id}" != "" && "${project_id}" != "null" ]]; then
-    echo "Removing controlledFeature policies for project ${project_name} (${project_id})"
-    curl -X PUT --digest -u "${OM_USER}:${OM_API_KEY}" "${OM_HOST}/api/public/v1.0/groups/${project_id}/controlledFeature" -H 'Content-Type: application/json' -d '{"externalManagementSystem": {"name": "mongodb-enterprise-operator"},"policies": []}'
-    echo
-    echo "Removing any existing automationConfig for project ${project_name} (${project_id})"
-    curl -X PUT --digest -u "${OM_USER}:${OM_API_KEY}" "${OM_HOST}/api/public/v1.0/groups/${project_id}/automationConfig" -H 'Content-Type: application/json' -d '{}'
-    echo
-    echo "Deleting project ${project_name} (${project_id})"
-    curl -X DELETE --digest -u "${OM_USER}:${OM_API_KEY}" "${OM_HOST}/api/public/v1.0/groups/${project_id}"
-    echo
+    echo "  controlledFeature → reset (${project_id})"
+    _om_curl -X PUT "${OM_HOST}/api/public/v1.0/groups/${project_id}/controlledFeature" \
+      -H 'Content-Type: application/json' \
+      -d '{"externalManagementSystem": {"name": "mongodb-enterprise-operator"},"policies": []}'
+    echo "  automationConfig  → reset (${project_id})"
+    _om_curl -X PUT "${OM_HOST}/api/public/v1.0/groups/${project_id}/automationConfig" \
+      -H 'Content-Type: application/json' -d '{}'
+    echo "  group             → delete (${project_id})"
+    _om_curl -X DELETE "${OM_HOST}/api/public/v1.0/groups/${project_id}"
   else
-    echo "Project ${project_name} is already deleted"
+    echo "  already deleted"
   fi
 }
 
@@ -63,7 +74,8 @@ delete_projects_with_prefix() {
   local prefix=$1
   echo "Listing projects with prefix '${prefix}-' to clean up"
   local projects
-  projects=$(curl -s -u "${OM_USER}:${OM_API_KEY}" --digest \
+  projects=$(curl -sS --digest -u "${OM_USER}:${OM_API_KEY}" \
+    --max-time 30 --retry 2 --retry-delay 2 \
     "${OM_HOST}/api/public/v1.0/groups?itemsPerPage=100" \
     | jq -r ".results[]? | select(.name | startswith(\"${prefix}-\")) | .name") || true
   if [[ -z "${projects}" ]]; then
