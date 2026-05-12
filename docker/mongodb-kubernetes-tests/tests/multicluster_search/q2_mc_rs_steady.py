@@ -575,12 +575,10 @@ def test_verify_per_cluster_mongot_resources(
         cm_name = _per_cluster_mongot_config_name(MDBS_RESOURCE_NAME, idx)
         proxy_svc_name = f"{MDBS_RESOURCE_NAME}-search-{idx}-proxy-svc"
 
-        apps = mcc.apps_v1_api()
-        core = mcc.core_v1_api()
-        sts = apps.read_namespaced_stateful_set(name=sts_name, namespace=namespace)
-        headless = core.read_namespaced_service(name=svc_name, namespace=namespace)
-        proxy = core.read_namespaced_service(name=proxy_svc_name, namespace=namespace)
-        cm = core.read_namespaced_config_map(name=cm_name, namespace=namespace)
+        sts = mcc.read_namespaced_stateful_set(sts_name, namespace)
+        headless = mcc.read_namespaced_service(svc_name, namespace)
+        proxy = mcc.read_namespaced_service(proxy_svc_name, namespace)
+        cm = mcc.read_namespaced_config_map(cm_name, namespace)
         _assert_search_owner_labels(sts.metadata.labels or {}, mcc.cluster_name, f"STS {sts_name}")
         _assert_search_owner_labels(headless.metadata.labels or {}, mcc.cluster_name, f"headless Service {svc_name}")
         _assert_search_owner_labels(proxy.metadata.labels or {}, mcc.cluster_name, f"proxy Service {proxy_svc_name}")
@@ -615,10 +613,9 @@ def test_verify_per_cluster_envoy_deployment(
         envoy_deployment_name = _per_cluster_envoy_deployment_name(MDBS_RESOURCE_NAME, cluster_idx)
         envoy_cm_name = _per_cluster_envoy_configmap_name(MDBS_RESOURCE_NAME, cluster_idx)
         apps = mcc.apps_v1_api()
-        core = mcc.core_v1_api()
         assert_deployment_ready_in_cluster(apps, name=envoy_deployment_name, namespace=namespace)
         envoy_deploy = apps.read_namespaced_deployment(name=envoy_deployment_name, namespace=namespace)
-        envoy_cm = core.read_namespaced_config_map(name=envoy_cm_name, namespace=namespace)
+        envoy_cm = mcc.read_namespaced_config_map(envoy_cm_name, namespace)
         _assert_search_owner_labels(
             envoy_deploy.metadata.labels or {}, mcc.cluster_name, f"Envoy Deployment {envoy_deployment_name}"
         )
@@ -776,7 +773,6 @@ def test_per_cluster_envoy_sni_observed(
             )
 
         logger.info(f"[{mcc.cluster_name}] envoy.json SNI server_names={sni_names} (expected match: {expected_fqdn})")
-
 
 
 # =============================================================================
@@ -1012,5 +1008,3 @@ def test_per_cluster_vector_search_query(
             sleep_time=5,
             msg=f"cluster {cluster_index}: $vectorSearch query to succeed",
         )
-
-
