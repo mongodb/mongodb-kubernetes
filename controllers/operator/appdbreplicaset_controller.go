@@ -41,6 +41,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
+	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	mcoConstruct "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/construct"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/authentication/scram"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/generate"
@@ -2215,4 +2216,22 @@ func markAppDBAsBackingProject(conn om.Connection, log *zap.SugaredLogger) error
 		return err
 	}
 	return nil
+}
+
+const ListenAddress = "0.0.0.0"
+
+func OverrideToAutomationConfig(override mdbcv1.AutomationConfigOverride) automationconfig.AutomationConfig {
+	var processes []automationconfig.Process
+	for _, o := range override.Processes {
+		p := automationconfig.Process{
+			Name:      o.Name,
+			Disabled:  o.Disabled,
+			LogRotate: automationconfig.ConvertCrdLogRotateToAC(o.LogRotate),
+		}
+		processes = append(processes, p)
+	}
+
+	return automationconfig.AutomationConfig{
+		Processes: processes,
+	}
 }
