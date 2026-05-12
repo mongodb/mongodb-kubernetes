@@ -175,6 +175,28 @@ get-kubeconfig() {
     yq -i ".clusters[].cluster.proxy-url |= \"${EVG_HOST_PROXY}\"" "${devc_kubeconfig_path}"
   fi
 
+  # Force current-context on both variants to the context the surrounding
+  # context file selected. CLUSTER_NAME is set by every scripts/dev/contexts/*
+  # file — "kind-kind" for the single-cluster default and the central member
+  # cluster ("kind-e2e-cluster-1" canonically) for multi-cluster. Without
+  # this both files inherit whatever current-context the remote merge
+  # happened to land on (typically the last `kind export kubeconfig`
+  # invocation — `kind` in MC bring-up, which is the stray operator-side
+  # single-cluster kind and not even part of the MC topology). Fixtures
+  # that use the default Kubernetes client then point at the wrong
+  # cluster on host-side. `make switch` (in scripts/dev/switch_context.sh)
+  # sets current-context for whichever side it runs on, but the
+  # orchestrator only runs it inside the devcontainer — so the host file
+  # would still drift without this explicit step.
+  if [[ -n "${CLUSTER_NAME:-}" ]]; then
+    echo "Pinning current-context=${CLUSTER_NAME} on ${kubeconfig_path}"
+    yq -i ".\"current-context\" = \"${CLUSTER_NAME}\"" "${kubeconfig_path}"
+    if [[ -n "${devc_kubeconfig_path:-}" ]]; then
+      echo "Pinning current-context=${CLUSTER_NAME} on ${devc_kubeconfig_path}"
+      yq -i ".\"current-context\" = \"${CLUSTER_NAME}\"" "${devc_kubeconfig_path}"
+    fi
+  fi
+
   if [[ -n "${K8S_FWD_PROXY:-}" ]]; then
     # Inside the container we register the devc variant with the in-container
     # k8s-proxy (DNS + dynamic port-forwards for *.svc.cluster.local). On
