@@ -639,13 +639,6 @@ func TestMongoDBSearchControllerReconcile_StateConfigMap_ReAddCluster(t *testing
 		"re-added cluster must reclaim its original index")
 }
 
-// TestMongoDBSearchReconcile_Success_MultiCluster drives Reconcile() end-to-end
-// in MC mode with two member-cluster clients. It verifies the full fan-out:
-// each cluster gets its index-suffixed STS / headless Service / proxy Service /
-// mongot ConfigMap on its own member client (never on the central client or the
-// wrong member client), the owner-labels are stamped on every per-cluster write
-// so member-cluster watch routing + cross-cluster GC can find them, and the
-// top-level CR reaches PhaseRunning after STSes are marked ready.
 func TestMongoDBSearchReconcile_Success_MultiCluster(t *testing.T) {
 	ctx := context.Background()
 
@@ -674,7 +667,6 @@ func TestMongoDBSearchReconcile_Success_MultiCluster(t *testing.T) {
 		"us-west": westClient,
 	}
 
-	// External source — no MongoDBCommunity required on the central client.
 	reconciler, centralClient := newSearchReconcilerWithMembers(t, nil, memberClients, search)
 
 	req := reconcile.Request{NamespacedName: types.NamespacedName{Name: search.Name, Namespace: search.Namespace}}
@@ -742,9 +734,8 @@ func TestMongoDBSearchReconcile_Success_MultiCluster(t *testing.T) {
 			cm := &corev1.ConfigMap{}
 			require.NoError(t, tc.mc.Get(ctx, cmName, cm), "mongot ConfigMap must exist on owning member client")
 
-			// Owner-labels at every member-cluster write site so cross-cluster
-			// watch routing (MapMemberClusterObjectToSearch) + cleanup-by-label
-			// can find the resource — owner refs do not cross cluster boundaries.
+			// Owner labels stamp cross-cluster identity — owner refs do not
+			// carry between clusters, so labels are the link back to the CR.
 			for _, obj := range []client.Object{sts, headlessSvc, proxySvc, cm} {
 				labels := obj.GetLabels()
 				assert.Equal(t, search.Name, labels[khandler.MongoDBSearchOwnerNameLabel], "owner-name label on %T", obj)

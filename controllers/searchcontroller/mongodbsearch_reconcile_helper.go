@@ -212,11 +212,8 @@ func (r *MongoDBSearchReconcileHelper) buildReconcilePlan(log *zap.SugaredLogger
 	return r.buildReplicaSetPlan(r.db)
 }
 
-// buildReplicaSetPlan returns one reconcileUnit per cluster. Single-cluster is
-// represented as a 1-element work list with clusterName "" and unindexed names;
-// MC fans out one unit per spec.clusters entry, with names indexed via the
-// persisted state.ClusterMapping (resilient to spec.clusters[] reorder). The
-// same external.hostAndPorts seed list is rendered into every cluster's mongot config.
+// buildReplicaSetPlan returns one reconcileUnit per cluster. Single-cluster is a
+// 1-element work list with unindexed names; MC indexes via state.ClusterMapping.
 func (r *MongoDBSearchReconcileHelper) buildReplicaSetPlan(rsSource SearchSourceReplicaSet) (reconcilePlan, error) {
 	hostSeeds, err := rsSource.HostSeeds("")
 	if err != nil {

@@ -450,9 +450,7 @@ func (s *MongoDBSearch) ProxyServiceNamespacedName() types.NamespacedName {
 	return types.NamespacedName{Name: s.Name + "-search-0-" + ProxyServiceSuffix, Namespace: s.Namespace}
 }
 
-// ProxyServiceNamespacedNameForCluster returns the index-suffixed proxy Service
-// name for one member cluster. mongod's per-cluster mongotHost FQDN resolves to
-// this name.
+// ProxyServiceNamespacedNameForCluster returns the index-suffixed proxy Service name for one member cluster.
 func (s *MongoDBSearch) ProxyServiceNamespacedNameForCluster(clusterIndex int) types.NamespacedName {
 	return types.NamespacedName{
 		Name:      fmt.Sprintf("%s-search-%d-%s", s.Name, clusterIndex, ProxyServiceSuffix),
@@ -480,9 +478,7 @@ func (s *MongoDBSearch) MongotConfigConfigMapNameForCluster(clusterIndex int) ty
 	}
 }
 
-// StatefulSetNamespacedNameForCluster returns the index-suffixed StatefulSet
-// name (`<name>-search-<idx>`). The unindexed name from
-// StatefulSetNamespacedName is reserved for the single-cluster path.
+// StatefulSetNamespacedNameForCluster returns the index-suffixed StatefulSet name for one member cluster.
 func (s *MongoDBSearch) StatefulSetNamespacedNameForCluster(clusterIndex int) types.NamespacedName {
 	return types.NamespacedName{
 		Name:      fmt.Sprintf("%s-search-%d", s.Name, clusterIndex),
