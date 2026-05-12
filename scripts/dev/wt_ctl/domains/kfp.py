@@ -1,7 +1,16 @@
 """On-host kube-forwarding-proxy (kfp) daemon lifecycle.
 
-The kfp binary at ``~/mdb/kube-forwarding-proxy/bin/proxy`` runs on the
-developer laptop and exposes:
+The kfp binary path is resolved in order:
+
+  1. ``$MCK_KFP_BINARY`` environment variable, if set.
+  2. ``$PATH`` lookup for the literal name ``k8s-service-proxy``
+     (the binary's installed name; matches a ``brew install``,
+     ``go install``, or release-tarball setup).
+  3. ``~/mdb/kube-forwarding-proxy/bin/proxy`` — the legacy
+     "checked-out + locally-built" layout this repo's contributors
+     have historically used.
+
+The daemon runs on the developer laptop and exposes:
 
   - HTTP control on ``127.0.0.1:11616`` (``/healthz`` + kubeconfig PATCH API)
   - DNS server  on ``127.0.0.1:11617``
@@ -35,6 +44,7 @@ from __future__ import annotations
 
 import errno
 import os
+import shutil
 import signal
 import socket
 import time
@@ -53,8 +63,48 @@ KFP_HTTP_PORT = 11616
 KFP_DNS_PORT = 11617
 KFP_HEALTH_URL = f"http://{KFP_HOST}:{KFP_HTTP_PORT}/healthz"
 
-DEFAULT_BINARY = Path.home() / "mdb" / "kube-forwarding-proxy" / "bin" / "proxy"
+BINARY_ENV_VAR = "MCK_KFP_BINARY"
+BINARY_PATH_NAME = "k8s-service-proxy"
+LEGACY_BINARY = Path.home() / "mdb" / "kube-forwarding-proxy" / "bin" / "proxy"
 DEFAULT_STATE_DIR = Path.home() / ".cache" / "mck-devc" / "host-kfp"
+
+
+def resolve_binary(explicit: Optional[Path] = None) -> Path:
+    """Return the kfp binary path that ``start()`` will exec.
+
+    Order:
+      1. ``explicit`` (caller-supplied override).
+      2. ``$MCK_KFP_BINARY`` env var.
+      3. ``$PATH`` lookup for ``k8s-service-proxy``.
+      4. The legacy ``~/mdb/kube-forwarding-proxy/bin/proxy`` checkout.
+
+    Returns the first path that resolves; no existence check here so
+    ``status``/``stop`` can report a sensible value even when nothing
+    is installed yet. ``start()`` does the ``is_file()`` check at the
+    actual spawn site and raises with the resolution chain in scope.
+    """
+    if explicit is not None:
+        return Path(explicit)
+    env = os.environ.get(BINARY_ENV_VAR, "").strip()
+    if env:
+        return Path(env).expanduser()
+    on_path = shutil.which(BINARY_PATH_NAME)
+    if on_path:
+        return Path(on_path)
+    return LEGACY_BINARY
+
+
+def binary_resolution_trace() -> str:
+    """One-line summary of the binary-resolution chain — used in the
+    'not found' error so the user sees exactly which paths were tried.
+    """
+    env = os.environ.get(BINARY_ENV_VAR, "").strip()
+    on_path = shutil.which(BINARY_PATH_NAME)
+    return (
+        f"resolution: ${BINARY_ENV_VAR}={env or '(unset)'}, "
+        f"PATH lookup '{BINARY_PATH_NAME}'={on_path or '(not found)'}, "
+        f"legacy {LEGACY_BINARY}"
+    )
 
 LISTEN_PROBE_TIMEOUT_S = 0.25
 HEALTH_PROBE_TIMEOUT_S = 1.0
@@ -88,7 +138,7 @@ class KfpDomain:
         state_dir: Optional[Path] = None,
     ) -> None:
         self.runner = runner
-        self.binary = binary or DEFAULT_BINARY
+        self.binary = resolve_binary(binary)
         self.state_dir = state_dir or DEFAULT_STATE_DIR
         self.pid_file = self.state_dir / "pid"
         self.log_file = self.state_dir / "log"
@@ -169,8 +219,11 @@ class KfpDomain:
 
         if not self.binary.is_file():
             raise KfpStartFailed(
-                f"kfp binary not found at {self.binary} "
-                "(expected ~/mdb/kube-forwarding-proxy/bin/proxy)"
+                f"kfp binary not found at {self.binary}. "
+                f"{binary_resolution_trace()}. "
+                f"Either install '{BINARY_PATH_NAME}' on PATH, set "
+                f"${BINARY_ENV_VAR}=/abs/path/to/proxy, or build from "
+                f"source into {LEGACY_BINARY}."
             )
 
         self.state_dir.mkdir(parents=True, exist_ok=True)
