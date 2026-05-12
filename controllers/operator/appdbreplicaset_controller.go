@@ -41,23 +41,20 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
-	mdbcv1_controllers "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers"
 	mcoConstruct "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/construct"
-	"github.com/mongodb/mongodb-kubernetes/pkg/agent"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/authentication/scram"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/generate"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/result"
+	"github.com/mongodb/mongodb-kubernetes/pkg/agent"
+	"github.com/mongodb/mongodb-kubernetes/pkg/agentVersionManagement"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
+	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
+	"github.com/mongodb/mongodb-kubernetes/pkg/images"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/configmap"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/generate"
-	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/result"
-	"github.com/mongodb/mongodb-kubernetes/pkg/util/scale"
-	"github.com/mongodb/mongodb-kubernetes/pkg/agentVersionManagement"
-	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
-	"github.com/mongodb/mongodb-kubernetes/pkg/images"
-	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/service"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/placeholders"
@@ -66,6 +63,8 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/scale"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/timeutil"
 	"github.com/mongodb/mongodb-kubernetes/pkg/vault"
 )
@@ -1229,7 +1228,7 @@ func (r *ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(ctx context.Contex
 	}
 
 	if acType == automation && opsManager.Spec.AppDB.AutomationConfigOverride != nil {
-		acToMerge := mdbcv1_controllers.OverrideToAutomationConfig(*opsManager.Spec.AppDB.AutomationConfigOverride)
+		acToMerge := OverrideToAutomationConfig(*opsManager.Spec.AppDB.AutomationConfigOverride)
 		ac = merge.AutomationConfigs(ac, acToMerge)
 	}
 
@@ -1424,7 +1423,7 @@ func buildPrometheusModification(ctx context.Context, sClient secrets.SecretClie
 		promConfig.Password = password
 
 		if prom.Port > 0 {
-			promConfig.ListenAddress = fmt.Sprintf("%s:%d", mdbcv1_controllers.ListenAddress, prom.Port)
+			promConfig.ListenAddress = fmt.Sprintf("%s:%d", ListenAddress, prom.Port)
 		}
 
 		if prom.MetricsPath != "" {
