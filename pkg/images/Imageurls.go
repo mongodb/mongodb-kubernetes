@@ -15,6 +15,24 @@ const (
 	MongodbRepoUrlEnv = "MONGODB_REPO_URL"
 	MongodbImageEnv   = "MONGODB_IMAGE"
 	AgentImageEnv     = "AGENT_IMAGE"
+
+	// Enterprise operator images
+	OpsManagerImageRepoEnv      = "OPS_MANAGER_IMAGE_REPOSITORY"
+	InitOpsManagerImageRepoEnv  = "INIT_OPS_MANAGER_IMAGE_REPOSITORY"
+	InitDatabaseImageRepoEnv    = "INIT_DATABASE_IMAGE_REPOSITORY"
+	NonStaticEnterpriseImageEnv = "MONGODB_ENTERPRISE_DATABASE_IMAGE"
+	AgentDebugImageEnv          = "MDB_AGENT_DEBUG_IMAGE"
+	EnvoyImageEnv               = "MDB_ENVOY_IMAGE"
+	CommunityAgentImageEnv      = "MDB_COMMUNITY_AGENT_IMAGE"
+	SearchRepoUrlEnv            = "MDB_SEARCH_REPO_URL"
+
+	// Agent image repository
+	AgentImageRepoEnv     = "MDB_AGENT_IMAGE_REPOSITORY"
+	AgentImageRepoDefault = "quay.io/mongodb/mongodb-agent"
+
+	// Official image name strings (used for detection, not env var names)
+	OfficialEnterpriseServerImage = "mongodb-enterprise-server"
+	DeprecatedImageAppdbUbi       = "mongodb-enterprise-appdb-database-ubi"
 )
 
 var OfficialMongodbRepoUrls = []string{"docker.io/mongodb", "quay.io/mongodb"}
@@ -66,14 +84,14 @@ func LoadImageUrlsFromEnv() ImageUrls {
 		//   - New env var has a RELATED_IMAGE_* counterpart
 		//   - New env var contains an image URL or part of the URL
 		//     and it will be used in container for MongoDB workfloads
-		MongodbRepoUrlEnv:                     "",
-		MongodbImageEnv:                       "",
-		util.InitOpsManagerImageUrl:           "",
-		util.OpsManagerImageUrl:               "",
-		util.InitDatabaseImageUrlEnv:          "",
-		util.NonStaticDatabaseEnterpriseImage: "",
-		AgentImageEnv:                         "",
-		architectures.MdbAgentImageRepo:       architectures.MdbAgentImageRepoDefault,
+		MongodbRepoUrlEnv:          "",
+		MongodbImageEnv:            "",
+		InitOpsManagerImageRepoEnv: "",
+		OpsManagerImageRepoEnv:     "",
+		InitDatabaseImageRepoEnv:   "",
+		NonStaticEnterpriseImageEnv: "",
+		AgentImageEnv:              "",
+		AgentImageRepoEnv:          AgentImageRepoDefault,
 	} {
 		imageUrls[imageName] = env.ReadOrDefault(imageName, defaultValue) // nolint:forbidigo
 	}
@@ -170,5 +188,5 @@ func GetOfficialImage(imageUrls ImageUrls, version string, annotations map[strin
 }
 
 func IsEnterpriseImage(mongodbImage string) bool {
-	return strings.Contains(mongodbImage, util.OfficialEnterpriseServerImageUrl)
+	return strings.Contains(mongodbImage, OfficialEnterpriseServerImage)
 }

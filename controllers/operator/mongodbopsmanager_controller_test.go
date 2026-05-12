@@ -559,10 +559,10 @@ func TestOpsManagerPodTemplateSpec_IsAnnotatedWithHash(t *testing.T) {
 }
 
 func TestOpsManagerReconcileContainerImages(t *testing.T) {
-	initOpsManagerRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_1_2_3", util.InitOpsManagerImageUrl)
-	opsManagerRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_8_0_0", util.OpsManagerImageUrl)
+	initOpsManagerRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_1_2_3", images.InitOpsManagerImageRepoEnv)
+	opsManagerRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_8_0_0", images.OpsManagerImageRepoEnv)
 	mongodbRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_8_0_0", images.MongodbImageEnv)
-	initDatabaseRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_3_4_5", util.InitDatabaseImageUrlEnv)
+	initDatabaseRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_3_4_5", images.InitDatabaseImageRepoEnv)
 
 	imageUrlsMock := images.ImageUrls{
 		// Ops manager & backup daemon images
@@ -622,7 +622,7 @@ func TestOpsManagerReconcileContainerImages(t *testing.T) {
 func TestOpsManagerReconcileContainerImagesWithStaticArchitecture(t *testing.T) {
 	t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.Static))
 
-	opsManagerRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_8_0_0", util.OpsManagerImageUrl)
+	opsManagerRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_8_0_0", images.OpsManagerImageRepoEnv)
 	mongodbRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_8_0_0", images.MongodbImageEnv)
 
 	imageUrlsMock := images.ImageUrls{
@@ -631,7 +631,7 @@ func TestOpsManagerReconcileContainerImagesWithStaticArchitecture(t *testing.T) 
 
 		// AppDB images
 		mongodbRelatedImageEnv:          "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi@sha256:MONGODB_SHA",
-		architectures.MdbAgentImageRepo: "quay.io/mongodb/mongodb-agent",
+		images.AgentImageRepoEnv: "quay.io/mongodb/mongodb-agent",
 	}
 
 	ctx := context.Background()

@@ -146,7 +146,7 @@ func run() error {
 	webhookSVCSelector := env.ReadOrPanic(util.OperatorNameEnv)
 
 	agentDebug := env.ReadBoolOrDefault(util.EnvVarDebug, false)
-	agentDebugImage := env.ReadOrDefault(util.EnvVarDebugImage, "")
+	agentDebugImage := env.ReadOrDefault(images.AgentDebugImageEnv, "")
 
 	enableClusterMongoDBRoles := slices.Contains(crds, clusterMongoDBRoleCRDPlural)
 
@@ -305,7 +305,7 @@ func run() error {
 			// when running appdb -> mongodb-enterprise-server
 			env.ReadOrPanic(mcoConstruct.MongodbCommunityImageEnv),
 			env.ReadOrDefault(mcoConstruct.MongoDBCommunityImageTypeEnv, mcoConstruct.DefaultImageType),
-			env.ReadOrPanic(util.MongodbCommunityAgentImageEnv),
+			env.ReadOrPanic(images.CommunityAgentImageEnv),
 			env.ReadOrPanic(mcoConstruct.VersionUpgradeHookImageEnv),
 			env.ReadOrPanic(mcoConstruct.ReadinessProbeImageEnv),
 		); err != nil {
@@ -315,7 +315,7 @@ func run() error {
 
 	if telemetry.IsTelemetryActivated() {
 		log.Info("Running telemetry component!")
-		telemetryRunnable, err := telemetry.NewLeaderRunnable(mgr, memberClusterObjectsMap, currentNamespace, imageUrls[construct.MongodbImageEnv], imageUrls[util.NonStaticDatabaseEnterpriseImage], getOperatorEnv())
+		telemetryRunnable, err := telemetry.NewLeaderRunnable(mgr, memberClusterObjectsMap, currentNamespace, imageUrls[images.MongodbImageEnv], imageUrls[images.NonStaticEnterpriseImageEnv], getOperatorEnv())
 		if err != nil {
 			log.Errorf("Unable to enable telemetry; err: %s", err)
 		}
@@ -407,7 +407,7 @@ func setupMongoDBMultiClusterCRD(ctx context.Context, mgr manager.Manager, image
 
 func setupMongoDBSearchCRD(ctx context.Context, mgr manager.Manager) error {
 	if err := operator.AddMongoDBSearchController(ctx, mgr, searchcontroller.OperatorSearchConfig{
-		SearchRepo:    env.ReadOrPanic(util.SearchRepoURLEnv),
+		SearchRepo:    env.ReadOrPanic(images.SearchRepoUrlEnv),
 		SearchName:    env.ReadOrPanic(util.SearchNameEnv),
 		SearchVersion: env.ReadOrPanic(util.SearchVersionEnv),
 	}); err != nil {
@@ -416,7 +416,7 @@ func setupMongoDBSearchCRD(ctx context.Context, mgr manager.Manager) error {
 
 	// We cannot use ReadOrPanic here because this variable is only needed when Search is used with a managed load
 	// balancer
-	envoyImage := env.ReadOrDefault(util.EnvoyImageEnv, "")
+	envoyImage := env.ReadOrDefault(images.EnvoyImageEnv, "")
 	if err := operator.AddMongoDBSearchEnvoyController(ctx, mgr, envoyImage); err != nil {
 		return err
 	}

@@ -19,6 +19,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/common"
+	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/persistentvolumeclaim"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/podtemplatespec"
@@ -51,8 +52,6 @@ const (
 	// Database environment variable names
 	InitDatabaseVersionEnv = "INIT_DATABASE_VERSION"
 	DatabaseVersionEnv     = "DATABASE_VERSION"
-	MongodbImageEnv        = "MONGODB_IMAGE"
-	AgentImageEnv          = "AGENT_IMAGE"
 
 	// PodAntiAffinityLabelKey defines the anti affinity rule label. The main rule is to spread entities inside one statefulset
 	// (aka replicaset) to different locations, so pods having the same label shouldn't coexist on the node that has
@@ -507,7 +506,7 @@ func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource
 	agentDebugMod := podtemplatespec.NOOP()
 	if opts.AgentDebug {
 		if opts.AgentDebugImage == "" {
-			log.Warnf("%s is true but delve image is not configured. Plese configure %s", util.EnvVarDebug, util.EnvVarDebugImage)
+			log.Warnf("%s is true but delve image is not configured. Plese configure %s", util.EnvVarDebug, images.AgentDebugImageEnv)
 		} else {
 			shareProcessNs = func(sts *appsv1.StatefulSet) {
 				sts.Spec.Template.Spec.ShareProcessNamespace = ptr.To(true)

@@ -260,9 +260,9 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 		PodEnvVars(podVars),
 		WithVaultConfig(vaultConfig),
 		WithAdditionalMongodConfig(s.Spec.GetAdditionalMongodConfig()),
-		WithInitDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, util.InitDatabaseImageUrlEnv, r.initDatabaseNonStaticImageVersion)),
-		WithDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, util.NonStaticDatabaseEnterpriseImage, r.databaseNonStaticImageVersion)),
-		WithAgentImage(images.ContainerImage(r.imageUrls, architectures.MdbAgentImageRepo, automationAgentVersion)),
+		WithInitDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, images.InitDatabaseImageRepoEnv, r.initDatabaseNonStaticImageVersion)),
+		WithDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, images.NonStaticEnterpriseImageEnv, r.databaseNonStaticImageVersion)),
+		WithAgentImage(images.ContainerImage(r.imageUrls, images.AgentImageRepoEnv, automationAgentVersion)),
 		WithMongodbImage(images.GetOfficialImage(r.imageUrls, s.Spec.Version, s.GetAnnotations())),
 		WithAgentDebug(r.agentDebug),
 		WithAgentDebugImage(r.agentDebugImage),
@@ -352,7 +352,7 @@ func (r *ReconcileMongoDbStandalone) updateOmDeployment(ctx context.Context, con
 		return status
 	}
 
-	standaloneOmObject := createProcess(r.imageUrls[construct.MongodbImageEnv], r.forceEnterprise, set, util.DatabaseContainerName, s)
+	standaloneOmObject := createProcess(r.imageUrls[images.MongodbImageEnv], r.forceEnterprise, set, util.DatabaseContainerName, s)
 	err := conn.ReadUpdateDeployment(
 		func(d om.Deployment) error {
 			excessProcesses := d.GetNumberOfExcessProcesses(s.Name)

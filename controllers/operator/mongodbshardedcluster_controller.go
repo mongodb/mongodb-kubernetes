@@ -2356,7 +2356,7 @@ func (r *ShardedClusterReconcileHelper) createDesiredMongosProcesses(certificate
 			process := om.NewMongosProcess(
 				podNames[i],
 				hostnames[i],
-				r.imageUrls[construct.MongodbImageEnv],
+				r.imageUrls[images.MongodbImageEnv],
 				r.forceEnterprise,
 				r.desiredMongosConfiguration.GetAdditionalMongodConfig(),
 				r.sc.GetSpec(),
@@ -2377,7 +2377,7 @@ func (r *ShardedClusterReconcileHelper) createDesiredConfigSrvProcessesAndMember
 	for _, memberCluster := range r.configSrvMemberClusters {
 		hostnames, podNames := r.getConfigSrvHostnames(memberCluster, scale.ReplicasThisReconciliation(r.GetConfigSrvScaler(memberCluster)))
 		for i := range hostnames {
-			process := om.NewMongodProcess(podNames[i], hostnames[i], r.imageUrls[construct.MongodbImageEnv], r.forceEnterprise, r.sc.Spec.ConfigSrvSpec.GetAdditionalMongodConfig(), r.sc.GetSpec(), certificateFilePath, r.sc.Annotations, r.sc.CalculateFeatureCompatibilityVersion())
+			process := om.NewMongodProcess(podNames[i], hostnames[i], r.imageUrls[images.MongodbImageEnv], r.forceEnterprise, r.sc.Spec.ConfigSrvSpec.GetAdditionalMongodConfig(), r.sc.GetSpec(), certificateFilePath, r.sc.Annotations, r.sc.CalculateFeatureCompatibilityVersion())
 			processes = append(processes, process)
 		}
 
@@ -2394,7 +2394,7 @@ func (r *ShardedClusterReconcileHelper) createDesiredShardProcessesAndMemberOpti
 	for _, memberCluster := range r.shardsMemberClustersMap[shardIdx] {
 		hostnames, podNames := r.getShardHostnames(shardIdx, memberCluster, scale.ReplicasThisReconciliation(r.GetShardScaler(shardIdx, memberCluster)))
 		for i := range hostnames {
-			process := om.NewMongodProcess(podNames[i], hostnames[i], r.imageUrls[construct.MongodbImageEnv], r.forceEnterprise, r.desiredShardsConfiguration[shardIdx].GetAdditionalMongodConfig(), r.sc.GetSpec(), certificateFilePath, r.sc.Annotations, r.sc.CalculateFeatureCompatibilityVersion())
+			process := om.NewMongodProcess(podNames[i], hostnames[i], r.imageUrls[images.MongodbImageEnv], r.forceEnterprise, r.desiredShardsConfiguration[shardIdx].GetAdditionalMongodConfig(), r.sc.GetSpec(), certificateFilePath, r.sc.Annotations, r.sc.CalculateFeatureCompatibilityVersion())
 			processes = append(processes, process)
 		}
 		specMemberOptions := r.desiredShardsConfiguration[shardIdx].GetClusterSpecItem(memberCluster.Name).MemberConfig
@@ -2469,9 +2469,9 @@ func (r *ShardedClusterReconcileHelper) getConfigServerOptions(ctx context.Conte
 		WithAdditionalMongodConfig(r.desiredConfigServerConfiguration.GetAdditionalMongodConfig()),
 		WithDefaultConfigSrvStorageSize(),
 		WithStsLabels(r.statefulsetLabels()),
-		WithInitDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, util.InitDatabaseImageUrlEnv, r.initDatabaseNonStaticImageVersion)),
-		WithDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, util.NonStaticDatabaseEnterpriseImage, r.databaseNonStaticImageVersion)),
-		WithAgentImage(images.ContainerImage(r.imageUrls, architectures.MdbAgentImageRepo, r.automationAgentVersion)),
+		WithInitDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, images.InitDatabaseImageRepoEnv, r.initDatabaseNonStaticImageVersion)),
+		WithDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, images.NonStaticEnterpriseImageEnv, r.databaseNonStaticImageVersion)),
+		WithAgentImage(images.ContainerImage(r.imageUrls, images.AgentImageRepoEnv, r.automationAgentVersion)),
 		WithMongodbImage(images.GetOfficialImage(r.imageUrls, sc.Spec.Version, sc.GetAnnotations())),
 		WithAgentDebug(r.agentDebug),
 		WithAgentDebugImage(r.agentDebugImage),
@@ -2500,9 +2500,9 @@ func (r *ShardedClusterReconcileHelper) getMongosOptions(ctx context.Context, sc
 		WithVaultConfig(vaultConfig),
 		WithAdditionalMongodConfig(r.desiredMongosConfiguration.GetAdditionalMongodConfig()),
 		WithStsLabels(r.statefulsetLabels()),
-		WithInitDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, util.InitDatabaseImageUrlEnv, r.initDatabaseNonStaticImageVersion)),
-		WithDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, util.NonStaticDatabaseEnterpriseImage, r.databaseNonStaticImageVersion)),
-		WithAgentImage(images.ContainerImage(r.imageUrls, architectures.MdbAgentImageRepo, r.automationAgentVersion)),
+		WithInitDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, images.InitDatabaseImageRepoEnv, r.initDatabaseNonStaticImageVersion)),
+		WithDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, images.NonStaticEnterpriseImageEnv, r.databaseNonStaticImageVersion)),
+		WithAgentImage(images.ContainerImage(r.imageUrls, images.AgentImageRepoEnv, r.automationAgentVersion)),
 		WithMongodbImage(images.GetOfficialImage(r.imageUrls, sc.Spec.Version, sc.GetAnnotations())),
 		WithAgentDebug(r.agentDebug),
 		WithAgentDebugImage(r.agentDebugImage),
@@ -2533,9 +2533,9 @@ func (r *ShardedClusterReconcileHelper) getShardOptions(ctx context.Context, sc 
 		WithVaultConfig(vaultConfig),
 		WithAdditionalMongodConfig(r.desiredShardsConfiguration[shardNum].GetAdditionalMongodConfig()),
 		WithStsLabels(r.statefulsetLabels()),
-		WithInitDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, util.InitDatabaseImageUrlEnv, r.initDatabaseNonStaticImageVersion)),
-		WithDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, util.NonStaticDatabaseEnterpriseImage, r.databaseNonStaticImageVersion)),
-		WithAgentImage(images.ContainerImage(r.imageUrls, architectures.MdbAgentImageRepo, r.automationAgentVersion)),
+		WithInitDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, images.InitDatabaseImageRepoEnv, r.initDatabaseNonStaticImageVersion)),
+		WithDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, images.NonStaticEnterpriseImageEnv, r.databaseNonStaticImageVersion)),
+		WithAgentImage(images.ContainerImage(r.imageUrls, images.AgentImageRepoEnv, r.automationAgentVersion)),
 		WithMongodbImage(images.GetOfficialImage(r.imageUrls, sc.Spec.Version, sc.GetAnnotations())),
 		WithAgentDebug(r.agentDebug),
 		WithAgentDebugImage(r.agentDebugImage),

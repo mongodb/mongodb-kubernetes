@@ -589,7 +589,7 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 	}
 
 	appdbOpts := construct.AppDBStatefulSetOptions{
-		InitAppDBImage: images.ContainerImage(r.imageUrls, util.InitDatabaseImageUrlEnv, r.initDatabaseVersion),
+		InitAppDBImage: images.ContainerImage(r.imageUrls, images.InitDatabaseImageRepoEnv, r.initDatabaseVersion),
 		MongodbImage:   images.GetOfficialImage(r.imageUrls, opsManager.Spec.AppDB.Version, opsManager.GetAnnotations()),
 	}
 	if architectures.IsRunningStaticArchitecture(opsManager.Annotations) {
@@ -603,7 +603,7 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 				return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("Failed to get agent version: %w. Please use spec.statefulSet to supply proper Agent version", err)), log)
 			}
 
-			appdbOpts.AgentImage = images.ContainerImage(r.imageUrls, architectures.MdbAgentImageRepo, agentVersion)
+			appdbOpts.AgentImage = images.ContainerImage(r.imageUrls, images.AgentImageRepoEnv, agentVersion)
 		}
 	} else {
 		// instead of using a hard-coded monitoring version, we use the "newest" one based on the release.json.
@@ -613,12 +613,12 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 			return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("Error reading monitoring agent version: %w", err)), log, appDbStatusOption)
 		}
 
-		appdbOpts.LegacyMonitoringAgentImage = images.ContainerImage(r.imageUrls, construct.AgentImageEnv, legacyMonitoringAgentVersion)
+		appdbOpts.LegacyMonitoringAgentImage = images.ContainerImage(r.imageUrls, images.AgentImageEnv, legacyMonitoringAgentVersion)
 
 		// AgentImageEnv contains the full container image uri e.g. quay.io/mongodb/mongodb-agent:107.0.0.8502-1
 		// In non-static containers we don't ask OM for the correct version, therefore we just rely on the provided
 		// environment variable.
-		appdbOpts.AgentImage = r.imageUrls[construct.AgentImageEnv]
+		appdbOpts.AgentImage = r.imageUrls[images.AgentImageEnv]
 	}
 
 	workflowStatus := r.ensureTLSSecretAndCreatePEMIfNeeded(ctx, opsManager, log)

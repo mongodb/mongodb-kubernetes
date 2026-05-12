@@ -78,8 +78,8 @@ func TestOnAddStandalone(t *testing.T) {
 }
 
 func TestStandaloneClusterReconcileContainerImages(t *testing.T) {
-	databaseRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_1_0_0", util.NonStaticDatabaseEnterpriseImage)
-	initDatabaseRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_2_0_0", util.InitDatabaseImageUrlEnv)
+	databaseRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_1_0_0", images.NonStaticEnterpriseImageEnv)
+	initDatabaseRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_2_0_0", images.InitDatabaseImageRepoEnv)
 
 	imageUrlsMock := images.ImageUrls{
 		databaseRelatedImageEnv:     "quay.io/mongodb/mongodb-kubernetes-database:@sha256:MONGODB_DATABASE",
@@ -106,11 +106,11 @@ func TestStandaloneClusterReconcileContainerImages(t *testing.T) {
 func TestStandaloneClusterReconcileContainerImagesWithStaticArchitecture(t *testing.T) {
 	t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.Static))
 
-	databaseRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_8_0_0_ubi9", construct.MongodbImageEnv)
+	databaseRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_8_0_0_ubi9", images.MongodbImageEnv)
 
 	imageUrlsMock := images.ImageUrls{
-		architectures.MdbAgentImageRepo: "quay.io/mongodb/mongodb-agent",
-		construct.MongodbImageEnv:    "quay.io/mongodb/mongodb-enterprise-server",
+		images.AgentImageRepoEnv: "quay.io/mongodb/mongodb-agent",
+		images.MongodbImageEnv:    "quay.io/mongodb/mongodb-enterprise-server",
 		databaseRelatedImageEnv:         "quay.io/mongodb/mongodb-enterprise-server:@sha256:MONGODB_DATABASE",
 	}
 

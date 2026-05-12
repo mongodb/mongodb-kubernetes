@@ -615,9 +615,9 @@ func (r *ReplicaSetReconcilerHelper) buildStatefulSetOptions(ctx context.Context
 		WithVaultConfig(vaultConfig),
 		WithLabels(rs.Labels),
 		WithAdditionalMongodConfig(rs.Spec.GetAdditionalMongodConfig()),
-		WithInitDatabaseNonStaticImage(images.ContainerImage(reconciler.imageUrls, util.InitDatabaseImageUrlEnv, reconciler.initDatabaseNonStaticImageVersion)),
-		WithDatabaseNonStaticImage(images.ContainerImage(reconciler.imageUrls, util.NonStaticDatabaseEnterpriseImage, reconciler.databaseNonStaticImageVersion)),
-		WithAgentImage(images.ContainerImage(reconciler.imageUrls, architectures.MdbAgentImageRepo, automationAgentVersion)),
+		WithInitDatabaseNonStaticImage(images.ContainerImage(reconciler.imageUrls, images.InitDatabaseImageRepoEnv, reconciler.initDatabaseNonStaticImageVersion)),
+		WithDatabaseNonStaticImage(images.ContainerImage(reconciler.imageUrls, images.NonStaticEnterpriseImageEnv, reconciler.databaseNonStaticImageVersion)),
+		WithAgentImage(images.ContainerImage(reconciler.imageUrls, images.AgentImageRepoEnv, automationAgentVersion)),
 		WithMongodbImage(images.GetOfficialImage(reconciler.imageUrls, rs.Spec.Version, rs.GetAnnotations())),
 		WithAgentDebug(reconciler.agentDebug),
 		WithAgentDebugImage(reconciler.agentDebugImage),
@@ -736,7 +736,7 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 
 	caFilePath := fmt.Sprintf("%s/ca-pem", util.TLSCaMountPath)
 
-	replicaSet := replicaset.BuildFromMongoDBWithReplicas(reconciler.imageUrls[construct.MongodbImageEnv], reconciler.forceEnterprise, rs, replicasTarget, rs.CalculateFeatureCompatibilityVersion(), tlsCertPath)
+	replicaSet := replicaset.BuildFromMongoDBWithReplicas(reconciler.imageUrls[images.MongodbImageEnv], reconciler.forceEnterprise, rs, replicasTarget, rs.CalculateFeatureCompatibilityVersion(), tlsCertPath)
 	processNames := replicaSet.GetProcessNames()
 
 	status, additionalReconciliationRequired := reconciler.updateOmAuthentication(ctx, conn, processNames, rs, deploymentOptions.agentCertPath, caFilePath, internalClusterCertPath, isRecovering, log)

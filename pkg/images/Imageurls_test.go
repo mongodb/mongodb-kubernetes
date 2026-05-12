@@ -19,36 +19,36 @@ func TestReplaceImageTagOrDigestToTag(t *testing.T) {
 }
 
 func TestContainerImage(t *testing.T) {
-	initDatabaseRelatedImageEnv1 := fmt.Sprintf("RELATED_IMAGE_%s_1_0_0", util.InitDatabaseImageUrlEnv)
-	initDatabaseRelatedImageEnv2 := fmt.Sprintf("RELATED_IMAGE_%s_12_0_4_7554_1", util.InitDatabaseImageUrlEnv)
-	initDatabaseRelatedImageEnv3 := fmt.Sprintf("RELATED_IMAGE_%s_2_0_0_b20220912000000", util.InitDatabaseImageUrlEnv)
+	initDatabaseRelatedImageEnv1 := fmt.Sprintf("RELATED_IMAGE_%s_1_0_0", InitDatabaseImageRepoEnv)
+	initDatabaseRelatedImageEnv2 := fmt.Sprintf("RELATED_IMAGE_%s_12_0_4_7554_1", InitDatabaseImageRepoEnv)
+	initDatabaseRelatedImageEnv3 := fmt.Sprintf("RELATED_IMAGE_%s_2_0_0_b20220912000000", InitDatabaseImageRepoEnv)
 
-	t.Setenv(util.InitDatabaseImageUrlEnv, "quay.io/mongodb/mongodb-kubernetes-init-database")
+	t.Setenv(InitDatabaseImageRepoEnv, "quay.io/mongodb/mongodb-kubernetes-init-database")
 	t.Setenv(initDatabaseRelatedImageEnv1, "quay.io/mongodb/mongodb-kubernetes-init-database@sha256:608daf56296c10c9bd02cc85bb542a849e9a66aff0697d6359b449540696b1fd")
 	t.Setenv(initDatabaseRelatedImageEnv2, "quay.io/mongodb/mongodb-kubernetes-init-database@sha256:b631ee886bb49ba8d7b90bb003fe66051dadecbc2ac126ac7351221f4a7c377c")
 	t.Setenv(initDatabaseRelatedImageEnv3, "quay.io/mongodb/mongodb-kubernetes-init-database@sha256:f1a7f49cd6533d8ca9425f25cdc290d46bb883997f07fac83b66cc799313adad")
 
 	// there is no related image for 0.0.1
 	imageUrls := LoadImageUrlsFromEnv()
-	assert.Equal(t, "quay.io/mongodb/mongodb-kubernetes-init-database:0.0.1", ContainerImage(imageUrls, util.InitDatabaseImageUrlEnv, "0.0.1"))
+	assert.Equal(t, "quay.io/mongodb/mongodb-kubernetes-init-database:0.0.1", ContainerImage(imageUrls, InitDatabaseImageRepoEnv, "0.0.1"))
 	// for 10.2.25.6008-1 there is no RELATED_IMAGE variable set, so we use input instead of digest
-	assert.Equal(t, "quay.io/mongodb/mongodb-kubernetes-init-database:10.2.25.6008-1", ContainerImage(imageUrls, util.InitDatabaseImageUrlEnv, "10.2.25.6008-1"))
+	assert.Equal(t, "quay.io/mongodb/mongodb-kubernetes-init-database:10.2.25.6008-1", ContainerImage(imageUrls, InitDatabaseImageRepoEnv, "10.2.25.6008-1"))
 	// for following versions we set RELATED_IMAGE_MONGODB_IMAGE_* env variables to sha256 digest
-	assert.Equal(t, "quay.io/mongodb/mongodb-kubernetes-init-database@sha256:608daf56296c10c9bd02cc85bb542a849e9a66aff0697d6359b449540696b1fd", ContainerImage(imageUrls, util.InitDatabaseImageUrlEnv, "1.0.0"))
-	assert.Equal(t, "quay.io/mongodb/mongodb-kubernetes-init-database@sha256:b631ee886bb49ba8d7b90bb003fe66051dadecbc2ac126ac7351221f4a7c377c", ContainerImage(imageUrls, util.InitDatabaseImageUrlEnv, "12.0.4.7554-1"))
-	assert.Equal(t, "quay.io/mongodb/mongodb-kubernetes-init-database@sha256:f1a7f49cd6533d8ca9425f25cdc290d46bb883997f07fac83b66cc799313adad", ContainerImage(imageUrls, util.InitDatabaseImageUrlEnv, "2.0.0-b20220912000000"))
+	assert.Equal(t, "quay.io/mongodb/mongodb-kubernetes-init-database@sha256:608daf56296c10c9bd02cc85bb542a849e9a66aff0697d6359b449540696b1fd", ContainerImage(imageUrls, InitDatabaseImageRepoEnv, "1.0.0"))
+	assert.Equal(t, "quay.io/mongodb/mongodb-kubernetes-init-database@sha256:b631ee886bb49ba8d7b90bb003fe66051dadecbc2ac126ac7351221f4a7c377c", ContainerImage(imageUrls, InitDatabaseImageRepoEnv, "12.0.4.7554-1"))
+	assert.Equal(t, "quay.io/mongodb/mongodb-kubernetes-init-database@sha256:f1a7f49cd6533d8ca9425f25cdc290d46bb883997f07fac83b66cc799313adad", ContainerImage(imageUrls, InitDatabaseImageRepoEnv, "2.0.0-b20220912000000"))
 
-	t.Setenv(util.OpsManagerImageUrl, "quay.io:3000/mongodb/mongodb-kubernetes")
+	t.Setenv(OpsManagerImageRepoEnv, "quay.io:3000/mongodb/mongodb-kubernetes")
 	imageUrls = LoadImageUrlsFromEnv()
-	assert.Equal(t, "quay.io:3000/mongodb/mongodb-kubernetes:1.2.3", ContainerImage(imageUrls, util.OpsManagerImageUrl, "1.2.3"))
+	assert.Equal(t, "quay.io:3000/mongodb/mongodb-kubernetes:1.2.3", ContainerImage(imageUrls, OpsManagerImageRepoEnv, "1.2.3"))
 
-	t.Setenv(util.OpsManagerImageUrl, "localhost/mongodb/mongodb-kubernetes")
+	t.Setenv(OpsManagerImageRepoEnv, "localhost/mongodb/mongodb-kubernetes")
 	imageUrls = LoadImageUrlsFromEnv()
-	assert.Equal(t, "localhost/mongodb/mongodb-kubernetes:1.2.3", ContainerImage(imageUrls, util.OpsManagerImageUrl, "1.2.3"))
+	assert.Equal(t, "localhost/mongodb/mongodb-kubernetes:1.2.3", ContainerImage(imageUrls, OpsManagerImageRepoEnv, "1.2.3"))
 
-	t.Setenv(util.OpsManagerImageUrl, "mongodb")
+	t.Setenv(OpsManagerImageRepoEnv, "mongodb")
 	imageUrls = LoadImageUrlsFromEnv()
-	assert.Equal(t, "mongodb:1.2.3", ContainerImage(imageUrls, util.OpsManagerImageUrl, "1.2.3"))
+	assert.Equal(t, "mongodb:1.2.3", ContainerImage(imageUrls, OpsManagerImageRepoEnv, "1.2.3"))
 }
 
 func TestGetAppDBImage(t *testing.T) {
@@ -66,7 +66,7 @@ func TestGetAppDBImage(t *testing.T) {
 			want:  "quay.io/mongodb/mongodb-enterprise-server:4.2.11-ubi8",
 			setupEnvs: func(t *testing.T) {
 				t.Setenv(MongodbRepoUrlEnv, "quay.io/mongodb")
-				t.Setenv(MongodbImageEnv, util.OfficialEnterpriseServerImageUrl)
+				t.Setenv(MongodbImageEnv, OfficialEnterpriseServerImage)
 			},
 		},
 		{
@@ -75,7 +75,7 @@ func TestGetAppDBImage(t *testing.T) {
 			want:  "quay.io/mongodb/mongodb-enterprise-server:4.2.11-ubi8",
 			setupEnvs: func(t *testing.T) {
 				t.Setenv(MongodbRepoUrlEnv, "quay.io/mongodb")
-				t.Setenv(MongodbImageEnv, util.OfficialEnterpriseServerImageUrl)
+				t.Setenv(MongodbImageEnv, OfficialEnterpriseServerImage)
 			},
 		},
 		{
@@ -84,7 +84,7 @@ func TestGetAppDBImage(t *testing.T) {
 			want:  "quay.io/mongodb/mongodb-enterprise-server:4.2.11-something",
 			setupEnvs: func(t *testing.T) {
 				t.Setenv(MongodbRepoUrlEnv, "quay.io/mongodb")
-				t.Setenv(MongodbImageEnv, util.OfficialEnterpriseServerImageUrl)
+				t.Setenv(MongodbImageEnv, OfficialEnterpriseServerImage)
 			},
 		},
 		{
@@ -93,7 +93,7 @@ func TestGetAppDBImage(t *testing.T) {
 			want:  "quay.io/mongodb/mongodb-enterprise-server:4.2.11-ubi8",
 			setupEnvs: func(t *testing.T) {
 				t.Setenv(MongodbRepoUrlEnv, "quay.io/mongodb")
-				t.Setenv(MongodbImageEnv, util.OfficialEnterpriseServerImageUrl)
+				t.Setenv(MongodbImageEnv, OfficialEnterpriseServerImage)
 			},
 		},
 		{
@@ -102,7 +102,7 @@ func TestGetAppDBImage(t *testing.T) {
 			want:  "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi:4.2.11-ent",
 			setupEnvs: func(t *testing.T) {
 				t.Setenv(MongodbRepoUrlEnv, "quay.io/mongodb")
-				t.Setenv(MongodbImageEnv, util.DeprecatedImageAppdbUbiUrl)
+				t.Setenv(MongodbImageEnv, DeprecatedImageAppdbUbi)
 			},
 		},
 		{
@@ -111,7 +111,7 @@ func TestGetAppDBImage(t *testing.T) {
 			want:  "quay.io/mongodb/mongodb-enterprise-server:4.2.11-ubi8",
 			setupEnvs: func(t *testing.T) {
 				t.Setenv("RELATED_IMAGE_MONGODB_IMAGE_4_2_11_ubi8", "quay.io/mongodb/mongodb-enterprise-server:4.2.11-ubi8")
-				t.Setenv(MongodbImageEnv, util.DeprecatedImageAppdbUbiUrl)
+				t.Setenv(MongodbImageEnv, DeprecatedImageAppdbUbi)
 				t.Setenv(MongodbRepoUrlEnv, OfficialMongodbRepoUrls[1])
 			},
 		},
@@ -122,7 +122,7 @@ func TestGetAppDBImage(t *testing.T) {
 			setupEnvs: func(t *testing.T) {
 				t.Setenv("RELATED_IMAGE_MONGODB_IMAGE_4_2_11_ubi8", "quay.io/mongodb/mongodb-enterprise-server:4.2.11-ubi8")
 				t.Setenv("RELATED_IMAGE_MONGODB_IMAGE_4_2_11_ent", "quay.io/mongodb/mongodb-enterprise-server:4.2.11-ent")
-				t.Setenv(MongodbImageEnv, util.OfficialEnterpriseServerImageUrl)
+				t.Setenv(MongodbImageEnv, OfficialEnterpriseServerImage)
 				t.Setenv(MongodbRepoUrlEnv, OfficialMongodbRepoUrls[1])
 			},
 		},
@@ -132,7 +132,7 @@ func TestGetAppDBImage(t *testing.T) {
 			want:  "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi:4.2.11-ent",
 			setupEnvs: func(t *testing.T) {
 				t.Setenv("RELATED_IMAGE_MONGODB_IMAGE_4_2_11_ubi8", "quay.io/mongodb/mongodb-enterprise-server:4.2.11-ubi8")
-				t.Setenv(MongodbImageEnv, util.DeprecatedImageAppdbUbiUrl)
+				t.Setenv(MongodbImageEnv, DeprecatedImageAppdbUbi)
 				t.Setenv(MongodbRepoUrlEnv, OfficialMongodbRepoUrls[1])
 			},
 		},
@@ -142,7 +142,7 @@ func TestGetAppDBImage(t *testing.T) {
 			want:  "quay.io/mongodb/mongodb-enterprise-server:4.2.11-ent",
 			setupEnvs: func(t *testing.T) {
 				t.Setenv(MongodbRepoUrlEnv, "quay.io/mongodb")
-				t.Setenv(MongodbImageEnv, util.OfficialEnterpriseServerImageUrl)
+				t.Setenv(MongodbImageEnv, OfficialEnterpriseServerImage)
 				t.Setenv(util.MdbAppdbAssumeOldFormat, "true")
 			},
 		},
@@ -155,7 +155,7 @@ func TestGetAppDBImage(t *testing.T) {
 			want: "quay.io/mongodb/mongodb-enterprise-server:4.2.11-ubi9",
 			setupEnvs: func(t *testing.T) {
 				t.Setenv(MongodbRepoUrlEnv, "quay.io/mongodb")
-				t.Setenv(MongodbImageEnv, util.OfficialEnterpriseServerImageUrl)
+				t.Setenv(MongodbImageEnv, OfficialEnterpriseServerImage)
 			},
 		},
 		{
@@ -167,7 +167,7 @@ func TestGetAppDBImage(t *testing.T) {
 			want: "quay.io/mongodb/mongodb-enterprise-server:4.2.11-ubi9",
 			setupEnvs: func(t *testing.T) {
 				t.Setenv(MongodbRepoUrlEnv, "quay.io/mongodb")
-				t.Setenv(MongodbImageEnv, util.OfficialEnterpriseServerImageUrl)
+				t.Setenv(MongodbImageEnv, OfficialEnterpriseServerImage)
 			},
 		},
 	}
