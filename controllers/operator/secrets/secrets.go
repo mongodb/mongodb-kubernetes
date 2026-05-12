@@ -140,7 +140,6 @@ func (r SecretClient) PutSecretIfChanged(ctx context.Context, s corev1.Secret, b
 	return secret.CreateOrUpdateIfNeeded(ctx, r.KubeClient, s)
 }
 
-
 // These methods implement the secretGetterUpdateCreateDeleter interface from community.
 // We hardcode here the AppDB sub-path for Vault since community is used only to deploy
 // AppDB pods. This allows us to minimize the changes to Community.

@@ -165,7 +165,7 @@ func needToGenerateNewCredentials(ctx context.Context, secretGetter secret.Gette
 // generateScramShaCredentials creates a new set of credentials using randomly generated salts. The first returned element is
 // sha1 credentials, the second is sha256 credentials
 func generateScramShaCredentials(username string, password string) (scramcredentials.ScramCreds, scramcredentials.ScramCreds, error) {
-	sha1Salt, sha256Salt, err := generate.Salts()
+	sha1Salt, sha256Salt, err := Salts()
 	if err != nil {
 		return scramcredentials.ScramCreds{}, scramcredentials.ScramCreds{}, err
 	}
