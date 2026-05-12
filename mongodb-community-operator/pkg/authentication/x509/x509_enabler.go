@@ -29,13 +29,13 @@ func enableAgentAuthentication(auth *automationconfig.Auth, agentKeyFileContents
 	// windows file is specified to pass validation, this will never be used
 	auth.KeyFileWindows = constants.AutomationAgentWindowsKeyFilePath
 
-	auth.AutoAuthMechanisms = []string{constants.X509WireProtocol}
+	auth.AutoAuthMechanisms = []string{constants.X509}
 
 	// the username of the MongoDB Agent
 	auth.AutoUser = agentName
 
 	// the mechanism used by the Agent
-	auth.AutoAuthMechanism = constants.X509WireProtocol
+	auth.AutoAuthMechanism = constants.X509
 
 	// the password for the Agent user
 	auth.AutoPwd = ""
@@ -49,7 +49,7 @@ func enableClientAuthentication(auth *automationconfig.Auth, opts authtypes.Opti
 	}
 
 	if !contains.X509(auth.DeploymentAuthMechanisms) {
-		auth.DeploymentAuthMechanisms = append(auth.DeploymentAuthMechanisms, constants.X509WireProtocol)
+		auth.DeploymentAuthMechanisms = append(auth.DeploymentAuthMechanisms, constants.X509)
 	}
 
 	auth.Users = append(auth.Users, users...)

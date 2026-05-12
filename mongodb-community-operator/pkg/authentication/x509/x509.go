@@ -33,7 +33,7 @@ func Enable(ctx context.Context, auth *automationconfig.Auth, secretGetUpdateCre
 
 	desiredUsers := convertMongoDBResourceUsersToAutomationConfigUsers(mdb)
 
-	if opts.AutoAuthMechanism == constants.X509WireProtocol {
+	if opts.AutoAuthMechanism == constants.X509 {
 		if err := ensureAgent(ctx, auth, secretGetUpdateCreateDeleter, mdb, agentCertSecret); err != nil {
 			return err
 		}

@@ -68,7 +68,7 @@ func TestEnable(t *testing.T) {
 	t.Run("X509 only", func(t *testing.T) {
 		auth := automationconfig.Auth{}
 		user := mocks.BuildX509MongoDBUser("my-user")
-		mdb := buildConfigurable("mdb", []string{constants.X509WireProtocol}, constants.X509WireProtocol, user)
+		mdb := buildConfigurable("mdb", []string{constants.X509}, constants.X509, user)
 		agentSecret := x509.CreateAgentCertificateSecret("tls.crt", false, mdb.AgentCertificateSecretNamespacedName())
 		secrets := mocks.NewMockedSecretGetUpdateCreateDeleter(agentSecret)
 
@@ -76,9 +76,9 @@ func TestEnable(t *testing.T) {
 		assert.NoError(t, err)
 
 		assert.Equal(t, false, auth.Disabled)
-		assert.Equal(t, constants.X509WireProtocol, auth.AutoAuthMechanism)
-		assert.Equal(t, []string{constants.X509WireProtocol}, auth.DeploymentAuthMechanisms)
-		assert.Equal(t, []string{constants.X509WireProtocol}, auth.AutoAuthMechanisms)
+		assert.Equal(t, constants.X509, auth.AutoAuthMechanism)
+		assert.Equal(t, []string{constants.X509}, auth.DeploymentAuthMechanisms)
+		assert.Equal(t, []string{constants.X509}, auth.AutoAuthMechanisms)
 		assert.Len(t, auth.Users, 1)
 		assert.Equal(t, "CN=my-user,OU=organizationalunit,O=organization", auth.Users[0].Username)
 		assert.Equal(t, "CN=mms-automation-agent,OU=ENG,O=MongoDB,C=US", auth.AutoUser)
@@ -87,7 +87,7 @@ func TestEnable(t *testing.T) {
 		auth := automationconfig.Auth{}
 		userScram := mocks.BuildScramMongoDBUser("my-user")
 		userX509 := mocks.BuildX509MongoDBUser("my-user")
-		mdb := buildConfigurable("mdb", []string{constants.Sha256, constants.X509WireProtocol}, constants.Sha256, userScram, userX509)
+		mdb := buildConfigurable("mdb", []string{constants.Sha256, constants.X509}, constants.Sha256, userScram, userX509)
 		passwordSecret := secret.Builder().
 			SetName(userScram.PasswordSecretName).
 			SetNamespace(mdb.NamespacedName().Namespace).
@@ -100,7 +100,7 @@ func TestEnable(t *testing.T) {
 
 		assert.Equal(t, false, auth.Disabled)
 		assert.Equal(t, constants.Sha256, auth.AutoAuthMechanism)
-		assert.Equal(t, []string{constants.Sha256, constants.X509WireProtocol}, auth.DeploymentAuthMechanisms)
+		assert.Equal(t, []string{constants.Sha256, constants.X509}, auth.DeploymentAuthMechanisms)
 		assert.Equal(t, []string{constants.Sha256}, auth.AutoAuthMechanisms)
 		assert.Len(t, auth.Users, 2)
 		assert.Equal(t, "my-user", auth.Users[0].Username)
@@ -111,7 +111,7 @@ func TestEnable(t *testing.T) {
 		auth := automationconfig.Auth{}
 		userScram := mocks.BuildScramMongoDBUser("my-user")
 		userX509 := mocks.BuildX509MongoDBUser("my-user")
-		mdb := buildConfigurable("mdb", []string{constants.Sha256, constants.X509WireProtocol}, constants.X509WireProtocol, userScram, userX509)
+		mdb := buildConfigurable("mdb", []string{constants.Sha256, constants.X509}, constants.X509, userScram, userX509)
 		passwordSecret := secret.Builder().
 			SetName(userScram.PasswordSecretName).
 			SetNamespace(mdb.NamespacedName().Namespace).
@@ -124,9 +124,9 @@ func TestEnable(t *testing.T) {
 		assert.NoError(t, err)
 
 		assert.Equal(t, false, auth.Disabled)
-		assert.Equal(t, constants.X509WireProtocol, auth.AutoAuthMechanism)
-		assert.Equal(t, []string{constants.Sha256, constants.X509WireProtocol}, auth.DeploymentAuthMechanisms)
-		assert.Equal(t, []string{constants.X509WireProtocol}, auth.AutoAuthMechanisms)
+		assert.Equal(t, constants.X509, auth.AutoAuthMechanism)
+		assert.Equal(t, []string{constants.Sha256, constants.X509}, auth.DeploymentAuthMechanisms)
+		assert.Equal(t, []string{constants.X509}, auth.AutoAuthMechanisms)
 		assert.Len(t, auth.Users, 2)
 		assert.Equal(t, "my-user", auth.Users[0].Username)
 		assert.Equal(t, "CN=my-user,OU=organizationalunit,O=organization", auth.Users[1].Username)
