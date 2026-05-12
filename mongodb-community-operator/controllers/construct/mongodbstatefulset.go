@@ -14,7 +14,6 @@ import (
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/readiness/config"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
-	pkgconstruct "github.com/mongodb/mongodb-kubernetes/pkg/construct"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/persistentvolumeclaim"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/podtemplatespec"
@@ -25,21 +24,17 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/scale"
 )
 
-// Re-export shared constants from pkg/construct so that MCO-internal code and
-// any remaining MCO importers continue to compile without import changes.
 const (
-	MongodbRepoUrlEnv          = pkgconstruct.MongodbRepoUrlEnv
-	MongodbImageEnv            = pkgconstruct.MongodbImageEnv
-	AgentImageEnv              = pkgconstruct.AgentImageEnv
-	MongoDBAssumeEnterpriseEnv = pkgconstruct.MongoDBAssumeEnterpriseEnv
-	AgentName                  = pkgconstruct.AgentName
-	MongodbName                = pkgconstruct.MongodbName
+	MongodbRepoUrlEnv          = "MONGODB_REPO_URL"
+	MongodbImageEnv            = "MONGODB_IMAGE"
+	AgentImageEnv              = "AGENT_IMAGE"
+	MongoDBAssumeEnterpriseEnv = "MDB_ASSUME_ENTERPRISE"
+	AgentName                  = "mongodb-agent"
+	MongodbName                = "mongod"
 )
 
-// OfficialMongodbRepoUrls re-exports the shared slice from pkg/construct.
-var OfficialMongodbRepoUrls = pkgconstruct.OfficialMongodbRepoUrls
+var OfficialMongodbRepoUrls = []string{"docker.io/mongodb", "quay.io/mongodb"}
 
-// MCO only
 const (
 	VersionUpgradeHookImageEnv   = "VERSION_UPGRADE_HOOK_IMAGE"
 	ReadinessProbeImageEnv       = "READINESS_PROBE_IMAGE"

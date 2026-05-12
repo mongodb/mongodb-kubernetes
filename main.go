@@ -50,7 +50,6 @@ import (
 	mcov1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	mcoController "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers"
 	mcoConstruct "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/construct"
-	pkgconstruct "github.com/mongodb/mongodb-kubernetes/pkg/construct"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/pprof"
@@ -316,7 +315,7 @@ func run() error {
 
 	if telemetry.IsTelemetryActivated() {
 		log.Info("Running telemetry component!")
-		telemetryRunnable, err := telemetry.NewLeaderRunnable(mgr, memberClusterObjectsMap, currentNamespace, imageUrls[pkgconstruct.MongodbImageEnv], imageUrls[util.NonStaticDatabaseEnterpriseImage], getOperatorEnv())
+		telemetryRunnable, err := telemetry.NewLeaderRunnable(mgr, memberClusterObjectsMap, currentNamespace, imageUrls[construct.MongodbImageEnv], imageUrls[util.NonStaticDatabaseEnterpriseImage], getOperatorEnv())
 		if err != nil {
 			log.Errorf("Unable to enable telemetry; err: %s", err)
 		}

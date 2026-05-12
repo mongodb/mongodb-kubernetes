@@ -51,7 +51,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
-	pkgconstruct "github.com/mongodb/mongodb-kubernetes/pkg/construct"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	khandler "github.com/mongodb/mongodb-kubernetes/pkg/handler"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
@@ -743,7 +742,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(ctx context.Conte
 	}
 	log.Debugf("Existing process Ids: %+v", processIds)
 
-	processes, err := process.CreateMongodProcessesWithLimitMulti(r.imageUrls[pkgconstruct.MongodbImageEnv], r.forceEnterprise, mrs, tlsCertPath)
+	processes, err := process.CreateMongodProcessesWithLimitMulti(r.imageUrls[images.MongodbImageEnv], r.forceEnterprise, mrs, tlsCertPath)
 	if err != nil && !isRecovering {
 		return err
 	}

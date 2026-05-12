@@ -51,6 +51,8 @@ const (
 	// Database environment variable names
 	InitDatabaseVersionEnv = "INIT_DATABASE_VERSION"
 	DatabaseVersionEnv     = "DATABASE_VERSION"
+	MongodbImageEnv        = "MONGODB_IMAGE"
+	AgentImageEnv          = "AGENT_IMAGE"
 
 	// PodAntiAffinityLabelKey defines the anti affinity rule label. The main rule is to spread entities inside one statefulset
 	// (aka replicaset) to different locations, so pods having the same label shouldn't coexist on the node that has

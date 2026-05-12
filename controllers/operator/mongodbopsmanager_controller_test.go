@@ -37,7 +37,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	"github.com/mongodb/mongodb-kubernetes/pkg/authentication/scramcredentials"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
-	pkgconstruct "github.com/mongodb/mongodb-kubernetes/pkg/construct"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
@@ -562,7 +561,7 @@ func TestOpsManagerPodTemplateSpec_IsAnnotatedWithHash(t *testing.T) {
 func TestOpsManagerReconcileContainerImages(t *testing.T) {
 	initOpsManagerRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_1_2_3", util.InitOpsManagerImageUrl)
 	opsManagerRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_8_0_0", util.OpsManagerImageUrl)
-	mongodbRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_8_0_0", pkgconstruct.MongodbImageEnv)
+	mongodbRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_8_0_0", images.MongodbImageEnv)
 	initDatabaseRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_3_4_5", util.InitDatabaseImageUrlEnv)
 
 	imageUrlsMock := images.ImageUrls{
@@ -571,7 +570,7 @@ func TestOpsManagerReconcileContainerImages(t *testing.T) {
 		opsManagerRelatedImageEnv:     "quay.io/mongodb/mongodb-enterprise-ops-manager:@sha256:MONGODB_OPS_MANAGER",
 
 		// AppDB images
-		pkgconstruct.AgentImageEnv:  "quay.io/mongodb/mongodb-agent@sha256:AGENT_SHA", // In non-static architecture, this env var holds full container image uri
+		images.AgentImageEnv: "quay.io/mongodb/mongodb-agent@sha256:AGENT_SHA",
 		mongodbRelatedImageEnv:      "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi@sha256:MONGODB_SHA",
 		initDatabaseRelatedImageEnv: "quay.io/mongodb/mongodb-kubernetes-init-database@sha256:INIT_DATABASE_SHA",
 	}
@@ -624,7 +623,7 @@ func TestOpsManagerReconcileContainerImagesWithStaticArchitecture(t *testing.T) 
 	t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.Static))
 
 	opsManagerRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_8_0_0", util.OpsManagerImageUrl)
-	mongodbRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_8_0_0", pkgconstruct.MongodbImageEnv)
+	mongodbRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_8_0_0", images.MongodbImageEnv)
 
 	imageUrlsMock := images.ImageUrls{
 		// Ops manager & backup daemon images
