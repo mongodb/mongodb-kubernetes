@@ -279,17 +279,18 @@ def test_outage_window_detects_availability_loss(mdb: MongoDB, mdbs: MongoDBSear
 
     Run a short healthy window so the verdict has at least one
     upstream-confirmed page first, then take ALL mongot pods offline
-    by setting ``MongoDBSearch.spec.replicas = 0`` via the operator
     (``deliberately broken cluster`` per KUBE-26 acceptance). Continue
     probing through the outage window so the tester records the
-    resulting failures, then bring mongot back via the operator.
+    resulting failures, then let the StatefulSet's controller bring
+    mongot back.
 
-    The CR-driven scale-to-0 mirrors KUBE-17's
-    ``test_paging_through_mongot_outage_surfaces_connectivity_error``
-    so we don't depend on multi-replica accounting (a single
-    pod-delete leaves the other replica serving and the harness sees
-    no fault — the only way to actually take mongot down is to
-    drain the entire StatefulSet via the CR).
+    The managed-LB fixture has ``spec.replicas: 2``; deleting only
+    pod-0 leaves pod-1 healthy through the entire fault window and
+    the tester sees zero failures — exactly the false-green this
+    test exists to prevent. We delete every pod that matches the
+    StatefulSet's pod-template label (``app=<sts-name>-svc``) in one
+    pass. KUBE-27's failure-mode scenarios use the same selector for
+    the same reason.
 
     Asserts the verdict surfaces either:
     - ``cursor_lost > 0`` — a long-living cursor's server-side state
@@ -332,11 +333,12 @@ def test_outage_window_detects_availability_loss(mdb: MongoDB, mdbs: MongoDBSear
             f"probing upstream. results={[str(r) for r in pre_results]}"
         )
 
-        # Phase 2 — induce a brief outage by deleting the mongot pod.
-        # The StatefulSet's controller will recreate it within ~10-30s,
+        # Phase 2 — induce a brief outage by deleting EVERY mongot pod.
+        # The StatefulSet's controller will recreate them within ~10-30s,
         # but during the recreation window the cursor's gRPC stream to
-        # mongot is dead — any post-fault getMore must fail (cursor_lost
-        # because the new pod has no record of the cursor's session, or
+        # mongot is dead and envoy has no healthy upstream — so any
+        # post-fault getMore must fail (cursor_lost because the new
+        # pod has no record of the cursor's session, or
         # transient_network because envoy briefly has no healthy
         # upstream).
         #
@@ -346,17 +348,22 @@ def test_outage_window_detects_availability_loss(mdb: MongoDB, mdbs: MongoDBSear
         # objects: ``mdbs["spec"]["replicas"] = 0; mdbs.update()`` does
         # NOT actually propagate to the API. Pod deletion via
         # core_v1.delete_namespaced_pod sidesteps that.
+        #
+        # Crucially, we have to delete EVERY replica. The managed-LB
+        # fixture has ``spec.replicas: 2``; deleting only pod-0 leaves
+        # pod-1 healthy through the entire fault window and the
+        # tester sees zero failures — the exact false-green this test
+        # exists to prevent. The StatefulSet's pod template carries
+        # ``app=<sts-name>-svc`` (the headless service selector), so
+        # using that label catches every replica in one shot. KUBE-27
+        # uses the same selector for the same reason.
         core_v1 = client.CoreV1Api()
+        pod_label = f"app={statefulset_name}-svc"
         pods = core_v1.list_namespaced_pod(
             namespace=mdb.namespace,
-            label_selector=f"statefulset.kubernetes.io/pod-name={statefulset_name}-0",
+            label_selector=pod_label,
         ).items
-        if not pods:
-            # Older k8s versions don't set that label; fall back to listing
-            # all pods in the StatefulSet's selector and matching on name.
-            all_pods = core_v1.list_namespaced_pod(namespace=mdb.namespace).items
-            pods = [p for p in all_pods if p.metadata.name.startswith(f"{statefulset_name}-")]
-        assert pods, f"no mongot pods found in namespace {mdb.namespace}"
+        assert pods, f"no mongot pods matched selector '{pod_label}' in namespace {mdb.namespace}"
         original_uids = {p.metadata.name: p.metadata.uid for p in pods}
         for p in pods:
             logger.info(f"deleting mongot pod {p.metadata.name} (uid={p.metadata.uid})")
