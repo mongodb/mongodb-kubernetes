@@ -386,9 +386,8 @@ func TestBuildProxyServiceForShard_ManagedLB_Ready(t *testing.T) {
 	assert.Equal(t, search.LoadBalancerDeploymentNameForCluster(0), svc.Spec.Selector["app"])
 }
 
-// Regression: per-cluster proxy Service selector must match the per-cluster
-// Envoy Deployment label (LoadBalancerDeploymentNameForCluster) so endpoints
-// are non-empty in MC installs.
+// Per-cluster proxy Service selector must match the per-cluster Envoy
+// Deployment label so endpoints are non-empty in MC installs.
 func TestBuildProxyService_ManagedLB_Ready_PerCluster(t *testing.T) {
 	search := &searchv1.MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "ns"},
