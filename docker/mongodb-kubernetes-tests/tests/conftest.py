@@ -19,6 +19,13 @@ else:
     # Importing otel_plugin.pytest_configure and otel_plugin.pytest_sessionstart hook is enough to configure OTEL plugin
     from tests.otel_plugin import pytest_configure, pytest_sessionstart  # noqa: F401
 
+# Register tests.cli_log_filter as a pytest plugin so its pytest_configure
+# hook runs alongside (not shadowed by) the otel_plugin pytest_configure
+# imported above. The plugin drops DEBUG records from chatty third-party
+# loggers (kubernetes, pymongo, urllib3, …) off the live CLI stream while
+# leaving the pytest log_file at DEBUG.
+pytest_plugins = ("tests.cli_log_filter",)
+
 
 def _load_env_from_local_file_for_development():
     """Load environment variables from .generated/context.{env,<side>.env}
