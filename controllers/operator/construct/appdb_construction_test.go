@@ -6,13 +6,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
 
-	v1 "k8s.io/api/apps/v1"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 
+	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/v1/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct/scalers"
-	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 )
@@ -30,7 +30,7 @@ func TestAppDBAgentFlags(t *testing.T) {
 	om := omv1.NewOpsManagerBuilderDefault().Build()
 	om.Spec.AppDB.AutomationAgent.StartupParameters = agentStartupParameters
 	sts, err := AppDbStatefulSet(*om, &env.PodEnvVars{ProjectID: "abcd"},
-		AppDBStatefulSetOptions{}, scalers.GetAppDBScaler(om, multicluster.LegacyCentralClusterName, 0, nil), v1.OnDeleteStatefulSetStrategyType, nil)
+		AppDBStatefulSetOptions{}, scalers.GetAppDBScaler(om, multicluster.LegacyCentralClusterName, 0, nil), appsv1.OnDeleteStatefulSetStrategyType, nil)
 	assert.NoError(t, err)
 
 	command := sts.Spec.Template.Spec.Containers[0].Command
@@ -47,7 +47,7 @@ func TestAppDBMultiClusterPerClusterStatefulSetOverride(t *testing.T) {
 			Members:     2,
 			StatefulSetConfiguration: &v1.StatefulSetConfiguration{
 				SpecWrapper: v1.StatefulSetSpecWrapper{
-					Spec: v1.StatefulSetSpec{
+					Spec: appsv1.StatefulSetSpec{
 						Template: corev1.PodTemplateSpec{
 							Spec: corev1.PodSpec{HostAliases: hostAliasesA},
 						},
@@ -60,7 +60,7 @@ func TestAppDBMultiClusterPerClusterStatefulSetOverride(t *testing.T) {
 			Members:     1,
 			StatefulSetConfiguration: &v1.StatefulSetConfiguration{
 				SpecWrapper: v1.StatefulSetSpecWrapper{
-					Spec: v1.StatefulSetSpec{
+					Spec: appsv1.StatefulSetSpec{
 						Template: corev1.PodTemplateSpec{
 							Spec: corev1.PodSpec{HostAliases: hostAliasesB},
 						},
@@ -76,12 +76,12 @@ func TestAppDBMultiClusterPerClusterStatefulSetOverride(t *testing.T) {
 		Build()
 
 	stsA, err := AppDbStatefulSet(*om, &env.PodEnvVars{ProjectID: "abcd"},
-		AppDBStatefulSetOptions{}, scalers.GetAppDBScaler(om, "cluster-a", 0, nil), v1.OnDeleteStatefulSetStrategyType, nil)
+		AppDBStatefulSetOptions{}, scalers.GetAppDBScaler(om, "cluster-a", 0, nil), appsv1.OnDeleteStatefulSetStrategyType, nil)
 	assert.NoError(t, err)
 	assert.Equal(t, hostAliasesA, stsA.Spec.Template.Spec.HostAliases)
 
 	stsB, err := AppDbStatefulSet(*om, &env.PodEnvVars{ProjectID: "abcd"},
-		AppDBStatefulSetOptions{}, scalers.GetAppDBScaler(om, "cluster-b", 1, nil), v1.OnDeleteStatefulSetStrategyType, nil)
+		AppDBStatefulSetOptions{}, scalers.GetAppDBScaler(om, "cluster-b", 1, nil), appsv1.OnDeleteStatefulSetStrategyType, nil)
 	assert.NoError(t, err)
 	assert.Equal(t, hostAliasesB, stsB.Spec.Template.Spec.HostAliases)
 
@@ -122,7 +122,7 @@ func TestResourceRequirements(t *testing.T) {
 	}
 
 	sts, err := AppDbStatefulSet(*om, &env.PodEnvVars{ProjectID: "abcd"},
-		AppDBStatefulSetOptions{}, scalers.GetAppDBScaler(om, "central", 0, nil), v1.OnDeleteStatefulSetStrategyType, nil)
+		AppDBStatefulSetOptions{}, scalers.GetAppDBScaler(om, "central", 0, nil), appsv1.OnDeleteStatefulSetStrategyType, nil)
 	assert.NoError(t, err)
 
 	for _, c := range sts.Spec.Template.Spec.Containers {
