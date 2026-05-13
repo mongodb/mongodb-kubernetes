@@ -526,7 +526,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 			WithAdditionalMongodConfig(mrs.Spec.GetAdditionalMongodConfig()),
 			WithInitDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, util.InitDatabaseImageUrlEnv, r.initDatabaseNonStaticImageVersion)),
 			WithDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, util.NonStaticDatabaseEnterpriseImage, r.databaseNonStaticImageVersion)),
-			WithAgentImage(images.ContainerImage(r.imageUrls, images.AgentImageUrlEnv, automationAgentVersion)),
+			WithAgentImage(images.ContainerImage(r.imageUrls, util.AgentImageUrlEnv, automationAgentVersion)),
 			WithMongodbImage(images.GetOfficialImage(r.imageUrls, mrs.Spec.Version, mrs.GetAnnotations())),
 			WithAgentDebug(r.agentDebug),
 			WithAgentDebugImage(r.agentDebugImage),
@@ -742,7 +742,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(ctx context.Conte
 	}
 	log.Debugf("Existing process Ids: %+v", processIds)
 
-	processes, err := process.CreateMongodProcessesWithLimitMulti(r.imageUrls[images.MongodbImageEnv], r.forceEnterprise, mrs, tlsCertPath)
+	processes, err := process.CreateMongodProcessesWithLimitMulti(r.imageUrls[util.MongodbImageEnv], r.forceEnterprise, mrs, tlsCertPath)
 	if err != nil && !isRecovering {
 		return err
 	}

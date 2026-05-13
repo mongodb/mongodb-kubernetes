@@ -315,7 +315,7 @@ func run() error {
 
 	if telemetry.IsTelemetryActivated() {
 		log.Info("Running telemetry component!")
-		telemetryRunnable, err := telemetry.NewLeaderRunnable(mgr, memberClusterObjectsMap, currentNamespace, imageUrls[images.MongodbImageEnv], imageUrls[util.NonStaticDatabaseEnterpriseImage], getOperatorEnv())
+		telemetryRunnable, err := telemetry.NewLeaderRunnable(mgr, memberClusterObjectsMap, currentNamespace, imageUrls[util.MongodbImageEnv], imageUrls[util.NonStaticDatabaseEnterpriseImage], getOperatorEnv())
 		if err != nil {
 			log.Errorf("Unable to enable telemetry; err: %s", err)
 		}

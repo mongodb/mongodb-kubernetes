@@ -12,16 +12,8 @@ import (
 )
 
 const (
-	MongodbRepoUrlEnv = "MONGODB_REPO_URL"
-	MongodbImageEnv   = "MONGODB_IMAGE"
-	AgentImageEnv     = "AGENT_IMAGE"
-
-	// Agent image repository
-	AgentImageUrlEnv     = "MDB_AGENT_IMAGE_REPOSITORY"
-	AgentImageUrlDefault = "quay.io/mongodb/mongodb-agent"
+	AgentImageEnv = "AGENT_IMAGE"
 )
-
-var OfficialMongodbRepoUrls = []string{"docker.io/mongodb", "quay.io/mongodb"}
 
 // replaceImageTagOrDigestToTag returns the image with the tag or digest replaced to a given version
 func replaceImageTagOrDigestToTag(image string, newVersion string) string {
@@ -70,14 +62,14 @@ func LoadImageUrlsFromEnv() ImageUrls {
 		//   - New env var has a RELATED_IMAGE_* counterpart
 		//   - New env var contains an image URL or part of the URL
 		//     and it will be used in container for MongoDB workfloads
-		MongodbRepoUrlEnv:                     "",
-		MongodbImageEnv:                       "",
+		util.MongodbRepoUrlEnv:                "",
+		util.MongodbImageEnv:                  "",
 		util.InitOpsManagerImageUrl:           "",
 		util.OpsManagerImageUrl:               "",
 		util.InitDatabaseImageUrlEnv:          "",
 		util.NonStaticDatabaseEnterpriseImage: "",
 		AgentImageEnv:                         "",
-		AgentImageUrlEnv:                      AgentImageUrlDefault,
+		util.AgentImageUrlEnv:                 util.AgentImageUrlDefault,
 	} {
 		imageUrls[imageName] = env.ReadOrDefault(imageName, defaultValue) // nolint:forbidigo
 	}
@@ -127,7 +119,7 @@ func ContainerImage(imageUrls ImageUrls, imageName string, version string) strin
 }
 
 func GetOfficialImage(imageUrls ImageUrls, version string, annotations map[string]string) string {
-	repoUrl := imageUrls[MongodbRepoUrlEnv]
+	repoUrl := imageUrls[util.MongodbRepoUrlEnv]
 	// TODO: rethink the logic of handling custom image types. We are currently only handling ubi9 and ubi8 and we never
 	// were really handling erroneus types, we just leave them be if specified (e.g. -ubuntu).
 	// env.ReadOrDefault(MongoDBImageType, string(architectures.DefaultImageType))
@@ -141,7 +133,7 @@ func GetOfficialImage(imageUrls ImageUrls, version string, annotations map[strin
 		imageType = string(architectures.ImageTypeUBI8)
 	}
 
-	imageURL := imageUrls[MongodbImageEnv]
+	imageURL := imageUrls[util.MongodbImageEnv]
 
 	if strings.HasSuffix(repoUrl, "/") {
 		repoUrl = strings.TrimRight(repoUrl, "/")
@@ -164,7 +156,7 @@ func GetOfficialImage(imageUrls ImageUrls, version string, annotations map[strin
 		// if neither, let's not change it: 5.0.6-ubi8 -> 5.0.6-ubi8
 	}
 
-	mongoImageName := ContainerImage(imageUrls, MongodbImageEnv, version)
+	mongoImageName := ContainerImage(imageUrls, util.MongodbImageEnv, version)
 
 	if strings.Contains(mongoImageName, "@sha256:") || strings.HasPrefix(mongoImageName, repoUrl) {
 		return mongoImageName
@@ -174,5 +166,5 @@ func GetOfficialImage(imageUrls ImageUrls, version string, annotations map[strin
 }
 
 func IsEnterpriseImage(mongodbImage string) bool {
-	return strings.Contains(mongodbImage, util.OfficialEnterpriseServerImageUrl)
+	return strings.Contains(mongodbImage, util.OfficialEnterpriseServerImageName)
 }

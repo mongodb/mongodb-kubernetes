@@ -24,6 +24,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"github.com/mongodb/mongodb-kubernetes/api/v1/common"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/mdbmulti"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
@@ -33,11 +34,10 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/create"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
-	"github.com/mongodb/mongodb-kubernetes/api/v1/common"
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/agentVersionManagement"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster/failedcluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster/memberwatch"
@@ -135,12 +135,12 @@ func TestMultiReplicaSetClusterReconcileContainerImages(t *testing.T) {
 func TestMultiReplicaSetClusterReconcileContainerImagesWithStaticArchitecture(t *testing.T) {
 	t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.Static))
 
-	databaseRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_8_0_0_ubi9", images.MongodbImageEnv)
+	databaseRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_8_0_0_ubi9", util.MongodbImageEnv)
 
 	imageUrlsMock := images.ImageUrls{
-		images.AgentImageUrlEnv: "quay.io/mongodb/mongodb-agent",
-		images.MongodbImageEnv:    "quay.io/mongodb/mongodb-enterprise-server",
-		databaseRelatedImageEnv:         "quay.io/mongodb/mongodb-enterprise-server:@sha256:MONGODB_DATABASE",
+		util.AgentImageUrlEnv:   "quay.io/mongodb/mongodb-agent",
+		util.MongodbImageEnv:    "quay.io/mongodb/mongodb-enterprise-server",
+		databaseRelatedImageEnv: "quay.io/mongodb/mongodb-enterprise-server:@sha256:MONGODB_DATABASE",
 	}
 
 	ctx := context.Background()

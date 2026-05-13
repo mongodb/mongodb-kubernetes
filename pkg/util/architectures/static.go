@@ -76,7 +76,7 @@ func GetMongoVersionForAutomationConfig(mongoDBImage, version string, forceEnter
 		return version
 	}
 	// the image repo should be	either mongodb / mongodb-enterprise-server or mongodb / mongodb-community-server
-	if strings.Contains(mongoDBImage, util.OfficialEnterpriseServerImageUrl) || forceEnterprise {
+	if strings.Contains(mongoDBImage, util.OfficialEnterpriseServerImageName) || forceEnterprise {
 		if !strings.HasSuffix(version, "-ent") {
 			version = version + "-ent"
 		}

@@ -41,7 +41,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/status"
 	"github.com/mongodb/mongodb-kubernetes/pkg/agent"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
-	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
@@ -593,9 +592,9 @@ func guessEnterprise(mdb mdbv1.MongoDBCommunity, mongodbImage string) bool {
 		}
 	}
 	if len(overriddenImage) > 0 {
-		return strings.Contains(overriddenImage, util.OfficialEnterpriseServerImageUrl)
+		return strings.Contains(overriddenImage, util.OfficialEnterpriseServerImageName)
 	}
-	return mongodbImage == util.OfficialEnterpriseServerImageUrl
+	return mongodbImage == util.OfficialEnterpriseServerImageName
 }
 
 // buildService creates a Service that will be used for the Replica Set StatefulSet
@@ -840,7 +839,7 @@ func getMongoDBImage(repoUrl, mongodbImage, mongodbImageType, version string) st
 		repoUrl = strings.TrimRight(repoUrl, "/")
 	}
 	mongoImageName := mongodbImage
-	for _, officialUrl := range images.OfficialMongodbRepoUrls {
+	for _, officialUrl := range util.OfficialMongodbRepoUrls {
 		if repoUrl == officialUrl {
 			return fmt.Sprintf("%s/%s:%s-%s", repoUrl, mongoImageName, version, mongodbImageType)
 		}
