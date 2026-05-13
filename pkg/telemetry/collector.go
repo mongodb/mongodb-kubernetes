@@ -22,7 +22,7 @@ import (
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/v1/om"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/v1/user"
-	mcov1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
+	mcov1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1" //nolint:depguard // MongoDBCommunity type required to emit per-type instance-count metrics
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"

@@ -41,35 +41,16 @@ linters:
           # architecturally decoupled to allow for easier changes: no Enterprise logic should import
           # mongodb-community-operator packages to avoid coupling the two operators together.
           #
-          # Each exception is documented with the reason the coupling is intentional
-          # and cannot be removed without breaking the design invariant.
+          # Suppress with //nolint:depguard only when the coupling is genuinely structural
+          # (e.g. binary wiring, CRD type reference) and document the reason inline.
           files:
             - "!**/mongodb-community-operator/**"
-            # main.go is the single binary entry-point that wires both operators.
-            # It must import MCO api/v1 for scheme registration (AddToScheme),
-            # MCO controllers for the community ReplicaSet reconciler (NewReconciler),
-            # and MCO controllers/construct for community-specific image env vars
-            # (VersionUpgradeHookImageEnv, ReadinessProbeImageEnv, etc.).
-            - "!**/main.go"
-            # The search reconciler and its helpers operate on MongoDBCommunity
-            # resources to wire MongoDBSearch instances into community clusters.
-            # These files reference the MongoDBCommunity CRD type directly and
-            # cannot be rewritten without duplicating or moving the CRD type.
-            - "!**/controllers/searchcontroller/**"
-            - "!**/controllers/operator/mongodbsearch_controller*.go"
-            - "!**/controllers/operator/mongodbsearchenvoy_controller.go"
-            # The mock kube client must register the MCO scheme so tests that
-            # exercise community resource reconciliation can use the fake client.
-            - "!**/controllers/operator/mock/mockedkubeclient.go"
-            # Telemetry emits per-resource-type metrics; it must reference the
-            # MongoDBCommunity type to count community replica set instances.
-            - "!**/pkg/telemetry/**"
           deny:
             - pkg: "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator"
               desc: >-
                 This boundary keeps the two operators architecturally decoupled within
-                the shared module. Add an exception above only when the coupling is
-                genuinely structural (e.g. binary wiring, CRD type reference) and
+                the shared module. Suppress with //nolint:depguard only when the coupling
+                is genuinely structural (e.g. binary wiring, CRD type reference) and
                 document the reason inline.
     forbidigo:
       forbid:
