@@ -197,10 +197,15 @@ type SearchSourceReplicaSet interface {
 // clusterLevelResource describes the shard-agnostic proxy Service that mongos
 // connects to. One entry per cluster in sharded deployments when the operator
 // manages proxy Services.
+// fallbackPodLabel is the app label of the first shard's mongot STS; the
+// cluster-level Service selects pods carrying this label whenever the managed
+// LB is not (yet) ready, preserving pre-MC behaviour where mongos pointed at
+// the first shard's mongot pool directly.
 type clusterLevelResource struct {
-	clusterName  string
-	clusterIndex int
-	svcName      types.NamespacedName
+	clusterName      string
+	clusterIndex     int
+	svcName          types.NamespacedName
+	fallbackPodLabel string
 }
 
 // reconcilePlan is the full per-reconcile work description: a list of units plus the
@@ -385,9 +390,10 @@ func (r *MongoDBSearchReconcileHelper) buildShardedPlan(shardedSource SearchSour
 		if !seenClusters[w.ClusterIndex] {
 			seenClusters[w.ClusterIndex] = true
 			clusterLevelResources = append(clusterLevelResources, clusterLevelResource{
-				clusterName:  w.ClusterName,
-				clusterIndex: w.ClusterIndex,
-				svcName:      r.mdbSearch.ClusterLevelProxyServiceNameForCluster(w.ClusterIndex),
+				clusterName:      w.ClusterName,
+				clusterIndex:     w.ClusterIndex,
+				svcName:          r.mdbSearch.ClusterLevelProxyServiceNameForCluster(w.ClusterIndex),
+				fallbackPodLabel: r.mdbSearch.MongotStatefulSetForClusterShard(w.ClusterIndex, shardNames[0]).Name,
 			})
 		}
 	}
@@ -688,7 +694,9 @@ func isOwnedBy(obj client.Object, owner client.Object) bool {
 	return false
 }
 
-// cleanupStaleShardResources removes per-shard proxy Services for shards that no longer exist after a scale-down.
+// cleanupStaleShardResources removes per-shard proxy Services for shards that no longer
+// exist after a scale-down. Lists only from the central client — cross-cluster GC of
+// member-cluster resources is intentionally out of MVP scope (matches MC-RS).
 func (r *MongoDBSearchReconcileHelper) cleanupStaleShardResources(ctx context.Context, log *zap.SugaredLogger, currentShardNames []string) error {
 	if r.mdbSearch.IsShardedUnmanagedLB() {
 		return nil
@@ -1094,17 +1102,16 @@ func buildProxyService(search *searchv1.MongoDBSearch, unit reconcileUnit) corev
 }
 
 // buildClusterLevelProxyService builds the shard-agnostic proxy Service used by mongos.
-// It selects all local mongot pods regardless of shard using the per-cluster Envoy
-// label (when LB is ready) or the search owner labels (when Envoy is not yet ready).
-// The per-shard proxy Services route per-shard gRPC streams; this Service routes
-// mongos-originated traffic where no specific shard is targeted.
+// When the managed LB is ready, the selector points at the per-cluster Envoy pool so
+// queries fan out across all shards via SNI routing. Otherwise the selector points
+// at the first shard's mongot pool (the fallback label set on the unit), matching the
+// pre-MC behaviour where mongos talked to the first shard's mongot directly.
 func buildClusterLevelProxyService(search *searchv1.MongoDBSearch, res clusterLevelResource) corev1.Service {
 	var selector map[string]string
 	if search.IsLBModeManaged() && search.IsLoadBalancerReady() {
 		selector = map[string]string{appLabelKey: search.LoadBalancerDeploymentNameForCluster(res.clusterIndex)}
 	} else {
-		// Select all local mongot pods via owner labels so all shards are reachable.
-		selector = searchOwnerLabels(search, res.clusterName)
+		selector = map[string]string{appLabelKey: res.fallbackPodLabel}
 	}
 
 	labels := map[string]string{

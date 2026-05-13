@@ -1419,6 +1419,7 @@ func TestGetMongosConfigParametersForSharded(t *testing.T) {
 	tests := []struct {
 		name          string
 		search        *searchv1.MongoDBSearch
+		clusterIndex  int
 		shardNames    []string
 		clusterDomain string
 		expectedHost  string
@@ -1524,11 +1525,41 @@ func TestGetMongosConfigParametersForSharded(t *testing.T) {
 			// Cluster-level form: strip leading "{shardName}." from the template.
 			expectedHost: "search.example.com:443",
 		},
+		{
+			name: "MC managed LB - cluster-level form resolves {clusterName} for clusterIndex>0",
+			search: &searchv1.MongoDBSearch{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-search",
+					Namespace: "test-ns",
+				},
+				Spec: searchv1.MongoDBSearchSpec{
+					Source: &searchv1.MongoDBSource{
+						MongoDBResourceRef: &userv1.MongoDBResourceRef{
+							Name: "test-mdb",
+						},
+					},
+					LoadBalancer: &searchv1.LoadBalancerConfig{
+						Managed: &searchv1.ManagedLBConfig{
+							ExternalHostname: "{shardName}.{clusterName}.search.example.com:443",
+						},
+					},
+					Clusters: &[]searchv1.ClusterSpec{
+						{ClusterName: "us-east-k8s"},
+						{ClusterName: "eu-west-k8s"},
+					},
+				},
+			},
+			clusterIndex:  1,
+			shardNames:    []string{"test-mdb-0", "test-mdb-1"},
+			clusterDomain: "cluster.local",
+			// Strip "{shardName}." then resolve {clusterName} for spec.clusters[1].
+			expectedHost: "eu-west-k8s.search.example.com:443",
+		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			config := GetMongosConfigParametersForSharded(tc.search, 0, tc.shardNames, tc.clusterDomain)
+			config := GetMongosConfigParametersForSharded(tc.search, tc.clusterIndex, tc.shardNames, tc.clusterDomain)
 
 			setParameter, ok := config["setParameter"].(map[string]any)
 			require.True(t, ok, "setParameter should be a map")
@@ -2843,16 +2874,17 @@ func TestReconcileShardedMC_FanOutUsesPerClusterClient(t *testing.T) {
 		require.NoError(t, r.ensureSearchService(t.Context(), zap.S(), clusterClient, res.svcName, buildClusterLevelProxyService(r.mdbSearch, res)))
 	}
 
-	// Per-(cluster, shard) STS + ConfigMap on the right client.
+	// Per-(cluster, shard) STS + ConfigMap + per-shard proxy Service on the right client.
 	cases := []struct {
-		c        kubernetesClient.Client
-		stsName  string
-		cmName   string
+		c           kubernetesClient.Client
+		stsName     string
+		cmName      string
+		proxySvc    string
 	}{
-		{clusterAClient, "mdb-search-search-0-sh-0", "mdb-search-search-0-sh-0-config"},
-		{clusterAClient, "mdb-search-search-0-sh-1", "mdb-search-search-0-sh-1-config"},
-		{clusterBClient, "mdb-search-search-1-sh-0", "mdb-search-search-1-sh-0-config"},
-		{clusterBClient, "mdb-search-search-1-sh-1", "mdb-search-search-1-sh-1-config"},
+		{clusterAClient, "mdb-search-search-0-sh-0", "mdb-search-search-0-sh-0-config", "mdb-search-search-0-sh-0-proxy-svc"},
+		{clusterAClient, "mdb-search-search-0-sh-1", "mdb-search-search-0-sh-1-config", "mdb-search-search-0-sh-1-proxy-svc"},
+		{clusterBClient, "mdb-search-search-1-sh-0", "mdb-search-search-1-sh-0-config", "mdb-search-search-1-sh-0-proxy-svc"},
+		{clusterBClient, "mdb-search-search-1-sh-1", "mdb-search-search-1-sh-1-config", "mdb-search-search-1-sh-1-proxy-svc"},
 	}
 	for _, tc := range cases {
 		require.NoError(t, tc.c.Get(t.Context(),
@@ -2861,6 +2893,12 @@ func TestReconcileShardedMC_FanOutUsesPerClusterClient(t *testing.T) {
 		require.NoError(t, tc.c.Get(t.Context(),
 			types.NamespacedName{Name: tc.cmName, Namespace: "ns"}, &corev1.ConfigMap{}),
 			"ConfigMap %s missing on expected member client", tc.cmName)
+		require.NoError(t, tc.c.Get(t.Context(),
+			types.NamespacedName{Name: tc.proxySvc, Namespace: "ns"}, &corev1.Service{}),
+			"per-shard proxy Service %s missing on expected member client", tc.proxySvc)
+		err := centralClient.Get(t.Context(),
+			types.NamespacedName{Name: tc.proxySvc, Namespace: "ns"}, &corev1.Service{})
+		assert.True(t, apierrors.IsNotFound(err), "central client must NOT have per-shard proxy %s", tc.proxySvc)
 	}
 
 	// Central client must not have any per-shard STS.
