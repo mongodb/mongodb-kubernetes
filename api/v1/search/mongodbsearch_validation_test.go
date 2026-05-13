@@ -374,8 +374,8 @@ func TestValidateMCExternalHostnamePlaceholders(t *testing.T) {
 			errorContains: "{clusterName}",
 		},
 		{
-			name:     "MC sharded with all three placeholders",
-			template: "{clusterName}.{shardName}.lb.example.com:443",
+			name:     "MC sharded starts with shardName",
+			template: "{shardName}.{clusterName}.lb.example.com:443",
 			clusters: []ClusterSpec{{ClusterName: "us-east-k8s"}, {ClusterName: "eu-west-k8s"}},
 			sharded:  true,
 		},
@@ -385,6 +385,13 @@ func TestValidateMCExternalHostnamePlaceholders(t *testing.T) {
 			clusters:      []ClusterSpec{{ClusterName: "us-east-k8s"}, {ClusterName: "eu-west-k8s"}},
 			sharded:       true,
 			errorContains: "{shardName}",
+		},
+		{
+			name:          "MC sharded shardName not in prefix position",
+			template:      "{clusterName}.{shardName}.lb.example.com:443",
+			clusters:      []ClusterSpec{{ClusterName: "us-east-k8s"}, {ClusterName: "eu-west-k8s"}},
+			sharded:       true,
+			errorContains: "must start with",
 		},
 		{
 			name:     "no managed LB returns success",
