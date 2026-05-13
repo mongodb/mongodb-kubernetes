@@ -1,0 +1,1010 @@
+"""Q2-MC-RS e2e: 2-cluster MongoDBSearch backed by an external MongoDBMulti RS.
+
+Exercises per-cluster fan-out in the MC reconciler: each cluster gets its own
+mongot StatefulSet, headless Service, ConfigMap, and Envoy Deployment, all
+written through the owning member-cluster client. The Envoy SNI config and the
+per-process mongotHost AC patch are verified on-disk so we catch regressions in
+Envoy fan-out and per-cluster mongotHost locality — not just that the resources
+were constructed, but that they resolved correctly at runtime.
+"""
+
+import json
+import os
+from typing import Dict, List
+
+import kubernetes
+import pymongo.errors
+import pytest
+import yaml
+from kubernetes.client import CoreV1Api
+from kubetester import create_or_update_configmap, create_or_update_secret, read_secret, try_load
+from kubetester.certs import create_tls_certs
+from kubetester.certs_mongodb_multi import create_multi_cluster_mongodb_tls_certs
+from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.kubetester import run_periodically
+from kubetester.mongodb_multi import MongoDBMulti
+from kubetester.mongodb_search import MongoDBSearch
+from kubetester.mongodb_user import MongoDBUser
+from kubetester.multicluster_client import MultiClusterClient
+from kubetester.operator import Operator
+from kubetester.phase import Phase
+from pytest import fixture, mark
+from tests import test_logger
+from tests.common.multicluster.multicluster_utils import assert_deployment_ready_in_cluster
+from tests.common.search import search_resource_names
+from tests.common.search.movies_search_helper import (
+    EMBEDDING_QUERY_KEY_ENV_VAR,
+    EmbeddedMoviesSearchHelper,
+    SampleMoviesSearchHelper,
+)
+from tests.common.search.search_deployment_helper import MCSearchDeploymentHelper
+from tests.common.search.search_tester import SearchTester
+from tests.common.search.sharded_search_helper import create_issuer_ca
+from tests.conftest import get_issuer_ca_filepath
+from tests.multicluster.conftest import cluster_spec_list
+
+logger = test_logger.get_test_logger(__name__)
+
+MDB_RESOURCE_NAME = "mdb-mc-rs-ext-lb"
+MDBS_RESOURCE_NAME = "mdb-mc-rs-ext-lb-search"
+
+# 2-cluster MC RS, 2 members each. Typed as `List[int | None]` to match
+# cluster_spec_list's signature; strict invariance rejects `List[int]`.
+MEMBERS_PER_CLUSTER: List[int | None] = [2, 2]
+
+MONGOT_REPLICAS_PER_CLUSTER = 1
+ENVOY_LB_REPLICAS = 2
+ENVOY_PROXY_PORT = 27028
+
+# Owner labels stamped on every per-cluster resource (pkg/handler/labels_search.go).
+# Used for cross-cluster watch routing by MapMemberClusterObjectToSearch.
+SEARCH_OWNER_NAME_LABEL = "mongodb.com/search-name"
+SEARCH_OWNER_NAMESPACE_LABEL = "mongodb.com/search-namespace"
+SEARCH_CLUSTER_NAME_LABEL = "mongodb.com/cluster-name"
+
+
+def _assert_search_owner_labels(obj_labels: Dict[str, str], cluster_name: str, where: str) -> None:
+    """Assert all three search-owner labels are present and correct on a per-cluster resource."""
+    assert (
+        obj_labels.get(SEARCH_OWNER_NAME_LABEL) == MDBS_RESOURCE_NAME
+    ), f"{where}: missing/wrong {SEARCH_OWNER_NAME_LABEL!r}; got {obj_labels.get(SEARCH_OWNER_NAME_LABEL)!r}"
+    # The operator stamps the search's namespace, not the central namespace, so this
+    # equals `namespace` (the test-time namespace where both CR and members run).
+    assert obj_labels.get(SEARCH_OWNER_NAMESPACE_LABEL), f"{where}: missing {SEARCH_OWNER_NAMESPACE_LABEL!r}"
+    assert obj_labels.get(SEARCH_CLUSTER_NAME_LABEL) == cluster_name, (
+        f"{where}: missing/wrong {SEARCH_CLUSTER_NAME_LABEL!r}; got "
+        f"{obj_labels.get(SEARCH_CLUSTER_NAME_LABEL)!r}, want {cluster_name!r}"
+    )
+
+
+ADMIN_USER_NAME = "mdb-admin-user"
+ADMIN_USER_PASSWORD = "mdb-admin-user-pass"
+
+USER_NAME = "mdb-user"
+USER_PASSWORD = "mdb-user-pass"
+
+MONGOT_USER_NAME = "search-sync-source"
+MONGOT_USER_PASSWORD = "search-sync-source-user-password"
+
+MDBS_TLS_CERT_PREFIX = "certs"
+CA_CONFIGMAP_NAME = f"{MDB_RESOURCE_NAME}-ca"
+SOURCE_CERT_PREFIX = "clustercert"
+SOURCE_BUNDLE_SECRET = f"{SOURCE_CERT_PREFIX}-{MDB_RESOURCE_NAME}-cert"
+
+
+# =============================================================================
+# Fixtures
+# =============================================================================
+
+
+@fixture(scope="module")
+def helper(
+    namespace: str,
+    member_cluster_clients: List[MultiClusterClient],
+) -> MCSearchDeploymentHelper:
+    return MCSearchDeploymentHelper(
+        namespace=namespace,
+        mdb_resource_name=MDB_RESOURCE_NAME,
+        mdbs_resource_name=MDBS_RESOURCE_NAME,
+        member_cluster_clients={mcc.cluster_name: mcc.core_v1_api() for mcc in member_cluster_clients},
+    )
+
+
+@fixture(scope="module")
+def ca_configmap(issuer_ca_filepath: str, namespace: str) -> str:
+    return create_issuer_ca(issuer_ca_filepath, namespace, CA_CONFIGMAP_NAME)
+
+
+@fixture(scope="module")
+def mdb(
+    namespace: str,
+    central_cluster_client: kubernetes.client.ApiClient,
+    member_cluster_names: List[str],
+    ca_configmap: str,
+) -> MongoDBMulti:
+    """2-cluster MongoDBMulti RS source with TLS+SCRAM.
+
+    Version is pinned in the fixture YAML to a search-aware mongod —
+    the setParameter keys below only exist on 8.x; see the YAML for
+    the exact constraint.
+
+    Why no `mongotHost` / `searchIndexManagementHostAndPort` here:
+    setting them at the spec level makes the operator re-apply the
+    same value to EVERY process on every reconcile (process.go
+    mergeFrom + RemoveFieldsBasedOnDesiredAndPrevious), clobbering
+    the per-cluster AC patch in `test_patch_per_cluster_mongot_host`.
+    Leaving them out of spec means the operator never tracks them in
+    its `prevArgs26`, so per-process values that the test patches via
+    OM AC survive subsequent reconciles. The patching also happens
+    early enough that mongods first reach Running without search
+    routing, then transition with per-cluster routing on the
+    AC-driven restart.
+
+    `searchTLSMode` stays in spec because it's identical across all
+    clusters — no per-cluster locality, no race risk. Same for the
+    other static toggles below.
+    """
+    resource = MongoDBMulti.from_yaml(
+        yaml_fixture("search-q2-mc-rs.yaml"),
+        name=MDB_RESOURCE_NAME,
+        namespace=namespace,
+    )
+    resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, MEMBERS_PER_CLUSTER)
+
+    resource["spec"]["additionalMongodConfig"] = {
+        "setParameter": {
+            "skipAuthenticationToSearchIndexManagementServer": False,
+            "skipAuthenticationToMongot": False,
+            "searchTLSMode": "requireTLS",
+            "useGrpcForSearch": True,
+        },
+    }
+
+    resource["spec"]["security"] = {
+        "certsSecretPrefix": SOURCE_CERT_PREFIX,
+        "tls": {"ca": ca_configmap},
+        "authentication": {"enabled": True, "modes": ["SCRAM"]},
+    }
+
+    resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
+    try_load(resource)
+    return resource
+
+
+@fixture(scope="module")
+def mdbs(
+    namespace: str,
+    central_cluster_client: kubernetes.client.ApiClient,
+    member_cluster_clients: List[MultiClusterClient],
+    mdb: MongoDBMulti,
+    ca_configmap: str,
+) -> MongoDBSearch:
+    """MongoDBSearch over external MongoDBMulti source, MC topology.
+
+    spec.source.external.hostAndPorts is the same top-level seed list rendered to
+    every cluster's mongot ConfigMap. spec.loadBalancer.managed.externalHostname
+    uses {clusterIndex} so all three per-cluster names (cert SANs, AC mongotHost,
+    Envoy SNI) resolve to the same per-cluster proxy-svc FQDN.
+    """
+    resource = MongoDBSearch.from_yaml(
+        yaml_fixture("search-q2-mc-rs-search.yaml"),
+        name=MDBS_RESOURCE_NAME,
+        namespace=namespace,
+    )
+
+    seeds = [f"{svc}.{namespace}.svc.cluster.local:27017" for svc in mdb.service_names()]
+
+    resource["spec"]["source"] = {
+        "username": MONGOT_USER_NAME,
+        "passwordSecretRef": {
+            "name": f"{MDBS_RESOURCE_NAME}-{MONGOT_USER_NAME}-password",
+            "key": "password",
+        },
+        "external": {
+            "hostAndPorts": seeds,
+            "tls": {"ca": {"name": ca_configmap}},
+        },
+    }
+
+    resource["spec"]["security"] = {
+        "tls": {"certsSecretPrefix": MDBS_TLS_CERT_PREFIX},
+    }
+
+    resource["spec"]["loadBalancer"] = {
+        "managed": {
+            "externalHostname": (
+                f"{MDBS_RESOURCE_NAME}-search-{{clusterIndex}}-proxy-svc.{namespace}.svc.cluster.local"
+            ),
+        },
+    }
+
+    resource["spec"]["clusters"] = [
+        {"clusterName": mcc.cluster_name, "replicas": MONGOT_REPLICAS_PER_CLUSTER} for mcc in member_cluster_clients
+    ]
+
+    resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
+    try_load(resource)
+    return resource
+
+
+def _build_user(
+    yaml_filename: str,
+    name: str,
+    username: str,
+    namespace: str,
+    central_cluster_client: kubernetes.client.ApiClient,
+) -> MongoDBUser:
+    resource = MongoDBUser.from_yaml(yaml_fixture(yaml_filename), namespace=namespace, name=name)
+    if not try_load(resource):
+        resource["spec"]["mongodbResourceRef"]["name"] = MDB_RESOURCE_NAME
+        resource["spec"]["username"] = username
+        resource["spec"]["passwordSecretKeyRef"]["name"] = f"{name}-password"
+    resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
+    return resource
+
+
+@fixture(scope="module")
+def admin_user(namespace: str, central_cluster_client: kubernetes.client.ApiClient) -> MongoDBUser:
+    return _build_user(
+        "mongodbuser-mdb-admin.yaml", ADMIN_USER_NAME, ADMIN_USER_NAME, namespace, central_cluster_client
+    )
+
+
+@fixture(scope="module")
+def user(namespace: str, central_cluster_client: kubernetes.client.ApiClient) -> MongoDBUser:
+    return _build_user("mongodbuser-mdb-user.yaml", USER_NAME, USER_NAME, namespace, central_cluster_client)
+
+
+@fixture(scope="module")
+def mongot_user(namespace: str, central_cluster_client: kubernetes.client.ApiClient) -> MongoDBUser:
+    return _build_user(
+        "mongodbuser-search-sync-source-user.yaml",
+        f"{MDBS_RESOURCE_NAME}-{MONGOT_USER_NAME}",
+        MONGOT_USER_NAME,
+        namespace,
+        central_cluster_client,
+    )
+
+
+# =============================================================================
+# Test steps
+# =============================================================================
+
+
+@mark.e2e_search_q2_mc_rs_steady
+def test_install_operator(multi_cluster_operator: Operator):
+    multi_cluster_operator.assert_is_running()
+
+
+@mark.e2e_search_q2_mc_rs_steady
+def test_install_source_tls_certificates(
+    multi_cluster_issuer: str,
+    mdb: MongoDBMulti,
+    member_cluster_clients: List[MultiClusterClient],
+    central_cluster_client: kubernetes.client.ApiClient,
+):
+    """Cert-manager bundle Secret for the MongoDBMulti source.
+
+    create_multi_cluster_mongodb_tls_certs writes the bundle to the
+    central cluster only; the operator copies per-pod material to
+    members. Phase 2 source TLS still works the same way.
+    """
+    create_multi_cluster_mongodb_tls_certs(
+        multi_cluster_issuer,
+        SOURCE_BUNDLE_SECRET,
+        member_cluster_clients,
+        central_cluster_client,
+        mdb,
+    )
+
+
+@mark.e2e_search_q2_mc_rs_steady
+def test_create_mdb_resource(mdb: MongoDBMulti):
+    """Assert MongoDBMulti reaches Running."""
+    mdb.update()
+    mdb.assert_reaches_phase(Phase.Running, timeout=1500)
+
+
+def _apply_user_password(
+    user_resource: MongoDBUser,
+    password: str,
+    namespace: str,
+    central_cluster_client: kubernetes.client.ApiClient,
+) -> None:
+    create_or_update_secret(
+        namespace,
+        name=user_resource["spec"]["passwordSecretKeyRef"]["name"],
+        data={"password": password},
+        api_client=central_cluster_client,
+    )
+    user_resource.update()
+
+
+@mark.e2e_search_q2_mc_rs_steady
+def test_create_user_credentials(
+    namespace: str,
+    central_cluster_client: kubernetes.client.ApiClient,
+    admin_user: MongoDBUser,
+    user: MongoDBUser,
+    mongot_user: MongoDBUser,
+):
+    _apply_user_password(admin_user, ADMIN_USER_PASSWORD, namespace, central_cluster_client)
+    admin_user.assert_reaches_phase(Phase.Updated, timeout=300)
+
+    _apply_user_password(user, USER_PASSWORD, namespace, central_cluster_client)
+    user.assert_reaches_phase(Phase.Updated, timeout=300)
+
+    # mongot user needs searchCoordinator role from the MongoDBSearch CR;
+    # we don't wait here.
+    _apply_user_password(mongot_user, MONGOT_USER_PASSWORD, namespace, central_cluster_client)
+
+
+@mark.e2e_search_q2_mc_rs_steady
+def test_deploy_lb_certificates(
+    namespace: str,
+    multi_cluster_issuer: str,
+    helper: MCSearchDeploymentHelper,
+):
+    """Managed LB server + client certs, with SANs covering every cluster's proxy-svc FQDN.
+
+    The LB cert SAN validator requires every cluster's proxy-svc FQDN in the cert;
+    producing them here keeps the test honest when the validator is wired in.
+    """
+    lb_server_cert_name = search_resource_names.lb_server_cert_name(MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX)
+    lb_client_cert_name = search_resource_names.lb_client_cert_name(MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX)
+
+    server_domains = [
+        f"{MDBS_RESOURCE_NAME}-search-{helper.cluster_index(name)}-proxy-svc.{namespace}.svc.cluster.local"
+        for name in helper.member_cluster_names()
+    ]
+
+    create_tls_certs(
+        issuer=multi_cluster_issuer,
+        namespace=namespace,
+        resource_name=search_resource_names.lb_deployment_name(MDBS_RESOURCE_NAME),
+        replicas=ENVOY_LB_REPLICAS,
+        service_name=server_domains[0].split(".")[0],
+        additional_domains=server_domains,
+        secret_name=lb_server_cert_name,
+    )
+    logger.info(f"LB server certificate created with SANs={server_domains}: {lb_server_cert_name}")
+
+    create_tls_certs(
+        issuer=multi_cluster_issuer,
+        namespace=namespace,
+        resource_name=f"{search_resource_names.lb_deployment_name(MDBS_RESOURCE_NAME)}-client",
+        replicas=1,
+        service_name=server_domains[0].split(".")[0],
+        additional_domains=[f"*.{namespace}.svc.cluster.local"],
+        secret_name=lb_client_cert_name,
+    )
+    logger.info(f"LB client certificate created: {lb_client_cert_name}")
+
+
+@mark.e2e_search_q2_mc_rs_steady
+def test_create_search_tls_certificate(
+    namespace: str,
+    multi_cluster_issuer: str,
+    helper: MCSearchDeploymentHelper,
+):
+    """mongot TLS cert with SANs for every per-cluster mongot Service +
+    every per-cluster proxy-svc FQDN.
+
+    Without per-cluster SANs, mongot pods fail their TLS handshake.
+    """
+    secret_name = search_resource_names.mongot_tls_cert_name(MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX)
+    additional_domains: List[str] = []
+    for name in helper.member_cluster_names():
+        idx = helper.cluster_index(name)
+        additional_domains.append(f"{MDBS_RESOURCE_NAME}-search-{idx}-svc.{namespace}.svc.cluster.local")
+        additional_domains.append(f"{MDBS_RESOURCE_NAME}-search-{idx}-proxy-svc.{namespace}.svc.cluster.local")
+
+    create_tls_certs(
+        issuer=multi_cluster_issuer,
+        namespace=namespace,
+        resource_name=search_resource_names.mongot_statefulset_name(MDBS_RESOURCE_NAME),
+        secret_name=secret_name,
+        additional_domains=additional_domains,
+    )
+    logger.info(f"mongot TLS certificate created with SANs={additional_domains}: {secret_name}")
+
+
+@mark.e2e_search_q2_mc_rs_steady
+def test_replicate_secrets_to_members(
+    namespace: str,
+    central_cluster_client: kubernetes.client.ApiClient,
+    member_cluster_clients: List[MultiClusterClient],
+):
+    """Replicate TLS Secrets, mongot password, and CA ConfigMap to every member cluster.
+
+    MCK does not replicate Secrets in production — that's the customer's responsibility.
+    Without this step, mongot pods in member clusters stay PodInitializing forever.
+    """
+    central_core = CoreV1Api(api_client=central_cluster_client)
+
+    secrets_to_replicate = [
+        search_resource_names.mongot_tls_cert_name(MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX),
+        search_resource_names.lb_server_cert_name(MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX),
+        search_resource_names.lb_client_cert_name(MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX),
+        f"{MDBS_RESOURCE_NAME}-{MONGOT_USER_NAME}-password",
+        # The CA is stored as both a ConfigMap and a Secret; replicate the Secret half here
+        # (the operator mounts it as a Secret volume on per-cluster mongot pods).
+        CA_CONFIGMAP_NAME,
+    ]
+
+    for secret_name in secrets_to_replicate:
+        source = central_core.read_namespaced_secret(name=secret_name, namespace=namespace)
+        for mcc in member_cluster_clients:
+            create_or_update_secret(
+                namespace,
+                secret_name,
+                read_secret(namespace, secret_name, api_client=central_cluster_client),
+                type=source.type or "Opaque",
+                api_client=mcc.api_client,
+            )
+        logger.info(f"replicated Secret {secret_name} to {len(member_cluster_clients)} member cluster(s)")
+
+    # CA ConfigMap — mongot verifies the source RS TLS cert against this CA.
+    source_cm = central_core.read_namespaced_config_map(name=CA_CONFIGMAP_NAME, namespace=namespace)
+    cm_data = dict(source_cm.data or {})
+    for mcc in member_cluster_clients:
+        create_or_update_configmap(namespace, CA_CONFIGMAP_NAME, cm_data, api_client=mcc.api_client)
+        logger.info(f"replicated CA ConfigMap {CA_CONFIGMAP_NAME} into cluster {mcc.cluster_name}")
+
+
+@mark.e2e_search_q2_mc_rs_steady
+def test_create_search_resource(mdbs: MongoDBSearch):
+    """Assert MongoDBSearch reaches Running — all per-cluster resources must converge first."""
+    mdbs.update()
+    mdbs.assert_reaches_phase(Phase.Running, timeout=900)
+
+
+def _per_cluster_mongot_config_name(mdbs_name: str, cluster_index: int) -> str:
+    """Mirror MongotConfigConfigMapNameForCluster."""
+    return f"{mdbs_name}-search-{cluster_index}-config"
+
+
+def _per_cluster_envoy_deployment_name(mdbs_name: str, cluster_index: int) -> str:
+    """Mirror LoadBalancerDeploymentNameForCluster: `{name}-search-lb-0-{clusterIndex}`."""
+    return f"{mdbs_name}-search-lb-0-{cluster_index}"
+
+
+def _per_cluster_envoy_configmap_name(mdbs_name: str, cluster_index: int) -> str:
+    """Mirror LoadBalancerConfigMapNameForCluster: `{name}-search-lb-0-{clusterIndex}-config`."""
+    return f"{mdbs_name}-search-lb-0-{cluster_index}-config"
+
+
+def _expected_proxy_svc_fqdn(mdbs_name: str, cluster_index: int, namespace: str) -> str:
+    """Per-cluster proxy-svc FQDN (no port) — matches GetManagedLBEndpointForCluster output."""
+    return f"{mdbs_name}-search-{cluster_index}-proxy-svc.{namespace}.svc.cluster.local"
+
+
+def _read_mongod_set_parameter(
+    pod_name: str,
+    namespace: str,
+    api_client: kubernetes.client.ApiClient,
+) -> Dict[str, object]:
+    """Read /data/automation-mongod.conf inside a mongod pod and return the
+    parsed `setParameter` map. Caller chooses the api_client (member cluster).
+    """
+    raw = KubernetesTester.run_command_in_pod_container(
+        pod_name,
+        namespace,
+        ["cat", "/data/automation-mongod.conf"],
+        api_client=api_client,
+    )
+    parsed = yaml.safe_load(raw) or {}
+    return parsed.get("setParameter", {}) or {}
+
+
+def _assert_per_cluster_mongot_host_observed(
+    mdb: MongoDBMulti,
+    helper: MCSearchDeploymentHelper,
+    member_cluster_clients: List[MultiClusterClient],
+    timeout: int = 300,
+) -> None:
+    """Poll each member cluster's first mongod pod and confirm both
+    `setParameter.mongotHost` and `setParameter.searchIndexManagementHostAndPort`
+    resolve to the cluster-local Envoy proxy-svc FQDN+port.
+
+    Reads the on-disk `/data/automation-mongod.conf` so this verifies the
+    AC patch landed AND was applied by the agent — not just that we set
+    OM REST. Fails with a per-pod diagnostic showing the actual values.
+    """
+    expected_per_cluster: Dict[str, str] = {
+        mcc.cluster_name: f"{helper.proxy_svc_fqdn(mcc.cluster_name)}:{ENVOY_PROXY_PORT}"
+        for mcc in member_cluster_clients
+    }
+
+    def check() -> tuple:
+        all_correct = True
+        msgs: List[str] = []
+        for mcc in member_cluster_clients:
+            cluster_idx = helper.cluster_index(mcc.cluster_name)
+            pod_name = f"{mdb.name}-{cluster_idx}-0"  # first member of each cluster
+            expected = expected_per_cluster[mcc.cluster_name]
+            try:
+                params = _read_mongod_set_parameter(pod_name, mdb.namespace, mcc.api_client)
+                got_host = params.get("mongotHost", "")
+                got_idx_mgmt = params.get("searchIndexManagementHostAndPort", "")
+                if got_host != expected:
+                    all_correct = False
+                    msgs.append(f"[{mcc.cluster_name}] {pod_name}: mongotHost={got_host!r} expected={expected!r}")
+                elif got_idx_mgmt != expected:
+                    all_correct = False
+                    msgs.append(
+                        f"[{mcc.cluster_name}] {pod_name}: searchIndexManagementHostAndPort="
+                        f"{got_idx_mgmt!r} expected={expected!r}"
+                    )
+                else:
+                    msgs.append(f"[{mcc.cluster_name}] {pod_name}: mongotHost={expected} OK")
+            except Exception as exc:
+                all_correct = False
+                msgs.append(f"[{mcc.cluster_name}] {pod_name}: error reading conf: {exc}")
+        return all_correct, "\n".join(msgs)
+
+    run_periodically(check, timeout=timeout, sleep_time=10, msg="per-cluster mongotHost on disk")
+
+
+@mark.e2e_search_q2_mc_rs_steady
+def test_verify_per_cluster_mongot_resources(
+    mdb: MongoDBMulti,
+    namespace: str,
+    helper: MCSearchDeploymentHelper,
+    member_cluster_clients: List[MultiClusterClient],
+):
+    """Each cluster has its own mongot StatefulSet, Service, ConfigMap.
+
+    Strict checks:
+    - per-cluster resources exist on the owning member-cluster client
+    - every per-cluster write site carries the three canonical owner labels
+      (search-name, search-namespace, cluster-name) — used by
+      MapMemberClusterObjectToSearch for cross-cluster watch routing; cross-
+      cluster owner refs do not GC, so labels are the actual provenance link
+    - the mongot ConfigMap on each cluster lists `spec.source.external.hostAndPorts`
+      from the seed list (Phase 2 fan-out: top-level external host list is
+      rendered into every cluster's mongot CM)
+    """
+    expected_hosts = sorted(f"{svc}.{namespace}.svc.cluster.local:27017" for svc in mdb.service_names())
+
+    for mcc in member_cluster_clients:
+        idx = helper.cluster_index(mcc.cluster_name)
+        sts_name = f"{MDBS_RESOURCE_NAME}-search-{idx}"
+        svc_name = f"{MDBS_RESOURCE_NAME}-search-{idx}-svc"
+        cm_name = _per_cluster_mongot_config_name(MDBS_RESOURCE_NAME, idx)
+        proxy_svc_name = f"{MDBS_RESOURCE_NAME}-search-{idx}-proxy-svc"
+
+        sts = mcc.read_namespaced_stateful_set(sts_name, namespace)
+        headless = mcc.read_namespaced_service(svc_name, namespace)
+        proxy = mcc.read_namespaced_service(proxy_svc_name, namespace)
+        cm = mcc.read_namespaced_config_map(cm_name, namespace)
+        _assert_search_owner_labels(sts.metadata.labels or {}, mcc.cluster_name, f"STS {sts_name}")
+        _assert_search_owner_labels(headless.metadata.labels or {}, mcc.cluster_name, f"headless Service {svc_name}")
+        _assert_search_owner_labels(proxy.metadata.labels or {}, mcc.cluster_name, f"proxy Service {proxy_svc_name}")
+        _assert_search_owner_labels(cm.metadata.labels or {}, mcc.cluster_name, f"mongot CM {cm_name}")
+
+        config_yaml = cm.data.get("config.yml") or cm.data.get("mongot.yaml")
+        assert config_yaml, f"mongot CM {cm_name} missing config payload; data keys={list(cm.data or {})}"
+        parsed = yaml.safe_load(config_yaml)
+        cm_hosts = parsed.get("syncSource", {}).get("replicaSet", {}).get("hostAndPort", [])
+        assert sorted(cm_hosts) == expected_hosts, (
+            f"mongot CM {cm_name} in cluster {mcc.cluster_name}: hostAndPort {sorted(cm_hosts)} "
+            f"!= expected seed list {expected_hosts}"
+        )
+
+        logger.info(
+            f"per-cluster mongot resources verified in cluster {mcc.cluster_name} "
+            f"(idx={idx}): {sts_name}, {svc_name}, {cm_name}, {proxy_svc_name}"
+        )
+
+
+@mark.e2e_search_q2_mc_rs_steady
+def test_verify_per_cluster_envoy_deployment(
+    namespace: str,
+    helper: MCSearchDeploymentHelper,
+    member_cluster_clients: List[MultiClusterClient],
+):
+    """Every cluster's Envoy Deployment and ConfigMap must exist, be fully ready,
+    and carry owner labels for cross-cluster watch routing.
+    """
+    for mcc in member_cluster_clients:
+        cluster_idx = helper.cluster_index(mcc.cluster_name)
+        envoy_deployment_name = _per_cluster_envoy_deployment_name(MDBS_RESOURCE_NAME, cluster_idx)
+        envoy_cm_name = _per_cluster_envoy_configmap_name(MDBS_RESOURCE_NAME, cluster_idx)
+        apps = mcc.apps_v1_api()
+        assert_deployment_ready_in_cluster(apps, name=envoy_deployment_name, namespace=namespace)
+        envoy_deploy = apps.read_namespaced_deployment(name=envoy_deployment_name, namespace=namespace)
+        envoy_cm = mcc.read_namespaced_config_map(envoy_cm_name, namespace)
+        _assert_search_owner_labels(
+            envoy_deploy.metadata.labels or {}, mcc.cluster_name, f"Envoy Deployment {envoy_deployment_name}"
+        )
+        _assert_search_owner_labels(envoy_cm.metadata.labels or {}, mcc.cluster_name, f"Envoy CM {envoy_cm_name}")
+
+        logger.info(f"Envoy Deployment {envoy_deployment_name} ready in cluster {mcc.cluster_name} (idx={cluster_idx})")
+
+
+@mark.e2e_search_q2_mc_rs_steady
+def test_verify_persisted_cluster_mapping(
+    namespace: str,
+    central_cluster_client: kubernetes.client.ApiClient,
+    helper: MCSearchDeploymentHelper,
+):
+    """The `<name>-state` ConfigMap on the central cluster must carry a ClusterMapping
+    entry for every member cluster. This is the operator's source of truth for
+    cluster-index pinning across spec.clusters[] reorders and restarts.
+    """
+    state_cm_name = f"{MDBS_RESOURCE_NAME}-state"
+    core = CoreV1Api(api_client=central_cluster_client)
+    state_cm = core.read_namespaced_config_map(name=state_cm_name, namespace=namespace)
+
+    raw = (state_cm.data or {}).get("state")
+    assert raw, f"state ConfigMap {state_cm_name} missing 'state' key; got {list((state_cm.data or {}).keys())}"
+    state = json.loads(raw)
+    mapping = state.get("clusterMapping") or {}
+
+    for cluster_name in helper.member_cluster_names():
+        expected_idx = helper.cluster_index(cluster_name)
+        assert mapping.get(cluster_name) == expected_idx, (
+            f"state CM {state_cm_name}: clusterMapping[{cluster_name!r}]={mapping.get(cluster_name)!r}, "
+            f"want {expected_idx} (helper says cluster_index={expected_idx})"
+        )
+    logger.info(f"persisted ClusterMapping matches helper: {mapping}")
+
+
+@mark.e2e_search_q2_mc_rs_steady
+def test_verify_lb_status(mdbs: MongoDBSearch):
+    """status.loadBalancer.phase must be Running (aggregated from per-cluster Envoy phases)."""
+    mdbs.load()
+    mdbs.assert_lb_status()
+
+
+@mark.e2e_search_q2_mc_rs_steady
+def test_patch_per_cluster_mongot_host(
+    mdb: MongoDBMulti,
+    helper: MCSearchDeploymentHelper,
+    member_cluster_clients: List[MultiClusterClient],
+):
+    """Patch the OM automation config so each cluster's mongods use their cluster-local
+    Envoy proxy-svc FQDN for mongotHost and searchIndexManagementHostAndPort.
+
+    MongoDBMultiCluster does not yet expose per-cluster additionalMongodConfig, so the
+    per-process AC keys are set directly. Leaving them out of spec ensures subsequent
+    operator reconciles never clobber this per-cluster locality.
+    """
+    om_tester = mdb.get_om_tester()
+    ac_path = f"/groups/{om_tester.context.project_id}/automationConfig"
+    ac = om_tester.om_request("get", ac_path).json()
+
+    proxy_by_cluster_idx = {
+        helper.cluster_index(mcc.cluster_name): f"{helper.proxy_svc_fqdn(mcc.cluster_name)}:{ENVOY_PROXY_PORT}"
+        for mcc in member_cluster_clients
+    }
+    logger.info(f"per-cluster mongotHost map: {proxy_by_cluster_idx}")
+
+    process_prefix = f"{mdb.name}-"
+    patched_processes: List[str] = []
+    for process in ac.get("processes", []):
+        process_name = process.get("name", "")
+        if not process_name.startswith(process_prefix):
+            continue
+        try:
+            cluster_idx = int(process_name[len(process_prefix) :].split("-")[0])
+        except ValueError:
+            continue
+        if cluster_idx not in proxy_by_cluster_idx:
+            continue
+
+        mongot_host = proxy_by_cluster_idx[cluster_idx]
+        set_parameter = process.setdefault("args2_6", {}).setdefault("setParameter", {})
+        set_parameter["mongotHost"] = mongot_host
+        set_parameter["searchIndexManagementHostAndPort"] = mongot_host
+        patched_processes.append(f"{process_name}->{mongot_host}")
+
+    assert patched_processes, (
+        f"no AC processes matched prefix {process_prefix!r}; "
+        f"AC contained {[p.get('name') for p in ac.get('processes', [])]}"
+    )
+    logger.info(f"patched {len(patched_processes)} processes: {patched_processes}")
+
+    ac["version"] = ac.get("version", 0) + 1
+    om_tester.om_request("put", ac_path, json_object=ac)
+    logger.info(f"PUT automation config v{ac['version']} with per-cluster mongotHost")
+
+    # Block until every mongod has applied the new goal version — setParameter
+    # changes here require a process restart.
+    om_tester.wait_agents_ready(timeout=900)
+
+
+@mark.e2e_search_q2_mc_rs_steady
+def test_per_cluster_mongot_host_observed(
+    mdb: MongoDBMulti,
+    helper: MCSearchDeploymentHelper,
+    member_cluster_clients: List[MultiClusterClient],
+):
+    """Verify the AC patch landed on disk: each cluster's first mongod must show the
+    cluster-local proxy-svc FQDN in mongotHost and searchIndexManagementHostAndPort.
+    """
+    _assert_per_cluster_mongot_host_observed(mdb, helper, member_cluster_clients)
+
+
+@mark.e2e_search_q2_mc_rs_steady
+def test_per_cluster_envoy_sni_observed(
+    namespace: str,
+    helper: MCSearchDeploymentHelper,
+    member_cluster_clients: List[MultiClusterClient],
+):
+    """Each per-cluster Envoy ConfigMap's envoy.json must reference exactly the
+    cluster-local proxy-svc FQDN in its SNI server_names — no cross-cluster leakage.
+    """
+    for mcc in member_cluster_clients:
+        cluster_idx = helper.cluster_index(mcc.cluster_name)
+        cm_name = _per_cluster_envoy_configmap_name(MDBS_RESOURCE_NAME, cluster_idx)
+        expected_fqdn = _expected_proxy_svc_fqdn(MDBS_RESOURCE_NAME, cluster_idx, namespace)
+
+        cm = mcc.core_v1_api().read_namespaced_config_map(name=cm_name, namespace=namespace)
+        envoy_json = (cm.data or {}).get("envoy.json")
+        assert envoy_json, f"envoy.json missing in ConfigMap {cm_name} ({mcc.cluster_name})"
+
+        # Parse and walk filter_chains[].filter_chain_match.server_names[]
+        # for the per-cluster FQDN. Avoids substring false-positives from
+        # the upstream-host references that share the namespace prefix.
+        envoy_cfg = json.loads(envoy_json)
+        sni_names: List[str] = []
+        for listener in envoy_cfg.get("static_resources", {}).get("listeners", []):
+            for fc in listener.get("filter_chains", []):
+                fcm = fc.get("filter_chain_match", {}) or {}
+                sni_names.extend(fcm.get("server_names", []) or [])
+
+        assert expected_fqdn in sni_names, (
+            f"[{mcc.cluster_name}] expected SNI server_name {expected_fqdn!r} "
+            f"in envoy.json filter_chain_match.server_names, got {sni_names}"
+        )
+
+        # Defensive: no OTHER cluster's proxy-svc FQDN should appear.
+        for other in member_cluster_clients:
+            if other.cluster_name == mcc.cluster_name:
+                continue
+            other_idx = helper.cluster_index(other.cluster_name)
+            other_fqdn = _expected_proxy_svc_fqdn(MDBS_RESOURCE_NAME, other_idx, namespace)
+            assert other_fqdn not in sni_names, (
+                f"[{mcc.cluster_name}] foreign SNI {other_fqdn!r} present in "
+                f"envoy.json server_names — per-cluster Envoy must only match its own FQDN"
+            )
+
+        logger.info(f"[{mcc.cluster_name}] envoy.json SNI server_names={sni_names} (expected match: {expected_fqdn})")
+
+
+# =============================================================================
+# Data plane: $search and $vectorSearch
+# =============================================================================
+
+
+def _search_tester_for_mdb(mdb: MongoDBMulti, username: str, password: str) -> SearchTester:
+    """Build a SearchTester pointed at the MongoDBMulti RS via mesh DNS.
+
+    Connection string seeds from cluster-0/member-0 and uses the RS
+    discovery ?replicaSet=... option so the driver finds the primary.
+    """
+    seed_host = f"{mdb.name}-0-0-svc.{mdb.namespace}.svc.cluster.local:27017"
+    conn_str = f"mongodb://{username}:{password}@{seed_host}/?replicaSet={mdb.name}&authSource=admin"
+    return SearchTester(conn_str, use_ssl=True, ca_path=get_issuer_ca_filepath())
+
+
+def _direct_search_tester_for_cluster(
+    mdb: MongoDBMulti, cluster_index: int, username: str, password: str
+) -> SearchTester:
+    """SearchTester pinned to a specific cluster's mongod-{idx}-0 pod.
+
+    `directConnection=true` disables RS topology discovery so the
+    driver does not silently follow back to the primary. `$search`
+    and `$vectorSearch` are read aggregations that any mongod can
+    serve, so `readPreference=secondaryPreferred` lets the connected
+    pod handle the query whether it is currently primary or secondary.
+    """
+    pod_host = f"{mdb.name}-{cluster_index}-0-svc.{mdb.namespace}.svc.cluster.local:27017"
+    conn_str = (
+        f"mongodb://{username}:{password}@{pod_host}/"
+        f"?directConnection=true&readPreference=secondaryPreferred&authSource=admin"
+    )
+    return SearchTester(conn_str, use_ssl=True, ca_path=get_issuer_ca_filepath())
+
+
+# Generous timeout to account for cross-cluster mesh latency during index sync.
+SEARCH_INDEX_READY_TIMEOUT = 300
+# Mongot may still be in INITIAL_SYNC briefly after reporting READY.
+SEARCH_QUERY_RETRY_TIMEOUT = 60
+
+
+@mark.e2e_search_q2_mc_rs_steady
+def test_restore_sample_database(mdb: MongoDBMulti, tools_pod):
+    """mongorestore the sample_mflix.archive into the source RS."""
+    tester = _search_tester_for_mdb(mdb, ADMIN_USER_NAME, ADMIN_USER_PASSWORD)
+    tester.mongorestore_from_url(
+        archive_url="https://atlas-education.s3.amazonaws.com/sample_mflix.archive",
+        ns_include="sample_mflix.*",
+        tools_pod=tools_pod,
+    )
+
+
+@mark.e2e_search_q2_mc_rs_steady
+def test_create_search_index(
+    mdb: MongoDBMulti,
+    helper: MCSearchDeploymentHelper,
+    member_cluster_clients: List[MultiClusterClient],
+):
+    """Create the $search index, re-asserting per-cluster mongotHost first so any
+    silent operator re-reconcile that clobbers the AC patch surfaces here.
+    """
+    _assert_per_cluster_mongot_host_observed(mdb, helper, member_cluster_clients, timeout=120)
+
+    tester = _search_tester_for_mdb(mdb, USER_NAME, USER_PASSWORD)
+    movies = SampleMoviesSearchHelper(search_tester=tester)
+    movies.create_search_index()
+    tester.wait_for_search_indexes_ready(movies.db_name, movies.col_name, timeout=SEARCH_INDEX_READY_TIMEOUT)
+
+
+@mark.e2e_search_q2_mc_rs_steady
+def test_execute_text_search_query(
+    mdb: MongoDBMulti,
+    helper: MCSearchDeploymentHelper,
+    member_cluster_clients: List[MultiClusterClient],
+):
+    """$search must return non-empty results. Wrapped in run_periodically since mongot
+    may still be in INITIAL_SYNC briefly after the index reports READY.
+    """
+    _assert_per_cluster_mongot_host_observed(mdb, helper, member_cluster_clients, timeout=120)
+
+    tester = _search_tester_for_mdb(mdb, USER_NAME, USER_PASSWORD)
+    movies = SampleMoviesSearchHelper(search_tester=tester)
+
+    def execute_search() -> tuple:
+        try:
+            results = movies.text_search_movies("Star Wars")
+            count = len(results)
+            if count > 0:
+                logger.info(f"$search returned {count} results: {[r.get('title') for r in results[:5]]}")
+                return True, f"$search returned {count} results"
+            return False, "$search returned no results"
+        except pymongo.errors.PyMongoError as exc:
+            return False, f"$search error: {exc}"
+
+    run_periodically(
+        execute_search,
+        timeout=SEARCH_QUERY_RETRY_TIMEOUT,
+        sleep_time=5,
+        msg="$search query to succeed",
+    )
+
+
+@mark.e2e_search_q2_mc_rs_steady
+def test_create_vector_search_index(
+    mdb: MongoDBMulti,
+    helper: MCSearchDeploymentHelper,
+    member_cluster_clients: List[MultiClusterClient],
+):
+    """Create a $vectorSearch index on the pre-embedded embedded_movies collection.
+
+    Uses plot_embedding_voyage_3_large (already in the sample dataset) so no Voyage
+    API key is needed for indexing. The auto-embedding variant is deferred — it
+    requires cross-cluster leader election not yet supported.
+    """
+    _assert_per_cluster_mongot_host_observed(mdb, helper, member_cluster_clients, timeout=120)
+
+    tester = _search_tester_for_mdb(mdb, USER_NAME, USER_PASSWORD)
+    embedded = EmbeddedMoviesSearchHelper(search_tester=tester)
+    embedded.create_vector_search_index()
+    embedded.wait_for_vector_search_index(timeout=SEARCH_INDEX_READY_TIMEOUT)
+
+
+@mark.e2e_search_q2_mc_rs_steady
+def test_execute_vector_search_query(
+    mdb: MongoDBMulti,
+    helper: MCSearchDeploymentHelper,
+    member_cluster_clients: List[MultiClusterClient],
+):
+    """$vectorSearch must return non-empty results using a query vector from the Voyage API.
+    Skips if the Voyage query key env var is unset.
+    """
+    if EMBEDDING_QUERY_KEY_ENV_VAR not in os.environ:
+        pytest.skip(f"missing {EMBEDDING_QUERY_KEY_ENV_VAR} — required to generate the query vector")
+
+    _assert_per_cluster_mongot_host_observed(mdb, helper, member_cluster_clients, timeout=120)
+
+    tester = _search_tester_for_mdb(mdb, USER_NAME, USER_PASSWORD)
+    embedded = EmbeddedMoviesSearchHelper(search_tester=tester)
+    query_vector = embedded.generate_query_vector("space exploration")
+
+    def execute_vector_search() -> tuple:
+        try:
+            results = embedded.vector_search(query_vector=query_vector, limit=4)
+            count = len(results)
+            if count >= 1:
+                logger.info(f"$vectorSearch returned {count} results: {[r.get('title') for r in results[:5]]}")
+                return True, f"$vectorSearch returned {count} results"
+            return False, "$vectorSearch returned no results"
+        except pymongo.errors.PyMongoError as exc:
+            return False, f"$vectorSearch error: {exc}"
+
+    run_periodically(
+        execute_vector_search,
+        timeout=SEARCH_QUERY_RETRY_TIMEOUT,
+        sleep_time=5,
+        msg="$vectorSearch query to succeed",
+    )
+
+
+@mark.e2e_search_q2_mc_rs_steady
+def test_per_cluster_search_query(
+    mdb: MongoDBMulti,
+    helper: MCSearchDeploymentHelper,
+    member_cluster_clients: List[MultiClusterClient],
+):
+    """$search direct-connected to each cluster's mongod, exercising every per-cluster
+    Envoy+mongot path — not just the cluster currently holding the primary.
+    """
+    _assert_per_cluster_mongot_host_observed(mdb, helper, member_cluster_clients, timeout=120)
+
+    for cluster_index in range(len(MEMBERS_PER_CLUSTER)):
+        tester = _direct_search_tester_for_cluster(mdb, cluster_index, USER_NAME, USER_PASSWORD)
+        movies = SampleMoviesSearchHelper(search_tester=tester)
+
+        def execute_search(_idx: int = cluster_index) -> tuple:
+            try:
+                results = movies.text_search_movies("Star Wars")
+                count = len(results)
+                if count > 0:
+                    titles = [r.get("title") for r in results[:5]]
+                    logger.info(f"cluster {_idx}: $search returned {count} results: {titles}")
+                    return True, f"cluster {_idx}: $search returned {count} results"
+                return False, f"cluster {_idx}: $search returned no results"
+            except pymongo.errors.PyMongoError as exc:
+                return False, f"cluster {_idx}: $search error: {exc}"
+
+        run_periodically(
+            execute_search,
+            timeout=SEARCH_QUERY_RETRY_TIMEOUT,
+            sleep_time=5,
+            msg=f"cluster {cluster_index}: $search query to succeed",
+        )
+
+
+@mark.e2e_search_q2_mc_rs_steady
+def test_per_cluster_vector_search_query(
+    mdb: MongoDBMulti,
+    helper: MCSearchDeploymentHelper,
+    member_cluster_clients: List[MultiClusterClient],
+):
+    """$vectorSearch direct-connected to each cluster's mongod, same strategy as
+    test_per_cluster_search_query. Skips if the Voyage query key env var is unset.
+    """
+    if EMBEDDING_QUERY_KEY_ENV_VAR not in os.environ:
+        pytest.skip(f"missing {EMBEDDING_QUERY_KEY_ENV_VAR} — required to generate the query vector")
+
+    _assert_per_cluster_mongot_host_observed(mdb, helper, member_cluster_clients, timeout=120)
+
+    seed_tester = _search_tester_for_mdb(mdb, USER_NAME, USER_PASSWORD)
+    query_vector = EmbeddedMoviesSearchHelper(search_tester=seed_tester).generate_query_vector("space exploration")
+
+    for cluster_index in range(len(MEMBERS_PER_CLUSTER)):
+        tester = _direct_search_tester_for_cluster(mdb, cluster_index, USER_NAME, USER_PASSWORD)
+        embedded = EmbeddedMoviesSearchHelper(search_tester=tester)
+
+        def execute_vector_search(_idx: int = cluster_index) -> tuple:
+            try:
+                results = embedded.vector_search(query_vector=query_vector, limit=4)
+                count = len(results)
+                if count >= 1:
+                    titles = [r.get("title") for r in results[:5]]
+                    logger.info(f"cluster {_idx}: $vectorSearch returned {count} results: {titles}")
+                    return True, f"cluster {_idx}: $vectorSearch returned {count} results"
+                return False, f"cluster {_idx}: $vectorSearch returned no results"
+            except pymongo.errors.PyMongoError as exc:
+                return False, f"cluster {_idx}: $vectorSearch error: {exc}"
+
+        run_periodically(
+            execute_vector_search,
+            timeout=SEARCH_QUERY_RETRY_TIMEOUT,
+            sleep_time=5,
+            msg=f"cluster {cluster_index}: $vectorSearch query to succeed",
+        )
