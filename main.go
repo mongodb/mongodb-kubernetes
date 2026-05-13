@@ -555,7 +555,7 @@ func printEnvVariables() {
 		"MONGODB_ENTERPRISE_",
 		"OPS_MANAGER_",
 		"KUBERNETES_",
-		"AGENT_IMAGE",
+		util.AgentImageEnv,
 		"MONGODB_",
 		"INIT_",
 		"MDB_",

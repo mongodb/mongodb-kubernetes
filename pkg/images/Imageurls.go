@@ -11,10 +11,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 )
 
-const (
-	AgentImageEnv = "AGENT_IMAGE"
-)
-
 // replaceImageTagOrDigestToTag returns the image with the tag or digest replaced to a given version
 func replaceImageTagOrDigestToTag(image string, newVersion string) string {
 	// example: quay.io/mongodb/mongodb-agent@sha256:6a82abae27c1ba1133f3eefaad71ea318f8fa87cc57fe9355d6b5b817ff97f1a
@@ -68,7 +64,7 @@ func LoadImageUrlsFromEnv() ImageUrls {
 		util.OpsManagerImageUrl:               "",
 		util.InitDatabaseImageUrlEnv:          "",
 		util.NonStaticDatabaseEnterpriseImage: "",
-		AgentImageEnv:                         "",
+		util.AgentImageEnv:                    "",
 		util.AgentImageUrlEnv:                 util.AgentImageUrlDefault,
 	} {
 		imageUrls[imageName] = env.ReadOrDefault(imageName, defaultValue) // nolint:forbidigo

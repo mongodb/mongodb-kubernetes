@@ -206,6 +206,7 @@ const (
 	MongodbCommunityAgentImageEnv    = "MDB_COMMUNITY_AGENT_IMAGE"
 	AgentImageUrlEnv                 = "MDB_AGENT_IMAGE_REPOSITORY"
 	AgentImageUrlDefault             = "quay.io/mongodb/mongodb-agent"
+	AgentImageEnv                    = "AGENT_IMAGE"
 
 	MdbWebhookRegisterConfigurationEnv = "MDB_WEBHOOK_REGISTER_CONFIGURATION"
 	MdbWebhookPortEnv                  = "MDB_WEBHOOK_PORT"
