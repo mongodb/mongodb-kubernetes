@@ -322,8 +322,8 @@ func buildShardRoutes(search *searchv1.MongoDBSearch, shardNames []string) []env
 	mongotPort := search.GetMongotGrpcPort()
 
 	for _, shardName := range shardNames {
-		sniServiceName := search.ProxyServiceNameForShard(shardName).Name
-		mongotServiceName := search.MongotServiceForShard(shardName).Name
+		sniServiceName := search.ProxyServiceNameForClusterShard(0, shardName).Name
+		mongotServiceName := search.MongotServiceForClusterShard(0, shardName).Name
 
 		sniHostname := fmt.Sprintf("%s.%s.svc.cluster.local", sniServiceName, namespace)
 		if endpoint := search.GetManagedLBEndpointForShard(shardName); endpoint != "" {

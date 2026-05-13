@@ -152,21 +152,21 @@ func validateRSEndpointTemplate(s *MongoDBSearch) v1.ValidationResult {
 	return v1.ValidationSuccess()
 }
 
-// generateShardResourceNames returns all resource names that will be created for a shard.
-// Uses existing naming methods from MongoDBSearch to ensure consistency with actual resource creation.
+// generateShardResourceNames returns all resource names that will be created for a (cluster, shard) pair.
+// Uses clusterIndex=0 for single-cluster sharded (the only topology supported at this call site).
 func generateShardResourceNames(s *MongoDBSearch, shardName string) []shardResourceName {
-	stsName := s.MongotStatefulSetForShard(shardName).Name
+	stsName := s.MongotStatefulSetForClusterShard(0, shardName).Name
 	resources := []shardResourceName{
 		{ResourceType: "StatefulSet", Name: stsName, Standard: dnsLabel},
 		{ResourceType: "Pod (max ordinal)", Name: stsName + "-999", Standard: dnsLabel},
-		{ResourceType: "Service", Name: s.MongotServiceForShard(shardName).Name, Standard: dnsLabel},
-		{ResourceType: "ConfigMap", Name: s.MongotConfigMapForShard(shardName).Name, Standard: dnsSubdomain},
+		{ResourceType: "Service", Name: s.MongotServiceForClusterShard(0, shardName).Name, Standard: dnsLabel},
+		{ResourceType: "ConfigMap", Name: s.MongotConfigMapForClusterShard(0, shardName).Name, Standard: dnsSubdomain},
 	}
 
 	if s.IsTLSConfigured() {
 		resources = append(resources, shardResourceName{
 			ResourceType: "TLS Certificate Secret",
-			Name:         s.TLSSecretForShard(shardName).Name,
+			Name:         s.TLSSecretForClusterShard(0, shardName).Name,
 			Standard:     dnsSubdomain,
 		})
 	}
@@ -174,7 +174,7 @@ func generateShardResourceNames(s *MongoDBSearch, shardName string) []shardResou
 	if !s.IsShardedUnmanagedLB() {
 		resources = append(resources, shardResourceName{
 			ResourceType: "Proxy Service",
-			Name:         s.ProxyServiceNameForShard(shardName).Name,
+			Name:         s.ProxyServiceNameForClusterShard(0, shardName).Name,
 			Standard:     dnsLabel,
 		})
 	}
@@ -183,7 +183,7 @@ func generateShardResourceNames(s *MongoDBSearch, shardName string) []shardResou
 		if s.IsTLSConfigured() {
 			resources = append(resources, shardResourceName{
 				ResourceType: "LB Server Certificate Secret",
-				Name:         s.LoadBalancerServerCertForShard(shardName).Name,
+				Name:         s.LoadBalancerServerCertForClusterShard(0, shardName).Name,
 				Standard:     dnsSubdomain,
 			})
 		}

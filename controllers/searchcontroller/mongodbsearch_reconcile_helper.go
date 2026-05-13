@@ -306,12 +306,12 @@ func (r *MongoDBSearchReconcileHelper) buildShardedPlan(shardedSource SearchSour
 			return reconcilePlan{}, err
 		}
 
-		stsName := r.mdbSearch.MongotStatefulSetForShard(shardName)
+		stsName := r.mdbSearch.MongotStatefulSetForClusterShard(0, shardName)
 		units = append(units, reconcileUnit{
 			stsName:             stsName,
-			headlessSvc:         r.mdbSearch.MongotServiceForShard(shardName),
-			proxySvc:            r.mdbSearch.ProxyServiceNameForShard(shardName),
-			configMapName:       r.mdbSearch.MongotConfigMapForShard(shardName),
+			headlessSvc:         r.mdbSearch.MongotServiceForClusterShard(0, shardName),
+			proxySvc:            r.mdbSearch.ProxyServiceNameForClusterShard(0, shardName),
+			configMapName:       r.mdbSearch.MongotConfigMapForClusterShard(0, shardName),
 			podLabels:           map[string]string{appLabelKey: stsName.Name, shardLabelKey: shardName},
 			additionalSvcLabels: map[string]string{shardLabelKey: shardName},
 			publishNotReady:     true,
@@ -618,7 +618,7 @@ func (r *MongoDBSearchReconcileHelper) cleanupStaleShardResources(ctx context.Co
 
 	expectedNames := make(map[string]bool, len(currentShardNames))
 	for _, shardName := range currentShardNames {
-		expectedNames[r.mdbSearch.ProxyServiceNameForShard(shardName).Name] = true
+		expectedNames[r.mdbSearch.ProxyServiceNameForClusterShard(0, shardName).Name] = true
 	}
 
 	for i := range serviceList.Items {
@@ -687,7 +687,7 @@ func (r *MongoDBSearchReconcileHelper) validatePerShardTLSSecrets(ctx context.Co
 
 	// Per-shard mode: validate each shard's source secret exists
 	for _, shardName := range shardNames {
-		secretNsName := r.mdbSearch.TLSSecretForShard(shardName)
+		secretNsName := r.mdbSearch.TLSSecretForClusterShard(0, shardName)
 		tlsSecret := &corev1.Secret{}
 		err := r.client.Get(ctx, secretNsName, tlsSecret)
 		if apierrors.IsNotFound(err) {
@@ -1252,12 +1252,12 @@ type perShardTLSResource struct {
 
 // TLSSecretNamespacedName returns the per-shard source secret name.
 func (p *perShardTLSResource) TLSSecretNamespacedName() types.NamespacedName {
-	return p.MongoDBSearch.TLSSecretForShard(p.shardName)
+	return p.MongoDBSearch.TLSSecretForClusterShard(0, p.shardName)
 }
 
 // TLSOperatorSecretNamespacedName returns the per-shard operator-managed secret name.
 func (p *perShardTLSResource) TLSOperatorSecretNamespacedName() types.NamespacedName {
-	return p.MongoDBSearch.TLSOperatorSecretForShard(p.shardName)
+	return p.MongoDBSearch.TLSOperatorSecretForClusterShard(0, p.shardName)
 }
 
 func (r *MongoDBSearchReconcileHelper) ensureEgressTlsConfig(ctx context.Context) (mongot.Modification, statefulset.Modification) {
@@ -1390,8 +1390,8 @@ func mongotEndpointForShard(search *searchv1.MongoDBSearch, shardName string, cl
 	if search.IsLBModeManaged() {
 		return proxyServiceHostAndPortForShard(search, shardName, clusterDomain)
 	}
-	stsName := search.MongotStatefulSetForShard(shardName)
-	svcName := search.MongotServiceForShard(shardName)
+	stsName := search.MongotStatefulSetForClusterShard(0, shardName)
+	svcName := search.MongotServiceForClusterShard(0, shardName)
 	port := search.GetEffectiveMongotPort()
 	return fmt.Sprintf("%s-0.%s.%s.svc.%s:%d", stsName.Name, svcName.Name, svcName.Namespace, clusterDomain, port)
 }
@@ -1453,7 +1453,7 @@ func mongotHostAndPort(search *searchv1.MongoDBSearch, clusterDomain string) str
 
 // proxyServiceHostAndPortForShard returns the stable proxy service endpoint for a shard.
 func proxyServiceHostAndPortForShard(search *searchv1.MongoDBSearch, shardName string, clusterDomain string) string {
-	proxyName := search.ProxyServiceNameForShard(shardName)
+	proxyName := search.ProxyServiceNameForClusterShard(0, shardName)
 	port := search.GetEffectiveMongotPort()
 	return fmt.Sprintf("%s.%s.svc.%s:%d", proxyName.Name, proxyName.Namespace, clusterDomain, port)
 }

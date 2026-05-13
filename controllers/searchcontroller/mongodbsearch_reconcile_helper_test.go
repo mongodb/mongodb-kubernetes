@@ -296,12 +296,12 @@ func newTestRSUnit(search *searchv1.MongoDBSearch) reconcileUnit {
 
 // newTestShardUnit builds a reconcileUnit for a specific shard.
 func newTestShardUnit(search *searchv1.MongoDBSearch, shardName string) reconcileUnit {
-	stsName := search.MongotStatefulSetForShard(shardName)
+	stsName := search.MongotStatefulSetForClusterShard(0, shardName)
 	return reconcileUnit{
 		stsName:             stsName,
-		headlessSvc:         search.MongotServiceForShard(shardName),
-		proxySvc:            search.ProxyServiceNameForShard(shardName),
-		configMapName:       search.MongotConfigMapForShard(shardName),
+		headlessSvc:         search.MongotServiceForClusterShard(0, shardName),
+		proxySvc:            search.ProxyServiceNameForClusterShard(0, shardName),
+		configMapName:       search.MongotConfigMapForClusterShard(0, shardName),
 		podLabels:           map[string]string{appLabelKey: stsName.Name, shardLabelKey: shardName},
 		additionalSvcLabels: map[string]string{shardLabelKey: shardName},
 		publishNotReady:     true,
@@ -366,7 +366,7 @@ func TestBuildProxyServiceForShard_ManagedLB_NotReady(t *testing.T) {
 	unit := newTestShardUnit(search, "shard-0")
 	svc := buildProxyService(search, unit)
 
-	stsName := search.MongotStatefulSetForShard("shard-0").Name
+	stsName := search.MongotStatefulSetForClusterShard(0, "shard-0").Name
 	assert.Equal(t, map[string]string{"app": stsName}, svc.Spec.Selector)
 }
 
@@ -1966,7 +1966,7 @@ func TestTLSSecretNamespacedNameForShard(t *testing.T) {
 				}
 			})
 
-			secretNsName := search.TLSSecretForShard(tc.shardName)
+			secretNsName := search.TLSSecretForClusterShard(0, tc.shardName)
 			assert.Equal(t, tc.expectedSecretName, secretNsName.Name)
 			assert.Equal(t, tc.namespace, secretNsName.Namespace)
 		})
@@ -2443,7 +2443,7 @@ func TestReconcileSharded_CreatesPerShardResources(t *testing.T) {
 
 	// Verify per-shard Services
 	for _, shardName := range shardedSource.GetShardNames() {
-		svcNsName := search.MongotServiceForShard(shardName)
+		svcNsName := search.MongotServiceForClusterShard(0, shardName)
 		svc, err := fakeClient.GetService(t.Context(), svcNsName)
 		require.NoError(t, err)
 
@@ -2462,7 +2462,7 @@ func TestReconcileSharded_CreatesPerShardResources(t *testing.T) {
 
 	// Verify per-shard StatefulSets
 	for _, shardName := range shardedSource.GetShardNames() {
-		stsNsName := search.MongotStatefulSetForShard(shardName)
+		stsNsName := search.MongotStatefulSetForClusterShard(0, shardName)
 		sts, err := fakeClient.GetStatefulSet(t.Context(), stsNsName)
 		require.NoError(t, err)
 
@@ -2473,7 +2473,7 @@ func TestReconcileSharded_CreatesPerShardResources(t *testing.T) {
 
 	// Verify per-shard ConfigMaps
 	for _, shardName := range shardedSource.GetShardNames() {
-		cmNsName := search.MongotConfigMapForShard(shardName)
+		cmNsName := search.MongotConfigMapForClusterShard(0, shardName)
 		cm, err := fakeClient.GetConfigMap(t.Context(), cmNsName)
 		require.NoError(t, err)
 
@@ -2491,7 +2491,7 @@ func TestCleanupStaleShardResources(t *testing.T) {
 	proxySvc := func(shard string, owned bool) *corev1.Service {
 		svc := &corev1.Service{
 			ObjectMeta: metav1.ObjectMeta{
-				Name: search.ProxyServiceNameForShard(shard).Name, Namespace: "test-ns",
+				Name: search.ProxyServiceNameForClusterShard(0, shard).Name, Namespace: "test-ns",
 				Labels: map[string]string{"component": proxyServiceComponent},
 			},
 			Spec: corev1.ServiceSpec{ClusterIP: "10.0.0.1", Ports: []corev1.ServicePort{{Port: 27028}}},
@@ -2514,13 +2514,13 @@ func TestCleanupStaleShardResources(t *testing.T) {
 	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, newTestOperatorSearchConfig(), nil, nil)
 	require.NoError(t, helper.cleanupStaleShardResources(t.Context(), zap.S(), []string{"shard-0", "shard-1"}))
 
-	_, err := fakeClient.GetService(t.Context(), search.ProxyServiceNameForShard("shard-0"))
+	_, err := fakeClient.GetService(t.Context(), search.ProxyServiceNameForClusterShard(0, "shard-0"))
 	assert.NoError(t, err, "active shard preserved")
-	_, err = fakeClient.GetService(t.Context(), search.ProxyServiceNameForShard("shard-1"))
+	_, err = fakeClient.GetService(t.Context(), search.ProxyServiceNameForClusterShard(0, "shard-1"))
 	assert.NoError(t, err, "active shard preserved")
-	_, err = fakeClient.GetService(t.Context(), search.ProxyServiceNameForShard("shard-2"))
+	_, err = fakeClient.GetService(t.Context(), search.ProxyServiceNameForClusterShard(0, "shard-2"))
 	assert.Error(t, err, "stale shard deleted")
-	_, err = fakeClient.GetService(t.Context(), search.ProxyServiceNameForShard("shard-x"))
+	_, err = fakeClient.GetService(t.Context(), search.ProxyServiceNameForClusterShard(0, "shard-x"))
 	assert.NoError(t, err, "different owner untouched")
 }
 

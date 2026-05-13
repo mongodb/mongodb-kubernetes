@@ -176,7 +176,7 @@ func s_tlsRSName(prefix, resourceName string) string {
 	return prefix + "-" + resourceName + "-search-cert"
 }
 
-// s_tlsShardName mirrors the naming logic from TLSSecretForShard for test assertions.
+// s_tlsShardName mirrors the naming logic from TLSSecretForClusterShard for test assertions.
 func s_tlsShardName(prefix, resourceName, shardName string) string {
 	return prefix + "-" + resourceName + "-search-0-" + shardName + "-cert"
 }

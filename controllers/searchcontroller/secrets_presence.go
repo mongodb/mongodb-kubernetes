@@ -88,7 +88,7 @@ func expectedSecretNames(search *searchv1.MongoDBSearch) []string {
 	if search.Spec.Security.TLS != nil {
 		if search.IsExternalSourceSharded() {
 			for _, shard := range search.Spec.Source.ExternalMongoDBSource.ShardedCluster.Shards {
-				names = append(names, search.TLSSecretForShard(shard.ShardName).Name)
+				names = append(names, search.TLSSecretForClusterShard(0, shard.ShardName).Name)
 			}
 		} else {
 			names = append(names, search.TLSSecretNamespacedName().Name)
