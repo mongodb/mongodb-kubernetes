@@ -2735,3 +2735,166 @@ func TestReconcilePlan_UsesPerClusterClient(t *testing.T) {
 		types.NamespacedName{Name: "mdb-search-search-0", Namespace: "ns"}, &appsv1.StatefulSet{})
 	assert.True(t, apierrors.IsNotFound(err), "cluster B client must NOT have cluster A STS")
 }
+
+// Sharded MC: buildShardedPlan emits one unit per (cluster, shard) plus one
+// cluster-level proxy Service per cluster.
+func TestBuildShardedPlan_PerClusterShardUnitsForMC(t *testing.T) {
+	search := newTestMongoDBSearch("mdb-search", "ns")
+	clusters := []searchv1.ClusterSpec{
+		{ClusterName: "cluster-a"},
+		{ClusterName: "cluster-b"},
+	}
+	search.Spec.Clusters = &clusters
+
+	shardedSource := &mockShardedSource{
+		shardNames: []string{"sh-0", "sh-1"},
+		hostSeeds: map[int][]string{
+			0: {"sh-0-0.svc:27017"},
+			1: {"sh-1-0.svc:27017"},
+		},
+	}
+
+	r := &MongoDBSearchReconcileHelper{
+		mdbSearch:      search,
+		db:             shardedSource,
+		clusterMapping: map[string]int{"cluster-a": 0, "cluster-b": 1},
+	}
+
+	plan, err := r.buildShardedPlan(shardedSource)
+	require.NoError(t, err)
+
+	require.Len(t, plan.units, 4, "expected one unit per (cluster, shard) pair")
+	require.Len(t, plan.clusterLevelResources, 2, "expected one cluster-level resource per cluster")
+
+	// (cluster-a, sh-0), (cluster-a, sh-1), (cluster-b, sh-0), (cluster-b, sh-1)
+	expected := []struct {
+		clusterName  string
+		clusterIndex int
+		shard        string
+		stsName      string
+	}{
+		{"cluster-a", 0, "sh-0", "mdb-search-search-0-sh-0"},
+		{"cluster-a", 0, "sh-1", "mdb-search-search-0-sh-1"},
+		{"cluster-b", 1, "sh-0", "mdb-search-search-1-sh-0"},
+		{"cluster-b", 1, "sh-1", "mdb-search-search-1-sh-1"},
+	}
+	for i, e := range expected {
+		u := plan.units[i]
+		assert.Equal(t, e.clusterName, u.clusterName, "unit %d clusterName", i)
+		assert.Equal(t, e.clusterIndex, u.clusterIndex, "unit %d clusterIndex", i)
+		assert.Equal(t, e.stsName, u.stsName.Name, "unit %d stsName", i)
+		assert.Equal(t, e.shard, u.additionalSvcLabels[shardLabelKey])
+	}
+
+	assert.Equal(t, "cluster-a", plan.clusterLevelResources[0].clusterName)
+	assert.Equal(t, 0, plan.clusterLevelResources[0].clusterIndex)
+	assert.Equal(t, "mdb-search-search-0-proxy-svc", plan.clusterLevelResources[0].svcName.Name)
+	assert.Equal(t, "cluster-b", plan.clusterLevelResources[1].clusterName)
+	assert.Equal(t, 1, plan.clusterLevelResources[1].clusterIndex)
+	assert.Equal(t, "mdb-search-search-1-proxy-svc", plan.clusterLevelResources[1].svcName.Name)
+}
+
+// Sharded MC: per-(cluster, shard) STS + ConfigMap land on the matching
+// member-cluster client, and the cluster-level proxy Service lands once per
+// cluster. Central client receives nothing.
+func TestReconcileShardedMC_FanOutUsesPerClusterClient(t *testing.T) {
+	search := newTestMongoDBSearch("mdb-search", "ns")
+	clusters := []searchv1.ClusterSpec{
+		{ClusterName: "cluster-a"},
+		{ClusterName: "cluster-b"},
+	}
+	search.Spec.Clusters = &clusters
+
+	shardedSource := &mockShardedSource{
+		shardNames: []string{"sh-0", "sh-1"},
+		hostSeeds: map[int][]string{
+			0: {"sh-0-0.svc:27017"},
+			1: {"sh-1-0.svc:27017"},
+		},
+	}
+
+	centralClient := kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().Build())
+	clusterAClient := kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().Build())
+	clusterBClient := kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().Build())
+
+	r := &MongoDBSearchReconcileHelper{
+		mdbSearch:      search,
+		db:             shardedSource,
+		client:         centralClient,
+		memberClusterClients: map[string]kubernetesClient.Client{
+			"cluster-a": clusterAClient,
+			"cluster-b": clusterBClient,
+		},
+		clusterMapping:       map[string]int{"cluster-a": 0, "cluster-b": 1},
+		operatorSearchConfig: newTestOperatorSearchConfig(),
+	}
+
+	plan, err := r.buildShardedPlan(shardedSource)
+	require.NoError(t, err)
+
+	for _, unit := range plan.units {
+		_, _, err := r.applyReconcileUnit(t.Context(), zap.S(), plan, unit, reconcileUnitMods{})
+		require.NoError(t, err)
+	}
+	// Mirror reconcile()'s cluster-level proxy Service pass.
+	for _, res := range plan.clusterLevelResources {
+		clusterClient, err := r.clientForCluster(res.clusterName)
+		require.NoError(t, err)
+		require.NoError(t, r.ensureSearchService(t.Context(), zap.S(), clusterClient, res.svcName, buildClusterLevelProxyService(r.mdbSearch, res)))
+	}
+
+	// Per-(cluster, shard) STS + ConfigMap on the right client.
+	cases := []struct {
+		c        kubernetesClient.Client
+		stsName  string
+		cmName   string
+	}{
+		{clusterAClient, "mdb-search-search-0-sh-0", "mdb-search-search-0-sh-0-config"},
+		{clusterAClient, "mdb-search-search-0-sh-1", "mdb-search-search-0-sh-1-config"},
+		{clusterBClient, "mdb-search-search-1-sh-0", "mdb-search-search-1-sh-0-config"},
+		{clusterBClient, "mdb-search-search-1-sh-1", "mdb-search-search-1-sh-1-config"},
+	}
+	for _, tc := range cases {
+		require.NoError(t, tc.c.Get(t.Context(),
+			types.NamespacedName{Name: tc.stsName, Namespace: "ns"}, &appsv1.StatefulSet{}),
+			"STS %s missing on expected member client", tc.stsName)
+		require.NoError(t, tc.c.Get(t.Context(),
+			types.NamespacedName{Name: tc.cmName, Namespace: "ns"}, &corev1.ConfigMap{}),
+			"ConfigMap %s missing on expected member client", tc.cmName)
+	}
+
+	// Central client must not have any per-shard STS.
+	for _, name := range []string{
+		"mdb-search-search-0-sh-0", "mdb-search-search-0-sh-1",
+		"mdb-search-search-1-sh-0", "mdb-search-search-1-sh-1",
+	} {
+		err := centralClient.Get(t.Context(),
+			types.NamespacedName{Name: name, Namespace: "ns"}, &appsv1.StatefulSet{})
+		assert.True(t, apierrors.IsNotFound(err), "central client must NOT have %s", name)
+	}
+
+	// Cluster-level proxy Service: one per cluster, on the right client.
+	for _, res := range plan.clusterLevelResources {
+		c := clusterAClient
+		if res.clusterName == "cluster-b" {
+			c = clusterBClient
+		}
+		svc := &corev1.Service{}
+		require.NoError(t, c.Get(t.Context(), res.svcName, svc),
+			"cluster-level proxy svc %s missing on %s", res.svcName.Name, res.clusterName)
+		// Service must be created via the per-cluster client, not central.
+		err := centralClient.Get(t.Context(), res.svcName, &corev1.Service{})
+		assert.True(t, apierrors.IsNotFound(err),
+			"central client must NOT have cluster-level proxy svc %s", res.svcName.Name)
+	}
+	for _, res := range plan.clusterLevelResources {
+		c := clusterAClient
+		if res.clusterName == "cluster-a" {
+			c = clusterBClient
+		}
+		err := c.Get(t.Context(), res.svcName, &corev1.Service{})
+		assert.True(t, apierrors.IsNotFound(err),
+			"cross-cluster leak: %s should not exist on %s", res.svcName.Name,
+			map[bool]string{true: "cluster-b", false: "cluster-a"}[c == clusterBClient])
+	}
+}
