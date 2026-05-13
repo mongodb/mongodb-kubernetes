@@ -617,10 +617,17 @@ func (s *MongoDBSearch) TLSSecretForClusterShard(clusterIndex int, shardName str
 	return types.NamespacedName{Name: secretName, Namespace: s.Namespace}
 }
 
-// TLSOperatorSecretForClusterShard returns the namespaced name of the operator-managed TLS secret
-// for a specific (cluster, shard) pair.
+// TLSOperatorSecretForClusterShard returns the namespaced name of the operator-managed
+// combined-cert+key Secret for a specific (cluster, shard) pair.
+// Naming pattern: {name}-search-{clusterIndex}-{shardName}-certificate-key.
+// (The pre-MC form was {shardName}-search-certificate-key which collided across
+// MongoDBSearch CRs in the same namespace and was not cluster-scoped; the new
+// form is unique per (CR, cluster, shard).)
 func (s *MongoDBSearch) TLSOperatorSecretForClusterShard(clusterIndex int, shardName string) types.NamespacedName {
-	return types.NamespacedName{Name: fmt.Sprintf("%s-search-certificate-key", shardName), Namespace: s.Namespace}
+	return types.NamespacedName{
+		Name:      fmt.Sprintf("%s-search-%d-%s-certificate-key", s.Name, clusterIndex, shardName),
+		Namespace: s.Namespace,
+	}
 }
 
 // IsTLSConfigured returns true if TLS is enabled (TLS struct is present)
