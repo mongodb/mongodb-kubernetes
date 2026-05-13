@@ -1424,7 +1424,7 @@ func TestGetMongosConfigParametersForSharded(t *testing.T) {
 		expectedHost  string
 	}{
 		{
-			name: "No LB - uses headless service endpoint",
+			name: "No LB - uses cluster-level proxy service endpoint",
 			search: &searchv1.MongoDBSearch{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-search",
@@ -1440,11 +1440,10 @@ func TestGetMongosConfigParametersForSharded(t *testing.T) {
 			},
 			shardNames:    []string{"test-mdb-0", "test-mdb-1"},
 			clusterDomain: "cluster.local",
-			// No LB: uses first shard's first pod headless FQDN
-			expectedHost: "test-search-search-0-test-mdb-0-0.test-search-search-0-test-mdb-0-svc.test-ns.svc.cluster.local:27028",
+			expectedHost:  "test-search-search-0-proxy-svc.test-ns.svc.cluster.local:27028",
 		},
 		{
-			name: "Managed LB - uses first shard's proxy service endpoint",
+			name: "Managed LB - uses cluster-level proxy service endpoint",
 			search: &searchv1.MongoDBSearch{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-search",
@@ -1461,11 +1460,10 @@ func TestGetMongosConfigParametersForSharded(t *testing.T) {
 			},
 			shardNames:    []string{"test-mdb-0", "test-mdb-1"},
 			clusterDomain: "cluster.local",
-			// Managed LB: uses first shard's proxy service endpoint
-			expectedHost: "test-search-search-0-test-mdb-0-proxy-svc.test-ns.svc.cluster.local:27028",
+			expectedHost:  "test-search-search-0-proxy-svc.test-ns.svc.cluster.local:27028",
 		},
 		{
-			name: "Unmanaged LB endpoint - uses first shard's endpoint via template",
+			name: "Unmanaged LB endpoint - mongos still uses first shard's endpoint via template",
 			search: &searchv1.MongoDBSearch{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-search",
@@ -1484,11 +1482,12 @@ func TestGetMongosConfigParametersForSharded(t *testing.T) {
 			},
 			shardNames:    []string{"test-mdb-0", "test-mdb-1"},
 			clusterDomain: "cluster.local",
-			// Mongos uses first shard's unmanaged LB endpoint via template substitution
+			// Unmanaged LB endpoint template is shard-scoped (no cluster-level form supported),
+			// so mongos falls back to the first shard's substituted endpoint.
 			expectedHost: "lb-test-mdb-0.example.com:27028",
 		},
 		{
-			name: "Empty shard names",
+			name: "Empty shard names (no LB) - cluster-level svc still resolvable",
 			search: &searchv1.MongoDBSearch{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-search",
@@ -1498,13 +1497,38 @@ func TestGetMongosConfigParametersForSharded(t *testing.T) {
 			},
 			shardNames:    []string{},
 			clusterDomain: "cluster.local",
-			expectedHost:  "", // No shards, no endpoint
+			expectedHost:  "test-search-search-0-proxy-svc.test-ns.svc.cluster.local:27028",
+		},
+		{
+			name: "Managed LB with externalHostname - uses cluster-level external form",
+			search: &searchv1.MongoDBSearch{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-search",
+					Namespace: "test-ns",
+				},
+				Spec: searchv1.MongoDBSearchSpec{
+					Source: &searchv1.MongoDBSource{
+						MongoDBResourceRef: &userv1.MongoDBResourceRef{
+							Name: "test-mdb",
+						},
+					},
+					LoadBalancer: &searchv1.LoadBalancerConfig{
+						Managed: &searchv1.ManagedLBConfig{
+							ExternalHostname: "{shardName}.search.example.com:443",
+						},
+					},
+				},
+			},
+			shardNames:    []string{"test-mdb-0", "test-mdb-1"},
+			clusterDomain: "cluster.local",
+			// Cluster-level form: strip leading "{shardName}." from the template.
+			expectedHost: "search.example.com:443",
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			config := GetMongosConfigParametersForSharded(tc.search, tc.shardNames, tc.clusterDomain)
+			config := GetMongosConfigParametersForSharded(tc.search, 0, tc.shardNames, tc.clusterDomain)
 
 			setParameter, ok := config["setParameter"].(map[string]any)
 			require.True(t, ok, "setParameter should be a map")
