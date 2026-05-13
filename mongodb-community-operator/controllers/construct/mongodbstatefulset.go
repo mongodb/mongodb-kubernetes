@@ -12,25 +12,16 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/readiness/config"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/persistentvolumeclaim"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/podtemplatespec"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/probes"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/resourcerequirements"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/readiness/config"
-	"github.com/mongodb/mongodb-kubernetes/pkg/util/scale"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
-)
-
-var OfficialMongodbRepoUrls = []string{"docker.io/mongodb", "quay.io/mongodb"}
-
-// Environment variables used to configure the MongoDB StatefulSet.
-const (
-	MongodbRepoUrlEnv = "MONGODB_REPO_URL"
-	MongodbImageEnv   = "MONGODB_IMAGE"
-	AgentImageEnv     = "AGENT_IMAGE"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/scale"
 )
 
 // MCO only
@@ -55,8 +46,6 @@ const (
 	clusterFilePath                   = "/var/lib/automation/config/cluster-config.json"
 	mongodbDatabaseServiceAccountName = "mongodb-kubernetes-appdb"
 	agentHealthStatusFilePathValue    = "/var/log/mongodb-mms-automation/healthstatus/agent-health-status.json"
-
-	OfficialMongodbEnterpriseServerImageName = "mongodb-enterprise-server"
 
 	headlessAgentEnv           = "HEADLESS_AGENT"
 	podNamespaceEnv            = "POD_NAMESPACE"

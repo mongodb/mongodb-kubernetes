@@ -2,6 +2,7 @@ package setup
 
 import (
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/construct"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 )
 
@@ -46,7 +47,7 @@ func LoadTestConfigFromEnv() TestConfig {
 		OperatorImageRepoUrl: env.ReadOrDefault(operatorImageRepoEnvName, "quay.io/mongodb"),     // nolint:forbidigo
 		// TODO: MCK
 		MongoDBImage:            env.ReadOrDefault("MDB_COMMUNITY_IMAGE", "mongodb-community-server"),                                                                         // nolint:forbidigo
-		MongoDBRepoUrl:          env.ReadOrDefault(construct.MongodbRepoUrlEnv, "quay.io/mongodb"),                                                                            // nolint:forbidigo
+		MongoDBRepoUrl:          env.ReadOrDefault(util.MongodbRepoUrlEnv, "quay.io/mongodb"),                                                                                 // nolint:forbidigo
 		VersionUpgradeHookImage: env.ReadOrDefault(construct.VersionUpgradeHookImageEnv, "quay.io/mongodb/mongodb-kubernetes-operator-version-upgrade-post-start-hook:1.0.2"), // nolint:forbidigo
 		// TODO: MCK better way to decide default agent image.
 		AgentImage:          env.ReadOrDefault("MDB_COMMUNITY_AGENT_IMAGE", "quay.io/mongodb/mongodb-agent:108.0.2.8729-1"),                 // nolint:forbidigo
