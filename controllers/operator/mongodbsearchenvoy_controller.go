@@ -62,14 +62,17 @@ const (
 	labelName = "search-proxy"
 )
 
-// envoyRoute defines routing information for one Envoy entrypoint (one per shard, or one for RS).
+// envoyRoute defines routing information for one Envoy entrypoint.
+// Per-shard routes carry exactly one UpstreamHosts entry (the shard's mongot Service FQDN).
+// The cluster-level route carries N entries — one per shard mongot Service in that cluster —
+// so mongos can reach any shard's mongot pool through a single SNI/filter chain.
 type envoyRoute struct {
-	Name         string // identifier: shard name (e.g., "mdb-sh-0") or "rs" for ReplicaSets
-	NameSafe     string // identifier safe for Envoy (hyphens replaced with underscores)
-	ClusterID    string // member cluster name in MC; "" in single-cluster installs
-	SNIHostname  string // FQDN of the proxy service for SNI matching
-	UpstreamHost string // FQDN of the mongot headless service
-	UpstreamPort int32  // typically 27028
+	Name          string   // identifier: shard name (e.g., "mdb-sh-0"), "rs", or "cluster-level"
+	NameSafe      string   // identifier safe for Envoy (hyphens replaced with underscores)
+	ClusterID     string   // member cluster name in MC; "" in single-cluster installs
+	SNIHostname   string   // FQDN of the proxy service for SNI matching
+	UpstreamHosts []string // FQDNs of the mongot headless services (one per pool member)
+	UpstreamPort  int32    // typically 27028
 }
 
 type MongoDBSearchEnvoyReconciler struct {
@@ -310,34 +313,65 @@ func caKeyNameFromTLSConfig(tlsCfg *searchcontroller.TLSSourceConfig) string {
 // Service creation, cleanup) is topology-agnostic, using the envoyRoute data structure only.
 func buildRoutes(search *searchv1.MongoDBSearch, source searchcontroller.SearchSourceDBResource) []envoyRoute {
 	if shardedSource, ok := source.(searchcontroller.SearchSourceShardedDeployment); ok {
-		return buildShardRoutes(search, shardedSource.GetShardNames())
+		return buildShardRoutes(search, shardedSource.GetShardNames(), 0, "")
 	}
 	return []envoyRoute{buildReplicaSetRoute(search)}
 }
 
-// buildShardRoutes builds per-shard routing information from shard names.
-func buildShardRoutes(search *searchv1.MongoDBSearch, shardNames []string) []envoyRoute {
-	routes := make([]envoyRoute, 0, len(shardNames))
+// buildShardRoutes builds per-shard routes plus one cluster-level route for a single cluster.
+// clusterIndex and clusterName identify the cluster; in single-cluster installs pass (0, "").
+// Each per-shard route has one UpstreamHosts entry. The trailing cluster-level route
+// aggregates all per-shard mongot Service FQDNs so mongos can use a single SNI/filter chain.
+func buildShardRoutes(search *searchv1.MongoDBSearch, shardNames []string, clusterIndex int, clusterName string) []envoyRoute {
+	// +1 for the cluster-level route appended at the end.
+	routes := make([]envoyRoute, 0, len(shardNames)+1)
 	namespace := search.Namespace
 	mongotPort := search.GetMongotGrpcPort()
 
+	clusterLevelUpstreams := make([]string, 0, len(shardNames))
+
 	for _, shardName := range shardNames {
-		sniServiceName := search.ProxyServiceNameForClusterShard(0, shardName).Name
-		mongotServiceName := search.MongotServiceForClusterShard(0, shardName).Name
+		sniServiceName := search.ProxyServiceNameForClusterShard(clusterIndex, shardName).Name
+		mongotServiceName := search.MongotServiceForClusterShard(clusterIndex, shardName).Name
+		upstreamFQDN := fmt.Sprintf("%s.%s.svc.cluster.local", mongotServiceName, namespace)
 
 		sniHostname := fmt.Sprintf("%s.%s.svc.cluster.local", sniServiceName, namespace)
-		if endpoint := search.GetManagedLBEndpointForShard(shardName); endpoint != "" {
+		if endpoint := search.GetManagedLBEndpointForClusterShard(clusterIndex, shardName); endpoint != "" {
 			sniHostname = endpoint
 		}
 
 		routes = append(routes, envoyRoute{
-			Name:         shardName,
-			NameSafe:     strings.ReplaceAll(shardName, "-", "_"),
-			SNIHostname:  sniHostname,
-			UpstreamHost: fmt.Sprintf("%s.%s.svc.cluster.local", mongotServiceName, namespace),
-			UpstreamPort: mongotPort,
+			Name:          shardName,
+			NameSafe:      strings.ReplaceAll(shardName, "-", "_"),
+			ClusterID:     clusterName,
+			SNIHostname:   sniHostname,
+			UpstreamHosts: []string{upstreamFQDN},
+			UpstreamPort:  mongotPort,
 		})
+		clusterLevelUpstreams = append(clusterLevelUpstreams, upstreamFQDN)
 	}
+
+	// Cluster-level route: mongos in this cluster uses this single SNI chain to reach
+	// all local shard mongot pools. SNI is the cluster-level proxy Service FQDN unless
+	// the user supplied a managed-LB externalHostname (with {shardName}. prefix stripped).
+	clusterLevelSvcName := search.ClusterLevelProxyServiceNameForCluster(clusterIndex).Name
+	clusterLevelSNI := fmt.Sprintf("%s.%s.svc.cluster.local", clusterLevelSvcName, namespace)
+	if endpoint := search.GetManagedLBEndpointForClusterLevel(clusterIndex); endpoint != "" {
+		clusterLevelSNI = endpoint
+	}
+
+	nameSafe := "cluster_level"
+	if clusterIndex > 0 {
+		nameSafe = fmt.Sprintf("cluster_level_%d", clusterIndex)
+	}
+	routes = append(routes, envoyRoute{
+		Name:          "cluster-level",
+		NameSafe:      nameSafe,
+		ClusterID:     clusterName,
+		SNIHostname:   clusterLevelSNI,
+		UpstreamHosts: clusterLevelUpstreams,
+		UpstreamPort:  mongotPort,
+	})
 
 	return routes
 }
@@ -354,11 +388,11 @@ func buildReplicaSetRoute(search *searchv1.MongoDBSearch) envoyRoute {
 	}
 
 	return envoyRoute{
-		Name:         "rs",
-		NameSafe:     "rs",
-		SNIHostname:  sniHostname,
-		UpstreamHost: fmt.Sprintf("%s.%s.svc.cluster.local", mongotServiceName, namespace),
-		UpstreamPort: search.GetMongotGrpcPort(),
+		Name:          "rs",
+		NameSafe:      "rs",
+		SNIHostname:   sniHostname,
+		UpstreamHosts: []string{fmt.Sprintf("%s.%s.svc.cluster.local", mongotServiceName, namespace)},
+		UpstreamPort:  search.GetMongotGrpcPort(),
 	}
 }
 
@@ -370,7 +404,7 @@ func buildRoutesForCluster(search *searchv1.MongoDBSearch, source searchcontroll
 	}
 
 	if shardedSource, ok := source.(searchcontroller.SearchSourceShardedDeployment); ok {
-		return buildShardRoutesForCluster(search, shardedSource.GetShardNames(), clusterName)
+		return buildShardRoutes(search, shardedSource.GetShardNames(), clusterIndex, clusterName)
 	}
 	return []envoyRoute{buildReplicaSetRouteForCluster(search, clusterIndex, clusterName)}
 }
@@ -390,44 +424,13 @@ func buildReplicaSetRouteForCluster(search *searchv1.MongoDBSearch, clusterIndex
 	}
 
 	return envoyRoute{
-		Name:         "rs",
-		NameSafe:     "rs",
-		ClusterID:    clusterName,
-		SNIHostname:  sniHostname,
-		UpstreamHost: fmt.Sprintf("%s.%s.svc.cluster.local", mongotServiceName, namespace),
-		UpstreamPort: mongotPort,
+		Name:          "rs",
+		NameSafe:      "rs",
+		ClusterID:     clusterName,
+		SNIHostname:   sniHostname,
+		UpstreamHosts: []string{fmt.Sprintf("%s.%s.svc.cluster.local", mongotServiceName, namespace)},
+		UpstreamPort:  mongotPort,
 	}
-}
-
-// buildShardRoutesForCluster builds per-shard routes for one cluster. The
-// supported MC path is a templated externalHostname with {clusterName}/{shardName}.
-func buildShardRoutesForCluster(search *searchv1.MongoDBSearch, shardNames []string, clusterName string) []envoyRoute {
-	base := buildShardRoutes(search, shardNames)
-	templated := search.GetManagedLBEndpoint() != ""
-	for i := range base {
-		base[i].ClusterID = clusterName
-		base[i].SNIHostname = applyShardClusterIDToSNI(base[i].SNIHostname, clusterName, templated)
-	}
-	return base
-}
-
-// applyShardClusterIDToSNI substitutes {clusterName} in templated SNIs, or
-// inserts -<clusterName> after the first DNS label of the default FQDN.
-func applyShardClusterIDToSNI(sni, clusterName string, templated bool) string {
-	if strings.Contains(sni, searchv1.ClusterNamePlaceholder) {
-		return strings.ReplaceAll(sni, searchv1.ClusterNamePlaceholder, clusterName)
-	}
-	if templated {
-		// User supplied an externalHostname template without {clusterName}; honour
-		// it as-is. Multi-cluster users are expected to include the placeholder;
-		// admission rejects multi-cluster specs that omit it.
-		return sni
-	}
-	idx := strings.Index(sni, ".")
-	if idx == -1 {
-		return sni + "-" + clusterName
-	}
-	return sni[:idx] + "-" + clusterName + sni[idx:]
 }
 
 // ensureConfigMap creates or updates the Envoy ConfigMap in the cluster

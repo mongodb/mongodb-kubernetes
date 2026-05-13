@@ -209,6 +209,22 @@ func buildFilterChain(route envoyRoute, tlsEnabled bool, caKeyName string) (*lis
 	return chain, nil
 }
 
+// buildLbEndpoints converts route.UpstreamHosts into a slice of LbEndpoint protos,
+// one per upstream FQDN. All endpoints share the same port.
+func buildLbEndpoints(route envoyRoute) []*endpointv3.LbEndpoint {
+	eps := make([]*endpointv3.LbEndpoint, 0, len(route.UpstreamHosts))
+	for _, host := range route.UpstreamHosts {
+		eps = append(eps, &endpointv3.LbEndpoint{
+			HostIdentifier: &endpointv3.LbEndpoint_Endpoint{
+				Endpoint: &endpointv3.Endpoint{
+					Address: socketAddress(host, uint32(route.UpstreamPort)), //nolint:gosec
+				},
+			},
+		})
+	}
+	return eps
+}
+
 // buildCluster builds an upstream cluster for one route.
 func buildCluster(route envoyRoute, tlsEnabled bool, caKeyName string) (*clusterv3.Cluster, error) {
 	clusterName := fmt.Sprintf("mongot_%s_cluster", route.NameSafe)
@@ -243,15 +259,7 @@ func buildCluster(route envoyRoute, tlsEnabled bool, caKeyName string) (*cluster
 			ClusterName: clusterName,
 			Endpoints: []*endpointv3.LocalityLbEndpoints{
 				{
-					LbEndpoints: []*endpointv3.LbEndpoint{
-						{
-							HostIdentifier: &endpointv3.LbEndpoint_Endpoint{
-								Endpoint: &endpointv3.Endpoint{
-									Address: socketAddress(route.UpstreamHost, uint32(route.UpstreamPort)), //nolint:gosec
-								},
-							},
-						},
-					},
+					LbEndpoints: buildLbEndpoints(route),
 				},
 			},
 		},
@@ -350,7 +358,7 @@ func buildUpstreamTLSTransportSocket(route envoyRoute, caKeyName string) (*corev
 			},
 			AlpnProtocols: []string{"h2"},
 		},
-		Sni: route.UpstreamHost,
+		Sni: route.UpstreamHosts[0],
 	}
 
 	tlsAny, err := anypb.New(upstreamTLS)
