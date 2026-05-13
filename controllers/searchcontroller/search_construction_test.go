@@ -110,7 +110,8 @@ func TestCreateSearchStatefulSetFunc_JVMFlags(t *testing.T) {
 				}
 			})
 
-			stsModification := CreateSearchStatefulSetFunc(search, "", "", "", "", nil, "mongot:latest", false)
+			stsModification, err := CreateSearchStatefulSetFunc(search, "", "", "", "", "", nil, "mongot:latest", false)
+			require.NoError(t, err)
 			sts := statefulset.New(stsModification)
 
 			// Find the mongot container
