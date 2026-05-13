@@ -25,7 +25,7 @@ import (
 	k8sClient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
-	mckv1 "github.com/mongodb/mongodb-kubernetes/api/v1"
+	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/construct"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/authentication/x509"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
@@ -244,8 +244,8 @@ func TestGuessEnterprise(t *testing.T) {
 			setArgs: func(t *testing.T) {},
 			mdb: mdbv1.MongoDBCommunity{
 				Spec: mdbv1.MongoDBCommunitySpec{
-					StatefulSetConfiguration: mckv1.StatefulSetConfiguration{
-						SpecWrapper: mckv1.StatefulSetSpecWrapper{
+					StatefulSetConfiguration: v1.StatefulSetConfiguration{
+						SpecWrapper: v1.StatefulSetSpecWrapper{
 							Spec: appsv1.StatefulSetSpec{
 								Template: corev1.PodTemplateSpec{
 									Spec: corev1.PodSpec{
@@ -269,8 +269,8 @@ func TestGuessEnterprise(t *testing.T) {
 			setArgs: func(t *testing.T) {},
 			mdb: mdbv1.MongoDBCommunity{
 				Spec: mdbv1.MongoDBCommunitySpec{
-					StatefulSetConfiguration: mckv1.StatefulSetConfiguration{
-						SpecWrapper: mckv1.StatefulSetSpecWrapper{
+					StatefulSetConfiguration: v1.StatefulSetConfiguration{
+						SpecWrapper: v1.StatefulSetSpecWrapper{
 							Spec: appsv1.StatefulSetSpec{
 								Template: corev1.PodTemplateSpec{
 									Spec: corev1.PodSpec{
@@ -467,7 +467,7 @@ func TestService_changesMongodPortOnRunningClusterWithArbiters(t *testing.T) {
 	ctx := context.Background()
 	mdb := newScramReplicaSet(mdbv1.MongoDBUser{
 		Name: "testuser",
-		PasswordSecretRef: mckv1.SecretKeyReference{
+		PasswordSecretRef: v1.SecretKeyReference{
 			Name: "password-secret-name",
 		},
 		ScramCredentialsSecretName: "scram-credentials",
@@ -509,7 +509,7 @@ func TestService_changesMongodPortOnRunningClusterWithArbiters(t *testing.T) {
 		assertStatefulsetReady(ctx, t, mgr, namespacedName, 3)
 		assertStatefulsetReady(ctx, t, mgr, arbiterNamespacedName, 1)
 
-		mdb.Spec.AdditionalMongodConfig = mckv1.NewMongodConfiguration()
+		mdb.Spec.AdditionalMongodConfig = v1.NewMongodConfiguration()
 		mdb.Spec.AdditionalMongodConfig.SetDBPort(newPort)
 
 		err = mgr.GetClient().Update(ctx, &mdb)
@@ -696,7 +696,7 @@ func TestService_connectionStringSecretAnnotationsAreApplied(t *testing.T) {
 
 	mdb := newScramReplicaSet(mdbv1.MongoDBUser{
 		Name: "testuser",
-		PasswordSecretRef: mckv1.SecretKeyReference{
+		PasswordSecretRef: v1.SecretKeyReference{
 			Name: "password-secret-name",
 		},
 		ScramCredentialsSecretName:        "scram-credentials",
@@ -727,9 +727,9 @@ func assertConnectionStringSecretAnnotations(ctx context.Context, t *testing.T, 
 func TestService_configuresPrometheusCustomPorts(t *testing.T) {
 	ctx := context.Background()
 	mdb := newTestReplicaSet()
-	mdb.Spec.Prometheus = &mckv1.Prometheus{
+	mdb.Spec.Prometheus = &v1.Prometheus{
 		Username: "username",
-		PasswordSecretRef: mckv1.SecretKeyReference{
+		PasswordSecretRef: v1.SecretKeyReference{
 			Name: "secret",
 		},
 		Port: 4321,
@@ -769,9 +769,9 @@ func TestService_configuresPrometheusCustomPorts(t *testing.T) {
 func TestService_configuresPrometheus(t *testing.T) {
 	ctx := context.Background()
 	mdb := newTestReplicaSet()
-	mdb.Spec.Prometheus = &mckv1.Prometheus{
+	mdb.Spec.Prometheus = &v1.Prometheus{
 		Username: "username",
-		PasswordSecretRef: mckv1.SecretKeyReference{
+		PasswordSecretRef: v1.SecretKeyReference{
 			Name: "secret",
 		},
 	}

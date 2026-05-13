@@ -15,7 +15,7 @@ import (
 	k8sClient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
-	mckv1 "github.com/mongodb/mongodb-kubernetes/api/v1"
+	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
 )
 
@@ -70,7 +70,7 @@ func NewTestMongoDB(ctx *TestContext, name string, namespace string) (mdbv1.Mong
 			Users: []mdbv1.MongoDBUser{
 				{
 					Name: fmt.Sprintf("%s-user", name),
-					PasswordSecretRef: mckv1.SecretKeyReference{
+					PasswordSecretRef: v1.SecretKeyReference{
 						Key:  fmt.Sprintf("%s-password", name),
 						Name: fmt.Sprintf("%s-%s-password-secret", name, ctx.ExecutionId),
 					},
@@ -101,8 +101,8 @@ func NewTestMongoDB(ctx *TestContext, name string, namespace string) (mdbv1.Mong
 					ScramCredentialsSecretName: fmt.Sprintf("%s-my-scram", name),
 				},
 			},
-			StatefulSetConfiguration: mckv1.StatefulSetConfiguration{
-				SpecWrapper: mckv1.StatefulSetSpecWrapper{
+			StatefulSetConfiguration: v1.StatefulSetConfiguration{
+				SpecWrapper: v1.StatefulSetSpecWrapper{
 					Spec: appsv1.StatefulSetSpec{
 						Template: corev1.PodTemplateSpec{
 							Spec: corev1.PodSpec{
@@ -157,7 +157,7 @@ func NewTestTLSConfig(optional bool) mdbv1.TLS {
 	}
 }
 
-func NewPrometheusConfig(ctx context.Context, namespace string) *mckv1.Prometheus {
+func NewPrometheusConfig(ctx context.Context, namespace string) *v1.Prometheus {
 	sec := secret.Builder().
 		SetName("prom-secret").
 		SetNamespace(namespace).
@@ -170,9 +170,9 @@ func NewPrometheusConfig(ctx context.Context, namespace string) *mckv1.Prometheu
 		}
 	}
 
-	return &mckv1.Prometheus{
+	return &v1.Prometheus{
 		Username: "prom-user",
-		PasswordSecretRef: mckv1.SecretKeyReference{
+		PasswordSecretRef: v1.SecretKeyReference{
 			Name: "prom-secret",
 		},
 	}

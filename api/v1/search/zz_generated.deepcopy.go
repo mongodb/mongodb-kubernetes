@@ -21,7 +21,7 @@ limitations under the License.
 package search
 
 import (
-	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1"
+	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/user"
 	corev1 "k8s.io/api/core/v1"
@@ -299,7 +299,7 @@ func (in *MongoDBSearchSpec) DeepCopyInto(out *MongoDBSearchSpec) {
 	}
 	if in.Persistence != nil {
 		in, out := &in.Persistence, &out.Persistence
-		*out = new(mdbv1.Persistence)
+		*out = new(v1.Persistence)
 		(*in).DeepCopyInto(*out)
 	}
 	if in.ResourceRequirements != nil {

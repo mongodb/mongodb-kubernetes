@@ -21,7 +21,7 @@ limitations under the License.
 package mdb
 
 import (
-	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1"
+	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	corev1 "k8s.io/api/core/v1"
@@ -425,7 +425,7 @@ func (in *DbCommonSpec) DeepCopyInto(out *DbCommonSpec) {
 	}
 	if in.Prometheus != nil {
 		in, out := &in.Prometheus, &out.Prometheus
-		*out = new(mdbv1.Prometheus)
+		*out = new(v1.Prometheus)
 		**out = **in
 	}
 	if in.StatefulSetConfiguration != nil {
@@ -843,7 +843,7 @@ func (in *MongoDbPodSpec) DeepCopyInto(out *MongoDbPodSpec) {
 	in.PodTemplateWrapper.DeepCopyInto(&out.PodTemplateWrapper)
 	if in.Persistence != nil {
 		in, out := &in.Persistence, &out.Persistence
-		*out = new(mdbv1.Persistence)
+		*out = new(v1.Persistence)
 		(*in).DeepCopyInto(*out)
 	}
 }
@@ -1019,7 +1019,7 @@ func (in *PersistenceConfigBuilder) DeepCopyInto(out *PersistenceConfigBuilder) 
 	*out = *in
 	if in.config != nil {
 		in, out := &in.config, &out.config
-		*out = new(mdbv1.PersistenceConfig)
+		*out = new(v1.PersistenceConfig)
 		(*in).DeepCopyInto(*out)
 	}
 }

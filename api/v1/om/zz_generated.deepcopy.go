@@ -21,7 +21,7 @@ limitations under the License.
 package om
 
 import (
-	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1"
+	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/user"
@@ -104,12 +104,12 @@ func (in *AppDBSpec) DeepCopyInto(out *AppDBSpec) {
 	}
 	if in.Prometheus != nil {
 		in, out := &in.Prometheus, &out.Prometheus
-		*out = new(mdbv1.Prometheus)
+		*out = new(v1.Prometheus)
 		**out = **in
 	}
 	if in.AutomationConfigOverride != nil {
 		in, out := &in.AutomationConfigOverride, &out.AutomationConfigOverride
-		*out = new(mdbv1.AutomationConfigOverride)
+		*out = new(v1.AutomationConfigOverride)
 		(*in).DeepCopyInto(*out)
 	}
 	if in.MemberConfig != nil {
@@ -406,7 +406,7 @@ func (in *MongoDBOpsManagerBackup) DeepCopyInto(out *MongoDBOpsManagerBackup) {
 	}
 	if in.HeadDB != nil {
 		in, out := &in.HeadDB, &out.HeadDB
-		*out = new(mdbv1.PersistenceConfig)
+		*out = new(v1.PersistenceConfig)
 		(*in).DeepCopyInto(*out)
 	}
 	if in.JVMParams != nil {
@@ -484,7 +484,7 @@ func (in *MongoDBOpsManagerBackupClusterSpecItem) DeepCopyInto(out *MongoDBOpsMa
 	}
 	if in.HeadDB != nil {
 		in, out := &in.HeadDB, &out.HeadDB
-		*out = new(mdbv1.PersistenceConfig)
+		*out = new(v1.PersistenceConfig)
 		(*in).DeepCopyInto(*out)
 	}
 	if in.JVMParams != nil {
