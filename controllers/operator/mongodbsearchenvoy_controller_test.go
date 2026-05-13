@@ -97,7 +97,8 @@ func TestBuildReplicaSetRoute(t *testing.T) {
 			assert.Equal(t, "rs", route.Name)
 			assert.Equal(t, "rs", route.NameSafe)
 			assert.Equal(t, tt.expectedSNI, route.SNIHostname)
-			assert.Equal(t, "mdb-search-search-svc.test-ns.svc.cluster.local", route.UpstreamHost)
+			require.Len(t, route.UpstreamHosts, 1)
+			assert.Equal(t, "mdb-search-search-svc.test-ns.svc.cluster.local", route.UpstreamHosts[0])
 			assert.Equal(t, int32(27028), route.UpstreamPort)
 		})
 	}
@@ -171,8 +172,9 @@ func TestBuildReplicaSetRouteForCluster_PerClusterPlaceholders(t *testing.T) {
 				assert.Equal(t, "rs", route.Name)
 				assert.Equal(t, c.ClusterName, route.ClusterID)
 				expectedUpstream := fmt.Sprintf("mdb-search-search-%d-svc.test-ns.svc.cluster.local", i)
-				assert.Equal(t, expectedUpstream, route.UpstreamHost,
-					"cluster %d (%s) UpstreamHost", i, c.ClusterName)
+				require.Len(t, route.UpstreamHosts, 1, "cluster %d (%s) UpstreamHosts length", i, c.ClusterName)
+				assert.Equal(t, expectedUpstream, route.UpstreamHosts[0],
+					"cluster %d (%s) UpstreamHosts[0]", i, c.ClusterName)
 			}
 		})
 	}
@@ -182,25 +184,30 @@ func TestBuildShardRoutes(t *testing.T) {
 	shardNames := []string{"mdb-sh-0", "mdb-sh-1"}
 
 	tests := []struct {
-		name         string
-		endpoint     string
-		expectedSNIs []string
+		name                   string
+		endpoint               string
+		expectedShardSNIs      []string
+		expectedClusterLevelSNI string
 	}{
 		{
 			name:     "no endpoint uses proxy service FQDNs",
 			endpoint: "",
-			expectedSNIs: []string{
+			expectedShardSNIs: []string{
 				"mdb-search-search-0-mdb-sh-0-proxy-svc.test-ns.svc.cluster.local",
 				"mdb-search-search-0-mdb-sh-1-proxy-svc.test-ns.svc.cluster.local",
 			},
+			// ClusterLevelProxyServiceNameForCluster(0) = mdb-search-search-0-proxy-svc
+			expectedClusterLevelSNI: "mdb-search-search-0-proxy-svc.test-ns.svc.cluster.local",
 		},
 		{
-			name:     "externalHostname template resolves per shard",
-			endpoint: "mongot-{shardName}-ns.apps.example.com",
-			expectedSNIs: []string{
-				"mongot-mdb-sh-0-ns.apps.example.com",
-				"mongot-mdb-sh-1-ns.apps.example.com",
+			name:     "externalHostname template resolves per shard and strips shardName for cluster-level",
+			endpoint: "{shardName}.search.example.com",
+			expectedShardSNIs: []string{
+				"mdb-sh-0.search.example.com",
+				"mdb-sh-1.search.example.com",
 			},
+			// GetManagedLBEndpointForClusterLevel strips "{shardName}." → "search.example.com"
+			expectedClusterLevelSNI: "search.example.com",
 		},
 	}
 
@@ -218,13 +225,19 @@ func TestBuildShardRoutes(t *testing.T) {
 				}
 			}
 
-			routes := buildShardRoutes(search, shardNames)
+			routes := buildShardRoutes(search, shardNames, 0, "")
 
-			assert.Len(t, routes, 2)
-			for i, route := range routes {
+			// 2 per-shard routes + 1 cluster-level route.
+			require.Len(t, routes, 3)
+			for i, route := range routes[:2] {
 				assert.Equal(t, shardNames[i], route.Name)
-				assert.Equal(t, tt.expectedSNIs[i], route.SNIHostname)
+				assert.Equal(t, tt.expectedShardSNIs[i], route.SNIHostname)
+				require.Len(t, route.UpstreamHosts, 1)
 			}
+			clusterLevel := routes[2]
+			assert.Equal(t, "cluster-level", clusterLevel.Name)
+			assert.Equal(t, tt.expectedClusterLevelSNI, clusterLevel.SNIHostname)
+			require.Len(t, clusterLevel.UpstreamHosts, 2, "cluster-level route must aggregate all shard upstreams")
 		})
 	}
 }
@@ -476,7 +489,7 @@ func TestBuildRoutesForCluster_SingleClusterUnchanged(t *testing.T) {
 	require.Len(t, mc, 1)
 	assert.Equal(t, "", mc[0].ClusterID)
 	assert.Equal(t, sc[0].SNIHostname, mc[0].SNIHostname)
-	assert.Equal(t, sc[0].UpstreamHost, mc[0].UpstreamHost)
+	assert.Equal(t, sc[0].UpstreamHosts, mc[0].UpstreamHosts)
 }
 
 // mockShardedSourceForEnvoy is a minimal SearchSourceShardedDeployment double for tests.
@@ -501,9 +514,14 @@ func (m *mockShardedSourceForEnvoy) ResourceType() mdbv1.ResourceType {
 }
 
 func TestBuildRoutesForCluster_Sharded_PerClusterShardSNI(t *testing.T) {
+	one := int32(1)
 	search := &searchv1.MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "test-ns"},
 		Spec: searchv1.MongoDBSearchSpec{
+			Clusters: &[]searchv1.ClusterSpec{
+				{ClusterName: "us-east-k8s", Replicas: &one},
+				{ClusterName: "eu-west-k8s", Replicas: &one},
+			},
 			LoadBalancer: &searchv1.LoadBalancerConfig{
 				Managed: &searchv1.ManagedLBConfig{
 					// Both placeholders present — must substitute both.
@@ -517,8 +535,9 @@ func TestBuildRoutesForCluster_Sharded_PerClusterShardSNI(t *testing.T) {
 	east := buildRoutesForCluster(search, src, 0, "us-east-k8s")
 	west := buildRoutesForCluster(search, src, 1, "eu-west-k8s")
 
-	require.Len(t, east, 2)
-	require.Len(t, west, 2)
+	// 2 per-shard routes + 1 cluster-level route per cluster.
+	require.Len(t, east, 3)
+	require.Len(t, west, 3)
 
 	// Per-(cluster, shard) SNI emitted with both substitutions.
 	assert.Equal(t, "us-east-k8s", east[0].ClusterID)
@@ -527,13 +546,103 @@ func TestBuildRoutesForCluster_Sharded_PerClusterShardSNI(t *testing.T) {
 	assert.Equal(t, "mongot-eu-west-k8s-mdb-sh-0.example.com", west[0].SNIHostname)
 	assert.Equal(t, "mongot-eu-west-k8s-mdb-sh-1.example.com", west[1].SNIHostname)
 
-	// All 4 SNIs must be unique.
+	// Last route in each cluster is the cluster-level route.
+	assert.Equal(t, "cluster-level", east[2].Name)
+	assert.Equal(t, "cluster-level", west[2].Name)
+	require.Len(t, east[2].UpstreamHosts, 2, "cluster-level must aggregate both shard upstreams")
+	require.Len(t, west[2].UpstreamHosts, 2, "cluster-level must aggregate both shard upstreams")
+
+	// All 4 per-shard SNIs must be unique.
 	all := []string{east[0].SNIHostname, east[1].SNIHostname, west[0].SNIHostname, west[1].SNIHostname}
 	seen := map[string]struct{}{}
 	for _, s := range all {
 		seen[s] = struct{}{}
 	}
 	assert.Len(t, seen, 4, "per-(cluster, shard) SNIs must all be distinct")
+}
+
+// TestBuildShardRoutes_MC_ClusterLevel_NoExternalHostname asserts that for a
+// multi-cluster sharded deploy with no externalHostname, buildShardRoutes for
+// clusterIndex=1 / clusterName="cluster-b" emits 3 per-shard routes + 1
+// cluster-level route whose upstream pool is the union of all shard mongot FQDNs
+// in cluster-1 and whose SNI is the cluster-level proxy Service FQDN.
+func TestBuildShardRoutes_MC_ClusterLevel_NoExternalHostname(t *testing.T) {
+	shardNames := []string{"mdb-sh-0", "mdb-sh-1", "mdb-sh-2"}
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "test-ns"},
+		Spec: searchv1.MongoDBSearchSpec{
+			Clusters: &[]searchv1.ClusterSpec{
+				{ClusterName: "cluster-a"},
+				{ClusterName: "cluster-b"},
+			},
+		},
+	}
+
+	routes := buildShardRoutes(search, shardNames, 1, "cluster-b")
+
+	// 3 per-shard + 1 cluster-level.
+	require.Len(t, routes, 4)
+
+	// Per-shard routes use clusterIndex=1 naming.
+	for i, shardName := range shardNames {
+		r := routes[i]
+		assert.Equal(t, shardName, r.Name)
+		assert.Equal(t, "cluster-b", r.ClusterID)
+		expectedUpstream := fmt.Sprintf("mdb-search-search-1-%s-svc.test-ns.svc.cluster.local", shardName)
+		require.Len(t, r.UpstreamHosts, 1)
+		assert.Equal(t, expectedUpstream, r.UpstreamHosts[0])
+		expectedSNI := fmt.Sprintf("mdb-search-search-1-%s-proxy-svc.test-ns.svc.cluster.local", shardName)
+		assert.Equal(t, expectedSNI, r.SNIHostname)
+	}
+
+	// Cluster-level route.
+	cl := routes[3]
+	assert.Equal(t, "cluster-level", cl.Name)
+	assert.Equal(t, "cluster-b", cl.ClusterID)
+	// SNI is ClusterLevelProxyServiceNameForCluster(1) FQDN.
+	assert.Equal(t, "mdb-search-search-1-proxy-svc.test-ns.svc.cluster.local", cl.SNIHostname)
+	// UpstreamHosts must be the union of all 3 per-shard mongot Service FQDNs for cluster-1.
+	require.Len(t, cl.UpstreamHosts, 3)
+	for _, shardName := range shardNames {
+		expected := fmt.Sprintf("mdb-search-search-1-%s-svc.test-ns.svc.cluster.local", shardName)
+		assert.Contains(t, cl.UpstreamHosts, expected)
+	}
+}
+
+// TestBuildShardRoutes_MC_ClusterLevel_ManagedLB asserts that with a managed-LB
+// externalHostname of "{shardName}.{clusterName}.search.example.com:443", the
+// per-shard SNIs resolve per-shard and the cluster-level SNI strips the
+// "{shardName}." prefix to produce "{clusterName}.search.example.com:443".
+func TestBuildShardRoutes_MC_ClusterLevel_ManagedLB(t *testing.T) {
+	shardNames := []string{"mdb-sh-0", "mdb-sh-1", "mdb-sh-2"}
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "test-ns"},
+		Spec: searchv1.MongoDBSearchSpec{
+			Clusters: &[]searchv1.ClusterSpec{
+				{ClusterName: "cluster-a"},
+				{ClusterName: "cluster-b"},
+			},
+			LoadBalancer: &searchv1.LoadBalancerConfig{
+				Managed: &searchv1.ManagedLBConfig{
+					ExternalHostname: "{shardName}.{clusterName}.search.example.com:443",
+				},
+			},
+		},
+	}
+
+	routes := buildShardRoutes(search, shardNames, 1, "cluster-b")
+
+	require.Len(t, routes, 4)
+
+	// Per-shard SNIs must resolve both {clusterName} and {shardName}.
+	for i, shardName := range shardNames {
+		expected := fmt.Sprintf("%s.cluster-b.search.example.com:443", shardName)
+		assert.Equal(t, expected, routes[i].SNIHostname, "per-shard SNI mismatch for shard %s", shardName)
+	}
+
+	// Cluster-level SNI strips "{shardName}." → "cluster-b.search.example.com:443".
+	assert.Equal(t, "cluster-b.search.example.com:443", routes[3].SNIHostname)
+	require.Len(t, routes[3].UpstreamHosts, 3)
 }
 
 // Each cluster's filter chain must use its own per-cluster proxy-svc FQDN as
