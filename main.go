@@ -47,7 +47,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
-	// Binary wiring: MCO scheme registration (AddToScheme), community ReplicaSet reconciler, and community-specific image env vars.
 	mcov1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"                      //nolint:depguard
 	mcoController "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers"          //nolint:depguard
 	mcoConstruct "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/construct" //nolint:depguard
