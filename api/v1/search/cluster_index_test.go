@@ -75,4 +75,3 @@ func TestAssignClusterIndicesDoesNotMutateExisting(t *testing.T) {
 	AssignClusterIndices(existing, []string{"a", "b", "c"})
 	assert.Equal(t, map[string]int{"a": 0, "b": 1}, existing, "existing must not be mutated")
 }
-
