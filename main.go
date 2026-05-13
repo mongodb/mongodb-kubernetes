@@ -239,6 +239,9 @@ func run() error {
 			var cluster runtime_cluster.Cluster
 
 			cluster, err := runtime_cluster.New(v, func(options *runtime_cluster.Options) {
+				// Use the operator scheme so cross-cluster owner references
+				// can resolve our CRD types (default scheme lacks them).
+				options.Scheme = scheme
 				if len(namespacesToWatch) > 1 || namespacesToWatch[0] != "" {
 					defaultNamespaces := make(map[string]cache.Config)
 					for _, namespace := range namespacesToWatch {
