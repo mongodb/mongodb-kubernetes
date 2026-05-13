@@ -63,56 +63,70 @@ def mongot_tls_cert_name(search_name: str, certs_secret_prefix: str = "") -> str
 # ============================================================================
 
 
-def shard_statefulset_name(search_name: str, shard_name: str) -> str:
-    """Per-shard mongot StatefulSet name. Mirrors MongotStatefulSetForShard()."""
-    return f"{search_name}-search-0-{shard_name}"
+def shard_statefulset_name(search_name: str, shard_name: str, cluster_index: int = 0) -> str:
+    """Per-shard mongot StatefulSet name. Mirrors MongotStatefulSetForClusterShard()."""
+    return f"{search_name}-search-{cluster_index}-{shard_name}"
 
 
-def shard_service_name(search_name: str, shard_name: str) -> str:
-    """Per-shard mongot Service name. Mirrors MongotServiceForShard()."""
-    return f"{search_name}-search-0-{shard_name}-svc"
+def shard_service_name(search_name: str, shard_name: str, cluster_index: int = 0) -> str:
+    """Per-shard mongot Service name. Mirrors MongotServiceForClusterShard()."""
+    return f"{search_name}-search-{cluster_index}-{shard_name}-svc"
 
 
-def shard_configmap_name(search_name: str, shard_name: str) -> str:
-    """Per-shard mongot ConfigMap name. Mirrors MongotConfigMapForShard()."""
-    return f"{search_name}-search-0-{shard_name}-config"
+def shard_configmap_name(search_name: str, shard_name: str, cluster_index: int = 0) -> str:
+    """Per-shard mongot ConfigMap name. Mirrors MongotConfigMapForClusterShard()."""
+    return f"{search_name}-search-{cluster_index}-{shard_name}-config"
 
 
-def shard_tls_cert_name(search_name: str, shard_name: str, certs_secret_prefix: str = "") -> str:
-    """Per-shard TLS certificate secret name. Mirrors TLSSecretForShard().
+def shard_tls_cert_name(search_name: str, shard_name: str, certs_secret_prefix: str = "", cluster_index: int = 0) -> str:
+    """Per-shard TLS certificate secret name. Mirrors TLSSecretForClusterShard().
 
     Pattern:
-      - With prefix: {certs_secret_prefix}-{search_name}-search-0-{shard_name}-cert
-      - Without prefix: {search_name}-search-0-{shard_name}-cert
+      - With prefix: {certs_secret_prefix}-{search_name}-search-{cluster_index}-{shard_name}-cert
+      - Without prefix: {search_name}-search-{cluster_index}-{shard_name}-cert
     """
     if certs_secret_prefix:
-        return f"{certs_secret_prefix}-{search_name}-search-0-{shard_name}-cert"
-    return f"{search_name}-search-0-{shard_name}-cert"
+        return f"{certs_secret_prefix}-{search_name}-search-{cluster_index}-{shard_name}-cert"
+    return f"{search_name}-search-{cluster_index}-{shard_name}-cert"
 
 
-def shard_proxy_service_name(search_name: str, shard_name: str) -> str:
-    """Per-shard stable proxy Service name. Mirrors ProxyServiceNameForShard()."""
-    return f"{search_name}-search-0-{shard_name}-proxy-svc"
+def shard_proxy_service_name(search_name: str, shard_name: str, cluster_index: int = 0) -> str:
+    """Per-shard stable proxy Service name. Mirrors ProxyServiceNameForClusterShard()."""
+    return f"{search_name}-search-{cluster_index}-{shard_name}-proxy-svc"
 
 
-def shard_service_host(search_name: str, shard_name: str, namespace: str, port: int) -> str:
+def shard_service_host(search_name: str, shard_name: str, namespace: str, port: int, cluster_index: int = 0) -> str:
     """Full hostname:port for the per-shard mongot Service."""
-    return f"{shard_service_name(search_name, shard_name)}.{namespace}.svc.cluster.local:{port}"
+    return f"{shard_service_name(search_name, shard_name, cluster_index)}.{namespace}.svc.cluster.local:{port}"
 
 
-def shard_pod_fqdn(search_name: str, shard_name: str, namespace: str, port: int) -> str:
+def shard_pod_fqdn(search_name: str, shard_name: str, namespace: str, port: int, cluster_index: int = 0) -> str:
     """Headless pod-0 FQDN for per-shard single mongot (pod-0.svc.ns.svc.cluster.local:port)."""
-    return f"{shard_statefulset_name(search_name, shard_name)}-0.{shard_service_name(search_name, shard_name)}.{namespace}.svc.cluster.local:{port}"
+    return f"{shard_statefulset_name(search_name, shard_name, cluster_index)}-0.{shard_service_name(search_name, shard_name, cluster_index)}.{namespace}.svc.cluster.local:{port}"
 
 
-def shard_proxy_service_host(search_name: str, shard_name: str, namespace: str, port: int) -> str:
+def shard_proxy_service_host(search_name: str, shard_name: str, namespace: str, port: int, cluster_index: int = 0) -> str:
     """Full hostname:port for the per-shard proxy Service."""
-    return f"{shard_proxy_service_name(search_name, shard_name)}.{namespace}.svc.cluster.local:{port}"
+    return f"{shard_proxy_service_name(search_name, shard_name, cluster_index)}.{namespace}.svc.cluster.local:{port}"
 
 
 # ============================================================================
 # Multi-cluster resources
 # ============================================================================
+
+
+def cluster_level_proxy_service_name(cluster_index: int, mdbs_resource_name: str) -> str:
+    """Shard-agnostic proxy Service name for a cluster. Mirrors ClusterLevelProxyServiceNameForCluster().
+
+    Used by mongos so it is not bound to a specific shard. Default cluster_index=0
+    preserves single-cluster behaviour.
+    """
+    return f"{mdbs_resource_name}-search-{cluster_index}-proxy-svc"
+
+
+def cluster_level_proxy_service_fqdn(cluster_index: int, mdbs_resource_name: str, namespace: str) -> str:
+    """Fully-qualified cluster-level proxy Service hostname (no port)."""
+    return f"{cluster_level_proxy_service_name(cluster_index, mdbs_resource_name)}.{namespace}.svc.cluster.local"
 
 
 def mc_proxy_svc_fqdn(search_name: str, namespace: str, cluster_index: int) -> str:

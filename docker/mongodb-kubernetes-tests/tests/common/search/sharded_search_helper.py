@@ -25,38 +25,41 @@ def create_per_shard_search_tls_certs(
     shard_count: int,
     mdb_resource_name: str,
     mdbs_resource_name: str,
+    cluster_index: int = 0,  # default 0 preserves single-cluster behaviour
+    api_client=None,
 ):
     """
         Create per-shard TLS certificates for MongoDBSearch resource.
 
         For each shard, creates a certificate with DNS names for:
-        - The mongot service: {search-name}-search-0-{shardName}-svc.{namespace}.svc.cluster.local
-        - The proxy service: {search-name}-search-0-{shardName}-proxy-svc.{namespace}.svc.cluster.local
+        - The mongot service: {search-name}-search-{cluster_index}-{shardName}-svc.{namespace}.svc.cluster.local
+        - The proxy service: {search-name}-search-{cluster_index}-{shardName}-proxy-svc.{namespace}.svc.cluster.local
 
-    a    Secret naming: search_resource_names.shard_tls_cert_name(MDB_RESOURCE_NAME, shardName, prefix)
+        Secret naming: search_resource_names.shard_tls_cert_name(mdbs_resource_name, shardName, prefix, cluster_index)
         e.g., certs-mdb-sh-search-0-mdb-sh-0-cert
     """
-    logger.info(f"Creating per-shard Search TLS certificates with prefix '{prefix}'...")
+    logger.info(f"Creating per-shard Search TLS certificates with prefix '{prefix}' for cluster {cluster_index}...")
 
     for shard_idx in range(shard_count):
         shard_name = f"{mdb_resource_name}-{shard_idx}"
-        secret_name = search_resource_names.shard_tls_cert_name(mdbs_resource_name, shard_name, prefix)
+        secret_name = search_resource_names.shard_tls_cert_name(mdbs_resource_name, shard_name, prefix, cluster_index)
 
         additional_domains = [
-            f"{search_resource_names.shard_service_name(mdbs_resource_name, shard_name)}.{namespace}.svc.cluster.local",
-            f"{search_resource_names.shard_proxy_service_name(mdbs_resource_name, shard_name)}.{namespace}.svc.cluster.local",
+            f"{search_resource_names.shard_service_name(mdbs_resource_name, shard_name, cluster_index)}.{namespace}.svc.cluster.local",
+            f"{search_resource_names.shard_proxy_service_name(mdbs_resource_name, shard_name, cluster_index)}.{namespace}.svc.cluster.local",
         ]
 
         create_tls_certs(
             issuer=issuer,
             namespace=namespace,
-            resource_name=search_resource_names.shard_statefulset_name(mdbs_resource_name, shard_name),
+            resource_name=search_resource_names.shard_statefulset_name(mdbs_resource_name, shard_name, cluster_index),
             secret_name=secret_name,
             additional_domains=additional_domains,
+            api_client=api_client,
         )
-        logger.info(f"✓ Per-shard Search TLS certificate created: {secret_name}")
+        logger.info(f"Per-shard Search TLS certificate created: {secret_name}")
 
-    logger.info(f"✓ All {shard_count} per-shard Search TLS certificates created")
+    logger.info(f"All {shard_count} per-shard Search TLS certificates created for cluster {cluster_index}")
 
 
 def get_search_tester(mdb: MongoDB, username: str, password: str, use_ssl: bool = False) -> SearchTester:
@@ -73,24 +76,33 @@ def create_lb_certificates(
     mdb_resource_name: str,
     mdbs_resource_name: str,
     tls_cert_prefix: str,
+    cluster_index: int = 0,  # default 0 preserves single-cluster behaviour
+    api_client=None,
 ):
     """Create TLS certificates for the operator-managed load balancer (Envoy proxy).
 
     Secret names must match what the operator expects per LoadBalancerServerCert() and
     LoadBalancerClientCert(): {prefix}-{name}-search-lb-0-cert and
     {prefix}-{name}-search-lb-0-client-cert.
+
+    The server cert SAN list covers both per-shard proxy Services and the cluster-level
+    proxy Service that mongos uses (M3: cluster-level Service is created for all sharded,
+    including single-cluster).
     """
-    logger.info("Creating managed LB certificates...")
+    logger.info(f"Creating managed LB certificates for cluster {cluster_index}...")
 
     lb_server_cert_name = search_resource_names.lb_server_cert_name(mdbs_resource_name, tls_cert_prefix)
     lb_client_cert_name = search_resource_names.lb_client_cert_name(mdbs_resource_name, tls_cert_prefix)
 
-    # Build SANs for server certificate (all per-shard proxy services)
+    # Build SANs: per-shard proxy Services + cluster-level proxy Service for mongos
     additional_domains = []
     for i in range(shard_count):
         shard_name = f"{mdb_resource_name}-{i}"
-        proxy_svc = search_resource_names.shard_proxy_service_name(mdbs_resource_name, shard_name)
+        proxy_svc = search_resource_names.shard_proxy_service_name(mdbs_resource_name, shard_name, cluster_index)
         additional_domains.append(f"{proxy_svc}.{namespace}.svc.cluster.local")
+    additional_domains.append(
+        search_resource_names.cluster_level_proxy_service_fqdn(cluster_index, mdbs_resource_name, namespace)
+    )
 
     # Create server certificate
     create_tls_certs(
@@ -101,6 +113,7 @@ def create_lb_certificates(
         service_name=search_resource_names.lb_deployment_name(mdbs_resource_name),
         additional_domains=additional_domains,
         secret_name=lb_server_cert_name,
+        api_client=api_client,
     )
     logger.info(f"LB server certificate created: {lb_server_cert_name}")
 
@@ -113,16 +126,17 @@ def create_lb_certificates(
         service_name=search_resource_names.lb_deployment_name(mdbs_resource_name),
         additional_domains=[f"*.{namespace}.svc.cluster.local"],
         secret_name=lb_client_cert_name,
+        api_client=api_client,
     )
     logger.info(f"LB client certificate created: {lb_client_cert_name}")
 
 
-def create_issuer_ca(issuer_ca_filepath: str, namespace: str, ca_configmap_name: str) -> str:
+def create_issuer_ca(issuer_ca_filepath: str, namespace: str, ca_configmap_name: str, api_client=None) -> str:
     ca = open(issuer_ca_filepath).read()
     configmap_data = {"ca-pem": ca, "mms-ca.crt": ca}
-    create_or_update_configmap(namespace, ca_configmap_name, configmap_data)
+    create_or_update_configmap(namespace, ca_configmap_name, configmap_data, api_client)
     secret_data = {"ca.crt": ca}
-    create_or_update_secret(namespace, ca_configmap_name, secret_data)
+    create_or_update_secret(namespace, ca_configmap_name, secret_data, api_client=api_client)
     return ca_configmap_name
 
 
