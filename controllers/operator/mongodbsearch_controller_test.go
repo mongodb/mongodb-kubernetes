@@ -31,6 +31,7 @@ import (
 	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/pkg/mongot"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
+	khandler "github.com/mongodb/mongodb-kubernetes/pkg/handler"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
@@ -605,4 +606,135 @@ func TestMongoDBSearchControllerReconcile_StateConfigMap_ReAddCluster(t *testing
 	require.NoError(t, decodeStateJSON(stateCM, &gotState))
 	assert.Equal(t, map[string]int{"us-east": 0, "us-west": 1, "eu-central": 2}, gotState.ClusterMapping,
 		"re-added cluster must reclaim its original index")
+}
+
+func TestMongoDBSearchReconcile_Success_MultiCluster(t *testing.T) {
+	ctx := context.Background()
+
+	// MC GA requires external source (Q2); managed source + MC (Q3) is post-MVP.
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: mock.TestNamespace},
+		Spec: searchv1.MongoDBSearchSpec{
+			Source: &searchv1.MongoDBSource{
+				ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{
+					HostAndPorts: []string{"mdb-0.mdb.svc:27017", "mdb-1.mdb.svc:27017"},
+				},
+			},
+			LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot-{clusterName}.example.com"}},
+		},
+	}
+	clusters := []searchv1.ClusterSpec{
+		{ClusterName: "us-east", Replicas: ptr.To(int32(1))},
+		{ClusterName: "us-west", Replicas: ptr.To(int32(1))},
+	}
+	search.Spec.Clusters = &clusters
+
+	eastClient := mock.NewEmptyFakeClientBuilder().Build()
+	westClient := mock.NewEmptyFakeClientBuilder().Build()
+	memberClients := map[string]client.Client{
+		"us-east": eastClient,
+		"us-west": westClient,
+	}
+
+	reconciler, centralClient := newSearchReconcilerWithMembers(t, nil, memberClients, search)
+
+	req := reconcile.Request{NamespacedName: types.NamespacedName{Name: search.Name, Namespace: search.Namespace}}
+
+	// First reconcile creates state CM, then fans out per-cluster resources.
+	// The per-unit STS readiness gate makes the helper exit Pending as soon
+	// as one unit's STS isn't ready, so several reconciles are needed for the
+	// loop to walk every unit. Each iteration, mark STSes ready on all clients
+	// so the next pass progresses to the next unit.
+	got := &searchv1.MongoDBSearch{}
+	const maxPasses = 5
+	for i := 0; i < maxPasses; i++ {
+		_, err := reconciler.Reconcile(ctx, req)
+		require.NoError(t, err)
+		require.NoError(t, centralClient.Get(ctx, req.NamespacedName, got))
+		// The Envoy controller would normally drive LB status; we seed it so
+		// IsLoadBalancerReady() returns true once STSes are caught up.
+		if got.Status.LoadBalancer == nil {
+			got.Status.LoadBalancer = &searchv1.LoadBalancerStatus{Phase: status.PhaseRunning}
+			require.NoError(t, centralClient.Status().Update(ctx, got))
+		}
+		require.NoError(t, mock.MarkAllStatefulSetsAsReady(ctx, search.Namespace, centralClient, eastClient, westClient))
+		if got.Status.Phase == status.PhaseRunning {
+			break
+		}
+	}
+	require.Equal(t, status.PhaseRunning, got.Status.Phase, "reconciler must reach Running within %d passes", maxPasses)
+
+	// State CM lives on the central client and records the mapping the helper
+	// fanned out over.
+	stateCM := &corev1.ConfigMap{}
+	require.NoError(t, centralClient.Get(ctx, types.NamespacedName{Name: "mdb-search-state", Namespace: mock.TestNamespace}, stateCM))
+	var state SearchDeploymentState
+	require.NoError(t, decodeStateJSON(stateCM, &state))
+	require.Equal(t, map[string]int{"us-east": 0, "us-west": 1}, state.ClusterMapping)
+
+	// Per-cluster resource fan-out: each cluster sees its own index-suffixed
+	// STS / headless Service / proxy Service / mongot ConfigMap on its own client,
+	// and the central client sees none of them.
+	cases := []struct {
+		name        string
+		clusterName string
+		clusterIdx  int
+		mc          client.Client
+		otherMC     client.Client
+	}{
+		{name: "us-east", clusterName: "us-east", clusterIdx: 0, mc: eastClient, otherMC: westClient},
+		{name: "us-west", clusterName: "us-west", clusterIdx: 1, mc: westClient, otherMC: eastClient},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			stsName := search.StatefulSetNamespacedNameForCluster(tc.clusterIdx)
+			headlessName := search.SearchServiceNamespacedNameForCluster(tc.clusterIdx)
+			proxyName := search.ProxyServiceNamespacedNameForCluster(tc.clusterIdx)
+			cmName := search.MongotConfigConfigMapNameForCluster(tc.clusterIdx)
+
+			// Lands on the right member client.
+			sts := &appsv1.StatefulSet{}
+			require.NoError(t, tc.mc.Get(ctx, stsName, sts), "STS must exist on owning member client")
+			headlessSvc := &corev1.Service{}
+			require.NoError(t, tc.mc.Get(ctx, headlessName, headlessSvc), "headless Service must exist on owning member client")
+			proxySvc := &corev1.Service{}
+			require.NoError(t, tc.mc.Get(ctx, proxyName, proxySvc), "proxy Service must exist on owning member client")
+			cm := &corev1.ConfigMap{}
+			require.NoError(t, tc.mc.Get(ctx, cmName, cm), "mongot ConfigMap must exist on owning member client")
+
+			// Owner labels stamp cross-cluster identity — owner refs do not
+			// carry between clusters, so labels are the link back to the CR.
+			for _, obj := range []client.Object{sts, headlessSvc, proxySvc, cm} {
+				labels := obj.GetLabels()
+				assert.Equal(t, search.Name, labels[khandler.MongoDBSearchOwnerNameLabel], "owner-name label on %T", obj)
+				assert.Equal(t, search.Namespace, labels[khandler.MongoDBSearchOwnerNamespaceLabel], "owner-namespace label on %T", obj)
+				assert.Equal(t, tc.clusterName, labels[khandler.MongoDBSearchClusterNameLabel], "cluster-name label on %T", obj)
+			}
+		})
+	}
+}
+
+// newSearchReconcilerWithMembers builds a MongoDBSearchReconciler that is pre-wired
+// with the given member-cluster clients. The central fake client is built from
+// mock.NewEmptyFakeClientBuilder() so all search-related types are registered.
+func newSearchReconcilerWithMembers(
+	t *testing.T,
+	mdbc *mdbcv1.MongoDBCommunity,
+	memberClients map[string]client.Client,
+	searches ...*searchv1.MongoDBSearch,
+) (*MongoDBSearchReconciler, client.Client) {
+	t.Helper()
+	builder := mock.NewEmptyFakeClientBuilder().WithStatusSubresource(&searchv1.MongoDBSearch{})
+
+	if mdbc != nil {
+		builder.WithObjects(mdbc)
+	}
+	for _, s := range searches {
+		if s != nil {
+			builder.WithObjects(s)
+		}
+	}
+	centralClient := builder.Build()
+	return newMongoDBSearchReconciler(centralClient, searchcontroller.OperatorSearchConfig{}, memberClients), centralClient
 }
