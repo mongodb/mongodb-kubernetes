@@ -37,9 +37,9 @@ linters:
     depguard:
       rules:
         no-mco-from-enterprise:
-          # The Enterprise operator and MCO share a single Go module but must stay
-          # architecturally decoupled: code outside mongodb-community-operator/ must
-          # not import packages inside it, with the narrow exceptions below.
+          # The Enterprise and Community operator share a single Go module, but must stay
+          # architecturally decoupled to allow for easier changes: no Enterprise logic should import
+          # mongodb-community-operator packages to avoid coupling the two operators together.
           #
           # Each exception is documented with the reason the coupling is intentional
           # and cannot be removed without breaking the design invariant.
@@ -67,7 +67,6 @@ linters:
           deny:
             - pkg: "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator"
               desc: >-
-                Code outside mongodb-community-operator/ must not import MCO packages.
                 This boundary keeps the two operators architecturally decoupled within
                 the shared module. Add an exception above only when the coupling is
                 genuinely structural (e.g. binary wiring, CRD type reference) and
