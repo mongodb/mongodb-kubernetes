@@ -57,6 +57,7 @@ func (s *MongoDBSearch) RunValidations() []v1.ValidationResult {
 		validateMCRejectsUnmanagedLB,
 		validateMCRequiresLoadBalancerManaged,
 		validateMCMatchTagsNonEmpty,
+		validateMCRequiresExternalHostAndPorts,
 	}
 
 	var results []v1.ValidationResult
@@ -627,4 +628,26 @@ func validateMCMatchTagsNonEmpty(s *MongoDBSearch) v1.ValidationResult {
 		}
 	}
 	return v1.ValidationSuccess()
+}
+
+// validateMCRequiresExternalHostAndPorts requires external.hostAndPorts when
+// spec.clusters has >1 entry: the same seed list is rendered into every
+// cluster's mongot ConfigMap (Q3 managed source is post-MVP).
+func validateMCRequiresExternalHostAndPorts(s *MongoDBSearch) v1.ValidationResult {
+	if s.Spec.Clusters == nil {
+		return v1.ValidationSuccess()
+	}
+	if len(*s.Spec.Clusters) <= 1 {
+		return v1.ValidationSuccess()
+	}
+	if s.Spec.Source != nil &&
+		s.Spec.Source.ExternalMongoDBSource != nil &&
+		len(s.Spec.Source.ExternalMongoDBSource.HostAndPorts) > 0 {
+		return v1.ValidationSuccess()
+	}
+	return v1.ValidationError(
+		"spec.source.external.hostAndPorts is required when len(spec.clusters) > 1; " +
+			"every cluster's mongot ConfigMap is rendered from this top-level seed list. " +
+			"Q3 (managed source) is post-MVP.",
+	)
 }

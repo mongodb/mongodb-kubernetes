@@ -28,6 +28,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
+	khandler "github.com/mongodb/mongodb-kubernetes/pkg/handler"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/commoncontroller"
@@ -79,20 +80,78 @@ type MongoDBSearchReconcileHelper struct {
 	mdbSearch            *searchv1.MongoDBSearch
 	db                   SearchSourceDBResource
 	operatorSearchConfig OperatorSearchConfig
+
+	// memberClusterClients holds per-member-cluster Kubernetes clients keyed by
+	// spec.clusters[i].clusterName. Empty in single-cluster installs.
+	memberClusterClients map[string]kubernetesClient.Client
+
+	// clusterMapping is the persisted clusterName → clusterIndex assignment from
+	// the search state ConfigMap. Per-cluster resource names use these indexes
+	// so spec.clusters[] reorders don't rename resources.
+	clusterMapping map[string]int
 }
 
+// NewMongoDBSearchReconcileHelper constructs a reconcile helper. Pass nil/nil for memberClusterClients
+// and clusterMapping on single-cluster installs.
 func NewMongoDBSearchReconcileHelper(
 	client kubernetesClient.Client,
 	mdbSearch *searchv1.MongoDBSearch,
 	db SearchSourceDBResource,
 	operatorSearchConfig OperatorSearchConfig,
+	memberClusterClients map[string]kubernetesClient.Client,
+	clusterMapping map[string]int,
 ) *MongoDBSearchReconcileHelper {
 	return &MongoDBSearchReconcileHelper{
 		client:               client,
 		operatorSearchConfig: operatorSearchConfig,
 		mdbSearch:            mdbSearch,
 		db:                   db,
+		memberClusterClients: memberClusterClients,
+		clusterMapping:       clusterMapping,
 	}
+}
+
+// searchOwnerLabels returns the cross-cluster enqueue labels that every
+// member-cluster resource owned by this MongoDBSearch must carry. Owner refs
+// don't cross cluster boundaries; labels are the only path back from a member
+// resource to its central CR (for watch routing and label-based GC).
+func searchOwnerLabels(search *searchv1.MongoDBSearch, clusterName string) map[string]string {
+	labels := map[string]string{
+		khandler.MongoDBSearchOwnerNameLabel:      search.Name,
+		khandler.MongoDBSearchOwnerNamespaceLabel: search.Namespace,
+	}
+	if clusterName != "" {
+		labels[khandler.MongoDBSearchClusterNameLabel] = clusterName
+	}
+	return labels
+}
+
+// withSearchOwnerLabels merges the search-owner labels into the STS ObjectMeta
+// labels. It does NOT touch the selector/pod-template (which is immutable on
+// existing STS); the pod-routing labels stay in the unit's podLabels.
+func withSearchOwnerLabels(search *searchv1.MongoDBSearch, clusterName string) statefulset.Modification {
+	return func(set *appsv1.StatefulSet) {
+		if set.Labels == nil {
+			set.Labels = map[string]string{}
+		}
+		for k, v := range searchOwnerLabels(search, clusterName) {
+			set.Labels[k] = v
+		}
+	}
+}
+
+// clientForCluster returns the Kubernetes client for a unit's member cluster.
+// Empty clusterName / empty memberClusterClients map fall back to the central
+// client (single-cluster install). Unknown clusterName is an error.
+func (r *MongoDBSearchReconcileHelper) clientForCluster(clusterName string) (kubernetesClient.Client, error) {
+	if clusterName == "" || len(r.memberClusterClients) == 0 {
+		return r.client, nil
+	}
+	c, ok := r.memberClusterClients[clusterName]
+	if !ok {
+		return nil, xerrors.Errorf("no Kubernetes client registered for cluster %q", clusterName)
+	}
+	return c, nil
 }
 
 // reconcileUnit captures all per-unit (per-shard or single-RS) resource names, labels, and
@@ -111,6 +170,14 @@ type reconcileUnit struct {
 	logFields           []any                // k/v fields attached to the per-unit logger (nil for single-unit topologies)
 	tlsResource         tls.TLSConfigurableResource
 	mongotConfigFn      mongot.Modification
+	clusterName         string // "" routes to the central client (single-cluster)
+	clusterIndex        int
+}
+
+// SearchSourceReplicaSet is the subset of SearchSourceDBResource the RS plan
+// needs; tests can stub it.
+type SearchSourceReplicaSet interface {
+	HostSeeds(shardName string) ([]string, error)
 }
 
 // reconcilePlan is the full per-reconcile work description: a list of units plus the
@@ -130,20 +197,20 @@ func (r *MongoDBSearchReconcileHelper) buildReconcilePlan(log *zap.SugaredLogger
 		log.Infof("Reconciling MongoDBSearch for sharded source deployment with %d shards", shardedSource.GetShardCount())
 		return r.buildShardedPlan(shardedSource)
 	}
-	return r.buildReplicaSetPlan()
+	return r.buildReplicaSetPlan(r.db)
 }
 
-func (r *MongoDBSearchReconcileHelper) buildReplicaSetPlan() (reconcilePlan, error) {
-	hostSeeds, err := r.db.HostSeeds("")
+// buildReplicaSetPlan returns one reconcileUnit per cluster. Single-cluster is a
+// 1-element work list with unindexed names; MC indexes via state.ClusterMapping.
+func (r *MongoDBSearchReconcileHelper) buildReplicaSetPlan(rsSource SearchSourceReplicaSet) (reconcilePlan, error) {
+	hostSeeds, err := rsSource.HostSeeds("")
 	if err != nil {
 		return reconcilePlan{}, err
 	}
 
-	svcName := r.mdbSearch.SearchServiceNamespacedName().Name
-
-	var extraHeadlessPorts []corev1.ServicePort
+	var extraPorts []corev1.ServicePort
 	if r.mdbSearch.IsWireprotoEnabled() {
-		extraHeadlessPorts = []corev1.ServicePort{{
+		extraPorts = []corev1.ServicePort{{
 			Name:       "mongot-wireproto",
 			Protocol:   corev1.ProtocolTCP,
 			Port:       r.mdbSearch.GetMongotWireprotoPort(),
@@ -151,21 +218,68 @@ func (r *MongoDBSearchReconcileHelper) buildReplicaSetPlan() (reconcilePlan, err
 		}}
 	}
 
-	return reconcilePlan{
-		units: []reconcileUnit{{
-			stsName:            r.mdbSearch.StatefulSetNamespacedName(),
-			headlessSvc:        r.mdbSearch.SearchServiceNamespacedName(),
-			proxySvc:           r.mdbSearch.ProxyServiceNamespacedName(),
-			configMapName:      r.mdbSearch.MongotConfigConfigMapNamespacedName(),
-			podLabels:          map[string]string{appLabelKey: svcName},
-			extraHeadlessPorts: extraHeadlessPorts,
+	work := r.buildRSWorkList()
+	mongotConfigFn := mongot.Apply(baseMongotConfig(r.mdbSearch, hostSeeds), wireprotoMongotMod(r.mdbSearch))
+
+	units := make([]reconcileUnit, 0, len(work))
+	for _, w := range work {
+		stsName, headlessSvc, proxySvc, configMapName := r.rsResourceNames(w)
+		units = append(units, reconcileUnit{
+			stsName:            stsName,
+			headlessSvc:        headlessSvc,
+			proxySvc:           proxySvc,
+			configMapName:      configMapName,
+			podLabels:          map[string]string{appLabelKey: headlessSvc.Name},
+			extraHeadlessPorts: extraPorts,
 			tlsResource:        r.mdbSearch,
-			mongotConfigFn:     mongot.Apply(baseMongotConfig(r.mdbSearch, hostSeeds), wireprotoMongotMod(r.mdbSearch)),
-		}},
+			mongotConfigFn:     mongotConfigFn,
+			clusterName:        w.ClusterName,
+			clusterIndex:       w.ClusterIndex,
+		})
+	}
+
+	return reconcilePlan{
+		units:          units,
 		manageProxySvc: !r.mdbSearch.IsReplicaSetUnmanagedLB(),
 		preflight:      func(context.Context, *zap.SugaredLogger) workflow.Status { return workflow.OK() },
 		cleanup:        func(context.Context, *zap.SugaredLogger) {},
 	}, nil
+}
+
+// rsWorkItem is the (clusterName, clusterIndex) pair the RS plan iterates over.
+type rsWorkItem struct {
+	ClusterName  string
+	ClusterIndex int
+}
+
+// buildRSWorkList returns a 1-element work list with clusterName "" for the
+// legacy single-cluster path, or one item per spec.clusters[i] with
+// clusterIndex resolved from the persisted state.ClusterMapping for MC.
+func (r *MongoDBSearchReconcileHelper) buildRSWorkList() []rsWorkItem {
+	if r.mdbSearch.Spec.Clusters == nil || len(*r.mdbSearch.Spec.Clusters) == 0 {
+		return []rsWorkItem{{}}
+	}
+	clusters := *r.mdbSearch.Spec.Clusters
+	work := make([]rsWorkItem, 0, len(clusters))
+	for _, c := range clusters {
+		work = append(work, rsWorkItem{ClusterName: c.ClusterName, ClusterIndex: r.clusterMapping[c.ClusterName]})
+	}
+	return work
+}
+
+// rsResourceNames returns (sts, headlessSvc, proxySvc, configMap) names for one
+// RS work item. Empty clusterName takes the legacy unindexed names.
+func (r *MongoDBSearchReconcileHelper) rsResourceNames(w rsWorkItem) (types.NamespacedName, types.NamespacedName, types.NamespacedName, types.NamespacedName) {
+	if w.ClusterName == "" {
+		return r.mdbSearch.StatefulSetNamespacedName(),
+			r.mdbSearch.SearchServiceNamespacedName(),
+			r.mdbSearch.ProxyServiceNamespacedName(),
+			r.mdbSearch.MongotConfigConfigMapNamespacedName()
+	}
+	return r.mdbSearch.StatefulSetNamespacedNameForCluster(w.ClusterIndex),
+		r.mdbSearch.SearchServiceNamespacedNameForCluster(w.ClusterIndex),
+		r.mdbSearch.ProxyServiceNamespacedNameForCluster(w.ClusterIndex),
+		r.mdbSearch.MongotConfigConfigMapNameForCluster(w.ClusterIndex)
 }
 
 func (r *MongoDBSearchReconcileHelper) buildShardedPlan(shardedSource SearchSourceShardedDeployment) (reconcilePlan, error) {
@@ -302,64 +416,28 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 	image, imageVersion := r.searchImageAndVersion()
 	searchImage := fmt.Sprintf("%s:%s", image, imageVersion)
 
+	mods := reconcileUnitMods{
+		passwordAuthSts:       passwordAuthStsModification,
+		egressTlsMongot:       egressTlsMongotModification,
+		egressTlsSts:          egressTlsStsModification,
+		x509Mongot:            x509MongotModification,
+		x509Sts:               x509StsModification,
+		embeddingConfigMongot: embeddingConfigMongotModification,
+		embeddingConfigSts:    embeddingConfigStsModification,
+		keyfileSts:            keyfileStsModification,
+		searchImage:           searchImage,
+		usePerPodConfig:       usePerPodConfig,
+	}
+
 	for _, unit := range plan.units {
 		unitLog := log.With(unit.logFields...)
 
-		if err := r.ensureSearchService(ctx, unitLog, unit.headlessSvc, buildHeadlessService(r.mdbSearch, unit)); err != nil {
-			return workflow.Failed(err)
-		}
-
-		if plan.manageProxySvc {
-			if err := r.ensureSearchService(ctx, unitLog, unit.proxySvc, buildProxyService(r.mdbSearch, unit)); err != nil {
-				return workflow.Failed(err)
-			}
-		}
-
-		// Per-unit ingress TLS (RS uses mdbSearch, sharded uses perShardTLSResource).
-		// Each shard may have its own TLS secret, so this is not hoistable out of the loop.
-		ingressTlsMongotModification, ingressTlsStsModification, err := r.ensureIngressTlsConfig(ctx, unit.tlsResource)
+		mutatedSts, unitClient, err := r.applyReconcileUnit(ctx, unitLog, plan, unit, mods)
 		if err != nil {
 			return workflow.Failed(err)
 		}
-
-		configHash, err := r.ensureMongotConfig(ctx,
-			unitLog,
-			unit.configMapName,
-			unit.stsName.Name,
-			unit.mongotConfigFn,
-			ingressTlsMongotModification,
-			egressTlsMongotModification,
-			x509MongotModification,
-			embeddingConfigMongotModification,
-		)
-		if err != nil {
-			return workflow.Failed(err)
-		}
-
-		configHashModification := statefulset.WithPodSpecTemplate(podtemplatespec.WithAnnotations(
-			map[string]string{
-				"mongotConfigHash": configHash,
-			},
-		))
-
-		mutatedSts, err := r.createOrUpdateStatefulSet(ctx,
-			unitLog,
-			unit.stsName,
-			CreateSearchStatefulSetFunc(r.mdbSearch, unit.stsName.Name, r.mdbSearch.Namespace, unit.headlessSvc.Name, unit.configMapName.Name, unit.podLabels, searchImage, usePerPodConfig),
-			passwordAuthStsModification,
-			configHashModification,
-			keyfileStsModification,
-			ingressTlsStsModification,
-			egressTlsStsModification,
-			x509StsModification,
-			embeddingConfigStsModification,
-		)
-		if err != nil {
-			return workflow.Failed(err)
-		}
-
 		expectedGeneration := mutatedSts.GetGeneration()
-		if statefulSetStatus := statefulset.GetStatefulSetStatus(ctx, r.mdbSearch.Namespace, unit.stsName.Name, expectedGeneration, r.client); !statefulSetStatus.IsOK() {
+		if statefulSetStatus := statefulset.GetStatefulSetStatus(ctx, r.mdbSearch.Namespace, unit.stsName.Name, expectedGeneration, unitClient); !statefulSetStatus.IsOK() {
 			return statefulSetStatus
 		}
 	}
@@ -373,6 +451,130 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 	return workflow.OK().WithAdditionalOptions(searchv1.NewMongoDBSearchVersionOption(imageVersion))
 }
 
+// reconcileUnitMods bundles the topology-agnostic modifications applied to
+// every unit. Nil fields are replaced with NOOPs in withDefaults.
+type reconcileUnitMods struct {
+	passwordAuthSts       statefulset.Modification
+	egressTlsMongot       mongot.Modification
+	egressTlsSts          statefulset.Modification
+	x509Mongot            mongot.Modification
+	x509Sts               statefulset.Modification
+	embeddingConfigMongot mongot.Modification
+	embeddingConfigSts    statefulset.Modification
+	keyfileSts            statefulset.Modification
+	searchImage           string
+	usePerPodConfig       bool
+}
+
+// withDefaults returns a copy with nil modifications replaced by NOOPs.
+func (m reconcileUnitMods) withDefaults() reconcileUnitMods {
+	if m.passwordAuthSts == nil {
+		m.passwordAuthSts = statefulset.NOOP()
+	}
+	if m.egressTlsMongot == nil {
+		m.egressTlsMongot = mongot.NOOP()
+	}
+	if m.egressTlsSts == nil {
+		m.egressTlsSts = statefulset.NOOP()
+	}
+	if m.x509Mongot == nil {
+		m.x509Mongot = mongot.NOOP()
+	}
+	if m.x509Sts == nil {
+		m.x509Sts = statefulset.NOOP()
+	}
+	if m.embeddingConfigMongot == nil {
+		m.embeddingConfigMongot = mongot.NOOP()
+	}
+	if m.embeddingConfigSts == nil {
+		m.embeddingConfigSts = statefulset.NOOP()
+	}
+	if m.keyfileSts == nil {
+		m.keyfileSts = statefulset.NOOP()
+	}
+	return m
+}
+
+// applyReconcileUnit reconciles all per-unit resources against the client
+// resolved from unit.clusterName (central client when clusterName == "").
+// Returns the mutated StatefulSet and resolved client for the readiness check.
+func (r *MongoDBSearchReconcileHelper) applyReconcileUnit(
+	ctx context.Context,
+	log *zap.SugaredLogger,
+	plan reconcilePlan,
+	unit reconcileUnit,
+	mods reconcileUnitMods,
+) (*appsv1.StatefulSet, kubernetesClient.Client, error) {
+	mods = mods.withDefaults()
+
+	unitClient, err := r.clientForCluster(unit.clusterName)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if err := r.ensureSearchService(ctx, log, unitClient, unit.headlessSvc, buildHeadlessService(r.mdbSearch, unit)); err != nil {
+		return nil, nil, err
+	}
+
+	if plan.manageProxySvc {
+		if err := r.ensureSearchService(ctx, log, unitClient, unit.proxySvc, buildProxyService(r.mdbSearch, unit)); err != nil {
+			return nil, nil, err
+		}
+	}
+
+	// Per-unit ingress TLS: each shard may have its own secret, so this cannot
+	// be hoisted out of the loop.
+	ingressTlsMongotModification, ingressTlsStsModification, err := r.ensureIngressTlsConfig(ctx, unitClient, unit.tlsResource)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	configHash, err := r.ensureMongotConfig(ctx,
+		log,
+		unitClient,
+		unit.configMapName,
+		unit.stsName.Name,
+		unit.clusterName,
+		unit.mongotConfigFn,
+		ingressTlsMongotModification,
+		mods.egressTlsMongot,
+		mods.x509Mongot,
+		mods.embeddingConfigMongot,
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	configHashModification := statefulset.WithPodSpecTemplate(podtemplatespec.WithAnnotations(
+		map[string]string{
+			"mongotConfigHash": configHash,
+		},
+	))
+
+	stsFunc, err := CreateSearchStatefulSetFunc(r.mdbSearch, unit.clusterName, unit.stsName.Name, r.mdbSearch.Namespace, unit.headlessSvc.Name, unit.configMapName.Name, unit.podLabels, mods.searchImage, mods.usePerPodConfig)
+	if err != nil {
+		return nil, nil, err
+	}
+	mutatedSts, err := r.createOrUpdateStatefulSet(ctx,
+		log,
+		unitClient,
+		unit.stsName,
+		stsFunc,
+		withSearchOwnerLabels(r.mdbSearch, unit.clusterName),
+		mods.passwordAuthSts,
+		configHashModification,
+		mods.keyfileSts,
+		ingressTlsStsModification,
+		mods.egressTlsSts,
+		mods.x509Sts,
+		mods.embeddingConfigSts,
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return mutatedSts, unitClient, nil
+}
 
 // isOwnedBy returns true if the object has an owner reference pointing to the given owner.
 // Unlike metav1.IsControlledBy, this does not require the controller: true field,
@@ -493,11 +695,11 @@ func (r *MongoDBSearchReconcileHelper) searchImageAndVersion() (string, string) 
 	return fmt.Sprintf("%s/%s", r.operatorSearchConfig.SearchRepo, r.operatorSearchConfig.SearchName), imageVersion
 }
 
-func (r *MongoDBSearchReconcileHelper) createOrUpdateStatefulSet(ctx context.Context, log *zap.SugaredLogger, stsName types.NamespacedName, modifications ...statefulset.Modification) (*appsv1.StatefulSet, error) {
+func (r *MongoDBSearchReconcileHelper) createOrUpdateStatefulSet(ctx context.Context, log *zap.SugaredLogger, kubeClient kubernetesClient.Client, stsName types.NamespacedName, modifications ...statefulset.Modification) (*appsv1.StatefulSet, error) {
 	sts := &appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Name: stsName.Name, Namespace: stsName.Namespace}}
-	op, err := controllerutil.CreateOrUpdate(ctx, r.client, sts, func() error {
+	op, err := controllerutil.CreateOrUpdate(ctx, kubeClient, sts, func() error {
 		statefulset.Apply(modifications...)(sts)
-		return controllerutil.SetOwnerReference(r.mdbSearch, sts, r.client.Scheme())
+		return controllerutil.SetOwnerReference(r.mdbSearch, sts, kubeClient.Scheme())
 	})
 	if err != nil {
 		return nil, xerrors.Errorf("error creating/updating search statefulset %v: %w", stsName, err)
@@ -508,9 +710,9 @@ func (r *MongoDBSearchReconcileHelper) createOrUpdateStatefulSet(ctx context.Con
 	return sts, nil
 }
 
-func (r *MongoDBSearchReconcileHelper) ensureSearchService(ctx context.Context, log *zap.SugaredLogger, svcName types.NamespacedName, desired corev1.Service) error {
+func (r *MongoDBSearchReconcileHelper) ensureSearchService(ctx context.Context, log *zap.SugaredLogger, kubeClient kubernetesClient.Client, svcName types.NamespacedName, desired corev1.Service) error {
 	svc := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: svcName.Name, Namespace: svcName.Namespace}}
-	op, err := controllerutil.CreateOrUpdate(ctx, r.client, svc, func() error {
+	op, err := controllerutil.CreateOrUpdate(ctx, kubeClient, svc, func() error {
 		resourceVersion := svc.ResourceVersion
 		existingClusterIP := svc.Spec.ClusterIP
 		*svc = desired
@@ -521,7 +723,7 @@ func (r *MongoDBSearchReconcileHelper) ensureSearchService(ctx context.Context, 
 		if desired.Spec.ClusterIP == "" && existingClusterIP != "" {
 			svc.Spec.ClusterIP = existingClusterIP
 		}
-		return controllerutil.SetOwnerReference(r.mdbSearch, svc, r.client.Scheme())
+		return controllerutil.SetOwnerReference(r.mdbSearch, svc, kubeClient.Scheme())
 	})
 	if err != nil {
 		return xerrors.Errorf("error creating/updating search service %v: %w", svcName, err)
@@ -532,10 +734,11 @@ func (r *MongoDBSearchReconcileHelper) ensureSearchService(ctx context.Context, 
 	return nil
 }
 
-// ensureMongotConfig creates or updates the mongot ConfigMap.
-// When auto-embedding is configured, generates leader/follower config files plus pod-name role keys.
-func (r *MongoDBSearchReconcileHelper) ensureMongotConfig(ctx context.Context, log *zap.SugaredLogger, cmName types.NamespacedName, stsName string, modifications ...mongot.Modification) (string, error) {
-	replicas := r.mdbSearch.GetReplicas()
+// ensureMongotConfig creates or updates the mongot ConfigMap. When
+// auto-embedding is configured, generates leader/follower config files plus
+// pod-name role keys.
+func (r *MongoDBSearchReconcileHelper) ensureMongotConfig(ctx context.Context, log *zap.SugaredLogger, kubeClient kubernetesClient.Client, cmName types.NamespacedName, stsName, clusterName string, modifications ...mongot.Modification) (string, error) {
+	replicas := r.mdbSearch.GetReplicasForCluster(clusterName)
 	usePerPodConfig := r.mdbSearch.HasAutoEmbedding()
 
 	mongotConfig := mongot.Config{}
@@ -547,7 +750,7 @@ func (r *MongoDBSearchReconcileHelper) ensureMongotConfig(ctx context.Context, l
 	}
 
 	cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: cmName.Name, Namespace: cmName.Namespace}, Data: map[string]string{}}
-	op, err := controllerutil.CreateOrUpdate(ctx, r.client, cm, func() error {
+	op, err := controllerutil.CreateOrUpdate(ctx, kubeClient, cm, func() error {
 		resourceVersion := cm.ResourceVersion
 		for key, data := range configEntries {
 			cm.Data[key] = string(data)
@@ -558,8 +761,14 @@ func (r *MongoDBSearchReconcileHelper) ensureMongotConfig(ctx context.Context, l
 		for _, key := range keysToRemove {
 			delete(cm.Data, key)
 		}
+		if cm.Labels == nil {
+			cm.Labels = map[string]string{}
+		}
+		for k, v := range searchOwnerLabels(r.mdbSearch, clusterName) {
+			cm.Labels[k] = v
+		}
 		cm.ResourceVersion = resourceVersion
-		return controllerutil.SetOwnerReference(r.mdbSearch, cm, r.client.Scheme())
+		return controllerutil.SetOwnerReference(r.mdbSearch, cm, kubeClient.Scheme())
 	})
 	if err != nil {
 		return "", err
@@ -704,6 +913,9 @@ func buildHeadlessService(search *searchv1.MongoDBSearch, unit reconcileUnit) co
 	for k, v := range unit.additionalSvcLabels {
 		svcLabels[k] = v
 	}
+	for k, v := range searchOwnerLabels(search, unit.clusterName) {
+		svcLabels[k] = v
+	}
 
 	serviceBuilder := service.Builder().
 		SetName(unit.headlessSvc.Name).
@@ -727,13 +939,14 @@ func buildHeadlessService(search *searchv1.MongoDBSearch, unit reconcileUnit) co
 }
 
 // buildProxyService builds the stable proxy Service for a reconcile unit (RS or per-shard).
-// The selector flips to Envoy only after the LB substatus reports Ready,
-// so traffic keeps flowing to mongot directly while Envoy is deploying.
+// The selector flips to Envoy only after the LB substatus reports Ready, so
+// traffic keeps flowing to mongot directly while Envoy is deploying. Selector
+// uses LoadBalancerDeploymentNameForCluster(unit.clusterIndex) to match
+// per-cluster Envoy pod labels.
 func buildProxyService(search *searchv1.MongoDBSearch, unit reconcileUnit) corev1.Service {
 	var selector map[string]string
 	if search.IsLBModeManaged() && search.IsLoadBalancerReady() {
-		// TODO(MC #1059): parameterize cluster index
-		selector = map[string]string{appLabelKey: search.LoadBalancerDeploymentNameForCluster(0)}
+		selector = map[string]string{appLabelKey: search.LoadBalancerDeploymentNameForCluster(unit.clusterIndex)}
 	} else {
 		selector = map[string]string{appLabelKey: unit.podLabels[appLabelKey]}
 	}
@@ -743,6 +956,9 @@ func buildProxyService(search *searchv1.MongoDBSearch, unit reconcileUnit) corev
 		"component": proxyServiceComponent,
 	}
 	for k, v := range unit.additionalSvcLabels {
+		labels[k] = v
+	}
+	for k, v := range searchOwnerLabels(search, unit.clusterName) {
 		labels[k] = v
 	}
 
@@ -873,12 +1089,12 @@ func setupMongotContainerArgsForAPIKeys() container.Modification {
 // ensureIngressTlsConfig processes TLS configuration for any mongot deployment.
 // For non-sharded deployments, pass r.mdbSearch as the tlsResource.
 // For sharded deployments, pass a perShardTLSResource adapter.
-func (r *MongoDBSearchReconcileHelper) ensureIngressTlsConfig(ctx context.Context, tlsResource tls.TLSConfigurableResource) (mongot.Modification, statefulset.Modification, error) {
+func (r *MongoDBSearchReconcileHelper) ensureIngressTlsConfig(ctx context.Context, kubeClient kubernetesClient.Client, tlsResource tls.TLSConfigurableResource) (mongot.Modification, statefulset.Modification, error) {
 	if r.mdbSearch.Spec.Security.TLS == nil {
 		return mongot.NOOP(), statefulset.NOOP(), nil
 	}
 
-	certFileName, err := tls.EnsureTLSSecret(ctx, r.client, tlsResource)
+	certFileName, err := tls.EnsureTLSSecret(ctx, kubeClient, tlsResource)
 	if err != nil {
 		return nil, nil, err
 	}
