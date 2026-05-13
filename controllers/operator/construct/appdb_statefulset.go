@@ -4,13 +4,8 @@ import (
 	"fmt"
 	"os"
 
-	"k8s.io/utils/ptr"
-
-	appsv1 "k8s.io/api/apps/v1"
-	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/types"
-
 	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
+	"github.com/mongodb/mongodb-kubernetes/api/v1/om"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/persistentvolumeclaim"
@@ -20,62 +15,26 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/scale"
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/utils/ptr"
 )
 
 const (
-	appdbVersionUpgradeHookName    = "mongod-posthook"
-	AppDBReadinessProbeContainerName = "mongodb-agent-readinessprobe"
-	appdbReadinessProbePath         = "/opt/scripts/readinessprobe"
+	appdbVersionUpgradeHookName       = "mongod-posthook"
+	AppDBReadinessProbeContainerName  = "mongodb-agent-readinessprobe"
+	appdbReadinessProbePath           = "/opt/scripts/readinessprobe"
 	appdbAutomationMongodConfFileName = "automation-mongod.conf"
-	appdbKeyfileFilePath             = "/var/lib/mongodb-mms-automation/authentication/keyfile"
+	appdbKeyfileFilePath              = "/var/lib/mongodb-mms-automation/authentication/keyfile"
 
 	appdbHeadlessAgentEnv    = "HEADLESS_AGENT"
 	appdbPodNamespaceEnv     = "POD_NAMESPACE"
 	appdbAutomationConfigEnv = "AUTOMATION_CONFIG_MAP"
 )
 
-// AppDBStatefulSetOwner is an interface which any resource which generates a MongoDB StatefulSet should implement.
-// Renamed from MCO's MongoDBStatefulSetOwner for clarity in the Enterprise codebase.
-type AppDBStatefulSetOwner interface {
-	// ServiceName returns the name of the K8S service the operator will create.
-	ServiceName() string
-	// GetName returns the name of the resource.
-	GetName() string
-	// GetNamespace returns the namespace the resource is defined in.
-	GetNamespace() string
-	// GetMongoDBVersion returns the version of MongoDB to be used for this resource.
-	GetMongoDBVersion() string
-	// AutomationConfigSecretName returns the name of the secret which will contain the automation config.
-	AutomationConfigSecretName() string
-	// GetUpdateStrategyType returns the UpdateStrategyType of the statefulset.
-	GetUpdateStrategyType() appsv1.StatefulSetUpdateStrategyType
-	// HasSeparateDataAndLogsVolumes returns whether or not the volumes for data and logs would need to be different.
-	HasSeparateDataAndLogsVolumes() bool
-	// GetAgentKeyfileSecretNamespacedName returns the NamespacedName of the secret which stores the keyfile for the agent.
-	GetAgentKeyfileSecretNamespacedName() types.NamespacedName
-	// DataVolumeName returns the name that the data volume should have.
-	DataVolumeName() string
-	// LogsVolumeName returns the name that the data volume should have.
-	LogsVolumeName() string
-	// GetAgentLogLevel returns the log level for the MongoDB automation agent.
-	GetAgentLogLevel() v1.LogLevel
-	// GetAgentLogFile returns the log file for the MongoDB automation agent.
-	GetAgentLogFile() string
-	// GetAgentMaxLogFileDurationHours returns the number of hours after which the log file should be rolled.
-	GetAgentMaxLogFileDurationHours() int
-
-	// GetMongodConfiguration returns the MongoDB configuration for each member.
-	GetMongodConfiguration() v1.MongodConfiguration
-
-	// NeedsAutomationConfigVolume returns whether the statefulset needs to have a volume for the automationconfig.
-	NeedsAutomationConfigVolume() bool
-}
-
-// BuildMongoDBReplicaSetStatefulSetModificationFunction builds the parts of the replica set that are common between every resource that implements
-// AppDBStatefulSetOwner.
+// BuildMongoDBReplicaSetStatefulSetModificationFunction builds the parts of the replica set for AppDB
 // It doesn't configure TLS or additional containers/env vars that the statefulset might need.
-// Verbatim copy from MCO's mongodbstatefulset.go with renamed interface and local constant references.
-func BuildMongoDBReplicaSetStatefulSetModificationFunction(mdb AppDBStatefulSetOwner, scaler scale.ReplicaSetScaler, mongodbImage, agentImage string, withInitContainers bool, initAppDBImage string) statefulset.Modification {
+func BuildMongoDBReplicaSetStatefulSetModificationFunction(mdb *om.AppDBSpec, scaler scale.ReplicaSetScaler, mongodbImage, agentImage string, withInitContainers bool, initAppDBImage string) statefulset.Modification {
 	labels := map[string]string{
 		"app": mdb.ServiceName(),
 	}
