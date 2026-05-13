@@ -1228,7 +1228,7 @@ func (r *ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(ctx context.Contex
 	}
 
 	if acType == automation && opsManager.Spec.AppDB.AutomationConfigOverride != nil {
-		acToMerge := OverrideToAutomationConfig(*opsManager.Spec.AppDB.AutomationConfigOverride)
+		acToMerge := overrideToAutomationConfig(*opsManager.Spec.AppDB.AutomationConfigOverride)
 		ac = merge.AutomationConfigs(ac, acToMerge)
 	}
 
@@ -1423,7 +1423,7 @@ func buildPrometheusModification(ctx context.Context, sClient secrets.SecretClie
 		promConfig.Password = password
 
 		if prom.Port > 0 {
-			promConfig.ListenAddress = fmt.Sprintf("%s:%d", ListenAddress, prom.Port)
+			promConfig.ListenAddress = fmt.Sprintf("%s:%d", listenAddress, prom.Port)
 		}
 
 		if prom.MetricsPath != "" {
@@ -2217,9 +2217,9 @@ func markAppDBAsBackingProject(conn om.Connection, log *zap.SugaredLogger) error
 	return nil
 }
 
-const ListenAddress = "0.0.0.0"
+const listenAddress = "0.0.0.0"
 
-func OverrideToAutomationConfig(override v1.AutomationConfigOverride) automationconfig.AutomationConfig {
+func overrideToAutomationConfig(override v1.AutomationConfigOverride) automationconfig.AutomationConfig {
 	var processes []automationconfig.Process
 	for _, o := range override.Processes {
 		p := automationconfig.Process{
