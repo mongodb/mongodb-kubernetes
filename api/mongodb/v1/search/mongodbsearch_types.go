@@ -450,6 +450,14 @@ func (s *MongoDBSearch) ProxyServiceNamespacedName() types.NamespacedName {
 	return types.NamespacedName{Name: s.Name + "-search-0-" + ProxyServiceSuffix, Namespace: s.Namespace}
 }
 
+// ProxyServiceNamespacedNameForCluster returns the index-suffixed proxy Service name for one member cluster.
+func (s *MongoDBSearch) ProxyServiceNamespacedNameForCluster(clusterIndex int) types.NamespacedName {
+	return types.NamespacedName{
+		Name:      fmt.Sprintf("%s-search-%d-%s", s.Name, clusterIndex, ProxyServiceSuffix),
+		Namespace: s.Namespace,
+	}
+}
+
 // ProxyServiceNameForShard returns the stable proxy Service name for a specific shard.
 func (s *MongoDBSearch) ProxyServiceNameForShard(shardName string) types.NamespacedName {
 	return types.NamespacedName{
@@ -460,6 +468,31 @@ func (s *MongoDBSearch) ProxyServiceNameForShard(shardName string) types.Namespa
 
 func (s *MongoDBSearch) MongotConfigConfigMapNamespacedName() types.NamespacedName {
 	return types.NamespacedName{Name: s.Name + "-search-config", Namespace: s.Namespace}
+}
+
+// MongotConfigConfigMapNameForCluster returns the per-cluster mongot ConfigMap name.
+func (s *MongoDBSearch) MongotConfigConfigMapNameForCluster(clusterIndex int) types.NamespacedName {
+	return types.NamespacedName{
+		Name:      fmt.Sprintf("%s-search-%d-config", s.Name, clusterIndex),
+		Namespace: s.Namespace,
+	}
+}
+
+// StatefulSetNamespacedNameForCluster returns the index-suffixed StatefulSet name for one member cluster.
+func (s *MongoDBSearch) StatefulSetNamespacedNameForCluster(clusterIndex int) types.NamespacedName {
+	return types.NamespacedName{
+		Name:      fmt.Sprintf("%s-search-%d", s.Name, clusterIndex),
+		Namespace: s.Namespace,
+	}
+}
+
+// SearchServiceNamespacedNameForCluster returns the index-suffixed headless
+// Service name; the unindexed name is single-cluster-only.
+func (s *MongoDBSearch) SearchServiceNamespacedNameForCluster(clusterIndex int) types.NamespacedName {
+	return types.NamespacedName{
+		Name:      fmt.Sprintf("%s-search-%d-svc", s.Name, clusterIndex),
+		Namespace: s.Namespace,
+	}
 }
 
 func (s *MongoDBSearch) SourceUserPasswordSecretRef() *userv1.SecretKeyRef {
@@ -699,34 +732,116 @@ func (s *MongoDBSearch) GetEndpointForShard(shardName string) string {
 }
 
 // EffectiveClusters returns the per-cluster distribution slice the reconcile
-// loop should iterate over.
+// loop should iterate over, with the top-level
+// Replicas/ResourceRequirements/Persistence/StatefulSetConfiguration/JVMFlags
+// cascaded into each entry as defaults.
 //
-//   - When spec.clusters is non-nil (including the explicitly-empty slice),
-//     it is returned as-is. The empty-slice case is reached only when admission
-//     allows it; readers that index [0] must guard.
-//   - When spec.clusters is nil, it auto-promotes the top-level
-//     Replicas/ResourceRequirements/Persistence/StatefulSetConfiguration into
-//     a one-element ClusterSpec for the legacy single-cluster path.
+//   - When spec.clusters is nil, it auto-promotes the top-level fields into a
+//     one-element ClusterSpec for the legacy single-cluster path.
+//   - When spec.clusters is non-nil, each entry is returned with the cascade
+//     applied: pointer / struct fields are REPLACE-if-nil (cluster-set wins;
+//     nil inherits top-level); JVMFlags is REPLACE-if-empty (non-empty
+//     per-cluster slice wins; no append). Atomic per field — to override one
+//     sub-field of a struct (e.g. one container's image), spell out the full
+//     struct at cluster level. Matches sharded MC's processClusterSpecList
+//     semantics (no recursive merge for MVP).
 //
 // The function is pure — no mutation of s, no side effects.
 func EffectiveClusters(s *MongoDBSearch) []ClusterSpec {
-	if s.Spec.Clusters != nil {
-		return *s.Spec.Clusters
+	//nolint:staticcheck // SA1019: deprecated top-level fields are the documented default for the cascade.
+	topReplicas := s.Spec.Replicas
+	//nolint:staticcheck // SA1019
+	topResReq := s.Spec.ResourceRequirements
+	//nolint:staticcheck // SA1019
+	topPersistence := s.Spec.Persistence
+	//nolint:staticcheck // SA1019
+	topSTSConfig := s.Spec.StatefulSetConfiguration
+	//nolint:staticcheck // SA1019
+	topJVMFlags := s.Spec.JVMFlags
+
+	if s.Spec.Clusters == nil {
+		return []ClusterSpec{{
+			Replicas:                 topReplicas,
+			ResourceRequirements:     topResReq,
+			Persistence:              topPersistence,
+			StatefulSetConfiguration: topSTSConfig,
+			JVMFlags:                 topJVMFlags,
+		}}
 	}
-	// Single legitimate read of the deprecated top-level distribution fields:
-	// the auto-promotion fallback. Per-cluster readers go through this function.
-	//nolint:staticcheck // SA1019: deprecated fields are the documented fallback path.
-	return []ClusterSpec{{
-		Replicas:                 s.Spec.Replicas,
-		ResourceRequirements:     s.Spec.ResourceRequirements,
-		Persistence:              s.Spec.Persistence,
-		StatefulSetConfiguration: s.Spec.StatefulSetConfiguration,
-	}}
+
+	clusters := *s.Spec.Clusters
+	out := make([]ClusterSpec, 0, len(clusters))
+	for _, c := range clusters {
+		resolved := c
+		if resolved.Replicas == nil {
+			resolved.Replicas = topReplicas
+		}
+		if resolved.ResourceRequirements == nil {
+			resolved.ResourceRequirements = topResReq
+		}
+		if resolved.Persistence == nil {
+			resolved.Persistence = topPersistence
+		}
+		if resolved.StatefulSetConfiguration == nil {
+			resolved.StatefulSetConfiguration = topSTSConfig
+		}
+		if len(resolved.JVMFlags) == 0 {
+			resolved.JVMFlags = topJVMFlags
+		}
+		out = append(out, resolved)
+	}
+	return out
+}
+
+// EffectiveClusterFor returns the cascaded ClusterSpec for the named cluster.
+// Empty clusterName returns the auto-promoted single-cluster entry (legacy path).
+// Returns an error if the named cluster is not found in spec.clusters[].
+func (s *MongoDBSearch) EffectiveClusterFor(clusterName string) (ClusterSpec, error) {
+	effective := EffectiveClusters(s)
+	if clusterName == "" {
+		if len(effective) > 0 {
+			return effective[0], nil
+		}
+		return ClusterSpec{}, fmt.Errorf("cluster %q not found in spec.clusters", clusterName)
+	}
+	for _, c := range effective {
+		if c.ClusterName == clusterName {
+			return c, nil
+		}
+	}
+	return ClusterSpec{}, fmt.Errorf("cluster %q not found in spec.clusters", clusterName)
 }
 
 func (s *MongoDBSearch) GetReplicas() int {
-	if s.Spec.Replicas > 0 {
-		return s.Spec.Replicas
+	// Single legitimate read of the deprecated top-level field — this is the
+	// operator-side default ("1 when unset") for the legacy single-cluster path
+	// and for validators that only look at the top-level value.
+	// Multi-cluster reconcile readers should use GetReplicasForCluster instead.
+	//nolint:staticcheck // SA1019: deprecated field is the documented fallback.
+	if s.Spec.Replicas != nil {
+		return int(*s.Spec.Replicas)
+	}
+	return 1
+}
+
+// GetReplicasForCluster returns the per-cluster mongot replica count after
+// applying the EffectiveClusters cascade (cluster-set wins, top-level is the
+// default, "1" if neither is set). clusterName="" returns the single-cluster
+// auto-promoted value (equivalent to GetReplicas).
+//
+// An explicit 0 is honored, matching the documented contract on GetReplicas:
+// callers (and the connectivity-tool / availability-tester e2e tests) take
+// mongot offline by setting spec.replicas=0 on the MongoDBSearch CR. The
+// earlier `*r > 0` guard silently clamped that to 1, so the operator never
+// actually scaled the mongot StatefulSet down and the tests waiting on the
+// scale-to-0 timed out.
+func (s *MongoDBSearch) GetReplicasForCluster(clusterName string) int {
+	c, err := s.EffectiveClusterFor(clusterName)
+	if err != nil {
+		return 1
+	}
+	if r := c.Replicas; r != nil {
+		return int(*r)
 	}
 	return 1
 }
