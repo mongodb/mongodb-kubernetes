@@ -26,7 +26,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
-	"github.com/mongodb/mongodb-kubernetes/api/v1/common"
+	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
@@ -672,7 +672,7 @@ func TestDatabaseInKubernetes_ExternalServicesWithServiceSpecOverrides(t *testin
 	externalAccessConfiguration := mdbv1.ExternalAccessConfiguration{
 		ExternalDomain: ptr.To("example.com"),
 		ExternalService: mdbv1.ExternalServiceConfiguration{
-			SpecWrapper: &common.ServiceSpecWrapper{Spec: corev1.ServiceSpec{
+			SpecWrapper: &v1.ServiceSpecWrapper{Spec: corev1.ServiceSpec{
 				Type: corev1.ServiceTypeNodePort,
 			}},
 			Annotations: map[string]string{
@@ -713,7 +713,7 @@ func TestDatabaseInKubernetes_ExternalServicesWithPlaceholders(t *testing.T) {
 	service2.Name = "mdb-1-svc-external"
 	externalAccessConfiguration := mdbv1.ExternalAccessConfiguration{
 		ExternalService: mdbv1.ExternalServiceConfiguration{
-			SpecWrapper: &common.ServiceSpecWrapper{Spec: corev1.ServiceSpec{
+			SpecWrapper: &v1.ServiceSpecWrapper{Spec: corev1.ServiceSpec{
 				Type: corev1.ServiceTypeNodePort,
 			}},
 			Annotations: map[string]string{
@@ -790,7 +790,7 @@ func TestDatabaseInKubernetes_ExternalServicesWithPlaceholders_WithExternalDomai
 	externalAccessConfiguration := mdbv1.ExternalAccessConfiguration{
 		ExternalDomain: &externalDomain,
 		ExternalService: mdbv1.ExternalServiceConfiguration{
-			SpecWrapper: &common.ServiceSpecWrapper{Spec: corev1.ServiceSpec{
+			SpecWrapper: &v1.ServiceSpecWrapper{Spec: corev1.ServiceSpec{
 				Type: corev1.ServiceTypeNodePort,
 			}},
 			Annotations: map[string]string{

@@ -11,7 +11,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
-	"github.com/mongodb/mongodb-kubernetes/api/v1/common"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connectionstring"
@@ -114,7 +113,7 @@ func (m *MongoDBMultiCluster) GetConnectionSpec() *mdbv1.ConnectionSpec {
 	return &m.Spec.ConnectionSpec
 }
 
-func (m *MongoDBMultiCluster) GetPrometheus() *common.Prometheus {
+func (m *MongoDBMultiCluster) GetPrometheus() *v1.Prometheus {
 	return m.Spec.Prometheus
 }
 

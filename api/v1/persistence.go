@@ -1,4 +1,4 @@
-package common
+package v1
 
 type Persistence struct {
 	SingleConfig   *PersistenceConfig         `json:"single,omitempty"`

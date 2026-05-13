@@ -18,7 +18,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/mongodb/mongodb-kubernetes/api/v1/common"
+	mckv1 "github.com/mongodb/mongodb-kubernetes/api/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/pkg/authentication/authtypes"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
@@ -664,8 +664,8 @@ func AddConnectionStringOption(ctx context.Context, mdb *mdbv1.MongoDBCommunity,
 func ResetConnectionStringOptions(ctx context.Context, mdb *mdbv1.MongoDBCommunity) func(t *testing.T) {
 	return func(t *testing.T) {
 		err := e2eutil.UpdateMongoDBResource(ctx, mdb, func(db *mdbv1.MongoDBCommunity) {
-			db.Spec.AdditionalConnectionStringConfig = common.NewMapWrapper()
-			db.Spec.Users[0].AdditionalConnectionStringConfig = common.NewMapWrapper()
+			db.Spec.AdditionalConnectionStringConfig = mckv1.NewMapWrapper()
+			db.Spec.Users[0].AdditionalConnectionStringConfig = mckv1.NewMapWrapper()
 		})
 		if err != nil {
 			t.Fatal(err)

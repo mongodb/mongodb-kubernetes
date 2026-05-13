@@ -56,7 +56,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
-	"github.com/mongodb/mongodb-kubernetes/api/v1/common"
+	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
@@ -342,7 +342,7 @@ func (r *ShardedClusterReconcileHelper) prepareDesiredShardsConfiguration() map[
 	return shardComponentSpecs
 }
 
-func getShardTopLevelOverrides(spec *mdbv1.MongoDbSpec, shardIdx int) (*common.Persistence, *corev1.PodTemplateSpec) {
+func getShardTopLevelOverrides(spec *mdbv1.MongoDbSpec, shardIdx int) (*v1.Persistence, *corev1.PodTemplateSpec) {
 	topLevelPodSpecOverride, topLevelPersistenceOverride := extractOverridesFromPodSpec(spec.ShardPodSpec)
 
 	// specific shard level sts and persistence override
@@ -362,7 +362,7 @@ func getShardTopLevelOverrides(spec *mdbv1.MongoDbSpec, shardIdx int) (*common.P
 	return topLevelPersistenceOverride, topLevelPodSpecOverride
 }
 
-func mergeOverrideClusterSpecList(shardOverride mdbv1.ShardOverride, defaultShardConfiguration *mdbv1.ShardedClusterComponentSpec, topLevelPodSpecOverride *corev1.PodTemplateSpec, topLevelPersistenceOverride *common.Persistence) *mdbv1.ShardedClusterComponentSpec {
+func mergeOverrideClusterSpecList(shardOverride mdbv1.ShardOverride, defaultShardConfiguration *mdbv1.ShardedClusterComponentSpec, topLevelPodSpecOverride *corev1.PodTemplateSpec, topLevelPersistenceOverride *v1.Persistence) *mdbv1.ShardedClusterComponentSpec {
 	finalShardConfiguration := defaultShardConfiguration.DeepCopy()
 	// We override here all elements of ClusterSpecList, but statefulset overrides if provided here
 	// will be merged on top of previous sts overrides.
@@ -375,7 +375,7 @@ func mergeOverrideClusterSpecList(shardOverride mdbv1.ShardOverride, defaultShar
 		// We need to propagate top level specs, from e.g ShardPodSpec or ShardSpecificPodSpec, and apply a merge
 		if foundIdx == -1 {
 			if shardOverrideClusterSpecItem.StatefulSetConfiguration == nil {
-				shardOverrideClusterSpecItem.StatefulSetConfiguration = &common.StatefulSetConfiguration{}
+				shardOverrideClusterSpecItem.StatefulSetConfiguration = &v1.StatefulSetConfiguration{}
 			}
 			// We only need to perform a merge if there is a top level override, otherwise we keep an empty sts configuration
 			if topLevelPodSpecOverride != nil {
@@ -460,7 +460,7 @@ func expandShardOverrides(initialOverrides []mdbv1.ShardOverride) []mdbv1.ShardO
 	return expandedShardOverrides
 }
 
-func processShardOverride(spec *mdbv1.MongoDbSpec, shardOverride mdbv1.ShardOverride, defaultShardConfiguration *mdbv1.ShardedClusterComponentSpec, topLevelPodSpecOverride *corev1.PodTemplateSpec, topLevelPersistenceOverride *common.Persistence) *mdbv1.ShardedClusterComponentSpec {
+func processShardOverride(spec *mdbv1.MongoDbSpec, shardOverride mdbv1.ShardOverride, defaultShardConfiguration *mdbv1.ShardedClusterComponentSpec, topLevelPodSpecOverride *corev1.PodTemplateSpec, topLevelPersistenceOverride *v1.Persistence) *mdbv1.ShardedClusterComponentSpec {
 	if shardOverride.Agent != nil {
 		defaultShardConfiguration.Agent = *shardOverride.Agent
 	}
@@ -489,7 +489,7 @@ func processShardOverride(spec *mdbv1.MongoDbSpec, shardOverride mdbv1.ShardOver
 		for idx := range defaultShardConfiguration.ClusterSpecList {
 			// Handle case where defaultShardConfiguration.ClusterSpecList[idx].StatefulSetConfiguration is nil
 			if defaultShardConfiguration.ClusterSpecList[idx].StatefulSetConfiguration == nil {
-				defaultShardConfiguration.ClusterSpecList[idx].StatefulSetConfiguration = &common.StatefulSetConfiguration{}
+				defaultShardConfiguration.ClusterSpecList[idx].StatefulSetConfiguration = &v1.StatefulSetConfiguration{}
 			}
 			defaultShardConfiguration.ClusterSpecList[idx].StatefulSetConfiguration.SpecWrapper.Spec = merge.StatefulSetSpecs(defaultShardConfiguration.ClusterSpecList[idx].StatefulSetConfiguration.SpecWrapper.Spec, shardOverride.StatefulSetConfiguration.SpecWrapper.Spec)
 		}
@@ -504,9 +504,9 @@ func processShardOverride(spec *mdbv1.MongoDbSpec, shardOverride mdbv1.ShardOver
 	}
 }
 
-func extractOverridesFromPodSpec(podSpec *mdbv1.MongoDbPodSpec) (*corev1.PodTemplateSpec, *common.Persistence) {
+func extractOverridesFromPodSpec(podSpec *mdbv1.MongoDbPodSpec) (*corev1.PodTemplateSpec, *v1.Persistence) {
 	var podTemplateOverride *corev1.PodTemplateSpec
-	var persistenceOverride *common.Persistence
+	var persistenceOverride *v1.Persistence
 	if podSpec != nil {
 		if podSpec.PodTemplateWrapper.PodTemplate != nil {
 			podTemplateOverride = podSpec.PodTemplateWrapper.PodTemplate
@@ -553,7 +553,7 @@ func (r *ShardedClusterReconcileHelper) prepareDesiredConfigServerConfiguration(
 func processClusterSpecList(
 	clusterSpecList []mdbv1.ClusterSpecItem,
 	topLevelPodSpecOverride *corev1.PodTemplateSpec,
-	topLevelPersistenceOverride *common.Persistence,
+	topLevelPersistenceOverride *v1.Persistence,
 ) []mdbv1.ClusterSpecItem {
 	for i := range clusterSpecList {
 		// we will store final sts overrides for each cluster in clusterSpecItem.StatefulSetOverride
@@ -561,7 +561,7 @@ func processClusterSpecList(
 		// in case higher level overrides are empty, we just use whatever is specified in clusterSpecItem (maybe nothing as well)
 		if topLevelPodSpecOverride != nil {
 			if clusterSpecList[i].StatefulSetConfiguration == nil {
-				clusterSpecList[i].StatefulSetConfiguration = &common.StatefulSetConfiguration{}
+				clusterSpecList[i].StatefulSetConfiguration = &v1.StatefulSetConfiguration{}
 			}
 			clusterSpecList[i].StatefulSetConfiguration.SpecWrapper.Spec.Template = merge.PodTemplateSpecs(*topLevelPodSpecOverride.DeepCopy(), clusterSpecList[i].StatefulSetConfiguration.SpecWrapper.Spec.Template)
 		}

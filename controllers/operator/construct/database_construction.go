@@ -14,7 +14,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/mongodb/mongodb-kubernetes/api/v1/common"
+	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
@@ -145,7 +145,7 @@ type databaseStatefulSetSource interface {
 
 	GetSecurity() *mdbv1.Security
 
-	GetPrometheus() *common.Prometheus
+	GetPrometheus() *v1.Prometheus
 
 	GetAnnotations() map[string]string
 }
@@ -562,7 +562,7 @@ func buildPersistentVolumeClaimsFuncs(opts DatabaseStatefulSetOptions) (map[stri
 	if podSpec.Persistence == nil ||
 		(podSpec.Persistence.SingleConfig == nil && podSpec.Persistence.MultipleConfig == nil) ||
 		podSpec.Persistence.SingleConfig != nil {
-		var config *common.PersistenceConfig
+		var config *v1.PersistenceConfig
 		if podSpec.Persistence != nil && podSpec.Persistence.SingleConfig != nil {
 			config = podSpec.Persistence.SingleConfig
 		}
@@ -606,7 +606,7 @@ func sharedDatabaseContainerFunc(databaseImage string, podSpecWrapper mdbv1.PodS
 //
 // The Secret will be mounted in:
 // `/var/lib/mongodb-automation/secrets/prometheus`.
-func getTLSPrometheusVolumeAndVolumeMount(prom *common.Prometheus) ([]corev1.Volume, []corev1.VolumeMount) {
+func getTLSPrometheusVolumeAndVolumeMount(prom *v1.Prometheus) ([]corev1.Volume, []corev1.VolumeMount) {
 	volumes := []corev1.Volume{}
 	volumeMounts := []corev1.VolumeMount{}
 

@@ -12,7 +12,7 @@ import (
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/v1/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct/scalers"
-	"github.com/mongodb/mongodb-kubernetes/api/v1/common"
+	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 )
@@ -45,8 +45,8 @@ func TestAppDBMultiClusterPerClusterStatefulSetOverride(t *testing.T) {
 		{
 			ClusterName: "cluster-a",
 			Members:     2,
-			StatefulSetConfiguration: &common.StatefulSetConfiguration{
-				SpecWrapper: common.StatefulSetSpecWrapper{
+			StatefulSetConfiguration: &v1.StatefulSetConfiguration{
+				SpecWrapper: v1.StatefulSetSpecWrapper{
 					Spec: v1.StatefulSetSpec{
 						Template: corev1.PodTemplateSpec{
 							Spec: corev1.PodSpec{HostAliases: hostAliasesA},
@@ -58,8 +58,8 @@ func TestAppDBMultiClusterPerClusterStatefulSetOverride(t *testing.T) {
 		{
 			ClusterName: "cluster-b",
 			Members:     1,
-			StatefulSetConfiguration: &common.StatefulSetConfiguration{
-				SpecWrapper: common.StatefulSetSpecWrapper{
+			StatefulSetConfiguration: &v1.StatefulSetConfiguration{
+				SpecWrapper: v1.StatefulSetSpecWrapper{
 					Spec: v1.StatefulSetSpec{
 						Template: corev1.PodTemplateSpec{
 							Spec: corev1.PodSpec{HostAliases: hostAliasesB},
@@ -108,7 +108,7 @@ func TestResourceRequirements(t *testing.T) {
 		},
 	}
 
-	om.Spec.AppDB.PodSpec.PodTemplateWrapper = common.PodTemplateSpecWrapper{
+	om.Spec.AppDB.PodSpec.PodTemplateWrapper = v1.PodTemplateSpecWrapper{
 		PodTemplate: &corev1.PodTemplateSpec{
 			Spec: corev1.PodSpec{
 				Containers: []corev1.Container{

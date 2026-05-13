@@ -14,7 +14,7 @@ import (
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
-	"github.com/mongodb/mongodb-kubernetes/api/v1/common"
+	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/podtemplatespec"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/probes"
@@ -94,12 +94,12 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, stsName, nam
 		mongotConfigVolumeMount = statefulset.CreateVolumeMount(mongotConfigVolumeName, MongotConfigPath, statefulset.WithReadOnly(true), statefulset.WithSubPath(MongotConfigFilename))
 	}
 
-	var persistenceConfig *common.PersistenceConfig
+	var persistenceConfig *v1.PersistenceConfig
 	if mdbSearch.Spec.Persistence != nil && mdbSearch.Spec.Persistence.SingleConfig != nil {
 		persistenceConfig = mdbSearch.Spec.Persistence.SingleConfig
 	}
 
-	defaultPersistenceConfig := common.PersistenceConfig{Storage: util.DefaultMongodStorageSize}
+	defaultPersistenceConfig := v1.PersistenceConfig{Storage: util.DefaultMongodStorageSize}
 	dataVolumeClaim := statefulset.WithVolumeClaim(dataVolumeName, construct.PvcFunc(dataVolumeName, persistenceConfig, defaultPersistenceConfig, nil))
 
 	podSecurityContext, _ := podtemplatespec.WithDefaultSecurityContextsModifications()

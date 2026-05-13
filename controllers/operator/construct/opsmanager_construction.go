@@ -21,7 +21,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
 	enterprisepem "github.com/mongodb/mongodb-kubernetes/controllers/operator/pem"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
-	"github.com/mongodb/mongodb-kubernetes/api/v1/common"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/lifecycle"
@@ -70,7 +69,7 @@ type OpsManagerStatefulSetOptions struct {
 	kmip                         *KmipConfiguration
 	DebugPort                    int32
 	// backup daemon only
-	HeadDbPersistenceConfig *common.PersistenceConfig
+	HeadDbPersistenceConfig *v1.PersistenceConfig
 	Annotations             map[string]string
 	LoggingConfiguration    *omv1.Logging
 }

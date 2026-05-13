@@ -25,7 +25,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
-	"github.com/mongodb/mongodb-kubernetes/api/v1/common"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status/pvc"
@@ -338,8 +337,8 @@ func TestReconcilePVCResizeShardedCluster(t *testing.T) {
 		ctx := context.Background()
 		// First creation
 		sc := test.DefaultClusterBuilder().SetShardCountSpec(2).SetShardCountStatus(2).Build()
-		persistence := common.Persistence{
-			SingleConfig: &common.PersistenceConfig{
+		persistence := v1.Persistence{
+			SingleConfig: &v1.PersistenceConfig{
 				Storage: "1Gi",
 			},
 		}

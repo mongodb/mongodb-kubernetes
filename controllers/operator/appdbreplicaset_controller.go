@@ -23,7 +23,7 @@ import (
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/mongodb/mongodb-kubernetes/api/v1/common"
+	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/v1/om"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
@@ -2219,7 +2219,7 @@ func markAppDBAsBackingProject(conn om.Connection, log *zap.SugaredLogger) error
 
 const ListenAddress = "0.0.0.0"
 
-func OverrideToAutomationConfig(override common.AutomationConfigOverride) automationconfig.AutomationConfig {
+func OverrideToAutomationConfig(override v1.AutomationConfigOverride) automationconfig.AutomationConfig {
 	var processes []automationconfig.Process
 	for _, o := range override.Processes {
 		p := automationconfig.Process{

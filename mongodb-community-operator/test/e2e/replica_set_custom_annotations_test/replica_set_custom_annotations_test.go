@@ -11,7 +11,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/mongodb/mongodb-kubernetes/api/v1/common"
+	mckv1 "github.com/mongodb/mongodb-kubernetes/api/v1"
 	e2eutil "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e/mongodbtests"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e/setup"
@@ -52,7 +52,7 @@ func TestReplicaSetCustomAnnotations(t *testing.T) {
 			},
 		},
 	}
-	mdb.Spec.StatefulSetConfiguration.MetadataWrapper = common.StatefulSetMetadataWrapper{
+	mdb.Spec.StatefulSetConfiguration.MetadataWrapper = mckv1.StatefulSetMetadataWrapper{
 		Labels:      e2eutil.TestLabels(),
 		Annotations: e2eutil.TestAnnotations(),
 	}

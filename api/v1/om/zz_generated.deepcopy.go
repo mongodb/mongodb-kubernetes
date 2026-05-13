@@ -21,12 +21,12 @@ limitations under the License.
 package om
 
 import (
-	"github.com/mongodb/mongodb-kubernetes/api/v1/common"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/user"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
-	"k8s.io/api/core/v1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
@@ -104,12 +104,12 @@ func (in *AppDBSpec) DeepCopyInto(out *AppDBSpec) {
 	}
 	if in.Prometheus != nil {
 		in, out := &in.Prometheus, &out.Prometheus
-		*out = new(common.Prometheus)
+		*out = new(mdbv1.Prometheus)
 		**out = **in
 	}
 	if in.AutomationConfigOverride != nil {
 		in, out := &in.AutomationConfigOverride, &out.AutomationConfigOverride
-		*out = new(common.AutomationConfigOverride)
+		*out = new(mdbv1.AutomationConfigOverride)
 		(*in).DeepCopyInto(*out)
 	}
 	if in.MemberConfig != nil {
@@ -406,7 +406,7 @@ func (in *MongoDBOpsManagerBackup) DeepCopyInto(out *MongoDBOpsManagerBackup) {
 	}
 	if in.HeadDB != nil {
 		in, out := &in.HeadDB, &out.HeadDB
-		*out = new(common.PersistenceConfig)
+		*out = new(mdbv1.PersistenceConfig)
 		(*in).DeepCopyInto(*out)
 	}
 	if in.JVMParams != nil {
@@ -484,7 +484,7 @@ func (in *MongoDBOpsManagerBackupClusterSpecItem) DeepCopyInto(out *MongoDBOpsMa
 	}
 	if in.HeadDB != nil {
 		in, out := &in.HeadDB, &out.HeadDB
-		*out = new(common.PersistenceConfig)
+		*out = new(mdbv1.PersistenceConfig)
 		(*in).DeepCopyInto(*out)
 	}
 	if in.JVMParams != nil {
@@ -800,7 +800,7 @@ func (in *S3Config) DeepCopyInto(out *S3Config) {
 	}
 	if in.CustomCertificateSecretRefs != nil {
 		in, out := &in.CustomCertificateSecretRefs, &out.CustomCertificateSecretRefs
-		*out = make([]v1.SecretKeySelector, len(*in))
+		*out = make([]corev1.SecretKeySelector, len(*in))
 		for i := range *in {
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}

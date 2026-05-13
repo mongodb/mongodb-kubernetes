@@ -25,7 +25,6 @@ import (
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
-	"github.com/mongodb/mongodb-kubernetes/api/v1/common"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	rolev1 "github.com/mongodb/mongodb-kubernetes/api/v1/role"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
@@ -840,7 +839,7 @@ func isPrometheusSupported(conn om.Connection) bool {
 }
 
 // UpdatePrometheus configures Prometheus on the Deployment for this resource.
-func UpdatePrometheus(ctx context.Context, d *om.Deployment, conn om.Connection, prometheus *common.Prometheus, sClient secrets.SecretClient, namespace string, certName string, log *zap.SugaredLogger) error {
+func UpdatePrometheus(ctx context.Context, d *om.Deployment, conn om.Connection, prometheus *v1.Prometheus, sClient secrets.SecretClient, namespace string, certName string, log *zap.SugaredLogger) error {
 	if prometheus == nil {
 		return nil
 	}
@@ -1062,7 +1061,7 @@ func getAnnotationsForResource(mdb *mdbv1.MongoDB) (map[string]string, error) {
 }
 
 type PrometheusConfiguration struct {
-	prometheus         *common.Prometheus
+	prometheus         *v1.Prometheus
 	conn               om.Connection
 	secretsClient      secrets.SecretClient
 	namespace          string
