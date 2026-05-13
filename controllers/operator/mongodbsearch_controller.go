@@ -145,7 +145,7 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 		if shardedSource, ok := searchSource.(searchcontroller.SearchSourceShardedDeployment); ok {
 			// Sharded: watch per-shard source secrets (one per shard)
 			for _, shardName := range shardedSource.GetShardNames() {
-				shardSecretNsName := mdbSearch.TLSSecretForShard(shardName)
+				shardSecretNsName := mdbSearch.TLSSecretForClusterShard(0, shardName)
 				r.watch.AddWatchedResourceIfNotAdded(shardSecretNsName.Name, shardSecretNsName.Namespace, watch.Secret, mdbSearch.NamespacedName())
 			}
 		} else {

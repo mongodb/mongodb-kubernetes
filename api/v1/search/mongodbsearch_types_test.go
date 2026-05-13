@@ -453,6 +453,38 @@ func TestGetManagedLBEndpointForClusterShard_NotManaged(t *testing.T) {
 	assert.Equal(t, "", s.GetManagedLBEndpointForClusterShard(0, "shard-0"))
 }
 
+func TestGetManagedLBEndpointForClusterLevel(t *testing.T) {
+	clusters := []ClusterSpec{{ClusterName: "us-east-k8s"}, {ClusterName: "eu-west-k8s"}}
+	mk := func(tmpl string) *MongoDBSearch {
+		return &MongoDBSearch{
+			Spec: MongoDBSearchSpec{
+				LoadBalancer: &LoadBalancerConfig{Managed: &ManagedLBConfig{ExternalHostname: tmpl}},
+				Clusters:     &clusters,
+			},
+		}
+	}
+	tests := []struct {
+		name     string
+		template string
+		index    int
+		want     string
+	}{
+		{"strip prefix, resolve clusterName", "{shardName}.{clusterName}.search.example.com", 0, "us-east-k8s.search.example.com"},
+		{"strip prefix, resolve clusterIndex", "{shardName}.search-{clusterIndex}.example.com", 1, "search-1.example.com"},
+		{"strip prefix, single-cluster sharded shape (no cluster placeholders)", "{shardName}.search.example.com", 0, "search.example.com"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, mk(tc.template).GetManagedLBEndpointForClusterLevel(tc.index))
+		})
+	}
+}
+
+func TestGetManagedLBEndpointForClusterLevel_NotManaged(t *testing.T) {
+	s := &MongoDBSearch{Spec: MongoDBSearchSpec{}}
+	assert.Equal(t, "", s.GetManagedLBEndpointForClusterLevel(0))
+}
+
 func TestProxyServiceNamespacedNameForCluster(t *testing.T) {
 	s := &MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"},
