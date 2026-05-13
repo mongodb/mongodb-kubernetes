@@ -8,7 +8,7 @@ import (
 	"os"
 	"testing"
 
-	mckv1 "github.com/mongodb/mongodb-kubernetes/api/v1"
+	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	e2eutil "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e"
@@ -63,13 +63,13 @@ func TestCleanupUsers(t *testing.T) {
 	settings := map[string]interface{}{
 		"electionTimeoutMillis": float64(20),
 	}
-	mdb.Spec.AutomationConfigOverride = &mckv1.AutomationConfigOverride{
-		ReplicaSet: mckv1.OverrideReplicaSet{Settings: mckv1.MapWrapper{Object: settings}},
+	mdb.Spec.AutomationConfigOverride = &v1.AutomationConfigOverride{
+		ReplicaSet: v1.OverrideReplicaSet{Settings: v1.MapWrapper{Object: settings}},
 	}
 
 	newUser := mdbv1.MongoDBUser{
 		Name: fmt.Sprintf("%s-user-2", "mdb-0"),
-		PasswordSecretRef: mckv1.SecretKeyReference{
+		PasswordSecretRef: v1.SecretKeyReference{
 			Key:  fmt.Sprintf("%s-password-2", "mdb-0"),
 			Name: fmt.Sprintf("%s-%s-password-secret-2", "mdb-0", testCtx.ExecutionId),
 		},

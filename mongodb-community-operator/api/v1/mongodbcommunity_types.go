@@ -13,7 +13,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	mckv1 "github.com/mongodb/mongodb-kubernetes/api/v1"
+	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/pkg/authentication/authtypes"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
@@ -97,7 +97,7 @@ type MongoDBCommunitySpec struct {
 	Users []MongoDBUser `json:"users"`
 
 	// +optional
-	StatefulSetConfiguration mckv1.StatefulSetConfiguration `json:"statefulSet,omitempty"`
+	StatefulSetConfiguration v1.StatefulSetConfiguration `json:"statefulSet,omitempty"`
 
 	// AgentConfiguration sets options for the MongoDB automation agent
 	// +optional
@@ -110,22 +110,22 @@ type MongoDBCommunitySpec struct {
 	// +optional
 	// +kubebuilder:pruning:PreserveUnknownFields
 	// +nullable
-	AdditionalMongodConfig mckv1.MongodConfiguration `json:"additionalMongodConfig,omitempty"`
+	AdditionalMongodConfig v1.MongodConfiguration `json:"additionalMongodConfig,omitempty"`
 
 	// AutomationConfigOverride is merged on top of the operator created automation config. Processes are merged
 	// by name. Currently Only the process.disabled field is supported.
-	AutomationConfigOverride *mckv1.AutomationConfigOverride `json:"automationConfig,omitempty"`
+	AutomationConfigOverride *v1.AutomationConfigOverride `json:"automationConfig,omitempty"`
 
 	// Prometheus configurations.
 	// +optional
-	Prometheus *mckv1.Prometheus `json:"prometheus,omitempty"`
+	Prometheus *v1.Prometheus `json:"prometheus,omitempty"`
 
 	// Additional options to be appended to the connection string. These options apply to the entire resource and to each user.
 	// +kubebuilder:validation:Type=object
 	// +optional
 	// +kubebuilder:pruning:PreserveUnknownFields
 	// +nullable
-	AdditionalConnectionStringConfig mckv1.MapWrapper `json:"additionalConnectionStringConfig,omitempty"`
+	AdditionalConnectionStringConfig v1.MapWrapper `json:"additionalConnectionStringConfig,omitempty"`
 
 	// MemberConfig
 	// +optional
@@ -234,7 +234,7 @@ const (
 
 type AgentConfiguration struct {
 	// +optional
-	LogLevel mckv1.LogLevel `json:"logLevel"`
+	LogLevel v1.LogLevel `json:"logLevel"`
 	// +optional
 	LogFile string `json:"logFile"`
 	// +optional
@@ -262,7 +262,7 @@ type MongoDBUser struct {
 
 	// PasswordSecretRef is a reference to the secret containing this user's password
 	// +optional
-	PasswordSecretRef mckv1.SecretKeyReference `json:"passwordSecretRef,omitempty"`
+	PasswordSecretRef v1.SecretKeyReference `json:"passwordSecretRef,omitempty"`
 
 	// Roles is an array of roles assigned to this user
 	Roles []Role `json:"roles"`
@@ -292,7 +292,7 @@ type MongoDBUser struct {
 	// +optional
 	// +kubebuilder:pruning:PreserveUnknownFields
 	// +nullable
-	AdditionalConnectionStringConfig mckv1.MapWrapper `json:"additionalConnectionStringConfig,omitempty"`
+	AdditionalConnectionStringConfig v1.MapWrapper `json:"additionalConnectionStringConfig,omitempty"`
 }
 
 func (m MongoDBUser) GetPasswordSecretKey() string {
@@ -490,8 +490,8 @@ type MongoDBCommunity struct {
 	Status MongoDBCommunityStatus `json:"status,omitempty"`
 }
 
-func (m *MongoDBCommunity) GetMongodConfiguration() mckv1.MongodConfiguration {
-	mongodConfig := mckv1.NewMongodConfiguration()
+func (m *MongoDBCommunity) GetMongodConfiguration() v1.MongodConfiguration {
+	mongodConfig := v1.NewMongodConfiguration()
 	for k, v := range m.Spec.AdditionalMongodConfig.Object {
 		mongodConfig.SetOption(k, v)
 	}
@@ -956,7 +956,7 @@ func (m *MongoDBCommunity) NeedsAutomationConfigVolume() bool {
 	return true
 }
 
-func (m MongoDBCommunity) GetAgentLogLevel() mckv1.LogLevel {
+func (m MongoDBCommunity) GetAgentLogLevel() v1.LogLevel {
 	return m.Spec.AgentConfiguration.LogLevel
 }
 

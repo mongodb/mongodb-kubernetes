@@ -1,13 +1,13 @@
 package test
 
 import (
-	v12 "k8s.io/api/core/v1"
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
-	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
@@ -63,7 +63,7 @@ func DefaultClusterBuilder() *ClusterBuilder {
 	}
 
 	resource := &mdb.MongoDB{
-		ObjectMeta: v1.ObjectMeta{Name: SCBuilderDefaultName, Namespace: mock.TestNamespace},
+		ObjectMeta: metav1.ObjectMeta{Name: SCBuilderDefaultName, Namespace: mock.TestNamespace},
 		Status:     status,
 		Spec:       spec,
 	}
@@ -191,7 +191,7 @@ func (b *ClusterBuilder) EnableX509InternalClusterAuth() *ClusterBuilder {
 	return b
 }
 
-func (b *ClusterBuilder) SetShardPodSpec(spec v12.PodTemplateSpec) *ClusterBuilder {
+func (b *ClusterBuilder) SetShardPodSpec(spec corev1.PodTemplateSpec) *ClusterBuilder {
 	if b.Spec.ShardPodSpec == nil {
 		b.Spec.ShardPodSpec = &mdb.MongoDbPodSpec{}
 	}
@@ -199,7 +199,7 @@ func (b *ClusterBuilder) SetShardPodSpec(spec v12.PodTemplateSpec) *ClusterBuild
 	return b
 }
 
-func (b *ClusterBuilder) SetPodConfigSvrSpecTemplate(spec v12.PodTemplateSpec) *ClusterBuilder {
+func (b *ClusterBuilder) SetPodConfigSvrSpecTemplate(spec corev1.PodTemplateSpec) *ClusterBuilder {
 	if b.Spec.ConfigSrvPodSpec == nil {
 		b.Spec.ConfigSrvPodSpec = &mdb.MongoDbPodSpec{}
 	}
@@ -207,7 +207,7 @@ func (b *ClusterBuilder) SetPodConfigSvrSpecTemplate(spec v12.PodTemplateSpec) *
 	return b
 }
 
-func (b *ClusterBuilder) SetMongosPodSpecTemplate(spec v12.PodTemplateSpec) *ClusterBuilder {
+func (b *ClusterBuilder) SetMongosPodSpecTemplate(spec corev1.PodTemplateSpec) *ClusterBuilder {
 	if b.Spec.MongosPodSpec == nil {
 		b.Spec.MongosPodSpec = &mdb.MongoDbPodSpec{}
 	}
@@ -215,7 +215,7 @@ func (b *ClusterBuilder) SetMongosPodSpecTemplate(spec v12.PodTemplateSpec) *Clu
 	return b
 }
 
-func (b *ClusterBuilder) SetShardSpecificPodSpecTemplate(specs []v12.PodTemplateSpec) *ClusterBuilder {
+func (b *ClusterBuilder) SetShardSpecificPodSpecTemplate(specs []corev1.PodTemplateSpec) *ClusterBuilder {
 	if b.Spec.ShardSpecificPodSpec == nil {
 		b.Spec.ShardSpecificPodSpec = make([]mdb.MongoDbPodSpec, 0)
 	}
@@ -223,7 +223,7 @@ func (b *ClusterBuilder) SetShardSpecificPodSpecTemplate(specs []v12.PodTemplate
 	mongoDBPodSpec := make([]mdb.MongoDbPodSpec, len(specs))
 
 	for n, e := range specs {
-		mongoDBPodSpec[n] = mdb.MongoDbPodSpec{PodTemplateWrapper: mdbv1.PodTemplateSpecWrapper{
+		mongoDBPodSpec[n] = mdb.MongoDbPodSpec{PodTemplateWrapper: v1.PodTemplateSpecWrapper{
 			PodTemplate: &e,
 		}}
 	}
