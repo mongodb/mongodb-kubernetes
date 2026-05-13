@@ -11,7 +11,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 
-	"github.com/mongodb/mongodb-kubernetes/api/v1/common"
+	mckv1 "github.com/mongodb/mongodb-kubernetes/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/persistentvolumeclaim"
@@ -103,14 +103,14 @@ type MongoDBStatefulSetOwner interface {
 	// LogsVolumeName returns the name that the data volume should have.
 	LogsVolumeName() string
 	// GetAgentLogLevel returns the log level for the MongoDB automation agent.
-	GetAgentLogLevel() common.LogLevel
+	GetAgentLogLevel() mckv1.LogLevel
 	// GetAgentLogFile returns the log file for the MongoDB automation agent.
 	GetAgentLogFile() string
 	// GetAgentMaxLogFileDurationHours returns the number of hours after which the log file should be rolled.
 	GetAgentMaxLogFileDurationHours() int
 
 	// GetMongodConfiguration returns the MongoDB configuration for each member.
-	GetMongodConfiguration() common.MongodConfiguration
+	GetMongodConfiguration() mckv1.MongodConfiguration
 
 	// NeedsAutomationConfigVolume returns whether the statefulset needs to have a volume for the automationconfig.
 	NeedsAutomationConfigVolume() bool
@@ -204,7 +204,7 @@ func BuildMongoDBReplicaSetStatefulSetModificationFunction(mdb MongoDBStatefulSe
 
 	podSecurityContext, _ := podtemplatespec.WithDefaultSecurityContextsModifications()
 
-	agentLogLevel := common.LogLevelInfo
+	agentLogLevel := mckv1.LogLevelInfo
 	if mdb.GetAgentLogLevel() != "" {
 		agentLogLevel = mdb.GetAgentLogLevel()
 	}
@@ -257,7 +257,7 @@ func BaseAgentCommand() string {
 
 // AutomationAgentCommand withAgentAPIKeyExport detects whether we want to deploy this agent with the agent api key exported
 // it can be used to register the agent with OM.
-func AutomationAgentCommand(withStatic bool, withAgentAPIKeyExport bool, logLevel common.LogLevel, logFile string, maxLogFileDurationHours int) []string {
+func AutomationAgentCommand(withStatic bool, withAgentAPIKeyExport bool, logLevel mckv1.LogLevel, logFile string, maxLogFileDurationHours int) []string {
 	// This is somewhat undocumented at https://www.mongodb.com/docs/ops-manager/current/reference/mongodb-agent-settings/
 	// Not setting the -logFile option make the mongodb-agent log to stdout. Setting -logFile /dev/stdout will result in
 	// an error by the agent trying to open /dev/stdout-verbose and still trying to do log rotation.
@@ -296,7 +296,7 @@ fi
 `, agentPrepareScript)
 }
 
-func mongodbAgentContainer(automationConfigSecretName string, volumeMounts []corev1.VolumeMount, logLevel common.LogLevel, logFile string, maxLogFileDurationHours int, agentImage string) container.Modification {
+func mongodbAgentContainer(automationConfigSecretName string, volumeMounts []corev1.VolumeMount, logLevel mckv1.LogLevel, logFile string, maxLogFileDurationHours int, agentImage string) container.Modification {
 	_, containerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
 	return container.Apply(
 		container.WithName(AgentName),
@@ -480,7 +480,7 @@ echo "Starting mongod..."
 `, signalHandling, filePath, keyfileFilePath, mongodExec)
 }
 
-func mongodbContainer(mongodbImage string, volumeMounts []corev1.VolumeMount, additionalMongoDBConfig common.MongodConfiguration, isStatic bool) container.Modification {
+func mongodbContainer(mongodbImage string, volumeMounts []corev1.VolumeMount, additionalMongoDBConfig mckv1.MongodConfiguration, isStatic bool) container.Modification {
 	filePath := additionalMongoDBConfig.GetDBDataDir() + "/" + automationMongodConfFileName
 	mongoDbCommand := buildMongodbCommand(filePath, isStatic)
 

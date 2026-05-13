@@ -8,9 +8,9 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
-	"github.com/mongodb/mongodb-kubernetes/api/v1/common"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
@@ -133,7 +133,7 @@ func (m *MultiReplicaSetBuilder) SetBackup(backupSpec mdbv1.Backup) *MultiReplic
 
 func (m *MultiReplicaSetBuilder) SetPodSpecTemplate(spec corev1.PodTemplateSpec) *MultiReplicaSetBuilder {
 	if m.Spec.StatefulSetConfiguration == nil {
-		m.Spec.StatefulSetConfiguration = &common.StatefulSetConfiguration{}
+		m.Spec.StatefulSetConfiguration = &v1.StatefulSetConfiguration{}
 	}
 	m.Spec.StatefulSetConfiguration.SpecWrapper.Spec.Template = spec
 	return m

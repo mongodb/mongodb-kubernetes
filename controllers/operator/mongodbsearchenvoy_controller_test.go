@@ -11,7 +11,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
-	"github.com/mongodb/mongodb-kubernetes/api/v1/common"
+	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
 )
 
@@ -134,8 +134,8 @@ func TestBuildEnvoyPodSpec_WithDeploymentConfigurationOverride(t *testing.T) {
 		Spec: searchv1.MongoDBSearchSpec{
 			LoadBalancer: &searchv1.LoadBalancerConfig{
 				Managed: &searchv1.ManagedLBConfig{
-					Deployment: &common.DeploymentConfiguration{
-						SpecWrapper: common.DeploymentSpecWrapper{
+					Deployment: &v1.DeploymentConfiguration{
+						SpecWrapper: v1.DeploymentSpecWrapper{
 							Spec: appsv1.DeploymentSpec{
 								Template: corev1.PodTemplateSpec{
 									Spec: corev1.PodSpec{
@@ -147,7 +147,7 @@ func TestBuildEnvoyPodSpec_WithDeploymentConfigurationOverride(t *testing.T) {
 								},
 							},
 						},
-						MetadataWrapper: common.DeploymentMetadataWrapper{
+						MetadataWrapper: v1.DeploymentMetadataWrapper{
 							Labels:      map[string]string{"custom-label": "value"},
 							Annotations: map[string]string{"custom-annotation": "value"},
 						},
@@ -209,8 +209,8 @@ func TestDeploymentConfigurationOverride_ResourceRequirementsComposition(t *test
 							corev1.ResourceCPU: resource.MustParse("200m"),
 						},
 					},
-					Deployment: &common.DeploymentConfiguration{
-						SpecWrapper: common.DeploymentSpecWrapper{
+					Deployment: &v1.DeploymentConfiguration{
+						SpecWrapper: v1.DeploymentSpecWrapper{
 							Spec: appsv1.DeploymentSpec{
 								Template: corev1.PodTemplateSpec{
 									Spec: corev1.PodSpec{

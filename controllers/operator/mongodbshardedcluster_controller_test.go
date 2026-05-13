@@ -339,8 +339,8 @@ func TestReconcilePVCResizeShardedCluster(t *testing.T) {
 		ctx := context.Background()
 		// First creation
 		sc := test.DefaultClusterBuilder().SetShardCountSpec(2).SetShardCountStatus(2).Build()
-		persistence := common.Persistence{
-			SingleConfig: &common.PersistenceConfig{
+		persistence := v1.Persistence{
+			SingleConfig: &v1.PersistenceConfig{
 				Storage: "1Gi",
 			},
 		}

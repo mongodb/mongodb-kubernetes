@@ -7,7 +7,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
-	"github.com/mongodb/mongodb-kubernetes/api/v1/common"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
@@ -223,7 +223,7 @@ func (b *ClusterBuilder) SetShardSpecificPodSpecTemplate(specs []v12.PodTemplate
 	mongoDBPodSpec := make([]mdb.MongoDbPodSpec, len(specs))
 
 	for n, e := range specs {
-		mongoDBPodSpec[n] = mdb.MongoDbPodSpec{PodTemplateWrapper: common.PodTemplateSpecWrapper{
+		mongoDBPodSpec[n] = mdb.MongoDbPodSpec{PodTemplateWrapper: mdbv1.PodTemplateSpecWrapper{
 			PodTemplate: &e,
 		}}
 	}

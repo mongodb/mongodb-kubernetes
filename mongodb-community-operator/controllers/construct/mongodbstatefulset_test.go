@@ -7,7 +7,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 
-	"github.com/mongodb/mongodb-kubernetes/api/v1/common"
+	mckv1 "github.com/mongodb/mongodb-kubernetes/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/readiness/config"
 )
 
@@ -120,7 +120,7 @@ func TestMongodbContainer_SignalHandling(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mongodConfig := common.NewMongodConfiguration()
+			mongodConfig := mckv1.NewMongodConfiguration()
 			mongodConfig.SetOption("storage.dbPath", "/data")
 
 			containerMod := mongodbContainer("test-image", []corev1.VolumeMount{}, mongodConfig, tt.isStatic)

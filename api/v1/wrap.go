@@ -1,7 +1,7 @@
 // Contains the wrapped types which are needed for generating
 // CRD yamls using kubebuilder. They prevent each of the fields showing up in CRD yaml thereby
 // resulting in a relatively smaller file.
-package common
+package v1
 
 import (
 	"encoding/json"
@@ -9,7 +9,66 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+
+	"github.com/stretchr/objx"
 )
+
+// MapWrapper is a wrapper for a map to be used by other structs.
+// The CRD generator does not support map[string]interface{}
+// on the top level and hence we need to work around this with
+// a wrapping struct.
+type MapWrapper struct {
+	Object map[string]interface{} `json:"-"`
+}
+
+// MarshalJSON defers JSON encoding to the wrapped map
+func (m *MapWrapper) MarshalJSON() ([]byte, error) {
+	return json.Marshal(m.Object)
+}
+
+// UnmarshalJSON will decode the data into the wrapped map
+func (m *MapWrapper) UnmarshalJSON(data []byte) error {
+	if m.Object == nil {
+		m.Object = map[string]interface{}{}
+	}
+
+	// Handle keys like net.port to be set as nested maps.
+	// Without this after unmarshalling there is just key "net.port" which is not
+	// a nested map and methods like GetPort() cannot access the value.
+	tmpMap := map[string]interface{}{}
+	err := json.Unmarshal(data, &tmpMap)
+	if err != nil {
+		return err
+	}
+
+	for k, v := range tmpMap {
+		m.SetOption(k, v)
+	}
+
+	return nil
+}
+
+func (m *MapWrapper) DeepCopy() *MapWrapper {
+	if m != nil && m.Object != nil {
+		return &MapWrapper{
+			Object: runtime.DeepCopyJSON(m.Object),
+		}
+	}
+	c := NewMapWrapper()
+	return &c
+}
+
+// NewMapWrapper returns an empty MapWrapper
+func NewMapWrapper() MapWrapper {
+	return MapWrapper{Object: map[string]interface{}{}}
+}
+
+// SetOption updates the MapWrapper with a new option
+func (m MapWrapper) SetOption(key string, value interface{}) MapWrapper {
+	m.Object = objx.New(m.Object).Set(key, value)
+	return m
+}
 
 type ClientCertificateSecretRefWrapper struct {
 	ClientCertificateSecretRef corev1.SecretKeySelector `json:"-"`

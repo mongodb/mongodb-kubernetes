@@ -34,7 +34,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
-	"github.com/mongodb/mongodb-kubernetes/api/v1/common"
+	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
@@ -447,7 +447,7 @@ func TestTryConfigureMonitoringInOpsManagerWithCustomTemplate(t *testing.T) {
 	opsManager := builder.Build()
 	appdbScaler := scalers.GetAppDBScaler(opsManager, multicluster.LegacyCentralClusterName, 0, nil)
 
-	opsManager.Spec.AppDB.PodSpec.PodTemplateWrapper = common.PodTemplateSpecWrapper{
+	opsManager.Spec.AppDB.PodSpec.PodTemplateWrapper = v1.PodTemplateSpecWrapper{
 		PodTemplate: &corev1.PodTemplateSpec{
 			Spec: corev1.PodSpec{
 				Containers: []corev1.Container{
@@ -681,7 +681,7 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 			members: 2,
 			externalAccess: &mdbv1.ExternalAccessConfiguration{
 				ExternalService: mdbv1.ExternalServiceConfiguration{
-					SpecWrapper: &common.ServiceSpecWrapper{
+					SpecWrapper: &v1.ServiceSpecWrapper{
 						Spec: corev1.ServiceSpec{
 							Type: "LoadBalancer",
 							Ports: []corev1.ServicePort{
@@ -844,7 +844,7 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 			members: 1,
 			externalAccess: &mdbv1.ExternalAccessConfiguration{
 				ExternalService: mdbv1.ExternalServiceConfiguration{
-					SpecWrapper: &common.ServiceSpecWrapper{
+					SpecWrapper: &v1.ServiceSpecWrapper{
 						Spec: corev1.ServiceSpec{
 							Type: "NodePort",
 							Ports: []corev1.ServicePort{
@@ -902,7 +902,7 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 						create.PlaceholderMongodProcessDomain: "{mongodProcessDomain}",
 						create.PlaceholderMongodProcessFQDN:   "{mongodProcessFQDN}",
 					},
-					SpecWrapper: &common.ServiceSpecWrapper{
+					SpecWrapper: &v1.ServiceSpecWrapper{
 						Spec: corev1.ServiceSpec{
 							Type: "LoadBalancer",
 							Ports: []corev1.ServicePort{
@@ -1005,7 +1005,7 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 						create.PlaceholderMongodProcessDomain: "{mongodProcessDomain}",
 						create.PlaceholderMongodProcessFQDN:   "{mongodProcessFQDN}",
 					},
-					SpecWrapper: &common.ServiceSpecWrapper{
+					SpecWrapper: &v1.ServiceSpecWrapper{
 						Spec: corev1.ServiceSpec{
 							Type: "LoadBalancer",
 							Ports: []corev1.ServicePort{
@@ -1246,8 +1246,8 @@ func TestAppDBSkipsReconciliation_IfAnyProcessesAreDisabled(t *testing.T) {
 
 		reconciler := createReconcilerWithAllRequiredSecrets(opsManager, true)
 
-		opsManager = DefaultOpsManagerBuilder().SetName(omName).SetAppDBAutomationConfigOverride(common.AutomationConfigOverride{
-			Processes: []common.OverrideProcess{
+		opsManager = DefaultOpsManagerBuilder().SetName(omName).SetAppDBAutomationConfigOverride(v1.AutomationConfigOverride{
+			Processes: []v1.OverrideProcess{
 				{
 					// disable the process
 					Name:     fmt.Sprintf("%s-db-0", omName),
@@ -1266,8 +1266,8 @@ func TestAppDBSkipsReconciliation_IfAnyProcessesAreDisabled(t *testing.T) {
 		// should not take place (since we are not changing a process back from disabled).
 
 		omName := "test-om"
-		opsManager := DefaultOpsManagerBuilder().SetName(omName).SetAppDBAutomationConfigOverride(common.AutomationConfigOverride{
-			Processes: []common.OverrideProcess{
+		opsManager := DefaultOpsManagerBuilder().SetName(omName).SetAppDBAutomationConfigOverride(v1.AutomationConfigOverride{
+			Processes: []v1.OverrideProcess{
 				{
 					// disable the process
 					Name:     fmt.Sprintf("%s-db-0", omName),
@@ -1285,8 +1285,8 @@ func TestAppDBSkipsReconciliation_IfAnyProcessesAreDisabled(t *testing.T) {
 
 	t.Run("Reconciliation should happen if no automation config is present", func(t *testing.T) {
 		omName := "test-om"
-		opsManager := DefaultOpsManagerBuilder().SetName(omName).SetAppDBAutomationConfigOverride(common.AutomationConfigOverride{
-			Processes: []common.OverrideProcess{
+		opsManager := DefaultOpsManagerBuilder().SetName(omName).SetAppDBAutomationConfigOverride(v1.AutomationConfigOverride{
+			Processes: []v1.OverrideProcess{
 				{
 					// disable the process
 					Name:     fmt.Sprintf("%s-db-0", omName),
@@ -1304,8 +1304,8 @@ func TestAppDBSkipsReconciliation_IfAnyProcessesAreDisabled(t *testing.T) {
 
 	t.Run("Reconciliation should happen we are re-enabling a process", func(t *testing.T) {
 		omName := "test-om"
-		opsManager := DefaultOpsManagerBuilder().SetName(omName).SetAppDBAutomationConfigOverride(common.AutomationConfigOverride{
-			Processes: []common.OverrideProcess{
+		opsManager := DefaultOpsManagerBuilder().SetName(omName).SetAppDBAutomationConfigOverride(v1.AutomationConfigOverride{
+			Processes: []v1.OverrideProcess{
 				{
 					// disable the process
 					Name:     fmt.Sprintf("%s-db-0", omName),

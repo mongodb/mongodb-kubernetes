@@ -13,7 +13,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	k8sClient "sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/mongodb/mongodb-kubernetes/api/v1/common"
+	mckv1 "github.com/mongodb/mongodb-kubernetes/api/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/construct"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/authentication/x509"
@@ -202,13 +202,13 @@ func assertStatefulSetVolumesAndVolumeMounts(t *testing.T, sts appsv1.StatefulSe
 func TestStatefulSetIsCorrectlyConfiguredWithPrometheusTLS(t *testing.T) {
 	ctx := context.Background()
 	mdb := newTestReplicaSetWithTLS()
-	mdb.Spec.Prometheus = &common.Prometheus{
+	mdb.Spec.Prometheus = &mckv1.Prometheus{
 		Username: "username",
-		PasswordSecretRef: common.SecretKeyReference{
+		PasswordSecretRef: mckv1.SecretKeyReference{
 			Name: "prom-password-secret",
 		},
 		Port: 4321,
-		TLSSecretRef: common.SecretKeyReference{
+		TLSSecretRef: mckv1.SecretKeyReference{
 			Name: "prom-secret-cert",
 		},
 	}

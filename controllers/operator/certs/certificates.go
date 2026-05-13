@@ -14,7 +14,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/mongodb/mongodb-kubernetes/api/v1/common"
+	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	enterprisepem "github.com/mongodb/mongodb-kubernetes/controllers/operator/pem"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
@@ -350,7 +350,7 @@ func EnsureSSLCertsForStatefulSet(ctx context.Context, secretReadClient, secretW
 //
 // For Prometheus we *only accept* certificates of type `corev1.SecretTypeTLS`
 // so they always need to be concatenated into PEM-format.
-func EnsureTLSCertsForPrometheus(ctx context.Context, secretClient secrets.SecretClient, namespace string, prom *common.Prometheus, podType certDestination, log *zap.SugaredLogger) (string, error) {
+func EnsureTLSCertsForPrometheus(ctx context.Context, secretClient secrets.SecretClient, namespace string, prom *v1.Prometheus, podType certDestination, log *zap.SugaredLogger) (string, error) {
 	if prom == nil || prom.TLSSecretRef.Name == "" {
 		return "", nil
 	}

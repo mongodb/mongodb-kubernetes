@@ -9,7 +9,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 
-	"github.com/mongodb/mongodb-kubernetes/api/v1/common"
+	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/v1/user"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connectionstring"
@@ -72,7 +72,7 @@ type AppDBSpec struct {
 	PasswordSecretKeyRef *userv1.SecretKeyRef `json:"passwordSecretKeyRef,omitempty"`
 
 	// Enables Prometheus integration on the AppDB.
-	Prometheus *common.Prometheus `json:"prometheus,omitempty"`
+	Prometheus *v1.Prometheus `json:"prometheus,omitempty"`
 
 	// Transient fields.
 	// These fields are cleaned before serialization, see 'MarshalJSON()'
@@ -86,7 +86,7 @@ type AppDBSpec struct {
 
 	// AutomationConfigOverride holds any fields that will be merged on top of the Automation Config
 	// that the operator creates for the AppDB. Currently only the process.disabled and logRotate field is recognized.
-	AutomationConfigOverride *common.AutomationConfigOverride `json:"automationConfig,omitempty"`
+	AutomationConfigOverride *v1.AutomationConfigOverride `json:"automationConfig,omitempty"`
 
 	UpdateStrategyType appsv1.StatefulSetUpdateStrategyType `json:"-"`
 
@@ -105,10 +105,10 @@ func (m *AppDBSpec) GetAgentConfig() mdbv1.AgentConfig {
 	return m.AutomationAgent
 }
 
-func (m *AppDBSpec) GetAgentLogLevel() common.LogLevel {
-	agentLogLevel := common.LogLevelInfo
+func (m *AppDBSpec) GetAgentLogLevel() v1.LogLevel {
+	agentLogLevel := v1.LogLevelInfo
 	if m.AutomationAgent.LogLevel != "" {
-		agentLogLevel = common.LogLevel(m.AutomationAgent.LogLevel)
+		agentLogLevel = v1.LogLevel(m.AutomationAgent.LogLevel)
 	}
 	return agentLogLevel
 }
@@ -138,8 +138,8 @@ func (m *AppDBSpec) GetConnectionSpec() *mdbv1.ConnectionSpec {
 	return nil
 }
 
-func (m *AppDBSpec) GetMongodConfiguration() common.MongodConfiguration {
-	mongodConfig := common.NewMongodConfiguration()
+func (m *AppDBSpec) GetMongodConfiguration() v1.MongodConfiguration {
+	mongodConfig := v1.NewMongodConfiguration()
 	if m.GetAdditionalMongodConfig() == nil || m.AdditionalMongodConfig.ToMap() == nil {
 		return mongodConfig
 	}
