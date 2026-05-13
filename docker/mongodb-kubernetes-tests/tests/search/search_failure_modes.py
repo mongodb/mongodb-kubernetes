@@ -48,8 +48,8 @@ infrastructure than this single-cluster RS fixture provides):
    single-replica-set this PR's bootstrap deploys; tracks against
    KUBE-39 topology evolution tests.
 
-The deployment scaffolding mirrors the KUBE-26 background-tester e2e
-and is delegated to ``tests.common.search.connectivity_bootstrap``.
+The deployment scaffolding is inherited from the chained mixins in
+``tests.common.search.bootstrap_test_mixins``.
 """
 
 from __future__ import annotations
@@ -57,43 +57,24 @@ from __future__ import annotations
 import time
 
 from kubernetes import client
-from kubetester import try_load
-from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import run_periodically
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_search import MongoDBSearch
-from kubetester.mongodb_user import MongoDBUser
-from kubetester.omtester import skip_if_cloud_manager
-from kubetester.phase import Phase
-from pytest import fixture, mark
+from pytest import mark
 from tests import test_logger
-from tests.common.mongodb_tools_pod import mongodb_tools_pod
-from tests.common.search import connectivity_bootstrap as bootstrap
 from tests.common.search import search_resource_names
 from tests.common.search.availability_tester import SearchAvailabilityBackgroundTester
+from tests.common.search.bootstrap_test_mixins import (
+    MongoDBRsDeploymentConfig,
+    MongoDBRsDeploymentTests,
+    SearchDeploymentTests,
+    SearchE2EFixtures,
+    SearchSampleDataAndIndexTests,
+)
 from tests.common.search.connectivity import SearchConnectivityTool
 from tests.common.search.rs_search_helper import get_rs_search_tester
-from tests.common.search.search_deployment_helper import SearchDeploymentHelper
-from tests.common.search.sharded_search_helper import create_issuer_ca
 
 logger = test_logger.get_test_logger(__name__)
-
-# Fixture identity. Distinct from the KUBE-17 / KUBE-26 fixtures so this
-# file's resources don't collide with sibling tests when run in parallel
-# on a warm cluster.
-ADMIN_USER_NAME = "mdb-admin-user"
-ADMIN_USER_PASSWORD = "mdb-admin-user-pass"
-MONGOT_USER_NAME = "search-sync-source"
-MONGOT_USER_PASSWORD = "search-sync-source-user-password"
-USER_NAME = "mdb-user"
-USER_PASSWORD = "mdb-user-pass"
-ENVOY_PROXY_PORT = 27028
-
-MDB_RESOURCE_NAME = "mdb-rs-fail-modes"
-MDBS_RESOURCE_NAME = MDB_RESOURCE_NAME
-RS_MEMBERS = 3
-MDBS_TLS_CERT_PREFIX = "certs"
-CA_CONFIGMAP_NAME = f"{MDB_RESOURCE_NAME}-ca"
 
 # Fault windows. Each scenario opens a short healthy probe first so the
 # verdict has known-good baseline iterations, then introduces the fault
@@ -102,146 +83,11 @@ HEALTHY_BASELINE_SECONDS = 6.0
 FAULT_OBSERVATION_SECONDS = 25.0
 
 
-@fixture(scope="module")
-def ca_configmap(issuer_ca_filepath: str, namespace: str) -> str:
-    return create_issuer_ca(issuer_ca_filepath, namespace, CA_CONFIGMAP_NAME)
-
-
-@fixture(scope="function")
-def helper(namespace: str) -> SearchDeploymentHelper:
-    return SearchDeploymentHelper(
-        namespace=namespace,
-        mdb_resource_name=MDB_RESOURCE_NAME,
-        mdbs_resource_name=MDBS_RESOURCE_NAME,
-        ca_configmap_name=CA_CONFIGMAP_NAME,
-    )
-
-
-@fixture(scope="function")
-def mdb(namespace: str, ca_configmap: str, helper: SearchDeploymentHelper) -> MongoDB:
-    return helper.create_rs_mdb(set_tls=True)
-
-
-@fixture(scope="function")
-def mdbs(namespace: str) -> MongoDBSearch:
-    resource = MongoDBSearch.from_yaml(
-        yaml_fixture("search-rs-managed-lb.yaml"),
-        namespace=namespace,
-        name=MDBS_RESOURCE_NAME,
-    )
-    if try_load(resource):
-        return resource
-    resource["spec"]["source"]["mongodbResourceRef"]["name"] = MDB_RESOURCE_NAME
-    return resource
-
-
-@fixture(scope="function")
-def admin_user(helper: SearchDeploymentHelper) -> MongoDBUser:
-    return helper.admin_user_resource(ADMIN_USER_NAME)
-
-
-@fixture(scope="function")
-def user(helper: SearchDeploymentHelper) -> MongoDBUser:
-    return helper.user_resource(USER_NAME)
-
-
-@fixture(scope="function")
-def mongot_user(helper: SearchDeploymentHelper, mdbs: MongoDBSearch) -> MongoDBUser:
-    return helper.mongot_user_resource(mdbs, MONGOT_USER_NAME)
-
-
-# Cluster bootstrap — identical sequence to KUBE-26 / KUBE-17 (delegated
-# to tests.common.search.connectivity_bootstrap).
-@mark.e2e_search_failure_modes
-def test_install_operator(namespace: str, operator_installation_config: dict[str, str]):
-    bootstrap.install_operator(namespace, operator_installation_config)
-
-
-@mark.e2e_search_failure_modes
-@skip_if_cloud_manager
-def test_create_ops_manager(namespace: str):
-    bootstrap.create_ops_manager(namespace)
-
-
-@mark.e2e_search_failure_modes
-def test_install_tls_certificates(helper: SearchDeploymentHelper, mdb: MongoDB, issuer: str):
-    bootstrap.install_tls_certificates(helper, issuer, RS_MEMBERS)
-
-
-@mark.e2e_search_failure_modes
-def test_create_database_resource(mdb: MongoDB):
-    bootstrap.create_database_resource(mdb)
-
-
-@mark.e2e_search_failure_modes
-def test_create_users(
-    helper: SearchDeploymentHelper,
-    admin_user: MongoDBUser,
-    user: MongoDBUser,
-    mongot_user: MongoDBUser,
-):
-    bootstrap.create_users(
-        helper,
-        admin_user,
-        ADMIN_USER_PASSWORD,
-        user,
-        USER_PASSWORD,
-        mongot_user,
-        MONGOT_USER_PASSWORD,
-    )
-
-
-@mark.e2e_search_failure_modes
-def test_deploy_lb_certificates(namespace: str, issuer: str):
-    bootstrap.deploy_lb_certificates(namespace, issuer, MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX)
-
-
-@mark.e2e_search_failure_modes
-def test_create_search_tls_certificate(namespace: str, issuer: str):
-    bootstrap.create_search_tls_certificate(namespace, issuer, MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX)
-
-
-@mark.e2e_search_failure_modes
-def test_create_search_resource(mdbs: MongoDBSearch):
-    bootstrap.create_search_resource(mdbs)
-
-
-@mark.e2e_search_failure_modes
-def test_verify_envoy_deployment(namespace: str):
-    bootstrap.verify_envoy_deployment(namespace, MDBS_RESOURCE_NAME)
-
-
-@mark.e2e_search_failure_modes
-def test_wait_for_database_ready(mdb: MongoDB):
-    bootstrap.wait_for_database_ready(mdb)
-
-
-@mark.e2e_search_failure_modes
-def test_verify_mongod_parameters(namespace: str, mdb: MongoDB, mdbs: MongoDBSearch):
-    bootstrap.verify_mongod_parameters(namespace, MDB_RESOURCE_NAME, RS_MEMBERS, mdbs.name, ENVOY_PROXY_PORT)
-
-
-@mark.e2e_search_failure_modes
-def test_deploy_tools_pod(tools_pod: mongodb_tools_pod.ToolsPod):
-    logger.info(f"Tools pod {tools_pod.pod_name} is ready")
-
-
-@mark.e2e_search_failure_modes
-def test_restore_sample_database(mdb: MongoDB, tools_pod: mongodb_tools_pod.ToolsPod):
-    bootstrap.restore_sample_database(mdb, tools_pod, ADMIN_USER_NAME, ADMIN_USER_PASSWORD)
-
-
-@mark.e2e_search_failure_modes
-def test_create_search_index(mdb: MongoDB):
-    bootstrap.create_search_index(mdb, USER_NAME, USER_PASSWORD)
-
-
-# ----------------------------------------------------------------------
-# Failure-mode scenarios — KUBE-27 deliverable
-# ----------------------------------------------------------------------
-
-
-def _new_tester(mdb: MongoDB) -> SearchAvailabilityBackgroundTester:
+def _new_tester(
+    mdb: MongoDB,
+    user_name: str,
+    user_password: str,
+) -> SearchAvailabilityBackgroundTester:
     """Build a fresh oneshot-mode tester wired against the same fixture.
 
     All KUBE-27 scenarios use oneshot mode for the same reason as
@@ -251,7 +97,7 @@ def _new_tester(mdb: MongoDB) -> SearchAvailabilityBackgroundTester:
     upstream evaluation each iteration, so the fault surfaces every
     time the harness ticks.
     """
-    search_tester = get_rs_search_tester(mdb, USER_NAME, USER_PASSWORD, use_ssl=True)
+    search_tester = get_rs_search_tester(mdb, user_name, user_password, use_ssl=True)
     tool = SearchConnectivityTool(search_tester, cache_latency_threshold_ms=10.0)
     return SearchAvailabilityBackgroundTester(
         tool,
@@ -310,46 +156,73 @@ def _delete_pods_in_label(namespace: str, label_selector: str) -> set[str]:
 
 
 @mark.e2e_search_failure_modes
-def test_failure_mongot_pod_restart_surfaces_outage(mdb: MongoDB, mdbs: MongoDBSearch, namespace: str):
-    """Scenario 1 — mongot pod restart.
+class TestSearchFailureModes(
+    # Bases listed in REVERSE execution order — pytest emits inherited
+    # tests in reversed(MRO) so the FIRST base runs LAST. See module
+    # docstring of bootstrap_test_mixins for the full rule.
+    SearchSampleDataAndIndexTests,  # runs LAST  (Layer 3 — sample data + index + smoke)
+    SearchDeploymentTests,          # runs second (Layer 2 — MongoDBSearch + envoy)
+    MongoDBRsDeploymentTests,       # runs FIRST  (Layer 1 — operator + MongoDB)
+    SearchE2EFixtures,              # fixtures + default config builders
+):
+    def build_mongodb_rs_config(self) -> MongoDBRsDeploymentConfig:
+        cfg = super().build_mongodb_rs_config()
+        # Unique resource name so this e2e can run on a warm cluster
+        # without collisions.
+        cfg.mdb_resource_name = "mdb-rs-fail-modes"
+        return cfg
 
-    Delete EVERY mongot pod. The search-rs-managed-lb fixture has
-    ``spec.replicas: 2``; deleting only one pod would leave the
-    other replica serving and the tester would see no fault. The
-    StatefulSet controller recreates each pod within ~10-30s; during
-    the recreation window envoy has no healthy upstream, so the
-    tester's oneshot probes must surface ``transient_network``
-    failures (or ``cursor_lost`` if the timing catches a cursor
-    mid-getMore).
-    """
-    statefulset_name = search_resource_names.mongot_statefulset_name(mdbs.name)
-    # StatefulSet's pod template has ``app=<sts-name>-svc`` (matches
-    # the headless service selector); using this label catches every
-    # replica rather than just pod-0.
-    pod_label = f"app={statefulset_name}-svc"
+    # ------------------------------------------------------------------
+    # Failure-mode scenarios — KUBE-27 deliverable. The 15 bootstrap
+    # test methods above are inherited from the chained mixins.
+    # ------------------------------------------------------------------
 
-    tester = _new_tester(mdb)
-    tester.start()
-    try:
-        time.sleep(HEALTHY_BASELINE_SECONDS)
-        excluded = _delete_pods_in_label(namespace, pod_label)
-        assert excluded, f"no mongot pods matched selector '{pod_label}'"
-        time.sleep(FAULT_OBSERVATION_SECONDS)
-    finally:
-        tester.stop()
-        tester.join(timeout=10)
-        assert not tester.is_alive(), "background tester thread did not exit cleanly"
+    def test_failure_mongot_pod_restart_surfaces_outage(
+        self,
+        mdb: MongoDB,
+        mdbs: MongoDBSearch,
+        namespace: str,
+    ):
+        """Scenario 1 — mongot pod restart.
+
+        Delete EVERY mongot pod. The search-rs-managed-lb fixture has
+        ``spec.replicas: 2``; deleting only one pod would leave the
+        other replica serving and the tester would see no fault. The
+        StatefulSet controller recreates each pod within ~10-30s; during
+        the recreation window envoy has no healthy upstream, so the
+        tester's oneshot probes must surface ``transient_network``
+        failures (or ``cursor_lost`` if the timing catches a cursor
+        mid-getMore).
+        """
+        statefulset_name = search_resource_names.mongot_statefulset_name(mdbs.name)
+        # StatefulSet's pod template has ``app=<sts-name>-svc`` (matches
+        # the headless service selector); using this label catches every
+        # replica rather than just pod-0.
+        pod_label = f"app={statefulset_name}-svc"
+
+        cfg = self.build_mongodb_rs_config()
+        tester = _new_tester(mdb, cfg.user_name, cfg.user_password)
+        tester.start()
         try:
-            _wait_for_pod_recreation(namespace, pod_label, excluded)
-        except Exception as e:
-            logger.warning(f"mongot pod recreation wait timed out in cleanup: {e}")
+            time.sleep(HEALTHY_BASELINE_SECONDS)
+            excluded = _delete_pods_in_label(namespace, pod_label)
+            assert excluded, f"no mongot pods matched selector '{pod_label}'"
+            time.sleep(FAULT_OBSERVATION_SECONDS)
+        finally:
+            tester.stop()
+            tester.join(timeout=10)
+            assert not tester.is_alive(), "background tester thread did not exit cleanly"
+            try:
+                _wait_for_pod_recreation(namespace, pod_label, excluded)
+            except Exception as e:
+                logger.warning(f"mongot pod recreation wait timed out in cleanup: {e}")
 
-    verdict = tester.assert_outage_detected(accept_classes=("cursor_lost", "transient_network"))
-    logger.info(f"mongot-restart verdict: {verdict.as_dict()}")
-    assert verdict.upstream_alive, (
-        f"verdict has no upstream-confirmed iterations at all — the harness never reached "
-        f"upstream, so 'failure detected' is meaningless. verdict={verdict.as_dict()}"
-    )
+        verdict = tester.assert_outage_detected(accept_classes=("cursor_lost", "transient_network"))
+        logger.info(f"mongot-restart verdict: {verdict.as_dict()}")
+        assert verdict.upstream_alive, (
+            f"verdict has no upstream-confirmed iterations at all — the harness never reached "
+            f"upstream, so 'failure detected' is meaningless. verdict={verdict.as_dict()}"
+        )
 
 
 # NOTE: a second scenario (envoy single-pod restart) was prototyped
