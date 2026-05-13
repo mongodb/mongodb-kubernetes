@@ -462,7 +462,8 @@ func ValidateShardNameRFC1123(shardName string) error {
 //     must contain {clusterName} or {clusterIndex} so each cluster's resolved
 //     hostname is distinct.
 //   - When the source is external sharded AND len(spec.clusters) > 1,
-//     externalHostname must additionally contain {shardName}.
+//     externalHostname must additionally contain {shardName} AND start with
+//     "{shardName}." so the cluster-level form is derivable by stripping that prefix.
 //
 // Single-cluster (len <= 1) and legacy specs (clusters nil) fall through —
 // the existing single-cluster behaviour is preserved.
@@ -481,11 +482,20 @@ func validateMCExternalHostnamePlaceholders(s *MongoDBSearch) v1.ValidationResul
 			ClusterNamePlaceholder, ClusterIndexPlaceholder,
 		)
 	}
-	if s.IsExternalSourceSharded() && !strings.Contains(tmpl, ShardNamePlaceholder) {
-		return v1.ValidationError(
-			"spec.loadBalancer.managed.externalHostname must contain %s for multi-cluster sharded deployments",
-			ShardNamePlaceholder,
-		)
+	if s.IsExternalSourceSharded() {
+		if !strings.Contains(tmpl, ShardNamePlaceholder) {
+			return v1.ValidationError(
+				"spec.loadBalancer.managed.externalHostname must contain %s for multi-cluster sharded deployments",
+				ShardNamePlaceholder,
+			)
+		}
+		if !strings.HasPrefix(tmpl, ShardNamePlaceholder+".") {
+			return v1.ValidationError(
+				"spec.loadBalancer.managed.externalHostname must start with %q for multi-cluster sharded deployments "+
+					"so the cluster-level endpoint is derivable",
+				ShardNamePlaceholder+".",
+			)
+		}
 	}
 	return v1.ValidationSuccess()
 }
