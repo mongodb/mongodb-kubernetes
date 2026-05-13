@@ -75,7 +75,7 @@ type AppDBStatefulSetOwner interface {
 // AppDBStatefulSetOwner.
 // It doesn't configure TLS or additional containers/env vars that the statefulset might need.
 // Verbatim copy from MCO's mongodbstatefulset.go with renamed interface and local constant references.
-func BuildMongoDBReplicaSetStatefulSetModificationFunction(mdb AppDBStatefulSetOwner, scaler scale.ReplicaSetScaler, mongodbImage, agentImage, versionUpgradeHookImage, readinessProbeImage string, withInitContainers bool, initAppDBImage string) statefulset.Modification {
+func BuildMongoDBReplicaSetStatefulSetModificationFunction(mdb AppDBStatefulSetOwner, scaler scale.ReplicaSetScaler, mongodbImage, agentImage string, withInitContainers bool, initAppDBImage string) statefulset.Modification {
 	labels := map[string]string{
 		"app": mdb.ServiceName(),
 	}
@@ -127,8 +127,8 @@ func BuildMongoDBReplicaSetStatefulSetModificationFunction(mdb AppDBStatefulSetO
 	if withInitContainers {
 		mongodVolumeMounts = append(mongodVolumeMounts, hooksVolumeMount)
 		mongodbAgentVolumeMounts = append(mongodbAgentVolumeMounts, scriptsVolumeMount)
-		upgradeInitContainer = podtemplatespec.WithInitContainer(appdbVersionUpgradeHookName, appdbVersionUpgradeHookInit([]corev1.VolumeMount{hooksVolumeMount}, versionUpgradeHookImage))
-		readinessInitContainer = podtemplatespec.WithInitContainer(AppDBReadinessProbeContainerName, appdbReadinessProbeInit([]corev1.VolumeMount{scriptsVolumeMount}, readinessProbeImage))
+		upgradeInitContainer = podtemplatespec.WithInitContainer(appdbVersionUpgradeHookName, appdbVersionUpgradeHookInit([]corev1.VolumeMount{hooksVolumeMount}, ""))
+		readinessInitContainer = podtemplatespec.WithInitContainer(AppDBReadinessProbeContainerName, appdbReadinessProbeInit([]corev1.VolumeMount{scriptsVolumeMount}, ""))
 	} else {
 		staticMounts := []corev1.VolumeMount{hooksVolumeMount, scriptsVolumeMount, tmpVolumeMount}
 		withStaticContainerModification = podtemplatespec.WithContainer(util.AgentContainerUtilitiesName, appdbMongodbAgentUtilitiesContainer(staticMounts, initAppDBImage))
