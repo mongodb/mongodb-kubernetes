@@ -139,7 +139,14 @@ func (m *MongoDB) GetSecurity() *Security {
 }
 
 func (m *MongoDB) GetConnectionSpec() *ConnectionSpec {
+	if m.Spec.ConnectionSpec.IsHeadless() {
+		return nil
+	}
 	return &m.Spec.ConnectionSpec
+}
+
+func (m *MongoDB) AutomationConfigSecretName() string {
+	return m.Name + "-config"
 }
 
 func (m *MongoDB) GetPrometheus() *v1.Prometheus {
@@ -729,14 +736,35 @@ type PrivateCloudConfig struct {
 	ConfigMapRef ConfigMapRef `json:"configMapRef,omitempty"`
 }
 
+// ConnectionMode controls whether this MongoDB resource connects to Ops Manager
+// or runs in headless (agent-only, no OM) mode.
+// +kubebuilder:validation:Enum=OpsManager;CloudManager;Headless
+type ConnectionMode string
+
+const (
+	ConnectionModeOpsManager   ConnectionMode = "OpsManager"
+	ConnectionModeCloudManager ConnectionMode = "CloudManager"
+	ConnectionModeHeadless     ConnectionMode = "Headless"
+)
+
 // ConnectionSpec holds fields required to establish an Ops Manager connection
 // note, that the fields are marked as 'omitempty' as otherwise they are shown for AppDB
 // which is not good
 type ConnectionSpec struct {
 	SharedConnectionSpec `json:",inline"`
-	// Name of the Secret holding credentials information
-	// +kubebuilder:validation:Required
-	Credentials string `json:"credentials"`
+	// Name of the Secret holding credentials information.
+	// Required when mode is OpsManager or CloudManager; must be absent when mode is Headless.
+	// +optional
+	Credentials string `json:"credentials,omitempty"`
+	// Mode controls whether agents connect to Ops Manager or run headlessly.
+	// Defaults to OpsManager for backward compatibility.
+	// +optional
+	// +kubebuilder:default=OpsManager
+	Mode ConnectionMode `json:"mode,omitempty"`
+}
+
+func (c *ConnectionSpec) IsHeadless() bool {
+	return c.Mode == ConnectionModeHeadless
 }
 
 type SharedConnectionSpec struct {

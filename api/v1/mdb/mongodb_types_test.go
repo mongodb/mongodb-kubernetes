@@ -448,6 +448,34 @@ func TestGetTransportSecurity(t *testing.T) {
 	}
 }
 
+func TestIsHeadless_WhenModeIsHeadless(t *testing.T) {
+	spec := ConnectionSpec{Mode: ConnectionModeHeadless}
+	assert.True(t, spec.IsHeadless())
+}
+
+func TestIsHeadless_WhenModeIsOpsManager(t *testing.T) {
+	spec := ConnectionSpec{Mode: ConnectionModeOpsManager, Credentials: "creds"}
+	assert.False(t, spec.IsHeadless())
+}
+
+func TestIsHeadless_WhenModeIsEmpty_DefaultsToOpsManager(t *testing.T) {
+	spec := ConnectionSpec{Credentials: "creds"}
+	assert.False(t, spec.IsHeadless())
+}
+
+func TestGetConnectionSpec_ReturnsNilWhenHeadless(t *testing.T) {
+	mdb := &MongoDB{}
+	mdb.Spec.Mode = ConnectionModeHeadless
+	assert.Nil(t, mdb.GetConnectionSpec())
+}
+
+func TestGetConnectionSpec_ReturnsSpecWhenOnline(t *testing.T) {
+	mdb := &MongoDB{}
+	mdb.Spec.Mode = ConnectionModeOpsManager
+	mdb.Spec.Credentials = "creds"
+	assert.NotNil(t, mdb.GetConnectionSpec())
+}
+
 func TestAdditionalMongodConfigMarshalJSON(t *testing.T) {
 	mdb := MongoDB{Spec: MongoDbSpec{DbCommonSpec: DbCommonSpec{Version: "4.2.1"}}}
 	mdb.InitDefaults()
