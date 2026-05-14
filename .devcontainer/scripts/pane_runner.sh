@@ -52,10 +52,20 @@ mkdir -p "$(dirname "${zsh_hist}")" 2>/dev/null || true
 printf ': %d:0;%s\n' "$(date +%s)" "${quoted}" >> "${zsh_hist}" 2>/dev/null || true
 printf '%s\n' "${quoted}" >> "${bash_hist}" 2>/dev/null || true
 
-# Trap nothing — let SIGINT pass through to the child. When the child
-# exits for whatever reason, fall through to the exec below.
+# Catch (and ignore) SIGINT in the wrapper itself so a Ctrl-C in the
+# pane kills the wrapped command but doesn't kill *us* — the kernel
+# still delivers SIGINT to every process in the foreground process
+# group, so the child gets the signal directly; we just refuse to die.
+# Without this, bash exits with rc=130 after the child returns and tmux
+# closes the pane before we can `exec` the recovery shell below. (k9s
+# panes survived without this trap only because k9s installs its own
+# SIGINT handler and doesn't exit on Ctrl-C, so bash here stays parked
+# in `wait`. Anything that *does* exit on Ctrl-C — tail -F, sleep loops,
+# scripts — would otherwise take the pane down with it.)
+trap ':' INT
 "$@"
 rc=$?
+trap - INT
 
 echo
 echo "[pane_runner] command exited with code ${rc}; dropping into shell."
