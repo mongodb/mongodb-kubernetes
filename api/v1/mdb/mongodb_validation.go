@@ -20,8 +20,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 )
 
-type MongoDBValidator struct {
-}
+type MongoDBValidator struct{}
 
 var _ admission.CustomValidator = &MongoDBValidator{}
 

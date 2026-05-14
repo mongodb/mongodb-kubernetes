@@ -21,7 +21,7 @@ limitations under the License.
 package om
 
 import (
-	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
+	"github.com/mongodb/mongodb-kubernetes/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/user"
