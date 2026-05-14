@@ -404,6 +404,15 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		return r.reconcileHeadless(ctx, rs, log)
 	}
 
+	// Detect headless → online migration: STS still has HEADLESS_AGENT while mode is online.
+	migrating, err := r.isMigratingFromHeadless(ctx, rs)
+	if err != nil {
+		return r.updateStatus(ctx, rs, workflow.Failed(err), log)
+	}
+	if migrating {
+		return r.migrateHeadlessToOnline(ctx, rs, log)
+	}
+
 	// Create helper for THIS reconciliation
 	helper, err := r.newReconcilerHelper(ctx, rs, log)
 	if err != nil {
@@ -411,6 +420,50 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 	}
 
 	// Delegate all reconciliation logic to helper
+	return helper.Reconcile(ctx)
+}
+
+// isMigratingFromHeadless returns true when spec.mode is online but the existing
+// StatefulSet was last configured in headless mode (HEADLESS_AGENT=true is present).
+func (r *ReconcileMongoDbReplicaSet) isMigratingFromHeadless(ctx context.Context, rs *mdbv1.MongoDB) (bool, error) {
+	if rs.Spec.ConnectionSpec.IsHeadless() {
+		return false, nil
+	}
+	sts, err := r.client.GetStatefulSet(ctx, rs.ObjectKey())
+	if err != nil {
+		if errors.IsNotFound(err) {
+			return false, nil // fresh resource, no migration needed
+		}
+		return false, err
+	}
+	// Check the correct container based on architecture mode
+	isStatic := architectures.IsRunningStaticArchitecture(rs.Annotations)
+	targetContainer := util.DatabaseContainerName
+	if isStatic {
+		targetContainer = util.AgentContainerName
+	}
+	for _, c := range sts.Spec.Template.Spec.Containers {
+		if c.Name != targetContainer {
+			continue
+		}
+		for _, e := range c.Env {
+			if e.Name == construct.HeadlessAgentEnvName && e.Value == "true" {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
+}
+
+// migrateHeadlessToOnline transitions a previously headless MongoDB resource to online
+// mode. The normal online reconcile path handles all steps: push AC to OM, update STS
+// (removes HEADLESS_AGENT, switches agent command back), and wait for pods.
+func (r *ReconcileMongoDbReplicaSet) migrateHeadlessToOnline(ctx context.Context, rs *mdbv1.MongoDB, log *zap.SugaredLogger) (reconcile.Result, error) {
+	log.Infow("migrating MongoDB from headless to online mode", "resource", rs.Name)
+	helper, err := r.newReconcilerHelper(ctx, rs, log)
+	if err != nil {
+		return r.updateStatus(ctx, rs, workflow.Failed(err), log)
+	}
 	return helper.Reconcile(ctx)
 }
 

@@ -13,7 +13,10 @@ const (
 	// the automation config Secret is mounted.
 	HeadlessClusterFilePath = appdbClusterFilePath
 
-	headlessAgentEnvName             = "HEADLESS_AGENT"
+	// HeadlessAgentEnvName is the env var name that marks a container as running in headless mode.
+	HeadlessAgentEnvName = "HEADLESS_AGENT"
+
+	headlessAgentEnvName             = HeadlessAgentEnvName
 	headlessAutomationConfigMapEnv   = "AUTOMATION_CONFIG_MAP"
 	headlessAgentDownloadsVolumeName = "agent-downloads"
 )

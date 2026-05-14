@@ -1452,6 +1452,60 @@ func TestReconcileHeadlessShardedCluster_ReturnsError(t *testing.T) {
 	assert.Equal(t, status.PhaseFailed, updatedRS.Status.Phase)
 }
 
+func TestMigrationDetected_WhenStatefulSetHasHeadlessEnvAndModeIsOnline(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().
+		SetMode(mdbv1.ConnectionModeHeadless).
+		Build()
+	rs.Spec.Credentials = ""
+	rs.Spec.OpsManagerConfig = &mdbv1.PrivateCloudConfig{}
+	rs.Spec.CloudManagerConfig = &mdbv1.PrivateCloudConfig{}
+
+	reconciler, client, _ := defaultReplicaSetReconciler(ctx, nil, "", "", rs)
+	checkHeadlessReconcileSuccessful(ctx, t, reconciler, rs, client)
+
+	// Verify STS has HEADLESS_AGENT after headless reconcile
+	sts, err := client.GetStatefulSet(ctx, rs.ObjectKey())
+	require.NoError(t, err)
+	agentContainer := container.GetByName(util.DatabaseContainerName, sts.Spec.Template.Spec.Containers)
+	require.NotNil(t, agentContainer)
+	envNames := make([]string, len(agentContainer.Env))
+	for i, e := range agentContainer.Env {
+		envNames[i] = e.Name
+	}
+	assert.Contains(t, envNames, construct.HeadlessAgentEnvName)
+
+	// Re-fetch rs to get the latest resourceVersion before patching spec.
+	latestRS := &mdbv1.MongoDB{}
+	require.NoError(t, client.Get(ctx, rs.ObjectKey(), latestRS))
+	latestRS.Spec.Mode = mdbv1.ConnectionModeOpsManager
+	latestRS.Spec.Credentials = mock.TestCredentialsSecretName
+	latestRS.Spec.OpsManagerConfig = &mdbv1.PrivateCloudConfig{ConfigMapRef: mdbv1.ConfigMapRef{Name: mock.TestProjectConfigMapName}}
+	err = client.Update(ctx, latestRS)
+	require.NoError(t, err)
+	rs = latestRS
+
+	// First reconcile after mode change — hits migration path, online reconcile runs
+	res, err := reconciler.Reconcile(ctx, requestFromObject(rs))
+	require.NoError(t, err)
+	_ = res // May be Pending or Running depending on STS readiness simulation
+
+	// Phase must be Running or Pending (not Failed)
+	updatedRS := &mdbv1.MongoDB{}
+	require.NoError(t, client.Get(ctx, rs.ObjectKey(), updatedRS))
+	assert.NotEqual(t, status.PhaseFailed, updatedRS.Status.Phase)
+}
+
+func TestMigrationNotNeeded_WhenStatefulSetAlreadyOnline(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().Build() // online from the start
+	reconciler, client, _ := defaultReplicaSetReconciler(ctx, nil, "", "", rs)
+	checkReconcileSuccessful(ctx, t, reconciler, rs, client)
+
+	// Second reconcile on already-online resource must not trigger migration
+	checkReconcileSuccessful(ctx, t, reconciler, rs, client)
+}
+
 // Helper functions for TestPublishAutomationConfigFirstRS
 
 func baseTestStatefulSet(name string, replicas int32) *appsv1.StatefulSet {
