@@ -573,6 +573,47 @@ class CreateOrchestrator:
                 cwd=wt,
             )
 
+        # ---- op_run ------------------------------------------------------
+        def _do_op_run() -> None:
+            # `dc_up`'s compose-down step kills any operator that was
+            # running inside the previous devcontainer-1, and `create`
+            # itself never re-starts one. The next time the tmuxp layout
+            # comes up, the operator pane tails an empty log and the
+            # reflectors of any externally-running operator are pinned to
+            # the previous kind apiserver port. Launch op_run.sh in detach
+            # mode at the tail of create so we always end on "operator is
+            # up against the current kubeconfig".
+            #
+            # Then drop the existing `mck` tmuxp session (if any). When the
+            # devc was rebuilt the tmux server inside got fresh too, but a
+            # leftover layout from a previous attach can still be cached
+            # in zsh's command-hash (e.g. "command not found: python" lingering
+            # from a window when venv was mid-recreate) or carry stale
+            # kubeconfig handles in k9s. Killing the session forces the next
+            # `wt-ctl attach` (no-args) to re-load tmuxp from scratch against
+            # the now-current state.
+            #
+            # Both calls are best-effort: `--detach` is unknown on older
+            # op_run.sh variants (descendant branches), and `tmux` may not
+            # be present at all in some images. Soft-fail so `create` still
+            # finishes.
+            self.runner.run_streaming(
+                _devc_bash(
+                    wt,
+                    "set -Eeou pipefail; "
+                    "cd /workspace; "
+                    ". scripts/dev/devenv; "
+                    "scripts/dev/op_run.sh --detach || "
+                    "echo '[op_run] start failed (continuing; run op_run.sh manually)'; "
+                    "tmux kill-session -t mck 2>/dev/null && "
+                    "echo '[op_run] killed stale mck tmux session; next wt-ctl attach will re-load tmuxp' || "
+                    "echo '[op_run] no mck tmux session to refresh'",
+                ),
+                prefix="[op_run] ",
+                log_path=log_dir / "op_run.log",
+                cwd=wt,
+            )
+
         # The hash payloads are intentionally narrow: only fields that
         # *actually* affect the phase get hashed, so flipping unrelated flags
         # (e.g. --multi-cluster) doesn't invalidate net_allocate.
@@ -673,6 +714,18 @@ class CreateOrchestrator:
                 input_hash=lambda: _h({"branch_dir": i.branch_dir}),
                 skip=lambda: i.skip_devcontainer or i.skip_prepare_e2e,
                 log_relpath="logs/setup_worktree/prepare_local_e2e.log",
+            ),
+            Phase(
+                name="op_run",
+                run=_do_op_run,
+                # Re-launch the operator on every create cycle where the
+                # devcontainer was rebuilt or the kubeconfig refreshed —
+                # both bump branch_dir's surrounding state. Cheap to
+                # re-run when nothing changed (op_run.sh is idempotent:
+                # kills the existing mck-operator tmux session first).
+                input_hash=lambda: _h({"branch_dir": i.branch_dir, "context": i.context or ""}),
+                skip=lambda: i.skip_devcontainer,
+                log_relpath="logs/setup_worktree/op_run.log",
             ),
         ]
 
