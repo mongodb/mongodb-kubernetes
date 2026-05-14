@@ -766,5 +766,17 @@ func TestOnlineMode_WithoutCredentials_Fails(t *testing.T) {
 	rs.Spec.OpsManagerConfig = &PrivateCloudConfig{ConfigMapRef: ConfigMapRef{Name: "my-cm"}}
 	rs.Spec.CloudManagerConfig = &PrivateCloudConfig{}
 	err := rs.ProcessValidationsOnReconcile(nil)
-	assert.Contains(t, err.Error(), "credentials")
+	assert.EqualError(t, err, "credentials must be set when mode is not Headless")
+}
+
+func TestLegacyModeEmpty_WithoutCredentials_Passes(t *testing.T) {
+	// Resources created before the mode field existed will have Mode="".
+	// The credentials validator skips them for backward compatibility.
+	rs := NewReplicaSetBuilder().Build()
+	rs.Spec.Mode = ""
+	rs.Spec.Credentials = ""
+	rs.Spec.OpsManagerConfig = &PrivateCloudConfig{ConfigMapRef: ConfigMapRef{Name: "my-cm"}}
+	rs.Spec.CloudManagerConfig = &PrivateCloudConfig{}
+	err := rs.ProcessValidationsOnReconcile(nil)
+	assert.NoError(t, err)
 }
