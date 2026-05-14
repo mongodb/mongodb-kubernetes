@@ -38,44 +38,6 @@ from .runner import Runner
 # ---------------------------------------------------------------------------
 
 
-def _devc_image_drifted(wt: Path) -> bool:
-    """True if the running devcontainer is on a stale image vs the latest
-    image tag for this worktree's compose project.
-
-    Called from the ``dc_up`` phase to decide whether to pass
-    ``--remove-existing-container`` to ``devcontainer up``. Without that flag
-    ``devcontainer up`` is a no-op when a container already exists, even if
-    ``dc_build`` just produced a fresh image — so ``--restart-from dc_build``
-    flows silently keep the old container.
-
-    Returns False on any docker-inspect failure (no container yet, docker
-    daemon issue, etc.) so the default path remains unchanged.
-    """
-    import subprocess
-
-    proj = f"{wt.name.lower()}_devcontainer"
-    container = f"{proj}-devcontainer-1"
-    image_tag = f"{proj}-devcontainer:latest"
-
-    try:
-        running = subprocess.check_output(
-            ["docker", "inspect", "--type", "container", container, "--format", "{{.Image}}"],
-            stderr=subprocess.DEVNULL,
-            text=True,
-        ).strip()
-        latest = subprocess.check_output(
-            ["docker", "inspect", "--type", "image", image_tag, "--format", "{{.Id}}"],
-            stderr=subprocess.DEVNULL,
-            text=True,
-        ).strip()
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        return False
-
-    if not running or not latest:
-        return False
-    return running != latest
-
-
 def _load_context_env(wt: Path) -> dict[str, str]:
     """Parse the just-generated .generated/context*.env files into a dict
     so we can pass it to in-process KubeconfigDomain.refresh without
@@ -484,14 +446,34 @@ class CreateOrchestrator:
 
         # ---- dc_up --------------------------------------------------------
         def _do_dc_up() -> None:
-            # `devcontainer up` is no-op when a container already exists for
-            # this workspace, regardless of image freshness. That bites
-            # `--restart-from dc_build` flows: dc_build produces a new image,
-            # dc_up keeps the old container. Detect the drift and ask
-            # devcontainer to recreate the container before bringing it up.
+            # Phase semantics: when dc_up runs (not hash-skipped), the world
+            # may have shifted under us — fresh devc image from dc_build, a
+            # new sibling-service image (gost-proxy / k8s-proxy / autossh),
+            # compose.yml / compose.generated.yml drift, a stale operator
+            # process inside the running devc, etc. The only way to guarantee
+            # a fresh stack is to `compose down` the whole project first,
+            # then let `devcontainer up` rebuild it against current state.
+            #
+            # `devcontainer up` alone is no-op when a container already
+            # exists for this workspace — `--remove-existing-container` only
+            # tears down the devcontainer service + its `depends_on` chain
+            # (k8s-proxy), leaving siblings like gost-proxy on stale config.
+            # Project-wide `compose down` sidesteps that asymmetry.
+            project = f"{i.branch_dir.lower()}_devcontainer"
+            ps = self.runner.run(
+                ["docker", "compose", "-p", project, "ps", "--format", "{{.Name}}"],
+                check=False,
+                cwd=wt,
+            )
+            if ps.rc == 0 and ps.stdout.strip():
+                self.runner.run_streaming(
+                    ["docker", "compose", "-p", project, "down", "--remove-orphans"],
+                    prefix="[up:down] ",
+                    log_path=log_dir / "dc_up.log",
+                    cwd=wt,
+                )
+
             argv = ["devcontainer", "up", "--workspace-folder", str(wt)]
-            if _devc_image_drifted(wt):
-                argv.append("--remove-existing-container")
             self.runner.run_streaming(
                 argv,
                 prefix="[up] ",
