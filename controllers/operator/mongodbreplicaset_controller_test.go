@@ -1469,11 +1469,15 @@ func TestMigrationDetected_WhenStatefulSetHasHeadlessEnvAndModeIsOnline(t *testi
 	require.NoError(t, err)
 	agentContainer := container.GetByName(util.DatabaseContainerName, sts.Spec.Template.Spec.Containers)
 	require.NotNil(t, agentContainer)
-	envNames := make([]string, len(agentContainer.Env))
-	for i, e := range agentContainer.Env {
-		envNames[i] = e.Name
+	foundHeadlessAgent := false
+	for _, e := range agentContainer.Env {
+		if e.Name == construct.HeadlessAgentEnvName {
+			assert.Equal(t, "true", e.Value, "HEADLESS_AGENT must be true before migration")
+			foundHeadlessAgent = true
+			break
+		}
 	}
-	assert.Contains(t, envNames, construct.HeadlessAgentEnvName)
+	assert.True(t, foundHeadlessAgent, "HEADLESS_AGENT env var not found in agent container")
 
 	// Re-fetch rs to get the latest resourceVersion before patching spec.
 	latestRS := &mdbv1.MongoDB{}
@@ -1494,6 +1498,16 @@ func TestMigrationDetected_WhenStatefulSetHasHeadlessEnvAndModeIsOnline(t *testi
 	updatedRS := &mdbv1.MongoDB{}
 	require.NoError(t, client.Get(ctx, rs.ObjectKey(), updatedRS))
 	assert.NotEqual(t, status.PhaseFailed, updatedRS.Status.Phase)
+
+	// Verify HEADLESS_AGENT is removed from STS after migration reconcile
+	migratedSts, err := client.GetStatefulSet(ctx, rs.ObjectKey())
+	require.NoError(t, err)
+	migratedAgentContainer := container.GetByName(util.DatabaseContainerName, migratedSts.Spec.Template.Spec.Containers)
+	require.NotNil(t, migratedAgentContainer)
+	for _, e := range migratedAgentContainer.Env {
+		assert.NotEqual(t, construct.HeadlessAgentEnvName, e.Name,
+			"HEADLESS_AGENT must be absent from STS after migration")
+	}
 }
 
 func TestMigrationNotNeeded_WhenStatefulSetAlreadyOnline(t *testing.T) {

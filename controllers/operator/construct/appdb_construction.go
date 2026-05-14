@@ -39,7 +39,7 @@ const (
 	// AppDB environment variable names
 	podNamespaceEnv              = "POD_NAMESPACE"
 	automationConfigMapEnv       = "AUTOMATION_CONFIG_MAP"
-	headlessAgentEnv             = "HEADLESS_AGENT"
+	headlessAgentEnv             = HeadlessAgentEnvName
 	clusterDomainEnv             = "CLUSTER_DOMAIN"
 	monitoringAgentContainerName = "mongodb-agent-monitoring"
 	// Since the Monitoring Agent is created based on Agent's Pod spec (we modfy it using addMonitoringContainer),

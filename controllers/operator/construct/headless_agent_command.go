@@ -16,7 +16,6 @@ const (
 	// HeadlessAgentEnvName is the env var name that marks a container as running in headless mode.
 	HeadlessAgentEnvName = "HEADLESS_AGENT"
 
-	headlessAgentEnvName             = HeadlessAgentEnvName
 	headlessAutomationConfigMapEnv   = "AUTOMATION_CONFIG_MAP"
 	headlessAgentDownloadsVolumeName = "agent-downloads"
 )
@@ -42,7 +41,7 @@ func HeadlessAutomationAgentCommand(logLevel v1.LogLevel, logFile string, maxLog
 // configSecretName is the name of the Secret holding cluster-config.json.
 func HeadlessAgentEnvVars(configSecretName string) []corev1.EnvVar {
 	return []corev1.EnvVar{
-		{Name: headlessAgentEnvName, Value: "true"},
+		{Name: HeadlessAgentEnvName, Value: "true"},
 		{Name: headlessAutomationConfigMapEnv, Value: configSecretName},
 	}
 }
