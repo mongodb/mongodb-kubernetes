@@ -37,6 +37,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/validation"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/watch"
 	"github.com/mongodb/mongodb-kubernetes/pkg/agent"
+	mcoagent "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/agent"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/authentication"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
@@ -478,7 +479,7 @@ func (r *ReplicaSetReconciler) ensureService(ctx context.Context, mdb mdbv1.Mong
 // createProcessPortManager is a helper method for creating new ReplicaSetPortManager.
 // ReplicaSetPortManager needs current automation config and current pod state and the code for getting them
 // was extracted here as it is used in ensureService and buildAutomationConfig.
-func (r *ReplicaSetReconciler) createProcessPortManager(ctx context.Context, mdb mdbv1.MongoDBCommunity) (*agent.ReplicaSetPortManager, error) {
+func (r *ReplicaSetReconciler) createProcessPortManager(ctx context.Context, mdb mdbv1.MongoDBCommunity) (*mcoagent.ReplicaSetPortManager, error) {
 	currentAC, err := automationconfig.ReadFromSecret(ctx, r.client, types.NamespacedName{Name: mdb.AutomationConfigSecretName(), Namespace: mdb.Namespace})
 	if err != nil {
 		return nil, fmt.Errorf("could not read existing automation config: %s", err)
@@ -489,7 +490,7 @@ func (r *ReplicaSetReconciler) createProcessPortManager(ctx context.Context, mdb
 		return nil, fmt.Errorf("cannot get all pods goal state: %w", err)
 	}
 
-	return agent.NewReplicaSetPortManager(r.log, mdb.Spec.AdditionalMongodConfig.GetDBPort(), currentPodStates, currentAC.Processes), nil
+	return mcoagent.NewReplicaSetPortManager(r.log, mdb.Spec.AdditionalMongodConfig.GetDBPort(), currentPodStates, currentAC.Processes), nil
 }
 
 func (r *ReplicaSetReconciler) createOrUpdateStatefulSet(ctx context.Context, mdb mdbv1.MongoDBCommunity, isArbiter bool) error {
@@ -599,7 +600,7 @@ func guessEnterprise(mdb mdbv1.MongoDBCommunity, mongodbImage string) bool {
 
 // buildService creates a Service that will be used for the Replica Set StatefulSet
 // that allows all the members of the STS to see each other.
-func (r *ReplicaSetReconciler) buildService(mdb mdbv1.MongoDBCommunity, portManager *agent.ReplicaSetPortManager) corev1.Service {
+func (r *ReplicaSetReconciler) buildService(mdb mdbv1.MongoDBCommunity, portManager *mcoagent.ReplicaSetPortManager) corev1.Service {
 	label := make(map[string]string)
 	name := mdb.ServiceName()
 
