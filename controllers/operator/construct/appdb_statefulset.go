@@ -5,19 +5,13 @@ import (
 	"os"
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
-	"github.com/mongodb/mongodb-kubernetes/api/v1/om"
-	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/persistentvolumeclaim"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/podtemplatespec"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/probes"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/resourcerequirements"
-	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
-	"github.com/mongodb/mongodb-kubernetes/pkg/util/scale"
-	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/utils/ptr"
 )
 
 const (
@@ -32,141 +26,7 @@ const (
 	appdbAutomationConfigEnv = "AUTOMATION_CONFIG_MAP"
 )
 
-// BuildMongoDBReplicaSetStatefulSetModificationFunction builds the parts of the replica set for AppDB
-// It doesn't configure TLS or additional containers/env vars that the statefulset might need.
-func BuildMongoDBReplicaSetStatefulSetModificationFunction(mdb *om.AppDBSpec, scaler scale.ReplicaSetScaler, mongodbImage, agentImage string, withInitContainers bool, initAppDBImage string) statefulset.Modification {
-	labels := map[string]string{
-		"app": mdb.ServiceName(),
-	}
-
-	// the health status volume is required in both agent and mongod pods.
-	// the mongod requires it to determine if an upgrade is happening and needs to kill the pod
-	// to prevent agent deadlock
-	healthStatusVolume := statefulset.CreateVolumeFromEmptyDir("healthstatus")
-	agentHealthStatusVolumeMount := statefulset.CreateVolumeMount(healthStatusVolume.Name, "/var/log/mongodb-mms-automation/healthstatus")
-	mongodHealthStatusVolumeMount := statefulset.CreateVolumeMount(healthStatusVolume.Name, "/healthstatus")
-
-	hooksVolume := corev1.Volume{}
-	scriptsVolume := corev1.Volume{}
-	upgradeInitContainer := podtemplatespec.NOOP()
-	readinessInitContainer := podtemplatespec.NOOP()
-
-	// tmp volume is required by the mongodb-agent and mongod
-	tmpVolume := statefulset.CreateVolumeFromEmptyDir("tmp")
-	tmpVolumeMount := statefulset.CreateVolumeMount(tmpVolume.Name, "/tmp", statefulset.WithReadOnly(false))
-
-	keyFileNsName := mdb.GetAgentKeyfileSecretNamespacedName()
-	keyFileVolume := statefulset.CreateVolumeFromEmptyDir(keyFileNsName.Name)
-	keyFileVolumeVolumeMount := statefulset.CreateVolumeMount(keyFileVolume.Name, "/var/lib/mongodb-mms-automation/authentication", statefulset.WithReadOnly(false))
-	keyFileVolumeVolumeMountMongod := statefulset.CreateVolumeMount(keyFileVolume.Name, "/var/lib/mongodb-mms-automation/authentication", statefulset.WithReadOnly(false))
-
-	mongodbAgentVolumeMounts := []corev1.VolumeMount{agentHealthStatusVolumeMount, keyFileVolumeVolumeMount, tmpVolumeMount}
-
-	automationConfigVolumeFunc := podtemplatespec.NOOP()
-	if mdb.NeedsAutomationConfigVolume() {
-		automationConfigVolume := statefulset.CreateVolumeFromSecret("automation-config", mdb.AutomationConfigSecretName())
-		automationConfigVolumeFunc = podtemplatespec.WithVolume(automationConfigVolume)
-		automationConfigVolumeMount := statefulset.CreateVolumeMount(automationConfigVolume.Name, "/var/lib/automation/config", statefulset.WithReadOnly(true))
-		mongodbAgentVolumeMounts = append(mongodbAgentVolumeMounts, automationConfigVolumeMount)
-	}
-	mongodVolumeMounts := []corev1.VolumeMount{mongodHealthStatusVolumeMount, keyFileVolumeVolumeMountMongod, tmpVolumeMount}
-
-	hooksVolume = statefulset.CreateVolumeFromEmptyDir("hooks")
-	hooksVolumeMount := statefulset.CreateVolumeMount(hooksVolume.Name, "/hooks", statefulset.WithReadOnly(false))
-	scriptsVolume = statefulset.CreateVolumeFromEmptyDir("agent-scripts")
-	scriptsVolumeMount := statefulset.CreateVolumeMount(scriptsVolume.Name, "/opt/scripts", statefulset.WithReadOnly(false))
-
-	scriptsVolumeMod := podtemplatespec.WithVolume(scriptsVolume)
-	hooksVolumeMod := podtemplatespec.WithVolume(hooksVolume)
-	withStaticContainerModification := podtemplatespec.NOOP()
-	shareProcessNs := statefulset.NOOP()
-
-	// we need the upgrade hook and readinessProbe either via init containers or via a side-car and /proc access
-	// if we don't use init containers we need to use static containers
-	if withInitContainers {
-		mongodVolumeMounts = append(mongodVolumeMounts, hooksVolumeMount)
-		mongodbAgentVolumeMounts = append(mongodbAgentVolumeMounts, scriptsVolumeMount)
-		upgradeInitContainer = podtemplatespec.WithInitContainer(appdbVersionUpgradeHookName, appdbVersionUpgradeHookInit([]corev1.VolumeMount{hooksVolumeMount}, ""))
-		readinessInitContainer = podtemplatespec.WithInitContainer(AppDBReadinessProbeContainerName, appdbReadinessProbeInit([]corev1.VolumeMount{scriptsVolumeMount}, ""))
-	} else {
-		staticMounts := []corev1.VolumeMount{hooksVolumeMount, scriptsVolumeMount, tmpVolumeMount}
-		withStaticContainerModification = podtemplatespec.WithContainer(util.AgentContainerUtilitiesName, appdbMongodbAgentUtilitiesContainer(staticMounts, initAppDBImage))
-		mongodbAgentVolumeMounts = append(mongodbAgentVolumeMounts, staticMounts...)
-		shareProcessNs = func(sts *appsv1.StatefulSet) {
-			sts.Spec.Template.Spec.ShareProcessNamespace = ptr.To(true)
-		}
-	}
-
-	dataVolumeClaim := statefulset.NOOP()
-	logVolumeClaim := statefulset.NOOP()
-	singleModeVolumeClaim := func(s *appsv1.StatefulSet) {}
-	if mdb.HasSeparateDataAndLogsVolumes() {
-		logVolumeMount := statefulset.CreateVolumeMount(mdb.LogsVolumeName(), automationconfig.DefaultAgentLogPath)
-		dataVolumeMount := statefulset.CreateVolumeMount(mdb.DataVolumeName(), mdb.GetMongodConfiguration().GetDBDataDir())
-		dataVolumeClaim = statefulset.WithVolumeClaim(mdb.DataVolumeName(), appdbDataPvc(mdb.DataVolumeName()))
-		logVolumeClaim = statefulset.WithVolumeClaim(mdb.LogsVolumeName(), appdbLogsPvc(mdb.LogsVolumeName()))
-		mongodbAgentVolumeMounts = append(mongodbAgentVolumeMounts, dataVolumeMount, logVolumeMount)
-		mongodVolumeMounts = append(mongodVolumeMounts, dataVolumeMount, logVolumeMount)
-	} else {
-		mounts := []corev1.VolumeMount{
-			statefulset.CreateVolumeMount(mdb.DataVolumeName(), mdb.GetMongodConfiguration().GetDBDataDir(), statefulset.WithSubPath("data")),
-			statefulset.CreateVolumeMount(mdb.DataVolumeName(), automationconfig.DefaultAgentLogPath, statefulset.WithSubPath("logs")),
-		}
-		mongodbAgentVolumeMounts = append(mongodbAgentVolumeMounts, mounts...)
-		mongodVolumeMounts = append(mongodVolumeMounts, mounts...)
-		singleModeVolumeClaim = statefulset.WithVolumeClaim(mdb.DataVolumeName(), appdbDataPvc(mdb.DataVolumeName()))
-	}
-
-	podSecurityContext, _ := podtemplatespec.WithDefaultSecurityContextsModifications()
-
-	agentLogLevel := v1.LogLevelInfo
-	if mdb.GetAgentLogLevel() != "" {
-		agentLogLevel = mdb.GetAgentLogLevel()
-	}
-
-	agentLogFile := automationconfig.DefaultAgentLogFile
-	if mdb.GetAgentLogFile() != "" {
-		agentLogFile = mdb.GetAgentLogFile()
-	}
-
-	agentMaxLogFileDurationHours := automationconfig.DefaultAgentMaxLogFileDurationHours
-	if mdb.GetAgentMaxLogFileDurationHours() != 0 {
-		agentMaxLogFileDurationHours = mdb.GetAgentMaxLogFileDurationHours()
-	}
-
-	return statefulset.Apply(
-		statefulset.WithName(mdb.GetName()),
-		statefulset.WithNamespace(mdb.GetNamespace()),
-		statefulset.WithServiceName(mdb.ServiceName()),
-		statefulset.WithLabels(labels),
-		statefulset.WithMatchLabels(labels),
-		statefulset.WithReplicas(scale.ReplicasThisReconciliation(scaler)),
-		statefulset.WithUpdateStrategyType(mdb.GetUpdateStrategyType()),
-		dataVolumeClaim,
-		logVolumeClaim,
-		singleModeVolumeClaim,
-		shareProcessNs,
-		statefulset.WithPodSpecTemplate(
-			podtemplatespec.Apply(
-				podSecurityContext,
-				podtemplatespec.WithPodLabels(labels),
-				podtemplatespec.WithVolume(healthStatusVolume),
-				automationConfigVolumeFunc,
-				hooksVolumeMod,
-				scriptsVolumeMod,
-				podtemplatespec.WithVolume(tmpVolume),
-				podtemplatespec.WithVolume(keyFileVolume),
-				podtemplatespec.WithServiceAccount(appDBServiceAccount),
-				podtemplatespec.WithContainer(util.AgentContainerName, appdbMongodbAgentContainer(mdb.AutomationConfigSecretName(), mongodbAgentVolumeMounts, agentLogLevel, agentLogFile, agentMaxLogFileDurationHours, agentImage)),
-				podtemplatespec.WithContainer(util.MongodbContainerName, appdbMongodbContainer(mongodbImage, mongodVolumeMounts, mdb.GetMongodConfiguration(), !withInitContainers)),
-				withStaticContainerModification,
-				upgradeInitContainer,
-				readinessInitContainer,
-			),
-		))
-}
-
-func appdbMongodbAgentContainer(automationConfigSecretName string, volumeMounts []corev1.VolumeMount, logLevel v1.LogLevel, logFile string, maxLogFileDurationHours int, agentImage string) container.Modification {
+func appdbMongodbAgentContainer(automationConfigSecretName string, volumeMounts []corev1.VolumeMount, agentImage string, command []string) container.Modification {
 	_, containerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
 	return container.Apply(
 		container.WithName(util.AgentContainerName),
@@ -175,7 +35,7 @@ func appdbMongodbAgentContainer(automationConfigSecretName string, volumeMounts 
 		container.WithReadinessProbe(appdbDefaultReadiness()),
 		container.WithResourceRequirements(resourcerequirements.Defaults()),
 		container.WithVolumeMounts(volumeMounts),
-		container.WithCommand(AutomationAgentCommand(false, false, logLevel, logFile, maxLogFileDurationHours)),
+		container.WithCommand(command),
 		containerSecurityContext,
 		container.WithEnvs(
 			corev1.EnvVar{
