@@ -718,12 +718,16 @@ class CreateOrchestrator:
             Phase(
                 name="op_run",
                 run=_do_op_run,
-                # Re-launch the operator on every create cycle where the
-                # devcontainer was rebuilt or the kubeconfig refreshed —
-                # both bump branch_dir's surrounding state. Cheap to
-                # re-run when nothing changed (op_run.sh is idempotent:
-                # kills the existing mck-operator tmux session first).
-                input_hash=lambda: _h({"branch_dir": i.branch_dir, "context": i.context or ""}),
+                # Always run when the devc-side pipeline is in play. The
+                # hash is intentionally time-based so the state.json skip
+                # never short-circuits this phase: any time `wt-ctl create`
+                # reaches the tail of the plan, the operator must be
+                # restarted against the now-current kubeconfig and the
+                # tmuxp layout must be re-wired — even on a no-op resume,
+                # because dc_up's compose-down already nuked the previous
+                # operator and tmux server. op_run.sh is idempotent (kills
+                # the existing mck-operator session before relaunching).
+                input_hash=lambda: _h({"ts": time.time_ns()}),
                 skip=lambda: i.skip_devcontainer,
                 log_relpath="logs/setup_worktree/op_run.log",
             ),
