@@ -1720,3 +1720,53 @@ func TestPublishAutomationConfigFirstRS(t *testing.T) {
 		})
 	}
 }
+
+// TestBackwardCompat_ExistingCRWithoutModeField verifies that CRs created before
+// the mode field existed (mode omitted → zero value "") continue to reconcile
+// identically to the pre-feature behavior via the online path.
+func TestBackwardCompat_ExistingCRWithoutModeField(t *testing.T) {
+	ctx := context.Background()
+	// DefaultReplicaSetBuilder does not set mode — zero value is ""
+	rs := DefaultReplicaSetBuilder().Build()
+	assert.Equal(t, mdbv1.ConnectionMode(""), rs.Spec.Mode)
+
+	reconciler, client, _ := defaultReplicaSetReconciler(ctx, nil, "", "", rs)
+	checkReconcileSuccessful(ctx, t, reconciler, rs, client)
+}
+
+// TestHeadlessACDeterminism verifies that two reconcile runs on the same headless spec
+// produce identical AC Secret content, preventing spurious pod restarts.
+func TestHeadlessACDeterminism(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().
+		SetMode(mdbv1.ConnectionModeHeadless).
+		Build()
+	rs.Spec.Credentials = ""
+	rs.Spec.OpsManagerConfig = &mdbv1.PrivateCloudConfig{}
+	rs.Spec.CloudManagerConfig = &mdbv1.PrivateCloudConfig{}
+
+	reconciler, client, _ := defaultReplicaSetReconciler(ctx, nil, "", "", rs)
+	checkHeadlessReconcileSuccessful(ctx, t, reconciler, rs, client)
+
+	// Read AC Secret after first reconcile
+	secret1 := &corev1.Secret{}
+	require.NoError(t, client.Get(ctx, types.NamespacedName{Name: rs.Name + "-config", Namespace: rs.Namespace}, secret1))
+	data1 := make(map[string][]byte, len(secret1.Data))
+	for k, v := range secret1.Data {
+		cp := make([]byte, len(v))
+		copy(cp, v)
+		data1[k] = cp
+	}
+
+	// Fetch the updated RS object before second reconcile to avoid ResourceVersion conflict
+	updatedRS := &mdbv1.MongoDB{}
+	require.NoError(t, client.Get(ctx, rs.ObjectKey(), updatedRS))
+
+	// Second reconcile — spec unchanged
+	checkHeadlessReconcileSuccessful(ctx, t, reconciler, updatedRS, client)
+
+	secret2 := &corev1.Secret{}
+	require.NoError(t, client.Get(ctx, types.NamespacedName{Name: rs.Name + "-config", Namespace: rs.Namespace}, secret2))
+
+	assert.Equal(t, data1, secret2.Data, "AC Secret content must be identical across reconcile runs on the same spec")
+}
