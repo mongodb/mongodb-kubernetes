@@ -5,14 +5,13 @@
 # Logs stream to logs/operator-<timestamp>.log; logs/operator.log is a
 # stable symlink to the latest run.
 #
-# Modes (default = tail):
+# Modes:
 #   (no args)  Start + wait for ready + tail the log. Ctrl-C stops the
 #              operator (kills the mck-operator tmux session) and exits.
-#   --wait     Start + wait for ready + exit. Operator keeps running in
-#              the mck-operator session. Use this from scripted callers
-#              that need to know "operator is up" before proceeding.
-#   --detach   Start + exit immediately (don't wait for readiness, don't
-#              tail). Operator keeps running.
+#   --detach   Start + wait for ready + return. Operator keeps running
+#              in the mck-operator session. Use this from scripted
+#              callers that need to know "operator is up" before
+#              proceeding (e.g. before launching e2e_run.sh).
 #
 
 set -Eeou pipefail
@@ -21,9 +20,8 @@ test "${MDB_BASH_DEBUG:-0}" -eq 1 && set -x
 mode=tail
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --wait) mode=wait; shift ;;
     --detach) mode=detach; shift ;;
-    -h|--help) sed -n '3,17p' "$0"; exit 0 ;;
+    -h|--help) sed -n '3,15p' "$0"; exit 0 ;;
     *) echo "Unknown argument: $1" >&2; exit 1 ;;
   esac
 done
@@ -86,11 +84,7 @@ echo "Operator started in tmux session 'mck-operator'."
 echo "  log: ${log_path}  (symlinked as logs/operator.log)"
 echo "  attach: tmux a -t mck-operator"
 
-if [[ ${mode} == detach ]]; then
-  exit 0
-fi
-
-# Both wait and tail modes wait for the operator to be ready first.
+# Both modes wait for the operator to be ready first.
 echo -n "Waiting for operator to start "
 ready=0
 for _ in $(seq 1 90); do
@@ -117,7 +111,7 @@ if [[ ${ready} -eq 0 ]]; then
   exit 1
 fi
 
-if [[ ${mode} == wait ]]; then
+if [[ ${mode} == detach ]]; then
   exit 0
 fi
 
