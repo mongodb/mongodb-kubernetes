@@ -68,7 +68,14 @@ if ! git worktree list | awk '{print $1}' | grep -Fxq "${worktree_path}"; then
   fi
 fi
 
-if [[ ! -f "${worktree_path}/scripts/dev/contexts/private-context" || ${force} == 1 ]]; then
+# Run init_worktree if private-context is missing (fresh worktree),
+# venv is missing (partial init from a previous abort), or the user
+# passed -f. The subsequent `source venv/bin/activate` requires the
+# venv to exist; init_worktree.sh is idempotent and only does work
+# that's actually missing.
+if [[ ! -f "${worktree_path}/scripts/dev/contexts/private-context" \
+      || ! -f "${worktree_path}/venv/bin/activate" \
+      || ${force} == 1 ]]; then
   echo "Initializing worktree in ${worktree_path}..."
   init_flags=()
   [[ ${force} == 1 ]] && init_flags+=(-f)

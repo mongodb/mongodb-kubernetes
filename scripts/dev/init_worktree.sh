@@ -55,7 +55,10 @@ else
     echo "init_worktree: no .generated/.current_context found, skipping 'make switch'"
 fi
 
-if [[ ! -d "${worktree_root}/venv" || ${force} == 1 ]]; then
+# Treat an empty/broken venv dir (no activate script) the same as a
+# missing venv — recreate_python_venv.sh is idempotent and only does
+# real work when the venv isn't usable.
+if [[ ! -f "${worktree_root}/venv/bin/activate" || ${force} == 1 ]]; then
     echo "init_worktree: recreating python venv"
     (cd "${worktree_root}" && scripts/dev/recreate_python_venv.sh)
 else
