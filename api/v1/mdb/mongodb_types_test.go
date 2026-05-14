@@ -458,9 +458,20 @@ func TestIsHeadless_WhenModeIsOpsManager(t *testing.T) {
 	assert.False(t, spec.IsHeadless())
 }
 
-func TestIsHeadless_WhenModeIsEmpty_DefaultsToOpsManager(t *testing.T) {
+func TestIsHeadless_WhenModeIsEmpty_ReturnsFalse(t *testing.T) {
 	spec := ConnectionSpec{Credentials: "creds"}
 	assert.False(t, spec.IsHeadless())
+}
+
+func TestIsHeadless_WhenModeIsCloudManager(t *testing.T) {
+	spec := ConnectionSpec{Mode: ConnectionModeCloudManager, Credentials: "creds"}
+	assert.False(t, spec.IsHeadless())
+}
+
+func TestAutomationConfigSecretName(t *testing.T) {
+	mdb := &MongoDB{}
+	mdb.Name = "my-rs"
+	assert.Equal(t, "my-rs-config", mdb.AutomationConfigSecretName())
 }
 
 func TestGetConnectionSpec_ReturnsNilWhenHeadless(t *testing.T) {
