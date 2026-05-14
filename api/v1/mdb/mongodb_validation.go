@@ -410,6 +410,9 @@ func noSimultaneousTLSDisablingAndScaling(newObj, oldObj MongoDbSpec) v1.Validat
 // specWithExactlyOneSchema checks that exactly one among "Project/OpsManagerConfig/CloudManagerConfig"
 // is configured, doing the "oneOf" validation in the webhook.
 func specWithExactlyOneSchema(d DbCommonSpec) v1.ValidationResult {
+	if d.ConnectionSpec.IsHeadless() {
+		return v1.ValidationSuccess()
+	}
 	count := 0
 	if *d.OpsManagerConfig != (PrivateCloudConfig{}) {
 		count += 1
@@ -420,6 +423,29 @@ func specWithExactlyOneSchema(d DbCommonSpec) v1.ValidationResult {
 
 	if count != 1 {
 		return v1.ValidationError("either spec.cloudManager or spec.opsManager can be set")
+	}
+	return v1.ValidationSuccess()
+}
+
+func specHeadlessHasNoCredentials(d DbCommonSpec) v1.ValidationResult {
+	if !d.ConnectionSpec.IsHeadless() {
+		return v1.ValidationSuccess()
+	}
+	if d.Credentials != "" {
+		return v1.ValidationError("credentials must not be set when mode is Headless")
+	}
+	if *d.OpsManagerConfig != (PrivateCloudConfig{}) || *d.CloudManagerConfig != (PrivateCloudConfig{}) {
+		return v1.ValidationError("opsManager and cloudManager must not be set when mode is Headless")
+	}
+	return v1.ValidationSuccess()
+}
+
+func specOnlineModeRequiresCredentials(d DbCommonSpec) v1.ValidationResult {
+	if d.ConnectionSpec.Mode == "" || d.ConnectionSpec.IsHeadless() {
+		return v1.ValidationSuccess()
+	}
+	if d.Credentials == "" {
+		return v1.ValidationError("credentials must be set when mode is not Headless")
 	}
 	return v1.ValidationSuccess()
 }
@@ -436,6 +462,8 @@ func CommonValidators(db DbCommonSpec) []func(d DbCommonSpec) v1.ValidationResul
 		agentModeIsSetIfMoreThanADeploymentAuthModeIsSet,
 		ldapGroupDnIsSetIfLdapAuthzIsEnabledAndAgentsAreExternal,
 		specWithExactlyOneSchema,
+		specHeadlessHasNoCredentials,
+		specOnlineModeRequiresCredentials,
 		featureCompatibilityVersionValidation,
 	}
 

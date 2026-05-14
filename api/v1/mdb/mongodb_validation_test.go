@@ -728,3 +728,43 @@ func TestOIDCProviderConfigUniqueIssuerURIValidation(t *testing.T) {
 		})
 	}
 }
+
+func TestHeadlessMode_NoCredentials_Passes(t *testing.T) {
+	rs := NewReplicaSetBuilder().Build()
+	rs.Spec.Mode = ConnectionModeHeadless
+	rs.Spec.Credentials = ""
+	rs.Spec.OpsManagerConfig = &PrivateCloudConfig{}
+	rs.Spec.CloudManagerConfig = &PrivateCloudConfig{}
+	err := rs.ProcessValidationsOnReconcile(nil)
+	assert.NoError(t, err)
+}
+
+func TestHeadlessMode_WithCredentials_Fails(t *testing.T) {
+	rs := NewReplicaSetBuilder().Build()
+	rs.Spec.Mode = ConnectionModeHeadless
+	rs.Spec.Credentials = "my-creds"
+	rs.Spec.OpsManagerConfig = &PrivateCloudConfig{}
+	rs.Spec.CloudManagerConfig = &PrivateCloudConfig{}
+	err := rs.ProcessValidationsOnReconcile(nil)
+	assert.EqualError(t, err, "credentials must not be set when mode is Headless")
+}
+
+func TestHeadlessMode_WithOpsManagerConfig_Fails(t *testing.T) {
+	rs := NewReplicaSetBuilder().Build()
+	rs.Spec.Mode = ConnectionModeHeadless
+	rs.Spec.Credentials = ""
+	rs.Spec.OpsManagerConfig = &PrivateCloudConfig{ConfigMapRef: ConfigMapRef{Name: "my-cm"}}
+	rs.Spec.CloudManagerConfig = &PrivateCloudConfig{}
+	err := rs.ProcessValidationsOnReconcile(nil)
+	assert.EqualError(t, err, "opsManager and cloudManager must not be set when mode is Headless")
+}
+
+func TestOnlineMode_WithoutCredentials_Fails(t *testing.T) {
+	rs := NewReplicaSetBuilder().Build()
+	rs.Spec.Mode = ConnectionModeOpsManager
+	rs.Spec.Credentials = ""
+	rs.Spec.OpsManagerConfig = &PrivateCloudConfig{ConfigMapRef: ConfigMapRef{Name: "my-cm"}}
+	rs.Spec.CloudManagerConfig = &PrivateCloudConfig{}
+	err := rs.ProcessValidationsOnReconcile(nil)
+	assert.Contains(t, err.Error(), "credentials")
+}
