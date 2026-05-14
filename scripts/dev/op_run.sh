@@ -5,18 +5,25 @@
 # Logs stream to logs/operator-<timestamp>.log; logs/operator.log is a
 # stable symlink to the latest run.
 #
-# Usage: op_run.sh [--wait]
-#   --wait   Block until the operator log shows it has started.
+# Modes (default = tail):
+#   (no args)  Start + wait for ready + tail the log. Ctrl-C stops the
+#              operator (kills the mck-operator tmux session) and exits.
+#   --wait     Start + wait for ready + exit. Operator keeps running in
+#              the mck-operator session. Use this from scripted callers
+#              that need to know "operator is up" before proceeding.
+#   --detach   Start + exit immediately (don't wait for readiness, don't
+#              tail). Operator keeps running.
 #
 
 set -Eeou pipefail
 test "${MDB_BASH_DEBUG:-0}" -eq 1 && set -x
 
-wait_for_ready=0
+mode=tail
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --wait) wait_for_ready=1; shift ;;
-    -h|--help) sed -n '3,12p' "$0"; exit 0 ;;
+    --wait) mode=wait; shift ;;
+    --detach) mode=detach; shift ;;
+    -h|--help) sed -n '3,17p' "$0"; exit 0 ;;
     *) echo "Unknown argument: $1" >&2; exit 1 ;;
   esac
 done
@@ -79,25 +86,52 @@ echo "Operator started in tmux session 'mck-operator'."
 echo "  log: ${log_path}  (symlinked as logs/operator.log)"
 echo "  attach: tmux a -t mck-operator"
 
-if [[ ${wait_for_ready} -eq 1 ]]; then
-  echo -n "Waiting for operator to start "
-  for _ in $(seq 1 90); do
-    if grep -qE 'Starting workers|webhook .* listening|Starting EventSource|controller=.* started' "${log_path}" 2>/dev/null; then
-      echo
-      echo "Operator is up."
-      exit 0
-    fi
-    if grep -qE 'panic:|fatal:|level=error' "${log_path}" 2>/dev/null; then
-      echo
-      echo "Operator log shows error:"
-      tail -n 40 "${log_path}"
-      exit 1
-    fi
-    echo -n "."
-    sleep 1
-  done
+if [[ ${mode} == detach ]]; then
+  exit 0
+fi
+
+# Both wait and tail modes wait for the operator to be ready first.
+echo -n "Waiting for operator to start "
+ready=0
+for _ in $(seq 1 90); do
+  if grep -qE 'Starting workers|webhook .* listening|Starting EventSource|controller=.* started' "${log_path}" 2>/dev/null; then
+    echo
+    echo "Operator is up."
+    ready=1
+    break
+  fi
+  if grep -qE 'panic:|fatal:|level=error' "${log_path}" 2>/dev/null; then
+    echo
+    echo "Operator log shows error:"
+    tail -n 40 "${log_path}"
+    exit 1
+  fi
+  echo -n "."
+  sleep 1
+done
+
+if [[ ${ready} -eq 0 ]]; then
   echo
   echo "Timed out waiting for operator readiness."
   tail -n 40 "${log_path}"
   exit 1
 fi
+
+if [[ ${mode} == wait ]]; then
+  exit 0
+fi
+
+# Tail mode: stream the log and, on Ctrl-C / SIGTERM, stop the operator.
+# bash defers pending signals while waiting on a foreground child, so
+# after tail dies on SIGINT bash runs this trap before exiting.
+trap '
+  echo
+  echo "[op_run] stopping operator (tmux session mck-operator)..."
+  tmux kill-session -t mck-operator 2>/dev/null || true
+  exit 0
+' INT TERM
+
+echo
+echo "[op_run] Tailing ${log_path}. Ctrl-C to stop the operator."
+echo
+tail -F "${log_path}"
