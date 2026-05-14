@@ -54,3 +54,11 @@ func TestAgentDownloadsVolume_IsEmptyDir(t *testing.T) {
 	assert.Equal(t, "agent-downloads", vol.Name)
 	assert.NotNil(t, vol.EmptyDir)
 }
+
+func TestHeadlessAgentCommand_FileLog_ContainsLogFileAndDuration(t *testing.T) {
+	cmd := construct.HeadlessAutomationAgentCommand(v1.LogLevel("INFO"), "/var/log/agent.log", 24)
+	last := cmd[len(cmd)-1]
+	assert.Contains(t, last, "-logFile /var/log/agent.log")
+	assert.Contains(t, last, "-maxLogFileDurationHrs 24")
+	assert.NotContains(t, last, "/dev/stdout")
+}

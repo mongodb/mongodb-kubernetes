@@ -11,19 +11,12 @@ import (
 const (
 	// HeadlessClusterFilePath is the path inside the agent container where
 	// the automation config Secret is mounted.
-	HeadlessClusterFilePath = "/var/lib/automation/config/cluster-config.json"
+	HeadlessClusterFilePath = appdbClusterFilePath
 
-	headlessAgentHealthStatusFilePath = "/var/log/mongodb-mms-automation/healthstatus/agent-health-status.json"
-	headlessAgentOptions              = " -skipMongoStart -noDaemonize -useLocalMongoDbTools"
-	headlessAgentEnvName              = "HEADLESS_AGENT"
-	headlessAutomationConfigMapEnv    = "AUTOMATION_CONFIG_MAP"
-	headlessAgentDownloadsVolumeName  = "agent-downloads"
+	headlessAgentEnvName             = "HEADLESS_AGENT"
+	headlessAutomationConfigMapEnv   = "AUTOMATION_CONFIG_MAP"
+	headlessAgentDownloadsVolumeName = "agent-downloads"
 )
-
-// HeadlessBaseAgentCommand returns the core agent binary invocation for headless mode.
-func HeadlessBaseAgentCommand() string {
-	return "agent/mongodb-agent -healthCheckFilePath=" + headlessAgentHealthStatusFilePath + " -serveStatusPort=5000"
-}
 
 // HeadlessAutomationAgentCommand returns the full command for the automation agent
 // container in headless mode. Agents read from a local cluster-config.json Secret
@@ -37,8 +30,8 @@ func HeadlessAutomationAgentCommand(logLevel v1.LogLevel, logFile string, maxLog
 			" -logLevel " + string(logLevel) +
 			" -maxLogFileDurationHrs " + strconv.Itoa(maxLogFileDurationHours)
 	}
-	cmd := MongodbUserCommand + HeadlessBaseAgentCommand() +
-		" -cluster=" + HeadlessClusterFilePath + headlessAgentOptions + logOpts
+	cmd := MongodbUserCommand + BaseAgentCommand() +
+		" -cluster=" + HeadlessClusterFilePath + appdbAutomationAgentOptions + logOpts
 	return []string{"/bin/bash", "-c", cmd}
 }
 
