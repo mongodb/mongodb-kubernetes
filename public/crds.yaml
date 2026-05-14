@@ -929,7 +929,9 @@ spec:
                     type: array
                 type: object
               credentials:
-                description: Name of the Secret holding credentials information
+                description: |-
+                  Name of the Secret holding credentials information.
+                  Required when mode is OpsManager or CloudManager; must be absent when mode is Headless.
                 type: string
               duplicateServiceObjects:
                 description: |-
@@ -992,6 +994,16 @@ spec:
               members:
                 description: Amount of members for this MongoDB Replica Set
                 type: integer
+              mode:
+                default: OpsManager
+                description: |-
+                  Mode controls whether agents connect to Ops Manager or run headlessly.
+                  Defaults to OpsManager for backward compatibility.
+                enum:
+                - OpsManager
+                - CloudManager
+                - Headless
+                type: string
               mongodsPerShardCount:
                 type: integer
               mongos:
@@ -2741,7 +2753,6 @@ spec:
                 pattern: ^[0-9]+.[0-9]+.[0-9]+(-.+)?$|^$
                 type: string
             required:
-            - credentials
             - type
             - version
             type: object
@@ -3413,7 +3424,9 @@ spec:
                     type: array
                 type: object
               credentials:
-                description: Name of the Secret holding credentials information
+                description: |-
+                  Name of the Secret holding credentials information.
+                  Required when mode is OpsManager or CloudManager; must be absent when mode is Headless.
                 type: string
               duplicateServiceObjects:
                 description: |-
@@ -3456,6 +3469,16 @@ spec:
                 - WARN
                 - ERROR
                 - FATAL
+                type: string
+              mode:
+                default: OpsManager
+                description: |-
+                  Mode controls whether agents connect to Ops Manager or run headlessly.
+                  Defaults to OpsManager for backward compatibility.
+                enum:
+                - OpsManager
+                - CloudManager
+                - Headless
                 type: string
               opsManager:
                 properties:
@@ -3862,7 +3885,6 @@ spec:
                 pattern: ^[0-9]+.[0-9]+.[0-9]+(-.+)?$|^$
                 type: string
             required:
-            - credentials
             - type
             - version
             type: object
