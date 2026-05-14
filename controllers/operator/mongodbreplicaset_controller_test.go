@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -43,6 +44,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 )
@@ -1364,9 +1366,91 @@ func (b *ReplicaSetBuilder) ExposedExternally(specOverride *corev1.ServiceSpec, 
 	return b
 }
 
+func (b *ReplicaSetBuilder) SetMode(mode mdbv1.ConnectionMode) *ReplicaSetBuilder {
+	b.Spec.Mode = mode
+	return b
+}
+
 func (b *ReplicaSetBuilder) Build() *mdbv1.MongoDB {
 	b.InitDefaults()
 	return b.DeepCopy()
+}
+
+func checkHeadlessReconcileSuccessful(ctx context.Context, t *testing.T, reconciler reconcile.Reconciler, rs *mdbv1.MongoDB, client kubernetesClient.Client) {
+	t.Helper()
+	err := client.Update(ctx, rs)
+	require.NoError(t, err)
+	res, err := reconciler.Reconcile(ctx, requestFromObject(rs))
+	require.NoError(t, err)
+	assert.Equal(t, reconcile.Result{RequeueAfter: util.TWENTY_FOUR_HOURS}, res)
+	updatedRS := &mdbv1.MongoDB{}
+	err = client.Get(ctx, rs.ObjectKey(), updatedRS)
+	require.NoError(t, err)
+	assert.Equal(t, status.PhaseRunning, updatedRS.Status.Phase)
+}
+
+func TestReconcileHeadlessReplicaSet(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().
+		SetMode(mdbv1.ConnectionModeHeadless).
+		Build()
+	rs.Spec.Credentials = ""
+	rs.Spec.OpsManagerConfig = &mdbv1.PrivateCloudConfig{}
+	rs.Spec.CloudManagerConfig = &mdbv1.PrivateCloudConfig{}
+
+	reconciler, client, _ := defaultReplicaSetReconciler(ctx, nil, "", "", rs)
+	checkHeadlessReconcileSuccessful(ctx, t, reconciler, rs, client)
+
+	// StatefulSet must be created
+	sts, err := client.GetStatefulSet(ctx, rs.ObjectKey())
+	require.NoError(t, err)
+	assert.Equal(t, int32(3), *sts.Spec.Replicas)
+
+	// The automation agent runs in AgentContainerName (static) or DatabaseContainerName (non-static).
+	agentContainer := container.GetByName(util.AgentContainerName, sts.Spec.Template.Spec.Containers)
+	if agentContainer == nil {
+		agentContainer = container.GetByName(util.DatabaseContainerName, sts.Spec.Template.Spec.Containers)
+	}
+	require.NotNil(t, agentContainer)
+	envNames := make([]string, len(agentContainer.Env))
+	for i, e := range agentContainer.Env {
+		envNames[i] = e.Name
+	}
+	assert.Contains(t, envNames, "HEADLESS_AGENT")
+	assert.NotContains(t, envNames, "BASE_URL")
+
+	// Agent command must use -cluster=
+	fullCmd := strings.Join(agentContainer.Command, " ") + strings.Join(agentContainer.Args, " ")
+	assert.Contains(t, fullCmd, "-cluster=")
+
+	// AC Secret must be created
+	acSecret := &corev1.Secret{}
+	err = client.Get(ctx, types.NamespacedName{Name: rs.Name + "-config", Namespace: rs.Namespace}, acSecret)
+	require.NoError(t, err)
+	assert.NotEmpty(t, acSecret.Data)
+}
+
+func TestReconcileHeadlessShardedCluster_ReturnsError(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().
+		SetMode(mdbv1.ConnectionModeHeadless).
+		Build()
+	rs.Spec.ResourceType = mdbv1.ShardedCluster
+	rs.Spec.Credentials = ""
+	rs.Spec.OpsManagerConfig = &mdbv1.PrivateCloudConfig{}
+	rs.Spec.CloudManagerConfig = &mdbv1.PrivateCloudConfig{}
+
+	reconciler, client, _ := defaultReplicaSetReconciler(ctx, nil, "", "", rs)
+	err := client.Update(ctx, rs)
+	require.NoError(t, err)
+
+	_, err = reconciler.Reconcile(ctx, requestFromObject(rs))
+	require.NoError(t, err) // reconciler does not return Go errors for validation failures
+
+	updatedRS := &mdbv1.MongoDB{}
+	require.NoError(t, client.Get(ctx, rs.ObjectKey(), updatedRS))
+	assert.Equal(t, status.PhaseFailed, updatedRS.Status.Phase)
+	assert.Contains(t, updatedRS.Status.Message, "does not support sharded clusters")
 }
 
 // Helper functions for TestPublishAutomationConfigFirstRS

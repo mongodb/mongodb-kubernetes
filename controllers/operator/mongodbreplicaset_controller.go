@@ -24,6 +24,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	apiV1 "github.com/mongodb/mongodb-kubernetes/api/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	rolev1 "github.com/mongodb/mongodb-kubernetes/api/v1/role"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
@@ -45,6 +46,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
+	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
@@ -395,6 +397,11 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 			return workflow.Invalid("Object for reconciliation not found").ReconcileResult()
 		}
 		return reconcileResult, err
+	}
+
+	// Headless mode bypasses the OM-connected reconcile path entirely.
+	if rs.Spec.ConnectionSpec.IsHeadless() {
+		return r.reconcileHeadless(ctx, rs, log)
 	}
 
 	// Create helper for THIS reconciliation
@@ -896,6 +903,103 @@ func (r *ReconcileMongoDbReplicaSet) OnDelete(ctx context.Context, obj runtime.O
 func getAllHostsForReplicas(rs *mdbv1.MongoDB, membersCount int) []string {
 	hostnames, _ := dns.GetDNSNames(rs.Name, rs.ServiceName(), rs.Namespace, rs.Spec.GetClusterDomain(), membersCount, rs.Spec.DbCommonSpec.GetExternalDomain())
 	return hostnames
+}
+
+// reconcileHeadless reconciles a MongoDB resource in headless mode (no Ops Manager connection).
+func (r *ReconcileMongoDbReplicaSet) reconcileHeadless(ctx context.Context, rs *mdbv1.MongoDB, log *zap.SugaredLogger) (reconcile.Result, error) {
+	if rs.Spec.ResourceType == mdbv1.ShardedCluster {
+		return r.updateStatus(ctx, rs, workflow.Invalid("headless mode does not support sharded clusters"), log)
+	}
+
+	ac, err := r.buildHeadlessAutomationConfig(ctx, rs)
+	if err != nil {
+		return r.updateStatus(ctx, rs, workflow.Failed(err), log)
+	}
+	secretNsName := types.NamespacedName{Name: rs.AutomationConfigSecretName(), Namespace: rs.Namespace}
+	if _, err = automationconfig.EnsureSecret(ctx, r.SecretClient, secretNsName, rs.GetOwnerReferences(), ac); err != nil {
+		return r.updateStatus(ctx, rs, workflow.Failed(err), log)
+	}
+
+	mutatedSts, err := r.reconcileHeadlessStatefulSet(ctx, rs, log)
+	if err != nil {
+		return r.updateStatus(ctx, rs, workflow.Failed(err), log)
+	}
+
+	if stsStatus := statefulset.GetStatefulSetStatus(ctx, rs.Namespace, rs.Name, mutatedSts.GetGeneration(), r.client); !stsStatus.IsOK() {
+		return r.updateStatus(ctx, rs, stsStatus, log)
+	}
+
+	return r.updateStatus(ctx, rs, workflow.OK(), log)
+}
+
+func (r *ReconcileMongoDbReplicaSet) buildHeadlessAutomationConfig(ctx context.Context, rs *mdbv1.MongoDB) (automationconfig.AutomationConfig, error) {
+	domain := rs.ServiceName() + "." + rs.Namespace + ".svc." + rs.Spec.GetClusterDomain()
+
+	existingAC, err := automationconfig.ReadFromSecret(ctx, r.SecretClient,
+		types.NamespacedName{Name: rs.AutomationConfigSecretName(), Namespace: rs.Namespace})
+	if err != nil {
+		return automationconfig.AutomationConfig{}, err
+	}
+
+	builder := automationconfig.NewBuilder().
+		SetName(rs.Name).
+		SetDomain(domain).
+		SetMembers(rs.Spec.Members).
+		SetMemberOptions(rs.Spec.MemberConfig).
+		SetMongoDBVersion(rs.Spec.Version).
+		SetAuth(automationconfig.Auth{Disabled: true}).
+		SetPreviousAutomationConfig(existingAC)
+
+	if fcv := rs.Spec.FeatureCompatibilityVersion; fcv != nil {
+		builder.SetFCV(*fcv)
+	}
+
+	return builder.Build()
+}
+
+func (r *ReconcileMongoDbReplicaSet) reconcileHeadlessStatefulSet(ctx context.Context, rs *mdbv1.MongoDB, log *zap.SugaredLogger) (*appsv1.StatefulSet, error) {
+	secretName := rs.AutomationConfigSecretName()
+	// Headless mode has no Ops Manager connection, so PodVars are empty. We must provide a non-nil
+	// PodEnvVars to avoid a nil-dereference in buildVaultDatabaseSecretsToInject.
+	stsOptFunc := construct.ReplicaSetOptions(PodEnvVars(&env.PodEnvVars{}))
+	sts := construct.DatabaseStatefulSet(*rs, stsOptFunc, log)
+
+	// The automation agent runs in AgentContainerName (static architecture) or
+	// DatabaseContainerName (non-static architecture).
+	agentContainerNames := map[string]bool{
+		util.AgentContainerName:    true,
+		util.DatabaseContainerName: true,
+	}
+	for i, c := range sts.Spec.Template.Spec.Containers {
+		if !agentContainerNames[c.Name] {
+			continue
+		}
+		sts.Spec.Template.Spec.Containers[i].Command = construct.HeadlessAutomationAgentCommand(
+			apiV1.LogLevel(rs.Spec.Agent.LogLevel),
+			"/dev/stdout",
+			rs.Spec.Agent.MaxLogFileDurationHours,
+		)
+		headlessEnvs := construct.HeadlessAgentEnvVars(secretName)
+		filtered := make([]corev1.EnvVar, 0, len(c.Env))
+		omEnvNames := map[string]bool{
+			util.EnvVarBaseUrl:   true,
+			util.EnvVarProjectId: true,
+			util.EnvVarUser:      true,
+		}
+		for _, e := range c.Env {
+			if !omEnvNames[e.Name] {
+				filtered = append(filtered, e)
+			}
+		}
+		sts.Spec.Template.Spec.Containers[i].Env = append(filtered, headlessEnvs...)
+	}
+	sts.Spec.Template.Spec.Volumes = append(sts.Spec.Template.Spec.Volumes, construct.AgentDownloadsVolume())
+
+	mutatedSts, err := create.DatabaseInKubernetes(ctx, r.client, *rs, sts, stsOptFunc, log)
+	if err != nil {
+		return nil, err
+	}
+	return mutatedSts, nil
 }
 
 func (r *ReplicaSetReconcilerHelper) applySearchOverrides(ctx context.Context) (bool, error) {
