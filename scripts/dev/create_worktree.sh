@@ -32,9 +32,16 @@ fi
 
 # Convert slashes to underscores for directory name
 branch_dir="${branch//\//_}"
-worktree_path="${PROJECT_DIR}/../${branch_dir}"
+# Canonicalise so the existence check below matches git's output. Without
+# this, calling from a sibling worktree produces "<PROJECT_DIR>/../<dir>"
+# (literal "..") while `git worktree list` emits canonical absolute paths,
+# the grep misses, and `git worktree add` then dies with "already exists".
+worktree_path="$(cd "${PROJECT_DIR}" && cd .. && pwd)/${branch_dir}"
 
-if ! git worktree list | grep "${worktree_path}" >/dev/null; then
+# Anchor the comparison so siblings sharing a prefix don't match each
+# other (e.g. `…/foo` must not match `…/foo-manual-checks`). `git
+# worktree list` puts the canonical path in column 1.
+if ! git worktree list | awk '{print $1}' | grep -Fxq "${worktree_path}"; then
   echo "Creating git worktree for branch '${branch}' at ${worktree_path}..."
 
   # Check if branch exists (locally or remotely)
