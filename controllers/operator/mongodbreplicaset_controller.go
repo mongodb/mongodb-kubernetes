@@ -907,6 +907,10 @@ func getAllHostsForReplicas(rs *mdbv1.MongoDB, membersCount int) []string {
 
 // reconcileHeadless reconciles a MongoDB resource in headless mode (no Ops Manager connection).
 func (r *ReconcileMongoDbReplicaSet) reconcileHeadless(ctx context.Context, rs *mdbv1.MongoDB, log *zap.SugaredLogger) (reconcile.Result, error) {
+	if err := rs.ProcessValidationsOnReconcile(nil); err != nil {
+		return r.updateStatus(ctx, rs, workflow.Invalid("%s", err.Error()), log)
+	}
+
 	if rs.Spec.ResourceType == mdbv1.ShardedCluster {
 		return r.updateStatus(ctx, rs, workflow.Invalid("headless mode does not support sharded clusters"), log)
 	}
@@ -933,7 +937,7 @@ func (r *ReconcileMongoDbReplicaSet) reconcileHeadless(ctx context.Context, rs *
 }
 
 func (r *ReconcileMongoDbReplicaSet) buildHeadlessAutomationConfig(ctx context.Context, rs *mdbv1.MongoDB) (automationconfig.AutomationConfig, error) {
-	domain := rs.ServiceName() + "." + rs.Namespace + ".svc." + rs.Spec.GetClusterDomain()
+	domain := getDomain(rs.ServiceName(), rs.Namespace, rs.Spec.GetClusterDomain())
 
 	existingAC, err := automationconfig.ReadFromSecret(ctx, r.SecretClient,
 		types.NamespacedName{Name: rs.AutomationConfigSecretName(), Namespace: rs.Namespace})
@@ -966,12 +970,15 @@ func (r *ReconcileMongoDbReplicaSet) reconcileHeadlessStatefulSet(ctx context.Co
 
 	// The automation agent runs in AgentContainerName (static architecture) or
 	// DatabaseContainerName (non-static architecture).
-	agentContainerNames := map[string]bool{
-		util.AgentContainerName:    true,
-		util.DatabaseContainerName: true,
-	}
+	isStatic := architectures.IsRunningStaticArchitecture(rs.Annotations)
 	for i, c := range sts.Spec.Template.Spec.Containers {
-		if !agentContainerNames[c.Name] {
+		var shouldPatch bool
+		if isStatic {
+			shouldPatch = c.Name == util.AgentContainerName
+		} else {
+			shouldPatch = c.Name == util.DatabaseContainerName
+		}
+		if !shouldPatch {
 			continue
 		}
 		sts.Spec.Template.Spec.Containers[i].Command = construct.HeadlessAutomationAgentCommand(

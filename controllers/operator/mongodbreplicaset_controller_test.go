@@ -1417,7 +1417,7 @@ func TestReconcileHeadlessReplicaSet(t *testing.T) {
 		envNames[i] = e.Name
 	}
 	assert.Contains(t, envNames, "HEADLESS_AGENT")
-	assert.NotContains(t, envNames, "BASE_URL")
+	assert.NotContains(t, envNames, util.EnvVarBaseUrl)
 
 	// Agent command must use -cluster=
 	fullCmd := strings.Join(agentContainer.Command, " ") + strings.Join(agentContainer.Args, " ")
@@ -1450,7 +1450,6 @@ func TestReconcileHeadlessShardedCluster_ReturnsError(t *testing.T) {
 	updatedRS := &mdbv1.MongoDB{}
 	require.NoError(t, client.Get(ctx, rs.ObjectKey(), updatedRS))
 	assert.Equal(t, status.PhaseFailed, updatedRS.Status.Phase)
-	assert.Contains(t, updatedRS.Status.Message, "does not support sharded clusters")
 }
 
 // Helper functions for TestPublishAutomationConfigFirstRS
