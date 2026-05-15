@@ -75,4 +75,7 @@ wait
 # evg_host.sh::get-kubeconfig (run from the laptop after this script
 # finishes on the remote) can scp it back.
 mkdir -p .generated
-cp -f "${KUBECONFIG:-${HOME}/.kube/config}" .generated/current.kubeconfig
+src_kubeconfig="${KUBECONFIG:-${HOME}/.kube/config}"
+if [ ! "${src_kubeconfig}" -ef .generated/current.kubeconfig ]; then
+  cp -f "${src_kubeconfig}" .generated/current.kubeconfig
+fi
