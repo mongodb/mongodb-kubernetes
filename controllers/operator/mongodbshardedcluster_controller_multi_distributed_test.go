@@ -56,9 +56,11 @@ type distributedTestHarness struct {
 	helpers          map[string]*ShardedClusterReconcileHelper
 	coordinators     map[string]*coordraft.Coordinator
 	managers         map[string]*coordraft.Manager
-	scheduler        *coordraft.Scheduler
+	allocStop        chan struct{}
+	allocDone        chan struct{}
 	leaderCluster    atomic.Value // string
 	sc               *mdbv1.MongoDB
+	crKey            coordraft.CRKey
 	memberClusterMap map[string]clientpkg.Client
 
 	// stsWriteOrder records the order in which gated STS writes proceeded —
@@ -101,6 +103,7 @@ func newDistributedTestHarness(t *testing.T, clusters []string) *distributedTest
 		Build()
 	require.NoError(t, kubeClient.Create(context.Background(), sc))
 
+	crKey := coordraft.CRKey{Kind: "MongoDB", Namespace: sc.Namespace, Name: sc.Name}
 	h := &distributedTestHarness{
 		t:                t,
 		clusters:         sortedClusters,
@@ -109,6 +112,7 @@ func newDistributedTestHarness(t *testing.T, clusters []string) *distributedTest
 		coordinators:     make(map[string]*coordraft.Coordinator, len(sortedClusters)),
 		managers:         make(map[string]*coordraft.Manager, len(sortedClusters)),
 		sc:               sc,
+		crKey:            crKey,
 		memberClusterMap: memberClusterMap,
 	}
 
@@ -141,6 +145,7 @@ func newDistributedTestHarness(t *testing.T, clusters []string) *distributedTest
 		t.Cleanup(func() { _ = mgr.Shutdown() })
 
 		coord := coordraft.NewCoordinator(c, mgr, fsm)
+		coord.SetDefaultCR(crKey)
 		h.managers[c] = mgr
 		h.coordinators[c] = coord
 
@@ -164,21 +169,57 @@ func newDistributedTestHarness(t *testing.T, clusters []string) *distributedTest
 		return false
 	}, 3*time.Second, 20*time.Millisecond, "no leader within 3s")
 
-	// Build and start a single scheduler bound to the leader's manager+fsm.
+	// Inline lease allocator running on the leader's coordinator. F1 dropped
+	// the dedicated Scheduler goroutine — the headline test now drives lease
+	// allocation from within the test's reconcile loop. We start a tiny ticker
+	// here that scans the FSM and proposes the next (component, cluster) lease
+	// in deterministic order; F8 will replace this with the inline-gating
+	// reconciler doing the same thing.
 	leader := h.leaderCluster.Load().(string)
 	components := []string{"config", "shard-0", "shard-1", "mongos"}
-	sched, err := coordraft.NewScheduler(h.managers[leader], h.coordinators[leader].FSM(), coordraft.SchedulerConfig{
-		Clusters:     sortedClusters,
-		Components:   components,
-		TickInterval: 30 * time.Millisecond,
-		LeaseTTL:     30 * time.Second,
+	h.allocStop = make(chan struct{})
+	h.allocDone = make(chan struct{})
+	go func() {
+		defer close(h.allocDone)
+		ticker := time.NewTicker(30 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-h.allocStop:
+				return
+			case <-ticker.C:
+				leaderCoord := h.coordinators[leader]
+				if !leaderCoord.IsLeader() {
+					continue
+				}
+				if leaderCoord.GetActiveLease() != nil {
+					continue
+				}
+				// Find next (component, cluster) where the cluster isn't
+				// reported Ready for that component.
+				state := leaderCoord.FSM().GetPerCR(h.crKey)
+				var pickedComp, pickedCluster string
+			outer:
+				for _, comp := range components {
+					for _, cl := range sortedClusters {
+						cs, ok := state.PerClusterStatus[cl]
+						if !ok || !cs.ComponentStatus[comp].Ready {
+							pickedComp, pickedCluster = comp, cl
+							break outer
+						}
+					}
+				}
+				if pickedComp == "" {
+					continue
+				}
+				_ = leaderCoord.ProposeLeaseAllocate(pickedComp, pickedCluster, 30*time.Second)
+			}
+		}
+	}()
+	t.Cleanup(func() {
+		close(h.allocStop)
+		<-h.allocDone
 	})
-	require.NoError(t, err)
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-	sched.Start(ctx)
-	t.Cleanup(sched.Stop)
-	h.scheduler = sched
 
 	return h
 }
@@ -247,7 +288,7 @@ func (h *distributedTestHarness) runReconcileLoop(timeout time.Duration) bool {
 		}
 		// Check completion: every (component, cluster) Ready in leader's FSM.
 		leader := h.leaderCluster.Load().(string)
-		state := h.coordinators[leader].FSM().GetState()
+		state := h.coordinators[leader].FSM().GetPerCR(h.crKey)
 		done := true
 		for _, c := range h.clusters {
 			cs, ok := state.PerClusterStatus[c]
@@ -299,7 +340,7 @@ func TestDistributedMultiClusterShardedReconcile(t *testing.T) {
 	if !ok {
 		// On failure, dump FSM state to aid debugging.
 		leaderCoord := h.coordinators[leader]
-		state := leaderCoord.FSM().GetState()
+		state := leaderCoord.FSM().GetPerCR(h.crKey)
 		t.Logf("FSM PerClusterStatus dump (len=%d):", len(state.PerClusterStatus))
 		for cluster, cs := range state.PerClusterStatus {
 			t.Logf("  %s: %+v", cluster, cs.ComponentStatus)

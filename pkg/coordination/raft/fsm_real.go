@@ -46,21 +46,36 @@ func (f *FSM) Apply(log *raft.Log) interface{} {
 		return f.applySpecUpdate(payload)
 	case ProposalStatusReport:
 		return f.applyStatusReport(payload)
-	case ProposalPlanCreate:
-		return f.applyPlanCreate(payload)
-	case ProposalPlanAdvance:
-		return f.applyPlanAdvance(payload)
 	case ProposalLeaseAllocate:
 		return f.applyLeaseAllocate(payload)
 	case ProposalLeaseComplete:
 		return f.applyLeaseComplete(payload)
+	case ProposalLeaseExpire:
+		return f.applyLeaseExpire(payload)
 	case ProposalClusterIndexAssign:
 		return f.applyClusterIndexAssign(payload)
 	case ProposalACPublished:
 		return f.applyACPublished(payload)
+	case ProposalCRDelete:
+		return f.applyCRDelete(payload)
 	default:
 		return xerrors.Errorf("unknown proposal type %q", typ)
 	}
+}
+
+// getOrCreatePerCR returns a mutable handle to the PerCR entry for k. NOT
+// safe to call outside the FSM lock.
+func (f *FSM) getOrCreatePerCR(k CRKey) PerCRState {
+	key := k.String()
+	cur, ok := f.state.PerCR[key]
+	if !ok {
+		cur = NewPerCRState()
+	}
+	return cur
+}
+
+func (f *FSM) putPerCR(k CRKey, s PerCRState) {
+	f.state.PerCR[k.String()] = s
 }
 
 // applySpecUpdate replaces AgreedSpec iff the new generation strictly exceeds
@@ -70,13 +85,15 @@ func (f *FSM) applySpecUpdate(payload json.RawMessage) interface{} {
 	if err := json.Unmarshal(payload, &p); err != nil {
 		return xerrors.Errorf("decode spec_update: %w", err)
 	}
-	if f.state.AgreedSpec == nil || p.Generation > f.state.AgreedSpec.Generation {
-		f.state.AgreedSpec = &AgreedSpec{
+	cr := f.getOrCreatePerCR(p.CRKey)
+	if cr.AgreedSpec == nil || p.Generation > cr.AgreedSpec.Generation {
+		cr.AgreedSpec = &AgreedSpec{
 			Generation: p.Generation,
 			Hash:       p.Hash,
 			Content:    append(json.RawMessage(nil), p.Content...),
 		}
 	}
+	f.putPerCR(p.CRKey, cr)
 	return nil
 }
 
@@ -85,15 +102,16 @@ func (f *FSM) applySpecUpdate(payload json.RawMessage) interface{} {
 // are overwritten by the report; ComponentStatus entries are union'd so a
 // partial report (e.g. "shard-0 Ready=true" only) does not wipe previously
 // reported components like "config Ready=true".
+//
+// As of F1 the status report ALSO acts as an implicit heartbeat for the
+// active lease iff the reporting cluster is the current lease holder.
 func (f *FSM) applyStatusReport(payload json.RawMessage) interface{} {
 	var p StatusReportPayload
 	if err := json.Unmarshal(payload, &p); err != nil {
 		return xerrors.Errorf("decode status_report: %w", err)
 	}
-	if f.state.PerClusterStatus == nil {
-		f.state.PerClusterStatus = map[string]ClusterStatus{}
-	}
-	existing, ok := f.state.PerClusterStatus[p.ClusterName]
+	cr := f.getOrCreatePerCR(p.CRKey)
+	existing, ok := cr.PerClusterStatus[p.ClusterName]
 	if !ok {
 		existing = ClusterStatus{
 			ClusterName:     p.ClusterName,
@@ -109,39 +127,19 @@ func (f *FSM) applyStatusReport(payload json.RawMessage) interface{} {
 	for k, v := range p.ComponentStatus {
 		existing.ComponentStatus[k] = ComponentStatus(v)
 	}
-	f.state.PerClusterStatus[p.ClusterName] = existing
-	return nil
-}
+	cr.PerClusterStatus[p.ClusterName] = existing
 
-// applyPlanCreate replaces CurrentPlan with the new plan (leader-only producer).
-func (f *FSM) applyPlanCreate(payload json.RawMessage) interface{} {
-	var p PlanCreatePayload
-	if err := json.Unmarshal(payload, &p); err != nil {
-		return xerrors.Errorf("decode plan_create: %w", err)
+	// Heartbeat-on-StatusReport: if the reporter is the lease holder, refresh
+	// HeartbeatAt. The leader checks this in SweepStuckLeases.
+	if cr.ActiveLease != nil && cr.ActiveLease.ClusterName == p.ClusterName {
+		ts := p.ReportedAt
+		if ts.IsZero() {
+			ts = time.Now().UTC()
+		}
+		cr.ActiveLease.HeartbeatAt = ts
 	}
-	f.state.CurrentPlan = &Plan{
-		ID:           p.ID,
-		Generation:   p.Generation,
-		Phases:       append([]string(nil), p.Phases...),
-		CurrentPhase: 0,
-	}
-	return nil
-}
 
-// applyPlanAdvance bumps CurrentPhase iff ExpectFrom matches (idempotent).
-func (f *FSM) applyPlanAdvance(payload json.RawMessage) interface{} {
-	var p PlanAdvancePayload
-	if err := json.Unmarshal(payload, &p); err != nil {
-		return xerrors.Errorf("decode plan_advance: %w", err)
-	}
-	if f.state.CurrentPlan == nil || f.state.CurrentPlan.ID != p.PlanID {
-		return xerrors.Errorf("plan_advance: no matching plan %q", p.PlanID)
-	}
-	if f.state.CurrentPlan.CurrentPhase != p.ExpectFrom {
-		// Replay or out-of-order advance; no-op for idempotency.
-		return nil
-	}
-	f.state.CurrentPlan.CurrentPhase++
+	f.putPerCR(p.CRKey, cr)
 	return nil
 }
 
@@ -151,23 +149,35 @@ func (f *FSM) applyLeaseAllocate(payload json.RawMessage) interface{} {
 	if err := json.Unmarshal(payload, &p); err != nil {
 		return xerrors.Errorf("decode lease_allocate: %w", err)
 	}
-	if f.state.ActiveLease != nil {
+	cr := f.getOrCreatePerCR(p.CRKey)
+	if cr.ActiveLease != nil {
 		// Lease already held — no-op. Caller should observe FSM state and
 		// retry only after lease completion.
-		return f.state.ActiveLease
+		out := *cr.ActiveLease
+		f.putPerCR(p.CRKey, cr)
+		return &out
 	}
 	now := time.Now().UTC()
 	ttl := p.TTL
 	if ttl <= 0 {
 		ttl = 60 * time.Second
 	}
-	f.state.ActiveLease = &Lease{
+	// Deadline default 30 min if caller didn't specify a TTL >= 30min.
+	deadline := now.Add(30 * time.Minute)
+	if ttl >= 30*time.Minute {
+		deadline = now.Add(ttl)
+	}
+	cr.ActiveLease = &Lease{
 		Component:   p.Component,
 		ClusterName: p.ClusterName,
 		AllocatedAt: now,
+		HeartbeatAt: now,
+		DeadlineAt:  deadline,
 		ExpiresAt:   now.Add(ttl),
 	}
-	return f.state.ActiveLease
+	f.putPerCR(p.CRKey, cr)
+	out := *cr.ActiveLease
+	return &out
 }
 
 // applyLeaseComplete clears ActiveLease iff it matches.
@@ -176,17 +186,40 @@ func (f *FSM) applyLeaseComplete(payload json.RawMessage) interface{} {
 	if err := json.Unmarshal(payload, &p); err != nil {
 		return xerrors.Errorf("decode lease_complete: %w", err)
 	}
-	if f.state.ActiveLease == nil {
+	cr := f.getOrCreatePerCR(p.CRKey)
+	if cr.ActiveLease == nil {
+		f.putPerCR(p.CRKey, cr)
 		return nil
 	}
-	if f.state.ActiveLease.Component == p.Component && f.state.ActiveLease.ClusterName == p.ClusterName {
-		f.state.ActiveLease = nil
+	if cr.ActiveLease.Component == p.Component && cr.ActiveLease.ClusterName == p.ClusterName {
+		cr.ActiveLease = nil
 	}
+	f.putPerCR(p.CRKey, cr)
 	return nil
 }
 
+// applyLeaseExpire revokes the active lease iff it matches the payload's
+// (Component, ClusterName). Idempotent across replays.
+func (f *FSM) applyLeaseExpire(payload json.RawMessage) interface{} {
+	var p LeaseExpirePayload
+	if err := json.Unmarshal(payload, &p); err != nil {
+		return xerrors.Errorf("decode lease_expire: %w", err)
+	}
+	cr := f.getOrCreatePerCR(p.CRKey)
+	if cr.ActiveLease == nil {
+		f.putPerCR(p.CRKey, cr)
+		return nil
+	}
+	if cr.ActiveLease.Component == p.Component && cr.ActiveLease.ClusterName == p.ClusterName {
+		cr.ActiveLease = nil
+	}
+	f.putPerCR(p.CRKey, cr)
+	return p.Reason
+}
+
 // applyClusterIndexAssign records the index iff the cluster doesn't have one.
-// Once assigned, never reused — even if the cluster is removed.
+// Once assigned, never reused — even if the cluster is removed. Cluster
+// indices live at FSMState top level (global to this coordinator).
 func (f *FSM) applyClusterIndexAssign(payload json.RawMessage) interface{} {
 	var p ClusterIndexAssignPayload
 	if err := json.Unmarshal(payload, &p); err != nil {
@@ -204,10 +237,22 @@ func (f *FSM) applyACPublished(payload json.RawMessage) interface{} {
 	if err := json.Unmarshal(payload, &p); err != nil {
 		return xerrors.Errorf("decode ac_published: %w", err)
 	}
-	if p.Generation > f.state.ACGeneration {
-		f.state.ACGeneration = p.Generation
+	cr := f.getOrCreatePerCR(p.CRKey)
+	if p.Generation > cr.ACGeneration {
+		cr.ACGeneration = p.Generation
 	}
-	return f.state.ACGeneration
+	f.putPerCR(p.CRKey, cr)
+	return cr.ACGeneration
+}
+
+// applyCRDelete clears the entire PerCR entry for the CRKey. Idempotent.
+func (f *FSM) applyCRDelete(payload json.RawMessage) interface{} {
+	var p CRDeletePayload
+	if err := json.Unmarshal(payload, &p); err != nil {
+		return xerrors.Errorf("decode cr_delete: %w", err)
+	}
+	delete(f.state.PerCR, p.CRKey.String())
+	return nil
 }
 
 // ============================================================================
@@ -235,11 +280,17 @@ func (f *FSM) Restore(rc io.ReadCloser) error {
 		return xerrors.Errorf("decode snapshot: %w", err)
 	}
 	// Defensive: empty maps if missing.
-	if s.PerClusterStatus == nil {
-		s.PerClusterStatus = map[string]ClusterStatus{}
+	if s.PerCR == nil {
+		s.PerCR = map[string]PerCRState{}
 	}
 	if s.ClusterIndex == nil {
 		s.ClusterIndex = map[string]int{}
+	}
+	for k, v := range s.PerCR {
+		if v.PerClusterStatus == nil {
+			v.PerClusterStatus = map[string]ClusterStatus{}
+			s.PerCR[k] = v
+		}
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -265,54 +316,77 @@ func (s *fsmSnapshot) Persist(sink raft.SnapshotSink) error {
 func (s *fsmSnapshot) Release() {}
 
 // ============================================================================
-// Read accessors — always return deep copies / values.
+// Read accessors — always return deep copies / values. Reads are scoped per
+// CRKey now that the FSM is partitioned.
 // ============================================================================
 
-// GetState returns a deep copy of the current FSM state.
+// GetState returns a deep copy of the full FSM state.
 func (f *FSM) GetState() FSMState {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
 	return f.state.Clone()
 }
 
-// GetActiveLease returns the current lease (deep-copied) or nil.
-func (f *FSM) GetActiveLease() *Lease {
+// GetPerCR returns the per-CR slice for k, or a zero-valued (initialised)
+// PerCRState if no proposal has touched this CRKey yet.
+func (f *FSM) GetPerCR(k CRKey) PerCRState {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
-	if f.state.ActiveLease == nil {
+	cur, ok := f.state.PerCR[k.String()]
+	if !ok {
+		return NewPerCRState()
+	}
+	return cur.Clone()
+}
+
+// GetActiveLease returns the active lease for a CR (deep-copied) or nil.
+func (f *FSM) GetActiveLease(k CRKey) *Lease {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	cur, ok := f.state.PerCR[k.String()]
+	if !ok || cur.ActiveLease == nil {
 		return nil
 	}
-	l := *f.state.ActiveLease
+	l := *cur.ActiveLease
 	return &l
 }
 
-// GetClusterStatus returns the status of one cluster (zero value if absent).
-func (f *FSM) GetClusterStatus(name string) ClusterStatus {
+// GetClusterStatus returns the status of one cluster for a CR (zero value if
+// absent).
+func (f *FSM) GetClusterStatus(k CRKey, name string) ClusterStatus {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
-	cs, ok := f.state.PerClusterStatus[name]
+	cur, ok := f.state.PerCR[k.String()]
 	if !ok {
 		return ClusterStatus{ClusterName: name}
 	}
-	// Deep-copy ComponentStatus map.
+	cs, ok := cur.PerClusterStatus[name]
+	if !ok {
+		return ClusterStatus{ClusterName: name}
+	}
 	out := cs
 	if cs.ComponentStatus != nil {
 		out.ComponentStatus = make(map[string]ComponentStatus, len(cs.ComponentStatus))
-		for k, v := range cs.ComponentStatus {
-			out.ComponentStatus[k] = v
+		for kk, vv := range cs.ComponentStatus {
+			out.ComponentStatus[kk] = vv
 		}
 	}
 	return out
 }
 
-// GetACGeneration returns the AC generation.
-func (f *FSM) GetACGeneration() int {
+// GetACGeneration returns a CR's AC generation.
+func (f *FSM) GetACGeneration(k CRKey) int {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
-	return f.state.ACGeneration
+	cur, ok := f.state.PerCR[k.String()]
+	if !ok {
+		return 0
+	}
+	return cur.ACGeneration
 }
 
 // GetClusterIndex returns the index for a cluster name, or -1 if unassigned.
+// Cluster indices are global (not CR-scoped).
 func (f *FSM) GetClusterIndex(name string) int {
 	f.mu.RLock()
 	defer f.mu.RUnlock()

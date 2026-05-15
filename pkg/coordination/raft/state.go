@@ -10,36 +10,36 @@ import (
 //
 // Conventions:
 //   - Maps are never nil after construction (NewFSMState initialises empties).
-//   - PerClusterStatus is keyed by cluster name.
-//   - ClusterIndex is keyed by cluster name; values are stable integers,
-//     never reused after assignment.
-//   - ActiveLease is a pointer so nil means "no lease outstanding". PoC keeps
-//     a single global lease; multi-lease support is post-PoC.
+//   - PerCR is keyed by CRKey-as-string and partitions the per-CR state.
+//   - ClusterIndex (global) is keyed by cluster name; values are stable
+//     integers, never reused after assignment.
 type FSMState struct {
-	// AgreedSpec is the latest content-hash-agreed CR spec. Followers use
-	// this as the canonical spec to reconcile against.
+	// PerCR partitions all CR-scoped state by CRKey. Every proposal that
+	// carries a CRKey routes into one PerCRState entry.
+	PerCR map[string]PerCRState `json:"perCr"`
+
+	// ClusterIndex maps cluster name → stable integer index. Global to this
+	// coordinator (not per-CR).
+	ClusterIndex map[string]int `json:"clusterIndex"`
+
+	// LastAppliedIndex is informational for tests; bumped on every Apply.
+	LastAppliedIndex uint64 `json:"lastAppliedIndex"`
+}
+
+// PerCRState is the per-CR slice of FSMState. F1+ partitions FSM state by
+// CRKey; every proposal type lives inside one of these entries.
+type PerCRState struct {
+	// AgreedSpec is the latest content-hash-agreed CR spec.
 	AgreedSpec *AgreedSpec `json:"agreedSpec,omitempty"`
 
 	// PerClusterStatus is what each cluster reported on its last reconcile.
 	PerClusterStatus map[string]ClusterStatus `json:"perClusterStatus"`
 
-	// ActiveLease — single global lease for PoC. Whoever holds it may
-	// perform STS writes for that (component, cluster).
+	// ActiveLease — single PoC lease per CR.
 	ActiveLease *Lease `json:"activeLease,omitempty"`
 
-	// ACGeneration is bumped when the leader publishes AC to OM.
+	// ACGeneration is bumped when the leader publishes AC to OM for this CR.
 	ACGeneration int `json:"acGeneration"`
-
-	// CurrentPlan is the leader-produced plan derived from
-	// diff(prevAgreedSpec, AgreedSpec). PoC keeps it minimal; full plan
-	// vocabulary lands post-PoC (see arch doc §6.5).
-	CurrentPlan *Plan `json:"currentPlan,omitempty"`
-
-	// ClusterIndex maps cluster name → stable integer index for STS naming.
-	ClusterIndex map[string]int `json:"clusterIndex"`
-
-	// LastAppliedIndex is informational for tests; bumped on every Apply.
-	LastAppliedIndex uint64 `json:"lastAppliedIndex"`
 }
 
 // AgreedSpec is the canonical CR content as agreed via Raft.
@@ -51,11 +51,11 @@ type AgreedSpec struct {
 
 // ClusterStatus is the per-cluster reported state.
 type ClusterStatus struct {
-	ClusterName      string                          `json:"clusterName"`
-	LastReportedAt   time.Time                       `json:"lastReportedAt"`
-	ObservedSpecHash string                          `json:"observedSpecHash"`
-	ComponentStatus  map[string]ComponentStatus      `json:"componentStatus"`
-	LastReconcileErr string                          `json:"lastReconcileErr"`
+	ClusterName      string                     `json:"clusterName"`
+	LastReportedAt   time.Time                  `json:"lastReportedAt"`
+	ObservedSpecHash string                     `json:"observedSpecHash"`
+	ComponentStatus  map[string]ComponentStatus `json:"componentStatus"`
+	LastReconcileErr string                     `json:"lastReconcileErr"`
 }
 
 // ComponentStatus is per-component readiness; mirrors ComponentStatusEntry on
@@ -65,28 +65,34 @@ type ComponentStatus struct {
 	Ready      bool  `json:"ready"`
 }
 
-// Lease — single PoC lease.
+// Lease — single PoC lease per CR. Holds the per-CR coordination concurrency
+// (one cluster doing real STS work at a time per component scope).
 type Lease struct {
 	Component   string    `json:"component"`
 	ClusterName string    `json:"clusterName"`
 	AllocatedAt time.Time `json:"allocatedAt"`
-	ExpiresAt   time.Time `json:"expiresAt"`
-}
-
-// Plan — minimal PoC shape. Phases are just strings (component keys); the
-// full Plan vocabulary from arch §6.5 is post-PoC.
-type Plan struct {
-	ID           string   `json:"id"`
-	Generation   int64    `json:"generation"`
-	Phases       []string `json:"phases"`
-	CurrentPhase int      `json:"currentPhase"`
+	// HeartbeatAt is refreshed implicitly by every StatusReport from the
+	// holder; if HeartbeatTTL elapses without a refresh the leader revokes.
+	HeartbeatAt time.Time `json:"heartbeatAt"`
+	// DeadlineAt is the hard cap regardless of heartbeats (e.g. 30 min).
+	DeadlineAt time.Time `json:"deadlineAt"`
+	// ExpiresAt is preserved for backwards compatibility / observability.
+	// PoC code treats DeadlineAt as authoritative.
+	ExpiresAt time.Time `json:"expiresAt"`
 }
 
 // NewFSMState returns a zero state with all maps initialised.
 func NewFSMState() FSMState {
 	return FSMState{
+		PerCR:        map[string]PerCRState{},
+		ClusterIndex: map[string]int{},
+	}
+}
+
+// NewPerCRState returns a zero per-CR state with all maps initialised.
+func NewPerCRState() PerCRState {
+	return PerCRState{
 		PerClusterStatus: map[string]ClusterStatus{},
-		ClusterIndex:     map[string]int{},
 	}
 }
 
@@ -94,12 +100,24 @@ func NewFSMState() FSMState {
 // risk of them mutating the FSM's internal map.
 func (s FSMState) Clone() FSMState {
 	out := NewFSMState()
-	if s.AgreedSpec != nil {
-		spec := *s.AgreedSpec
+	for k, v := range s.PerCR {
+		out.PerCR[k] = v.Clone()
+	}
+	for k, v := range s.ClusterIndex {
+		out.ClusterIndex[k] = v
+	}
+	out.LastAppliedIndex = s.LastAppliedIndex
+	return out
+}
+
+// Clone returns a deep copy of the per-CR slice.
+func (p PerCRState) Clone() PerCRState {
+	out := NewPerCRState()
+	if p.AgreedSpec != nil {
+		spec := *p.AgreedSpec
 		out.AgreedSpec = &spec
 	}
-	for k, v := range s.PerClusterStatus {
-		// ComponentStatus map needs its own copy too.
+	for k, v := range p.PerClusterStatus {
 		cs := v
 		if v.ComponentStatus != nil {
 			cs.ComponentStatus = make(map[string]ComponentStatus, len(v.ComponentStatus))
@@ -109,21 +127,10 @@ func (s FSMState) Clone() FSMState {
 		}
 		out.PerClusterStatus[k] = cs
 	}
-	if s.ActiveLease != nil {
-		l := *s.ActiveLease
+	if p.ActiveLease != nil {
+		l := *p.ActiveLease
 		out.ActiveLease = &l
 	}
-	out.ACGeneration = s.ACGeneration
-	if s.CurrentPlan != nil {
-		p := *s.CurrentPlan
-		if s.CurrentPlan.Phases != nil {
-			p.Phases = append([]string(nil), s.CurrentPlan.Phases...)
-		}
-		out.CurrentPlan = &p
-	}
-	for k, v := range s.ClusterIndex {
-		out.ClusterIndex[k] = v
-	}
-	out.LastAppliedIndex = s.LastAppliedIndex
+	out.ACGeneration = p.ACGeneration
 	return out
 }

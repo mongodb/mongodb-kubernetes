@@ -12,6 +12,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// crA is the single-CR test fixture used by FSM unit tests. F1+ tests construct
+// CRKey explicitly; single-CR cases use this constant.
+var crA = CRKey{Kind: "MongoDB", Namespace: "ns1", Name: "sharded-a"}
+
 // applyHelper invokes FSM.Apply with the given encoded proposal at index 1.
 func applyHelper(t *testing.T, f *FSM, typ ProposalType, payload interface{}) interface{} {
 	t.Helper()
@@ -23,26 +27,27 @@ func applyHelper(t *testing.T, f *FSM, typ ProposalType, payload interface{}) in
 func TestApplySpecUpdate_BumpsGeneration(t *testing.T) {
 	f := NewFSM()
 	r := applyHelper(t, f, ProposalSpecUpdate, SpecUpdatePayload{
-		Generation: 1, Hash: "h1", Content: json.RawMessage(`{"x":1}`),
+		CRKey: crA, Generation: 1, Hash: "h1", Content: json.RawMessage(`{"x":1}`),
 	})
 	require.Nil(t, r)
-	s := f.GetState()
-	require.NotNil(t, s.AgreedSpec)
-	assert.Equal(t, int64(1), s.AgreedSpec.Generation)
-	assert.Equal(t, "h1", s.AgreedSpec.Hash)
+	cr := f.GetPerCR(crA)
+	require.NotNil(t, cr.AgreedSpec)
+	assert.Equal(t, int64(1), cr.AgreedSpec.Generation)
+	assert.Equal(t, "h1", cr.AgreedSpec.Hash)
 
 	// Newer generation replaces.
-	applyHelper(t, f, ProposalSpecUpdate, SpecUpdatePayload{Generation: 2, Hash: "h2"})
-	assert.Equal(t, int64(2), f.GetState().AgreedSpec.Generation)
+	applyHelper(t, f, ProposalSpecUpdate, SpecUpdatePayload{CRKey: crA, Generation: 2, Hash: "h2"})
+	assert.Equal(t, int64(2), f.GetPerCR(crA).AgreedSpec.Generation)
 
 	// Older generation is ignored (replay safety).
-	applyHelper(t, f, ProposalSpecUpdate, SpecUpdatePayload{Generation: 1, Hash: "h1"})
-	assert.Equal(t, int64(2), f.GetState().AgreedSpec.Generation)
+	applyHelper(t, f, ProposalSpecUpdate, SpecUpdatePayload{CRKey: crA, Generation: 1, Hash: "h1"})
+	assert.Equal(t, int64(2), f.GetPerCR(crA).AgreedSpec.Generation)
 }
 
 func TestApplyStatusReport_MergesComponentStatus(t *testing.T) {
 	f := NewFSM()
 	applyHelper(t, f, ProposalStatusReport, StatusReportPayload{
+		CRKey:            crA,
 		ClusterName:      "cluster-a",
 		ObservedSpecHash: "h1",
 		ComponentStatus: map[string]ComponentStatusEntry{
@@ -50,91 +55,127 @@ func TestApplyStatusReport_MergesComponentStatus(t *testing.T) {
 		},
 		ReportedAt: time.Now().UTC(),
 	})
-	assert.Equal(t, "h1", f.GetClusterStatus("cluster-a").ObservedSpecHash)
-	assert.False(t, f.GetClusterStatus("cluster-a").ComponentStatus["shard-0"].Ready)
+	assert.Equal(t, "h1", f.GetClusterStatus(crA, "cluster-a").ObservedSpecHash)
+	assert.False(t, f.GetClusterStatus(crA, "cluster-a").ComponentStatus["shard-0"].Ready)
 
 	// Partial subsequent report overwrites scalar fields and merges component status.
 	applyHelper(t, f, ProposalStatusReport, StatusReportPayload{
+		CRKey:            crA,
 		ClusterName:      "cluster-a",
 		ObservedSpecHash: "h2",
 		ComponentStatus:  map[string]ComponentStatusEntry{"shard-0": {Generation: 2, Ready: true}},
 		ReportedAt:       time.Now().UTC(),
 	})
-	cs := f.GetClusterStatus("cluster-a")
+	cs := f.GetClusterStatus(crA, "cluster-a")
 	assert.Equal(t, "h2", cs.ObservedSpecHash)
 	assert.True(t, cs.ComponentStatus["shard-0"].Ready)
 
 	// Partial report mentioning ONLY "config" must not wipe "shard-0":
 	applyHelper(t, f, ProposalStatusReport, StatusReportPayload{
+		CRKey:            crA,
 		ClusterName:      "cluster-a",
 		ObservedSpecHash: "h2",
 		ComponentStatus:  map[string]ComponentStatusEntry{"config": {Generation: 1, Ready: true}},
 		ReportedAt:       time.Now().UTC(),
 	})
-	cs = f.GetClusterStatus("cluster-a")
+	cs = f.GetClusterStatus(crA, "cluster-a")
 	assert.True(t, cs.ComponentStatus["config"].Ready, "config Ready must be set")
 	assert.True(t, cs.ComponentStatus["shard-0"].Ready, "earlier shard-0 Ready must NOT be wiped")
 
 	// Different cluster lives alongside.
 	applyHelper(t, f, ProposalStatusReport, StatusReportPayload{
-		ClusterName:    "cluster-b",
-		ReportedAt:     time.Now().UTC(),
+		CRKey:           crA,
+		ClusterName:     "cluster-b",
+		ReportedAt:      time.Now().UTC(),
 		ComponentStatus: map[string]ComponentStatusEntry{},
 	})
-	assert.Equal(t, 2, len(f.GetState().PerClusterStatus))
+	assert.Equal(t, 2, len(f.GetPerCR(crA).PerClusterStatus))
 }
 
-func TestApplyPlanCreate_AndAdvance(t *testing.T) {
+func TestApplyStatusReport_HeartbeatsLease(t *testing.T) {
 	f := NewFSM()
-	applyHelper(t, f, ProposalPlanCreate, PlanCreatePayload{
-		ID:         "plan-1",
-		Generation: 1,
-		Phases:     []string{"apply-sts", "publish-ac", "delete-pod"},
+	// Allocate a lease.
+	applyHelper(t, f, ProposalLeaseAllocate, LeaseAllocatePayload{
+		CRKey: crA, Component: "shard-0", ClusterName: "cluster-a", TTL: 30 * time.Second,
 	})
-	plan := f.GetState().CurrentPlan
-	require.NotNil(t, plan)
-	assert.Equal(t, 0, plan.CurrentPhase)
-	assert.Equal(t, []string{"apply-sts", "publish-ac", "delete-pod"}, plan.Phases)
+	initial := f.GetActiveLease(crA).HeartbeatAt
+	time.Sleep(5 * time.Millisecond)
 
-	// Advance from phase 0 → 1.
-	applyHelper(t, f, ProposalPlanAdvance, PlanAdvancePayload{PlanID: "plan-1", ExpectFrom: 0})
-	assert.Equal(t, 1, f.GetState().CurrentPlan.CurrentPhase)
+	// StatusReport from the holder bumps HeartbeatAt.
+	t1 := time.Now().UTC().Add(50 * time.Millisecond)
+	applyHelper(t, f, ProposalStatusReport, StatusReportPayload{
+		CRKey:       crA,
+		ClusterName: "cluster-a",
+		ReportedAt:  t1,
+	})
+	assert.True(t, f.GetActiveLease(crA).HeartbeatAt.Equal(t1), "lease HeartbeatAt should be refreshed by holder's report")
+	assert.True(t, f.GetActiveLease(crA).HeartbeatAt.After(initial))
 
-	// Idempotent: repeated advance with same ExpectFrom is a no-op.
-	applyHelper(t, f, ProposalPlanAdvance, PlanAdvancePayload{PlanID: "plan-1", ExpectFrom: 0})
-	assert.Equal(t, 1, f.GetState().CurrentPlan.CurrentPhase)
-
-	// Wrong plan ID errors.
-	r := applyHelper(t, f, ProposalPlanAdvance, PlanAdvancePayload{PlanID: "other", ExpectFrom: 1})
-	assert.Error(t, r.(error))
+	// StatusReport from a non-holder does NOT bump HeartbeatAt.
+	current := f.GetActiveLease(crA).HeartbeatAt
+	t2 := t1.Add(100 * time.Millisecond)
+	applyHelper(t, f, ProposalStatusReport, StatusReportPayload{
+		CRKey:       crA,
+		ClusterName: "cluster-b",
+		ReportedAt:  t2,
+	})
+	assert.True(t, f.GetActiveLease(crA).HeartbeatAt.Equal(current), "non-holder report must not heartbeat lease")
 }
 
 func TestApplyLeaseAllocate_AndComplete(t *testing.T) {
 	f := NewFSM()
 	r := applyHelper(t, f, ProposalLeaseAllocate, LeaseAllocatePayload{
-		Component: "shard-0", ClusterName: "cluster-a", TTL: 30 * time.Second,
+		CRKey: crA, Component: "shard-0", ClusterName: "cluster-a", TTL: 30 * time.Second,
 	})
 	lease, _ := r.(*Lease)
 	require.NotNil(t, lease)
 	assert.Equal(t, "shard-0", lease.Component)
 	assert.Equal(t, "cluster-a", lease.ClusterName)
 	assert.WithinDuration(t, time.Now().UTC().Add(30*time.Second), lease.ExpiresAt, 2*time.Second)
+	assert.False(t, lease.AllocatedAt.IsZero())
+	assert.False(t, lease.HeartbeatAt.IsZero())
+	assert.False(t, lease.DeadlineAt.IsZero())
 
 	// Allocating while one is held returns the existing lease (no overwrite).
 	r2 := applyHelper(t, f, ProposalLeaseAllocate, LeaseAllocatePayload{
-		Component: "config", ClusterName: "cluster-b",
+		CRKey: crA, Component: "config", ClusterName: "cluster-b",
 	})
 	lease2, _ := r2.(*Lease)
 	require.NotNil(t, lease2)
 	assert.Equal(t, "shard-0", lease2.Component, "existing lease should be returned, not overwritten")
 
 	// Complete with non-matching pair: lease unchanged.
-	applyHelper(t, f, ProposalLeaseComplete, LeaseCompletePayload{Component: "config", ClusterName: "cluster-b"})
-	require.NotNil(t, f.GetActiveLease())
+	applyHelper(t, f, ProposalLeaseComplete, LeaseCompletePayload{
+		CRKey: crA, Component: "config", ClusterName: "cluster-b",
+	})
+	require.NotNil(t, f.GetActiveLease(crA))
 
 	// Complete with matching pair: lease cleared.
-	applyHelper(t, f, ProposalLeaseComplete, LeaseCompletePayload{Component: "shard-0", ClusterName: "cluster-a"})
-	require.Nil(t, f.GetActiveLease())
+	applyHelper(t, f, ProposalLeaseComplete, LeaseCompletePayload{
+		CRKey: crA, Component: "shard-0", ClusterName: "cluster-a",
+	})
+	require.Nil(t, f.GetActiveLease(crA))
+}
+
+func TestApplyLeaseExpire(t *testing.T) {
+	f := NewFSM()
+	applyHelper(t, f, ProposalLeaseAllocate, LeaseAllocatePayload{
+		CRKey: crA, Component: "config", ClusterName: "cluster-a",
+	})
+	require.NotNil(t, f.GetActiveLease(crA))
+
+	// Non-matching expire: lease unchanged.
+	applyHelper(t, f, ProposalLeaseExpire, LeaseExpirePayload{
+		CRKey: crA, Component: "shard-0", ClusterName: "cluster-z", Reason: "stuck",
+	})
+	require.NotNil(t, f.GetActiveLease(crA))
+
+	// Matching expire: lease cleared.
+	res := applyHelper(t, f, ProposalLeaseExpire, LeaseExpirePayload{
+		CRKey: crA, Component: "config", ClusterName: "cluster-a", Reason: "heartbeat-ttl",
+	})
+	require.Nil(t, f.GetActiveLease(crA))
+	assert.Equal(t, "heartbeat-ttl", res)
 }
 
 func TestApplyClusterIndexAssign_StableAndUnique(t *testing.T) {
@@ -150,28 +191,56 @@ func TestApplyClusterIndexAssign_StableAndUnique(t *testing.T) {
 
 func TestApplyACPublished_Monotonic(t *testing.T) {
 	f := NewFSM()
-	applyHelper(t, f, ProposalACPublished, ACPublishedPayload{Generation: 5})
-	assert.Equal(t, 5, f.GetACGeneration())
+	applyHelper(t, f, ProposalACPublished, ACPublishedPayload{CRKey: crA, Generation: 5})
+	assert.Equal(t, 5, f.GetACGeneration(crA))
 	// Lower generation ignored.
-	applyHelper(t, f, ProposalACPublished, ACPublishedPayload{Generation: 3})
-	assert.Equal(t, 5, f.GetACGeneration())
+	applyHelper(t, f, ProposalACPublished, ACPublishedPayload{CRKey: crA, Generation: 3})
+	assert.Equal(t, 5, f.GetACGeneration(crA))
 	// Higher accepted.
-	applyHelper(t, f, ProposalACPublished, ACPublishedPayload{Generation: 7})
-	assert.Equal(t, 7, f.GetACGeneration())
+	applyHelper(t, f, ProposalACPublished, ACPublishedPayload{CRKey: crA, Generation: 7})
+	assert.Equal(t, 7, f.GetACGeneration(crA))
+}
+
+func TestApplyCRDelete_RemovesPerCR(t *testing.T) {
+	f := NewFSM()
+	applyHelper(t, f, ProposalSpecUpdate, SpecUpdatePayload{CRKey: crA, Generation: 1, Hash: "h"})
+	applyHelper(t, f, ProposalLeaseAllocate, LeaseAllocatePayload{CRKey: crA, Component: "x", ClusterName: "y"})
+	require.NotNil(t, f.GetActiveLease(crA))
+
+	applyHelper(t, f, ProposalCRDelete, CRDeletePayload{CRKey: crA})
+	assert.Nil(t, f.GetActiveLease(crA))
+	assert.Nil(t, f.GetPerCR(crA).AgreedSpec)
+}
+
+// TestMultipleCRsIndependent verifies the FSM partitions state per CRKey: a
+// lease on one CR doesn't block another.
+func TestMultipleCRsIndependent(t *testing.T) {
+	f := NewFSM()
+	crB := CRKey{Kind: "MongoDB", Namespace: "ns1", Name: "sharded-b"}
+
+	applyHelper(t, f, ProposalLeaseAllocate, LeaseAllocatePayload{CRKey: crA, Component: "config", ClusterName: "ca"})
+	applyHelper(t, f, ProposalLeaseAllocate, LeaseAllocatePayload{CRKey: crB, Component: "config", ClusterName: "cb"})
+
+	la := f.GetActiveLease(crA)
+	lb := f.GetActiveLease(crB)
+	require.NotNil(t, la)
+	require.NotNil(t, lb)
+	assert.Equal(t, "ca", la.ClusterName)
+	assert.Equal(t, "cb", lb.ClusterName)
 }
 
 func TestSnapshotRestore_PreservesAllFields(t *testing.T) {
 	src := NewFSM()
-	applyHelper(t, src, ProposalSpecUpdate, SpecUpdatePayload{Generation: 7, Hash: "hh", Content: json.RawMessage(`{"a":1}`)})
+	applyHelper(t, src, ProposalSpecUpdate, SpecUpdatePayload{CRKey: crA, Generation: 7, Hash: "hh", Content: json.RawMessage(`{"a":1}`)})
 	applyHelper(t, src, ProposalStatusReport, StatusReportPayload{
-		ClusterName: "cluster-a", ObservedSpecHash: "hh",
+		CRKey: crA, ClusterName: "cluster-a", ObservedSpecHash: "hh",
 		ComponentStatus: map[string]ComponentStatusEntry{"config": {Generation: 1, Ready: true}},
 		ReportedAt:      time.Now().UTC(),
 	})
-	applyHelper(t, src, ProposalLeaseAllocate, LeaseAllocatePayload{Component: "config", ClusterName: "cluster-a", TTL: 10 * time.Second})
+	applyHelper(t, src, ProposalLeaseAllocate, LeaseAllocatePayload{CRKey: crA, Component: "config", ClusterName: "cluster-a", TTL: 10 * time.Second})
 	applyHelper(t, src, ProposalClusterIndexAssign, ClusterIndexAssignPayload{ClusterName: "cluster-a", Index: 0})
 	applyHelper(t, src, ProposalClusterIndexAssign, ClusterIndexAssignPayload{ClusterName: "cluster-b", Index: 1})
-	applyHelper(t, src, ProposalACPublished, ACPublishedPayload{Generation: 9})
+	applyHelper(t, src, ProposalACPublished, ACPublishedPayload{CRKey: crA, Generation: 9})
 
 	// Persist into a buffer using the FSMSnapshot interface, then restore on a
 	// fresh FSM.
