@@ -365,7 +365,13 @@ bundle-build:
 prepare-local-e2e: reset-mco # prepares the local environment to run a local operator
 	scripts/dev/prepare_local_e2e_run.sh
 
-prepare-local-olm-e2e:
+# Prepare an HA multi-cluster environment (HA_CLUSTERS / BOOTSTRAP_CLUSTER
+# instead of CENTRAL_CLUSTER / MEMBER_CLUSTERS). Use with the
+# e2e_multi_cluster_ha context: scripts/dev/switch_context.sh e2e_multi_cluster_ha
+prepare-local-ha-e2e:
+	scripts/dev/prepare_local_e2e_ha_run.sh
+
+prepare-local-olm-e2e:pr
 	DIGEST_PINNING_ENABLED=false VERSION_ID=latest scripts/evergreen/operator-sdk/prepare-openshift-bundles-for-e2e.sh
 	scripts/dev/prepare_local_e2e_olm_run.sh
 

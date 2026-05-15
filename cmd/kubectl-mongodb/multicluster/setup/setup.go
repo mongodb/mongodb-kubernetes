@@ -65,7 +65,12 @@ kubectl-mongodb multicluster setup --central-cluster="operator-cluster" --member
 			os.Exit(1)
 		}
 
-		if err := common.ReplaceClusterMembersConfigMap(cmd.Context(), clientMap[setupFlags.CentralCluster], setupFlags); err != nil {
+		if err := common.ReplaceClusterMembersConfigMap(cmd.Context(), clientMap, setupFlags); err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+
+		if err := common.CreateHARaftResources(cmd.Context(), clientMap, setupFlags); err != nil {
 			fmt.Println(err)
 			os.Exit(1)
 		}
@@ -98,5 +103,6 @@ func parseSetupFlags() error {
 			return err
 		}
 	}
+
 	return nil
 }

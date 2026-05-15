@@ -17,6 +17,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
+	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
@@ -51,6 +52,7 @@ import (
 	mcoController "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers"
 	mcoConstruct "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/construct"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/envvar"
+	"github.com/mongodb/mongodb-kubernetes/pkg/haraft"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/pprof"
@@ -219,6 +221,15 @@ func run() error {
 	// memberClusterObjectsMap is a map of clusterName -> clusterObject
 	memberClusterObjectsMap := make(map[string]runtime_cluster.Cluster)
 
+	// raftNode is initialized later if the operator is running in HA multi-cluster
+	// mode (raft-identity ConfigMap present). Otherwise it stays nil and we operate
+	// in legacy single-active mode.
+	var raftNode *haraft.RaftNode
+	// raftLocalID and raftPeerClients are captured during Raft init so the
+	// leadership callback (registered later, after controller setup) can use them.
+	var raftLocalID string
+	var raftPeerClients map[string]client.Client
+
 	if slices.Contains(crds, mongoDBMultiClusterCRDPlural) {
 		memberClustersNames, err := getMemberClusters(ctx, cfg, currentNamespace)
 		if err != nil {
@@ -264,6 +275,67 @@ func run() error {
 				return err
 			}
 		}
+
+		// Bring up Raft for HA-enabled multi-cluster deployments. The raft-identity
+		// ConfigMap is the signal: if it is absent, fall back to legacy single-active
+		// behavior (this operator is the only one running on the central cluster).
+		//
+		// We must NOT use mgr.GetClient() for any haraft-related reads/writes:
+		// the manager's delegating client uses an informer cache that is only
+		// populated after mgr.Start(...), which runs much later. Construct an
+		// uncached client directly from the rest.Config instead. This same
+		// client is reused as the local peer in peerClients, so haraft's
+		// transport and stores bypass the cache too.
+		localRawClient, err := client.New(cfg, client.Options{Scheme: scheme})
+		if err != nil {
+			return xerrors.Errorf("failed to build local uncached client for haraft: %w", err)
+		}
+
+		localID, identityErr := getRaftIdentity(ctx, localRawClient, currentNamespace)
+		if identityErr == nil {
+			peers, err := getRaftPeers(ctx, localRawClient, currentNamespace)
+			if err != nil {
+				return xerrors.Errorf("raft-peers ConfigMap is required when raft-identity is present: %w", err)
+			}
+
+			// Build a controller-runtime client.Client for every Raft peer.
+			peerClients := map[string]client.Client{localID: localRawClient}
+			for name, peerCfg := range memberClusterClients {
+				if name == localID {
+					continue
+				}
+				cl, err := client.New(peerCfg, client.Options{Scheme: scheme})
+				if err != nil {
+					return xerrors.Errorf("failed to build client.Client for peer %s: %w", name, err)
+				}
+				peerClients[name] = cl
+			}
+
+			heartbeat, election, commit, lease, poll := haraft.DefaultTimings()
+			nodeCfg := haraft.NodeConfig{
+				ClusterName:        localID,
+				Peers:              peers,
+				Namespace:          currentNamespace,
+				HeartbeatTimeout:   heartbeat,
+				ElectionTimeout:    election,
+				CommitTimeout:      commit,
+				LeaderLeaseTimeout: lease,
+				PollInterval:       poll,
+			}
+			raftNode, err = haraft.NewRaftNode(nodeCfg, peerClients)
+			if err != nil {
+				return err
+			}
+			if err := raftNode.Start(ctx); err != nil {
+				return err
+			}
+			defer raftNode.Stop()
+			raftLocalID = localID
+			raftPeerClients = peerClients
+			log.Infof("haraft initialized: cluster=%q peers=%v", localID, peers)
+		} else {
+			log.Infow("haraft disabled (raft-identity ConfigMap not found) — operating in legacy single-active mode")
+		}
 	}
 
 	// Setup all Controllers
@@ -282,10 +354,34 @@ func run() error {
 			return err
 		}
 	}
+	var multiReconciler *operator.ReconcileMongoDbMultiReplicaSet
 	if slices.Contains(crds, mongoDBMultiClusterCRDPlural) {
-		if err := setupMongoDBMultiClusterCRD(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, memberClusterObjectsMap); err != nil {
+		r, err := setupMongoDBMultiClusterCRD(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, memberClusterObjectsMap, raftNode)
+		if err != nil {
 			return err
 		}
+		multiReconciler = r
+	}
+
+	// Register the Raft leadership-change callback now that the multi-cluster
+	// reconciler exists. The callback won't fire until mgr.Start() runs, so
+	// registering it after controller setup is safe.
+	if raftNode != nil {
+		localID := raftLocalID
+		peerClients := raftPeerClients
+		raftNode.OnLeadershipChange(func(isLeader bool) {
+			if !isLeader {
+				return
+			}
+			go func() {
+				if err := haraft.PublishLeader(ctx, localID, currentNamespace, peerClients); err != nil {
+					log.Warnf("failed to publish leader of record: %v", err)
+				}
+				if multiReconciler != nil {
+					multiReconciler.EnqueueAllForLeadershipChange(ctx, zap.S())
+				}
+			}()
+		})
 	}
 	if slices.Contains(crds, mongoDBSearchCRDPlural) {
 		if err := setupMongoDBSearchCRD(ctx, mgr); err != nil {
@@ -397,13 +493,17 @@ func setupMongoDBUserCRD(ctx context.Context, mgr manager.Manager, memberCluster
 	return operator.AddMongoDBUserController(ctx, mgr, memberClusterObjectsMap, backupEnableDelay)
 }
 
-func setupMongoDBMultiClusterCRD(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, memberClusterObjectsMap map[string]runtime_cluster.Cluster) error {
-	if err := operator.AddMultiReplicaSetController(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, memberClusterObjectsMap); err != nil {
-		return err
+func setupMongoDBMultiClusterCRD(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, memberClusterObjectsMap map[string]runtime_cluster.Cluster, raftNode *haraft.RaftNode) (*operator.ReconcileMongoDbMultiReplicaSet, error) {
+	reconciler, err := operator.AddMultiReplicaSetController(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, memberClusterObjectsMap, raftNode)
+	if err != nil {
+		return nil, err
 	}
-	return ctrl.NewWebhookManagedBy(mgr).For(&mdbmultiv1.MongoDBMultiCluster{}).
+	if err := ctrl.NewWebhookManagedBy(mgr).For(&mdbmultiv1.MongoDBMultiCluster{}).
 		WithValidator(&mdbmultiv1.MongoDBMultiClusterValidator{}).
-		Complete()
+		Complete(); err != nil {
+		return nil, err
+	}
+	return reconciler, nil
 }
 
 func setupMongoDBSearchCRD(ctx context.Context, mgr manager.Manager) error {
@@ -465,6 +565,33 @@ func getMemberClusters(ctx context.Context, cfg *rest.Config, currentNamespace s
 	}
 
 	return members, nil
+}
+
+func getRaftIdentity(ctx context.Context, c client.Client, namespace string) (string, error) {
+	cm := corev1.ConfigMap{}
+	if err := c.Get(ctx, types.NamespacedName{Name: haraft.IdentityConfigMapName, Namespace: namespace}, &cm); err != nil {
+		return "", err
+	}
+	v, ok := cm.Data[haraft.IdentityKeyClusterName]
+	if !ok || v == "" {
+		return "", fmt.Errorf("%s configmap missing key %q", haraft.IdentityConfigMapName, haraft.IdentityKeyClusterName)
+	}
+	return v, nil
+}
+
+func getRaftPeers(ctx context.Context, c client.Client, namespace string) ([]string, error) {
+	cm := corev1.ConfigMap{}
+	if err := c.Get(ctx, types.NamespacedName{Name: haraft.PeersConfigMapName, Namespace: namespace}, &cm); err != nil {
+		return nil, err
+	}
+	var peers []string
+	for _, p := range strings.Split(cm.Data[haraft.PeersKeyMembers], ",") {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			peers = append(peers, p)
+		}
+	}
+	return peers, nil
 }
 
 func isInLocalMode() bool {

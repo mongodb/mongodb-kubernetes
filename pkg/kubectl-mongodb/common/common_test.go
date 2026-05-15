@@ -312,7 +312,7 @@ func TestKubeConfigSecret_IsCreated_InCentralCluster(t *testing.T) {
 	assert.NotNil(t, kubeConfigSecret)
 }
 
-func TestKubeConfigSecret_IsNotCreated_InMemberClusters(t *testing.T) {
+func TestKubeConfigSecret_IsCreated_InMemberClusters(t *testing.T) {
 	ctx := context.Background()
 	flags := testFlags(t, false)
 	clientMap := getClientResources(ctx, flags)
@@ -323,8 +323,8 @@ func TestKubeConfigSecret_IsNotCreated_InMemberClusters(t *testing.T) {
 	for _, memberCluster := range flags.MemberClusters {
 		memberClient := clientMap[memberCluster]
 		kubeConfigSecret, err := memberClient.CoreV1().Secrets(flags.CentralClusterNamespace).Get(ctx, KubeConfigSecretName, metav1.GetOptions{})
-		assert.True(t, errors.IsNotFound(err))
-		assert.Equal(t, &corev1.Secret{}, kubeConfigSecret)
+		assert.NoError(t, err)
+		assert.NotNil(t, kubeConfigSecret)
 	}
 }
 
@@ -426,35 +426,33 @@ func TestReplaceClusterMembersConfigMap(t *testing.T) {
 	flags := testFlags(t, false)
 
 	clientMap := getClientResources(ctx, flags)
-	client := clientMap[flags.CentralCluster]
+
+	// HA multi-cluster: the member-list ConfigMap is now written on every
+	// cluster (central + members) and contains the full Raft membership
+	// (central + members) so any operator can discover all its peers locally.
+	assertOnEveryCluster := func(expectedMembers []string) {
+		expected := map[string]string{}
+		for _, cluster := range expectedMembers {
+			expected[cluster] = ""
+		}
+		for clusterName, cl := range clientMap {
+			cm, err := cl.CoreV1().ConfigMaps(flags.CentralClusterNamespace).Get(ctx, DefaultOperatorConfigMapName, metav1.GetOptions{})
+			assert.NoError(t, err, "member-list missing on cluster %s", clusterName)
+			assert.Equal(t, expected, cm.Data, "member-list content mismatch on cluster %s", clusterName)
+		}
+	}
 
 	{
 		flags.MemberClusters = []string{"member-1", "member-2", "member-3", "member-4"}
-		err := ReplaceClusterMembersConfigMap(ctx, client, flags)
+		err := ReplaceClusterMembersConfigMap(ctx, clientMap, flags)
 		assert.NoError(t, err)
-
-		cm, err := client.CoreV1().ConfigMaps(flags.CentralClusterNamespace).Get(ctx, DefaultOperatorConfigMapName, metav1.GetOptions{})
-		assert.NoError(t, err)
-
-		expected := map[string]string{}
-		for _, cluster := range flags.MemberClusters {
-			expected[cluster] = ""
-		}
-		assert.Equal(t, cm.Data, expected)
+		assertOnEveryCluster(append([]string{flags.CentralCluster}, flags.MemberClusters...))
 	}
 
 	{
 		flags.MemberClusters = []string{"member-1", "member-2"}
-		_ = ReplaceClusterMembersConfigMap(ctx, client, flags)
-		cm, err := client.CoreV1().ConfigMaps(flags.CentralClusterNamespace).Get(ctx, DefaultOperatorConfigMapName, metav1.GetOptions{})
-		assert.NoError(t, err)
-
-		expected := map[string]string{}
-		for _, cluster := range flags.MemberClusters {
-			expected[cluster] = ""
-		}
-
-		assert.Equal(t, cm.Data, expected)
+		_ = ReplaceClusterMembersConfigMap(ctx, clientMap, flags)
+		assertOnEveryCluster(append([]string{flags.CentralCluster}, flags.MemberClusters...))
 	}
 }
 
@@ -710,7 +708,9 @@ func assertDatabaseRolesExist(t *testing.T, ctx context.Context, clientMap map[s
 
 // assertMemberClusterRolesExist should be used when member cluster cluster roles should exist.
 func assertMemberClusterRolesExist(t *testing.T, ctx context.Context, clientMap map[string]KubeClient, flags Flags) {
-	assertClusterRoles(t, ctx, clientMap, flags, true, true, clusterTypeMember)
+	// HA multi-cluster: member clusters now receive the central cluster role
+	// (central + member rules) so any operator can be elected leader.
+	assertClusterRoles(t, ctx, clientMap, flags, true, true, clusterTypeCentral)
 }
 
 // assertMemberClusterRolesDoNotExist should be used when member cluster cluster roles should not exist.
@@ -773,8 +773,10 @@ func assertMemberRolesDoNotExist(t *testing.T, ctx context.Context, clientMap ma
 
 // assertMemberRolesAreCorrect should be used to assert the existence of member cluster roles. The boolean
 // shouldExist should be true for roles existing, and false for roles not existing.
+// HA multi-cluster: every cluster (member included) receives the central cluster
+// role (central + member rules) so any operator can be elected Raft leader.
 func assertMemberRolesAreCorrect(t *testing.T, ctx context.Context, clientMap map[string]KubeClient, flags Flags, shouldExist bool) {
-	expectedRole := buildMemberEntityRole(flags.MemberClusterNamespace)
+	expectedRole := buildCentralEntityRole(flags.MemberClusterNamespace)
 
 	for _, clusterName := range flags.MemberClusters {
 		client := clientMap[clusterName]

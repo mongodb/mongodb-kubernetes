@@ -320,10 +320,8 @@ func EnsureMultiClusterResources(ctx context.Context, flags Flags, clientMap map
 		return xerrors.Errorf("failed to marshal kubeconfig: %w", err)
 	}
 
-	centralClusterClient := clientMap[flags.CentralCluster]
-
-	if err := createKubeConfigSecret(ctx, centralClusterClient, kubeConfigBytes, flags); err != nil {
-		return xerrors.Errorf("failed creating KubeConfig secret: %w", err)
+	if err := createKubeConfigSecret(ctx, clientMap, kubeConfigBytes, flags); err != nil {
+		return xerrors.Errorf("failed creating KubeConfig secret on member clusters: %w", err)
 	}
 
 	if flags.SourceCluster != "" {
@@ -341,35 +339,34 @@ func EnsureMultiClusterResources(ctx context.Context, flags Flags, clientMap map
 	return nil
 }
 
-// createKubeConfigSecret creates the secret containing the KubeConfig file made from the various
-// service account tokens in the member clusters.
-func createKubeConfigSecret(ctx context.Context, centralClusterClient kubernetes.Interface, kubeConfigBytes []byte, flags Flags) error {
-	kubeConfigSecret := corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      KubeConfigSecretName,
-			Namespace: flags.CentralClusterNamespace,
-			Labels:    multiClusterLabels(),
-		},
-		Data: map[string][]byte{
-			KubeConfigSecretKey: kubeConfigBytes,
-		},
-	}
+// createKubeConfigSecret writes the unified KubeConfig Secret onto every
+// cluster in clientMap (central + members), so any operator can reach any
+// peer. This is required for the HA multi-cluster topology.
+func createKubeConfigSecret(ctx context.Context, clientMap map[string]KubeClient, kubeConfigBytes []byte, flags Flags) error {
+	for clusterName, cl := range clientMap {
+		kubeConfigSecret := corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      KubeConfigSecretName,
+				Namespace: flags.CentralClusterNamespace,
+				Labels:    multiClusterLabels(),
+			},
+			Data: map[string][]byte{
+				KubeConfigSecretKey: kubeConfigBytes,
+			},
+		}
 
-	fmt.Printf("Creating KubeConfig secret %s/%s in cluster %s\n", flags.CentralClusterNamespace, kubeConfigSecret.Name, flags.CentralCluster)
-	_, err := centralClusterClient.CoreV1().Secrets(flags.CentralClusterNamespace).Create(ctx, &kubeConfigSecret, metav1.CreateOptions{})
-
-	if !errors.IsAlreadyExists(err) && err != nil {
-		return xerrors.Errorf("failed creating secret: %w", err)
-	}
-
-	if errors.IsAlreadyExists(err) {
-		fmt.Printf("Secret %s/%s already exists, updating it\n", flags.CentralClusterNamespace, kubeConfigSecret.Name)
-		_, err = centralClusterClient.CoreV1().Secrets(flags.CentralClusterNamespace).Update(ctx, &kubeConfigSecret, metav1.UpdateOptions{})
-		if err != nil {
-			return xerrors.Errorf("failed updating existing secret: %w", err)
+		fmt.Printf("Creating KubeConfig secret %s/%s in cluster %s\n", flags.CentralClusterNamespace, kubeConfigSecret.Name, clusterName)
+		_, err := cl.CoreV1().Secrets(flags.CentralClusterNamespace).Create(ctx, &kubeConfigSecret, metav1.CreateOptions{})
+		if err != nil && !errors.IsAlreadyExists(err) {
+			return xerrors.Errorf("failed creating kubeconfig secret in cluster %s: %w", clusterName, err)
+		}
+		if errors.IsAlreadyExists(err) {
+			fmt.Printf("Secret %s/%s already exists in %s, updating it\n", flags.CentralClusterNamespace, kubeConfigSecret.Name, clusterName)
+			if _, err := cl.CoreV1().Secrets(flags.CentralClusterNamespace).Update(ctx, &kubeConfigSecret, metav1.UpdateOptions{}); err != nil {
+				return xerrors.Errorf("failed updating kubeconfig secret in cluster %s: %w", clusterName, err)
+			}
 		}
 	}
-
 	return nil
 }
 
@@ -741,10 +738,16 @@ func createOperatorServiceAccountsAndRoles(ctx context.Context, clientMap map[st
 			}
 		}
 
-		if err := createRoles(ctx, memberClusterClient, f.ServiceAccount, f.CentralClusterNamespace, f.MemberClusterNamespace, f.ClusterScoped, f.CreateTelemetryClusterRoles, f.CreateMongoDBRolesClusterRole, clusterTypeMember); err != nil {
+		// HA multi-cluster: every cluster's operator can be elected Raft leader,
+		// so every SA needs both centralRules (CRDs: MongoDBMultiCluster, MongoDB,
+		// MongoDBUser, OpsManager, MongoDBSearch) AND memberRules (StatefulSets,
+		// Services, ConfigMaps, Secrets). Grant the central role on every cluster
+		// in both the operator namespace and the member-resources namespace so
+		// the SA can reconcile from any cluster.
+		if err := createRoles(ctx, memberClusterClient, f.ServiceAccount, f.CentralClusterNamespace, f.MemberClusterNamespace, f.ClusterScoped, f.CreateTelemetryClusterRoles, f.CreateMongoDBRolesClusterRole, clusterTypeCentral); err != nil {
 			return err
 		}
-		if err := createRoles(ctx, memberClusterClient, f.ServiceAccount, f.CentralClusterNamespace, f.CentralClusterNamespace, f.ClusterScoped, f.CreateTelemetryClusterRoles, f.CreateMongoDBRolesClusterRole, clusterTypeMember); err != nil {
+		if err := createRoles(ctx, memberClusterClient, f.ServiceAccount, f.CentralClusterNamespace, f.CentralClusterNamespace, f.ClusterScoped, f.CreateTelemetryClusterRoles, f.CreateMongoDBRolesClusterRole, clusterTypeCentral); err != nil {
 			return err
 		}
 	}
@@ -1120,32 +1123,43 @@ func setupDatabaseRoles(ctx context.Context, clientSet map[string]KubeClient, f 
 	return nil
 }
 
-// ReplaceClusterMembersConfigMap creates the configmap used by the operator to know which clusters are members of the multi-cluster setup.
-// This will replace the existing configmap.
-// NOTE: the configmap is hardcoded to be DefaultOperatorConfigMapName
-func ReplaceClusterMembersConfigMap(ctx context.Context, centralClusterClient KubeClient, flags Flags) error {
+// ReplaceClusterMembersConfigMap creates the operator's member-list ConfigMap
+// on every cluster (central + all members).
+//
+// HA multi-cluster: every operator instance reads its own cluster's member-list
+// ConfigMap at startup to discover its peers (main.go:getMemberClusters). For
+// any operator to learn the full Raft membership locally, the ConfigMap must
+// exist on every cluster and contain the full peer set (central + members) so
+// that an operator running on a member cluster can find the bootstrap cluster.
+//
+// NOTE: the configmap name is hardcoded to DefaultOperatorConfigMapName.
+func ReplaceClusterMembersConfigMap(ctx context.Context, clientMap map[string]KubeClient, flags Flags) error {
 	configMapName := flags.OperatorName + "-member-list"
-	members := corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      configMapName,
-			Namespace: flags.CentralClusterNamespace,
-			Labels:    multiClusterLabels(),
-		},
-		Data: map[string]string{},
-	}
 
-	addToSet(flags.MemberClusters, &members)
+	// Build the full peer set: central + all members. Each operator can then
+	// filter out its own clusterName when constructing the peer-client map.
+	allClusters := append([]string{flags.CentralCluster}, flags.MemberClusters...)
 
-	fmt.Printf("Creating Member list Configmap %s/%s in cluster %s\n", flags.CentralClusterNamespace, configMapName, flags.CentralCluster)
-	_, err := centralClusterClient.CoreV1().ConfigMaps(flags.CentralClusterNamespace).Create(ctx, &members, metav1.CreateOptions{})
+	for clusterName, cl := range clientMap {
+		members := corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      configMapName,
+				Namespace: flags.CentralClusterNamespace,
+				Labels:    multiClusterLabels(),
+			},
+			Data: map[string]string{},
+		}
+		addToSet(allClusters, &members)
 
-	if err != nil && !errors.IsAlreadyExists(err) {
-		return xerrors.Errorf("failed creating configmap %s: %w", configMapName, err)
-	}
-
-	if errors.IsAlreadyExists(err) {
-		if _, err := centralClusterClient.CoreV1().ConfigMaps(flags.CentralClusterNamespace).Update(ctx, &members, metav1.UpdateOptions{}); err != nil {
-			return xerrors.Errorf("error creating configmap: %w", err)
+		fmt.Printf("Creating Member list Configmap %s/%s in cluster %s\n", flags.CentralClusterNamespace, configMapName, clusterName)
+		_, err := cl.CoreV1().ConfigMaps(flags.CentralClusterNamespace).Create(ctx, &members, metav1.CreateOptions{})
+		if err != nil && !errors.IsAlreadyExists(err) {
+			return xerrors.Errorf("failed creating configmap %s in cluster %s: %w", configMapName, clusterName, err)
+		}
+		if errors.IsAlreadyExists(err) {
+			if _, err := cl.CoreV1().ConfigMaps(flags.CentralClusterNamespace).Update(ctx, &members, metav1.UpdateOptions{}); err != nil {
+				return xerrors.Errorf("error updating configmap %s in cluster %s: %w", configMapName, clusterName, err)
+			}
 		}
 	}
 
@@ -1156,5 +1170,45 @@ func addToSet(memberClusters []string, into *corev1.ConfigMap) {
 	// override or add
 	for _, memberCluster := range memberClusters {
 		into.Data[memberCluster] = ""
+	}
+}
+
+// CreateHARaftResources provisions the four ConfigMaps the haraft package
+// expects on every cluster: raft-identity (this cluster's name), raft-peers
+// (full membership), raft-inbox, raft-state.
+//
+// All clusters are symmetric — there is no designated "bootstrap" cluster.
+// Every operator calls hashicorp/raft's BootstrapCluster() with the same
+// voter list at startup; the API is idempotent across operators (subsequent
+// calls return ErrCantBootstrap on already-initialized state and are ignored).
+func CreateHARaftResources(ctx context.Context, clientMap map[string]KubeClient, flags Flags) error {
+	members := strings.Join(flags.MemberClusters, ",")
+
+	for name, cl := range clientMap {
+		cms := []*corev1.ConfigMap{
+			haRaftCM("raft-identity", flags.CentralClusterNamespace, map[string]string{"clusterName": name}),
+			haRaftCM("raft-peers", flags.CentralClusterNamespace, map[string]string{
+				"members": members,
+			}),
+			haRaftCM("raft-inbox", flags.CentralClusterNamespace, map[string]string{}),
+			haRaftCM("raft-state", flags.CentralClusterNamespace, map[string]string{}),
+		}
+		for _, cm := range cms {
+			_, err := cl.CoreV1().ConfigMaps(flags.CentralClusterNamespace).Create(ctx, cm, metav1.CreateOptions{})
+			if errors.IsAlreadyExists(err) {
+				_, err = cl.CoreV1().ConfigMaps(flags.CentralClusterNamespace).Update(ctx, cm, metav1.UpdateOptions{})
+			}
+			if err != nil {
+				return xerrors.Errorf("failed creating %s on %s: %w", cm.Name, name, err)
+			}
+		}
+	}
+	return nil
+}
+
+func haRaftCM(name, namespace string, data map[string]string) *corev1.ConfigMap {
+	return &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace, Labels: multiClusterLabels()},
+		Data:       data,
 	}
 }

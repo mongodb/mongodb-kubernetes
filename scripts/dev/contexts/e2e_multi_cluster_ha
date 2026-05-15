@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+
+set -Eeou pipefail
+
+script_name=$(readlink -f "${BASH_SOURCE[0]}")
+script_dir=$(dirname "${script_name}")
+
+source "${script_dir}/root-context"
+source "${script_dir}/variables/om70"
+
+export KUBE_ENVIRONMENT_NAME=multi
+
+# ---------- HA Raft membership ----------
+#
+# In the HA POC every cluster is an equal Raft peer; there is no "central" or
+# "bootstrap" cluster at runtime. HA_CLUSTERS is the canonical user-facing
+# input: a space-separated list of kubeconfig context names. Minimum 3 for
+# quorum.
+export HA_CLUSTERS="kind-e2e-cluster-1 kind-e2e-cluster-2 kind-e2e-cluster-3"
+
+# ---------- Legacy variable derivation ----------
+#
+# Several existing helpers (scripts/funcs/multicluster, kubectl-mongodb CLI
+# flags, evergreen scripts, kubetester fixtures) still consume CLUSTER_NAME,
+# CENTRAL_CLUSTER, MEMBER_CLUSTERS. Derive them from HA_CLUSTERS — the choice
+# of which entry to put in CLUSTER_NAME / CENTRAL_CLUSTER is arbitrary and
+# carries no Raft semantics; we just pick the first one. New HA-aware code
+# (prepare_local_e2e_ha_run.sh) should read HA_CLUSTERS directly.
+read -ra _ha_clusters_arr <<< "${HA_CLUSTERS}"
+export CLUSTER_NAME="${_ha_clusters_arr[0]}"
+export CENTRAL_CLUSTER="${_ha_clusters_arr[0]}"
+export MEMBER_CLUSTERS="${_ha_clusters_arr[*]:1}"
+unset _ha_clusters_arr
+
+export TEST_POD_CLUSTER="${CLUSTER_NAME}"
+export test_pod_cluster="${CLUSTER_NAME}"
+
+export ops_manager_version="cloud_qa"
+
+# MCK is capable of deploying a webhook (optional).
+# To do so it needs know which pods to select for routing traffic
+# in the Service and operator name currently serves as a selector.
+# This value must be different for multi cluster setup,
+# but we can unify once we are done with unified operator
+# installation for both multicluster and single cluster setups.
+export OPERATOR_NAME="mongodb-kubernetes-operator-multi-cluster"

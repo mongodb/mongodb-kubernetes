@@ -57,7 +57,7 @@ kubectl-mongodb multicluster recover --central-cluster="operator-cluster" --memb
 			os.Exit(1)
 		}
 
-		if err := common.ReplaceClusterMembersConfigMap(cmd.Context(), clientMap[RecoverFlags.CentralCluster], RecoverFlags); err != nil {
+		if err := common.ReplaceClusterMembersConfigMap(cmd.Context(), clientMap, RecoverFlags); err != nil {
 			fmt.Println(err)
 			os.Exit(1)
 		}

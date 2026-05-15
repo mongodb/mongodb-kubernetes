@@ -61,6 +61,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/merge"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	khandler "github.com/mongodb/mongodb-kubernetes/pkg/handler"
+	"github.com/mongodb/mongodb-kubernetes/pkg/haraft"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	mekoService "github.com/mongodb/mongodb-kubernetes/pkg/kube/service"
@@ -89,11 +90,17 @@ type ReconcileMongoDbMultiReplicaSet struct {
 
 	agentDebug      bool
 	agentDebugImage string
+
+	raftNode *haraft.RaftNode // nil when HA is disabled
+
+	// leaderRefreshCh is fed by EnqueueAllForLeadershipChange when this operator
+	// wins a Raft election, triggering a reconcile for every known CR.
+	leaderRefreshCh chan event.GenericEvent
 }
 
 var _ reconcile.Reconciler = &ReconcileMongoDbMultiReplicaSet{}
 
-func newMultiClusterReplicaSetReconciler(ctx context.Context, kubeClient client.Client, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, omFunc om.ConnectionFactory, memberClustersMap map[string]client.Client) *ReconcileMongoDbMultiReplicaSet {
+func newMultiClusterReplicaSetReconciler(ctx context.Context, kubeClient client.Client, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, omFunc om.ConnectionFactory, memberClustersMap map[string]client.Client, raftNode *haraft.RaftNode) *ReconcileMongoDbMultiReplicaSet {
 	clientsMap := make(map[string]kubernetesClient.Client)
 	secretClientsMap := make(map[string]secrets.SecretClient)
 
@@ -118,6 +125,8 @@ func newMultiClusterReplicaSetReconciler(ctx context.Context, kubeClient client.
 		enableClusterMongoDBRoles:         enableClusterMongoDBRoles,
 		agentDebug:                        agentDebug,
 		agentDebugImage:                   agentDebugImage,
+		raftNode:                          raftNode,
+		leaderRefreshCh:                   make(chan event.GenericEvent, 64),
 	}
 }
 
@@ -128,6 +137,14 @@ func newMultiClusterReplicaSetReconciler(ctx context.Context, kubeClient client.
 // and what is in the MongoDbMultiReplicaSet.Spec
 func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request reconcile.Request) (res reconcile.Result, e error) {
 	log := zap.S().With("MultiReplicaSet", request.NamespacedName)
+
+	if r.raftNode != nil && !r.raftNode.IsLeader() {
+		log.Debugf("not Raft leader, skipping reconciliation")
+		return reconcile.Result{}, nil
+	}
+
+	r.propagateCR(ctx, request.NamespacedName, log)
+
 	log.Info("-> MultiReplicaSet.Reconcile")
 
 	// Fetch the MongoDBMultiCluster instance
@@ -253,6 +270,58 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 
 	log.Infow("Finished reconciliation for MultiReplicaSet", "Spec", mrs.Spec, "Status", mrs.Status)
 	return r.updateStatus(ctx, &mrs, workflow.OK(), log, mdbstatus.NewPVCsStatusOptionEmptyStatus())
+}
+
+// propagateCR fans the MongoDBMultiCluster CR out to every member cluster.
+// Each peer keeps a passive replica; the leader gate ensures only the leader
+// writes. Partial failures are logged but non-fatal — next reconcile retries.
+func (r *ReconcileMongoDbMultiReplicaSet) propagateCR(ctx context.Context, key types.NamespacedName, log *zap.SugaredLogger) {
+	if r.raftNode == nil {
+		return
+	}
+	mrs := mdbmultiv1.MongoDBMultiCluster{}
+	if err := r.client.Get(ctx, key, &mrs); err != nil {
+		log.Warnf("propagateCR: failed to read local CR: %v", err)
+		return
+	}
+	for name, cl := range r.memberClusterClientsMap {
+		// Skip the local cluster — that is where the user applied.
+		if name == r.raftNode.Leader() {
+			continue
+		}
+		remote := mdbmultiv1.MongoDBMultiCluster{}
+		err := cl.Get(ctx, key, &remote)
+		switch {
+		case apiErrors.IsNotFound(err):
+			created := mrs.DeepCopy()
+			created.ResourceVersion = ""
+			if err := cl.Create(ctx, created); err != nil {
+				log.Warnf("propagateCR: create on %s failed: %v", name, err)
+			}
+		case err != nil:
+			log.Warnf("propagateCR: get on %s failed: %v", name, err)
+		default:
+			remote.Spec = mrs.Spec
+			remote.Annotations = mrs.Annotations
+			if err := cl.Update(ctx, &remote); err != nil {
+				log.Warnf("propagateCR: update on %s failed: %v", name, err)
+			}
+		}
+	}
+}
+
+// EnqueueAllForLeadershipChange triggers a reconcile for every MongoDBMultiCluster
+// CR known to the local cluster. Called when this operator wins a Raft election.
+func (r *ReconcileMongoDbMultiReplicaSet) EnqueueAllForLeadershipChange(ctx context.Context, log *zap.SugaredLogger) {
+	list := mdbmultiv1.MongoDBMultiClusterList{}
+	if err := r.client.List(ctx, &list); err != nil {
+		log.Warnf("leadership-change: failed to list CRs: %v", err)
+		return
+	}
+	for i := range list.Items {
+		r.leaderRefreshCh <- event.GenericEvent{Object: &list.Items[i]}
+	}
+	log.Infof("leadership-change: requeued %d MongoDBMultiCluster(s)", len(list.Items))
 }
 
 // publishAutomationConfigFirstMultiCluster returns a boolean indicating whether Ops Manager
@@ -1117,12 +1186,12 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileOMCAConfigMap(ctx context.Con
 
 // AddMultiReplicaSetController creates a new MongoDbMultiReplicaset Controller and adds it to the Manager. The Manager will set fields on the Controller
 // and Start it when the Manager is Started.
-func AddMultiReplicaSetController(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, memberClustersMap map[string]cluster.Cluster) error {
+func AddMultiReplicaSetController(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, memberClustersMap map[string]cluster.Cluster, raftNode *haraft.RaftNode) (*ReconcileMongoDbMultiReplicaSet, error) {
 	// Create a new controller
-	reconciler := newMultiClusterReplicaSetReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, om.NewOpsManagerConnection, multicluster.ClustersMapToClientMap(memberClustersMap))
+	reconciler := newMultiClusterReplicaSetReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, om.NewOpsManagerConnection, multicluster.ClustersMapToClientMap(memberClustersMap), raftNode)
 	c, err := controller.New(util.MongoDbMultiClusterController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)}) // nolint:forbidigo
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	eventHandler := ResourceEventHandler{deleter: reconciler}
@@ -1144,25 +1213,25 @@ func AddMultiReplicaSetController(ctx context.Context, mgr manager.Manager, imag
 		},
 	}))
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	err = c.Watch(source.Channel[client.Object](OmUpdateChannel, &handler.EnqueueRequestForObject{}))
 	if err != nil {
-		return xerrors.Errorf("not able to setup OmUpdateChannel to listent to update events from OM: %s", err)
+		return nil, xerrors.Errorf("not able to setup OmUpdateChannel to listent to update events from OM: %s", err)
 	}
 
 	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &corev1.Secret{},
 		&watch.ResourcesHandler{ResourceType: watch.Secret, ResourceWatcher: reconciler.resourceWatcher}))
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	if enableClusterMongoDBRoles {
 		err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &rolev1.ClusterMongoDBRole{},
 			&watch.ResourcesHandler{ResourceType: watch.ClusterMongoDBRole, ResourceWatcher: reconciler.resourceWatcher}))
 		if err != nil {
-			return err
+			return nil, err
 		}
 	}
 
@@ -1170,7 +1239,7 @@ func AddMultiReplicaSetController(ctx context.Context, mgr manager.Manager, imag
 	for k, v := range memberClustersMap {
 		err := c.Watch(source.Kind[client.Object](v.GetCache(), &appsv1.StatefulSet{}, &khandler.EnqueueRequestForOwnerMultiCluster{}, watch.PredicatesForMultiStatefulSet()))
 		if err != nil {
-			return xerrors.Errorf("failed to set Watch on member cluster: %s, err: %w", k, err)
+			return nil, xerrors.Errorf("failed to set Watch on member cluster: %s, err: %w", k, err)
 		}
 	}
 
@@ -1184,6 +1253,11 @@ func AddMultiReplicaSetController(ctx context.Context, mgr manager.Manager, imag
 		zap.S().Errorf("failed to watch for member cluster healthcheck: %s", err)
 	}
 
+	err = c.Watch(source.Channel[client.Object](reconciler.leaderRefreshCh, &handler.EnqueueRequestForObject{}))
+	if err != nil {
+		return nil, xerrors.Errorf("failed to watch leader refresh channel: %w", err)
+	}
+
 	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &corev1.ConfigMap{},
 		watch.ConfigMapEventHandler{
 			ConfigMapName:      util.MemberListConfigMapName,
@@ -1192,11 +1266,11 @@ func AddMultiReplicaSetController(ctx context.Context, mgr manager.Manager, imag
 		predicate.ResourceVersionChangedPredicate{},
 	))
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	zap.S().Infof("Registered controller %s", util.MongoDbMultiReplicaSetController)
-	return err
+	return reconciler, nil
 }
 
 // OnDelete cleans up Ops Manager state and all Kubernetes resources associated with this instance.
