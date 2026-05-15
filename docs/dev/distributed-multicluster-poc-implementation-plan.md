@@ -1220,30 +1220,51 @@ Updated by the main session after each chunk completes. A future resume
 session reads this to understand where work stands.
 
 ```
-Phase A — Environment setup:        [ ] not started   [ ] in progress   [ ] complete
+Phase A — Environment setup:        [ ] not started   [ ] in progress   [X] complete
 Phase B — Baseline validation:      [ ] not started   [ ] in progress   [ ] complete
-  B1 — Baseline e2e run:            [ ] not started   [ ] in progress   [ ] complete
-Phase C — Unit-test PoC:            [ ] not started   [ ] in progress   [ ] complete
-  C0 — Survey test scaffolding:     [ ] not started   [ ] in progress   [ ] complete
-  C0b — Survey AC/STS gate sites:   [ ] not started   [ ] in progress   [ ] complete
-  C1 — Raft pkg scaffold:           [ ] not started   [ ] in progress   [ ] complete
-  C2 — FSM + proposals:             [ ] not started   [ ] in progress   [ ] complete
-  C3 — Coordinator interface:       [ ] not started   [ ] in progress   [ ] complete
-  C4 — Gate AC sites:               [ ] not started   [ ] in progress   [ ] complete
-  C5 — Lease-gate STS sites:        [ ] not started   [ ] in progress   [ ] complete
-  C6 — Leader scheduler:            [ ] not started   [ ] in progress   [ ] complete
-  C7 — E2E unit test:               [ ] not started   [ ] in progress   [ ] complete
-  C8 — Regression check:            [ ] not started   [ ] in progress   [ ] complete
-Phase D — e2e PoC:                  [ ] not started   [ ] in progress   [ ] complete
-  D0 — Extract kubeconfigs:         [ ] not started   [ ] in progress   [ ] complete
-  D1 — Modify test_deploy_operator: [ ] not started   [ ] in progress   [ ] complete
-  D2 — Run 3 operators locally:     [ ] not started   [ ] in progress   [ ] complete
-  D3 — Run e2e test:                [ ] not started   [ ] in progress   [ ] complete
-Phase E — Verification:             [ ] not started   [ ] in progress   [ ] complete
-  E1 — Repeat run:                  [ ] not started   [ ] in progress   [ ] complete
-  E2 — DR drill (stretch):          [ ] not started   [ ] in progress   [ ] complete
-  E3 — Findings writeup:            [ ] not started   [ ] in progress   [ ] complete
+  B1 — Baseline e2e run:            [ ] not started   [X] in progress   [ ] complete
+Phase C — Unit-test PoC:            [ ] not started   [ ] in progress   [X] complete
+  C0 — Survey test scaffolding:     [ ] not started   [ ] in progress   [X] complete
+  C0b — Survey AC/STS gate sites:   [ ] not started   [ ] in progress   [X] complete
+  C1 — Raft pkg scaffold:           [ ] not started   [ ] in progress   [X] complete
+  C2 — FSM + proposals:             [ ] not started   [ ] in progress   [X] complete
+  C3 — Coordinator interface:       [ ] not started   [ ] in progress   [X] complete
+  C4 — Gate AC sites:               [ ] not started   [ ] in progress   [X] complete
+  C5 — Lease-gate STS sites:        [ ] not started   [ ] in progress   [X] complete
+  C6 — Leader scheduler:            [ ] not started   [ ] in progress   [X] complete
+  C7 — E2E unit test:               [ ] not started   [ ] in progress   [X] complete
+  C8 — Regression check:            [ ] not started   [ ] in progress   [X] complete
+Phase D — e2e PoC:                  [X] not started   [ ] in progress   [ ] complete
+  D0 — Extract kubeconfigs:         [X] not started   [ ] in progress   [ ] complete
+  D1 — Modify test_deploy_operator: [X] not started   [ ] in progress   [ ] complete
+  D2 — Run 3 operators locally:     [X] not started   [ ] in progress   [ ] complete
+  D3 — Run e2e test:                [X] not started   [ ] in progress   [ ] complete
+Phase E — Verification:             [X] not started   [ ] in progress   [ ] complete
+  E1 — Repeat run:                  [X] not started   [ ] in progress   [ ] complete
+  E2 — DR drill (stretch):          [X] not started   [ ] in progress   [ ] complete
+  E3 — Findings writeup:            [X] not started   [ ] in progress   [ ] complete
 ```
+
+### Phase C completion notes (2026-05-15)
+
+All Phase C chunks landed on `lsierant/devcontainer-raft-poc-unit` (no push yet).
+
+- **C0 + C0b** (read-only surveys, done in head): mapped `newShardedClusterReconcilerForMultiCluster` (multi-test:46) as the helper constructor, `getFakeMultiClusterMapWithConfiguredInterceptor` (mongodbmultireplicaset_controller_test.go:1607) for fake K8s clients, and AC-write sites in `updateOmDeploymentShardedCluster` / `cleanOpsManagerState` / `publishDeployment`. STS-write sites: `createOrUpdateConfigServers/Shards/Mongos`. Cross-cluster replication sites: `replicateAgentKeySecret`, `reconcileHostnameOverrideConfigMap`, `replicateSSLMMSCAConfigMap`.
+- **C1** — commit `28b1f9711`: added `hashicorp/raft v1.7.3`, scaffolded `pkg/coordination/raft/` (types, transport_inmem, node, fsm stub) and `TestThreeNodesElectLeader`.
+- **C2** — commit `e44a8b30`-ish (next after C1): real FSM with proposals `spec_update / status_report / plan_create / plan_advance / lease_allocate / lease_complete / cluster_index_assign / ac_published`. Apply replays are idempotent (monotonic generation checks). FSM JSON snapshot/restore round-trip covered by unit test.
+- **C3** — `dbc896b7a`: created `pkg/coordination/coordinator.go` with the `DistributedCoordinator` interface and Raft-backed `Coordinator` impl. Added optional `coordinator` field + `IsDistributed()` and `SetCoordinator()` on `ShardedClusterReconcileHelper`. Existing operator tests unchanged.
+- **C4** — `c377af72a`: gated `updateOmDeploymentShardedCluster` and `cleanOpsManagerState` with `!coordinator.IsLeader() → workflow.Pending` / `nil`. Leader announces success via `ProposeACPublished`. Unit tests prove followers never call OM AC ops; leaders do.
+- **C5** — `73237f83f`: introduced `distGate(component, cluster)` truth-table + `distCompleteLease` helpers, applied to all three STS loops (`createOrUpdateConfigServers/Shards/Mongos`). Cross-cluster Secret/CM replication functions become no-ops when a coordinator is attached (PoC manually replicates). Unit tests cover the gate decision matrix.
+- **C6** — `912250f19`: leader-side `Scheduler` goroutine. Tick chooses next `(component, cluster)` in deterministic order; FSM `applyStatusReport` was changed to MERGE rather than overwrite so partial reports don't wipe earlier `Ready=true` entries. Three-node test drives the scheduler through every tuple.
+- **C7** — `e035aa26d`: headline test `TestDistributedMultiClusterShardedReconcile`. Three in-process helpers each bound to its own raft.Raft coordinator + scheduler; the test drives the protocol to steady state. Final `stsWriteOrder`: `config/A→B→C, shard-0/A→B→C, shard-1/A→B→C, mongos/A→B→C`. AC ops on follower helpers are gated out; only the leader's call reaches the mock.
+- **C8** — full repo `go test ./...` green (no regressions).
+
+### Surprises / scope-drift notes for Phase D
+
+1. `hashicorp/raft.Apply` on a follower does NOT auto-forward to the leader — it returns `raft.ErrNotLeader`. Followers calling `ProposeStatusReport` / `ProposeLeaseComplete` directly will fail. The PoC e2e implementation in Phase D must add a small forwarding layer in `coordinator_impl.go` (e.g. lookup `LeaderWithID` and dial that node's RPC, or use a sidecar channel). The unit-test harness sidestepped this by routing proposals through the leader's coordinator manually.
+2. The original FSM `applyStatusReport` overwrote `ComponentStatus` map; that broke scheduler progression. Now it merges. This is a real protocol property, not a test quirk — write it down in any future architecture refinement.
+3. Status reports must reflect the OBSERVED current state of the component, NOT "do I hold the lease right now". A `WaitLease` iteration should NOT regress `Ready=true` to `Ready=false`.
+4. Direct unit-tests of `createOrUpdateConfigServers` (and friends) without full reconcile-driven `deploymentOptions` panic inside `buildVaultDatabaseSecretsToInject`. The C5 tests therefore exercise `distGate` directly instead. Phase D's e2e uses real reconcile so this isn't an issue there.
 
 After completing a chunk, the main session updates the matching line by
 moving the `[X]` to the right cell and adding a brief note below the
