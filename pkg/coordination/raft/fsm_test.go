@@ -40,7 +40,7 @@ func TestApplySpecUpdate_BumpsGeneration(t *testing.T) {
 	assert.Equal(t, int64(2), f.GetState().AgreedSpec.Generation)
 }
 
-func TestApplyStatusReport_OverwritesPerCluster(t *testing.T) {
+func TestApplyStatusReport_MergesComponentStatus(t *testing.T) {
 	f := NewFSM()
 	applyHelper(t, f, ProposalStatusReport, StatusReportPayload{
 		ClusterName:      "cluster-a",
@@ -53,7 +53,7 @@ func TestApplyStatusReport_OverwritesPerCluster(t *testing.T) {
 	assert.Equal(t, "h1", f.GetClusterStatus("cluster-a").ObservedSpecHash)
 	assert.False(t, f.GetClusterStatus("cluster-a").ComponentStatus["shard-0"].Ready)
 
-	// Newer report overwrites.
+	// Partial subsequent report overwrites scalar fields and merges component status.
 	applyHelper(t, f, ProposalStatusReport, StatusReportPayload{
 		ClusterName:      "cluster-a",
 		ObservedSpecHash: "h2",
@@ -63,6 +63,17 @@ func TestApplyStatusReport_OverwritesPerCluster(t *testing.T) {
 	cs := f.GetClusterStatus("cluster-a")
 	assert.Equal(t, "h2", cs.ObservedSpecHash)
 	assert.True(t, cs.ComponentStatus["shard-0"].Ready)
+
+	// Partial report mentioning ONLY "config" must not wipe "shard-0":
+	applyHelper(t, f, ProposalStatusReport, StatusReportPayload{
+		ClusterName:      "cluster-a",
+		ObservedSpecHash: "h2",
+		ComponentStatus:  map[string]ComponentStatusEntry{"config": {Generation: 1, Ready: true}},
+		ReportedAt:       time.Now().UTC(),
+	})
+	cs = f.GetClusterStatus("cluster-a")
+	assert.True(t, cs.ComponentStatus["config"].Ready, "config Ready must be set")
+	assert.True(t, cs.ComponentStatus["shard-0"].Ready, "earlier shard-0 Ready must NOT be wiped")
 
 	// Different cluster lives alongside.
 	applyHelper(t, f, ProposalStatusReport, StatusReportPayload{

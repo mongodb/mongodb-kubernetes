@@ -80,26 +80,36 @@ func (f *FSM) applySpecUpdate(payload json.RawMessage) interface{} {
 	return nil
 }
 
-// applyStatusReport overwrites the per-cluster status entry (last writer wins).
+// applyStatusReport merges the incoming ComponentStatus map into the cluster's
+// existing entry. Scalar fields (ObservedSpecHash, LastReportedAt, LastReconcileErr)
+// are overwritten by the report; ComponentStatus entries are union'd so a
+// partial report (e.g. "shard-0 Ready=true" only) does not wipe previously
+// reported components like "config Ready=true".
 func (f *FSM) applyStatusReport(payload json.RawMessage) interface{} {
 	var p StatusReportPayload
 	if err := json.Unmarshal(payload, &p); err != nil {
 		return xerrors.Errorf("decode status_report: %w", err)
 	}
-	cs := ClusterStatus{
-		ClusterName:      p.ClusterName,
-		LastReportedAt:   p.ReportedAt,
-		ObservedSpecHash: p.ObservedSpecHash,
-		LastReconcileErr: p.LastReconcileErr,
-		ComponentStatus:  map[string]ComponentStatus{},
-	}
-	for k, v := range p.ComponentStatus {
-		cs.ComponentStatus[k] = ComponentStatus(v)
-	}
 	if f.state.PerClusterStatus == nil {
 		f.state.PerClusterStatus = map[string]ClusterStatus{}
 	}
-	f.state.PerClusterStatus[p.ClusterName] = cs
+	existing, ok := f.state.PerClusterStatus[p.ClusterName]
+	if !ok {
+		existing = ClusterStatus{
+			ClusterName:     p.ClusterName,
+			ComponentStatus: map[string]ComponentStatus{},
+		}
+	}
+	existing.LastReportedAt = p.ReportedAt
+	existing.ObservedSpecHash = p.ObservedSpecHash
+	existing.LastReconcileErr = p.LastReconcileErr
+	if existing.ComponentStatus == nil {
+		existing.ComponentStatus = map[string]ComponentStatus{}
+	}
+	for k, v := range p.ComponentStatus {
+		existing.ComponentStatus[k] = ComponentStatus(v)
+	}
+	f.state.PerClusterStatus[p.ClusterName] = existing
 	return nil
 }
 
