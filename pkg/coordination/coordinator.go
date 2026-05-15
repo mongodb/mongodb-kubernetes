@@ -34,6 +34,36 @@ const (
 	LeaseOtherClusterDone
 )
 
+// ResourceRef identifies one K8s resource the reconcile reads from the local
+// cluster (project ConfigMap, credentials Secret, CA bundle, TLS certs, etc.).
+// F12a uses these to make every operator agree on the bytes of every
+// spec-referenced resource before any of them touches OM. Raft leader election
+// rotates between clusters; divergent local copies would otherwise yield a
+// "whichever cluster happens to be leader wins" inconsistency.
+type ResourceRef struct {
+	Kind      string
+	Namespace string
+	Name      string
+}
+
+// String returns a stable representation for logs and diagnostics.
+func (r ResourceRef) String() string {
+	return r.Kind + "/" + r.Namespace + "/" + r.Name
+}
+
+// ResourceAgreement is the cross-cluster verdict on a set of required refs.
+type ResourceAgreement int
+
+const (
+	// ResourcesAgreed — every required ref has been observed by every known
+	// cluster and all reported content hashes match. Caller may proceed.
+	ResourcesAgreed ResourceAgreement = iota
+	// ResourcesPending — at least one required observation is missing or
+	// hashes disagree. Caller should return workflow.Pending and surface the
+	// diagnostic in MDB status.
+	ResourcesPending
+)
+
 // ProgressSnapshot is the per-(CR, component, cluster) snapshot the leader
 // uses to detect stuck steps. The leader compares signature equality across
 // successive StatusReports; if it doesn't change for stuck_threshold the
@@ -116,6 +146,23 @@ type DistributedCoordinator interface {
 	// the named cluster's raft peer. Used by F7 to detect unreachable peers.
 	// Returns a very large duration if the cluster has never been contacted.
 	LastContact(cluster string) time.Duration
+
+	// ReportResource submits a content-hash observation for one
+	// spec-referenced resource on the calling cluster. F12a — every operator
+	// reads its local copy of every spec-referenced ConfigMap/Secret,
+	// computes the canonical content hash, and reports it via this method.
+	// Synchronous: returns after the proposal commits (or the forwarder
+	// errors).
+	ReportResource(crKey CRKey, ref ResourceRef, contentHash string) error
+
+	// WaitForResourcesAgreed returns ResourcesAgreed iff every required ref
+	// has been observed by every known cluster AND every cluster reports the
+	// same content hash. Otherwise ResourcesPending plus a human-readable
+	// diagnostic suitable for an MDB status condition. "Known clusters" is
+	// the union of clusters that have already reported any resource for this
+	// CR (the PoC has no separate "cluster roster" — clusters announce
+	// themselves by reporting).
+	WaitForResourcesAgreed(crKey CRKey, refs []ResourceRef) (ResourceAgreement, string)
 }
 
 // LegacyCoordinator is the C3-shape surface that controller code still uses

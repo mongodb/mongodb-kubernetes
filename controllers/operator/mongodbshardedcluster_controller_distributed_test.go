@@ -45,6 +45,13 @@ type fakeCoordinator struct {
 	releases        []scopeProgress
 	acquires        []scopeProgress
 	acAnnouncements []int64
+
+	// resources is a per-resource (refKey) → cluster → hash table reflecting
+	// the cluster's last ReportResource call.
+	resources map[string]map[string]string
+	// resourcesAgreedFn lets tests override WaitForResourcesAgreed. If nil,
+	// the fake always returns ResourcesAgreed.
+	resourcesAgreedFn func(crKey coordination.CRKey, refs []coordination.ResourceRef) (coordination.ResourceAgreement, string)
 }
 
 type scopeProgress struct {
@@ -164,6 +171,32 @@ func (f *fakeCoordinator) AnnounceAcPublished(crKey coordination.CRKey, version 
 }
 
 func (f *fakeCoordinator) LastContact(cluster string) time.Duration { return 0 }
+
+// resourceReports / resourcesAgreedFn — F12a interface methods. Tests that
+// don't care about resource agreement leave resourcesAgreedFn nil, in which
+// case WaitForResourcesAgreed always returns ResourcesAgreed.
+func (f *fakeCoordinator) ReportResource(crKey coordination.CRKey, ref coordination.ResourceRef, contentHash string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.resources == nil {
+		f.resources = map[string]map[string]string{}
+	}
+	key := ref.String()
+	if f.resources[key] == nil {
+		f.resources[key] = map[string]string{}
+	}
+	f.resources[key][f.clusterName] = contentHash
+	return nil
+}
+
+func (f *fakeCoordinator) WaitForResourcesAgreed(crKey coordination.CRKey, refs []coordination.ResourceRef) (coordination.ResourceAgreement, string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.resourcesAgreedFn != nil {
+		return f.resourcesAgreedFn(crKey, refs)
+	}
+	return coordination.ResourcesAgreed, ""
+}
 
 var _ coordination.DistributedCoordinator = (*fakeCoordinator)(nil)
 

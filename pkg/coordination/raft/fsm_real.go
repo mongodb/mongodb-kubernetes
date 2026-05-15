@@ -58,6 +58,8 @@ func (f *FSM) Apply(log *raft.Log) interface{} {
 		return f.applyACPublished(payload)
 	case ProposalCRDelete:
 		return f.applyCRDelete(payload)
+	case ProposalResourceObserved:
+		return f.applyResourceObserved(payload)
 	default:
 		return xerrors.Errorf("unknown proposal type %q", typ)
 	}
@@ -255,6 +257,41 @@ func (f *FSM) applyCRDelete(payload json.RawMessage) interface{} {
 	return nil
 }
 
+// applyResourceObserved records (or supersedes) a single cluster's content
+// hash for one ResourceRef. Newer ObservedAt timestamps overwrite older ones;
+// equal timestamps overwrite — this lets fresh reports replace stale ones
+// without a separate purge proposal. Idempotent across replay (the last
+// committed log entry wins for any given (CRKey, Ref, ObservedBy)).
+func (f *FSM) applyResourceObserved(payload json.RawMessage) interface{} {
+	var p ResourceObservedPayload
+	if err := json.Unmarshal(payload, &p); err != nil {
+		return xerrors.Errorf("decode resource_observed: %w", err)
+	}
+	cr := f.getOrCreatePerCR(p.CRKey)
+	if cr.Resources == nil {
+		cr.Resources = map[string]map[string]ResourceObservation{}
+	}
+	refKey := p.Ref.String()
+	byCluster, ok := cr.Resources[refKey]
+	if !ok {
+		byCluster = map[string]ResourceObservation{}
+	}
+	existing, has := byCluster[p.ObservedBy]
+	if has && p.ObservedAt.Before(existing.ObservedAt) {
+		// Stale message; ignore.
+		f.putPerCR(p.CRKey, cr)
+		return nil
+	}
+	byCluster[p.ObservedBy] = ResourceObservation{
+		Ref:         p.Ref,
+		ContentHash: p.ContentHash,
+		ObservedAt:  p.ObservedAt,
+	}
+	cr.Resources[refKey] = byCluster
+	f.putPerCR(p.CRKey, cr)
+	return nil
+}
+
 // ============================================================================
 // Snapshot / Restore — JSON.
 // ============================================================================
@@ -287,8 +324,16 @@ func (f *FSM) Restore(rc io.ReadCloser) error {
 		s.ClusterIndex = map[string]int{}
 	}
 	for k, v := range s.PerCR {
+		dirty := false
 		if v.PerClusterStatus == nil {
 			v.PerClusterStatus = map[string]ClusterStatus{}
+			dirty = true
+		}
+		if v.Resources == nil {
+			v.Resources = map[string]map[string]ResourceObservation{}
+			dirty = true
+		}
+		if dirty {
 			s.PerCR[k] = v
 		}
 	}

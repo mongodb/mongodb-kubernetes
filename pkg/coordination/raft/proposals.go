@@ -37,6 +37,13 @@ const (
 	// ProposalCRDelete removes the entire PerCRState entry for a CRKey.
 	// Used when a CR is removed from the cluster.
 	ProposalCRDelete ProposalType = "cr_delete"
+	// ProposalResourceObserved records one cluster's observed content-hash
+	// for a spec-referenced K8s resource (ConfigMap / Secret). F12a adds this
+	// so every operator must agree on the bytes of every spec-referenced
+	// resource before any of them touches OM. Raft leader election rotates
+	// between clusters; divergent local copies would otherwise produce a
+	// "whichever cluster happens to be leader wins" inconsistency.
+	ProposalResourceObserved ProposalType = "resource_observed"
 )
 
 // CRKey identifies a single CR — every proposal carries one so the FSM can
@@ -171,4 +178,27 @@ type ACPublishedPayload struct {
 // CRDeletePayload — clears the entire PerCRState entry for a CRKey.
 type CRDeletePayload struct {
 	CRKey CRKey `json:"crKey"`
+}
+
+// ResourceRef identifies a spec-referenced K8s resource — kind, namespace,
+// name. F12a uses this to track per-cluster observations of resources every
+// operator must see identically before any of them touches OM.
+type ResourceRef struct {
+	Kind      string `json:"kind"`
+	Namespace string `json:"namespace"`
+	Name      string `json:"name"`
+}
+
+// String returns a stable representation for logs / diagnostics.
+func (r ResourceRef) String() string {
+	return fmt.Sprintf("%s/%s/%s", r.Kind, r.Namespace, r.Name)
+}
+
+// ResourceObservedPayload records one cluster's content-hash for one resource.
+type ResourceObservedPayload struct {
+	CRKey       CRKey       `json:"crKey"`
+	Ref         ResourceRef `json:"ref"`
+	ContentHash string      `json:"contentHash"`
+	ObservedBy  string      `json:"observedBy"`
+	ObservedAt  time.Time   `json:"observedAt"`
 }

@@ -1,6 +1,9 @@
 package coordraft
 
 import (
+	"fmt"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/hashicorp/raft"
@@ -387,6 +390,139 @@ func (c *Coordinator) LastContact(cluster string) time.Duration {
 		return 0
 	}
 	return veryLargeAge
+}
+
+// ReportResource submits a content-hash observation for one spec-referenced
+// resource on the calling cluster. See coordination.DistributedCoordinator.
+// Implementation note: ObservedAt is wall-clock at the caller; the FSM uses
+// it only for stale-supersedes semantics within applyResourceObserved.
+func (c *Coordinator) ReportResource(k coordination.CRKey, ref coordination.ResourceRef, contentHash string) error {
+	crk := toRaftCRKey(k)
+	data, err := EncodeProposal(ProposalResourceObserved, ResourceObservedPayload{
+		CRKey:       crk,
+		Ref:         ResourceRef{Kind: ref.Kind, Namespace: ref.Namespace, Name: ref.Name},
+		ContentHash: contentHash,
+		ObservedBy:  c.clusterName,
+		ObservedAt:  time.Now().UTC(),
+	})
+	if err != nil {
+		return xerrors.Errorf("encode resource_observed: %w", err)
+	}
+	return c.applyProposal(data, applyTimeout)
+}
+
+// WaitForResourcesAgreed returns ResourcesAgreed iff every required ref has
+// been observed by every known cluster AND every cluster reports the same
+// content hash. Otherwise ResourcesPending + a human-readable diagnostic.
+//
+// "Known clusters" is the union of:
+//   - the calling operator's own cluster name (always)
+//   - every cluster name appearing in PerClusterStatus for this CR
+//   - every cluster that has ever reported any ResourceObserved entry for
+//     this CR (in case an operator booted, reported resources, but hasn't
+//     yet submitted a status report).
+//
+// This makes the gate a hard correctness check rather than a heuristic: if
+// any operator has been heard from at all, its observation must match before
+// any OM access is allowed.
+func (c *Coordinator) WaitForResourcesAgreed(k coordination.CRKey, refs []coordination.ResourceRef) (coordination.ResourceAgreement, string) {
+	if len(refs) == 0 {
+		return coordination.ResourcesAgreed, ""
+	}
+	crk := toRaftCRKey(k)
+	cr := c.fsm.GetPerCR(crk)
+	// Build the known-cluster set deterministically.
+	knownSet := map[string]struct{}{}
+	knownSet[c.clusterName] = struct{}{}
+	for clusterName := range cr.PerClusterStatus {
+		knownSet[clusterName] = struct{}{}
+	}
+	for _, byCluster := range cr.Resources {
+		for clusterName := range byCluster {
+			knownSet[clusterName] = struct{}{}
+		}
+	}
+	knownClusters := make([]string, 0, len(knownSet))
+	for cname := range knownSet {
+		knownClusters = append(knownClusters, cname)
+	}
+	sort.Strings(knownClusters)
+
+	for _, ref := range refs {
+		rRef := ResourceRef{Kind: ref.Kind, Namespace: ref.Namespace, Name: ref.Name}
+		refKey := rRef.String()
+		byCluster, ok := cr.Resources[refKey]
+		if !ok {
+			byCluster = map[string]ResourceObservation{}
+		}
+		// Missing reports — list the absentees by name.
+		var missing []string
+		for _, cname := range knownClusters {
+			if _, ok := byCluster[cname]; !ok {
+				missing = append(missing, cname)
+			}
+		}
+		if len(missing) > 0 {
+			return coordination.ResourcesPending, fmt.Sprintf(
+				"Resource %s: awaiting observation from cluster(s): %s",
+				refKey, strings.Join(missing, ","),
+			)
+		}
+		// All known clusters reported — verify hashes agree.
+		// Sort by cluster name for stable diagnostics.
+		var reporters []string
+		for cname := range byCluster {
+			reporters = append(reporters, cname)
+		}
+		sort.Strings(reporters)
+		// Group reporters by hash.
+		byHash := map[string][]string{}
+		for _, cname := range reporters {
+			h := byCluster[cname].ContentHash
+			byHash[h] = append(byHash[h], cname)
+		}
+		if len(byHash) > 1 {
+			// Pick the majority hash; the minority cluster(s) are flagged
+			// as out of sync in the diagnostic.
+			majorityHash := ""
+			majorityCount := 0
+			var hashKeys []string
+			for h := range byHash {
+				hashKeys = append(hashKeys, h)
+			}
+			sort.Strings(hashKeys)
+			for _, h := range hashKeys {
+				if len(byHash[h]) > majorityCount {
+					majorityCount = len(byHash[h])
+					majorityHash = h
+				}
+			}
+			// Build "cluster=hash" pairs in cluster order for the diagnostic.
+			pairs := make([]string, 0, len(reporters))
+			outOfSync := make([]string, 0, len(reporters))
+			for _, cname := range reporters {
+				h := byCluster[cname].ContentHash
+				pairs = append(pairs, fmt.Sprintf("%s=%s", cname, shortHash(h)))
+				if h != majorityHash {
+					outOfSync = append(outOfSync, cname)
+				}
+			}
+			return coordination.ResourcesPending, fmt.Sprintf(
+				"Resource %s hash mismatch: %s — %s is out of sync.",
+				refKey, strings.Join(pairs, ", "), strings.Join(outOfSync, ","),
+			)
+		}
+	}
+	return coordination.ResourcesAgreed, ""
+}
+
+// shortHash returns the first 8 hex chars of a hash for use in diagnostics.
+// If the input is shorter than 8 chars it's returned unchanged.
+func shortHash(h string) string {
+	if len(h) <= 8 {
+		return h
+	}
+	return h[:8]
 }
 
 // ============================================================================

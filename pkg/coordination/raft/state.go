@@ -40,6 +40,19 @@ type PerCRState struct {
 
 	// ACGeneration is bumped when the leader publishes AC to OM for this CR.
 	ACGeneration int `json:"acGeneration"`
+
+	// Resources tracks per-resource, per-cluster content-hash observations.
+	// Outer key: ResourceRef-as-string ("Kind/Namespace/Name"). Inner key:
+	// observing cluster name. F12a uses this to gate OM access on full
+	// cross-cluster agreement of every spec-referenced resource.
+	Resources map[string]map[string]ResourceObservation `json:"resources,omitempty"`
+}
+
+// ResourceObservation is the per-cluster observation entry inside Resources.
+type ResourceObservation struct {
+	Ref         ResourceRef `json:"ref"`
+	ContentHash string      `json:"contentHash"`
+	ObservedAt  time.Time   `json:"observedAt"`
 }
 
 // AgreedSpec is the canonical CR content as agreed via Raft.
@@ -93,6 +106,7 @@ func NewFSMState() FSMState {
 func NewPerCRState() PerCRState {
 	return PerCRState{
 		PerClusterStatus: map[string]ClusterStatus{},
+		Resources:        map[string]map[string]ResourceObservation{},
 	}
 }
 
@@ -132,5 +146,15 @@ func (p PerCRState) Clone() PerCRState {
 		out.ActiveLease = &l
 	}
 	out.ACGeneration = p.ACGeneration
+	if p.Resources != nil {
+		out.Resources = make(map[string]map[string]ResourceObservation, len(p.Resources))
+		for refKey, byCluster := range p.Resources {
+			cluster := make(map[string]ResourceObservation, len(byCluster))
+			for c, obs := range byCluster {
+				cluster[c] = obs
+			}
+			out.Resources[refKey] = cluster
+		}
+	}
 	return out
 }
