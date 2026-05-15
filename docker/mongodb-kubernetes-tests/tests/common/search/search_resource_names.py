@@ -78,7 +78,9 @@ def shard_configmap_name(search_name: str, shard_name: str, cluster_index: int =
     return f"{search_name}-search-{cluster_index}-{shard_name}-config"
 
 
-def shard_tls_cert_name(search_name: str, shard_name: str, certs_secret_prefix: str = "", cluster_index: int = 0) -> str:
+def shard_tls_cert_name(
+    search_name: str, shard_name: str, certs_secret_prefix: str = "", cluster_index: int = 0
+) -> str:
     """Per-shard TLS certificate secret name. Mirrors TLSSecretForClusterShard().
 
     Pattern:
@@ -105,7 +107,9 @@ def shard_pod_fqdn(search_name: str, shard_name: str, namespace: str, port: int,
     return f"{shard_statefulset_name(search_name, shard_name, cluster_index)}-0.{shard_service_name(search_name, shard_name, cluster_index)}.{namespace}.svc.cluster.local:{port}"
 
 
-def shard_proxy_service_host(search_name: str, shard_name: str, namespace: str, port: int, cluster_index: int = 0) -> str:
+def shard_proxy_service_host(
+    search_name: str, shard_name: str, namespace: str, port: int, cluster_index: int = 0
+) -> str:
     """Full hostname:port for the per-shard proxy Service."""
     return f"{shard_proxy_service_name(search_name, shard_name, cluster_index)}.{namespace}.svc.cluster.local:{port}"
 

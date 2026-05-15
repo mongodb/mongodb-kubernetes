@@ -5,9 +5,9 @@ StatefulSet, Service, ConfigMap, and proxy Service; each cluster also gets a clu
 proxy Service (for mongos) and an Envoy Deployment.
 """
 
-import kubernetes
 from typing import List
 
+import kubernetes
 import pytest
 from kubernetes.client import CoreV1Api
 from kubetester import create_or_update_configmap, create_or_update_secret, read_secret, try_load
@@ -110,7 +110,9 @@ def mdb(
     resource["spec"]["configSrv"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, CONFIG_SRV_PER_CLUSTER)
     resource["spec"]["mongos"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, MONGOS_PER_CLUSTER)
 
-    resource["spec"]["additionalMongodConfig"] = {
+    # ShardedCluster rejects top-level spec.additionalMongodConfig; the search-aware
+    # setParameter has to live on each component's own block.
+    search_set_parameter = {
         "setParameter": {
             "skipAuthenticationToSearchIndexManagementServer": False,
             "skipAuthenticationToMongot": False,
@@ -118,6 +120,8 @@ def mdb(
             "useGrpcForSearch": True,
         },
     }
+    resource["spec"]["shard"]["additionalMongodConfig"] = search_set_parameter
+    resource["spec"]["mongos"]["additionalMongodConfig"] = search_set_parameter
 
     resource["spec"]["security"] = {
         "certsSecretPrefix": SOURCE_CERT_PREFIX,
@@ -268,25 +272,41 @@ def test_install_source_tls_certificates(
     member_cluster_clients: List[MultiClusterClient],
     mdb: MongoDB,
 ):
-    """Source MongoDB cluster TLS bundle — written to central cluster; operator copies to members."""
+    """Source MongoDB per-component TLS certs — written to central; operator copies to members.
+
+    ShardedCluster with certsSecretPrefix expects one secret per component, not a bundle:
+    `{prefix}-{resource}-{N}-cert` per shard, plus `-config-cert` and `-mongos-cert`.
+    Each cert SANs every member-cluster cross-cluster pod FQDN.
+    """
     from kubetester.certs import create_tls_certs
 
-    bundle_secret = f"{SOURCE_CERT_PREFIX}-{MDB_RESOURCE_NAME}-cert"
-    # One cert covering all member-cluster service FQDNs.
-    additional_domains = [
-        f"{MDB_RESOURCE_NAME}-{shard_idx}-{cluster_idx}-0-svc.{namespace}.svc.cluster.local"
-        for shard_idx in range(SHARD_COUNT)
-        for cluster_idx in range(len(MEMBERS_PER_CLUSTER))
-    ]
-    create_tls_certs(
-        issuer=multi_cluster_issuer,
-        namespace=namespace,
-        resource_name=MDB_RESOURCE_NAME,
-        secret_name=bundle_secret,
-        additional_domains=additional_domains,
-        api_client=central_cluster_client,
+    def _issue(component_resource: str, secret_name: str, distribution: List[int | None]):
+        create_tls_certs(
+            issuer=multi_cluster_issuer,
+            namespace=namespace,
+            resource_name=component_resource,
+            replicas_cluster_distribution=distribution,
+            secret_name=secret_name,
+            api_client=central_cluster_client,
+        )
+
+    for shard_idx in range(SHARD_COUNT):
+        _issue(
+            component_resource=f"{MDB_RESOURCE_NAME}-{shard_idx}",
+            secret_name=f"{SOURCE_CERT_PREFIX}-{MDB_RESOURCE_NAME}-{shard_idx}-cert",
+            distribution=MEMBERS_PER_CLUSTER,
+        )
+    _issue(
+        component_resource=f"{MDB_RESOURCE_NAME}-config",
+        secret_name=f"{SOURCE_CERT_PREFIX}-{MDB_RESOURCE_NAME}-config-cert",
+        distribution=CONFIG_SRV_PER_CLUSTER,
     )
-    logger.info(f"Source sharded cluster TLS cert created: {bundle_secret}")
+    _issue(
+        component_resource=f"{MDB_RESOURCE_NAME}-mongos",
+        secret_name=f"{SOURCE_CERT_PREFIX}-{MDB_RESOURCE_NAME}-mongos-cert",
+        distribution=MONGOS_PER_CLUSTER,
+    )
+    logger.info(f"Source sharded cluster per-component TLS certs created (prefix={SOURCE_CERT_PREFIX})")
 
 
 @mark.e2e_search_q3_mc_sharded_external_mtls
@@ -324,11 +344,17 @@ def test_create_user_credentials(
 def test_create_certs(
     namespace: str,
     multi_cluster_issuer: str,
+    central_cluster_client: kubernetes.client.ApiClient,
     helper: MCSearchDeploymentHelper,
     member_cluster_clients: List[MultiClusterClient],
 ):
-    """Gate: per-(cluster, shard) mongot certs + per-cluster LB certs on every member cluster."""
-    for i, mcc in enumerate(member_cluster_clients):
+    """Issue per-(cluster, shard) mongot certs + LB certs on central.
+
+    cert-manager is installed only on the central cluster (`tests/conftest.py::cert_manager`).
+    Issuing per-cluster Certificate CRs on members would 404. Secrets land on central; the
+    next step (`test_replicate_secrets_to_members`) copies them to each member.
+    """
+    for i in range(len(member_cluster_clients)):
         create_per_shard_search_tls_certs(
             namespace=namespace,
             issuer=multi_cluster_issuer,
@@ -337,9 +363,9 @@ def test_create_certs(
             mdb_resource_name=MDB_RESOURCE_NAME,
             mdbs_resource_name=MDBS_RESOURCE_NAME,
             cluster_index=i,
-            api_client=mcc.api_client,
+            api_client=central_cluster_client,
         )
-        logger.info(f"Per-shard Search TLS certs created for cluster {mcc.cluster_name} (index={i})")
+        logger.info(f"Per-shard Search TLS certs created on central for cluster_index={i}")
 
         create_lb_certificates(
             namespace=namespace,
@@ -349,9 +375,9 @@ def test_create_certs(
             mdbs_resource_name=MDBS_RESOURCE_NAME,
             tls_cert_prefix=MDBS_TLS_CERT_PREFIX,
             cluster_index=i,
-            api_client=mcc.api_client,
+            api_client=central_cluster_client,
         )
-        logger.info(f"LB certs created for cluster {mcc.cluster_name} (index={i})")
+        logger.info(f"LB certs created on central for cluster_index={i}")
 
 
 @mark.e2e_search_q3_mc_sharded_external_mtls
@@ -360,24 +386,46 @@ def test_replicate_secrets_to_members(
     central_cluster_client: kubernetes.client.ApiClient,
     member_cluster_clients: List[MultiClusterClient],
 ):
-    """Replicate mongot password secret to every member cluster.
+    """Copy centrally-issued Secrets to each member cluster.
 
-    MCK does not auto-replicate Secrets; without this mongot init containers stay pending.
-    TLS certs were written directly per-cluster in test_create_certs.
+    The MongoDBSearch controller does NOT auto-replicate Secrets (intentional design;
+    customer-replicated). The MongoDB sharded controller replicates source certs, but
+    Search's own prefix is not covered. Without this step mongot pods on members can't
+    mount their TLS material and stay PodInitializing.
     """
     central_core = CoreV1Api(api_client=central_cluster_client)
-    password_secret = f"{MDBS_RESOURCE_NAME}-{MONGOT_USER_NAME}-password"
 
-    source = central_core.read_namespaced_secret(name=password_secret, namespace=namespace)
-    for mcc in member_cluster_clients:
-        create_or_update_secret(
-            namespace,
-            password_secret,
-            read_secret(namespace, password_secret, api_client=central_cluster_client),
-            type=source.type or "Opaque",
-            api_client=mcc.api_client,
-        )
-        logger.info(f"Replicated Secret {password_secret} to {mcc.cluster_name}")
+    def _replicate(secret_name: str, target_clients: List[MultiClusterClient]):
+        source = central_core.read_namespaced_secret(name=secret_name, namespace=namespace)
+        data = read_secret(namespace, secret_name, api_client=central_cluster_client)
+        for mcc in target_clients:
+            create_or_update_secret(
+                namespace,
+                secret_name,
+                data,
+                type=source.type or "Opaque",
+                api_client=mcc.api_client,
+            )
+
+    # Cluster-agnostic Secrets — same copy to every member cluster.
+    shared_secrets = [
+        search_resource_names.lb_server_cert_name(MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX),
+        search_resource_names.lb_client_cert_name(MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX),
+        f"{MDBS_RESOURCE_NAME}-{MONGOT_USER_NAME}-password",
+    ]
+    for secret_name in shared_secrets:
+        _replicate(secret_name, member_cluster_clients)
+        logger.info(f"Replicated shared Secret {secret_name} to {len(member_cluster_clients)} member(s)")
+
+    # Per-(cluster, shard) mongot certs — each cluster only needs its own per-shard certs.
+    for i, mcc in enumerate(member_cluster_clients):
+        for shard_idx in range(SHARD_COUNT):
+            shard_name = f"{MDB_RESOURCE_NAME}-{shard_idx}"
+            secret_name = search_resource_names.shard_tls_cert_name(
+                MDBS_RESOURCE_NAME, shard_name, MDBS_TLS_CERT_PREFIX, cluster_index=i
+            )
+            _replicate(secret_name, [mcc])
+        logger.info(f"Replicated per-shard Secrets to {mcc.cluster_name} (cluster_index={i})")
 
 
 @mark.e2e_search_q3_mc_sharded_external_mtls
@@ -408,9 +456,7 @@ def test_per_cluster_mongot_resources_exist(
             mcc.read_namespaced_service(svc_name, namespace)
             mcc.read_namespaced_service(proxy_svc_name, namespace)
             mcc.read_namespaced_config_map(cm_name, namespace)
-            logger.info(
-                f"[{mcc.cluster_name}] shard {shard_name}: STS/svc/proxy-svc/cm verified (cluster_index={i})"
-            )
+            logger.info(f"[{mcc.cluster_name}] shard {shard_name}: STS/svc/proxy-svc/cm verified (cluster_index={i})")
 
 
 @mark.e2e_search_q3_mc_sharded_external_mtls

@@ -29,14 +29,14 @@ def create_per_shard_search_tls_certs(
     api_client=None,
 ):
     """
-        Create per-shard TLS certificates for MongoDBSearch resource.
+    Create per-shard TLS certificates for MongoDBSearch resource.
 
-        For each shard, creates a certificate with DNS names for:
-        - The mongot service: {search-name}-search-{cluster_index}-{shardName}-svc.{namespace}.svc.cluster.local
-        - The proxy service: {search-name}-search-{cluster_index}-{shardName}-proxy-svc.{namespace}.svc.cluster.local
+    For each shard, creates a certificate with DNS names for:
+    - The mongot service: {search-name}-search-{cluster_index}-{shardName}-svc.{namespace}.svc.cluster.local
+    - The proxy service: {search-name}-search-{cluster_index}-{shardName}-proxy-svc.{namespace}.svc.cluster.local
 
-        Secret naming: search_resource_names.shard_tls_cert_name(mdbs_resource_name, shardName, prefix, cluster_index)
-        e.g., certs-mdb-sh-search-0-mdb-sh-0-cert
+    Secret naming: search_resource_names.shard_tls_cert_name(mdbs_resource_name, shardName, prefix, cluster_index)
+    e.g., certs-mdb-sh-search-0-mdb-sh-0-cert
     """
     logger.info(f"Creating per-shard Search TLS certificates with prefix '{prefix}' for cluster {cluster_index}...")
 
