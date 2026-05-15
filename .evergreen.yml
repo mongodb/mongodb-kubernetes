@@ -842,6 +842,7 @@ task_groups:
       - e2e_vault_setup_tls
       # this test will either migrate from static to non-static or the other way around
       - e2e_replica_set_migration
+      - e2e_replica_set_headless_mode
       - e2e_replica_set_pv_resize
       - e2e_sharded_cluster_pv_resize
       - e2e_community_and_meko_replicaset_scale
@@ -1053,6 +1054,7 @@ task_groups:
       - e2e_multi_cluster_recover_network_partition
       - e2e_multi_cluster_validation
       - e2e_multi_cluster_agent_flags
+      - e2e_multi_cluster_headless_mode
       - e2e_multi_cluster_replica_set_ignore_unknown_users
       - e2e_multi_cluster_pvc_resize
       - e2e_multi_cluster_sharded_geo_sharding
