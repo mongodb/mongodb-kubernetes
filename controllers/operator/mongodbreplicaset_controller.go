@@ -1018,7 +1018,14 @@ func (r *ReconcileMongoDbReplicaSet) reconcileHeadlessStatefulSet(ctx context.Co
 	secretName := rs.AutomationConfigSecretName()
 	// Headless mode has no Ops Manager connection, so PodVars are empty. We must provide a non-nil
 	// PodEnvVars to avoid a nil-dereference in buildVaultDatabaseSecretsToInject.
-	stsOptFunc := construct.ReplicaSetOptions(PodEnvVars(&env.PodEnvVars{}))
+	// Images are resolved from the operator's own environment (no OM agent-version negotiation).
+	stsOptFunc := construct.ReplicaSetOptions(
+		PodEnvVars(&env.PodEnvVars{}),
+		WithAgentImage(r.imageUrls[util.AgentImageEnv]),
+		WithMongodbImage(images.GetOfficialImage(r.imageUrls, rs.Spec.Version, rs.GetAnnotations())),
+		WithInitDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, util.InitDatabaseImageUrlEnv, r.initDatabaseNonStaticImageVersion)),
+		WithDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, util.NonStaticDatabaseEnterpriseImage, r.databaseNonStaticImageVersion)),
+	)
 	sts := construct.DatabaseStatefulSet(*rs, stsOptFunc, log)
 
 	// The automation agent runs in AgentContainerName (static architecture) or
