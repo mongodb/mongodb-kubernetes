@@ -1,5 +1,49 @@
 package operator
 
+// ============================================================================
+// OM-write gating audit — 2026-05-15 (F12d)
+// ============================================================================
+//
+// Every OM-mutating call reachable from a sharded-cluster reconcile is either
+// (a) inside an explicit leader-only conditional, (b) inside one of the
+// leader-gated wrappers `updateOmDeploymentShardedCluster` /
+// `cleanOpsManagerState` (each guards itself at the top), or (c) inside the
+// new prepareOpsManagerConnectionGated which routes followers to a read-only
+// path.
+//
+// Audit summary:
+//
+// Call site                                  | File:line                                | Gate
+// -------------------------------------------|------------------------------------------|----------------------------------
+// agents.UpgradeAllIfNeeded                  | mongodbshardedcluster_controller.go:1033 | inline `IsLeader()` (F12c)
+// project.ReadOrCreateProject (create-path)  | via PrepareOpsManagerConnection          | prepareOpsManagerConnectionGated routes followers
+//                                            | (sharded controller line ~1043)          |   to PrepareOpsManagerConnectionReadOnly (F12c)
+// EnsureTagAdded (UpdateProject)             | connection/opsmanager_connection.go:101  | only called from the leader path (F12c)
+// EnsureAgentKeySecretExists                 | connection/opsmanager_connection.go:48   | leader-only via prepareOpsManagerConnectionGated (F12c)
+// controlledfeature.EnsureFeatureControls    | mongodbshardedcluster_controller.go:1363 | inline `IsLeader()` (F12d)
+// commonController.ensureRoles               | mongodbshardedcluster_controller.go:1378 | inline `IsLeader()` (F12c)
+// commonController.updateOmAuthentication    | mongodbshardedcluster_controller.go:2389 | inside updateOmDeploymentShardedCluster (F6)
+// publishDeployment.ReadUpdateDeployment     | mongodbshardedcluster_controller.go:1962 | inside publishDeployment, called by updateOmDeploymentShardedCluster (F6)
+// host.CalculateDiffAndStopMonitoring        | mongodbshardedcluster_controller.go:2298 | inline `IsLeader()` (F12c)
+// ensureBackupConfigurationAndUpdateStatus   | mongodbshardedcluster_controller.go:2305 | inside updateOmDeploymentShardedCluster (F6)
+// ReconcileLogRotateSetting                  | mongodbshardedcluster_controller.go:2464 | inside publishDeployment (F6)
+// AnnounceAcPublished (FSM proposal)         | mongodbshardedcluster_controller.go:2313 | inline `IsLeader()` (F6)
+// cleanOpsManagerState (delete-path)         | mongodbshardedcluster_controller.go:1908 | top-of-function `IsLeader()` (F6)
+//   ↳ conn.ReadUpdateDeployment              | mongodbshardedcluster_controller.go:2378 | transitively leader-only
+//   ↳ host.StopMonitoring                    | mongodbshardedcluster_controller.go:1994 | transitively leader-only
+//   ↳ clearProjectAuthenticationSettings     | mongodbshardedcluster_controller.go:1994 | transitively leader-only
+//   ↳ ClearFeatureControls                   | mongodbshardedcluster_controller.go:1999 | transitively leader-only
+// replicateAgentKeySecret                    | mongodbshardedcluster_controller.go:1075 | distributed mode no-ops (F6)
+// reconcileHostnameOverrideConfigMap         | mongodbshardedcluster_controller.go:1078 | distributed mode no-ops (F6)
+// replicateSSLMMSCAConfigMap                 | mongodbshardedcluster_controller.go:1081 | distributed mode no-ops (F6)
+//
+// F12b adds the cross-cluster ResourcesAgreed gate at the top of Reconcile;
+// no operator (leader or follower) reaches any of the above call sites
+// until every spec-referenced K8s resource has been observed identically by
+// every cluster.
+//
+// ============================================================================
+
 import (
 	"context"
 	"fmt"
@@ -1356,8 +1400,13 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 		caFilePath = fmt.Sprintf("%s/ca-pem", util.TLSCaMountPath)
 	}
 
-	if workflowStatus := controlledfeature.EnsureFeatureControls(*sc, conn, conn.OpsManagerVersion(), log); !workflowStatus.IsOK() {
-		return workflowStatus
+	// F12d: EnsureFeatureControls mutates OM (PUT /groups/<id>/controlledFeature).
+	// Leader only; followers rely on the leader's call and observe via the
+	// next reconcile.
+	if r.coordinator == nil || r.coordinator.IsLeader() {
+		if workflowStatus := controlledfeature.EnsureFeatureControls(*sc, conn, conn.OpsManagerVersion(), log); !workflowStatus.IsOK() {
+			return workflowStatus
+		}
 	}
 
 	for _, memberCluster := range getHealthyMemberClusters(r.allMemberClusters) {
