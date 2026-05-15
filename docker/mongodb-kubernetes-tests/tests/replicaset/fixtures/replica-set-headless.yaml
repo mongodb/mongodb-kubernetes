@@ -1,0 +1,12 @@
+---
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: my-replica-set-headless
+spec:
+  members: 3
+  version: 5.0.15
+  type: ReplicaSet
+  mode: Headless
+  logLevel: DEBUG
+  persistent: false
