@@ -65,6 +65,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/service"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/merge"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/scale"
+	"github.com/mongodb/mongodb-kubernetes/pkg/coordination"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
@@ -632,6 +633,27 @@ type ShardedClusterReconcileHelper struct {
 
 	// This parameter helps us decide whether write operations should be conducted in the constructor.
 	readOnly bool
+
+	// coordinator is the cross-cluster consensus surface for the distributed
+	// multi-cluster operator PoC. Nil by default: when nil, every gate in the
+	// reconciler is a no-op and the existing hub-spoke behaviour runs
+	// unchanged. Set via WithCoordinator at construction time.
+	coordinator coordination.DistributedCoordinator
+}
+
+// IsDistributed reports whether this helper is running with a Raft-backed
+// coordinator attached. When false the reconciler behaves exactly like the
+// pre-PoC hub-spoke code path.
+func (r *ShardedClusterReconcileHelper) IsDistributed() bool {
+	return r.coordinator != nil
+}
+
+// SetCoordinator attaches a DistributedCoordinator to the helper. Callers do
+// this immediately after construction (NewShardedClusterReconcilerHelper) when
+// running the distributed-multi-cluster PoC. Tests inject a mock implementation
+// to exercise gate-point behaviour without a real Raft cluster.
+func (r *ShardedClusterReconcileHelper) SetCoordinator(c coordination.DistributedCoordinator) {
+	r.coordinator = c
 }
 
 func NewReadOnlyClusterReconcilerHelper(
