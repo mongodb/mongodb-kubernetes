@@ -6,6 +6,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
 const (
@@ -38,6 +39,29 @@ func HeadlessClusterConfigMountPath(isStatic bool) string {
 		return headlessStaticMountPath
 	}
 	return headlessNonStaticMountPath
+}
+
+// HeadlessAgentBinaryInitContainer returns an init container that copies the automation agent
+// binary from the agent image into the shared agent emptyDir. Required in non-static headless
+// mode because the agent binary is normally downloaded from Ops Manager at runtime.
+//
+// The agent emptyDir (util.PvMms) is mounted at /mms (no subpath) so the init container can
+// write to the mongodb-automation/files/ subdirectory that the main container reads via its
+// subpath mount at /mongodb-automation.
+func HeadlessAgentBinaryInitContainer(agentImage string) corev1.Container {
+	return corev1.Container{
+		Name:  "headless-agent-binary-init",
+		Image: agentImage,
+		Command: []string{
+			"/bin/sh", "-c",
+			"mkdir -p /mms/" + util.PvcMmsHome + "/files && " +
+				"cp /agent/mongodb-agent /mms/" + util.PvcMmsHome + "/files/mongodb-mms-automation-agent && " +
+				"chmod +x /mms/" + util.PvcMmsHome + "/files/mongodb-mms-automation-agent",
+		},
+		VolumeMounts: []corev1.VolumeMount{
+			{Name: util.PvMms, MountPath: "/mms"},
+		},
+	}
 }
 
 // HeadlessAutomationAgentCommand returns the full command for the automation agent

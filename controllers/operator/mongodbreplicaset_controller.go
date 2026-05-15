@@ -1031,6 +1031,16 @@ func (r *ReconcileMongoDbReplicaSet) reconcileHeadlessStatefulSet(ctx context.Co
 	// The automation agent runs in AgentContainerName (static architecture) or
 	// DatabaseContainerName (non-static architecture).
 	isStatic := architectures.IsRunningStaticArchitecture(rs.Annotations)
+
+	// In non-static headless mode the agent binary is normally downloaded from Ops Manager, but
+	// there is no OM connection. Inject an init container that copies the binary from the agent
+	// image into the shared agent emptyDir so agent-launcher.sh can find it.
+	if !isStatic {
+		sts.Spec.Template.Spec.InitContainers = append(
+			sts.Spec.Template.Spec.InitContainers,
+			construct.HeadlessAgentBinaryInitContainer(r.imageUrls[util.AgentImageEnv]),
+		)
+	}
 	for i, c := range sts.Spec.Template.Spec.Containers {
 		var shouldPatch bool
 		if isStatic {

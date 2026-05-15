@@ -337,12 +337,31 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileHeadlessStatefulSets(ctx cont
 	secretName := mrs.Name + "-config"
 	isStatic := architectures.IsRunningStaticArchitecture(mrs.Annotations)
 
+	// Read the AC secret from the central cluster so we can replicate it to each member cluster.
+	acSecretData, err := secret.ReadByteData(ctx, r.client, types.NamespacedName{Name: secretName, Namespace: mrs.Namespace})
+	if err != nil {
+		return workflow.Failed(xerrors.Errorf("failed to read AC secret %s: %w", secretName, err))
+	}
+
 	var workflowStatus workflow.Status = workflow.OK()
 	for _, item := range clusterSpecList {
 		memberClient, ok := r.memberClusterClientsMap[item.ClusterName]
 		if !ok {
 			log.Warnf("failed to reconcile statefulset: cluster %s missing from client map", item.ClusterName)
 			continue
+		}
+
+		// Replicate the AC secret to the member cluster so the pod volume mount resolves.
+		acSecret := corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      secretName,
+				Namespace: mrs.Namespace,
+				Labels:    mrs.GetOwnerLabels(),
+			},
+			Data: acSecretData,
+		}
+		if err := secret.CreateOrUpdate(ctx, memberClient, acSecret); err != nil {
+			return workflow.Failed(xerrors.Errorf("failed to sync AC secret to cluster %s: %w", item.ClusterName, err))
 		}
 
 		clusterNum := mrs.ClusterNum(item.ClusterName)
@@ -368,6 +387,16 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileHeadlessStatefulSets(ctx cont
 		)
 
 		sts := mconstruct.MultiClusterStatefulSet(*mrs, opts)
+
+		// In non-static headless mode the agent binary is normally downloaded from Ops Manager, but
+		// there is no OM connection. Inject an init container that copies the binary from the agent
+		// image into the shared agent emptyDir so agent-launcher.sh can find it.
+		if !isStatic {
+			sts.Spec.Template.Spec.InitContainers = append(
+				sts.Spec.Template.Spec.InitContainers,
+				construct.HeadlessAgentBinaryInitContainer(r.imageUrls[util.AgentImageEnv]),
+			)
+		}
 
 		for i, c := range sts.Spec.Template.Spec.Containers {
 			var shouldPatch bool
