@@ -86,6 +86,11 @@ func NewTCPNode(
 // nodes in deterministic order ("node-0".."node-(n-1)"). Node-0 bootstraps
 // the cluster.
 //
+// If wireAppHandlers is true, each node's muxed StreamLayer gets a default
+// AppChannelHandler bound to its raft instance (makeAppChannelHandler) so
+// follower→leader proposal forwarding works out of the box. Tests that want
+// custom handlers can pass false and call sl.SetAppHandler themselves.
+//
 // Callers are expected to Close() each node when done (or use t.Cleanup in
 // tests via the test helper variant in node_tcp_test.go).
 func NewTCPRaftCluster(n int, fsms []*FSM, appHandlers []AppChannelHandler) ([]*TCPNode, error) {
@@ -161,6 +166,16 @@ func NewTCPRaftCluster(n int, fsms []*FSM, appHandlers []AppChannelHandler) ([]*
 		}
 	}
 	return nodes, nil
+}
+
+// WireAppChannelForwarding sets each node's MuxedStreamLayer app handler to a
+// makeAppChannelHandler bound to its raft.Raft. After this call, follower
+// Forwarder.Submit can dial any node and have its proposal forwarded to the
+// leader's raft.Apply.
+func WireAppChannelForwarding(nodes []*TCPNode) {
+	for _, n := range nodes {
+		n.StreamLayer.SetAppHandler(makeAppChannelHandler(n.Manager.Raft()))
+	}
 }
 
 // nodeID returns the deterministic id for cluster node i.
