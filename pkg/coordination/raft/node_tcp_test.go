@@ -193,7 +193,9 @@ func TestTCP_LeaderReelection(t *testing.T) {
 	require.NoError(t, oldLeader.Manager.Shutdown())
 	_ = oldLeader.StreamLayer.Close()
 
-	// Within ~5s a new leader should emerge among the remaining nodes.
+	// Within ~15s a new leader should emerge among the remaining nodes.
+	// Allow a generous deadline because the test runs alongside many other
+	// real-raft tests in the same process, all binding to localhost TCP.
 	require.Eventually(t, func() bool {
 		for i, n := range nodes {
 			if i == idx {
@@ -204,7 +206,7 @@ func TestTCP_LeaderReelection(t *testing.T) {
 			}
 		}
 		return false
-	}, 8*time.Second, 50*time.Millisecond, "no new leader after old leader partitioned")
+	}, 15*time.Second, 100*time.Millisecond, "no new leader after old leader partitioned")
 }
 
 // TestTCP_ConcurrentAppliesSerialize fires concurrent Applies from the

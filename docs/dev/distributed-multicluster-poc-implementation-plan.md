@@ -1223,17 +1223,29 @@ session reads this to understand where work stands.
 Phase A — Environment setup:        [ ] not started   [ ] in progress   [X] complete
 Phase B — Baseline validation:      [ ] not started   [ ] in progress   [ ] complete
   B1 — Baseline e2e run:            [ ] not started   [X] in progress   [ ] complete
-Phase C — Unit-test PoC:            [ ] not started   [ ] in progress   [X] complete
-  C0 — Survey test scaffolding:     [ ] not started   [ ] in progress   [X] complete
-  C0b — Survey AC/STS gate sites:   [ ] not started   [ ] in progress   [X] complete
-  C1 — Raft pkg scaffold:           [ ] not started   [ ] in progress   [X] complete
-  C2 — FSM + proposals:             [ ] not started   [ ] in progress   [X] complete
-  C3 — Coordinator interface:       [ ] not started   [ ] in progress   [X] complete
-  C4 — Gate AC sites:               [ ] not started   [ ] in progress   [X] complete
-  C5 — Lease-gate STS sites:        [ ] not started   [ ] in progress   [X] complete
-  C6 — Leader scheduler:            [ ] not started   [ ] in progress   [X] complete
-  C7 — E2E unit test:               [ ] not started   [ ] in progress   [X] complete
-  C8 — Regression check:            [ ] not started   [ ] in progress   [X] complete
+Phase C — Unit-test PoC:            superseded by Phase F (see notes below)
+  C0 — Survey test scaffolding:     [X] complete
+  C0b — Survey AC/STS gate sites:   [X] complete
+  C1 — Raft pkg scaffold:           [X] complete (kept in F1)
+  C2 — FSM + proposals:             [X] complete (reworked in F1: CRKey-partitioned)
+  C3 — Coordinator interface:       [X] complete (reworked in F5: inline-gating)
+  C4 — Gate AC sites:               [X] complete (reworked in F6)
+  C5 — Lease-gate STS sites:        [X] complete (reworked in F6)
+  C6 — Leader scheduler:            superseded by F1 (Scheduler dropped)
+  C7 — E2E unit test:               superseded by F8 (real raft + real reconcile loops)
+  C8 — Regression check:            superseded by F11
+Phase F — Redesign batch:           [ ] not started   [ ] in progress   [X] complete
+  F1 — FSM CRKey-partition + drop Scheduler/Plan: [X] complete
+  F2 — Muxed StreamLayer (1 TCP port):            [X] complete
+  F3 — Real raft over TCP loopback:               [X] complete
+  F4 — App-channel proposal forwarding:           [X] complete
+  F5 — Coordinator API rework:                    [X] complete
+  F6 — Inline gating in controller:               [X] complete
+  F7 — Stuck-step + cluster-unreachable detect:   [X] complete
+  F8 — Headline test (real raft + reconcile):     [X] complete
+  F9 — Scale-up integration test:                 [X] complete
+  F10 — Failure injection tests:                  [X] complete
+  F11 — Regression green + doc update:            [X] complete
 Phase D — e2e PoC:                  [X] not started   [ ] in progress   [ ] complete
   D0 — Extract kubeconfigs:         [X] not started   [ ] in progress   [ ] complete
   D1 — Modify test_deploy_operator: [X] not started   [ ] in progress   [ ] complete
@@ -1261,10 +1273,32 @@ All Phase C chunks landed on `lsierant/devcontainer-raft-poc-unit` (no push yet)
 
 ### Surprises / scope-drift notes for Phase D
 
-1. `hashicorp/raft.Apply` on a follower does NOT auto-forward to the leader — it returns `raft.ErrNotLeader`. Followers calling `ProposeStatusReport` / `ProposeLeaseComplete` directly will fail. The PoC e2e implementation in Phase D must add a small forwarding layer in `coordinator_impl.go` (e.g. lookup `LeaderWithID` and dial that node's RPC, or use a sidecar channel). The unit-test harness sidestepped this by routing proposals through the leader's coordinator manually.
+1. `hashicorp/raft.Apply` on a follower does NOT auto-forward to the leader — it returns `raft.ErrNotLeader`. The C-era unit-test harness sidestepped this by routing proposals through the leader's coordinator manually. **Resolved in Phase F**: F2 added a muxed `StreamLayer` (one TCP port carries both raft replication and follower-proposed app-channel traffic); F4 added a `Forwarder` that submits the proposal to whichever node currently believes itself to be the leader, retrying on `ErrNotLeader`. Phase D inherits this layer.
 2. The original FSM `applyStatusReport` overwrote `ComponentStatus` map; that broke scheduler progression. Now it merges. This is a real protocol property, not a test quirk — write it down in any future architecture refinement.
 3. Status reports must reflect the OBSERVED current state of the component, NOT "do I hold the lease right now". A `WaitLease` iteration should NOT regress `Ready=true` to `Ready=false`.
 4. Direct unit-tests of `createOrUpdateConfigServers` (and friends) without full reconcile-driven `deploymentOptions` panic inside `buildVaultDatabaseSecretsToInject`. The C5 tests therefore exercise `distGate` directly instead. Phase D's e2e uses real reconcile so this isn't an issue there.
+5. **Phase F redesign**: the upfront `Plan` + dedicated `Scheduler` goroutine model didn't survive design review. The "plan" emerges naturally from the existing reconcile flow; the leader's reconcile loop IS the scheduler (`AcquireOrRespect` proposes the next lease inline). `Plan` / `PlanCreate` / `PlanAdvance` are gone.
+6. **Phase F redesign**: lease heartbeats are implicit (refreshed by every StatusReport from the holder). There is no `LeaseRenew` proposal. Leases soft-expire after `heartbeat_ttl` (default 60s) and hard-expire at `deadline_at` (default 30 min). The leader's `StuckDetector` revokes via a `LeaseExpire` proposal.
+7. **Phase F redesign**: cluster-unreachable is detected via `raft.Raft.Stats()` last-contact, not via a separate memberwatch. PoC's `LastContact` API is a simplification; production would attach a custom `raft.Observer` to track per-peer contact times.
+8. **Phase F redesign**: top-level FSM state is `map[CRKey]PerCRState`. Every proposal carries `CRKey`. A `CRDelete{CRKey}` proposal cleans up when a CR is removed. The C-era single-CR shape is now exposed via `Coordinator.SetDefaultCR` for the operator's one-CR-per-instance case.
+
+### Phase F completion notes (2026-05-15)
+
+All Phase F chunks landed on `lsierant/devcontainer-raft-poc-unit` (no push yet). The redesign was driven by detailed design discussion captured in the prompt for the F-batch subagent; key locked decisions:
+- No upfront Plan; no Scheduler goroutine; muxed StreamLayer; synchronous proposals with retry; heartbeat-on-StatusReport; stuck-step + cluster-unreachable detection; FSM partitioned by CRKey.
+
+Per-chunk SHAs:
+- **F1** — `a715cff75`: dropped Scheduler+Plan, partitioned FSM by CRKey, added `HeartbeatAt`/`DeadlineAt`/`AllocatedAt` to lease, added `LeaseExpire` + `CRDelete` proposals. `applyStatusReport` refreshes lease HeartbeatAt iff reporter is the holder. FSM tests updated to construct CRKey explicitly.
+- **F2** — `84088b20d`: `MuxedStreamLayer` implementing `raft.StreamLayer` over one TCP port. 1-byte handshake (`'R'` raft / `'A'` app), 4-byte big-endian length-prefixed framing for the app channel. Concurrent dispatch + handshake-timeout cleanup + atomic counters. Unit tests under `-race`.
+- **F3** — `f26de609b`: `NewTCPRaftCluster` + `TCPNode` helper that pairs each muxed listener with `raft.NetworkTransport`. Tests cover leader election, replication, snapshot install, log catch-up, re-election after leader kill.
+- **F4** — `c5d1ccec0`: `Forwarder` that follows the leader and routes proposals via the app channel. Wire format = framed payload → 1-byte status → framed error. Tests cover follower roundtrip, leader short-circuit, concurrent submissions, kill-leader-mid-flight retry, sustained mixed traffic (270 props in 3s, leader stable).
+- **F5** — `b790295b5`: split `coordination.DistributedCoordinator` (new inline-gating surface) from `coordination.LegacyCoordinator` (kept until F6 completes the swap). Added `CRKey`, `LeaseResult`, `ProgressSnapshot` types. Coordinator gained `AcquireOrRespect`, `IsComponentReady`, `ReportProgress`, `MarkReady`, `ReleaseLease`, `AcVersion`, `AnnounceAcPublished`, `LastContact`, `ClusterIndex`. Coordinator carries optional `Forwarder` for follower auto-forwarding + a cluster→ServerID peer map for `LastContact`.
+- **F6** — `88e931006`: helper coordinator field swaps to `DistributedCoordinator`. The 3 STS-write loops + 2 AC-publish sites use the new inline gate (`distGateInline` returns `Proceed` / `SkipDone` / `Wait`) + `distMarkReadyAndRelease` / `distReportInflightProgress`. C5-era `distGate` / `distCompleteLease` removed. C4/C5 unit tests rewritten against a new fakeCoordinator that satisfies the F5 interface. The C7-shape headline test is `t.Skip`'d and replaced by F8.
+- **F7** — `50d63d101`: leader-side `StuckDetector` sweeps every active lease and revokes (`LeaseExpire`) on heartbeat-TTL / hard-deadline / unchanged-progress-signature / cluster-unreachable. FNV-1a 64-bit signature over `{Generation, Ready, LastReportedAt (sec-precision), ComponentStatus size}`. Injectable clock + per-cluster contact override for tests. Followers' detectors no-op.
+- **F8** — `8bf93d85b`: headline test `TestDistributedMultiClusterShardedReconcile_F8`. Three Coordinator+Helper pairs, each with its own real raft.Raft node over TCP via F2 muxed StreamLayer + F4 Forwarder. Three reconcile-loop goroutines mirror the production controller's iterator (return-on-first-Wait → requeue). Final stsWriteOrder: `config/a→b→c, shard-0/a→b→c, shard-1/a→b→c, mongos/a→b→c` (12 entries, exactly once each, contiguous per component). Runs in ~2.5s.
+- **F9** — `29c81b4f6`: scale-up integration test. The harness simulates "scope needs rescale" by injecting a Ready=false `ReportProgress`. Asserts: shard-0/cluster-c re-allocated each scale-up (3 writes total = 1 initial + 2 rescales); leader's AC version monotonically advances across rescales (tracked via the FSM's `LastAppliedIndex` as a proxy for "any committed proposal" because the rescale window is shorter than the leader's 30ms reconcile tick).
+- **F10** — `278b384d5`: failure-injection tests. (a) leader kill mid-flight: new leader elected within 10s; surviving clusters' Ready bits intact; new leader can commit. (b) follower partition: 2/3 quorum holds; leader can still commit. (c) follower kill: idempotent — the surviving 2-node quorum keeps making progress.
+- **F11** — this commit: `go build ./...` + `go test ./... -timeout 600s` green (run twice for flake check). Plan doc updated (this section).
 
 After completing a chunk, the main session updates the matching line by
 moving the `[X]` to the right cell and adding a brief note below the

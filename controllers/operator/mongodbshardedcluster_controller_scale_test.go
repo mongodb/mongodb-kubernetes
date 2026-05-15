@@ -174,10 +174,13 @@ func (h *scaleHarness) reconcileLoop(cluster string) {
 	coord := h.coordinators[cluster]
 	components := []string{"config", "shard-0", "shard-1", "mongos"}
 
-	// observedTotalReady is the leader's view of "how many distinct
-	// (component, cluster) entries are Ready in the FSM". When this number
-	// changes between passes the leader announces a new AC version.
-	observedTotalReady := -1
+	// observedAppliedIdx is the leader's last-seen FSM LastAppliedIndex. Any
+	// increase between passes (i.e. some proposal was applied) triggers a
+	// fresh AC publish — this mirrors the real reconciler's behaviour of
+	// bumping AC after each STS-progress event, but is robust to passes
+	// that observe only the final Ready state and miss the intermediate
+	// Ready=false dip.
+	observedAppliedIdx := uint64(0)
 
 	for {
 		select {
@@ -186,7 +189,6 @@ func (h *scaleHarness) reconcileLoop(cluster string) {
 		default:
 		}
 		pass := func() {
-			didWrite := false
 			for _, comp := range components {
 				for _, c := range h.clusters {
 					switch helper.distGateInline(comp, c) {
@@ -196,34 +198,19 @@ func (h *scaleHarness) reconcileLoop(cluster string) {
 						h.allocations[fmt.Sprintf("%s/%s", comp, c)]++
 						h.stsMu.Unlock()
 						helper.distMarkReadyAndRelease(comp, c, 1, 1, 1, zap.S())
-						didWrite = true
 					case distGateSkipDone:
 					case distGateWait:
 						return
 					}
 				}
 			}
-			_ = didWrite
 		}
 		pass()
 
-		// Leader-only: at the end of each pass, count Ready entries; on
-		// any delta, publish a fresh AC version. This mirrors the real
-		// updateOmDeploymentShardedCluster's AnnounceAcPublished call but
-		// fires even when the leader's helper itself didn't write (since a
-		// follower may have).
 		if coord.IsLeader() {
-			ready := 0
-			state := coord.FSM().GetPerCR(h.raftCRKey)
-			for _, cs := range state.PerClusterStatus {
-				for _, comp := range cs.ComponentStatus {
-					if comp.Ready {
-						ready++
-					}
-				}
-			}
-			if ready != observedTotalReady && state.ActiveLease == nil {
-				observedTotalReady = ready
+			fullState := coord.FSM().GetState()
+			if fullState.LastAppliedIndex > observedAppliedIdx {
+				observedAppliedIdx = fullState.LastAppliedIndex
 				ver := coord.AcVersion(h.crKey) + 1
 				_ = coord.AnnounceAcPublished(h.crKey, ver)
 			}
