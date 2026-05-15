@@ -1737,6 +1737,12 @@ func (r *ShardedClusterReconcileHelper) OnDelete(ctx context.Context, obj runtim
 }
 
 func (r *ShardedClusterReconcileHelper) cleanOpsManagerState(ctx context.Context, sc *mdbv1.MongoDB, log *zap.SugaredLogger) error {
+	// Distributed multi-cluster PoC: OM cleanup runs only on the leader.
+	// Followers skip; the leader replays the cleanup idempotently.
+	if r.coordinator != nil && !r.coordinator.IsLeader() {
+		log.Debug("Distributed mode: not leader, skipping cleanOpsManagerState")
+		return nil
+	}
 	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(ctx, r.commonController.client, r.commonController.SecretClient, sc, log)
 	if err != nil {
 		return err
@@ -2005,6 +2011,17 @@ type deploymentOptions struct {
 // The logic is designed to be idempotent: if the reconciliation is retried the controller will never skip the phase 1
 // until the agents have performed draining
 func (r *ShardedClusterReconcileHelper) updateOmDeploymentShardedCluster(ctx context.Context, conn om.Connection, sc *mdbv1.MongoDB, opts deploymentOptions, isRecovering bool, log *zap.SugaredLogger) workflow.Status {
+	// Distributed multi-cluster PoC: AC publication is leader-only. Followers
+	// observe AC convergence via the FSM's ACGeneration and the per-cluster
+	// status reports proposed in their own reconcile loops. See architecture
+	// doc §6.9.
+	if r.coordinator != nil && !r.coordinator.IsLeader() {
+		log.Debugw("Distributed mode: not leader, skipping AC publish for now",
+			"ACGeneration", r.coordinator.GetACGeneration())
+		return workflow.Pending("waiting for leader to publish AC; current ACGeneration=%d",
+			r.coordinator.GetACGeneration())
+	}
+
 	err := r.waitForAgentsToRegister(sc, conn, log)
 	if err != nil {
 		if !isRecovering {
@@ -2085,6 +2102,18 @@ func (r *ShardedClusterReconcileHelper) updateOmDeploymentShardedCluster(ctx con
 	}
 
 	log.Info("Updated Ops Manager for sharded cluster")
+
+	// Distributed multi-cluster PoC: leader announces AC has been published so
+	// followers can unblock their per-cluster STS work.
+	if r.coordinator != nil && r.coordinator.IsLeader() {
+		nextGen := r.coordinator.GetACGeneration() + 1
+		if err := r.coordinator.ProposeACPublished(nextGen); err != nil {
+			log.Warnf("Distributed mode: failed to propose ac_published gen=%d: %v", nextGen, err)
+		} else {
+			log.Debugw("Distributed mode: proposed ac_published", "generation", nextGen)
+		}
+	}
+
 	return workflow.OK()
 }
 
