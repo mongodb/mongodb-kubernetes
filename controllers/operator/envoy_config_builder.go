@@ -358,6 +358,11 @@ func buildUpstreamTLSTransportSocket(route envoyRoute, caKeyName string) (*corev
 			},
 			AlpnProtocols: []string{"h2"},
 		},
+		// Per-shard routes carry exactly one upstream so SNI is exact. The cluster-level
+		// route's UpstreamHosts is a union across shards; SNI here is the first shard's
+		// FQDN sent to every shard's pod. Upstream validation is CA-chain only (no SAN
+		// match) and every per-shard mongot cert shares the same CA, so cert acceptance
+		// works regardless. Revisit if peer-SAN enforcement is ever turned on.
 		Sni: route.UpstreamHosts[0],
 	}
 
