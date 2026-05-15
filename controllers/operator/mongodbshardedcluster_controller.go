@@ -638,9 +638,10 @@ type ShardedClusterReconcileHelper struct {
 	// multi-cluster operator PoC. Nil by default: when nil, every gate in the
 	// reconciler is a no-op and the existing hub-spoke behaviour runs
 	// unchanged. Set via WithCoordinator at construction time.
-	// F5 transition: helper uses the LegacyCoordinator surface; F6 swaps in
-	// the inline-gating DistributedCoordinator and rewires the call sites.
-	coordinator coordination.LegacyCoordinator
+	// F6: inline-gating DistributedCoordinator. Nil in non-distributed mode;
+	// every gate is a no-op when nil, so default-config operators run the
+	// pre-PoC hub-spoke path byte-for-byte.
+	coordinator coordination.DistributedCoordinator
 }
 
 // IsDistributed reports whether this helper is running with a Raft-backed
@@ -650,58 +651,124 @@ func (r *ShardedClusterReconcileHelper) IsDistributed() bool {
 	return r.coordinator != nil
 }
 
-// distGateAction is the gating verdict for one (component, cluster) iteration
-// of a per-cluster STS-write loop in distributed mode.
+// distGateAction is the F6 inline-gating verdict applied at each per-cluster
+// STS-write iteration in distributed mode. In non-distributed mode (no
+// coordinator attached) the gate always returns distGateProceed.
 type distGateAction int
 
 const (
-	// distGateProceed: this cluster is ours AND we hold the lease — do the
-	// work. In non-distributed mode the gate always returns Proceed.
+	// distGateProceed: this cluster is ours AND we hold the lease, do work.
 	distGateProceed distGateAction = iota
-	// distGateSkip: this cluster isn't ours — skip the iteration silently.
-	distGateSkip
-	// distGateWaitLease: this cluster is ours but we don't hold the lease —
-	// signal the caller to return a Pending workflow status.
-	distGateWaitLease
+	// distGateSkipDone: another cluster's iteration on the same component
+	// has already reported Ready — caller should `continue` past this one.
+	distGateSkipDone
+	// distGateWait: we don't hold the lease yet, OR another cluster's work
+	// is in flight. Caller should return workflow.Pending.
+	distGateWait
 )
 
-// distGate consults the coordinator to decide what to do with one iteration
-// of a per-cluster STS-write loop. Returns distGateProceed when coordinator
-// is nil (non-distributed mode) — every iteration executes as today.
-func (r *ShardedClusterReconcileHelper) distGate(component, clusterName string) distGateAction {
+// distGateInline consults the F5 DistributedCoordinator at a per-cluster STS
+// site. The caller passes the component label and the cluster being processed
+// in the current loop iteration; the helper returns:
+//
+//   - distGateProceed: we are the cluster being processed AND we hold the
+//     lease for (component, cluster). Caller does the work, then calls
+//     distMarkReady + distReleaseLease before continuing the loop.
+//   - distGateSkipDone: the (component, cluster) is already Ready according
+//     to the FSM. Caller continues to the next iteration.
+//   - distGateWait: lease isn't ours yet, or someone else's iteration is in
+//     flight. Caller returns workflow.Pending so the reconcile re-queues.
+//
+// The new semantics fold "skip not-ours" and "wait for lease" into a single
+// wait verdict: with the heartbeat-on-StatusReport model, we don't care
+// whose name matches our local config — we care who currently holds the
+// lease. The leader allocates leases inline as it iterates clusters.
+func (r *ShardedClusterReconcileHelper) distGateInline(component, clusterName string) distGateAction {
 	if r.coordinator == nil {
 		return distGateProceed
 	}
+	crKey := r.crKeyFor()
+	// Iteration for a cluster other than our own: check if that cluster's
+	// component is already Ready (then skip) or still in flight (then wait).
 	if clusterName != r.coordinator.MyClusterName() {
-		return distGateSkip
+		if r.coordinator.IsComponentReady(crKey, component, clusterName) {
+			return distGateSkipDone
+		}
+		return distGateWait
 	}
-	if !r.coordinator.HasLeaseFor(component, clusterName) {
-		return distGateWaitLease
+	// Our own cluster: try to acquire / observe the lease.
+	switch r.coordinator.AcquireOrRespect(crKey, component, clusterName) {
+	case coordination.LeaseHeld:
+		return distGateProceed
+	case coordination.LeaseOtherClusterDone:
+		return distGateSkipDone
+	default:
+		return distGateWait
 	}
-	return distGateProceed
 }
 
-// distCompleteLease announces lease completion for (component, cluster) iff
-// the coordinator is attached and the iteration in fact proceeded. Failures
-// are logged but not propagated as workflow errors — the leader's scheduler
-// will reissue.
-func (r *ShardedClusterReconcileHelper) distCompleteLease(component, clusterName string, log *zap.SugaredLogger) {
+// distReportInflightProgress submits a Ready=false progress report iff the
+// coordinator is attached. Called once the STS write has been issued but
+// while we are still waiting for the cluster's pods to converge.
+func (r *ShardedClusterReconcileHelper) distReportInflightProgress(component, clusterName string, current, ready int, gen int64, log *zap.SugaredLogger) {
 	if r.coordinator == nil {
 		return
 	}
-	if err := r.coordinator.ProposeLeaseComplete(component, clusterName); err != nil {
-		log.Warnf("Distributed mode: ProposeLeaseComplete(%s,%s) failed: %v",
-			component, clusterName, err)
+	if err := r.coordinator.ReportProgress(r.crKeyFor(), component, clusterName, observeStsProgress(current, ready, gen)); err != nil {
+		log.Debugf("Distributed mode: ReportProgress(%s,%s) failed: %v", component, clusterName, err)
 	}
 }
 
-// SetCoordinator attaches a LegacyCoordinator to the helper. Callers do
+// distMarkReadyAndRelease marks the (component, cluster) Ready and releases
+// the lease. No-op when coordinator is nil.
+func (r *ShardedClusterReconcileHelper) distMarkReadyAndRelease(component, clusterName string, current, ready int, gen int64, log *zap.SugaredLogger) {
+	if r.coordinator == nil {
+		return
+	}
+	crKey := r.crKeyFor()
+	if err := r.coordinator.MarkReady(crKey, component, clusterName, observeStsProgress(current, ready, gen)); err != nil {
+		log.Warnf("Distributed mode: MarkReady(%s,%s) failed: %v", component, clusterName, err)
+	}
+	if err := r.coordinator.ReleaseLease(crKey, component, clusterName); err != nil {
+		log.Warnf("Distributed mode: ReleaseLease(%s,%s) failed: %v", component, clusterName, err)
+	}
+}
+
+// SetCoordinator attaches a DistributedCoordinator to the helper. Callers do
 // this immediately after construction (NewShardedClusterReconcilerHelper) when
 // running the distributed-multi-cluster PoC. Tests inject a mock implementation
-// to exercise gate-point behaviour without a real Raft cluster. F6 will
-// replace this with the F5 inline-gating coordination.DistributedCoordinator.
-func (r *ShardedClusterReconcileHelper) SetCoordinator(c coordination.LegacyCoordinator) {
+// to exercise gate-point behaviour without a real Raft cluster.
+func (r *ShardedClusterReconcileHelper) SetCoordinator(c coordination.DistributedCoordinator) {
 	r.coordinator = c
+}
+
+// crKeyFor returns the coordination CRKey for the helper's MongoDB CR.
+func (r *ShardedClusterReconcileHelper) crKeyFor() coordination.CRKey {
+	if r.sc == nil {
+		return coordination.CRKey{}
+	}
+	return coordination.CRKey{
+		Kind:      "MongoDB",
+		Namespace: r.sc.Namespace,
+		Name:      r.sc.Name,
+	}
+}
+
+// observeStsProgress builds a ProgressSnapshot from a stateful-set status
+// snapshot. Best-effort: missing fields are zero-valued so the leader's
+// stuck-step detector compares apples-to-apples across reconciles.
+//
+// PoC simplification: agent goal version is unknown to the helper at the STS
+// site, so we set it to the observed-generation. Real implementation would
+// thread the OM-side agent ack into this.
+func observeStsProgress(currentReplicas, readyReplicas int, observedGen int64) coordination.ProgressSnapshot {
+	return coordination.ProgressSnapshot{
+		CurrentReplicas:         currentReplicas,
+		ReadyReplicas:           readyReplicas,
+		ObservedGeneration:      observedGen,
+		AgentGoalVersionAchieve: observedGen,
+		LastEventTS:             time.Now().UTC(),
+	}
 }
 
 func NewReadOnlyClusterReconcilerHelper(
@@ -1548,12 +1615,12 @@ func (r *ShardedClusterReconcileHelper) createOrUpdateMongos(ctx context.Context
 	const component = "mongos"
 	var workflowStatus workflow.Status = workflow.OK()
 	for _, memberCluster := range getHealthyMemberClusters(r.mongosMemberClusters) {
-		// Distributed multi-cluster PoC gate: skip not-ours / wait-on-lease.
-		switch r.distGate(component, memberCluster.Name) {
-		case distGateSkip:
+		// Distributed multi-cluster PoC inline gate.
+		switch r.distGateInline(component, memberCluster.Name) {
+		case distGateSkipDone:
 			continue
-		case distGateWaitLease:
-			log.Debugf("Distributed mode: no lease for %s/%s, requeueing", component, memberCluster.Name)
+		case distGateWait:
+			log.Debugf("Distributed mode: gate-wait for %s/%s, requeueing", component, memberCluster.Name)
 			return workflow.Pending("waiting for lease on %s/%s", component, memberCluster.Name)
 		}
 
@@ -1571,12 +1638,13 @@ func (r *ShardedClusterReconcileHelper) createOrUpdateMongos(ctx context.Context
 		if !mongosScalingFirstTime {
 			log.Debugw("Mongos StatefulSet status", "stsName", mongosSts.Name, "statusOk", statefulSetStatus.IsOK())
 			if !statefulSetStatus.IsOK() {
+				r.distReportInflightProgress(component, memberCluster.Name, int(mutatedSts.Status.Replicas), int(mutatedSts.Status.ReadyReplicas), expectedGeneration, log)
 				return statefulSetStatus
 			}
 		}
 
 		if statefulSetStatus.IsOK() {
-			r.distCompleteLease(component, memberCluster.Name, log)
+			r.distMarkReadyAndRelease(component, memberCluster.Name, int(mutatedSts.Status.Replicas), int(mutatedSts.Status.ReadyReplicas), expectedGeneration, log)
 		}
 		workflowStatus = workflowStatus.Merge(statefulSetStatus)
 	}
@@ -1599,12 +1667,12 @@ func (r *ShardedClusterReconcileHelper) createOrUpdateShards(ctx context.Context
 		component := fmt.Sprintf("shard-%d", shardIdx)
 		var workflowStatus workflow.Status = workflow.OK()
 		for _, memberCluster := range getHealthyMemberClusters(r.shardsMemberClustersMap[shardIdx]) {
-			// Distributed multi-cluster PoC gate: skip not-ours / wait-on-lease.
-			switch r.distGate(component, memberCluster.Name) {
-			case distGateSkip:
+			// Distributed multi-cluster PoC inline gate.
+			switch r.distGateInline(component, memberCluster.Name) {
+			case distGateSkipDone:
 				continue
-			case distGateWaitLease:
-				log.Debugf("Distributed mode: no lease for %s/%s, requeueing", component, memberCluster.Name)
+			case distGateWait:
+				log.Debugf("Distributed mode: gate-wait for %s/%s, requeueing", component, memberCluster.Name)
 				return workflow.Pending("waiting for lease on %s/%s", component, memberCluster.Name)
 			}
 
@@ -1636,12 +1704,13 @@ func (r *ShardedClusterReconcileHelper) createOrUpdateShards(ctx context.Context
 			if !scalingFirstTime {
 				log.Debugw("Shard StatefulSet status", "stsName", shardSts.Name, "statusOk", statefulSetStatus.IsOK())
 				if !statefulSetStatus.IsOK() {
+					r.distReportInflightProgress(component, memberCluster.Name, int(mutatedSts.Status.Replicas), int(mutatedSts.Status.ReadyReplicas), expectedGeneration, log)
 					return statefulSetStatus
 				}
 			}
 
 			if statefulSetStatus.IsOK() {
-				r.distCompleteLease(component, memberCluster.Name, log)
+				r.distMarkReadyAndRelease(component, memberCluster.Name, int(mutatedSts.Status.Replicas), int(mutatedSts.Status.ReadyReplicas), expectedGeneration, log)
 			}
 			workflowStatus = workflowStatus.Merge(statefulSetStatus)
 		}
@@ -1664,12 +1733,12 @@ func (r *ShardedClusterReconcileHelper) createOrUpdateConfigServers(ctx context.
 	const component = "config"
 	var workflowStatus workflow.Status = workflow.OK()
 	for _, memberCluster := range getHealthyMemberClusters(r.configSrvMemberClusters) {
-		// Distributed multi-cluster PoC gate: skip not-ours / wait-on-lease.
-		switch r.distGate(component, memberCluster.Name) {
-		case distGateSkip:
+		// Distributed multi-cluster PoC inline gate.
+		switch r.distGateInline(component, memberCluster.Name) {
+		case distGateSkipDone:
 			continue
-		case distGateWaitLease:
-			log.Debugf("Distributed mode: no lease for %s/%s, requeueing", component, memberCluster.Name)
+		case distGateWait:
+			log.Debugf("Distributed mode: gate-wait for %s/%s, requeueing", component, memberCluster.Name)
 			return workflow.Pending("waiting for lease on %s/%s", component, memberCluster.Name)
 		}
 
@@ -1691,12 +1760,13 @@ func (r *ShardedClusterReconcileHelper) createOrUpdateConfigServers(ctx context.
 		if !configSrvScalingFirstTime {
 			log.Debugw("Config-srv StatefulSet status", "name", configSrvSts.Name, "statusOk", statefulsetStatus.IsOK())
 			if !statefulsetStatus.IsOK() {
+				r.distReportInflightProgress(component, memberCluster.Name, int(mutatedSts.Status.Replicas), int(mutatedSts.Status.ReadyReplicas), expectedGeneration, log)
 				return statefulsetStatus
 			}
 		}
 
 		if statefulsetStatus.IsOK() {
-			r.distCompleteLease(component, memberCluster.Name, log)
+			r.distMarkReadyAndRelease(component, memberCluster.Name, int(mutatedSts.Status.Replicas), int(mutatedSts.Status.ReadyReplicas), expectedGeneration, log)
 		}
 		workflowStatus = workflowStatus.Merge(statefulsetStatus)
 	}
@@ -2099,14 +2169,12 @@ type deploymentOptions struct {
 // until the agents have performed draining
 func (r *ShardedClusterReconcileHelper) updateOmDeploymentShardedCluster(ctx context.Context, conn om.Connection, sc *mdbv1.MongoDB, opts deploymentOptions, isRecovering bool, log *zap.SugaredLogger) workflow.Status {
 	// Distributed multi-cluster PoC: AC publication is leader-only. Followers
-	// observe AC convergence via the FSM's ACGeneration and the per-cluster
-	// status reports proposed in their own reconcile loops. See architecture
-	// doc §6.9.
+	// observe AC convergence via the FSM's per-CR ACGeneration and unblock
+	// their per-cluster STS work once it advances. See architecture doc §6.9.
 	if r.coordinator != nil && !r.coordinator.IsLeader() {
-		log.Debugw("Distributed mode: not leader, skipping AC publish for now",
-			"ACGeneration", r.coordinator.GetACGeneration())
-		return workflow.Pending("waiting for leader to publish AC; current ACGeneration=%d",
-			r.coordinator.GetACGeneration())
+		ver := r.coordinator.AcVersion(r.crKeyFor())
+		log.Debugw("Distributed mode: not leader, skipping AC publish for now", "ACGeneration", ver)
+		return workflow.Pending("waiting for leader to publish AC; current ACGeneration=%d", ver)
 	}
 
 	err := r.waitForAgentsToRegister(sc, conn, log)
@@ -2193,9 +2261,10 @@ func (r *ShardedClusterReconcileHelper) updateOmDeploymentShardedCluster(ctx con
 	// Distributed multi-cluster PoC: leader announces AC has been published so
 	// followers can unblock their per-cluster STS work.
 	if r.coordinator != nil && r.coordinator.IsLeader() {
-		nextGen := r.coordinator.GetACGeneration() + 1
-		if err := r.coordinator.ProposeACPublished(nextGen); err != nil {
-			log.Warnf("Distributed mode: failed to propose ac_published gen=%d: %v", nextGen, err)
+		crKey := r.crKeyFor()
+		nextGen := r.coordinator.AcVersion(crKey) + 1
+		if err := r.coordinator.AnnounceAcPublished(crKey, nextGen); err != nil {
+			log.Warnf("Distributed mode: failed to announce ac_published gen=%d: %v", nextGen, err)
 		} else {
 			log.Debugw("Distributed mode: proposed ac_published", "generation", nextGen)
 		}

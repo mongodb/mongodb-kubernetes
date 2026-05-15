@@ -1,18 +1,17 @@
 package operator
 
-// Tests for the distributed-multi-cluster operator PoC gate points
-// (chunks C4-C6 in docs/dev/distributed-multicluster-poc-implementation-plan.md).
-//
+// Tests for the F6 inline-gating distributed-multi-cluster operator PoC.
 // These tests deliberately do NOT spin up a real Raft cluster — they stub
-// DistributedCoordinator directly so we can assert gate-point behaviour in
-// isolation. The end-to-end three-in-process integration test lives in
-// mongodbshardedcluster_controller_multi_distributed_test.go (C7).
+// the DistributedCoordinator directly so we can assert gate-point behaviour
+// in isolation. The headline integration test (real raft over TCP) lives in
+// mongodbshardedcluster_controller_multi_distributed_test.go.
 
 import (
 	"context"
 	"reflect"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -26,30 +25,47 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/test"
 )
 
-// fakeCoordinator is a DistributedCoordinator implementation backed by simple
-// in-memory state. Tests construct it inline and inject via SetCoordinator.
+// fakeCoordinator implements coordination.DistributedCoordinator backed by
+// simple in-memory state. Tests construct it inline and inject via
+// SetCoordinator.
 type fakeCoordinator struct {
 	mu sync.Mutex
 
-	clusterName  string
-	leader       bool
-	activeLease  *coordination.LeaseInfo
-	acGeneration int
-	perCluster   map[string]coordination.ClusterStatusReport
+	clusterName string
+	leader      bool
 
-	// Recordings — tests assert on these.
-	leaseCompletes      []coordination.LeaseInfo
-	statusReports       []coordination.ClusterStatusReport
-	acPublishedProposed []int
+	// scope-keyed state: scope := component+"/"+cluster.
+	leaseHolder  map[string]string // scope -> cluster (the holder)
+	ready        map[string]bool   // scope -> Ready
+	acByCR       map[coordination.CRKey]int64
+
+	// Recordings.
+	progressReports []scopeProgress
+	readyMarks      []scopeProgress
+	releases        []scopeProgress
+	acquires        []scopeProgress
+	acAnnouncements []int64
+}
+
+type scopeProgress struct {
+	CRKey     coordination.CRKey
+	Component string
+	Cluster   string
+	Progress  coordination.ProgressSnapshot
+	Ready     bool
 }
 
 func newFakeCoordinator(clusterName string, leader bool) *fakeCoordinator {
 	return &fakeCoordinator{
 		clusterName: clusterName,
 		leader:      leader,
-		perCluster:  map[string]coordination.ClusterStatusReport{},
+		leaseHolder: map[string]string{},
+		ready:       map[string]bool{},
+		acByCR:      map[coordination.CRKey]int64{},
 	}
 }
+
+func scopeKey(component, cluster string) string { return component + "/" + cluster }
 
 func (f *fakeCoordinator) MyClusterName() string { return f.clusterName }
 
@@ -65,77 +81,95 @@ func (f *fakeCoordinator) setLeader(b bool) {
 	f.leader = b
 }
 
-func (f *fakeCoordinator) HasLeaseFor(component, clusterName string) bool {
+func (f *fakeCoordinator) ClusterIndex(name string) (int, bool) { return -1, false }
+
+func (f *fakeCoordinator) AcquireOrRespect(crKey coordination.CRKey, component, cluster string) coordination.LeaseResult {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return f.activeLease != nil && f.activeLease.Component == component && f.activeLease.ClusterName == clusterName
+	f.acquires = append(f.acquires, scopeProgress{CRKey: crKey, Component: component, Cluster: cluster})
+	if f.ready[scopeKey(component, cluster)] {
+		return coordination.LeaseOtherClusterDone
+	}
+	holder, has := f.leaseHolder[scopeKey(component, cluster)]
+	if has && holder == cluster {
+		return coordination.LeaseHeld
+	}
+	if has {
+		return coordination.LeaseWaitForLease
+	}
+	// Auto-grant to caller.
+	f.leaseHolder[scopeKey(component, cluster)] = cluster
+	return coordination.LeaseHeld
 }
 
-func (f *fakeCoordinator) setLease(component, clusterName string) {
+func (f *fakeCoordinator) setHolder(component, cluster, holder string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.activeLease = &coordination.LeaseInfo{Component: component, ClusterName: clusterName}
+	if holder == "" {
+		delete(f.leaseHolder, scopeKey(component, cluster))
+		return
+	}
+	f.leaseHolder[scopeKey(component, cluster)] = holder
 }
 
-func (f *fakeCoordinator) ProposeLeaseComplete(component, clusterName string) error {
+func (f *fakeCoordinator) setReady(component, cluster string, ready bool) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.leaseCompletes = append(f.leaseCompletes, coordination.LeaseInfo{Component: component, ClusterName: clusterName})
-	if f.activeLease != nil && f.activeLease.Component == component && f.activeLease.ClusterName == clusterName {
-		f.activeLease = nil
+	f.ready[scopeKey(component, cluster)] = ready
+}
+
+func (f *fakeCoordinator) IsComponentReady(crKey coordination.CRKey, component, cluster string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.ready[scopeKey(component, cluster)]
+}
+
+func (f *fakeCoordinator) ReportProgress(crKey coordination.CRKey, component, cluster string, p coordination.ProgressSnapshot) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.progressReports = append(f.progressReports, scopeProgress{CRKey: crKey, Component: component, Cluster: cluster, Progress: p})
+	return nil
+}
+
+func (f *fakeCoordinator) MarkReady(crKey coordination.CRKey, component, cluster string, p coordination.ProgressSnapshot) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.readyMarks = append(f.readyMarks, scopeProgress{CRKey: crKey, Component: component, Cluster: cluster, Progress: p, Ready: true})
+	f.ready[scopeKey(component, cluster)] = true
+	return nil
+}
+
+func (f *fakeCoordinator) ReleaseLease(crKey coordination.CRKey, component, cluster string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.releases = append(f.releases, scopeProgress{CRKey: crKey, Component: component, Cluster: cluster})
+	delete(f.leaseHolder, scopeKey(component, cluster))
+	return nil
+}
+
+func (f *fakeCoordinator) AcVersion(crKey coordination.CRKey) int64 {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.acByCR[crKey]
+}
+
+func (f *fakeCoordinator) AnnounceAcPublished(crKey coordination.CRKey, version int64) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.acAnnouncements = append(f.acAnnouncements, version)
+	if version > f.acByCR[crKey] {
+		f.acByCR[crKey] = version
 	}
 	return nil
 }
 
-func (f *fakeCoordinator) ProposeStatusReport(r coordination.ClusterStatusReport) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.statusReports = append(f.statusReports, r)
-	f.perCluster[r.ClusterName] = r
-	return nil
-}
+func (f *fakeCoordinator) LastContact(cluster string) time.Duration { return 0 }
 
-func (f *fakeCoordinator) ProposeACPublished(generation int) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.acPublishedProposed = append(f.acPublishedProposed, generation)
-	if generation > f.acGeneration {
-		f.acGeneration = generation
-	}
-	return nil
-}
+var _ coordination.DistributedCoordinator = (*fakeCoordinator)(nil)
 
-func (f *fakeCoordinator) GetActiveLease() *coordination.LeaseInfo {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.activeLease == nil {
-		return nil
-	}
-	l := *f.activeLease
-	return &l
-}
-
-func (f *fakeCoordinator) GetPerClusterStatus() map[string]coordination.ClusterStatusReport {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	out := make(map[string]coordination.ClusterStatusReport, len(f.perCluster))
-	for k, v := range f.perCluster {
-		out[k] = v
-	}
-	return out
-}
-
-func (f *fakeCoordinator) GetACGeneration() int {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.acGeneration
-}
-
-var _ coordination.LegacyCoordinator = (*fakeCoordinator)(nil)
-
-// buildMultiClusterShardedHelperForDistributedTest is a tiny factory for the
-// gate-point tests: it constructs a three-cluster sharded MongoDB CR and the
-// associated reconcile helper, leaving the caller to attach a coordinator.
+// buildMultiClusterShardedHelperForDistributedTest is a tiny factory: it
+// constructs a three-cluster sharded MongoDB CR and the associated reconcile
+// helper, leaving the caller to attach a coordinator.
 func buildMultiClusterShardedHelperForDistributedTest(t *testing.T) (
 	*ShardedClusterReconcileHelper,
 	*mdbv1.MongoDB,
@@ -191,56 +225,65 @@ func TestDistributedMode_FollowerSkipsAC(t *testing.T) {
 		reflect.ValueOf(mockOM.ReadDeployment),
 		reflect.ValueOf(mockOM.ReadAutomationConfig),
 	)
-	assert.Empty(t, follower.acPublishedProposed, "follower must not propose ac_published")
+	assert.Empty(t, follower.acAnnouncements, "follower must not announce AC published")
 }
 
-// TestDistributedMode_DistGate_Decisions exercises the distGate decision
-// matrix directly. distGate is the single place every per-cluster STS-write
-// loop consults; if its truth table is correct, every loop's gate is correct.
-func TestDistributedMode_DistGate_Decisions(t *testing.T) {
+// TestDistributedMode_InlineGate_Decisions exercises the F6 inline-gate
+// decision matrix. The fakeCoordinator's AcquireOrRespect auto-grants the
+// lease for the caller's cluster the first time it is called, so the gate
+// returns Proceed in the simplest case.
+func TestDistributedMode_InlineGate_Decisions(t *testing.T) {
 	helper := &ShardedClusterReconcileHelper{}
 
 	// Coordinator nil → always Proceed.
 	helper.coordinator = nil
-	assert.Equal(t, distGateProceed, helper.distGate("config", "anything"))
+	assert.Equal(t, distGateProceed, helper.distGateInline("config", "anything"))
 
-	// Coordinator set, cluster not ours → Skip.
+	// Coordinator set, cluster not ours, component not ready → Wait.
 	c := newFakeCoordinator("member-cluster-1", false)
 	helper.coordinator = c
-	assert.Equal(t, distGateSkip, helper.distGate("config", "member-cluster-2"))
+	helper.sc = &mdbv1.MongoDB{}
+	helper.sc.Name = "test-sc"
+	helper.sc.Namespace = "ns"
+	assert.Equal(t, distGateWait, helper.distGateInline("config", "member-cluster-2"))
 
-	// Coordinator set, cluster ours, no lease → WaitLease.
-	assert.Equal(t, distGateWaitLease, helper.distGate("config", "member-cluster-1"))
+	// Coordinator set, cluster not ours, component IS ready → SkipDone.
+	c.setReady("config", "member-cluster-2", true)
+	assert.Equal(t, distGateSkipDone, helper.distGateInline("config", "member-cluster-2"))
 
-	// Coordinator set, cluster ours, has lease → Proceed.
-	c.setLease("config", "member-cluster-1")
-	assert.Equal(t, distGateProceed, helper.distGate("config", "member-cluster-1"))
+	// Coordinator set, cluster ours, AcquireOrRespect grants lease → Proceed.
+	assert.Equal(t, distGateProceed, helper.distGateInline("shard-0", "member-cluster-1"))
 
-	// Coordinator set, lease is for a different cluster → WaitLease (we don't
-	// hold this scope's lease, even though we're the right cluster name).
-	c.setLease("config", "member-cluster-2")
-	assert.Equal(t, distGateWaitLease, helper.distGate("config", "member-cluster-1"))
+	// Coordinator set, cluster ours, but another cluster already Ready → SkipDone.
+	c.setReady("shard-1", "member-cluster-1", true)
+	assert.Equal(t, distGateSkipDone, helper.distGateInline("shard-1", "member-cluster-1"))
 
-	// Coordinator set, lease for our cluster but different component → WaitLease.
-	c.setLease("shard-0", "member-cluster-1")
-	assert.Equal(t, distGateWaitLease, helper.distGate("config", "member-cluster-1"))
+	// Coordinator set, cluster ours, but someone else already holds the
+	// lease → WaitForLease.
+	c.setHolder("mongos", "member-cluster-1", "member-cluster-2")
+	assert.Equal(t, distGateWait, helper.distGateInline("mongos", "member-cluster-1"))
 }
 
-// TestDistributedMode_DistCompleteLease_Proposes verifies that distCompleteLease
-// proposes a LeaseComplete when a coordinator is attached, and is a no-op when
-// none is set.
-func TestDistributedMode_DistCompleteLease_Proposes(t *testing.T) {
+// TestDistributedMode_MarkReadyAndRelease verifies that distMarkReadyAndRelease
+// invokes MarkReady + ReleaseLease in order on the coordinator.
+func TestDistributedMode_MarkReadyAndRelease(t *testing.T) {
 	helper := &ShardedClusterReconcileHelper{}
 
-	// Nil coordinator → no-op (no panic).
-	helper.distCompleteLease("config", "member-cluster-1", zap.S())
+	// Nil coordinator → no-op.
+	helper.distMarkReadyAndRelease("config", "member-cluster-1", 1, 1, 1, zap.S())
 
 	c := newFakeCoordinator("member-cluster-1", true)
 	helper.coordinator = c
-	helper.distCompleteLease("config", "member-cluster-1", zap.S())
-	require.Len(t, c.leaseCompletes, 1)
-	assert.Equal(t, "config", c.leaseCompletes[0].Component)
-	assert.Equal(t, "member-cluster-1", c.leaseCompletes[0].ClusterName)
+	helper.sc = &mdbv1.MongoDB{}
+	helper.sc.Name = "test-sc"
+	helper.sc.Namespace = "ns"
+	helper.distMarkReadyAndRelease("config", "member-cluster-1", 1, 1, 1, zap.S())
+	require.Len(t, c.readyMarks, 1)
+	require.Len(t, c.releases, 1)
+	assert.Equal(t, "config", c.readyMarks[0].Component)
+	assert.True(t, c.readyMarks[0].Ready)
+	assert.Equal(t, "config", c.releases[0].Component)
+	assert.True(t, c.IsComponentReady(coordination.CRKey{Kind: "MongoDB", Namespace: "ns", Name: "test-sc"}, "config", "member-cluster-1"))
 }
 
 // TestDistributedMode_FollowerSkipsCrossClusterReplication asserts that the
@@ -269,11 +312,6 @@ func TestDistributedMode_LeaderPassesACGate(t *testing.T) {
 	helper.SetCoordinator(leader)
 
 	mockOM.CleanHistory()
-	// We don't drive a fully-successful AC publish from this test (that would
-	// need real K8s state); we just check the leader entered the AC machinery.
-	// updateOmDeploymentShardedCluster's body calls waitForAgentsToRegister
-	// first which invokes ReadAutomationAgents on the mock — that's enough to
-	// prove the leader did not short-circuit at the gate.
 	_ = helper.updateOmDeploymentShardedCluster(ctx, mockOM, sc, deploymentOptions{}, false, zap.S())
 
 	// At least one OM call happened — i.e. the gate did not short-circuit.
