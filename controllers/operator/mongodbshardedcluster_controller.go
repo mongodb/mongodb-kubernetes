@@ -648,6 +648,51 @@ func (r *ShardedClusterReconcileHelper) IsDistributed() bool {
 	return r.coordinator != nil
 }
 
+// distGateAction is the gating verdict for one (component, cluster) iteration
+// of a per-cluster STS-write loop in distributed mode.
+type distGateAction int
+
+const (
+	// distGateProceed: this cluster is ours AND we hold the lease — do the
+	// work. In non-distributed mode the gate always returns Proceed.
+	distGateProceed distGateAction = iota
+	// distGateSkip: this cluster isn't ours — skip the iteration silently.
+	distGateSkip
+	// distGateWaitLease: this cluster is ours but we don't hold the lease —
+	// signal the caller to return a Pending workflow status.
+	distGateWaitLease
+)
+
+// distGate consults the coordinator to decide what to do with one iteration
+// of a per-cluster STS-write loop. Returns distGateProceed when coordinator
+// is nil (non-distributed mode) — every iteration executes as today.
+func (r *ShardedClusterReconcileHelper) distGate(component, clusterName string) distGateAction {
+	if r.coordinator == nil {
+		return distGateProceed
+	}
+	if clusterName != r.coordinator.MyClusterName() {
+		return distGateSkip
+	}
+	if !r.coordinator.HasLeaseFor(component, clusterName) {
+		return distGateWaitLease
+	}
+	return distGateProceed
+}
+
+// distCompleteLease announces lease completion for (component, cluster) iff
+// the coordinator is attached and the iteration in fact proceeded. Failures
+// are logged but not propagated as workflow errors — the leader's scheduler
+// will reissue.
+func (r *ShardedClusterReconcileHelper) distCompleteLease(component, clusterName string, log *zap.SugaredLogger) {
+	if r.coordinator == nil {
+		return
+	}
+	if err := r.coordinator.ProposeLeaseComplete(component, clusterName); err != nil {
+		log.Warnf("Distributed mode: ProposeLeaseComplete(%s,%s) failed: %v",
+			component, clusterName, err)
+	}
+}
+
 // SetCoordinator attaches a DistributedCoordinator to the helper. Callers do
 // this immediately after construction (NewShardedClusterReconcilerHelper) when
 // running the distributed-multi-cluster PoC. Tests inject a mock implementation
@@ -1497,8 +1542,18 @@ func (r *ShardedClusterReconcileHelper) createOrUpdateMongos(ctx context.Context
 	// for ScalingFirstTime, which is iterating over all member clusters internally anyway
 	mongosScalingFirstTime := r.GetMongosScaler(r.mongosMemberClusters[0]).ScalingFirstTime()
 
+	const component = "mongos"
 	var workflowStatus workflow.Status = workflow.OK()
 	for _, memberCluster := range getHealthyMemberClusters(r.mongosMemberClusters) {
+		// Distributed multi-cluster PoC gate: skip not-ours / wait-on-lease.
+		switch r.distGate(component, memberCluster.Name) {
+		case distGateSkip:
+			continue
+		case distGateWaitLease:
+			log.Debugf("Distributed mode: no lease for %s/%s, requeueing", component, memberCluster.Name)
+			return workflow.Pending("waiting for lease on %s/%s", component, memberCluster.Name)
+		}
+
 		mongosOpts := r.getMongosOptions(ctx, *s, opts, log, memberCluster)
 		mongosSts := construct.DatabaseStatefulSet(*s, mongosOpts, log)
 
@@ -1517,6 +1572,9 @@ func (r *ShardedClusterReconcileHelper) createOrUpdateMongos(ctx context.Context
 			}
 		}
 
+		if statefulSetStatus.IsOK() {
+			r.distCompleteLease(component, memberCluster.Name, log)
+		}
 		workflowStatus = workflowStatus.Merge(statefulSetStatus)
 	}
 
@@ -1535,8 +1593,18 @@ func (r *ShardedClusterReconcileHelper) createOrUpdateShards(ctx context.Context
 		// it doesn't matter for which cluster we get scaler as we need it only for ScalingFirstTime which is iterating over all member clusters internally anyway
 		scalingFirstTime := r.GetShardScaler(shardIdx, r.shardsMemberClustersMap[shardIdx][0]).ScalingFirstTime()
 
+		component := fmt.Sprintf("shard-%d", shardIdx)
 		var workflowStatus workflow.Status = workflow.OK()
 		for _, memberCluster := range getHealthyMemberClusters(r.shardsMemberClustersMap[shardIdx]) {
+			// Distributed multi-cluster PoC gate: skip not-ours / wait-on-lease.
+			switch r.distGate(component, memberCluster.Name) {
+			case distGateSkip:
+				continue
+			case distGateWaitLease:
+				log.Debugf("Distributed mode: no lease for %s/%s, requeueing", component, memberCluster.Name)
+				return workflow.Pending("waiting for lease on %s/%s", component, memberCluster.Name)
+			}
+
 			// shardsNames contains shard name, not statefulset name
 			// in single cluster sts name == shard name
 			// in multi cluster sts name contains cluster index, but shard name does not (it's a replicaset name)
@@ -1569,6 +1637,9 @@ func (r *ShardedClusterReconcileHelper) createOrUpdateShards(ctx context.Context
 				}
 			}
 
+			if statefulSetStatus.IsOK() {
+				r.distCompleteLease(component, memberCluster.Name, log)
+			}
 			workflowStatus = workflowStatus.Merge(statefulSetStatus)
 		}
 
@@ -1587,8 +1658,18 @@ func (r *ShardedClusterReconcileHelper) createOrUpdateConfigServers(ctx context.
 	// for ScalingFirstTime, which is iterating over all member clusters internally anyway
 	configSrvScalingFirstTime := r.GetConfigSrvScaler(r.configSrvMemberClusters[0]).ScalingFirstTime()
 
+	const component = "config"
 	var workflowStatus workflow.Status = workflow.OK()
 	for _, memberCluster := range getHealthyMemberClusters(r.configSrvMemberClusters) {
+		// Distributed multi-cluster PoC gate: skip not-ours / wait-on-lease.
+		switch r.distGate(component, memberCluster.Name) {
+		case distGateSkip:
+			continue
+		case distGateWaitLease:
+			log.Debugf("Distributed mode: no lease for %s/%s, requeueing", component, memberCluster.Name)
+			return workflow.Pending("waiting for lease on %s/%s", component, memberCluster.Name)
+		}
+
 		configSrvOpts := r.getConfigServerOptions(ctx, *s, opts, log, memberCluster)
 		configSrvSts := construct.DatabaseStatefulSet(*s, configSrvOpts, log)
 
@@ -1611,6 +1692,9 @@ func (r *ShardedClusterReconcileHelper) createOrUpdateConfigServers(ctx context.
 			}
 		}
 
+		if statefulsetStatus.IsOK() {
+			r.distCompleteLease(component, memberCluster.Name, log)
+		}
 		workflowStatus = workflowStatus.Merge(statefulsetStatus)
 	}
 
@@ -2707,6 +2791,14 @@ func (r *ShardedClusterReconcileHelper) GetConfigSrvServiceName(memberCluster mu
 }
 
 func (r *ShardedClusterReconcileHelper) replicateAgentKeySecret(ctx context.Context, conn om.Connection, agentKey string, log *zap.SugaredLogger) error {
+	// Distributed multi-cluster PoC: cross-cluster Secret replication is
+	// decommissioned. Each operator manages its own cluster's secrets; the
+	// e2e test setup replicates inputs manually. See implementation plan §1.2.
+	// TODO(post-PoC): implement coordinator-mediated replication via Raft FSM.
+	if r.coordinator != nil {
+		log.Debug("Distributed mode: skipping replicateAgentKeySecret (PoC manually replicates)")
+		return nil
+	}
 	for _, memberCluster := range getHealthyMemberClusters(r.allMemberClusters) {
 		var databaseSecretPath string
 		if memberCluster.SecretClient.VaultClient != nil {
@@ -2765,6 +2857,14 @@ func (r *ShardedClusterReconcileHelper) createHostnameOverrideConfigMapData() ma
 }
 
 func (r *ShardedClusterReconcileHelper) reconcileHostnameOverrideConfigMap(ctx context.Context, log *zap.SugaredLogger) error {
+	// Distributed multi-cluster PoC: cross-cluster ConfigMap replication is
+	// decommissioned. Each operator writes its own cluster's hostname override
+	// CM. See implementation plan §1.2.
+	// TODO(post-PoC): implement coordinator-mediated replication via Raft FSM.
+	if r.coordinator != nil {
+		log.Debug("Distributed mode: skipping reconcileHostnameOverrideConfigMap (PoC manually replicates)")
+		return nil
+	}
 	if !r.sc.Spec.IsMultiCluster() {
 		if r.sc.Spec.DbCommonSpec.GetExternalDomain() == nil {
 			log.Debugf("Skipping creating hostname override config map in SingleCluster topology (with external domain unspecified)")
@@ -3017,6 +3117,13 @@ func (r *ShardedClusterReconcileHelper) replicateTLSCAConfigMap(ctx context.Cont
 }
 
 func (r *ShardedClusterReconcileHelper) replicateSSLMMSCAConfigMap(ctx context.Context, projectConfig mdbv1.ProjectConfig, log *zap.SugaredLogger) error {
+	// Distributed multi-cluster PoC: cross-cluster ConfigMap replication is
+	// decommissioned. See implementation plan §1.2.
+	// TODO(post-PoC): implement coordinator-mediated replication via Raft FSM.
+	if r.coordinator != nil {
+		log.Debug("Distributed mode: skipping replicateSSLMMSCAConfigMap (PoC manually replicates)")
+		return nil
+	}
 	if !r.sc.Spec.IsMultiCluster() || projectConfig.SSLMMSCAConfigMap == "" {
 		return nil
 	}

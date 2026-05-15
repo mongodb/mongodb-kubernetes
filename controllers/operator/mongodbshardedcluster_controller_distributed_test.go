@@ -152,7 +152,7 @@ func buildMultiClusterShardedHelperForDistributedTest(t *testing.T) (
 	fakeKubeClient := mock.NewEmptyFakeClientBuilder().WithObjects(mock.GetDefaultResources()...).Build()
 	kubeClient := kubernetesClient.NewClient(fakeKubeClient)
 
-	memberClusterMap := getFakeMultiClusterMapWithoutInterceptor(memberClusterNames)
+	memberClusterMap := getFakeMultiClusterMapWithConfiguredInterceptor(memberClusterNames, omConnectionFactory, true, true)
 
 	sc := test.DefaultClusterBuilder().
 		SetTopology(mdbv1.ClusterTopologyMultiCluster).
@@ -192,6 +192,70 @@ func TestDistributedMode_FollowerSkipsAC(t *testing.T) {
 		reflect.ValueOf(mockOM.ReadAutomationConfig),
 	)
 	assert.Empty(t, follower.acPublishedProposed, "follower must not propose ac_published")
+}
+
+// TestDistributedMode_DistGate_Decisions exercises the distGate decision
+// matrix directly. distGate is the single place every per-cluster STS-write
+// loop consults; if its truth table is correct, every loop's gate is correct.
+func TestDistributedMode_DistGate_Decisions(t *testing.T) {
+	helper := &ShardedClusterReconcileHelper{}
+
+	// Coordinator nil → always Proceed.
+	helper.coordinator = nil
+	assert.Equal(t, distGateProceed, helper.distGate("config", "anything"))
+
+	// Coordinator set, cluster not ours → Skip.
+	c := newFakeCoordinator("member-cluster-1", false)
+	helper.coordinator = c
+	assert.Equal(t, distGateSkip, helper.distGate("config", "member-cluster-2"))
+
+	// Coordinator set, cluster ours, no lease → WaitLease.
+	assert.Equal(t, distGateWaitLease, helper.distGate("config", "member-cluster-1"))
+
+	// Coordinator set, cluster ours, has lease → Proceed.
+	c.setLease("config", "member-cluster-1")
+	assert.Equal(t, distGateProceed, helper.distGate("config", "member-cluster-1"))
+
+	// Coordinator set, lease is for a different cluster → WaitLease (we don't
+	// hold this scope's lease, even though we're the right cluster name).
+	c.setLease("config", "member-cluster-2")
+	assert.Equal(t, distGateWaitLease, helper.distGate("config", "member-cluster-1"))
+
+	// Coordinator set, lease for our cluster but different component → WaitLease.
+	c.setLease("shard-0", "member-cluster-1")
+	assert.Equal(t, distGateWaitLease, helper.distGate("config", "member-cluster-1"))
+}
+
+// TestDistributedMode_DistCompleteLease_Proposes verifies that distCompleteLease
+// proposes a LeaseComplete when a coordinator is attached, and is a no-op when
+// none is set.
+func TestDistributedMode_DistCompleteLease_Proposes(t *testing.T) {
+	helper := &ShardedClusterReconcileHelper{}
+
+	// Nil coordinator → no-op (no panic).
+	helper.distCompleteLease("config", "member-cluster-1", zap.S())
+
+	c := newFakeCoordinator("member-cluster-1", true)
+	helper.coordinator = c
+	helper.distCompleteLease("config", "member-cluster-1", zap.S())
+	require.Len(t, c.leaseCompletes, 1)
+	assert.Equal(t, "config", c.leaseCompletes[0].Component)
+	assert.Equal(t, "member-cluster-1", c.leaseCompletes[0].ClusterName)
+}
+
+// TestDistributedMode_FollowerSkipsCrossClusterReplication asserts that the
+// three cross-cluster Secret/CM replication entry points are decommissioned
+// in distributed mode (no error, no work). PoC manually replicates these.
+func TestDistributedMode_FollowerSkipsCrossClusterReplication(t *testing.T) {
+	ctx := context.Background()
+	helper, _, _ := buildMultiClusterShardedHelperForDistributedTest(t)
+	c := newFakeCoordinator("member-cluster-2", false)
+	helper.SetCoordinator(c)
+
+	// All three returns nil without invoking peer-cluster clients.
+	require.NoError(t, helper.replicateAgentKeySecret(ctx, nil, "ignored", zap.S()))
+	require.NoError(t, helper.reconcileHostnameOverrideConfigMap(ctx, zap.S()))
+	require.NoError(t, helper.replicateSSLMMSCAConfigMap(ctx, mdbv1.ProjectConfig{}, zap.S()))
 }
 
 // TestDistributedMode_LeaderPassesACGate verifies the leader path: a leader
