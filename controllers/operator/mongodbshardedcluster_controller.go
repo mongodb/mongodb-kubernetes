@@ -742,6 +742,25 @@ func (r *ShardedClusterReconcileHelper) SetCoordinator(c coordination.Distribute
 	r.coordinator = c
 }
 
+// prepareOpsManagerConnectionGated picks the right PrepareOpsManagerConnection
+// variant for distributed mode. The leader (or non-distributed mode) uses
+// the existing read-or-create flow. Followers use the read-only variant: if
+// the project does not yet exist in OM, project.ErrProjectNotFound is
+// returned and the caller should surface workflow.Pending so the leader has
+// time to run the create-path.
+//
+// Rationale: OM project creation, EnsureTagAdded (PUT /groups/<id>), and the
+// agent-API-key issuance inside EnsureAgentKeySecretExists are all
+// OM-mutating operations. They must run on exactly one operator (the
+// leader). Followers still need a connection for read-only AC / status, so
+// the read-only path is the parallel construction.
+func (r *ShardedClusterReconcileHelper) prepareOpsManagerConnectionGated(ctx context.Context, projectConfig mdbv1.ProjectConfig, credsConfig mdbv1.Credentials, log *zap.SugaredLogger) (om.Connection, string, error) {
+	if r.coordinator == nil || r.coordinator.IsLeader() {
+		return connection.PrepareOpsManagerConnection(ctx, r.commonController.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, r.sc.Namespace, log)
+	}
+	return connection.PrepareOpsManagerConnectionReadOnly(ctx, r.commonController.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, r.sc.Namespace, log)
+}
+
 // crKeyFor returns the coordination CRKey for the helper's MongoDB CR.
 func (r *ShardedClusterReconcileHelper) crKeyFor() coordination.CRKey {
 	if r.sc == nil {
@@ -1029,7 +1048,13 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 	}
 
 	if !architectures.IsRunningStaticArchitecture(sc.Annotations) {
-		agents.UpgradeAllIfNeeded(ctx, agents.ClientSecret{Client: r.commonController.client, SecretClient: r.commonController.SecretClient}, r.omConnectionFactory, GetWatchedNamespace(), false)
+		// F12c: leader-only — UpgradeAllIfNeeded mutates OM (sets the
+		// automation-agent version and triggers per-host upgrades).
+		// Followers skip; the next reconcile observes the upgraded state
+		// via OM reads.
+		if r.coordinator == nil || r.coordinator.IsLeader() {
+			agents.UpgradeAllIfNeeded(ctx, agents.ClientSecret{Client: r.commonController.client, SecretClient: r.commonController.SecretClient}, r.omConnectionFactory, GetWatchedNamespace(), false)
+		}
 	}
 
 	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(ctx, r.commonController.client, r.commonController.SecretClient, sc, log)
@@ -1037,8 +1062,13 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 		return r.updateStatus(ctx, sc, workflow.Failed(err), log)
 	}
 
-	conn, agentAPIKey, err := connection.PrepareOpsManagerConnection(ctx, r.commonController.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, sc.Namespace, log)
+	conn, agentAPIKey, err := r.prepareOpsManagerConnectionGated(ctx, projectConfig, credsConfig, log)
 	if err != nil {
+		if xerrors.Is(err, project.ErrProjectNotFound) {
+			// Follower: wait for the leader to create the project. The next
+			// reconcile retries.
+			return r.updateStatus(ctx, sc, workflow.Pending("Distributed mode: waiting for leader to create OM project %q", projectConfig.ProjectName), log)
+		}
 		return r.updateStatus(ctx, sc, workflow.Failed(err), log)
 	}
 
@@ -1337,8 +1367,12 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 		}
 	}
 
-	if workflowStatus := r.commonController.ensureRoles(ctx, sc.Spec.DbCommonSpec, r.enableClusterMongoDBRoles, conn, kube.ObjectKeyFromApiObject(sc), r.deploymentState.LastConfiguredRoles, log); !workflowStatus.IsOK() {
-		return workflowStatus
+	// F12c: ensureRoles mutates OM (PUT /groups/<id>/customDBRoles). The
+	// leader publishes role updates; followers rely on the leader and skip.
+	if r.coordinator == nil || r.coordinator.IsLeader() {
+		if workflowStatus := r.commonController.ensureRoles(ctx, sc.Spec.DbCommonSpec, r.enableClusterMongoDBRoles, conn, kube.ObjectKeyFromApiObject(sc), r.deploymentState.LastConfiguredRoles, log); !workflowStatus.IsOK() {
+			return workflowStatus
+		}
 	}
 
 	agentCertSecretName := sc.GetSecurity().AgentClientCertificateSecretName(sc.Name)
@@ -2251,11 +2285,17 @@ func (r *ShardedClusterReconcileHelper) updateOmDeploymentShardedCluster(ctx con
 	currentHosts := r.getAllHostnames(false)
 	wantedHosts := r.getAllHostnames(true)
 
-	if err = host.CalculateDiffAndStopMonitoring(conn, currentHosts, wantedHosts, log); err != nil {
-		if !isRecovering {
-			return workflow.Failed(err)
+	// F12c: CalculateDiffAndStopMonitoring issues DELETE /hosts to OM for
+	// every host that vanished from the cluster topology. Only the leader
+	// performs it; followers skip and the leader's next pass converges
+	// the host list.
+	if r.coordinator == nil || r.coordinator.IsLeader() {
+		if err = host.CalculateDiffAndStopMonitoring(conn, currentHosts, wantedHosts, log); err != nil {
+			if !isRecovering {
+				return workflow.Failed(err)
+			}
+			logWarnIgnoredDueToRecovery(log, err)
 		}
-		logWarnIgnoredDueToRecovery(log, err)
 	}
 
 	if workflowStatus := r.commonController.ensureBackupConfigurationAndUpdateStatus(ctx, conn, sc, r.commonController.SecretClient, log, r.backupEnableDelay); !workflowStatus.IsOK() {

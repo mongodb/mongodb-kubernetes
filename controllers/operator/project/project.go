@@ -110,6 +110,62 @@ func ReadOrCreateProject(config mdbv1.ProjectConfig, credentials mdbv1.Credentia
 	return project, conn, nil
 }
 
+// ErrProjectNotFound is the sentinel returned by ReadProject when the named
+// project does not exist in Ops Manager. The distributed-multi-cluster PoC
+// uses this to gate the create-path on the raft leader: followers call
+// ReadProject and surface this error as workflow.Pending while the leader
+// creates the project.
+var ErrProjectNotFound = xerrors.New("project not found")
+
+// ReadProject is the read-only variant of ReadOrCreateProject. It returns
+// the existing project + an om.Connection on success, or ErrProjectNotFound
+// if no project with the configured name exists. Unlike ReadOrCreateProject
+// this function never calls CreateProject — it is safe for non-leader
+// operators in distributed mode to call without OM write permission.
+//
+// All other return paths mirror ReadOrCreateProject so callers can swap
+// between them based on `IsLeader()`.
+func ReadProject(config mdbv1.ProjectConfig, credentials mdbv1.Credentials, connectionFactory om.ConnectionFactory, log *zap.SugaredLogger) (*om.Project, om.Connection, error) {
+	projectName := config.ProjectName
+	mutex := om.GetMutex(projectName, config.OrgID)
+	mutex.Lock()
+	defer mutex.Unlock()
+
+	log = log.With("project", projectName)
+
+	omContext := om.OMContext{
+		GroupID:                    "",
+		GroupName:                  projectName,
+		OrgID:                      config.OrgID,
+		BaseURL:                    config.BaseURL,
+		PublicKey:                  credentials.PublicAPIKey,
+		PrivateKey:                 credentials.PrivateAPIKey,
+		AllowInvalidSSLCertificate: !config.SSLRequireValidMMSServerCertificates,
+		CACertificate:              config.SSLMMSCAConfigMapContents,
+	}
+	conn := connectionFactory(&omContext)
+
+	org, err := findOrganization(config.OrgID, projectName, conn, log)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	var project *om.Project
+	if org != nil {
+		project, err = findProject(projectName, org, conn, log)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+
+	if project == nil {
+		return nil, nil, ErrProjectNotFound
+	}
+
+	conn.ConfigureProject(project)
+	return project, conn, nil
+}
+
 func findOrganization(orgID string, projectName string, conn om.Connection, log *zap.SugaredLogger) (*om.Organization, error) {
 	if orgID == "" {
 		// Note: this org_id = "" has to be explicitly set by the customer.
