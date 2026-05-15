@@ -470,7 +470,7 @@ func (s *MongoDBSearch) ProxyServiceNameForClusterShard(clusterIndex int, shardN
 // Mongos uses this endpoint so it is not bound to a specific shard.
 func (s *MongoDBSearch) ClusterLevelProxyServiceNameForCluster(clusterIndex int) types.NamespacedName {
 	return types.NamespacedName{
-		Name:      fmt.Sprintf("%s-search-%d-proxy-svc", s.Name, clusterIndex),
+		Name:      fmt.Sprintf("%s-search-%d-%s", s.Name, clusterIndex, ProxyServiceSuffix),
 		Namespace: s.Namespace,
 	}
 }
