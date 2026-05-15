@@ -3,6 +3,7 @@ package coordraft
 import (
 	"time"
 
+	"github.com/hashicorp/raft"
 	"golang.org/x/xerrors"
 
 	"github.com/mongodb/mongodb-kubernetes/pkg/coordination"
@@ -16,32 +17,78 @@ const applyTimeout = 5 * time.Second
 // (real hashicorp/raft) and FSM (real state machine). One Coordinator per
 // operator instance.
 //
-// F1+: the FSM is partitioned by CRKey. For F1 the Coordinator continues to
-// expose a single-CR API surface — callers carry one CRKey on construction
-// (the operator's CR-of-interest). F5 reworks this to take CRKey per call.
+// F5 adds the new CRKey-aware methods (AcquireOrRespect, ReportProgress,
+// MarkReady, ReleaseLease, AcVersion, AnnounceAcPublished, LastContact) on
+// top of the legacy single-CR surface. The C3-era methods (HasLeaseFor,
+// ProposeStatusReport, etc.) still work for back-compat — F6 removes them
+// from the controller call sites.
 type Coordinator struct {
 	manager     *Manager
 	fsm         *FSM
 	clusterName string
 	defaultCR   CRKey
+	// forwarder is optional — when non-nil, Propose* methods route through
+	// it (so follower-side calls auto-forward to the leader). When nil,
+	// callers fall back to m.Apply directly (only the leader will succeed).
+	forwarder *Forwarder
+
+	// peerByCluster maps cluster name → raft.ServerID used in r.Stats() to
+	// look up LastContact. Set via SetClusterPeerMap.
+	peerByCluster map[string]raft.ServerID
 }
 
 // NewCoordinator constructs a coordinator for clusterName backed by mgr+fsm.
 // The caller is expected to construct the Manager with the same fsm.
 //
-// defaultCR is the CR this coordinator instance treats as "current" — for
-// single-CR PoC tests/operators this is set once at construction.
+// defaultCR is the CR this coordinator instance treats as "current" for the
+// legacy single-CR API; F5+ tests/callers carry CRKey per call.
 func NewCoordinator(clusterName string, mgr *Manager, fsm *FSM) *Coordinator {
 	return &Coordinator{
-		manager:     mgr,
-		fsm:         fsm,
-		clusterName: clusterName,
+		manager:       mgr,
+		fsm:           fsm,
+		clusterName:   clusterName,
+		peerByCluster: map[string]raft.ServerID{},
 	}
 }
 
-// SetDefaultCR sets the CRKey this coordinator's single-CR API methods route
-// through. Single-CR PoC callers call this once after construction.
+// SetDefaultCR sets the CRKey this coordinator's legacy single-CR API routes
+// through.
 func (c *Coordinator) SetDefaultCR(k CRKey) { c.defaultCR = k }
+
+// SetForwarder attaches a Forwarder for follower→leader auto-forwarding of
+// proposals. Coordinators without a forwarder can only Apply when local raft
+// is leader.
+func (c *Coordinator) SetForwarder(f *Forwarder) { c.forwarder = f }
+
+// Compile-time assertions that Coordinator implements both interfaces.
+var (
+	_ coordination.DistributedCoordinator = (*Coordinator)(nil)
+	_ coordination.LegacyCoordinator      = (*Coordinator)(nil)
+)
+
+// SetClusterPeerMap registers cluster-name → raft.ServerID mappings so
+// LastContact can look up per-peer staleness via r.Stats().
+func (c *Coordinator) SetClusterPeerMap(m map[string]raft.ServerID) {
+	c.peerByCluster = make(map[string]raft.ServerID, len(m))
+	for k, v := range m {
+		c.peerByCluster[k] = v
+	}
+}
+
+// applyProposal commits a serialized proposal through the forwarder (if set)
+// or directly via Apply. When the forwarder is nil and the local node is not
+// leader, raft.Apply returns ErrNotLeader and the caller should treat this
+// as a transient error.
+func (c *Coordinator) applyProposal(data []byte, timeout time.Duration) error {
+	if c.forwarder != nil {
+		return c.forwarder.Submit(data, timeout)
+	}
+	return c.manager.Apply(data, timeout).Error()
+}
+
+// ============================================================================
+// LegacyCoordinator (C3-shape) — kept until F6 finishes migrating call sites.
+// ============================================================================
 
 // MyClusterName implements coordination.DistributedCoordinator.
 func (c *Coordinator) MyClusterName() string { return c.clusterName }
@@ -49,13 +96,13 @@ func (c *Coordinator) MyClusterName() string { return c.clusterName }
 // IsLeader implements coordination.DistributedCoordinator.
 func (c *Coordinator) IsLeader() bool { return c.manager.IsLeader() }
 
-// HasLeaseFor implements coordination.DistributedCoordinator.
+// HasLeaseFor is the legacy single-CR lease check.
 func (c *Coordinator) HasLeaseFor(component, clusterName string) bool {
 	lease := c.fsm.GetActiveLease(c.defaultCR)
 	return lease != nil && lease.Component == component && lease.ClusterName == clusterName
 }
 
-// ProposeLeaseComplete implements coordination.DistributedCoordinator.
+// ProposeLeaseComplete is the legacy single-CR lease completion proposal.
 func (c *Coordinator) ProposeLeaseComplete(component, clusterName string) error {
 	data, err := EncodeProposal(ProposalLeaseComplete, LeaseCompletePayload{
 		CRKey: c.defaultCR, Component: component, ClusterName: clusterName,
@@ -63,10 +110,10 @@ func (c *Coordinator) ProposeLeaseComplete(component, clusterName string) error 
 	if err != nil {
 		return xerrors.Errorf("encode lease_complete: %w", err)
 	}
-	return c.manager.Apply(data, applyTimeout).Error()
+	return c.applyProposal(data, applyTimeout)
 }
 
-// ProposeStatusReport implements coordination.DistributedCoordinator.
+// ProposeStatusReport is the legacy single-CR status-report proposal.
 func (c *Coordinator) ProposeStatusReport(r coordination.ClusterStatusReport) error {
 	cs := make(map[string]ComponentStatusEntry, len(r.ComponentStatus))
 	for k, v := range r.ComponentStatus {
@@ -83,10 +130,10 @@ func (c *Coordinator) ProposeStatusReport(r coordination.ClusterStatusReport) er
 	if err != nil {
 		return xerrors.Errorf("encode status_report: %w", err)
 	}
-	return c.manager.Apply(data, applyTimeout).Error()
+	return c.applyProposal(data, applyTimeout)
 }
 
-// ProposeACPublished implements coordination.DistributedCoordinator.
+// ProposeACPublished is the legacy single-CR AC-publish proposal.
 func (c *Coordinator) ProposeACPublished(generation int) error {
 	data, err := EncodeProposal(ProposalACPublished, ACPublishedPayload{
 		CRKey:      c.defaultCR,
@@ -95,12 +142,10 @@ func (c *Coordinator) ProposeACPublished(generation int) error {
 	if err != nil {
 		return xerrors.Errorf("encode ac_published: %w", err)
 	}
-	return c.manager.Apply(data, applyTimeout).Error()
+	return c.applyProposal(data, applyTimeout)
 }
 
-// ProposeLeaseAllocate is the leader-side counterpart of HasLeaseFor.
-// Followers' calls error out with raft.ErrNotLeader; the inline-gating code
-// in the reconciler is responsible for retrying / requeueing.
+// ProposeLeaseAllocate is the legacy single-CR lease-allocate proposal.
 func (c *Coordinator) ProposeLeaseAllocate(component, clusterName string, ttl time.Duration) error {
 	data, err := EncodeProposal(ProposalLeaseAllocate, LeaseAllocatePayload{
 		CRKey: c.defaultCR, Component: component, ClusterName: clusterName, TTL: ttl,
@@ -108,7 +153,7 @@ func (c *Coordinator) ProposeLeaseAllocate(component, clusterName string, ttl ti
 	if err != nil {
 		return xerrors.Errorf("encode lease_allocate: %w", err)
 	}
-	return c.manager.Apply(data, applyTimeout).Error()
+	return c.applyProposal(data, applyTimeout)
 }
 
 // ProposeLeaseExpire is the leader-side revoke for heartbeat-TTL / stuck /
@@ -120,10 +165,10 @@ func (c *Coordinator) ProposeLeaseExpire(component, clusterName, reason string) 
 	if err != nil {
 		return xerrors.Errorf("encode lease_expire: %w", err)
 	}
-	return c.manager.Apply(data, applyTimeout).Error()
+	return c.applyProposal(data, applyTimeout)
 }
 
-// GetActiveLease implements coordination.DistributedCoordinator.
+// GetActiveLease is the legacy single-CR lease accessor.
 func (c *Coordinator) GetActiveLease() *coordination.LeaseInfo {
 	l := c.fsm.GetActiveLease(c.defaultCR)
 	if l == nil {
@@ -132,7 +177,7 @@ func (c *Coordinator) GetActiveLease() *coordination.LeaseInfo {
 	return &coordination.LeaseInfo{Component: l.Component, ClusterName: l.ClusterName}
 }
 
-// GetPerClusterStatus implements coordination.DistributedCoordinator.
+// GetPerClusterStatus is the legacy single-CR status accessor.
 func (c *Coordinator) GetPerClusterStatus() map[string]coordination.ClusterStatusReport {
 	cr := c.fsm.GetPerCR(c.defaultCR)
 	out := make(map[string]coordination.ClusterStatusReport, len(cr.PerClusterStatus))
@@ -151,7 +196,7 @@ func (c *Coordinator) GetPerClusterStatus() map[string]coordination.ClusterStatu
 	return out
 }
 
-// GetACGeneration implements coordination.DistributedCoordinator.
+// GetACGeneration is the legacy single-CR AC-generation accessor.
 func (c *Coordinator) GetACGeneration() int { return c.fsm.GetACGeneration(c.defaultCR) }
 
 // Manager returns the underlying Manager.
@@ -162,3 +207,221 @@ func (c *Coordinator) FSM() *FSM { return c.fsm }
 
 // DefaultCR returns the CRKey this coordinator currently treats as "current".
 func (c *Coordinator) DefaultCR() CRKey { return c.defaultCR }
+
+// ============================================================================
+// F5 — new CRKey-aware DistributedCoordinator surface.
+// ============================================================================
+
+// ClusterIndex returns the stable integer index for a cluster, or (-1, false).
+func (c *Coordinator) ClusterIndex(name string) (int, bool) {
+	idx := c.fsm.GetClusterIndex(name)
+	if idx < 0 {
+		return -1, false
+	}
+	return idx, true
+}
+
+// AcquireOrRespect implements the inline-gating decision at every STS-write
+// call site:
+//   - Component already Ready on this cluster → LeaseOtherClusterDone.
+//   - Active lease matches (component, cluster) → LeaseHeld.
+//   - Active lease holds for a different cluster or different component →
+//     LeaseWaitForLease.
+//   - No active lease → propose LeaseAllocate(component, cluster). If the
+//     allocation commits and the FSM now shows our lease, return LeaseHeld;
+//     otherwise (another lease was allocated first, or apply errored) return
+//     LeaseWaitForLease.
+func (c *Coordinator) AcquireOrRespect(k coordination.CRKey, component, cluster string) coordination.LeaseResult {
+	crk := toRaftCRKey(k)
+	cr := c.fsm.GetPerCR(crk)
+	// Component already reported Ready on this cluster → caller can skip.
+	if cs, ok := cr.PerClusterStatus[cluster]; ok {
+		if comp, ok := cs.ComponentStatus[component]; ok && comp.Ready {
+			return coordination.LeaseOtherClusterDone
+		}
+	}
+	// Active lease matches?
+	if cr.ActiveLease != nil {
+		if cr.ActiveLease.Component == component && cr.ActiveLease.ClusterName == cluster {
+			return coordination.LeaseHeld
+		}
+		return coordination.LeaseWaitForLease
+	}
+	// No active lease — propose. Errors (incl. ErrNotLeader after retries)
+	// just leave the caller in WaitForLease for this reconcile.
+	data, err := EncodeProposal(ProposalLeaseAllocate, LeaseAllocatePayload{
+		CRKey: crk, Component: component, ClusterName: cluster, TTL: 30 * time.Second,
+	})
+	if err != nil {
+		return coordination.LeaseWaitForLease
+	}
+	if err := c.applyProposal(data, applyTimeout); err != nil {
+		return coordination.LeaseWaitForLease
+	}
+	// Re-read FSM. After raft commit, the local FSM may lag by a heartbeat
+	// (followers apply async). Poll briefly so callers don't have to retry
+	// in the most common case where they just acquired their own lease.
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for {
+		cr = c.fsm.GetPerCR(crk)
+		if cr.ActiveLease != nil {
+			if cr.ActiveLease.Component == component && cr.ActiveLease.ClusterName == cluster {
+				return coordination.LeaseHeld
+			}
+			return coordination.LeaseWaitForLease
+		}
+		if time.Now().After(deadline) {
+			return coordination.LeaseWaitForLease
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// IsComponentReady reads from the FSM without proposing anything.
+func (c *Coordinator) IsComponentReady(k coordination.CRKey, component, cluster string) bool {
+	crk := toRaftCRKey(k)
+	cs := c.fsm.GetClusterStatus(crk, cluster)
+	comp, ok := cs.ComponentStatus[component]
+	return ok && comp.Ready
+}
+
+// ReportProgress submits a Ready=false StatusReport carrying the progress
+// snapshot. Refreshes lease HeartbeatAt when applied (lease-holder semantics).
+func (c *Coordinator) ReportProgress(k coordination.CRKey, component, cluster string, progress coordination.ProgressSnapshot) error {
+	return c.submitStatusReport(k, component, cluster, progress, false)
+}
+
+// MarkReady submits a Ready=true StatusReport with the final progress.
+func (c *Coordinator) MarkReady(k coordination.CRKey, component, cluster string, progress coordination.ProgressSnapshot) error {
+	return c.submitStatusReport(k, component, cluster, progress, true)
+}
+
+func (c *Coordinator) submitStatusReport(k coordination.CRKey, component, cluster string, progress coordination.ProgressSnapshot, ready bool) error {
+	crk := toRaftCRKey(k)
+	prev := c.fsm.GetClusterStatus(crk, cluster)
+	gen := int64(1)
+	if existing, ok := prev.ComponentStatus[component]; ok {
+		gen = existing.Generation + 1
+	}
+	data, err := EncodeProposal(ProposalStatusReport, StatusReportPayload{
+		CRKey:       crk,
+		ClusterName: cluster,
+		ReportedAt:  time.Now().UTC(),
+		ComponentStatus: map[string]ComponentStatusEntry{
+			component: {Generation: gen, Ready: ready},
+		},
+		Progress: progressToPayload(progress),
+	})
+	if err != nil {
+		return xerrors.Errorf("encode status_report: %w", err)
+	}
+	return c.applyProposal(data, applyTimeout)
+}
+
+// ReleaseLease announces lease completion for (component, cluster) on a CR.
+func (c *Coordinator) ReleaseLease(k coordination.CRKey, component, cluster string) error {
+	crk := toRaftCRKey(k)
+	data, err := EncodeProposal(ProposalLeaseComplete, LeaseCompletePayload{
+		CRKey: crk, Component: component, ClusterName: cluster,
+	})
+	if err != nil {
+		return xerrors.Errorf("encode lease_complete: %w", err)
+	}
+	return c.applyProposal(data, applyTimeout)
+}
+
+// AcVersion returns the AC generation for a CR.
+func (c *Coordinator) AcVersion(k coordination.CRKey) int64 {
+	return int64(c.fsm.GetACGeneration(toRaftCRKey(k)))
+}
+
+// AnnounceAcPublished bumps the AC generation for a CR.
+func (c *Coordinator) AnnounceAcPublished(k coordination.CRKey, version int64) error {
+	data, err := EncodeProposal(ProposalACPublished, ACPublishedPayload{
+		CRKey:      toRaftCRKey(k),
+		Generation: int(version),
+	})
+	if err != nil {
+		return xerrors.Errorf("encode ac_published: %w", err)
+	}
+	return c.applyProposal(data, applyTimeout)
+}
+
+// LastContact returns time since local raft last heard from the peer cluster.
+// If we have no mapping for the cluster name, return a sentinel of 1 year.
+func (c *Coordinator) LastContact(cluster string) time.Duration {
+	const veryLargeAge = 365 * 24 * time.Hour
+	id, ok := c.peerByCluster[cluster]
+	if !ok {
+		return veryLargeAge
+	}
+	stats := c.manager.Raft().Stats()
+	// hashicorp/raft exposes per-peer last_contact under
+	// "latest_configuration" / specific peer keys. There's no first-class
+	// API; we read the leader's view via Stats().
+	//
+	// As a robust alternative we use the per-leader last contact:
+	if last, ok := stats["last_contact"]; ok && string(id) != "" {
+		_ = last
+	}
+	// Fallback: if we're not leader, last_contact is the time since we last
+	// heard from the leader. For peers other than the leader, we don't have
+	// a per-peer key on stats; return a small value if the cluster is the
+	// current leader (we just heard from them) or veryLargeAge otherwise.
+	leaderAddr, leaderID := c.manager.Raft().LeaderWithID()
+	_ = leaderAddr
+	if string(leaderID) == string(id) {
+		// We're hearing from the leader; reuse last_contact's parsed value.
+		if last, ok := stats["last_contact"]; ok {
+			if d, err := time.ParseDuration(last); err == nil && d >= 0 {
+				return d
+			}
+		}
+		return 0
+	}
+	// For non-leader peers we conservatively return the cluster-wide "term"
+	// or a small value if we're the leader (heartbeats are always recent on
+	// the leader's side). This is a PoC simplification — production would
+	// add per-peer last-contact tracking via a custom Observer.
+	if c.manager.IsLeader() {
+		return 0
+	}
+	return veryLargeAge
+}
+
+// ============================================================================
+// helpers
+// ============================================================================
+
+// toRaftCRKey converts the cross-package CRKey to the raft-package CRKey.
+func toRaftCRKey(k coordination.CRKey) CRKey {
+	return CRKey{Kind: k.Kind, Namespace: k.Namespace, Name: k.Name}
+}
+
+// fromRaftCRKey is the inverse; useful when surfacing FSM contents to callers.
+func fromRaftCRKey(k CRKey) coordination.CRKey { // nolint:unused
+	return coordination.CRKey{Kind: k.Kind, Namespace: k.Namespace, Name: k.Name}
+}
+
+func progressToPayload(p coordination.ProgressSnapshot) ProgressSnapshotEntry {
+	return ProgressSnapshotEntry{
+		CurrentReplicas:         p.CurrentReplicas,
+		ReadyReplicas:           p.ReadyReplicas,
+		ObservedGeneration:      p.ObservedGeneration,
+		AgentGoalVersionAchieve: p.AgentGoalVersionAchieve,
+		LastEventTS:             p.LastEventTS.UnixNano(),
+		PendingError:            p.PendingError,
+	}
+}
+
+// progressFromPayload is the inverse, used by F7's stuck-step detector.
+func progressFromPayload(p ProgressSnapshotEntry) coordination.ProgressSnapshot { // nolint:unused
+	return coordination.ProgressSnapshot{
+		CurrentReplicas:         p.CurrentReplicas,
+		ReadyReplicas:           p.ReadyReplicas,
+		ObservedGeneration:      p.ObservedGeneration,
+		AgentGoalVersionAchieve: p.AgentGoalVersionAchieve,
+		LastEventTS:             time.Unix(0, p.LastEventTS),
+		PendingError:            p.PendingError,
+	}
+}

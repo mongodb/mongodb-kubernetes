@@ -9,56 +9,128 @@
 // a nil coordinator and the existing hub-spoke code path executes unchanged.
 package coordination
 
+import "time"
+
+// CRKey identifies one CR within the FSM-partitioned coordinator state.
+// Every distributed-mode call carries one so multiple CRs sharing a
+// coordinator stay isolated.
+type CRKey struct {
+	Kind      string
+	Namespace string
+	Name      string
+}
+
+// LeaseResult is what AcquireOrRespect returns.
+type LeaseResult int
+
+const (
+	// LeaseHeld — we own the lease and may proceed with the per-cluster work.
+	LeaseHeld LeaseResult = iota
+	// LeaseWaitForLease — someone else holds (or the leader hasn't allocated
+	// it to us yet). Caller should return workflow.Pending and requeue.
+	LeaseWaitForLease
+	// LeaseOtherClusterDone — the work is already complete per the FSM's
+	// StatusReports. Caller may treat the iteration as a no-op (continue).
+	LeaseOtherClusterDone
+)
+
+// ProgressSnapshot is the per-(CR, component, cluster) snapshot the leader
+// uses to detect stuck steps. The leader compares signature equality across
+// successive StatusReports; if it doesn't change for stuck_threshold the
+// lease is revoked.
+type ProgressSnapshot struct {
+	CurrentReplicas         int
+	ReadyReplicas           int
+	ObservedGeneration      int64
+	AgentGoalVersionAchieve int64
+	LastEventTS             time.Time
+	PendingError            string
+}
+
+// IsReady reports whether this snapshot represents a fully-converged scope:
+// observed generation matches, agent goal achieved, ready/current replicas
+// match.
+func (p ProgressSnapshot) IsReady() bool {
+	return p.PendingError == "" &&
+		p.CurrentReplicas > 0 &&
+		p.ReadyReplicas == p.CurrentReplicas &&
+		p.AgentGoalVersionAchieve >= p.ObservedGeneration
+}
+
 // DistributedCoordinator is the consultation surface the reconciler uses to
 // decide whether *this* operator instance should perform a given action.
 //
-// Method-level contracts:
-//   - Read methods (IsLeader, MyClusterName, HasLeaseFor, GetActiveLease,
-//     GetPerClusterStatus) are cheap and must not block. They may return
-//     slightly stale values; callers tolerate this by re-checking on every
-//     reconcile.
-//   - Propose methods enqueue an entry into the underlying consensus log. They
-//     may block for up to a few seconds while raft commits; callers should
-//     treat failures as transient (return Pending and let the controller
-//     requeue).
+// F5 reshapes this from the C3 surface (single global lease, no CRKey) into
+// the inline-gating model:
+//   - AcquireOrRespect / IsComponentReady / ReportProgress / MarkReady /
+//     ReleaseLease are called from each STS-write site, one per cluster
+//     iteration.
+//   - The leader's reconcile loop is itself the scheduler — AcquireOrRespect
+//     proposes a lease iff none is held.
+//   - StatusReports implicitly heartbeat the active lease (no LeaseRenew
+//     proposal exists).
+//
+// All Propose* methods block on raft commit (sync proposals) with a default
+// 5s timeout. Followers' calls auto-forward to the leader via the app channel.
 type DistributedCoordinator interface {
-	// MyClusterName returns the cluster identity this operator instance was
-	// configured with. Used in per-cluster iteration loops to decide
-	// "is this iteration for my cluster?".
-	MyClusterName() string
-
-	// IsLeader returns true iff this node currently believes it is the Raft
-	// leader. AC-publication sites consult this.
+	// IsLeader reports whether this node is the current raft leader.
 	IsLeader() bool
 
-	// HasLeaseFor returns true iff the FSM's currently-active lease matches
-	// (component, clusterName). STS-write sites gate on this.
+	// MyClusterName is the cluster identity this operator instance was
+	// configured with.
+	MyClusterName() string
+
+	// ClusterIndex returns the stable integer index for a cluster name, or
+	// (-1, false) if no proposal has yet assigned one.
+	ClusterIndex(name string) (int, bool)
+
+	// AcquireOrRespect is the gate-point for an STS write site. Returns:
+	//  - LeaseHeld: caller may proceed with the per-cluster work.
+	//  - LeaseWaitForLease: someone else (or no-one yet) holds the lease.
+	//  - LeaseOtherClusterDone: the cluster is already reported Ready for the
+	//    component. Caller should `continue` past this iteration.
+	AcquireOrRespect(crKey CRKey, component, cluster string) LeaseResult
+
+	// IsComponentReady reads from FSM Statuses without proposing anything.
+	IsComponentReady(crKey CRKey, component, cluster string) bool
+
+	// ReportProgress submits a progress-only StatusReport (Ready=false). The
+	// FSM merges this into the cluster's per-component status and refreshes
+	// the lease's HeartbeatAt iff the reporter is the holder.
+	ReportProgress(crKey CRKey, component, cluster string, progress ProgressSnapshot) error
+
+	// MarkReady submits a StatusReport with Ready=true and the final progress
+	// snapshot for the (component, cluster) scope.
+	MarkReady(crKey CRKey, component, cluster string, finalProgress ProgressSnapshot) error
+
+	// ReleaseLease announces that the holder's work is done.
+	ReleaseLease(crKey CRKey, component, cluster string) error
+
+	// AcVersion returns the AC generation for a CR.
+	AcVersion(crKey CRKey) int64
+
+	// AnnounceAcPublished bumps the AC generation for a CR.
+	AnnounceAcPublished(crKey CRKey, version int64) error
+
+	// LastContact returns how long ago the local raft node last heard from
+	// the named cluster's raft peer. Used by F7 to detect unreachable peers.
+	// Returns a very large duration if the cluster has never been contacted.
+	LastContact(cluster string) time.Duration
+}
+
+// LegacyCoordinator is the C3-shape surface that controller code still uses
+// via SetCoordinator. F6 reworks the call sites to use DistributedCoordinator
+// directly; for now the controller takes LegacyCoordinator and the impl
+// implements both so the migration is a single chunk.
+type LegacyCoordinator interface {
+	MyClusterName() string
+	IsLeader() bool
 	HasLeaseFor(component string, clusterName string) bool
-
-	// ProposeLeaseComplete announces that the leaseholder's work for the
-	// component+cluster is done. Idempotent (matches the lease before
-	// clearing). Returns an error if the underlying raft.Apply fails.
 	ProposeLeaseComplete(component string, clusterName string) error
-
-	// ProposeStatusReport replicates this cluster's reported status. Called
-	// at every reconcile (once per cluster) so the leader can see fresh data.
 	ProposeStatusReport(r ClusterStatusReport) error
-
-	// ProposeACPublished announces "I, the leader, have pushed AC version N".
-	// Followers observe ACGeneration via GetACGeneration to unblock dependent
-	// work. Idempotent (monotonic).
 	ProposeACPublished(generation int) error
-
-	// GetActiveLease returns the current global lease, or nil. For logging
-	// and observability — gating uses HasLeaseFor.
 	GetActiveLease() *LeaseInfo
-
-	// GetPerClusterStatus returns a snapshot of all clusters' reported
-	// statuses. Used by the after-loop barrier check in distributed mode.
 	GetPerClusterStatus() map[string]ClusterStatusReport
-
-	// GetACGeneration returns the agreed AC generation. Followers may wait
-	// for this to bump before considering themselves up-to-date.
 	GetACGeneration() int
 }
 

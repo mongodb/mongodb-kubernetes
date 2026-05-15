@@ -131,7 +131,7 @@ func (f *fakeCoordinator) GetACGeneration() int {
 	return f.acGeneration
 }
 
-var _ coordination.DistributedCoordinator = (*fakeCoordinator)(nil)
+var _ coordination.LegacyCoordinator = (*fakeCoordinator)(nil)
 
 // buildMultiClusterShardedHelperForDistributedTest is a tiny factory for the
 // gate-point tests: it constructs a three-cluster sharded MongoDB CR and the

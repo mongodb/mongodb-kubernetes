@@ -638,7 +638,9 @@ type ShardedClusterReconcileHelper struct {
 	// multi-cluster operator PoC. Nil by default: when nil, every gate in the
 	// reconciler is a no-op and the existing hub-spoke behaviour runs
 	// unchanged. Set via WithCoordinator at construction time.
-	coordinator coordination.DistributedCoordinator
+	// F5 transition: helper uses the LegacyCoordinator surface; F6 swaps in
+	// the inline-gating DistributedCoordinator and rewires the call sites.
+	coordinator coordination.LegacyCoordinator
 }
 
 // IsDistributed reports whether this helper is running with a Raft-backed
@@ -693,11 +695,12 @@ func (r *ShardedClusterReconcileHelper) distCompleteLease(component, clusterName
 	}
 }
 
-// SetCoordinator attaches a DistributedCoordinator to the helper. Callers do
+// SetCoordinator attaches a LegacyCoordinator to the helper. Callers do
 // this immediately after construction (NewShardedClusterReconcilerHelper) when
 // running the distributed-multi-cluster PoC. Tests inject a mock implementation
-// to exercise gate-point behaviour without a real Raft cluster.
-func (r *ShardedClusterReconcileHelper) SetCoordinator(c coordination.DistributedCoordinator) {
+// to exercise gate-point behaviour without a real Raft cluster. F6 will
+// replace this with the F5 inline-gating coordination.DistributedCoordinator.
+func (r *ShardedClusterReconcileHelper) SetCoordinator(c coordination.LegacyCoordinator) {
 	r.coordinator = c
 }
 
