@@ -619,6 +619,14 @@ func buildEnvoyPodSpec(search *searchv1.MongoDBSearch, clusterIndex int, tlsCfg 
 					InitialDelaySeconds: 5,
 					PeriodSeconds:       5,
 				},
+				Lifecycle: &corev1.Lifecycle{
+					PreStop: &corev1.LifecycleHandler{
+						HTTPGet: &corev1.HTTPGetAction{
+							Path: "/drain_listeners",
+							Port: intstr.FromInt32(envoyAdminPort),
+						},
+					},
+				},
 				VolumeMounts: volumeMounts,
 			},
 		},
