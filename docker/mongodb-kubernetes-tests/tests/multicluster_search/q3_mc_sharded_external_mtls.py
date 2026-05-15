@@ -171,7 +171,7 @@ def mdbs(
     shards = [
         {
             "shardName": f"{MDB_RESOURCE_NAME}-{shard_idx}",
-            "hostAndPorts": [
+            "hosts": [
                 f"{MDB_RESOURCE_NAME}-{shard_idx}-{cluster_idx}-0-svc.{namespace}.svc.cluster.local:27017"
                 for cluster_idx in range(len(MEMBERS_PER_CLUSTER))
                 if MEMBERS_PER_CLUSTER[cluster_idx] is not None
@@ -188,10 +188,10 @@ def mdbs(
         },
         "external": {
             "shardedCluster": {
-                "routers": router_hosts,
+                "router": {"hosts": router_hosts},
                 "shards": shards,
-                "tls": {"ca": {"name": ca_configmap}},
             },
+            "tls": {"ca": {"name": ca_configmap}},
         },
     }
 
