@@ -314,6 +314,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) buildHeadlessAutomationConfig(ctx cont
 		SetMemberOptions(mrs.Spec.GetMemberOptions()).
 		SetMongoDBVersion(mrs.Spec.Version).
 		SetAuth(automationconfig.Auth{Disabled: true}).
+		SetOptions(automationconfig.Options{DownloadBase: util.AgentDownloadsDir}).
 		SetPreviousAutomationConfig(existingAC).
 		AddProcessModification(func(i int, p *automationconfig.Process) {
 			if i < len(allHostnames) {

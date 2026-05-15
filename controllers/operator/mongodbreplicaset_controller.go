@@ -1005,6 +1005,7 @@ func (r *ReconcileMongoDbReplicaSet) buildHeadlessAutomationConfig(ctx context.C
 		SetMemberOptions(rs.Spec.MemberConfig).
 		SetMongoDBVersion(rs.Spec.Version).
 		SetAuth(automationconfig.Auth{Disabled: true}).
+		SetOptions(automationconfig.Options{DownloadBase: util.AgentDownloadsDir}).
 		SetPreviousAutomationConfig(existingAC)
 
 	if fcv := rs.Spec.FeatureCompatibilityVersion; fcv != nil {

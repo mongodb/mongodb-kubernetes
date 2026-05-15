@@ -87,6 +87,15 @@ func HeadlessAgentEnvVars(configSecretName string) []corev1.EnvVar {
 	return []corev1.EnvVar{
 		{Name: HeadlessAgentEnvName, Value: "true"},
 		{Name: headlessAutomationConfigMapEnv, Value: configSecretName},
+		{
+			Name: "POD_NAMESPACE",
+			ValueFrom: &corev1.EnvVarSource{
+				FieldRef: &corev1.ObjectFieldSelector{
+					APIVersion: "v1",
+					FieldPath:  "metadata.namespace",
+				},
+			},
+		},
 	}
 }
 
