@@ -1033,13 +1033,15 @@ func (r *ReconcileMongoDbReplicaSet) reconcileHeadlessStatefulSet(ctx context.Co
 	// DatabaseContainerName (non-static architecture).
 	isStatic := architectures.IsRunningStaticArchitecture(rs.Annotations)
 
-	// In non-static headless mode the agent binary is normally downloaded from Ops Manager, but
-	// there is no OM connection. Inject an init container that copies the binary from the agent
-	// image into the shared agent emptyDir so agent-launcher.sh can find it.
+	// In non-static headless mode the agent binary and MongoDB binary are normally downloaded from
+	// Ops Manager, but there is no OM connection. Inject init containers that copy both binaries
+	// from their respective images into the shared agent emptyDir.
 	if !isStatic {
+		mongodbImage := images.GetOfficialImage(r.imageUrls, rs.Spec.Version, rs.GetAnnotations())
 		sts.Spec.Template.Spec.InitContainers = append(
 			sts.Spec.Template.Spec.InitContainers,
 			construct.HeadlessAgentBinaryInitContainer(r.imageUrls[util.AgentImageEnv]),
+			construct.HeadlessMongodBinaryInitContainer(mongodbImage),
 		)
 	}
 	for i, c := range sts.Spec.Template.Spec.Containers {

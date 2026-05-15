@@ -184,7 +184,14 @@ agentOpts+=("-mmsApiKey=${AGENT_API_KEY-}")
 rm /tmp/mongodb-mms-automation-cluster-backup.json &> /dev/null || true
 
 if [ -z "${MDB_STATIC_CONTAINERS_ARCHITECTURE}" ]; then
-  echo "Skipping creating symlinks because this is not Static Containers Architecture"
+  if [[ -n "${HEADLESS_AGENT}" ]]; then
+    # In headless non-static mode, mongod is pre-installed by the headless-mongod-binary-init
+    # init container. Point the agent at it directly so it does not attempt a download.
+    agentOpts+=("-binariesFixedPath=${mdb_downloads_dir}/mongod/bin")
+    script_log "Headless non-static mode: using pre-installed mongod binaries at ${mdb_downloads_dir}/mongod/bin"
+  else
+    echo "Skipping creating symlinks because this is not Static Containers Architecture"
+  fi
 else
   WAIT_TIME=5
   MAX_WAIT=300

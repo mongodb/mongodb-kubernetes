@@ -82,5 +82,34 @@ subjects:
     name: mongodb-kubernetes-appdb
     {{ $namespaceBlock }}
 
+---
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: mongodb-kubernetes-database-pods
+  {{ $namespaceBlock }}
+rules:
+  - apiGroups:
+      - ''
+    resources:
+      - secrets
+    verbs:
+      - get
+
+---
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: mongodb-kubernetes-database-pods
+  {{ $namespaceBlock }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: mongodb-kubernetes-database-pods
+subjects:
+  - kind: ServiceAccount
+    name: mongodb-kubernetes-database-pods
+    {{ $namespaceBlock }}
+
 {{- end }}
 {{- end }}{{/* if .Values.operator.createResourcesServiceAccountsAndRoles */}}

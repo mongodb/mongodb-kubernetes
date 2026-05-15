@@ -64,6 +64,29 @@ func HeadlessAgentBinaryInitContainer(agentImage string) corev1.Container {
 	}
 }
 
+// HeadlessMongodBinaryInitContainer returns an init container that copies the mongod binary
+// from the MongoDB image into the shared agent emptyDir. Required in non-static headless mode
+// because there is no Ops Manager to download MongoDB from at runtime.
+//
+// The binary is placed at the path agent-launcher.sh uses for -binariesFixedPath.
+func HeadlessMongodBinaryInitContainer(mongodbImage string) corev1.Container {
+	mongodBinDir := "/mms/mongodb-mms-automation/mongod/bin"
+	return corev1.Container{
+		Name:  "headless-mongod-binary-init",
+		Image: mongodbImage,
+		Command: []string{
+			"/bin/sh", "-c",
+			"mkdir -p " + mongodBinDir + " && " +
+				"cp /usr/bin/mongod " + mongodBinDir + "/mongod && " +
+				"cp /usr/bin/mongos " + mongodBinDir + "/mongos && " +
+				"chmod +x " + mongodBinDir + "/mongod " + mongodBinDir + "/mongos",
+		},
+		VolumeMounts: []corev1.VolumeMount{
+			{Name: util.PvMms, MountPath: "/mms"},
+		},
+	}
+}
+
 // HeadlessAutomationAgentCommand returns the full command for the automation agent
 // container in headless mode. Agents read from a local cluster-config.json Secret
 // mount instead of connecting to Ops Manager.
