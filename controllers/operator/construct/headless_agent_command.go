@@ -9,9 +9,20 @@ import (
 )
 
 const (
-	// HeadlessClusterFilePath is the path inside the agent container where
+	// HeadlessClusterFilePath is the path inside the static agent container where
 	// the automation config Secret is mounted.
 	HeadlessClusterFilePath = appdbClusterFilePath
+
+	// HeadlessConfigVolumeName is the name of the volume carrying the automation config Secret.
+	HeadlessConfigVolumeName = "headless-config"
+
+	// headlessNonStaticMountPath is the directory where agent-launcher.sh reads cluster-config.json
+	// in non-static (mongodb-enterprise-database) containers.
+	headlessNonStaticMountPath = "/var/lib/mongodb-automation"
+
+	// headlessStaticMountPath is the directory where the AppDB-style agent reads cluster-config.json
+	// in static containers.
+	headlessStaticMountPath = "/var/lib/automation/config"
 
 	// HeadlessAgentEnvName is the env var name that marks a container as running in headless mode.
 	HeadlessAgentEnvName = "HEADLESS_AGENT"
@@ -19,6 +30,15 @@ const (
 	headlessAutomationConfigMapEnv   = "AUTOMATION_CONFIG_MAP"
 	headlessAgentDownloadsVolumeName = "agent-downloads"
 )
+
+// HeadlessClusterConfigMountPath returns the directory where the automation config Secret
+// should be mounted, based on whether the container uses the static or non-static architecture.
+func HeadlessClusterConfigMountPath(isStatic bool) string {
+	if isStatic {
+		return headlessStaticMountPath
+	}
+	return headlessNonStaticMountPath
+}
 
 // HeadlessAutomationAgentCommand returns the full command for the automation agent
 // container in headless mode. Agents read from a local cluster-config.json Secret

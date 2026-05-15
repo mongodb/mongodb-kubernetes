@@ -1041,11 +1041,15 @@ func (r *ReconcileMongoDbReplicaSet) reconcileHeadlessStatefulSet(ctx context.Co
 		if !shouldPatch {
 			continue
 		}
-		sts.Spec.Template.Spec.Containers[i].Command = construct.HeadlessAutomationAgentCommand(
-			apiV1.LogLevel(rs.Spec.Agent.LogLevel),
-			"/dev/stdout",
-			rs.Spec.Agent.MaxLogFileDurationHours,
-		)
+		// Static containers (AppDB-style) need a direct agent invocation; non-static containers use
+		// agent-launcher.sh which already detects headless mode via empty BASE_URL.
+		if isStatic {
+			sts.Spec.Template.Spec.Containers[i].Command = construct.HeadlessAutomationAgentCommand(
+				apiV1.LogLevel(rs.Spec.Agent.LogLevel),
+				"/dev/stdout",
+				rs.Spec.Agent.MaxLogFileDurationHours,
+			)
+		}
 		headlessEnvs := construct.HeadlessAgentEnvVars(secretName)
 		filtered := make([]corev1.EnvVar, 0, len(c.Env))
 		omEnvNames := map[string]bool{
@@ -1067,6 +1071,10 @@ func (r *ReconcileMongoDbReplicaSet) reconcileHeadlessStatefulSet(ctx context.Co
 				filteredMounts = append(filteredMounts, m)
 			}
 		}
+		// Mount the automation config Secret so the agent can read cluster-config.json.
+		// Static agents expect the AppDB path; non-static agents use the agent-launcher.sh path.
+		acMountPath := construct.HeadlessClusterConfigMountPath(isStatic)
+		filteredMounts = append(filteredMounts, statefulset.CreateVolumeMount(construct.HeadlessConfigVolumeName, acMountPath, statefulset.WithReadOnly(true)))
 		sts.Spec.Template.Spec.Containers[i].VolumeMounts = filteredMounts
 	}
 	// Remove agent-api-key volume from the pod spec (secret doesn't exist in headless mode).
@@ -1076,7 +1084,8 @@ func (r *ReconcileMongoDbReplicaSet) reconcileHeadlessStatefulSet(ctx context.Co
 			filteredVolumes = append(filteredVolumes, v)
 		}
 	}
-	sts.Spec.Template.Spec.Volumes = append(filteredVolumes, construct.AgentDownloadsVolume())
+	acVolume := statefulset.CreateVolumeFromSecret(construct.HeadlessConfigVolumeName, secretName)
+	sts.Spec.Template.Spec.Volumes = append(filteredVolumes, construct.AgentDownloadsVolume(), acVolume)
 
 	mutatedSts, err := create.DatabaseInKubernetes(ctx, r.client, *rs, sts, stsOptFunc, log)
 	if err != nil {
