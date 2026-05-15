@@ -8,10 +8,12 @@ proxy Service (for mongos) and an Envoy Deployment.
 from typing import List
 
 import kubernetes
+import pymongo.errors
 import pytest
 from kubernetes.client import CoreV1Api
 from kubetester import create_or_update_configmap, create_or_update_secret, read_secret, try_load
 from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.kubetester import run_periodically
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_search import MongoDBSearch
 from kubetester.mongodb_user import MongoDBUser
@@ -22,7 +24,9 @@ from pytest import fixture, mark
 from tests import test_logger
 from tests.common.multicluster.multicluster_utils import assert_deployment_ready_in_cluster
 from tests.common.search import search_resource_names
+from tests.common.search.movies_search_helper import SampleMoviesSearchHelper
 from tests.common.search.search_deployment_helper import MCSearchDeploymentHelper
+from tests.common.search.search_tester import SearchTester
 from tests.common.search.sharded_search_helper import (
     create_issuer_ca,
     create_lb_certificates,
@@ -57,6 +61,11 @@ MONGOT_USER_PASSWORD = "search-sync-source-user-password"
 MDBS_TLS_CERT_PREFIX = "certs"
 CA_CONFIGMAP_NAME = f"{MDB_RESOURCE_NAME}-ca"
 SOURCE_CERT_PREFIX = "clustercert"
+
+SEARCH_INDEX_READY_TIMEOUT = 300
+SEARCH_QUERY_RETRY_TIMEOUT = 60
+
+DATA_PLANE_SKIP_REASON = "phase-3 data-plane follow-up; un-skip after scaffold CI green"
 
 
 # =============================================================================
@@ -496,16 +505,112 @@ def test_envoy_deployment_per_cluster(
 
 
 # =============================================================================
-# Data-plane query suite — deferred to phase-3 follow-up
+# Data-plane query suite — mirrors q2_mc_rs_steady.py but routes through mongos.
+# Each member cluster has its own mongos; mongos→mongot uses the cluster-level
+# proxy Service introduced in M3, so per-cluster queries exercise distinct
+# Envoy + per-shard mongot StatefulSets even though the source data is shared.
+# Skipped until the scaffold patch is CI-green; then un-skip in a follow-up.
 # =============================================================================
 
 
-@pytest.mark.skip(reason="defer to phase-3 follow-up after CI green")
-@mark.e2e_search_q3_mc_sharded_external_mtls
-def test_query_each_cluster():
-    """TODO (phase-3 follow-up): for each member cluster's mongos, run the single-cluster
-    sharded query suite (restore sample_mflix, shard collections, $search, $vectorSearch) and
-    assert parity across clusters.  Mirror test_per_cluster_search_query from q2_mc_rs_steady.py
-    but connect via the per-cluster mongos Service instead of a direct mongod connection.
+def _per_cluster_mongos_search_tester(
+    namespace: str,
+    cluster_index: int,
+    username: str,
+    password: str,
+) -> SearchTester:
+    """SearchTester pinned to a specific cluster's mongos.
+
+    Each member cluster has exactly one mongos in the q3 fixture (MONGOS_PER_CLUSTER=[1,1]);
+    the global mongos pod index equals the cluster index. `directConnection=true` keeps the
+    driver from discovering the other cluster's mongos and silently rerouting.
     """
-    pass
+    mongos_host = f"{MDB_RESOURCE_NAME}-mongos-{cluster_index}-svc.{namespace}.svc.cluster.local:27017"
+    conn_str = (
+        f"mongodb://{username}:{password}@{mongos_host}/"
+        f"?directConnection=true&authSource=admin"
+    )
+    return SearchTester(conn_str, use_ssl=True, ca_path=get_issuer_ca_filepath())
+
+
+@pytest.mark.skip(reason=DATA_PLANE_SKIP_REASON)
+@mark.e2e_search_q3_mc_sharded_external_mtls
+def test_restore_sample_database(namespace: str, tools_pod):
+    """mongorestore sample_mflix into the source sharded cluster via cluster-0's mongos."""
+    tester = _per_cluster_mongos_search_tester(namespace, 0, ADMIN_USER_NAME, ADMIN_USER_PASSWORD)
+    tester.mongorestore_from_url(
+        archive_url="https://atlas-education.s3.amazonaws.com/sample_mflix.archive",
+        ns_include="sample_mflix.*",
+        tools_pod=tools_pod,
+    )
+
+
+@pytest.mark.skip(reason=DATA_PLANE_SKIP_REASON)
+@mark.e2e_search_q3_mc_sharded_external_mtls
+def test_shard_sample_collection(namespace: str):
+    """Shard sample_mflix.movies across the 3 shards so $search exercises every per-shard mongot."""
+    admin = _per_cluster_mongos_search_tester(namespace, 0, ADMIN_USER_NAME, ADMIN_USER_PASSWORD)
+    admin.shard_and_distribute_collection("sample_mflix", "movies")
+
+
+@pytest.mark.skip(reason=DATA_PLANE_SKIP_REASON)
+@mark.e2e_search_q3_mc_sharded_external_mtls
+def test_create_search_index(namespace: str):
+    tester = _per_cluster_mongos_search_tester(namespace, 0, USER_NAME, USER_PASSWORD)
+    movies = SampleMoviesSearchHelper(search_tester=tester)
+    movies.create_search_index()
+    tester.wait_for_search_indexes_ready(movies.db_name, movies.col_name, timeout=SEARCH_INDEX_READY_TIMEOUT)
+
+
+@pytest.mark.skip(reason=DATA_PLANE_SKIP_REASON)
+@mark.e2e_search_q3_mc_sharded_external_mtls
+def test_execute_text_search_query(namespace: str):
+    """End-to-end $search against the first cluster's mongos — quick smoke before per-cluster."""
+    tester = _per_cluster_mongos_search_tester(namespace, 0, USER_NAME, USER_PASSWORD)
+    movies = SampleMoviesSearchHelper(search_tester=tester)
+
+    def execute_search() -> tuple:
+        try:
+            results = movies.text_search_movies("Star Wars")
+            count = len(results)
+            if count > 0:
+                return True, f"$search returned {count} results"
+            return False, "$search returned no results"
+        except pymongo.errors.PyMongoError as exc:
+            return False, f"$search error: {exc}"
+
+    run_periodically(execute_search, timeout=SEARCH_QUERY_RETRY_TIMEOUT, sleep_time=5, msg="$search via mongos-0")
+
+
+@pytest.mark.skip(reason=DATA_PLANE_SKIP_REASON)
+@mark.e2e_search_q3_mc_sharded_external_mtls
+def test_per_cluster_search_query(
+    namespace: str,
+    member_cluster_clients: List[MultiClusterClient],
+):
+    """$search via each cluster's mongos — proves both clusters' Envoy + per-shard mongot
+    paths return results. Mongos→mongot uses the cluster-local proxy Service (M3), so a
+    per-cluster non-empty result is what validates the (cluster × shard) data path.
+    """
+    for cluster_index in range(len(member_cluster_clients)):
+        tester = _per_cluster_mongos_search_tester(namespace, cluster_index, USER_NAME, USER_PASSWORD)
+        movies = SampleMoviesSearchHelper(search_tester=tester)
+
+        def execute_search(_idx: int = cluster_index) -> tuple:
+            try:
+                results = movies.text_search_movies("Star Wars")
+                count = len(results)
+                if count > 0:
+                    titles = [r.get("title") for r in results[:5]]
+                    logger.info(f"cluster {_idx}: $search returned {count} results: {titles}")
+                    return True, f"cluster {_idx}: $search returned {count} results"
+                return False, f"cluster {_idx}: $search returned no results"
+            except pymongo.errors.PyMongoError as exc:
+                return False, f"cluster {_idx}: $search error: {exc}"
+
+        run_periodically(
+            execute_search,
+            timeout=SEARCH_QUERY_RETRY_TIMEOUT,
+            sleep_time=5,
+            msg=f"cluster {cluster_index}: $search via mongos",
+        )
