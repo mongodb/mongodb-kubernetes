@@ -30,6 +30,7 @@ import (
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	apiV1 "github.com/mongodb/mongodb-kubernetes/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	mdbmultiv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdbmulti"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/v1/om"
@@ -42,6 +43,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connection"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	mconstruct "github.com/mongodb/mongodb-kubernetes/controllers/operator/construct/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/create"
 	enterprisepem "github.com/mongodb/mongodb-kubernetes/controllers/operator/pem"
@@ -144,6 +146,10 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 
 	if err := mrs.ProcessValidationsOnReconcile(nil); err != nil {
 		return r.updateStatus(ctx, &mrs, workflow.Invalid("%s", err.Error()), log)
+	}
+
+	if mrs.Spec.ConnectionSpec.IsHeadless() {
+		return r.reconcileHeadless(ctx, &mrs, log)
 	}
 
 	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(ctx, r.client, r.SecretClient, &mrs, log)
@@ -251,6 +257,159 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 
 	log.Infow("Finished reconciliation for MultiReplicaSet", "Spec", mrs.Spec, "Status", mrs.Status)
 	return r.updateStatus(ctx, &mrs, workflow.OK(), log, mdbstatus.NewPVCsStatusOptionEmptyStatus())
+}
+
+// reconcileHeadless handles a MongoDBMultiCluster in headless mode (no Ops Manager connection).
+func (r *ReconcileMongoDbMultiReplicaSet) reconcileHeadless(ctx context.Context, mrs *mdbmultiv1.MongoDBMultiCluster, log *zap.SugaredLogger) (reconcile.Result, error) {
+	ac, err := r.buildHeadlessAutomationConfig(ctx, mrs)
+	if err != nil {
+		return r.updateStatus(ctx, mrs, workflow.Failed(err), log)
+	}
+
+	secretNsName := types.NamespacedName{Name: mrs.Name + "-config", Namespace: mrs.Namespace}
+	if _, err = automationconfig.EnsureSecret(ctx, r.SecretClient, secretNsName, mrs.GetOwnerReferences(), ac); err != nil {
+		return r.updateStatus(ctx, mrs, workflow.Failed(err), log)
+	}
+
+	if err := r.reconcileServices(ctx, log, mrs); err != nil {
+		return r.updateStatus(ctx, mrs, workflow.Failed(err), log)
+	}
+
+	if status := r.reconcileHeadlessStatefulSets(ctx, mrs, log); !status.IsOK() {
+		return r.updateStatus(ctx, mrs, status, log)
+	}
+
+	return r.updateStatus(ctx, mrs, workflow.OK(), log)
+}
+
+func (r *ReconcileMongoDbMultiReplicaSet) buildHeadlessAutomationConfig(ctx context.Context, mrs *mdbmultiv1.MongoDBMultiCluster) (automationconfig.AutomationConfig, error) {
+	secretNsName := types.NamespacedName{Name: mrs.Name + "-config", Namespace: mrs.Namespace}
+	existingAC, err := automationconfig.ReadFromSecret(ctx, r.SecretClient, secretNsName)
+	if err != nil {
+		return automationconfig.AutomationConfig{}, err
+	}
+
+	clusterSpecList, err := mrs.GetClusterSpecItems()
+	if err != nil {
+		return automationconfig.AutomationConfig{}, err
+	}
+
+	// Collect hostnames for every member across all clusters in order.
+	allHostnames := make([]string, 0)
+	totalMembers := 0
+	for _, spec := range clusterSpecList {
+		hostnames := dns.GetMultiClusterProcessHostnames(
+			mrs.Name, mrs.Namespace, mrs.ClusterNum(spec.ClusterName),
+			spec.Members, mrs.Spec.GetClusterDomain(),
+			mrs.Spec.GetExternalDomainForMemberCluster(spec.ClusterName),
+		)
+		allHostnames = append(allHostnames, hostnames...)
+		totalMembers += spec.Members
+	}
+
+	// The builder generates hostnames from domain+index; override them via process modification.
+	builder := automationconfig.NewBuilder().
+		SetName(mrs.Name).
+		SetMembers(totalMembers).
+		SetMemberOptions(mrs.Spec.GetMemberOptions()).
+		SetMongoDBVersion(mrs.Spec.Version).
+		SetAuth(automationconfig.Auth{Disabled: true}).
+		SetPreviousAutomationConfig(existingAC).
+		AddProcessModification(func(i int, p *automationconfig.Process) {
+			if i < len(allHostnames) {
+				p.HostName = allHostnames[i]
+			}
+		})
+
+	if fcv := mrs.Spec.FeatureCompatibilityVersion; fcv != nil && *fcv != "" {
+		builder.SetFCV(*fcv)
+	}
+
+	return builder.Build()
+}
+
+func (r *ReconcileMongoDbMultiReplicaSet) reconcileHeadlessStatefulSets(ctx context.Context, mrs *mdbmultiv1.MongoDBMultiCluster, log *zap.SugaredLogger) workflow.Status {
+	clusterSpecList, err := mrs.GetClusterSpecItems()
+	if err != nil {
+		return workflow.Failed(xerrors.Errorf("failed to read cluster spec list: %w", err))
+	}
+
+	secretName := mrs.Name + "-config"
+	isStatic := architectures.IsRunningStaticArchitecture(mrs.Annotations)
+
+	var workflowStatus workflow.Status = workflow.OK()
+	for _, item := range clusterSpecList {
+		memberClient, ok := r.memberClusterClientsMap[item.ClusterName]
+		if !ok {
+			log.Warnf("failed to reconcile statefulset: cluster %s missing from client map", item.ClusterName)
+			continue
+		}
+
+		clusterNum := mrs.ClusterNum(item.ClusterName)
+		stsOverride := appsv1.StatefulSetSpec{}
+		if item.StatefulSetConfiguration != nil {
+			stsOverride = item.StatefulSetConfiguration.SpecWrapper.Spec
+		}
+
+		opts := mconstruct.MultiClusterReplicaSetOptions(
+			mconstruct.WithClusterNum(clusterNum),
+			Replicas(item.Members),
+			mconstruct.WithStsOverride(&stsOverride),
+			mconstruct.WithAnnotations(mrs.Name),
+			mconstruct.WithServiceName(mrs.MultiHeadlessServiceName(clusterNum)),
+			// No OM connection in headless mode — provide empty PodEnvVars to avoid nil-dereference.
+			PodEnvVars(&env.PodEnvVars{}),
+			WithLabels(mrs.GetOwnerLabels()),
+			WithAdditionalMongodConfig(mrs.Spec.GetAdditionalMongodConfig()),
+			WithInitDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, util.InitDatabaseImageUrlEnv, r.initDatabaseNonStaticImageVersion)),
+			WithDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, util.NonStaticDatabaseEnterpriseImage, r.databaseNonStaticImageVersion)),
+			WithAgentImage(r.imageUrls[util.AgentImageEnv]),
+			WithMongodbImage(images.GetOfficialImage(r.imageUrls, mrs.Spec.Version, mrs.GetAnnotations())),
+		)
+
+		sts := mconstruct.MultiClusterStatefulSet(*mrs, opts)
+
+		for i, c := range sts.Spec.Template.Spec.Containers {
+			var shouldPatch bool
+			if isStatic {
+				shouldPatch = c.Name == util.AgentContainerName
+			} else {
+				shouldPatch = c.Name == util.DatabaseContainerName
+			}
+			if !shouldPatch {
+				continue
+			}
+			sts.Spec.Template.Spec.Containers[i].Command = construct.HeadlessAutomationAgentCommand(
+				apiV1.LogLevel(mrs.Spec.Agent.LogLevel),
+				"/dev/stdout",
+				mrs.Spec.Agent.MaxLogFileDurationHours,
+			)
+			headlessEnvs := construct.HeadlessAgentEnvVars(secretName)
+			filtered := make([]corev1.EnvVar, 0, len(c.Env))
+			omEnvNames := map[string]bool{
+				util.EnvVarBaseUrl:   true,
+				util.EnvVarProjectId: true,
+				util.EnvVarUser:      true,
+			}
+			for _, e := range c.Env {
+				if !omEnvNames[e.Name] {
+					filtered = append(filtered, e)
+				}
+			}
+			sts.Spec.Template.Spec.Containers[i].Env = append(filtered, headlessEnvs...)
+		}
+		sts.Spec.Template.Spec.Volumes = append(sts.Spec.Template.Spec.Volumes, construct.AgentDownloadsVolume())
+
+		mutatedSts, err := statefulset.CreateOrUpdateStatefulset(ctx, memberClient, mrs.Namespace, log, &sts)
+		if err != nil {
+			return workflow.Failed(xerrors.Errorf("failed to create/update StatefulSet in cluster %s: %w", item.ClusterName, err))
+		}
+
+		stsStatus := statefulset.GetStatefulSetStatus(ctx, sts.Namespace, sts.Name, mutatedSts.GetGeneration(), memberClient)
+		workflowStatus = workflowStatus.Merge(stsStatus)
+	}
+
+	return workflowStatus
 }
 
 // publishAutomationConfigFirstMultiCluster returns a boolean indicating whether Ops Manager
