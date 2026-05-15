@@ -1246,6 +1246,11 @@ Phase F — Redesign batch:           [ ] not started   [ ] in progress   [X] co
   F9 — Scale-up integration test:                 [X] complete
   F10 — Failure injection tests:                  [X] complete
   F11 — Regression green + doc update:            [X] complete
+  F12a — ResourceObserved proposal + WaitForResourcesAgreed: [X] complete
+  F12b — Per-operator local resource hashing + gate:         [X] complete
+  F12c — Leader-gate UpgradeAllIfNeeded / ensureRoles / StopMonitoring / ReadOrCreateProject: [X] complete
+  F12d — Exhaustive OM-write audit + close gaps:             [X] complete
+  F12e — Regression green + plan doc:                        [X] complete
 Phase D — e2e PoC:                  [X] not started   [ ] in progress   [ ] complete
   D0 — Extract kubeconfigs:         [X] not started   [ ] in progress   [ ] complete
   D1 — Modify test_deploy_operator: [X] not started   [ ] in progress   [ ] complete
@@ -1298,7 +1303,28 @@ Per-chunk SHAs:
 - **F8** — `8bf93d85b`: headline test `TestDistributedMultiClusterShardedReconcile_F8`. Three Coordinator+Helper pairs, each with its own real raft.Raft node over TCP via F2 muxed StreamLayer + F4 Forwarder. Three reconcile-loop goroutines mirror the production controller's iterator (return-on-first-Wait → requeue). Final stsWriteOrder: `config/a→b→c, shard-0/a→b→c, shard-1/a→b→c, mongos/a→b→c` (12 entries, exactly once each, contiguous per component). Runs in ~2.5s.
 - **F9** — `29c81b4f6`: scale-up integration test. The harness simulates "scope needs rescale" by injecting a Ready=false `ReportProgress`. Asserts: shard-0/cluster-c re-allocated each scale-up (3 writes total = 1 initial + 2 rescales); leader's AC version monotonically advances across rescales (tracked via the FSM's `LastAppliedIndex` as a proxy for "any committed proposal" because the rescale window is shorter than the leader's 30ms reconcile tick).
 - **F10** — `278b384d5`: failure-injection tests. (a) leader kill mid-flight: new leader elected within 10s; surviving clusters' Ready bits intact; new leader can commit. (b) follower partition: 2/3 quorum holds; leader can still commit. (c) follower kill: idempotent — the surviving 2-node quorum keeps making progress.
-- **F11** — this commit: `go build ./...` + `go test ./... -timeout 600s` green (run twice for flake check). Plan doc updated (this section).
+- **F11** — `9a30d02e2`: `go build ./...` + `go test ./... -timeout 600s` green (run twice for flake check). Plan doc updated.
+
+### Phase F12 completion notes (2026-05-15)
+
+F12 closes two gaps that the F1-F11 redesign left open:
+
+1. **Resource-reference agreement** (F12a + F12b). Raft leader election rotates between clusters; divergent local copies of the project ConfigMap, credentials Secret, TLS material, etc. would otherwise yield a "whichever cluster happens to be leader wins" inconsistency. F12 makes resource-hash agreement a **hard correctness gate**: every operator hashes its local copy of every spec-referenced resource, the hash is replicated through the FSM as a `ResourceObserved` proposal, and reconciles refuse to proceed until WaitForResourcesAgreed returns ResourcesAgreed across every known cluster. Disagreements surface in the MDB status condition with a diagnostic that names which cluster has the wrong copy (`Resource ConfigMap/ns/project-cm hash mismatch: cluster-a=abc1234, cluster-b=def5678 — cluster-b is out of sync.`). The user fixes the underlying drift; the operator does not auto-resolve.
+
+2. **Remaining OM-write call-site leader gates** (F12c + F12d). F6 covered AC publication + cleanup. F12c added inline `IsLeader()` gates at three sharded-controller call sites (`agents.UpgradeAllIfNeeded`, `commonController.ensureRoles`, `host.CalculateDiffAndStopMonitoring`) and introduced a follower-side read-only OM-connection path (`project.ReadProject` + `connection.PrepareOpsManagerConnectionReadOnly`) so non-leaders no longer call `CreateProject` / `EnsureTagAdded` / `EnsureAgentKeySecretExists`. F12d swept the rest of the sharded reconcile path and added the only remaining missing gate (`controlledfeature.EnsureFeatureControls`); everything else was already inside one of the leader-gated outer wrappers. The full audit table now lives at the top of `mongodbshardedcluster_controller.go`.
+
+Per-chunk SHAs:
+- **F12a** — `2aa2bcc9a`: `ProposalResourceObserved` + `ResourceObservedPayload` + `ResourceRef`; per-CR `Resources map[refKey]map[cluster]ResourceObservation` in the FSM with newer-wins / stale-ignored semantics; `Coordinator.ReportResource` (synchronous propose) and `Coordinator.WaitForResourcesAgreed` (returns ResourcesAgreed iff every known cluster has reported and all hashes match; otherwise ResourcesPending + diagnostic). Tests in `pkg/coordination/raft/resource_agreement_test.go` cover FSM apply, 3-node TCP agreement, disagreement, missing-observation, drift-then-fix.
+- **F12b** — `75619d463`: `controllers/operator/distributed_resource_agreement.go` with `collectSpecReferencedResourceRefs` (project CM, credentials Secret, member-cert Secrets, agent-cert Secret, LDAP/SCRAM Secrets when referenced), `hashConfigMapData` (sorted keys, drops K8s-managed metadata), `hashSecretData` (includes Secret.Type), `reportLocalResourceHash`, and `gateOnResourceAgreement`. Wired at the top of the sharded helper's `Reconcile`, just after basic validations and before any OM access. Non-distributed mode is a no-op.
+- **F12c** — `c5cf458b7`: leader-only gates around `agents.UpgradeAllIfNeeded`, `commonController.ensureRoles`, `host.CalculateDiffAndStopMonitoring`. Added `project.ReadProject` (read-only; returns `ErrProjectNotFound` if absent) and `connection.PrepareOpsManagerConnectionReadOnly` (follower variant that skips `EnsureTagAdded` + agent-key issuance). New `helper.prepareOpsManagerConnectionGated` picks the right variant; followers seeing `ErrProjectNotFound` surface `workflow.Pending` and retry next reconcile while the leader runs the create-path.
+- **F12d** — `8c693bb2b`: closed one remaining gap (`controlledfeature.EnsureFeatureControls`). Documented the full OM-write audit table at the top of `mongodbshardedcluster_controller.go`.
+- **F12e** — this commit: full `go test ./...` green; plan doc updated.
+
+Design notes worth carrying forward:
+
+- The resource-agreement gate uses majority-hash for the diagnostic ("X clusters say A, 1 cluster says B → B is out of sync"). Production hardening should also consider deterministically-named "reference cluster" sources so even split votes produce a single decision; the PoC's majority heuristic is sufficient for 3-node setups where one drifter is the realistic failure mode.
+- CA bundle ConfigMaps referenced from inside the project CM (`sslMMSCAConfigMap`) are NOT yet in the agreed-set; they're resolved during downstream OM setup. Adding them requires a two-phase agreement (project CM agreed → look up CA name → CA CM agreed). Left as a post-PoC item.
+- Followers' `prepareOpsManagerConnectionGated` calls return `ErrProjectNotFound` if the project doesn't exist yet. The follower surfaces `workflow.Pending` and retries. There is currently no FSM-side "project created" announcement; the next reconcile poll re-checks OM directly. This is fine because `WaitForResourcesAgreed` already gates the entire reconcile flow before any OM access — followers can't get past the gate without the leader having had a chance to run too.
 
 After completing a chunk, the main session updates the matching line by
 moving the `[X]` to the right cell and adding a brief note below the
