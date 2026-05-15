@@ -1019,6 +1019,15 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 		return r.updateStatus(ctx, sc, workflow.Failed(err), log)
 	}
 
+	// F12b: distributed-mode resource-agreement gate. Every operator computes
+	// content-hashes of its local copies of every spec-referenced resource
+	// (project CM, credentials Secret, TLS Secrets, etc.) and submits them
+	// to the FSM. The reconcile blocks here until all operators agree on
+	// every hash. In non-distributed mode this is a no-op (coordinator nil).
+	if gateStatus := r.gateOnResourceAgreement(ctx, log); !gateStatus.IsOK() {
+		return r.updateStatus(ctx, sc, gateStatus, log)
+	}
+
 	if !architectures.IsRunningStaticArchitecture(sc.Annotations) {
 		agents.UpgradeAllIfNeeded(ctx, agents.ClientSecret{Client: r.commonController.client, SecretClient: r.commonController.SecretClient}, r.omConnectionFactory, GetWatchedNamespace(), false)
 	}
