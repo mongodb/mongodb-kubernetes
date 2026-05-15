@@ -1,6 +1,8 @@
 package operator
 
 import (
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
@@ -144,5 +146,27 @@ func WithAgentDebug(debug bool) func(options *construct.DatabaseStatefulSetOptio
 func WithAgentDebugImage(debugImage string) func(options *construct.DatabaseStatefulSetOptions) {
 	return func(options *construct.DatabaseStatefulSetOptions) {
 		options.AgentDebugImage = debugImage
+	}
+}
+
+// WithoutOwnerReference clears the OwnerReference field on the STS options.
+//
+// G iter-17d: in distributed multi-cluster mode the central CR's UID is not
+// resolvable on member clusters (each member has its own per-cluster CR with
+// a distinct server-assigned UID, created by do_distributed_pre_replicate
+// at takeover). K8s GC sweeps any STS whose ownerRef points at an
+// unresolvable UID — that was the iter-17c-identified root cause of the
+// Phase D STS-recreation disruption.
+//
+// Distributed-mode STS lifecycle is owned by the local operator directly;
+// the existing label-driven cleanup in ShardedClusterReconcileHelper.OnDelete
+// → deleteClusterResources (label-matched DeleteAllOf) handles CR-delete
+// cleanup without relying on the K8s GC ownerRef sweep. Hub-spoke retains
+// ownerReferences (the central CR owns member STSes via cross-cluster GC
+// in that mode, even though that's fragile — addressed only when the
+// coordinator is attached).
+func WithoutOwnerReference() func(options *construct.DatabaseStatefulSetOptions) {
+	return func(options *construct.DatabaseStatefulSetOptions) {
+		options.OwnerReference = []metav1.OwnerReference{}
 	}
 }

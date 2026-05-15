@@ -758,6 +758,12 @@ func AddMongoDBSearchEnvoyController(ctx context.Context, mgr manager.Manager, d
 	// cross-cluster owner refs do not GC. Mirrors mongodbmultireplicaset_controller.go:1170-1175.
 	mapper := handler.EnqueueRequestsFromMapFunc(mapEnvoyObjectToSearch)
 	for k, v := range memberClusterObjectsMap {
+		// G'5 iter 17b: distributed pod mode encodes peer cluster names
+		// with nil runtime clusters. Skip member-cluster watches for nil
+		// entries — operator only watches its OWN K8s API.
+		if v == nil {
+			continue
+		}
 		if err := c.Watch(source.Kind[client.Object](v.GetCache(), &appsv1.Deployment{}, mapper)); err != nil {
 			return fmt.Errorf("failed to set Envoy Deployment watch on member cluster %s: %w", k, err)
 		}

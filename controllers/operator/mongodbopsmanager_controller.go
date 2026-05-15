@@ -165,7 +165,10 @@ func NewOpsManagerReconcilerHelper(ctx context.Context, opsManagerReconciler *Op
 		var memberClusterKubeClient kubernetesClient.Client
 		var memberClusterSecretClient secrets.SecretClient
 		memberClusterClient, ok := globalMemberClustersMap[clusterSpecItem.ClusterName]
-		if !ok {
+		// G'5 iter 17b: distributed pod mode populates peer cluster names
+		// with nil clients (name known, no cross-cluster K8s API). Treat
+		// `ok=true && memberClusterClient==nil` the same as `!ok`.
+		if !ok || memberClusterClient == nil {
 			var clusterList []string
 			for m := range globalMemberClustersMap {
 				clusterList = append(clusterList, m)

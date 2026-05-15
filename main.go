@@ -17,6 +17,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
+	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
@@ -51,6 +52,8 @@ import (
 	mcoController "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers"
 	mcoConstruct "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/construct"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/envvar"
+	"github.com/mongodb/mongodb-kubernetes/pkg/coordination"
+	coordraft "github.com/mongodb/mongodb-kubernetes/pkg/coordination/raft"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/pprof"
@@ -202,6 +205,19 @@ func run() error {
 		managerOptions.HealthProbeBindAddress = "127.0.0.1:8181"
 	}
 
+	// Distributed-mode (D'1): allow METRICS_BIND_ADDRESS / HEALTH_PROBE_BIND_ADDRESS
+	// to override the controller-runtime defaults so multiple operator processes
+	// can co-exist on one host without port conflicts. Set unconditionally —
+	// these envs are unset in non-distributed mode and the override is a no-op.
+	if v := os.Getenv("METRICS_BIND_ADDRESS"); v != "" {
+		managerOptions.Metrics = metricsServer.Options{BindAddress: v}
+		log.Infof("Overriding metrics bind address from env: %s", v)
+	}
+	if v := os.Getenv("HEALTH_PROBE_BIND_ADDRESS"); v != "" {
+		managerOptions.HealthProbeBindAddress = v
+		log.Infof("Overriding health-probe bind address from env: %s", v)
+	}
+
 	webhookOptions := setupWebhook(ctx, cfg, log, webhookSVCSelector, currentNamespace)
 	managerOptions.WebhookServer = crWebhook.NewServer(webhookOptions)
 
@@ -231,47 +247,131 @@ func run() error {
 			log.Warnf("The operator did not detect any member clusters")
 		}
 
-		memberClusterClients, err := multicluster.CreateMemberClusterClients(memberClustersNames, multicluster.GetKubeConfigPath())
-		if err != nil {
-			return err
-		}
-
-		// Add the cluster object to the manager corresponding to each member clusters.
-		for k, v := range memberClusterClients {
-			var cluster runtime_cluster.Cluster
-
-			cluster, err := runtime_cluster.New(v, func(options *runtime_cluster.Options) {
-				// Use the operator scheme so cross-cluster owner references
-				// can resolve our CRD types (default scheme lacks them).
-				options.Scheme = scheme
-				if len(namespacesToWatch) > 1 || namespacesToWatch[0] != "" {
-					defaultNamespaces := make(map[string]cache.Config)
-					for _, namespace := range namespacesToWatch {
-						defaultNamespaces[namespace] = cache.Config{}
-					}
-					options.Cache = cache.Options{
-						DefaultNamespaces: defaultNamespaces,
-					}
-				}
-			})
+		// G'5 iter 17b: in distributed pod mode (RAFT_PEERS set) the
+		// operator runs INSIDE a member cluster Pod. The chart-mounted
+		// central kubeconfig encodes 127.0.0.1:<kind-loopback-port> URLs
+		// that are devcontainer-network artefacts unreachable from
+		// pod-network. Calling CreateMemberClusterClients + runtime_cluster.New
+		// against peer contexts would register controller-runtime clients
+		// to unreachable API servers; cache-sync times out and the manager
+		// shuts down (CrashLoopBackOff).
+		//
+		// The architectural invariant is that distributed pod-mode operators
+		// KNOW peer cluster names (for FSM peer list, deploymentState
+		// rehydration, resource-agreement reporting) but NEVER make
+		// cross-cluster K8s API calls. We populate memberClusterObjectsMap
+		// with nil entries for peer names; the local cluster is registered
+		// by the distributed-mode block below against RAFT_CLUSTER_NAME.
+		// Downstream helpers (createMemberClusterListFromClusterSpecList,
+		// ClustersMapToClientMap) treat nil entries as "name known, no
+		// client" and skip cross-cluster work.
+		distributedPodMode := strings.TrimSpace(os.Getenv("RAFT_PEERS")) != ""
+		if distributedPodMode {
+			for _, k := range memberClustersNames {
+				log.Infof("Distributed pod mode: registering cluster %s with nil client (peer, no cross-cluster K8s API)", k)
+				memberClusterObjectsMap[k] = nil
+			}
+		} else {
+			memberClusterClients, err := multicluster.CreateMemberClusterClients(memberClustersNames, multicluster.GetKubeConfigPath())
 			if err != nil {
-				// don't panic here but rather log the error, for example, error might happen when one of the cluster is
-				// unreachable, we would still like the operator to continue reconciliation on the other clusters.
-				log.Errorf("Failed to initialize client for cluster: %s, err: %s", k, err)
-				continue
+				return err
 			}
 
-			log.Infof("Adding cluster %s to cluster map.", k)
-			memberClusterObjectsMap[k] = cluster
-			if err = mgr.Add(cluster); err != nil {
-				return err
+			// Add the cluster object to the manager corresponding to each member clusters.
+			for k, v := range memberClusterClients {
+				var cluster runtime_cluster.Cluster
+
+				cluster, err := runtime_cluster.New(v, func(options *runtime_cluster.Options) {
+					// Use the operator scheme so cross-cluster owner references
+					// can resolve our CRD types (default scheme lacks them).
+					options.Scheme = scheme
+					if len(namespacesToWatch) > 1 || namespacesToWatch[0] != "" {
+						defaultNamespaces := make(map[string]cache.Config)
+						for _, namespace := range namespacesToWatch {
+							defaultNamespaces[namespace] = cache.Config{}
+						}
+						options.Cache = cache.Options{
+							DefaultNamespaces: defaultNamespaces,
+						}
+					}
+				})
+				if err != nil {
+					// don't panic here but rather log the error, for example, error might happen when one of the cluster is
+					// unreachable, we would still like the operator to continue reconciliation on the other clusters.
+					log.Errorf("Failed to initialize client for cluster: %s, err: %s", k, err)
+					continue
+				}
+
+				log.Infof("Adding cluster %s to cluster map.", k)
+				memberClusterObjectsMap[k] = cluster
+				if err = mgr.Add(cluster); err != nil {
+					return err
+				}
 			}
 		}
 	}
 
+	// Distributed-mode (D'1): when RAFT_PEERS is set, this operator process
+	// participates in a Raft-coordinated multi-operator deployment. We build
+	// a Coordinator backed by the muxed TCP raft transport and attach it to
+	// the sharded controller via AddShardedClusterController. The
+	// MongoDBMultiCluster controller is NOT registered in distributed mode —
+	// only the sharded controller participates in cross-cluster coordination.
+	//
+	// All four env vars must be set together:
+	//   RAFT_CLUSTER_NAME, RAFT_PEERS, RAFT_BIND_ADDR, RAFT_BOOTSTRAP
+	// If RAFT_PEERS is unset, distributed mode is OFF and the operator runs
+	// the legacy hub-and-spoke path unchanged.
+	var distributedCoordinator coordination.DistributedCoordinator
+	var distributedNode *coordraft.ProductionNode
+	if peersRaw := strings.TrimSpace(os.Getenv("RAFT_PEERS")); peersRaw != "" {
+		node, err := buildDistributedCoordinator(peersRaw)
+		if err != nil {
+			return xerrors.Errorf("distributed mode init: %w", err)
+		}
+		distributedCoordinator = node.Coordinator
+		distributedNode = node
+		log.Infof("Distributed mode ON: cluster=%s bind=%s peers=%q bootstrap=%v",
+			node.Coordinator.MyClusterName(), node.StreamLayer.Addr().String(), peersRaw, isBootstrapNode())
+		defer func() {
+			if distributedNode != nil {
+				_ = distributedNode.Close()
+			}
+		}()
+
+		// In distributed mode the sharded controller's
+		// initializeMemberClusters still needs a non-empty
+		// memberClusterObjectsMap (the hub-spoke guard is bypassed by the
+		// coordinator check but createMemberClusterListFromClusterSpecList
+		// still iterates over spec entries). The operator only has access
+		// to its OWN member cluster's K8s API; we register the local
+		// runtime cluster against RAFT_CLUSTER_NAME. Entries the spec
+		// references for other clusters will resolve to nil-Client
+		// MemberClusters that the distGateInline / IsLeader gates skip.
+		localClusterName := distributedCoordinator.MyClusterName()
+		localCluster, err := runtime_cluster.New(cfg, func(options *runtime_cluster.Options) {
+			options.Scheme = scheme
+			if len(namespacesToWatch) > 1 || namespacesToWatch[0] != "" {
+				defaultNamespaces := make(map[string]cache.Config)
+				for _, namespace := range namespacesToWatch {
+					defaultNamespaces[namespace] = cache.Config{}
+				}
+				options.Cache = cache.Options{DefaultNamespaces: defaultNamespaces}
+			}
+		})
+		if err != nil {
+			return xerrors.Errorf("build local runtime cluster for distributed mode: %w", err)
+		}
+		if err := mgr.Add(localCluster); err != nil {
+			return xerrors.Errorf("add local runtime cluster to manager: %w", err)
+		}
+		memberClusterObjectsMap[localClusterName] = localCluster
+		log.Infof("Distributed mode: registered local cluster %q in memberClusterObjectsMap", localClusterName)
+	}
+
 	// Setup all Controllers
 	if slices.Contains(crds, mongoDBCRDPlural) {
-		if err := setupMongoDBCRD(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, memberClusterObjectsMap, backupEnableDelay); err != nil {
+		if err := setupMongoDBCRD(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, memberClusterObjectsMap, backupEnableDelay, distributedCoordinator); err != nil {
 			return err
 		}
 	}
@@ -286,8 +386,12 @@ func run() error {
 		}
 	}
 	if slices.Contains(crds, mongoDBMultiClusterCRDPlural) {
-		if err := setupMongoDBMultiClusterCRD(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, memberClusterObjectsMap); err != nil {
-			return err
+		if distributedCoordinator != nil {
+			log.Infof("Distributed mode ON: skipping MongoDBMultiCluster controller registration (sharded only).")
+		} else {
+			if err := setupMongoDBMultiClusterCRD(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, memberClusterObjectsMap); err != nil {
+				return err
+			}
 		}
 	}
 	if slices.Contains(crds, mongoDBSearchCRDPlural) {
@@ -372,15 +476,18 @@ func shutdownTracerProvider(signalCtx context.Context, tp *sdktrace.TracerProvid
 	}
 }
 
-func setupMongoDBCRD(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, memberClusterObjectsMap map[string]runtime_cluster.Cluster, backupEnableDelay time.Duration) error {
+func setupMongoDBCRD(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, memberClusterObjectsMap map[string]runtime_cluster.Cluster, backupEnableDelay time.Duration, coordinator coordination.DistributedCoordinator) error {
 	if err := operator.AddStandaloneController(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage); err != nil {
 		return err
 	}
 	if err := operator.AddReplicaSetController(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage); err != nil {
 		return err
 	}
-	if err := operator.AddShardedClusterController(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, memberClusterObjectsMap, backupEnableDelay); err != nil {
+	if err := operator.AddShardedClusterController(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, memberClusterObjectsMap, backupEnableDelay, coordinator); err != nil {
 		return err
+	}
+	if !webhook.ShouldRegisterWebhookConfiguration() {
+		return nil
 	}
 	return ctrl.NewWebhookManagedBy(mgr).For(&mdbv1.MongoDB{}).
 		WithValidator(&mdbv1.MongoDBValidator{}).
@@ -390,6 +497,9 @@ func setupMongoDBCRD(ctx context.Context, mgr manager.Manager, imageUrls images.
 func setupMongoDBOpsManagerCRD(ctx context.Context, mgr manager.Manager, memberClusterObjectsMap map[string]runtime_cluster.Cluster, imageUrls images.ImageUrls, initDatabaseVersion, initOpsManagerImageVersion string) error {
 	if err := operator.AddOpsManagerController(ctx, mgr, memberClusterObjectsMap, imageUrls, initDatabaseVersion, initOpsManagerImageVersion); err != nil {
 		return err
+	}
+	if !webhook.ShouldRegisterWebhookConfiguration() {
+		return nil
 	}
 	return ctrl.NewWebhookManagedBy(mgr).For(&omv1.MongoDBOpsManager{}).
 		WithValidator(&omv1.MongoDBOpsManagerValidator{}).
@@ -403,6 +513,9 @@ func setupMongoDBUserCRD(ctx context.Context, mgr manager.Manager, memberCluster
 func setupMongoDBMultiClusterCRD(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, memberClusterObjectsMap map[string]runtime_cluster.Cluster) error {
 	if err := operator.AddMultiReplicaSetController(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, memberClusterObjectsMap); err != nil {
 		return err
+	}
+	if !webhook.ShouldRegisterWebhookConfiguration() {
+		return nil
 	}
 	return ctrl.NewWebhookManagedBy(mgr).For(&mdbmultiv1.MongoDBMultiCluster{}).
 		WithValidator(&mdbmultiv1.MongoDBMultiClusterValidator{}).
@@ -544,6 +657,43 @@ func loadEnvFromLocalFileForDevelopment() {
 		return
 	}
 
+	side := "host"
+	if _, err := os.Stat("/.dockerenv"); err == nil {
+		side = "devc"
+	}
+
+	envFiles := []string{
+		".generated/context.env",
+		fmt.Sprintf(".generated/context.%s.env", side),
+		".generated/context.operator.env",
+	}
+
+	// In distributed mode (RAFT_PEERS set), the launcher
+	// (run-3-operators-locally.sh, D'4) explicitly configures KUBECONFIG,
+	// RAFT_CLUSTER_NAME, METRICS_BIND_ADDRESS, HEALTH_PROBE_BIND_ADDRESS,
+	// MDB_WEBHOOK_PORT, OPERATOR_NAME etc. per process. The dotenv files
+	// would otherwise overwrite those (godotenv.Overload semantics) and
+	// send all three operator instances to the same K8s cluster + same
+	// webhook port. Use godotenv.Load instead so existing env wins for
+	// keys the launcher already set; the file fills only the gaps.
+	useLoadNoOverwrite := strings.TrimSpace(os.Getenv("RAFT_PEERS")) != ""
+
+	for _, envFile := range envFiles {
+		if _, err := os.Stat(envFile); err != nil {
+			log.Warnf("Env file %s not found (run 'make switch' on the %s side); skipping.", envFile, side)
+			continue
+		}
+		var err error
+		if useLoadNoOverwrite {
+			err = godotenv.Load(envFile)
+		} else {
+			err = godotenv.Overload(envFile)
+		}
+		if err != nil {
+			log.Warnf("Failed to load environment variables from file %s: %v", envFile, err)
+		} else {
+			log.Infof("Loaded environment variables from file %s (no-overwrite=%v)", envFile, useLoadNoOverwrite)
+		}
 	envFile := ".generated/context.operator.env"
 	if _, err := os.Stat(envFile); err != nil {
 		log.Warnf("Env file %s not found (run 'make switch'); skipping.", envFile)
@@ -637,6 +787,69 @@ func initEnvVariables() {
 
 func validateOperatorEnv(env util.OperatorEnvironment) bool {
 	return slices.Contains(operatorEnvironments[:], env.String())
+}
+
+// isBootstrapNode reports whether this operator should bootstrap the raft
+// cluster (i.e. the RAFT_BOOTSTRAP env var is truthy). Exactly one operator
+// per cluster should be configured as the bootstrap node; the others wait
+// for the bootstrap node to elect itself leader and replicate the
+// configuration. The run-3-operators-locally.sh launcher (D'4) sets this to
+// "true" on cluster-1 only.
+func isBootstrapNode() bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv("RAFT_BOOTSTRAP")))
+	return v == "true" || v == "1" || v == "yes"
+}
+
+// buildDistributedCoordinator constructs a real-TCP Raft-backed
+// DistributedCoordinator from the following env vars:
+//
+//	RAFT_CLUSTER_NAME   — this operator's cluster identity (must match a
+//	                      Peers entry). Distinct from CLUSTER_NAME which
+//	                      the test framework uses for member-cluster naming.
+//	RAFT_BIND_ADDR      — host:port for the raft TCP listener
+//	                      (hashicorp/raft msgpack wire protocol).
+//	RAFT_APP_BIND_ADDR  — host:port for the proposal-forwarder TCP listener
+//	                      (plain TCP, length-prefixed). Optional: defaults
+//	                      to RAFT_BIND_ADDR.port + 1 if empty.
+//	RAFT_PEERS          — comma-separated voter list of the form
+//	                      "name=host:port,name=host:port,...". host:port is
+//	                      the peer's RAFT port; the forwarder derives each
+//	                      peer's app port by adding 1.
+//	RAFT_BOOTSTRAP      — "true" / "1" / "yes" iff this is the bootstrap
+//	                      node.
+//
+// RAFT_CLUSTER_NAME, RAFT_BIND_ADDR, RAFT_PEERS are required (RAFT_PEERS
+// already verified non-empty by caller). RAFT_APP_BIND_ADDR and
+// RAFT_BOOTSTRAP are optional. Returns the constructed node; caller is
+// responsible for Close() on shutdown.
+func buildDistributedCoordinator(peersRaw string) (*coordraft.ProductionNode, error) {
+	clusterName := strings.TrimSpace(os.Getenv("RAFT_CLUSTER_NAME"))
+	bindAddr := strings.TrimSpace(os.Getenv("RAFT_BIND_ADDR"))
+	appBindAddr := strings.TrimSpace(os.Getenv("RAFT_APP_BIND_ADDR"))
+	if clusterName == "" {
+		return nil, xerrors.New("RAFT_CLUSTER_NAME required when RAFT_PEERS is set")
+	}
+	if bindAddr == "" {
+		return nil, xerrors.New("RAFT_BIND_ADDR required when RAFT_PEERS is set")
+	}
+	peers, err := coordraft.ParsePeers(peersRaw)
+	if err != nil {
+		return nil, xerrors.Errorf("parse RAFT_PEERS=%q: %w", peersRaw, err)
+	}
+	// appBindAddr is optional: BuildProductionCoordinator derives port+1
+	// from BindAddr when it's empty. Provide it explicitly when the
+	// chart/launcher sets RAFT_APP_BIND_ADDR.
+	node, err := coordraft.BuildProductionCoordinator(coordraft.ProductionConfig{
+		ClusterName: clusterName,
+		BindAddr:    bindAddr,
+		AppBindAddr: appBindAddr,
+		Peers:       peers,
+		Bootstrap:   isBootstrapNode(),
+	})
+	if err != nil {
+		return nil, xerrors.Errorf("build coordinator: %w", err)
+	}
+	return node, nil
 }
 
 func init() {

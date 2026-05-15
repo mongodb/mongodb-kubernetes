@@ -52,6 +52,38 @@ func PrepareOpsManagerConnection(ctx context.Context, client secrets.SecretClien
 	}
 }
 
+// PrepareOpsManagerConnectionReadOnly is the follower-side equivalent of
+// PrepareOpsManagerConnection. F12c uses it from non-leader distributed-mode
+// reconciles: it reads (never creates) the OM project, skips the
+// tag-mutation / agent-key write paths, and returns the connection ready for
+// AC reads. If the project does not exist yet, it returns project.ErrProjectNotFound
+// so the caller can surface workflow.Pending and wait for the leader to
+// create it.
+func PrepareOpsManagerConnectionReadOnly(ctx context.Context, client secrets.SecretClient, projectConfig mdbv1.ProjectConfig, credentials mdbv1.Credentials, connectionFunc om.ConnectionFactory, namespace string, log *zap.SugaredLogger) (om.Connection, string, error) {
+	_ = ctx
+	_ = client
+	_ = namespace
+	omProject, conn, err := project.ReadProject(projectConfig, credentials, connectionFunc, log)
+	if err != nil {
+		if xerrors.Is(err, project.ErrProjectNotFound) {
+			return nil, "", err
+		}
+		return nil, "", xerrors.Errorf("error reading project in Ops Manager: %w", err)
+	}
+
+	omVersion := conn.OpsManagerVersion()
+	if omVersion.VersionString != "" {
+		log.Infof("Using Ops Manager version %s", omVersion)
+	}
+
+	// Followers must NOT call EnsureTagAdded (it writes to OM) and must NOT
+	// call EnsureAgentKeySecretExists (it requests a new agent API key when
+	// none exists, which is also a write). We return the existing project's
+	// agent API key from the read.
+	agentAPIKey := omProject.AgentAPIKey
+	return conn, agentAPIKey, nil
+}
+
 // EnsureTagAdded makes sure that the given project has the provided tag
 func EnsureTagAdded(conn om.Connection, project *om.Project, tag string, log *zap.SugaredLogger) error {
 	// must truncate the tag to at most 32 characters and capitalise as

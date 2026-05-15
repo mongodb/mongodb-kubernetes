@@ -177,6 +177,17 @@ func GetRsNamefromMultiStsName(name string) string {
 func ClustersMapToClientMap(clusterMap map[string]cluster.Cluster) map[string]client.Client {
 	clientMap := map[string]client.Client{}
 	for memberClusterName, memberCluster := range clusterMap {
+		// G'5 iter 17b: in distributed pod mode peer cluster entries
+		// have a nil runtime cluster (name known, no K8s client). The
+		// presence of the name in the map matters for downstream code
+		// (deploymentState rehydration, ClusterMapping, FSM peer list);
+		// the client itself stays nil and is filtered out by helpers
+		// like createMemberClusterListFromClusterSpecList. Calling
+		// GetClient() on a nil cluster.Cluster would nil-deref.
+		if memberCluster == nil {
+			clientMap[memberClusterName] = nil
+			continue
+		}
 		clientMap[memberClusterName] = memberCluster.GetClient()
 	}
 	return clientMap

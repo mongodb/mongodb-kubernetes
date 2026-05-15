@@ -353,6 +353,13 @@ func AddMongoDBSearchController(
 			&corev1.Secret{},
 		}
 		for k, v := range memberClusterObjectsMap {
+			// G'5 iter 17b: distributed pod mode populates peer cluster
+			// names with nil runtime clusters (name known, no K8s API).
+			// Skip member-cluster watches for nil entries — the operator
+			// only watches its OWN cluster's K8s API.
+			if v == nil {
+				continue
+			}
 			for _, gvk := range watchedTypes {
 				if err := c.Watch(source.Kind[client.Object](v.GetCache(), gvk, searchOwnerHandler, searchOwnerPredicate)); err != nil {
 					return xerrors.Errorf("failed to set MongoDBSearch member-cluster watch on %s for %T: %w", k, gvk, err)

@@ -329,7 +329,14 @@ func createMemberClusterListFromClusterSpecList(clusterSpecList mdbv1.ClusterSpe
 		var memberClusterKubeClient kubernetesClient.Client
 		var memberClusterSecretClient secrets.SecretClient
 		memberClusterClient, ok := globalMemberClustersMap[clusterSpecItem.ClusterName]
-		if !ok {
+		// G'5 iter 17b: in distributed pod mode the operator KNOWS peer
+		// cluster names but has NO K8s client for them (the entry is
+		// present in globalMemberClustersMap with a nil value). Treat
+		// `ok=true && memberClusterClient==nil` exactly like ok=false —
+		// emit the warn and leave Client/SecretClient zero. Wrapping nil
+		// in kubernetesClient.NewClient yields a non-nil wrapper struct
+		// that crashes on first method call.
+		if !ok || memberClusterClient == nil {
 			var clusterList []string
 			for m := range globalMemberClustersMap {
 				clusterList = append(clusterList, m)
@@ -372,7 +379,10 @@ func createMemberClusterListFromClusterSpecList(clusterSpecList mdbv1.ClusterSpe
 		var memberClusterKubeClient kubernetesClient.Client
 		var memberClusterSecretClient secrets.SecretClient
 		memberClusterClient, ok := globalMemberClustersMap[previousMember]
-		if !ok {
+		// G'5 iter 17b: same nil-handling as the main branch above —
+		// distributed pod mode encodes "name known, no client" by a
+		// present but nil map entry. Don't wrap nil in NewClient.
+		if !ok || memberClusterClient == nil {
 			var clusterList []string
 			for m := range globalMemberClustersMap {
 				clusterList = append(clusterList, m)

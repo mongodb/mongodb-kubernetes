@@ -1,5 +1,49 @@
 package operator
 
+// ============================================================================
+// OM-write gating audit — 2026-05-15 (F12d)
+// ============================================================================
+//
+// Every OM-mutating call reachable from a sharded-cluster reconcile is either
+// (a) inside an explicit leader-only conditional, (b) inside one of the
+// leader-gated wrappers `updateOmDeploymentShardedCluster` /
+// `cleanOpsManagerState` (each guards itself at the top), or (c) inside the
+// new prepareOpsManagerConnectionGated which routes followers to a read-only
+// path.
+//
+// Audit summary:
+//
+// Call site                                  | File:line                                | Gate
+// -------------------------------------------|------------------------------------------|----------------------------------
+// agents.UpgradeAllIfNeeded                  | mongodbshardedcluster_controller.go:1033 | inline `IsLeader()` (F12c)
+// project.ReadOrCreateProject (create-path)  | via PrepareOpsManagerConnection          | prepareOpsManagerConnectionGated routes followers
+//                                            | (sharded controller line ~1043)          |   to PrepareOpsManagerConnectionReadOnly (F12c)
+// EnsureTagAdded (UpdateProject)             | connection/opsmanager_connection.go:101  | only called from the leader path (F12c)
+// EnsureAgentKeySecretExists                 | connection/opsmanager_connection.go:48   | leader-only via prepareOpsManagerConnectionGated (F12c)
+// controlledfeature.EnsureFeatureControls    | mongodbshardedcluster_controller.go:1363 | inline `IsLeader()` (F12d)
+// commonController.ensureRoles               | mongodbshardedcluster_controller.go:1378 | inline `IsLeader()` (F12c)
+// commonController.updateOmAuthentication    | mongodbshardedcluster_controller.go:2389 | inside updateOmDeploymentShardedCluster (F6)
+// publishDeployment.ReadUpdateDeployment     | mongodbshardedcluster_controller.go:1962 | inside publishDeployment, called by updateOmDeploymentShardedCluster (F6)
+// host.CalculateDiffAndStopMonitoring        | mongodbshardedcluster_controller.go:2298 | inline `IsLeader()` (F12c)
+// ensureBackupConfigurationAndUpdateStatus   | mongodbshardedcluster_controller.go:2305 | inside updateOmDeploymentShardedCluster (F6)
+// ReconcileLogRotateSetting                  | mongodbshardedcluster_controller.go:2464 | inside publishDeployment (F6)
+// AnnounceAcPublished (FSM proposal)         | mongodbshardedcluster_controller.go:2313 | inline `IsLeader()` (F6)
+// cleanOpsManagerState (delete-path)         | mongodbshardedcluster_controller.go:1908 | top-of-function `IsLeader()` (F6)
+//   ↳ conn.ReadUpdateDeployment              | mongodbshardedcluster_controller.go:2378 | transitively leader-only
+//   ↳ host.StopMonitoring                    | mongodbshardedcluster_controller.go:1994 | transitively leader-only
+//   ↳ clearProjectAuthenticationSettings     | mongodbshardedcluster_controller.go:1994 | transitively leader-only
+//   ↳ ClearFeatureControls                   | mongodbshardedcluster_controller.go:1999 | transitively leader-only
+// replicateAgentKeySecret                    | mongodbshardedcluster_controller.go:1075 | distributed mode no-ops (F6)
+// reconcileHostnameOverrideConfigMap         | mongodbshardedcluster_controller.go:1078 | distributed mode no-ops (F6)
+// replicateSSLMMSCAConfigMap                 | mongodbshardedcluster_controller.go:1081 | distributed mode no-ops (F6)
+//
+// F12b adds the cross-cluster ResourcesAgreed gate at the top of Reconcile;
+// no operator (leader or follower) reaches any of the above call sites
+// until every spec-referenced K8s resource has been observed identically by
+// every cluster.
+//
+// ============================================================================
+
 import (
 	"context"
 	"fmt"
@@ -65,6 +109,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/service"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/merge"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/scale"
+	"github.com/mongodb/mongodb-kubernetes/pkg/coordination"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
@@ -94,6 +139,22 @@ type ReconcileMongoDbShardedCluster struct {
 	agentDebug        bool
 	agentDebugImage   string
 	backupEnableDelay time.Duration
+
+	// coordinator, if non-nil, is the DistributedCoordinator the reconciler
+	// will attach to every Helper instance it creates in Reconcile / OnDelete.
+	// main.go sets this when distributed mode is enabled via the RAFT_PEERS
+	// env var. Tests that exercise the helper construct a coordinator
+	// directly and call SetCoordinator on the helper, so this field is only
+	// consulted at the reconciler level.
+	coordinator coordination.DistributedCoordinator
+}
+
+// SetCoordinator attaches a DistributedCoordinator to the reconciler. Every
+// Helper subsequently constructed by Reconcile / OnDelete will inherit it.
+// Called once at registration time by AddShardedClusterController when the
+// operator process is configured for distributed mode.
+func (r *ReconcileMongoDbShardedCluster) SetCoordinator(c coordination.DistributedCoordinator) {
+	r.coordinator = c
 }
 
 func newShardedClusterReconciler(ctx context.Context, kubeClient client.Client, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, memberClusterMap map[string]client.Client, omFunc om.ConnectionFactory, backupEnableDelay time.Duration) *ReconcileMongoDbShardedCluster {
@@ -145,13 +206,20 @@ func NewShardedClusterDeploymentState() *ShardedClusterDeploymentState {
 	}
 }
 
-func (r *ShardedClusterReconcileHelper) initializeMemberClusters(globalMemberClustersMap map[string]client.Client, log *zap.SugaredLogger) error {
+func (r *ShardedClusterReconcileHelper) initializeMemberClusters(ctx context.Context, globalMemberClustersMap map[string]client.Client, log *zap.SugaredLogger) error {
 	mongoDB := r.sc
 	shardsMap := r.desiredShardsConfiguration
 	configSrvSpecList := r.desiredConfigServerConfiguration.ClusterSpecList
 	mongosClusterSpecList := r.desiredMongosConfiguration.ClusterSpecList
 	if mongoDB.Spec.IsMultiCluster() {
-		if !multicluster.IsMemberClusterMapInitializedForMultiCluster(globalMemberClustersMap) {
+		// In distributed mode (Phase D) each operator only has access to its
+		// own member cluster — the others are reachable only through Raft,
+		// not the K8s API. The reconcile-level distGateInline / IsLeader
+		// checks ensure we never write STS or OM data to clusters we don't
+		// own. Skip the hub-spoke "must know about all member clusters"
+		// guard when a coordinator is attached; the local cluster's client
+		// is enough.
+		if r.coordinator == nil && !multicluster.IsMemberClusterMapInitializedForMultiCluster(globalMemberClustersMap) {
 			return xerrors.Errorf("member clusters have to be initialized for MultiCluster Sharded Cluster topology")
 		}
 
@@ -193,6 +261,65 @@ func (r *ShardedClusterReconcileHelper) initializeMemberClusters(globalMemberClu
 		}
 		r.mongosMemberClusters = createMemberClusterListFromClusterSpecList(mongosClusterSpecList, globalMemberClustersMap, log, r.deploymentState.ClusterMapping, mongosGetLastAppliedMembersFunc, false)
 		r.shardsMemberClustersMap, r.allShardsMemberClusters = r.createShardsMemberClusterLists(shardsMap, globalMemberClustersMap, log, r.deploymentState, false)
+
+		// G'5 iter 14c: in distributed mode, follower-cluster operators never
+		// reach the post-doShardedClusterProcessing exit point (they're blocked
+		// waiting for the leader to publish AC) and therefore never populate
+		// `deploymentState.Status.SizeStatusInClusters.*`. Without that, the
+		// scaler reads CurrentReplicas=0 even when the live STS in kube has N>0
+		// replicas; ScalingFirstTime returns true and ReplicasThisReconciliation
+		// short-circuits to DesiredReplicas — writing Spec.Replicas=TARGET in a
+		// single shot rather than +1 per reconcile. Within the holder's lease
+		// window that +Δ write contributes Δ NotReady pods to a shard-N replica
+		// set globally, breaking the per-RS cap=1 NotReady invariant the
+		// iter-13c (CR, component) cross-cluster mutex relies on for safety.
+		//
+		// Rehydrate the Replicas field on each MemberCluster entry from the
+		// live STS state when it's zero, so the scaler returns one-at-a-time
+		// RTR=current+1 regardless of whether the persisted deploymentState
+		// has caught up. Hub-spoke is unaffected (coordinator == nil); single-
+		// cluster path is unaffected (this branch only runs in multi-cluster
+		// mode).
+		//
+		// G'5 iter 14d: a previous fix gated the rehydration on
+		// `deploymentState.Status.ShardCount > 0` as a proxy for "we've been
+		// past PhaseRunning at least once". That gate fixed the iter-14c
+		// initial-deploy regression on the LEADER (whose CR Status does flip
+		// to PhaseRunning when initial deploy completes, populating
+		// `Status.ShardCount`) but turned out to be a permanently CLOSED gate
+		// on FOLLOWERS: in distributed pod-mode, a non-leader operator's
+		// reconcile returns `Pending: waiting for leader to publish AC` from
+		// `updateOmDeploymentShardedCluster` long before reaching the
+		// PhaseRunning exit. So `MongoDB.UpdateStatus` never sets
+		// `Status.ShardCount` on the follower's CR; the iter-14d gate is
+		// closed on every follower forever, suppressing rehydration there.
+		//
+		// G'5 iter 14e: replace the gate with a strictly stronger signal —
+		// the live LOCAL STS exists at non-zero replicas. The check is
+		// performed inside `rehydrateReplicasFromLiveStatefulSets` per
+		// component (shard-N, configSrv, mongos). Any cluster that has
+		// `Status.ShardCount > 0` necessarily has its local STS at non-zero
+		// replicas (because the very write that satisfies the iter-14d gate
+		// is downstream of the STS-write step). The converse holds for
+		// followers: their local STS exists at non-zero replicas after the
+		// first deploy reconcile completes, even though their CR Status
+		// never publishes PhaseRunning. So the new gate fires correctly on
+		// both leaders and followers in scale-up / rolling-restart, and
+		// stays closed on the initial-deploy fast-path (no local STS exists
+		// on reconcile-1).
+		//
+		// To prevent the iter-14c asymmetric-Replicas-array regression on
+		// initial-deploy reconcile-2 (where the local STS now exists but
+		// the persisted SizeStatusInClusters is still empty for remotes),
+		// the rehydration ALSO seeds remote-cluster slots from the spec's
+		// ClusterSpecList[*].Members when the local rehydrate fires. This
+		// keeps `ScalingFirstTime=false` (correct: post-deploy) without
+		// producing the half-rehydrated array that flipped the scaler into
+		// a per-cluster +1 staircase from CurrentReplicas=0 (iter-14c
+		// regression fingerprint).
+		if r.coordinator != nil {
+			r.rehydrateReplicasFromLiveStatefulSets(ctx, log)
+		}
 	} else {
 		r.shardsMemberClustersMap, r.allShardsMemberClusters = r.createShardsMemberClusterLists(shardsMap, globalMemberClustersMap, log, r.deploymentState, true)
 
@@ -227,6 +354,241 @@ func (r *ShardedClusterReconcileHelper) initializeMemberClusters(globalMemberClu
 		return fmt.Sprintf("{Name: %s, Index: %d, Replicas: %d, Active: %t, Healthy: %t}", m.Name, m.Index, m.Replicas, m.Active, m.Healthy)
 	}))
 	return nil
+}
+
+// rehydrateReplicasFromLiveStatefulSets is the iter-14c/d/e fix for the
+// follower-cluster scaler bug: in distributed mode, when the local
+// deploymentState configmap has no recorded count for a given (component,
+// cluster) tuple but a STS already exists in kube with N>0 replicas, fix up
+// the in-memory MemberCluster.Replicas values so the scaler's
+// CurrentReplicas() and ScalingFirstTime() return the correct
+// post-initial-deploy values. Without the rehydration, follower operators
+// (and the leader's reconcile-2 of a fresh deploy) report CurrentReplicas=0
+// → ScalingFirstTime=true → ReplicasThisReconciliation returns the full
+// TargetReplicas in a single STS write — a +Δ-in-one-shot that breaks the
+// per-replicaset cap=1 NotReady safety invariant during multi-member scale.
+//
+// Per-component gate (iter-14e): for each component (shard-N, configSrv,
+// mongos) the rehydration only fires when the LIVE LOCAL STS exists at
+// non-zero replicas. The check is performed via
+// `coordinator.MyClusterName()` to identify the local-cluster slot and
+// `Client.GetStatefulSet` against the local member's kube client. On a
+// true initial-deploy reconcile-1 no local STS exists yet, so the gate is
+// closed and rehydration is skipped — preserving the desired fast-path
+// where `ScalingFirstTime=true` and `ReplicasThisReconciliation=target`
+// scales each cluster to its goal-state in a single shot.
+//
+// When the local-STS gate is open, the rehydration:
+//
+//  1. Sets the LOCAL cluster's slot to the live STS replicas (only if it
+//     was previously zero — never overwrites a persisted value).
+//  2. Seeds REMOTE cluster slots from `spec.ClusterSpecList[*].Members`
+//     (only if zero). This avoids the iter-14c asymmetric-Replicas-array
+//     regression: on initial-deploy reconcile-2 the local STS exists but
+//     the persisted SizeStatusInClusters is still empty for remotes;
+//     setting only the local slot flipped `ScalingFirstTime` to false on
+//     the whole scaler array, forcing a +1 staircase from
+//     CurrentReplicas=0 on clusters the operator can't see (the
+//     "Continuing scaling" deadlock fingerprint).
+//
+// The remote-slot seeding is intentionally pulled from the spec
+// (`getMemberClusterItemByClusterName(spec.ClusterSpecList, name)`)
+// rather than from any persisted state on the follower: by the time the
+// local STS exists at non-zero, every cluster has been through at least
+// one Spec.Replicas-write reconcile, and the scaler's DesiredReplicas loop
+// only needs `prevMembers` accurate enough to identify the "first cluster
+// whose spec differs from prev". With remote slots seeded to spec values,
+// the loop returns the LOCAL cluster as the first differ — exactly the
+// staircase invariant the iter-13c (CR, component) cross-cluster lease
+// guard serialises.
+//
+// Only invoked when r.coordinator != nil; hub-spoke keeps the existing
+// behaviour (which is safe because hub-spoke runs from a single operator
+// whose deploymentState is always fully populated). Non-fatal on read
+// errors — falls back to no-op on a NotFound or any read error.
+func (r *ShardedClusterReconcileHelper) rehydrateReplicasFromLiveStatefulSets(ctx context.Context, log *zap.SugaredLogger) {
+	if r.coordinator == nil {
+		return
+	}
+	localClusterName := r.coordinator.MyClusterName()
+
+	// Helper: read the live STS Status.ReadyReplicas value if the object
+	// exists in kube. Returns (readyReplicas, true) on success, (0, false)
+	// on NotFound or any read error (caller treats as "no live STS").
+	//
+	// We deliberately read `Status.ReadyReplicas` (pods that have passed
+	// their readiness probe) rather than `Spec.Replicas` (the desired pod
+	// count, which advances the moment the operator writes its scaler's
+	// +1 RTR). Spec.Replicas would runaway-advance per reconcile: each
+	// reconcile would see current=N (the just-written Spec) and write
+	// current+1=N+1, even while pod-N is still spinning up. The cap=1
+	// NotReady invariant would break because the next +1 fires before
+	// the previous pod is Ready.
+	//
+	// Status.ReadyReplicas anchors the rehydration to actually-ready
+	// pods, so the staircase pacing matches the underlying pod-startup
+	// duration: reconcile-K sees ReadyReplicas=R, writes Spec.Replicas=R+1
+	// → next reconcile (triggered by the Spec watch) sees Spec.Replicas=R+1
+	// but Status.ReadyReplicas=R still → rehydrate yields R again → RTR=R+1
+	// → no-op write. Once pod-(R+1) becomes Ready, Status.ReadyReplicas
+	// advances to R+1, the next reconcile rehydrates to R+1, RTR=R+2,
+	// writes Spec.Replicas=R+2. Exactly one new pod in flight at any
+	// moment.
+	readReplicas := func(memberCluster multicluster.MemberCluster, stsName string) (int, bool) {
+		if memberCluster.Client == nil {
+			return 0, false
+		}
+		sts, err := memberCluster.Client.GetStatefulSet(ctx, kube.ObjectKey(r.sc.Namespace, stsName))
+		if err != nil {
+			return 0, false
+		}
+		return int(sts.Status.ReadyReplicas), true
+	}
+
+	// findLocal returns the index of the slot in `slots` whose Name matches
+	// the coordinator's local cluster. -1 when not present (which is fine —
+	// the rehydration silently no-ops on that component).
+	findLocal := func(slots []multicluster.MemberCluster) int {
+		for i, mc := range slots {
+			if mc.Name == localClusterName {
+				return i
+			}
+		}
+		return -1
+	}
+
+	// rehydrateComponent applies the per-component gate + seed for a slice
+	// of MemberCluster slots backed by `slots[*]`. `stsNameFn(mc)` returns
+	// the STS name for that slot. `specMembersFn(name)` returns the spec's
+	// Members count for a cluster name (used to seed REMOTE slots).
+	rehydrateComponent := func(
+		componentDesc string,
+		slots []multicluster.MemberCluster,
+		stsNameFn func(mc multicluster.MemberCluster) string,
+		specMembersFn func(clusterName string) int,
+		writeBack func(i, replicas int),
+	) {
+		localIdx := findLocal(slots)
+		if localIdx < 0 {
+			return
+		}
+		if slots[localIdx].Replicas > 0 {
+			// Persisted state already covers this component; the scaler will
+			// read from there. Nothing to rehydrate.
+			return
+		}
+		localReplicas, ok := readReplicas(slots[localIdx], stsNameFn(slots[localIdx]))
+		if !ok || localReplicas <= 0 {
+			// No live local STS — this is initial-deploy reconcile-1 (or a
+			// genuine read failure). Keep `ScalingFirstTime=true`.
+			return
+		}
+
+		log.Debugf("Distributed mode: rehydrating %s LOCAL slot (%s) from live STS %s: Replicas 0 -> %d",
+			componentDesc, slots[localIdx].Name, stsNameFn(slots[localIdx]), localReplicas)
+		writeBack(localIdx, localReplicas)
+
+		// Seed REMOTE slots from spec.Members so the scaler array isn't
+		// asymmetric (which would flip ScalingFirstTime=false but break the
+		// DesiredReplicas loop for the local scaler). We only seed slots
+		// that are currently zero — never overwrite a persisted non-zero.
+		for i, mc := range slots {
+			if i == localIdx {
+				continue
+			}
+			if mc.Replicas > 0 {
+				continue
+			}
+			specMembers := specMembersFn(mc.Name)
+			if specMembers <= 0 {
+				continue
+			}
+			log.Debugf("Distributed mode: seeding %s REMOTE slot (%s) from spec.ClusterSpecList: Replicas 0 -> %d",
+				componentDesc, mc.Name, specMembers)
+			writeBack(i, specMembers)
+		}
+	}
+
+	// Shards: per shard index, gate on the local shard's STS, seed remotes
+	// from `desiredShardsConfiguration[shardIdx].ClusterSpecList`.
+	for shardIdx, memberClusters := range r.shardsMemberClustersMap {
+		shardIdxCapture := shardIdx
+		desiredSpec := r.desiredShardsConfiguration[shardIdx]
+		var specList mdbv1.ClusterSpecList
+		if desiredSpec != nil {
+			specList = desiredSpec.ClusterSpecList
+		}
+		rehydrateComponent(
+			fmt.Sprintf("shard-%d", shardIdx),
+			memberClusters,
+			func(mc multicluster.MemberCluster) string {
+				return r.sc.MultiShardRsName(mc.Index, shardIdxCapture)
+			},
+			func(clusterName string) int {
+				return clusterSpecListMembersFor(specList, clusterName)
+			},
+			func(i, replicas int) {
+				r.shardsMemberClustersMap[shardIdxCapture][i].Replicas = replicas
+			},
+		)
+	}
+
+	// Config servers.
+	{
+		var specList mdbv1.ClusterSpecList
+		if r.desiredConfigServerConfiguration != nil {
+			specList = r.desiredConfigServerConfiguration.ClusterSpecList
+		}
+		rehydrateComponent(
+			"configSrv",
+			r.configSrvMemberClusters,
+			func(mc multicluster.MemberCluster) string {
+				return r.sc.MultiConfigRsName(mc.Index)
+			},
+			func(clusterName string) int {
+				return clusterSpecListMembersFor(specList, clusterName)
+			},
+			func(i, replicas int) {
+				r.configSrvMemberClusters[i].Replicas = replicas
+			},
+		)
+	}
+
+	// Mongos. Stateless from the FSM-lease perspective (iter-14b exempted it
+	// from the cross-cluster mutex), but its scaler still benefits from
+	// one-at-a-time scaling so we don't deluge OM with a hostname stampede
+	// on a follower's first distributed-mode reconcile.
+	{
+		var specList mdbv1.ClusterSpecList
+		if r.desiredMongosConfiguration != nil {
+			specList = r.desiredMongosConfiguration.ClusterSpecList
+		}
+		rehydrateComponent(
+			"mongos",
+			r.mongosMemberClusters,
+			func(mc multicluster.MemberCluster) string {
+				return r.sc.MultiMongosRsName(mc.Index)
+			},
+			func(clusterName string) int {
+				return clusterSpecListMembersFor(specList, clusterName)
+			},
+			func(i, replicas int) {
+				r.mongosMemberClusters[i].Replicas = replicas
+			},
+		)
+	}
+}
+
+// clusterSpecListMembersFor looks up the Members count for `clusterName` in
+// a ClusterSpecList. Returns 0 when the cluster is absent — the rehydration
+// treats that as "don't seed" (the slot was never specified).
+func clusterSpecListMembersFor(list mdbv1.ClusterSpecList, clusterName string) int {
+	for _, item := range list {
+		if item.ClusterName == clusterName {
+			return item.Members
+		}
+	}
+	return 0
 }
 
 // createAllMemberClustersList is returning a list of all unique member clusters used across all clusterSpecLists.
@@ -632,6 +994,223 @@ type ShardedClusterReconcileHelper struct {
 
 	// This parameter helps us decide whether write operations should be conducted in the constructor.
 	readOnly bool
+
+	// coordinator is the cross-cluster consensus surface for the distributed
+	// multi-cluster operator PoC. Nil by default: when nil, every gate in the
+	// reconciler is a no-op and the existing hub-spoke behaviour runs
+	// unchanged. Set via WithCoordinator at construction time.
+	// F6: inline-gating DistributedCoordinator. Nil in non-distributed mode;
+	// every gate is a no-op when nil, so default-config operators run the
+	// pre-PoC hub-spoke path byte-for-byte.
+	coordinator coordination.DistributedCoordinator
+}
+
+// IsDistributed reports whether this helper is running with a Raft-backed
+// coordinator attached. When false the reconciler behaves exactly like the
+// pre-PoC hub-spoke code path.
+func (r *ShardedClusterReconcileHelper) IsDistributed() bool {
+	return r.coordinator != nil
+}
+
+// distGateAction is the F6 inline-gating verdict applied at each per-cluster
+// STS-write iteration in distributed mode. In non-distributed mode (no
+// coordinator attached) the gate always returns distGateProceed.
+type distGateAction int
+
+const (
+	// distGateProceed: this cluster is ours AND we hold the lease, do work.
+	distGateProceed distGateAction = iota
+	// distGateSkipDone: another cluster's iteration on the same component
+	// has already reported Ready — caller should `continue` past this one.
+	distGateSkipDone
+	// distGateWait: we don't hold the lease yet, OR another cluster's work
+	// is in flight. Caller should return workflow.Pending.
+	distGateWait
+)
+
+// mongosComponentLabel is the component string used by createOrUpdateMongos's
+// distGate calls. mongos is stateless — there is no replicaset quorum to
+// protect during a roll/scale — so it is intentionally exempt from the
+// cross-cluster (CR, component) lease mutex that iter-13c added for voting
+// components ("config", "shard-N"). See distGateInline below and
+// TestDistributedMode_MongosBypassesCrossClusterMutex for the regression
+// pinning the exemption.
+const mongosComponentLabel = "mongos"
+
+// isCrossClusterMutexComponent reports whether the given component carries a
+// replicaset-quorum invariant and therefore must serialise across member
+// clusters via the iter-13c FSM (CR, component) lease guard. Voting
+// components return true; stateless mongos returns false.
+//
+// Reconciler-side bypass is sufficient: distGateInline never proposes a
+// LeaseAllocate for an exempt component, so the FSM never sees a competing
+// (CR, mongos, *) slot, and the cross-cluster guard in applyLeaseAllocate
+// never fires for mongos. The FSM does NOT need a complementary change.
+func isCrossClusterMutexComponent(component string) bool {
+	return component != mongosComponentLabel
+}
+
+// distGateInline consults the F5 DistributedCoordinator at a per-cluster STS
+// site. The caller passes the component label and the cluster being processed
+// in the current loop iteration; the helper returns:
+//
+//   - distGateProceed: we are the cluster being processed AND we hold the
+//     lease for (component, cluster). Caller does the work, then calls
+//     distMarkReady + distReleaseLease before continuing the loop.
+//   - distGateSkipDone: the (component, cluster) is already Ready according
+//     to the FSM. Caller continues to the next iteration.
+//   - distGateWait: lease isn't ours yet, or someone else's iteration is in
+//     flight. Caller returns workflow.Pending so the reconcile re-queues.
+//
+// The new semantics fold "skip not-ours" and "wait for lease" into a single
+// wait verdict: with the heartbeat-on-StatusReport model, we don't care
+// whose name matches our local config — we care who currently holds the
+// lease. The leader allocates leases inline as it iterates clusters.
+//
+// G'5 iter 14b mongos exemption: stateless components (currently only
+// "mongos") bypass the cross-cluster lease mutex entirely. The own-cluster
+// iteration returns distGateProceed without proposing a LeaseAllocate so
+// every operator rolls its local mongos pod independently; non-own-cluster
+// iterations return distGateSkipDone so the createOrUpdateMongos loop
+// short-circuits past slots that belong to another operator's local k8s
+// client. The iter-13c (CR, component) FSM guard is unchanged — it simply
+// never sees a (CR, mongos, *) proposal.
+func (r *ShardedClusterReconcileHelper) distGateInline(component, clusterName string) distGateAction {
+	if r.coordinator == nil {
+		return distGateProceed
+	}
+	// Stateless components bypass the cross-cluster mutex. Each operator
+	// processes its OWN cluster's STS independently; non-self iterations
+	// are skipped (the other operators own those slots). The own-cluster
+	// iteration consults IsComponentReady for the CURRENT spec generation
+	// so a re-entered reconcile pass doesn't re-write a STS the FSM has
+	// already recorded Ready for this generation (iter-13b stale-Ready
+	// invalidation continues to apply — a newer spec generation falls
+	// through to Proceed).
+	if !isCrossClusterMutexComponent(component) {
+		if clusterName != r.coordinator.MyClusterName() {
+			return distGateSkipDone
+		}
+		if r.coordinator.IsComponentReady(r.crKeyFor(), component, clusterName, r.sc.GetGeneration()) {
+			return distGateSkipDone
+		}
+		return distGateProceed
+	}
+	crKey := r.crKeyFor()
+	// Pass the CR's current metadata.generation so the coordinator can
+	// detect stale per-(component, cluster) Ready entries left over from a
+	// previous spec generation. Without this, AcquireOrRespect returned
+	// LeaseOtherClusterDone (and IsComponentReady true) for every cluster
+	// after the very first successful reconcile, causing every subsequent
+	// reconcile — including ones triggered by a podTemplate annotation
+	// change to roll-restart — to skip the STS write entirely.
+	currentSpecGen := r.sc.GetGeneration()
+	// Iteration for a cluster other than our own: check if that cluster's
+	// component is already Ready (then skip) or still in flight (then wait).
+	if clusterName != r.coordinator.MyClusterName() {
+		if r.coordinator.IsComponentReady(crKey, component, clusterName, currentSpecGen) {
+			return distGateSkipDone
+		}
+		return distGateWait
+	}
+	// Our own cluster: try to acquire / observe the lease.
+	switch r.coordinator.AcquireOrRespect(crKey, component, clusterName, currentSpecGen) {
+	case coordination.LeaseHeld:
+		return distGateProceed
+	case coordination.LeaseOtherClusterDone:
+		return distGateSkipDone
+	default:
+		return distGateWait
+	}
+}
+
+// distReportInflightProgress submits a Ready=false progress report iff the
+// coordinator is attached. Called once the STS write has been issued but
+// while we are still waiting for the cluster's pods to converge.
+func (r *ShardedClusterReconcileHelper) distReportInflightProgress(component, clusterName string, current, ready int, gen int64, log *zap.SugaredLogger) {
+	if r.coordinator == nil {
+		return
+	}
+	progress := observeStsProgress(current, ready, gen)
+	progress.CRSpecGeneration = r.sc.GetGeneration()
+	if err := r.coordinator.ReportProgress(r.crKeyFor(), component, clusterName, progress); err != nil {
+		log.Debugf("Distributed mode: ReportProgress(%s,%s) failed: %v", component, clusterName, err)
+	}
+}
+
+// distMarkReadyAndRelease marks the (component, cluster) Ready and releases
+// the lease. No-op when coordinator is nil. The MarkReady payload carries
+// the CR's current metadata.generation so AcquireOrRespect on the next
+// reconcile can tell whether this Ready entry still reflects the spec.
+func (r *ShardedClusterReconcileHelper) distMarkReadyAndRelease(component, clusterName string, current, ready int, gen int64, log *zap.SugaredLogger) {
+	if r.coordinator == nil {
+		return
+	}
+	crKey := r.crKeyFor()
+	progress := observeStsProgress(current, ready, gen)
+	progress.CRSpecGeneration = r.sc.GetGeneration()
+	if err := r.coordinator.MarkReady(crKey, component, clusterName, progress); err != nil {
+		log.Warnf("Distributed mode: MarkReady(%s,%s) failed: %v", component, clusterName, err)
+	}
+	if err := r.coordinator.ReleaseLease(crKey, component, clusterName); err != nil {
+		log.Warnf("Distributed mode: ReleaseLease(%s,%s) failed: %v", component, clusterName, err)
+	}
+}
+
+// SetCoordinator attaches a DistributedCoordinator to the helper. Callers do
+// this immediately after construction (NewShardedClusterReconcilerHelper) when
+// running the distributed-multi-cluster PoC. Tests inject a mock implementation
+// to exercise gate-point behaviour without a real Raft cluster.
+func (r *ShardedClusterReconcileHelper) SetCoordinator(c coordination.DistributedCoordinator) {
+	r.coordinator = c
+}
+
+// prepareOpsManagerConnectionGated picks the right PrepareOpsManagerConnection
+// variant for distributed mode. The leader (or non-distributed mode) uses
+// the existing read-or-create flow. Followers use the read-only variant: if
+// the project does not yet exist in OM, project.ErrProjectNotFound is
+// returned and the caller should surface workflow.Pending so the leader has
+// time to run the create-path.
+//
+// Rationale: OM project creation, EnsureTagAdded (PUT /groups/<id>), and the
+// agent-API-key issuance inside EnsureAgentKeySecretExists are all
+// OM-mutating operations. They must run on exactly one operator (the
+// leader). Followers still need a connection for read-only AC / status, so
+// the read-only path is the parallel construction.
+func (r *ShardedClusterReconcileHelper) prepareOpsManagerConnectionGated(ctx context.Context, projectConfig mdbv1.ProjectConfig, credsConfig mdbv1.Credentials, log *zap.SugaredLogger) (om.Connection, string, error) {
+	if r.coordinator == nil || r.coordinator.IsLeader() {
+		return connection.PrepareOpsManagerConnection(ctx, r.commonController.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, r.sc.Namespace, log)
+	}
+	return connection.PrepareOpsManagerConnectionReadOnly(ctx, r.commonController.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, r.sc.Namespace, log)
+}
+
+// crKeyFor returns the coordination CRKey for the helper's MongoDB CR.
+func (r *ShardedClusterReconcileHelper) crKeyFor() coordination.CRKey {
+	if r.sc == nil {
+		return coordination.CRKey{}
+	}
+	return coordination.CRKey{
+		Kind:      "MongoDB",
+		Namespace: r.sc.Namespace,
+		Name:      r.sc.Name,
+	}
+}
+
+// observeStsProgress builds a ProgressSnapshot from a stateful-set status
+// snapshot. Best-effort: missing fields are zero-valued so the leader's
+// stuck-step detector compares apples-to-apples across reconciles.
+//
+// PoC simplification: agent goal version is unknown to the helper at the STS
+// site, so we set it to the observed-generation. Real implementation would
+// thread the OM-side agent ack into this.
+func observeStsProgress(currentReplicas, readyReplicas int, observedGen int64) coordination.ProgressSnapshot {
+	return coordination.ProgressSnapshot{
+		CurrentReplicas:         currentReplicas,
+		ReadyReplicas:           readyReplicas,
+		ObservedGeneration:      observedGen,
+		AgentGoalVersionAchieve: observedGen,
+		LastEventTS:             time.Now().UTC(),
+	}
 }
 
 func NewReadOnlyClusterReconcilerHelper(
@@ -643,7 +1222,7 @@ func NewReadOnlyClusterReconcilerHelper(
 	backupEnableDelay time.Duration,
 ) (*ShardedClusterReconcileHelper, error) {
 	return newShardedClusterReconcilerHelper(ctx, reconciler, nil, "", "", false, false, false, "",
-		sc, globalMemberClustersMap, nil, log, true, backupEnableDelay)
+		sc, globalMemberClustersMap, nil, log, true, backupEnableDelay, nil)
 }
 
 func NewShardedClusterReconcilerHelper(
@@ -663,7 +1242,32 @@ func NewShardedClusterReconcilerHelper(
 	backupEnableDelay time.Duration,
 ) (*ShardedClusterReconcileHelper, error) {
 	return newShardedClusterReconcilerHelper(ctx, reconciler, imageUrls, initDatabaseNonStaticImageVersion,
-		databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, sc, globalMemberClustersMap, omConnectionFactory, log, false, backupEnableDelay)
+		databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, sc, globalMemberClustersMap, omConnectionFactory, log, false, backupEnableDelay, nil)
+}
+
+// NewShardedClusterReconcilerHelperWithCoordinator is the distributed-mode
+// variant: it attaches the DistributedCoordinator to the helper BEFORE
+// initializeMemberClusters runs, so the constructor knows it's in distributed
+// mode and can skip the hub-spoke "all member clusters must be known" guard.
+func NewShardedClusterReconcilerHelperWithCoordinator(
+	ctx context.Context,
+	reconciler *ReconcileCommonController,
+	imageUrls images.ImageUrls,
+	initDatabaseNonStaticImageVersion,
+	databaseNonStaticImageVersion string,
+	forceEnterprise bool,
+	enableClusterMongoDBRoles bool,
+	agentDebug bool,
+	agentDebugImage string,
+	sc *mdbv1.MongoDB,
+	globalMemberClustersMap map[string]client.Client,
+	omConnectionFactory om.ConnectionFactory,
+	log *zap.SugaredLogger,
+	backupEnableDelay time.Duration,
+	coordinator coordination.DistributedCoordinator,
+) (*ShardedClusterReconcileHelper, error) {
+	return newShardedClusterReconcilerHelper(ctx, reconciler, imageUrls, initDatabaseNonStaticImageVersion,
+		databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, sc, globalMemberClustersMap, omConnectionFactory, log, false, backupEnableDelay, coordinator)
 }
 
 func newShardedClusterReconcilerHelper(
@@ -682,6 +1286,7 @@ func newShardedClusterReconcilerHelper(
 	log *zap.SugaredLogger,
 	readOnly bool,
 	backupEnableDelay time.Duration,
+	coordinator coordination.DistributedCoordinator,
 ) (*ShardedClusterReconcileHelper, error) {
 	// It's a workaround for single cluster topology to add there __default cluster.
 	// With the multi-cluster sharded refactor, we went so far with the multi-cluster first approach so we have very few places with conditional single/multi logic.
@@ -705,6 +1310,12 @@ func newShardedClusterReconcilerHelper(
 		backupEnableDelay: backupEnableDelay,
 
 		readOnly: readOnly,
+
+		// Attach the coordinator BEFORE initializeMemberClusters runs so the
+		// constructor's IsMemberClusterMapInitializedForMultiCluster gate
+		// knows we're in distributed mode and can skip the hub-spoke "must
+		// know all clusters" guard.
+		coordinator: coordinator,
 	}
 
 	helper.sc = sc
@@ -717,7 +1328,7 @@ func newShardedClusterReconcilerHelper(
 	helper.desiredConfigServerConfiguration = helper.prepareDesiredConfigServerConfiguration()
 	helper.desiredMongosConfiguration = helper.prepareDesiredMongosConfiguration()
 
-	if err := helper.initializeMemberClusters(globalMemberClustersMap, log); err != nil {
+	if err := helper.initializeMemberClusters(ctx, globalMemberClustersMap, log); err != nil {
 		return nil, xerrors.Errorf("failed to initialize sharded cluster controller: %w", err)
 	}
 	if !readOnly {
@@ -830,7 +1441,12 @@ func (r *ReconcileMongoDbShardedCluster) Reconcile(ctx context.Context, request 
 		return reconcileResult, err
 	}
 
-	reconcilerHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, r.imageUrls, r.initDatabaseNonStaticImageVersion, r.databaseNonStaticImageVersion, r.forceEnterprise, r.enableClusterMongoDBRoles, r.agentDebug, r.agentDebugImage, sc, r.memberClustersMap, r.omConnectionFactory, log, r.backupEnableDelay)
+	var reconcilerHelper *ShardedClusterReconcileHelper
+	if r.coordinator != nil {
+		reconcilerHelper, err = NewShardedClusterReconcilerHelperWithCoordinator(ctx, r.ReconcileCommonController, r.imageUrls, r.initDatabaseNonStaticImageVersion, r.databaseNonStaticImageVersion, r.forceEnterprise, r.enableClusterMongoDBRoles, r.agentDebug, r.agentDebugImage, sc, r.memberClustersMap, r.omConnectionFactory, log, r.backupEnableDelay, r.coordinator)
+	} else {
+		reconcilerHelper, err = NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, r.imageUrls, r.initDatabaseNonStaticImageVersion, r.databaseNonStaticImageVersion, r.forceEnterprise, r.enableClusterMongoDBRoles, r.agentDebug, r.agentDebugImage, sc, r.memberClustersMap, r.omConnectionFactory, log, r.backupEnableDelay)
+	}
 	if err != nil {
 		return r.updateStatus(ctx, sc, workflow.Failed(xerrors.Errorf("Failed to initialize sharded cluster reconciler: %w", err)), log)
 	}
@@ -839,7 +1455,13 @@ func (r *ReconcileMongoDbShardedCluster) Reconcile(ctx context.Context, request 
 
 // OnDelete tries to complete a Deletion reconciliation event
 func (r *ReconcileMongoDbShardedCluster) OnDelete(ctx context.Context, obj runtime.Object, log *zap.SugaredLogger) error {
-	reconcilerHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, r.imageUrls, r.initDatabaseNonStaticImageVersion, r.databaseNonStaticImageVersion, r.forceEnterprise, r.enableClusterMongoDBRoles, r.agentDebug, r.agentDebugImage, obj.(*mdbv1.MongoDB), r.memberClustersMap, r.omConnectionFactory, log, r.backupEnableDelay)
+	var reconcilerHelper *ShardedClusterReconcileHelper
+	var err error
+	if r.coordinator != nil {
+		reconcilerHelper, err = NewShardedClusterReconcilerHelperWithCoordinator(ctx, r.ReconcileCommonController, r.imageUrls, r.initDatabaseNonStaticImageVersion, r.databaseNonStaticImageVersion, r.forceEnterprise, r.enableClusterMongoDBRoles, r.agentDebug, r.agentDebugImage, obj.(*mdbv1.MongoDB), r.memberClustersMap, r.omConnectionFactory, log, r.backupEnableDelay, r.coordinator)
+	} else {
+		reconcilerHelper, err = NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, r.imageUrls, r.initDatabaseNonStaticImageVersion, r.databaseNonStaticImageVersion, r.forceEnterprise, r.enableClusterMongoDBRoles, r.agentDebug, r.agentDebugImage, obj.(*mdbv1.MongoDB), r.memberClustersMap, r.omConnectionFactory, log, r.backupEnableDelay)
+	}
 	if err != nil {
 		return err
 	}
@@ -882,8 +1504,23 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 		return r.updateStatus(ctx, sc, workflow.Failed(err), log)
 	}
 
+	// F12b: distributed-mode resource-agreement gate. Every operator computes
+	// content-hashes of its local copies of every spec-referenced resource
+	// (project CM, credentials Secret, TLS Secrets, etc.) and submits them
+	// to the FSM. The reconcile blocks here until all operators agree on
+	// every hash. In non-distributed mode this is a no-op (coordinator nil).
+	if gateStatus := r.gateOnResourceAgreement(ctx, log); !gateStatus.IsOK() {
+		return r.updateStatus(ctx, sc, gateStatus, log)
+	}
+
 	if !architectures.IsRunningStaticArchitecture(sc.Annotations) {
-		agents.UpgradeAllIfNeeded(ctx, agents.ClientSecret{Client: r.commonController.client, SecretClient: r.commonController.SecretClient}, r.omConnectionFactory, GetWatchedNamespace(), false)
+		// F12c: leader-only — UpgradeAllIfNeeded mutates OM (sets the
+		// automation-agent version and triggers per-host upgrades).
+		// Followers skip; the next reconcile observes the upgraded state
+		// via OM reads.
+		if r.coordinator == nil || r.coordinator.IsLeader() {
+			agents.UpgradeAllIfNeeded(ctx, agents.ClientSecret{Client: r.commonController.client, SecretClient: r.commonController.SecretClient}, r.omConnectionFactory, GetWatchedNamespace(), false)
+		}
 	}
 
 	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(ctx, r.commonController.client, r.commonController.SecretClient, sc, log)
@@ -891,8 +1528,13 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 		return r.updateStatus(ctx, sc, workflow.Failed(err), log)
 	}
 
-	conn, agentAPIKey, err := connection.PrepareOpsManagerConnection(ctx, r.commonController.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, sc.Namespace, log)
+	conn, agentAPIKey, err := r.prepareOpsManagerConnectionGated(ctx, projectConfig, credsConfig, log)
 	if err != nil {
+		if xerrors.Is(err, project.ErrProjectNotFound) {
+			// Follower: wait for the leader to create the project. The next
+			// reconcile retries.
+			return r.updateStatus(ctx, sc, workflow.Pending("Distributed mode: waiting for leader to create OM project %q", projectConfig.ProjectName), log)
+		}
 		return r.updateStatus(ctx, sc, workflow.Failed(err), log)
 	}
 
@@ -1180,8 +1822,13 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 		caFilePath = fmt.Sprintf("%s/ca-pem", util.TLSCaMountPath)
 	}
 
-	if workflowStatus := controlledfeature.EnsureFeatureControls(*sc, conn, conn.OpsManagerVersion(), log); !workflowStatus.IsOK() {
-		return workflowStatus
+	// F12d: EnsureFeatureControls mutates OM (PUT /groups/<id>/controlledFeature).
+	// Leader only; followers rely on the leader's call and observe via the
+	// next reconcile.
+	if r.coordinator == nil || r.coordinator.IsLeader() {
+		if workflowStatus := controlledfeature.EnsureFeatureControls(*sc, conn, conn.OpsManagerVersion(), log); !workflowStatus.IsOK() {
+			return workflowStatus
+		}
 	}
 
 	for _, memberCluster := range getHealthyMemberClusters(r.allMemberClusters) {
@@ -1191,8 +1838,12 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 		}
 	}
 
-	if workflowStatus := r.commonController.ensureRoles(ctx, sc.Spec.DbCommonSpec, r.enableClusterMongoDBRoles, conn, kube.ObjectKeyFromApiObject(sc), r.deploymentState.LastConfiguredRoles, log); !workflowStatus.IsOK() {
-		return workflowStatus
+	// F12c: ensureRoles mutates OM (PUT /groups/<id>/customDBRoles). The
+	// leader publishes role updates; followers rely on the leader and skip.
+	if r.coordinator == nil || r.coordinator.IsLeader() {
+		if workflowStatus := r.commonController.ensureRoles(ctx, sc.Spec.DbCommonSpec, r.enableClusterMongoDBRoles, conn, kube.ObjectKeyFromApiObject(sc), r.deploymentState.LastConfiguredRoles, log); !workflowStatus.IsOK() {
+			return workflowStatus
+		}
 	}
 
 	agentCertSecretName := sc.GetSecurity().AgentClientCertificateSecretName(sc.Name)
@@ -1475,8 +2126,20 @@ func (r *ShardedClusterReconcileHelper) createOrUpdateMongos(ctx context.Context
 	// for ScalingFirstTime, which is iterating over all member clusters internally anyway
 	mongosScalingFirstTime := r.GetMongosScaler(r.mongosMemberClusters[0]).ScalingFirstTime()
 
+	const component = mongosComponentLabel
 	var workflowStatus workflow.Status = workflow.OK()
 	for _, memberCluster := range getHealthyMemberClusters(r.mongosMemberClusters) {
+		// Distributed multi-cluster PoC inline gate. mongos is exempt from
+		// the cross-cluster (CR, component) mutex (stateless component;
+		// see isCrossClusterMutexComponent + iter-14b regression test).
+		switch r.distGateInline(component, memberCluster.Name) {
+		case distGateSkipDone:
+			continue
+		case distGateWait:
+			log.Debugf("Distributed mode: gate-wait for %s/%s, requeueing", component, memberCluster.Name)
+			return workflow.Pending("waiting for lease on %s/%s", component, memberCluster.Name)
+		}
+
 		mongosOpts := r.getMongosOptions(ctx, *s, opts, log, memberCluster)
 		mongosSts := construct.DatabaseStatefulSet(*s, mongosOpts, log)
 
@@ -1491,10 +2154,14 @@ func (r *ShardedClusterReconcileHelper) createOrUpdateMongos(ctx context.Context
 		if !mongosScalingFirstTime {
 			log.Debugw("Mongos StatefulSet status", "stsName", mongosSts.Name, "statusOk", statefulSetStatus.IsOK())
 			if !statefulSetStatus.IsOK() {
+				r.distReportInflightProgress(component, memberCluster.Name, int(mutatedSts.Status.Replicas), int(mutatedSts.Status.ReadyReplicas), expectedGeneration, log)
 				return statefulSetStatus
 			}
 		}
 
+		if statefulSetStatus.IsOK() {
+			r.distMarkReadyAndRelease(component, memberCluster.Name, int(mutatedSts.Status.Replicas), int(mutatedSts.Status.ReadyReplicas), expectedGeneration, log)
+		}
 		workflowStatus = workflowStatus.Merge(statefulSetStatus)
 	}
 
@@ -1513,8 +2180,18 @@ func (r *ShardedClusterReconcileHelper) createOrUpdateShards(ctx context.Context
 		// it doesn't matter for which cluster we get scaler as we need it only for ScalingFirstTime which is iterating over all member clusters internally anyway
 		scalingFirstTime := r.GetShardScaler(shardIdx, r.shardsMemberClustersMap[shardIdx][0]).ScalingFirstTime()
 
+		component := fmt.Sprintf("shard-%d", shardIdx)
 		var workflowStatus workflow.Status = workflow.OK()
 		for _, memberCluster := range getHealthyMemberClusters(r.shardsMemberClustersMap[shardIdx]) {
+			// Distributed multi-cluster PoC inline gate.
+			switch r.distGateInline(component, memberCluster.Name) {
+			case distGateSkipDone:
+				continue
+			case distGateWait:
+				log.Debugf("Distributed mode: gate-wait for %s/%s, requeueing", component, memberCluster.Name)
+				return workflow.Pending("waiting for lease on %s/%s", component, memberCluster.Name)
+			}
+
 			// shardsNames contains shard name, not statefulset name
 			// in single cluster sts name == shard name
 			// in multi cluster sts name contains cluster index, but shard name does not (it's a replicaset name)
@@ -1543,10 +2220,47 @@ func (r *ShardedClusterReconcileHelper) createOrUpdateShards(ctx context.Context
 			if !scalingFirstTime {
 				log.Debugw("Shard StatefulSet status", "stsName", shardSts.Name, "statusOk", statefulSetStatus.IsOK())
 				if !statefulSetStatus.IsOK() {
+					r.distReportInflightProgress(component, memberCluster.Name, int(mutatedSts.Status.Replicas), int(mutatedSts.Status.ReadyReplicas), expectedGeneration, log)
 					return statefulSetStatus
 				}
 			}
 
+			if statefulSetStatus.IsOK() {
+				// G'5 iter 14e: hold the lease (no MarkReady) until the
+				// cluster's local STS has reached its TARGET replica count
+				// for this spec generation. Otherwise the cluster releases
+				// the lease after each +1 step, MarkReady stamps the FSM at
+				// the current spec gen, and the next reconcile's
+				// AcquireOrRespect returns LeaseOtherClusterDone — the
+				// cluster is stuck at +1 until the spec gen advances.
+				//
+				// Pacing: each +1 reconcile writes Spec.Replicas=current+1,
+				// IsOK fires when ReadyReplicas catches up, lease is HELD,
+				// the next reconcile (triggered by the STS Status update
+				// watch) runs the scaler again, RTR=current+1 advances by
+				// one more, and we loop until current == target. At that
+				// moment we MarkReady+Release, the FSM stamps Ready at this
+				// gen, the next cluster in spec order acquires the lease and
+				// performs its own +1 sequence. Cross-cluster cap=1
+				// maintained by the FSM mutex; within-cluster pacing
+				// maintained by the Status.ReadyReplicas anchor in the
+				// scaler rehydration (any successive reconciles see the
+				// same ReadyReplicas until the new pod becomes Ready, so
+				// the STS Spec.Replicas write is idempotent).
+				scaler := r.GetShardScaler(shardIdx, memberCluster)
+				targetReplicas := scaler.TargetReplicas()
+				currentReplicas := int(mutatedSts.Status.ReadyReplicas)
+				if currentReplicas >= targetReplicas {
+					r.distMarkReadyAndRelease(component, memberCluster.Name, int(mutatedSts.Status.Replicas), int(mutatedSts.Status.ReadyReplicas), expectedGeneration, log)
+				} else {
+					// Mid-scale: hold the lease, refresh in-flight progress so
+					// the leader's stuck-step detector sees forward motion.
+					log.Debugw("Distributed mode: holding lease for further +1 staircase steps",
+						"component", component, "cluster", memberCluster.Name,
+						"current", currentReplicas, "target", targetReplicas)
+					r.distReportInflightProgress(component, memberCluster.Name, int(mutatedSts.Status.Replicas), int(mutatedSts.Status.ReadyReplicas), expectedGeneration, log)
+				}
+			}
 			workflowStatus = workflowStatus.Merge(statefulSetStatus)
 		}
 
@@ -1565,8 +2279,18 @@ func (r *ShardedClusterReconcileHelper) createOrUpdateConfigServers(ctx context.
 	// for ScalingFirstTime, which is iterating over all member clusters internally anyway
 	configSrvScalingFirstTime := r.GetConfigSrvScaler(r.configSrvMemberClusters[0]).ScalingFirstTime()
 
+	const component = "config"
 	var workflowStatus workflow.Status = workflow.OK()
 	for _, memberCluster := range getHealthyMemberClusters(r.configSrvMemberClusters) {
+		// Distributed multi-cluster PoC inline gate.
+		switch r.distGateInline(component, memberCluster.Name) {
+		case distGateSkipDone:
+			continue
+		case distGateWait:
+			log.Debugf("Distributed mode: gate-wait for %s/%s, requeueing", component, memberCluster.Name)
+			return workflow.Pending("waiting for lease on %s/%s", component, memberCluster.Name)
+		}
+
 		configSrvOpts := r.getConfigServerOptions(ctx, *s, opts, log, memberCluster)
 		configSrvSts := construct.DatabaseStatefulSet(*s, configSrvOpts, log)
 
@@ -1585,10 +2309,26 @@ func (r *ShardedClusterReconcileHelper) createOrUpdateConfigServers(ctx context.
 		if !configSrvScalingFirstTime {
 			log.Debugw("Config-srv StatefulSet status", "name", configSrvSts.Name, "statusOk", statefulsetStatus.IsOK())
 			if !statefulsetStatus.IsOK() {
+				r.distReportInflightProgress(component, memberCluster.Name, int(mutatedSts.Status.Replicas), int(mutatedSts.Status.ReadyReplicas), expectedGeneration, log)
 				return statefulsetStatus
 			}
 		}
 
+		if statefulsetStatus.IsOK() {
+			// G'5 iter 14e: hold the lease until configSrv reaches target —
+			// same staircase invariant as the shard path; see comment in
+			// createOrUpdateShards for the rationale.
+			scaler := r.GetConfigSrvScaler(memberCluster)
+			targetReplicas := scaler.TargetReplicas()
+			currentReplicas := int(mutatedSts.Status.ReadyReplicas)
+			if currentReplicas >= targetReplicas {
+				r.distMarkReadyAndRelease(component, memberCluster.Name, int(mutatedSts.Status.Replicas), int(mutatedSts.Status.ReadyReplicas), expectedGeneration, log)
+			} else {
+				log.Debugw("Distributed mode: holding lease for further configSrv +1 staircase steps",
+					"cluster", memberCluster.Name, "current", currentReplicas, "target", targetReplicas)
+				r.distReportInflightProgress(component, memberCluster.Name, int(mutatedSts.Status.Replicas), int(mutatedSts.Status.ReadyReplicas), expectedGeneration, log)
+			}
+		}
 		workflowStatus = workflowStatus.Merge(statefulsetStatus)
 	}
 
@@ -1699,6 +2439,12 @@ func (r *ShardedClusterReconcileHelper) OnDelete(ctx context.Context, obj runtim
 
 	// Delete resources explicitly only in multi-cluster mode where we can't set owner references cross cluster.
 	// In single-cluster deployments, OwnerReferences handle cleanup automatically via Kubernetes garbage collection.
+	//
+	// G iter-17d invariant: in distributed multi-cluster mode (r.coordinator != nil)
+	// the STS write path also omits OwnerReferences (see WithoutOwnerReference;
+	// gated in get*Options). The label-driven DeleteAllOf below is the sole
+	// cleanup path on CR-delete for that mode — keep it in sync with the
+	// resources the helper writes.
 	if sc.Spec.IsMultiCluster() {
 		for _, item := range getHealthyMemberClusters(r.allMemberClusters) {
 			clusterClient := item.Client
@@ -1715,6 +2461,12 @@ func (r *ShardedClusterReconcileHelper) OnDelete(ctx context.Context, obj runtim
 }
 
 func (r *ShardedClusterReconcileHelper) cleanOpsManagerState(ctx context.Context, sc *mdbv1.MongoDB, log *zap.SugaredLogger) error {
+	// Distributed multi-cluster PoC: OM cleanup runs only on the leader.
+	// Followers skip; the leader replays the cleanup idempotently.
+	if r.coordinator != nil && !r.coordinator.IsLeader() {
+		log.Debug("Distributed mode: not leader, skipping cleanOpsManagerState")
+		return nil
+	}
 	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(ctx, r.commonController.client, r.commonController.SecretClient, sc, log)
 	if err != nil {
 		return err
@@ -1789,9 +2541,12 @@ func logDiffOfProcessNames(acProcesses []string, healthyProcesses []string, log 
 	}
 }
 
-func AddShardedClusterController(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, memberClustersMap map[string]cluster.Cluster, backupEnableDelay time.Duration) error {
+func AddShardedClusterController(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, memberClustersMap map[string]cluster.Cluster, backupEnableDelay time.Duration, coordinator coordination.DistributedCoordinator) error {
 	// Create a new controller
 	reconciler := newShardedClusterReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, multicluster.ClustersMapToClientMap(memberClustersMap), om.NewOpsManagerConnection, backupEnableDelay)
+	if coordinator != nil {
+		reconciler.SetCoordinator(coordinator)
+	}
 	options := controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)} // nolint:forbidigo
 	c, err := controller.New(util.MongoDbShardedClusterController, mgr, options)
 	if err != nil {
@@ -1983,6 +2738,15 @@ type deploymentOptions struct {
 // The logic is designed to be idempotent: if the reconciliation is retried the controller will never skip the phase 1
 // until the agents have performed draining
 func (r *ShardedClusterReconcileHelper) updateOmDeploymentShardedCluster(ctx context.Context, conn om.Connection, sc *mdbv1.MongoDB, opts deploymentOptions, isRecovering bool, log *zap.SugaredLogger) workflow.Status {
+	// Distributed multi-cluster PoC: AC publication is leader-only. Followers
+	// observe AC convergence via the FSM's per-CR ACGeneration and unblock
+	// their per-cluster STS work once it advances. See architecture doc §6.9.
+	if r.coordinator != nil && !r.coordinator.IsLeader() {
+		ver := r.coordinator.AcVersion(r.crKeyFor())
+		log.Debugw("Distributed mode: not leader, skipping AC publish for now", "ACGeneration", ver)
+		return workflow.Pending("waiting for leader to publish AC; current ACGeneration=%d", ver)
+	}
+
 	err := r.waitForAgentsToRegister(sc, conn, log)
 	if err != nil {
 		if !isRecovering {
@@ -2048,11 +2812,17 @@ func (r *ShardedClusterReconcileHelper) updateOmDeploymentShardedCluster(ctx con
 	currentHosts := r.getAllHostnames(false)
 	wantedHosts := r.getAllHostnames(true)
 
-	if err = host.CalculateDiffAndStopMonitoring(conn, currentHosts, wantedHosts, log); err != nil {
-		if !isRecovering {
-			return workflow.Failed(err)
+	// F12c: CalculateDiffAndStopMonitoring issues DELETE /hosts to OM for
+	// every host that vanished from the cluster topology. Only the leader
+	// performs it; followers skip and the leader's next pass converges
+	// the host list.
+	if r.coordinator == nil || r.coordinator.IsLeader() {
+		if err = host.CalculateDiffAndStopMonitoring(conn, currentHosts, wantedHosts, log); err != nil {
+			if !isRecovering {
+				return workflow.Failed(err)
+			}
+			logWarnIgnoredDueToRecovery(log, err)
 		}
-		logWarnIgnoredDueToRecovery(log, err)
 	}
 
 	if workflowStatus := r.commonController.ensureBackupConfigurationAndUpdateStatus(ctx, conn, sc, r.commonController.SecretClient, log, r.backupEnableDelay); !workflowStatus.IsOK() {
@@ -2063,6 +2833,19 @@ func (r *ShardedClusterReconcileHelper) updateOmDeploymentShardedCluster(ctx con
 	}
 
 	log.Info("Updated Ops Manager for sharded cluster")
+
+	// Distributed multi-cluster PoC: leader announces AC has been published so
+	// followers can unblock their per-cluster STS work.
+	if r.coordinator != nil && r.coordinator.IsLeader() {
+		crKey := r.crKeyFor()
+		nextGen := r.coordinator.AcVersion(crKey) + 1
+		if err := r.coordinator.AnnounceAcPublished(crKey, nextGen); err != nil {
+			log.Warnf("Distributed mode: failed to announce ac_published gen=%d: %v", nextGen, err)
+		} else {
+			log.Debugw("Distributed mode: proposed ac_published", "generation", nextGen)
+		}
+	}
+
 	return workflow.OK()
 }
 
@@ -2457,7 +3240,8 @@ func (r *ShardedClusterReconcileHelper) getConfigServerOptions(ctx context.Conte
 		databaseSecretPath = r.commonController.VaultClient.DatabaseSecretPath()
 	}
 
-	return construct.ConfigServerOptions(r.desiredConfigServerConfiguration, memberCluster.Name,
+	extraOpts := r.distributedModeStsOpts()
+	configSrvOpts := []func(*construct.DatabaseStatefulSetOptions){
 		Replicas(scale.ReplicasThisReconciliation(r.GetConfigSrvScaler(memberCluster))),
 		StatefulSetNameOverride(r.GetConfigSrvStsName(memberCluster)),
 		ServiceName(r.GetConfigSrvServiceName(memberCluster)),
@@ -2477,7 +3261,20 @@ func (r *ShardedClusterReconcileHelper) getConfigServerOptions(ctx context.Conte
 		WithMongodbImage(images.GetOfficialImage(r.imageUrls, sc.Spec.Version, sc.GetAnnotations())),
 		WithAgentDebug(r.agentDebug),
 		WithAgentDebugImage(r.agentDebugImage),
-	)
+	}
+	configSrvOpts = append(configSrvOpts, extraOpts...)
+	return construct.ConfigServerOptions(r.desiredConfigServerConfiguration, memberCluster.Name, configSrvOpts...)
+}
+
+// distributedModeStsOpts returns extra STS-construction options that apply
+// only when the helper is running in distributed multi-cluster mode (i.e.
+// r.coordinator != nil). The single option currently emitted strips the
+// cross-cluster ownerReference; see WithoutOwnerReference for the rationale.
+func (r *ShardedClusterReconcileHelper) distributedModeStsOpts() []func(*construct.DatabaseStatefulSetOptions) {
+	if r.coordinator == nil {
+		return nil
+	}
+	return []func(*construct.DatabaseStatefulSetOptions){WithoutOwnerReference()}
 }
 
 // getMongosOptions returns the Options needed to build the StatefulSet for the mongos.
@@ -2490,7 +3287,8 @@ func (r *ShardedClusterReconcileHelper) getMongosOptions(ctx context.Context, sc
 		vaultConfig = r.commonController.VaultClient.VaultConfig
 	}
 
-	return construct.MongosOptions(r.desiredMongosConfiguration, memberCluster.Name,
+	extraOpts := r.distributedModeStsOpts()
+	mongosOpts := []func(*construct.DatabaseStatefulSetOptions){
 		Replicas(scale.ReplicasThisReconciliation(r.GetMongosScaler(memberCluster))),
 		StatefulSetNameOverride(r.GetMongosStsName(memberCluster)),
 		PodEnvVars(opts.podEnvVars),
@@ -2508,7 +3306,9 @@ func (r *ShardedClusterReconcileHelper) getMongosOptions(ctx context.Context, sc
 		WithMongodbImage(images.GetOfficialImage(r.imageUrls, sc.Spec.Version, sc.GetAnnotations())),
 		WithAgentDebug(r.agentDebug),
 		WithAgentDebugImage(r.agentDebugImage),
-	)
+	}
+	mongosOpts = append(mongosOpts, extraOpts...)
+	return construct.MongosOptions(r.desiredMongosConfiguration, memberCluster.Name, mongosOpts...)
 }
 
 // getShardOptions returns the Options needed to build the StatefulSet for a given shard.
@@ -2523,7 +3323,8 @@ func (r *ShardedClusterReconcileHelper) getShardOptions(ctx context.Context, sc 
 		databaseSecretPath = r.commonController.VaultClient.DatabaseSecretPath()
 	}
 
-	return construct.ShardOptions(shardNum, r.desiredShardsConfiguration[shardNum], memberCluster.Name,
+	extraOpts := r.distributedModeStsOpts()
+	shardOpts := []func(*construct.DatabaseStatefulSetOptions){
 		Replicas(scale.ReplicasThisReconciliation(r.GetShardScaler(shardNum, memberCluster))),
 		StatefulSetNameOverride(r.GetShardStsName(shardNum, memberCluster)),
 		PodEnvVars(opts.podEnvVars),
@@ -2541,7 +3342,9 @@ func (r *ShardedClusterReconcileHelper) getShardOptions(ctx context.Context, sc 
 		WithMongodbImage(images.GetOfficialImage(r.imageUrls, sc.Spec.Version, sc.GetAnnotations())),
 		WithAgentDebug(r.agentDebug),
 		WithAgentDebugImage(r.agentDebugImage),
-	)
+	}
+	shardOpts = append(shardOpts, extraOpts...)
+	return construct.ShardOptions(shardNum, r.desiredShardsConfiguration[shardNum], memberCluster.Name, shardOpts...)
 }
 
 func (r *ShardedClusterReconcileHelper) migrateToNewDeploymentState(sc *mdbv1.MongoDB) error {
@@ -2587,8 +3390,39 @@ func (r *ShardedClusterReconcileHelper) updateStatus(ctx context.Context, resour
 		if err := r.stateStore.WriteState(ctx, r.deploymentState, log); err != nil {
 			return r.commonController.updateStatus(ctx, resource, workflow.Failed(xerrors.Errorf("Failed to write deployment state after updating status: %w", err)), log, nil)
 		}
+		// G iter 8 fix 3: heartbeat the leader's FSM with this cluster's
+		// observed (phase, message) on every updateStatus exit so the leader
+		// can detect "follower has stopped emitting status" (stuck step) and
+		// age out leases whose holder has gone dark. No-op when the coordinator
+		// is nil (non-distributed mode).
+		if r.coordinator != nil {
+			phase := string(status.Phase())
+			message := statusMessageFromWorkflow(status)
+			if err := r.coordinator.ReportCRStatus(r.crKeyFor(), phase, message); err != nil {
+				// Non-fatal: log and move on. The reconcile will retry and
+				// the next updateStatus exit will heartbeat again.
+				log.Debugf("Distributed mode: ReportCRStatus failed (non-fatal): %v", err)
+			}
+		}
 		return result, nil
 	}
+}
+
+// statusMessageFromWorkflow walks a workflow.Status's options and returns the
+// joined message strings, suitable for the LastReconcileErr field on a
+// distributed StatusReport. Returns "" if no message option is present.
+func statusMessageFromWorkflow(s workflow.Status) string {
+	var out string
+	for _, opt := range s.StatusOptions() {
+		if m, ok := opt.(mdbstatus.MessageOption); ok {
+			if out == "" {
+				out = m.Message
+			} else {
+				out = out + "; " + m.Message
+			}
+		}
+	}
+	return out
 }
 
 func (r *ShardedClusterReconcileHelper) GetShardStsName(shardIdx int, memberCluster multicluster.MemberCluster) string {
@@ -2656,13 +3490,49 @@ func (r *ShardedClusterReconcileHelper) GetConfigSrvServiceName(memberCluster mu
 }
 
 func (r *ShardedClusterReconcileHelper) replicateAgentKeySecret(ctx context.Context, conn om.Connection, agentKey string, log *zap.SugaredLogger) error {
+	// In distributed mode getHealthyMemberClusters returns only the
+	// operator's OWN local cluster — the other entries have nil-Client
+	// (the operator has no K8s access to them). Each operator ensures the
+	// agent-API-key Secret exists in its own member cluster so the
+	// database pods' kubelet can mount it.
+	//
+	// Agent-key distribution: the leader generates (or reads) the key via
+	// EnsureAgentKeySecretExists in its own cluster and announces it on
+	// the raft state machine via PublishAgentKey. Followers prefer the
+	// FSM-stored value over their own argument because it is the
+	// canonical leader-blessed copy; this lets followers create the local
+	// secret WITHOUT having to round-trip OM's project-read API to fetch
+	// AgentAPIKey themselves.
+	effectiveKey := agentKey
+	if r.coordinator != nil {
+		if fsmKey := r.coordinator.GetAgentKey(r.crKeyFor(), conn.GroupID()); fsmKey != "" {
+			effectiveKey = fsmKey
+			log.Debugf("Distributed mode: using agent key from FSM for project %s", conn.GroupID())
+		}
+	}
+
 	for _, memberCluster := range getHealthyMemberClusters(r.allMemberClusters) {
 		var databaseSecretPath string
 		if memberCluster.SecretClient.VaultClient != nil {
 			databaseSecretPath = memberCluster.SecretClient.VaultClient.DatabaseSecretPath()
 		}
-		if _, err := agents.EnsureAgentKeySecretExists(ctx, memberCluster.SecretClient, conn, r.sc.Namespace, agentKey, conn.GroupID(), databaseSecretPath, log); err != nil {
+		written, err := agents.EnsureAgentKeySecretExists(ctx, memberCluster.SecretClient, conn, r.sc.Namespace, effectiveKey, conn.GroupID(), databaseSecretPath, log)
+		if err != nil {
 			return xerrors.Errorf("failed to ensure agent key secret in member cluster %s: %w", memberCluster.Name, err)
+		}
+		if effectiveKey == "" {
+			effectiveKey = written
+		}
+	}
+
+	// Leader publishes the (possibly newly-generated) key via raft so
+	// every other operator can pick it up from the FSM next reconcile.
+	// Followers also call PublishAgentKey when their effective key
+	// matches what's already in the FSM, which is a fast-path no-op
+	// (PublishAgentKey short-circuits on equality).
+	if r.coordinator != nil && effectiveKey != "" {
+		if err := r.coordinator.PublishAgentKey(r.crKeyFor(), conn.GroupID(), effectiveKey); err != nil {
+			log.Warnf("Distributed mode: PublishAgentKey for project %s failed (non-fatal): %v", conn.GroupID(), err)
 		}
 	}
 	return nil
@@ -2722,6 +3592,13 @@ func (r *ShardedClusterReconcileHelper) reconcileHostnameOverrideConfigMap(ctx c
 	}
 
 	cm := r.createHostnameOverrideConfigMap()
+
+	// In distributed mode getHealthyMemberClusters returns only the
+	// operator's OWN local cluster (other entries have nil-Client because
+	// the operator has no K8s access to them). Each operator writes the
+	// hostname-override CM into ITS cluster only; the pods' kubelets need
+	// it to populate /etc/hosts entries the agents use to reach the
+	// other clusters' processes via external DNS / mesh.
 	for _, memberCluster := range getHealthyMemberClusters(r.allMemberClusters) {
 		err := configmap.CreateOrUpdate(ctx, memberCluster.Client, cm)
 		if err != nil && !errors.IsAlreadyExists(err) {
@@ -2970,6 +3847,12 @@ func (r *ShardedClusterReconcileHelper) replicateSSLMMSCAConfigMap(ctx context.C
 		return nil
 	}
 
+	// In distributed mode r.commonController.client points at the
+	// operator's own member cluster (the only one it has access to). The
+	// SSLMMSCAConfigMap MUST exist on that cluster — the user-replicated
+	// project ConfigMap names it, and the test fixture pre-replicates it
+	// alongside the project CM via replicate_cr_resources.sh. Read from
+	// local; getHealthyMemberClusters returns only the local cluster too.
 	cm, err := r.commonController.client.GetConfigMap(ctx, kube.ObjectKey(r.sc.Namespace, projectConfig.SSLMMSCAConfigMap))
 	if err != nil {
 		return xerrors.Errorf("expected SSLMMSCAConfigMap not found on operator cluster: %s", projectConfig.SSLMMSCAConfigMap)

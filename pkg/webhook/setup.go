@@ -190,6 +190,16 @@ func GetWebhookConfig(serviceLocation types.NamespacedName) admissionv1.Validati
 }
 
 func shouldRegisterWebhookConfiguration() bool {
+	return ShouldRegisterWebhookConfiguration()
+}
+
+// ShouldRegisterWebhookConfiguration reports whether the operator should
+// generate certs, register the validating webhook configuration, and start
+// the controller-runtime webhook server. Exposed so main.go can short-circuit
+// the per-CRD `ctrl.NewWebhookManagedBy` registrations when webhook handling
+// is opt-out (e.g., Phase G distributed mode, where the chart sets
+// MDB_WEBHOOK_REGISTER_CONFIGURATION=false to avoid cluster-scope RBAC).
+func ShouldRegisterWebhookConfiguration() bool {
 	return env.ReadBoolOrDefault(util.MdbWebhookRegisterConfigurationEnv, true) // nolint:forbidigo
 }
 

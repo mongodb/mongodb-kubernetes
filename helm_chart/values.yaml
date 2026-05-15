@@ -85,6 +85,52 @@ operator:
   # additional arguments to pass on the operator's binary arguments, e.g. operator.additionalArguments={--v=9} to dump debug k8s networking to logs
   additionalArguments: []
 
+  # Distributed (Raft-coordinated) multi-cluster operator mode (PoC; see
+  # docs/dev/distributed-multicluster-poc-implementation-plan.md §15 — Phase G).
+  # When `enabled: true`, the operator runs as a peer in a Raft cluster shared
+  # across all member kubernetes clusters. Each member cluster installs this
+  # chart with its own clusterName + bootstrap flag; the peers list is
+  # identical across all installs (it's the discovery topology).
+  #
+  # Default disabled — preserves the legacy hub-and-spoke path.
+  distributed:
+    enabled: false
+    # This operator's cluster identity. Must match a peers entry.
+    # E.g. "kind-e2e-cluster-1".
+    clusterName: ""
+    # In-pod bind address for the raft TCP listener (hashicorp/raft msgpack
+    # wire protocol). Standard PoC value: "0.0.0.0:7000".
+    bindAddr: "0.0.0.0:7000"
+    # In-pod bind address for the proposal-forwarder TCP listener (plain TCP,
+    # length-prefixed framing). MUST be on a different port from bindAddr —
+    # the two channels are demuxed onto two TCP ports so Istio's inbound
+    # filter chain treats each as its own pass-through service. Standard PoC
+    # value: "0.0.0.0:7001" (== bindAddr.port + 1).
+    appBindAddr: "0.0.0.0:7001"
+    # Comma-separated peer list of the form
+    # "name=host:port,name=host:port,...". host:port is the RAFT port. The
+    # operator derives each peer's app port by adding 1 to the raft port
+    # (AppPortFromRaftAddr). For PoC this resolves cross-cluster via the
+    # istio multi-cluster mesh (per-cluster Service names like
+    # "<release>-raft-<clusterStem>.<ns>.svc.cluster.local").
+    peers: ""
+    # Set true on exactly ONE member cluster (typically cluster-1) — that one
+    # bootstraps the Raft configuration; the others wait to be added.
+    bootstrap: false
+    # Service exposing both raft + app-channel ports for cross-cluster
+    # reachability. The name is derived from the clusterName stem so all 3
+    # services have unique DNS in the multi-cluster mesh (Istio replicates
+    # them via remote secrets).
+    service:
+      # Raft-channel port number (must match bindAddr's port).
+      port: 7000
+      # App-channel port number (must match appBindAddr's port). Conventional
+      # value: port + 1.
+      appPort: 7001
+      # ClusterIP is enough on a single-network Istio mesh; use LoadBalancer
+      # as a fallback if the mesh isn't propagating cross-cluster Services.
+      type: ClusterIP
+
   webhook:
     # Controls whether the helm chart will install cluster role allowing to create ValidatingWebhookConfiguration. Default: true.
     # Without the permissions, the operator will log errors when trying to configure admission webhooks, but will work correctly nonetheless.

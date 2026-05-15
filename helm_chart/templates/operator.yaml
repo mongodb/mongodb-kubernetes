@@ -19,15 +19,26 @@ spec:
         app.kubernetes.io/component: controller
         app.kubernetes.io/name: {{ .Values.operator.name }}
         app.kubernetes.io/instance: {{ .Values.operator.name }}
-{{- if .Values.operator.vaultSecretBackend }}
-  {{- if .Values.operator.vaultSecretBackend.enabled }}
+{{- $vaultBackend := default dict .Values.operator.vaultSecretBackend }}
+{{- $distributedAnno := default dict .Values.operator.distributed }}
+{{- if or $vaultBackend.enabled (eq $distributedAnno.enabled true) }}
       annotations:
+  {{- if $vaultBackend.enabled }}
         vault.hashicorp.com/agent-inject: "true"
         vault.hashicorp.com/role: "mongodbenterprise"
-        {{- if .Values.operator.vaultSecretBackend.tlsSecretRef }}
-        vault.hashicorp.com/tls-secret: {{ .Values.operator.vaultSecretBackend.tlsSecretRef }}
+        {{- if $vaultBackend.tlsSecretRef }}
+        vault.hashicorp.com/tls-secret: {{ $vaultBackend.tlsSecretRef }}
         vault.hashicorp.com/ca-cert: /vault/tls/ca.crt
-         {{- end }}
+        {{- end }}
+  {{- end }}
+  {{- if eq $distributedAnno.enabled true }}
+        # Phase G: keep Istio sidecar out of the raft + raft-app TCP paths.
+        # Istio's inbound metadata_exchange / TLS sniff filters reset binary
+        # msgpack frames on otherwise-allowed ports. Excluding both inbound
+        # and outbound directions ensures peer-to-peer raft traffic crosses
+        # cluster boundaries unmodified.
+        traffic.sidecar.istio.io/excludeInboundPorts: {{ printf "%v,%v" (default 7000 $distributedAnno.service.port) (default 7001 $distributedAnno.service.appPort) | quote }}
+        traffic.sidecar.istio.io/excludeOutboundPorts: {{ printf "%v,%v" (default 7000 $distributedAnno.service.port) (default 7001 $distributedAnno.service.appPort) | quote }}
   {{- end }}
 {{- end }}
     spec:
@@ -279,6 +290,26 @@ spec:
               value: '{{ (splitn "=" 2 .)._1 }}'
       {{- end }}
     {{- end }}
+    {{- $distributed := default dict .Values.operator.distributed }}
+    {{- if eq $distributed.enabled true }}
+            - name: RAFT_CLUSTER_NAME
+              value: {{ required "operator.distributed.clusterName is required when operator.distributed.enabled=true" $distributed.clusterName | quote }}
+            - name: RAFT_BIND_ADDR
+              value: {{ default "0.0.0.0:7000" $distributed.bindAddr | quote }}
+            - name: RAFT_APP_BIND_ADDR
+              value: {{ default "0.0.0.0:7001" $distributed.appBindAddr | quote }}
+            - name: RAFT_PEERS
+              value: {{ required "operator.distributed.peers is required when operator.distributed.enabled=true" $distributed.peers | quote }}
+            - name: RAFT_BOOTSTRAP
+              value: {{ ternary "true" "false" (eq (default false $distributed.bootstrap) true) | quote }}
+          ports:
+            - name: tcp-raft
+              containerPort: {{ default 7000 $distributed.service.port }}
+              protocol: TCP
+            - name: tcp-raftapp
+              containerPort: {{ default 7001 $distributed.service.appPort }}
+              protocol: TCP
+    {{- end }}
       volumes:
         - name: webhook-server-dir
           emptyDir: {}
@@ -302,4 +333,65 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
   {{- end }}
+{{- end }}
+
+{{- $distributed := default dict .Values.operator.distributed }}
+{{- if eq $distributed.enabled true }}
+{{- /*
+  Distributed-mode (Phase G) raft peer Service. Exposes the muxed raft +
+  app-channel port for cross-cluster reachability. The service name is
+  derived from the operator's RAFT_CLUSTER_NAME so each member cluster
+  publishes a unique DNS name; in a single-network Istio mesh with
+  cross-cluster endpoint discovery enabled this resolves to the local
+  pod's IP from any cluster. Selector targets the operator pod by
+  app.kubernetes.io labels (same as the Deployment).
+
+  Naming: strip a "kind-e2e-" prefix when present (devc / kind setup) so
+  the Service name stays short. Falls back to the full cluster name.
+*/ -}}
+{{- $clusterStem := trimPrefix "kind-e2e-" $distributed.clusterName }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.operator.name }}-raft-{{ $clusterStem }}
+  namespace: {{$ns}}
+  labels:
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/name: {{ .Values.operator.name }}
+    app.kubernetes.io/instance: {{ .Values.operator.name }}
+    mongodb.com/distributed-raft-cluster: {{ $distributed.clusterName }}
+spec:
+  type: {{ default "ClusterIP" $distributed.service.type }}
+  # Publish endpoints even before the pod reports Ready — raft peers must
+  # discover each other during the bootstrap window when no leader exists yet
+  # and the controller manager hasn't started serving the health probe.
+  publishNotReadyAddresses: true
+  selector:
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/name: {{ .Values.operator.name }}
+    app.kubernetes.io/instance: {{ .Values.operator.name }}
+  ports:
+    # Istio convention: a port name starting with `tcp-` (or appProtocol=tcp)
+    # opts the listener into pass-through mode and skips the HTTP/HTTPS/TLS
+    # protocol detection that would otherwise reset arbitrary binary
+    # protocols.
+    #
+    # The transport is demuxed onto two ports (G'5 iter 7) so each channel
+    # carries an unmodified wire protocol:
+    #   - tcp-raft   : hashicorp/raft msgpack (same shape as mongod-mongod
+    #                  cross-cluster traffic).
+    #   - tcp-raftapp: plain-TCP length-prefixed proposal frames.
+    # A single muxed port with a 1-byte handshake trips Istio's inbound
+    # metadata_exchange filter and resets every connection.
+    - name: tcp-raft
+      appProtocol: tcp
+      port: {{ default 7000 $distributed.service.port }}
+      targetPort: tcp-raft
+      protocol: TCP
+    - name: tcp-raftapp
+      appProtocol: tcp
+      port: {{ default 7001 $distributed.service.appPort }}
+      targetPort: tcp-raftapp
+      protocol: TCP
 {{- end }}

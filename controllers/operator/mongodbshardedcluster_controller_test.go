@@ -956,6 +956,135 @@ func TestShardedCustomPodSpecTemplate(t *testing.T) {
 	assert.Equal(t, "my-custom-container-config", podSpecTemplateScConfig.Containers[1].Name, "Custom container should be second")
 }
 
+// TestShardedClusterPodTemplateAnnotationsPropagate verifies that podTemplate
+// annotations injected via the top-level *PodSpec fields
+// (spec.{configSrv,shard,mongos}PodSpec.podTemplate.metadata.annotations) land
+// on the resulting StatefulSet's .Spec.Template.Annotations. Regression test
+// for the iter-13 rolling-restart e2e failure: the annotation was being
+// parsed off the CR but silently dropped before the STS apply.
+//
+// Covers both single-cluster and multi-cluster topologies — the live pod-mode
+// e2e ran on MultiCluster topology and the test must reproduce there.
+func TestShardedClusterPodTemplateAnnotationsPropagate(t *testing.T) {
+	ctx := context.Background()
+
+	const (
+		markerKey          = "mongodb.com/test-marker"
+		shardMarkerVal     = "shard-value"
+		mongosMarkerVal    = "mongos-value"
+		configSrvMarkerVal = "configsrv-value"
+	)
+
+	mkPodTemplate := func(val string) corev1.PodTemplateSpec {
+		return corev1.PodTemplateSpec{
+			ObjectMeta: metav1.ObjectMeta{
+				Annotations: map[string]string{markerKey: val},
+			},
+		}
+	}
+
+	t.Run("single-cluster", func(t *testing.T) {
+		sc := test.DefaultClusterBuilder().SetName("pod-spec-sc-anno").
+			SetShardPodSpec(mkPodTemplate(shardMarkerVal)).
+			SetMongosPodSpecTemplate(mkPodTemplate(mongosMarkerVal)).
+			SetPodConfigSvrSpecTemplate(mkPodTemplate(configSrvMarkerVal)).
+			Build()
+
+		reconciler, _, kubeClient, _, err := defaultShardedClusterReconciler(ctx, nil, "", "", sc, nil, testBackupEnableDelay)
+		require.NoError(t, err)
+
+		checkReconcileSuccessful(ctx, t, reconciler, sc, kubeClient)
+
+		statefulSetSc0, err := kubeClient.GetStatefulSet(ctx, kube.ObjectKey(mock.TestNamespace, "pod-spec-sc-anno-0"))
+		assert.NoError(t, err)
+		statefulSetSc1, err := kubeClient.GetStatefulSet(ctx, kube.ObjectKey(mock.TestNamespace, "pod-spec-sc-anno-1"))
+		assert.NoError(t, err)
+		statefulSetScConfig, err := kubeClient.GetStatefulSet(ctx, kube.ObjectKey(mock.TestNamespace, "pod-spec-sc-anno-config"))
+		assert.NoError(t, err)
+		statefulSetMongoS, err := kubeClient.GetStatefulSet(ctx, kube.ObjectKey(mock.TestNamespace, "pod-spec-sc-anno-mongos"))
+		assert.NoError(t, err)
+
+		assert.Equal(t, shardMarkerVal, statefulSetSc0.Spec.Template.Annotations[markerKey],
+			"shard-0 STS template should carry shardPodSpec.podTemplate annotation")
+		assert.Equal(t, shardMarkerVal, statefulSetSc1.Spec.Template.Annotations[markerKey],
+			"shard-1 STS template should carry shardPodSpec.podTemplate annotation")
+		assert.Equal(t, configSrvMarkerVal, statefulSetScConfig.Spec.Template.Annotations[markerKey],
+			"config-srv STS template should carry configSrvPodSpec.podTemplate annotation")
+		assert.Equal(t, mongosMarkerVal, statefulSetMongoS.Spec.Template.Annotations[markerKey],
+			"mongos STS template should carry mongosPodSpec.podTemplate annotation")
+	})
+
+	t.Run("multi-cluster", func(t *testing.T) {
+		memberClusters := test.NewMemberClusters(
+			test.MemberClusterDetails{
+				ClusterName:           "member-cluster-1",
+				ShardMap:              []int{2, 2},
+				NumberOfConfigServers: 2,
+				NumberOfMongoses:      1,
+			},
+			test.MemberClusterDetails{
+				ClusterName:           "member-cluster-2",
+				ShardMap:              []int{1, 1},
+				NumberOfConfigServers: 1,
+				NumberOfMongoses:      1,
+			},
+		)
+
+		sc := test.DefaultClusterBuilder().SetName("pod-spec-mc-anno").
+			WithMultiClusterSetup(memberClusters).
+			SetShardPodSpec(mkPodTemplate(shardMarkerVal)).
+			SetMongosPodSpecTemplate(mkPodTemplate(mongosMarkerVal)).
+			SetPodConfigSvrSpecTemplate(mkPodTemplate(configSrvMarkerVal)).
+			Build()
+
+		omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+		fakeClient := mock.NewEmptyFakeClientBuilder().WithObjects(sc).WithObjects(mock.GetDefaultResources()...).Build()
+		kubeClient := kubernetesClient.NewClient(fakeClient)
+		memberClusterMap := getFakeMultiClusterMapWithConfiguredInterceptor(memberClusters.ClusterNames, omConnectionFactory, true, true)
+
+		reconciler, reconcilerHelper, err := newShardedClusterReconcilerForMultiCluster(ctx, false, sc, memberClusterMap, kubeClient, omConnectionFactory)
+		require.NoError(t, err)
+		clusterMapping := reconcilerHelper.deploymentState.ClusterMapping
+		omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
+			allHostnames, _ := generateAllHosts(sc, memberClusters.MongosDistribution, clusterMapping, memberClusters.ConfigServerDistribution, memberClusters.ShardDistribution, test.ClusterLocalDomains, test.NoneExternalClusterDomains)
+			connection.(*om.MockedOmConnection).AddHosts(allHostnames)
+		})
+
+		checkReconcileSuccessful(ctx, t, reconciler, sc, kubeClient)
+
+		// Iterate each member cluster and shard, verify annotation lands on every STS template.
+		for clusterIdx, clusterSpecItem := range sc.Spec.ShardSpec.ClusterSpecList {
+			memberClient := memberClusterMap[clusterSpecItem.ClusterName]
+
+			configSrvStsName := fmt.Sprintf("%s-config-%d", sc.Name, clusterIdx)
+			configSrvSts := &appsv1.StatefulSet{}
+			err := memberClient.Get(ctx, kube.ObjectKey(sc.Namespace, configSrvStsName), configSrvSts)
+			require.NoError(t, err, "config-srv STS %s should exist on %s", configSrvStsName, clusterSpecItem.ClusterName)
+			assert.Equal(t, configSrvMarkerVal, configSrvSts.Spec.Template.Annotations[markerKey],
+				"config-srv STS %s on %s should carry configSrvPodSpec.podTemplate annotation",
+				configSrvStsName, clusterSpecItem.ClusterName)
+
+			mongosStsName := fmt.Sprintf("%s-mongos-%d", sc.Name, clusterIdx)
+			mongosSts := &appsv1.StatefulSet{}
+			err = memberClient.Get(ctx, kube.ObjectKey(sc.Namespace, mongosStsName), mongosSts)
+			require.NoError(t, err, "mongos STS %s should exist on %s", mongosStsName, clusterSpecItem.ClusterName)
+			assert.Equal(t, mongosMarkerVal, mongosSts.Spec.Template.Annotations[markerKey],
+				"mongos STS %s on %s should carry mongosPodSpec.podTemplate annotation",
+				mongosStsName, clusterSpecItem.ClusterName)
+
+			for shardIdx := 0; shardIdx < memberClusters.ShardCount(); shardIdx++ {
+				shardStsName := fmt.Sprintf("%s-%d-%d", sc.Name, shardIdx, clusterIdx)
+				shardSts := &appsv1.StatefulSet{}
+				err = memberClient.Get(ctx, kube.ObjectKey(sc.Namespace, shardStsName), shardSts)
+				require.NoError(t, err, "shard STS %s should exist on %s", shardStsName, clusterSpecItem.ClusterName)
+				assert.Equal(t, shardMarkerVal, shardSts.Spec.Template.Annotations[markerKey],
+					"shard STS %s on %s should carry shardPodSpec.podTemplate annotation",
+					shardStsName, clusterSpecItem.ClusterName)
+			}
+		}
+	})
+}
+
 func TestShardedCustomPodStaticSpecTemplate(t *testing.T) {
 	ctx := context.Background()
 	t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.Static))

@@ -100,8 +100,14 @@ func RunTelemetry(leaderTrace context.Context, mongodbImage, databaseNonStaticIm
 	Logger.Debugf("%s is set to: %s", CollectionFrequency, duration)
 
 	// converting to a smaller interface for better testing and clearer responsibilities
+	// G'5 iter 17b: in distributed pod mode peer cluster entries are nil
+	// (name known, no K8s client). Skip them — telemetry-snapshot collectors
+	// call GetAPIReader() on these and would nil-deref otherwise.
 	cc := map[string]ConfigClient{}
 	for s, c := range clusterMap {
+		if c == nil {
+			continue
+		}
 		cc[s] = c
 	}
 
