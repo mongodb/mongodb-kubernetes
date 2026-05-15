@@ -65,7 +65,7 @@ SOURCE_CERT_PREFIX = "clustercert"
 SEARCH_INDEX_READY_TIMEOUT = 300
 SEARCH_QUERY_RETRY_TIMEOUT = 60
 
-DATA_PLANE_SKIP_REASON = "phase-3 data-plane follow-up; un-skip after scaffold CI green"
+DATA_PLANE_SKIP_REASON = "data-plane suite pending scaffold validation; un-skip in follow-up"
 
 
 # =============================================================================
