@@ -95,6 +95,13 @@ rules:
       - secrets
     verbs:
       - get
+  - apiGroups:
+      - ''
+    resources:
+      - pods
+    verbs:
+      - get
+      - patch
 
 ---
 kind: RoleBinding
