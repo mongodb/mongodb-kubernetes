@@ -766,7 +766,7 @@ func newSearch(name string, shards []ExternalShardConfig, tlsPrefix string, isTL
 	return search
 }
 
-func TestValidateMCRequiresExternalHostAndPorts(t *testing.T) {
+func TestValidateMCRequiresExternalSource(t *testing.T) {
 	mdbBad := &MongoDBSearch{
 		Spec: MongoDBSearchSpec{
 			Clusters: &[]ClusterSpec{
@@ -775,12 +775,13 @@ func TestValidateMCRequiresExternalHostAndPorts(t *testing.T) {
 			},
 		},
 	}
-	resBad := validateMCRequiresExternalHostAndPorts(mdbBad)
-	assert.Equal(t, v1.ErrorLevel, resBad.Level, "expected validation error for MC without external.hostAndPorts")
+	resBad := validateMCRequiresExternalSource(mdbBad)
+	assert.Equal(t, v1.ErrorLevel, resBad.Level, "expected validation error for MC without any external source")
 	assert.Contains(t, resBad.Msg, "spec.source.external.hostAndPorts")
+	assert.Contains(t, resBad.Msg, "spec.source.external.shardedCluster")
 	assert.Contains(t, resBad.Msg, "len(spec.clusters) > 1")
 
-	mdbOK := &MongoDBSearch{
+	mdbRS := &MongoDBSearch{
 		Spec: MongoDBSearchSpec{
 			Clusters: &[]ClusterSpec{
 				{ClusterName: "cluster-a"},
@@ -793,19 +794,39 @@ func TestValidateMCRequiresExternalHostAndPorts(t *testing.T) {
 			},
 		},
 	}
-	assert.Equal(t, v1.SuccessLevel, validateMCRequiresExternalHostAndPorts(mdbOK).Level)
+	assert.Equal(t, v1.SuccessLevel, validateMCRequiresExternalSource(mdbRS).Level)
+
+	mdbSharded := &MongoDBSearch{
+		Spec: MongoDBSearchSpec{
+			Clusters: &[]ClusterSpec{
+				{ClusterName: "cluster-a"},
+				{ClusterName: "cluster-b"},
+			},
+			Source: &MongoDBSource{
+				ExternalMongoDBSource: &ExternalMongoDBSource{
+					ShardedCluster: &ExternalShardedClusterConfig{
+						Router: ExternalRouterConfig{Hosts: []string{"mongos.example:27017"}},
+						Shards: []ExternalShardConfig{
+							{ShardName: "shard-0", Hosts: []string{"shard-0-a.example:27017"}},
+						},
+					},
+				},
+			},
+		},
+	}
+	assert.Equal(t, v1.SuccessLevel, validateMCRequiresExternalSource(mdbSharded).Level, "MC sharded source must be accepted")
 
 	mdbSC := &MongoDBSearch{
 		Spec: MongoDBSearchSpec{
 			Clusters: &[]ClusterSpec{{ClusterName: "cluster-a"}},
 		},
 	}
-	assert.Equal(t, v1.SuccessLevel, validateMCRequiresExternalHostAndPorts(mdbSC).Level, "single-cluster path is a no-op")
+	assert.Equal(t, v1.SuccessLevel, validateMCRequiresExternalSource(mdbSC).Level, "single-cluster path is a no-op")
 
 	mdbLegacy := &MongoDBSearch{
 		Spec: MongoDBSearchSpec{},
 	}
-	assert.Equal(t, v1.SuccessLevel, validateMCRequiresExternalHostAndPorts(mdbLegacy).Level)
+	assert.Equal(t, v1.SuccessLevel, validateMCRequiresExternalSource(mdbLegacy).Level)
 }
 
 // TestValidateClustersEnvoyResourceNames is the admission check for the
