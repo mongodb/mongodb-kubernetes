@@ -118,29 +118,66 @@ def mdb(
 
     # ShardedCluster rejects top-level spec.additionalMongodConfig; the search-aware
     # setParameter has to live on each component's own block. mongotHost +
-    # searchIndexManagementHostAndPort are what actually flip mongos's search routing
-    # on — without them mongos returns `SearchNotEnabled` (code 31082) for any
-    # $search / createSearchIndexes / $listSearchIndexes call. The MC MongoDB CRD has
-    # no per-cluster `clusterSpecList[].additionalMongodConfig` field, so this value
-    # has to be global; cluster-0's cluster-level proxy is used as a single shared
-    # endpoint (test queries go through it via cluster-0 mongos primarily, and the
-    # Envoy proxy is namespace-scoped so cluster-1 mongos can also reach it).
-    mongot_host = (
-        f"{search_resource_names.cluster_level_proxy_service_fqdn(0, MDBS_RESOURCE_NAME, namespace)}"
-        f":{ENVOY_PROXY_PORT}"
+    # searchIndexManagementHostAndPort tell mongos and the per-shard mongods where to
+    # send search traffic; without them mongos returns `SearchNotEnabled` (code 31082)
+    # for any $search / createSearchIndexes / $listSearchIndexes call.
+    #
+    # Envoy in front of mongot does SNI-based routing per (cluster, shard) — see the
+    # MongoDBSearch loadBalancer.managed.externalHostname template below — so the
+    # mongotHost value MUST carry the `<shardName>.` prefix; without it the cluster-
+    # level proxy doesn't know which shard's mongot to dispatch to, the gRPC
+    # handshake stalls and mongos returns `CommandFailed` (code 125) after 20s.
+    #
+    # Per-shard mongotHost is set via shardOverrides (mirrors search_deployment_helper
+    # .py:64-83 for single-cluster sharded). MC MongoDB has no per-cluster
+    # clusterSpecList[].additionalMongodConfig, so this value is global across
+    # clusters: cluster-0's Envoy is used as a single shared endpoint and is namespace-
+    # scoped/reachable from both clusters' mongos.
+    cluster0_proxy_fqdn = search_resource_names.cluster_level_proxy_service_fqdn(
+        0, MDBS_RESOURCE_NAME, namespace
     )
-    search_set_parameter = {
+
+    def _shard_mongot_host(shard_name: str) -> str:
+        return f"{shard_name}.{cluster0_proxy_fqdn}:{ENVOY_PROXY_PORT}"
+
+    base_search_set_parameter = {
+        "skipAuthenticationToSearchIndexManagementServer": False,
+        "skipAuthenticationToMongot": False,
+        "searchTLSMode": "requireTLS",
+        "useGrpcForSearch": True,
+    }
+
+    resource["spec"]["shardOverrides"] = [
+        {
+            "shardNames": [f"{MDB_RESOURCE_NAME}-{shard_idx}"],
+            "additionalMongodConfig": {
+                "setParameter": {
+                    **base_search_set_parameter,
+                    "mongotHost": _shard_mongot_host(f"{MDB_RESOURCE_NAME}-{shard_idx}"),
+                    "searchIndexManagementHostAndPort": _shard_mongot_host(
+                        f"{MDB_RESOURCE_NAME}-{shard_idx}"
+                    ),
+                },
+            },
+        }
+        for shard_idx in range(SHARD_COUNT)
+    ]
+
+    # mongos uses shard-0's mongot endpoint for cluster-wide search index management.
+    mongos_mongot_host = _shard_mongot_host(f"{MDB_RESOURCE_NAME}-0")
+    resource["spec"]["mongos"]["additionalMongodConfig"] = {
         "setParameter": {
-            "mongotHost": mongot_host,
-            "searchIndexManagementHostAndPort": mongot_host,
-            "skipAuthenticationToSearchIndexManagementServer": False,
-            "skipAuthenticationToMongot": False,
-            "searchTLSMode": "requireTLS",
-            "useGrpcForSearch": True,
+            **base_search_set_parameter,
+            "mongotHost": mongos_mongot_host,
+            "searchIndexManagementHostAndPort": mongos_mongot_host,
         },
     }
-    resource["spec"]["shard"]["additionalMongodConfig"] = search_set_parameter
-    resource["spec"]["mongos"]["additionalMongodConfig"] = search_set_parameter
+    # Keep the non-routing search params on `spec.shard` so any shard that lacks an
+    # override still has TLS/grpc/auth flags applied; shardOverrides take precedence
+    # for the routing fields (mongotHost / searchIndexManagementHostAndPort).
+    resource["spec"]["shard"]["additionalMongodConfig"] = {
+        "setParameter": base_search_set_parameter,
+    }
 
     resource["spec"]["security"] = {
         "certsSecretPrefix": SOURCE_CERT_PREFIX,
