@@ -117,9 +117,22 @@ def mdb(
     resource["spec"]["mongos"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, MONGOS_PER_CLUSTER)
 
     # ShardedCluster rejects top-level spec.additionalMongodConfig; the search-aware
-    # setParameter has to live on each component's own block.
+    # setParameter has to live on each component's own block. mongotHost +
+    # searchIndexManagementHostAndPort are what actually flip mongos's search routing
+    # on — without them mongos returns `SearchNotEnabled` (code 31082) for any
+    # $search / createSearchIndexes / $listSearchIndexes call. The MC MongoDB CRD has
+    # no per-cluster `clusterSpecList[].additionalMongodConfig` field, so this value
+    # has to be global; cluster-0's cluster-level proxy is used as a single shared
+    # endpoint (test queries go through it via cluster-0 mongos primarily, and the
+    # Envoy proxy is namespace-scoped so cluster-1 mongos can also reach it).
+    mongot_host = (
+        f"{search_resource_names.cluster_level_proxy_service_fqdn(0, MDBS_RESOURCE_NAME, namespace)}"
+        f":{ENVOY_PROXY_PORT}"
+    )
     search_set_parameter = {
         "setParameter": {
+            "mongotHost": mongot_host,
+            "searchIndexManagementHostAndPort": mongot_host,
             "skipAuthenticationToSearchIndexManagementServer": False,
             "skipAuthenticationToMongot": False,
             "searchTLSMode": "requireTLS",
