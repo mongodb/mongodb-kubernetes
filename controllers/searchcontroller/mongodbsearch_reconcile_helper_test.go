@@ -2482,17 +2482,13 @@ func TestReconcileSharded_CreatesPerShardResources(t *testing.T) {
 		nil, nil,
 	)
 
-	// Pass 1: creates shard-0 resources, returns Pending (StatefulSet not ready)
+	// Pass 1: applies resources for ALL shards in a single pass, then the
+	// readiness check sees none ready → returns Pending.
 	result := helper.reconcile(t.Context(), zap.S())
 	assert.False(t, result.IsOK())
 	require.NoError(t, mock.MarkAllStatefulSetsAsReady(t.Context(), search.Namespace, fakeClient))
 
-	// Pass 2: shard-0 ready, creates shard-1 resources, returns Pending
-	result = helper.reconcile(t.Context(), zap.S())
-	assert.False(t, result.IsOK())
-	require.NoError(t, mock.MarkAllStatefulSetsAsReady(t.Context(), search.Namespace, fakeClient))
-
-	// Pass 3: all shards ready, returns OK
+	// Pass 2: all shards already exist from pass 1 and are now Ready → OK.
 	result = helper.reconcile(t.Context(), zap.S())
 	assert.True(t, result.IsOK())
 
@@ -2934,5 +2930,124 @@ func TestReconcileShardedMC_FanOutUsesPerClusterClient(t *testing.T) {
 		assert.True(t, apierrors.IsNotFound(err),
 			"cross-cluster leak: %s should not exist on %s", res.svcName.Name,
 			map[bool]string{true: "cluster-b", false: "cluster-a"}[c == clusterBClient])
+	}
+}
+
+// TestReconcileShardedMC_AllUnitsAppliedBeforeReadinessCheck guards against a
+// regression where the apply-and-check loop short-circuits on the first
+// not-ready StatefulSet and skips creating resources for subsequent
+// (cluster, shard) units. After one reconcile, every (cluster, shard)
+// StatefulSet must exist on the correct member-cluster client even though
+// none of them can become Ready under a fake client.
+func TestReconcileShardedMC_AllUnitsAppliedBeforeReadinessCheck(t *testing.T) {
+	search := newTestMongoDBSearch("mdb-search", "ns")
+	clusters := []searchv1.ClusterSpec{
+		{ClusterName: "cluster-a"},
+		{ClusterName: "cluster-b"},
+	}
+	search.Spec.Clusters = &clusters
+	search.Spec.Source = &searchv1.MongoDBSource{
+		ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{
+			ShardedCluster: &searchv1.ExternalShardedClusterConfig{
+				Router: searchv1.ExternalRouterConfig{Hosts: []string{"mongos.example:27017"}},
+				Shards: []searchv1.ExternalShardConfig{
+					{ShardName: "sh-0", Hosts: []string{"sh-0-a.example:27017"}},
+					{ShardName: "sh-1", Hosts: []string{"sh-1-a.example:27017"}},
+					{ShardName: "sh-2", Hosts: []string{"sh-2-a.example:27017"}},
+				},
+			},
+		},
+	}
+	// MC requires managed LB; sharded + managed-LB requires TLS. ExternalHostname
+	// must start with {shardName}. so the operator can derive the cluster-level
+	// form (M2 validator).
+	search.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
+		Managed: &searchv1.ManagedLBConfig{
+			ExternalHostname: "{shardName}.mdb-search-search-{clusterIndex}-proxy-svc.ns.svc.cluster.local",
+		},
+	}
+	search.Spec.Security = searchv1.Security{
+		TLS: &searchv1.TLS{CertsSecretPrefix: "certs"},
+	}
+
+	shardedSource := &mockShardedSource{
+		shardNames: []string{"sh-0", "sh-1", "sh-2"},
+		hostSeeds: map[int][]string{
+			0: {"sh-0-a.example:27017"},
+			1: {"sh-1-a.example:27017"},
+			2: {"sh-2-a.example:27017"},
+		},
+	}
+
+	// Pre-create per-(cluster, shard) TLS secrets on each member cluster so the
+	// preflight TLS-presence check passes; otherwise reconcile would return
+	// Pending before ever entering the apply loop and the regression we're
+	// guarding against (apply-vs-check order) wouldn't be exercised.
+	tlsSecretsForCluster := func(clusterIndex int) []client.Object {
+		out := make([]client.Object, 0, 3)
+		for _, shard := range []string{"sh-0", "sh-1", "sh-2"} {
+			out = append(out, &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      fmt.Sprintf("certs-mdb-search-search-%d-%s-cert", clusterIndex, shard),
+					Namespace: "ns",
+				},
+				Data: map[string][]byte{
+					"tls.crt": []byte("dummy-cert"),
+					"tls.key": []byte("dummy-key"),
+				},
+			})
+		}
+		return out
+	}
+
+	centralClient := kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().WithObjects(search).Build())
+	clusterAClient := kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().WithObjects(tlsSecretsForCluster(0)...).Build())
+	clusterBClient := kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().WithObjects(tlsSecretsForCluster(1)...).Build())
+
+	r := &MongoDBSearchReconcileHelper{
+		mdbSearch: search,
+		db:        shardedSource,
+		client:    centralClient,
+		memberClusterClients: map[string]kubernetesClient.Client{
+			"cluster-a": clusterAClient,
+			"cluster-b": clusterBClient,
+		},
+		clusterMapping:       map[string]int{"cluster-a": 0, "cluster-b": 1},
+		operatorSearchConfig: newTestOperatorSearchConfig(),
+	}
+
+	st := r.reconcile(t.Context(), zap.S())
+
+	// Fake clients never mark a StatefulSet Ready, so reconcile must report
+	// non-OK. The point of this test is the side effect: every (cluster, shard)
+	// STS must have been applied BEFORE the readiness check fired.
+	require.False(t, st.IsOK(), "expected non-OK status with fake STS, got %v", st)
+
+	expectedSTS := []struct {
+		c    kubernetesClient.Client
+		name string
+	}{
+		{clusterAClient, "mdb-search-search-0-sh-0"},
+		{clusterAClient, "mdb-search-search-0-sh-1"},
+		{clusterAClient, "mdb-search-search-0-sh-2"},
+		{clusterBClient, "mdb-search-search-1-sh-0"},
+		{clusterBClient, "mdb-search-search-1-sh-1"},
+		{clusterBClient, "mdb-search-search-1-sh-2"},
+	}
+	for _, exp := range expectedSTS {
+		err := exp.c.Get(t.Context(), types.NamespacedName{Name: exp.name, Namespace: "ns"}, &appsv1.StatefulSet{})
+		require.NoError(t, err, "STS %s must have been created before the readiness short-circuit fired", exp.name)
+	}
+
+	// Cluster-level proxy Services were also applied (post-units pass).
+	for _, exp := range []struct {
+		c    kubernetesClient.Client
+		name string
+	}{
+		{clusterAClient, "mdb-search-search-0-proxy-svc"},
+		{clusterBClient, "mdb-search-search-1-proxy-svc"},
+	} {
+		err := exp.c.Get(t.Context(), types.NamespacedName{Name: exp.name, Namespace: "ns"}, &corev1.Service{})
+		require.NoError(t, err, "cluster-level proxy Service %s must have been created", exp.name)
 	}
 }

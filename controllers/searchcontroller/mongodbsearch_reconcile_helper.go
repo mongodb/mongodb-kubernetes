@@ -525,6 +525,15 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 		usePerPodConfig:       usePerPodConfig,
 	}
 
+	// Pass 1: apply every (cluster, shard) unit. Splitting apply from the readiness
+	// check matters for the MC fan-out — a not-ready STS on the first unit must not
+	// short-circuit creation of subsequent units' resources on other clusters/shards.
+	type unitApplyResult struct {
+		unit               reconcileUnit
+		unitClient         kubernetesClient.Client
+		expectedGeneration int64
+	}
+	applied := make([]unitApplyResult, 0, len(plan.units))
 	for _, unit := range plan.units {
 		unitLog := log.With(unit.logFields...)
 
@@ -532,10 +541,11 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 		if err != nil {
 			return workflow.Failed(err)
 		}
-		expectedGeneration := mutatedSts.GetGeneration()
-		if statefulSetStatus := statefulset.GetStatefulSetStatus(ctx, r.mdbSearch.Namespace, unit.stsName.Name, expectedGeneration, unitClient); !statefulSetStatus.IsOK() {
-			return statefulSetStatus
-		}
+		applied = append(applied, unitApplyResult{
+			unit:               unit,
+			unitClient:         unitClient,
+			expectedGeneration: mutatedSts.GetGeneration(),
+		})
 	}
 
 	for _, res := range plan.clusterLevelResources {
@@ -549,6 +559,14 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 	}
 
 	plan.cleanup(ctx, log)
+
+	// Pass 2: worst-of readiness check — first non-OK status wins, but every unit's
+	// resources are already on the cluster from pass 1.
+	for _, res := range applied {
+		if statefulSetStatus := statefulset.GetStatefulSetStatus(ctx, r.mdbSearch.Namespace, res.unit.stsName.Name, res.expectedGeneration, res.unitClient); !statefulSetStatus.IsOK() {
+			return statefulSetStatus
+		}
+	}
 
 	if !r.mdbSearch.IsLoadBalancerReady() {
 		return workflow.Pending("Waiting for managed load balancer to be ready").
