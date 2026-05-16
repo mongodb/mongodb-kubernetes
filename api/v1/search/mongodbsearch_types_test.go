@@ -472,6 +472,10 @@ func TestGetManagedLBEndpointForClusterLevel(t *testing.T) {
 		{"strip prefix, resolve clusterName", "{shardName}.{clusterName}.search.example.com", 0, "us-east-k8s.search.example.com"},
 		{"strip prefix, resolve clusterIndex", "{shardName}.search-{clusterIndex}.example.com", 1, "search-1.example.com"},
 		{"strip prefix, single-cluster sharded shape (no cluster placeholders)", "{shardName}.search.example.com", 0, "search.example.com"},
+		// {shardName} as a name component (not a leading prefix) is not derivable to a
+		// single cluster-level hostname; expect "" so the caller falls back to the
+		// cluster-level proxy Service FQDN.
+		{"shardName as name component returns empty", "search-{clusterIndex}-{shardName}-proxy.example.com", 0, ""},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
