@@ -275,6 +275,10 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileHeadless(ctx context.Context,
 		return r.updateStatus(ctx, mrs, workflow.Failed(err), log)
 	}
 
+	if err := r.reconcileHostnameOverrideConfigMap(ctx, log, *mrs); err != nil {
+		return r.updateStatus(ctx, mrs, workflow.Failed(err), log)
+	}
+
 	if status := r.reconcileHeadlessStatefulSets(ctx, mrs, log); !status.IsOK() {
 		return r.updateStatus(ctx, mrs, status, log)
 	}
