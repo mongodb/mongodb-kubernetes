@@ -9,7 +9,6 @@ from typing import List
 
 import kubernetes
 import pymongo.errors
-import pytest
 from kubernetes.client import CoreV1Api
 from kubetester import create_or_update_configmap, create_or_update_secret, read_secret, try_load
 from kubetester.kubetester import fixture as yaml_fixture
@@ -64,8 +63,6 @@ SOURCE_CERT_PREFIX = "clustercert"
 
 SEARCH_INDEX_READY_TIMEOUT = 300
 SEARCH_QUERY_RETRY_TIMEOUT = 60
-
-DATA_PLANE_SKIP_REASON = "data-plane suite pending scaffold validation; un-skip in follow-up"
 
 
 # =============================================================================
@@ -533,7 +530,6 @@ def _per_cluster_mongos_search_tester(
     return SearchTester(conn_str, use_ssl=True, ca_path=get_issuer_ca_filepath())
 
 
-@pytest.mark.skip(reason=DATA_PLANE_SKIP_REASON)
 @mark.e2e_search_q3_mc_sharded_external_mtls
 def test_restore_sample_database(namespace: str, tools_pod):
     """mongorestore sample_mflix into the source sharded cluster via cluster-0's mongos."""
@@ -545,7 +541,6 @@ def test_restore_sample_database(namespace: str, tools_pod):
     )
 
 
-@pytest.mark.skip(reason=DATA_PLANE_SKIP_REASON)
 @mark.e2e_search_q3_mc_sharded_external_mtls
 def test_shard_sample_collection(namespace: str):
     """Shard sample_mflix.movies across the 3 shards so $search exercises every per-shard mongot."""
@@ -553,7 +548,6 @@ def test_shard_sample_collection(namespace: str):
     admin.shard_and_distribute_collection("sample_mflix", "movies")
 
 
-@pytest.mark.skip(reason=DATA_PLANE_SKIP_REASON)
 @mark.e2e_search_q3_mc_sharded_external_mtls
 def test_create_search_index(namespace: str):
     tester = _per_cluster_mongos_search_tester(namespace, 0, USER_NAME, USER_PASSWORD)
@@ -562,7 +556,6 @@ def test_create_search_index(namespace: str):
     tester.wait_for_search_indexes_ready(movies.db_name, movies.col_name, timeout=SEARCH_INDEX_READY_TIMEOUT)
 
 
-@pytest.mark.skip(reason=DATA_PLANE_SKIP_REASON)
 @mark.e2e_search_q3_mc_sharded_external_mtls
 def test_execute_text_search_query(namespace: str):
     """End-to-end $search against the first cluster's mongos — quick smoke before per-cluster."""
@@ -582,7 +575,6 @@ def test_execute_text_search_query(namespace: str):
     run_periodically(execute_search, timeout=SEARCH_QUERY_RETRY_TIMEOUT, sleep_time=5, msg="$search via mongos-0")
 
 
-@pytest.mark.skip(reason=DATA_PLANE_SKIP_REASON)
 @mark.e2e_search_q3_mc_sharded_external_mtls
 def test_per_cluster_search_query(
     namespace: str,
