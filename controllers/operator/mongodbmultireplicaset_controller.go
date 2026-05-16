@@ -320,6 +320,12 @@ func (r *ReconcileMongoDbMultiReplicaSet) buildHeadlessAutomationConfig(ctx cont
 			if i < len(allHostnames) {
 				p.HostName = allHostnames[i]
 			}
+		}).
+		AddProcessModification(func(_ int, p *automationconfig.Process) {
+			automationconfig.ConfigureAgentConfiguration(&automationconfig.SystemLog{
+				Destination: automationconfig.File,
+				Path:        util.PvcMountPathLogs + "/mongodb.log",
+			}, nil, nil, p)
 		})
 
 	if fcv := mrs.Spec.FeatureCompatibilityVersion; fcv != nil && *fcv != "" {

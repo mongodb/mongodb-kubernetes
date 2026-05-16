@@ -1006,7 +1006,13 @@ func (r *ReconcileMongoDbReplicaSet) buildHeadlessAutomationConfig(ctx context.C
 		SetMongoDBVersion(rs.Spec.Version).
 		SetAuth(automationconfig.Auth{Disabled: true}).
 		SetOptions(automationconfig.Options{DownloadBase: util.AgentDownloadsDir}).
-		SetPreviousAutomationConfig(existingAC)
+		SetPreviousAutomationConfig(existingAC).
+		AddProcessModification(func(_ int, p *automationconfig.Process) {
+			automationconfig.ConfigureAgentConfiguration(&automationconfig.SystemLog{
+				Destination: automationconfig.File,
+				Path:        util.PvcMountPathLogs + "/mongodb.log",
+			}, nil, nil, p)
+		})
 
 	if fcv := rs.Spec.FeatureCompatibilityVersion; fcv != nil {
 		builder.SetFCV(*fcv)
