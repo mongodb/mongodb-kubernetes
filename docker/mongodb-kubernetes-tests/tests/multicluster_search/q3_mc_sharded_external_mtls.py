@@ -116,29 +116,28 @@ def mdb(
     resource["spec"]["configSrv"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, CONFIG_SRV_PER_CLUSTER)
     resource["spec"]["mongos"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, MONGOS_PER_CLUSTER)
 
-    # ShardedCluster rejects top-level spec.additionalMongodConfig; the search-aware
-    # setParameter has to live on each component's own block. mongotHost +
-    # searchIndexManagementHostAndPort tell mongos and the per-shard mongods where to
-    # send search traffic; without them mongos returns `SearchNotEnabled` (code 31082)
-    # for any $search / createSearchIndexes / $listSearchIndexes call.
-    #
-    # Envoy in front of mongot does SNI-based routing per (cluster, shard) — see the
-    # MongoDBSearch loadBalancer.managed.externalHostname template below — so the
-    # mongotHost value MUST carry the `<shardName>.` prefix; without it the cluster-
-    # level proxy doesn't know which shard's mongot to dispatch to, the gRPC
-    # handshake stalls and mongos returns `CommandFailed` (code 125) after 20s.
-    #
-    # Per-shard mongotHost is set via shardOverrides (mirrors search_deployment_helper
-    # .py:64-83 for single-cluster sharded). MC MongoDB has no per-cluster
-    # clusterSpecList[].additionalMongodConfig, so this value is global across
-    # clusters: cluster-0's Envoy is used as a single shared endpoint and is namespace-
-    # scoped/reachable from both clusters' mongos.
-    cluster0_proxy_fqdn = search_resource_names.cluster_level_proxy_service_fqdn(
-        0, MDBS_RESOURCE_NAME, namespace
+    # mongotHost + searchIndexManagementHostAndPort point mongos and each shard's
+    # mongods at the operator's Envoy proxy in front of mongot. Per-shard mongods
+    # talk to their own per-shard proxy Service (so Envoy's per-shard SNI filter
+    # chain matches and routes to the right mongot); mongos uses the shard-agnostic
+    # cluster-level proxy Service for cluster-wide index-management commands.
+    # Both Service names are real ClusterIP Services created by the operator
+    # (`<MDBS>-search-<clusterIdx>-<shardName>-proxy-svc` per shard and
+    # `<MDBS>-search-<clusterIdx>-proxy-svc` cluster-level), so the hostnames
+    # resolve via stock kube DNS and the gRPC channel can open.
+    cluster_idx = 0  # MC MongoDB has no per-cluster additionalMongodConfig, so
+    # both mongos pods get the same value; cluster-0's Envoy is namespace-scoped
+    # and reachable from cluster-1's mongos.
+    cluster_level_endpoint = (
+        f"{search_resource_names.cluster_level_proxy_service_fqdn(cluster_idx, MDBS_RESOURCE_NAME, namespace)}"
+        f":{ENVOY_PROXY_PORT}"
     )
 
-    def _shard_mongot_host(shard_name: str) -> str:
-        return f"{shard_name}.{cluster0_proxy_fqdn}:{ENVOY_PROXY_PORT}"
+    def _shard_proxy_endpoint(shard_name: str) -> str:
+        proxy_name = search_resource_names.shard_proxy_service_name(
+            MDBS_RESOURCE_NAME, shard_name, cluster_idx
+        )
+        return f"{proxy_name}.{namespace}.svc.cluster.local:{ENVOY_PROXY_PORT}"
 
     base_search_set_parameter = {
         "skipAuthenticationToSearchIndexManagementServer": False,
@@ -153,8 +152,8 @@ def mdb(
             "additionalMongodConfig": {
                 "setParameter": {
                     **base_search_set_parameter,
-                    "mongotHost": _shard_mongot_host(f"{MDB_RESOURCE_NAME}-{shard_idx}"),
-                    "searchIndexManagementHostAndPort": _shard_mongot_host(
+                    "mongotHost": _shard_proxy_endpoint(f"{MDB_RESOURCE_NAME}-{shard_idx}"),
+                    "searchIndexManagementHostAndPort": _shard_proxy_endpoint(
                         f"{MDB_RESOURCE_NAME}-{shard_idx}"
                     ),
                 },
@@ -163,13 +162,11 @@ def mdb(
         for shard_idx in range(SHARD_COUNT)
     ]
 
-    # mongos uses shard-0's mongot endpoint for cluster-wide search index management.
-    mongos_mongot_host = _shard_mongot_host(f"{MDB_RESOURCE_NAME}-0")
     resource["spec"]["mongos"]["additionalMongodConfig"] = {
         "setParameter": {
             **base_search_set_parameter,
-            "mongotHost": mongos_mongot_host,
-            "searchIndexManagementHostAndPort": mongos_mongot_host,
+            "mongotHost": cluster_level_endpoint,
+            "searchIndexManagementHostAndPort": cluster_level_endpoint,
         },
     }
     # Keep the non-routing search params on `spec.shard` so any shard that lacks an
@@ -253,12 +250,17 @@ def mdbs(
         "tls": {"certsSecretPrefix": MDBS_TLS_CERT_PREFIX},
     }
 
-    # {shardName}. prefix is required by admission (M2 validator); the rest resolves
-    # per-cluster via {clusterIndex} so mongos uses the cluster-level proxy Service.
+    # The template uses {shardName} as a name component (NOT a leading subdomain),
+    # mirroring the per-shard proxy Service the operator actually creates:
+    # `<MDBS>-search-<clusterIdx>-<shardName>-proxy-svc`. The substituted hostname
+    # is therefore a real ClusterIP Service that resolves via stock kube DNS, so
+    # mongos can open a gRPC channel to it for Envoy SNI routing. The operator
+    # falls back to the cluster-level proxy Service FQDN for the mongos-facing
+    # endpoint when the template can't be reduced to a single cluster-level form.
     resource["spec"]["loadBalancer"] = {
         "managed": {
             "externalHostname": (
-                f"{{shardName}}.{MDBS_RESOURCE_NAME}-search-{{clusterIndex}}-proxy-svc.{namespace}.svc.cluster.local"
+                f"{MDBS_RESOURCE_NAME}-search-{{clusterIndex}}-{{shardName}}-proxy-svc.{namespace}.svc.cluster.local"
             ),
         },
     }

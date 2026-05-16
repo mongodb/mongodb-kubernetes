@@ -962,16 +962,28 @@ func (s *MongoDBSearch) GetManagedLBEndpointForClusterShard(i int, shardName str
 }
 
 // GetManagedLBEndpointForClusterLevel derives the cluster-level (mongos-facing) endpoint
-// by stripping the leading "{shardName}." from the externalHostname template and resolving
-// the remaining {clusterName}/{clusterIndex} placeholders for spec.clusters[i].
-// The caller must ensure the template starts with "{shardName}." (enforced by admission).
-// Returns "" when managed LB is not configured or externalHostname is empty.
+// by stripping a leading "{shardName}." from the externalHostname template (when present)
+// and resolving the remaining {clusterName}/{clusterIndex} placeholders for spec.clusters[i].
+// The leading-prefix form is supported for backward compatibility, but is no longer required:
+// callers that produce a fully resolved hostname (e.g. via fallback to the cluster-level proxy
+// Service FQDN) should prefer that path. Returns "" when managed LB is not configured,
+// externalHostname is empty, or the resolved template would still contain an unresolved
+// {shardName} placeholder (i.e. the template uses {shardName} as a name component, not a
+// subdomain prefix) — in that case the caller should fall back to the cluster-level proxy
+// Service FQDN.
 func (s *MongoDBSearch) GetManagedLBEndpointForClusterLevel(i int) string {
 	if !s.IsLBModeManaged() || s.Spec.LoadBalancer.Managed.ExternalHostname == "" {
 		return ""
 	}
 	tmpl := s.Spec.LoadBalancer.Managed.ExternalHostname
 	trimmed := strings.TrimPrefix(tmpl, ShardNamePlaceholder+".")
+	// If {shardName} remains after trimming the leading prefix, the template uses
+	// {shardName} as a name component rather than a subdomain prefix. We can't
+	// derive a single cluster-level endpoint from it; return "" so the caller
+	// falls back to the cluster-level proxy Service FQDN.
+	if strings.Contains(trimmed, ShardNamePlaceholder) {
+		return ""
+	}
 	// Resolve cluster placeholders on the trimmed template.
 	if s.Spec.Clusters == nil {
 		return trimmed
