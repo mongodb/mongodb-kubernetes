@@ -159,10 +159,17 @@ def mdbs(
         namespace=namespace,
     )
 
-    # Router and shard seeds; mongos services follow the MC naming pattern.
+    # Router and shard seeds. In MC mode each pod has a per-pod headless Service
+    # `<sts>-<clusterIdx>-<podIdx>-svc` that's reachable cross-cluster via Istio;
+    # `<sts>-<clusterIdx>-svc` (no pod index) is the per-cluster headless Service
+    # and resolves only on the owning cluster — using it here would prevent mongot
+    # on cluster N from reaching any mongos that isn't on cluster N during the
+    # StaticLeaderLeaseManager bootstrap.
     router_hosts = [
-        f"{MDB_RESOURCE_NAME}-mongos-{i}-svc.{namespace}.svc.cluster.local:27017"
-        for i in range(sum(m for m in MONGOS_PER_CLUSTER if m))
+        f"{MDB_RESOURCE_NAME}-mongos-{cluster_idx}-{pod_idx}-svc.{namespace}.svc.cluster.local:27017"
+        for cluster_idx, n_mongos in enumerate(MONGOS_PER_CLUSTER)
+        if n_mongos
+        for pod_idx in range(n_mongos)
     ]
 
     shards = [
