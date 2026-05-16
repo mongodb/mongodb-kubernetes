@@ -525,11 +525,16 @@ def _per_cluster_mongos_search_tester(
 ) -> SearchTester:
     """SearchTester pinned to a specific cluster's mongos.
 
-    Each member cluster has exactly one mongos in the q3 fixture (MONGOS_PER_CLUSTER=[1,1]);
-    the global mongos pod index equals the cluster index. `directConnection=true` keeps the
-    driver from discovering the other cluster's mongos and silently rerouting.
+    Each member cluster has exactly one mongos in the q3 fixture (MONGOS_PER_CLUSTER=[1,1]),
+    so pod_idx is always 0. We address the per-pod headless Service
+    `<sts>-<clusterIdx>-0-svc` rather than the per-cluster `<sts>-<clusterIdx>-svc`:
+    the per-cluster Service drops endpoints (and DNS returns NXDOMAIN) any time the
+    single mongos pod is briefly not-ready, while the per-pod Service has
+    `publishNotReadyAddresses: true` and stays resolvable. `directConnection=true`
+    keeps the driver from discovering the other cluster's mongos and silently
+    rerouting.
     """
-    mongos_host = f"{MDB_RESOURCE_NAME}-mongos-{cluster_index}-svc.{namespace}.svc.cluster.local:27017"
+    mongos_host = f"{MDB_RESOURCE_NAME}-mongos-{cluster_index}-0-svc.{namespace}.svc.cluster.local:27017"
     conn_str = (
         f"mongodb://{username}:{password}@{mongos_host}/"
         f"?directConnection=true&authSource=admin"
