@@ -22,7 +22,9 @@ def _ac_secret_name(mdb: MongoDBMulti) -> str:
 
 
 def _has_headless_agent_env(mdb: MongoDBMulti, member_cluster_clients: List[MultiClusterClient]) -> bool:
-    statefulsets = mdb.read_statefulsets(member_cluster_clients)
+    spec_cluster_names = {cs["clusterName"] for cs in mdb["spec"]["clusterSpecList"]}
+    clients = [mcc for mcc in member_cluster_clients if mcc.cluster_name in spec_cluster_names]
+    statefulsets = mdb.read_statefulsets(clients)
     for sts in statefulsets.values():
         for container in sts.spec.template.spec.containers:
             for env in container.env or []:
