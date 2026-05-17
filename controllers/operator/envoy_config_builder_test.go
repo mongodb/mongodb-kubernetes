@@ -13,6 +13,8 @@ import (
 	bootstrapv3 "github.com/envoyproxy/go-control-plane/envoy/config/bootstrap/v3"
 	clusterv3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
 	corev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
+	stdoutaccesslogv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/access_loggers/stream/v3"
+	hcmv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
 	tlsv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
 )
 
@@ -302,6 +304,46 @@ func TestBuildBootstrapConfig_WithTLS_HasTLSInspector(t *testing.T) {
 	listener := bootstrap.StaticResources.Listeners[0]
 	require.Len(t, listener.ListenerFilters, 1)
 	assert.Contains(t, listener.ListenerFilters[0].Name, "tls_inspector")
+}
+
+func TestBuildFilterChain_HasStdoutAccessLogWithClientId(t *testing.T) {
+	// The HCM must emit per-stream-close access log records to stdout in
+	// JSON format, including the %REQ(MONGODB-CLIENTID)% join key so the
+	// envoy-side log can be correlated with mongod's gRPC egress session
+	// records at network:2.
+	route := testRoute("mdb-sh-0")
+	chain, err := buildFilterChain(route, false, testCAKeyName())
+	require.NoError(t, err)
+
+	require.Len(t, chain.Filters, 1, "expected one HCM filter")
+	hcm := &hcmv3.HttpConnectionManager{}
+	err = chain.Filters[0].GetTypedConfig().UnmarshalTo(hcm)
+	require.NoError(t, err)
+
+	require.Len(t, hcm.AccessLog, 1, "expected exactly one access_log entry")
+	entry := hcm.AccessLog[0]
+	assert.Equal(t, "envoy.access_loggers.stdout", entry.Name)
+
+	stdoutCfg := &stdoutaccesslogv3.StdoutAccessLog{}
+	err = entry.GetTypedConfig().UnmarshalTo(stdoutCfg)
+	require.NoError(t, err)
+
+	formatString := stdoutCfg.GetLogFormat()
+	require.NotNil(t, formatString, "expected substitution format string")
+	jsonFmt := formatString.GetJsonFormat()
+	require.NotNil(t, jsonFmt, "access log should use JSON format")
+
+	// Sanity-check the load-bearing fields. The mongodb-clientid is the
+	// cross-side join key for envoy ↔ mongod; without it the rest of the
+	// failure-mode analyzer chain falls back to time-based correlation.
+	fields := jsonFmt.GetFields()
+	require.Contains(t, fields, "client_id")
+	assert.Equal(t, "%REQ(MONGODB-CLIENTID)%", fields["client_id"].GetStringValue())
+	require.Contains(t, fields, "response_flags")
+	require.Contains(t, fields, "upstream_host")
+	require.Contains(t, fields, "bytes_in")
+	require.Contains(t, fields, "bytes_out")
+	require.Contains(t, fields, "duration_ms")
 }
 
 func TestBuildCluster_UsesTypedExtensionProtocolOptions(t *testing.T) {
