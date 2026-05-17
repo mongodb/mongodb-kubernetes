@@ -22,11 +22,14 @@ def prepare_multi_cluster_namespaces(
 
     helm_args = multi_cluster_operator_installation_config
     logger.debug("Applying the following template to member clusters:")
+    # Always use the local helm chart directory for rendering RBAC templates so that
+    # changes to database-roles.yaml in the current build are applied to member clusters,
+    # rather than the latest published OCI chart which may not include those changes.
     yaml_file = helm_template(
         helm_args=helm_args,
         templates="templates/database-roles.yaml",
         helm_options=[f"--namespace {namespace}"],
-        helm_chart_path=helm_chart_path,
+        helm_chart_path=LOCAL_HELM_CHART_DIR,
     )
     # create database roles in member clusters.
     for mcc in member_cluster_clients:
