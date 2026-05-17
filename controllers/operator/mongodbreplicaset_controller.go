@@ -1051,6 +1051,16 @@ func (r *ReconcileMongoDbReplicaSet) reconcileHeadlessStatefulSet(ctx context.Co
 		)
 	}
 	for i, c := range sts.Spec.Template.Spec.Containers {
+		// Strip agent-api-key mount from every container: the volume is removed below and any
+		// container still referencing it will cause a StatefulSet validation error.
+		filteredMounts := make([]corev1.VolumeMount, 0, len(c.VolumeMounts))
+		for _, m := range c.VolumeMounts {
+			if m.Name != construct.AgentAPIKeyVolumeName {
+				filteredMounts = append(filteredMounts, m)
+			}
+		}
+		sts.Spec.Template.Spec.Containers[i].VolumeMounts = filteredMounts
+
 		var shouldPatch bool
 		if isStatic {
 			shouldPatch = c.Name == util.AgentContainerName
@@ -1083,18 +1093,13 @@ func (r *ReconcileMongoDbReplicaSet) reconcileHeadlessStatefulSet(ctx context.Co
 		}
 		sts.Spec.Template.Spec.Containers[i].Env = append(filtered, headlessEnvs...)
 
-		// The agent-api-key volume mount is not needed in headless mode (no OM group).
-		filteredMounts := make([]corev1.VolumeMount, 0, len(c.VolumeMounts))
-		for _, m := range sts.Spec.Template.Spec.Containers[i].VolumeMounts {
-			if m.Name != construct.AgentAPIKeyVolumeName {
-				filteredMounts = append(filteredMounts, m)
-			}
-		}
 		// Mount the automation config Secret so the agent can read cluster-config.json.
 		// Static agents expect the AppDB path; non-static agents use the agent-launcher.sh path.
 		acMountPath := construct.HeadlessClusterConfigMountPath(isStatic)
-		filteredMounts = append(filteredMounts, statefulset.CreateVolumeMount(construct.HeadlessConfigVolumeName, acMountPath, statefulset.WithReadOnly(true)))
-		sts.Spec.Template.Spec.Containers[i].VolumeMounts = filteredMounts
+		sts.Spec.Template.Spec.Containers[i].VolumeMounts = append(
+			sts.Spec.Template.Spec.Containers[i].VolumeMounts,
+			statefulset.CreateVolumeMount(construct.HeadlessConfigVolumeName, acMountPath, statefulset.WithReadOnly(true)),
+		)
 	}
 	// Remove agent-api-key volume from the pod spec (secret doesn't exist in headless mode).
 	filteredVolumes := make([]corev1.Volume, 0, len(sts.Spec.Template.Spec.Volumes))

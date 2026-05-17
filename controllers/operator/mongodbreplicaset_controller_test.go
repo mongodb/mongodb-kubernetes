@@ -1419,9 +1419,15 @@ func TestReconcileHeadlessReplicaSet(t *testing.T) {
 	assert.Contains(t, envNames, "HEADLESS_AGENT")
 	assert.NotContains(t, envNames, util.EnvVarBaseUrl)
 
-	// Agent command must use -cluster=
-	fullCmd := strings.Join(agentContainer.Command, " ") + strings.Join(agentContainer.Args, " ")
-	assert.Contains(t, fullCmd, "-cluster=")
+	isStatic := architectures.IsRunningStaticArchitecture(rs.Annotations)
+	if isStatic {
+		// Static: agent binary receives -cluster= directly on the command line.
+		fullCmd := strings.Join(agentContainer.Command, " ") + strings.Join(agentContainer.Args, " ")
+		assert.Contains(t, fullCmd, "-cluster=")
+	} else {
+		// Non-static: agent-launcher.sh reads cluster config internally via AUTOMATION_CONFIG_MAP.
+		assert.Contains(t, envNames, "AUTOMATION_CONFIG_MAP")
+	}
 
 	// AC Secret must be created
 	acSecret := &corev1.Secret{}
