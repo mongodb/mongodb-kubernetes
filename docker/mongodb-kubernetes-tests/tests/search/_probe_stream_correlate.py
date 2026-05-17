@@ -44,6 +44,7 @@ from tests.common.search.mongot_log_analyzer import (
     print_unified_timeline,
     read_mongod_commands,
     read_mongod_sessions,
+    read_mongot_interceptor_events,
     set_mongod_debug_logs,
     unified_timeline,
 )
@@ -232,6 +233,26 @@ def run() -> int:
 
     summaries, batches = build_stream_summaries(mongot_files, namespace=NAMESPACE)
     print_stream_report(summaries, batches)
+
+    mongot_stream_opens, mongot_cmds = read_mongot_interceptor_events(
+        mongot_files, namespace=NAMESPACE
+    )
+    if mongot_stream_opens or mongot_cmds:
+        print(
+            f"\n=== mongot interceptor records (patched mongot) — "
+            f"{len(mongot_stream_opens)} stream-open, {len(mongot_cmds)} command ==="
+        )
+        for ev in mongot_stream_opens:
+            print(
+                f"  stream_open  ts={ev['timestamp'].isoformat() if ev.get('timestamp') else '?'}  "
+                f"pod={ev['pod']}  client_id={ev.get('client_id')}  path={ev.get('path')}"
+            )
+        for ev in mongot_cmds:
+            print(
+                f"  command      ts={ev['timestamp'].isoformat() if ev.get('timestamp') else '?'}  "
+                f"pod={ev['pod']}  cmd={ev.get('command')}  cursor_id={ev.get('cursor_id')}  "
+                f"client_id={ev.get('client_id')}"
+            )
 
     cmds = read_mongod_commands(mongod_files, namespace=NAMESPACE)
     print_mongod_command_report(cmds)

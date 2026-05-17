@@ -424,13 +424,16 @@ def parse_mongot_log_line(pod: str, line: str) -> Optional[StreamEvent | tuple[s
     # backwards-compatible: when this record is absent, the envoy↔mongot
     # join just stays at time-based correlation.
     if "MongoDbGrpcProtocolInterceptor" in name and "New mongot gRPC stream" in msg:
+        # SLF4J/Logback key-value pairs land under ``attr`` in mongot's JSON
+        # encoder (verified against the patched build).
+        attr = rec.get("attr") or {}
         return (
             "MONGOT_STREAM_OPEN",
             {
                 "timestamp": ts,
                 "pod": pod,
-                "client_id": _maybe_str(rec.get("clientId")),
-                "path": _maybe_str(rec.get("path")),
+                "client_id": _maybe_str(attr.get("clientId")),
+                "path": _maybe_str(attr.get("path")),
             },
         )
 
@@ -439,7 +442,8 @@ def parse_mongot_log_line(pod: str, line: str) -> Optional[StreamEvent | tuple[s
     # ``cursorId`` key-value to their existing TRACE entry. If absent
     # the analyzer skips this branch.
     if name.endswith((".SearchCommand", ".GetMoreCommand", ".KillCursorsCommand")):
-        cid = rec.get("cursorId") or rec.get("cursorIds")
+        attr = rec.get("attr") or {}
+        cid = attr.get("cursorId") or attr.get("cursorIds")
         if cid is not None:
             return (
                 "MONGOT_CMD",
@@ -448,7 +452,7 @@ def parse_mongot_log_line(pod: str, line: str) -> Optional[StreamEvent | tuple[s
                     "pod": pod,
                     "command": name.rsplit(".", 1)[-1],
                     "cursor_id": _maybe_int(cid if not isinstance(cid, list) else (cid[0] if cid else None)),
-                    "client_id": _maybe_str(rec.get("clientId")),
+                    "client_id": _maybe_str(attr.get("clientId")),
                 },
             )
 
@@ -657,15 +661,24 @@ def parse_mongod_network_log_line(pod: str, line: str) -> Optional[tuple[str, di
 def build_stream_summaries(
     log_sources: Iterable[str], namespace: str = "ls-0"
 ) -> tuple[dict[tuple[str, int], StreamSummary], list[dict]]:
-    """Read mongot logs and return per-(pod, streamId) summaries plus a list of batch events."""
+    """Read mongot logs and return per-(pod, streamId) summaries plus a list of batch events.
+
+    Tuple kinds emitted by ``parse_mongot_log_line`` other than ``BATCH``
+    (``MONGOT_STREAM_OPEN``, ``MONGOT_CMD``) belong to the patched mongot
+    surface and are collected separately by
+    ``read_mongot_interceptor_events``. We skip them here so this function
+    keeps its tight (summaries, batches) contract.
+    """
     summaries: dict[tuple[str, int], StreamSummary] = {}
     batches: list[dict] = []
     for pod, line in iter_log_lines(log_sources, namespace=namespace):
         parsed = parse_mongot_log_line(pod, line)
         if parsed is None:
             continue
-        if isinstance(parsed, tuple) and parsed[0] == "BATCH":
-            batches.append(parsed[1])
+        if isinstance(parsed, tuple):
+            if parsed[0] == "BATCH":
+                batches.append(parsed[1])
+            # else: MONGOT_STREAM_OPEN / MONGOT_CMD — captured elsewhere
             continue
         ev: StreamEvent = parsed  # type: ignore[assignment]
         stream_id = ev.extras["stream_id"]
@@ -689,6 +702,31 @@ def build_stream_summaries(
             summary.rst_stream = True
             summary.closed_at = ev.timestamp
     return summaries, batches
+
+
+def read_mongot_interceptor_events(
+    log_sources: Iterable[str], namespace: str = "ls-0"
+) -> tuple[list[dict], list[dict]]:
+    """Collect the patched mongot's debug records: stream-open + per-command.
+
+    Returns ``(stream_opens, commands)`` where each entry is the payload
+    dict that ``parse_mongot_log_line`` produced (``timestamp``, ``pod``,
+    ``client_id``, and on the command branch ``cursor_id`` + ``command``).
+    With un-patched mongot (no ``MongoDbGrpcProtocolInterceptor`` DEBUG
+    line, no ``cursorId`` key on the *Command logs) both lists are empty.
+    """
+    stream_opens: list[dict] = []
+    commands: list[dict] = []
+    for pod, line in iter_log_lines(log_sources, namespace=namespace):
+        parsed = parse_mongot_log_line(pod, line)
+        if not isinstance(parsed, tuple):
+            continue
+        kind, payload = parsed
+        if kind == "MONGOT_STREAM_OPEN":
+            stream_opens.append(payload)
+        elif kind == "MONGOT_CMD":
+            commands.append(payload)
+    return stream_opens, commands
 
 
 def read_mongod_commands(log_sources: Iterable[str], namespace: str = "ls-0") -> list[MongodCommand]:
