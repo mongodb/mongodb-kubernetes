@@ -62,3 +62,8 @@ func TestHeadlessAgentCommand_FileLog_ContainsLogFileAndDuration(t *testing.T) {
 	assert.Contains(t, last, "-maxLogFileDurationHrs 24")
 	assert.NotContains(t, last, "/dev/stdout")
 }
+
+func TestHeadlessAgentCommand_EmptyLogLevel_NoLogLevelFlag(t *testing.T) {
+	cmd := construct.HeadlessAutomationAgentCommand(v1.LogLevel(""), "/dev/stdout", 24)
+	assert.NotContains(t, cmd[len(cmd)-1], "-logLevel")
+}

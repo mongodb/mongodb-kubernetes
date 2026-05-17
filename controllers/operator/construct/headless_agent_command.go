@@ -91,13 +91,16 @@ func HeadlessMongodBinaryInitContainer(mongodbImage string) corev1.Container {
 // container in headless mode. Agents read from a local cluster-config.json Secret
 // mount instead of connecting to Ops Manager.
 func HeadlessAutomationAgentCommand(logLevel v1.LogLevel, logFile string, maxLogFileDurationHours int) []string {
+	logLevelOpt := ""
+	if logLevel != "" {
+		logLevelOpt = " -logLevel " + string(logLevel)
+	}
+
 	logOpts := ""
 	if logFile == "/dev/stdout" {
-		logOpts = " -logLevel " + string(logLevel)
+		logOpts = logLevelOpt
 	} else {
-		logOpts = " -logFile " + logFile +
-			" -logLevel " + string(logLevel) +
-			" -maxLogFileDurationHrs " + strconv.Itoa(maxLogFileDurationHours)
+		logOpts = " -logFile " + logFile + logLevelOpt + " -maxLogFileDurationHrs " + strconv.Itoa(maxLogFileDurationHours)
 	}
 	cmd := MongodbUserCommand + BaseAgentCommand() +
 		" -cluster=" + HeadlessClusterFilePath + appdbAutomationAgentOptions + logOpts
