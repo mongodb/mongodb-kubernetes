@@ -801,7 +801,7 @@ class SearchConnectivityTool:
         alive across a fault (e.g. mongot pod restart), call those two
         helpers directly instead.
         """
-        cursor, results, page_index_offset = self._paging_open_and_first_error(
+        cursor, results, page_index_offset, open_wire_ops = self._paging_open_and_first_error(
             query=query,
             batch_size=batch_size,
             timeout_ms=timeout_ms,
@@ -817,6 +817,7 @@ class SearchConnectivityTool:
                 on_page=on_page,
                 stop_on_error=stop_on_error,
                 first_page_index=page_index_offset,
+                initial_wire_ops=open_wire_ops,
             )
         finally:
             try:
@@ -858,6 +859,7 @@ class SearchConnectivityTool:
         stop_on_error: bool = False,
         first_page_index: int = 0,
         retry_transient_once: bool = True,
+        initial_wire_ops: Optional[list[ClientWireOp]] = None,
     ) -> list[QueryResult]:
         """Read ``pages`` pages from an already-open paging cursor.
 
@@ -891,6 +893,12 @@ class SearchConnectivityTool:
             raise ValueError(f"pages must be >= 1; got {pages}")
         results: list[QueryResult] = []
         cursor_alive = True
+        # ``initial_wire_ops`` are events captured before page 0's marker —
+        # typically the ``aggregate`` command that opened the cursor inside
+        # ``paging_cursor_open``. We fold them into page 0 so the per-page
+        # ``wire_ops`` accounting stays continuous from cursor open through
+        # close.
+        pending_initial_wire_ops = list(initial_wire_ops) if initial_wire_ops else []
         for page_offset in range(pages):
             page_index = first_page_index + page_offset
             page_started = time.monotonic()
@@ -933,7 +941,8 @@ class SearchConnectivityTool:
                         fclass = classify_failure(klass, code, msg)
 
                 elapsed = (time.monotonic() - page_started) * 1000.0
-                wire_ops = self._end_capture(marker)
+                wire_ops = pending_initial_wire_ops + self._end_capture(marker)
+                pending_initial_wire_ops = []
                 page_error = QueryResult(
                     success=False,
                     started_at=page_started,
@@ -957,7 +966,8 @@ class SearchConnectivityTool:
             if page_error is not None:
                 result = page_error
             else:
-                wire_ops = self._end_capture(marker)
+                wire_ops = pending_initial_wire_ops + self._end_capture(marker)
+                pending_initial_wire_ops = []
                 result = QueryResult(
                     success=True,
                     started_at=page_started,
@@ -1009,18 +1019,24 @@ class SearchConnectivityTool:
         query: Optional[dict],
         batch_size: int,
         timeout_ms: Optional[int],
-    ) -> tuple[Any, list[QueryResult], int]:
+    ) -> tuple[Any, list[QueryResult], int, list[ClientWireOp]]:
         """Internal helper for ``paging_search``: open the cursor, or
         return a synthetic page-0 failure if ``aggregate()`` itself raises.
 
-        Returns ``(cursor, error_results, next_page_index)``.
-        On success: ``(cursor, [], 0)``.
-        On failure: ``(None, [<one failure result>], -)``.
+        Returns ``(cursor, error_results, next_page_index, open_wire_ops)``.
+        On success: ``(cursor, [], 0, [<aggregate wire ops>])``.
+        On failure: ``(None, [<one failure result>], -, [])``.
+
+        ``open_wire_ops`` are the wire-protocol events captured around the
+        ``aggregate`` command that opens the cursor. They happen BEFORE
+        page 0's per-page marker starts, so the caller must thread them
+        into page 0's ``wire_ops`` to keep the "page 0 issued at least
+        one wire op" invariant true.
         """
         marker = self._begin_capture()
         try:
             cursor = self.paging_cursor_open(query=query, batch_size=batch_size, timeout_ms=timeout_ms)
-            return cursor, [], 0
+            return cursor, [], 0, self._end_capture(marker)
         except pymongo.errors.PyMongoError as exc:
             klass, code = self._classify_error(exc)
             msg = str(exc)
@@ -1044,6 +1060,7 @@ class SearchConnectivityTool:
                     )
                 ],
                 0,
+                [],
             )
 
     # ------------------------------------------------------------------
