@@ -98,7 +98,7 @@ def _new_tester(
     time the harness ticks.
     """
     search_tester = get_rs_search_tester(mdb, user_name, user_password, use_ssl=True)
-    tool = SearchConnectivityTool(search_tester, cache_latency_threshold_ms=10.0)
+    tool = SearchConnectivityTool(search_tester)
     return SearchAvailabilityBackgroundTester(
         tool,
         mode="oneshot",
@@ -219,9 +219,9 @@ class TestSearchFailureModes(
 
         verdict = tester.assert_outage_detected(accept_classes=("cursor_lost", "transient_network"))
         logger.info(f"mongot-restart verdict: {verdict.as_dict()}")
-        assert verdict.upstream_alive, (
-            f"verdict has no upstream-confirmed iterations at all — the harness never reached "
-            f"upstream, so 'failure detected' is meaningless. verdict={verdict.as_dict()}"
+        assert verdict.hit_mongod_observed, (
+            f"verdict has no iterations with a wire op at all — the harness never reached "
+            f"mongod, so 'failure detected' is meaningless. verdict={verdict.as_dict()}"
         )
 
 

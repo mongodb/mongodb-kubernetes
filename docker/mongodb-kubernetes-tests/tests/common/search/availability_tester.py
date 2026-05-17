@@ -25,13 +25,13 @@ Usage
     tester.stop()
     tester.join(timeout=10)
     verdict = tester.get_verdict()
-    assert verdict.upstream_alive
+    assert verdict.hit_mongod_observed
     assert verdict.failed == 0  # or, for fault scenarios, > 0
 
 Two demo scenarios live in
 ``tests/search/search_availability_background_tester.py``:
 
-- **Steady state**: no fault, expect ``upstream_succeeded > 0``,
+- **Steady state**: no fault, expect ``hit_mongod > 0``,
   ``failed == 0``.
 - **Deliberate outage**: mongot pod restart mid-window, expect the
   verdict to surface the failure (``cursor_lost > 0`` or
@@ -242,7 +242,7 @@ class SearchAvailabilityBackgroundTester(BackgroundHealthChecker):
     def assert_steady_state(
         self,
         min_iterations: int = 5,
-        require_upstream_succeeded: bool = True,
+        require_hit_mongod: bool = True,
         max_failed: int = 0,
     ) -> ConnectivityVerdict:
         """Assert the run looked like a healthy steady state.
@@ -257,10 +257,11 @@ class SearchAvailabilityBackgroundTester(BackgroundHealthChecker):
                 f"steady-state verdict has too few iterations: {verdict.total} < {min_iterations}; "
                 f"verdict={verdict.as_dict()}"
             )
-        if require_upstream_succeeded and not verdict.upstream_alive:
+        if require_hit_mongod and not verdict.hit_mongod_observed:
             raise AssertionError(
-                f"steady-state verdict reports no upstream-confirmed pages — the cache-detection "
-                f"heuristic may be broken or upstream is silently down. verdict={verdict.as_dict()}"
+                f"steady-state verdict reports no pages with a wire op — the harness isn't "
+                f"actually probing mongod, or the CommandListener didn't fire. "
+                f"verdict={verdict.as_dict()}"
             )
         if verdict.failed > max_failed:
             raise AssertionError(

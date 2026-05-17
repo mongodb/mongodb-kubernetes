@@ -15,35 +15,42 @@ Modes
   through it for a configurable number of pages, with a configurable interval
   between pages.
 
-Cache-distinguishing strategy
------------------------------
+How "did this query actually hit mongod?" is determined
+-------------------------------------------------------
 
-mongod and mongot cache aggressively. A naïve "did the query succeed?" check
-can stay green long after upstream (envoy/mongot) has gone away — pymongo's
-local cursor buffer keeps draining, mongot's per-query cache keeps returning
-the same answer. This module exposes a per-query ``cache_hit_hint`` that
-combines two signals:
+mongod and pymongo both buffer aggressively. A naïve "did the query succeed?"
+check can stay green long after upstream (envoy/mongot) has gone away — pages
+served from pymongo's local cursor batch don't touch the wire at all, and
+pages served from mongod's internal ``TaskExecutorCursor::_batch`` don't
+touch mongot.
 
-1. **Buffer-vs-getMore detection (paging mode).** Before pulling each document
-   from the server cursor we inspect the pymongo CommandCursor's local buffer
-   length. If the buffer is empty, the upcoming ``next()`` will issue a
-   ``getMore`` against the server — which means the page actually contacts
-   mongot/envoy. If the buffer is non-empty for the whole page, the page was
-   served entirely from already-fetched batch state and tells us **nothing**
-   about upstream availability.
-2. **Cache-buster query (one-shot mode).** Each one-shot search may inject a
-   unique random token into a ``compound.should`` clause so mongot cannot
-   short-circuit the result from its query cache — the query identity is
-   different on every call. The accompanying latency band (configurable via
-   ``cache_latency_threshold_ms``) provides a secondary heuristic in case the
-   sentinel-injection path is not used.
+We answer the client-side half of that question deterministically by attaching
+a pymongo ``CommandListener`` to the underlying ``MongoClient``. Per the
+follow-up investigation in
+``tmp/search-caching-investigation/observability-followup.md``, every
+wire-protocol round-trip (``aggregate``, ``getMore``, ``killCursors``) emits
+exactly one ``CommandStartedEvent`` + one ``CommandSucceededEvent`` /
+``CommandFailedEvent``. Pages served entirely from the pymongo local cursor
+buffer emit **zero** events — so a per-page count of started events is the
+ground-truth predicate "did this page actually hit mongod?".
 
-For the strongest guarantee that "this query reached upstream", callers should
-use one-shot mode with cache-busting *and* assert
-``cache_hit_hint is False``. Paging-mode results expose the same flag per
-page, so a long-running tester that wants a high-confidence verdict can simply
-filter to pages where ``cache_hit_hint is False`` and assert at least one such
-page succeeded over the observation window.
+Each ``QueryResult`` therefore carries:
+
+- ``mongod_wire_ops``: number of wire commands issued during the call. 0 means
+  the page was served from pymongo's local buffer alone; ``>= 1`` means it
+  actually went to mongod. Replaces the old latency-band / buffer-probe
+  heuristic.
+- ``lsids``: the logical-session-id UUIDs observed on this attempt. These are
+  the exact bytes mongod logs as ``attr.command.lsid.id`` in every COMMAND
+  ``Slow query`` record, so the analyzer can join client events to mongod
+  log lines without any time-window heuristic.
+- ``server_connection_ids``: mongod's per-connection counter (its ``conn<N>``
+  context). Stable across the cursor's lifetime — every aggregate/getMore/
+  killCursors on one cursor lands on the same mongod connection.
+
+The strongest "really hit upstream mongot" assertion is still
+``insert_sentinel`` + ``search_for_sentinel`` — a sentinel doc only becomes
+searchable after mongot has reindexed against the underlying collection.
 
 No unit tests with mocks — verified end-to-end on real systems via the e2e
 tests under ``tests/search/``.
@@ -53,6 +60,7 @@ from __future__ import annotations
 
 import os
 import re
+import threading
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -60,6 +68,7 @@ from typing import Any, Callable, Optional
 
 import pymongo
 import pymongo.errors
+import pymongo.monitoring
 import requests
 from tests import test_logger
 from tests.common.search.search_tester import SearchTester
@@ -174,6 +183,170 @@ def classify_failure(error_class: str, error_code: Optional[int], error_message:
     return FAILURE_OTHER
 
 
+# ----------------------------------------------------------------------
+# pymongo CommandListener integration
+# ----------------------------------------------------------------------
+
+
+@dataclass
+class ClientWireOp:
+    """One wire-protocol command observed by the pymongo CommandListener.
+
+    These are emitted by pymongo for every command that actually goes to the
+    network — buffer-popped pages emit nothing. The fields below mirror what
+    the analyzer's ``parse_client_wire_ops`` can join against mongod log
+    records: ``lsid`` and ``server_connection_id`` are the load-bearing
+    cross-side join keys.
+    """
+
+    phase: str  # "started" | "succeeded" | "failed"
+    command_name: str
+    request_id: int
+    operation_id: Optional[int]
+    timestamp: float  # time.monotonic() — wall-clock-independent
+    server_connection_id: Optional[int] = None
+    lsid: Optional[str] = None  # hex form of the lsid UUID, or None
+    cursor_id: Optional[int] = None  # set on getMore (cursor in cmd) / aggregate reply
+    duration_micros: Optional[int] = None  # CommandSucceededEvent / CommandFailedEvent
+    n_returned: Optional[int] = None  # extracted from reply.cursor.firstBatch/nextBatch
+    database_name: Optional[str] = None
+    failure: Optional[str] = None  # error description for "failed"
+
+
+class _RecordingCommandListener(pymongo.monitoring.CommandListener):
+    """CommandListener that records every wire op into a shared buffer.
+
+    The same listener instance lives for the life of the underlying
+    ``MongoClient``. ``SearchConnectivityTool`` snapshots+clears the buffer
+    around each call so the per-result event list is scoped to that call.
+
+    Thread-safe because pymongo can fire events from background threads
+    (heartbeats, connection-pool maintenance) — we don't actually record
+    those, but the records list still needs a lock for concurrent appends
+    from the application thread vs any pymongo internal threads.
+    """
+
+    def __init__(self) -> None:
+        self._records: list[ClientWireOp] = []
+        self._lock = threading.Lock()
+
+    # --- pymongo callback surface ---
+
+    def started(self, event: pymongo.monitoring.CommandStartedEvent) -> None:
+        self._record(self._from_started(event))
+
+    def succeeded(self, event: pymongo.monitoring.CommandSucceededEvent) -> None:
+        self._record(self._from_succeeded(event))
+
+    def failed(self, event: pymongo.monitoring.CommandFailedEvent) -> None:
+        self._record(self._from_failed(event))
+
+    # --- helpers ---
+
+    def _record(self, op: ClientWireOp) -> None:
+        with self._lock:
+            self._records.append(op)
+
+    def snapshot_since(self, marker: int) -> list[ClientWireOp]:
+        """Return every record appended at or after ``marker`` and the new tail.
+
+        Returns a snapshot of records[marker:]. Callers pass the size of
+        the records list at the call-start marker; this is cheaper than
+        per-call buffer clears (no contention on the application thread
+        when other threads are also recording).
+        """
+        with self._lock:
+            return list(self._records[marker:])
+
+    def current_marker(self) -> int:
+        """Return the current length of the records buffer.
+
+        Use at the start of a call; pass to ``snapshot_since`` at the end.
+        """
+        with self._lock:
+            return len(self._records)
+
+    @staticmethod
+    def _extract_lsid(command: Any) -> Optional[str]:
+        lsid = (command or {}).get("lsid")
+        if not lsid:
+            return None
+        sid = lsid.get("id") if isinstance(lsid, dict) else None
+        if sid is None:
+            return None
+        # pymongo represents the UUID as a bson Binary; hex() works on both
+        # Binary (subtype 4) and bytes.
+        try:
+            return sid.hex() if hasattr(sid, "hex") else str(sid)
+        except Exception:  # pragma: no cover — defensive
+            return None
+
+    @staticmethod
+    def _extract_cursor_id_from_cmd(command_name: str, command: Any) -> Optional[int]:
+        if not isinstance(command, dict):
+            return None
+        if command_name == "getMore":
+            return command.get("getMore")
+        if command_name == "killCursors":
+            ids = command.get("cursors") or []
+            return ids[0] if ids else None
+        return None
+
+    @staticmethod
+    def _extract_reply_cursor(reply: Any) -> tuple[Optional[int], Optional[int]]:
+        if not isinstance(reply, dict):
+            return None, None
+        cursor = reply.get("cursor") or {}
+        if not isinstance(cursor, dict):
+            return None, None
+        cid = cursor.get("id")
+        batch = cursor.get("nextBatch") or cursor.get("firstBatch") or []
+        n = len(batch) if isinstance(batch, list) else None
+        return cid, n
+
+    @classmethod
+    def _from_started(cls, event: pymongo.monitoring.CommandStartedEvent) -> ClientWireOp:
+        return ClientWireOp(
+            phase="started",
+            command_name=event.command_name,
+            request_id=event.request_id,
+            operation_id=event.operation_id,
+            timestamp=time.monotonic(),
+            server_connection_id=getattr(event, "server_connection_id", None),
+            lsid=cls._extract_lsid(event.command),
+            cursor_id=cls._extract_cursor_id_from_cmd(event.command_name, event.command),
+            database_name=event.database_name,
+        )
+
+    @classmethod
+    def _from_succeeded(cls, event: pymongo.monitoring.CommandSucceededEvent) -> ClientWireOp:
+        cid, n_returned = cls._extract_reply_cursor(event.reply)
+        return ClientWireOp(
+            phase="succeeded",
+            command_name=event.command_name,
+            request_id=event.request_id,
+            operation_id=event.operation_id,
+            timestamp=time.monotonic(),
+            server_connection_id=getattr(event, "server_connection_id", None),
+            duration_micros=event.duration_micros,
+            cursor_id=cid,
+            n_returned=n_returned,
+        )
+
+    @classmethod
+    def _from_failed(cls, event: pymongo.monitoring.CommandFailedEvent) -> ClientWireOp:
+        return ClientWireOp(
+            phase="failed",
+            command_name=event.command_name,
+            request_id=event.request_id,
+            operation_id=event.operation_id,
+            timestamp=time.monotonic(),
+            server_connection_id=getattr(event, "server_connection_id", None),
+            duration_micros=event.duration_micros,
+            failure=str(event.failure)[:200],
+        )
+
+
 @dataclass
 class QueryResult:
     """Structured result for a single search-query attempt.
@@ -190,19 +363,21 @@ class QueryResult:
     error_class: Optional[str] = None
     error_code: Optional[int] = None
     error_message: Optional[str] = None
-    # Tri-state cache-hit hint:
-    #   None  -> unknown (failed query, or paging on the first page where the
-    #            heuristic doesn't apply yet).
-    #   True  -> result strongly looks served from local buffer / cache.
-    #   False -> result strongly looks served by a real upstream round-trip.
-    cache_hit_hint: Optional[bool] = None
     query_kind: str = "search"  # "search" | "vector_search"
     query_token: Optional[str] = None  # cache-buster token, when applicable
     page_index: int = 0  # 0 for one-shot; page number (0-indexed) for paging
     cursor_id: Optional[int] = None  # paging only; 0 once the cursor closed
-    # True iff the page was returned entirely from the client-local batch
-    # buffer with no getMore round-trip to the server. None for one-shot.
-    from_buffer_only: Optional[bool] = None
+    # Count of wire-protocol commands (CommandStartedEvent) observed by the
+    # pymongo CommandListener while this attempt was in flight. The
+    # ground-truth replacement for the old ``cache_hit_hint`` heuristic:
+    # ``mongod_wire_ops == 0`` means the page was popped from pymongo's
+    # local cursor buffer (no wire op), ``mongod_wire_ops >= 1`` means at
+    # least one command (aggregate/getMore/killCursors) reached mongod.
+    mongod_wire_ops: int = 0
+    # The wire ops themselves (started/succeeded/failed records). Surface
+    # for tests/analyzer that want to inspect lsid / server_connection_id /
+    # cursor_id_in_reply / per-op duration_micros.
+    wire_ops: list[ClientWireOp] = field(default_factory=list)
     # Failure classification — see FAILURE_* constants. None on success.
     failure_class: Optional[str] = None
     # Set to True when the result represents a transient_network failure
@@ -218,9 +393,8 @@ class QueryResult:
             f"ok={self.success}",
             f"n={self.returned_count}",
             f"lat={self.latency_ms:.1f}ms",
+            f"wire={self.mongod_wire_ops}",
         ]
-        if self.cache_hit_hint is not None:
-            bits.append(f"cache_hit={self.cache_hit_hint}")
         if self.failure_class:
             bits.append(f"failure={self.failure_class}")
         if self.noted:
@@ -237,9 +411,12 @@ class ConnectivityVerdict:
     total: int = 0
     succeeded: int = 0
     failed: int = 0
-    upstream_succeeded: int = 0  # success with cache_hit_hint=False
-    cache_only_succeeded: int = 0  # success with cache_hit_hint=True
-    unknown_succeeded: int = 0  # success with cache_hit_hint=None
+    # Successes split by whether they hit mongod over the wire. ``hit_mongod``
+    # counts attempts with ``mongod_wire_ops > 0`` (a real wire round-trip);
+    # ``buffer_only`` counts attempts that were served entirely from
+    # pymongo's local cursor buffer with no wire op at all.
+    hit_mongod: int = 0
+    buffer_only: int = 0
     # Failure-class buckets. Sum of these equals ``failed``.
     cursor_lost: int = 0
     transient_network: int = 0
@@ -251,9 +428,14 @@ class ConnectivityVerdict:
     last_error: Optional[str] = None
 
     @property
-    def upstream_alive(self) -> bool:
-        """True iff at least one query was confirmed to reach upstream."""
-        return self.upstream_succeeded > 0
+    def hit_mongod_observed(self) -> bool:
+        """True iff at least one attempt actually issued a mongod wire op.
+
+        This is the load-bearing "did the harness exercise the server?"
+        predicate — without at least one wire op, every other assertion
+        is talking about the local cursor buffer, not the cluster.
+        """
+        return self.hit_mongod > 0
 
     @property
     def cursor_lost_observed(self) -> bool:
@@ -274,10 +456,9 @@ class ConnectivityVerdict:
             "cursor_lost": self.cursor_lost,
             "transient_network": self.transient_network,
             "other_failed": self.other_failed,
-            "upstream_succeeded": self.upstream_succeeded,
-            "cache_only_succeeded": self.cache_only_succeeded,
-            "unknown_succeeded": self.unknown_succeeded,
-            "upstream_alive": self.upstream_alive,
+            "hit_mongod": self.hit_mongod,
+            "buffer_only": self.buffer_only,
+            "hit_mongod_observed": self.hit_mongod_observed,
             "cursor_lost_observed": self.cursor_lost_observed,
             "error_breakdown": dict(self.error_breakdown),
             "first_error": self.first_error,
@@ -291,6 +472,12 @@ class SearchConnectivityTool:
     The tool intentionally does not own the MongoDB connection — it borrows the
     one already configured on the supplied ``SearchTester`` so e2e tests can
     keep using their existing TLS/auth fixtures without duplication.
+
+    A pymongo ``CommandListener`` is registered on the underlying client at
+    tool-construction time and stays attached for the life of the tool. Every
+    ``oneshot_search`` / page of ``paging_search`` is bracketed by a "what
+    new events appeared?" snapshot so the per-result ``mongod_wire_ops`` /
+    ``wire_ops`` fields are scoped to that attempt.
     """
 
     def __init__(
@@ -298,12 +485,44 @@ class SearchConnectivityTool:
         search_tester: SearchTester,
         db_name: str = "sample_mflix",
         col_name: str = "movies",
-        cache_latency_threshold_ms: float = 5.0,
     ) -> None:
         self.search_tester = search_tester
         self.db_name = db_name
         self.col_name = col_name
-        self.cache_latency_threshold_ms = cache_latency_threshold_ms
+        # Register the listener. pymongo only accepts event_listeners at
+        # MongoClient construction time, so we need to ensure the client is
+        # initialised here BEFORE any other code grabs the property. We
+        # reconstruct the client with the listener attached so the same
+        # SearchTester can be reused by callers that bypass this tool.
+        self._listener = _RecordingCommandListener()
+        self._install_listener_on_search_tester(search_tester, self._listener)
+
+    @staticmethod
+    def _install_listener_on_search_tester(
+        search_tester: SearchTester,
+        listener: pymongo.monitoring.CommandListener,
+    ) -> None:
+        """Attach ``listener`` to the underlying MongoClient by rebuilding it.
+
+        ``pymongo.MongoClient`` only consumes ``event_listeners`` at
+        construction time. ``MongoTester`` lazily builds its client via
+        ``_init_client`` on first ``client`` access; we override that here
+        by closing any pre-existing client and forcing a rebuild with the
+        listener attached. Subsequent ``search_tester.client`` accesses
+        will see the listener-wired client.
+        """
+        existing = getattr(search_tester, "_client", None)
+        if existing is not None:
+            try:
+                existing.close()
+            except Exception:  # pragma: no cover — defensive
+                pass
+        new_client = pymongo.MongoClient(
+            search_tester.cnx_string,
+            event_listeners=[listener],
+            **search_tester.default_opts,
+        )
+        search_tester.client = new_client
 
     # ------------------------------------------------------------------
     # Helpers
@@ -356,40 +575,6 @@ class SearchConnectivityTool:
         return stage, token
 
     @staticmethod
-    def _cursor_buffer_size(cursor) -> Optional[int]:
-        """Return the local buffer size of a pymongo cursor, or None if the
-        attribute isn't available on this pymongo version.
-
-        We use this to detect whether the next ``next()`` call will pop from
-        the client-local batch or trigger a ``getMore`` to the server. Probing
-        the buffer is the strongest signal we have for "this page actually
-        contacted mongot/envoy" without doing intrusive network instrumentation.
-
-        Preference order:
-          1. ``cursor._has_next()`` — public-ish helper on pymongo's
-             ``CommandCursor`` that reflects ``len(self._data) > 0`` without
-             us reaching into private state. Returns a boolean, which we
-             collapse to "0 buffered" or "1+ buffered".
-          2. ``cursor._data`` — the underlying deque on pymongo 4.x
-             ``CommandCursor``; returns the exact buffered count.
-          3. ``cursor._CommandCursor__data`` — name-mangled fallback for
-             defensive coverage of older releases.
-        """
-        if hasattr(cursor, "_has_next"):
-            try:
-                return 1 if cursor._has_next() else 0
-            except Exception:  # pragma: no cover — defensive
-                pass
-        for attr in ("_data", "_CommandCursor__data"):
-            if hasattr(cursor, attr):
-                buf = getattr(cursor, attr)
-                try:
-                    return len(buf)
-                except TypeError:
-                    return None
-        return None
-
-    @staticmethod
     def _cursor_id(cursor) -> Optional[int]:
         for attr in ("cursor_id", "_id", "_CommandCursor__id"):
             if hasattr(cursor, attr):
@@ -406,6 +591,39 @@ class SearchConnectivityTool:
                 except (TypeError, ValueError):
                     return None
         return None
+
+    # ------------------------------------------------------------------
+    # Listener event capture
+    # ------------------------------------------------------------------
+
+    def _begin_capture(self) -> int:
+        """Return a snapshot marker to use for ``_end_capture``."""
+        return self._listener.current_marker()
+
+    def _end_capture(self, marker: int) -> list[ClientWireOp]:
+        """Return every wire op event appended since ``marker``."""
+        return self._listener.snapshot_since(marker)
+
+    @staticmethod
+    def _count_wire_ops(events: list[ClientWireOp]) -> int:
+        """Count ``CommandStartedEvent``s in a list of records.
+
+        Each wire-protocol round-trip emits exactly one ``started`` event;
+        the matching ``succeeded`` / ``failed`` doesn't represent a new
+        round-trip. We use the count of ``started`` records as the
+        "this attempt issued N wire ops" predicate.
+        """
+        return sum(1 for e in events if e.phase == "started")
+
+    @property
+    def listener(self) -> _RecordingCommandListener:
+        """Expose the underlying CommandListener for advanced callers.
+
+        Exposed so failure-mode tests / probe scripts can iterate over
+        every recorded event (not just the per-result subset) when they
+        want to render a full cross-side timeline via the analyzer.
+        """
+        return self._listener
 
     # ------------------------------------------------------------------
     # One-shot mode
@@ -445,22 +663,25 @@ class SearchConnectivityTool:
         if timeout_ms is not None:
             kwargs["maxTimeMS"] = timeout_ms
 
+        marker = self._begin_capture()
         started = time.monotonic()
         try:
             docs = list(self._collection.aggregate(pipeline, **kwargs))
             elapsed_ms = (time.monotonic() - started) * 1000.0
-            cache_hit = elapsed_ms < self.cache_latency_threshold_ms
+            wire_ops = self._end_capture(marker)
             return QueryResult(
                 success=True,
                 started_at=started,
                 latency_ms=elapsed_ms,
                 returned_count=len(docs),
-                cache_hit_hint=cache_hit,
+                mongod_wire_ops=self._count_wire_ops(wire_ops),
+                wire_ops=wire_ops,
                 query_kind="search",
                 query_token=token,
             )
         except pymongo.errors.PyMongoError as exc:
             elapsed_ms = (time.monotonic() - started) * 1000.0
+            wire_ops = self._end_capture(marker)
             klass, code = self._classify_error(exc)
             msg = str(exc)
             logger.debug(f"oneshot_search failed in {elapsed_ms:.1f}ms: {klass}({code}) {exc}")
@@ -472,6 +693,8 @@ class SearchConnectivityTool:
                 error_code=code,
                 error_message=msg,
                 failure_class=classify_failure(klass, code, msg),
+                mongod_wire_ops=self._count_wire_ops(wire_ops),
+                wire_ops=wire_ops,
                 query_kind="search",
                 query_token=token,
             )
@@ -524,21 +747,24 @@ class SearchConnectivityTool:
         if timeout_ms is not None:
             kwargs["maxTimeMS"] = timeout_ms
 
+        marker = self._begin_capture()
         started = time.monotonic()
         try:
             docs = list(self._collection.aggregate(pipeline, **kwargs))
             elapsed_ms = (time.monotonic() - started) * 1000.0
-            cache_hit = elapsed_ms < self.cache_latency_threshold_ms
+            wire_ops = self._end_capture(marker)
             return QueryResult(
                 success=True,
                 started_at=started,
                 latency_ms=elapsed_ms,
                 returned_count=len(docs),
-                cache_hit_hint=cache_hit,
+                mongod_wire_ops=self._count_wire_ops(wire_ops),
+                wire_ops=wire_ops,
                 query_kind="vector_search",
             )
         except pymongo.errors.PyMongoError as exc:
             elapsed_ms = (time.monotonic() - started) * 1000.0
+            wire_ops = self._end_capture(marker)
             klass, code = self._classify_error(exc)
             logger.debug(f"oneshot_vector_search failed in {elapsed_ms:.1f}ms: {klass}({code}) {exc}")
             return QueryResult(
@@ -548,6 +774,8 @@ class SearchConnectivityTool:
                 error_class=klass,
                 error_code=code,
                 error_message=str(exc),
+                mongod_wire_ops=self._count_wire_ops(wire_ops),
+                wire_ops=wire_ops,
                 query_kind="vector_search",
             )
 
@@ -634,8 +862,9 @@ class SearchConnectivityTool:
         """Read ``pages`` pages from an already-open paging cursor.
 
         Each page pulls up to ``batch_size`` documents and records latency,
-        success/failure, failure_class, cursor state, and the buffer-vs-
-        getMore flag.
+        success/failure, failure_class, cursor state, and the count of
+        wire-protocol round-trips issued during the page (``mongod_wire_ops``)
+        — the ground-truth replacement for the old buffer-probe heuristic.
 
         ``first_page_index`` is the page index assigned to the first page
         produced by THIS call. Tests that read pages, do a fault, and read
@@ -665,20 +894,14 @@ class SearchConnectivityTool:
         for page_offset in range(pages):
             page_index = first_page_index + page_offset
             page_started = time.monotonic()
+            marker = self._begin_capture()
             docs: list[Any] = []
             page_error: Optional[QueryResult] = None
             had_transient_retry = False
-            any_getmore = False
-            buffer_probed_at_least_once = False
 
             for _ in range(batch_size):
                 if not cursor_alive:
                     break
-                pre_buffer = self._cursor_buffer_size(cursor)
-                if pre_buffer is not None:
-                    buffer_probed_at_least_once = True
-                    if pre_buffer == 0:
-                        any_getmore = True
                 try:
                     docs.append(next(cursor))
                     continue
@@ -710,6 +933,7 @@ class SearchConnectivityTool:
                         fclass = classify_failure(klass, code, msg)
 
                 elapsed = (time.monotonic() - page_started) * 1000.0
+                wire_ops = self._end_capture(marker)
                 page_error = QueryResult(
                     success=False,
                     started_at=page_started,
@@ -719,6 +943,8 @@ class SearchConnectivityTool:
                     error_message=msg,
                     failure_class=fclass,
                     noted=had_transient_retry,
+                    mongod_wire_ops=self._count_wire_ops(wire_ops),
+                    wire_ops=wire_ops,
                     query_kind="search",
                     page_index=page_index,
                     cursor_id=self._cursor_id(cursor),
@@ -731,27 +957,17 @@ class SearchConnectivityTool:
             if page_error is not None:
                 result = page_error
             else:
-                # Page 0 of a freshly-opened cursor corresponds to its
-                # firstBatch and required a round-trip to open + fetch.
-                # In the cursor-reuse case (first_page_index > 0) we lose
-                # that guarantee — by then the cursor may have buffered
-                # data — so we fall back to the buffer-probe heuristic.
-                if page_index == 0:
-                    cache_hit = False
-                elif not buffer_probed_at_least_once:
-                    cache_hit = None
-                else:
-                    cache_hit = not any_getmore
+                wire_ops = self._end_capture(marker)
                 result = QueryResult(
                     success=True,
                     started_at=page_started,
                     latency_ms=elapsed_ms,
                     returned_count=len(docs),
-                    cache_hit_hint=cache_hit,
+                    mongod_wire_ops=self._count_wire_ops(wire_ops),
+                    wire_ops=wire_ops,
                     query_kind="search",
                     page_index=page_index,
                     cursor_id=self._cursor_id(cursor),
-                    from_buffer_only=(None if not buffer_probed_at_least_once else not any_getmore),
                     noted=had_transient_retry,
                 )
 
@@ -801,12 +1017,14 @@ class SearchConnectivityTool:
         On success: ``(cursor, [], 0)``.
         On failure: ``(None, [<one failure result>], -)``.
         """
+        marker = self._begin_capture()
         try:
             cursor = self.paging_cursor_open(query=query, batch_size=batch_size, timeout_ms=timeout_ms)
             return cursor, [], 0
         except pymongo.errors.PyMongoError as exc:
             klass, code = self._classify_error(exc)
             msg = str(exc)
+            wire_ops = self._end_capture(marker)
             logger.debug(f"paging_search aggregate() failed: {klass}({code}) {exc}")
             return (
                 None,
@@ -819,6 +1037,8 @@ class SearchConnectivityTool:
                         error_code=code,
                         error_message=msg,
                         failure_class=classify_failure(klass, code, msg),
+                        mongod_wire_ops=self._count_wire_ops(wire_ops),
+                        wire_ops=wire_ops,
                         query_kind="search",
                         page_index=0,
                     )
@@ -884,12 +1104,12 @@ class SearchConnectivityTool:
     def verdict(self, results: list[QueryResult]) -> ConnectivityVerdict:
         """Aggregate a list of ``QueryResult``s into a single verdict.
 
-        Beyond the cache-hit / success-vs-failure split, the verdict also
-        breaks failures down by ``failure_class`` (cursor_lost /
-        transient_network / other). ``cursor_lost`` is the load-bearing
-        signal for tests that prove a server-side cursor is gone (mongot
-        pod restart); ``transient_network`` represents recoverable blips
-        and is informational rather than diagnostic.
+        Splits successes by ``mongod_wire_ops`` (was the page actually a
+        wire round-trip?) and failures by ``failure_class``
+        (cursor_lost / transient_network / other). ``cursor_lost`` is the
+        load-bearing signal for tests that prove a server-side cursor is
+        gone (mongot pod restart); ``transient_network`` represents
+        recoverable blips and is informational rather than diagnostic.
         """
         v = ConnectivityVerdict()
         for r in results:
@@ -898,12 +1118,10 @@ class SearchConnectivityTool:
                 v.succeeded += 1
                 if r.noted:
                     v.succeeded_with_retry += 1
-                if r.cache_hit_hint is True:
-                    v.cache_only_succeeded += 1
-                elif r.cache_hit_hint is False:
-                    v.upstream_succeeded += 1
+                if r.mongod_wire_ops > 0:
+                    v.hit_mongod += 1
                 else:
-                    v.unknown_succeeded += 1
+                    v.buffer_only += 1
             else:
                 v.failed += 1
                 if r.failure_class == FAILURE_CURSOR_LOST:

@@ -1,10 +1,10 @@
 """E2E test for the search connectivity tool (KUBE-17).
 
 Drives ``SearchConnectivityTool`` against a single-cluster managed-LB
-MongoDBSearch deployment and proves the cache-distinguishing logic actually
+MongoDBSearch deployment and proves the wire-op-counting logic actually
 works — by taking mongot down mid-paging via the operator and asserting the
 tool surfaces the resulting connectivity errors rather than reporting a
-green ``upstream_alive`` verdict.
+verdict with zero failures.
 
 The deployment scaffolding is inherited from the three test-class mixins in
 ``tests.common.search.bootstrap_test_mixins``.
@@ -56,7 +56,7 @@ class TestSearchConnectivityTool(
     # ------------------------------------------------------------------
 
     def test_oneshot_search_succeeds_and_reports_upstream(self, mdb: MongoDB):
-        """One-shot search with cache-busted query — must reach mongot."""
+        """One-shot search with cache-busted query — must reach mongod."""
         cfg = self.build_mongodb_rs_config()
         search_tester = get_rs_search_tester(mdb, cfg.user_name, cfg.user_password, use_ssl=True)
         tool = SearchConnectivityTool(search_tester)
@@ -65,21 +65,20 @@ class TestSearchConnectivityTool(
         logger.info(f"oneshot_search result: {result}")
         assert result.success, f"one-shot search failed: {result.error_class} {result.error_message}"
         assert result.returned_count > 0, "expected some results from cache-busted compound query"
-        # The cache-busted query has never been served by mongot before, so the
-        # result MUST come from upstream. If the latency band misclassifies it the
-        # threshold is wrong — fail loudly so we tune it before relying on the
-        # heuristic in availability tests.
-        assert result.cache_hit_hint is False, (
-            f"cache-busted oneshot query reported cache_hit_hint={result.cache_hit_hint}; "
-            f"latency was {result.latency_ms:.1f}ms (threshold "
-            f"{tool.cache_latency_threshold_ms}ms)."
+        # A one-shot aggregate ALWAYS issues at least one wire op to mongod
+        # — the pymongo CommandListener captures every CommandStartedEvent
+        # for aggregate / getMore / killCursors. Zero wire ops would mean
+        # the tool's listener didn't attach to the underlying MongoClient.
+        assert result.mongod_wire_ops > 0, (
+            f"one-shot aggregate reported mongod_wire_ops={result.mongod_wire_ops}; "
+            f"expected >= 1 — the CommandListener is not firing. wire_ops={result.wire_ops}"
         )
 
         verdict = tool.verdict([result])
-        assert verdict.upstream_alive, f"verdict.upstream_alive should be True; got {verdict.as_dict()}"
+        assert verdict.hit_mongod_observed, f"verdict.hit_mongod_observed should be True; got {verdict.as_dict()}"
 
     def test_paging_search_first_page_is_upstream(self, mdb: MongoDB):
-        """First paging page corresponds to the cursor's firstBatch — upstream."""
+        """First paging page corresponds to the cursor's firstBatch — wire op fires."""
         cfg = self.build_mongodb_rs_config()
         search_tester = get_rs_search_tester(mdb, cfg.user_name, cfg.user_password, use_ssl=True)
         tool = SearchConnectivityTool(search_tester)
@@ -88,19 +87,40 @@ class TestSearchConnectivityTool(
         logger.info("paging_search results: %s", "; ".join(str(p) for p in pages))
         assert pages, "paging_search returned no pages"
         assert pages[0].success, f"first page failed: {pages[0].error_class} {pages[0].error_message}"
-        assert pages[0].cache_hit_hint is False, f"first page should always be upstream-confirmed; got {pages[0]}"
+        # Page 0 of a fresh paging cursor opens the cursor by issuing an
+        # ``aggregate`` command — that's at least one wire op observed by
+        # the CommandListener. The CommandListener's started count is the
+        # ground-truth replacement for the old buffer-probe heuristic.
+        assert pages[0].mongod_wire_ops > 0, (
+            f"first page should always issue at least one wire op; got {pages[0]}"
+        )
         assert pages[0].returned_count > 0, "first page returned 0 docs"
+
+    def test_paging_search_first_page_is_upstream2(self, mdb: MongoDB):
+        """First paging page corresponds to the cursor's firstBatch — wire op fires."""
+        cfg = self.build_mongodb_rs_config()
+        search_tester = get_rs_search_tester(mdb, cfg.user_name, cfg.user_password, use_ssl=True)
+        tool = SearchConnectivityTool(search_tester)
+
+        pages = tool.paging_search(pages=10, interval_seconds=0.1, batch_size=20)
+        logger.info("paging_search results: %s", "; ".join(str(p) for p in pages))
+        assert pages, "paging_search returned no pages"
+        assert pages[0].success, f"first page failed: {pages[0].error_class} {pages[0].error_message}"
+        assert pages[0].mongod_wire_ops > 0, (
+            f"first page should always issue at least one wire op; got {pages[0]}"
+        )
+        assert pages[0].returned_count > 0, "first page returned 0 docs"
+
 
     def test_paging_through_mongot_outage_surfaces_connectivity_error(self, mdb: MongoDB, mdbs: MongoDBSearch):
         """Cache-distinguishing assertion — the deliverable signal of KUBE-17.
 
         Open a paging cursor against a healthy mongot, then scale the
         MongoDBSearch CR to 0 replicas via the operator and continue paging.
-        The connectivity tool must not report a green ``upstream_alive``
-        verdict for pages served after mongot is gone, AND must surface a real
-        connectivity-class error from at least one post-outage page —
-        cache-only success on its own is not a useful signal (it tells us
-        about the cursor's local buffer state, not about upstream availability).
+        The connectivity tool must surface a real connectivity-class error
+        from at least one post-outage page — a success that was served from
+        pymongo's local buffer (``mongod_wire_ops == 0``) tells us nothing
+        about upstream availability.
 
         NOTE: this test only exercises the "no healthy upstream" path produced
         by taking all mongots away via the operator. The "lost long-living
@@ -109,23 +129,16 @@ class TestSearchConnectivityTool(
         """
         cfg = self.build_mongodb_rs_config()
         search_tester = get_rs_search_tester(mdb, cfg.user_name, cfg.user_password, use_ssl=True)
-        tool = SearchConnectivityTool(
-            search_tester,
-            # Loosen the threshold a bit because we're doing 1-doc-per-pull
-            # iteration on getMore boundaries which can be jittery; the
-            # buffer-probe heuristic is the load-bearing signal here, not
-            # latency.
-            cache_latency_threshold_ms=10.0,
-        )
+        tool = SearchConnectivityTool(search_tester)
 
-        # Open a cursor while mongot is healthy and confirm the heuristic
-        # produces at least one upstream-confirmed page. Two pages with a
+        # Open a cursor while mongot is healthy and confirm the harness
+        # produces at least one page with a real wire op. Two pages with a
         # small batch is enough to cross at least one getMore boundary.
         pre_pages = tool.paging_search(pages=2, interval_seconds=0.1, batch_size=10)
         logger.info("pre-outage pages: %s", "; ".join(str(p) for p in pre_pages))
-        assert any(p.success and p.cache_hit_hint is False for p in pre_pages), (
-            "expected at least one upstream-confirmed page before scaling mongot down; "
-            "the cache-detection heuristic is broken before we even introduce a fault"
+        assert any(p.success and p.mongod_wire_ops > 0 for p in pre_pages), (
+            "expected at least one wire-op page before scaling mongot down; "
+            "the CommandListener didn't fire — the tool isn't actually probing mongod"
         )
 
         # Drive the outage via the operator: set spec.replicas=0 on the
@@ -174,16 +187,11 @@ class TestSearchConnectivityTool(
         post_verdict = tool.verdict(post_pages)
         logger.info(f"post-outage verdict: {post_verdict.as_dict()}")
 
-        # Deliverable assertion 1: the verdict cannot claim upstream is alive.
-        assert post_verdict.upstream_succeeded == 0, (
-            f"connectivity tool reported {post_verdict.upstream_succeeded} upstream-confirmed "
-            f"successes after mongot scaled to 0 — the cache-distinguishing logic "
-            f"is producing false-greens. Verdict: {post_verdict.as_dict()}"
-        )
-        # Deliverable assertion 2: at least one connectivity error must surface.
-        # Cache-only success on its own is not informative — see the reviewer's
-        # note on PR #1080. We need a real failure to know the tool is
-        # propagating upstream-loss instead of silently swallowing it.
+        # Deliverable assertion 1: at least one connectivity error must surface.
+        # A success that was served entirely from pymongo's local buffer
+        # (``mongod_wire_ops == 0``) on its own is not informative —
+        # we need a real failure to know the tool is propagating upstream-loss
+        # instead of silently swallowing it. See the reviewer's note on PR #1080.
         assert post_verdict.failed > 0, (
             f"post-outage verdict has no failures — the connectivity tool isn't surfacing "
             f"the upstream loss. Verdict: {post_verdict.as_dict()}"
@@ -278,8 +286,9 @@ class TestSearchConnectivityTool(
                 f"pre-restart pages failed before we even introduced a fault: "
                 f"{[(p.page_index, p.error_class, p.error_message) for p in pre_pages if not p.success]}"
             )
-            assert any(p.success and p.cache_hit_hint is False for p in pre_pages), (
-                "expected at least one upstream-confirmed pre-restart page; " "cursor isn't actually contacting mongot"
+            assert any(p.success and p.mongod_wire_ops > 0 for p in pre_pages), (
+                "expected at least one pre-restart page to issue a wire op; "
+                "the CommandListener didn't fire — the cursor isn't actually contacting mongod"
             )
 
             # Identify the pod backing this cursor's mongot replica. With

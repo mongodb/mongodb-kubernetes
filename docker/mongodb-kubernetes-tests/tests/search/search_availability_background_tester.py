@@ -5,11 +5,11 @@ Layered on the connectivity tool from KUBE-17. Drives
 MongoDBSearch deployment and proves two things:
 
 1. **Steady-state probe works.** A no-fault observation window over
-   the running cluster produces a verdict where every page is
-   ``upstream_succeeded`` and ``failed == 0``. This is the smoke test
-   for the harness itself — without it, every downstream KUBE-27
-   failure-mode scenario would risk silently passing on a tester
-   that never actually exercises upstream.
+   the running cluster produces a verdict where every page issued at
+   least one wire op (``hit_mongod_observed``) and ``failed == 0``.
+   This is the smoke test for the harness itself — without it, every
+   downstream KUBE-27 failure-mode scenario would risk silently
+   passing on a tester that never actually exercises mongod.
 
 2. **Ad-hoc outage is detected.** A deliberately broken cluster — we
    delete the mongot pod mid-window — produces a verdict where
@@ -91,21 +91,15 @@ class TestSearchAvailabilityBackgroundTester(
         """Run the tester for a short fault-free window; verdict must be clean.
 
         This is the smoke test for the harness — it must drive enough real
-        paging traffic that the verdict shows ``upstream_alive`` and zero
-        failures. Without this baseline, the outage scenario below could
-        pass for the wrong reasons (e.g. the harness never calls upstream
-        at all and reports "0 succeeded, 0 failed" which trivially
+        paging traffic that the verdict shows ``hit_mongod_observed`` and
+        zero failures. Without this baseline, the outage scenario below
+        could pass for the wrong reasons (e.g. the harness never calls
+        mongod at all and reports "0 succeeded, 0 failed" which trivially
         satisfies most failure assertions).
         """
         cfg = self.build_mongodb_rs_config()
         search_tester = get_rs_search_tester(mdb, cfg.user_name, cfg.user_password, use_ssl=True)
-        tool = SearchConnectivityTool(
-            search_tester,
-            # Loosen the threshold to match the connectivity-tool e2e
-            # convention; on getMore boundaries the latency band is jittery
-            # and the buffer-probe heuristic is the load-bearing signal.
-            cache_latency_threshold_ms=10.0,
-        )
+        tool = SearchConnectivityTool(search_tester)
         tester = SearchAvailabilityBackgroundTester(
             tool,
             mode="paging",
@@ -123,7 +117,7 @@ class TestSearchAvailabilityBackgroundTester(
 
         verdict = tester.assert_steady_state(
             min_iterations=8,
-            require_upstream_succeeded=True,
+            require_hit_mongod=True,
             max_failed=0,
         )
         logger.info(f"steady-state verdict: {verdict.as_dict()}")
@@ -158,7 +152,7 @@ class TestSearchAvailabilityBackgroundTester(
         """
         cfg = self.build_mongodb_rs_config()
         search_tester = get_rs_search_tester(mdb, cfg.user_name, cfg.user_password, use_ssl=True)
-        tool = SearchConnectivityTool(search_tester, cache_latency_threshold_ms=10.0)
+        tool = SearchConnectivityTool(search_tester)
         # Use oneshot mode rather than paging here. A long-living cursor's
         # getMore can be served from mongod's server-side cache during a
         # mongot outage, masking the fault — that's the cache caveat the
@@ -182,9 +176,9 @@ class TestSearchAvailabilityBackgroundTester(
             time.sleep(OUTAGE_HEALTHY_WINDOW_SECONDS)
             pre_results = tester.get_results()
             logger.info(f"pre-fault iterations recorded: {len(pre_results)}")
-            assert any(p.success and p.cache_hit_hint is False for p in pre_results), (
-                f"pre-fault window has no upstream-confirmed page; harness isn't actually "
-                f"probing upstream. results={[str(r) for r in pre_results]}"
+            assert any(p.success and p.mongod_wire_ops > 0 for p in pre_results), (
+                f"pre-fault window has no page with a wire op; harness isn't actually "
+                f"probing mongod. results={[str(r) for r in pre_results]}"
             )
 
             # Phase 2 — induce a brief outage by deleting EVERY mongot pod.
@@ -243,8 +237,8 @@ class TestSearchAvailabilityBackgroundTester(
             accept_classes=("cursor_lost", "transient_network"),
         )
         logger.info(f"outage-window verdict: {verdict.as_dict()}")
-        assert verdict.upstream_alive, (
-            f"outage-window verdict has no upstream-confirmed pages at all — the harness "
-            f"never reached upstream, so 'failure detected' is meaningless. "
+        assert verdict.hit_mongod_observed, (
+            f"outage-window verdict has no pages with a wire op at all — the harness "
+            f"never reached mongod, so 'failure detected' is meaningless. "
             f"verdict={verdict.as_dict()}"
         )
