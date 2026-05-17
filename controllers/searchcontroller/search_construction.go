@@ -2,6 +2,8 @@ package searchcontroller
 
 import (
 	"fmt"
+	"os"
+	"sort"
 	"strings"
 
 	"github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
@@ -40,6 +42,13 @@ const (
 	SearchLivenessProbePath      = "/health"
 	SearchReadinessProbePath     = "/ready"
 	tlsCACertName                = "ca.crt"
+
+	// mongotLogbackOverridePath is where the mongot container's startup
+	// script writes a heredoc'd logback config when MDB_SEARCH_LOG_LEVEL_OVERRIDES
+	// is set on the operator. Mongot's launcher passes JVM flags through to
+	// java, so we set -Dlogback.configurationFile to this path so logback
+	// picks up the per-package overrides instead of the jar-bundled default.
+	mongotLogbackOverridePath = tempVolumePath + "/mongot-logback.xml"
 
 	X509KeyPasswordMountPath        = "/mongot/x509-key-password"           // #nosec G101 -- path, not a password
 	TempX509KeyPasswordPath         = tempVolumePath + "/x509-key-password" // #nosec G101 -- path, not a password
@@ -200,7 +209,11 @@ func CreateKeyfileModificationFunc(keyfileSecretName string) statefulset.Modific
 // JVMFlags slice plus a default heap-size pair derived from memory requests.
 // Caller passes the cascaded per-cluster JVMFlags so per-cluster overrides
 // take effect.
-func jvmFlags(userJVMFlags []string, resourceRequirements corev1.ResourceRequirements) string {
+//
+// If extraFlags is non-empty, each entry is appended verbatim after the user
+// flags. Used to splice in the test-only `-Dlogback.configurationFile`
+// override when MDB_SEARCH_LOG_LEVEL_OVERRIDES is set on the operator.
+func jvmFlags(userJVMFlags []string, resourceRequirements corev1.ResourceRequirements, extraFlags ...string) string {
 	flags := []string{}
 
 	var heapConfigured bool
@@ -223,20 +236,164 @@ func jvmFlags(userJVMFlags []string, resourceRequirements corev1.ResourceRequire
 		flags = append(flags, fmt.Sprintf("-Xms%dm", halfMB))
 	}
 
-	flagsValue := strings.Join(append(flags, userJVMFlags...), " ")
+	allFlags := append(flags, userJVMFlags...)
+	allFlags = append(allFlags, extraFlags...)
+	flagsValue := strings.Join(allFlags, " ")
 	return fmt.Sprintf(`--jvm-flags "%s"`, flagsValue)
+}
+
+// parseLogLevelOverrides parses the value of MDB_SEARCH_LOG_LEVEL_OVERRIDES into
+// a sorted list of (package, level) pairs. Empty or whitespace-only entries
+// are skipped; malformed entries (missing '=' or empty key/value) are skipped
+// silently because this is a best-effort test knob. The returned slice is
+// deterministically ordered for stable rendering / golden-test output.
+func parseLogLevelOverrides(raw string) [][2]string {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	seen := map[string]string{}
+	for _, pair := range strings.Split(raw, ",") {
+		pair = strings.TrimSpace(pair)
+		if pair == "" {
+			continue
+		}
+		eq := strings.IndexByte(pair, '=')
+		if eq <= 0 || eq == len(pair)-1 {
+			continue
+		}
+		pkg := strings.TrimSpace(pair[:eq])
+		level := strings.TrimSpace(pair[eq+1:])
+		if pkg == "" || level == "" {
+			continue
+		}
+		seen[pkg] = strings.ToUpper(level)
+	}
+	if len(seen) == 0 {
+		return nil
+	}
+	out := make([][2]string, 0, len(seen))
+	for pkg, level := range seen {
+		out = append(out, [2]string{pkg, level})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i][0] < out[j][0] })
+	return out
+}
+
+// buildMongotLogbackOverrideXML renders a minimal logback configuration that
+// preserves the jar-bundled production encoder/appender shape but adds a
+// `<logger>` entry for every override pair. The root level is left at INFO
+// (mongot's verbosity setting in the YAML still takes effect on the root
+// logger via Logging.setRootLevel after Joran reads this file at JVM
+// startup).
+//
+// The encoder block is intentionally identical to
+// `conf/mongot/production/logback.xml` in the mongot repo at commit 9872ab5089
+// so that the structured-JSON shape of every log record is unchanged.
+func buildMongotLogbackOverrideXML(overrides [][2]string) string {
+	var b strings.Builder
+	b.WriteString(`<configuration>
+    <contextListener class="ch.qos.logback.classic.jul.LevelChangePropagator"/>
+    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder class="net.logstash.logback.encoder.LoggingEventCompositeJsonEncoder">
+            <jsonGeneratorDecorator class="com.xgen.mongot.logging.OmitEmptyFieldJsonDecorator"/>
+            <providers>
+                <timestamp>
+                    <fieldName>t</fieldName>
+                    <pattern>yyyy-MM-dd'T'HH:mm:ss.SSSZ</pattern>
+                </timestamp>
+                <logLevel>
+                    <fieldName>s</fieldName>
+                </logLevel>
+                <pattern>
+                    <omitEmptyFields>true</omitEmptyFields>
+                    <pattern>
+                        { "svc": "MONGOT" }
+                    </pattern>
+                </pattern>
+                <threadName>
+                    <fieldName>ctx</fieldName>
+                </threadName>
+                <loggerName>
+                    <fieldName>n</fieldName>
+                </loggerName>
+                <message>
+                    <fieldName>msg</fieldName>
+                </message>
+                <nestedField>
+                    <fieldName>attr</fieldName>
+                    <providers>
+                        <provider class="com.xgen.mongot.logging.SafeKeyValuePairsJsonProvider"/>
+                        <stackTrace/>
+                    </providers>
+                </nestedField>
+            </providers>
+        </encoder>
+    </appender>
+
+    <appender name="ASYNC" class="ch.qos.logback.classic.AsyncAppender">
+        <appender-ref ref="STDOUT"/>
+    </appender>
+
+`)
+	for _, pair := range overrides {
+		fmt.Fprintf(&b, "    <logger name=\"%s\" level=\"%s\"/>\n", pair[0], pair[1])
+	}
+	b.WriteString(`
+    <root level="INFO">
+        <appender-ref ref="ASYNC"/>
+    </root>
+</configuration>
+`)
+	return b.String()
+}
+
+// mongotLogbackOverrideSetup returns:
+//   - a shell snippet (empty when no overrides) that materializes the logback
+//     config at mongotLogbackOverridePath via a quoted heredoc. The heredoc
+//     uses a single-quoted delimiter so no shell expansion happens on the XML
+//     body.
+//   - the extra JVM flag (`-Dlogback.configurationFile=...`) the caller must
+//     splice into `--jvm-flags`. Empty when no overrides.
+//
+// readEnv is injected so unit tests can drive the parser without setting
+// process-global env vars.
+func mongotLogbackOverrideSetup(readEnv func(string) string) (shellPrefix, extraJVMFlag string) {
+	overrides := parseLogLevelOverrides(readEnv(util.SearchLogLevelOverridesEnv))
+	if len(overrides) == 0 {
+		return "", ""
+	}
+	xml := buildMongotLogbackOverrideXML(overrides)
+	// heredoc with single-quoted terminator: no expansion, XML body is opaque.
+	shellPrefix = fmt.Sprintf("cat > %s <<'MONGOT_LOGBACK_OVERRIDE_EOF'\n%sMONGOT_LOGBACK_OVERRIDE_EOF\n",
+		mongotLogbackOverridePath, xml)
+	extraJVMFlag = fmt.Sprintf("-Dlogback.configurationFile=%s", mongotLogbackOverridePath)
+	return shellPrefix, extraJVMFlag
 }
 
 func mongodbSearchContainer(mdbSearch *searchv1.MongoDBSearch, perCluster searchv1.ClusterSpec, volumeMounts []corev1.VolumeMount, searchImage string, usePerPodConfig bool) container.Modification {
 	_, containerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
 	resourceRequirements := createSearchResourceRequirements(perCluster.ResourceRequirements)
-	jvmFlags := jvmFlags(perCluster.JVMFlags, resourceRequirements)
+
+	// Test-only knob: when MDB_SEARCH_LOG_LEVEL_OVERRIDES is set on the
+	// operator, materialize a logback config at container startup and pass it
+	// to the JVM. No-op (empty strings) when unset — the container args are
+	// identical to today.
+	logbackSetupShell, logbackJVMFlag := mongotLogbackOverrideSetup(os.Getenv)
+
+	var extraJVMFlags []string
+	if logbackJVMFlag != "" {
+		extraJVMFlags = append(extraJVMFlags, logbackJVMFlag)
+	}
+	jvmFlags := jvmFlags(perCluster.JVMFlags, resourceRequirements, extraJVMFlags...)
 
 	var mongotStartCommand string
 	if usePerPodConfig {
 		mongotStartCommand = mongotPerPodConfigStartCommand(jvmFlags)
 	} else {
 		mongotStartCommand = fmt.Sprintf("/mongot-community/mongot --config %s %s", MongotConfigPath, jvmFlags)
+	}
+	if logbackSetupShell != "" {
+		mongotStartCommand = logbackSetupShell + mongotStartCommand
 	}
 
 	return container.Apply(

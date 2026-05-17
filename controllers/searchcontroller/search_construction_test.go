@@ -209,3 +209,98 @@ func TestCreateSearchResourceRequirements(t *testing.T) {
 type containerInfo struct {
 	args []string
 }
+
+func TestCreateSearchStatefulSetFunc_LogLevelOverrides(t *testing.T) {
+	render := func(t *testing.T) string {
+		t.Helper()
+		search := newTestMongoDBSearch("test-search", "default")
+		stsModification, err := CreateSearchStatefulSetFunc(search, "", "", "", "", "", nil, "mongot:latest", false)
+		require.NoError(t, err)
+		sts := statefulset.New(stsModification)
+		for i := range sts.Spec.Template.Spec.Containers {
+			if sts.Spec.Template.Spec.Containers[i].Name == MongotContainerName {
+				args := sts.Spec.Template.Spec.Containers[i].Args
+				require.Len(t, args, 2, "expected mongot container args of form ['-c', '<script>']")
+				return args[1]
+			}
+		}
+		t.Fatal("mongot container not found in StatefulSet")
+		return ""
+	}
+
+	// When MDB_SEARCH_LOG_LEVEL_OVERRIDES is unset, the mongot container's
+	// startup script must NOT contain any logback override surface — no
+	// heredoc, no -Dlogback.configurationFile flag.
+	t.Run("unset env var leaves the container args unchanged", func(t *testing.T) {
+		t.Setenv("MDB_SEARCH_LOG_LEVEL_OVERRIDES", "")
+		script := render(t)
+		assert.NotContains(t, script, "logback")
+		assert.NotContains(t, script, "MONGOT_LOGBACK_OVERRIDE_EOF")
+		assert.NotContains(t, script, "-Dlogback.configurationFile")
+	})
+
+	// When set, the container args must (a) materialize a logback.xml at
+	// /tmp/mongot-logback.xml via a heredoc, (b) include the
+	// -Dlogback.configurationFile=... JVM flag pointing at that file, and
+	// (c) include a <logger> entry for every requested package.
+	t.Run("packages get per-logger entries and the JVM flag is set", func(t *testing.T) {
+		t.Setenv("MDB_SEARCH_LOG_LEVEL_OVERRIDES",
+			"com.xgen.mongot.server.command.search=TRACE,com.xgen.mongot.server.grpc=DEBUG")
+		script := render(t)
+		assert.Contains(t, script, "cat > /tmp/mongot-logback.xml <<'MONGOT_LOGBACK_OVERRIDE_EOF'")
+		assert.Contains(t, script, `<logger name="com.xgen.mongot.server.command.search" level="TRACE"/>`)
+		assert.Contains(t, script, `<logger name="com.xgen.mongot.server.grpc" level="DEBUG"/>`)
+		assert.Contains(t, script, "-Dlogback.configurationFile=/tmp/mongot-logback.xml")
+		// The heredoc must close before mongot is exec'd.
+		eofIdx := strings.Index(script, "MONGOT_LOGBACK_OVERRIDE_EOF\n/mongot-community/mongot")
+		assert.NotEqual(t, -1, eofIdx, "expected heredoc terminator immediately before mongot launcher exec")
+	})
+
+	t.Run("malformed entries are skipped silently", func(t *testing.T) {
+		// Only the well-formed entry survives the parser.
+		t.Setenv("MDB_SEARCH_LOG_LEVEL_OVERRIDES", " , =FOO, bar=,com.xgen=TRACE,, ")
+		script := render(t)
+		assert.Contains(t, script, `<logger name="com.xgen" level="TRACE"/>`)
+		// Empty-key / empty-value entries must NOT produce a logger element.
+		assert.NotContains(t, script, `name=""`)
+		assert.NotContains(t, script, `name="bar"`)
+	})
+}
+
+func TestParseLogLevelOverrides(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+		want [][2]string
+	}{
+		{name: "empty string", raw: "", want: nil},
+		{name: "whitespace only", raw: "   ", want: nil},
+		{name: "single pair", raw: "com.xgen=TRACE", want: [][2]string{{"com.xgen", "TRACE"}}},
+		{
+			name: "multi-pair, sorted output",
+			raw:  "com.xgen.b=DEBUG,com.xgen.a=TRACE",
+			want: [][2]string{{"com.xgen.a", "TRACE"}, {"com.xgen.b", "DEBUG"}},
+		},
+		{
+			name: "trims whitespace and normalizes level case",
+			raw:  "  com.xgen = trace ,  io.grpc=Debug  ",
+			want: [][2]string{{"com.xgen", "TRACE"}, {"io.grpc", "DEBUG"}},
+		},
+		{
+			name: "duplicate keys: last write wins",
+			raw:  "com.xgen=DEBUG,com.xgen=TRACE",
+			want: [][2]string{{"com.xgen", "TRACE"}},
+		},
+		{name: "malformed: no equals", raw: "com.xgen", want: nil},
+		{name: "malformed: empty key", raw: "=TRACE", want: nil},
+		{name: "malformed: empty value", raw: "com.xgen=", want: nil},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := parseLogLevelOverrides(tc.raw)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+

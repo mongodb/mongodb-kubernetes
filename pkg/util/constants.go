@@ -214,6 +214,21 @@ const (
 	SearchVersionEnv = "MDB_SEARCH_VERSION"
 	EnvoyImageEnv    = "MDB_ENVOY_IMAGE"
 
+	// SearchLogLevelOverridesEnv is a test-only operator knob that, when set,
+	// causes the mongot pod template builder to materialize a logback
+	// configuration file with per-package level overrides at container
+	// startup and pass it to the JVM via `-Dlogback.configurationFile`.
+	//
+	// Value format mirrors a comma-separated list of `<package>=<level>` pairs,
+	// e.g. `com.xgen.mongot.server.command.search=TRACE,com.xgen.mongot.server.grpc=DEBUG`.
+	// Empty/unset is strict default-off — no behavior change in the mongot
+	// container.
+	//
+	// This exists to surface low-volume TRACE log surfaces (cursorId on the
+	// command-execute paths) for failure-mode tests without flipping every
+	// logger in mongot to TRACE. Not a CRD-level user-facing config.
+	SearchLogLevelOverridesEnv = "MDB_SEARCH_LOG_LEVEL_OVERRIDES"
+
 	// Different default configuration values
 	DefaultMongodStorageSize           = "16G"
 	DefaultConfigSrvStorageSize        = "5G"
