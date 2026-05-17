@@ -35,10 +35,12 @@ from pathlib import Path
 
 from tests.common.search.connectivity import SearchConnectivityTool
 from tests.common.search.mongot_log_analyzer import (
+    build_cursor_trees,
     build_stream_summaries,
     correlate_sessions_with_cursors,
     parse_client_wire_ops,
     parse_envoy_debug_log,
+    print_cursor_trees,
     print_mongod_command_report,
     print_stream_report,
     print_unified_timeline,
@@ -302,6 +304,23 @@ def run() -> int:
         mongot_batches=batches,
     )
     print_unified_timeline(timeline, max_events=300)
+
+    # Per-cursor tree view — same data, grouped per $search cursor with
+    # lower layers nested under the wire op that drove them. The flat
+    # timeline above is still useful for fully-temporal investigation;
+    # the tree view answers the "did this client page actually hit
+    # mongot?" question by tagging each getMore (cached) vs FRESH.
+    trees = build_cursor_trees(
+        client_ops=client_ops,
+        mongod_sessions=sessions,
+        mongod_commands=cmds,
+        envoy_streams=envoy_streams,
+        mongot_streams=summaries,
+        mongot_batches=batches,
+        mongot_stream_opens=mongot_stream_opens,
+        mongot_cmds=mongot_cmds,
+    )
+    print_cursor_trees(trees)
 
     return 0
 
