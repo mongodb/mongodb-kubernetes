@@ -157,7 +157,26 @@ func (r *ReplicaSetReconciler) Reconcile(ctx context.Context, mdb *mdbv1.MongoDB
 | Agent env vars | `MMS_*` | `HEADLESS_AGENT=true`, `AUTOMATION_CONFIG_MAP=<secret-name>` |
 | Readiness check | Pod annotation | `StatefulSet.IsReady()` |
 | `agent-downloads` volume | Present | Present (required for future online migration) |
-| AC calculation | Existing builder | Same builder — written to Secret instead of OM |
+| AC calculation | Existing builder | Same builder — `systemLog` injected via `AddProcessModification` (see below) |
+
+**`systemLog` injection (headless only):**
+
+The automation agent starts mongod with `--fork`, which requires `--logpath` or `--syslog`. The online path derives `systemLog` from the OM-supplied automation config; in headless mode no OM config exists, so the controller must inject it explicitly using `AddProcessModification`:
+
+```go
+AddProcessModification(func(_ int, p *automationconfig.Process) {
+    automationconfig.ConfigureAgentConfiguration(&automationconfig.SystemLog{
+        Destination: automationconfig.File,
+        Path:        util.PvcMountPathLogs + "/mongodb.log",
+    }, nil, nil, p)
+})
+```
+
+This must be applied in both the single-cluster (`mongodbreplicaset_controller.go`) and multi-cluster (`mongodbmultireplicaset_controller.go`) headless AC builders.
+
+**Hostname-override ConfigMap (multi-cluster only):**
+
+In multi-cluster mode, pods mount a ConfigMap (`<name>-hostname-override`) that maps each pod name to its external FQDN so the agent registers itself under the correct hostname. This ConfigMap is created by `reconcileHostnameOverrideConfigMap` and must be called explicitly at the start of `reconcileHeadless` before `reconcileHeadlessStatefulSets`. The online path calls it unconditionally; the headless path must do the same.
 
 **Sharded cluster guard:**
 
@@ -188,6 +207,48 @@ The controller detects the transition by comparing `spec.mode` against the curre
 7. Wait for `StatefulSet.IsReady()` — pods roll and reconnect to OM
 
 Each step checks actual state before acting — re-running reconcile at any point is safe.
+
+**`HEADLESS_AGENT` env var removal and `set -u` safety:**
+
+`agent-launcher.sh` runs with `set -Eou pipefail` (nounset active). Step 6 removes `HEADLESS_AGENT` from the StatefulSet spec, causing pods to roll without the env var present. Any reference to `${HEADLESS_AGENT}` in the script will abort the process with "unbound variable" if the var is absent. All references must use the default-expansion form `${HEADLESS_AGENT:-}` so the script handles both the headless case (var set to `"true"`) and the post-migration case (var absent).
+
+---
+
+## RBAC Requirements
+
+### `mongodb-kubernetes-database-pods` Role
+
+The readiness probe in each database pod runs as the `mongodb-kubernetes-database-pods` ServiceAccount. It needs `get` on `secrets` (to read the automation config Secret) and `get`/`patch` on `pods`. This SA has always existed, but its Role and RoleBinding were absent from the helm chart and from the `kubectl-mongodb` multi-cluster setup tooling.
+
+Both must be present in every namespace where database pods run:
+
+```yaml
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: mongodb-kubernetes-database-pods
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "patch"]
+---
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: mongodb-kubernetes-database-pods
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: mongodb-kubernetes-database-pods
+subjects:
+  - kind: ServiceAccount
+    name: mongodb-kubernetes-database-pods
+```
+
+This applies to both single-cluster and every member cluster in multi-cluster deployments. The helm chart (`helm_chart/templates/database-roles.yaml`) and the `kubectl-mongodb` `createDatabaseRoles`/`copyDatabaseRoles` functions must both create it.
 
 ---
 
