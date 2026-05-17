@@ -70,6 +70,8 @@ const (
 	OpsManagerServiceAccount     = "mongodb-kubernetes-ops-manager"
 	AppdbRole                    = "mongodb-kubernetes-appdb"
 	AppdbRoleBinding             = "mongodb-kubernetes-appdb"
+	DatabasePodsRole             = "mongodb-kubernetes-database-pods"
+	DatabasePodsRoleBinding      = "mongodb-kubernetes-database-pods"
 	DefaultOperatorName          = "mongodb-kubernetes-operator"
 	DefaultOperatorConfigMapName = DefaultOperatorName + "-member-list"
 )
@@ -997,6 +999,57 @@ func createDatabaseRoles(ctx context.Context, client KubeClient, f Flags) error 
 	if err := createDatabaseRole(ctx, client, AppdbRole, f.MemberClusterNamespace); err != nil {
 		return err
 	}
+	if err := createDatabasePodsRole(ctx, client, f.MemberClusterNamespace); err != nil {
+		return err
+	}
+	return nil
+}
+
+func createDatabasePodsRole(ctx context.Context, c KubeClient, namespace string) error {
+	role := rbacv1.Role{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      DatabasePodsRole,
+			Namespace: namespace,
+			Labels:    multiClusterLabels(),
+		},
+		Rules: []rbacv1.PolicyRule{
+			{
+				APIGroups: []string{""},
+				Resources: []string{"secrets"},
+				Verbs:     []string{"get"},
+			},
+			{
+				APIGroups: []string{""},
+				Resources: []string{"pods"},
+				Verbs:     []string{"get", "patch"},
+			},
+		},
+	}
+	roleBinding := rbacv1.RoleBinding{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      DatabasePodsRoleBinding,
+			Namespace: namespace,
+			Labels:    multiClusterLabels(),
+		},
+		RoleRef: rbacv1.RoleRef{
+			Kind: "Role",
+			Name: DatabasePodsRole,
+		},
+		Subjects: []rbacv1.Subject{
+			{
+				Kind: "ServiceAccount",
+				Name: DatabasePodsServiceAccount,
+			},
+		},
+	}
+	_, err := c.RbacV1().Roles(role.Namespace).Create(ctx, &role, metav1.CreateOptions{})
+	if !errors.IsAlreadyExists(err) && err != nil {
+		return xerrors.Errorf("error creating database-pods role: %w", err)
+	}
+	_, err = c.RbacV1().RoleBindings(roleBinding.Namespace).Create(ctx, &roleBinding, metav1.CreateOptions{})
+	if !errors.IsAlreadyExists(err) && err != nil {
+		return xerrors.Errorf("error creating database-pods role binding: %w", err)
+	}
 	return nil
 }
 
@@ -1023,6 +1076,14 @@ func copyDatabaseRoles(ctx context.Context, src, dst KubeClient, namespace strin
 	appdbRB, err := src.RbacV1().RoleBindings(namespace).Get(ctx, AppdbRoleBinding, metav1.GetOptions{})
 	if err != nil {
 		return xerrors.Errorf("failed retrieving role binding %s from source cluster: %w", AppdbRoleBinding, err)
+	}
+	dbPodsR, err := src.RbacV1().Roles(namespace).Get(ctx, DatabasePodsRole, metav1.GetOptions{})
+	if err != nil {
+		return xerrors.Errorf("failed retrieving role %s from source cluster: %w", DatabasePodsRole, err)
+	}
+	dbPodsRB, err := src.RbacV1().RoleBindings(namespace).Get(ctx, DatabasePodsRoleBinding, metav1.GetOptions{})
+	if err != nil {
+		return xerrors.Errorf("failed retrieving role binding %s from source cluster: %w", DatabasePodsRoleBinding, err)
 	}
 	if len(appdbSA.ImagePullSecrets) > 0 {
 		if err := copySecret(ctx, src, dst, namespace, appdbSA.ImagePullSecrets[0].Name); err != nil {
@@ -1090,6 +1151,28 @@ func copyDatabaseRoles(ctx context.Context, src, dst KubeClient, namespace strin
 	}, metav1.CreateOptions{})
 	if !errors.IsAlreadyExists(err) && err != nil {
 		return xerrors.Errorf("error creating role binding: %w", err)
+	}
+
+	_, err = dst.RbacV1().Roles(namespace).Create(ctx, &rbacv1.Role{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   dbPodsR.Name,
+			Labels: dbPodsR.Labels,
+		},
+		Rules: dbPodsR.DeepCopy().Rules,
+	}, metav1.CreateOptions{})
+	if !errors.IsAlreadyExists(err) && err != nil {
+		return xerrors.Errorf("error creating database-pods role: %w", err)
+	}
+	_, err = dst.RbacV1().RoleBindings(namespace).Create(ctx, &rbacv1.RoleBinding{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   dbPodsRB.Name,
+			Labels: dbPodsRB.Labels,
+		},
+		Subjects: dbPodsRB.DeepCopy().Subjects,
+		RoleRef:  dbPodsRB.DeepCopy().RoleRef,
+	}, metav1.CreateOptions{})
+	if !errors.IsAlreadyExists(err) && err != nil {
+		return xerrors.Errorf("error creating database-pods role binding: %w", err)
 	}
 
 	return nil
