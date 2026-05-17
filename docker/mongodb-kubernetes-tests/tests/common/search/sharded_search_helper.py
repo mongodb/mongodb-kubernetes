@@ -77,32 +77,41 @@ def create_lb_certificates(
     mdbs_resource_name: str,
     tls_cert_prefix: str,
     cluster_index: int = 0,  # default 0 preserves single-cluster behaviour
+    cluster_indexes: list[int] | None = None,
     api_client=None,
 ):
     """Create TLS certificates for the operator-managed load balancer (Envoy proxy).
 
     Secret names must match what the operator expects per LoadBalancerServerCert() and
     LoadBalancerClientCert(): {prefix}-{name}-search-lb-0-cert and
-    {prefix}-{name}-search-lb-0-client-cert.
+    {prefix}-{name}-search-lb-0-client-cert. The secret name does not vary per cluster
+    (operator mounts the same cert in every member cluster's Envoy), so the cert must
+    carry SANs for *all* clusters' proxy Services. Pass `cluster_indexes=[0, 1, ...]`
+    in multi-cluster setups so the SAN list covers every cluster's proxy hostnames.
 
     The server cert SAN list covers both per-shard proxy Services and the cluster-level
     proxy Service that mongos uses (M3: cluster-level Service is created for all sharded,
     including single-cluster).
     """
-    logger.info(f"Creating managed LB certificates for cluster {cluster_index}...")
+    if cluster_indexes is None:
+        cluster_indexes = [cluster_index]
+
+    logger.info(f"Creating managed LB certificates for cluster_indexes={cluster_indexes}...")
 
     lb_server_cert_name = search_resource_names.lb_server_cert_name(mdbs_resource_name, tls_cert_prefix)
     lb_client_cert_name = search_resource_names.lb_client_cert_name(mdbs_resource_name, tls_cert_prefix)
 
-    # Build SANs: per-shard proxy Services + cluster-level proxy Service for mongos
+    # Build SANs: per-shard proxy Services + cluster-level proxy Service for mongos,
+    # across every cluster index so the single Envoy cert is valid in any member cluster.
     additional_domains = []
-    for i in range(shard_count):
-        shard_name = f"{mdb_resource_name}-{i}"
-        proxy_svc = search_resource_names.shard_proxy_service_name(mdbs_resource_name, shard_name, cluster_index)
-        additional_domains.append(f"{proxy_svc}.{namespace}.svc.cluster.local")
-    additional_domains.append(
-        search_resource_names.cluster_level_proxy_service_fqdn(cluster_index, mdbs_resource_name, namespace)
-    )
+    for ci in cluster_indexes:
+        for i in range(shard_count):
+            shard_name = f"{mdb_resource_name}-{i}"
+            proxy_svc = search_resource_names.shard_proxy_service_name(mdbs_resource_name, shard_name, ci)
+            additional_domains.append(f"{proxy_svc}.{namespace}.svc.cluster.local")
+        additional_domains.append(
+            search_resource_names.cluster_level_proxy_service_fqdn(ci, mdbs_resource_name, namespace)
+        )
 
     # Create server certificate
     create_tls_certs(

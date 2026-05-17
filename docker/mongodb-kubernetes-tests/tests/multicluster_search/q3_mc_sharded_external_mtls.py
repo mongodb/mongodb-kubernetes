@@ -432,17 +432,21 @@ def test_create_certs(
         )
         logger.info(f"Per-shard Search TLS certs created on central for cluster_index={i}")
 
-        create_lb_certificates(
-            namespace=namespace,
-            issuer=multi_cluster_issuer,
-            shard_count=SHARD_COUNT,
-            mdb_resource_name=MDB_RESOURCE_NAME,
-            mdbs_resource_name=MDBS_RESOURCE_NAME,
-            tls_cert_prefix=MDBS_TLS_CERT_PREFIX,
-            cluster_index=i,
-            api_client=central_cluster_client,
-        )
-        logger.info(f"LB certs created on central for cluster_index={i}")
+    # LB cert: secret name has no cluster index, so build ONE cert with SANs covering
+    # every cluster's per-shard and cluster-level proxy Services. Called once outside
+    # the loop — calling per-cluster would overwrite the same Secret and only the last
+    # cluster's SANs would survive (root cause of mongos→Envoy gRPC handshake rejection).
+    create_lb_certificates(
+        namespace=namespace,
+        issuer=multi_cluster_issuer,
+        shard_count=SHARD_COUNT,
+        mdb_resource_name=MDB_RESOURCE_NAME,
+        mdbs_resource_name=MDBS_RESOURCE_NAME,
+        tls_cert_prefix=MDBS_TLS_CERT_PREFIX,
+        cluster_indexes=list(range(len(member_cluster_clients))),
+        api_client=central_cluster_client,
+    )
+    logger.info(f"LB certs created on central with SANs for cluster_indexes={list(range(len(member_cluster_clients)))}")
 
 
 @mark.e2e_search_q3_mc_sharded_external_mtls
