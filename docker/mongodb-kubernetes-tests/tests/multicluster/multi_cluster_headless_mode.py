@@ -44,6 +44,7 @@ def mongodb_multi(
     resource.set_version(ensure_ent_version(custom_mdb_version))
     resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1])
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
+    resource.set_architecture_annotation()
     try_load(resource)
     return resource
 
