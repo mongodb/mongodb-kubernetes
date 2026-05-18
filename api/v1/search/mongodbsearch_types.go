@@ -978,12 +978,24 @@ func (s *MongoDBSearch) GetManagedLBEndpointForClusterLevel(i int) string {
 	if strings.Contains(trimmed, ShardNamePlaceholder) {
 		return ""
 	}
-	// Resolve cluster placeholders on the trimmed template.
+	// Resolve cluster placeholders on the trimmed template. If the trimmed
+	// template still contains either cluster placeholder but we can't resolve
+	// it (legacy single-cluster path, or out-of-range index), return "" so the
+	// caller falls back to the cluster-level proxy Service FQDN instead of
+	// emitting a hostname that still has braces in it.
+	hasClusterPlaceholder := strings.Contains(trimmed, ClusterNamePlaceholder) ||
+		strings.Contains(trimmed, ClusterIndexPlaceholder)
 	if s.Spec.Clusters == nil {
+		if hasClusterPlaceholder {
+			return ""
+		}
 		return trimmed
 	}
 	clusters := *s.Spec.Clusters
 	if i < 0 || i >= len(clusters) {
+		if hasClusterPlaceholder {
+			return ""
+		}
 		return trimmed
 	}
 	out := strings.ReplaceAll(trimmed, ClusterNamePlaceholder, clusters[i].ClusterName)
