@@ -140,6 +140,45 @@ def _set_proxy_url(kc: dict[str, Any], proxy_url: Optional[str]) -> None:
             inner["proxy-url"] = proxy_url
 
 
+def _strip_kubeconfig_suffix(kc: dict[str, Any], port: str) -> None:
+    """Inverse of ``_suffix_kubeconfig_names``: strip the ``-<port>`` tail
+    from every cluster/context/user name (plus cross-refs and
+    ``current-context``). Idempotent; entries without the suffix are
+    left alone.
+
+    refresh() calls this on the loaded host kubeconfig before any other
+    mutation so the downstream deep-copy snapshot for the devc variant
+    sees bare names. Without the strip, a second refresh against an
+    already-suffixed on-disk file would propagate the suffix into the
+    devc kubeconfig (the in-container k8s-proxy sidecar would then
+    register under the suffixed name — the opposite of what we want).
+    """
+    sfx = f"-{port}"
+
+    def _strip(name: Any) -> Any:
+        if isinstance(name, str) and name.endswith(sfx) and len(name) > len(sfx):
+            return name[: -len(sfx)]
+        return name
+
+    for key in ("clusters", "contexts", "users"):
+        for entry in kc.get(key) or []:
+            if isinstance(entry, dict) and "name" in entry:
+                entry["name"] = _strip(entry["name"])
+
+    for entry in kc.get("contexts") or []:
+        inner = entry.get("context") if isinstance(entry, dict) else None
+        if not isinstance(inner, dict):
+            continue
+        if "cluster" in inner:
+            inner["cluster"] = _strip(inner["cluster"])
+        if "user" in inner:
+            inner["user"] = _strip(inner["user"])
+
+    cur = kc.get("current-context")
+    if isinstance(cur, str):
+        kc["current-context"] = _strip(cur)
+
+
 def _suffix_kubeconfig_names(kc: dict[str, Any], port: str) -> None:
     """Rename every cluster/context/user in ``kc`` to ``<original>-<port>``,
     fix the cross-references in ``contexts[*].context.{cluster,user}``, and
@@ -278,6 +317,23 @@ class KubeconfigDomain:
         cluster_name = env.get("CLUSTER_NAME") or None
         k8s_fwd_proxy = env.get("K8S_FWD_PROXY") or None
         suffix_port = env.get("MCK_DEVC_PROXY_PORT") or None
+
+        # On a re-refresh against an already-suffixed on-disk host kc,
+        # normalise back to bare names first so the devc-side deep-copy
+        # snapshot stays bare. _apply_suffix re-suffixes the host copy
+        # at the end. Names + current-context.
+        if suffix_port:
+            _strip_kubeconfig_suffix(host_data, suffix_port)
+
+        # CLUSTER_NAME may also already carry the `-<port>` suffix:
+        # root-context sources .generated/cluster_name (the suffixed
+        # name) and re-exports it into context.env. Strip it so
+        # _pin_current_context sets the bare form; _apply_suffix re-adds
+        # the suffix to the host copy at the end.
+        if cluster_name and suffix_port:
+            bare_suffix = f"-{suffix_port}"
+            if cluster_name.endswith(bare_suffix):
+                cluster_name = cluster_name[: -len(bare_suffix)]
 
         def _pin_current_context(kc: dict[str, Any]) -> None:
             if cluster_name:
