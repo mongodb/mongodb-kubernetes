@@ -13,8 +13,11 @@ Test flow:
   Phase 3: Scale DOWN to 2 shards, verify cleanup and search still works
 """
 
+import time
+
 import kubernetes
 from kubernetes import client
+from pymongo.errors import OperationFailure
 from kubetester import try_load
 from kubetester.certs import ISSUER_CA_NAME, create_mongodb_tls_certs, create_tls_certs
 from kubetester.kubetester import fixture as yaml_fixture
@@ -485,13 +488,82 @@ def test_scale_up_verify_search_on_new_shard(mdb: MongoDB):
 
 
 @MARKER
-def test_scale_down_update_shard_count(mdb: MongoDB):
-    """Scale MongoDB sharded cluster from 3 back to 2 shards.
+def test_scale_down_move_chunk_back(mdb: MongoDB):
+    """Move the chunk back from the new shard before scale-down.
 
-    MongoDB will migrate data off the removed shard before completing.
-    The moveChunk in the scale-up phase placed data on the shard being
-    removed, so removeShard must drain it back — use a generous timeout.
+    removeShard drains data from the removed shard via the balancer, which
+    is very slow in CI Kind clusters. By moving the chunk back explicitly,
+    removeShard completes quickly with no data to drain.
     """
+    search_tester = get_search_tester(mdb, ADMIN_USER_NAME, ADMIN_USER_PASSWORD, use_ssl=True)
+    admin_client = search_tester.client
+
+    new_shard_name = f"{MDB_RESOURCE_NAME}-{SCALED_UP_SHARD_COUNT - 1}"
+
+    # Stop the balancer to avoid conflicts with in-progress migrations
+    admin_client.admin.command("balancerStop")
+    logger.info("Balancer stopped")
+
+    try:
+        coll_doc = admin_client["config"]["collections"].find_one({"_id": "sample_mflix.movies"})
+        assert coll_doc is not None, "sample_mflix.movies not found in config.collections"
+        collection_uuid = coll_doc["uuid"]
+
+        # Find all chunks on the shard being removed
+        chunks_on_new_shard = list(
+            admin_client["config"]["chunks"].find({"uuid": collection_uuid, "shard": new_shard_name})
+        )
+        if not chunks_on_new_shard:
+            logger.info(f"No chunks on {new_shard_name}, nothing to move back")
+            return
+
+        # Determine a destination shard that did NOT previously own the chunk.
+        # Moving back to the original owner hits "orphans cleanup" errors because
+        # the range deleter hasn't finished clearing orphan docs from the prior
+        # outgoing migration. By picking a shard that never owned this range, we
+        # avoid the orphan issue entirely.
+        original_shards = [f"{MDB_RESOURCE_NAME}-{i}" for i in range(INITIAL_SHARD_COUNT)]
+
+        for chunk in chunks_on_new_shard:
+            # The chunk's history tells us which shard previously owned it.
+            # Pick a destination that is NOT in the chunk's history.
+            previous_owners = {entry["shard"] for entry in chunk.get("history", [])}
+            safe_destinations = [s for s in original_shards if s not in previous_owners]
+            if safe_destinations:
+                dest_shard = safe_destinations[0]
+            else:
+                # Fallback: all original shards previously owned it, just pick shard-0
+                dest_shard = original_shards[0]
+
+            logger.info(f"Moving chunk (min={chunk['min']}) from {new_shard_name} to {dest_shard}")
+            # Retry moveChunk in case orphan cleanup is still pending on the
+            # destination (fallback path). Retries with 30s intervals.
+            max_retries = 20
+            retry_interval = 30
+            for attempt in range(max_retries):
+                try:
+                    admin_client.admin.command(
+                        "moveChunk",
+                        "sample_mflix.movies",
+                        find=chunk["min"],
+                        to=dest_shard,
+                    )
+                    break
+                except OperationFailure as e:
+                    if "orphans" in str(e) and attempt < max_retries - 1:
+                        logger.warning(f"moveChunk failed (orphan cleanup pending), retrying in {retry_interval}s (attempt {attempt + 1}/{max_retries})")
+                        time.sleep(retry_interval)
+                    else:
+                        raise
+        logger.info(f"All {len(chunks_on_new_shard)} chunk(s) moved back from {new_shard_name}")
+    finally:
+        admin_client.admin.command("balancerStart")
+        logger.info("Balancer restarted")
+
+
+@MARKER
+def test_scale_down_update_shard_count(mdb: MongoDB):
+    """Scale MongoDB sharded cluster from 3 back to 2 shards."""
     mdb.load()
     mdb["spec"]["shardCount"] = SCALED_DOWN_SHARD_COUNT
     mdb.update()
