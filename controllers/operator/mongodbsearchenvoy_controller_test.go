@@ -196,7 +196,7 @@ func TestBuildShardRoutes(t *testing.T) {
 				"mdb-search-search-0-mdb-sh-0-proxy-svc.test-ns.svc.cluster.local",
 				"mdb-search-search-0-mdb-sh-1-proxy-svc.test-ns.svc.cluster.local",
 			},
-			// ClusterLevelProxyServiceNameForCluster(0) = mdb-search-search-0-proxy-svc
+			// ProxyServiceNamespacedNameForCluster(0) = mdb-search-search-0-proxy-svc
 			expectedClusterLevelSNI: "mdb-search-search-0-proxy-svc.test-ns.svc.cluster.local",
 		},
 		{
@@ -599,7 +599,7 @@ func TestBuildShardRoutes_MC_ClusterLevel_NoExternalHostname(t *testing.T) {
 	cl := routes[3]
 	assert.Equal(t, "cluster-level", cl.Name)
 	assert.Equal(t, "cluster-b", cl.ClusterID)
-	// SNI is ClusterLevelProxyServiceNameForCluster(1) FQDN.
+	// SNI is ProxyServiceNamespacedNameForCluster(1) FQDN.
 	assert.Equal(t, "mdb-search-search-1-proxy-svc.test-ns.svc.cluster.local", cl.SNIHostname)
 	// UpstreamHosts must be the union of all 3 per-shard mongot Service FQDNs for cluster-1.
 	require.Len(t, cl.UpstreamHosts, 3)
@@ -718,7 +718,6 @@ func TestNewMongoDBSearchEnvoyReconciler_AcceptsMemberClusters(t *testing.T) {
 	assert.Len(t, r.memberClusterClientsMap, 2)
 	assert.NotNil(t, r.memberClusterClientsMap["us-east-k8s"])
 	assert.NotNil(t, r.memberClusterClientsMap["eu-west-k8s"])
-	assert.Len(t, r.memberClusterSecretClientsMap, 2)
 }
 
 func TestNewMongoDBSearchEnvoyReconciler_NilMembersMap(t *testing.T) {
@@ -726,7 +725,6 @@ func TestNewMongoDBSearchEnvoyReconciler_NilMembersMap(t *testing.T) {
 	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", nil)
 	require.NotNil(t, r)
 	assert.Empty(t, r.memberClusterClientsMap)
-	assert.Empty(t, r.memberClusterSecretClientsMap)
 }
 
 // --- clusterWorkItem.Client population ----------------------------------------

@@ -23,7 +23,6 @@ import (
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
-	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
@@ -80,8 +79,7 @@ type MongoDBSearchReconciler struct {
 	watch                *watch.ResourceWatcher
 	operatorSearchConfig searchcontroller.OperatorSearchConfig
 
-	memberClusterClientsMap       map[string]kubernetesClient.Client // per-cluster Kubernetes client; empty in single-cluster installs
-	memberClusterSecretClientsMap map[string]secrets.SecretClient    // per-cluster secret client; empty in single-cluster installs
+	memberClusterClientsMap map[string]kubernetesClient.Client // per-cluster Kubernetes client; empty in single-cluster installs
 }
 
 func newMongoDBSearchReconciler(
@@ -90,22 +88,15 @@ func newMongoDBSearchReconciler(
 	memberClustersMap map[string]client.Client,
 ) *MongoDBSearchReconciler {
 	clientsMap := make(map[string]kubernetesClient.Client, len(memberClustersMap))
-	secretClientsMap := make(map[string]secrets.SecretClient, len(memberClustersMap))
-
 	for k, v := range memberClustersMap {
 		clientsMap[k] = kubernetesClient.NewClient(v)
-		secretClientsMap[k] = secrets.SecretClient{
-			VaultClient: nil, // Vault is not supported on multicluster
-			KubeClient:  clientsMap[k],
-		}
 	}
 
 	return &MongoDBSearchReconciler{
-		kubeClient:                    kubernetesClient.NewClient(kubeClient),
-		watch:                         watch.NewResourceWatcher(),
-		operatorSearchConfig:          operatorSearchConfig,
-		memberClusterClientsMap:       clientsMap,
-		memberClusterSecretClientsMap: secretClientsMap,
+		kubeClient:              kubernetesClient.NewClient(kubeClient),
+		watch:                   watch.NewResourceWatcher(),
+		operatorSearchConfig:    operatorSearchConfig,
+		memberClusterClientsMap: clientsMap,
 	}
 }
 

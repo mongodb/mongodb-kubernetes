@@ -26,7 +26,6 @@ import (
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
-	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
@@ -83,27 +82,20 @@ type MongoDBSearchEnvoyReconciler struct {
 	// memberClusterClientsMap is keyed by the member cluster name and holds the
 	// per-cluster Kubernetes client. Empty in single-cluster installs; the
 	// Reconcile path falls back to kubeClient (resolved in buildClusterWorkList).
-	memberClusterClientsMap       map[string]kubernetesClient.Client
-	memberClusterSecretClientsMap map[string]secrets.SecretClient
+	memberClusterClientsMap map[string]kubernetesClient.Client
 }
 
 func newMongoDBSearchEnvoyReconciler(c client.Client, defaultEnvoyImage string, memberClustersMap map[string]client.Client) *MongoDBSearchEnvoyReconciler {
 	clientsMap := make(map[string]kubernetesClient.Client, len(memberClustersMap))
-	secretClientsMap := make(map[string]secrets.SecretClient, len(memberClustersMap))
 	for k, v := range memberClustersMap {
 		clientsMap[k] = kubernetesClient.NewClient(v)
-		secretClientsMap[k] = secrets.SecretClient{
-			VaultClient: nil, // Vault is not supported on multicluster
-			KubeClient:  clientsMap[k],
-		}
 	}
 
 	return &MongoDBSearchEnvoyReconciler{
-		kubeClient:                    kubernetesClient.NewClient(c),
-		watch:                         watch.NewResourceWatcher(),
-		defaultEnvoyImage:             defaultEnvoyImage,
-		memberClusterClientsMap:       clientsMap,
-		memberClusterSecretClientsMap: secretClientsMap,
+		kubeClient:              kubernetesClient.NewClient(c),
+		watch:                   watch.NewResourceWatcher(),
+		defaultEnvoyImage:       defaultEnvoyImage,
+		memberClusterClientsMap: clientsMap,
 	}
 }
 
@@ -354,7 +346,7 @@ func buildShardRoutes(search *searchv1.MongoDBSearch, shardNames []string, clust
 	// Cluster-level route: mongos in this cluster uses this single SNI chain to reach
 	// all local shard mongot pools. SNI is the cluster-level proxy Service FQDN unless
 	// the user supplied a managed-LB externalHostname (with {shardName}. prefix stripped).
-	clusterLevelSvcName := search.ClusterLevelProxyServiceNameForCluster(clusterIndex).Name
+	clusterLevelSvcName := search.ProxyServiceNamespacedNameForCluster(clusterIndex).Name
 	clusterLevelSNI := fmt.Sprintf("%s.%s.svc.cluster.local", clusterLevelSvcName, namespace)
 	if endpoint := search.GetManagedLBEndpointForClusterLevel(clusterIndex); endpoint != "" {
 		clusterLevelSNI = endpoint

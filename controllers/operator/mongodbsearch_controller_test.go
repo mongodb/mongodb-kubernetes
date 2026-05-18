@@ -383,7 +383,6 @@ func TestNewMongoDBSearchReconciler_SingleCluster(t *testing.T) {
 
 	assert.NotNil(t, r.kubeClient, "central kubeClient must be set")
 	assert.Empty(t, r.memberClusterClientsMap, "members map must be empty in single-cluster mode")
-	assert.Empty(t, r.memberClusterSecretClientsMap, "secret-clients map must be empty in single-cluster mode")
 }
 
 func TestNewMongoDBSearchReconciler_MultiCluster(t *testing.T) {
@@ -398,11 +397,8 @@ func TestNewMongoDBSearchReconciler_MultiCluster(t *testing.T) {
 	r := newMongoDBSearchReconciler(central, searchcontroller.OperatorSearchConfig{}, members)
 
 	assert.Len(t, r.memberClusterClientsMap, 2)
-	assert.Len(t, r.memberClusterSecretClientsMap, 2)
 	assert.NotNil(t, r.memberClusterClientsMap["us-east-k8s"])
 	assert.NotNil(t, r.memberClusterClientsMap["eu-west-k8s"])
-	assert.NotNil(t, r.memberClusterSecretClientsMap["us-east-k8s"].KubeClient)
-	assert.NotNil(t, r.memberClusterSecretClientsMap["eu-west-k8s"].KubeClient)
 }
 
 func TestMongoDBSearchReconcile_MissingSecret_Requeues(t *testing.T) {
@@ -841,7 +837,7 @@ func TestMongoDBSearchReconcile_MCSharded_CrossControllerLabelInvariant(t *testi
 
 		svc := &corev1.Service{}
 		require.NoError(t, mc.Get(ctx,
-			search.ClusterLevelProxyServiceNameForCluster(idx), svc),
+			search.ProxyServiceNamespacedNameForCluster(idx), svc),
 			"cluster-level proxy Service missing on %s", clusterName)
 
 		dep := &appsv1.Deployment{}

@@ -455,7 +455,10 @@ func (s *MongoDBSearch) ProxyServiceNamespacedName() types.NamespacedName {
 	return types.NamespacedName{Name: s.Name + "-search-0-" + ProxyServiceSuffix, Namespace: s.Namespace}
 }
 
-// ProxyServiceNamespacedNameForCluster returns the index-suffixed proxy Service name for one member cluster.
+// ProxyServiceNamespacedNameForCluster returns the index-suffixed, shard-agnostic
+// proxy Service name for one member cluster. In RS-MC it's the per-cluster proxy
+// that mongod points at. In sharded-MC it's the cluster-level proxy that mongos
+// uses (shard-scoped traffic flows through ProxyServiceNameForClusterShard).
 func (s *MongoDBSearch) ProxyServiceNamespacedNameForCluster(clusterIndex int) types.NamespacedName {
 	return types.NamespacedName{
 		Name:      fmt.Sprintf("%s-search-%d-%s", s.Name, clusterIndex, ProxyServiceSuffix),
@@ -467,15 +470,6 @@ func (s *MongoDBSearch) ProxyServiceNamespacedNameForCluster(clusterIndex int) t
 func (s *MongoDBSearch) ProxyServiceNameForClusterShard(clusterIndex int, shardName string) types.NamespacedName {
 	return types.NamespacedName{
 		Name:      fmt.Sprintf("%s-search-%d-%s-%s", s.Name, clusterIndex, shardName, ProxyServiceSuffix),
-		Namespace: s.Namespace,
-	}
-}
-
-// ClusterLevelProxyServiceNameForCluster returns the shard-agnostic proxy Service name for a cluster.
-// Mongos uses this endpoint so it is not bound to a specific shard.
-func (s *MongoDBSearch) ClusterLevelProxyServiceNameForCluster(clusterIndex int) types.NamespacedName {
-	return types.NamespacedName{
-		Name:      fmt.Sprintf("%s-search-%d-%s", s.Name, clusterIndex, ProxyServiceSuffix),
 		Namespace: s.Namespace,
 	}
 }
