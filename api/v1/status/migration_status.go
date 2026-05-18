@@ -34,10 +34,6 @@ const (
 	NetworkConnectivityVerifiedReasonRunning NetworkConnectivityVerifiedConditionReason = "Running"
 )
 
-// MigrationObservedExternalMembersConditionType is the condition type for the observed
-// external-member count.
-const MigrationObservedExternalMembersConditionType = "MigrationObservedExternalMembers"
-
 // ConditionMigrating is the top-level condition type indicating whether VM-to-K8s migration is active.
 // True = migration in progress (externalMembers exist), False = migration complete or not started.
 const ConditionMigrating = "Migrating"

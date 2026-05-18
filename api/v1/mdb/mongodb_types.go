@@ -1346,7 +1346,6 @@ func (m *MongoDB) applyComputedReplicaSetMigrationStatus(priorStatusMembers int)
 	extCount := len(m.Spec.GetExternalMembers())
 
 	if extCount == 0 {
-		meta.RemoveStatusCondition(&m.Status.Conditions, status.MigrationObservedExternalMembersConditionType)
 		meta.RemoveStatusCondition(&m.Status.Conditions, status.ConditionNetworkConnectivityVerified)
 		m.Status.MigrationObservedExternalMembersCount = nil
 		// Only flip Migrating to False if migration was previously active.
