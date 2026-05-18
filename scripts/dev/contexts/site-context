@@ -23,10 +23,13 @@ export PROJECT_DIR
 # compose.yml's `x-k8s-proxy-config` anchor passes the resolved value
 # into the devcontainer service's environment as K8S_FWD_PROXY, so any
 # pre-existing value is the authoritative one — we just inherit it.
-# On host, the host-side kfp listens on 127.0.0.1:11616 (registered by
-# `.devcontainer/scripts/post-start.sh`); set the var there too so
-# `setup_kind_cluster.sh` and `evg_host.sh`'s kfp registration paths
-# Just Work when invoked from a host shell.
+# On host, the host-side kfp listens on 127.0.0.1:11616. The daemon is
+# pkg-installed (kube-forwarding-proxy/packaging/macos/build.sh) and
+# launchd-managed (RunAtLoad, KeepAlive on
+# system/io.github.fealebenpae.k8s-proxy) — wt-ctl does not start or
+# stop it; if it's down, `sudo launchctl kickstart -k system/...`. The
+# var still gets set here so `setup_kind_cluster.sh` and `evg_host.sh`'s
+# PATCH paths Just Work from a host shell.
 #
 # Historical note: this file used to set `K8S_FWD_PROXY=172.${PREFIX}.0.10`
 # unconditionally, clobbering the compose-provided value. Under the /23

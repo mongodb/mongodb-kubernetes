@@ -94,6 +94,17 @@ if [[ ! -f "${PROJECT_DIR}/.generated/.current-evg-host" \
   unset kc_ctx
 fi
 
+# Per-worktree CLUSTER_NAME override. KubeconfigDomain.refresh() writes
+# this file with the proxy-port-suffixed cluster name (e.g.
+# `kind-e2e-operator-8042`) so the on-host kfp can disambiguate concurrent
+# worktrees that share base cluster names. When the file is present it is
+# the source of truth — overrides both the variant context default
+# (EVG-host mode) and the yq-current-context probe above (local-kind / BYOC).
+if [[ -s "${PROJECT_DIR}/.generated/cluster_name" ]]; then
+  CLUSTER_NAME="$(cat "${PROJECT_DIR}/.generated/cluster_name")"
+  export CLUSTER_NAME
+fi
+
 if [[ -f "${PROJECT_DIR}/.generated/.current-evg-host" ]]; then
   EVG_HOST_NAME="$(cat "${PROJECT_DIR}/.generated/.current-evg-host")"
   export EVG_HOST_NAME

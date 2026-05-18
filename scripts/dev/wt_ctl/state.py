@@ -66,9 +66,12 @@ class KubeconfigState:
 
 @dataclass
 class KfpHostState:
-    """On-host kube-forwarding-proxy daemon snapshot."""
+    """On-host kube-forwarding-proxy daemon snapshot.
+
+    The daemon is pkg-installed and launchd-managed; PID is owned by
+    launchd and not surfaced here. status carries only liveness signals.
+    """
     listening: bool
-    pid: Optional[int]
     health: Optional[str]              # "ok" when /healthz is happy
     http_endpoint: str                 # "127.0.0.1:11616"
 

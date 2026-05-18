@@ -15,7 +15,12 @@ from .domains.compose import ComposeDomain, project_name_for
 from .domains.contextsw import ContextDomain
 from .domains.devcontainer import DevcontainerDomain
 from .domains.evg import EvgDomain
-from .domains.kfp import KfpDomain, KfpStartFailed
+from .domains.kfp import (
+    KfpDomain,
+    LAUNCHCTL_BOOTOUT,
+    LAUNCHCTL_BOOTSTRAP,
+    LAUNCHCTL_KICKSTART,
+)
 from .domains.kubeconfig import KubeconfigDomain
 from .domains.network import NetworkDomain, gost_proxy_for, parse_devc_env, subnet_for
 from .domains.omprojects import OmDomain
@@ -204,11 +209,16 @@ def build_parser() -> argparse.ArgumentParser:
     se_e.add_argument("--hours", type=int, default=4)
     se_e.add_argument("--host-id")
 
-    sk = sub.add_parser("kfp", help="on-host kube-forwarding-proxy daemon.")
+    sk = sub.add_parser(
+        "kfp",
+        help=(
+            "on-host kube-forwarding-proxy daemon (pkg-installed, "
+            "launchd-managed). `start`/`stop` are launchctl ops — wt-ctl "
+            "only probes and PATCHes."
+        ),
+    )
     sk_sub = sk.add_subparsers(dest="kfp_cmd")
     sk_sub.add_parser("status")
-    sk_sub.add_parser("start")
-    sk_sub.add_parser("stop")
     sk_rg = sk_sub.add_parser(
         "register",
         help="PATCH a kubeconfig to the on-host kfp daemon's /kubeconfig endpoint.",
@@ -438,7 +448,6 @@ def cmd_status(runner: Runner, refs: WorktreeRefs, args: argparse.Namespace) -> 
     kfp_st = kfp_dom.status()
     kfp_state = KfpHostState(
         listening=kfp_st.listening,
-        pid=kfp_st.pid,
         health=kfp_st.health,
         http_endpoint=kfp_st.http_endpoint,
     )
@@ -753,29 +762,13 @@ def cmd_kfp(runner: Runner, args: argparse.Namespace) -> int:
     if sub == "status":
         st = kfp.status()
         if st.listening:
-            pid_str = f"pid={st.pid}" if st.pid is not None else "pid=?"
             health = st.health or "unreachable"
-            print(f"running    {pid_str}    " f"http={st.http_endpoint}    health={health}")
+            print(f"running    http={st.http_endpoint}    health={health}")
             return 0
-        print(f"not_running    (start: scripts/dev/wt-ctl kfp start)")
-        return 0
-    if sub == "start":
-        try:
-            pid = kfp.start()
-        except KfpStartFailed as exc:
-            sys.stderr.write(f"[wt-ctl] kfp start failed: {exc.render()}\n")
-            return 1
-        if pid:
-            print(f"started    pid={pid}")
-        else:
-            print("already_running    (no pidfile owned by wt-ctl)")
-        return 0
-    if sub == "stop":
-        pid = kfp.stop()
-        if pid is None:
-            print("not_running")
-        else:
-            print(f"stopped    pid={pid}")
+        print(
+            "not_running    (pkg-installed daemon; restart with: "
+            f"{LAUNCHCTL_KICKSTART})"
+        )
         return 0
     if sub == "register":
         explicit = getattr(args, "kubeconfig", None)
@@ -1045,28 +1038,27 @@ def cmd_delete(runner: Runner, refs: Optional[WorktreeRefs], args: argparse.Name
 
 
 def _ensure_host_kfp(runner: Runner, skip_evg: bool) -> None:
-    """Pre-flight for ``wt-ctl create``: start the on-host kfp daemon if it
-    isn't already listening on 127.0.0.1:11616.
+    """Pre-flight for ``wt-ctl create``: probe that the on-host kfp daemon
+    is listening on 127.0.0.1:11616.
 
-    Best-effort by design — the in-pipeline workarounds (commits
-    ``29cf4cee9`` + ``c8e2ebe47``) PATCH kfp opportunistically, so a
-    missing daemon only degrades the kubeconfig refresh; it does not fail
-    create. We log clearly so the user knows what happened.
+    The daemon ships as a macOS pkg with a launchd plist (RunAtLoad,
+    KeepAlive); wt-ctl no longer starts it. If it's down we log a warning
+    pointing at launchctl and continue — in-pipeline PATCHes already
+    handle a missing daemon best-effort, so create doesn't have to fail.
     """
     if skip_evg:
         sys.stderr.write("[wt-ctl] kfp pre-flight: skipped (--skip-evg)\n")
         return
-    kfp = KfpDomain(runner)
-    if kfp.is_listening():
-        sys.stderr.write("[wt-ctl] kfp pre-flight: already running\n")
+    if KfpDomain(runner).is_listening():
+        sys.stderr.write("[wt-ctl] kfp pre-flight: daemon reachable on 127.0.0.1:11616\n")
         return
-    sys.stderr.write("[wt-ctl] kfp pre-flight: not listening, starting on-host daemon\n")
-    try:
-        pid = kfp.start()
-    except KfpStartFailed as exc:
-        sys.stderr.write(f"[wt-ctl] kfp pre-flight: WARN start failed (continuing best-effort): " f"{exc.render()}\n")
-        return
-    sys.stderr.write(f"[wt-ctl] kfp pre-flight: started pid={pid}\n")
+    sys.stderr.write(
+        "[wt-ctl] kfp pre-flight: WARN daemon not listening on 127.0.0.1:11616. "
+        "Daemon is launchd-managed; bring it up with:\n"
+        f"           {LAUNCHCTL_KICKSTART}\n"
+        "         (or if the pkg was never installed: see kube-forwarding-proxy "
+        "packaging/macos/build.sh). Continuing best-effort.\n"
+    )
 
 
 def _resolve_create_paths(
