@@ -378,7 +378,7 @@ func (r *MongoDBSearchReconcileHelper) buildShardedPlan(shardedSource SearchSour
 			clusterLevelResources = append(clusterLevelResources, clusterLevelResource{
 				clusterName:      w.ClusterName,
 				clusterIndex:     w.ClusterIndex,
-				svcName:          r.mdbSearch.ClusterLevelProxyServiceNameForCluster(w.ClusterIndex),
+				svcName:          r.mdbSearch.ProxyServiceNamespacedNameForCluster(w.ClusterIndex),
 				fallbackPodLabel: r.mdbSearch.MongotStatefulSetForClusterShard(w.ClusterIndex, shardNames[0]).Name,
 			})
 		}
@@ -723,7 +723,7 @@ func (r *MongoDBSearchReconcileHelper) cleanupStaleShardResources(ctx context.Co
 	for _, w := range r.buildShardedWorkList(currentShardNames) {
 		if !seenClusters[w.ClusterIndex] {
 			seenClusters[w.ClusterIndex] = true
-			expectedNames[r.mdbSearch.ClusterLevelProxyServiceNameForCluster(w.ClusterIndex).Name] = true
+			expectedNames[r.mdbSearch.ProxyServiceNamespacedNameForCluster(w.ClusterIndex).Name] = true
 		}
 	}
 
@@ -1578,7 +1578,7 @@ func mongotEndpointForClusterLevel(search *searchv1.MongoDBSearch, clusterIndex 
 			return endpoint
 		}
 	}
-	svcName := search.ClusterLevelProxyServiceNameForCluster(clusterIndex)
+	svcName := search.ProxyServiceNamespacedNameForCluster(clusterIndex)
 	port := search.GetEffectiveMongotPort()
 	return fmt.Sprintf("%s.%s.svc.%s:%d", svcName.Name, svcName.Namespace, clusterDomain, port)
 }
