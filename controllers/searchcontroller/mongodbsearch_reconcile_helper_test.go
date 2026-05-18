@@ -3234,9 +3234,8 @@ func TestReconcileShardedMC_MissingMemberClusterClient(t *testing.T) {
 	}
 }
 
-// PR_1117_REVIEW.md M6.(a): cleanupStaleShardResources must reach into member
-// clusters in MC sharded mode. Pre-fix it listed only on central; member-side
-// stale proxy Services lived forever.
+// cleanupStaleShardResources must reach into member clusters in MC sharded
+// mode — the per-shard proxy Services live on the member clients, not central.
 func TestCleanupStaleShardResources_MCFanOut(t *testing.T) {
 	search := newTestMongoDBSearch("mdb-search", "ns", func(s *searchv1.MongoDBSearch) {
 		s.UID = "search-uid"
@@ -3317,10 +3316,10 @@ func TestCleanupStaleShardResources_MCFanOut(t *testing.T) {
 	}
 }
 
-// PR_1117_REVIEW.md M6.(c): empty GetShardNames() yields an empty work list.
-// The reconciler must not fail noisily on the degenerate case; the preflight
-// step is a no-op and reconcile should reach an OK terminal state with no
-// per-shard resources created. (Production-shaped sources never return empty
+// Empty GetShardNames() yields an empty work list. The reconciler must not fail
+// noisily on the degenerate case; the preflight step is a no-op and reconcile
+// should reach an OK terminal state with no per-shard resources created.
+// (Production-shaped sources never return empty
 // — this is a defensive boundary check.)
 func TestReconcileSharded_EmptyShardNames(t *testing.T) {
 	search := newTestMongoDBSearch("mdb-search", "ns", func(s *searchv1.MongoDBSearch) {
@@ -3368,10 +3367,10 @@ func TestReconcileSharded_EmptyShardNames(t *testing.T) {
 	}
 }
 
-// PR_1117_REVIEW.md M6.(b): the Search controller patches /status and the
-// Envoy controller patches /status/loadBalancer — different JSON-patch paths,
-// so they MUST converge to a consistent CR even when reconciles interleave.
-// Tested deterministically by alternating reconciler calls and asserting the
+// The Search controller patches /status and the Envoy controller patches
+// /status/loadBalancer — different JSON-patch paths, so they must converge to
+// a consistent CR even when reconciles interleave. Tested deterministically by
+// alternating reconciler calls and asserting the
 // final CR has both phases set as expected, neither having clobbered the other.
 func TestReconcileShardedMC_InterleavedStatusConverges(t *testing.T) {
 	// The full controller path is exercised in
