@@ -1582,16 +1582,17 @@ func GetMongodConfigParametersForShard(search *searchv1.MongoDBSearch, shardName
 	return buildSearchSetParameters(mongotEndpointForShard(search, shardName, clusterDomain), searchTLSMode(search), !search.IsWireprotoEnabled())
 }
 
-// GetMongosConfigParametersForSharded returns the mongos configuration parameters for a sharded cluster.
-// clusterIndex is the persisted index of the cluster the mongos is in; single-cluster callers pass 0.
-// For managed / no LB, mongos uses the cluster-level proxy Service (shard-agnostic). For unmanaged LB
-// the endpoint template is shard-scoped (only `{shardName}` is supported), so we fall back to the
-// first shard's substituted endpoint to preserve the pre-MC behaviour.
+// GetMongosConfigParametersForSharded picks the mongos→mongot endpoint by topology. No-LB targets the
+// first shard's per-shard proxy svc FQDN (the only sharded mongot hostname per-shard cert SANs cover);
+// the cluster-level Service would route to the same pod but isn't in SANs.
 func GetMongosConfigParametersForSharded(search *searchv1.MongoDBSearch, clusterIndex int, shardNames []string, clusterDomain string) map[string]any {
 	var endpoint string
-	if search.IsShardedUnmanagedLB() && len(shardNames) > 0 {
+	switch {
+	case search.IsShardedUnmanagedLB() && len(shardNames) > 0:
 		endpoint = mongotEndpointForShard(search, shardNames[0], clusterDomain)
-	} else {
+	case !search.IsLBModeManaged() && len(shardNames) > 0:
+		endpoint = proxyServiceHostAndPortForShard(search, shardNames[0], clusterDomain)
+	default:
 		endpoint = mongotEndpointForClusterLevel(search, clusterIndex, clusterDomain)
 	}
 	return buildSearchSetParameters(endpoint, searchTLSMode(search), true) // useGrpc must be true for mongos-to-mongot communication
