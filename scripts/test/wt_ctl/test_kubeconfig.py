@@ -239,6 +239,41 @@ class KubeconfigRefreshTests(unittest.TestCase):
         self.assertEqual(host["current-context"], "kind-foo-8000")
         self.assertEqual(host["clusters"][0]["name"], "kind-foo-8000")
 
+    def test_evg_host_rerun_with_suffixed_cluster_name_env(self) -> None:
+        """Regression: when CLUSTER_NAME from env is already suffixed
+        (because root-context sourced .generated/cluster_name from the
+        previous refresh and re-exported it), refresh() must NOT
+        propagate the suffix into the devc kubeconfig. Host suffixed,
+        devc bare — same invariant as the first refresh."""
+        self.host_kc.write_text(_KIND_KUBECONFIG)
+        self.evg_pin.write_text("my-evg-host")
+        # First refresh: vanilla env with bare CLUSTER_NAME.
+        self._refresh(
+            MCK_DEVC_PROXY_PORT="8000",
+            EVG_HOST_PROXY="http://gost-proxy:8080",
+            CLUSTER_NAME="kind-foo",
+        )
+        # Second refresh: env now has SUFFIXED CLUSTER_NAME (from
+        # root-context's cluster_name file override). Names on disk also
+        # already suffixed.
+        self._refresh(
+            MCK_DEVC_PROXY_PORT="8000",
+            EVG_HOST_PROXY="http://gost-proxy:8080",
+            CLUSTER_NAME="kind-foo-8000",
+        )
+        host = yaml.safe_load(self.host_kc.read_text())
+        devc = yaml.safe_load(self.devc_kc.read_text())
+        # Host kc: suffixed everywhere.
+        self.assertEqual(host["current-context"], "kind-foo-8000")
+        self.assertEqual(host["clusters"][0]["name"], "kind-foo-8000")
+        # Devc kc: bare everywhere. THIS is the regression check.
+        self.assertEqual(devc["current-context"], "kind-foo")
+        self.assertEqual(devc["clusters"][0]["name"], "kind-foo")
+        self.assertEqual(devc["contexts"][0]["name"], "kind-foo")
+        self.assertEqual(devc["contexts"][0]["context"]["cluster"], "kind-foo")
+        self.assertEqual(devc["contexts"][0]["context"]["user"], "kind-foo")
+        self.assertEqual(devc["users"][0]["name"], "kind-foo")
+
     def test_evg_host_missing_proxy_port_raises(self) -> None:
         from wt_ctl.errors import WtCtlError
 
