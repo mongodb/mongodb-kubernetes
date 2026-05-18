@@ -272,8 +272,9 @@ func (r *MongoDBSearchEnvoyReconciler) clearLBStatus(ctx context.Context, search
 }
 
 // deleteEnvoyResources removes the central-cluster Envoy Deployment and ConfigMap
-// on managed→unmanaged LB transition. Member-cluster resources leak on transition
-// and on CR delete (cross-cluster owner refs don't GC); MVP scope accepts this.
+// on managed→unmanaged LB transition. Member-cluster Envoy resources are not
+// cleaned up here — cross-cluster owner refs don't GC, and member-cluster GC is
+// not handled by this controller.
 func (r *MongoDBSearchEnvoyReconciler) deleteEnvoyResources(ctx context.Context, search *searchv1.MongoDBSearch, log *zap.SugaredLogger) {
 	ns := search.Namespace
 

@@ -703,15 +703,14 @@ func isOwnedBy(obj client.Object, owner client.Object) bool {
 	return false
 }
 
-// cleanupStaleShardResources removes per-shard proxy Services for shards that no
-// longer exist after a scale-down. In MC the proxy Services live on the member
-// clusters, so we iterate the central client plus every member-cluster client.
-// Owner-ref check still gates the delete; we don't touch resources we don't own.
+// cleanupStaleShardResources deletes per-shard proxy Services for shards that no
+// longer exist. In MC the proxy Services live on the member clusters, so we
+// iterate the central client plus every member-cluster client and only touch
+// Services we own (by UID on central, by search-owner label on members —
+// cross-cluster owner refs don't exist).
 //
-// Out of scope: StatefulSets / ConfigMaps / headless Services for stale shards —
-// those carry owner refs in the central namespace and are GC'd by the API
-// server in single-cluster, but in MC their owners are cross-cluster and won't
-// GC. Cross-cluster STS/CM GC is deferred per the MVP scope (matches MC-RS).
+// STSs / ConfigMaps / headless Services for stale shards are not handled here:
+// in MC their owners live cross-cluster and aren't GC'd by Kubernetes.
 func (r *MongoDBSearchReconcileHelper) cleanupStaleShardResources(ctx context.Context, log *zap.SugaredLogger, currentShardNames []string) error {
 	if r.mdbSearch.IsShardedUnmanagedLB() {
 		return nil
@@ -817,11 +816,8 @@ func (r *MongoDBSearchReconcileHelper) validatePerShardTLSSecrets(ctx context.Co
 	}
 
 	for _, w := range r.buildShardedWorkList(shardNames) {
-		// MC: refuse to probe with a non-stable index (e.g. -1 sentinel from a
-		// race where spec.clusters[] referenced a cluster not yet in the state
-		// mapping). A stale index would compute the wrong secret name and
-		// either spuriously block on the wrong file or worse, accept the wrong
-		// one.
+		// A -1 sentinel index means the cluster isn't yet in the state mapping.
+		// Computing a secret name from it would point at the wrong file.
 		if w.ClusterName != "" && w.ClusterIndex < 0 {
 			return workflow.Pending("Waiting for cluster %q to be registered in search state", w.ClusterName)
 		}
@@ -1564,18 +1560,9 @@ func GetMongodConfigParameters(search *searchv1.MongoDBSearch, clusterDomain str
 }
 
 // mongotEndpointForShard resolves the per-shard mongot endpoint that the source
-// MongoDB's shard mongods point at via mongotHost.
-//
-// MVP scope (PR_1117_REVIEW.md M3.a): the cluster index is hardcoded to 0.
-// This path is reached from applySearchParametersForShards on the sharded
-// MongoDB CR, which today only supports a single-cluster source. For an MC
-// sharded source, the per-cluster mongotHost must be supplied by the user via
-// spec.shardOverrides[].additionalMongodConfig.setParameter.mongotHost on the
-// source MongoDB (see tests/multicluster_search/q3_mc_sharded_external_mtls.py).
-//
-// For unmanaged LB, the user-provided template endpoint is used.
-// For managed LB, the stable per-shard proxy service FQDN is used.
-// For no LB (single mongot), the first pod's headless FQDN is returned (pod-0.svc).
+// MongoDB's shard mongods point at via mongotHost. Single-cluster source only —
+// the cluster index is fixed to 0. For an MC sharded source, callers must set
+// per-cluster mongotHost via spec.shardOverrides on the source MongoDB.
 func mongotEndpointForShard(search *searchv1.MongoDBSearch, shardName string, clusterDomain string) string {
 	if search.IsShardedUnmanagedLB() {
 		return search.GetEndpointForShard(shardName)
