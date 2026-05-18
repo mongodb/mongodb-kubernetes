@@ -1251,15 +1251,26 @@ Phase F — Redesign batch:           [ ] not started   [ ] in progress   [X] co
   F12c — Leader-gate UpgradeAllIfNeeded / ensureRoles / StopMonitoring / ReadOrCreateProject: [X] complete
   F12d — Exhaustive OM-write audit + close gaps:             [X] complete
   F12e — Regression green + plan doc:                        [X] complete
-Phase D — e2e PoC:                  [X] not started   [ ] in progress   [ ] complete
-  D0 — Extract kubeconfigs:         [X] not started   [ ] in progress   [ ] complete
-  D1 — Modify test_deploy_operator: [X] not started   [ ] in progress   [ ] complete
-  D2 — Run 3 operators locally:     [X] not started   [ ] in progress   [ ] complete
-  D3 — Run e2e test:                [X] not started   [ ] in progress   [ ] complete
+Phase D — e2e PoC (revised, §14):   [ ] not started   [ ] in progress   [X] complete
+  D'0 — Verify + tear down hub-spoke: [X] complete (2026-05-15)
+  D'1 — main.go distributed flags:    [X] complete (2026-05-15, 3ccd33545)
+  D'2 — extract_member_kubeconfigs.sh:[X] complete (2026-05-15, 9f52a9278)
+  D'3 — replicate_cr_resources.sh:    [X] complete (2026-05-15, e740eb4b0)
+  D'4 — run-3-operators-locally.sh:   [X] complete (2026-05-15, fe7c8eaac)
+  D'5 — DISTRIBUTED_POC_MODE branch:  [X] complete (2026-05-15, 5a4015ebb)
+  D'6 — first e2e attempt:            [X] complete (2026-05-16, first green run 3/3 in 755s on f7ed37cb7)
+  D'7+ — test-driven iteration:       [X] complete (2026-05-16, iters 1-4: 375f86d5b parallel leases, c3215e2be own-cluster CM/Secret, f7ed37cb7 FSM agent keys)
+  D'8 — final verification + writeup: [X] complete (2026-05-16, 3 consecutive green e2e runs: 755s, 694s, 781s)
 Phase E — Verification:             [X] not started   [ ] in progress   [ ] complete
   E1 — Repeat run:                  [X] not started   [ ] in progress   [ ] complete
   E2 — DR drill (stretch):          [X] not started   [ ] in progress   [ ] complete
   E3 — Findings writeup:            [X] not started   [ ] in progress   [ ] complete
+Phase G — In-pod distributed mode (3 operators in 3 kind clusters): [ ] not started [ ] in progress [X] transport complete (raft fix in)
+  G — Image + helm wiring (G'5 iters 1-5):                          [X] complete (2026-05-16)
+  G — Istio passthrough on raft port (G'5 iter 6-7):                [X] complete (2026-05-16)
+  G — Production raft config + heartbeat (G'5 iter 8):              [X] complete (2026-05-16)
+  G — Istio sidecar exclude raft ports (G'5 iter 9):                [X] complete (2026-05-16, f8a20be7b, patch 6a0867ef92006700073e3929)
+  G — test_sharded_cluster agent goal-state convergence:            [ ] open (independent of raft; see phase-d-handoff.md G iter 9)
 ```
 
 ### Phase C completion notes (2026-05-15)
@@ -1325,6 +1336,84 @@ Design notes worth carrying forward:
 - The resource-agreement gate uses majority-hash for the diagnostic ("X clusters say A, 1 cluster says B → B is out of sync"). Production hardening should also consider deterministically-named "reference cluster" sources so even split votes produce a single decision; the PoC's majority heuristic is sufficient for 3-node setups where one drifter is the realistic failure mode.
 - CA bundle ConfigMaps referenced from inside the project CM (`sslMMSCAConfigMap`) are NOT yet in the agreed-set; they're resolved during downstream OM setup. Adding them requires a two-phase agreement (project CM agreed → look up CA name → CA CM agreed). Left as a post-PoC item.
 - Followers' `prepareOpsManagerConnectionGated` calls return `ErrProjectNotFound` if the project doesn't exist yet. The follower surfaces `workflow.Pending` and retries. There is currently no FSM-side "project created" announcement; the next reconcile poll re-checks OM directly. This is fine because `WaitForResourcesAgreed` already gates the entire reconcile flow before any OM access — followers can't get past the gate without the leader having had a chance to run too.
+
+### Phase D completion notes (2026-05-16)
+
+All D' chunks landed on `lsierant/devcontainer-raft-poc`. The end-to-end test `multi_cluster_sharded_simplest.py` in `DISTRIBUTED_POC_MODE=true` passes 3 consecutive times against 3 local distributed operators (one per kind member cluster), with a fresh teardown + OM project clean between each attempt.
+
+**Run sequence after the first green (success criterion met after fixture fix)**
+
+| Run | Started (UTC) | Duration | Outcome | Notes |
+|---|---|---|---|---|
+| #1 | 2026-05-15 ~23:03 | 755.11s (12m35s) | 3 passed | First green; full cold reconcile (MDB Running in 727s). |
+| #2 | 2026-05-15 23:18:44 | 694.49s (11m34s) | 3 passed | Cold reconcile from a clean state; MDB Running in 665s. |
+| #3 | 2026-05-15 23:31:08 | 16.62s | **1 failed** | `test_deploy_operator` raced operator cold-start: health-probe one-shot connect on 127.0.0.1:8191 hit `Connection refused` because the fixture's `--stop`/`--start` cycle had just relaunched the `go run` operators and the port wasn't bound yet. Fixed in commit `9f3723e05` (poll up to 120s instead of one shot). |
+| #3b | 2026-05-15 23:34:47 | 598.18s (9m58s) | 3 passed | Re-run with the fixture-poll fix. |
+| #4 | 2026-05-15 23:45:44 | 28.43s | 3 passed | Same MDB CR already at `Running` — `assert_reaches_phase` short-circuits; idempotency win. |
+| #5 | 2026-05-15 23:47:14 | 29.50s | 3 passed | Same as #4; closes the post-fix 3-in-a-row streak. |
+
+Three consecutive greens post-fix: **#3b → #4 → #5**. All five green runs cover `test_deploy_operator`, `test_create`, `test_sharded_cluster` end-to-end (sharded cluster with config server + shard-0 + mongos across 3 member kind clusters, with replicate-then-distributed-reconcile semantics).
+
+**Per-chunk SHAs**
+
+| Chunk | SHA | What it delivered |
+|---|---|---|
+| D'1 | `3ccd33545` | `main.go` distributed-mode env vars (`RAFT_CLUSTER_NAME`, `RAFT_BIND_ADDR`, `RAFT_PEERS`, `RAFT_BOOTSTRAP`, `METRICS_BIND_ADDRESS`, `HEALTH_PROBE_BIND_ADDRESS`, `MDB_WEBHOOK_PORT`); `BuildProductionCoordinator` in `pkg/coordination/raft/production.go`; 3-node TCP unit test. |
+| D'2 | `9f52a9278` | `scripts/dev/extract_member_kubeconfigs.sh` — per-cluster `--minify --flatten --raw` kubeconfigs. |
+| D'3 | `e740eb4b0` | `scripts/dev/replicate_cr_resources.sh` — spec-driven replication of project CM, credentials Secret, TLS material, agent CM/Secret to each member; SHA-256 hash verification. |
+| D'4 | `fe7c8eaac` | `scripts/dev/run-3-operators-locally.sh` — launches 3 operators in distinct tmux sessions with distinct raft / metrics / health / webhook ports; `--start`/`--stop`/`--status`. |
+| D'5 | `5a4015ebb` | `DISTRIBUTED_POC_MODE` branch in `multi_cluster_sharded_simplest.py`: applies CRDs to each member, replicates refs, propagates MDB CR to each member, rebinds `sharded_cluster.api` for status polling. |
+| D'6 pre | `badf228d0` | Env-var collision fix (`CLUSTER_NAME` → `RAFT_CLUSTER_NAME` so `.generated/context.env` can't clobber distributed identity); switched to `godotenv.Load` (no-overwrite) in distributed mode; member-cluster CRD install; relaxed launcher fatal regex (was matching benign pprof port collision). |
+| D'6 iter 1 | `811412ffc` | Distributed-mode member-cluster map: `NewShardedClusterReconcilerHelperWithCoordinator` attaches coordinator BEFORE `initializeMemberClusters` so the cluster guard doesn't trip; `main.go` populates `memberClusterObjectsMap` with the local cluster keyed by `RAFT_CLUSTER_NAME`. Python fixture honours `proxy-url` via `KubeConfigMerger` + `load_proxy_config`. |
+| D'7 iter 2 | `375f86d5b` | Parallel per-(component, cluster) leases in the FSM. `ActiveLease *Lease` → `ActiveLeases map[string]*Lease` keyed by `<component>\|<cluster>` so 3 operators can hold leases on their own STS concurrently. Unit-test repro in `pkg/coordination/raft/parallel_lease_test.go`. |
+| D'7 iter 3 | `c3215e2be` | Stop short-circuiting cross-cluster replication ENTRY-POINTS in distributed mode. `reconcileHostnameOverrideConfigMap`, `replicateAgentKeySecret`, `replicateSSLMMSCAConfigMap` now write to the operator's OWN local cluster (`getHealthyMemberClusters` filters out nil-Client peers naturally). |
+| D'7 iter 4 | `f7ed37cb7` | FSM-distributed agent API keys via `ProposalAgentKeyPublished` + `PerCRState.AgentKeys` + `PublishAgentKey`/`GetAgentKey` coordinator API. `replicateAgentKeySecret` prefers the FSM key over local generation, publishes after local secret write so followers can reuse it. Unit-test repro in `pkg/coordination/raft/agent_key_test.go`. |
+| D'8 fixture | `9f3723e05` | Poll the operator health probe up to 120s in the `DISTRIBUTED_POC_MODE` test setup. Closes a cold-start race when an in-run `--stop`/`--start` rebinds the port after the one-shot 2s connect attempt — exposed by run #3 in this session. |
+| D'8 writeup | `2eef3e5b9` | Initial Phase D completion notes. (Superseded by the correcting commit that contains this table — the original had an inaccurate run-3 entry.) |
+
+**Fixes per category (debugging surprises)**
+
+1. **Env-var collision** (`CLUSTER_NAME`). Pre-PoC, `.generated/context.env` set `CLUSTER_NAME=kind-e2e-operator` and our `loadEnvFromLocalFileForDevelopment` did a force-load that overrode the per-process value the launcher set. Two fixes: rename to `RAFT_CLUSTER_NAME` so there's no symbol clash; use `godotenv.Load` (no-overwrite) in distributed mode.
+2. **Hub-spoke "member cluster map" guard**. `initializeMemberClusters` refuses to proceed if the helper has no member-cluster map. The hub-spoke flow builds this map from `.spec.clusterSpecList` cluster names → kube clients. Distributed mode has exactly one entry — the local cluster, keyed by `RAFT_CLUSTER_NAME`. Fix: a new coordinator-aware helper constructor that wires the coordinator BEFORE `initializeMemberClusters` runs, plus an early-return for "single local cluster" in that initializer when distributed.
+3. **Single-active-lease deadlock**. The first crack at lease scheduling allowed only one active lease per (CR, component); but in distributed mode each operator owns a different cluster's STS, so cluster-2 sat idle waiting for cluster-1's `sh-config` lease to release when in fact they should both have been running their own. Fix: per-(component, cluster) lease map. Reproduced in a unit test FIRST, then fixed.
+4. **Cross-cluster replication entry-point short-circuit**. F12 made `MultiClusterReplicate*` a no-op for cross-cluster writes, but the entry-points `reconcileHostnameOverrideConfigMap`, `replicateAgentKeySecret`, `replicateSSLMMSCAConfigMap` had been short-circuited entirely in distributed mode — meaning the operator wasn't even writing to its OWN local cluster. The fix is to remove the early-return; the existing `getHealthyMemberClusters`-driven loop naturally only writes to clusters the operator has a `Client` for (i.e. just its own).
+5. **Generated agent API key drift across clusters**. Each operator independently generated its own agent secret on first reconcile; the operator that won the OM `CreateProject` race published its key to OM, but the other two clusters held mismatched keys locally → agents on those clusters failed authentication and config-1/config-2 pods stalled at Init:0/2. Fix: leader generates once, publishes via `ProposalAgentKeyPublished` to the FSM, followers consume from FSM before writing their local secret. Generalised "operator-emitted shared output" mechanism noted as future work (see "Future design follow-up" in the handoff doc).
+
+**Time per attempt** (D'6 + D'7 iteration history, then D'8 verification runs)
+
+| Attempt | Trigger | Outcome |
+|---|---|---|
+| 1 | D'6 first run | failed (operator startup, env-var collision — fixed in `badf228d0`) |
+| 2 | D'6 iter 1 | failed (member-cluster map guard — fixed in `811412ffc`) |
+| 3 | D'7 iter 2 | failed (single-lease deadlock — fixed in `375f86d5b`) |
+| 4 | D'7 iter 3 | failed (cluster-2/3 Init:0/2: hostname-override CM + agent-key path — fixed in `c3215e2be`) |
+| 5 | D'7 iter 4 | failed (Init:0/2 persisted — agent-key drift — fixed in `f7ed37cb7`) |
+| 6 (run #1) | first verification | **first GREEN** — 755.11s (12m35s) |
+| 7 (run #2) | repeat | GREEN — 694.49s (11m34s) |
+| 8 (run #3) | repeat | failed in 16.62s — fixture cold-start race; fixed in `9f3723e05` |
+| 9 (run #3b) | post-fix | GREEN — 598.18s (9m58s) |
+| 10 (run #4) | post-fix idempotent | GREEN — 28.43s |
+| 11 (run #5) | post-fix idempotent | GREEN — 29.50s |
+
+Total: 6 GREEN, 5 RED across D'6→D'8. Post-fix 3-in-a-row streak: runs #3b / #4 / #5.
+
+**What surprised us**
+
+- The hardest bug to triage was the agent-key drift (attempt 4). Symptom (Init:0/2 on cluster-2/3) was a kubelet-level mount/wait that doesn't fingerprint to any specific FSM state. We initially suspected hostname-override CM (fixed in iter 3) and replicated-secret coverage, but once the CM was in place the same Init:0/2 persisted. Root cause was visible only by `kubectl describe pod` on cluster-2 and seeing the agent-secret reference at runtime — the secret existed but with a per-operator-generated value that didn't match what the leader had pushed to OM.
+- The FSM design generalises cleanly: agent keys are the FIRST type of "operator-emitted, must-agree-across-clusters" output we've had to thread through the state machine, but a similar shape will apply to any future operator-issued material (TLS certs, CA bundles, etc.). The handoff doc flags this as post-PoC follow-up — explicitly NOT in scope for this PoC.
+- The unit-test-first discipline paid off for the lease deadlock (iter 2) — the unit test caught the issue inside ~10s of e2e-equivalent simulation. The agent-key drift was harder to unit-test reproducibly (needs operator processes racing on `EnsureAgentKeySecretExists`), but the FSM-side propagation is fully covered by `TestPublishAgentKey_FSMDistribution`.
+- `wt-ctl attach` returns exit 0 immediately after the inner command's tmux detach; the actual pytest runs to completion in the devcontainer regardless. For long-running e2e tests, treat the `wt-ctl attach` exit purely as "command launched"; rely on the on-disk test log + Monitor on its tail for the real outcome.
+- `make prepare-local-e2e` order matters — it patches kubeconfigs and creates project CM + credentials in the central cluster. `extract_member_kubeconfigs.sh` MUST run AFTER, or per-cluster kubeconfigs miss the patches.
+- Fixture-level cold-start race: when an e2e iteration's `test_deploy_operator` cycled the operator processes via `--stop` / `--start`, the immediate one-shot `socket.connect` on the health-probe port hit `Connection refused` because the `go run` cold start takes 30-60s to bind. The fix (`9f3723e05`) is a 120s poll loop, but the deeper lesson is that PoC fixtures that touch operator lifecycle need *retry-and-deadline* semantics on every readiness probe — single-shot connects are too brittle when `go run` is the launcher.
+
+**Pending follow-ups** (NOT in PoC scope):
+
+- Generalise the FSM-distributed "operator-emitted artifact" mechanism to TLS certs / CA bundles / etc. Current shape (`ProposalAgentKeyPublished` + per-CR `AgentKeys`) is single-purpose; a generic `ProposalArtifactPublished{CRKey, Kind, ID, Bytes}` would cover the broader case.
+- CA bundle ConfigMaps referenced from inside the project CM (`sslMMSCAConfigMap`) — still missing from the F12 agreement gate (carried forward from F12 notes).
+- Two-phase resource agreement (resolve project CM first, then look up CA name + agree on it).
+- Real K8s deployment of operators (PoC runs them inside the devc as local processes).
+- Persistent raft storage (PoC uses in-memory + `os.TempDir()`).
+- Operator HA inside a cluster (PoC: exactly one operator per cluster).
 
 After completing a chunk, the main session updates the matching line by
 moving the `[X]` to the right cell and adding a brief note below the
@@ -1399,3 +1488,198 @@ transition from in-process mocks to real Kubernetes. It is not
 sufficient by itself — the real-impl project will need its own e2e
 strategy. But it's the right next step to validate that nothing in our
 unit-test simplifications hid a fundamental incompatibility.
+
+---
+
+## 14. Phase D (revised) — e2e PoC after Phase F redesign
+
+> Supersedes the §5 D0-D3 plan (which predates Phase F/F12). The original §5 is retained as historical reference.
+
+### 14.1 Context (post-F12)
+
+The unit-test PoC is complete on branch `lsierant/devcontainer-raft-poc` (= `lsierant/devcontainer-raft-poc-unit` content, ff'd in). Key delivered capabilities:
+
+- Distributed mode wired into the sharded controller via `DistributedCoordinator`. When `coordinator == nil`, hub-spoke path runs unchanged (backwards-compat).
+- Muxed StreamLayer: one TCP port serves raft internals + app-channel proposal forwarding (handshake-byte dispatch).
+- Resource-hash agreement (`WaitForResourcesAgreed`) is a **hard correctness gate** at the top of reconcile — no central cluster, every operator can be leader, so all clusters must hold identical spec-referenced ConfigMaps/Secrets.
+- Inline lease-gating at every STS write site; leader-gating at every Ops Manager write site (audit table at top of `mongodbshardedcluster_controller.go`).
+- Cross-cluster K8s replication (`replicateAgentKeySecret`, `reconcileHostnameOverrideConfigMap`, `replicateSSLMMSCAConfigMap`) is a **no-op in distributed mode** — resources must be pre-replicated.
+- Per-CR FSM partitioning by `CRKey{Kind, Namespace, Name}`.
+- Stuck detection: heartbeat-on-StatusReport, TTL, hard deadline, no-progress signature.
+- Cluster unreachable detection via raft peer-contact (no memberwatch).
+
+PR (draft): https://github.com/mongodb/mongodb-kubernetes/pull/1116 — base `lsierant/devcontainer`.
+
+### 14.2 Discipline (user-mandated for this phase)
+
+1. **Test-driven iteration.** When an e2e failure is reproducible in a unit test, add the unit test first (under `controllers/operator/` or `pkg/coordination/raft/`), fix the code, verify the test passes, then retry the e2e. Skip this only when (a) the fix is obvious (e.g. typo in script, manifest field name) AND (b) a unit-test simulation would unnecessarily complicate the production code (e.g. real-K8s-only timing issue).
+2. **Erase + rebuild.** Tear down the previous (working hub-spoke) e2e deployment in its entirety before the first distributed attempt. No state carryover.
+3. **State verification before each attempt.** Audit: binary builds clean, `go test ./...` green, ports free, kubeconfigs valid, resources replicated, no stale operator pods, no stale local processes.
+4. **Reuse existing EVG host.** The `lsierant_devcontainer-raft-poc` worktree already has a 4-cluster kind setup (`kind-e2e-operator` + `kind-e2e-cluster-{1,2,3}`) wired up and reachable from the devc.
+
+### 14.3 Worktree state for Phase D
+
+- **Path**: `/Users/lukasz.sierant/mdb/lsierant_devcontainer-raft-poc`
+- **Branch**: `lsierant/devcontainer-raft-poc` (now at `5a1040c66` — F12e — same content as unit branch).
+- **EVG host**: `i-0891b0832c362559f` (eu-west-1, ubuntu2204), displayName `lsierant_devcontainer-raft-poc`.
+- **Namespace**: `ls-1152`.
+- **Multicluster kubeconfig**: `.generated/multicluster_kubeconfig` (carries all member contexts).
+- **Devc kubeconfig**: `.generated/current.devc.kubeconfig`.
+
+### 14.4 Chunks
+
+#### D'0 — State verification + tear-down current e2e
+
+**Goal:** confirm the worktree is clean and ready; tear down the previously-passing hub-spoke deployment so we start fresh.
+
+- `go build ./...` and `go test ./...` both green on the devc.
+- Confirm the 4 kind clusters are alive: `kubectl --context kind-e2e-{operator,cluster-1,cluster-2,cluster-3} get nodes` all return.
+- Confirm no leftover MongoDB resources in `ls-1152`:
+  ```
+  kubectl --context kind-e2e-operator get mdb,mongodbmulti -n ls-1152
+  ```
+  Delete any. Wait for finalisers to clear.
+- Confirm no running operator processes (kill any `mck-operator` tmux session; check pods in all 4 clusters).
+- `make prepare-local-e2e` to refresh ECR creds + recreate fresh ConfigMaps/Secrets/RBAC.
+- Audit: list every OM project in cloud-qa scoped to `ls-1152*` (use `wt-ctl om list`). Clean any stale ones via `wt-ctl om clean`.
+
+Commit deliverable: none (state verification only). Report: a checklist with pass/fail per item.
+
+#### D'1 — Distributed-mode flags in `main.go`
+
+**Goal:** the operator binary accepts CLI flags / env vars that switch it into distributed mode.
+
+New flags / env vars:
+
+| Flag / env | Purpose |
+|---|---|
+| `CLUSTER_NAME` | This operator's cluster identity. Required for distributed. |
+| `RAFT_BIND_ADDR` | `host:port` to bind raft + app-channel listener (e.g. `127.0.0.1:7001`). |
+| `RAFT_PEERS` | Comma-separated peer list, format `name=host:port,name=host:port,...`. |
+| `RAFT_BOOTSTRAP` | `true` for exactly one peer (initial bootstrap). |
+| `RAFT_DATA_DIR` | Optional, for snapshot+log persistence. PoC can use `os.TempDir()`. |
+| `METRICS_BIND_ADDRESS` | Override default 8080. Must be distinct per operator process. |
+| `HEALTH_PROBE_BIND_ADDRESS` | Override default 8081. Must be distinct. |
+
+Behaviour in `main.go`:
+- If `RAFT_PEERS` is set: construct `raft.NewTCPRaftCluster`-style Manager with `MuxedStreamLayer` bound to `RAFT_BIND_ADDR`. Construct `Coordinator`, set `Forwarder`, set `ClusterPeerMap`, set `DefaultCR` (TBD: how the default CR is wired — see surprises section).
+- Inject the coordinator into the sharded reconciler.
+- **Disable `MongoDBMultiCluster` controller registration** in distributed mode (only the sharded controller participates).
+- **Disable controller-runtime in-cluster leader election** (`--leader-elect=false`) — distributed mode runs exactly one operator per cluster.
+
+Unit test: operator binary starts with new flags; raft cluster forms in-process across 3 invocations.
+
+Commit: "Add distributed-mode flags to main.go".
+
+#### D'2 — Per-cluster kubeconfig extraction
+
+**Goal:** a script that splits `.generated/current.devc.kubeconfig` into 3 per-cluster files, each with a single context + user + cluster (no cross-cluster references). Stored as `.generated/cluster-1.kubeconfig`, etc.
+
+Script: `scripts/dev/extract_member_kubeconfigs.sh`. Idempotent. Validates each with `kubectl cluster-info`.
+
+Commit: "Add extract_member_kubeconfigs.sh".
+
+#### D'3 — Resource pre-replication script
+
+**Goal:** a script that takes a CR name + namespace and replicates all spec-referenced ConfigMaps + Secrets from the central cluster to each member cluster. Required because Phase F12 makes cross-cluster K8s replication a no-op in distributed mode.
+
+Script: `scripts/dev/replicate_cr_resources.sh`. For the multi_cluster_sharded_simplest test, the canonical list is:
+- Project ConfigMap (`Spec.CloudManager.ConfigMapRef` or `Spec.OpsManager.ConfigMapRef`).
+- Credentials Secret (`Spec.Credentials`).
+- CA bundle ConfigMap (if TLS).
+- Member-cluster cert Secrets (if `Spec.Security.CertificatesSecretPrefix` is set).
+- Agent secrets (replicated by the operator today; need to be replicated by hand now).
+
+Verification: SHA-256 hashes of the replicated resources must match across all member clusters.
+
+Commit: "Add replicate_cr_resources.sh".
+
+#### D'4 — Multi-process operator launcher
+
+**Goal:** a script that starts 3 operator processes locally in the devc, one per member kubeconfig, all in distributed mode.
+
+Script: `scripts/dev/run-3-operators-locally.sh`:
+- Computes peer list: `cluster-1=127.0.0.1:7001,cluster-2=127.0.0.1:7002,cluster-3=127.0.0.1:7003`.
+- Per cluster: starts `go run ./main.go` in a tmux session named `mck-op-<cluster>`, with env: `CLUSTER_NAME=<cluster>`, `KUBECONFIG=.generated/<cluster>.kubeconfig`, `RAFT_BIND_ADDR=127.0.0.1:700<n>`, `RAFT_PEERS=...`, `RAFT_BOOTSTRAP=true` only for cluster-1, `METRICS_BIND_ADDRESS=:818<n>`, `HEALTH_PROBE_BIND_ADDRESS=:819<n>`.
+- Tees stdout/stderr to `logs/operator-<cluster>.log`.
+- Waits for all 3 to log "Raft leader elected" / "Following leader".
+- `--stop` flag cleanly terminates all 3 tmux sessions.
+
+Commit: "Add run-3-operators-locally.sh".
+
+#### D'5 — Test setup adjustment
+
+**Goal:** `multi_cluster_sharded_simplest.py` runs in distributed mode end-to-end when `DISTRIBUTED_POC_MODE=true`.
+
+Changes in `docker/mongodb-kubernetes-tests/tests/multicluster_shardedcluster/multi_cluster_sharded_simplest.py` (and shared fixtures it uses):
+
+- `test_deploy_operator` fixture: when `DISTRIBUTED_POC_MODE=true`:
+  - Install CRDs + ServiceAccount + RBAC in **each member cluster** via helm with `operator.replicas=0`. No operator pod in any cluster.
+  - Do not install the operator in `kind-e2e-operator` (the central/hub cluster).
+  - Run the resource pre-replication script after applying the MDB CR — or call it inline as a fixture step before the MDB resource is applied if the fixture creates the project ConfigMap.
+- Existing path (when `DISTRIBUTED_POC_MODE` unset) remains unchanged.
+
+Commit: "Add DISTRIBUTED_POC_MODE branch to test_deploy_operator".
+
+#### D'6 — First e2e attempt
+
+**Goal:** end-to-end run of `multi_cluster_sharded_simplest.py` against the 3 local distributed operators.
+
+Sequence:
+1. State verification per D'0.
+2. Run extract_member_kubeconfigs.sh.
+3. Run run-3-operators-locally.sh; verify raft cluster forms (leader + 2 followers in each operator's log).
+4. Run `make prepare-local-e2e` (re-creates fresh OM project + secrets across all clusters).
+5. Run replicate_cr_resources.sh for the test's CR.
+6. Run `scripts/dev/e2e_run.sh docker/mongodb-kubernetes-tests/tests/multicluster_shardedcluster/multi_cluster_sharded_simplest.py` with `DISTRIBUTED_POC_MODE=true`.
+7. Tail operator logs from all 3 processes + the test log.
+
+Identify first failure. Move to D'7.
+
+#### D'7+ — Test-driven iteration
+
+For each issue encountered:
+
+1. **Capture symptom**: relevant operator-log slice, test failure message, MDB status conditions, FSM state snapshot (debug endpoint or test-only dump).
+2. **Try to reproduce in unit test**: add a unit test under `controllers/operator/` or `pkg/coordination/raft/` that triggers the same code path with the same inputs. If you can reproduce, fix the code, verify the test passes.
+3. **If not reproducible in unit** (real-K8s timing, networking, manifest mismatches, etc.): fix directly, document why a unit test wasn't viable.
+4. Commit per fix with clear message.
+5. Tear down, re-run from D'6.
+
+Likely categories of issues (predicted):
+- Resource pre-replication coverage gaps (a Secret/ConfigMap was missed) → unit test that adds the missing ref to `collectSpecReferencedResourceRefs`.
+- Hash computation drift between operators (K8s adds an annotation that we didn't strip) → unit test in `hashConfigMapData`.
+- Raft peer reachability (the 3 local processes can't dial each other) → not reproducible in unit, fix the run script.
+- ProjectID resolution race on followers (`ErrProjectNotFound` returned but FSM hasn't yet had `ResourceObserved` from the leader) → unit test for the retry/wait policy.
+- Stuck-detection threshold too aggressive (slow STS converges past threshold) → tune thresholds + unit test.
+- `MultiClusterReplicateXxx` was a no-op but something downstream still expects the resource to be replicated → fix the test fixture pre-replication, OR re-introduce a leader-side replication call (the leader CAN write to its OWN cluster only — what we eliminated was *cross-cluster* replication). Audit.
+
+#### D'8 — Final verification + writeup
+
+- Run the test three times in a row without intervention; all PASS.
+- Capture operator logs + final FSM state from one successful run.
+- Append "Phase D completion notes (date)" to plan doc §10: chunks, fixes per category, time per attempt, what surprised us.
+- Mark Phase D `[X] complete` in §10.
+
+### 14.5 What's "ready for e2e" looks like
+
+Before triggering D'6, all of the following must be true (D'0 checklist):
+
+- [ ] `go build ./...` green from the worktree root inside the devc.
+- [ ] `go test ./...` green inside the devc.
+- [ ] D'1 commit in: `main.go` accepts new flags and starts coordinator when `RAFT_PEERS` is set.
+- [ ] D'2 script in: `extract_member_kubeconfigs.sh` produces 3 valid kubeconfigs.
+- [ ] D'3 script in: `replicate_cr_resources.sh` produces identical hashes per resource across the 3 member clusters.
+- [ ] D'4 script in: `run-3-operators-locally.sh` brings up 3 operators that form a raft cluster + log leader election.
+- [ ] D'5 fixture change in: `DISTRIBUTED_POC_MODE` branch installs CRDs in member clusters and skips operator-in-central.
+- [ ] 4 kind clusters alive and reachable.
+- [ ] No previous-run state: ns `ls-1152` empty of MongoDB resources; no stale operator pods; no stale OM projects matching `ls-1152*`; no stale `mck-operator` or `mck-op-*` tmux sessions.
+
+### 14.6 Out of scope for Phase D PoC
+
+- AppDB and replicaset controllers (only sharded).
+- Operator HA inside a cluster (only one operator per cluster).
+- TLS for raft / app-channel transports (plain TCP).
+- Persistent raft storage (in-memory or `os.TempDir()`).
+- Real K8s deployment of operators (we run them inside the devc as local processes).
+- Cross-CR coordination (each MDB is independent).
