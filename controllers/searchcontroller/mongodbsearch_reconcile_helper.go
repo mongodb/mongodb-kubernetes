@@ -1530,7 +1530,16 @@ func GetMongodConfigParameters(search *searchv1.MongoDBSearch, clusterDomain str
 	return buildSearchSetParameters(mongotHostAndPort(search, clusterDomain), searchTLSMode(search), !search.IsWireprotoEnabled())
 }
 
-// mongotEndpointForShard resolves the mongot endpoint for a specific shard.
+// mongotEndpointForShard resolves the per-shard mongot endpoint that the source
+// MongoDB's shard mongods point at via mongotHost.
+//
+// MVP scope (PR_1117_REVIEW.md M3.a): the cluster index is hardcoded to 0.
+// This path is reached from applySearchParametersForShards on the sharded
+// MongoDB CR, which today only supports a single-cluster source. For an MC
+// sharded source, the per-cluster mongotHost must be supplied by the user via
+// spec.shardOverrides[].additionalMongodConfig.setParameter.mongotHost on the
+// source MongoDB (see tests/multicluster_search/q3_mc_sharded_external_mtls.py).
+//
 // For unmanaged LB, the user-provided template endpoint is used.
 // For managed LB, the stable per-shard proxy service FQDN is used.
 // For no LB (single mongot), the first pod's headless FQDN is returned (pod-0.svc).
@@ -1727,7 +1736,7 @@ func (r *MongoDBSearchReconcileHelper) getMongotVersion() string {
 		return version
 	}
 
-	effective := searchv1.EffectiveClusters(r.mdbSearch)
+	effective := r.mdbSearch.EffectiveClusters()
 	if len(effective) == 0 || effective[0].StatefulSetConfiguration == nil {
 		return ""
 	}
