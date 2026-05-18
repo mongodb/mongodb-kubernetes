@@ -22,6 +22,7 @@ import (
 	mdbmultiv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdbmulti"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/v1/om"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
+	mdbstatus "github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/v1/user"
 	mcov1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/envvar"
@@ -627,7 +628,7 @@ func populateMigrationFields(props *DeploymentUsageSnapshotProperties, condition
 	}
 
 	isActive := cond.Status == metav1.ConditionTrue
-	isComplete := cond.Status == metav1.ConditionFalse && cond.Reason == "MigrationComplete"
+	isComplete := cond.Status == metav1.ConditionFalse && cond.Reason == string(mdbstatus.MigratingReasonComplete)
 	if !isActive && !isComplete {
 		return
 	}
@@ -647,7 +648,7 @@ func populateMigrationFields(props *DeploymentUsageSnapshotProperties, condition
 
 func findMigrationCondition(conditions []metav1.Condition) *metav1.Condition {
 	for i := range conditions {
-		if conditions[i].Type == "Migrating" {
+		if conditions[i].Type == mdbstatus.ConditionMigrating {
 			return &conditions[i]
 		}
 	}
