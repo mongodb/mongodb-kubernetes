@@ -125,9 +125,7 @@ def mdb(
     )
 
     def _shard_proxy_endpoint(shard_name: str) -> str:
-        proxy_name = search_resource_names.shard_proxy_service_name(
-            MDBS_RESOURCE_NAME, shard_name, cluster_idx
-        )
+        proxy_name = search_resource_names.shard_proxy_service_name(MDBS_RESOURCE_NAME, shard_name, cluster_idx)
         return f"{proxy_name}.{namespace}.svc.cluster.local:{ENVOY_PROXY_PORT}"
 
     base_search_set_parameter = {
@@ -144,9 +142,7 @@ def mdb(
                 "setParameter": {
                     **base_search_set_parameter,
                     "mongotHost": _shard_proxy_endpoint(f"{MDB_RESOURCE_NAME}-{shard_idx}"),
-                    "searchIndexManagementHostAndPort": _shard_proxy_endpoint(
-                        f"{MDB_RESOURCE_NAME}-{shard_idx}"
-                    ),
+                    "searchIndexManagementHostAndPort": _shard_proxy_endpoint(f"{MDB_RESOURCE_NAME}-{shard_idx}"),
                 },
             },
         }
@@ -557,10 +553,7 @@ def _per_cluster_mongos_search_tester(
     `directConnection=true` keeps the driver from discovering the other cluster's mongos.
     """
     mongos_host = f"{MDB_RESOURCE_NAME}-mongos-{cluster_index}-0-svc.{namespace}.svc.cluster.local:27017"
-    conn_str = (
-        f"mongodb://{username}:{password}@{mongos_host}/"
-        f"?directConnection=true&authSource=admin"
-    )
+    conn_str = f"mongodb://{username}:{password}@{mongos_host}/" f"?directConnection=true&authSource=admin"
     return SearchTester(conn_str, use_ssl=True, ca_path=get_issuer_ca_filepath())
 
 
