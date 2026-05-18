@@ -1,4 +1,9 @@
-"""KfpDomain — on-host kfp daemon lifecycle.
+"""KfpDomain — on-host kfp daemon HTTP client.
+
+Lifecycle (start/stop) was retired when the daemon moved to a macOS pkg
+with a launchd plist (RunAtLoad + KeepAlive on
+``system/io.github.fealebenpae.k8s-proxy``). wt-ctl now only probes and
+PATCHes; ``launchctl`` owns lifecycle.
 
 We exercise:
 
@@ -6,10 +11,7 @@ We exercise:
   via test seam.
 * ``health()`` — uses an injected urlopen to assert 200/ok parsing,
   503 / connection refused mapping to None.
-* ``start()`` — invokes ``Runner.run_detached`` with the expected argv
-  and writes a pidfile when the daemon isn't already up; no-ops when up.
-* the ``cmd_kfp`` CLI entry point accepts ``status`` / ``start`` / ``stop``
-  via the argparse parser.
+* the ``cmd_kfp`` CLI parser accepts ``status`` only (start/stop dropped).
 """
 
 from __future__ import annotations
@@ -27,7 +29,7 @@ from _common import fake_which  # noqa: E402
 
 from wt_ctl import cli  # noqa: E402
 from wt_ctl.domains import kfp as kfp_mod  # noqa: E402
-from wt_ctl.domains.kfp import KfpDomain, KfpStartFailed  # noqa: E402
+from wt_ctl.domains.kfp import KfpDomain  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -179,79 +181,6 @@ class HealthTests(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# start()
-# ---------------------------------------------------------------------------
-
-class StartTests(unittest.TestCase):
-    def setUp(self) -> None:
-        self._orig_socket = kfp_mod.socket.socket
-        self._orig_urlopen = kfp_mod.urllib.request.urlopen
-
-    def tearDown(self) -> None:
-        kfp_mod.socket.socket = self._orig_socket
-        kfp_mod.urllib.request.urlopen = self._orig_urlopen
-
-    def _set_listening(self, value: bool) -> None:
-        def _factory(_f, _t):
-            return _FakeSocket(connect_ok=value)
-        kfp_mod.socket.socket = _factory  # type: ignore[assignment]
-
-    def _set_health(self, body: bytes, status: int = 200) -> None:
-        def _ok(_u, timeout=None):
-            return _FakeHTTPResponse(status, body)
-        kfp_mod.urllib.request.urlopen = _ok  # type: ignore[assignment]
-
-    def test_no_op_when_already_listening(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            self._set_listening(True)
-            self._set_health(b"ok")
-            runner = _DetachedRecorder()
-            binary = Path(tmp) / "proxy"
-            binary.write_text("#!/bin/sh\nexit 0\n")
-            binary.chmod(0o755)
-            d = KfpDomain(runner=runner, binary=binary,
-                          state_dir=Path(tmp) / "kfp")
-            d.start()
-            self.assertEqual(runner.detached_calls, [])
-
-    def test_invokes_runner_with_expected_argv_when_not_up(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            self._set_listening(False)
-            self._set_health(b"ok")
-            runner = _DetachedRecorder()
-            binary = Path(tmp) / "proxy"
-            binary.write_text("#!/bin/sh\nexit 0\n")
-            binary.chmod(0o755)
-            state_dir = Path(tmp) / "kfp"
-            d = KfpDomain(runner=runner, binary=binary, state_dir=state_dir)
-            pid = d.start()
-            self.assertEqual(pid, runner.spawn_pid)
-            self.assertEqual(len(runner.detached_calls), 1)
-            call = runner.detached_calls[0]
-            self.assertEqual(call["argv"], [str(binary)])
-            self.assertEqual(call["stdout_path"], state_dir / "log")
-            self.assertEqual(call["stderr_path"], state_dir / "log")
-            # Pidfile recorded.
-            self.assertTrue((state_dir / "pid").is_file())
-            self.assertEqual(
-                (state_dir / "pid").read_text().strip(),
-                str(runner.spawn_pid),
-            )
-
-    def test_missing_binary_raises(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            self._set_listening(False)
-            runner = _DetachedRecorder()
-            d = KfpDomain(
-                runner=runner,
-                binary=Path(tmp) / "no-such-proxy",
-                state_dir=Path(tmp) / "kfp",
-            )
-            with self.assertRaises(KfpStartFailed):
-                d.start()
-
-
-# ---------------------------------------------------------------------------
 # CLI parser
 # ---------------------------------------------------------------------------
 
@@ -262,17 +191,24 @@ class KfpCliParserTests(unittest.TestCase):
         self.assertEqual(args.cmd, "kfp")
         self.assertEqual(args.kfp_cmd, "status")
 
-    def test_kfp_start_parses(self) -> None:
+    def test_kfp_register_parses(self) -> None:
         parser = cli.build_parser()
-        args = parser.parse_args(["kfp", "start"])
+        args = parser.parse_args(["kfp", "register", "--kubeconfig", "/tmp/x"])
         self.assertEqual(args.cmd, "kfp")
-        self.assertEqual(args.kfp_cmd, "start")
+        self.assertEqual(args.kfp_cmd, "register")
+        self.assertEqual(args.kubeconfig, "/tmp/x")
 
-    def test_kfp_stop_parses(self) -> None:
+    def test_kfp_start_rejected(self) -> None:
+        """`start`/`stop` are launchctl ops now; the parser must NOT accept
+        them as kfp subcommands."""
         parser = cli.build_parser()
-        args = parser.parse_args(["kfp", "stop"])
-        self.assertEqual(args.cmd, "kfp")
-        self.assertEqual(args.kfp_cmd, "stop")
+        with self.assertRaises(SystemExit):
+            parser.parse_args(["kfp", "start"])
+
+    def test_kfp_stop_rejected(self) -> None:
+        parser = cli.build_parser()
+        with self.assertRaises(SystemExit):
+            parser.parse_args(["kfp", "stop"])
 
 
 if __name__ == "__main__":

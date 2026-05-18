@@ -21,6 +21,25 @@ and unit-testability. Dispatch:
 
 Both modes also pin `current-context` to ${CLUSTER_NAME} (when set in env)
 and PATCH the appropriate per-side variant to ${K8S_FWD_PROXY}/kubeconfig.
+
+Name disambiguation across worktrees (host kfp is shared via the macOS pkg
+daemon): when MCK_DEVC_PROXY_PORT is set, every cluster/context/user name in
+the **host** kubeconfig gets suffixed with ``-<MCK_DEVC_PROXY_PORT>`` and
+the suffixed CLUSTER_NAME is written to ``.generated/cluster_name`` so
+host-side tooling (root-context) can pin kubectl to the suffixed context.
+Identity becomes ``(name, proxy-port)``: re-PATCHing the same worktree
+overwrites in place (idempotent across ``kind delete && kind create``),
+while peer worktrees with different ports keep their own entries — kfp's
+per-context shutdown (de51427) only touches the affected names. Without
+MCK_DEVC_PROXY_PORT (e.g. EVG-CI runs that don't have the devc stack) we
+skip the rewrite.
+
+The **devc** kubeconfig stays bare. The in-container k8s-proxy sidecar is
+single-tenant per worktree so name collisions are impossible there, and
+variant context files (``e2e_static_multi_cluster_kind`` and friends)
+hardcode bare cluster names for ``CLUSTER_NAME`` / ``MEMBER_CLUSTERS`` /
+``TEST_POD_CLUSTER`` / ``CENTRAL_CLUSTER`` — suffixing devc names would
+break them with no compensating benefit.
 """
 
 from __future__ import annotations
@@ -28,7 +47,6 @@ from __future__ import annotations
 import copy
 import os
 import re
-import shutil
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -122,6 +140,42 @@ def _set_proxy_url(kc: dict[str, Any], proxy_url: Optional[str]) -> None:
             inner["proxy-url"] = proxy_url
 
 
+def _suffix_kubeconfig_names(kc: dict[str, Any], port: str) -> None:
+    """Rename every cluster/context/user in ``kc`` to ``<original>-<port>``,
+    fix the cross-references in ``contexts[*].context.{cluster,user}``, and
+    rewrite ``current-context`` to the suffixed form.
+
+    Identity becomes ``(name, port)`` — the same disambiguation the
+    server-side rewrite in kfp's unmerged ``0d10eab`` would have done.
+    Skips entries whose name already ends with the suffix so re-runs of
+    refresh() on an already-suffixed file are no-ops (idempotent).
+    """
+    sfx = f"-{port}"
+
+    def _rename(name: Any) -> Any:
+        if not isinstance(name, str) or name.endswith(sfx):
+            return name
+        return f"{name}{sfx}"
+
+    for key in ("clusters", "contexts", "users"):
+        for entry in kc.get(key) or []:
+            if isinstance(entry, dict) and "name" in entry:
+                entry["name"] = _rename(entry["name"])
+
+    for entry in kc.get("contexts") or []:
+        inner = entry.get("context") if isinstance(entry, dict) else None
+        if not isinstance(inner, dict):
+            continue
+        if "cluster" in inner:
+            inner["cluster"] = _rename(inner["cluster"])
+        if "user" in inner:
+            inner["user"] = _rename(inner["user"])
+
+    cur = kc.get("current-context")
+    if isinstance(cur, str) and cur and not cur.endswith(sfx):
+        kc["current-context"] = f"{cur}{sfx}"
+
+
 def _set_server_for_devc(kc: dict[str, Any], server: str) -> None:
     """Rewrite the apiserver URL + flag insecure-skip-tls-verify for the
     devc-side kubeconfig (local-kind cert covers 127.0.0.1 only)."""
@@ -211,6 +265,7 @@ class KubeconfigDomain:
         host_kc = gen / "current.kubeconfig"
         devc_kc = gen / "current.devc.kubeconfig"
         evg_pin = gen / ".current-evg-host"
+        cluster_name_file = gen / "cluster_name"
 
         if not host_kc.is_file():
             raise WtCtlError(
@@ -222,37 +277,56 @@ class KubeconfigDomain:
         host_data = _load_yaml(host_kc)
         cluster_name = env.get("CLUSTER_NAME") or None
         k8s_fwd_proxy = env.get("K8S_FWD_PROXY") or None
+        suffix_port = env.get("MCK_DEVC_PROXY_PORT") or None
 
         def _pin_current_context(kc: dict[str, Any]) -> None:
             if cluster_name:
                 kc["current-context"] = cluster_name
 
+        def _apply_suffix(kc: dict[str, Any]) -> None:
+            if suffix_port:
+                _suffix_kubeconfig_names(kc, suffix_port)
+
+        def _write_cluster_name_file() -> None:
+            # Mirror whatever current-context the host kc ended up with, so
+            # root-context / downstream tooling sees the suffixed CLUSTER_NAME.
+            # If neither suffix nor CLUSTER_NAME pin applied, the file
+            # tracks the kubeconfig's current-context verbatim — same as
+            # root-context's pre-existing "yq current-context" fallback.
+            cur = host_data.get("current-context")
+            if isinstance(cur, str) and cur:
+                cluster_name_file.write_text(f"{cur}\n")
+            elif cluster_name_file.is_file():
+                cluster_name_file.unlink()
+
         if evg_pin.is_file():
             # EVG-host mode: both files get proxy-url.
-            proxy_port = env.get("MCK_DEVC_PROXY_PORT")
-            if not proxy_port:
+            if not suffix_port:
                 raise WtCtlError(
                     "MCK_DEVC_PROXY_PORT must be set (`make switch` first to "
                     "source .devcontainer/.env via root-context)"
                 )
-            host_proxy = f"http://127.0.0.1:{proxy_port}"
+            host_proxy = f"http://127.0.0.1:{suffix_port}"
             emit(
                 f"Patching {host_kc}: proxy={host_proxy} "
-                f"context={cluster_name or '<inherited>'}"
+                f"context={cluster_name or '<inherited>'} suffix=-{suffix_port}"
             )
             _set_proxy_url(host_data, host_proxy)
             _pin_current_context(host_data)
+            # devc variant snapshot BEFORE suffixing — keeps in-container
+            # consumers and variant context env vars working with bare names.
+            devc_data = copy.deepcopy(host_data)
+            _apply_suffix(host_data)
             _dump_yaml(host_kc, host_data)
+            _write_cluster_name_file()
 
             evg_host_proxy = env.get("EVG_HOST_PROXY") or None
             if evg_host_proxy:
                 emit(
                     f"Patching {devc_kc}: proxy={evg_host_proxy} "
-                    f"context={cluster_name or '<inherited>'}"
+                    f"context={cluster_name or '<inherited>'} (bare names)"
                 )
-                devc_data = copy.deepcopy(host_data)
                 _set_proxy_url(devc_data, evg_host_proxy)
-                _pin_current_context(devc_data)
                 _dump_yaml(devc_kc, devc_data)
                 self._maybe_register(k8s_fwd_proxy, devc_kc if in_devc else host_kc, emit)
             else:
@@ -264,11 +338,11 @@ class KubeconfigDomain:
         # Strip stale proxy-url left over from a previous EVG-host run.
         _set_proxy_url(host_data, None)
         _pin_current_context(host_data)
-        _dump_yaml(host_kc, host_data)
 
         if server is None:
             raise WtCtlError(f"{host_kc} has no clusters[0].cluster.server")
 
+        # devc variant snapshot from the bare host_data, before suffix.
         m = _LOOPBACK_SERVER_RE.match(server)
         if m:
             port = m.group("port") or "443"
@@ -283,7 +357,15 @@ class KubeconfigDomain:
             emit(
                 f"BYOC: {devc_kc}: identity copy of {host_kc} (server={server})"
             )
-            shutil.copyfile(host_kc, devc_kc)
+            # Write the bare host_data to the devc file rather than copying
+            # the on-disk host file later — host_data is about to be
+            # suffixed, and the devc variant must stay bare.
+            _dump_yaml(devc_kc, host_data)
+
+        # Now suffix + dump the host kubeconfig for kfp ingestion.
+        _apply_suffix(host_data)
+        _dump_yaml(host_kc, host_data)
+        _write_cluster_name_file()
 
         self._maybe_register(k8s_fwd_proxy, devc_kc if in_devc else host_kc, emit)
 

@@ -126,6 +126,37 @@ class KubeconfigRefreshTests(unittest.TestCase):
         self.assertIn(b"127.0.0.1:54321", body)
         self.assertNotIn(b"host.docker.internal", body)
 
+    def test_local_kind_no_suffix_when_proxy_port_unset(self) -> None:
+        """No MCK_DEVC_PROXY_PORT in env → no name suffix, no cluster_name
+        file. Mirrors EVG-CI runs that don't have a devc stack."""
+        self.host_kc.write_text(_KIND_KUBECONFIG)
+        self._refresh(CLUSTER_NAME="kind-foo")  # no MCK_DEVC_PROXY_PORT
+        host = yaml.safe_load(self.host_kc.read_text())
+        self.assertEqual(host["current-context"], "kind-foo")
+        self.assertEqual(host["clusters"][0]["name"], "kind-foo")
+        cluster_name_file = self.wt / ".generated" / "cluster_name"
+        # Without suffix, the file mirrors the bare current-context. Used
+        # by tooling that wants a single source of truth for the active
+        # context regardless of mode.
+        self.assertEqual(cluster_name_file.read_text().strip(), "kind-foo")
+
+    def test_local_kind_suffix_when_proxy_port_set(self) -> None:
+        self.host_kc.write_text(_KIND_KUBECONFIG)
+        self._refresh(CLUSTER_NAME="kind-foo", MCK_DEVC_PROXY_PORT="9152")
+        host = yaml.safe_load(self.host_kc.read_text())
+        devc = yaml.safe_load(self.devc_kc.read_text())
+        # Host: suffixed. Devc: bare (sidecar single-tenant; variant
+        # context env vars don't carry a suffix).
+        self.assertEqual(host["current-context"], "kind-foo-9152")
+        self.assertEqual(host["clusters"][0]["name"], "kind-foo-9152")
+        self.assertEqual(devc["current-context"], "kind-foo")
+        self.assertEqual(devc["clusters"][0]["name"], "kind-foo")
+        # devc still has the host.docker.internal rewrite applied.
+        self.assertEqual(
+            devc["clusters"][0]["cluster"]["server"],
+            "https://host.docker.internal:54321",
+        )
+
     # ------------------------------------------------------------------
     # BYOC branch (no pin, non-loopback server).
     # ------------------------------------------------------------------
@@ -152,10 +183,13 @@ class KubeconfigRefreshTests(unittest.TestCase):
     def test_evg_host_patches_proxy_url_on_both_variants(self) -> None:
         self.host_kc.write_text(_KIND_KUBECONFIG)
         self.evg_pin.write_text("my-evg-host")
+        # CLUSTER_NAME matches a real context in the fixture so
+        # current-context, clusters[0].name, contexts[0].name, users[0].name
+        # all rename uniformly.
         self._refresh(
             MCK_DEVC_PROXY_PORT="8000",
             EVG_HOST_PROXY="http://gost-proxy:8080",
-            CLUSTER_NAME="kind-kind",
+            CLUSTER_NAME="kind-foo",
         )
         host = yaml.safe_load(self.host_kc.read_text())
         devc = yaml.safe_load(self.devc_kc.read_text())
@@ -167,8 +201,43 @@ class KubeconfigRefreshTests(unittest.TestCase):
             devc["clusters"][0]["cluster"]["proxy-url"],
             "http://gost-proxy:8080",
         )
-        self.assertEqual(host["current-context"], "kind-kind")
-        self.assertEqual(devc["current-context"], "kind-kind")
+        # Host kubeconfig: names + current-context are port-suffixed so the
+        # on-host kfp can disambiguate concurrent worktrees.
+        self.assertEqual(host["current-context"], "kind-foo-8000")
+        self.assertEqual(host["clusters"][0]["name"], "kind-foo-8000")
+        self.assertEqual(host["contexts"][0]["name"], "kind-foo-8000")
+        self.assertEqual(host["contexts"][0]["context"]["cluster"], "kind-foo-8000")
+        self.assertEqual(host["contexts"][0]["context"]["user"], "kind-foo-8000")
+        self.assertEqual(host["users"][0]["name"], "kind-foo-8000")
+        # Devc kubeconfig: bare names. The in-container k8s-proxy sidecar
+        # is single-tenant per worktree, and variant context env vars
+        # (CLUSTER_NAME, MEMBER_CLUSTERS, ...) reference bare names.
+        self.assertEqual(devc["current-context"], "kind-foo")
+        self.assertEqual(devc["clusters"][0]["name"], "kind-foo")
+        self.assertEqual(devc["contexts"][0]["name"], "kind-foo")
+        self.assertEqual(devc["contexts"][0]["context"]["cluster"], "kind-foo")
+        self.assertEqual(devc["contexts"][0]["context"]["user"], "kind-foo")
+        # cluster_name sidecar carries the suffixed form for root-context.
+        cluster_name_file = self.wt / ".generated" / "cluster_name"
+        self.assertEqual(cluster_name_file.read_text().strip(), "kind-foo-8000")
+
+    def test_evg_host_suffix_idempotent_on_rerun(self) -> None:
+        """Re-running refresh() against an already-suffixed host kc must
+        not double-suffix the names (idempotent)."""
+        self.host_kc.write_text(_KIND_KUBECONFIG)
+        self.evg_pin.write_text("my-evg-host")
+        env_overrides = dict(
+            MCK_DEVC_PROXY_PORT="8000",
+            EVG_HOST_PROXY="http://gost-proxy:8080",
+            CLUSTER_NAME="kind-foo",
+        )
+        self._refresh(**env_overrides)
+        # Second refresh — same env. The on-disk host kc already has
+        # `-8000` suffixes; we must NOT see `-8000-8000`.
+        self._refresh(**env_overrides)
+        host = yaml.safe_load(self.host_kc.read_text())
+        self.assertEqual(host["current-context"], "kind-foo-8000")
+        self.assertEqual(host["clusters"][0]["name"], "kind-foo-8000")
 
     def test_evg_host_missing_proxy_port_raises(self) -> None:
         from wt_ctl.errors import WtCtlError
