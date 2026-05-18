@@ -101,20 +101,6 @@ func NewMongoDBSearchReconcileHelper(
 	memberClusterClients map[string]kubernetesClient.Client,
 	clusterMapping map[string]int,
 ) *MongoDBSearchReconcileHelper {
-	return NewMongoDBSearchReconcileHelperWithMembers(client, mdbSearch, db, operatorSearchConfig, nil, nil)
-}
-
-// NewMongoDBSearchReconcileHelperWithMembers constructs a helper with the
-// per-member-cluster client map and persisted clusterMapping populated.
-// Pass nil/empty for single-cluster.
-func NewMongoDBSearchReconcileHelperWithMembers(
-	client kubernetesClient.Client,
-	mdbSearch *searchv1.MongoDBSearch,
-	db SearchSourceDBResource,
-	operatorSearchConfig OperatorSearchConfig,
-	memberClusterClients map[string]kubernetesClient.Client,
-	clusterMapping map[string]int,
-) *MongoDBSearchReconcileHelper {
 	return &MongoDBSearchReconcileHelper{
 		client:               client,
 		operatorSearchConfig: operatorSearchConfig,
