@@ -88,8 +88,12 @@ func HeadlessMongodBinaryInitContainer(mongodbImage string) corev1.Container {
 }
 
 // HeadlessAutomationAgentCommand returns the full command for the automation agent
-// container in headless mode. Agents read from a local cluster-config.json Secret
-// mount instead of connecting to Ops Manager.
+// container in headless mode (static architecture only). Agents read from a local
+// cluster-config.json Secret mount instead of connecting to Ops Manager.
+//
+// setup-agent-files.sh must run first: it populates the database-scripts EmptyDir
+// with probe.sh and readinessprobe that the liveness/readiness/startup probes exec.
+// Without it the probes fail immediately because the volume is empty.
 func HeadlessAutomationAgentCommand(logLevel v1.LogLevel, logFile string, maxLogFileDurationHours int) []string {
 	logLevelOpt := ""
 	if logLevel != "" {
@@ -102,7 +106,7 @@ func HeadlessAutomationAgentCommand(logLevel v1.LogLevel, logFile string, maxLog
 	} else {
 		logOpts = " -logFile " + logFile + logLevelOpt + " -maxLogFileDurationHrs " + strconv.Itoa(maxLogFileDurationHours)
 	}
-	cmd := MongodbUserCommand + BaseAgentCommand() +
+	cmd := "/usr/local/bin/setup-agent-files.sh\n" + MongodbUserCommand + BaseAgentCommand() +
 		" -cluster=" + HeadlessClusterFilePath + appdbAutomationAgentOptions + logOpts
 	return []string{"/bin/bash", "-c", cmd}
 }
