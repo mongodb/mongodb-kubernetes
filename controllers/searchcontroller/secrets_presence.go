@@ -32,39 +32,37 @@ type SecretCheckResult struct {
 // expected secret is present everywhere.
 //
 // members may be nil or empty for single-cluster installs; in that case only
-// central is checked.
+// central is checked. clusterMapping maps member cluster name → persisted index
+// used to address that cluster's per-shard TLS secrets; central uses index 0.
 func CheckSecretsPresence(
 	ctx context.Context,
 	search *searchv1.MongoDBSearch,
 	central client.Client,
 	members map[string]client.Client,
+	clusterMapping map[string]int,
 ) []SecretCheckResult {
-	expected := expectedSecretNames(search)
-	if len(expected) == 0 {
-		return nil
-	}
-
-	// Sentinel key "" represents central; member names follow.
-	all := make(map[string]client.Client, len(members)+1)
-	all[""] = central
-	for name, c := range members {
-		all[name] = c
-	}
-
-	results := make([]SecretCheckResult, 0, len(all))
-	for clusterName, c := range all {
+	results := make([]SecretCheckResult, 0, len(members)+1)
+	check := func(clusterName string, c client.Client, clusterIndex int) {
+		expected := expectedSecretNamesForCluster(search, clusterIndex)
+		if len(expected) == 0 {
+			return
+		}
 		if missing := missingSecretsIn(ctx, c, search.Namespace, expected); len(missing) > 0 {
 			results = append(results, SecretCheckResult{Cluster: clusterName, Missing: missing})
 		}
 	}
-
+	check("", central, 0)
+	for name, c := range members {
+		check(name, c, clusterMapping[name])
+	}
 	return results
 }
 
-// expectedSecretNames returns the deduplicated, sorted list of secret names the
-// customer is expected to replicate into every member cluster's namespace, derived
-// from the CR.
-func expectedSecretNames(search *searchv1.MongoDBSearch) []string {
+// expectedSecretNamesForCluster returns the deduplicated, sorted list of secret
+// names the customer is expected to have in the given cluster's namespace.
+// Per-shard TLS cert names are scoped to clusterIndex; all other names are
+// cluster-invariant.
+func expectedSecretNamesForCluster(search *searchv1.MongoDBSearch, clusterIndex int) []string {
 	var names []string
 
 	// Sync-source password — always required when a password ref is configured.
@@ -88,7 +86,7 @@ func expectedSecretNames(search *searchv1.MongoDBSearch) []string {
 	if search.Spec.Security.TLS != nil {
 		if search.IsExternalSourceSharded() {
 			for _, shard := range search.Spec.Source.ExternalMongoDBSource.ShardedCluster.Shards {
-				names = append(names, search.TLSSecretForClusterShard(0, shard.ShardName).Name)
+				names = append(names, search.TLSSecretForClusterShard(clusterIndex, shard.ShardName).Name)
 			}
 		} else {
 			names = append(names, search.TLSSecretNamespacedName().Name)
