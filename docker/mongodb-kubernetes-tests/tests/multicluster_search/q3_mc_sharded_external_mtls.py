@@ -116,18 +116,9 @@ def mdb(
     resource["spec"]["configSrv"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, CONFIG_SRV_PER_CLUSTER)
     resource["spec"]["mongos"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, MONGOS_PER_CLUSTER)
 
-    # mongotHost + searchIndexManagementHostAndPort point mongos and each shard's
-    # mongods at the operator's Envoy proxy in front of mongot. Per-shard mongods
-    # talk to their own per-shard proxy Service (so Envoy's per-shard SNI filter
-    # chain matches and routes to the right mongot); mongos uses the shard-agnostic
-    # cluster-level proxy Service for cluster-wide index-management commands.
-    # Both Service names are real ClusterIP Services created by the operator
-    # (`<MDBS>-search-<clusterIdx>-<shardName>-proxy-svc` per shard and
-    # `<MDBS>-search-<clusterIdx>-proxy-svc` cluster-level), so the hostnames
-    # resolve via stock kube DNS and the gRPC channel can open.
-    cluster_idx = 0  # MC MongoDB has no per-cluster additionalMongodConfig, so
-    # both mongos pods get the same value; cluster-0's Envoy is namespace-scoped
-    # and reachable from cluster-1's mongos.
+    # MC MongoDB has no per-cluster additionalMongodConfig, so both mongos pods get
+    # the same value; cluster-0's Envoy is namespace-scoped and reachable from cluster-1.
+    cluster_idx = 0
     cluster_level_endpoint = (
         f"{search_resource_names.cluster_level_proxy_service_fqdn(cluster_idx, MDBS_RESOURCE_NAME, namespace)}"
         f":{ENVOY_PROXY_PORT}"
@@ -169,9 +160,8 @@ def mdb(
             "searchIndexManagementHostAndPort": cluster_level_endpoint,
         },
     }
-    # Keep the non-routing search params on `spec.shard` so any shard that lacks an
-    # override still has TLS/grpc/auth flags applied; shardOverrides take precedence
-    # for the routing fields (mongotHost / searchIndexManagementHostAndPort).
+    # Non-routing search params on spec.shard cover any shard that lacks an override;
+    # shardOverrides take precedence for mongotHost / searchIndexManagementHostAndPort.
     resource["spec"]["shard"]["additionalMongodConfig"] = {
         "setParameter": base_search_set_parameter,
     }
@@ -206,12 +196,8 @@ def mdbs(
         namespace=namespace,
     )
 
-    # Router and shard seeds. In MC mode each pod has a per-pod headless Service
-    # `<sts>-<clusterIdx>-<podIdx>-svc` that's reachable cross-cluster via Istio;
-    # `<sts>-<clusterIdx>-svc` (no pod index) is the per-cluster headless Service
-    # and resolves only on the owning cluster — using it here would prevent mongot
-    # on cluster N from reaching any mongos that isn't on cluster N during the
-    # StaticLeaderLeaseManager bootstrap.
+    # Per-pod headless Services (`<sts>-<clusterIdx>-<podIdx>-svc`) are reachable
+    # cross-cluster via Istio; the per-cluster `<sts>-<clusterIdx>-svc` is not.
     router_hosts = [
         f"{MDB_RESOURCE_NAME}-mongos-{cluster_idx}-{pod_idx}-svc.{namespace}.svc.cluster.local:27017"
         for cluster_idx, n_mongos in enumerate(MONGOS_PER_CLUSTER)
@@ -250,13 +236,6 @@ def mdbs(
         "tls": {"certsSecretPrefix": MDBS_TLS_CERT_PREFIX},
     }
 
-    # The template uses {shardName} as a name component (NOT a leading subdomain),
-    # mirroring the per-shard proxy Service the operator actually creates:
-    # `<MDBS>-search-<clusterIdx>-<shardName>-proxy-svc`. The substituted hostname
-    # is therefore a real ClusterIP Service that resolves via stock kube DNS, so
-    # mongos can open a gRPC channel to it for Envoy SNI routing. The operator
-    # falls back to the cluster-level proxy Service FQDN for the mongos-facing
-    # endpoint when the template can't be reduced to a single cluster-level form.
     resource["spec"]["loadBalancer"] = {
         "managed": {
             "externalHostname": (
@@ -432,10 +411,8 @@ def test_create_certs(
         )
         logger.info(f"Per-shard Search TLS certs created on central for cluster_index={i}")
 
-    # LB cert: secret name has no cluster index, so build ONE cert with SANs covering
-    # every cluster's per-shard and cluster-level proxy Services. Called once outside
-    # the loop — calling per-cluster would overwrite the same Secret and only the last
-    # cluster's SANs would survive (root cause of mongos→Envoy gRPC handshake rejection).
+    # Single LB cert with SANs covering every cluster's proxy Services — secret name
+    # has no cluster index, so per-cluster issuance would overwrite the same Secret.
     create_lb_certificates(
         namespace=namespace,
         issuer=multi_cluster_issuer,
@@ -565,11 +542,7 @@ def test_envoy_deployment_per_cluster(
 
 
 # =============================================================================
-# Data-plane query suite — mirrors q2_mc_rs_steady.py but routes through mongos.
-# Each member cluster has its own mongos; mongos→mongot uses the cluster-level
-# proxy Service introduced in M3, so per-cluster queries exercise distinct
-# Envoy + per-shard mongot StatefulSets even though the source data is shared.
-# Skipped until the scaffold patch is CI-green; then un-skip in a follow-up.
+# Data plane: $search via per-cluster mongos
 # =============================================================================
 
 
@@ -579,16 +552,9 @@ def _per_cluster_mongos_search_tester(
     username: str,
     password: str,
 ) -> SearchTester:
-    """SearchTester pinned to a specific cluster's mongos.
+    """SearchTester pinned to a specific cluster's mongos via its per-pod headless Service.
 
-    Each member cluster has exactly one mongos in the q3 fixture (MONGOS_PER_CLUSTER=[1,1]),
-    so pod_idx is always 0. We address the per-pod headless Service
-    `<sts>-<clusterIdx>-0-svc` rather than the per-cluster `<sts>-<clusterIdx>-svc`:
-    the per-cluster Service drops endpoints (and DNS returns NXDOMAIN) any time the
-    single mongos pod is briefly not-ready, while the per-pod Service has
-    `publishNotReadyAddresses: true` and stays resolvable. `directConnection=true`
-    keeps the driver from discovering the other cluster's mongos and silently
-    rerouting.
+    `directConnection=true` keeps the driver from discovering the other cluster's mongos.
     """
     mongos_host = f"{MDB_RESOURCE_NAME}-mongos-{cluster_index}-0-svc.{namespace}.svc.cluster.local:27017"
     conn_str = (

@@ -154,20 +154,19 @@ func (r *MongoDBSearchReconcileHelper) clientForCluster(clusterName string) (kub
 	return c, nil
 }
 
-// reconcileUnit captures all per-unit (per-shard or single-RS) resource names, labels, and
-// config. The unit is intentionally topology-free: every per-shard vs. per-RS difference is
-// encoded as an explicit field populated by the factory, so downstream code never branches
-// on "am I sharded?" and new topologies (e.g. multicluster) only extend the factory.
+// reconcileUnit captures all per-unit (per-shard or single-RS) resource names,
+// labels, and config. Topology-free: every per-shard vs. per-RS difference is
+// encoded by the factory, so downstream code never branches on "am I sharded?".
 type reconcileUnit struct {
 	stsName             types.NamespacedName
 	headlessSvc         types.NamespacedName
 	proxySvc            types.NamespacedName
 	configMapName       types.NamespacedName
-	podLabels           map[string]string    // applied identically as STS metadata labels, matchLabels, and pod-template labels
-	additionalSvcLabels map[string]string    // merged into both headless and proxy Service metadata labels (e.g. {"shard": name})
-	publishNotReady     bool                 // headless Service PublishNotReadyAddresses
-	extraHeadlessPorts  []corev1.ServicePort // additional ports on the headless Service (e.g. wireproto for RS)
-	logFields           []any                // k/v fields attached to the per-unit logger (nil for single-unit topologies)
+	podLabels           map[string]string
+	additionalSvcLabels map[string]string
+	publishNotReady     bool
+	extraHeadlessPorts  []corev1.ServicePort
+	logFields           []any // k/v fields attached to the per-unit logger; nil for single-unit topologies
 	tlsResource         tls.TLSConfigurableResource
 	mongotConfigFn      mongot.Modification
 	clusterName         string // "" routes to the central client (single-cluster)
@@ -520,9 +519,7 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 		usePerPodConfig:       usePerPodConfig,
 	}
 
-	// Pass 1: apply every (cluster, shard) unit. Splitting apply from the readiness
-	// check matters for the MC fan-out — a not-ready STS on the first unit must not
-	// short-circuit creation of subsequent units' resources on other clusters/shards.
+	// Apply all units before any readiness check — see TestReconcileShardedMC_AllUnitsAppliedBeforeReadinessCheck.
 	type unitApplyResult struct {
 		unit               reconcileUnit
 		unitClient         kubernetesClient.Client
@@ -555,8 +552,7 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 
 	plan.cleanup(ctx, log)
 
-	// Pass 2: worst-of readiness check — first non-OK status wins, but every unit's
-	// resources are already on the cluster from pass 1.
+	// Worst-of readiness check — first non-OK status wins.
 	for _, res := range applied {
 		if statefulSetStatus := statefulset.GetStatefulSetStatus(ctx, r.mdbSearch.Namespace, res.unit.stsName.Name, res.expectedGeneration, res.unitClient); !statefulSetStatus.IsOK() {
 			return statefulSetStatus
