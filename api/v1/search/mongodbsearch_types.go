@@ -611,12 +611,8 @@ func (s *MongoDBSearch) TLSSecretForClusterShard(clusterIndex int, shardName str
 	return types.NamespacedName{Name: secretName, Namespace: s.Namespace}
 }
 
-// TLSOperatorSecretForClusterShard returns the namespaced name of the operator-managed
-// combined-cert+key Secret for a specific (cluster, shard) pair.
-// Naming pattern: {name}-search-{clusterIndex}-{shardName}-certificate-key.
-// (The pre-MC form was {shardName}-search-certificate-key which collided across
-// MongoDBSearch CRs in the same namespace and was not cluster-scoped; the new
-// form is unique per (CR, cluster, shard).)
+// TLSOperatorSecretForClusterShard returns the operator-managed combined-cert+key
+// Secret name for a (cluster, shard) pair: {name}-search-{clusterIndex}-{shardName}-certificate-key.
 func (s *MongoDBSearch) TLSOperatorSecretForClusterShard(clusterIndex int, shardName string) types.NamespacedName {
 	return types.NamespacedName{
 		Name:      fmt.Sprintf("%s-search-%d-%s-certificate-key", s.Name, clusterIndex, shardName),
@@ -913,19 +909,10 @@ func (s *MongoDBSearch) GetManagedLBEndpointForShard(shardName string) string {
 	return strings.ReplaceAll(s.Spec.LoadBalancer.Managed.ExternalHostname, ShardNamePlaceholder, shardName)
 }
 
-// GetManagedLBEndpointForCluster returns the externalHostname template with
-// {clusterName} and {clusterIndex} resolved for spec.clusters[i]. Returns "" when
-// managed LB is not configured. Use GetManagedLBEndpointForClusterShard for
-// sharded sources where {shardName} also needs resolving.
-//
-// Behaviour:
-//   - Legacy single-cluster (spec.clusters nil): placeholders are left untouched.
-//     Admission rejects MC specs missing the required placeholders, so reaching
-//     this path with a placeholder-bearing legacy template is malformed.
-//   - Out-of-range i: placeholders are left untouched (defensive — call sites
-//     iterate over len(*spec.clusters)).
-//
-// {clusterIndex} is resolved using the slice index i directly.
+// GetManagedLBEndpointForCluster resolves {clusterName} and {clusterIndex} in
+// the externalHostname template for spec.clusters[i]. Returns "" when managed
+// LB is not configured. Use GetManagedLBEndpointForClusterShard when {shardName}
+// also needs resolving.
 func (s *MongoDBSearch) GetManagedLBEndpointForCluster(i int) string {
 	if !s.IsLBModeManaged() || s.Spec.LoadBalancer.Managed.ExternalHostname == "" {
 		return ""
@@ -955,16 +942,14 @@ func (s *MongoDBSearch) GetManagedLBEndpointForClusterShard(i int, shardName str
 	return strings.ReplaceAll(out, ShardNamePlaceholder, shardName)
 }
 
-// GetManagedLBEndpointForClusterLevel derives the cluster-level (mongos-facing) endpoint
-// by stripping a leading "{shardName}." from the externalHostname template (when present)
-// and resolving the remaining {clusterName}/{clusterIndex} placeholders for spec.clusters[i].
-// The leading-prefix form is supported for backward compatibility, but is no longer required:
-// callers that produce a fully resolved hostname (e.g. via fallback to the cluster-level proxy
-// Service FQDN) should prefer that path. Returns "" when managed LB is not configured,
-// externalHostname is empty, or the resolved template would still contain an unresolved
-// {shardName} placeholder (i.e. the template uses {shardName} as a name component, not a
-// subdomain prefix) — in that case the caller should fall back to the cluster-level proxy
-// Service FQDN.
+// GetManagedLBEndpointForClusterLevel derives the cluster-level (mongos-facing)
+// endpoint by stripping a leading "{shardName}." prefix and resolving the
+// remaining {clusterName}/{clusterIndex} placeholders. Returns "" when:
+//   - managed LB is not configured, or
+//   - {shardName} still appears as a name component (not a prefix), so no
+//     single cluster-level form is derivable, or
+//   - cluster placeholders can't be resolved (legacy spec, out-of-range index).
+// In every "" case the caller must fall back to the cluster-level proxy Service FQDN.
 func (s *MongoDBSearch) GetManagedLBEndpointForClusterLevel(i int) string {
 	if !s.IsLBModeManaged() || s.Spec.LoadBalancer.Managed.ExternalHostname == "" {
 		return ""
