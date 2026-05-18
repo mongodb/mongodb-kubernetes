@@ -374,7 +374,7 @@ spec:
                   fieldPath: metadata.namespace
             # Must match the image actually running (OLM/certified installs: set to the same ref the catalog pulls, e.g. Red Hat registry).
             - name: MDB_OPERATOR_IMAGE
-              value: "quay.io/mongodb/mongodb-kubernetes:1.7.0"
+              value: "quay.io/mongodb/mongodb-kubernetes:1.8.0"
             - name: WATCH_NAMESPACE
               valueFrom:
                 fieldRef:
