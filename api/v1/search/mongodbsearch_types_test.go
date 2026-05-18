@@ -83,7 +83,7 @@ func TestEffectiveClusters(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s := &MongoDBSearch{Spec: tt.spec}
-			got := EffectiveClusters(s)
+			got := s.EffectiveClusters()
 			assert.Equal(t, tt.expected, got)
 		})
 	}
@@ -122,7 +122,7 @@ func TestEffectiveClustersCascade(t *testing.T) {
 		},
 	}
 	s := &MongoDBSearch{Spec: spec}
-	got := EffectiveClusters(s)
+	got := s.EffectiveClusters()
 
 	require.Len(t, got, 5)
 
@@ -208,7 +208,7 @@ func TestEffectiveClusterFor(t *testing.T) {
 func TestEffectiveClustersDoesNotMutate(t *testing.T) {
 	// Independent invariant — a pure function must not mutate spec.
 	s := &MongoDBSearch{Spec: MongoDBSearchSpec{Replicas: ptr.To(int32(7))}}
-	_ = EffectiveClusters(s)
+	_ = s.EffectiveClusters()
 	assert.Nil(t, s.Spec.Clusters)
 	assert.Equal(t, int32(7), *s.Spec.Replicas)
 }

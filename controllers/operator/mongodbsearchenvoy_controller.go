@@ -749,8 +749,10 @@ func AddMongoDBSearchEnvoyController(ctx context.Context, mgr manager.Manager, d
 		return err
 	}
 
-	// Per-member-cluster Envoy resource watches: use the label-based mapper because
-	// cross-cluster owner refs do not GC. Mirrors mongodbmultireplicaset_controller.go:1170-1175.
+	// Per-member-cluster Envoy resource watches: label-based mapper, since
+	// cross-cluster owner refs don't GC. Same pattern as the AppDB MC and
+	// sharded MC controllers (see appdbreplicaset_controller.go and
+	// mongodbshardedcluster_controller.go).
 	mapper := handler.EnqueueRequestsFromMapFunc(mapEnvoyObjectToSearch)
 	for k, v := range memberClusterObjectsMap {
 		if err := c.Watch(source.Kind[client.Object](v.GetCache(), &appsv1.Deployment{}, mapper)); err != nil {

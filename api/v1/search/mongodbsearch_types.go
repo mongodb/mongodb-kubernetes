@@ -761,7 +761,7 @@ func (s *MongoDBSearch) GetEndpointForShard(shardName string) string {
 //     semantics (no recursive merge for MVP).
 //
 // The function is pure — no mutation of s, no side effects.
-func EffectiveClusters(s *MongoDBSearch) []ClusterSpec {
+func (s *MongoDBSearch) EffectiveClusters() []ClusterSpec {
 	//nolint:staticcheck // SA1019: deprecated top-level fields are the documented default for the cascade.
 	topReplicas := s.Spec.Replicas
 	//nolint:staticcheck // SA1019
@@ -811,7 +811,7 @@ func EffectiveClusters(s *MongoDBSearch) []ClusterSpec {
 // Empty clusterName returns the auto-promoted single-cluster entry (legacy path).
 // Returns an error if the named cluster is not found in spec.clusters[].
 func (s *MongoDBSearch) EffectiveClusterFor(clusterName string) (ClusterSpec, error) {
-	effective := EffectiveClusters(s)
+	effective := s.EffectiveClusters()
 	if clusterName == "" {
 		if len(effective) > 0 {
 			return effective[0], nil
