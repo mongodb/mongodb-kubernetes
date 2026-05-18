@@ -15,3 +15,5 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -a -o /data/scr
 FROM registry.access.redhat.com/ubi9/ubi-minimal
 
 COPY --from=builder /data/scripts/version-upgrade-hook /version-upgrade-hook
+
+USER 65534
