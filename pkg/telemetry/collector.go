@@ -10,6 +10,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/rest"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
@@ -244,6 +245,8 @@ func getMdbEvents(ctx context.Context, operatorClusterClient kubeclient.Client, 
 			if numberOfClustersUsed > 0 {
 				properties.DatabaseClusters = ptr.To(numberOfClustersUsed)
 			}
+
+			populateMigrationFields(&properties, item.Status.Conditions, item.Status.MigrationObservedExternalMembersCount, len(item.Spec.ExternalMembers), now)
 
 			if event := createEvent(properties, now, Deployments); event != nil {
 				events = append(events, *event)
@@ -614,4 +617,39 @@ func getAuthenticationAgentMode(security *mdbv1.Security) string {
 	}
 
 	return security.Authentication.Agents.Mode
+}
+
+// populateMigrationFields handles all migration phases: Validating, InProgress, Extending, Pruning, and MigrationComplete.
+func populateMigrationFields(props *DeploymentUsageSnapshotProperties, conditions []metav1.Condition, reservedCount *int, externalCount int, now time.Time) {
+	cond := findMigrationCondition(conditions)
+	if cond == nil {
+		return
+	}
+
+	isActive := cond.Status == metav1.ConditionTrue
+	isComplete := cond.Status == metav1.ConditionFalse && cond.Reason == "MigrationComplete"
+	if !isActive && !isComplete {
+		return
+	}
+
+	props.MigrationPhase = cond.Reason
+	props.ExternalMembersCount = ptr.To(externalCount)
+	props.ReservedExternalMembers = reservedCount
+
+	if isActive {
+		props.MigrationStartedAt = cond.LastTransitionTime.UTC().Format(time.RFC3339)
+		dur := max(int64(now.Sub(cond.LastTransitionTime.Time).Seconds()), 0)
+		props.MigrationDurationSeconds = ptr.To(dur)
+	} else {
+		props.MigrationCompletedAt = cond.LastTransitionTime.UTC().Format(time.RFC3339)
+	}
+}
+
+func findMigrationCondition(conditions []metav1.Condition) *metav1.Condition {
+	for i := range conditions {
+		if conditions[i].Type == "Migrating" {
+			return &conditions[i]
+		}
+	}
+	return nil
 }
