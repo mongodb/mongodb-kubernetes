@@ -551,7 +551,6 @@ tasks:
       - func: python_venv
       - func: setup_kubectl
       - func: setup_aws
-      - func: prepare_aws
       - func: helm_registry_login_staging
       - func: publish_helm_chart
 
