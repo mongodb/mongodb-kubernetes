@@ -28,6 +28,7 @@ import (
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/mongot"
+	khandler "github.com/mongodb/mongodb-kubernetes/pkg/handler"
 )
 
 func init() {
@@ -3231,4 +3232,188 @@ func TestReconcileShardedMC_MissingMemberClusterClient(t *testing.T) {
 	for _, sts := range stsList.Items {
 		require.NotContains(t, sts.Name, "search-1-", "cluster-b STS %q must NOT have been created on the central client", sts.Name)
 	}
+}
+
+// PR_1117_REVIEW.md M6.(a): cleanupStaleShardResources must reach into member
+// clusters in MC sharded mode. Pre-fix it listed only on central; member-side
+// stale proxy Services lived forever.
+func TestCleanupStaleShardResources_MCFanOut(t *testing.T) {
+	search := newTestMongoDBSearch("mdb-search", "ns", func(s *searchv1.MongoDBSearch) {
+		s.UID = "search-uid"
+		s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{}}
+		clusters := []searchv1.ClusterSpec{
+			{ClusterName: "cluster-a"},
+			{ClusterName: "cluster-b"},
+		}
+		s.Spec.Clusters = &clusters
+	})
+
+	// memberProxySvc builds a proxy Service with the search-owner labels the MC
+	// cleanup path looks for. owned=false drops the labels — must be left alone.
+	memberProxySvc := func(name string, owned bool) *corev1.Service {
+		labels := map[string]string{"component": proxyServiceComponent}
+		if owned {
+			labels[khandler.MongoDBSearchOwnerNameLabel] = search.Name
+			labels[khandler.MongoDBSearchOwnerNamespaceLabel] = search.Namespace
+		}
+		return &corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "ns", Labels: labels},
+			Spec:       corev1.ServiceSpec{ClusterIP: "10.0.0.1", Ports: []corev1.ServicePort{{Port: 27028}}},
+		}
+	}
+
+	// cluster-a (idx 0): keep shard-0 + cluster-level; sh-stale should be deleted.
+	clusterA := kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().WithObjects(
+		memberProxySvc("mdb-search-search-0-sh-0-proxy-svc", true),
+		memberProxySvc("mdb-search-search-0-sh-stale-proxy-svc", true),
+		memberProxySvc("mdb-search-search-0-proxy-svc", true),
+		memberProxySvc("foreign-svc", false), // not search-owned
+	).Build())
+	// cluster-b (idx 1): same pattern, plus an unrelated owned-by-other-CR svc
+	// to guard the label-name check.
+	clusterB := kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().WithObjects(
+		memberProxySvc("mdb-search-search-1-sh-0-proxy-svc", true),
+		memberProxySvc("mdb-search-search-1-sh-stale-proxy-svc", true),
+		memberProxySvc("mdb-search-search-1-proxy-svc", true),
+		func() *corev1.Service {
+			svc := memberProxySvc("other-search-search-1-sh-0-proxy-svc", true)
+			svc.Labels[khandler.MongoDBSearchOwnerNameLabel] = "other-search"
+			return svc
+		}(),
+	).Build())
+	central := kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().Build())
+
+	r := &MongoDBSearchReconcileHelper{
+		mdbSearch:            search,
+		client:               central,
+		memberClusterClients: map[string]kubernetesClient.Client{"cluster-a": clusterA, "cluster-b": clusterB},
+		clusterMapping:       map[string]int{"cluster-a": 0, "cluster-b": 1},
+	}
+
+	require.NoError(t, r.cleanupStaleShardResources(t.Context(), zap.S(), []string{"sh-0"}))
+
+	// Per-cluster expectations: active + cluster-level kept, stale deleted, foreign untouched.
+	for _, tc := range []struct {
+		c        kubernetesClient.Client
+		idx      int
+		cluster  string
+		foreign  string
+	}{
+		{clusterA, 0, "cluster-a", "foreign-svc"},
+		{clusterB, 1, "cluster-b", "other-search-search-1-sh-0-proxy-svc"},
+	} {
+		active := fmt.Sprintf("mdb-search-search-%d-sh-0-proxy-svc", tc.idx)
+		stale := fmt.Sprintf("mdb-search-search-%d-sh-stale-proxy-svc", tc.idx)
+		clusterLevel := fmt.Sprintf("mdb-search-search-%d-proxy-svc", tc.idx)
+
+		err := tc.c.Get(t.Context(), types.NamespacedName{Name: active, Namespace: "ns"}, &corev1.Service{})
+		require.NoError(t, err, "%s: active per-shard proxy Service must survive cleanup", tc.cluster)
+		err = tc.c.Get(t.Context(), types.NamespacedName{Name: clusterLevel, Namespace: "ns"}, &corev1.Service{})
+		require.NoError(t, err, "%s: cluster-level proxy Service must survive cleanup", tc.cluster)
+		err = tc.c.Get(t.Context(), types.NamespacedName{Name: stale, Namespace: "ns"}, &corev1.Service{})
+		require.True(t, apierrors.IsNotFound(err), "%s: stale per-shard proxy Service must be deleted, got err=%v", tc.cluster, err)
+		err = tc.c.Get(t.Context(), types.NamespacedName{Name: tc.foreign, Namespace: "ns"}, &corev1.Service{})
+		require.NoError(t, err, "%s: foreign Service %q must be untouched", tc.cluster, tc.foreign)
+	}
+}
+
+// PR_1117_REVIEW.md M6.(c): empty GetShardNames() yields an empty work list.
+// The reconciler must not fail noisily on the degenerate case; the preflight
+// step is a no-op and reconcile should reach an OK terminal state with no
+// per-shard resources created. (Production-shaped sources never return empty
+// — this is a defensive boundary check.)
+func TestReconcileSharded_EmptyShardNames(t *testing.T) {
+	search := newTestMongoDBSearch("mdb-search", "ns", func(s *searchv1.MongoDBSearch) {
+		s.Spec.Source = &searchv1.MongoDBSource{
+			ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{
+				ShardedCluster: &searchv1.ExternalShardedClusterConfig{
+					Router: searchv1.ExternalRouterConfig{Hosts: []string{"mongos.example:27017"}},
+					Shards: []searchv1.ExternalShardConfig{
+						{ShardName: "ignored", Hosts: []string{"ignored:27017"}},
+					},
+				},
+			},
+		}
+	})
+
+	// emptyShardedSource implements SearchSourceShardedDeployment but reports
+	// zero shards — the degenerate case.
+	src := &mockShardedSource{shardNames: nil}
+	central := kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().WithObjects(search).Build())
+
+	r := &MongoDBSearchReconcileHelper{
+		mdbSearch:            search,
+		db:                   src,
+		client:               central,
+		operatorSearchConfig: newTestOperatorSearchConfig(),
+	}
+
+	plan, err := r.buildShardedPlan(src)
+	require.NoError(t, err)
+	require.Empty(t, plan.units, "no shards → no reconcile units")
+	require.Empty(t, plan.clusterLevelResources, "no shards → no cluster-level proxy Services")
+
+	// Reconcile must converge to OK; no STSs / proxy svcs created.
+	st := r.reconcile(t.Context(), zap.S())
+	require.True(t, st.IsOK(), "empty-shards reconcile must be OK, got: %s", MessageFromStatus(st))
+
+	var stsList appsv1.StatefulSetList
+	require.NoError(t, central.List(t.Context(), &stsList, client.InNamespace("ns")))
+	require.Empty(t, stsList.Items, "no STSs must be created when shardNames is empty")
+
+	var svcList corev1.ServiceList
+	require.NoError(t, central.List(t.Context(), &svcList, client.InNamespace("ns")))
+	for _, svc := range svcList.Items {
+		require.NotContains(t, svc.Name, "-proxy-svc", "no proxy Services must be created when shardNames is empty, got %q", svc.Name)
+	}
+}
+
+// PR_1117_REVIEW.md M6.(b): the Search controller patches /status and the
+// Envoy controller patches /status/loadBalancer — different JSON-patch paths,
+// so they MUST converge to a consistent CR even when reconciles interleave.
+// Tested deterministically by alternating reconciler calls and asserting the
+// final CR has both phases set as expected, neither having clobbered the other.
+func TestReconcileShardedMC_InterleavedStatusConverges(t *testing.T) {
+	// The full controller path is exercised in
+	// TestMongoDBSearchReconcile_MCSharded_CrossControllerLabelInvariant; here
+	// we focus on what the helper-level reconcile writes to /status when LB
+	// status is being mutated under it.
+	fx := newMCShardedFixture(t)
+	helper := fx.newHelper()
+
+	// Pass 1: search applies units, returns Pending (STS not ready).
+	st := helper.reconcile(t.Context(), zap.S())
+	require.False(t, st.IsOK())
+
+	// Simulate Envoy controller writing /status/loadBalancer = Running BEFORE
+	// search marks STSs ready — i.e. interleaved order.
+	got := &searchv1.MongoDBSearch{}
+	require.NoError(t, fx.central.Get(t.Context(), fx.search.NamespacedName(), got))
+	got.Status.LoadBalancer = &searchv1.LoadBalancerStatus{Phase: status.PhaseRunning}
+	require.NoError(t, fx.central.Status().Update(t.Context(), got))
+
+	// Pass 2 with STSs still not ready: search reconcile must NOT clobber
+	// the LB substatus when patching /status.
+	st = helper.reconcile(t.Context(), zap.S())
+	require.False(t, st.IsOK(), "pass 2 must still be Pending (STSs not ready)")
+	require.NoError(t, fx.central.Get(t.Context(), fx.search.NamespacedName(), got))
+	require.NotNil(t, got.Status.LoadBalancer, "LB sub-status must survive search /status patch")
+	require.Equal(t, status.PhaseRunning, got.Status.LoadBalancer.Phase,
+		"LB sub-status must remain Running after search patch")
+
+	// Now mark STSs ready under the helper.
+	require.NoError(t, mock.MarkAllStatefulSetsAsReady(t.Context(), "ns",
+		fx.central, fx.members["cluster-a"], fx.members["cluster-b"]))
+	// Also have to mutate the in-memory fx.search to mirror the centrally-stored
+	// LB substatus, since the helper reads Status.LoadBalancer off the in-memory
+	// CR (not a re-fetch) when deciding IsLoadBalancerReady.
+	fx.search.Status.LoadBalancer = &searchv1.LoadBalancerStatus{Phase: status.PhaseRunning}
+
+	st = helper.reconcile(t.Context(), zap.S())
+	require.True(t, st.IsOK(), "final reconcile must reach OK, got: %s", MessageFromStatus(st))
+
+	// Final CR has both pieces of status intact.
+	require.NoError(t, fx.central.Get(t.Context(), fx.search.NamespacedName(), got))
+	require.NotNil(t, got.Status.LoadBalancer, "LB sub-status still present")
+	require.Equal(t, status.PhaseRunning, got.Status.LoadBalancer.Phase)
 }
