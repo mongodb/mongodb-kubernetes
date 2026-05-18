@@ -1355,6 +1355,54 @@ func TestReconcile_StableIndexAcrossClusterRemovals(t *testing.T) {
 		"b Deployment must retain index 1 after a is removed from spec.clusters")
 }
 
+func TestDeleteEnvoyResources_MCFanOut(t *testing.T) {
+	ctx := context.Background()
+	scheme := envoyTestScheme(t)
+	central := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"},
+	}
+	depA := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: search.LoadBalancerDeploymentNameForCluster(0), Namespace: "ns"}}
+	cmA := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: search.LoadBalancerConfigMapNameForCluster(0), Namespace: "ns"}}
+	depB := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: search.LoadBalancerDeploymentNameForCluster(1), Namespace: "ns"}}
+	cmB := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: search.LoadBalancerConfigMapNameForCluster(1), Namespace: "ns"}}
+	memberA := fake.NewClientBuilder().WithScheme(scheme).WithObjects(depA, cmA).Build()
+	memberB := fake.NewClientBuilder().WithScheme(scheme).WithObjects(depB, cmB).Build()
+
+	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", map[string]client.Client{"a": memberA, "b": memberB})
+
+	workList := []clusterWorkItem{
+		{ClusterName: "a", ClusterIndex: 0, Client: r.memberClusterClientsMap["a"]},
+		{ClusterName: "b", ClusterIndex: 1, Client: r.memberClusterClientsMap["b"]},
+	}
+	r.deleteEnvoyResources(ctx, search, workList, zap.S())
+
+	// Both member clusters: Deployment + ConfigMap gone at their respective indices.
+	assert.True(t, apierrors.IsNotFound(memberA.Get(ctx,
+		types.NamespacedName{Name: search.LoadBalancerDeploymentNameForCluster(0), Namespace: "ns"}, &appsv1.Deployment{})))
+	assert.True(t, apierrors.IsNotFound(memberA.Get(ctx,
+		types.NamespacedName{Name: search.LoadBalancerConfigMapNameForCluster(0), Namespace: "ns"}, &corev1.ConfigMap{})))
+	assert.True(t, apierrors.IsNotFound(memberB.Get(ctx,
+		types.NamespacedName{Name: search.LoadBalancerDeploymentNameForCluster(1), Namespace: "ns"}, &appsv1.Deployment{})))
+	assert.True(t, apierrors.IsNotFound(memberB.Get(ctx,
+		types.NamespacedName{Name: search.LoadBalancerConfigMapNameForCluster(1), Namespace: "ns"}, &corev1.ConfigMap{})))
+}
+
+func TestDeleteEnvoyResources_SkipsUnregisteredCluster(t *testing.T) {
+	ctx := context.Background()
+	scheme := envoyTestScheme(t)
+	central := fake.NewClientBuilder().WithScheme(scheme).Build()
+	memberA := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", map[string]client.Client{"a": memberA})
+	search := &searchv1.MongoDBSearch{ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"}}
+
+	r.deleteEnvoyResources(ctx, search, []clusterWorkItem{
+		{ClusterName: "a", ClusterIndex: -1, Client: r.memberClusterClientsMap["a"]},
+	}, zap.S())
+}
+
 // failingWriteClient wraps a client.Client and rejects every write so we can
 // simulate a per-cluster Failed status without needing a real envtest.
 type failingWriteClient struct {
