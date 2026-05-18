@@ -642,8 +642,7 @@ func validateMCMatchTagsNonEmpty(s *MongoDBSearch) v1.ValidationResult {
 
 // validateMCRequiresExternalSource requires either external.hostAndPorts (RS source)
 // or external.shardedCluster (sharded source) when spec.clusters has >1 entry:
-// every cluster's mongot ConfigMap is rendered from one of those two seed shapes
-// (Q3 managed source is post-MVP).
+// every cluster's mongot ConfigMap is rendered from one of those two seed shapes.
 func validateMCRequiresExternalSource(s *MongoDBSearch) v1.ValidationResult {
 	if s.Spec.Clusters == nil {
 		return v1.ValidationSuccess()
@@ -656,9 +655,9 @@ func validateMCRequiresExternalSource(s *MongoDBSearch) v1.ValidationResult {
 		return v1.ValidationSuccess()
 	}
 	return v1.ValidationError(
-		"spec.source.external.hostAndPorts or spec.source.external.shardedCluster " +
-			"is required when len(spec.clusters) > 1; every cluster's mongot ConfigMap " +
-			"is rendered from this seed. Q3 (managed source) is post-MVP.",
+		"spec.source.external.hostAndPorts is required (or spec.source.external.shardedCluster " +
+			"for sharded sources) when len(spec.clusters) > 1; every cluster's mongot ConfigMap " +
+			"is rendered from this seed.",
 	)
 }
 
