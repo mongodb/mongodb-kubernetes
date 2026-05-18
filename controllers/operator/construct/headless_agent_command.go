@@ -30,7 +30,35 @@ const (
 
 	headlessAutomationConfigMapEnv   = "AUTOMATION_CONFIG_MAP"
 	headlessAgentDownloadsVolumeName = "agent-downloads"
+
+	// headlessMongodBinDir is the directory where the static headless agent expects mongod binaries.
+	// Must match agent-launcher.sh's mdb_downloads_dir + "/mongod/bin".
+	headlessMongodBinDir = "/var/lib/mongodb-mms-automation/mongod/bin"
 )
+
+// headlessStaticMongodSetup is the bash snippet that waits for the mongodb-enterprise-database
+// container (identified by the mongodb_marker process) and creates symlinks to its mongod/mongos
+// binaries via the shared process namespace. This mirrors what agent-launcher.sh does for regular
+// static mode, but inline since HeadlessAutomationAgentCommand bypasses agent-launcher.sh.
+const headlessStaticMongodSetup = `WAIT_TIME=5
+MAX_WAIT=300
+ELAPSED_TIME=0
+while [ ${ELAPSED_TIME} -lt ${MAX_WAIT} ]; do
+  MONGOD_PID=$(ps aux | grep "mongodb_marker" | grep -v grep | awk '{print $2}') || true
+  if [ -n "${MONGOD_PID}" ] && [ "${MONGOD_PID}" -ne 0 ]; then
+    break
+  fi
+  sleep ${WAIT_TIME}
+  ELAPSED_TIME=$((ELAPSED_TIME + WAIT_TIME))
+done
+if [ -z "${MONGOD_PID}" ] || [ "${MONGOD_PID}" -eq 0 ]; then
+  echo "mongodb_marker PID not found within ${MAX_WAIT}s"
+  exit 1
+fi
+mkdir -p ` + headlessMongodBinDir + `
+ln -sf "/proc/${MONGOD_PID}/root/bin/mongod" ` + headlessMongodBinDir + `/mongod
+ln -sf "/proc/${MONGOD_PID}/root/bin/mongos" ` + headlessMongodBinDir + `/mongos
+`
 
 // HeadlessClusterConfigMountPath returns the directory where the automation config Secret
 // should be mounted, based on whether the container uses the static or non-static architecture.
@@ -106,8 +134,9 @@ func HeadlessAutomationAgentCommand(logLevel v1.LogLevel, logFile string, maxLog
 	} else {
 		logOpts = " -logFile " + logFile + logLevelOpt + " -maxLogFileDurationHrs " + strconv.Itoa(maxLogFileDurationHours)
 	}
-	cmd := "/usr/local/bin/setup-agent-files.sh\n" + MongodbUserCommand + BaseAgentCommand() +
-		" -cluster=" + HeadlessClusterFilePath + appdbAutomationAgentOptions + logOpts
+	cmd := "/usr/local/bin/setup-agent-files.sh\n" + headlessStaticMongodSetup + MongodbUserCommand + BaseAgentCommand() +
+		" -cluster=" + HeadlessClusterFilePath + appdbAutomationAgentOptions +
+		" -binariesFixedPath=" + headlessMongodBinDir + logOpts
 	return []string{"/bin/bash", "-c", cmd}
 }
 

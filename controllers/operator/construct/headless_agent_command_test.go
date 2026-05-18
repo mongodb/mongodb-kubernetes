@@ -14,6 +14,8 @@ func TestHeadlessAgentCommand_ContainsClusterFlag(t *testing.T) {
 	assert.Contains(t, cmd[len(cmd)-1], "-cluster="+construct.HeadlessClusterFilePath)
 	assert.NotContains(t, cmd[len(cmd)-1], "-mmsBaseUrl")
 	assert.Contains(t, cmd[len(cmd)-1], "setup-agent-files.sh")
+	assert.Contains(t, cmd[len(cmd)-1], "-binariesFixedPath=")
+	assert.Contains(t, cmd[len(cmd)-1], "mongodb_marker")
 }
 
 func TestHeadlessAgentEnvVars_ContainsHeadlessFlag(t *testing.T) {
