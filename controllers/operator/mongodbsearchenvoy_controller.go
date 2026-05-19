@@ -679,9 +679,12 @@ func envoyLabelsForCluster(search *searchv1.MongoDBSearch, clusterName string, c
 	return labels
 }
 
-// envoyReplicas returns the desired Envoy replica count. Hardcoded to 1 (envoyReplicasDefault);
-// per-cluster replica overrides are not supported at GA scope.
-func envoyReplicas(_ *searchv1.MongoDBSearch) int32 {
+// envoyReplicas returns the desired Envoy replica count.
+// Uses spec.loadBalancer.managed.replicas if set, otherwise defaults to 1.
+func envoyReplicas(search *searchv1.MongoDBSearch) int32 {
+	if cfg := search.Spec.LoadBalancer; cfg != nil && cfg.Managed != nil && cfg.Managed.Replicas != nil {
+		return *cfg.Managed.Replicas
+	}
 	return envoyReplicasDefault
 }
 

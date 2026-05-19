@@ -12,6 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -929,7 +930,7 @@ func TestReconcileForCluster_RendersInMemberCluster(t *testing.T) {
 	assert.True(t, apierrors.IsNotFound(err))
 }
 
-func TestEnsureDeployment_Replicas_DefaultsTo1(t *testing.T) {
+func TestEnsureDeployment_Replicas(t *testing.T) {
 	scheme := envoyTestScheme(t)
 	central := fake.NewClientBuilder().WithScheme(scheme).Build()
 	memberA := fake.NewClientBuilder().WithScheme(scheme).Build()
@@ -943,14 +944,38 @@ func TestEnsureDeployment_Replicas_DefaultsTo1(t *testing.T) {
 			Clusters:     &[]searchv1.ClusterSpec{{ClusterName: "a"}},
 		},
 	}
-	// cluster "a" is at index 0.
-	require.NoError(t, r.ensureDeployment(context.Background(), search, `{"x":1}`, "a", 0, r.memberClusterClientsMap["a"], nil, zap.S()))
+	for _, tc := range []struct {
+		lbReplicas           *int32
+		expectedDeplReplicas int32
+	}{
+		// defaults to 1 if replicas is not set in search resource
+		{
+			expectedDeplReplicas: 1,
+		},
+		{
+			lbReplicas:           ptr.To(int32(3)),
+			expectedDeplReplicas: 3,
+		},
+		{
+			lbReplicas:           ptr.To(int32(4)),
+			expectedDeplReplicas: 4,
+		},
+	} {
+		search.Spec.LoadBalancer.Managed.Replicas = tc.lbReplicas
+		// cluster "a" is at index 0.
+		require.NoError(t, r.ensureDeployment(context.Background(), search, `{"x":1}`, "a", 0, r.memberClusterClientsMap["a"], nil, zap.S()))
 
-	dep := &appsv1.Deployment{}
-	require.NoError(t, memberA.Get(context.Background(),
-		types.NamespacedName{Name: search.LoadBalancerDeploymentNameForCluster(0), Namespace: "ns"}, dep))
-	require.NotNil(t, dep.Spec.Replicas)
-	assert.Equal(t, int32(1), *dep.Spec.Replicas, "envoy replicas must default to 1 when unset")
+		dep := &appsv1.Deployment{}
+		require.NoError(t, memberA.Get(context.Background(),
+			types.NamespacedName{Name: search.LoadBalancerDeploymentNameForCluster(0), Namespace: "ns"}, dep))
+		require.NotNil(t, dep.Spec.Replicas)
+		assert.Equal(t, tc.expectedDeplReplicas, *dep.Spec.Replicas, "envoy replicas must be set to the same value configured in search resource")
+
+		memberA.Delete(context.Background(), &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{
+			Name:      dep.Name,
+			Namespace: dep.Namespace,
+		}})
+	}
 }
 
 // --- end-to-end Reconcile + status aggregation -------------------------------
