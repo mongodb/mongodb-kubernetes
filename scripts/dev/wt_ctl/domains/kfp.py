@@ -35,8 +35,10 @@ What this domain still does:
 
 from __future__ import annotations
 
+import os
 import socket
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
@@ -44,11 +46,13 @@ from typing import Optional
 
 from ..errors import WtCtlError
 from ..runner import Runner
+from .kubeconfig import _suffix_kubeconfig_names
 
 KFP_HOST = "127.0.0.1"
 KFP_HTTP_PORT = 11616
 KFP_DNS_PORT = 11617
-KFP_HEALTH_URL = f"http://{KFP_HOST}:{KFP_HTTP_PORT}/healthz"
+KFP_DEFAULT_URL = f"http://{KFP_HOST}:{KFP_HTTP_PORT}"
+KFP_HEALTH_URL = f"{KFP_DEFAULT_URL}/healthz"
 
 LAUNCHD_LABEL = "io.github.fealebenpae.k8s-proxy"
 LAUNCHCTL_KICKSTART = f"sudo launchctl kickstart -k system/{LAUNCHD_LABEL}"
@@ -60,6 +64,26 @@ LAUNCHCTL_BOOTSTRAP = (
 
 LISTEN_PROBE_TIMEOUT_S = 0.25
 HEALTH_PROBE_TIMEOUT_S = 1.0
+
+
+def _resolve_suffix_port(kubeconfig_path: Path) -> Optional[str]:
+    """Derive ``MCK_DEVC_PROXY_PORT`` for the worktree owning ``kubeconfig_path``.
+
+    Looks up two parents (``.generated/<file>`` → worktree root), then reads
+    the line out of ``.devcontainer/.env``. Falls back to the environment
+    variable; returns ``None`` if neither source has it (the caller then
+    skips the suffix and PATCHes bare bytes — fine for non-devc workflows).
+    """
+    env_port = os.environ.get("MCK_DEVC_PROXY_PORT")
+    worktree = kubeconfig_path.resolve().parent.parent
+    env_file = worktree / ".devcontainer" / ".env"
+    if env_file.is_file():
+        for line in env_file.read_text().splitlines():
+            if line.startswith("MCK_DEVC_PROXY_PORT="):
+                value = line.split("=", 1)[1].strip()
+                if value:
+                    return value
+    return env_port or None
 
 
 class KfpUnavailable(WtCtlError):
@@ -102,12 +126,12 @@ class KfpDomain:
     # ------------------------------------------------------------------
     # liveness probes
     # ------------------------------------------------------------------
-    def is_listening(self) -> bool:
-        """``True`` if anything binds 127.0.0.1:11616 right now."""
+    def is_listening(self, host: str = KFP_HOST, port: int = KFP_HTTP_PORT) -> bool:
+        """``True`` if anything binds ``host:port`` right now."""
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.settimeout(LISTEN_PROBE_TIMEOUT_S)
         try:
-            s.connect((KFP_HOST, KFP_HTTP_PORT))
+            s.connect((host, port))
             return True
         except (OSError, socket.timeout):
             return False
@@ -138,47 +162,60 @@ class KfpDomain:
             health=self.health(),
         )
 
-    def register(self, kubeconfig_path: Path, *, replace: bool = False) -> str:
-        """Send the kubeconfig file's contents to the on-host kfp daemon
-        at ``http://127.0.0.1:11616/kubeconfig``. Mirrors what
-        ``setup_kind_cluster.sh`` and ``evg_host.sh`` curl on the EVG
-        host's side.
+    def register(
+        self,
+        kubeconfig_path: Path,
+        *,
+        replace: bool = False,
+        target_url: str = KFP_DEFAULT_URL,
+        suffix_port: Optional[str] = None,
+    ) -> str:
+        """Send the kubeconfig file's contents to the kfp daemon at
+        ``<target_url>/kubeconfig``. Defaults to the host's launchd kfp on
+        ``http://127.0.0.1:11616``.
 
-        ``replace=False`` (default): HTTP PATCH — merge into the existing
-        dynamic config, overwriting same-name entries (the registrant's
-        worktree-suffixed context names ensure peer worktrees don't
-        collide on names). With the daemon's per-context shutdown the
-        re-registration is idempotent AND non-disruptive for peer
-        worktrees' in-flight listeners. **This is what you want
-        99% of the time.**
+        Identity inside the daemon is ``(name, proxy-port)``. We rewrite the
+        cluster/context/user names in-flight to ``<name>-<suffix_port>`` so
+        peer worktrees don't collide on bare names. ``suffix_port`` falls
+        back to ``$MCK_DEVC_PROXY_PORT``; on-disk files stay bare for the
+        in-devc sidecar and ``bin/reset``-style tooling.
 
-        ``replace=True``: HTTP PUT — wipe the entire dynamic config and
-        replace it with just this kubeconfig. **This blows away every
-        peer worktree's registration**; the daemon's per-context
-        shutdown will correctly tear down those peer listeners and
-        release their VIPs, but peers will have to re-register before
-        their host-side tooling works again. Reserve for the rare
-        "I want a clean slate" case where ``kfp reset && register`` is
-        what you'd otherwise type.
-
-        Returns the response body. Raises ``WtCtlError`` if the file is
-        missing, the daemon isn't listening, or the HTTP call fails.
+        ``replace=True`` uses PUT to wipe every other registration. Prefer
+        the default PATCH, which only merges same-name entries.
         """
         if not kubeconfig_path.is_file():
             raise WtCtlError(f"kubeconfig not found: {kubeconfig_path}")
-        if not self.is_listening():
+
+        parsed = urllib.parse.urlsplit(target_url)
+        probe_host = parsed.hostname or KFP_HOST
+        probe_port = parsed.port or KFP_HTTP_PORT
+        if not self.is_listening(probe_host, probe_port):
             raise KfpUnavailable(
-                f"kfp daemon not listening at {KFP_HOST}:{KFP_HTTP_PORT}. "
+                f"kfp daemon not listening at {probe_host}:{probe_port}. "
                 f"Daemon is pkg-installed and launchd-managed; "
                 f"restart with: {LAUNCHCTL_KICKSTART}"
             )
-        body = kubeconfig_path.read_bytes()
+
+        port = suffix_port or _resolve_suffix_port(kubeconfig_path)
+        if port:
+            try:
+                import yaml  # type: ignore
+            except ImportError as exc:
+                raise WtCtlError(
+                    "wt-ctl kfp register requires pyyaml to suffix cluster "
+                    "names for the on-wire PATCH; pip install pyyaml."
+                ) from exc
+            data = yaml.safe_load(kubeconfig_path.read_text())
+            if not isinstance(data, dict):
+                raise WtCtlError(f"{kubeconfig_path} did not parse as a YAML mapping")
+            _suffix_kubeconfig_names(data, port)
+            body = yaml.safe_dump(data, sort_keys=False).encode("utf-8")
+        else:
+            body = kubeconfig_path.read_bytes()
+
         method = "PUT" if replace else "PATCH"
-        req = urllib.request.Request(
-            f"http://{KFP_HOST}:{KFP_HTTP_PORT}/kubeconfig",
-            data=body,
-            method=method,
-        )
+        endpoint = target_url.rstrip("/") + "/kubeconfig"
+        req = urllib.request.Request(endpoint, data=body, method=method)
         try:
             with urllib.request.urlopen(req, timeout=10) as resp:
                 return resp.read().decode("utf-8", errors="replace")

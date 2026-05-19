@@ -17,6 +17,7 @@ from .domains.devcontainer import DevcontainerDomain
 from .domains.evg import EvgDomain
 from .domains.kfp import (
     KfpDomain,
+    KFP_DEFAULT_URL,
     LAUNCHCTL_BOOTOUT,
     LAUNCHCTL_BOOTSTRAP,
     LAUNCHCTL_KICKSTART,
@@ -234,6 +235,15 @@ def build_parser() -> argparse.ArgumentParser:
             "HTTP PUT instead of PATCH — WIPES every sibling worktree's "
             "registration. Default PATCH already overwrites same-name "
             "entries idempotently; prefer the default."
+        ),
+    )
+    sk_rg.add_argument(
+        "--url",
+        default=None,
+        help=(
+            "Target kfp base URL (default: http://127.0.0.1:11616). Use "
+            "http://host.docker.internal:11616 to register from inside a "
+            "devcontainer."
         ),
     )
     sk_sub.add_parser(
@@ -773,6 +783,7 @@ def cmd_kfp(runner: Runner, args: argparse.Namespace) -> int:
     if sub == "register":
         explicit = getattr(args, "kubeconfig", None)
         replace = getattr(args, "replace", False)
+        url = getattr(args, "url", None) or KFP_DEFAULT_URL
         if explicit:
             kc_path = Path(explicit).expanduser()
         else:
@@ -785,9 +796,9 @@ def cmd_kfp(runner: Runner, args: argparse.Namespace) -> int:
                 )
                 return 2
             kc_path = wt.worktree_root / ".generated" / "current.kubeconfig"
-        body = kfp.register(kc_path, replace=replace)
+        body = kfp.register(kc_path, replace=replace, target_url=url)
         verb = "replaced" if replace else "registered"
-        print(f"{verb}    kubeconfig={kc_path}")
+        print(f"{verb}    kubeconfig={kc_path}    target={url}")
         if body.strip():
             print(f"  daemon response: {body.strip()}")
         return 0
