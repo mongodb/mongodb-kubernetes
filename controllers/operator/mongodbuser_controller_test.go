@@ -491,6 +491,62 @@ func TestConnectionStringSecret_UsesSpecDb_AsAuthSource(t *testing.T) {
 	assert.NotContains(t, connectionString, "authSource=admin")
 }
 
+func TestConnectionStringSecret_X509_UsesExternalDb_AsAuthSource(t *testing.T) {
+	ctx := context.Background()
+	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").SetDatabase(authentication.ExternalDB).Build()
+	reconciler, client, _ := userReconcilerWithAuthMode(ctx, user, util.AutomationConfigX509Option)
+
+	_ = client.Create(ctx, DefaultReplicaSetBuilder().EnableX509().SetName("my-rs").Build())
+	createUserControllerConfigMap(ctx, client)
+
+	_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
+	require.NoError(t, err)
+
+	secret := &corev1.Secret{}
+	err = client.Get(ctx, kube.ObjectKey(user.Namespace, user.GetConnectionStringSecretName()), secret)
+	require.NoError(t, err)
+
+	assert.Equal(t,
+		"mongodb://my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,"+
+			"my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017,"+
+			"my-rs-2.my-rs-svc.my-namespace.svc.cluster.local:27017"+
+			"/?authSource=$external&connectTimeoutMS=20000&replicaSet=my-rs&serverSelectionTimeoutMS=20000",
+		string(secret.Data["connectionString.standard"]))
+
+	assert.Equal(t,
+		"mongodb+srv://my-rs-svc.my-namespace.svc.cluster.local"+
+			"/?authSource=$external&connectTimeoutMS=20000&replicaSet=my-rs&serverSelectionTimeoutMS=20000",
+		string(secret.Data["connectionString.standardSrv"]))
+}
+
+func TestConnectionStringSecret_ScramSHA1_UsesSpecDb_AsAuthSource(t *testing.T) {
+	ctx := context.Background()
+	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").SetDatabase("mydb").Build()
+	reconciler, client, _ := userReconcilerWithAuthMode(ctx, user, util.AutomationConfigScramSha1Option)
+
+	_ = client.Create(ctx, DefaultReplicaSetBuilder().
+		EnableAuth().
+		SetAuthModes([]mdbv1.AuthMode{util.SCRAMSHA1, util.MONGODBCR}).
+		AgentAuthMode("MONGODB-CR").
+		SetName("my-rs").
+		Build())
+	createUserControllerConfigMap(ctx, client)
+	createPasswordSecret(ctx, client, user.Spec.PasswordSecretKeyRef, "password")
+
+	_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
+	require.NoError(t, err)
+
+	secret := &corev1.Secret{}
+	err = client.Get(ctx, kube.ObjectKey(user.Namespace, user.GetConnectionStringSecretName()), secret)
+	require.NoError(t, err)
+
+	for _, key := range []string{"connectionString.standard", "connectionString.standardSrv"} {
+		cs := string(secret.Data[key])
+		assert.Contains(t, cs, "authSource=mydb", "authSource should be spec.db for SCRAM-SHA-1 (%s)", key)
+		assert.NotContains(t, cs, "authSource=admin", "authSource must not be hardcoded for SCRAM-SHA-1 (%s)", key)
+	}
+}
+
 func TestUserReconciler_SavesConnectionStringForMultiShardedCluster(t *testing.T) {
 	// Define the details of the member clusters for the sharded cluster setup
 	memberClusters := test.NewMemberClusters(
@@ -547,7 +603,7 @@ func TestUserReconciler_SavesConnectionStringForMultiShardedCluster(t *testing.T
 	connectionString := string(secret.Data["connectionString.standard"])
 	expectedConnectionString := "mongodb://slaney-mongos-0-0-svc.my-namespace.svc.cluster.local," +
 		"slaney-mongos-0-1-svc.my-namespace.svc.cluster.local,slaney-mongos-1-0-svc.my-namespace.svc.cluster.local" +
-		"/?connectTimeoutMS=20000&serverSelectionTimeoutMS=20000"
+		"/?authSource=admin&connectTimeoutMS=20000&serverSelectionTimeoutMS=20000"
 	assert.Equal(t, expectedConnectionString, connectionString)
 }
 

@@ -1,7 +1,8 @@
 import tempfile
+from typing import Dict
 
 import pytest
-from kubetester import try_load
+from kubetester import read_secret, try_load
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.certs import create_agent_tls_certs, create_mongodb_tls_certs, create_x509_user_cert
 from kubetester.kubetester import KubernetesTester
@@ -107,3 +108,15 @@ class TestX509CorrectlyConfigured(KubernetesTester):
 
         assert "OU" in names
         assert "CN=mms-automation-agent" in user
+
+
+@pytest.mark.e2e_tls_x509_user_connectivity
+def test_x509_connection_string_secret_has_external_authsource(namespace: str):
+    # Secret name: {resource}-{user-object-name}-external  ($external strips the $)
+    secret_name = f"{MDB_RESOURCE}-test-x509-user-external"
+    secret: Dict[str, str] = read_secret(namespace, secret_name)
+
+    assert "connectionString.standard" in secret
+    assert "connectionString.standardSrv" in secret
+    assert "authSource=$external" in secret["connectionString.standard"]
+    assert "authSource=$external" in secret["connectionString.standardSrv"]
