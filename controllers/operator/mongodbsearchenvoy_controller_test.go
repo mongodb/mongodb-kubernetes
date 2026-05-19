@@ -945,20 +945,20 @@ func TestEnsureDeployment_Replicas(t *testing.T) {
 		},
 	}
 	for _, tc := range []struct {
-		lbReplicas          *int32
-		expectdDeplReplicas int32
+		lbReplicas           *int32
+		expectedDeplReplicas int32
 	}{
 		// defaults to 1 if replicas is not set in search resource
 		{
-			expectdDeplReplicas: 1,
+			expectedDeplReplicas: 1,
 		},
 		{
-			lbReplicas:          ptr.To(int32(3)),
-			expectdDeplReplicas: 3,
+			lbReplicas:           ptr.To(int32(3)),
+			expectedDeplReplicas: 3,
 		},
 		{
-			lbReplicas:          ptr.To(int32(4)),
-			expectdDeplReplicas: 4,
+			lbReplicas:           ptr.To(int32(4)),
+			expectedDeplReplicas: 4,
 		},
 	} {
 		search.Spec.LoadBalancer.Managed.Replicas = tc.lbReplicas
@@ -969,7 +969,7 @@ func TestEnsureDeployment_Replicas(t *testing.T) {
 		require.NoError(t, memberA.Get(context.Background(),
 			types.NamespacedName{Name: search.LoadBalancerDeploymentNameForCluster(0), Namespace: "ns"}, dep))
 		require.NotNil(t, dep.Spec.Replicas)
-		assert.Equal(t, tc.expectdDeplReplicas, *dep.Spec.Replicas, "envoy replicas must be set to the same value configured in search resource")
+		assert.Equal(t, tc.expectedDeplReplicas, *dep.Spec.Replicas, "envoy replicas must be set to the same value configured in search resource")
 
 		memberA.Delete(context.Background(), &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{
 			Name:      dep.Name,
