@@ -150,15 +150,6 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 		r.watch.AddWatchedResourceIfNotAdded(mdbSearch.Spec.AutoEmbedding.EmbeddingModelAPIKeySecret.Name, mdbSearch.Namespace, watch.Secret, mdbSearch.NamespacedName())
 	}
 
-	memberClients := make(map[string]client.Client, len(r.memberClusterClientsMap))
-	for name, kc := range r.memberClusterClientsMap {
-		memberClients[name] = kc
-	}
-	// Run the customer-replicated-secret presence check up front so the helper
-	// can fold gaps into the per-cluster status patch in a single writeback,
-	// rather than requiring a follow-up patch from this controller.
-	gaps := searchcontroller.CheckSecretsPresence(ctx, mdbSearch, r.kubeClient, memberClients)
-
 	state, stateStore, err := loadOrInitSearchState(ctx, r.kubeClient, mdbSearch)
 	if err != nil {
 		return commoncontroller.UpdateStatus(ctx, r.kubeClient, mdbSearch, workflow.Failed(err), log)
@@ -176,6 +167,12 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 			return commoncontroller.UpdateStatus(ctx, r.kubeClient, mdbSearch, workflow.Failed(err), log)
 		}
 	}
+
+	memberClients := make(map[string]client.Client, len(r.memberClusterClientsMap))
+	for name, kc := range r.memberClusterClientsMap {
+		memberClients[name] = kc
+	}
+	gaps := searchcontroller.CheckSecretsPresence(ctx, mdbSearch, r.kubeClient, memberClients, state.ClusterMapping)
 
 	reconcileHelper := searchcontroller.NewMongoDBSearchReconcileHelper(r.kubeClient, mdbSearch, searchSource, r.operatorSearchConfig, r.memberClusterClientsMap, state.ClusterMapping)
 

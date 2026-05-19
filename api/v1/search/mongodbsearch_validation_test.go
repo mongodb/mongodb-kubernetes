@@ -1,6 +1,7 @@
 package search
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 
@@ -88,6 +89,36 @@ func TestValidateShardNames(t *testing.T) {
 			// 20 + 10 + 30 + 4 = 64 chars > 63
 			name:          "invalid Service name too long with TLS",
 			search:        newSearch(strings.Repeat("a", 20), []ExternalShardConfig{shard(strings.Repeat("s", 30))}, "prefix", true, false),
+			errorContains: "exceeds",
+		},
+		{
+			// Proxy svc name = name+shard+digits(idx)+19; 20+23+1+19 = 63 ✓ at idx ≤ 9.
+			name: "valid MC Proxy Service at borderline with single-digit max index",
+			search: func() *MongoDBSearch {
+				s := newSearch(strings.Repeat("a", 20), []ExternalShardConfig{shard(strings.Repeat("s", 23))}, "", false, true)
+				s.Spec.LoadBalancer.Managed.ExternalHostname = "{shardName}.{clusterName}.example.com"
+				clusters := make([]ClusterSpec, 10)
+				for i := range clusters {
+					clusters[i] = ClusterSpec{ClusterName: "c" + strconv.Itoa(i)}
+				}
+				s.Spec.Clusters = &clusters
+				return s
+			}(),
+		},
+		{
+			// At idx 10 digits(idx) becomes 2: 20+23+2+19 = 64 > 63. Guards "valid at idx=0,
+			// silently overshoots at ≥11 clusters" — admission validates at the largest index.
+			name: "invalid MC Proxy Service overshoots at two-digit max index",
+			search: func() *MongoDBSearch {
+				s := newSearch(strings.Repeat("a", 20), []ExternalShardConfig{shard(strings.Repeat("s", 23))}, "", false, true)
+				s.Spec.LoadBalancer.Managed.ExternalHostname = "{shardName}.{clusterName}.example.com"
+				clusters := make([]ClusterSpec, 11)
+				for i := range clusters {
+					clusters[i] = ClusterSpec{ClusterName: "c" + strconv.Itoa(i)}
+				}
+				s.Spec.Clusters = &clusters
+				return s
+			}(),
 			errorContains: "exceeds",
 		},
 	}

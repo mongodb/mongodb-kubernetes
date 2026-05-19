@@ -116,7 +116,15 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 	// If LB was previously active (status exists), clean up Envoy resources first.
 	if !mdbSearch.IsLBModeManaged() {
 		if mdbSearch.Status.LoadBalancer != nil {
-			r.deleteEnvoyResources(ctx, mdbSearch, log)
+			state, _, stErr := loadOrInitSearchState(ctx, r.kubeClient, mdbSearch)
+			var workList []clusterWorkItem
+			if stErr != nil {
+				log.Warnf("Failed to load search state for Envoy cleanup, falling back to central only: %s", stErr)
+				workList = []clusterWorkItem{{ClusterName: "", ClusterIndex: 0, Client: r.kubeClient}}
+			} else {
+				workList = r.buildClusterWorkList(mdbSearch, state.ClusterMapping)
+			}
+			r.deleteEnvoyResources(ctx, mdbSearch, workList, log)
 			r.clearLBStatus(ctx, mdbSearch, log)
 		}
 		return reconcile.Result{}, nil
@@ -271,25 +279,30 @@ func (r *MongoDBSearchEnvoyReconciler) clearLBStatus(ctx context.Context, search
 	}
 }
 
-// deleteEnvoyResources removes the central-cluster Envoy Deployment and ConfigMap
-// on managed→unmanaged LB transition. Member-cluster Envoy resources are not
-// cleaned up here — cross-cluster owner refs don't GC, and member-cluster GC is
-// not handled by this controller.
-func (r *MongoDBSearchEnvoyReconciler) deleteEnvoyResources(ctx context.Context, search *searchv1.MongoDBSearch, log *zap.SugaredLogger) {
+// deleteEnvoyResources removes per-cluster Envoy resources on managed→unmanaged LB transition.
+// ClusterIndex == -1 sentinel is skipped: the cluster isn't yet in state and could not have created anything.
+func (r *MongoDBSearchEnvoyReconciler) deleteEnvoyResources(ctx context.Context, search *searchv1.MongoDBSearch, workList []clusterWorkItem, log *zap.SugaredLogger) {
 	ns := search.Namespace
+	for _, w := range workList {
+		if w.ClusterIndex == -1 {
+			continue
+		}
+		depName := search.LoadBalancerDeploymentNameForCluster(w.ClusterIndex)
+		cmName := search.LoadBalancerConfigMapNameForCluster(w.ClusterIndex)
 
-	dep := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: search.LoadBalancerDeploymentNameForCluster(0), Namespace: ns}}
-	if err := r.kubeClient.Delete(ctx, dep); err != nil && !apierrors.IsNotFound(err) {
-		log.Warnf("Failed to delete Envoy Deployment %s: %s", dep.Name, err)
-	} else if err == nil {
-		log.Infof("Deleted Envoy Deployment %s", dep.Name)
-	}
+		dep := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: depName, Namespace: ns}}
+		if err := w.Client.Delete(ctx, dep); err != nil && !apierrors.IsNotFound(err) {
+			log.Warnf("Failed to delete Envoy Deployment %s (cluster=%q): %s", depName, w.ClusterName, err)
+		} else if err == nil {
+			log.Infof("Deleted Envoy Deployment %s (cluster=%q)", depName, w.ClusterName)
+		}
 
-	cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: search.LoadBalancerConfigMapNameForCluster(0), Namespace: ns}}
-	if err := r.kubeClient.Delete(ctx, cm); err != nil && !apierrors.IsNotFound(err) {
-		log.Warnf("Failed to delete Envoy ConfigMap %s: %s", cm.Name, err)
-	} else if err == nil {
-		log.Infof("Deleted Envoy ConfigMap %s", cm.Name)
+		cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: cmName, Namespace: ns}}
+		if err := w.Client.Delete(ctx, cm); err != nil && !apierrors.IsNotFound(err) {
+			log.Warnf("Failed to delete Envoy ConfigMap %s (cluster=%q): %s", cmName, w.ClusterName, err)
+		} else if err == nil {
+			log.Infof("Deleted Envoy ConfigMap %s (cluster=%q)", cmName, w.ClusterName)
+		}
 	}
 }
 

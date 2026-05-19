@@ -1426,7 +1426,7 @@ func TestGetMongosConfigParametersForSharded(t *testing.T) {
 		expectedHost  string
 	}{
 		{
-			name: "No LB - uses cluster-level proxy service endpoint",
+			name: "No LB - uses first shard's proxy svc endpoint (in per-shard cert SANs)",
 			search: &searchv1.MongoDBSearch{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-search",
@@ -1442,7 +1442,7 @@ func TestGetMongosConfigParametersForSharded(t *testing.T) {
 			},
 			shardNames:    []string{"test-mdb-0", "test-mdb-1"},
 			clusterDomain: "cluster.local",
-			expectedHost:  "test-search-search-0-proxy-svc.test-ns.svc.cluster.local:27028",
+			expectedHost:  "test-search-search-0-test-mdb-0-proxy-svc.test-ns.svc.cluster.local:27028",
 		},
 		{
 			name: "Managed LB - uses cluster-level proxy service endpoint",
