@@ -259,20 +259,6 @@ kind_wait_for_nodes_are_ready
 kind_install_metallb
 kind_install_metrics_server
 
-if [[ -n "${K8S_FWD_PROXY:-}" ]]; then
-  # Feed the kubeconfig to the proxy so it can resolve this new cluster.
-  # Best-effort: when this script is run on an EVG host (via
-  # `evg_host.sh recreate-kind-cluster`), there is no host-side kfp
-  # listening on 127.0.0.1:11616 — the in-container k8s-proxy registration
-  # is handled later by the orchestrator's `kubeconfig` phase
-  # (`evg_host.sh get-kubeconfig`'s `configure()` does the in-container PATCH).
-  # Mirroring `.devcontainer/scripts/post-start.sh`'s pattern: short timeout,
-  # log the outcome, never fail the kind setup over a missing proxy.
-  curl --max-time 5 -fsS -X PATCH --data-binary @"${kubeconfig_path}" "http://${K8S_FWD_PROXY}/kubeconfig" \
-    && echo "registered kubeconfig with kfp at ${K8S_FWD_PROXY}" \
-    || echo "kfp not reachable at ${K8S_FWD_PROXY}; skipping kubeconfig registration"
-fi
-
 if [[ "${export_kubeconfig}" == "1" ]]; then
   export_kubeconfig
 fi
