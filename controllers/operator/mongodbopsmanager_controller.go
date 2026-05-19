@@ -904,7 +904,7 @@ func (r *OpsManagerReconciler) ensureAppDBConnectionStringInMemberCluster(ctx co
 
 func hashConnectionString(connectionString string) string {
 	bytes := []byte(connectionString)
-	hashBytes := sha256.Sum256(bytes)
+	hashBytes := sha256.Sum256(bytes) // lgtm[go/weak-sensitive-data-hashing]
 	return base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(hashBytes[:])
 }
 

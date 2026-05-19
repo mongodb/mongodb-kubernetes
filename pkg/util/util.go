@@ -140,7 +140,7 @@ func MaxInt(x, y int) int {
 // MD5Hex computes the MDB checksum of the given string as per https://golang.org/pkg/crypto/md5/
 func MD5Hex(s string) string {
 	h := md5.New() //nolint //This is part of the HTTP Digest Authentication mechanism.
-	h.Write([]byte(s))
+	h.Write([]byte(s)) // lgtm[go/weak-sensitive-data-hashing]
 	return hex.EncodeToString(h.Sum(nil))
 }
 
