@@ -8,6 +8,10 @@ MDB_STATIC_CONTAINERS_ARCHITECTURE="${MDB_STATIC_CONTAINERS_ARCHITECTURE:-}"
 MMS_HOME=${MMS_HOME:-/mongodb-automation}
 MMS_LOG_DIR=${MMS_LOG_DIR:-/var/log/mongodb-mms-automation}
 
+# This is the directory corresponding to 'options.downloadBase' in the automation config - the directory where
+# the agent will extract MongoDB binaries to
+MMS_DOWNLOAD_BASE=${MMS_DOWNLOAD_BASE:-/var/lib/mongodb-mms-automation}
+
 if [ -z "${MDB_STATIC_CONTAINERS_ARCHITECTURE}" ]; then
   AGENT_BINARY_PATH="${MMS_HOME}/files/mongodb-mms-automation-agent"
 else
@@ -32,16 +36,13 @@ tail -F -n0 "${MDB_LOG_FILE_BACKUP_AGENT}" 2> /dev/null | json_log 'backup-agent
 tail -F -n0 "${MDB_LOG_FILE_MONGODB}" 2> /dev/null | json_log 'mongodb' &
 tail -F -n0 "${MDB_LOG_FILE_MONGODB_AUDIT}" 2> /dev/null | json_log 'mongodb-audit' &
 
-# This is the directory corresponding to 'options.downloadBase' in the automation config - the directory where
-# the agent will extract MongoDB binaries to
-mdb_downloads_dir="/var/lib/mongodb-mms-automation"
-
 # The path to the automation config file in case the agent is run in headless mode
 cluster_config_file="/var/lib/mongodb-automation/cluster-config.json"
 
+# TODO seems to be redundant, ensure before removing
 # file required by Automation Agents of authentication is enabled.
-touch "${mdb_downloads_dir}/keyfile"
-chmod 600 "${mdb_downloads_dir}/keyfile"
+#touch "${MMS_DOWNLOAD_BASE}/keyfile"
+#chmod 600 "${MMS_DOWNLOAD_BASE}/keyfile"
 
 ensure_certs_symlinks
 
@@ -208,22 +209,22 @@ else
   if [ -n "${MONGOD_PID}" ] && [ "${MONGOD_PID}" -ne 0 ]; then
     echo "Mongod PID: ${MONGOD_PID}"
     MONGOD_ROOT="/proc/${MONGOD_PID}/root"
-    mkdir -p "${mdb_downloads_dir}/mongod"
-    mkdir -p "${mdb_downloads_dir}/mongod/bin"
-    ln -sf "${MONGOD_ROOT}/bin/mongo" ${mdb_downloads_dir}/mongod/bin/mongo
-    ln -sf "${MONGOD_ROOT}/bin/mongod" ${mdb_downloads_dir}/mongod/bin/mongod
-    ln -sf "${MONGOD_ROOT}/bin/mongos" ${mdb_downloads_dir}/mongod/bin/mongos
+    mkdir -p "${MMS_DOWNLOAD_BASE}/mongod"
+    mkdir -p "${MMS_DOWNLOAD_BASE}/mongod/bin"
+    ln -sf "${MONGOD_ROOT}/bin/mongo" ${MMS_DOWNLOAD_BASE}/mongod/bin/mongo
+    ln -sf "${MONGOD_ROOT}/bin/mongod" ${MMS_DOWNLOAD_BASE}/mongod/bin/mongod
+    ln -sf "${MONGOD_ROOT}/bin/mongos" ${MMS_DOWNLOAD_BASE}/mongod/bin/mongos
 
     for tool in mongoimport mongodump mongorestore mongoexport; do
       [ -e "/tools/${tool}" ] || { echo "/tools/${tool} not found"; exit 1; }
-      ln -sf "/tools/${tool}" ${mdb_downloads_dir}/mongod/bin/${tool}
+      ln -sf "/tools/${tool}" ${MMS_DOWNLOAD_BASE}/mongod/bin/${tool}
     done
   else
     echo "Mongod PID not found within the specified time."
     exit 1
   fi
 
-  agentOpts+=("-binariesFixedPath=${mdb_downloads_dir}/mongod/bin")
+  agentOpts+=("-binariesFixedPath=${MMS_DOWNLOAD_BASE}/mongod/bin")
 fi
 
 # Note, that we do logging in subshell - this allows us to save the correct PID to variable (not the logging one)

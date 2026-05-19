@@ -33,7 +33,7 @@ func (s *automationConfigScramSha) EnableAgentAuthentication(ctx context.Context
 		auth := ac.Auth
 		auth.Disabled = false
 		auth.AuthoritativeSet = opts.AuthoritativeSet
-		auth.KeyFile = util.AutomationAgentKeyFilePathInContainer
+		auth.KeyFile = opts.KeyfilePath
 		auth.KeyFileWindows = util.AutomationAgentWindowsKeyFilePath
 
 		// We can only have a single agent authentication mechanism specified at a given time

@@ -69,6 +69,7 @@ const (
 	LogFileMongoDBEnv                = "MDB_LOG_FILE_MONGODB"
 	LogFileAgentMonitoringEnv        = "MDB_LOG_FILE_MONITORING_AGENT"
 	LogFileAgentBackupEnv            = "MDB_LOG_FILE_BACKUP_AGENT"
+	DownloadBaseEnv                  = "MMS_DOWNLOAD_BASE"
 )
 
 type StsType int
@@ -134,6 +135,8 @@ type DatabaseStatefulSetOptions struct {
 
 	AgentDebug      bool
 	AgentDebugImage string
+
+	DownloadBase string
 }
 
 func (d DatabaseStatefulSetOptions) IsMongos() bool {
@@ -158,6 +161,8 @@ type databaseStatefulSetSource interface {
 	GetPrometheus() *mdbcv1.Prometheus
 
 	GetAnnotations() map[string]string
+
+	GetDownloadBase() string
 }
 
 // StandaloneOptions returns a set of options which will configure a Standalone StatefulSet
@@ -212,6 +217,7 @@ func ReplicaSetOptions(additionalOpts ...func(options *DatabaseStatefulSetOption
 			Labels:                  mdb.Labels,
 			MultiClusterMode:        mdb.Spec.IsMultiCluster(),
 			StsType:                 ReplicaSet,
+			DownloadBase:            mdb.Spec.GetDownloadBase(),
 		}
 
 		if mdb.Spec.DbCommonSpec.GetExternalDomain() != nil {
@@ -714,7 +720,7 @@ func getVolumesAndVolumeMounts(mdb databaseStatefulSetSource, databaseOpts Datab
 		volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(AgentAPIKeyVolumeName, AgentAPIKeySecretPath))
 	}
 
-	volumesToAdd, volumeMounts = GetNonPersistentAgentVolumeMounts(volumesToAdd, volumeMounts)
+	volumesToAdd, volumeMounts = GetNonPersistentAgentVolumeMounts(volumesToAdd, volumeMounts, databaseOpts.DownloadBase)
 
 	return volumesToAdd, volumeMounts
 }
@@ -763,12 +769,14 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 		container.WithResourceRequirements(buildRequirementsFromPodSpec(*opts.PodSpec)),
 		container.WithImage(opts.MongodbImage),
 		container.WithEnvs(databaseEnvVars(opts)...),
+		//container.WithEnvs(logConfigurationToEnvVars(opts.AgentConfig.StartupParameters, opts.AdditionalMongodConfig)...),
 		container.WithCommand([]string{"bash", "-c", "tail -F -n0 ${MDB_LOG_FILE_MONGODB} mongodb_marker"}),
 		configureContainerSecurityContext,
 	)}
 
 	agentUtilitiesHolderModifications := []func(*corev1.Container){container.Apply(
 		container.WithName(util.AgentContainerUtilitiesName),
+		container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.AutomationAgentImagePullPolicy))),
 		container.WithArgs([]string{""}),
 		container.WithImage(opts.InitDatabaseImage),
 		container.WithEnvs(databaseEnvVars(opts)...),
@@ -955,6 +963,7 @@ func staticContainersEnvVars(mdb databaseStatefulSetSource) []corev1.EnvVar {
 	var envVars []corev1.EnvVar
 	if architectures.IsRunningStaticArchitecture(mdb.GetAnnotations()) {
 		envVars = append(envVars, corev1.EnvVar{Name: "MDB_STATIC_CONTAINERS_ARCHITECTURE", Value: "true"})
+		envVars = append(envVars, corev1.EnvVar{Name: DownloadBaseEnv, Value: mdb.GetDownloadBase()})
 	}
 	return envVars
 }
@@ -1132,12 +1141,12 @@ func GetNonPersistentMongoDBVolumeMounts(volumes []corev1.Volume, volumeMounts [
 }
 
 // GetNonPersistentAgentVolumeMounts returns two arrays of non-persistent, empty volumes and corresponding mounts for the Agent container.
-func GetNonPersistentAgentVolumeMounts(volumes []corev1.Volume, volumeMounts []corev1.VolumeMount) ([]corev1.Volume, []corev1.VolumeMount) {
+func GetNonPersistentAgentVolumeMounts(volumes []corev1.Volume, volumeMounts []corev1.VolumeMount, downloadBase string) ([]corev1.Volume, []corev1.VolumeMount) {
 	volumes = append(volumes, statefulset.CreateVolumeFromEmptyDir(util.PvMms))
 
 	// The agent reads and writes into its own directory. It also contains a subdirectory called downloads.
 	// This one is published by the Dockerfile
-	volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.PvMms, util.PvcMmsMountPath, statefulset.WithSubPath(util.PvcMms)))
+	volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.PvMms, downloadBase, statefulset.WithSubPath(util.PvcMms)))
 
 	// Runtime data for MMS
 	volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.PvMms, util.PvcMmsHomeMountPath, statefulset.WithSubPath(util.PvcMmsHome)))

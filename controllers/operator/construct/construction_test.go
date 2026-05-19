@@ -81,7 +81,7 @@ func TestBuildStatefulSet_PersistentVolumeClaimSingle(t *testing.T) {
 	checkMounts(t, set, []corev1.VolumeMount{
 		{Name: util.PvMms, MountPath: util.PvcMmsHomeMountPath, SubPath: util.PvcMmsHome},
 		{Name: util.PvMms, MountPath: util.PvcMountPathTmp, SubPath: util.PvcNameTmp},
-		{Name: util.PvMms, MountPath: util.PvcMmsMountPath, SubPath: util.PvcMms},
+		{Name: util.PvMms, MountPath: util.DefaultPvcMmsMountPath, SubPath: util.PvcMms},
 		{Name: AgentAPIKeyVolumeName, MountPath: AgentAPIKeySecretPath},
 		{Name: util.PvcNameData, MountPath: util.PvcMountPathData, SubPath: util.PvcNameData},
 		{Name: util.PvcNameData, MountPath: util.PvcMountPathJournal, SubPath: util.PvcNameJournal},
@@ -106,7 +106,7 @@ func TestBuildStatefulSet_PersistentVolumeClaimSingleStatic(t *testing.T) {
 	checkMounts(t, set, []corev1.VolumeMount{
 		{Name: util.PvMms, MountPath: util.PvcMmsHomeMountPath, SubPath: util.PvcMmsHome},
 		{Name: util.PvMms, MountPath: util.PvcMountPathTmp, SubPath: util.PvcNameTmp},
-		{Name: util.PvMms, MountPath: util.PvcMmsMountPath, SubPath: util.PvcMms},
+		{Name: util.PvMms, MountPath: util.DefaultPvcMmsMountPath, SubPath: util.PvcMms},
 		{Name: AgentAPIKeyVolumeName, MountPath: AgentAPIKeySecretPath},
 		{Name: util.PvcNameData, MountPath: util.PvcMountPathData, SubPath: util.PvcNameData},
 		{Name: util.PvcNameData, MountPath: util.PvcMountPathJournal, SubPath: util.PvcNameJournal},
@@ -138,7 +138,7 @@ func TestBuildStatefulSet_PersistentVolumeClaimMultiple(t *testing.T) {
 	checkMounts(t, set, []corev1.VolumeMount{
 		{Name: util.PvMms, MountPath: util.PvcMmsHomeMountPath, SubPath: util.PvcMmsHome},
 		{Name: util.PvMms, MountPath: util.PvcMountPathTmp, SubPath: util.PvcNameTmp},
-		{Name: util.PvMms, MountPath: util.PvcMmsMountPath, SubPath: util.PvcMms},
+		{Name: util.PvMms, MountPath: util.DefaultPvcMmsMountPath, SubPath: util.PvcMms},
 		{Name: AgentAPIKeyVolumeName, MountPath: AgentAPIKeySecretPath},
 		{Name: util.PvcNameData, MountPath: util.PvcMountPathData},
 		{Name: PvcNameDatabaseScripts, MountPath: PvcMountPathScripts, ReadOnly: true},
@@ -167,7 +167,7 @@ func TestBuildStatefulSet_PersistentVolumeClaimMultipleDefaults(t *testing.T) {
 	checkMounts(t, set, []corev1.VolumeMount{
 		{Name: util.PvMms, MountPath: util.PvcMmsHomeMountPath, SubPath: util.PvcMmsHome},
 		{Name: util.PvMms, MountPath: util.PvcMountPathTmp, SubPath: util.PvcNameTmp},
-		{Name: util.PvMms, MountPath: util.PvcMmsMountPath, SubPath: util.PvcMms},
+		{Name: util.PvMms, MountPath: util.DefaultPvcMmsMountPath, SubPath: util.PvcMms},
 		{Name: AgentAPIKeyVolumeName, MountPath: AgentAPIKeySecretPath},
 		{Name: util.PvcNameData, MountPath: util.PvcMountPathData},
 		{Name: PvcNameDatabaseScripts, MountPath: PvcMountPathScripts, ReadOnly: true},
