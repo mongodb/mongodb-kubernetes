@@ -75,19 +75,16 @@ screen -dmS ssh-agent-proxy bash -c '
     done
 '
 
-# Best-effort registration with the host kube-forwarding-proxy. If the host
-# kfp isn't running (or the host-variant kubeconfig hasn't been generated
-# yet) we silently skip — this hook is non-fatal by design. current.kubeconfig
-# IS the host variant (proxy-url 127.0.0.1:${MCK_DEVC_PROXY_PORT}); the
-# current.devc.kubeconfig sibling is for in-container use.
+# Best-effort registration with the host kube-forwarding-proxy. Routed through
+# wt-ctl so the cluster/context/user names get suffixed with the worktree's
+# MCK_DEVC_PROXY_PORT in-flight — without this, every devc start would
+# overwrite peer worktrees' entries on the shared launchd daemon.
 host_kubeconfig=/workspace/.generated/current.kubeconfig
 if [[ -s "${host_kubeconfig}" ]]; then
-  curl --max-time 2 -fsS -X PATCH \
-    -H 'Content-Type: application/yaml' \
-    --data-binary @"${host_kubeconfig}" \
-    "http://host.docker.internal:11616/kubeconfig" \
-    && echo "registered with host kfp on 127.0.0.1:11616" \
-    || echo "host kfp not reachable on 127.0.0.1:11616; skipping registration"
+  /workspace/scripts/dev/wt-ctl --quiet kfp register \
+    --url http://host.docker.internal:11616 \
+    --kubeconfig "${host_kubeconfig}" \
+    || echo "host kfp register failed (non-fatal); kubectl through proxy-url still works locally."
 else
   echo "no .generated/current.kubeconfig yet; skipping host kfp registration"
 fi
