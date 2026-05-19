@@ -304,7 +304,6 @@ func newTestShardUnit(search *searchv1.MongoDBSearch, shardName string) reconcil
 		configMapName:       search.MongotConfigMapForShard(shardName),
 		podLabels:           map[string]string{appLabelKey: stsName.Name, shardLabelKey: shardName},
 		additionalSvcLabels: map[string]string{shardLabelKey: shardName},
-		publishNotReady:     true,
 	}
 }
 
@@ -1308,6 +1307,7 @@ func TestBuildShardSearchHeadlessService(t *testing.T) {
 	assert.Equal(t, "test", svc.Namespace)
 	assert.Equal(t, corev1.ClusterIPNone, svc.Spec.ClusterIP)
 	assert.Equal(t, corev1.ServiceTypeClusterIP, svc.Spec.Type)
+	assert.False(t, svc.Spec.PublishNotReadyAddresses)
 
 	// Check selector points to the shard StatefulSet
 	assert.Equal(t, "test-search-search-0-my-cluster-0", svc.Spec.Selector["app"])
