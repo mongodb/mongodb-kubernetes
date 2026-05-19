@@ -7,11 +7,13 @@ import (
 
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
+	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
@@ -39,6 +41,40 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 )
+
+// MongoDBUserMongoDBResourceRefIndex is a field-indexer key registered on
+// MongoDBUser. It maps each user to "<namespace>/<name>" of its referenced
+// MongoDB or MongoDBMultiCluster, so MDB-CR change events can enqueue all
+// users that reference the changed resource.
+const MongoDBUserMongoDBResourceRefIndex = "mongodbuser-for-mongodbresourceref-index"
+
+func mdbUserIndexBuilder(rawObj client.Object) []string {
+	user := rawObj.(*userv1.MongoDBUser)
+	if user.Spec.MongoDBResourceRef.Name == "" {
+		return nil
+	}
+	ns := user.Spec.MongoDBResourceRef.Namespace
+	if ns == "" {
+		ns = user.Namespace
+	}
+	return []string{ns + "/" + user.Spec.MongoDBResourceRef.Name}
+}
+
+// enqueueUsersForMongoDBRef returns reconcile requests for every
+// MongoDBUser whose MongoDBResourceRef points to ns/name.
+func enqueueUsersForMongoDBRef(ctx context.Context, c client.Client, ns, name string) []reconcile.Request {
+	userList := &userv1.MongoDBUserList{}
+	if err := c.List(ctx, userList, &client.ListOptions{
+		FieldSelector: fields.OneTermEqualSelector(MongoDBUserMongoDBResourceRefIndex, ns+"/"+name),
+	}); err != nil {
+		return nil
+	}
+	reqs := make([]reconcile.Request, 0, len(userList.Items))
+	for _, u := range userList.Items {
+		reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: u.Namespace, Name: u.Name}})
+	}
+	return reqs
+}
 
 type MongoDBUserReconciler struct {
 	*ReconcileCommonController
@@ -115,16 +151,23 @@ func (r *MongoDBUserReconciler) getMongoDBConnectionBuilder(ctx context.Context,
 	// Try single cluster, sharded single/multi-cluster resource
 	mdb := &mdbv1.MongoDB{}
 	if err := r.client.Get(ctx, name, mdb); err == nil {
-		hostnames := make([]string, 0)
+		var hostnames []string
 		if mdb.IsShardedCluster() {
 			hostnames, err = r.getShardedClusterHostnames(ctx, mdb)
 			if err != nil {
 				return nil, xerrors.Errorf("failed to get hostnames for sharded cluster: %w", err)
 			}
+		} else if mdb.IsReplicaSet() {
+			hostnames = mdb.GetRSHostnamesAndPorts()
 		}
 
-		builder := mdbv1.NewMongoDBConnectionStringBuilder(*mdb, hostnames)
+		extHostnames, err := mdb.GetExternalMembersHostnames()
+		if err != nil {
+			return nil, xerrors.Errorf("failed to get hostnames: %w", err)
+		}
+		hostnames = append(hostnames, extHostnames...)
 
+		builder := mdbv1.NewMongoDBConnectionStringBuilder(*mdb, hostnames)
 		return builder, nil
 	}
 
@@ -304,6 +347,11 @@ func (r *MongoDBUserReconciler) updateConnectionStringSecret(ctx context.Context
 
 func AddMongoDBUserController(ctx context.Context, mgr manager.Manager, memberClustersMap map[string]cluster.Cluster, backupEnableDelay time.Duration) error {
 	reconciler := newMongoDBUserReconciler(ctx, mgr.GetClient(), om.NewOpsManagerConnection, multicluster.ClustersMapToClientMap(memberClustersMap), backupEnableDelay)
+
+	if err := mgr.GetFieldIndexer().IndexField(ctx, &userv1.MongoDBUser{}, MongoDBUserMongoDBResourceRefIndex, mdbUserIndexBuilder); err != nil {
+		return err
+	}
+
 	c, err := controller.New(util.MongoDbUserController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)}) // nolint:forbidigo
 	if err != nil {
 		return err
@@ -324,6 +372,25 @@ func AddMongoDBUserController(ctx context.Context, mgr manager.Manager, memberCl
 	// watch for changes to MongoDBUser resources
 	eventHandler := MongoDBUserEventHandler{reconciler: reconciler}
 	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &userv1.MongoDBUser{}, &eventHandler, watch.PredicatesForUser()))
+	if err != nil {
+		return err
+	}
+
+	// MongoDB CR changes (members scale, externalMembers edits) → re-render
+	// the connection string secret of every user that references it.
+	err = c.Watch(source.Kind(mgr.GetCache(), &mdbv1.MongoDB{},
+		handler.TypedEnqueueRequestsFromMapFunc(func(ctx context.Context, mdb *mdbv1.MongoDB) []reconcile.Request {
+			return enqueueUsersForMongoDBRef(ctx, mgr.GetClient(), mdb.Namespace, mdb.Name)
+		})))
+	if err != nil {
+		return err
+	}
+
+	// MongoDBMultiCluster CR changes (member scale across clusters) → same.
+	err = c.Watch(source.Kind(mgr.GetCache(), &mdbmulti.MongoDBMultiCluster{},
+		handler.TypedEnqueueRequestsFromMapFunc(func(ctx context.Context, mdbm *mdbmulti.MongoDBMultiCluster) []reconcile.Request {
+			return enqueueUsersForMongoDBRef(ctx, mgr.GetClient(), mdbm.Namespace, mdbm.Name)
+		})))
 	if err != nil {
 		return err
 	}
