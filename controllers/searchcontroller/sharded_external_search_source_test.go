@@ -23,7 +23,6 @@ func newExternalShardedConfig(routerHosts []string, shards []searchv1.ExternalSh
 	}
 }
 
-
 func TestShardedExternalSearchSource_Validate(t *testing.T) {
 	cases := []struct {
 		name           string
