@@ -8,7 +8,7 @@ from kubetester.certs import create_agent_tls_certs, create_mongodb_tls_certs, c
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as _fixture
 from kubetester.mongodb import MongoDB
-from kubetester.mongotester import ReplicaSetTester
+from kubetester.mongotester import MongoTester, ReplicaSetTester, with_x509
 from kubetester.operator import Operator
 from kubetester.phase import Phase
 
@@ -120,3 +120,19 @@ def test_x509_connection_string_secret_has_external_authsource(namespace: str):
     assert "connectionString.standardSrv" in secret
     assert "authSource=$external" in secret["connectionString.standard"]
     assert "authSource=$external" in secret["connectionString.standardSrv"]
+
+
+@pytest.mark.e2e_tls_x509_user_connectivity
+def test_x509_connection_string_secret_can_connect(namespace: str, issuer: str, ca_path: str):
+    secret_name = f"{MDB_RESOURCE}-test-x509-user-external"
+    secret: Dict[str, str] = read_secret(namespace, secret_name)
+    cert_file = tempfile.NamedTemporaryFile(delete=False, mode="w")
+    try:
+        create_x509_user_cert(issuer, namespace, path=cert_file.name)
+        MongoTester(
+            secret["connectionString.standard"],
+            use_ssl=True,
+            ca_path=ca_path,
+        ).assert_connectivity(opts=[with_x509(cert_file.name, ca_path)])
+    finally:
+        cert_file.close()
