@@ -18,6 +18,7 @@ type MonitoringAgentTemplate struct {
 	SSLPemKeyFile string                                `json:"sslPEMKeyFile,omitempty"`
 	LdapGroupDN   string                                `json:"ldapGroupDN,omitempty"`
 	LogRotate     mdbv1.LogRotateForBackupAndMonitoring `json:"logRotate,omitempty"`
+	LogPath       string                                `json:"logPath,omitempty"`
 }
 
 func (m *MonitoringAgentConfig) Apply() error {
@@ -77,6 +78,10 @@ func (m *MonitoringAgentConfig) UnsetLdapGroupDN() {
 
 func (m *MonitoringAgentConfig) SetLogRotate(logRotateConfig mdbv1.LogRotateForBackupAndMonitoring) {
 	m.MonitoringAgentTemplate.LogRotate = logRotateConfig
+}
+
+func (m *MonitoringAgentConfig) SetLogPath(logPath string) {
+	m.MonitoringAgentTemplate.LogPath = logPath
 }
 
 func BuildMonitoringAgentConfigFromBytes(jsonBytes []byte) (*MonitoringAgentConfig, error) {

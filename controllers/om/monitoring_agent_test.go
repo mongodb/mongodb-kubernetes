@@ -41,6 +41,16 @@ func TestFieldsAreAddedToMonitoringConfig(t *testing.T) {
 	assert.Equal(t, modified["username"], "my-user-name")
 }
 
+func TestSetLogPathMonitoringConfig(t *testing.T) {
+	config := getTestMonitoringConfig()
+	config.SetLogPath("/custom/path/monitoring-agent.log")
+
+	err := config.Apply()
+	assert.NoError(t, err)
+
+	assert.Equal(t, "/custom/path/monitoring-agent.log", config.BackingMap["logPath"])
+}
+
 func TestFieldsAreNotRemovedWhenUpdatingMonitoringConfig(t *testing.T) {
 	config := getTestMonitoringConfig()
 	config.MonitoringAgentTemplate.SSLPemKeyFile = "my-pem-file"

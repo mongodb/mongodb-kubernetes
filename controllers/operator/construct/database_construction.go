@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
 
 	"go.uber.org/zap"
 	"k8s.io/utils/ptr"
@@ -454,6 +455,11 @@ func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource
 		volumes, volumeMounts = GetNonPersistentMongoDBVolumeMounts(volumes, volumeMounts)
 	}
 
+	// Run after persistence mounts so /data, /journal and the standard logs mount are visible to the overlap check.
+	customLogVolumes, customLogVolumeMounts := getCustomLogVolumeMounts(opts.AgentConfig, volumeMounts)
+	volumes = append(volumes, customLogVolumes...)
+	volumeMounts = append(volumeMounts, customLogVolumeMounts...)
+
 	volumesFunc := func(spec *corev1.PodTemplateSpec) {
 		for _, v := range volumes {
 			podtemplatespec.WithVolume(v)(spec)
@@ -719,6 +725,47 @@ func getVolumesAndVolumeMounts(mdb databaseStatefulSetSource, databaseOpts Datab
 	return volumesToAdd, volumeMounts
 }
 
+// getCustomLogVolumeMounts provisions emptyDir volumes for agent log paths whose
+// parent dir isn't already covered by an existing operator-managed volume mount.
+// When both agents share a parent dir, a single shared volume is used.
+func getCustomLogVolumeMounts(agentConfig *mdbv1.AgentConfig, existingMounts []corev1.VolumeMount) ([]corev1.Volume, []corev1.VolumeMount) {
+	if agentConfig == nil {
+		return nil, nil
+	}
+
+	monitoringDir := customLogDir(agentConfig.MonitoringAgent.GetLogFilePath(), existingMounts)
+	backupDir := customLogDir(agentConfig.BackupAgent.GetLogFilePath(), existingMounts)
+
+	if monitoringDir != "" && monitoringDir == backupDir {
+		return []corev1.Volume{statefulset.CreateVolumeFromEmptyDir("agent-logs")},
+			[]corev1.VolumeMount{statefulset.CreateVolumeMount("agent-logs", monitoringDir)}
+	}
+
+	var volumes []corev1.Volume
+	var mounts []corev1.VolumeMount
+	if monitoringDir != "" {
+		volumes = append(volumes, statefulset.CreateVolumeFromEmptyDir("monitoring-agent-logs"))
+		mounts = append(mounts, statefulset.CreateVolumeMount("monitoring-agent-logs", monitoringDir))
+	}
+	if backupDir != "" {
+		volumes = append(volumes, statefulset.CreateVolumeFromEmptyDir("backup-agent-logs"))
+		mounts = append(mounts, statefulset.CreateVolumeMount("backup-agent-logs", backupDir))
+	}
+	return volumes, mounts
+}
+
+// customLogDir returns the parent dir of logFilePath, or "" when that dir is
+// already covered by an existing operator-managed volume mount.
+func customLogDir(logFilePath string, existingMounts []corev1.VolumeMount) string {
+	dir := path.Dir(logFilePath)
+	for _, vm := range existingMounts {
+		if dir == vm.MountPath || strings.HasPrefix(dir, vm.MountPath+"/") {
+			return ""
+		}
+	}
+	return dir
+}
+
 // buildMongoDBPodTemplateSpec constructs the podTemplateSpec for the MongoDB resource
 func buildMongoDBPodTemplateSpec(opts DatabaseStatefulSetOptions, mdb databaseStatefulSetSource) podtemplatespec.Modification {
 	var modifications podtemplatespec.Modification
@@ -750,7 +797,7 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 		container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.AutomationAgentImagePullPolicy))), // nolint:forbidigo
 		container.WithLivenessProbe(DatabaseLivenessProbe()),
 		container.WithEnvs(startupParametersToAgentFlag(opts.AgentConfig.StartupParameters)),
-		container.WithEnvs(logConfigurationToEnvVars(opts.AgentConfig.StartupParameters, opts.AdditionalMongodConfig)...),
+		container.WithEnvs(logConfigurationToEnvVars(opts.AgentConfig, opts.AdditionalMongodConfig)...),
 		container.WithEnvs(staticContainersEnvVars(mdb)...),
 		container.WithEnvs(readinessEnvironmentVariablesToEnvVars(opts.AgentConfig.ReadinessProbe.EnvironmentVariables)...),
 		container.WithCommand([]string{"/usr/local/bin/agent-launcher-shim.sh"}),
@@ -822,7 +869,7 @@ func buildNonStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, 
 		container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.AutomationAgentImagePullPolicy))), // nolint:forbidigo
 		container.WithLivenessProbe(DatabaseLivenessProbe()),
 		container.WithEnvs(startupParametersToAgentFlag(opts.AgentConfig.StartupParameters)),
-		container.WithEnvs(logConfigurationToEnvVars(opts.AgentConfig.StartupParameters, opts.AdditionalMongodConfig)...),
+		container.WithEnvs(logConfigurationToEnvVars(opts.AgentConfig, opts.AdditionalMongodConfig)...),
 		container.WithEnvs(staticContainersEnvVars(mdb)...),
 		container.WithEnvs(readinessEnvironmentVariablesToEnvVars(opts.AgentConfig.ReadinessProbe.EnvironmentVariables)...),
 	)}
@@ -938,15 +985,14 @@ func defaultAgentParameters() mdbv1.StartupParameters {
 	return map[string]string{"logFile": path.Join(util.PvcMountPathLogs, "automation-agent.log")}
 }
 
-func logConfigurationToEnvVars(parameters mdbv1.StartupParameters, additionalMongodConfig *mdbv1.AdditionalMongodConfig) []corev1.EnvVar {
+func logConfigurationToEnvVars(agentConfig *mdbv1.AgentConfig, additionalMongodConfig *mdbv1.AdditionalMongodConfig) []corev1.EnvVar {
 	var envVars []corev1.EnvVar
-	envVars = append(envVars, getAutomationLogEnvVars(parameters)...)
+	envVars = append(envVars, getAutomationLogEnvVars(agentConfig.StartupParameters)...)
 	envVars = append(envVars, getAuditLogEnvVar(additionalMongodConfig))
 
-	// the following are hardcoded log files where we don't support changing the names
 	envVars = append(envVars, corev1.EnvVar{Name: LogFileMongoDBEnv, Value: path.Join(util.PvcMountPathLogs, "mongodb.log")})
-	envVars = append(envVars, corev1.EnvVar{Name: LogFileAgentMonitoringEnv, Value: path.Join(util.PvcMountPathLogs, "monitoring-agent.log")})
-	envVars = append(envVars, corev1.EnvVar{Name: LogFileAgentBackupEnv, Value: path.Join(util.PvcMountPathLogs, "backup-agent.log")})
+	envVars = append(envVars, corev1.EnvVar{Name: LogFileAgentMonitoringEnv, Value: agentConfig.MonitoringAgent.GetLogFilePath()})
+	envVars = append(envVars, corev1.EnvVar{Name: LogFileAgentBackupEnv, Value: agentConfig.BackupAgent.GetLogFilePath()})
 
 	return envVars
 }

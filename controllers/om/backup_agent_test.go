@@ -67,6 +67,16 @@ func TestNestedFieldsAreNotLost(t *testing.T) {
 	assert.Equal(t, linuxUrls["ppc64le_ubuntu1604"], testUrls["ppc64le_ubuntu1604"])
 }
 
+func TestSetLogPathBackupConfig(t *testing.T) {
+	config := getTestBackupConfig()
+	config.SetLogPath("/custom/path/backup-agent.log")
+
+	err := config.Apply()
+	assert.NoError(t, err)
+
+	assert.Equal(t, "/custom/path/backup-agent.log", config.BackingMap["logPath"])
+}
+
 func TestFieldsCanBeDeleted(t *testing.T) {
 	config := getTestBackupConfig()
 
