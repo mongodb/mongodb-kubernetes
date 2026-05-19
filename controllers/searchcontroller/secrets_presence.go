@@ -23,17 +23,9 @@ type SecretCheckResult struct {
 	Missing []string
 }
 
-// CheckSecretsPresence iterates the central cluster (always) plus every member cluster
-// and verifies that the customer-replicated secrets derived from search.Spec are
-// present. It only does Get; it never mutates any secret in any cluster.
-//
-// Returns one SecretCheckResult per cluster that has at least one missing secret;
-// clusters with no gaps are omitted. The returned slice is empty (or nil) if every
-// expected secret is present everywhere.
-//
-// members may be nil or empty for single-cluster installs; in that case only
-// central is checked. clusterMapping maps member cluster name → persisted index
-// used to address that cluster's per-shard TLS secrets; central uses index 0.
+// CheckSecretsPresence Gets each expected secret in central + every member cluster and reports gaps.
+// In MC mode central is checked for cluster-invariant secrets only; per-shard certs live where mongot
+// runs (member clusters at their persisted indices).
 func CheckSecretsPresence(
 	ctx context.Context,
 	search *searchv1.MongoDBSearch,
@@ -42,62 +34,59 @@ func CheckSecretsPresence(
 	clusterMapping map[string]int,
 ) []SecretCheckResult {
 	results := make([]SecretCheckResult, 0, len(members)+1)
-	check := func(clusterName string, c client.Client, clusterIndex int) {
-		expected := expectedSecretNamesForCluster(search, clusterIndex)
-		if len(expected) == 0 {
+	appendIfMissing := func(clusterName string, c client.Client, names []string) {
+		if len(names) == 0 {
 			return
 		}
-		if missing := missingSecretsIn(ctx, c, search.Namespace, expected); len(missing) > 0 {
+		if missing := missingSecretsIn(ctx, c, search.Namespace, names); len(missing) > 0 {
 			results = append(results, SecretCheckResult{Cluster: clusterName, Missing: missing})
 		}
 	}
-	check("", central, 0)
+
+	if len(members) == 0 {
+		appendIfMissing("", central, expectedSecretNamesForCluster(search, 0))
+		return results
+	}
+
+	appendIfMissing("", central, expectedClusterInvariantSecretNames(search))
 	for name, c := range members {
-		check(name, c, clusterMapping[name])
+		appendIfMissing(name, c, expectedSecretNamesForCluster(search, clusterMapping[name]))
 	}
 	return results
 }
 
-// expectedSecretNamesForCluster returns the deduplicated, sorted list of secret
-// names the customer is expected to have in the given cluster's namespace.
-// Per-shard TLS cert names are scoped to clusterIndex; all other names are
-// cluster-invariant.
 func expectedSecretNamesForCluster(search *searchv1.MongoDBSearch, clusterIndex int) []string {
-	var names []string
+	names := expectedClusterInvariantSecretNames(search)
+	if search.Spec.Security.TLS != nil && search.IsExternalSourceSharded() {
+		for _, shard := range search.Spec.Source.ExternalMongoDBSource.ShardedCluster.Shards {
+			names = append(names, search.TLSSecretForClusterShard(clusterIndex, shard.ShardName).Name)
+		}
+	}
+	slices.Sort(names)
+	return slices.Compact(names)
+}
 
-	// Sync-source password — always required when a password ref is configured.
+func expectedClusterInvariantSecretNames(search *searchv1.MongoDBSearch) []string {
+	var names []string
 	if ref := search.SourceUserPasswordSecretRef(); ref != nil && ref.Name != "" {
 		names = append(names, ref.Name)
 	}
-
-	// External CA bundle — only required for external MongoDB sources.
 	if search.IsExternalMongoDBSource() {
 		ext := search.Spec.Source.ExternalMongoDBSource
 		if ext.TLS != nil && ext.TLS.CA != nil && ext.TLS.CA.Name != "" {
 			names = append(names, ext.TLS.CA.Name)
 		}
-		// Keyfile — sharded only.
 		if search.IsExternalSourceSharded() && ext.KeyFileSecretKeyRef != nil && ext.KeyFileSecretKeyRef.Name != "" {
 			names = append(names, ext.KeyFileSecretKeyRef.Name)
 		}
 	}
-
-	// mongot server TLS cert per unit (single RS or per shard) + Envoy server TLS cert.
-	if search.Spec.Security.TLS != nil {
-		if search.IsExternalSourceSharded() {
-			for _, shard := range search.Spec.Source.ExternalMongoDBSource.ShardedCluster.Shards {
-				names = append(names, search.TLSSecretForClusterShard(clusterIndex, shard.ShardName).Name)
-			}
-		} else {
-			names = append(names, search.TLSSecretNamespacedName().Name)
-		}
+	// RS source TLS cert name is cluster-invariant; per-shard sharded certs handled by the caller.
+	if search.Spec.Security.TLS != nil && !search.IsExternalSourceSharded() {
+		names = append(names, search.TLSSecretNamespacedName().Name)
 	}
-
-	// x509 client cert — only when x509 auth is configured.
 	if search.IsX509Auth() {
 		names = append(names, search.X509ClientCertSecret().Name)
 	}
-
 	slices.Sort(names)
 	return slices.Compact(names)
 }
