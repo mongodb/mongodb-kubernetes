@@ -870,6 +870,7 @@ func checkReconcileSuccessful(ctx context.Context, t *testing.T, reconciler reco
 	// fields common to all resource types
 	assert.Equal(t, object.Spec.Version, object.Status.Version)
 	assert.Equal(t, expectedLink, object.Status.Link)
+	assert.Equal(t, om.TestGroupID, object.Status.ProjectId)
 	assert.NotNil(t, object.Status.LastTransition)
 	assert.NotEqual(t, object.Status.LastTransition, "")
 

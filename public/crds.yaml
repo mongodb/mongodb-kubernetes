@@ -2776,6 +2776,8 @@ spec:
                 type: integer
               phase:
                 type: string
+              projectId:
+                type: string
               pvc:
                 items:
                   properties:
@@ -4759,6 +4761,8 @@ spec:
                 type: string
               project:
                 type: string
+              projectId:
+                type: string
               pvc:
                 items:
                   properties:
@@ -6658,6 +6662,8 @@ spec:
                     format: int64
                     type: integer
                   phase:
+                    type: string
+                  projectId:
                     type: string
                   pvc:
                     items:

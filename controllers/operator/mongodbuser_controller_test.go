@@ -70,6 +70,9 @@ func TestUserIsAdded_ToAutomationConfig_OnSuccessfulReconciliation(t *testing.T)
 	assert.Equal(t, user.Spec.Username, createdUser.Username)
 	assert.Equal(t, user.Spec.Database, createdUser.Database)
 	assert.Equal(t, len(user.Spec.Roles), len(createdUser.Roles))
+
+	require.NoError(t, client.Get(ctx, kube.ObjectKey(user.Namespace, user.Name), user))
+	assert.Equal(t, om.TestGroupID, user.Status.ProjectId)
 }
 
 // Not making this (DeepCopy) a method of type AutomationConfig because I want to be

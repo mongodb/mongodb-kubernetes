@@ -895,6 +895,8 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 	if err != nil {
 		return r.updateStatus(ctx, sc, workflow.Failed(err), log)
 	}
+	// Set ProjectId directly so it is serialized by whichever subsequent updateStatus call fires first.
+	sc.Status.ProjectId = conn.GroupID()
 
 	if err := r.replicateAgentKeySecret(ctx, conn, agentAPIKey, log); err != nil {
 		return r.updateStatus(ctx, sc, workflow.Failed(err), log)
@@ -995,6 +997,7 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 	// We're also updating the shardCount here - it's the only place we're doing that.
 	return r.updateStatus(ctx, sc, workflowStatus, log,
 		mdbstatus.NewBaseUrlOption(deployment.Link(conn.BaseURL(), conn.GroupID())),
+		mdbstatus.NewProjectIdOption(conn.GroupID()),
 		mdbstatus.ShardedClusterSizeConfigOption{SizeConfig: sizeStatus},
 		mdbstatus.ShardedClusterSizeStatusInClustersOption{SizeConfigInClusters: sizeStatusInClusters},
 		mdbstatus.ShardedClusterMongodsPerShardCountOption{Members: r.sc.Spec.ShardCount},
