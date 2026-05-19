@@ -454,6 +454,15 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 	if podSpec != nil {
 		sts.Spec = merge.StatefulSetSpecs(sts.Spec, appsv1.StatefulSetSpec{Template: *podSpec})
 	}
+
+	// Apply per-cluster clusterSpecList[i].statefulSet override (KUBE-47).
+	// Anti-pattern: should be resolved in the controller and passed via StatefulSetSpecOverride (cf. OpsManager, Sharded).
+	if appDb.IsMultiCluster() {
+		clusterSpecItem := appDb.GetMemberClusterSpecByName(scaler.MemberClusterName())
+		if clusterSpecItem.StatefulSetConfiguration != nil {
+			sts.Spec = merge.StatefulSetSpecs(sts.Spec, clusterSpecItem.StatefulSetConfiguration.SpecWrapper.Spec)
+		}
+	}
 	return sts, nil
 }
 

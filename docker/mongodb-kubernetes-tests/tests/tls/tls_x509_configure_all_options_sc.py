@@ -22,9 +22,9 @@ def agent_certs(issuer: str, namespace: str) -> str:
 
 @fixture(scope="module")
 def server_certs(issuer: str, namespace: str):
-    shard_distribution = None
-    mongos_distribution = None
-    config_srv_distribution = None
+    shard_distribution: list[int | None] | None = None
+    mongos_distribution: list[int | None] | None = None
+    config_srv_distribution: list[int | None] | None = None
     if is_multi_cluster():
         shard_distribution = [1, 1, 1]
         mongos_distribution = [1, 1, 1]

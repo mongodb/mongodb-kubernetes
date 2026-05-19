@@ -66,7 +66,7 @@ func (u MongoDBUser) GetPassword(ctx context.Context, secretClient secrets.Secre
 
 	passwordBytes, passwordIsSet := secretData[u.Spec.PasswordSecretKeyRef.Key]
 	if !passwordIsSet {
-		return "", xerrors.Errorf("password is not set in password secret")
+		return "", xerrors.Errorf("passwordSecretKeyRef.key is not set in password secret %v", nsName)
 	}
 
 	return passwordBytes, nil

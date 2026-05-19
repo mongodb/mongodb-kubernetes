@@ -55,6 +55,11 @@ updates:
        - dependency-name: wrapt
          update-types:
           - version-update:semver-major
+      # needed to avoid breaking dependency requirements for chardet with requests
+      # https://github.com/psf/requests/commit/b2a1d33f571518ca9a6148e7da787cc5827f897a - if new request version is released, this can be removed and chardet can be updated to the latest version
+       - dependency-name: chardet
+         update-types:
+           - version-update:semver-major
     labels:
       - dependencies
       - python

@@ -109,7 +109,7 @@ def run_migration_dry_run_connectivity_passes(mdb: MongoDB, *, timeout: int = 60
     _assert_migration_status_after_dry_run_pass(mdb)
 
     mdb.load()
-    ann = mdb.backing_obj.get("metadata").get("annotations")
+    ann = mdb.backing_obj.get("metadata").get("annotations")  # ty : ignore[unresolved-attribute]
     if ann is not None and MIGRATION_DRY_RUN_ANNOTATION in ann:
         ann[MIGRATION_DRY_RUN_ANNOTATION] = None
         mdb.update()

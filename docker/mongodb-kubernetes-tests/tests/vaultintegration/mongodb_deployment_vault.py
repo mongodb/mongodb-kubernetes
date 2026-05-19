@@ -92,7 +92,7 @@ def agent_certs(issuer: str, namespace: str) -> str:
 
 @fixture(scope="module")
 def server_certs(vault_namespace: str, vault_name: str, namespace: str, issuer: str) -> str:
-    create_x509_mongodb_tls_certs(
+    return create_x509_mongodb_tls_certs(
         issuer,
         namespace,
         MDB_RESOURCE,
@@ -104,7 +104,7 @@ def server_certs(vault_namespace: str, vault_name: str, namespace: str, issuer: 
 
 @fixture(scope="module")
 def clusterfile_certs(vault_namespace: str, vault_name: str, namespace: str, issuer: str) -> str:
-    create_x509_mongodb_tls_certs(
+    return create_x509_mongodb_tls_certs(
         issuer,
         namespace,
         MDB_RESOURCE,
@@ -238,8 +238,8 @@ def test_enable_kubernetes_auth(vault_name: str, vault_namespace: str):
 
     response = run_command_in_vault(vault_namespace, vault_name, cmd, expected_message=[])
 
-    response = response.split("\n")
-    for line in response:
+    response_lines = response.split("\n")
+    for line in response_lines:
         l = line.strip()
         if str.startswith(l, "KUBERNETES_PORT_443_TCP_ADDR"):
             cluster_ip = l.split("=")[1]

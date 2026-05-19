@@ -109,14 +109,6 @@ tenant:
   features:
     bucketDNS: false
     domains: { }
-  ## List of bucket definitions to create during tenant provisioning.
-  ## Example:
-  #   - name: my-minio-bucket
-  #     objectLock: false        # optional
-  #     region: us-east-1        # optional
-  buckets:
-     - name: oplog-s3-bucket
-     - name: s3-store-bucket
 
   ## List of secret names to use for generating MinIO users during tenant provisioning
   users: [ ]
