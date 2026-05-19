@@ -96,7 +96,7 @@ def get_ecr_login_password(region: str) -> Optional[str]:
 
 
 def is_ecr_registry(image_name: str) -> bool:
-    return "amazonaws.com" in image_name
+    return image_name.split("/")[0].endswith(".amazonaws.com")
 
 
 def get_image_digest(image_name: str) -> Optional[str]:

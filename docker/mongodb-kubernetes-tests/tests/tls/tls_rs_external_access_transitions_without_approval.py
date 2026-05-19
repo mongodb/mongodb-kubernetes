@@ -71,7 +71,7 @@ class TestReplicaSetExternalAccessAddHorizons(KubernetesTester):
         serving the right certificates.
         """
         host = f"test-tls-base-rs-external-access-svc.{self.namespace}.svc"
-        assert any(san.endswith("test-website.com") for san in self.get_mongo_server_sans(host))
+        assert any(san.endswith("test-website.com") for san in self.get_mongo_server_sans(host))  # lgtm[py/incomplete-url-substring-sanitization]
 
 
 @pytest.mark.e2e_tls_rs_external_access_tls_transition_without_approval
