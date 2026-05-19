@@ -24,6 +24,7 @@ import (
 	hcmv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
 	tlsv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
 	upstreamhttpv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/upstreams/http/v3"
+	matcherv3 "github.com/envoyproxy/go-control-plane/envoy/type/matcher/v3"
 )
 
 // buildEnvoyConfigJSON builds the Envoy bootstrap configuration using
@@ -93,6 +94,12 @@ func buildEnvoyBootstrapConfig(routes []envoyRoute, tlsEnabled bool, caKeyName s
 	return &bootstrapv3.Bootstrap{
 		Admin: &bootstrapv3.Admin{
 			Address: socketAddress("0.0.0.0", uint32(envoyAdminPort)),
+			// enable just some endpoints because it's recommended to not enable al the admin endpoints by default
+			AllowPaths: []*matcherv3.StringMatcher{
+				{MatchPattern: &matcherv3.StringMatcher_Exact{Exact: "/ready"}},
+				{MatchPattern: &matcherv3.StringMatcher_Prefix{Prefix: "/stats"}},
+				{MatchPattern: &matcherv3.StringMatcher_Exact{Exact: "/drain_listeners"}},
+			},
 		},
 		StaticResources: &bootstrapv3.Bootstrap_StaticResources{
 			Listeners: []*listenerv3.Listener{
