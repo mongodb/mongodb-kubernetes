@@ -129,10 +129,16 @@ def test_x509_connection_string_secret_can_connect(namespace: str, issuer: str, 
     cert_file = tempfile.NamedTemporaryFile(delete=False, mode="w")
     try:
         create_x509_user_cert(issuer, namespace, path=cert_file.name)
+        x509_opts = with_x509(cert_file.name, ca_path)
         MongoTester(
             secret["connectionString.standard"],
             use_ssl=True,
             ca_path=ca_path,
-        ).assert_connectivity(opts=[with_x509(cert_file.name, ca_path)])
+        ).assert_connectivity(opts=[x509_opts])
+        MongoTester(
+            secret["connectionString.standardSrv"],
+            use_ssl=True,
+            ca_path=ca_path,
+        ).assert_connectivity(opts=[x509_opts])
     finally:
         cert_file.close()

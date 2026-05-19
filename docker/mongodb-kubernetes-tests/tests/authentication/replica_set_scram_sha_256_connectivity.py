@@ -200,19 +200,16 @@ def test_non_admin_db_credentials_secret_is_created(replica_set: MongoDB, non_ad
 
 @mark.e2e_replica_set_scram_sha_256_user_connectivity
 def test_credentials_can_connect_to_db(replica_set: MongoDB, standard_secret: Dict[str, str]):
-    print("Connecting with {}".format(standard_secret["connectionString.standard"]))
     replica_set.assert_connectivity_from_connection_string(standard_secret["connectionString.standard"], tls=False)
 
 
 @mark.e2e_replica_set_scram_sha_256_user_connectivity
 def test_credentials_can_connect_to_db_with_srv(replica_set: MongoDB, standard_secret: Dict[str, str]):
-    print("Connecting with {}".format(standard_secret["connectionString.standardSrv"]))
     replica_set.assert_connectivity_from_connection_string(standard_secret["connectionString.standardSrv"], tls=False)
 
 
 @mark.e2e_replica_set_scram_sha_256_user_connectivity
 def test_non_admin_credentials_can_connect_to_db(replica_set: MongoDB, non_admin_standard_secret: Dict[str, str]):
-    print("Connecting with {}".format(non_admin_standard_secret["connectionString.standard"]))
     replica_set.assert_connectivity_from_connection_string(
         non_admin_standard_secret["connectionString.standard"], tls=False
     )
@@ -222,7 +219,6 @@ def test_non_admin_credentials_can_connect_to_db(replica_set: MongoDB, non_admin
 def test_non_admin_credentials_can_connect_to_db_with_srv(
     replica_set: MongoDB, non_admin_standard_secret: Dict[str, str]
 ):
-    print("Connecting with {}".format(non_admin_standard_secret["connectionString.standardSrv"]))
     replica_set.assert_connectivity_from_connection_string(
         non_admin_standard_secret["connectionString.standardSrv"], tls=False
     )
@@ -241,12 +237,9 @@ def test_update_user_with_connection_string_secret(scram_user: MongoDBUser):
 def test_credentials_can_connect_to_db_with_connection_string_secret(
     replica_set: MongoDB, connection_string_secret: Dict[str, str]
 ):
-    print("Connecting with {}".format(connection_string_secret["connectionString.standard"]))
     replica_set.assert_connectivity_from_connection_string(
         connection_string_secret["connectionString.standard"], tls=False
     )
-
-    print("Connecting with {}".format(connection_string_secret["connectionString.standardSrv"]))
     replica_set.assert_connectivity_from_connection_string(
         connection_string_secret["connectionString.standardSrv"], tls=False
     )
