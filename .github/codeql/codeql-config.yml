@@ -1,0 +1,7 @@
+name: "CodeQL config"
+
+paths-ignore:
+  - docker/mongodb-kubernetes-tests
+  - "**/test/**"
+  - "**/tests/**"
+  - "**/*_test.go"
