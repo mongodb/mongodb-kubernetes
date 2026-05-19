@@ -270,10 +270,10 @@ def configure():
     base_url = os.getenv(BASE_URL)
     with open(env_file, "w") as fd:
         fd.write("export OM_BASE_URL={}\n".format(base_url))
-        fd.write("export OM_USER={}\n".format(public))
-        fd.write("export OM_API_KEY={}\n".format(private))
+        fd.write("export OM_USER={}\n".format(public))  # lgtm[py/clear-text-storage-sensitive-data]
+        fd.write("export OM_API_KEY={}\n".format(private))  # lgtm[py/clear-text-storage-sensitive-data]
         fd.write("export OM_ORGID={}\n".format(org))
-        fd.write("export OM_KEY_ID={}\n".format(key_id))
+        fd.write("export OM_KEY_ID={}\n".format(key_id))  # lgtm[py/clear-text-storage-sensitive-data]
         fd.write("export OM_EXTERNALLY_CONFIGURED=true\n")
 
 

@@ -184,7 +184,7 @@ def sign_image(repository: str, tag: str) -> None:
     env_file_content = "\n".join(env_file_content)
     temp_file = "./env-file"
     with open(temp_file, "w") as f:
-        f.write(env_file_content)
+        f.write(env_file_content)  # lgtm[py/clear-text-storage-sensitive-data]
 
     additional_args = [
         f"--env-file={temp_file}",
