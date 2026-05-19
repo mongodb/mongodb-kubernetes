@@ -4171,6 +4171,13 @@ spec:
                                 SNI hostnames stay distinct.
                                 Required when MongoDB is externally managed. Ignored for operator-managed MongoDB.
                               type: string
+                            replicas:
+                              description: |-
+                                Replicas is the number of Envoy proxy pods to deploy.
+                                Defaults to 1 if not specified.
+                              format: int32
+                              minimum: 1
+                              type: integer
                             resourceRequirements:
                               description: |-
                                 ResourceRequirements for the Envoy container.
@@ -4470,6 +4477,13 @@ spec:
                           SNI hostnames stay distinct.
                           Required when MongoDB is externally managed. Ignored for operator-managed MongoDB.
                         type: string
+                      replicas:
+                        description: |-
+                          Replicas is the number of Envoy proxy pods to deploy.
+                          Defaults to 1 if not specified.
+                        format: int32
+                        minimum: 1
+                        type: integer
                       resourceRequirements:
                         description: |-
                           ResourceRequirements for the Envoy container.

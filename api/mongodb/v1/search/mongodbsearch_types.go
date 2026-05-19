@@ -218,6 +218,11 @@ type ManagedLBConfig struct {
 	// Required when MongoDB is externally managed. Ignored for operator-managed MongoDB.
 	// +optional
 	ExternalHostname string `json:"externalHostname,omitempty"`
+	// Replicas is the number of Envoy proxy pods to deploy.
+	// Defaults to 1 if not specified.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	Replicas *int32 `json:"replicas,omitempty"`
 	// ResourceRequirements for the Envoy container.
 	// When not set, defaults to requests: {cpu: 100m, memory: 128Mi}, limits: {cpu: 500m, memory: 512Mi}.
 	// +optional
