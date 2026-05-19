@@ -165,7 +165,6 @@ type reconcileUnit struct {
 	configMapName       types.NamespacedName
 	podLabels           map[string]string    // applied identically as STS metadata labels, matchLabels, and pod-template labels
 	additionalSvcLabels map[string]string    // merged into both headless and proxy Service metadata labels (e.g. {"shard": name})
-	publishNotReady     bool                 // headless Service PublishNotReadyAddresses
 	extraHeadlessPorts  []corev1.ServicePort // additional ports on the headless Service (e.g. wireproto for RS)
 	logFields           []any                // k/v fields attached to the per-unit logger (nil for single-unit topologies)
 	tlsResource         tls.TLSConfigurableResource
@@ -300,7 +299,6 @@ func (r *MongoDBSearchReconcileHelper) buildShardedPlan(shardedSource SearchSour
 			configMapName:       r.mdbSearch.MongotConfigMapForShard(shardName),
 			podLabels:           map[string]string{appLabelKey: stsName.Name, shardLabelKey: shardName},
 			additionalSvcLabels: map[string]string{shardLabelKey: shardName},
-			publishNotReady:     true,
 			logFields:           []any{"shard", shardName, "shardIdx", shardIdx},
 			tlsResource:         &perShardTLSResource{MongoDBSearch: r.mdbSearch, shardName: shardName},
 			mongotConfigFn:      mongot.Apply(baseMongotConfig(r.mdbSearch, hostSeeds), routerMongotMod(r.mdbSearch, shardedSource)),
@@ -923,7 +921,6 @@ func buildHeadlessService(search *searchv1.MongoDBSearch, unit reconcileUnit) co
 		SetLabels(svcLabels).
 		SetSelector(map[string]string{appLabelKey: unit.podLabels[appLabelKey]}).
 		SetClusterIP("None").
-		SetPublishNotReadyAddresses(unit.publishNotReady).
 		SetServiceType(corev1.ServiceTypeClusterIP).
 		SetOwnerReferences(search.GetOwnerReferences())
 
