@@ -45,7 +45,7 @@ def main():
 
     # Write output
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(html_content)  # lgtm[py/clear-text-storage-sensitive-data]
+    output_path.write_text(html_content)  # codeql[py/clear-text-storage-sensitive-data]
 
     print(f"\u2705 Generated: {output_path}", file=sys.stderr)
     print(f"   Total files processed: {data['artifacts']['summary']['total_files']}", file=sys.stderr)

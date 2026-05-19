@@ -1378,7 +1378,7 @@ def run_kube_config_creation_tool(
         args.append("--cluster-scoped")
 
     try:
-        print(f"Running multi-cluster cli setup tool: {' '.join(args)}")  # lgtm[py/clear-text-logging-sensitive-data]
+        print(f"Running multi-cluster cli setup tool: {' '.join(args)}")  # codeql[py/clear-text-logging-sensitive-data]
         subprocess.check_output(args, stderr=subprocess.STDOUT)
         print("Finished running multi-cluster cli setup tool")
     except subprocess.CalledProcessError as exc:

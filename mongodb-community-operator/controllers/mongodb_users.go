@@ -27,7 +27,7 @@ func (r ReplicaSetReconciler) ensureUserResources(ctx context.Context, mdb mdbv1
 					if apiErrors.IsNotFound(err) {
 						return fmt.Errorf(`user password secret: %s and scram secret: %s not found`, secretNamespacedName, scramSecretName)
 					}
-					r.log.Errorf(`user password secret "%s" not found: %s`, secretNamespacedName, err) // lgtm[go/clear-text-logging]
+					r.log.Errorf(`user password secret "%s" not found: %s`, secretNamespacedName, err) // codeql[go/clear-text-logging]
 					continue
 				}
 				return err

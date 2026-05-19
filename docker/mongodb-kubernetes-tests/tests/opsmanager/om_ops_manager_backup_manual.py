@@ -81,7 +81,7 @@ def create_aws_secret(aws_s3_client, secret_name: str, namespace: str):
             "secretKey": aws_s3_client.aws_secret_access_key,
         },
     )
-    print("\nCreated a secret for S3 credentials", secret_name)  # lgtm[py/clear-text-logging-sensitive-data]
+    print("\nCreated a secret for S3 credentials", secret_name)  # codeql[py/clear-text-logging-sensitive-data]
 
 
 def create_s3_bucket(aws_s3_client, bucket_prefix: str = "test-bucket-"):
@@ -163,7 +163,7 @@ def blockstore_user(namespace, blockstore_replica_set: MongoDB) -> MongoDBUser:
     resource = MongoDBUser.from_yaml(yaml_fixture("scram-sha-user-backing-db.yaml"), namespace=namespace)
     resource["spec"]["mongodbResourceRef"]["name"] = blockstore_replica_set.name
 
-    print(f"\nCreating password for MongoDBUser {resource.name} in secret/{resource.get_secret_name()} ")  # lgtm[py/clear-text-logging-sensitive-data]
+    print(f"\nCreating password for MongoDBUser {resource.name} in secret/{resource.get_secret_name()} ")  # codeql[py/clear-text-logging-sensitive-data]
     create_or_update_secret(
         KubernetesTester.get_namespace(),
         resource.get_secret_name(),
@@ -188,7 +188,7 @@ def oplog_user(namespace, oplog_replica_set: MongoDB) -> MongoDBUser:
     resource["spec"]["passwordSecretKeyRef"]["name"] = "mms-user-2-password"
     resource["spec"]["username"] = "mms-user-2"
 
-    print(f"\nCreating password for MongoDBUser {resource.name} in secret/{resource.get_secret_name()} ")  # lgtm[py/clear-text-logging-sensitive-data]
+    print(f"\nCreating password for MongoDBUser {resource.name} in secret/{resource.get_secret_name()} ")  # codeql[py/clear-text-logging-sensitive-data]
     create_or_update_secret(
         KubernetesTester.get_namespace(),
         resource.get_secret_name(),

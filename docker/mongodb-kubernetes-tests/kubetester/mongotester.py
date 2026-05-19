@@ -150,7 +150,7 @@ class MongoTester:
         self.default_opts["serverSelectionTimeoutMs"] = "120000"  # 2 minutes
         self.cnx_string = connection_string
         self.client = None
-        logging.info(  # lgtm[py/clear-text-logging-sensitive-data]
+        logging.info(  # codeql[py/clear-text-logging-sensitive-data]
             f"Initialized MongoTester with connection string: {connection_string}, TLS: {use_ssl} and CA Path: {ca_path}"
         )
 

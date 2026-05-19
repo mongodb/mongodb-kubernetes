@@ -867,7 +867,7 @@ func UpdatePrometheus(ctx context.Context, d *om.Deployment, conn om.Connection,
 		password, ok = keyedPassword[prometheus.GetPasswordKey()]
 		if !ok {
 			errMsg := fmt.Sprintf("Prometheus password %s not in Secret %s", prometheus.GetPasswordKey(), passwordString)
-			log.Info(errMsg) // lgtm[go/clear-text-logging]
+			log.Info(errMsg) // codeql[go/clear-text-logging]
 			return xerrors.Errorf(errMsg)
 		}
 	} else {

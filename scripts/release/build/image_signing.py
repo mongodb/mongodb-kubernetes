@@ -58,7 +58,7 @@ def run_command_with_retries(command, retries=6, base_delay=10):
                     logger.info(f"Retrying in {delay:.2f} seconds...")
                     time.sleep(delay)
                 else:
-                    logger.error(f"All {retries} attempts failed for command: {command}")  # lgtm[py/clear-text-logging-sensitive-data]
+                    logger.error(f"All {retries} attempts failed for command: {command}")  # codeql[py/clear-text-logging-sensitive-data]
                     span.set_attribute(f"mck.command.failure", "no_retries")
                     raise
             else:
@@ -184,7 +184,7 @@ def sign_image(repository: str, tag: str) -> None:
     env_file_content = "\n".join(env_file_content)
     temp_file = "./env-file"
     with open(temp_file, "w") as f:
-        f.write(env_file_content)  # lgtm[py/clear-text-storage-sensitive-data]
+        f.write(env_file_content)  # codeql[py/clear-text-storage-sensitive-data]
 
     additional_args = [
         f"--env-file={temp_file}",

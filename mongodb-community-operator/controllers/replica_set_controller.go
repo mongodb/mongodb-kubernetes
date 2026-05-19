@@ -247,7 +247,7 @@ func (r ReplicaSetReconciler) Reconcile(ctx context.Context, request reconcile.R
 	}
 
 	if err := r.updateConnectionStringSecrets(ctx, mdb); err != nil { // nolint:forbidigo
-		r.log.Errorf("Could not update connection string secrets: %s", err) // lgtm[go/clear-text-logging]
+		r.log.Errorf("Could not update connection string secrets: %s", err) // codeql[go/clear-text-logging]
 	}
 
 	if lastAppliedSpec != nil {

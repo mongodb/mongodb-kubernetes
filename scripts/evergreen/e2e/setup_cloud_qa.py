@@ -270,10 +270,10 @@ def configure():
     base_url = os.getenv(BASE_URL)
     with open(env_file, "w") as fd:
         fd.write("export OM_BASE_URL={}\n".format(base_url))
-        fd.write("export OM_USER={}\n".format(public))  # lgtm[py/clear-text-storage-sensitive-data]
-        fd.write("export OM_API_KEY={}\n".format(private))  # lgtm[py/clear-text-storage-sensitive-data]
+        fd.write("export OM_USER={}\n".format(public))  # codeql[py/clear-text-storage-sensitive-data]
+        fd.write("export OM_API_KEY={}\n".format(private))  # codeql[py/clear-text-storage-sensitive-data]
         fd.write("export OM_ORGID={}\n".format(org))
-        fd.write("export OM_KEY_ID={}\n".format(key_id))  # lgtm[py/clear-text-storage-sensitive-data]
+        fd.write("export OM_KEY_ID={}\n".format(key_id))  # codeql[py/clear-text-storage-sensitive-data]
         fd.write("export OM_EXTERNALLY_CONFIGURED=true\n")
 
 
@@ -467,7 +467,7 @@ def check_env_variables() -> bool:
     status = True
     for var in REQUIRED_ENV_VARIABLES:
         if not os.getenv(var):
-            print("Missing env variable: {}".format(var))  # lgtm[py/clear-text-logging-sensitive-data]
+            print("Missing env variable: {}".format(var))  # codeql[py/clear-text-logging-sensitive-data]
             status = False
     return status
 

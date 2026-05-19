@@ -17,7 +17,7 @@ def scram_user(namespace) -> MongoDBUser:
     """Creates a password secret and then the user referencing it"""
     resource = MongoDBUser.from_yaml(yaml_fixture("scram-sha-user.yaml"), namespace=namespace)
 
-    print(f"\nCreating password for MongoDBUser {resource.name} in secret/{resource.get_secret_name()} ")  # lgtm[py/clear-text-logging-sensitive-data]
+    print(f"\nCreating password for MongoDBUser {resource.name} in secret/{resource.get_secret_name()} ")  # codeql[py/clear-text-logging-sensitive-data]
     KubernetesTester.create_secret(
         KubernetesTester.get_namespace(),
         resource.get_secret_name(),
