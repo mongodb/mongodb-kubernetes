@@ -133,7 +133,7 @@ class TestCreateScramSha256User(KubernetesTester):
 
     @classmethod
     def setup_class(cls):
-        print(f"creating password for MongoDBUser {USER_NAME} in secret/{PASSWORD_SECRET_NAME} ")
+        print(f"creating password for MongoDBUser {USER_NAME} in secret/{PASSWORD_SECRET_NAME} ")  # lgtm[py/clear-text-logging-sensitive-data]
         KubernetesTester.create_secret(
             KubernetesTester.get_namespace(),
             PASSWORD_SECRET_NAME,

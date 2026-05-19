@@ -1524,7 +1524,7 @@ def run_periodically(fn, *args, **kwargs):
             return True
         if msg is not None:
             condition_msg = f": {fn_condition_msg}" if fn_condition_msg is not None else ""
-            print(f"waiting for {msg}{condition_msg}...")
+            print(f"waiting for {msg}{condition_msg}...")  # lgtm[py/clear-text-logging-sensitive-data]
         time.sleep(sleep_time)
 
     raise AssertionError(

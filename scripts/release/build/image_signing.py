@@ -58,7 +58,7 @@ def run_command_with_retries(command, retries=6, base_delay=10):
                     logger.info(f"Retrying in {delay:.2f} seconds...")
                     time.sleep(delay)
                 else:
-                    logger.error(f"All {retries} attempts failed for command: {command}")
+                    logger.error(f"All {retries} attempts failed for command: {command}")  # lgtm[py/clear-text-logging-sensitive-data]
                     span.set_attribute(f"mck.command.failure", "no_retries")
                     raise
             else:

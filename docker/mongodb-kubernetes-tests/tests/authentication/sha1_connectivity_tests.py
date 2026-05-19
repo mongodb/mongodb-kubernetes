@@ -65,7 +65,7 @@ class SHA1ConnectivityTests:
     # CreateMongoDBUser
 
     def test_create_secret(self):
-        print(f"creating password for MongoDBUser {self.USER_NAME} in secret/{self.PASSWORD_SECRET_NAME} ")
+        print(f"creating password for MongoDBUser {self.USER_NAME} in secret/{self.PASSWORD_SECRET_NAME} ")  # lgtm[py/clear-text-logging-sensitive-data]
 
         create_or_update_secret(
             KubernetesTester.get_namespace(),
@@ -118,7 +118,7 @@ class SHA1ConnectivityTests:
     # CanChangePassword
 
     def test_update_secret(self, mdb: MongoDB):
-        print(f"updating password for MongoDBUser {self.USER_NAME} in secret/{self.PASSWORD_SECRET_NAME}")
+        print(f"updating password for MongoDBUser {self.USER_NAME} in secret/{self.PASSWORD_SECRET_NAME}")  # lgtm[py/clear-text-logging-sensitive-data]
         KubernetesTester.update_secret(
             KubernetesTester.get_namespace(),
             self.PASSWORD_SECRET_NAME,

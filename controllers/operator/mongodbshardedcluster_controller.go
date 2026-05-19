@@ -1785,7 +1785,7 @@ func logDiffOfProcessNames(acProcesses []string, healthyProcesses []string, log 
 	sort.Strings(acProcesses)
 	sort.Strings(healthyProcesses)
 	if diff := cmp.Diff(acProcesses, healthyProcesses); diff != "" {
-		log.Debugf("difference of AC processes vs healthy processes: %s\n AC processes: %v, healthy processes: %v", diff, acProcesses, healthyProcesses)
+		log.Debugf("difference of AC processes vs healthy processes: %s\n AC processes: %v, healthy processes: %v", diff, acProcesses, healthyProcesses) // lgtm[go/clear-text-logging]
 	}
 }
 

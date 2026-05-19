@@ -467,7 +467,7 @@ def check_env_variables() -> bool:
     status = True
     for var in REQUIRED_ENV_VARIABLES:
         if not os.getenv(var):
-            print("Missing env variable: {}".format(var))
+            print("Missing env variable: {}".format(var))  # lgtm[py/clear-text-logging-sensitive-data]
             status = False
     return status
 

@@ -197,7 +197,7 @@ def blockstore_user(
     resource = MongoDBUser.from_yaml(yaml_fixture("scram-sha-user-backing-db.yaml"), namespace=namespace)
     resource["spec"]["mongodbResourceRef"]["name"] = blockstore_replica_set.name
 
-    print(f"\nCreating password for MongoDBUser {resource.name} in secret/{resource.get_secret_name()} ")
+    print(f"\nCreating password for MongoDBUser {resource.name} in secret/{resource.get_secret_name()} ")  # lgtm[py/clear-text-logging-sensitive-data]
     create_or_update_secret(
         KubernetesTester.get_namespace(),
         resource.get_secret_name(),
@@ -228,7 +228,7 @@ def oplog_user(
     resource["spec"]["passwordSecretKeyRef"]["name"] = "mms-user-2-password"
     resource["spec"]["username"] = "mms-user-2"
 
-    print(f"\nCreating password for MongoDBUser {resource.name} in secret/{resource.get_secret_name()} ")
+    print(f"\nCreating password for MongoDBUser {resource.name} in secret/{resource.get_secret_name()} ")  # lgtm[py/clear-text-logging-sensitive-data]
     create_or_update_secret(
         KubernetesTester.get_namespace(),
         resource.get_secret_name(),
