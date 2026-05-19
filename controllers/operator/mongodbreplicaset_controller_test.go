@@ -32,6 +32,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/backup"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/deployment"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connectionstringsecret"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/controlledfeature"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/create"
@@ -62,7 +63,7 @@ func TestCreateReplicaSet(t *testing.T) {
 
 	assert.Len(t, mock.GetMapForObject(client, &corev1.Service{}), 1)
 	assert.Len(t, mock.GetMapForObject(client, &appsv1.StatefulSet{}), 1)
-	assert.Len(t, mock.GetMapForObject(client, &corev1.Secret{}), 3)
+	assert.Len(t, mock.GetMapForObject(client, &corev1.Secret{}), 4)
 
 	sts, err := client.GetStatefulSet(ctx, rs.ObjectKey())
 	assert.NoError(t, err)
@@ -1569,4 +1570,33 @@ func TestPublishAutomationConfigFirstRS(t *testing.T) {
 			assert.Equal(t, tc.expectedPublishACFirst, result)
 		})
 	}
+}
+
+func TestReplicaSetReconcile_PublishesConnectionStringSecret(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().SetName("conn-str-rs").SetMembers(2).Build()
+	rs.Spec.ExternalMembers = []mdbv1.ExternalMember{
+		{ProcessName: "vm-0", Hostname: "vm-0.example.com:27017", Type: "mongod"},
+	}
+
+	reconciler, kubeClient, _ := defaultReplicaSetReconciler(ctx, nil, "", "", rs)
+	checkReconcileSuccessful(ctx, t, reconciler, rs, kubeClient)
+
+	secret := &corev1.Secret{}
+	require.NoError(t, kubeClient.Get(ctx,
+		kube.ObjectKey(rs.Namespace, "conn-str-rs"+connectionstringsecret.SecretNameSuffix),
+		secret))
+
+	std := string(secret.Data["connectionString.standard"])
+	assert.Contains(t, std, "conn-str-rs-0.conn-str-rs-svc.")
+	assert.Contains(t, std, "conn-str-rs-1.conn-str-rs-svc.")
+	assert.Contains(t, std, "vm-0.example.com:27017")
+	// Credential-less secret.
+	assert.NotContains(t, std, "@")
+	_, hasUsername := secret.Data["username"]
+	assert.False(t, hasUsername)
+
+	require.Len(t, secret.OwnerReferences, 1)
+	assert.Equal(t, "MongoDB", secret.OwnerReferences[0].Kind)
+	assert.Equal(t, mdbv1.GroupVersion.String(), secret.OwnerReferences[0].APIVersion)
 }
