@@ -10,6 +10,8 @@ TRACER = trace.get_tracer("evergreen-agent")
 
 
 class MongoDBCommon:
+    backing_obj: dict
+
     @TRACER.start_as_current_span("wait_for")
     def wait_for(self, fn, timeout=None, should_raise=True, persist_for=1):
         """

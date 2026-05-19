@@ -190,7 +190,7 @@ class SHA1ConnectivityTests:
     def test_non_admin_credentials_can_connect_to_db_with_srv(self, non_admin_standard_secret: Dict[str, str]):
         MongoTester(non_admin_standard_secret["connectionString.standardSrv"], use_ssl=False).assert_connectivity()
 
-    def test_authentication_is_disabled_once_resource_is_deleted(namespace: str, mdb: MongoDB):
+    def test_authentication_is_disabled_once_resource_is_deleted(self, namespace: str, mdb: MongoDB):
         mdb.delete()
 
         def resource_is_deleted() -> bool:

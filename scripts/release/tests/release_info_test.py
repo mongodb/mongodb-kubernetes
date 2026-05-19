@@ -43,7 +43,7 @@ def test_create_release_info_json():
             },
             "agent": {
                 "repoURL": "quay.io/mongodb/mongodb-agent",
-                "platforms": ["linux/arm64", "linux/amd64", "linux/ppc64le"],
+                "platforms": ["linux/arm64", "linux/amd64", "linux/s390x", "linux/ppc64le"],
                 "tag": "108.0.16.8895-1",
                 "digest": "sha256:793ae31c0d328fb3df1d3aa526f94e466cc2ed3410dd865548ce38fa3859cbaa",
             },

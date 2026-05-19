@@ -52,7 +52,7 @@ class Operator(object):
         # The Operator will be installed from the following repo, so adding it first
         helm_repo_add("mongodb", "https://mongodb.github.io/helm-charts")
 
-        helm_chart_path, operator_version = helm_chart_path_and_version(helm_chart_path, operator_version)
+        helm_chart_path, operator_version = helm_chart_path_and_version(helm_chart_path or "", operator_version or "")
 
         if helm_args is None:
             helm_args = {}
@@ -90,7 +90,7 @@ class Operator(object):
             custom_operator_version = self.operator_version
 
         helm_install(
-            self.name,
+            self.name or "",
             self.namespace,
             self.helm_arguments,
             helm_chart_path=self.helm_chart_path,
@@ -110,7 +110,7 @@ class Operator(object):
             custom_operator_version = self.operator_version
 
         helm_upgrade(
-            self.name,
+            self.name or "",
             self.namespace,
             self.helm_arguments,
             helm_chart_path=self.helm_chart_path,

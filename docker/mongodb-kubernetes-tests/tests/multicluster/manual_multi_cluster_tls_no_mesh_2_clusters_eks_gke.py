@@ -108,7 +108,8 @@ def mongodb_multi(
     }
     mongodb_multi_unmarshalled.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
 
-    return mongodb_multi_unmarshalled.update()
+    mongodb_multi_unmarshalled.update()
+    return mongodb_multi_unmarshalled
 
 
 @fixture(scope="module")

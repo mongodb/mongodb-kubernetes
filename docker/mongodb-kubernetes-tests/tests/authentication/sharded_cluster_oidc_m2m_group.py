@@ -19,7 +19,7 @@ def sharded_cluster(namespace: str, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(find_fixture("oidc/sharded-cluster-replica-set.yaml"), namespace=namespace)
 
     oidc_provider_configs = resource.get_oidc_provider_configs()
-
+    assert oidc_provider_configs
     oidc_provider_configs[0]["clientId"] = oidc.get_cognito_workload_client_id()
     oidc_provider_configs[0]["audience"] = oidc.get_cognito_workload_client_id()
     oidc_provider_configs[0]["issuerURI"] = oidc.get_cognito_workload_url()
@@ -46,7 +46,7 @@ class TestCreateOIDCShardedCluster(KubernetesTester):
         sharded_cluster.assert_reaches_phase(Phase.Running, timeout=800)
 
     def test_assert_connectivity(self, sharded_cluster: MongoDB):
-        service_names = None
+        service_names: list[str] | None = None
         if is_multi_cluster():
             service_names = get_mongos_service_names(sharded_cluster)
         tester = sharded_cluster.tester(service_names=service_names)

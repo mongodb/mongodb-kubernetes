@@ -24,21 +24,6 @@ def run_command(command: list[str]):
         )
 
 
-def get_oci_registry(chart_info: HelmChartInfo) -> str:
-    registry = chart_info.registry
-    repo = chart_info.repository
-
-    if not registry:
-        raise ValueError("Error: registry doesn't seem to be set in HelmChartInfo.")
-
-    if not repo:
-        raise ValueError("Error: repository doesn't seem to be set in HelmChartInfo.")
-
-    oci_registry = f"oci://{registry}/{repo}"
-    logger.info(f"Determined OCI Registry: {oci_registry}")
-    return oci_registry
-
-
 def publish_helm_chart(chart_name: str, chart_info: HelmChartInfo, operator_version: str):
     try:
         # If version_prefix is not specified, use the operator_version as is.
@@ -53,10 +38,15 @@ def publish_helm_chart(chart_name: str, chart_info: HelmChartInfo, operator_vers
         package_command = ["helm", "package", "--version", chart_version, CHART_DIR]
         run_command(package_command)
 
-        oci_registry = get_oci_registry(chart_info)
-        logger.info(f"Pushing chart to registry: {oci_registry}")
-        push_command = ["helm", "push", tgz_filename, oci_registry]
-        run_command(push_command)
+        repositories = [chart_info.repository]
+        if chart_info.secondary_repositories:
+            repositories += chart_info.secondary_repositories
+
+        for repo in repositories:
+            oci_registry = f"oci://{repo}"
+            logger.info(f"Pushing chart to registry: {oci_registry}")
+            push_command = ["helm", "push", tgz_filename, oci_registry]
+            run_command(push_command)
 
         logger.info(f"Helm Chart {chart_name}:{chart_version} was published successfully!")
     except Exception as e:

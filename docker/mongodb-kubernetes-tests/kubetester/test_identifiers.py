@@ -4,7 +4,7 @@ from typing import Any
 import yaml
 from kubetester.kubetester import running_locally
 
-test_identifiers: dict = None
+test_identifiers: dict[str, Any] | None = None
 
 
 def set_test_identifier(identifier: str, value: Any) -> Any:

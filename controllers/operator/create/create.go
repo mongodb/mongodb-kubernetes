@@ -400,6 +400,7 @@ func BackupDaemonInKubernetes(ctx context.Context, client kubernetesClient.Clien
 	}
 	namespacedName := kube.ObjectKey(opsManager.Namespace, set.Spec.ServiceName)
 	internalService := BuildService(namespacedName, opsManager, &set.Spec.ServiceName, nil, construct.BackupDaemonServicePort, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
+	internalService.Spec.PublishNotReadyAddresses = false
 
 	return set, mekoService.CreateOrUpdateService(ctx, client, internalService)
 }
@@ -416,6 +417,7 @@ func OpsManagerInKubernetes(ctx context.Context, memberCluster multicluster.Memb
 
 	namespacedName := kube.ObjectKey(opsManager.Namespace, set.Spec.ServiceName)
 	internalService := BuildService(namespacedName, opsManager, &set.Spec.ServiceName, nil, port, getInternalServiceDefinition(opsManager))
+	internalService.Spec.PublishNotReadyAddresses = false
 
 	// add queryable backup port to service
 	if opsManager.Spec.Backup.Enabled {
@@ -431,6 +433,7 @@ func OpsManagerInKubernetes(ctx context.Context, memberCluster multicluster.Memb
 	namespacedName = kube.ObjectKey(opsManager.Namespace, opsManager.ExternalSvcName())
 	if externalConnectivity := opsManager.GetExternalConnectivityConfigurationForMemberCluster(memberCluster.Name); externalConnectivity != nil {
 		svc := BuildService(namespacedName, opsManager, &set.Spec.ServiceName, nil, port, *externalConnectivity)
+		svc.Spec.PublishNotReadyAddresses = false
 
 		// Need to create queryable backup service
 		if opsManager.Spec.Backup.Enabled {
