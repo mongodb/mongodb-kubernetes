@@ -1567,7 +1567,7 @@ func mongotEndpointForShard(search *searchv1.MongoDBSearch, shardName string, cl
 		return search.GetEndpointForShard(shardName)
 	}
 	if search.IsLBModeManaged() {
-		return proxyServiceHostAndPortForShard(search, shardName, clusterDomain)
+		return proxyServiceHostAndPortForShard(search, 0, shardName, clusterDomain)
 	}
 	stsName := search.MongotStatefulSetForClusterShard(0, shardName)
 	svcName := search.MongotServiceForClusterShard(0, shardName)
@@ -1590,7 +1590,7 @@ func GetMongosConfigParametersForSharded(search *searchv1.MongoDBSearch, cluster
 	case search.IsShardedUnmanagedLB() && len(shardNames) > 0:
 		endpoint = mongotEndpointForShard(search, shardNames[0], clusterDomain)
 	case !search.IsLBModeManaged() && len(shardNames) > 0:
-		endpoint = proxyServiceHostAndPortForShard(search, shardNames[0], clusterDomain)
+		endpoint = proxyServiceHostAndPortForShard(search, clusterIndex, shardNames[0], clusterDomain)
 	default:
 		endpoint = mongotEndpointForClusterLevel(search, clusterIndex, clusterDomain)
 	}
@@ -1650,9 +1650,8 @@ func mongotHostAndPort(search *searchv1.MongoDBSearch, clusterDomain string) str
 	return fmt.Sprintf("%s-0.%s.%s.svc.%s:%d", stsName.Name, svcName.Name, svcName.Namespace, clusterDomain, port)
 }
 
-// proxyServiceHostAndPortForShard returns the stable proxy service endpoint for a shard.
-func proxyServiceHostAndPortForShard(search *searchv1.MongoDBSearch, shardName string, clusterDomain string) string {
-	proxyName := search.ProxyServiceNameForClusterShard(0, shardName)
+func proxyServiceHostAndPortForShard(search *searchv1.MongoDBSearch, clusterIndex int, shardName string, clusterDomain string) string {
+	proxyName := search.ProxyServiceNameForClusterShard(clusterIndex, shardName)
 	port := search.GetEffectiveMongotPort()
 	return fmt.Sprintf("%s.%s.svc.%s:%d", proxyName.Name, proxyName.Namespace, clusterDomain, port)
 }
