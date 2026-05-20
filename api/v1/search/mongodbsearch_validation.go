@@ -499,13 +499,6 @@ func validateMCExternalHostnamePlaceholders(s *MongoDBSearch) v1.ValidationResul
 				ShardNamePlaceholder,
 			)
 		}
-		// The cluster-level endpoint (used by mongos) is the cluster-level proxy
-		// Service FQDN, not template-derived — so we no longer constrain where
-		// {shardName} appears in the template. Templates that put {shardName} as
-		// a leading subdomain (e.g. "{shardName}.svc...") work for SNI but the
-		// resulting hostnames are not DNS-resolvable by default in kube; using
-		// {shardName} as a name component (e.g. "<prefix>-{shardName}-svc...")
-		// yields hostnames that resolve to the per-shard proxy Service.
 	}
 	return v1.ValidationSuccess()
 }

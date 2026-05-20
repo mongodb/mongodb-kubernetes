@@ -131,15 +131,9 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 		}
 	}
 
-	// Watch our own TLS certificate secret for changes
+	// Watch our own TLS certificate secret for changes (non-sharded only; sharded watches are per-member-cluster)
 	if mdbSearch.Spec.Security.TLS != nil {
-		if shardedSource, ok := searchSource.(searchcontroller.SearchSourceShardedDeployment); ok {
-			// Sharded: watch per-shard source secrets (one per shard)
-			for _, shardName := range shardedSource.GetShardNames() {
-				shardSecretNsName := mdbSearch.TLSSecretForClusterShard(0, shardName)
-				r.watch.AddWatchedResourceIfNotAdded(shardSecretNsName.Name, shardSecretNsName.Namespace, watch.Secret, mdbSearch.NamespacedName())
-			}
-		} else {
+		if _, ok := searchSource.(searchcontroller.SearchSourceShardedDeployment); !ok {
 			// Non-sharded: watch the single source secret
 			sourceSecretNsName := mdbSearch.TLSSecretNamespacedName()
 			r.watch.AddWatchedResourceIfNotAdded(sourceSecretNsName.Name, sourceSecretNsName.Namespace, watch.Secret, mdbSearch.NamespacedName())

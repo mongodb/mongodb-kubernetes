@@ -942,32 +942,18 @@ func (s *MongoDBSearch) GetManagedLBEndpointForClusterShard(i int, shardName str
 	return strings.ReplaceAll(out, ShardNamePlaceholder, shardName)
 }
 
-// GetManagedLBEndpointForClusterLevel derives the cluster-level (mongos-facing)
-// endpoint by stripping a leading "{shardName}." prefix and resolving the
-// remaining {clusterName}/{clusterIndex} placeholders. Returns "" when:
-//   - managed LB is not configured, or
-//   - {shardName} still appears as a name component (not a prefix), so no
-//     single cluster-level form is derivable, or
-//   - cluster placeholders can't be resolved (legacy spec, out-of-range index).
-// In every "" case the caller must fall back to the cluster-level proxy Service FQDN.
+// GetManagedLBEndpointForClusterLevel derives the mongos-facing endpoint by stripping
+// the leading "{shardName}." from externalHostname. Returns "" when not derivable;
+// callers fall back to the cluster-level proxy Service FQDN.
 func (s *MongoDBSearch) GetManagedLBEndpointForClusterLevel(i int) string {
 	if !s.IsLBModeManaged() || s.Spec.LoadBalancer.Managed.ExternalHostname == "" {
 		return ""
 	}
 	tmpl := s.Spec.LoadBalancer.Managed.ExternalHostname
 	trimmed := strings.TrimPrefix(tmpl, ShardNamePlaceholder+".")
-	// If {shardName} remains after trimming the leading prefix, the template uses
-	// {shardName} as a name component rather than a subdomain prefix. We can't
-	// derive a single cluster-level endpoint from it; return "" so the caller
-	// falls back to the cluster-level proxy Service FQDN.
 	if strings.Contains(trimmed, ShardNamePlaceholder) {
 		return ""
 	}
-	// Resolve cluster placeholders on the trimmed template. If the trimmed
-	// template still contains either cluster placeholder but we can't resolve
-	// it (legacy single-cluster path, or out-of-range index), return "" so the
-	// caller falls back to the cluster-level proxy Service FQDN instead of
-	// emitting a hostname that still has braces in it.
 	hasClusterPlaceholder := strings.Contains(trimmed, ClusterNamePlaceholder) ||
 		strings.Contains(trimmed, ClusterIndexPlaceholder)
 	if s.Spec.Clusters == nil {

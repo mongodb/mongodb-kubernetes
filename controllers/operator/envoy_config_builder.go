@@ -344,6 +344,14 @@ func buildDownstreamTLSTransportSocket(caKeyName string) (*corev3.TransportSocke
 
 // buildUpstreamTLSTransportSocket builds the TLS transport socket for clusters (upstream).
 func buildUpstreamTLSTransportSocket(route envoyRoute, caKeyName string) (*corev3.TransportSocket, error) {
+	// Per-shard route: one upstream, SNI is its exact FQDN (matches per-shard cert SAN).
+	// Cluster-level route: UpstreamHosts spans shards; leave SNI empty since each shard's
+	// cert covers only its own FQDN. Upstream validation is CA-chain only either way.
+	sni := ""
+	if len(route.UpstreamHosts) == 1 {
+		sni = route.UpstreamHosts[0]
+	}
+
 	upstreamTLS := &tlsv3.UpstreamTlsContext{
 		CommonTlsContext: &tlsv3.CommonTlsContext{
 			TlsCertificates: []*tlsv3.TlsCertificate{
@@ -365,12 +373,7 @@ func buildUpstreamTLSTransportSocket(route envoyRoute, caKeyName string) (*corev
 			},
 			AlpnProtocols: []string{"h2"},
 		},
-		// Per-shard routes carry exactly one upstream so SNI is exact. The cluster-level
-		// route's UpstreamHosts is a union across shards; SNI here is the first shard's
-		// FQDN sent to every shard's pod. Upstream validation is CA-chain only (no SAN
-		// match) and every per-shard mongot cert shares the same CA, so cert acceptance
-		// works regardless. Revisit if peer-SAN enforcement is ever turned on.
-		Sni: route.UpstreamHosts[0],
+		Sni: sni,
 	}
 
 	tlsAny, err := anypb.New(upstreamTLS)

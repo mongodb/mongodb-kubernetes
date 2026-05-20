@@ -1067,9 +1067,9 @@ func TestCreateShardMongotConfig(t *testing.T) {
 
 	shardedSource := &mockShardedSource{
 		shardNames: []string{"my-cluster-0", "my-cluster-1"},
-		hostSeeds: map[int][]string{
-			0: {"my-cluster-0-0.svc:27017", "my-cluster-0-1.svc:27017", "my-cluster-0-2.svc:27017"},
-			1: {"my-cluster-1-0.svc:27017", "my-cluster-1-1.svc:27017", "my-cluster-1-2.svc:27017"},
+		hostSeeds: map[string][]string{
+			"my-cluster-0": {"my-cluster-0-0.svc:27017", "my-cluster-0-1.svc:27017", "my-cluster-0-2.svc:27017"},
+			"my-cluster-1": {"my-cluster-1-0.svc:27017", "my-cluster-1-1.svc:27017", "my-cluster-1-2.svc:27017"},
 		},
 	}
 
@@ -1096,9 +1096,9 @@ func TestShardedMongotConfigWithTLS(t *testing.T) {
 
 	shardedSource := &mockShardedSource{
 		shardNames: []string{"my-cluster-0", "my-cluster-1"},
-		hostSeeds: map[int][]string{
-			0: {"my-cluster-0-0.svc:27017", "my-cluster-0-1.svc:27017", "my-cluster-0-2.svc:27017"},
-			1: {"my-cluster-1-0.svc:27017", "my-cluster-1-1.svc:27017", "my-cluster-1-2.svc:27017"},
+		hostSeeds: map[string][]string{
+			"my-cluster-0": {"my-cluster-0-0.svc:27017", "my-cluster-0-1.svc:27017", "my-cluster-0-2.svc:27017"},
+			"my-cluster-1": {"my-cluster-1-0.svc:27017", "my-cluster-1-1.svc:27017", "my-cluster-1-2.svc:27017"},
 		},
 		tlsConfig: &TLSSourceConfig{
 			CAFileName: "ca-pem",
@@ -1141,8 +1141,8 @@ func TestShardedMongotConfigWithoutTLS(t *testing.T) {
 
 	shardedSource := &mockShardedSource{
 		shardNames: []string{"my-cluster-0"},
-		hostSeeds: map[int][]string{
-			0: {"my-cluster-0-0.svc:27017"},
+		hostSeeds: map[string][]string{
+			"my-cluster-0": {"my-cluster-0-0.svc:27017"},
 		},
 		tlsConfig: nil, // No TLS
 	}
@@ -1162,7 +1162,7 @@ func TestShardedMongotConfigWithoutTLS(t *testing.T) {
 // mockShardedSource is a mock implementation of ShardedSearchSourceDBResource for testing
 type mockShardedSource struct {
 	shardNames []string
-	hostSeeds  map[int][]string
+	hostSeeds  map[string][]string
 	tlsConfig  *TLSSourceConfig
 }
 
@@ -1184,12 +1184,7 @@ func (m *mockShardedSource) MongosHostsAndPorts() []string {
 
 // Implement SearchSourceDBResource interface
 func (m *mockShardedSource) HostSeeds(shardName string) ([]string, error) {
-	for idx, name := range m.shardNames {
-		if name == shardName {
-			return m.hostSeeds[idx], nil
-		}
-	}
-	return nil, nil
+	return m.hostSeeds[shardName], nil
 }
 
 func (m *mockShardedSource) Validate() error {
@@ -2467,9 +2462,9 @@ func TestReconcileSharded_CreatesPerShardResources(t *testing.T) {
 
 	shardedSource := &mockShardedSource{
 		shardNames: []string{"my-cluster-0", "my-cluster-1"},
-		hostSeeds: map[int][]string{
-			0: {"my-cluster-0-0.my-cluster-sh.test-ns.svc.cluster.local:27017"},
-			1: {"my-cluster-1-0.my-cluster-sh.test-ns.svc.cluster.local:27017"},
+		hostSeeds: map[string][]string{
+			"my-cluster-0": {"my-cluster-0-0.my-cluster-sh.test-ns.svc.cluster.local:27017"},
+			"my-cluster-1": {"my-cluster-1-0.my-cluster-sh.test-ns.svc.cluster.local:27017"},
 		},
 	}
 
@@ -2776,9 +2771,9 @@ func TestBuildShardedPlan_PerClusterShardUnitsForMC(t *testing.T) {
 
 	shardedSource := &mockShardedSource{
 		shardNames: []string{"sh-0", "sh-1"},
-		hostSeeds: map[int][]string{
-			0: {"sh-0-0.svc:27017"},
-			1: {"sh-1-0.svc:27017"},
+		hostSeeds: map[string][]string{
+			"sh-0": {"sh-0-0.svc:27017"},
+			"sh-1": {"sh-1-0.svc:27017"},
 		},
 	}
 
@@ -2835,9 +2830,9 @@ func TestReconcileShardedMC_FanOutUsesPerClusterClient(t *testing.T) {
 
 	shardedSource := &mockShardedSource{
 		shardNames: []string{"sh-0", "sh-1"},
-		hostSeeds: map[int][]string{
-			0: {"sh-0-0.svc:27017"},
-			1: {"sh-1-0.svc:27017"},
+		hostSeeds: map[string][]string{
+			"sh-0": {"sh-0-0.svc:27017"},
+			"sh-1": {"sh-1-0.svc:27017"},
 		},
 	}
 
@@ -2846,9 +2841,9 @@ func TestReconcileShardedMC_FanOutUsesPerClusterClient(t *testing.T) {
 	clusterBClient := kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().Build())
 
 	r := &MongoDBSearchReconcileHelper{
-		mdbSearch:      search,
-		db:             shardedSource,
-		client:         centralClient,
+		mdbSearch: search,
+		db:        shardedSource,
+		client:    centralClient,
 		memberClusterClients: map[string]kubernetesClient.Client{
 			"cluster-a": clusterAClient,
 			"cluster-b": clusterBClient,
@@ -2873,10 +2868,10 @@ func TestReconcileShardedMC_FanOutUsesPerClusterClient(t *testing.T) {
 
 	// Per-(cluster, shard) STS + ConfigMap + per-shard proxy Service on the right client.
 	cases := []struct {
-		c           kubernetesClient.Client
-		stsName     string
-		cmName      string
-		proxySvc    string
+		c        kubernetesClient.Client
+		stsName  string
+		cmName   string
+		proxySvc string
 	}{
 		{clusterAClient, "mdb-search-search-0-sh-0", "mdb-search-search-0-sh-0-config", "mdb-search-search-0-sh-0-proxy-svc"},
 		{clusterAClient, "mdb-search-search-0-sh-1", "mdb-search-search-0-sh-1-config", "mdb-search-search-0-sh-1-proxy-svc"},
@@ -2973,10 +2968,10 @@ func TestReconcileShardedMC_AllUnitsAppliedBeforeReadinessCheck(t *testing.T) {
 
 	shardedSource := &mockShardedSource{
 		shardNames: []string{"sh-0", "sh-1", "sh-2"},
-		hostSeeds: map[int][]string{
-			0: {"sh-0-a.example:27017"},
-			1: {"sh-1-a.example:27017"},
-			2: {"sh-2-a.example:27017"},
+		hostSeeds: map[string][]string{
+			"sh-0": {"sh-0-a.example:27017"},
+			"sh-1": {"sh-1-a.example:27017"},
+			"sh-2": {"sh-2-a.example:27017"},
 		},
 	}
 
@@ -3040,7 +3035,7 @@ func TestReconcileShardedMC_AllUnitsAppliedBeforeReadinessCheck(t *testing.T) {
 		require.NoError(t, err, "STS %s must have been created before the readiness short-circuit fired", exp.name)
 	}
 
-	// Cluster-level proxy Services were also applied (post-units pass).
+	// Cluster-level proxy Services deferred until LB is Ready.
 	for _, exp := range []struct {
 		c    kubernetesClient.Client
 		name string
@@ -3049,7 +3044,8 @@ func TestReconcileShardedMC_AllUnitsAppliedBeforeReadinessCheck(t *testing.T) {
 		{clusterBClient, "mdb-search-search-1-proxy-svc"},
 	} {
 		err := exp.c.Get(t.Context(), types.NamespacedName{Name: exp.name, Namespace: "ns"}, &corev1.Service{})
-		require.NoError(t, err, "cluster-level proxy Service %s must have been created", exp.name)
+		require.True(t, apierrors.IsNotFound(err),
+			"cluster-level proxy Service %s must NOT be created while LB is not ready", exp.name)
 	}
 }
 
@@ -3095,10 +3091,10 @@ func newMCShardedFixture(t *testing.T) *mcShardedFixture {
 
 	source := &mockShardedSource{
 		shardNames: []string{"sh-0", "sh-1", "sh-2"},
-		hostSeeds: map[int][]string{
-			0: {"sh-0-a.example:27017"},
-			1: {"sh-1-a.example:27017"},
-			2: {"sh-2-a.example:27017"},
+		hostSeeds: map[string][]string{
+			"sh-0": {"sh-0-a.example:27017"},
+			"sh-1": {"sh-1-a.example:27017"},
+			"sh-2": {"sh-2-a.example:27017"},
 		},
 	}
 
@@ -3140,11 +3136,13 @@ func (f *mcShardedFixture) newHelper() *MongoDBSearchReconcileHelper {
 }
 
 // TestReconcileShardedMC_MultiPass walks the full lifecycle:
-//   pass 1: applies all (cluster, shard) units, returns Pending (STS not ready)
-//   then mark all STSs ready
-//   pass 2: returns Pending (LB not ready — Envoy controller hasn't run)
-//   then mark LB status ready (simulating Envoy controller's effect)
-//   pass 3: returns OK
+//
+//	pass 1: applies all (cluster, shard) units, returns Pending (STS not ready)
+//	then mark all STSs ready
+//	pass 2: returns Pending (LB not ready — Envoy controller hasn't run)
+//	then mark LB status ready (simulating Envoy controller's effect)
+//	pass 3: returns OK
+//
 // Across the three passes, the resource counts must stay stable (idempotent).
 func TestReconcileShardedMC_MultiPass(t *testing.T) {
 	fx := newMCShardedFixture(t)
@@ -3169,9 +3167,9 @@ func TestReconcileShardedMC_MultiPass(t *testing.T) {
 	require.Equal(t, 3, stsB, "pass 1: cluster-b should have 3 mongot STSs")
 	require.Equal(t, 3, cmA, "pass 1: cluster-a should have 3 mongot ConfigMaps")
 	require.Equal(t, 3, cmB)
-	// 3 per-shard headless + 3 per-shard proxy + 1 cluster-level proxy = 7 per cluster.
-	require.Equal(t, 7, svcA, "pass 1: cluster-a should have 7 Services (3 headless + 3 per-shard proxy + 1 cluster-level)")
-	require.Equal(t, 7, svcB)
+	// 3 per-shard headless + 3 per-shard proxy = 6 per cluster (cluster-level proxy deferred until LB Ready).
+	require.Equal(t, 6, svcA, "pass 1: cluster-a should have 6 Services")
+	require.Equal(t, 6, svcB)
 
 	// Mark all STSs ready (across all 3 clients — central is empty for this path
 	// but include it for consistency).
@@ -3205,8 +3203,8 @@ func TestReconcileShardedMC_MultiPass(t *testing.T) {
 	require.Equal(t, stsB, stsB3)
 	require.Equal(t, cmA, cmA3)
 	require.Equal(t, cmB, cmB3)
-	require.Equal(t, svcA, svcA3)
-	require.Equal(t, svcB, svcB3)
+	require.Equal(t, svcA+1, svcA3, "pass 3: cluster-level proxy Service now created")
+	require.Equal(t, svcB+1, svcB3)
 }
 
 // TestReconcileShardedMC_MissingMemberClusterClient verifies that when a
@@ -3293,10 +3291,10 @@ func TestCleanupStaleShardResources_MCFanOut(t *testing.T) {
 
 	// Per-cluster expectations: active + cluster-level kept, stale deleted, foreign untouched.
 	for _, tc := range []struct {
-		c        kubernetesClient.Client
-		idx      int
-		cluster  string
-		foreign  string
+		c       kubernetesClient.Client
+		idx     int
+		cluster string
+		foreign string
 	}{
 		{clusterA, 0, "cluster-a", "foreign-svc"},
 		{clusterB, 1, "cluster-b", "other-search-search-1-sh-0-proxy-svc"},
