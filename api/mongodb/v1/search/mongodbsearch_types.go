@@ -455,7 +455,8 @@ func (s *MongoDBSearch) ProxyServiceNamespacedName() types.NamespacedName {
 	return types.NamespacedName{Name: s.Name + "-search-0-" + ProxyServiceSuffix, Namespace: s.Namespace}
 }
 
-// ProxyServiceNamespacedNameForCluster returns the index-suffixed proxy Service name for one member cluster.
+// Per-cluster proxy Service. Targeted by mongod in RS-MC, by mongos in sharded-MC
+// (shard-scoped traffic flows through ProxyServiceNameForClusterShard).
 func (s *MongoDBSearch) ProxyServiceNamespacedNameForCluster(clusterIndex int) types.NamespacedName {
 	return types.NamespacedName{
 		Name:      fmt.Sprintf("%s-search-%d-%s", s.Name, clusterIndex, ProxyServiceSuffix),
@@ -463,10 +464,10 @@ func (s *MongoDBSearch) ProxyServiceNamespacedNameForCluster(clusterIndex int) t
 	}
 }
 
-// ProxyServiceNameForShard returns the stable proxy Service name for a specific shard.
-func (s *MongoDBSearch) ProxyServiceNameForShard(shardName string) types.NamespacedName {
+// ProxyServiceNameForClusterShard returns the proxy Service name for a specific (cluster, shard) pair.
+func (s *MongoDBSearch) ProxyServiceNameForClusterShard(clusterIndex int, shardName string) types.NamespacedName {
 	return types.NamespacedName{
-		Name:      fmt.Sprintf("%s-search-0-%s-%s", s.Name, shardName, ProxyServiceSuffix),
+		Name:      fmt.Sprintf("%s-search-%d-%s-%s", s.Name, clusterIndex, shardName, ProxyServiceSuffix),
 		Namespace: s.Namespace,
 	}
 }
@@ -594,25 +595,27 @@ func (s *MongoDBSearch) CertificateKeySecretName() bool {
 	return s.Spec.Security.TLS.CertificateKeySecret.Name != ""
 }
 
-// TLSSecretForShard returns the namespaced name of the TLS source secret for a specific shard.
-// This is used in per-shard TLS mode for sharded clusters.
+// TLSSecretForClusterShard returns the namespaced name of the TLS source secret for a specific (cluster, shard) pair.
 // Naming pattern:
-//   - With prefix: {prefix}-{name}-search-0-{shardName}-cert
-//   - Without prefix: {name}-search-0-{shardName}-cert
-func (s *MongoDBSearch) TLSSecretForShard(shardName string) types.NamespacedName {
+//   - With prefix: {prefix}-{name}-search-{clusterIndex}-{shardName}-cert
+//   - Without prefix: {name}-search-{clusterIndex}-{shardName}-cert
+func (s *MongoDBSearch) TLSSecretForClusterShard(clusterIndex int, shardName string) types.NamespacedName {
 	var secretName string
 	if s.Spec.Security.TLS != nil && s.Spec.Security.TLS.CertsSecretPrefix != "" {
-		secretName = fmt.Sprintf("%s-%s-search-0-%s-cert", s.Spec.Security.TLS.CertsSecretPrefix, s.Name, shardName)
+		secretName = fmt.Sprintf("%s-%s-search-%d-%s-cert", s.Spec.Security.TLS.CertsSecretPrefix, s.Name, clusterIndex, shardName)
 	} else {
-		secretName = fmt.Sprintf("%s-search-0-%s-cert", s.Name, shardName)
+		secretName = fmt.Sprintf("%s-search-%d-%s-cert", s.Name, clusterIndex, shardName)
 	}
 	return types.NamespacedName{Name: secretName, Namespace: s.Namespace}
 }
 
-// TLSOperatorSecretForShard returns the namespaced name of the operator-managed TLS secret
-// for a specific shard. This is the secret created by the operator containing the combined certificate and key.
-func (s *MongoDBSearch) TLSOperatorSecretForShard(shardName string) types.NamespacedName {
-	return types.NamespacedName{Name: fmt.Sprintf("%s-search-certificate-key", shardName), Namespace: s.Namespace}
+// TLSOperatorSecretForClusterShard returns the operator-managed combined-cert+key
+// Secret name for a (cluster, shard) pair: {name}-search-{clusterIndex}-{shardName}-certificate-key.
+func (s *MongoDBSearch) TLSOperatorSecretForClusterShard(clusterIndex int, shardName string) types.NamespacedName {
+	return types.NamespacedName{
+		Name:      fmt.Sprintf("%s-search-%d-%s-certificate-key", s.Name, clusterIndex, shardName),
+		Namespace: s.Namespace,
+	}
 }
 
 // IsTLSConfigured returns true if TLS is enabled (TLS struct is present)
@@ -752,7 +755,7 @@ func (s *MongoDBSearch) GetEndpointForShard(shardName string) string {
 //     semantics (no recursive merge for MVP).
 //
 // The function is pure — no mutation of s, no side effects.
-func EffectiveClusters(s *MongoDBSearch) []ClusterSpec {
+func (s *MongoDBSearch) EffectiveClusters() []ClusterSpec {
 	//nolint:staticcheck // SA1019: deprecated top-level fields are the documented default for the cascade.
 	topReplicas := s.Spec.Replicas
 	//nolint:staticcheck // SA1019
@@ -787,6 +790,9 @@ func EffectiveClusters(s *MongoDBSearch) []ClusterSpec {
 		if resolved.Persistence == nil {
 			resolved.Persistence = topPersistence
 		}
+		// TODO: whole-struct REPLACE-if-nil here; sharded MC deep-merges the inner
+		// PodTemplateSpec via merge.PodTemplateSpecs. Gated on shardOverrides API
+		// redesign — revisit before GA.
 		if resolved.StatefulSetConfiguration == nil {
 			resolved.StatefulSetConfiguration = topSTSConfig
 		}
@@ -802,7 +808,7 @@ func EffectiveClusters(s *MongoDBSearch) []ClusterSpec {
 // Empty clusterName returns the auto-promoted single-cluster entry (legacy path).
 // Returns an error if the named cluster is not found in spec.clusters[].
 func (s *MongoDBSearch) EffectiveClusterFor(clusterName string) (ClusterSpec, error) {
-	effective := EffectiveClusters(s)
+	effective := s.EffectiveClusters()
 	if clusterName == "" {
 		if len(effective) > 0 {
 			return effective[0], nil
@@ -860,16 +866,16 @@ func (s *MongoDBSearch) HasAutoEmbedding() bool {
 	return s.Spec.AutoEmbedding != nil
 }
 
-func (s *MongoDBSearch) MongotStatefulSetForShard(shardName string) types.NamespacedName {
-	return types.NamespacedName{Name: fmt.Sprintf("%s-search-0-%s", s.Name, shardName), Namespace: s.Namespace}
+func (s *MongoDBSearch) MongotStatefulSetForClusterShard(clusterIndex int, shardName string) types.NamespacedName {
+	return types.NamespacedName{Name: fmt.Sprintf("%s-search-%d-%s", s.Name, clusterIndex, shardName), Namespace: s.Namespace}
 }
 
-func (s *MongoDBSearch) MongotServiceForShard(shardName string) types.NamespacedName {
-	return types.NamespacedName{Name: fmt.Sprintf("%s-search-0-%s-svc", s.Name, shardName), Namespace: s.Namespace}
+func (s *MongoDBSearch) MongotServiceForClusterShard(clusterIndex int, shardName string) types.NamespacedName {
+	return types.NamespacedName{Name: fmt.Sprintf("%s-search-%d-%s-svc", s.Name, clusterIndex, shardName), Namespace: s.Namespace}
 }
 
-func (s *MongoDBSearch) MongotConfigMapForShard(shardName string) types.NamespacedName {
-	return types.NamespacedName{Name: fmt.Sprintf("%s-search-0-%s-config", s.Name, shardName), Namespace: s.Namespace}
+func (s *MongoDBSearch) MongotConfigMapForClusterShard(clusterIndex int, shardName string) types.NamespacedName {
+	return types.NamespacedName{Name: fmt.Sprintf("%s-search-%d-%s-config", s.Name, clusterIndex, shardName), Namespace: s.Namespace}
 }
 
 func (s *MongoDBSearch) IsLBModeManaged() bool {
@@ -902,7 +908,7 @@ func (s *MongoDBSearch) GetManagedLBEndpoint() string {
 }
 
 // GetManagedLBEndpointForShard returns the external hostname for a specific shard by substituting
-// the {shardName} template in spec.loadBalancer.managed.externalHostname.
+// the {shardName} template in spec.loadBalancer.managed.externalHostname (no cluster placeholders).
 // Returns "" if managed LB is not configured or externalHostname is empty.
 func (s *MongoDBSearch) GetManagedLBEndpointForShard(shardName string) string {
 	if !s.IsLBModeManaged() || s.Spec.LoadBalancer.Managed.ExternalHostname == "" {
@@ -911,19 +917,10 @@ func (s *MongoDBSearch) GetManagedLBEndpointForShard(shardName string) string {
 	return strings.ReplaceAll(s.Spec.LoadBalancer.Managed.ExternalHostname, ShardNamePlaceholder, shardName)
 }
 
-// GetManagedLBEndpointForCluster returns the externalHostname template with
-// {clusterName} and {clusterIndex} resolved for spec.clusters[i]. Returns "" when
-// managed LB is not configured. Use GetManagedLBEndpointForClusterShard for
-// sharded sources where {shardName} also needs resolving.
-//
-// Behaviour:
-//   - Legacy single-cluster (spec.clusters nil): placeholders are left untouched.
-//     Admission rejects MC specs missing the required placeholders, so reaching
-//     this path with a placeholder-bearing legacy template is malformed.
-//   - Out-of-range i: placeholders are left untouched (defensive — call sites
-//     iterate over len(*spec.clusters)).
-//
-// {clusterIndex} is resolved using the slice index i directly.
+// GetManagedLBEndpointForCluster resolves {clusterName} and {clusterIndex} in
+// the externalHostname template for spec.clusters[i]. Returns "" when managed
+// LB is not configured. Use GetManagedLBEndpointForClusterShard when {shardName}
+// also needs resolving.
 func (s *MongoDBSearch) GetManagedLBEndpointForCluster(i int) string {
 	if !s.IsLBModeManaged() || s.Spec.LoadBalancer.Managed.ExternalHostname == "" {
 		return ""
@@ -951,6 +948,38 @@ func (s *MongoDBSearch) GetManagedLBEndpointForClusterShard(i int, shardName str
 		return ""
 	}
 	return strings.ReplaceAll(out, ShardNamePlaceholder, shardName)
+}
+
+// GetManagedLBEndpointForClusterLevel derives the mongos-facing endpoint by stripping
+// the leading "{shardName}." from externalHostname. Returns "" when not derivable;
+// callers fall back to the cluster-level proxy Service FQDN.
+func (s *MongoDBSearch) GetManagedLBEndpointForClusterLevel(i int) string {
+	if !s.IsLBModeManaged() || s.Spec.LoadBalancer.Managed.ExternalHostname == "" {
+		return ""
+	}
+	tmpl := s.Spec.LoadBalancer.Managed.ExternalHostname
+	trimmed := strings.TrimPrefix(tmpl, ShardNamePlaceholder+".")
+	if strings.Contains(trimmed, ShardNamePlaceholder) {
+		return ""
+	}
+	hasClusterPlaceholder := strings.Contains(trimmed, ClusterNamePlaceholder) ||
+		strings.Contains(trimmed, ClusterIndexPlaceholder)
+	if s.Spec.Clusters == nil {
+		if hasClusterPlaceholder {
+			return ""
+		}
+		return trimmed
+	}
+	clusters := *s.Spec.Clusters
+	if i < 0 || i >= len(clusters) {
+		if hasClusterPlaceholder {
+			return ""
+		}
+		return trimmed
+	}
+	out := strings.ReplaceAll(trimmed, ClusterNamePlaceholder, clusters[i].ClusterName)
+	out = strings.ReplaceAll(out, ClusterIndexPlaceholder, strconv.Itoa(i))
+	return out
 }
 
 // IsLoadBalancerReady returns true if managed LB is not configured,
@@ -1002,18 +1031,18 @@ func (s *MongoDBSearch) LoadBalancerServerCert() types.NamespacedName {
 	return types.NamespacedName{Name: fmt.Sprintf("%s-search-lb-0-cert", s.Name), Namespace: s.Namespace}
 }
 
-// LoadBalancerServerCertForShard returns the namespaced name of the TLS server certificate secret for
-// a specific shard of the managed Envoy LB (sharded cluster). Naming pattern:
-//   - With prefix: {prefix}-{name}-search-lb-0-{shardName}-cert
-//   - Without prefix: {name}-search-lb-0-{shardName}-cert
-func (s *MongoDBSearch) LoadBalancerServerCertForShard(shardName string) types.NamespacedName {
+// LoadBalancerServerCertForClusterShard returns the namespaced name of the TLS server certificate secret for
+// a specific (cluster, shard) pair of the managed Envoy LB. Naming pattern:
+//   - With prefix: {prefix}-{name}-search-lb-{clusterIndex}-{shardName}-cert
+//   - Without prefix: {name}-search-lb-{clusterIndex}-{shardName}-cert
+func (s *MongoDBSearch) LoadBalancerServerCertForClusterShard(clusterIndex int, shardName string) types.NamespacedName {
 	if s.Spec.Security.TLS != nil && s.Spec.Security.TLS.CertsSecretPrefix != "" {
 		return types.NamespacedName{
-			Name:      fmt.Sprintf("%s-%s-search-lb-0-%s-cert", s.Spec.Security.TLS.CertsSecretPrefix, s.Name, shardName),
+			Name:      fmt.Sprintf("%s-%s-search-lb-%d-%s-cert", s.Spec.Security.TLS.CertsSecretPrefix, s.Name, clusterIndex, shardName),
 			Namespace: s.Namespace,
 		}
 	}
-	return types.NamespacedName{Name: fmt.Sprintf("%s-search-lb-0-%s-cert", s.Name, shardName), Namespace: s.Namespace}
+	return types.NamespacedName{Name: fmt.Sprintf("%s-search-lb-%d-%s-cert", s.Name, clusterIndex, shardName), Namespace: s.Namespace}
 }
 
 // LoadBalancerClientCert returns the namespaced name of the TLS client certificate secret used by the
