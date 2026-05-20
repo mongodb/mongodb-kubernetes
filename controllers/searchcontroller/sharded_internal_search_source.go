@@ -89,10 +89,6 @@ func (r *ShardedInternalSearchSource) Validate() error {
 		return xerrors.New("MongoDB version must be 8.2.0 or higher")
 	}
 
-	if r.Spec.GetTopology() != mdbv1.ClusterTopologySingleCluster {
-		return xerrors.Errorf("MongoDBSearch for sharded clusters is only supported for %s topology", mdbv1.ClusterTopologySingleCluster)
-	}
-
 	if r.GetResourceType() != mdbv1.ShardedCluster {
 		return xerrors.Errorf("ShardedInternalSearchSource requires a %s resource, got %s", mdbv1.ShardedCluster, r.GetResourceType())
 	}
