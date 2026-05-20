@@ -38,12 +38,12 @@ func (in *ClusterSpec) DeepCopyInto(out *ClusterSpec) {
 	}
 	if in.ResourceRequirements != nil {
 		in, out := &in.ResourceRequirements, &out.ResourceRequirements
-		*out = new(v1.ResourceRequirements)
+		*out = new(corev1.ResourceRequirements)
 		(*in).DeepCopyInto(*out)
 	}
 	if in.Persistence != nil {
 		in, out := &in.Persistence, &out.Persistence
-		*out = new(common.Persistence)
+		*out = new(v1.Persistence)
 		(*in).DeepCopyInto(*out)
 	}
 	if in.StatefulSetConfiguration != nil {

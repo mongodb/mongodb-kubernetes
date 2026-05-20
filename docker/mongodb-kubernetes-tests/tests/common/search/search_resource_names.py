@@ -63,51 +63,55 @@ def mongot_tls_cert_name(search_name: str, certs_secret_prefix: str = "") -> str
 # ============================================================================
 
 
-def shard_statefulset_name(search_name: str, shard_name: str) -> str:
-    """Per-shard mongot StatefulSet name. Mirrors MongotStatefulSetForShard()."""
-    return f"{search_name}-search-0-{shard_name}"
+def shard_statefulset_name(search_name: str, shard_name: str, cluster_index: int = 0) -> str:
+    """Per-shard mongot StatefulSet name. Mirrors MongotStatefulSetForClusterShard()."""
+    return f"{search_name}-search-{cluster_index}-{shard_name}"
 
 
-def shard_service_name(search_name: str, shard_name: str) -> str:
-    """Per-shard mongot Service name. Mirrors MongotServiceForShard()."""
-    return f"{search_name}-search-0-{shard_name}-svc"
+def shard_service_name(search_name: str, shard_name: str, cluster_index: int = 0) -> str:
+    """Per-shard mongot Service name. Mirrors MongotServiceForClusterShard()."""
+    return f"{search_name}-search-{cluster_index}-{shard_name}-svc"
 
 
-def shard_configmap_name(search_name: str, shard_name: str) -> str:
-    """Per-shard mongot ConfigMap name. Mirrors MongotConfigMapForShard()."""
-    return f"{search_name}-search-0-{shard_name}-config"
+def shard_configmap_name(search_name: str, shard_name: str, cluster_index: int = 0) -> str:
+    """Per-shard mongot ConfigMap name. Mirrors MongotConfigMapForClusterShard()."""
+    return f"{search_name}-search-{cluster_index}-{shard_name}-config"
 
 
-def shard_tls_cert_name(search_name: str, shard_name: str, certs_secret_prefix: str = "") -> str:
-    """Per-shard TLS certificate secret name. Mirrors TLSSecretForShard().
+def shard_tls_cert_name(
+    search_name: str, shard_name: str, certs_secret_prefix: str = "", cluster_index: int = 0
+) -> str:
+    """Per-shard TLS certificate secret name. Mirrors TLSSecretForClusterShard().
 
     Pattern:
-      - With prefix: {certs_secret_prefix}-{search_name}-search-0-{shard_name}-cert
-      - Without prefix: {search_name}-search-0-{shard_name}-cert
+      - With prefix: {certs_secret_prefix}-{search_name}-search-{cluster_index}-{shard_name}-cert
+      - Without prefix: {search_name}-search-{cluster_index}-{shard_name}-cert
     """
     if certs_secret_prefix:
-        return f"{certs_secret_prefix}-{search_name}-search-0-{shard_name}-cert"
-    return f"{search_name}-search-0-{shard_name}-cert"
+        return f"{certs_secret_prefix}-{search_name}-search-{cluster_index}-{shard_name}-cert"
+    return f"{search_name}-search-{cluster_index}-{shard_name}-cert"
 
 
-def shard_proxy_service_name(search_name: str, shard_name: str) -> str:
-    """Per-shard stable proxy Service name. Mirrors ProxyServiceNameForShard()."""
-    return f"{search_name}-search-0-{shard_name}-proxy-svc"
+def shard_proxy_service_name(search_name: str, shard_name: str, cluster_index: int = 0) -> str:
+    """Per-shard stable proxy Service name. Mirrors ProxyServiceNameForClusterShard()."""
+    return f"{search_name}-search-{cluster_index}-{shard_name}-proxy-svc"
 
 
-def shard_service_host(search_name: str, shard_name: str, namespace: str, port: int) -> str:
+def shard_service_host(search_name: str, shard_name: str, namespace: str, port: int, cluster_index: int = 0) -> str:
     """Full hostname:port for the per-shard mongot Service."""
-    return f"{shard_service_name(search_name, shard_name)}.{namespace}.svc.cluster.local:{port}"
+    return f"{shard_service_name(search_name, shard_name, cluster_index)}.{namespace}.svc.cluster.local:{port}"
 
 
-def shard_pod_fqdn(search_name: str, shard_name: str, namespace: str, port: int) -> str:
+def shard_pod_fqdn(search_name: str, shard_name: str, namespace: str, port: int, cluster_index: int = 0) -> str:
     """Headless pod-0 FQDN for per-shard single mongot (pod-0.svc.ns.svc.cluster.local:port)."""
-    return f"{shard_statefulset_name(search_name, shard_name)}-0.{shard_service_name(search_name, shard_name)}.{namespace}.svc.cluster.local:{port}"
+    return f"{shard_statefulset_name(search_name, shard_name, cluster_index)}-0.{shard_service_name(search_name, shard_name, cluster_index)}.{namespace}.svc.cluster.local:{port}"
 
 
-def shard_proxy_service_host(search_name: str, shard_name: str, namespace: str, port: int) -> str:
+def shard_proxy_service_host(
+    search_name: str, shard_name: str, namespace: str, port: int, cluster_index: int = 0
+) -> str:
     """Full hostname:port for the per-shard proxy Service."""
-    return f"{shard_proxy_service_name(search_name, shard_name)}.{namespace}.svc.cluster.local:{port}"
+    return f"{shard_proxy_service_name(search_name, shard_name, cluster_index)}.{namespace}.svc.cluster.local:{port}"
 
 
 # ============================================================================
@@ -115,15 +119,18 @@ def shard_proxy_service_host(search_name: str, shard_name: str, namespace: str, 
 # ============================================================================
 
 
-def mc_proxy_svc_fqdn(search_name: str, namespace: str, cluster_index: int) -> str:
-    """Cluster-index-suffixed proxy Service FQDN for multi-cluster deployments.
+def mc_proxy_svc_name(search_name: str, cluster_index: int) -> str:
+    """Per-cluster proxy Service name. Mirrors ProxyServiceNamespacedNameForCluster().
 
-    Pattern: ``{search_name}-search-{cluster_index}-proxy-svc.{namespace}.svc.cluster.local``
-
-    This is the value for ``mongotHost`` on the per-cluster mongod.  It does NOT
-    include the port; callers append ``:<port>`` as needed.
+    Serves two roles with the same name: ``mongotHost`` for RS-MC mongod, and the
+    shard-agnostic mongos target for sharded-MC (cluster-level routing).
     """
-    return f"{search_name}-search-{cluster_index}-proxy-svc.{namespace}.svc.cluster.local"
+    return f"{search_name}-search-{cluster_index}-proxy-svc"
+
+
+def mc_proxy_svc_fqdn(search_name: str, namespace: str, cluster_index: int) -> str:
+    """Fully-qualified mc_proxy_svc hostname (no port; callers append ``:<port>``)."""
+    return f"{mc_proxy_svc_name(search_name, cluster_index)}.{namespace}.svc.cluster.local"
 
 
 # ============================================================================
