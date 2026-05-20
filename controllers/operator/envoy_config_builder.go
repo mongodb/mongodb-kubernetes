@@ -217,6 +217,22 @@ func buildFilterChain(route envoyRoute, tlsEnabled bool, caKeyName string) (*lis
 	return chain, nil
 }
 
+// buildLbEndpoints converts route.UpstreamHosts into a slice of LbEndpoint protos,
+// one per upstream FQDN. All endpoints share the same port.
+func buildLbEndpoints(route envoyRoute) []*endpointv3.LbEndpoint {
+	eps := make([]*endpointv3.LbEndpoint, 0, len(route.UpstreamHosts))
+	for _, host := range route.UpstreamHosts {
+		eps = append(eps, &endpointv3.LbEndpoint{
+			HostIdentifier: &endpointv3.LbEndpoint_Endpoint{
+				Endpoint: &endpointv3.Endpoint{
+					Address: socketAddress(host, uint32(route.UpstreamPort)), //nolint:gosec
+				},
+			},
+		})
+	}
+	return eps
+}
+
 // buildCluster builds an upstream cluster for one route.
 func buildCluster(route envoyRoute, tlsEnabled bool, caKeyName string) (*clusterv3.Cluster, error) {
 	clusterName := fmt.Sprintf("mongot_%s_cluster", route.NameSafe)
@@ -251,15 +267,7 @@ func buildCluster(route envoyRoute, tlsEnabled bool, caKeyName string) (*cluster
 			ClusterName: clusterName,
 			Endpoints: []*endpointv3.LocalityLbEndpoints{
 				{
-					LbEndpoints: []*endpointv3.LbEndpoint{
-						{
-							HostIdentifier: &endpointv3.LbEndpoint_Endpoint{
-								Endpoint: &endpointv3.Endpoint{
-									Address: socketAddress(route.UpstreamHost, uint32(route.UpstreamPort)), //nolint:gosec
-								},
-							},
-						},
-					},
+					LbEndpoints: buildLbEndpoints(route),
 				},
 			},
 		},
@@ -337,6 +345,14 @@ func buildDownstreamTLSTransportSocket(caKeyName string) (*corev3.TransportSocke
 
 // buildUpstreamTLSTransportSocket builds the TLS transport socket for clusters (upstream).
 func buildUpstreamTLSTransportSocket(route envoyRoute, caKeyName string) (*corev3.TransportSocket, error) {
+	// Per-shard route: one upstream, SNI is its exact FQDN (matches per-shard cert SAN).
+	// Cluster-level route: UpstreamHosts spans shards; leave SNI empty since each shard's
+	// cert covers only its own FQDN. Upstream validation is CA-chain only either way.
+	sni := ""
+	if len(route.UpstreamHosts) == 1 {
+		sni = route.UpstreamHosts[0]
+	}
+
 	upstreamTLS := &tlsv3.UpstreamTlsContext{
 		CommonTlsContext: &tlsv3.CommonTlsContext{
 			TlsCertificates: []*tlsv3.TlsCertificate{
@@ -358,7 +374,7 @@ func buildUpstreamTLSTransportSocket(route envoyRoute, caKeyName string) (*corev
 			},
 			AlpnProtocols: []string{"h2"},
 		},
-		Sni: route.UpstreamHost,
+		Sni: sni,
 	}
 
 	tlsAny, err := anypb.New(upstreamTLS)
