@@ -304,6 +304,36 @@ func TestBuildBootstrapConfig_WithTLS_HasTLSInspector(t *testing.T) {
 	assert.Contains(t, listener.ListenerFilters[0].Name, "tls_inspector")
 }
 
+func TestBuildUpstreamTLS_ClusterLevelRoute_EmptySNI(t *testing.T) {
+	clusterRoute := envoyRoute{
+		Name:          "cluster-level",
+		NameSafe:      "cluster_level",
+		SNIHostname:   "cluster-level-proxy.ns.svc.cluster.local",
+		UpstreamHosts: []string{"mongot0.ns.svc.cluster.local", "mongot1.ns.svc.cluster.local"},
+		UpstreamPort:  27028,
+	}
+
+	ts, err := buildUpstreamTLSTransportSocket(clusterRoute, testCAKeyName())
+	require.NoError(t, err)
+
+	upstreamTLS := &tlsv3.UpstreamTlsContext{}
+	err = ts.GetTypedConfig().UnmarshalTo(upstreamTLS)
+	require.NoError(t, err)
+	assert.Empty(t, upstreamTLS.Sni, "cluster-level route must have empty SNI")
+}
+
+func TestBuildUpstreamTLS_PerShardRoute_SNISet(t *testing.T) {
+	route := testRoute("mdb-sh-0")
+
+	ts, err := buildUpstreamTLSTransportSocket(route, testCAKeyName())
+	require.NoError(t, err)
+
+	upstreamTLS := &tlsv3.UpstreamTlsContext{}
+	err = ts.GetTypedConfig().UnmarshalTo(upstreamTLS)
+	require.NoError(t, err)
+	assert.Equal(t, route.UpstreamHosts[0], upstreamTLS.Sni)
+}
+
 func TestBuildCluster_UsesTypedExtensionProtocolOptions(t *testing.T) {
 	route := testRoute("mdb-sh-0")
 	cluster, err := buildCluster(route, false, testCAKeyName())
