@@ -182,10 +182,8 @@ type SearchSourceReplicaSet interface {
 // clusterLevelResource describes the shard-agnostic proxy Service that mongos
 // connects to. One entry per cluster in sharded deployments when the operator
 // manages proxy Services.
-// fallbackPodLabel is the app label of the first shard's mongot STS; the
-// cluster-level Service selects pods carrying this label whenever the managed
-// LB is not (yet) ready, preserving pre-MC behaviour where mongos pointed at
-// the first shard's mongot pool directly.
+// fallbackPodLabel is the first shard's mongot STS label; used when no managed
+// LB is configured (pre-MC behaviour: mongos hits the first shard directly).
 type clusterLevelResource struct {
 	clusterName      string
 	clusterIndex     int
@@ -197,11 +195,11 @@ type clusterLevelResource struct {
 // topology-wide knobs and hooks that surround the loop. Everything sharded-specific lives
 // here in hook closures so the reconcile body stays a straight, unbranched sequence.
 type reconcilePlan struct {
-	units                []reconcileUnit
+	units                 []reconcileUnit
 	clusterLevelResources []clusterLevelResource
-	manageProxySvc       bool                                                      // topology-wide: true when the operator owns the proxy Service lifecycle (i.e. the LB is not user-managed)
-	preflight            func(context.Context, *zap.SugaredLogger) workflow.Status // runs before the loop; must return workflow.OK() to proceed
-	cleanup              func(context.Context, *zap.SugaredLogger)                 // runs after the loop; best-effort, errors logged
+	manageProxySvc        bool                                                      // topology-wide: true when the operator owns the proxy Service lifecycle (i.e. the LB is not user-managed)
+	preflight             func(context.Context, *zap.SugaredLogger) workflow.Status // runs before the loop; must return workflow.OK() to proceed
+	cleanup               func(context.Context, *zap.SugaredLogger)                 // runs after the loop; best-effort, errors logged
 }
 
 // buildReconcilePlan returns the full reconcile plan for the current topology.
@@ -541,6 +539,11 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 	}
 
 	for _, res := range plan.clusterLevelResources {
+		// Wait for the managed LB: with the fallback selector this Service would
+		// route mongos directly at mongot, bypassing Envoy SNI fan-out.
+		if r.mdbSearch.IsLBModeManaged() && !r.mdbSearch.IsLoadBalancerReady() {
+			continue
+		}
 		clusterClient, err := r.clientForCluster(res.clusterName)
 		if err != nil {
 			return workflow.Failed(err)
@@ -1134,10 +1137,8 @@ func buildProxyService(search *searchv1.MongoDBSearch, unit reconcileUnit) corev
 }
 
 // buildClusterLevelProxyService builds the shard-agnostic proxy Service used by mongos.
-// When the managed LB is ready, the selector points at the per-cluster Envoy pool so
-// queries fan out across all shards via SNI routing. Otherwise the selector points
-// at the first shard's mongot pool (the fallback label set on the unit), matching the
-// pre-MC behaviour where mongos talked to the first shard's mongot directly.
+// Selector: Envoy pool when managed LB is ready, else the first shard's mongot pool.
+// Callers must skip when managed LB is configured but not yet ready.
 func buildClusterLevelProxyService(search *searchv1.MongoDBSearch, res clusterLevelResource) corev1.Service {
 	var selector map[string]string
 	if search.IsLBModeManaged() && search.IsLoadBalancerReady() {

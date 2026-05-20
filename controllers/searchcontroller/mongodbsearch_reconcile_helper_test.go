@@ -3040,7 +3040,7 @@ func TestReconcileShardedMC_AllUnitsAppliedBeforeReadinessCheck(t *testing.T) {
 		require.NoError(t, err, "STS %s must have been created before the readiness short-circuit fired", exp.name)
 	}
 
-	// Cluster-level proxy Services were also applied (post-units pass).
+	// Cluster-level proxy Services deferred until LB is Ready.
 	for _, exp := range []struct {
 		c    kubernetesClient.Client
 		name string
@@ -3049,7 +3049,8 @@ func TestReconcileShardedMC_AllUnitsAppliedBeforeReadinessCheck(t *testing.T) {
 		{clusterBClient, "mdb-search-search-1-proxy-svc"},
 	} {
 		err := exp.c.Get(t.Context(), types.NamespacedName{Name: exp.name, Namespace: "ns"}, &corev1.Service{})
-		require.NoError(t, err, "cluster-level proxy Service %s must have been created", exp.name)
+		require.True(t, apierrors.IsNotFound(err),
+			"cluster-level proxy Service %s must NOT be created while LB is not ready", exp.name)
 	}
 }
 
@@ -3140,11 +3141,13 @@ func (f *mcShardedFixture) newHelper() *MongoDBSearchReconcileHelper {
 }
 
 // TestReconcileShardedMC_MultiPass walks the full lifecycle:
-//   pass 1: applies all (cluster, shard) units, returns Pending (STS not ready)
-//   then mark all STSs ready
-//   pass 2: returns Pending (LB not ready — Envoy controller hasn't run)
-//   then mark LB status ready (simulating Envoy controller's effect)
-//   pass 3: returns OK
+//
+//	pass 1: applies all (cluster, shard) units, returns Pending (STS not ready)
+//	then mark all STSs ready
+//	pass 2: returns Pending (LB not ready — Envoy controller hasn't run)
+//	then mark LB status ready (simulating Envoy controller's effect)
+//	pass 3: returns OK
+//
 // Across the three passes, the resource counts must stay stable (idempotent).
 func TestReconcileShardedMC_MultiPass(t *testing.T) {
 	fx := newMCShardedFixture(t)
@@ -3169,9 +3172,9 @@ func TestReconcileShardedMC_MultiPass(t *testing.T) {
 	require.Equal(t, 3, stsB, "pass 1: cluster-b should have 3 mongot STSs")
 	require.Equal(t, 3, cmA, "pass 1: cluster-a should have 3 mongot ConfigMaps")
 	require.Equal(t, 3, cmB)
-	// 3 per-shard headless + 3 per-shard proxy + 1 cluster-level proxy = 7 per cluster.
-	require.Equal(t, 7, svcA, "pass 1: cluster-a should have 7 Services (3 headless + 3 per-shard proxy + 1 cluster-level)")
-	require.Equal(t, 7, svcB)
+	// 3 per-shard headless + 3 per-shard proxy = 6 per cluster (cluster-level proxy deferred until LB Ready).
+	require.Equal(t, 6, svcA, "pass 1: cluster-a should have 6 Services")
+	require.Equal(t, 6, svcB)
 
 	// Mark all STSs ready (across all 3 clients — central is empty for this path
 	// but include it for consistency).
@@ -3205,8 +3208,8 @@ func TestReconcileShardedMC_MultiPass(t *testing.T) {
 	require.Equal(t, stsB, stsB3)
 	require.Equal(t, cmA, cmA3)
 	require.Equal(t, cmB, cmB3)
-	require.Equal(t, svcA, svcA3)
-	require.Equal(t, svcB, svcB3)
+	require.Equal(t, svcA+1, svcA3, "pass 3: cluster-level proxy Service now created")
+	require.Equal(t, svcB+1, svcB3)
 }
 
 // TestReconcileShardedMC_MissingMemberClusterClient verifies that when a
