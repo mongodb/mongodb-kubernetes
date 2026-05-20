@@ -18,11 +18,11 @@ import (
 
 func testRoute(shardName string) envoyRoute {
 	return envoyRoute{
-		Name:         shardName,
-		NameSafe:     "mdb_sh_0",
-		SNIHostname:  shardName + "-proxy.ns.svc.cluster.local",
-		UpstreamHost: shardName + "-mongot.ns.svc.cluster.local",
-		UpstreamPort: 27028,
+		Name:          shardName,
+		NameSafe:      "mdb_sh_0",
+		SNIHostname:   shardName + "-proxy.ns.svc.cluster.local",
+		UpstreamHosts: []string{shardName + "-mongot.ns.svc.cluster.local"},
+		UpstreamPort:  27028,
 	}
 }
 
@@ -85,7 +85,7 @@ func TestBuildEnvoyConfigJSON_SingleShard_NoTLS(t *testing.T) {
 	require.Len(t, cluster.LoadAssignment.Endpoints, 1)
 	require.Len(t, cluster.LoadAssignment.Endpoints[0].LbEndpoints, 1)
 	ep := cluster.LoadAssignment.Endpoints[0].LbEndpoints[0].GetEndpoint()
-	assert.Equal(t, route.UpstreamHost, ep.Address.GetSocketAddress().GetAddress())
+	assert.Equal(t, route.UpstreamHosts[0], ep.Address.GetSocketAddress().GetAddress())
 	assert.Equal(t, uint32(route.UpstreamPort), ep.Address.GetSocketAddress().GetPortValue())
 
 	// Circuit breakers
@@ -144,7 +144,7 @@ func TestBuildEnvoyConfigJSON_SingleShard_WithTLS(t *testing.T) {
 	err = cluster.TransportSocket.GetTypedConfig().UnmarshalTo(upstreamTLS)
 	require.NoError(t, err)
 
-	assert.Equal(t, route.UpstreamHost, upstreamTLS.Sni)
+	assert.Equal(t, route.UpstreamHosts[0], upstreamTLS.Sni)
 	assert.Equal(t, []string{"h2"}, upstreamTLS.CommonTlsContext.AlpnProtocols)
 
 	require.Len(t, upstreamTLS.CommonTlsContext.TlsCertificates, 1)
@@ -155,9 +155,9 @@ func TestBuildEnvoyConfigJSON_SingleShard_WithTLS(t *testing.T) {
 
 func TestBuildEnvoyConfigJSON_MultipleShards_WithTLS(t *testing.T) {
 	routes := []envoyRoute{
-		{Name: "mdb-sh-0", NameSafe: "mdb_sh_0", SNIHostname: "shard0.ns.svc.cluster.local", UpstreamHost: "mongot0.ns.svc.cluster.local", UpstreamPort: 27028},
-		{Name: "mdb-sh-1", NameSafe: "mdb_sh_1", SNIHostname: "shard1.ns.svc.cluster.local", UpstreamHost: "mongot1.ns.svc.cluster.local", UpstreamPort: 27028},
-		{Name: "mdb-sh-2", NameSafe: "mdb_sh_2", SNIHostname: "shard2.ns.svc.cluster.local", UpstreamHost: "mongot2.ns.svc.cluster.local", UpstreamPort: 27028},
+		{Name: "mdb-sh-0", NameSafe: "mdb_sh_0", SNIHostname: "shard0.ns.svc.cluster.local", UpstreamHosts: []string{"mongot0.ns.svc.cluster.local"}, UpstreamPort: 27028},
+		{Name: "mdb-sh-1", NameSafe: "mdb_sh_1", SNIHostname: "shard1.ns.svc.cluster.local", UpstreamHosts: []string{"mongot1.ns.svc.cluster.local"}, UpstreamPort: 27028},
+		{Name: "mdb-sh-2", NameSafe: "mdb_sh_2", SNIHostname: "shard2.ns.svc.cluster.local", UpstreamHosts: []string{"mongot2.ns.svc.cluster.local"}, UpstreamPort: 27028},
 	}
 
 	// Sharded clusters always require TLS for SNI-based routing
@@ -185,17 +185,17 @@ func TestBuildEnvoyConfigJSON_MultipleShards_WithTLS(t *testing.T) {
 		assert.NotNil(t, cluster.TransportSocket, "upstream TLS should be present")
 
 		ep := cluster.LoadAssignment.Endpoints[0].LbEndpoints[0].GetEndpoint()
-		assert.Equal(t, route.UpstreamHost, ep.Address.GetSocketAddress().GetAddress())
+		assert.Equal(t, route.UpstreamHosts[0], ep.Address.GetSocketAddress().GetAddress())
 	}
 }
 
 func TestBuildEnvoyConfigJSON_ReplicaSet_NoTLS(t *testing.T) {
 	route := envoyRoute{
-		Name:         "rs",
-		NameSafe:     "rs",
-		SNIHostname:  "mdb-search-search-proxy-svc.test-ns.svc.cluster.local",
-		UpstreamHost: "mdb-search-search-svc.test-ns.svc.cluster.local",
-		UpstreamPort: 27028,
+		Name:          "rs",
+		NameSafe:      "rs",
+		SNIHostname:   "mdb-search-search-proxy-svc.test-ns.svc.cluster.local",
+		UpstreamHosts: []string{"mdb-search-search-svc.test-ns.svc.cluster.local"},
+		UpstreamPort:  27028,
 	}
 
 	result, err := buildEnvoyConfigJSON([]envoyRoute{route}, false, testCAKeyName())
@@ -221,17 +221,17 @@ func TestBuildEnvoyConfigJSON_ReplicaSet_NoTLS(t *testing.T) {
 	assert.Nil(t, cluster.TransportSocket, "no upstream TLS for non-TLS ReplicaSet")
 
 	ep := cluster.LoadAssignment.Endpoints[0].LbEndpoints[0].GetEndpoint()
-	assert.Equal(t, route.UpstreamHost, ep.Address.GetSocketAddress().GetAddress())
+	assert.Equal(t, route.UpstreamHosts[0], ep.Address.GetSocketAddress().GetAddress())
 	assert.Equal(t, uint32(route.UpstreamPort), ep.Address.GetSocketAddress().GetPortValue())
 }
 
 func TestBuildEnvoyConfigJSON_ReplicaSet_WithTLS(t *testing.T) {
 	route := envoyRoute{
-		Name:         "rs",
-		NameSafe:     "rs",
-		SNIHostname:  "mdb-search-search-proxy-svc.test-ns.svc.cluster.local",
-		UpstreamHost: "mdb-search-search-svc.test-ns.svc.cluster.local",
-		UpstreamPort: 27028,
+		Name:          "rs",
+		NameSafe:      "rs",
+		SNIHostname:   "mdb-search-search-proxy-svc.test-ns.svc.cluster.local",
+		UpstreamHosts: []string{"mdb-search-search-svc.test-ns.svc.cluster.local"},
+		UpstreamPort:  27028,
 	}
 
 	result, err := buildEnvoyConfigJSON([]envoyRoute{route}, true, testCAKeyName())
@@ -262,7 +262,7 @@ func TestBuildEnvoyConfigJSON_ReplicaSet_WithTLS(t *testing.T) {
 	upstreamTLS := &tlsv3.UpstreamTlsContext{}
 	err = cluster.TransportSocket.GetTypedConfig().UnmarshalTo(upstreamTLS)
 	require.NoError(t, err)
-	assert.Equal(t, route.UpstreamHost, upstreamTLS.Sni)
+	assert.Equal(t, route.UpstreamHosts[0], upstreamTLS.Sni)
 }
 
 func TestBuildFilterChain_NoTLS_NoSNIMatch(t *testing.T) {
@@ -302,6 +302,36 @@ func TestBuildBootstrapConfig_WithTLS_HasTLSInspector(t *testing.T) {
 	listener := bootstrap.StaticResources.Listeners[0]
 	require.Len(t, listener.ListenerFilters, 1)
 	assert.Contains(t, listener.ListenerFilters[0].Name, "tls_inspector")
+}
+
+func TestBuildUpstreamTLS_ClusterLevelRoute_EmptySNI(t *testing.T) {
+	clusterRoute := envoyRoute{
+		Name:          "cluster-level",
+		NameSafe:      "cluster_level",
+		SNIHostname:   "cluster-level-proxy.ns.svc.cluster.local",
+		UpstreamHosts: []string{"mongot0.ns.svc.cluster.local", "mongot1.ns.svc.cluster.local"},
+		UpstreamPort:  27028,
+	}
+
+	ts, err := buildUpstreamTLSTransportSocket(clusterRoute, testCAKeyName())
+	require.NoError(t, err)
+
+	upstreamTLS := &tlsv3.UpstreamTlsContext{}
+	err = ts.GetTypedConfig().UnmarshalTo(upstreamTLS)
+	require.NoError(t, err)
+	assert.Empty(t, upstreamTLS.Sni, "cluster-level route must have empty SNI")
+}
+
+func TestBuildUpstreamTLS_PerShardRoute_SNISet(t *testing.T) {
+	route := testRoute("mdb-sh-0")
+
+	ts, err := buildUpstreamTLSTransportSocket(route, testCAKeyName())
+	require.NoError(t, err)
+
+	upstreamTLS := &tlsv3.UpstreamTlsContext{}
+	err = ts.GetTypedConfig().UnmarshalTo(upstreamTLS)
+	require.NoError(t, err)
+	assert.Equal(t, route.UpstreamHosts[0], upstreamTLS.Sni)
 }
 
 func TestBuildCluster_UsesTypedExtensionProtocolOptions(t *testing.T) {
