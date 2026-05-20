@@ -1069,7 +1069,9 @@ func (r *ShardedClusterReconcileHelper) applySearchParametersForShards(ctx conte
 		r.desiredMongosConfiguration.AdditionalMongodConfig = mdbv1.NewEmptyAdditionalMongodConfig()
 	}
 
-	searchMongosConfig := searchcontroller.GetMongosConfigParametersForSharded(search, shardNames, sc.Spec.GetClusterDomain())
+	// clusterIndex=0: operator-managed sharded source is single-cluster only at MVP.
+	// Q1-MC sharded would need per-cluster mongos config (gated on ShardOverrides API redesign).
+	searchMongosConfig := searchcontroller.GetMongosConfigParametersForSharded(search, 0, shardNames, sc.Spec.GetClusterDomain())
 	r.desiredMongosConfiguration.AdditionalMongodConfig.AddOption("setParameter", searchMongosConfig["setParameter"])
 
 	log.Infof("Applied search config for mongos: mongotHost=%v", searchMongosConfig["setParameter"])
