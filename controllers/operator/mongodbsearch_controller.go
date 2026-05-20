@@ -162,12 +162,6 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 		}
 	}
 
-	memberClients := make(map[string]client.Client, len(r.memberClusterClientsMap))
-	for name, kc := range r.memberClusterClientsMap {
-		memberClients[name] = kc
-	}
-	gaps := searchcontroller.CheckSecretsPresence(ctx, mdbSearch, r.kubeClient, memberClients, state.ClusterMapping)
-
 	reconcileHelper := searchcontroller.NewMongoDBSearchReconcileHelper(r.kubeClient, mdbSearch, searchSource, r.operatorSearchConfig, r.memberClusterClientsMap, state.ClusterMapping)
 
 	result, err := reconcileHelper.Reconcile(ctx, log).ReconcileResult()
@@ -175,9 +169,15 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 		return result, err
 	}
 
-	if len(gaps) > 0 {
-		r.surfaceMissingSecrets(gaps, log)
-		if result.RequeueAfter == 0 {
+	// Diagnostic pass for secrets reconcile doesn't gate on with Pending. Skip
+	// when reconcile already requeued — its own gates cover that case.
+	if result.RequeueAfter == 0 {
+		memberClients := make(map[string]client.Client, len(r.memberClusterClientsMap))
+		for name, kc := range r.memberClusterClientsMap {
+			memberClients[name] = kc
+		}
+		if gaps := searchcontroller.CheckSecretsPresence(ctx, mdbSearch, r.kubeClient, memberClients, state.ClusterMapping); len(gaps) > 0 {
+			r.surfaceMissingSecrets(gaps, log)
 			result.RequeueAfter = secretsCheckRequeueAfter
 		}
 	}

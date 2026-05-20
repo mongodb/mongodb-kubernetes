@@ -1587,6 +1587,10 @@ func GetMongodConfigParametersForShard(search *searchv1.MongoDBSearch, shardName
 // the cluster-level Service would route to the same pod but isn't in SANs.
 func GetMongosConfigParametersForSharded(search *searchv1.MongoDBSearch, clusterIndex int, shardNames []string, clusterDomain string) map[string]any {
 	var endpoint string
+	// Three branches: explicit unmanaged LB, no spec.loadBalancer (pre-MVP
+	// single-cluster shape), and managed LB. The TD lists no-LB as RS-only at
+	// GA, so case B should die when admission tightens; kept for now to avoid
+	// regressing pre-MVP.
 	switch {
 	case search.IsShardedUnmanagedLB() && len(shardNames) > 0:
 		endpoint = mongotEndpointForShard(search, shardNames[0], clusterDomain)

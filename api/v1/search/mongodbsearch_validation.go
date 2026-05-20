@@ -152,6 +152,10 @@ func validateRSEndpointTemplate(s *MongoDBSearch) v1.ValidationResult {
 	return v1.ValidationSuccess()
 }
 
+// Worst-case StatefulSet pod suffix for DNS-label length validation — static
+// bound so admission doesn't depend on per-cluster replica counts.
+const maxPodOrdinalSuffix = "-999"
+
 // generateShardResourceNames returns every resource name created for one (cluster, shard) pair.
 // Callers should pass the largest cluster index in spec.clusters so MC deployments don't
 // silently overshoot DNS limits at higher indices.
@@ -159,7 +163,7 @@ func generateShardResourceNames(s *MongoDBSearch, shardName string, clusterIndex
 	stsName := s.MongotStatefulSetForClusterShard(clusterIndex, shardName).Name
 	resources := []shardResourceName{
 		{ResourceType: "StatefulSet", Name: stsName, Standard: dnsLabel},
-		{ResourceType: "Pod (max ordinal)", Name: stsName + "-999", Standard: dnsLabel},
+		{ResourceType: "Pod (max ordinal)", Name: stsName + maxPodOrdinalSuffix, Standard: dnsLabel},
 		{ResourceType: "Service", Name: s.MongotServiceForClusterShard(clusterIndex, shardName).Name, Standard: dnsLabel},
 		{ResourceType: "ConfigMap", Name: s.MongotConfigMapForClusterShard(clusterIndex, shardName).Name, Standard: dnsSubdomain},
 	}
@@ -195,6 +199,10 @@ func generateShardResourceNames(s *MongoDBSearch, shardName string, clusterIndex
 
 // maxValidationClusterIndex returns the largest persisted index admission can foresee
 // (= len(spec.clusters)-1 for a fresh assignment; 0 for single-cluster).
+//
+// TODO: ClusterMapping is monotonic-append-only, so persisted indices can exceed
+// len-1 after remove→re-add cycles. Admission underestimates the real max; read
+// the persisted mapping to tighten.
 func maxValidationClusterIndex(s *MongoDBSearch) int {
 	if s.Spec.Clusters == nil || len(*s.Spec.Clusters) == 0 {
 		return 0
@@ -492,13 +500,11 @@ func validateMCExternalHostnamePlaceholders(s *MongoDBSearch) v1.ValidationResul
 			ClusterNamePlaceholder, ClusterIndexPlaceholder,
 		)
 	}
-	if s.IsExternalSourceSharded() {
-		if !strings.Contains(tmpl, ShardNamePlaceholder) {
-			return v1.ValidationError(
-				"spec.loadBalancer.managed.externalHostname must contain %s for multi-cluster sharded deployments",
-				ShardNamePlaceholder,
-			)
-		}
+	if s.IsExternalSourceSharded() && !strings.Contains(tmpl, ShardNamePlaceholder) {
+		return v1.ValidationError(
+			"spec.loadBalancer.managed.externalHostname must contain %s for multi-cluster sharded deployments",
+			ShardNamePlaceholder,
+		)
 	}
 	return v1.ValidationSuccess()
 }

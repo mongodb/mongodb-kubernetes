@@ -792,12 +792,9 @@ func (s *MongoDBSearch) EffectiveClusters() []ClusterSpec {
 		if resolved.Persistence == nil {
 			resolved.Persistence = topPersistence
 		}
-		// TODO: StatefulSetConfiguration cascade is currently REPLACE-if-nil for the
-		// whole struct. Sharded MC (mongodbshardedcluster_controller.go:555-590) deep-
-		// merges the inner PodTemplateSpec via merge.PodTemplateSpecs so users can
-		// override e.g. one container's image without restating the whole pod. Aligning
-		// here is gated on a wider API redesign (shardOverrides shape, deep-merge
-		// semantics) — keep REPLACE-if-nil for MVP, revisit before GA.
+		// TODO: whole-struct REPLACE-if-nil here; sharded MC deep-merges the inner
+		// PodTemplateSpec via merge.PodTemplateSpecs. Gated on shardOverrides API
+		// redesign — revisit before GA.
 		if resolved.StatefulSetConfiguration == nil {
 			resolved.StatefulSetConfiguration = topSTSConfig
 		}
