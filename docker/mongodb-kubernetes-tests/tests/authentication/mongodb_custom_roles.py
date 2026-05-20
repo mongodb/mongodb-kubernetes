@@ -6,6 +6,7 @@ from kubetester.mongodb_role import ClusterMongoDBRole, ClusterMongoDBRoleKind
 from pytest import fixture, mark
 from tests.multicluster.conftest import cluster_spec_list
 
+
 # fmt: off
 def get_expected_role(role_name: str) -> dict:
     return {
