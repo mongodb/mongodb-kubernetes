@@ -57,6 +57,9 @@ func CheckSecretsPresence(
 
 func expectedSecretNamesForCluster(search *searchv1.MongoDBSearch, clusterIndex int) []string {
 	names := expectedClusterInvariantSecretNames(search)
+	// MVP scope: MC sharded supports external sources only. Operator-managed sharded
+	// (Q1-MC sharded) is post-MVP; when added, also fan out per-shard cert expectations
+	// from the operator-managed shard list, not just ExternalMongoDBSource.
 	if search.Spec.Security.TLS != nil && search.IsExternalSourceSharded() {
 		for _, shard := range search.Spec.Source.ExternalMongoDBSource.ShardedCluster.Shards {
 			names = append(names, search.TLSSecretForClusterShard(clusterIndex, shard.ShardName).Name)
