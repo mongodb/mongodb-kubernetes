@@ -220,7 +220,9 @@ def test_promote_and_prune(namespace: str, mdb_migration: MongoDB, vm_sts):
 
         # After prune: removed VM hostname must be gone; surviving hosts must be present.
         conn_str = _connection_string(namespace, mdb_migration)
-        assert pruned["hostname"] not in conn_str, f"pruned hostname {pruned['hostname']!r} still in connection string after prune {i}"
+        assert (
+            pruned["hostname"] not in conn_str
+        ), f"pruned hostname {pruned['hostname']!r} still in connection string after prune {i}"
         for hostname in _k8s_hostnames(mdb_migration, namespace):
             assert hostname in conn_str, f"k8s hostname {hostname!r} missing after prune {i}"
         for em in mdb_migration["spec"]["externalMembers"]:
