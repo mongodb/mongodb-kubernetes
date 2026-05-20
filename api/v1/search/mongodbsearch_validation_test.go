@@ -418,10 +418,6 @@ func TestValidateMCExternalHostnamePlaceholders(t *testing.T) {
 			errorContains: "{shardName}",
 		},
 		{
-			// {shardName} as a name component (not subdomain prefix) is allowed —
-			// the operator falls back to the cluster-level proxy Service FQDN for
-			// the mongos-facing endpoint and uses the template (with {shardName}
-			// substituted) only for per-shard SNI routing.
 			name:     "MC sharded shardName as name component is allowed",
 			template: "search-{clusterIndex}-{shardName}-proxy.lb.example.com:443",
 			clusters: []ClusterSpec{{ClusterName: "us-east-k8s"}, {ClusterName: "eu-west-k8s"}},

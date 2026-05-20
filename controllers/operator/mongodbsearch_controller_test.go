@@ -711,7 +711,6 @@ func TestMongoDBSearchReconcile_Success_MultiCluster(t *testing.T) {
 	}
 }
 
-
 // newSearchReconcilerWithMembers builds a MongoDBSearchReconciler that is pre-wired
 // with the given member-cluster clients. The central fake client is built from
 // mock.NewEmptyFakeClientBuilder() so all search-related types are registered.
@@ -736,15 +735,7 @@ func newSearchReconcilerWithMembers(
 	return newMongoDBSearchReconciler(centralClient, searchcontroller.OperatorSearchConfig{}, memberClients), centralClient
 }
 
-// TestMongoDBSearchReconcile_MCSharded_CrossControllerLabelInvariant runs the
-// MongoDBSearch reconciler and the MongoDBSearchEnvoy reconciler against the
-// same fakeClient set (central + 2 members) and verifies the cross-controller
-// invariant that keeps mongos→mongot routing functional:
-//
-// The cluster-level proxy Service (owned by the Search controller) must, once
-// the LB is Ready, select on the same "app" label that the Envoy Deployment
-// (owned by the Envoy controller) stamps on its Pod template. If either
-// controller drifts its label, mongos→mongot traffic black-holes.
+// Cluster-level proxy Service selector must match the label Envoy Deployment stamps on its Pods.
 func TestMongoDBSearchReconcile_MCSharded_CrossControllerLabelInvariant(t *testing.T) {
 	ctx := context.Background()
 
