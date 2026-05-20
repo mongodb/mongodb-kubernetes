@@ -109,9 +109,7 @@ def create_lb_certificates(
             shard_name = f"{mdb_resource_name}-{i}"
             proxy_svc = search_resource_names.shard_proxy_service_name(mdbs_resource_name, shard_name, ci)
             additional_domains.append(f"{proxy_svc}.{namespace}.svc.cluster.local")
-        additional_domains.append(
-            search_resource_names.cluster_level_proxy_service_fqdn(ci, mdbs_resource_name, namespace)
-        )
+        additional_domains.append(search_resource_names.mc_proxy_svc_fqdn(mdbs_resource_name, namespace, ci))
 
     # Create server certificate
     create_tls_certs(

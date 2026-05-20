@@ -11,6 +11,7 @@ import kubernetes
 import pymongo.errors
 from kubernetes.client import CoreV1Api
 from kubetester import create_or_update_configmap, create_or_update_secret, read_secret, try_load
+from kubetester.certs import create_tls_certs
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import run_periodically
 from kubetester.mongodb import MongoDB
@@ -24,7 +25,6 @@ from tests import test_logger
 from tests.common.multicluster.multicluster_utils import assert_deployment_ready_in_cluster
 from tests.common.search import search_resource_names
 from tests.common.search.movies_search_helper import SampleMoviesSearchHelper
-from tests.common.search.search_deployment_helper import MCSearchDeploymentHelper
 from tests.common.search.search_tester import SearchTester
 from tests.common.search.sharded_search_helper import (
     create_issuer_ca,
@@ -71,19 +71,6 @@ SEARCH_QUERY_RETRY_TIMEOUT = 60
 
 
 @fixture(scope="module")
-def helper(
-    namespace: str,
-    member_cluster_clients: List[MultiClusterClient],
-) -> MCSearchDeploymentHelper:
-    return MCSearchDeploymentHelper(
-        namespace=namespace,
-        mdb_resource_name=MDB_RESOURCE_NAME,
-        mdbs_resource_name=MDBS_RESOURCE_NAME,
-        member_cluster_clients={mcc.cluster_name: mcc.core_v1_api() for mcc in member_cluster_clients},
-    )
-
-
-@fixture(scope="module")
 def ca_configmap(
     issuer_ca_filepath: str,
     namespace: str,
@@ -120,8 +107,7 @@ def mdb(
     # the same value; cluster-0's Envoy is namespace-scoped and reachable from cluster-1.
     cluster_idx = 0
     cluster_level_endpoint = (
-        f"{search_resource_names.cluster_level_proxy_service_fqdn(cluster_idx, MDBS_RESOURCE_NAME, namespace)}"
-        f":{ENVOY_PROXY_PORT}"
+        f"{search_resource_names.mc_proxy_svc_fqdn(MDBS_RESOURCE_NAME, namespace, cluster_idx)}" f":{ENVOY_PROXY_PORT}"
     )
 
     def _shard_proxy_endpoint(shard_name: str) -> str:
@@ -300,7 +286,6 @@ def test_install_operator(multi_cluster_operator: Operator):
 
 @mark.e2e_search_q3_mc_sharded_external_mtls
 def test_create_ca(ca_configmap: str):
-    """Gate: CA ConfigMap and Secret must exist on central + all member clusters before any CR."""
     assert ca_configmap == CA_CONFIGMAP_NAME
 
 
@@ -318,7 +303,6 @@ def test_install_source_tls_certificates(
     `{prefix}-{resource}-{N}-cert` per shard, plus `-config-cert` and `-mongos-cert`.
     Each cert SANs every member-cluster cross-cluster pod FQDN.
     """
-    from kubetester.certs import create_tls_certs
 
     def _issue(component_resource: str, secret_name: str, distribution: List[int | None]):
         create_tls_certs(
@@ -351,7 +335,6 @@ def test_install_source_tls_certificates(
 
 @mark.e2e_search_q3_mc_sharded_external_mtls
 def test_create_mdb_source(mdb: MongoDB):
-    """Assert external sharded MongoDB reaches Running."""
     mdb.update()
     mdb.assert_reaches_phase(Phase.Running, timeout=1500)
 
@@ -385,7 +368,6 @@ def test_create_certs(
     namespace: str,
     multi_cluster_issuer: str,
     central_cluster_client: kubernetes.client.ApiClient,
-    helper: MCSearchDeploymentHelper,
     member_cluster_clients: List[MultiClusterClient],
 ):
     """Issue per-(cluster, shard) mongot certs + LB certs on central.
@@ -437,26 +419,16 @@ def test_replicate_secrets_to_members(
     """
     central_core = CoreV1Api(api_client=central_cluster_client)
 
-    def _replicate(secret_name: str, target_clients: List[MultiClusterClient]):
-        source = central_core.read_namespaced_secret(name=secret_name, namespace=namespace)
-        data = read_secret(namespace, secret_name, api_client=central_cluster_client)
-        for mcc in target_clients:
-            create_or_update_secret(
-                namespace,
-                secret_name,
-                data,
-                type=source.type or "Opaque",
-                api_client=mcc.api_client,
-            )
-
     # Cluster-agnostic Secrets — same copy to every member cluster.
-    shared_secrets = [
+    for secret_name in [
         search_resource_names.lb_server_cert_name(MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX),
         search_resource_names.lb_client_cert_name(MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX),
         f"{MDBS_RESOURCE_NAME}-{MONGOT_USER_NAME}-password",
-    ]
-    for secret_name in shared_secrets:
-        _replicate(secret_name, member_cluster_clients)
+    ]:
+        secret_type = central_core.read_namespaced_secret(name=secret_name, namespace=namespace).type or "Opaque"
+        data = read_secret(namespace, secret_name, api_client=central_cluster_client)
+        for mcc in member_cluster_clients:
+            create_or_update_secret(namespace, secret_name, data, type=secret_type, api_client=mcc.api_client)
         logger.info(f"Replicated shared Secret {secret_name} to {len(member_cluster_clients)} member(s)")
 
     # Per-(cluster, shard) mongot certs — each cluster only needs its own per-shard certs.
@@ -466,13 +438,14 @@ def test_replicate_secrets_to_members(
             secret_name = search_resource_names.shard_tls_cert_name(
                 MDBS_RESOURCE_NAME, shard_name, MDBS_TLS_CERT_PREFIX, cluster_index=i
             )
-            _replicate(secret_name, [mcc])
+            secret_type = central_core.read_namespaced_secret(name=secret_name, namespace=namespace).type or "Opaque"
+            data = read_secret(namespace, secret_name, api_client=central_cluster_client)
+            create_or_update_secret(namespace, secret_name, data, type=secret_type, api_client=mcc.api_client)
         logger.info(f"Replicated per-shard Secrets to {mcc.cluster_name} (cluster_index={i})")
 
 
 @mark.e2e_search_q3_mc_sharded_external_mtls
 def test_create_search_cr(mdbs: MongoDBSearch):
-    """Assert MongoDBSearch reaches Running — all per-(cluster, shard) resources must converge."""
     mdbs.update()
     mdbs.assert_reaches_phase(Phase.Running, timeout=900)
 
@@ -480,7 +453,6 @@ def test_create_search_cr(mdbs: MongoDBSearch):
 @mark.e2e_search_q3_mc_sharded_external_mtls
 def test_per_cluster_mongot_resources_exist(
     namespace: str,
-    helper: MCSearchDeploymentHelper,
     member_cluster_clients: List[MultiClusterClient],
 ):
     """Every (cluster, shard) pair must have a mongot StatefulSet, headless Service, and ConfigMap
@@ -504,7 +476,6 @@ def test_per_cluster_mongot_resources_exist(
 @mark.e2e_search_q3_mc_sharded_external_mtls
 def test_cluster_level_proxy_service_per_cluster(
     namespace: str,
-    helper: MCSearchDeploymentHelper,
     member_cluster_clients: List[MultiClusterClient],
 ):
     """Each cluster must expose a shard-agnostic cluster-level proxy Service for mongos routing.
@@ -513,7 +484,7 @@ def test_cluster_level_proxy_service_per_cluster(
     every sharded deployment gets a dedicated cluster-level Service.
     """
     for i, mcc in enumerate(member_cluster_clients):
-        svc_name = search_resource_names.cluster_level_proxy_service_name(i, MDBS_RESOURCE_NAME)
+        svc_name = search_resource_names.mc_proxy_svc_name(MDBS_RESOURCE_NAME, i)
         svc = mcc.read_namespaced_service(svc_name, namespace)
         labels = svc.metadata.labels or {}
         assert labels.get("component") == "search-proxy", (
@@ -526,10 +497,8 @@ def test_cluster_level_proxy_service_per_cluster(
 @mark.e2e_search_q3_mc_sharded_external_mtls
 def test_envoy_deployment_per_cluster(
     namespace: str,
-    helper: MCSearchDeploymentHelper,
     member_cluster_clients: List[MultiClusterClient],
 ):
-    """Each cluster's Envoy LB Deployment must exist and be Ready."""
     for i, mcc in enumerate(member_cluster_clients):
         deploy_name = search_resource_names.lb_deployment_name(MDBS_RESOURCE_NAME, cluster_index=i)
         apps = mcc.apps_v1_api()
@@ -559,7 +528,6 @@ def _per_cluster_mongos_search_tester(
 
 @mark.e2e_search_q3_mc_sharded_external_mtls
 def test_restore_sample_database(namespace: str, tools_pod):
-    """mongorestore sample_mflix into the source sharded cluster via cluster-0's mongos."""
     tester = _per_cluster_mongos_search_tester(namespace, 0, ADMIN_USER_NAME, ADMIN_USER_PASSWORD)
     tester.mongorestore_from_url(
         archive_url="https://atlas-education.s3.amazonaws.com/sample_mflix.archive",

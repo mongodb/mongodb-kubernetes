@@ -119,29 +119,18 @@ def shard_proxy_service_host(
 # ============================================================================
 
 
-def cluster_level_proxy_service_name(cluster_index: int, mdbs_resource_name: str) -> str:
-    """Shard-agnostic proxy Service name for a cluster. Mirrors ClusterLevelProxyServiceNameForCluster().
+def mc_proxy_svc_name(search_name: str, cluster_index: int) -> str:
+    """Per-cluster proxy Service name. Mirrors ProxyServiceNamespacedNameForCluster().
 
-    Used by mongos so it is not bound to a specific shard. Default cluster_index=0
-    preserves single-cluster behaviour.
+    Serves two roles with the same name: ``mongotHost`` for RS-MC mongod, and the
+    shard-agnostic mongos target for sharded-MC (cluster-level routing).
     """
-    return f"{mdbs_resource_name}-search-{cluster_index}-proxy-svc"
-
-
-def cluster_level_proxy_service_fqdn(cluster_index: int, mdbs_resource_name: str, namespace: str) -> str:
-    """Fully-qualified cluster-level proxy Service hostname (no port)."""
-    return f"{cluster_level_proxy_service_name(cluster_index, mdbs_resource_name)}.{namespace}.svc.cluster.local"
+    return f"{search_name}-search-{cluster_index}-proxy-svc"
 
 
 def mc_proxy_svc_fqdn(search_name: str, namespace: str, cluster_index: int) -> str:
-    """Cluster-index-suffixed proxy Service FQDN for multi-cluster deployments.
-
-    Pattern: ``{search_name}-search-{cluster_index}-proxy-svc.{namespace}.svc.cluster.local``
-
-    This is the value for ``mongotHost`` on the per-cluster mongod.  It does NOT
-    include the port; callers append ``:<port>`` as needed.
-    """
-    return f"{search_name}-search-{cluster_index}-proxy-svc.{namespace}.svc.cluster.local"
+    """Fully-qualified mc_proxy_svc hostname (no port; callers append ``:<port>``)."""
+    return f"{mc_proxy_svc_name(search_name, cluster_index)}.{namespace}.svc.cluster.local"
 
 
 # ============================================================================
