@@ -1016,23 +1016,23 @@ def test_per_cluster_vector_search_query(
 
 
 @mark.e2e_search_q2_mc_rs_steady
-def test_admission_rejects_mc_without_external_hosts(
+def test_reconcile_rejects_mc_without_external_source(
     namespace: str,
     central_cluster_client: kubernetes.client.ApiClient,
     member_cluster_names: List[str],
     ca_configmap: str,
 ):
-    """STRICT — `validateMCRequiresExternalHostAndPorts` is observable.
+    """STRICT — `validateMCRequiresExternalSource` is observable.
 
     Validation runs at reconcile time (`mongodbsearch_reconcile_helper.go`
     calls `ValidateSpec()`), not via an admission webhook — so the apply
     succeeds but the resource lands in Phase=Failed with the validator's
     error message.
 
-    Submits a fresh MongoDBSearch with `len(spec.clusters) > 1` and no
-    `spec.source.external.hostAndPorts`, asserts Failed phase + expected
-    message, then deletes it so we don't pollute the namespace for
-    later runs.
+    Submits a fresh MongoDBSearch with `len(spec.clusters) > 1` and neither
+    `spec.source.external.hostAndPorts` nor `spec.source.external.shardedCluster`,
+    asserts Failed phase + expected message, then deletes it so we don't pollute
+    the namespace for later runs.
     """
     # Short name to keep the per-cluster Envoy Deployment name under the
     # 63-char DNS-1123 label limit (validateClustersEnvoyResourceNames runs
