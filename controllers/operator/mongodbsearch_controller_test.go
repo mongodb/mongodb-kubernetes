@@ -383,7 +383,6 @@ func TestNewMongoDBSearchReconciler_SingleCluster(t *testing.T) {
 
 	assert.NotNil(t, r.kubeClient, "central kubeClient must be set")
 	assert.Empty(t, r.memberClusterClientsMap, "members map must be empty in single-cluster mode")
-	assert.Empty(t, r.memberClusterSecretClientsMap, "secret-clients map must be empty in single-cluster mode")
 }
 
 func TestNewMongoDBSearchReconciler_MultiCluster(t *testing.T) {
@@ -398,11 +397,8 @@ func TestNewMongoDBSearchReconciler_MultiCluster(t *testing.T) {
 	r := newMongoDBSearchReconciler(central, searchcontroller.OperatorSearchConfig{}, members)
 
 	assert.Len(t, r.memberClusterClientsMap, 2)
-	assert.Len(t, r.memberClusterSecretClientsMap, 2)
 	assert.NotNil(t, r.memberClusterClientsMap["us-east-k8s"])
 	assert.NotNil(t, r.memberClusterClientsMap["eu-west-k8s"])
-	assert.NotNil(t, r.memberClusterSecretClientsMap["us-east-k8s"].KubeClient)
-	assert.NotNil(t, r.memberClusterSecretClientsMap["eu-west-k8s"].KubeClient)
 }
 
 func TestMongoDBSearchReconcile_MissingSecret_Requeues(t *testing.T) {
@@ -421,9 +417,9 @@ func TestMongoDBSearchReconcile_MissingSecret_Requeues(t *testing.T) {
 	require.True(t, res.RequeueAfter > 0, "must requeue when a customer-replicated secret is missing")
 }
 
-// TODO(@anandsyncs PR #1064): refactor StateConfigMap reconcile-loop tests
-// (this one + _NoOpOnStableMapping, _OperatorRestart, _ReAddCluster) into a
-// single table-driven test.
+// TODO: collapse StateConfigMap reconcile-loop tests (this one +
+// _NoOpOnStableMapping, _OperatorRestart, _ReAddCluster) into a single
+// table-driven test.
 func TestMongoDBSearchControllerReconcile_StateConfigMap(t *testing.T) {
 	ctx := context.Background()
 
@@ -737,4 +733,150 @@ func newSearchReconcilerWithMembers(
 	}
 	centralClient := builder.Build()
 	return newMongoDBSearchReconciler(centralClient, searchcontroller.OperatorSearchConfig{}, memberClients), centralClient
+}
+
+// Cluster-level proxy Service selector must match the label Envoy Deployment stamps on its Pods.
+func TestMongoDBSearchReconcile_MCSharded_CrossControllerLabelInvariant(t *testing.T) {
+	ctx := context.Background()
+
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "mdb-search",
+			Namespace: mock.TestNamespace,
+		},
+		Spec: searchv1.MongoDBSearchSpec{
+			Clusters: &[]searchv1.ClusterSpec{
+				{ClusterName: "cluster-a", Replicas: ptr.To(int32(1))},
+				{ClusterName: "cluster-b", Replicas: ptr.To(int32(1))},
+			},
+			Source: &searchv1.MongoDBSource{
+				ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{
+					ShardedCluster: &searchv1.ExternalShardedClusterConfig{
+						Router: searchv1.ExternalRouterConfig{Hosts: []string{"mongos.example:27017"}},
+						Shards: []searchv1.ExternalShardConfig{
+							{ShardName: "sh-0", Hosts: []string{"sh-0-a.example:27017"}},
+							{ShardName: "sh-1", Hosts: []string{"sh-1-a.example:27017"}},
+							{ShardName: "sh-2", Hosts: []string{"sh-2-a.example:27017"}},
+						},
+					},
+				},
+			},
+			LoadBalancer: &searchv1.LoadBalancerConfig{
+				Managed: &searchv1.ManagedLBConfig{
+					ExternalHostname: "{shardName}.mdb-search-search-{clusterIndex}-proxy-svc.example.com",
+				},
+			},
+			Security: searchv1.Security{TLS: &searchv1.TLS{CertsSecretPrefix: "certs"}},
+		},
+	}
+
+	tlsSecrets := func(clusterIndex int) []client.Object {
+		out := make([]client.Object, 0, 3)
+		for _, shard := range []string{"sh-0", "sh-1", "sh-2"} {
+			out = append(out, &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      fmt.Sprintf("certs-mdb-search-search-%d-%s-cert", clusterIndex, shard),
+					Namespace: mock.TestNamespace,
+				},
+				Data: map[string][]byte{"tls.crt": []byte("dummy"), "tls.key": []byte("dummy")},
+			})
+		}
+		return out
+	}
+
+	clusterA := mock.NewEmptyFakeClientBuilder().WithObjects(tlsSecrets(0)...).Build()
+	clusterB := mock.NewEmptyFakeClientBuilder().WithObjects(tlsSecrets(1)...).Build()
+	memberClients := map[string]client.Client{"cluster-a": clusterA, "cluster-b": clusterB}
+
+	searchReconciler, centralClient := newSearchReconcilerWithMembers(t, nil, memberClients, search)
+	envoyReconciler := newMongoDBSearchEnvoyReconciler(centralClient, "envoy:test", memberClients)
+
+	req := reconcile.Request{NamespacedName: types.NamespacedName{Name: search.Name, Namespace: search.Namespace}}
+
+	// Cooperative loop: each pass runs Search → Envoy, marks STSs+Deployments
+	// ready in fake clients, and seeds the LB status if the Envoy reconciler
+	// hasn't filled it in yet. Five passes is more than enough; assert on the
+	// invariant after the search resource reaches Running.
+	got := &searchv1.MongoDBSearch{}
+	const maxPasses = 5
+	for i := 0; i < maxPasses; i++ {
+		_, err := searchReconciler.Reconcile(ctx, req)
+		require.NoError(t, err)
+		_, err = envoyReconciler.Reconcile(ctx, req)
+		require.NoError(t, err)
+
+		require.NoError(t, mock.MarkAllStatefulSetsAsReady(ctx, search.Namespace, centralClient, clusterA, clusterB))
+		require.NoError(t, markAllDeploymentsAvailable(ctx, search.Namespace, clusterA, clusterB))
+
+		require.NoError(t, centralClient.Get(ctx, req.NamespacedName, got))
+		if got.Status.LoadBalancer == nil || got.Status.LoadBalancer.Phase != status.PhaseRunning {
+			got.Status.LoadBalancer = &searchv1.LoadBalancerStatus{Phase: status.PhaseRunning}
+			require.NoError(t, centralClient.Status().Update(ctx, got))
+		}
+
+		if got.Status.Phase == status.PhaseRunning {
+			break
+		}
+	}
+	require.Equal(t, status.PhaseRunning, got.Status.Phase,
+		"search reconciler must reach Running within %d passes", maxPasses)
+
+	// Invariant: per cluster, cluster-level proxy Service Selector["app"] must
+	// match the Envoy Deployment podTemplate.metadata.labels["app"].
+	for clusterName, idx := range map[string]int{"cluster-a": 0, "cluster-b": 1} {
+		mc := memberClients[clusterName]
+
+		svc := &corev1.Service{}
+		require.NoError(t, mc.Get(ctx,
+			search.ProxyServiceNamespacedNameForCluster(idx), svc),
+			"cluster-level proxy Service missing on %s", clusterName)
+
+		dep := &appsv1.Deployment{}
+		require.NoError(t, mc.Get(ctx,
+			types.NamespacedName{Name: search.LoadBalancerDeploymentNameForCluster(idx), Namespace: search.Namespace},
+			dep), "Envoy Deployment missing on %s", clusterName)
+
+		require.Equal(t,
+			dep.Spec.Template.Labels["app"],
+			svc.Spec.Selector["app"],
+			"%s: cluster-level proxy Service Selector[app]=%q must match Envoy Deployment podTemplate label app=%q",
+			clusterName, svc.Spec.Selector["app"], dep.Spec.Template.Labels["app"])
+
+		// Be explicit that the selector value is the LB Deployment name (not the
+		// per-shard fallback) — proves the Search reconciler observed
+		// IsLoadBalancerReady()=true after Envoy ran.
+		require.Equal(t,
+			search.LoadBalancerDeploymentNameForCluster(idx),
+			svc.Spec.Selector["app"],
+			"%s: cluster-level proxy Selector must point at the LB Deployment label, got %q",
+			clusterName, svc.Spec.Selector["app"])
+	}
+}
+
+// markAllDeploymentsAvailable mirrors MarkAllStatefulSetsAsReady for the Envoy
+// integration path. Sets ReadyReplicas=Spec.Replicas + the Available condition
+// so any downstream readiness gate (search-side or test-side) reads it as up.
+func markAllDeploymentsAvailable(ctx context.Context, namespace string, clients ...client.Client) error {
+	for _, c := range clients {
+		var deps appsv1.DeploymentList
+		if err := c.List(ctx, &deps, client.InNamespace(namespace)); err != nil {
+			return err
+		}
+		for i := range deps.Items {
+			dep := deps.Items[i].DeepCopy()
+			replicas := int32(1)
+			if dep.Spec.Replicas != nil {
+				replicas = *dep.Spec.Replicas
+			}
+			dep.Status.Replicas = replicas
+			dep.Status.ReadyReplicas = replicas
+			dep.Status.AvailableReplicas = replicas
+			dep.Status.UpdatedReplicas = replicas
+			dep.Status.ObservedGeneration = dep.Generation
+			if err := c.Status().Patch(ctx, dep, client.MergeFrom(&deps.Items[i])); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
