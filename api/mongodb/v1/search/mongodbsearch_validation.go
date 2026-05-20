@@ -57,7 +57,7 @@ func (s *MongoDBSearch) RunValidations() []v1.ValidationResult {
 		validateMCRejectsUnmanagedLB,
 		validateMCRequiresLoadBalancerManaged,
 		validateMCMatchTagsNonEmpty,
-		validateMCRequiresExternalHostAndPorts,
+		validateMCRequiresExternalSource,
 	}
 
 	var results []v1.ValidationResult
@@ -152,21 +152,26 @@ func validateRSEndpointTemplate(s *MongoDBSearch) v1.ValidationResult {
 	return v1.ValidationSuccess()
 }
 
-// generateShardResourceNames returns all resource names that will be created for a shard.
-// Uses existing naming methods from MongoDBSearch to ensure consistency with actual resource creation.
-func generateShardResourceNames(s *MongoDBSearch, shardName string) []shardResourceName {
-	stsName := s.MongotStatefulSetForShard(shardName).Name
+// Worst-case StatefulSet pod suffix for DNS-label length validation — static
+// bound so admission doesn't depend on per-cluster replica counts.
+const maxPodOrdinalSuffix = "-999"
+
+// generateShardResourceNames returns every resource name created for one (cluster, shard) pair.
+// Callers should pass the largest cluster index in spec.clusters so MC deployments don't
+// silently overshoot DNS limits at higher indices.
+func generateShardResourceNames(s *MongoDBSearch, shardName string, clusterIndex int) []shardResourceName {
+	stsName := s.MongotStatefulSetForClusterShard(clusterIndex, shardName).Name
 	resources := []shardResourceName{
 		{ResourceType: "StatefulSet", Name: stsName, Standard: dnsLabel},
-		{ResourceType: "Pod (max ordinal)", Name: stsName + "-999", Standard: dnsLabel},
-		{ResourceType: "Service", Name: s.MongotServiceForShard(shardName).Name, Standard: dnsLabel},
-		{ResourceType: "ConfigMap", Name: s.MongotConfigMapForShard(shardName).Name, Standard: dnsSubdomain},
+		{ResourceType: "Pod (max ordinal)", Name: stsName + maxPodOrdinalSuffix, Standard: dnsLabel},
+		{ResourceType: "Service", Name: s.MongotServiceForClusterShard(clusterIndex, shardName).Name, Standard: dnsLabel},
+		{ResourceType: "ConfigMap", Name: s.MongotConfigMapForClusterShard(clusterIndex, shardName).Name, Standard: dnsSubdomain},
 	}
 
 	if s.IsTLSConfigured() {
 		resources = append(resources, shardResourceName{
 			ResourceType: "TLS Certificate Secret",
-			Name:         s.TLSSecretForShard(shardName).Name,
+			Name:         s.TLSSecretForClusterShard(clusterIndex, shardName).Name,
 			Standard:     dnsSubdomain,
 		})
 	}
@@ -174,7 +179,7 @@ func generateShardResourceNames(s *MongoDBSearch, shardName string) []shardResou
 	if !s.IsShardedUnmanagedLB() {
 		resources = append(resources, shardResourceName{
 			ResourceType: "Proxy Service",
-			Name:         s.ProxyServiceNameForShard(shardName).Name,
+			Name:         s.ProxyServiceNameForClusterShard(clusterIndex, shardName).Name,
 			Standard:     dnsLabel,
 		})
 	}
@@ -183,13 +188,26 @@ func generateShardResourceNames(s *MongoDBSearch, shardName string) []shardResou
 		if s.IsTLSConfigured() {
 			resources = append(resources, shardResourceName{
 				ResourceType: "LB Server Certificate Secret",
-				Name:         s.LoadBalancerServerCertForShard(shardName).Name,
+				Name:         s.LoadBalancerServerCertForClusterShard(clusterIndex, shardName).Name,
 				Standard:     dnsSubdomain,
 			})
 		}
 	}
 
 	return resources
+}
+
+// maxValidationClusterIndex returns the largest persisted index admission can foresee
+// (= len(spec.clusters)-1 for a fresh assignment; 0 for single-cluster).
+//
+// TODO: ClusterMapping is monotonic-append-only, so persisted indices can exceed
+// len-1 after remove→re-add cycles. Admission underestimates the real max; read
+// the persisted mapping to tighten.
+func maxValidationClusterIndex(s *MongoDBSearch) int {
+	if s.Spec.Clusters == nil || len(*s.Spec.Clusters) == 0 {
+		return 0
+	}
+	return len(*s.Spec.Clusters) - 1
 }
 
 func validateShardNames(s *MongoDBSearch) v1.ValidationResult {
@@ -219,7 +237,7 @@ func validateShardNames(s *MongoDBSearch) v1.ValidationResult {
 		}
 		seenShardNames[shardName] = struct{}{}
 
-		resourceNames := generateShardResourceNames(s, shardName)
+		resourceNames := generateShardResourceNames(s, shardName, maxValidationClusterIndex(s))
 		for _, resource := range resourceNames {
 			if err := validateResourceName(resource, s.Name, shardName); err != nil {
 				return v1.ValidationError("%s", err.Error())
@@ -462,7 +480,8 @@ func ValidateShardNameRFC1123(shardName string) error {
 //     must contain {clusterName} or {clusterIndex} so each cluster's resolved
 //     hostname is distinct.
 //   - When the source is external sharded AND len(spec.clusters) > 1,
-//     externalHostname must additionally contain {shardName}.
+//     externalHostname must additionally contain {shardName} AND start with
+//     "{shardName}." so the cluster-level form is derivable by stripping that prefix.
 //
 // Single-cluster (len <= 1) and legacy specs (clusters nil) fall through —
 // the existing single-cluster behaviour is preserved.
@@ -630,24 +649,30 @@ func validateMCMatchTagsNonEmpty(s *MongoDBSearch) v1.ValidationResult {
 	return v1.ValidationSuccess()
 }
 
-// validateMCRequiresExternalHostAndPorts requires external.hostAndPorts when
-// spec.clusters has >1 entry: the same seed list is rendered into every
-// cluster's mongot ConfigMap (Q3 managed source is post-MVP).
-func validateMCRequiresExternalHostAndPorts(s *MongoDBSearch) v1.ValidationResult {
+// validateMCRequiresExternalSource requires either external.hostAndPorts (RS source)
+// or external.shardedCluster (sharded source) when spec.clusters has >1 entry:
+// every cluster's mongot ConfigMap is rendered from one of those two seed shapes.
+func validateMCRequiresExternalSource(s *MongoDBSearch) v1.ValidationResult {
 	if s.Spec.Clusters == nil {
 		return v1.ValidationSuccess()
 	}
 	if len(*s.Spec.Clusters) <= 1 {
 		return v1.ValidationSuccess()
 	}
-	if s.Spec.Source != nil &&
-		s.Spec.Source.ExternalMongoDBSource != nil &&
-		len(s.Spec.Source.ExternalMongoDBSource.HostAndPorts) > 0 {
+	ext := externalSource(s)
+	if ext != nil && (len(ext.HostAndPorts) > 0 || ext.ShardedCluster != nil) {
 		return v1.ValidationSuccess()
 	}
 	return v1.ValidationError(
-		"spec.source.external.hostAndPorts is required when len(spec.clusters) > 1; " +
-			"every cluster's mongot ConfigMap is rendered from this top-level seed list. " +
-			"Q3 (managed source) is post-MVP.",
+		"spec.source.external.hostAndPorts is required (or spec.source.external.shardedCluster " +
+			"for sharded sources) when len(spec.clusters) > 1; every cluster's mongot ConfigMap " +
+			"is rendered from this seed.",
 	)
+}
+
+func externalSource(s *MongoDBSearch) *ExternalMongoDBSource {
+	if s.Spec.Source == nil {
+		return nil
+	}
+	return s.Spec.Source.ExternalMongoDBSource
 }
