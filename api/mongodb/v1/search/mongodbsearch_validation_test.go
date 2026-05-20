@@ -1,6 +1,7 @@
 package search
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 
@@ -12,7 +13,6 @@ import (
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/user"
-	"github.com/mongodb/mongodb-kubernetes/api/v1/common"
 )
 
 func TestValidateShardNames(t *testing.T) {
@@ -88,6 +88,36 @@ func TestValidateShardNames(t *testing.T) {
 			// 20 + 10 + 30 + 4 = 64 chars > 63
 			name:          "invalid Service name too long with TLS",
 			search:        newSearch(strings.Repeat("a", 20), []ExternalShardConfig{shard(strings.Repeat("s", 30))}, "prefix", true, false),
+			errorContains: "exceeds",
+		},
+		{
+			// Proxy svc name = name+shard+digits(idx)+19; 20+23+1+19 = 63 ✓ at idx ≤ 9.
+			name: "valid MC Proxy Service at borderline with single-digit max index",
+			search: func() *MongoDBSearch {
+				s := newSearch(strings.Repeat("a", 20), []ExternalShardConfig{shard(strings.Repeat("s", 23))}, "", false, true)
+				s.Spec.LoadBalancer.Managed.ExternalHostname = "{shardName}.{clusterName}.example.com"
+				clusters := make([]ClusterSpec, 10)
+				for i := range clusters {
+					clusters[i] = ClusterSpec{ClusterName: "c" + strconv.Itoa(i)}
+				}
+				s.Spec.Clusters = &clusters
+				return s
+			}(),
+		},
+		{
+			// At idx 10 digits(idx) becomes 2: 20+23+2+19 = 64 > 63. Guards "valid at idx=0,
+			// silently overshoots at ≥11 clusters" — admission validates at the largest index.
+			name: "invalid MC Proxy Service overshoots at two-digit max index",
+			search: func() *MongoDBSearch {
+				s := newSearch(strings.Repeat("a", 20), []ExternalShardConfig{shard(strings.Repeat("s", 23))}, "", false, true)
+				s.Spec.LoadBalancer.Managed.ExternalHostname = "{shardName}.{clusterName}.example.com"
+				clusters := make([]ClusterSpec, 11)
+				for i := range clusters {
+					clusters[i] = ClusterSpec{ClusterName: "c" + strconv.Itoa(i)}
+				}
+				s.Spec.Clusters = &clusters
+				return s
+			}(),
 			errorContains: "exceeds",
 		},
 	}
@@ -289,12 +319,12 @@ func TestValidateClustersAndTopLevelFieldsMutuallyExclusive(t *testing.T) {
 		},
 		{
 			name:          "top-level Persistence + clusters set — reject",
-			spec:          MongoDBSearchSpec{Persistence: &common.Persistence{}, Clusters: &[]ClusterSpec{cluster()}},
+			spec:          MongoDBSearchSpec{Persistence: &v1.Persistence{}, Clusters: &[]ClusterSpec{cluster()}},
 			errorContains: "spec.persistence and spec.clusters are mutually exclusive",
 		},
 		{
 			name:          "top-level StatefulSet + clusters set — reject",
-			spec:          MongoDBSearchSpec{StatefulSetConfiguration: &common.StatefulSetConfiguration{}, Clusters: &[]ClusterSpec{cluster()}},
+			spec:          MongoDBSearchSpec{StatefulSetConfiguration: &v1.StatefulSetConfiguration{}, Clusters: &[]ClusterSpec{cluster()}},
 			errorContains: "spec.statefulSet and spec.clusters are mutually exclusive",
 		},
 	}
@@ -374,8 +404,8 @@ func TestValidateMCExternalHostnamePlaceholders(t *testing.T) {
 			errorContains: "{clusterName}",
 		},
 		{
-			name:     "MC sharded with all three placeholders",
-			template: "{clusterName}.{shardName}.lb.example.com:443",
+			name:     "MC sharded starts with shardName",
+			template: "{shardName}.{clusterName}.lb.example.com:443",
 			clusters: []ClusterSpec{{ClusterName: "us-east-k8s"}, {ClusterName: "eu-west-k8s"}},
 			sharded:  true,
 		},
@@ -385,6 +415,12 @@ func TestValidateMCExternalHostnamePlaceholders(t *testing.T) {
 			clusters:      []ClusterSpec{{ClusterName: "us-east-k8s"}, {ClusterName: "eu-west-k8s"}},
 			sharded:       true,
 			errorContains: "{shardName}",
+		},
+		{
+			name:     "MC sharded shardName as name component is allowed",
+			template: "search-{clusterIndex}-{shardName}-proxy.lb.example.com:443",
+			clusters: []ClusterSpec{{ClusterName: "us-east-k8s"}, {ClusterName: "eu-west-k8s"}},
+			sharded:  true,
 		},
 		{
 			name:     "no managed LB returns success",
@@ -759,7 +795,7 @@ func newSearch(name string, shards []ExternalShardConfig, tlsPrefix string, isTL
 	return search
 }
 
-func TestValidateMCRequiresExternalHostAndPorts(t *testing.T) {
+func TestValidateMCRequiresExternalSource(t *testing.T) {
 	mdbBad := &MongoDBSearch{
 		Spec: MongoDBSearchSpec{
 			Clusters: &[]ClusterSpec{
@@ -768,12 +804,13 @@ func TestValidateMCRequiresExternalHostAndPorts(t *testing.T) {
 			},
 		},
 	}
-	resBad := validateMCRequiresExternalHostAndPorts(mdbBad)
-	assert.Equal(t, v1.ErrorLevel, resBad.Level, "expected validation error for MC without external.hostAndPorts")
+	resBad := validateMCRequiresExternalSource(mdbBad)
+	assert.Equal(t, v1.ErrorLevel, resBad.Level, "expected validation error for MC without any external source")
 	assert.Contains(t, resBad.Msg, "spec.source.external.hostAndPorts")
+	assert.Contains(t, resBad.Msg, "spec.source.external.shardedCluster")
 	assert.Contains(t, resBad.Msg, "len(spec.clusters) > 1")
 
-	mdbOK := &MongoDBSearch{
+	mdbRS := &MongoDBSearch{
 		Spec: MongoDBSearchSpec{
 			Clusters: &[]ClusterSpec{
 				{ClusterName: "cluster-a"},
@@ -786,19 +823,39 @@ func TestValidateMCRequiresExternalHostAndPorts(t *testing.T) {
 			},
 		},
 	}
-	assert.Equal(t, v1.SuccessLevel, validateMCRequiresExternalHostAndPorts(mdbOK).Level)
+	assert.Equal(t, v1.SuccessLevel, validateMCRequiresExternalSource(mdbRS).Level)
+
+	mdbSharded := &MongoDBSearch{
+		Spec: MongoDBSearchSpec{
+			Clusters: &[]ClusterSpec{
+				{ClusterName: "cluster-a"},
+				{ClusterName: "cluster-b"},
+			},
+			Source: &MongoDBSource{
+				ExternalMongoDBSource: &ExternalMongoDBSource{
+					ShardedCluster: &ExternalShardedClusterConfig{
+						Router: ExternalRouterConfig{Hosts: []string{"mongos.example:27017"}},
+						Shards: []ExternalShardConfig{
+							{ShardName: "shard-0", Hosts: []string{"shard-0-a.example:27017"}},
+						},
+					},
+				},
+			},
+		},
+	}
+	assert.Equal(t, v1.SuccessLevel, validateMCRequiresExternalSource(mdbSharded).Level, "MC sharded source must be accepted")
 
 	mdbSC := &MongoDBSearch{
 		Spec: MongoDBSearchSpec{
 			Clusters: &[]ClusterSpec{{ClusterName: "cluster-a"}},
 		},
 	}
-	assert.Equal(t, v1.SuccessLevel, validateMCRequiresExternalHostAndPorts(mdbSC).Level, "single-cluster path is a no-op")
+	assert.Equal(t, v1.SuccessLevel, validateMCRequiresExternalSource(mdbSC).Level, "single-cluster path is a no-op")
 
 	mdbLegacy := &MongoDBSearch{
 		Spec: MongoDBSearchSpec{},
 	}
-	assert.Equal(t, v1.SuccessLevel, validateMCRequiresExternalHostAndPorts(mdbLegacy).Level)
+	assert.Equal(t, v1.SuccessLevel, validateMCRequiresExternalSource(mdbLegacy).Level)
 }
 
 // TestValidateClustersEnvoyResourceNames is the admission check for the
