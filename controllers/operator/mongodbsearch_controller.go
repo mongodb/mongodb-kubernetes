@@ -23,7 +23,6 @@ import (
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
-	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
@@ -80,8 +79,7 @@ type MongoDBSearchReconciler struct {
 	watch                *watch.ResourceWatcher
 	operatorSearchConfig searchcontroller.OperatorSearchConfig
 
-	memberClusterClientsMap       map[string]kubernetesClient.Client // per-cluster Kubernetes client; empty in single-cluster installs
-	memberClusterSecretClientsMap map[string]secrets.SecretClient    // per-cluster secret client; empty in single-cluster installs
+	memberClusterClientsMap map[string]kubernetesClient.Client // per-cluster Kubernetes client; empty in single-cluster installs
 }
 
 func newMongoDBSearchReconciler(
@@ -90,22 +88,15 @@ func newMongoDBSearchReconciler(
 	memberClustersMap map[string]client.Client,
 ) *MongoDBSearchReconciler {
 	clientsMap := make(map[string]kubernetesClient.Client, len(memberClustersMap))
-	secretClientsMap := make(map[string]secrets.SecretClient, len(memberClustersMap))
-
 	for k, v := range memberClustersMap {
 		clientsMap[k] = kubernetesClient.NewClient(v)
-		secretClientsMap[k] = secrets.SecretClient{
-			VaultClient: nil, // Vault is not supported on multicluster
-			KubeClient:  clientsMap[k],
-		}
 	}
 
 	return &MongoDBSearchReconciler{
-		kubeClient:                    kubernetesClient.NewClient(kubeClient),
-		watch:                         watch.NewResourceWatcher(),
-		operatorSearchConfig:          operatorSearchConfig,
-		memberClusterClientsMap:       clientsMap,
-		memberClusterSecretClientsMap: secretClientsMap,
+		kubeClient:              kubernetesClient.NewClient(kubeClient),
+		watch:                   watch.NewResourceWatcher(),
+		operatorSearchConfig:    operatorSearchConfig,
+		memberClusterClientsMap: clientsMap,
 	}
 }
 
@@ -140,15 +131,9 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 		}
 	}
 
-	// Watch our own TLS certificate secret for changes
+	// Watch our own TLS certificate secret for changes (non-sharded only; sharded watches are per-member-cluster)
 	if mdbSearch.Spec.Security.TLS != nil {
-		if shardedSource, ok := searchSource.(searchcontroller.SearchSourceShardedDeployment); ok {
-			// Sharded: watch per-shard source secrets (one per shard)
-			for _, shardName := range shardedSource.GetShardNames() {
-				shardSecretNsName := mdbSearch.TLSSecretForShard(shardName)
-				r.watch.AddWatchedResourceIfNotAdded(shardSecretNsName.Name, shardSecretNsName.Namespace, watch.Secret, mdbSearch.NamespacedName())
-			}
-		} else {
+		if _, ok := searchSource.(searchcontroller.SearchSourceShardedDeployment); !ok {
 			// Non-sharded: watch the single source secret
 			sourceSecretNsName := mdbSearch.TLSSecretNamespacedName()
 			r.watch.AddWatchedResourceIfNotAdded(sourceSecretNsName.Name, sourceSecretNsName.Namespace, watch.Secret, mdbSearch.NamespacedName())
@@ -158,15 +143,6 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 	if mdbSearch.Spec.AutoEmbedding != nil {
 		r.watch.AddWatchedResourceIfNotAdded(mdbSearch.Spec.AutoEmbedding.EmbeddingModelAPIKeySecret.Name, mdbSearch.Namespace, watch.Secret, mdbSearch.NamespacedName())
 	}
-
-	memberClients := make(map[string]client.Client, len(r.memberClusterClientsMap))
-	for name, kc := range r.memberClusterClientsMap {
-		memberClients[name] = kc
-	}
-	// Run the customer-replicated-secret presence check up front so the helper
-	// can fold gaps into the per-cluster status patch in a single writeback,
-	// rather than requiring a follow-up patch from this controller.
-	gaps := searchcontroller.CheckSecretsPresence(ctx, mdbSearch, r.kubeClient, memberClients)
 
 	state, stateStore, err := loadOrInitSearchState(ctx, r.kubeClient, mdbSearch)
 	if err != nil {
@@ -193,9 +169,15 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 		return result, err
 	}
 
-	if len(gaps) > 0 {
-		r.surfaceMissingSecrets(gaps, log)
-		if result.RequeueAfter == 0 {
+	// Diagnostic pass for secrets reconcile doesn't gate on with Pending. Skip
+	// when reconcile already requeued — its own gates cover that case.
+	if result.RequeueAfter == 0 {
+		memberClients := make(map[string]client.Client, len(r.memberClusterClientsMap))
+		for name, kc := range r.memberClusterClientsMap {
+			memberClients[name] = kc
+		}
+		if gaps := searchcontroller.CheckSecretsPresence(ctx, mdbSearch, r.kubeClient, memberClients, state.ClusterMapping); len(gaps) > 0 {
+			r.surfaceMissingSecrets(gaps, log)
 			result.RequeueAfter = secretsCheckRequeueAfter
 		}
 	}

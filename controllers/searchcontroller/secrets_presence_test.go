@@ -2,6 +2,7 @@ package searchcontroller
 
 import (
 	"context"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -66,7 +67,7 @@ func TestCheckSecretsPresence_HappyPath(t *testing.T) {
 	west := newClientWithSecrets(t, newSecretObj("search-sync-password", "ns"))
 	members := map[string]client.Client{"east": east, "west": west}
 
-	got := CheckSecretsPresence(context.Background(), search, central, members)
+	got := CheckSecretsPresence(context.Background(), search, central, members, map[string]int{"east": 0, "west": 1})
 
 	assert.Empty(t, got, "all secrets present in all clusters → no SecretCheckResult entries")
 }
@@ -82,15 +83,123 @@ func TestCheckSecretsPresence_MissingSecret(t *testing.T) {
 	west := newClientWithSecrets(t)
 	members := map[string]client.Client{"east": east, "west": west}
 
-	got := CheckSecretsPresence(context.Background(), search, central, members)
+	got := CheckSecretsPresence(context.Background(), search, central, members, map[string]int{"east": 0, "west": 1})
 
 	assert.Len(t, got, 1)
 	assert.Equal(t, "west", got[0].Cluster)
 	assert.Equal(t, []string{"search-sync-password"}, got[0].Missing)
 }
 
-// TestExpectedSecretNames_Table covers all conditional branches inside expectedSecretNames.
-func TestExpectedSecretNames_Table(t *testing.T) {
+func mcShardedTLSSearch(t *testing.T, name, ns string, shardNames ...string) *searchv1.MongoDBSearch {
+	t.Helper()
+	shards := make([]searchv1.ExternalShardConfig, 0, len(shardNames))
+	for _, n := range shardNames {
+		shards = append(shards, searchv1.ExternalShardConfig{ShardName: n, Hosts: []string{n + ":27017"}})
+	}
+	s := newSearchWithExternalSource(name, ns)
+	s.Spec.Source.ExternalMongoDBSource.HostAndPorts = nil
+	s.Spec.Source.ExternalMongoDBSource.ShardedCluster = &searchv1.ExternalShardedClusterConfig{
+		Router: searchv1.ExternalRouterConfig{Hosts: []string{"router:27017"}},
+		Shards: shards,
+	}
+	s.Spec.Security.TLS = &searchv1.TLS{CertsSecretPrefix: "lt"}
+	return s
+}
+
+func TestCheckSecretsPresence_MCSharded_PerClusterCertNames(t *testing.T) {
+	search := mcShardedTLSSearch(t, "s", "ns", "shard-0", "shard-1")
+
+	central := newClientWithSecrets(t,
+		newSecretObj("search-sync-password", "ns"),
+	)
+	east := newClientWithSecrets(t,
+		newSecretObj("search-sync-password", "ns"),
+		newSecretObj(s_tlsShardNameAt("lt", "s", "shard-0", 0), "ns"),
+		newSecretObj(s_tlsShardNameAt("lt", "s", "shard-1", 0), "ns"),
+	)
+	west := newClientWithSecrets(t,
+		newSecretObj("search-sync-password", "ns"),
+		newSecretObj(s_tlsShardNameAt("lt", "s", "shard-0", 1), "ns"),
+		newSecretObj(s_tlsShardNameAt("lt", "s", "shard-1", 1), "ns"),
+	)
+	members := map[string]client.Client{"east": east, "west": west}
+
+	got := CheckSecretsPresence(context.Background(), search, central, members, map[string]int{"east": 0, "west": 1})
+
+	assert.Empty(t, got, "per-cluster cert names addressed via clusterMapping → no gaps")
+}
+
+func TestCheckSecretsPresence_MCSharded_MissingPerClusterCert(t *testing.T) {
+	search := mcShardedTLSSearch(t, "s", "ns", "shard-0")
+
+	central := newClientWithSecrets(t, newSecretObj("search-sync-password", "ns"))
+	east := newClientWithSecrets(t,
+		newSecretObj("search-sync-password", "ns"),
+		newSecretObj(s_tlsShardNameAt("lt", "s", "shard-0", 0), "ns"),
+	)
+	// west has east's cert name (index 0) but is at index 1.
+	west := newClientWithSecrets(t,
+		newSecretObj("search-sync-password", "ns"),
+		newSecretObj(s_tlsShardNameAt("lt", "s", "shard-0", 0), "ns"),
+	)
+	members := map[string]client.Client{"east": east, "west": west}
+
+	got := CheckSecretsPresence(context.Background(), search, central, members, map[string]int{"east": 0, "west": 1})
+
+	assert.Len(t, got, 1)
+	assert.Equal(t, "west", got[0].Cluster)
+	assert.Equal(t, []string{s_tlsShardNameAt("lt", "s", "shard-0", 1)}, got[0].Missing)
+}
+
+func TestCheckSecretsPresence_MCSharded_CentralSkipsPerShardCerts(t *testing.T) {
+	search := mcShardedTLSSearch(t, "s", "ns", "shard-0", "shard-1")
+
+	central := newClientWithSecrets(t, newSecretObj("search-sync-password", "ns"))
+	east := newClientWithSecrets(t,
+		newSecretObj("search-sync-password", "ns"),
+		newSecretObj(s_tlsShardNameAt("lt", "s", "shard-0", 0), "ns"),
+		newSecretObj(s_tlsShardNameAt("lt", "s", "shard-1", 0), "ns"),
+	)
+	members := map[string]client.Client{"east": east}
+
+	got := CheckSecretsPresence(context.Background(), search, central, members, map[string]int{"east": 0})
+
+	assert.Empty(t, got, "central must not be probed for per-shard certs in MC mode")
+}
+
+func TestCheckSecretsPresence_MCSharded_CentralReportsInvariantGap(t *testing.T) {
+	search := mcShardedTLSSearch(t, "s", "ns", "shard-0")
+
+	central := newClientWithSecrets(t)
+	east := newClientWithSecrets(t,
+		newSecretObj("search-sync-password", "ns"),
+		newSecretObj(s_tlsShardNameAt("lt", "s", "shard-0", 0), "ns"),
+	)
+	members := map[string]client.Client{"east": east}
+
+	got := CheckSecretsPresence(context.Background(), search, central, members, map[string]int{"east": 0})
+
+	assert.Len(t, got, 1)
+	assert.Equal(t, "", got[0].Cluster)
+	assert.Equal(t, []string{"search-sync-password"}, got[0].Missing)
+}
+
+func TestCheckSecretsPresence_SingleClusterSharded_CentralIncludesPerShardCerts(t *testing.T) {
+	search := mcShardedTLSSearch(t, "s", "ns", "shard-0")
+
+	central := newClientWithSecrets(t,
+		newSecretObj("search-sync-password", "ns"),
+		// Missing: s_tlsShardNameAt("lt", "s", "shard-0", 0)
+	)
+
+	got := CheckSecretsPresence(context.Background(), search, central, nil, nil)
+
+	assert.Len(t, got, 1)
+	assert.Equal(t, "", got[0].Cluster)
+	assert.Equal(t, []string{s_tlsShardNameAt("lt", "s", "shard-0", 0)}, got[0].Missing)
+}
+
+func TestExpectedSecretNamesForCluster_Table(t *testing.T) {
 	shardedSearch := func(keyfile string) *searchv1.MongoDBSearch {
 		s := newSearchWithExternalSource("s", "ns")
 		s.Spec.Source.ExternalMongoDBSource.HostAndPorts = nil
@@ -165,7 +274,7 @@ func TestExpectedSecretNames_Table(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := expectedSecretNames(tt.build())
+			got := expectedSecretNamesForCluster(tt.build(), 0)
 			assert.ElementsMatch(t, tt.wantKeys, got)
 		})
 	}
@@ -176,7 +285,12 @@ func s_tlsRSName(prefix, resourceName string) string {
 	return prefix + "-" + resourceName + "-search-cert"
 }
 
-// s_tlsShardName mirrors the naming logic from TLSSecretForShard for test assertions.
+// s_tlsShardName mirrors the naming logic from TLSSecretForClusterShard for test assertions.
 func s_tlsShardName(prefix, resourceName, shardName string) string {
-	return prefix + "-" + resourceName + "-search-0-" + shardName + "-cert"
+	return s_tlsShardNameAt(prefix, resourceName, shardName, 0)
+}
+
+// s_tlsShardNameAt mirrors TLSSecretForClusterShard for an arbitrary cluster index.
+func s_tlsShardNameAt(prefix, resourceName, shardName string, clusterIndex int) string {
+	return prefix + "-" + resourceName + "-search-" + strconv.Itoa(clusterIndex) + "-" + shardName + "-cert"
 }

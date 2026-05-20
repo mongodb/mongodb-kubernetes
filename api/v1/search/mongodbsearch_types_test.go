@@ -83,7 +83,7 @@ func TestEffectiveClusters(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s := &MongoDBSearch{Spec: tt.spec}
-			got := EffectiveClusters(s)
+			got := s.EffectiveClusters()
 			assert.Equal(t, tt.expected, got)
 		})
 	}
@@ -122,7 +122,7 @@ func TestEffectiveClustersCascade(t *testing.T) {
 		},
 	}
 	s := &MongoDBSearch{Spec: spec}
-	got := EffectiveClusters(s)
+	got := s.EffectiveClusters()
 
 	require.Len(t, got, 5)
 
@@ -208,7 +208,7 @@ func TestEffectiveClusterFor(t *testing.T) {
 func TestEffectiveClustersDoesNotMutate(t *testing.T) {
 	// Independent invariant — a pure function must not mutate spec.
 	s := &MongoDBSearch{Spec: MongoDBSearchSpec{Replicas: ptr.To(int32(7))}}
-	_ = EffectiveClusters(s)
+	_ = s.EffectiveClusters()
 	assert.Nil(t, s.Spec.Clusters)
 	assert.Equal(t, int32(7), *s.Spec.Replicas)
 }
@@ -451,6 +451,42 @@ func TestGetManagedLBEndpointForClusterShard_ClusterIndex(t *testing.T) {
 func TestGetManagedLBEndpointForClusterShard_NotManaged(t *testing.T) {
 	s := &MongoDBSearch{Spec: MongoDBSearchSpec{}}
 	assert.Equal(t, "", s.GetManagedLBEndpointForClusterShard(0, "shard-0"))
+}
+
+func TestGetManagedLBEndpointForClusterLevel(t *testing.T) {
+	clusters := []ClusterSpec{{ClusterName: "us-east-k8s"}, {ClusterName: "eu-west-k8s"}}
+	mk := func(tmpl string) *MongoDBSearch {
+		return &MongoDBSearch{
+			Spec: MongoDBSearchSpec{
+				LoadBalancer: &LoadBalancerConfig{Managed: &ManagedLBConfig{ExternalHostname: tmpl}},
+				Clusters:     &clusters,
+			},
+		}
+	}
+	tests := []struct {
+		name     string
+		template string
+		index    int
+		want     string
+	}{
+		{"strip prefix, resolve clusterName", "{shardName}.{clusterName}.search.example.com", 0, "us-east-k8s.search.example.com"},
+		{"strip prefix, resolve clusterIndex", "{shardName}.search-{clusterIndex}.example.com", 1, "search-1.example.com"},
+		{"strip prefix, single-cluster sharded shape (no cluster placeholders)", "{shardName}.search.example.com", 0, "search.example.com"},
+		// {shardName} as a name component (not a leading prefix) is not derivable to a
+		// single cluster-level hostname; expect "" so the caller falls back to the
+		// cluster-level proxy Service FQDN.
+		{"shardName as name component returns empty", "search-{clusterIndex}-{shardName}-proxy.example.com", 0, ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, mk(tc.template).GetManagedLBEndpointForClusterLevel(tc.index))
+		})
+	}
+}
+
+func TestGetManagedLBEndpointForClusterLevel_NotManaged(t *testing.T) {
+	s := &MongoDBSearch{Spec: MongoDBSearchSpec{}}
+	assert.Equal(t, "", s.GetManagedLBEndpointForClusterLevel(0))
 }
 
 func TestProxyServiceNamespacedNameForCluster(t *testing.T) {
