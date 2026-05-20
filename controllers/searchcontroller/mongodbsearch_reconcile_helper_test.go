@@ -1067,9 +1067,9 @@ func TestCreateShardMongotConfig(t *testing.T) {
 
 	shardedSource := &mockShardedSource{
 		shardNames: []string{"my-cluster-0", "my-cluster-1"},
-		hostSeeds: map[int][]string{
-			0: {"my-cluster-0-0.svc:27017", "my-cluster-0-1.svc:27017", "my-cluster-0-2.svc:27017"},
-			1: {"my-cluster-1-0.svc:27017", "my-cluster-1-1.svc:27017", "my-cluster-1-2.svc:27017"},
+		hostSeeds: map[string][]string{
+			"my-cluster-0": {"my-cluster-0-0.svc:27017", "my-cluster-0-1.svc:27017", "my-cluster-0-2.svc:27017"},
+			"my-cluster-1": {"my-cluster-1-0.svc:27017", "my-cluster-1-1.svc:27017", "my-cluster-1-2.svc:27017"},
 		},
 	}
 
@@ -1096,9 +1096,9 @@ func TestShardedMongotConfigWithTLS(t *testing.T) {
 
 	shardedSource := &mockShardedSource{
 		shardNames: []string{"my-cluster-0", "my-cluster-1"},
-		hostSeeds: map[int][]string{
-			0: {"my-cluster-0-0.svc:27017", "my-cluster-0-1.svc:27017", "my-cluster-0-2.svc:27017"},
-			1: {"my-cluster-1-0.svc:27017", "my-cluster-1-1.svc:27017", "my-cluster-1-2.svc:27017"},
+		hostSeeds: map[string][]string{
+			"my-cluster-0": {"my-cluster-0-0.svc:27017", "my-cluster-0-1.svc:27017", "my-cluster-0-2.svc:27017"},
+			"my-cluster-1": {"my-cluster-1-0.svc:27017", "my-cluster-1-1.svc:27017", "my-cluster-1-2.svc:27017"},
 		},
 		tlsConfig: &TLSSourceConfig{
 			CAFileName: "ca-pem",
@@ -1141,8 +1141,8 @@ func TestShardedMongotConfigWithoutTLS(t *testing.T) {
 
 	shardedSource := &mockShardedSource{
 		shardNames: []string{"my-cluster-0"},
-		hostSeeds: map[int][]string{
-			0: {"my-cluster-0-0.svc:27017"},
+		hostSeeds: map[string][]string{
+			"my-cluster-0": {"my-cluster-0-0.svc:27017"},
 		},
 		tlsConfig: nil, // No TLS
 	}
@@ -1162,7 +1162,7 @@ func TestShardedMongotConfigWithoutTLS(t *testing.T) {
 // mockShardedSource is a mock implementation of ShardedSearchSourceDBResource for testing
 type mockShardedSource struct {
 	shardNames []string
-	hostSeeds  map[int][]string
+	hostSeeds  map[string][]string
 	tlsConfig  *TLSSourceConfig
 }
 
@@ -1184,12 +1184,7 @@ func (m *mockShardedSource) MongosHostsAndPorts() []string {
 
 // Implement SearchSourceDBResource interface
 func (m *mockShardedSource) HostSeeds(shardName string) ([]string, error) {
-	for idx, name := range m.shardNames {
-		if name == shardName {
-			return m.hostSeeds[idx], nil
-		}
-	}
-	return nil, nil
+	return m.hostSeeds[shardName], nil
 }
 
 func (m *mockShardedSource) Validate() error {
@@ -2467,9 +2462,9 @@ func TestReconcileSharded_CreatesPerShardResources(t *testing.T) {
 
 	shardedSource := &mockShardedSource{
 		shardNames: []string{"my-cluster-0", "my-cluster-1"},
-		hostSeeds: map[int][]string{
-			0: {"my-cluster-0-0.my-cluster-sh.test-ns.svc.cluster.local:27017"},
-			1: {"my-cluster-1-0.my-cluster-sh.test-ns.svc.cluster.local:27017"},
+		hostSeeds: map[string][]string{
+			"my-cluster-0": {"my-cluster-0-0.my-cluster-sh.test-ns.svc.cluster.local:27017"},
+			"my-cluster-1": {"my-cluster-1-0.my-cluster-sh.test-ns.svc.cluster.local:27017"},
 		},
 	}
 
@@ -2776,9 +2771,9 @@ func TestBuildShardedPlan_PerClusterShardUnitsForMC(t *testing.T) {
 
 	shardedSource := &mockShardedSource{
 		shardNames: []string{"sh-0", "sh-1"},
-		hostSeeds: map[int][]string{
-			0: {"sh-0-0.svc:27017"},
-			1: {"sh-1-0.svc:27017"},
+		hostSeeds: map[string][]string{
+			"sh-0": {"sh-0-0.svc:27017"},
+			"sh-1": {"sh-1-0.svc:27017"},
 		},
 	}
 
@@ -2835,9 +2830,9 @@ func TestReconcileShardedMC_FanOutUsesPerClusterClient(t *testing.T) {
 
 	shardedSource := &mockShardedSource{
 		shardNames: []string{"sh-0", "sh-1"},
-		hostSeeds: map[int][]string{
-			0: {"sh-0-0.svc:27017"},
-			1: {"sh-1-0.svc:27017"},
+		hostSeeds: map[string][]string{
+			"sh-0": {"sh-0-0.svc:27017"},
+			"sh-1": {"sh-1-0.svc:27017"},
 		},
 	}
 
@@ -2846,9 +2841,9 @@ func TestReconcileShardedMC_FanOutUsesPerClusterClient(t *testing.T) {
 	clusterBClient := kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().Build())
 
 	r := &MongoDBSearchReconcileHelper{
-		mdbSearch:      search,
-		db:             shardedSource,
-		client:         centralClient,
+		mdbSearch: search,
+		db:        shardedSource,
+		client:    centralClient,
 		memberClusterClients: map[string]kubernetesClient.Client{
 			"cluster-a": clusterAClient,
 			"cluster-b": clusterBClient,
@@ -2873,10 +2868,10 @@ func TestReconcileShardedMC_FanOutUsesPerClusterClient(t *testing.T) {
 
 	// Per-(cluster, shard) STS + ConfigMap + per-shard proxy Service on the right client.
 	cases := []struct {
-		c           kubernetesClient.Client
-		stsName     string
-		cmName      string
-		proxySvc    string
+		c        kubernetesClient.Client
+		stsName  string
+		cmName   string
+		proxySvc string
 	}{
 		{clusterAClient, "mdb-search-search-0-sh-0", "mdb-search-search-0-sh-0-config", "mdb-search-search-0-sh-0-proxy-svc"},
 		{clusterAClient, "mdb-search-search-0-sh-1", "mdb-search-search-0-sh-1-config", "mdb-search-search-0-sh-1-proxy-svc"},
@@ -2973,10 +2968,10 @@ func TestReconcileShardedMC_AllUnitsAppliedBeforeReadinessCheck(t *testing.T) {
 
 	shardedSource := &mockShardedSource{
 		shardNames: []string{"sh-0", "sh-1", "sh-2"},
-		hostSeeds: map[int][]string{
-			0: {"sh-0-a.example:27017"},
-			1: {"sh-1-a.example:27017"},
-			2: {"sh-2-a.example:27017"},
+		hostSeeds: map[string][]string{
+			"sh-0": {"sh-0-a.example:27017"},
+			"sh-1": {"sh-1-a.example:27017"},
+			"sh-2": {"sh-2-a.example:27017"},
 		},
 	}
 
@@ -3096,10 +3091,10 @@ func newMCShardedFixture(t *testing.T) *mcShardedFixture {
 
 	source := &mockShardedSource{
 		shardNames: []string{"sh-0", "sh-1", "sh-2"},
-		hostSeeds: map[int][]string{
-			0: {"sh-0-a.example:27017"},
-			1: {"sh-1-a.example:27017"},
-			2: {"sh-2-a.example:27017"},
+		hostSeeds: map[string][]string{
+			"sh-0": {"sh-0-a.example:27017"},
+			"sh-1": {"sh-1-a.example:27017"},
+			"sh-2": {"sh-2-a.example:27017"},
 		},
 	}
 
@@ -3296,10 +3291,10 @@ func TestCleanupStaleShardResources_MCFanOut(t *testing.T) {
 
 	// Per-cluster expectations: active + cluster-level kept, stale deleted, foreign untouched.
 	for _, tc := range []struct {
-		c        kubernetesClient.Client
-		idx      int
-		cluster  string
-		foreign  string
+		c       kubernetesClient.Client
+		idx     int
+		cluster string
+		foreign string
 	}{
 		{clusterA, 0, "cluster-a", "foreign-svc"},
 		{clusterB, 1, "cluster-b", "other-search-search-1-sh-0-proxy-svc"},
