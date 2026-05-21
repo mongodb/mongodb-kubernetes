@@ -221,6 +221,21 @@ func (d Deployment) ConfigurePrometheus(prom *mdbcv1.Prometheus, hash string, sa
 	return promConfig
 }
 
+// ExternalShardedCluster carries the VM-side state that must be preserved in the automation
+// config during a VM-to-Kubernetes migration. All fields are indexed by shard position and are
+// empty for clusters that were never on VMs.
+type ExternalShardedCluster struct {
+	// ConfigServerMembers holds the process names of external members belonging to the config server replica set.
+	ConfigServerMembers []string
+	// ShardIds holds the automation config shard _id for each shard.
+	// When ShardIds[i] differs from the rs name, it means _id != rs in the AC (full form override).
+	ShardIds []string
+	// ShardMembers holds the process names of external members per shard.
+	ShardMembers [][]string
+	// MongosMembers holds the process names of external mongos members.
+	MongosMembers []string
+}
+
 // DeploymentShardedClusterMergeOptions contains all the required values to update the ShardedCluster
 // in the automation config. These values should be provided my the MongoDB resource.
 type DeploymentShardedClusterMergeOptions struct {
@@ -235,6 +250,7 @@ type DeploymentShardedClusterMergeOptions struct {
 	ConfigServerAdditionalOptionsPrev    map[string]interface{}
 	MongosAdditionalOptionsPrev          map[string]interface{}
 	ShardAdditionalOptionsPrev           map[string]interface{}
+	ExternalCluster                      ExternalShardedCluster
 }
 
 // MergeShardedCluster merges "operator" sharded cluster into "OM" deployment ("d"). Mongos, config servers and all shards
@@ -764,8 +780,12 @@ func (d Deployment) getShardedClusterProcessNames(name string) []string {
 }
 
 func (d Deployment) mergeMongosProcesses(opts DeploymentShardedClusterMergeOptions, log *zap.SugaredLogger) error {
+	mongosExternalSet := merge.StringsToSet(opts.ExternalCluster.MongosMembers)
 	// First removing old mongos processes
 	for _, p := range d.getMongosProcessesNames(opts.Name) {
+		if _, isExternal := mongosExternalSet[p]; isExternal {
+			continue
+		}
 		found := false
 		for _, v := range opts.MongosProcesses {
 			if p == v.Name() {
@@ -813,17 +833,21 @@ func (d Deployment) mergeConfigReplicaSet(opts DeploymentShardedClusterMergeOpti
 		p.setClusterRoleConfigSrv()
 	}
 
-	d.MergeReplicaSet(opts.ConfigServerRs, opts.ConfigServerAdditionalOptionsDesired, opts.ConfigServerAdditionalOptionsPrev, nil, l)
+	d.MergeReplicaSet(opts.ConfigServerRs, opts.ConfigServerAdditionalOptionsDesired, opts.ConfigServerAdditionalOptionsPrev, opts.ExternalCluster.ConfigServerMembers, l)
 }
 
 // mergeShards does merge of replicasets for shards (which in turn merge each process) and merge or add the sharded cluster
 // element as well
 func (d Deployment) mergeShards(opts DeploymentShardedClusterMergeOptions, log *zap.SugaredLogger) bool {
 	// First merging the individual replica sets for each shard
-	for _, v := range opts.Shards {
-		d.MergeReplicaSet(v, opts.ShardAdditionalOptionsDesired, opts.ShardAdditionalOptionsPrev, nil, log)
+	for idx, v := range opts.Shards {
+		var shardExternalMembers []string
+		if idx < len(opts.ExternalCluster.ShardMembers) {
+			shardExternalMembers = opts.ExternalCluster.ShardMembers[idx]
+		}
+		d.MergeReplicaSet(v, opts.ShardAdditionalOptionsDesired, opts.ShardAdditionalOptionsPrev, shardExternalMembers, log)
 	}
-	cluster := NewShardedCluster(opts.Name, opts.ConfigServerRs.Rs.Name(), opts.Shards)
+	cluster := NewShardedCluster(opts.Name, opts.ConfigServerRs.Rs.Name(), opts.Shards, opts.ExternalCluster.ShardIds)
 
 	// Merging "sharding" json value
 	for _, s := range d.getShardedClusters() {

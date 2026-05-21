@@ -472,6 +472,11 @@ func validateACForMigration(conn om.Connection, mdb *mdbv1.MongoDB) workflow.Sta
 		}
 	}
 
+	// Voting-members limit check is only meaningful for replica sets.
+	if mdb.Spec.GetResourceType() != mdbv1.ReplicaSet {
+		return workflow.OK()
+	}
+
 	// Check voting-members limit. Only enforced when external members are declared (already gated
 	// by the early-return above). For pure-K8s deployments, Deployment.limitVotingMembers handles
 	// the limit by auto-zeroing votes on excess members during merge.

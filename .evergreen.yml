@@ -873,7 +873,9 @@ task_groups:
       - e2e_search_enterprise_x509_cluster_auth
       # VM Migration
       - e2e_vm_migration
+      - e2e_vm_migration_sharded
       - e2e_vm_migration_x509
+      - e2e_vm_migration_sharded_x509
       - e2e_search_sharded_external_mongodb_single_mongot
       - e2e_search_sharded_external_mongodb_multi_mongot_unmanaged_lb
       - e2e_search_replicaset_external_mongodb_multi_mongot_unmanaged_lb

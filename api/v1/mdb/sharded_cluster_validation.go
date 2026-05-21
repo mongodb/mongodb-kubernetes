@@ -17,6 +17,7 @@ func ShardedClusterCommonValidators() []func(m MongoDB) v1.ValidationResult {
 		shardOverridesShardNamesCorrectValues,
 		shardOverridesClusterSpecListsCorrect,
 		shardCountSpecified,
+		shardNameOverridesValidForm,
 	}
 }
 
@@ -193,6 +194,28 @@ func shardOverridesClusterSpecListsCorrect(m MongoDB) v1.ValidationResult {
 	return v1.ValidationSuccess()
 	// Note that shardOverride.Members and shardOverride.MemberConfig should not be checked as they are ignored,
 	// shardOverride.ClusterSpecList.Members and shardOverride.ClusterSpecList.MemberConfig are used instead
+}
+
+// shardNameOverridesValidForm enforces that each entry is either brevity form (ShardName only)
+// or full form (ShardName + ShardId + ReplicaSetName). Partial forms are rejected.
+// ShardName values must be unique across all entries.
+func shardNameOverridesValidForm(m MongoDB) v1.ValidationResult {
+	seen := make(map[string]bool, len(m.Spec.ShardNameOverrides))
+	for i, o := range m.Spec.ShardNameOverrides {
+		if o.ShardName == "" {
+			return v1.ValidationError("spec.shardNameOverrides[%d]: shardName is required", i)
+		}
+		if seen[o.ShardName] {
+			return v1.ValidationError("spec.shardNameOverrides[%d]: shardName %q is a duplicate", i, o.ShardName)
+		}
+		seen[o.ShardName] = true
+		hasId := o.ShardId != ""
+		hasRs := o.ReplicaSetName != ""
+		if hasId != hasRs {
+			return v1.ValidationError("spec.shardNameOverrides[%d]: shardId and replicaSetName must both be set or both be omitted", i)
+		}
+	}
+	return v1.ValidationSuccess()
 }
 
 // If the MDB resource name is foo, and we have n shards, we verify that shard names ∈ {foo-0 , foo-1 ..., foo-(n-1)}

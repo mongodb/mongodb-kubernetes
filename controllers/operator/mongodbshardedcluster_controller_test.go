@@ -645,6 +645,57 @@ func TestPrepareScaleDownShardedCluster_ShardsUpMongodsDown(t *testing.T) {
 	mockedOmConnection.CheckOperationsDidntHappen(t, reflect.ValueOf(mockedOmConnection.RemoveHost))
 }
 
+func TestGetShardNameToShardIdxMap(t *testing.T) {
+	tests := []struct {
+		name            string
+		shardCount      int
+		statusShardCount int
+		overrides       []mdbv1.ShardNameOverride
+		expectedMapping map[string]int
+	}{
+		{
+			name:            "no overrides maps only k8s names",
+			shardCount:      2,
+			statusShardCount: 2,
+			overrides:       nil,
+			expectedMapping: map[string]int{"slaney-0": 0, "slaney-1": 1},
+		},
+		{
+			name:            "ShardName is mapped as alias alongside the K8s name",
+			shardCount:      2,
+			statusShardCount: 2,
+			overrides: []mdbv1.ShardNameOverride{
+				{ShardName: "vm-shard-0", ShardId: "vm-id-0", ReplicaSetName: "vm-rs-0"},
+				{ShardName: "vm-shard-1", ShardId: "vm-id-1", ReplicaSetName: "vm-rs-1"},
+			},
+			expectedMapping: map[string]int{"slaney-0": 0, "vm-shard-0": 0, "slaney-1": 1, "vm-shard-1": 1},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sc := test.DefaultClusterBuilder().
+				SetShardCountSpec(tt.shardCount).
+				SetShardCountStatus(tt.statusShardCount).
+				SetShardNameOverrides(tt.overrides).
+				Build()
+
+			helper := &ShardedClusterReconcileHelper{
+				sc: sc,
+				deploymentState: &ShardedClusterDeploymentState{
+					Status: &mdbv1.MongoDbStatus{
+						MongodbShardedClusterSizeConfig: status.MongodbShardedClusterSizeConfig{
+							ShardCount: tt.statusShardCount,
+						},
+					},
+				},
+			}
+
+			assert.Equal(t, tt.expectedMapping, helper.getShardNameToShardIdxMap())
+		})
+	}
+}
+
 func TestConstructConfigSrv(t *testing.T) {
 	sc := test.DefaultClusterBuilder().Build()
 	configSrvSpec := createConfigSrvSpec(sc)
@@ -2090,3 +2141,4 @@ func generateAllHostsSingleCluster(sc *mdbv1.MongoDB, mongosCount int, configSrv
 	}
 	return allHosts, allPodNames
 }
+

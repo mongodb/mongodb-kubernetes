@@ -1473,6 +1473,126 @@ func fourVotingExternals() []om.ReplicaSetMember {
 	}
 }
 
+func TestCheckExternalMembersDrift_ShardedMongosProcess(t *testing.T) {
+	d := om.NewDeployment()
+	configRs := om.NewReplicaSetWithProcesses(
+		om.NewReplicaSet("myCluster-config", "6.0.0"),
+		createRSProcessesHelper("myCluster-config", 1),
+		[]automationconfig.MemberOptions{{}},
+		nil,
+	)
+	mongosProc := om.NewMongosProcess(
+		"myCluster-mongos-0", "myCluster-mongos-0.some.host",
+		"fake-image", false,
+		&mdbv1.AdditionalMongodConfig{},
+		&mdbv1.MongoDbSpec{DbCommonSpec: mdbv1.DbCommonSpec{Version: "6.0.0"}},
+		"", nil, "",
+	)
+	_, err := d.MergeShardedCluster(om.DeploymentShardedClusterMergeOptions{
+		Name:           "myCluster",
+		MongosProcesses: []om.Process{mongosProc},
+		ConfigServerRs: configRs,
+		Shards:         []om.ReplicaSetWithProcesses{},
+	})
+	require.NoError(t, err)
+
+	conn := om.NewMockedOmConnection(d)
+	externalMembers := []mdbv1.ExternalMember{
+		{ProcessName: "myCluster-mongos-0", Hostname: "myCluster-mongos-0.some.host:27017", Type: "mongos"},
+	}
+	status := checkExternalMembersDrift(conn, externalMembers)
+	assert.True(t, status.IsOK())
+}
+
+func TestCheckExternalMembersDrift_ShardedMongodWithReplicaSetName(t *testing.T) {
+	d := om.NewDeployment()
+	configRs := om.NewReplicaSetWithProcesses(
+		om.NewReplicaSet("myCluster-config", "6.0.0"),
+		createRSProcessesHelper("myCluster-config", 1),
+		[]automationconfig.MemberOptions{{}},
+		nil,
+	)
+	_, err := d.MergeShardedCluster(om.DeploymentShardedClusterMergeOptions{
+		Name:            "myCluster",
+		MongosProcesses: []om.Process{},
+		ConfigServerRs:  configRs,
+		Shards:          []om.ReplicaSetWithProcesses{},
+	})
+	require.NoError(t, err)
+
+	conn := om.NewMockedOmConnection(d)
+	externalMembers := []mdbv1.ExternalMember{
+		{ProcessName: "myCluster-config-0", Hostname: "myCluster-config-0.some.host:27017", Type: "mongod", ReplicaSetName: "myCluster-config"},
+	}
+	status := checkExternalMembersDrift(conn, externalMembers)
+	assert.True(t, status.IsOK())
+}
+
+func TestCheckExternalMembersDrift_ShardedMongodWrongReplicaSetName(t *testing.T) {
+	d := om.NewDeployment()
+	configRs := om.NewReplicaSetWithProcesses(
+		om.NewReplicaSet("myCluster-config", "6.0.0"),
+		createRSProcessesHelper("myCluster-config", 1),
+		[]automationconfig.MemberOptions{{}},
+		nil,
+	)
+	_, err := d.MergeShardedCluster(om.DeploymentShardedClusterMergeOptions{
+		Name:            "myCluster",
+		MongosProcesses: []om.Process{},
+		ConfigServerRs:  configRs,
+		Shards:          []om.ReplicaSetWithProcesses{},
+	})
+	require.NoError(t, err)
+
+	conn := om.NewMockedOmConnection(d)
+	externalMembers := []mdbv1.ExternalMember{
+		{ProcessName: "myCluster-config-0", Hostname: "myCluster-config-0.some.host:27017", Type: "mongod", ReplicaSetName: "wrong-rs"},
+	}
+	status := checkExternalMembersDrift(conn, externalMembers)
+	assert.False(t, status.IsOK())
+}
+
+func TestValidateACForMigration_ShardedCluster_TLSModeSet(t *testing.T) {
+	d := om.NewDeployment()
+	configRs := om.NewReplicaSetWithProcesses(
+		om.NewReplicaSet("myCluster-config", "6.0.0"),
+		createRSProcessesHelper("myCluster-config", 1),
+		[]automationconfig.MemberOptions{{}},
+		nil,
+	)
+	mongosProc := om.NewMongosProcess(
+		"myCluster-mongos-0", "myCluster-mongos-0.some.host",
+		"fake-image", false,
+		&mdbv1.AdditionalMongodConfig{},
+		&mdbv1.MongoDbSpec{DbCommonSpec: mdbv1.DbCommonSpec{Version: "6.0.0"}},
+		"", nil, "",
+	)
+	_, err := d.MergeShardedCluster(om.DeploymentShardedClusterMergeOptions{
+		Name:            "myCluster",
+		MongosProcesses: []om.Process{mongosProc},
+		ConfigServerRs:  configRs,
+		Shards:          []om.ReplicaSetWithProcesses{},
+	})
+	require.NoError(t, err)
+
+	// Both process types have net.tls.mode set.
+	for _, p := range d.GetProcesses() {
+		p.EnsureNetConfig()["tls"] = map[string]interface{}{"mode": "disabled"}
+	}
+
+	conn := om.NewMockedOmConnection(d)
+	mdb := &mdbv1.MongoDB{
+		Spec: mdbv1.MongoDbSpec{
+			ExternalMembers: []mdbv1.ExternalMember{
+				{ProcessName: "myCluster-mongos-0", Hostname: "myCluster-mongos-0.some.host:27017", Type: "mongos"},
+				{ProcessName: "myCluster-config-0", Hostname: "myCluster-config-0.some.host:27017", Type: "mongod", ReplicaSetName: "myCluster-config"},
+			},
+		},
+	}
+	status := validateACForMigration(conn, mdb)
+	assert.True(t, status.IsOK())
+}
+
 // ---------------------------------------------------------------------------
 // Task 10: checkIfHasExcessProcesses
 // ---------------------------------------------------------------------------

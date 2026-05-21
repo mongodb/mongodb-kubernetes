@@ -228,6 +228,55 @@ func TestBuildJobFromStatefulSet_AuthMechanism_SCRAMUmbrellaMongoDBCR(t *testing
 	assert.Equal(t, util.AutomationConfigScramSha1Option, authMechanism)
 }
 
+// TestBuildJobFromStatefulSet_ShardedCluster verifies that BuildJobFromStatefulSet works correctly
+// when called with a ShardedCluster MongoDB resource, using a config server StatefulSet as input.
+func TestBuildJobFromStatefulSet_ShardedCluster(t *testing.T) {
+	sts := &appsv1.StatefulSet{
+		Spec: appsv1.StatefulSetSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Volumes: []corev1.Volume{{
+						Name: util.ClusterFileName,
+						VolumeSource: corev1.VolumeSource{
+							Secret: &corev1.SecretVolumeSource{SecretName: "my-sc-clusterfile"},
+						},
+					}},
+					Containers: []corev1.Container{{
+						VolumeMounts: []corev1.VolumeMount{{
+							Name:      util.ClusterFileName,
+							MountPath: "/var/run/credentials",
+							ReadOnly:  true,
+						}},
+					}},
+				},
+			},
+		},
+	}
+
+	mdb := &mdbv1.MongoDB{
+		ObjectMeta: metav1.ObjectMeta{Name: "my-sc", Namespace: "default"},
+	}
+	mdb.Spec.ResourceType = mdbv1.ShardedCluster
+
+	wantConnStr := "mongodb://cfg-host:27017/?replicaSet=my-sc-config"
+	wantExtMembers := []string{"10.0.0.1:27017", "10.0.0.2:27017"}
+
+	job := BuildJobFromStatefulSet(mdb, sts, "img", wantConnStr, wantExtMembers, util.AutomationConfigScramSha256Option, "", "")
+
+	assert.Equal(t, "my-sc-connectivity-check", job.Name)
+
+	envByName := make(map[string]string)
+	for _, e := range job.Spec.Template.Spec.Containers[0].Env {
+		envByName[e.Name] = e.Value
+	}
+	assert.Equal(t, wantConnStr, envByName["CONNECTION_STRING"])
+	assert.Equal(t, "10.0.0.1:27017 10.0.0.2:27017", envByName["EXTERNAL_MEMBERS"])
+
+	assert.Equal(t, "my-sc", job.Labels[ConnectivityCheckReplicaSetLabel])
+	assert.Equal(t, "true", job.Labels[ConnectivityCheckDryRunLabel])
+	assert.Equal(t, OperatorManagedByValue, job.Labels[OperatorManagedByLabel])
+}
+
 func TestBuildJobFromStatefulSet_SubjectDN(t *testing.T) {
 	sts := &appsv1.StatefulSet{
 		Spec: appsv1.StatefulSetSpec{
