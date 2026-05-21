@@ -1407,6 +1407,11 @@ tasks:
     commands:
       - func: "e2e_test"
 
+  - name: e2e_search_q1_mc_rs_steady
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
   - name: e2e_search_replicaset_external_mongodb_proxy_service
     tags: [ "patch-run" ]
     commands:

@@ -1,4 +1,18 @@
-"""Q2-MC-RS e2e: 2-cluster MongoDBSearch backed by an external MongoDBMulti RS.
+"""MC-RS steady-state e2e: 2-cluster MongoDBSearch backed by a MongoDBMulti RS.
+
+Parametrized over `source_kind` for the two RS-MC modes documented in the search TD:
+  - `external` (Q2-RS-MC, KUBE-64): MongoDBSearch.spec.source.external.hostAndPorts
+     points at the source RS via mesh DNS seeds. The operator does NOT manage the
+     source RS connection details — it consumes the user-supplied seed list.
+  - `managed`  (Q1-RS-MC, KUBE-57): MongoDBSearch.spec.source.mongodbResourceRef
+     names a MongoDBMultiCluster resource. The operator resolves source connection
+     details (seeds + TLS) from that resource at reconcile.
+
+Each parametrize instance carries its own marker (e2e_search_q2_mc_rs_steady or
+e2e_search_q1_mc_rs_steady), so a marker filter selects exactly one flavor:
+
+  pytest -m e2e_search_q1_mc_rs_steady    # managed-source variant only
+  pytest -m e2e_search_q2_mc_rs_steady    # external-source variant only
 
 Exercises per-cluster fan-out in the MC reconciler: each cluster gets its own
 mongot StatefulSet, headless Service, ConfigMap, and Envoy Deployment, all
@@ -98,6 +112,53 @@ SOURCE_BUNDLE_SECRET = f"{SOURCE_CERT_PREFIX}-{MDB_RESOURCE_NAME}-cert"
 # =============================================================================
 
 
+# Q1 (managed-source for MongoDBMultiCluster) is parked: the search controller
+# in mongodbsearch_controller.go only resolves spec.source.mongodbResourceRef
+# against MongoDB and MongoDBCommunity kinds — MongoDBMultiCluster lookup is
+# not implemented. The [managed] param stays in the matrix (with a skip) so
+# the marker → param wiring is verifiable today and re-enabling is a one-line
+# change once the operator gains the lookup. Tracked under epic KUBE-4.
+_Q1_SKIP_REASON = (
+    "Q1 managed-source for MongoDBMultiCluster not supported by operator: "
+    "mongodbsearch_controller.go only resolves MongoDB / MongoDBCommunity kinds"
+)
+
+
+@fixture(
+    scope="module",
+    params=[
+        pytest.param("external", marks=mark.e2e_search_q2_mc_rs_steady),
+        pytest.param(
+            "managed",
+            marks=[mark.e2e_search_q1_mc_rs_steady, mark.skip(reason=_Q1_SKIP_REASON)],
+        ),
+    ],
+    ids=["external", "managed"],
+)
+def source_kind(request) -> str:
+    """Q-mode dispatch for MongoDBSearch.spec.source:
+
+      external (Q2): spec.source.external.hostAndPorts + spec.source.external.tls.ca
+      managed  (Q1): spec.source.mongodbResourceRef.name  (currently skipped)
+
+    The two `pytest.param` marks propagate to every test item that depends
+    (directly or via the autouse `_propagate_source_kind` fixture below) on
+    `source_kind`, so `-m e2e_search_q1_mc_rs_steady` / `-m e2e_search_q2_mc_rs_steady`
+    selects exactly one flavor.
+    """
+    return request.param
+
+
+@fixture(scope="module", autouse=True)
+def _propagate_source_kind(source_kind: str) -> str:
+    """Autouse: forces every test in this module to inherit the parametrize
+    marks from `source_kind` without each test function having to take it as
+    an explicit argument. Returns source_kind in case a test wants the value
+    via this name (most don't — they read it from `source_kind` directly).
+    """
+    return source_kind
+
+
 @fixture(scope="module")
 def helper(
     namespace: str,
@@ -179,13 +240,17 @@ def mdbs(
     member_cluster_clients: List[MultiClusterClient],
     mdb: MongoDBMulti,
     ca_configmap: str,
+    source_kind: str,
 ) -> MongoDBSearch:
-    """MongoDBSearch over external MongoDBMulti source, MC topology.
+    """MongoDBSearch over a 2-cluster MongoDBMulti source, parametrized on source mode.
 
-    spec.source.external.hostAndPorts is the same top-level seed list rendered to
-    every cluster's mongot ConfigMap. spec.loadBalancer.managed.externalHostname
-    uses {clusterIndex} so all three per-cluster names (cert SANs, AC mongotHost,
-    Envoy SNI) resolve to the same per-cluster proxy-svc FQDN.
+    Both modes route per-cluster reconciles through the same code paths (mongot
+    StatefulSets, headless Services, Envoy Deployments, per-cluster proxy-svc); the
+    only divergence is how MongoDBSearch references the source RS.
+
+    spec.loadBalancer.managed.externalHostname uses {clusterIndex} so all three
+    per-cluster names (cert SANs, AC mongotHost, Envoy SNI) resolve to the same
+    per-cluster proxy-svc FQDN.
     """
     resource = MongoDBSearch.from_yaml(
         yaml_fixture("search-q2-mc-rs-search.yaml"),
@@ -193,38 +258,67 @@ def mdbs(
         namespace=namespace,
     )
 
-    seeds = [f"{svc}.{namespace}.svc.cluster.local:27017" for svc in mdb.service_names()]
-
-    resource["spec"]["source"] = {
-        "username": MONGOT_USER_NAME,
-        "passwordSecretRef": {
-            "name": f"{MDBS_RESOURCE_NAME}-{MONGOT_USER_NAME}-password",
-            "key": "password",
-        },
-        "external": {
-            "hostAndPorts": seeds,
-            "tls": {"ca": {"name": ca_configmap}},
-        },
-    }
-
-    resource["spec"]["security"] = {
-        "tls": {"certsSecretPrefix": MDBS_TLS_CERT_PREFIX},
-    }
-
-    resource["spec"]["loadBalancer"] = {
-        "managed": {
-            "externalHostname": (
-                f"{MDBS_RESOURCE_NAME}-search-{{clusterIndex}}-proxy-svc.{namespace}.svc.cluster.local"
-            ),
-        },
-    }
-
-    resource["spec"]["clusters"] = [
-        {"clusterName": mcc.cluster_name, "replicas": MONGOT_REPLICAS_PER_CLUSTER} for mcc in member_cluster_clients
-    ]
-
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    try_load(resource)
+    if not try_load(resource):
+        seeds = [f"{svc}.{namespace}.svc.cluster.local:27017" for svc in mdb.service_names()]
+
+        source_common = {
+            "username": MONGOT_USER_NAME,
+            "passwordSecretRef": {
+                "name": f"{MDBS_RESOURCE_NAME}-{MONGOT_USER_NAME}-password",
+                "key": "password",
+            },
+        }
+        if source_kind == "external":
+            # Q2-RS-MC: explicit seed list + TLS CA. spec.source.external.hostAndPorts
+            # is the same top-level seed list rendered to every cluster's mongot
+            # ConfigMap.
+            resource["spec"]["source"] = {
+                **source_common,
+                "external": {
+                    "hostAndPorts": seeds,
+                    "tls": {"ca": {"name": ca_configmap}},
+                },
+            }
+        elif source_kind == "managed":
+            # Q1-RS-MC: name-only reference to the MongoDBMultiCluster. The operator
+            # resolves source seeds + TLS from the referenced resource at reconcile.
+            # The same `mdb` fixture supplies the source RS; only the spec link changes.
+            resource["spec"]["source"] = {
+                **source_common,
+                "mongodbResourceRef": {"name": MDB_RESOURCE_NAME},
+            }
+        else:
+            raise ValueError(f"unknown source_kind={source_kind!r}; expected 'external' or 'managed'")
+
+        resource["spec"]["security"] = {
+            "tls": {"certsSecretPrefix": MDBS_TLS_CERT_PREFIX},
+        }
+
+        resource["spec"]["loadBalancer"] = {
+            "managed": {
+                "externalHostname": (
+                    f"{MDBS_RESOURCE_NAME}-search-{{clusterIndex}}-proxy-svc.{namespace}.svc.cluster.local"
+                ),
+            },
+        }
+
+        resource["spec"]["clusters"] = [
+            {"clusterName": mcc.cluster_name, "replicas": MONGOT_REPLICAS_PER_CLUSTER}
+            for mcc in member_cluster_clients
+        ]
+    else:
+        # Loaded an existing MongoDBSearch from the cluster — fail loudly if its
+        # source mode does not match this parametrize iteration. Reusing a CR
+        # built for a different source_kind is the C2 false-green scenario.
+        loaded_source = resource.get("spec", {}).get("source", {}) or {}
+        loaded_is_external = "external" in loaded_source
+        if loaded_is_external != (source_kind == "external"):
+            raise AssertionError(
+                f"in-cluster MongoDBSearch {MDBS_RESOURCE_NAME!r} has source mode "
+                f"{'external' if loaded_is_external else 'managed'!r} but this run "
+                f"requires {source_kind!r}; delete the CR (or reset env) before re-running"
+            )
     return resource
 
 
@@ -272,12 +366,10 @@ def mongot_user(namespace: str, central_cluster_client: kubernetes.client.ApiCli
 # =============================================================================
 
 
-@mark.e2e_search_q2_mc_rs_steady
 def test_install_operator(multi_cluster_operator: Operator):
     multi_cluster_operator.assert_is_running()
 
 
-@mark.e2e_search_q2_mc_rs_steady
 def test_install_source_tls_certificates(
     multi_cluster_issuer: str,
     mdb: MongoDBMulti,
@@ -299,7 +391,6 @@ def test_install_source_tls_certificates(
     )
 
 
-@mark.e2e_search_q2_mc_rs_steady
 def test_create_mdb_resource(mdb: MongoDBMulti):
     """Assert MongoDBMulti reaches Running."""
     mdb.update()
@@ -321,7 +412,6 @@ def _apply_user_password(
     user_resource.update()
 
 
-@mark.e2e_search_q2_mc_rs_steady
 def test_create_user_credentials(
     namespace: str,
     central_cluster_client: kubernetes.client.ApiClient,
@@ -340,7 +430,6 @@ def test_create_user_credentials(
     _apply_user_password(mongot_user, MONGOT_USER_PASSWORD, namespace, central_cluster_client)
 
 
-@mark.e2e_search_q2_mc_rs_steady
 def test_deploy_lb_certificates(
     namespace: str,
     multi_cluster_issuer: str,
@@ -382,7 +471,6 @@ def test_deploy_lb_certificates(
     logger.info(f"LB client certificate created: {lb_client_cert_name}")
 
 
-@mark.e2e_search_q2_mc_rs_steady
 def test_create_search_tls_certificate(
     namespace: str,
     multi_cluster_issuer: str,
@@ -410,7 +498,6 @@ def test_create_search_tls_certificate(
     logger.info(f"mongot TLS certificate created with SANs={additional_domains}: {secret_name}")
 
 
-@mark.e2e_search_q2_mc_rs_steady
 def test_replicate_secrets_to_members(
     namespace: str,
     central_cluster_client: kubernetes.client.ApiClient,
@@ -453,7 +540,6 @@ def test_replicate_secrets_to_members(
         logger.info(f"replicated CA ConfigMap {CA_CONFIGMAP_NAME} into cluster {mcc.cluster_name}")
 
 
-@mark.e2e_search_q2_mc_rs_steady
 def test_create_search_resource(mdbs: MongoDBSearch):
     """Assert MongoDBSearch reaches Running — all per-cluster resources must converge first."""
     mdbs.update()
@@ -547,7 +633,6 @@ def _assert_per_cluster_mongot_host_observed(
     run_periodically(check, timeout=timeout, sleep_time=10, msg="per-cluster mongotHost on disk")
 
 
-@mark.e2e_search_q2_mc_rs_steady
 def test_verify_per_cluster_mongot_resources(
     mdb: MongoDBMulti,
     namespace: str,
@@ -599,7 +684,6 @@ def test_verify_per_cluster_mongot_resources(
         )
 
 
-@mark.e2e_search_q2_mc_rs_steady
 def test_verify_per_cluster_envoy_deployment(
     namespace: str,
     helper: MCSearchDeploymentHelper,
@@ -624,7 +708,6 @@ def test_verify_per_cluster_envoy_deployment(
         logger.info(f"Envoy Deployment {envoy_deployment_name} ready in cluster {mcc.cluster_name} (idx={cluster_idx})")
 
 
-@mark.e2e_search_q2_mc_rs_steady
 def test_verify_persisted_cluster_mapping(
     namespace: str,
     central_cluster_client: kubernetes.client.ApiClient,
@@ -652,14 +735,12 @@ def test_verify_persisted_cluster_mapping(
     logger.info(f"persisted ClusterMapping matches helper: {mapping}")
 
 
-@mark.e2e_search_q2_mc_rs_steady
 def test_verify_lb_status(mdbs: MongoDBSearch):
     """status.loadBalancer.phase must be Running (aggregated from per-cluster Envoy phases)."""
     mdbs.load()
     mdbs.assert_lb_status()
 
 
-@mark.e2e_search_q2_mc_rs_steady
 def test_patch_per_cluster_mongot_host(
     mdb: MongoDBMulti,
     helper: MCSearchDeploymentHelper,
@@ -716,7 +797,6 @@ def test_patch_per_cluster_mongot_host(
     om_tester.wait_agents_ready(timeout=900)
 
 
-@mark.e2e_search_q2_mc_rs_steady
 def test_per_cluster_mongot_host_observed(
     mdb: MongoDBMulti,
     helper: MCSearchDeploymentHelper,
@@ -728,7 +808,6 @@ def test_per_cluster_mongot_host_observed(
     _assert_per_cluster_mongot_host_observed(mdb, helper, member_cluster_clients)
 
 
-@mark.e2e_search_q2_mc_rs_steady
 def test_per_cluster_envoy_sni_observed(
     namespace: str,
     helper: MCSearchDeploymentHelper,
@@ -816,7 +895,6 @@ SEARCH_INDEX_READY_TIMEOUT = 300
 SEARCH_QUERY_RETRY_TIMEOUT = 60
 
 
-@mark.e2e_search_q2_mc_rs_steady
 def test_restore_sample_database(mdb: MongoDBMulti, tools_pod):
     """mongorestore the sample_mflix.archive into the source RS."""
     tester = _search_tester_for_mdb(mdb, ADMIN_USER_NAME, ADMIN_USER_PASSWORD)
@@ -827,7 +905,6 @@ def test_restore_sample_database(mdb: MongoDBMulti, tools_pod):
     )
 
 
-@mark.e2e_search_q2_mc_rs_steady
 def test_create_search_index(
     mdb: MongoDBMulti,
     helper: MCSearchDeploymentHelper,
@@ -844,7 +921,6 @@ def test_create_search_index(
     tester.wait_for_search_indexes_ready(movies.db_name, movies.col_name, timeout=SEARCH_INDEX_READY_TIMEOUT)
 
 
-@mark.e2e_search_q2_mc_rs_steady
 def test_execute_text_search_query(
     mdb: MongoDBMulti,
     helper: MCSearchDeploymentHelper,
@@ -877,7 +953,6 @@ def test_execute_text_search_query(
     )
 
 
-@mark.e2e_search_q2_mc_rs_steady
 def test_create_vector_search_index(
     mdb: MongoDBMulti,
     helper: MCSearchDeploymentHelper,
@@ -897,7 +972,6 @@ def test_create_vector_search_index(
     embedded.wait_for_vector_search_index(timeout=SEARCH_INDEX_READY_TIMEOUT)
 
 
-@mark.e2e_search_q2_mc_rs_steady
 def test_execute_vector_search_query(
     mdb: MongoDBMulti,
     helper: MCSearchDeploymentHelper,
@@ -934,7 +1008,6 @@ def test_execute_vector_search_query(
     )
 
 
-@mark.e2e_search_q2_mc_rs_steady
 def test_per_cluster_search_query(
     mdb: MongoDBMulti,
     helper: MCSearchDeploymentHelper,
@@ -969,7 +1042,6 @@ def test_per_cluster_search_query(
         )
 
 
-@mark.e2e_search_q2_mc_rs_steady
 def test_per_cluster_vector_search_query(
     mdb: MongoDBMulti,
     helper: MCSearchDeploymentHelper,
