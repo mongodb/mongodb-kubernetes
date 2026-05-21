@@ -69,10 +69,10 @@ RUN microdnf -y update --nodocs \
     && microdnf clean all
 
 ARG version
-LABEL name="MongoDB Kubernetes Init Database" \
-      version="mongodb-kubernetes-init-database-${version}" \
-      summary="MongoDB Kubernetes Database Init Image" \
-      description="Startup Scripts for MongoDB Enterprise Database" \
+LABEL name="MongoDB Kubernetes Init AppDB" \
+      version="mongodb-kubernetes-init-appdb-${version}" \
+      summary="MongoDB Kubernetes AppDB Init Image" \
+      description="Startup Scripts for MongoDB Enterprise Application Database for Ops Manager" \
       release="1" \
       vendor="MongoDB" \
       maintainer="support@mongodb.com"
