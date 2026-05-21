@@ -43,9 +43,8 @@ func ComputeScramSha1Creds(username, password string, salt []byte) (ScramCreds, 
 }
 
 func md5Hex(s string) string {
-	h := md5.New()     // nolint
-	h.Write([]byte(s)) //nolint // codeql[go/weak-sensitive-data-hashing]
-	return hex.EncodeToString(h.Sum(nil))
+	sum := md5.Sum([]byte(s)) //nolint
+	return hex.EncodeToString(sum[:])
 }
 
 func generateSaltedPassword(hashConstructor func() hash.Hash, password string, salt []byte, iterationCount int) ([]byte, error) {
