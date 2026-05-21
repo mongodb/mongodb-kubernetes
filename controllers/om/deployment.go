@@ -179,9 +179,11 @@ func (d Deployment) MergeReplicaSet(operatorRs ReplicaSetWithProcesses, specArgs
 		}
 	}
 
-	// In both cases (the new replicaset was added to OM deployment, or it was merged with OM one) we need to make sure
-	// there are no more than 7 voting members
-	d.limitVotingMembers(operatorRs.Rs.Name())
+	// In both cases (the new replicaset was added to OM deployment, or it was merged with OM one)
+	// we need to make sure there are no more than 7 voting members.
+	// limitVotingMembers no-ops when external members are present — see validateACForMigration
+	// in the reconciler for the user-facing failure path.
+	d.limitVotingMembers(operatorRs.Rs.Name(), externalMembers)
 }
 
 // ConfigurePrometheus adds Prometheus configuration to `Deployment` resource.
@@ -1203,8 +1205,15 @@ func (d Deployment) processesHaveInternalClusterAuthentication(processes []Proce
 	return false
 }
 
-// limitVotingMembers ensures the number of voting members in the replica set is not more than 7 members
-func (d Deployment) limitVotingMembers(rsName string) {
+// limitVotingMembers ensures the number of voting members in the replica set is not more than 7.
+// When externalMembers is non-empty this function is a no-op: the operator does not own external
+// members' votes, so silently zeroing them would corrupt user-managed AC state. The reconciler's
+// validateACForMigration check fails the reconcile before reaching this code path in the migration
+// case, so a no-op here is purely defensive.
+func (d Deployment) limitVotingMembers(rsName string, externalMembers []string) {
+	if len(externalMembers) > 0 {
+		return
+	}
 	r := d.getReplicaSetByName(rsName)
 
 	numberOfVotingMembers := 0

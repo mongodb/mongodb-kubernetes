@@ -936,3 +936,58 @@ func TestMergeReplicaSet_ExternalMembersPreservedInDeployment(t *testing.T) {
 	assert.Contains(t, memberHosts, "ext-0.external.host:27017")
 	assert.Len(t, d.GetReplicaSets()[0].Members(), 4)
 }
+
+func TestLimitVotingMembers_SkipsWhenExternalMembersPresent(t *testing.T) {
+	d := NewDeployment()
+	rs := ReplicaSet{"_id": "my-rs"}
+	members := []ReplicaSetMember{
+		{"_id": 0, "host": "rs-0", "votes": 1, "priority": float32(1)},
+		{"_id": 1, "host": "rs-1", "votes": 1, "priority": float32(1)},
+		{"_id": 2, "host": "rs-2", "votes": 1, "priority": float32(1)},
+		{"_id": 3, "host": "rs-3", "votes": 1, "priority": float32(1)},
+		{"_id": 4, "host": "rs-4", "votes": 1, "priority": float32(1)},
+		{"_id": 5, "host": "rs-5", "votes": 1, "priority": float32(1)},
+		{"_id": 6, "host": "rs-6", "votes": 1, "priority": float32(1)},
+		// 8th member would normally be zeroed by limitVotingMembers
+		{"_id": 7, "host": "ext-0", "votes": 1, "priority": float32(1)},
+	}
+	rs["members"] = members
+	d["replicaSets"] = []ReplicaSet{rs}
+
+	d.limitVotingMembers("my-rs", []string{"ext-0"})
+
+	got := d.getReplicaSetByName("my-rs").Members()
+	require.Len(t, got, 8)
+	for i, m := range got {
+		assert.Equal(t, 1, m.Votes(), "member %d (%s) votes should be unchanged", i, m.Name())
+		assert.Equal(t, float32(1), m.Priority(), "member %d (%s) priority should be unchanged", i, m.Name())
+	}
+}
+
+func TestLimitVotingMembers_AppliesNormallyWhenNoExternalMembers(t *testing.T) {
+	d := NewDeployment()
+	rs := ReplicaSet{"_id": "my-rs"}
+	members := []ReplicaSetMember{
+		{"_id": 0, "host": "rs-0", "votes": 1, "priority": float32(1)},
+		{"_id": 1, "host": "rs-1", "votes": 1, "priority": float32(1)},
+		{"_id": 2, "host": "rs-2", "votes": 1, "priority": float32(1)},
+		{"_id": 3, "host": "rs-3", "votes": 1, "priority": float32(1)},
+		{"_id": 4, "host": "rs-4", "votes": 1, "priority": float32(1)},
+		{"_id": 5, "host": "rs-5", "votes": 1, "priority": float32(1)},
+		{"_id": 6, "host": "rs-6", "votes": 1, "priority": float32(1)},
+		{"_id": 7, "host": "rs-7", "votes": 1, "priority": float32(1)},
+	}
+	rs["members"] = members
+	d["replicaSets"] = []ReplicaSet{rs}
+
+	d.limitVotingMembers("my-rs", nil)
+
+	got := d.getReplicaSetByName("my-rs").Members()
+	require.Len(t, got, 8)
+	// First 7 still voting, 8th zeroed by the legacy auto-adjust
+	for i := 0; i < 7; i++ {
+		assert.Equal(t, 1, got[i].Votes(), "member %d should still be voting", i)
+	}
+	assert.Equal(t, 0, got[7].Votes(), "8th member should be zeroed")
+	assert.Equal(t, float32(0), got[7].Priority(), "8th member priority should be zeroed")
+}

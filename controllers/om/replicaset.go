@@ -258,6 +258,29 @@ func (r ReplicaSet) Members() []ReplicaSetMember {
 	}
 }
 
+// CountVotingMembers returns the number of voting K8s members and voting external members in this
+// replica set. External members are identified by matching ReplicaSetMember.Name() (the AC "host"
+// field, which equals the process name) against externalMemberProcessNames. Members that are not in
+// externalMemberProcessNames are treated as K8s members. An external process name that does not
+// match any member of the RS is silently ignored — drift checks already guard against that case.
+func CountVotingMembers(r ReplicaSet, externalMemberProcessNames []string) (k8sVoting int, externalVoting int) {
+	externalSet := make(map[string]struct{}, len(externalMemberProcessNames))
+	for _, n := range externalMemberProcessNames {
+		externalSet[n] = struct{}{}
+	}
+	for _, m := range r.Members() {
+		if m.Votes() <= 0 {
+			continue
+		}
+		if _, isExternal := externalSet[m.Name()]; isExternal {
+			externalVoting++
+		} else {
+			k8sVoting++
+		}
+	}
+	return k8sVoting, externalVoting
+}
+
 func (r ReplicaSet) setName(name string) {
 	r["_id"] = name
 }

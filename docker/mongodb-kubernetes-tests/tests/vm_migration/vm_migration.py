@@ -197,10 +197,10 @@ def test_vm_deployment_is_ready(om_tester: OMTester, vm_sts):
     om_tester.wait_agents_ready()
     ac_tester = om_tester.get_automation_config_tester()
 
-    assert len(ac_tester.get_all_processes()) == 3
-    assert len(ac_tester.get_monitoring_versions()) == 3
-    assert len(ac_tester.get_backup_versions()) == 3
-    assert len(ac_tester.get_replica_set_processes(f"{vm_sts['metadata']['name']}-rs")) == 3
+    assert len(ac_tester.get_all_processes()) == vm_sts["spec"]["replicas"]
+    assert len(ac_tester.get_monitoring_versions()) == vm_sts["spec"]["replicas"]
+    assert len(ac_tester.get_backup_versions()) == vm_sts["spec"]["replicas"]
+    assert len(ac_tester.get_replica_set_processes(f"{vm_sts['metadata']['name']}-rs")) == vm_sts["spec"]["replicas"]
 
 
 @mark.e2e_vm_migration
@@ -223,11 +223,49 @@ def test_install_operator(default_operator: Operator):
 def test_mdb_reaches_running(mdb_migration: MongoDB, om_tester: OMTester, vm_sts):
     mdb_migration.assert_reaches_phase(Phase.Running, timeout=600)
 
+    total_members = vm_sts["spec"]["replicas"] + mdb_migration.get_members()
     ac_tester = om_tester.get_automation_config_tester()
-    assert len(ac_tester.get_all_processes()) == 6
-    assert len(ac_tester.get_monitoring_versions()) == 6
-    assert len(ac_tester.get_backup_versions()) == 6
-    assert len(ac_tester.get_replica_set_processes(f"{vm_sts['metadata']['name']}-rs")) == 6
+    assert len(ac_tester.get_all_processes()) == total_members
+    assert len(ac_tester.get_monitoring_versions()) == total_members
+    assert len(ac_tester.get_backup_versions()) == total_members
+    assert len(ac_tester.get_replica_set_processes(f"{vm_sts['metadata']['name']}-rs")) == total_members
+
+
+@mark.e2e_vm_migration
+def test_max_voting_members_validation(mdb_migration: MongoDB):
+    # Update all members as voting at once, this results in 8 voting members (5 external + 3 k8s) which is more than 7
+    for i in range(mdb_migration.get_members()):
+        mdb_migration["spec"]["memberConfig"][i]["priority"] = "1"
+        mdb_migration["spec"]["memberConfig"][i]["votes"] = 1
+
+    mdb_migration.update()
+    mdb_migration.assert_reaches_phase(Phase.Failed, timeout=300)
+    err_msg = mdb_migration.get_status_message()
+    rs_name = mdb_migration["spec"]["replicaSetNameOverride"]
+    expected_err_msg = (
+        f'"{rs_name}": this reconcile would result in 8 voting members (max: 7).\n'
+        "Currently voting in the Automation Config (5):\n"
+        "  1. vm-mongodb-0 (external)\n"
+        "  2. vm-mongodb-1 (external)\n"
+        "  3. vm-mongodb-2 (external)\n"
+        "  4. vm-mongodb-3 (external)\n"
+        "  5. vm-mongodb-4 (external)\n"
+        "This reconcile would make the following Kubernetes member(s) voting:\n"
+        "  - spec.memberConfig[0]\n"
+        "  - spec.memberConfig[1]\n"
+        "  - spec.memberConfig[2]\n"
+        'To fix: revert 1 of the above memberConfig entries to votes=0 and priority="0".\n'
+        "If you wish to make more of the kubernetes members voting, make sure to remove one of the voting external members in the list above."
+    )
+    assert err_msg == expected_err_msg
+
+    # Reset to working state
+    for i in range(mdb_migration.get_members()):
+        mdb_migration["spec"]["memberConfig"][i]["priority"] = "0"
+        mdb_migration["spec"]["memberConfig"][i]["votes"] = 0
+
+    mdb_migration.update()
+    mdb_migration.assert_reaches_phase(Phase.Running, timeout=300)
 
 
 @mark.e2e_vm_migration
@@ -248,12 +286,18 @@ def test_promote_and_prune(
 
         om_tester.assert_cluster_available(f"{vm_sts['metadata']['name']}-rs")
         ac_tester = om_tester.get_automation_config_tester()
-        assert len(ac_tester.get_all_processes()) == 3 + len(mdb_migration["spec"]["externalMembers"])
-        assert len(ac_tester.get_monitoring_versions()) == 3 + len(mdb_migration["spec"]["externalMembers"])
-        assert len(ac_tester.get_backup_versions()) == 3 + len(mdb_migration["spec"]["externalMembers"])
-        assert len(ac_tester.get_replica_set_processes(f"{vm_sts['metadata']['name']}-rs")) == 3 + len(
+        assert len(ac_tester.get_all_processes()) == mdb_migration.get_members() + len(
             mdb_migration["spec"]["externalMembers"]
         )
+        assert len(ac_tester.get_monitoring_versions()) == mdb_migration.get_members() + len(
+            mdb_migration["spec"]["externalMembers"]
+        )
+        assert len(ac_tester.get_backup_versions()) == mdb_migration.get_members() + len(
+            mdb_migration["spec"]["externalMembers"]
+        )
+        assert len(
+            ac_tester.get_replica_set_processes(f"{vm_sts['metadata']['name']}-rs")
+        ) == mdb_migration.get_members() + len(mdb_migration["spec"]["externalMembers"])
 
     # TODO: doesn't work great locally
     mdb_health_checker.assert_healthiness()

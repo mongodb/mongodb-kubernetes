@@ -235,8 +235,8 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 		return r.updateStatus(ctx, status)
 	}
 
-	// Validations for the pre-existing AC in case of migration
-	if status := validateACForMigration(conn, rs.Spec.GetExternalMembers()); !status.IsOK() {
+	// Validations for the pre-existing AC in case of migration (TLS mode, voting-members limit).
+	if status := validateACForMigration(conn, rs); !status.IsOK() {
 		return r.updateStatus(ctx, status)
 	}
 

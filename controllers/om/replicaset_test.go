@@ -130,3 +130,85 @@ func TestMergeFrom_NonExternalExtraMemberRemoved(t *testing.T) {
 	}
 	assert.NotContains(t, memberHosts, "stale-host:27017")
 }
+
+func TestCountVotingMembers(t *testing.T) {
+	mkMember := func(host string, votes int) ReplicaSetMember {
+		return ReplicaSetMember{"_id": 0, "host": host, "votes": votes, "priority": float32(1)}
+	}
+
+	tests := []struct {
+		name          string
+		members       []ReplicaSetMember
+		externalNames []string
+		wantK8s       int
+		wantExternal  int
+	}{
+		{
+			name:          "all K8s voting, no externals",
+			members:       []ReplicaSetMember{mkMember("rs-0", 1), mkMember("rs-1", 1), mkMember("rs-2", 1)},
+			externalNames: nil,
+			wantK8s:       3,
+			wantExternal:  0,
+		},
+		{
+			name:          "mixed votes, no externals",
+			members:       []ReplicaSetMember{mkMember("rs-0", 1), mkMember("rs-1", 0), mkMember("rs-2", 1)},
+			externalNames: nil,
+			wantK8s:       2,
+			wantExternal:  0,
+		},
+		{
+			name: "K8s + voting externals",
+			members: []ReplicaSetMember{
+				mkMember("rs-0", 1), mkMember("rs-1", 1), mkMember("rs-2", 1),
+				mkMember("ext-0", 1), mkMember("ext-1", 1),
+			},
+			externalNames: []string{"ext-0", "ext-1"},
+			wantK8s:       3,
+			wantExternal:  2,
+		},
+		{
+			name: "K8s + non-voting externals",
+			members: []ReplicaSetMember{
+				mkMember("rs-0", 1), mkMember("rs-1", 1), mkMember("rs-2", 1),
+				mkMember("ext-0", 0), mkMember("ext-1", 0),
+			},
+			externalNames: []string{"ext-0", "ext-1"},
+			wantK8s:       3,
+			wantExternal:  0,
+		},
+		{
+			name: "K8s + mixed voting externals",
+			members: []ReplicaSetMember{
+				mkMember("rs-0", 1), mkMember("rs-1", 1),
+				mkMember("ext-0", 1), mkMember("ext-1", 0), mkMember("ext-2", 1),
+			},
+			externalNames: []string{"ext-0", "ext-1", "ext-2"},
+			wantK8s:       2,
+			wantExternal:  2,
+		},
+		{
+			name:          "external name not present in RS — ignored, not counted",
+			members:       []ReplicaSetMember{mkMember("rs-0", 1), mkMember("rs-1", 1), mkMember("rs-2", 1)},
+			externalNames: []string{"ext-missing"},
+			wantK8s:       3,
+			wantExternal:  0,
+		},
+		{
+			name:          "empty RS",
+			members:       []ReplicaSetMember{},
+			externalNames: []string{"ext-0"},
+			wantK8s:       0,
+			wantExternal:  0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rs := ReplicaSet{"_id": "my-rs", "members": tt.members}
+			k8sVoting, externalVoting := CountVotingMembers(rs, tt.externalNames)
+			assert.Equal(t, tt.wantK8s, k8sVoting, "k8s voting")
+			assert.Equal(t, tt.wantExternal, externalVoting, "external voting")
+		})
+	}
+}
