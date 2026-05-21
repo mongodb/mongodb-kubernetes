@@ -41,7 +41,6 @@ Only the leader writes to Ops Manager. Followers route OM-relevant proposals to 
                      │   app 7001 (forwarder follower→leader)│
                      │                                        │
                      └── Istio multi-mesh mTLS                ┘
-                          sidecar excludes ports 7000,7001
               │                         │                         │
               ▼                         ▼                         ▼
        local STS / Svc            local STS / Svc           local STS / Svc
@@ -189,12 +188,7 @@ The reason FQDN advertisement matters: if an operator advertised its wildcard bi
 
 Operators in different Kubernetes clusters reach each other across cluster boundaries via Istio's multi-cluster service-entry propagation. Once the mesh has propagated the per-cluster Service, DNS resolution for `mongodb-kubernetes-operator-raft-cluster-N.<ns>.svc.cluster.local` works from any pod in any of the three clusters.
 
-Two layers of protection ensure the Istio sidecar passes raft and forwarder frames through unmodified, rather than attempting HTTP parsing or mTLS upgrade that would corrupt the wire format:
-
-1. The Service ports are named `tcp-raft` and `tcp-raftapp`, both with `appProtocol: tcp`. This tells Istio to treat the ports as opaque TCP.
-2. The operator pod template carries `traffic.sidecar.istio.io/excludeInboundPorts: "7000,7001"` and `traffic.sidecar.istio.io/excludeOutboundPorts: "7000,7001"`. This causes the sidecar to bypass interception entirely for these ports.
-
-The combination is intentional. The `appProtocol: tcp` declaration is enough on its own to make the mesh leave the bytes alone, but the sidecar still proxies the connection. The exclude annotations remove the sidecar from the path for these specific ports, which both reduces overhead and removes a source of intermittent failure during sidecar config reloads.
+To ensure the Istio sidecar passes raft and forwarder frames through unmodified rather than attempting HTTP parsing or mTLS upgrade that would corrupt the wire format, the Service ports are named `tcp-raft` and `tcp-raftapp`, both with `appProtocol: tcp`. This tells Istio to treat the ports as opaque TCP, so the bytes traverse the mesh as a passthrough connection with the mesh's mTLS terminated at each pod boundary.
 
 ---
 
@@ -421,7 +415,6 @@ The forwarder is used only for proposals that need to affect FSM state. Local St
    │  cluster-1's FQDN
    │
    ├─ TCP dial leader-fqdn:7001
-   │  ├─ Istio sidecar excluded for port 7001
    │  └─ multi-mesh ServiceEntry resolves FQDN
    │
    ├─ length-prefixed msgpack send                ───►  AppChannel server receives
@@ -539,17 +532,9 @@ Designed but not yet end-to-end tested. With a 3-cluster raft group, a single cl
 
 ## 13. What was learned
 
-The PoC produced six findings that materially shape how the design has to be implemented or deployed.
+The PoC produced five findings that materially shape how the design has to be implemented or deployed.
 
-### 13.1 Dropping the Plan was a wrong simplification
-
-The original proposal included an explicit Plan and Phase mechanism: the leader would construct a plan for each CR (a sequence of per-cluster steps to execute), and followers would execute steps the leader assigned them. During the design refinement before implementation, the Plan was dropped on YAGNI grounds and replaced with per-component leases — each operator decides what to do, then asks the FSM for permission via the lease.
-
-In retrospect, the Plan was the cleaner primitive. The cross-cluster ordering invariants we needed to enforce ("only one cluster rolls at a time", "rolling restart waits for spec agreement", "scale up holds the lease until the local cluster reaches target") are naturally expressed as a leader-side workflow. Pushed into per-cluster races, the same invariants require several layers of additional state: lease keep-alive during gate waits, spec-generation invalidation of stale Ready bits, mongos-specific bypass of the cross-cluster mutex, and explicit deploymentState rehydration on takeover. Each of these is a layer on top of the lease primitive — none of them would exist if the leader simply decided "cluster N, do step S" and the follower executed it.
-
-The current design works. But it suggests a v2 direction: keep the same Raft substrate and FSM tables, but replace the per-component lease with a leader-driven workflow. Section 14 sketches this.
-
-### 13.2 The CR spec must be in the resource-agreement gate
+### 13.1 The CR spec must be in the resource-agreement gate
 
 The initial resource-agreement gate covered only the project ConfigMap and the credentials Secret. The MongoDB CR itself was not in the gate, on the assumption that the CR would be byte-identical across clusters because the test fixture replicates it explicitly.
 
@@ -559,13 +544,13 @@ The fix is to include a canonical JSON hash of the CR's `.spec` subtree in the a
 
 The hashing function matters: hashing the Go struct produces different hashes from hashing the wire JSON, because of decoder round-tripping and default-value defaulting. The implementation uses a canonical JSON serialisation of the spec subtree (sorted keys, recursive) before hashing.
 
-### 13.3 Kubernetes pod-readiness is the wrong safety signal
+### 13.2 Kubernetes pod-readiness is the wrong safety signal
 
 The end-to-end tests' safety monitor initially used Kubernetes pod-readiness as a proxy for "this voting member is currently in quorum". During an `rs.reconfig` event — which fires every time the operator adds, removes, or changes a voting member — the AutomationAgent on every voting member reloads its AutomationConfig, and its readiness endpoint flickers to NotReady for a few seconds. The mongod process is still running and still serving; only the agent's health probe drops. But the test's safety monitor counts the NotReady samples and reports a cap-1 violation.
 
 The fix is to measure quorum state directly: count voting members whose Kubernetes pod is in a lifecycle state inconsistent with "running mongod" (deletion timestamp set, container not Running, restart-count incremented), or whose `rs.status()` member state is not PRIMARY or SECONDARY. Both signals are sampled in parallel and unioned. The union catches both Kubernetes-side disruption (pod restarted, container terminated) and replication-side disruption (member partitioned, member in RECOVERING).
 
-### 13.4 Stateless components need explicit exemption from the cross-cluster mutex
+### 13.3 Stateless components need explicit exemption from the cross-cluster mutex
 
 The original cross-cluster lease design treated all components uniformly. Applied to mongos, this produces a deadlock: cluster-1 acquires the `(CR, mongos)` lease, rolls its mongos pod, and never releases the lease because mongos has no `rs.reconfig` event to trigger MarkReady. The other clusters wait forever.
 
@@ -573,7 +558,7 @@ The architectural fact is that mongos does not have quorum semantics. There is n
 
 Future stateless components (search nodes, for example) must explicitly opt out of the cross-cluster mutex in the same way.
 
-### 13.5 Cross-cluster ownerReferences cause garbage-collection deletions on takeover
+### 13.4 Cross-cluster ownerReferences cause garbage-collection deletions on takeover
 
 Hub-and-spoke writes member-cluster StatefulSets with `ownerReferences[0].uid` pointing at the central MDB CR's UID. This is intentional in hub-and-spoke — the central CR's deletion should cascade-delete the member StatefulSets via the standard Kubernetes garbage collector.
 
@@ -581,7 +566,7 @@ When distributed operators take over an existing hub-and-spoke deployment, the t
 
 The fix is to drop the ownerReferences entirely on StatefulSet writes when `coordinator != nil`. Distributed-mode StatefulSet lifecycle is owned by the local operator directly, via the existing label-driven `DeleteAllOf` cleanup in the OnDelete handler. Hub-and-spoke retains its ownerRef-driven cleanup unchanged.
 
-### 13.6 Test fixtures and production deployments have different shapes
+### 13.5 Test fixtures and production deployments have different shapes
 
 Several PoC validation cycles were spent on test-fixture problems that do not occur in production GitOps deployments. The takeover test's CR replication uses per-cluster CRD apply followed by a CR object creation, which produces fresh server-assigned UIDs (production GitOps would produce stable UIDs from the source YAML). The `image-registries-secret` is created only on the central kind cluster, not propagated to member-cluster namespaces (production: each cluster's secret management is independent). The `current.devc.kubeconfig` context can drift between test runs, breaking the test's CR-replication script (production: each operator only uses its own local kubeconfig).
 
@@ -591,7 +576,7 @@ These are not architectural issues, but they consumed enough validation time to 
 
 ## 14. Future direction: leader-driven workflow
 
-The lessons in section 13.1 suggest a v2 direction. The Raft substrate, the FSM tables, the forwarder, the FQDN advertisement, the Istio passthrough configuration, the Helm chart wiring, and the hub-and-spoke compatibility model would all be preserved. What would change is the way per-component coordination is expressed.
+A separate architectural direction worth exploring is a leader-driven workflow on the same Raft substrate. The Raft substrate, the FSM tables, the forwarder, the FQDN advertisement, the Istio passthrough configuration, the Helm chart wiring, and the hub-and-spoke compatibility model would all be preserved. What would change is the way per-component coordination is expressed: instead of each operator deciding locally what to do and acquiring a lease, the leader would maintain an explicit workflow per CR and assign individual steps to specific clusters. Followers would execute the assigned step and report the result.
 
 ### 14.1 Three event-driven reconcilers
 
@@ -628,11 +613,13 @@ Instead of one reconciler that combines decision-making with execution, the oper
 
 No background goroutine. No polling. Every reconcile is triggered by an event — either a Kubernetes watch event or a synthetic event from an FSM `Apply`. The follower's reconcile is a one-step operation: ask the leader for the next step, execute it, report the result.
 
-### 14.2 Why this would be cleaner
+### 14.2 Properties of the alternative
 
-The current design smears cross-cluster scheduling logic across several places: `distGateInline` in the controller, the lease table in the FSM, the `SpecGeneration` plumbing in the proposals, and the `isCrossClusterMutexComponent` predicate. With a leader-driven workflow, the scheduling logic lives in one place: a deterministic `Workflow.Advance` function that runs inside the FSM `Apply`. The follower's reconcile becomes "execute the step the leader gave me", which is naturally idempotent (executing the same StatefulSet apply twice is a no-op the second time).
+In the leader-driven workflow model, the scheduling logic lives in a single deterministic `Workflow.Advance` function that runs inside the FSM `Apply`. The follower's reconcile reduces to "execute the step the leader gave me", which is naturally idempotent because executing the same StatefulSet apply twice is a no-op the second time.
 
-Failover is simpler. On leader change, the new leader reads the workflow state from the FSM and resumes from the current step. There is no question of "is this stale" — the workflow state is the single source of truth and was applied through Raft.
+The current per-component lease design distributes the scheduling logic across several places: `distGateInline` in the controller, the lease table in the FSM, the `SpecGeneration` plumbing in the proposals, and the `isCrossClusterMutexComponent` predicate. Each of these is a small piece of code; together they implement the same cross-cluster invariants that a workflow would encode directly.
+
+Failover characteristics differ. In the current design, a new leader inherits the lease table and the component status entries — both are already consistent because they were applied through Raft. In the workflow design, a new leader reads the workflow state from the FSM and resumes from the current step. Both are correct; the workflow makes the "what comes next" question more obvious to a reader of the code.
 
 The expected code-size delta: roughly 600 to 1000 lines removed (lease tables, `AcquireOrRespect`, `HasSiblingLease`, `IsComponentReady`, `MarkReady`, `distGateInline`, `distMarkReadyAndRelease`, `distReportInflightProgress`, `SpecGeneration` plumbing, `isCrossClusterMutexComponent`, scaler-rehydrate gates), 300 to 500 lines added (a `Workflow` type, `Workflow.Advance` function, step-kind dispatch, `GetMyNextStep`/`ReportStepResult` coordinator methods, FSM Apply for workflow proposals).
 
@@ -654,6 +641,6 @@ The PoC has validated the architectural claim — that operators in different cl
 - `pkg/coordination/raft/forwarder.go` — follower → leader RPC channel implementation.
 - `pkg/coordination/raft/production.go` — `BuildProductionCoordinator`, FQDN-from-`RAFT_PEERS` wiring.
 - `controllers/operator/distributed_resource_agreement.go` — Gate 1 implementation: canonical-JSON CR hash, project CM hash, credentials Secret hash.
-- `helm_chart/values.yaml` and `helm_chart/templates/operator.yaml` — `operator.distributed.enabled` block, Istio passthrough annotations, member-list ConfigMap.
+- `helm_chart/values.yaml` and `helm_chart/templates/operator.yaml` — `operator.distributed.enabled` block, raft Service with `tcp-raft`/`tcp-raftapp` ports for Istio passthrough, member-list ConfigMap.
 - `docs/dev/distributed-multicluster-operator-implementation.md` — companion as-built notes.
 - `docs/dev/phase-d-handoff.md` — development log.
