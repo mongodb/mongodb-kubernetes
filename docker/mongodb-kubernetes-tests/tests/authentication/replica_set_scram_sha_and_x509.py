@@ -59,7 +59,7 @@ class TestCreateMongoDBUser(KubernetesTester):
 
     @classmethod
     def setup_class(cls):
-        print(f"creating password for MongoDBUser {USER_NAME} in secret/{PASSWORD_SECRET_NAME} ")  # codeql[py/clear-text-logging-sensitive-data]
+        print(f"creating password for MongoDBUser {USER_NAME}")
         KubernetesTester.create_secret(
             KubernetesTester.get_namespace(),
             PASSWORD_SECRET_NAME,

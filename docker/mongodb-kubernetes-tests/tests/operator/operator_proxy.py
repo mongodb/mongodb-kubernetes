@@ -1,4 +1,5 @@
 import os
+import re
 
 from kubernetes import client
 from kubetester import create_or_update_configmap, try_load
@@ -78,9 +79,9 @@ def test_proxy_logs_requests(namespace: str):
     pod_name = proxy_pods[0].metadata.name
     container_name = "squid"
     pod_logs = KubernetesTester.read_pod_logs(namespace, pod_name, container_name)
-    assert "cloud-qa.mongodb.com" not in pod_logs  # codeql[py/incomplete-url-substring-sanitization]
-    assert "api-agents-qa.mongodb.com" in pod_logs  # codeql[py/incomplete-url-substring-sanitization]
-    assert "api-backup-qa.mongodb.com" in pod_logs
+    assert "cloud-qa.mongodb.com" not in pod_logs
+    assert re.search(r"\bapi-agents-qa\.mongodb\.com\b", pod_logs)
+    assert re.search(r"\bapi-backup-qa\.mongodb\.com\b", pod_logs)
 
 
 @mark.e2e_operator_proxy

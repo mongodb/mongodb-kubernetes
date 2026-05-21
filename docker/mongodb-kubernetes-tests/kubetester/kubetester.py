@@ -1524,7 +1524,7 @@ def run_periodically(fn, *args, **kwargs):
             return True
         if msg is not None:
             condition_msg = f": {fn_condition_msg}" if fn_condition_msg is not None else ""
-            print(f"waiting for {msg}{condition_msg}...")  # codeql[py/clear-text-logging-sensitive-data]
+            print(f"waiting{condition_msg}...")
         time.sleep(sleep_time)
 
     raise AssertionError(
