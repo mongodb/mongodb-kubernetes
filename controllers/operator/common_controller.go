@@ -856,8 +856,8 @@ func UpdatePrometheus(ctx context.Context, d *om.Deployment, conn om.Connection,
 	secretName := prometheus.PasswordSecretRef.Name
 	if vault.IsVaultSecretBackend() {
 		operatorSecretPath := sClient.VaultClient.OperatorSecretPath()
-		passwordString := fmt.Sprintf("%s/%s/%s", operatorSecretPath, namespace, secretName)
-		keyedPassword, err := sClient.VaultClient.ReadSecretString(passwordString)
+		vaultSecretPath := fmt.Sprintf("%s/%s/%s", operatorSecretPath, namespace, secretName)
+		keyedPassword, err := sClient.VaultClient.ReadSecretString(vaultSecretPath)
 		if err != nil {
 			log.Infof("Prometheus can't be enabled, %s", err)
 			return err
@@ -866,8 +866,8 @@ func UpdatePrometheus(ctx context.Context, d *om.Deployment, conn om.Connection,
 		var ok bool
 		password, ok = keyedPassword[prometheus.GetPasswordKey()]
 		if !ok {
-			errMsg := fmt.Sprintf("Prometheus password %s not in Secret %s", prometheus.GetPasswordKey(), passwordString)
-			log.Info(errMsg) // codeql[go/clear-text-logging]
+			errMsg := "Prometheus password key not found in Vault secret"
+			log.Info(errMsg)
 			return xerrors.Errorf(errMsg)
 		}
 	} else {
