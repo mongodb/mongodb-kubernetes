@@ -519,11 +519,49 @@ func (d *MongoDbSpec) GetExternalMembers() []ExternalMember {
 }
 
 func (d *MongoDbSpec) GetExternalMemberProcessNames() []string {
-	var processNames []string
+	return externalMemberProcessNames(d.ExternalMembers)
+}
+
+// GetExternalMembersForRS returns external members whose ReplicaSetName matches rsName and whose Type is "mongod".
+// Use this to obtain the external members that belong to a specific config server or shard replica set.
+func (d *MongoDbSpec) GetExternalMembersForRS(rsName string) []ExternalMember {
+	var members []ExternalMember
 	for _, m := range d.ExternalMembers {
-		processNames = append(processNames, m.ProcessName)
+		if m.Type == "mongod" && m.ReplicaSetName == rsName {
+			members = append(members, m)
+		}
 	}
-	return processNames
+	return members
+}
+
+// GetExternalMemberProcessNamesForRS returns the process names of external members belonging to the given replica set.
+func (d *MongoDbSpec) GetExternalMemberProcessNamesForRS(rsName string) []string {
+	return externalMemberProcessNames(d.GetExternalMembersForRS(rsName))
+}
+
+// GetExternalMemberProcessNamesForConfigRS returns the process names of external members belonging to the config server replica set.
+func (m *MongoDB) GetExternalMemberProcessNamesForConfigRS() []string {
+	return m.Spec.GetExternalMemberProcessNamesForRS(m.ConfigRsName())
+}
+
+// GetExternalMemberProcessNamesForMongos returns the process names of external members whose Type is "mongos".
+func (d *MongoDbSpec) GetExternalMemberProcessNamesForMongos() []string {
+	var mongos []ExternalMember
+	for _, m := range d.ExternalMembers {
+		if m.Type == "mongos" {
+			mongos = append(mongos, m)
+		}
+	}
+	return externalMemberProcessNames(mongos)
+}
+
+// externalMemberProcessNames extracts the ProcessName field from each member.
+func externalMemberProcessNames(members []ExternalMember) []string {
+	var names []string
+	for _, m := range members {
+		names = append(names, m.ProcessName)
+	}
+	return names
 }
 
 type SnapshotSchedule struct {
@@ -1322,6 +1360,34 @@ func (m *MongoDB) ShardRsName(i int) string {
 	// Unfortunately the pattern used by OM (name_idx) doesn't work as Kubernetes doesn't create the stateful set with an
 	// exception: "a DNS-1123 subdomain must consist of lower case alphanumeric characters, '-' or '.'"
 	return fmt.Sprintf("%s-%d", m.Name, i)
+}
+
+// ShardACRsName returns the automation config replicaSetName for the shard at index i.
+// When only ShardName is set (brevity form), all three values (_id, rs, shardName) are equal.
+// Returns the K8s default for shards without an override entry.
+func (m *MongoDB) ShardACRsName(i int) string {
+	if i < len(m.Spec.ShardNameOverrides) {
+		o := m.Spec.ShardNameOverrides[i]
+		if o.ReplicaSetName != "" {
+			return o.ReplicaSetName
+		}
+		return o.ShardName
+	}
+	return m.ShardRsName(i)
+}
+
+// ShardACShardId returns the automation config shard _id for the shard at index i.
+// When ShardId is not set, _id equals the replicaSetName.
+// Returns the K8s default for shards without an override entry.
+func (m *MongoDB) ShardACShardId(i int) string {
+	if i < len(m.Spec.ShardNameOverrides) {
+		o := m.Spec.ShardNameOverrides[i]
+		if o.ShardId != "" {
+			return o.ShardId
+		}
+		return m.ShardACRsName(i)
+	}
+	return m.ShardRsName(i)
 }
 
 func (m *MongoDB) MultiShardRsName(clusterIdx int, shardIdx int) string {

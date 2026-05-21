@@ -65,15 +65,21 @@ func NewShardedClusterFromInterface(i interface{}) ShardedCluster {
 	return i.(map[string]interface{})
 }
 
-// NewShardedCluster builds a shard configuration with shards by replicasets names
-func NewShardedCluster(name, configRsName string, replicaSets []ReplicaSetWithProcesses) ShardedCluster {
+// NewShardedCluster builds a shard configuration with shards by replicasets names.
+// shardIds is a parallel slice of automation config shard _id values, indexed by shard position.
+// When shardIds[i] is empty or shardIds is shorter than replicaSets, the rs name is used as the _id.
+func NewShardedCluster(name, configRsName string, replicaSets []ReplicaSetWithProcesses, shardIds []string) ShardedCluster {
 	ans := ShardedCluster{}
 	ans.setName(name)
 	ans.setConfigServerRsName(configRsName)
 
 	shards := make([]Shard, len(replicaSets))
 	for k, v := range replicaSets {
-		s := newShard(v.Rs.Name())
+		shardId := v.Rs.Name()
+		if k < len(shardIds) && shardIds[k] != "" {
+			shardId = shardIds[k]
+		}
+		s := newShard(v.Rs.Name(), shardId)
 		shards[k] = s
 	}
 	ans.setShards(shards)
@@ -90,10 +96,10 @@ func (s ShardedCluster) ConfigServerRsName() string {
 
 // ***************************************** Private methods ***********************************************************
 
-func newShard(name string) Shard {
+func newShard(rsName, shardId string) Shard {
 	s := Shard{}
-	s.setId(name)
-	s.setRs(name)
+	s.setId(shardId)
+	s.setRs(rsName)
 	return s
 }
 

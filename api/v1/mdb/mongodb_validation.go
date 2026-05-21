@@ -431,6 +431,21 @@ func noExternalMembersAdditionOrChanges(newObj, oldObj MongoDbSpec) v1.Validatio
 	return v1.ValidationSuccess()
 }
 
+func noShardNameOverridesChanges(newObj, oldObj MongoDbSpec) v1.ValidationResult {
+	if len(newObj.ShardNameOverrides) < len(oldObj.ShardNameOverrides) {
+		return v1.ValidationError("Cannot remove shardNameOverrides entries from an existing MongoDB resource.")
+	}
+	if len(newObj.ShardNameOverrides) > len(oldObj.ShardNameOverrides) {
+		return v1.ValidationError("Cannot add shardNameOverrides entries to an existing MongoDB resource.")
+	}
+	for i, o := range newObj.ShardNameOverrides {
+		if o != oldObj.ShardNameOverrides[i] {
+			return v1.ValidationError("Cannot make changes to existing shardNameOverrides entries. Entry at index %d was changed.", i)
+		}
+	}
+	return v1.ValidationSuccess()
+}
+
 // specWithExactlyOneSchema checks that exactly one among "Project/OpsManagerConfig/CloudManagerConfig"
 // is configured, doing the "oneOf" validation in the webhook.
 func specWithExactlyOneSchema(d DbCommonSpec) v1.ValidationResult {
@@ -581,6 +596,7 @@ func (m *MongoDB) RunValidations(old *MongoDB) []v1.ValidationResult {
 		horizonDomainNamesMustBeValid,
 		additionalMongodConfig,
 		replicasetMemberIsSpecified,
+
 	}
 
 	updateValidators := []func(newObj MongoDbSpec, oldObj MongoDbSpec) v1.ValidationResult{
@@ -589,6 +605,7 @@ func (m *MongoDB) RunValidations(old *MongoDB) []v1.ValidationResult {
 		noSimultaneousTLSDisablingAndScaling,
 		atMostOneMigrationChangeAtATime,
 		noExternalMembersAdditionOrChanges,
+		noShardNameOverridesChanges,
 	}
 
 	var validationResults []v1.ValidationResult

@@ -33,6 +33,17 @@ class AutomationConfigTester:
         we have only a single resource per deployment"""
         return [process for process in self.automation_config["processes"] if process["processType"] == "mongos"]
 
+    def get_sharding_entries(self):
+        return self.automation_config.get("sharding", [])
+
+    def assert_sharded_cluster_processes(self, config_rs_name: str, shard_rs_names: list, expected_mongos_count: int):
+        assert len(self.get_mongos_processes()) == expected_mongos_count
+        config_processes = self.get_replica_set_processes(config_rs_name)
+        assert len(config_processes) > 0
+        for shard_rs in shard_rs_names:
+            shard_processes = self.get_replica_set_processes(shard_rs)
+            assert len(shard_processes) > 0
+
     def get_all_processes(self):
         return self.automation_config["processes"]
 

@@ -6,7 +6,6 @@ import (
 	"slices"
 	"sort"
 	"strings"
-
 	"github.com/google/go-cmp/cmp"
 	"github.com/hashicorp/go-multierror"
 	"github.com/mongodb/mongodb-kubernetes/pkg/agentVersionManagement"
@@ -296,6 +295,11 @@ func (r *ShardedClusterReconcileHelper) getShardNameToShardIdxMap() map[string]i
 	mapping := map[string]int{}
 	for shardIdx := 0; shardIdx < max(r.sc.Spec.ShardCount, r.deploymentState.Status.ShardCount); shardIdx++ {
 		mapping[r.sc.ShardRsName(shardIdx)] = shardIdx
+		if shardIdx < len(r.sc.Spec.ShardNameOverrides) {
+			if name := r.sc.Spec.ShardNameOverrides[shardIdx].ShardName; name != "" {
+				mapping[name] = shardIdx
+			}
+		}
 	}
 
 	return mapping
@@ -1008,6 +1012,14 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 	reconcileResult := checkIfHasExcessProcesses(conn, sc.Name, sc.Spec.GetExternalMemberProcessNames(), log)
 	if !reconcileResult.IsOK() {
 		return reconcileResult
+	}
+
+	if status := checkExternalMembersDrift(conn, sc.Spec.GetExternalMembers()); !status.IsOK() {
+		return status
+	}
+
+	if status := validateACForMigration(conn, sc); !status.IsOK() {
+		return status
 	}
 
 	security := sc.Spec.Security
@@ -1783,7 +1795,7 @@ func (r *ShardedClusterReconcileHelper) computeMembersToScaleDown(configSrvMembe
 			_, currentPodNames := r.getShardHostnames(shardIdx, memberCluster, currentReplicas)
 			if desiredReplicas < currentReplicas {
 				log.Debugf("Detected shard idx=%d in cluster %s is scaling down: desiredReplicas=%d, currentReplicas=%d", shardIdx, memberCluster.Name, desiredReplicas, currentReplicas)
-				shardRsName := r.sc.ShardRsName(shardIdx)
+				shardRsName := r.sc.ShardACRsName(shardIdx)
 				if _, ok := membersToScaleDown[shardRsName]; !ok {
 					membersToScaleDown[shardRsName] = []string{}
 				}
@@ -1965,7 +1977,7 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 		shardInternalClusterPaths = append(shardInternalClusterPaths, fmt.Sprintf("%s/%s", util.InternalClusterAuthMountPath, shardOptions.InternalClusterHash))
 		shardMemberCertPath := fmt.Sprintf("%s/%s", util.TLSCertMountPath, shardOptions.CertificateHash)
 		desiredShardProcesses, desiredShardMemberOptions := r.createDesiredShardProcessesAndMemberOptions(shardIdx, shardMemberCertPath)
-		shards[shardIdx], _ = buildReplicaSetFromProcesses(r.sc.ShardRsName(shardIdx), desiredShardProcesses, sc, desiredShardMemberOptions, existingDeployment)
+		shards[shardIdx], _ = buildReplicaSetFromProcesses(r.sc.ShardACRsName(shardIdx), desiredShardProcesses, sc, desiredShardMemberOptions, existingDeployment)
 	}
 
 	// updateOmAuthentication normally takes care of the certfile rotation code, but since sharded-cluster is special pertaining multiple clusterfiles, we code this part here for now.
@@ -2030,6 +2042,11 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 				ShardAdditionalOptionsDesired:        sc.Spec.ShardSpec.AdditionalMongodConfig.ToMap(),
 				MongosAdditionalOptionsPrev:          lastMongosServerConf.ToMap(),
 				MongosAdditionalOptionsDesired:       sc.Spec.MongosSpec.AdditionalMongodConfig.ToMap(),
+				// ExternalCluster carries the automation config shard _id for each shard, which may differ from the
+				// rs name during VM-to-Kubernetes migration when ShardNameOverrides are set.
+				// ConfigServerMembers, ShardMembers, and MongosMembers preserve
+				// VM-managed processes in the automation config during the same migration.
+				ExternalCluster: buildExternalShardedCluster(sc),
 			}
 
 			if shardsRemoving, err = d.MergeShardedCluster(mergeOpts); err != nil {
@@ -2284,10 +2301,25 @@ func buildReplicaSetFromProcesses(name string, members []om.Process, mdb *mdbv1.
 		// horizons are not needed
 		rsWithProcesses = om.NewMultiClusterReplicaSetWithProcesses(replicaSet, members, memberOptions, existingProcessIds, nil)
 	} else {
-		rsWithProcesses = om.NewReplicaSetWithProcesses(replicaSet, members, memberOptions, nil)
+		rsWithProcesses = om.NewReplicaSetWithProcesses(replicaSet, members, memberOptions, existingProcessIds)
 		rsWithProcesses.SetHorizons(mdb.Spec.Connectivity.ReplicaSetHorizons)
 	}
 	return rsWithProcesses, nil
+}
+
+func buildExternalShardedCluster(sc *mdbv1.MongoDB) om.ExternalShardedCluster {
+	shardIds := make([]string, sc.Spec.ShardCount)
+	shardMembers := make([][]string, sc.Spec.ShardCount)
+	for i := 0; i < sc.Spec.ShardCount; i++ {
+		shardIds[i] = sc.ShardACShardId(i)
+		shardMembers[i] = sc.Spec.GetExternalMemberProcessNamesForRS(sc.ShardACRsName(i))
+	}
+	return om.ExternalShardedCluster{
+		ConfigServerMembers: sc.GetExternalMemberProcessNamesForConfigRS(),
+		ShardIds:            shardIds,
+		ShardMembers:        shardMembers,
+		MongosMembers:       sc.Spec.GetExternalMemberProcessNamesForMongos(),
+	}
 }
 
 // getConfigServerOptions returns the Options needed to build the StatefulSet for the config server.
@@ -2427,6 +2459,7 @@ func (r *ShardedClusterReconcileHelper) migrateToNewDeploymentState(sc *mdbv1.Mo
 
 	return nil
 }
+
 
 func (r *ShardedClusterReconcileHelper) updateStatus(ctx context.Context, resource *mdbv1.MongoDB, status workflow.Status, log *zap.SugaredLogger, statusOptions ...mdbstatus.Option) (reconcile.Result, error) {
 	if result, err := r.commonController.updateStatus(ctx, resource, status, log, statusOptions...); err != nil {

@@ -1203,3 +1203,370 @@ func TestNoExternalMembersAdditionOrChanges_WiredIntoWebhook(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "Cannot make changes to existing external members")
 }
+
+func TestNoExternalMembersAdditionOrChanges_ShardedCluster(t *testing.T) {
+	// Sharded cluster external members include both mongod entries (with ReplicaSetName) and mongos entries.
+	mongodShard0A := ExternalMember{ProcessName: "shard0-0", Hostname: "vm-shard0-0.example.com:27017", Type: "mongod", ReplicaSetName: "myrs-0"}
+	mongodShard0B := ExternalMember{ProcessName: "shard0-1", Hostname: "vm-shard0-1.example.com:27017", Type: "mongod", ReplicaSetName: "myrs-0"}
+	mongosA := ExternalMember{ProcessName: "mongos-0", Hostname: "vm-mongos-0.example.com:27017", Type: "mongos"}
+	mongosB := ExternalMember{ProcessName: "mongos-1", Hostname: "vm-mongos-1.example.com:27017", Type: "mongos"}
+
+	baseExternalMembers := []ExternalMember{mongodShard0A, mongodShard0B, mongosA, mongosB}
+
+	tests := []struct {
+		name        string
+		oldSpec     MongoDbSpec
+		newSpec     MongoDbSpec
+		expectError bool
+		errorMsg    string
+	}{
+		{
+			name:        "same entries unchanged — success",
+			oldSpec:     MongoDbSpec{ExternalMembers: baseExternalMembers},
+			newSpec:     MongoDbSpec{ExternalMembers: baseExternalMembers},
+			expectError: false,
+		},
+		{
+			name:        "one mongod entry removed — success",
+			oldSpec:     MongoDbSpec{ExternalMembers: baseExternalMembers},
+			newSpec:     MongoDbSpec{ExternalMembers: []ExternalMember{mongodShard0A, mongosA, mongosB}},
+			expectError: false,
+		},
+		{
+			name:        "one mongos entry removed — success",
+			oldSpec:     MongoDbSpec{ExternalMembers: baseExternalMembers},
+			newSpec:     MongoDbSpec{ExternalMembers: []ExternalMember{mongodShard0A, mongodShard0B, mongosA}},
+			expectError: false,
+		},
+		{
+			name: "new mongod entry added — rejected",
+			oldSpec: MongoDbSpec{ExternalMembers: baseExternalMembers},
+			newSpec: MongoDbSpec{ExternalMembers: append(baseExternalMembers,
+				ExternalMember{ProcessName: "shard0-2", Hostname: "vm-shard0-2.example.com:27017", Type: "mongod", ReplicaSetName: "myrs-0"},
+			)},
+			expectError: true,
+			errorMsg:    "Cannot add external members to an existing MongoDB resource",
+		},
+		{
+			name: "new mongos entry added — rejected",
+			oldSpec: MongoDbSpec{ExternalMembers: baseExternalMembers},
+			newSpec: MongoDbSpec{ExternalMembers: append(baseExternalMembers,
+				ExternalMember{ProcessName: "mongos-2", Hostname: "vm-mongos-2.example.com:27017", Type: "mongos"},
+			)},
+			expectError: true,
+			errorMsg:    "Cannot add external members to an existing MongoDB resource",
+		},
+		{
+			name: "hostname of existing mongod entry changed — rejected",
+			oldSpec: MongoDbSpec{ExternalMembers: baseExternalMembers},
+			newSpec: MongoDbSpec{ExternalMembers: []ExternalMember{
+				{ProcessName: "shard0-0", Hostname: "new-host.example.com:27017", Type: "mongod", ReplicaSetName: "myrs-0"},
+				mongodShard0B,
+				mongosA,
+				mongosB,
+			}},
+			expectError: true,
+			errorMsg:    "Cannot make changes to existing external members",
+		},
+		{
+			name: "replicaSetName of existing mongod entry changed — rejected",
+			oldSpec: MongoDbSpec{ExternalMembers: baseExternalMembers},
+			newSpec: MongoDbSpec{ExternalMembers: []ExternalMember{
+				{ProcessName: "shard0-0", Hostname: "vm-shard0-0.example.com:27017", Type: "mongod", ReplicaSetName: "different-rs"},
+				mongodShard0B,
+				mongosA,
+				mongosB,
+			}},
+			expectError: true,
+			errorMsg:    "Cannot make changes to existing external members",
+		},
+		{
+			name: "type of existing entry changed from mongos to mongod — rejected",
+			oldSpec: MongoDbSpec{ExternalMembers: baseExternalMembers},
+			newSpec: MongoDbSpec{ExternalMembers: []ExternalMember{
+				mongodShard0A,
+				mongodShard0B,
+				{ProcessName: "mongos-0", Hostname: "vm-mongos-0.example.com:27017", Type: "mongod", ReplicaSetName: "myrs-0"},
+				mongosB,
+			}},
+			expectError: true,
+			errorMsg:    "Cannot make changes to existing external members",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := noExternalMembersAdditionOrChanges(tt.newSpec, tt.oldSpec)
+			if tt.expectError {
+				assert.Equal(t, v1.ErrorLevel, result.Level)
+				assert.Contains(t, result.Msg, tt.errorMsg)
+			} else {
+				assert.Equal(t, v1.ValidationSuccess(), result)
+			}
+		})
+	}
+}
+
+func TestAtMostOneMigrationChangeAtATime_ShardedCluster_ExternalMembersOnly(t *testing.T) {
+	// For a sharded cluster migration, ExternalMembers contains mongod and mongos entries across shards.
+	// The Members field is not used for sharded clusters; shard scaling uses MongodsPerShardCount and ShardCount.
+	// Because atMostOneMigrationChangeAtATime inspects newObj.Members - oldObj.Members for the k8s-member
+	// delta, and Members is always 0 for sharded clusters, that delta is always 0. As a result the validator
+	// does not detect sharded-specific scaling changes (MongodsPerShardCount or ShardCount) as a concurrent
+	// change alongside external-member removal. This is documented below as a known gap.
+	//
+	// TODO: extend atMostOneMigrationChangeAtATime to detect MongodsPerShardCount and ShardCount changes
+	// for sharded cluster migration so that simultaneous shard-scaling and external-member removal is also
+	// rejected.
+	shardedExternalMembers := []ExternalMember{
+		{ProcessName: "shard0-0", Hostname: "vm-shard0-0.example.com:27017", Type: "mongod", ReplicaSetName: "myrs-0"},
+		{ProcessName: "shard0-1", Hostname: "vm-shard0-1.example.com:27017", Type: "mongod", ReplicaSetName: "myrs-0"},
+		{ProcessName: "mongos-0", Hostname: "vm-mongos-0.example.com:27017", Type: "mongos"},
+	}
+
+	tests := []struct {
+		name        string
+		oldSpec     MongoDbSpec
+		newSpec     MongoDbSpec
+		expectError bool
+		errorMsg    string
+	}{
+		{
+			name: "no external members — validator skipped",
+			oldSpec: MongoDbSpec{
+				MongodbShardedClusterSizeConfig: status.MongodbShardedClusterSizeConfig{ShardCount: 2, MongodsPerShardCount: 3},
+			},
+			newSpec: MongoDbSpec{
+				MongodbShardedClusterSizeConfig: status.MongodbShardedClusterSizeConfig{ShardCount: 3, MongodsPerShardCount: 3},
+			},
+			expectError: false,
+		},
+		{
+			name: "removing one external member with no other changes — allowed",
+			oldSpec: MongoDbSpec{
+				ExternalMembers:                 shardedExternalMembers,
+				MongodbShardedClusterSizeConfig: status.MongodbShardedClusterSizeConfig{ShardCount: 2, MongodsPerShardCount: 3},
+			},
+			newSpec: MongoDbSpec{
+				ExternalMembers:                 shardedExternalMembers[1:],
+				MongodbShardedClusterSizeConfig: status.MongodbShardedClusterSizeConfig{ShardCount: 2, MongodsPerShardCount: 3},
+			},
+			expectError: false,
+		},
+		{
+			name: "removing all external members — allowed",
+			oldSpec: MongoDbSpec{
+				ExternalMembers:                 shardedExternalMembers,
+				MongodbShardedClusterSizeConfig: status.MongodbShardedClusterSizeConfig{ShardCount: 2, MongodsPerShardCount: 3},
+			},
+			newSpec: MongoDbSpec{
+				ExternalMembers:                 []ExternalMember{},
+				MongodbShardedClusterSizeConfig: status.MongodbShardedClusterSizeConfig{ShardCount: 2, MongodsPerShardCount: 3},
+			},
+			expectError: false,
+		},
+		{
+			name: "adding external members once migration has started — rejected",
+			oldSpec: MongoDbSpec{
+				ExternalMembers:                 shardedExternalMembers,
+				MongodbShardedClusterSizeConfig: status.MongodbShardedClusterSizeConfig{ShardCount: 2, MongodsPerShardCount: 3},
+			},
+			newSpec: MongoDbSpec{
+				ExternalMembers: append(shardedExternalMembers,
+					ExternalMember{ProcessName: "mongos-1", Hostname: "vm-mongos-1.example.com:27017", Type: "mongos"},
+				),
+				MongodbShardedClusterSizeConfig: status.MongodbShardedClusterSizeConfig{ShardCount: 2, MongodsPerShardCount: 3},
+			},
+			expectError: true,
+			errorMsg:    "external members may not be added once migration has started",
+		},
+		{
+			// For sharded clusters the Members field is always 0, so membersDelta is always 0.
+			// The validator therefore does not see MongodsPerShardCount changes as a conflicting
+			// change alongside external-member removal. This case documents the current behaviour.
+			name: "removing external member while also changing MongodsPerShardCount — currently allowed (known gap)",
+			oldSpec: MongoDbSpec{
+				ExternalMembers:                 shardedExternalMembers,
+				MongodbShardedClusterSizeConfig: status.MongodbShardedClusterSizeConfig{ShardCount: 2, MongodsPerShardCount: 3},
+			},
+			newSpec: MongoDbSpec{
+				ExternalMembers:                 shardedExternalMembers[1:],
+				MongodbShardedClusterSizeConfig: status.MongodbShardedClusterSizeConfig{ShardCount: 2, MongodsPerShardCount: 4},
+			},
+			expectError: false,
+		},
+		{
+			// Same gap as above: ShardCount change is invisible to the validator for sharded clusters.
+			name: "removing external member while also changing ShardCount — currently allowed (known gap)",
+			oldSpec: MongoDbSpec{
+				ExternalMembers:                 shardedExternalMembers,
+				MongodbShardedClusterSizeConfig: status.MongodbShardedClusterSizeConfig{ShardCount: 2, MongodsPerShardCount: 3},
+			},
+			newSpec: MongoDbSpec{
+				ExternalMembers:                 shardedExternalMembers[1:],
+				MongodbShardedClusterSizeConfig: status.MongodbShardedClusterSizeConfig{ShardCount: 3, MongodsPerShardCount: 3},
+			},
+			expectError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := atMostOneMigrationChangeAtATime(tt.newSpec, tt.oldSpec)
+			if tt.expectError {
+				assert.Equal(t, v1.ErrorLevel, result.Level)
+				assert.Contains(t, result.Msg, tt.errorMsg)
+			} else {
+				assert.Equal(t, v1.ValidationSuccess(), result)
+			}
+		})
+	}
+}
+
+func TestNoShardNameOverridesChanges(t *testing.T) {
+	initial := []ShardNameOverride{
+		{ShardName: "vm-shard-A", ShardId: "vm-id-A", ReplicaSetName: "vm-rs-A"},
+		{ShardName: "vm-shard-B"},
+	}
+
+	tests := []struct {
+		name         string
+		oldOverrides []ShardNameOverride
+		newOverrides []ShardNameOverride
+		expectError  bool
+		errorMsg     string
+	}{
+		{
+			name:         "no overrides in either version passes",
+			oldOverrides: nil,
+			newOverrides: nil,
+			expectError:  false,
+		},
+		{
+			name:         "adding overrides to an existing resource that had none fails",
+			oldOverrides: nil,
+			newOverrides: initial,
+			expectError:  true,
+			errorMsg:     "Cannot add",
+		},
+		{
+			name:         "identical overrides passes",
+			oldOverrides: initial,
+			newOverrides: initial,
+			expectError:  false,
+		},
+		{
+			name:         "adding a new entry to existing overrides fails",
+			oldOverrides: initial[:1],
+			newOverrides: initial,
+			expectError:  true,
+			errorMsg:     "Cannot add",
+		},
+		{
+			name:         "removing an entry from existing overrides fails",
+			oldOverrides: initial,
+			newOverrides: initial[:1],
+			expectError:  true,
+			errorMsg:     "Cannot remove",
+		},
+		{
+			name: "modifying ReplicaSetName in an existing entry fails",
+			oldOverrides: initial,
+			newOverrides: []ShardNameOverride{
+				{ShardName: "vm-shard-A", ShardId: "vm-id-A", ReplicaSetName: "changed-rs"},
+				{ShardName: "vm-shard-B"},
+			},
+			expectError: true,
+			errorMsg:    "index 0",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			oldSpec := MongoDbSpec{ShardedClusterSpec: ShardedClusterSpec{ShardNameOverrides: tt.oldOverrides}}
+			newSpec := MongoDbSpec{ShardedClusterSpec: ShardedClusterSpec{ShardNameOverrides: tt.newOverrides}}
+			result := noShardNameOverridesChanges(newSpec, oldSpec)
+			if tt.expectError {
+				assert.Equal(t, v1.ErrorLevel, result.Level)
+				assert.Contains(t, result.Msg, tt.errorMsg)
+			} else {
+				assert.Equal(t, v1.ValidationSuccess(), result)
+			}
+		})
+	}
+}
+
+func TestShardNameOverridesValidForm(t *testing.T) {
+	mdb := NewDefaultShardedClusterBuilder().Build()
+
+	tests := []struct {
+		name        string
+		overrides   []ShardNameOverride
+		expectError bool
+		errorMsg    string
+	}{
+		{
+			name:        "no overrides passes",
+			overrides:   nil,
+			expectError: false,
+		},
+		{
+			name:        "brevity form passes",
+			overrides:   []ShardNameOverride{{ShardName: "vm-shard-0"}},
+			expectError: false,
+		},
+		{
+			name:        "full form passes",
+			overrides:   []ShardNameOverride{{ShardName: "vm-shard-0", ShardId: "vm-id-0", ReplicaSetName: "vm-rs-0"}},
+			expectError: false,
+		},
+		{
+			name:        "missing shardName fails",
+			overrides:   []ShardNameOverride{{ShardId: "vm-id-0", ReplicaSetName: "vm-rs-0"}},
+			expectError: true,
+			errorMsg:    "[0]: shardName is required",
+		},
+		{
+			name:        "shardId without replicaSetName fails",
+			overrides:   []ShardNameOverride{{ShardName: "vm-shard-0", ShardId: "vm-id-0"}},
+			expectError: true,
+			errorMsg:    "must both be set or both be omitted",
+		},
+		{
+			name:        "replicaSetName without shardId fails",
+			overrides:   []ShardNameOverride{{ShardName: "vm-shard-0", ReplicaSetName: "vm-rs-0"}},
+			expectError: true,
+			errorMsg:    "must both be set or both be omitted",
+		},
+		{
+			name: "duplicate shardName fails",
+			overrides: []ShardNameOverride{
+				{ShardName: "vm-shard-0"},
+				{ShardName: "vm-shard-0"},
+			},
+			expectError: true,
+			errorMsg:    "is a duplicate",
+		},
+		{
+			name: "unique shardNames pass",
+			overrides: []ShardNameOverride{
+				{ShardName: "vm-shard-0"},
+				{ShardName: "vm-shard-1"},
+			},
+			expectError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mdb.Spec.ShardNameOverrides = tt.overrides
+			result := shardNameOverridesValidForm(*mdb)
+			if tt.expectError {
+				assert.Equal(t, v1.ErrorLevel, result.Level)
+				assert.Contains(t, result.Msg, tt.errorMsg)
+			} else {
+				assert.Equal(t, v1.ValidationSuccess(), result)
+			}
+		})
+	}
+}

@@ -7,6 +7,27 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
 )
 
+// ShardNameOverride maps one Kubernetes shard to its automation config identity during a VM-to-Kubernetes migration.
+// The slice is position-significant: index 0 targets shard 0, index 1 targets shard 1, and so on.
+// Shards beyond the slice length keep their K8s default names.
+// Once set, entries are immutable and must not be reordered or extended.
+// ShardName is the override name used to reference this shard in shardOverrides.shardNames.
+// ShardId and ReplicaSetName are the corresponding automation config values for this shard.
+type ShardNameOverride struct {
+	// ShardName is the override name used to reference this shard in shardOverrides.shardNames. Always required.
+	ShardName string `json:"shardName,omitempty"`
+
+	// ShardId is the shard _id in the automation config sharding section.
+	// Set this only when the shard _id differs from the replicaSetName.
+	// +optional
+	ShardId string `json:"shardId,omitempty"`
+
+	// ReplicaSetName is the replica set name used in the automation config for this shard's processes.
+	// Set this only when the replicaSetName differs from the shard _id.
+	// +optional
+	ReplicaSetName string `json:"replicaSetName,omitempty"`
+}
+
 // ShardedClusterSpec is the spec consisting of configuration specific for sharded cluster only.
 type ShardedClusterSpec struct {
 	// +kubebuilder:pruning:PreserveUnknownFields
@@ -22,6 +43,11 @@ type ShardedClusterSpec struct {
 	// +kubebuilder:pruning:PreserverUnknownFields
 	// +optional
 	ShardOverrides []ShardOverride `json:"shardOverrides,omitempty"`
+
+	// ShardNameOverrides provides the VM-managed names for shards during a VM-to-Kubernetes migration.
+	// The slice is position-significant: index i overrides shard i. Entries are immutable once set.
+	// +optional
+	ShardNameOverrides []ShardNameOverride `json:"shardNameOverrides,omitempty"`
 
 	ConfigSrvPodSpec *MongoDbPodSpec `json:"configSrvPodSpec,omitempty"`
 	MongosPodSpec    *MongoDbPodSpec `json:"mongosPodSpec,omitempty"`
