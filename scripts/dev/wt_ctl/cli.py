@@ -307,6 +307,7 @@ def main(argv: list[str]) -> int:
     cmd = args.cmd
     skip_wt = (
         (cmd == "status" and getattr(args, "all_", False))
+        or (cmd == "status" and getattr(args, "branch", None))
         or cmd == "create"
         or (cmd == "delete" and getattr(args, "branch", None))
         or cmd == "kfp"
@@ -322,6 +323,22 @@ def main(argv: list[str]) -> int:
                 refs = resolve_worktree(runner)
             except WtCtlError:
                 refs = None
+        # ``status <branch>`` retargets refs (so the banner + body both
+        # describe the requested worktree, not the cwd).
+        if (
+            cmd == "status"
+            and getattr(args, "branch", None)
+            and not getattr(args, "all_", False)
+        ):
+            target_refs = _refs_for_branch(runner, refs, args.branch)
+            if target_refs is None:
+                emit_banner(refs, quiet=args.quiet)
+                sys.stderr.write(
+                    f"[wt-ctl] error: no worktree for branch / dir "
+                    f"'{args.branch}'\n"
+                )
+                return 2
+            refs = target_refs
         emit_banner(refs, quiet=args.quiet)
         return _dispatch(args, runner, refs)
     except WtCtlError as exc:
@@ -470,6 +487,17 @@ def cmd_status(runner: Runner, refs: WorktreeRefs, args: argparse.Namespace) -> 
         next_hints.append("wt-ctl up              # bring stack back online")
     else:
         next_hints.append("wt-ctl up              # boot devcontainer")
+
+    # EVG host expiry warning: surface an extend hint when < 8h left so the
+    # user can act before the host reaps mid-task.
+    if (
+        evg is not None
+        and evg.expires_seconds is not None
+        and evg.expires_seconds < 8 * 3600
+    ):
+        next_hints.append(
+            f"wt-ctl evg extend      # EVG host expires in {evg.expires_in}"
+        )
 
     snap = WorktreeStatus(
         worktree_dir=refs.branch_dir,
@@ -925,6 +953,37 @@ def _find_worktree_by_branch(wd: WorktreeDomain, repo: Path, branch: str) -> Opt
         if wt.branch == branch:
             return wt.path
     return None
+
+
+def _refs_for_branch(
+    runner: Runner,
+    cwd_refs: Optional[WorktreeRefs],
+    target: str,
+) -> Optional[WorktreeRefs]:
+    """Resolve ``WorktreeRefs`` for an explicit branch (or directory basename).
+
+    Used by ``wt-ctl status <branch>``: lets the user inspect another
+    worktree without ``cd``-ing into it. Matches by exact branch name
+    first, then by directory basename (so ``lsierant_KUBE-17-…`` and
+    ``lsierant/KUBE-17-…`` both work).
+    """
+    main_repo = (
+        cwd_refs.main_repo_root if cwd_refs is not None
+        else _resolve_main_repo(runner)
+    )
+    wd = WorktreeDomain(runner)
+    target_path: Optional[Path] = _find_worktree_by_branch(wd, main_repo, target)
+    if target_path is None:
+        for wt in wd.list_worktrees(main_repo):
+            if wt.path.name == target:
+                target_path = wt.path
+                break
+    if target_path is None:
+        return None
+    try:
+        return resolve_worktree(runner, cwd=target_path)
+    except WtCtlError:
+        return None
 
 
 # ---------------------------------------------------------------------------

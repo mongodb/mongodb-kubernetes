@@ -11,12 +11,20 @@ import json
 import os
 import re
 import time
+import urllib.error
+import urllib.request
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Optional
 
 from ..errors import ExternalCommandFailed, ToolMissing, WtCtlError
 from ..runner import Runner
 from ..state import EvgHostState
+
+# Best-effort REST API probe for expiration_time (the --mine JSON omits it).
+# Read on demand; keep short to avoid blocking status rendering.
+_EVG_API_TIMEOUT_S = 3.0
+_EVG_CONFIG_PATH = Path.home() / ".evergreen.yml"
 
 
 # Statuses we treat as "dead" for resume detection — same predicate as the
@@ -106,13 +114,19 @@ class EvgDomain:
         host_name = host.get("host_name") or None
         user = host.get("user") or "ubuntu"
         ssh = f"ssh {user}@{host_name}" if host_name else None
+        host_id = host.get("id")
+        # --mine JSON omits expiration; fetch via REST (best-effort).
+        expires_human, expires_secs = (
+            self.fetch_expires_in(host_id) if host_id else (None, None)
+        )
         return EvgHostState(
             name=host.get("name"),
-            id=host.get("id"),
+            id=host_id,
             status=host.get("status"),
             host_name=host_name,
-            expires_in=None,  # the --mine JSON doesn't include expiration
+            expires_in=expires_human,
             ssh=ssh,
+            expires_seconds=expires_secs,
         )
 
     # ------------------------------------------------------------------
@@ -122,9 +136,28 @@ class EvgDomain:
         ).stdout
 
     def extend(self, host_id: str, hours: int) -> str:
+        # Upstream CLI flag is ``--extend HOURS`` (not ``--extend-by``).
         return self.runner.run(
-            ["evergreen", "host", "modify", "--extend-by", str(hours), "--host", host_id],
+            ["evergreen", "host", "modify", "--extend", str(hours), "--host", host_id],
         ).stdout
+
+    # ------------------------------------------------------------------
+    def fetch_expires_in(self, host_id: str) -> tuple[Optional[str], Optional[int]]:
+        """Return ``(human "Xh Ym", remaining_seconds)`` for ``host_id``,
+        or ``(None, None)`` on any failure.
+
+        The ``host list --json`` payload omits expiration, so we hit the
+        REST API directly. Best-effort: missing config, network error, or
+        parse failure all collapse to ``(None, None)`` and status rendering
+        carries on.
+        """
+        if not host_id:
+            return None, None
+        expiration = _fetch_expiration_time(host_id)
+        if expiration is None:
+            return None, None
+        secs = int((expiration - datetime.now(timezone.utc)).total_seconds())
+        return _format_remaining_secs(secs), secs
 
     # ------------------------------------------------------------------
     def spawn(
@@ -540,3 +573,86 @@ class EvgDomain:
             "PROJECT_DIR": str(worktree_root),
             "EVG_HOST_NAME": host_name,
         }
+
+
+# ----------------------------------------------------------------------
+# REST helpers (expiration). Module-level (no Runner) so unit tests can
+# import without spinning up a domain instance.
+# ----------------------------------------------------------------------
+
+def _read_evg_config() -> Optional[dict]:
+    """Parse ~/.evergreen.yml. Returns None when unreadable."""
+    if not _EVG_CONFIG_PATH.is_file():
+        return None
+    try:
+        import yaml  # type: ignore  # pyyaml — venv dep
+    except ImportError:
+        return None
+    try:
+        data = yaml.safe_load(_EVG_CONFIG_PATH.read_text())
+    except (OSError, yaml.YAMLError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _fetch_expiration_time(host_id: str) -> Optional[datetime]:
+    """GET /rest/v2/hosts/{host_id} and return expiration_time as a UTC
+    datetime, or None on any failure.
+    """
+    cfg = _read_evg_config()
+    if not cfg:
+        return None
+    api_server = (cfg.get("api_server_host") or "").rstrip("/")
+    api_user = cfg.get("user") or ""
+    api_key = cfg.get("api_key") or ""
+    if not (api_server and api_user and api_key):
+        return None
+    # api_server already ends in ``/api``; REST routes hang off ``/rest/v2``.
+    url = f"{api_server}/rest/v2/hosts/{host_id}"
+    req = urllib.request.Request(url, headers={
+        "Api-User": api_user,
+        "Api-Key": api_key,
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=_EVG_API_TIMEOUT_S) as resp:
+            body = resp.read().decode("utf-8", errors="replace")
+    except (urllib.error.URLError, urllib.error.HTTPError, OSError, ValueError):
+        return None
+    try:
+        payload = json.loads(body)
+    except json.JSONDecodeError:
+        return None
+    raw = payload.get("expiration_time") if isinstance(payload, dict) else None
+    if not raw:
+        return None
+    return _parse_rfc3339(raw)
+
+
+def _parse_rfc3339(value: str) -> Optional[datetime]:
+    """Parse the RFC3339 / ISO-8601 form Evergreen returns (e.g.
+    ``2026-05-21T15:34:00Z``) into a tz-aware UTC datetime.
+    """
+    if not isinstance(value, str):
+        return None
+    # ``fromisoformat`` accepts trailing ``+00:00`` but not ``Z`` until 3.11.
+    text = value.replace("Z", "+00:00")
+    try:
+        dt = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def _format_remaining_secs(secs: int) -> str:
+    """Human ``Xh Ym`` for ``secs`` remaining. Returns ``expired`` when
+    non-positive.
+    """
+    if secs <= 0:
+        return "expired"
+    hours, rem = divmod(secs, 3600)
+    minutes = rem // 60
+    if hours == 0:
+        return f"{minutes}m"
+    return f"{hours}h{minutes:02d}m"

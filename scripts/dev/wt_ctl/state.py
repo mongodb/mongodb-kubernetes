@@ -55,6 +55,10 @@ class EvgHostState:
     host_name: Optional[str]    # ec2-… DNS
     expires_in: Optional[str]   # human "3h12m" | None
     ssh: Optional[str]
+    # Remaining time-to-expiry in seconds (parallel to expires_in so the
+    # status hint logic doesn't have to re-parse the human string). Negative
+    # when already expired; None when expiration is unknown.
+    expires_seconds: Optional[int] = None
 
 
 @dataclass
