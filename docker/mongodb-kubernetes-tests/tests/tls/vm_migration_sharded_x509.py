@@ -38,6 +38,7 @@ from kubetester.mongotester import MongoDBBackgroundTester, MongoTester
 from kubetester.omtester import OMContext, OMTester
 from kubetester.phase import Phase
 from pytest import fixture, mark
+from tests.tls.vm_migration_dry_run import run_migration_dry_run_connectivity_passes
 from tests.tls.vm_migration_sharded_ac import build_sharded_cluster_ac
 
 MONGOD_STS_NAME = "vm-sharded-mongod"
@@ -485,6 +486,12 @@ def test_vm_sharded_deployment_is_ready(om_tester: OMTester):
 @mark.e2e_vm_migration_sharded_x509
 def test_install_operator(default_operator):
     default_operator.assert_is_running()
+
+
+@mark.e2e_vm_migration_sharded_x509
+def test_migration_dry_run_connectivity_passes(mdb_sharded_migration: MongoDB):
+    """Set migration-dry-run annotation and wait for NetworkConnectivityVerification condition (X509 path)."""
+    run_migration_dry_run_connectivity_passes(mdb_sharded_migration)
 
 
 @mark.e2e_vm_migration_sharded_x509

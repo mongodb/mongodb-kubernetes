@@ -14,6 +14,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	appsv1 "k8s.io/api/apps/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	certsv1 "k8s.io/api/certificates/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -91,6 +92,11 @@ func NewEmptyFakeClientBuilder() *fake.ClientBuilder {
 	}
 
 	err = appsv1.AddToScheme(s)
+	if err != nil {
+		return nil
+	}
+
+	err = batchv1.AddToScheme(s)
 	if err != nil {
 		return nil
 	}

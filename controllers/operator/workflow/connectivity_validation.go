@@ -28,6 +28,11 @@ func (c *connectivityValidationStatus) WithRetry(retryInSeconds int) *connectivi
 	return c
 }
 
+func (c *connectivityValidationStatus) WithAdditionalOptions(options ...status.Option) *connectivityValidationStatus {
+	c.options = options
+	return c
+}
+
 func (c *connectivityValidationStatus) ReconcileResult() (reconcile.Result, error) {
 	if c.retryInSeconds > 0 {
 		return reconcile.Result{RequeueAfter: time.Duration(c.retryInSeconds) * time.Second}, nil
