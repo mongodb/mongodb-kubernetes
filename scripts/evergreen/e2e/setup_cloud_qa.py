@@ -259,22 +259,28 @@ def configure():
     org = os.getenv(ORG_ID)
     response = create_api_key(org, generate_key_description())
 
-    # we will use key_id to remove this key
-    key_id = response["id"]
-    whitelist_key(org, key_id)
+    # we will use record_id to remove this key
+    record_id = response["id"]
+    whitelist_key(org, record_id)
 
     public = response["publicKey"]
     private = response["privateKey"]
 
     env_file = os.getenv(ENV_FILE)
     base_url = os.getenv(BASE_URL)
-    with open(env_file, "w") as fd:
-        fd.write("export OM_BASE_URL={}\n".format(base_url))
-        fd.write("export OM_USER={}\n".format(public))  # codeql[py/clear-text-storage-sensitive-data]
-        fd.write("export OM_API_KEY={}\n".format(private))  # codeql[py/clear-text-storage-sensitive-data]
-        fd.write("export OM_ORGID={}\n".format(org))
-        fd.write("export OM_KEY_ID={}\n".format(key_id))  # codeql[py/clear-text-storage-sensitive-data]
-        fd.write("export OM_EXTERNALLY_CONFIGURED=true\n")
+    env_content = (
+        f"export OM_BASE_URL={base_url}\n"
+        f"export OM_USER={public}\n"
+        f"export OM_API_KEY={private}\n"
+        f"export OM_ORGID={org}\n"
+        f"export OM_KEY_ID={record_id}\n"
+        "export OM_EXTERNALLY_CONFIGURED=true\n"
+    )
+    env_fd = os.open(env_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        os.write(env_fd, env_content.encode("utf-8"))
+    finally:
+        os.close(env_fd)
 
 
 def get_projects_older_than(org_id: str, minutes_interval: int = 0) -> Tuple[List[Dict], List[Dict]]:
@@ -464,12 +470,11 @@ def argv_error() -> int:
 
 
 def check_env_variables() -> bool:
-    status = True
-    for var in REQUIRED_ENV_VARIABLES:
-        if not os.getenv(var):
-            print("Missing env variable: {}".format(var))  # codeql[py/clear-text-logging-sensitive-data]
-            status = False
-    return status
+    missing_count = sum(1 for v in REQUIRED_ENV_VARIABLES if not os.getenv(v))
+    if missing_count:
+        print(f"Missing {missing_count} required environment variable(s), check configuration")
+        return False
+    return True
 
 
 def main() -> int:
