@@ -451,8 +451,7 @@ const MaxVotingMembers = 7
 //     longer fully owns the AC, so we surface this misconfiguration as a reconcile failure with a
 //     detailed listing of every voting member and which ones should be made non-voting.
 func validateACForMigration(conn om.Connection, mdb *mdbv1.MongoDB) workflow.Status {
-	externalMembers := mdb.Spec.GetExternalMembers()
-	if len(externalMembers) == 0 {
+	if len(mdb.Spec.GetExternalMembers()) == 0 {
 		return workflow.OK()
 	}
 	deployment, err := conn.ReadDeployment()
@@ -460,10 +459,8 @@ func validateACForMigration(conn om.Connection, mdb *mdbv1.MongoDB) workflow.Sta
 		return workflow.Failed(err)
 	}
 
-	processes := deployment.GetProcesses()
-
-	// Check net.tls.mode is not null
-	if len(processes) > 0 {
+	// Check net.tls.mode is not null — applies to all resource types.
+	if processes := deployment.GetProcesses(); len(processes) > 0 {
 		// Checking first process is enough since OM does not accept different values for net.tls.mode between processes
 		tls := processes[0].TLSConfig()
 		if _, ok := tls["mode"]; !ok {
@@ -471,34 +468,106 @@ func validateACForMigration(conn om.Connection, mdb *mdbv1.MongoDB) workflow.Sta
 		}
 	}
 
-	// Voting-members limit check is only meaningful for replica sets.
-	if mdb.Spec.GetResourceType() != mdbv1.ReplicaSet {
-		return workflow.OK()
+	// Check voting-members limit per resource type. Only enforced when external members are
+	// declared (already gated above). For pure-K8s deployments, Deployment.limitVotingMembers
+	// handles the limit by auto-zeroing votes on excess members during merge.
+	switch mdb.Spec.GetResourceType() {
+	case mdbv1.ReplicaSet:
+		return validateVotingLimitRS(mdb, deployment)
+	case mdbv1.ShardedCluster:
+		return validateVotingLimitSharded(mdb, deployment)
 	}
+	return workflow.OK()
+}
 
-	// Check voting-members limit. Only enforced when external members are declared (already gated
-	// by the early-return above). For pure-K8s deployments, Deployment.limitVotingMembers handles
-	// the limit by auto-zeroing votes on excess members during merge.
+func validateVotingLimitRS(mdb *mdbv1.MongoDB, deployment om.Deployment) workflow.Status {
 	rs := deployment.GetReplicaSetByName(mdb.GetReplicaSetName())
 	if rs == nil {
 		// Drift / excess-process checks should already have caught a missing RS; be defensive.
 		return workflow.OK()
 	}
-
 	externalSet := merge.StringsToSet(mdb.Spec.GetExternalMemberProcessNames())
-
 	acVoting := collectACVotingMembers(rs, externalSet)
 	externalVotingCount, k8sVotingPositions, newlyVotingPositions := computePostReconcileVoting(mdb, rs, externalSet)
-
 	total := externalVotingCount + len(k8sVotingPositions)
 	if total <= MaxVotingMembers {
 		return workflow.OK()
 	}
-
 	excess := total - MaxVotingMembers
 	return workflow.Failed(xerrors.Errorf("%s", formatTooManyVotingMembersError(
 		mdb.GetReplicaSetName(), total, acVoting, newlyVotingPositions, excess,
 	)))
+}
+
+// validateVotingLimitSharded checks the 7-voting-member limit for each RS component of the
+// sharded cluster (config server + each shard RS) independently. Mongos processes are skipped
+// since they are not replica set members.
+func validateVotingLimitSharded(sc *mdbv1.MongoDB, deployment om.Deployment) workflow.Status {
+	// Group external mongod process names by their AC replica set name.
+	externalByRS := map[string][]string{}
+	for _, m := range sc.Spec.GetExternalMembers() {
+		if m.Type == "mongos" || m.ReplicaSetName == "" {
+			continue
+		}
+		externalByRS[m.ReplicaSetName] = append(externalByRS[m.ReplicaSetName], m.ProcessName)
+	}
+
+	for rsName, processNames := range externalByRS {
+		rs := deployment.GetReplicaSetByName(rsName)
+		if rs == nil {
+			continue
+		}
+		externalSet := merge.StringsToSet(processNames)
+		k8sMembers, memberConfig := shardedRSK8sConfig(sc, rsName)
+		if k8sMembers == 0 {
+			continue
+		}
+
+		externalVoting := 0
+		for _, m := range rs.Members() {
+			if _, isExternal := externalSet[m.Name()]; isExternal && m.Votes() > 0 {
+				externalVoting++
+			}
+		}
+
+		k8sVotingPositions := make([]int, 0, k8sMembers)
+		for i := 0; i < k8sMembers; i++ {
+			opts := automationconfig.MemberOptions{}
+			if i < len(memberConfig) {
+				opts = memberConfig[i]
+			}
+			if opts.GetVotes() > 0 {
+				k8sVotingPositions = append(k8sVotingPositions, i)
+			}
+		}
+
+		total := externalVoting + len(k8sVotingPositions)
+		if total <= MaxVotingMembers {
+			continue
+		}
+
+		acVoting := collectACVotingMembers(rs, externalSet)
+		excess := total - MaxVotingMembers
+		// Treat all K8s voting positions as "newly voting" since K8s members may not yet exist in the AC.
+		return workflow.Failed(xerrors.Errorf("%s", formatTooManyVotingMembersError(
+			rsName, total, acVoting, k8sVotingPositions, excess,
+		)))
+	}
+	return workflow.OK()
+}
+
+// shardedRSK8sConfig returns the K8s member count and per-member voting options for the RS
+// component identified by rsName (the AC replicaSetName). Returns (0, nil) for unknown RS names.
+func shardedRSK8sConfig(sc *mdbv1.MongoDB, rsName string) (members int, memberConfig []automationconfig.MemberOptions) {
+	if rsName == sc.ConfigRsName() {
+		return sc.Spec.ConfigServerCount, sc.Spec.MemberConfig
+	}
+	for i := 0; i < sc.Spec.ShardCount; i++ {
+		if sc.ShardACRsName(i) == rsName {
+			return sc.Spec.MongodsPerShardCount, nil
+		}
+	}
+	return 0, nil
 }
 
 // votingMemberInfo names one voting member of a replica set for display purposes.
