@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 
 set -Eeou pipefail
+
+test "${MDB_BASH_DEBUG:-0}" -eq 1 && set -x
+
 # script prepares environment variables relevant for the current context
 
 source scripts/funcs/errors
