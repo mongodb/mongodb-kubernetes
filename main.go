@@ -32,6 +32,7 @@ import (
 
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -291,7 +292,14 @@ func run() error {
 		}
 	}
 	if slices.Contains(crds, mongoDBSearchCRDPlural) {
-		if err := setupMongoDBSearchCRD(ctx, mgr, memberClusterObjectsMap); err != nil {
+		operatorClusterName, err := getOperatorClusterName(ctx, cfg, currentNamespace)
+		if err != nil {
+			return err
+		}
+		if operatorClusterName != "" {
+			log.Infof("Simulated multi-cluster mode enabled for MongoDBSearch: operator cluster identity = %q", operatorClusterName)
+		}
+		if err := setupMongoDBSearchCRD(ctx, mgr, memberClusterObjectsMap, operatorClusterName); err != nil {
 			return err
 		}
 	}
@@ -413,19 +421,20 @@ func setupMongoDBSearchCRD(
 	ctx context.Context,
 	mgr manager.Manager,
 	memberClusterObjectsMap map[string]runtime_cluster.Cluster,
+	operatorClusterName string,
 ) error {
 	if err := operator.AddMongoDBSearchController(ctx, mgr, searchcontroller.OperatorSearchConfig{
 		SearchRepo:    env.ReadOrPanic(util.SearchRepoURLEnv),
 		SearchName:    env.ReadOrPanic(util.SearchNameEnv),
 		SearchVersion: env.ReadOrPanic(util.SearchVersionEnv),
-	}, memberClusterObjectsMap); err != nil {
+	}, memberClusterObjectsMap, operatorClusterName); err != nil {
 		return err
 	}
 
 	// We cannot use ReadOrPanic here because this variable is only needed when Search is used with a managed load
 	// balancer
 	envoyImage := env.ReadOrDefault(util.EnvoyImageEnv, "")
-	if err := operator.AddMongoDBSearchEnvoyController(ctx, mgr, envoyImage, memberClusterObjectsMap); err != nil {
+	if err := operator.AddMongoDBSearchEnvoyController(ctx, mgr, envoyImage, memberClusterObjectsMap, operatorClusterName); err != nil {
 		return err
 	}
 
@@ -457,7 +466,7 @@ func setupCommunityController(
 func getMemberClusters(ctx context.Context, cfg *rest.Config, currentNamespace string) ([]string, error) {
 	c, err := client.New(cfg, client.Options{})
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 
 	m := corev1.ConfigMap{}
@@ -472,6 +481,24 @@ func getMemberClusters(ctx context.Context, cfg *rest.Config, currentNamespace s
 	}
 
 	return members, nil
+}
+
+// getOperatorClusterName reads util.ClusterIdentityConfigMapName from the operator namespace
+// and returns data["clusterName"]. Returns "" without error when the ConfigMap is absent
+// (simulated multi-cluster mode is opt-in via the Helm chart's operator.clusterIdentity value).
+func getOperatorClusterName(ctx context.Context, cfg *rest.Config, currentNamespace string) (string, error) {
+	c, err := client.New(cfg, client.Options{})
+	if err != nil {
+		return "", err
+	}
+	m := corev1.ConfigMap{}
+	if err := c.Get(ctx, types.NamespacedName{Name: util.ClusterIdentityConfigMapName, Namespace: currentNamespace}, &m); err != nil {
+		if apierrors.IsNotFound(err) {
+			return "", nil
+		}
+		return "", err
+	}
+	return m.Data["clusterName"], nil
 }
 
 func isInLocalMode() bool {
