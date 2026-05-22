@@ -1,0 +1,12 @@
+{{- if .Values.operator.clusterIdentity }}
+  {{- if .Values.operator.clusterIdentity.clusterName }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mongodb-kubernetes-operator-cluster-identity
+  namespace: {{ include "mongodb-kubernetes-operator.namespace" . }}
+data:
+  clusterName: {{ .Values.operator.clusterIdentity.clusterName | quote }}
+  {{- end }}
+{{- end }}

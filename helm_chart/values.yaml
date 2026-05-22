@@ -27,6 +27,16 @@ operator:
   - mongodbcommunity
   - mongodbsearch
 
+  # Simulated multi-cluster mode for MongoDBSearch.
+  # When clusterName is set, this operator runs in simulated multi-cluster mode:
+  # it reconciles only the spec.clusters[i] entry whose clusterName matches the
+  # value below. Customers install one operator per Kubernetes cluster, each with
+  # its own clusterName value, and distribute the same MongoDBSearch CR to all
+  # clusters (e.g. via GitOps). Leave empty for the legacy single-operator
+  # multi-cluster pattern (central operator + member-cluster kubeconfigs).
+  clusterIdentity:
+    clusterName: ''
+
   nodeSelector: {}
 
   tolerations: []
