@@ -35,9 +35,13 @@ services:
       - uvcache:/home/vscode/.cache/uv
       - helmcache:/home/vscode/.cache/helm
 
-      # Bind mounts for Evergreen auth files
+      # Bind mounts for Evergreen auth files. The kanopy library inside the
+      # evergreen CLI reads the OIDC token from $HOME/.kanopy/ — NOT from the
+      # token_file_path in evergreen.yml (that field is ignored). Mount the
+      # host directory at the devc user's $HOME so the same refresh-token
+      # flow that works on the host also works inside the container.
       - ${HOME}/.evergreen.yml:/home/vscode/.evergreen.yml:cached
-      - ${HOME}/.kanopy:${HOME}/.kanopy:cached
+      - ${HOME}/.kanopy:/home/vscode/.kanopy:cached
 
       # Share Claude Code state (auth, plugins, marketplaces, memory) with the host
       - ${HOME}/.claude:/home/vscode/.claude:cached
