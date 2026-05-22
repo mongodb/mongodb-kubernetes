@@ -1403,6 +1403,11 @@ tasks:
     commands:
       - func: "e2e_test"
 
+  - name: e2e_search_simulated_mc_basic
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
   - name: e2e_search_q3_mc_sharded_external_mtls
     tags: [ "patch-run" ]
     commands:
