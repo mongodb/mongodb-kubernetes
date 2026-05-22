@@ -1593,6 +1593,134 @@ func TestValidateACForMigration_ShardedCluster_TLSModeSet(t *testing.T) {
 	assert.True(t, status.IsOK())
 }
 
+func TestValidateVotingLimitSharded_ConfigServerExceedsLimit(t *testing.T) {
+	// 3 voting external config server members + 5 K8s config server members = 8 → error.
+	sc := newShardedMDBForVotingTest("myCluster", 5, 1)
+	d := buildShardedDeploymentForVotingTest(t, sc, 3)
+	st := validateVotingLimitSharded(sc, d)
+	require.False(t, st.IsOK())
+	msg := statusMsg(st)
+	assert.Contains(t, msg, "8 voting members")
+	assert.Contains(t, msg, "myCluster-config")
+}
+
+func TestValidateVotingLimitSharded_ConfigServerUnderLimit(t *testing.T) {
+	// 3 voting external + 3 K8s = 6 → OK.
+	sc := newShardedMDBForVotingTest("myCluster", 3, 1)
+	d := buildShardedDeploymentForVotingTest(t, sc, 3)
+	st := validateVotingLimitSharded(sc, d)
+	assert.True(t, st.IsOK())
+}
+
+func TestValidateVotingLimitSharded_ConfigServerNonVotingK8s(t *testing.T) {
+	// 5 external voting + 5 K8s all non-voting via MemberConfig = 5 → OK.
+	v0 := 0
+	p0 := "0"
+	sc := newShardedMDBForVotingTest("myCluster", 5, 1)
+	sc.Spec.MemberConfig = make([]automationconfig.MemberOptions, 5)
+	for i := range sc.Spec.MemberConfig {
+		sc.Spec.MemberConfig[i] = automationconfig.MemberOptions{Votes: &v0, Priority: &p0}
+	}
+	d := buildShardedDeploymentForVotingTest(t, sc, 5)
+	st := validateVotingLimitSharded(sc, d)
+	assert.True(t, st.IsOK())
+}
+
+func TestValidateVotingLimitSharded_ShardExceedsLimit(t *testing.T) {
+	// Shard 0: 3 voting external + 5 K8s = 8 → error.
+	sc := newShardedMDBForVotingTest("myCluster", 1, 5)
+	sc.Spec.ExternalMembers = append(sc.Spec.ExternalMembers,
+		mdbv1.ExternalMember{ProcessName: "myCluster-0-0", Hostname: "shard-0:27017", Type: "mongod", ReplicaSetName: "myCluster-0"},
+		mdbv1.ExternalMember{ProcessName: "myCluster-0-1", Hostname: "shard-1:27017", Type: "mongod", ReplicaSetName: "myCluster-0"},
+		mdbv1.ExternalMember{ProcessName: "myCluster-0-2", Hostname: "shard-2:27017", Type: "mongod", ReplicaSetName: "myCluster-0"},
+	)
+	d := buildShardedDeploymentForVotingTest(t, sc, 3)
+	st := validateVotingLimitSharded(sc, d)
+	require.False(t, st.IsOK())
+	msg := statusMsg(st)
+	assert.Contains(t, msg, "8 voting members")
+	assert.Contains(t, msg, "myCluster-0")
+}
+
+func TestValidateVotingLimitSharded_MongosNotCounted(t *testing.T) {
+	// Mongos external members must not contribute to RS voting counts.
+	sc := newShardedMDBForVotingTest("myCluster", 3, 1)
+	for i := range sc.Spec.ExternalMembers {
+		if sc.Spec.ExternalMembers[i].Type == "mongod" {
+			sc.Spec.ExternalMembers[i].Type = "mongos"
+			sc.Spec.ExternalMembers[i].ReplicaSetName = ""
+		}
+	}
+	d := buildShardedDeploymentForVotingTest(t, sc, 0)
+	st := validateVotingLimitSharded(sc, d)
+	assert.True(t, st.IsOK())
+}
+
+// newShardedMDBForVotingTest builds a minimal sharded cluster MongoDB with configServerCount K8s
+// config server members and mongodsPerShard K8s shard members. External members are 3 voting
+// config server mongods.
+func newShardedMDBForVotingTest(name string, configServerCount, mongodsPerShard int) *mdbv1.MongoDB {
+	return &mdbv1.MongoDB{
+		ObjectMeta: metav1.ObjectMeta{Name: name},
+		Spec: mdbv1.MongoDbSpec{
+			DbCommonSpec: mdbv1.DbCommonSpec{ResourceType: mdbv1.ShardedCluster},
+			MongodbShardedClusterSizeConfig: status.MongodbShardedClusterSizeConfig{
+				ShardCount:           1,
+				MongodsPerShardCount: mongodsPerShard,
+				ConfigServerCount:    configServerCount,
+			},
+			ExternalMembers: []mdbv1.ExternalMember{
+				{ProcessName: name + "-config-0", Hostname: "cfg-0:27017", Type: "mongod", ReplicaSetName: name + "-config"},
+				{ProcessName: name + "-config-1", Hostname: "cfg-1:27017", Type: "mongod", ReplicaSetName: name + "-config"},
+				{ProcessName: name + "-config-2", Hostname: "cfg-2:27017", Type: "mongod", ReplicaSetName: name + "-config"},
+			},
+		},
+	}
+}
+
+// buildShardedDeploymentForVotingTest creates an OM deployment with a config server RS containing
+// configVotingExternal voting external members and a shard RS containing shardVotingExternal voting
+// external members. TLS mode is set so the TLS check passes.
+func buildShardedDeploymentForVotingTest(t *testing.T, sc *mdbv1.MongoDB, shardVotingExternal int) om.Deployment {
+	t.Helper()
+	configRsName := sc.ConfigRsName()
+	shardRsName := sc.ShardRsName(0)
+
+	configExternalProcs := createRSProcessesHelper(configRsName, 3)
+	configRS := om.NewReplicaSetWithProcesses(
+		om.NewReplicaSet(configRsName, "6.0.0"),
+		configExternalProcs,
+		[]automationconfig.MemberOptions{{}, {}, {}},
+		nil,
+	)
+
+	shardExternalProcs := createRSProcessesHelper(shardRsName, shardVotingExternal)
+	shardOpts := make([]automationconfig.MemberOptions, shardVotingExternal)
+	for i := range shardOpts {
+		shardOpts[i] = automationconfig.MemberOptions{}
+	}
+	shardRS := om.NewReplicaSetWithProcesses(
+		om.NewReplicaSet(shardRsName, "6.0.0"),
+		shardExternalProcs,
+		shardOpts,
+		nil,
+	)
+
+	d := om.NewDeployment()
+	_, err := d.MergeShardedCluster(om.DeploymentShardedClusterMergeOptions{
+		Name:            sc.Name,
+		ConfigServerRs:  configRS,
+		Shards:          []om.ReplicaSetWithProcesses{shardRS},
+		MongosProcesses: []om.Process{},
+	})
+	require.NoError(t, err)
+
+	for _, p := range d.GetProcesses() {
+		p.EnsureNetConfig()["tls"] = map[string]interface{}{"mode": "requireTLS"}
+	}
+	return d
+}
+
 // ---------------------------------------------------------------------------
 // Task 10: checkIfHasExcessProcesses
 // ---------------------------------------------------------------------------
