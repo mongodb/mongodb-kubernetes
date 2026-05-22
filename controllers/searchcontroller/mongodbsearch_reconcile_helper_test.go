@@ -354,6 +354,14 @@ func TestBuildProxyService_ManagedLB_Ready(t *testing.T) {
 	// so that traffic is not black-holed after the Commit-2 app-label rename.
 	assert.Equal(t, search.LoadBalancerDeploymentNameForCluster(0), svc.Spec.Selector["app"])
 	assert.Equal(t, int32(27028), svc.Spec.Ports[0].TargetPort.IntVal)
+	// AppProtocol=tcp tells Istio (and similar service meshes) to skip
+	// port-name-based protocol sniffing — without it, Istio sidecars in
+	// injected namespaces apply HTTP/2/gRPC L7 processing to the port named
+	// "grpc" and drop mongod→Envoy traffic. The port name itself must stay
+	// "grpc" so test fixtures that look it up by name don't break.
+	require.NotNil(t, svc.Spec.Ports[0].AppProtocol, "AppProtocol must be set on the proxy svc port")
+	assert.Equal(t, "tcp", *svc.Spec.Ports[0].AppProtocol)
+	assert.Equal(t, "grpc", svc.Spec.Ports[0].Name)
 }
 
 func TestBuildProxyServiceForShard_ManagedLB_NotReady(t *testing.T) {
