@@ -1126,11 +1126,21 @@ func buildProxyService(search *searchv1.MongoDBSearch, unit reconcileUnit) corev
 		SetServiceType(corev1.ServiceTypeClusterIP).
 		SetOwnerReferences(search.GetOwnerReferences())
 
+	// AppProtocol=tcp tells Istio (and other service meshes that honour the
+	// K8s appProtocol field) to skip protocol sniffing on this port. The port
+	// name remains "grpc" for backwards compatibility with anything that looks
+	// it up by name, but the canonical hint here overrides the Istio
+	// port-name-prefix rule that would otherwise apply HTTP/2/gRPC L7 processing
+	// to mongod's raw-TCP gRPC handshake (which uses HTTP/2 framed by a custom
+	// MongoDB Wire/gRPC pipeline). Without this, sidecar-injected namespaces
+	// (e.g. the 3-cluster simulated-MC e2e harness) drop mongod→Envoy traffic
+	// and createSearchIndexes returns code 125.
 	serviceBuilder.AddPort(&corev1.ServicePort{
-		Name:       "grpc",
-		Protocol:   corev1.ProtocolTCP,
-		Port:       search.GetEffectiveMongotPort(),
-		TargetPort: intstr.FromInt32(targetPort),
+		Name:        "grpc",
+		Protocol:    corev1.ProtocolTCP,
+		AppProtocol: ptr.To("tcp"),
+		Port:        search.GetEffectiveMongotPort(),
+		TargetPort:  intstr.FromInt32(targetPort),
 	})
 
 	return serviceBuilder.Build()
@@ -1432,12 +1442,12 @@ type perShardTLSResource struct {
 
 // TLSSecretNamespacedName returns the per-(cluster, shard) source secret name.
 func (p *perShardTLSResource) TLSSecretNamespacedName() types.NamespacedName {
-	return p.MongoDBSearch.TLSSecretForClusterShard(p.clusterIndex, p.shardName)
+	return p.TLSSecretForClusterShard(p.clusterIndex, p.shardName)
 }
 
 // TLSOperatorSecretNamespacedName returns the per-(cluster, shard) operator-managed secret name.
 func (p *perShardTLSResource) TLSOperatorSecretNamespacedName() types.NamespacedName {
-	return p.MongoDBSearch.TLSOperatorSecretForClusterShard(p.clusterIndex, p.shardName)
+	return p.TLSOperatorSecretForClusterShard(p.clusterIndex, p.shardName)
 }
 
 func (r *MongoDBSearchReconcileHelper) ensureEgressTlsConfig(ctx context.Context) (mongot.Modification, statefulset.Modification) {

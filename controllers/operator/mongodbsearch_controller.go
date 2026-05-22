@@ -80,12 +80,19 @@ type MongoDBSearchReconciler struct {
 	operatorSearchConfig searchcontroller.OperatorSearchConfig
 
 	memberClusterClientsMap map[string]kubernetesClient.Client // per-cluster Kubernetes client; empty in single-cluster installs
+
+	// operatorClusterName is this operator's own cluster identity when running
+	// in simulated multi-cluster mode (one operator per Kubernetes cluster, all
+	// reconciling the same MongoDBSearch CR). Empty when the cluster-identity
+	// ConfigMap is absent (legacy single-operator behaviour).
+	operatorClusterName string
 }
 
 func newMongoDBSearchReconciler(
 	kubeClient client.Client,
 	operatorSearchConfig searchcontroller.OperatorSearchConfig,
 	memberClustersMap map[string]client.Client,
+	operatorClusterName string,
 ) *MongoDBSearchReconciler {
 	clientsMap := make(map[string]kubernetesClient.Client, len(memberClustersMap))
 	for k, v := range memberClustersMap {
@@ -97,6 +104,7 @@ func newMongoDBSearchReconciler(
 		watch:                   watch.NewResourceWatcher(),
 		operatorSearchConfig:    operatorSearchConfig,
 		memberClusterClientsMap: clientsMap,
+		operatorClusterName:     operatorClusterName,
 	}
 }
 
@@ -108,6 +116,17 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 	mdbSearch := &searchv1.MongoDBSearch{}
 	if result, err := commoncontroller.GetResource(ctx, r.kubeClient, request, mdbSearch, log); err != nil {
 		return result, err
+	}
+
+	// Simulated multi-cluster projection: filter spec.clusters[] to this
+	// operator's local entry. No-op when operatorClusterName is unset.
+	projRes, projectedIdx, projErr := projectToLocalCluster(mdbSearch, r.operatorClusterName)
+	if projErr != nil {
+		return commoncontroller.UpdateStatus(ctx, r.kubeClient, mdbSearch, workflow.Invalid("%s", projErr.Error()), log)
+	}
+	if projRes == projNoMatch {
+		log.Debugf("simulated multi-cluster: cluster %q has no entry in spec.clusters[]; nothing to reconcile", r.operatorClusterName)
+		return reconcile.Result{}, nil
 	}
 
 	searchSource, err := r.getSourceMongoDBForSearch(ctx, r.kubeClient, mdbSearch, log)
@@ -144,25 +163,34 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 		r.watch.AddWatchedResourceIfNotAdded(mdbSearch.Spec.AutoEmbedding.EmbeddingModelAPIKeySecret.Name, mdbSearch.Namespace, watch.Secret, mdbSearch.NamespacedName())
 	}
 
-	state, stateStore, err := loadOrInitSearchState(ctx, r.kubeClient, mdbSearch)
-	if err != nil {
-		return commoncontroller.UpdateStatus(ctx, r.kubeClient, mdbSearch, workflow.Failed(err), log)
-	}
-	var currentNames []string
-	if mdbSearch.Spec.Clusters != nil {
-		for _, c := range *mdbSearch.Spec.Clusters {
-			currentNames = append(currentNames, c.ClusterName)
-		}
-	}
-	newMapping := searchv1.AssignClusterIndices(state.ClusterMapping, currentNames)
-	if !reflect.DeepEqual(newMapping, state.ClusterMapping) {
-		state.ClusterMapping = newMapping
-		if err := stateStore.WriteState(ctx, state, log); err != nil {
+	// Resolve the clusterName → clusterIndex mapping:
+	//   - simulated-MC (projected): synthesise in-memory from the user-supplied
+	//     spec.clusters[i].clusterIndex; skip the per-CR state ConfigMap entirely
+	//     so per-cluster operators don't fight over a single shared CM.
+	//   - legacy central-MC: load+update the existing {search-name}-state CM.
+	var clusterMapping map[string]int
+	if projRes == projProjected {
+		clusterMapping = map[string]int{r.operatorClusterName: projectedIdx}
+	} else {
+		state, stateStore, err := loadOrInitSearchState(ctx, r.kubeClient, mdbSearch)
+		if err != nil {
 			return commoncontroller.UpdateStatus(ctx, r.kubeClient, mdbSearch, workflow.Failed(err), log)
 		}
+		var currentClusters []searchv1.ClusterSpec
+		if mdbSearch.Spec.Clusters != nil {
+			currentClusters = *mdbSearch.Spec.Clusters
+		}
+		newMapping := searchv1.AssignClusterIndices(state.ClusterMapping, currentClusters)
+		if !reflect.DeepEqual(newMapping, state.ClusterMapping) {
+			state.ClusterMapping = newMapping
+			if err := stateStore.WriteState(ctx, state, log); err != nil {
+				return commoncontroller.UpdateStatus(ctx, r.kubeClient, mdbSearch, workflow.Failed(err), log)
+			}
+		}
+		clusterMapping = state.ClusterMapping
 	}
 
-	reconcileHelper := searchcontroller.NewMongoDBSearchReconcileHelper(r.kubeClient, mdbSearch, searchSource, r.operatorSearchConfig, r.memberClusterClientsMap, state.ClusterMapping)
+	reconcileHelper := searchcontroller.NewMongoDBSearchReconcileHelper(r.kubeClient, mdbSearch, searchSource, r.operatorSearchConfig, r.memberClusterClientsMap, clusterMapping)
 
 	result, err := reconcileHelper.Reconcile(ctx, log).ReconcileResult()
 	if err != nil {
@@ -176,7 +204,7 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 		for name, kc := range r.memberClusterClientsMap {
 			memberClients[name] = kc
 		}
-		if gaps := searchcontroller.CheckSecretsPresence(ctx, mdbSearch, r.kubeClient, memberClients, state.ClusterMapping); len(gaps) > 0 {
+		if gaps := searchcontroller.CheckSecretsPresence(ctx, mdbSearch, r.kubeClient, memberClients, clusterMapping); len(gaps) > 0 {
 			r.surfaceMissingSecrets(gaps, log)
 			result.RequeueAfter = secretsCheckRequeueAfter
 		}
@@ -267,6 +295,7 @@ func AddMongoDBSearchController(
 	mgr manager.Manager,
 	operatorSearchConfig searchcontroller.OperatorSearchConfig,
 	memberClusterObjectsMap map[string]cluster.Cluster,
+	operatorClusterName string,
 ) error {
 	if err := mgr.GetFieldIndexer().IndexField(ctx, &searchv1.MongoDBSearch{}, searchv1.MongoDBSearchIndexFieldName, mdbcSearchIndexBuilder); err != nil {
 		return err
@@ -276,6 +305,7 @@ func AddMongoDBSearchController(
 		mgr.GetClient(),
 		operatorSearchConfig,
 		multicluster.ClustersMapToClientMap(memberClusterObjectsMap),
+		operatorClusterName,
 	)
 
 	c, err := controller.New(util.MongoDbSearchController, mgr, controller.Options{
