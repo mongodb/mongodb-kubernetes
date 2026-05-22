@@ -4116,13 +4116,17 @@ spec:
                     when len(spec.clusters) > 1; optional in the single-cluster degenerate case.
                     All other fields override the corresponding top-level value when set; nil/omitted inherits.
                   properties:
-                    clusterName:
+                    clusterIndex:
                       description: |-
-                        ClusterName is the Kubernetes cluster name. Required and immutable
-                        when len(spec.clusters) > 1; optional in the single-cluster degenerate case.
-                        MaxLength bounds the per-element cost contributed to the parent
-                        clusters[] uniqueness CEL rule. 253 matches the DNS subdomain limit
-                        that K8s cluster names obey.
+                        ClusterIndex is the stable integer in per-cluster resource names
+                        (e.g. {name}-search-{clusterIndex}-svc). Required in simulated multi-cluster
+                        mode; auto-assigned in legacy central multi-cluster. Immutable once set.
+                      format: int32
+                      minimum: 0
+                      type: integer
+                    clusterName:
+                      description: ClusterName is the Kubernetes cluster name. Required
+                        when len(spec.clusters) > 1.
                       maxLength: 253
                       type: string
                     jvmFlags:
@@ -4426,6 +4430,9 @@ spec:
                 x-kubernetes-validations:
                 - message: clusters[].clusterName must be unique
                   rule: self.all(c1, self.exists_one(c2, c2.clusterName == c1.clusterName))
+                - message: clusters[].clusterIndex must be unique when set
+                  rule: self.all(c1, !has(c1.clusterIndex) || self.exists_one(c2,
+                    has(c2.clusterIndex) && c2.clusterIndex == c1.clusterIndex))
               jvmFlags:
                 description: |-
                   JVMFlags can be used to set the `--jvm-flags` option for the search (mongot) processes.
@@ -4573,10 +4580,8 @@ spec:
                 type: string
               persistence:
                 description: |-
-                  Deprecated: In multi-cluster deployments, prefer spec.clusters[].persistence. When
-                  spec.clusters is omitted, this value auto-promotes into spec.clusters[0].persistence.
-                  Setting both spec.persistence and spec.clusters at the same time is rejected by admission.
-                  Configure MongoDB Search's persistent volume. If not defined, the operator will request 10GB of storage.
+                  Deprecated: prefer spec.clusters[].persistence. With spec.clusters omitted, this auto-promotes into spec.clusters[0].persistence.
+                  Configures the mongot persistent volume; defaults to 10Gi if unset.
                 properties:
                   multiple:
                     properties:
@@ -4636,23 +4641,15 @@ spec:
                 type: object
               replicas:
                 description: |-
-                  Deprecated: In multi-cluster deployments, prefer spec.clusters[].replicas. When
-                  spec.clusters is omitted, this value auto-promotes into spec.clusters[0].replicas.
-                  Setting both spec.replicas and spec.clusters at the same time is rejected by admission.
-                  Replicas is the number of mongot pods to deploy.
-                  For ReplicaSet source: the number of mongot pods in total.
-                  For Sharded source: the number mongot pods per shard.
-                  When Replicas > 1, a load balancer configuration (spec.loadBalancer)
-                  is required to distribute traffic across mongot instances.
+                  Deprecated: prefer spec.clusters[].replicas. With spec.clusters omitted, this auto-promotes into spec.clusters[0].replicas.
+                  Replicas is the number of mongot pods to deploy (per-shard for sharded source). When Replicas > 1, spec.loadBalancer must be configured.
                 format: int32
                 minimum: 1
                 type: integer
               resourceRequirements:
                 description: |-
-                  Deprecated: In multi-cluster deployments, prefer spec.clusters[].resourceRequirements. When
-                  spec.clusters is omitted, this value auto-promotes into spec.clusters[0].resourceRequirements.
-                  Setting both spec.resourceRequirements and spec.clusters at the same time is rejected by admission.
-                  Configure resource requests and limits for the MongoDB Search pods.
+                  Deprecated: prefer spec.clusters[].resourceRequirements. With spec.clusters omitted, this auto-promotes into spec.clusters[0].resourceRequirements.
+                  Resource requests and limits for the mongot pods.
                 properties:
                   claims:
                     description: |-
@@ -4888,11 +4885,8 @@ spec:
                 type: object
               statefulSet:
                 description: |-
-                  Deprecated: In multi-cluster deployments, prefer spec.clusters[].statefulSet. When
-                  spec.clusters is omitted, this value auto-promotes into spec.clusters[0].statefulSet.
-                  Setting both spec.statefulSet and spec.clusters at the same time is rejected by admission.
-                  StatefulSetSpec which the operator will apply to the MongoDB Search StatefulSet at the end of the reconcile loop. Use to provide necessary customizations,
-                  which aren't exposed as fields in the MongoDBSearch.spec.
+                  Deprecated: prefer spec.clusters[].statefulSet. With spec.clusters omitted, this auto-promotes into spec.clusters[0].statefulSet.
+                  StatefulSetSpec applied to the mongot StatefulSet for customizations not exposed as MongoDBSearch.spec fields.
                 properties:
                   metadata:
                     description: StatefulSetMetadataWrapper is a wrapper around Labels

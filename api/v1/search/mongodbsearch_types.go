@@ -32,7 +32,7 @@ const ClusterNamePlaceholder = "{clusterName}"
 
 // ClusterIndexPlaceholder is substituted with the stable cluster-index for
 // spec.clusters[i]. The index is monotonic and never reused on remove/re-add
-// (see api/v1/search/cluster_index.go).
+// (see AssignClusterIndices below).
 const ClusterIndexPlaceholder = "{clusterIndex}"
 
 // LabelResourceOwner is the label key used to identify the MongoDBSearch CR that
@@ -82,34 +82,21 @@ type MongoDBSearchSpec struct {
 	// MongoDB database connection details from which MongoDB Search will synchronize data to build indexes.
 	// +optional
 	Source *MongoDBSource `json:"source"`
-	// Deprecated: In multi-cluster deployments, prefer spec.clusters[].replicas. When
-	// spec.clusters is omitted, this value auto-promotes into spec.clusters[0].replicas.
-	// Setting both spec.replicas and spec.clusters at the same time is rejected by admission.
-	// Replicas is the number of mongot pods to deploy.
-	// For ReplicaSet source: the number of mongot pods in total.
-	// For Sharded source: the number mongot pods per shard.
-	// When Replicas > 1, a load balancer configuration (spec.loadBalancer)
-	// is required to distribute traffic across mongot instances.
+	// Deprecated: prefer spec.clusters[].replicas. With spec.clusters omitted, this auto-promotes into spec.clusters[0].replicas.
+	// Replicas is the number of mongot pods to deploy (per-shard for sharded source). When Replicas > 1, spec.loadBalancer must be configured.
 	// +optional
 	// +kubebuilder:validation:Minimum=1
 	Replicas *int32 `json:"replicas,omitempty"`
-	// Deprecated: In multi-cluster deployments, prefer spec.clusters[].statefulSet. When
-	// spec.clusters is omitted, this value auto-promotes into spec.clusters[0].statefulSet.
-	// Setting both spec.statefulSet and spec.clusters at the same time is rejected by admission.
-	// StatefulSetSpec which the operator will apply to the MongoDB Search StatefulSet at the end of the reconcile loop. Use to provide necessary customizations,
-	// which aren't exposed as fields in the MongoDBSearch.spec.
+	// Deprecated: prefer spec.clusters[].statefulSet. With spec.clusters omitted, this auto-promotes into spec.clusters[0].statefulSet.
+	// StatefulSetSpec applied to the mongot StatefulSet for customizations not exposed as MongoDBSearch.spec fields.
 	// +optional
 	StatefulSetConfiguration *common.StatefulSetConfiguration `json:"statefulSet,omitempty"`
-	// Deprecated: In multi-cluster deployments, prefer spec.clusters[].persistence. When
-	// spec.clusters is omitted, this value auto-promotes into spec.clusters[0].persistence.
-	// Setting both spec.persistence and spec.clusters at the same time is rejected by admission.
-	// Configure MongoDB Search's persistent volume. If not defined, the operator will request 10GB of storage.
+	// Deprecated: prefer spec.clusters[].persistence. With spec.clusters omitted, this auto-promotes into spec.clusters[0].persistence.
+	// Configures the mongot persistent volume; defaults to 10Gi if unset.
 	// +optional
 	Persistence *common.Persistence `json:"persistence,omitempty"`
-	// Deprecated: In multi-cluster deployments, prefer spec.clusters[].resourceRequirements. When
-	// spec.clusters is omitted, this value auto-promotes into spec.clusters[0].resourceRequirements.
-	// Setting both spec.resourceRequirements and spec.clusters at the same time is rejected by admission.
-	// Configure resource requests and limits for the MongoDB Search pods.
+	// Deprecated: prefer spec.clusters[].resourceRequirements. With spec.clusters omitted, this auto-promotes into spec.clusters[0].resourceRequirements.
+	// Resource requests and limits for the mongot pods.
 	// +optional
 	ResourceRequirements *corev1.ResourceRequirements `json:"resourceRequirements,omitempty"`
 	// Configure security settings of the MongoDB Search server that MongoDB database is connecting to when performing search queries.
@@ -144,6 +131,7 @@ type MongoDBSearchSpec struct {
 	// +optional
 	// +kubebuilder:validation:MaxItems=50
 	// +kubebuilder:validation:XValidation:rule="self.all(c1, self.exists_one(c2, c2.clusterName == c1.clusterName))",message="clusters[].clusterName must be unique"
+	// +kubebuilder:validation:XValidation:rule="self.all(c1, !has(c1.clusterIndex) || self.exists_one(c2, has(c2.clusterIndex) && c2.clusterIndex == c1.clusterIndex))",message="clusters[].clusterIndex must be unique when set"
 	Clusters *[]ClusterSpec `json:"clusters,omitempty"`
 }
 
@@ -168,14 +156,16 @@ type SyncSourceSelector struct {
 // when len(spec.clusters) > 1; optional in the single-cluster degenerate case.
 // All other fields override the corresponding top-level value when set; nil/omitted inherits.
 type ClusterSpec struct {
-	// ClusterName is the Kubernetes cluster name. Required and immutable
-	// when len(spec.clusters) > 1; optional in the single-cluster degenerate case.
-	// MaxLength bounds the per-element cost contributed to the parent
-	// clusters[] uniqueness CEL rule. 253 matches the DNS subdomain limit
-	// that K8s cluster names obey.
+	// ClusterName is the Kubernetes cluster name. Required when len(spec.clusters) > 1.
 	// +optional
 	// +kubebuilder:validation:MaxLength=253
 	ClusterName string `json:"clusterName,omitempty"`
+	// ClusterIndex is the stable integer in per-cluster resource names
+	// (e.g. {name}-search-{clusterIndex}-svc). Required in simulated multi-cluster
+	// mode; auto-assigned in legacy central multi-cluster. Immutable once set.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	ClusterIndex *int32 `json:"clusterIndex,omitempty"`
 	// Replicas overrides spec.replicas for this cluster's mongot StatefulSet.
 	// For sharded sources, this is mongot pods per shard, not total.
 	// +optional
@@ -1069,4 +1059,44 @@ func (s *MongoDBSearch) GetOwnerLabels() map[string]string {
 // GetKind implements v1.ObjectOwner.
 func (s *MongoDBSearch) GetKind() string {
 	return "MongoDBSearch"
+}
+
+// AssignClusterIndices returns a new clusterName -> clusterIndex mapping that:
+//   - preserves every entry in existing (never deletes a name, even if it is
+//     not present in current — that's how indices are not reused on remove/re-add);
+//   - honors any user-supplied ClusterSpec.ClusterIndex (overrides existing);
+//   - appends every name not yet in the mapping with a monotonic index starting
+//     at max(existing)+1 (or 0 when existing is empty).
+//
+// existing is not mutated. The returned map is always non-nil.
+func AssignClusterIndices(existing map[string]int, current []ClusterSpec) map[string]int {
+	result := make(map[string]int, len(existing)+len(current))
+	next := 0
+	for k, v := range existing {
+		result[k] = v
+		if v >= next {
+			next = v + 1
+		}
+	}
+	for _, c := range current {
+		if c.ClusterIndex == nil {
+			continue
+		}
+		idx := int(*c.ClusterIndex)
+		result[c.ClusterName] = idx
+		if idx >= next {
+			next = idx + 1
+		}
+	}
+	for _, c := range current {
+		if c.ClusterIndex != nil {
+			continue
+		}
+		if _, ok := result[c.ClusterName]; ok {
+			continue
+		}
+		result[c.ClusterName] = next
+		next++
+	}
+	return result
 }
