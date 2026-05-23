@@ -13,6 +13,7 @@ services:
       K8S_FWD_PROXY: *proxy_address
       EVG_HOST_PROXY: "http://gost-proxy:8080"
       GOTOOLCHAIN: auto
+      GOSUMDB: "off"
       # Forward the per-worktree network prefix so root-context (sourced inside
       # the container during `make switch`) can derive a per-worktree NAMESPACE
       # (ls-${MCK_DEVC_NET_PREFIX}). That makes cloud-qa OM project names
