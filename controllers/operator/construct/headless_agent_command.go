@@ -40,7 +40,12 @@ const (
 // container (identified by the mongodb_marker process) and creates symlinks to its mongod/mongos
 // binaries via the shared process namespace. This mirrors what agent-launcher.sh does for regular
 // static mode, but inline since HeadlessAutomationAgentCommand bypasses agent-launcher.sh.
-const headlessStaticMongodSetup = `WAIT_TIME=5
+//
+// It also creates the healthstatus directory that the agent requires to write its health file.
+// In AppDB/Community an EmptyDir volume is mounted there; in headless static mode there is no
+// such volume, so we create the directory inside the existing log mount instead.
+const headlessStaticMongodSetup = `mkdir -p /var/log/mongodb-mms-automation/healthstatus
+WAIT_TIME=5
 MAX_WAIT=300
 ELAPSED_TIME=0
 while [ ${ELAPSED_TIME} -lt ${MAX_WAIT} ]; do
@@ -146,6 +151,9 @@ func HeadlessAgentEnvVars(configSecretName string) []corev1.EnvVar {
 	return []corev1.EnvVar{
 		{Name: HeadlessAgentEnvName, Value: "true"},
 		{Name: headlessAutomationConfigMapEnv, Value: configSecretName},
+		// AGENT_STATUS_FILEPATH tells the readinessprobe where the agent writes its health file.
+		// Must match the -healthCheckFilePath flag passed to the agent binary.
+		{Name: "AGENT_STATUS_FILEPATH", Value: appdbAgentHealthStatusFilePathValue},
 		{
 			Name: "POD_NAMESPACE",
 			ValueFrom: &corev1.EnvVarSource{

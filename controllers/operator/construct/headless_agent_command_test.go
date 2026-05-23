@@ -26,6 +26,7 @@ func TestHeadlessAgentEnvVars_ContainsHeadlessFlag(t *testing.T) {
 	}
 	assert.Contains(t, names, "HEADLESS_AGENT")
 	assert.Contains(t, names, "AUTOMATION_CONFIG_MAP")
+	assert.Contains(t, names, "AGENT_STATUS_FILEPATH")
 	assert.NotContains(t, names, "BASE_URL")
 	assert.NotContains(t, names, "GROUP_ID")
 }
