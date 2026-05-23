@@ -34,6 +34,11 @@ const (
 	// headlessMongodBinDir is the directory where the static headless agent expects mongod binaries.
 	// Must match agent-launcher.sh's mdb_downloads_dir + "/mongod/bin".
 	headlessMongodBinDir = "/var/lib/mongodb-mms-automation/mongod/bin"
+
+	// headlessStaticAgentOptions are the agent flags for enterprise static headless mode.
+	// Uses -operatorMode=true (what agent-launcher.sh passes for static containers) instead of
+	// -useLocalMongoDbTools (which is the non-static option in appdbAutomationAgentOptions).
+	headlessStaticAgentOptions = " -skipMongoStart -noDaemonize -operatorMode=true"
 )
 
 // headlessStaticMongodSetup is the bash snippet that waits for the mongodb-enterprise-database
@@ -45,6 +50,7 @@ const (
 // In AppDB/Community an EmptyDir volume is mounted there; in headless static mode there is no
 // such volume, so we create the directory inside the existing log mount instead.
 const headlessStaticMongodSetup = `mkdir -p /var/log/mongodb-mms-automation/healthstatus
+ln -sf /journal /data/
 WAIT_TIME=5
 MAX_WAIT=300
 ELAPSED_TIME=0
@@ -140,7 +146,7 @@ func HeadlessAutomationAgentCommand(logLevel v1.LogLevel, logFile string, maxLog
 		logOpts = " -logFile " + logFile + logLevelOpt + " -maxLogFileDurationHrs " + strconv.Itoa(maxLogFileDurationHours)
 	}
 	cmd := "/usr/local/bin/setup-agent-files.sh\n" + headlessStaticMongodSetup + MongodbUserCommand + BaseAgentCommand() +
-		" -cluster=" + HeadlessClusterFilePath + appdbAutomationAgentOptions +
+		" -cluster=" + HeadlessClusterFilePath + headlessStaticAgentOptions +
 		" -binariesFixedPath=" + headlessMongodBinDir + logOpts
 	return []string{"/bin/bash", "-c", cmd}
 }

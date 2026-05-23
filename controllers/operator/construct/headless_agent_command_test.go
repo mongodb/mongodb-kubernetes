@@ -11,11 +11,14 @@ import (
 
 func TestHeadlessAgentCommand_ContainsClusterFlag(t *testing.T) {
 	cmd := construct.HeadlessAutomationAgentCommand(v1.LogLevel("INFO"), "/dev/stdout", 24)
-	assert.Contains(t, cmd[len(cmd)-1], "-cluster="+construct.HeadlessClusterFilePath)
-	assert.NotContains(t, cmd[len(cmd)-1], "-mmsBaseUrl")
-	assert.Contains(t, cmd[len(cmd)-1], "setup-agent-files.sh")
-	assert.Contains(t, cmd[len(cmd)-1], "-binariesFixedPath=")
-	assert.Contains(t, cmd[len(cmd)-1], "mongodb_marker")
+	last := cmd[len(cmd)-1]
+	assert.Contains(t, last, "-cluster="+construct.HeadlessClusterFilePath)
+	assert.NotContains(t, last, "-mmsBaseUrl")
+	assert.Contains(t, last, "setup-agent-files.sh")
+	assert.Contains(t, last, "-binariesFixedPath=")
+	assert.Contains(t, last, "mongodb_marker")
+	assert.Contains(t, last, "-operatorMode=true")
+	assert.NotContains(t, last, "-useLocalMongoDbTools")
 }
 
 func TestHeadlessAgentEnvVars_ContainsHeadlessFlag(t *testing.T) {
