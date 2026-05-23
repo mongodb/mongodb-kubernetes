@@ -19,6 +19,7 @@ func TestHeadlessAgentCommand_ContainsClusterFlag(t *testing.T) {
 	assert.Contains(t, last, "mongodb_marker")
 	assert.Contains(t, last, "-operatorMode=true")
 	assert.NotContains(t, last, "-useLocalMongoDbTools")
+	assert.NotContains(t, last, "-skipMongoStart")
 }
 
 func TestHeadlessAgentEnvVars_ContainsHeadlessFlag(t *testing.T) {

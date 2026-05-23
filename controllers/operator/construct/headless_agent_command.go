@@ -38,7 +38,9 @@ const (
 	// headlessStaticAgentOptions are the agent flags for enterprise static headless mode.
 	// Uses -operatorMode=true (what agent-launcher.sh passes for static containers) instead of
 	// -useLocalMongoDbTools (which is the non-static option in appdbAutomationAgentOptions).
-	headlessStaticAgentOptions = " -skipMongoStart -noDaemonize -operatorMode=true"
+	// No -skipMongoStart: agent-launcher.sh does not use it for enterprise static mode — that flag is
+	// AppDB-community-only (where mongod is pre-started by agent-launcher.sh before the agent starts).
+	headlessStaticAgentOptions = " -noDaemonize -operatorMode=true"
 )
 
 // headlessStaticMongodSetup is the bash snippet that waits for the mongodb-enterprise-database
