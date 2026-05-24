@@ -17,10 +17,10 @@
 set -Eeou pipefail
 test "${MDB_BASH_DEBUG:-0}" -eq 1 && set -x
 
-mode=tail
+mode="tail"
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --detach) mode=detach; shift ;;
+    --detach) mode="detach"; shift ;;
     -h|--help) sed -n '3,15p' "$0"; exit 0 ;;
     *) echo "Unknown argument: $1" >&2; exit 1 ;;
   esac

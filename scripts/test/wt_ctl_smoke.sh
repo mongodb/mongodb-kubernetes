@@ -35,7 +35,7 @@ for key in worktree path network gost-proxy; do
 done
 
 if (( failures > 0 )); then
-  echo "[smoke] FAIL ($failures missing keys)" >&2
+  echo "[smoke] FAIL (${failures} missing keys)" >&2
   echo "--- stdout ---" >&2
   cat "${stdout}" >&2
   echo "--- stderr ---" >&2
