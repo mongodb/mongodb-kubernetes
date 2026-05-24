@@ -14,7 +14,6 @@ import unittest
 from pathlib import Path
 
 from _common import FakePopenFactory  # noqa: E402  (path side-effect only)
-
 from wt_ctl import orchestrator_state as ostate  # noqa: E402
 from wt_ctl.errors import StateConflict  # noqa: E402
 
@@ -39,7 +38,10 @@ class StateRoundTripTests(unittest.TestCase):
                 inputs={"context": "e2e_smoke"},
             )
             st.set_status(
-                "worktree_init", ostate.OK, input_hash="aaa", log="logs/setup_worktree/x.log",
+                "worktree_init",
+                ostate.OK,
+                input_hash="aaa",
+                log="logs/setup_worktree/x.log",
             )
             ostate.save(wt, st)
             loaded = ostate.load(wt)

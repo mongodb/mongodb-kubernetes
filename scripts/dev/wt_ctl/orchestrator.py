@@ -1050,10 +1050,7 @@ class DeleteOrchestrator:
         )
         evg_pin = i.worktree_path / ".generated" / ".current-evg-host"
         evg_tag = f"evg_host={i.resolved_evg_host_name()}" if evg_pin.is_file() else "local"
-        emit(
-            f"[wt-ctl] delete: branch={i.branch} targets=[{targets}] "
-            f"worktree={i.worktree_path} {evg_tag}"
-        )
+        emit(f"[wt-ctl] delete: branch={i.branch} targets=[{targets}] " f"worktree={i.worktree_path} {evg_tag}")
         if i.delete_om:
             self._step_om_clean(emit)
         if i.delete_devc:
@@ -1146,7 +1143,9 @@ class DeleteOrchestrator:
                 return
             ctx = self._read_current_context(kc_path)
             if not ctx or not ctx.startswith("kind-"):
-                emit(f"[wt-ctl] evg: kubeconfig current-context={ctx!r} is not a kind cluster (BYOC?); skipping teardown")
+                emit(
+                    f"[wt-ctl] evg: kubeconfig current-context={ctx!r} is not a kind cluster (BYOC?); skipping teardown"
+                )
                 return
             cluster = ctx[len("kind-") :]
             if not self.runner.have("kind"):

@@ -19,10 +19,10 @@ from .runner import Runner
 class WorktreeRefs:
     """Where we are on disk + the main repo we belong to."""
 
-    worktree_root: Path           # absolute path of the current worktree
-    main_repo_root: Path          # absolute path of the main checkout
-    branch: str                   # current branch (or "HEAD" when detached)
-    is_main: bool                 # True iff worktree_root == main_repo_root
+    worktree_root: Path  # absolute path of the current worktree
+    main_repo_root: Path  # absolute path of the main checkout
+    branch: str  # current branch (or "HEAD" when detached)
+    is_main: bool  # True iff worktree_root == main_repo_root
 
     @property
     def branch_dir(self) -> str:
@@ -73,7 +73,9 @@ def resolve_worktree(runner: Runner, cwd: Optional[Path] = None) -> WorktreeRefs
     common_dir = runner.run(
         ["git", "-C", str(worktree_root), "rev-parse", "--git-common-dir"],
     ).stdout.strip()
-    common_path = (worktree_root / common_dir).resolve() if not Path(common_dir).is_absolute() else Path(common_dir).resolve()
+    common_path = (
+        (worktree_root / common_dir).resolve() if not Path(common_dir).is_absolute() else Path(common_dir).resolve()
+    )
     main_repo_root = common_path.parent  # `.git` parent → repo root
 
     # Branch name (HEAD when detached → return literal "HEAD").

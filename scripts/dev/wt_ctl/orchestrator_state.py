@@ -22,7 +22,6 @@ from typing import Any, Optional
 from .errors import StateConflict, WtCtlError
 from .paths import state_dir
 
-
 SCHEMA_VERSION = 1
 
 
@@ -105,10 +104,7 @@ class OrchestratorState:
             started_at=data.get("started_at"),
             updated_at=data.get("updated_at"),
             inputs=dict(data.get("inputs") or {}),
-            phases={
-                name: PhaseRecord.from_dict(rec)
-                for name, rec in (data.get("phases") or {}).items()
-            },
+            phases={name: PhaseRecord.from_dict(rec) for name, rec in (data.get("phases") or {}).items()},
         )
 
     # ------------------------------------------------------------------
@@ -187,6 +183,7 @@ class OrchestratorState:
 # helpers
 # ---------------------------------------------------------------------------
 
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -237,6 +234,7 @@ def save(worktree_root: Path, state: OrchestratorState) -> Path:
 # ---------------------------------------------------------------------------
 # input-hash helpers
 # ---------------------------------------------------------------------------
+
 
 def hash_inputs(payload: dict) -> str:
     """SHA256 of a json-canonicalized dict, first 16 hex chars (collision

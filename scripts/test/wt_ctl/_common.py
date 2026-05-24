@@ -8,7 +8,6 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-
 # Make `import wt_ctl` work when this test is run from any cwd.
 _REPO = Path(__file__).resolve().parents[3]
 _PKG_PARENT = _REPO / "scripts" / "dev"
@@ -48,8 +47,7 @@ class FakePopenFactory:
     canned (stdout, stderr, rc) tuples. Falls back to `default`.
     """
 
-    def __init__(self, mapping: dict[tuple, tuple[str, str, int]],
-                 default: tuple[str, str, int] = ("", "", 0)) -> None:
+    def __init__(self, mapping: dict[tuple, tuple[str, str, int]], default: tuple[str, str, int] = ("", "", 0)) -> None:
         self.mapping = mapping
         self.default = default
         self.calls: list[list[str]] = []

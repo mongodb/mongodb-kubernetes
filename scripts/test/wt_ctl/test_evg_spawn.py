@@ -17,7 +17,6 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from _common import FakePopenFactory  # noqa: E402  (path side-effect only)
-
 from wt_ctl.domains.evg import EvgDomain  # noqa: E402
 from wt_ctl.errors import ExternalCommandFailed, WtCtlError  # noqa: E402
 from wt_ctl.runner import CmdResult  # noqa: E402
@@ -30,9 +29,7 @@ class FakeRunner:
     """
 
     calls: list[list[str]] = field(default_factory=list)
-    handlers: list[tuple[Callable[[list[str]], bool], Callable[[list[str]], CmdResult]]] = field(
-        default_factory=list
-    )
+    handlers: list[tuple[Callable[[list[str]], bool], Callable[[list[str]], CmdResult]]] = field(default_factory=list)
 
     def add(self, match, result: CmdResult) -> None:
         self.handlers.append((match, lambda _argv, r=result: r))
@@ -54,16 +51,21 @@ class FakeRunner:
         result = self._resolve(list(argv))
         if check and result.rc != 0:
             raise ExternalCommandFailed(
-                argv=list(argv), rc=result.rc,
-                stdout=result.stdout, stderr=result.stderr,
+                argv=list(argv),
+                rc=result.rc,
+                stdout=result.stdout,
+                stderr=result.stderr,
             )
         return result
 
 
 def _host_list_result(hosts: list[dict]) -> CmdResult:
     return CmdResult(
-        argv=[], rc=0,
-        stdout=json.dumps(hosts), stderr="", duration_s=0.0,
+        argv=[],
+        rc=0,
+        stdout=json.dumps(hosts),
+        stderr="",
+        duration_s=0.0,
     )
 
 
@@ -130,17 +132,23 @@ class EvgSpawnTests(unittest.TestCase):
         runner = FakeRunner()
         runner.add(
             _MatchArgv.host_list,
-            _host_list_result([{
-                "id": "i-aaaa1111",
-                "display_name": "alpha",
-                "status": "running",
-                "host_name": "ec2-1-2-3-4.compute.amazonaws.com",
-                "user": "ubuntu",
-            }]),
+            _host_list_result(
+                [
+                    {
+                        "id": "i-aaaa1111",
+                        "display_name": "alpha",
+                        "status": "running",
+                        "host_name": "ec2-1-2-3-4.compute.amazonaws.com",
+                        "user": "ubuntu",
+                    }
+                ]
+            ),
         )
         runner.add(_MatchArgv.ssh, _ok())
         host_id = self._domain(runner).spawn(
-            name="alpha", poll_interval_s=0.0, timeout_s=2.0,
+            name="alpha",
+            poll_interval_s=0.0,
+            timeout_s=2.0,
         )
         self.assertEqual(host_id, "i-aaaa1111")
         joined = [" ".join(c) for c in runner.calls]
@@ -157,19 +165,27 @@ class EvgSpawnTests(unittest.TestCase):
         runner = FakeRunner()
         # Two host_list calls: first the resume-detection probe (starting),
         # then the poll loop (running).
-        q = _ListQueue([
-            [{"id": "i-bbbb2222", "display_name": "beta",
-              "status": "starting"}],
-            [{"id": "i-bbbb2222", "display_name": "beta",
-              "status": "running",
-              "host_name": "ec2-9-8-7-6.compute.amazonaws.com",
-              "user": "ubuntu"}],
-        ])
+        q = _ListQueue(
+            [
+                [{"id": "i-bbbb2222", "display_name": "beta", "status": "starting"}],
+                [
+                    {
+                        "id": "i-bbbb2222",
+                        "display_name": "beta",
+                        "status": "running",
+                        "host_name": "ec2-9-8-7-6.compute.amazonaws.com",
+                        "user": "ubuntu",
+                    }
+                ],
+            ]
+        )
         runner.add_fn(_MatchArgv.host_list, q)
         runner.add(_MatchArgv.host_modify, _ok())
         runner.add(_MatchArgv.ssh, _ok())
         host_id = self._domain(runner).spawn(
-            name="beta", poll_interval_s=0.0, timeout_s=2.0,
+            name="beta",
+            poll_interval_s=0.0,
+            timeout_s=2.0,
         )
         self.assertEqual(host_id, "i-bbbb2222")
         joined = [" ".join(c) for c in runner.calls]
@@ -180,17 +196,22 @@ class EvgSpawnTests(unittest.TestCase):
         runner = FakeRunner()
         # Resume probe -> empty. Then `host create` returns an id. Then
         # successive `host list` calls walk provisioning -> starting -> running.
-        q = _ListQueue([
-            [],  # resume detection: no match
-            [{"id": "i-cccc3333", "display_name": "",
-              "status": "provisioning"}],
-            [{"id": "i-cccc3333", "display_name": "",
-              "status": "starting"}],
-            [{"id": "i-cccc3333", "display_name": "gamma",
-              "status": "running",
-              "host_name": "ec2-5-5-5-5.compute.amazonaws.com",
-              "user": "ubuntu"}],
-        ])
+        q = _ListQueue(
+            [
+                [],  # resume detection: no match
+                [{"id": "i-cccc3333", "display_name": "", "status": "provisioning"}],
+                [{"id": "i-cccc3333", "display_name": "", "status": "starting"}],
+                [
+                    {
+                        "id": "i-cccc3333",
+                        "display_name": "gamma",
+                        "status": "running",
+                        "host_name": "ec2-5-5-5-5.compute.amazonaws.com",
+                        "user": "ubuntu",
+                    }
+                ],
+            ]
+        )
         runner.add_fn(_MatchArgv.host_list, q)
         runner.add(
             _MatchArgv.host_create,
@@ -199,7 +220,9 @@ class EvgSpawnTests(unittest.TestCase):
         runner.add(_MatchArgv.host_modify, _ok())
         runner.add(_MatchArgv.ssh, _ok())
         host_id = self._domain(runner).spawn(
-            name="gamma", poll_interval_s=0.0, timeout_s=2.0,
+            name="gamma",
+            poll_interval_s=0.0,
+            timeout_s=2.0,
         )
         self.assertEqual(host_id, "i-cccc3333")
         joined = [" ".join(c) for c in runner.calls]
@@ -214,21 +237,29 @@ class EvgSpawnTests(unittest.TestCase):
     # ------------------------------------------------------------------
     def test_tag_and_rename_after_aws_id(self) -> None:
         runner = FakeRunner()
-        q = _ListQueue([
-            [],  # resume probe: empty
-            [{"id": "i-dddd4444", "display_name": "",
-              "status": "starting"}],
-            [{"id": "i-dddd4444", "display_name": "delta",
-              "status": "running",
-              "host_name": "ec2-7-7-7-7.compute.amazonaws.com",
-              "user": "ubuntu"}],
-        ])
+        q = _ListQueue(
+            [
+                [],  # resume probe: empty
+                [{"id": "i-dddd4444", "display_name": "", "status": "starting"}],
+                [
+                    {
+                        "id": "i-dddd4444",
+                        "display_name": "delta",
+                        "status": "running",
+                        "host_name": "ec2-7-7-7-7.compute.amazonaws.com",
+                        "user": "ubuntu",
+                    }
+                ],
+            ]
+        )
         runner.add_fn(_MatchArgv.host_list, q)
         runner.add(_MatchArgv.host_create, _ok(stdout="Host i-dddd4444 spawned.\n"))
         runner.add(_MatchArgv.host_modify, _ok())
         runner.add(_MatchArgv.ssh, _ok())
         self._domain(runner).spawn(
-            name="delta", poll_interval_s=0.0, timeout_s=2.0,
+            name="delta",
+            poll_interval_s=0.0,
+            timeout_s=2.0,
         )
         modify_calls = [c for c in runner.calls if c[:3] == ["evergreen", "host", "modify"]]
         self.assertEqual(len(modify_calls), 1, modify_calls)
@@ -246,16 +277,19 @@ class EvgSpawnTests(unittest.TestCase):
     # ------------------------------------------------------------------
     def test_terminal_failure_status_raises(self) -> None:
         runner = FakeRunner()
-        q = _ListQueue([
-            [],  # resume probe: empty
-            [{"id": "i-eeee5555", "display_name": "",
-              "status": "failed"}],
-        ])
+        q = _ListQueue(
+            [
+                [],  # resume probe: empty
+                [{"id": "i-eeee5555", "display_name": "", "status": "failed"}],
+            ]
+        )
         runner.add_fn(_MatchArgv.host_list, q)
         runner.add(_MatchArgv.host_create, _ok(stdout="Host i-eeee5555 spawned.\n"))
         with self.assertRaises(WtCtlError) as ctx:
             self._domain(runner).spawn(
-                name="eps", poll_interval_s=0.0, timeout_s=2.0,
+                name="eps",
+                poll_interval_s=0.0,
+                timeout_s=2.0,
             )
         self.assertIn("terminal", str(ctx.exception).lower())
 
@@ -264,17 +298,20 @@ class EvgSpawnTests(unittest.TestCase):
         runner = FakeRunner()
         # Always 'starting' — never reaches running. Repeated indefinitely
         # because _ListQueue replays the last entry.
-        q = _ListQueue([
-            [],
-            [{"id": "i-ffff6666", "display_name": "",
-              "status": "starting"}],
-        ])
+        q = _ListQueue(
+            [
+                [],
+                [{"id": "i-ffff6666", "display_name": "", "status": "starting"}],
+            ]
+        )
         runner.add_fn(_MatchArgv.host_list, q)
         runner.add(_MatchArgv.host_create, _ok(stdout="Host i-ffff6666 spawned.\n"))
         runner.add(_MatchArgv.host_modify, _ok())
         with self.assertRaises(WtCtlError) as ctx:
             self._domain(runner).spawn(
-                name="zeta", poll_interval_s=0.0, timeout_s=0.05,
+                name="zeta",
+                poll_interval_s=0.0,
+                timeout_s=0.05,
             )
         self.assertIn("timed out", str(ctx.exception).lower())
 
@@ -290,23 +327,24 @@ class EvgSpawnTests(unittest.TestCase):
         # Pre-existing sibling host (already in flight before our create).
         # Note: _RE_AWS_ID requires the id-suffix to be hex (0-9a-f) — so
         # we use ``ab1...`` / ``cd2...`` here, not human-readable labels.
-        sibling = {"id": "i-ab1aaaaa", "name": "",
-                   "status": "starting", "host_name": "",
-                   "user": "ubuntu"}
+        sibling = {"id": "i-ab1aaaaa", "name": "", "status": "starting", "host_name": "", "user": "ubuntu"}
         # Our new host appears post-create with an unfamiliar id.
-        ours_starting = {"id": "i-cd2bbbbb", "name": "",
-                         "status": "starting", "host_name": "",
-                         "user": "ubuntu"}
-        ours_running = {"id": "i-cd2bbbbb", "name": "wt-x",
-                        "status": "running",
-                        "host_name": "ec2-2-2-2-2.compute.amazonaws.com",
-                        "user": "ubuntu"}
-        q = _ListQueue([
-            [sibling],                       # resume probe: no match by name
-            [sibling],                       # pre-create snapshot: only sibling
-            [sibling, ours_starting],        # first poll: ours appears, unnamed
-            [sibling, ours_running],         # second poll: ours running, named
-        ])
+        ours_starting = {"id": "i-cd2bbbbb", "name": "", "status": "starting", "host_name": "", "user": "ubuntu"}
+        ours_running = {
+            "id": "i-cd2bbbbb",
+            "name": "wt-x",
+            "status": "running",
+            "host_name": "ec2-2-2-2-2.compute.amazonaws.com",
+            "user": "ubuntu",
+        }
+        q = _ListQueue(
+            [
+                [sibling],  # resume probe: no match by name
+                [sibling],  # pre-create snapshot: only sibling
+                [sibling, ours_starting],  # first poll: ours appears, unnamed
+                [sibling, ours_running],  # second poll: ours running, named
+            ]
+        )
         runner.add_fn(_MatchArgv.host_list, q)
         # create returns the placeholder id (no i-* in stdout).
         runner.add(
@@ -316,7 +354,9 @@ class EvgSpawnTests(unittest.TestCase):
         runner.add(_MatchArgv.host_modify, _ok())
         runner.add(_MatchArgv.ssh, _ok())
         host_id = self._domain(runner).spawn(
-            name="wt-x", poll_interval_s=0.0, timeout_s=5.0,
+            name="wt-x",
+            poll_interval_s=0.0,
+            timeout_s=5.0,
         )
         # The poll loop must transition placeholder → i-cd2bbbbb (ours),
         # *not* i-ab1aaaaa (sibling).
@@ -357,32 +397,21 @@ class ResolveKeyNameTests(unittest.TestCase):
         os.environ["MCK_DEVC_EVG_KEY_NAME"] = "custom-key"
         runner = FakeRunner()
         # No keys_list handler registered — must not be called.
-        self.assertEqual(
-            self._domain(runner)._resolve_key_name(), ("custom-key", "")
-        )
-        self.assertFalse(
-            any(c[:3] == ["evergreen", "keys", "list"] for c in runner.calls)
-        )
+        self.assertEqual(self._domain(runner)._resolve_key_name(), ("custom-key", ""))
+        self.assertFalse(any(c[:3] == ["evergreen", "keys", "list"] for c in runner.calls))
 
     def test_prefers_evg_host_when_listed(self) -> None:
         runner = FakeRunner()
         runner.add(_MatchArgv.keys_list, _ok(stdout=_KEYS_LIST_STDOUT))
-        self.assertEqual(
-            self._domain(runner)._resolve_key_name(), ("evg-host", "")
-        )
+        self.assertEqual(self._domain(runner)._resolve_key_name(), ("evg-host", ""))
 
     def test_falls_back_to_first_listed_key(self) -> None:
         runner = FakeRunner()
         runner.add(
             _MatchArgv.keys_list,
-            _ok(stdout=(
-                "Public keys stored in Evergreen:\n"
-                "Name: 'only-one', Key: 'ssh-rsa AAAA only-one'\n"
-            )),
+            _ok(stdout=("Public keys stored in Evergreen:\n" "Name: 'only-one', Key: 'ssh-rsa AAAA only-one'\n")),
         )
-        self.assertEqual(
-            self._domain(runner)._resolve_key_name(), ("only-one", "")
-        )
+        self.assertEqual(self._domain(runner)._resolve_key_name(), ("only-one", ""))
 
     def test_returns_empty_when_keys_list_fails(self) -> None:
         runner = FakeRunner()
@@ -411,19 +440,31 @@ class ResolveKeyNameTests(unittest.TestCase):
         """
         runner = FakeRunner()
         # No live host with this displayName, so resume detection misses.
-        runner.add_fn(_MatchArgv.host_list, _ListQueue([
-            [],
-            [{"id": "i-9999", "display_name": "wt-x",
-              "status": "running",
-              "host_name": "ec2-1-1-1-1.compute.amazonaws.com",
-              "user": "ubuntu"}],
-        ]))
+        runner.add_fn(
+            _MatchArgv.host_list,
+            _ListQueue(
+                [
+                    [],
+                    [
+                        {
+                            "id": "i-9999",
+                            "display_name": "wt-x",
+                            "status": "running",
+                            "host_name": "ec2-1-1-1-1.compute.amazonaws.com",
+                            "user": "ubuntu",
+                        }
+                    ],
+                ]
+            ),
+        )
         runner.add(_MatchArgv.keys_list, _ok(stdout=_KEYS_LIST_STDOUT))
         runner.add(_MatchArgv.host_create, _ok(stdout="Host i-9999 spawned.\n"))
         runner.add(_MatchArgv.host_modify, _ok())
         runner.add(_MatchArgv.ssh, _ok())
         self._domain(runner).spawn(
-            name="wt-x", poll_interval_s=0.0, timeout_s=2.0,
+            name="wt-x",
+            poll_interval_s=0.0,
+            timeout_s=2.0,
         )
         create_calls = [c for c in runner.calls if c[:3] == ["evergreen", "host", "create"]]
         self.assertEqual(len(create_calls), 1)

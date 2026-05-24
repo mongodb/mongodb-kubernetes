@@ -18,12 +18,11 @@ import unittest
 from pathlib import Path
 from typing import Any
 
+import wt_ctl.domains.kubeconfig as kubeconfig_module  # noqa: E402
+import yaml  # noqa: E402
 from _common import FakePopenFactory  # noqa: F401  (sys.path side-effect)
 from wt_ctl.domains.kubeconfig import KubeconfigDomain  # noqa: E402
 from wt_ctl.runner import Runner  # noqa: E402
-import wt_ctl.domains.kubeconfig as kubeconfig_module  # noqa: E402
-import yaml  # noqa: E402
-
 
 _KIND_KUBECONFIG = """\
 apiVersion: v1
@@ -99,9 +98,7 @@ class KubeconfigRefreshTests(unittest.TestCase):
 
     def _refresh(self, **env_overrides: str) -> None:
         env = {"K8S_FWD_PROXY": "127.0.0.1:11616", **env_overrides}
-        KubeconfigDomain(Runner()).refresh(
-            self.wt, env=env, in_devc=False, emit=lambda _m: None
-        )
+        KubeconfigDomain(Runner()).refresh(self.wt, env=env, in_devc=False, emit=lambda _m: None)
 
     # ------------------------------------------------------------------
     # Local-kind branch (no pin, loopback server).

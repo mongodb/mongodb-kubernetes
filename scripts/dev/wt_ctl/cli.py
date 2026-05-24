@@ -15,13 +15,7 @@ from .domains.compose import ComposeDomain, project_name_for
 from .domains.contextsw import ContextDomain
 from .domains.devcontainer import DevcontainerDomain
 from .domains.evg import EvgDomain
-from .domains.kfp import (
-    KfpDomain,
-    KFP_DEFAULT_URL,
-    LAUNCHCTL_BOOTOUT,
-    LAUNCHCTL_BOOTSTRAP,
-    LAUNCHCTL_KICKSTART,
-)
+from .domains.kfp import KFP_DEFAULT_URL, LAUNCHCTL_BOOTOUT, LAUNCHCTL_BOOTSTRAP, LAUNCHCTL_KICKSTART, KfpDomain
 from .domains.kubeconfig import KubeconfigDomain
 from .domains.network import NetworkDomain, gost_proxy_for, parse_devc_env, subnet_for
 from .domains.omprojects import OmDomain
@@ -325,18 +319,11 @@ def main(argv: list[str]) -> int:
                 refs = None
         # ``status <branch>`` retargets refs (so the banner + body both
         # describe the requested worktree, not the cwd).
-        if (
-            cmd == "status"
-            and getattr(args, "branch", None)
-            and not getattr(args, "all_", False)
-        ):
+        if cmd == "status" and getattr(args, "branch", None) and not getattr(args, "all_", False):
             target_refs = _refs_for_branch(runner, refs, args.branch)
             if target_refs is None:
                 emit_banner(refs, quiet=args.quiet)
-                sys.stderr.write(
-                    f"[wt-ctl] error: no worktree for branch / dir "
-                    f"'{args.branch}'\n"
-                )
+                sys.stderr.write(f"[wt-ctl] error: no worktree for branch / dir " f"'{args.branch}'\n")
                 return 2
             refs = target_refs
         emit_banner(refs, quiet=args.quiet)
@@ -490,14 +477,8 @@ def cmd_status(runner: Runner, refs: WorktreeRefs, args: argparse.Namespace) -> 
 
     # EVG host expiry warning: surface an extend hint when < 8h left so the
     # user can act before the host reaps mid-task.
-    if (
-        evg is not None
-        and evg.expires_seconds is not None
-        and evg.expires_seconds < 8 * 3600
-    ):
-        next_hints.append(
-            f"wt-ctl evg extend      # EVG host expires in {evg.expires_in}"
-        )
+    if evg is not None and evg.expires_seconds is not None and evg.expires_seconds < 8 * 3600:
+        next_hints.append(f"wt-ctl evg extend      # EVG host expires in {evg.expires_in}")
 
     snap = WorktreeStatus(
         worktree_dir=refs.branch_dir,
@@ -803,10 +784,7 @@ def cmd_kfp(runner: Runner, args: argparse.Namespace) -> int:
             health = st.health or "unreachable"
             print(f"running    http={st.http_endpoint}    health={health}")
             return 0
-        print(
-            "not_running    (pkg-installed daemon; restart with: "
-            f"{LAUNCHCTL_KICKSTART})"
-        )
+        print("not_running    (pkg-installed daemon; restart with: " f"{LAUNCHCTL_KICKSTART})")
         return 0
     if sub == "register":
         explicit = getattr(args, "kubeconfig", None)
@@ -967,10 +945,7 @@ def _refs_for_branch(
     first, then by directory basename (so ``lsierant_KUBE-17-…`` and
     ``lsierant/KUBE-17-…`` both work).
     """
-    main_repo = (
-        cwd_refs.main_repo_root if cwd_refs is not None
-        else _resolve_main_repo(runner)
-    )
+    main_repo = cwd_refs.main_repo_root if cwd_refs is not None else _resolve_main_repo(runner)
     wd = WorktreeDomain(runner)
     target_path: Optional[Path] = _find_worktree_by_branch(wd, main_repo, target)
     if target_path is None:

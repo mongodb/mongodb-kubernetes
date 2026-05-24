@@ -5,7 +5,6 @@ from __future__ import annotations
 import unittest
 
 from _common import FakePopenFactory, fake_which  # noqa: E402
-
 from wt_ctl.errors import ExternalCommandFailed, ToolMissing  # noqa: E402
 from wt_ctl.runner import Runner  # noqa: E402
 

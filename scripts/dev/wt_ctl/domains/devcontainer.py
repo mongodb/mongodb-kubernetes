@@ -14,7 +14,6 @@ from ..errors import ToolMissing
 from ..paths import logs_dir
 from ..runner import Runner
 
-
 _TMUX_LOAD_CMD = "exec tmuxp load -y /workspace/.devcontainer/tmuxp/mck.yaml"
 
 
@@ -54,17 +53,24 @@ class DevcontainerDomain:
         argv: list[str]
         if not args:
             argv = [
-                "devcontainer", "exec",
-                "--workspace-folder", str(worktree_root),
-                "bash", "-lc", _TMUX_LOAD_CMD,
+                "devcontainer",
+                "exec",
+                "--workspace-folder",
+                str(worktree_root),
+                "bash",
+                "-lc",
+                _TMUX_LOAD_CMD,
             ]
         else:
             # In with-args mode we set MCK_NO_TMUX=1 so the in-container
             # shell-init does not auto-exec tmuxp under the user's command.
             argv = [
-                "devcontainer", "exec",
-                "--workspace-folder", str(worktree_root),
-                "env", "MCK_NO_TMUX=1",
+                "devcontainer",
+                "exec",
+                "--workspace-folder",
+                str(worktree_root),
+                "env",
+                "MCK_NO_TMUX=1",
                 *args,
             ]
         self.runner.exec_replace(argv, env=env, cwd=worktree_root)
@@ -81,8 +87,10 @@ class DevcontainerDomain:
         result programmatically.
         """
         argv = [
-            "devcontainer", "exec",
-            "--workspace-folder", str(worktree_root),
+            "devcontainer",
+            "exec",
+            "--workspace-folder",
+            str(worktree_root),
             *args,
         ]
         return self.runner.run(argv, check=check)

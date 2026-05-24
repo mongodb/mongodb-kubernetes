@@ -47,15 +47,15 @@ class WorktreeDomain:
         cur_is_main = False
         for line in res.stdout.splitlines() + [""]:
             if line.startswith("worktree "):
-                cur_path = Path(line[len("worktree "):]).resolve()
-                cur_is_main = (cur_path == repo_root.resolve())
+                cur_path = Path(line[len("worktree ") :]).resolve()
+                cur_is_main = cur_path == repo_root.resolve()
             elif line.startswith("HEAD "):
-                cur_head = line[len("HEAD "):].strip()
+                cur_head = line[len("HEAD ") :].strip()
             elif line.startswith("branch "):
-                cur_branch = line[len("branch "):].strip()
+                cur_branch = line[len("branch ") :].strip()
                 # `branch refs/heads/...` form
                 if cur_branch.startswith("refs/heads/"):
-                    cur_branch = cur_branch[len("refs/heads/"):]
+                    cur_branch = cur_branch[len("refs/heads/") :]
             elif line == "detached":
                 cur_detached = True
             elif line == "prunable":
@@ -98,8 +98,13 @@ class WorktreeDomain:
         behind = 0
         upstream_res = self.runner.run(
             [
-                "git", "-C", str(worktree_root),
-                "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}",
+                "git",
+                "-C",
+                str(worktree_root),
+                "rev-parse",
+                "--abbrev-ref",
+                "--symbolic-full-name",
+                "@{u}",
             ],
             check=False,
         )
@@ -107,8 +112,13 @@ class WorktreeDomain:
             upstream = upstream_res.stdout.strip()
             counts = self.runner.run(
                 [
-                    "git", "-C", str(worktree_root),
-                    "rev-list", "--left-right", "--count", "HEAD...@{u}",
+                    "git",
+                    "-C",
+                    str(worktree_root),
+                    "rev-list",
+                    "--left-right",
+                    "--count",
+                    "HEAD...@{u}",
                 ],
                 check=False,
             )

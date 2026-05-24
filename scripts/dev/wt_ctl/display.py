@@ -11,15 +11,10 @@ import os
 import sys
 from typing import Iterable, Optional
 
-from .state import (
-    GlobalStatus,
-    OrphanRegistration,
-    WorktreeRow,
-    WorktreeStatus,
-)
-
+from .state import GlobalStatus, OrphanRegistration, WorktreeRow, WorktreeStatus
 
 # --- color -----------------------------------------------------------------
+
 
 class _Ansi:
     RESET = "\033[0m"
@@ -52,6 +47,7 @@ def _wrap(s: str, code: str, enabled: bool) -> str:
 
 
 # --- helpers ---------------------------------------------------------------
+
 
 class KVTable:
     """Right-pad keys to a common width, emit ``key   value`` lines."""
@@ -90,6 +86,7 @@ def _git_summary(status: WorktreeStatus) -> str:
 
 
 # --- renderers -------------------------------------------------------------
+
 
 def render_status(status: WorktreeStatus, *, color: str = "auto") -> str:
     enabled = _color_enabled(color)
@@ -242,9 +239,7 @@ def render_status_all(g: GlobalStatus, *, color: str = "auto") -> str:
         out.append("orphan registrations")
         name_w = max(len(o.branch_dir) for o in g.orphans)
         for o in g.orphans:
-            out.append(
-                f"  {o.branch_dir.ljust(name_w)}  prefix={o.prefix}  ->  {o.release_cmd}"
-            )
+            out.append(f"  {o.branch_dir.ljust(name_w)}  prefix={o.prefix}  ->  {o.release_cmd}")
 
     return "\n".join(out)
 
@@ -252,6 +247,7 @@ def render_status_all(g: GlobalStatus, *, color: str = "auto") -> str:
 # ---------------------------------------------------------------------------
 # small key-value helpers used by other verbs
 # ---------------------------------------------------------------------------
+
 
 def render_kv(pairs: Iterable[tuple[str, str]]) -> str:
     t = KVTable()

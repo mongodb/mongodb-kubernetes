@@ -52,15 +52,9 @@ from io import StringIO
 from pathlib import Path
 from typing import Iterator, Optional
 
-from ..errors import (
-    ExternalCommandFailed,
-    LockTimeout,
-    RegistryError,
-    ToolMissing,
-)
+from ..errors import ExternalCommandFailed, LockTimeout, RegistryError, ToolMissing
 from ..runner import Runner
 from ..state import NetEntry
-
 
 # Index space — 0..MAX_INDEX (inclusive) maps to X/Y/PORT via stack_params().
 INDEX_LO = 0
@@ -70,18 +64,20 @@ INDEX_HI = 2047
 VALID_RANGE_LO = INDEX_LO
 VALID_RANGE_HI = INDEX_HI
 
-LOCK_TIMEOUT_SECS = 30          # max wait to acquire a lock
+LOCK_TIMEOUT_SECS = 30  # max wait to acquire a lock
 LOCK_POLL_INTERVAL_SECS = 0.1
-LOCK_STALE_SECS = 60            # force-release a lock dir older than this
+LOCK_STALE_SECS = 60  # force-release a lock dir older than this
 
 
 # ---------------------------------------------------------------------------
 # math
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class StackParams:
     """All four derived address-space parameters for a stack index ``N``."""
+
     index: int
     x: int
     y_base: int
@@ -108,9 +104,7 @@ class StackParams:
 def stack_params(index: int) -> StackParams:
     """Compute (X, Y_BASE, Y_VIP, PORT) for stack index ``index``."""
     if not (INDEX_LO <= index <= INDEX_HI):
-        raise RegistryError(
-            f"stack index {index} outside [{INDEX_LO},{INDEX_HI}]"
-        )
+        raise RegistryError(f"stack index {index} outside [{INDEX_LO},{INDEX_HI}]")
     x = 16 + (index >> 7)
     y_base = (index & 0x7F) << 1
     y_vip = y_base + 1
@@ -127,6 +121,7 @@ def stack_params(index: int) -> StackParams:
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
+
 
 def _registry_dir() -> Path:
     override = os.environ.get("MCK_DEVC_REGISTRY_DIR")
@@ -169,10 +164,11 @@ def _pid_alive(pid: int) -> bool:
 # locking
 # ---------------------------------------------------------------------------
 
+
 @contextmanager
-def _registry_lock(*, timeout: float = LOCK_TIMEOUT_SECS,
-                   stale_after: float = LOCK_STALE_SECS,
-                   warn: Optional[callable] = None) -> Iterator[None]:
+def _registry_lock(
+    *, timeout: float = LOCK_TIMEOUT_SECS, stale_after: float = LOCK_STALE_SECS, warn: Optional[callable] = None
+) -> Iterator[None]:
     """mkdir-based lock with stale recovery. Drops a ``pid`` file inside
     the lock dir; if a stale lock blocks acquisition (dead PID or old
     mtime) we force-release with a stderr warning and proceed.
@@ -213,8 +209,7 @@ def _registry_lock(*, timeout: float = LOCK_TIMEOUT_SECS,
             pass
 
 
-def _try_force_release(lock: Path, stale_after: float,
-                       warn: Optional[callable]) -> bool:
+def _try_force_release(lock: Path, stale_after: float, warn: Optional[callable]) -> bool:
     """Return True if we removed a stale lock dir, False otherwise."""
     if not lock.is_dir():
         return False
@@ -256,12 +251,14 @@ def _try_force_release(lock: Path, stale_after: float,
 # native Registry
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class _OrphanNetwork:
     """Docker network in 172.[16-31].x.x with name pattern
     ``*_devcontainer_devcontainer``, 0 attached containers, and no
     surviving worktree.
     """
+
     name: str
     prefix: int
 
@@ -278,6 +275,7 @@ class _RegistryRow:
 
     ``params.index`` is 0..2047 (a /23 stack index).
     """
+
     branch_dir: str
     params: StackParams
 
@@ -315,10 +313,7 @@ class Registry:
                 continue
             row = _parse_rhs(bd, rhs)
             if row is None:
-                sys.stderr.write(
-                    f"[wt-ctl] network: WARN dropping unparseable registry "
-                    f"row {bd}={rhs}\n"
-                )
+                sys.stderr.write(f"[wt-ctl] network: WARN dropping unparseable registry " f"row {bd}={rhs}\n")
                 continue
             out.append(row)
         return out
@@ -360,7 +355,7 @@ class Registry:
         names: set[str] = set()
         for line in res.stdout.splitlines():
             if line.startswith("worktree "):
-                p = line[len("worktree "):].strip()
+                p = line[len("worktree ") :].strip()
                 if p:
                     names.add(Path(p).name)
         return names
@@ -387,8 +382,12 @@ class Registry:
             try:
                 ins = self.runner.run(
                     [
-                        "docker", "network", "inspect", name,
-                        "--format", "{{range .IPAM.Config}}{{.Subnet}}{{end}}",
+                        "docker",
+                        "network",
+                        "inspect",
+                        name,
+                        "--format",
+                        "{{range .IPAM.Config}}{{.Subnet}}{{end}}",
                     ],
                     check=False,
                 )
@@ -409,8 +408,12 @@ class Registry:
         try:
             res = self.runner.run(
                 [
-                    "docker", "network", "inspect", name,
-                    "--format", "{{len .Containers}}",
+                    "docker",
+                    "network",
+                    "inspect",
+                    name,
+                    "--format",
+                    "{{len .Containers}}",
                 ],
                 check=False,
             )
@@ -478,9 +481,7 @@ class Registry:
         out = StringIO()
         with _registry_lock():
             rows = self._read()
-            match: Optional[_RegistryRow] = next(
-                (r for r in rows if r.branch_dir == branch_dir), None
-            )
+            match: Optional[_RegistryRow] = next((r for r in rows if r.branch_dir == branch_dir), None)
             if match is None:
                 out.write(f"No registry entry for {branch_dir}; nothing to release.\n")
                 return out.getvalue()
@@ -493,8 +494,7 @@ class Registry:
             out.write(f"Released {branch_dir}={label}.\n")
         return out.getvalue()
 
-    def prune(self, *, dry_run: bool = False, prune_networks: bool = False,
-              repo_root: Optional[Path] = None) -> str:
+    def prune(self, *, dry_run: bool = False, prune_networks: bool = False, repo_root: Optional[Path] = None) -> str:
         """Drop stale registry entries. Optionally also remove orphan
         docker networks (``--networks``).
         """
@@ -529,9 +529,9 @@ class Registry:
                 self._scan_orphan_networks(out, dry_run=dry_run, repo_root=repo_root, git_names=git_names)
         return out.getvalue()
 
-    def _scan_orphan_networks(self, out: StringIO, *, dry_run: bool,
-                              repo_root: Optional[Path],
-                              git_names: set[str]) -> None:
+    def _scan_orphan_networks(
+        self, out: StringIO, *, dry_run: bool, repo_root: Optional[Path], git_names: set[str]
+    ) -> None:
         nets = self._docker_networks_in_range()
         for net in nets:
             if not net.name.endswith("_devcontainer_devcontainer"):
@@ -544,8 +544,9 @@ class Registry:
             # Compose normalizes project names to lowercase, so we
             # match worktrees case-insensitively.
             wt_lc = {n.lower() for n in git_names}
-            wt_lc |= {p.name.lower() for p in self.worktree_parent.glob("*")} \
-                     if self.worktree_parent.is_dir() else set()
+            wt_lc |= (
+                {p.name.lower() for p in self.worktree_parent.glob("*")} if self.worktree_parent.is_dir() else set()
+            )
             if branch_lc in wt_lc:
                 out.write(
                     f"Skipping {net.name} (172.{net.prefix}.x.x): worktree '{branch_lc}' still exists. "
@@ -567,10 +568,14 @@ class Registry:
                 except ToolMissing:
                     out.write("    (docker missing — cannot remove)\n")
 
-    def allocate(self, branch_dir: Optional[str] = None, *,
-                 auto_prune: bool = True,
-                 repo_root: Optional[Path] = None,
-                 emit_warning: Optional[callable] = None) -> StackParams:
+    def allocate(
+        self,
+        branch_dir: Optional[str] = None,
+        *,
+        auto_prune: bool = True,
+        repo_root: Optional[Path] = None,
+        emit_warning: Optional[callable] = None,
+    ) -> StackParams:
         """Allocate (or return existing) stack parameters for ``branch_dir``.
 
         Returns a ``StackParams``. Callers that just want the index can
@@ -587,8 +592,7 @@ class Registry:
                 if INDEX_LO <= v <= INDEX_HI:
                     return stack_params(v)
             raise RegistryError(
-                f"MCK_DEVC_NET_PREFIX='{env_pref}' is not a valid stack index "
-                f"[{INDEX_LO},{INDEX_HI}]"
+                f"MCK_DEVC_NET_PREFIX='{env_pref}' is not a valid stack index " f"[{INDEX_LO},{INDEX_HI}]"
             )
 
         warn = emit_warning if emit_warning is not None else (lambda m: sys.stderr.write(m + "\n"))
@@ -645,8 +649,7 @@ class Registry:
     # ------------------------------------------------------------------
     # rendering
     # ------------------------------------------------------------------
-    def render_list(self, *, repo_root: Optional[Path] = None,
-                    script_self: Optional[str] = None) -> str:
+    def render_list(self, *, repo_root: Optional[Path] = None, script_self: Optional[str] = None) -> str:
         """Return the full ``network list`` text body (registry table +
         summary + docker networks + pruning hints).
         """
@@ -672,9 +675,7 @@ class Registry:
                     out.write(f"{e.branch_dir:<55}  {e.prefix:<6}  {'active':<6}  {wt}\n")
                     active += 1
             out.write("\n")
-            out.write(
-                f"Summary: {active} active, {stale} stale (run with --prune to GC).\n"
-            )
+            out.write(f"Summary: {active} active, {stale} stale (run with --prune to GC).\n")
 
             # Stack-params extension table: shows N/X/Y_BASE/Y_VIP/PORT.
             # Only emitted when the registry is non-empty.
@@ -685,8 +686,7 @@ class Registry:
                 for row in rows:
                     p = row.params
                     out.write(
-                        f"{row.branch_dir:<55}  "
-                        f"{p.index:>5}  {p.x:>3}  {p.y_base:>6}  {p.y_vip:>5}  {p.port:>5}\n"
+                        f"{row.branch_dir:<55}  " f"{p.index:>5}  {p.x:>3}  {p.y_base:>6}  {p.y_vip:>5}  {p.port:>5}\n"
                     )
 
             out.write("\n")
@@ -717,6 +717,7 @@ class Registry:
 # row parsing/formatting
 # ---------------------------------------------------------------------------
 
+
 def _parse_rhs(branch_dir: str, rhs: str) -> Optional[_RegistryRow]:
     """Parse ``<N>:<X>:<Y_BASE>:<Y_VIP>:<PORT>``.
 
@@ -746,9 +747,7 @@ def _parse_rhs(branch_dir: str, rhs: str) -> Optional[_RegistryRow]:
         )
         params = derived
     else:
-        params = StackParams(
-            index=n, x=x, y_base=y_base, y_vip=y_vip, port=port
-        )
+        params = StackParams(index=n, x=x, y_base=y_base, y_vip=y_vip, port=port)
     return _RegistryRow(branch_dir=branch_dir, params=params)
 
 
@@ -817,9 +816,7 @@ class NetworkDomain:
         return entries
 
     def list_raw(self, *, script_self: Optional[str] = None) -> str:
-        return self._registry.render_list(
-            repo_root=self.repo_root, script_self=script_self
-        )
+        return self._registry.render_list(repo_root=self.repo_root, script_self=script_self)
 
     # ------------------------------------------------------------------
     def prefix_for(self, branch_dir: str) -> Optional[int]:
@@ -862,6 +859,7 @@ class NetworkDomain:
 # legacy text parser — kept for tests + any caller that still has bash
 # output stored in a fixture
 # ---------------------------------------------------------------------------
+
 
 def _parse_list_output(text: str) -> list[NetEntry]:
     out: list[NetEntry] = []
@@ -910,9 +908,9 @@ def _parse_list_output(text: str) -> list[NetEntry]:
 # small pure helpers (used by status renderer)
 # ---------------------------------------------------------------------------
 
+
 def subnet_for(prefix: int) -> str:
-    """Status-renderer helper. Renders a stack index as ``172.X.Y_BASE.0/23``.
-    """
+    """Status-renderer helper. Renders a stack index as ``172.X.Y_BASE.0/23``."""
     if INDEX_LO <= prefix <= INDEX_HI:
         return stack_params(prefix).subnet
     return f"<out-of-range {prefix}>"

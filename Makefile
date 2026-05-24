@@ -282,7 +282,7 @@ helm-tests:
 	@if ! helm unittest --help >/dev/null 2>&1; then \
 		echo "helm-unittest plugin not working/not installed, reinstalling..."; \
 		helm plugin uninstall unittest 2>/dev/null || true; \
-		helm plugin install https://github.com/helm-unittest/helm-unittest; \
+		helm plugin install --verify=false https://github.com/helm-unittest/helm-unittest; \
 	fi
 	helm unittest helm_chart --color
 

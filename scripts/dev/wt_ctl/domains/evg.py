@@ -29,9 +29,14 @@ _EVG_CONFIG_PATH = Path.home() / ".evergreen.yml"
 
 # Statuses we treat as "dead" for resume detection — same predicate as the
 # old ``evg_prepare.sh`` (post-commit 4fce8275a).
-_DEAD_STATUSES = frozenset({
-    "terminated", "decommissioned", "quarantined", "failed",
-})
+_DEAD_STATUSES = frozenset(
+    {
+        "terminated",
+        "decommissioned",
+        "quarantined",
+        "failed",
+    }
+)
 
 # Default spawn parameters; match the defaults the legacy shell flow used.
 _DEFAULT_DISTRO = "ubuntu2204-latest-large"
@@ -103,22 +108,28 @@ class EvgDomain:
             host = self.find_by_name(name)
         except ToolMissing:
             return EvgHostState(
-                name=name, id=None, status=None,
-                host_name=None, expires_in=None, ssh=None,
+                name=name,
+                id=None,
+                status=None,
+                host_name=None,
+                expires_in=None,
+                ssh=None,
             )
         if host is None:
             return EvgHostState(
-                name=name, id=None, status="not-found",
-                host_name=None, expires_in=None, ssh=None,
+                name=name,
+                id=None,
+                status="not-found",
+                host_name=None,
+                expires_in=None,
+                ssh=None,
             )
         host_name = host.get("host_name") or None
         user = host.get("user") or "ubuntu"
         ssh = f"ssh {user}@{host_name}" if host_name else None
         host_id = host.get("id")
         # --mine JSON omits expiration; fetch via REST (best-effort).
-        expires_human, expires_secs = (
-            self.fetch_expires_in(host_id) if host_id else (None, None)
-        )
+        expires_human, expires_secs = self.fetch_expires_in(host_id) if host_id else (None, None)
         return EvgHostState(
             name=host.get("name"),
             id=host_id,
@@ -199,10 +210,7 @@ class EvgDomain:
         if existing is not None:
             host_id = existing.get("id") or ""
             status = (existing.get("status") or "").lower()
-            _emit(
-                f"[wt-ctl evg spawn] resume: existing host {host_id} "
-                f"displayName={name!r} status={status!r}"
-            )
+            _emit(f"[wt-ctl evg spawn] resume: existing host {host_id} " f"displayName={name!r} status={status!r}")
             if status == "running":
                 self._ssh_verify(existing, emit=_emit)
                 return host_id
@@ -228,8 +236,7 @@ class EvgDomain:
                 f"Diagnostic: {resolve_diag or 'no key candidates'}"
             )
         _emit(
-            f"[wt-ctl evg spawn] spawning: distro={distro} region={region} "
-            f"key={resolved_key} displayName={name!r}"
+            f"[wt-ctl evg spawn] spawning: distro={distro} region={region} " f"key={resolved_key} displayName={name!r}"
         )
         # Snapshot known --mine host ids *before* the create call. This lets
         # the poll loop disambiguate our newly-spawned host from concurrent
@@ -240,17 +247,20 @@ class EvgDomain:
         # async; until tagged, list payloads show empty ``name``, so a
         # name-based fallback can't pick the right host among siblings).
         try:
-            pre_known_ids = {
-                h.get("id") for h in self._list_my_hosts_json() if h.get("id")
-            }
+            pre_known_ids = {h.get("id") for h in self._list_my_hosts_json() if h.get("id")}
         except ExternalCommandFailed:
             pre_known_ids = set()
         create_res = self.runner.run(
             [
-                "evergreen", "host", "create",
-                "--distro", distro,
-                "--key", resolved_key,
-                "--region", region,
+                "evergreen",
+                "host",
+                "create",
+                "--distro",
+                distro,
+                "--key",
+                resolved_key,
+                "--region",
+                region,
             ],
             check=False,
         )
@@ -294,8 +304,10 @@ class EvgDomain:
         )
         if res.rc != 0:
             raise ExternalCommandFailed(
-                argv=list(res.argv), rc=res.rc,
-                stdout=res.stdout, stderr=res.stderr,
+                argv=list(res.argv),
+                rc=res.rc,
+                stdout=res.stdout,
+                stderr=res.stderr,
             )
         try:
             data = json.loads(res.stdout or "[]")
@@ -366,14 +378,12 @@ class EvgDomain:
         if env_name:
             return env_name, ""
         res = self.runner.run(
-            ["evergreen", "keys", "list"], check=False,
+            ["evergreen", "keys", "list"],
+            check=False,
         )
         if res.rc != 0:
             tail_stderr = (res.stderr or "").strip().splitlines()[-3:]
-            return "", (
-                f"`evergreen keys list` failed rc={res.rc} "
-                f"stderr_tail={tail_stderr!r}"
-            )
+            return "", (f"`evergreen keys list` failed rc={res.rc} " f"stderr_tail={tail_stderr!r}")
         names: list[str] = []
         for line in (res.stdout or "").splitlines():
             m = re.match(r"^\s*Name:\s*'([^']+)'", line)
@@ -382,8 +392,7 @@ class EvgDomain:
         if not names:
             head_stdout = (res.stdout or "").strip().splitlines()[:3]
             return "", (
-                "`evergreen keys list` returned no parseable 'Name: ...' "
-                f"entries; stdout_head={head_stdout!r}"
+                "`evergreen keys list` returned no parseable 'Name: ...' " f"entries; stdout_head={head_stdout!r}"
             )
         if "evg-host" in names:
             return "evg-host", ""
@@ -447,9 +456,9 @@ class EvgDomain:
                     # orchestrators the pre-snapshot diff is the only way to
                     # pick the right host.
                     new_candidates = [
-                        h for h in hosts
-                        if h.get("id") and h.get("id") not in pre_known_ids
-                        and _RE_AWS_ID.match(h.get("id") or "")
+                        h
+                        for h in hosts
+                        if h.get("id") and h.get("id") not in pre_known_ids and _RE_AWS_ID.match(h.get("id") or "")
                     ]
                     # Only flip the id when exactly one candidate is new —
                     # otherwise (zero or 2+) keep polling for clarity.
@@ -458,10 +467,7 @@ class EvgDomain:
                 if host is not None and host.get("id"):
                     new_id = host["id"]
                     if new_id != current_id:
-                        emit(
-                            f"[wt-ctl evg spawn] host id transitioned: "
-                            f"{current_id} -> {new_id}"
-                        )
+                        emit(f"[wt-ctl evg spawn] host id transitioned: " f"{current_id} -> {new_id}")
                         current_id = new_id
             status = ((host or {}).get("status") or "").lower()
             if status != last_status:
@@ -469,8 +475,7 @@ class EvgDomain:
                 last_status = status
             if status in _DEAD_STATUSES:
                 raise WtCtlError(
-                    f"evg spawn: host {current_id} entered terminal "
-                    f"status={status!r} before reaching 'running'"
+                    f"evg spawn: host {current_id} entered terminal " f"status={status!r} before reaching 'running'"
                 )
             # Tag + rename once we have a real AWS id and we haven't yet.
             if not tagged and host is not None and _RE_AWS_ID.match(current_id):
@@ -481,18 +486,20 @@ class EvgDomain:
                 # the ``--name`` rename in a single call.
                 tag_res = self.runner.run(
                     [
-                        "evergreen", "host", "modify",
-                        "--host", current_id,
-                        "--name", name,
-                        "--tag", f"wt-ctl={name}",
+                        "evergreen",
+                        "host",
+                        "modify",
+                        "--host",
+                        current_id,
+                        "--name",
+                        name,
+                        "--tag",
+                        f"wt-ctl={name}",
                     ],
                     check=False,
                 )
                 if tag_res.rc == 0:
-                    emit(
-                        f"[wt-ctl evg spawn] tagged + renamed {current_id} "
-                        f"displayName={name!r}"
-                    )
+                    emit(f"[wt-ctl evg spawn] tagged + renamed {current_id} " f"displayName={name!r}")
                     tagged = True
                 else:
                     emit(
@@ -518,9 +525,7 @@ class EvgDomain:
         ``feedback_evg_host_ssh_keys``); never ssh-keyscans. Logs and
         returns False on failure — the spawn return value still wins.
         """
-        host_name = (
-            host.get("host_name") or host.get("dns_name") or host.get("dnsName")
-        )
+        host_name = host.get("host_name") or host.get("dns_name") or host.get("dnsName")
         if not host_name:
             emit("[wt-ctl evg spawn] SSH verify: skipped (no host_name in JSON)")
             return False
@@ -528,10 +533,14 @@ class EvgDomain:
         ssh_key = Path.home() / ".ssh" / "evg-host"
         argv = [
             "ssh",
-            "-i", str(ssh_key),
-            "-o", "BatchMode=yes",
-            "-o", "ConnectTimeout=5",
-            "-o", "StrictHostKeyChecking=accept-new",
+            "-i",
+            str(ssh_key),
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            "ConnectTimeout=5",
+            "-o",
+            "StrictHostKeyChecking=accept-new",
             f"{user}@{host_name}",
             "true",
         ]
@@ -580,6 +589,7 @@ class EvgDomain:
 # import without spinning up a domain instance.
 # ----------------------------------------------------------------------
 
+
 def _read_evg_config() -> Optional[dict]:
     """Parse ~/.evergreen.yml. Returns None when unreadable."""
     if not _EVG_CONFIG_PATH.is_file():
@@ -609,10 +619,13 @@ def _fetch_expiration_time(host_id: str) -> Optional[datetime]:
         return None
     # api_server already ends in ``/api``; REST routes hang off ``/rest/v2``.
     url = f"{api_server}/rest/v2/hosts/{host_id}"
-    req = urllib.request.Request(url, headers={
-        "Api-User": api_user,
-        "Api-Key": api_key,
-    })
+    req = urllib.request.Request(
+        url,
+        headers={
+            "Api-User": api_user,
+            "Api-Key": api_key,
+        },
+    )
     try:
         with urllib.request.urlopen(req, timeout=_EVG_API_TIMEOUT_S) as resp:
             body = resp.read().decode("utf-8", errors="replace")

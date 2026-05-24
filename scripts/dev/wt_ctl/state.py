@@ -21,39 +21,41 @@ class GitState:
 @dataclass
 class DevcState:
     """Devcontainer compose stack."""
+
     project: str
-    state: str                  # running | exited | -
+    state: str  # running | exited | -
     services_running: int
     services_total: int
-    image_age: Optional[str]    # human "2h" | None
+    image_age: Optional[str]  # human "2h" | None
 
 
 @dataclass
 class NetEntry:
     """One row from dc_select_network.sh --list / registry."""
+
     branch_dir: str
     prefix: int
-    status: str                 # active | stale
+    status: str  # active | stale
     worktree_path: Optional[str]
 
 
 @dataclass
 class NetState:
-    prefix: Optional[int]       # this worktree's prefix (None when not allocated)
+    prefix: Optional[int]  # this worktree's prefix (None when not allocated)
     subnet: Optional[str]
     namespace: Optional[str]
     gost_proxy: Optional[str]
     registered: bool
-    orphans: int                # count of stale registry entries elsewhere
+    orphans: int  # count of stale registry entries elsewhere
 
 
 @dataclass
 class EvgHostState:
     name: Optional[str]
     id: Optional[str]
-    status: Optional[str]       # running | terminated | terminating | …
-    host_name: Optional[str]    # ec2-… DNS
-    expires_in: Optional[str]   # human "3h12m" | None
+    status: Optional[str]  # running | terminated | terminating | …
+    host_name: Optional[str]  # ec2-… DNS
+    expires_in: Optional[str]  # human "3h12m" | None
     ssh: Optional[str]
     # Remaining time-to-expiry in seconds (parallel to expires_in so the
     # status hint logic doesn't have to re-parse the human string). Negative
@@ -64,7 +66,7 @@ class EvgHostState:
 @dataclass
 class KubeconfigState:
     path: Optional[str]
-    last_patch: Optional[str]   # human age
+    last_patch: Optional[str]  # human age
     kfp_registered: Optional[bool]
 
 
@@ -75,9 +77,10 @@ class KfpHostState:
     The daemon is pkg-installed and launchd-managed; PID is owned by
     launchd and not surfaced here. status carries only liveness signals.
     """
+
     listening: bool
-    health: Optional[str]              # "ok" when /healthz is happy
-    http_endpoint: str                 # "127.0.0.1:11616"
+    health: Optional[str]  # "ok" when /healthz is happy
+    http_endpoint: str  # "127.0.0.1:11616"
 
 
 @dataclass
@@ -90,6 +93,7 @@ class OmState:
 @dataclass
 class WorktreeStatus:
     """Everything `wt-ctl status` (current worktree) renders."""
+
     worktree_dir: str
     worktree_path: str
     git: GitState
@@ -106,6 +110,7 @@ class WorktreeStatus:
 @dataclass
 class WorktreeRow:
     """One line in `status --all`."""
+
     worktree: str
     branch: str
     prefix: Optional[int]

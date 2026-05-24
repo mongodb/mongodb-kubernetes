@@ -19,6 +19,7 @@ else:
     # Importing otel_plugin.pytest_configure and otel_plugin.pytest_sessionstart hook is enough to configure OTEL plugin
     from tests.otel_plugin import pytest_configure, pytest_sessionstart  # noqa: F401
 
+
 def _load_env_from_local_file_for_development():
     """Load environment variables from .generated/context.{env,<side>.env}
     for local development. Mirrors the operator's

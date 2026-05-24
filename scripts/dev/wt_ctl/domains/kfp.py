@@ -57,10 +57,7 @@ KFP_HEALTH_URL = f"{KFP_DEFAULT_URL}/healthz"
 LAUNCHD_LABEL = "io.github.fealebenpae.k8s-proxy"
 LAUNCHCTL_KICKSTART = f"sudo launchctl kickstart -k system/{LAUNCHD_LABEL}"
 LAUNCHCTL_BOOTOUT = f"sudo launchctl bootout system/{LAUNCHD_LABEL}"
-LAUNCHCTL_BOOTSTRAP = (
-    f"sudo launchctl bootstrap system "
-    f"/Library/LaunchDaemons/{LAUNCHD_LABEL}.plist"
-)
+LAUNCHCTL_BOOTSTRAP = f"sudo launchctl bootstrap system " f"/Library/LaunchDaemons/{LAUNCHD_LABEL}.plist"
 
 LISTEN_PROBE_TIMEOUT_S = 0.25
 HEALTH_PROBE_TIMEOUT_S = 1.0
@@ -251,4 +248,3 @@ class KfpDomain:
             raise WtCtlError(f"kfp delete failed: HTTP {exc.code} {exc.reason}") from exc
         except (urllib.error.URLError, OSError) as exc:
             raise WtCtlError(f"kfp delete failed: {exc}") from exc
-

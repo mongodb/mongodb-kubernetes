@@ -8,7 +8,6 @@ import unittest
 from pathlib import Path
 
 from _common import FakePopenFactory, fake_which  # noqa: E402
-
 from wt_ctl.errors import NotInWorktree  # noqa: E402
 from wt_ctl.paths import resolve_worktree  # noqa: E402
 from wt_ctl.runner import Runner  # noqa: E402
@@ -33,7 +32,9 @@ class PathsTests(unittest.TestCase):
                 {
                     ("git", "-C", wt_str, "rev-parse", "--show-toplevel"): (wt_str + "\n", "", 0),
                     ("git", "-C", wt_str, "rev-parse", "--git-common-dir"): (
-                        str(Path(tmp).resolve() / "main" / ".git") + "\n", "", 0,
+                        str(Path(tmp).resolve() / "main" / ".git") + "\n",
+                        "",
+                        0,
                     ),
                     ("git", "-C", wt_str, "rev-parse", "--abbrev-ref", "HEAD"): ("topic/x\n", "", 0),
                 }

@@ -16,7 +16,5 @@ def emit_banner(refs: Optional[WorktreeRefs], *, quiet: bool = False) -> None:
     """
     if quiet or refs is None:
         return
-    sys.stderr.write(
-        f"[wt-ctl] worktree={refs.branch_dir}  branch={refs.branch}\n"
-    )
+    sys.stderr.write(f"[wt-ctl] worktree={refs.branch_dir}  branch={refs.branch}\n")
     sys.stderr.flush()

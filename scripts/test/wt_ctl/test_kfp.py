@@ -26,15 +26,14 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from _common import fake_which  # noqa: E402
-
 from wt_ctl import cli  # noqa: E402
 from wt_ctl.domains import kfp as kfp_mod  # noqa: E402
 from wt_ctl.domains.kfp import KfpDomain  # noqa: E402
 
-
 # ---------------------------------------------------------------------------
 # fake socket / urlopen helpers
 # ---------------------------------------------------------------------------
+
 
 class _FakeSocket:
     """Minimal stand-in for ``socket.socket(AF_INET, SOCK_STREAM)``."""
@@ -74,16 +73,18 @@ class _FakeHTTPResponse:
 @dataclass
 class _DetachedRecorder:
     """Stand-in Runner used for the ``start()`` test."""
+
     detached_calls: list[dict] = field(default_factory=list)
     spawn_pid: int = 4242
 
-    def run_detached(self, argv, *, stdout_path=None, stderr_path=None,
-                     env=None, cwd=None) -> int:
-        self.detached_calls.append({
-            "argv": list(argv),
-            "stdout_path": stdout_path,
-            "stderr_path": stderr_path,
-        })
+    def run_detached(self, argv, *, stdout_path=None, stderr_path=None, env=None, cwd=None) -> int:
+        self.detached_calls.append(
+            {
+                "argv": list(argv),
+                "stdout_path": stdout_path,
+                "stderr_path": stderr_path,
+            }
+        )
         return self.spawn_pid
 
 
@@ -91,9 +92,9 @@ class _DetachedRecorder:
 # is_listening
 # ---------------------------------------------------------------------------
 
+
 class IsListeningTests(unittest.TestCase):
-    def _domain(self, *, connect_ok: bool, tmp: str,
-                exc: Optional[Exception] = None) -> KfpDomain:
+    def _domain(self, *, connect_ok: bool, tmp: str, exc: Optional[Exception] = None) -> KfpDomain:
         d = KfpDomain(
             runner=None,  # not used by is_listening
             binary=Path("/nonexistent/proxy"),
@@ -122,13 +123,15 @@ class IsListeningTests(unittest.TestCase):
     def test_not_listening_on_connection_refused(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             d = self._domain(
-                connect_ok=False, tmp=tmp,
+                connect_ok=False,
+                tmp=tmp,
                 exc=ConnectionRefusedError("refused"),
             )
             self.assertFalse(d.is_listening())
 
     def test_not_listening_on_timeout(self) -> None:
         import socket as _socket
+
         with tempfile.TemporaryDirectory() as tmp:
             d = self._domain(connect_ok=False, tmp=tmp, exc=_socket.timeout())
             self.assertFalse(d.is_listening())
@@ -137,6 +140,7 @@ class IsListeningTests(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # health()
 # ---------------------------------------------------------------------------
+
 
 class HealthTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -168,6 +172,7 @@ class HealthTests(unittest.TestCase):
     def test_connection_refused_returns_none(self) -> None:
         def _boom(_u, timeout=None):
             raise urllib.error.URLError("Connection refused")
+
         self._patch(_boom)
         with tempfile.TemporaryDirectory() as tmp:
             self.assertIsNone(self._domain(tmp).health())
@@ -175,6 +180,7 @@ class HealthTests(unittest.TestCase):
     def test_oserror_returns_none(self) -> None:
         def _boom(_u, timeout=None):
             raise OSError("boom")
+
         self._patch(_boom)
         with tempfile.TemporaryDirectory() as tmp:
             self.assertIsNone(self._domain(tmp).health())
@@ -183,6 +189,7 @@ class HealthTests(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # CLI parser
 # ---------------------------------------------------------------------------
+
 
 class KfpCliParserTests(unittest.TestCase):
     def test_kfp_status_parses(self) -> None:

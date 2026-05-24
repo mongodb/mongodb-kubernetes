@@ -336,10 +336,7 @@ class KubeconfigDomain:
                     "source .devcontainer/.env via root-context)"
                 )
             host_proxy = f"http://127.0.0.1:{suffix_port}"
-            emit(
-                f"Patching {host_kc}: proxy={host_proxy} "
-                f"context={cluster_name or '<inherited>'} (bare on disk)"
-            )
+            emit(f"Patching {host_kc}: proxy={host_proxy} " f"context={cluster_name or '<inherited>'} (bare on disk)")
             _set_proxy_url(host_data, host_proxy)
             _pin_current_context(host_data)
             _dump_yaml(host_kc, host_data)
@@ -377,16 +374,12 @@ class KubeconfigDomain:
         if m:
             port = m.group("port") or "443"
             devc_server = f"https://host.docker.internal:{port}"
-            emit(
-                f"Local-kind: {devc_kc}: server={devc_server} (TLS verify off)"
-            )
+            emit(f"Local-kind: {devc_kc}: server={devc_server} (TLS verify off)")
             devc_data = copy.deepcopy(host_data)
             _set_server_for_devc(devc_data, devc_server)
             _dump_yaml(devc_kc, devc_data)
         else:
-            emit(
-                f"BYOC: {devc_kc}: identity copy of {host_kc} (server={server})"
-            )
+            emit(f"BYOC: {devc_kc}: identity copy of {host_kc} (server={server})")
             _dump_yaml(devc_kc, host_data)
 
         # Local-kind / BYOC: the host kubeconfig's apiserver is locally
@@ -426,10 +419,7 @@ class KubeconfigDomain:
             _suffix_kubeconfig_names(data, suffix_port)
             yaml = _import_yaml()
             body = yaml.safe_dump(data, sort_keys=False).encode("utf-8")
-            emit(
-                f"Loading kubeconfig from {path} onto {k8s_fwd_proxy} "
-                f"(names suffixed -{suffix_port} in-flight)"
-            )
+            emit(f"Loading kubeconfig from {path} onto {k8s_fwd_proxy} " f"(names suffixed -{suffix_port} in-flight)")
         else:
             emit(f"Loading kubeconfig from {path} onto {k8s_fwd_proxy}")
             body = path.read_bytes()

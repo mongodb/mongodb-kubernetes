@@ -5,9 +5,7 @@ from __future__ import annotations
 import unittest
 
 from _common import FakePopenFactory  # noqa: E402
-
 from wt_ctl.domains.network import _parse_list_output  # noqa: E402
-
 
 SAMPLE = """\
 Registry: /home/x/.cache/mck-devc/net-prefix-registry

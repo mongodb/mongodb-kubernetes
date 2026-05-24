@@ -81,6 +81,7 @@ class OmDomain:
         want ``wt-ctl status`` to die on a slow VPN.
         """
         import sys
+
         host = ctx.get("OM_HOST") or os.environ.get("OM_HOST")
         user = ctx.get("OM_USER") or os.environ.get("OM_USER")
         api_key = ctx.get("OM_API_KEY") or os.environ.get("OM_API_KEY")
@@ -96,10 +97,7 @@ class OmDomain:
                 f"context.env"
             ) from exc
         except urllib.error.URLError as exc:
-            sys.stderr.write(
-                f"[wt-ctl om] WARN: network error querying {host} ({exc}); "
-                f"reporting 0 projects.\n"
-            )
+            sys.stderr.write(f"[wt-ctl om] WARN: network error querying {host} ({exc}); " f"reporting 0 projects.\n")
             return []
         if not isinstance(data, dict):
             return []
@@ -122,6 +120,7 @@ class OmDomain:
             # the row reads "om <err>: ..." instead of dying the whole
             # `wt-ctl status` render.
             import sys
+
             sys.stderr.write(f"[wt-ctl om] WARN: {exc}\n")
             return None
 
@@ -129,6 +128,7 @@ class OmDomain:
 # ---------------------------------------------------------------------------
 # tiny digest GET helper (stdlib only)
 # ---------------------------------------------------------------------------
+
 
 def _digest_get_json(url: str, user: str, api_key: str):
     """Minimal HTTP-Digest GET. We avoid pip deps; OM uses MD5 digest auth.

@@ -109,10 +109,7 @@ class LockTimeout(WtCtlError):
     exit_code = 1
 
     def __init__(self, lock_path: str, timeout_s: float):
-        super().__init__(
-            f"could not acquire lock at {lock_path} within {timeout_s:g}s "
-            f"(if stale: rmdir it)"
-        )
+        super().__init__(f"could not acquire lock at {lock_path} within {timeout_s:g}s " f"(if stale: rmdir it)")
         self.lock_path = lock_path
         self.timeout_s = timeout_s
 

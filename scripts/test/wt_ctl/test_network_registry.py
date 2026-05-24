@@ -23,28 +23,27 @@ from pathlib import Path
 from unittest.mock import patch
 
 from _common import FakePopenFactory, fake_which  # noqa: E402
-
 from wt_ctl.domains.network import (  # noqa: E402
     DERIVED_ENV_KEYS,
     INDEX_HI,
     INDEX_LO,
-    Registry,
-    StackParams,
     VALID_RANGE_HI,
     VALID_RANGE_LO,
-    _RegistryRow,
+    Registry,
+    StackParams,
     _format_rhs,
     _parse_rhs,
+    _RegistryRow,
     env_lines_for,
     stack_params,
 )
 from wt_ctl.errors import RegistryError  # noqa: E402
 from wt_ctl.runner import Runner  # noqa: E402
 
-
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
+
 
 class _MakeFakes:
     """Minimal Runner that fakes docker + git calls deterministically.
@@ -57,8 +56,7 @@ class _MakeFakes:
     def runner(self) -> Runner:
         fake = FakePopenFactory(
             mapping={
-                ("docker", "network", "ls", "--format", "{{.Name}}"):
-                    ("", "", 0),
+                ("docker", "network", "ls", "--format", "{{.Name}}"): ("", "", 0),
             },
             default=("", "", 0),
         )
@@ -73,6 +71,7 @@ def _patch_registry_dir(tmp: Path):
 # ---------------------------------------------------------------------------
 # math: stack_params + boundary indices
 # ---------------------------------------------------------------------------
+
 
 class StackParamsMathTests(unittest.TestCase):
     """Confirm the index -> X/Y/PORT mapping at every load-bearing boundary."""
@@ -116,6 +115,7 @@ class StackParamsMathTests(unittest.TestCase):
 # row parsing/formatting round-trip
 # ---------------------------------------------------------------------------
 
+
 class RowFormatTests(unittest.TestCase):
     def test_composite_round_trip(self) -> None:
         # N=128 -> X=17, Y_BASE=0, Y_VIP=1, PORT=8128
@@ -126,9 +126,9 @@ class RowFormatTests(unittest.TestCase):
 
     def test_malformed_drops(self) -> None:
         self.assertIsNone(_parse_rhs("x", "not-a-number"))
-        self.assertIsNone(_parse_rhs("x", "1:2:3"))    # wrong arity
-        self.assertIsNone(_parse_rhs("x", "24"))       # bare-int legacy form (rejected)
-        self.assertIsNone(_parse_rhs("x", "9999"))     # out of index range
+        self.assertIsNone(_parse_rhs("x", "1:2:3"))  # wrong arity
+        self.assertIsNone(_parse_rhs("x", "24"))  # bare-int legacy form (rejected)
+        self.assertIsNone(_parse_rhs("x", "9999"))  # out of index range
         self.assertIsNone(_parse_rhs("x", "9999:1:2:3:4"))
 
     def test_inconsistent_composite_falls_back_to_derived(self) -> None:
@@ -144,9 +144,11 @@ class RowFormatTests(unittest.TestCase):
 # round-trip — write then read
 # ---------------------------------------------------------------------------
 
+
 class RoundTripTests(unittest.TestCase):
     def test_write_then_read(self) -> None:
         import tempfile
+
         with tempfile.TemporaryDirectory() as td:
             with _patch_registry_dir(Path(td)):
                 wt_parent = Path(td) / "mdb"
@@ -189,9 +191,11 @@ class RoundTripTests(unittest.TestCase):
 # allocate
 # ---------------------------------------------------------------------------
 
+
 class AllocateTests(unittest.TestCase):
     def test_empty_registry_first_index(self) -> None:
         import tempfile
+
         with tempfile.TemporaryDirectory() as td:
             with _patch_registry_dir(Path(td)):
                 wt_parent = Path(td) / "mdb"
@@ -212,6 +216,7 @@ class AllocateTests(unittest.TestCase):
         indices whose X==16; the allocator returns the first index in X=17.
         """
         import tempfile
+
         with tempfile.TemporaryDirectory() as td:
             with _patch_registry_dir(Path(td)):
                 wt_parent = Path(td) / "mdb"
@@ -221,11 +226,15 @@ class AllocateTests(unittest.TestCase):
                 # Fake a docker network at 172.16.0.0/16 (e.g. "kind").
                 fake = FakePopenFactory(
                     mapping={
-                        ("docker", "network", "ls", "--format", "{{.Name}}"):
-                            ("kind\n", "", 0),
-                        ("docker", "network", "inspect", "kind",
-                         "--format", "{{range .IPAM.Config}}{{.Subnet}}{{end}}"):
-                            ("172.16.0.0/16", "", 0),
+                        ("docker", "network", "ls", "--format", "{{.Name}}"): ("kind\n", "", 0),
+                        (
+                            "docker",
+                            "network",
+                            "inspect",
+                            "kind",
+                            "--format",
+                            "{{range .IPAM.Config}}{{.Subnet}}{{end}}",
+                        ): ("172.16.0.0/16", "", 0),
                     },
                     default=("", "", 0),
                 )
@@ -245,9 +254,11 @@ class AllocateTests(unittest.TestCase):
 # release + re-allocate round-trip
 # ---------------------------------------------------------------------------
 
+
 class ReleaseRoundTripTests(unittest.TestCase):
     def test_release_frees_index_for_reallocation(self) -> None:
         import tempfile
+
         with tempfile.TemporaryDirectory() as td:
             with _patch_registry_dir(Path(td)):
                 wt_parent = Path(td) / "mdb"
@@ -257,11 +268,13 @@ class ReleaseRoundTripTests(unittest.TestCase):
                     (wt_parent / bd).mkdir()
                 runner = _MakeFakes().runner()
                 reg = Registry(runner, worktree_parent=wt_parent)
-                reg._write([
-                    _RegistryRow("a0", stack_params(0)),
-                    _RegistryRow("a200", stack_params(200)),
-                    _RegistryRow("a300", stack_params(300)),
-                ])
+                reg._write(
+                    [
+                        _RegistryRow("a0", stack_params(0)),
+                        _RegistryRow("a200", stack_params(200)),
+                        _RegistryRow("a300", stack_params(300)),
+                    ]
+                )
                 for bd in names:
                     reg.release(bd)
                 self.assertEqual(reg._read(), [])
@@ -279,28 +292,35 @@ class ReleaseRoundTripTests(unittest.TestCase):
 # env_lines_for
 # ---------------------------------------------------------------------------
 
+
 class EnvLinesTests(unittest.TestCase):
     def test_index_zero_block(self) -> None:
         params = stack_params(0)
         lines = env_lines_for(params)
-        self.assertEqual(lines, [
-            "MCK_DEVC_NET_PREFIX=0",
-            "MCK_DEVC_NET_X=16",
-            "MCK_DEVC_NET_Y_BASE=0",
-            "MCK_DEVC_NET_Y_VIP=1",
-            "MCK_DEVC_PROXY_PORT=8000",
-        ])
+        self.assertEqual(
+            lines,
+            [
+                "MCK_DEVC_NET_PREFIX=0",
+                "MCK_DEVC_NET_X=16",
+                "MCK_DEVC_NET_Y_BASE=0",
+                "MCK_DEVC_NET_Y_VIP=1",
+                "MCK_DEVC_PROXY_PORT=8000",
+            ],
+        )
 
     def test_mid_range_block(self) -> None:
         params = stack_params(200)
         # 200 >> 7 == 1 -> X=17; 200 & 0x7F == 72; 72*2 == 144
-        self.assertEqual(env_lines_for(params), [
-            "MCK_DEVC_NET_PREFIX=200",
-            "MCK_DEVC_NET_X=17",
-            "MCK_DEVC_NET_Y_BASE=144",
-            "MCK_DEVC_NET_Y_VIP=145",
-            "MCK_DEVC_PROXY_PORT=8200",
-        ])
+        self.assertEqual(
+            env_lines_for(params),
+            [
+                "MCK_DEVC_NET_PREFIX=200",
+                "MCK_DEVC_NET_X=17",
+                "MCK_DEVC_NET_Y_BASE=144",
+                "MCK_DEVC_NET_Y_VIP=145",
+                "MCK_DEVC_PROXY_PORT=8200",
+            ],
+        )
 
     def test_derived_keys_present(self) -> None:
         for k in DERIVED_ENV_KEYS:
@@ -311,6 +331,7 @@ class EnvLinesTests(unittest.TestCase):
 # locking — concurrent allocate
 # ---------------------------------------------------------------------------
 
+
 class LockTests(unittest.TestCase):
     def test_concurrent_allocate_serializes(self) -> None:
         """Two threads racing on allocate() must:
@@ -319,6 +340,7 @@ class LockTests(unittest.TestCase):
         (c) leave the registry with two valid entries.
         """
         import tempfile
+
         with tempfile.TemporaryDirectory() as td:
             with _patch_registry_dir(Path(td)):
                 wt_parent = Path(td) / "mdb"
@@ -345,12 +367,13 @@ class LockTests(unittest.TestCase):
 
                 t1 = threading.Thread(target=alloc, args=("first",))
                 t2 = threading.Thread(target=alloc, args=("second",))
-                t1.start(); t2.start()
-                t1.join(); t2.join()
+                t1.start()
+                t2.start()
+                t1.join()
+                t2.join()
                 self.assertFalse(errors, msg=f"thread raised: {errors}")
                 self.assertEqual(set(results.keys()), {"first", "second"})
-                self.assertEqual(len(set(results.values())), 2,
-                                 msg=f"expected distinct indices; got {results}")
+                self.assertEqual(len(set(results.values())), 2, msg=f"expected distinct indices; got {results}")
                 # both indices in valid range
                 for v in results.values():
                     self.assertGreaterEqual(v, INDEX_LO)
@@ -365,9 +388,11 @@ class LockTests(unittest.TestCase):
 # stale-lock recovery
 # ---------------------------------------------------------------------------
 
+
 class StaleLockTests(unittest.TestCase):
     def test_stale_lock_force_released(self) -> None:
         import tempfile
+
         with tempfile.TemporaryDirectory() as td:
             with _patch_registry_dir(Path(td)):
                 wt_parent = Path(td) / "mdb"
@@ -399,17 +424,21 @@ class StaleLockTests(unittest.TestCase):
                 # The force-release was announced via the warn callback,
                 # not silently. (Important for diagnostic visibility in
                 # production.)
-                self.assertTrue(any("force-releasing stale lock" in m for m in msgs),
-                                msg=f"expected force-release warning; got {msgs}")
+                self.assertTrue(
+                    any("force-releasing stale lock" in m for m in msgs),
+                    msg=f"expected force-release warning; got {msgs}",
+                )
 
 
 # ---------------------------------------------------------------------------
 # orphan detection + prune
 # ---------------------------------------------------------------------------
 
+
 class OrphanTests(unittest.TestCase):
     def test_list_flags_stale_and_prune_removes(self) -> None:
         import tempfile
+
         with tempfile.TemporaryDirectory() as td:
             with _patch_registry_dir(Path(td)):
                 wt_parent = Path(td) / "mdb"
@@ -419,10 +448,12 @@ class OrphanTests(unittest.TestCase):
 
                 runner = _MakeFakes().runner()
                 reg = Registry(runner, worktree_parent=wt_parent)
-                reg._write([
-                    _RegistryRow("live", stack_params(0)),
-                    _RegistryRow("dead", stack_params(1)),
-                ])
+                reg._write(
+                    [
+                        _RegistryRow("live", stack_params(0)),
+                        _RegistryRow("dead", stack_params(1)),
+                    ]
+                )
 
                 entries, _ = reg.list()
                 kinds = {e.branch_dir: e.status for e in entries}
@@ -439,12 +470,14 @@ class OrphanTests(unittest.TestCase):
 # allocate auto-prune
 # ---------------------------------------------------------------------------
 
+
 class AutoPruneTests(unittest.TestCase):
     def test_allocate_auto_reclaims_stale_slot(self) -> None:
         """Index 0 occupied but the holding worktree is gone (stale); a
         fresh allocate auto-prunes that slot and reclaims it.
         """
         import tempfile
+
         with tempfile.TemporaryDirectory() as td:
             with _patch_registry_dir(Path(td)):
                 wt_parent = Path(td) / "mdb"
@@ -458,7 +491,8 @@ class AutoPruneTests(unittest.TestCase):
 
                 (wt_parent / "newcomer").mkdir()
                 params = reg.allocate(
-                    branch_dir="newcomer", auto_prune=True,
+                    branch_dir="newcomer",
+                    auto_prune=True,
                     emit_warning=lambda _m: None,
                 )
                 self.assertEqual(params.index, 0)
@@ -472,9 +506,11 @@ class AutoPruneTests(unittest.TestCase):
 # release
 # ---------------------------------------------------------------------------
 
+
 class ReleaseTests(unittest.TestCase):
     def test_release_drops_matching_entry(self) -> None:
         import tempfile
+
         with tempfile.TemporaryDirectory() as td:
             with _patch_registry_dir(Path(td)):
                 wt_parent = Path(td) / "mdb"
@@ -484,10 +520,12 @@ class ReleaseTests(unittest.TestCase):
 
                 runner = _MakeFakes().runner()
                 reg = Registry(runner, worktree_parent=wt_parent)
-                reg._write([
-                    _RegistryRow("alpha", stack_params(0)),
-                    _RegistryRow("beta", stack_params(1)),
-                ])
+                reg._write(
+                    [
+                        _RegistryRow("alpha", stack_params(0)),
+                        _RegistryRow("beta", stack_params(1)),
+                    ]
+                )
                 out = reg.release("alpha")
                 self.assertIn("Released alpha=", out)
                 rows = reg._read()
@@ -496,6 +534,7 @@ class ReleaseTests(unittest.TestCase):
 
     def test_release_unknown_is_noop(self) -> None:
         import tempfile
+
         with tempfile.TemporaryDirectory() as td:
             with _patch_registry_dir(Path(td)):
                 wt_parent = Path(td) / "mdb"

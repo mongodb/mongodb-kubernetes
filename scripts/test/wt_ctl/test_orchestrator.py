@@ -15,23 +15,18 @@ We drive ``CreateOrchestrator.run`` with a fake Runner whose ``run`` /
 from __future__ import annotations
 
 import os
-
+import tempfile
 import threading
 import time
-import tempfile
 import unittest
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Optional
 
 from _common import FakePopenFactory, fake_which  # noqa: E402
-
 from wt_ctl import orchestrator_state as ostate  # noqa: E402
 from wt_ctl.errors import ExternalCommandFailed, StateConflict  # noqa: E402
-from wt_ctl.orchestrator import (  # noqa: E402
-    CreateInputs,
-    CreateOrchestrator,
-)
+from wt_ctl.orchestrator import CreateInputs, CreateOrchestrator  # noqa: E402
 from wt_ctl.runner import CmdResult  # noqa: E402
 
 
@@ -44,9 +39,7 @@ class FakeRunner:
     """
 
     calls: list[list[str]] = field(default_factory=list)
-    handlers: list[tuple[Callable[[list[str]], bool], Callable[[list[str]], CmdResult]]] = field(
-        default_factory=list
-    )
+    handlers: list[tuple[Callable[[list[str]], bool], Callable[[list[str]], CmdResult]]] = field(default_factory=list)
     parallel_lock: threading.Lock = field(default_factory=threading.Lock)
     concurrent_max: int = 0
     concurrent_now: int = 0
@@ -66,6 +59,7 @@ class FakeRunner:
     ) -> None:
         def _fail(argv: list[str]):
             raise ExternalCommandFailed(argv=list(argv), rc=rc, stdout="", stderr=stderr)
+
         self.handlers.append((match, _fail))
 
     def have(self, _name: str) -> bool:
@@ -198,7 +192,8 @@ class CreatePipelineTests(unittest.TestCase):
                     self.assertEqual(state.phases[name].status, ostate.PENDING)
                     continue
                 self.assertEqual(
-                    state.phases[name].status, ostate.OK,
+                    state.phases[name].status,
+                    ostate.OK,
                     f"phase {name} not ok: {state.phases[name]}",
                 )
             # The .env file was written with the prefix line by the native
@@ -226,10 +221,16 @@ class CreatePipelineTests(unittest.TestCase):
             # asserted on the OK-phase sequence in state.json.
             state = ostate.load(target)
             assert state is not None
-            for name in ("worktree_init", "net_allocate", "evg_prepare",
-                         "dc_build", "dc_up", "post_start", "kubeconfig"):
-                self.assertEqual(state.phases[name].status, ostate.OK,
-                                 f"{name} not ok")
+            for name in (
+                "worktree_init",
+                "net_allocate",
+                "evg_prepare",
+                "dc_build",
+                "dc_up",
+                "post_start",
+                "kubeconfig",
+            ):
+                self.assertEqual(state.phases[name].status, ostate.OK, f"{name} not ok")
             env_text = (target / ".devcontainer" / ".env").read_text()
             # The .env was written with the 5-line stack-params block by
             # the native Registry.allocate(): MCK_DEVC_NET_PREFIX (the
@@ -244,12 +245,18 @@ class CreatePipelineTests(unittest.TestCase):
             sigs = []
             for argv in runner.calls:
                 joined = " ".join(argv)
-                if "create_worktree.sh" in joined: sigs.append("worktree_init")
-                elif "evg_prepare.sh" in joined: sigs.append("evg_prepare")
-                elif "devcontainer" in argv and "build" in argv: sigs.append("dc_build")
-                elif "devcontainer" in argv and "up" in argv: sigs.append("dc_up")
-                elif "post-start.sh" in joined: sigs.append("post_start")
-                elif "wt-ctl --quiet kubeconfig refresh" in joined: sigs.append("kubeconfig")
+                if "create_worktree.sh" in joined:
+                    sigs.append("worktree_init")
+                elif "evg_prepare.sh" in joined:
+                    sigs.append("evg_prepare")
+                elif "devcontainer" in argv and "build" in argv:
+                    sigs.append("dc_build")
+                elif "devcontainer" in argv and "up" in argv:
+                    sigs.append("dc_up")
+                elif "post-start.sh" in joined:
+                    sigs.append("post_start")
+                elif "wt-ctl --quiet kubeconfig refresh" in joined:
+                    sigs.append("kubeconfig")
             seen = []
             for s in sigs:
                 if s not in seen:
@@ -272,7 +279,8 @@ class CreatePipelineTests(unittest.TestCase):
             orch = CreateOrchestrator(runner, inputs)
             orch.run()
             self.assertGreaterEqual(
-                runner.concurrent_max, 2,
+                runner.concurrent_max,
+                2,
                 msg=f"expected 2 concurrent runners during parallel pair, got {runner.concurrent_max}",
             )
 
@@ -287,7 +295,8 @@ class CreatePipelineTests(unittest.TestCase):
             )
             # Make evg_prepare fail.
             runner.add_failure(
-                lambda argv: any(a.endswith("evg_prepare.sh") for a in argv), rc=42,
+                lambda argv: any(a.endswith("evg_prepare.sh") for a in argv),
+                rc=42,
             )
             orch = CreateOrchestrator(runner, inputs)
             with self.assertRaises(Exception):
@@ -316,7 +325,11 @@ class CreatePipelineTests(unittest.TestCase):
             env_file.parent.mkdir(parents=True, exist_ok=True)
             env_file.write_text("MCK_DEVC_NET_PREFIX=29\n")
             inputs = _make_inputs(
-                repo, target, branch, branch_dir, skip_prepare_e2e=True,
+                repo,
+                target,
+                branch,
+                branch_dir,
+                skip_prepare_e2e=True,
             )
             runner = FakeRunner()
             CreateOrchestrator(runner, inputs).run()
