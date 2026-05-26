@@ -91,8 +91,15 @@ function openLogModal(filename) {
     const info = document.getElementById('log-modal-info');
     const body = document.getElementById('log-modal-body');
 
-    // Show just the short filename in the title
-    const shortName = filename.includes('_') ? filename.split('_').slice(-1)[0] || filename : filename;
+    // Synthetic per-item keys are formatted as "<source_file>#<resource_name>".
+    // For those, show just the resource name; otherwise fall back to the
+    // trailing chunk of the filename.
+    let shortName;
+    if (filename.includes('#')) {
+        shortName = filename.split('#').slice(-1)[0];
+    } else {
+        shortName = filename.includes('_') ? filename.split('_').slice(-1)[0] || filename : filename;
+    }
     title.textContent = shortName;
     title.title = filename;
 

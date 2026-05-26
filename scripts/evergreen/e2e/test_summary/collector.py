@@ -43,6 +43,7 @@ class TestSummaryGenerator:
             "error_patterns": [],
             "timeline": [],
             "artifacts": {"files": [], "summary": {}},
+            "log_tails": {},
         }
         self.error_id_counter = 0
         self.errors_by_pattern = defaultdict(list)
@@ -334,6 +335,28 @@ class TestSummaryGenerator:
             print(f"Warning: Failed to extract pod info: {e}", file=sys.stderr)
             return None
 
+    def _embed_item_yaml(self, key: str, item: Dict):
+        """Embed a single resource's YAML under a synthetic log_tails key.
+
+        Used so each row's "view" link in the Resource Browser opens only that
+        resource's YAML, instead of the whole `kubectl get <kind> -o yaml` dump.
+        """
+        if yaml is None or not item:
+            return
+        try:
+            content = yaml.safe_dump(item, default_flow_style=False, sort_keys=False)
+        except Exception as e:
+            print(f"Warning: Failed to serialize item for {key}: {e}", file=sys.stderr)
+            return
+        total_lines = content.count("\n") + (0 if content.endswith("\n") else 1)
+        self.data["log_tails"][key] = {
+            "content": content,
+            "total_lines": total_lines,
+            "shown_lines": total_lines,
+            "truncated": False,
+            "mode": "head",
+        }
+
     def _calculate_ready_status(self, containers: List[Dict]) -> str:
         """Calculate ready status string (e.g., '2/3')."""
         if not containers:
@@ -449,6 +472,9 @@ class TestSummaryGenerator:
 
                             sts_info = self._extract_statefulset_info(sts, cluster, namespace, sts_file.name)
                             if sts_info:
+                                item_key = f"{sts_file.name}#{sts_info['name']}"
+                                self._embed_item_yaml(item_key, sts)
+                                sts_info["files"]["yaml"] = item_key
                                 self.data["resources"]["statefulsets"].append(sts_info)
                     except yaml.YAMLError as e:
                         print(f"Warning: YAML parse error in {sts_file.name}: {e}", file=sys.stderr)
@@ -530,6 +556,9 @@ class TestSummaryGenerator:
 
                             deploy_info = self._extract_deployment_info(deploy, cluster, namespace, deploy_file.name)
                             if deploy_info:
+                                item_key = f"{deploy_file.name}#{deploy_info['name']}"
+                                self._embed_item_yaml(item_key, deploy)
+                                deploy_info["files"]["yaml"] = item_key
                                 self.data["resources"]["deployments"].append(deploy_info)
                     except yaml.YAMLError as e:
                         print(f"Warning: YAML parse error in {deploy_file.name}: {e}", file=sys.stderr)
@@ -664,28 +693,34 @@ class TestSummaryGenerator:
                             if not isinstance(item, dict):
                                 continue
                             metadata = item.get("metadata", {})
+                            name = metadata.get("name", "unknown")
+                            item_key = f"{f.name}#{name}"
+                            self._embed_item_yaml(item_key, item)
                             items.append(
                                 {
-                                    "name": metadata.get("name", "unknown"),
+                                    "name": name,
                                     "namespace": metadata.get("namespace", namespace),
                                     "cluster": cluster,
                                     "kind": item.get("kind", ""),
                                     "api_version": item.get("apiVersion", ""),
                                     "created": metadata.get("creationTimestamp", ""),
-                                    "source_file": f.name,
+                                    "source_file": item_key,
                                 }
                             )
                     elif isinstance(data, dict) and "metadata" in data:
                         metadata = data.get("metadata", {})
+                        name = metadata.get("name", "unknown")
+                        item_key = f"{f.name}#{name}"
+                        self._embed_item_yaml(item_key, data)
                         items.append(
                             {
-                                "name": metadata.get("name", "unknown"),
+                                "name": name,
                                 "namespace": metadata.get("namespace", namespace),
                                 "cluster": cluster,
                                 "kind": data.get("kind", ""),
                                 "api_version": data.get("apiVersion", ""),
                                 "created": metadata.get("creationTimestamp", ""),
-                                "source_file": f.name,
+                                "source_file": item_key,
                             }
                         )
                     # else: raw/describe file — no items, but source_files still tracked
@@ -1050,8 +1085,12 @@ class TestSummaryGenerator:
         For structured files (YAML, JSON, conf, txt dumps): embeds from the beginning
         since these are not append-only streams.
         """
-        self.data["log_tails"] = {}
-        total_bytes = 0
+        # Per-item synthetic entries may have already been written during parsing.
+        self.data.setdefault("log_tails", {})
+        total_bytes = sum(
+            len(entry.get("content", "").encode("utf-8", errors="replace"))
+            for entry in self.data["log_tails"].values()
+        )
 
         viewable_extensions = {".log", ".txt", ".json", ".conf", ".yaml", ".xml"}
         skip_patterns = ["test-summary"]
