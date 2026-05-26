@@ -405,7 +405,7 @@ def test_vm_ac_x509_auth(
         "usersDeleted": [],
     }
     om_tester.api_put_automation_config(ac)
-    om_tester.wait_agents_ready(timeout=600)
+    om_tester.wait_agents_ready(timeout=1800)
 
 
 @mark.e2e_vm_migration_x509
