@@ -138,7 +138,7 @@ func GetOfficialImage(imageUrls ImageUrls, version string, annotations map[strin
 	}
 
 	assumeOldFormat := envvar.ReadBool(util.MdbAppdbAssumeOldFormat) // nolint:forbidigo
-	if IsEnterpriseImage(imageURL) && !assumeOldFormat {
+	if (IsEnterpriseImage(imageURL) || IsCommunityImage(imageURL)) && !assumeOldFormat {
 		// 5.0.6-ent -> 5.0.6-ubi8
 		if strings.HasSuffix(version, "-ent") {
 			version = fmt.Sprintf("%s%s", strings.TrimSuffix(version, "ent"), imageType)
@@ -165,4 +165,8 @@ func GetOfficialImage(imageUrls ImageUrls, version string, annotations map[strin
 
 func IsEnterpriseImage(mongodbImage string) bool {
 	return strings.Contains(mongodbImage, util.OfficialEnterpriseServerImageUrl)
+}
+
+func IsCommunityImage(mongodbImage string) bool {
+	return strings.Contains(mongodbImage, construct.OfficialMongodbCommunityServerImageName)
 }

@@ -838,12 +838,12 @@ func getMongoDBImage(repoUrl, mongodbImage, mongodbImageType, version string) st
 		repoUrl = strings.TrimRight(repoUrl, "/")
 	}
 	mongoImageName := mongodbImage
-	for _, officialUrl := range construct.OfficialMongodbRepoUrls {
-		if repoUrl == officialUrl {
-			return fmt.Sprintf("%s/%s:%s-%s", repoUrl, mongoImageName, version, mongodbImageType)
-		}
+
+	// If the version doesn't have a hyphen, we assume it's a bare version and append the image type.
+	// This allows custom registries to mirror the official image tagging format.
+	if mongodbImageType != "" && !strings.Contains(version, "-") {
+		version = fmt.Sprintf("%s-%s", version, mongodbImageType)
 	}
 
-	// This is the old images backwards compatibility code path.
 	return fmt.Sprintf("%s/%s:%s", repoUrl, mongoImageName, version)
 }

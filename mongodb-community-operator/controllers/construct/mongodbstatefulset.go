@@ -57,6 +57,7 @@ const (
 	agentHealthStatusFilePathValue    = "/var/log/mongodb-mms-automation/healthstatus/agent-health-status.json"
 
 	OfficialMongodbEnterpriseServerImageName = "mongodb-enterprise-server"
+	OfficialMongodbCommunityServerImageName  = "mongodb-community-server"
 
 	headlessAgentEnv           = "HEADLESS_AGENT"
 	podNamespaceEnv            = "POD_NAMESPACE"
