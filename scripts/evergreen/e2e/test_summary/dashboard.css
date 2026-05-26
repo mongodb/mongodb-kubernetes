@@ -20,6 +20,7 @@ h3 { color: #555; }
     align-items: center;
 }
 .metadata-item { display: flex; align-items: center; gap: 6px; }
+.metadata-item-right { margin-left: auto; }
 .metadata-label { font-size: 0.8em; color: #666; }
 .metadata-value { font-weight: 600; font-size: 0.95em; color: #333; }
 .status-badge {

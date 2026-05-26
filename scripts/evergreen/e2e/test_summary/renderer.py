@@ -756,8 +756,6 @@ def generate_html(data: Dict[str, Any], test_name: str, variant: str, status: st
 </head>
 <body>
     <div class="container">
-        <h1>E2E Test Summary</h1>
-
         <div class="metadata">
             <div class="metadata-item">
                 <span class="metadata-label">Status</span>
@@ -779,7 +777,7 @@ def generate_html(data: Dict[str, Any], test_name: str, variant: str, status: st
                 <span class="metadata-label">Tests</span>
                 <span class="metadata-value">{total_tests} total ({failed_tests} failed)</span>
             </div>
-            <div class="metadata-item">
+            <div class="metadata-item metadata-item-right">
                 <span class="metadata-label">Generated</span>
                 <span class="metadata-value">{data['meta']['generated_at'][:19]}</span>
             </div>
