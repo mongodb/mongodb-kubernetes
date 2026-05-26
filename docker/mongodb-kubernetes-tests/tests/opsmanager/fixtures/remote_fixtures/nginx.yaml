@@ -159,6 +159,18 @@ spec:
           volumeMounts:
             - name: mongosh-versions
               mountPath: /mongodb-ops-manager/mongodb-releases/compass
+        - name: setting-up-mongosh-2-8-1
+          image: curlimages/curl:latest
+          securityContext:
+            runAsUser: 1337 # workaround for init-container istio issue -> https://istio.io/latest/docs/setup/additional-setup/cni/#compatibility-with-application-init-containers
+          command:
+            - sh
+            - -c
+            - curl -LO https://downloads.mongodb.com/compass/mongosh-2.8.1-linux-x64-openssl11.tgz --output-dir /mongodb-ops-manager/mongodb-releases/compass && true
+          volumeMounts:
+            - name: mongosh-versions
+              mountPath: /mongodb-ops-manager/mongodb-releases/compass
+
       restartPolicy: Always
       securityContext: { }
       terminationGracePeriodSeconds: 30
