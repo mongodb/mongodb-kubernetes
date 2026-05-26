@@ -13,11 +13,8 @@ Test flow:
   Phase 3: Scale DOWN to 2 shards, verify cleanup and search still works
 """
 
-import time
-
 import kubernetes
 from kubernetes import client
-from pymongo.errors import OperationFailure
 from kubetester import try_load
 from kubetester.certs import ISSUER_CA_NAME, create_mongodb_tls_certs, create_tls_certs
 from kubetester.kubetester import fixture as yaml_fixture
@@ -421,65 +418,57 @@ def test_scale_up_verify_mongod_parameters(namespace: str, mdb: MongoDB, mdbs: M
 
 
 @MARKER
-def test_scale_up_verify_search(mdb: MongoDB):
-    """Verify search returns correct results after scale-up.
+def test_scale_up_reshard_collection(mdb: MongoDB):
+    """Reshard the collection to distribute data evenly across all shards.
 
-    We do NOT call reshardCollection here because it drops all search indexes.
-    The MongoDB balancer will naturally rebalance data to the new shard over time.
-    The existing search indexes remain intact and functional.
-    """
-    search_tester = get_search_tester(mdb, USER_NAME, USER_PASSWORD, use_ssl=True)
-    verify_text_search_query(search_tester)
-    verify_search_results_from_all_shards(search_tester)
-    logger.info("Search verification passed after scale-up to %d shards", SCALED_UP_SHARD_COUNT)
-
-
-@MARKER
-def test_scale_up_move_chunk_to_new_shard(mdb: MongoDB):
-    """Move a chunk from an original shard to the newly added shard.
-
-    This ensures the new shard actually holds data, so the subsequent search
-    verification proves the new shard's mongot group is functional.
-    moveChunk does not drop search indexes (unlike reshardCollection).
+    After adding a new shard, the existing chunks might remain on the original shards.
+    reshardCollection with forceRedistribution ensures the new shard receives data.
+    This drops search indexes, so we recreate them in the next step.
     """
     search_tester = get_search_tester(mdb, ADMIN_USER_NAME, ADMIN_USER_PASSWORD, use_ssl=True)
     admin_client = search_tester.client
 
-    new_shard_name = f"{MDB_RESOURCE_NAME}-{SCALED_UP_SHARD_COUNT - 1}"
-
-    # Get the collection UUID from config.collections (required for config.chunks on 6.0+)
-    coll_doc = admin_client["config"]["collections"].find_one({"_id": "sample_mflix.movies"})
-    assert coll_doc is not None, "sample_mflix.movies not found in config.collections"
-    collection_uuid = coll_doc["uuid"]
-
-    # Find a chunk that lives on one of the original shards
-    chunk = admin_client["config"]["chunks"].find_one(
-        {"uuid": collection_uuid, "shard": {"$ne": new_shard_name}}
-    )
-    assert chunk is not None, f"No chunk found on shards other than {new_shard_name}"
-    logger.info(f"Moving chunk (min={chunk['min']}) from shard {chunk['shard']} to {new_shard_name}")
-
+    logger.info("Resharding sample_mflix.movies to distribute across %d shards", SCALED_UP_SHARD_COUNT)
     admin_client.admin.command(
-        "moveChunk",
+        "reshardCollection",
         "sample_mflix.movies",
-        find=chunk["min"], # moves a chunk, whose key range contains chunk["min"] value, to the new shard
-        to=new_shard_name,
+        key={"_id": "hashed"},
+        forceRedistribution=True,
     )
-    logger.info(f"Chunk successfully moved to {new_shard_name}")
+    logger.info("Reshard complete, data distributed across all %d shards", SCALED_UP_SHARD_COUNT)
+
+    # Verify the new shard actually has data
+    coll = admin_client["sample_mflix"]["movies"]
+    stats = list(coll.aggregate([{"$collStats": {"storageStats": {}}}]))
+    new_shard_name = f"{MDB_RESOURCE_NAME}-{SCALED_UP_SHARD_COUNT - 1}"
+    shards_with_data = [s["shard"] for s in stats if s["storageStats"]["count"] > 0]
+    assert new_shard_name in shards_with_data, (
+        f"New shard {new_shard_name} has no data after reshard. "
+        f"Shards with data: {shards_with_data}"
+    )
+    logger.info(f"Confirmed {new_shard_name} has data after reshard")
+
+
+@MARKER
+def test_scale_up_recreate_search_index(mdb: MongoDB):
+    """Recreate search index after reshardCollection dropped it."""
+    search_tester = get_search_tester(mdb, USER_NAME, USER_PASSWORD, use_ssl=True)
+    search_tester.create_search_index("sample_mflix", "movies")
+    search_tester.wait_for_search_indexes_ready("sample_mflix", "movies", timeout=300)
+    logger.info("Search index recreated after reshard")
 
 
 @MARKER
 def test_scale_up_verify_search_on_new_shard(mdb: MongoDB):
-    """Verify search results include documents from the newly added shard.
+    """Verify search results include documents from all shards after reshard.
 
-    After moveChunk, the source shard's mongot removes the moved documents from
-    its index and the destination shard's mongot indexes them via change stream.
-    We poll until the wildcard search count matches the total document count,
-    which proves the new shard's mongot is serving search results.
+    After reshardCollection + index rebuild, all shards have data and functional
+    mongot instances. We verify the wildcard search count matches the total
+    document count, proving all shards' mongots are serving search results.
     """
     search_tester = get_search_tester(mdb, USER_NAME, USER_PASSWORD, use_ssl=True)
     verify_search_results_from_all_shards(search_tester)
-    logger.info("Search results verified on new shard after moveChunk")
+    logger.info("Search results verified on all shards after reshard")
 
 
 # ===========================================================================
@@ -489,76 +478,39 @@ def test_scale_up_verify_search_on_new_shard(mdb: MongoDB):
 
 @MARKER
 def test_scale_down_move_chunk_back(mdb: MongoDB):
-    """Move the chunk back from the new shard before scale-down.
+    """Move all chunks off the shard being removed before scale-down.
 
     removeShard drains data from the removed shard via the balancer, which
-    is very slow in CI Kind clusters. By moving the chunk back explicitly,
+    is very slow in CI Kind clusters. By moving chunks off explicitly,
     removeShard completes quickly with no data to drain.
     """
     search_tester = get_search_tester(mdb, ADMIN_USER_NAME, ADMIN_USER_PASSWORD, use_ssl=True)
     admin_client = search_tester.client
 
     new_shard_name = f"{MDB_RESOURCE_NAME}-{SCALED_UP_SHARD_COUNT - 1}"
+    dest_shard = f"{MDB_RESOURCE_NAME}-0"
 
-    # Stop the balancer to avoid conflicts with in-progress migrations
-    admin_client.admin.command("balancerStop")
-    logger.info("Balancer stopped")
+    coll_doc = admin_client["config"]["collections"].find_one({"_id": "sample_mflix.movies"})
+    assert coll_doc is not None, "sample_mflix.movies not found in config.collections"
+    collection_uuid = coll_doc["uuid"]
 
-    try:
-        coll_doc = admin_client["config"]["collections"].find_one({"_id": "sample_mflix.movies"})
-        assert coll_doc is not None, "sample_mflix.movies not found in config.collections"
-        collection_uuid = coll_doc["uuid"]
+    # Find all chunks on the shard being removed
+    chunks_on_new_shard = list(
+        admin_client["config"]["chunks"].find({"uuid": collection_uuid, "shard": new_shard_name})
+    )
+    if not chunks_on_new_shard:
+        logger.info(f"No chunks on {new_shard_name}, nothing to move")
+        return
 
-        # Find all chunks on the shard being removed
-        chunks_on_new_shard = list(
-            admin_client["config"]["chunks"].find({"uuid": collection_uuid, "shard": new_shard_name})
+    for chunk in chunks_on_new_shard:
+        logger.info(f"Moving chunk (min={chunk['min']}) from {new_shard_name} to {dest_shard}")
+        admin_client.admin.command(
+            "moveChunk",
+            "sample_mflix.movies",
+            find=chunk["min"],
+            to=dest_shard,
         )
-        if not chunks_on_new_shard:
-            logger.info(f"No chunks on {new_shard_name}, nothing to move back")
-            return
-
-        # Determine a destination shard that did NOT previously own the chunk.
-        # Moving back to the original owner hits "orphans cleanup" errors because
-        # the range deleter hasn't finished clearing orphan docs from the prior
-        # outgoing migration. By picking a shard that never owned this range, we
-        # avoid the orphan issue entirely.
-        original_shards = [f"{MDB_RESOURCE_NAME}-{i}" for i in range(INITIAL_SHARD_COUNT)]
-
-        for chunk in chunks_on_new_shard:
-            # The chunk's history tells us which shard previously owned it.
-            # Pick a destination that is NOT in the chunk's history.
-            previous_owners = {entry["shard"] for entry in chunk.get("history", [])}
-            safe_destinations = [s for s in original_shards if s not in previous_owners]
-            if safe_destinations:
-                dest_shard = safe_destinations[0]
-            else:
-                # Fallback: all original shards previously owned it, just pick shard-0
-                dest_shard = original_shards[0]
-
-            logger.info(f"Moving chunk (min={chunk['min']}) from {new_shard_name} to {dest_shard}")
-            # Retry moveChunk in case orphan cleanup is still pending on the
-            # destination (fallback path). Retries with 30s intervals.
-            max_retries = 20
-            retry_interval = 30
-            for attempt in range(max_retries):
-                try:
-                    admin_client.admin.command(
-                        "moveChunk",
-                        "sample_mflix.movies",
-                        find=chunk["min"],
-                        to=dest_shard,
-                    )
-                    break
-                except OperationFailure as e:
-                    if "orphans" in str(e) and attempt < max_retries - 1:
-                        logger.warning(f"moveChunk failed (orphan cleanup pending), retrying in {retry_interval}s (attempt {attempt + 1}/{max_retries})")
-                        time.sleep(retry_interval)
-                    else:
-                        raise
-        logger.info(f"All {len(chunks_on_new_shard)} chunk(s) moved back from {new_shard_name}")
-    finally:
-        admin_client.admin.command("balancerStart")
-        logger.info("Balancer restarted")
+    logger.info(f"All {len(chunks_on_new_shard)} chunk(s) moved off {new_shard_name}")
 
 
 @MARKER
