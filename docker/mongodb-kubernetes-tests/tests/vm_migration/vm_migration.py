@@ -273,12 +273,13 @@ def test_promote_and_prune(
     mdb_migration: MongoDB, vm_sts, om_tester: OMTester, mdb_health_checker: MongoDBBackgroundTester
 ):
     try_load(mdb_migration)
+    k8s_members = mdb_migration.get_members()
     for i in range(vm_sts["spec"]["replicas"]):
-        mdb_migration["spec"]["memberConfig"][i]["priority"] = "1"
-        mdb_migration["spec"]["memberConfig"][i]["votes"] = 1
-        mdb_migration.update()
-
-        mdb_migration.assert_reaches_phase(Phase.Running)
+        if i < k8s_members:
+            mdb_migration["spec"]["memberConfig"][i]["priority"] = "1"
+            mdb_migration["spec"]["memberConfig"][i]["votes"] = 1
+            mdb_migration.update()
+            mdb_migration.assert_reaches_phase(Phase.Running)
 
         mdb_migration["spec"]["externalMembers"].pop()
         mdb_migration.update()
