@@ -33,6 +33,15 @@ from tests.conftest import get_member_cluster_api_client
 
 from .conftest import cluster_spec_list
 
+# Annotation set by CRPuller on every locally mirrored MongoDBMultiCluster replica.
+# Must stay in sync with pkg/haraft/cr_puller.go:ReplicaSourceAnnotation.
+_REPLICA_SOURCE_ANNOTATION = "haraft.mongodb.com/replica-source"
+
+# CRD identifiers used when querying member-cluster API servers directly.
+_CR_GROUP = "mongodb.com"
+_CR_VERSION = "v1"
+_CR_PLURAL = "mongodbmulticluster"
+
 # Shared mutable state across the ordered test functions. Module-scope
 # fixtures cache the initial leader and the new leader after failover so
 # subsequent tests can target the correct cluster's API server.
@@ -178,3 +187,74 @@ def test_apply_spec_change_to_new_leader(
 
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1200)
     print(f"CR reconciled to Running on new leader {new_leader} (was version={current_version})")
+
+
+@mark.e2e_multi_cluster_ha_failover
+def test_post_failover_followers_pull_from_new_leader(
+    namespace: str,
+    member_cluster_names: list[str],
+):
+    """After failover, surviving followers' local replicas must carry the
+    ``haraft.mongodb.com/replica-source`` annotation pointing at the NEW leader
+    cluster (not the original leader whose kind containers were stopped).
+
+    This confirms that the CRPuller restarted against the new leader after the
+    Raft leadership-change callback fired, and has already mirrored at least one
+    sync cycle to each surviving follower.
+    """
+    new_leader = _state["new_leader"]
+    assert new_leader, "new leader was not captured in earlier test"
+
+    # The killed cluster is still down; surviving clusters = all members except
+    # the initial (killed) leader.
+    initial_leader = _state["initial_leader"]
+    surviving_followers = [c for c in member_cluster_names if c != initial_leader and c != new_leader]
+
+    if not surviving_followers:
+        # Only 2 clusters total (or all survivors became leaders): nothing
+        # to assert, but this is unexpected for a 3-cluster setup.
+        print(
+            f"No surviving followers to check (new_leader={new_leader!r}, "
+            f"initial_leader={initial_leader!r}, members={member_cluster_names!r})"
+        )
+        return
+
+    # The CR was created by test_apply_cr_to_initial_leader above using the
+    # mongodb_multi fixture whose name is "multi-replica-set" (see yaml_fixture).
+    cr_name = "multi-replica-set"
+
+    for follower in surviving_followers:
+        api_client = get_member_cluster_api_client(follower)
+        custom_api = kubernetes.client.CustomObjectsApi(api_client)
+
+        # Allow a short window for the CRPuller's first post-failover sync.
+        deadline = time.monotonic() + 60.0
+        observed_source: str | None = None
+        last_exc: Exception | None = None
+
+        while time.monotonic() < deadline:
+            try:
+                obj = custom_api.get_namespaced_custom_object(
+                    group=_CR_GROUP,
+                    version=_CR_VERSION,
+                    namespace=namespace,
+                    plural=_CR_PLURAL,
+                    name=cr_name,
+                )
+                annotations = (obj.get("metadata") or {}).get("annotations") or {}
+                observed_source = annotations.get(_REPLICA_SOURCE_ANNOTATION)
+                if observed_source == new_leader:
+                    break
+            except Exception as exc:  # noqa: BLE001
+                last_exc = exc
+            time.sleep(2)
+
+        assert observed_source == new_leader, (
+            f"follower {follower!r}: expected replica-source annotation "
+            f"{new_leader!r} (new leader) after failover, but got "
+            f"{observed_source!r} (last error: {last_exc!r})"
+        )
+        print(
+            f"Follower {follower}: replica-source correctly updated to "
+            f"new leader {new_leader!r} after failover."
+        )

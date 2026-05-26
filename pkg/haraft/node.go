@@ -115,6 +115,11 @@ func (n *RaftNode) Leader() string {
 	return string(id)
 }
 
+// LocalID returns this node's cluster identifier (the value passed in NodeConfig.ClusterName).
+func (n *RaftNode) LocalID() string {
+	return n.cfg.ClusterName
+}
+
 func (n *RaftNode) OnLeadershipChange(cb func(bool)) {
 	n.mu.Lock()
 	defer n.mu.Unlock()

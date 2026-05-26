@@ -91,11 +91,21 @@ type ReconcileMongoDbMultiReplicaSet struct {
 	agentDebug      bool
 	agentDebugImage string
 
-	raftNode *haraft.RaftNode // nil when HA is disabled
+	raftNode         *haraft.RaftNode // nil when HA is disabled
+	localClusterName string           // empty when HA is disabled; equals raftNode.LocalID() otherwise
 
 	// leaderRefreshCh is fed by EnqueueAllForLeadershipChange when this operator
 	// wins a Raft election, triggering a reconcile for every known CR.
 	leaderRefreshCh chan event.GenericEvent
+}
+
+// raftNodeLocalID returns the local cluster name from raftNode, or "" if
+// HA is disabled.
+func raftNodeLocalID(rn *haraft.RaftNode) string {
+	if rn == nil {
+		return ""
+	}
+	return rn.LocalID()
 }
 
 var _ reconcile.Reconciler = &ReconcileMongoDbMultiReplicaSet{}
@@ -126,6 +136,7 @@ func newMultiClusterReplicaSetReconciler(ctx context.Context, kubeClient client.
 		agentDebug:                        agentDebug,
 		agentDebugImage:                   agentDebugImage,
 		raftNode:                          raftNode,
+		localClusterName:                  raftNodeLocalID(raftNode),
 		leaderRefreshCh:                   make(chan event.GenericEvent, 64),
 	}
 }
@@ -139,11 +150,8 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 	log := zap.S().With("MultiReplicaSet", request.NamespacedName)
 
 	if r.raftNode != nil && !r.raftNode.IsLeader() {
-		log.Debugf("not Raft leader, skipping reconciliation")
-		return reconcile.Result{}, nil
+		return r.reconcileSecondary(ctx, request, log)
 	}
-
-	r.propagateCR(ctx, request.NamespacedName, log)
 
 	log.Info("-> MultiReplicaSet.Reconcile")
 
@@ -270,44 +278,6 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 
 	log.Infow("Finished reconciliation for MultiReplicaSet", "Spec", mrs.Spec, "Status", mrs.Status)
 	return r.updateStatus(ctx, &mrs, workflow.OK(), log, mdbstatus.NewPVCsStatusOptionEmptyStatus())
-}
-
-// propagateCR fans the MongoDBMultiCluster CR out to every member cluster.
-// Each peer keeps a passive replica; the leader gate ensures only the leader
-// writes. Partial failures are logged but non-fatal — next reconcile retries.
-func (r *ReconcileMongoDbMultiReplicaSet) propagateCR(ctx context.Context, key types.NamespacedName, log *zap.SugaredLogger) {
-	if r.raftNode == nil {
-		return
-	}
-	mrs := mdbmultiv1.MongoDBMultiCluster{}
-	if err := r.client.Get(ctx, key, &mrs); err != nil {
-		log.Warnf("propagateCR: failed to read local CR: %v", err)
-		return
-	}
-	for name, cl := range r.memberClusterClientsMap {
-		// Skip the local cluster — that is where the user applied.
-		if name == r.raftNode.Leader() {
-			continue
-		}
-		remote := mdbmultiv1.MongoDBMultiCluster{}
-		err := cl.Get(ctx, key, &remote)
-		switch {
-		case apiErrors.IsNotFound(err):
-			created := mrs.DeepCopy()
-			created.ResourceVersion = ""
-			if err := cl.Create(ctx, created); err != nil {
-				log.Warnf("propagateCR: create on %s failed: %v", name, err)
-			}
-		case err != nil:
-			log.Warnf("propagateCR: get on %s failed: %v", name, err)
-		default:
-			remote.Spec = mrs.Spec
-			remote.Annotations = mrs.Annotations
-			if err := cl.Update(ctx, &remote); err != nil {
-				log.Warnf("propagateCR: update on %s failed: %v", name, err)
-			}
-		}
-	}
 }
 
 // EnqueueAllForLeadershipChange triggers a reconcile for every MongoDBMultiCluster
@@ -491,6 +461,9 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 
 	var workflowStatus workflow.Status = workflow.OK()
 	for _, item := range clusterSpecList {
+		if r.localClusterName != "" && item.ClusterName != r.localClusterName {
+			continue
+		}
 		if stringutil.Contains(failedClusterNames, item.ClusterName) {
 			log.Warnf(fmt.Sprintf("failed to reconcile statefulset: cluster %s is marked as failed", item.ClusterName))
 			continue
@@ -991,6 +964,9 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileServices(ctx context.Context,
 	}
 
 	for _, e := range clusterSpecList {
+		if r.localClusterName != "" && e.ClusterName != r.localClusterName {
+			continue
+		}
 		if stringutil.Contains(failedClusterNames, e.ClusterName) {
 			log.Warnf(fmt.Sprintf("cluster %s is marked as failed", e.ClusterName))
 			continue
@@ -1026,6 +1002,9 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileServices(ctx context.Context,
 	// by default, we would create the duplicate services
 	shouldCreateDuplicates := mrs.Spec.DuplicateServiceObjects == nil || *mrs.Spec.DuplicateServiceObjects
 	for memberClusterName, memberClusterClient := range r.memberClusterClientsMap {
+		if r.localClusterName != "" && memberClusterName != r.localClusterName {
+			continue
+		}
 		if stringutil.Contains(failedClusterNames, memberClusterName) {
 			log.Warnf(fmt.Sprintf("cluster %s is marked as failed, skipping creation of services", memberClusterName))
 			continue
@@ -1132,6 +1111,9 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileHostnameOverrideConfigMap(ctx
 	}
 
 	for i, e := range clusterSpecList {
+		if r.localClusterName != "" && e.ClusterName != r.localClusterName {
+			continue
+		}
 		if stringutil.Contains(failedClusterNames, e.ClusterName) {
 			log.Warnf(fmt.Sprintf("failed to create configmap: cluster %s is marked as failed", e.ClusterName))
 			continue
@@ -1169,6 +1151,9 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileOMCAConfigMap(ctx context.Con
 		return err
 	}
 	for _, clusterSpecItem := range clusterSpecList {
+		if r.localClusterName != "" && clusterSpecItem.ClusterName != r.localClusterName {
+			continue
+		}
 		if stringutil.Contains(failedClusterNames, clusterSpecItem.ClusterName) {
 			log.Warnf("failed to create configmap %s: cluster %s is marked as failed", configMapName, clusterSpecItem.ClusterName)
 			continue

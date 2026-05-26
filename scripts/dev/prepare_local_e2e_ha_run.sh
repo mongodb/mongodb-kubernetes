@@ -93,8 +93,9 @@ echo "Ensuring namespace ${NAMESPACE} on every HA peer"
 for ctx in "${HA_CLUSTERS_ARR[@]}"; do
   (
     kubectl config use-context "${ctx}" &>/dev/null
-    ensure_namespace "${NAMESPACE}"
-  ) 2>&1 | prepend "ensure_namespace[${ctx}]"
+    scripts/evergreen/e2e/configure_operator.sh
+
+  ) 2>&1 | prepend "configure_operator[${ctx}]"
 done
 kubectl config use-context "${default_ctx}" &>/dev/null
 
@@ -110,8 +111,8 @@ pid_om=$!
 echo "Configuring container auth (skips login if credentials still valid)"
 scripts/dev/configure_container_auth.sh 2>&1 | prepend "configure_docker_auth"
 
-echo "Configuring operator"
-scripts/evergreen/e2e/configure_operator.sh 2>&1 | prepend "configure_operator"
+#echo "Configuring operator"
+#scripts/evergreen/e2e/configure_operator.sh 2>&1 | prepend "configure_operator"
 
 # Each operator reads the operator config map from its own cluster, so create
 # it on every peer.

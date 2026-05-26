@@ -50,3 +50,9 @@ func TestRaftNode_SingleNodeBecomesLeader(t *testing.T) {
 		t.Fatal("single-node cluster did not become leader within 5s")
 	}
 }
+
+func TestRaftNode_LocalID_ReturnsConfiguredClusterName(t *testing.T) {
+	cfg := NodeConfig{ClusterName: "cluster-A"}
+	n := &RaftNode{cfg: cfg}
+	assert.Equal(t, "cluster-A", n.LocalID())
+}

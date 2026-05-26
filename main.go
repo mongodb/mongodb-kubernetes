@@ -229,6 +229,7 @@ func run() error {
 	// leadership callback (registered later, after controller setup) can use them.
 	var raftLocalID string
 	var raftPeerClients map[string]client.Client
+	var crPuller *haraft.CRPuller
 
 	if slices.Contains(crds, mongoDBMultiClusterCRDPlural) {
 		memberClustersNames, err := getMemberClusters(ctx, cfg, currentNamespace)
@@ -333,6 +334,8 @@ func run() error {
 			raftLocalID = localID
 			raftPeerClients = peerClients
 			log.Infof("haraft initialized: cluster=%q peers=%v", localID, peers)
+			crPuller = haraft.NewCRPuller(localID, currentNamespace, localRawClient, peerClients, raftNode)
+			defer crPuller.Stop()
 		} else {
 			log.Infow("haraft disabled (raft-identity ConfigMap not found) — operating in legacy single-active mode")
 		}
@@ -370,6 +373,9 @@ func run() error {
 		localID := raftLocalID
 		peerClients := raftPeerClients
 		raftNode.OnLeadershipChange(func(isLeader bool) {
+			if crPuller != nil {
+				crPuller.OnLeadershipChange(ctx, isLeader)
+			}
 			if !isLeader {
 				return
 			}
@@ -383,6 +389,30 @@ func run() error {
 			}()
 		})
 	}
+	if raftNode != nil && crPuller != nil {
+		go func() {
+			// On startup we may already have a leader (e.g., this operator
+			// restarted while another cluster was already leading). Poll the
+			// raft-leader ConfigMap until we see a value, then start the puller.
+			ticker := time.NewTicker(2 * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					if raftNode.IsLeader() {
+						return
+					}
+					if leader := raftNode.Leader(); leader != "" && leader != raftLocalID {
+						crPuller.Start(ctx, leader)
+						return
+					}
+				}
+			}
+		}()
+	}
+
 	if slices.Contains(crds, mongoDBSearchCRDPlural) {
 		if err := setupMongoDBSearchCRD(ctx, mgr); err != nil {
 			return err

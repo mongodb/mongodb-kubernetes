@@ -36,7 +36,7 @@ create_image_registries_secret
 # In local multi-cluster runs, prepare_multi_cluster.go creates my-project and my-credentials
 # via the Go API immediately after this script. Skip the redundant kubectl calls (~0.7s).
 # In single-cluster or CI, this is the only place these resources are created.
-if [[ "${KUBE_ENVIRONMENT_NAME:-}" != "multi" ]] || [[ "${RUNNING_IN_EVG:-false}" == "true" ]]; then
+if [[ "${KUBE_ENVIRONMENT_NAME:-}" != "multi" ]] || [[ "${RUNNING_IN_EVG:-false}" == "true" ]] || [[ "${HA_CLUSTERS}" != ""  ]]; then
   # Configuring project (using apply for idempotency)
   kubectl apply -f - <<EOF
 apiVersion: v1
