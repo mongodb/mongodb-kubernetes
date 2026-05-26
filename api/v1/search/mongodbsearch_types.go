@@ -917,8 +917,18 @@ func (s *MongoDBSearch) GetManagedLBEndpointForCluster(i int) string {
 		return out
 	}
 	out = strings.ReplaceAll(out, ClusterNamePlaceholder, clusters[i].ClusterName)
-	out = strings.ReplaceAll(out, ClusterIndexPlaceholder, strconv.Itoa(i))
+	out = strings.ReplaceAll(out, ClusterIndexPlaceholder, strconv.Itoa(clusterIndexFor(clusters, i)))
 	return out
+}
+
+// clusterIndexFor returns the user-pinned ClusterIndex for clusters[i] when
+// set, falling back to the array position. The pinned value is what makes
+// per-cluster resource names stable across spec.clusters[] reorders.
+func clusterIndexFor(clusters []ClusterSpec, i int) int {
+	if clusters[i].ClusterIndex != nil {
+		return int(*clusters[i].ClusterIndex)
+	}
+	return i
 }
 
 // GetManagedLBEndpointForClusterShard returns the externalHostname template with
@@ -961,7 +971,7 @@ func (s *MongoDBSearch) GetManagedLBEndpointForClusterLevel(i int) string {
 		return trimmed
 	}
 	out := strings.ReplaceAll(trimmed, ClusterNamePlaceholder, clusters[i].ClusterName)
-	out = strings.ReplaceAll(out, ClusterIndexPlaceholder, strconv.Itoa(i))
+	out = strings.ReplaceAll(out, ClusterIndexPlaceholder, strconv.Itoa(clusterIndexFor(clusters, i)))
 	return out
 }
 

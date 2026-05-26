@@ -448,6 +448,47 @@ func TestGetManagedLBEndpointForClusterShard_ClusterIndex(t *testing.T) {
 	assert.Equal(t, "search-1.shard-b.lb.example.com:443", s.GetManagedLBEndpointForClusterShard(1, "shard-b"))
 }
 
+// TestGetManagedLBEndpointForCluster_ClusterIndexHonoursPinnedValue is the
+// regression guard for the latent bug where {clusterIndex} was substituted with
+// the spec-array position instead of the pinned ClusterSpec.ClusterIndex.
+// After simulated-MC projection narrows spec.clusters[] to a 1-element slice,
+// the array position is always 0 — without this fix, every cluster's
+// {clusterIndex} template would render to "0".
+func TestGetManagedLBEndpointForCluster_ClusterIndexHonoursPinnedValue(t *testing.T) {
+	idx := func(v int32) *int32 { return &v }
+	template := "mongot-{clusterIndex}.example.com"
+
+	t.Run("pinned ClusterIndex used when set", func(t *testing.T) {
+		clusters := []ClusterSpec{{ClusterName: "us-east", ClusterIndex: idx(7)}}
+		s := &MongoDBSearch{Spec: MongoDBSearchSpec{
+			LoadBalancer: &LoadBalancerConfig{Managed: &ManagedLBConfig{ExternalHostname: template}},
+			Clusters:     &clusters,
+		}}
+		// Array position is 0 (only entry) but pinned ClusterIndex is 7 — must use 7.
+		assert.Equal(t, "mongot-7.example.com", s.GetManagedLBEndpointForCluster(0))
+	})
+
+	t.Run("array position used when ClusterIndex is nil (legacy)", func(t *testing.T) {
+		clusters := []ClusterSpec{{ClusterName: "us-east"}, {ClusterName: "us-west"}}
+		s := &MongoDBSearch{Spec: MongoDBSearchSpec{
+			LoadBalancer: &LoadBalancerConfig{Managed: &ManagedLBConfig{ExternalHostname: template}},
+			Clusters:     &clusters,
+		}}
+		assert.Equal(t, "mongot-0.example.com", s.GetManagedLBEndpointForCluster(0))
+		assert.Equal(t, "mongot-1.example.com", s.GetManagedLBEndpointForCluster(1))
+	})
+
+	t.Run("ClusterLevel endpoint also honours pinned ClusterIndex", func(t *testing.T) {
+		clusters := []ClusterSpec{{ClusterName: "us-east", ClusterIndex: idx(7)}}
+		// ClusterLevel strips the leading {shardName}. prefix.
+		s := &MongoDBSearch{Spec: MongoDBSearchSpec{
+			LoadBalancer: &LoadBalancerConfig{Managed: &ManagedLBConfig{ExternalHostname: "{shardName}.search-{clusterIndex}.lb.example.com:443"}},
+			Clusters:     &clusters,
+		}}
+		assert.Equal(t, "search-7.lb.example.com:443", s.GetManagedLBEndpointForClusterLevel(0))
+	})
+}
+
 func TestGetManagedLBEndpointForClusterShard_NotManaged(t *testing.T) {
 	s := &MongoDBSearch{Spec: MongoDBSearchSpec{}}
 	assert.Equal(t, "", s.GetManagedLBEndpointForClusterShard(0, "shard-0"))
