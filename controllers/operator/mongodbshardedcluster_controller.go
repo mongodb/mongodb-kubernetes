@@ -6,10 +6,8 @@ import (
 	"time"
 
 	"slices"
-	"sort"
 	"strings"
 
-	"github.com/google/go-cmp/cmp"
 	"github.com/hashicorp/go-multierror"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
@@ -1782,10 +1780,8 @@ func (r *ShardedClusterReconcileHelper) cleanOpsManagerState(ctx context.Context
 }
 
 func logDiffOfProcessNames(acProcesses []string, healthyProcesses []string, log *zap.SugaredLogger) {
-	sort.Strings(acProcesses)
-	sort.Strings(healthyProcesses)
-	if diff := cmp.Diff(acProcesses, healthyProcesses); diff != "" {
-		log.Debugf("difference of AC processes vs healthy processes: %s", diff)
+	if len(acProcesses) != len(healthyProcesses) {
+		log.Debugw("process count mismatch between AC and healthy processes", "acCount", len(acProcesses), "healthyCount", len(healthyProcesses))
 	}
 }
 

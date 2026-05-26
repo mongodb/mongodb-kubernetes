@@ -1573,7 +1573,7 @@ func (r *OpsManagerReconciler) ensureOplogStoresInOpsManager(ctx context.Context
 		if !status.IsOK() {
 			return status
 		}
-		log.Debugw("Creating Oplog Store in Ops Manager", "config", omConfig.String())
+		log.Debugw("Creating Oplog Store in Ops Manager", "id", omConfig.Id, "ssl", omConfig.UseSSL)
 		if err = omAdmin.CreateOplogStoreConfig(omConfig); err != nil {
 			return workflow.Failed(xerrors.New(err.Error()))
 		}
@@ -1593,7 +1593,7 @@ func (r *OpsManagerReconciler) ensureOplogStoresInOpsManager(ctx context.Context
 		// Now we need to merge the Operator version into the OM one overriding only the fields that the Operator
 		// "owns"
 		configToUpdate := operatorView.MergeIntoOpsManagerConfig(omConfig)
-		log.Debugw("Updating Oplog Store in Ops Manager", "config", configToUpdate.String())
+		log.Debugw("Updating Oplog Store in Ops Manager", "id", configToUpdate.Id, "ssl", configToUpdate.UseSSL)
 		if err = omAdmin.UpdateOplogStoreConfig(configToUpdate); err != nil {
 			return workflow.Failed(xerrors.New(err.Error()))
 		}
@@ -1633,7 +1633,7 @@ func (r *OpsManagerReconciler) ensureS3OplogStoresInOpsManager(ctx context.Conte
 		if !status.IsOK() {
 			return status
 		}
-		log.Infow("Creating S3 Oplog Store in Ops Manager", "config", omConfig.String())
+		log.Infow("Creating S3 Oplog Store in Ops Manager", "id", omConfig.Id)
 		if err = s3OplogAdmin.CreateS3OplogStoreConfig(omConfig); err != nil {
 			return workflow.Failed(xerrors.New(err.Error()))
 		}
@@ -1653,7 +1653,7 @@ func (r *OpsManagerReconciler) ensureS3OplogStoresInOpsManager(ctx context.Conte
 		// Now we need to merge the Operator version into the OM one overriding only the fields that the Operator
 		// "owns"
 		configToUpdate := operatorView.MergeIntoOpsManagerConfig(omConfig)
-		log.Infow("Updating S3 Oplog Store in Ops Manager", "config", configToUpdate.String())
+		log.Infow("Updating S3 Oplog Store in Ops Manager", "id", configToUpdate.Id)
 		if err = s3OplogAdmin.UpdateS3OplogConfig(configToUpdate); err != nil {
 			return workflow.Failed(xerrors.New(err.Error()))
 		}
@@ -1697,7 +1697,7 @@ func (r *OpsManagerReconciler) ensureBlockStoresInOpsManager(ctx context.Context
 		if !status.IsOK() {
 			return status
 		}
-		log.Debugw("Creating Block Store in Ops Manager", "config", omConfig.String())
+		log.Debugw("Creating Block Store in Ops Manager", "id", omConfig.Id, "ssl", omConfig.UseSSL)
 		if err = omAdmin.CreateBlockStoreConfig(omConfig); err != nil {
 			return workflow.Failed(xerrors.New(err.Error()))
 		}
@@ -1717,7 +1717,7 @@ func (r *OpsManagerReconciler) ensureBlockStoresInOpsManager(ctx context.Context
 		// Now we need to merge the Operator version into the OM one overriding only the fields that the Operator
 		// "owns"
 		configToUpdate := operatorView.MergeIntoOpsManagerConfig(omConfig)
-		log.Debugw("Updating Block Store in Ops Manager", "config", configToUpdate.String())
+		log.Debugw("Updating Block Store in Ops Manager", "id", configToUpdate.Id, "ssl", configToUpdate.UseSSL)
 		if err = omAdmin.UpdateBlockStoreConfig(configToUpdate); err != nil {
 			return workflow.Failed(xerrors.New(err.Error()))
 		}
@@ -1752,7 +1752,7 @@ func (r *OpsManagerReconciler) ensureS3ConfigurationInOpsManager(ctx context.Con
 			return status
 		}
 
-		log.Infow("Creating S3Config in Ops Manager", "config", omConfig.String())
+		log.Infow("Creating S3Config in Ops Manager", "id", omConfig.Id)
 		if err := omAdmin.CreateS3Config(omConfig); err != nil {
 			return workflow.Failed(xerrors.New(err.Error()))
 		}
@@ -1772,7 +1772,7 @@ func (r *OpsManagerReconciler) ensureS3ConfigurationInOpsManager(ctx context.Con
 		// Now we need to merge the Operator version into the OM one overriding only the fields that the Operator
 		// "owns"
 		configToUpdate := operatorView.MergeIntoOpsManagerConfig(omConfig)
-		log.Infow("Updating S3Config in Ops Manager", "config", configToUpdate.String())
+		log.Infow("Updating S3Config in Ops Manager", "id", configToUpdate.Id)
 		if err = omAdmin.UpdateS3Config(configToUpdate); err != nil {
 			return workflow.Failed(xerrors.New(err.Error()))
 		}
