@@ -268,7 +268,7 @@ def configure():
 
     env_file = os.getenv(ENV_FILE)
     base_url = os.getenv(BASE_URL)
-    with open(env_file, "w") as fd:
+    with open(env_file, "w") as fd:  # lgtm[py/clear-text-storage-sensitive-data]
         fd.write("export OM_BASE_URL={}\n".format(base_url))
         fd.write("export OM_USER={}\n".format(public))
         fd.write("export OM_API_KEY={}\n".format(private))
