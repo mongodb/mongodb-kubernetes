@@ -443,8 +443,7 @@ def test_scale_up_reshard_collection(mdb: MongoDB):
     new_shard_name = f"{MDB_RESOURCE_NAME}-{SCALED_UP_SHARD_COUNT - 1}"
     shards_with_data = [s["shard"] for s in stats if s["storageStats"]["count"] > 0]
     assert new_shard_name in shards_with_data, (
-        f"New shard {new_shard_name} has no data after reshard. "
-        f"Shards with data: {shards_with_data}"
+        f"New shard {new_shard_name} has no data after reshard. " f"Shards with data: {shards_with_data}"
     )
     logger.info(f"Confirmed {new_shard_name} has data after reshard")
 
@@ -459,7 +458,7 @@ def test_scale_up_recreate_search_index(mdb: MongoDB):
 
 
 @MARKER
-def test_scale_up_verify_search_on_new_shard(mdb: MongoDB):
+def test_scale_up_verify_search(mdb: MongoDB):
     """Verify search results include documents from all shards after reshard.
 
     After reshardCollection + index rebuild, all shards have data and functional
