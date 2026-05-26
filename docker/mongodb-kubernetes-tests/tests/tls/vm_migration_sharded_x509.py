@@ -280,7 +280,7 @@ def mdb_sharded_migration(
     vm_agent_certs: str,
 ) -> MongoDB:
     resource = MongoDB.from_yaml(
-        yaml_fixture("sharded-cluster.yaml"),
+        yaml_fixture("vm-migration-sharded.yaml"),
         namespace=namespace,
         with_mdb_version_from_env=False,
     )
