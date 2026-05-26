@@ -31,8 +31,8 @@ import (
 
 // buildBootstrapJSON returns the static Envoy bootstrap config JSON.
 // This config points Envoy at filesystem-based CDS/LDS for dynamic resource
-// discovery and does not contain any static_resources. It is stable across
-// shard add/remove operations — only CDS/LDS files change.
+// discovery and does not contain any static_resources. bootstrap config json
+// is stable across shard add/remove operations — only CDS/LDS files change.
 func buildBootstrapJSON() (string, error) {
 	runtimeStruct, err := structpb.NewStruct(map[string]interface{}{
 		"overload": map[string]interface{}{
@@ -58,6 +58,7 @@ func buildBootstrapJSON() (string, error) {
 
 	bootstrap := &bootstrapv3.Bootstrap{
 		Node: &corev3.Node{
+			// id is the envoy node identifier to identify a specific enovy instance from xDS management server
 			Id:      "envoy-search-proxy",
 			Cluster: "search-proxy",
 		},
@@ -89,7 +90,7 @@ func buildBootstrapJSON() (string, error) {
 	return marshalJSON(bootstrap)
 }
 
-// buildCDSJSON builds the CDS DiscoveryResponse JSON containing all upstream clusters.
+// buildCDSJSON builds the CDS (Cluster Discovery Service) DiscoveryResponse JSON containing all upstream clusters.
 // Each route produces one cluster pointing to a mongot group's headless service.
 func buildCDSJSON(routes []envoyRoute, tlsEnabled bool, caKeyName string) (string, error) {
 	resources := make([]*anypb.Any, 0, len(routes))
@@ -113,7 +114,7 @@ func buildCDSJSON(routes []envoyRoute, tlsEnabled bool, caKeyName string) (strin
 	return marshalJSON(resp)
 }
 
-// buildLDSJSON builds the LDS DiscoveryResponse JSON containing the listener.
+// buildLDSJSON builds the LDS (Listener Discovery Service) DiscoveryResponse JSON containing the listener.
 // The listener has one filter chain per route (per shard or single RS).
 func buildLDSJSON(routes []envoyRoute, tlsEnabled bool, caKeyName string) (string, error) {
 	filterChains := make([]*listenerv3.FilterChain, 0, len(routes))

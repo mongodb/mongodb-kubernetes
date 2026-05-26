@@ -193,7 +193,6 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 		return r.updateLBStatus(ctx, mdbSearch, workflow.Failed(err), log)
 	}
 
-	// Ensure ConfigMap
 	if err := r.ensureConfigMap(ctx, mdbSearch, bootstrapJSON, cdsJSON, ldsJSON, log); err != nil {
 		return r.updateLBStatus(ctx, mdbSearch, workflow.Failed(err), log)
 	}
