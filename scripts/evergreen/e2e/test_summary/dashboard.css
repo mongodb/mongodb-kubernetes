@@ -724,10 +724,15 @@ code {
     overflow: auto;
     margin: 0;
     padding: 12px 16px;
-    color: #d4d4d4;
-    background: #1e1e1e;
+    color: #2d2d2d;
+    background: #fff;
+    border-top: 1px solid #e0e0e0;
     font-family: 'SF Mono', 'Menlo', 'Monaco', 'Courier New', monospace;
     font-size: 0.82em;
     line-height: 1.5;
     border-radius: 0 0 6px 6px;
+}
+.test-output-preview .line-num {
+    color: #aaa;
+    border-right-color: #e0e0e0;
 }
