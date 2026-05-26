@@ -71,6 +71,7 @@ fi
 mkdir -p ` + headlessMongodBinDir + `
 ln -sf "/proc/${MONGOD_PID}/root/bin/mongod" ` + headlessMongodBinDir + `/mongod
 ln -sf "/proc/${MONGOD_PID}/root/bin/mongos" ` + headlessMongodBinDir + `/mongos
+tail -F /var/log/mongodb-mms-automation/mongodb.log 2>/dev/null &
 `
 
 // HeadlessClusterConfigMountPath returns the directory where the automation config Secret
