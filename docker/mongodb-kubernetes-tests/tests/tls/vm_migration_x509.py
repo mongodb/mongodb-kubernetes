@@ -130,6 +130,8 @@ def vm_sts(
     with open(yaml_fixture("vm_statefulset.yaml"), "r") as f:
         sts_body = yaml.safe_load(f.read())
 
+    sts_body["spec"]["replicas"] = 3
+
     sts_body["spec"]["template"]["spec"]["containers"][0]["env"] = [
         {"name": "MMS_GROUP_ID", "value": om_tester.context.project_id},
         {"name": "MMS_BASE_URL", "value": om_tester.context.base_url},
@@ -320,7 +322,7 @@ def _build_processes(vm_sts: dict, vm_service: dict, namespace: str, custom_mdb_
 def test_vm_mdb_reaches_running(namespace: str, vm_sts, vm_service):
     def sts_is_ready():
         sts = get_statefulset(namespace, vm_sts["metadata"]["name"])
-        return sts.status.ready_replicas == 3
+        return sts.status.ready_replicas == vm_sts["spec"]["replicas"]
 
     KubernetesTester.wait_until(sts_is_ready, timeout=300)
 
