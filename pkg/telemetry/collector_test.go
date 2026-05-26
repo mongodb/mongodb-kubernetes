@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"os"
 	"reflect"
 	"runtime"
 	"testing"
@@ -1489,10 +1488,7 @@ func TestCollectOperatorSnapshot(t *testing.T) {
 
 			ctx := context.Background()
 
-			err := os.Setenv(InstallerEnvVar, "yaml")
-			assert.NoError(t, err)
-
-			events := collectOperatorSnapshot(ctx, test.memberClusterMap, mgr, testOperatorUUID, "", "")
+			events := collectOperatorSnapshot(ctx, test.memberClusterMap, mgr, testOperatorUUID, "yaml")
 
 			require.Len(t, events, 1, "expected exactly one operator event")
 			event := events[0]

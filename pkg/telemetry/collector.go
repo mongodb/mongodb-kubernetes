@@ -54,6 +54,7 @@ type LeaderRunnable struct {
 	currentNamespace        string
 	mongodbImage            string
 	databaseNonStaticImage  string
+	installerMethod         string
 	configuredOperatorEnv   util.OperatorEnvironment
 }
 
@@ -61,7 +62,7 @@ func (l *LeaderRunnable) NeedLeaderElection() bool {
 	return true
 }
 
-func NewLeaderRunnable(operatorMgr manager.Manager, memberClusterObjectsMap map[string]cluster.Cluster, currentNamespace, mongodbImage, databaseNonStaticImage string, operatorEnv util.OperatorEnvironment) (*LeaderRunnable, error) {
+func NewLeaderRunnable(operatorMgr manager.Manager, memberClusterObjectsMap map[string]cluster.Cluster, currentNamespace, mongodbImage, databaseNonStaticImage, installerMethod string, operatorEnv util.OperatorEnvironment) (*LeaderRunnable, error) {
 	atlasClient, err := NewClient(nil)
 	if err != nil {
 		return nil, xerrors.Errorf("Failed creating atlas telemetry client: %w", err)
@@ -74,12 +75,13 @@ func NewLeaderRunnable(operatorMgr manager.Manager, memberClusterObjectsMap map[
 		configuredOperatorEnv:   operatorEnv,
 		mongodbImage:            mongodbImage,
 		databaseNonStaticImage:  databaseNonStaticImage,
+		installerMethod:         installerMethod,
 	}, nil
 }
 
 func (l *LeaderRunnable) Start(ctx context.Context) error {
 	Logger.Debug("Starting leader-only telemetry goroutine")
-	RunTelemetry(ctx, l.mongodbImage, l.databaseNonStaticImage, l.currentNamespace, l.operatorMgr, l.memberClusterObjectsMap, l.atlasClient, l.configuredOperatorEnv)
+	RunTelemetry(ctx, l.mongodbImage, l.databaseNonStaticImage, l.currentNamespace, l.installerMethod, l.operatorMgr, l.memberClusterObjectsMap, l.atlasClient, l.configuredOperatorEnv)
 
 	return nil
 }
@@ -87,7 +89,7 @@ func (l *LeaderRunnable) Start(ctx context.Context) error {
 type snapshotCollector func(ctx context.Context, memberClusterMap map[string]ConfigClient, operatorClusterMgr manager.Manager, operatorUUID, mongodbImage, databaseNonStaticImage string) []Event
 
 // RunTelemetry lists the specified CRDs and sends them as events to Segment
-func RunTelemetry(leaderTrace context.Context, mongodbImage, databaseNonStaticImage, namespace string, operatorClusterMgr manager.Manager, clusterMap map[string]cluster.Cluster, atlasClient *Client, configuredOperatorEnv util.OperatorEnvironment) {
+func RunTelemetry(leaderTrace context.Context, mongodbImage, databaseNonStaticImage, namespace, installerMethod string, operatorClusterMgr manager.Manager, clusterMap map[string]cluster.Cluster, atlasClient *Client, configuredOperatorEnv util.OperatorEnvironment) {
 	Logger.Debug("Collecting telemetry!")
 	ctx, span := TRACER.Start(leaderTrace, "RunTelemetry")
 	span.SetAttributes(
@@ -112,7 +114,9 @@ func RunTelemetry(leaderTrace context.Context, mongodbImage, databaseNonStaticIm
 	// Mapping of snapshot types to their respective collector functions
 	// The functions are not 100% identical, this map takes care of that
 	snapshotCollectors := map[EventType]func(ctx context.Context, memberClusterMap map[string]ConfigClient, operatorClusterMgr manager.Manager, operatorUUID, mongodbImage, databaseNonStaticImage string) []Event{
-		Operators: collectOperatorSnapshot,
+		Operators: func(ctx context.Context, memberClusterMap map[string]ConfigClient, operatorClusterMgr manager.Manager, operatorUUID, _, _ string) []Event {
+			return collectOperatorSnapshot(ctx, memberClusterMap, operatorClusterMgr, operatorUUID, installerMethod)
+		},
 		Clusters: func(ctx context.Context, cc map[string]ConfigClient, operatorClusterMgr manager.Manager, _, _, _ string) []Event {
 			return collectClustersSnapshot(ctx, cc, operatorClusterMgr)
 		},
@@ -164,7 +168,7 @@ func collectAndSendSnapshot(ctx context.Context, eventType EventType, cf snapsho
 	handleEvents(ctx, atlasClient, events, eventType, namespace, operatorClusterMgr.GetClient())
 }
 
-func collectOperatorSnapshot(ctx context.Context, memberClusterMap map[string]ConfigClient, operatorClusterMgr manager.Manager, operatorUUID, _, _ string) []Event {
+func collectOperatorSnapshot(ctx context.Context, memberClusterMap map[string]ConfigClient, operatorClusterMgr manager.Manager, operatorUUID, installerMethod string) []Event {
 	var kubeClusterUUIDList []string
 	uncachedClient := operatorClusterMgr.GetAPIReader()
 	kubeClusterOperatorUUID := getKubernetesClusterUUID(ctx, uncachedClient)
@@ -179,7 +183,6 @@ func collectOperatorSnapshot(ctx context.Context, memberClusterMap map[string]Co
 		uid := getKubernetesClusterUUID(ctx, uncachedClient)
 		kubeClusterUUIDList = append(kubeClusterUUIDList, uid)
 	}
-	installMethod := envvar.GetEnvOrDefault(InstallerEnvVar, "")
 
 	slices.Sort(kubeClusterUUIDList)
 
@@ -191,7 +194,7 @@ func collectOperatorSnapshot(ctx context.Context, memberClusterMap map[string]Co
 		OperatorType:         MEKO,
 		OperatorArchitecture: runtime.GOARCH,
 		OperatorOS:           runtime.GOOS,
-		OperatorInstaller:    installMethod,
+		OperatorInstaller:    installerMethod,
 	}
 
 	event := createEvent(operatorEvent, time.Now(), Operators)
