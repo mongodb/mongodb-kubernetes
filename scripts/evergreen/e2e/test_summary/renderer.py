@@ -666,12 +666,8 @@ def generate_html(data: Dict[str, Any], test_name: str, variant: str, status: st
     # Parse reference time for age calculations (use generation time, not viewing time)
     reference_time = datetime.fromisoformat(data["meta"]["generated_at"].replace("Z", "+00:00"))
 
-    # Extract log tails before serializing — keep the copyable JSON clean
     log_tails = data.pop("log_tails", {})
     log_tails_json = json.dumps(log_tails)
-
-    json_data = json.dumps(data, indent=2)
-    escaped_json = escape(json_data)
 
     # Calculate quick stats
     failed_tests = data["test_run"].get("tests", {}).get("failed", 0)
@@ -763,12 +759,6 @@ def generate_html(data: Dict[str, Any], test_name: str, variant: str, status: st
             {_render_artifacts_by_cluster(data)}
         </div>
 
-        <button class="copy-button" onclick="copyJSON()">\U0001f4cb Copy JSON Data</button>
-        <button class="copy-button" onclick="downloadJSON()">\U0001f4be Download JSON</button>
-        <h2 class="collapsible collapsed" onclick="toggleCollapse(this)">Full JSON Data</h2>
-        <div class="collapsible-content section">
-            <pre id="json-display">{escaped_json}</pre>
-        </div>
     </div>
 
     <!-- Log viewer modal -->
@@ -782,10 +772,6 @@ def generate_html(data: Dict[str, Any], test_name: str, variant: str, status: st
             <pre id="log-modal-body" class="log-modal-body"></pre>
         </div>
     </div>
-
-    <script id="test-data" type="application/json">
-{json_data}
-    </script>
 
     <script id="log-tails-data" type="application/json">
 {log_tails_json}

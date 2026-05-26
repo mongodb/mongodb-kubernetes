@@ -61,28 +61,6 @@ function toggleTestError(id) {
     }
 }
 
-function copyJSON() {
-    const jsonData = document.getElementById('test-data').textContent;
-    navigator.clipboard.writeText(jsonData).then(() => {
-        alert('JSON data copied to clipboard!');
-    }).catch(err => {
-        console.error('Failed to copy:', err);
-    });
-}
-
-function downloadJSON() {
-    const jsonData = document.getElementById('test-data').textContent;
-    const blob = new Blob([jsonData], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'test-summary.json';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-}
-
 // Log viewer modal
 const _logTails = JSON.parse(document.getElementById('log-tails-data').textContent);
 
@@ -187,5 +165,5 @@ document.addEventListener('keydown', (e) => {
 
 // Auto-collapse long sections on load
 window.addEventListener('load', () => {
-    console.log('Test summary loaded. JSON data available in #test-data element.');
+    console.log('Test summary loaded.');
 });
