@@ -170,7 +170,20 @@ document.addEventListener('keydown', (e) => {
     }
 });
 
-// Auto-collapse long sections on load
+// Scroll the inline Test Output preview to the bottom — matches the modal
+// behavior so the most recent pytest activity is visible without a manual scroll.
+function _scrollTestOutputToBottom(preview) {
+    if (preview) preview.scrollTop = preview.scrollHeight;
+}
+
 window.addEventListener('load', () => {
+    document.querySelectorAll('details.test-output').forEach(d => {
+        const preview = d.querySelector('.test-output-preview');
+        // Scroll once now (works if open), and again on every toggle to open.
+        _scrollTestOutputToBottom(preview);
+        d.addEventListener('toggle', () => {
+            if (d.open) _scrollTestOutputToBottom(preview);
+        });
+    });
     console.log('Test summary loaded.');
 });

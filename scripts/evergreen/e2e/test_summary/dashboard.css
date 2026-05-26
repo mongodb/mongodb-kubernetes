@@ -672,3 +672,62 @@ code {
 .log-info { color: #4af; }
 .log-debug { color: #666; }
 .log-timestamp { color: #777; }
+
+/* Test output section */
+.test-output {
+    margin: 20px 0;
+    border: 1px solid #e0e0e0;
+    border-radius: 6px;
+    background: #fafafa;
+}
+.test-output > summary {
+    list-style: none;
+    cursor: pointer;
+    padding: 10px 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    user-select: none;
+}
+.test-output > summary::-webkit-details-marker { display: none; }
+.test-output > summary::before {
+    content: '▶';
+    font-size: 0.7em;
+    color: #888;
+    transition: transform 0.15s;
+}
+.test-output[open] > summary::before {
+    transform: rotate(90deg);
+    display: inline-block;
+}
+.test-output-title {
+    font-weight: 600;
+    color: #444;
+}
+.test-output-info {
+    color: #888;
+    font-size: 0.85em;
+    flex: 1;
+}
+.test-output-open {
+    background: #007bff;
+    color: white;
+    border: none;
+    padding: 5px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.85em;
+}
+.test-output-open:hover { background: #0056b3; }
+.test-output-preview {
+    max-height: 320px;
+    overflow: auto;
+    margin: 0;
+    padding: 12px 16px;
+    color: #d4d4d4;
+    background: #1e1e1e;
+    font-family: 'SF Mono', 'Menlo', 'Monaco', 'Courier New', monospace;
+    font-size: 0.82em;
+    line-height: 1.5;
+    border-radius: 0 0 6px 6px;
+}

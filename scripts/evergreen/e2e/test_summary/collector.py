@@ -16,6 +16,8 @@ except ImportError:
 
 from error_patterns import ERROR_PATTERNS, get_compiled_patterns
 
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
+
 
 class TestSummaryGenerator:
     """Generates comprehensive test summary from E2E artifacts."""
@@ -1097,7 +1099,7 @@ class TestSummaryGenerator:
 
         # Structured files should be read from the beginning, not tailed
         head_extensions = {".yaml", ".json", ".conf", ".xml"}
-        head_suffixes = {"_describe.txt", "_diagnostics.txt"}
+        head_suffixes = {"describe.txt", "diagnostics.txt"}
 
         for file_path in sorted(self.logs_dir.iterdir()):
             if not file_path.is_file():
@@ -1129,6 +1131,7 @@ class TestSummaryGenerator:
                     truncated = len(lines) > tail_lines
 
                 content = "".join(shown)
+                content = _ANSI_RE.sub("", content)
 
                 # Cap total embedded size
                 content_bytes = len(content.encode("utf-8", errors="replace"))
