@@ -29,6 +29,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/mongot"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/constants"
 	khandler "github.com/mongodb/mongodb-kubernetes/pkg/handler"
@@ -85,7 +86,8 @@ func newSearchReconcilerWithOperatorConfig(
 
 	fakeClient := builder.Build()
 
-	return newMongoDBSearchReconciler(fakeClient, operatorConfig, map[string]client.Client{}, ""), fakeClient
+	provider := NewStateCMProvider(kubernetesClient.NewClient(fakeClient))
+	return newMongoDBSearchReconciler(fakeClient, operatorConfig, map[string]client.Client{}, provider), fakeClient
 }
 
 func newSearchReconciler(
@@ -379,7 +381,7 @@ func TestNewMongoDBSearchReconciler_SingleCluster(t *testing.T) {
 	central := newFakeClientForTest(t)
 	members := map[string]client.Client{} // empty -> single-cluster install
 
-	r := newMongoDBSearchReconciler(central, searchcontroller.OperatorSearchConfig{}, members, "")
+	r := newMongoDBSearchReconciler(central, searchcontroller.OperatorSearchConfig{}, members, nil)
 
 	assert.NotNil(t, r.kubeClient, "central kubeClient must be set")
 	assert.Empty(t, r.memberClusterClientsMap, "members map must be empty in single-cluster mode")
@@ -394,7 +396,7 @@ func TestNewMongoDBSearchReconciler_MultiCluster(t *testing.T) {
 		"eu-west-k8s": west,
 	}
 
-	r := newMongoDBSearchReconciler(central, searchcontroller.OperatorSearchConfig{}, members, "")
+	r := newMongoDBSearchReconciler(central, searchcontroller.OperatorSearchConfig{}, members, nil)
 
 	assert.Len(t, r.memberClusterClientsMap, 2)
 	assert.NotNil(t, r.memberClusterClientsMap["us-east-k8s"])
@@ -658,12 +660,13 @@ func newSearchReconcilerWithMembers(
 		}
 	}
 	centralClient := builder.Build()
-	return newMongoDBSearchReconciler(centralClient, searchcontroller.OperatorSearchConfig{}, memberClients, ""), centralClient
+	provider := NewStateCMProvider(kubernetesClient.NewClient(centralClient))
+	return newMongoDBSearchReconciler(centralClient, searchcontroller.OperatorSearchConfig{}, memberClients, provider), centralClient
 }
 
-// newSimulatedMCSearchReconciler builds a MongoDBSearchReconciler in simulated
-// multi-cluster mode: operatorClusterName is set and memberClusterClients is
-// empty (each operator only talks to its own cluster via its central client).
+// newSimulatedMCSearchReconciler builds a MongoDBSearchReconciler wired with a
+// SpecIndexProvider for simulated multi-cluster mode: the operator narrows
+// spec.clusters[] to its own entry and talks only to its central client.
 func newSimulatedMCSearchReconciler(
 	t *testing.T,
 	operatorClusterName string,
@@ -681,7 +684,7 @@ func newSimulatedMCSearchReconciler(
 		centralClient,
 		searchcontroller.OperatorSearchConfig{},
 		map[string]client.Client{},
-		operatorClusterName,
+		NewSpecIndexProvider(operatorClusterName),
 	), centralClient
 }
 
@@ -928,7 +931,7 @@ func TestMongoDBSearchReconcile_MCSharded_CrossControllerLabelInvariant(t *testi
 	memberClients := map[string]client.Client{"cluster-a": clusterA, "cluster-b": clusterB}
 
 	searchReconciler, centralClient := newSearchReconcilerWithMembers(t, nil, memberClients, search)
-	envoyReconciler := newMongoDBSearchEnvoyReconciler(centralClient, "envoy:test", memberClients, "")
+	envoyReconciler := newMongoDBSearchEnvoyReconciler(centralClient, "envoy:test", memberClients, NewStateCMProvider(kubernetesClient.NewClient(centralClient)))
 
 	req := reconcile.Request{NamespacedName: types.NamespacedName{Name: search.Name, Namespace: search.Namespace}}
 

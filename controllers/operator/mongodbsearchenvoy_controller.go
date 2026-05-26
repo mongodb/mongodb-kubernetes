@@ -84,13 +84,13 @@ type MongoDBSearchEnvoyReconciler struct {
 	// Reconcile path falls back to kubeClient (resolved in buildClusterWorkList).
 	memberClusterClientsMap map[string]kubernetesClient.Client
 
-	// operatorClusterName is this operator's own cluster identity when running
-	// in simulated multi-cluster mode. Empty when the cluster-identity ConfigMap
-	// is absent (legacy single-operator behaviour).
-	operatorClusterName string
+	// mappingProvider resolves the clusterName->clusterIndex mapping. Chosen
+	// once at startup in main.go: StateCMProvider for legacy single/central-MC,
+	// SpecIndexProvider for simulated multi-cluster.
+	mappingProvider ClusterMappingProvider
 }
 
-func newMongoDBSearchEnvoyReconciler(c client.Client, defaultEnvoyImage string, memberClustersMap map[string]client.Client, operatorClusterName string) *MongoDBSearchEnvoyReconciler {
+func newMongoDBSearchEnvoyReconciler(c client.Client, defaultEnvoyImage string, memberClustersMap map[string]client.Client, mappingProvider ClusterMappingProvider) *MongoDBSearchEnvoyReconciler {
 	clientsMap := make(map[string]kubernetesClient.Client, len(memberClustersMap))
 	for k, v := range memberClustersMap {
 		clientsMap[k] = kubernetesClient.NewClient(v)
@@ -101,7 +101,7 @@ func newMongoDBSearchEnvoyReconciler(c client.Client, defaultEnvoyImage string, 
 		watch:                   watch.NewResourceWatcher(),
 		defaultEnvoyImage:       defaultEnvoyImage,
 		memberClusterClientsMap: clientsMap,
-		operatorClusterName:     operatorClusterName,
+		mappingProvider:         mappingProvider,
 	}
 }
 
@@ -117,14 +117,15 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 		return result, err
 	}
 
-	// Simulated multi-cluster projection: filter spec.clusters[] to this
-	// operator's local entry. No-op when operatorClusterName is unset.
-	projRes, projectedIdx, projErr := projectToLocalCluster(mdbSearch, r.operatorClusterName)
-	if projErr != nil {
-		return r.updateLBStatus(ctx, mdbSearch, workflow.Invalid("%s", projErr), log)
+	// Resolve clusterName -> clusterIndex mapping. In simulated-MC mode the
+	// provider also mutates spec.clusters[] to the local entry; it MUST run
+	// before any code that reads spec.clusters.
+	resolution, err := r.mappingProvider.Resolve(ctx, mdbSearch, log)
+	if err != nil {
+		return r.updateLBStatus(ctx, mdbSearch, workflow.Invalid("%s", err.Error()), log)
 	}
-	if projRes == projNoMatch {
-		log.Debugf("simulated multi-cluster: cluster %q has no entry in spec.clusters[]; nothing to reconcile", r.operatorClusterName)
+	if resolution.Skip {
+		log.Debugf("mapping provider skipped CR (this operator is not responsible for it)")
 		return reconcile.Result{}, nil
 	}
 
@@ -158,24 +159,10 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 		return r.updateLBStatus(ctx, mdbSearch, workflow.Pending("Waiting for search source: %s", err), log)
 	}
 
-	// Get the stable clusterName → clusterIndex mapping. In simulated-MC mode
-	// the mapping comes from the projected entry's spec.clusters[i].clusterIndex
-	// (no state ConfigMap is consulted). Otherwise load from the per-CR state CM.
-	var clusterMapping map[string]int
-	if projRes == projProjected {
-		clusterMapping = map[string]int{r.operatorClusterName: projectedIdx}
-	} else {
-		state, _, err := loadOrInitSearchState(ctx, r.kubeClient, mdbSearch)
-		if err != nil {
-			return r.updateLBStatus(ctx, mdbSearch, workflow.Pending("Waiting for search state: %s", err), log)
-		}
-		clusterMapping = state.ClusterMapping
-	}
-
 	tlsCfg := searchSource.TLSConfig()
 	tlsEnabled := mdbSearch.IsTLSConfigured()
 
-	workList := r.buildClusterWorkList(mdbSearch, clusterMapping)
+	workList := r.buildClusterWorkList(mdbSearch, resolution.Mapping)
 	var firstFailure error
 	var worstPhase status.Phase
 
@@ -760,11 +747,11 @@ func mapEnvoyObjectToSearch(_ context.Context, obj client.Object) []reconcile.Re
 //
 // For each member cluster we register watches on Envoy Deployment + ConfigMap
 // using the label-based mapper (cross-cluster owner refs do not GC).
-func AddMongoDBSearchEnvoyController(ctx context.Context, mgr manager.Manager, defaultEnvoyImage string, memberClusterObjectsMap map[string]runtimeCluster.Cluster, operatorClusterName string) error {
+func AddMongoDBSearchEnvoyController(ctx context.Context, mgr manager.Manager, defaultEnvoyImage string, memberClusterObjectsMap map[string]runtimeCluster.Cluster, mappingProvider ClusterMappingProvider) error {
 	// NOTE: The field index for MongoDBSearchIndexFieldName is already registered
 	// by AddMongoDBSearchController. Do not register it again here.
 
-	r := newMongoDBSearchEnvoyReconciler(mgr.GetClient(), defaultEnvoyImage, multicluster.ClustersMapToClientMap(memberClusterObjectsMap), operatorClusterName)
+	r := newMongoDBSearchEnvoyReconciler(mgr.GetClient(), defaultEnvoyImage, multicluster.ClustersMapToClientMap(memberClusterObjectsMap), mappingProvider)
 
 	c, err := controller.New("mongodbsearchenvoy", mgr, controller.Options{
 		Reconciler:              r,

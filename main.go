@@ -51,6 +51,7 @@ import (
 	mcov1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	mcoController "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers"
 	mcoConstruct "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/construct"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/envvar"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
@@ -423,18 +424,27 @@ func setupMongoDBSearchCRD(
 	memberClusterObjectsMap map[string]runtime_cluster.Cluster,
 	operatorClusterName string,
 ) error {
+	// Constructor-switched cluster-mapping provider — chosen once at startup.
+	// Reconcile bodies never branch on simulated-MC mode after this point.
+	var mappingProvider operator.ClusterMappingProvider
+	if operatorClusterName != "" {
+		mappingProvider = operator.NewSpecIndexProvider(operatorClusterName)
+	} else {
+		mappingProvider = operator.NewStateCMProvider(kubernetesClient.NewClient(mgr.GetClient()))
+	}
+
 	if err := operator.AddMongoDBSearchController(ctx, mgr, searchcontroller.OperatorSearchConfig{
 		SearchRepo:    env.ReadOrPanic(util.SearchRepoURLEnv),
 		SearchName:    env.ReadOrPanic(util.SearchNameEnv),
 		SearchVersion: env.ReadOrPanic(util.SearchVersionEnv),
-	}, memberClusterObjectsMap, operatorClusterName); err != nil {
+	}, memberClusterObjectsMap, mappingProvider); err != nil {
 		return err
 	}
 
 	// We cannot use ReadOrPanic here because this variable is only needed when Search is used with a managed load
 	// balancer
 	envoyImage := env.ReadOrDefault(util.EnvoyImageEnv, "")
-	if err := operator.AddMongoDBSearchEnvoyController(ctx, mgr, envoyImage, memberClusterObjectsMap, operatorClusterName); err != nil {
+	if err := operator.AddMongoDBSearchEnvoyController(ctx, mgr, envoyImage, memberClusterObjectsMap, mappingProvider); err != nil {
 		return err
 	}
 
