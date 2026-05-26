@@ -1090,8 +1090,7 @@ class TestSummaryGenerator:
         # Per-item synthetic entries may have already been written during parsing.
         self.data.setdefault("log_tails", {})
         total_bytes = sum(
-            len(entry.get("content", "").encode("utf-8", errors="replace"))
-            for entry in self.data["log_tails"].values()
+            len(entry.get("content", "").encode("utf-8", errors="replace")) for entry in self.data["log_tails"].values()
         )
 
         viewable_extensions = {".log", ".txt", ".json", ".conf", ".yaml", ".xml"}
