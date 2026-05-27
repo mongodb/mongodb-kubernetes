@@ -606,6 +606,23 @@ func buildEnvoyPodSpec(search *searchv1.MongoDBSearch, clusterIndex int, tlsCfg 
 
 	return corev1.PodSpec{
 		SecurityContext: podSecurityContext,
+		Affinity: &corev1.Affinity{
+			PodAntiAffinity: &corev1.PodAntiAffinity{
+				PreferredDuringSchedulingIgnoredDuringExecution: []corev1.WeightedPodAffinityTerm{
+					{
+						Weight: 100,
+						PodAffinityTerm: corev1.PodAffinityTerm{
+							LabelSelector: &metav1.LabelSelector{
+								MatchLabels: map[string]string{
+									"app": search.LoadBalancerDeploymentNameForCluster(clusterIndex),
+								},
+							},
+							TopologyKey: "kubernetes.io/hostname",
+						},
+					},
+				},
+			},
+		},
 		Containers: []corev1.Container{
 			{
 				Name:    "envoy",
