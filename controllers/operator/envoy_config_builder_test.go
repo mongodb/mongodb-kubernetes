@@ -145,14 +145,14 @@ func TestBuildCDSJSON_SingleShard_WithTLS(t *testing.T) {
 	upstreamTLS := &tlsv3.UpstreamTlsContext{}
 	err = cluster.TransportSocket.GetTypedConfig().UnmarshalTo(upstreamTLS)
 	require.NoError(t, err)
-	assert.Equal(t, route.UpstreamHost, upstreamTLS.Sni)
+	assert.Equal(t, route.UpstreamHosts[0], upstreamTLS.Sni)
 	assert.Equal(t, []string{"h2"}, upstreamTLS.CommonTlsContext.AlpnProtocols)
 }
 
 func TestBuildCDSJSON_MultipleShards(t *testing.T) {
 	routes := []envoyRoute{
-		{Name: "mdb-sh-0", NameSafe: "mdb_sh_0", SNIHostname: "s0.ns.svc.cluster.local", UpstreamHost: "m0.ns.svc.cluster.local", UpstreamPort: 27028},
-		{Name: "mdb-sh-1", NameSafe: "mdb_sh_1", SNIHostname: "s1.ns.svc.cluster.local", UpstreamHost: "m1.ns.svc.cluster.local", UpstreamPort: 27028},
+		{Name: "mdb-sh-0", NameSafe: "mdb_sh_0", SNIHostname: "s0.ns.svc.cluster.local", UpstreamHosts: []string{"m0.ns.svc.cluster.local"}, UpstreamPort: 27028},
+		{Name: "mdb-sh-1", NameSafe: "mdb_sh_1", SNIHostname: "s1.ns.svc.cluster.local", UpstreamHosts: []string{"m1.ns.svc.cluster.local"}, UpstreamPort: 27028},
 	}
 	result, err := buildCDSJSON(routes, false, testCAKeyName())
 	require.NoError(t, err)
@@ -248,9 +248,9 @@ func TestBuildLDSJSON_MultipleShards_WithTLS(t *testing.T) {
 func TestBuildLDSJSON_ReplicaSet_NoTLS(t *testing.T) {
 	route := envoyRoute{
 		Name: "rs", NameSafe: "rs",
-		SNIHostname:  "mdb-search-search-proxy-svc.test-ns.svc.cluster.local",
-		UpstreamHost: "mdb-search-search-svc.test-ns.svc.cluster.local",
-		UpstreamPort: 27028,
+		SNIHostname:   "mdb-search-search-proxy-svc.test-ns.svc.cluster.local",
+		UpstreamHosts: []string{"mdb-search-search-svc.test-ns.svc.cluster.local"},
+		UpstreamPort:  27028,
 	}
 
 	result, err := buildLDSJSON([]envoyRoute{route}, false, testCAKeyName())
@@ -270,9 +270,9 @@ func TestBuildLDSJSON_ReplicaSet_NoTLS(t *testing.T) {
 func TestBuildCDSJSON_ReplicaSet_NoTLS(t *testing.T) {
 	route := envoyRoute{
 		Name: "rs", NameSafe: "rs",
-		SNIHostname:  "mdb-search-search-proxy-svc.test-ns.svc.cluster.local",
-		UpstreamHost: "mdb-search-search-svc.test-ns.svc.cluster.local",
-		UpstreamPort: 27028,
+		SNIHostname:   "mdb-search-search-proxy-svc.test-ns.svc.cluster.local",
+		UpstreamHosts: []string{"mdb-search-search-svc.test-ns.svc.cluster.local"},
+		UpstreamPort:  27028,
 	}
 
 	result, err := buildCDSJSON([]envoyRoute{route}, false, testCAKeyName())
