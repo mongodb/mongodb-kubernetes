@@ -102,6 +102,10 @@ repos:
       #       config/crd/bases/.*
       #     )
       - id: check-added-large-files
+        exclude: |
+          (?x)^(
+            docker/mongodb-kubernetes-tests/tests/common/search/testdata/fixtures/.*\.log$
+          )
       - id: check-merge-conflict
       - id: check-json
         exclude: |

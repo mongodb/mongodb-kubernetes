@@ -1,3 +1,6 @@
+import random
+import time
+import uuid
 from typing import Optional, Self
 
 import kubetester
@@ -143,6 +146,58 @@ class SearchTester(MongoTester):
             mongorestore_cmd.append(f"--sslCAFile={pod_ca_path}")
 
         tools_pod.run_command(mongorestore_cmd)
+
+    def insert_synthetic_movies(
+        self,
+        database_name: str,
+        collection_name: str,
+        count: int,
+        *,
+        batch_size: int = 1000,
+    ) -> int:
+        """Insert ``count`` synthetic movie docs into ``database.collection``.
+
+        Idempotent: if ``count_documents({"synthetic": True}) >= count`` we
+        skip insertion. Each doc has a unique ``title``/``plot`` so mongot's
+        existing ``mappings.dynamic`` $search definition covers them for
+        paging tests.
+        """
+        coll = self.client[database_name][collection_name]
+        existing = coll.count_documents({"synthetic": True})
+        if existing >= count:
+            logger.info(
+                f"insert_synthetic_movies: skip — {existing} synthetic docs already in "
+                f"{database_name}.{collection_name} (>= requested {count})"
+            )
+            return 0
+        to_insert = count - existing
+        logger.info(
+            f"insert_synthetic_movies: inserting {to_insert} synthetic docs into "
+            f"{database_name}.{collection_name} (existing synthetic={existing}, "
+            f"batch_size={batch_size})"
+        )
+        start = time.time()
+        inserted = 0
+        batch: list[dict] = []
+        for _ in range(to_insert):
+            batch.append(
+                {
+                    "title": f"synthetic_movie_{uuid.uuid4().hex}",
+                    "plot": "a synthetic movie inserted by the connectivity-tool e2e for paging tests",
+                    "year": random.randint(1900, 2030),
+                    "synthetic": True,
+                }
+            )
+            if len(batch) >= batch_size:
+                coll.insert_many(batch, ordered=False)
+                inserted += len(batch)
+                batch = []
+        if batch:
+            coll.insert_many(batch, ordered=False)
+            inserted += len(batch)
+        elapsed = time.time() - start
+        logger.info(f"insert_synthetic_movies: inserted {inserted} docs in {elapsed:.1f}s")
+        return inserted
 
     def create_search_index(self, database_name: str, collection_name: str):
         database = self.client[database_name]
