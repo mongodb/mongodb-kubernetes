@@ -183,14 +183,14 @@ cp /probes/version-upgrade-hook /hooks/version-upgrade
 
 // getTLSVolumesAndVolumeMounts returns the slices of volumes and volume-mounts
 // that the AppDB STS needs for TLS resources.
-func getTLSVolumesAndVolumeMounts(appDb om.AppDBSpec, podVars *env.PodEnvVars, log *zap.SugaredLogger) ([]corev1.Volume, []corev1.VolumeMount) {
+func getTLSVolumesAndVolumeMounts(appDb om.AppDBSpec, podVars *env.PodEnvVars, opts AppDBStatefulSetOptions, log *zap.SugaredLogger) ([]corev1.Volume, []corev1.VolumeMount) {
 	if log == nil {
 		log = zap.S()
 	}
 	var volumesToAdd []corev1.Volume
 	var volumeMounts []corev1.VolumeMount
 
-	if ShouldMountSSLMMSCAConfigMap(podVars) {
+	if ShouldMountSSLMMSCAConfigMap(podVars, opts) {
 		// This volume wil contain the OM CA
 		caCertVolume := statefulset.CreateVolumeFromConfigMap(CaCertName, podVars.SSLMMSCAConfigMap)
 		volumeMounts = append(volumeMounts, corev1.VolumeMount{
@@ -249,11 +249,11 @@ func CAConfigMapName(appDb om.AppDBSpec, log *zap.SugaredLogger) string {
 
 // tlsVolumes returns the podtemplatespec modification that adds all needed volumes
 // and volumemounts for TLS.
-func tlsVolumes(appDb om.AppDBSpec, podVars *env.PodEnvVars, log *zap.SugaredLogger) podtemplatespec.Modification {
-	volumesToAdd, volumeMounts := getTLSVolumesAndVolumeMounts(appDb, podVars, log)
+func tlsVolumes(appDb om.AppDBSpec, podVars *env.PodEnvVars, opts AppDBStatefulSetOptions, log *zap.SugaredLogger) podtemplatespec.Modification {
+	volumesToAdd, volumeMounts := getTLSVolumesAndVolumeMounts(appDb, podVars, opts, log)
 
 	// Add agent API key volume mount if not using vault and monitoring is enabled
-	if !vault.IsVaultSecretBackend() && ShouldEnableMonitoring(podVars) {
+	if !vault.IsVaultSecretBackend() && ShouldEnableMonitoring(podVars, opts) {
 		volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(AgentAPIKeyVolumeName, AgentAPIKeySecretPath))
 	}
 
@@ -304,7 +304,7 @@ func vaultModification(appDB om.AppDBSpec, podVars *env.PodEnvVars, opts AppDBSt
 		)
 
 	} else {
-		if ShouldEnableMonitoring(podVars) {
+		if ShouldEnableMonitoring(podVars, opts) {
 			// AGENT-API-KEY volume
 			modification = podtemplatespec.Apply(
 				modification,
@@ -375,9 +375,13 @@ func customPersistenceConfig(om *om.MongoDBOpsManager) statefulset.Modification 
 	}
 }
 
-// ShouldEnableMonitoring returns true if we need to add monitoring container (along with volume mounts) in the current reconcile loop.
-func ShouldEnableMonitoring(podVars *env.PodEnvVars) bool {
-	return GlobalMonitoringSettingEnabled() && podVars != nil && podVars.ProjectID != ""
+// ShouldEnableMonitoring returns true if the monitoring sidecar container should be added.
+// Monitoring sidecar is headless-mode only; online mode uses monitoringVersions in the AC.
+func ShouldEnableMonitoring(podVars *env.PodEnvVars, opts AppDBStatefulSetOptions) bool {
+	return GlobalMonitoringSettingEnabled() &&
+		podVars != nil &&
+		podVars.ProjectID != "" &&
+		!opts.Connection.Enabled
 }
 
 // GlobalMonitoringSettingEnabled returns global setting whether to enable or disable monitoring in appdb (OPS_MANAGER_MONITOR_APPDB env var)
@@ -386,8 +390,8 @@ func GlobalMonitoringSettingEnabled() bool {
 }
 
 // ShouldMountSSLMMSCAConfigMap returns true if we need to mount MMSCA to monitoring container in the current reconcile loop.
-func ShouldMountSSLMMSCAConfigMap(podVars *env.PodEnvVars) bool {
-	return ShouldEnableMonitoring(podVars) && podVars.SSLMMSCAConfigMap != ""
+func ShouldMountSSLMMSCAConfigMap(podVars *env.PodEnvVars, opts AppDBStatefulSetOptions) bool {
+	return ShouldEnableMonitoring(podVars, opts) && podVars.SSLMMSCAConfigMap != ""
 }
 
 // onlineAutomationAgentCommand builds the automation agent startup command for online mode.
@@ -429,7 +433,7 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 
 	externalDomain := appDb.GetExternalDomainForMemberCluster(scaler.MemberClusterName())
 
-	if ShouldEnableMonitoring(podVars) {
+	if ShouldEnableMonitoring(podVars, opts) {
 		monitoringModification = addMonitoringContainer(*appDb, *podVars, opts, externalDomain, architectures.IsRunningStaticArchitecture(opsManager.Annotations), log)
 	} else {
 		// Otherwise, let's remove for now every podTemplateSpec related to monitoring
@@ -534,7 +538,7 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 				vaultModification(*appDb, podVars, opts),
 				appDbPodSpec(opts.InitAppDBImage, opsManager),
 				monitoringModification,
-				tlsVolumes(*appDb, podVars, log),
+				tlsVolumes(*appDb, podVars, opts, log),
 			),
 		),
 		appDbLabels(&opsManager, scaler.MemberClusterNum()),
@@ -669,7 +673,7 @@ func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, opts App
 	monitoringCommand := []string{"/bin/bash", "-c", command}
 
 	// Add additional TLS volumes if needed
-	_, monitoringMounts := getTLSVolumesAndVolumeMounts(appDB, &podVars, log)
+	_, monitoringMounts := getTLSVolumesAndVolumeMounts(appDB, &podVars, opts, log)
 
 	return podtemplatespec.Apply(
 		monitoringACFunc,

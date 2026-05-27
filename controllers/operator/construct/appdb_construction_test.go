@@ -235,3 +235,24 @@ func assertEnvVarAbsent(t *testing.T, envVars []corev1.EnvVar, name string) {
 		}
 	}
 }
+
+func TestShouldEnableMonitoring_FalseInOnlineMode(t *testing.T) {
+	// Even if podVars.ProjectID is set, monitoring sidecar is disabled in online mode.
+	podVars := &env.PodEnvVars{ProjectID: "some-group-id"}
+	opts := AppDBStatefulSetOptions{
+		Connection: AgentConnectionConfig{Enabled: true, GroupID: "some-group-id"},
+	}
+	assert.False(t, ShouldEnableMonitoring(podVars, opts))
+}
+
+func TestShouldEnableMonitoring_TrueInHeadlessMode(t *testing.T) {
+	podVars := &env.PodEnvVars{ProjectID: "some-group-id"}
+	opts := AppDBStatefulSetOptions{
+		Connection: AgentConnectionConfig{Enabled: false},
+	}
+	assert.True(t, ShouldEnableMonitoring(podVars, opts))
+}
+
+func TestShouldEnableMonitoring_FalseWhenNoPodVars(t *testing.T) {
+	assert.False(t, ShouldEnableMonitoring(nil, AppDBStatefulSetOptions{}))
+}

@@ -651,7 +651,9 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 		return r.updateStatus(ctx, opsManager, workflowStatus, log, appDbStatusOption)
 	}
 
-	if workflowStatus := r.replicateSSLMMSCAConfigMap(ctx, opsManager, &podVars, log); !workflowStatus.IsOK() {
+	// Create options struct with connection config for ShouldMountSSLMMSCAConfigMap check
+	connOpts := construct.AppDBStatefulSetOptions{Connection: agentConnConfig}
+	if workflowStatus := r.replicateSSLMMSCAConfigMap(ctx, opsManager, &podVars, connOpts, log); !workflowStatus.IsOK() {
 		return r.updateStatus(ctx, opsManager, workflowStatus, log, appDbStatusOption)
 	}
 
@@ -1054,9 +1056,9 @@ func (r *ReconcileAppDbReplicaSet) replicateTLSCAConfigMap(ctx context.Context, 
 	return workflow.OK()
 }
 
-func (r *ReconcileAppDbReplicaSet) replicateSSLMMSCAConfigMap(ctx context.Context, om *omv1.MongoDBOpsManager, podVars *env.PodEnvVars, log *zap.SugaredLogger) workflow.Status {
+func (r *ReconcileAppDbReplicaSet) replicateSSLMMSCAConfigMap(ctx context.Context, om *omv1.MongoDBOpsManager, podVars *env.PodEnvVars, opts construct.AppDBStatefulSetOptions, log *zap.SugaredLogger) workflow.Status {
 	appDBSpec := om.Spec.AppDB
-	if !appDBSpec.IsMultiCluster() || !construct.ShouldMountSSLMMSCAConfigMap(podVars) {
+	if !appDBSpec.IsMultiCluster() || !construct.ShouldMountSSLMMSCAConfigMap(podVars, opts) {
 		log.Debug("Skipping replication of SSLMMSCAConfigMap.")
 		return workflow.OK()
 	}
