@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -25,7 +26,6 @@ import (
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/v1/om"
-	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connectionstring"
@@ -1598,119 +1598,106 @@ func TestClearTLSParams(t *testing.T) {
 	}
 }
 
-// TestReconcileManagedByMetaOM_MetaOMNotRunning verifies that reconcileManagedByMetaOM returns
-// a Pending status when the referenced Meta OM CR exists but is not in Running phase.
-func TestReconcileManagedByMetaOM_MetaOMNotRunning(t *testing.T) {
+// TestReconcileOMConnection_FailsWithMissingConfigMap verifies that reconcileOMConnection returns
+// a Failed status when the referenced project ConfigMap does not exist.
+func TestReconcileOMConnection_FailsWithMissingConfigMap(t *testing.T) {
 	ctx := context.Background()
 
 	primaryOM := DefaultOpsManagerBuilder().Build()
-	primaryOM.Spec.AppDB.ManagedByMetaOM = &omv1.MetaOMRef{
-		Name:                 "meta-om",
-		Namespace:            mock.TestNamespace,
-		ProjectName:          "meta-project",
-		CredentialsSecretRef: omv1.SecretRef{Name: "meta-om-creds"},
+	primaryOM.Spec.AppDB.Connection = &omv1.ConnectionSpec{
+		SharedConnectionSpec: mdbv1.SharedConnectionSpec{
+			OpsManagerConfig: mdbv1.NewOpsManagerConfig(),
+		},
+		Credentials: "external-om-creds",
 	}
+	primaryOM.Spec.AppDB.Connection.OpsManagerConfig.ConfigMapRef.Name = "appdb-project-config"
 
-	// Meta OM CR exists but is NOT in Running phase.
-	metaOM := &omv1.MongoDBOpsManager{
-		ObjectMeta: metav1.ObjectMeta{Name: "meta-om", Namespace: mock.TestNamespace},
-	}
-	metaOM.Status.OpsManagerStatus.Phase = status.PhasePending
-
+	// No ConfigMap created — ReadConfigAndCredentials should fail.
 	omConnectionFactory := om.NewCachedOMConnectionFactory(om.NewEmptyMockedOmConnection)
-	kubeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, primaryOM, metaOM)
+	kubeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, primaryOM)
 	reconciler, err := newAppDbReconciler(ctx, kubeClient, primaryOM, omConnectionFactory.GetConnectionFunc, zap.S())
 	require.NoError(t, err)
 
-	envVars, st := reconciler.reconcileManagedByMetaOM(ctx, primaryOM, zap.S())
+	_, cfg, st := reconciler.reconcileOMConnection(ctx, primaryOM, zap.S())
 
-	assert.False(t, st.IsOK(), "expected non-OK status when Meta OM is not Running")
-	assert.False(t, envVars.Enabled, "expected MetaOMEnvVars to be empty")
+	assert.False(t, st.IsOK(), "expected non-OK status when ConfigMap is missing")
+	assert.False(t, cfg.Enabled, "expected AgentConnectionConfig to be empty")
 }
 
-// TestReconcileManagedByMetaOM_CreatesProjectAndReturnsEnvVars verifies that reconcileManagedByMetaOM
-// creates a project in Meta OM and returns correct MetaOMEnvVars when Meta OM is Running.
-func TestReconcileManagedByMetaOM_CreatesProjectAndReturnsEnvVars(t *testing.T) {
+// TestReconcileOMConnection_PopulatesAgentConnectionConfig verifies that reconcileOMConnection
+// populates AgentConnectionConfig correctly when the project ConfigMap and credentials exist.
+func TestReconcileOMConnection_PopulatesAgentConnectionConfig(t *testing.T) {
 	ctx := context.Background()
 
 	primaryOM := DefaultOpsManagerBuilder().Build()
-	primaryOM.Spec.AppDB.ManagedByMetaOM = &omv1.MetaOMRef{
-		Name:                 "meta-om",
-		Namespace:            mock.TestNamespace,
-		ProjectName:          "meta-project",
-		CredentialsSecretRef: omv1.SecretRef{Name: "meta-om-creds"},
+	primaryOM.Spec.AppDB.Connection = &omv1.ConnectionSpec{
+		SharedConnectionSpec: mdbv1.SharedConnectionSpec{
+			OpsManagerConfig: mdbv1.NewOpsManagerConfig(),
+		},
+		Credentials: "external-om-creds",
 	}
+	primaryOM.Spec.AppDB.Connection.OpsManagerConfig.ConfigMapRef.Name = "appdb-project-config"
 
-	// Meta OM CR is Running with an explicit URL so CentralURL() is deterministic.
-	metaOM := &omv1.MongoDBOpsManager{
-		ObjectMeta: metav1.ObjectMeta{Name: "meta-om", Namespace: mock.TestNamespace},
-		Spec:       omv1.MongoDBOpsManagerSpec{OpsManagerURL: "http://meta-om.svc:8080"},
-	}
-	metaOM.Status.OpsManagerStatus.Phase = status.PhaseRunning
+	projectCM := mock.GetProjectConfigMap("appdb-project-config", om.TestGroupName, om.TestOrgID)
 
-	// Credentials secret expected by reconcileManagedByMetaOM.
 	credsSecret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: "meta-om-creds", Namespace: mock.TestNamespace},
+		ObjectMeta: metav1.ObjectMeta{Name: "external-om-creds", Namespace: mock.TestNamespace},
 		Data: map[string][]byte{
-			"publicKey":  []byte("test-public-key"),
-			"privateKey": []byte("test-private-key"),
+			util.OmPublicApiKey: []byte("test-public-key"),
+			util.OmPrivateKey:   []byte("test-private-key"),
 		},
 	}
 
 	omConnectionFactory := om.NewCachedOMConnectionFactory(om.NewEmptyMockedOmConnection)
-	kubeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, primaryOM, metaOM, credsSecret)
+	kubeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, primaryOM, projectCM, credsSecret)
 	reconciler, err := newAppDbReconciler(ctx, kubeClient, primaryOM, omConnectionFactory.GetConnectionFunc, zap.S())
 	require.NoError(t, err)
 
-	envVars, st := reconciler.reconcileManagedByMetaOM(ctx, primaryOM, zap.S())
+	_, cfg, st := reconciler.reconcileOMConnection(ctx, primaryOM, zap.S())
 
 	require.True(t, st.IsOK(), "expected OK status: %v", st)
-	assert.True(t, envVars.Enabled)
-	assert.Equal(t, "http://meta-om.svc:8080", envVars.Server)
-	assert.Equal(t, om.TestGroupID, envVars.GroupID)
+	assert.True(t, cfg.Enabled)
+	assert.Equal(t, om.TestURL, cfg.Server)
+	assert.Equal(t, om.TestGroupID, cfg.GroupID)
 }
 
-// TestReconcileAppDB_WithManagedByMetaOM_UpdatesStatefulSetEnvVars verifies that when
-// ManagedByMetaOM is set, a full ReconcileAppDB call results in a StatefulSet whose
+// TestReconcileAppDB_WithConnection_UpdatesStatefulSetEnvVars verifies that when
+// Connection is set, a full ReconcileAppDB call results in a StatefulSet whose
 // agent container carries the online-mode env vars (MMS_SERVER, MMS_GROUP_ID, MMS_API_KEY)
 // and does NOT carry the headless-mode vars (HEADLESS_AGENT, AUTOMATION_CONFIG_MAP).
-func TestReconcileAppDB_WithManagedByMetaOM_UpdatesStatefulSetEnvVars(t *testing.T) {
+func TestReconcileAppDB_WithConnection_UpdatesStatefulSetEnvVars(t *testing.T) {
 	ctx := context.Background()
 
 	primaryOM := DefaultOpsManagerBuilder().Build()
-	primaryOM.Spec.AppDB.ManagedByMetaOM = &omv1.MetaOMRef{
-		Name:                 "meta-om",
-		Namespace:            mock.TestNamespace,
-		ProjectName:          "meta-project",
-		CredentialsSecretRef: omv1.SecretRef{Name: "meta-om-creds"},
+	primaryOM.Spec.AppDB.Connection = &omv1.ConnectionSpec{
+		SharedConnectionSpec: mdbv1.SharedConnectionSpec{
+			OpsManagerConfig: mdbv1.NewOpsManagerConfig(),
+		},
+		Credentials: "external-om-creds",
 	}
+	primaryOM.Spec.AppDB.Connection.OpsManagerConfig.ConfigMapRef.Name = "appdb-project-config"
 
-	// Meta OM CR in Running phase with an explicit URL so CentralURL() is deterministic.
-	metaOM := &omv1.MongoDBOpsManager{
-		ObjectMeta: metav1.ObjectMeta{Name: "meta-om", Namespace: mock.TestNamespace},
-		Spec:       omv1.MongoDBOpsManagerSpec{OpsManagerURL: "http://meta-om.svc:8080"},
-	}
-	metaOM.Status.OpsManagerStatus.Phase = status.PhaseRunning
+	projectCM := mock.GetProjectConfigMap("appdb-project-config", om.TestGroupName, om.TestOrgID)
 
-	// Credentials secret for Meta OM.
+	// Credentials secret for external OM.
 	credsSecret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: "meta-om-creds", Namespace: mock.TestNamespace},
+		ObjectMeta: metav1.ObjectMeta{Name: "external-om-creds", Namespace: mock.TestNamespace},
 		Data: map[string][]byte{
-			"publicKey":  []byte("test-public-key"),
-			"privateKey": []byte("test-private-key"),
+			util.OmPublicApiKey: []byte("test-public-key"),
+			util.OmPrivateKey:   []byte("test-private-key"),
 		},
 	}
 
 	omConnectionFactory := om.NewCachedOMConnectionFactory(om.NewEmptyMockedOmConnection).
 		// The interceptor marks StatefulSets as ready by looking up the OM connection for the
-		// StatefulSet's owner. When reconcileManagedByMetaOM adds a second connection to connMap
-		// (for the meta OM project), we must provide a mapping so the interceptor can resolve
+		// StatefulSet's owner. When reconcileOMConnection adds a second connection to connMap
+		// (for the external OM project), we must provide a mapping so the interceptor can resolve
 		// which connection belongs to the primary OM's StatefulSet.
 		WithResourceToProjectMapping(map[string]string{
 			primaryOM.Name: primaryOM.Spec.AppDB.Name(),
 		})
 	// Do NOT pass primaryOM here — createOpsManagerUserPasswordSecret + fakeClient.Create add it later.
-	fakeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, metaOM, credsSecret)
+	fakeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, projectCM, credsSecret)
 
 	err := createOpsManagerUserPasswordSecret(ctx, fakeClient, primaryOM, "pass")
 	require.NoError(t, err)
@@ -1755,7 +1742,7 @@ func TestReconcileAppDB_WithManagedByMetaOM_UpdatesStatefulSetEnvVars(t *testing
 	_, err = reconciler.ReconcileAppDB(ctx, primaryOM)
 	require.NoError(t, err)
 
-	// Read the StatefulSet and inspect the agent container's env vars.
+	// Read the StatefulSet and inspect the agent container.
 	updatedSts, err := fakeClient.GetStatefulSet(ctx, kube.ObjectKey(primaryOM.Namespace, primaryOM.Spec.AppDB.Name()))
 	require.NoError(t, err)
 
@@ -1768,14 +1755,16 @@ func TestReconcileAppDB_WithManagedByMetaOM_UpdatesStatefulSetEnvVars(t *testing
 	}
 	require.NotNil(t, agentContainer, "mongodb-agent container not found in AppDB StatefulSet")
 
+	// In online mode, headless-specific env vars must be absent.
 	envByName := make(map[string]string, len(agentContainer.Env))
 	for _, e := range agentContainer.Env {
 		envByName[e.Name] = e.Value
 	}
-
-	assert.Equal(t, "http://meta-om.svc:8080", envByName["MMS_SERVER"], "expected MMS_SERVER env var")
-	assert.Equal(t, om.TestGroupID, envByName["MMS_GROUP_ID"], "expected MMS_GROUP_ID env var")
-	assert.NotEmpty(t, envByName["MMS_API_KEY"], "expected MMS_API_KEY env var")
 	assert.Empty(t, envByName["HEADLESS_AGENT"], "HEADLESS_AGENT must not be set in online mode")
 	assert.Empty(t, envByName["AUTOMATION_CONFIG_MAP"], "AUTOMATION_CONFIG_MAP must not be set in online mode")
+
+	// In online mode, the agent command carries -mmsBaseUrl and -mmsGroupId instead of a cluster file.
+	agentCmd := strings.Join(agentContainer.Command, " ")
+	assert.Contains(t, agentCmd, om.TestURL, "agent command must contain the external OM URL")
+	assert.Contains(t, agentCmd, om.TestGroupID, "agent command must contain the group ID")
 }

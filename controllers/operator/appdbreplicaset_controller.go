@@ -32,6 +32,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connection"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct/scalers"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct/scalers/interfaces"
@@ -561,10 +562,10 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 	agentCertSecretName := opsManager.Spec.AppDB.GetSecurity().AgentClientCertificateSecretName(opsManager.Spec.AppDB.GetName())
 	_, agentCertPath := r.agentCertHashAndPath(ctx, log, opsManager.Namespace, agentCertSecretName, appdbSecretPath)
 
-	// In MetaOM mode the AppDB agents connect to Meta OM directly; monitoring setup
+	// In online mode the AppDB agents connect to an external OM directly; monitoring setup
 	// against Primary OM is not needed and would fail (Primary OM has no such org).
 	var podVars env.PodEnvVars
-	if opsManager.Spec.AppDB.ManagedByMetaOM == nil {
+	if opsManager.Spec.AppDB.Connection == nil {
 		var err error
 		podVars, err = r.tryConfigureMonitoringInOpsManager(ctx, opsManager, opsManagerUserPassword, agentCertPath, log)
 		// it's possible that Ops Manager will not be available when we attempt to configure AppDB monitoring
@@ -660,22 +661,24 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 	}
 	appdbOpts.PrometheusTLSCertHash = prometheusCertHash
 
-	// If ManagedByMetaOM is configured, transition agents to online mode.
-	var metaOMEnvVars construct.MetaOMEnvVars
-	if opsManager.Spec.AppDB.ManagedByMetaOM != nil {
+	// If Connection is configured, transition agents to online mode.
+	var externalConn om.Connection
+	var agentConnConfig construct.AgentConnectionConfig
+	if opsManager.Spec.AppDB.Connection != nil {
 		var ws workflow.Status
-		metaOMEnvVars, ws = r.reconcileManagedByMetaOM(ctx, opsManager, log)
+		externalConn, agentConnConfig, ws = r.reconcileOMConnection(ctx, opsManager, log)
 		if !ws.IsOK() {
 			return r.updateStatus(ctx, opsManager, ws, log, appDbStatusOption)
 		}
 	}
-	appdbOpts.MetaOM = metaOMEnvVars
-	// In MetaOM mode, set the project ID on podVars so that all downstream functions
+	_ = externalConn // used in Task 7
+	appdbOpts.Connection = agentConnConfig
+	// In online mode, set the project ID on podVars so that all downstream functions
 	// (vaultModification, tlsVolumes, addMonitoringContainer) derive the correct secret name
 	// via agents.ApiKeySecretName(podVars.ProjectID) without needing MetaOM-specific overrides.
-	if appdbOpts.MetaOM.Enabled {
-		podVars.ProjectID = appdbOpts.MetaOM.GroupID
-		podVars.BaseURL = appdbOpts.MetaOM.Server
+	if appdbOpts.Connection.Enabled {
+		podVars.ProjectID = appdbOpts.Connection.GroupID
+		podVars.BaseURL = appdbOpts.Connection.Server
 	}
 
 	allStatefulSetsExist, err := r.allStatefulSetsExist(ctx, opsManager, log)
@@ -1476,21 +1479,18 @@ func setBaseUrlForAgents(ac *automationconfig.AutomationConfig, url string) {
 }
 
 // appDBAgentBaseURL returns the URL that AppDB agents should use to register and send data.
-// In MetaOM mode this is the Meta OM URL; otherwise it is the Primary OM URL.
+// In online mode this is the external OM URL from the project ConfigMap; otherwise it is the Primary OM URL.
 func (r *ReconcileAppDbReplicaSet) appDBAgentBaseURL(ctx context.Context, opsManager *omv1.MongoDBOpsManager) (string, error) {
-	metaOMRef := opsManager.Spec.AppDB.ManagedByMetaOM
-	if metaOMRef == nil {
+	if opsManager.Spec.AppDB.Connection == nil {
 		return opsManager.CentralURL(), nil
 	}
-	metaOMNamespace := metaOMRef.Namespace
-	if metaOMNamespace == "" {
-		metaOMNamespace = opsManager.Namespace
+	projectConfig, err := project.ReadProjectConfig(ctx, r.centralClient,
+		kube.ObjectKey(opsManager.Spec.AppDB.GetProjectConfigMapNamespace(), opsManager.Spec.AppDB.GetProjectConfigMapName()),
+		opsManager.Spec.AppDB.GetName())
+	if err != nil {
+		return "", xerrors.Errorf("failed to read project config for external OM URL: %w", err)
 	}
-	metaOM := &omv1.MongoDBOpsManager{}
-	if err := r.centralClient.Get(ctx, types.NamespacedName{Namespace: metaOMNamespace, Name: metaOMRef.Name}, metaOM); err != nil {
-		return "", xerrors.Errorf("failed to fetch Meta OM CR %s/%s: %w", metaOMNamespace, metaOMRef.Name, err)
-	}
-	return metaOM.CentralURL(), nil
+	return projectConfig.BaseURL, nil
 }
 
 func configureMonitoring(ac *automationconfig.AutomationConfig, log *zap.SugaredLogger, tls bool) {
@@ -2130,9 +2130,9 @@ func (r *ReconcileAppDbReplicaSet) allAgentsReachedGoalStateMultiCluster(ctx con
 
 	appDBSize := int(set.Status.Replicas)
 
-	// In online mode (MetaOM), the agent does not update pod annotations.
+	// In online mode, the agent does not update pod annotations.
 	// Check pod readiness via StatefulSet status instead.
-	if manager.Spec.AppDB.ManagedByMetaOM != nil {
+	if manager.Spec.AppDB.Connection != nil {
 		if statefulset.IsReady(set, appDBSize) {
 			return workflow.OK()
 		}
@@ -2164,9 +2164,9 @@ func (r *ReconcileAppDbReplicaSet) allAgentsReachedGoalStateSingleCluster(ctx co
 
 	appdbSize := int(set.Status.Replicas)
 
-	// In online mode (MetaOM), the agent does not update pod annotations.
+	// In online mode, the agent does not update pod annotations.
 	// Check pod readiness via StatefulSet status instead.
-	if manager.Spec.AppDB.ManagedByMetaOM != nil {
+	if manager.Spec.AppDB.Connection != nil {
 		if statefulset.IsReady(set, appdbSize) {
 			return workflow.OK()
 		}
@@ -2264,110 +2264,36 @@ func (r *ReconcileAppDbReplicaSet) migrateToNewDeploymentState(ctx context.Conte
 	return nil
 }
 
-// reconcileManagedByMetaOM enrolls the AppDB with a secondary (Meta) Ops Manager instance.
-// The function is fully idempotent — each call checks actual resource state.
-func (r *ReconcileAppDbReplicaSet) reconcileManagedByMetaOM(
+// reconcileOMConnection establishes the AppDB's connection to an external Ops Manager
+// by reading the project ConfigMap and credentials Secret, then delegating to the
+// standard PrepareOpsManagerConnection pipeline.
+func (r *ReconcileAppDbReplicaSet) reconcileOMConnection(
 	ctx context.Context,
 	opsManager *omv1.MongoDBOpsManager,
 	log *zap.SugaredLogger,
-) (construct.MetaOMEnvVars, workflow.Status) {
-	metaOMRef := opsManager.Spec.AppDB.ManagedByMetaOM
-
-	// Step 1: Verify Meta OM CR exists and is Running.
-	metaOMNamespace := metaOMRef.Namespace
-	if metaOMNamespace == "" {
-		metaOMNamespace = opsManager.Namespace
-	}
-	metaOM := &omv1.MongoDBOpsManager{}
-	if err := r.centralClient.Get(ctx, kube.ObjectKey(metaOMNamespace, metaOMRef.Name), metaOM); err != nil {
-		return construct.MetaOMEnvVars{}, workflow.Pending("Meta OM CR %s/%s not found: %s", metaOMNamespace, metaOMRef.Name, err)
-	}
-	if metaOM.Status.OpsManagerStatus.Phase != status.PhaseRunning {
-		return construct.MetaOMEnvVars{}, workflow.Pending("Meta OM %s/%s is not yet Running (phase: %s)", metaOMNamespace, metaOMRef.Name, metaOM.Status.OpsManagerStatus.Phase)
-	}
-
-	// Step 2: Read credentials secret.
-	credData, err := r.SecretClient.ReadSecret(ctx, kube.ObjectKey(opsManager.Namespace, metaOMRef.CredentialsSecretRef.Name), "")
+) (om.Connection, construct.AgentConnectionConfig, workflow.Status) {
+	projectConfig, credentials, err := project.ReadConfigAndCredentials(
+		ctx, r.centralClient, r.SecretClient, &opsManager.Spec.AppDB, log)
 	if err != nil {
-		return construct.MetaOMEnvVars{}, workflow.Failed(xerrors.Errorf("failed to read Meta OM credentials secret %s: %w", metaOMRef.CredentialsSecretRef.Name, err))
+		return nil, construct.AgentConnectionConfig{}, workflow.Failed(xerrors.Errorf("failed to read external OM config and credentials: %w", err))
 	}
-	publicKey := credData["publicKey"]
-	privateKey := credData["privateKey"]
 
-	// Step 3: Create or retrieve Meta OM project.
-	projectConfig := mdbv1.ProjectConfig{
-		BaseURL:     metaOM.CentralURL(),
-		ProjectName: metaOMRef.ProjectName,
-	}
-	cred := mdbv1.Credentials{
-		PublicAPIKey:  publicKey,
-		PrivateAPIKey: privateKey,
-	}
-	proj, conn, err := project.ReadOrCreateProject(projectConfig, cred, r.omConnectionFactory, log)
+	conn, _, err := connection.PrepareOpsManagerConnection(
+		ctx, r.SecretClient, projectConfig, credentials,
+		r.omConnectionFactory, opsManager.Namespace, log)
 	if err != nil {
-		return construct.MetaOMEnvVars{}, workflow.Failed(xerrors.Errorf("failed to get or create Meta OM project: %w", err))
+		return nil, construct.AgentConnectionConfig{}, workflow.Failed(xerrors.Errorf("failed to prepare external OM connection: %w", err))
 	}
-	groupID := proj.ID
-	opsManager.Status.AppDbStatus.MetaOMGroupID = groupID
+
+	opsManager.Status.AppDbStatus.ExternalGroupID = conn.GroupID()
 	if err := r.centralClient.Status().Update(ctx, opsManager); err != nil {
-		return construct.MetaOMEnvVars{}, workflow.Failed(xerrors.Errorf("Failed to persist MetaOMGroupID in status: %w", err))
+		return nil, construct.AgentConnectionConfig{}, workflow.Failed(xerrors.Errorf("failed to persist ExternalGroupID in status: %w", err))
 	}
 
-	// Step 4: Update Automation Config
-
-	// Initial push from secret when Meta OM does not have any process yet
-	headlessConfig, headlessErr := r.SecretClient.ReadSecret(ctx, kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.AutomationConfigSecretName()), "")
-	if headlessErr != nil && !secrets.SecretNotExist(headlessErr) {
-		return construct.MetaOMEnvVars{}, workflow.Failed(xerrors.Errorf("failed to read headless automation config secret: %w", headlessErr))
-	}
-
-	acStr := headlessConfig[automationconfig.ConfigKey]
-	metaAC, acErr := om.BuildAutomationConfigFromBytes([]byte(acStr))
-	if acErr != nil {
-		return construct.MetaOMEnvVars{}, workflow.Failed(xerrors.Errorf("failed to parse headless automation config: %w", acErr))
-	}
-
-	// This is most important part with updating the headless Automation Config to be accepted by OpsManager API
-	stripUnsupportedACFields(metaAC)
-	metaAC.Deployment.ConfigureTLS(opsManager.Spec.AppDB.GetSecurity(), appdbCAFilePath)
-	metaAC.AgentSSL.CAFilePath = util.MergoDelete
-	metaAC.Deployment.ConfigureBackup(log)
-	if updateErr := conn.UpdateAutomationConfig(metaAC, log); updateErr != nil {
-		return construct.MetaOMEnvVars{}, workflow.Failed(xerrors.Errorf("failed to push automation config to Meta OM: %w", updateErr))
-	}
-
-	// Step 5: Ensure agent API key secret (idempotent).
-	agentKeySecretName := agents.ApiKeySecretName(groupID)
-	var agentKey string
-	agentKeyData, readErr := r.SecretClient.ReadSecret(ctx, kube.ObjectKey(opsManager.Namespace, agentKeySecretName), "")
-	if readErr != nil {
-		if !secrets.SecretNotExist(readErr) {
-			return construct.MetaOMEnvVars{}, workflow.Failed(xerrors.Errorf("failed to read agent key secret: %w", readErr))
-		}
-		agentKey, err = conn.GenerateAgentKey()
-		if err != nil {
-			return construct.MetaOMEnvVars{}, workflow.Failed(xerrors.Errorf("failed to generate agent key in Meta OM: %w", err))
-		}
-		agentKeySecret := secret.Builder().
-			SetNamespace(opsManager.Namespace).
-			SetName(agentKeySecretName).
-			SetField(util.OmAgentApiKey, agentKey).
-			Build()
-		if err := r.SecretClient.PutSecret(ctx, agentKeySecret, ""); err != nil {
-			return construct.MetaOMEnvVars{}, workflow.Failed(xerrors.Errorf("failed to create agent key secret: %w", err))
-		}
-	} else {
-		agentKey = agentKeyData[util.OmAgentApiKey]
-		if agentKey == "" {
-			return construct.MetaOMEnvVars{}, workflow.Failed(
-				fmt.Errorf("agent key secret %s exists but '%s' field is empty or missing", agentKeySecretName, util.OmAgentApiKey))
-		}
-	}
-
-	return construct.MetaOMEnvVars{
+	return conn, construct.AgentConnectionConfig{
 		Enabled: true,
-		Server:  metaOM.CentralURL(),
-		GroupID: groupID,
+		Server:  projectConfig.BaseURL,
+		GroupID: conn.GroupID(),
 	}, workflow.OK()
 }
 
