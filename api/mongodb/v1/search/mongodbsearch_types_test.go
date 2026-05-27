@@ -24,8 +24,17 @@ func TestGetReplicasReturnsExplicitValue(t *testing.T) {
 	assert.Equal(t, 3, s.GetReplicas())
 }
 
+func TestGetReplicasHonorsExplicitZero(t *testing.T) {
+	// spec.replicas=0 is a legitimate value (operator-driven scale-to-0
+	// for taking mongot offline via the CR). Distinguishing it from "unset"
+	// is the contract callers like search-connectivity tests rely on.
+	s := &MongoDBSearch{Spec: MongoDBSearchSpec{Replicas: ptr.To(int32(0))}}
+	assert.Equal(t, 0, s.GetReplicas())
+}
+
 func TestHasMultipleReplicas(t *testing.T) {
 	assert.False(t, (&MongoDBSearch{}).HasMultipleReplicas())
+	assert.False(t, (&MongoDBSearch{Spec: MongoDBSearchSpec{Replicas: ptr.To(int32(0))}}).HasMultipleReplicas())
 	assert.False(t, (&MongoDBSearch{Spec: MongoDBSearchSpec{Replicas: ptr.To(int32(1))}}).HasMultipleReplicas())
 	assert.True(t, (&MongoDBSearch{Spec: MongoDBSearchSpec{Replicas: ptr.To(int32(2))}}).HasMultipleReplicas())
 }
