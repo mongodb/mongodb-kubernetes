@@ -55,7 +55,7 @@ func TestBuildEnvoyConfigJSON_SingleShard_NoTLS(t *testing.T) {
 	require.NotNil(t, bootstrap.Admin)
 	adminAddr := bootstrap.Admin.Address.GetSocketAddress()
 	assert.Equal(t, "0.0.0.0", adminAddr.GetAddress())
-	assert.Equal(t, uint32(envoyAdminPort), adminAddr.GetPortValue())
+	assert.Equal(t, uint32(EnvoyAdminPort), adminAddr.GetPortValue())
 
 	// Static resources
 	require.NotNil(t, bootstrap.StaticResources)
