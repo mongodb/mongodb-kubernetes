@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"time"
 
 	"github.com/hashicorp/go-retryablehttp"
@@ -61,7 +60,7 @@ func NewMemberHealthCheck(server string, ca []byte, token string, log *zap.Sugar
 			MinVersion: tls.VersionTLS12,
 		},
 	}
-	if proxyEnv := os.Getenv("MULTI_CLUSTER_HEALTHCHECK_PROXY"); proxyEnv != "" {
+	if proxyEnv := env.ReadOrDefault("MULTI_CLUSTER_HEALTHCHECK_PROXY", ""); proxyEnv != "" { // nolint:forbidigo
 		if proxyURL, perr := url.Parse(proxyEnv); perr == nil && proxyURL.Host != "" {
 			transport.Proxy = http.ProxyURL(proxyURL)
 		}
