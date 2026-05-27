@@ -53,11 +53,11 @@ const (
 	agentCommonOptions = " -skipMongoStart -noDaemonize -useLocalMongoDbTools"
 )
 
-// MetaOMEnvVars holds the connection parameters needed to switch an AppDB agent
-// from headless mode to online mode under a Meta OM instance.
-type MetaOMEnvVars struct {
-	// Enabled, when true, switches the agent from headless mode to online mode
-	// connected to a Meta OM instance. Server and GroupID must be set.
+// AgentConnectionConfig holds the connection parameters for switching an AppDB agent
+// from headless mode to online mode.
+type AgentConnectionConfig struct {
+	// Enabled, when true, switches the agent from headless mode to online mode.
+	// Server and GroupID must be set.
 	Enabled bool
 	Server  string
 	GroupID string
@@ -74,9 +74,9 @@ type AppDBStatefulSetOptions struct {
 
 	PrometheusTLSCertHash string
 
-	// MetaOM connection env vars. When Enabled is true, the StatefulSet
-	// is built in online mode (no HEADLESS_AGENT / AUTOMATION_CONFIG_MAP).
-	MetaOM MetaOMEnvVars
+	// Connection holds OM connection env vars for online mode.
+	// When Connection.Enabled is true, the StatefulSet is built in online mode.
+	Connection AgentConnectionConfig
 }
 
 func getMonitoringAgentLogOptions(spec om.AppDBSpec) string {
@@ -440,16 +440,16 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 	}
 
 	// We copy the Automation Agent command from community and add the agent startup parameters.
-	// In online mode (MetaOM), we replace -cluster=<file> with -mmsBaseUrl and explicit auth params.
+	// In online mode, we replace -cluster=<file> with -mmsBaseUrl and explicit auth params.
 	var automationAgentCommand []string
-	if opts.MetaOM.Enabled {
+	if opts.Connection.Enabled {
 		automationAgentCommand = onlineAutomationAgentCommand(
 			architectures.IsRunningStaticArchitecture(opsManager.Annotations),
 			opsManager.Spec.AppDB.GetAgentLogLevel(),
 			opsManager.Spec.AppDB.GetAgentLogFile(),
 			opsManager.Spec.AppDB.GetAgentMaxLogFileDurationHours(),
-			opts.MetaOM.Server,
-			opts.MetaOM.GroupID,
+			opts.Connection.Server,
+			opts.Connection.GroupID,
 			appDb.AutomationAgent.StartupParameters,
 		)
 		idx := len(automationAgentCommand) - 1
@@ -470,26 +470,26 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 
 	// In online mode the agent downloads MongoDB/mongosh binaries from Ops Manager's version
 	// catalog. The container root filesystem is read-only, so we need a writable emptyDir.
-	var metaOMVolumes []corev1.Volume
-	var metaOMVolumeMounts []corev1.VolumeMount
-	if opts.MetaOM.Enabled {
+	var agentConnectionVolumes []corev1.Volume
+	var agentConnectionVolumeMounts []corev1.VolumeMount
+	if opts.Connection.Enabled {
 		downloadsVolume := corev1.Volume{
 			Name: "agent-downloads",
 			VolumeSource: corev1.VolumeSource{
 				EmptyDir: &corev1.EmptyDirVolumeSource{},
 			},
 		}
-		metaOMVolumes = append(metaOMVolumes, downloadsVolume)
-		metaOMVolumeMounts = append(metaOMVolumeMounts, corev1.VolumeMount{
+		agentConnectionVolumes = append(agentConnectionVolumes, downloadsVolume)
+		agentConnectionVolumeMounts = append(agentConnectionVolumeMounts, corev1.VolumeMount{
 			Name:      "agent-downloads",
 			MountPath: "/var/lib/mongodb-mms-automation/downloads",
 		})
 	}
 
-	metaOMEnvVarsModification := container.NOOP()
-	if opts.MetaOM.Enabled {
+	agentConnectionEnvModification := container.NOOP()
+	if opts.Connection.Enabled {
 		// Remove headless-mode vars injected by community code; they must be absent in online mode.
-		metaOMEnvVarsModification = container.WithoutEnvs(headlessAgentEnv, automationConfigMapEnv)
+		agentConnectionEnvModification = container.WithoutEnvs(headlessAgentEnv, automationConfigMapEnv)
 	}
 
 	// Here we ask to create init containers which also creates required volumes.
@@ -522,12 +522,12 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 					container.Apply(
 						container.WithCommand(automationAgentCommand),
 						container.WithEnvs(appdbContainerEnv(*appDb)...),
-						metaOMEnvVarsModification,
-						container.WithVolumeMounts(append([]corev1.VolumeMount{acVersionMount}, metaOMVolumeMounts...)),
+						agentConnectionEnvModification,
+						container.WithVolumeMounts(append([]corev1.VolumeMount{acVersionMount}, agentConnectionVolumeMounts...)),
 					),
 				),
 				func(spec *corev1.PodTemplateSpec) {
-					for _, v := range metaOMVolumes {
+					for _, v := range agentConnectionVolumes {
 						podtemplatespec.WithVolume(v)(spec)
 					}
 				},
@@ -633,7 +633,7 @@ func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, opts App
 	}
 
 	// 2. Startup parameters for the agent to enable monitoring.
-	// podVars.ProjectID holds the correct group ID for both MetaOM and non-MetaOM modes.
+	// podVars.ProjectID holds the correct group ID for both online and headless agent modes.
 	// The API key is always read at runtime from the mounted secret file exported as $AGENT_API_KEY.
 	startupParams := mdbv1.StartupParameters{
 		"mmsApiKey":  "${AGENT_API_KEY}",
@@ -721,10 +721,10 @@ func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, opts App
 				volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(AgentAPIKeyVolumeName, AgentAPIKeySecretPath))
 			}
 
-			metaOMEnvVarsModification := container.NOOP()
-			if opts.MetaOM.Enabled {
+			agentConnectionEnvModification := container.NOOP()
+			if opts.Connection.Enabled {
 				// Remove headless-mode vars injected by community code; they must be absent in online mode.
-				metaOMEnvVarsModification = container.WithoutEnvs(headlessAgentEnv, automationConfigMapEnv)
+				agentConnectionEnvModification = container.WithoutEnvs(headlessAgentEnv, automationConfigMapEnv)
 			}
 
 			container.Apply(
@@ -733,7 +733,7 @@ func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, opts App
 				container.WithResourceRequirements(buildRequirementsFromPodSpec(*NewDefaultPodSpecWrapper(*appDB.PodSpec))),
 				container.WithVolumeMounts(monitoringMounts),
 				container.WithEnvs(appdbContainerEnv(appDB)...),
-				metaOMEnvVarsModification,
+				agentConnectionEnvModification,
 				container.WithEnvs(readinessEnvironmentVariablesToEnvVars(appDB.AutomationAgent.ReadinessProbe.EnvironmentVariables)...),
 			)(monitoringContainer)
 			podTemplateSpec.Spec.Containers = append(podTemplateSpec.Spec.Containers, *monitoringContainer)

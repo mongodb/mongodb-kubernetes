@@ -145,10 +145,10 @@ func TestAppdbContainerEnv_HeadlessMode(t *testing.T) {
 	assertEnvVarPresent(t, agentContainer.Env, automationConfigMapEnv, om.Name+"-db-config")
 }
 
-func TestAppdbContainerEnv_MetaOMMode(t *testing.T) {
+func TestAppdbContainerEnv_OnlineMode(t *testing.T) {
 	om := omv1.NewOpsManagerBuilderDefault().Build()
 	opts := AppDBStatefulSetOptions{
-		MetaOM: MetaOMEnvVars{
+		Connection: AgentConnectionConfig{
 			Enabled: true,
 			Server:  "http://om-meta-svc.meta-ns.svc.cluster.local:8080",
 			GroupID: "aabbccdd112233445566",
@@ -167,10 +167,10 @@ func TestAppdbContainerEnv_MetaOMMode(t *testing.T) {
 	assertEnvVarAbsent(t, agentContainer.Env, automationConfigMapEnv)
 }
 
-func TestAppdbContainerEnv_MetaOMDisabled_FallsBackToHeadless(t *testing.T) {
+func TestAppdbContainerEnv_OnlineModeDisabled_FallsBackToHeadless(t *testing.T) {
 	partialConfigs := []AppDBStatefulSetOptions{
-		{MetaOM: MetaOMEnvVars{Server: "http://om:8080"}},
-		{MetaOM: MetaOMEnvVars{Server: "http://om:8080", GroupID: "gid"}},
+		{Connection: AgentConnectionConfig{Server: "http://om:8080"}},
+		{Connection: AgentConnectionConfig{Server: "http://om:8080", GroupID: "gid"}},
 	}
 	for _, opts := range partialConfigs {
 		om := omv1.NewOpsManagerBuilderDefault().Build()
@@ -184,14 +184,14 @@ func TestAppdbContainerEnv_MetaOMDisabled_FallsBackToHeadless(t *testing.T) {
 	}
 }
 
-func TestAppdbContainerEnv_MetaOMEnabledWithEmptyFields_GoesToOnlineMode(t *testing.T) {
+func TestAppdbContainerEnv_OnlineModeEnabledWithEmptyFields_GoesToOnlineMode(t *testing.T) {
 	// When Enabled is true the construction functions enter online mode regardless of
 	// whether individual fields are empty. Field validation is the reconciler's responsibility:
-	// it only sets Enabled=true after successfully resolving all MetaOM credentials.
+	// it only sets Enabled=true after successfully resolving all connection credentials.
 	configs := []AppDBStatefulSetOptions{
-		{MetaOM: MetaOMEnvVars{Enabled: true}},
-		{MetaOM: MetaOMEnvVars{Enabled: true, Server: "http://om:8080"}},
-		{MetaOM: MetaOMEnvVars{Enabled: true, Server: "http://om:8080", GroupID: "gid"}},
+		{Connection: AgentConnectionConfig{Enabled: true}},
+		{Connection: AgentConnectionConfig{Enabled: true, Server: "http://om:8080"}},
+		{Connection: AgentConnectionConfig{Enabled: true, Server: "http://om:8080", GroupID: "gid"}},
 	}
 	for _, opts := range configs {
 		om := omv1.NewOpsManagerBuilderDefault().Build()

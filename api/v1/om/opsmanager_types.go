@@ -474,10 +474,10 @@ type OpsManagerVersionMapping struct {
 type AppDbStatus struct {
 	mdbv1.MongoDbStatus `json:",inline"`
 	ClusterStatusList   []status.ClusterStatusItem `json:"clusterStatusList,omitempty"`
-	// MetaOMGroupID stores the Meta OM project (group) ID once the AppDB
-	// has been registered with Meta OM. Used by subsequent reconciliation steps.
+	// ExternalGroupID stores the project (group) ID assigned by the external OM
+	// once the AppDB has been registered. Used for observability.
 	// +optional
-	MetaOMGroupID string `json:"metaOMGroupId,omitempty"`
+	ExternalGroupID string `json:"externalGroupID,omitempty"`
 }
 
 type BackupStatus struct {
