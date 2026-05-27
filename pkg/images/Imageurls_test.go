@@ -174,6 +174,7 @@ func TestGetAppDBImage(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(architectures.DefaultEnvArchitecture, "")
 			tt.setupEnvs(t)
 			imageUrlsMock := LoadImageUrlsFromEnv()
 			assert.Equalf(t, tt.want, GetOfficialImage(imageUrlsMock, tt.input, tt.annotations), "getOfficialImage(%v)", tt.input)

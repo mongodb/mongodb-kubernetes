@@ -154,11 +154,19 @@ func (m *AgentVersionManager) GetAgentVersion(conn om.Connection, omVersion stri
 		return "", xerrors.Errorf("Ops Manager version %s does not support static containers, please use Ops Manager version of at least %s or %s", omVersion, om6StaticContainersSupport, om7StaticContainersSupport)
 	}
 
-	version, err := m.getAgentVersionFromOpsManager(conn)
+	version, err := GetAgentVersionFromOpsManager(conn)
 	if err != nil {
 		return "", err
 	}
 	return addVersionSuffixIfAbsent(version), nil
+}
+
+func GetAgentVersionFromOpsManager(conn om.Connection) (string, error) {
+	agentResponse, err := conn.ReadAgentVersion()
+	if err != nil {
+		return "", err
+	}
+	return agentResponse.AutomationVersion, nil
 }
 
 // supportsStaticContainers verifies whether the supplied omVersion supports static containers.
@@ -211,15 +219,6 @@ func getMajorVersion(version string) string {
 		return ""
 	}
 	return strings.Split(version, ".")[0]
-}
-
-// getAgentVersionFromOpsManager retrieves the agent version by querying Ops Manager API.
-func (m *AgentVersionManager) getAgentVersionFromOpsManager(conn om.Connection) (string, error) {
-	agentResponse, err := conn.ReadAgentVersion()
-	if err != nil {
-		return "", err
-	}
-	return agentResponse.AutomationVersion, nil
 }
 
 func addVersionSuffixIfAbsent(version string) string {

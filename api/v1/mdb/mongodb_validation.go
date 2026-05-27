@@ -424,12 +424,31 @@ func specWithExactlyOneSchema(d DbCommonSpec) v1.ValidationResult {
 	return v1.ValidationSuccess()
 }
 
+func validateAgentAutoPEMKeyFilePath(d DbCommonSpec) v1.ValidationResult {
+	auth := d.Security.Authentication
+	if auth == nil {
+		return v1.ValidationSuccess()
+	}
+	p := strings.TrimSpace(auth.Agents.AutoPEMKeyFilePath)
+	if p == "" {
+		return v1.ValidationSuccess()
+	}
+	if !d.GetSecurity().ShouldUseClientCertificates() {
+		return v1.ValidationError("security.authentication.agents.autoPEMKeyFilePath requires clientCertificateSecretRef to be set")
+	}
+	if !util.IsPOSIXAbsolutePath(p) {
+		return v1.ValidationError("security.authentication.agents.autoPEMKeyFilePath must be an absolute path without '..'")
+	}
+	return v1.ValidationSuccess()
+}
+
 func CommonValidators(db DbCommonSpec) []func(d DbCommonSpec) v1.ValidationResult {
 	validators := []func(d DbCommonSpec) v1.ValidationResult{
 		replicaSetHorizonsRequireTLS,
 		deploymentsMustHaveTLSInX509Env,
 		deploymentsMustHaveAtLeastOneAuthModeIfAuthIsEnabled,
 		deploymentsMustHaveAgentModeInAuthModes,
+		validateAgentAutoPEMKeyFilePath,
 		scramSha1AuthValidation,
 		ldapAuthRequiresEnterprise,
 		rolesAttributeIsCorrectlyConfigured,

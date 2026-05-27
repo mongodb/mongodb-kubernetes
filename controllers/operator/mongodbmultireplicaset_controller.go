@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/hashicorp/go-multierror"
+	"github.com/mongodb/mongodb-kubernetes/pkg/agentVersionManagement"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -193,7 +194,8 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 	}
 
 	agentCertSecretName := mrs.GetSecurity().AgentClientCertificateSecretName(mrs.GetName())
-	agentCertHash, agentCertPath := r.agentCertHashAndPath(ctx, log, mrs.Namespace, agentCertSecretName, "")
+	agentCertHash, defaultAgentCertPath := r.agentCertHashAndPath(ctx, log, mrs.Namespace, agentCertSecretName, "")
+	agentCertPath := EffectiveAgentCertPEMPath(defaultAgentCertPath, mrs.GetSecurity())
 
 	// Recovery prevents some deadlocks that can occur during reconciliation, e.g. the setting of an incorrect automation
 	// configuration and a subsequent attempt to overwrite it later, the operator would be stuck in Pending phase.
@@ -201,7 +203,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 	if recovery.ShouldTriggerRecovery(mrs.Status.Phase != mdbstatus.PhaseRunning, mrs.Status.LastTransition) {
 		log.Warnf("Triggering Automatic Recovery. The MongoDB resource %s/%s is in %s state since %s", mrs.Namespace, mrs.Name, mrs.Status.Phase, mrs.Status.LastTransition)
 		automationConfigError := r.updateOmDeploymentRs(ctx, conn, mrs, agentCertPath, tlsCertPath, internalClusterCertPath, true, log)
-		reconcileStatus := r.reconcileMemberResources(ctx, &mrs, log, conn, projectConfig, agentCertHash)
+		reconcileStatus := r.reconcileMemberResources(ctx, &mrs, log, conn, projectConfig, agentCertHash, agentCertPath)
 		if !reconcileStatus.IsOK() {
 			log.Errorf("Recovery failed because of reconcile errors, %v", reconcileStatus)
 		}
@@ -223,7 +225,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 			return workflow.OK()
 		},
 		func() workflow.Status {
-			return r.reconcileMemberResources(ctx, &mrs, log, conn, projectConfig, agentCertHash)
+			return r.reconcileMemberResources(ctx, &mrs, log, conn, projectConfig, agentCertHash, agentCertPath)
 		})
 
 	if !status.IsOK() {
@@ -367,7 +369,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) firstStatefulSet(ctx context.Context, 
 // reconcileMemberResources handles the synchronization of kubernetes resources, which can be statefulsets, services etc.
 // All the resources required in the k8s cluster (as opposed to the automation config) for creating the replicaset
 // should be reconciled in this method.
-func (r *ReconcileMongoDbMultiReplicaSet) reconcileMemberResources(ctx context.Context, mrs *mdbmultiv1.MongoDBMultiCluster, log *zap.SugaredLogger, conn om.Connection, projectConfig mdb.ProjectConfig, agentCertHash string) workflow.Status {
+func (r *ReconcileMongoDbMultiReplicaSet) reconcileMemberResources(ctx context.Context, mrs *mdbmultiv1.MongoDBMultiCluster, log *zap.SugaredLogger, conn om.Connection, projectConfig mdb.ProjectConfig, agentCertHash, agentCertPath string) workflow.Status {
 	err := r.reconcileServices(ctx, log, mrs)
 	if err != nil {
 		return workflow.Failed(err)
@@ -397,10 +399,10 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileMemberResources(ctx context.C
 		return status
 	}
 
-	return r.reconcileStatefulSets(ctx, mrs, log, conn, projectConfig, agentCertHash)
+	return r.reconcileStatefulSets(ctx, mrs, log, conn, projectConfig, agentCertHash, agentCertPath)
 }
 
-func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Context, mrs *mdbmultiv1.MongoDBMultiCluster, log *zap.SugaredLogger, conn om.Connection, projectConfig mdb.ProjectConfig, agentCertHash string) workflow.Status {
+func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Context, mrs *mdbmultiv1.MongoDBMultiCluster, log *zap.SugaredLogger, conn om.Connection, projectConfig mdb.ProjectConfig, agentCertHash, agentCertPath string) workflow.Status {
 	clusterSpecList, err := mrs.GetClusterSpecItems()
 	if err != nil {
 		return workflow.Failed(xerrors.Errorf("failed to read cluster spec list: %w", err))
@@ -413,6 +415,13 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 	automationConfig, err := conn.ReadAutomationConfig()
 	if err != nil {
 		return workflow.Failed(xerrors.Errorf("Failed to retrieve current automation config: %w", err))
+	}
+	var externalAgentVersion string
+	if len(mrs.Spec.GetExternalMembers()) > 0 {
+		externalAgentVersion, err = agentVersionManagement.GetAgentVersionFromOpsManager(conn)
+		if err != nil {
+			return workflow.Failed(xerrors.Errorf("Failed to retrieve agent version from Ops Manager: %w", err))
+		}
 	}
 	currentAgentAuthMode := automationConfig.GetAgentAuthMode()
 	processes := automationConfig.Deployment.GetAllProcessNames()
@@ -523,6 +532,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 			CurrentAgentAuthMechanism(currentAgentAuthMode),
 			CertificateHash(certHash),
 			AgentCertHash(agentCertHash),
+			WithAgentCertPath(agentCertPath),
 			InternalClusterHash(internalCertHash),
 			WithLabels(mrs.GetOwnerLabels()),
 			WithAdditionalMongodConfig(mrs.Spec.GetAdditionalMongodConfig()),
@@ -532,6 +542,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 			WithMongodbImage(images.GetOfficialImage(r.imageUrls, mrs.Spec.Version, mrs.GetAnnotations())),
 			WithAgentDebug(r.agentDebug),
 			WithAgentDebugImage(r.agentDebugImage),
+			WithExternalAgentVersion(externalAgentVersion),
 		)
 
 		sts := mconstruct.MultiClusterStatefulSet(*mrs, opts)
@@ -752,7 +763,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(ctx context.Conte
 	if len(processes) != len(mrs.Spec.GetMemberOptions()) {
 		log.Warnf("the number of member options is different than the number of mongod processes to be created: %d processes - %d replica set member options", len(processes), len(mrs.Spec.GetMemberOptions()))
 	}
-	rs := om.NewMultiClusterReplicaSetWithProcesses(om.NewReplicaSet(mrs.Name, mrs.Spec.Version), processes, mrs.Spec.GetMemberOptions(), processIds, mrs.Spec.Connectivity)
+	rs := om.NewMultiClusterReplicaSetWithProcesses(om.NewReplicaSet(mrs.Name, "", mrs.Spec.Version), processes, mrs.Spec.GetMemberOptions(), processIds, mrs.Spec.Connectivity)
 
 	caFilePath := fmt.Sprintf("%s/ca-pem", util.TLSCaMountPath)
 

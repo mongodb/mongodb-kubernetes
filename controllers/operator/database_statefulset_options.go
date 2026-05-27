@@ -22,6 +22,20 @@ func PodEnvVars(vars *env.PodEnvVars) func(options *construct.DatabaseStatefulSe
 	}
 }
 
+// WithExternalAgentVersion sets MDB_AGENT_VERSION for non-static database pods when non-empty
+func WithExternalAgentVersion(version string) func(options *construct.DatabaseStatefulSetOptions) {
+	return func(options *construct.DatabaseStatefulSetOptions) {
+		options.ExternalAgentVersion = version
+	}
+}
+
+// WithAgentCertPath sets the absolute path to the agent PEM (Ops Manager autoPEMKeyFilePath and volume layout).
+func WithAgentCertPath(path string) func(options *construct.DatabaseStatefulSetOptions) {
+	return func(options *construct.DatabaseStatefulSetOptions) {
+		options.AgentCertPath = path
+	}
+}
+
 // Replicas will set the given number of replicas when building a StatefulSet.
 func Replicas(replicas int) func(options *construct.DatabaseStatefulSetOptions) {
 	return func(options *construct.DatabaseStatefulSetOptions) {

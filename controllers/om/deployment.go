@@ -16,6 +16,7 @@ import (
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/merge"
 	"github.com/mongodb/mongodb-kubernetes/pkg/fcv"
 	"github.com/mongodb/mongodb-kubernetes/pkg/tls"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
@@ -143,7 +144,7 @@ func (d Deployment) MergeStandalone(standaloneMongo Process, specArgs26, prevArg
 
 // MergeReplicaSet merges the "operator" replica set and its members to the "OM" deployment ("d"). If "alien" RS members are
 // removed after merge - corresponding processes are removed as well.
-func (d Deployment) MergeReplicaSet(operatorRs ReplicaSetWithProcesses, specArgs26, prevArgs26 map[string]interface{}, l *zap.SugaredLogger) {
+func (d Deployment) MergeReplicaSet(operatorRs ReplicaSetWithProcesses, specArgs26, prevArgs26 map[string]interface{}, externalMembers []string, l *zap.SugaredLogger) {
 	log := l.With("replicaSet", operatorRs.Rs.Name())
 
 	r := d.getReplicaSetByName(operatorRs.Rs.Name())
@@ -151,7 +152,7 @@ func (d Deployment) MergeReplicaSet(operatorRs ReplicaSetWithProcesses, specArgs
 	// they were merged with operator replica sets on next step
 	// (in case OM made any changes to existing processes - these changes must be propagated to new members).
 	if r != nil && len(operatorRs.Rs.Members()) > len(r.Members()) {
-		if err := d.copyFirstProcessToNewPositions(operatorRs.Processes, len(r.Members()), l); err != nil {
+		if err := d.copyFirstProcessToNewPositions(operatorRs.Processes, len(r.Members())-len(externalMembers), l); err != nil {
 			// I guess this error is not so serious to fail the whole process - RS will be scaled up anyway
 			log.Error("Failed to copy first process (so new replica set processes may miss Ops Manager changes done to "+
 				"existing replica set processes): %s", err)
@@ -169,7 +170,7 @@ func (d Deployment) MergeReplicaSet(operatorRs ReplicaSetWithProcesses, specArgs
 		log.Debugw("Added replica set as current OM deployment didn't have it")
 	} else {
 
-		processesToRemove := r.mergeFrom(operatorRs.Rs)
+		processesToRemove := r.mergeFrom(operatorRs.Rs, externalMembers)
 		log.Debugw("Merged replica set into existing one")
 
 		if len(processesToRemove) > 0 {
@@ -587,11 +588,19 @@ func (d Deployment) ProcessBelongsToResource(processName, resourceName string) b
 
 // GetNumberOfExcessProcesses calculates how many processes do not belong to
 // this resource.
-func (d Deployment) GetNumberOfExcessProcesses(resourceName string) int {
+func (d Deployment) GetNumberOfExcessProcesses(resourceName string, replicaSetNameOverride string, externalMembers []string) int {
 	processNames := d.GetAllProcessNames()
 	excessProcesses := len(processNames)
+	externalMembersSet := merge.StringsToSet(externalMembers)
+
+	rsName := resourceName
+	if replicaSetNameOverride != "" {
+		rsName = replicaSetNameOverride
+	}
+
 	for _, p := range processNames {
-		if d.ProcessBelongsToResource(p, resourceName) {
+		_, isExternal := externalMembersSet[p]
+		if d.ProcessBelongsToResource(p, rsName) || isExternal {
 			excessProcesses -= 1
 		}
 	}
@@ -782,7 +791,7 @@ func (d Deployment) mergeConfigReplicaSet(opts DeploymentShardedClusterMergeOpti
 		p.setClusterRoleConfigSrv()
 	}
 
-	d.MergeReplicaSet(opts.ConfigServerRs, opts.ConfigServerAdditionalOptionsDesired, opts.ConfigServerAdditionalOptionsPrev, l)
+	d.MergeReplicaSet(opts.ConfigServerRs, opts.ConfigServerAdditionalOptionsDesired, opts.ConfigServerAdditionalOptionsPrev, nil, l)
 }
 
 // mergeShards does merge of replicasets for shards (which in turn merge each process) and merge or add the sharded cluster
@@ -790,7 +799,7 @@ func (d Deployment) mergeConfigReplicaSet(opts DeploymentShardedClusterMergeOpti
 func (d Deployment) mergeShards(opts DeploymentShardedClusterMergeOptions, log *zap.SugaredLogger) bool {
 	// First merging the individual replica sets for each shard
 	for _, v := range opts.Shards {
-		d.MergeReplicaSet(v, opts.ShardAdditionalOptionsDesired, opts.ShardAdditionalOptionsPrev, log)
+		d.MergeReplicaSet(v, opts.ShardAdditionalOptionsDesired, opts.ShardAdditionalOptionsPrev, nil, log)
 	}
 	cluster := NewShardedCluster(opts.Name, opts.ConfigServerRs.Rs.Name(), opts.Shards)
 

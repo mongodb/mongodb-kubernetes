@@ -6,10 +6,12 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/utils/ptr"
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
@@ -93,6 +95,66 @@ func TestMongoDB_ProcessValidationsOnReconcile_X509WithoutTls(t *testing.T) {
 	rs.Spec.Security.Authentication = &Authentication{Enabled: true, Modes: []AuthMode{"X509"}}
 	err := rs.ProcessValidationsOnReconcile(nil)
 	assert.Equal(t, "Cannot have a non-tls deployment when x509 authentication is enabled", err.Error())
+}
+
+func TestMongoDB_ProcessValidationsOnReconcile_AgentAutoPEMKeyFilePath(t *testing.T) {
+	clientCertAgents := AgentAuthentication{
+		Mode: "X509",
+		ClientCertificateSecretRefWrap: common.ClientCertificateSecretRefWrapper{
+			ClientCertificateSecretRef: corev1.SecretKeySelector{
+				LocalObjectReference: corev1.LocalObjectReference{Name: "agent-tls"},
+				Key:                  corev1.TLSCertKey,
+			},
+		},
+	}
+
+	t.Run("requires clientCertificateSecretRef", func(t *testing.T) {
+		rs := NewReplicaSetBuilder().AddDummyOpsManagerConfig().Build()
+		rs.Spec.Security.TLSConfig = &TLSConfig{Enabled: true}
+		rs.Spec.Security.Authentication = &Authentication{
+			Enabled: true,
+			Modes:   []AuthMode{"X509"},
+			Agents: AgentAuthentication{
+				Mode:               "X509",
+				AutoPEMKeyFilePath: "/var/lib/mongodb-mms-automation/certs/agent.pem",
+			},
+		}
+		err := rs.ProcessValidationsOnReconcile(nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "clientCertificateSecretRef")
+	})
+
+	t.Run("rejects non-absolute path", func(t *testing.T) {
+		rs := NewReplicaSetBuilder().AddDummyOpsManagerConfig().Build()
+		rs.Spec.Security.TLSConfig = &TLSConfig{Enabled: true}
+		a := clientCertAgents
+		a.AutoPEMKeyFilePath = "relative/pem.pem"
+		rs.Spec.Security.Authentication = &Authentication{Enabled: true, Modes: []AuthMode{"X509"}, Agents: a}
+		err := rs.ProcessValidationsOnReconcile(nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "absolute path")
+	})
+
+	t.Run("rejects dot-dot in path", func(t *testing.T) {
+		rs := NewReplicaSetBuilder().AddDummyOpsManagerConfig().Build()
+		rs.Spec.Security.TLSConfig = &TLSConfig{Enabled: true}
+		a := clientCertAgents
+		a.AutoPEMKeyFilePath = "/safe/../etc/passwd"
+		rs.Spec.Security.Authentication = &Authentication{Enabled: true, Modes: []AuthMode{"X509"}, Agents: a}
+		err := rs.ProcessValidationsOnReconcile(nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "..")
+	})
+
+	t.Run("accepts absolute path with client cert ref", func(t *testing.T) {
+		rs := NewReplicaSetBuilder().AddDummyOpsManagerConfig().Build()
+		rs.Spec.Security.TLSConfig = &TLSConfig{Enabled: true}
+		a := clientCertAgents
+		a.AutoPEMKeyFilePath = "/var/lib/mongodb-mms-automation/certs/agent.pem"
+		rs.Spec.Security.Authentication = &Authentication{Enabled: true, Modes: []AuthMode{"X509"}, Agents: a}
+		err := rs.ProcessValidationsOnReconcile(nil)
+		assert.NoError(t, err)
+	})
 }
 
 func TestMongoDB_ValidateCreate_Error(t *testing.T) {

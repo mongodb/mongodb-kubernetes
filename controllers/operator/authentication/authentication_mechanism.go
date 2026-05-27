@@ -92,35 +92,23 @@ func convertToMechanismList(mechanismModesInCR []string, ac *om.AutomationConfig
 	return result
 }
 
-// convertToMechanismOrPanic returns an implementation of mechanism from the CR value or panics if the value is not valid
-func convertToMechanismOrPanic(mechanismModeInCR string, ac *om.AutomationConfig) Mechanism {
-	switch mechanismModeInCR {
-	case util.X509:
-		return getMechanismByName(MongoDBX509)
-	case util.LDAP:
-		return getMechanismByName(LDAPPlain)
-	case util.SCRAMSHA1:
-		return getMechanismByName(ScramSha1)
-	case util.MONGODBCR:
-		return getMechanismByName(MongoDBCR)
-	case util.SCRAMSHA256:
-		return getMechanismByName(ScramSha256)
-	case util.OIDC:
-		return getMechanismByName(MongoDBOIDC)
-	case util.SCRAM:
-		// if we have already configured authentication, and it has been set to MONGODB-CR/SCRAM-SHA-1
-		// we can not transition. This needs to be done in the UI
-
-		// if no authentication has been configured, the default value for "AutoAuthMechanism" is "MONGODB-CR"
-		// even if authentication is disabled, so we need to ensure that auth has been enabled.
-		if ac.Auth.AutoAuthMechanism == string(MongoDBCR) && ac.Auth.IsEnabled() {
-			return getMechanismByName(MongoDBCR)
-		}
-		return getMechanismByName(ScramSha256)
+// ConvertToMechanismOrPanic returns the Mechanism for a single auth mode string (CR AuthMode or
+// Security.GetAgentMechanism result). It panics if mechanismModeInCR is unknown.
+// See util.WireAuthMechanismForCRAuthMode for autoAuthMechanism and authEnabled when mode is util.SCRAM.
+func ConvertToMechanismOrPanic(mechanismModeInCR string, autoAuthMechanism string, authEnabled bool) Mechanism {
+	wire := util.WireAuthMechanismForCRAuthMode(mechanismModeInCR, autoAuthMechanism, authEnabled)
+	if wire == "" {
+		// this should never be reached as validation of this string happens at the CR level
+		panic(xerrors.Errorf("unknown mechanism name %s", mechanismModeInCR))
 	}
+	return getMechanismByName(MechanismName(wire))
+}
 
-	// this should never be reached as validation of this string happens at the CR level
-	panic(xerrors.Errorf("unknown mechanism name %s", mechanismModeInCR))
+func convertToMechanismOrPanic(mechanismModeInCR string, ac *om.AutomationConfig) Mechanism {
+	if ac == nil || ac.Auth == nil {
+		panic(xerrors.Errorf("automation config auth required for mechanism %s", mechanismModeInCR))
+	}
+	return ConvertToMechanismOrPanic(mechanismModeInCR, ac.Auth.AutoAuthMechanism, ac.Auth.IsEnabled())
 }
 
 func getMechanismByName(name MechanismName) Mechanism {

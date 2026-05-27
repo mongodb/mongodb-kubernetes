@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net/url"
+	"path"
 	"regexp"
 	"strings"
 	"time"
@@ -210,4 +211,12 @@ func ParseURL(str string) (*url.URL, error) {
 	}
 
 	return u, nil
+}
+
+// IsPOSIXAbsolutePath reports whether p is safe to treat as a fixed in-container
+// path: it uses forward-slash semantics (as in Linux containers and URLs), is
+// absolute, and does not contain ".." (path.IsAbs alone still allows "/etc/../foo").
+// Use this instead of filepath.IsAbs, which follows the operator host OS.
+func IsPOSIXAbsolutePath(p string) bool {
+	return path.IsAbs(p) && !strings.Contains(p, "..")
 }

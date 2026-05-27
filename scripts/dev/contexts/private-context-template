@@ -108,3 +108,7 @@ export PRERELEASE_PULLSECRET_DOCKERCONFIGJSON="<dockerconfigjson secret>"
 
 # uncomment to enable agent debug mode (which adds a delve sidecar to the pods)
 #export MDB_AGENT_DEBUG=true
+
+export USER="surname.lastname"
+# Version tag for locally built dev images (e.g. make operator-image). Override in private-context if needed.
+export DEV_VERSION="${DEV_VERSION:-${USER}-dev}"

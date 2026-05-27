@@ -25,6 +25,9 @@ const (
 
 	// PhaseUnsupported means a resource is not supported by the current Operator version
 	PhaseUnsupported Phase = "Unsupported"
+
+	// PhaseConnectivityValidation means the resource is in migration dry-run: only connectivity to external members is being validated.
+	PhaseConnectivityValidation Phase = "ConnectivityValidation"
 )
 
 type Updater interface {
