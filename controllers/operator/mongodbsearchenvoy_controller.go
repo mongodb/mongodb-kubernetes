@@ -628,6 +628,17 @@ func buildEnvoyPodSpec(search *searchv1.MongoDBSearch, clusterIndex int, tlsCfg 
 					InitialDelaySeconds: 5,
 					PeriodSeconds:       5,
 				},
+				LivenessProbe: &corev1.Probe{
+					ProbeHandler: corev1.ProbeHandler{
+						HTTPGet: &corev1.HTTPGetAction{
+							Path: "/ready",
+							Port: intstr.FromInt32(envoyAdminPort),
+						},
+					},
+					InitialDelaySeconds: 10,
+					PeriodSeconds:       10,
+					FailureThreshold:    3,
+				},
 				Lifecycle: &corev1.Lifecycle{
 					PreStop: &corev1.LifecycleHandler{
 						HTTPGet: &corev1.HTTPGetAction{
