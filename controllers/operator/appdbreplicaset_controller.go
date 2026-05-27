@@ -671,7 +671,7 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 			return r.updateStatus(ctx, opsManager, ws, log, appDbStatusOption)
 		}
 	}
-	_ = externalConn // used in Task 7
+	_ = externalConn // placeholder — threaded through in PR 2
 	appdbOpts.Connection = agentConnConfig
 	// In online mode, set the project ID on podVars so that all downstream functions
 	// (vaultModification, tlsVolumes, addMonitoringContainer) derive the correct secret name
@@ -1488,7 +1488,7 @@ func (r *ReconcileAppDbReplicaSet) appDBAgentBaseURL(ctx context.Context, opsMan
 		kube.ObjectKey(opsManager.Spec.AppDB.GetProjectConfigMapNamespace(), opsManager.Spec.AppDB.GetProjectConfigMapName()),
 		opsManager.Spec.AppDB.GetName())
 	if err != nil {
-		return "", xerrors.Errorf("failed to read project config for external OM URL: %w", err)
+		return "", xerrors.Errorf("failed to read project config for external OM: %w", err)
 	}
 	return projectConfig.BaseURL, nil
 }
@@ -2286,9 +2286,6 @@ func (r *ReconcileAppDbReplicaSet) reconcileOMConnection(
 	}
 
 	opsManager.Status.AppDbStatus.ExternalGroupID = conn.GroupID()
-	if err := r.centralClient.Status().Update(ctx, opsManager); err != nil {
-		return nil, construct.AgentConnectionConfig{}, workflow.Failed(xerrors.Errorf("failed to persist ExternalGroupID in status: %w", err))
-	}
 
 	return conn, construct.AgentConnectionConfig{
 		Enabled: true,
@@ -2296,6 +2293,8 @@ func (r *ReconcileAppDbReplicaSet) reconcileOMConnection(
 		GroupID: conn.GroupID(),
 	}, workflow.OK()
 }
+
+// TODO: remove after e2e verification that fresh-built AC needs no sanitisation (PR 2)
 
 // stripUnsupportedACFields removes fields from an AutomationConfig deployment that are
 // accepted by the local headless agent but rejected by the Ops Manager HTTP API:
