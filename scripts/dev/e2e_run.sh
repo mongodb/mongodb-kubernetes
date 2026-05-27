@@ -15,11 +15,18 @@
 set -Eeou pipefail
 test "${MDB_BASH_DEBUG:-0}" -eq 1 && set -x
 
-if [[ $# -ne 1 ]]; then
+if [[ $# -lt 1 ]]; then
   sed -n '3,15p' "$0"
   exit 1
 fi
 target="$1"
+shift
+# Extra pytest args can be passed after a -- separator, e.g.:
+#   e2e_run.sh e2e_search_connectivity_tool -- -k all_members
+if [[ "${1:-}" == "--" ]]; then
+  shift
+fi
+extra_args=("$@")
 
 cd "$(git rev-parse --show-toplevel 2>/dev/null || echo /workspace)"
 
@@ -50,6 +57,9 @@ else
 fi
 
 cd docker/mongodb-kubernetes-tests
+if [[ ${#extra_args[@]} -gt 0 ]]; then
+  pytest_args+=("${extra_args[@]}")
+fi
 echo "Running: pytest ${pytest_args[*]}"
 echo "Log: /workspace/${log_path}"
 exec pytest "${pytest_args[@]}" 2>&1 | tee "/workspace/${log_path}"
