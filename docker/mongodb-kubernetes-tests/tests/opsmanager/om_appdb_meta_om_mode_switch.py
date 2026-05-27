@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Iterator, Optional
 
 from kubetester import create_or_update_secret, read_secret, try_load
 from kubetester.awss3client import AwsS3Client
@@ -40,13 +40,13 @@ AGENT_CONTAINER_NAME = "mongodb-agent"
 
 
 @fixture(scope="module")
-def meta_s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> str:
+def meta_s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> Iterator[str]:
     create_aws_secret(aws_s3_client, META_OM_S3_SECRET_NAME, namespace)
     yield from create_s3_bucket(aws_s3_client, "meta-om-s3")
 
 
 @fixture(scope="module")
-def meta_oplog_s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> str:
+def meta_oplog_s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> Iterator[str]:
     create_aws_secret(aws_s3_client, META_OM_OPLOG_SECRET_NAME, namespace)
     yield from create_s3_bucket(aws_s3_client, "meta-om-oplog")
 
