@@ -1914,7 +1914,9 @@ func (r *ReconcileAppDbReplicaSet) deployAutomationConfig(ctx context.Context, o
 	}
 
 	if externalConn != nil {
-		// TODO: verify with e2e and remove stripUnsupportedACFields if fresh-built AC needs no sanitisation (PR 2)
+		// TODO: verify with e2e that fresh-built AC needs no sanitisation before push
+		// Note: om.Auth and automationconfig.Auth have different field sets; the roundtrip
+		// may lose auth fields not present in om.Auth (e.g. usersDeleted). Verify with e2e before removing this TODO.
 		acBytes, err := json.Marshal(config)
 		if err != nil {
 			return 0, workflow.Failed(xerrors.Errorf("failed to marshal AC for external OM: %w", err))
