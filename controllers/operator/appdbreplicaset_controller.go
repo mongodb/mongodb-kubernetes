@@ -2,6 +2,7 @@ package operator
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"path"
 	"slices"
@@ -572,7 +573,6 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 			return r.updateStatus(ctx, opsManager, ws, log, appDbStatusOption)
 		}
 	}
-	_ = externalConn // placeholder — threaded through in PR 2
 
 	// In online mode the AppDB agents connect to an external OM directly; monitoring setup
 	// against Primary OM is not needed and would fail (Primary OM has no such org).
@@ -693,7 +693,7 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 
 	workflowStatus = workflow.RunInGivenOrder(publishAutomationConfigFirst,
 		func() workflow.Status {
-			return r.deployAutomationConfigAndWaitForAgentsReachGoalState(ctx, log, opsManager, allStatefulSetsExist, appdbOpts)
+			return r.deployAutomationConfigAndWaitForAgentsReachGoalState(ctx, log, opsManager, allStatefulSetsExist, appdbOpts, externalConn)
 		},
 		func() workflow.Status {
 			return r.deployStatefulSet(ctx, opsManager, log, podVars, appdbOpts)
@@ -811,8 +811,8 @@ func (r *ReconcileAppDbReplicaSet) getLegacyMonitoringAgentVersion(ctx context.C
 	}
 }
 
-func (r *ReconcileAppDbReplicaSet) deployAutomationConfigAndWaitForAgentsReachGoalState(ctx context.Context, log *zap.SugaredLogger, opsManager *omv1.MongoDBOpsManager, allStatefulSetsExist bool, appdbOpts construct.AppDBStatefulSetOptions) workflow.Status {
-	configVersion, workflowStatus := r.deployAutomationConfigOnHealthyClusters(ctx, log, opsManager, appdbOpts)
+func (r *ReconcileAppDbReplicaSet) deployAutomationConfigAndWaitForAgentsReachGoalState(ctx context.Context, log *zap.SugaredLogger, opsManager *omv1.MongoDBOpsManager, allStatefulSetsExist bool, appdbOpts construct.AppDBStatefulSetOptions, externalConn om.Connection) workflow.Status {
+	configVersion, workflowStatus := r.deployAutomationConfigOnHealthyClusters(ctx, log, opsManager, appdbOpts, externalConn)
 	if !workflowStatus.IsOK() {
 		return workflowStatus
 	}
@@ -825,10 +825,10 @@ func (r *ReconcileAppDbReplicaSet) deployAutomationConfigAndWaitForAgentsReachGo
 	return r.allAgentsReachedGoalState(ctx, opsManager, configVersion, log)
 }
 
-func (r *ReconcileAppDbReplicaSet) deployAutomationConfigOnHealthyClusters(ctx context.Context, log *zap.SugaredLogger, opsManager *omv1.MongoDBOpsManager, appdbOpts construct.AppDBStatefulSetOptions) (int, workflow.Status) {
+func (r *ReconcileAppDbReplicaSet) deployAutomationConfigOnHealthyClusters(ctx context.Context, log *zap.SugaredLogger, opsManager *omv1.MongoDBOpsManager, appdbOpts construct.AppDBStatefulSetOptions, externalConn om.Connection) (int, workflow.Status) {
 	configVersions := map[int]struct{}{}
 	for _, memberCluster := range r.GetHealthyMemberClusters() {
-		if configVersion, workflowStatus := r.deployAutomationConfig(ctx, opsManager, appdbOpts.PrometheusTLSCertHash, memberCluster, log); !workflowStatus.IsOK() {
+		if configVersion, workflowStatus := r.deployAutomationConfig(ctx, opsManager, appdbOpts.PrometheusTLSCertHash, memberCluster, externalConn, log); !workflowStatus.IsOK() {
 			return 0, workflowStatus
 		} else {
 			log.Infof("Deployed Automation Config version: %d in cluster: %s", configVersion, memberCluster.Name)
@@ -1905,13 +1905,30 @@ func (r *ReconcileAppDbReplicaSet) publishACVersionAsConfigMap(ctx context.Conte
 
 // deployAutomationConfig updates the Automation Config secret if necessary and waits for the pods to fall to "not ready"
 // In this case the next StatefulSet update will be safe as the rolling upgrade will wait for the pods to get ready
-func (r *ReconcileAppDbReplicaSet) deployAutomationConfig(ctx context.Context, opsManager *omv1.MongoDBOpsManager, prometheusCertHash string, memberCluster multicluster.MemberCluster, log *zap.SugaredLogger) (int, workflow.Status) {
+func (r *ReconcileAppDbReplicaSet) deployAutomationConfig(ctx context.Context, opsManager *omv1.MongoDBOpsManager, prometheusCertHash string, memberCluster multicluster.MemberCluster, externalConn om.Connection, log *zap.SugaredLogger) (int, workflow.Status) {
 	rs := opsManager.Spec.AppDB
 
 	config, err := r.buildAppDbAutomationConfig(ctx, opsManager, automation, prometheusCertHash, memberCluster.Name, log)
 	if err != nil {
 		return 0, workflow.Failed(err)
 	}
+
+	if externalConn != nil {
+		// TODO: verify with e2e and remove stripUnsupportedACFields if fresh-built AC needs no sanitisation (PR 2)
+		acBytes, err := json.Marshal(config)
+		if err != nil {
+			return 0, workflow.Failed(xerrors.Errorf("failed to marshal AC for external OM: %w", err))
+		}
+		omAC, err := om.BuildAutomationConfigFromBytes(acBytes)
+		if err != nil {
+			return 0, workflow.Failed(xerrors.Errorf("failed to build om.AutomationConfig from bytes: %w", err))
+		}
+		if err := externalConn.UpdateAutomationConfig(omAC, log); err != nil {
+			return 0, workflow.Failed(xerrors.Errorf("failed to push AC to external OM: %w", err))
+		}
+		return config.Version, workflow.OK()
+	}
+
 	var configVersion int
 	if configVersion, err = r.publishAutomationConfig(ctx, opsManager, config, rs.AutomationConfigSecretName(), memberCluster.SecretClient); err != nil {
 		return 0, workflow.Failed(err)
