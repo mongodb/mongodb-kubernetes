@@ -223,13 +223,15 @@ func jvmFlags(userJVMFlags []string, resourceRequirements corev1.ResourceRequire
 		flags = append(flags, fmt.Sprintf("-Xms%dm", halfMB))
 	}
 
-	flagsValue := strings.Join(append(flags, userJVMFlags...), " ")
+	allFlags := append(flags, userJVMFlags...)
+	flagsValue := strings.Join(allFlags, " ")
 	return fmt.Sprintf(`--jvm-flags "%s"`, flagsValue)
 }
 
 func mongodbSearchContainer(mdbSearch *searchv1.MongoDBSearch, perCluster searchv1.ClusterSpec, volumeMounts []corev1.VolumeMount, searchImage string, usePerPodConfig bool) container.Modification {
 	_, containerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
 	resourceRequirements := createSearchResourceRequirements(perCluster.ResourceRequirements)
+
 	jvmFlags := jvmFlags(perCluster.JVMFlags, resourceRequirements)
 
 	var mongotStartCommand string
