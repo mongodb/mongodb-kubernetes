@@ -1395,17 +1395,27 @@ tasks:
     commands:
       - func: "e2e_test"
 
+  - name: e2e_search_connectivity_tool
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_search_connectivity_tool_sharded
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_search_connectivity_background_tester
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_search_connectivity_tool_mc_rs
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
   - name: e2e_search_replicaset_external_mongodb_multi_mongot_managed_lb
-    tags: [ "patch-run" ]
-    commands:
-      - func: "e2e_test"
-
-  - name: e2e_search_q2_mc_rs_steady
-    tags: [ "patch-run" ]
-    commands:
-      - func: "e2e_test"
-
-  - name: e2e_search_q3_mc_sharded_external_mtls
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
