@@ -427,9 +427,22 @@ func setSearchClusters(s *searchv1.MongoDBSearch, names ...string) {
 }
 
 // setupStateCMTest builds a MongoDBSearch with the given clusters and a fresh reconciler+client.
+// The shape is MC-valid (external source + managed LB) so ValidateSpec, now called
+// pre-LocalizeToCluster in the controller, accepts the un-narrowed spec — otherwise
+// the state ConfigMap would never be written and these tests can't observe what they need.
 func setupStateCMTest(t *testing.T, clusterNames ...string) (*MongoDBSearchReconciler, client.Client, *searchv1.MongoDBSearch) {
 	t.Helper()
 	search := newMongoDBSearch("mysearch", mock.TestNamespace, "mdb")
+	// MC requires external source + managed LB; internal source + no LB is rejected
+	// by validateMCRequiresExternalSource / validateMCRequiresLoadBalancerManaged.
+	search.Spec.Source = &searchv1.MongoDBSource{
+		ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{
+			HostAndPorts: []string{"mdb-0.mdb.svc:27017", "mdb-1.mdb.svc:27017"},
+		},
+	}
+	search.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
+		Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot-{clusterName}.example.com"},
+	}
 	setSearchClusters(search, clusterNames...)
 	mdbc := newMongoDBCommunity("mdb", mock.TestNamespace)
 	reconciler, c := newSearchReconciler(mdbc, search)

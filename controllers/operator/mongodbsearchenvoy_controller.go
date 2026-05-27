@@ -109,6 +109,17 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 		return result, err
 	}
 
+	// Validate the UN-NARROWED spec first. The main MongoDBSearch reconciler
+	// applies the same pattern (see mongodbsearch_controller.go::Reconcile);
+	// without this, simulated-MC operators would silently accept a 2-cluster CR
+	// with a misconfigured externalHostname because LocalizeToCluster narrows
+	// spec.clusters[] before the MC validators short-circuit on len <= 1.
+	// Failures surface on /status/loadBalancer so the Envoy sub-status stays
+	// authoritative for LB shape errors.
+	if err := mdbSearch.ValidateSpec(); err != nil {
+		return r.updateLBStatus(ctx, mdbSearch, workflow.Invalid("%s", err.Error()), log)
+	}
+
 	if r.operatorClusterName != "" && !mdbSearch.LocalizeToCluster(r.operatorClusterName) {
 		return reconcile.Result{}, nil
 	}
@@ -307,6 +318,25 @@ func buildRoutes(search *searchv1.MongoDBSearch, source searchcontroller.SearchS
 	return []envoyRoute{buildReplicaSetRoute(search)}
 }
 
+// arrayPosForClusterName returns the array position in spec.Clusters[] for the
+// given clusterName. The GetManagedLBEndpoint*Cluster* helpers take the array
+// position as their `i` parameter (not the pinned ClusterIndex); in simulated-MC
+// the projected spec.Clusters[] has 1 element so array pos is always 0 even
+// when the mapping/work-list ClusterIndex is the pinned value (e.g., 1 or 7).
+// Returns 0 when not found — that's the legacy single-cluster path where
+// callers also pass clusterName == "".
+func arrayPosForClusterName(search *searchv1.MongoDBSearch, clusterName string) int {
+	if search.Spec.Clusters == nil {
+		return 0
+	}
+	for i, c := range *search.Spec.Clusters {
+		if c.ClusterName == clusterName {
+			return i
+		}
+	}
+	return 0
+}
+
 // buildShardRoutes builds per-shard routes plus one cluster-level route for a single cluster.
 // clusterIndex and clusterName identify the cluster; in single-cluster installs pass (0, "").
 // Each per-shard route has one UpstreamHosts entry. The trailing cluster-level route
@@ -317,6 +347,13 @@ func buildShardRoutes(search *searchv1.MongoDBSearch, shardNames []string, clust
 	namespace := search.Namespace
 	mongotPort := search.GetMongotGrpcPort()
 
+	// Template substitution uses array position (the receiver indexes into
+	// spec.Clusters[] and reads the pinned ClusterIndex internally). Resource
+	// names use the pinned clusterIndex directly so per-cluster STSes line up
+	// stably across remove/re-add cycles. In legacy central-MC these match;
+	// in simulated-MC they diverge (array pos always 0 after LocalizeToCluster).
+	arrayPos := arrayPosForClusterName(search, clusterName)
+
 	clusterLevelUpstreams := make([]string, 0, len(shardNames))
 
 	for _, shardName := range shardNames {
@@ -325,7 +362,7 @@ func buildShardRoutes(search *searchv1.MongoDBSearch, shardNames []string, clust
 		upstreamFQDN := fmt.Sprintf("%s.%s.svc.cluster.local", mongotServiceName, namespace)
 
 		sniHostname := fmt.Sprintf("%s.%s.svc.cluster.local", sniServiceName, namespace)
-		if endpoint := search.GetManagedLBEndpointForClusterShard(clusterIndex, shardName); endpoint != "" {
+		if endpoint := search.GetManagedLBEndpointForClusterShard(arrayPos, shardName); endpoint != "" {
 			sniHostname = endpoint
 		}
 
@@ -345,7 +382,7 @@ func buildShardRoutes(search *searchv1.MongoDBSearch, shardNames []string, clust
 	// the user supplied a managed-LB externalHostname (with {shardName}. prefix stripped).
 	clusterLevelSvcName := search.ProxyServiceNamespacedNameForCluster(clusterIndex).Name
 	clusterLevelSNI := fmt.Sprintf("%s.%s.svc.cluster.local", clusterLevelSvcName, namespace)
-	if endpoint := search.GetManagedLBEndpointForClusterLevel(clusterIndex); endpoint != "" {
+	if endpoint := search.GetManagedLBEndpointForClusterLevel(arrayPos); endpoint != "" {
 		clusterLevelSNI = endpoint
 	}
 
@@ -406,9 +443,13 @@ func buildReplicaSetRouteForCluster(search *searchv1.MongoDBSearch, clusterIndex
 	namespace := search.Namespace
 	mongotPort := search.GetMongotGrpcPort()
 
+	// Template substitution takes array position; resource names take the
+	// pinned clusterIndex (see buildShardRoutes for the rationale).
+	arrayPos := arrayPosForClusterName(search, clusterName)
+
 	sniServiceName := search.ProxyServiceNamespacedNameForCluster(clusterIndex).Name
 	sniHostname := fmt.Sprintf("%s.%s.svc.cluster.local", sniServiceName, namespace)
-	if endpoint := search.GetManagedLBEndpointForCluster(clusterIndex); endpoint != "" {
+	if endpoint := search.GetManagedLBEndpointForCluster(arrayPos); endpoint != "" {
 		sniHostname = endpoint
 	}
 

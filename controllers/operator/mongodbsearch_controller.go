@@ -136,6 +136,16 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 		return result, err
 	}
 
+	// Validate the UN-NARROWED spec first. Simulated-MC narrows spec.clusters[] to a
+	// 1-element slice via LocalizeToCluster below; after narrowing the MC validators
+	// (e.g., validateMCExternalHostnamePlaceholders, validateMCRejectsUnmanagedLB)
+	// short-circuit on len(clusters) <= 1 and silently accept misconfigured MC specs.
+	// The reconcile helper still calls ValidateSpec defensively but only sees the
+	// narrowed spec — this top-level call is the source of truth for MC-shape rules.
+	if err := mdbSearch.ValidateSpec(); err != nil {
+		return commoncontroller.UpdateStatus(ctx, r.kubeClient, mdbSearch, workflow.Invalid("%s", err.Error()), log)
+	}
+
 	if r.operatorClusterName != "" && !mdbSearch.LocalizeToCluster(r.operatorClusterName) {
 		return reconcile.Result{}, nil
 	}
