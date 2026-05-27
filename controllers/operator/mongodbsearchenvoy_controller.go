@@ -45,7 +45,7 @@ import (
 const (
 	envoyReplicasDefault = int32(1)
 
-	envoyAdminPort = 9901
+	EnvoyAdminPort = 9901
 
 	envoyServerCertPath = "/etc/envoy/tls/server"
 	envoyClientCertPath = "/etc/envoy/tls/client"
@@ -508,10 +508,6 @@ func (r *MongoDBSearchEnvoyReconciler) ensureDeployment(ctx context.Context, sea
 					Labels: podLabels,
 					Annotations: map[string]string{
 						envoyConfigHashAnnotation: configHash,
-						// Exclude the proxy port from Istio inbound capture: mongod's TLS to
-						// Envoy is raw app-TLS, not Istio mTLS, so capture in REDIRECT mode
-						// stalls the handshake (20s timeout → code 125). No-op without Istio.
-						"traffic.sidecar.istio.io/excludeInboundPorts": fmt.Sprintf("%d", searchv1.EnvoyDefaultProxyPort),
 					},
 				},
 				Spec: buildEnvoyPodSpec(search, clusterIndex, tlsCfg, tlsEnabled, image, resources, managedSecurityContext),
@@ -627,10 +623,27 @@ func buildEnvoyPodSpec(search *searchv1.MongoDBSearch, clusterIndex int, tlsCfg 
 				Name:    "envoy",
 				Image:   image,
 				Command: []string{"/usr/local/bin/envoy"},
-				Args:    []string{"-c", "/etc/envoy/envoy.json", "--log-level", "info"},
+				// --log-format emits component logs as JSON so they share a
+				// uniform shape with the JSON access log we configure in the
+				// HCM (see buildHCMAccessLog). %j escapes the message body
+				// (which can carry quotes from envoy "[Tags: ... ]" frames)
+				// so each line stays as a single well-formed JSON object.
+				//
+				// Token notes (spdlog):
+				//   time: %Y-%m-%dT%H:%M:%S.%e%z → ISO 8601 with ms and ±HH:MM
+				//     offset (matches mongod/mongot timestamp shape so any
+				//     downstream tooling can sort cross-layer by wall clock).
+				//   loc: %g:%# → "<source-path>:<line>". The field is named ``loc``
+				//     (not ``source``) on purpose to not confuse some log parsing
+				//     utilities, e.g. lnav.
+				Args: []string{
+					"-c", "/etc/envoy/envoy.json",
+					"--log-level", "info",
+					"--log-format", `{"time":"%Y-%m-%dT%H:%M:%S.%e%z","level":"%l","logger":"%n","thread":%t,"loc":"%g:%#","message":"%j"}`,
+				},
 				Ports: []corev1.ContainerPort{
 					{Name: "grpc", ContainerPort: searchv1.EnvoyDefaultProxyPort},
-					{Name: "admin", ContainerPort: envoyAdminPort},
+					{Name: "admin", ContainerPort: EnvoyAdminPort},
 				},
 				Resources:       resources,
 				SecurityContext: containerSecurityContext,
@@ -638,7 +651,7 @@ func buildEnvoyPodSpec(search *searchv1.MongoDBSearch, clusterIndex int, tlsCfg 
 					ProbeHandler: corev1.ProbeHandler{
 						HTTPGet: &corev1.HTTPGetAction{
 							Path: "/ready",
-							Port: intstr.FromInt32(envoyAdminPort),
+							Port: intstr.FromInt32(EnvoyAdminPort),
 						},
 					},
 					InitialDelaySeconds: 5,
@@ -648,7 +661,7 @@ func buildEnvoyPodSpec(search *searchv1.MongoDBSearch, clusterIndex int, tlsCfg 
 					ProbeHandler: corev1.ProbeHandler{
 						HTTPGet: &corev1.HTTPGetAction{
 							Path: "/ready",
-							Port: intstr.FromInt32(envoyAdminPort),
+							Port: intstr.FromInt32(EnvoyAdminPort),
 						},
 					},
 					InitialDelaySeconds: 10,
@@ -659,7 +672,7 @@ func buildEnvoyPodSpec(search *searchv1.MongoDBSearch, clusterIndex int, tlsCfg 
 					PreStop: &corev1.LifecycleHandler{
 						HTTPGet: &corev1.HTTPGetAction{
 							Path: "/drain_listeners",
-							Port: intstr.FromInt32(envoyAdminPort),
+							Port: intstr.FromInt32(EnvoyAdminPort),
 						},
 					},
 				},
