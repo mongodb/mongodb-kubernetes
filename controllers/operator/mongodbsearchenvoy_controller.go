@@ -246,7 +246,8 @@ func (r *MongoDBSearchEnvoyReconciler) reconcileForCluster(
 	}
 
 	caKeyName := caKeyNameFromTLSConfig(tlsCfg)
-	envoyJSON, err := buildEnvoyConfigJSON(routes, tlsEnabled, caKeyName)
+	cb := search.GetManagedLBCircuitBreakers()
+	envoyJSON, err := buildEnvoyConfigJSON(routes, tlsEnabled, caKeyName, cb)
 	if err != nil {
 		return workflow.Failed(fmt.Errorf("cluster=%q: %w", clusterName, err))
 	}

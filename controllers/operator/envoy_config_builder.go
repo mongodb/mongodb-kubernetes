@@ -31,8 +31,8 @@ import (
 
 // buildEnvoyConfigJSON builds the Envoy bootstrap configuration using
 // go-control-plane protobuf types and marshals it to JSON.
-func buildEnvoyConfigJSON(routes []envoyRoute, tlsEnabled bool, caKeyName string) (string, error) {
-	config, err := buildEnvoyBootstrapConfig(routes, tlsEnabled, caKeyName)
+func buildEnvoyConfigJSON(routes []envoyRoute, tlsEnabled bool, caKeyName string, cb *searchv1.EnvoyCircuitBreakers) (string, error) {
+	config, err := buildEnvoyBootstrapConfig(routes, tlsEnabled, caKeyName, cb)
 	if err != nil {
 		return "", fmt.Errorf("failed to build Envoy bootstrap config: %w", err)
 	}
@@ -50,7 +50,7 @@ func buildEnvoyConfigJSON(routes []envoyRoute, tlsEnabled bool, caKeyName string
 }
 
 // buildEnvoyBootstrapConfig constructs the full Envoy bootstrap protobuf.
-func buildEnvoyBootstrapConfig(routes []envoyRoute, tlsEnabled bool, caKeyName string) (*bootstrapv3.Bootstrap, error) {
+func buildEnvoyBootstrapConfig(routes []envoyRoute, tlsEnabled bool, caKeyName string, cb *searchv1.EnvoyCircuitBreakers) (*bootstrapv3.Bootstrap, error) {
 	filterChains := make([]*listenerv3.FilterChain, 0, len(routes))
 	clusters := make([]*clusterv3.Cluster, 0, len(routes))
 
@@ -61,7 +61,7 @@ func buildEnvoyBootstrapConfig(routes []envoyRoute, tlsEnabled bool, caKeyName s
 		}
 		filterChains = append(filterChains, fc)
 
-		cl, err := buildCluster(route, tlsEnabled, caKeyName)
+		cl, err := buildCluster(route, tlsEnabled, caKeyName, cb)
 		if err != nil {
 			return nil, fmt.Errorf("failed to build cluster for route %s: %w", route.Name, err)
 		}
@@ -241,8 +241,37 @@ func buildLbEndpoints(route envoyRoute) []*endpointv3.LbEndpoint {
 	return eps
 }
 
+// circuitBreakerValue returns the user-provided value if non-nil, otherwise the default.
+func circuitBreakerValue(userVal *uint32, defaultVal uint32) uint32 {
+	if userVal != nil {
+		return *userVal
+	}
+	return defaultVal
+}
+
+func cbMaxConnections(cb *searchv1.EnvoyCircuitBreakers) *uint32 {
+	if cb == nil {
+		return nil
+	}
+	return cb.MaxConnections
+}
+
+func cbMaxRequests(cb *searchv1.EnvoyCircuitBreakers) *uint32 {
+	if cb == nil {
+		return nil
+	}
+	return cb.MaxRequests
+}
+
+func cbMaxPendingRequests(cb *searchv1.EnvoyCircuitBreakers) *uint32 {
+	if cb == nil {
+		return nil
+	}
+	return cb.MaxPendingRequests
+}
+
 // buildCluster builds an upstream cluster for one route.
-func buildCluster(route envoyRoute, tlsEnabled bool, caKeyName string) (*clusterv3.Cluster, error) {
+func buildCluster(route envoyRoute, tlsEnabled bool, caKeyName string, cb *searchv1.EnvoyCircuitBreakers) (*clusterv3.Cluster, error) {
 	clusterName := fmt.Sprintf("mongot_%s_cluster", route.NameSafe)
 
 	upstreamHTTPOpts, err := anypb.New(&upstreamhttpv3.HttpProtocolOptions{
@@ -283,9 +312,9 @@ func buildCluster(route envoyRoute, tlsEnabled bool, caKeyName string) (*cluster
 			Thresholds: []*clusterv3.CircuitBreakers_Thresholds{
 				{
 					Priority:           corev3.RoutingPriority_DEFAULT,
-					MaxConnections:     wrapperspb.UInt32(1024),
-					MaxPendingRequests: wrapperspb.UInt32(1024),
-					MaxRequests:        wrapperspb.UInt32(1024),
+					MaxConnections:     wrapperspb.UInt32(circuitBreakerValue(cbMaxConnections(cb), 1024)),
+					MaxPendingRequests: wrapperspb.UInt32(circuitBreakerValue(cbMaxPendingRequests(cb), 1024)),
+					MaxRequests:        wrapperspb.UInt32(circuitBreakerValue(cbMaxRequests(cb), 1024)),
 					MaxRetries:         wrapperspb.UInt32(3),
 				},
 			},

@@ -39,14 +39,14 @@ func unmarshalBootstrap(t *testing.T, jsonStr string) *bootstrapv3.Bootstrap {
 }
 
 func TestBuildEnvoyConfigJSON_OutputIsValidJSON(t *testing.T) {
-	result, err := buildEnvoyConfigJSON([]envoyRoute{testRoute("mdb-sh-0")}, false, testCAKeyName())
+	result, err := buildEnvoyConfigJSON([]envoyRoute{testRoute("mdb-sh-0")}, false, testCAKeyName(), nil)
 	require.NoError(t, err)
 	assert.True(t, json.Valid([]byte(result)), "output should be valid JSON")
 }
 
 func TestBuildEnvoyConfigJSON_SingleShard_NoTLS(t *testing.T) {
 	route := testRoute("mdb-sh-0")
-	result, err := buildEnvoyConfigJSON([]envoyRoute{route}, false, testCAKeyName())
+	result, err := buildEnvoyConfigJSON([]envoyRoute{route}, false, testCAKeyName(), nil)
 	require.NoError(t, err)
 
 	bootstrap := unmarshalBootstrap(t, result)
@@ -109,7 +109,7 @@ func TestBuildEnvoyConfigJSON_SingleShard_NoTLS(t *testing.T) {
 func TestBuildEnvoyConfigJSON_SingleShard_WithTLS(t *testing.T) {
 	route := testRoute("mdb-sh-0")
 	caKeyName := testCAKeyName()
-	result, err := buildEnvoyConfigJSON([]envoyRoute{route}, true, caKeyName)
+	result, err := buildEnvoyConfigJSON([]envoyRoute{route}, true, caKeyName, nil)
 	require.NoError(t, err)
 
 	bootstrap := unmarshalBootstrap(t, result)
@@ -161,7 +161,7 @@ func TestBuildEnvoyConfigJSON_MultipleShards_WithTLS(t *testing.T) {
 	}
 
 	// Sharded clusters always require TLS for SNI-based routing
-	result, err := buildEnvoyConfigJSON(routes, true, testCAKeyName())
+	result, err := buildEnvoyConfigJSON(routes, true, testCAKeyName(), nil)
 	require.NoError(t, err)
 
 	bootstrap := unmarshalBootstrap(t, result)
@@ -198,7 +198,7 @@ func TestBuildEnvoyConfigJSON_ReplicaSet_NoTLS(t *testing.T) {
 		UpstreamPort:  27028,
 	}
 
-	result, err := buildEnvoyConfigJSON([]envoyRoute{route}, false, testCAKeyName())
+	result, err := buildEnvoyConfigJSON([]envoyRoute{route}, false, testCAKeyName(), nil)
 	require.NoError(t, err)
 
 	bootstrap := unmarshalBootstrap(t, result)
@@ -234,7 +234,7 @@ func TestBuildEnvoyConfigJSON_ReplicaSet_WithTLS(t *testing.T) {
 		UpstreamPort:  27028,
 	}
 
-	result, err := buildEnvoyConfigJSON([]envoyRoute{route}, true, testCAKeyName())
+	result, err := buildEnvoyConfigJSON([]envoyRoute{route}, true, testCAKeyName(), nil)
 	require.NoError(t, err)
 
 	bootstrap := unmarshalBootstrap(t, result)
@@ -287,7 +287,7 @@ func TestBuildFilterChain_WithTLS_HasSNIMatch(t *testing.T) {
 
 func TestBuildBootstrapConfig_NoTLS_NoTLSInspector(t *testing.T) {
 	route := testRoute("test-shard")
-	bootstrap, err := buildEnvoyBootstrapConfig([]envoyRoute{route}, false, testCAKeyName())
+	bootstrap, err := buildEnvoyBootstrapConfig([]envoyRoute{route}, false, testCAKeyName(), nil)
 	require.NoError(t, err)
 
 	listener := bootstrap.StaticResources.Listeners[0]
@@ -296,7 +296,7 @@ func TestBuildBootstrapConfig_NoTLS_NoTLSInspector(t *testing.T) {
 
 func TestBuildBootstrapConfig_WithTLS_HasTLSInspector(t *testing.T) {
 	route := testRoute("test-shard")
-	bootstrap, err := buildEnvoyBootstrapConfig([]envoyRoute{route}, true, testCAKeyName())
+	bootstrap, err := buildEnvoyBootstrapConfig([]envoyRoute{route}, true, testCAKeyName(), nil)
 	require.NoError(t, err)
 
 	listener := bootstrap.StaticResources.Listeners[0]
@@ -336,7 +336,7 @@ func TestBuildUpstreamTLS_PerShardRoute_SNISet(t *testing.T) {
 
 func TestBuildCluster_UsesTypedExtensionProtocolOptions(t *testing.T) {
 	route := testRoute("mdb-sh-0")
-	cluster, err := buildCluster(route, false, testCAKeyName())
+	cluster, err := buildCluster(route, false, testCAKeyName(), nil)
 	require.NoError(t, err)
 
 	// Verify deprecated fields are NOT set
@@ -345,4 +345,21 @@ func TestBuildCluster_UsesTypedExtensionProtocolOptions(t *testing.T) {
 
 	// Verify TypedExtensionProtocolOptions is set
 	require.Contains(t, cluster.TypedExtensionProtocolOptions, "envoy.extensions.upstreams.http.v3.HttpProtocolOptions")
+}
+
+func TestBuildCluster_PartialCircuitBreakers(t *testing.T) {
+	route := testRoute("mdb-sh-0")
+	maxConn := uint32(2048)
+	cb := &searchv1.EnvoyCircuitBreakers{
+		MaxConnections: &maxConn,
+		// MaxRequests and MaxPendingRequests left nil — should use defaults
+	}
+
+	cluster, err := buildCluster(route, false, testCAKeyName(), cb)
+	require.NoError(t, err)
+
+	thresh := cluster.CircuitBreakers.Thresholds[0]
+	assert.Equal(t, uint32(2048), thresh.MaxConnections.GetValue())
+	assert.Equal(t, uint32(1024), thresh.MaxRequests.GetValue(), "should use default")
+	assert.Equal(t, uint32(1024), thresh.MaxPendingRequests.GetValue(), "should use default")
 }

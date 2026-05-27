@@ -234,6 +234,28 @@ type ManagedLBConfig struct {
 	// Follows the same convention as spec.statefulSet on MongoDB resources.
 	// +optional
 	Deployment *v1.DeploymentConfiguration `json:"deployment,omitempty"`
+	// CircuitBreakers configures Envoy circuit breaker thresholds for upstream clusters.
+	// When not set, defaults to 1024 for maxConnections, maxRequests, and maxPendingRequests.
+	// +optional
+	CircuitBreakers *EnvoyCircuitBreakers `json:"circuitBreakers,omitempty"`
+}
+
+type EnvoyCircuitBreakers struct {
+	// MaxConnections is the maximum number of TCP connections to the upstream cluster.
+	// Defaults to 1024 if not specified.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	MaxConnections *uint32 `json:"maxConnections,omitempty"`
+	// MaxRequests is the maximum number of concurrent requests to the upstream cluster.
+	// Defaults to 1024 if not specified.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	MaxRequests *uint32 `json:"maxRequests,omitempty"`
+	// MaxPendingRequests is the maximum number of requests queued while waiting for a connection.
+	// Defaults to 1024 if not specified.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	MaxPendingRequests *uint32 `json:"maxPendingRequests,omitempty"`
 }
 
 // UnmanagedLBConfig configures a user-provided (BYO) L7 load balancer.
@@ -897,6 +919,14 @@ func (s *MongoDBSearch) GetManagedLBDeploymentConfig() *v1.DeploymentConfigurati
 func (s *MongoDBSearch) GetManagedLBResourceRequirements() *corev1.ResourceRequirements {
 	if s.IsLBModeManaged() {
 		return s.Spec.LoadBalancer.Managed.ResourceRequirements
+	}
+	return nil
+}
+
+// GetManagedLBCircuitBreakers returns user-specified Envoy circuit breaker thresholds, or nil.
+func (s *MongoDBSearch) GetManagedLBCircuitBreakers() *EnvoyCircuitBreakers {
+	if s.IsLBModeManaged() {
+		return s.Spec.LoadBalancer.Managed.CircuitBreakers
 	}
 	return nil
 }
