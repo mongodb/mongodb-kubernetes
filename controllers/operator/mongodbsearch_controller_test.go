@@ -178,6 +178,38 @@ func TestMongoDBSearchReconcile_MissingSource(t *testing.T) {
 	assert.True(t, res.RequeueAfter > 0)
 }
 
+func TestMongoDBSearchReconcile_ResourceDisabledAnnotation_SkipsReconcile(t *testing.T) {
+	ctx := context.Background()
+
+	// CR is annotated disabled but has a missing source — without the
+	// short-circuit, Reconcile would set Status.Phase=Failed. The
+	// short-circuit must return Result{} + nil without touching status.
+	search := newMongoDBSearch("search", mock.TestNamespace, "missing-source")
+	search.Annotations = map[string]string{
+		searchv1.ResourceDisabledAnnotation: "true",
+	}
+	reconciler, c := newSearchReconciler(nil, search)
+
+	res, err := reconciler.Reconcile(
+		ctx,
+		reconcile.Request{NamespacedName: types.NamespacedName{Name: search.Name, Namespace: search.Namespace}},
+	)
+	assert.NoError(t, err)
+	assert.Equal(t, reconcile.Result{}, res)
+
+	// Status untouched — would be Failed if reconcile had proceeded
+	// (MissingSource path sets PhaseFailed).
+	updated := &searchv1.MongoDBSearch{}
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: search.Name, Namespace: search.Namespace}, updated))
+	assert.Empty(t, updated.Status.Phase)
+	assert.Empty(t, updated.Status.Message)
+
+	// No StatefulSet was created either.
+	sts := &appsv1.StatefulSet{}
+	err = c.Get(ctx, search.StatefulSetNamespacedName(), sts)
+	assert.True(t, apiErrors.IsNotFound(err), "no StatefulSet should be created when reconciliation is disabled, got err=%v", err)
+}
+
 func TestMongoDBSearchReconcile_Success(t *testing.T) {
 	tests := []struct {
 		name          string
