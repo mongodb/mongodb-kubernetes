@@ -184,9 +184,9 @@ func TestBuildShardRoutes(t *testing.T) {
 	shardNames := []string{"mdb-sh-0", "mdb-sh-1"}
 
 	tests := []struct {
-		name                   string
-		endpoint               string
-		expectedShardSNIs      []string
+		name                    string
+		endpoint                string
+		expectedShardSNIs       []string
 		expectedClusterLevelSNI string
 	}{
 		{
