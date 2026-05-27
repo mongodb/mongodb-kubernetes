@@ -69,6 +69,26 @@ def get_search_tester(mdb: MongoDB, username: str, password: str, use_ssl: bool 
     return SearchTester.for_sharded(mdb, username, password, use_ssl=use_ssl, ca_path=ca_path)
 
 
+def get_shard_mongod_tester(
+    mdb: MongoDB,
+    shard_index: int,
+    member_index: int,
+    username: str,
+    password: str,
+    *,
+    use_ssl: bool = True,
+) -> SearchTester:
+    """SearchTester pinned to one shard's mongod member via directConnection.
+
+    Per-shard mongod FQDN follows the operator's shard-service convention:
+    ``<mdb>-<shardIdx>-<podIdx>.<mdb>-sh.<ns>.svc.cluster.local:27017``.
+    """
+    ca_path = get_issuer_ca_filepath() if use_ssl else None
+    host = f"{mdb.name}-{shard_index}-{member_index}." f"{mdb.name}-sh.{mdb.namespace}.svc.cluster.local:27017"
+    conn_str = f"mongodb://{username}:{password}@{host}/" f"?directConnection=true&authSource=admin"
+    return SearchTester(conn_str, use_ssl=use_ssl, ca_path=ca_path)
+
+
 def create_lb_certificates(
     namespace: str,
     issuer: str,
