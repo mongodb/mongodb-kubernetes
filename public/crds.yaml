@@ -4926,8 +4926,9 @@ spec:
                       description: |-
                         Replicas overrides spec.replicas for this cluster's mongot StatefulSet.
                         For sharded sources, this is mongot pods per shard, not total.
+                        0 is allowed (StatefulSet scales to 0 — see spec.replicas docs).
                       format: int32
-                      minimum: 1
+                      minimum: 0
                       type: integer
                     resourceRequirements:
                       description: ResourceRequirements describes the compute resource
@@ -5264,8 +5265,11 @@ spec:
                   For Sharded source: the number mongot pods per shard.
                   When Replicas > 1, a load balancer configuration (spec.loadBalancer)
                   is required to distribute traffic across mongot instances.
+                  0 is allowed so operators (and operator-driven test harnesses) can
+                  take mongot offline cleanly via the CR — the StatefulSet is scaled
+                  to 0 by the reconciler; the MongoDBSearch CR itself stays around.
                 format: int32
-                minimum: 1
+                minimum: 0
                 type: integer
               resourceRequirements:
                 description: |-

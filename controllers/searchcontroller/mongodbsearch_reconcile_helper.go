@@ -1530,12 +1530,12 @@ type perShardTLSResource struct {
 
 // TLSSecretNamespacedName returns the per-(cluster, shard) source secret name.
 func (p *perShardTLSResource) TLSSecretNamespacedName() types.NamespacedName {
-	return p.MongoDBSearch.TLSSecretForClusterShard(p.clusterIndex, p.shardName)
+	return p.TLSSecretForClusterShard(p.clusterIndex, p.shardName)
 }
 
 // TLSOperatorSecretNamespacedName returns the per-(cluster, shard) operator-managed secret name.
 func (p *perShardTLSResource) TLSOperatorSecretNamespacedName() types.NamespacedName {
-	return p.MongoDBSearch.TLSOperatorSecretForClusterShard(p.clusterIndex, p.shardName)
+	return p.TLSOperatorSecretForClusterShard(p.clusterIndex, p.shardName)
 }
 
 func (r *MongoDBSearchReconcileHelper) ensureEgressTlsConfig(ctx context.Context) (mongot.Modification, statefulset.Modification) {
