@@ -562,6 +562,18 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 	agentCertSecretName := opsManager.Spec.AppDB.GetSecurity().AgentClientCertificateSecretName(opsManager.Spec.AppDB.GetName())
 	_, agentCertPath := r.agentCertHashAndPath(ctx, log, opsManager.Namespace, agentCertSecretName, appdbSecretPath)
 
+	// If Connection is configured, transition agents to online mode.
+	var externalConn om.Connection
+	var agentConnConfig construct.AgentConnectionConfig
+	if opsManager.Spec.AppDB.Connection != nil {
+		var ws workflow.Status
+		externalConn, agentConnConfig, ws = r.reconcileOMConnection(ctx, opsManager, log)
+		if !ws.IsOK() {
+			return r.updateStatus(ctx, opsManager, ws, log, appDbStatusOption)
+		}
+	}
+	_ = externalConn // placeholder — threaded through in PR 2
+
 	// In online mode the AppDB agents connect to an external OM directly; monitoring setup
 	// against Primary OM is not needed and would fail (Primary OM has no such org).
 	var podVars env.PodEnvVars
@@ -661,17 +673,6 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 	}
 	appdbOpts.PrometheusTLSCertHash = prometheusCertHash
 
-	// If Connection is configured, transition agents to online mode.
-	var externalConn om.Connection
-	var agentConnConfig construct.AgentConnectionConfig
-	if opsManager.Spec.AppDB.Connection != nil {
-		var ws workflow.Status
-		externalConn, agentConnConfig, ws = r.reconcileOMConnection(ctx, opsManager, log)
-		if !ws.IsOK() {
-			return r.updateStatus(ctx, opsManager, ws, log, appDbStatusOption)
-		}
-	}
-	_ = externalConn // placeholder — threaded through in PR 2
 	appdbOpts.Connection = agentConnConfig
 	// In online mode, set the project ID on podVars so that all downstream functions
 	// (vaultModification, tlsVolumes, addMonitoringContainer) derive the correct secret name
