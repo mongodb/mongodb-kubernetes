@@ -100,35 +100,11 @@ type AppDBSpec struct {
 	// +optional
 	ClusterSpecList mdbv1.ClusterSpecList `json:"clusterSpecList,omitempty"`
 
-	// ManagedByMetaOM, when set, transitions AppDB agents from headless mode
-	// to online mode managed by the referenced secondary (Meta) Ops Manager.
+	// Connection, when set, switches AppDB agents from headless mode to online
+	// mode connected to the referenced external Ops Manager instance.
+	// Follows the same ConfigMap + credentials Secret pattern as any MongoDB CR.
 	// +optional
-	ManagedByMetaOM *MetaOMRef `json:"managedByMetaOM,omitempty"`
-}
-
-// MetaOMRef references a secondary (Meta) Ops Manager instance that will
-// take over management of the AppDB agents, enabling backup via Meta OM.
-type MetaOMRef struct {
-	// Name of the MongoDBOpsManager CR acting as Meta OM.
-	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:MinLength=1
-	Name string `json:"name"`
-
-	// Namespace of the Meta OM CR. Defaults to the same namespace as Primary OM.
-	// +optional
-	Namespace string `json:"namespace,omitempty"`
-
-	// ProjectName is the name of the project to create or use in Meta OM
-	// for this AppDB deployment.
-	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:MinLength=1
-	ProjectName string `json:"projectName"`
-
-	// CredentialsSecretRef references a Secret containing Meta OM admin
-	// API credentials. The Secret must have keys "publicKey" and "privateKey".
-	// This is mostly useful for cases where Meta OM is in a different namespace or cluster.
-	// +kubebuilder:validation:Required
-	CredentialsSecretRef SecretRef `json:"credentialsSecretRef"`
+	Connection *ConnectionSpec `json:"connection,omitempty"`
 }
 
 func (m *AppDBSpec) GetAgentConfig() mdbv1.AgentConfig {
@@ -312,6 +288,17 @@ type ConnectionSpec struct {
 	Credentials string `json:"credentials,omitempty"`
 }
 
+// GetProject returns the ConfigMap name for the Ops Manager / Cloud Manager project config.
+func (c *ConnectionSpec) GetProject() string {
+	if c.OpsManagerConfig != nil && c.OpsManagerConfig.ConfigMapRef.Name != "" {
+		return c.OpsManagerConfig.ConfigMapRef.Name
+	}
+	if c.CloudManagerConfig != nil && c.CloudManagerConfig.ConfigMapRef.Name != "" {
+		return c.CloudManagerConfig.ConfigMapRef.Name
+	}
+	return ""
+}
+
 type AppDbBuilder struct {
 	appDb *AppDBSpec
 }
@@ -413,6 +400,28 @@ func (m *AppDBSpec) UnmarshalJSON(data []byte) error {
 func (m *AppDBSpec) Name() string {
 	return m.OpsManagerName + "-db"
 }
+
+// GetProjectConfigMapName implements project.Reader.
+func (m *AppDBSpec) GetProjectConfigMapName() string {
+	if m.Connection == nil {
+		return ""
+	}
+	return m.Connection.GetProject()
+}
+
+// GetProjectConfigMapNamespace implements project.Reader.
+func (m *AppDBSpec) GetProjectConfigMapNamespace() string { return m.Namespace }
+
+// GetCredentialsSecretName implements project.Reader.
+func (m *AppDBSpec) GetCredentialsSecretName() string {
+	if m.Connection == nil {
+		return ""
+	}
+	return m.Connection.Credentials
+}
+
+// GetCredentialsSecretNamespace implements project.Reader.
+func (m *AppDBSpec) GetCredentialsSecretNamespace() string { return m.Namespace }
 
 func (m *AppDBSpec) ProjectIDConfigMapName() string {
 	return m.Name() + "-project-id"
