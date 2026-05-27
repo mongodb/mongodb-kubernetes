@@ -65,7 +65,6 @@ SOURCE_BUNDLE_SECRET = f"{SOURCE_CERT_PREFIX}-{MDB_RESOURCE_NAME}-cert"
 
 
 def _idx(mcc: MultiClusterClient) -> int:
-    """Narrow ``mcc.cluster_index`` from ``Optional[int]`` to ``int``."""
     assert mcc.cluster_index is not None, f"cluster_index unset on {mcc.cluster_name!r}"
     return mcc.cluster_index
 
@@ -75,22 +74,14 @@ def _install_simulated_operator(
     base_helm_args: Dict[str, str],
     mcc: MultiClusterClient,
 ) -> Operator:
-    """Install a simulated-MC MCK operator into ``mcc``: watches MongoDBSearch
-    only, with clusterIdentity set to ``mcc.cluster_name``.
-
-    Uses a DISTINCT operator name so Helm renders its own ServiceAccount + Role
-    + RoleBinding for this operator (with mongodbsearch RBAC). The SA that
-    run_kube_config_creation_tool pre-creates (named
-    mongodb-kubernetes-operator-multi-cluster) is bound to a Role that lacks
-    mongodbsearch perms — fine for the central MC operator's data-plane
-    reach-across, but the simulated operator NEEDS its own CRD perms.
+    """Install a simulated-MC operator watching mongodbsearch only.
+    Uses a DISTINCT operator.name so Helm renders fresh SA+Role+RoleBinding with
+    mongodbsearch RBAC (the kube-config-creation-tool SA's Role lacks search perms).
     """
     os.environ["HELM_KUBECONTEXT"] = mcc.cluster_name
 
     helm_args = dict(base_helm_args)
-    # Strip multi-cluster-orchestration knobs that don't apply to a per-cluster
-    # single-cluster install. multiCluster.clusters gates a kube-config-volume
-    # mount whose Secret is never created in this mode.
+    # multiCluster.clusters gates a kube-config-volume mount whose Secret is never created in this mode.
     for k in (
         "operator.watchNamespace",
         "multiCluster.clusters",
@@ -100,20 +91,12 @@ def _install_simulated_operator(
     ):
         helm_args.pop(k, None)
 
-    # Override operator.name so the chart renders a fresh SA + Role +
-    # RoleBinding under this name (no collision with the
-    # kube-config-creation-tool's pre-created mongodb-kubernetes-operator-multi-cluster SA).
     helm_args["operator.name"] = SIMULATED_OPERATOR_NAME
     helm_args["operator.createOperatorServiceAccount"] = "true"
-    # The MongoDB-resource-pod SAs (mongodb-kubernetes-appdb / -database-pods /
-    # -ops-manager) ARE pre-created in every member cluster's namespace by
-    # run_kube_config_creation_tool. Keep Helm from re-rendering those (would
-    # fail Helm 3 ownership-metadata check).
+    # MongoDB-resource-pod SAs are pre-created by run_kube_config_creation_tool — Helm 3
+    # ownership-metadata check fails if we re-render them.
     helm_args["operator.createResourcesServiceAccountsAndRoles"] = "false"
     helm_args["operator.clusterIdentity.clusterName"] = mcc.cluster_name
-    # Scope the simulated operator to MongoDBSearch only. The central MC
-    # operator owns MongoDB / MongoDBUser / MongoDBMultiCluster (see
-    # multi_cluster_operator fixture override below).
     helm_args["operator.watchedResources"] = "{mongodbsearch}"
 
     # .upgrade(multi_cluster=True) = `helm upgrade --install` semantics + skip
@@ -141,12 +124,10 @@ def _replicate_mongot_user_password_to_members(
     central_cluster_client: kubernetes.client.ApiClient,
     member_cluster_clients: List[MultiClusterClient],
 ) -> None:
-    """The MongoDBUser CR + its password Secret live in the central cluster
-    (cluster-3) where the MC operator runs. The simulated-MC operators in
-    clusters 1+2 need the same Secret in their LOCAL etcd so the
-    MongoDBSearch source.passwordSecretRef resolves there.
-
-    Same shape as the existing OM creds replication pattern."""
+    """Replicate the password Secret so simulated-MC operators' source.passwordSecretRef resolves locally."""
+    # Kind e2e variant exposes 3 member clusters; this test exercises a 2-cluster
+    # simulated-MC topology, so restrict to the first two members.
+    member_cluster_clients = member_cluster_clients[:2]
     pwd_secret_name = f"{MDBS_RESOURCE_NAME}-{MONGOT_USER_NAME}-password"
     src = read_secret(namespace, pwd_secret_name, api_client=central_cluster_client)
     for mcc in member_cluster_clients:
@@ -168,15 +149,18 @@ def central_mc_operator(
     member_cluster_clients: List[MultiClusterClient],
     member_cluster_names: List[str],
 ) -> Operator:
-    """Install the central MC operator scoped to MongoDB/User/MultiCluster
-    (NO mongodbsearch). Re-uses the standard MC operator install pipeline
-    (kubeconfig Secret creation, RBAC, etc.) but overrides watchedResources."""
+    """Central MC operator scoped to MongoDB/User/MultiCluster (NOT mongodbsearch)."""
     from tests.conftest import (
         MULTI_CLUSTER_OPERATOR_NAME,
         _install_multi_cluster_operator,
         local_operator,
         run_kube_config_creation_tool,
     )
+
+    # Kind e2e variant exposes 3 member clusters; this test exercises a 2-cluster
+    # simulated-MC topology, so restrict to the first two members.
+    member_cluster_clients = member_cluster_clients[:2]
+    member_cluster_names = member_cluster_names[:2]
 
     os.environ["HELM_KUBECONTEXT"] = central_cluster_name
 
@@ -191,9 +175,6 @@ def central_mc_operator(
         {
             "operator.name": MULTI_CLUSTER_OPERATOR_NAME,
             "operator.createOperatorServiceAccount": "false",
-            # Central operator owns MongoDB/MongoDBUser/MongoDBMultiCluster (and
-            # community + opsmanagers for completeness) but explicitly NOT
-            # mongodbsearch — the simulated operators in clusters 1+2 own that.
             "operator.watchedResources": "{mongodb,opsmanagers,mongodbusers,mongodbcommunity,mongodbmulticluster}",
         },
         central_cluster_name,
@@ -202,12 +183,7 @@ def central_mc_operator(
 
 @fixture(scope="module")
 def ca_configmap(issuer_ca_filepath: str, namespace: str) -> str:
-    """Issue the issuer-CA ConfigMap + Secret in the central namespace.
-
-    Writes BOTH `data.ca-pem` + `data.mms-ca.crt` on the ConfigMap (consumed by
-    MongoDBMulti.spec.security.tls.ca) AND `data.ca.crt` on a Secret with the
-    same name (consumed by MongoDBSearch.spec.source.external.tls.ca.name).
-    """
+    """Write the issuer CA as both ConfigMap (ca-pem/mms-ca.crt — MongoDBMulti) and Secret (ca.crt — MongoDBSearch source)."""
     return create_issuer_ca(issuer_ca_filepath, namespace, CA_CONFIGMAP_NAME)
 
 
@@ -218,15 +194,10 @@ def mdb(
     central_cluster_client: kubernetes.client.ApiClient,
     ca_configmap: str,
 ) -> MongoDBMulti:
-    """Cross-cluster MongoDB ReplicaSet with TLS+SCRAM — 3 members in each
-    member cluster (6-member RS total). Applied only to the central cluster's
-    API; the central MC operator creates per-cluster StatefulSets via
-    kubeconfigs to members and distributes per-pod TLS bundle material.
-
-    `searchTLSMode: requireTLS` is set explicitly here even though the operator
-    can also derive it — keeping it in spec matches q2_mc_rs_steady and makes
-    the value visible to anyone reading the CR.
-    """
+    """6-member cross-cluster ReplicaSet (3+3) with TLS+SCRAM; applied only to the central cluster."""
+    # Kind e2e variant exposes 3 member clusters; this test exercises a 2-cluster
+    # simulated-MC topology, so restrict to the first two members.
+    member_cluster_names = member_cluster_names[:2]
     resource = MongoDBMulti.from_yaml(
         yaml_fixture("simulated-mc-mongodb.yaml"),
         name=MDB_RESOURCE_NAME,
@@ -296,14 +267,10 @@ def per_cluster_mdbs_search(
     member_cluster_clients: List[MultiClusterClient],
     ca_configmap: str,
 ) -> List[Tuple[MultiClusterClient, MongoDBSearch]]:
-    """Build one MongoDBSearch CR bound to each member cluster's API. Every
-    cluster gets the SAME spec (spec.clusters lists all clusters); each
-    simulated operator narrows it to its own slice via projection.
-
-    TLS-everywhere: spec.security.tls.certsSecretPrefix selects the mongot
-    server cert; spec.source.external.tls.ca trusts the issuer CA for
-    egress to the source mongod RS.
-    """
+    """Same CR (spec.clusters lists all clusters) applied to each member's API; each operator projects to its own slice."""
+    # Kind e2e variant exposes 3 member clusters; this test exercises a 2-cluster
+    # simulated-MC topology, so restrict to the first two members.
+    member_cluster_clients = member_cluster_clients[:2]
     results: List[Tuple[MultiClusterClient, MongoDBSearch]] = []
 
     clusters_spec = [
@@ -367,8 +334,6 @@ def per_cluster_mdbs_search(
 
 @mark.e2e_search_simulated_mc_basic
 def test_install_central_mc_operator(central_mc_operator: Operator):
-    """Central MC operator running in kind-e2e-operator with watchedResources
-    scoped to NOT include mongodbsearch."""
     central_mc_operator.assert_is_running()
 
 
@@ -379,8 +344,7 @@ def test_install_simulated_operators_per_member(
     multi_cluster_operator_installation_config: dict,
     member_cluster_clients: List[MultiClusterClient],
 ):
-    """Install one simulated-MC operator in each member cluster (cluster-1 and
-    cluster-2), each watching ONLY mongodbsearch."""
+    member_cluster_clients = member_cluster_clients[:2]
     base_helm_args = dict(multi_cluster_operator_installation_config)
     for mcc in member_cluster_clients:
         operator = _install_simulated_operator(namespace, base_helm_args, mcc)
@@ -394,13 +358,7 @@ def test_install_source_tls_certificates(
     member_cluster_clients: List[MultiClusterClient],
     central_cluster_client: kubernetes.client.ApiClient,
 ):
-    """Cert-manager bundle Secret for the cross-cluster MongoDBMulti source.
-
-    `create_multi_cluster_mongodb_tls_certs` writes the bundle to the central
-    cluster only; the central MC operator copies per-pod material to members
-    when reconciling the MongoDB CR. SANs cover every cross-cluster mongod
-    member Service (mirrors q2_mc_rs_steady).
-    """
+    member_cluster_clients = member_cluster_clients[:2]
     create_multi_cluster_mongodb_tls_certs(
         multi_cluster_issuer,
         SOURCE_BUNDLE_SECRET,
@@ -412,10 +370,6 @@ def test_install_source_tls_certificates(
 
 @mark.e2e_search_simulated_mc_basic
 def test_mongodb_running(mdb: MongoDBMulti):
-    """Apply the cross-cluster MongoDB CR (6 members across clusters 1+2) and
-    wait for Running. The central MC operator creates StatefulSets in members
-    via its pre-configured kubeconfigs. TLS bundle from
-    test_install_source_tls_certificates must already exist."""
     mdb.update()
     mdb.assert_reaches_phase(Phase.Running, timeout=1500)
 
@@ -429,9 +383,7 @@ def test_create_users(
     mongot_user: MongoDBUser,
     member_cluster_clients: List[MultiClusterClient],
 ):
-    """Create the canonical 3 MongoDBUsers in the central cluster + replicate
-    the mongot user's password Secret to the member clusters where the
-    simulated operators will read the MongoDBSearch source.passwordSecretRef."""
+    member_cluster_clients = member_cluster_clients[:2]
     for user, pwd in (
         (admin_user, ADMIN_USER_PASSWORD),
         (mdb_user, USER_PASSWORD),
@@ -458,10 +410,7 @@ def test_deploy_lb_certificates(
     multi_cluster_issuer: str,
     member_cluster_clients: List[MultiClusterClient],
 ):
-    """Managed LB server + client certs with SANs for every per-cluster
-    proxy-svc FQDN. The Envoy LB validator checks every cluster's FQDN against
-    the cert SAN list; producing them here keeps the test honest if validation
-    is wired in."""
+    member_cluster_clients = member_cluster_clients[:2]
     lb_server_cert_name = search_resource_names.lb_server_cert_name(MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX)
     lb_client_cert_name = search_resource_names.lb_client_cert_name(MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX)
 
@@ -499,10 +448,8 @@ def test_create_search_tls_certificate(
     multi_cluster_issuer: str,
     member_cluster_clients: List[MultiClusterClient],
 ):
-    """mongot TLS cert with SANs for every per-cluster mongot Service + every
-    per-cluster proxy-svc FQDN. Without per-cluster SANs, mongot pods fail
-    their TLS handshake (cert presented for cluster-0 wouldn't validate
-    against the cluster-1 connection's FQDN, etc.)."""
+    """mongot TLS cert MUST carry per-cluster SANs; cert for cluster-0 fails the handshake on cluster-1 etc."""
+    member_cluster_clients = member_cluster_clients[:2]
     secret_name = search_resource_names.mongot_tls_cert_name(MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX)
     additional_domains: List[str] = []
     for mcc in member_cluster_clients:
@@ -526,13 +473,8 @@ def test_replicate_tls_to_members(
     central_cluster_client: kubernetes.client.ApiClient,
     member_cluster_clients: List[MultiClusterClient],
 ):
-    """Replicate mongot TLS cert, LB server/client TLS certs, and the CA
-    Secret + CA ConfigMap from the central namespace into every member
-    cluster's namespace. The simulated-MC operators live in member clusters
-    and read only their own etcd, so all TLS material must be present locally
-    for their MongoDBSearch reconcile to mount it on mongot/Envoy pods.
-
-    Mirrors q2_mc_rs_steady::test_replicate_secrets_to_members."""
+    """Simulated-MC operators read only their own etcd — TLS material must be present locally."""
+    member_cluster_clients = member_cluster_clients[:2]
     central_core = CoreV1Api(api_client=central_cluster_client)
 
     secrets_to_replicate = [
@@ -564,9 +506,6 @@ def test_replicate_tls_to_members(
 def test_search_running_per_cluster(
     per_cluster_mdbs_search: List[Tuple[MultiClusterClient, MongoDBSearch]],
 ):
-    """Apply the same MongoDBSearch CR to both member clusters' APIs and assert
-    each cluster's simulated operator reconciles only its own slice to Running.
-    Multi-replica mongot (3 per cluster) and single-replica Envoy LB."""
     for _mcc, mdbs in per_cluster_mdbs_search:
         mdbs.update()
     for mcc, mdbs in per_cluster_mdbs_search:
@@ -579,9 +518,6 @@ def test_per_cluster_resources_exist(
     namespace: str,
     per_cluster_mdbs_search: List[Tuple[MultiClusterClient, MongoDBSearch]],
 ):
-    """Each cluster's simulated operator created only its own index-suffixed
-    slice: mongot STS + headless Svc + proxy Svc + mongot CM + Envoy LB Deployment.
-    """
     for mcc, _mdbs in per_cluster_mdbs_search:
         idx = _idx(mcc)
         sts_name = f"{MDBS_RESOURCE_NAME}-search-{idx}"
@@ -614,8 +550,7 @@ def test_per_cluster_resources_exist(
 def test_status_per_cluster_local_only(
     per_cluster_mdbs_search: List[Tuple[MultiClusterClient, MongoDBSearch]],
 ):
-    """Each cluster's CR view reports Running for its own reconciliation. No
-    cross-cluster status awareness in simulated MC mode."""
+    """No cross-cluster status awareness in simulated-MC mode; each cluster's CR view reports its own phase."""
     for mcc, mdbs in per_cluster_mdbs_search:
         mdbs.load()
         phase = mdbs.get_status_phase()

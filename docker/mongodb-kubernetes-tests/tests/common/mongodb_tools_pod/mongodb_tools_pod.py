@@ -1,6 +1,5 @@
 import tarfile
 import tempfile
-from typing import Optional
 
 from kubernetes import client, config
 from kubernetes.stream import stream
@@ -19,11 +18,10 @@ TOOLS_POD_IMAGE = (
 class ToolsPod:
     """A pod running MongoDB tools for executing commands like mongorestore inside the cluster."""
 
-    def __init__(self, namespace: str, api_client: Optional[client.ApiClient] = None):
+    def __init__(self, namespace: str):
         self.namespace = namespace
         self.pod_name = TOOLS_POD_NAME
-        self.api_client = api_client
-        self.core_v1 = client.CoreV1Api(api_client=api_client)
+        self.core_v1 = client.CoreV1Api()
 
     def run_command(self, cmd: list[str]):
         """Execute a command in the tools pod and return the output."""
@@ -102,18 +100,14 @@ class ToolsPod:
             else:
                 raise
 
-        pod = get_pod_when_ready(self.namespace, "app=mongodb-tools", api_client=self.api_client, default_retry=120)
+        pod = get_pod_when_ready(self.namespace, "app=mongodb-tools", default_retry=120)
         if pod is None:
             raise TimeoutError(f"Timed out waiting for {self.pod_name} to be ready")
         logger.info(f"{self.pod_name} is ready")
 
 
-def get_tools_pod(namespace: str, api_client: Optional[client.ApiClient] = None) -> ToolsPod:
-    """Create and return a ready tools pod in the given namespace.
-
-    Pass api_client to target a non-central cluster (e.g. in simulated multi-cluster
-    tests where each cluster has its own mongod and needs its own local tools pod).
-    """
-    tools_pod = ToolsPod(namespace, api_client=api_client)
+def get_tools_pod(namespace: str) -> ToolsPod:
+    """Create and return a ready tools pod in the given namespace."""
+    tools_pod = ToolsPod(namespace)
     tools_pod.run_pod_and_wait()
     return tools_pod
