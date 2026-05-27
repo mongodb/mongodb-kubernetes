@@ -148,7 +148,7 @@ func TestShouldAddFailedClusterAnnotation(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		assert.Equal(t, shouldAddFailedClusterAnnotation(tt.annotations, tt.clusterName), tt.out)
+		assert.Equal(t, !isInFailedClusterAnnotation(tt.annotations, tt.clusterName), tt.out)
 	}
 }
 

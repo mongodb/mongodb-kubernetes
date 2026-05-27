@@ -21,8 +21,11 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster/failedcluster"
 )
 
+const REQUIRED_HEALTHY_STREAK = 5
+
 type MemberClusterHealthChecker struct {
-	Cache map[string]*MemberHeathCheck
+	Cache         map[string]*MemberHeathCheck
+	HealthyStreak map[string]int
 }
 
 type ClusterCredentials struct {
@@ -85,6 +88,7 @@ func (m *MemberClusterHealthChecker) populateCache(clustersMap map[string]cluste
 			continue
 		}
 		m.Cache[clusterName] = NewMemberHealthCheck(credentials.Server, credentials.CertificateAuthority, credentials.Token, log)
+		m.HealthyStreak[clusterName] = 0
 	}
 }
 
@@ -109,20 +113,39 @@ func (m *MemberClusterHealthChecker) WatchMemberClusterHealth(ctx context.Contex
 		for k, v := range m.Cache {
 			if v.IsClusterHealthy(log) {
 				log.Infof("Cluster %s reported healthy", k)
+				if multicluster.ShouldPerformFailover() {
+					continue
+				}
+
+				// If failover is disabled we should remove the cluster from the annotation after a number of health checks have succeeded
+				m.HealthyStreak[k] = min(m.HealthyStreak[k]+1, REQUIRED_HEALTHY_STREAK)
+				if m.HealthyStreak[k] == REQUIRED_HEALTHY_STREAK {
+					for _, mdbm := range mdbmList.Items {
+						if isInFailedClusterAnnotation(mdbm.Annotations, k) {
+							log.Infof("Enqueuing resource: %s, because cluster %s has come back up", mdbm.Name, k)
+							err := removeClusterFromFailedAnnotation(ctx, mdbm, k, centralClient)
+							if err != nil {
+								log.Errorf("Failed to add remove cluster from the annotation of the mdbmc resource: %s, error: %s", mdbm.Name, err)
+							}
+							watchChannel <- event.GenericEvent{Object: &mdbm}
+						}
+					}
+				}
 				continue
 			}
 
 			log.Warnf("Cluster %s reported unhealthy", k)
+			m.HealthyStreak[k] = 0
 			// re-enqueue all the MDBMultis the operator is watching into the reconcile loop
 			for _, mdbm := range mdbmList.Items {
-				if shouldAddFailedClusterAnnotation(mdbm.Annotations, k) && multicluster.ShouldPerformFailover() {
+				if !isInFailedClusterAnnotation(mdbm.Annotations, k) && multicluster.ShouldPerformFailover() {
 					log.Infof("Enqueuing resource: %s, because cluster %s has failed healthcheck", mdbm.Name, k)
 					err := AddFailoverAnnotation(ctx, mdbm, k, centralClient)
 					if err != nil {
 						log.Errorf("Failed to add failover annotation to the mdbmc resource: %s, error: %s", mdbm.Name, err)
 					}
 					watchChannel <- event.GenericEvent{Object: &mdbm}
-				} else if shouldAddFailedClusterAnnotation(mdbm.Annotations, k) {
+				} else if !isInFailedClusterAnnotation(mdbm.Annotations, k) {
 					log.Infof("Marking resource: %s, with failed cluster %s annotation", mdbm.Name, k)
 					err := addFailedClustersAnnotation(ctx, mdbm, k, centralClient)
 					if err != nil {
@@ -135,20 +158,19 @@ func (m *MemberClusterHealthChecker) WatchMemberClusterHealth(ctx context.Contex
 	}
 }
 
-// shouldAddFailedClusterAnnotation checks if we should add this cluster in the failedCluster annotation,
-// if it's already not present.
-func shouldAddFailedClusterAnnotation(annotations map[string]string, clusterName string) bool {
-	failedclusters := readFailedClusterAnnotation(annotations)
-	if failedclusters == nil {
-		return true
+// isInFailedClusterAnnotation checks if the cluster name is present in the failedCluster annotation
+func isInFailedClusterAnnotation(annotations map[string]string, clusterName string) bool {
+	failedClusters := readFailedClusterAnnotation(annotations)
+	if failedClusters == nil {
+		return false
 	}
 
-	for _, c := range failedclusters {
+	for _, c := range failedClusters {
 		if c.ClusterName == clusterName {
-			return false
+			return true
 		}
 	}
-	return true
+	return false
 }
 
 // readFailedClusterAnnotation reads the current failed clusters from the annotation.
@@ -225,6 +247,29 @@ func AddFailoverAnnotation(ctx context.Context, mrs mdbmulti.MongoDBMultiCluster
 	}
 
 	return annotations.SetAnnotations(ctx, &mrs, map[string]string{failedcluster.ClusterSpecOverrideAnnotation: string(updatedClusterSpec)}, client)
+}
+
+func removeClusterFromFailedAnnotation(ctx context.Context, mrs mdbmulti.MongoDBMultiCluster, clustername string, client kubernetesClient.Client) error {
+	if mrs.Annotations == nil {
+		mrs.Annotations = map[string]string{}
+	}
+
+	// read the existing failed cluster annotations
+	var clusterData []failedcluster.FailedCluster
+	failedClusters := readFailedClusterAnnotation(mrs.Annotations)
+
+	for _, failed := range failedClusters {
+		if failed.ClusterName != clustername {
+			clusterData = append(clusterData, failed)
+		}
+	}
+
+	// TODO: remove the annotation if array is empty
+	clusterDataBytes, err := json.Marshal(clusterData)
+	if err != nil {
+		return err
+	}
+	return annotations.SetAnnotations(ctx, &mrs, map[string]string{failedcluster.FailedClusterAnnotation: string(clusterDataBytes)}, client)
 }
 
 func addFailedClustersAnnotation(ctx context.Context, mrs mdbmulti.MongoDBMultiCluster, clustername string, client kubernetesClient.Client) error {
