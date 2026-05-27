@@ -1,20 +1,24 @@
 ---
-# Single-cluster sharded MongoDB source used by the simulated-MC sharded
+# Multi-cluster sharded MongoDB source used by the simulated-MC sharded
 # MongoDBSearch e2e (`simulated_mc_sharded_basic.py`). Deployed by the central
-# operator on `kind-e2e-operator`. NOT topology=MultiCluster — this PR exercises
-# the simulated-MC Search side only; cross-cluster sharded MongoDB is out of
-# scope. Smallest viable footprint: 2 shards × 1 mongod, 1 configsrv, 1 mongos.
+# operator on `kind-e2e-operator`, with shards / configsrv / mongos distributed
+# across member clusters via `topology: MultiCluster` (mirrors the q3 sharded
+# fixture pattern). This is what enables data-plane testing per cluster: each
+# member cluster has its OWN local mongos that the test pod can dial with
+# `directConnection=true`, so `$search` aggregations execute cluster-locally.
+#
+# Smallest viable footprint: 2 shards × 1 mongod-per-shard-per-cluster, plus
+# 1 configsrv-per-cluster and 1 mongos-per-cluster. `clusterSpecList` entries
+# are filled in dynamically by the test fixture.
 apiVersion: mongodb.com/v1
 kind: MongoDB
 metadata:
   name: mdb-mc-sim-sh
 spec:
-  type: ShardedCluster
-  version: 8.2.0-ent
   shardCount: 2
-  mongodsPerShardCount: 1
-  mongosCount: 1
-  configServerCount: 1
+  type: ShardedCluster
+  topology: MultiCluster
+  version: 8.2.0-ent
   credentials: my-credentials
   opsManager:
     configMapRef:

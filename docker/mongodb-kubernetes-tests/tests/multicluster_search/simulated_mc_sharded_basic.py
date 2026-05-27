@@ -1,29 +1,28 @@
 """Simulated multi-cluster MongoDBSearch e2e with a SHARDED external source.
 
 Topology mirrors `simulated_mc_basic.py` (3 operators: 1 central + 2 simulated-MC),
-but the external source is a single-cluster sharded MongoDB deployed on the central
-cluster instead of a cross-cluster MongoDBMulti ReplicaSet:
+but the external source is a `topology: MultiCluster` sharded MongoDB whose shards,
+configsrv and mongos are distributed across both member kind clusters (q3 pattern,
+adapted for the simulated-MC Search side):
 
     central operator (kind-e2e-operator):
         watches MongoDB / opsmanagers / MongoDBUser / MongoDBMultiCluster
-        hosts the sharded MongoDB source (2 shards × 1 mongod, 1 mongos, 1 configsrv)
+        owns the MC sharded MongoDB CR and its automation across both members.
 
     simulated-MC operators (kind-e2e-cluster-1, kind-e2e-cluster-2):
         each watches mongodbsearch only, identity = OPERATOR_CLUSTER_NAME env var,
-        per-cluster LocalizeToCluster collapse selects spec.clusters[i] slice.
+        per-cluster LocalizeToCluster collapse selects spec.clusters[i] slice and
+        materialises per-(cluster, shard) mongot StatefulSets / Services / ConfigMaps
+        / per-shard proxy Services + a per-cluster Envoy LB Deployment.
 
 Each member's API server receives THE SAME MongoDBSearch CR (spec.clusters lists
-every cluster, spec.source.external.shardedCluster is set with router hosts and
-per-shard hosts on the central sharded MongoDB). The simulated operator on each
-member projects to its own slice and materialises per-(cluster, shard) mongot
-StatefulSets / Services / ConfigMaps / proxy Services + a per-cluster Envoy LB.
+every cluster, spec.source.external.shardedCluster lists every cluster's mongos in
+its `router.hosts` and every cluster's per-shard mongod FQDN in each `shards[i].hosts`).
+The simulated operator on each member projects to its own slice.
 
-Data-plane testing ($search, mongorestore, search index lifecycle) is OUT OF SCOPE
-for this test. The kind e2e topology installs Istio only between members 1/2/3 and
-runs `install_istio_central.sh` without remote-secret wiring on `kind-e2e-operator`,
-so the central sharded mongod/mongos cannot resolve member-cluster Envoy FQDNs and
-member mongot pods cannot resolve the central source. Same scaffold-only assertion
-boundary as `simulated_mc_basic.py` and the q2/q3 MC search tests.
+Multi-cluster sharded source unlocks data-plane testing: each member cluster has
+its OWN local mongos so a follow-up commit adds mongorestore + `$search` index +
+per-cluster queries via `directConnection=true`.
 """
 
 from __future__ import annotations
@@ -33,8 +32,8 @@ from typing import Dict, List, Tuple
 
 import kubernetes
 from kubernetes.client import CoreV1Api
-from kubetester import create_or_update_configmap, create_or_update_secret, read_secret, try_load
-from kubetester.certs import create_sharded_cluster_certs
+from kubetester import create_or_update_secret, read_secret, try_load
+from kubetester.certs import create_tls_certs
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_search import MongoDBSearch
@@ -50,6 +49,7 @@ from tests.common.search.sharded_search_helper import (
     create_lb_certificates,
     create_per_shard_search_tls_certs,
 )
+from tests.multicluster.conftest import cluster_spec_list
 
 logger = test_logger.get_test_logger(__name__)
 
@@ -60,14 +60,16 @@ logger = test_logger.get_test_logger(__name__)
 MDB_RESOURCE_NAME = "mdb-mc-sim-sh"
 MDBS_RESOURCE_NAME = "mdb-mc-sim-sh-search"
 
-# Single-cluster sharded source — see comment block above for why we don't use MC.
+# Multi-cluster sharded source: 2 shards, 1 mongod-per-shard-per-cluster,
+# 1 configsrv-per-cluster, 1 mongos-per-cluster. Two member clusters.
 SHARD_COUNT = 2
-MONGODS_PER_SHARD = 1
-MONGOS_COUNT = 1
-CONFIG_SERVER_COUNT = 1
+MEMBERS_PER_CLUSTER: List[int | None] = [1, 1]
+CONFIG_SRV_PER_CLUSTER: List[int | None] = [1, 1]
+MONGOS_PER_CLUSTER: List[int | None] = [1, 1]
 
 MONGOT_REPLICAS_PER_CLUSTER = 1
 ENVOY_LB_REPLICAS = 1
+ENVOY_PROXY_PORT = 27028
 SIMULATED_OPERATOR_NAME = "mongodb-kubernetes-operator-simulated"
 
 ADMIN_USER_NAME = "mdb-admin-user"
@@ -87,10 +89,9 @@ MDBS_TLS_CERT_PREFIX = "certs"
 # MongoDBSearch CR. create_issuer_ca writes both with the same name.
 CA_CONFIGMAP_NAME = f"{MDB_RESOURCE_NAME}-ca"
 # Source sharded cluster cert secret prefix. The MongoDB controller derives the
-# per-component secret name as f"{prefix}-{resourceName}-{shardIdx}-cert" (note
-# the literal dash). create_sharded_cluster_certs(secret_prefix=...) does NOT
-# inject that dash itself, so we pass `f"{SOURCE_CERT_PREFIX}-"` at the helper
-# call site and store the bare prefix on the CR.
+# per-component secret name as `{prefix}-{name}-{shardIdx}-cert` for shards,
+# `{prefix}-{name}-config-cert` for configsrv, `{prefix}-{name}-mongos-cert` for
+# mongos. Per-component certs (q3 pattern) — not a single bundle.
 SOURCE_CERT_PREFIX = "clustercert"
 
 
@@ -211,30 +212,64 @@ def central_mc_operator(
 
 
 @fixture(scope="module")
-def ca_configmap(issuer_ca_filepath: str, namespace: str) -> str:
-    """Write the issuer CA as both ConfigMap (ca-pem/mms-ca.crt) and Secret (ca.crt) on central."""
-    return create_issuer_ca(issuer_ca_filepath, namespace, CA_CONFIGMAP_NAME)
+def ca_configmap(
+    issuer_ca_filepath: str,
+    namespace: str,
+    member_cluster_clients: List[MultiClusterClient],
+) -> str:
+    """Issuer CA written to central AND every member cluster.
+
+    create_issuer_ca writes both a ConfigMap (key: ca-pem/mms-ca.crt) and a Secret
+    (key: ca.crt) with the same name. The MongoDB controller's TLS spec references
+    the ConfigMap on central; the simulated-MC search operators reference the Secret
+    half on each member; mongot pods on members need to verify the source MongoDB
+    TLS cert at runtime.
+    """
+    name = create_issuer_ca(issuer_ca_filepath, namespace, CA_CONFIGMAP_NAME)
+    for mcc in member_cluster_clients[:2]:
+        create_issuer_ca(issuer_ca_filepath, namespace, CA_CONFIGMAP_NAME, api_client=mcc.api_client)
+        logger.info(f"CA ConfigMap/Secret {CA_CONFIGMAP_NAME} created in cluster {mcc.cluster_name}")
+    return name
 
 
 @fixture(scope="module")
 def mdb(
     namespace: str,
     central_cluster_client: kubernetes.client.ApiClient,
+    member_cluster_names: List[str],
     ca_configmap: str,
 ) -> MongoDB:
-    """Single-cluster sharded MongoDB with TLS+SCRAM, applied to the central cluster only.
+    """MultiCluster sharded MongoDB source with TLS+SCRAM, applied to the central cluster.
 
-    The data-plane mongotHost / searchIndexManagementHostAndPort are intentionally
-    omitted — this is a scaffold-only test (see module docstring), so we don't need
-    mongos/mongod to route to per-cluster Envoy proxies. Setting only the non-routing
-    search params (`searchTLSMode`, `useGrpcForSearch`, skip-auth flags) keeps the
-    source consistent with the other simulated-MC tests' search-enabled mongod config.
+    Per-shard `mongotHost` / `searchIndexManagementHostAndPort` point at the
+    per-shard proxy Service on cluster-0 (Envoy is namespace-scoped and reachable
+    from cluster-1 over Istio east-west; q3 uses the same routing). The mongos
+    cluster-level endpoint targets cluster-0's `*-search-0-proxy-svc`.
     """
+    member_cluster_names = member_cluster_names[:2]
     resource = MongoDB.from_yaml(
         yaml_fixture("simulated-mc-sharded-mongodb.yaml"),
         name=MDB_RESOURCE_NAME,
         namespace=namespace,
     )
+
+    resource["spec"]["shard"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, MEMBERS_PER_CLUSTER)
+    resource["spec"]["configSrv"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, CONFIG_SRV_PER_CLUSTER)
+    resource["spec"]["mongos"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, MONGOS_PER_CLUSTER)
+
+    # MC MongoDB has no per-cluster additionalMongodConfig; both clusters get the
+    # same setParameter values. mongot lookups funnel through cluster-0's Envoy
+    # (Istio east-west handles cluster-1 → cluster-0 routing). Per-cluster QUERY
+    # paths still work because each cluster has its own local mongos that the
+    # test dials directly with `directConnection=true`.
+    cluster_idx = 0
+    cluster_level_endpoint = (
+        f"{search_resource_names.mc_proxy_svc_fqdn(MDBS_RESOURCE_NAME, namespace, cluster_idx)}:{ENVOY_PROXY_PORT}"
+    )
+
+    def _shard_proxy_endpoint(shard_name: str) -> str:
+        proxy_name = search_resource_names.shard_proxy_service_name(MDBS_RESOURCE_NAME, shard_name, cluster_idx)
+        return f"{proxy_name}.{namespace}.svc.cluster.local:{ENVOY_PROXY_PORT}"
 
     base_search_set_parameter = {
         "skipAuthenticationToSearchIndexManagementServer": False,
@@ -242,8 +277,31 @@ def mdb(
         "searchTLSMode": "requireTLS",
         "useGrpcForSearch": True,
     }
-    resource["spec"]["shard"]["additionalMongodConfig"] = {"setParameter": base_search_set_parameter}
-    resource["spec"]["mongos"]["additionalMongodConfig"] = {"setParameter": base_search_set_parameter}
+
+    resource["spec"]["shardOverrides"] = [
+        {
+            "shardNames": [f"{MDB_RESOURCE_NAME}-{shard_idx}"],
+            "additionalMongodConfig": {
+                "setParameter": {
+                    **base_search_set_parameter,
+                    "mongotHost": _shard_proxy_endpoint(f"{MDB_RESOURCE_NAME}-{shard_idx}"),
+                    "searchIndexManagementHostAndPort": _shard_proxy_endpoint(f"{MDB_RESOURCE_NAME}-{shard_idx}"),
+                },
+            },
+        }
+        for shard_idx in range(SHARD_COUNT)
+    ]
+
+    resource["spec"]["mongos"]["additionalMongodConfig"] = {
+        "setParameter": {
+            **base_search_set_parameter,
+            "mongotHost": cluster_level_endpoint,
+            "searchIndexManagementHostAndPort": cluster_level_endpoint,
+        },
+    }
+    resource["spec"]["shard"]["additionalMongodConfig"] = {
+        "setParameter": base_search_set_parameter,
+    }
 
     resource["spec"]["security"] = {
         "certsSecretPrefix": SOURCE_CERT_PREFIX,
@@ -316,19 +374,24 @@ def per_cluster_mdbs_search(
         for mcc in member_cluster_clients
     ]
 
-    # Single-cluster sharded MongoDB pod/service hostnames on central:
-    # mongos: {name}-mongos-{i}.{name}-svc.{ns}.svc.cluster.local:27017
-    # shard:  {name}-{shardIdx}-{m}.{name}-sh.{ns}.svc.cluster.local:27017
+    # MC sharded source: router/hosts lists every cluster's local mongos pod-FQDN;
+    # each shard's `hosts` lists every cluster's mongod pod-FQDN for that shard.
+    # Per-pod headless Services (`<sts>-<clusterIdx>-<podIdx>-svc`) are reachable
+    # cross-cluster via Istio east-west (the per-cluster `<sts>-<clusterIdx>-svc`
+    # is not). Mirrors the q3 pattern.
     router_hosts = [
-        f"{MDB_RESOURCE_NAME}-mongos-{i}.{MDB_RESOURCE_NAME}-svc.{namespace}.svc.cluster.local:27017"
-        for i in range(MONGOS_COUNT)
+        f"{MDB_RESOURCE_NAME}-mongos-{cluster_idx}-{pod_idx}-svc.{namespace}.svc.cluster.local:27017"
+        for cluster_idx, n_mongos in enumerate(MONGOS_PER_CLUSTER)
+        if n_mongos
+        for pod_idx in range(n_mongos)
     ]
     shards = [
         {
             "shardName": f"{MDB_RESOURCE_NAME}-{shard_idx}",
             "hosts": [
-                f"{MDB_RESOURCE_NAME}-{shard_idx}-{m}.{MDB_RESOURCE_NAME}-sh.{namespace}.svc.cluster.local:27017"
-                for m in range(MONGODS_PER_SHARD)
+                f"{MDB_RESOURCE_NAME}-{shard_idx}-{cluster_idx}-0-svc.{namespace}.svc.cluster.local:27017"
+                for cluster_idx, n_members in enumerate(MEMBERS_PER_CLUSTER)
+                if n_members
             ],
         }
         for shard_idx in range(SHARD_COUNT)
@@ -405,27 +468,41 @@ def test_install_simulated_operators_per_member(
 def test_install_source_tls_certificates(
     namespace: str,
     multi_cluster_issuer: str,
+    central_cluster_client: kubernetes.client.ApiClient,
     mdb: MongoDB,
 ):
-    """Source sharded MongoDB TLS certs — single-cluster on central only.
-
-    `create_sharded_cluster_certs` issues one secret per component with the prefix:
-    {prefix}-{name}-{shardIdx}-cert, {prefix}-{name}-config-cert, {prefix}-{name}-mongos-cert.
-    SANs cover central-local pod and Service FQDNs; no cross-cluster SANs needed since
-    the source data plane is not exercised from member clusters in this scaffold test.
+    """Source MongoDB per-component TLS certs (q3 pattern — per-shard, per-configsrv,
+    per-mongos with `replicas_cluster_distribution`). Certs are written to the central
+    cluster; the central MongoDB controller replicates them to members.
     """
-    mongos_service_dns = f"{MDB_RESOURCE_NAME}-svc.{namespace}.svc.cluster.local"
-    create_sharded_cluster_certs(
-        namespace=namespace,
-        resource_name=MDB_RESOURCE_NAME,
-        shards=SHARD_COUNT,
-        mongod_per_shard=MONGODS_PER_SHARD,
-        config_servers=CONFIG_SERVER_COUNT,
-        mongos=MONGOS_COUNT,
-        secret_prefix=f"{SOURCE_CERT_PREFIX}-",
-        mongos_service_dns_names=[mongos_service_dns],
+
+    def _issue(component_resource: str, secret_name: str, distribution: List[int | None]):
+        create_tls_certs(
+            issuer=multi_cluster_issuer,
+            namespace=namespace,
+            resource_name=component_resource,
+            replicas_cluster_distribution=distribution,
+            secret_name=secret_name,
+            api_client=central_cluster_client,
+        )
+
+    for shard_idx in range(SHARD_COUNT):
+        _issue(
+            component_resource=f"{MDB_RESOURCE_NAME}-{shard_idx}",
+            secret_name=f"{SOURCE_CERT_PREFIX}-{MDB_RESOURCE_NAME}-{shard_idx}-cert",
+            distribution=MEMBERS_PER_CLUSTER,
+        )
+    _issue(
+        component_resource=f"{MDB_RESOURCE_NAME}-config",
+        secret_name=f"{SOURCE_CERT_PREFIX}-{MDB_RESOURCE_NAME}-config-cert",
+        distribution=CONFIG_SRV_PER_CLUSTER,
     )
-    logger.info(f"Source sharded cluster TLS certs created on central (prefix={SOURCE_CERT_PREFIX!r})")
+    _issue(
+        component_resource=f"{MDB_RESOURCE_NAME}-mongos",
+        secret_name=f"{SOURCE_CERT_PREFIX}-{MDB_RESOURCE_NAME}-mongos-cert",
+        distribution=MONGOS_PER_CLUSTER,
+    )
+    logger.info(f"Source sharded cluster per-component TLS certs created (prefix={SOURCE_CERT_PREFIX})")
 
 
 @mark.e2e_search_simulated_mc_sharded_basic
@@ -528,10 +605,6 @@ def test_replicate_tls_to_members(
     shared_secret_names = [
         search_resource_names.lb_server_cert_name(MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX),
         search_resource_names.lb_client_cert_name(MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX),
-        # CA stored as both ConfigMap and Secret (create_issuer_ca writes both).
-        # Simulated operator's source.external.tls.ca reference resolves to the
-        # Secret half (key: ca.crt) — must be on every member.
-        CA_CONFIGMAP_NAME,
     ]
     for secret_name in shared_secret_names:
         secret_type = central_core.read_namespaced_secret(name=secret_name, namespace=namespace).type or "Opaque"
@@ -539,13 +612,6 @@ def test_replicate_tls_to_members(
         for mcc in member_cluster_clients:
             create_or_update_secret(namespace, secret_name, data, type=secret_type, api_client=mcc.api_client)
         logger.info(f"replicated Secret {secret_name} to {len(member_cluster_clients)} member cluster(s)")
-
-    # CA ConfigMap half (key: ca-pem / mms-ca.crt) for future code paths reading CA from ConfigMap.
-    source_cm = central_core.read_namespaced_config_map(name=CA_CONFIGMAP_NAME, namespace=namespace)
-    cm_data = dict(source_cm.data or {})
-    for mcc in member_cluster_clients:
-        create_or_update_configmap(namespace, CA_CONFIGMAP_NAME, cm_data, api_client=mcc.api_client)
-        logger.info(f"replicated CA ConfigMap {CA_CONFIGMAP_NAME} into cluster {mcc.cluster_name}")
 
     # Per-(cluster, shard) mongot certs — each cluster only needs its own per-shard certs.
     for mcc in member_cluster_clients:
@@ -562,7 +628,7 @@ def test_replicate_tls_to_members(
 
 
 # ---------------------------------------------------------------------------
-# Tests
+# Search CR lifecycle
 # ---------------------------------------------------------------------------
 
 
@@ -580,14 +646,10 @@ def test_operators_running(
 
 @mark.e2e_search_simulated_mc_sharded_basic
 def test_central_sharded_mongodb_running(mdb: MongoDB):
-    """Final assertion that the central sharded MongoDB source remained Running through
-    setup. Distinct from `test_mongodb_running` (which drives the initial apply): a
-    flake here means the source flipped phases during the later TLS/user/replication
-    steps and would invalidate downstream Search assertions.
-    """
+    """Final assertion that the MC sharded MongoDB source remained Running through setup."""
     mdb.load()
     actual = mdb.get_status_phase()
-    assert actual == Phase.Running, f"central sharded MongoDB {mdb.name} phase={actual}, expected Phase.Running"
+    assert actual == Phase.Running, f"MC sharded MongoDB {mdb.name} phase={actual}, expected Phase.Running"
 
 
 @mark.e2e_search_simulated_mc_sharded_basic
