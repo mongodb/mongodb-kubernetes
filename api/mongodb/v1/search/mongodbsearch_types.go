@@ -48,6 +48,12 @@ const (
 
 	ForceWireprotoAnnotation = "mongodb.com/v1.force-search-wireproto"
 
+	// ResourceDisabledAnnotation, when set to "true" on a MongoDBSearch CR,
+	// short-circuits the reconciler: it returns Result{} + nil without
+	// mutating any owned objects. Useful for tests that need to mutate
+	// owned StatefulSets directly without the operator reverting them.
+	ResourceDisabledAnnotation = "mongodb.com/resourceDisabled"
+
 	MongoDBSearchIndexFieldName = "mdbsearch-for-mongodbresourceref-index"
 
 	// ProxyServiceSuffix is the suffix used for the stable proxy Service that mongod connects to.
