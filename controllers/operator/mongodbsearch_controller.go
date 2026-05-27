@@ -110,6 +110,16 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 		return result, err
 	}
 
+	// Short-circuit: the resourceDisabled annotation allows to
+	// pause reconciliation on a single CR so owned objects can be mutated
+	// without the operator reverting them.
+	// Useful for tests when the operator is running locally and not in the pod.
+	if mdbSearch.GetAnnotations()[searchv1.ResourceDisabledAnnotation] == "true" {
+		log.Infof("MongoDBSearch %s/%s reconciliation disabled by %s annotation; skipping",
+			mdbSearch.GetNamespace(), mdbSearch.GetName(), searchv1.ResourceDisabledAnnotation)
+		return reconcile.Result{}, nil
+	}
+
 	searchSource, err := r.getSourceMongoDBForSearch(ctx, r.kubeClient, mdbSearch, log)
 	if err != nil {
 		return commoncontroller.UpdateStatus(ctx, r.kubeClient, mdbSearch, workflow.Failed(xerrors.Errorf("Waiting for MongoDB source: %s", err)), log)

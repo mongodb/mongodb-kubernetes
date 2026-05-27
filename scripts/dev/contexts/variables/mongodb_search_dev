@@ -3,6 +3,13 @@
 set -Eeou pipefail
 
 # Temporary development images built from mongot master
-export MDB_SEARCH_VERSION="1.64.0-66-g7b0f85e89c" # built after x509 authn support
+export MDB_SEARCH_VERSION="9872ab5089" # clientId+cursorId debug log patch (lsierant/clientid-debug-log, v1.65.1 base)
 export MDB_SEARCH_NAME="staging/mongodb-search"
 export MDB_SEARCH_REPO_URL="268558157000.dkr.ecr.us-east-1.amazonaws.com"
+
+# Test-only knob: when set, the operator materializes a logback config at
+# mongot container startup with per-package level overrides. Empty / unset =
+# mongot's default verbosity is unchanged. Uncomment to surface the cursorId
+# TRACE lines added in MDB_SEARCH_VERSION=9872ab5089 (only the listed package
+# is bumped — root stays at INFO).
+# export MDB_SEARCH_LOG_LEVEL_OVERRIDES="com.xgen.mongot.server.command.search=TRACE"

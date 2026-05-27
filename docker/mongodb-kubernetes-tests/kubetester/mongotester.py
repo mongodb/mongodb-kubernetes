@@ -600,7 +600,7 @@ class BackgroundHealthChecker(threading.Thread):
     def __init__(
         self,
         health_function,
-        wait_sec: int = 3,
+        wait_sec: float = 3,
         allowed_sequential_failures: int = 3,
         health_function_params=None,
     ):
@@ -686,7 +686,7 @@ class MongoDBBackgroundTester(BackgroundHealthChecker):
     def __init__(
         self,
         mongo_tester: MongoTester,
-        wait_sec: int = 3,
+        wait_sec: float = 3,
         allowed_sequential_failures: int = 1,
         health_function_params=None,
     ):
