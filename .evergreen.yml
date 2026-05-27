@@ -706,7 +706,9 @@ task_groups:
       - func: download_kube_tools
     tasks:
       - lint_repo
-      - bash_tests
+      # bash_tests temporarily disabled — bats suite expects a local kind +
+      # devc layout (kind-kind context, scripts/dev/devenv) that EVG doesn't
+      # have; re-enable once the suite ships its own EVG-friendly fixtures.
       - unit_tests_golang
       - unit_tests_python
       - unit_tests_helm
