@@ -19,7 +19,7 @@ spec:
         app.kubernetes.io/name: mongodb-kubernetes-operator
         app.kubernetes.io/instance: mongodb-kubernetes-operator
       annotations:
-        mongodb.com/installation-method: "olm"
+        mongodb.com/installation-method: "yaml"
     spec:
       serviceAccountName: mongodb-kubernetes-operator
       containers:
