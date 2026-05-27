@@ -2,7 +2,6 @@ package operator
 
 import (
 	"context"
-	"time"
 
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
@@ -20,6 +19,7 @@ import (
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
@@ -54,7 +54,7 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 
 	searchSource, err := r.getSourceMongoDBForSearch(ctx, r.kubeClient, mdbSearch, log)
 	if err != nil {
-		return reconcile.Result{RequeueAfter: time.Second * util.RetryTimeSec}, err
+		return commoncontroller.UpdateStatus(ctx, r.kubeClient, mdbSearch, workflow.Failed(xerrors.Errorf("Waiting for MongoDB source: %s", err)), log)
 	}
 
 	if mdbSearch.IsWireprotoEnabled() {
@@ -75,7 +75,17 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 
 	// Watch our own TLS certificate secret for changes
 	if mdbSearch.Spec.Security.TLS != nil {
-		r.watch.AddWatchedResourceIfNotAdded(mdbSearch.Spec.Security.TLS.CertificateKeySecret.Name, mdbSearch.Namespace, watch.Secret, mdbSearch.NamespacedName())
+		if shardedSource, ok := searchSource.(searchcontroller.SearchSourceShardedDeployment); ok {
+			// Sharded: watch per-shard source secrets (one per shard)
+			for _, shardName := range shardedSource.GetShardNames() {
+				shardSecretNsName := mdbSearch.TLSSecretForShard(shardName)
+				r.watch.AddWatchedResourceIfNotAdded(shardSecretNsName.Name, shardSecretNsName.Namespace, watch.Secret, mdbSearch.NamespacedName())
+			}
+		} else {
+			// Non-sharded: watch the single source secret
+			sourceSecretNsName := mdbSearch.TLSSecretNamespacedName()
+			r.watch.AddWatchedResourceIfNotAdded(sourceSecretNsName.Name, sourceSecretNsName.Namespace, watch.Secret, mdbSearch.NamespacedName())
+		}
 	}
 
 	if mdbSearch.Spec.AutoEmbedding != nil {
@@ -88,15 +98,18 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 }
 
 func (r *MongoDBSearchReconciler) getSourceMongoDBForSearch(ctx context.Context, kubeClient client.Client, search *searchv1.MongoDBSearch, log *zap.SugaredLogger) (searchcontroller.SearchSourceDBResource, error) {
-	// Resolve the source database for this Search instance.
-	// If .spec.source.external is defined immediately return the external search source.
-	// Otherwise, read .spec.source.mongodbResourceRef or use the implicit database resource name (same as the Search resource's name).
-	// Try to get a MongoDB CR with the computed name and return the enterprise search source if successful.
-	// Otherwise, try to get a MongoDBCommunity CR with the same name and return the community search source.
-	// If everything fails just error out and the controller will retry reconciliation.
+	return getSearchSource(ctx, kubeClient, r.watch, search, log)
+}
 
+// getSearchSource resolves the source database for a MongoDBSearch resource.
+// Shared by both the main search controller and the Envoy controller.
+func getSearchSource(ctx context.Context, kubeClient client.Client, watcher *watch.ResourceWatcher, search *searchv1.MongoDBSearch, log *zap.SugaredLogger) (searchcontroller.SearchSourceDBResource, error) {
 	if search.IsExternalMongoDBSource() {
-		return searchcontroller.NewExternalSearchSource(search.Namespace, search.Spec.Source.ExternalMongoDBSource), nil
+		externalSpec := search.Spec.Source.ExternalMongoDBSource
+		if search.IsExternalSourceSharded() {
+			return searchcontroller.NewShardedExternalSearchSource(search.Namespace, externalSpec), nil
+		}
+		return searchcontroller.NewExternalSearchSource(search.Namespace, externalSpec), nil
 	}
 
 	sourceMongoDBResourceRef := search.GetMongoDBResourceRef()
@@ -113,7 +126,10 @@ func (r *MongoDBSearchReconciler) getSourceMongoDBForSearch(ctx context.Context,
 			return nil, xerrors.Errorf("error getting MongoDB %s: %w", sourceName, err)
 		}
 	} else {
-		r.watch.AddWatchedResourceIfNotAdded(sourceMongoDBResourceRef.Name, sourceMongoDBResourceRef.Namespace, watch.MongoDB, search.NamespacedName())
+		watcher.AddWatchedResourceIfNotAdded(sourceMongoDBResourceRef.Name, sourceMongoDBResourceRef.Namespace, watch.MongoDB, search.NamespacedName())
+		if mdb.GetResourceType() == mdbv1.ShardedCluster {
+			return searchcontroller.NewShardedInternalSearchSource(mdb, search), nil
+		}
 		return searchcontroller.NewEnterpriseResourceSearchSource(mdb), nil
 	}
 
@@ -123,7 +139,7 @@ func (r *MongoDBSearchReconciler) getSourceMongoDBForSearch(ctx context.Context,
 			return nil, xerrors.Errorf("error getting MongoDBCommunity %s: %w", sourceName, err)
 		}
 	} else {
-		r.watch.AddWatchedResourceIfNotAdded(sourceMongoDBResourceRef.Name, sourceMongoDBResourceRef.Namespace, "MongoDBCommunity", search.NamespacedName())
+		watcher.AddWatchedResourceIfNotAdded(sourceMongoDBResourceRef.Name, sourceMongoDBResourceRef.Namespace, "MongoDBCommunity", search.NamespacedName())
 		return searchcontroller.NewCommunityResourceSearchSource(mdbc), nil
 	}
 
@@ -141,7 +157,7 @@ func mdbcSearchIndexBuilder(rawObj client.Object) []string {
 }
 
 func AddMongoDBSearchController(ctx context.Context, mgr manager.Manager, operatorSearchConfig searchcontroller.OperatorSearchConfig) error {
-	if err := mgr.GetFieldIndexer().IndexField(ctx, &searchv1.MongoDBSearch{}, searchcontroller.MongoDBSearchIndexFieldName, mdbcSearchIndexBuilder); err != nil {
+	if err := mgr.GetFieldIndexer().IndexField(ctx, &searchv1.MongoDBSearch{}, searchv1.MongoDBSearchIndexFieldName, mdbcSearchIndexBuilder); err != nil {
 		return err
 	}
 
@@ -155,6 +171,7 @@ func AddMongoDBSearchController(ctx context.Context, mgr manager.Manager, operat
 		Watches(&corev1.Secret{}, &watch.ResourcesHandler{ResourceType: watch.Secret, ResourceWatcher: r.watch}).
 		Watches(&corev1.ConfigMap{}, &watch.ResourcesHandler{ResourceType: watch.ConfigMap, ResourceWatcher: r.watch}).
 		Owns(&appsv1.StatefulSet{}).
+		Owns(&corev1.Service{}).
 		Owns(&corev1.Secret{}).
 		Complete(r)
 }

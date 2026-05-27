@@ -4,7 +4,7 @@ import os
 import re
 import time
 import urllib.parse
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Self, cast
 
 import semver
 from kubeobject import CustomObject
@@ -43,8 +43,8 @@ class MongoDB(CustomObject, MongoDBCommon):
         super(MongoDB, self).__init__(*args, **with_defaults)
 
     @classmethod
-    def from_yaml(cls, yaml_file, name=None, namespace=None, with_mdb_version_from_env=True) -> MongoDB:
-        resource = super().from_yaml(yaml_file=yaml_file, name=name, namespace=namespace)
+    def from_yaml(cls, yaml_file, name=None, namespace=None, with_mdb_version_from_env=True) -> Self:
+        resource = cast(Self, super().from_yaml(yaml_file=yaml_file, name=name, namespace=namespace))
         # `with_mdb_version_from_env` flag enables to skip the custom version setting for class inheriting from MongoDB
         # for example, community must not have an enterprise version set, but we can inherit the from_yaml (itself
         # inherited from CustomObject class
@@ -60,12 +60,14 @@ class MongoDB(CustomObject, MongoDBCommon):
                 resource.set_version(ensure_ent_version(custom_mdb_version))
         return resource
 
+    @TRACER.start_as_current_span("assert_state_transition_happens")
     def assert_state_transition_happens(self, last_transition, timeout=None):
         def transition_changed(mdb: MongoDB):
             return mdb.get_status_last_transition_time() != last_transition
 
         self.wait_for(transition_changed, timeout, should_raise=True)
 
+    @TRACER.start_as_current_span("assert_reaches_phase")
     def assert_reaches_phase(self, phase: Phase, msg_regexp=None, timeout=None, ignore_errors=False):
         intermediate_events = (
             "haven't reached READY",
@@ -118,6 +120,7 @@ class MongoDB(CustomObject, MongoDBCommon):
             f"Reaching phase {phase.name} for resource {self.__class__.__name__} took {end_time - start_time}s"
         )
 
+    @TRACER.start_as_current_span("assert_abandons_phase")
     def assert_abandons_phase(self, phase: Phase, timeout=None):
         """This method can be racy by nature, it assumes that the operator is slow enough that its phase transition
         happens during the time we call this method. If there is not a lot of work, then the phase can already finished
@@ -126,10 +129,16 @@ class MongoDB(CustomObject, MongoDBCommon):
         start_time = time.time()
         self.wait_for(lambda s: s.get_status_phase() != phase, timeout, should_raise=True)
         end_time = time.time()
+        span = trace.get_current_span()
+        span.set_attribute("mck.resource", self.__class__.__name__)
+        span.set_attribute("mck.action", "assert_abandons_phase")
+        span.set_attribute("mck.abandoned_phase", phase.name)
+        span.set_attribute("mck.time_needed", end_time - start_time)
         logger.debug(
             f"Abandonning phase {phase.name} for resource {self.__class__.__name__} took {end_time - start_time}s"
         )
 
+    @TRACER.start_as_current_span("assert_backup_reaches_status")
     def assert_backup_reaches_status(self, expected_status: str, timeout: int = 600):
         def reaches_backup_status(mdb: MongoDB) -> bool:
             try:
@@ -137,13 +146,22 @@ class MongoDB(CustomObject, MongoDBCommon):
             except KeyError:
                 return False
 
+        start_time = time.time()
         self.wait_for(reaches_backup_status, timeout=timeout, should_raise=True)
+        end_time = time.time()
+        span = trace.get_current_span()
+        span.set_attribute("mck.resource", self.__class__.__name__)
+        span.set_attribute("mck.action", "assert_backup_reaches_status")
+        span.set_attribute("mck.expected_status", expected_status)
+        span.set_attribute("mck.time_needed", end_time - start_time)
 
     def assert_status_resource_not_ready(self, name: str, kind: str = "StatefulSet", msg_regexp=None, idx=0):
         """Checks the element in 'resources_not_ready' field by index 'idx'"""
-        assert self.get_status_resources_not_ready()[idx]["kind"] == kind
-        assert self.get_status_resources_not_ready()[idx]["name"] == name
-        assert re.search(msg_regexp, self.get_status_resources_not_ready()[idx]["message"]) is not None
+        resources = self.get_status_resources_not_ready()
+        assert resources is not None, "resources_not_ready is None"
+        assert resources[idx]["kind"] == kind
+        assert resources[idx]["name"] == name
+        assert re.search(msg_regexp, resources[idx]["message"]) is not None
 
     @property
     def type(self) -> str:
@@ -154,7 +172,7 @@ class MongoDB(CustomObject, MongoDBCommon):
         ca_path: Optional[str] = None,
         srv: bool = False,
         use_ssl: Optional[bool] = None,
-        service_names: list[str] = None,
+        service_names: Optional[list[str]] = None,
     ):
         """Returns a Tester instance for this type of deployment."""
         if self.type == "ReplicaSet" and "clusterSpecList" in self["spec"]:
@@ -233,7 +251,7 @@ class MongoDB(CustomObject, MongoDBCommon):
         om: Optional[MongoDBOpsManager],
         project_name: str,
         api_client: Optional[client.ApiClient] = None,
-    ) -> MongoDB:
+    ) -> Self:
         if om is not None:
             return self.configure_ops_manager(om, project_name, api_client=api_client)
         else:
@@ -241,10 +259,10 @@ class MongoDB(CustomObject, MongoDBCommon):
 
     def configure_ops_manager(
         self,
-        om: Optional[MongoDBOpsManager],
+        om: MongoDBOpsManager,
         project_name: str,
         api_client: Optional[client.ApiClient] = None,
-    ) -> MongoDB:
+    ) -> Self:
         if "project" in self["spec"]:
             del self["spec"]["project"]
 
@@ -262,7 +280,7 @@ class MongoDB(CustomObject, MongoDBCommon):
         self,
         project_name,
         api_client: Optional[client.ApiClient] = None,
-    ) -> MongoDB:
+    ) -> Self:
         if "opsManager" in self["spec"]:
             del self["spec"]["opsManager"]
 
@@ -281,7 +299,7 @@ class MongoDB(CustomObject, MongoDBCommon):
 
         return self
 
-    def configure_backup(self, mode: str = "enabled") -> MongoDB:
+    def configure_backup(self, mode: str = "enabled") -> Self:
         ensure_nested_objects(self, ["spec", "backup"])
         self["spec"]["backup"]["mode"] = mode
         return self
@@ -320,6 +338,7 @@ class MongoDB(CustomObject, MongoDBCommon):
         auth = ""
         params = {"connectTimeoutMS": "20000", "serverSelectionTimeoutMS": "20000"}
         if "SCRAM" in self.get_authentication_modes():
+            assert user_name is not None and password is not None, "user_name and password are required for SCRAM"
             auth = "{}:{}@".format(
                 urllib.parse.quote(user_name, safe=""),
                 urllib.parse.quote(password, safe=""),
@@ -358,7 +377,7 @@ class MongoDB(CustomObject, MongoDBCommon):
         except KeyError:
             return "{}-svc".format(self.name)
 
-    def get_cluster_domain(self) -> Optional[str]:
+    def get_cluster_domain(self) -> str:
         try:
             return self["spec"]["clusterDomain"]
         except KeyError:
@@ -378,7 +397,7 @@ class MongoDB(CustomObject, MongoDBCommon):
         self["spec"]["version"] = version
         return self
 
-    def get_authentication(self) -> Optional[Dict]:
+    def get_authentication(self) -> Dict:
         try:
             return self["spec"]["security"]["authentication"]
         except KeyError:
@@ -414,7 +433,7 @@ class MongoDB(CustomObject, MongoDBCommon):
 
         return self
 
-    def get_authentication_modes(self) -> Optional[Dict]:
+    def get_authentication_modes(self) -> Dict:
         try:
             return self.get_authentication()["modes"]
         except KeyError:
@@ -561,7 +580,7 @@ class MongoDB(CustomObject, MongoDBCommon):
             return f"{self.name}-mongos-{cluster_idx}"
         return f"{self.name}-mongos"
 
-    def mongos_pod_name(self, member_idx: int, cluster_idx: Optional[int] = None) -> str:
+    def mongos_pod_name(self, member_idx: Optional[int] = None, cluster_idx: Optional[int] = None) -> str:
         if self.is_multicluster():
             return f"{self.name}-mongos-{cluster_idx}-{member_idx}"
         return f"{self.name}-mongos-{member_idx}"

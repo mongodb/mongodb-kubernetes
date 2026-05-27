@@ -1,5 +1,5 @@
 from ipaddress import IPv4Address
-from typing import List
+from typing import List, Optional
 
 import kubernetes
 import pytest
@@ -39,9 +39,9 @@ def operator(namespace: str) -> Operator:
 
 def enable_multi_cluster_deployment(
     resource: MongoDB,
-    shard_members_array: list[int] = None,
-    mongos_members_array: list[int] = None,
-    configsrv_members_array: list[int] = None,
+    shard_members_array: Optional[list[int | None]] = None,
+    mongos_members_array: Optional[list[int | None]] = None,
+    configsrv_members_array: Optional[list[int | None]] = None,
 ):
     resource["spec"]["topology"] = "MultiCluster"
     resource["spec"]["mongodsPerShardCount"] = None
@@ -55,9 +55,12 @@ def enable_multi_cluster_deployment(
         if "memberConfig" in resource["spec"]["shards"][idx]:
             resource["spec"]["shardOverrides"][idx]["memberConfig"] = None
 
-    setup_cluster_spec_list(resource, "shard", shard_members_array or [1, 1, 1])
-    setup_cluster_spec_list(resource, "configSrv", configsrv_members_array or [1, 1, 1])
-    setup_cluster_spec_list(resource, "mongos", mongos_members_array or [1, 1, 1])
+    shard_members: list[int | None] = shard_members_array if shard_members_array is not None else [1, 1, 1]
+    configsrv_members: list[int | None] = configsrv_members_array if configsrv_members_array is not None else [1, 1, 1]
+    mongos_members: list[int | None] = mongos_members_array if mongos_members_array is not None else [1, 1, 1]
+    setup_cluster_spec_list(resource, "shard", shard_members)
+    setup_cluster_spec_list(resource, "configSrv", configsrv_members)
+    setup_cluster_spec_list(resource, "mongos", mongos_members)
 
     resource.api = kubernetes.client.CustomObjectsApi(api_client=get_central_cluster_client())
 
@@ -209,7 +212,7 @@ def get_dns_hosts_for_external_access(resource: MongoDB, cluster_member_list: Li
     return hosts
 
 
-def setup_cluster_spec_list(resource: MongoDB, cluster_spec_type: str, members_array: list[int]):
+def setup_cluster_spec_list(resource: MongoDB, cluster_spec_type: str, members_array: list[int | None]):
     if cluster_spec_type not in resource["spec"]:
         resource["spec"][cluster_spec_type] = {}
 

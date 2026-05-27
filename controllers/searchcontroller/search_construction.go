@@ -2,7 +2,9 @@ package searchcontroller
 
 import (
 	"fmt"
+	"strings"
 
+	"github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 
@@ -23,7 +25,11 @@ import (
 const (
 	MongotContainerName          = "mongot"
 	MongotConfigFilename         = "config.yml"
-	MongotConfigPath             = "/mongot/" + MongotConfigFilename
+	MongotConfigLeaderFilename   = "config-leader.yml"
+	MongotConfigFollowerFilename = "config-follower.yml"
+	MongotConfigDirPath          = "/mongot"
+	MongotPerPodConfigDirPath    = "/mongot/startup-config"
+	MongotConfigPath             = MongotConfigDirPath + "/" + MongotConfigFilename
 	MongotDataPath               = "/mongot/data"
 	MongotKeyfileFilename        = "keyfile"
 	MongotKeyfilePath            = "/mongot/" + MongotKeyfileFilename
@@ -32,7 +38,13 @@ const (
 	MongotSourceUserPasswordPath = "/mongot/sourceUserPassword" // #nosec G101 -- This is not a hardcoded password, just a path to a file containing the password
 	TempSourceUserPasswordPath   = tempVolumePath + "/" + "sourceUserPassword"
 	SearchLivenessProbePath      = "/health"
-	SearchReadinessProbePath     = "/health" // Todo: Update this when search GA is available
+	SearchReadinessProbePath     = "/ready"
+	tlsCACertName                = "ca.crt"
+
+	X509KeyPasswordMountPath        = "/mongot/x509-key-password"           // #nosec G101 -- path, not a password
+	TempX509KeyPasswordPath         = tempVolumePath + "/x509-key-password" // #nosec G101 -- path, not a password
+	X509KeyPasswordSecretKey        = "tls.keyFilePassword"                 // #nosec G101 -- secret key name, not a password
+	X509ClientCertOperatorMountPath = "/var/lib/tls/x509-client/"
 )
 
 // SearchSourceDBResource is an object wrapping a MongoDBCommunity object
@@ -42,8 +54,18 @@ const (
 type SearchSourceDBResource interface {
 	KeyfileSecretName() string
 	TLSConfig() *TLSSourceConfig
-	HostSeeds() []string
+	HostSeeds(shardName string) ([]string, error)
 	Validate() error
+	ResourceType() mdb.ResourceType
+}
+
+// SearchSourceShardedDeployment extends SearchSourceDBResource for sharded MongoDB clusters.
+type SearchSourceShardedDeployment interface {
+	SearchSourceDBResource
+	GetShardCount() int
+	GetShardNames() []string
+	GetUnmanagedLBEndpointForShard(shardName string) string
+	MongosHostsAndPorts() []string
 }
 
 type TLSSourceConfig struct {
@@ -52,27 +74,25 @@ type TLSSourceConfig struct {
 	ResourcesToWatch map[watch.Type][]types.NamespacedName
 }
 
-// ReplicaSetOptions returns a set of options which will configure a ReplicaSet StatefulSet
-func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, sourceDBResource SearchSourceDBResource, searchImage string) statefulset.Modification {
-	labels := map[string]string{
-		"app": mdbSearch.SearchServiceNamespacedName().Name,
-	}
-
+// CreateSearchStatefulSetFunc returns a statefulset.Modification that configures a mongot StatefulSet.
+// It works for both non-sharded and per-shard deployments.
+func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, stsName, namespace, svcName, configMapName string, labels map[string]string, searchImage string, usePerPodConfig bool) statefulset.Modification {
 	tmpVolume := statefulset.CreateVolumeFromEmptyDir("tmp")
 	tmpVolumeMount := statefulset.CreateVolumeMount(tmpVolume.Name, tempVolumePath, statefulset.WithReadOnly(false))
 
 	dataVolumeName := "data"
-	sourceUserPasswordVolumeName := "password"
 	mongotConfigVolumeName := "config"
 
 	pvcVolumeMount := statefulset.CreateVolumeMount(dataVolumeName, MongotDataPath, statefulset.WithSubPath("data"))
 
-	sourceUserPasswordSecretKey := mdbSearch.SourceUserPasswordSecretRef()
-	sourceUserPasswordVolume := statefulset.CreateVolumeFromSecret(sourceUserPasswordVolumeName, sourceUserPasswordSecretKey.Name)
-	sourceUserPasswordVolumeMount := statefulset.CreateVolumeMount(sourceUserPasswordVolumeName, MongotSourceUserPasswordPath, statefulset.WithReadOnly(true), statefulset.WithSubPath(sourceUserPasswordSecretKey.Key))
+	mongotConfigVolume := statefulset.CreateVolumeFromConfigMap(mongotConfigVolumeName, configMapName)
 
-	mongotConfigVolume := statefulset.CreateVolumeFromConfigMap(mongotConfigVolumeName, mdbSearch.MongotConfigConfigMapNamespacedName().Name)
-	mongotConfigVolumeMount := statefulset.CreateVolumeMount(mongotConfigVolumeName, MongotConfigPath, statefulset.WithReadOnly(true), statefulset.WithSubPath(MongotConfigFilename))
+	var mongotConfigVolumeMount corev1.VolumeMount
+	if usePerPodConfig {
+		mongotConfigVolumeMount = statefulset.CreateVolumeMount(mongotConfigVolumeName, MongotPerPodConfigDirPath, statefulset.WithReadOnly(true))
+	} else {
+		mongotConfigVolumeMount = statefulset.CreateVolumeMount(mongotConfigVolumeName, MongotConfigPath, statefulset.WithReadOnly(true), statefulset.WithSubPath(MongotConfigFilename))
+	}
 
 	var persistenceConfig *common.PersistenceConfig
 	if mdbSearch.Spec.Persistence != nil && mdbSearch.Spec.Persistence.SingleConfig != nil {
@@ -88,23 +108,21 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, sourceDBReso
 		pvcVolumeMount,
 		tmpVolumeMount,
 		mongotConfigVolumeMount,
-		sourceUserPasswordVolumeMount,
 	}
 
 	volumes := []corev1.Volume{
 		tmpVolume,
 		mongotConfigVolume,
-		sourceUserPasswordVolume,
 	}
 
 	stsModifications := []statefulset.Modification{
-		statefulset.WithName(mdbSearch.StatefulSetNamespacedName().Name),
-		statefulset.WithNamespace(mdbSearch.StatefulSetNamespacedName().Namespace),
-		statefulset.WithServiceName(mdbSearch.SearchServiceNamespacedName().Name),
+		statefulset.WithName(stsName),
+		statefulset.WithNamespace(namespace),
+		statefulset.WithServiceName(svcName),
 		statefulset.WithLabels(labels),
 		statefulset.WithOwnerReference(mdbSearch.GetOwnerReferences()),
 		statefulset.WithMatchLabels(labels),
-		statefulset.WithReplicas(1),
+		statefulset.WithReplicas(mdbSearch.GetReplicas()),
 		statefulset.WithUpdateStrategyType(appsv1.RollingUpdateStatefulSetStrategyType),
 		dataVolumeClaim,
 		statefulset.WithPodSpecTemplate(
@@ -113,7 +131,7 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, sourceDBReso
 				podtemplatespec.WithPodLabels(labels),
 				podtemplatespec.WithVolumes(volumes),
 				podtemplatespec.WithServiceAccount(util.MongoDBServiceAccount),
-				podtemplatespec.WithContainer(MongotContainerName, mongodbSearchContainer(mdbSearch, volumeMounts, searchImage)),
+				podtemplatespec.WithContainer(MongotContainerName, mongodbSearchContainer(mdbSearch, volumeMounts, searchImage, usePerPodConfig)),
 			),
 		),
 	}
@@ -127,6 +145,23 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, sourceDBReso
 	}
 
 	return statefulset.Apply(stsModifications...)
+}
+
+// PasswordAuthModification returns a statefulset.Modification that mounts the password secret
+// and sets up the file permissions workaround for password-based sync source authentication.
+func PasswordAuthModification(mdbSearch *searchv1.MongoDBSearch) statefulset.Modification {
+	sourceUserPasswordVolumeName := "password"
+	sourceUserPasswordSecretKey := mdbSearch.SourceUserPasswordSecretRef()
+	sourceUserPasswordVolume := statefulset.CreateVolumeFromSecret(sourceUserPasswordVolumeName, sourceUserPasswordSecretKey.Name)
+	sourceUserPasswordVolumeMount := statefulset.CreateVolumeMount(sourceUserPasswordVolumeName, MongotSourceUserPasswordPath, statefulset.WithReadOnly(true), statefulset.WithSubPath(sourceUserPasswordSecretKey.Key))
+
+	return statefulset.WithPodSpecTemplate(podtemplatespec.Apply(
+		podtemplatespec.WithVolume(sourceUserPasswordVolume),
+		podtemplatespec.WithContainer(MongotContainerName, container.Apply(
+			container.WithVolumeMounts([]corev1.VolumeMount{sourceUserPasswordVolumeMount}),
+			prependCommand(sensitiveFilePermissionsWorkaround(MongotSourceUserPasswordPath, TempSourceUserPasswordPath, "0600")),
+		)),
+	))
 }
 
 func CreateKeyfileModificationFunc(keyfileSecretName string) statefulset.Modification {
@@ -149,24 +184,67 @@ func CreateKeyfileModificationFunc(keyfileSecretName string) statefulset.Modific
 	)
 }
 
-func mongodbSearchContainer(mdbSearch *searchv1.MongoDBSearch, volumeMounts []corev1.VolumeMount, searchImage string) container.Modification {
+func jvmFlags(mdbSearch *searchv1.MongoDBSearch, resourceRequirements corev1.ResourceRequirements) string {
+	flags := []string{}
+
+	var heapConfigured bool
+	for _, jvmFlag := range mdbSearch.Spec.JVMFlags {
+		if strings.HasPrefix(jvmFlag, "-Xms") || strings.HasPrefix(jvmFlag, "-Xmx") {
+			heapConfigured = true
+			break
+		}
+	}
+	// it's recommended to set the minimum heap size (-Xms) and maximum heap size (-Xmx) to the same value
+	// but if any of them are provided by the users we are not setting defaults. Only set defaults if
+	// none of them are provided.
+	if !heapConfigured {
+		// in this document we are recommended to set the half of memory to the JVM heap https://www.mongodb.com/docs/manual/tutorial/mongot-sizing/advanced-guidance/hardware/#jvm-heap-sizing
+		// so we should do that even if the jvm flags are not configured by users.
+		memRequest := resourceRequirements.Requests.Memory()
+		halfBytes := memRequest.Value() / 2
+		halfMB := halfBytes / (1024 * 1024)
+		flags = append(flags, fmt.Sprintf("-Xmx%dm", halfMB))
+		flags = append(flags, fmt.Sprintf("-Xms%dm", halfMB))
+	}
+
+	flagsValue := strings.Join(append(flags, mdbSearch.Spec.JVMFlags...), " ")
+	return fmt.Sprintf(`--jvm-flags "%s"`, flagsValue)
+}
+
+func mongodbSearchContainer(mdbSearch *searchv1.MongoDBSearch, volumeMounts []corev1.VolumeMount, searchImage string, usePerPodConfig bool) container.Modification {
 	_, containerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
+	resourceRequirements := createSearchResourceRequirements(mdbSearch.Spec.ResourceRequirements)
+	jvmFlags := jvmFlags(mdbSearch, resourceRequirements)
+
+	var mongotStartCommand string
+	if usePerPodConfig {
+		mongotStartCommand = mongotPerPodConfigStartCommand(jvmFlags)
+	} else {
+		mongotStartCommand = fmt.Sprintf("/mongot-community/mongot --config %s %s", MongotConfigPath, jvmFlags)
+	}
+
 	return container.Apply(
 		container.WithName(MongotContainerName),
 		container.WithImage(searchImage),
 		container.WithImagePullPolicy(corev1.PullAlways),
 		container.WithLivenessProbe(mongotLivenessProbe(mdbSearch)),
 		container.WithReadinessProbe(mongotReadinessProbe(mdbSearch)),
-		container.WithResourceRequirements(createSearchResourceRequirements(mdbSearch.Spec.ResourceRequirements)),
+		container.WithResourceRequirements(resourceRequirements),
 		container.WithVolumeMounts(volumeMounts),
 		container.WithCommand([]string{"sh"}),
 		container.WithArgs([]string{
 			"-c",
-			"/mongot-community/mongot --config /mongot/config.yml",
+			mongotStartCommand,
 		}),
-		prependCommand(sensitiveFilePermissionsWorkaround(MongotSourceUserPasswordPath, TempSourceUserPasswordPath, "0600")),
 		containerSecurityContext,
 	)
+}
+
+// mongotPerPodConfigStartCommand returns the shell script that reads the pod's role from ConfigMap.
+func mongotPerPodConfigStartCommand(jvmFlags string) string {
+	return fmt.Sprintf(`ROLE=$(cat "%s/$HOSTNAME")
+/mongot-community/mongot --config %s/config-${ROLE}.yml %s`,
+		MongotPerPodConfigDirPath, MongotPerPodConfigDirPath, jvmFlags)
 }
 
 func mongotLivenessProbe(search *searchv1.MongoDBSearch) func(*corev1.Probe) {
@@ -205,20 +283,34 @@ func mongotReadinessProbe(search *searchv1.MongoDBSearch) func(*corev1.Probe) {
 	)
 }
 
-func createSearchResourceRequirements(requirements *corev1.ResourceRequirements) corev1.ResourceRequirements {
-	if requirements != nil {
-		return *requirements
-	} else {
-		return newSearchDefaultRequirements()
+func createSearchResourceRequirements(userRequirements *corev1.ResourceRequirements) corev1.ResourceRequirements {
+	defaults := newSearchDefaultRequirements()
+	if userRequirements == nil {
+		return defaults
 	}
+
+	if userRequirements.Requests == nil {
+		userRequirements.Requests = defaults.Requests
+		return *userRequirements
+	}
+
+	if userRequirements.Requests.Memory().IsZero() {
+		userRequirements.Requests[corev1.ResourceMemory] = defaults.Requests[corev1.ResourceMemory]
+	}
+	if userRequirements.Requests.Cpu().IsZero() {
+		userRequirements.Requests[corev1.ResourceCPU] = defaults.Requests[corev1.ResourceCPU]
+	}
+
+	return *userRequirements
 }
 
 func newSearchDefaultRequirements() corev1.ResourceRequirements {
-	// TODO: add default limits once there is an official mongot sizing guide
+	// according to the document https://www.mongodb.com/docs/manual/tutorial/mongot-sizing/quick-start/, we should use
+	// a small or medium High-CPU node for general use cases. That's what we return from here.
 	return corev1.ResourceRequirements{
 		Requests: corev1.ResourceList{
 			corev1.ResourceCPU:    construct.ParseQuantityOrZero("2"),
-			corev1.ResourceMemory: construct.ParseQuantityOrZero("2G"),
+			corev1.ResourceMemory: construct.ParseQuantityOrZero("4Gi"),
 		},
 	}
 }

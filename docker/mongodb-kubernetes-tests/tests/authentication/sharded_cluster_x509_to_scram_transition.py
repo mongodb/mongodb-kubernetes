@@ -78,7 +78,7 @@ def _create_automation_agent_user(namespace: str, resource_name: str, ca_path: s
 
     # First, check if the user already exists by trying to authenticate via pymongo
     try:
-        client = MongoClient(
+        client: MongoClient = MongoClient(
             config_server_host,
             username="mms-automation-agent",
             password=password,

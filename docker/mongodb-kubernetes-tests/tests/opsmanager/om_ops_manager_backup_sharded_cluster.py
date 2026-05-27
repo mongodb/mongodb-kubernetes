@@ -1,5 +1,5 @@
 import time
-from typing import Optional
+from typing import Iterator, Optional
 
 from kubernetes.client.rest import ApiException
 from kubetester import create_or_update_secret, get_default_storage_class, try_load, wait_until
@@ -28,7 +28,7 @@ USER_PASSWORD = "/qwerty@!#:"
 
 
 @fixture(scope="module")
-def s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> str:
+def s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> Iterator[str]:
     create_aws_secret(aws_s3_client, S3_SECRET_NAME, namespace)
     yield from create_s3_bucket(aws_s3_client, "test-bucket-sharded-")
 

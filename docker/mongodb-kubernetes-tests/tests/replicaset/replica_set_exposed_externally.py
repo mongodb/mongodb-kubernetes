@@ -1,3 +1,4 @@
+import kubernetes.client.rest
 import pytest
 from kubernetes import client
 from kubetester import try_load
