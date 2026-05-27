@@ -24,15 +24,10 @@ import (
 // ShardNamePlaceholder is the placeholder used in endpoint templates for sharded clusters
 const ShardNamePlaceholder = "{shardName}"
 
-// ClusterNamePlaceholder is substituted with spec.clusters[i].ClusterName when
-// resolving spec.loadBalancer.managed.externalHostname for cluster i in
-// multi-cluster MongoDBSearch deployments. The Envoy reconciler substitutes the
-// member cluster name so per-cluster SNI hostnames stay distinct.
+// ClusterNamePlaceholder is substituted with spec.clusters[i].ClusterName in spec.loadBalancer.managed.externalHostname.
 const ClusterNamePlaceholder = "{clusterName}"
 
-// ClusterIndexPlaceholder is substituted with the stable cluster-index for
-// spec.clusters[i]. The index is monotonic and never reused on remove/re-add
-// (see AssignClusterIndices below).
+// ClusterIndexPlaceholder is substituted with the stable cluster-index; indices are never reused on remove/re-add.
 const ClusterIndexPlaceholder = "{clusterIndex}"
 
 // LabelResourceOwner is the label key used to identify the MongoDBSearch CR that
@@ -160,9 +155,7 @@ type ClusterSpec struct {
 	// +optional
 	// +kubebuilder:validation:MaxLength=253
 	ClusterName string `json:"clusterName,omitempty"`
-	// ClusterIndex is the stable integer in per-cluster resource names
-	// (e.g. {name}-search-{clusterIndex}-svc). Required in simulated multi-cluster
-	// mode; auto-assigned in legacy central multi-cluster. Immutable once set.
+	// ClusterIndex is the stable integer in per-cluster resource names. Immutable once set; required in simulated multi-cluster mode.
 	// +optional
 	// +kubebuilder:validation:Minimum=0
 	ClusterIndex *int32 `json:"clusterIndex,omitempty"`
@@ -729,22 +722,8 @@ func (s *MongoDBSearch) GetEndpointForShard(shardName string) string {
 	return strings.ReplaceAll(s.Spec.LoadBalancer.Unmanaged.Endpoint, ShardNamePlaceholder, shardName)
 }
 
-// EffectiveClusters returns the per-cluster distribution slice the reconcile
-// loop should iterate over, with the top-level
-// Replicas/ResourceRequirements/Persistence/StatefulSetConfiguration/JVMFlags
-// cascaded into each entry as defaults.
-//
-//   - When spec.clusters is nil, it auto-promotes the top-level fields into a
-//     one-element ClusterSpec for the legacy single-cluster path.
-//   - When spec.clusters is non-nil, each entry is returned with the cascade
-//     applied: pointer / struct fields are REPLACE-if-nil (cluster-set wins;
-//     nil inherits top-level); JVMFlags is REPLACE-if-empty (non-empty
-//     per-cluster slice wins; no append). Atomic per field — to override one
-//     sub-field of a struct (e.g. one container's image), spell out the full
-//     struct at cluster level. Matches sharded MC's processClusterSpecList
-//     semantics (no recursive merge for MVP).
-//
-// The function is pure — no mutation of s, no side effects.
+// EffectiveClusters returns the per-cluster slice with top-level fields cascaded as defaults.
+// REPLACE-if-nil for scalars/structs, REPLACE-if-empty for slices; cluster-set wins. Pure — no mutation.
 func (s *MongoDBSearch) EffectiveClusters() []ClusterSpec {
 	//nolint:staticcheck // SA1019: deprecated top-level fields are the documented default for the cascade.
 	topReplicas := s.Spec.Replicas
@@ -814,21 +793,14 @@ func (s *MongoDBSearch) EffectiveClusterFor(clusterName string) (ClusterSpec, er
 }
 
 func (s *MongoDBSearch) GetReplicas() int {
-	// Single legitimate read of the deprecated top-level field — this is the
-	// operator-side default ("1 when unset") for the legacy single-cluster path
-	// and for validators that only look at the top-level value.
-	// Multi-cluster reconcile readers should use GetReplicasForCluster instead.
-	//nolint:staticcheck // SA1019: deprecated field is the documented fallback.
+	//nolint:staticcheck // SA1019: legacy single-cluster fallback; MC readers use GetReplicasForCluster.
 	if s.Spec.Replicas != nil && *s.Spec.Replicas > 0 {
 		return int(*s.Spec.Replicas)
 	}
 	return 1
 }
 
-// GetReplicasForCluster returns the per-cluster mongot replica count after
-// applying the EffectiveClusters cascade (cluster-set wins, top-level is the
-// default, "1" if neither is set). clusterName="" returns the single-cluster
-// auto-promoted value (equivalent to GetReplicas).
+// GetReplicasForCluster returns the cascaded replica count; clusterName="" returns the single-cluster value.
 func (s *MongoDBSearch) GetReplicasForCluster(clusterName string) int {
 	c, err := s.EffectiveClusterFor(clusterName)
 	if err != nil {
@@ -917,8 +889,18 @@ func (s *MongoDBSearch) GetManagedLBEndpointForCluster(i int) string {
 		return out
 	}
 	out = strings.ReplaceAll(out, ClusterNamePlaceholder, clusters[i].ClusterName)
-	out = strings.ReplaceAll(out, ClusterIndexPlaceholder, strconv.Itoa(i))
+	out = strings.ReplaceAll(out, ClusterIndexPlaceholder, strconv.Itoa(clusterIndexFor(clusters, i)))
 	return out
+}
+
+// clusterIndexFor returns the user-pinned ClusterIndex for clusters[i] when
+// set, falling back to the array position. The pinned value is what makes
+// per-cluster resource names stable across spec.clusters[] reorders.
+func clusterIndexFor(clusters []ClusterSpec, i int) int {
+	if clusters[i].ClusterIndex != nil {
+		return int(*clusters[i].ClusterIndex)
+	}
+	return i
 }
 
 // GetManagedLBEndpointForClusterShard returns the externalHostname template with
@@ -961,7 +943,7 @@ func (s *MongoDBSearch) GetManagedLBEndpointForClusterLevel(i int) string {
 		return trimmed
 	}
 	out := strings.ReplaceAll(trimmed, ClusterNamePlaceholder, clusters[i].ClusterName)
-	out = strings.ReplaceAll(out, ClusterIndexPlaceholder, strconv.Itoa(i))
+	out = strings.ReplaceAll(out, ClusterIndexPlaceholder, strconv.Itoa(clusterIndexFor(clusters, i)))
 	return out
 }
 
@@ -1061,14 +1043,24 @@ func (s *MongoDBSearch) GetKind() string {
 	return "MongoDBSearch"
 }
 
-// AssignClusterIndices returns a new clusterName -> clusterIndex mapping that:
-//   - preserves every entry in existing (never deletes a name, even if it is
-//     not present in current — that's how indices are not reused on remove/re-add);
-//   - honors any user-supplied ClusterSpec.ClusterIndex (overrides existing);
-//   - appends every name not yet in the mapping with a monotonic index starting
-//     at max(existing)+1 (or 0 when existing is empty).
-//
-// existing is not mutated. The returned map is always non-nil.
+// LocalizeToCluster narrows spec.Clusters to the entry matching name. Returns false if absent (different operator owns this CR).
+func (s *MongoDBSearch) LocalizeToCluster(name string) bool {
+	if s.Spec.Clusters == nil || len(*s.Spec.Clusters) == 0 {
+		return true
+	}
+	for _, c := range *s.Spec.Clusters {
+		if c.ClusterName == name {
+			only := []ClusterSpec{c}
+			s.Spec.Clusters = &only
+			return true
+		}
+	}
+	return false
+}
+
+// AssignClusterIndices merges existing+current into a clusterName->index map.
+// Existing entries are preserved (indices never reused on remove/re-add); user-set ClusterIndex
+// overrides; unset names append at max(existing)+1. existing is not mutated.
 func AssignClusterIndices(existing map[string]int, current []ClusterSpec) map[string]int {
 	result := make(map[string]int, len(existing)+len(current))
 	next := 0

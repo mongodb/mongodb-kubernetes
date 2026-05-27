@@ -4117,10 +4117,9 @@ spec:
                     All other fields override the corresponding top-level value when set; nil/omitted inherits.
                   properties:
                     clusterIndex:
-                      description: |-
-                        ClusterIndex is the stable integer in per-cluster resource names
-                        (e.g. {name}-search-{clusterIndex}-svc). Required in simulated multi-cluster
-                        mode; auto-assigned in legacy central multi-cluster. Immutable once set.
+                      description: ClusterIndex is the stable integer in per-cluster
+                        resource names. Immutable once set; required in simulated
+                        multi-cluster mode.
                       format: int32
                       minimum: 0
                       type: integer

@@ -448,6 +448,33 @@ func TestGetManagedLBEndpointForClusterShard_ClusterIndex(t *testing.T) {
 	assert.Equal(t, "search-1.shard-b.lb.example.com:443", s.GetManagedLBEndpointForClusterShard(1, "shard-b"))
 }
 
+// Regression guard: {clusterIndex} must resolve via the pinned
+// ClusterSpec.ClusterIndex, not the spec-array position. Simulated-MC projects
+// spec.clusters[] to a 1-element slice, so array position is always 0; without
+// honouring the pin, every cluster would render {clusterIndex}="0".
+func TestGetManagedLBEndpoint_ClusterIndexHonoursPinnedValue(t *testing.T) {
+	mk := func(tmpl string, cs []ClusterSpec) *MongoDBSearch {
+		return &MongoDBSearch{Spec: MongoDBSearchSpec{
+			LoadBalancer: &LoadBalancerConfig{Managed: &ManagedLBConfig{ExternalHostname: tmpl}},
+			Clusters:     &cs,
+		}}
+	}
+	pin := []ClusterSpec{{ClusterName: "us-east", ClusterIndex: ptr.To(int32(7))}}
+	legacy := []ClusterSpec{{ClusterName: "us-east"}, {ClusterName: "us-west"}}
+
+	// Pinned: array pos=0, pin=7 → "7".
+	assert.Equal(t, "mongot-7.example.com",
+		mk("mongot-{clusterIndex}.example.com", pin).GetManagedLBEndpointForCluster(0))
+	// Legacy nil-pin: array position is used.
+	assert.Equal(t, "mongot-0.example.com",
+		mk("mongot-{clusterIndex}.example.com", legacy).GetManagedLBEndpointForCluster(0))
+	assert.Equal(t, "mongot-1.example.com",
+		mk("mongot-{clusterIndex}.example.com", legacy).GetManagedLBEndpointForCluster(1))
+	// ClusterLevel path honours pin too (strips leading {shardName}. prefix).
+	assert.Equal(t, "search-7.lb.example.com:443",
+		mk("{shardName}.search-{clusterIndex}.lb.example.com:443", pin).GetManagedLBEndpointForClusterLevel(0))
+}
+
 func TestGetManagedLBEndpointForClusterShard_NotManaged(t *testing.T) {
 	s := &MongoDBSearch{Spec: MongoDBSearchSpec{}}
 	assert.Equal(t, "", s.GetManagedLBEndpointForClusterShard(0, "shard-0"))
@@ -515,91 +542,75 @@ func TestMongotConfigConfigMapNameForCluster(t *testing.T) {
 }
 
 func TestAssignClusterIndices(t *testing.T) {
-	specs := func(items ...struct {
-		name string
-		idx  *int32
-	}) []ClusterSpec {
-		out := make([]ClusterSpec, 0, len(items))
-		for _, it := range items {
-			out = append(out, ClusterSpec{ClusterName: it.name, ClusterIndex: it.idx})
-		}
-		return out
-	}
-	type entry struct {
-		name string
-		idx  *int32
-	}
+	pin := func(v int32) *int32 { return &v }
 	tests := []struct {
 		name     string
 		existing map[string]int
 		current  []ClusterSpec
 		want     map[string]int
 	}{
-		{
-			name:     "empty existing, empty current",
-			existing: map[string]int{},
-			current:  nil,
-			want:     map[string]int{},
-		},
-		{
-			name:     "first assignment starts at 0",
-			existing: map[string]int{},
-			current:  specs(entry{"us-east", nil}, entry{"us-west", nil}),
-			want:     map[string]int{"us-east": 0, "us-west": 1},
-		},
-		{
-			name:     "preserve existing on no-op",
-			existing: map[string]int{"us-east": 0, "us-west": 1},
-			current:  specs(entry{"us-east", nil}, entry{"us-west", nil}),
-			want:     map[string]int{"us-east": 0, "us-west": 1},
-		},
-		{
-			name:     "append new monotonically from max+1",
-			existing: map[string]int{"us-east": 0, "us-west": 1},
-			current:  specs(entry{"us-east", nil}, entry{"us-west", nil}, entry{"eu-central", nil}),
-			want:     map[string]int{"us-east": 0, "us-west": 1, "eu-central": 2},
-		},
-		{
-			name:     "non-contiguous existing — next index is max+1",
-			existing: map[string]int{"us-east": 0, "us-west": 5},
-			current:  specs(entry{"us-east", nil}, entry{"us-west", nil}, entry{"eu-central", nil}),
-			want:     map[string]int{"us-east": 0, "us-west": 5, "eu-central": 6},
-		},
-		{
-			name:     "removed cluster stays in map (no reuse)",
-			existing: map[string]int{"us-east": 0, "us-west": 1},
-			current:  specs(entry{"us-east", nil}),
-			want:     map[string]int{"us-east": 0, "us-west": 1},
-		},
-		{
-			name:     "user-supplied clusterIndex honored on first assignment",
-			existing: map[string]int{},
-			current:  specs(entry{"us-east", ptr.To(int32(7))}, entry{"us-west", ptr.To(int32(3))}),
-			want:     map[string]int{"us-east": 7, "us-west": 3},
-		},
-		{
-			name:     "user-supplied clusterIndex overrides existing",
-			existing: map[string]int{"us-east": 0, "us-west": 1},
-			current:  specs(entry{"us-east", ptr.To(int32(9))}, entry{"us-west", nil}),
-			want:     map[string]int{"us-east": 9, "us-west": 1},
-		},
-		{
-			name:     "mixed: user-supplied honored, others monotonic from max",
-			existing: map[string]int{},
-			current:  specs(entry{"us-east", ptr.To(int32(5))}, entry{"us-west", nil}),
-			want:     map[string]int{"us-east": 5, "us-west": 6},
-		},
+		{"empty in, empty out", map[string]int{}, nil, map[string]int{}},
+		{"first assignment starts at 0", map[string]int{},
+			[]ClusterSpec{{ClusterName: "us-east"}, {ClusterName: "us-west"}},
+			map[string]int{"us-east": 0, "us-west": 1}},
+		{"no-op preserves existing", map[string]int{"us-east": 0, "us-west": 1},
+			[]ClusterSpec{{ClusterName: "us-east"}, {ClusterName: "us-west"}},
+			map[string]int{"us-east": 0, "us-west": 1}},
+		{"append new at max+1", map[string]int{"us-east": 0, "us-west": 1},
+			[]ClusterSpec{{ClusterName: "us-east"}, {ClusterName: "us-west"}, {ClusterName: "eu-central"}},
+			map[string]int{"us-east": 0, "us-west": 1, "eu-central": 2}},
+		{"non-contiguous: next is max+1", map[string]int{"us-east": 0, "us-west": 5},
+			[]ClusterSpec{{ClusterName: "us-east"}, {ClusterName: "us-west"}, {ClusterName: "eu-central"}},
+			map[string]int{"us-east": 0, "us-west": 5, "eu-central": 6}},
+		{"removed cluster stays (no reuse)", map[string]int{"us-east": 0, "us-west": 1},
+			[]ClusterSpec{{ClusterName: "us-east"}},
+			map[string]int{"us-east": 0, "us-west": 1}},
+		{"pin honoured on first assignment", map[string]int{},
+			[]ClusterSpec{{ClusterName: "us-east", ClusterIndex: pin(7)}, {ClusterName: "us-west", ClusterIndex: pin(3)}},
+			map[string]int{"us-east": 7, "us-west": 3}},
+		{"pin overrides existing", map[string]int{"us-east": 0, "us-west": 1},
+			[]ClusterSpec{{ClusterName: "us-east", ClusterIndex: pin(9)}, {ClusterName: "us-west"}},
+			map[string]int{"us-east": 9, "us-west": 1}},
+		{"mixed: pin honoured, rest monotonic from max", map[string]int{},
+			[]ClusterSpec{{ClusterName: "us-east", ClusterIndex: pin(5)}, {ClusterName: "us-west"}},
+			map[string]int{"us-east": 5, "us-west": 6}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := AssignClusterIndices(tt.existing, tt.current)
-			assert.Equal(t, tt.want, got)
+			assert.Equal(t, tt.want, AssignClusterIndices(tt.existing, tt.current))
 		})
 	}
-}
 
-func TestAssignClusterIndicesDoesNotMutateExisting(t *testing.T) {
+	// AssignClusterIndices must not mutate the caller's existing map.
 	existing := map[string]int{"a": 0, "b": 1}
 	AssignClusterIndices(existing, []ClusterSpec{{ClusterName: "a"}, {ClusterName: "b"}, {ClusterName: "c"}})
 	assert.Equal(t, map[string]int{"a": 0, "b": 1}, existing, "existing must not be mutated")
+}
+
+func TestMongoDBSearch_LocalizeToCluster(t *testing.T) {
+	// nil slice — no-op, returns true.
+	nilSearch := &MongoDBSearch{}
+	assert.True(t, nilSearch.LocalizeToCluster("us-east"))
+	assert.Nil(t, nilSearch.Spec.Clusters)
+
+	// empty slice — no-op, returns true.
+	empty := &MongoDBSearch{Spec: MongoDBSearchSpec{Clusters: &[]ClusterSpec{}}}
+	assert.True(t, empty.LocalizeToCluster("us-east"))
+	require.NotNil(t, empty.Spec.Clusters)
+	assert.Empty(t, *empty.Spec.Clusters)
+
+	// match — projects to 1-element slice, returns true.
+	matched := &MongoDBSearch{Spec: MongoDBSearchSpec{Clusters: &[]ClusterSpec{
+		{ClusterName: "us-east"}, {ClusterName: "us-west"},
+	}}}
+	assert.True(t, matched.LocalizeToCluster("us-west"))
+	require.Len(t, *matched.Spec.Clusters, 1)
+	assert.Equal(t, "us-west", (*matched.Spec.Clusters)[0].ClusterName)
+
+	// no match — returns false, leaves spec.Clusters unmodified.
+	unmatched := &MongoDBSearch{Spec: MongoDBSearchSpec{Clusters: &[]ClusterSpec{
+		{ClusterName: "us-east"}, {ClusterName: "us-west"},
+	}}}
+	assert.False(t, unmatched.LocalizeToCluster("ap-south"))
+	assert.Len(t, *unmatched.Spec.Clusters, 2)
 }

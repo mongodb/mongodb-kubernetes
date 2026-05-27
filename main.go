@@ -32,7 +32,6 @@ import (
 
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -292,10 +291,7 @@ func run() error {
 		}
 	}
 	if slices.Contains(crds, mongoDBSearchCRDPlural) {
-		operatorClusterName, err := getOperatorClusterName(ctx, cfg, currentNamespace)
-		if err != nil {
-			return err
-		}
+		operatorClusterName := env.ReadOrDefault(util.OperatorClusterNameEnv, "")
 		if operatorClusterName != "" {
 			log.Infof("Simulated multi-cluster mode enabled for MongoDBSearch: operator cluster identity = %q", operatorClusterName)
 		}
@@ -481,24 +477,6 @@ func getMemberClusters(ctx context.Context, cfg *rest.Config, currentNamespace s
 	}
 
 	return members, nil
-}
-
-// getOperatorClusterName reads util.ClusterIdentityConfigMapName from the operator namespace
-// and returns data["clusterName"]. Returns "" without error when the ConfigMap is absent
-// (simulated multi-cluster mode is opt-in via the Helm chart's operator.clusterIdentity value).
-func getOperatorClusterName(ctx context.Context, cfg *rest.Config, currentNamespace string) (string, error) {
-	c, err := client.New(cfg, client.Options{})
-	if err != nil {
-		return "", err
-	}
-	m := corev1.ConfigMap{}
-	if err := c.Get(ctx, types.NamespacedName{Name: util.ClusterIdentityConfigMapName, Namespace: currentNamespace}, &m); err != nil {
-		if apierrors.IsNotFound(err) {
-			return "", nil
-		}
-		return "", err
-	}
-	return m.Data["clusterName"], nil
 }
 
 func isInLocalMode() bool {
