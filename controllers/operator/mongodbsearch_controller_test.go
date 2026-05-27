@@ -839,6 +839,227 @@ func TestReconcile_SimulatedMC_NoMatchSilentNoOp(t *testing.T) {
 	assert.Equal(t, status.Phase(""), updated.Status.Phase, "no-match reconcile must not touch status")
 }
 
+// newSimulatedMCShardedMongoDBSearch mirrors newSimulatedMCMongoDBSearch but
+// with a sharded external source (router + 2 shards) and an externalHostname
+// template containing both {clusterName} and {shardName} so the MC-sharded
+// validators (which require both placeholders) accept the un-narrowed spec.
+// Both spec.clusters entries carry an explicit ClusterIndex pin so the
+// resource-name suffix is the pinned value, not the array position.
+//
+// TLS is configured with a "certs" prefix because the reconcile helper's
+// ValidateManagedLBShardedTLS rejects managed-LB + sharded without TLS.
+// Tests using this fixture must seed the per-(cluster,shard) TLS secrets via
+// simulatedMCShardedTLSSecrets() against the central fake client.
+func newSimulatedMCShardedMongoDBSearch(name, namespace string) *searchv1.MongoDBSearch {
+	clusters := []searchv1.ClusterSpec{
+		{ClusterName: "cluster-a", ClusterIndex: ptr.To(int32(0)), Replicas: ptr.To(int32(1))},
+		{ClusterName: "cluster-b", ClusterIndex: ptr.To(int32(1)), Replicas: ptr.To(int32(1))},
+	}
+	return &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+		Spec: searchv1.MongoDBSearchSpec{
+			Source: &searchv1.MongoDBSource{
+				ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{
+					ShardedCluster: &searchv1.ExternalShardedClusterConfig{
+						Router: searchv1.ExternalRouterConfig{Hosts: []string{"mongos.example:27017"}},
+						Shards: []searchv1.ExternalShardConfig{
+							{ShardName: "sh-0", Hosts: []string{"sh-0-a.example:27017"}},
+							{ShardName: "sh-1", Hosts: []string{"sh-1-a.example:27017"}},
+						},
+					},
+				},
+			},
+			LoadBalancer: &searchv1.LoadBalancerConfig{
+				Managed: &searchv1.ManagedLBConfig{
+					// {shardName}. prefix is required for cluster-level form derivation;
+					// {clusterName} satisfies validateMCExternalHostnamePlaceholders.
+					ExternalHostname: "{shardName}.{clusterName}.example.com",
+				},
+			},
+			Security: searchv1.Security{TLS: &searchv1.TLS{CertsSecretPrefix: "certs"}},
+			Clusters: &clusters,
+		},
+	}
+}
+
+// simulatedMCShardedTLSSecrets returns the per-(cluster,shard) TLS secrets the
+// reconcile helper expects when the simulated-MC sharded fixture has TLS
+// configured. clusterIndex must match the projected ClusterSpec.ClusterIndex
+// for the local operator (only one set of secrets is needed because
+// simulated-MC narrows to a single cluster before fan-out). Secret names are
+// derived via MongoDBSearch.TLSSecretForClusterShard to match the helper.
+func simulatedMCShardedTLSSecrets(search *searchv1.MongoDBSearch, clusterIndex int) []client.Object {
+	shards := []string{"sh-0", "sh-1"}
+	out := make([]client.Object, 0, len(shards))
+	for _, shard := range shards {
+		nsName := search.TLSSecretForClusterShard(clusterIndex, shard)
+		out = append(out, &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: nsName.Name, Namespace: nsName.Namespace},
+			Data:       map[string][]byte{"tls.crt": []byte("dummy"), "tls.key": []byte("dummy")},
+		})
+	}
+	return out
+}
+
+// TestReconcile_SimulatedMC_ShardedSource_ProjectedReconcilesLocalOnly proves
+// that simulated-MC mode collapses the sharded plan to "1 cluster × N shards"
+// after LocalizeToCluster narrows spec.clusters[]. operatorClusterName="cluster-a"
+// (ClusterIndex=0) MUST create per-shard STSes + ConfigMaps + Services at
+// index 0 only, plus the cluster-level proxy Service at index 0 — and never
+// the index-1 resources owned by cluster-b's operator.
+func TestReconcile_SimulatedMC_ShardedSource_ProjectedReconcilesLocalOnly(t *testing.T) {
+	ctx := context.Background()
+	search := newSimulatedMCShardedMongoDBSearch("mdb-search", mock.TestNamespace)
+
+	reconciler, c := newSimulatedMCSearchReconciler(t, "cluster-a", search)
+	// cluster-a's projected ClusterIndex is 0; TLS secrets land on the central
+	// (= local operator's) client because in simulated-MC every operator uses
+	// its own apiserver as kubeClient.
+	for _, obj := range simulatedMCShardedTLSSecrets(search, 0) {
+		require.NoError(t, c.Create(ctx, obj))
+	}
+
+	got := driveSearchReconcileToRunning(ctx, t, reconciler, c, search, 5)
+
+	// cluster-a's per-shard resources MUST exist at index 0.
+	for _, shard := range []string{"sh-0", "sh-1"} {
+		sts := &appsv1.StatefulSet{}
+		require.NoError(t, c.Get(ctx, search.MongotStatefulSetForClusterShard(0, shard), sts),
+			"STS for cluster-a shard %s must exist", shard)
+		assert.Equal(t, fmt.Sprintf("mdb-search-search-0-%s", shard), sts.Name)
+		cm := &corev1.ConfigMap{}
+		require.NoError(t, c.Get(ctx, search.MongotConfigMapForClusterShard(0, shard), cm),
+			"mongot ConfigMap for cluster-a shard %s must exist", shard)
+		svc := &corev1.Service{}
+		require.NoError(t, c.Get(ctx, search.MongotServiceForClusterShard(0, shard), svc),
+			"headless Service for cluster-a shard %s must exist", shard)
+	}
+
+	// Cluster-level proxy Service must exist at index 0 (mongos-facing entry point).
+	clusterLevelProxy := &corev1.Service{}
+	require.NoError(t, c.Get(ctx, search.ProxyServiceNamespacedNameForCluster(0), clusterLevelProxy),
+		"cluster-level proxy Service for cluster-a (index 0) must exist")
+
+	// Index-1 (cluster-b) resources MUST NOT exist — owned by the other operator.
+	for _, shard := range []string{"sh-0", "sh-1"} {
+		sts := &appsv1.StatefulSet{}
+		err := c.Get(ctx, search.MongotStatefulSetForClusterShard(1, shard), sts)
+		assert.True(t, apiErrors.IsNotFound(err), "STS for cluster-b shard %s must NOT exist; err=%v", shard, err)
+		cm := &corev1.ConfigMap{}
+		err = c.Get(ctx, search.MongotConfigMapForClusterShard(1, shard), cm)
+		assert.True(t, apiErrors.IsNotFound(err), "mongot ConfigMap for cluster-b shard %s must NOT exist; err=%v", shard, err)
+		svc := &corev1.Service{}
+		err = c.Get(ctx, search.MongotServiceForClusterShard(1, shard), svc)
+		assert.True(t, apiErrors.IsNotFound(err), "headless Service for cluster-b shard %s must NOT exist; err=%v", shard, err)
+	}
+	clusterLevelProxyB := &corev1.Service{}
+	err := c.Get(ctx, search.ProxyServiceNamespacedNameForCluster(1), clusterLevelProxyB)
+	assert.True(t, apiErrors.IsNotFound(err), "cluster-level proxy Service for cluster-b (index 1) must NOT exist; err=%v", err)
+
+	// Status phase tracks normal reconcile progress.
+	assert.Contains(t, []status.Phase{status.PhaseRunning, status.PhasePending}, got.Status.Phase,
+		"projected sharded reconcile should land Running or Pending; got %q (msg=%q)", got.Status.Phase, got.Status.Message)
+}
+
+// TestReconcile_SimulatedMC_ShardedSource_NoMatchSilentNoOp verifies that when
+// operatorClusterName is absent from spec.clusters[], the sharded reconcile
+// returns the zero result with no error, no state CM, and no per-shard resources.
+func TestReconcile_SimulatedMC_ShardedSource_NoMatchSilentNoOp(t *testing.T) {
+	ctx := context.Background()
+	search := newSimulatedMCShardedMongoDBSearch("mdb-search", mock.TestNamespace)
+
+	// operatorClusterName="cluster-c" — NOT in spec.clusters[].
+	reconciler, c := newSimulatedMCSearchReconciler(t, "cluster-c", search)
+
+	req := reconcile.Request{NamespacedName: types.NamespacedName{Name: search.Name, Namespace: search.Namespace}}
+	res, err := reconciler.Reconcile(ctx, req)
+	require.NoError(t, err)
+	assert.Equal(t, reconcile.Result{}, res, "no-match sharded reconcile must return zero Result with no error")
+
+	// No per-shard resources at any (cluster, shard) pair.
+	for _, idx := range []int{0, 1, 2} {
+		for _, shard := range []string{"sh-0", "sh-1"} {
+			sts := &appsv1.StatefulSet{}
+			assert.True(t, apiErrors.IsNotFound(c.Get(ctx, search.MongotStatefulSetForClusterShard(idx, shard), sts)),
+				"STS at index=%d shard=%s must not exist", idx, shard)
+			cm := &corev1.ConfigMap{}
+			assert.True(t, apiErrors.IsNotFound(c.Get(ctx, search.MongotConfigMapForClusterShard(idx, shard), cm)),
+				"mongot ConfigMap at index=%d shard=%s must not exist", idx, shard)
+		}
+	}
+
+	stateCM := &corev1.ConfigMap{}
+	assert.True(t, apiErrors.IsNotFound(
+		c.Get(ctx, types.NamespacedName{Name: search.Name + "-state", Namespace: search.Namespace}, stateCM)),
+		"state ConfigMap must not be created in sharded no-match path")
+}
+
+// TestReconcile_SimulatedMC_ShardedSource_ProjectedClusterIndexUsedInNames is
+// the regression guard against the {clusterIndex} substitution bug: even
+// though the localized spec.clusters[] array position is always 0 (1-element
+// slice), the resource names must use the pinned ClusterIndex from the
+// ClusterSpec — here 7 — so resources line up with the other operators'
+// expectations after a remove/re-add cycle.
+func TestReconcile_SimulatedMC_ShardedSource_ProjectedClusterIndexUsedInNames(t *testing.T) {
+	ctx := context.Background()
+	search := newSimulatedMCShardedMongoDBSearch("mdb-search", mock.TestNamespace)
+	// Pin cluster-b to index 7. cluster-b is the local operator under test.
+	(*search.Spec.Clusters)[1].ClusterIndex = ptr.To(int32(7))
+
+	reconciler, c := newSimulatedMCSearchReconciler(t, "cluster-b", search)
+	// cluster-b's projected ClusterIndex is 7 (the pin); seed TLS secrets at that index.
+	for _, obj := range simulatedMCShardedTLSSecrets(search, 7) {
+		require.NoError(t, c.Create(ctx, obj))
+	}
+	_ = driveSearchReconcileToRunning(ctx, t, reconciler, c, search, 5)
+
+	// Per-shard STS names must use the pinned index 7, not the array position 0.
+	for _, shard := range []string{"sh-0", "sh-1"} {
+		want := fmt.Sprintf("mdb-search-search-7-%s", shard)
+		sts := &appsv1.StatefulSet{}
+		require.NoError(t, c.Get(ctx, types.NamespacedName{Name: want, Namespace: search.Namespace}, sts),
+			"STS named %q must exist (pinned ClusterIndex=7)", want)
+		assert.Equal(t, want, search.MongotStatefulSetForClusterShard(7, shard).Name,
+			"helper resolves pinned clusterIndex into name")
+	}
+
+	// Position-0 names (the bug's wrong answer) MUST NOT exist.
+	for _, shard := range []string{"sh-0", "sh-1"} {
+		wrong := fmt.Sprintf("mdb-search-search-0-%s", shard)
+		sts := &appsv1.StatefulSet{}
+		err := c.Get(ctx, types.NamespacedName{Name: wrong, Namespace: search.Namespace}, sts)
+		assert.True(t, apiErrors.IsNotFound(err),
+			"STS named %q must NOT exist (would indicate position-0 fallback over pinned ClusterIndex=7); err=%v", wrong, err)
+	}
+}
+
+// TestReconcile_SimulatedMC_ShardedSource_ValidationRunsPreLocalization locks
+// in the contract that MC validators (which short-circuit on
+// len(spec.clusters) <= 1) run on the UN-narrowed spec. A 2-cluster sharded CR
+// with a managed externalHostname missing the {shardName} placeholder MUST
+// be rejected by ValidateSpec — and this rejection must surface as
+// workflow.Invalid (Phase=Failed) on the CR status, not silently pass.
+func TestReconcile_SimulatedMC_ShardedSource_ValidationRunsPreLocalization(t *testing.T) {
+	ctx := context.Background()
+	search := newSimulatedMCShardedMongoDBSearch("mdb-search", mock.TestNamespace)
+	// Break the externalHostname: drop {shardName} so MC-sharded validation rejects.
+	search.Spec.LoadBalancer.Managed.ExternalHostname = "{clusterName}.lb.example.com:443"
+
+	reconciler, c := newSimulatedMCSearchReconciler(t, "cluster-a", search)
+
+	req := reconcile.Request{NamespacedName: types.NamespacedName{Name: search.Name, Namespace: search.Namespace}}
+	res, err := reconciler.Reconcile(ctx, req)
+	require.NoError(t, err, "workflow.Invalid returns nil error; we assert via Status")
+	assert.Equal(t, reconcile.Result{}, res, "invalid spec must not requeue")
+
+	got := &searchv1.MongoDBSearch{}
+	require.NoError(t, c.Get(ctx, req.NamespacedName, got))
+	require.Equal(t, status.PhaseFailed, got.Status.Phase,
+		"invalid-spec must surface as Failed phase, got %q (msg=%q)", got.Status.Phase, got.Status.Message)
+	assert.Contains(t, got.Status.Message, "{shardName}",
+		"failure message must reference the missing {shardName} placeholder; got %q", got.Status.Message)
+}
+
 // Cluster-level proxy Service selector must match the label Envoy Deployment stamps on its Pods.
 func TestMongoDBSearchReconcile_MCSharded_CrossControllerLabelInvariant(t *testing.T) {
 	ctx := context.Background()

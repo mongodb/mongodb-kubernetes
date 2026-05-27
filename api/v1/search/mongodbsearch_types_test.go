@@ -613,4 +613,47 @@ func TestMongoDBSearch_LocalizeToCluster(t *testing.T) {
 	}}}
 	assert.False(t, unmatched.LocalizeToCluster("ap-south"))
 	assert.Len(t, *unmatched.Spec.Clusters, 2)
+
+	// Sharded source must be preserved on every code path: LocalizeToCluster
+	// narrows spec.Clusters only — spec.Source is untouched so the sharded plan
+	// downstream still sees router + every shard.
+	sharded := &ExternalShardedClusterConfig{
+		Router: ExternalRouterConfig{Hosts: []string{"mongos.example:27017"}},
+		Shards: []ExternalShardConfig{
+			{ShardName: "sh-0", Hosts: []string{"sh-0-a.example:27017"}},
+			{ShardName: "sh-1", Hosts: []string{"sh-1-a.example:27017"}},
+		},
+	}
+
+	t.Run("sharded source preserved on match", func(t *testing.T) {
+		s := &MongoDBSearch{Spec: MongoDBSearchSpec{
+			Source: &MongoDBSource{
+				ExternalMongoDBSource: &ExternalMongoDBSource{ShardedCluster: sharded},
+			},
+			Clusters: &[]ClusterSpec{{ClusterName: "us-east"}, {ClusterName: "us-west"}},
+		}}
+		assert.True(t, s.LocalizeToCluster("us-east"))
+		require.Len(t, *s.Spec.Clusters, 1)
+		// Sharded source preserved by identity — LocalizeToCluster MUST NOT touch spec.Source.
+		require.NotNil(t, s.Spec.Source)
+		require.NotNil(t, s.Spec.Source.ExternalMongoDBSource)
+		assert.Same(t, sharded, s.Spec.Source.ExternalMongoDBSource.ShardedCluster,
+			"sharded source must be preserved by identity after LocalizeToCluster")
+	})
+
+	t.Run("sharded source preserved on no-match", func(t *testing.T) {
+		s := &MongoDBSearch{Spec: MongoDBSearchSpec{
+			Source: &MongoDBSource{
+				ExternalMongoDBSource: &ExternalMongoDBSource{ShardedCluster: sharded},
+			},
+			Clusters: &[]ClusterSpec{{ClusterName: "us-east"}, {ClusterName: "us-west"}},
+		}}
+		assert.False(t, s.LocalizeToCluster("ap-south"))
+		// Spec.Clusters NOT narrowed when no match — and source remains untouched either way.
+		assert.Len(t, *s.Spec.Clusters, 2)
+		require.NotNil(t, s.Spec.Source)
+		require.NotNil(t, s.Spec.Source.ExternalMongoDBSource)
+		assert.Same(t, sharded, s.Spec.Source.ExternalMongoDBSource.ShardedCluster,
+			"sharded source must be preserved by identity after LocalizeToCluster no-match")
+	})
 }

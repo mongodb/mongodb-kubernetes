@@ -1015,6 +1015,128 @@ func TestReconcileForCluster_SimulatedMC_RendersToProvidedClient(t *testing.T) {
 		types.NamespacedName{Name: search.LoadBalancerConfigMapNameForCluster(0), Namespace: "ns"}, cm))
 }
 
+// fakeShardedSource is a tiny SearchSourceShardedDeployment stub for envoy
+// route-building unit tests; the only behaviour buildRoutesForCluster needs
+// is the type assertion to SearchSourceShardedDeployment + GetShardNames().
+// All other methods are no-ops because the route-building code never touches
+// them in this test.
+type fakeShardedSource struct {
+	shardNames []string
+}
+
+// SearchSourceDBResource methods.
+func (f *fakeShardedSource) KeyfileSecretName() string                    { return "" }
+func (f *fakeShardedSource) TLSConfig() *searchcontroller.TLSSourceConfig { return nil }
+func (f *fakeShardedSource) HostSeeds(string) ([]string, error)           { return nil, nil }
+func (f *fakeShardedSource) Validate() error                              { return nil }
+func (f *fakeShardedSource) ResourceType() mdbv1.ResourceType             { return mdbv1.ShardedCluster }
+
+// SearchSourceShardedDeployment additions — the type assertion at
+// buildRoutesForCluster picks this interface.
+func (f *fakeShardedSource) GetShardCount() int                           { return len(f.shardNames) }
+func (f *fakeShardedSource) GetShardNames() []string                      { return f.shardNames }
+func (f *fakeShardedSource) GetUnmanagedLBEndpointForShard(string) string { return "" }
+func (f *fakeShardedSource) MongosHostsAndPorts() []string                { return nil }
+
+// TestBuildRoutesForCluster_SimulatedMC_Sharded_PerShardSNIUsesProjectedIndex
+// exercises the route-building path under simulated-MC: spec.clusters[] has
+// been narrowed to a 1-element slice (ClusterIndex=1), the source is sharded
+// (2 shards), and the managed externalHostname template uses {clusterIndex}.
+// Every per-shard SNI hostname must resolve to the pinned cluster index, and
+// the cluster-level route is appended.
+func TestBuildRoutesForCluster_SimulatedMC_Sharded_PerShardSNIUsesProjectedIndex(t *testing.T) {
+	idx := int32(1)
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"},
+		Spec: searchv1.MongoDBSearchSpec{
+			LoadBalancer: &searchv1.LoadBalancerConfig{
+				Managed: &searchv1.ManagedLBConfig{
+					ExternalHostname: "{clusterIndex}-{shardName}.example.com",
+				},
+			},
+			Clusters: &[]searchv1.ClusterSpec{
+				{ClusterName: "kind-e2e-cluster-2", ClusterIndex: &idx},
+			},
+			Source: &searchv1.MongoDBSource{
+				ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{
+					ShardedCluster: &searchv1.ExternalShardedClusterConfig{
+						Router: searchv1.ExternalRouterConfig{Hosts: []string{"mongos.example:27017"}},
+						Shards: []searchv1.ExternalShardConfig{
+							{ShardName: "sh-0", Hosts: []string{"sh-0-a.example:27017"}},
+							{ShardName: "sh-1", Hosts: []string{"sh-1-a.example:27017"}},
+						},
+					},
+				},
+			},
+		},
+	}
+	source := &fakeShardedSource{shardNames: []string{"sh-0", "sh-1"}}
+
+	routes := buildRoutesForCluster(search, source, 1, "kind-e2e-cluster-2")
+	require.Len(t, routes, 3, "2 per-shard routes + 1 cluster-level route")
+
+	// Index per-shard routes by name for stable lookup.
+	byName := map[string]envoyRoute{}
+	for _, r := range routes {
+		byName[r.Name] = r
+	}
+	require.Contains(t, byName, "sh-0")
+	require.Contains(t, byName, "sh-1")
+	require.Contains(t, byName, "cluster-level")
+
+	assert.Equal(t, "1-sh-0.example.com", byName["sh-0"].SNIHostname,
+		"per-shard SNI must resolve {clusterIndex}=1 via the pinned ClusterSpec.ClusterIndex")
+	assert.Equal(t, "1-sh-1.example.com", byName["sh-1"].SNIHostname,
+		"per-shard SNI must resolve {clusterIndex}=1 via the pinned ClusterSpec.ClusterIndex")
+	// Cluster-level route is the last entry; its SNI must NOT contain literal
+	// placeholders and (with this template) must NOT mention any shard.
+	clusterLevel := byName["cluster-level"]
+	assert.NotContains(t, clusterLevel.SNIHostname, "{")
+	assert.NotContains(t, clusterLevel.SNIHostname, "}")
+	// Aggregated upstreams: one per shard.
+	assert.Len(t, clusterLevel.UpstreamHosts, 2, "cluster-level route aggregates per-shard upstream FQDNs")
+}
+
+// TestReconcileForCluster_SimulatedMC_ShardedSource_RendersToProvidedClient
+// drives the per-cluster Envoy reconcile path under simulated-MC: projected
+// spec.clusters[] (1 entry, ClusterIndex=0), sharded source (2 shards),
+// memberClusterClientsMap=nil. The Envoy Deployment + ConfigMap MUST land on
+// the kubeClient (the local cluster's API server in simulated-MC mode) using
+// the projected per-cluster name.
+func TestReconcileForCluster_SimulatedMC_ShardedSource_RendersToProvidedClient(t *testing.T) {
+	scheme := envoyTestScheme(t)
+	central := fake.NewClientBuilder().WithScheme(scheme).Build()
+	// memberClusterClientsMap is nil (simulated-MC: one operator per member cluster).
+	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", nil, "")
+
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"},
+		Spec: searchv1.MongoDBSearchSpec{
+			LoadBalancer: &searchv1.LoadBalancerConfig{
+				Managed: &searchv1.ManagedLBConfig{ExternalHostname: "{shardName}.{clusterName}.example.com"},
+			},
+			Clusters: &[]searchv1.ClusterSpec{{ClusterName: "kind-e2e-cluster-1"}},
+		},
+	}
+	source := &fakeShardedSource{shardNames: []string{"sh-0", "sh-1"}}
+
+	// Drive reconcileForCluster directly with the projected cluster name and
+	// r.kubeClient — the simulated-MC path that buildClusterWorkList wires.
+	st := r.reconcileForCluster(context.Background(), search, source, false, nil, "kind-e2e-cluster-1", 0, r.kubeClient, zap.S())
+	require.True(t, st.IsOK(), "simulated-MC sharded reconcile should succeed, got %s: %s",
+		st.Phase(), searchcontroller.MessageFromStatus(st))
+
+	// Envoy Deployment + ConfigMap landed in kubeClient at index 0.
+	dep := &appsv1.Deployment{}
+	require.NoError(t, central.Get(context.Background(),
+		types.NamespacedName{Name: search.LoadBalancerDeploymentNameForCluster(0), Namespace: "ns"}, dep),
+		"Envoy Deployment must land on r.kubeClient for the projected cluster index")
+	cm := &corev1.ConfigMap{}
+	require.NoError(t, central.Get(context.Background(),
+		types.NamespacedName{Name: search.LoadBalancerConfigMapNameForCluster(0), Namespace: "ns"}, cm),
+		"Envoy ConfigMap must land on r.kubeClient for the projected cluster index")
+}
+
 func TestMapEnvoyObjectToSearch(t *testing.T) {
 	// Object with both labels → reconcile request returned.
 	cm := &corev1.ConfigMap{
