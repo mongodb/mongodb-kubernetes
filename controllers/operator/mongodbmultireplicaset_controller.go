@@ -166,7 +166,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 		return r.updateStatus(ctx, &mrs, workflow.Failed(err), log)
 	}
 	if len(failedClusterNames) > 0 && !multicluster.ShouldPerformFailover() {
-		return r.updateStatus(ctx, &mrs, workflow.Failed(xerrors.Errorf("resource has failed clusters in the annotation: %+v", failedClusterNames)), log)
+		log.Warnf("Resource has failed clusters in the annotation: %+v, but automated failover is not enabled", failedClusterNames)
 	}
 
 	r.SetupCommonWatchers(&mrs, nil, nil, mrs.Name)
@@ -1176,7 +1176,7 @@ func AddMultiReplicaSetController(ctx context.Context, mgr manager.Manager, imag
 
 	// the operator watches the member clusters' API servers to determine whether the clusters are healthy or not
 	eventChannel := make(chan event.GenericEvent)
-	memberClusterHealthChecker := memberwatch.MemberClusterHealthChecker{Cache: make(map[string]*memberwatch.MemberHeathCheck)}
+	memberClusterHealthChecker := memberwatch.MemberClusterHealthChecker{Cache: make(map[string]*memberwatch.MemberHeathCheck), HealthyStreak: make(map[string]int)}
 	go memberClusterHealthChecker.WatchMemberClusterHealth(ctx, zap.S(), eventChannel, reconciler.client, memberClustersMap)
 
 	err = c.Watch(source.Channel[client.Object](eventChannel, &handler.EnqueueRequestForObject{}))
