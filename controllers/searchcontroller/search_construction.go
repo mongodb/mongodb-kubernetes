@@ -13,6 +13,8 @@ import (
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/search"
+	"github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
@@ -223,13 +225,15 @@ func jvmFlags(userJVMFlags []string, resourceRequirements corev1.ResourceRequire
 		flags = append(flags, fmt.Sprintf("-Xms%dm", halfMB))
 	}
 
-	flagsValue := strings.Join(append(flags, userJVMFlags...), " ")
+	allFlags := append(flags, userJVMFlags...)
+	flagsValue := strings.Join(allFlags, " ")
 	return fmt.Sprintf(`--jvm-flags "%s"`, flagsValue)
 }
 
 func mongodbSearchContainer(mdbSearch *searchv1.MongoDBSearch, perCluster searchv1.ClusterSpec, volumeMounts []corev1.VolumeMount, searchImage string, usePerPodConfig bool) container.Modification {
 	_, containerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
 	resourceRequirements := createSearchResourceRequirements(perCluster.ResourceRequirements)
+
 	jvmFlags := jvmFlags(perCluster.JVMFlags, resourceRequirements)
 
 	var mongotStartCommand string
