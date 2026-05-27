@@ -20,9 +20,11 @@ every cluster, spec.source.external.shardedCluster lists every cluster's mongos 
 its `router.hosts` and every cluster's per-shard mongod FQDN in each `shards[i].hosts`).
 The simulated operator on each member projects to its own slice.
 
-Multi-cluster sharded source unlocks data-plane testing: each member cluster has
-its OWN local mongos so a follow-up commit adds mongorestore + `$search` index +
-per-cluster queries via `directConnection=true`.
+Each member cluster has its own local mongos, so data-plane queries dial that
+local mongos with `directConnection=true`. The final test phases mongorestore
+`sample_mflix`, hash-shard the `movies` collection across the 2 shards, create a
+canonical `$search` index, and assert the same query returns rows via each
+cluster's local mongos.
 """
 
 from __future__ import annotations
@@ -31,10 +33,12 @@ import os
 from typing import Dict, List, Tuple
 
 import kubernetes
+import pymongo.errors
 from kubernetes.client import CoreV1Api
 from kubetester import create_or_update_secret, read_secret, try_load
 from kubetester.certs import create_tls_certs
 from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.kubetester import run_periodically
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_search import MongoDBSearch
 from kubetester.mongodb_user import MongoDBUser
@@ -43,12 +47,16 @@ from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests import test_logger
+from tests.common.mongodb_tools_pod.mongodb_tools_pod import ToolsPod
 from tests.common.search import search_resource_names
+from tests.common.search.movies_search_helper import SampleMoviesSearchHelper
+from tests.common.search.search_tester import SearchTester
 from tests.common.search.sharded_search_helper import (
     create_issuer_ca,
     create_lb_certificates,
     create_per_shard_search_tls_certs,
 )
+from tests.conftest import get_issuer_ca_filepath
 from tests.multicluster.conftest import cluster_spec_list
 
 logger = test_logger.get_test_logger(__name__)
@@ -93,6 +101,9 @@ CA_CONFIGMAP_NAME = f"{MDB_RESOURCE_NAME}-ca"
 # `{prefix}-{name}-config-cert` for configsrv, `{prefix}-{name}-mongos-cert` for
 # mongos. Per-component certs (q3 pattern) — not a single bundle.
 SOURCE_CERT_PREFIX = "clustercert"
+
+SEARCH_INDEX_READY_TIMEOUT = 300
+SEARCH_QUERY_RETRY_TIMEOUT = 90
 
 
 def _idx(mcc: MultiClusterClient) -> int:
@@ -155,6 +166,22 @@ def _replicate_mongot_user_password_to_members(
     for mcc in member_cluster_clients:
         create_or_update_secret(namespace, pwd_secret_name, src, api_client=mcc.api_client)
         logger.info(f"replicated {pwd_secret_name} to {mcc.cluster_name}")
+
+
+def _per_cluster_mongos_search_tester(
+    namespace: str,
+    cluster_index: int,
+    username: str,
+    password: str,
+) -> SearchTester:
+    """SearchTester pinned to a specific cluster's mongos via its per-pod headless Service.
+
+    `directConnection=true` keeps the driver from discovering the other cluster's mongos
+    so the query stays local to `cluster_index` (matches the q3 sharded MC pattern).
+    """
+    mongos_host = f"{MDB_RESOURCE_NAME}-mongos-{cluster_index}-0-svc.{namespace}.svc.cluster.local:27017"
+    conn_str = f"mongodb://{username}:{password}@{mongos_host}/?directConnection=true&authSource=admin"
+    return SearchTester(conn_str, use_ssl=True, ca_path=get_issuer_ca_filepath())
 
 
 # ---------------------------------------------------------------------------
@@ -750,3 +777,77 @@ def test_status_per_cluster_local_only(
         mdbs.load()
         phase = mdbs.get_status_phase()
         assert phase == Phase.Running, f"[{mcc.cluster_name}] MongoDBSearch {mdbs.name} phase={phase}, expected Running"
+
+
+# ---------------------------------------------------------------------------
+# Data plane: per-cluster $search via local mongos (directConnection=true)
+# ---------------------------------------------------------------------------
+
+
+@mark.e2e_search_simulated_mc_sharded_basic
+def test_restore_sample_database(namespace: str, tools_pod: ToolsPod):
+    """Restore sample_mflix via mongorestore through cluster-0's local mongos.
+
+    Once restored, the data is owned by the logical sharded cluster (one configsrv
+    routing layer across both clusters), so cluster-1's mongos sees the same data.
+    """
+    tester = _per_cluster_mongos_search_tester(namespace, 0, ADMIN_USER_NAME, ADMIN_USER_PASSWORD)
+    tester.mongorestore_from_url(
+        archive_url="https://atlas-education.s3.amazonaws.com/sample_mflix.archive",
+        ns_include="sample_mflix.*",
+        tools_pod=tools_pod,
+    )
+
+
+@mark.e2e_search_simulated_mc_sharded_basic
+def test_shard_sample_collection(namespace: str):
+    """Hash-shard sample_mflix.movies across the 2 shards so $search exercises every
+    per-shard mongot in both clusters."""
+    admin = _per_cluster_mongos_search_tester(namespace, 0, ADMIN_USER_NAME, ADMIN_USER_PASSWORD)
+    admin.shard_and_distribute_collection("sample_mflix", "movies")
+
+
+@mark.e2e_search_simulated_mc_sharded_basic
+def test_create_search_index(namespace: str):
+    """Create the canonical movies $search index and wait for it READY. Created once
+    at the logical-cluster level; each per-shard mongot picks the definition up via
+    its configsrv watch."""
+    tester = _per_cluster_mongos_search_tester(namespace, 0, USER_NAME, USER_PASSWORD)
+    movies = SampleMoviesSearchHelper(search_tester=tester)
+    movies.create_search_index()
+    tester.wait_for_search_indexes_ready(movies.db_name, movies.col_name, timeout=SEARCH_INDEX_READY_TIMEOUT)
+
+
+@mark.e2e_search_simulated_mc_sharded_basic
+def test_per_cluster_search_query(
+    namespace: str,
+    member_cluster_clients: List[MultiClusterClient],
+):
+    """$search via EACH cluster's local mongos — proves both clusters' Envoy +
+    per-shard mongot data path returns rows. `directConnection=true` pins the
+    driver to the per-cluster mongos so the query never leaves the cluster.
+    """
+    member_cluster_clients = member_cluster_clients[:2]
+    for mcc in member_cluster_clients:
+        cluster_index = _idx(mcc)
+        tester = _per_cluster_mongos_search_tester(namespace, cluster_index, USER_NAME, USER_PASSWORD)
+        movies = SampleMoviesSearchHelper(search_tester=tester)
+
+        def execute_search(_ci: int = cluster_index) -> tuple:
+            try:
+                results = movies.text_search_movies("Star Wars")
+                count = len(results)
+                if count > 0:
+                    titles = [r.get("title") for r in results[:5]]
+                    logger.info(f"cluster_index={_ci}: $search returned {count} results: {titles}")
+                    return True, f"cluster_index={_ci}: $search returned {count} results"
+                return False, f"cluster_index={_ci}: $search returned no results"
+            except pymongo.errors.PyMongoError as exc:
+                return False, f"cluster_index={_ci}: $search error: {exc}"
+
+        run_periodically(
+            execute_search,
+            timeout=SEARCH_QUERY_RETRY_TIMEOUT,
+            sleep_time=5,
+            msg=f"cluster_index={cluster_index}: $search via local mongos",
+        )
