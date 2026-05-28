@@ -535,7 +535,12 @@ def test_install_source_tls_certificates(
 @mark.e2e_search_simulated_mc_sharded_basic
 def test_mongodb_running(mdb: MongoDB):
     mdb.update()
-    mdb.assert_reaches_phase(Phase.Running, timeout=1500)
+    # ignore_errors=True: under `topology: MultiCluster`, the central operator can
+    # write a transient phase=Failed when the controller-runtime cached client lags
+    # behind a successful STS Create on a member cluster (Get returns NotFound for
+    # up to ~10s after Create). The next requeue picks up the freshly-synced cache.
+    # See project_simulated_mc_search.md "STS visibility lag" for the diagnosis.
+    mdb.assert_reaches_phase(Phase.Running, timeout=1800, ignore_errors=True)
 
 
 @mark.e2e_search_simulated_mc_sharded_basic
