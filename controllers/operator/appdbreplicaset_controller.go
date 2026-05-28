@@ -572,6 +572,11 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 		if !ws.IsOK() {
 			return r.updateStatus(ctx, opsManager, ws, log, appDbStatusOption)
 		}
+		if err := r.replicateAgentKeySecret(ctx, opsManager, agentConnConfig.GroupID, log); err != nil {
+			return r.updateStatus(ctx, opsManager,
+				workflow.Failed(xerrors.Errorf("failed to replicate agent key secret: %w", err)),
+				log, appDbStatusOption)
+		}
 	}
 
 	// In online mode the AppDB agents connect to an external OM directly; monitoring setup
@@ -1054,6 +1059,39 @@ func (r *ReconcileAppDbReplicaSet) replicateTLSCAConfigMap(ctx context.Context, 
 	}
 
 	return workflow.OK()
+}
+
+// replicateAgentKeySecret copies the agent API key Secret (created by PrepareOpsManagerConnection
+// in the central cluster) to all healthy member clusters so each AppDB pod can mount it.
+// This is a no-op for single-cluster deployments.
+func (r *ReconcileAppDbReplicaSet) replicateAgentKeySecret(ctx context.Context, opsManager *omv1.MongoDBOpsManager, groupID string, log *zap.SugaredLogger) error {
+	if !opsManager.Spec.AppDB.IsMultiCluster() {
+		return nil
+	}
+
+	var appdbSecretPath string
+	if r.VaultClient != nil {
+		appdbSecretPath = r.VaultClient.AppDBSecretPath()
+	}
+
+	secretName := agents.ApiKeySecretName(groupID)
+	keyData, err := r.SecretClient.ReadSecret(ctx, kube.ObjectKey(opsManager.Namespace, secretName), appdbSecretPath)
+	if err != nil {
+		return xerrors.Errorf("failed to read agent key secret %s: %w", secretName, err)
+	}
+
+	agentKeySecret := secret.Builder().
+		SetName(secretName).
+		SetNamespace(opsManager.Namespace).
+		SetStringMapToData(keyData).
+		Build()
+
+	for _, mc := range r.GetHealthyMemberClusters() {
+		if err := mc.SecretClient.PutSecret(ctx, agentKeySecret, appdbSecretPath); err != nil {
+			return xerrors.Errorf("failed to replicate agent key secret to cluster %s: %w", mc.Name, err)
+		}
+	}
+	return nil
 }
 
 func (r *ReconcileAppDbReplicaSet) replicateSSLMMSCAConfigMap(ctx context.Context, om *omv1.MongoDBOpsManager, podVars *env.PodEnvVars, opts construct.AppDBStatefulSetOptions, log *zap.SugaredLogger) workflow.Status {
