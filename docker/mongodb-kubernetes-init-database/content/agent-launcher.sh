@@ -232,6 +232,9 @@ fi
 export agentPid=$!
 script_log "Launched automation agent, pid=${agentPid}"
 
+stderr_max_size_mb="${MDB_LOG_FILE_AUTOMATION_AGENT_STDERR_MAX_SIZE_MB:-50}"
+watch_and_rotate_log "${MDB_LOG_FILE_AUTOMATION_AGENT_STDERR}" $(( stderr_max_size_mb * 1024 * 1024 )) &
+
 trap cleanup SIGTERM
 
 wait

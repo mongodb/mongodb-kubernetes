@@ -80,6 +80,35 @@ ensure_certs_symlinks() {
     fi
 }
 
+# rotate_log_if_needed checks a single log file and trims it in-place when it
+# exceeds max_size_bytes, keeping the most recent (max_size_bytes / 2) bytes.
+# Writing to a temp file and back avoids bash $(...) newline-stripping and keeps
+# the original inode so open file descriptors remain valid.
+rotate_log_if_needed() {
+    local file="$1"
+    local max_size_bytes="$2"
+    local keep_bytes=$(( max_size_bytes / 2 ))
+    if [ -f "${file}" ]; then
+        local size
+        size=$(( $(wc -c < "${file}") ))
+        if [ "${size}" -gt "${max_size_bytes}" ]; then
+            local tmp_file="${file}.rotating"
+            tail -c "${keep_bytes}" "${file}" > "${tmp_file}" && cat "${tmp_file}" > "${file}"
+            rm -f "${tmp_file}"
+        fi
+    fi
+}
+
+# watch_and_rotate_log runs rotate_log_if_needed every 30 seconds in a loop.
+watch_and_rotate_log() {
+    local file="$1"
+    local max_size_bytes="$2"
+    while true; do
+        sleep 30
+        rotate_log_if_needed "${file}" "${max_size_bytes}"
+    done
+}
+
 # download_agent function downloads and unpacks the Mongodb Agent
 download_agent() {
     pushd /tmp >/dev/null || true

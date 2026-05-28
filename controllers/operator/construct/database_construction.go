@@ -60,13 +60,14 @@ const (
 	AgentAPIKeySecretPath = "/mongodb-automation/agent-api-key" //nolint
 	AgentAPIKeyVolumeName = "agent-api-key"                     //nolint
 
-	LogFileAutomationAgentEnv        = "MDB_LOG_FILE_AUTOMATION_AGENT"
-	LogFileAutomationAgentVerboseEnv = "MDB_LOG_FILE_AUTOMATION_AGENT_VERBOSE"
-	LogFileAutomationAgentStderrEnv  = "MDB_LOG_FILE_AUTOMATION_AGENT_STDERR"
-	LogFileMongoDBAuditEnv           = "MDB_LOG_FILE_MONGODB_AUDIT"
-	LogFileMongoDBEnv                = "MDB_LOG_FILE_MONGODB"
-	LogFileAgentMonitoringEnv        = "MDB_LOG_FILE_MONITORING_AGENT"
-	LogFileAgentBackupEnv            = "MDB_LOG_FILE_BACKUP_AGENT"
+	LogFileAutomationAgentEnv               = "MDB_LOG_FILE_AUTOMATION_AGENT"
+	LogFileAutomationAgentVerboseEnv        = "MDB_LOG_FILE_AUTOMATION_AGENT_VERBOSE"
+	LogFileAutomationAgentStderrEnv         = "MDB_LOG_FILE_AUTOMATION_AGENT_STDERR"
+	LogFileAutomationAgentStderrMaxSizeMBEnv = "MDB_LOG_FILE_AUTOMATION_AGENT_STDERR_MAX_SIZE_MB"
+	LogFileMongoDBAuditEnv                  = "MDB_LOG_FILE_MONGODB_AUDIT"
+	LogFileMongoDBEnv                       = "MDB_LOG_FILE_MONGODB"
+	LogFileAgentMonitoringEnv               = "MDB_LOG_FILE_MONITORING_AGENT"
+	LogFileAgentBackupEnv                   = "MDB_LOG_FILE_BACKUP_AGENT"
 )
 
 type StsType int
@@ -959,6 +960,7 @@ func getAutomationLogEnvVars(parameters mdbv1.StartupParameters) []corev1.EnvVar
 	return []corev1.EnvVar{
 		{Name: LogFileAutomationAgentVerboseEnv, Value: verboseLogFile},
 		{Name: LogFileAutomationAgentStderrEnv, Value: stderrLogFile},
+		{Name: LogFileAutomationAgentStderrMaxSizeMBEnv, Value: "50"},
 		{Name: LogFileAutomationAgentEnv, Value: automationLogFile},
 	}
 }
