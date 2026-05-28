@@ -2,7 +2,7 @@ from typing import List
 
 import kubernetes
 import pytest
-from kubetester import create_or_update_secret, read_secret
+from kubetester import create_or_update_secret, read_secret, wait_until
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
@@ -12,7 +12,10 @@ from kubetester.mongotester import with_scram
 from kubetester.multicluster_client import MultiClusterClient
 from kubetester.operator import Operator
 from kubetester.phase import Phase
+from tests import test_logger
 from tests.multicluster.conftest import cluster_spec_list
+
+logger = test_logger.get_test_logger(__name__)
 
 MDB_RESOURCE = "multi-replica-set-scram"
 USER_NAME = "my-user-1"
@@ -214,3 +217,44 @@ def test_replica_set_connectivity_from_connection_string_standard_srv(
             with_scram(USER_NAME, NEW_USER_PASSWORD),
         ],
     )
+
+
+@pytest.mark.e2e_multi_cluster_scram
+def test_connection_string_secret_deleted_on_user_deletion(
+    namespace: str,
+    mongodb_multi: MongoDBMulti,
+    mongodb_user: MongoDBUser,
+    member_cluster_clients: List[MultiClusterClient],
+):
+    """Delete the MongoDBUser CR and verify that the connection string Secret is removed
+    from every member cluster. In multi-cluster mode these secrets carry no ownerReferences
+    (to avoid cross-cluster GC), so the operator must delete them explicitly through its
+    finalizer. This test covers both MongoDBMultiCluster and sharded topologies because
+    the member cluster map passed to the controller is topology-independent."""
+    mongodb_user.delete()
+
+    def wait_for_user_deleted() -> bool:
+        try:
+            mongodb_user.load()
+            return False
+        except kubernetes.client.ApiException as e:
+            if e.status == 404:
+                return True
+            logger.error(e)
+            return False
+
+    wait_until(wait_for_user_deleted, timeout=120)
+
+    secret_name = f"{mongodb_multi.name}-{USER_RESOURCE}-{USER_DATABASE}"
+    for mc_client in member_cluster_clients:
+        try:
+            read_secret(namespace, secret_name, api_client=mc_client.api_client)
+            raise AssertionError(
+                f"Connection string secret '{secret_name}' still exists in cluster "
+                f"'{mc_client.cluster_name}' after MongoDBUser deletion."
+            )
+        except kubernetes.client.ApiException as e:
+            assert e.status == 404, (
+                f"Unexpected error reading secret '{secret_name}' from cluster "
+                f"'{mc_client.cluster_name}': {e}"
+            )
