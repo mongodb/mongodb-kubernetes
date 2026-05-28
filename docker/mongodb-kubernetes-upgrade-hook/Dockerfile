@@ -7,6 +7,7 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY mongodb-community-operator /go/src/github.com/mongodb/mongodb-kubernetes/mongodb-community-operator
+COPY pkg /go/src/github.com/mongodb/mongodb-kubernetes/pkg
 
 ARG TARGETARCH
 ARG TARGETOS

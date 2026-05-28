@@ -14,7 +14,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/v1/user"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
 )
 
 // ShardNamePlaceholder is the placeholder used in endpoint templates for sharded clusters
@@ -75,10 +74,10 @@ type MongoDBSearchSpec struct {
 	// StatefulSetSpec which the operator will apply to the MongoDB Search StatefulSet at the end of the reconcile loop. Use to provide necessary customizations,
 	// which aren't exposed as fields in the MongoDBSearch.spec.
 	// +optional
-	StatefulSetConfiguration *common.StatefulSetConfiguration `json:"statefulSet,omitempty"`
+	StatefulSetConfiguration *v1.StatefulSetConfiguration `json:"statefulSet,omitempty"`
 	// Configure MongoDB Search's persistent volume. If not defined, the operator will request 10GB of storage.
 	// +optional
-	Persistence *common.Persistence `json:"persistence,omitempty"`
+	Persistence *v1.Persistence `json:"persistence,omitempty"`
 	// Configure resource requests and limits for the MongoDB Search pods.
 	// +optional
 	ResourceRequirements *corev1.ResourceRequirements `json:"resourceRequirements,omitempty"`
@@ -131,7 +130,7 @@ type ManagedLBConfig struct {
 	// Deployment holds optional overrides merged into the operator-created Envoy Deployment.
 	// Follows the same convention as spec.statefulSet on MongoDB resources.
 	// +optional
-	Deployment *common.DeploymentConfiguration `json:"deployment,omitempty"`
+	Deployment *v1.DeploymentConfiguration `json:"deployment,omitempty"`
 }
 
 // UnmanagedLBConfig configures a user-provided (BYO) L7 load balancer.
@@ -636,7 +635,7 @@ func (s *MongoDBSearch) IsLBModeManaged() bool {
 }
 
 // GetManagedLBDeploymentConfig returns the user-provided Envoy Deployment override, or nil.
-func (s *MongoDBSearch) GetManagedLBDeploymentConfig() *common.DeploymentConfiguration {
+func (s *MongoDBSearch) GetManagedLBDeploymentConfig() *v1.DeploymentConfiguration {
 	if s.IsLBModeManaged() {
 		return s.Spec.LoadBalancer.Managed.Deployment
 	}

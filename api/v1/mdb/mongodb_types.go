@@ -18,13 +18,11 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connectionstring"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/ldap"
-	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/annotations"
+	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/fcv"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
@@ -144,7 +142,7 @@ func (m *MongoDB) GetConnectionSpec() *ConnectionSpec {
 	return &m.Spec.ConnectionSpec
 }
 
-func (m *MongoDB) GetPrometheus() *mdbcv1.Prometheus {
+func (m *MongoDB) GetPrometheus() *v1.Prometheus {
 	return m.Spec.Prometheus
 }
 
@@ -283,7 +281,7 @@ type ClusterSpecItem struct {
 	// +optional
 	MemberConfig []automationconfig.MemberOptions `json:"memberConfig,omitempty"`
 	// +optional
-	StatefulSetConfiguration *common.StatefulSetConfiguration `json:"statefulSet,omitempty"`
+	StatefulSetConfiguration *v1.StatefulSetConfiguration `json:"statefulSet,omitempty"`
 	// +optional
 	PodSpec *MongoDbPodSpec `json:"podSpec,omitempty"`
 }
@@ -305,7 +303,7 @@ type ClusterSpecItemOverride struct {
 	// +optional
 	MemberConfig []automationconfig.MemberOptions `json:"memberConfig,omitempty"`
 	// +optional
-	StatefulSetConfiguration *common.StatefulSetConfiguration `json:"statefulSet,omitempty"`
+	StatefulSetConfiguration *v1.StatefulSetConfiguration `json:"statefulSet,omitempty"`
 	// +optional
 	PodSpec *MongoDbPodSpec `json:"podSpec,omitempty"`
 }
@@ -401,13 +399,13 @@ type DbCommonSpec struct {
 
 	// Prometheus configurations.
 	// +optional
-	Prometheus *mdbcv1.Prometheus `json:"prometheus,omitempty"`
+	Prometheus *v1.Prometheus `json:"prometheus,omitempty"`
 
 	// +optional
 	// StatefulSetConfiguration provides the statefulset override for each of the cluster's statefulset
 	// if "StatefulSetConfiguration" is specified at cluster level under "clusterSpecList" that takes precedence over
 	// the global one
-	StatefulSetConfiguration *common.StatefulSetConfiguration `json:"statefulSet,omitempty"`
+	StatefulSetConfiguration *v1.StatefulSetConfiguration `json:"statefulSet,omitempty"`
 
 	// AdditionalMongodConfig is additional configuration that can be passed to
 	// each data-bearing mongod at runtime. Uses the same structure as the mongod
@@ -1015,7 +1013,7 @@ type AgentAuthentication struct {
 	AutomationLdapGroupDN string `json:"automationLdapGroupDN"`
 	// +optional
 	// +kubebuilder:pruning:PreserveUnknownFields
-	ClientCertificateSecretRefWrap common.ClientCertificateSecretRefWrapper `json:"clientCertificateSecretRef,omitempty"`
+	ClientCertificateSecretRefWrap v1.ClientCertificateSecretRefWrapper `json:"clientCertificateSecretRef,omitempty"`
 }
 
 // IsX509Enabled determines if X509 is to be enabled at the project level
@@ -1476,7 +1474,7 @@ type ExternalServiceConfiguration struct {
 	// A wrapper for the Service spec object.
 	// +optional
 	// +kubebuilder:pruning:PreserveUnknownFields
-	SpecWrapper *common.ServiceSpecWrapper `json:"spec"`
+	SpecWrapper *v1.ServiceSpecWrapper `json:"spec"`
 
 	// A map of annotations that shall be added to the externally available Service.
 	// +optional
@@ -1495,14 +1493,14 @@ type MongoDbPodSpec struct {
 	ContainerResourceRequirements `json:"-"`
 
 	// +kubebuilder:pruning:PreserveUnknownFields
-	PodTemplateWrapper common.PodTemplateSpecWrapper `json:"podTemplate,omitempty"`
+	PodTemplateWrapper v1.PodTemplateSpecWrapper `json:"podTemplate,omitempty"`
 	// Note, this field is not serialized in the CRD, it's only present here because of the
 	// way we currently set defaults for this field in the operator, similar to "ContainerResourceRequirements"
 
 	PodAntiAffinityTopologyKey string `json:"-"`
 
 	// Note, that this field is used by MongoDB resources only, let's keep it here for simplicity
-	Persistence *common.Persistence `json:"persistence,omitempty"`
+	Persistence *v1.Persistence `json:"persistence,omitempty"`
 }
 
 func (m *MongoDbPodSpec) IsAgentImageOverridden() bool {
@@ -1583,7 +1581,7 @@ func (p PodSpecWrapper) SetTopology(topology string) PodSpecWrapper {
 	return p
 }
 
-func GetStorageOrDefault(config *common.PersistenceConfig, defaultConfig common.PersistenceConfig) string {
+func GetStorageOrDefault(config *v1.PersistenceConfig, defaultConfig v1.PersistenceConfig) string {
 	if config == nil || config.Storage == "" {
 		return defaultConfig.Storage
 	}
