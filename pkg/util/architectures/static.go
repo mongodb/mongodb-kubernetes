@@ -39,9 +39,6 @@ const (
 	// false: do not append the -ent suffix and assume community
 	// default: false
 	MdbAssumeEnterpriseImage = "MDB_ASSUME_ENTERPRISE_IMAGE"
-	// MdbAgentImageRepo contains the repository containing the agent image for the database
-	MdbAgentImageRepo        = "MDB_AGENT_IMAGE_REPOSITORY"
-	MdbAgentImageRepoDefault = "quay.io/mongodb/mongodb-agent"
 )
 
 // IsRunningStaticArchitecture checks whether the operator is running in static or non-static mode.
@@ -79,7 +76,7 @@ func GetMongoVersionForAutomationConfig(mongoDBImage, version string, forceEnter
 		return version
 	}
 	// the image repo should be	either mongodb / mongodb-enterprise-server or mongodb / mongodb-community-server
-	if strings.Contains(mongoDBImage, util.OfficialEnterpriseServerImageUrl) || forceEnterprise {
+	if strings.Contains(mongoDBImage, util.OfficialEnterpriseServerImageName) || forceEnterprise {
 		if !strings.HasSuffix(version, "-ent") {
 			version = version + "-ent"
 		}

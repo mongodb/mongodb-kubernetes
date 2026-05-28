@@ -36,21 +36,22 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/predicates"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/validation"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/watch"
-	"github.com/mongodb/mongodb-kubernetes/pkg/agent"
 	mcoagent "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/agent"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/authentication"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/functions"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/result"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/status"
+	"github.com/mongodb/mongodb-kubernetes/pkg/agent"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/podtemplatespec"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/functions"
-	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/result"
-	"github.com/mongodb/mongodb-kubernetes/pkg/util/scale"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/status"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/service"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/scale"
 )
 
 const (
@@ -593,9 +594,9 @@ func guessEnterprise(mdb mdbv1.MongoDBCommunity, mongodbImage string) bool {
 		}
 	}
 	if len(overriddenImage) > 0 {
-		return strings.Contains(overriddenImage, construct.OfficialMongodbEnterpriseServerImageName)
+		return strings.Contains(overriddenImage, util.OfficialEnterpriseServerImageName)
 	}
-	return mongodbImage == construct.OfficialMongodbEnterpriseServerImageName
+	return mongodbImage == util.OfficialEnterpriseServerImageName
 }
 
 // buildService creates a Service that will be used for the Replica Set StatefulSet
@@ -840,7 +841,7 @@ func getMongoDBImage(repoUrl, mongodbImage, mongodbImageType, version string) st
 		repoUrl = strings.TrimRight(repoUrl, "/")
 	}
 	mongoImageName := mongodbImage
-	for _, officialUrl := range construct.OfficialMongodbRepoUrls {
+	for _, officialUrl := range util.OfficialMongodbRepoUrls {
 		if repoUrl == officialUrl {
 			return fmt.Sprintf("%s/%s:%s-%s", repoUrl, mongoImageName, version, mongodbImageType)
 		}

@@ -10,12 +10,12 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/authentication/authtypes"
+	"github.com/mongodb/mongodb-kubernetes/pkg/authentication/authtypes"
 	"github.com/mongodb/mongodb-kubernetes/pkg/authentication/scramcredentials"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/generate"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/generate"
 )
 
 const (
@@ -165,7 +165,7 @@ func needToGenerateNewCredentials(ctx context.Context, secretGetter secret.Gette
 // generateScramShaCredentials creates a new set of credentials using randomly generated salts. The first returned element is
 // sha1 credentials, the second is sha256 credentials
 func generateScramShaCredentials(username string, password string) (scramcredentials.ScramCreds, scramcredentials.ScramCreds, error) {
-	sha1Salt, sha256Salt, err := generate.Salts()
+	sha1Salt, sha256Salt, err := Salts()
 	if err != nil {
 		return scramcredentials.ScramCreds{}, scramcredentials.ScramCreds{}, err
 	}
