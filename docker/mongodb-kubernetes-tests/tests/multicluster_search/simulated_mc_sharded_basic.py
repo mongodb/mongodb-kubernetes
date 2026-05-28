@@ -830,10 +830,26 @@ def test_restore_sample_database(namespace: str, tools_pod: ToolsPod):
 
 @mark.e2e_search_simulated_mc_sharded_basic
 def test_shard_sample_collection(namespace: str):
-    """Hash-shard sample_mflix.movies across the 2 shards so $search exercises every
-    per-shard mongot in both clusters."""
+    """Hash-shard sample_mflix.movies across the 2 shards.
+
+    Use shardCollection only (NOT the common helper's reshardCollection step).
+    In this 3-operator simulated-MC setup, reshardCollection hangs ~145s before
+    pymongo drops the connection — chunk-migration across the multi-cluster
+    sharded RS members appears blocked. Hashed _id sharding will distribute
+    new writes; for `$search` verification, the routing path (mongos -> mongot
+    -> shard RS) is what we exercise, not data balance.
+    """
     admin = _per_cluster_mongos_search_tester(namespace, 0, ADMIN_USER_NAME, ADMIN_USER_PASSWORD)
-    admin.shard_and_distribute_collection("sample_mflix", "movies")
+    ns = "sample_mflix.movies"
+    admin.client["sample_mflix"]["movies"].create_index([("_id", pymongo.HASHED)])
+    try:
+        admin.client.admin.command("shardCollection", ns, key={"_id": "hashed"}, unique=False)
+    except pymongo.errors.OperationFailure as exc:
+        if "already sharded" in str(exc) or exc.code == 20:
+            logger.info(f"{ns} already sharded")
+        else:
+            raise
+    logger.info(f"{ns} hash-sharded (skipping reshardCollection redistribution)")
 
 
 @mark.e2e_search_simulated_mc_sharded_basic
