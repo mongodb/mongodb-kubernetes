@@ -123,7 +123,7 @@ func TestMongodbContainer_SignalHandling(t *testing.T) {
 			mongodConfig := mdbv1.NewMongodConfiguration()
 			mongodConfig.SetOption("storage.dbPath", "/data")
 
-			containerMod := mongodbContainer("test-image", []corev1.VolumeMount{}, mongodConfig, tt.isStatic)
+			containerMod := mongodbContainer("test-image", []corev1.VolumeMount{}, mongodConfig, tt.isStatic, nil)
 
 			testContainer := &corev1.Container{}
 			containerMod(testContainer)

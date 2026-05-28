@@ -792,7 +792,13 @@ func getMongodConfigSearchModification(search *searchv1.MongoDBSearch, clusterDo
 // buildStatefulSetModificationFunction takes a MongoDB resource and converts it into
 // the corresponding stateful set
 func buildStatefulSetModificationFunction(mdb mdbv1.MongoDBCommunity, mongodbImage, agentImage, versionUpgradeHookImage, readinessProbeImage string) statefulset.Modification {
-	commonModification := construct.BuildMongoDBReplicaSetStatefulSetModificationFunction(&mdb, &mdb, mongodbImage, agentImage, versionUpgradeHookImage, readinessProbeImage, true, "")
+	var mongodResources, agentResources *corev1.ResourceRequirements
+	if mdb.Spec.Resources != nil {
+		mongodResources = mdb.Spec.Resources.MemberResources
+		agentResources = mdb.Spec.Resources.MemberAgentResources
+	}
+
+	commonModification := construct.BuildMongoDBReplicaSetStatefulSetModificationFunction(&mdb, &mdb, mongodbImage, agentImage, versionUpgradeHookImage, readinessProbeImage, true, "", mongodResources, agentResources)
 	return statefulset.Apply(
 		commonModification,
 		statefulset.WithOwnerReference(mdb.GetOwnerReferences()),
@@ -813,10 +819,41 @@ func buildStatefulSetModificationFunction(mdb mdbv1.MongoDBCommunity, mongodbIma
 }
 
 func buildArbitersModificationFunction(mdb mdbv1.MongoDBCommunity) statefulset.Modification {
+	var mongodResources, agentResources *corev1.ResourceRequirements
+	if mdb.Spec.Resources != nil {
+		// Use arbiter-specific resources if defined, otherwise fall back to member resources
+		if mdb.Spec.Resources.ArbiterResources != nil {
+			mongodResources = mdb.Spec.Resources.ArbiterResources
+		} else {
+			mongodResources = mdb.Spec.Resources.MemberResources
+		}
+
+		if mdb.Spec.Resources.ArbiterAgentResources != nil {
+			agentResources = mdb.Spec.Resources.ArbiterAgentResources
+		} else {
+			agentResources = mdb.Spec.Resources.MemberAgentResources
+		}
+	}
+
+	arbiterModification := construct.BuildMongoDBReplicaSetStatefulSetModificationFunction(&mdb, &mdb, "", "", "", "", true, "", mongodResources, agentResources)
 	return statefulset.Apply(
+		arbiterModification,
 		statefulset.WithReplicas(mdb.StatefulSetArbitersThisReconciliation()),
 		statefulset.WithServiceName(mdb.ServiceName()),
 		statefulset.WithName(mdb.ArbiterNamespacedName().Name),
+		statefulset.WithOwnerReference(mdb.GetOwnerReferences()),
+		statefulset.WithPodSpecTemplate(
+			podtemplatespec.Apply(
+				buildTLSPodSpecModification(mdb),
+				buildTLSPrometheus(mdb),
+				buildAgentX509(mdb),
+			),
+		),
+		statefulset.WithCustomSpecs(mdb.Spec.StatefulSetConfiguration.SpecWrapper.Spec),
+		statefulset.WithObjectMetadata(
+			mdb.Spec.StatefulSetConfiguration.MetadataWrapper.Labels,
+			mdb.Spec.StatefulSetConfiguration.MetadataWrapper.Annotations,
+		),
 	)
 }
 

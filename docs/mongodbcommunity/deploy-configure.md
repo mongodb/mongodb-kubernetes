@@ -4,15 +4,19 @@ The [`/config/samples`](../config/samples) directory contains example MongoDBCom
 
 ## Table of Contents
 
-- [Deploy a Replica Set](#deploy-a-replica-set)
-- [Scale a Replica Set](#scale-a-replica-set)
-- [Add Arbiters to a Replica Set](#add-arbiters-to-a-replica-set)
-- [Upgrade your MongoDBCommunity Resource Version and Feature Compatibility Version](#upgrade-your-mongodbcommunity-resource-version-and-feature-compatibility-version)
-  - [Example](#example)
-- [Deploy Replica Sets on OpenShift](#deploy-replica-sets-on-openshift)
-- [Define a Custom Database Role](#define-a-custom-database-role)
-- [Specify Non-Default Values for Readiness Probe](#specify-non-default-values-for-readiness-probe)
-  - [When to specify custom values for the Readiness Probe](#when-to-specify-custom-values-for-the-readiness-probe)
+- [Deploy and Configure a MongoDBCommunity Resource](#deploy-and-configure-a-mongodbcommunity-resource)
+  - [Table of Contents](#table-of-contents)
+  - [Deploy a Replica Set](#deploy-a-replica-set)
+  - [Add Arbiters to a Replica Set](#add-arbiters-to-a-replica-set)
+  - [Specify Custom Resource Limits and Requests](#specify-custom-resource-limits-and-requests)
+  - [Upgrade your MongoDBCommunity Resource Version and Feature Compatibility Version](#upgrade-your-mongodbcommunity-resource-version-and-feature-compatibility-version)
+    - [Example](#example)
+  - [Deploy Replica Sets on OpenShift](#deploy-replica-sets-on-openshift)
+  - [Define a Custom Database Role](#define-a-custom-database-role)
+  - [Specify Non-Default Values for Readiness Probe](#specify-non-default-values-for-readiness-probe)
+    - [When to specify custom values for the Readiness Probe](#when-to-specify-custom-values-for-the-readiness-probe)
+    - [Operator Configurations](#operator-configurations)
+      - [Modify cluster domain for MongoDB service objects](#modify-cluster-domain-for-mongodb-service-objects)
 
 ## Deploy a Replica Set
 
@@ -38,11 +42,11 @@ To deploy your first replica set:
 
    The secrets follow this naming convention: `<metadata.name>-<auth-db>-<username>`, where:
 
-   | Variable | Description | Value in Sample |
-   |----|----|----|
-   | `<metadata.name>` | Name of the MongoDB database resource. | `example-mongodb` |
-   | `<auth-db>` | [Authentication database](https://www.mongodb.com/docs/manual/core/security-users/#std-label-user-authentication-database) where you defined the database user. | `admin` |
-   | `<username>` | Username of the database user. | `my-user` |
+   | Variable          | Description                                                                                                                                                     | Value in Sample   |
+   | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
+   | `<metadata.name>` | Name of the MongoDB database resource.                                                                                                                          | `example-mongodb` |
+   | `<auth-db>`       | [Authentication database](https://www.mongodb.com/docs/manual/core/security-users/#std-label-user-authentication-database) where you defined the database user. | `admin`           |
+   | `<username>`      | Username of the database user.                                                                                                                                  | `my-user`         |
 
    **NOTE**: Alternatively, you can specify an optional
    `users[i].connectionStringSecretName` field in the
@@ -203,6 +207,68 @@ To add arbiters:
 The resulting Replica Set has a PSSA (Primary-Secondary-Secondary-Arbiter)
 configuration.
 
+## Specify Custom Resource Limits and Requests
+
+You can specify custom CPU and memory limits and requests for your MongoDB containers using the `spec.resources` field. This field provides granular control over resources for individual containers in both member and arbiter pods.
+
+The `spec.resources` field supports the following subfields:
+
+- `memberResources`: Resource requirements for the `mongod` container in member pods
+- `memberAgentResources`: Resource requirements for the `mongodb-agent` container in member pods
+- `arbiterResources`: Resource requirements for the `mongod` container in arbiter pods
+- `arbiterAgentResources`: Resource requirements for the `mongodb-agent` container in arbiter pods
+
+If arbiter-specific resources are not specified, arbiters will fall back to using the member resources.
+
+Consider the following example:
+
+```yaml
+apiVersion: mongodbcommunity.mongodb.com/v1
+kind: MongoDBCommunity
+metadata:
+  name: example-mongodb
+spec:
+  type: ReplicaSet
+  members: 3
+  arbiters: 1
+  version: "6.0.5"
+  resources:
+    memberResources:
+      limits:
+        cpu: "2"
+        memory: 4Gi
+      requests:
+        cpu: "1"
+        memory: 2Gi
+    memberAgentResources:
+      limits:
+        cpu: "1"
+        memory: 1Gi
+      requests:
+        cpu: "500m"
+        memory: 512Mi
+    arbiterResources:
+      limits:
+        cpu: "500m"
+        memory: 512Mi
+      requests:
+        cpu: "250m"
+        memory: 256Mi
+    arbiterAgentResources:
+      limits:
+        cpu: "500m"
+        memory: 512Mi
+      requests:
+        cpu: "250m"
+        memory: 256Mi
+```
+
+In this example:
+- Member pods: `mongod` container gets 2 CPU / 4Gi memory (limits), `mongodb-agent` container gets 1 CPU / 1Gi memory (limits)
+- Arbiter pods: Both containers get 500m CPU / 512Mi memory (limits)
+
+**NOTE:** If you need additional customization beyond resource specifications, use the `spec.statefulSet.spec.template.spec.containers` configuration.
+
 ## Upgrade your MongoDBCommunity Resource Version and Feature Compatibility Version
 
 You can upgrade the major, minor, and/or feature compatibility versions of your MongoDBCommunity resource. These settings are configured in your resource definition YAML file.
@@ -274,23 +340,23 @@ To define a custom role:
 
 1. Add the following fields to the MongoDBCommunity resource definition:
 
-   | Key | Type | Description | Required? |
-   |----|----|----|----|
-   | `spec.security.authentication.ignoreUnknownUsers` | boolean | Flag that indicates whether you can add users that don't exist in the `MongoDBCommunity` resource. If omitted, defaults to `true`. | No |
-   | `spec.security.roles` | array | Array that defines [custom roles](https://www.mongodb.com/docs/manual/core/security-user-defined-roles/) roles that give you fine-grained access control over your MongoDB deployment. | Yes |
-   | `spec.security.roles.role` | string | Name of the custom role. | Yes |
-   | `spec.security.roles.db` | string | Database in which you want to store the user-defined role. | Yes |
-   | `spec.security.roles.authenticationRestrictions` | array | Array that defines the IP address from which and to which users assigned this role can connect. | No |
-   | `spec.security.roles.authenticationRestrictions.clientSource` | array | Array of IP addresses or CIDR blocks from which users assigned this role can connect. <br><br> MongoDB servers reject connection requests from users with this role if the requests come from a client that is not present in this array. | No |
-   | `spec.security.roles.authenticationRestrictions.serverAddress` | array | Array of IP addresses or CIDR blocks to which users assigned this role can connect. <br><br> MongoDB servers reject connection requests from users with this role if the client requests to connect to a server that is not present in this array. | No |
-   | `spec.security.roles.privileges` | array | List of actions that users granted this role can perform. For a list of accepted values, see [Privilege Actions](https://www.mongodb.com/docs/manual/reference/privilege-actions/#database-management-actions) in the MongoDB Manual for the MongoDB versions you deploy with the Kubernetes Operator. | Yes |
-   | `spec.security.roles.privileges.actions` | array | Name of the role. Valid values are [built-in roles](https://www.mongodb.com/docs/manual/reference/built-in-roles/#built-in-roles). | Yes |
-   | `spec.security.roles.privileges.resource.database`| string | Database for which the privilege `spec.security.roles.privileges.actions` apply. An empty string (`""`) indicates that the privilege actions apply to all databases. <br><br> If you provide a value for this setting, you must also provide a value for `spec.security.roles.privileges.resource.collection`. | Conditional |
-   | `spec.security.roles.privileges.resource.collection`| string | Collection for which the privilege `spec.security.roles.privileges.actions` apply. An empty string (`""`) indicates that the privilege actions apply to all of the database's collections.<br><br> If you provide a value for this setting, you must also provide a value for `spec.security.roles.privileges.resource.database`. | Conditional |
-   | `spec.security.roles.privileges.resource.cluster`| string | Flag that indicates that the privilege `spec.security.roles.privileges.actions` apply to all databases and collections in the MongoDB deployment. If omitted, defaults to `false`.<br><br> If set to `true`, do not provide values for `spec.security.roles.privileges.resource.database` and `spec.security.roles.privileges.resource.collection`. | Conditional |
-   | `spec.security.roles.roles`| array | An array of roles from which this role inherits privileges. <br><br> You must include the roles field. Use an empty array (`[]`) to specify no roles to inherit from. | Yes |
-   | `spec.security.roles.roles.role` | string | Name of the role to inherit from. | Conditional |
-   | `spec.security.roles.roles.database` | string | Name of database that contains the role to inherit from. | Conditional |
+   | Key                                                            | Type    | Description                                                                                                                                                                                                                                                                                                                                         | Required?   |
+   | -------------------------------------------------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- |
+   | `spec.security.authentication.ignoreUnknownUsers`              | boolean | Flag that indicates whether you can add users that don't exist in the `MongoDBCommunity` resource. If omitted, defaults to `true`.                                                                                                                                                                                                                  | No          |
+   | `spec.security.roles`                                          | array   | Array that defines [custom roles](https://www.mongodb.com/docs/manual/core/security-user-defined-roles/) roles that give you fine-grained access control over your MongoDB deployment.                                                                                                                                                              | Yes         |
+   | `spec.security.roles.role`                                     | string  | Name of the custom role.                                                                                                                                                                                                                                                                                                                            | Yes         |
+   | `spec.security.roles.db`                                       | string  | Database in which you want to store the user-defined role.                                                                                                                                                                                                                                                                                          | Yes         |
+   | `spec.security.roles.authenticationRestrictions`               | array   | Array that defines the IP address from which and to which users assigned this role can connect.                                                                                                                                                                                                                                                     | No          |
+   | `spec.security.roles.authenticationRestrictions.clientSource`  | array   | Array of IP addresses or CIDR blocks from which users assigned this role can connect. <br><br> MongoDB servers reject connection requests from users with this role if the requests come from a client that is not present in this array.                                                                                                           | No          |
+   | `spec.security.roles.authenticationRestrictions.serverAddress` | array   | Array of IP addresses or CIDR blocks to which users assigned this role can connect. <br><br> MongoDB servers reject connection requests from users with this role if the client requests to connect to a server that is not present in this array.                                                                                                  | No          |
+   | `spec.security.roles.privileges`                               | array   | List of actions that users granted this role can perform. For a list of accepted values, see [Privilege Actions](https://www.mongodb.com/docs/manual/reference/privilege-actions/#database-management-actions) in the MongoDB Manual for the MongoDB versions you deploy with the Kubernetes Operator.                                              | Yes         |
+   | `spec.security.roles.privileges.actions`                       | array   | Name of the role. Valid values are [built-in roles](https://www.mongodb.com/docs/manual/reference/built-in-roles/#built-in-roles).                                                                                                                                                                                                                  | Yes         |
+   | `spec.security.roles.privileges.resource.database`             | string  | Database for which the privilege `spec.security.roles.privileges.actions` apply. An empty string (`""`) indicates that the privilege actions apply to all databases. <br><br> If you provide a value for this setting, you must also provide a value for `spec.security.roles.privileges.resource.collection`.                                      | Conditional |
+   | `spec.security.roles.privileges.resource.collection`           | string  | Collection for which the privilege `spec.security.roles.privileges.actions` apply. An empty string (`""`) indicates that the privilege actions apply to all of the database's collections.<br><br> If you provide a value for this setting, you must also provide a value for `spec.security.roles.privileges.resource.database`.                   | Conditional |
+   | `spec.security.roles.privileges.resource.cluster`              | string  | Flag that indicates that the privilege `spec.security.roles.privileges.actions` apply to all databases and collections in the MongoDB deployment. If omitted, defaults to `false`.<br><br> If set to `true`, do not provide values for `spec.security.roles.privileges.resource.database` and `spec.security.roles.privileges.resource.collection`. | Conditional |
+   | `spec.security.roles.roles`                                    | array   | An array of roles from which this role inherits privileges. <br><br> You must include the roles field. Use an empty array (`[]`) to specify no roles to inherit from.                                                                                                                                                                               | Yes         |
+   | `spec.security.roles.roles.role`                               | string  | Name of the role to inherit from.                                                                                                                                                                                                                                                                                                                   | Conditional |
+   | `spec.security.roles.roles.database`                           | string  | Name of database that contains the role to inherit from.                                                                                                                                                                                                                                                                                            | Conditional |
 
    ```yaml
    ---

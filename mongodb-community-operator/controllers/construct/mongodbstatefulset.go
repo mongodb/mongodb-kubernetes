@@ -119,7 +119,7 @@ type MongoDBStatefulSetOwner interface {
 // BuildMongoDBReplicaSetStatefulSetModificationFunction builds the parts of the replica set that are common between every resource that implements
 // MongoDBStatefulSetOwner.
 // It doesn't configure TLS or additional containers/env vars that the statefulset might need.
-func BuildMongoDBReplicaSetStatefulSetModificationFunction(mdb MongoDBStatefulSetOwner, scaler scale.ReplicaSetScaler, mongodbImage, agentImage, versionUpgradeHookImage, readinessProbeImage string, withInitContainers bool, initAppDBImage string) statefulset.Modification {
+func BuildMongoDBReplicaSetStatefulSetModificationFunction(mdb MongoDBStatefulSetOwner, scaler scale.ReplicaSetScaler, mongodbImage, agentImage, versionUpgradeHookImage, readinessProbeImage string, withInitContainers bool, initAppDBImage string, mongodResources *corev1.ResourceRequirements, agentResources *corev1.ResourceRequirements) statefulset.Modification {
 	labels := map[string]string{
 		"app": mdb.ServiceName(),
 	}
@@ -242,8 +242,8 @@ func BuildMongoDBReplicaSetStatefulSetModificationFunction(mdb MongoDBStatefulSe
 				podtemplatespec.WithVolume(tmpVolume),
 				podtemplatespec.WithVolume(keyFileVolume),
 				podtemplatespec.WithServiceAccount(mongodbDatabaseServiceAccountName),
-				podtemplatespec.WithContainer(AgentName, mongodbAgentContainer(mdb.AutomationConfigSecretName(), mongodbAgentVolumeMounts, agentLogLevel, agentLogFile, agentMaxLogFileDurationHours, agentImage)),
-				podtemplatespec.WithContainer(MongodbName, mongodbContainer(mongodbImage, mongodVolumeMounts, mdb.GetMongodConfiguration(), !withInitContainers)),
+				podtemplatespec.WithContainer(AgentName, mongodbAgentContainer(mdb.AutomationConfigSecretName(), mongodbAgentVolumeMounts, agentLogLevel, agentLogFile, agentMaxLogFileDurationHours, agentImage, agentResources)),
+				podtemplatespec.WithContainer(MongodbName, mongodbContainer(mongodbImage, mongodVolumeMounts, mdb.GetMongodConfiguration(), !withInitContainers, mongodResources)),
 				withStaticContainerModification,
 				upgradeInitContainer,
 				readinessInitContainer,
@@ -296,14 +296,18 @@ fi
 `, agentPrepareScript)
 }
 
-func mongodbAgentContainer(automationConfigSecretName string, volumeMounts []corev1.VolumeMount, logLevel mdbv1.LogLevel, logFile string, maxLogFileDurationHours int, agentImage string) container.Modification {
+func mongodbAgentContainer(automationConfigSecretName string, volumeMounts []corev1.VolumeMount, logLevel mdbv1.LogLevel, logFile string, maxLogFileDurationHours int, agentImage string, resources *corev1.ResourceRequirements) container.Modification {
 	_, containerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
+	resourceReqs := resourcerequirements.Defaults()
+	if resources != nil {
+		resourceReqs = *resources
+	}
 	return container.Apply(
 		container.WithName(AgentName),
 		container.WithImage(agentImage),
 		container.WithImagePullPolicy(corev1.PullAlways),
 		container.WithReadinessProbe(DefaultReadiness()),
-		container.WithResourceRequirements(resourcerequirements.Defaults()),
+		container.WithResourceRequirements(resourceReqs),
 		container.WithVolumeMounts(volumeMounts),
 		container.WithCommand(AutomationAgentCommand(false, false, logLevel, logFile, maxLogFileDurationHours)),
 		containerSecurityContext,
@@ -480,7 +484,7 @@ echo "Starting mongod..."
 `, signalHandling, filePath, keyfileFilePath, mongodExec)
 }
 
-func mongodbContainer(mongodbImage string, volumeMounts []corev1.VolumeMount, additionalMongoDBConfig mdbv1.MongodConfiguration, isStatic bool) container.Modification {
+func mongodbContainer(mongodbImage string, volumeMounts []corev1.VolumeMount, additionalMongoDBConfig mdbv1.MongodConfiguration, isStatic bool, resources *corev1.ResourceRequirements) container.Modification {
 	filePath := additionalMongoDBConfig.GetDBDataDir() + "/" + automationMongodConfFileName
 	mongoDbCommand := buildMongodbCommand(filePath, isStatic)
 
@@ -491,11 +495,15 @@ func mongodbContainer(mongodbImage string, volumeMounts []corev1.VolumeMount, ad
 	}
 
 	_, containerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
+	resourceReqs := resourcerequirements.Defaults()
+	if resources != nil {
+		resourceReqs = *resources
+	}
 
 	return container.Apply(
 		container.WithName(MongodbName),
 		container.WithImage(mongodbImage),
-		container.WithResourceRequirements(resourcerequirements.Defaults()),
+		container.WithResourceRequirements(resourceReqs),
 		container.WithCommand(containerCommand),
 		// The official image provides both CMD and ENTRYPOINT. We're reusing the former and need to replace
 		// the latter with an empty string.

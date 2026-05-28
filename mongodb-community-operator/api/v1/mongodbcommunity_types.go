@@ -80,6 +80,11 @@ type MongoDBCommunitySpec struct {
 	// +optional
 	Arbiters int `json:"arbiters"`
 
+	// Resources allows users to specify custom resource requests and limits for MongoDB containers.
+	// Provides granular control over mongod and mongodb-agent containers in both member and arbiter pods.
+	// +optional
+	Resources *ResourcesSpec `json:"resources,omitempty"`
+
 	// FeatureCompatibilityVersion configures the feature compatibility version that will
 	// be set for the deployment
 	// +optional
@@ -192,6 +197,25 @@ func NewMapWrapper() MapWrapper {
 func (m MapWrapper) SetOption(key string, value interface{}) MapWrapper {
 	m.Object = objx.New(m.Object).Set(key, value)
 	return m
+}
+
+// ResourcesSpec defines resource requirements for MongoDB containers.
+type ResourcesSpec struct {
+	// MemberResources defines resource requirements for the mongod container in member pods.
+	// +optional
+	MemberResources *corev1.ResourceRequirements `json:"memberResources,omitempty"`
+
+	// MemberAgentResources defines resource requirements for the mongodb-agent container in member pods.
+	// +optional
+	MemberAgentResources *corev1.ResourceRequirements `json:"memberAgentResources,omitempty"`
+
+	// ArbiterResources defines resource requirements for the mongod container in arbiter pods.
+	// +optional
+	ArbiterResources *corev1.ResourceRequirements `json:"arbiterResources,omitempty"`
+
+	// ArbiterAgentResources defines resource requirements for the mongodb-agent container in arbiter pods.
+	// +optional
+	ArbiterAgentResources *corev1.ResourceRequirements `json:"arbiterAgentResources,omitempty"`
 }
 
 // ReplicaSetHorizonConfiguration holds the split horizon DNS settings for
