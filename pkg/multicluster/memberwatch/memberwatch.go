@@ -21,10 +21,10 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster/failedcluster"
 )
 
-const REQUIRED_HEALTHY_STREAK = 5
+const requiredHealthyStreak = 5
 
 type MemberClusterHealthChecker struct {
-	Cache         map[string]*MemberHeathCheck
+	Cache         map[string]ClusterHealthChecker
 	HealthyStreak map[string]int
 }
 
@@ -118,14 +118,14 @@ func (m *MemberClusterHealthChecker) WatchMemberClusterHealth(ctx context.Contex
 				}
 
 				// If failover is disabled we should remove the cluster from the annotation after a number of health checks have succeeded
-				m.HealthyStreak[k] = min(m.HealthyStreak[k]+1, REQUIRED_HEALTHY_STREAK)
-				if m.HealthyStreak[k] == REQUIRED_HEALTHY_STREAK {
+				m.HealthyStreak[k] = min(m.HealthyStreak[k]+1, requiredHealthyStreak)
+				if m.HealthyStreak[k] == requiredHealthyStreak {
 					for _, mdbm := range mdbmList.Items {
 						if isInFailedClusterAnnotation(mdbm.Annotations, k) {
 							log.Infof("Enqueuing resource: %s, because cluster %s has come back up", mdbm.Name, k)
 							err := removeClusterFromFailedAnnotation(ctx, mdbm, k, centralClient)
 							if err != nil {
-								log.Errorf("Failed to add remove cluster from the annotation of the mdbmc resource: %s, error: %s", mdbm.Name, err)
+								log.Errorf("Failed to remove cluster %s from failed annotation on %s: %s", k, mdbm.Name, err)
 							}
 							watchChannel <- event.GenericEvent{Object: &mdbm}
 						}
