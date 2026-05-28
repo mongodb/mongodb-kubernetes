@@ -1,0 +1,182 @@
+"""E2E test: Envoy CDS hot-reload does not break active cursors.
+
+Proves that filesystem xDS CDS reload (triggered by ConfigMap update)
+does not disrupt in-flight gRPC streams. The test opens a paging cursor,
+patches the CDS ConfigMap with a circuit breaker change, waits for
+envoy to reload, then verifies the cursor still works.
+"""
+
+from __future__ import annotations
+
+import json
+
+import pytest
+from kubetester.kubetester import KubernetesTester, run_periodically
+from kubetester.mongodb import MongoDB
+from kubetester.mongodb_search import MongoDBSearch
+from tests import test_logger
+from tests.common.mongodb_tools_pod import mongodb_tools_pod
+from tests.common.search import search_resource_names
+from tests.common.search.bootstrap_test_mixins import (
+    MongoDBShardedDeploymentConfig,
+    MongoDBShardedDeploymentTests,
+    SearchShardedDeploymentTests,
+    SearchShardedE2EFixtures,
+    SearchShardedSampleDataAndIndex,
+    _derive_user_defaults,
+)
+from tests.common.search.connectivity import SearchConnectivityTool, set_resource_disabled_annotation
+from tests.common.search.sharded_search_helper import get_search_tester
+
+logger = test_logger.get_test_logger(__name__)
+
+pytestmark = pytest.mark.e2e_search_cds_hot_reload
+
+def configure_mongodb_sharded_config(cfg: MongoDBShardedDeploymentConfig) -> MongoDBShardedDeploymentConfig:
+    cfg.mdb_resource_name = "mdb-sh-cds-reload"
+    cfg.mongot_replicas = 2
+    cfg.admin_user_name = ""
+    cfg.admin_user_password = ""
+    cfg.user_name = ""
+    cfg.user_password = ""
+    _derive_user_defaults(cfg)
+    return cfg
+
+class TestSearchWithShardedCluster(
+    SearchShardedDeploymentTests,
+    MongoDBShardedDeploymentTests,
+):
+    def build_mongodb_sharded_config(self) -> MongoDBShardedDeploymentConfig:
+        return configure_mongodb_sharded_config(super().build_mongodb_sharded_config())
+
+
+class TestSearchSampleDataAndIndex(
+    SearchShardedSampleDataAndIndex,
+    SearchShardedE2EFixtures,
+):
+    def build_mongodb_sharded_config(self) -> MongoDBShardedDeploymentConfig:
+        return configure_mongodb_sharded_config(super().build_mongodb_sharded_config())
+
+
+class TestSearchCDSHotReload(SearchShardedE2EFixtures):
+    def build_mongodb_sharded_config(self) -> MongoDBShardedDeploymentConfig:
+        return configure_mongodb_sharded_config(super().build_mongodb_sharded_config())
+
+    def test_cursor_survives_cds_hot_reload(
+        self,
+        mdb: MongoDB,
+        mdbs: MongoDBSearch,
+        namespace: str,
+        search_tools_pod: mongodb_tools_pod.ToolsPod,
+    ):
+        # Create connectivity tool (sharded — connects via mongos)
+        cfg = self.build_mongodb_sharded_config()
+        tester = get_search_tester(mdb, cfg.user_name, cfg.user_password, use_ssl=True)
+        tool = SearchConnectivityTool(tester)
+        _wait_for_search_serving(tool)
+
+        # Open paging cursor, read pre-reload pages
+        cursor = tool.paging_cursor_open(batch_size=10)
+        try:
+            pre_pages = tool.paging_cursor_read_pages(cursor, pages=3, interval_seconds=0.5, batch_size=10)
+            assert all(p.success for p in pre_pages), f"pre-reload pages should all succeed: {pre_pages}"
+            logger.info(f"Pre-reload: {len(pre_pages)} pages read successfully")
+
+            # Disable reconciliation so the operator won't overwrite our ConfigMap patch
+            set_resource_disabled_annotation(mdbs, True)
+
+            # Get current CDS reload count from envoy admin stats
+            envoy_pod_ip = _get_envoy_pod_ip(namespace, mdbs.name)
+            initial_cds_updates = _get_cds_update_count(search_tools_pod, envoy_pod_ip)
+            logger.info(f"Initial CDS update_success count: {initial_cds_updates}")
+
+            # Patch CDS ConfigMap with modified circuit breaker
+            cm_name = search_resource_names.lb_configmap_name(mdbs.name)
+            cm_data = KubernetesTester.read_configmap(namespace, cm_name)
+            patched_cds = _modify_cds_circuit_breaker(cm_data["cds.json"])
+            logger.info(f"Patching ConfigMap {cm_name} with modified circuit breaker (max_connections doubled)")
+            KubernetesTester.update_configmap(namespace, cm_name, {**cm_data, "cds.json": patched_cds})
+
+            # Wait for Envoy to reload (poll stats until cds.update_success increments)
+            _wait_for_cds_reload(search_tools_pod, envoy_pod_ip, initial_cds_updates)
+
+            # Read more pages — cursor should still work
+            post_pages = tool.paging_cursor_read_pages(
+                cursor, pages=5, interval_seconds=0.5, batch_size=10, first_page_index=len(pre_pages)
+            )
+            verdict = tool.verdict(post_pages)
+            logger.info(f"Post-reload verdict: {verdict.as_dict()}")
+            assert verdict.failed == 0, f"cursor broken after CDS reload: {verdict.as_dict()}"
+            assert verdict.succeeded > 0, "expected successful pages after reload"
+        finally:
+            cursor.close()
+            set_resource_disabled_annotation(mdbs, False)
+
+def _wait_for_search_serving(tool: SearchConnectivityTool, timeout: float = 300.0) -> None:
+    tool.wait_for_sentinel_indexed(timeout=timeout)
+
+
+def _get_envoy_pod_ip(namespace: str, search_name: str) -> str:
+    deployment_name = search_resource_names.lb_deployment_name(search_name)
+    pods = KubernetesTester.read_pod_labels(namespace, label_selector=f"app={deployment_name}")
+    assert pods.items, f"no envoy pods found with label app={deployment_name}"
+    pod_ip = pods.items[0].status.pod_ip
+    logger.info(f"Envoy pod IP: {pod_ip} (pod: {pods.items[0].metadata.name})")
+    return pod_ip
+
+
+def _get_cds_update_count(tools_pod: mongodb_tools_pod.ToolsPod, envoy_pod_ip: str) -> int:
+    """Query envoy admin stats via the tools pod to get CDS update count."""
+    output = tools_pod.run_command(["wget", "-qO-", f"http://{envoy_pod_ip}:9901/stats"])
+    for line in output.splitlines():
+        if "cluster_manager.cds.update_success" in line:
+            return int(line.split(":")[1].strip())
+    return 0
+
+
+def _wait_for_cds_reload(
+    tools_pod: mongodb_tools_pod.ToolsPod,
+    envoy_pod_ip: str,
+    initial_count: int,
+    timeout: float = 180.0,
+) -> None:
+    # Poll envoy's /stats endpoint until cds.update_success exceeds initial_count.
+    # that would mean that new config has been loaded by envoy
+
+    def check():
+        current = _get_cds_update_count(tools_pod, envoy_pod_ip)
+        if current > initial_count:
+            return True, f"CDS reloaded: {initial_count} -> {current}"
+        return False, f"CDS update_success still at {current} (waiting for > {initial_count})"
+
+    run_periodically(check, timeout=timeout, sleep_time=5, msg="Envoy CDS reload")
+
+
+def _modify_cds_circuit_breaker(cds_json: str) -> str:
+    """Parse CDS JSON and bump max_connections from 1024 to 2048 on all clusters.
+
+    Actual CDS JSON structure (from ConfigMap):
+    {
+      "resources": [{
+        "@type": "type.googleapis.com/envoy.config.cluster.v3.Cluster",
+        "circuit_breakers": {
+          "thresholds": [{
+            "max_connections": 1024,
+            "max_pending_requests": 1024,
+            "max_requests": 1024,
+            "max_retries": 3
+          }]
+        }
+      }]
+    }
+    """
+    cds = json.loads(cds_json)
+    modified_count = 0
+    for resource in cds.get("resources", []):
+        thresholds = resource.get("circuit_breakers", {}).get("thresholds", [])
+        for threshold in thresholds:
+            current = threshold.get("max_connections", 1024)
+            threshold["max_connections"] = current * 2
+            modified_count += 1
+    logger.info(f"Modified circuit breaker max_connections on {modified_count} threshold(s)")
+    return json.dumps(cds, indent=2)
