@@ -18,13 +18,21 @@ TOOLS_POD_IMAGE = (
 class ToolsPod:
     """A pod running MongoDB tools for executing commands like mongorestore inside the cluster."""
 
-    def __init__(self, namespace: str):
+    def __init__(self, namespace: str, api_client=None):
         self.namespace = namespace
         self.pod_name = TOOLS_POD_NAME
-        self.core_v1 = client.CoreV1Api()
+        self.api_client = api_client
+        self.core_v1 = client.CoreV1Api(api_client=api_client) if api_client else client.CoreV1Api()
 
     def run_command(self, cmd: list[str]):
-        """Execute a command in the tools pod and return the output."""
+        """Execute a command in the tools pod and return the output.
+
+        Raises RuntimeError on non-zero exit so callers don't silently miss
+        failed mongorestore / similar commands (the prior fire-and-forget
+        behaviour let a cross-cluster DNS-resolution failure on mongorestore
+        propagate as an empty restored database and a confused $search
+        downstream).
+        """
         logger.debug(f"Running command in {self.pod_name}: {' '.join(cmd)}")
         resp = stream(
             self.core_v1.connect_get_namespaced_pod_exec,
@@ -36,9 +44,28 @@ class ToolsPod:
             stdin=False,
             stdout=True,
             tty=False,
+            _preload_content=False,
         )
-        logger.debug(f"Command output: {resp}")
-        return resp
+        stdout_chunks = []
+        stderr_chunks = []
+        while resp.is_open():
+            resp.update(timeout=1)
+            if resp.peek_stdout():
+                stdout_chunks.append(resp.read_stdout())
+            if resp.peek_stderr():
+                stderr_chunks.append(resp.read_stderr())
+        stdout = "".join(stdout_chunks)
+        stderr = "".join(stderr_chunks)
+        rc = resp.returncode
+        resp.close()
+        logger.debug(f"Command stdout: {stdout}")
+        if stderr:
+            logger.debug(f"Command stderr: {stderr}")
+        if rc not in (0, None):
+            raise RuntimeError(
+                f"Command in {self.pod_name} exited rc={rc}: {' '.join(cmd)}\n" f"stderr: {stderr}\nstdout: {stdout}"
+            )
+        return stdout
 
     def copy_file_to_pod(self, src_path: str, dest_path: str):
         """Copy a file from the local filesystem to the tools pod."""
@@ -100,14 +127,24 @@ class ToolsPod:
             else:
                 raise
 
-        pod = get_pod_when_ready(self.namespace, "app=mongodb-tools", default_retry=120)
+        pod = get_pod_when_ready(
+            self.namespace,
+            "app=mongodb-tools",
+            api_client=self.api_client,
+            default_retry=120,
+        )
         if pod is None:
             raise TimeoutError(f"Timed out waiting for {self.pod_name} to be ready")
         logger.info(f"{self.pod_name} is ready")
 
 
-def get_tools_pod(namespace: str) -> ToolsPod:
-    """Create and return a ready tools pod in the given namespace."""
-    tools_pod = ToolsPod(namespace)
+def get_tools_pod(namespace: str, api_client=None) -> ToolsPod:
+    """Create and return a ready tools pod in the given namespace.
+
+    Pass api_client to target a member cluster's API (e.g. when the
+    in-pod commands need to resolve member-cluster DNS that the central
+    cluster doesn't see).
+    """
+    tools_pod = ToolsPod(namespace, api_client=api_client)
     tools_pod.run_pod_and_wait()
     return tools_pod

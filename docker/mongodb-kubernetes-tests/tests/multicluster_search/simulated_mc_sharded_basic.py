@@ -47,6 +47,7 @@ from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests import test_logger
+from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.mongodb_tools_pod.mongodb_tools_pod import ToolsPod
 from tests.common.search import search_resource_names
 from tests.common.search.movies_search_helper import SampleMoviesSearchHelper
@@ -377,6 +378,27 @@ def mongot_user(namespace: str, central_cluster_client: kubernetes.client.ApiCli
         namespace,
         central_cluster_client,
     )
+
+
+@fixture(scope="module")
+def tools_pod(
+    namespace: str,
+    member_cluster_clients: List[MultiClusterClient],
+) -> ToolsPod:
+    """Override the shared tools_pod fixture to put the pod on a MEMBER cluster.
+
+    The default fixture (tests/multicluster_search/conftest.py) creates the
+    pod on the central cluster. From the central cluster, the member-cluster
+    mongos pod-FQDN `mdb-mc-sim-sh-mongos-0-0-svc.NS.svc.cluster.local` does
+    NOT resolve (no cross-cluster DNS without an explicit Istio ServiceEntry),
+    so mongorestore exited with `dial tcp: lookup ... no such host` — the
+    failure was previously swallowed by ToolsPod.run_command and surfaced as
+    an empty sample_mflix collection / 0-row `$search`.
+
+    Putting the tools pod on `member_cluster_clients[0]` means its DNS sees
+    `mongos-0-0-svc` locally; mongorestore can dial it directly.
+    """
+    return mongodb_tools_pod.get_tools_pod(namespace, api_client=member_cluster_clients[0].api_client)
 
 
 @fixture(scope="module")
