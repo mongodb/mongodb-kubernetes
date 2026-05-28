@@ -15,7 +15,7 @@ import (
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/secret"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
@@ -46,7 +46,7 @@ func EnsureAgentKeySecretExists(ctx context.Context, secretClient secrets.Secret
 	log = log.With("secret", secretName)
 	agentKeySecret, err := secretClient.ReadSecret(ctx, kube.ObjectKey(namespace, secretName), basePath)
 	if err != nil {
-		if !secrets.SecretNotExist(err) {
+		if !secret.SecretNotExist(err) {
 			return "", xerrors.Errorf("error reading agent key secret: %w", err)
 		}
 

@@ -14,18 +14,17 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
 	"github.com/mongodb/mongodb-kubernetes/pkg/handler"
-	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/container"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/persistentvolumeclaim"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/podtemplatespec"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/probes"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/merge"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/scale"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/persistentvolumeclaim"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/podtemplatespec"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/probes"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/scale"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
@@ -147,7 +146,7 @@ type databaseStatefulSetSource interface {
 
 	GetSecurity() *mdbv1.Security
 
-	GetPrometheus() *mdbcv1.Prometheus
+	GetPrometheus() *v1.Prometheus
 
 	GetAnnotations() map[string]string
 }
@@ -580,7 +579,7 @@ func buildPersistentVolumeClaimsFuncs(opts DatabaseStatefulSetOptions) (map[stri
 	if podSpec.Persistence == nil ||
 		(podSpec.Persistence.SingleConfig == nil && podSpec.Persistence.MultipleConfig == nil) ||
 		podSpec.Persistence.SingleConfig != nil {
-		var config *common.PersistenceConfig
+		var config *v1.PersistenceConfig
 		if podSpec.Persistence != nil && podSpec.Persistence.SingleConfig != nil {
 			config = podSpec.Persistence.SingleConfig
 		}
@@ -624,7 +623,7 @@ func sharedDatabaseContainerFunc(databaseImage string, podSpecWrapper mdbv1.PodS
 //
 // The Secret will be mounted in:
 // `/var/lib/mongodb-automation/secrets/prometheus`.
-func getTLSPrometheusVolumeAndVolumeMount(prom *mdbcv1.Prometheus) ([]corev1.Volume, []corev1.VolumeMount) {
+func getTLSPrometheusVolumeAndVolumeMount(prom *v1.Prometheus) ([]corev1.Volume, []corev1.VolumeMount) {
 	volumes := []corev1.Volume{}
 	volumeMounts := []corev1.VolumeMount{}
 

@@ -11,26 +11,17 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 
-	mdbv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/container"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/persistentvolumeclaim"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/podtemplatespec"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/probes"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/resourcerequirements"
+	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/readiness/config"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/scale"
+	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/persistentvolumeclaim"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/podtemplatespec"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/probes"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/resourcerequirements"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
-)
-
-var OfficialMongodbRepoUrls = []string{"docker.io/mongodb", "quay.io/mongodb"}
-
-// Environment variables used to configure the MongoDB StatefulSet.
-const (
-	MongodbRepoUrlEnv = "MONGODB_REPO_URL"
-	MongodbImageEnv   = "MONGODB_IMAGE"
-	AgentImageEnv     = "AGENT_IMAGE"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/scale"
 )
 
 // MCO only
@@ -55,8 +46,6 @@ const (
 	clusterFilePath                   = "/var/lib/automation/config/cluster-config.json"
 	mongodbDatabaseServiceAccountName = "mongodb-kubernetes-appdb"
 	agentHealthStatusFilePathValue    = "/var/log/mongodb-mms-automation/healthstatus/agent-health-status.json"
-
-	OfficialMongodbEnterpriseServerImageName = "mongodb-enterprise-server"
 
 	headlessAgentEnv           = "HEADLESS_AGENT"
 	podNamespaceEnv            = "POD_NAMESPACE"
@@ -103,14 +92,14 @@ type MongoDBStatefulSetOwner interface {
 	// LogsVolumeName returns the name that the data volume should have.
 	LogsVolumeName() string
 	// GetAgentLogLevel returns the log level for the MongoDB automation agent.
-	GetAgentLogLevel() mdbv1.LogLevel
+	GetAgentLogLevel() v1.LogLevel
 	// GetAgentLogFile returns the log file for the MongoDB automation agent.
 	GetAgentLogFile() string
 	// GetAgentMaxLogFileDurationHours returns the number of hours after which the log file should be rolled.
 	GetAgentMaxLogFileDurationHours() int
 
 	// GetMongodConfiguration returns the MongoDB configuration for each member.
-	GetMongodConfiguration() mdbv1.MongodConfiguration
+	GetMongodConfiguration() v1.MongodConfiguration
 
 	// NeedsAutomationConfigVolume returns whether the statefulset needs to have a volume for the automationconfig.
 	NeedsAutomationConfigVolume() bool
@@ -204,7 +193,7 @@ func BuildMongoDBReplicaSetStatefulSetModificationFunction(mdb MongoDBStatefulSe
 
 	podSecurityContext, _ := podtemplatespec.WithDefaultSecurityContextsModifications()
 
-	agentLogLevel := mdbv1.LogLevelInfo
+	agentLogLevel := v1.LogLevelInfo
 	if mdb.GetAgentLogLevel() != "" {
 		agentLogLevel = mdb.GetAgentLogLevel()
 	}
@@ -257,7 +246,7 @@ func BaseAgentCommand() string {
 
 // AutomationAgentCommand withAgentAPIKeyExport detects whether we want to deploy this agent with the agent api key exported
 // it can be used to register the agent with OM.
-func AutomationAgentCommand(withStatic bool, withAgentAPIKeyExport bool, logLevel mdbv1.LogLevel, logFile string, maxLogFileDurationHours int) []string {
+func AutomationAgentCommand(withStatic bool, withAgentAPIKeyExport bool, logLevel v1.LogLevel, logFile string, maxLogFileDurationHours int) []string {
 	// This is somewhat undocumented at https://www.mongodb.com/docs/ops-manager/current/reference/mongodb-agent-settings/
 	// Not setting the -logFile option make the mongodb-agent log to stdout. Setting -logFile /dev/stdout will result in
 	// an error by the agent trying to open /dev/stdout-verbose and still trying to do log rotation.
@@ -296,7 +285,7 @@ fi
 `, agentPrepareScript)
 }
 
-func mongodbAgentContainer(automationConfigSecretName string, volumeMounts []corev1.VolumeMount, logLevel mdbv1.LogLevel, logFile string, maxLogFileDurationHours int, agentImage string) container.Modification {
+func mongodbAgentContainer(automationConfigSecretName string, volumeMounts []corev1.VolumeMount, logLevel v1.LogLevel, logFile string, maxLogFileDurationHours int, agentImage string) container.Modification {
 	_, containerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
 	return container.Apply(
 		container.WithName(AgentName),
@@ -480,7 +469,7 @@ echo "Starting mongod..."
 `, signalHandling, filePath, keyfileFilePath, mongodExec)
 }
 
-func mongodbContainer(mongodbImage string, volumeMounts []corev1.VolumeMount, additionalMongoDBConfig mdbv1.MongodConfiguration, isStatic bool) container.Modification {
+func mongodbContainer(mongodbImage string, volumeMounts []corev1.VolumeMount, additionalMongoDBConfig v1.MongodConfiguration, isStatic bool) container.Modification {
 	filePath := additionalMongoDBConfig.GetDBDataDir() + "/" + automationMongodConfFileName
 	mongoDbCommand := buildMongodbCommand(filePath, isStatic)
 

@@ -5,11 +5,10 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 
+	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/v1/user"
-	mdbc "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
+	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 )
 
 type OpsManagerBuilder struct {
@@ -192,7 +191,7 @@ func (b *OpsManagerBuilder) SetAppDbFeatureCompatibility(version string) *OpsMan
 }
 
 func (b *OpsManagerBuilder) SetStatefulSetSpec(customSpec appsv1.StatefulSetSpec) *OpsManagerBuilder {
-	b.om.Spec.StatefulSetConfiguration = &common.StatefulSetConfiguration{SpecWrapper: common.StatefulSetSpecWrapper{Spec: customSpec}}
+	b.om.Spec.StatefulSetConfiguration = &v1.StatefulSetConfiguration{SpecWrapper: v1.StatefulSetSpecWrapper{Spec: customSpec}}
 	return b
 }
 
@@ -211,7 +210,7 @@ func (b *OpsManagerBuilder) SetAppDBPassword(secretName, key string) *OpsManager
 	return b
 }
 
-func (b *OpsManagerBuilder) SetAppDBAutomationConfigOverride(acOverride mdbc.AutomationConfigOverride) *OpsManagerBuilder {
+func (b *OpsManagerBuilder) SetAppDBAutomationConfigOverride(acOverride v1.AutomationConfigOverride) *OpsManagerBuilder {
 	b.om.Spec.AppDB.AutomationConfigOverride = &acOverride
 	return b
 }

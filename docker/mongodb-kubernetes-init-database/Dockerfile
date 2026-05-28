@@ -35,6 +35,7 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY mongodb-community-operator ./mongodb-community-operator
+COPY pkg ./pkg
 
 ARG TARGETOS
 ARG TARGETARCH

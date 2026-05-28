@@ -182,6 +182,9 @@ const (
 	// Operator Env configuration properties. Please note that when adding environment variables to this list,
 	// make sure you append them to util.go:PrintEnvVars function's `printableEnvPrefixes` if you need the
 	// new variable to be printed at operator start.
+	MongodbRepoUrlEnv = "MONGODB_REPO_URL"
+	MongodbImageEnv   = "MONGODB_IMAGE"
+
 	OpsManagerImageUrl               = "OPS_MANAGER_IMAGE_REPOSITORY"
 	InitOpsManagerImageUrl           = "INIT_OPS_MANAGER_IMAGE_REPOSITORY"
 	InitOpsManagerVersion            = "INIT_OPS_MANAGER_VERSION"
@@ -201,6 +204,9 @@ const (
 	WatchNamespace                   = "WATCH_NAMESPACE"
 	OpsManagerMonitorAppDB           = "OPS_MANAGER_MONITOR_APPDB"
 	MongodbCommunityAgentImageEnv    = "MDB_COMMUNITY_AGENT_IMAGE"
+	AgentImageUrlEnv                 = "MDB_AGENT_IMAGE_REPOSITORY"
+	AgentImageUrlDefault             = "quay.io/mongodb/mongodb-agent"
+	AgentImageEnv                    = "AGENT_IMAGE"
 
 	MdbWebhookRegisterConfigurationEnv = "MDB_WEBHOOK_REGISTER_CONFIGURATION"
 	MdbWebhookPortEnv                  = "MDB_WEBHOOK_PORT"
@@ -323,9 +329,7 @@ const (
 
 	RetryTimeSec = 10
 
-	DeprecatedImageAppdbUbiUrl = "mongodb-enterprise-appdb-database-ubi"
-
-	OfficialEnterpriseServerImageUrl = "mongodb-enterprise-server"
+	OfficialEnterpriseServerImageName = "mongodb-enterprise-server"
 
 	MdbAppdbAssumeOldFormat = "MDB_APPDB_ASSUME_OLD_FORMAT"
 
@@ -352,6 +356,8 @@ const (
 var OperatorVersion string
 
 var LogAutomationConfigDiff string
+
+var OfficialMongodbRepoUrls = []string{"docker.io/mongodb", "quay.io/mongodb"}
 
 func ShouldLogAutomationConfigDiff() bool {
 	return strings.EqualFold(LogAutomationConfigDiff, "true")

@@ -14,8 +14,8 @@ import (
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
-	mekoService "github.com/mongodb/mongodb-kubernetes/pkg/kube/service"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/service"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 )
@@ -199,7 +199,7 @@ func Setup(ctx context.Context, client client.Client, serviceLocation types.Name
 		// After upgrading OLM version after migrating to proper OLM webhooks we don't need that `operator-service` anymore.
 		// By default, the service is created by the operator in createWebhookService below
 		// It will also be useful here if someone decides to disable automatic webhook configuration by the operator.
-		if err := mekoService.DeleteServiceIfItExists(ctx, kubernetesClient.NewClient(client), serviceLocation); err != nil {
+		if err := service.DeleteServiceIfItExists(ctx, kubernetesClient.NewClient(client), serviceLocation); err != nil {
 			log.Warnf("Failed to delete webhook service %v: %w", serviceLocation, err)
 			// we don't want to fail the operator startup if we cannot do the cleanup
 		}

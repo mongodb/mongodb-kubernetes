@@ -10,8 +10,9 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/authentication/authtypes"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/constants"
+	rootv1 "github.com/mongodb/mongodb-kubernetes/api/v1"
+	"github.com/mongodb/mongodb-kubernetes/pkg/authentication/authtypes"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
 )
 
 type args struct {
@@ -184,7 +185,7 @@ func TestMongoDB_MongoSRVURI_With_Options(t *testing.T) {
 }
 
 func TestMongodConfiguration(t *testing.T) {
-	mc := NewMongodConfiguration()
+	mc := rootv1.NewMongodConfiguration()
 	assert.Equal(t, mc.Object, map[string]interface{}{})
 	assert.Equal(t, mc.GetDBDataDir(), "/data")
 	assert.Equal(t, mc.GetDBPort(), 27017)
@@ -209,7 +210,7 @@ func TestMongodConfigurationWithNestedMapsAfterUnmarshalling(t *testing.T) {
 			"storage.dbPath": "/other/data/path"
 		}
 	`
-	mc := NewMongodConfiguration()
+	mc := rootv1.NewMongodConfiguration()
 	require.NoError(t, json.Unmarshal([]byte(jsonStr), &mc))
 	assert.Equal(t, map[string]interface{}{
 		"net": map[string]interface{}{
@@ -509,7 +510,7 @@ func TestMongoDBCommunity_GetAuthUsers(t *testing.T) {
 		{
 			Name:              "my-user",
 			DB:                "admin",
-			PasswordSecretRef: SecretKeyReference{Name: "my-user-password"},
+			PasswordSecretRef: rootv1.SecretKeyReference{Name: "my-user-password"},
 			Roles: []Role{
 				{
 					DB:   "admin",
@@ -518,12 +519,12 @@ func TestMongoDBCommunity_GetAuthUsers(t *testing.T) {
 			},
 			ScramCredentialsSecretName:       "my-scram",
 			ConnectionStringSecretName:       "",
-			AdditionalConnectionStringConfig: MapWrapper{},
+			AdditionalConnectionStringConfig: rootv1.MapWrapper{},
 		},
 		{
 			Name:              "CN=my-x509-authenticated-user,OU=organizationalunit,O=organization",
 			DB:                "$external",
-			PasswordSecretRef: SecretKeyReference{},
+			PasswordSecretRef: rootv1.SecretKeyReference{},
 			Roles: []Role{
 				{
 					DB:   "admin",
@@ -532,7 +533,7 @@ func TestMongoDBCommunity_GetAuthUsers(t *testing.T) {
 			},
 			ScramCredentialsSecretName:       "",
 			ConnectionStringSecretName:       "",
-			AdditionalConnectionStringConfig: MapWrapper{},
+			AdditionalConnectionStringConfig: rootv1.MapWrapper{},
 		},
 	}
 

@@ -27,12 +27,11 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status/pvc"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/service"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/merge"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
-	mekoService "github.com/mongodb/mongodb-kubernetes/pkg/kube/service"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/service"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/placeholders"
 	enterprisests "github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
@@ -71,14 +70,14 @@ func DatabaseInKubernetes(ctx context.Context, client kubernetesClient.Client, m
 		internalService.Spec.Ports = append(internalService.Spec.Ports, corev1.ServicePort{Port: int32(prom.GetPort()), Name: "prometheus"})
 	}
 
-	if err := mekoService.CreateOrUpdateService(ctx, client, internalService); err != nil {
+	if err := service.CreateOrUpdateService(ctx, client, internalService); err != nil {
 		return set, err
 	}
 
 	for podNum := 0; podNum < mdb.GetSpec().Replicas(); podNum++ {
 		namespacedName = kube.ObjectKey(mdb.Namespace, dns.GetExternalServiceName(set.Name, podNum))
 		if mdb.Spec.ExternalAccessConfiguration == nil {
-			if err := mekoService.DeleteServiceIfItExists(ctx, client, namespacedName); err != nil {
+			if err := service.DeleteServiceIfItExists(ctx, client, namespacedName); err != nil {
 				return set, err
 			}
 		} else {
@@ -271,7 +270,7 @@ func createExternalServices(ctx context.Context, client kubernetesClient.Client,
 		externalService.Annotations = processedAnnotations
 	}
 
-	err := mekoService.CreateOrUpdateService(ctx, client, externalService)
+	err := service.CreateOrUpdateService(ctx, client, externalService)
 	if err != nil && !apiErrors.IsAlreadyExists(err) {
 		return xerrors.Errorf("failed to created external service: %s, err: %w", externalService.Name, err)
 	}
@@ -381,7 +380,7 @@ func AppDBInKubernetes(ctx context.Context, client kubernetesClient.Client, opsM
 		internalService.Spec.Ports = append(internalService.Spec.Ports, corev1.ServicePort{Port: int32(prom.GetPort()), Name: "prometheus"})
 	}
 
-	return set, mekoService.CreateOrUpdateService(ctx, client, internalService)
+	return set, service.CreateOrUpdateService(ctx, client, internalService)
 }
 
 type StatefulSetIsRecreating struct {
@@ -423,7 +422,7 @@ func BackupDaemonInKubernetes(ctx context.Context, client kubernetesClient.Clien
 	internalService.OwnerReferences = ownerRefs
 	internalService.Spec.PublishNotReadyAddresses = false
 
-	return set, mekoService.CreateOrUpdateService(ctx, client, internalService)
+	return set, service.CreateOrUpdateService(ctx, client, internalService)
 }
 
 // OpsManagerInKubernetes creates all the required Kubernetes resources for Ops Manager.
@@ -461,7 +460,7 @@ func OpsManagerInKubernetes(ctx context.Context, memberCluster multicluster.Memb
 		}
 	}
 
-	if err := mekoService.CreateOrUpdateService(ctx, memberCluster.Client, internalService); err != nil {
+	if err := service.CreateOrUpdateService(ctx, memberCluster.Client, internalService); err != nil {
 		return nil, err
 	}
 
@@ -479,11 +478,11 @@ func OpsManagerInKubernetes(ctx context.Context, memberCluster multicluster.Memb
 			}
 		}
 
-		if err := mekoService.CreateOrUpdateService(ctx, memberCluster.Client, svc); err != nil {
+		if err := service.CreateOrUpdateService(ctx, memberCluster.Client, svc); err != nil {
 			return nil, err
 		}
 	} else {
-		if err := mekoService.DeleteServiceIfItExists(ctx, memberCluster.Client, namespacedName); err != nil {
+		if err := service.DeleteServiceIfItExists(ctx, memberCluster.Client, namespacedName); err != nil {
 			return nil, err
 		}
 	}

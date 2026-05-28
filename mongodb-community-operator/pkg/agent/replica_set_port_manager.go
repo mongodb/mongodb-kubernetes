@@ -5,7 +5,8 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
+	"github.com/mongodb/mongodb-kubernetes/pkg/agent"
+	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 )
 
 // ReplicaSetPortManager is used to determine which ports should be set in pods (mongod processes) and in the service.
@@ -24,11 +25,11 @@ import (
 type ReplicaSetPortManager struct {
 	log                *zap.SugaredLogger
 	expectedPort       int
-	currentPodStates   []PodState
+	currentPodStates   []agent.PodState
 	currentACProcesses []automationconfig.Process
 }
 
-func NewReplicaSetPortManager(log *zap.SugaredLogger, expectedPort int, currentPodStates []PodState, currentACProcesses []automationconfig.Process) *ReplicaSetPortManager {
+func NewReplicaSetPortManager(log *zap.SugaredLogger, expectedPort int, currentPodStates []agent.PodState, currentACProcesses []automationconfig.Process) *ReplicaSetPortManager {
 	return &ReplicaSetPortManager{log: log, expectedPort: expectedPort, currentPodStates: currentPodStates, currentACProcesses: currentACProcesses}
 }
 
