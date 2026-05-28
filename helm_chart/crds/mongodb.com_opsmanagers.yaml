@@ -502,6 +502,32 @@ spec:
                       - members
                       type: object
                     type: array
+                  connection:
+                    description: |-
+                      Connection, when set, switches AppDB agents from headless mode to online
+                      mode connected to the referenced external Ops Manager instance.
+                      Follows the same ConfigMap + credentials Secret pattern as any MongoDB CR.
+                    properties:
+                      cloudManager:
+                        properties:
+                          configMapRef:
+                            properties:
+                              name:
+                                type: string
+                            type: object
+                        type: object
+                      credentials:
+                        description: Name of the Secret holding credentials information
+                        type: string
+                      opsManager:
+                        properties:
+                          configMapRef:
+                            properties:
+                              name:
+                                type: string
+                            type: object
+                        type: object
+                    type: object
                   connectivity:
                     properties:
                       replicaSetHorizons:
@@ -557,42 +583,6 @@ spec:
                     type: object
                   featureCompatibilityVersion:
                     type: string
-                  managedByMetaOM:
-                    description: |-
-                      ManagedByMetaOM, when set, transitions AppDB agents from headless mode
-                      to online mode managed by the referenced secondary (Meta) Ops Manager.
-                    properties:
-                      credentialsSecretRef:
-                        description: |-
-                          CredentialsSecretRef references a Secret containing Meta OM admin
-                          API credentials. The Secret must have keys "publicKey" and "privateKey".
-                          This is mostly useful for cases where Meta OM is in a different namespace or cluster.
-                        properties:
-                          name:
-                            type: string
-                        required:
-                        - name
-                        type: object
-                      name:
-                        description: Name of the MongoDBOpsManager CR acting as Meta
-                          OM.
-                        minLength: 1
-                        type: string
-                      namespace:
-                        description: Namespace of the Meta OM CR. Defaults to the
-                          same namespace as Primary OM.
-                        type: string
-                      projectName:
-                        description: |-
-                          ProjectName is the name of the project to create or use in Meta OM
-                          for this AppDB deployment.
-                        minLength: 1
-                        type: string
-                    required:
-                    - credentialsSecretRef
-                    - name
-                    - projectName
-                    type: object
                   memberConfig:
                     description: MemberConfig allows to specify votes, priorities
                       and tags for each of the mongodb process.
@@ -1845,6 +1835,11 @@ spec:
                     type: array
                   configServerCount:
                     type: integer
+                  externalGroupID:
+                    description: |-
+                      ExternalGroupID stores the project (group) ID assigned by the external OM
+                      once the AppDB has been registered. Used for observability.
+                    type: string
                   featureCompatibilityVersion:
                     type: string
                   lastTransition:
@@ -1854,11 +1849,6 @@ spec:
                   members:
                     type: integer
                   message:
-                    type: string
-                  metaOMGroupId:
-                    description: |-
-                      MetaOMGroupID stores the Meta OM project (group) ID once the AppDB
-                      has been registered with Meta OM. Used by subsequent reconciliation steps.
                     type: string
                   mongodsPerShardCount:
                     type: integer

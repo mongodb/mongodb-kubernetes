@@ -1,6 +1,7 @@
 import time
 from typing import Iterator, Optional
 
+from kubetester import create_or_update_configmap, create_or_update_secret, read_secret, try_load
 import pymongo
 from kubetester import create_or_update_secret, delete_pod, delete_pvc, read_secret, try_load
 from kubetester.awss3client import AwsS3Client
@@ -19,7 +20,7 @@ Scenario:
   1. Deploy Primary OM (AppDB in headless mode).
   2. Deploy Meta OM (a secondary Ops Manager instance).
   3. Create a credentials Secret for Meta OM admin API access.
-  4. Patch Primary OM to set spec.applicationDatabase.managedByMetaOM.
+  4. Patch Primary OM to set spec.applicationDatabase.connection.
   5. Assert AppDB pods restart and reach Running phase again.
   6. Assert the AppDB StatefulSet env vars reflect online mode
      (MMS_SERVER present; HEADLESS_AGENT / AUTOMATION_CONFIG_MAP absent).
@@ -33,6 +34,7 @@ PRIMARY_OM_NAME = "om-primary"
 META_OM_NAME = "om-meta"
 META_OM_CREDS_SECRET = "meta-om-creds"
 META_OM_PROJECT_NAME = "primary-appdb"
+META_OM_PROJECT_CONFIGMAP = "meta-om-project-config"
 SAMPLE_MDB_NAME = "mdb-primary-managed"
 
 META_OM_S3_SECRET_NAME = "meta-om-s3-secret"
@@ -190,19 +192,33 @@ class TestMetaOMCreation:
 
 @mark.e2e_om_appdb_meta_om_mode_switch
 class TestModeSwitchToMetaOM:
-    """Patch Primary OM to enable managedByMetaOM and verify the transition."""
+    """Patch Primary OM to enable connection to Meta OM and verify the transition."""
 
-    def test_patch_primary_om_managed_by_meta_om(
+    def test_create_meta_om_project_configmap(
+        self,
+        namespace: str,
+        meta_ops_manager: MongoDBOpsManager,
+    ):
+        """Create the project ConfigMap that Primary OM's reconciler uses to connect to Meta OM."""
+        base_url = meta_ops_manager.om_status().get_url()
+        assert base_url is not None, "Meta OM URL must not be None"
+        create_or_update_configmap(
+            namespace,
+            META_OM_PROJECT_CONFIGMAP,
+            {"baseUrl": base_url, "projectName": META_OM_PROJECT_NAME},
+            api_client=get_central_cluster_client(),
+        )
+
+    def test_patch_primary_om_connection(
         self,
         primary_ops_manager: MongoDBOpsManager,
         meta_ops_manager: MongoDBOpsManager,
     ):
-        """Patch spec.applicationDatabase.managedByMetaOM on Primary OM to trigger the mode switch."""
+        """Patch spec.applicationDatabase.connection on Primary OM to trigger the mode switch."""
         primary_ops_manager.load()
-        primary_ops_manager["spec"]["applicationDatabase"]["managedByMetaOM"] = {
-            "name": META_OM_NAME,
-            "projectName": META_OM_PROJECT_NAME,
-            "credentialsSecretRef": {"name": META_OM_CREDS_SECRET},
+        primary_ops_manager["spec"]["applicationDatabase"]["connection"] = {
+            "opsManager": {"configMapRef": {"name": META_OM_PROJECT_CONFIGMAP}},
+            "credentials": META_OM_CREDS_SECRET,
         }
         primary_ops_manager.update()
 
@@ -329,4 +345,3 @@ class TestAppDBDisasterRecovery:
                 last_error = e
             time.sleep(5)
         raise AssertionError(f"Data not restored within {timeout}s after snapshot restore. Last error: {last_error}")
-
