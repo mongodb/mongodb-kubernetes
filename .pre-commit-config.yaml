@@ -150,8 +150,10 @@ repos:
         stages: [pre-commit]
 
   - repo: https://github.com/golangci/golangci-lint
-    rev: v2.0.2
+    rev: v2.1.0
     hooks:
       - id: golangci-lint
         args: [--timeout=10m]
+        language_version: 1.26.3
+      - id: golangci-lint-fmt
         language_version: 1.26.3
