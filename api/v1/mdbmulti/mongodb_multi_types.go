@@ -652,7 +652,8 @@ func (m *MongoDBMultiCluster) BuildConnectionString(username, password string, s
 		SetIsReplicaSet(true).
 		SetIsTLSEnabled(m.Spec.IsSecurityTLSConfigEnabled()).
 		SetHostnames(hostnames).
-		SetScheme(scheme)
+		SetScheme(scheme).
+		SetConnectionParams(connectionParams)
 
 	return builder.Build()
 }
