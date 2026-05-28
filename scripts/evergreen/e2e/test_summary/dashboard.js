@@ -61,28 +61,6 @@ function toggleTestError(id) {
     }
 }
 
-function copyJSON() {
-    const jsonData = document.getElementById('test-data').textContent;
-    navigator.clipboard.writeText(jsonData).then(() => {
-        alert('JSON data copied to clipboard!');
-    }).catch(err => {
-        console.error('Failed to copy:', err);
-    });
-}
-
-function downloadJSON() {
-    const jsonData = document.getElementById('test-data').textContent;
-    const blob = new Blob([jsonData], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'test-summary.json';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-}
-
 // Log viewer modal
 const _logTails = JSON.parse(document.getElementById('log-tails-data').textContent);
 
@@ -113,8 +91,15 @@ function openLogModal(filename) {
     const info = document.getElementById('log-modal-info');
     const body = document.getElementById('log-modal-body');
 
-    // Show just the short filename in the title
-    const shortName = filename.includes('_') ? filename.split('_').slice(-1)[0] || filename : filename;
+    // Synthetic per-item keys are formatted as "<source_file>#<resource_name>".
+    // For those, show just the resource name; otherwise fall back to the
+    // trailing chunk of the filename.
+    let shortName;
+    if (filename.includes('#')) {
+        shortName = filename.split('#').slice(-1)[0];
+    } else {
+        shortName = filename.includes('_') ? filename.split('_').slice(-1)[0] || filename : filename;
+    }
     title.textContent = shortName;
     title.title = filename;
 
@@ -185,7 +170,20 @@ document.addEventListener('keydown', (e) => {
     }
 });
 
-// Auto-collapse long sections on load
+// Scroll the inline Test Output preview to the bottom — matches the modal
+// behavior so the most recent pytest activity is visible without a manual scroll.
+function _scrollTestOutputToBottom(preview) {
+    if (preview) preview.scrollTop = preview.scrollHeight;
+}
+
 window.addEventListener('load', () => {
-    console.log('Test summary loaded. JSON data available in #test-data element.');
+    document.querySelectorAll('details.test-output').forEach(d => {
+        const preview = d.querySelector('.test-output-preview');
+        // Scroll once now (works if open), and again on every toggle to open.
+        _scrollTestOutputToBottom(preview);
+        d.addEventListener('toggle', () => {
+            if (d.open) _scrollTestOutputToBottom(preview);
+        });
+    });
+    console.log('Test summary loaded.');
 });
