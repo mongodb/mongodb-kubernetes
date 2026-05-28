@@ -132,7 +132,12 @@ class TestSearchConnectivityBackgroundTester(SearchE2EFixtures):
         cfg = self.build_mongodb_rs_config()
         statefulset_name = search_resource_names.mongot_statefulset_name(mdbs.name)
 
-        with _new_tester(mdb, cfg.user_name, cfg.user_password) as tester:
+        # Oneshot mode: each iteration is a fresh $search query. Paging mode
+        # would serve from mongod's per-cursor buffer (full corpus prefetched)
+        # and never round-trip to mongot during the no-upstream window.
+        search_tester = get_rs_search_tester(mdb, cfg.user_name, cfg.user_password, use_ssl=True)
+        tool = SearchConnectivityTool(search_tester)
+        with SearchAvailabilityBackgroundTester(tool, mode="oneshot", wait_sec=0.5) as tester:
             time.sleep(HEALTHY_BASELINE_SECONDS)
             logger.info(f"scaling MongoDBSearch {mdbs.name} replicas -> 0")
             mdbs["spec"]["replicas"] = 0
