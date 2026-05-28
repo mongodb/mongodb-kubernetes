@@ -21,7 +21,7 @@ limitations under the License.
 package search
 
 import (
-	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
+	"github.com/mongodb/mongodb-kubernetes/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/user"
 	corev1 "k8s.io/api/core/v1"

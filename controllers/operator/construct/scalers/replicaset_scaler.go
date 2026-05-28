@@ -4,8 +4,8 @@ import (
 	"fmt"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
-	"github.com/mongodb/mongodb-kubernetes/pkg/util/scale"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/scale"
 )
 
 // MultiClusterReplicaSetScaler is a generic scaler that can be user in any multi-cluster replica set.

@@ -20,8 +20,8 @@ import (
 
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/inspect"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 )
 
 const PVCSizeAnnotation = "mongodb.com/storageSize"
