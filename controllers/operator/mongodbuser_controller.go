@@ -30,10 +30,10 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
-	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
@@ -280,8 +280,8 @@ func (r *MongoDBUserReconciler) updateConnectionStringSecret(ctx context.Context
 		return xerrors.Errorf("connection string secret %s already exists and is not managed by the operator", secretName)
 	}
 
-	mongoAuthUserURI := connectionBuilder.BuildConnectionString(user.Spec.Username, password, connectionstring.SchemeMongoDB, map[string]string{})
-	mongoAuthUserSRVURI := connectionBuilder.BuildConnectionString(user.Spec.Username, password, connectionstring.SchemeMongoDBSRV, map[string]string{})
+	mongoAuthUserURI := connectionBuilder.BuildConnectionString(user.Spec.Username, password, connectionstring.SchemeMongoDB, map[string]string{"authSource": user.Spec.Database})
+	mongoAuthUserSRVURI := connectionBuilder.BuildConnectionString(user.Spec.Username, password, connectionstring.SchemeMongoDBSRV, map[string]string{"authSource": user.Spec.Database})
 
 	connectionStringSecret := secret.Builder().
 		SetName(secretName).

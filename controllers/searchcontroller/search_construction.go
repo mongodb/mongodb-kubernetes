@@ -11,10 +11,10 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 
+	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
-	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/podtemplatespec"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/probes"

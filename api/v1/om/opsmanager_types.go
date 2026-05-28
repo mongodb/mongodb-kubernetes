@@ -21,12 +21,12 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/v1/user"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
-	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
-	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/fcv"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
@@ -388,16 +388,16 @@ type MongoDBOpsManagerBackup struct {
 
 	// HeadDB specifies configuration options for the HeadDB
 	HeadDB    *v1.PersistenceConfig `json:"headDB,omitempty"`
-	JVMParams []string                  `json:"jvmParameters,omitempty"`
+	JVMParams []string              `json:"jvmParameters,omitempty"`
 
 	// S3OplogStoreConfigs describes the list of s3 oplog store configs used for backup.
 	S3OplogStoreConfigs []S3Config `json:"s3OpLogStores,omitempty"`
 
 	// OplogStoreConfigs describes the list of oplog store configs used for backup
-	OplogStoreConfigs        []DataStoreConfig                `json:"opLogStores,omitempty"`
-	BlockStoreConfigs        []DataStoreConfig                `json:"blockStores,omitempty"`
-	S3Configs                []S3Config                       `json:"s3Stores,omitempty"`
-	FileSystemStoreConfigs   []FileSystemStoreConfig          `json:"fileSystemStores,omitempty"`
+	OplogStoreConfigs        []DataStoreConfig            `json:"opLogStores,omitempty"`
+	BlockStoreConfigs        []DataStoreConfig            `json:"blockStores,omitempty"`
+	S3Configs                []S3Config                   `json:"s3Stores,omitempty"`
+	FileSystemStoreConfigs   []FileSystemStoreConfig      `json:"fileSystemStores,omitempty"`
 	StatefulSetConfiguration *v1.StatefulSetConfiguration `json:"statefulSet,omitempty"`
 
 	// QueryableBackupSecretRef references the secret which contains the pem file which is used
@@ -425,7 +425,7 @@ type MongoDBOpsManagerBackupClusterSpecItem struct {
 
 	// HeadDB specifies configuration options for the HeadDB
 	HeadDB    *v1.PersistenceConfig `json:"headDB,omitempty"`
-	JVMParams []string                  `json:"jvmParameters,omitempty"`
+	JVMParams []string              `json:"jvmParameters,omitempty"`
 
 	// StatefulSetConfiguration specified optional overrides for backup datemon statefulset.
 	// +optional
