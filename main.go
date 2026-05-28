@@ -27,13 +27,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/manager/signals"
 
-	golog "log"
-	localruntime "runtime"
-
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	corev1 "k8s.io/api/core/v1"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	golog "log"
+	localruntime "runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	runtime_cluster "sigs.k8s.io/controller-runtime/pkg/cluster"
 	kubelog "sigs.k8s.io/controller-runtime/pkg/log"
@@ -47,7 +46,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
-	mcov1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"                      //nolint:depguard
+	mcov1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"                       //nolint:depguard
 	mcoController "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers"          //nolint:depguard
 	mcoConstruct "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/construct" //nolint:depguard
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"

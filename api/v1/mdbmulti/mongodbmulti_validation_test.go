@@ -13,8 +13,10 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 )
 
-var ctx = context.Background()
-var validator = &MongoDBMultiClusterValidator{}
+var (
+	ctx       = context.Background()
+	validator = &MongoDBMultiClusterValidator{}
+)
 
 func TestUniqueClusterNames(t *testing.T) {
 	ctx := context.Background()

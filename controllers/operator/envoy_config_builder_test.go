@@ -8,12 +8,12 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/encoding/protojson"
 
-	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
-
 	bootstrapv3 "github.com/envoyproxy/go-control-plane/envoy/config/bootstrap/v3"
 	clusterv3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
 	corev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	tlsv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
+
+	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
 )
 
 func testRoute(shardName string) envoyRoute {
