@@ -254,7 +254,7 @@ class SearchConnectivityTool:
     def paging_cursor_open(
         self,
         query: Optional[dict] = None,
-        batch_size: int = 50,
+        batch_size: int = 10,
         timeout_ms: Optional[int] = None,
     ):
         """Open a ``$search`` aggregation cursor. Caller owns the cursor."""
@@ -272,7 +272,7 @@ class SearchConnectivityTool:
         cursor,
         pages: int,
         interval_seconds: float = 1.0,
-        batch_size: int = 50,
+        batch_size: int = 10,
         first_page_index: int = 0,
     ) -> list[QueryResult]:
         """Read ``pages`` pages from an open cursor. No retries — failures recorded as-is."""

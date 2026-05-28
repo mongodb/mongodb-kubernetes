@@ -1,20 +1,25 @@
 """Background availability tester for MongoDBSearch.
 
-Daemon-thread harness that drives a ``SearchConnectivityTool`` over an
-observation window and accumulates per-iteration ``QueryResult``s so tests
-can produce a ``ConnectivityVerdict`` snapshot at any time.
+Daemon thread that drives a ``SearchConnectivityTool`` over an observation
+window and accumulates per-iteration ``QueryResult``s. The primary purpose
+is to assert that search stays healthy across some external event — use it
+as a context manager and read ``tester.verdict`` after the ``with`` block:
+
+    with SearchAvailabilityBackgroundTester(tool) as tester:
+        time.sleep(20)
+    assert_no_outage(tester.verdict)
 
 Two modes:
-- ``oneshot`` — one cache-busted ``oneshot_search()`` per tick.
-- ``paging`` — one page per tick from a long-living cursor; reopened on
-  failure or after ``paging_reset_every`` iterations.
+
+* ``paging`` (default) — one page per tick from a long-living cursor;
+  reopened on failure or after ``paging_reset_every`` pages.
+* ``oneshot`` — one cache-busted ``oneshot_search()`` per tick.
 """
 
 from __future__ import annotations
 
 import logging
 import threading
-import time
 from typing import Optional
 
 from kubetester.mongotester import BackgroundHealthChecker
@@ -24,10 +29,8 @@ logger = logging.getLogger(__name__)
 
 
 class SearchAvailabilityBackgroundTester(BackgroundHealthChecker):
-    """Daemon-thread harness driving a ``SearchConnectivityTool``."""
-
     DEFAULT_WAIT_SEC = 1.0
-    DEFAULT_PAGING_RESET_EVERY = 50
+    DEFAULT_PAGING_RESET_EVERY = 1000
 
     def __init__(
         self,
@@ -53,6 +56,16 @@ class SearchAvailabilityBackgroundTester(BackgroundHealthChecker):
         self._cursor = None
         self._cursor_pages_consumed = 0
 
+    def __enter__(self) -> "SearchAvailabilityBackgroundTester":
+        self.start()
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        self.stop()
+        self.join(timeout=10)
+        if self.is_alive():
+            logger.warning("background tester thread did not exit within 10s")
+
     def run(self) -> None:
         consecutive_failure = 0
         while not self._stop_event.is_set():
@@ -67,19 +80,18 @@ class SearchAvailabilityBackgroundTester(BackgroundHealthChecker):
                 self.max_consecutive_failure = max(self.max_consecutive_failure, consecutive_failure)
                 self.exception_number += 1
                 self.last_exception = f"{result.error_class}: {result.error_message}"
-            self._sleep_responsively()
+            # wait() with timeout returns immediately on stop() — keeps shutdown fast.
+            self._stop_event.wait(self.wait_sec)
         self._close_cursor()
-
-    def _sleep_responsively(self) -> None:
-        """Sleep in 0.25s slices so .stop() takes effect within one slice."""
-        slept = 0.0
-        slice_sec = min(0.25, self.wait_sec)
-        while slept < self.wait_sec and not self._stop_event.is_set():
-            time.sleep(slice_sec)
-            slept += slice_sec
 
     def stop(self) -> None:
         self._stop_event.set()
+
+    @property
+    def verdict(self) -> ConnectivityVerdict:
+        with self._results_lock:
+            snapshot = list(self._results)
+        return self.tool.verdict(snapshot)
 
     def _run_one_iteration(self) -> QueryResult:
         if self.mode == "oneshot":
@@ -116,32 +128,45 @@ class SearchAvailabilityBackgroundTester(BackgroundHealthChecker):
         self._cursor = None
         self._cursor_pages_consumed = 0
 
-    def get_verdict(self) -> ConnectivityVerdict:
-        with self._results_lock:
-            snapshot = list(self._results)
-        return self.tool.verdict(snapshot)
 
-    def assert_outage_detected(
-        self,
-        require_failure: bool = True,
-        accept_classes: Optional[tuple[str, ...]] = None,
-    ) -> ConnectivityVerdict:
-        """Assert at least one failure of the accepted classes surfaced.
+def assert_no_outage(verdict: ConnectivityVerdict, min_iterations: int = 5) -> None:
+    """Primary assertion: the verdict shows uninterrupted availability.
 
-        Default acceptance set is ``("cursor_lost", "transient_network")``.
-        """
-        verdict = self.get_verdict()
-        if not require_failure:
-            return verdict
-        accept = accept_classes or ("cursor_lost", "transient_network")
-        observed = {
-            "cursor_lost": verdict.cursor_lost,
-            "transient_network": verdict.transient_network,
-            "other": verdict.other_failed,
-        }
-        if not any(observed[c] > 0 for c in accept):
-            raise AssertionError(
-                f"outage-scenario verdict did not surface a {' or '.join(accept)} failure — "
-                f"the background tester missed the fault. verdict={verdict.as_dict()}"
-            )
-        return verdict
+    Fails if no iterations ran (the harness never executed) or if any
+    iteration failed in any class. ``min_iterations`` guards against a
+    too-short observation window producing a trivially clean verdict.
+    """
+    if verdict.total < min_iterations:
+        raise AssertionError(
+            f"too few iterations to trust verdict: total={verdict.total} < {min_iterations}; "
+            f"verdict={verdict.as_dict()}"
+        )
+    if verdict.failed > 0:
+        raise AssertionError(
+            f"verdict surfaced failures during a no-outage window: failed={verdict.failed}; "
+            f"verdict={verdict.as_dict()}"
+        )
+
+
+def assert_outage_detected(
+    verdict: ConnectivityVerdict,
+    accept_classes: Optional[tuple[str, ...]] = None,
+) -> None:
+    """Secondary assertion: at least one failure of an accepted class surfaced.
+
+    Default accepted set is ``("cursor_lost", "transient_network")``.
+    Used by fault-injection tests to prove the harness sees the fault.
+    """
+    accept = accept_classes or ("cursor_lost", "transient_network")
+    if verdict.total == 0:
+        raise AssertionError(f"verdict has no iterations — the harness never ran. verdict={verdict.as_dict()}")
+    observed = {
+        "cursor_lost": verdict.cursor_lost,
+        "transient_network": verdict.transient_network,
+        "other": verdict.other_failed,
+    }
+    if not any(observed[c] > 0 for c in accept):
+        raise AssertionError(
+            f"verdict did not surface a {' or '.join(accept)} failure — "
+            f"the background tester missed the fault. verdict={verdict.as_dict()}"
+        )

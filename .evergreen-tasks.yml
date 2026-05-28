@@ -1403,12 +1403,7 @@ tasks:
     commands:
       - func: "e2e_test"
 
-  - name: e2e_search_availability_background_tester
-    tags: [ "patch-run" ]
-    commands:
-      - func: "e2e_test"
-
-  - name: e2e_search_failure_modes
+  - name: e2e_search_connectivity_background_tester
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
