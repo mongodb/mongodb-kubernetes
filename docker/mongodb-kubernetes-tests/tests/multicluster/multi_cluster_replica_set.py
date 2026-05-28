@@ -103,6 +103,35 @@ def test_statefulset_is_created_across_multiple_clusters(
 
 
 @pytest.mark.e2e_multi_cluster_replica_set
+def test_statefulsets_multi_cluster_identity(
+    mongodb_multi: MongoDBMulti,
+    member_cluster_clients: List[MultiClusterClient],
+):
+    """Regression test: multi-cluster StatefulSets must carry no ownerReferences and must
+    carry the MongoDBMultiResource annotation.
+
+    No ownerReferences: a cross-cluster ownerReference points to a CR that does not exist
+    in the member cluster. The Kubernetes GC treats the StatefulSet as an orphan and deletes
+    it immediately, causing an infinite create-delete reconciliation loop. Cleanup on CR
+    deletion is handled through explicit label-based deletion instead.
+
+    MongoDBMultiResource annotation: replaces ownerReferences as the identifier that watch
+    predicates and the OM connection factory use to map StatefulSets back to their parent CR."""
+    statefulsets = mongodb_multi.read_statefulsets(member_cluster_clients)
+    for cluster_name, sts in statefulsets.items():
+        owner_refs = sts.metadata.owner_references
+        assert not owner_refs, (
+            f"StatefulSet {sts.metadata.name} in cluster {cluster_name} must have no "
+            f"ownerReferences in multi-cluster mode, but got: {owner_refs}"
+        )
+        annotation_value = (sts.metadata.annotations or {}).get("MongoDBMultiResource")
+        assert annotation_value == mongodb_multi.name, (
+            f"StatefulSet {sts.metadata.name} in cluster {cluster_name} must carry "
+            f"annotation 'MongoDBMultiResource={mongodb_multi.name}', but got: {annotation_value!r}"
+        )
+
+
+@pytest.mark.e2e_multi_cluster_replica_set
 def test_pvc_not_created(
     mongodb_multi: MongoDBMulti,
     member_cluster_clients: List[MultiClusterClient],

@@ -235,7 +235,16 @@ func OpsManagerStatefulSet(ctx context.Context, centralClusterSecretClient secre
 	opts := opsManagerOptions(memberCluster, additionalOpts...)(opsManager)
 
 	opts.Annotations = opsManager.Annotations
-	if err := opts.updateHTTPSCertSecret(ctx, centralClusterSecretClient, memberCluster, opsManager.OwnerReferences, log); err != nil {
+
+	// httpsOwnerRefs is nil in multi-cluster mode: the PEM secret is written to each member
+	// cluster via memberCluster.SecretClient. A cross-cluster ownerReference causes the
+	// Kubernetes garbage collector to delete the secret as an orphan. Cleanup in multi-cluster
+	// mode is handled through explicit label-based deletion instead.
+	httpsOwnerRefs := opsManager.OwnerReferences
+	if opsManager.Spec.IsMultiCluster() {
+		httpsOwnerRefs = nil
+	}
+	if err := opts.updateHTTPSCertSecret(ctx, centralClusterSecretClient, memberCluster, httpsOwnerRefs, log); err != nil {
 		return appsv1.StatefulSet{}, err
 	}
 
@@ -268,8 +277,16 @@ func OpsManagerStatefulSet(ctx context.Context, centralClusterSecretClient secre
 // getSharedOpsManagerOptions returns the options that are shared between both the OpsManager
 // and BackupDaemon StatefulSets
 func getSharedOpsManagerOptions(opsManager *omv1.MongoDBOpsManager) OpsManagerStatefulSetOptions {
+	// ownerRef is nil in multi-cluster mode: the MongoDBOpsManager CR only exists in the
+	// central cluster, and a cross-cluster ownerReference causes the Kubernetes garbage
+	// collector to delete the StatefulSet in each member cluster as an orphan. Cleanup is
+	// handled through explicit label-based deletion instead.
+	ownerRef := kube.BaseOwnerReference(opsManager)
+	if opsManager.Spec.IsMultiCluster() {
+		ownerRef = nil
+	}
 	return OpsManagerStatefulSetOptions{
-		OwnerReference:          kube.BaseOwnerReference(opsManager),
+		OwnerReference:          ownerRef,
 		OwnerName:               opsManager.Name,
 		HTTPSCertSecretName:     opsManager.TLSCertificateSecretName(),
 		AppDBTlsCAConfigMapName: opsManager.Spec.AppDB.GetCAConfigMapName(),

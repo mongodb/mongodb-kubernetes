@@ -28,6 +28,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
+	khandler "github.com/mongodb/mongodb-kubernetes/pkg/handler"
+
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -1865,6 +1867,18 @@ func AddShardedClusterController(ctx context.Context, mgr manager.Manager, image
 		return err
 	}
 
+	// In multi-cluster mode, watch StatefulSet status changes in each member cluster and
+	// enqueue a reconciliation request for the owning MongoDBShardedCluster CR.
+	// The MongoDBMultiResourceAnnotation on each StatefulSet carries the CR name (set in
+	// shardedOptions); EnqueueRequestForOwnerMultiCluster reads it to build the request.
+	// This mirrors the equivalent watch registered in the MongoDBMultiCluster controller.
+	for clusterName, memberCluster := range memberClustersMap {
+		err = c.Watch(source.Kind[client.Object](memberCluster.GetCache(), &appsv1.StatefulSet{}, &khandler.EnqueueRequestForOwnerMultiCluster{}, watch.PredicatesForMultiStatefulSet()))
+		if err != nil {
+			return xerrors.Errorf("failed to set StatefulSet watch on member cluster %s: %w", clusterName, err)
+		}
+	}
+
 	zap.S().Infof("Registered controller %s", util.MongoDbShardedClusterController)
 
 	return nil
@@ -2905,9 +2919,24 @@ func (r *ShardedClusterReconcileHelper) createHeadlessServiceForStatefulSet(ctx 
 		return nil
 	}
 
+	// ownerRefs is nil in multi-cluster mode: the MongoDBShardedCluster CR only exists in the
+	// central cluster, and a cross-cluster ownerReference causes the Kubernetes garbage
+	// collector to delete this service as an orphan. Cleanup in multi-cluster mode is
+	// handled through explicit label-based deletion instead.
+	ownerRefs := kube.BaseOwnerReference(r.sc)
+	if r.sc.Spec.IsMultiCluster() {
+		ownerRefs = nil
+	}
+
 	headlessServiceName := dns.GetMultiHeadlessServiceName(stsName, memberCluster.Index)
 	nameSpacedName := kube.ObjectKey(r.sc.Namespace, headlessServiceName)
 	headlessService := create.BuildService(nameSpacedName, r.sc, ptr.To(headlessServiceName), nil, port, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
+	// ownerRefs is nil when IsMultiCluster: the ShardedCluster CR only exists in the central
+	// cluster, and a cross-cluster ownerReference causes the Kubernetes garbage collector to
+	// delete this service as an orphan. Cleanup is handled through explicit label-based
+	// deletion instead.
+	headlessService.OwnerReferences = ownerRefs
+
 	if err := mekoService.CreateOrUpdateService(ctx, memberCluster.Client, headlessService); err != nil && !errors.IsAlreadyExists(err) {
 		return xerrors.Errorf("failed to create pod service %s in cluster: %s, err: %w", headlessService.Name, memberCluster.Name, err)
 	}

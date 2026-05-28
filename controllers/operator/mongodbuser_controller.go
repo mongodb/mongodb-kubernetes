@@ -283,23 +283,31 @@ func (r *MongoDBUserReconciler) updateConnectionStringSecret(ctx context.Context
 	mongoAuthUserURI := connectionBuilder.BuildConnectionString(user.Spec.Username, password, connectionstring.SchemeMongoDB, map[string]string{"authSource": user.Spec.Database})
 	mongoAuthUserSRVURI := connectionBuilder.BuildConnectionString(user.Spec.Username, password, connectionstring.SchemeMongoDBSRV, map[string]string{"authSource": user.Spec.Database})
 
-	connectionStringSecret := secret.Builder().
+	// Member cluster secrets must not carry ownerReferences pointing to the MongoDBUser CR
+	// in the central cluster. A cross-cluster ownerReference causes the Kubernetes garbage
+	// collector to delete the secret as an orphan. Cleanup is handled through explicit
+	// label-based deletion instead.
+	memberClusterSecret := secret.Builder().
 		SetName(secretName).
 		SetNamespace(user.Namespace).
 		SetField("connectionString.standard", mongoAuthUserURI).
 		SetField("connectionString.standardSrv", mongoAuthUserSRVURI).
 		SetField("username", user.Spec.Username).
 		SetField("password", password).
-		SetOwnerReferences(user.GetOwnerReferences()).
 		Build()
 
 	for _, c := range r.memberClusterSecretClientsMap {
-		err = secret.CreateOrUpdate(ctx, c, connectionStringSecret)
+		err = secret.CreateOrUpdate(ctx, c, memberClusterSecret)
 		if err != nil {
 			return err
 		}
 	}
-	return secret.CreateOrUpdate(ctx, r.SecretClient, connectionStringSecret)
+
+	// For the central cluster, set ownerReferences so that Kubernetes GC cleans up the
+	// secret when the MongoDBUser CR is deleted.
+	centralClusterSecret := memberClusterSecret
+	centralClusterSecret.OwnerReferences = user.GetOwnerReferences()
+	return secret.CreateOrUpdate(ctx, r.SecretClient, centralClusterSecret)
 }
 
 func AddMongoDBUserController(ctx context.Context, mgr manager.Manager, memberClustersMap map[string]cluster.Cluster, backupEnableDelay time.Duration) error {

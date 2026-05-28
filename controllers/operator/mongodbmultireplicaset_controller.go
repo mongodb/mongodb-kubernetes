@@ -517,7 +517,6 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 			mconstruct.WithClusterNum(clusterNum),
 			Replicas(replicasThisReconciliation),
 			mconstruct.WithStsOverride(&stsOverride),
-			mconstruct.WithAnnotations(mrs.Name),
 			mconstruct.WithServiceName(mrs.MultiHeadlessServiceName(clusterNum)),
 			PodEnvVars(newPodVars(conn, projectConfig, mrs.Spec.LogLevel)),
 			CurrentAgentAuthMechanism(currentAgentAuthMode),
@@ -948,6 +947,11 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileServices(ctx context.Context,
 		headlessServiceName := mrs.MultiHeadlessServiceName(mrs.ClusterNum(e.ClusterName))
 		nameSpacedName := kube.ObjectKey(mrs.Namespace, headlessServiceName)
 		headlessService := create.BuildService(nameSpacedName, mrs, ptr.To(headlessServiceName), nil, mrs.Spec.AdditionalMongodConfig.GetPortOrDefault(), omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
+		// ownerRefs is always nil: MongoDBMultiCluster resources are always deployed in
+		// multi-cluster mode. The CR only exists in the central cluster, and a cross-cluster
+		// ownerReference causes the Kubernetes garbage collector to delete this service as an
+		// orphan. Cleanup is handled through explicit label-based deletion instead.
+		headlessService.OwnerReferences = nil
 		if err := ensureHeadlessService(ctx, client, headlessService, e.ClusterName); err != nil {
 			return err
 		}
@@ -1166,11 +1170,15 @@ func AddMultiReplicaSetController(ctx context.Context, mgr manager.Manager, imag
 		}
 	}
 
-	// register watcher across member clusters
-	for k, v := range memberClustersMap {
-		err := c.Watch(source.Kind[client.Object](v.GetCache(), &appsv1.StatefulSet{}, &khandler.EnqueueRequestForOwnerMultiCluster{}, watch.PredicatesForMultiStatefulSet()))
+	// In multi-cluster mode, watch StatefulSet status changes in each member cluster and
+	// enqueue a reconciliation request for the owning MongoDBMultiCluster CR.
+	// The MongoDBMultiResourceAnnotation on each StatefulSet carries the CR name (set in
+	// MultiClusterReplicaSetOptions); EnqueueRequestForOwnerMultiCluster reads it to build
+	// the request.
+	for clusterName, memberCluster := range memberClustersMap {
+		err = c.Watch(source.Kind[client.Object](memberCluster.GetCache(), &appsv1.StatefulSet{}, &khandler.EnqueueRequestForOwnerMultiCluster{}, watch.PredicatesForMultiStatefulSet()))
 		if err != nil {
-			return xerrors.Errorf("failed to set Watch on member cluster: %s, err: %w", k, err)
+			return xerrors.Errorf("failed to set StatefulSet watch on member cluster %s: %w", clusterName, err)
 		}
 	}
 

@@ -19,6 +19,14 @@ func MultiClusterReplicaSetOptions(additionalOpts ...func(options *construct.Dat
 		if mdbm.Spec.StatefulSetConfiguration != nil {
 			stsSpec = mdbm.Spec.StatefulSetConfiguration.SpecWrapper.Spec
 		}
+		// OwnerReference is always nil: MongoDBMultiCluster resources are always deployed in
+		// multi-cluster mode. The CR only exists in the central cluster, and a cross-cluster
+		// ownerReference causes the Kubernetes garbage collector to delete this StatefulSet as
+		// an orphan. Cleanup is handled through explicit label-based deletion instead.
+		//
+		// Annotations carries MongoDBMultiResourceAnnotation, which replaces ownerReferences:
+		// watch predicates and the OM connection factory use it to map StatefulSets back to
+		// their parent CR.
 		opts := construct.DatabaseStatefulSetOptions{
 			Name:                          mdbm.Name,
 			ServicePort:                   mdbm.Spec.GetAdditionalMongodConfig().GetPortOrDefault(),
@@ -26,10 +34,12 @@ func MultiClusterReplicaSetOptions(additionalOpts ...func(options *construct.Dat
 			AgentConfig:                   &mdbm.Spec.Agent,
 			PodSpec:                       construct.NewDefaultPodSpecWrapper(*mdbv1.NewMongoDbPodSpec()),
 			Labels:                        mdbm.GetOwnerLabels(),
+			OwnerReference:                nil,
 			MultiClusterMode:              true,
 			HostNameOverrideConfigmapName: mdbm.GetHostNameOverrideConfigmapName(),
 			StatefulSetSpecOverride:       &stsSpec,
 			StsType:                       construct.MultiReplicaSet,
+			Annotations:                   handler.MultiClusterStatefulSetAnnotations(mdbm.Name),
 		}
 		for _, opt := range additionalOpts {
 			opt(&opts)
@@ -64,20 +74,8 @@ func WithStsOverride(stsOverride *appsv1.StatefulSetSpec) func(options *construc
 	}
 }
 
-func WithAnnotations(resourceName string) func(options *construct.DatabaseStatefulSetOptions) {
-	return func(options *construct.DatabaseStatefulSetOptions) {
-		options.Annotations = statefulSetAnnotations(resourceName)
-	}
-}
-
 func statefulSetName(mdbmName string, clusterNum int) string {
 	return fmt.Sprintf("%s-%d", mdbmName, clusterNum)
-}
-
-func statefulSetAnnotations(mdbmName string) map[string]string {
-	return map[string]string{
-		handler.MongoDBMultiResourceAnnotation: mdbmName,
-	}
 }
 
 func PodLabel(mdbmName string) map[string]string {

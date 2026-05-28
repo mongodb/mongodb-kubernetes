@@ -22,6 +22,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/podtemplatespec"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/merge"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/scale"
+	"github.com/mongodb/mongodb-kubernetes/pkg/handler"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/tls"
@@ -413,6 +414,15 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 	// at this stage because later we will define our own init containers for non-static architecture.
 	mod := construct.BuildMongoDBReplicaSetStatefulSetModificationFunction(&opsManager.Spec.AppDB, scaler, opts.MongodbImage, opts.AgentImage, "", "", !architectures.IsRunningStaticArchitecture(opsManager.Annotations), opts.InitAppDBImage)
 
+	// ownerRefs is nil in multi-cluster mode: the MongoDBOpsManager CR only exists in the
+	// central cluster, and a cross-cluster ownerReference causes the Kubernetes garbage
+	// collector to delete this StatefulSet as an orphan. Cleanup in multi-cluster mode is
+	// handled through explicit label-based deletion instead.
+	ownerRefs := kube.BaseOwnerReference(&opsManager)
+	if opsManager.Spec.AppDB.IsMultiCluster() {
+		ownerRefs = nil
+	}
+
 	sts := statefulset.New(
 		mod,
 		// create appdb statefulset from the community code
@@ -428,7 +438,7 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 		// if we run in certified bundle with digest pinning it will be properly updated to digest
 		customPersistenceConfig(&opsManager),
 		statefulset.WithUpdateStrategyType(updateStrategyType),
-		statefulset.WithOwnerReference(kube.BaseOwnerReference(&opsManager)),
+		statefulset.WithOwnerReference(ownerRefs),
 		statefulset.WithReplicas(scale.ReplicasThisReconciliation(scaler)),
 		statefulset.WithPodSpecTemplate(
 			podtemplatespec.Apply(
@@ -462,6 +472,11 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 		if clusterSpecItem.StatefulSetConfiguration != nil {
 			sts.Spec = merge.StatefulSetSpecs(sts.Spec, clusterSpecItem.StatefulSetConfiguration.SpecWrapper.Spec)
 		}
+
+		// The MongoDBMultiResourceAnnotation replaces ownerReferences in multi-cluster mode:
+		// watch predicates and the OM connection factory use it to map StatefulSets back to
+		// their parent CR.
+		sts.Annotations = handler.MultiClusterStatefulSetAnnotations(opsManager.Name)
 	}
 	return sts, nil
 }

@@ -13,6 +13,16 @@ import (
 
 const MongoDBMultiResourceAnnotation = "MongoDBMultiResource"
 
+// MultiClusterStatefulSetAnnotations returns the annotations that must be set on a
+// StatefulSet deployed in multi-cluster mode. MongoDBMultiResourceAnnotation replaces
+// ownerReferences as the identifier that watch predicates and the OM connection factory
+// use to map the StatefulSet back to its parent CR.
+func MultiClusterStatefulSetAnnotations(crName string) map[string]string {
+	return map[string]string{
+		MongoDBMultiResourceAnnotation: crName,
+	}
+}
+
 var _ handler.EventHandler = &EnqueueRequestForOwnerMultiCluster{}
 
 // EnqueueRequestForOwnerMultiCluster implements the EventHandler interface for multi-cluster callbacks.

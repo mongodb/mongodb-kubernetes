@@ -103,6 +103,40 @@ func createOpsManagerStatefulset(ctx context.Context, om *omv1.MongoDBOpsManager
 	return omSts, err
 }
 
+// TestOpsManagerStatefulSet_MultiClusterOwnerRef verifies that in multi-cluster mode the
+// OpsManager (and BackupDaemon) StatefulSet carries no ownerReference. The CR lives only in
+// the central cluster; a cross-cluster ownerReference causes the Kubernetes garbage collector
+// to delete the StatefulSet in each member cluster as an orphan.
+// In single-cluster mode the ownerReference must be present so GC can clean up after deletion.
+func TestOpsManagerStatefulSet_MultiClusterOwnerRef(t *testing.T) {
+	ctx := context.Background()
+	clusterSpecList := []omv1.ClusterSpecOMItem{
+		{ClusterName: "cluster-a", Members: 1},
+		{ClusterName: "cluster-b", Members: 1},
+	}
+
+	t.Run("multi-cluster mode: no ownerReferences on StatefulSet", func(t *testing.T) {
+		om := omv1.NewOpsManagerBuilderDefault().
+			SetOpsManagerTopology(omv1.ClusterTopologyMultiCluster).
+			SetOpsManagerClusterSpecList(clusterSpecList).
+			Build()
+
+		sts, err := createOpsManagerStatefulset(ctx, om)
+		assert.NoError(t, err)
+		assert.Empty(t, sts.OwnerReferences,
+			"OpsManager StatefulSet in a remote member cluster must not carry an ownerReference pointing to the central-cluster CR")
+	})
+
+	t.Run("single-cluster mode: ownerReference set on StatefulSet", func(t *testing.T) {
+		om := omv1.NewOpsManagerBuilderDefault().Build()
+
+		sts, err := createOpsManagerStatefulset(ctx, om)
+		assert.NoError(t, err)
+		assert.Len(t, sts.OwnerReferences, 1,
+			"OpsManager StatefulSet in single-cluster mode must carry an ownerReference so Kubernetes GC can clean it up")
+	})
+}
+
 func TestBuildJvmParamsEnvVars_FromDefaultPodSpec(t *testing.T) {
 	ctx := context.Background()
 	om := omv1.NewOpsManagerBuilderDefault().
