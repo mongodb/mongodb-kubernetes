@@ -585,7 +585,7 @@ def _render_failed_tests(data: Dict) -> str:
     if failed_tests == 0:
         return ""
 
-    html = "<h2>Failed Tests</h2><div class='section'>"
+    html = "<h2>Failed Tests</h2>"
     for idx, test in enumerate(data["test_run"].get("tests", {}).get("details", [])):
         if test["status"] == "failed":
             html += "<div class='failed-test'>"
@@ -606,7 +606,6 @@ def _render_failed_tests(data: Dict) -> str:
                     html += f":{escape(test['line'])}"
                 html += "</div>"
             html += "</div>"
-    html += "</div>"
     return html
 
 
@@ -617,11 +616,68 @@ def _render_resource_inventory(data: Dict, log_tails: Dict, reference_time: date
     return diagnostics_html + tabs_html
 
 
+def _render_test_output(data: Dict, log_tails: Dict, preview_lines: int = 40) -> str:
+    """Render an inline tail preview of the pytest log with a button to open the full log.
+
+    Surfaces the pytest run output (test_app.log) directly on the dashboard so users
+    don't have to dig through CI artifacts. Falls back to the test pod's container
+    stdout log if test_app.log isn't present.
+    """
+    candidates = ["test_app.log"]
+    for fname in log_tails:
+        if fname.endswith("-mongodb-enterprise-operator-tests.log"):
+            candidates.append(fname)
+            break
+
+    log_file = next((f for f in candidates if f in log_tails), None)
+    if not log_file:
+        return ""
+
+    entry = log_tails[log_file]
+    content = entry.get("content", "")
+    if not content:
+        return ""
+
+    lines = content.splitlines()
+    preview = lines[-preview_lines:]
+    preview_start_num = (
+        entry["total_lines"] - len(preview) + 1
+        if entry.get("mode") == "tail" and not entry.get("truncated")
+        else max(1, len(lines) - len(preview) + 1)
+    )
+
+    failed = data["test_run"].get("tests", {}).get("failed", 0)
+    expanded = failed > 0
+
+    preview_html = ""
+    for i, line in enumerate(preview):
+        num = preview_start_num + i
+        preview_html += (
+            f"<span class='log-line'>"
+            f"<span class='line-num'>{num}</span>"
+            f"<span class='line-content'>{escape(line)}</span>"
+            f"</span>"
+        )
+
+    open_attr = "open" if expanded else ""
+    info = f"showing last {len(preview)} of {entry.get('total_lines', len(lines))} lines"
+    return f"""
+        <details class='test-output' {open_attr}>
+            <summary>
+                <span class='test-output-title'>Test Output</span>
+                <span class='test-output-info'>{info}</span>
+                <button class='test-output-open' onclick="event.preventDefault(); event.stopPropagation(); openLogModal('{escape(log_file)}')">View full log</button>
+            </summary>
+            <pre class='test-output-preview'>{preview_html}</pre>
+        </details>
+    """
+
+
 def _render_error_catalog(data: Dict) -> str:
     """Render error catalog with expandable sample errors."""
     top_errors = data["error_patterns"][:5]
 
-    html = "<h2>Error Catalog</h2><div class='section'>"
+    html = "<h2>Error Catalog</h2>"
     if top_errors:
         for idx, pattern in enumerate(top_errors):
             severity_class = pattern["severity"]
@@ -657,7 +713,6 @@ def _render_error_catalog(data: Dict) -> str:
             html += "</div>"
     else:
         html += "<p>No errors detected</p>"
-    html += "</div>"
     return html
 
 
@@ -666,12 +721,8 @@ def generate_html(data: Dict[str, Any], test_name: str, variant: str, status: st
     # Parse reference time for age calculations (use generation time, not viewing time)
     reference_time = datetime.fromisoformat(data["meta"]["generated_at"].replace("Z", "+00:00"))
 
-    # Extract log tails before serializing — keep the copyable JSON clean
     log_tails = data.pop("log_tails", {})
     log_tails_json = json.dumps(log_tails)
-
-    json_data = json.dumps(data, indent=2)
-    escaped_json = escape(json_data)
 
     # Calculate quick stats
     failed_tests = data["test_run"].get("tests", {}).get("failed", 0)
@@ -685,6 +736,7 @@ def generate_html(data: Dict[str, Any], test_name: str, variant: str, status: st
 
     # Build sections
     failed_tests_html = _render_failed_tests(data)
+    test_output_html = _render_test_output(data, log_tails)
     error_catalog_html = _render_error_catalog(data)
     resource_html = _render_resource_inventory(data, log_tails, reference_time)
     timeline_html = "".join([_render_timeline_entry(idx, entry) for idx, entry in enumerate(data["timeline"][:200])])
@@ -704,8 +756,6 @@ def generate_html(data: Dict[str, Any], test_name: str, variant: str, status: st
 </head>
 <body>
     <div class="container">
-        <h1>E2E Test Summary</h1>
-
         <div class="metadata">
             <div class="metadata-item">
                 <span class="metadata-label">Status</span>
@@ -727,13 +777,15 @@ def generate_html(data: Dict[str, Any], test_name: str, variant: str, status: st
                 <span class="metadata-label">Tests</span>
                 <span class="metadata-value">{total_tests} total ({failed_tests} failed)</span>
             </div>
-            <div class="metadata-item">
+            <div class="metadata-item metadata-item-right">
                 <span class="metadata-label">Generated</span>
                 <span class="metadata-value">{data['meta']['generated_at'][:19]}</span>
             </div>
         </div>
 
         {failed_tests_html}
+
+        {test_output_html}
 
         {resource_html}
 
@@ -763,12 +815,6 @@ def generate_html(data: Dict[str, Any], test_name: str, variant: str, status: st
             {_render_artifacts_by_cluster(data)}
         </div>
 
-        <button class="copy-button" onclick="copyJSON()">\U0001f4cb Copy JSON Data</button>
-        <button class="copy-button" onclick="downloadJSON()">\U0001f4be Download JSON</button>
-        <h2 class="collapsible collapsed" onclick="toggleCollapse(this)">Full JSON Data</h2>
-        <div class="collapsible-content section">
-            <pre id="json-display">{escaped_json}</pre>
-        </div>
     </div>
 
     <!-- Log viewer modal -->
@@ -782,10 +828,6 @@ def generate_html(data: Dict[str, Any], test_name: str, variant: str, status: st
             <pre id="log-modal-body" class="log-modal-body"></pre>
         </div>
     </div>
-
-    <script id="test-data" type="application/json">
-{json_data}
-    </script>
 
     <script id="log-tails-data" type="application/json">
 {log_tails_json}

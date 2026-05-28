@@ -41,12 +41,9 @@ linters:
         - pattern: os\.(Clearenv|Unsetenv|Setenv)
           pkg: os
           msg: "Modifying environment variables is prohibited."
-        - pattern: env\.(Read.*?|EnsureVar)
+        - pattern: env\.(Read.*?|EnsureVar|MergeWithOverride)
           pkg: github.com/mongodb/mongodb-kubernetes/pkg/util/env
           msg: "Using this env package here is prohibited. Please work with environment variables in the main package."
-        - p: envvar\.(Read.*?|MergeWithOverride|GetEnvOrDefault)
-          pkg: github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/envvar
-          msg: "Using this envvar package here is prohibited. Please work with environment variables in the main package."
       # Rules with the `pkg` depend on it
       analyze-types: true
     staticcheck:
@@ -89,9 +86,6 @@ linters:
       - linters:
           - forbidigo
         path: ^main.go$
-      - linters:
-          - forbidigo
-        path: ^mongodb-community-operator\/pkg\/util\/envvar
       - linters:
           - forbidigo
         path: ^mongodb-community-operator\/cmd\/(readiness|versionhook)\/main\.go$

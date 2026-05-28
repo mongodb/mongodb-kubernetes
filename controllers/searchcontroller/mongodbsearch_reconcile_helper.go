@@ -26,17 +26,17 @@ import (
 
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/container"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/podtemplatespec"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/secret"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/service"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/mongot"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/tls"
+	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/commoncontroller"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/podtemplatespec"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/service"
+	"github.com/mongodb/mongodb-kubernetes/pkg/mongot"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
+	"github.com/mongodb/mongodb-kubernetes/pkg/tls"
 )
 
 const (
@@ -116,10 +116,10 @@ type reconcileUnit struct {
 // topology-wide knobs and hooks that surround the loop. Everything sharded-specific lives
 // here in hook closures so the reconcile body stays a straight, unbranched sequence.
 type reconcilePlan struct {
-	units        []reconcileUnit
-	manageProxySvc bool                                                              // topology-wide: true when the operator owns the proxy Service lifecycle (i.e. the LB is not user-managed)
-	preflight    func(context.Context, *zap.SugaredLogger) workflow.Status           // runs before the loop; must return workflow.OK() to proceed
-	cleanup      func(context.Context, *zap.SugaredLogger)                           // runs after the loop; best-effort, errors logged
+	units          []reconcileUnit
+	manageProxySvc bool                                                      // topology-wide: true when the operator owns the proxy Service lifecycle (i.e. the LB is not user-managed)
+	preflight      func(context.Context, *zap.SugaredLogger) workflow.Status // runs before the loop; must return workflow.OK() to proceed
+	cleanup        func(context.Context, *zap.SugaredLogger)                 // runs after the loop; best-effort, errors logged
 }
 
 // buildReconcilePlan returns the full reconcile plan for the current topology.
@@ -162,8 +162,8 @@ func (r *MongoDBSearchReconcileHelper) buildReplicaSetPlan() (reconcilePlan, err
 			mongotConfigFn:     mongot.Apply(baseMongotConfig(r.mdbSearch, hostSeeds), wireprotoMongotMod(r.mdbSearch)),
 		}},
 		manageProxySvc: !r.mdbSearch.IsReplicaSetUnmanagedLB(),
-		preflight:    func(context.Context, *zap.SugaredLogger) workflow.Status { return workflow.OK() },
-		cleanup:      func(context.Context, *zap.SugaredLogger) {},
+		preflight:      func(context.Context, *zap.SugaredLogger) workflow.Status { return workflow.OK() },
+		cleanup:        func(context.Context, *zap.SugaredLogger) {},
 	}, nil
 }
 
@@ -193,7 +193,7 @@ func (r *MongoDBSearchReconcileHelper) buildShardedPlan(shardedSource SearchSour
 	}
 
 	return reconcilePlan{
-		units:        units,
+		units:          units,
 		manageProxySvc: !r.mdbSearch.IsShardedUnmanagedLB(),
 		preflight: func(ctx context.Context, log *zap.SugaredLogger) workflow.Status {
 			return r.validatePerShardTLSSecrets(ctx, log, shardNames)
@@ -748,7 +748,6 @@ func buildProxyService(search *searchv1.MongoDBSearch, unit reconcileUnit) corev
 
 	return serviceBuilder.Build()
 }
-
 
 // EnsureEmbeddingAPIKeySecret makes sure that the scret that is provided in MDBSearch resource
 // for embedding model's keys is present and has expected keys.

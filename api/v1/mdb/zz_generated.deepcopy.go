@@ -21,10 +21,9 @@ limitations under the License.
 package mdb
 
 import (
+	"github.com/mongodb/mongodb-kubernetes/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
+	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
@@ -844,7 +843,7 @@ func (in *MongoDbPodSpec) DeepCopyInto(out *MongoDbPodSpec) {
 	in.PodTemplateWrapper.DeepCopyInto(&out.PodTemplateWrapper)
 	if in.Persistence != nil {
 		in, out := &in.Persistence, &out.Persistence
-		*out = new(common.Persistence)
+		*out = new(v1.Persistence)
 		(*in).DeepCopyInto(*out)
 	}
 }
@@ -1020,7 +1019,7 @@ func (in *PersistenceConfigBuilder) DeepCopyInto(out *PersistenceConfigBuilder) 
 	*out = *in
 	if in.config != nil {
 		in, out := &in.config, &out.config
-		*out = new(common.PersistenceConfig)
+		*out = new(v1.PersistenceConfig)
 		(*in).DeepCopyInto(*out)
 	}
 }

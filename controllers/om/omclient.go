@@ -25,7 +25,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/backup"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/host"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/controlledfeature"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
+	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"

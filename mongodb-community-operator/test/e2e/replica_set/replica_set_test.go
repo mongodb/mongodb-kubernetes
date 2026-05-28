@@ -8,8 +8,8 @@ import (
 	"os"
 	"testing"
 
-	v1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
+	rootv1 "github.com/mongodb/mongodb-kubernetes/api/v1"
+	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	e2eutil "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e/mongodbtests"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e/setup"
@@ -85,8 +85,8 @@ func TestReplicaSet(t *testing.T) {
 	settings := map[string]interface{}{
 		"electionTimeoutMillis": float64(20),
 	}
-	mdb.Spec.AutomationConfigOverride = &v1.AutomationConfigOverride{
-		ReplicaSet: v1.OverrideReplicaSet{Settings: v1.MapWrapper{Object: settings}},
+	mdb.Spec.AutomationConfigOverride = &rootv1.AutomationConfigOverride{
+		ReplicaSet: rootv1.OverrideReplicaSet{Settings: rootv1.MapWrapper{Object: settings}},
 	}
 
 	tester, err := FromResource(ctx, t, mdb)

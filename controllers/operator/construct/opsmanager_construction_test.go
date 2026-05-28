@@ -16,12 +16,12 @@ import (
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/v1/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/container"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/podtemplatespec"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/merge"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/podtemplatespec"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
 	"github.com/mongodb/mongodb-kubernetes/pkg/vault"
 )
 

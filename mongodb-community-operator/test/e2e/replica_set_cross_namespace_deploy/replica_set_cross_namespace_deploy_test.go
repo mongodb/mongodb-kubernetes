@@ -13,7 +13,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/generate"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/generate"
 	e2eutil "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e/mongodbtests"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e/setup"

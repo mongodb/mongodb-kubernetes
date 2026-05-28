@@ -47,22 +47,22 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/annotations"
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/configmap"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/secret"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/constants"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/merge"
+	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/configmap"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/identifiable"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/versionutil"
 	"github.com/mongodb/mongodb-kubernetes/pkg/vault"
@@ -553,7 +553,7 @@ func ensureResourcesForArchitectureChange(ctx context.Context, acSecretClient, s
 	acSecret, err := acSecretClient.GetSecret(ctx, kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.AutomationConfigSecretName()))
 	// if the automation config does not exist, we are not upgrading from an existing deployment. We can create everything from scratch.
 	if err != nil {
-		if !secrets.SecretNotExist(err) {
+		if !secret.SecretNotExist(err) {
 			return xerrors.Errorf("error getting existing automation config secret: %w", err)
 		}
 		return nil
@@ -616,7 +616,7 @@ func ensureResourcesForArchitectureChange(ctx context.Context, acSecretClient, s
 	oldOpsManagerUserPasswordSecret, err := secretGetUpdaterCreator.GetSecret(ctx, kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.Name()+"-password"))
 	if err != nil {
 		// if it's not there, we don't want to create it. We only want to create the new secret if it is present.
-		if secrets.SecretNotExist(err) {
+		if secret.SecretNotExist(err) {
 			return nil
 		}
 		return err
@@ -634,7 +634,7 @@ func ensureResourcesForArchitectureChange(ctx context.Context, acSecretClient, s
 func createOrUpdateSecretIfNotFound(ctx context.Context, secretGetUpdaterCreator secret.GetUpdateCreator, desiredSecret corev1.Secret) error {
 	_, err := secretGetUpdaterCreator.GetSecret(ctx, kube.ObjectKey(desiredSecret.Namespace, desiredSecret.Name))
 	if err != nil {
-		if secrets.SecretNotExist(err) {
+		if secret.SecretNotExist(err) {
 			return secret.CreateOrUpdate(ctx, secretGetUpdaterCreator, desiredSecret)
 		}
 		return xerrors.Errorf("error getting secret %s/%s: %w", desiredSecret.Namespace, desiredSecret.Name, err)
@@ -875,7 +875,7 @@ func (r *OpsManagerReconciler) ensureAppDBConnectionStringInMemberCluster(ctx co
 
 	_, err := memberCluster.SecretClient.ReadSecret(ctx, kube.ObjectKey(opsManager.Namespace, opsManager.AppDBMongoConnectionStringSecretName()), opsManagerSecretPath)
 	if err != nil {
-		if secrets.SecretNotExist(err) {
+		if secret.SecretNotExist(err) {
 			log.Debugf("AppDB connection string secret was not found in cluster %s, creating %s now", memberCluster.Name, kube.ObjectKey(opsManager.Namespace, opsManager.AppDBMongoConnectionStringSecretName()))
 			// assume the secret was not found, need to create it
 
@@ -1177,7 +1177,7 @@ func (r *OpsManagerReconciler) ensureGenKeyInOperatorCluster(ctx context.Context
 		return genKeySecretMap, nil
 	}
 
-	if secrets.SecretNotExist(err) {
+	if secret.SecretNotExist(err) {
 		// todo if the key is not found but the AppDB is initialized - OM will fail to start as preflight
 		// check will complain that keys are different - we need to validate against this here
 
@@ -1390,7 +1390,7 @@ func (r *OpsManagerReconciler) prepareOpsManager(ctx context.Context, opsManager
 	// 1. Read the admin secret
 	userData, err := r.ReadSecret(ctx, adminObjectKey, operatorVaultPath)
 
-	if secrets.SecretNotExist(err) {
+	if secret.SecretNotExist(err) {
 		// This requires user actions - let's wait a bit longer than 10 seconds
 		return workflow.Failed(xerrors.Errorf("the secret %s doesn't exist - you need to create it to finish Ops Manager initialization", adminObjectKey)).WithRetry(60), nil
 	} else if err != nil {
@@ -1427,7 +1427,7 @@ func (r *OpsManagerReconciler) prepareOpsManager(ctx context.Context, opsManager
 	// the first one will have GLOBAL_ADMIN permission. So we should avoid the situation when the admin changes the
 	// user secret and reconciles OM resource and the new user (non admin one) is created overriding the previous API secret
 	_, err = r.ReadSecret(ctx, adminKeySecretName, operatorVaultPath)
-	if secrets.SecretNotExist(err) {
+	if secret.SecretNotExist(err) {
 		apiKey, err := r.omInitializer.TryCreateUser(centralURL, opsManager.Spec.Version, newUser, ca)
 		if err != nil {
 			// Will wait more than usual (10 seconds) as most of all the problem needs to get fixed by the user
@@ -1442,7 +1442,7 @@ func (r *OpsManagerReconciler) prepareOpsManager(ctx context.Context, opsManager
 			// The structure matches the structure of a credentials secret used by normal mongodb resources
 			secretData := map[string]string{util.OmPublicApiKey: apiKey.PublicKey, util.OmPrivateKey: apiKey.PrivateKey}
 
-			if err = r.client.DeleteSecret(ctx, adminKeySecretName); err != nil && !secrets.SecretNotExist(err) {
+			if err = r.client.DeleteSecret(ctx, adminKeySecretName); err != nil && !secret.SecretNotExist(err) {
 				// TODO our desired behavior is not to fail but just append the warning to the status (CLOUDP-51340)
 				return workflow.Failed(xerrors.Errorf("failed to replace a secret for admin public api key. %s. The error : %w",
 					detailedAPIErrorMsg(adminKeySecretName), err)).WithRetry(300), nil
@@ -1984,12 +1984,12 @@ func (r *OpsManagerReconciler) getMongoDbForS3Config(ctx context.Context, opsMan
 
 	err := r.client.Get(ctx, mongodbObjectKey, mongodb)
 	if err != nil {
-		if secrets.SecretNotExist(err) {
+		if secret.SecretNotExist(err) {
 
 			// try to fetch mongodbMulti if it exists
 			err = r.client.Get(ctx, mongodbObjectKey, mongodbMulti)
 			if err != nil {
-				if secrets.SecretNotExist(err) {
+				if secret.SecretNotExist(err) {
 					// Returning pending as the user may create the mongodb resource soon
 					return nil, workflow.Pending("The MongoDB object %s doesn't exist", mongodbObjectKey)
 				}
@@ -2014,7 +2014,7 @@ func (r *OpsManagerReconciler) getS3MongoDbUserNameAndPassword(ctx context.Conte
 	mongodbUser := &user.MongoDBUser{}
 	mongodbUserObjectKey := config.MongodbUserObjectKey(namespace)
 	err := r.client.Get(ctx, mongodbUserObjectKey, mongodbUser)
-	if secrets.SecretNotExist(err) {
+	if secret.SecretNotExist(err) {
 		return "", "", workflow.Pending("The MongoDBUser object %s doesn't exist", mongodbUserObjectKey)
 	}
 	if err != nil {
@@ -2036,7 +2036,7 @@ func (r *OpsManagerReconciler) buildOMDatastoreConfig(ctx context.Context, opsMa
 
 	err := r.client.Get(ctx, mongodbObjectKey, mongodb)
 	if err != nil {
-		if secrets.SecretNotExist(err) {
+		if secret.SecretNotExist(err) {
 			// Returning pending as the user may create the mongodb resource soon
 			return backup.DataStoreConfig{}, workflow.Pending("The MongoDB object %s doesn't exist", mongodbObjectKey)
 		}
@@ -2056,7 +2056,7 @@ func (r *OpsManagerReconciler) buildOMDatastoreConfig(ctx context.Context, opsMa
 		mongodbUser := &user.MongoDBUser{}
 		mongodbUserObjectKey := operatorConfig.MongodbUserObjectKey(opsManager.Namespace)
 		err := r.client.Get(ctx, mongodbUserObjectKey, mongodbUser)
-		if secrets.SecretNotExist(err) {
+		if secret.SecretNotExist(err) {
 			return backup.DataStoreConfig{}, workflow.Pending("The MongoDBUser object %s doesn't exist", operatorConfig.MongodbResourceObjectKey(opsManager.Namespace))
 		}
 		if err != nil {

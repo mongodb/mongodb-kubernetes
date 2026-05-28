@@ -32,6 +32,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/v1/om"
 	rolev1 "github.com/mongodb/mongodb-kubernetes/api/v1/role"
@@ -56,24 +57,21 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
-	mcoConstruct "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/construct"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/annotations"
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/configmap"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/service"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/merge"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/scale"
+	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
-	mekoService "github.com/mongodb/mongodb-kubernetes/pkg/kube/service"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/configmap"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/service"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/scale"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/versionutil"
 	"github.com/mongodb/mongodb-kubernetes/pkg/vault"
 	"github.com/mongodb/mongodb-kubernetes/pkg/vault/vaultwatcher"
@@ -344,7 +342,7 @@ func (r *ShardedClusterReconcileHelper) prepareDesiredShardsConfiguration() map[
 	return shardComponentSpecs
 }
 
-func getShardTopLevelOverrides(spec *mdbv1.MongoDbSpec, shardIdx int) (*common.Persistence, *corev1.PodTemplateSpec) {
+func getShardTopLevelOverrides(spec *mdbv1.MongoDbSpec, shardIdx int) (*v1.Persistence, *corev1.PodTemplateSpec) {
 	topLevelPodSpecOverride, topLevelPersistenceOverride := extractOverridesFromPodSpec(spec.ShardPodSpec)
 
 	// specific shard level sts and persistence override
@@ -364,7 +362,7 @@ func getShardTopLevelOverrides(spec *mdbv1.MongoDbSpec, shardIdx int) (*common.P
 	return topLevelPersistenceOverride, topLevelPodSpecOverride
 }
 
-func mergeOverrideClusterSpecList(shardOverride mdbv1.ShardOverride, defaultShardConfiguration *mdbv1.ShardedClusterComponentSpec, topLevelPodSpecOverride *corev1.PodTemplateSpec, topLevelPersistenceOverride *common.Persistence) *mdbv1.ShardedClusterComponentSpec {
+func mergeOverrideClusterSpecList(shardOverride mdbv1.ShardOverride, defaultShardConfiguration *mdbv1.ShardedClusterComponentSpec, topLevelPodSpecOverride *corev1.PodTemplateSpec, topLevelPersistenceOverride *v1.Persistence) *mdbv1.ShardedClusterComponentSpec {
 	finalShardConfiguration := defaultShardConfiguration.DeepCopy()
 	// We override here all elements of ClusterSpecList, but statefulset overrides if provided here
 	// will be merged on top of previous sts overrides.
@@ -377,7 +375,7 @@ func mergeOverrideClusterSpecList(shardOverride mdbv1.ShardOverride, defaultShar
 		// We need to propagate top level specs, from e.g ShardPodSpec or ShardSpecificPodSpec, and apply a merge
 		if foundIdx == -1 {
 			if shardOverrideClusterSpecItem.StatefulSetConfiguration == nil {
-				shardOverrideClusterSpecItem.StatefulSetConfiguration = &common.StatefulSetConfiguration{}
+				shardOverrideClusterSpecItem.StatefulSetConfiguration = &v1.StatefulSetConfiguration{}
 			}
 			// We only need to perform a merge if there is a top level override, otherwise we keep an empty sts configuration
 			if topLevelPodSpecOverride != nil {
@@ -462,7 +460,7 @@ func expandShardOverrides(initialOverrides []mdbv1.ShardOverride) []mdbv1.ShardO
 	return expandedShardOverrides
 }
 
-func processShardOverride(spec *mdbv1.MongoDbSpec, shardOverride mdbv1.ShardOverride, defaultShardConfiguration *mdbv1.ShardedClusterComponentSpec, topLevelPodSpecOverride *corev1.PodTemplateSpec, topLevelPersistenceOverride *common.Persistence) *mdbv1.ShardedClusterComponentSpec {
+func processShardOverride(spec *mdbv1.MongoDbSpec, shardOverride mdbv1.ShardOverride, defaultShardConfiguration *mdbv1.ShardedClusterComponentSpec, topLevelPodSpecOverride *corev1.PodTemplateSpec, topLevelPersistenceOverride *v1.Persistence) *mdbv1.ShardedClusterComponentSpec {
 	if shardOverride.Agent != nil {
 		defaultShardConfiguration.Agent = *shardOverride.Agent
 	}
@@ -491,7 +489,7 @@ func processShardOverride(spec *mdbv1.MongoDbSpec, shardOverride mdbv1.ShardOver
 		for idx := range defaultShardConfiguration.ClusterSpecList {
 			// Handle case where defaultShardConfiguration.ClusterSpecList[idx].StatefulSetConfiguration is nil
 			if defaultShardConfiguration.ClusterSpecList[idx].StatefulSetConfiguration == nil {
-				defaultShardConfiguration.ClusterSpecList[idx].StatefulSetConfiguration = &common.StatefulSetConfiguration{}
+				defaultShardConfiguration.ClusterSpecList[idx].StatefulSetConfiguration = &v1.StatefulSetConfiguration{}
 			}
 			defaultShardConfiguration.ClusterSpecList[idx].StatefulSetConfiguration.SpecWrapper.Spec = merge.StatefulSetSpecs(defaultShardConfiguration.ClusterSpecList[idx].StatefulSetConfiguration.SpecWrapper.Spec, shardOverride.StatefulSetConfiguration.SpecWrapper.Spec)
 		}
@@ -506,9 +504,9 @@ func processShardOverride(spec *mdbv1.MongoDbSpec, shardOverride mdbv1.ShardOver
 	}
 }
 
-func extractOverridesFromPodSpec(podSpec *mdbv1.MongoDbPodSpec) (*corev1.PodTemplateSpec, *common.Persistence) {
+func extractOverridesFromPodSpec(podSpec *mdbv1.MongoDbPodSpec) (*corev1.PodTemplateSpec, *v1.Persistence) {
 	var podTemplateOverride *corev1.PodTemplateSpec
-	var persistenceOverride *common.Persistence
+	var persistenceOverride *v1.Persistence
 	if podSpec != nil {
 		if podSpec.PodTemplateWrapper.PodTemplate != nil {
 			podTemplateOverride = podSpec.PodTemplateWrapper.PodTemplate
@@ -555,7 +553,7 @@ func (r *ShardedClusterReconcileHelper) prepareDesiredConfigServerConfiguration(
 func processClusterSpecList(
 	clusterSpecList []mdbv1.ClusterSpecItem,
 	topLevelPodSpecOverride *corev1.PodTemplateSpec,
-	topLevelPersistenceOverride *common.Persistence,
+	topLevelPersistenceOverride *v1.Persistence,
 ) []mdbv1.ClusterSpecItem {
 	for i := range clusterSpecList {
 		// we will store final sts overrides for each cluster in clusterSpecItem.StatefulSetOverride
@@ -563,7 +561,7 @@ func processClusterSpecList(
 		// in case higher level overrides are empty, we just use whatever is specified in clusterSpecItem (maybe nothing as well)
 		if topLevelPodSpecOverride != nil {
 			if clusterSpecList[i].StatefulSetConfiguration == nil {
-				clusterSpecList[i].StatefulSetConfiguration = &common.StatefulSetConfiguration{}
+				clusterSpecList[i].StatefulSetConfiguration = &v1.StatefulSetConfiguration{}
 			}
 			clusterSpecList[i].StatefulSetConfiguration.SpecWrapper.Spec.Template = merge.PodTemplateSpecs(*topLevelPodSpecOverride.DeepCopy(), clusterSpecList[i].StatefulSetConfiguration.SpecWrapper.Spec.Template)
 		}
@@ -2358,7 +2356,7 @@ func (r *ShardedClusterReconcileHelper) createDesiredMongosProcesses(certificate
 			process := om.NewMongosProcess(
 				podNames[i],
 				hostnames[i],
-				r.imageUrls[mcoConstruct.MongodbImageEnv],
+				r.imageUrls[util.MongodbImageEnv],
 				r.forceEnterprise,
 				r.desiredMongosConfiguration.GetAdditionalMongodConfig(),
 				r.sc.GetSpec(),
@@ -2379,7 +2377,7 @@ func (r *ShardedClusterReconcileHelper) createDesiredConfigSrvProcessesAndMember
 	for _, memberCluster := range r.configSrvMemberClusters {
 		hostnames, podNames := r.getConfigSrvHostnames(memberCluster, scale.ReplicasThisReconciliation(r.GetConfigSrvScaler(memberCluster)))
 		for i := range hostnames {
-			process := om.NewMongodProcess(podNames[i], hostnames[i], r.imageUrls[mcoConstruct.MongodbImageEnv], r.forceEnterprise, r.sc.Spec.ConfigSrvSpec.GetAdditionalMongodConfig(), r.sc.GetSpec(), certificateFilePath, r.sc.Annotations, r.sc.CalculateFeatureCompatibilityVersion())
+			process := om.NewMongodProcess(podNames[i], hostnames[i], r.imageUrls[util.MongodbImageEnv], r.forceEnterprise, r.sc.Spec.ConfigSrvSpec.GetAdditionalMongodConfig(), r.sc.GetSpec(), certificateFilePath, r.sc.Annotations, r.sc.CalculateFeatureCompatibilityVersion())
 			processes = append(processes, process)
 		}
 
@@ -2396,7 +2394,7 @@ func (r *ShardedClusterReconcileHelper) createDesiredShardProcessesAndMemberOpti
 	for _, memberCluster := range r.shardsMemberClustersMap[shardIdx] {
 		hostnames, podNames := r.getShardHostnames(shardIdx, memberCluster, scale.ReplicasThisReconciliation(r.GetShardScaler(shardIdx, memberCluster)))
 		for i := range hostnames {
-			process := om.NewMongodProcess(podNames[i], hostnames[i], r.imageUrls[mcoConstruct.MongodbImageEnv], r.forceEnterprise, r.desiredShardsConfiguration[shardIdx].GetAdditionalMongodConfig(), r.sc.GetSpec(), certificateFilePath, r.sc.Annotations, r.sc.CalculateFeatureCompatibilityVersion())
+			process := om.NewMongodProcess(podNames[i], hostnames[i], r.imageUrls[util.MongodbImageEnv], r.forceEnterprise, r.desiredShardsConfiguration[shardIdx].GetAdditionalMongodConfig(), r.sc.GetSpec(), certificateFilePath, r.sc.Annotations, r.sc.CalculateFeatureCompatibilityVersion())
 			processes = append(processes, process)
 		}
 		specMemberOptions := r.desiredShardsConfiguration[shardIdx].GetClusterSpecItem(memberCluster.Name).MemberConfig
@@ -2473,7 +2471,7 @@ func (r *ShardedClusterReconcileHelper) getConfigServerOptions(ctx context.Conte
 		WithStsLabels(r.statefulsetLabels()),
 		WithInitDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, util.InitDatabaseImageUrlEnv, r.initDatabaseNonStaticImageVersion)),
 		WithDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, util.NonStaticDatabaseEnterpriseImage, r.databaseNonStaticImageVersion)),
-		WithAgentImage(images.ContainerImage(r.imageUrls, architectures.MdbAgentImageRepo, r.automationAgentVersion)),
+		WithAgentImage(images.ContainerImage(r.imageUrls, util.AgentImageUrlEnv, r.automationAgentVersion)),
 		WithMongodbImage(images.GetOfficialImage(r.imageUrls, sc.Spec.Version, sc.GetAnnotations())),
 		WithAgentDebug(r.agentDebug),
 		WithAgentDebugImage(r.agentDebugImage),
@@ -2504,7 +2502,7 @@ func (r *ShardedClusterReconcileHelper) getMongosOptions(ctx context.Context, sc
 		WithStsLabels(r.statefulsetLabels()),
 		WithInitDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, util.InitDatabaseImageUrlEnv, r.initDatabaseNonStaticImageVersion)),
 		WithDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, util.NonStaticDatabaseEnterpriseImage, r.databaseNonStaticImageVersion)),
-		WithAgentImage(images.ContainerImage(r.imageUrls, architectures.MdbAgentImageRepo, r.automationAgentVersion)),
+		WithAgentImage(images.ContainerImage(r.imageUrls, util.AgentImageUrlEnv, r.automationAgentVersion)),
 		WithMongodbImage(images.GetOfficialImage(r.imageUrls, sc.Spec.Version, sc.GetAnnotations())),
 		WithAgentDebug(r.agentDebug),
 		WithAgentDebugImage(r.agentDebugImage),
@@ -2537,7 +2535,7 @@ func (r *ShardedClusterReconcileHelper) getShardOptions(ctx context.Context, sc 
 		WithStsLabels(r.statefulsetLabels()),
 		WithInitDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, util.InitDatabaseImageUrlEnv, r.initDatabaseNonStaticImageVersion)),
 		WithDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, util.NonStaticDatabaseEnterpriseImage, r.databaseNonStaticImageVersion)),
-		WithAgentImage(images.ContainerImage(r.imageUrls, architectures.MdbAgentImageRepo, r.automationAgentVersion)),
+		WithAgentImage(images.ContainerImage(r.imageUrls, util.AgentImageUrlEnv, r.automationAgentVersion)),
 		WithMongodbImage(images.GetOfficialImage(r.imageUrls, sc.Spec.Version, sc.GetAnnotations())),
 		WithAgentDebug(r.agentDebug),
 		WithAgentDebugImage(r.agentDebugImage),
@@ -2764,7 +2762,7 @@ func (r *ShardedClusterReconcileHelper) reconcileServices(ctx context.Context, l
 			// the pod services created in their respective clusters will be updated twice here, but this way the code is cleaner
 			for _, svc := range allServices {
 				log.Debugf("creating duplicated services for %s in cluster: %s", svc.Name, memberCluster.Name)
-				err := mekoService.CreateOrUpdateService(ctx, memberCluster.Client, *svc)
+				err := service.CreateOrUpdateService(ctx, memberCluster.Client, *svc)
 				if err != nil {
 					return xerrors.Errorf("failed to create (duplicate) pod service %s in cluster: %s, err: %w", svc.Name, memberCluster.Name, err)
 				}
@@ -2795,7 +2793,7 @@ func (r *ShardedClusterReconcileHelper) reconcileConfigServerServices(ctx contex
 			if err != nil {
 				return xerrors.Errorf("failed to build an external service %s in cluster: %s, err: %w", dns.GetMultiExternalServiceName(r.sc.ConfigSrvServiceName(), memberCluster.Index, podNum), memberCluster.Name, err)
 			}
-			if err = mekoService.CreateOrUpdateService(ctx, memberCluster.Client, svc); err != nil && !errors.IsAlreadyExists(err) {
+			if err = service.CreateOrUpdateService(ctx, memberCluster.Client, svc); err != nil && !errors.IsAlreadyExists(err) {
 				return xerrors.Errorf("failed to create external service %s in cluster: %s, err: %w", svc.Name, memberCluster.Name, err)
 			}
 		}
@@ -2803,7 +2801,7 @@ func (r *ShardedClusterReconcileHelper) reconcileConfigServerServices(ctx contex
 		if configServerExternalAccess == nil || configServerExternalAccess.ExternalDomain == nil {
 			log.Debugf("creating internal services for %s in cluster: %s", r.sc.ConfigRsName(), memberCluster.Name)
 			svc := r.getPodService(r.sc.ConfigRsName(), memberCluster, podNum, portOrDefault)
-			if err := mekoService.CreateOrUpdateService(ctx, memberCluster.Client, svc); err != nil && !errors.IsAlreadyExists(err) {
+			if err := service.CreateOrUpdateService(ctx, memberCluster.Client, svc); err != nil && !errors.IsAlreadyExists(err) {
 				return xerrors.Errorf("failed to create pod service %s in cluster: %s, err: %w", svc.Name, memberCluster.Name, err)
 			}
 			_ = append(allServices, &svc)
@@ -2836,7 +2834,7 @@ func (r *ShardedClusterReconcileHelper) reconcileShardServices(ctx context.Conte
 			if err != nil {
 				return xerrors.Errorf("failed to build an external service %s in cluster: %s, err: %w", dns.GetMultiExternalServiceName(r.sc.ShardRsName(shardIdx), memberCluster.Index, podNum), memberCluster.Name, err)
 			}
-			if err = mekoService.CreateOrUpdateService(ctx, memberCluster.Client, svc); err != nil && !errors.IsAlreadyExists(err) {
+			if err = service.CreateOrUpdateService(ctx, memberCluster.Client, svc); err != nil && !errors.IsAlreadyExists(err) {
 				return xerrors.Errorf("failed to create external service %s in cluster: %s, err: %w", svc.Name, memberCluster.Name, err)
 			}
 		}
@@ -2844,7 +2842,7 @@ func (r *ShardedClusterReconcileHelper) reconcileShardServices(ctx context.Conte
 		if shardsExternalAccess == nil || shardsExternalAccess.ExternalDomain == nil {
 			log.Debugf("creating internal services for %s in cluster: %s", r.sc.ShardRsName(shardIdx), memberCluster.Name)
 			svc := r.getPodService(r.sc.ShardRsName(shardIdx), memberCluster, podNum, portOrDefault)
-			if err := mekoService.CreateOrUpdateService(ctx, memberCluster.Client, svc); err != nil {
+			if err := service.CreateOrUpdateService(ctx, memberCluster.Client, svc); err != nil {
 				return xerrors.Errorf("failed to create pod service %s in cluster: %s, err: %w", svc.Name, memberCluster.Name, err)
 			}
 
@@ -2877,7 +2875,7 @@ func (r *ShardedClusterReconcileHelper) reconcileMongosServices(ctx context.Cont
 			if err != nil {
 				return xerrors.Errorf("failed to build an external service %s in cluster: %s, err: %w", dns.GetMultiExternalServiceName(r.sc.MongosRsName(), memberCluster.Index, podNum), memberCluster.Name, err)
 			}
-			if err = mekoService.CreateOrUpdateService(ctx, memberCluster.Client, svc); err != nil && !errors.IsAlreadyExists(err) {
+			if err = service.CreateOrUpdateService(ctx, memberCluster.Client, svc); err != nil && !errors.IsAlreadyExists(err) {
 				return xerrors.Errorf("failed to create external service %s in cluster: %s, err: %w", svc.Name, memberCluster.Name, err)
 			}
 		}
@@ -2885,7 +2883,7 @@ func (r *ShardedClusterReconcileHelper) reconcileMongosServices(ctx context.Cont
 		if mongosExternalAccess == nil || mongosExternalAccess.ExternalDomain == nil {
 			log.Debugf("creating internal services for %s in cluster: %s", r.sc.MongosRsName(), memberCluster.Name)
 			svc := r.getPodService(r.sc.MongosRsName(), memberCluster, podNum, portOrDefault)
-			if err := mekoService.CreateOrUpdateService(ctx, memberCluster.Client, svc); err != nil && !errors.IsAlreadyExists(err) {
+			if err := service.CreateOrUpdateService(ctx, memberCluster.Client, svc); err != nil && !errors.IsAlreadyExists(err) {
 				return xerrors.Errorf("failed to create pod service %s in cluster: %s, err: %w", svc.Name, memberCluster.Name, err)
 			}
 
@@ -2908,7 +2906,7 @@ func (r *ShardedClusterReconcileHelper) createHeadlessServiceForStatefulSet(ctx 
 	headlessServiceName := dns.GetMultiHeadlessServiceName(stsName, memberCluster.Index)
 	nameSpacedName := kube.ObjectKey(r.sc.Namespace, headlessServiceName)
 	headlessService := create.BuildService(nameSpacedName, r.sc, ptr.To(headlessServiceName), nil, port, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
-	if err := mekoService.CreateOrUpdateService(ctx, memberCluster.Client, headlessService); err != nil && !errors.IsAlreadyExists(err) {
+	if err := service.CreateOrUpdateService(ctx, memberCluster.Client, headlessService); err != nil && !errors.IsAlreadyExists(err) {
 		return xerrors.Errorf("failed to create pod service %s in cluster: %s, err: %w", headlessService.Name, memberCluster.Name, err)
 	}
 	return nil

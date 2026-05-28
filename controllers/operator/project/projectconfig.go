@@ -8,7 +8,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/configmap"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/configmap"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 )

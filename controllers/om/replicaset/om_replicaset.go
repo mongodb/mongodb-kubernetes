@@ -9,8 +9,8 @@ import (
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/process"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/scale"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/scale"
 )
 
 // BuildFromStatefulSet returns a replica set that can be set in the Automation Config
