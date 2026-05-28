@@ -1,30 +1,7 @@
 """Simulated multi-cluster MongoDBSearch e2e with a SHARDED external source.
 
-Topology mirrors `simulated_mc_basic.py` (3 operators: 1 central + 2 simulated-MC),
-but the external source is a `topology: MultiCluster` sharded MongoDB whose shards,
-configsrv and mongos are distributed across both member kind clusters (q3 pattern,
-adapted for the simulated-MC Search side):
-
-    central operator (kind-e2e-operator):
-        watches MongoDB / opsmanagers / MongoDBUser / MongoDBMultiCluster
-        owns the MC sharded MongoDB CR and its automation across both members.
-
-    simulated-MC operators (kind-e2e-cluster-1, kind-e2e-cluster-2):
-        each watches mongodbsearch only, identity = OPERATOR_CLUSTER_NAME env var,
-        per-cluster LocalizeToCluster collapse selects spec.clusters[i] slice and
-        materialises per-(cluster, shard) mongot StatefulSets / Services / ConfigMaps
-        / per-shard proxy Services + a per-cluster Envoy LB Deployment.
-
-Each member's API server receives THE SAME MongoDBSearch CR (spec.clusters lists
-every cluster, spec.source.external.shardedCluster lists every cluster's mongos in
-its `router.hosts` and every cluster's per-shard mongod FQDN in each `shards[i].hosts`).
-The simulated operator on each member projects to its own slice.
-
-Each member cluster has its own local mongos, so data-plane queries dial that
-local mongos with `directConnection=true`. The final test phases mongorestore
-`sample_mflix`, hash-shard the `movies` collection across the 2 shards, create a
-canonical `$search` index, and assert the same query returns rows via each
-cluster's local mongos.
+Topology mirrors simulated_mc_basic.py (1 central + 2 simulated-MC operators) but
+the source is a topology: MultiCluster sharded MongoDB. See sibling for shared shape.
 """
 
 from __future__ import annotations
@@ -67,7 +44,6 @@ from tests.multicluster_search.conftest import (
     MDBS_TLS_CERT_PREFIX,
     MONGOT_USER_NAME,
     MONGOT_USER_PASSWORD,
-    SIMULATED_OPERATOR_NAME,
     SOURCE_CERT_PREFIX,
     USER_NAME,
     USER_PASSWORD,
@@ -111,11 +87,7 @@ def _per_cluster_mongos_search_tester(
     username: str,
     password: str,
 ) -> SearchTester:
-    """SearchTester pinned to a specific cluster's mongos via its per-pod headless Service.
-
-    `directConnection=true` keeps the driver from discovering the other cluster's mongos
-    so the query stays local to `cluster_index` (matches the q3 sharded MC pattern).
-    """
+    """SearchTester pinned to one cluster's mongos via its per-pod headless Service + directConnection=true."""
     mongos_host = f"{MDB_RESOURCE_NAME}-mongos-{cluster_index}-0-svc.{namespace}.svc.cluster.local:27017"
     conn_str = f"mongodb://{username}:{password}@{mongos_host}/?directConnection=true&authSource=admin"
     return SearchTester(conn_str, use_ssl=True, ca_path=get_issuer_ca_filepath())
@@ -135,17 +107,7 @@ def central_mc_operator(
     member_cluster_clients: List[MultiClusterClient],
     member_cluster_names: List[str],
 ) -> Operator:
-    """Central MC operator scoped to MongoDB/User/MultiCluster + mongodbsearch.
-
-    The MongoDB ShardedCluster reconciler queries MongoDBSearch CRs via a field
-    index (`field:mdbsearch-for-mongodbresourceref-index`). That index is only
-    registered when mongodbsearch is included in `operator.watchedResources`.
-    Without it the central operator's MongoDB CR reconcile fails with:
-        "Failed to list MongoDBSearch resources: Index with name
-         field:mdbsearch-for-mongodbresourceref-index does not exist"
-    Including mongodbsearch registers the indexer; the controller starts idle
-    because the test only applies MongoDBSearch CRs to MEMBER cluster APIs.
-    """
+    """Central MC op watches MongoDB+User+MultiCluster+mongodbsearch; the field-indexer for MongoDBSearch is only registered when mongodbsearch is in watchedResources."""
     from tests.conftest import (
         MULTI_CLUSTER_OPERATOR_NAME,
         _install_multi_cluster_operator,
@@ -181,14 +143,7 @@ def ca_configmap(
     namespace: str,
     member_cluster_clients: List[MultiClusterClient],
 ) -> str:
-    """Issuer CA written to central AND every member cluster.
-
-    create_issuer_ca writes both a ConfigMap (key: ca-pem/mms-ca.crt) and a Secret
-    (key: ca.crt) with the same name. The MongoDB controller's TLS spec references
-    the ConfigMap on central; the simulated-MC search operators reference the Secret
-    half on each member; mongot pods on members need to verify the source MongoDB
-    TLS cert at runtime.
-    """
+    """Issuer CA written to central + every member (members need the Secret half for mongot TLS verify)."""
     name = create_issuer_ca(issuer_ca_filepath, namespace, CA_CONFIGMAP_NAME)
     for mcc in member_cluster_clients[:2]:
         create_issuer_ca(issuer_ca_filepath, namespace, CA_CONFIGMAP_NAME, api_client=mcc.api_client)
@@ -203,29 +158,20 @@ def mdb(
     member_cluster_names: List[str],
     ca_configmap: str,
 ) -> MongoDB:
-    """MultiCluster sharded MongoDB source with TLS+SCRAM, applied to the central cluster.
-
-    Per-shard `mongotHost` / `searchIndexManagementHostAndPort` point at the
-    per-shard proxy Service on cluster-0 (Envoy is namespace-scoped and reachable
-    from cluster-1 over Istio east-west; q3 uses the same routing). The mongos
-    cluster-level endpoint targets cluster-0's `*-search-0-proxy-svc`.
-    """
+    """MC sharded MongoDB source with TLS+SCRAM. Reuses q3 fixture; overrides name + shardCount."""
     member_cluster_names = member_cluster_names[:2]
     resource = MongoDB.from_yaml(
-        yaml_fixture("simulated-mc-sharded-mongodb.yaml"),
+        yaml_fixture("search-q3-mc-sharded.yaml"),
         name=MDB_RESOURCE_NAME,
         namespace=namespace,
     )
+    resource["spec"]["shardCount"] = SHARD_COUNT
 
     resource["spec"]["shard"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, MEMBERS_PER_CLUSTER)
     resource["spec"]["configSrv"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, CONFIG_SRV_PER_CLUSTER)
     resource["spec"]["mongos"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, MONGOS_PER_CLUSTER)
 
-    # MC MongoDB has no per-cluster additionalMongodConfig; both clusters get the
-    # same setParameter values. mongot lookups funnel through cluster-0's Envoy
-    # (Istio east-west handles cluster-1 → cluster-0 routing). Per-cluster QUERY
-    # paths still work because each cluster has its own local mongos that the
-    # test dials directly with `directConnection=true`.
+    # MC MongoDB shares setParameter across clusters; mongot lookups funnel through cluster-0's Envoy (Istio east-west).
     cluster_idx = 0
     cluster_level_endpoint = (
         f"{search_resource_names.mc_proxy_svc_fqdn(MDBS_RESOURCE_NAME, namespace, cluster_idx)}:{ENVOY_PROXY_PORT}"
@@ -318,19 +264,7 @@ def tools_pod(
     namespace: str,
     member_cluster_clients: List[MultiClusterClient],
 ) -> ToolsPod:
-    """Override the shared tools_pod fixture to put the pod on a MEMBER cluster.
-
-    The default fixture (tests/multicluster_search/conftest.py) creates the
-    pod on the central cluster. From the central cluster, the member-cluster
-    mongos pod-FQDN `mdb-mc-sim-sh-mongos-0-0-svc.NS.svc.cluster.local` does
-    NOT resolve (no cross-cluster DNS without an explicit Istio ServiceEntry),
-    so mongorestore exited with `dial tcp: lookup ... no such host` — the
-    failure was previously swallowed by ToolsPod.run_command and surfaced as
-    an empty sample_mflix collection / 0-row `$search`.
-
-    Putting the tools pod on `member_cluster_clients[0]` means its DNS sees
-    `mongos-0-0-svc` locally; mongorestore can dial it directly.
-    """
+    """Pod placed on a member cluster so its DNS resolves the local mongos pod-FQDN."""
     return mongodb_tools_pod.get_tools_pod(namespace, api_client=member_cluster_clients[0].api_client)
 
 
@@ -340,10 +274,7 @@ def per_cluster_mdbs_search(
     member_cluster_clients: List[MultiClusterClient],
     ca_configmap: str,
 ) -> List[Tuple[MultiClusterClient, MongoDBSearch]]:
-    """Same CR (spec.clusters lists all clusters, spec.source.external.shardedCluster set)
-    applied to each member's API; each operator's LocalizeToCluster collapse selects its
-    own slice and fans out per-(cluster, shard) mongot resources.
-    """
+    """Same CR applied to each member's API; each operator's LocalizeToCluster collapse fans out its own per-(cluster, shard) mongot resources."""
     member_cluster_clients = member_cluster_clients[:2]
     results: List[Tuple[MultiClusterClient, MongoDBSearch]] = []
 
@@ -356,11 +287,7 @@ def per_cluster_mdbs_search(
         for mcc in member_cluster_clients
     ]
 
-    # MC sharded source: router/hosts lists every cluster's local mongos pod-FQDN;
-    # each shard's `hosts` lists every cluster's mongod pod-FQDN for that shard.
-    # Per-pod headless Services (`<sts>-<clusterIdx>-<podIdx>-svc`) are reachable
-    # cross-cluster via Istio east-west (the per-cluster `<sts>-<clusterIdx>-svc`
-    # is not). Mirrors the q3 pattern.
+    # router.hosts = every cluster's mongos pod-FQDN; shards[i].hosts = every cluster's mongod pod-FQDN (pod-svcs are cross-cluster-reachable via Istio).
     router_hosts = [
         f"{MDB_RESOURCE_NAME}-mongos-{cluster_idx}-{pod_idx}-svc.{namespace}.svc.cluster.local:27017"
         for cluster_idx, n_mongos in enumerate(MONGOS_PER_CLUSTER)
@@ -439,10 +366,7 @@ def test_install_source_tls_certificates(
     central_cluster_client: kubernetes.client.ApiClient,
     mdb: MongoDB,
 ):
-    """Source MongoDB per-component TLS certs (q3 pattern — per-shard, per-configsrv,
-    per-mongos with `replicas_cluster_distribution`). Certs are written to the central
-    cluster; the central MongoDB controller replicates them to members.
-    """
+    """Source MongoDB per-component TLS certs (q3 pattern); central MongoDB controller replicates them to members."""
 
     def _issue(component_resource: str, secret_name: str, distribution: List[int | None]):
         create_tls_certs(
@@ -476,11 +400,7 @@ def test_install_source_tls_certificates(
 @mark.e2e_search_simulated_mc_sharded_basic
 def test_mongodb_running(mdb: MongoDB):
     mdb.update()
-    # ignore_errors=True: under `topology: MultiCluster`, the central operator can
-    # write a transient phase=Failed when the controller-runtime cached client lags
-    # behind a successful STS Create on a member cluster (Get returns NotFound for
-    # up to ~10s after Create). The next requeue picks up the freshly-synced cache.
-    # See project_simulated_mc_search.md "STS visibility lag" for the diagnosis.
+    # ignore_errors=True: tolerate transient phase=Failed from controller-runtime cache lag on MC STS Create.
     mdb.assert_reaches_phase(Phase.Running, timeout=1800, ignore_errors=True)
 
 
@@ -493,16 +413,7 @@ def test_create_users(
     mongot_user: MongoDBUser,
     member_cluster_clients: List[MultiClusterClient],
 ):
-    """Users are created BEFORE simulated-MC operators are installed.
-
-    The MongoDBUser controller (central op) reconciles the user CRs and pushes
-    AC v8 to OM. Mongod agents must converge to v8 within the 600s timeout.
-    In the earlier reorder attempt (E2), simulated ops were installed first
-    and half the agents (cluster-1 aligned) failed to converge to v8 within
-    the timeout, likely because the simulated op install triggered pod or
-    network state perturbation on member clusters. Pushing AC v8 while the
-    cluster is undisturbed avoids that race.
-    """
+    """Create users before sim-ops install: AC v8 must propagate to mongod agents while the cluster is undisturbed."""
     member_cluster_clients = member_cluster_clients[:2]
     for user, pwd in (
         (admin_user, ADMIN_USER_PASSWORD),
@@ -533,20 +444,7 @@ def test_install_simulated_operators_per_member(
     multi_cluster_operator_installation_config: dict,
     member_cluster_clients: List[MultiClusterClient],
 ):
-    """Installed AFTER MongoDB CR is Running and users are Updated.
-
-    Two deferral motivations:
-    1. The simulated-MC operators' helm install on member clusters triggers a
-       cross-cluster STS owner-ref + cache-sync collision that prevents the
-       central op's ShardedClusterReconciler from converging the MongoDB CR
-       if they're present during the initial reconcile (E1 diagnostic
-       confirmed isolation).
-    2. The simulated op install also perturbs the member-cluster state in a
-       way that breaks AC version propagation on half the mongod agents
-       (E2 observation: cluster-1 agents stuck at AC v5 when users created
-       after sim ops). Pushing AC v8 (user creation) before sim ops install
-       avoids that race.
-    """
+    """Install sim ops after MongoDB Running + users Updated: sim-op install perturbs member-cluster state and races central-op reconcile + AC propagation."""
     member_cluster_clients = member_cluster_clients[:2]
     base_helm_args = dict(multi_cluster_operator_installation_config)
     for mcc in member_cluster_clients:
@@ -561,9 +459,7 @@ def test_deploy_lb_certificates(
     member_cluster_clients: List[MultiClusterClient],
     central_cluster_client: kubernetes.client.ApiClient,
 ):
-    """Per-cluster, per-shard LB certs issued on central — SANs cover every cluster's
-    per-shard proxy Service FQDN plus the cluster-level proxy Service for mongos.
-    """
+    """Per-cluster, per-shard LB certs issued on central (SANs cover per-shard + cluster-level proxy FQDNs)."""
     member_cluster_clients = member_cluster_clients[:2]
     create_lb_certificates(
         namespace=namespace,
@@ -584,11 +480,7 @@ def test_create_search_tls_certificates(
     member_cluster_clients: List[MultiClusterClient],
     central_cluster_client: kubernetes.client.ApiClient,
 ):
-    """Per-(cluster, shard) mongot TLS certs issued on central; replicated below.
-
-    cert-manager is installed only on the central cluster, so all Certificate CRs
-    land there; the next step copies the resulting Secrets to each member.
-    """
+    """Per-(cluster, shard) mongot TLS certs issued on central (cert-manager runs there only); next step copies Secrets to members."""
     member_cluster_clients = member_cluster_clients[:2]
     for mcc in member_cluster_clients:
         create_per_shard_search_tls_certs(
@@ -646,31 +538,10 @@ def test_replicate_tls_to_members(
 
 
 @mark.e2e_search_simulated_mc_sharded_basic
-def test_operators_running(
-    central_mc_operator: Operator,
-    member_cluster_clients: List[MultiClusterClient],
-    namespace: str,
-):
-    """Central + per-member simulated operators all running."""
-    central_mc_operator.assert_is_running()
-    for mcc in member_cluster_clients[:2]:
-        Operator(namespace=namespace, name=SIMULATED_OPERATOR_NAME, api_client=mcc.api_client).assert_is_running()
-
-
-@mark.e2e_search_simulated_mc_sharded_basic
-def test_central_sharded_mongodb_running(mdb: MongoDB):
-    """Final assertion that the MC sharded MongoDB source remained Running through setup."""
-    mdb.load()
-    actual = mdb.get_status_phase()
-    assert actual == Phase.Running, f"MC sharded MongoDB {mdb.name} phase={actual}, expected Phase.Running"
-
-
-@mark.e2e_search_simulated_mc_sharded_basic
 def test_search_cr_reaches_running_per_cluster(
     per_cluster_mdbs_search: List[Tuple[MultiClusterClient, MongoDBSearch]],
 ):
-    """Same MongoDBSearch CR applied to each member; each simulated operator reconciles
-    its own LocalizeToCluster slice and stamps Running."""
+    """Same CR applied to each member; each simulated operator stamps Running on its own slice."""
     for _mcc, mdbs in per_cluster_mdbs_search:
         mdbs.update()
     for mcc, mdbs in per_cluster_mdbs_search:
@@ -683,10 +554,7 @@ def test_per_cluster_sharded_resources_exist(
     namespace: str,
     per_cluster_mdbs_search: List[Tuple[MultiClusterClient, MongoDBSearch]],
 ):
-    """Each member must materialise its own (cluster, shard) mongot STS / Svc / CM /
-    proxy Svc plus a per-cluster Envoy LB Deployment. Resources on OTHER clusters
-    must not leak into this cluster's API server.
-    """
+    """Each member materialises its own (cluster, shard) mongot STS/Svc/CM/proxy + per-cluster Envoy LB."""
     for mcc, _mdbs in per_cluster_mdbs_search:
         ci = _idx(mcc)
         for shard_idx in range(SHARD_COUNT):
@@ -719,46 +587,10 @@ def test_per_cluster_sharded_resources_exist(
 
 
 @mark.e2e_search_simulated_mc_sharded_basic
-def test_no_cross_cluster_resource_leak(
-    namespace: str,
-    per_cluster_mdbs_search: List[Tuple[MultiClusterClient, MongoDBSearch]],
-):
-    """Resources owned by OTHER cluster indices must NOT exist on this cluster's API.
-
-    This is the simulated-MC invariant: each operator only writes resources for its
-    own LocalizeToCluster slice. A cross-cluster leak would mean the projection
-    collapse didn't fire correctly.
-    """
-    all_cluster_indices = [_idx(mcc) for mcc, _ in per_cluster_mdbs_search]
-    for mcc, _mdbs in per_cluster_mdbs_search:
-        own_ci = _idx(mcc)
-        for foreign_ci in all_cluster_indices:
-            if foreign_ci == own_ci:
-                continue
-            for shard_idx in range(SHARD_COUNT):
-                shard_name = f"{MDB_RESOURCE_NAME}-{shard_idx}"
-                sts_name = search_resource_names.shard_statefulset_name(MDBS_RESOURCE_NAME, shard_name, foreign_ci)
-                try:
-                    mcc.read_namespaced_stateful_set(sts_name, namespace)
-                except kubernetes.client.exceptions.ApiException as exc:
-                    if exc.status == 404:
-                        continue
-                    raise
-                else:
-                    raise AssertionError(
-                        f"[{mcc.cluster_name}] LEAK: foreign-cluster STS {sts_name} "
-                        f"(cluster_index={foreign_ci}) found on cluster_index={own_ci}'s API"
-                    )
-        logger.info(f"[{mcc.cluster_name}] no foreign-cluster resources leaked into local API server")
-
-
-@mark.e2e_search_simulated_mc_sharded_basic
 def test_status_per_cluster_local_only(
     per_cluster_mdbs_search: List[Tuple[MultiClusterClient, MongoDBSearch]],
 ):
-    """No cross-cluster status awareness in simulated-MC mode; each cluster's CR view
-    reports its own phase based on its own LocalizeToCluster slice.
-    """
+    """No cross-cluster status awareness in simulated-MC mode; each cluster reports its own slice's phase."""
     for mcc, mdbs in per_cluster_mdbs_search:
         mdbs.load()
         phase = mdbs.get_status_phase()
@@ -772,11 +604,7 @@ def test_status_per_cluster_local_only(
 
 @mark.e2e_search_simulated_mc_sharded_basic
 def test_restore_sample_database(namespace: str, tools_pod: ToolsPod):
-    """Restore sample_mflix via mongorestore through cluster-0's local mongos.
-
-    Once restored, the data is owned by the logical sharded cluster (one configsrv
-    routing layer across both clusters), so cluster-1's mongos sees the same data.
-    """
+    """Restore sample_mflix via cluster-0's mongos (logical cluster, so cluster-1's mongos sees same data)."""
     tester = _per_cluster_mongos_search_tester(namespace, 0, ADMIN_USER_NAME, ADMIN_USER_PASSWORD)
     tester.mongorestore_from_url(
         archive_url="https://atlas-education.s3.amazonaws.com/sample_mflix.archive",
@@ -787,15 +615,7 @@ def test_restore_sample_database(namespace: str, tools_pod: ToolsPod):
 
 @mark.e2e_search_simulated_mc_sharded_basic
 def test_shard_sample_collection(namespace: str):
-    """Hash-shard sample_mflix.movies across the 2 shards.
-
-    Use shardCollection only (NOT the common helper's reshardCollection step).
-    In this 3-operator simulated-MC setup, reshardCollection hangs ~145s before
-    pymongo drops the connection — chunk-migration across the multi-cluster
-    sharded RS members appears blocked. Hashed _id sharding will distribute
-    new writes; for `$search` verification, the routing path (mongos -> mongot
-    -> shard RS) is what we exercise, not data balance.
-    """
+    """Hash-shard sample_mflix.movies; skip reshardCollection (hangs in simulated-MC)."""
     admin = _per_cluster_mongos_search_tester(namespace, 0, ADMIN_USER_NAME, ADMIN_USER_PASSWORD)
     ns = "sample_mflix.movies"
     admin.client["sample_mflix"]["movies"].create_index([("_id", pymongo.HASHED)])
@@ -811,9 +631,7 @@ def test_shard_sample_collection(namespace: str):
 
 @mark.e2e_search_simulated_mc_sharded_basic
 def test_create_search_index(namespace: str):
-    """Create the canonical movies $search index and wait for it READY. Created once
-    at the logical-cluster level; each per-shard mongot picks the definition up via
-    its configsrv watch."""
+    """Create movies $search index (cluster-level; per-shard mongots pick it up via configsrv watch)."""
     tester = _per_cluster_mongos_search_tester(namespace, 0, USER_NAME, USER_PASSWORD)
     movies = SampleMoviesSearchHelper(search_tester=tester)
     movies.create_search_index()
@@ -825,10 +643,7 @@ def test_per_cluster_search_query(
     namespace: str,
     member_cluster_clients: List[MultiClusterClient],
 ):
-    """$search via EACH cluster's local mongos — proves both clusters' Envoy +
-    per-shard mongot data path returns rows. `directConnection=true` pins the
-    driver to the per-cluster mongos so the query never leaves the cluster.
-    """
+    """$search via each cluster's local mongos — proves both clusters' Envoy + per-shard mongot data path returns rows."""
     member_cluster_clients = member_cluster_clients[:2]
     for mcc in member_cluster_clients:
         cluster_index = _idx(mcc)

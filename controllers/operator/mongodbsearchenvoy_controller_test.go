@@ -32,17 +32,9 @@ import (
 	khandler "github.com/mongodb/mongodb-kubernetes/pkg/handler"
 )
 
-// TODO: Add full Reconcile() integration tests covering:
-//   - LB mode transitions (managed -> unmanaged, managed -> disabled)
-//   - Envoy Deployment/ConfigMap lifecycle (create, update, cleanup)
-//   - Error paths (missing envoy image, unreachable source)
-//   - Status updates for the loadBalancer sub-status
-
-// seedSearchStateCM writes a <searchName>-state ConfigMap carrying the given
-// clusterName→clusterIndex mapping into c, simulating a previous write by the
-// main search controller. Tests that exercise the Envoy reconcile loop must
-// seed this CM before constructing the reconciler so the Envoy controller can
-// resolve indices without needing the full main-controller reconcile path.
+// seedSearchStateCM writes a <searchName>-state ConfigMap with the given
+// clusterName→clusterIndex mapping so Envoy-only tests can resolve indices
+// without running the main search controller's reconcile path first.
 func seedSearchStateCM(t *testing.T, ctx context.Context, c client.Client, searchName, ns string, mapping map[string]int) {
 	t.Helper()
 	state := SearchDeploymentState{
@@ -255,11 +247,8 @@ func TestBuildEnvoyPodSpec_DefaultResources(t *testing.T) {
 	assert.Equal(t, resource.MustParse("128Mi"), podSpec.Containers[0].Resources.Requests[corev1.ResourceMemory])
 }
 
-// TestBuildEnvoyPodSpec_ConfigMapVolumePerCluster regresses the MC-mode
-// volume-name bug where buildEnvoyPodSpec hardcoded LoadBalancerConfigMapName()
-// instead of the per-cluster suffixed name. Without this, the Pod template in
-// member clusters references a ConfigMap that does not exist (ensureConfigMap
-// writes the per-cluster name), so Envoy never starts in MC mode.
+// Regresses MC-mode bug where buildEnvoyPodSpec hardcoded
+// LoadBalancerConfigMapName() instead of the per-cluster suffixed name.
 func TestBuildEnvoyPodSpec_ConfigMapVolumePerCluster(t *testing.T) {
 	search := &searchv1.MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"},
@@ -561,11 +550,8 @@ func TestBuildRoutesForCluster_Sharded_PerClusterShardSNI(t *testing.T) {
 	assert.Len(t, seen, 4, "per-(cluster, shard) SNIs must all be distinct")
 }
 
-// TestBuildShardRoutes_MC_ClusterLevel_NoExternalHostname asserts that for a
-// multi-cluster sharded deploy with no externalHostname, buildShardRoutes for
-// clusterIndex=1 / clusterName="cluster-b" emits 3 per-shard routes + 1
-// cluster-level route whose upstream pool is the union of all shard mongot FQDNs
-// in cluster-1 and whose SNI is the cluster-level proxy Service FQDN.
+// MC sharded, no externalHostname: cluster-level route's upstream pool is the
+// union of all shard mongot FQDNs in this cluster; SNI is the cluster-level proxy FQDN.
 func TestBuildShardRoutes_MC_ClusterLevel_NoExternalHostname(t *testing.T) {
 	shardNames := []string{"mdb-sh-0", "mdb-sh-1", "mdb-sh-2"}
 	search := &searchv1.MongoDBSearch{
@@ -609,10 +595,8 @@ func TestBuildShardRoutes_MC_ClusterLevel_NoExternalHostname(t *testing.T) {
 	}
 }
 
-// TestBuildShardRoutes_MC_ClusterLevel_ManagedLB asserts that with a managed-LB
-// externalHostname of "{shardName}.{clusterName}.search.example.com:443", the
-// per-shard SNIs resolve per-shard and the cluster-level SNI strips the
-// "{shardName}." prefix to produce "{clusterName}.search.example.com:443".
+// Managed-LB externalHostname "{shardName}.{clusterName}…": cluster-level SNI
+// strips the "{shardName}." prefix to produce "{clusterName}.search.example.com:443".
 func TestBuildShardRoutes_MC_ClusterLevel_ManagedLB(t *testing.T) {
 	shardNames := []string{"mdb-sh-0", "mdb-sh-1", "mdb-sh-2"}
 	search := &searchv1.MongoDBSearch{
@@ -800,11 +784,9 @@ func TestEnvoyReplicas_DefaultsTo1(t *testing.T) {
 	assert.Equal(t, int32(1), envoyReplicas(search))
 }
 
-// envoyTestScheme returns a runtime.Scheme registered for the types ensureDeployment/
-// ensureConfigMap interact with. Using a per-test scheme avoids depending on the
-// global scheme initialization order and keeps these unit tests self-contained.
-//
-// MongoDBSearch is registered through api/v1's SchemeBuilder, not search-local.
+// envoyTestScheme returns a per-test scheme registered for the types
+// ensureDeployment/ensureConfigMap interact with (MongoDBSearch is registered
+// via api/v1's SchemeBuilder, not search-local).
 func envoyTestScheme(t *testing.T) *runtime.Scheme {
 	t.Helper()
 	scheme := runtime.NewScheme()
@@ -977,11 +959,8 @@ func TestBuildClusterWorkList_MissingFromMapping_SentinelIndex(t *testing.T) {
 	assert.Equal(t, -1, wl[0].ClusterIndex, "missing cluster must use sentinel -1")
 }
 
-// In simulated-MC mode the projected spec.clusters[] entry carries the local
-// cluster's name, but memberClusterClientsMap is empty (each operator runs
-// single-cluster against its own kubeClient). reconcileForCluster must not
-// gate on memberClusterClientsMap membership — buildClusterWorkList already
-// resolved the work item's Client to r.kubeClient for this case.
+// Simulated-MC: memberClusterClientsMap is nil, projected work item already
+// carries r.kubeClient; reconcileForCluster must not gate on map membership.
 func TestReconcileForCluster_SimulatedMC_RendersToProvidedClient(t *testing.T) {
 	scheme := envoyTestScheme(t)
 	central := fake.NewClientBuilder().WithScheme(scheme).Build()
@@ -1015,35 +994,23 @@ func TestReconcileForCluster_SimulatedMC_RendersToProvidedClient(t *testing.T) {
 		types.NamespacedName{Name: search.LoadBalancerConfigMapNameForCluster(0), Namespace: "ns"}, cm))
 }
 
-// fakeShardedSource is a tiny SearchSourceShardedDeployment stub for envoy
-// route-building unit tests; the only behaviour buildRoutesForCluster needs
-// is the type assertion to SearchSourceShardedDeployment + GetShardNames().
-// All other methods are no-ops because the route-building code never touches
-// them in this test.
+// fakeShardedSource stubs SearchSourceShardedDeployment for envoy route tests.
 type fakeShardedSource struct {
 	shardNames []string
 }
 
-// SearchSourceDBResource methods.
 func (f *fakeShardedSource) KeyfileSecretName() string                    { return "" }
 func (f *fakeShardedSource) TLSConfig() *searchcontroller.TLSSourceConfig { return nil }
 func (f *fakeShardedSource) HostSeeds(string) ([]string, error)           { return nil, nil }
 func (f *fakeShardedSource) Validate() error                              { return nil }
 func (f *fakeShardedSource) ResourceType() mdbv1.ResourceType             { return mdbv1.ShardedCluster }
-
-// SearchSourceShardedDeployment additions — the type assertion at
-// buildRoutesForCluster picks this interface.
 func (f *fakeShardedSource) GetShardCount() int                           { return len(f.shardNames) }
 func (f *fakeShardedSource) GetShardNames() []string                      { return f.shardNames }
 func (f *fakeShardedSource) GetUnmanagedLBEndpointForShard(string) string { return "" }
 func (f *fakeShardedSource) MongosHostsAndPorts() []string                { return nil }
 
-// TestBuildRoutesForCluster_SimulatedMC_Sharded_PerShardSNIUsesProjectedIndex
-// exercises the route-building path under simulated-MC: spec.clusters[] has
-// been narrowed to a 1-element slice (ClusterIndex=1), the source is sharded
-// (2 shards), and the managed externalHostname template uses {clusterIndex}.
-// Every per-shard SNI hostname must resolve to the pinned cluster index, and
-// the cluster-level route is appended.
+// Simulated-MC sharded route building: every per-shard SNI must resolve to
+// the pinned ClusterIndex from the 1-element projected spec.clusters[].
 func TestBuildRoutesForCluster_SimulatedMC_Sharded_PerShardSNIUsesProjectedIndex(t *testing.T) {
 	idx := int32(1)
 	search := &searchv1.MongoDBSearch{
@@ -1097,12 +1064,8 @@ func TestBuildRoutesForCluster_SimulatedMC_Sharded_PerShardSNIUsesProjectedIndex
 	assert.Len(t, clusterLevel.UpstreamHosts, 2, "cluster-level route aggregates per-shard upstream FQDNs")
 }
 
-// TestReconcileForCluster_SimulatedMC_ShardedSource_RendersToProvidedClient
-// drives the per-cluster Envoy reconcile path under simulated-MC: projected
-// spec.clusters[] (1 entry, ClusterIndex=0), sharded source (2 shards),
-// memberClusterClientsMap=nil. The Envoy Deployment + ConfigMap MUST land on
-// the kubeClient (the local cluster's API server in simulated-MC mode) using
-// the projected per-cluster name.
+// Simulated-MC sharded reconcile: Envoy Deployment + ConfigMap must land on
+// kubeClient (the local cluster's API server) using the projected per-cluster name.
 func TestReconcileForCluster_SimulatedMC_ShardedSource_RendersToProvidedClient(t *testing.T) {
 	scheme := envoyTestScheme(t)
 	central := fake.NewClientBuilder().WithScheme(scheme).Build()
@@ -1253,10 +1216,8 @@ func TestEnsureDeployment_Replicas(t *testing.T) {
 
 // --- end-to-end Reconcile + status aggregation -------------------------------
 
-// TestReconcile_AllClustersFailed_TopLevelPhaseIsFailed asserts that when a
-// per-cluster reconcile returns workflow.Failed, the aggregated top-level
-// phase patched onto status.loadBalancer is Failed (not Pending). Without
-// this guard, all errors would be downgraded to Pending in the final write.
+// When a per-cluster reconcile returns workflow.Failed, the aggregated
+// top-level status.loadBalancer phase must be Failed (not downgraded to Pending).
 func TestReconcile_AllClustersFailed_TopLevelPhaseIsFailed(t *testing.T) {
 	ctx := context.Background()
 	scheme := envoyTestScheme(t)

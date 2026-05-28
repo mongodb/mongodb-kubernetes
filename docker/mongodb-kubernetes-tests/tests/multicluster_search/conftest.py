@@ -48,12 +48,8 @@ USER_PASSWORD = "mdb-user-pass"
 MONGOT_USER_NAME = "search-sync-source"
 MONGOT_USER_PASSWORD = "search-sync-source-user-password"
 
-# --- TLS-everywhere constants ----------------------------------------------
-# Mongot/LB server+client cert prefix on the MongoDBSearch CR.
+# Mongot/LB server+client cert prefix on the MongoDBSearch CR; source MongoDB cert prefix.
 MDBS_TLS_CERT_PREFIX = "certs"
-# Source MongoDB cert secret prefix. RS-style sources derive a single bundle
-# secret as `{prefix}-{name}-cert`; sharded sources derive per-component
-# secrets (`{prefix}-{name}-{shardIdx}-cert`, `-config-cert`, `-mongos-cert`).
 SOURCE_CERT_PREFIX = "clustercert"
 
 

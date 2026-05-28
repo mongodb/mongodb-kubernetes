@@ -25,14 +25,7 @@ class ToolsPod:
         self.core_v1 = client.CoreV1Api(api_client=api_client) if api_client else client.CoreV1Api()
 
     def run_command(self, cmd: list[str]):
-        """Execute a command in the tools pod and return the output.
-
-        Raises RuntimeError on non-zero exit so callers don't silently miss
-        failed mongorestore / similar commands (the prior fire-and-forget
-        behaviour let a cross-cluster DNS-resolution failure on mongorestore
-        propagate as an empty restored database and a confused $search
-        downstream).
-        """
+        """Execute cmd in pod; raise RuntimeError on non-zero exit."""
         logger.debug(f"Running command in {self.pod_name}: {' '.join(cmd)}")
         resp = stream(
             self.core_v1.connect_get_namespaced_pod_exec,
@@ -139,12 +132,7 @@ class ToolsPod:
 
 
 def get_tools_pod(namespace: str, api_client=None) -> ToolsPod:
-    """Create and return a ready tools pod in the given namespace.
-
-    Pass api_client to target a member cluster's API (e.g. when the
-    in-pod commands need to resolve member-cluster DNS that the central
-    cluster doesn't see).
-    """
+    """Create and return a ready tools pod in the given namespace."""
     tools_pod = ToolsPod(namespace, api_client=api_client)
     tools_pod.run_pod_and_wait()
     return tools_pod
