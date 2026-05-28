@@ -25,6 +25,7 @@ import (
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status/pvc"
@@ -39,9 +40,8 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/pem"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
 	mcoConstruct "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/construct"
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
@@ -185,7 +185,7 @@ func buildReplicaSetWithCustomProjectName(rsName string) (*mdbv1.MongoDB, *corev
 func TestReplicaSetServiceName(t *testing.T) {
 	ctx := context.Background()
 	rs := DefaultReplicaSetBuilder().SetService("rs-svc").Build()
-	rs.Spec.StatefulSetConfiguration = &common.StatefulSetConfiguration{}
+	rs.Spec.StatefulSetConfiguration = &v1.StatefulSetConfiguration{}
 	rs.Spec.StatefulSetConfiguration.SpecWrapper.Spec.ServiceName = "foo"
 
 	reconciler, client, _ := defaultReplicaSetReconciler(ctx, nil, "", "", rs)
@@ -1357,7 +1357,7 @@ func (b *ReplicaSetBuilder) ExposedExternally(specOverride *corev1.ServiceSpec, 
 	b.Spec.ExternalAccessConfiguration = &mdbv1.ExternalAccessConfiguration{}
 	b.Spec.ExternalAccessConfiguration.ExternalDomain = externalDomain
 	if specOverride != nil {
-		b.Spec.ExternalAccessConfiguration.ExternalService.SpecWrapper = &common.ServiceSpecWrapper{Spec: *specOverride}
+		b.Spec.ExternalAccessConfiguration.ExternalService.SpecWrapper = &v1.ServiceSpecWrapper{Spec: *specOverride}
 	}
 	if len(annotationsOverride) > 0 {
 		b.Spec.ExternalAccessConfiguration.ExternalService.Annotations = annotationsOverride

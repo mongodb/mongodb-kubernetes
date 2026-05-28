@@ -21,12 +21,11 @@ limitations under the License.
 package om
 
 import (
+	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/user"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
+	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
@@ -407,7 +406,7 @@ func (in *MongoDBOpsManagerBackup) DeepCopyInto(out *MongoDBOpsManagerBackup) {
 	}
 	if in.HeadDB != nil {
 		in, out := &in.HeadDB, &out.HeadDB
-		*out = new(common.PersistenceConfig)
+		*out = new(v1.PersistenceConfig)
 		(*in).DeepCopyInto(*out)
 	}
 	if in.JVMParams != nil {
@@ -485,7 +484,7 @@ func (in *MongoDBOpsManagerBackupClusterSpecItem) DeepCopyInto(out *MongoDBOpsMa
 	}
 	if in.HeadDB != nil {
 		in, out := &in.HeadDB, &out.HeadDB
-		*out = new(common.PersistenceConfig)
+		*out = new(v1.PersistenceConfig)
 		(*in).DeepCopyInto(*out)
 	}
 	if in.JVMParams != nil {

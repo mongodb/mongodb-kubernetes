@@ -34,9 +34,9 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/create"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/configmap"
+	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/configmap"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/test"
@@ -3039,7 +3039,7 @@ func TestMultiClusterShardedServiceCreation_WithExternalName(t *testing.T) {
 					ClusterName: memberClusterName1,
 					ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{
 						ExternalService: mdbv1.ExternalServiceConfiguration{
-							SpecWrapper: &common.ServiceSpecWrapper{
+							SpecWrapper: &v1.ServiceSpecWrapper{
 								Spec: corev1.ServiceSpec{
 									Type: "LoadBalancer",
 									Ports: []corev1.ServicePort{
@@ -3155,7 +3155,7 @@ func TestMultiClusterShardedServiceCreation_WithExternalName(t *testing.T) {
 					ClusterName: memberClusterName1,
 					ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{
 						ExternalService: mdbv1.ExternalServiceConfiguration{
-							SpecWrapper: &common.ServiceSpecWrapper{
+							SpecWrapper: &v1.ServiceSpecWrapper{
 								Spec: corev1.ServiceSpec{
 									Type: "NodePort",
 									Ports: []corev1.ServicePort{
@@ -3177,7 +3177,7 @@ func TestMultiClusterShardedServiceCreation_WithExternalName(t *testing.T) {
 					ClusterName: memberClusterName2,
 					ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{
 						ExternalService: mdbv1.ExternalServiceConfiguration{
-							SpecWrapper: &common.ServiceSpecWrapper{
+							SpecWrapper: &v1.ServiceSpecWrapper{
 								Spec: corev1.ServiceSpec{
 									Type: "NodePort",
 									Ports: []corev1.ServicePort{
@@ -3200,7 +3200,7 @@ func TestMultiClusterShardedServiceCreation_WithExternalName(t *testing.T) {
 					ClusterName: memberClusterName3,
 					ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{
 						ExternalService: mdbv1.ExternalServiceConfiguration{
-							SpecWrapper: &common.ServiceSpecWrapper{
+							SpecWrapper: &v1.ServiceSpecWrapper{
 								Spec: corev1.ServiceSpec{
 									Type: "NodePort",
 									Ports: []corev1.ServicePort{
@@ -3332,7 +3332,7 @@ func TestMultiClusterShardedServiceCreation_WithExternalName(t *testing.T) {
 								create.PlaceholderClusterName:         "{clusterName}",
 								create.PlaceholderClusterIndex:        "{clusterIndex}",
 							},
-							SpecWrapper: &common.ServiceSpecWrapper{
+							SpecWrapper: &v1.ServiceSpecWrapper{
 								Spec: corev1.ServiceSpec{
 									Type: "LoadBalancer",
 									Ports: []corev1.ServicePort{
@@ -3367,7 +3367,7 @@ func TestMultiClusterShardedServiceCreation_WithExternalName(t *testing.T) {
 								create.PlaceholderClusterName:         "{clusterName}",
 								create.PlaceholderClusterIndex:        "{clusterIndex}",
 							},
-							SpecWrapper: &common.ServiceSpecWrapper{
+							SpecWrapper: &v1.ServiceSpecWrapper{
 								Spec: corev1.ServiceSpec{
 									Type: "LoadBalancer",
 									Ports: []corev1.ServicePort{
@@ -3402,7 +3402,7 @@ func TestMultiClusterShardedServiceCreation_WithExternalName(t *testing.T) {
 								create.PlaceholderClusterName:         "{clusterName}",
 								create.PlaceholderClusterIndex:        "{clusterIndex}",
 							},
-							SpecWrapper: &common.ServiceSpecWrapper{
+							SpecWrapper: &v1.ServiceSpecWrapper{
 								Spec: corev1.ServiceSpec{
 									Type: "LoadBalancer",
 									Ports: []corev1.ServicePort{

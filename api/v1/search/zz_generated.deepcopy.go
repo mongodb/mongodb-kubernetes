@@ -21,10 +21,10 @@ limitations under the License.
 package search
 
 import (
+	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/user"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
-	"k8s.io/api/core/v1"
+	corev1 "k8s.io/api/core/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 )
 
@@ -84,7 +84,7 @@ func (in *ExternalMongodTLS) DeepCopyInto(out *ExternalMongodTLS) {
 	*out = *in
 	if in.CA != nil {
 		in, out := &in.CA, &out.CA
-		*out = new(v1.LocalObjectReference)
+		*out = new(corev1.LocalObjectReference)
 		**out = **in
 	}
 }
@@ -207,7 +207,7 @@ func (in *ManagedLBConfig) DeepCopyInto(out *ManagedLBConfig) {
 	*out = *in
 	if in.ResourceRequirements != nil {
 		in, out := &in.ResourceRequirements, &out.ResourceRequirements
-		*out = new(v1.ResourceRequirements)
+		*out = new(corev1.ResourceRequirements)
 		(*in).DeepCopyInto(*out)
 	}
 	if in.Deployment != nil {
@@ -299,12 +299,12 @@ func (in *MongoDBSearchSpec) DeepCopyInto(out *MongoDBSearchSpec) {
 	}
 	if in.Persistence != nil {
 		in, out := &in.Persistence, &out.Persistence
-		*out = new(common.Persistence)
+		*out = new(v1.Persistence)
 		(*in).DeepCopyInto(*out)
 	}
 	if in.ResourceRequirements != nil {
 		in, out := &in.ResourceRequirements, &out.ResourceRequirements
-		*out = new(v1.ResourceRequirements)
+		*out = new(corev1.ResourceRequirements)
 		(*in).DeepCopyInto(*out)
 	}
 	in.Security.DeepCopyInto(&out.Security)

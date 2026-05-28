@@ -15,8 +15,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connectionstring"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/ldap"
-	mdbc "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
+	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/fcv"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
@@ -114,7 +113,7 @@ func (m *MongoDBMultiCluster) GetConnectionSpec() *mdbv1.ConnectionSpec {
 	return &m.Spec.ConnectionSpec
 }
 
-func (m *MongoDBMultiCluster) GetPrometheus() *mdbc.Prometheus {
+func (m *MongoDBMultiCluster) GetPrometheus() *v1.Prometheus {
 	return m.Spec.Prometheus
 }
 

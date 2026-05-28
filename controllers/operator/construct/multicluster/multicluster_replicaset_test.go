@@ -16,7 +16,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/api/v1/mdbmulti"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
+	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 )
@@ -73,7 +73,7 @@ func TestMultiClusterStatefulSet(t *testing.T) {
 	})
 
 	t.Run("Override provided at clusterSpecList level only", func(t *testing.T) {
-		singleClusterOverride := &common.StatefulSetConfiguration{SpecWrapper: common.StatefulSetSpecWrapper{
+		singleClusterOverride := &v1.StatefulSetConfiguration{SpecWrapper: v1.StatefulSetSpecWrapper{
 			Spec: appsv1.StatefulSetSpec{
 				Replicas: ptr.To(int32(4)),
 				Selector: &metav1.LabelSelector{
@@ -104,8 +104,8 @@ func TestMultiClusterStatefulSet(t *testing.T) {
 	})
 
 	t.Run("Override provided only at Spec level", func(t *testing.T) {
-		stsOverride := &common.StatefulSetConfiguration{
-			SpecWrapper: common.StatefulSetSpecWrapper{
+		stsOverride := &v1.StatefulSetConfiguration{
+			SpecWrapper: v1.StatefulSetSpecWrapper{
 				Spec: appsv1.StatefulSetSpec{
 					Selector: &metav1.LabelSelector{
 						MatchLabels: map[string]string{"foo": "bar"},
@@ -132,8 +132,8 @@ func TestMultiClusterStatefulSet(t *testing.T) {
 	})
 
 	t.Run("Override provided at both Spec and clusterSpecList level", func(t *testing.T) {
-		stsOverride := &common.StatefulSetConfiguration{
-			SpecWrapper: common.StatefulSetSpecWrapper{
+		stsOverride := &v1.StatefulSetConfiguration{
+			SpecWrapper: v1.StatefulSetSpecWrapper{
 				Spec: appsv1.StatefulSetSpec{
 					Selector: &metav1.LabelSelector{
 						MatchLabels: map[string]string{"foo": "bar"},
@@ -143,8 +143,8 @@ func TestMultiClusterStatefulSet(t *testing.T) {
 			},
 		}
 
-		singleClusterOverride := &common.StatefulSetConfiguration{
-			SpecWrapper: common.StatefulSetSpecWrapper{
+		singleClusterOverride := &v1.StatefulSetConfiguration{
+			SpecWrapper: v1.StatefulSetSpecWrapper{
 				Spec: appsv1.StatefulSetSpec{
 					ServiceName: "clusteroverrideservice",
 					Replicas:    ptr.To(int32(4)),
@@ -232,7 +232,7 @@ func TestPVCOverride(t *testing.T) {
 	for _, tt := range tests {
 		mdbm := getMultiClusterMongoDB()
 
-		stsOverrideConfiguration := &common.StatefulSetConfiguration{SpecWrapper: common.StatefulSetSpecWrapper{Spec: tt.inp}}
+		stsOverrideConfiguration := &v1.StatefulSetConfiguration{SpecWrapper: v1.StatefulSetSpecWrapper{Spec: tt.inp}}
 		opts := MultiClusterReplicaSetOptions(
 			WithClusterNum(0),
 			WithMemberCount(3),

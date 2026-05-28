@@ -51,19 +51,18 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	mcoConstruct "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/construct"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/annotations"
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/configmap"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/container"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/secret"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/service"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/merge"
+	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/configmap"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	khandler "github.com/mongodb/mongodb-kubernetes/pkg/handler"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
-	mekoService "github.com/mongodb/mongodb-kubernetes/pkg/kube/service"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/service"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster/memberwatch"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
@@ -978,7 +977,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileServices(ctx context.Context,
 }
 
 func ensureSRVService(ctx context.Context, client service.GetUpdateCreator, svc corev1.Service, clusterName string) error {
-	err := mekoService.CreateOrUpdateService(ctx, client, svc)
+	err := service.CreateOrUpdateService(ctx, client, svc)
 	if err != nil && !apiErrors.IsAlreadyExists(err) {
 		return xerrors.Errorf("failed to create SRV service: % in cluster: %s, err: %w", svc.Name, clusterName, err)
 	}
@@ -1006,7 +1005,7 @@ func ensureServices(ctx context.Context, client service.GetUpdateCreator, client
 				svc.Annotations = processedAnnotations
 			}
 
-			err := mekoService.CreateOrUpdateService(ctx, client, svc)
+			err := service.CreateOrUpdateService(ctx, client, svc)
 			if err != nil && !apiErrors.IsAlreadyExists(err) {
 				return xerrors.Errorf("failed to create external service %s in cluster: %s, err: %w", svc.Name, clientClusterName, err)
 			}
@@ -1015,7 +1014,7 @@ func ensureServices(ctx context.Context, client service.GetUpdateCreator, client
 		// we create regular pod-services only if we don't use external domains
 		if m.Spec.GetExternalDomainForMemberCluster(clusterSpecItem.ClusterName) == nil {
 			svc = getService(m, clusterSpecItem.ClusterName, podNum)
-			err := mekoService.CreateOrUpdateService(ctx, client, svc)
+			err := service.CreateOrUpdateService(ctx, client, svc)
 			if err != nil && !apiErrors.IsAlreadyExists(err) {
 				return xerrors.Errorf("failed to create pod service %s in cluster: %s, err: %w", svc.Name, clientClusterName, err)
 			}
@@ -1025,7 +1024,7 @@ func ensureServices(ctx context.Context, client service.GetUpdateCreator, client
 }
 
 func ensureHeadlessService(ctx context.Context, client service.GetUpdateCreator, svc corev1.Service, clusterName string) error {
-	err := mekoService.CreateOrUpdateService(ctx, client, svc)
+	err := service.CreateOrUpdateService(ctx, client, svc)
 	if err != nil && !apiErrors.IsAlreadyExists(err) {
 		return xerrors.Errorf("failed to create headless service: %s in cluster: %s, err: %w", svc.Name, clusterName, err)
 	}

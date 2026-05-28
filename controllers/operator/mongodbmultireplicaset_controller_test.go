@@ -24,6 +24,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/mdbmulti"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
@@ -33,9 +34,8 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/create"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
 	mcoConstruct "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/construct"
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/agentVersionManagement"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
@@ -176,8 +176,8 @@ func TestReconcilePVCResizeMultiCluster(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		ctx := context.Background()
 
-		configuration := common.StatefulSetConfiguration{
-			SpecWrapper: common.StatefulSetSpecWrapper{
+		configuration := v1.StatefulSetConfiguration{
+			SpecWrapper: v1.StatefulSetSpecWrapper{
 				Spec: appsv1.StatefulSetSpec{
 					VolumeClaimTemplates: []corev1.PersistentVolumeClaim{
 						{
@@ -831,8 +831,8 @@ func TestScaling(t *testing.T) {
 	})
 
 	t.Run("Scale one at a time when scaling up", func(t *testing.T) {
-		stsWrapper := &common.StatefulSetConfiguration{
-			SpecWrapper: common.StatefulSetSpecWrapper{
+		stsWrapper := &v1.StatefulSetConfiguration{
+			SpecWrapper: v1.StatefulSetSpecWrapper{
 				Spec: appsv1.StatefulSetSpec{
 					Selector: &metav1.LabelSelector{
 						MatchLabels: map[string]string{"a": "b"},

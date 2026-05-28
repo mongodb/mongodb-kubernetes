@@ -43,23 +43,22 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	mdbcv1_controllers "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers"
 	mcoConstruct "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/construct"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/agent"
+	"github.com/mongodb/mongodb-kubernetes/pkg/agent"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/authentication/scram"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/annotations"
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/configmap"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/secret"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/service"
+	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/configmap"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/generate"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/merge"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/result"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/scale"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/scale"
 	"github.com/mongodb/mongodb-kubernetes/pkg/agentVersionManagement"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
-	mekoService "github.com/mongodb/mongodb-kubernetes/pkg/kube/service"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/service"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/placeholders"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
@@ -2006,13 +2005,13 @@ func (r *ReconcileAppDbReplicaSet) createServices(ctx context.Context, opsManage
 					svc.Annotations = processedAnnotations
 				}
 
-				if err := mekoService.CreateOrUpdateService(ctx, memberCluster.Client, svc); err != nil && !apiErrors.IsAlreadyExists(err) {
+				if err := service.CreateOrUpdateService(ctx, memberCluster.Client, svc); err != nil && !apiErrors.IsAlreadyExists(err) {
 					return xerrors.Errorf("failed to create external service %s in cluster: %s, err: %w", svc.Name, memberCluster.Name, err)
 				}
 			} else {
 				svcName := opsManager.Spec.AppDB.GetExternalServiceName(memberCluster.Index, podIdx)
 				namespacedName := kube.ObjectKey(opsManager.Spec.AppDB.Namespace, svcName)
-				if err := mekoService.DeleteServiceIfItExists(ctx, memberCluster.Client, namespacedName); err != nil {
+				if err := service.DeleteServiceIfItExists(ctx, memberCluster.Client, namespacedName); err != nil {
 					return xerrors.Errorf("failed to remove external service %s in cluster: %s, err: %w", svcName, memberCluster.Name, err)
 				}
 			}
@@ -2021,7 +2020,7 @@ func (r *ReconcileAppDbReplicaSet) createServices(ctx context.Context, opsManage
 			if opsManager.Spec.AppDB.IsMultiCluster() && opsManager.Spec.AppDB.GetExternalDomainForMemberCluster(memberCluster.Name) == nil {
 				svc := getAppDBPodService(opsManager.Spec.AppDB, memberCluster.Index, podIdx)
 				svc.Name = dns.GetMultiServiceName(opsManager.Spec.AppDB.Name(), memberCluster.Index, podIdx)
-				err := mekoService.CreateOrUpdateService(ctx, memberCluster.Client, svc)
+				err := service.CreateOrUpdateService(ctx, memberCluster.Client, svc)
 				if err != nil && !apiErrors.IsAlreadyExists(err) {
 					return xerrors.Errorf("failed to create service: %s in cluster: %s, err: %w", svc.Name, memberCluster.Name, err)
 				}

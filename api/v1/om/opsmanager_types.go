@@ -21,9 +21,8 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/v1/user"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/annotations"
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/fcv"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
@@ -145,7 +144,7 @@ type MongoDBOpsManagerSpec struct {
 
 	// Configure custom StatefulSet configuration
 	// +optional
-	StatefulSetConfiguration *common.StatefulSetConfiguration `json:"statefulSet,omitempty"`
+	StatefulSetConfiguration *v1.StatefulSetConfiguration `json:"statefulSet,omitempty"`
 
 	// Topology sets the desired cluster topology of Ops Manager deployment.
 	// It defaults (and if not set) to SingleCluster. If MultiCluster specified,
@@ -211,7 +210,7 @@ type ClusterSpecOMItem struct {
 	// If specified (even if provided empty) then this field overrides `spec.externalConnectivity` field entirely.
 	// If not specified, then `spec.externalConnectivity` field is used for the Ops Manager and Backup Daemon instances in this cluster.
 	// +optional
-	StatefulSetConfiguration *common.StatefulSetConfiguration `json:"statefulSet,omitempty"`
+	StatefulSetConfiguration *v1.StatefulSetConfiguration `json:"statefulSet,omitempty"`
 
 	// Backup contains settings to override from top-level `spec.backup` for this member cluster.
 	// If the value is not set here, then the value is taken from `spec.backup`.
@@ -387,7 +386,7 @@ type MongoDBOpsManagerBackup struct {
 	AssignmentLabels []string `json:"assignmentLabels,omitempty"`
 
 	// HeadDB specifies configuration options for the HeadDB
-	HeadDB    *common.PersistenceConfig `json:"headDB,omitempty"`
+	HeadDB    *v1.PersistenceConfig `json:"headDB,omitempty"`
 	JVMParams []string                  `json:"jvmParameters,omitempty"`
 
 	// S3OplogStoreConfigs describes the list of s3 oplog store configs used for backup.
@@ -398,7 +397,7 @@ type MongoDBOpsManagerBackup struct {
 	BlockStoreConfigs        []DataStoreConfig                `json:"blockStores,omitempty"`
 	S3Configs                []S3Config                       `json:"s3Stores,omitempty"`
 	FileSystemStoreConfigs   []FileSystemStoreConfig          `json:"fileSystemStores,omitempty"`
-	StatefulSetConfiguration *common.StatefulSetConfiguration `json:"statefulSet,omitempty"`
+	StatefulSetConfiguration *v1.StatefulSetConfiguration `json:"statefulSet,omitempty"`
 
 	// QueryableBackupSecretRef references the secret which contains the pem file which is used
 	// for queryable backup. This will be mounted into the Ops Manager pod.
@@ -424,12 +423,12 @@ type MongoDBOpsManagerBackupClusterSpecItem struct {
 	AssignmentLabels []string `json:"assignmentLabels,omitempty"`
 
 	// HeadDB specifies configuration options for the HeadDB
-	HeadDB    *common.PersistenceConfig `json:"headDB,omitempty"`
+	HeadDB    *v1.PersistenceConfig `json:"headDB,omitempty"`
 	JVMParams []string                  `json:"jvmParameters,omitempty"`
 
 	// StatefulSetConfiguration specified optional overrides for backup datemon statefulset.
 	// +optional
-	StatefulSetConfiguration *common.StatefulSetConfiguration `json:"statefulSet,omitempty"`
+	StatefulSetConfiguration *v1.StatefulSetConfiguration `json:"statefulSet,omitempty"`
 }
 
 // Encryption contains encryption settings

@@ -50,7 +50,6 @@ import (
 	mcov1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	mcoController "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers"
 	mcoConstruct "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/construct"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/envvar"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/pprof"
@@ -301,11 +300,11 @@ func run() error {
 		if err := setupCommunityController(
 			ctx,
 			mgr,
-			envvar.GetEnvOrDefault(mcoConstruct.MongodbCommunityRepoUrlEnv, "quay.io/mongodb"),
+			env.ReadOrDefault(mcoConstruct.MongodbCommunityRepoUrlEnv, "quay.io/mongodb"),
 			// when running MCO resource -> mongodb-community-server
 			// when running appdb -> mongodb-enterprise-server
 			env.ReadOrPanic(mcoConstruct.MongodbCommunityImageEnv),
-			envvar.GetEnvOrDefault(mcoConstruct.MongoDBCommunityImageTypeEnv, mcoConstruct.DefaultImageType),
+			env.ReadOrDefault(mcoConstruct.MongoDBCommunityImageTypeEnv, mcoConstruct.DefaultImageType),
 			env.ReadOrPanic(util.MongodbCommunityAgentImageEnv),
 			env.ReadOrPanic(mcoConstruct.VersionUpgradeHookImageEnv),
 			env.ReadOrPanic(mcoConstruct.ReadinessProbeImageEnv),

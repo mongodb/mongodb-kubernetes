@@ -25,9 +25,9 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/mongot"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/constants"
+	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
+	"github.com/mongodb/mongodb-kubernetes/pkg/mongot"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
@@ -315,7 +315,7 @@ func TestMongoDBSearchReconcile_InvalidSearchImageVersion(t *testing.T) {
 		name              string
 		specVersion       string
 		operatorVersion   string
-		statefulSetConfig *common.StatefulSetConfiguration
+		statefulSetConfig *v1.StatefulSetConfiguration
 	}{
 		{
 			name:        "unsupported version in Spec.Version",
@@ -327,8 +327,8 @@ func TestMongoDBSearchReconcile_InvalidSearchImageVersion(t *testing.T) {
 		},
 		{
 			name: "unsupported version in StatefulSetConfiguration",
-			statefulSetConfig: &common.StatefulSetConfiguration{
-				SpecWrapper: common.StatefulSetSpecWrapper{
+			statefulSetConfig: &v1.StatefulSetConfiguration{
+				SpecWrapper: v1.StatefulSetSpecWrapper{
 					Spec: appsv1.StatefulSetSpec{
 						Template: corev1.PodTemplateSpec{
 							Spec: corev1.PodSpec{

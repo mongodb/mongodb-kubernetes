@@ -7,7 +7,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/apierrors"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/apierrors"
 )
 
 // Status serves as a container holding the status of the custom resource
