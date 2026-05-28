@@ -21,7 +21,7 @@ limitations under the License.
 package v1
 
 import (
-	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
+	apiv1 "github.com/mongodb/mongodb-kubernetes/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	corev1 "k8s.io/api/core/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
@@ -234,12 +234,12 @@ func (in *MongoDBCommunitySpec) DeepCopyInto(out *MongoDBCommunitySpec) {
 	in.AdditionalMongodConfig.DeepCopyInto(&out.AdditionalMongodConfig)
 	if in.AutomationConfigOverride != nil {
 		in, out := &in.AutomationConfigOverride, &out.AutomationConfigOverride
-		*out = new(v1.AutomationConfigOverride)
+		*out = new(apiv1.AutomationConfigOverride)
 		(*in).DeepCopyInto(*out)
 	}
 	if in.Prometheus != nil {
 		in, out := &in.Prometheus, &out.Prometheus
-		*out = new(v1.Prometheus)
+		*out = new(apiv1.Prometheus)
 		**out = **in
 	}
 	in.AdditionalConnectionStringConfig.DeepCopyInto(&out.AdditionalConnectionStringConfig)

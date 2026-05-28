@@ -42,7 +42,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/result"
 	"github.com/mongodb/mongodb-kubernetes/pkg/agent"
 	"github.com/mongodb/mongodb-kubernetes/pkg/agentVersionManagement"
 	"github.com/mongodb/mongodb-kubernetes/pkg/authentication/scram"
@@ -548,7 +547,7 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 	}
 	if !shouldReconcile {
 		log.Info("Skipping reconciliation for AppDB because at least one of the processes has been disabled. To reconcile the AppDB all process need to be enabled in automation config")
-		return result.OK()
+		return r.updateStatus(ctx, opsManager, workflow.OK(), log, appDbStatusOption)
 	}
 
 	var appdbSecretPath string
