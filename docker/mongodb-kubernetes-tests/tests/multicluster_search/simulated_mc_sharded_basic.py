@@ -30,7 +30,7 @@ cluster's local mongos.
 from __future__ import annotations
 
 import os
-from typing import Dict, List, Tuple
+from typing import List, Tuple
 
 import kubernetes
 import pymongo.errors
@@ -59,6 +59,23 @@ from tests.common.search.sharded_search_helper import (
 )
 from tests.conftest import get_issuer_ca_filepath
 from tests.multicluster.conftest import cluster_spec_list
+from tests.multicluster_search.conftest import (
+    ADMIN_USER_NAME,
+    ADMIN_USER_PASSWORD,
+    ENVOY_LB_REPLICAS,
+    ENVOY_PROXY_PORT,
+    MDBS_TLS_CERT_PREFIX,
+    MONGOT_USER_NAME,
+    MONGOT_USER_PASSWORD,
+    SIMULATED_OPERATOR_NAME,
+    SOURCE_CERT_PREFIX,
+    USER_NAME,
+    USER_PASSWORD,
+    _build_user,
+    _idx,
+    _install_simulated_operator,
+    _replicate_mongot_user_password_to_members,
+)
 
 logger = test_logger.get_test_logger(__name__)
 
@@ -77,96 +94,15 @@ CONFIG_SRV_PER_CLUSTER: List[int | None] = [1, 1]
 MONGOS_PER_CLUSTER: List[int | None] = [1, 1]
 
 MONGOT_REPLICAS_PER_CLUSTER = 1
-ENVOY_LB_REPLICAS = 1
-ENVOY_PROXY_PORT = 27028
-SIMULATED_OPERATOR_NAME = "mongodb-kubernetes-operator-simulated"
-
-ADMIN_USER_NAME = "mdb-admin-user"
-ADMIN_USER_PASSWORD = "mdb-admin-user-pass"
-
-USER_NAME = "mdb-user"
-USER_PASSWORD = "mdb-user-pass"
-
-MONGOT_USER_NAME = "search-sync-source"
-MONGOT_USER_PASSWORD = "search-sync-source-user-password"
 
 # --- TLS-everywhere constants ----------------------------------------------
-# Mongot/LB server+client cert prefix on the MongoDBSearch CR.
-MDBS_TLS_CERT_PREFIX = "certs"
 # CA ConfigMap (key: ca-pem / mms-ca.crt) consumed by the source MongoDB TLS spec
 # and CA Secret (key: ca.crt) consumed by spec.source.external.tls.ca on the
 # MongoDBSearch CR. create_issuer_ca writes both with the same name.
 CA_CONFIGMAP_NAME = f"{MDB_RESOURCE_NAME}-ca"
-# Source sharded cluster cert secret prefix. The MongoDB controller derives the
-# per-component secret name as `{prefix}-{name}-{shardIdx}-cert` for shards,
-# `{prefix}-{name}-config-cert` for configsrv, `{prefix}-{name}-mongos-cert` for
-# mongos. Per-component certs (q3 pattern) — not a single bundle.
-SOURCE_CERT_PREFIX = "clustercert"
 
 SEARCH_INDEX_READY_TIMEOUT = 300
 SEARCH_QUERY_RETRY_TIMEOUT = 90
-
-
-def _idx(mcc: MultiClusterClient) -> int:
-    assert mcc.cluster_index is not None, f"cluster_index unset on {mcc.cluster_name!r}"
-    return mcc.cluster_index
-
-
-def _install_simulated_operator(
-    namespace: str,
-    base_helm_args: Dict[str, str],
-    mcc: MultiClusterClient,
-) -> Operator:
-    """Install a simulated-MC operator watching mongodbsearch only.
-    Uses a DISTINCT operator.name so Helm renders fresh SA+Role+RoleBinding with
-    mongodbsearch RBAC (the kube-config-creation-tool SA's Role lacks search perms).
-    """
-    os.environ["HELM_KUBECONTEXT"] = mcc.cluster_name
-
-    helm_args = dict(base_helm_args)
-    # multiCluster.clusters gates a kube-config-volume mount whose Secret is never created in this mode.
-    for k in (
-        "operator.watchNamespace",
-        "multiCluster.clusters",
-        "multiCluster.kubeConfigSecretName",
-        "multiCluster.clusterClientTimeout",
-        "multiCluster.performFailover",
-    ):
-        helm_args.pop(k, None)
-
-    helm_args["operator.name"] = SIMULATED_OPERATOR_NAME
-    helm_args["operator.createOperatorServiceAccount"] = "true"
-    # MongoDB-resource-pod SAs are pre-created by run_kube_config_creation_tool — Helm 3
-    # ownership-metadata check fails if we re-render them.
-    helm_args["operator.createResourcesServiceAccountsAndRoles"] = "false"
-    helm_args["operator.clusterIdentity.clusterName"] = mcc.cluster_name
-    helm_args["operator.watchedResources"] = "{mongodbsearch}"
-
-    operator = Operator(
-        namespace=namespace,
-        name=SIMULATED_OPERATOR_NAME,
-        helm_args=helm_args,
-        api_client=mcc.api_client,
-    ).upgrade(multi_cluster=True)
-    logger.info(
-        f"installed simulated-MC operator in {mcc.cluster_name} "
-        f"(identity={mcc.cluster_name}, name={SIMULATED_OPERATOR_NAME}, watches=mongodbsearch only)"
-    )
-    return operator
-
-
-def _replicate_mongot_user_password_to_members(
-    namespace: str,
-    central_cluster_client: kubernetes.client.ApiClient,
-    member_cluster_clients: List[MultiClusterClient],
-) -> None:
-    """Replicate the password Secret so simulated-MC operators' source.passwordSecretRef resolves locally."""
-    member_cluster_clients = member_cluster_clients[:2]
-    pwd_secret_name = f"{MDBS_RESOURCE_NAME}-{MONGOT_USER_NAME}-password"
-    src = read_secret(namespace, pwd_secret_name, api_client=central_cluster_client)
-    for mcc in member_cluster_clients:
-        create_or_update_secret(namespace, pwd_secret_name, src, api_client=mcc.api_client)
-        logger.info(f"replicated {pwd_secret_name} to {mcc.cluster_name}")
 
 
 def _per_cluster_mongos_search_tester(
@@ -341,32 +277,28 @@ def mdb(
     return resource
 
 
-def _build_user(
-    yaml_filename: str,
-    name: str,
-    username: str,
-    namespace: str,
-    central_cluster_client: kubernetes.client.ApiClient,
-) -> MongoDBUser:
-    resource = MongoDBUser.from_yaml(yaml_fixture(yaml_filename), namespace=namespace, name=name)
-    if not try_load(resource):
-        resource["spec"]["mongodbResourceRef"]["name"] = MDB_RESOURCE_NAME
-        resource["spec"]["username"] = username
-        resource["spec"]["passwordSecretKeyRef"]["name"] = f"{name}-password"
-    resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    return resource
-
-
 @fixture(scope="module")
 def admin_user(namespace: str, central_cluster_client: kubernetes.client.ApiClient) -> MongoDBUser:
     return _build_user(
-        "mongodbuser-mdb-admin.yaml", ADMIN_USER_NAME, ADMIN_USER_NAME, namespace, central_cluster_client
+        "mongodbuser-mdb-admin.yaml",
+        ADMIN_USER_NAME,
+        ADMIN_USER_NAME,
+        namespace,
+        central_cluster_client,
+        MDB_RESOURCE_NAME,
     )
 
 
 @fixture(scope="module")
 def mdb_user(namespace: str, central_cluster_client: kubernetes.client.ApiClient) -> MongoDBUser:
-    return _build_user("mongodbuser-mdb-user.yaml", USER_NAME, USER_NAME, namespace, central_cluster_client)
+    return _build_user(
+        "mongodbuser-mdb-user.yaml",
+        USER_NAME,
+        USER_NAME,
+        namespace,
+        central_cluster_client,
+        MDB_RESOURCE_NAME,
+    )
 
 
 @fixture(scope="module")
@@ -377,6 +309,7 @@ def mongot_user(namespace: str, central_cluster_client: kubernetes.client.ApiCli
         MONGOT_USER_NAME,
         namespace,
         central_cluster_client,
+        MDB_RESOURCE_NAME,
     )
 
 
@@ -588,7 +521,9 @@ def test_create_users(
     mdb_user.assert_reaches_phase(Phase.Updated, timeout=600)
     mongot_user.assert_reaches_phase(Phase.Updated, timeout=600)
 
-    _replicate_mongot_user_password_to_members(namespace, central_cluster_client, member_cluster_clients)
+    _replicate_mongot_user_password_to_members(
+        namespace, central_cluster_client, member_cluster_clients, MDBS_RESOURCE_NAME
+    )
 
 
 @mark.e2e_search_simulated_mc_sharded_basic
