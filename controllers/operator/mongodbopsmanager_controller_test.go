@@ -570,7 +570,7 @@ func TestOpsManagerReconcileContainerImages(t *testing.T) {
 		opsManagerRelatedImageEnv:     "quay.io/mongodb/mongodb-enterprise-ops-manager:@sha256:MONGODB_OPS_MANAGER",
 
 		// AppDB images
-		util.AgentImageEnv: "quay.io/mongodb/mongodb-agent@sha256:AGENT_SHA",
+		util.AgentImageEnv:          "quay.io/mongodb/mongodb-agent@sha256:AGENT_SHA",
 		mongodbRelatedImageEnv:      "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi@sha256:MONGODB_SHA",
 		initDatabaseRelatedImageEnv: "quay.io/mongodb/mongodb-kubernetes-init-database@sha256:INIT_DATABASE_SHA",
 	}
@@ -630,8 +630,8 @@ func TestOpsManagerReconcileContainerImagesWithStaticArchitecture(t *testing.T) 
 		opsManagerRelatedImageEnv: "quay.io/mongodb/mongodb-enterprise-ops-manager:@sha256:MONGODB_OPS_MANAGER",
 
 		// AppDB images
-		mongodbRelatedImageEnv:          "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi@sha256:MONGODB_SHA",
-		util.AgentImageUrlEnv: "quay.io/mongodb/mongodb-agent",
+		mongodbRelatedImageEnv: "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi@sha256:MONGODB_SHA",
+		util.AgentImageUrlEnv:  "quay.io/mongodb/mongodb-agent",
 	}
 
 	ctx := context.Background()

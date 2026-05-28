@@ -20,11 +20,11 @@ import (
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
+	e2eutil "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e/util/wait"
 	"github.com/mongodb/mongodb-kubernetes/pkg/authentication/authtypes"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
-	e2eutil "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e/util/wait"
 )
 
 // SkipTestIfLocal skips tests locally which tests connectivity to mongodb pods

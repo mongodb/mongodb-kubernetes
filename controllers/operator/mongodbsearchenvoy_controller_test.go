@@ -10,8 +10,8 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
 	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
+	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
 )
 
