@@ -8,8 +8,6 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/apierror"
@@ -22,7 +20,7 @@ import (
 // Reader returns the name of a ConfigMap which contains Ops Manager project details.
 // and the name of a secret containing project credentials.
 type Reader interface {
-	metav1.Object
+	GetName() string
 	GetProjectConfigMapName() string
 	GetProjectConfigMapNamespace() string
 	GetCredentialsSecretName() string

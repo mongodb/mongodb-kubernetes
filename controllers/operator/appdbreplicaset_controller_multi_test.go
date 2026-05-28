@@ -2139,3 +2139,67 @@ func TestReconcileAppDBBlockNonEmptyClusterSpecItemRemovalIntegration(t *testing
 		})
 	}
 }
+
+// TestReplicateAgentKeySecret_CopiesSecretToAllMemberClusters verifies that replicateAgentKeySecret
+// copies the agent API key Secret from the central cluster to every healthy member cluster.
+func TestReplicateAgentKeySecret_CopiesSecretToAllMemberClusters(t *testing.T) {
+	ctx := context.Background()
+
+	memberClusterName1 := "member-cluster-1"
+	memberClusterName2 := "member-cluster-2"
+	clusters := []string{multicluster.LegacyCentralClusterName, memberClusterName1, memberClusterName2}
+
+	opsManager := DefaultOpsManagerBuilder().
+		SetName("om").
+		SetNamespace("ns").
+		SetAppDBTopology(mdbv1.ClusterTopologyMultiCluster).
+		SetAppDBClusterSpecList(mdbv1.ClusterSpecList{
+			{ClusterName: memberClusterName1, Members: 1},
+			{ClusterName: memberClusterName2, Members: 1},
+		}).
+		Build()
+
+	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(opsManager)
+	memberClusterMap := getFakeMultiClusterMapWithClusters(clusters[1:], omConnectionFactory)
+
+	reconciler, err := newAppDbMultiReconciler(ctx, kubeClient, opsManager, memberClusterMap, zap.S(), omConnectionFactory.GetConnectionFunc)
+	require.NoError(t, err)
+
+	// Pre-create the agent key secret in the central cluster (as PrepareOpsManagerConnection would).
+	groupID := om.TestGroupID
+	secretName := agentAPIKeySecretName(groupID)
+	agentKeySecret := secret.Builder().
+		SetName(secretName).
+		SetNamespace(opsManager.Namespace).
+		SetField(util.OmAgentApiKey, "test-agent-api-key").
+		Build()
+	require.NoError(t, reconciler.client.CreateSecret(ctx, agentKeySecret))
+
+	// Call replicateAgentKeySecret directly.
+	err = reconciler.replicateAgentKeySecret(ctx, opsManager, groupID, zap.S())
+	require.NoError(t, err)
+
+	// Verify the secret is present in each member cluster with the correct value.
+	for _, clusterName := range clusters[1:] {
+		memberClient := memberClusterMap[clusterName]
+		memberClusterChecks := newClusterChecks(t, clusterName, -1, opsManager.Namespace, memberClient)
+		apiKey := memberClusterChecks.checkAgentAPIKeySecret(ctx, groupID)
+		assert.Equal(t, "test-agent-api-key", apiKey, "member cluster %s", clusterName)
+	}
+}
+
+// TestReplicateAgentKeySecret_SkipsForSingleCluster verifies that replicateAgentKeySecret
+// is a no-op for single-cluster (non-multi-cluster) deployments.
+func TestReplicateAgentKeySecret_SkipsForSingleCluster(t *testing.T) {
+	ctx := context.Background()
+
+	opsManager := DefaultOpsManagerBuilder().Build()
+	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(opsManager)
+
+	reconciler, err := newAppDbReconciler(ctx, kubeClient, opsManager, omConnectionFactory.GetConnectionFunc, zap.S())
+	require.NoError(t, err)
+
+	// No secret created — the function must return nil without touching anything.
+	err = reconciler.replicateAgentKeySecret(ctx, opsManager, om.TestGroupID, zap.S())
+	require.NoError(t, err)
+}
