@@ -4,8 +4,8 @@ Three scenarios exercise the tester end-to-end:
 
 * ``test_no_outage`` — steady-state observation window; the verdict must
   show zero failures.
-* ``test_mongot_pod_restart_surfaces_cursor_lost`` — kill mongot pods
-  mid-paging; the open cursor cannot survive the replacement.
+* ``test_mongot_pod_restart_surfaces_outage`` — hard-kill mongot pods
+  mid-paging; the verdict must surface cursor_lost or transient_network.
 * ``test_mongot_scale_to_zero_surfaces_network_error`` — drain the mongot
   StatefulSet entirely; every probe must fail with a network class.
 """
@@ -94,7 +94,7 @@ class TestSearchConnectivityBackgroundTester(SearchE2EFixtures):
         logger.info(f"no-outage verdict: {verdict.as_dict()}")
         assert_no_outage(verdict)
 
-    def test_mongot_pod_restart_surfaces_cursor_lost(
+    def test_mongot_pod_restart_surfaces_outage(
         self,
         mdb: MongoDB,
         mdbs: MongoDBSearch,
@@ -108,7 +108,7 @@ class TestSearchConnectivityBackgroundTester(SearchE2EFixtures):
         original_uids: dict[str, str] = {}
         with _new_tester(mdb, cfg.user_name, cfg.user_password) as tester:
             time.sleep(HEALTHY_BASELINE_SECONDS)
-            original_uids = delete_pods(namespace, label_selector=pod_selector)
+            original_uids = delete_pods(namespace, label_selector=pod_selector, grace_period_seconds=0)
             time.sleep(FAULT_OBSERVATION_SECONDS)
 
         try:
@@ -118,7 +118,10 @@ class TestSearchConnectivityBackgroundTester(SearchE2EFixtures):
 
         verdict = tester.verdict
         logger.info(f"mongot-restart verdict: {verdict.as_dict()}")
-        assert_outage_detected(verdict, accept_classes=("cursor_lost",))
+        # Hard-kill can surface either class: cursor_lost (post-recovery
+        # getMore on a stream the new mongot doesn't own) or
+        # transient_network (in-flight getMore during the dead window).
+        assert_outage_detected(verdict, accept_classes=("cursor_lost", "transient_network"))
 
     def test_mongot_scale_to_zero_surfaces_network_error(
         self,
