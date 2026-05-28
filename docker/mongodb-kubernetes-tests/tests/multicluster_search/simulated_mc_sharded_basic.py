@@ -170,10 +170,16 @@ def central_mc_operator(
     member_cluster_clients: List[MultiClusterClient],
     member_cluster_names: List[str],
 ) -> Operator:
-    """Central MC operator scoped to MongoDB/User/MultiCluster (NOT mongodbsearch).
+    """Central MC operator scoped to MongoDB/User/MultiCluster + mongodbsearch.
 
-    `mongodb` (singular plural) covers both ReplicaSet and ShardedCluster MongoDB
-    resources, so no watchedResources change is needed for the sharded source.
+    The MongoDB ShardedCluster reconciler queries MongoDBSearch CRs via a field
+    index (`field:mdbsearch-for-mongodbresourceref-index`). That index is only
+    registered when mongodbsearch is included in `operator.watchedResources`.
+    Without it the central operator's MongoDB CR reconcile fails with:
+        "Failed to list MongoDBSearch resources: Index with name
+         field:mdbsearch-for-mongodbresourceref-index does not exist"
+    Including mongodbsearch registers the indexer; the controller starts idle
+    because the test only applies MongoDBSearch CRs to MEMBER cluster APIs.
     """
     from tests.conftest import (
         MULTI_CLUSTER_OPERATOR_NAME,
@@ -198,7 +204,7 @@ def central_mc_operator(
         {
             "operator.name": MULTI_CLUSTER_OPERATOR_NAME,
             "operator.createOperatorServiceAccount": "false",
-            "operator.watchedResources": "{mongodb,opsmanagers,mongodbusers,mongodbcommunity,mongodbmulticluster}",
+            "operator.watchedResources": "{mongodb,opsmanagers,mongodbusers,mongodbcommunity,mongodbmulticluster,mongodbsearch}",
         },
         central_cluster_name,
     )
