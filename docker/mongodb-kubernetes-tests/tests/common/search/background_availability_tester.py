@@ -29,15 +29,19 @@ logger = logging.getLogger(__name__)
 
 
 class SearchAvailabilityBackgroundTester(BackgroundHealthChecker):
-    DEFAULT_WAIT_SEC = 1.0
-    DEFAULT_PAGING_RESET_EVERY = 1000
+    # In paging mode the loop runs as fast as the network allows so that
+    # mongod's getMore buffer drains and a real round-trip to mongot
+    # surfaces — sleeping would let the cursor be served from cache and
+    # hide the fault.
+    DEFAULT_WAIT_SEC = 0.0
+    DEFAULT_PAGING_RESET_EVERY = 100_000
 
     def __init__(
         self,
         tool: SearchConnectivityTool,
         mode: str = "paging",
         wait_sec: float = DEFAULT_WAIT_SEC,
-        paging_batch_size: int = 10,
+        paging_batch_size: int = 100,
         paging_reset_every: int = DEFAULT_PAGING_RESET_EVERY,
     ) -> None:
         if mode not in ("oneshot", "paging"):
@@ -110,6 +114,9 @@ class SearchAvailabilityBackgroundTester(BackgroundHealthChecker):
         page = pages[0]
         self._cursor_pages_consumed += 1
         if not page.success:
+            self._close_cursor()
+        elif page.returned_count == 0:
+            # Cursor exhausted — keep observation continuous by reopening.
             self._close_cursor()
         return page
 

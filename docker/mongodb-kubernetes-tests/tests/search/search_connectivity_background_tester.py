@@ -46,8 +46,8 @@ logger = test_logger.get_test_logger(__name__)
 pytestmark = pytest.mark.e2e_search_connectivity_background_tester
 
 NO_OUTAGE_OBSERVATION_SECONDS = 20.0
-HEALTHY_BASELINE_SECONDS = 6.0
-FAULT_OBSERVATION_SECONDS = 25.0
+HEALTHY_BASELINE_SECONDS = 3.0
+FAULT_OBSERVATION_SECONDS = 45.0
 
 
 def configure_mongodb_rs_config(cfg: MongoDBRsDeploymentConfig) -> MongoDBRsDeploymentConfig:
@@ -63,7 +63,7 @@ def configure_mongodb_rs_config(cfg: MongoDBRsDeploymentConfig) -> MongoDBRsDepl
 def _new_tester(mdb: MongoDB, user_name: str, user_password: str) -> SearchAvailabilityBackgroundTester:
     search_tester = get_rs_search_tester(mdb, user_name, user_password, use_ssl=True)
     tool = SearchConnectivityTool(search_tester)
-    return SearchAvailabilityBackgroundTester(tool, wait_sec=0.5)
+    return SearchAvailabilityBackgroundTester(tool)
 
 
 class TestSearchWithReplicaSet(
@@ -112,7 +112,7 @@ class TestSearchConnectivityBackgroundTester(SearchE2EFixtures):
             time.sleep(FAULT_OBSERVATION_SECONDS)
 
         try:
-            wait_for_pods_by_label_replaced(namespace, pod_selector, original_uids, expected=1)
+            wait_for_pods_by_label_replaced(namespace, pod_selector, original_uids)
         except Exception as e:
             logger.warning(f"mongot pod recreation wait timed out in cleanup: {e}")
 
