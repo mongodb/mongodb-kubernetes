@@ -106,6 +106,11 @@ func Merge(dest corev1.Service, source corev1.Service) corev1.Service {
 	dest.Spec.Type = source.Spec.Type
 	dest.Spec.LoadBalancerIP = source.Spec.LoadBalancerIP
 	dest.Spec.ExternalTrafficPolicy = source.Spec.ExternalTrafficPolicy
+	// OwnerReferences are propagated from the desired (source) service so that updates
+	// converge correctly. In multi-cluster mode the source carries nil ownerReferences,
+	// which clears any stale cross-cluster refs left on an existing service from a
+	// previous version of the operator.
+	dest.OwnerReferences = source.OwnerReferences
 	return dest
 }
 

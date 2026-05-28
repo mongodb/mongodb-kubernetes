@@ -239,7 +239,9 @@ func OpsManagerStatefulSet(ctx context.Context, centralClusterSecretClient secre
 	// cluster via memberCluster.SecretClient. A cross-cluster ownerReference causes the
 	// Kubernetes garbage collector to delete the secret as an orphan. Cleanup in multi-cluster
 	// mode is handled through explicit label-based deletion instead.
-	httpsOwnerRefs := opsManager.OwnerReferences
+	// In single-cluster mode, BaseOwnerReference makes the secret owned by the OpsManager CR
+	// so Kubernetes GC removes it when the CR is deleted.
+	httpsOwnerRefs := kube.BaseOwnerReference(opsManager)
 	if opsManager.Spec.IsMultiCluster() {
 		httpsOwnerRefs = nil
 	}

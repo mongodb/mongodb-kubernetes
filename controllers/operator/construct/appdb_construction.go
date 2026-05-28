@@ -475,8 +475,8 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 
 		// The MongoDBMultiResourceAnnotation replaces ownerReferences in multi-cluster mode:
 		// watch predicates and the OM connection factory use it to map StatefulSets back to
-		// their parent CR.
-		sts.Annotations = handler.MultiClusterStatefulSetAnnotations(opsManager.Name)
+		// their parent CR. Merge to preserve any annotations set by earlier modifiers.
+		sts.Annotations = merge.StringToStringMap(sts.Annotations, handler.MultiClusterStatefulSetAnnotations(opsManager.Name))
 	}
 	return sts, nil
 }
