@@ -250,22 +250,20 @@ func AddFailoverAnnotation(ctx context.Context, mrs mdbmulti.MongoDBMultiCluster
 }
 
 func removeClusterFromFailedAnnotation(ctx context.Context, mrs mdbmulti.MongoDBMultiCluster, clustername string, client kubernetesClient.Client) error {
-	if mrs.Annotations == nil {
-		mrs.Annotations = map[string]string{}
-	}
-
-	// read the existing failed cluster annotations
-	var clusterData []failedcluster.FailedCluster
 	failedClusters := readFailedClusterAnnotation(mrs.Annotations)
 
+	remaining := make([]failedcluster.FailedCluster, 0, len(failedClusters))
 	for _, failed := range failedClusters {
 		if failed.ClusterName != clustername {
-			clusterData = append(clusterData, failed)
+			remaining = append(remaining, failed)
 		}
 	}
 
-	// TODO: remove the annotation if array is empty
-	clusterDataBytes, err := json.Marshal(clusterData)
+	if len(remaining) == 0 {
+		return annotations.RemoveAnnotation(ctx, &mrs, failedcluster.FailedClusterAnnotation, client)
+	}
+
+	clusterDataBytes, err := json.Marshal(remaining)
 	if err != nil {
 		return err
 	}
