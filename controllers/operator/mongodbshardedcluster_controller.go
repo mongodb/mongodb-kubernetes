@@ -3,11 +3,10 @@ package operator
 import (
 	"context"
 	"fmt"
-	"time"
-
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/hashicorp/go-multierror"

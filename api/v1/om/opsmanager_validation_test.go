@@ -3,13 +3,13 @@ package om
 import (
 	"testing"
 
-	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/stretchr/testify/assert"
 	"k8s.io/utils/ptr"
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/versionutil"
 )
 
