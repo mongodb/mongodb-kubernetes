@@ -530,31 +530,6 @@ def test_mongodb_running(mdb: MongoDB):
 
 
 @mark.e2e_search_simulated_mc_sharded_basic
-def test_install_simulated_operators_per_member(
-    namespace: str,
-    central_mc_operator: Operator,
-    multi_cluster_operator_installation_config: dict,
-    member_cluster_clients: List[MultiClusterClient],
-):
-    """Installed AFTER MongoDB CR reaches Running.
-
-    The simulated-MC operators' helm install on member clusters triggers something
-    (cross-cluster STS owner-ref GC race per agent diagnosis, or similar timing
-    collision) that prevents the central operator's ShardedClusterReconciler from
-    converging an `topology: MultiCluster` MongoDB CR — but only if the simulated
-    ops are present DURING the initial reconcile. Installing them AFTER the
-    MongoDB CR is Running side-steps the collision (E1 diagnostic confirmed
-    isolation: skipping this install lets MongoDB reach Running). The MongoDBSearch
-    CRs we apply next never trigger the central op's STS path on member clusters.
-    """
-    member_cluster_clients = member_cluster_clients[:2]
-    base_helm_args = dict(multi_cluster_operator_installation_config)
-    for mcc in member_cluster_clients:
-        operator = _install_simulated_operator(namespace, base_helm_args, mcc)
-        operator.assert_is_running()
-
-
-@mark.e2e_search_simulated_mc_sharded_basic
 def test_create_users(
     namespace: str,
     central_cluster_client: kubernetes.client.ApiClient,
@@ -563,6 +538,16 @@ def test_create_users(
     mongot_user: MongoDBUser,
     member_cluster_clients: List[MultiClusterClient],
 ):
+    """Users are created BEFORE simulated-MC operators are installed.
+
+    The MongoDBUser controller (central op) reconciles the user CRs and pushes
+    AC v8 to OM. Mongod agents must converge to v8 within the 600s timeout.
+    In the earlier reorder attempt (E2), simulated ops were installed first
+    and half the agents (cluster-1 aligned) failed to converge to v8 within
+    the timeout, likely because the simulated op install triggered pod or
+    network state perturbation on member clusters. Pushing AC v8 while the
+    cluster is undisturbed avoids that race.
+    """
     member_cluster_clients = member_cluster_clients[:2]
     for user, pwd in (
         (admin_user, ADMIN_USER_PASSWORD),
@@ -582,6 +567,34 @@ def test_create_users(
     mongot_user.assert_reaches_phase(Phase.Updated, timeout=600)
 
     _replicate_mongot_user_password_to_members(namespace, central_cluster_client, member_cluster_clients)
+
+
+@mark.e2e_search_simulated_mc_sharded_basic
+def test_install_simulated_operators_per_member(
+    namespace: str,
+    central_mc_operator: Operator,
+    multi_cluster_operator_installation_config: dict,
+    member_cluster_clients: List[MultiClusterClient],
+):
+    """Installed AFTER MongoDB CR is Running and users are Updated.
+
+    Two deferral motivations:
+    1. The simulated-MC operators' helm install on member clusters triggers a
+       cross-cluster STS owner-ref + cache-sync collision that prevents the
+       central op's ShardedClusterReconciler from converging the MongoDB CR
+       if they're present during the initial reconcile (E1 diagnostic
+       confirmed isolation).
+    2. The simulated op install also perturbs the member-cluster state in a
+       way that breaks AC version propagation on half the mongod agents
+       (E2 observation: cluster-1 agents stuck at AC v5 when users created
+       after sim ops). Pushing AC v8 (user creation) before sim ops install
+       avoids that race.
+    """
+    member_cluster_clients = member_cluster_clients[:2]
+    base_helm_args = dict(multi_cluster_operator_installation_config)
+    for mcc in member_cluster_clients:
+        operator = _install_simulated_operator(namespace, base_helm_args, mcc)
+        operator.assert_is_running()
 
 
 @mark.e2e_search_simulated_mc_sharded_basic
