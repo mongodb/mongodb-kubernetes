@@ -303,6 +303,26 @@ class TestBackupForMongodb:
         mdb_external_domain.update()
         mdb_external_domain.assert_reaches_phase(Phase.Running)
 
+    def test_backup_agents_use_external_hostnames(self, ops_manager: MongoDBOpsManager, mdb_external_domain: MongoDB):
+        """CLOUDP-319138: Backup agents should report external hostnames, not internal ones."""
+        om_tester = ops_manager.get_om_tester(project_name="externalDomain")
+        backup_agents = om_tester.api_read_backup_agents()
+
+        expected_hostnames = set(
+            external_domain_fqdns(
+                mdb_external_domain.name,
+                mdb_external_domain["spec"]["members"],
+                default_external_domain(),
+            )
+        )
+        actual_hostnames = {agent["hostname"] for agent in backup_agents}
+
+        assert actual_hostnames == expected_hostnames, (
+            f"Backup agents should use external hostnames.\n"
+            f"Expected: {expected_hostnames}\n"
+            f"Actual: {actual_hostnames}"
+        )
+
     def test_mdbs_backed_up(self, ops_manager: MongoDBOpsManager):
         om_tester_first = ops_manager.get_om_tester(project_name="firstProject")
         om_tester_second = ops_manager.get_om_tester(project_name="secondProject")
