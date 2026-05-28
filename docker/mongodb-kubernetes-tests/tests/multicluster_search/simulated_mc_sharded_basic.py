@@ -478,20 +478,6 @@ def test_install_central_mc_operator(central_mc_operator: Operator):
 
 
 @mark.e2e_search_simulated_mc_sharded_basic
-def test_install_simulated_operators_per_member(
-    namespace: str,
-    central_mc_operator: Operator,
-    multi_cluster_operator_installation_config: dict,
-    member_cluster_clients: List[MultiClusterClient],
-):
-    member_cluster_clients = member_cluster_clients[:2]
-    base_helm_args = dict(multi_cluster_operator_installation_config)
-    for mcc in member_cluster_clients:
-        operator = _install_simulated_operator(namespace, base_helm_args, mcc)
-        operator.assert_is_running()
-
-
-@mark.e2e_search_simulated_mc_sharded_basic
 def test_install_source_tls_certificates(
     namespace: str,
     multi_cluster_issuer: str,
@@ -541,6 +527,31 @@ def test_mongodb_running(mdb: MongoDB):
     # up to ~10s after Create). The next requeue picks up the freshly-synced cache.
     # See project_simulated_mc_search.md "STS visibility lag" for the diagnosis.
     mdb.assert_reaches_phase(Phase.Running, timeout=1800, ignore_errors=True)
+
+
+@mark.e2e_search_simulated_mc_sharded_basic
+def test_install_simulated_operators_per_member(
+    namespace: str,
+    central_mc_operator: Operator,
+    multi_cluster_operator_installation_config: dict,
+    member_cluster_clients: List[MultiClusterClient],
+):
+    """Installed AFTER MongoDB CR reaches Running.
+
+    The simulated-MC operators' helm install on member clusters triggers something
+    (cross-cluster STS owner-ref GC race per agent diagnosis, or similar timing
+    collision) that prevents the central operator's ShardedClusterReconciler from
+    converging an `topology: MultiCluster` MongoDB CR — but only if the simulated
+    ops are present DURING the initial reconcile. Installing them AFTER the
+    MongoDB CR is Running side-steps the collision (E1 diagnostic confirmed
+    isolation: skipping this install lets MongoDB reach Running). The MongoDBSearch
+    CRs we apply next never trigger the central op's STS path on member clusters.
+    """
+    member_cluster_clients = member_cluster_clients[:2]
+    base_helm_args = dict(multi_cluster_operator_installation_config)
+    for mcc in member_cluster_clients:
+        operator = _install_simulated_operator(namespace, base_helm_args, mcc)
+        operator.assert_is_running()
 
 
 @mark.e2e_search_simulated_mc_sharded_basic
