@@ -30,7 +30,7 @@ import (
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
-	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
+	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller" //nolint:depguard
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/construct"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/predicates"
