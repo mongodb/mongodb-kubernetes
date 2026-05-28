@@ -9,7 +9,7 @@ import (
 
 // Private constants — verbatim values from MCO's mongodbstatefulset.go and readiness/config/config.go.
 const (
-	appdbClusterFilePath               = "/var/lib/automation/config/cluster-config.json"
+	appdbClusterFilePath                = "/var/lib/automation/config/cluster-config.json"
 	appdbAgentHealthStatusFilePathValue = "/var/log/mongodb-mms-automation/healthstatus/agent-health-status.json"
 	appdbAutomationAgentOptions         = " -skipMongoStart -noDaemonize -useLocalMongoDbTools"
 

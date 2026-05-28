@@ -132,7 +132,6 @@ type MongoDBCommunitySpec struct {
 	MemberConfig []automationconfig.MemberOptions `json:"memberConfig,omitempty"`
 }
 
-
 // ReplicaSetHorizonConfiguration holds the split horizon DNS settings for
 // replica set members.
 type ReplicaSetHorizonConfiguration []automationconfig.ReplicaSetHorizons

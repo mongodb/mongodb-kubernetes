@@ -23,11 +23,11 @@ import (
 )
 
 const (
-	appdbVersionUpgradeHookName    = "mongod-posthook"
-	AppDBReadinessProbeContainerName = "mongodb-agent-readinessprobe"
-	appdbReadinessProbePath         = "/opt/scripts/readinessprobe"
+	appdbVersionUpgradeHookName       = "mongod-posthook"
+	AppDBReadinessProbeContainerName  = "mongodb-agent-readinessprobe"
+	appdbReadinessProbePath           = "/opt/scripts/readinessprobe"
 	appdbAutomationMongodConfFileName = "automation-mongod.conf"
-	appdbKeyfileFilePath             = "/var/lib/mongodb-mms-automation/authentication/keyfile"
+	appdbKeyfileFilePath              = "/var/lib/mongodb-mms-automation/authentication/keyfile"
 
 	appdbHeadlessAgentEnv    = "HEADLESS_AGENT"
 	appdbPodNamespaceEnv     = "POD_NAMESPACE"
