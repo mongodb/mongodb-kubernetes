@@ -85,8 +85,13 @@ class TestSearchCDSHotReload(SearchShardedE2EFixtures):
             # Disable reconciliation so the operator won't overwrite our ConfigMap patch
             set_resource_disabled_annotation(mdbs, True)
 
+            # Record envoy pod identity before the reload
+            envoy_pod = _get_envoy_pod(namespace, mdbs.name)
+            pre_pod_name = envoy_pod.metadata.name
+            pre_restart_count = _get_envoy_restart_count(envoy_pod)
+            envoy_pod_ip = envoy_pod.status.pod_ip
+
             # Get current CDS reload count from envoy admin stats
-            envoy_pod_ip = _get_envoy_pod_ip(namespace, mdbs.name)
             initial_cds_updates = _get_cds_update_count(search_tools_pod, envoy_pod_ip)
             logger.info(f"Initial CDS update_success count: {initial_cds_updates}")
 
@@ -99,6 +104,18 @@ class TestSearchCDSHotReload(SearchShardedE2EFixtures):
 
             # Wait for Envoy to reload (poll stats until cds.update_success increments)
             _wait_for_cds_reload(search_tools_pod, envoy_pod_ip, initial_cds_updates)
+
+            # Verify envoy pod was NOT restarted or replaced, other potential option was to check deployment's generation
+            # field but that would be indirect way to check pod was not restarted. That's why it's better to just verify pod itself.
+            post_pod = _get_envoy_pod(namespace, mdbs.name)
+            assert post_pod.metadata.name == pre_pod_name, (
+                f"envoy pod was replaced: {pre_pod_name} -> {post_pod.metadata.name}"
+            )
+            post_restart_count = _get_envoy_restart_count(post_pod)
+            assert post_restart_count == pre_restart_count, (
+                f"envoy pod restarted: restart_count {pre_restart_count} -> {post_restart_count}"
+            )
+            logger.info(f"Envoy pod {pre_pod_name} stable (no restart, no rollout)")
 
             # Read more pages — cursor should still work
             post_pages = tool.paging_cursor_read_pages(
@@ -116,13 +133,19 @@ def _wait_for_search_serving(tool: SearchConnectivityTool, timeout: float = 300.
     tool.wait_for_sentinel_indexed(timeout=timeout)
 
 
-def _get_envoy_pod_ip(namespace: str, search_name: str) -> str:
+def _get_envoy_pod(namespace: str, search_name: str):
+    """Return the first envoy pod object."""
     deployment_name = search_resource_names.lb_deployment_name(search_name)
     pods = KubernetesTester.read_pod_labels(namespace, label_selector=f"app={deployment_name}")
     assert pods.items, f"no envoy pods found with label app={deployment_name}"
-    pod_ip = pods.items[0].status.pod_ip
-    logger.info(f"Envoy pod IP: {pod_ip} (pod: {pods.items[0].metadata.name})")
-    return pod_ip
+    pod = pods.items[0]
+    logger.info(f"Envoy pod: {pod.metadata.name} (IP: {pod.status.pod_ip})")
+    return pod
+
+
+def _get_envoy_restart_count(pod) -> int:
+    """Sum of restart counts across all containers in the pod."""
+    return sum(cs.restart_count for cs in (pod.status.container_statuses or []))
 
 
 def _get_cds_update_count(tools_pod: mongodb_tools_pod.ToolsPod, envoy_pod_ip: str) -> int:
