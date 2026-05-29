@@ -17,6 +17,10 @@ from kubetester.mongodb_search import MongoDBSearch
 from tests import test_logger
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.search import search_resource_names
+from tests.common.search.background_availability_tester import (
+    SearchAvailabilityBackgroundTester,
+    assert_no_outage,
+)
 from tests.common.search.bootstrap_test_mixins import (
     MongoDBShardedDeploymentConfig,
     MongoDBShardedDeploymentTests,
@@ -95,31 +99,38 @@ class TestSearchCDSHotReload(SearchShardedE2EFixtures):
             initial_cds_updates = _get_cds_update_count(search_tools_pod, envoy_pod_ip)
             logger.info(f"Initial CDS update_success count: {initial_cds_updates}")
 
-            # Patch CDS ConfigMap with modified circuit breaker
-            cm_name = search_resource_names.lb_configmap_name(mdbs.name)
-            cm_data = KubernetesTester.read_configmap(namespace, cm_name)
-            patched_cds = _modify_cds_circuit_breaker(cm_data["cds.json"])
-            logger.info(f"Patching ConfigMap {cm_name} with modified circuit breaker (max_connections doubled)")
-            KubernetesTester.update_configmap(namespace, cm_name, {**cm_data, "cds.json": patched_cds})
+            # Start background availability tester — continuously reads pages
+            # throughout the disruption window to catch any transient blips.
+            with SearchAvailabilityBackgroundTester(tool, mode="paging") as bg:
+                # Patch CDS ConfigMap with modified circuit breaker
+                cm_name = search_resource_names.lb_configmap_name(mdbs.name)
+                cm_data = KubernetesTester.read_configmap(namespace, cm_name)
+                patched_cds = _modify_cds_circuit_breaker(cm_data["cds.json"])
+                logger.info(f"Patching ConfigMap {cm_name} with modified circuit breaker (max_connections doubled)")
+                KubernetesTester.update_configmap(namespace, cm_name, {**cm_data, "cds.json": patched_cds})
 
-            # Wait for Envoy to reload (poll stats until cds.update_success increments)
-            _wait_for_cds_reload(search_tools_pod, envoy_pod_ip, initial_cds_updates)
+                # Wait for Envoy to reload (poll stats until cds.update_success increments)
+                _wait_for_cds_reload(search_tools_pod, envoy_pod_ip, initial_cds_updates)
 
-            # Verify envoy pod was NOT restarted or replaced, other potential option was to check deployment's generation
-            # field but that would be indirect way to check pod was not restarted. That's why it's better to just verify pod itself.
-            post_pod = _get_envoy_pod(namespace, mdbs.name)
-            assert post_pod.metadata.name == pre_pod_name, (
-                f"envoy pod was replaced: {pre_pod_name} -> {post_pod.metadata.name}"
-            )
-            post_restart_count = _get_envoy_restart_count(post_pod)
-            assert post_restart_count == pre_restart_count, (
-                f"envoy pod restarted: restart_count {pre_restart_count} -> {post_restart_count}"
-            )
-            logger.info(f"Envoy pod {pre_pod_name} stable (no restart, no rollout)")
+                # Verify envoy pod was NOT restarted or replaced
+                post_pod = _get_envoy_pod(namespace, mdbs.name)
+                assert post_pod.metadata.name == pre_pod_name, (
+                    f"envoy pod was replaced: {pre_pod_name} -> {post_pod.metadata.name}"
+                )
+                post_restart_count = _get_envoy_restart_count(post_pod)
+                assert post_restart_count == pre_restart_count, (
+                    f"envoy pod restarted: restart_count {pre_restart_count} -> {post_restart_count}"
+                )
+                logger.info(f"Envoy pod {pre_pod_name} stable (no restart, no rollout)")
 
-            # Read more pages — cursor should still work
+            # Assert background tester saw zero failures during the entire window
+            bg_verdict = bg.verdict
+            logger.info(f"Background tester verdict: {bg_verdict.as_dict()}")
+            assert_no_outage(bg_verdict)
+
+            # Read more pages from the original cursor — cursor should still work
             post_pages = tool.paging_cursor_read_pages(
-                cursor, pages=5, interval_seconds=0.5, batch_size=10, first_page_index=len(pre_pages)
+                cursor, pages=50, interval_seconds=0.5, batch_size=10, first_page_index=len(pre_pages)
             )
             verdict = tool.verdict(post_pages)
             logger.info(f"Post-reload verdict: {verdict.as_dict()}")
