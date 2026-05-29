@@ -5,7 +5,7 @@ set -eou pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-MDB_LOG_FILE_AGENT_LAUNCHER_SCRIPT="/dev/null"
+export MDB_LOG_FILE_AGENT_LAUNCHER_SCRIPT="/dev/null"
 source "${SCRIPT_DIR}/agent-launcher-lib.sh"
 
 pass=0
