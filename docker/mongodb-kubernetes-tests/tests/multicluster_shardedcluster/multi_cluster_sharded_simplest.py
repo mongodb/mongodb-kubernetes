@@ -66,6 +66,19 @@ def test_sharded_cluster(sharded_cluster: MongoDB):
 
 
 @mark.e2e_multi_cluster_sharded_simplest
+def test_enable_scram(sharded_cluster: MongoDB):
+    sharded_cluster["spec"]["security"] = {
+        "authentication": {
+            "agents": {"mode": "MONGODB-CR"},
+            "enabled": True,
+            "modes": ["SCRAM-SHA-1", "SCRAM-SHA-256", "MONGODB-CR"],
+        }
+    }
+    sharded_cluster.update()
+    sharded_cluster.assert_reaches_phase(Phase.Running, timeout=600)
+
+
+@mark.e2e_multi_cluster_sharded_simplest
 def test_statefulsets_multi_cluster_identity(namespace: str):
     """Regression test: sharded cluster StatefulSets in member clusters must carry no
     ownerReferences and must carry the MongoDBMultiResource annotation.
