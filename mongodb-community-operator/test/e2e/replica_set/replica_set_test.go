@@ -8,7 +8,7 @@ import (
 	"os"
 	"testing"
 
-	rootv1 "github.com/mongodb/mongodb-kubernetes/api/v1"
+	rootv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	e2eutil "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e/mongodbtests"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e/setup"
