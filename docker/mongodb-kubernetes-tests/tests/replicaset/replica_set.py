@@ -560,6 +560,7 @@ def assert_container_env_vars(namespace: str, pod_name: str):
             "MULTI_CLUSTER_MODE",
             "MDB_LOG_FILE_AUTOMATION_AGENT_VERBOSE",
             "MDB_LOG_FILE_AUTOMATION_AGENT_STDERR",
+            "MDB_LOG_FILE_AUTOMATION_AGENT_STDERR_MAX_SIZE_MB",
             "MDB_LOG_FILE_AUTOMATION_AGENT",
             "MDB_LOG_FILE_MONITORING_AGENT",
             "MDB_LOG_FILE_BACKUP_AGENT",
