@@ -157,6 +157,35 @@ def test_connection_string_secret_was_created(
 
 
 @pytest.mark.e2e_multi_cluster_scram
+def test_connection_string_secret_has_controller_ref_on_central_cluster(
+    namespace: str,
+    mongodb_multi: MongoDBMulti,
+    mongodb_user: MongoDBUser,
+    central_cluster_client: kubernetes.client.ApiClient,
+):
+    """The central cluster connection string Secret must carry a controller owner
+    reference pointing to the MongoDBUser CR so that Kubernetes GC removes it when the
+    MongoDBUser is deleted. Member cluster secrets intentionally omit owner references
+    to prevent cross-cluster GC."""
+    secret_name = f"{mongodb_multi.name}-{USER_RESOURCE}-{USER_DATABASE}"
+    v1 = kubernetes.client.CoreV1Api(central_cluster_client)
+    secret = v1.read_namespaced_secret(name=secret_name, namespace=namespace)
+
+    owner_refs = secret.metadata.owner_references or []
+    controller_ref = next((ref for ref in owner_refs if ref.controller), None)
+
+    assert controller_ref is not None, (
+        f"Connection string secret '{secret_name}' on the central cluster has no controller owner reference."
+    )
+    assert controller_ref.name == mongodb_user.name, (
+        f"Expected controller owner '{mongodb_user.name}', got '{controller_ref.name}'."
+    )
+    assert controller_ref.kind == "MongoDBUser", (
+        f"Expected controller owner kind 'MongoDBUser', got '{controller_ref.kind}'."
+    )
+
+
+@pytest.mark.e2e_multi_cluster_scram
 def test_om_configured_correctly():
     expected_roles = {
         ("admin", "clusterAdmin"),
@@ -224,13 +253,14 @@ def test_connection_string_secret_deleted_on_user_deletion(
     namespace: str,
     mongodb_multi: MongoDBMulti,
     mongodb_user: MongoDBUser,
+    central_cluster_client: kubernetes.client.ApiClient,
     member_cluster_clients: List[MultiClusterClient],
 ):
     """Delete the MongoDBUser CR and verify that the connection string Secret is removed
-    from every member cluster. In multi-cluster mode these secrets carry no ownerReferences
-    (to avoid cross-cluster GC), so the operator must delete them explicitly through its
-    finalizer. This test covers both MongoDBMultiCluster and sharded topologies because
-    the member cluster map passed to the controller is topology-independent."""
+    from every member cluster and from the central cluster. Member cluster secrets carry no
+    ownerReferences (to avoid cross-cluster GC) so the operator deletes them explicitly
+    through its finalizer. The central cluster Secret carries a controller owner reference
+    and is removed by Kubernetes GC once the MongoDBUser CR is deleted."""
     mongodb_user.delete()
 
     def wait_for_user_deleted() -> bool:
@@ -257,3 +287,16 @@ def test_connection_string_secret_deleted_on_user_deletion(
             assert e.status == 404, (
                 f"Unexpected error reading secret '{secret_name}' from cluster " f"'{mc_client.cluster_name}': {e}"
             )
+
+    # The central cluster Secret is owned by the MongoDBUser CR via a controller owner
+    # reference and is removed by Kubernetes GC once the MongoDBUser is deleted.
+    v1 = kubernetes.client.CoreV1Api(central_cluster_client)
+
+    def central_secret_deleted() -> bool:
+        try:
+            v1.read_namespaced_secret(name=secret_name, namespace=namespace)
+            return False
+        except kubernetes.client.ApiException as e:
+            return e.status == 404
+
+    wait_until(central_secret_deleted, timeout=30)

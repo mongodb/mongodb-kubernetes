@@ -18,6 +18,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/mdbmulti"
@@ -276,8 +277,11 @@ func (r *MongoDBUserReconciler) updateConnectionStringSecret(ctx context.Context
 	if err != nil && !apiErrors.IsNotFound(err) {
 		return err
 	}
-	if err == nil && !secret.HasOwnerReferences(existingSecret, user.GetOwnerReferences()) {
-		return xerrors.Errorf("connection string secret %s already exists and is not managed by the operator", secretName)
+	if err == nil {
+		existingController := metav1.GetControllerOf(&existingSecret)
+		if existingController != nil && existingController.UID != user.UID {
+			return xerrors.Errorf("connection string secret %s already exists and is not managed by the operator", secretName)
+		}
 	}
 
 	mongoAuthUserURI := connectionBuilder.BuildConnectionString(user.Spec.Username, password, connectionstring.SchemeMongoDB, map[string]string{"authSource": user.Spec.Database})
@@ -303,10 +307,10 @@ func (r *MongoDBUserReconciler) updateConnectionStringSecret(ctx context.Context
 		}
 	}
 
-	// For the central cluster, set ownerReferences so that Kubernetes GC cleans up the
-	// secret when the MongoDBUser CR is deleted.
 	centralClusterSecret := memberClusterSecret
-	centralClusterSecret.OwnerReferences = user.GetOwnerReferences()
+	if err := controllerutil.SetControllerReference(&user, &centralClusterSecret, r.client.Scheme()); err != nil {
+		return err
+	}
 	return secret.CreateOrUpdate(ctx, r.SecretClient, centralClusterSecret)
 }
 
