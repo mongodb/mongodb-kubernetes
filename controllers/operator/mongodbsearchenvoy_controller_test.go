@@ -252,6 +252,23 @@ func TestBuildEnvoyPodSpec_DefaultResources(t *testing.T) {
 	assert.Equal(t, "envoy", podSpec.Containers[0].Name)
 	assert.Equal(t, resource.MustParse("100m"), podSpec.Containers[0].Resources.Requests[corev1.ResourceCPU])
 	assert.Equal(t, resource.MustParse("128Mi"), podSpec.Containers[0].Resources.Requests[corev1.ResourceMemory])
+
+	assert.NotNil(t, podSpec.Affinity.PodAntiAffinity)
+	assert.Equal(t, corev1.PodAntiAffinity{
+		PreferredDuringSchedulingIgnoredDuringExecution: []corev1.WeightedPodAffinityTerm{
+			{
+				Weight: 100,
+				PodAffinityTerm: corev1.PodAffinityTerm{
+					LabelSelector: &metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"app": search.LoadBalancerDeploymentNameForCluster(0),
+						},
+					},
+					TopologyKey: "kubernetes.io/hostname",
+				},
+			},
+		},
+	}, *podSpec.Affinity.PodAntiAffinity)
 }
 
 // TestBuildEnvoyPodSpec_ConfigMapVolumePerCluster regresses the MC-mode
