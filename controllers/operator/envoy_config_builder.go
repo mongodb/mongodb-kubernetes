@@ -23,7 +23,7 @@ import (
 	tlsv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
 	upstreamhttpv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/upstreams/http/v3"
 
-	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
+	searchv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/search"
 )
 
 // buildEnvoyConfigJSON builds the Envoy bootstrap configuration using

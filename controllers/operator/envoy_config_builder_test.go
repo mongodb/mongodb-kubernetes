@@ -13,7 +13,7 @@ import (
 	corev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	tlsv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
 
-	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
+	searchv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/search"
 )
 
 func testRoute(shardName string) envoyRoute {

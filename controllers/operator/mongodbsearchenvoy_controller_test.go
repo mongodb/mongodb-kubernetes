@@ -10,8 +10,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
-	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
+	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
+	searchv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
 )
 
