@@ -24,8 +24,10 @@ func makeMemberConfig(members int) []automationconfig.MemberOptions {
 
 var defaultMemberConfig = makeMemberConfig(1)
 
-var ctx = context.Background()
-var validator = &MongoDBValidator{}
+var (
+	ctx       = context.Background()
+	validator = &MongoDBValidator{}
+)
 
 func TestShardCountIsSpecified(t *testing.T) {
 	errString := "shardCount must be specified"
