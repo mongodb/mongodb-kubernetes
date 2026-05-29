@@ -4,14 +4,15 @@ import (
 	"fmt"
 	"os"
 
-	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
+	corev1 "k8s.io/api/core/v1"
+
+	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/persistentvolumeclaim"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/podtemplatespec"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/probes"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/resourcerequirements"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
-	corev1 "k8s.io/api/core/v1"
 )
 
 const (
