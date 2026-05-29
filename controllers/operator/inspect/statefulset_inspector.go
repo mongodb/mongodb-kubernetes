@@ -4,11 +4,12 @@ import (
 	"fmt"
 
 	"go.uber.org/zap"
-	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
+	appsv1 "k8s.io/api/apps/v1"
+
+	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 )
 
 // StatefulSetState is an entity encapsulating all the information about StatefulSet state

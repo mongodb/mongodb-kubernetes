@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strconv"
 
-	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
+	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 )
 
 // Private constants — verbatim values from MCO's mongodbstatefulset.go and readiness/config/config.go.
