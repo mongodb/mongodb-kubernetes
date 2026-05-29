@@ -139,15 +139,15 @@ def test_connection_string_secret_has_controller_ref_on_central_cluster(
     owner_refs = secret.metadata.owner_references or []
     controller_ref = next((ref for ref in owner_refs if ref.controller), None)
 
-    assert controller_ref is not None, (
-        f"Connection string secret '{secret_name}' on the central cluster has no controller owner reference."
-    )
-    assert controller_ref.name == mongodb_user.name, (
-        f"Expected controller owner '{mongodb_user.name}', got '{controller_ref.name}'."
-    )
-    assert controller_ref.kind == "MongoDBUser", (
-        f"Expected controller owner kind 'MongoDBUser', got '{controller_ref.kind}'."
-    )
+    assert (
+        controller_ref is not None
+    ), f"Connection string secret '{secret_name}' on the central cluster has no controller owner reference."
+    assert (
+        controller_ref.name == mongodb_user.name
+    ), f"Expected controller owner '{mongodb_user.name}', got '{controller_ref.name}'."
+    assert (
+        controller_ref.kind == "MongoDBUser"
+    ), f"Expected controller owner kind 'MongoDBUser', got '{controller_ref.kind}'."
 
 
 @mark.e2e_multi_cluster_sharded_simplest

@@ -4,8 +4,9 @@ import pytest
 from kubernetes import client
 from kubernetes.client.exceptions import ApiException
 from kubetester import create_or_update_secret, find_fixture, try_load
-from kubetester.kubetester import KubernetesTester, run_periodically
+from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as load_fixture
+from kubetester.kubetester import run_periodically
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_user import MongoDBUser
 from kubetester.phase import Phase
@@ -74,15 +75,15 @@ class TestUserIsAdded(KubernetesTester):
         owner_refs = secret.metadata.owner_references or []
         controller_ref = next((ref for ref in owner_refs if ref.controller), None)
 
-        assert controller_ref is not None, (
-            f"Connection string secret '{secret_name}' has no controller owner reference."
-        )
-        assert controller_ref.name == scram_user.name, (
-            f"Expected controller owner '{scram_user.name}', got '{controller_ref.name}'."
-        )
-        assert controller_ref.kind == "MongoDBUser", (
-            f"Expected controller owner kind 'MongoDBUser', got '{controller_ref.kind}'."
-        )
+        assert (
+            controller_ref is not None
+        ), f"Connection string secret '{secret_name}' has no controller owner reference."
+        assert (
+            controller_ref.name == scram_user.name
+        ), f"Expected controller owner '{scram_user.name}', got '{controller_ref.name}'."
+        assert (
+            controller_ref.kind == "MongoDBUser"
+        ), f"Expected controller owner kind 'MongoDBUser', got '{controller_ref.kind}'."
 
 
 @pytest.mark.e2e_users_finalizer
