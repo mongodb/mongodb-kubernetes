@@ -23,7 +23,6 @@ from tests.olm.olm_test_commons import (
     get_operator_group_resource,
     get_registry_env_vars_for_subscription,
     get_subscription_custom_object,
-    increment_patch_version,
     wait_for_operator_ready,
 )
 from tests.opsmanager.om_ops_manager_backup import create_aws_secret, create_s3_bucket
@@ -45,11 +44,10 @@ from tests.opsmanager.om_ops_manager_backup import create_aws_secret, create_s3_
 @fixture
 def catalog_source(namespace: str, version_id: str):
     current_operator_version = get_current_operator_version()
-    incremented_operator_version = increment_patch_version(current_operator_version)
 
     get_operator_group_resource(namespace, namespace).update()
     catalog_source_resource = get_catalog_source_resource(
-        namespace, get_catalog_image(f"{incremented_operator_version}-{version_id}")
+        namespace, get_catalog_image(f"{current_operator_version}-{version_id}")
     )
     catalog_source_resource.update()
 
@@ -360,7 +358,6 @@ def test_operator_upgrade_to_fast(
     subscription: CustomObject,
 ):
     current_operator_version = get_current_operator_version()
-    incremented_operator_version = increment_patch_version(current_operator_version)
 
     # It is very likely that OLM will be doing a series of status updates during this time.
     # It's better to employ a retry mechanism and spin here for a while before failing.
@@ -378,7 +375,7 @@ def test_operator_upgrade_to_fast(
 
     run_periodically(update_subscription, timeout=100, msg="Subscription to be updated")
 
-    wait_for_operator_ready(namespace, OPERATOR_NAME, f"mongodb-kubernetes.v{incremented_operator_version}")
+    wait_for_operator_ready(namespace, OPERATOR_NAME, f"mongodb-kubernetes.v{current_operator_version}")
 
 
 @pytest.mark.e2e_olm_operator_upgrade_with_resources
