@@ -108,3 +108,6 @@ scripts/code_snippets/tests/outputs/*
 
 .claude
 
+# mckctl binary (built at repo root by `go build ./cmd/mckctl`)
+/mckctl
+
