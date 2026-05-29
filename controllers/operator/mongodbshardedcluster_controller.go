@@ -27,8 +27,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
-	khandler "github.com/mongodb/mongodb-kubernetes/pkg/handler"
-
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -60,6 +58,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
+	khandler "github.com/mongodb/mongodb-kubernetes/pkg/handler"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
