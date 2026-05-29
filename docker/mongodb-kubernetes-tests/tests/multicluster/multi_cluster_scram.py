@@ -255,6 +255,5 @@ def test_connection_string_secret_deleted_on_user_deletion(
             )
         except kubernetes.client.ApiException as e:
             assert e.status == 404, (
-                f"Unexpected error reading secret '{secret_name}' from cluster "
-                f"'{mc_client.cluster_name}': {e}"
+                f"Unexpected error reading secret '{secret_name}' from cluster " f"'{mc_client.cluster_name}': {e}"
             )

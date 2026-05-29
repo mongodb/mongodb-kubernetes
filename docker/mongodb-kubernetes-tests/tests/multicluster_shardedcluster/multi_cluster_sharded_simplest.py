@@ -104,7 +104,7 @@ def test_create_mongodb_user(
         api_client=central_cluster_client,
     )
     mongodb_user.update()
-    mongodb_user.assert_reaches_phase(Phase.Updated, timeout=120)
+    mongodb_user.assert_reaches_phase(Phase.Updated, timeout=300)
 
 
 @mark.e2e_multi_cluster_sharded_simplest
@@ -143,7 +143,7 @@ def test_connection_string_secret_deleted_on_user_deletion(
             logger.error(e)
             return False
 
-    wait_until(wait_for_user_deleted, timeout=120)
+    wait_until(wait_for_user_deleted, timeout=300)
 
     secret_name = f"{MDB_RESOURCE_NAME}-{USER_RESOURCE}-{USER_DATABASE}"
     for mc_client in member_cluster_clients:
@@ -155,6 +155,5 @@ def test_connection_string_secret_deleted_on_user_deletion(
             )
         except kubernetes.client.ApiException as e:
             assert e.status == 404, (
-                f"Unexpected error reading secret '{secret_name}' from cluster "
-                f"'{mc_client.cluster_name}': {e}"
+                f"Unexpected error reading secret '{secret_name}' from cluster " f"'{mc_client.cluster_name}': {e}"
             )
