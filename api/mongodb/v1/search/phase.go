@@ -1,7 +1,7 @@
 package search
 
 import (
-	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
+	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 )
 
 // phaseRank assigns a severity rank to each Phase. Higher == worse.
