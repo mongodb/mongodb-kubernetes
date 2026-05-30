@@ -16,7 +16,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/user"
-	"github.com/mongodb/mongodb-kubernetes/api/v1/common"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
@@ -184,9 +183,9 @@ type ClusterSpec struct {
 	// +optional
 	ResourceRequirements *corev1.ResourceRequirements `json:"resourceRequirements,omitempty"`
 	// +optional
-	Persistence *common.Persistence `json:"persistence,omitempty"`
+	Persistence *v1.Persistence `json:"persistence,omitempty"`
 	// +optional
-	StatefulSetConfiguration *common.StatefulSetConfiguration `json:"statefulSet,omitempty"`
+	StatefulSetConfiguration *v1.StatefulSetConfiguration `json:"statefulSet,omitempty"`
 	// +optional
 	SyncSourceSelector *SyncSourceSelector `json:"syncSourceSelector,omitempty"`
 	// LoadBalancer per-cluster override; deep-merged into spec.loadBalancer.managed.

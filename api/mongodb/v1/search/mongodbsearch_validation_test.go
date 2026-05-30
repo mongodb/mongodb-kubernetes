@@ -13,7 +13,6 @@ import (
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/user"
-	"github.com/mongodb/mongodb-kubernetes/api/v1/common"
 )
 
 func TestValidateShardNames(t *testing.T) {
@@ -320,12 +319,12 @@ func TestValidateClustersAndTopLevelFieldsMutuallyExclusive(t *testing.T) {
 		},
 		{
 			name:          "top-level Persistence + clusters set — reject",
-			spec:          MongoDBSearchSpec{Persistence: &common.Persistence{}, Clusters: &[]ClusterSpec{cluster()}},
+			spec:          MongoDBSearchSpec{Persistence: &v1.Persistence{}, Clusters: &[]ClusterSpec{cluster()}},
 			errorContains: "spec.persistence and spec.clusters are mutually exclusive",
 		},
 		{
 			name:          "top-level StatefulSet + clusters set — reject",
-			spec:          MongoDBSearchSpec{StatefulSetConfiguration: &common.StatefulSetConfiguration{}, Clusters: &[]ClusterSpec{cluster()}},
+			spec:          MongoDBSearchSpec{StatefulSetConfiguration: &v1.StatefulSetConfiguration{}, Clusters: &[]ClusterSpec{cluster()}},
 			errorContains: "spec.statefulSet and spec.clusters are mutually exclusive",
 		},
 	}

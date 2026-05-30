@@ -22,16 +22,13 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/search"
-	"github.com/mongodb/mongodb-kubernetes/api/v1"
-	apiv1 "github.com/mongodb/mongodb-kubernetes/api/v1"
-	v1 "github.com/mongodb/mongodb-kubernetes/api/v1/status"
+	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
-	"github.com/mongodb/mongodb-kubernetes/api/v1"
-	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
 	khandler "github.com/mongodb/mongodb-kubernetes/pkg/handler"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
 )
 
 // TODO: Add full Reconcile() integration tests covering:
@@ -186,9 +183,9 @@ func TestBuildShardRoutes(t *testing.T) {
 	shardNames := []string{"mdb-sh-0", "mdb-sh-1"}
 
 	tests := []struct {
-		name                   string
-		endpoint               string
-		expectedShardSNIs      []string
+		name                    string
+		endpoint                string
+		expectedShardSNIs       []string
 		expectedClusterLevelSNI string
 	}{
 		{
@@ -812,7 +809,7 @@ func envoyTestScheme(t *testing.T) *runtime.Scheme {
 	scheme := runtime.NewScheme()
 	require.NoError(t, corev1.AddToScheme(scheme))
 	require.NoError(t, appsv1.AddToScheme(scheme))
-	require.NoError(t, apiv1.AddToScheme(scheme))
+	require.NoError(t, v1.AddToScheme(scheme))
 	_ = searchv1.AddToScheme // keep import live
 	return scheme
 }
