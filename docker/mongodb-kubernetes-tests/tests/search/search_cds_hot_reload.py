@@ -17,10 +17,7 @@ from kubetester.mongodb_search import MongoDBSearch
 from tests import test_logger
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.search import search_resource_names
-from tests.common.search.background_availability_tester import (
-    SearchAvailabilityBackgroundTester,
-    assert_no_outage,
-)
+from tests.common.search.background_availability_tester import SearchAvailabilityBackgroundTester, assert_no_outage
 from tests.common.search.bootstrap_test_mixins import (
     MongoDBShardedDeploymentConfig,
     MongoDBShardedDeploymentTests,
@@ -36,15 +33,16 @@ logger = test_logger.get_test_logger(__name__)
 
 pytestmark = pytest.mark.e2e_search_cds_hot_reload
 
+
 def configure_mongodb_sharded_config(cfg: MongoDBShardedDeploymentConfig) -> MongoDBShardedDeploymentConfig:
     cfg.mdb_resource_name = "mdb-sh-cds-reload"
-    cfg.mongot_replicas = 2
     cfg.admin_user_name = ""
     cfg.admin_user_password = ""
     cfg.user_name = ""
     cfg.user_password = ""
     _derive_user_defaults(cfg)
     return cfg
+
 
 class TestSearchWithShardedCluster(
     SearchShardedDeploymentTests,
@@ -114,13 +112,13 @@ class TestSearchCDSHotReload(SearchShardedE2EFixtures):
 
                 # Verify envoy pod was NOT restarted or replaced
                 post_pod = _get_envoy_pod(namespace, mdbs.name)
-                assert post_pod.metadata.name == pre_pod_name, (
-                    f"envoy pod was replaced: {pre_pod_name} -> {post_pod.metadata.name}"
-                )
+                assert (
+                    post_pod.metadata.name == pre_pod_name
+                ), f"envoy pod was replaced: {pre_pod_name} -> {post_pod.metadata.name}"
                 post_restart_count = _get_envoy_restart_count(post_pod)
-                assert post_restart_count == pre_restart_count, (
-                    f"envoy pod restarted: restart_count {pre_restart_count} -> {post_restart_count}"
-                )
+                assert (
+                    post_restart_count == pre_restart_count
+                ), f"envoy pod restarted: restart_count {pre_restart_count} -> {post_restart_count}"
                 logger.info(f"Envoy pod {pre_pod_name} stable (no restart, no rollout)")
 
             # Assert background tester saw zero failures during the entire window
@@ -139,6 +137,7 @@ class TestSearchCDSHotReload(SearchShardedE2EFixtures):
         finally:
             cursor.close()
             set_resource_disabled_annotation(mdbs, False)
+
 
 def _wait_for_search_serving(tool: SearchConnectivityTool, timeout: float = 300.0) -> None:
     tool.wait_for_sentinel_indexed(timeout=timeout)
