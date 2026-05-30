@@ -10,8 +10,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
-	"github.com/mongodb/mongodb-kubernetes/api/v1/common"
 )
 
 func TestGetReplicasNilDefaultsToOne(t *testing.T) {
@@ -51,14 +51,14 @@ func TestEffectiveClusters(t *testing.T) {
 			spec: MongoDBSearchSpec{
 				Replicas:                 ptr.To(int32(2)),
 				ResourceRequirements:     &corev1.ResourceRequirements{},
-				Persistence:              &common.Persistence{},
-				StatefulSetConfiguration: &common.StatefulSetConfiguration{},
+				Persistence:              &v1.Persistence{},
+				StatefulSetConfiguration: &v1.StatefulSetConfiguration{},
 			},
 			expected: []ClusterSpec{{
 				Replicas:                 ptr.To(int32(2)),
 				ResourceRequirements:     &corev1.ResourceRequirements{},
-				Persistence:              &common.Persistence{},
-				StatefulSetConfiguration: &common.StatefulSetConfiguration{},
+				Persistence:              &v1.Persistence{},
+				StatefulSetConfiguration: &v1.StatefulSetConfiguration{},
 			}},
 		},
 		{
@@ -92,17 +92,17 @@ func TestEffectiveClusters(t *testing.T) {
 // TestEffectiveClustersCascade verifies the full cascade across all five fields:
 //   - Replicas (*int32): REPLACE-if-nil
 //   - ResourceRequirements (*corev1.ResourceRequirements): REPLACE-if-nil
-//   - Persistence (*common.Persistence): REPLACE-if-nil
-//   - StatefulSetConfiguration (*common.StatefulSetConfiguration): REPLACE-if-nil
+//   - Persistence (*v1.Persistence): REPLACE-if-nil
+//   - StatefulSetConfiguration (*v1.StatefulSetConfiguration): REPLACE-if-nil
 //   - JVMFlags ([]string): REPLACE-if-empty (non-empty cluster slice wins; no append)
 func TestEffectiveClustersCascade(t *testing.T) {
 	topReplicas := ptr.To(int32(2))
-	topPersistence := &common.Persistence{}
+	topPersistence := &v1.Persistence{}
 	topResources := &corev1.ResourceRequirements{}
-	topSTS := &common.StatefulSetConfiguration{}
+	topSTS := &v1.StatefulSetConfiguration{}
 	topJVMFlags := []string{"-Xmx2g", "-XX:+UseG1GC"}
 
-	clusterAPersistence := &common.Persistence{}
+	clusterAPersistence := &v1.Persistence{}
 	clusterBResources := &corev1.ResourceRequirements{}
 	clusterDReplicas := ptr.To(int32(5))
 	clusterEJVMFlags := []string{"-Xmx8g"}
