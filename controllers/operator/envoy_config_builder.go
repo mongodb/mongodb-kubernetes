@@ -22,8 +22,8 @@ import (
 	hcmv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
 	tlsv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
 	upstreamhttpv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/upstreams/http/v3"
-
 	matcherv3 "github.com/envoyproxy/go-control-plane/envoy/type/matcher/v3"
+
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/search"
 )
 
