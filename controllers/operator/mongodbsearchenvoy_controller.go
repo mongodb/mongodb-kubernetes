@@ -661,7 +661,7 @@ func buildEnvoyPodSpec(search *searchv1.MongoDBSearch, clusterIndex int, tlsCfg 
 					ProbeHandler: corev1.ProbeHandler{
 						HTTPGet: &corev1.HTTPGetAction{
 							Path: "/ready",
-							Port: intstr.FromInt32(envoyAdminPort),
+							Port: intstr.FromInt32(EnvoyAdminPort),
 						},
 					},
 					InitialDelaySeconds: 10,
