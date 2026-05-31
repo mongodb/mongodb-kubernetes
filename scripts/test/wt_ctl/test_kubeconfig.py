@@ -64,6 +64,28 @@ users: []
 """
 
 
+_MC_KUBECONFIG = """\
+apiVersion: v1
+kind: Config
+current-context: kind-e2e-cluster-1
+clusters:
+- name: kind-e2e-cluster-1
+  cluster:
+    server: https://127.0.0.1:37737
+    certificate-authority-data: BASE64_CA_BLOB
+- name: kind-e2e-cluster-2
+  cluster:
+    server: https://127.0.0.1:36145
+    certificate-authority-data: BASE64_CA_BLOB
+contexts:
+- name: kind-e2e-cluster-1
+  context:
+    cluster: kind-e2e-cluster-1
+    user: kind-e2e-cluster-1
+users: []
+"""
+
+
 class FakeKfp:
     """Records every PATCH attempt instead of doing real HTTP."""
 
@@ -90,6 +112,8 @@ class KubeconfigRefreshTests(unittest.TestCase):
         self.host_kc = self.wt / ".generated" / "current.kubeconfig"
         self.devc_kc = self.wt / ".generated" / "current.devc.kubeconfig"
         self.evg_pin = self.wt / ".generated" / ".current-evg-host"
+        self.mc_base = self.wt / ".generated" / "multicluster_kubeconfig"
+        self.mc_devc = self.wt / ".generated" / "multicluster.devc.kubeconfig"
 
         self.fake_kfp = FakeKfp()
         self._orig_patch = kubeconfig_module._patch_kfp
@@ -178,6 +202,46 @@ class KubeconfigRefreshTests(unittest.TestCase):
         # No TLS-skip / CA strip for BYOC (the cert is presumed valid).
         self.assertNotIn("insecure-skip-tls-verify", devc["clusters"][0]["cluster"])
         self.assertIn("certificate-authority-data", devc["clusters"][0]["cluster"])
+
+    # ------------------------------------------------------------------
+    # Multi-cluster two-flavor derivation from the bare base.
+    # ------------------------------------------------------------------
+    def test_evg_host_multicluster_two_flavors(self) -> None:
+        self.host_kc.write_text(_KIND_KUBECONFIG)
+        self.mc_base.write_text(_MC_KUBECONFIG)
+        self.evg_pin.write_text("my-evg-host")
+        self._refresh(MCK_DEVC_PROXY_PORT="8000", EVG_HOST_PROXY="http://gost-proxy:8080")
+        # Host flavor (base) — every member gets the loopback host proxy.
+        base = yaml.safe_load(self.mc_base.read_text())
+        self.assertEqual([c["cluster"]["proxy-url"] for c in base["clusters"]], ["http://127.0.0.1:8000"] * 2)
+        # Devc flavor — every member gets EVG_HOST_PROXY; servers unchanged.
+        devc = yaml.safe_load(self.mc_devc.read_text())
+        self.assertEqual([c["cluster"]["proxy-url"] for c in devc["clusters"]], ["http://gost-proxy:8080"] * 2)
+        self.assertEqual(devc["clusters"][0]["cluster"]["server"], "https://127.0.0.1:37737")
+
+    def test_evg_host_no_multicluster_base_is_noop(self) -> None:
+        self.host_kc.write_text(_KIND_KUBECONFIG)
+        self.evg_pin.write_text("my-evg-host")
+        self._refresh(MCK_DEVC_PROXY_PORT="8000", EVG_HOST_PROXY="http://gost-proxy:8080")
+        self.assertFalse(self.mc_base.exists())
+        self.assertFalse(self.mc_devc.exists())
+
+    def test_local_kind_multicluster_devc_host_docker_internal(self) -> None:
+        self.host_kc.write_text(_KIND_KUBECONFIG)
+        self.mc_base.write_text(_MC_KUBECONFIG)
+        self._refresh()
+        # Host flavor: bare loopback (laptop kind reachable directly), no proxy.
+        base = yaml.safe_load(self.mc_base.read_text())
+        self.assertNotIn("proxy-url", base["clusters"][0]["cluster"])
+        self.assertEqual(base["clusters"][0]["cluster"]["server"], "https://127.0.0.1:37737")
+        # Devc flavor: per-member host.docker.internal rewrite + TLS skip.
+        devc = yaml.safe_load(self.mc_devc.read_text())
+        self.assertEqual(
+            [c["cluster"]["server"] for c in devc["clusters"]],
+            ["https://host.docker.internal:37737", "https://host.docker.internal:36145"],
+        )
+        self.assertIs(devc["clusters"][0]["cluster"]["insecure-skip-tls-verify"], True)
+        self.assertNotIn("certificate-authority-data", devc["clusters"][0]["cluster"])
 
     # ------------------------------------------------------------------
     # EVG-host branch (pin present).

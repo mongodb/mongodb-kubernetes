@@ -67,7 +67,16 @@ export KUBECONFIG
 # this file in the switch_context.sh chain — so we can't condition on
 # LOCAL_OPERATOR here without missing the signal). Set the path
 # unconditionally; it's harmless when LOCAL_OPERATOR is unset.
-export KUBE_CONFIG_PATH="${PROJECT_DIR}/.generated/multicluster_kubeconfig"
+#
+# Per-side flavor, mirroring KUBECONFIG: the devc file has member
+# proxy-url=${EVG_HOST_PROXY} (or host.docker.internal rewrites);
+# the host file reaches members via 127.0.0.1:${MCK_DEVC_PROXY_PORT}.
+# Both are derived by `wt-ctl kubeconfig refresh` from the bare base.
+if [[ -f /.dockerenv ]]; then
+  export KUBE_CONFIG_PATH="${PROJECT_DIR}/.generated/multicluster.devc.kubeconfig"
+else
+  export KUBE_CONFIG_PATH="${PROJECT_DIR}/.generated/multicluster_kubeconfig"
+fi
 
 export MULTI_CLUSTER_CONFIG_DIR="${PROJECT_DIR}/.multi_cluster_local_test_files"
 export MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH="${PROJECT_DIR}/docker/mongodb-kubernetes-tests/multi-cluster-kube-config-creator"
