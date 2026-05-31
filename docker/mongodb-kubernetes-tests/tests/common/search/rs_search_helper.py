@@ -34,32 +34,6 @@ def get_rs_search_tester_for_member(
     )
     return SearchTester(conn_str, use_ssl=use_ssl, ca_path=ca_path)
 
-
-# ---------------------------------------------------------------------------
-# MongoDBMulti (MC) RS testers — used by the multi-cluster search e2e suite.
-#
-# Same-cluster-mongot routing invariant: each cluster's mongods are AC-patched
-# with their own cluster's envoy proxy-svc as ``mongotHost``. Consequently,
-# any ``$search`` / ``$vectorSearch`` aggregation executed against a mongod
-# in cluster N is served by cluster N's mongot — never any other cluster's.
-# A failure in cluster N is therefore observable only via a tester
-# direct-connected to a mongod in cluster N.
-#
-# Two flavors of MC tester live below:
-#
-# * ``get_mc_rs_search_tester`` — mesh-DNS, RS-aware. Seeds from cluster-0
-#   member-0 and uses ``?replicaSet=...`` so the pymongo driver discovers and
-#   follows the primary. Use for happy-path tests where the cluster identity
-#   of the served query does not matter.
-#
-# * ``get_mc_rs_search_tester_for_cluster_member`` — directConnection to a
-#   specific (cluster_index, member_index) mongod. Use for per-cluster
-#   locality assertions: a tester pinned to cluster N's mongod always lands
-#   on cluster N's mongot, regardless of which cluster currently holds the
-#   RS primary.
-# ---------------------------------------------------------------------------
-
-
 def get_mc_rs_search_tester(
     mdb_mc: MongoDBMulti,
     username: str,
@@ -67,14 +41,8 @@ def get_mc_rs_search_tester(
     *,
     use_ssl: bool = True,
 ) -> SearchTester:
-    """Mesh-DNS RS-aware SearchTester against a MongoDBMulti source.
-
-    Seeds from cluster-0/member-0 and uses ``?replicaSet=<name>`` so the
-    pymongo driver discovers the topology and follows the primary across
-    failovers. Mirrors the inline helper in ``q2_mc_rs_steady`` so per-test
-    happy-path search calls share one connection-string template.
-    """
     ca_path = get_issuer_ca_filepath() if use_ssl else None
+    # seed host is the first pod on cluster 0.
     seed_host = f"{mdb_mc.name}-0-0-svc.{mdb_mc.namespace}.svc.cluster.local:27017"
     conn_str = f"mongodb://{username}:{password}@{seed_host}/" f"?replicaSet={mdb_mc.name}&authSource=admin"
     return SearchTester(conn_str, use_ssl=use_ssl, ca_path=ca_path)
@@ -101,16 +69,11 @@ def get_mc_rs_search_tester_for_cluster_member(
     does not silently follow back to the primary. Critical for per-cluster
     mongot tests — without it, after a primary failover the "direct to
     cluster N" tester would silently route to whichever cluster currently
-    holds the primary, defeating the locality assertion. ``$search`` /
-    ``$vectorSearch`` are read aggregations any mongod can serve;
-    ``readPreference=secondaryPreferred`` lets the pinned pod handle the
-    query whether it is currently primary or secondary.
+    holds the primary, defeating the locality assertion.
 
-    Lifts ``q2_mc_rs_steady._direct_search_tester_for_cluster``, lifting
-    its hardcoded ``member_index=0`` into a parameter.
     """
     ca_path = get_issuer_ca_filepath() if use_ssl else None
-    pod_host = f"{mdb_mc.name}-{cluster_index}-{member_index}-svc" f".{mdb_mc.namespace}.svc.cluster.local:27017"
+    pod_host = f"{mdb_mc.name}-{cluster_index}-{member_index}-svc.{mdb_mc.namespace}.svc.cluster.local:27017"
     parts = ["authSource=admin"]
     if direct_connection:
         parts.append("directConnection=true")

@@ -1,54 +1,17 @@
 """Reusable pytest test-class mixins for the managed-LB search bootstrap.
 
-The "deploy operator → deploy MongoDB → deploy MongoDBSearch → load
-sample data → build search index" sequence is shared across the
-connectivity-tool, background-tester, and failure-modes search e2es,
-and across all three topologies (SC RS, SC sharded, MC RS).
-
-Layer 1 (database install) and Layer 2 (MongoDBSearch + envoy install)
-diverge per topology — different CRDs, different cert plumbing, different
-mongod-parameter verifications — so they stay per-topology:
-
-* ``MongoDBRsDeploymentTests`` / ``SearchDeploymentTests`` — SC RS.
-* ``MongoDBShardedDeploymentTests`` / ``SearchShardedDeploymentTests`` — SC sharded.
-
-Layer 3 (restore + index + smoke) is topology-agnostic:
-
-* ``SearchSampleDataAndIndexTests`` — pure mixin (no parent). Test bodies
-  call ``self._admin_tester(mdb)`` / ``self._user_tester(mdb)`` /
-  ``self.search_tools_pod``; topology fixtures classes
-  (``SearchE2EFixtures`` / ``SearchShardedE2EFixtures``) supply those hooks.
-* ``SearchShardedSampleDataAndIndex`` — same six test methods inherited
-  from the base, with ``_post_restore_setup`` overridden to shard +
-  distribute the sample collection between restore and index creation.
-
-Each layer owns a ``@dataclass`` config object and a ``build_*_config()``
-method. Test bodies and fixtures pull values out of the config returned
-by ``self.build_*_config()`` — no class attribute surface, no fixture
-wrappers around the config.
-
-Consumers extend defaults the standard Python way:
-
-    class _ConnToolRsConfig:
-        def build_mongodb_rs_config(self):
-            cfg = super().build_mongodb_rs_config()
-            cfg.mdb_resource_name = "mdb-rs-foo"
-            return cfg
-
 **Consumer pattern — DECLARE BASES IN REVERSE EXECUTION ORDER:**
 
     pytestmark = pytest.mark.e2e_<file_specific_marker>
 
     class TestBootstrap(
-        _ConnToolRsConfig,
         SearchDeploymentTests,        # Layer 2 — runs second
         MongoDBRsDeploymentTests,     # Layer 1 — runs FIRST
     ):
         pass
 
     class TestSampleData(
-        _ConnToolRsConfig,
-        SearchSampleDataAndIndexTests,   # pure mixin — needs topology fixtures
+        SearchSampleDataAndIndexTests,   # runs restore+indexes tests
         SearchE2EFixtures,               # supplies hooks consumed by Layer 3
     ):
         pass
@@ -57,23 +20,10 @@ Consumers extend defaults the standard Python way:
         def test_unique_scenario(self, mdb, mdbs, namespace):
             ...
 
-Why bases are listed in reverse: pytest's class collector
-(``_pytest.python.PyCollector.collect``) emits inherited test methods
-in ``reversed(MRO)`` order. So the FIRST base in the declaration is
+Why bases are listed in reverse: pytest's class collector emits inherited
+test methods in reversed order. So the FIRST base in the declaration is
 emitted LAST. Declaring bases in reverse-execution order makes the
-bootstrap fire MongoDB → Search → Data → unique-scenarios.
-
-**Redundant-base rule:** include a topology fixtures base
-(``SearchE2EFixtures`` / ``SearchShardedE2EFixtures``) in the consumer's
-bases ONLY when no layer mixin in the same declaration already inherits
-from it. Layer 1/2
-mixins extend their topology fixtures class transitively, so adding
-it again is noise. Layer 3 (``SearchSampleDataAndIndexTests``) is a
-pure mixin and DOES require an explicit topology fixtures base.
-
-The mixins carry NO ``@mark.e2e_*`` decorators. Marks are applied at
-the module level (``pytestmark = pytest.mark.e2e_<marker>``) so they
-attach to every collected class without duplication.
+bootstrap fire in the proper order: MongoDB, Search, Restore+Data, actual test on top
 """
 
 from __future__ import annotations
@@ -82,6 +32,8 @@ from dataclasses import dataclass
 from typing import Optional
 
 from kubernetes import client
+from pytest import fixture
+
 from kubetester import try_load
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import run_periodically
@@ -90,7 +42,6 @@ from kubetester.mongodb_search import MongoDBSearch
 from kubetester.mongodb_user import MongoDBUser
 from kubetester.omtester import skip_if_cloud_manager
 from kubetester.phase import Phase
-from pytest import fixture
 from tests import test_logger
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.mongodb_tools_pod.mongodb_tools_pod import get_tools_pod
@@ -110,7 +61,8 @@ from tests.common.search.sharded_search_helper import (
     get_search_tester,
     verify_sharded_mongod_parameters,
 )
-from tests.conftest import get_default_operator
+from tests.conftest import get_default_operator, is_multi_cluster, get_multi_cluster_operator, get_central_cluster_name, get_multi_cluster_operator_installation_config, \
+    get_central_cluster_client, get_member_cluster_clients, get_member_cluster_names
 from tests.search.om_deployment import get_ops_manager
 
 logger = test_logger.get_test_logger(__name__)
@@ -123,18 +75,6 @@ logger = test_logger.get_test_logger(__name__)
 
 
 def _derive_user_defaults(cfg) -> None:
-    """Fill ``admin_user_name``/``user_name`` (+ passwords) from ``mdb_resource_name``.
-
-    Two e2e tests that share a namespace (or a leftover-from-yesterday
-    namespace) used to fight over a single ``mdb-admin-user`` /
-    ``mdb-user`` MongoDBUser CR. The first test to apply it would win
-    the ``mongodbResourceRef``; the second's bootstrap would either time
-    out waiting for ``Updated`` or auth would fail against the wrong
-    cluster. Deriving every user name from ``mdb_resource_name`` makes
-    each test's user set unique by construction. Explicit overrides
-    (set on the dataclass before ``__post_init__`` runs, e.g. via
-    ``replace(cfg, admin_user_name="...")``) still win.
-    """
     if not cfg.admin_user_name:
         cfg.admin_user_name = f"{cfg.mdb_resource_name}-admin-user"
     if not cfg.admin_user_password:
@@ -147,15 +87,10 @@ def _derive_user_defaults(cfg) -> None:
 
 @dataclass
 class MongoDBRsDeploymentConfig:
-    """MongoDB replica set + operator + users."""
-
     mdb_resource_name: str = "mdb-rs"
     rs_members: int = 3
     set_tls: bool = True
 
-    # User names/passwords are derived from ``mdb_resource_name`` via
-    # ``__post_init__`` when left unset, so two tests sharing a namespace
-    # don't collide on a single ``mdb-admin-user`` MongoDBUser CR.
     admin_user_name: str = ""
     admin_user_password: str = ""
     user_name: str = ""
@@ -173,15 +108,6 @@ class MongoDBRsDeploymentConfig:
 
 @dataclass
 class SearchDeploymentConfig:
-    """MongoDBSearch CR + envoy.
-
-    ``mdbs_resource_name`` defaults to ``None``; the fixtures resolve
-    it to the matching MongoDB resource name if unset.
-
-    ``mongot_replicas`` is the per-shard mongot count for sharded
-    deployments; the RS fixture leaves the yaml-default in place.
-    """
-
     mdbs_resource_name: Optional[str] = None
     mdbs_tls_cert_prefix: str = "certs"
     mdbs_fixture_yaml: str = "search-rs-managed-lb.yaml"
@@ -191,16 +117,6 @@ class SearchDeploymentConfig:
 
 @dataclass
 class SampleDataAndIndexConfig:
-    """Sample dataset, search index, smoke query.
-
-    ``extra_doc_count`` > 0 triggers a synthetic doc insert AFTER
-    mongorestore (+ after ``shard_and_distribute_collection`` for the
-    sharded subclass), BEFORE ``create_search_index``. Default is
-    ``10_000`` — enough corpus that paging tests behave consistently
-    across SC RS / MC RS / failure-mode tests. The sharded topology
-    overrides to ``50_000`` for cross-shard fanout paging tests.
-    """
-
     search_index_name: str = "default"
     smoke_query_text: str = "Apollo"
     smoke_query_path: str = "title"
@@ -210,26 +126,7 @@ class SampleDataAndIndexConfig:
     extra_doc_batch_size: int = 1000
 
 
-# ---------------------------------------------------------------------------
-# Hook contract shared by topology fixtures classes and the sample-data
-# test mixin. The diamond inheritance through this class is what lets a
-# topology-agnostic mixin call ``self.build_sample_data_and_index_config()``
-# / ``self._admin_tester(mdb)`` / ``self._user_tester(mdb)`` while type
-# checkers see the signatures from a real parent class. At runtime the
-# consumer's MRO routes each call to whichever topology fixtures class is
-# also a base of the same consumer.
-# ---------------------------------------------------------------------------
-
-
 class SearchE2EHooks:
-    """Hook contract shared by every topology fixtures class and the
-    sample-data test mixin.
-
-    The defaults here cover only the configuration build: the tester
-    factories must be supplied by a topology fixtures class
-    (``SearchE2EFixtures`` / ``SearchShardedE2EFixtures``).
-    """
-
     def build_sample_data_and_index_config(self) -> SampleDataAndIndexConfig:
         return SampleDataAndIndexConfig()
 
@@ -261,14 +158,6 @@ class SearchE2EHooks:
 
 
 class SearchE2EFixtures(SearchE2EHooks):
-    """Base class for the three layer mixins.
-
-    Provides the six fixtures (``helper``, ``mdb``, ``mdbs``, users,
-    ``ca_configmap``) and default ``build_*_config`` returning the
-    dataclass defaults. Layer mixins inherit from this; their
-    ``build_*_config`` overrides shadow the stubs.
-    """
-
     # Default config-builder hooks. Consumers override via ``super()``.
     def build_mongodb_rs_config(self) -> MongoDBRsDeploymentConfig:
         return MongoDBRsDeploymentConfig()
@@ -362,6 +251,19 @@ class SearchE2EFixtures(SearchE2EHooks):
 # Bootstrap test mixins. Each owns its config + bootstrap test methods.
 # ---------------------------------------------------------------------------
 
+class InstallOperatorTests:
+    def test_install_operator(self, namespace: str, operator_installation_config: dict[str, str]):
+        if not is_multi_cluster():
+            operator = get_default_operator(namespace, operator_installation_config=operator_installation_config)
+        else:
+            operator = get_multi_cluster_operator(namespace,
+                                                  central_cluster_name=get_central_cluster_name(),
+                                                  multi_cluster_operator_installation_config=get_multi_cluster_operator_installation_config(namespace),
+                                                  central_cluster_client=get_central_cluster_client(),
+                                                  member_cluster_clients=get_member_cluster_clients(),
+                                                  member_cluster_names=get_member_cluster_names())
+        operator.assert_is_running()
+
 
 class MongoDBRsDeploymentTests(SearchE2EFixtures):
     """MongoDB replica-set deployment bootstrap.
@@ -370,9 +272,7 @@ class MongoDBRsDeploymentTests(SearchE2EFixtures):
     (creates and waits Running) → users.
     """
 
-    def test_install_operator(self, namespace: str, operator_installation_config: dict[str, str]):
-        operator = get_default_operator(namespace, operator_installation_config=operator_installation_config)
-        operator.assert_is_running()
+
 
     @skip_if_cloud_manager
     def test_create_ops_manager(self, namespace: str):
@@ -456,27 +356,6 @@ class SearchDeploymentTests(SearchE2EFixtures):
 
 
 class SearchSampleDataAndIndexTests(SearchE2EHooks):
-    """Topology-agnostic sample-data + index + smoke test methods.
-
-    Consumers combine with a topology fixtures class (``SearchE2EFixtures``
-    or ``SearchShardedE2EFixtures``) which provides ``mdb``,
-    ``search_tools_pod``, ``_admin_tester`` / ``_user_tester``, and the
-    matching ``build_*_config``.
-
-    Step ordering (source order = pytest collection order within a class):
-    deploy tools → restore → synthetic corpus inflation →
-    ``_post_restore_setup`` hook (no-op default on ``SearchE2EHooks``;
-    ``SearchShardedSampleDataAndIndex`` overrides to shard + distribute) →
-    create index → smoke query.
-
-    Inherits the hook contract from ``SearchE2EHooks`` so type checkers
-    resolve ``self.build_sample_data_and_index_config`` /
-    ``self._admin_tester`` / ``self._user_tester``. At runtime Python's
-    C3 MRO routes those calls through the consumer's topology fixtures
-    base (which provides the concrete implementations) — the
-    ``SearchE2EHooks`` body is the fallback for ``build_*`` defaults.
-    """
-
     def test_deploy_tools_pod(self, search_tools_pod: mongodb_tools_pod.ToolsPod):
         logger.info(f"Tools pod {search_tools_pod.pod_name} is ready")
 
@@ -567,8 +446,6 @@ class MongoDBShardedDeploymentConfig:
 
 
 class SearchShardedE2EFixtures(SearchE2EHooks):
-    """Sharded topology fixtures + tester factories."""
-
     def build_mongodb_sharded_config(self) -> MongoDBShardedDeploymentConfig:
         return MongoDBShardedDeploymentConfig()
 
@@ -583,8 +460,7 @@ class SearchShardedE2EFixtures(SearchE2EHooks):
     def build_sample_data_and_index_config(self) -> SampleDataAndIndexConfig:
         # Sharded inflates the corpus further (~70k total = 21k sample +
         # 50k synthetic) so cross-shard fanout paging tests can exercise
-        # many more pages and any cursor-loss propagation gap on the
-        # per-getMore gRPC path has more chances to surface.
+        # many more pages and cursor-loss tests have enough pages to fetch.
         return SampleDataAndIndexConfig(extra_doc_count=50_000)
 
     def effective_mdbs_resource_name(self) -> str:
@@ -666,10 +542,6 @@ class SearchShardedE2EFixtures(SearchE2EHooks):
 
 class MongoDBShardedDeploymentTests(SearchShardedE2EFixtures):
     """Operator + sharded MDB + users bootstrap."""
-
-    def test_install_operator(self, namespace: str, operator_installation_config: dict[str, str]):
-        operator = get_default_operator(namespace, operator_installation_config=operator_installation_config)
-        operator.assert_is_running()
 
     @skip_if_cloud_manager
     def test_create_ops_manager(self, namespace: str):
@@ -779,8 +651,3 @@ class SearchShardedSampleDataAndIndex(SearchSampleDataAndIndexTests):
         self._admin_tester(mdb).shard_and_distribute_collection(
             sample_cfg.sample_database, sample_cfg.sample_collection
         )
-
-
-# Backwards-compatible alias — existing imports of
-# ``SearchShardedSampleDataAndIndexTests`` continue to work.
-SearchShardedSampleDataAndIndexTests = SearchShardedSampleDataAndIndex

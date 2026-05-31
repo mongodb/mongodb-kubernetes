@@ -160,7 +160,7 @@ class SearchTester(MongoTester):
         Idempotent: if ``count_documents({"synthetic": True}) >= count`` we
         skip insertion. Each doc has a unique ``title``/``plot`` so mongot's
         existing ``mappings.dynamic`` $search definition covers them for
-        paging tests. Uses ``ordered=False`` bulk insert; budget ~60s for 50k.
+        paging tests.
         """
         coll = self.client[database_name][collection_name]
         existing = coll.count_documents({"synthetic": True})

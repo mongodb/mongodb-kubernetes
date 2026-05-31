@@ -1,19 +1,4 @@
-"""E2E tests for the search connectivity background tester (KUBE-27).
-
-Three scenarios exercise the tester end-to-end. Each runs both a
-``oneshot`` tester (fresh $search per tick) and a ``paging`` tester
-(long-lived cursor pinned to one mongot) so the verdict covers both
-fresh-query availability and cursor-stream survivability.
-
-* ``test_scale_up_down_mongot_pods_without_outage_to_existing_mongot_nodes``
-  — scale the MongoDBSearch replicas up by one then back; the
-  pre-existing paging cursor and concurrent oneshot queries must both
-  stay clean.
-* ``test_mongot_pod_restart_surfaces_outage`` — hard-kill mongot pods;
-  oneshot surfaces transient_network, paging surfaces cursor_lost.
-* ``test_mongot_scale_to_zero_surfaces_network_error`` — drain the
-  mongot StatefulSet entirely; oneshot surfaces transient_network, the
-  paging tester stays clean (served from mongod's prefetch buffer).
+"""E2E tests for the search connectivity background tester.
 """
 
 from __future__ import annotations
@@ -21,6 +6,7 @@ from __future__ import annotations
 import time
 
 import pytest
+
 from kubetester import wait_for_pods_ready
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_search import MongoDBSearch
@@ -39,7 +25,7 @@ from tests.common.search.bootstrap_test_mixins import (
     SearchDeploymentTests,
     SearchE2EFixtures,
     SearchSampleDataAndIndexTests,
-    _derive_user_defaults,
+    _derive_user_defaults, InstallOperatorTests,
 )
 from tests.common.search.connectivity import (
     SearchConnectivityTool,
@@ -79,13 +65,16 @@ def _new_paging_background_tester_pinned_to_one_mongot(
 ) -> SearchAvailabilityBackgroundTester:
     search_tester = get_rs_search_tester(mdb, user_name, user_password, use_ssl=True)
     tool = SearchConnectivityTool(search_tester)
-    return SearchAvailabilityBackgroundTester(tool, mode="paging", wait_sec=0.5, paging_reset_every=None)
+    return SearchAvailabilityBackgroundTester(tool, mode="paging", paging_reset_every=None)
 
 
 def configure_search_deployment_config(cfg: SearchDeploymentConfig) -> SearchDeploymentConfig:
     cfg.mongot_replicas = 1
     return cfg
 
+
+class TestInstallOperator(InstallOperatorTests):
+    pass
 
 class TestSearchWithReplicaSet(
     SearchDeploymentTests,

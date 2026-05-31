@@ -111,10 +111,6 @@ class ToolsPod:
 
 def get_tools_pod(namespace: str, api_client: Optional[client.ApiClient] = None) -> ToolsPod:
     """Create and return a ready tools pod in the given namespace.
-
-    ``api_client`` — optional Kubernetes ApiClient for multi-cluster setups where
-    the tools pod must live in a member cluster rather than the operator cluster.
-    Defaults to None (uses the default kubeconfig context).
     """
     tools_pod = ToolsPod(namespace, api_client=api_client)
     tools_pod.run_pod_and_wait()

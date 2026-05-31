@@ -6,7 +6,7 @@ is to assert that search stays healthy across some external event — use it
 as a context manager and read ``tester.verdict`` after the ``with`` block:
 
     with SearchAvailabilityBackgroundTester(tool) as tester:
-        time.sleep(20)
+        perform_operations()
     assert_no_outage(tester.verdict)
 
 Two modes:
@@ -29,24 +29,17 @@ logger = logging.getLogger(__name__)
 
 
 class SearchAvailabilityBackgroundTester(threading.Thread):
-    # In paging mode the loop runs as fast as the network allows so that
-    # mongod's getMore buffer drains and a real round-trip to mongot
-    # surfaces — sleeping would let the cursor be served from cache and
-    # hide the fault.
-    DEFAULT_WAIT_SEC = 0.1
     DEFAULT_PAGING_RESET_EVERY = 100_000
 
     def __init__(
         self,
         tool: SearchConnectivityTool,
         mode: str = "paging",
-        wait_sec: float = DEFAULT_WAIT_SEC,
         paging_batch_size: int = 5,
         paging_reset_every: Optional[int] = None,
     ) -> None:
         super().__init__()
         self.daemon = True
-        self.wait_sec = wait_sec
         if mode not in ("oneshot", "paging"):
             raise ValueError(f"mode must be 'oneshot' or 'paging'; got {mode!r}")
         self.number_of_runs = 0
@@ -87,8 +80,6 @@ class SearchAvailabilityBackgroundTester(threading.Thread):
                 self.max_consecutive_failure = max(self.max_consecutive_failure, consecutive_failure)
                 self.exception_number += 1
                 self.last_exception = f"{result.error_class}: {result.error_message}"
-            # wait() with timeout returns immediately on stop() — keeps shutdown fast.
-            self._stop_event.wait(self.wait_sec)
         self._close_cursor()
 
     def stop(self) -> None:
@@ -125,7 +116,6 @@ class SearchAvailabilityBackgroundTester(threading.Thread):
                     f"tester thread died before reaching {target} successful runs "
                     f"(current={current}); last_exception={self.last_exception}"
                 )
-            time.sleep(0.1)
         raise AssertionError(
             f"tester did not reach {target} successful runs within {timeout}s; " f"current={self.succeeded_count}"
         )

@@ -552,9 +552,8 @@ def restore_mongot_readiness_probe(namespace: str, sts_name: str, container_name
 
 
 # Post-fault drain budget — mongot's gRPC reply to mongod is server-
-# streaming; mongod buffers an unknown depth on top. The pod-restart fault
-# is only observable AFTER the caller drains more docs than the server-
-# stream + buffer can supply. RS pod-restart empirically required >= 50k.
+# streaming; mongod buffers an unknown depth, depending on the number
+# of actual getMore executed against mongot
 DEFAULT_POST_FAULT_DRAIN_FLOOR = 50_000
 
 
@@ -657,3 +656,50 @@ def wait_for_mongot_statefulset_drained(
         sleep_time=sleep_time,
         msg=f"mongot StatefulSet {sts_name} to drain",
     )
+
+
+def hard_kill_pods_by_label(
+    core_v1: Any,
+    namespace: str,
+    label_key: str,
+    label_value: str,
+) -> dict[str, str]:
+    """Hard-kill (grace=0) all pods matching ``label_key=label_value``.
+
+    Returns ``{pod_name: uid}`` of killed pods.
+    """
+    selector = f"{label_key}={label_value}"
+    pods = core_v1.list_namespaced_pod(namespace=namespace, label_selector=selector).items
+    if not pods:
+        raise AssertionError(f"no pods matched {selector} in ns {namespace}")
+    uids: dict[str, str] = {}
+    body = client.V1DeleteOptions(grace_period_seconds=0)
+    for p in pods:
+        uids[p.metadata.name] = p.metadata.uid
+        try:
+            core_v1.delete_namespaced_pod(name=p.metadata.name, namespace=namespace, body=body)
+            logger.info(f"hard-killed pod {p.metadata.name} (uid={p.metadata.uid[:8]})")
+        except client.exceptions.ApiException as exc:
+            if exc.status == 404:
+                logger.info(f"pod {p.metadata.name} already gone (404), skipping")
+            else:
+                raise
+    return uids
+
+
+def assert_disruption_observed(
+    verdict: "ConnectivityVerdict",
+    context: str = "",
+) -> None:
+    """Assert that the connectivity verdict shows at least one disruption.
+
+    Accepts ``cursor_lost`` or ``transient_network`` as evidence.
+    """
+    ctx = f"[{context}] " if context else ""
+    if verdict.total == 0:
+        raise AssertionError(f"{ctx}verdict has no iterations — the harness never ran. verdict={verdict.as_dict()}")
+    if verdict.cursor_lost == 0 and verdict.transient_network == 0:
+        raise AssertionError(
+            f"{ctx}no disruption observed: cursor_lost=0 transient_network=0; verdict={verdict.as_dict()}"
+        )
+

@@ -20,7 +20,7 @@ from tests.common.search.bootstrap_test_mixins import (
     SearchDeploymentTests,
     SearchE2EFixtures,
     SearchSampleDataAndIndexTests,
-    _derive_user_defaults,
+    _derive_user_defaults, InstallOperatorTests,
 )
 from tests.common.search.connectivity import (
     ConnectivityVerdict,
@@ -46,6 +46,10 @@ def configure_mongodb_rs_config(cfg: MongoDBRsDeploymentConfig) -> MongoDBRsDepl
     cfg.user_password = ""
     _derive_user_defaults(cfg)
     return cfg
+
+
+class TestInstallOperator(InstallOperatorTests):
+    pass
 
 
 class TestSearchWithReplicaSet(

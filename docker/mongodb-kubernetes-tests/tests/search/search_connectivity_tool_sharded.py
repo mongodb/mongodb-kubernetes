@@ -1,17 +1,4 @@
-"""E2E tests for the search connectivity tool — sharded variant (KUBE-17).
-
-Pure-verdict / pure-aggregate sharded tests that the connectivity-tool
-suite owns without any cross-layer log analysis.
-
-* ``test_data_balanced_across_shards`` — proves sample data is sharded
-  via ``$collStats``.
-* ``test_query_fails_when_envoy_endpoints_removed_for_one_shard`` —
-  proves the fanout $search fails when shard-0 envoy upstreams are
-  unhealthy. Uses ``oneshot_search.failure_class`` as the signal.
-
-The cross-layer fanout / per-shard log-attributed tests live in
-``tests/search_observability/search_connectivity_tool_sharded.py``
-under the ``e2e_search_observability_sharded`` marker.
+"""E2E tests for the search connectivity tool — sharded variant.
 """
 
 from __future__ import annotations
@@ -30,7 +17,7 @@ from tests.common.search.bootstrap_test_mixins import (
     SearchShardedDeploymentTests,
     SearchShardedE2EFixtures,
     SearchShardedSampleDataAndIndex,
-    _derive_user_defaults,
+    _derive_user_defaults, InstallOperatorTests,
 )
 from tests.common.search.connectivity import (
     SearchConnectivityTool,
@@ -56,9 +43,11 @@ def configure_mongodb_sharded_config(cfg: MongoDBShardedDeploymentConfig) -> Mon
     return cfg
 
 
+class TestInstallOperator(InstallOperatorTests):
+    pass
+
+
 class TestSearchWithShardedCluster(
-    # Bases listed in REVERSE execution order — pytest emits inherited
-    # tests in reversed(MRO). See bootstrap_test_mixins module docstring.
     SearchShardedDeploymentTests,
     MongoDBShardedDeploymentTests,
 ):

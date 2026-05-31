@@ -84,8 +84,8 @@ def get_shard_mongod_tester(
     ``<mdb>-<shardIdx>-<podIdx>.<mdb>-sh.<ns>.svc.cluster.local:27017``.
     """
     ca_path = get_issuer_ca_filepath() if use_ssl else None
-    host = f"{mdb.name}-{shard_index}-{member_index}." f"{mdb.name}-sh.{mdb.namespace}.svc.cluster.local:27017"
-    conn_str = f"mongodb://{username}:{password}@{host}/" f"?directConnection=true&authSource=admin"
+    host = f"{mdb.name}-{shard_index}-{member_index}.{mdb.name}-sh.{mdb.namespace}.svc.cluster.local:27017"
+    conn_str = f"mongodb://{username}:{password}@{host}/?directConnection=true&authSource=admin"
     return SearchTester(conn_str, use_ssl=use_ssl, ca_path=ca_path)
 
 
