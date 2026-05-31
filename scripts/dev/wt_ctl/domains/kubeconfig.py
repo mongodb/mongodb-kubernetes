@@ -22,6 +22,11 @@ and unit-testability. Dispatch:
 Both modes also pin `current-context` to ${CLUSTER_NAME} (when set in env)
 and PATCH the appropriate per-side variant to ${K8S_FWD_PROXY}/kubeconfig.
 
+The multi-cluster kubeconfig gets the same two-flavor split, derived from
+the bare base ``multicluster_kubeconfig``: ``multicluster_kubeconfig`` (host)
+and ``multicluster.devc.kubeconfig`` (devc), selected by ${KUBE_CONFIG_PATH}
+in site-context.
+
 Name disambiguation across worktrees (host kfp is shared via the macOS pkg
 daemon): when MCK_DEVC_PROXY_PORT is set, the bytes PATCHed to the on-host
 kfp daemon (only) get every cluster/context/user name suffixed with
@@ -229,6 +234,25 @@ def _set_server_for_devc(kc: dict[str, Any], server: str) -> None:
         inner.pop("certificate-authority", None)
 
 
+def _rewrite_loopback_servers_for_devc(kc: dict[str, Any]) -> None:
+    """Per-cluster variant of ``_set_server_for_devc``: rewrite each
+    ``127.0.0.1:<port>`` member server to ``host.docker.internal:<port>``
+    (preserving the per-member port) + TLS-skip. Non-loopback servers are
+    left untouched (BYOC)."""
+    for entry in kc.get("clusters") or []:
+        inner = entry.get("cluster") if isinstance(entry, dict) else None
+        if not isinstance(inner, dict):
+            continue
+        server = inner.get("server")
+        m = _LOOPBACK_SERVER_RE.match(server) if isinstance(server, str) else None
+        if not m:
+            continue
+        inner["server"] = f"https://host.docker.internal:{m.group('port') or '443'}"
+        inner["insecure-skip-tls-verify"] = True
+        inner.pop("certificate-authority-data", None)
+        inner.pop("certificate-authority", None)
+
+
 def _patch_kfp(url: str, kubeconfig_bytes: bytes, log: Any) -> bool:
     """HTTP PATCH the kubeconfig onto K8S_FWD_PROXY/kubeconfig. Returns True
     on 2xx, False otherwise. Best-effort: kfp may not be listening (host
@@ -358,6 +382,7 @@ class KubeconfigDomain:
                 )
             else:
                 self._maybe_register(k8s_fwd_proxy, host_kc, emit, suffix_port=suffix_port)
+            self._refresh_multicluster_evg(gen, host_proxy, evg_host_proxy, emit)
             return
 
         # Non-EVG branch: dispatch on the apiserver URL.
@@ -393,6 +418,46 @@ class KubeconfigDomain:
             emit,
             suffix_port=None if in_devc else suffix_port,
         )
+        self._refresh_multicluster_local(gen, emit)
+
+    def _refresh_multicluster_evg(
+        self,
+        gen: Path,
+        host_proxy: str,
+        devc_proxy: Optional[str],
+        emit: Any,
+    ) -> None:
+        """EVG-host mode: derive the two multi-cluster flavors from the bare
+        base. Host flavor gets ``host_proxy`` in place; devc flavor gets
+        ``devc_proxy`` (only available inside the container). No-op when the
+        base file hasn't been produced yet."""
+        base = gen / "multicluster_kubeconfig"
+        if not base.is_file():
+            return
+        data = _load_yaml(base)
+        _set_proxy_url(data, host_proxy)
+        emit(f"Patching {base}: proxy={host_proxy} (member clusters, host flavor)")
+        _dump_yaml(base, data)
+        if devc_proxy:
+            devc_data = copy.deepcopy(data)
+            _set_proxy_url(devc_data, devc_proxy)
+            emit(f"Patching {gen / 'multicluster.devc.kubeconfig'}: proxy={devc_proxy} (member clusters, devc flavor)")
+            _dump_yaml(gen / "multicluster.devc.kubeconfig", devc_data)
+
+    def _refresh_multicluster_local(self, gen: Path, emit: Any) -> None:
+        """local-kind / BYOC mode: host flavor is the bare base (laptop kind
+        is directly reachable from host shells); devc flavor rewrites loopback
+        member servers to host.docker.internal. No-op without a base file."""
+        base = gen / "multicluster_kubeconfig"
+        if not base.is_file():
+            return
+        data = _load_yaml(base)
+        _set_proxy_url(data, None)
+        _dump_yaml(base, data)
+        devc_data = copy.deepcopy(data)
+        _rewrite_loopback_servers_for_devc(devc_data)
+        emit(f"Multi-cluster: {gen / 'multicluster.devc.kubeconfig'} (devc flavor)")
+        _dump_yaml(gen / "multicluster.devc.kubeconfig", devc_data)
 
     def _maybe_register(
         self,

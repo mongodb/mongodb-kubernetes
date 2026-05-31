@@ -111,12 +111,11 @@ remote-prepare-local-e2e-run() {
     -e ssh \
     "${host_url}:/home/ubuntu/mongodb-kubernetes/.multi_cluster_local_test_files" \
     ./ &
-  # KUBE_CONFIG_PATH on the remote also resolves to
-  # /home/ubuntu/mongodb-kubernetes/.generated/multicluster_kubeconfig
-  # (root-context expands ${PROJECT_DIR}/.generated/multicluster_kubeconfig
-  # against the remote checkout) — so the source path is fixed, the
-  # destination follows the local worktree's KUBE_CONFIG_PATH.
-  scp "${host_url}:/home/ubuntu/mongodb-kubernetes/.generated/multicluster_kubeconfig" "${KUBE_CONFIG_PATH}" &
+  # Bare base lands at the fixed local base path (NOT ${KUBE_CONFIG_PATH},
+  # which is now a per-side flavor). The bare 127.0.0.1 file is what tunnel
+  # users consume directly; inside the devcontainer the two flavors are
+  # derived by `evg_host.sh get-kubeconfig` / `wt-ctl kubeconfig refresh`.
+  scp "${host_url}:/home/ubuntu/mongodb-kubernetes/.generated/multicluster_kubeconfig" "${PROJECT_DIR}/.generated/multicluster_kubeconfig" &
 
   wait
 }
