@@ -17,7 +17,7 @@ from tests.common.search.bootstrap_test_mixins import (
     SearchShardedDeploymentTests,
     SearchShardedE2EFixtures,
     SearchShardedSampleDataAndIndex,
-    _derive_user_defaults, InstallOperatorTests,
+    InstallOperatorTests,
 )
 from tests.common.search.connectivity import (
     SearchConnectivityTool,
@@ -33,14 +33,9 @@ logger = test_logger.get_test_logger(__name__)
 pytestmark = pytest.mark.e2e_search_connectivity_tool_sharded
 
 
-def configure_mongodb_sharded_config(cfg: MongoDBShardedDeploymentConfig) -> MongoDBShardedDeploymentConfig:
-    cfg.mdb_resource_name = "mdb-sh-conn-tool"
-    cfg.admin_user_name = ""
-    cfg.admin_user_password = ""
-    cfg.user_name = ""
-    cfg.user_password = ""
-    _derive_user_defaults(cfg)
-    return cfg
+def build_conn_tool_sharded_config() -> MongoDBShardedDeploymentConfig:
+    # User names auto-derive from mdb_resource_name in __post_init__.
+    return MongoDBShardedDeploymentConfig(mdb_resource_name="mdb-sh-conn-tool")
 
 
 class TestInstallOperator(InstallOperatorTests):
@@ -52,7 +47,7 @@ class TestSearchWithShardedCluster(
     MongoDBShardedDeploymentTests,
 ):
     def build_mongodb_sharded_config(self) -> MongoDBShardedDeploymentConfig:
-        return configure_mongodb_sharded_config(super().build_mongodb_sharded_config())
+        return build_conn_tool_sharded_config()
 
 
 class TestSearchSampleDataAndIndex(
@@ -60,14 +55,14 @@ class TestSearchSampleDataAndIndex(
     SearchShardedE2EFixtures,
 ):
     def build_mongodb_sharded_config(self) -> MongoDBShardedDeploymentConfig:
-        return configure_mongodb_sharded_config(super().build_mongodb_sharded_config())
+        return build_conn_tool_sharded_config()
 
 
 class TestSearchConnectivityToolSharded(
     SearchShardedE2EFixtures,
 ):
     def build_mongodb_sharded_config(self) -> MongoDBShardedDeploymentConfig:
-        return configure_mongodb_sharded_config(super().build_mongodb_sharded_config())
+        return build_conn_tool_sharded_config()
 
     def test_data_balanced_across_shards(self, mdb: MongoDB):
         """sample_mflix.movies distributed across both shards.

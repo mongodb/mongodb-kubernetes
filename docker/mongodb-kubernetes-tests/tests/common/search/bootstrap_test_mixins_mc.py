@@ -20,7 +20,7 @@ from pytest import fixture
 from tests import test_logger
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.mongodb_tools_pod.mongodb_tools_pod import get_tools_pod
-from tests.common.search.bootstrap_test_mixins import SampleDataAndIndexConfig, SearchE2EHooks, _derive_user_defaults
+from tests.common.search.bootstrap_test_mixins import SampleDataAndIndexConfig, SearchE2EHooks
 from tests.common.search.mc_search_helper import (
     assert_per_cluster_mongot_host_observed,
     create_mc_lb_certificates,
@@ -56,8 +56,7 @@ class MongoDBMultiRsDeploymentConfig:
     members_per_cluster: List[Optional[int]] = field(default_factory=lambda: [1, 1, 1])
     source_cert_prefix: str = "clustercert"
 
-    # Derived from ``mdb_resource_name`` when unset — see
-    # ``_derive_user_defaults`` in bootstrap_test_mixins.
+    # Derived from ``mdb_resource_name`` when unset.
     admin_user_name: str = ""
     admin_user_password: str = ""
     user_name: str = ""
@@ -66,7 +65,14 @@ class MongoDBMultiRsDeploymentConfig:
     mongot_user_password: str = "search-sync-source-user-password"
 
     def __post_init__(self) -> None:
-        _derive_user_defaults(self)
+        if not self.admin_user_name:
+            self.admin_user_name = f"{self.mdb_resource_name}-admin-user"
+        if not self.admin_user_password:
+            self.admin_user_password = f"{self.admin_user_name}-pass"
+        if not self.user_name:
+            self.user_name = f"{self.mdb_resource_name}-user"
+        if not self.user_password:
+            self.user_password = f"{self.user_name}-pass"
 
     @property
     def ca_configmap_name(self) -> str:

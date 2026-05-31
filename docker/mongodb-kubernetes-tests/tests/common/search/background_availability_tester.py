@@ -23,7 +23,14 @@ import threading
 import time
 from typing import Optional
 
-from tests.common.search.connectivity import ConnectivityVerdict, QueryResult, SearchConnectivityTool
+import pymongo.errors
+
+from tests.common.search.connectivity import (
+    ConnectivityVerdict,
+    QueryResult,
+    SearchConnectivityTool,
+    classify_failure,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +44,7 @@ class SearchAvailabilityBackgroundTester(threading.Thread):
         mode: str = "paging",
         paging_batch_size: int = 5,
         paging_reset_every: Optional[int] = None,
+        interval_seconds: float = 0.0,
     ) -> None:
         super().__init__()
         self.daemon = True
@@ -51,10 +59,17 @@ class SearchAvailabilityBackgroundTester(threading.Thread):
         self.mode = mode
         self.paging_batch_size = paging_batch_size
         self.paging_reset_every = paging_reset_every
+        # Per-iteration sleep; mutable mid-run to throttle paging (e.g. raise it
+        # before a fault so the cursor doesn't drain mongod's buffer faster than
+        # the pod terminates).
+        self.interval_seconds = interval_seconds
         self._results: list[QueryResult] = []
         self._results_lock = threading.Lock()
         self._cursor = None
         self._cursor_pages_consumed = 0
+        self._cursor_reopens = 0
+        self._cursor_ever_opened = False
+        self._current_cursor_records = 0
 
     def __enter__(self) -> "SearchAvailabilityBackgroundTester":
         self.start()
@@ -80,6 +95,10 @@ class SearchAvailabilityBackgroundTester(threading.Thread):
                 self.max_consecutive_failure = max(self.max_consecutive_failure, consecutive_failure)
                 self.exception_number += 1
                 self.last_exception = f"{result.error_class}: {result.error_message}"
+            # Read fresh each loop so the interval can be altered mid-run; wait
+            # on the stop event so stop() stays responsive.
+            if self.interval_seconds > 0:
+                self._stop_event.wait(self.interval_seconds)
         self._close_cursor()
 
     def stop(self) -> None:
@@ -89,35 +108,60 @@ class SearchAvailabilityBackgroundTester(threading.Thread):
     def verdict(self) -> ConnectivityVerdict:
         with self._results_lock:
             snapshot = list(self._results)
-        return self.tool.verdict(snapshot)
+        v = self.tool.verdict(snapshot)
+        v.cursor_reopens = self._cursor_reopens
+        v.current_cursor_records = self._current_cursor_records
+        return v
 
     @property
     def succeeded_count(self) -> int:
-        """Number of successful iterations recorded so far."""
+        """Number of successful operations recorded so far."""
         with self._results_lock:
             return sum(1 for r in self._results if r.success)
 
-    def wait_for_pages(self, min_pages: int, *, since: int = 0, timeout: float = 120.0) -> int:
-        """Block until at least ``since + min_pages`` successful iterations.
+    @property
+    def operations_count(self) -> int:
+        """Number of operations (page reads / one-shots) recorded so far, success or failure."""
+        with self._results_lock:
+            return len(self._results)
 
-        Used by callers that need to be sure the cursor read past mongod's
-        per-cursor prefetch buffer so subsequent reads trigger real getMore
-        round-trips to mongot. Pass the pre-event ``succeeded_count`` as
-        ``since`` to count only post-event reads. Raises on timeout.
+    @property
+    def failed_count(self) -> int:
+        """Number of failed operations recorded so far."""
+        with self._results_lock:
+            return sum(1 for r in self._results if not r.success)
+
+    def wait_for_operations(
+        self,
+        count: int,
+        *,
+        since: Optional[int] = None,
+        timeout: float = 120.0,
+        stop_on_fault: bool = False,
+    ) -> int:
+        """Block until ``count`` more operations (success or failure) are
+        recorded beyond ``since`` (defaults to the current count). With
+        ``stop_on_fault=True``, returns early on the first new failure. Raises
+        on timeout or if the tester thread dies first.
         """
+        if since is None:
+            since = self.operations_count
+        failed_baseline = self.failed_count
         deadline = time.monotonic() + timeout
-        target = since + min_pages
+        target = since + count
         while time.monotonic() < deadline:
-            current = self.succeeded_count
+            current = self.operations_count
+            if stop_on_fault and self.failed_count > failed_baseline:
+                return current
             if current >= target:
                 return current
             if not self.is_alive():
                 raise AssertionError(
-                    f"tester thread died before reaching {target} successful runs "
+                    f"tester thread died before reaching {target} operations "
                     f"(current={current}); last_exception={self.last_exception}"
                 )
         raise AssertionError(
-            f"tester did not reach {target} successful runs within {timeout}s; " f"current={self.succeeded_count}"
+            f"tester did not reach {target} operations within {timeout}s; current={self.operations_count}"
         )
 
     def _run_one_iteration(self) -> QueryResult:
@@ -129,7 +173,9 @@ class SearchAvailabilityBackgroundTester(threading.Thread):
         if self._cursor is None or (
             self.paging_reset_every is not None and self._cursor_pages_consumed >= self.paging_reset_every
         ):
-            self._reopen_cursor()
+            reopen_failure = self._reopen_cursor()
+            if reopen_failure is not None:
+                return reopen_failure
         pages = self.tool.paging_cursor_read_pages(
             self._cursor,
             pages=1,
@@ -138,6 +184,7 @@ class SearchAvailabilityBackgroundTester(threading.Thread):
         )
         page = pages[0]
         self._cursor_pages_consumed += 1
+        self._current_cursor_records += page.returned_count
         if not page.success:
             self._close_cursor()
         elif page.returned_count == 0:
@@ -145,10 +192,36 @@ class SearchAvailabilityBackgroundTester(threading.Thread):
             self._close_cursor()
         return page
 
-    def _reopen_cursor(self) -> None:
+    def _reopen_cursor(self) -> Optional[QueryResult]:
+        """(Re)open the paging cursor.
+
+        Opening a cursor while the upstream is down (e.g. mongot/envoy
+        returning "no healthy upstream") raises a pymongo error. Return it as
+        a failure ``QueryResult`` so the run loop records an outage instead of
+        the daemon thread dying; ``None`` on success.
+        """
         self._close_cursor()
-        self._cursor = self.tool.paging_cursor_open(batch_size=self.paging_batch_size)
-        self._cursor_pages_consumed = 0
+        started = time.monotonic()
+        try:
+            self._cursor = self.tool.paging_cursor_open(batch_size=self.paging_batch_size)
+            self._cursor_pages_consumed = 0
+            self._current_cursor_records = 0
+            if self._cursor_ever_opened:
+                self._cursor_reopens += 1
+            self._cursor_ever_opened = True
+            return None
+        except pymongo.errors.PyMongoError as exc:
+            elapsed_ms = (time.monotonic() - started) * 1000.0
+            klass, code = SearchConnectivityTool._classify_error(exc)
+            msg = str(exc)
+            return QueryResult(
+                success=False,
+                latency_ms=elapsed_ms,
+                error_class=klass,
+                error_code=code,
+                error_message=msg,
+                failure_class=classify_failure(klass, code, msg),
+            )
 
     def _close_cursor(self) -> None:
         if self._cursor is None:
@@ -161,22 +234,27 @@ class SearchAvailabilityBackgroundTester(threading.Thread):
         self._cursor_pages_consumed = 0
 
 
-def assert_no_outage(verdict: ConnectivityVerdict, min_iterations: int = 5) -> None:
+def assert_no_outage(verdict: ConnectivityVerdict, min_operations: int = 5) -> None:
     """Primary assertion: the verdict shows uninterrupted availability.
 
-    Fails if no iterations ran (the harness never executed) or if any
-    iteration failed in any class. ``min_iterations`` guards against a
+    Fails if no operations ran (the harness never executed) or if any
+    operation failed in any class. ``min_operations`` guards against a
     too-short observation window producing a trivially clean verdict.
     """
-    if verdict.total < min_iterations:
+    if verdict.total_operations < min_operations:
         raise AssertionError(
-            f"too few iterations to trust verdict: total={verdict.total} < {min_iterations}; "
-            f"verdict={verdict.as_dict()}"
+            f"too few operations to trust verdict: total_operations={verdict.total_operations} "
+            f"< {min_operations}; verdict={verdict.as_dict()}"
         )
     if verdict.failed > 0:
         raise AssertionError(
             f"verdict surfaced failures during a no-outage window: failed={verdict.failed}; "
             f"verdict={verdict.as_dict()}"
+        )
+    if verdict.total_returned_records == 0:
+        raise AssertionError(
+            f"no records received across {verdict.total_operations} operations — availability is "
+            f"trivially clean (empty cursor reads succeed but return nothing); verdict={verdict.as_dict()}"
         )
 
 
@@ -190,8 +268,8 @@ def assert_outage_detected(
     Used by fault-injection tests to prove the harness sees the fault.
     """
     accept = accept_classes or ("cursor_lost", "transient_network")
-    if verdict.total == 0:
-        raise AssertionError(f"verdict has no iterations — the harness never ran. verdict={verdict.as_dict()}")
+    if verdict.total_operations == 0:
+        raise AssertionError(f"verdict has no operations — the harness never ran. verdict={verdict.as_dict()}")
     observed = {
         "cursor_lost": verdict.cursor_lost,
         "transient_network": verdict.transient_network,

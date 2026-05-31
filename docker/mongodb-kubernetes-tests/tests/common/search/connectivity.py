@@ -93,24 +93,41 @@ class QueryResult:
 class ConnectivityVerdict:
     """Aggregate verdict over a sequence of ``QueryResult``s."""
 
-    total: int = 0
+    # Operation counts. One operation == one recorded query attempt: a single
+    # page read in paging mode, or one oneshot_search. succeeded + failed ==
+    # total_operations; cursor_lost / transient_network / other_failed
+    # partition the failed operations by failure class.
+    total_operations: int = 0
     succeeded: int = 0
     failed: int = 0
     cursor_lost: int = 0
     transient_network: int = 0
     other_failed: int = 0
+    # Cumulative records returned by the tool across the whole session, summed
+    # over every cursor roll.
+    total_returned_records: int = 0
+    # Paging only, set by the background tester:
+    #  * cursor_reopens — times the cursor was reopened after the initial open
+    #    (each follows a failure, exhaustion, or paging_reset_every roll).
+    #  * current_cursor_records — records fetched on the *current* cursor;
+    #    resets to 0 on each reopen. 0 for single-cursor (non-paging) verdicts.
+    cursor_reopens: int = 0
+    current_cursor_records: int = 0
     error_breakdown: dict[str, int] = field(default_factory=dict)
     first_error: Optional[str] = None
     last_error: Optional[str] = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
-            "total": self.total,
+            "total_operations": self.total_operations,
             "succeeded": self.succeeded,
             "failed": self.failed,
             "cursor_lost": self.cursor_lost,
             "transient_network": self.transient_network,
             "other_failed": self.other_failed,
+            "total_returned_records": self.total_returned_records,
+            "cursor_reopens": self.cursor_reopens,
+            "current_cursor_records": self.current_cursor_records,
             "error_breakdown": dict(self.error_breakdown),
             "first_error": self.first_error,
             "last_error": self.last_error,
@@ -369,7 +386,8 @@ class SearchConnectivityTool:
     def verdict(self, results: list[QueryResult]) -> ConnectivityVerdict:
         v = ConnectivityVerdict()
         for r in results:
-            v.total += 1
+            v.total_operations += 1
+            v.total_returned_records += r.returned_count
             if r.success:
                 v.succeeded += 1
             else:
@@ -696,8 +714,8 @@ def assert_disruption_observed(
     Accepts ``cursor_lost`` or ``transient_network`` as evidence.
     """
     ctx = f"[{context}] " if context else ""
-    if verdict.total == 0:
-        raise AssertionError(f"{ctx}verdict has no iterations — the harness never ran. verdict={verdict.as_dict()}")
+    if verdict.total_operations == 0:
+        raise AssertionError(f"{ctx}verdict has no operations — the harness never ran. verdict={verdict.as_dict()}")
     if verdict.cursor_lost == 0 and verdict.transient_network == 0:
         raise AssertionError(
             f"{ctx}no disruption observed: cursor_lost=0 transient_network=0; verdict={verdict.as_dict()}"

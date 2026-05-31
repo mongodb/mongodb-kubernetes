@@ -8,19 +8,22 @@ from typing import Optional
 
 import pytest
 from kubernetes import client
+
+from kubetester import wait_for_pods_ready
 from kubetester.kubetester import run_periodically
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_search import MongoDBSearch
 from kubetester.phase import Phase
 from tests import test_logger
 from tests.common.search import search_resource_names
+from tests.common.search.background_availability_tester import SearchAvailabilityBackgroundTester, assert_no_outage, assert_outage_detected
 from tests.common.search.bootstrap_test_mixins import (
     MongoDBRsDeploymentConfig,
     MongoDBRsDeploymentTests,
     SearchDeploymentTests,
     SearchE2EFixtures,
     SearchSampleDataAndIndexTests,
-    _derive_user_defaults, InstallOperatorTests,
+    InstallOperatorTests,
 )
 from tests.common.search.connectivity import (
     ConnectivityVerdict,
@@ -38,14 +41,9 @@ logger = test_logger.get_test_logger(__name__)
 pytestmark = pytest.mark.e2e_search_connectivity_tool
 
 
-def configure_mongodb_rs_config(cfg: MongoDBRsDeploymentConfig) -> MongoDBRsDeploymentConfig:
-    cfg.mdb_resource_name = "mdb-rs-conn-tool"
-    cfg.admin_user_name = ""
-    cfg.admin_user_password = ""
-    cfg.user_name = ""
-    cfg.user_password = ""
-    _derive_user_defaults(cfg)
-    return cfg
+def build_conn_tool_rs_config() -> MongoDBRsDeploymentConfig:
+    # User names auto-derive from mdb_resource_name in __post_init__.
+    return MongoDBRsDeploymentConfig(mdb_resource_name="mdb-rs-conn-tool")
 
 
 class TestInstallOperator(InstallOperatorTests):
@@ -57,7 +55,7 @@ class TestSearchWithReplicaSet(
     MongoDBRsDeploymentTests,
 ):
     def build_mongodb_rs_config(self) -> MongoDBRsDeploymentConfig:
-        return configure_mongodb_rs_config(super().build_mongodb_rs_config())
+        return build_conn_tool_rs_config()
 
 
 class TestSearchSampleDataAndIndex(
@@ -65,12 +63,12 @@ class TestSearchSampleDataAndIndex(
     SearchE2EFixtures,
 ):
     def build_mongodb_rs_config(self) -> MongoDBRsDeploymentConfig:
-        return configure_mongodb_rs_config(super().build_mongodb_rs_config())
+        return build_conn_tool_rs_config()
 
 
 class TestSearchConnectivityTool(SearchE2EFixtures):
     def build_mongodb_rs_config(self) -> MongoDBRsDeploymentConfig:
-        return configure_mongodb_rs_config(super().build_mongodb_rs_config())
+        return build_conn_tool_rs_config()
 
     def test_oneshot_search_succeeds(self, mdb: MongoDB):
         cfg = self.build_mongodb_rs_config()
@@ -391,6 +389,157 @@ class TestSearchConnectivityTool(SearchE2EFixtures):
         assert sv.failed == 0, f"secondary had failures: {sv.as_dict()}"
 
 
+# Background connectivity helper
+
+DRAIN_MIN_PAGES = 100
+
+class TestSearchConnectivityBackgroundTester(SearchE2EFixtures):
+    @staticmethod
+    def new_one_shot_background_tester(mdb: MongoDB, user_name: str, user_password: str
+                                       ) -> SearchAvailabilityBackgroundTester:
+        search_tester = get_rs_search_tester(mdb, user_name, user_password, use_ssl=True)
+        tool = SearchConnectivityTool(search_tester)
+        return SearchAvailabilityBackgroundTester(tool, mode="oneshot")
+
+    @staticmethod
+    def new_paging_background_tester_pinned_to_one_mongot(
+        mdb: MongoDB, user_name: str, user_password: str, interval_seconds: float = 0.0
+    ) -> SearchAvailabilityBackgroundTester:
+        search_tester = get_rs_search_tester(mdb, user_name, user_password, use_ssl=True)
+        tool = SearchConnectivityTool(search_tester)
+        return SearchAvailabilityBackgroundTester(
+            tool, mode="paging", paging_reset_every=None, interval_seconds=interval_seconds
+        )
+
+    def build_mongodb_rs_config(self) -> MongoDBRsDeploymentConfig:
+        return build_conn_tool_rs_config()
+
+    def test_scale_up_down_mongot_pods_without_outage(self, mdb: MongoDB, mdbs: MongoDBSearch):
+        cfg = self.build_mongodb_rs_config()
+        mdbs.assert_reaches_phase(Phase.Running)
+        initial_replicas_count = mdbs["spec"]["replicas"]
+        pod_selector = f"app={search_resource_names.mongot_service_name(mdbs.name)}"
+        # Per-event drain target: paging batch_size=5 × 200 pages = 1000 docs
+        # past the scale event — enough that the paging cursor's prefetch
+        # buffer is reissued at least once via real getMore round-trips.
+        drain_timeout = 180.0
+        # oneshot tester will not be pinned by design, so scaled up mongot nodes should work correctly as soon as those are ready
+        with TestSearchConnectivityBackgroundTester.new_one_shot_background_tester(mdb, cfg.user_name, cfg.user_password) as oneshot_tester:
+            # paging background tester will use one of the replicas that existed before the test was executed
+            # all the queries should be paging through that node and adding+removing new mongot node should not affect existing queries
+            with TestSearchConnectivityBackgroundTester.new_paging_background_tester_pinned_to_one_mongot(
+                mdb, cfg.user_name, cfg.user_password, interval_seconds=0.1
+            ) as paging_tester:
+                # warm both testers — first iteration sets up cursors and routes.
+                paging_tester.wait_for_operations(5)
+                oneshot_tester.wait_for_operations(5)
+
+                # scale up: add a new mongot replica. Existing paging cursor must
+                # stay pinned to its original mongot; oneshot must keep routing.
+                mdbs["spec"]["replicas"] = initial_replicas_count + 1
+                mdbs.update()
+                mdbs.assert_reaches_phase(Phase.Running)
+                wait_for_pods_ready(
+                    mdbs.namespace, label_selector=pod_selector, expected_count=initial_replicas_count + 1
+                )
+
+                # Drain enough post-scale pages to be confident the cursor's
+                # getMore hit mongot at least once — proves availability through
+                # the scale-up, not just buffered docs.
+                paging_tester.wait_for_operations(DRAIN_MIN_PAGES, timeout=drain_timeout)
+
+                # scale down: remove the extra mongot. Cursor must survive.
+                mdbs["spec"]["replicas"] = initial_replicas_count
+                mdbs.update()
+                mdbs.assert_reaches_phase(Phase.Running)
+                wait_for_pods_ready(mdbs.namespace, label_selector=pod_selector, expected_count=initial_replicas_count)
+
+                paging_tester.wait_for_operations(DRAIN_MIN_PAGES, timeout=drain_timeout)
+
+        oneshot_verdict = oneshot_tester.verdict
+        paging_verdict = paging_tester.verdict
+        logger.info(f"no-outage oneshot verdict: {oneshot_verdict.as_dict()}")
+        logger.info(f"no-outage paging verdict: {paging_verdict.as_dict()}")
+        assert_no_outage(oneshot_verdict)
+        assert_no_outage(paging_verdict)
+
+    def test_mongot_pod_restart_surfaces_outage(
+        self,
+        mdb: MongoDB,
+        mdbs: MongoDBSearch,
+        namespace: str,
+    ):
+        cfg = self.build_mongodb_rs_config()
+        statefulset_name = search_resource_names.mongot_statefulset_name(mdbs.name)
+        # Matches the headless-service selector — catches every mongot replica.
+        pod_selector = f"app={statefulset_name}-svc"
+
+        with TestSearchConnectivityBackgroundTester.new_one_shot_background_tester(mdb, cfg.user_name, cfg.user_password) as oneshot_tester:
+            with TestSearchConnectivityBackgroundTester.new_paging_background_tester_pinned_to_one_mongot(
+                mdb, cfg.user_name, cfg.user_password
+            ) as paging_tester:
+                # Deterministic baseline — both testers must have read some
+                # successful pages before the fault is applied.
+                oneshot_tester.wait_for_operations(5)
+                paging_tester.wait_for_operations(5)
+                original_uids = delete_pods(namespace, label_selector=pod_selector, grace_period_seconds=0)
+                try:
+                    wait_for_pods_by_label_replaced(namespace, pod_selector, original_uids)
+                except Exception as e:
+                    logger.warning(f"mongot pod recreation wait timed out in cleanup: {e}")
+                oneshot_tester.wait_for_operations(5, stop_on_fault=True)
+                paging_tester.wait_for_operations(DRAIN_MIN_PAGES, stop_on_fault=True)
+                pass
+
+        oneshot_verdict = oneshot_tester.verdict
+        paging_verdict = paging_tester.verdict
+        logger.info(f"mongot-restart oneshot verdict: {oneshot_verdict.as_dict()}")
+        logger.info(f"mongot-restart paging verdict: {paging_verdict.as_dict()}")
+        assert_outage_detected(oneshot_verdict, accept_classes=("transient_network",))
+        assert_outage_detected(paging_verdict, accept_classes=("cursor_lost", "transient_network"))
+
+    def test_mongot_scale_to_zero_surfaces_network_error(
+        self,
+        mdb: MongoDB,
+        mdbs: MongoDBSearch,
+        namespace: str,
+    ):
+        cfg = self.build_mongodb_rs_config()
+        statefulset_name = search_resource_names.mongot_statefulset_name(mdbs.name)
+
+        with TestSearchConnectivityBackgroundTester.new_one_shot_background_tester(mdb, cfg.user_name, cfg.user_password) as oneshot_tester:
+            with TestSearchConnectivityBackgroundTester.new_paging_background_tester_pinned_to_one_mongot(
+                mdb, cfg.user_name, cfg.user_password, interval_seconds=1.0
+            ) as paging_tester:
+                # Page slowly (1/s) through the fault so the cursor keeps
+                # round-tripping to mongot instead of letting mongod prefetch
+                # the whole stream before the pod terminates.
+                oneshot_tester.wait_for_operations(5)
+                paging_tester.wait_for_operations(5)
+
+                logger.info(f"scaling MongoDBSearch {mdbs.name} replicas -> 0")
+                mdbs["spec"]["replicas"] = 0
+                mdbs.update()
+                wait_for_mongot_statefulset_drained(statefulset_name, namespace)
+                # mongot is gone — drop the throttle so the next getMore hits a
+                # dead upstream and the fault surfaces immediately.
+                paging_tester.interval_seconds = 0.0
+                oneshot_tester.wait_for_operations(5, stop_on_fault=True)
+                paging_tester.wait_for_operations(DRAIN_MIN_PAGES, stop_on_fault=True)
+
+        logger.info(f"scaling MongoDBSearch {mdbs.name} replicas -> 1")
+        mdbs["spec"]["replicas"] = 1
+        mdbs.update()
+        mdbs.assert_reaches_phase(Phase.Running, timeout=300)
+
+        oneshot_verdict = oneshot_tester.verdict
+        paging_verdict = paging_tester.verdict
+        logger.info(f"scale-to-zero oneshot verdict: {oneshot_verdict.as_dict()}")
+        logger.info(f"scale-to-zero paging verdict: {paging_verdict.as_dict()}")
+        assert_outage_detected(oneshot_verdict, accept_classes=("transient_network",))
+        assert_outage_detected(paging_verdict, accept_classes=("transient_network",))
+
+
 # Module-level helpers
 
 
@@ -431,7 +580,7 @@ def _single_mongot_pod(namespace: str, label_selector: str):
     pods = [
         p
         for p in list_matching_pods(namespace, label_selector=label_selector)
-        if p.metadata.name[p.metadata.name.rfind("-") + 1 :].isdigit()
+        if p.metadata.name[p.metadata.name.rfind("-") + 1:].isdigit()
     ]
     if not pods:
         raise AssertionError(f"expected at least 1 mongot pod matching {label_selector}, got 0")

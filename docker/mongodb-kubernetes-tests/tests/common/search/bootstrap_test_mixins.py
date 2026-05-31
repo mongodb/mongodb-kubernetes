@@ -74,17 +74,6 @@ logger = test_logger.get_test_logger(__name__)
 # ---------------------------------------------------------------------------
 
 
-def _derive_user_defaults(cfg) -> None:
-    if not cfg.admin_user_name:
-        cfg.admin_user_name = f"{cfg.mdb_resource_name}-admin-user"
-    if not cfg.admin_user_password:
-        cfg.admin_user_password = f"{cfg.admin_user_name}-pass"
-    if not cfg.user_name:
-        cfg.user_name = f"{cfg.mdb_resource_name}-user"
-    if not cfg.user_password:
-        cfg.user_password = f"{cfg.user_name}-pass"
-
-
 @dataclass
 class MongoDBRsDeploymentConfig:
     mdb_resource_name: str = "mdb-rs"
@@ -99,7 +88,14 @@ class MongoDBRsDeploymentConfig:
     mongot_user_password: str = "search-sync-source-user-password"
 
     def __post_init__(self) -> None:
-        _derive_user_defaults(self)
+        if not self.admin_user_name:
+            self.admin_user_name = f"{self.mdb_resource_name}-admin-user"
+        if not self.admin_user_password:
+            self.admin_user_password = f"{self.admin_user_name}-pass"
+        if not self.user_name:
+            self.user_name = f"{self.mdb_resource_name}-user"
+        if not self.user_password:
+            self.user_password = f"{self.user_name}-pass"
 
     @property
     def ca_configmap_name(self) -> str:
@@ -438,7 +434,14 @@ class MongoDBShardedDeploymentConfig:
     mongot_user_password: str = "search-sync-source-user-password"
 
     def __post_init__(self) -> None:
-        _derive_user_defaults(self)
+        if not self.admin_user_name:
+            self.admin_user_name = f"{self.mdb_resource_name}-admin-user"
+        if not self.admin_user_password:
+            self.admin_user_password = f"{self.admin_user_name}-pass"
+        if not self.user_name:
+            self.user_name = f"{self.mdb_resource_name}-user"
+        if not self.user_password:
+            self.user_password = f"{self.user_name}-pass"
 
     @property
     def ca_configmap_name(self) -> str:
