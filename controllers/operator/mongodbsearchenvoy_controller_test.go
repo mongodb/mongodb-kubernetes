@@ -844,13 +844,15 @@ func TestEnsureConfigMap_WritesToCorrectMemberCluster(t *testing.T) {
 
 	search := &searchv1.MongoDBSearch{ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"}}
 	// cluster "a" is at index 0 in the mapping.
-	require.NoError(t, r.ensureConfigMap(context.Background(), search, `{"x":1}`, "a", 0, r.memberClusterClientsMap["a"], zap.S()))
+	require.NoError(t, r.ensureConfigMap(context.Background(), search, `{"bootstrap":1}`, `{"cds":1}`, `{"lds":1}`, "a", 0, r.memberClusterClientsMap["a"], zap.S()))
 
 	// Member A has the ConfigMap named with index 0.
 	cmA := &corev1.ConfigMap{}
 	require.NoError(t, memberA.Get(context.Background(),
 		types.NamespacedName{Name: search.LoadBalancerConfigMapNameForCluster(0), Namespace: "ns"}, cmA))
-	assert.Equal(t, `{"x":1}`, cmA.Data["envoy.json"])
+	assert.Equal(t, `{"bootstrap":1}`, cmA.Data["bootstrap.json"])
+	assert.Equal(t, `{"cds":1}`, cmA.Data["cds.json"])
+	assert.Equal(t, `{"lds":1}`, cmA.Data["lds.json"])
 	// Cluster name label stamped (name-keyed for cross-cluster enqueue).
 	assert.Equal(t, "a", cmA.Labels[khandler.MongoDBSearchClusterNameLabel])
 	assert.Equal(t, "mdb-search", cmA.Labels[khandler.MongoDBSearchOwnerNameLabel])
@@ -875,7 +877,7 @@ func TestEnsureConfigMap_SingleCluster_WritesToCentralWithOwnerRef(t *testing.T)
 		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns", UID: "abc"},
 	}
 	// Single-cluster uses index 0.
-	require.NoError(t, r.ensureConfigMap(context.Background(), search, `{"x":1}`, "", 0, r.kubeClient, zap.S()))
+	require.NoError(t, r.ensureConfigMap(context.Background(), search, `{"bootstrap":1}`, `{"cds":1}`, `{"lds":1}`, "", 0, r.kubeClient, zap.S()))
 
 	cm := &corev1.ConfigMap{}
 	require.NoError(t, central.Get(context.Background(),
@@ -897,7 +899,7 @@ func TestEnsureConfigMap_MultiCluster_NoOwnerRef(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns", UID: "abc"},
 	}
 	// cluster "a" is at index 0.
-	require.NoError(t, r.ensureConfigMap(context.Background(), search, `{"x":1}`, "a", 0, r.memberClusterClientsMap["a"], zap.S()))
+	require.NoError(t, r.ensureConfigMap(context.Background(), search, `{"bootstrap":1}`, `{"cds":1}`, `{"lds":1}`, "a", 0, r.memberClusterClientsMap["a"], zap.S()))
 
 	cm := &corev1.ConfigMap{}
 	require.NoError(t, memberA.Get(context.Background(),
