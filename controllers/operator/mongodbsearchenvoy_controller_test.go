@@ -750,7 +750,7 @@ func TestBuildClusterWorkList_ClientPopulation(t *testing.T) {
 	memberARaw := fake.NewClientBuilder().Build()
 	r := newMongoDBSearchEnvoyReconciler(centralRaw, "envoy:latest", map[string]client.Client{"a": memberARaw})
 
-	// Single-cluster degenerate: Client must be the central client.
+	// Single-cluster: Client must be the central client.
 	singleSearch := &searchv1.MongoDBSearch{}
 	wl := r.buildClusterWorkList(singleSearch, nil)
 	require.Len(t, wl, 1)
@@ -777,7 +777,7 @@ func TestBuildClusterWorkList_ClientPopulation(t *testing.T) {
 func TestLoadBalancerNamesForCluster_IndexBased(t *testing.T) {
 	search := &searchv1.MongoDBSearch{ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"}}
 
-	// Index 0 (single-cluster degenerate path).
+	// Index 0 (single-cluster path).
 	assert.Equal(t, "mdb-search-search-lb-0-0", search.LoadBalancerDeploymentNameForCluster(0))
 	assert.Equal(t, "mdb-search-search-lb-0-0-config", search.LoadBalancerConfigMapNameForCluster(0))
 
