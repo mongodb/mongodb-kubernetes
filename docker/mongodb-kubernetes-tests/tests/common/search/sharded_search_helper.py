@@ -69,6 +69,48 @@ def get_search_tester(mdb: MongoDB, username: str, password: str, use_ssl: bool 
     return SearchTester.for_sharded(mdb, username, password, use_ssl=use_ssl, ca_path=ca_path)
 
 
+def sharded_search_tester(
+    mdb_resource_name: str,
+    namespace: str,
+    username: str,
+    password: str,
+    use_ssl: bool = True,
+) -> SearchTester:
+    """Name-addressed SearchTester through the sharded source's mongos-0 (no ``mdb`` object).
+
+    Byte-identical conn-str to ``SearchTester.for_sharded`` so name-based Layer-3/4 testers
+    match the object-based path.
+    """
+    ca_path = get_issuer_ca_filepath() if use_ssl else None
+    conn_str = (
+        f"mongodb://{username}:{password}@"
+        f"{mdb_resource_name}-mongos-0.{mdb_resource_name}-svc.{namespace}.svc.cluster.local:27017/"
+        f"?authSource=admin"
+    )
+    return SearchTester(conn_str, use_ssl=use_ssl, ca_path=ca_path)
+
+
+def mc_sharded_search_tester(
+    mdb_resource_name: str,
+    namespace: str,
+    cluster_index: int,
+    username: str,
+    password: str,
+    use_ssl: bool = True,
+) -> SearchTester:
+    """Name-addressed SearchTester through one cluster's mongos (MC sharded source).
+
+    The per-pod mongos headless Service ``{mdb}-mongos-{clusterIdx}-0-svc`` is reachable
+    cross-cluster via Istio; ``directConnection=true`` pins the driver to that cluster's
+    mongos so a per-cluster data-path assertion stays on that cluster. Byte-identical
+    conn-str to ``q3``'s per-cluster mongos tester.
+    """
+    ca_path = get_issuer_ca_filepath() if use_ssl else None
+    mongos_host = f"{mdb_resource_name}-mongos-{cluster_index}-0-svc.{namespace}.svc.cluster.local:27017"
+    conn_str = f"mongodb://{username}:{password}@{mongos_host}/?directConnection=true&authSource=admin"
+    return SearchTester(conn_str, use_ssl=use_ssl, ca_path=ca_path)
+
+
 def get_shard_mongod_tester(
     mdb: MongoDB,
     shard_index: int,
