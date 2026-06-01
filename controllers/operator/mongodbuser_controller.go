@@ -18,6 +18,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
@@ -276,30 +277,41 @@ func (r *MongoDBUserReconciler) updateConnectionStringSecret(ctx context.Context
 	if err != nil && !apiErrors.IsNotFound(err) {
 		return err
 	}
-	if err == nil && !secret.HasOwnerReferences(existingSecret, user.GetOwnerReferences()) {
-		return xerrors.Errorf("connection string secret %s already exists and is not managed by the operator", secretName)
+	if err == nil {
+		existingController := metav1.GetControllerOf(&existingSecret)
+		if existingController != nil && existingController.UID != user.UID {
+			return xerrors.Errorf("connection string secret %s already exists and is not managed by the operator", secretName)
+		}
 	}
 
 	mongoAuthUserURI := connectionBuilder.BuildConnectionString(user.Spec.Username, password, connectionstring.SchemeMongoDB, map[string]string{"authSource": user.Spec.Database})
 	mongoAuthUserSRVURI := connectionBuilder.BuildConnectionString(user.Spec.Username, password, connectionstring.SchemeMongoDBSRV, map[string]string{"authSource": user.Spec.Database})
 
-	connectionStringSecret := secret.Builder().
+	// Member cluster secrets must not carry ownerReferences pointing to the MongoDBUser CR
+	// in the central cluster. A cross-cluster ownerReference causes the Kubernetes garbage
+	// collector to delete the secret as an orphan. Cleanup is handled by explicitly deleting
+	// the secret from each member cluster in preDeletionCleanup.
+	memberClusterSecret := secret.Builder().
 		SetName(secretName).
 		SetNamespace(user.Namespace).
 		SetField("connectionString.standard", mongoAuthUserURI).
 		SetField("connectionString.standardSrv", mongoAuthUserSRVURI).
 		SetField("username", user.Spec.Username).
 		SetField("password", password).
-		SetOwnerReferences(user.GetOwnerReferences()).
 		Build()
 
 	for _, c := range r.memberClusterSecretClientsMap {
-		err = secret.CreateOrUpdate(ctx, c, connectionStringSecret)
+		err = secret.CreateOrUpdate(ctx, c, memberClusterSecret)
 		if err != nil {
 			return err
 		}
 	}
-	return secret.CreateOrUpdate(ctx, r.SecretClient, connectionStringSecret)
+
+	centralClusterSecret := memberClusterSecret
+	if err := controllerutil.SetControllerReference(&user, &centralClusterSecret, r.client.Scheme()); err != nil {
+		return err
+	}
+	return secret.CreateOrUpdate(ctx, r.SecretClient, centralClusterSecret)
 }
 
 func AddMongoDBUserController(ctx context.Context, mgr manager.Manager, memberClustersMap map[string]cluster.Cluster, backupEnableDelay time.Duration) error {
@@ -509,6 +521,17 @@ func (r *MongoDBUserReconciler) preDeletionCleanup(ctx context.Context, user *us
 	}, log)
 	if err != nil {
 		return r.updateStatus(ctx, user, workflow.Failed(xerrors.Errorf("Failed to perform AutomationConfig cleanup: %w", err)), log)
+	}
+
+	// Delete the connection string Secret from every member cluster. In multi-cluster mode
+	// these secrets carry no ownerReferences (to avoid cross-cluster GC), so they must be
+	// removed explicitly here. A NotFound response is not an error: the secret may have
+	// already been deleted or may never have been created.
+	secretKey := kube.ObjectKey(user.Namespace, user.GetConnectionStringSecretName())
+	for clusterName, c := range r.memberClusterSecretClientsMap {
+		if err := c.DeleteSecret(ctx, secretKey); err != nil && !apiErrors.IsNotFound(err) {
+			return r.updateStatus(ctx, user, workflow.Failed(xerrors.Errorf("Failed to delete connection string secret from member cluster %s: %w", clusterName, err)), log)
+		}
 	}
 
 	if finalizerRemoved := controllerutil.RemoveFinalizer(user, util.UserFinalizer); !finalizerRemoved {
