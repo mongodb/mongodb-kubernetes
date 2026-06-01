@@ -1,176 +1,83 @@
-buildvariants:
-- display_tasks:
-  - execution_tasks: []
-    name: e2e_mco_tests
-  name: e2e_mco_tests
-  tasks:
-  - name: e2e_mco_task_group
-task_groups:
-- max_hosts: -1
-  name: e2e_mco_task_group
-  setup_group:
-  - func: clone
-  - func: download_kube_tools
-  - func: setup_building_host
-  setup_task:
-  - func: cleanup_exec_environment
-  - func: configure_docker_auth
-  - func: setup_kubernetes_environment
-  tasks:
-  - feature_compatibility_version
-  - prometheus
-  - replica_set
-  - replica_set_arbiter
-  - replica_set_change_version
-  - replica_set_connection_string_options
-  - replica_set_cross_namespace_deploy
-  - replica_set_custom_persistent_volume
-  - replica_set_custom_role
-  - replica_set_enterprise_upgrade_4_5
-  - replica_set_enterprise_upgrade_5_6
-  - replica_set_enterprise_upgrade_6_7
-  - replica_set_enterprise_upgrade_7_8
-  - replica_set_mongod_config
-  - replica_set_mongod_port_change_with_arbiters
-  - replica_set_mongod_readiness
-  - replica_set_mount_connection_string
-  - replica_set_operator_upgrade
-  - replica_set_recovery
-  - replica_set_remove_user
-  - replica_set_scale
-  - replica_set_scale_down
-  - replica_set_tls
-  - replica_set_tls_recreate_mdbc
-  - replica_set_tls_rotate
-  - replica_set_tls_rotate_delete_sts
-  - replica_set_tls_upgrade
-  - replica_set_x509
-  - statefulset_arbitrary_config
-  - statefulset_arbitrary_config_update
-  teardown_group:
-  - func: prune_docker_resources
-  teardown_task:
-  - func: upload_e2e_logs_gotest
-  - func: teardown_kubernetes_environment
-tasks:
-- commands:
-  - func: e2e_test
-    retry_on_failure: true
-  name: feature_compatibility_version
-- commands:
-  - func: e2e_test
-    retry_on_failure: true
-  name: prometheus
-- commands:
-  - func: e2e_test
-    retry_on_failure: true
-  name: replica_set
-- commands:
-  - func: e2e_test
-    retry_on_failure: true
-  name: replica_set_arbiter
-- commands:
-  - func: e2e_test
-    retry_on_failure: true
-  name: replica_set_change_version
-- commands:
-  - func: e2e_test
-    retry_on_failure: true
-  name: replica_set_connection_string_options
-- commands:
-  - func: e2e_test
-    retry_on_failure: true
-  name: replica_set_cross_namespace_deploy
-- commands:
-  - func: e2e_test
-    retry_on_failure: true
-  name: replica_set_custom_persistent_volume
-- commands:
-  - func: e2e_test
-    retry_on_failure: true
-  name: replica_set_custom_role
-- commands:
-  - func: e2e_test
-    retry_on_failure: true
-  name: replica_set_enterprise_upgrade_4_5
-- commands:
-  - func: e2e_test
-    retry_on_failure: true
-  name: replica_set_enterprise_upgrade_5_6
-- commands:
-  - func: e2e_test
-    retry_on_failure: true
-  name: replica_set_enterprise_upgrade_6_7
-- commands:
-  - func: e2e_test
-    retry_on_failure: true
-  name: replica_set_enterprise_upgrade_7_8
-- commands:
-  - func: e2e_test
-    retry_on_failure: true
-  name: replica_set_mongod_config
-- commands:
-  - func: e2e_test
-    retry_on_failure: true
-  name: replica_set_mongod_port_change_with_arbiters
-- commands:
-  - func: e2e_test
-    retry_on_failure: true
-  name: replica_set_mongod_readiness
-- commands:
-  - func: e2e_test
-    retry_on_failure: true
-  name: replica_set_mount_connection_string
-- commands:
-  - func: e2e_test
-    retry_on_failure: true
-  name: replica_set_operator_upgrade
-- commands:
-  - func: e2e_test
-    retry_on_failure: true
-  name: replica_set_recovery
-- commands:
-  - func: e2e_test
-    retry_on_failure: true
-  name: replica_set_remove_user
-- commands:
-  - func: e2e_test
-    retry_on_failure: true
-  name: replica_set_scale
-- commands:
-  - func: e2e_test
-    retry_on_failure: true
-  name: replica_set_scale_down
-- commands:
-  - func: e2e_test
-    retry_on_failure: true
-  name: replica_set_tls
-- commands:
-  - func: e2e_test
-    retry_on_failure: true
-  name: replica_set_tls_recreate_mdbc
-- commands:
-  - func: e2e_test
-    retry_on_failure: true
-  name: replica_set_tls_rotate
-- commands:
-  - func: e2e_test
-    retry_on_failure: true
-  name: replica_set_tls_rotate_delete_sts
-- commands:
-  - func: e2e_test
-    retry_on_failure: true
-  name: replica_set_tls_upgrade
-- commands:
-  - func: e2e_test
-    retry_on_failure: true
-  name: replica_set_x509
-- commands:
-  - func: e2e_test
-    retry_on_failure: true
-  name: statefulset_arbitrary_config
-- commands:
-  - func: e2e_test
-    retry_on_failure: true
-  name: statefulset_arbitrary_config_update
-
+Cannot find python venv in /Users/jose.vazquez/mongodb/mongodb-kubernetes
+total 89288
+drwxr-xr-x 81 jose.vazquez staff     2592 Jun  1 18:02 .
+drwxr-xr-x 52 jose.vazquez staff     1664 May  5 10:13 ..
+drwxr-xr-x  3 jose.vazquez staff       96 Apr 16 18:02 .claude
+drwxr-xr-x 10 jose.vazquez staff      320 May 26 16:03 .devbox
+-rw-r--r--  1 jose.vazquez staff     1048 Apr  8 10:21 .dockerignore
+-rw-r--r--  1 jose.vazquez staff      223 Feb  3 14:15 .editorconfig
+-rw-r--r--  1 jose.vazquez staff    30676 May 21 15:39 .evergreen-functions.yml
+-rw-r--r--  1 jose.vazquez staff       74 Jun  1 18:04 .evergreen-mco.yml
+-rw-r--r--  1 jose.vazquez staff      860 Feb  3 14:15 .evergreen-periodic-builds.yaml
+-rw-r--r--  1 jose.vazquez staff    13641 May  5 14:31 .evergreen-release.yml
+-rw-r--r--  1 jose.vazquez staff     7000 May 29 09:54 .evergreen-snippets.yml
+-rw-r--r--  1 jose.vazquez staff    33033 Jun  1 15:31 .evergreen-tasks.yml
+-rw-r--r--  1 jose.vazquez staff    74642 May 29 09:54 .evergreen.yml
+-rw-r--r--  1 jose.vazquez staff      108 Feb  3 14:15 .flake8
+drwxr-xr-x  4 jose.vazquez staff      128 Apr 22 17:22 .generated
+drwxr-xr-x 21 jose.vazquez staff      672 Jun  1 18:04 .git
+drwxr-xr-x  4 jose.vazquez staff      128 Apr  8 10:21 .githooks
+drwxr-xr-x  9 jose.vazquez staff      288 May 21 15:40 .github
+-rw-r--r--  1 jose.vazquez staff     2473 May 29 09:54 .gitignore
+-rw-r--r--  1 jose.vazquez staff        0 Feb  3 14:15 .gitmodules
+-rw-r--r--  1 jose.vazquez staff     6386 May 29 09:54 .golangci.yml
+drwxr-xr-x 10 jose.vazquez staff      320 May  5 14:31 .idea
+drwxr-xr-x  7 jose.vazquez staff      224 Feb 13 11:12 .mck-devbox
+-rw-------  1 jose.vazquez staff     4771 Jun  1 18:02 .pre-commit-config.yaml
+-rw-r--r--  1 jose.vazquez staff      219 Feb  3 14:15 .pylintrc
+-rw-r--r--  1 jose.vazquez staff       13 Feb  3 14:15 .rsyncignore
+-rw-r--r--  1 jose.vazquez staff       38 Feb  3 14:15 .rsyncinclude
+drwxr-xr-x  5 jose.vazquez staff      160 May  5 14:31 .run
+-rw-r--r--  1 jose.vazquez staff      186 Apr  8 10:21 .shellcheckrc
+-rw-------  1 jose.vazquez staff       14 Jun  1 18:02 .tool-versions
+drwxr-xr-x  7 jose.vazquez staff      224 Feb 10 09:48 .venv
+drwxr-xr-x  3 jose.vazquez staff       96 Feb  6 17:15 .vscode
+-rw-r--r--  1 jose.vazquez staff    10229 Feb  3 14:15 Apache License
+-rw-r--r--  1 jose.vazquez staff     2779 Apr 22 10:16 CONTRIBUTING.md
+-rw-r--r--  1 jose.vazquez staff     3993 Apr 22 11:39 EVERGREEN.md
+-rw-r--r--  1 jose.vazquez staff     1418 Feb  3 14:15 LICENSE-MCK
+-rw-r--r--  1 jose.vazquez staff    12229 Jun  1 18:02 LICENSE-THIRD-PARTY
+-rw-r--r--  1 jose.vazquez staff    16177 Jun  1 17:30 Makefile
+-rw-r--r--  1 jose.vazquez staff     1276 Jun  1 15:31 PROJECT
+-rw-r--r--  1 jose.vazquez staff     5014 Feb  3 14:15 README.md
+-rw-r--r--  1 jose.vazquez staff     7336 Feb  3 14:15 RELEASE_NOTES.md
+-rw-r--r--  1 jose.vazquez staff    71535 Feb  3 14:15 RELEASE_NOTES_MEKO.md
+-rw-r--r--  1 jose.vazquez staff      501 Feb  3 14:15 SECURITY.md
+drwxr-xr-x  3 jose.vazquez staff       96 Jun  1 15:31 api
+drwxr-xr-x  4 jose.vazquez staff      128 May  7 17:45 bin
+-rw-r--r--  1 jose.vazquez staff    13548 May  5 14:31 build_info.json
+-rw-r--r--  1 jose.vazquez staff      905 May 26 16:17 build_info_agent.json
+drwxr-xr-x 53 jose.vazquez staff     1696 Jun  1 15:31 changelog
+drwxr-xr-x  4 jose.vazquez staff      128 May 29 09:54 cmd
+drwxr-xr-x 10 jose.vazquez staff      320 Feb  3 14:15 config
+drwxr-xr-x  5 jose.vazquez staff      160 Feb  3 14:15 controllers
+drwxr-xr-x  5 jose.vazquez staff      160 Feb  3 14:15 deploy
+-rw-r--r--  1 jose.vazquez staff     1746 Apr 22 17:55 devbox-init.shell
+-rw-r--r--  1 jose.vazquez staff      749 May 26 11:15 devbox.json
+-rw-r--r--  1 jose.vazquez staff    27847 May 26 11:16 devbox.lock
+drwxr-xr-x 14 jose.vazquez staff      448 Feb 13 11:25 docker
+drwxr-xr-x  8 jose.vazquez staff      256 Apr 22 10:16 docs
+-rwxr-xr-x  1 jose.vazquez staff    11231 Apr 22 11:39 generate_ssdlc_report.py
+-rwxr-xr-x  1 jose.vazquez staff     2553 Feb  3 14:15 generate_ssdlc_report_test.py
+-rw-r--r--  1 jose.vazquez staff     7173 Jun  1 15:31 go.mod
+-rw-r--r--  1 jose.vazquez staff    41407 Jun  1 15:31 go.sum
+drwxr-xr-x  3 jose.vazquez staff       96 Feb  3 14:15 hack
+drwxr-xr-x  9 jose.vazquez staff      288 Jun  1 15:31 helm_chart
+drwxr-xr-x  3 jose.vazquez staff       96 May 29 09:54 internal
+-rw-r--r--  1 jose.vazquez staff      266 Jun  1 17:30 kubernetes-versions.json
+drwxr-xr-x  3 jose.vazquez staff       96 Jun  1 18:02 lib
+-rw-r--r--  1 jose.vazquez staff    13406 Jun  1 18:02 licenses_full.csv
+-rw-r--r--  1 jose.vazquez staff     1119 Feb 10 16:33 licenses_stderr
+-rw-r--r--  1 jose.vazquez staff    24259 Jun  1 15:31 main.go
+drwxr-xr-x 14 jose.vazquez staff      448 Feb  3 14:15 mongodb-community-operator
+-rwxr-xr-x  1 jose.vazquez staff 90783874 May  7 14:52 mongodb-kubernetes
+-rw-r--r--  1 jose.vazquez staff    53401 May 20 17:55 mongodb-kubernetes-1.8.1.tgz
+drwxr-xr-x  6 jose.vazquez staff      192 Jun  1 18:02 multi_cluster
+drwxr-xr-x 25 jose.vazquez staff      800 May 29 09:54 pkg
+drwxr-xr-x 19 jose.vazquez staff      608 Jun  1 15:31 public
+-rw-r--r--  1 jose.vazquez staff      265 May  5 14:31 pyproject.toml
+-rw-r--r--  1 jose.vazquez staff    10345 Jun  1 15:31 release.json
+-rw-r--r--  1 jose.vazquez staff     1324 Jun  1 15:31 requirements.txt
+drwxr-xr-x 23 jose.vazquez staff      736 Jun  1 18:02 scripts
+drwxr-xr-x 17 jose.vazquez staff      544 May 28 09:53 tmp
+-rw-r--r--  1 jose.vazquez staff      309 May 29 09:54 tools.go

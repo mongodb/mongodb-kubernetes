@@ -182,7 +182,7 @@ send_to_slack() {
     fi
 
     echo "Sending version check results to Slack..." >&2
-    cat "${output_file}" | "${slack_script}" || {
+    "${slack_script}" < "${output_file}" || {
         echo "Warning: Failed to send message to Slack" >&2
         return 0
     }
