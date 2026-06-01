@@ -12,18 +12,33 @@ Go source: api/v1/search/mongodbsearch_types.go
 
 
 def mongot_statefulset_name(search_name: str) -> str:
-    """StatefulSet name for the mongot instance. Mirrors StatefulSetNamespacedName()."""
-    return f"{search_name}-search"
+    """StatefulSet name for the (single/first) mongot instance.
+
+    The operator always names RS mongot resources with a cluster index now
+    (the legacy unindexed ``StatefulSetNamespacedName()`` branch was removed in
+    favour of ``StatefulSetNamespacedNameForCluster(0)``), so the convenience
+    root delegates to the cluster-0 indexed name.
+    """
+    return mongot_statefulset_name_for_cluster(search_name, 0)
 
 
 def mongot_service_name(search_name: str) -> str:
-    """Service name for the mongot instance. Mirrors SearchServiceNamespacedName()."""
-    return f"{search_name}-search-svc"
+    """Service name for the (single/first) mongot instance.
+
+    Indexed to match the operator's ``SearchServiceNamespacedNameForCluster(0)``
+    (the unindexed ``SearchServiceNamespacedName()`` branch was removed).
+    """
+    return mongot_service_name_for_cluster(search_name, 0)
 
 
 def mongot_configmap_name(search_name: str) -> str:
-    """ConfigMap name for the mongot config. Mirrors MongotConfigConfigMapNamespacedName()."""
-    return f"{search_name}-search-config"
+    """ConfigMap name for the (single/first) mongot config.
+
+    Indexed to match the operator's ``MongotConfigConfigMapNameForCluster(0)``
+    (the unindexed ``MongotConfigConfigMapNamespacedName()`` is no longer used
+    for RS resources).
+    """
+    return mongot_configmap_name_for_cluster(search_name, 0)
 
 
 def mongot_service_host(search_name: str, namespace: str, port: int) -> str:
@@ -34,6 +49,21 @@ def mongot_service_host(search_name: str, namespace: str, port: int) -> str:
 def mongot_pod_fqdn(search_name: str, namespace: str, port: int) -> str:
     """Headless pod-0 FQDN for RS single mongot (pod-0.svc.ns.svc.cluster.local:port)."""
     return f"{mongot_statefulset_name(search_name)}-0.{mongot_service_name(search_name)}.{namespace}.svc.cluster.local:{port}"
+
+
+def mongot_statefulset_name_for_cluster(search_name: str, cluster_index: int = 0) -> str:
+    """Indexed mongot StatefulSet name. Mirrors StatefulSetNamespacedNameForCluster()."""
+    return f"{search_name}-search-{cluster_index}"
+
+
+def mongot_service_name_for_cluster(search_name: str, cluster_index: int = 0) -> str:
+    """Indexed mongot headless Service name. Mirrors SearchServiceNamespacedNameForCluster()."""
+    return f"{search_name}-search-{cluster_index}-svc"
+
+
+def mongot_configmap_name_for_cluster(search_name: str, cluster_index: int = 0) -> str:
+    """Indexed mongot ConfigMap name. Mirrors MongotConfigConfigMapNameForCluster()."""
+    return f"{search_name}-search-{cluster_index}-config"
 
 
 def proxy_service_name(search_name: str) -> str:
