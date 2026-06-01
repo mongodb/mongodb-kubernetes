@@ -160,10 +160,11 @@ type ClusterSpec struct {
 	// +optional
 	// +kubebuilder:validation:MaxLength=253
 	ClusterName string `json:"clusterName,omitempty"`
-	// ClusterIndex is the stable integer in per-cluster resource names. Immutable once set; required in simulated multi-cluster mode.
+	// ClusterIndex is the stable integer in per-cluster resource names. Required in
+	// simulated multi-cluster mode; set once at creation (changing it renames
+	// per-cluster resources). Treated as immutable by the operator.
 	// +optional
 	// +kubebuilder:validation:Minimum=0
-	// +kubebuilder:validation:XValidation:rule="oldSelf == null || self == oldSelf",message="clusterIndex is immutable once set"
 	ClusterIndex *int32 `json:"clusterIndex,omitempty"`
 	// Replicas is the number of mongot pods for this cluster's StatefulSet.
 	// For ReplicaSet sources this is the total; for sharded sources it is per shard.

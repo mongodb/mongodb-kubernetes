@@ -4122,15 +4122,13 @@ spec:
                     the matching top-level default.
                   properties:
                     clusterIndex:
-                      description: ClusterIndex is the stable integer in per-cluster
-                        resource names. Immutable once set; required in simulated
-                        multi-cluster mode.
+                      description: |-
+                        ClusterIndex is the stable integer in per-cluster resource names. Required in
+                        simulated multi-cluster mode; set once at creation (changing it renames
+                        per-cluster resources). Treated as immutable by the operator.
                       format: int32
                       minimum: 0
                       type: integer
-                      x-kubernetes-validations:
-                      - message: clusterIndex is immutable once set
-                        rule: oldSelf == null || self == oldSelf
                     clusterName:
                       description: |-
                         ClusterName is the Kubernetes cluster name. Required and immutable
