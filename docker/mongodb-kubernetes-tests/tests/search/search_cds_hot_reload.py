@@ -12,72 +12,89 @@ import json
 
 import pytest
 from kubetester.kubetester import KubernetesTester, run_periodically
-from kubetester.mongodb import MongoDB
 from kubetester.mongodb_search import MongoDBSearch
+from pytest import fixture
 from tests import test_logger
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
+from tests.common.mongodb_tools_pod.mongodb_tools_pod import get_tools_pod
 from tests.common.search import search_resource_names
 from tests.common.search.background_availability_tester import SearchAvailabilityBackgroundTester, assert_no_outage
 from tests.common.search.bootstrap_test_mixins import (
     InstallOperatorTests,
-    MongoDBShardedDeploymentConfig,
+    MongoDBDeploymentConfig,
     MongoDBShardedDeploymentTests,
+    SampleDataAndIndexConfig,
+    SearchDeploymentConfig,
     SearchShardedDeploymentTests,
-    SearchShardedE2EFixtures,
     SearchShardedSampleDataAndIndex,
 )
 from tests.common.search.connectivity import SearchConnectivityTool, set_resource_disabled_annotation
-from tests.common.search.sharded_search_helper import get_search_tester
+from tests.common.search.sharded_search_helper import sharded_search_tester
+from tests.conftest import get_namespace
 
 logger = test_logger.get_test_logger(__name__)
 
 pytestmark = pytest.mark.e2e_search_cds_hot_reload
 
+NAMESPACE = get_namespace()
+MDB = MongoDBDeploymentConfig(mdb_resource_name="mdb-sh-cds-reload", shard_count=2)
+SEARCH = SearchDeploymentConfig()
+MDBS_NAME = MDB.mdb_resource_name
 
-def configure_mongodb_sharded_config(cfg: MongoDBShardedDeploymentConfig) -> MongoDBShardedDeploymentConfig:
-    cfg.mdb_resource_name = "mdb-sh-cds-reload"
-    cfg.admin_user_name = f"{cfg.mdb_resource_name}-admin-user"
-    cfg.admin_user_password = f"{cfg.admin_user_name}-pass"
-    cfg.user_name = f"{cfg.mdb_resource_name}-user"
-    cfg.user_password = f"{cfg.user_name}-pass"
-    return cfg
+
+def _user_tool(namespace: str) -> SearchConnectivityTool:
+    return SearchConnectivityTool(sharded_search_tester(MDBS_NAME, namespace, MDB.user_name, MDB.user_password))
+
+
+def _load_mdbs(namespace: str) -> MongoDBSearch:
+    resource = MongoDBSearch(name=MDBS_NAME, namespace=namespace)
+    resource.load()
+    return resource
 
 
 class TestInstallOperator(InstallOperatorTests):
     pass
 
 
-class TestSearchWithShardedCluster(
-    SearchShardedDeploymentTests,
-    MongoDBShardedDeploymentTests,
-):
-    def build_mongodb_sharded_config(self) -> MongoDBShardedDeploymentConfig:
-        return configure_mongodb_sharded_config(super().build_mongodb_sharded_config())
+class TestMongoDBShardedDeployment(MongoDBShardedDeploymentTests):
+    namespace = NAMESPACE
+    mdb_config = MDB
+    search_config = SEARCH
 
 
-class TestSearchSampleDataAndIndex(
-    SearchShardedSampleDataAndIndex,
-    SearchShardedE2EFixtures,
-):
-    def build_mongodb_sharded_config(self) -> MongoDBShardedDeploymentConfig:
-        return configure_mongodb_sharded_config(super().build_mongodb_sharded_config())
+class TestSearchShardedDeployment(SearchShardedDeploymentTests):
+    namespace = NAMESPACE
+    mdb_config = MDB
+    search_config = SEARCH
 
 
-class TestSearchCDSHotReload(SearchShardedE2EFixtures):
-    def build_mongodb_sharded_config(self) -> MongoDBShardedDeploymentConfig:
-        return configure_mongodb_sharded_config(super().build_mongodb_sharded_config())
+class TestSampleData(SearchShardedSampleDataAndIndex):
+    mdb_config = MDB
+    # ~70k corpus (≈21k restored + 50k synthetic) so the paging cursor spans many
+    # cross-shard getMore round-trips while the CDS reload happens mid-stream.
+    sample_config = SampleDataAndIndexConfig(extra_doc_count=50_000)
+
+    def admin_tester(self, namespace: str):
+        return sharded_search_tester(MDBS_NAME, namespace, MDB.admin_user_name, MDB.admin_user_password)
+
+    def user_tester(self, namespace: str):
+        return sharded_search_tester(MDBS_NAME, namespace, MDB.user_name, MDB.user_password)
+
+
+class TestSearchCDSHotReload:
+    """Patch the envoy CDS ConfigMap mid-cursor; the reload must not break streams."""
+
+    @fixture(scope="module")
+    def search_tools_pod(self, namespace: str) -> mongodb_tools_pod.ToolsPod:
+        return get_tools_pod(namespace)
 
     def test_cursor_survives_cds_hot_reload(
         self,
-        mdb: MongoDB,
-        mdbs: MongoDBSearch,
         namespace: str,
         search_tools_pod: mongodb_tools_pod.ToolsPod,
     ):
-        # Create connectivity tool (sharded — connects via mongos)
-        cfg = self.build_mongodb_sharded_config()
-        tester = get_search_tester(mdb, cfg.user_name, cfg.user_password, use_ssl=True)
-        tool = SearchConnectivityTool(tester)
+        tool = _user_tool(namespace)
+        mdbs = _load_mdbs(namespace)
         _wait_for_search_serving(tool)
 
         # Open paging cursor, read pre-reload pages

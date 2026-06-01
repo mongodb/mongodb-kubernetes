@@ -79,7 +79,7 @@ def user(helper: SearchDeploymentHelper) -> MongoDBUser:
 
 @fixture(scope="function")
 def mongot_user(helper: SearchDeploymentHelper, mdbs: MongoDBSearch) -> MongoDBUser:
-    return helper.mongot_user_resource(mdbs, MONGOT_USER_NAME)
+    return helper.mongot_user_resource(mdbs.name, MONGOT_USER_NAME)
 
 
 @mark.e2e_search_enterprise_tls
@@ -220,7 +220,7 @@ def test_search_assert_search_query(sample_movies_helper: movies_search_helper.S
 
 
 def assert_search_service_prometheus_port(mdbs: MongoDBSearch, should_exist: bool, expected_port: int = 9946):
-    service_name = f"{mdbs.name}-search-svc"
+    service_name = search_resource_names.mongot_service_name(mdbs.name)
     service = get_service(mdbs.namespace, service_name)
     assert service is not None
 
@@ -236,7 +236,7 @@ def assert_search_service_prometheus_port(mdbs: MongoDBSearch, should_exist: boo
 def assert_search_pod_prometheus_endpoint(
     mdbs: MongoDBSearch, tools_pod: mongodb_tools_pod.ToolsPod, should_be_accessible: bool, port: int = 9946
 ):
-    service_fqdn = f"{mdbs.name}-search-svc.{mdbs.namespace}.svc.cluster.local"
+    service_fqdn = f"{search_resource_names.mongot_service_name(mdbs.name)}.{mdbs.namespace}.svc.cluster.local"
     url = f"http://{service_fqdn}:{port}/metrics"
 
     if should_be_accessible:
