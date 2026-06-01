@@ -310,7 +310,7 @@ def verify_per_cluster_envoy_sni(
     helper: MCSearchDeploymentHelper,
     member_cluster_clients: List[MultiClusterClient],
 ) -> None:
-    """Each per-cluster Envoy ConfigMap's envoy.json references exactly its
+    """Each per-cluster Envoy ConfigMap's lds.json references exactly its
     cluster-local proxy-svc FQDN in SNI server_names — no cross-cluster leakage.
 
     Lifts ``q2_mc_rs_steady.test_per_cluster_envoy_sni_observed``.
@@ -321,19 +321,19 @@ def verify_per_cluster_envoy_sni(
         expected_fqdn = _expected_proxy_svc_fqdn(mdbs_resource_name, cluster_idx, namespace)
 
         cm = mcc.core_v1_api().read_namespaced_config_map(name=cm_name, namespace=namespace)
-        envoy_json = (cm.data or {}).get("envoy.json")
-        assert envoy_json, f"envoy.json missing in ConfigMap {cm_name} ({mcc.cluster_name})"
+        lds_json = (cm.data or {}).get("lds.json")
+        assert lds_json, f"lds.json missing in ConfigMap {cm_name} ({mcc.cluster_name})"
 
-        envoy_cfg = json.loads(envoy_json)
+        lds_cfg = json.loads(lds_json)
         sni_names: List[str] = []
-        for listener in envoy_cfg.get("static_resources", {}).get("listeners", []):
-            for fc in listener.get("filter_chains", []):
+        for resource in lds_cfg.get("resources", []):
+            for fc in resource.get("filter_chains", []):
                 fcm = fc.get("filter_chain_match", {}) or {}
                 sni_names.extend(fcm.get("server_names", []) or [])
 
         assert expected_fqdn in sni_names, (
             f"[{mcc.cluster_name}] expected SNI server_name {expected_fqdn!r} "
-            f"in envoy.json filter_chain_match.server_names, got {sni_names}"
+            f"in lds.json filter_chain_match.server_names, got {sni_names}"
         )
 
         # Defensive: no OTHER cluster's proxy-svc FQDN should appear.
@@ -344,10 +344,10 @@ def verify_per_cluster_envoy_sni(
             other_fqdn = _expected_proxy_svc_fqdn(mdbs_resource_name, other_idx, namespace)
             assert other_fqdn not in sni_names, (
                 f"[{mcc.cluster_name}] foreign SNI {other_fqdn!r} present in "
-                f"envoy.json server_names — per-cluster Envoy must only match its own FQDN"
+                f"lds.json server_names — per-cluster Envoy must only match its own FQDN"
             )
 
-        logger.info(f"[{mcc.cluster_name}] envoy.json SNI server_names={sni_names} (expected match: {expected_fqdn})")
+        logger.info(f"[{mcc.cluster_name}] lds.json SNI server_names={sni_names} (expected match: {expected_fqdn})")
 
 
 # ---------------------------------------------------------------------------
