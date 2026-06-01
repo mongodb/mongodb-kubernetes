@@ -319,14 +319,8 @@ func (r *MongoDBSearchReconcileHelper) buildShardedWorkList(shardNames []string)
 }
 
 // rsResourceNames returns (sts, headlessSvc, proxySvc, configMap) names for one
-// RS work item. Empty clusterName takes the legacy unindexed names.
+// RS work item. Always indexed; single-cluster is index 0.
 func (r *MongoDBSearchReconcileHelper) rsResourceNames(w rsWorkItem) (types.NamespacedName, types.NamespacedName, types.NamespacedName, types.NamespacedName) {
-	if w.ClusterName == "" {
-		return r.mdbSearch.StatefulSetNamespacedName(),
-			r.mdbSearch.SearchServiceNamespacedName(),
-			r.mdbSearch.ProxyServiceNamespacedName(),
-			r.mdbSearch.MongotConfigConfigMapNamespacedName()
-	}
 	return r.mdbSearch.StatefulSetNamespacedNameForCluster(w.ClusterIndex),
 		r.mdbSearch.SearchServiceNamespacedNameForCluster(w.ClusterIndex),
 		r.mdbSearch.ProxyServiceNamespacedNameForCluster(w.ClusterIndex),
@@ -1134,7 +1128,11 @@ func buildProxyService(search *searchv1.MongoDBSearch, unit reconcileUnit) corev
 		SetOwnerReferences(search.GetOwnerReferences())
 
 	serviceBuilder.AddPort(&corev1.ServicePort{
-		Name:       "grpc",
+		// Named "mongot-grpc" (not "grpc") so Istio classifies the port as opaque
+		// TCP rather than HTTP/2: mongod speaks application-level (m)TLS gRPC to
+		// Envoy here, and a "grpc"-prefixed name makes the sidecar route it through
+		// its HTTP/2 path, breaking the TLS handshake. Matches mongotServicePorts.
+		Name:       "mongot-grpc",
 		Protocol:   corev1.ProtocolTCP,
 		Port:       search.GetEffectiveMongotPort(),
 		TargetPort: intstr.FromInt32(targetPort),
@@ -1173,7 +1171,8 @@ func buildClusterLevelProxyService(search *searchv1.MongoDBSearch, res clusterLe
 		SetOwnerReferences(search.GetOwnerReferences())
 
 	svcBuilder.AddPort(&corev1.ServicePort{
-		Name:       "grpc",
+		// "mongot-grpc" keeps Istio from L7-classifying this port (see buildProxyService).
+		Name:       "mongot-grpc",
 		Protocol:   corev1.ProtocolTCP,
 		Port:       search.GetEffectiveMongotPort(),
 		TargetPort: intstr.FromInt32(targetPort),
@@ -1745,11 +1744,11 @@ func mongotHostAndPort(search *searchv1.MongoDBSearch, clusterDomain string) str
 	}
 	port := search.GetEffectiveMongotPort()
 	if search.IsLBModeManaged() {
-		proxyName := search.ProxyServiceNamespacedName()
+		proxyName := search.ProxyServiceNamespacedNameForCluster(0)
 		return fmt.Sprintf("%s.%s.svc.%s:%d", proxyName.Name, proxyName.Namespace, clusterDomain, port)
 	}
-	stsName := search.StatefulSetNamespacedName()
-	svcName := search.SearchServiceNamespacedName()
+	stsName := search.StatefulSetNamespacedNameForCluster(0)
+	svcName := search.SearchServiceNamespacedNameForCluster(0)
 	return fmt.Sprintf("%s-0.%s.%s.svc.%s:%d", stsName.Name, svcName.Name, svcName.Namespace, clusterDomain, port)
 }
 
