@@ -267,7 +267,7 @@ func TestValidateClustersUniqueClusterName(t *testing.T) {
 			errorContains: "duplicate",
 		},
 		{
-			// Empty names are reserved for the single-cluster degenerate case;
+			// Empty names are reserved for the single-cluster case;
 			// two empty names is still a duplicate.
 			name:          "two empty names",
 			clusters:      []ClusterSpec{{}, {}},
