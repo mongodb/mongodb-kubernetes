@@ -91,13 +91,13 @@ func TestBuildReplicaSetRoute(t *testing.T) {
 				}
 			}
 
-			route := buildReplicaSetRoute(search)
+			route := buildReplicaSetRouteForCluster(search, 0, "")
 
 			assert.Equal(t, "rs", route.Name)
 			assert.Equal(t, "rs", route.NameSafe)
 			assert.Equal(t, tt.expectedSNI, route.SNIHostname)
 			require.Len(t, route.UpstreamHosts, 1)
-			assert.Equal(t, "mdb-search-search-svc.test-ns.svc.cluster.local", route.UpstreamHosts[0])
+			assert.Equal(t, "mdb-search-search-0-svc.test-ns.svc.cluster.local", route.UpstreamHosts[0])
 			assert.Equal(t, int32(27028), route.UpstreamPort)
 		})
 	}
@@ -494,18 +494,17 @@ func TestBuildRoutesForCluster_RS_NoTemplateUsesPerClusterProxySvcFQDN(t *testin
 }
 
 func TestBuildRoutesForCluster_SingleClusterUnchanged(t *testing.T) {
-	// clusterName == "" must produce identical routes to buildRoutes (back-compat path).
+	// clusterName == "" must produce the index-0 RS route (back-compat path).
 	search := &searchv1.MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "test-ns"},
 	}
 
 	mc := buildRoutesForCluster(search, nil, 0, "")
-	sc := []envoyRoute{buildReplicaSetRoute(search)}
 
 	require.Len(t, mc, 1)
 	assert.Equal(t, "", mc[0].ClusterID)
-	assert.Equal(t, sc[0].SNIHostname, mc[0].SNIHostname)
-	assert.Equal(t, sc[0].UpstreamHosts, mc[0].UpstreamHosts)
+	assert.Equal(t, "mdb-search-search-0-proxy-svc.test-ns.svc.cluster.local", mc[0].SNIHostname)
+	assert.Equal(t, []string{"mdb-search-search-0-svc.test-ns.svc.cluster.local"}, mc[0].UpstreamHosts)
 }
 
 // mockShardedSourceForEnvoy is a minimal SearchSourceShardedDeployment double for tests.
