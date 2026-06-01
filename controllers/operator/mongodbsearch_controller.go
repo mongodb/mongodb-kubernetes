@@ -110,13 +110,13 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 		return result, err
 	}
 
-	// Short-circuit: the resourceDisabled annotation allows to
+	// Short-circuit: the disable-reconciliation annotation allows to
 	// pause reconciliation on a single CR so owned objects can be mutated
 	// without the operator reverting them.
 	// Useful for tests when the operator is running locally and not in the pod.
-	if mdbSearch.GetAnnotations()[searchv1.ResourceDisabledAnnotation] == "true" {
+	if mdbSearch.GetAnnotations()[searchv1.DisableReconciliationAnnotation] == "true" {
 		log.Infof("MongoDBSearch %s/%s reconciliation disabled by %s annotation; skipping",
-			mdbSearch.GetNamespace(), mdbSearch.GetName(), searchv1.ResourceDisabledAnnotation)
+			mdbSearch.GetNamespace(), mdbSearch.GetName(), searchv1.DisableReconciliationAnnotation)
 		return reconcile.Result{}, nil
 	}
 
