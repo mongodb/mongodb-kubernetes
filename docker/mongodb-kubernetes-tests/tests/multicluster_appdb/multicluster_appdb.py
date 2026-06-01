@@ -118,6 +118,35 @@ def test_create_om(ops_manager: MongoDBOpsManager, appdb_member_cluster_names: l
 
 
 @mark.e2e_multi_cluster_appdb
+def test_appdb_statefulsets_multi_cluster_identity(
+    ops_manager: MongoDBOpsManager,
+    appdb_member_cluster_names: list[str],
+):
+    """Regression test: AppDB StatefulSets in member clusters must carry no ownerReferences
+    and must carry the MongoDBMultiResource annotation.
+
+    No ownerReferences: a cross-cluster ownerReference points to the MongoDBOpsManager CR
+    that only exists in the central cluster. The Kubernetes GC treats the StatefulSet as an
+    orphan and deletes it immediately, causing an infinite create-delete reconciliation loop.
+    Cleanup on CR deletion is handled through explicit label-based deletion instead.
+
+    MongoDBMultiResource annotation: replaces ownerReferences as the identifier that watch
+    predicates and the OM connection factory use to map StatefulSets back to their parent CR."""
+    for cluster_name in appdb_member_cluster_names:
+        sts = ops_manager.read_appdb_statefulset(member_cluster_name=cluster_name)
+        owner_refs = sts.metadata.owner_references
+        assert not owner_refs, (
+            f"AppDB StatefulSet {sts.metadata.name} in cluster {cluster_name} must have no "
+            f"ownerReferences in multi-cluster mode, but got: {owner_refs}"
+        )
+        annotation_value = (sts.metadata.annotations or {}).get("MongoDBMultiResource")
+        assert annotation_value == ops_manager.name, (
+            f"AppDB StatefulSet {sts.metadata.name} in cluster {cluster_name} must carry "
+            f"annotation 'MongoDBMultiResource={ops_manager.name}', but got: {annotation_value!r}"
+        )
+
+
+@mark.e2e_multi_cluster_appdb
 def test_scale_up_one_cluster(ops_manager: MongoDBOpsManager, appdb_member_cluster_names):
     ops_manager.load()
     ops_manager["spec"]["applicationDatabase"]["clusterSpecList"] = appdb_cluster_spec_list_with_overrides(

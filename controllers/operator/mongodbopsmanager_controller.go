@@ -49,6 +49,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
+	khandler "github.com/mongodb/mongodb-kubernetes/pkg/handler"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
@@ -984,6 +985,19 @@ func AddOpsManagerController(ctx context.Context, mgr manager.Manager, memberClu
 			zap.S().Errorf("Failed to watch for vault secret changes: %v", err)
 		}
 	}
+	// In multi-cluster mode, watch AppDB StatefulSet status changes in each member cluster
+	// and enqueue a reconciliation request for the owning MongoDBOpsManager CR.
+	// The MongoDBMultiResourceAnnotation on each StatefulSet carries the CR name (set in
+	// AppDbStatefulSet); EnqueueRequestForOwnerMultiCluster reads it to build the request.
+	// This mirrors the equivalent watch registered in the MongoDBMultiCluster and
+	// MongoDBShardedCluster controllers.
+	for clusterName, memberCluster := range memberClustersMap {
+		err = c.Watch(source.Kind[client.Object](memberCluster.GetCache(), &appsv1.StatefulSet{}, &khandler.EnqueueRequestForOwnerMultiCluster{}, watch.PredicatesForMultiStatefulSet()))
+		if err != nil {
+			return xerrors.Errorf("failed to set AppDB StatefulSet watch on member cluster %s: %w", clusterName, err)
+		}
+	}
+
 	zap.S().Infof("Registered controller %s", util.MongoDbOpsManagerController)
 	return nil
 }

@@ -56,6 +56,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
+	khandler "github.com/mongodb/mongodb-kubernetes/pkg/handler"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
@@ -1856,6 +1857,18 @@ func AddShardedClusterController(ctx context.Context, mgr manager.Manager, image
 		})))
 	if err != nil {
 		return err
+	}
+
+	// In multi-cluster mode, watch StatefulSet status changes in each member cluster and
+	// enqueue a reconciliation request for the owning MongoDBShardedCluster CR.
+	// The MongoDBMultiResourceAnnotation on each StatefulSet carries the CR name (set in
+	// shardedOptions); EnqueueRequestForOwnerMultiCluster reads it to build the request.
+	// This mirrors the equivalent watch registered in the MongoDBMultiCluster controller.
+	for clusterName, memberCluster := range memberClustersMap {
+		err = c.Watch(source.Kind[client.Object](memberCluster.GetCache(), &appsv1.StatefulSet{}, &khandler.EnqueueRequestForOwnerMultiCluster{}, watch.PredicatesForMultiStatefulSet()))
+		if err != nil {
+			return xerrors.Errorf("failed to set StatefulSet watch on member cluster %s: %w", clusterName, err)
+		}
 	}
 
 	zap.S().Infof("Registered controller %s", util.MongoDbShardedClusterController)
