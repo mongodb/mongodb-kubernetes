@@ -227,7 +227,7 @@ func TestGetMongodConfigParameters_TransportAndPorts(t *testing.T) {
 				expectedPort = search.GetMongotWireprotoPort()
 			}
 			// No LB: headless pod-0 FQDN = <sts>-0.<svc>.<ns>.svc.<domain>
-			expectedPrefix := fmt.Sprintf("%s-0.%s.%s.svc.%s", search.Name+"-search", search.Name+"-search-svc", search.Namespace, clusterDomain)
+			expectedPrefix := fmt.Sprintf("%s-0.%s.%s.svc.%s", search.Name+"-search-0", search.Name+"-search-0-svc", search.Namespace, clusterDomain)
 			expectedSuffix := fmt.Sprintf(":%d", expectedPort)
 
 			for _, key := range []string{"mongotHost", "searchIndexManagementHostAndPort"} {
@@ -278,7 +278,7 @@ func TestGetMongodConfigParameters_NoLB(t *testing.T) {
 	setParams := params["setParameter"].(map[string]any)
 
 	// Without LB, should point to the first pod's headless FQDN
-	expectedEndpoint := "test-mongodb-search-search-0.test-mongodb-search-search-svc.test.svc.cluster.local:27028"
+	expectedEndpoint := "test-mongodb-search-search-0-0.test-mongodb-search-search-0-svc.test.svc.cluster.local:27028"
 	assert.Equal(t, expectedEndpoint, setParams["mongotHost"])
 	assert.Equal(t, expectedEndpoint, setParams["searchIndexManagementHostAndPort"])
 }
@@ -430,7 +430,7 @@ func TestBuildProxyService_ManagedLB_Ready_SingleCluster(t *testing.T) {
 
 func assertServiceBasicProperties(t *testing.T, svc corev1.Service, mdbSearch *searchv1.MongoDBSearch) {
 	t.Helper()
-	svcName := mdbSearch.SearchServiceNamespacedName()
+	svcName := mdbSearch.SearchServiceNamespacedNameForCluster(0)
 
 	assert.Equal(t, svcName.Name, svc.Name)
 	assert.Equal(t, svcName.Namespace, svc.Namespace)
@@ -499,7 +499,7 @@ func TestMongoDBSearchReconcileHelper_ServiceCreation(t *testing.T) {
 
 			reconcileMongoDBSearch(t.Context(), fakeClient, mdbSearch, mdbc, newTestOperatorSearchConfig())
 
-			svcName := mdbSearch.SearchServiceNamespacedName()
+			svcName := mdbSearch.SearchServiceNamespacedNameForCluster(0)
 			svc, err := fakeClient.GetService(t.Context(), svcName)
 			require.NoError(t, err)
 			require.NotNil(t, svc)
@@ -1676,7 +1676,7 @@ func TestMongotHostAndPort_ReplicaSet(t *testing.T) {
 			search: &searchv1.MongoDBSearch{
 				ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "ns"},
 			},
-			expectedHost: "test-search-0.test-search-svc.ns.svc.cluster.local:27028",
+			expectedHost: "test-search-0-0.test-search-0-svc.ns.svc.cluster.local:27028",
 		},
 		{
 			name: "Managed LB - uses proxy service",
@@ -2683,16 +2683,16 @@ func TestReconcileReplicaSet_CreatesResources(t *testing.T) {
 	assert.True(t, result.IsOK())
 
 	// Verify headless Service
-	svcNsName := search.SearchServiceNamespacedName()
+	svcNsName := search.SearchServiceNamespacedNameForCluster(0)
 	svc, err := fakeClient.GetService(t.Context(), svcNsName)
 	require.NoError(t, err)
 
-	assert.Equal(t, "test-search-search-svc", svc.Name)
+	assert.Equal(t, "test-search-search-0-svc", svc.Name)
 	assert.Equal(t, "test-ns", svc.Namespace)
 	assert.Equal(t, corev1.ClusterIPNone, svc.Spec.ClusterIP)
 	assert.False(t, svc.Spec.PublishNotReadyAddresses)
-	assert.Equal(t, "test-search-search-svc", svc.Spec.Selector["app"])
-	assert.Equal(t, "test-search-search-svc", svc.Labels["app"])
+	assert.Equal(t, "test-search-search-0-svc", svc.Spec.Selector["app"])
+	assert.Equal(t, "test-search-search-0-svc", svc.Labels["app"])
 	assert.Empty(t, svc.Labels["shard"])
 
 	portMap := make(map[string]int32)
@@ -2703,21 +2703,21 @@ func TestReconcileReplicaSet_CreatesResources(t *testing.T) {
 	assert.Equal(t, int32(8080), portMap["healthcheck"])
 
 	// Verify StatefulSet
-	stsNsName := search.StatefulSetNamespacedName()
+	stsNsName := search.StatefulSetNamespacedNameForCluster(0)
 	sts, err := fakeClient.GetStatefulSet(t.Context(), stsNsName)
 	require.NoError(t, err)
 
-	assert.Equal(t, "test-search-search", sts.Name)
+	assert.Equal(t, "test-search-search-0", sts.Name)
 	assert.Equal(t, "test-ns", sts.Namespace)
-	assert.Equal(t, "test-search-search-svc", sts.Labels["app"])
+	assert.Equal(t, "test-search-search-0-svc", sts.Labels["app"])
 	assert.Empty(t, sts.Labels["shard"])
 
 	// Verify ConfigMap
-	cmNsName := search.MongotConfigConfigMapNamespacedName()
+	cmNsName := search.MongotConfigConfigMapNameForCluster(0)
 	cm, err := fakeClient.GetConfigMap(t.Context(), cmNsName)
 	require.NoError(t, err)
 
-	assert.Equal(t, "test-search-search-config", cm.Name)
+	assert.Equal(t, "test-search-search-0-config", cm.Name)
 	assert.Contains(t, cm.Data, MongotConfigFilename)
 }
 
@@ -2763,7 +2763,7 @@ func TestBuildReplicaSetPlan_PerClusterUnitsForMC(t *testing.T) {
 	assert.Equal(t, 1, plan.units[1].clusterIndex)
 }
 
-func TestBuildReplicaSetPlan_SingleClusterPreservesLegacyNames(t *testing.T) {
+func TestBuildReplicaSetPlan_SingleClusterUsesIndexZeroNames(t *testing.T) {
 	mdb := newTestMongoDBSearch("mdb-search", "ns")
 	mdb.Spec.Source = &searchv1.MongoDBSource{
 		ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{
@@ -2776,8 +2776,10 @@ func TestBuildReplicaSetPlan_SingleClusterPreservesLegacyNames(t *testing.T) {
 	plan, err := r.buildReplicaSetPlan(source)
 	require.NoError(t, err)
 	require.Len(t, plan.units, 1)
-	assert.Equal(t, "mdb-search-search", plan.units[0].stsName.Name)
+	assert.Equal(t, "mdb-search-search-0", plan.units[0].stsName.Name)
+	assert.Equal(t, "mdb-search-search-0-svc", plan.units[0].headlessSvc.Name)
 	assert.Equal(t, "mdb-search-search-0-proxy-svc", plan.units[0].proxySvc.Name)
+	assert.Equal(t, "mdb-search-search-0-config", plan.units[0].configMapName.Name)
 }
 
 // Each unit's resources must land on the member-cluster client matched by

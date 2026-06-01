@@ -4429,8 +4429,10 @@ spec:
                 maxItems: 50
                 type: array
                 x-kubernetes-validations:
-                - message: clusters[].clusterName must be unique
-                  rule: self.all(c1, self.exists_one(c2, c2.clusterName == c1.clusterName))
+                - message: clusters[].clusterName must be set and unique when more
+                    than one cluster is specified
+                  rule: size(self) <= 1 || self.all(c1, has(c1.clusterName) && self.exists_one(c2,
+                    has(c2.clusterName) && c2.clusterName == c1.clusterName))
               jvmFlags:
                 description: |-
                   JVMFlags can be used to set the `--jvm-flags` option for the search (mongot) processes.

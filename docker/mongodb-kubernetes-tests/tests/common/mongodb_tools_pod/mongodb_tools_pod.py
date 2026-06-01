@@ -119,8 +119,7 @@ class ToolsPod:
 
 
 def get_tools_pod(namespace: str, api_client: Optional[client.ApiClient] = None) -> ToolsPod:
-    """Create and return a ready tools pod in the given namespace.
-    """
+    """Create and return a ready tools pod in the given namespace."""
     tools_pod = ToolsPod(namespace, api_client=api_client)
     tools_pod.run_pod_and_wait()
     return tools_pod
