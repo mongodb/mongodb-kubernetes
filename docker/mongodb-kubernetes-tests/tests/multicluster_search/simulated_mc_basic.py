@@ -8,11 +8,13 @@ import os
 from typing import List, Tuple
 
 import kubernetes
+import pymongo.errors
 from kubernetes.client import CoreV1Api
 from kubetester import create_or_update_configmap, create_or_update_secret, read_secret, try_load
 from kubetester.certs import create_tls_certs
 from kubetester.certs_mongodb_multi import create_multi_cluster_mongodb_tls_certs
 from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.kubetester import run_periodically
 from kubetester.mongodb_multi import MongoDBMulti
 from kubetester.mongodb_search import MongoDBSearch
 from kubetester.mongodb_user import MongoDBUser
@@ -22,12 +24,16 @@ from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests import test_logger
 from tests.common.search import search_resource_names
+from tests.common.search.movies_search_helper import SampleMoviesSearchHelper
+from tests.common.search.search_tester import SearchTester
 from tests.common.search.sharded_search_helper import create_issuer_ca
+from tests.conftest import get_issuer_ca_filepath
 from tests.multicluster.conftest import cluster_spec_list
 from tests.multicluster_search.conftest import (
     ADMIN_USER_NAME,
     ADMIN_USER_PASSWORD,
     ENVOY_LB_REPLICAS,
+    ENVOY_PROXY_PORT,
     MDBS_TLS_CERT_PREFIX,
     MONGOT_USER_NAME,
     MONGOT_USER_PASSWORD,
@@ -38,6 +44,11 @@ from tests.multicluster_search.conftest import (
     _idx,
     _install_simulated_operator,
     _replicate_mongot_user_password_to_members,
+    assert_foreign_resources_absent,
+    assert_mongot_host_on_disk,
+    assert_per_cluster_count,
+    per_cluster_search_tester,
+    read_state_configmap_mapping,
 )
 
 logger = test_logger.get_test_logger(__name__)
@@ -51,6 +62,11 @@ MDBS_RESOURCE_NAME = "mdb-mc-sim-search"
 
 MEMBERS_PER_CLUSTER: List[int | None] = [3, 3]
 MONGOT_REPLICAS_PER_CLUSTER = 3
+
+# Generous index-ready timeout to account for cross-cluster mesh latency during sync.
+SEARCH_INDEX_READY_TIMEOUT = 300
+# mongot may still be in INITIAL_SYNC briefly after the index reports READY.
+SEARCH_QUERY_RETRY_TIMEOUT = 90
 
 # --- TLS-everywhere constants ----------------------------------------------
 # CA ConfigMap (used by MongoDBMulti.spec.security.tls.ca — key: ca-pem/mms-ca.crt).
@@ -433,6 +449,7 @@ def test_replicate_tls_to_members(
 def test_search_running_per_cluster(
     per_cluster_mdbs_search: List[Tuple[MultiClusterClient, MongoDBSearch]],
 ):
+    assert_per_cluster_count(per_cluster_mdbs_search)
     for _mcc, mdbs in per_cluster_mdbs_search:
         mdbs.update()
     for mcc, mdbs in per_cluster_mdbs_search:
@@ -445,6 +462,7 @@ def test_per_cluster_resources_exist(
     namespace: str,
     per_cluster_mdbs_search: List[Tuple[MultiClusterClient, MongoDBSearch]],
 ):
+    assert_per_cluster_count(per_cluster_mdbs_search)
     for mcc, _mdbs in per_cluster_mdbs_search:
         idx = _idx(mcc)
         sts_name = f"{MDBS_RESOURCE_NAME}-search-{idx}"
@@ -478,7 +496,229 @@ def test_status_per_cluster_local_only(
     per_cluster_mdbs_search: List[Tuple[MultiClusterClient, MongoDBSearch]],
 ):
     """No cross-cluster status awareness in simulated-MC mode; each cluster's CR view reports its own phase."""
+    assert_per_cluster_count(per_cluster_mdbs_search)
     for mcc, mdbs in per_cluster_mdbs_search:
         mdbs.load()
         phase = mdbs.get_status_phase()
         assert phase == Phase.Running, f"[{mcc.cluster_name}] MongoDBSearch {mdbs.name} phase={phase}, expected Running"
+
+
+# ---------------------------------------------------------------------------
+# Per-cluster mongotHost locality (the unique value of the LocalizeToCluster topology)
+# ---------------------------------------------------------------------------
+
+
+def _expected_mongot_host_by_idx(
+    namespace: str,
+    member_cluster_clients: List[MultiClusterClient],
+) -> dict:
+    """cluster_index -> THAT cluster's LOCAL Envoy proxy-svc FQDN:port.
+
+    Each entry is the cluster's own proxy svc — NOT a single shared cluster's — so
+    a regression that funnels every mongod through one cluster's Envoy is caught.
+    """
+    return {
+        _idx(mcc): (
+            f"{search_resource_names.mc_proxy_svc_fqdn(MDBS_RESOURCE_NAME, namespace, _idx(mcc))}:{ENVOY_PROXY_PORT}"
+        )
+        for mcc in member_cluster_clients
+    }
+
+
+@mark.e2e_search_simulated_mc_basic
+def test_patch_per_cluster_mongot_host(
+    namespace: str,
+    mdb: MongoDBMulti,
+    member_cluster_clients: List[MultiClusterClient],
+):
+    """Patch the OM automation config so each cluster's mongods use THEIR OWN cluster-local
+    Envoy proxy-svc FQDN for mongotHost + searchIndexManagementHostAndPort.
+
+    MongoDBMultiCluster does not expose per-cluster additionalMongodConfig, so (exactly
+    as q2_mc_rs_steady) the per-process AC keys are set directly. Leaving them out of the
+    CR spec ensures subsequent operator reconciles never clobber this per-cluster locality.
+    """
+    member_cluster_clients = member_cluster_clients[:2]
+    expected_by_idx = _expected_mongot_host_by_idx(namespace, member_cluster_clients)
+    logger.info(f"per-cluster mongotHost map: {expected_by_idx}")
+
+    om_tester = mdb.get_om_tester()
+    ac_path = f"/groups/{om_tester.context.project_id}/automationConfig"
+    ac = om_tester.om_request("get", ac_path).json()
+
+    process_prefix = f"{mdb.name}-"
+    patched_processes: List[str] = []
+    for process in ac.get("processes", []):
+        process_name = process.get("name", "")
+        if not process_name.startswith(process_prefix):
+            continue
+        try:
+            cluster_idx = int(process_name[len(process_prefix) :].split("-")[0])
+        except ValueError:
+            continue
+        if cluster_idx not in expected_by_idx:
+            continue
+
+        mongot_host = expected_by_idx[cluster_idx]
+        set_parameter = process.setdefault("args2_6", {}).setdefault("setParameter", {})
+        set_parameter["mongotHost"] = mongot_host
+        set_parameter["searchIndexManagementHostAndPort"] = mongot_host
+        patched_processes.append(f"{process_name}->{mongot_host}")
+
+    assert patched_processes, (
+        f"no AC processes matched prefix {process_prefix!r}; "
+        f"AC contained {[p.get('name') for p in ac.get('processes', [])]}"
+    )
+    logger.info(f"patched {len(patched_processes)} processes: {patched_processes}")
+
+    ac["version"] = ac.get("version", 0) + 1
+    om_tester.om_request("put", ac_path, json_object=ac)
+    logger.info(f"PUT automation config v{ac['version']} with per-cluster mongotHost")
+
+    # Block until every mongod applies the new goal version — setParameter changes restart processes.
+    om_tester.wait_agents_ready(timeout=900)
+
+
+@mark.e2e_search_simulated_mc_basic
+def test_per_cluster_mongot_host_observed(
+    namespace: str,
+    mdb: MongoDBMulti,
+    member_cluster_clients: List[MultiClusterClient],
+):
+    """On-disk read-back: each cluster's first mongod must show ITS OWN cluster-local
+    proxy-svc FQDN in mongotHost + searchIndexManagementHostAndPort. Proves per-cluster
+    locality landed AND was applied by the agent (not just accepted by OM REST).
+    """
+    member_cluster_clients = member_cluster_clients[:2]
+    expected_by_idx = _expected_mongot_host_by_idx(namespace, member_cluster_clients)
+    assert_mongot_host_on_disk(mdb, expected_by_idx, member_cluster_clients)
+
+
+# ---------------------------------------------------------------------------
+# Data plane: seed data + $search index (once on source RS) + per-cluster query
+# ---------------------------------------------------------------------------
+
+
+def _source_rs_search_tester(mdb: MongoDBMulti, username: str, password: str) -> SearchTester:
+    """SearchTester pointed at the source MongoDBMulti RS via mesh DNS, using
+    ?replicaSet=... so the driver discovers the primary for writes (restore + index).
+    """
+    seed_host = f"{mdb.name}-0-0-svc.{mdb.namespace}.svc.cluster.local:27017"
+    conn_str = f"mongodb://{username}:{password}@{seed_host}/?replicaSet={mdb.name}&authSource=admin"
+    return SearchTester(conn_str, use_ssl=True, ca_path=get_issuer_ca_filepath())
+
+
+@mark.e2e_search_simulated_mc_basic
+def test_restore_sample_database(mdb: MongoDBMulti, tools_pod):
+    """mongorestore sample_mflix into the source RS (a single logical RS; every
+    per-cluster mongot syncs from it, so one restore feeds both clusters' mongots).
+    """
+    tester = _source_rs_search_tester(mdb, ADMIN_USER_NAME, ADMIN_USER_PASSWORD)
+    tester.mongorestore_from_url(
+        archive_url="https://atlas-education.s3.amazonaws.com/sample_mflix.archive",
+        ns_include="sample_mflix.*",
+        tools_pod=tools_pod,
+    )
+
+
+@mark.e2e_search_simulated_mc_basic
+def test_create_search_index(mdb: MongoDBMulti):
+    """Create the $search index ONCE against the source RS — mongot replication
+    propagates it to every per-cluster mongot. (Per-cluster applies to the QUERY, not
+    the index: creating it N times via direct connections would be redundant.)
+    """
+    tester = _source_rs_search_tester(mdb, USER_NAME, USER_PASSWORD)
+    movies = SampleMoviesSearchHelper(search_tester=tester)
+    movies.create_search_index()
+    tester.wait_for_search_indexes_ready(movies.db_name, movies.col_name, timeout=SEARCH_INDEX_READY_TIMEOUT)
+
+
+@mark.e2e_search_simulated_mc_basic
+def test_per_cluster_search_query(
+    namespace: str,
+    mdb: MongoDBMulti,
+    member_cluster_clients: List[MultiClusterClient],
+):
+    """$search direct-connected to EACH cluster's own mongod — proves each cluster's
+    independent mongod -> local-Envoy -> local-mongot path returns rows. This is the
+    unique value of the per-operator LocalizeToCluster topology: not just the cluster
+    currently holding the primary, but every cluster's local data path.
+    """
+    member_cluster_clients = member_cluster_clients[:2]
+    assert_per_cluster_count(member_cluster_clients)
+
+    for mcc in member_cluster_clients:
+        cluster_index = _idx(mcc)
+        pod_host = f"{mdb.name}-{cluster_index}-0-svc.{mdb.namespace}.svc.cluster.local:27017"
+        tester = per_cluster_search_tester(pod_host, USER_NAME, USER_PASSWORD, direct=True)
+        movies = SampleMoviesSearchHelper(search_tester=tester)
+
+        def execute_search(_ci: int = cluster_index) -> tuple:
+            try:
+                results = movies.text_search_movies("Star Wars")
+                count = len(results)
+                if count > 0:
+                    titles = [r.get("title") for r in results[:5]]
+                    logger.info(f"cluster_index={_ci}: $search returned {count} results: {titles}")
+                    return True, f"cluster_index={_ci}: $search returned {count} results"
+                return False, f"cluster_index={_ci}: $search returned no results"
+            except pymongo.errors.PyMongoError as exc:
+                return False, f"cluster_index={_ci}: $search error: {exc}"
+
+        run_periodically(
+            execute_search,
+            timeout=SEARCH_QUERY_RETRY_TIMEOUT,
+            sleep_time=5,
+            msg=f"cluster_index={cluster_index}: $search via local mongod",
+        )
+
+
+# ---------------------------------------------------------------------------
+# Cross-cluster isolation + persisted state
+# ---------------------------------------------------------------------------
+
+
+@mark.e2e_search_simulated_mc_basic
+def test_cross_cluster_isolation_absence(
+    namespace: str,
+    per_cluster_mdbs_search: List[Tuple[MultiClusterClient, MongoDBSearch]],
+):
+    """Each cluster must NOT contain the OTHER cluster's index-suffixed Search resources.
+    Confirms each simulated operator only materialises its own LocalizeToCluster slice.
+    """
+    assert_per_cluster_count(per_cluster_mdbs_search)
+    indices = [_idx(mcc) for mcc, _ in per_cluster_mdbs_search]
+    for mcc, _mdbs in per_cluster_mdbs_search:
+        this_idx = _idx(mcc)
+        for foreign_idx in indices:
+            if foreign_idx == this_idx:
+                continue
+            assert_foreign_resources_absent(mcc, MDBS_RESOURCE_NAME, foreign_idx, namespace)
+
+
+@mark.e2e_search_simulated_mc_basic
+def test_state_configmap_mapping_persisted(
+    namespace: str,
+    per_cluster_mdbs_search: List[Tuple[MultiClusterClient, MongoDBSearch]],
+):
+    """Each cluster's `{mdbs}-state` ConfigMap pins clusterMapping[thisCluster]==thisIndex.
+
+    Simulated-MC narrows spec.clusters[] to the local slice (LocalizeToCluster) before
+    persisting, so the mapping is LOCAL: it holds this cluster's entry only and must NOT
+    leak the foreign cluster's name. This is the per-cluster index-pinning source of truth.
+    """
+    assert_per_cluster_count(per_cluster_mdbs_search)
+    names = {mcc.cluster_name for mcc, _ in per_cluster_mdbs_search}
+    for mcc, _mdbs in per_cluster_mdbs_search:
+        mapping = read_state_configmap_mapping(mcc, MDBS_RESOURCE_NAME, namespace)
+        assert mapping.get(mcc.cluster_name) == _idx(mcc), (
+            f"[{mcc.cluster_name}] state clusterMapping[{mcc.cluster_name!r}]={mapping.get(mcc.cluster_name)!r}, "
+            f"want {_idx(mcc)}"
+        )
+        foreign = names - {mcc.cluster_name}
+        for other in foreign:
+            assert other not in mapping, (
+                f"[{mcc.cluster_name}] state clusterMapping leaked foreign cluster {other!r}: {mapping} — "
+                f"simulated-MC operators persist a LOCAL-only mapping"
+            )
+        logger.info(f"[{mcc.cluster_name}] persisted local clusterMapping={mapping}")

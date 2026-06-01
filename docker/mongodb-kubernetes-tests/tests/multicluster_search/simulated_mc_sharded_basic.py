@@ -51,6 +51,9 @@ from tests.multicluster_search.conftest import (
     _idx,
     _install_simulated_operator,
     _replicate_mongot_user_password_to_members,
+    assert_foreign_resources_absent,
+    assert_per_cluster_count,
+    read_state_configmap_mapping,
 )
 
 logger = test_logger.get_test_logger(__name__)
@@ -542,6 +545,7 @@ def test_search_cr_reaches_running_per_cluster(
     per_cluster_mdbs_search: List[Tuple[MultiClusterClient, MongoDBSearch]],
 ):
     """Same CR applied to each member; each simulated operator stamps Running on its own slice."""
+    assert_per_cluster_count(per_cluster_mdbs_search)
     for _mcc, mdbs in per_cluster_mdbs_search:
         mdbs.update()
     for mcc, mdbs in per_cluster_mdbs_search:
@@ -555,6 +559,7 @@ def test_per_cluster_sharded_resources_exist(
     per_cluster_mdbs_search: List[Tuple[MultiClusterClient, MongoDBSearch]],
 ):
     """Each member materialises its own (cluster, shard) mongot STS/Svc/CM/proxy + per-cluster Envoy LB."""
+    assert_per_cluster_count(per_cluster_mdbs_search)
     for mcc, _mdbs in per_cluster_mdbs_search:
         ci = _idx(mcc)
         for shard_idx in range(SHARD_COUNT):
@@ -591,6 +596,7 @@ def test_status_per_cluster_local_only(
     per_cluster_mdbs_search: List[Tuple[MultiClusterClient, MongoDBSearch]],
 ):
     """No cross-cluster status awareness in simulated-MC mode; each cluster reports its own slice's phase."""
+    assert_per_cluster_count(per_cluster_mdbs_search)
     for mcc, mdbs in per_cluster_mdbs_search:
         mdbs.load()
         phase = mdbs.get_status_phase()
@@ -643,8 +649,18 @@ def test_per_cluster_search_query(
     namespace: str,
     member_cluster_clients: List[MultiClusterClient],
 ):
-    """$search via each cluster's local mongos — proves both clusters' Envoy + per-shard mongot data path returns rows."""
+    """$search via each cluster's local mongos.
+
+    Honesty note: this exercises ONLY cluster-0's data path. In MC sharded mode both
+    mongos share a single spec.mongos.additionalMongodConfig (one mongotHost value), so
+    each cluster's mongos routes mongot traffic to cluster-0's Envoy via Istio east-west.
+    Querying through each cluster's mongos therefore proves per-cluster mongos
+    connectivity, but the per-shard mongot data path that actually serves the rows is
+    cluster-0's — cluster-1's per-shard mongots are not exercised by these queries.
+    test_mongos_mongot_host_single_path makes this single-path reality explicit on disk.
+    """
     member_cluster_clients = member_cluster_clients[:2]
+    assert_per_cluster_count(member_cluster_clients)
     for mcc in member_cluster_clients:
         cluster_index = _idx(mcc)
         tester = _per_cluster_mongos_search_tester(namespace, cluster_index, USER_NAME, USER_PASSWORD)
@@ -668,3 +684,102 @@ def test_per_cluster_search_query(
             sleep_time=5,
             msg=f"cluster_index={cluster_index}: $search via local mongos",
         )
+
+
+# ---------------------------------------------------------------------------
+# Single-path read-back + cross-cluster isolation + persisted state
+# ---------------------------------------------------------------------------
+
+
+@mark.e2e_search_simulated_mc_sharded_basic
+def test_mongos_mongot_host_single_path(
+    namespace: str,
+    member_cluster_clients: List[MultiClusterClient],
+):
+    """Read-back proving the single-path reality: BOTH clusters' mongos report mongotHost
+    pointing at cluster-0's Envoy proxy endpoint.
+
+    MC sharded mongos share one spec.mongos.additionalMongodConfig, so the operator stamps
+    the same cluster-0 mongotHost on every mongos. We read it via `getParameter` over each
+    cluster's local mongos (directConnection) rather than the on-disk automation-mongod.conf
+    because mongos is stateless and has no automation-mongod.conf. expected_by_idx is
+    {0: ep0, 1: ep0} — the explicit assertion that cluster-1's mongos is NOT cluster-local.
+    """
+    member_cluster_clients = member_cluster_clients[:2]
+    assert_per_cluster_count(member_cluster_clients)
+
+    cluster0_endpoint = (
+        f"{search_resource_names.mc_proxy_svc_fqdn(MDBS_RESOURCE_NAME, namespace, 0)}:{ENVOY_PROXY_PORT}"
+    )
+    expected_by_idx = {_idx(mcc): cluster0_endpoint for mcc in member_cluster_clients}
+
+    for mcc in member_cluster_clients:
+        ci = _idx(mcc)
+        tester = _per_cluster_mongos_search_tester(namespace, ci, ADMIN_USER_NAME, ADMIN_USER_PASSWORD)
+        params = tester.client.admin.command(
+            {"getParameter": 1, "mongotHost": 1, "searchIndexManagementHostAndPort": 1}
+        )
+        got_host = params.get("mongotHost", "")
+        got_idx_mgmt = params.get("searchIndexManagementHostAndPort", "")
+        assert got_host == expected_by_idx[ci], (
+            f"[{mcc.cluster_name}] mongos mongotHost={got_host!r}, expected cluster-0 endpoint "
+            f"{expected_by_idx[ci]!r} (both mongos share one additionalMongodConfig → single path)"
+        )
+        assert got_idx_mgmt == expected_by_idx[ci], (
+            f"[{mcc.cluster_name}] mongos searchIndexManagementHostAndPort={got_idx_mgmt!r}, "
+            f"expected cluster-0 endpoint {expected_by_idx[ci]!r}"
+        )
+        logger.info(f"[{mcc.cluster_name}] mongos mongotHost={got_host} (cluster-0 single-path confirmed)")
+
+
+@mark.e2e_search_simulated_mc_sharded_basic
+def test_cross_cluster_isolation_absence(
+    namespace: str,
+    per_cluster_mdbs_search: List[Tuple[MultiClusterClient, MongoDBSearch]],
+):
+    """Each cluster must NOT contain the OTHER cluster's per-(cluster,shard) Search resources.
+    Confirms each simulated operator only materialises its own LocalizeToCluster slice.
+    """
+    assert_per_cluster_count(per_cluster_mdbs_search)
+    shard_names = [f"{MDB_RESOURCE_NAME}-{shard_idx}" for shard_idx in range(SHARD_COUNT)]
+    indices = [_idx(mcc) for mcc, _ in per_cluster_mdbs_search]
+    for mcc, _mdbs in per_cluster_mdbs_search:
+        this_idx = _idx(mcc)
+        for foreign_idx in indices:
+            if foreign_idx == this_idx:
+                continue
+            assert_foreign_resources_absent(
+                mcc,
+                MDBS_RESOURCE_NAME,
+                foreign_idx,
+                namespace,
+                sharded=True,
+                shard_names=shard_names,
+            )
+
+
+@mark.e2e_search_simulated_mc_sharded_basic
+def test_state_configmap_mapping_persisted(
+    namespace: str,
+    per_cluster_mdbs_search: List[Tuple[MultiClusterClient, MongoDBSearch]],
+):
+    """Each cluster's `{mdbs}-state` ConfigMap pins clusterMapping[thisCluster]==thisIndex.
+
+    Simulated-MC narrows spec.clusters[] to the local slice (LocalizeToCluster) before
+    persisting, so the mapping is LOCAL: it holds this cluster's entry only and must NOT
+    leak the foreign cluster's name. This is the per-cluster index-pinning source of truth.
+    """
+    assert_per_cluster_count(per_cluster_mdbs_search)
+    names = {mcc.cluster_name for mcc, _ in per_cluster_mdbs_search}
+    for mcc, _mdbs in per_cluster_mdbs_search:
+        mapping = read_state_configmap_mapping(mcc, MDBS_RESOURCE_NAME, namespace)
+        assert mapping.get(mcc.cluster_name) == _idx(mcc), (
+            f"[{mcc.cluster_name}] state clusterMapping[{mcc.cluster_name!r}]={mapping.get(mcc.cluster_name)!r}, "
+            f"want {_idx(mcc)}"
+        )
+        for other in names - {mcc.cluster_name}:
+            assert other not in mapping, (
+                f"[{mcc.cluster_name}] state clusterMapping leaked foreign cluster {other!r}: {mapping} — "
+                f"simulated-MC operators persist a LOCAL-only mapping"
+            )
+        logger.info(f"[{mcc.cluster_name}] persisted local clusterMapping={mapping}")
