@@ -75,6 +75,10 @@ type VoyageAISpec struct {
 	// +optional
 	Security Security `json:"security,omitempty"`
 
+	// Metrics configures the Prometheus metrics endpoint exposed by the server.
+	// +optional
+	Metrics *MetricsConfig `json:"metrics,omitempty"`
+
 	// DataParallel configures data parallel processing settings.
 	// +optional
 	DataParallel DataParallelConfig `json:"dataParallel,omitempty"`
@@ -118,6 +122,35 @@ type ServerConfig struct {
 	// +kubebuilder:validation:Minimum=0
 	// +kubebuilder:default=50
 	MaxRequestsJitter int32 `json:"maxRequestsJitter,omitempty"`
+}
+
+// MetricsConfig configures the Prometheus metrics endpoint exposed by the VoyageAI server.
+type MetricsConfig struct {
+	// Enabled controls whether the Prometheus metrics endpoint is active.
+	// Maps to SERVER__METRICS__ENABLED.
+	//
+	// +optional
+	// +kubebuilder:default=true
+	Enabled bool `json:"enabled,omitempty"`
+
+	// Path is the HTTP path at which Prometheus metrics are served on the main
+	// inference port.
+	// Maps to SERVER__METRICS__PATH.
+	//
+	// +optional
+	// +kubebuilder:default=/metrics
+	Path string `json:"path,omitempty"`
+
+	// Port is an optional dedicated TCP port for a second Prometheus HTTP server
+	// (e.g. 9090). When set, the server binds a separate HTTP server on this port
+	// in addition to the metrics endpoint on the main port.
+	// When absent (nil), no dedicated metrics port is opened.
+	// Maps to SERVER__METRICS__PORT.
+	//
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=65535
+	Port *int32 `json:"port,omitempty"`
 }
 
 type Security struct {

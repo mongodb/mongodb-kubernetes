@@ -164,6 +164,35 @@ spec:
                     format: int32
                     type: integer
                 type: object
+              metrics:
+                description: Metrics configures the Prometheus metrics endpoint exposed
+                  by the server.
+                properties:
+                  enabled:
+                    default: true
+                    description: |-
+                      Enabled controls whether the Prometheus metrics endpoint is active.
+                      Maps to SERVER__METRICS__ENABLED.
+                    type: boolean
+                  path:
+                    default: /metrics
+                    description: |-
+                      Path is the HTTP path at which Prometheus metrics are served on the main
+                      inference port.
+                      Maps to SERVER__METRICS__PATH.
+                    type: string
+                  port:
+                    description: |-
+                      Port is an optional dedicated TCP port for a second Prometheus HTTP server
+                      (e.g. 9090). When set, the server binds a separate HTTP server on this port
+                      in addition to the metrics endpoint on the main port.
+                      When absent (nil), no dedicated metrics port is opened.
+                      Maps to SERVER__METRICS__PORT.
+                    format: int32
+                    maximum: 65535
+                    minimum: 1
+                    type: integer
+                type: object
               model:
                 description: Model is the VoyageAI model to deploy.
                 enum:

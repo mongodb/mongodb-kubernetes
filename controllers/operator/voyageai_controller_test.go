@@ -451,6 +451,109 @@ func TestBuildEnvVars_WithDataParallel(t *testing.T) {
 	assert.Equal(t, "30.0", envMap["DATA_PARALLEL__HEALTH_MONITORING__RESTART_COOLDOWN"])
 }
 
+func TestBuildEnvVars_Metrics_Defaults(t *testing.T) {
+	spec := &vaiv1.VoyageAISpec{
+		Metrics: &vaiv1.MetricsConfig{
+			Enabled: true,
+			Path:    "/metrics",
+		},
+	}
+	envs := buildEnvVars(spec, false)
+	envMap := make(map[string]string)
+	for _, e := range envs {
+		envMap[e.Name] = e.Value
+	}
+
+	assert.Equal(t, "true", envMap["SERVER__METRICS__ENABLED"])
+	assert.Equal(t, "/metrics", envMap["SERVER__METRICS__PATH"])
+	_, hasPort := envMap["SERVER__METRICS__PORT"]
+	assert.False(t, hasPort, "SERVER__METRICS__PORT should be absent when Port is nil")
+}
+
+func TestBuildEnvVars_Metrics_DedicatedPort(t *testing.T) {
+	metricsPort := int32(9090)
+	spec := &vaiv1.VoyageAISpec{
+		Metrics: &vaiv1.MetricsConfig{
+			Enabled: true,
+			Path:    "/metrics",
+			Port:    &metricsPort,
+		},
+	}
+	envs := buildEnvVars(spec, false)
+	envMap := make(map[string]string)
+	for _, e := range envs {
+		envMap[e.Name] = e.Value
+	}
+
+	assert.Equal(t, "true", envMap["SERVER__METRICS__ENABLED"])
+	assert.Equal(t, "/metrics", envMap["SERVER__METRICS__PATH"])
+	assert.Equal(t, "9090", envMap["SERVER__METRICS__PORT"])
+}
+
+func TestBuildEnvVars_Metrics_Disabled(t *testing.T) {
+	spec := &vaiv1.VoyageAISpec{
+		Metrics: &vaiv1.MetricsConfig{
+			Enabled: false,
+			Path:    "/metrics",
+		},
+	}
+	envs := buildEnvVars(spec, false)
+	envMap := make(map[string]string)
+	for _, e := range envs {
+		envMap[e.Name] = e.Value
+	}
+
+	assert.Equal(t, "false", envMap["SERVER__METRICS__ENABLED"])
+}
+
+func TestBuildEnvVars_Metrics_Nil(t *testing.T) {
+	spec := &vaiv1.VoyageAISpec{}
+	envs := buildEnvVars(spec, false)
+	envMap := make(map[string]string)
+	for _, e := range envs {
+		envMap[e.Name] = e.Value
+	}
+
+	_, hasEnabled := envMap["SERVER__METRICS__ENABLED"]
+	assert.False(t, hasEnabled, "SERVER__METRICS__ENABLED should be absent when Metrics is nil")
+	_, hasPath := envMap["SERVER__METRICS__PATH"]
+	assert.False(t, hasPath, "SERVER__METRICS__PATH should be absent when Metrics is nil")
+	_, hasPort := envMap["SERVER__METRICS__PORT"]
+	assert.False(t, hasPort, "SERVER__METRICS__PORT should be absent when Metrics is nil")
+}
+
+func TestVoyageAI_Metrics_DedicatedPort_ContainerAndService(t *testing.T) {
+	ctx := context.Background()
+	metricsPort := int32(9090)
+	vai := newVoyageAI("vai", mock.TestNamespace, vaiv1.VoyageAIModelVoyage4, "1.0.0")
+	vai.Spec.Server.Port = 8080
+	vai.Spec.Metrics = &vaiv1.MetricsConfig{
+		Enabled: true,
+		Path:    "/metrics",
+		Port:    &metricsPort,
+	}
+	reconciler, c := newVoyageAIReconcilerWithConfig(defaultVoyageAIConfig(), vai)
+
+	_, err := reconcileVoyageAI(ctx, t, reconciler, vai.Name, vai.Namespace)
+	require.NoError(t, err)
+
+	dep := getVoyageAIDeployment(ctx, t, c, vai)
+	cont := getVoyageAIContainer(dep)
+
+	require.Len(t, cont.Ports, 2)
+	assert.Equal(t, int32(8080), cont.Ports[0].ContainerPort)
+	assert.Equal(t, "http", cont.Ports[0].Name)
+	assert.Equal(t, int32(9090), cont.Ports[1].ContainerPort)
+	assert.Equal(t, "metrics", cont.Ports[1].Name)
+
+	svc := getVoyageAIService(ctx, t, c, vai)
+	require.Len(t, svc.Spec.Ports, 2)
+	assert.Equal(t, int32(8080), svc.Spec.Ports[0].Port)
+	assert.Equal(t, "http", svc.Spec.Ports[0].Name)
+	assert.Equal(t, int32(9090), svc.Spec.Ports[1].Port)
+	assert.Equal(t, "metrics", svc.Spec.Ports[1].Name)
+}
+
 func TestBuildEnvVars_HealthMonitoring_EnableActiveChecks_Nil(t *testing.T) {
 	spec := &vaiv1.VoyageAISpec{
 		DataParallel: vaiv1.DataParallelConfig{

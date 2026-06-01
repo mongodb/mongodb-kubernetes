@@ -125,12 +125,21 @@ func (r *VoyageAIReconciler) ensureDeployment(ctx context.Context, vai *vaiv1.Vo
 		probeScheme = corev1.URISchemeHTTPS
 	}
 
+	containerPorts := []corev1.ContainerPort{
+		{Name: "http", ContainerPort: vai.Spec.Server.Port, Protocol: corev1.ProtocolTCP},
+	}
+	if vai.Spec.Metrics != nil && vai.Spec.Metrics.Port != nil {
+		containerPorts = append(containerPorts, corev1.ContainerPort{
+			Name:          "metrics",
+			ContainerPort: *vai.Spec.Metrics.Port,
+			Protocol:      corev1.ProtocolTCP,
+		})
+	}
+
 	containerMods := []container.Modification{
 		container.WithName("voyageai"),
 		container.WithImage(image),
-		container.WithPorts([]corev1.ContainerPort{
-			{Name: "http", ContainerPort: vai.Spec.Server.Port, Protocol: corev1.ProtocolTCP},
-		}),
+		container.WithPorts(containerPorts),
 		container.WithEnvs(buildEnvVars(&vai.Spec, tlsEnabled)...),
 		container.WithResourceRequirements(buildResourceRequirements(vai.Spec.ResourceRequirements)),
 		container.WithStartupProbe(probes.Apply(
@@ -141,6 +150,11 @@ func (r *VoyageAIReconciler) ensureDeployment(ctx context.Context, vai *vaiv1.Vo
 					Scheme: probeScheme,
 				},
 			}),
+			// GPU model weights can take many minutes to load into device memory.
+			// 60 failures × 10s period = 10 minutes before Kubernetes gives up.
+			probes.WithPeriodSeconds(10),
+			probes.WithFailureThreshold(60),
+			probes.WithTimeoutSeconds(5),
 		)),
 		container.WithReadinessProbe(probes.Apply(
 			probes.WithHandler(corev1.ProbeHandler{
@@ -150,6 +164,9 @@ func (r *VoyageAIReconciler) ensureDeployment(ctx context.Context, vai *vaiv1.Vo
 					Scheme: probeScheme,
 				},
 			}),
+			probes.WithPeriodSeconds(10),
+			probes.WithFailureThreshold(3),
+			probes.WithTimeoutSeconds(5),
 		)),
 		container.WithLivenessProbe(probes.Apply(
 			probes.WithHandler(corev1.ProbeHandler{
@@ -159,6 +176,9 @@ func (r *VoyageAIReconciler) ensureDeployment(ctx context.Context, vai *vaiv1.Vo
 					Scheme: probeScheme,
 				},
 			}),
+			probes.WithPeriodSeconds(10),
+			probes.WithFailureThreshold(3),
+			probes.WithTimeoutSeconds(5),
 		)),
 	}
 
@@ -270,6 +290,18 @@ func buildEnvVars(spec *vaiv1.VoyageAISpec, tlsEnabled bool) []corev1.EnvVar {
 		)
 	}
 
+	// Metrics config
+	if spec.Metrics != nil {
+		m := spec.Metrics
+		envs = append(envs,
+			corev1.EnvVar{Name: "SERVER__METRICS__ENABLED", Value: strconv.FormatBool(m.Enabled)},
+			corev1.EnvVar{Name: "SERVER__METRICS__PATH", Value: m.Path},
+		)
+		if m.Port != nil {
+			envs = append(envs, corev1.EnvVar{Name: "SERVER__METRICS__PORT", Value: int32ToString(*m.Port)})
+		}
+	}
+
 	// DataParallel config
 	if spec.DataParallel.Enabled {
 		dp := spec.DataParallel
@@ -340,7 +372,7 @@ func buildResourceRequirements(userReqs *corev1.ResourceRequirements) corev1.Res
 }
 
 func (r *VoyageAIReconciler) ensureService(ctx context.Context, vai *vaiv1.VoyageAI, log *zap.SugaredLogger) error {
-	desired := service.Builder().
+	svcBuilder := service.Builder().
 		SetName(vai.Name + "-svc").
 		SetNamespace(vai.Namespace).
 		SetLabels(voyageAILabels(vai)).
@@ -351,8 +383,16 @@ func (r *VoyageAIReconciler) ensureService(ctx context.Context, vai *vaiv1.Voyag
 			Port:       vai.Spec.Server.Port,
 			TargetPort: intstr.FromInt32(vai.Spec.Server.Port),
 			Protocol:   corev1.ProtocolTCP,
-		}).
-		Build()
+		})
+	if vai.Spec.Metrics != nil && vai.Spec.Metrics.Port != nil {
+		svcBuilder = svcBuilder.AddPort(&corev1.ServicePort{
+			Name:       "metrics",
+			Port:       *vai.Spec.Metrics.Port,
+			TargetPort: intstr.FromInt32(*vai.Spec.Metrics.Port),
+			Protocol:   corev1.ProtocolTCP,
+		})
+	}
+	desired := svcBuilder.Build()
 
 	svc := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
