@@ -21,16 +21,10 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from typing import Optional
+from typing import Callable, Optional
 
 import pymongo.errors
-
-from tests.common.search.connectivity import (
-    ConnectivityVerdict,
-    QueryResult,
-    SearchConnectivityTool,
-    classify_failure,
-)
+from tests.common.search.connectivity import ConnectivityVerdict, QueryResult, SearchConnectivityTool, classify_failure
 
 logger = logging.getLogger(__name__)
 
@@ -280,3 +274,114 @@ def assert_outage_detected(
             f"verdict did not surface a {' or '.join(accept)} failure — "
             f"the background tester missed the fault. verdict={verdict.as_dict()}"
         )
+
+
+class MultiClusterAvailabilityFleet:
+    """A oneshot + paging background tester per member cluster, each pinned to that
+    cluster via ``tester_factory``. Under a single-cluster fault the faulted cluster must
+    surface an outage in both modes while the others keep serving. ``paging_reset_every``
+    forces periodic cursor reopens so a sustained outage faults the paging testers
+    promptly. Use as a context manager.
+    """
+
+    def __init__(
+        self,
+        tester_factory: Callable[[int], SearchConnectivityTool],
+        cluster_indexes: list[int],
+        *,
+        modes: tuple[str, ...] = ("oneshot", "paging"),
+        interval_seconds: float = 0.2,
+        paging_batch_size: int = 5,
+        paging_reset_every: int = 50000,
+    ) -> None:
+        if not cluster_indexes:
+            raise ValueError("cluster_indexes must be non-empty")
+        if not modes:
+            raise ValueError("modes must be non-empty")
+        self.cluster_indexes = list(cluster_indexes)
+        self.modes = tuple(modes)
+        # Keyed by (cluster_index, mode); tester_factory is called once per tester so
+        # each owns its own pinned connection.
+        self._testers: dict[tuple[int, str], SearchAvailabilityBackgroundTester] = {
+            (idx, mode): SearchAvailabilityBackgroundTester(
+                tester_factory(idx),
+                mode=mode,
+                interval_seconds=interval_seconds,
+                paging_batch_size=paging_batch_size,
+                paging_reset_every=(paging_reset_every if mode == "paging" else None),
+            )
+            for idx in self.cluster_indexes
+            for mode in self.modes
+        }
+
+    def __enter__(self) -> "MultiClusterAvailabilityFleet":
+        for tester in self._testers.values():
+            tester.start()
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        for tester in self._testers.values():
+            tester.stop()
+        for tester in self._testers.values():
+            tester.join(timeout=10)
+            if tester.is_alive():
+                logger.warning("fleet background tester did not exit within 10s")
+
+    def tester(self, cluster_index: int, mode: str) -> SearchAvailabilityBackgroundTester:
+        return self._testers[(cluster_index, mode)]
+
+    def verdict(self, cluster_index: int, mode: str) -> ConnectivityVerdict:
+        return self._testers[(cluster_index, mode)].verdict
+
+    def wait_for_operations_all(self, count: int, *, timeout: float = 240.0) -> None:
+        """Block until every (cluster, mode) tester records ``count`` more operations."""
+        since = {key: tester.operations_count for key, tester in self._testers.items()}
+        for key, tester in self._testers.items():
+            tester.wait_for_operations(count, since=since[key], timeout=timeout)
+
+    def assert_single_cluster_outage(
+        self,
+        faulted_index: int,
+        *,
+        oneshot_accept: tuple[str, ...] = ("transient_network",),
+        min_survivor_operations: int = 5,
+    ) -> None:
+        """The faulted cluster surfaces the outage on NEW queries (oneshot mode); every
+        other cluster stays available in all modes across the whole window.
+
+        Paging mode on the faulted cluster is deliberately NOT required to fault: a sharded
+        (and RS) ``$search`` aggregation cursor is materialized in mongod at establishment —
+        mongod eagerly drains mongot's result and closes the mongot stream before the client's
+        first getMore — so an already-open paging cursor rides through a mongot outage and
+        keeps serving from mongod's buffer. Only a *new* ``$search`` (oneshot, or a paging
+        reopen) needs mongot. Requiring the established paging cursor to fault would contradict
+        that proven behavior; we log its verdict for visibility instead.
+        """
+        if "oneshot" not in self.modes:
+            raise AssertionError("assert_single_cluster_outage needs a 'oneshot' tester to detect the fault")
+        faulted_oneshot = self.verdict(faulted_index, "oneshot")
+        logger.info(f"fleet: faulted cluster {faulted_index} [oneshot] verdict={faulted_oneshot.as_dict()}")
+        assert_outage_detected(faulted_oneshot, accept_classes=oneshot_accept)
+        if "paging" in self.modes:
+            faulted_paging = self.verdict(faulted_index, "paging")
+            logger.info(
+                f"fleet: faulted cluster {faulted_index} [paging] verdict={faulted_paging.as_dict()} "
+                f"— established cursor rides through the mongot outage (eager-drain), as expected"
+            )
+        for idx in self.cluster_indexes:
+            if idx == faulted_index:
+                continue
+            for mode in self.modes:
+                survivor_verdict = self.verdict(idx, mode)
+                logger.info(f"fleet: survivor cluster {idx} [{mode}] verdict={survivor_verdict.as_dict()}")
+                assert_no_outage(survivor_verdict, min_operations=min_survivor_operations)
+
+    def assert_no_outage(self, *, min_operations: int = 5) -> None:
+        """Every (cluster, mode) tester stayed available across the whole window — no failed
+        op, records returned. Use when no fault (or only a benign op, e.g. a scale up/down)
+        was applied to the fleet. (Bare ``assert_no_outage`` below is the module function.)"""
+        for idx in self.cluster_indexes:
+            for mode in self.modes:
+                verdict = self.verdict(idx, mode)
+                logger.info(f"fleet: cluster {idx} [{mode}] verdict={verdict.as_dict()}")
+                assert_no_outage(verdict, min_operations=min_operations)
