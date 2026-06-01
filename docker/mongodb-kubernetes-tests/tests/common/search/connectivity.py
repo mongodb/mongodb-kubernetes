@@ -481,12 +481,15 @@ def wait_for_pods_by_label_replaced(
     label_selector: str,
     original_uids: dict[str, str],
     *,
+    api_client: Optional[client.ApiClient] = None,
     expected: Optional[int] = None,
     timeout: int = 180,
 ) -> None:
     """Wait until label-matching pods have uids NOT in ``original_uids`` AND Ready=True.
 
     Use for Deployment pods where replacements get fresh names — match by uid set.
+    ``api_client`` must target the cluster hosting the pods — for multi-cluster the
+    search pods live on the member clusters, not the operator/default cluster.
     """
     want = expected if expected is not None else len(original_uids)
     old_uid_set = set(original_uids.values())
@@ -494,7 +497,7 @@ def wait_for_pods_by_label_replaced(
     def check() -> tuple[bool, str]:
         live = [
             p
-            for p in list_matching_pods(namespace, label_selector=label_selector)
+            for p in list_matching_pods(namespace, label_selector=label_selector, api_client=api_client)
             if p.metadata.deletion_timestamp is None
         ]
         new = [p for p in live if p.metadata.uid not in old_uid_set]
@@ -511,11 +514,11 @@ def wait_for_pods_by_label_replaced(
 
 # MongoDBSearch reconcile + readiness-probe disruption helpers
 
-RESOURCE_DISABLED_ANNOTATION = "mongodb.com/resourceDisabled"
+DISABLE_RECONCILIATION_ANNOTATION = "mongodb.com/disable-reconciliation"
 
 
 def set_resource_disabled_annotation(mdbs, disabled: bool) -> None:
-    """Toggle ``mongodb.com/resourceDisabled`` on a MongoDBSearch CR.
+    """Toggle ``mongodb.com/disable-reconciliation`` on a MongoDBSearch CR.
 
     When ``true``, the reconciler stops mutating owned objects so destructive
     test patches survive.
@@ -524,13 +527,13 @@ def set_resource_disabled_annotation(mdbs, disabled: bool) -> None:
     metadata = mdbs["metadata"]
     annotations = metadata.get("annotations") or {}
     if disabled:
-        annotations[RESOURCE_DISABLED_ANNOTATION] = "true"
+        annotations[DISABLE_RECONCILIATION_ANNOTATION] = "true"
     else:
-        annotations.pop(RESOURCE_DISABLED_ANNOTATION, None)
+        annotations.pop(DISABLE_RECONCILIATION_ANNOTATION, None)
     metadata["annotations"] = annotations
     mdbs["metadata"] = metadata
     mdbs.update()
-    logger.info(f"{RESOURCE_DISABLED_ANNOTATION}={'true' if disabled else '<unset>'} on MongoDBSearch {mdbs.name}")
+    logger.info(f"{DISABLE_RECONCILIATION_ANNOTATION}={'true' if disabled else '<unset>'} on MongoDBSearch {mdbs.name}")
 
 
 def patch_mongot_readiness_probe_to_false(namespace: str, sts_name: str, container_name: str = "mongot") -> None:
@@ -583,7 +586,9 @@ def paging_baseline_and_fault(
     min_post_fault_docs: int = DEFAULT_POST_FAULT_DRAIN_FLOOR,
     baseline_interval_seconds: float = 0.1,
     post_fault_interval_seconds: float = 0.05,
+    post_fault_pages_read: int = 10,
     batch_size: int = 10,
+    baseline_batch_size: int = 10,
     fault_fn: Callable[[], None],
 ) -> tuple[list[QueryResult], list[QueryResult], "ConnectivityVerdict"]:
     """Open paging cursor → baseline → ``fault_fn()`` → drain post-fault.
@@ -592,19 +597,20 @@ def paging_baseline_and_fault(
     surfaces OR ``min_post_fault_docs`` is reached — we force the buffer to
     drain so the fault becomes observable.
     """
-    cursor = tool.paging_cursor_open(batch_size=batch_size)
+    cursor = tool.paging_cursor_open(batch_size=baseline_batch_size)
     try:
         baseline = tool.paging_cursor_read_pages(
             cursor,
             pages=baseline_pages,
             interval_seconds=baseline_interval_seconds,
-            batch_size=batch_size,
+            batch_size=baseline_batch_size,
             first_page_index=0,
         )
         logger.info("baseline pages: %s", "; ".join(str(p) for p in baseline))
         if not any(p.success and p.returned_count > 0 for p in baseline):
             raise AssertionError(f"baseline returned no docs; cannot exercise fault: {baseline}")
         fault_fn()
+        logger.info("fault executed")
 
         post: list[QueryResult] = []
         post_docs = 0
@@ -612,7 +618,7 @@ def paging_baseline_and_fault(
         while len(post) < max_post_fault_pages:
             batch = tool.paging_cursor_read_pages(
                 cursor,
-                pages=1,
+                pages=post_fault_pages_read,
                 interval_seconds=post_fault_interval_seconds,
                 batch_size=batch_size,
                 first_page_index=len(baseline) + len(post),
@@ -643,19 +649,46 @@ def paging_baseline_and_fault(
         cursor.close()
 
 
+def scale_mongot_statefulset(
+    sts_name: str,
+    namespace: str,
+    replicas: int,
+    *,
+    api_client: Optional[client.ApiClient] = None,
+) -> None:
+    """Set ONE mongot StatefulSet's replica count directly via the scale subresource.
+
+    Finer-grained than the operator's per-cluster ``spec.clusters[].replicas``: this
+    takes a single shard's mongot offline in a single cluster, so a oneshot ``$search``
+    fan-out hits a shard whose mongot is gone. Pair with
+    ``set_resource_disabled_annotation`` so the operator doesn't reconcile the replica
+    count back. ``api_client`` must target the cluster hosting the STS (mongot
+    StatefulSets live on the member clusters, not the operator/default cluster).
+    """
+    client.AppsV1Api(api_client=api_client).patch_namespaced_stateful_set_scale(
+        name=sts_name,
+        namespace=namespace,
+        body={"spec": {"replicas": replicas}},
+    )
+    logger.info(f"scaled mongot StatefulSet {sts_name} -> replicas={replicas}")
+
+
 def wait_for_mongot_statefulset_drained(
     sts_name: str,
     namespace: str,
     *,
+    api_client: Optional[client.ApiClient] = None,
     timeout: int = 180,
     sleep_time: int = 5,
 ) -> None:
     """Wait until the mongot StatefulSet has 0 ready replicas or is deleted.
 
     The reconciler deletes the STS entirely when ``spec.replicas`` drops to 0,
-    so a 404 from the API is the terminal state.
+    so a 404 from the API is the terminal state. ``api_client`` must target the
+    cluster that hosts the STS — for multi-cluster the mongot StatefulSets live
+    on the member clusters, not the operator/default cluster.
     """
-    apps_v1 = client.AppsV1Api()
+    apps_v1 = client.AppsV1Api(api_client=api_client)
 
     def drained() -> tuple[bool, str]:
         try:
@@ -720,4 +753,3 @@ def assert_disruption_observed(
         raise AssertionError(
             f"{ctx}no disruption observed: cursor_lost=0 transient_network=0; verdict={verdict.as_dict()}"
         )
-

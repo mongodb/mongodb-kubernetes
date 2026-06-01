@@ -178,7 +178,7 @@ func TestMongoDBSearchReconcile_MissingSource(t *testing.T) {
 	assert.True(t, res.RequeueAfter > 0)
 }
 
-func TestMongoDBSearchReconcile_ResourceDisabledAnnotation_SkipsReconcile(t *testing.T) {
+func TestMongoDBSearchReconcile_DisableReconciliationAnnotation_SkipsReconcile(t *testing.T) {
 	ctx := context.Background()
 
 	// CR is annotated disabled but has a missing source — without the
@@ -186,7 +186,7 @@ func TestMongoDBSearchReconcile_ResourceDisabledAnnotation_SkipsReconcile(t *tes
 	// short-circuit must return Result{} + nil without touching status.
 	search := newMongoDBSearch("search", mock.TestNamespace, "missing-source")
 	search.Annotations = map[string]string{
-		searchv1.ResourceDisabledAnnotation: "true",
+		searchv1.DisableReconciliationAnnotation: "true",
 	}
 	reconciler, c := newSearchReconciler(nil, search)
 
@@ -206,7 +206,7 @@ func TestMongoDBSearchReconcile_ResourceDisabledAnnotation_SkipsReconcile(t *tes
 
 	// No StatefulSet was created either.
 	sts := &appsv1.StatefulSet{}
-	err = c.Get(ctx, search.StatefulSetNamespacedName(), sts)
+	err = c.Get(ctx, search.StatefulSetNamespacedNameForCluster(0), sts)
 	assert.True(t, apiErrors.IsNotFound(err), "no StatefulSet should be created when reconciliation is disabled, got err=%v", err)
 }
 
@@ -244,7 +244,7 @@ func TestMongoDBSearchReconcile_Success(t *testing.T) {
 			checkSearchReconcileSuccessful(ctx, t, reconciler, c, search)
 
 			svc := &corev1.Service{}
-			err := c.Get(ctx, search.SearchServiceNamespacedName(), svc)
+			err := c.Get(ctx, search.SearchServiceNamespacedNameForCluster(0), svc)
 			assert.NoError(t, err)
 			servicePortNames := []string{}
 			for _, port := range svc.Spec.Ports {
@@ -257,7 +257,7 @@ func TestMongoDBSearchReconcile_Success(t *testing.T) {
 			assert.ElementsMatch(t, expectedPortNames, servicePortNames)
 
 			cm := &corev1.ConfigMap{}
-			err = c.Get(ctx, search.MongotConfigConfigMapNamespacedName(), cm)
+			err = c.Get(ctx, search.MongotConfigConfigMapNameForCluster(0), cm)
 			assert.NoError(t, err)
 			expectedConfig := buildExpectedMongotConfig(search, mdbc)
 			configYaml, err := yaml.Marshal(expectedConfig)
@@ -269,7 +269,7 @@ func TestMongoDBSearchReconcile_Success(t *testing.T) {
 			assert.Equal(t, operatorConfig.SearchVersion, updatedSearch.Status.Version)
 
 			sts := &appsv1.StatefulSet{}
-			err = c.Get(ctx, search.StatefulSetNamespacedName(), sts)
+			err = c.Get(ctx, search.StatefulSetNamespacedNameForCluster(0), sts)
 			assert.NoError(t, err)
 		})
 	}

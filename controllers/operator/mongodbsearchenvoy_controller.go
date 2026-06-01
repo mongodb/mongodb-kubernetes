@@ -331,7 +331,7 @@ func buildRoutes(search *searchv1.MongoDBSearch, source searchcontroller.SearchS
 	if shardedSource, ok := source.(searchcontroller.SearchSourceShardedDeployment); ok {
 		return buildShardRoutes(search, shardedSource.GetShardNames(), 0, "")
 	}
-	return []envoyRoute{buildReplicaSetRoute(search)}
+	return []envoyRoute{buildReplicaSetRouteForCluster(search, 0, "")}
 }
 
 // buildShardRoutes builds per-shard routes plus one cluster-level route for a single cluster.
@@ -390,26 +390,6 @@ func buildShardRoutes(search *searchv1.MongoDBSearch, shardNames []string, clust
 	})
 
 	return routes
-}
-
-// buildReplicaSetRoute returns the single route for a ReplicaSet.
-func buildReplicaSetRoute(search *searchv1.MongoDBSearch) envoyRoute {
-	sniServiceName := search.ProxyServiceNamespacedName().Name
-	mongotServiceName := search.SearchServiceNamespacedName().Name
-	namespace := search.Namespace
-
-	sniHostname := fmt.Sprintf("%s.%s.svc.cluster.local", sniServiceName, namespace)
-	if endpoint := search.GetManagedLBEndpoint(); endpoint != "" {
-		sniHostname = endpoint
-	}
-
-	return envoyRoute{
-		Name:          "rs",
-		NameSafe:      "rs",
-		SNIHostname:   sniHostname,
-		UpstreamHosts: []string{fmt.Sprintf("%s.%s.svc.cluster.local", mongotServiceName, namespace)},
-		UpstreamPort:  search.GetMongotGrpcPort(),
-	}
 }
 
 // buildRoutesForCluster returns the Envoy routes for one member cluster.
@@ -657,7 +637,7 @@ func buildEnvoyPodSpec(search *searchv1.MongoDBSearch, clusterIndex int, tlsCfg 
 					"--log-format", `{"time":"%Y-%m-%dT%H:%M:%S.%e%z","level":"%l","logger":"%n","thread":%t,"loc":"%g:%#","message":"%j"}`,
 				},
 				Ports: []corev1.ContainerPort{
-					{Name: "grpc", ContainerPort: searchv1.EnvoyDefaultProxyPort},
+					{Name: "mongot-grpc", ContainerPort: searchv1.EnvoyDefaultProxyPort},
 					{Name: "admin", ContainerPort: EnvoyAdminPort},
 				},
 				Resources:       resources,
