@@ -1013,6 +1013,10 @@ func TestReconcile_SimulatedMC_ClusterIndexEnforcement(t *testing.T) {
 		require.NoError(t, c.Get(ctx, req.NamespacedName, got))
 		require.Equal(t, status.PhaseFailed, got.Status.Phase,
 			"missing clusterIndex must surface as Failed phase, got %q (msg=%q)", got.Status.Phase, got.Status.Message)
+		// workflow.Invalid capitalizes the first char, so match on the stable substring.
+		assert.Contains(t, got.Status.Message,
+			"multi-cluster mode requires clusterIndex on every spec.clusters[] entry (missing on",
+			"failure must come from ValidateSimulatedMCClusterIndices")
 	})
 
 	t.Run("empty clusters is Invalid", func(t *testing.T) {

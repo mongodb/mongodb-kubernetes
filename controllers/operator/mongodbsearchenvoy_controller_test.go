@@ -1488,6 +1488,197 @@ func TestDeleteEnvoyResources_SkipsUnregisteredCluster(t *testing.T) {
 	}, zap.S())
 }
 
+// Cross-cluster worst-of aggregation: with the FAILING cluster ordered FIRST,
+// the top-level LB phase must still be Failed. Ordering the failure first is the
+// discriminator — a "worstPhase = last-seen-phase" regression would compute OK
+// (cluster b succeeds) and downgrade to Pending. Only proper worst-of
+// accumulation across clusters keeps it Failed. The single-cluster
+// TestReconcile_AllClustersFailed_TopLevelPhaseIsFailed cannot cover this.
+func TestEnvoyReconcile_MultiCluster_FailedFirstThenOK_AggregatesFailed(t *testing.T) {
+	ctx := context.Background()
+	scheme := envoyTestScheme(t)
+
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"},
+		Spec: searchv1.MongoDBSearchSpec{
+			Source: &searchv1.MongoDBSource{
+				ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{HostAndPorts: []string{"mongo-0:27017"}},
+			},
+			LoadBalancer: &searchv1.LoadBalancerConfig{
+				Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot-{clusterName}.example.com"},
+			},
+			// "a" first so the Failed phase is seen before the OK phase.
+			Clusters: &[]searchv1.ClusterSpec{{ClusterName: "a"}, {ClusterName: "b"}},
+		},
+	}
+	central := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&searchv1.MongoDBSearch{}).WithObjects(search).Build()
+	seedSearchStateCM(t, ctx, central, "mdb-search", "ns", map[string]int{"a": 0, "b": 1})
+
+	// Cluster "a" rejects every write → Failed; cluster "b" succeeds → OK.
+	memberA := failingWriteClient{Client: fake.NewClientBuilder().WithScheme(scheme).Build()}
+	memberB := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", map[string]client.Client{"a": memberA, "b": memberB}, "")
+
+	_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "mdb-search", Namespace: "ns"}})
+	require.NoError(t, err)
+
+	patched := &searchv1.MongoDBSearch{}
+	require.NoError(t, central.Get(ctx, types.NamespacedName{Name: "mdb-search", Namespace: "ns"}, patched))
+	require.NotNil(t, patched.Status.LoadBalancer)
+	assert.Equal(t, status.PhaseFailed, patched.Status.LoadBalancer.Phase,
+		"a Failed + b OK must aggregate to top-level Failed regardless of cluster order")
+}
+
+// --- simulated-MC Reconcile() coverage (operatorClusterName != "") ------------
+
+// Simulated-MC: when the operator's cluster is NOT listed in spec.clusters[],
+// LocalizeToCluster returns false and Reconcile is a silent no-op — no Envoy
+// resources created anywhere, LB status untouched.
+func TestEnvoyReconcile_SimulatedMC_NoMatchSilentNoOp(t *testing.T) {
+	ctx := context.Background()
+	scheme := envoyTestScheme(t)
+
+	idx0, idx1 := int32(0), int32(1)
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"},
+		Spec: searchv1.MongoDBSearchSpec{
+			Source: &searchv1.MongoDBSource{
+				ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{HostAndPorts: []string{"mongo-0:27017"}},
+			},
+			LoadBalancer: &searchv1.LoadBalancerConfig{
+				Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot-{clusterName}.example.com"},
+			},
+			// Both entries pinned so ValidateSimulatedMCClusterIndices passes and the
+			// no-op is attributable to LocalizeToCluster (not validation).
+			Clusters: &[]searchv1.ClusterSpec{
+				{ClusterName: "cluster-a", ClusterIndex: &idx0},
+				{ClusterName: "cluster-b", ClusterIndex: &idx1},
+			},
+		},
+	}
+	central := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&searchv1.MongoDBSearch{}).WithObjects(search).Build()
+
+	// operatorClusterName="cluster-c" — NOT in spec.clusters[].
+	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", nil, "cluster-c")
+
+	res, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "mdb-search", Namespace: "ns"}})
+	require.NoError(t, err)
+	assert.Equal(t, reconcile.Result{}, res, "no-match reconcile must return zero Result with no error")
+
+	// No Envoy Deployment / ConfigMap at any index on the central client.
+	for _, i := range []int{0, 1, 2} {
+		assert.True(t, apierrors.IsNotFound(central.Get(ctx,
+			types.NamespacedName{Name: search.LoadBalancerDeploymentNameForCluster(i), Namespace: "ns"}, &appsv1.Deployment{})),
+			"Envoy Deployment at index %d must not exist", i)
+		assert.True(t, apierrors.IsNotFound(central.Get(ctx,
+			types.NamespacedName{Name: search.LoadBalancerConfigMapNameForCluster(i), Namespace: "ns"}, &corev1.ConfigMap{})),
+			"Envoy ConfigMap at index %d must not exist", i)
+	}
+
+	// LB status untouched: the no-op returns before any status patch.
+	patched := &searchv1.MongoDBSearch{}
+	require.NoError(t, central.Get(ctx, types.NamespacedName{Name: "mdb-search", Namespace: "ns"}, patched))
+	assert.Nil(t, patched.Status.LoadBalancer, "no-match reconcile must not write loadBalancer status")
+}
+
+// Simulated-MC: a spec.clusters[] entry missing its ClusterIndex must fail
+// validation BEFORE LocalizeToCluster, surfacing on status.loadBalancer with the
+// exact ValidateSimulatedMCClusterIndices message.
+func TestEnvoyReconcile_SimulatedMC_MissingClusterIndex_Invalid(t *testing.T) {
+	ctx := context.Background()
+	scheme := envoyTestScheme(t)
+
+	idx0 := int32(0)
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"},
+		Spec: searchv1.MongoDBSearchSpec{
+			Source: &searchv1.MongoDBSource{
+				ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{HostAndPorts: []string{"mongo-0:27017"}},
+			},
+			LoadBalancer: &searchv1.LoadBalancerConfig{
+				Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot-{clusterName}.example.com"},
+			},
+			Clusters: &[]searchv1.ClusterSpec{
+				{ClusterName: "cluster-a", ClusterIndex: &idx0},
+				{ClusterName: "cluster-b"}, // missing ClusterIndex
+			},
+		},
+	}
+	central := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&searchv1.MongoDBSearch{}).WithObjects(search).Build()
+
+	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", nil, "cluster-a")
+
+	_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "mdb-search", Namespace: "ns"}})
+	require.NoError(t, err, "workflow.Invalid returns nil error; assert via status.loadBalancer")
+
+	patched := &searchv1.MongoDBSearch{}
+	require.NoError(t, central.Get(ctx, types.NamespacedName{Name: "mdb-search", Namespace: "ns"}, patched))
+	require.NotNil(t, patched.Status.LoadBalancer, "Envoy controller must write loadBalancer status on validation failure")
+	assert.Equal(t, status.PhaseFailed, patched.Status.LoadBalancer.Phase,
+		"missing clusterIndex must surface as Failed on loadBalancer status")
+	// workflow.Invalid capitalizes the first char, so match on the stable substring.
+	assert.Contains(t, patched.Status.LoadBalancer.Message,
+		"multi-cluster mode requires clusterIndex on every spec.clusters[] entry (missing on",
+		"message must come from ValidateSimulatedMCClusterIndices")
+}
+
+// Simulated-MC dual-index fix through the FULL Envoy Reconcile: operator's
+// cluster is pinned to a NON-ZERO index (7), memberClusterClientsMap is empty
+// (so the work item falls back to kubeClient), state CM carries {cluster-b:7}.
+// The Envoy Deployment + ConfigMap must render at the index-7 name, nothing at 0.
+func TestEnvoyReconcile_SimulatedMC_Match_RendersAtPinnedIndex(t *testing.T) {
+	ctx := context.Background()
+	scheme := envoyTestScheme(t)
+
+	idx0, idx7 := int32(0), int32(7)
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"},
+		Spec: searchv1.MongoDBSearchSpec{
+			Source: &searchv1.MongoDBSource{
+				ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{HostAndPorts: []string{"mongo-0:27017"}},
+			},
+			LoadBalancer: &searchv1.LoadBalancerConfig{
+				Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot-{clusterName}.example.com"},
+			},
+			Clusters: &[]searchv1.ClusterSpec{
+				{ClusterName: "cluster-a", ClusterIndex: &idx0},
+				{ClusterName: "cluster-b", ClusterIndex: &idx7},
+			},
+		},
+	}
+	central := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&searchv1.MongoDBSearch{}).WithObjects(search).Build()
+	seedSearchStateCM(t, ctx, central, "mdb-search", "ns", map[string]int{"cluster-b": 7})
+
+	// memberClusterClientsMap empty: simulated-MC falls back to kubeClient (= central).
+	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", nil, "cluster-b")
+
+	_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "mdb-search", Namespace: "ns"}})
+	require.NoError(t, err)
+
+	patched := &searchv1.MongoDBSearch{}
+	require.NoError(t, central.Get(ctx, types.NamespacedName{Name: "mdb-search", Namespace: "ns"}, patched))
+	require.NotNil(t, patched.Status.LoadBalancer)
+	assert.Equal(t, status.PhaseRunning, patched.Status.LoadBalancer.Phase,
+		"pinned-index reconcile should succeed; got msg=%q", patched.Status.LoadBalancer.Message)
+
+	// Resources rendered at the pinned index 7 on the central (kubeClient) client.
+	require.NoError(t, central.Get(ctx,
+		types.NamespacedName{Name: search.LoadBalancerDeploymentNameForCluster(7), Namespace: "ns"}, &appsv1.Deployment{}),
+		"Envoy Deployment must render at pinned index 7")
+	require.NoError(t, central.Get(ctx,
+		types.NamespacedName{Name: search.LoadBalancerConfigMapNameForCluster(7), Namespace: "ns"}, &corev1.ConfigMap{}),
+		"Envoy ConfigMap must render at pinned index 7")
+
+	// Nothing at index 0 — the array-position index must not leak through.
+	assert.True(t, apierrors.IsNotFound(central.Get(ctx,
+		types.NamespacedName{Name: search.LoadBalancerDeploymentNameForCluster(0), Namespace: "ns"}, &appsv1.Deployment{})),
+		"no Envoy Deployment may render at array-position index 0")
+	assert.True(t, apierrors.IsNotFound(central.Get(ctx,
+		types.NamespacedName{Name: search.LoadBalancerConfigMapNameForCluster(0), Namespace: "ns"}, &corev1.ConfigMap{})),
+		"no Envoy ConfigMap may render at array-position index 0")
+}
+
 // failingWriteClient wraps a client.Client and rejects every write so we can
 // simulate a per-cluster Failed status without needing a real envtest.
 type failingWriteClient struct {

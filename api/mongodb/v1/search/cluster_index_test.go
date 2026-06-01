@@ -87,6 +87,15 @@ func TestAssignClusterIndices(t *testing.T) {
 			current:  []ClusterSpec{{ClusterName: "us-east", ClusterIndex: pin(5)}, {ClusterName: "us-west"}},
 			want:     map[string]int{"us-east": 5, "us-west": 6},
 		},
+		{
+			// Two distinct names pinning the same index: AssignClusterIndices keeps
+			// both at that index (it keys on name, not index). Uniqueness across
+			// clusterIndex values is a CRD CEL rule enforced at admission, not here.
+			name:     "duplicate pinned index across distinct names: both kept (CEL enforces uniqueness at admission)",
+			existing: map[string]int{},
+			current:  []ClusterSpec{{ClusterName: "us-east", ClusterIndex: pin(5)}, {ClusterName: "us-west", ClusterIndex: pin(5)}},
+			want:     map[string]int{"us-east": 5, "us-west": 5},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
