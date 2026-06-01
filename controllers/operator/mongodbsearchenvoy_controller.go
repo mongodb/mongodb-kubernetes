@@ -195,7 +195,7 @@ type clusterWorkItem struct {
 // buildClusterWorkList expands spec.clusters[] into the per-cluster work units
 // the reconciler will iterate over. Membership rules:
 //   - len(memberClusterClientsMap) == 0 → single-cluster install; one work item with ClusterName="" and ClusterIndex=0.
-//   - len(spec.clusters) == 0 → single-cluster degenerate; one work item with ClusterName="" and ClusterIndex=0.
+//   - len(spec.clusters) == 0 → single-cluster (empty spec.clusters); one work item with ClusterName="" and ClusterIndex=0.
 //   - otherwise → one work item per spec.clusters[i]. ClusterIndex is resolved from
 //     mapping; -1 if the cluster is not yet in the mapping (first reconcile race).
 func (r *MongoDBSearchEnvoyReconciler) buildClusterWorkList(search *searchv1.MongoDBSearch, mapping map[string]int) []clusterWorkItem {
