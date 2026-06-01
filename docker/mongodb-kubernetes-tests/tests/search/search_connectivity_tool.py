@@ -8,22 +8,25 @@ from typing import Optional
 
 import pytest
 from kubernetes import client
-
 from kubetester import wait_for_pods_ready
 from kubetester.kubetester import run_periodically
-from kubetester.mongodb import MongoDB
 from kubetester.mongodb_search import MongoDBSearch
 from kubetester.phase import Phase
 from tests import test_logger
 from tests.common.search import search_resource_names
-from tests.common.search.background_availability_tester import SearchAvailabilityBackgroundTester, assert_no_outage, assert_outage_detected
+from tests.common.search.background_availability_tester import (
+    SearchAvailabilityBackgroundTester,
+    assert_no_outage,
+    assert_outage_detected,
+)
 from tests.common.search.bootstrap_test_mixins import (
-    MongoDBRsDeploymentConfig,
-    MongoDBRsDeploymentTests,
-    SearchDeploymentTests,
-    SearchE2EFixtures,
-    SearchSampleDataAndIndexTests,
     InstallOperatorTests,
+    MongoDBDeploymentConfig,
+    MongoDBRsDeploymentTests,
+    SampleDataAndIndexConfig,
+    SearchDeploymentConfig,
+    SearchRsDeploymentTests,
+    SearchSampleDataAndIndexTests,
 )
 from tests.common.search.connectivity import (
     ConnectivityVerdict,
@@ -34,77 +37,75 @@ from tests.common.search.connectivity import (
     wait_for_mongot_statefulset_drained,
     wait_for_pods_by_label_replaced,
 )
-from tests.common.search.rs_search_helper import get_rs_search_tester, get_rs_search_tester_for_member
+from tests.common.search.rs_search_helper import rs_search_tester, rs_search_tester_for_member
+from tests.common.search.search_deployment_helper import SearchDeploymentHelper
+from tests.conftest import get_namespace
 
 logger = test_logger.get_test_logger(__name__)
 
 pytestmark = pytest.mark.e2e_search_connectivity_tool
 
-
-def build_conn_tool_rs_config() -> MongoDBRsDeploymentConfig:
-    # User names auto-derive from mdb_resource_name in __post_init__.
-    return MongoDBRsDeploymentConfig(mdb_resource_name="mdb-rs-conn-tool")
+NAMESPACE = get_namespace()
+MDB = MongoDBDeploymentConfig(mdb_resource_name="mdb-rs-conn-tool")
+SEARCH = SearchDeploymentConfig()
+# Search CR name (defaults to the source MongoDB name) and its index-0 mongot STS.
+MDBS_NAME = MDB.mdb_resource_name
+MONGOT_STS = search_resource_names.mongot_statefulset_name_for_cluster(MDBS_NAME)
+MONGOT_SELECTOR = f"app={search_resource_names.mongot_service_name_for_cluster(MDBS_NAME)}"
 
 
 class TestInstallOperator(InstallOperatorTests):
     pass
 
 
-class TestSearchWithReplicaSet(
-    SearchDeploymentTests,
-    MongoDBRsDeploymentTests,
-):
-    def build_mongodb_rs_config(self) -> MongoDBRsDeploymentConfig:
-        return build_conn_tool_rs_config()
+class TestMongoDBDeployment(MongoDBRsDeploymentTests):
+    namespace = NAMESPACE
+    mdb_config = MDB
+    search_config = SEARCH
 
 
-class TestSearchSampleDataAndIndex(
-    SearchSampleDataAndIndexTests,
-    SearchE2EFixtures,
-):
-    def build_mongodb_rs_config(self) -> MongoDBRsDeploymentConfig:
-        return build_conn_tool_rs_config()
+class TestSearchDeployment(SearchRsDeploymentTests):
+    namespace = NAMESPACE
+    mdb_config = MDB
+    search_config = SEARCH
 
 
-class TestSearchConnectivityTool(SearchE2EFixtures):
-    def build_mongodb_rs_config(self) -> MongoDBRsDeploymentConfig:
-        return build_conn_tool_rs_config()
+class TestSampleData(SearchSampleDataAndIndexTests):
+    sample_config = SampleDataAndIndexConfig()
 
-    def test_oneshot_search_succeeds(self, mdb: MongoDB):
-        cfg = self.build_mongodb_rs_config()
-        search_tester = get_rs_search_tester(mdb, cfg.user_name, cfg.user_password, use_ssl=True)
-        tool = SearchConnectivityTool(search_tester)
+    def admin_tester(self, namespace: str):
+        return rs_search_tester(MDB.mdb_resource_name, namespace, MDB.admin_user_name, MDB.admin_user_password)
 
-        result = tool.oneshot_search()
+    def user_tester(self, namespace: str):
+        return rs_search_tester(MDB.mdb_resource_name, namespace, MDB.user_name, MDB.user_password)
+
+
+class TestSearchConnectivityTool:
+    def test_oneshot_search_succeeds(self, namespace: str):
+        result = _user_connectivity_tool(namespace).oneshot_search()
         logger.info(f"oneshot_search result: {result}")
         assert result.success, f"one-shot search failed: {result.error_class} {result.error_message}"
         assert result.returned_count > 0, "expected results from cache-busted compound query"
 
-    def test_paging_search_first_page_succeeds(self, mdb: MongoDB):
-        cfg = self.build_mongodb_rs_config()
-        search_tester = get_rs_search_tester(mdb, cfg.user_name, cfg.user_password, use_ssl=True)
-        tool = SearchConnectivityTool(search_tester)
-
-        pages = tool.paging_search(pages=3, interval_seconds=0.1, batch_size=20)
+    def test_paging_search_first_page_succeeds(self, namespace: str):
+        pages = _user_connectivity_tool(namespace).paging_search(pages=3, interval_seconds=0.1, batch_size=20)
         logger.info("paging_search results: %s", "; ".join(str(p) for p in pages))
         assert pages, "paging_search returned no pages"
         assert pages[0].success, f"first page failed: {pages[0].error_class} {pages[0].error_message}"
         assert pages[0].returned_count > 0, "first page returned 0 docs"
 
-    def test_paging_through_mongot_outage_surfaces_connectivity_error(self, mdb: MongoDB, mdbs: MongoDBSearch):
-        cfg = self.build_mongodb_rs_config()
-        search_tester = get_rs_search_tester(mdb, cfg.user_name, cfg.user_password, use_ssl=True)
-        tool = SearchConnectivityTool(search_tester)
+    def test_paging_through_mongot_outage_surfaces_connectivity_error(self, namespace: str):
+        tool = _user_connectivity_tool(namespace)
 
         pre_pages = tool.paging_search(pages=2, interval_seconds=0.1, batch_size=10)
         logger.info("pre-outage pages: %s", "; ".join(str(p) for p in pre_pages))
         assert any(p.success for p in pre_pages), f"no pre-outage successful page: {pre_pages}"
 
-        statefulset_name = search_resource_names.mongot_statefulset_name(mdbs.name)
-        logger.info(f"setting MongoDBSearch {mdbs.name} spec.replicas -> 0 via operator")
-        mdbs["spec"]["replicas"] = 0
+        mdbs = _load_mdbs(namespace)
+        logger.info(f"setting MongoDBSearch {mdbs.name} spec.clusters[0].replicas -> 0 via operator")
+        mdbs["spec"]["clusters"][0]["replicas"] = 0
         mdbs.update()
-        wait_for_mongot_statefulset_drained(statefulset_name, mdb.namespace)
+        wait_for_mongot_statefulset_drained(MONGOT_STS, namespace)
 
         post_pages = tool.paging_search(pages=20, interval_seconds=0.5, batch_size=10)
         logger.info("post-outage pages: %s", "; ".join(str(p) for p in post_pages))
@@ -125,42 +126,33 @@ class TestSearchConnectivityTool(SearchE2EFixtures):
             observed_error_classes & expected_error_classes
         ), f"no expected connectivity-class error in error_breakdown={post_verdict.error_breakdown}"
 
-        logger.info(f"setting MongoDBSearch {mdbs.name} spec.replicas -> 1 via operator")
-        mdbs["spec"]["replicas"] = 1
+        logger.info(f"setting MongoDBSearch {mdbs.name} spec.clusters[0].replicas -> 1 via operator")
+        mdbs["spec"]["clusters"][0]["replicas"] = 1
         mdbs.update()
         mdbs.assert_reaches_phase(Phase.Running, timeout=200)
 
-    def test_paging_through_mongot_pod_restart_surfaces_lost_cursor(self, mdb: MongoDB, mdbs: MongoDBSearch):
-        cfg = self.build_mongodb_rs_config()
-        search_tester = get_rs_search_tester(mdb, cfg.user_name, cfg.user_password, use_ssl=True)
-        tool = SearchConnectivityTool(search_tester)
-        mongot_selector = f"app={search_resource_names.mongot_statefulset_name(mdbs.name)}-svc"
-
+    def test_paging_through_mongot_pod_restart_surfaces_lost_cursor(self, namespace: str):
+        tool = _user_connectivity_tool(namespace)
         _wait_for_search_serving(tool, timeout=200.0)
 
         def fault() -> None:
-            uids = delete_pods(mdb.namespace, label_selector=mongot_selector, grace_period_seconds=0)
+            uids = delete_pods(namespace, label_selector=MONGOT_SELECTOR, grace_period_seconds=0)
             assert (
                 len(uids) == 1
-            ), f"expected exactly 1 mongot pod matching {mongot_selector}; got {len(uids)}: {list(uids)}"
+            ), f"expected exactly 1 mongot pod matching {MONGOT_SELECTOR}; got {len(uids)}: {list(uids)}"
             _wait_for_search_serving(tool, timeout=200.0)
 
         _, _, verdict = paging_baseline_and_fault(tool, fault_fn=fault)
         assert verdict.cursor_lost > 0, f"no cursor_lost failure surfaced after mongot pod restart: {verdict.as_dict()}"
 
-    def test_mongot_graceful_shutdown_with_active_cursor_holds_to_grace_and_cursor_dies_with_kill(
-        self, mdb: MongoDB, mdbs: MongoDBSearch
-    ):
+    def test_mongot_graceful_shutdown_with_active_cursor_holds_to_grace_and_cursor_dies_with_kill(self, namespace: str):
         """SIGTERM with an actively-paged cursor is held until the kubelet
         grace boundary; cursor cannot survive the pod replacement.
         """
-        cfg = self.build_mongodb_rs_config()
-        search_tester = get_rs_search_tester(mdb, cfg.user_name, cfg.user_password, use_ssl=True)
-        tool = SearchConnectivityTool(search_tester)
-        mongot_selector = f"app={search_resource_names.mongot_statefulset_name(mdbs.name)}-svc"
+        tool = _user_connectivity_tool(namespace)
 
         _wait_for_search_serving(tool)
-        old_pod = _single_mongot_pod(mdb.namespace, mongot_selector)
+        old_pod = _single_mongot_pod(namespace, MONGOT_SELECTOR)
         grace = old_pod.spec.termination_grace_period_seconds or 30
         logger.info(f"mongot old pod={old_pod.metadata.name} grace={grace}s")
 
@@ -177,12 +169,12 @@ class TestSearchConnectivityTool(SearchE2EFixtures):
                 logger.info(f"pre-replacement page {pp.page_index}: {pp!s}")
 
             t_sigterm = datetime.now(timezone.utc)
-            captured_uids = delete_pods(mdb.namespace, label_selector=mongot_selector)
+            captured_uids = delete_pods(namespace, label_selector=MONGOT_SELECTOR)
 
             t_old_exit = _page_until_mongot_terminates(
                 tool=tool,
                 cursor=cursor,
-                namespace=mdb.namespace,
+                namespace=namespace,
                 old_pod=old_pod,
                 watch_for=grace + 15,
                 start_index=2,
@@ -195,7 +187,7 @@ class TestSearchConnectivityTool(SearchE2EFixtures):
                 f"expected within [grace-2, grace+10] = [{grace - 2}, {grace + 10}]s"
             )
 
-            wait_for_all_pods_replaced(mdb.namespace, captured_uids, timeout=180)
+            wait_for_all_pods_replaced(namespace, captured_uids, timeout=180)
             _wait_for_search_serving(tool)
 
             max_post_pages = 5000
@@ -228,15 +220,12 @@ class TestSearchConnectivityTool(SearchE2EFixtures):
             except Exception:
                 pass
 
-    def test_mongot_graceful_shutdown_exits_early_after_killcursors(self, mdb: MongoDB, mdbs: MongoDBSearch):
+    def test_mongot_graceful_shutdown_exits_early_after_killcursors(self, namespace: str):
         """killCursors during grace lets mongot exit before grace expires."""
-        cfg = self.build_mongodb_rs_config()
-        search_tester = get_rs_search_tester(mdb, cfg.user_name, cfg.user_password, use_ssl=True)
-        tool = SearchConnectivityTool(search_tester)
-        mongot_selector = f"app={search_resource_names.mongot_statefulset_name(mdbs.name)}-svc"
+        tool = _user_connectivity_tool(namespace)
 
         _wait_for_search_serving(tool)
-        old_pod = _single_mongot_pod(mdb.namespace, mongot_selector)
+        old_pod = _single_mongot_pod(namespace, MONGOT_SELECTOR)
         grace = old_pod.spec.termination_grace_period_seconds or 30
         logger.info(f"mongot old pod={old_pod.metadata.name} grace={grace}s")
 
@@ -255,8 +244,8 @@ class TestSearchConnectivityTool(SearchE2EFixtures):
                 logger.info(f"warmup page {pp.page_index}: {pp!s}")
 
             t_delete = datetime.now(timezone.utc)
-            logger.info(f"deleting mongot pods {mongot_selector} (t_delete={t_delete.isoformat()})")
-            captured_uids = delete_pods(mdb.namespace, label_selector=mongot_selector)
+            logger.info(f"deleting mongot pods {MONGOT_SELECTOR} (t_delete={t_delete.isoformat()})")
+            captured_uids = delete_pods(namespace, label_selector=MONGOT_SELECTOR)
 
             logger.info(f"paging in-grace for 10s while OLD mongot is shutting down (grace={grace}s)")
             _page_for(tool, cursor, duration=10.0, sleep_between=0.5, start_index=2)
@@ -268,9 +257,9 @@ class TestSearchConnectivityTool(SearchE2EFixtures):
             except Exception as exc:
                 logger.info(f"cursor.close() raised (ignored): {exc!r}")
 
-        t_old_exit = _watch_mongot_termination(mdb.namespace, old_pod, watch_for=grace + 30)
+        t_old_exit = _watch_mongot_termination(namespace, old_pod, watch_for=grace + 30)
         logger.info(f"OLD pod terminated at {t_old_exit.isoformat()}")
-        wait_for_all_pods_replaced(mdb.namespace, captured_uids, timeout=120)
+        wait_for_all_pods_replaced(namespace, captured_uids, timeout=120)
 
         elapsed_from_delete = (t_old_exit - t_delete).total_seconds()
         elapsed_from_killcursors = (t_old_exit - t_kill_cursors).total_seconds()
@@ -286,7 +275,7 @@ class TestSearchConnectivityTool(SearchE2EFixtures):
             elapsed_from_delete < grace - 5
         ), f"OLD exited {elapsed_from_delete:.2f}s after delete; expected < grace-5 = {grace - 5}s"
 
-    def test_paging_through_envoy_restart_surfaces_lost_cursor(self, mdb: MongoDB, mdbs: MongoDBSearch, namespace: str):
+    def test_paging_through_envoy_restart_surfaces_lost_cursor(self, namespace: str):
         """Hard-kill envoy mid-cursor; getMore after envoy recovers must surface cursor_lost.
 
         Envoy pins each mongod→mongot HTTP/2 stream to a specific upstream
@@ -294,10 +283,8 @@ class TestSearchConnectivityTool(SearchE2EFixtures):
         replacement envoy opens a fresh connection that mongot doesn't
         recognize as the cursor's owner → RST_STREAM → cursor_lost.
         """
-        cfg = self.build_mongodb_rs_config()
-        search_tester = get_rs_search_tester(mdb, cfg.user_name, cfg.user_password, use_ssl=True)
-        tool = SearchConnectivityTool(search_tester)
-        envoy_selector = f"app={search_resource_names.lb_deployment_name(mdbs.name)}"
+        tool = _user_connectivity_tool(namespace)
+        envoy_selector = f"app={search_resource_names.lb_deployment_name(MDBS_NAME)}"
         logger.info(f"envoy-restart test: selector={envoy_selector} namespace={namespace}")
 
         _wait_for_search_serving(tool)
@@ -315,17 +302,15 @@ class TestSearchConnectivityTool(SearchE2EFixtures):
             verdict.cursor_lost > 0
         ), f"no cursor_lost failure surfaced after envoy restart; got verdict={verdict.as_dict()}"
 
-    def test_direct_secondary_paging_succeeds(self, mdb: MongoDB):
-        cfg = self.build_mongodb_rs_config()
-        ready_tester = get_rs_search_tester(mdb, cfg.user_name, cfg.user_password, use_ssl=True)
-        _wait_for_search_serving(SearchConnectivityTool(ready_tester))
+    def test_direct_secondary_paging_succeeds(self, namespace: str):
+        _wait_for_search_serving(_user_connectivity_tool(namespace))
 
-        tester = get_rs_search_tester_for_member(
-            mdb,
+        tester = rs_search_tester_for_member(
+            MDB.mdb_resource_name,
+            namespace,
             member_index=1,
-            username=cfg.user_name,
-            password=cfg.user_password,
-            use_ssl=True,
+            username=MDB.user_name,
+            password=MDB.user_password,
         )
         tool = SearchConnectivityTool(tester)
 
@@ -337,18 +322,17 @@ class TestSearchConnectivityTool(SearchE2EFixtures):
         ), f"secondary page failures: {[(p.page_index, p.error_class) for p in pages if not p.success]}"
         assert any(p.returned_count > 0 for p in pages), "no page returned docs from secondary"
 
-    def test_direct_secondary_concurrent_with_primary_paging(self, mdb: MongoDB):
-        cfg = self.build_mongodb_rs_config()
-        primary_tester = get_rs_search_tester(mdb, cfg.user_name, cfg.user_password, use_ssl=True)
-        secondary_tester = get_rs_search_tester_for_member(
-            mdb,
-            member_index=1,
-            username=cfg.user_name,
-            password=cfg.user_password,
-            use_ssl=True,
+    def test_direct_secondary_concurrent_with_primary_paging(self, namespace: str):
+        primary_tool = _user_connectivity_tool(namespace)
+        secondary_tool = SearchConnectivityTool(
+            rs_search_tester_for_member(
+                MDB.mdb_resource_name,
+                namespace,
+                member_index=1,
+                username=MDB.user_name,
+                password=MDB.user_password,
+            )
         )
-        primary_tool = SearchConnectivityTool(primary_tester)
-        secondary_tool = SearchConnectivityTool(secondary_tester)
 
         _wait_for_search_serving(primary_tool)
         _wait_for_search_serving(secondary_tool, read_only=True)
@@ -393,42 +377,41 @@ class TestSearchConnectivityTool(SearchE2EFixtures):
 
 DRAIN_MIN_PAGES = 100
 
-class TestSearchConnectivityBackgroundTester(SearchE2EFixtures):
+
+class TestSearchConnectivityBackgroundTester:
     @staticmethod
-    def new_one_shot_background_tester(mdb: MongoDB, user_name: str, user_password: str
-                                       ) -> SearchAvailabilityBackgroundTester:
-        search_tester = get_rs_search_tester(mdb, user_name, user_password, use_ssl=True)
-        tool = SearchConnectivityTool(search_tester)
+    def new_one_shot_background_tester(
+        namespace: str, user_name: str, user_password: str
+    ) -> SearchAvailabilityBackgroundTester:
+        tool = SearchConnectivityTool(rs_search_tester(MDB.mdb_resource_name, namespace, user_name, user_password))
         return SearchAvailabilityBackgroundTester(tool, mode="oneshot")
 
     @staticmethod
     def new_paging_background_tester_pinned_to_one_mongot(
-        mdb: MongoDB, user_name: str, user_password: str, interval_seconds: float = 0.0
+        namespace: str, user_name: str, user_password: str, interval_seconds: float = 0.0
     ) -> SearchAvailabilityBackgroundTester:
-        search_tester = get_rs_search_tester(mdb, user_name, user_password, use_ssl=True)
-        tool = SearchConnectivityTool(search_tester)
+        tool = SearchConnectivityTool(rs_search_tester(MDB.mdb_resource_name, namespace, user_name, user_password))
         return SearchAvailabilityBackgroundTester(
             tool, mode="paging", paging_reset_every=None, interval_seconds=interval_seconds
         )
 
-    def build_mongodb_rs_config(self) -> MongoDBRsDeploymentConfig:
-        return build_conn_tool_rs_config()
-
-    def test_scale_up_down_mongot_pods_without_outage(self, mdb: MongoDB, mdbs: MongoDBSearch):
-        cfg = self.build_mongodb_rs_config()
+    def test_scale_up_down_mongot_pods_without_outage(self, namespace: str):
+        mdbs = _load_mdbs(namespace)
         mdbs.assert_reaches_phase(Phase.Running)
-        initial_replicas_count = mdbs["spec"]["replicas"]
-        pod_selector = f"app={search_resource_names.mongot_service_name(mdbs.name)}"
+        initial_replicas_count = mdbs["spec"]["clusters"][0]["replicas"]
+        pod_selector = MONGOT_SELECTOR
         # Per-event drain target: paging batch_size=5 × 200 pages = 1000 docs
         # past the scale event — enough that the paging cursor's prefetch
         # buffer is reissued at least once via real getMore round-trips.
         drain_timeout = 180.0
         # oneshot tester will not be pinned by design, so scaled up mongot nodes should work correctly as soon as those are ready
-        with TestSearchConnectivityBackgroundTester.new_one_shot_background_tester(mdb, cfg.user_name, cfg.user_password) as oneshot_tester:
+        with TestSearchConnectivityBackgroundTester.new_one_shot_background_tester(
+            namespace, MDB.user_name, MDB.user_password
+        ) as oneshot_tester:
             # paging background tester will use one of the replicas that existed before the test was executed
             # all the queries should be paging through that node and adding+removing new mongot node should not affect existing queries
             with TestSearchConnectivityBackgroundTester.new_paging_background_tester_pinned_to_one_mongot(
-                mdb, cfg.user_name, cfg.user_password, interval_seconds=0.1
+                namespace, MDB.user_name, MDB.user_password, interval_seconds=0.1
             ) as paging_tester:
                 # warm both testers — first iteration sets up cursors and routes.
                 paging_tester.wait_for_operations(5)
@@ -436,7 +419,7 @@ class TestSearchConnectivityBackgroundTester(SearchE2EFixtures):
 
                 # scale up: add a new mongot replica. Existing paging cursor must
                 # stay pinned to its original mongot; oneshot must keep routing.
-                mdbs["spec"]["replicas"] = initial_replicas_count + 1
+                mdbs["spec"]["clusters"][0]["replicas"] = initial_replicas_count + 1
                 mdbs.update()
                 mdbs.assert_reaches_phase(Phase.Running)
                 wait_for_pods_ready(
@@ -449,7 +432,7 @@ class TestSearchConnectivityBackgroundTester(SearchE2EFixtures):
                 paging_tester.wait_for_operations(DRAIN_MIN_PAGES, timeout=drain_timeout)
 
                 # scale down: remove the extra mongot. Cursor must survive.
-                mdbs["spec"]["replicas"] = initial_replicas_count
+                mdbs["spec"]["clusters"][0]["replicas"] = initial_replicas_count
                 mdbs.update()
                 mdbs.assert_reaches_phase(Phase.Running)
                 wait_for_pods_ready(mdbs.namespace, label_selector=pod_selector, expected_count=initial_replicas_count)
@@ -463,20 +446,15 @@ class TestSearchConnectivityBackgroundTester(SearchE2EFixtures):
         assert_no_outage(oneshot_verdict)
         assert_no_outage(paging_verdict)
 
-    def test_mongot_pod_restart_surfaces_outage(
-        self,
-        mdb: MongoDB,
-        mdbs: MongoDBSearch,
-        namespace: str,
-    ):
-        cfg = self.build_mongodb_rs_config()
-        statefulset_name = search_resource_names.mongot_statefulset_name(mdbs.name)
+    def test_mongot_pod_restart_surfaces_outage(self, namespace: str):
         # Matches the headless-service selector — catches every mongot replica.
-        pod_selector = f"app={statefulset_name}-svc"
+        pod_selector = MONGOT_SELECTOR
 
-        with TestSearchConnectivityBackgroundTester.new_one_shot_background_tester(mdb, cfg.user_name, cfg.user_password) as oneshot_tester:
+        with TestSearchConnectivityBackgroundTester.new_one_shot_background_tester(
+            namespace, MDB.user_name, MDB.user_password
+        ) as oneshot_tester:
             with TestSearchConnectivityBackgroundTester.new_paging_background_tester_pinned_to_one_mongot(
-                mdb, cfg.user_name, cfg.user_password
+                namespace, MDB.user_name, MDB.user_password
             ) as paging_tester:
                 # Deterministic baseline — both testers must have read some
                 # successful pages before the fault is applied.
@@ -489,7 +467,6 @@ class TestSearchConnectivityBackgroundTester(SearchE2EFixtures):
                     logger.warning(f"mongot pod recreation wait timed out in cleanup: {e}")
                 oneshot_tester.wait_for_operations(5, stop_on_fault=True)
                 paging_tester.wait_for_operations(DRAIN_MIN_PAGES, stop_on_fault=True)
-                pass
 
         oneshot_verdict = oneshot_tester.verdict
         paging_verdict = paging_tester.verdict
@@ -498,18 +475,12 @@ class TestSearchConnectivityBackgroundTester(SearchE2EFixtures):
         assert_outage_detected(oneshot_verdict, accept_classes=("transient_network",))
         assert_outage_detected(paging_verdict, accept_classes=("cursor_lost", "transient_network"))
 
-    def test_mongot_scale_to_zero_surfaces_network_error(
-        self,
-        mdb: MongoDB,
-        mdbs: MongoDBSearch,
-        namespace: str,
-    ):
-        cfg = self.build_mongodb_rs_config()
-        statefulset_name = search_resource_names.mongot_statefulset_name(mdbs.name)
-
-        with TestSearchConnectivityBackgroundTester.new_one_shot_background_tester(mdb, cfg.user_name, cfg.user_password) as oneshot_tester:
+    def test_mongot_scale_to_zero_surfaces_network_error(self, namespace: str):
+        with TestSearchConnectivityBackgroundTester.new_one_shot_background_tester(
+            namespace, MDB.user_name, MDB.user_password
+        ) as oneshot_tester:
             with TestSearchConnectivityBackgroundTester.new_paging_background_tester_pinned_to_one_mongot(
-                mdb, cfg.user_name, cfg.user_password, interval_seconds=1.0
+                namespace, MDB.user_name, MDB.user_password, interval_seconds=1.0
             ) as paging_tester:
                 # Page slowly (1/s) through the fault so the cursor keeps
                 # round-tripping to mongot instead of letting mongod prefetch
@@ -517,18 +488,20 @@ class TestSearchConnectivityBackgroundTester(SearchE2EFixtures):
                 oneshot_tester.wait_for_operations(5)
                 paging_tester.wait_for_operations(5)
 
-                logger.info(f"scaling MongoDBSearch {mdbs.name} replicas -> 0")
-                mdbs["spec"]["replicas"] = 0
+                mdbs = _load_mdbs(namespace)
+                logger.info(f"scaling MongoDBSearch {mdbs.name} clusters[0].replicas -> 0")
+                mdbs["spec"]["clusters"][0]["replicas"] = 0
                 mdbs.update()
-                wait_for_mongot_statefulset_drained(statefulset_name, namespace)
+                wait_for_mongot_statefulset_drained(MONGOT_STS, namespace)
                 # mongot is gone — drop the throttle so the next getMore hits a
                 # dead upstream and the fault surfaces immediately.
                 paging_tester.interval_seconds = 0.0
                 oneshot_tester.wait_for_operations(5, stop_on_fault=True)
                 paging_tester.wait_for_operations(DRAIN_MIN_PAGES, stop_on_fault=True)
 
-        logger.info(f"scaling MongoDBSearch {mdbs.name} replicas -> 1")
-        mdbs["spec"]["replicas"] = 1
+        mdbs = _load_mdbs(namespace)
+        logger.info(f"scaling MongoDBSearch {mdbs.name} clusters[0].replicas -> 1")
+        mdbs["spec"]["clusters"][0]["replicas"] = 1
         mdbs.update()
         mdbs.assert_reaches_phase(Phase.Running, timeout=300)
 
@@ -580,7 +553,7 @@ def _single_mongot_pod(namespace: str, label_selector: str):
     pods = [
         p
         for p in list_matching_pods(namespace, label_selector=label_selector)
-        if p.metadata.name[p.metadata.name.rfind("-") + 1:].isdigit()
+        if p.metadata.name[p.metadata.name.rfind("-") + 1 :].isdigit()
     ]
     if not pods:
         raise AssertionError(f"expected at least 1 mongot pod matching {label_selector}, got 0")
@@ -690,3 +663,24 @@ def _watch_mongot_termination(namespace: str, old_pod, *, watch_for: float) -> d
     at = captured["at"]
     assert at is not None
     return at
+
+
+def _user_connectivity_tool(namespace: str) -> SearchConnectivityTool:
+    return SearchConnectivityTool(rs_search_tester(MDB.mdb_resource_name, namespace, MDB.user_name, MDB.user_password))
+
+
+def _load_mdbs(namespace: str) -> MongoDBSearch:
+    # Build from the fixture (fresh run) or load cluster state via try_load —
+    # same shape Layer 2 deploys, so the fault tests work even started in isolation.
+    helper = SearchDeploymentHelper(
+        namespace=namespace,
+        mdb_resource_name=MDB.mdb_resource_name,
+        mdbs_resource_name=MDBS_NAME,
+        ca_configmap_name=MDB.ca_configmap_name,
+    )
+    return helper.mdbs_for_ext_rs_source(
+        MDB.mongot_user_name,
+        members=MDB.rs_members,
+        lb_mode="Managed",
+        clusters=[{"replicas": SEARCH.mongot_replicas}],
+    )
