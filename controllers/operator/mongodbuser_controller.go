@@ -287,10 +287,6 @@ func (r *MongoDBUserReconciler) updateConnectionStringSecret(ctx context.Context
 	mongoAuthUserURI := connectionBuilder.BuildConnectionString(user.Spec.Username, password, connectionstring.SchemeMongoDB, map[string]string{"authSource": user.Spec.Database})
 	mongoAuthUserSRVURI := connectionBuilder.BuildConnectionString(user.Spec.Username, password, connectionstring.SchemeMongoDBSRV, map[string]string{"authSource": user.Spec.Database})
 
-	// Member cluster secrets must not carry ownerReferences pointing to the MongoDBUser CR
-	// in the central cluster. A cross-cluster ownerReference causes the Kubernetes garbage
-	// collector to delete the secret as an orphan. Cleanup is handled by explicitly deleting
-	// the secret from each member cluster in preDeletionCleanup.
 	memberClusterSecret := secret.Builder().
 		SetName(secretName).
 		SetNamespace(user.Namespace).
@@ -523,10 +519,6 @@ func (r *MongoDBUserReconciler) preDeletionCleanup(ctx context.Context, user *us
 		return r.updateStatus(ctx, user, workflow.Failed(xerrors.Errorf("Failed to perform AutomationConfig cleanup: %w", err)), log)
 	}
 
-	// Delete the connection string Secret from every member cluster. In multi-cluster mode
-	// these secrets carry no ownerReferences (to avoid cross-cluster GC), so they must be
-	// removed explicitly here. A NotFound response is not an error: the secret may have
-	// already been deleted or may never have been created.
 	secretKey := kube.ObjectKey(user.Namespace, user.GetConnectionStringSecretName())
 	for clusterName, c := range r.memberClusterSecretClientsMap {
 		if err := c.DeleteSecret(ctx, secretKey); err != nil && !apiErrors.IsNotFound(err) {
