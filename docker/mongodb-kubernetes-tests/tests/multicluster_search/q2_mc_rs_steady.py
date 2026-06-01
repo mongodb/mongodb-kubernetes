@@ -105,7 +105,6 @@ def helper(
 ) -> MCSearchDeploymentHelper:
     return MCSearchDeploymentHelper(
         namespace=namespace,
-        mdb_resource_name=MDB_RESOURCE_NAME,
         mdbs_resource_name=MDBS_RESOURCE_NAME,
         member_cluster_clients={mcc.cluster_name: mcc.core_v1_api() for mcc in member_cluster_clients},
     )

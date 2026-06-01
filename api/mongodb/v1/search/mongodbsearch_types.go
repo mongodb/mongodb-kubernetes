@@ -48,11 +48,11 @@ const (
 
 	ForceWireprotoAnnotation = "mongodb.com/v1.force-search-wireproto"
 
-	// ResourceDisabledAnnotation, when set to "true" on a MongoDBSearch CR,
+	// DisableReconciliationAnnotation, when set to "true" on a MongoDBSearch CR,
 	// short-circuits the reconciler: it returns Result{} + nil without
 	// mutating any owned objects. Useful for tests that need to mutate
 	// owned StatefulSets directly without the operator reverting them.
-	ResourceDisabledAnnotation = "mongodb.com/resourceDisabled"
+	DisableReconciliationAnnotation = "mongodb.com/disable-reconciliation"
 
 	MongoDBSearchIndexFieldName = "mdbsearch-for-mongodbresourceref-index"
 
@@ -133,7 +133,7 @@ type MongoDBSearchSpec struct {
 	// runs in a single cluster.
 	// +optional
 	// +kubebuilder:validation:MaxItems=50
-	// +kubebuilder:validation:XValidation:rule="self.all(c1, self.exists_one(c2, c2.clusterName == c1.clusterName))",message="clusters[].clusterName must be unique"
+	// +kubebuilder:validation:XValidation:rule="size(self) <= 1 || self.all(c1, has(c1.clusterName) && self.exists_one(c2, has(c2.clusterName) && c2.clusterName == c1.clusterName))",message="clusters[].clusterName must be set and unique when more than one cluster is specified"
 	Clusters *[]ClusterSpec `json:"clusters,omitempty"`
 }
 
