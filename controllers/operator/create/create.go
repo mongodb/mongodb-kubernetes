@@ -61,6 +61,7 @@ func DatabaseInKubernetes(ctx context.Context, client kubernetesClient.Client, m
 
 	namespacedName := kube.ObjectKey(mdb.Namespace, set.Spec.ServiceName)
 	internalService := BuildService(namespacedName, &mdb, &set.Spec.ServiceName, nil, opts.ServicePort, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
+	internalService.OwnerReferences = kube.BaseOwnerReference(&mdb)
 
 	// Adds Prometheus Port if Prometheus has been enabled.
 	prom := mdb.GetPrometheus()
@@ -243,6 +244,7 @@ func createExternalServices(ctx context.Context, client kubernetesClient.Client,
 	}
 	// TODO: we should not use OpsManager specific type `omv1.MongoDBOpsManagerServiceDefinition`
 	externalService := BuildService(namespacedName, &mdb, &set.Spec.ServiceName, ptr.To(dns.GetPodName(set.Name, podNum)), opts.ServicePort, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeLoadBalancer})
+	externalService.OwnerReferences = kube.BaseOwnerReference(&mdb)
 
 	if mdb.Spec.DbCommonSpec.GetExternalDomain() != nil {
 		// When an external domain is defined, we put it into process.hostname in automation config. Because of that we need to define additional well-defined port for backups.
@@ -358,8 +360,18 @@ func AppDBInKubernetes(ctx context.Context, client kubernetesClient.Client, opsM
 		return nil, err
 	}
 
+	// ownerRefs is nil in multi-cluster mode: the MongoDBOpsManager CR only exists in the
+	// central cluster, and a cross-cluster ownerReference causes the Kubernetes garbage
+	// collector to delete this service as an orphan. Cleanup in multi-cluster mode is
+	// handled through explicit label-based deletion instead.
+	ownerRefs := kube.BaseOwnerReference(opsManager)
+	if opsManager.Spec.AppDB.IsMultiCluster() {
+		ownerRefs = nil
+	}
+
 	namespacedName := kube.ObjectKey(opsManager.Namespace, set.Spec.ServiceName)
 	internalService := BuildService(namespacedName, opsManager, ptr.To(serviceSelectorLabel), nil, opsManager.Spec.AppDB.AdditionalMongodConfig.GetPortOrDefault(), omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
+	internalService.OwnerReferences = ownerRefs
 
 	// Adds Prometheus Port if Prometheus has been enabled.
 	prom := opsManager.Spec.AppDB.Prometheus
@@ -399,6 +411,15 @@ func BackupDaemonInKubernetes(ctx context.Context, client kubernetesClient.Clien
 	}
 	namespacedName := kube.ObjectKey(opsManager.Namespace, set.Spec.ServiceName)
 	internalService := BuildService(namespacedName, opsManager, &set.Spec.ServiceName, nil, construct.BackupDaemonServicePort, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
+	// ownerRefs is nil in multi-cluster mode: the MongoDBOpsManager CR only exists in the
+	// central cluster, and a cross-cluster ownerReference causes the Kubernetes garbage
+	// collector to delete this service as an orphan. Cleanup is handled through explicit
+	// label-based deletion instead.
+	ownerRefs := kube.BaseOwnerReference(opsManager)
+	if opsManager.Spec.IsMultiCluster() {
+		ownerRefs = nil
+	}
+	internalService.OwnerReferences = ownerRefs
 	internalService.Spec.PublishNotReadyAddresses = false
 
 	return set, service.CreateOrUpdateService(ctx, client, internalService)
@@ -414,8 +435,22 @@ func OpsManagerInKubernetes(ctx context.Context, memberCluster multicluster.Memb
 
 	_, port := opsManager.GetSchemePort()
 
+	// ownerRefs is nil in multi-cluster mode: the MongoDBOpsManager CR only exists in the
+	// central cluster, and a cross-cluster ownerReference causes the Kubernetes garbage
+	// collector to delete this service as an orphan. Cleanup in multi-cluster mode is
+	// handled through explicit label-based deletion instead.
+	ownerRefs := kube.BaseOwnerReference(opsManager)
+	if opsManager.Spec.IsMultiCluster() {
+		ownerRefs = nil
+	}
+
 	namespacedName := kube.ObjectKey(opsManager.Namespace, set.Spec.ServiceName)
 	internalService := BuildService(namespacedName, opsManager, &set.Spec.ServiceName, nil, port, getInternalServiceDefinition(opsManager))
+	// ownerRefs is nil in multi-cluster mode: the MongoDBOpsManager CR only exists in the
+	// central cluster, and a cross-cluster ownerReference causes the Kubernetes garbage
+	// collector to delete this service as an orphan. Cleanup is handled through explicit
+	// label-based deletion instead.
+	internalService.OwnerReferences = ownerRefs
 	internalService.Spec.PublishNotReadyAddresses = false
 
 	// add queryable backup port to service
@@ -432,6 +467,8 @@ func OpsManagerInKubernetes(ctx context.Context, memberCluster multicluster.Memb
 	namespacedName = kube.ObjectKey(opsManager.Namespace, opsManager.ExternalSvcName())
 	if externalConnectivity := opsManager.GetExternalConnectivityConfigurationForMemberCluster(memberCluster.Name); externalConnectivity != nil {
 		svc := BuildService(namespacedName, opsManager, &set.Spec.ServiceName, nil, port, *externalConnectivity)
+		// ownerRefs is nil in multi-cluster mode: see comment on internalService above.
+		svc.OwnerReferences = ownerRefs
 		svc.Spec.PublishNotReadyAddresses = false
 
 		// Need to create queryable backup service
@@ -514,7 +551,6 @@ func BuildService(namespacedName types.NamespacedName, owner v1.ObjectOwner, app
 	svcBuilder := service.Builder().
 		SetNamespace(namespacedName.Namespace).
 		SetName(namespacedName.Name).
-		SetOwnerReferences(kube.BaseOwnerReference(owner)).
 		SetLabels(svcLabels).
 		SetSelector(selectorLabels).
 		SetServiceType(mongoServiceDefinition.Type).

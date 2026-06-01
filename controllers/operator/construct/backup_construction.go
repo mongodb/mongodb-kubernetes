@@ -37,7 +37,18 @@ const (
 // BackupDaemonStatefulSet fully constructs the Backup StatefulSet.
 func BackupDaemonStatefulSet(ctx context.Context, centralClusterSecretClient secrets.SecretClient, opsManager *omv1.MongoDBOpsManager, memberCluster multicluster.MemberCluster, log *zap.SugaredLogger, additionalOpts ...func(*OpsManagerStatefulSetOptions)) (appsv1.StatefulSet, error) {
 	opts := backupOptions(memberCluster, additionalOpts...)(opsManager)
-	if err := opts.updateHTTPSCertSecret(ctx, centralClusterSecretClient, memberCluster, opsManager.OwnerReferences, log); err != nil {
+
+	// httpsOwnerRefs is nil in multi-cluster mode: the PEM secret is written to each member
+	// cluster via memberCluster.SecretClient. A cross-cluster ownerReference causes the
+	// Kubernetes garbage collector to delete the secret as an orphan. Cleanup in multi-cluster
+	// mode is handled through explicit label-based deletion instead.
+	// In single-cluster mode, BaseOwnerReference makes the secret owned by the OpsManager CR
+	// so Kubernetes GC removes it when the CR is deleted.
+	httpsOwnerRefs := kube.BaseOwnerReference(opsManager)
+	if opsManager.Spec.IsMultiCluster() {
+		httpsOwnerRefs = nil
+	}
+	if err := opts.updateHTTPSCertSecret(ctx, centralClusterSecretClient, memberCluster, httpsOwnerRefs, log); err != nil {
 		return appsv1.StatefulSet{}, err
 	}
 
