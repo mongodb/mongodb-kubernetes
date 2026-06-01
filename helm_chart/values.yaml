@@ -27,6 +27,12 @@ operator:
   - mongodbcommunity
   - mongodbsearch
 
+  # When clusterName is set, this operator only reconciles spec.clusters[i] entries
+  # whose clusterName matches (simulated multi-cluster: one operator per cluster).
+  # Leave empty for the legacy single-operator multi-cluster pattern.
+  clusterIdentity:
+    clusterName: ''
+
   nodeSelector: {}
 
   tolerations: []

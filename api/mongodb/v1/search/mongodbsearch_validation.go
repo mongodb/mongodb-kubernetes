@@ -570,10 +570,21 @@ func validateExternalHostnameDNSLength(s *MongoDBSearch) v1.ValidationResult {
 	if clusterIters == 0 {
 		clusterIters = 1
 	}
+	var clusters []ClusterSpec
+	if s.Spec.Clusters != nil {
+		clusters = *s.Spec.Clusters
+	}
 	for i := 0; i < clusterIters; i++ {
 		base := s.Spec.LoadBalancer.Managed.ExternalHostname
 		if clusterCount > 0 {
-			base = s.GetManagedLBEndpointForCluster(i)
+			// Resolve the cluster index (pinned ClusterIndex when set, else the
+			// array position) and name for clusters[i]; the helper substitutes
+			// them directly.
+			idx := i
+			if clusters[i].ClusterIndex != nil {
+				idx = int(*clusters[i].ClusterIndex)
+			}
+			base = s.GetManagedLBEndpointForCluster(idx, clusters[i].ClusterName)
 		}
 		if len(shardNames) == 0 {
 			if res := check(base); res.Level == v1.ErrorLevel {

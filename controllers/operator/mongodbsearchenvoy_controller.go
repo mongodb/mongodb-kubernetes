@@ -60,10 +60,7 @@ const (
 	labelName = "search-proxy"
 )
 
-// envoyRoute defines routing information for one Envoy entrypoint.
-// Per-shard routes carry exactly one UpstreamHosts entry (the shard's mongot Service FQDN).
-// The cluster-level route carries N entries — one per shard mongot Service in that cluster —
-// so mongos can reach any shard's mongot pool through a single SNI/filter chain.
+// envoyRoute is one Envoy entrypoint; per-shard routes have one upstream, cluster-level routes aggregate all shard upstreams.
 type envoyRoute struct {
 	Name          string   // identifier: shard name (e.g., "mdb-sh-0"), "rs", or "cluster-level"
 	NameSafe      string   // identifier safe for Envoy (hyphens replaced with underscores)
@@ -78,13 +75,13 @@ type MongoDBSearchEnvoyReconciler struct {
 	watch             *watch.ResourceWatcher
 	defaultEnvoyImage string
 
-	// memberClusterClientsMap is keyed by the member cluster name and holds the
-	// per-cluster Kubernetes client. Empty in single-cluster installs; the
-	// Reconcile path falls back to kubeClient (resolved in buildClusterWorkList).
+	// memberClusterClientsMap is empty in single-cluster installs; buildClusterWorkList falls back to kubeClient.
 	memberClusterClientsMap map[string]kubernetesClient.Client
+
+	operatorClusterName string
 }
 
-func newMongoDBSearchEnvoyReconciler(c client.Client, defaultEnvoyImage string, memberClustersMap map[string]client.Client) *MongoDBSearchEnvoyReconciler {
+func newMongoDBSearchEnvoyReconciler(c client.Client, defaultEnvoyImage string, memberClustersMap map[string]client.Client, operatorClusterName string) *MongoDBSearchEnvoyReconciler {
 	clientsMap := make(map[string]kubernetesClient.Client, len(memberClustersMap))
 	for k, v := range memberClustersMap {
 		clientsMap[k] = kubernetesClient.NewClient(v)
@@ -95,6 +92,7 @@ func newMongoDBSearchEnvoyReconciler(c client.Client, defaultEnvoyImage string, 
 		watch:                   watch.NewResourceWatcher(),
 		defaultEnvoyImage:       defaultEnvoyImage,
 		memberClusterClientsMap: clientsMap,
+		operatorClusterName:     operatorClusterName,
 	}
 }
 
@@ -108,6 +106,25 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 	mdbSearch := &searchv1.MongoDBSearch{}
 	if result, err := commoncontroller.GetResource(ctx, r.kubeClient, request, mdbSearch, log); err != nil {
 		return result, err
+	}
+
+	// Validate the UN-NARROWED spec first (see mongodbsearch_controller.go::Reconcile
+	// for the rationale). Failures surface on /status/loadBalancer so the Envoy
+	// sub-status stays authoritative for LB shape errors.
+	if err := mdbSearch.ValidateSpec(); err != nil {
+		return r.updateLBStatus(ctx, mdbSearch, workflow.Invalid("%s", err.Error()), log)
+	}
+
+	// Simulated-MC operators require every spec.clusters[] entry to pin a ClusterIndex.
+	// Runs on the un-narrowed spec (before LocalizeToCluster) so it sees all clusters.
+	if r.operatorClusterName != "" {
+		if err := mdbSearch.ValidateSimulatedMCClusterIndices(); err != nil {
+			return r.updateLBStatus(ctx, mdbSearch, workflow.Invalid("%s", err.Error()), log)
+		}
+	}
+
+	if r.operatorClusterName != "" && !mdbSearch.LocalizeToCluster(r.operatorClusterName) {
+		return reconcile.Result{}, nil
 	}
 
 	// TODO: can we find a better cleanup mechanism, and optimize the watching of the loadbalancer field by this controller ?
@@ -140,24 +157,22 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 		return r.updateLBStatus(ctx, mdbSearch, workflow.Pending("Waiting for search source: %s", err), log)
 	}
 
-	// Load the per-CR state to get the stable clusterName → clusterIndex mapping.
-	state, _, err := loadOrInitSearchState(ctx, r.kubeClient, mdbSearch)
-	if err != nil {
-		return r.updateLBStatus(ctx, mdbSearch, workflow.Pending("Waiting for search state: %s", err), log)
-	}
-
 	tlsCfg := searchSource.TLSConfig()
 	tlsEnabled := mdbSearch.IsTLSConfigured()
 
-	workList := r.buildClusterWorkList(mdbSearch, state.ClusterMapping)
+	clusterMapping, err := resolveClusterMapping(ctx, r.kubeClient, mdbSearch, log)
+	if err != nil {
+		return r.updateLBStatus(ctx, mdbSearch, workflow.Failed(fmt.Errorf("failed to resolve cluster mapping: %w", err)), log)
+	}
+
+	workList := r.buildClusterWorkList(mdbSearch, clusterMapping)
 	var firstFailure error
 	var worstPhase status.Phase
 
 	for _, w := range workList {
 		var st workflow.Status
 		if w.ClusterIndex == -1 {
-			// Cluster not yet registered in state mapping; Envoy controller
-			// reconciles after the main search controller writes the mapping.
+			// First-reconcile race: main controller writes the mapping CM before Envoy can use it.
 			st = workflow.Pending("Waiting for cluster %q to be registered in search state", w.ClusterName)
 		} else {
 			st = r.reconcileForCluster(ctx, mdbSearch, searchSource, tlsEnabled, tlsCfg, w.ClusterName, w.ClusterIndex, w.Client, log)
@@ -181,11 +196,8 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 	return r.updateLBStatus(ctx, mdbSearch, workflow.OK(), log)
 }
 
-// clusterWorkItem represents one (clusterName, clusterIndex, client) unit the reconciler must process.
-// In single-cluster (no spec.clusters or empty memberClusterClientsMap) the slice
-// has one entry with ClusterName == "" and ClusterIndex == 0.
-// ClusterIndex == -1 is a sentinel meaning the cluster has not yet been registered
-// in the state mapping; the reconciler surfaces a per-cluster Pending for those.
+// clusterWorkItem is one per-cluster unit. Single-cluster: ClusterName="", ClusterIndex=0.
+// ClusterIndex == -1 sentinel = cluster not yet in state mapping (first-reconcile race).
 type clusterWorkItem struct {
 	ClusterName  string
 	ClusterIndex int
@@ -198,8 +210,11 @@ type clusterWorkItem struct {
 //   - len(spec.clusters) == 0 → single-cluster (empty spec.clusters); one work item with ClusterName="" and ClusterIndex=0.
 //   - otherwise → one work item per spec.clusters[i]. ClusterIndex is resolved from
 //     mapping; -1 if the cluster is not yet in the mapping (first reconcile race).
+//
+// Client falls back from memberClusterClientsMap to r.kubeClient — the fallback is what makes simulated-MC
+// work after projection narrows spec.clusters[] to just the local cluster.
 func (r *MongoDBSearchEnvoyReconciler) buildClusterWorkList(search *searchv1.MongoDBSearch, mapping map[string]int) []clusterWorkItem {
-	if len(r.memberClusterClientsMap) == 0 || search.Spec.Clusters == nil || len(*search.Spec.Clusters) == 0 {
+	if search.Spec.Clusters == nil || len(*search.Spec.Clusters) == 0 {
 		return []clusterWorkItem{{ClusterName: "", ClusterIndex: 0, Client: r.kubeClient}}
 	}
 	work := make([]clusterWorkItem, 0, len(*search.Spec.Clusters))
@@ -218,9 +233,6 @@ func (r *MongoDBSearchEnvoyReconciler) buildClusterWorkList(search *searchv1.Mon
 }
 
 // reconcileForCluster runs the ConfigMap + Deployment ensure for one cluster.
-// clusterName is used for log context; clusterIndex is used for resource naming;
-// c is the pre-resolved Kubernetes client for the target cluster.
-// Returns a workflow.Status describing the per-cluster outcome.
 func (r *MongoDBSearchEnvoyReconciler) reconcileForCluster(
 	ctx context.Context,
 	search *searchv1.MongoDBSearch,
@@ -232,14 +244,6 @@ func (r *MongoDBSearchEnvoyReconciler) reconcileForCluster(
 	c kubernetesClient.Client,
 	log *zap.SugaredLogger,
 ) workflow.Status {
-	// defensive: belt-and-braces guard against an unknown-name path that should
-	// already be caught by ClusterIndex == -1 upstream in the work-list loop.
-	if clusterName != "" {
-		if _, ok := r.memberClusterClientsMap[clusterName]; !ok {
-			return workflow.Pending("Member cluster %q not registered with the operator", clusterName)
-		}
-	}
-
 	routes := buildRoutesForCluster(search, source, clusterIndex, clusterName)
 	if len(routes) == 0 {
 		return workflow.Pending("No routes to configure for load balancer (cluster=%q)", clusterName)
@@ -341,7 +345,7 @@ func buildShardRoutes(search *searchv1.MongoDBSearch, shardNames []string, clust
 		upstreamFQDN := fmt.Sprintf("%s.%s.svc.cluster.local", mongotServiceName, namespace)
 
 		sniHostname := fmt.Sprintf("%s.%s.svc.cluster.local", sniServiceName, namespace)
-		if endpoint := search.GetManagedLBEndpointForClusterShard(clusterIndex, shardName); endpoint != "" {
+		if endpoint := search.GetManagedLBEndpointForClusterShard(clusterIndex, clusterName, shardName); endpoint != "" {
 			sniHostname = endpoint
 		}
 
@@ -361,7 +365,7 @@ func buildShardRoutes(search *searchv1.MongoDBSearch, shardNames []string, clust
 	// the user supplied a managed-LB externalHostname (with {shardName}. prefix stripped).
 	clusterLevelSvcName := search.ProxyServiceNamespacedNameForCluster(clusterIndex).Name
 	clusterLevelSNI := fmt.Sprintf("%s.%s.svc.cluster.local", clusterLevelSvcName, namespace)
-	if endpoint := search.GetManagedLBEndpointForClusterLevel(clusterIndex); endpoint != "" {
+	if endpoint := search.GetManagedLBEndpointForClusterLevel(clusterIndex, clusterName); endpoint != "" {
 		clusterLevelSNI = endpoint
 	}
 
@@ -424,7 +428,7 @@ func buildReplicaSetRouteForCluster(search *searchv1.MongoDBSearch, clusterIndex
 
 	sniServiceName := search.ProxyServiceNamespacedNameForCluster(clusterIndex).Name
 	sniHostname := fmt.Sprintf("%s.%s.svc.cluster.local", sniServiceName, namespace)
-	if endpoint := search.GetManagedLBEndpointForCluster(clusterIndex); endpoint != "" {
+	if endpoint := search.GetManagedLBEndpointForCluster(clusterIndex, clusterName); endpoint != "" {
 		sniHostname = endpoint
 	}
 
@@ -438,15 +442,9 @@ func buildReplicaSetRouteForCluster(search *searchv1.MongoDBSearch, clusterIndex
 	}
 }
 
-// ensureConfigMap creates or updates the Envoy ConfigMap in the cluster
-// indicated by clusterName ("" = central cluster, single-cluster path).
-// clusterIndex is used for resource naming; clusterName is used for client
-// lookup and labels.
-//
-// Cross-cluster ownership note: Kubernetes garbage collection does not span
-// clusters, so we only set an OwnerReference when writing into the central
-// cluster (clusterName == ""). Cleanup of member-cluster objects is handled
-// explicitly in deleteEnvoyResources.
+// ensureConfigMap creates/updates the Envoy ConfigMap in the cluster indicated by clusterName ("" = central).
+// Owner refs are set ONLY when writing to the central cluster — k8s GC does not span clusters, so
+// member-cluster cleanup runs explicitly in deleteEnvoyResources.
 func (r *MongoDBSearchEnvoyReconciler) ensureConfigMap(ctx context.Context, search *searchv1.MongoDBSearch, envoyJSON, clusterName string, clusterIndex int, c kubernetesClient.Client, log *zap.SugaredLogger) error {
 	cm := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
@@ -471,10 +469,7 @@ func (r *MongoDBSearchEnvoyReconciler) ensureConfigMap(ctx context.Context, sear
 	return nil
 }
 
-// ensureDeployment creates or updates the Envoy Deployment in the cluster
-// indicated by clusterName ("" = central cluster, single-cluster path).
-// clusterIndex is used for resource naming; clusterName is used for labels.
-// See ensureConfigMap for the cross-cluster ownership rule.
+// ensureDeployment creates/updates the Envoy Deployment. See ensureConfigMap for the cross-cluster ownership rule.
 func (r *MongoDBSearchEnvoyReconciler) ensureDeployment(ctx context.Context, search *searchv1.MongoDBSearch, envoyJSON, clusterName string, clusterIndex int, c kubernetesClient.Client, tlsCfg *searchcontroller.TLSSourceConfig, log *zap.SugaredLogger) error {
 	configHash := fmt.Sprintf("%x", sha256.Sum256([]byte(envoyJSON)))
 	replicas := envoyReplicas(search)
@@ -506,6 +501,10 @@ func (r *MongoDBSearchEnvoyReconciler) ensureDeployment(ctx context.Context, sea
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: podLabels,
+					// Istio sniff-skip: see buildProxyService AppProtocol rationale.
+					// Do NOT add `traffic.sidecar.istio.io/excludeInboundPorts` here —
+					// asymmetric inbound exclusion makes the Envoy pod hang ~20s on
+					// unwrapped mTLS bytes (mongod code 125).
 					Annotations: map[string]string{
 						envoyConfigHashAnnotation: configHash,
 					},
@@ -714,14 +713,8 @@ func defaultEnvoyResourceRequirements() corev1.ResourceRequirements {
 	}
 }
 
-// envoyLabelsForCluster returns Envoy resource labels including the cross-cluster
-// enqueue labels and an optional cluster-name label. In single-cluster (clusterName
-// == "") the cluster-name label is omitted. Both stamp the cross-cluster enqueue
-// labels so the label-based mapper can route Deployment/ConfigMap events back
-// to the owning MongoDBSearch even when objects live in a member cluster (where
-// owner refs don't GC).
-// clusterIndex is used for the "app" label (resource name); clusterName is used
-// for the cluster-name label so label selectors remain name-keyed.
+// envoyLabelsForCluster stamps the cross-cluster enqueue labels so the label-based mapper can route
+// member-cluster Deployment/ConfigMap events back to the owning MongoDBSearch (owner refs don't GC across clusters).
 func envoyLabelsForCluster(search *searchv1.MongoDBSearch, clusterName string, clusterIndex int) map[string]string {
 	labels := map[string]string{
 		"app":                                search.LoadBalancerDeploymentNameForCluster(clusterIndex),
@@ -736,8 +729,6 @@ func envoyLabelsForCluster(search *searchv1.MongoDBSearch, clusterName string, c
 	return labels
 }
 
-// envoyReplicas returns the desired Envoy replica count.
-// Uses spec.loadBalancer.managed.replicas if set, otherwise defaults to 1.
 func envoyReplicas(search *searchv1.MongoDBSearch) int32 {
 	if cfg := search.Spec.LoadBalancer; cfg != nil && cfg.Managed != nil && cfg.Managed.Replicas != nil {
 		return *cfg.Managed.Replicas
@@ -745,36 +736,20 @@ func envoyReplicas(search *searchv1.MongoDBSearch) int32 {
 	return envoyReplicasDefault
 }
 
-// envoyPodLabelsForCluster returns Envoy pod-selection labels for one cluster.
-// The "app" label uses the per-cluster Deployment name so Pods stay distinct
-// per (cluster, namespace) — Pod names already carry the Deployment prefix.
+// envoyPodLabelsForCluster keys "app" by the per-cluster Deployment name so Pods stay distinct per (cluster, namespace).
 func envoyPodLabelsForCluster(search *searchv1.MongoDBSearch, clusterIndex int) map[string]string {
 	return map[string]string{
 		"app": search.LoadBalancerDeploymentNameForCluster(clusterIndex),
 	}
 }
 
-func mapEnvoyObjectToSearch(_ context.Context, obj client.Object) []reconcile.Request {
-	req := khandler.MapMemberClusterObjectToSearch(obj)
-	if req == (reconcile.Request{}) {
-		return nil
-	}
-	return []reconcile.Request{req}
-}
-
-// Controller Registration
-//
-// memberClusterObjectsMap is the same map main.go passes to AddMongoDBSearchController.
-// Empty in single-cluster installs — the controller behaves identically to before
-// when the map is empty.
-//
-// For each member cluster we register watches on Envoy Deployment + ConfigMap
-// using the label-based mapper (cross-cluster owner refs do not GC).
-func AddMongoDBSearchEnvoyController(ctx context.Context, mgr manager.Manager, defaultEnvoyImage string, memberClusterObjectsMap map[string]runtimeCluster.Cluster) error {
+// AddMongoDBSearchEnvoyController registers per-member-cluster watches via label-based mapper
+// (cross-cluster owner refs don't GC). memberClusterObjectsMap is empty in single-cluster installs.
+func AddMongoDBSearchEnvoyController(ctx context.Context, mgr manager.Manager, defaultEnvoyImage string, memberClusterObjectsMap map[string]runtimeCluster.Cluster, operatorClusterName string) error {
 	// NOTE: The field index for MongoDBSearchIndexFieldName is already registered
 	// by AddMongoDBSearchController. Do not register it again here.
 
-	r := newMongoDBSearchEnvoyReconciler(mgr.GetClient(), defaultEnvoyImage, multicluster.ClustersMapToClientMap(memberClusterObjectsMap))
+	r := newMongoDBSearchEnvoyReconciler(mgr.GetClient(), defaultEnvoyImage, multicluster.ClustersMapToClientMap(memberClusterObjectsMap), operatorClusterName)
 
 	c, err := controller.New("mongodbsearchenvoy", mgr, controller.Options{
 		Reconciler:              r,
@@ -807,7 +782,7 @@ func AddMongoDBSearchEnvoyController(ctx context.Context, mgr manager.Manager, d
 	// cross-cluster owner refs don't GC. Same pattern as the AppDB MC and
 	// sharded MC controllers (see appdbreplicaset_controller.go and
 	// mongodbshardedcluster_controller.go).
-	mapper := handler.EnqueueRequestsFromMapFunc(mapEnvoyObjectToSearch)
+	mapper := handler.EnqueueRequestsFromMapFunc(khandler.EnqueueMemberClusterObjectToSearch)
 	for k, v := range memberClusterObjectsMap {
 		if err := c.Watch(source.Kind[client.Object](v.GetCache(), &appsv1.Deployment{}, mapper)); err != nil {
 			return fmt.Errorf("failed to set Envoy Deployment watch on member cluster %s: %w", k, err)

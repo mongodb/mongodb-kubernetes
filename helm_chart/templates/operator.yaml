@@ -222,6 +222,10 @@ spec:
                   fieldPath: metadata.name
             - name: OPERATOR_NAME
               value: {{ .Values.operator.name }}
+    {{- if .Values.operator.clusterIdentity.clusterName }}
+            - name: OPERATOR_CLUSTER_NAME
+              value: {{ .Values.operator.clusterIdentity.clusterName | quote }}
+    {{- end }}
             # Community Env Vars Start
             - name: MDB_COMMUNITY_AGENT_IMAGE
               value: "{{ .Values.community.registry.agent }}/{{ .Values.community.agent.name }}:{{ .Values.community.agent.version }}"
