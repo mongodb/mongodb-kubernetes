@@ -99,6 +99,10 @@ func traverse(currentValue interface{}, currentPath []string) []string {
 			}
 			return allPaths
 		}
+	case nil:
+		// nil means the caller wants this field removed; treat it as absent so
+		// RemoveFieldsBasedOnDesiredAndPrevious will include it in itemsToRemove.
+		return []string{}
 	default:
 		{
 			// We found the "terminal" node in the map - need to dump the current path

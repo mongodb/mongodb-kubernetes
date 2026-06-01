@@ -31,6 +31,11 @@ func MergeMaps(dst, src map[string]interface{}) {
 				dstMap := dst[key].(map[string]interface{})
 				MergeMaps(dstMap, t)
 			}
+		case nil:
+			// nil means the caller wants this field removed; delete it from the
+			// destination so it is not sent to OM as "verbosity": null, which
+			// would either reintroduce the field or cause type confusion.
+			delete(dst, key)
 		default:
 			{
 				dst[key] = castValue(dst[key], t)
