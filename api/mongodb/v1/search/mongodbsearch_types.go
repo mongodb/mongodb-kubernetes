@@ -20,25 +20,25 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
-// ShardNamePlaceholder is the placeholder used in endpoint templates for sharded clusters
-const ShardNamePlaceholder = "{shardName}"
-
-// ClusterNamePlaceholder is substituted with spec.clusters[i].ClusterName when
-// resolving spec.loadBalancer.managed.externalHostname for cluster i in
-// multi-cluster MongoDBSearch deployments. The Envoy reconciler substitutes the
-// member cluster name so per-cluster SNI hostnames stay distinct.
-const ClusterNamePlaceholder = "{clusterName}"
-
-// ClusterIndexPlaceholder is substituted with the stable cluster-index for
-// spec.clusters[i]. The index is monotonic and never reused on remove/re-add
-// (see api/v1/search/cluster_index.go).
-const ClusterIndexPlaceholder = "{clusterIndex}"
-
-// LabelResourceOwner is the label key used to identify the MongoDBSearch CR that
-// owns a resource. Used as part of GetOwnerLabels for StateStore ConfigMap selection.
-const LabelResourceOwner = "mongodb.com/v1.mongodbSearchResourceOwner"
-
 const (
+	// ShardNamePlaceholder is the placeholder used in endpoint templates for sharded clusters
+	ShardNamePlaceholder = "{shardName}"
+
+	// ClusterNamePlaceholder is substituted with spec.clusters[i].ClusterName when
+	// resolving spec.loadBalancer.managed.externalHostname for cluster i in
+	// multi-cluster MongoDBSearch deployments. The Envoy reconciler substitutes the
+	// member cluster name so per-cluster SNI hostnames stay distinct.
+	ClusterNamePlaceholder = "{clusterName}"
+
+	// ClusterIndexPlaceholder is substituted with the stable cluster-index for
+	// spec.clusters[i]. The index is monotonic and never reused on remove/re-add
+	// (see api/mongodb/v1/search/cluster_index.go).
+	ClusterIndexPlaceholder = "{clusterIndex}"
+
+	// LabelResourceOwner is the label key used to identify the MongoDBSearch CR that
+	// owns a resource. Used as part of GetOwnerLabels for StateStore ConfigMap selection.
+	LabelResourceOwner = "mongodb.com/v1.mongodbSearchResourceOwner"
+
 	MongotDefaultWireprotoPort      int32 = 27027
 	MongotDefaultGrpcPort           int32 = 27028
 	MongotDefaultPrometheusPort     int32 = 9946
@@ -81,37 +81,17 @@ type MongoDBSearchSpec struct {
 	// MongoDB database connection details from which MongoDB Search will synchronize data to build indexes.
 	// +optional
 	Source *MongoDBSource `json:"source"`
-	// Deprecated: In multi-cluster deployments, prefer spec.clusters[].replicas. When
-	// spec.clusters is omitted, this value auto-promotes into spec.clusters[0].replicas.
-	// Setting both spec.replicas and spec.clusters at the same time is rejected by admission.
-	// Replicas is the number of mongot pods to deploy.
-	// For ReplicaSet source: the number of mongot pods in total.
-	// For Sharded source: the number mongot pods per shard.
-	// When Replicas > 1, a load balancer configuration (spec.loadBalancer)
-	// is required to distribute traffic across mongot instances.
-	// 0 is allowed so operators (and operator-driven test harnesses) can
-	// take mongot offline cleanly via the CR — the StatefulSet is scaled
-	// to 0 by the reconciler; the MongoDBSearch CR itself stays around.
+	// Deprecated: use spec.clusters[].replicas instead; this top-level form will be removed.
 	// +optional
 	// +kubebuilder:validation:Minimum=0
 	Replicas *int32 `json:"replicas,omitempty"`
-	// Deprecated: In multi-cluster deployments, prefer spec.clusters[].statefulSet. When
-	// spec.clusters is omitted, this value auto-promotes into spec.clusters[0].statefulSet.
-	// Setting both spec.statefulSet and spec.clusters at the same time is rejected by admission.
-	// StatefulSetSpec which the operator will apply to the MongoDB Search StatefulSet at the end of the reconcile loop. Use to provide necessary customizations,
-	// which aren't exposed as fields in the MongoDBSearch.spec.
+	// Deprecated: use spec.clusters[].statefulSet instead; this top-level form will be removed.
 	// +optional
 	StatefulSetConfiguration *v1.StatefulSetConfiguration `json:"statefulSet,omitempty"`
-	// Deprecated: In multi-cluster deployments, prefer spec.clusters[].persistence. When
-	// spec.clusters is omitted, this value auto-promotes into spec.clusters[0].persistence.
-	// Setting both spec.persistence and spec.clusters at the same time is rejected by admission.
-	// Configure MongoDB Search's persistent volume. If not defined, the operator will request 10GB of storage.
+	// Deprecated: use spec.clusters[].persistence instead; this top-level form will be removed.
 	// +optional
 	Persistence *v1.Persistence `json:"persistence,omitempty"`
-	// Deprecated: In multi-cluster deployments, prefer spec.clusters[].resourceRequirements. When
-	// spec.clusters is omitted, this value auto-promotes into spec.clusters[0].resourceRequirements.
-	// Setting both spec.resourceRequirements and spec.clusters at the same time is rejected by admission.
-	// Configure resource requests and limits for the MongoDB Search pods.
+	// Deprecated: use spec.clusters[].resourceRequirements instead; this top-level form will be removed.
 	// +optional
 	ResourceRequirements *corev1.ResourceRequirements `json:"resourceRequirements,omitempty"`
 	// Configure security settings of the MongoDB Search server that MongoDB database is connecting to when performing search queries.
@@ -167,27 +147,33 @@ type SyncSourceSelector struct {
 }
 
 // ClusterSpec is one entry in spec.clusters[]. ClusterName is required and immutable
-// when len(spec.clusters) > 1; optional in the single-cluster degenerate case.
+// when len(spec.clusters) > 1; optional in the single-cluster case.
 // All other fields override the corresponding top-level value when set; nil/omitted inherits.
 type ClusterSpec struct {
 	// ClusterName is the Kubernetes cluster name. Required and immutable
-	// when len(spec.clusters) > 1; optional in the single-cluster degenerate case.
-	// MaxLength bounds the per-element cost contributed to the parent
-	// clusters[] uniqueness CEL rule. 253 matches the DNS subdomain limit
-	// that K8s cluster names obey.
+	// when len(spec.clusters) > 1; optional in the single-cluster case.
+	// MaxLength is 253 to match the DNS subdomain limit Kubernetes cluster
+	// names obey (and to bound the clusters[] uniqueness CEL rule's per-element cost).
 	// +optional
 	// +kubebuilder:validation:MaxLength=253
 	ClusterName string `json:"clusterName,omitempty"`
-	// Replicas overrides spec.replicas for this cluster's mongot StatefulSet.
-	// For sharded sources, this is mongot pods per shard, not total.
-	// 0 is allowed (StatefulSet scales to 0 — see spec.replicas docs).
+	// Replicas is the number of mongot pods for this cluster's StatefulSet.
+	// For ReplicaSet sources this is the total; for sharded sources it is per shard.
+	// When Replicas > 1, a load balancer (spec.loadBalancer) is required to distribute
+	// traffic across mongot instances.
+	// 0 is allowed so operators (and operator-driven test harnesses) can take mongot
+	// offline cleanly via the CR — the StatefulSet scales to 0; the MongoDBSearch CR stays.
 	// +optional
 	// +kubebuilder:validation:Minimum=0
 	Replicas *int32 `json:"replicas,omitempty"`
+	// ResourceRequirements configures resource requests and limits for this cluster's mongot pods.
 	// +optional
 	ResourceRequirements *corev1.ResourceRequirements `json:"resourceRequirements,omitempty"`
+	// Persistence configures this cluster's mongot persistent volume. Defaults to 10GB if unset.
 	// +optional
 	Persistence *v1.Persistence `json:"persistence,omitempty"`
+	// StatefulSetConfiguration is applied to this cluster's mongot StatefulSet at the end of the
+	// reconcile loop, for customizations not exposed as first-class fields.
 	// +optional
 	StatefulSetConfiguration *v1.StatefulSetConfiguration `json:"statefulSet,omitempty"`
 	// +optional
