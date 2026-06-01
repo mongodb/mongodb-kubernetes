@@ -3404,7 +3404,7 @@ func TestCleanupStaleShardResources_MCFanOut(t *testing.T) {
 }
 
 // Empty GetShardNames() yields an empty work list. The reconciler must not fail
-// noisily on the degenerate case; the preflight step is a no-op and reconcile
+// noisily on the empty-shard-names case; the preflight step is a no-op and reconcile
 // should reach an OK terminal state with no per-shard resources created.
 // (Production-shaped sources never return empty
 // — this is a defensive boundary check.)
@@ -3423,7 +3423,7 @@ func TestReconcileSharded_EmptyShardNames(t *testing.T) {
 	})
 
 	// emptyShardedSource implements SearchSourceShardedDeployment but reports
-	// zero shards — the degenerate case.
+	// zero shards — the empty boundary case.
 	src := &mockShardedSource{shardNames: nil}
 	central := kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().WithObjects(search).Build())
 

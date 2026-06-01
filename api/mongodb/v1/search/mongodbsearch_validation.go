@@ -336,7 +336,7 @@ func validateX509AuthConfig(s *MongoDBSearch) v1.ValidationResult {
 }
 
 // validateClustersClusterNameNonEmpty rejects an empty spec.clusters[i].clusterName
-// when len(spec.clusters) > 1. The single-cluster degenerate case (len <= 1) keeps
+// when len(spec.clusters) > 1. The single-cluster case (len <= 1) keeps
 // allowing an empty clusterName. Uniqueness is the next validator's job; the dedicated
 // "is required" message fires here so a two-empty-names spec surfaces the actionable
 // hint instead of "duplicate".
@@ -593,7 +593,7 @@ func validateExternalHostnameDNSLength(s *MongoDBSearch) v1.ValidationResult {
 // validateMCRejectsUnmanagedLB rejects multi-cluster MongoDBSearch with
 // spec.loadBalancer.unmanaged set. Q3-MC / Q4-MC topologies are deferred
 // post-GA per spec §4.4 and §B0.2; multi-cluster at GA requires managed LB.
-// Single-cluster (and the degenerate single-entry spec.clusters case) keep
+// Single-cluster (and the single-entry spec.clusters case) keep
 // using unmanaged LB without change.
 func validateMCRejectsUnmanagedLB(s *MongoDBSearch) v1.ValidationResult {
 	if s.Spec.Clusters == nil || len(*s.Spec.Clusters) <= 1 {
