@@ -7,10 +7,18 @@ import (
 )
 
 func TestAssignClusterIndices(t *testing.T) {
+	pin := func(v int32) *int32 { return &v }
+	names := func(ns ...string) []ClusterSpec {
+		out := make([]ClusterSpec, 0, len(ns))
+		for _, n := range ns {
+			out = append(out, ClusterSpec{ClusterName: n})
+		}
+		return out
+	}
 	tests := []struct {
 		name     string
 		existing map[string]int
-		current  []string
+		current  []ClusterSpec
 		want     map[string]int
 	}{
 		{
@@ -22,44 +30,62 @@ func TestAssignClusterIndices(t *testing.T) {
 		{
 			name:     "first assignment starts at 0",
 			existing: map[string]int{},
-			current:  []string{"us-east", "us-west"},
+			current:  names("us-east", "us-west"),
 			want:     map[string]int{"us-east": 0, "us-west": 1},
 		},
 		{
 			name:     "preserve existing on no-op",
 			existing: map[string]int{"us-east": 0, "us-west": 1},
-			current:  []string{"us-east", "us-west"},
+			current:  names("us-east", "us-west"),
 			want:     map[string]int{"us-east": 0, "us-west": 1},
 		},
 		{
 			name:     "append new monotonically from max+1",
 			existing: map[string]int{"us-east": 0, "us-west": 1},
-			current:  []string{"us-east", "us-west", "eu-central"},
+			current:  names("us-east", "us-west", "eu-central"),
 			want:     map[string]int{"us-east": 0, "us-west": 1, "eu-central": 2},
 		},
 		{
 			name:     "non-contiguous existing — next index is max+1, not gap",
 			existing: map[string]int{"us-east": 0, "us-west": 5},
-			current:  []string{"us-east", "us-west", "eu-central"},
+			current:  names("us-east", "us-west", "eu-central"),
 			want:     map[string]int{"us-east": 0, "us-west": 5, "eu-central": 6},
 		},
 		{
 			name:     "removed cluster stays in map (no reuse)",
 			existing: map[string]int{"us-east": 0, "us-west": 1},
-			current:  []string{"us-east"},
+			current:  names("us-east"),
 			want:     map[string]int{"us-east": 0, "us-west": 1},
 		},
 		{
 			name:     "remove and re-add reuses the original index",
 			existing: map[string]int{"us-east": 0, "us-west": 1},
-			current:  []string{"us-east", "us-west"},
+			current:  names("us-east", "us-west"),
 			want:     map[string]int{"us-east": 0, "us-west": 1},
 		},
 		{
 			name:     "remove then add a different name uses next-after-max",
 			existing: map[string]int{"us-east": 0, "us-west": 1},
-			current:  []string{"us-east", "eu-central"},
+			current:  names("us-east", "eu-central"),
 			want:     map[string]int{"us-east": 0, "us-west": 1, "eu-central": 2},
+		},
+		{
+			name:     "pinned ClusterIndex honored on first assignment",
+			existing: map[string]int{},
+			current:  []ClusterSpec{{ClusterName: "us-east", ClusterIndex: pin(7)}, {ClusterName: "us-west", ClusterIndex: pin(3)}},
+			want:     map[string]int{"us-east": 7, "us-west": 3},
+		},
+		{
+			name:     "pinned ClusterIndex overrides existing",
+			existing: map[string]int{"us-east": 0, "us-west": 1},
+			current:  []ClusterSpec{{ClusterName: "us-east", ClusterIndex: pin(9)}, {ClusterName: "us-west"}},
+			want:     map[string]int{"us-east": 9, "us-west": 1},
+		},
+		{
+			name:     "mixed pinned + unpinned: pin honored, rest monotonic from max",
+			existing: map[string]int{},
+			current:  []ClusterSpec{{ClusterName: "us-east", ClusterIndex: pin(5)}, {ClusterName: "us-west"}},
+			want:     map[string]int{"us-east": 5, "us-west": 6},
 		},
 	}
 	for _, tt := range tests {
@@ -72,6 +98,6 @@ func TestAssignClusterIndices(t *testing.T) {
 
 func TestAssignClusterIndicesDoesNotMutateExisting(t *testing.T) {
 	existing := map[string]int{"a": 0, "b": 1}
-	AssignClusterIndices(existing, []string{"a", "b", "c"})
+	AssignClusterIndices(existing, []ClusterSpec{{ClusterName: "a"}, {ClusterName: "b"}, {ClusterName: "c"}})
 	assert.Equal(t, map[string]int{"a": 0, "b": 1}, existing, "existing must not be mutated")
 }

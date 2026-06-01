@@ -354,6 +354,10 @@ func TestBuildProxyService_ManagedLB_Ready(t *testing.T) {
 	// so that traffic is not black-holed after the Commit-2 app-label rename.
 	assert.Equal(t, search.LoadBalancerDeploymentNameForCluster(0), svc.Spec.Selector["app"])
 	assert.Equal(t, int32(27028), svc.Spec.Ports[0].TargetPort.IntVal)
+	// Istio sniff-skip: see buildProxyService AppProtocol rationale.
+	require.NotNil(t, svc.Spec.Ports[0].AppProtocol, "AppProtocol must be set on the proxy svc port")
+	assert.Equal(t, "tcp", *svc.Spec.Ports[0].AppProtocol)
+	assert.Equal(t, "grpc", svc.Spec.Ports[0].Name)
 }
 
 func TestBuildProxyServiceForShard_ManagedLB_NotReady(t *testing.T) {
@@ -1416,6 +1420,7 @@ func TestGetMongosConfigParametersForSharded(t *testing.T) {
 		name          string
 		search        *searchv1.MongoDBSearch
 		clusterIndex  int
+		clusterName   string
 		shardNames    []string
 		clusterDomain string
 		expectedHost  string
@@ -1546,16 +1551,17 @@ func TestGetMongosConfigParametersForSharded(t *testing.T) {
 				},
 			},
 			clusterIndex:  1,
+			clusterName:   "eu-west-k8s",
 			shardNames:    []string{"test-mdb-0", "test-mdb-1"},
 			clusterDomain: "cluster.local",
-			// Strip "{shardName}." then resolve {clusterName} for spec.clusters[1].
+			// Strip "{shardName}." then resolve {clusterName} from the supplied clusterName.
 			expectedHost: "eu-west-k8s.search.example.com:443",
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			config := GetMongosConfigParametersForSharded(tc.search, tc.clusterIndex, tc.shardNames, tc.clusterDomain)
+			config := GetMongosConfigParametersForSharded(tc.search, tc.clusterIndex, tc.clusterName, tc.shardNames, tc.clusterDomain)
 
 			setParameter, ok := config["setParameter"].(map[string]any)
 			require.True(t, ok, "setParameter should be a map")

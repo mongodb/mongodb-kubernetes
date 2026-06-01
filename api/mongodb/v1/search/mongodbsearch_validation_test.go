@@ -772,6 +772,76 @@ func TestValidateMCMatchTagsNonEmpty(t *testing.T) {
 	}
 }
 
+// TestValidateSpec_MCShardedSource covers the un-narrowed MC sharded path that the
+// simulated-MC reconcilers MUST validate before LocalizeToCluster narrows
+// spec.clusters[] to a 1-element slice. After narrowing, the MC validators
+// short-circuit via their `len(spec.clusters) <= 1` guards and silently accept
+// misconfigured templates / duplicate shardNames. These cases lock in the
+// pre-localization contract.
+func TestValidateSpec_MCShardedSource(t *testing.T) {
+	mkSearch := func(template string, shards []ExternalShardConfig) *MongoDBSearch {
+		return &MongoDBSearch{
+			ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"},
+			Spec: MongoDBSearchSpec{
+				Clusters: &[]ClusterSpec{
+					{ClusterName: "cluster-a"},
+					{ClusterName: "cluster-b"},
+				},
+				Source: &MongoDBSource{
+					ExternalMongoDBSource: &ExternalMongoDBSource{
+						ShardedCluster: &ExternalShardedClusterConfig{
+							Router: ExternalRouterConfig{Hosts: []string{"mongos.example:27017"}},
+							Shards: shards,
+						},
+					},
+				},
+				LoadBalancer: &LoadBalancerConfig{Managed: &ManagedLBConfig{ExternalHostname: template}},
+			},
+		}
+	}
+
+	twoShards := []ExternalShardConfig{
+		{ShardName: "sh-0", Hosts: []string{"sh-0-a.example:27017"}},
+		{ShardName: "sh-1", Hosts: []string{"sh-1-a.example:27017"}},
+	}
+
+	tests := []struct {
+		name          string
+		search        *MongoDBSearch
+		errorContains string
+	}{
+		{
+			name:          "MC sharded + 2 clusters + externalHostname missing {shardName} rejected pre-localization",
+			search:        mkSearch("{clusterName}.lb.example.com:443", twoShards),
+			errorContains: "{shardName}",
+		},
+		{
+			name:   "MC sharded + 2 clusters + valid externalHostname accepted",
+			search: mkSearch("{shardName}.{clusterName}.lb.example.com:443", twoShards),
+		},
+		{
+			name: "MC sharded + duplicate shardNames rejected",
+			search: mkSearch("{shardName}.{clusterName}.lb.example.com:443", []ExternalShardConfig{
+				{ShardName: "sh-0", Hosts: []string{"sh-0-a.example:27017"}},
+				{ShardName: "sh-0", Hosts: []string{"sh-0-b.example:27017"}},
+			}),
+			errorContains: "duplicate",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.search.ValidateSpec()
+			if tt.errorContains != "" {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errorContains)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
 func newSearch(name string, shards []ExternalShardConfig, tlsPrefix string, isTLS, isLBManaged bool) *MongoDBSearch {
 	search := &MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "test-namespace"},
