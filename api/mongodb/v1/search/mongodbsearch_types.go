@@ -75,10 +75,10 @@ func (p *Prometheus) GetPort() int32 {
 }
 
 type MongoDBSearchSpec struct {
-	// Optional version of MongoDB Search component (mongot). If not set, then the operator will set the most appropriate version of MongoDB Search.
+	// Version of MongoDB Search (mongot) to run. If unset, the operator picks the most appropriate version.
 	// +optional
 	Version string `json:"version"`
-	// MongoDB database connection details from which MongoDB Search will synchronize data to build indexes.
+	// Source is the MongoDB database that MongoDB Search syncs from to build its indexes.
 	// +optional
 	Source *MongoDBSource `json:"source"`
 	// Deprecated: use spec.clusters[].replicas instead; this top-level form will be removed.
@@ -94,7 +94,7 @@ type MongoDBSearchSpec struct {
 	// Deprecated: use spec.clusters[].resourceRequirements instead; this top-level form will be removed.
 	// +optional
 	ResourceRequirements *corev1.ResourceRequirements `json:"resourceRequirements,omitempty"`
-	// Configure security settings of the MongoDB Search server that MongoDB database is connecting to when performing search queries.
+	// Security holds the TLS settings for the MongoDB Search server.
 	// +optional
 	Security Security `json:"security"`
 	// Configure verbosity of mongot logs. Defaults to INFO if not set.
@@ -104,8 +104,8 @@ type MongoDBSearchSpec struct {
 	// Configure prometheus metrics endpoint in mongot. If not set, the metrics endpoint will be disabled.
 	// +optional
 	Prometheus *Prometheus `json:"prometheus,omitempty"`
-	// Configure MongoDB Search's automatic generation of vector embeddings using an embedding model service.
-	// `embedding` field of mongot config is generated using the values provided here.
+	// AutoEmbedding configures MongoDB Search to generate vector embeddings automatically
+	// through an embedding model service. These values populate the `embedding` section of the mongot config.
 	// +optional
 	AutoEmbedding *EmbeddingConfig `json:"autoEmbedding,omitempty"`
 	// LoadBalancer configures how mongod/mongos connect to mongot (Managed vs Unmanaged/BYO Load Balancer).
@@ -119,10 +119,12 @@ type MongoDBSearchSpec struct {
 	// https://www.mongodb.com/docs/manual/tutorial/mongot-sizing/advanced-guidance/hardware/#jvm-heap-sizing
 	// +optional
 	JVMFlags []string `json:"jvmFlags,omitempty"`
-	// Clusters is the per-cluster distribution shape. Required for multi-cluster
-	// deployments (len > 1); when omitted, the reconciler defaults it to a single
-	// entry built from the top-level fields. Pointer-of-slice so omitted vs.
-	// empty is distinguishable.
+	// Clusters configures the deployment per Kubernetes cluster: one entry for a
+	// single cluster (clusterName optional), or one entry per cluster for
+	// multi-cluster (clusterName required, len > 1). This is the place to set
+	// replicas, resources, storage, and StatefulSet overrides.
+	// If omitted, the operator falls back to the deprecated top-level fields and
+	// runs in a single cluster.
 	// +optional
 	// +kubebuilder:validation:MaxItems=50
 	// +kubebuilder:validation:XValidation:rule="self.all(c1, self.exists_one(c2, c2.clusterName == c1.clusterName))",message="clusters[].clusterName must be unique"
@@ -133,8 +135,8 @@ type MongoDBSearchSpec struct {
 // At-most-one of MatchTags or Hosts may be set.
 // +kubebuilder:validation:XValidation:rule="!(has(self.matchTags) && has(self.hosts))",message="syncSourceSelector.matchTags and syncSourceSelector.hosts are mutually exclusive"
 type SyncSourceSelector struct {
-	// MatchTags renders into mongot's readPreferenceTags; the operator picks
-	// sync-source members whose replSetConfig tags match.
+	// MatchTags selects which sync-source mongods to read from by their replica-set tags.
+	// The operator passes these to mongot as readPreferenceTags.
 	// +optional
 	// +kubebuilder:validation:MaxProperties=50
 	MatchTags map[string]string `json:"matchTags,omitempty"`
@@ -148,7 +150,8 @@ type SyncSourceSelector struct {
 
 // ClusterSpec is one entry in spec.clusters[]. ClusterName is required and immutable
 // when len(spec.clusters) > 1; optional in the single-cluster case.
-// All other fields override the corresponding top-level value when set; nil/omitted inherits.
+// Each other field, when set, applies to this cluster; when unset, it falls back to
+// the matching top-level default.
 type ClusterSpec struct {
 	// ClusterName is the Kubernetes cluster name. Required and immutable
 	// when len(spec.clusters) > 1; optional in the single-cluster case.
@@ -161,8 +164,7 @@ type ClusterSpec struct {
 	// For ReplicaSet sources this is the total; for sharded sources it is per shard.
 	// When Replicas > 1, a load balancer (spec.loadBalancer) is required to distribute
 	// traffic across mongot instances.
-	// 0 is allowed so operators (and operator-driven test harnesses) can take mongot
-	// offline cleanly via the CR — the StatefulSet scales to 0; the MongoDBSearch CR stays.
+	// Set to 0 to take mongot offline: the StatefulSet scales to 0 while the MongoDBSearch CR stays.
 	// +optional
 	// +kubebuilder:validation:Minimum=0
 	Replicas *int32 `json:"replicas,omitempty"`
@@ -231,20 +233,27 @@ type UnmanagedLBConfig struct {
 }
 
 type EmbeddingConfig struct {
+	// ProviderEndpoint is the URL of the embedding model service.
 	ProviderEndpoint string `json:"providerEndpoint,omitempty"`
-	// EmbeddingModelAPIKeySecret would have the name of the secret that has two keys
-	// query-key and indexing-key for embedding model's API keys.
+	// EmbeddingModelAPIKeySecret references a Secret holding the embedding model's API keys.
+	// The Secret must contain two keys: query-key and indexing-key.
 	// +kubebuilder:validation:Required
 	EmbeddingModelAPIKeySecret corev1.LocalObjectReference `json:"embeddingModelAPIKeySecret"`
 }
 
 type MongoDBSource struct {
+	// MongoDBResourceRef points to an operator-managed MongoDB resource to sync from.
+	// Mutually exclusive with External.
 	// +optional
 	MongoDBResourceRef *userv1.MongoDBResourceRef `json:"mongodbResourceRef,omitempty"`
+	// ExternalMongoDBSource describes a MongoDB deployment the operator does not manage.
+	// Mutually exclusive with MongoDBResourceRef.
 	// +optional
 	ExternalMongoDBSource *ExternalMongoDBSource `json:"external,omitempty"`
+	// PasswordSecretRef references the Secret holding the sync-source user's password.
 	// +optional
 	PasswordSecretRef *userv1.SecretKeyRef `json:"passwordSecretRef,omitempty"`
+	// Username is the sync-source user mongot authenticates as. Defaults to search-sync-source.
 	// +optional
 	Username *string `json:"username,omitempty"`
 	// X509 configures x509 client certificate authentication for the sync source connection.
@@ -316,6 +325,7 @@ type ExternalMongodTLS struct {
 }
 
 type Security struct {
+	// TLS configures TLS for the MongoDB Search server.
 	// +optional
 	TLS *TLS `json:"tls,omitempty"`
 }
