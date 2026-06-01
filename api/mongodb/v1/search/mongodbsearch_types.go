@@ -81,17 +81,17 @@ type MongoDBSearchSpec struct {
 	// Source is the MongoDB database that MongoDB Search syncs from to build its indexes.
 	// +optional
 	Source *MongoDBSource `json:"source"`
-	// Deprecated: use spec.clusters[].replicas instead; this top-level form will be removed.
+	// Deprecated: use spec.clusters[].replicas instead; this top-level field will be removed.
 	// +optional
 	// +kubebuilder:validation:Minimum=0
 	Replicas *int32 `json:"replicas,omitempty"`
-	// Deprecated: use spec.clusters[].statefulSet instead; this top-level form will be removed.
+	// Deprecated: use spec.clusters[].statefulSet instead; this top-level field will be removed.
 	// +optional
 	StatefulSetConfiguration *v1.StatefulSetConfiguration `json:"statefulSet,omitempty"`
-	// Deprecated: use spec.clusters[].persistence instead; this top-level form will be removed.
+	// Deprecated: use spec.clusters[].persistence instead; this top-level field will be removed.
 	// +optional
 	Persistence *v1.Persistence `json:"persistence,omitempty"`
-	// Deprecated: use spec.clusters[].resourceRequirements instead; this top-level form will be removed.
+	// Deprecated: use spec.clusters[].resourceRequirements instead; this top-level field will be removed.
 	// +optional
 	ResourceRequirements *corev1.ResourceRequirements `json:"resourceRequirements,omitempty"`
 	// Security holds the TLS settings for the MongoDB Search server.
@@ -155,8 +155,7 @@ type SyncSourceSelector struct {
 type ClusterSpec struct {
 	// ClusterName is the Kubernetes cluster name. Required and immutable
 	// when len(spec.clusters) > 1; optional in the single-cluster case.
-	// MaxLength is 253 to match the DNS subdomain limit Kubernetes cluster
-	// names obey (and to bound the clusters[] uniqueness CEL rule's per-element cost).
+	// MaxLength is 253 — the DNS subdomain limit Kubernetes cluster names follow.
 	// +optional
 	// +kubebuilder:validation:MaxLength=253
 	ClusterName string `json:"clusterName,omitempty"`
