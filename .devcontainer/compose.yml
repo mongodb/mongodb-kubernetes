@@ -20,6 +20,14 @@ services:
       # worktree, so parallel worktrees don't delete each other's OM projects.
       MCK_DEVC_NET_PREFIX: ${MCK_DEVC_NET_PREFIX:-0}
 
+      # The Python `evg` CLI (mck-dev plugin) reads oauth.token_file_path from
+      # ~/.evergreen.yml *literally* (no $HOME/~ expansion). That file is shared
+      # with the host, where the path must resolve under the macOS $HOME — so it
+      # points at /Users/<user>/.kanopy. Override it here so the same token
+      # resolves at the devc user's $HOME. Set in the environment block (not
+      # shell-init) so non-interactive script invocations inherit it too.
+      EVERGREEN_TOKEN_FILE: /home/vscode/.kanopy/token-oidclogin.json
+
     volumes:
       # Workspace
       - ..:/workspace:cached
@@ -35,10 +43,13 @@ services:
       - uvcache:/home/vscode/.cache/uv
       - helmcache:/home/vscode/.cache/helm
 
-      # Bind mounts for Evergreen auth files. The kanopy library inside the
-      # evergreen CLI reads the OIDC token from $HOME/.kanopy/ — NOT from the
-      # token_file_path in evergreen.yml (that field is ignored). Mount the
-      # host directory at the devc user's $HOME so the same refresh-token
+      # Bind mounts for Evergreen auth files. Two clients read these:
+      #   - the Go `evergreen` CLI uses the kanopy library, which reads the OIDC
+      #     token from $HOME/.kanopy/ (honors $HOME, so it works in both places);
+      #   - the Python `evg` CLI (mck-dev) reads oauth.token_file_path from the
+      #     evergreen.yml literally — that path now targets the macOS host, and
+      #     the EVERGREEN_TOKEN_FILE env above overrides it for the container.
+      # Mount the host dir at the devc user's $HOME so the same refresh-token
       # flow that works on the host also works inside the container.
       - ${HOME}/.evergreen.yml:/home/vscode/.evergreen.yml:cached
       - ${HOME}/.kanopy:/home/vscode/.kanopy:cached
