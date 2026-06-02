@@ -104,7 +104,7 @@ def mdb_health_checker(mongo_tester: MongoTester) -> MongoDBBackgroundTester:
 def test_deploy_vm(namespace: str, vm_sts, vm_service):
     def sts_is_ready():
         sts = get_statefulset(namespace, vm_sts["metadata"]["name"])
-        return sts.status.ready_replicas == 3
+        return sts.status.ready_replicas == vm_sts["spec"]["replicas"]
 
     KubernetesTester.wait_until(sts_is_ready, timeout=300)
 
@@ -286,18 +286,11 @@ def test_promote_and_prune(
 
         om_tester.assert_cluster_available(f"{vm_sts['metadata']['name']}-rs")
         ac_tester = om_tester.get_automation_config_tester()
-        assert len(ac_tester.get_all_processes()) == mdb_migration.get_members() + len(
-            mdb_migration["spec"]["externalMembers"]
-        )
-        assert len(ac_tester.get_monitoring_versions()) == mdb_migration.get_members() + len(
-            mdb_migration["spec"]["externalMembers"]
-        )
-        assert len(ac_tester.get_backup_versions()) == mdb_migration.get_members() + len(
-            mdb_migration["spec"]["externalMembers"]
-        )
-        assert len(
-            ac_tester.get_replica_set_processes(f"{vm_sts['metadata']['name']}-rs")
-        ) == mdb_migration.get_members() + len(mdb_migration["spec"]["externalMembers"])
+        total_members = mdb_migration.get_members() + len(mdb_migration["spec"]["externalMembers"])
+        assert len(ac_tester.get_all_processes()) == total_members
+        assert len(ac_tester.get_monitoring_versions()) == total_members
+        assert len(ac_tester.get_backup_versions()) == total_members
+        assert len(ac_tester.get_replica_set_processes(f"{vm_sts['metadata']['name']}-rs")) == total_members
 
     # TODO: doesn't work great locally
     mdb_health_checker.assert_healthiness()
