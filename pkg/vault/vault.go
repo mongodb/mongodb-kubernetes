@@ -70,7 +70,6 @@ type DatabaseSecretsToInject struct {
 }
 
 type AppDBSecretsToInject struct {
-	AgentApiKey    string
 	TLSSecretName  string
 	TLSClusterHash string
 
@@ -524,16 +523,6 @@ func (a AppDBSecretsToInject) AppDBAnnotations(namespace string) map[string]stri
 	} else {
 		appdbSecretPath = fmt.Sprintf("/secret/data/%s", APPDB_SECRET_BASE_PATH)
 	}
-	if a.AgentApiKey != "" {
-
-		apiKeySecretPath := fmt.Sprintf("%s/%s/%s", appdbSecretPath, namespace, a.AgentApiKey)
-		agentAPIKeyTemplate := fmt.Sprintf(DEFAULT_AGENT_INJECT_TEMPLATE, apiKeySecretPath, util.OmAgentApiKey)
-
-		annotations["vault.hashicorp.com/agent-inject-secret-agentApiKey"] = apiKeySecretPath
-		annotations["vault.hashicorp.com/secret-volume-path-agentApiKey"] = "/mongodb-automation/agent-api-key"
-		annotations["vault.hashicorp.com/agent-inject-template-agentApiKey"] = agentAPIKeyTemplate
-	}
-
 	if a.TLSSecretName != "" {
 		memberClusterPath := fmt.Sprintf("%s/%s/%s", appdbSecretPath, namespace, a.TLSSecretName)
 		annotations["vault.hashicorp.com/agent-inject-secret-tls-certificate"] = memberClusterPath
