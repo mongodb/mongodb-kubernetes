@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/hashicorp/go-multierror"
-	"github.com/mongodb/mongodb-kubernetes/pkg/agentVersionManagement"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -56,6 +55,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/merge"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/scale"
+	"github.com/mongodb/mongodb-kubernetes/pkg/agentVersionManagement"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
