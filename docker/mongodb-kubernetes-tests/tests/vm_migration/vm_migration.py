@@ -16,6 +16,7 @@ from kubetester.omtester import OMContext, OMTester
 from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
+from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.search import movies_search_helper
 from tests.common.search.search_tester import SearchTester
 from tests.tls.vm_migration_dry_run import run_migration_dry_run_connectivity_passes
@@ -209,7 +210,8 @@ def test_insert_sample_data(om_tester: OMTester, vm_sts, namespace):
     sample_movies_helper = movies_search_helper.SampleMoviesSearchHelper(
         SearchTester(
             f"mongodb://{vm_sts['metadata']['name']}-0.{vm_sts['metadata']['name']}.{namespace}.svc.cluster.local:27017/?replicaSet={vm_sts['metadata']['name']}-rs"
-        )
+        ),
+        mongodb_tools_pod.get_tools_pod(namespace)
     )
     sample_movies_helper.restore_sample_database()
 

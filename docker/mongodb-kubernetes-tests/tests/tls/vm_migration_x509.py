@@ -60,7 +60,7 @@ def om_tester(namespace: str, operator) -> OMTester:
 @fixture(scope="module")
 def vm_server_certs(issuer: str, namespace: str):
     """TLS certs for VM mongod processes (hostnames vm-mongodb-0, vm-mongodb-1, vm-mongodb-2)."""
-    return create_mongodb_tls_certs(ISSUER_CA_NAME, namespace, VM_STS_NAME, f"{VM_STS_NAME}-cert", 3, None, VM_STS_NAME)
+    return create_mongodb_tls_certs(ISSUER_CA_NAME, namespace, VM_STS_NAME, f"{VM_STS_NAME}-cert", 5, None, VM_STS_NAME)
 
 
 @fixture(scope="module")
