@@ -1162,7 +1162,6 @@ func (r *ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(ctx context.Contex
 					podVars.ProjectID,
 					podVars.AgentAPIKey,
 					podVars.SSLRequireValidMMSServerCertificates,
-					map[string]string(opsManager.Spec.AppDB.MonitoringAgent.StartupParameters),
 				)
 			} else {
 				automationConfig.MonitoringVersions = []automationconfig.MonitoringVersion{}
@@ -1403,7 +1402,7 @@ func setBaseUrlForAgents(ac *automationconfig.AutomationConfig, url string) {
 	}
 }
 
-func configureMonitoring(ac *automationconfig.AutomationConfig, log *zap.SugaredLogger, tls bool, projectID string, agentAPIKey string, requireValidCert bool, extraParams map[string]string) {
+func configureMonitoring(ac *automationconfig.AutomationConfig, log *zap.SugaredLogger, tls bool, projectID string, agentAPIKey string, requireValidCert bool) {
 	if projectID == "" || agentAPIKey == "" {
 		ac.MonitoringVersions = []automationconfig.MonitoringVersion{}
 		return
@@ -1420,9 +1419,6 @@ func configureMonitoring(ac *automationconfig.AutomationConfig, log *zap.Sugared
 		params := map[string]string{
 			"mmsGroupId": projectID,
 			"mmsApiKey":  agentAPIKey,
-		}
-		for k, v := range extraParams {
-			params[k] = v
 		}
 		if tls {
 			for k, v := range om.NewTLSParams(appdbCAFilePath, pemKeyFile) {

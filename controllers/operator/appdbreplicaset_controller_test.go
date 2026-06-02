@@ -1695,7 +1695,7 @@ func TestConfigureMonitoring_NonTLS(t *testing.T) {
 	ac := automationconfig.AutomationConfig{
 		Processes: []automationconfig.Process{{HostName: "host-0"}},
 	}
-	configureMonitoring(&ac, zap.S(), false, "myGroupId", "myApiKey", false, nil)
+	configureMonitoring(&ac, zap.S(), false, "myGroupId", "myApiKey", false)
 
 	require.Len(t, ac.MonitoringVersions, 1)
 	params := ac.MonitoringVersions[0].AdditionalParams
@@ -1708,7 +1708,7 @@ func TestConfigureMonitoring_TLS(t *testing.T) {
 	ac := automationconfig.AutomationConfig{
 		Processes: []automationconfig.Process{{HostName: "host-0"}},
 	}
-	configureMonitoring(&ac, zap.S(), true, "myGroupId", "myApiKey", true, nil)
+	configureMonitoring(&ac, zap.S(), true, "myGroupId", "myApiKey", true)
 
 	require.Len(t, ac.MonitoringVersions, 1)
 	params := ac.MonitoringVersions[0].AdditionalParams
@@ -1723,7 +1723,7 @@ func TestConfigureMonitoring_TLS_RequireValidCertFalse(t *testing.T) {
 	ac := automationconfig.AutomationConfig{
 		Processes: []automationconfig.Process{{HostName: "host-0"}},
 	}
-	configureMonitoring(&ac, zap.S(), true, "myGroupId", "myApiKey", false, nil)
+	configureMonitoring(&ac, zap.S(), true, "myGroupId", "myApiKey", false)
 
 	require.Len(t, ac.MonitoringVersions, 1)
 	params := ac.MonitoringVersions[0].AdditionalParams
@@ -1740,7 +1740,7 @@ func TestConfigureMonitoring_ClearsWhenDisabled(t *testing.T) {
 		},
 	}
 	// called with empty credentials simulates monitoring disabled
-	configureMonitoring(&ac, zap.S(), false, "", "", false, nil)
+	configureMonitoring(&ac, zap.S(), false, "", "", false)
 
 	assert.Empty(t, ac.MonitoringVersions)
 }
@@ -1819,7 +1819,7 @@ func TestClearTLSParams(t *testing.T) {
 	}
 }
 
-func TestMonitoringAgentStartupParametersForwardedToAdditionalParams(t *testing.T) {
+func TestMonitoringAgentStartupParametersIgnored(t *testing.T) {
 	t.Setenv(util.OpsManagerMonitorAppDB, "true")
 	ctx := context.Background()
 	builder := DefaultOpsManagerBuilder()
@@ -1840,5 +1840,6 @@ func TestMonitoringAgentStartupParametersForwardedToAdditionalParams(t *testing.
 	require.NoError(t, err)
 
 	require.NotEmpty(t, ac.MonitoringVersions)
-	assert.Equal(t, "myValue", ac.MonitoringVersions[0].AdditionalParams["myCustomParam"])
+	assert.NotContains(t, ac.MonitoringVersions[0].AdditionalParams, "myCustomParam",
+		"deprecated monitoringAgent.startupOptions must not be forwarded to monitoringVersions additionalParams")
 }
