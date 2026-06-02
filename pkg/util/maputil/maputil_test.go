@@ -78,3 +78,34 @@ func TestRemoveFieldsBasedOnDesiredAndPrevious(t *testing.T) {
 	actual := RemoveFieldsBasedOnDesiredAndPrevious(p, spec, prev)
 	assert.Equal(t, expected, actual, "three was set previously, and so should have been removed.")
 }
+
+func TestRemoveFieldsBasedOnDesiredAndPrevious_NilValueMeansRemove(t *testing.T) {
+	// Simulates setting additionalMongodConfig.systemLog.verbosity to null in the CR.
+	// Kubernetes preserves the null in the stored spec, so the desired map has verbosity: nil.
+	// nil must be treated as "absent" so that RemoveFieldsBasedOnDesiredAndPrevious removes it.
+	current := map[string]interface{}{
+		"systemLog": map[string]interface{}{
+			"verbosity": 4,
+			"logAppend": true,
+		},
+	}
+	desired := map[string]interface{}{
+		"systemLog": map[string]interface{}{
+			"verbosity": nil,
+			"logAppend": true,
+		},
+	}
+	prev := map[string]interface{}{
+		"systemLog": map[string]interface{}{
+			"verbosity": 4,
+			"logAppend": true,
+		},
+	}
+	expected := map[string]interface{}{
+		"systemLog": map[string]interface{}{
+			"logAppend": true,
+		},
+	}
+	actual := RemoveFieldsBasedOnDesiredAndPrevious(current, desired, prev)
+	assert.Equal(t, expected, actual, "verbosity: nil in the desired map should remove the field")
+}
