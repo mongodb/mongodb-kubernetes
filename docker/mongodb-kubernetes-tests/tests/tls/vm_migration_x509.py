@@ -410,10 +410,12 @@ def test_k8s_mdb_reaches_running(mdb_migration: MongoDB):
 def test_promote_and_prune(mdb_migration: MongoDB, vm_sts):
     try_load(mdb_migration)
     for i in range(vm_sts["spec"]["replicas"]):
-        mdb_migration["spec"]["memberConfig"][i]["priority"] = "1"
-        mdb_migration["spec"]["memberConfig"][i]["votes"] = 1
-        mdb_migration.update()
-        mdb_migration.assert_reaches_phase(Phase.Running)
+        if i < mdb_migration.get_members():
+            mdb_migration["spec"]["memberConfig"][i]["priority"] = "1"
+            mdb_migration["spec"]["memberConfig"][i]["votes"] = 1
+            mdb_migration.update()
+            mdb_migration.assert_reaches_phase(Phase.Running)
+
         mdb_migration["spec"]["externalMembers"].pop()
         mdb_migration.update()
         mdb_migration.assert_reaches_phase(Phase.Running)
