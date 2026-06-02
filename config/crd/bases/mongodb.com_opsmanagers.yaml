@@ -581,8 +581,9 @@ spec:
                     type: integer
                   monitoringAgent:
                     description: |-
-                      Deprecated: MonitoringAgent configuration has no effect. The monitoring agent has been merged
-                      into the automation agent. Remove this field from your configuration.
+                      Deprecated: this field has no effect. The monitoring agent now runs inside the
+                      automation agent. Configure agent options, including log level and rotation, via
+                      spec.appDB.agent. Remove this field from your configuration.
                     properties:
                       startupOptions:
                         additionalProperties:

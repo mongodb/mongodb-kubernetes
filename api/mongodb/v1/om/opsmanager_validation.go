@@ -269,7 +269,7 @@ func validateBackupS3Stores(os MongoDBOpsManagerSpec) v1.ValidationResult {
 
 func warnMonitoringAgentStartupParameters(os MongoDBOpsManagerSpec) v1.ValidationResult {
 	if len(os.AppDB.MonitoringAgent.StartupParameters) > 0 {
-		return v1.OpsManagerResourceValidationWarning("spec.appDB.monitoringAgent.startupOptions is deprecated and has no effect; the monitoring agent has been merged into the automation agent — remove this field from your configuration", status.AppDb)
+		return v1.OpsManagerResourceValidationWarning("spec.appDB.monitoringAgent.startupOptions is deprecated and has no effect; the monitoring agent now runs inside the automation agent. Configure agent options, including log level and rotation, via spec.appDB.agent and remove spec.appDB.monitoringAgent from your configuration", status.AppDb)
 	}
 	return v1.ValidationSuccess()
 }

@@ -61,8 +61,9 @@ type AppDBSpec struct {
 	// specify configuration like startup flags and automation config settings for the AutomationAgent and MonitoringAgent
 	AutomationAgent mdbv1.AgentConfig `json:"agent,omitempty"`
 
-	// Deprecated: MonitoringAgent configuration has no effect. The monitoring agent has been merged
-	// into the automation agent. Remove this field from your configuration.
+	// Deprecated: this field has no effect. The monitoring agent now runs inside the
+	// automation agent. Configure agent options, including log level and rotation, via
+	// spec.appDB.agent. Remove this field from your configuration.
 	// +optional
 	MonitoringAgent mdbv1.MonitoringAgentConfig `json:"monitoringAgent,omitempty"`
 	ConnectionSpec  `json:",inline"`
