@@ -271,6 +271,11 @@ all-tests: test python-tests helm-tests
 manager: generate fmt vet
 	GOOS=linux GOARCH=amd64 go build -o docker/mongodb-kubernetes-operator/content/mongodb-kubernetes-operator main.go
 
+# Build mckctl, the MCK developer-tooling binary (release automation, etc.).
+# Prefer `scripts/mckctl ...` for day-to-day use — it builds-if-stale and execs.
+mckctl:
+	go build -o bin/mckctl ./cmd/mckctl
+
 # Run against the configured Kubernetes cluster in ~/.kube/config
 run: generate fmt vet manifests
 	go run ./main.go
