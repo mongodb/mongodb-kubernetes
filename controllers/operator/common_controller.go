@@ -1292,7 +1292,6 @@ func ReconcileReplicaSetAC(ctx context.Context, d om.Deployment, spec mdbv1.DbCo
 		return xerrors.Errorf("cannot disable x509 internal cluster authentication")
 	}
 
-	// TODO: we're already checking this in the main reconcile loop. Should it be removed?
 	excessProcesses := d.GetNumberOfExcessProcesses(resourceName, externalProcessNames)
 	if excessProcesses > 0 {
 		return xerrors.Errorf("cannot have more than 1 MongoDB Cluster per project (see https://docs.mongodb.com/kubernetes/current/tutorial/migrate-to-single-resource )")
