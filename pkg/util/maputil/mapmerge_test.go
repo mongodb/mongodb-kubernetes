@@ -50,6 +50,41 @@ func TestMergeMaps(t *testing.T) {
 
 		assert.Equal(t, expected, dst)
 	})
+	t.Run("Nil src value deletes key from dst", func(t *testing.T) {
+		dst := map[string]interface{}{
+			"systemLog": map[string]interface{}{
+				"verbosity": 4,
+				"logAppend": true,
+			},
+		}
+		src := map[string]interface{}{
+			"systemLog": map[string]interface{}{
+				"verbosity": nil,
+				"logAppend": true,
+			},
+		}
+		MergeMaps(dst, src)
+		_, hasVerbosity := dst["systemLog"].(map[string]interface{})["verbosity"]
+		assert.False(t, hasVerbosity, "nil src value must remove the key from dst")
+		assert.Equal(t, true, dst["systemLog"].(map[string]interface{})["logAppend"])
+	})
+	t.Run("Nil src value is no-op when key already absent from dst", func(t *testing.T) {
+		dst := map[string]interface{}{
+			"systemLog": map[string]interface{}{
+				"logAppend": true,
+			},
+		}
+		src := map[string]interface{}{
+			"systemLog": map[string]interface{}{
+				"verbosity": nil,
+				"logAppend": true,
+			},
+		}
+		MergeMaps(dst, src)
+		_, hasVerbosity := dst["systemLog"].(map[string]interface{})["verbosity"]
+		assert.False(t, hasVerbosity)
+		assert.Equal(t, true, dst["systemLog"].(map[string]interface{})["logAppend"])
+	})
 	t.Run("Pointers are not copied", func(t *testing.T) {
 		dst := map[string]interface{}{}
 		src := mapForTest()
