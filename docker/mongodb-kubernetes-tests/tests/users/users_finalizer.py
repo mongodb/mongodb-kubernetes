@@ -47,7 +47,7 @@ class TestReplicaSetIsRunning(KubernetesTester):
 @pytest.mark.e2e_users_finalizer
 class TestUserIsAdded(KubernetesTester):
 
-    def test_user_is_ready(mdb: MongoDB, scram_user: MongoDBUser):
+    def test_user_is_ready(self, mdb: MongoDB, scram_user: MongoDBUser):
         scram_user.update()
         scram_user.assert_reaches_phase(Phase.Updated)
 

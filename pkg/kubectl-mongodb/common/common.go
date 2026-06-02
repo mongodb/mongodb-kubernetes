@@ -437,7 +437,7 @@ func getMemberRules() []rbacv1.PolicyRule {
 		},
 		{
 			Verbs:     []string{"get", "list", "create", "update", "delete", "watch", "deletecollection"},
-			Resources: []string{"statefulsets"},
+			Resources: []string{"statefulsets", "deployments"},
 			APIGroups: []string{"apps"},
 		},
 		{

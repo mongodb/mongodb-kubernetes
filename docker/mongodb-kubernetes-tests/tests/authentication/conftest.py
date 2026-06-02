@@ -40,10 +40,11 @@ def openldap_install(
     name: str = LDAP_NAME,
     cluster_client: Optional[client.ApiClient] = None,
     cluster_name: Optional[str] = None,
-    helm_args: Dict[str, str] = None,
+    helm_args: Optional[Dict[str, str]] = None,
     tls: bool = False,
 ) -> OpenLDAP:
     if is_member_cluster(cluster_name):
+        assert cluster_name is not None
         os.environ["HELM_KUBECONTEXT"] = cluster_name
 
     if helm_args is None:

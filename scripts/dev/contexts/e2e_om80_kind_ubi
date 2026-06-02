@@ -7,5 +7,6 @@ script_dir=$(dirname "${script_name}")
 
 source "${script_dir}/root-context"
 source "${script_dir}/variables/om80"
+source "${script_dir}/variables/mongodb_search_dev"
 
 export KUBE_ENVIRONMENT_NAME=kind

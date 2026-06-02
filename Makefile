@@ -153,7 +153,7 @@ test-image:
 	@ scripts/dev/run_python.sh scripts/release/pipeline.py meko-tests -b patch -v $(DEV_VERSION)
 
 mco-test-image:
-	@ scripts/dev/run_python.sh scripts/release/pipeline.py mco-test -b patch -v $(DEV_VERSION)
+	@ scripts/dev/run_python.sh scripts/release/pipeline.py mco-tests -b patch -v $(DEV_VERSION)
 
 readiness_probe: aws_login
 	@ scripts/dev/run_python.sh scripts/release/pipeline.py readiness-probe -b patch -v $(DEV_VERSION)

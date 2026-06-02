@@ -112,11 +112,11 @@ func NewTestMongoDB(ctx *TestContext, name string, namespace string) (mdbv1.Mong
 										Resources: corev1.ResourceRequirements{
 											Limits: map[corev1.ResourceName]resource.Quantity{
 												"cpu":    resource.MustParse("1.0"),
-												"memory": resource.MustParse("200M"),
+												"memory": resource.MustParse("800M"),
 											},
 											Requests: map[corev1.ResourceName]resource.Quantity{
-												"cpu":    resource.MustParse("0.1"),
-												"memory": resource.MustParse("200M"),
+												"cpu":    resource.MustParse("1.0"),
+												"memory": resource.MustParse("800M"),
 											},
 										},
 									},
@@ -125,11 +125,11 @@ func NewTestMongoDB(ctx *TestContext, name string, namespace string) (mdbv1.Mong
 										Resources: corev1.ResourceRequirements{
 											Limits: map[corev1.ResourceName]resource.Quantity{
 												"cpu":    resource.MustParse("1.0"),
-												"memory": resource.MustParse("200M"),
+												"memory": resource.MustParse("800M"),
 											},
 											Requests: map[corev1.ResourceName]resource.Quantity{
-												"cpu":    resource.MustParse("0.1"),
-												"memory": resource.MustParse("200M"),
+												"cpu":    resource.MustParse("1.0"),
+												"memory": resource.MustParse("800M"),
 											},
 										},
 									},
