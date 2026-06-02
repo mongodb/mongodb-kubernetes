@@ -776,6 +776,37 @@ func TestReadExistingPodVars_ReturnsAgentAPIKey(t *testing.T) {
 	assert.Equal(t, projectID, podVars.ProjectID)
 }
 
+func TestReadExistingPodVars_MissingAgentKeyIsNonFatal(t *testing.T) {
+	ctx := context.Background()
+	projectID := "proj-123"
+
+	builder := DefaultOpsManagerBuilder()
+	opsManager := builder.Build()
+	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient()
+	reconciler, err := newAppDbReconciler(ctx, kubeClient, opsManager, omConnectionFactory.GetConnectionFunc, zap.S())
+	require.NoError(t, err)
+
+	// projectID configmap exists (so the function gets past the projectId guard)...
+	err = reconciler.ensureProjectIDConfigMapForCluster(ctx, opsManager, projectID, reconciler.client)
+	require.NoError(t, err)
+
+	// OM API key secret exists (needed by ReadCredentials for the User field)...
+	APIKeySecretName, err := opsManager.APIKeySecretName(ctx, secrets.SecretClient{KubeClient: kubeClient}, "")
+	require.NoError(t, err)
+	apiKeySecret := secret.Builder().
+		SetNamespace(operatorNamespace()).
+		SetName(APIKeySecretName).
+		SetStringMapToData(map[string]string{util.OmPublicApiKey: "publicApiKey", util.OmPrivateKey: "privateApiKey"}).
+		Build()
+	require.NoError(t, reconciler.client.CreateSecret(ctx, apiKeySecret))
+
+	// ...but the agent API key secret is intentionally NOT created.
+	podVars, err := reconciler.readExistingPodVars(ctx, opsManager, zap.S())
+	require.NoError(t, err)
+	assert.Empty(t, podVars.AgentAPIKey, "missing agent key must not be fatal")
+	assert.Equal(t, projectID, podVars.ProjectID)
+}
+
 func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 	tests := map[string]struct {
 		members                int

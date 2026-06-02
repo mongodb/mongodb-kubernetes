@@ -1806,19 +1806,31 @@ func (r *ReconcileAppDbReplicaSet) readExistingPodVars(ctx context.Context, om *
 		return env.PodEnvVars{}, xerrors.Errorf("error reading credentials: %w", err)
 	}
 
-	agentAPIKey, err := secret.ReadKey(ctx, memberClient, util.OmAgentApiKey, kube.ObjectKey(om.Namespace, agents.ApiKeySecretName(projectId)))
-	if err != nil {
-		return env.PodEnvVars{}, xerrors.Errorf("error reading agent API key for project %s: %w", projectId, err)
-	}
-
-	return env.PodEnvVars{
-		User:        cred.PublicAPIKey,
-		ProjectID:   projectId,
-		AgentAPIKey: agentAPIKey,
+	podVars := env.PodEnvVars{
+		User:      cred.PublicAPIKey,
+		ProjectID: projectId,
 		SSLProjectConfig: env.SSLProjectConfig{
 			SSLMMSCAConfigMap: om.Spec.GetOpsManagerCA(),
 		},
-	}, nil
+	}
+
+	var appdbSecretPath string
+	if r.VaultClient != nil {
+		appdbSecretPath = r.VaultClient.AppDBSecretPath()
+	}
+
+	// Read through the Vault-aware SecretClient so the key resolves on Vault backends
+	// (where it has no plain Kubernetes Secret). A missing key is non-fatal: monitoring
+	// is simply left unconfigured until the key exists (configureMonitoring clears
+	// monitoringVersions when the key is empty).
+	agentAPIKey, err := r.getMemberCluster(r.getNameOfFirstMemberCluster()).SecretClient.ReadSecretKey(
+		ctx, kube.ObjectKey(om.Namespace, agents.ApiKeySecretName(projectId)), appdbSecretPath, util.OmAgentApiKey)
+	if err != nil {
+		log.Warnf("Agent API key for project %s not readable yet (%v); AppDB monitoring will be configured once it is available", projectId, err)
+		return podVars, nil
+	}
+	podVars.AgentAPIKey = agentAPIKey
+	return podVars, nil
 }
 
 func (r *ReconcileAppDbReplicaSet) publishACVersionAsConfigMap(ctx context.Context, cmName string, opsManager *omv1.MongoDBOpsManager, version int, memberCluster multicluster.MemberCluster) workflow.Status {
