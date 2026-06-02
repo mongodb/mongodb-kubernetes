@@ -2,10 +2,10 @@
   "mongodbToolsBundle": {
     "ubi": "mongodb-database-tools-rhel88-x86_64-100.15.0.tgz"
   },
-  "mongodbOperator": "1.8.1",
-  "initDatabaseVersion": "1.8.1",
-  "initOpsManagerVersion": "1.8.1",
-  "databaseImageVersion": "1.8.1",
+  "mongodbOperator": "1.8.2",
+  "initDatabaseVersion": "1.8.2",
+  "initOpsManagerVersion": "1.8.2",
+  "databaseImageVersion": "1.8.2",
   "agentVersion": "108.0.12.8846-1",
   "readinessProbeVersion": "1.0.24",
   "versionUpgradeHookVersion": "1.0.10",
@@ -93,7 +93,8 @@
         "1.6.1",
         "1.7.0",
         "1.8.0",
-        "1.8.1"
+        "1.8.1",
+        "1.8.2"
       ],
       "variants": [
         "ubi"
@@ -132,7 +133,7 @@
       ],
       "opsManagerMapping": {
         "Description": "These are the agents from which we start supporting static containers.",
-        "cloud_manager": "13.51.0.10584-1",
+        "cloud_manager": "13.52.0.10711-1",
         "cloud_manager_tools": "100.15.0",
         "ops_manager": {
           "6.0.27": {
@@ -283,7 +284,8 @@
         "1.6.1",
         "1.7.0",
         "1.8.0",
-        "1.8.1"
+        "1.8.1",
+        "1.8.2"
       ],
       "variants": [
         "ubi"
@@ -303,7 +305,8 @@
         "1.6.1",
         "1.7.0",
         "1.8.0",
-        "1.8.1"
+        "1.8.1",
+        "1.8.2"
       ],
       "variants": [
         "ubi"
@@ -323,7 +326,8 @@
         "1.6.1",
         "1.7.0",
         "1.8.0",
-        "1.8.1"
+        "1.8.1",
+        "1.8.2"
       ],
       "variants": [
         "ubi"

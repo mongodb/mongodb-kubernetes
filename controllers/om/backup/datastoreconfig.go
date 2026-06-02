@@ -1,11 +1,5 @@
 package backup
 
-import (
-	"fmt"
-
-	"github.com/mongodb/mongodb-kubernetes/pkg/util"
-)
-
 type DataStoreConfigResponse struct {
 	DataStoreConfigs []DataStoreConfig `json:"results"`
 }
@@ -59,8 +53,4 @@ func (s DataStoreConfig) MergeIntoOpsManagerConfig(opsManagerConfig DataStoreCon
 	opsManagerConfig.UseSSL = s.UseSSL
 	opsManagerConfig.Labels = s.Labels
 	return opsManagerConfig
-}
-
-func (s DataStoreConfig) String() string {
-	return fmt.Sprintf("id: %s, uri: %s, ssl: %v", s.Id, util.RedactMongoURI(s.Uri), s.UseSSL)
 }

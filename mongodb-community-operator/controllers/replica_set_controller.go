@@ -28,8 +28,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	k8sClient "sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
-	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
+	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
+	searchv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller" //nolint:depguard
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/construct"

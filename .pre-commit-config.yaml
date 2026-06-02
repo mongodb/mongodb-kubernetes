@@ -6,13 +6,21 @@ default_stages: [pre-commit]
 
 # Hooks run serially in definition order. The following local hooks have
 # dependencies and must run in this order:
-#   1. update-release-json: writes release.json
-#   2. update-values-yaml: reads release.json, writes helm values files
-#   3. generate-standalone-yaml: reads helm values files
-#   4. generate-and-update: remaining parallel jobs
+#   1. update-mongodb-operator-version: writes release.json:mongodbOperator
+#   2. update-release-json: propagates mongodbOperator, writes release.json
+#   3. update-values-yaml: reads release.json, writes helm values files
+#   4. generate-standalone-yaml: reads helm values files
+#   5. generate-and-update: remaining parallel jobs
 repos:
   - repo: local
     hooks:
+      - id: update-mongodb-operator-version
+        name: update-mongodb-operator-version
+        entry: scripts/dev/generate_files.sh update_operator_version
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
       - id: update-release-json
         name: update-release-json
         entry: scripts/dev/generate_files.sh update_release

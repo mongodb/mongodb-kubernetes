@@ -141,6 +141,13 @@ def git_repo(change_log_path: str = DEFAULT_CHANGELOG_PATH) -> Repo:
     repo.git.cherry_pick(fix_commit)
     repo.create_tag("1.2.4", message="Bug fix release")
 
+    ## Add a bare remote so get_remote_tags() can resolve tags via ls-remote
+    remote_dir = tempfile.mkdtemp()
+    Repo.init(remote_dir, bare=True)
+    repo.create_remote("origin", remote_dir)
+    repo.git.push("origin", "--all")
+    repo.git.push("origin", "--tags")
+
     return repo
 
 

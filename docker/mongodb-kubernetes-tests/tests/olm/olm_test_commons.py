@@ -165,11 +165,6 @@ def get_latest_released_operator_version(package_name: str) -> str:
     return versioned_directories[-1]
 
 
-def increment_patch_version(version: str):
-    major, minor, patch = version.split(".")
-    return ".".join([major, minor, str(int(patch) + 1)])
-
-
 def wait_for_operator_ready(namespace: str, name: str, expected_operator_version: str):
     def wait_for_operator_ready_fn():
         return check_operator_pod_ready_and_with_condition_version(namespace, name, expected_operator_version)

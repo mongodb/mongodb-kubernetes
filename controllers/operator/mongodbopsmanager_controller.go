@@ -30,11 +30,11 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 
-	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
-	"github.com/mongodb/mongodb-kubernetes/api/v1/mdbmulti"
-	omv1 "github.com/mongodb/mongodb-kubernetes/api/v1/om"
-	mdbstatus "github.com/mongodb/mongodb-kubernetes/api/v1/status"
-	"github.com/mongodb/mongodb-kubernetes/api/v1/user"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
+	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
+	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
+	mdbstatus "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
+	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/user"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/api"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/apierror"
@@ -1573,7 +1573,7 @@ func (r *OpsManagerReconciler) ensureOplogStoresInOpsManager(ctx context.Context
 		if !status.IsOK() {
 			return status
 		}
-		log.Debugw("Creating Oplog Store in Ops Manager", "config", omConfig)
+		log.Debugw("Creating Oplog Store in Ops Manager", "id", omConfig.Id, "ssl", omConfig.UseSSL)
 		if err = omAdmin.CreateOplogStoreConfig(omConfig); err != nil {
 			return workflow.Failed(xerrors.New(err.Error()))
 		}
@@ -1593,7 +1593,7 @@ func (r *OpsManagerReconciler) ensureOplogStoresInOpsManager(ctx context.Context
 		// Now we need to merge the Operator version into the OM one overriding only the fields that the Operator
 		// "owns"
 		configToUpdate := operatorView.MergeIntoOpsManagerConfig(omConfig)
-		log.Debugw("Updating Oplog Store in Ops Manager", "config", configToUpdate)
+		log.Debugw("Updating Oplog Store in Ops Manager", "id", configToUpdate.Id, "ssl", configToUpdate.UseSSL)
 		if err = omAdmin.UpdateOplogStoreConfig(configToUpdate); err != nil {
 			return workflow.Failed(xerrors.New(err.Error()))
 		}
@@ -1633,7 +1633,7 @@ func (r *OpsManagerReconciler) ensureS3OplogStoresInOpsManager(ctx context.Conte
 		if !status.IsOK() {
 			return status
 		}
-		log.Infow("Creating S3 Oplog Store in Ops Manager", "config", omConfig)
+		log.Infow("Creating S3 Oplog Store in Ops Manager", "id", omConfig.Id)
 		if err = s3OplogAdmin.CreateS3OplogStoreConfig(omConfig); err != nil {
 			return workflow.Failed(xerrors.New(err.Error()))
 		}
@@ -1653,7 +1653,7 @@ func (r *OpsManagerReconciler) ensureS3OplogStoresInOpsManager(ctx context.Conte
 		// Now we need to merge the Operator version into the OM one overriding only the fields that the Operator
 		// "owns"
 		configToUpdate := operatorView.MergeIntoOpsManagerConfig(omConfig)
-		log.Infow("Updating S3 Oplog Store in Ops Manager", "config", configToUpdate)
+		log.Infow("Updating S3 Oplog Store in Ops Manager", "id", configToUpdate.Id)
 		if err = s3OplogAdmin.UpdateS3OplogConfig(configToUpdate); err != nil {
 			return workflow.Failed(xerrors.New(err.Error()))
 		}
@@ -1697,7 +1697,7 @@ func (r *OpsManagerReconciler) ensureBlockStoresInOpsManager(ctx context.Context
 		if !status.IsOK() {
 			return status
 		}
-		log.Debugw("Creating Block Store in Ops Manager", "config", omConfig)
+		log.Debugw("Creating Block Store in Ops Manager", "id", omConfig.Id, "ssl", omConfig.UseSSL)
 		if err = omAdmin.CreateBlockStoreConfig(omConfig); err != nil {
 			return workflow.Failed(xerrors.New(err.Error()))
 		}
@@ -1717,7 +1717,7 @@ func (r *OpsManagerReconciler) ensureBlockStoresInOpsManager(ctx context.Context
 		// Now we need to merge the Operator version into the OM one overriding only the fields that the Operator
 		// "owns"
 		configToUpdate := operatorView.MergeIntoOpsManagerConfig(omConfig)
-		log.Debugw("Updating Block Store in Ops Manager", "config", configToUpdate)
+		log.Debugw("Updating Block Store in Ops Manager", "id", configToUpdate.Id, "ssl", configToUpdate.UseSSL)
 		if err = omAdmin.UpdateBlockStoreConfig(configToUpdate); err != nil {
 			return workflow.Failed(xerrors.New(err.Error()))
 		}
@@ -1752,7 +1752,7 @@ func (r *OpsManagerReconciler) ensureS3ConfigurationInOpsManager(ctx context.Con
 			return status
 		}
 
-		log.Infow("Creating S3Config in Ops Manager", "config", omConfig)
+		log.Infow("Creating S3Config in Ops Manager", "id", omConfig.Id)
 		if err := omAdmin.CreateS3Config(omConfig); err != nil {
 			return workflow.Failed(xerrors.New(err.Error()))
 		}
@@ -1772,7 +1772,7 @@ func (r *OpsManagerReconciler) ensureS3ConfigurationInOpsManager(ctx context.Con
 		// Now we need to merge the Operator version into the OM one overriding only the fields that the Operator
 		// "owns"
 		configToUpdate := operatorView.MergeIntoOpsManagerConfig(omConfig)
-		log.Infow("Updating S3Config in Ops Manager", "config", configToUpdate)
+		log.Infow("Updating S3Config in Ops Manager", "id", configToUpdate.Id)
 		if err = omAdmin.UpdateS3Config(configToUpdate); err != nil {
 			return workflow.Failed(xerrors.New(err.Error()))
 		}

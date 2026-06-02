@@ -4,11 +4,9 @@ import (
 	"context"
 	"fmt"
 	"slices"
-	"sort"
 	"strings"
 	"time"
 
-	"github.com/google/go-cmp/cmp"
 	"github.com/hashicorp/go-multierror"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
@@ -31,12 +29,12 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
-	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
-	omv1 "github.com/mongodb/mongodb-kubernetes/api/v1/om"
-	rolev1 "github.com/mongodb/mongodb-kubernetes/api/v1/role"
-	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
-	mdbstatus "github.com/mongodb/mongodb-kubernetes/api/v1/status"
+	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
+	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
+	rolev1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/role"
+	searchv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/search"
+	mdbstatus "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/backup"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/deployment"
@@ -1779,10 +1777,8 @@ func (r *ShardedClusterReconcileHelper) cleanOpsManagerState(ctx context.Context
 }
 
 func logDiffOfProcessNames(acProcesses []string, healthyProcesses []string, log *zap.SugaredLogger) {
-	sort.Strings(acProcesses)
-	sort.Strings(healthyProcesses)
-	if diff := cmp.Diff(acProcesses, healthyProcesses); diff != "" {
-		log.Debugf("difference of AC processes vs healthy processes: %s\n AC processes: %v, healthy processes: %v", diff, acProcesses, healthyProcesses)
+	if len(acProcesses) != len(healthyProcesses) {
+		log.Debugw("process count mismatch between AC and healthy processes", "acCount", len(acProcesses), "healthyCount", len(healthyProcesses))
 	}
 }
 
