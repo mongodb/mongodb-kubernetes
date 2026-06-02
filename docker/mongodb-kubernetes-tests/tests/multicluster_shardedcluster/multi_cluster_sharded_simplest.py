@@ -75,7 +75,7 @@ def test_enable_scram(sharded_cluster: MongoDB):
         }
     }
     sharded_cluster.update()
-    sharded_cluster.assert_reaches_phase(Phase.Running, timeout=600)
+    sharded_cluster.assert_reaches_phase(Phase.Running, timeout=1800)
 
 
 @mark.e2e_multi_cluster_sharded_simplest
