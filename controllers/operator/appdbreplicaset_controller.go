@@ -1816,8 +1816,8 @@ func (r *ReconcileAppDbReplicaSet) readExistingPodVars(ctx context.Context, om *
 	}
 
 	// Read through the Vault-aware SecretClient so the key resolves on Vault backends
-	// (where it has no plain Kubernetes Secret). A missing key is non-fatal: monitoring
-	// is simply left unconfigured until the key exists (configureMonitoring clears
+	// (where it has no plain Kubernetes Secret). Any read failure is non-fatal: monitoring
+	// is simply left unconfigured until the key is available (configureMonitoring clears
 	// monitoringVersions when the key is empty).
 	agentAPIKey, err := r.getMemberCluster(r.getNameOfFirstMemberCluster()).SecretClient.ReadSecretKey(
 		ctx, kube.ObjectKey(om.Namespace, agents.ApiKeySecretName(projectId)), appdbSecretPath, util.OmAgentApiKey)
