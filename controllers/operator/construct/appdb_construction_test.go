@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -14,6 +15,7 @@ import (
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct/scalers"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 )
 
@@ -93,6 +95,53 @@ func TestAppDBMultiClusterPerClusterStatefulSetOverride(t *testing.T) {
 	assert.NotNil(t, stsB.Spec.Replicas)
 	assert.Equal(t, int32(1), *stsB.Spec.Replicas)
 	assert.NotEmpty(t, stsB.Spec.ServiceName)
+}
+
+func TestAppDbStatefulSet_SingleAgentContainer(t *testing.T) {
+	t.Setenv(util.OpsManagerMonitorAppDB, "true")
+	om := omv1.NewOpsManagerBuilderDefault().Build()
+	scaler := scalers.GetAppDBScaler(om, multicluster.LegacyCentralClusterName, 0, nil)
+	podVars := &env.PodEnvVars{ProjectID: "proj-123", AgentAPIKey: "key"}
+
+	sts, err := AppDbStatefulSet(*om, podVars, AppDBStatefulSetOptions{}, scaler, appsv1.OnDeleteStatefulSetStrategyType, zap.S())
+	require.NoError(t, err)
+
+	containerNames := make([]string, 0)
+	for _, c := range sts.Spec.Template.Spec.Containers {
+		containerNames = append(containerNames, c.Name)
+	}
+	assert.Contains(t, containerNames, util.AgentContainerName)
+	assert.NotContains(t, containerNames, monitoringAgentContainerName)
+}
+
+func TestAppDbStatefulSet_SingleAgentContainer_MonitoringDisabled(t *testing.T) {
+	om := omv1.NewOpsManagerBuilderDefault().Build()
+	scaler := scalers.GetAppDBScaler(om, multicluster.LegacyCentralClusterName, 0, nil)
+
+	sts, err := AppDbStatefulSet(*om, nil, AppDBStatefulSetOptions{}, scaler, appsv1.OnDeleteStatefulSetStrategyType, zap.S())
+	require.NoError(t, err)
+
+	for _, c := range sts.Spec.Template.Spec.Containers {
+		assert.NotEqual(t, monitoringAgentContainerName, c.Name)
+	}
+}
+
+func TestAppDbStatefulSet_UserTemplateMonitoringContainerStripped(t *testing.T) {
+	monitoringContainer := corev1.Container{Name: monitoringAgentContainerName}
+	podTemplate := corev1.PodTemplateSpec{}
+	podTemplate.Spec.Containers = []corev1.Container{monitoringContainer}
+	om := omv1.NewOpsManagerBuilderDefault().Build()
+	om.Spec.AppDB.PodSpec.PodTemplateWrapper = v1.PodTemplateSpecWrapper{
+		PodTemplate: &podTemplate,
+	}
+
+	scaler := scalers.GetAppDBScaler(om, multicluster.LegacyCentralClusterName, 0, nil)
+	sts, err := AppDbStatefulSet(*om, nil, AppDBStatefulSetOptions{}, scaler, appsv1.OnDeleteStatefulSetStrategyType, zap.S())
+	require.NoError(t, err)
+
+	for _, c := range sts.Spec.Template.Spec.Containers {
+		assert.NotEqual(t, monitoringAgentContainerName, c.Name, "monitoring container should be stripped from user template")
+	}
 }
 
 func TestResourceRequirements(t *testing.T) {

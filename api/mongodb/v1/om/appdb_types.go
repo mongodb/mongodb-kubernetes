@@ -61,9 +61,9 @@ type AppDBSpec struct {
 	// specify configuration like startup flags and automation config settings for the AutomationAgent and MonitoringAgent
 	AutomationAgent mdbv1.AgentConfig `json:"agent,omitempty"`
 
-	// Specify configuration like startup flags just for the MonitoringAgent.
-	// These take precedence over
-	// the flags set in AutomationAgent
+	// Deprecated: MonitoringAgent configuration has no effect. The monitoring agent has been merged
+	// into the automation agent. Remove this field from your configuration.
+	// +optional
 	MonitoringAgent mdbv1.MonitoringAgentConfig `json:"monitoringAgent,omitempty"`
 	ConnectionSpec  `json:",inline"`
 

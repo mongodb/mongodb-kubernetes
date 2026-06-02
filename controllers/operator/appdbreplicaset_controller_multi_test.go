@@ -106,8 +106,8 @@ func TestAppDB_MultiCluster(t *testing.T) {
 		memberClusterChecks := newClusterChecks(t, clusterSpecItem.ClusterName, clusterIdx, opsManager.Namespace, memberClusterMap[clusterSpecItem.ClusterName])
 		memberClusterChecks.checkAutomationConfigSecret(ctx, appdb.AutomationConfigSecretName())
 		memberClusterChecks.checkAutomationConfigConfigMap(ctx, appdb.AutomationConfigConfigMapName())
-		memberClusterChecks.checkAutomationConfigSecret(ctx, appdb.MonitoringAutomationConfigSecretName())
-		memberClusterChecks.checkAutomationConfigConfigMap(ctx, appdb.MonitoringAutomationConfigConfigMapName())
+		memberClusterChecks.checkSecretNotFound(ctx, appdb.MonitoringAutomationConfigSecretName())
+		memberClusterChecks.checkConfigMapNotFound(ctx, appdb.MonitoringAutomationConfigConfigMapName())
 		memberClusterChecks.checkTLSCAConfigMap(ctx, caConfigMapName)
 		// TLS secret should not be replicated, only PEM secret
 		memberClusterChecks.checkSecretNotFound(ctx, tlsCertSecretName)

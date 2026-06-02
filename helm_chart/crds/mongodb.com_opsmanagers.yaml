@@ -581,9 +581,8 @@ spec:
                     type: integer
                   monitoringAgent:
                     description: |-
-                      Specify configuration like startup flags just for the MonitoringAgent.
-                      These take precedence over
-                      the flags set in AutomationAgent
+                      Deprecated: MonitoringAgent configuration has no effect. The monitoring agent has been merged
+                      into the automation agent. Remove this field from your configuration.
                     properties:
                       startupOptions:
                         additionalProperties:
