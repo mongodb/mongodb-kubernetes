@@ -87,6 +87,8 @@ def vault_tls(namespace: str, issuer: str, vault_namespace: str, version="v0.17.
         label_selector=f"app.kubernetes.io/instance={name},app.kubernetes.io/name=vault-agent-injector",
     )
 
+    return name
+
 
 def perform_vault_initialization(namespace: str, name: str):
 
@@ -106,15 +108,15 @@ def perform_vault_initialization(namespace: str, name: str):
 
     response = run_command_in_vault(name, name, ["vault", "operator", "init"], ["Unseal"])
 
-    response = response.split("\n")
+    response_lines = response.split("\n")
     unseal_keys = []
     for i in range(5):
-        unseal_keys.append(response[i].split(": ")[1])
+        unseal_keys.append(response_lines[i].split(": ")[1])
 
     for i in range(3):
         run_command_in_vault(name, name, ["vault", "operator", "unseal", unseal_keys[i]], [])
 
-    token = response[6].split(": ")[1]
+    token = response_lines[6].split(": ")[1]
     run_command_in_vault(name, name, ["vault", "login", token])
 
     run_command_in_vault(name, name, ["vault", "secrets", "enable", "-path=secret/", "kv-v2"])

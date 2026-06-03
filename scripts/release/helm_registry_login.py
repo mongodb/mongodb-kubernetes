@@ -5,10 +5,10 @@ import sys
 from shlex import quote
 
 from lib.base_logger import logger
-from scripts.release.build.build_info import load_build_info
+from scripts.release.build.build_info import get_ecr_region, get_registry_host, load_build_info
 
-QUAY_USERNAME_ENV_VAR = "quay_prod_username"
-QUAY_PASSWORD_ENV_VAR = "quay_prod_robot_token"
+QUAY_USERNAME_ENV_VAR = "QUAY_USERNAME"
+QUAY_PASSWORD_ENV_VAR = "QUAY_PASSWORD"
 QUAY_REGISTRY = "quay.io"
 
 
@@ -61,24 +61,6 @@ def helm_registry_login_to_ecr(helm_registry: str, region: str):
         raise Exception(f"An unexpected error occurred: {e}.")
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Script to login to the dev/staging helm registries.")
-    parser.add_argument("--build_scenario", type=str, help="Build scenario (e.g., patch, staging etc).")
-    args = parser.parse_args()
-
-    build_scenario = args.build_scenario
-
-    build_info = load_build_info(build_scenario)
-
-    registry = build_info.helm_charts["mongodb-kubernetes"].registry
-    region = build_info.helm_charts["mongodb-kubernetes"].region
-
-    if registry == QUAY_REGISTRY:
-        return helm_registry_login_to_quay(registry)
-
-    return helm_registry_login_to_ecr(registry, region)
-
-
 def helm_registry_login_to_quay(registry):
     username = os.environ.get(QUAY_USERNAME_ENV_VAR)
     password = os.environ.get(QUAY_PASSWORD_ENV_VAR)
@@ -111,6 +93,36 @@ def helm_registry_login_to_quay(registry):
         raise Exception("Error: 'helm' command not found. Ensure Helm CLI is installed and in your PATH.")
     except Exception as e:
         raise Exception(f"An unexpected error occurred during execution: {e}")
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Script to login to the dev/staging helm registries.")
+    parser.add_argument("--build_scenario", type=str, help="Build scenario (e.g., patch, staging etc).")
+    args = parser.parse_args()
+
+    build_scenario = args.build_scenario
+
+    build_info = load_build_info(build_scenario)
+
+    chart_info = build_info.helm_charts["mongodb-kubernetes"]
+
+    repositories = [chart_info.repository]
+    if chart_info.secondary_repositories:
+        repositories += chart_info.secondary_repositories
+
+    seen_registries = set()
+    for repo in repositories:
+        registry = get_registry_host(repo)
+        if registry in seen_registries:
+            logger.info(f"Skipping registry {registry}, already logged in.")
+            continue
+        seen_registries.add(registry)
+
+        if registry == QUAY_REGISTRY:
+            helm_registry_login_to_quay(registry)
+        else:
+            region = get_ecr_region(registry)
+            helm_registry_login_to_ecr(registry, region)
 
 
 if __name__ == "__main__":

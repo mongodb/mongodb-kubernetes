@@ -1,13 +1,10 @@
 package v1
 
 import (
-	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
 
-	"github.com/stretchr/objx"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation"
@@ -16,13 +13,13 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/authentication/authtypes"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/annotations"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/constants"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/envvar"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/scale"
+	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
+	"github.com/mongodb/mongodb-kubernetes/pkg/authentication/authtypes"
+	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/scale"
 )
 
 type Type string
@@ -39,9 +36,6 @@ const (
 	Failed             Phase = "Failed"
 	Pending            Phase = "Pending"
 	defaultPasswordKey       = "password"
-
-	// Keep in sync with controllers/prometheus.go
-	defaultPrometheusPort = 9216
 )
 
 // SCRAM-SHA-256 and SCRAM-SHA-1 are the supported auth modes.
@@ -103,7 +97,7 @@ type MongoDBCommunitySpec struct {
 	Users []MongoDBUser `json:"users"`
 
 	// +optional
-	StatefulSetConfiguration common.StatefulSetConfiguration `json:"statefulSet,omitempty"`
+	StatefulSetConfiguration v1.StatefulSetConfiguration `json:"statefulSet,omitempty"`
 
 	// AgentConfiguration sets options for the MongoDB automation agent
 	// +optional
@@ -116,82 +110,26 @@ type MongoDBCommunitySpec struct {
 	// +optional
 	// +kubebuilder:pruning:PreserveUnknownFields
 	// +nullable
-	AdditionalMongodConfig MongodConfiguration `json:"additionalMongodConfig,omitempty"`
+	AdditionalMongodConfig v1.MongodConfiguration `json:"additionalMongodConfig,omitempty"`
 
 	// AutomationConfigOverride is merged on top of the operator created automation config. Processes are merged
 	// by name. Currently Only the process.disabled field is supported.
-	AutomationConfigOverride *AutomationConfigOverride `json:"automationConfig,omitempty"`
+	AutomationConfigOverride *v1.AutomationConfigOverride `json:"automationConfig,omitempty"`
 
 	// Prometheus configurations.
 	// +optional
-	Prometheus *Prometheus `json:"prometheus,omitempty"`
+	Prometheus *v1.Prometheus `json:"prometheus,omitempty"`
 
 	// Additional options to be appended to the connection string. These options apply to the entire resource and to each user.
 	// +kubebuilder:validation:Type=object
 	// +optional
 	// +kubebuilder:pruning:PreserveUnknownFields
 	// +nullable
-	AdditionalConnectionStringConfig MapWrapper `json:"additionalConnectionStringConfig,omitempty"`
+	AdditionalConnectionStringConfig v1.MapWrapper `json:"additionalConnectionStringConfig,omitempty"`
 
 	// MemberConfig
 	// +optional
 	MemberConfig []automationconfig.MemberOptions `json:"memberConfig,omitempty"`
-}
-
-// MapWrapper is a wrapper for a map to be used by other structs.
-// The CRD generator does not support map[string]interface{}
-// on the top level and hence we need to work around this with
-// a wrapping struct.
-type MapWrapper struct {
-	Object map[string]interface{} `json:"-"`
-}
-
-// MarshalJSON defers JSON encoding to the wrapped map
-func (m *MapWrapper) MarshalJSON() ([]byte, error) {
-	return json.Marshal(m.Object)
-}
-
-// UnmarshalJSON will decode the data into the wrapped map
-func (m *MapWrapper) UnmarshalJSON(data []byte) error {
-	if m.Object == nil {
-		m.Object = map[string]interface{}{}
-	}
-
-	// Handle keys like net.port to be set as nested maps.
-	// Without this after unmarshalling there is just key "net.port" which is not
-	// a nested map and methods like GetPort() cannot access the value.
-	tmpMap := map[string]interface{}{}
-	err := json.Unmarshal(data, &tmpMap)
-	if err != nil {
-		return err
-	}
-
-	for k, v := range tmpMap {
-		m.SetOption(k, v)
-	}
-
-	return nil
-}
-
-func (m *MapWrapper) DeepCopy() *MapWrapper {
-	if m != nil && m.Object != nil {
-		return &MapWrapper{
-			Object: runtime.DeepCopyJSON(m.Object),
-		}
-	}
-	c := NewMapWrapper()
-	return &c
-}
-
-// NewMapWrapper returns an empty MapWrapper
-func NewMapWrapper() MapWrapper {
-	return MapWrapper{Object: map[string]interface{}{}}
-}
-
-// SetOption updated the MapWrapper with a new option
-func (m MapWrapper) SetOption(key string, value interface{}) MapWrapper {
-	m.Object = objx.New(m.Object).Set(key, value)
-	return m
 }
 
 // ReplicaSetHorizonConfiguration holds the split horizon DNS settings for
@@ -212,43 +150,6 @@ type CustomRole struct {
 	// The authentication restrictions the server enforces on the role.
 	// +optional
 	AuthenticationRestrictions []AuthenticationRestriction `json:"authenticationRestrictions,omitempty"`
-}
-
-type Prometheus struct {
-	// Port where metrics endpoint will bind to. Defaults to 9216.
-	// +optional
-	Port int `json:"port,omitempty"`
-
-	// HTTP Basic Auth Username for metrics endpoint.
-	Username string `json:"username"`
-
-	// Name of a Secret containing a HTTP Basic Auth Password.
-	PasswordSecretRef SecretKeyReference `json:"passwordSecretRef"`
-
-	// Indicates path to the metrics endpoint.
-	// +kubebuilder:validation:Pattern=^\/[a-z0-9]+$
-	MetricsPath string `json:"metricsPath,omitempty"`
-
-	// Name of a Secret (type kubernetes.io/tls) holding the certificates to use in the
-	// Prometheus endpoint.
-	// +optional
-	TLSSecretRef SecretKeyReference `json:"tlsSecretKeyRef,omitempty"`
-}
-
-func (p Prometheus) GetPasswordKey() string {
-	if p.PasswordSecretRef.Key != "" {
-		return p.PasswordSecretRef.Key
-	}
-
-	return "password"
-}
-
-func (p Prometheus) GetPort() int {
-	if p.Port != 0 {
-		return p.Port
-	}
-
-	return defaultPrometheusPort
 }
 
 // ConvertToAutomationConfigCustomRole converts between a custom role defined by the crd and a custom role
@@ -325,46 +226,14 @@ type AuthenticationRestriction struct {
 	ServerAddress []string `json:"serverAddress"`
 }
 
-// AutomationConfigOverride contains fields which will be overridden in the operator created config.
-type AutomationConfigOverride struct {
-	Processes  []OverrideProcess  `json:"processes,omitempty"`
-	ReplicaSet OverrideReplicaSet `json:"replicaSet,omitempty"`
-}
-
-type OverrideReplicaSet struct {
-	// Id can be used together with additionalMongodConfig.replication.replSetName
-	// to manage clusters where replSetName differs from the MongoDBCommunity resource name
-	Id *string `json:"id,omitempty"`
-	// +kubebuilder:validation:Type=object
-	// +kubebuilder:pruning:PreserveUnknownFields
-	Settings MapWrapper `json:"settings,omitempty"`
-}
-
-// Note: We do not use the automationconfig.Process type directly here as unmarshalling cannot happen directly
-// with the Args26 which is a map[string]interface{}
-
-// OverrideProcess contains fields that we can override on the AutomationConfig processes.
-type OverrideProcess struct {
-	Name      string                         `json:"name"`
-	Disabled  bool                           `json:"disabled"`
-	LogRotate *automationconfig.CrdLogRotate `json:"logRotate,omitempty"`
-}
-
-type LogLevel string
-
 const (
-	LogLevelDebug    LogLevel = "DEBUG"
-	LogLevelInfo     LogLevel = "INFO"
-	LogLevelWarn     LogLevel = "WARN"
-	LogLevelError    LogLevel = "ERROR"
-	LogLevelFatal    LogLevel = "FATAL"
-	X509AuthMode              = "X509"
-	Scram256AuthMode          = "SCRAM-SHA-256"
+	X509AuthMode     = "X509"
+	Scram256AuthMode = "SCRAM-SHA-256"
 )
 
 type AgentConfiguration struct {
 	// +optional
-	LogLevel LogLevel `json:"logLevel"`
+	LogLevel v1.LogLevel `json:"logLevel"`
 	// +optional
 	LogFile string `json:"logFile"`
 	// +optional
@@ -380,45 +249,6 @@ type AgentConfiguration struct {
 	SystemLog *automationconfig.SystemLog `json:"systemLog,omitempty"`
 }
 
-// MongodConfiguration holds the optional mongod configuration
-// that should be merged with the operator created one.
-type MongodConfiguration struct {
-	MapWrapper `json:"-"`
-}
-
-// NewMongodConfiguration returns an empty MongodConfiguration
-func NewMongodConfiguration() MongodConfiguration {
-	return MongodConfiguration{MapWrapper{map[string]interface{}{}}}
-}
-
-// GetDBDataDir returns the db path which should be used.
-func (m MongodConfiguration) GetDBDataDir() string {
-	return objx.New(m.Object).Get("storage.dbPath").Str(automationconfig.DefaultMongoDBDataDir)
-}
-
-// GetDBPort returns the port that should be used for the mongod process.
-// If port is not specified, the default port of 27017 will be used.
-func (m MongodConfiguration) GetDBPort() int {
-	portValue := objx.New(m.Object).Get("net.port")
-
-	// Underlying map could be manipulated in code, e.g. via SetDBPort (e.g. in unit tests) - then it will be as int,
-	// or it could be deserialized from JSON and then integer in an untyped map will be deserialized as float64.
-	// It's behavior of https://pkg.go.dev/encoding/json#Unmarshal that is converting JSON integers as float64.
-	if portValue.IsInt() {
-		return portValue.Int(automationconfig.DefaultDBPort)
-	} else if portValue.IsFloat64() {
-		return int(portValue.Float64(float64(automationconfig.DefaultDBPort)))
-	}
-
-	return automationconfig.DefaultDBPort
-}
-
-// SetDBPort ensures that port is stored as float64
-func (m MongodConfiguration) SetDBPort(port int) MongodConfiguration {
-	m.SetOption("net.port", float64(port))
-	return m
-}
-
 type MongoDBUser struct {
 	// Name is the username of the user
 	Name string `json:"name"`
@@ -431,7 +261,7 @@ type MongoDBUser struct {
 
 	// PasswordSecretRef is a reference to the secret containing this user's password
 	// +optional
-	PasswordSecretRef SecretKeyReference `json:"passwordSecretRef,omitempty"`
+	PasswordSecretRef v1.SecretKeyReference `json:"passwordSecretRef,omitempty"`
 
 	// Roles is an array of roles assigned to this user
 	Roles []Role `json:"roles"`
@@ -461,7 +291,7 @@ type MongoDBUser struct {
 	// +optional
 	// +kubebuilder:pruning:PreserveUnknownFields
 	// +nullable
-	AdditionalConnectionStringConfig MapWrapper `json:"additionalConnectionStringConfig,omitempty"`
+	AdditionalConnectionStringConfig v1.MapWrapper `json:"additionalConnectionStringConfig,omitempty"`
 }
 
 func (m MongoDBUser) GetPasswordSecretKey() string {
@@ -519,16 +349,6 @@ func normalizeName(name string) string {
 		name = name[0:validation.DNS1123SubdomainMaxLength]
 	}
 	return name
-}
-
-// SecretKeyReference is a reference to the secret containing the user's password
-type SecretKeyReference struct {
-	// Name is the name of the secret storing this user's password
-	Name string `json:"name"`
-
-	// Key is the key in the secret storing this password. Defaults to "password"
-	// +optional
-	Key string `json:"key"`
 }
 
 // Role is the database role this user should have
@@ -669,8 +489,8 @@ type MongoDBCommunity struct {
 	Status MongoDBCommunityStatus `json:"status,omitempty"`
 }
 
-func (m *MongoDBCommunity) GetMongodConfiguration() MongodConfiguration {
-	mongodConfig := NewMongodConfiguration()
+func (m *MongoDBCommunity) GetMongodConfiguration() v1.MongodConfiguration {
+	mongodConfig := v1.NewMongodConfiguration()
 	for k, v := range m.Spec.AdditionalMongodConfig.Object {
 		mongodConfig.SetOption(k, v)
 	}
@@ -1135,7 +955,7 @@ func (m *MongoDBCommunity) NeedsAutomationConfigVolume() bool {
 	return true
 }
 
-func (m MongoDBCommunity) GetAgentLogLevel() LogLevel {
+func (m MongoDBCommunity) GetAgentLogLevel() v1.LogLevel {
 	return m.Spec.AgentConfiguration.LogLevel
 }
 
@@ -1151,7 +971,7 @@ func (m MongoDBCommunitySpec) GetClusterDomain() string {
 	if m.ClusterDomain != "" {
 		return m.ClusterDomain
 	}
-	return envvar.GetEnvOrDefault(constants.ClusterDomainEnv, defaultClusterDomain) // nolint:forbidigo
+	return env.ReadOrDefault(constants.ClusterDomainEnv, defaultClusterDomain) // nolint:forbidigo
 }
 
 type automationConfigReplicasScaler struct {

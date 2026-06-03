@@ -1,0 +1,105 @@
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: tls-selfsigned-issuer
+  namespace: {{ .Values.namespace }}
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: tls-selfsigned-ca
+  namespace: {{ .Values.namespace }}
+spec:
+  isCA: true
+  commonName: "*.{{ .Values.resourceName }}-svc.{{ .Values.namespace }}.svc.cluster.local"
+  dnsNames:
+    - "*.{{ .Values.resourceName }}-svc.{{ .Values.namespace }}.svc.cluster.local"
+  secretName: {{ .Values.caCertificateSecretRef }}
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  issuerRef:
+    name: tls-selfsigned-issuer
+    kind: Issuer
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: tls-ca-issuer
+  namespace: {{ .Values.namespace }}
+spec:
+  ca:
+    secretName: {{ .Values.caCertificateSecretRef }}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: cert-manager-tls-certificate
+  namespace: {{ .Values.namespace }}
+spec:
+  secretName: {{ .Values.certificateKeySecretRef }}
+  issuerRef:
+    name: tls-ca-issuer
+    kind: Issuer
+  duration: {{ .Values.certDuration }}
+  renewBefore: {{ .Values.renewCertBefore }}
+  commonName: "*.{{ .Values.resourceName }}-svc.{{ .Values.namespace }}.svc.cluster.local"
+  dnsNames:
+    - "*.{{ .Values.resourceName }}-svc.{{ .Values.namespace }}.svc.cluster.local"
+{{- if .Values.useX509 }}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: agent-certs
+  namespace: {{ .Values.namespace }}
+spec:
+  commonName: mms-automation-agent
+  dnsNames:
+    - automation
+  duration: 240h0m0s
+  issuerRef:
+    name: tls-ca-issuer
+  renewBefore: 120h0m0s
+  secretName: agent-certs
+  subject:
+    countries:
+      - US
+    localities:
+      - NY
+    organizationalUnits:
+      - a-1635241837-m5yb81lfnrz
+    organizations:
+      - cluster.local-agent
+    provinces:
+      - NY
+  usages:
+    - digital signature
+    - key encipherment
+    - client auth
+{{- end }}
+{{- if .Values.sampleX509User }}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: x509-user-cert
+  namespace: {{ .Values.namespace }}
+spec:
+  commonName: my-x509-user
+  duration: 240h0m0s
+  issuerRef:
+    name: tls-ca-issuer
+  renewBefore: 120h0m0s
+  secretName: my-x509-user-cert
+  subject:
+    organizationalUnits:
+      - organizationalunit
+    organizations:
+      - organization
+  usages:
+    - digital signature
+    - client auth
+{{- end }}

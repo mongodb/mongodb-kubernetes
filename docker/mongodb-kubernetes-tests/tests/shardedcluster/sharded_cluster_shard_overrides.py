@@ -73,11 +73,11 @@ class TestShardedClusterShardOverrides:
             # We need the unique cluster index, stored in the state configmap, for computing expected sts names
             cluster_mapping = read_deployment_state(sc.name, namespace, get_central_cluster_client())["clusterMapping"]
             logger.debug(f"Cluster mapping in state: {cluster_mapping}")
-            expected_statefulsets = build_expected_statefulsets_multi(sc, cluster_mapping)
-            validate_correct_sts_in_cluster_multi(expected_statefulsets, namespace, member_cluster_clients)
+            expected_multi = build_expected_statefulsets_multi(sc, cluster_mapping)
+            validate_correct_sts_in_cluster_multi(expected_multi, namespace, member_cluster_clients)
         else:
-            expected_statefulsets = build_expected_statefulsets(sc)
-            validate_correct_sts_in_cluster(expected_statefulsets, namespace, "__default", central_cluster_client)
+            expected_single = build_expected_statefulsets(sc)
+            validate_correct_sts_in_cluster(expected_single, namespace, "__default", central_cluster_client)
 
     def test_scale_shard_overrides(self, sc: MongoDB):
         if is_multi_cluster():
@@ -128,8 +128,8 @@ class TestShardedClusterShardOverrides:
             # We need the unique cluster index, stored in the state configmap, for computing expected sts names
             cluster_mapping = read_deployment_state(sc.name, namespace, get_central_cluster_client())["clusterMapping"]
             logger.debug(f"Cluster mapping in state: {cluster_mapping}")
-            expected_statefulsets = build_expected_statefulsets_multi(sc, cluster_mapping)
-            validate_correct_sts_in_cluster_multi(expected_statefulsets, namespace, member_cluster_clients)
+            expected_multi = build_expected_statefulsets_multi(sc, cluster_mapping)
+            validate_correct_sts_in_cluster_multi(expected_multi, namespace, member_cluster_clients)
         else:
-            expected_statefulsets = build_expected_statefulsets(sc)
-            validate_correct_sts_in_cluster(expected_statefulsets, namespace, "__default", central_cluster_client)
+            expected_single = build_expected_statefulsets(sc)
+            validate_correct_sts_in_cluster(expected_single, namespace, "__default", central_cluster_client)

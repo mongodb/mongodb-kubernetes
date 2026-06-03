@@ -29,7 +29,7 @@ class TestWebhookValidation(KubernetesTester):
         self.create_custom_resource_from_object(
             self.get_namespace(),
             resource,
-            exception_reason="must validate one and only one schema",
+            exception_reason="either spec.cloudManager or spec.opsManager can be set",
             api_client=central_cluster_client,
         )
 

@@ -27,15 +27,15 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
-	"github.com/mongodb/mongodb-kubernetes/api/v1/mdbmulti"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
+	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/deployment"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/secret"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/test"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
@@ -65,7 +65,7 @@ func TestX509ClusterAuthentication_CanBeEnabled_IfX509AuthenticationIsEnabled_Sh
 	ctx := context.Background()
 	scWithTls := test.DefaultClusterBuilder().EnableTLS().EnableX509().SetName("sc-with-tls").SetTLSCA("custom-ca").Build()
 
-	reconciler, _, client, _, err := defaultShardedClusterReconciler(ctx, nil, "", "", scWithTls, nil)
+	reconciler, _, client, _, err := defaultShardedClusterReconciler(ctx, nil, "", "", scWithTls, nil, testBackupEnableDelay)
 	require.NoError(t, err)
 	addKubernetesTlsResources(ctx, client, scWithTls)
 
@@ -76,7 +76,7 @@ func TestX509CanBeEnabled_WhenThereAreOnlyTlsDeployments_ShardedCluster(t *testi
 	ctx := context.Background()
 	scWithTls := test.DefaultClusterBuilder().EnableTLS().EnableX509().SetName("sc-with-tls").SetTLSCA("custom-ca").Build()
 
-	reconciler, _, client, _, err := defaultShardedClusterReconciler(ctx, nil, "", "", scWithTls, nil)
+	reconciler, _, client, _, err := defaultShardedClusterReconciler(ctx, nil, "", "", scWithTls, nil, testBackupEnableDelay)
 	require.NoError(t, err)
 	addKubernetesTlsResources(ctx, client, scWithTls)
 
@@ -233,7 +233,7 @@ func TestX509AgentUserIsCorrectlyConfigured(t *testing.T) {
 
 	checkReconcileSuccessful(ctx, t, reconciler, rs, kubeClient)
 
-	userReconciler := newMongoDBUserReconciler(ctx, kubeClient, omConnectionFactory.GetConnectionFunc, memberClusterMap)
+	userReconciler := newMongoDBUserReconciler(ctx, kubeClient, omConnectionFactory.GetConnectionFunc, memberClusterMap, testBackupEnableDelay)
 
 	actual, err := userReconciler.Reconcile(ctx, requestFromObject(x509User))
 	expected := reconcile.Result{RequeueAfter: util.TWENTY_FOUR_HOURS}
@@ -269,7 +269,7 @@ func TestScramAgentUserIsCorrectlyConfigured(t *testing.T) {
 
 	checkReconcileSuccessful(ctx, t, reconciler, rs, kubeClient)
 
-	userReconciler := newMongoDBUserReconciler(ctx, kubeClient, omConnectionFactory.GetConnectionFunc, memberClusterMap)
+	userReconciler := newMongoDBUserReconciler(ctx, kubeClient, omConnectionFactory.GetConnectionFunc, memberClusterMap, testBackupEnableDelay)
 
 	actual, err := userReconciler.Reconcile(ctx, requestFromObject(scramUser))
 	expected := reconcile.Result{RequeueAfter: util.TWENTY_FOUR_HOURS}
@@ -333,7 +333,7 @@ func TestX509InternalClusterAuthentication_CanBeEnabledWithScram_ShardedCluster(
 		EnableX509InternalClusterAuth().
 		Build()
 
-	r, _, kubeClient, omConnectionFactory, _ := defaultShardedClusterReconciler(ctx, nil, "", "", sc, nil)
+	r, _, kubeClient, omConnectionFactory, _ := defaultShardedClusterReconciler(ctx, nil, "", "", sc, nil, testBackupEnableDelay)
 	addKubernetesTlsResources(ctx, r.client, sc)
 	checkReconcileSuccessful(ctx, t, r, sc, kubeClient)
 

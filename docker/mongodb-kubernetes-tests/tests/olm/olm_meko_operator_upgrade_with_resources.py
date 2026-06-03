@@ -1,3 +1,5 @@
+from typing import Iterator
+
 import kubernetes
 import pytest
 from kubeobject import CustomObject
@@ -22,7 +24,6 @@ from tests.olm.olm_test_commons import (
     get_operator_group_resource,
     get_registry_env_vars_for_subscription,
     get_subscription_custom_object,
-    increment_patch_version,
     wait_for_operator_ready,
 )
 from tests.opsmanager.om_ops_manager_backup import create_aws_secret, create_s3_bucket
@@ -49,11 +50,10 @@ logger = test_logger.get_test_logger(__name__)
 @fixture
 def catalog_source(namespace: str, version_id: str):
     current_operator_version = get_current_operator_version()
-    incremented_operator_version = increment_patch_version(current_operator_version)
 
     get_operator_group_resource(namespace, namespace).update()
     catalog_source_resource = get_catalog_source_resource(
-        namespace, get_catalog_image(f"{incremented_operator_version}-{version_id}")
+        namespace, get_catalog_image(f"{current_operator_version}-{version_id}")
     )
     catalog_source_resource.update()
 
@@ -154,7 +154,7 @@ def ops_manager(namespace: str) -> MongoDBOpsManager:
 
 
 @fixture(scope="module")
-def s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> str:
+def s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> Iterator[str]:
     create_aws_secret(aws_s3_client, "my-s3-secret", namespace)
     yield from create_s3_bucket(aws_s3_client, "test-bucket-s3")
 
@@ -486,13 +486,12 @@ def test_install_mck_operator(
     operator_installation_config: dict[str, str],
 ):
     current_operator_version = get_current_operator_version()
-    incremented_operator_version = increment_patch_version(current_operator_version)
 
     # Create MCK subscription
     mck_subscription = get_mck_subscription_object(namespace, catalog_source, operator_installation_config)
     mck_subscription.update()
 
-    wait_for_operator_ready(namespace, OPERATOR_NAME, f"mongodb-kubernetes.v{incremented_operator_version}")
+    wait_for_operator_ready(namespace, OPERATOR_NAME, f"mongodb-kubernetes.v{current_operator_version}")
 
 
 @pytest.mark.e2e_olm_meko_operator_upgrade_with_resources

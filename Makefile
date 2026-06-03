@@ -140,6 +140,9 @@ agent-image-slow:
 operator-image:
 	@ scripts/dev/run_python.sh scripts/release/pipeline.py operator -b patch -v $(DEV_VERSION)
 
+operator-image-staging:
+	@ scripts/dev/run_python.sh scripts/release/pipeline.py operator -b staging -v $(DEV_VERSION)
+
 om-init-image:
 	@ scripts/dev/run_python.sh scripts/release/pipeline.py init-ops-manager -b patch -v $(DEV_VERSION)
 
@@ -150,7 +153,7 @@ test-image:
 	@ scripts/dev/run_python.sh scripts/release/pipeline.py meko-tests -b patch -v $(DEV_VERSION)
 
 mco-test-image:
-	@ scripts/dev/run_python.sh scripts/release/pipeline.py mco-test -b patch -v $(DEV_VERSION)
+	@ scripts/dev/run_python.sh scripts/release/pipeline.py mco-tests -b patch -v $(DEV_VERSION)
 
 readiness_probe: aws_login
 	@ scripts/dev/run_python.sh scripts/release/pipeline.py readiness-probe -b patch -v $(DEV_VERSION)
@@ -267,6 +270,11 @@ all-tests: test python-tests helm-tests
 # Build manager binary
 manager: generate fmt vet
 	GOOS=linux GOARCH=amd64 go build -o docker/mongodb-kubernetes-operator/content/mongodb-kubernetes-operator main.go
+
+# Build mckctl, the MCK developer-tooling binary (release automation, etc.).
+# Prefer `scripts/mckctl ...` for day-to-day use — it builds-if-stale and execs.
+mckctl:
+	go build -o bin/mckctl ./cmd/mckctl
 
 # Run against the configured Kubernetes cluster in ~/.kube/config
 run: generate fmt vet manifests

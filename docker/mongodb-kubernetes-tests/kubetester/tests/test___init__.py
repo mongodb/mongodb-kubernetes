@@ -5,7 +5,7 @@ import kubernetes.client
 from kubeobject import CustomObject
 
 
-class TestCreateOrUpdate(ctx, unittest.TestCase):
+class TestCreateOrUpdate(unittest.TestCase):
     def test_create_or_update_is_not_bound(self):
         api_client = MagicMock()
         custom_object = CustomObject(

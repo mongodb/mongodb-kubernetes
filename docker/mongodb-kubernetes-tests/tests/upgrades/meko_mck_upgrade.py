@@ -47,7 +47,7 @@ def replica_set(
     central_cluster_client: client.ApiClient,
 ) -> MongoDB:
     if is_multi_cluster():
-        resource = MongoDBMulti.from_yaml(
+        resource: MongoDB = MongoDBMulti.from_yaml(
             yaml_fixture("mongodb-multi-cluster.yaml"),
             "multi-replica-set",
             namespace,

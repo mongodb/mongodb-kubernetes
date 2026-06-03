@@ -90,6 +90,7 @@ const (
 	BackupDaemonContainerName      = "mongodb-backup-daemon"
 	DatabaseContainerName          = "mongodb-enterprise-database"
 	AgentContainerName             = "mongodb-agent"
+	MongodbContainerName           = "mongod"
 	AgentContainerUtilitiesName    = "mongodb-agent-operator-utilities"
 	InitOpsManagerContainerName    = "mongodb-kubernetes-init-ops-manager"
 	PvcNameData                    = "data"
@@ -182,6 +183,9 @@ const (
 	// Operator Env configuration properties. Please note that when adding environment variables to this list,
 	// make sure you append them to util.go:PrintEnvVars function's `printableEnvPrefixes` if you need the
 	// new variable to be printed at operator start.
+	MongodbRepoUrlEnv = "MONGODB_REPO_URL"
+	MongodbImageEnv   = "MONGODB_IMAGE"
+
 	OpsManagerImageUrl               = "OPS_MANAGER_IMAGE_REPOSITORY"
 	InitOpsManagerImageUrl           = "INIT_OPS_MANAGER_IMAGE_REPOSITORY"
 	InitOpsManagerVersion            = "INIT_OPS_MANAGER_VERSION"
@@ -194,18 +198,28 @@ const (
 	MemberListConfigMapName          = OperatorName + "-member-list"
 	BackupDisableWaitSecondsEnv      = "BACKUP_WAIT_SEC"
 	BackupDisableWaitRetriesEnv      = "BACKUP_WAIT_RETRIES"
+	BackupStartDelaySecondsEnv       = "MDB_BACKUP_START_DELAY_SECONDS"
 	ManagedSecurityContextEnv        = "MANAGED_SECURITY_CONTEXT"
 	CurrentNamespace                 = "NAMESPACE"
 	OperatorNameEnv                  = "OPERATOR_NAME"
 	WatchNamespace                   = "WATCH_NAMESPACE"
 	OpsManagerMonitorAppDB           = "OPS_MANAGER_MONITOR_APPDB"
 	MongodbCommunityAgentImageEnv    = "MDB_COMMUNITY_AGENT_IMAGE"
+	AgentImageUrlEnv                 = "MDB_AGENT_IMAGE_REPOSITORY"
+	AgentImageUrlDefault             = "quay.io/mongodb/mongodb-agent"
+	AgentImageEnv                    = "AGENT_IMAGE"
 
 	MdbWebhookRegisterConfigurationEnv = "MDB_WEBHOOK_REGISTER_CONFIGURATION"
 	MdbWebhookPortEnv                  = "MDB_WEBHOOK_PORT"
 	MdbWebhookNameEnv                  = "MDB_WEBHOOK_NAME"
 
 	MaxConcurrentReconcilesEnv = "MDB_MAX_CONCURRENT_RECONCILES"
+
+	// Search environment variables
+	SearchRepoURLEnv = "MDB_SEARCH_REPO_URL"
+	SearchNameEnv    = "MDB_SEARCH_NAME"
+	SearchVersionEnv = "MDB_SEARCH_VERSION"
+	EnvoyImageEnv    = "MDB_ENVOY_IMAGE"
 
 	// Different default configuration values
 	DefaultMongodStorageSize           = "16G"
@@ -221,6 +235,7 @@ const (
 	OpsManagerDefaultPortHTTPS         = 8443
 	DefaultBackupDisableWaitSeconds    = "3"
 	DefaultBackupDisableWaitRetries    = "30" // 30 * 3 = 90 seconds, should be ok for backup job to terminate
+	DefaultBackupStartDelaySeconds     = 60   // 60 seconds delay to avoid race condition between OM topology discovery and backup enablement
 	DefaultPodTerminationPeriodSeconds = 600  // 10 min. Keep this in sync with 'cleanup()' function in agent-launcher-lib.sh
 	DefaultK8sCacheRefreshTimeSeconds  = 2
 	OpsManagerMonitorAppDBDefault      = true
@@ -315,9 +330,7 @@ const (
 
 	RetryTimeSec = 10
 
-	DeprecatedImageAppdbUbiUrl = "mongodb-enterprise-appdb-database-ubi"
-
-	OfficialEnterpriseServerImageUrl = "mongodb-enterprise-server"
+	OfficialEnterpriseServerImageName = "mongodb-enterprise-server"
 
 	MdbAppdbAssumeOldFormat = "MDB_APPDB_ASSUME_OLD_FORMAT"
 
@@ -344,6 +357,8 @@ const (
 var OperatorVersion string
 
 var LogAutomationConfigDiff string
+
+var OfficialMongodbRepoUrls = []string{"docker.io/mongodb", "quay.io/mongodb"}
 
 func ShouldLogAutomationConfigDiff() bool {
 	return strings.EqualFold(LogAutomationConfigDiff, "true")

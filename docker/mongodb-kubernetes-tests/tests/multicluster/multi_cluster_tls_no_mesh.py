@@ -135,7 +135,8 @@ def mongodb_multi(
     }
     mongodb_multi_unmarshalled.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
 
-    return mongodb_multi_unmarshalled.update()
+    mongodb_multi_unmarshalled.update()
+    return mongodb_multi_unmarshalled
 
 
 @fixture(scope="module")
@@ -279,6 +280,7 @@ def test_placeholders_in_external_services(
         members = mongodb_multi.get_item_spec(member_cluster_client.cluster_name)["members"]
         for pod_idx in range(0, members):
             cluster_idx = member_cluster_client.cluster_index
+            assert cluster_idx is not None
             service = client.CoreV1Api(api_client=member_cluster_client.api_client).read_namespaced_service(
                 f"{name}-{cluster_idx}-{pod_idx}-svc-external", namespace
             )

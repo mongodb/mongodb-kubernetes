@@ -8,7 +8,7 @@ import (
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/types"
 
-	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
@@ -22,13 +22,16 @@ func NewEnterpriseResourceSearchSource(mdb *mdbv1.MongoDB) SearchSourceDBResourc
 	return EnterpriseResourceSearchSource{mdb}
 }
 
-func (r EnterpriseResourceSearchSource) HostSeeds() []string {
+func (r EnterpriseResourceSearchSource) HostSeeds(shardName string) ([]string, error) {
+	if shardName != "" {
+		return nil, fmt.Errorf("shardName is not supported for replica set")
+	}
 	seeds := make([]string, r.Spec.Members)
 	clusterDomain := r.Spec.GetClusterDomain()
 	for i := range seeds {
 		seeds[i] = fmt.Sprintf("%s-%d.%s.%s.svc.%s:%d", r.Name, i, r.ServiceName(), r.Namespace, clusterDomain, r.Spec.GetAdditionalMongodConfig().GetPortOrDefault())
 	}
-	return seeds
+	return seeds, nil
 }
 
 func (r EnterpriseResourceSearchSource) TLSConfig() *TLSSourceConfig {
@@ -49,6 +52,10 @@ func (r EnterpriseResourceSearchSource) TLSConfig() *TLSSourceConfig {
 
 func (r EnterpriseResourceSearchSource) KeyfileSecretName() string {
 	return fmt.Sprintf("%s-%s", r.Name, MongotKeyfileFilename)
+}
+
+func (r EnterpriseResourceSearchSource) ResourceType() mdbv1.ResourceType {
+	return r.GetResourceType()
 }
 
 func (r EnterpriseResourceSearchSource) Validate() error {

@@ -12,17 +12,17 @@ import (
 
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 
-	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
-	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
+	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
+	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 )
 
 // updateStatus updates the status for the CR using patch operation. Note, that the resource status is mutated and
 // it's important to pass resource by pointer to all methods which invoke current 'updateStatus'.
 func UpdateStatus(ctx context.Context, kubeClient kubernetesClient.Client, reconciledResource v1.CustomResourceReadWriter, st workflow.Status, log *zap.SugaredLogger, statusOptions ...status.Option) (reconcile.Result, error) {
 	mergedOptions := append(statusOptions, st.StatusOptions()...)
-	log.Debugf("Updating status: phase=%v, options=%+v", st.Phase(), mergedOptions)
+	log.Infof("Updating status: phase=%v, options=%+v", st.Phase(), mergedOptions)
 	reconciledResource.UpdateStatus(st.Phase(), mergedOptions...)
 	if err := patchUpdateStatus(ctx, kubeClient, reconciledResource, statusOptions...); err != nil {
 		log.Errorf("Error updating status to %s: %s", st.Phase(), err)

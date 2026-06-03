@@ -63,8 +63,6 @@ export e2e_cloud_qa_user_owner="${e2e_cloud_qa_user_owner_ubi_cloudqa}"
 
 export e2e_cloud_qa_baseurl="https://cloud-qa.mongodb.com"
 
-export kubernetes_kind_version=1.22.0
-
 # Note: this name is correct
 export task_id="${EVR_TASK_ID}"
 

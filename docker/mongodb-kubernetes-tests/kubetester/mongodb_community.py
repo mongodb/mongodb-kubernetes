@@ -10,6 +10,7 @@ from opentelemetry import trace
 from tests import test_logger
 
 logger = test_logger.get_test_logger(__name__)
+TRACER = trace.get_tracer("evergreen-agent")
 
 
 class MongoDBCommunity(MongoDB, CustomObject):
@@ -30,6 +31,7 @@ class MongoDBCommunity(MongoDB, CustomObject):
         )
         return resource
 
+    @TRACER.start_as_current_span("assert_reaches_phase")
     def assert_reaches_phase(self, phase: Phase, msg_regexp=None, timeout=None, ignore_errors=False):
         # intermediate_events is a tuple
         intermediate_events = ("updating the status",)
@@ -54,10 +56,10 @@ class MongoDBCommunity(MongoDB, CustomObject):
 
         end_time = time.time()
         span = trace.get_current_span()
-        span.set_attribute("meko_resource", self.__class__.__name__)
-        span.set_attribute("meko_action", "assert_phase")
-        span.set_attribute("meko_desired_phase", phase.name)
-        span.set_attribute("meko_time_needed", end_time - start_time)
+        span.set_attribute("mck.resource", self.__class__.__name__)
+        span.set_attribute("mck.action", "assert_phase")
+        span.set_attribute("mck.desired_phase", phase.name)
+        span.set_attribute("mck.time_needed", end_time - start_time)
         logger.debug(
             f"Reaching phase {phase.name} for resource {self.__class__.__name__} took {end_time - start_time}s"
         )

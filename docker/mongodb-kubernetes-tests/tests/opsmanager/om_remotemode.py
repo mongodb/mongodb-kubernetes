@@ -208,12 +208,6 @@ def test_client_can_connect_to_mongodb_ent(replica_set_ent: MongoDB):
     replica_set_ent.assert_connectivity()
 
 
-@skip_if_local
-@mark.e2e_om_remotemode
-def test_client_can_connect_to_mongodb_ent(replica_set_ent: MongoDB):
-    replica_set_ent.assert_connectivity()
-
-
 @mark.e2e_om_remotemode
 def test_restart_ops_manager_pod(ops_manager: MongoDBOpsManager):
     ops_manager.load()

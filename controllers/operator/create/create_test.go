@@ -21,14 +21,14 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
-	omv1 "github.com/mongodb/mongodb-kubernetes/api/v1/om"
+	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
+	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/vault"
@@ -230,7 +230,7 @@ func TestOpsManagerInKubernetes_ClusterSpecificExternalConnectivity(t *testing.T
 							util.OperatorLabelName: util.OperatorLabelValue,
 						},
 						Type:                     corev1.ServiceTypeNodePort,
-						PublishNotReadyAddresses: true,
+						PublishNotReadyAddresses: false,
 					},
 				},
 				memberClusterName3: {
@@ -272,7 +272,7 @@ func TestOpsManagerInKubernetes_ClusterSpecificExternalConnectivity(t *testing.T
 						},
 						Type:                     corev1.ServiceTypeLoadBalancer,
 						LoadBalancerIP:           "10.10.10.1",
-						PublishNotReadyAddresses: true,
+						PublishNotReadyAddresses: false,
 					},
 				},
 			},
@@ -349,7 +349,7 @@ func TestOpsManagerInKubernetes_ClusterSpecificExternalConnectivity(t *testing.T
 							util.OperatorLabelName: util.OperatorLabelValue,
 						},
 						Type:                     corev1.ServiceTypeNodePort,
-						PublishNotReadyAddresses: true,
+						PublishNotReadyAddresses: false,
 					},
 				},
 				memberClusterName2: {
@@ -394,7 +394,7 @@ func TestOpsManagerInKubernetes_ClusterSpecificExternalConnectivity(t *testing.T
 						},
 						Type:                     corev1.ServiceTypeLoadBalancer,
 						LoadBalancerIP:           "20.20.20.2",
-						PublishNotReadyAddresses: true,
+						PublishNotReadyAddresses: false,
 					},
 				},
 				memberClusterName3: {
@@ -436,7 +436,7 @@ func TestOpsManagerInKubernetes_ClusterSpecificExternalConnectivity(t *testing.T
 						},
 						Type:                     corev1.ServiceTypeLoadBalancer,
 						LoadBalancerIP:           "10.10.10.1",
-						PublishNotReadyAddresses: true,
+						PublishNotReadyAddresses: false,
 					},
 				},
 			},
@@ -672,7 +672,7 @@ func TestDatabaseInKubernetes_ExternalServicesWithServiceSpecOverrides(t *testin
 	externalAccessConfiguration := mdbv1.ExternalAccessConfiguration{
 		ExternalDomain: ptr.To("example.com"),
 		ExternalService: mdbv1.ExternalServiceConfiguration{
-			SpecWrapper: &common.ServiceSpecWrapper{Spec: corev1.ServiceSpec{
+			SpecWrapper: &v1.ServiceSpecWrapper{Spec: corev1.ServiceSpec{
 				Type: corev1.ServiceTypeNodePort,
 			}},
 			Annotations: map[string]string{
@@ -713,7 +713,7 @@ func TestDatabaseInKubernetes_ExternalServicesWithPlaceholders(t *testing.T) {
 	service2.Name = "mdb-1-svc-external"
 	externalAccessConfiguration := mdbv1.ExternalAccessConfiguration{
 		ExternalService: mdbv1.ExternalServiceConfiguration{
-			SpecWrapper: &common.ServiceSpecWrapper{Spec: corev1.ServiceSpec{
+			SpecWrapper: &v1.ServiceSpecWrapper{Spec: corev1.ServiceSpec{
 				Type: corev1.ServiceTypeNodePort,
 			}},
 			Annotations: map[string]string{
@@ -790,7 +790,7 @@ func TestDatabaseInKubernetes_ExternalServicesWithPlaceholders_WithExternalDomai
 	externalAccessConfiguration := mdbv1.ExternalAccessConfiguration{
 		ExternalDomain: &externalDomain,
 		ExternalService: mdbv1.ExternalServiceConfiguration{
-			SpecWrapper: &common.ServiceSpecWrapper{Spec: corev1.ServiceSpec{
+			SpecWrapper: &v1.ServiceSpecWrapper{Spec: corev1.ServiceSpec{
 				Type: corev1.ServiceTypeNodePort,
 			}},
 			Annotations: map[string]string{

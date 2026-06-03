@@ -21,12 +21,12 @@ import (
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/helm"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/secret"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/envvar"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/generate"
 	e2eutil "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e"
 	waite2e "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e/util/wait"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/generate"
 )
 
 type HelmArg struct {
@@ -38,24 +38,25 @@ const (
 	performCleanupEnv                   = "PERFORM_CLEANUP"
 	CommunityHelmChartAndDeploymentName = "mongodb-community-operator"
 	MCKHelmChartAndDeploymentName       = util.OperatorName
+	TestPKIHelmChartName                = "mongodb-test-pki"
 )
 
 func Setup(ctx context.Context, t *testing.T) *e2eutil.TestContext {
-	testCtx, err := e2eutil.NewContext(ctx, t, envvar.ReadBool(performCleanupEnv)) // nolint:forbidigo
+	testCtx, err := e2eutil.NewContext(ctx, t, env.ReadBoolOrDefault(performCleanupEnv, false)) // nolint:forbidigo
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	config := LoadTestConfigFromEnv()
-	if err := DeployMCKOperator(ctx, t, config, "mdb", false, false); err != nil {
+	if err := DeployMCKOperator(ctx, t, config, false, false); err != nil {
 		t.Fatal(err)
 	}
 
 	return testCtx
 }
 
-func SetupWithTLS(ctx context.Context, t *testing.T, resourceName string, additionalHelmArgs ...HelmArg) (*e2eutil.TestContext, TestConfig) {
-	textCtx, err := e2eutil.NewContext(ctx, t, envvar.ReadBool(performCleanupEnv)) // nolint:forbidigo
+func SetupWithTLS(ctx context.Context, t *testing.T, resourceName string, useX509 bool, userX509Cert bool, additionalHelmArgs ...HelmArg) (*e2eutil.TestContext, TestConfig) {
+	textCtx, err := e2eutil.NewContext(ctx, t, env.ReadBoolOrDefault(performCleanupEnv, false)) // nolint:forbidigo
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +66,11 @@ func SetupWithTLS(ctx context.Context, t *testing.T, resourceName string, additi
 		t.Fatal(err)
 	}
 
-	if err := DeployMCKOperator(ctx, t, config, resourceName, true, false, additionalHelmArgs...); err != nil {
+	if err := SetupCertificates(t, config, resourceName, useX509, userX509Cert); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := DeployMCKOperator(ctx, t, config, true, false, additionalHelmArgs...); err != nil {
 		t.Fatal(err)
 	}
 
@@ -73,7 +78,7 @@ func SetupWithTLS(ctx context.Context, t *testing.T, resourceName string, additi
 }
 
 func SetupWithTestConfig(ctx context.Context, t *testing.T, testConfig TestConfig, withTLS, defaultOperator bool, resourceName string) *e2eutil.TestContext {
-	testCtx, err := e2eutil.NewContext(ctx, t, envvar.ReadBool(performCleanupEnv)) // nolint:forbidigo
+	testCtx, err := e2eutil.NewContext(ctx, t, env.ReadBoolOrDefault(performCleanupEnv, false)) // nolint:forbidigo
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +89,7 @@ func SetupWithTestConfig(ctx context.Context, t *testing.T, testConfig TestConfi
 		}
 	}
 
-	if err := DeployMCKOperator(ctx, t, testConfig, resourceName, withTLS, defaultOperator); err != nil {
+	if err := DeployMCKOperator(ctx, t, testConfig, withTLS, defaultOperator); err != nil {
 		t.Fatal(err)
 	}
 
@@ -92,7 +97,7 @@ func SetupWithTestConfig(ctx context.Context, t *testing.T, testConfig TestConfi
 }
 
 func SetupWithTestConfigNoOperator(ctx context.Context, t *testing.T, testConfig TestConfig, withTLS bool) *e2eutil.TestContext {
-	testCtx, err := e2eutil.NewContext(ctx, t, envvar.ReadBool(performCleanupEnv)) // nolint:forbidigo
+	testCtx, err := e2eutil.NewContext(ctx, t, env.ReadBoolOrDefault(performCleanupEnv, false)) // nolint:forbidigo
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +154,7 @@ func extractRegistryNameAndVersion(fullImage string) (string, string, string) {
 }
 
 // getHelmArgs returns a map of helm arguments that are required to install the operator.
-func getHelmArgs(testConfig TestConfig, watchNamespace string, resourceName string, withTLS bool, defaultOperator bool, additionalHelmArgs ...HelmArg) map[string]string {
+func getHelmArgs(testConfig TestConfig, watchNamespace string, withTLS bool, defaultOperator bool, additionalHelmArgs ...HelmArg) map[string]string {
 	agentRegistry, agentName, agentVersion := extractRegistryNameAndVersion(testConfig.AgentImage)
 	versionUpgradeHookRegistry, versionUpgradeHookName, versionUpgradeHookVersion := extractRegistryNameAndVersion(testConfig.VersionUpgradeHookImage)
 	readinessProbeRegistry, readinessProbeName, readinessProbeVersion := extractRegistryNameAndVersion(testConfig.ReadinessProbeImage)
@@ -181,12 +186,6 @@ func getHelmArgs(testConfig TestConfig, watchNamespace string, resourceName stri
 		helmArgs["readinessProbe.version"] = readinessProbeVersion
 	}
 
-	// only used for one mco tls test
-	helmArgs["community.createResource"] = strconv.FormatBool(false)
-	helmArgs["community.resource.name"] = resourceName
-	helmArgs["community.resource.tls.enabled"] = strconv.FormatBool(withTLS)
-	helmArgs["community.resource.tls.useCertManager"] = strconv.FormatBool(withTLS)
-
 	for _, arg := range additionalHelmArgs {
 		helmArgs[arg.Name] = arg.Value
 	}
@@ -195,7 +194,7 @@ func getHelmArgs(testConfig TestConfig, watchNamespace string, resourceName stri
 }
 
 // getMCOHelmArgs returns a map of helm arguments that were used to install mco with the mco chart
-func getMCOHelmArgs(testConfig TestConfig, watchNamespace string, resourceName string, withTLS bool, additionalHelmArgs ...HelmArg) map[string]string {
+func getMCOHelmArgs(testConfig TestConfig, watchNamespace string, additionalHelmArgs ...HelmArg) map[string]string {
 	agentRegistry, agentName, agentVersion := extractRegistryNameAndVersion(testConfig.AgentImage)
 	versionUpgradeHookRegistry, versionUpgradeHookName, versionUpgradeHookVersion := extractRegistryNameAndVersion(testConfig.VersionUpgradeHookImage)
 	readinessProbeRegistry, readinessProbeName, readinessProbeVersion := extractRegistryNameAndVersion(testConfig.ReadinessProbeImage)
@@ -225,11 +224,6 @@ func getMCOHelmArgs(testConfig TestConfig, watchNamespace string, resourceName s
 	helmArgs["registry.readinessProbe"] = readinessProbeRegistry
 	helmArgs["registry.imagePullSecrets"] = "image-registries-secret"
 
-	helmArgs["createResource"] = strconv.FormatBool(false)
-	helmArgs["resource.name"] = resourceName
-	helmArgs["resource.tls.enabled"] = strconv.FormatBool(withTLS)
-	helmArgs["resource.tls.useCertManager"] = strconv.FormatBool(withTLS)
-
 	for _, arg := range additionalHelmArgs {
 		helmArgs[arg.Name] = arg.Value
 	}
@@ -238,7 +232,7 @@ func getMCOHelmArgs(testConfig TestConfig, watchNamespace string, resourceName s
 }
 
 // DeployMCKOperator installs all resources required by the operator using helm.
-func DeployMCKOperator(ctx context.Context, t *testing.T, config TestConfig, resourceName string, withTLS bool, defaultOperator bool, additionalHelmArgs ...HelmArg) error {
+func DeployMCKOperator(ctx context.Context, t *testing.T, config TestConfig, withTLS bool, defaultOperator bool, additionalHelmArgs ...HelmArg) error {
 	e2eutil.OperatorNamespace = config.Namespace
 
 	if config.LocalOperator {
@@ -256,7 +250,7 @@ func DeployMCKOperator(ctx context.Context, t *testing.T, config TestConfig, res
 		return err
 	}
 
-	helmArgs := getHelmArgs(config, watchNamespace, resourceName, withTLS, defaultOperator, additionalHelmArgs...)
+	helmArgs := getHelmArgs(config, watchNamespace, withTLS, defaultOperator, additionalHelmArgs...)
 	helmFlags := map[string]string{
 		"namespace": config.Namespace,
 	}
@@ -316,6 +310,26 @@ func deployCertManager(t *testing.T, config TestConfig) error {
 	return nil
 }
 
+func SetupCertificates(t *testing.T, config TestConfig, resourceName string, useX509 bool, userX509Cert bool) error {
+	if err := helm.Uninstall(t, TestPKIHelmChartName, config.Namespace); err != nil {
+		return err
+	}
+	helmArgs := map[string]string{
+		"resourceName":   resourceName,
+		"useX509":        strconv.FormatBool(useX509),
+		"sampleX509User": strconv.FormatBool((userX509Cert)),
+		"namespace":      config.Namespace,
+	}
+	helmFlags := map[string]string{
+		"namespace": config.Namespace,
+	}
+
+	if err := helm.Install(t, config.TestPKIChartPath, TestPKIHelmChartName, helmFlags, helmArgs); err != nil {
+		return err
+	}
+	return nil
+}
+
 // hasDeploymentRequiredReplicas returns a condition function that indicates whether the given deployment
 // currently has the required amount of replicas in the ready state as specified in spec.replicas
 func hasDeploymentRequiredReplicas(dep *appsv1.Deployment) wait.ConditionWithContextFunc {
@@ -367,7 +381,7 @@ func InstallCommunityOperatorViaHelm(ctx context.Context, t *testing.T, config T
 		"namespace": namespace,
 	}
 
-	helmArgs := getMCOHelmArgs(config, namespace, "mdb", false, additionalHelmArgs...)
+	helmArgs := getMCOHelmArgs(config, namespace, additionalHelmArgs...)
 	helmArgs["operator.name"] = CommunityHelmChartAndDeploymentName
 
 	// Apply any additional helm args
