@@ -245,6 +245,10 @@ func buildFilterChain(route envoyRoute, tlsEnabled bool, caKeyName string) (*lis
 		Http2ProtocolOptions: &corev3.Http2ProtocolOptions{
 			InitialConnectionWindowSize: wrapperspb.UInt32(1048576),
 			InitialStreamWindowSize:     wrapperspb.UInt32(1048576),
+			ConnectionKeepalive: &corev3.KeepaliveSettings{
+				Interval: durationpb.New(60 * time.Second),
+				Timeout:  durationpb.New(10 * time.Second),
+			},
 		},
 		StreamIdleTimeout: durationpb.New(300 * time.Second),
 		RequestTimeout:    durationpb.New(300 * time.Second),
@@ -309,6 +313,10 @@ func buildCluster(route envoyRoute, tlsEnabled bool, caKeyName string) (*cluster
 					Http2ProtocolOptions: &corev3.Http2ProtocolOptions{
 						InitialConnectionWindowSize: wrapperspb.UInt32(1048576),
 						InitialStreamWindowSize:     wrapperspb.UInt32(1048576),
+						ConnectionKeepalive: &corev3.KeepaliveSettings{
+							Interval: durationpb.New(60 * time.Second),
+							Timeout:  durationpb.New(10 * time.Second),
+						},
 					},
 				},
 			},
