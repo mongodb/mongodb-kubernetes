@@ -132,6 +132,11 @@ func BuildJobFromStatefulSet(rs *mdbv1.MongoDB, sts *appsv1.StatefulSet, operato
 		caPath = util.CAFilePathInContainer
 	}
 
+	mongodTLSCAPath := ""
+	if security.IsTLSEnabled() {
+		mongodTLSCAPath = util.TLSCaMountPath + "/ca-pem"
+	}
+
 	envVars := []corev1.EnvVar{
 		{Name: "CONNECTION_STRING", Value: connectionString},
 		{Name: "AUTH_MECHANISM", Value: authMechanism},
@@ -140,6 +145,7 @@ func BuildJobFromStatefulSet(rs *mdbv1.MongoDB, sts *appsv1.StatefulSet, operato
 		{Name: "CERT_PATH", Value: certPath},
 		{Name: "CA_PATH", Value: caPath},
 		{Name: "SUBJECT_DN", Value: subjectDN},
+		{Name: "MONGOD_TLS_CA_PATH", Value: mongodTLSCAPath},
 	}
 
 	backoffLimit := int32(0)

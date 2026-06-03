@@ -40,6 +40,9 @@ type Config struct {
 	CAPath string
 	// SubjectDN is the X.509 subject DN used as the username.
 	SubjectDN string
+	// MongodTLSCAPath is the path to the CA PEM used to verify mongod TLS certificates.
+	// When set, TLS transport is enabled for all connections even when using SCRAM auth.
+	MongodTLSCAPath string
 }
 
 func isKeyfileSCRAM(authMechanism string) bool {
@@ -127,13 +130,13 @@ func buildClientOptions(cfg Config, uri string) (*options.ClientOptions, error) 
 		log.Debugw("Using keyfile SCRAM auth", "authMechanism", cfg.AuthMechanism, "keyfilePath", cfg.KeyfilePath)
 		keyfile, err := os.ReadFile(cfg.KeyfilePath)
 		if err != nil {
-			log.Warnw("Failed to read keyfile", "keyfilePath", cfg.KeyfilePath, "error", err)
+			log.Warnw("Keyfile unavailable", "keyfilePath", cfg.KeyfilePath, "error", err)
 			return nil, fmt.Errorf("reading keyfile: %w", err)
 		}
 		password := strings.TrimSpace(string(keyfile))
 		if len(password) == 0 {
 			log.Warnw("Keyfile is empty", "keyfilePath", cfg.KeyfilePath)
-			return nil, fmt.Errorf("empty keyfile")
+			return nil, fmt.Errorf("keyfile at %s is empty", cfg.KeyfilePath)
 		}
 		opts.SetAuth(options.Credential{
 			AuthMechanism: cfg.AuthMechanism,
@@ -152,10 +155,36 @@ func buildClientOptions(cfg Config, uri string) (*options.ClientOptions, error) 
 			AuthMechanism: "MONGODB-X509",
 			Username:      cfg.SubjectDN,
 		})
+		return opts, nil
 	default:
 		log.Debugw("No auth mechanism", "authMechanism", cfg.AuthMechanism)
 	}
+
+	// Apply TLS transport whenever the mongod requires it. Covers SCRAM and the no-auth case.
+	if cfg.MongodTLSCAPath != "" {
+		log.Debugw("Configuring TLS transport for mongod connection", "caPath", cfg.MongodTLSCAPath)
+		tlsCfg, err := buildTLSConfigFromCA(cfg.MongodTLSCAPath)
+		if err != nil {
+			return nil, err
+		}
+		opts.SetTLSConfig(tlsCfg)
+	}
 	return opts, nil
+}
+
+func buildTLSConfigFromCA(caPath string) (*tls.Config, error) {
+	log := zap.S()
+	caPEM, err := os.ReadFile(caPath)
+	if err != nil {
+		log.Warnw("Failed to read mongod CA file", "caPath", caPath, "error", err)
+		return nil, fmt.Errorf("reading mongod CA: %w", err)
+	}
+	caPool := x509.NewCertPool()
+	if !caPool.AppendCertsFromPEM(caPEM) {
+		log.Warnw("Failed to parse mongod CA certificate", "caPath", caPath)
+		return nil, fmt.Errorf("parsing mongod CA certificate")
+	}
+	return &tls.Config{RootCAs: caPool, MinVersion: tls.VersionTLS13}, nil
 }
 
 func buildTLSConfig(certPath, caPath string) (*tls.Config, error) {
