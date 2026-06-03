@@ -232,6 +232,26 @@ type ManagedLBConfig struct {
 	// Follows the same convention as spec.statefulSet on MongoDB resources.
 	// +optional
 	Deployment *v1.DeploymentConfiguration `json:"deployment,omitempty"`
+	// RetryPolicy configures Envoy retry behavior for requests to upstream mongot clusters.
+	// When not set, retries are enabled with sensible defaults (2 retries, 60s per-try timeout).
+	// +optional
+	RetryPolicy *EnvoyRetryPolicy `json:"retryPolicy,omitempty"`
+}
+
+// EnvoyRetryPolicy configures retry behavior for requests to upstream mongot clusters.
+// Retries are always attempted on a different host than the one that failed.
+// All fields are optional; when nil, operator defaults are used.
+type EnvoyRetryPolicy struct {
+	// NumRetries is the maximum number of retries per request.
+	// Defaults to 2 if not specified (3 total attempts including the original).
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	NumRetries *uint32 `json:"numRetries,omitempty"`
+	// PerTryTimeout is the timeout for each retry attempt (including the original).
+	// Specified as a Go duration string (e.g., "60s", "30s").
+	// Defaults to "60s" if not specified.
+	// +optional
+	PerTryTimeout *string `json:"perTryTimeout,omitempty"`
 }
 
 // UnmanagedLBConfig configures a user-provided (BYO) L7 load balancer.
@@ -914,6 +934,14 @@ func (s *MongoDBSearch) GetManagedLBDeploymentConfig() *v1.DeploymentConfigurati
 func (s *MongoDBSearch) GetManagedLBResourceRequirements() *corev1.ResourceRequirements {
 	if s.IsLBModeManaged() {
 		return s.Spec.LoadBalancer.Managed.ResourceRequirements
+	}
+	return nil
+}
+
+// GetManagedLBRetryPolicy returns user-specified Envoy retry policy, or nil.
+func (s *MongoDBSearch) GetManagedLBRetryPolicy() *EnvoyRetryPolicy {
+	if s.IsLBModeManaged() {
+		return s.Spec.LoadBalancer.Managed.RetryPolicy
 	}
 	return nil
 }

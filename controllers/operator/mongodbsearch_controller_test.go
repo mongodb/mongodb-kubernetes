@@ -147,6 +147,9 @@ func buildExpectedMongotConfig(search *searchv1.MongoDBSearch, mdbc *mdbcv1.Mong
 			Verbosity: logLevel,
 			LogPath:   nil,
 		},
+		FeatureFlags: &mongot.ConfigFeatureFlags{
+			OverloadRetrySignal: ptr.To(true),
+		},
 	}
 }
 

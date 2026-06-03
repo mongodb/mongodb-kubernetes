@@ -170,7 +170,7 @@ func TestBuildCDSJSON_MultipleShards(t *testing.T) {
 
 func TestBuildLDSJSON_SingleShard_NoTLS(t *testing.T) {
 	route := testRoute("mdb-sh-0")
-	result, err := buildLDSJSON([]envoyRoute{route}, false, testCAKeyName())
+	result, err := buildLDSJSON([]envoyRoute{route}, false, testCAKeyName(), nil)
 	require.NoError(t, err)
 	assert.True(t, json.Valid([]byte(result)))
 
@@ -190,7 +190,7 @@ func TestBuildLDSJSON_SingleShard_NoTLS(t *testing.T) {
 
 func TestBuildLDSJSON_SingleShard_WithTLS(t *testing.T) {
 	route := testRoute("mdb-sh-0")
-	result, err := buildLDSJSON([]envoyRoute{route}, true, testCAKeyName())
+	result, err := buildLDSJSON([]envoyRoute{route}, true, testCAKeyName(), nil)
 	require.NoError(t, err)
 
 	resp := unmarshalDiscoveryResponse(t, result)
@@ -225,7 +225,7 @@ func TestBuildLDSJSON_MultipleShards_WithTLS(t *testing.T) {
 		{Name: "mdb-sh-2", NameSafe: "mdb_sh_2", SNIHostname: "shard2.ns.svc.cluster.local", UpstreamHosts: []string{"mongot2.ns.svc.cluster.local"}, UpstreamPort: 27028},
 	}
 
-	result, err := buildLDSJSON(routes, true, testCAKeyName())
+	result, err := buildLDSJSON(routes, true, testCAKeyName(), nil)
 	require.NoError(t, err)
 
 	resp := unmarshalDiscoveryResponse(t, result)
@@ -253,7 +253,7 @@ func TestBuildLDSJSON_ReplicaSet_NoTLS(t *testing.T) {
 		UpstreamPort:  27028,
 	}
 
-	result, err := buildLDSJSON([]envoyRoute{route}, false, testCAKeyName())
+	result, err := buildLDSJSON([]envoyRoute{route}, false, testCAKeyName(), nil)
 	require.NoError(t, err)
 
 	resp := unmarshalDiscoveryResponse(t, result)
@@ -294,7 +294,7 @@ func TestBuildCDSJSON_ReplicaSet_NoTLS(t *testing.T) {
 
 func TestBuildFilterChain_NoTLS_NoSNIMatch(t *testing.T) {
 	route := testRoute("test-shard")
-	chain, err := buildFilterChain(route, false, testCAKeyName())
+	chain, err := buildFilterChain(route, false, testCAKeyName(), nil)
 	require.NoError(t, err)
 
 	assert.Nil(t, chain.FilterChainMatch, "no SNI match when TLS disabled")
@@ -304,7 +304,7 @@ func TestBuildFilterChain_NoTLS_NoSNIMatch(t *testing.T) {
 
 func TestBuildFilterChain_WithTLS_HasSNIMatch(t *testing.T) {
 	route := testRoute("test-shard")
-	chain, err := buildFilterChain(route, true, testCAKeyName())
+	chain, err := buildFilterChain(route, true, testCAKeyName(), nil)
 	require.NoError(t, err)
 
 	require.NotNil(t, chain.FilterChainMatch, "SNI match should be present with TLS")
@@ -314,7 +314,7 @@ func TestBuildFilterChain_WithTLS_HasSNIMatch(t *testing.T) {
 
 func TestBuildLDSJSON_NoTLS_NoTLSInspector(t *testing.T) {
 	route := testRoute("test-shard")
-	result, err := buildLDSJSON([]envoyRoute{route}, false, testCAKeyName())
+	result, err := buildLDSJSON([]envoyRoute{route}, false, testCAKeyName(), nil)
 	require.NoError(t, err)
 
 	resp := unmarshalDiscoveryResponse(t, result)
@@ -326,7 +326,7 @@ func TestBuildLDSJSON_NoTLS_NoTLSInspector(t *testing.T) {
 
 func TestBuildLDSJSON_WithTLS_HasTLSInspector(t *testing.T) {
 	route := testRoute("test-shard")
-	result, err := buildLDSJSON([]envoyRoute{route}, true, testCAKeyName())
+	result, err := buildLDSJSON([]envoyRoute{route}, true, testCAKeyName(), nil)
 	require.NoError(t, err)
 
 	resp := unmarshalDiscoveryResponse(t, result)
@@ -378,4 +378,23 @@ func TestBuildCluster_UsesTypedExtensionProtocolOptions(t *testing.T) {
 
 	// Verify TypedExtensionProtocolOptions is set
 	require.Contains(t, cluster.TypedExtensionProtocolOptions, "envoy.extensions.upstreams.http.v3.HttpProtocolOptions")
+}
+
+func TestBuildRetryPolicy_PartialOverride(t *testing.T) {
+	numRetries := uint32(5)
+	rp := buildRetryPolicy(&searchv1.EnvoyRetryPolicy{
+		NumRetries: &numRetries,
+		// PerTryTimeout left nil — should use default 60s
+	})
+
+	assert.Equal(t, uint32(5), rp.NumRetries.GetValue())
+	assert.Equal(t, int64(60), rp.PerTryTimeout.GetSeconds(), "should use default timeout")
+}
+
+func TestBuildFilterChain_HasRetryPolicy(t *testing.T) {
+	route := testRoute("mdb-sh-0")
+	result, err := buildLDSJSON([]envoyRoute{route}, false, testCAKeyName(), nil)
+	require.NoError(t, err)
+	assert.Contains(t, result, "connect-failure,refused-stream,unavailable,reset")
+	assert.Contains(t, result, "envoy.retry_host_predicates.previous_hosts")
 }
