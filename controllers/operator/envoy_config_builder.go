@@ -208,7 +208,7 @@ func buildRetryPolicy(rp *searchv1.EnvoyRetryPolicy) *routev3.RetryPolicy {
 	}
 
 	return &routev3.RetryPolicy{
-		RetryOn:       "connect-failure,refused-stream,unavailable,reset",
+		RetryOn:       "connect-failure,refused-stream,unavailable,reset,resource-exhausted",
 		NumRetries:    wrapperspb.UInt32(numRetries),
 		PerTryTimeout: durationpb.New(perTryTimeout),
 		RetryHostPredicate: []*routev3.RetryPolicy_RetryHostPredicate{
@@ -242,8 +242,9 @@ func buildFilterChain(route envoyRoute, tlsEnabled bool, caKeyName string, rp *s
 				Name: fmt.Sprintf("%s_route", route.NameSafe),
 				VirtualHosts: []*routev3.VirtualHost{
 					{
-						Name:    fmt.Sprintf("mongot_%s_backend", route.NameSafe),
-						Domains: []string{"*"},
+						Name:                       fmt.Sprintf("mongot_%s_backend", route.NameSafe),
+						Domains:                    []string{"*"},
+						IncludeRequestAttemptCount: true,
 						Routes: []*routev3.Route{
 							{
 								Match: &routev3.RouteMatch{

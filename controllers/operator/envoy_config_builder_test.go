@@ -12,6 +12,7 @@ import (
 	clusterv3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
 	corev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	listenerv3 "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
+	hcmv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
 	tlsv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
 	discoveryv3 "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
 
@@ -393,8 +394,32 @@ func TestBuildRetryPolicy_PartialOverride(t *testing.T) {
 
 func TestBuildFilterChain_HasRetryPolicy(t *testing.T) {
 	route := testRoute("mdb-sh-0")
-	result, err := buildLDSJSON([]envoyRoute{route}, false, testCAKeyName(), nil)
+	chain, err := buildFilterChain(route, false, testCAKeyName(), nil)
 	require.NoError(t, err)
-	assert.Contains(t, result, "connect-failure,refused-stream,unavailable,reset")
-	assert.Contains(t, result, "envoy.retry_host_predicates.previous_hosts")
+
+	// Extract HCM from the filter chain
+	hcm := &hcmv3.HttpConnectionManager{}
+	err = chain.Filters[0].GetTypedConfig().UnmarshalTo(hcm)
+	require.NoError(t, err)
+
+	// Get the retry policy from the route action
+	routeConfig := hcm.GetRouteConfig()
+	require.NotNil(t, routeConfig)
+	require.Len(t, routeConfig.VirtualHosts, 1)
+
+	vh := routeConfig.VirtualHosts[0]
+	assert.True(t, vh.IncludeRequestAttemptCount, "should include request attempt count in config so that it can be set in header")
+
+	require.Len(t, vh.Routes, 1)
+	routeAction := vh.Routes[0].GetRoute()
+	require.NotNil(t, routeAction)
+	require.NotNil(t, routeAction.RetryPolicy)
+
+	rp := routeAction.RetryPolicy
+	assert.Equal(t, "connect-failure,refused-stream,unavailable,reset,resource-exhausted", rp.RetryOn)
+	assert.Equal(t, uint32(2), rp.NumRetries.GetValue())
+	assert.Equal(t, int64(60), rp.PerTryTimeout.GetSeconds())
+	require.Len(t, rp.RetryHostPredicate, 1)
+	assert.Equal(t, "envoy.retry_host_predicates.previous_hosts", rp.RetryHostPredicate[0].Name)
+	assert.Equal(t, int64(3), rp.HostSelectionRetryMaxAttempts)
 }
