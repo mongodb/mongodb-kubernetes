@@ -1447,7 +1447,7 @@ func TestCollectOperatorSnapshot(t *testing.T) {
 		memberClusterMap map[string]ConfigClient
 		expectedProps    OperatorUsageSnapshotProperties
 	}{
-		"single cluster": {
+		"single cluster (yaml install)": {
 			memberClusterMap: map[string]ConfigClient{},
 			expectedProps: OperatorUsageSnapshotProperties{
 				OperatorID:           testOperatorUUID,
@@ -1457,7 +1457,26 @@ func TestCollectOperatorSnapshot(t *testing.T) {
 				OperatorInstaller:    "yaml",
 			},
 		},
-		"multi cluster": {
+		"single cluster (helm install)": {
+			memberClusterMap: map[string]ConfigClient{},
+			expectedProps: OperatorUsageSnapshotProperties{
+				OperatorID:           testOperatorUUID,
+				OperatorType:         MEKO,
+				OperatorArchitecture: runtime.GOARCH,
+				OperatorOS:           runtime.GOOS,
+				OperatorInstaller:    "helm",
+			},
+		},
+		"single cluster (no installer)": {
+			memberClusterMap: map[string]ConfigClient{},
+			expectedProps: OperatorUsageSnapshotProperties{
+				OperatorID:           testOperatorUUID,
+				OperatorType:         MEKO,
+				OperatorArchitecture: runtime.GOARCH,
+				OperatorOS:           runtime.GOOS,
+			},
+		},
+		"multi cluster (olm install)": {
 			memberClusterMap: map[string]ConfigClient{
 				"cluster1": &mockConfigClient{clusterUUID: "cluster-uuid-1"},
 				"cluster2": &mockConfigClient{clusterUUID: "cluster-uuid-2"},
@@ -1467,7 +1486,7 @@ func TestCollectOperatorSnapshot(t *testing.T) {
 				OperatorType:         MEKO,
 				OperatorArchitecture: runtime.GOARCH,
 				OperatorOS:           runtime.GOOS,
-				OperatorInstaller:    "yaml",
+				OperatorInstaller:    "olm",
 			},
 		},
 	}
@@ -1488,7 +1507,7 @@ func TestCollectOperatorSnapshot(t *testing.T) {
 
 			ctx := context.Background()
 
-			events := collectOperatorSnapshot(ctx, test.memberClusterMap, mgr, testOperatorUUID, "yaml")
+			events := collectOperatorSnapshot(ctx, test.memberClusterMap, mgr, testOperatorUUID, test.expectedProps.OperatorInstaller)
 
 			require.Len(t, events, 1, "expected exactly one operator event")
 			event := events[0]
@@ -1500,7 +1519,7 @@ func TestCollectOperatorSnapshot(t *testing.T) {
 			assert.Equal(t, runtime.GOOS, event.Properties["operatorOS"])
 			assert.Equal(t, testOperatorUUID, event.Properties["operatorID"])
 			assert.Equal(t, string(MEKO), event.Properties["operatorType"])
-			assert.Equal(t, "yaml", event.Properties["operatorInstaller"])
+			assert.Equal(t, test.expectedProps.OperatorInstaller, event.Properties["operatorInstaller"])
 
 			assert.Contains(t, event.Properties, "kubernetesClusterID")
 			assert.Contains(t, event.Properties, "kubernetesClusterIDs")
