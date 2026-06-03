@@ -82,9 +82,11 @@ def mdb_migration(namespace: str, custom_mdb_version: str, vm_sts, vm_service) -
     return resource
 
 
-def _connection_string(namespace: str, mdb_migration: MongoDB) -> str:
+def _connection_string(namespace: str, mdb_migration: MongoDB, srv: bool) -> str:
     """Read connectionString.standard from the credential-less secret published by the operator."""
     secret = KubernetesTester.read_secret(namespace, f"{mdb_migration.name}-connection-string")
+    if srv:
+        return secret.get("connectionString.standardSrv", "")
     return secret.get("connectionString.standard", "")
 
 
@@ -189,7 +191,7 @@ def test_install_operator(operator: Operator):
 def test_mdb_reaches_running(namespace: str, mdb_migration: MongoDB):
     mdb_migration.assert_reaches_phase(Phase.Running, timeout=600)
 
-    conn_str = _connection_string(namespace, mdb_migration)
+    conn_str = _connection_string(namespace, mdb_migration, False)
     for hostname in _k8s_hostnames(mdb_migration, namespace):
         assert hostname in conn_str, f"k8s hostname {hostname!r} missing from connection string secret"
     for em in mdb_migration["spec"]["externalMembers"]:
@@ -208,7 +210,7 @@ def test_promote_and_prune(namespace: str, mdb_migration: MongoDB, vm_sts):
         mdb_migration.assert_reaches_phase(Phase.Running)
 
         # After promote: all k8s pods and all remaining VM members must be present.
-        conn_str = _connection_string(namespace, mdb_migration)
+        conn_str = _connection_string(namespace, mdb_migration, False)
         for hostname in _k8s_hostnames(mdb_migration, namespace):
             assert hostname in conn_str, f"k8s hostname {hostname!r} missing after member {i} promoted"
         for em in mdb_migration["spec"]["externalMembers"]:
@@ -219,7 +221,7 @@ def test_promote_and_prune(namespace: str, mdb_migration: MongoDB, vm_sts):
         mdb_migration.assert_reaches_phase(Phase.Running)
 
         # After prune: removed VM hostname must be gone; surviving hosts must be present.
-        conn_str = _connection_string(namespace, mdb_migration)
+        conn_str = _connection_string(namespace, mdb_migration, False)
         assert (
             pruned["hostname"] not in conn_str
         ), f"pruned hostname {pruned['hostname']!r} still in connection string after prune {i}"
@@ -233,7 +235,10 @@ def test_promote_and_prune(namespace: str, mdb_migration: MongoDB, vm_sts):
 def test_connection_string_after_full_migration(namespace: str, mdb_migration: MongoDB):
     """After all externalMembers are pruned the secret must contain only the k8s pod hostnames."""
     assert not mdb_migration["spec"].get("externalMembers"), "expected all external members to be pruned by now"
-    conn_str = _connection_string(namespace, mdb_migration)
+    conn_str = _connection_string(namespace, mdb_migration, False)
     assert conn_str.startswith("mongodb://"), "connection string must use mongodb:// scheme"
     for hostname in _k8s_hostnames(mdb_migration, namespace):
         assert hostname in conn_str, f"k8s hostname {hostname!r} missing from final connection string"
+    srv_conn_str = _connection_string(namespace, mdb_migration, True)
+    assert srv_conn_str.startswith("mongodb+srv://"), "SRV connection string must use mongodb+srv:// scheme"
+    assert f"{mdb_migration.get_service()}.{mdb_migration.namespace}.svc.cluster.local" in srv_conn_str

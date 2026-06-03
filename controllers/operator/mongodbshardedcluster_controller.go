@@ -3,11 +3,10 @@ package operator
 import (
 	"context"
 	"fmt"
-	"time"
-
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/hashicorp/go-multierror"
@@ -995,10 +994,7 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 
 	// Generate connection string secret
 	connStringHostnames := r.GetAllMongosHostnamesAndPorts()
-	extHostnames, err := sc.GetExternalMembersHostnames()
-	if err != nil {
-		return r.updateStatus(ctx, sc, workflow.Failed(xerrors.Errorf("failed to read external member hostnames: %w", err)), log)
-	}
+	extHostnames := sc.GetExternalMembersHostnames()
 	connStringHostnames = append(connStringHostnames, extHostnames...)
 	if err := connectionstringsecret.PublishForMongoDB(ctx, r.commonController.client, sc, connStringHostnames); err != nil {
 		return r.updateStatus(ctx, sc, workflow.Failed(xerrors.Errorf("failed to publish connection string secret: %w", err)), log)

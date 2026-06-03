@@ -5,12 +5,11 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connectionstring"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/secret"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 )
 
 // SecretNameSuffix is appended to the MongoDB resource name to form the
@@ -33,24 +32,14 @@ func SecretName(mdb *mdbv1.MongoDB) string {
 func PublishForMongoDB(ctx context.Context, c client.Client, mdb *mdbv1.MongoDB, hostnames []string) error {
 	builder := mdbv1.NewMongoDBConnectionStringBuilder(*mdb, hostnames)
 	std := builder.BuildConnectionString("", "", connectionstring.SchemeMongoDB, nil)
-	// TODO: check srv
-	// srv := builder.BuildConnectionString("", "", connectionstring.SchemeMongoDBSRV, nil)
-
-	owner := []metav1.OwnerReference{
-		{
-			APIVersion: mdbv1.GroupVersion.String(),
-			Kind:       "MongoDB",
-			Name:       mdb.Name,
-			UID:        mdb.UID,
-		},
-	}
+	srv := builder.BuildConnectionString("", "", connectionstring.SchemeMongoDBSRV, nil)
 
 	s := secret.Builder().
 		SetName(SecretName(mdb)).
 		SetNamespace(mdb.Namespace).
 		SetField("connectionString.standard", std).
-		// SetField("connectionString.standardSrv", srv).
-		SetOwnerReferences(owner).
+		SetField("connectionString.standardSrv", srv).
+		SetOwnerReferences(kube.BaseOwnerReference(mdb)).
 		Build()
 
 	return secret.CreateOrUpdate(ctx, kubernetesClient.NewClient(c), s)

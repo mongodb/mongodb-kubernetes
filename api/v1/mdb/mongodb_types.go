@@ -861,7 +861,7 @@ func (d *DbCommonSpec) GetExternalMemberProcessNames() []string {
 
 // GetExternalMembersHostnames returns the hostname list (host:port) the
 // caller should embed in this MongoDB resource's connection string:
-func (m *MongoDB) GetExternalMembersHostnames() ([]string, error) {
+func (m *MongoDB) GetExternalMembersHostnames() []string {
 	var hostnames []string
 
 	// External members, filtered by Type.
@@ -880,7 +880,7 @@ func (m *MongoDB) GetExternalMembersHostnames() ([]string, error) {
 		}
 	}
 
-	return hostnames, nil
+	return hostnames
 }
 
 // GetRSHostnamesAndPorts returns all hostnames and ports for each member of the replicaset, not including external members

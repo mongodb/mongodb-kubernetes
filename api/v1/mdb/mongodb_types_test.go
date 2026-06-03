@@ -549,9 +549,7 @@ func TestGetRSHostnamesAndPorts_ReplicaSet_WithCustomPort(t *testing.T) {
 func TestGetExternalMembersHostnames_ShardedCluster_NoExternalMembers(t *testing.T) {
 	sc := NewClusterBuilder().SetName("contractsDb").SetNamespace("ns").Build()
 
-	got, err := sc.GetExternalMembersHostnames()
-
-	assert.NoError(t, err)
+	got := sc.GetExternalMembersHostnames()
 	assert.Empty(t, got)
 }
 
@@ -562,8 +560,6 @@ func TestGetExternalMembersHostnames_ShardedCluster_OnlyMongodMembers_ReturnsEmp
 		{ProcessName: "vm-untyped", Hostname: "vm-untyped.example.com:27017", Type: ""},
 	}
 
-	got, err := sc.GetExternalMembersHostnames()
-
-	assert.NoError(t, err)
+	got := sc.GetExternalMembersHostnames()
 	assert.Empty(t, got, "sharded must drop non-mongos entries (mongod and untyped)")
 }

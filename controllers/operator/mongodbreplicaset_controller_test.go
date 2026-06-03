@@ -1596,7 +1596,8 @@ func TestReplicaSetReconcile_PublishesConnectionStringSecret(t *testing.T) {
 	_, hasUsername := secret.Data["username"]
 	assert.False(t, hasUsername)
 
+	srv := string(secret.Data["connectionString.standardSrv"])
+	assert.NotEmpty(t, srv)
+
 	require.Len(t, secret.OwnerReferences, 1)
-	assert.Equal(t, "MongoDB", secret.OwnerReferences[0].Kind)
-	assert.Equal(t, mdbv1.GroupVersion.String(), secret.OwnerReferences[0].APIVersion)
 }

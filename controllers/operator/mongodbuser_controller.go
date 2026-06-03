@@ -161,10 +161,7 @@ func (r *MongoDBUserReconciler) getMongoDBConnectionBuilder(ctx context.Context,
 			hostnames = mdb.GetRSHostnamesAndPorts()
 		}
 
-		extHostnames, err := mdb.GetExternalMembersHostnames()
-		if err != nil {
-			return nil, xerrors.Errorf("failed to get hostnames: %w", err)
-		}
+		extHostnames := mdb.GetExternalMembersHostnames()
 		hostnames = append(hostnames, extHostnames...)
 
 		builder := mdbv1.NewMongoDBConnectionStringBuilder(*mdb, hostnames)

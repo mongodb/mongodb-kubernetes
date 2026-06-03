@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/hashicorp/go-multierror"
-	"github.com/mongodb/mongodb-kubernetes/pkg/agentVersionManagement"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -57,6 +56,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/merge"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/scale"
+	"github.com/mongodb/mongodb-kubernetes/pkg/agentVersionManagement"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
@@ -378,10 +378,7 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	}
 
 	connStringHostnames := rs.GetRSHostnamesAndPorts()
-	extHostnames, err := rs.GetExternalMembersHostnames()
-	if err != nil {
-		return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("failed to read external member hostnames: %w", err)))
-	}
+	extHostnames := rs.GetExternalMembersHostnames()
 	connStringHostnames = append(connStringHostnames, extHostnames...)
 	if err := connectionstringsecret.PublishForMongoDB(ctx, r.reconciler.client, rs, connStringHostnames); err != nil {
 		return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("failed to publish connection string secret: %w", err)))
