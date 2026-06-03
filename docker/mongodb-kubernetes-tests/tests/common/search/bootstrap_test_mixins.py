@@ -1,5 +1,4 @@
-"""Reusable pytest test-class bases for the managed-LB search bootstrap.
-"""
+"""Reusable pytest test-class bases for the managed-LB search bootstrap."""
 
 from __future__ import annotations
 
@@ -342,6 +341,7 @@ class SearchRsDeploymentTests(SearchDeploymentTests):
             members=self.mdb_config.rs_members,
             lb_mode="Managed",
             clusters=self.search_clusters(),
+            envoy_replicas=self.search_config.envoy_lb_replicas,
         )
 
     def deploy_lb_certificates(self) -> None:

@@ -904,6 +904,9 @@ task_groups:
       - e2e_search_connectivity_tool_sharded
       - e2e_search_cds_hot_reload
       - e2e_search_envoy_retry_policy
+      - e2e_search_availability_rolling_restart
+      - e2e_search_availability_envoy_scale
+      - e2e_search_availability_infra
     <<: *teardown_group
 
   # Same as e2e_mdb_kind_search_task_group but for om80 variants.
