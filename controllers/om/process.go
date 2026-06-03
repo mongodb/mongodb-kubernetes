@@ -174,6 +174,13 @@ func (p Process) HostName() string {
 	return p["hostname"].(string)
 }
 
+func (p Process) Port() string {
+	if port, ok := p.Args()["net"].(map[string]interface{})["port"]; ok {
+		return cast.ToString(port)
+	}
+	return ""
+}
+
 // GetVotes returns the number of votes requested for the member using this process.
 func (p Process) GetVotes() int {
 	if votes, ok := p["votes"]; ok {
@@ -321,7 +328,7 @@ func (p Process) EnsureTLSConfig() map[string]interface{} {
 	return util.ReadOrCreateMap(netConfig, "tls")
 }
 
-// SSLConfig returns the TLS configuration map ("net.tls") or an empty map if it doesn't exist.
+// TLSConfig returns the TLS configuration map ("net.tls") or an empty map if it doesn't exist.
 // Use this method only to read values, not update
 func (p Process) TLSConfig() map[string]interface{} {
 	netConfig := p.EnsureNetConfig()

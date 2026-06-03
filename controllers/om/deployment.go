@@ -131,7 +131,7 @@ func (d Deployment) MergeStandalone(standaloneMongo Process, specArgs26, prevArg
 	log := l.With("standalone", standaloneMongo)
 
 	// merging process in case exists, otherwise adding it
-	for _, pr := range d.getProcesses() {
+	for _, pr := range d.GetProcesses() {
 		if pr.Name() == standaloneMongo.Name() {
 			pr.mergeFrom(standaloneMongo, specArgs26, prevArgs26)
 			log.Debug("Merged process into existing one")
@@ -179,9 +179,11 @@ func (d Deployment) MergeReplicaSet(operatorRs ReplicaSetWithProcesses, specArgs
 		}
 	}
 
-	// In both cases (the new replicaset was added to OM deployment, or it was merged with OM one) we need to make sure
-	// there are no more than 7 voting members
-	d.limitVotingMembers(operatorRs.Rs.Name())
+	// In both cases (the new replicaset was added to OM deployment, or it was merged with OM one)
+	// we need to make sure there are no more than 7 voting members.
+	// limitVotingMembers no-ops when external members are present — see validateACForMigration
+	// in the reconciler for the user-facing failure path.
+	d.limitVotingMembers(operatorRs.Rs.Name(), externalMembers)
 }
 
 // ConfigurePrometheus adds Prometheus configuration to `Deployment` resource.
@@ -259,7 +261,7 @@ func (d Deployment) MergeShardedCluster(opts DeploymentShardedClusterMergeOption
 // Note, that these two are deliberately combined as all clients (standalone, rs etc.) need both backup and monitoring
 // together.
 func (d Deployment) ConfigureMonitoringAndBackup(log *zap.SugaredLogger, tls bool, caFilepath string) {
-	if len(d.getProcesses()) == 0 {
+	if len(d.GetProcesses()) == 0 {
 		return
 	}
 	d.ConfigureMonitoring(log, tls, caFilepath)
@@ -278,12 +280,12 @@ func (d Deployment) GetReplicaSetByName(name string) ReplicaSet {
 // ConfigureMonitoring configures monitoring agents for all processes in the deployment.
 // This is called on every reconcile to ensure the monitoring config matches the desired state.
 func (d Deployment) ConfigureMonitoring(log *zap.SugaredLogger, tls bool, caFilePath string) {
-	if len(d.getProcesses()) == 0 {
+	if len(d.GetProcesses()) == 0 {
 		return
 	}
 
 	monitoringVersions := d.getMonitoringVersions()
-	for _, p := range d.getProcesses() {
+	for _, p := range d.GetProcesses() {
 		hostname := p.HostName()
 		pemKeyFile := p.EnsureTLSConfig()["PEMKeyFile"]
 
@@ -478,11 +480,11 @@ func (d Deployment) SetInternalClusterFilePathOnlyIfItThePathHasChanged(names []
 // this includes feature compatibility version. This can be used to determine
 // which version of SCRAM-SHA the deployment can enable.
 func (d Deployment) MinimumMajorVersion() uint64 {
-	if len(d.getProcesses()) == 0 {
+	if len(d.GetProcesses()) == 0 {
 		return 0
 	}
 	minimumMajorVersion := semver.Version{Major: math.MaxUint64}
-	for _, p := range d.getProcesses() {
+	for _, p := range d.GetProcesses() {
 		if p.FeatureCompatibilityVersion() != "" {
 			fcvString := util.StripEnt(p.FeatureCompatibilityVersion())
 			semverFcv, _ := fcv.FeatureCompatibilityVersionToSemverFormat(fcvString)
@@ -504,7 +506,7 @@ func (d Deployment) MinimumMajorVersion() uint64 {
 // it is not possible to enable x509 authentication at the project level if a single process
 // does not have TLS enabled.
 func (d Deployment) AllProcessesAreTLSEnabled() bool {
-	for _, p := range d.getProcesses() {
+	for _, p := range d.GetProcesses() {
 		if !p.IsTLSEnabled() {
 			return false
 		}
@@ -514,7 +516,7 @@ func (d Deployment) AllProcessesAreTLSEnabled() bool {
 
 func (d Deployment) GetAllHostnames() []string {
 	hostnames := make([]string, d.NumberOfProcesses())
-	for idx, p := range d.getProcesses() {
+	for idx, p := range d.GetProcesses() {
 		hostnames[idx] = p.HostName()
 	}
 
@@ -522,14 +524,14 @@ func (d Deployment) GetAllHostnames() []string {
 }
 
 func (d Deployment) NumberOfProcesses() int {
-	return len(d.getProcesses())
+	return len(d.GetProcesses())
 }
 
 // anyProcessHasInternalClusterAuthentication determines if at least one process
 // has internal cluster authentication enabled. If this is true, it is impossible to disable
 // x509 authentication
 func (d Deployment) AnyProcessHasInternalClusterAuthentication() bool {
-	return d.processesHaveInternalClusterAuthentication(d.getProcesses())
+	return d.processesHaveInternalClusterAuthentication(d.GetProcesses())
 }
 
 func (d Deployment) ExistingProcessesHaveInternalClusterAuthentication(processes []Process) bool {
@@ -588,19 +590,14 @@ func (d Deployment) ProcessBelongsToResource(processName, resourceName string) b
 
 // GetNumberOfExcessProcesses calculates how many processes do not belong to
 // this resource.
-func (d Deployment) GetNumberOfExcessProcesses(resourceName string, replicaSetNameOverride string, externalMembers []string) int {
+func (d Deployment) GetNumberOfExcessProcesses(resourceName string, externalMembers []string) int {
 	processNames := d.GetAllProcessNames()
 	excessProcesses := len(processNames)
 	externalMembersSet := merge.StringsToSet(externalMembers)
 
-	rsName := resourceName
-	if replicaSetNameOverride != "" {
-		rsName = replicaSetNameOverride
-	}
-
 	for _, p := range processNames {
 		_, isExternal := externalMembersSet[p]
-		if d.ProcessBelongsToResource(p, rsName) || isExternal {
+		if d.ProcessBelongsToResource(p, resourceName) || isExternal {
 			excessProcesses -= 1
 		}
 	}
@@ -613,6 +610,31 @@ func (d Deployment) GetNumberOfExcessProcesses(resourceName string, replicaSetNa
 	}
 
 	return excessProcesses
+}
+
+func (d Deployment) CheckProcessFields(processName, expectedHostName, expectedType, replicaSetName string) bool {
+	process := d.getProcessByName(processName)
+	if process == nil {
+		return false
+	}
+
+	if fmt.Sprintf("%s:%s", process.HostName(), process.Port()) != expectedHostName ||
+		process.ProcessType() != MongoType(expectedType) {
+		return false
+	}
+
+	if MongoType(expectedType) == ProcessTypeMongos {
+		return true
+	}
+
+	processNames := d.getReplicaSetProcessNames(replicaSetName)
+	for _, p := range processNames {
+		if p == processName {
+			return true
+		}
+	}
+
+	return false
 }
 
 func (d Deployment) SetRoles(roles []mdbv1.MongoDBRole) {
@@ -661,7 +683,7 @@ func (d Deployment) Debug(l *zap.SugaredLogger) {
 
 // ProcessesCopy returns the COPY of processes in the deployment.
 func (d Deployment) ProcessesCopy() []Process {
-	return d.deepCopy().getProcesses()
+	return d.deepCopy().GetProcesses()
 }
 
 // ReplicaSetsCopy returns the COPY of replicasets in the deployment.
@@ -778,7 +800,7 @@ func (d Deployment) mergeMongosProcesses(opts DeploymentShardedClusterMergeOptio
 
 func (d Deployment) getMongosProcessesNames(clusterName string) []string {
 	processNames := make([]string, 0)
-	for _, p := range d.getProcesses() {
+	for _, p := range d.GetProcesses() {
 		if p.ProcessType() == ProcessTypeMongos && p.cluster() == clusterName {
 			processNames = append(processNames, p.Name())
 		}
@@ -852,13 +874,13 @@ func (d Deployment) handleShardsRemoval(finalizing bool, s ShardedCluster, log *
 // GetAllProcessNames returns a list of names of processes in this deployment. This is, the names of all processes
 // in the `processes` attribute of the deployment object.
 func (d Deployment) GetAllProcessNames() (names []string) {
-	for _, p := range d.getProcesses() {
+	for _, p := range d.GetProcesses() {
 		names = append(names, p.Name())
 	}
 	return names
 }
 
-func (d Deployment) getProcesses() []Process {
+func (d Deployment) GetProcesses() []Process {
 	if _, ok := d["processes"]; !ok {
 		return []Process{}
 	}
@@ -893,7 +915,7 @@ func (d Deployment) setProcesses(processes []Process) {
 }
 
 func (d Deployment) addProcess(p Process) {
-	d.setProcesses(append(d.getProcesses(), p))
+	d.setProcesses(append(d.GetProcesses(), p))
 }
 
 func (d Deployment) removeProcesses(processNames []string, log *zap.SugaredLogger) {
@@ -906,7 +928,7 @@ func (d Deployment) removeProcesses(processNames []string, log *zap.SugaredLogge
 
 	processes := make([]Process, 0)
 
-	for _, p := range d.getProcesses() {
+	for _, p := range d.GetProcesses() {
 		found := false
 		for _, p2 := range processNames {
 			if p.Name() == p2 {
@@ -929,7 +951,7 @@ func (d Deployment) removeReplicaSets(replicaSets []string, log *zap.SugaredLogg
 }
 
 func (d Deployment) getProcessByName(name string) *Process {
-	for _, p := range d.getProcesses() {
+	for _, p := range d.GetProcesses() {
 		if p.Name() == name {
 			return &p
 		}
@@ -1070,7 +1092,7 @@ func (d Deployment) removeMonitoring(processNames []string) {
 // ConfigureBackup adds backup agent configuration for each of the processes of deployment
 func (d Deployment) ConfigureBackup(log *zap.SugaredLogger) {
 	backupVersions := d.getBackupVersions()
-	for _, p := range d.getProcesses() {
+	for _, p := range d.GetProcesses() {
 		found := false
 		var backupVersion map[string]interface{}
 		for _, b := range backupVersions {
@@ -1183,8 +1205,15 @@ func (d Deployment) processesHaveInternalClusterAuthentication(processes []Proce
 	return false
 }
 
-// limitVotingMembers ensures the number of voting members in the replica set is not more than 7 members
-func (d Deployment) limitVotingMembers(rsName string) {
+// limitVotingMembers ensures the number of voting members in the replica set is not more than 7.
+// When externalMembers is non-empty this function is a no-op: the operator does not own external
+// members' votes, so silently zeroing them would corrupt user-managed AC state. The reconciler's
+// validateACForMigration check fails the reconcile before reaching this code path in the migration
+// case, so a no-op here is purely defensive.
+func (d Deployment) limitVotingMembers(rsName string, externalMembers []string) {
+	if len(externalMembers) > 0 {
+		return
+	}
 	r := d.getReplicaSetByName(rsName)
 
 	numberOfVotingMembers := 0
