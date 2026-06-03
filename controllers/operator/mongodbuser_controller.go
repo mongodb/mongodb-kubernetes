@@ -67,6 +67,7 @@ func enqueueUsersForMongoDBRef(ctx context.Context, c client.Client, ns, name st
 	if err := c.List(ctx, userList, &client.ListOptions{
 		FieldSelector: fields.OneTermEqualSelector(MongoDBUserMongoDBResourceRefIndex, ns+"/"+name),
 	}); err != nil {
+		zap.S().Errorf("Error listing MongoDBUser resources for MongoDB source '%s/%s': %w", ns, name, err)
 		return nil
 	}
 	reqs := make([]reconcile.Request, 0, len(userList.Items))
