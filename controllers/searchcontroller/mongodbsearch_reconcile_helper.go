@@ -231,7 +231,10 @@ func (r *MongoDBSearchReconcileHelper) buildReplicaSetPlan(rsSource SearchSource
 	}
 
 	work := r.buildRSWorkList()
-	mongotConfigFn := mongot.Apply(baseMongotConfig(r.mdbSearch, hostSeeds), wireprotoMongotMod(r.mdbSearch))
+	mongotConfigFn := mongot.Apply(
+		baseMongotConfig(r.mdbSearch, hostSeeds),
+		wireprotoMongotMod(r.mdbSearch),
+		featureFlagsMongotMod(r.mdbSearch))
 
 	units := make([]reconcileUnit, 0, len(work))
 	for _, w := range work {
@@ -358,6 +361,10 @@ func (r *MongoDBSearchReconcileHelper) buildShardedPlan(shardedSource SearchSour
 			logFields = []any{"shard", w.ShardName, "shardIdx", w.ShardIndex}
 		}
 
+		mongotConfigFn := mongot.Apply(baseMongotConfig(
+			r.mdbSearch, hostSeeds),
+			routerMongotMod(r.mdbSearch, shardedSource),
+			featureFlagsMongotMod(r.mdbSearch))
 		units = append(units, reconcileUnit{
 			stsName:             stsName,
 			headlessSvc:         r.mdbSearch.MongotServiceForClusterShard(w.ClusterIndex, w.ShardName),
@@ -368,7 +375,7 @@ func (r *MongoDBSearchReconcileHelper) buildShardedPlan(shardedSource SearchSour
 			publishNotReady:     true,
 			logFields:           logFields,
 			tlsResource:         &perShardTLSResource{MongoDBSearch: r.mdbSearch, clusterIndex: w.ClusterIndex, shardName: w.ShardName},
-			mongotConfigFn:      mongot.Apply(baseMongotConfig(r.mdbSearch, hostSeeds), routerMongotMod(r.mdbSearch, shardedSource)),
+			mongotConfigFn:      mongotConfigFn,
 			clusterName:         w.ClusterName,
 			clusterIndex:        w.ClusterIndex,
 		})
@@ -1550,6 +1557,19 @@ func routerMongotMod(search *searchv1.MongoDBSearch, shardedSource SearchSourceS
 			Username:     search.SourceUsername(),
 			PasswordFile: TempSourceUserPasswordPath,
 			TLS:          ptr.To(false),
+		}
+	}
+}
+
+// featureFlagsMongotMod sets mongot feature flags in the config when explicitly
+// enabled in the CR. Flags not set or set to false are omitted entirely from the
+// config (mongot uses its built-in defaults).
+func featureFlagsMongotMod(search *searchv1.MongoDBSearch) mongot.Modification {
+	return func(config *mongot.Config) {
+		if search.Spec.FeatureFlags != nil && ptr.Deref(search.Spec.FeatureFlags.EnableOverloadRetrySignal, false) {
+			config.FeatureFlags = &mongot.ConfigFeatureFlags{
+				OverloadRetrySignal: new(true),
+			}
 		}
 	}
 }

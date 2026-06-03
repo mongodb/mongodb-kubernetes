@@ -407,6 +407,19 @@ spec:
                     than one cluster is specified
                   rule: size(self) <= 1 || self.all(c1, has(c1.clusterName) && self.exists_one(c2,
                     has(c2.clusterName) && c2.clusterName == c1.clusterName))
+              featureFlag:
+                description: |-
+                  FeatureFlags configures mongot feature flags. When a flag is set to true in the CR,
+                  it is rendered into the mongot config YAML. When omitted or false, the flag is not
+                  included in mongot config and mongot uses its built-in defaults.
+                properties:
+                  enableOverloadRetrySignal:
+                    description: |-
+                      EnableOverloadRetrySignal enables the OVERLOAD_RETRY_SIGNAL feature in mongot,
+                      allowing it to signal load shedding to upstream proxies (e.g., Envoy) via
+                      gRPC RESOURCE_EXHAUSTED status codes.
+                    type: boolean
+                type: object
               jvmFlags:
                 description: |-
                   JVMFlags can be used to set the `--jvm-flags` option for the search (mongot) processes.
