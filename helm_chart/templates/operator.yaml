@@ -153,6 +153,10 @@ spec:
             - name: CLUSTER_CLIENT_TIMEOUT
               value: "{{ .Values.multiCluster.clusterClientTimeout }}"
     {{- end }}
+    {{- if .Values.multiCluster.requiredHealthyStreak }}
+            - name: MDB_REQUIRED_HEALTHY_STREAK
+              value: "{{ .Values.multiCluster.requiredHealthyStreak }}"
+    {{- end }}
     {{- $mongodbEnterpriseDatabaseImageEnv := "MONGODB_ENTERPRISE_DATABASE_IMAGE" -}}
     {{- $initDatabaseImageRepositoryEnv := "INIT_DATABASE_IMAGE_REPOSITORY" -}}
     {{- $opsManagerImageRepositoryEnv := "OPS_MANAGER_IMAGE_REPOSITORY" -}}

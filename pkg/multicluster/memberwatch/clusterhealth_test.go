@@ -24,6 +24,8 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster/failedcluster"
 )
 
+const testRequiredHealthyStreak = 5
+
 func init() {
 	logger, _ := zap.NewDevelopment()
 	zap.ReplaceGlobals(logger)
@@ -96,8 +98,9 @@ func TestAnnotationIsAdded(t *testing.T) {
 	mock.Healthy = false
 
 	checker := &MemberClusterHealthChecker{
-		Cache:         map[string]ClusterHealthChecker{"cluster1": mock},
-		HealthyStreak: map[string]int{"cluster1": 0},
+		Cache:                 map[string]ClusterHealthChecker{"cluster1": mock},
+		HealthyStreak:         map[string]int{"cluster1": 0},
+		RequiredHealthyStreak: testRequiredHealthyStreak,
 	}
 
 	go checker.WatchMemberClusterHealth(ctx, zap.S(), watchChannel, central, nil)
@@ -129,8 +132,9 @@ func TestAnnotationIsRemovedWhenClusterRecovers(t *testing.T) {
 	// Healthy: true is the default from NewMockedMemberHealthCheck.
 	// Pre-seed the streak one below the threshold so a single iteration tips it over.
 	checker := &MemberClusterHealthChecker{
-		Cache:         map[string]ClusterHealthChecker{"cluster1": NewMockedMemberHealthCheck("server1")},
-		HealthyStreak: map[string]int{"cluster1": requiredHealthyStreak - 1},
+		Cache:                 map[string]ClusterHealthChecker{"cluster1": NewMockedMemberHealthCheck("server1")},
+		HealthyStreak:         map[string]int{"cluster1": testRequiredHealthyStreak - 1},
+		RequiredHealthyStreak: testRequiredHealthyStreak,
 	}
 
 	go checker.WatchMemberClusterHealth(ctx, zap.S(), watchChannel, central, nil)
@@ -159,8 +163,9 @@ func TestNoEventBeforeStreakThreshold(t *testing.T) {
 	watchChannel := make(chan event.GenericEvent, 10)
 
 	checker := &MemberClusterHealthChecker{
-		Cache:         map[string]ClusterHealthChecker{"cluster1": NewMockedMemberHealthCheck("server1")},
-		HealthyStreak: map[string]int{"cluster1": requiredHealthyStreak - 2}, // streak = 3
+		Cache:                 map[string]ClusterHealthChecker{"cluster1": NewMockedMemberHealthCheck("server1")},
+		HealthyStreak:         map[string]int{"cluster1": testRequiredHealthyStreak - 2}, // streak = 3
+		RequiredHealthyStreak: testRequiredHealthyStreak,
 	}
 
 	go checker.WatchMemberClusterHealth(ctx, zap.S(), watchChannel, central, nil)
@@ -182,8 +187,9 @@ func TestNoEventWhenStreakAtCapWithoutAnnotation(t *testing.T) {
 	watchChannel := make(chan event.GenericEvent, 10)
 
 	checker := &MemberClusterHealthChecker{
-		Cache:         map[string]ClusterHealthChecker{"cluster1": NewMockedMemberHealthCheck("server1")},
-		HealthyStreak: map[string]int{"cluster1": requiredHealthyStreak},
+		Cache:                 map[string]ClusterHealthChecker{"cluster1": NewMockedMemberHealthCheck("server1")},
+		HealthyStreak:         map[string]int{"cluster1": testRequiredHealthyStreak},
+		RequiredHealthyStreak: testRequiredHealthyStreak,
 	}
 
 	go checker.WatchMemberClusterHealth(ctx, zap.S(), watchChannel, central, nil)
@@ -209,8 +215,9 @@ func TestStreakResetsOnUnhealthyWhenAlmostRecovered(t *testing.T) {
 	mock.Healthy = false
 
 	checker := &MemberClusterHealthChecker{
-		Cache:         map[string]ClusterHealthChecker{"cluster1": mock},
-		HealthyStreak: map[string]int{"cluster1": requiredHealthyStreak - 1}, // streak = 4
+		Cache:                 map[string]ClusterHealthChecker{"cluster1": mock},
+		HealthyStreak:         map[string]int{"cluster1": testRequiredHealthyStreak - 1}, // streak = 4
+		RequiredHealthyStreak: testRequiredHealthyStreak,
 	}
 
 	go checker.WatchMemberClusterHealth(ctx, zap.S(), watchChannel, central, nil)
@@ -236,8 +243,9 @@ func TestNoEventWhenClusterNotInAnnotationAtThreshold(t *testing.T) {
 	watchChannel := make(chan event.GenericEvent, 10)
 
 	checker := &MemberClusterHealthChecker{
-		Cache:         map[string]ClusterHealthChecker{"cluster1": NewMockedMemberHealthCheck("server1")},
-		HealthyStreak: map[string]int{"cluster1": requiredHealthyStreak - 1}, // streak = 4
+		Cache:                 map[string]ClusterHealthChecker{"cluster1": NewMockedMemberHealthCheck("server1")},
+		HealthyStreak:         map[string]int{"cluster1": testRequiredHealthyStreak - 1}, // streak = 4
+		RequiredHealthyStreak: testRequiredHealthyStreak,
 	}
 
 	go checker.WatchMemberClusterHealth(ctx, zap.S(), watchChannel, central, nil)
@@ -272,8 +280,9 @@ func TestMultipleClustersIndependentStreaks(t *testing.T) {
 		},
 		HealthyStreak: map[string]int{
 			"cluster1": 0,
-			"cluster2": requiredHealthyStreak - 1, // streak = 4, tips to 5 this iteration
+			"cluster2": testRequiredHealthyStreak - 1, // streak = 4, tips to 5 this iteration
 		},
+		RequiredHealthyStreak: testRequiredHealthyStreak,
 	}
 
 	go checker.WatchMemberClusterHealth(ctx, zap.S(), watchChannel, central, nil)
@@ -311,8 +320,9 @@ func TestAllMDBMultiResourcesCleared(t *testing.T) {
 	watchChannel := make(chan event.GenericEvent, 10)
 
 	checker := &MemberClusterHealthChecker{
-		Cache:         map[string]ClusterHealthChecker{"cluster1": NewMockedMemberHealthCheck("server1")},
-		HealthyStreak: map[string]int{"cluster1": requiredHealthyStreak - 1},
+		Cache:                 map[string]ClusterHealthChecker{"cluster1": NewMockedMemberHealthCheck("server1")},
+		HealthyStreak:         map[string]int{"cluster1": testRequiredHealthyStreak - 1},
+		RequiredHealthyStreak: testRequiredHealthyStreak,
 	}
 
 	go checker.WatchMemberClusterHealth(ctx, zap.S(), watchChannel, central, nil)

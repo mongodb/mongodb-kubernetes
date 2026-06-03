@@ -21,11 +21,10 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster/failedcluster"
 )
 
-const requiredHealthyStreak = 5
-
 type MemberClusterHealthChecker struct {
-	Cache         map[string]ClusterHealthChecker
-	HealthyStreak map[string]int
+	Cache                 map[string]ClusterHealthChecker
+	HealthyStreak         map[string]int
+	RequiredHealthyStreak int
 }
 
 type ClusterCredentials struct {
@@ -118,8 +117,8 @@ func (m *MemberClusterHealthChecker) WatchMemberClusterHealth(ctx context.Contex
 				}
 
 				// If failover is disabled we should remove the cluster from the annotation after a number of health checks have succeeded
-				m.HealthyStreak[k] = min(m.HealthyStreak[k]+1, requiredHealthyStreak)
-				if m.HealthyStreak[k] == requiredHealthyStreak {
+				m.HealthyStreak[k] = min(m.HealthyStreak[k]+1, m.RequiredHealthyStreak)
+				if m.HealthyStreak[k] == m.RequiredHealthyStreak {
 					for _, mdbm := range mdbmList.Items {
 						if isInFailedClusterAnnotation(mdbm.Annotations, k) {
 							log.Infof("Enqueuing resource: %s, because cluster %s has come back up", mdbm.Name, k)

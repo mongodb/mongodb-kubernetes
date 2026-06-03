@@ -215,6 +215,9 @@ const (
 
 	MaxConcurrentReconcilesEnv = "MDB_MAX_CONCURRENT_RECONCILES"
 
+	RequiredHealthyStreakEnv     = "MDB_REQUIRED_HEALTHY_STREAK"
+	DefaultRequiredHealthyStreak = 5
+
 	// Search environment variables
 	SearchRepoURLEnv = "MDB_SEARCH_REPO_URL"
 	SearchNameEnv    = "MDB_SEARCH_NAME"
