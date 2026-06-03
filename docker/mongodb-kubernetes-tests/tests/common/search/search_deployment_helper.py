@@ -379,11 +379,14 @@ class SearchDeploymentHelper:
         lb_mode: Optional[str] = None,
         replicas: Optional[int] = None,
         clusters: Optional[list] = None,
+        envoy_replicas: Optional[int] = None,
     ) -> MongoDBSearch:
         """Create MongoDBSearch with an external RS source.
 
         ``clusters`` (mutually exclusive with ``replicas``) writes spec.clusters;
         a single entry with no clusterName models a single-cluster RS at index 0.
+        ``envoy_replicas`` sets spec.loadBalancer.managed.replicas (managed LB only);
+        the operator defaults to a single Envoy pod when it is unset.
         """
         resource = MongoDBSearch.from_yaml(
             yaml_fixture("search-minimal.yaml"),
@@ -421,6 +424,8 @@ class SearchDeploymentHelper:
                     f"{self.mdbs_resource_name}-search-0-proxy-svc" f".{self.namespace}.svc.cluster.local"
                 )
                 resource["spec"]["loadBalancer"] = {"managed": {"externalHostname": external_hostname}}
+                if envoy_replicas is not None:
+                    resource["spec"]["loadBalancer"]["managed"]["replicas"] = envoy_replicas
             elif lb_mode == "Unmanaged":
                 resource["spec"]["loadBalancer"] = {"unmanaged": {}}
 
