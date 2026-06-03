@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/hashicorp/go-multierror"
-	"github.com/mongodb/mongodb-kubernetes/pkg/agentVersionManagement"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -56,6 +55,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/merge"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/scale"
+	"github.com/mongodb/mongodb-kubernetes/pkg/agentVersionManagement"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
@@ -193,10 +193,6 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	reconciler := r.reconciler
 
 	// === 1. Initial Checks and setup
-	if !architectures.IsRunningStaticArchitecture(rs.Annotations) {
-		agents.UpgradeAllIfNeeded(ctx, agents.ClientSecret{Client: reconciler.client, SecretClient: reconciler.SecretClient}, reconciler.omConnectionFactory, GetWatchedNamespace(), false)
-	}
-
 	log.Info("-> ReplicaSet.Reconcile")
 	log.Infow("ReplicaSet.Spec", "spec", rs.Spec, "desiredReplicas", scale.ReplicasThisReconciliation(rs), "isScaling", scale.IsStillScaling(rs))
 	log.Infow("ReplicaSet.Status", "status", rs.Status)
@@ -219,14 +215,28 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 		return r.updateStatus(ctx, status)
 	}
 
+	if !architectures.IsRunningStaticArchitecture(rs.Annotations) {
+		agents.UpgradeIfNeeded(rs, conn)
+	}
+
 	reconciler.SetupCommonWatchers(rs, nil, nil, rs.Name)
 
-	reconcileResult := checkIfHasExcessProcesses(conn, rs.Name, rs.Spec.ReplicaSetNameOverride, rs.Spec.GetExternalMemberProcessNames(), log)
+	reconcileResult := checkIfHasExcessProcesses(conn, rs.GetReplicaSetName(), rs.Spec.GetExternalMemberProcessNames(), log)
 	if !reconcileResult.IsOK() {
 		return r.updateStatus(ctx, reconcileResult)
 	}
 
 	if status := validateMongoDBResource(rs, conn); !status.IsOK() {
+		return r.updateStatus(ctx, status)
+	}
+
+	// Checking for drift in external members
+	if status := checkExternalMembersDrift(conn, rs.Spec.GetExternalMembers()); !status.IsOK() {
+		return r.updateStatus(ctx, status)
+	}
+
+	// Validations for the pre-existing AC in case of migration (TLS mode, voting-members limit).
+	if status := validateACForMigration(conn, rs); !status.IsOK() {
 		return r.updateStatus(ctx, status)
 	}
 
@@ -781,7 +791,14 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 
 	caFilePath := fmt.Sprintf("%s/ca-pem", util.TLSCaMountPath)
 
-	replicaSet := replicaset.BuildFromMongoDBWithReplicas(reconciler.imageUrls[mcoConstruct.MongodbImageEnv], reconciler.forceEnterprise, rs, replicasTarget, rs.CalculateFeatureCompatibilityVersion(), tlsCertPath)
+	existingDeployment, err := conn.ReadDeployment()
+	if err != nil {
+		return workflow.Failed(err)
+	}
+
+	processIds := getReplicaSetProcessIdsFromReplicaSets(rs.GetReplicaSetName(), existingDeployment)
+
+	replicaSet := replicaset.BuildFromMongoDBWithReplicas(reconciler.imageUrls[mcoConstruct.MongodbImageEnv], reconciler.forceEnterprise, rs, replicasTarget, rs.CalculateFeatureCompatibilityVersion(), tlsCertPath, processIds)
 	processNames := replicaSet.GetProcessNames()
 
 	status, additionalReconciliationRequired := reconciler.updateOmAuthentication(ctx, conn, processNames, rs, deploymentOptions.agentCertPath, caFilePath, internalClusterCertPath, isRecovering, log)
@@ -815,7 +832,7 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 					return err
 				}
 			}
-			return ReconcileReplicaSetAC(ctx, d, rs.Spec.DbCommonSpec, lastRsConfig.ToMap(), rs.Name, replicaSet, caFilePath, internalClusterCertPath, &prometheusConfiguration, log)
+			return ReconcileReplicaSetAC(ctx, d, rs.Spec.DbCommonSpec, lastRsConfig.ToMap(), rs.GetReplicaSetName(), replicaSet, rs.Spec.GetExternalMemberProcessNames(), caFilePath, internalClusterCertPath, &prometheusConfiguration, log)
 		},
 		log,
 	)

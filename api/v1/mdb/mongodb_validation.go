@@ -14,6 +14,7 @@ import (
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/fcv"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
@@ -407,6 +408,29 @@ func noSimultaneousTLSDisablingAndScaling(newObj, oldObj MongoDbSpec) v1.Validat
 	return v1.ValidationSuccess()
 }
 
+func noExternalMembersAdditionOrChanges(newObj, oldObj MongoDbSpec) v1.ValidationResult {
+	externalMembers := newObj.GetExternalMembers()
+	prevExternalMembers := oldObj.GetExternalMembers()
+	prevExternalMembersMap := make(map[string]ExternalMember)
+
+	for _, member := range prevExternalMembers {
+		prevExternalMembersMap[member.ProcessName] = member
+	}
+
+	for _, member := range externalMembers {
+		if prevMember, ok := prevExternalMembersMap[member.ProcessName]; ok {
+			// If member is found in the previous external members, check if it's being modified
+			if member != prevMember {
+				return v1.ValidationError("Cannot make changes to existing external members. External member with process name %s was changed.", member.ProcessName)
+			}
+		} else {
+			// If member is not found in the previous external members, it means it's being added
+			return v1.ValidationError("Cannot add external members to an existing MongoDB resource. Please remove member with process name %s", member.ProcessName)
+		}
+	}
+	return v1.ValidationSuccess()
+}
+
 // specWithExactlyOneSchema checks that exactly one among "Project/OpsManagerConfig/CloudManagerConfig"
 // is configured, doing the "oneOf" validation in the webhook.
 func specWithExactlyOneSchema(d DbCommonSpec) v1.ValidationResult {
@@ -488,6 +512,67 @@ func ValidateFCV(fcvStringPointer *string) v1.ValidationResult {
 	return v1.ValidationResult{}
 }
 
+// countMemberConfigChangesForExistingMembers returns how many of the first
+// existingMembersCount MemberConfig entries have a different effective votes
+// or priority between newConf and oldConf.
+// Indices beyond existingMembersCount are intentionally ignored so that a new
+// entry appended for a freshly added k8s member is not counted as a change.
+func countMemberConfigChangesForExistingMembers(newConf, oldConf []automationconfig.MemberOptions, existingMembersCount int) int {
+	changes := 0
+	for i := 0; i < existingMembersCount; i++ {
+		var oldOpts, newOpts automationconfig.MemberOptions
+		if i < len(oldConf) {
+			oldOpts = oldConf[i]
+		}
+		if i < len(newConf) {
+			newOpts = newConf[i]
+		}
+		if oldOpts.GetVotes() != newOpts.GetVotes() || oldOpts.GetPriority() != newOpts.GetPriority() {
+			changes++
+		}
+	}
+	return changes
+}
+
+// atMostOneMigrationChangeAtATime enforces that during migration (when
+// externalMembers is present on the old object) only one type of change may
+// occur per update: adding Kubernetes members, removing external members, or
+// updating member votes/priority — never two types simultaneously.
+func atMostOneMigrationChangeAtATime(newObj, oldObj MongoDbSpec) v1.ValidationResult {
+	if len(oldObj.ExternalMembers) == 0 {
+		return v1.ValidationSuccess()
+	}
+
+	membersDelta := newObj.Members - oldObj.Members
+	externalDelta := len(oldObj.ExternalMembers) - len(newObj.ExternalMembers)
+	memberConfigChanges := countMemberConfigChangesForExistingMembers(
+		newObj.MemberConfig, oldObj.MemberConfig, oldObj.Members,
+	)
+
+	if membersDelta < 0 {
+		return v1.ValidationError("Kubernetes members may not be removed during migration")
+	}
+	if externalDelta < 0 {
+		return v1.ValidationError("external members may not be added once migration has started")
+	}
+
+	activeChanges := 0
+	if membersDelta > 0 {
+		activeChanges++
+	}
+	if externalDelta > 0 {
+		activeChanges++
+	}
+	if memberConfigChanges > 0 {
+		activeChanges++
+	}
+	if activeChanges > 1 {
+		return v1.ValidationError("only one migration change type is allowed per update: adding Kubernetes members, removing external members, or updating member votes/priority")
+	}
+
+	return v1.ValidationSuccess()
+}
+
 func (m *MongoDB) RunValidations(old *MongoDB) []v1.ValidationResult {
 	// The below validators apply to all MongoDB resource (but not MongoDBMulti), regardless of the value of the
 	// Topology field
@@ -502,6 +587,8 @@ func (m *MongoDB) RunValidations(old *MongoDB) []v1.ValidationResult {
 		resourceTypeImmutable,
 		noTopologyMigration,
 		noSimultaneousTLSDisablingAndScaling,
+		atMostOneMigrationChangeAtATime,
+		noExternalMembersAdditionOrChanges,
 	}
 
 	var validationResults []v1.ValidationResult
