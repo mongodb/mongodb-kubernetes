@@ -1561,17 +1561,24 @@ func routerMongotMod(search *searchv1.MongoDBSearch, shardedSource SearchSourceS
 	}
 }
 
-// featureFlagsMongotMod sets mongot feature flags in the config when explicitly
-// enabled in the CR. Flags not set or set to false are omitted entirely from the
-// config (mongot uses its built-in defaults).
+// featureFlagsMongotMod sets mongot feature flags in the config.
+// EnableOverloadRetrySignal defaults to true (load shedding enabled) unless
+// the user explicitly sets it to false in the CR.
 func featureFlagsMongotMod(search *searchv1.MongoDBSearch) mongot.Modification {
 	return func(config *mongot.Config) {
-		if search.Spec.FeatureFlags != nil && ptr.Deref(search.Spec.FeatureFlags.EnableOverloadRetrySignal, false) {
+		if ptr.Deref(retrySigFromFeatureFlags(search.Spec.FeatureFlags), true) {
 			config.FeatureFlags = &mongot.ConfigFeatureFlags{
 				OverloadRetrySignal: new(true),
 			}
 		}
 	}
+}
+
+func retrySigFromFeatureFlags(ff *searchv1.FeatureFlags) *bool {
+	if ff == nil {
+		return nil
+	}
+	return ff.EnableOverloadRetrySignal
 }
 
 func GetMongodConfigParameters(search *searchv1.MongoDBSearch, clusterDomain string) map[string]any {

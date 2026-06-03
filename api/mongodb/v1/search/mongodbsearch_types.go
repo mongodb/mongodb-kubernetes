@@ -129,7 +129,7 @@ type MongoDBSearchSpec struct {
 	// it is rendered into the mongot config YAML. When omitted or false, the flag is not
 	// included in mongot config and mongot uses its built-in defaults.
 	// +optional
-	FeatureFlags *FeatureFlags `json:"featureFlag,omitempty"`
+	FeatureFlags *FeatureFlags `json:"featureFlags,omitempty"`
 	// Clusters configures the deployment per Kubernetes cluster: one entry for a
 	// single cluster (clusterName optional), or one entry per cluster for
 	// multi-cluster (clusterName required, len > 1). This is the place to set
@@ -252,14 +252,13 @@ type EmbeddingConfig struct {
 }
 
 // FeatureFlags configures mongot feature flags. Each field maps to a named
-// feature flag in the mongot config. Flags default to mongot's built-in
-// defaults when not set (nil). Only flags explicitly set to true are rendered
-// into the mongot config YAML.
+// feature flag in the mongot config.
 type FeatureFlags struct {
 	// EnableOverloadRetrySignal enables the OVERLOAD_RETRY_SIGNAL feature in mongot,
 	// allowing it to signal load shedding to upstream proxies (e.g., Envoy) via
-	// gRPC RESOURCE_EXHAUSTED status codes.
+	// gRPC RESOURCE_EXHAUSTED status codes. Defaults to true.
 	// +optional
+	// +kubebuilder:default=true
 	EnableOverloadRetrySignal *bool `json:"enableOverloadRetrySignal,omitempty"`
 }
 
