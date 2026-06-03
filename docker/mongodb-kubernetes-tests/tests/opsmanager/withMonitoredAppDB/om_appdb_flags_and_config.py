@@ -105,6 +105,30 @@ def test_monitoring_configured_in_automation_config(ops_manager: MongoDBOpsManag
 
 
 @mark.e2e_om_appdb_flags_and_config
+def test_monitoring_reaches_om(ops_manager: MongoDBOpsManager):
+    """End-to-end check that the single agent actually reports monitoring data to OM.
+    Complements test_monitoring_configured_in_automation_config (which only verifies the
+    automation config is shaped correctly): here we query OM for the hosts in the AppDB
+    project and assert every AppDB process hostname is present AND actively monitored
+    (non-empty lastPing), then confirm real monitoring measurements have arrived.
+    """
+    expected_hostnames = ops_manager.get_appdb_hostnames_for_monitoring()
+    assert len(expected_hostnames) > 0, "expected at least one AppDB hostname for monitoring"
+
+    def appdb_hosts_are_actively_monitored() -> bool:
+        hosts_by_name = {h["hostname"]: h for h in ops_manager.get_appdb_hosts()}
+        for hostname in expected_hostnames:
+            host = hosts_by_name.get(hostname)
+            # lastPing is set by OM once a monitoring agent reports for this host.
+            if host is None or not host.get("lastPing"):
+                return False
+        return True
+
+    KubernetesTester.wait_until(appdb_hosts_are_actively_monitored, timeout=600, sleep_time=10)
+    ops_manager.assert_monitoring_data_exists(timeout=600)
+
+
+@mark.e2e_om_appdb_flags_and_config
 def test_appdb_flags_changed(ops_manager: MongoDBOpsManager):
     ops_manager.load()
     ops_manager["spec"]["applicationDatabase"]["agent"]["startupOptions"]["dialTimeoutSeconds"] = "70"
