@@ -8,11 +8,15 @@ import (
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/api/resource"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
 func TestCreateSearchStatefulSetFunc_JVMFlags(t *testing.T) {
@@ -205,6 +209,67 @@ func TestCreateSearchResourceRequirements(t *testing.T) {
 				"expected memory %s, got %s", tc.expectedMemory.String(), result.Requests.Memory().String())
 		})
 	}
+}
+
+func TestCreateSearchStatefulSetFunc_DefaultAntiAffinity(t *testing.T) {
+	search := newTestMongoDBSearch("test-search", "default")
+	labels := map[string]string{appLabelKey: "test-search-svc"}
+
+	stsMod, err := CreateSearchStatefulSetFunc(search, "", "test-search-db", "default", "test-search-svc", "cm", labels, "mongot:latest", false)
+	require.NoError(t, err)
+	sts := statefulset.New(stsMod)
+
+	affinity := sts.Spec.Template.Spec.Affinity
+	require.NotNil(t, affinity)
+	require.NotNil(t, affinity.PodAntiAffinity)
+
+	// The affinity should be preferred, not required
+	assert.Empty(t, affinity.PodAntiAffinity.RequiredDuringSchedulingIgnoredDuringExecution)
+	terms := affinity.PodAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution
+	require.Len(t, terms, 1)
+	assert.Equal(t, int32(100), terms[0].Weight)
+	assert.Equal(t, util.DefaultAntiAffinityTopologyKey, terms[0].PodAffinityTerm.TopologyKey)
+	require.NotNil(t, terms[0].PodAffinityTerm.LabelSelector)
+	// Selects this StatefulSet's own pods, so the term spreads them across hosts.
+	assert.Equal(t, map[string]string{appLabelKey: "test-search-svc"}, terms[0].PodAffinityTerm.LabelSelector.MatchLabels)
+}
+
+func TestCreateSearchStatefulSetFunc_StatefulSetOverrideReplacesAntiAffinity(t *testing.T) {
+	customAntiAffinity := &corev1.PodAntiAffinity{
+		RequiredDuringSchedulingIgnoredDuringExecution: []corev1.PodAffinityTerm{{
+			TopologyKey:   "topology.kubernetes.io/zone",
+			LabelSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"custom": "selector"}},
+		}},
+	}
+	search := newTestMongoDBSearch("test-search", "default", func(s *searchv1.MongoDBSearch) {
+		s.Spec.Clusters = &[]searchv1.ClusterSpec{{
+			ClusterName: "cluster-1",
+			StatefulSetConfiguration: &v1.StatefulSetConfiguration{
+				SpecWrapper: v1.StatefulSetSpecWrapper{
+					Spec: appsv1.StatefulSetSpec{
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Affinity: &corev1.Affinity{PodAntiAffinity: customAntiAffinity},
+							},
+						},
+					},
+				},
+			},
+		}}
+	})
+	labels := map[string]string{appLabelKey: "test-search-svc"}
+
+	stsMod, err := CreateSearchStatefulSetFunc(search, "cluster-1", "test-search-db", "default", "test-search-svc", "cm", labels, "mongot:latest", false)
+	require.NoError(t, err)
+	sts := statefulset.New(stsMod)
+
+	pa := sts.Spec.Template.Spec.Affinity.PodAntiAffinity
+	require.NotNil(t, pa)
+	// The override's PodAntiAffinity replaces the default term wholesale.
+	assert.Empty(t, pa.PreferredDuringSchedulingIgnoredDuringExecution)
+	require.Len(t, pa.RequiredDuringSchedulingIgnoredDuringExecution, 1)
+	assert.Equal(t, "topology.kubernetes.io/zone", pa.RequiredDuringSchedulingIgnoredDuringExecution[0].TopologyKey)
+	assert.Equal(t, map[string]string{"custom": "selector"}, pa.RequiredDuringSchedulingIgnoredDuringExecution[0].LabelSelector.MatchLabels)
 }
 
 type containerInfo struct {
