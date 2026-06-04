@@ -6,10 +6,11 @@ import (
 	"os"
 	"strings"
 
-	"github.com/mongodb/mongodb-kubernetes/cmd/connectivity-validator/exitcode"
-	"github.com/mongodb/mongodb-kubernetes/cmd/connectivity-validator/migration/connectivitycheck"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+
+	"github.com/mongodb/mongodb-kubernetes/cmd/connectivity-validator/exitcode"
+	"github.com/mongodb/mongodb-kubernetes/cmd/connectivity-validator/migration/connectivitycheck"
 )
 
 func main() {
@@ -32,7 +33,7 @@ func main() {
 		ConnectionString: os.Getenv("CONNECTION_STRING"),
 		ExternalMembers:  members,
 		AuthMechanism:    os.Getenv("AUTH_MECHANISM"),
-		KeyfilePath:      os.Getenv("KEYFILE_PATH"),
+		KeyfileContent:   os.Getenv("KEYFILE_CONTENT"),
 		CertPath:         os.Getenv("CERT_PATH"),
 		CAPath:           os.Getenv("CA_PATH"),
 		SubjectDN:        os.Getenv("SUBJECT_DN"),

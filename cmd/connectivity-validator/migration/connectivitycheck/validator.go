@@ -32,8 +32,8 @@ type Config struct {
 	ExternalMembers []string
 	// AuthMechanism is "SCRAM-SHA-256", "SCRAM-SHA-1" (keyfile __system@local), "MONGODB-X509", or empty.
 	AuthMechanism string
-	// KeyfilePath is the path to the keyfile secret mount (SCRAM).
-	KeyfilePath string
+	// KeyfileContent is the raw keyfile value for SCRAM auth, passed via env var by the operator.
+	KeyfileContent string
 	// CertPath is the path to the combined cert+key PEM (X509).
 	CertPath string
 	// CAPath is the path to the CA PEM (X509).
@@ -62,7 +62,6 @@ func Validate(ctx context.Context, cfg Config) int {
 		"connectionString", cfg.ConnectionString,
 		"externalMembersCount", len(cfg.ExternalMembers),
 		"externalMembers", cfg.ExternalMembers,
-		"keyfilePath", cfg.KeyfilePath,
 		"certPath", cfg.CertPath,
 		"caPath", cfg.CAPath,
 		"subjectDN", cfg.SubjectDN,
@@ -127,16 +126,11 @@ func buildClientOptions(cfg Config, uri string) (*options.ClientOptions, error) 
 
 	switch cfg.AuthMechanism {
 	case "SCRAM-SHA-256", "SCRAM-SHA-1":
-		log.Debugw("Using keyfile SCRAM auth", "authMechanism", cfg.AuthMechanism, "keyfilePath", cfg.KeyfilePath)
-		keyfile, err := os.ReadFile(cfg.KeyfilePath)
-		if err != nil {
-			log.Warnw("Keyfile unavailable", "keyfilePath", cfg.KeyfilePath, "error", err)
-			return nil, fmt.Errorf("reading keyfile: %w", err)
-		}
-		password := strings.TrimSpace(string(keyfile))
+		log.Debugw("Using keyfile SCRAM auth", "authMechanism", cfg.AuthMechanism)
+		password := strings.TrimSpace(cfg.KeyfileContent)
 		if len(password) == 0 {
-			log.Warnw("Keyfile is empty", "keyfilePath", cfg.KeyfilePath)
-			return nil, fmt.Errorf("keyfile at %s is empty", cfg.KeyfilePath)
+			log.Warnw("Keyfile content is empty")
+			return nil, fmt.Errorf("KEYFILE_CONTENT is empty")
 		}
 		opts.SetAuth(options.Credential{
 			AuthMechanism: cfg.AuthMechanism,
@@ -161,9 +155,23 @@ func buildClientOptions(cfg Config, uri string) (*options.ClientOptions, error) 
 	}
 
 	// Apply TLS transport whenever the mongod requires it. Covers SCRAM and the no-auth case.
+	// If the agent cert file is present (TLS client auth is configured), include it so the
+	// validator can connect to mongod instances that require client certificates.
 	if cfg.MongodTLSCAPath != "" {
-		log.Debugw("Configuring TLS transport for mongod connection", "caPath", cfg.MongodTLSCAPath)
-		tlsCfg, err := buildTLSConfigFromCA(cfg.MongodTLSCAPath)
+		var tlsCfg *tls.Config
+		var err error
+		if cfg.CertPath != "" {
+			if _, statErr := os.Stat(cfg.CertPath); statErr == nil {
+				log.Debugw("Configuring TLS transport with client cert", "caPath", cfg.MongodTLSCAPath, "certPath", cfg.CertPath)
+				tlsCfg, err = buildTLSConfig(cfg.CertPath, cfg.MongodTLSCAPath)
+			} else {
+				log.Debugw("Configuring TLS transport (CA only)", "caPath", cfg.MongodTLSCAPath)
+				tlsCfg, err = buildTLSConfigFromCA(cfg.MongodTLSCAPath)
+			}
+		} else {
+			log.Debugw("Configuring TLS transport (CA only)", "caPath", cfg.MongodTLSCAPath)
+			tlsCfg, err = buildTLSConfigFromCA(cfg.MongodTLSCAPath)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -208,7 +216,7 @@ func buildTLSConfig(certPath, caPath string) (*tls.Config, error) {
 	return &tls.Config{
 		Certificates: []tls.Certificate{cert},
 		RootCAs:      caPool,
-		MinVersion:   tls.VersionTLS13,
+		MinVersion:   tls.VersionTLS12,
 	}, nil
 }
 
@@ -359,7 +367,7 @@ func classifyConnectionError(err error) int {
 	}
 	var netErr net.Error
 	if errors.As(err, &netErr) {
-		log.Debugw("Classified as network error", "timeout", netErr.Timeout(), "temporary", netErr.Temporary())
+		log.Debugw("Classified as network error", "timeout", netErr.Timeout())
 		return exitcode.ExitNetworkFailed
 	}
 	log.Debugw("Unclassified error", "error", err, "type", fmt.Sprintf("%T", err))

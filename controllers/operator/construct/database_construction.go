@@ -707,18 +707,6 @@ func getVolumesAndVolumeMounts(mdb databaseStatefulSetSource, databaseOpts Datab
 			ReadOnly:  true,
 		})
 		volumesToAdd = append(volumesToAdd, internalClusterAuthVolume)
-	} else if !vault.IsVaultSecretBackend() && mdb.GetSecurity() != nil &&
-		mdb.GetSecurity().Authentication != nil && mdb.GetSecurity().Authentication.Enabled {
-		// Mount the agent keyfile secret so the connectivity validator job (which inherits
-		// volumes from this StatefulSet) can read it at InternalClusterAuthMountPath/keyfile
-		// and authenticate as __system@local via SCRAM.
-		keyfileVolume := statefulset.CreateVolumeFromSecret("agent-keyfile", databaseOpts.Name+"-agent-keyfile")
-		volumeMounts = append(volumeMounts, corev1.VolumeMount{
-			MountPath: util.InternalClusterAuthMountPath,
-			Name:      keyfileVolume.Name,
-			ReadOnly:  true,
-		})
-		volumesToAdd = append(volumesToAdd, keyfileVolume)
 	}
 
 	if !vault.IsVaultSecretBackend() {

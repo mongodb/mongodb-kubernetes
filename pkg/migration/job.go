@@ -105,7 +105,9 @@ func volumesAndMountsFromStatefulSet(sts *appsv1.StatefulSet) ([]corev1.Volume, 
 // volumes and mounts as the given StatefulSet, so STS and Job share the same code path.
 // agentCertHash is the hash key of the agent cert PEM file (path becomes AgentCertMountPath/hash).
 // subjectDN is the automation agent X.509 subject (RFC 4514) for MONGODB-X509; empty for SCRAM.
-func BuildJobFromStatefulSet(rs *mdbv1.MongoDB, sts *appsv1.StatefulSet, operatorImage, connectionString string, externalMembers []string, currentAgentAuthMode, agentCertHash, subjectDN string) *batchv1.Job {
+// keyfileContent is the raw keyfile value for SCRAM auth read from OM; passed via KEYFILE_CONTENT
+// env var so no Kubernetes Secret is required during a dry-run.
+func BuildJobFromStatefulSet(rs *mdbv1.MongoDB, sts *appsv1.StatefulSet, operatorImage, connectionString string, externalMembers []string, currentAgentAuthMode, agentCertHash, subjectDN, keyfileContent string) *batchv1.Job {
 	volumes, volumeMounts := volumesAndMountsFromStatefulSet(sts)
 	security := rs.GetSecurity()
 	automationAuthEnabled := security != nil && security.Authentication != nil && security.Authentication.Enabled
@@ -142,6 +144,7 @@ func BuildJobFromStatefulSet(rs *mdbv1.MongoDB, sts *appsv1.StatefulSet, operato
 		{Name: "AUTH_MECHANISM", Value: authMechanism},
 		{Name: "EXTERNAL_MEMBERS", Value: strings.Join(externalMembers, " ")},
 		{Name: "KEYFILE_PATH", Value: keyfilePath},
+		{Name: "KEYFILE_CONTENT", Value: keyfileContent},
 		{Name: "CERT_PATH", Value: certPath},
 		{Name: "CA_PATH", Value: caPath},
 		{Name: "SUBJECT_DN", Value: subjectDN},
