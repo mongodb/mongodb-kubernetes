@@ -153,9 +153,9 @@ spec:
             - name: CLUSTER_CLIENT_TIMEOUT
               value: "{{ .Values.multiCluster.clusterClientTimeout }}"
     {{- end }}
-    {{- if .Values.multiCluster.requiredHealthyStreak }}
-            - name: MDB_REQUIRED_HEALTHY_STREAK
-              value: "{{ .Values.multiCluster.requiredHealthyStreak }}"
+    {{- if .Values.multiCluster.memberClusterRequiredHealthyStreak }}
+            - name: MDB_MEMBER_CLUSTER_REQUIRED_HEALTHY_STREAK
+              value: "{{ .Values.multiCluster.memberClusterRequiredHealthyStreak }}"
     {{- end }}
     {{- $mongodbEnterpriseDatabaseImageEnv := "MONGODB_ENTERPRISE_DATABASE_IMAGE" -}}
     {{- $initDatabaseImageRepositoryEnv := "INIT_DATABASE_IMAGE_REPOSITORY" -}}

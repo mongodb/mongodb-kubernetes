@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"slices"
 	"time"
 
 	"go.uber.org/zap"
@@ -251,12 +252,7 @@ func AddFailoverAnnotation(ctx context.Context, mrs mdbmulti.MongoDBMultiCluster
 func removeClusterFromFailedAnnotation(ctx context.Context, mrs mdbmulti.MongoDBMultiCluster, clustername string, client kubernetesClient.Client) error {
 	failedClusters := readFailedClusterAnnotation(mrs.Annotations)
 
-	remaining := make([]failedcluster.FailedCluster, 0, len(failedClusters))
-	for _, failed := range failedClusters {
-		if failed.ClusterName != clustername {
-			remaining = append(remaining, failed)
-		}
-	}
+	remaining := slices.DeleteFunc(failedClusters, func(c failedcluster.FailedCluster) bool { return c.ClusterName == clustername })
 
 	if len(remaining) == 0 {
 		return annotations.RemoveAnnotation(ctx, &mrs, failedcluster.FailedClusterAnnotation, client)

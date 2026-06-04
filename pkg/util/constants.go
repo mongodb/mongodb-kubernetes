@@ -215,7 +215,7 @@ const (
 
 	MaxConcurrentReconcilesEnv = "MDB_MAX_CONCURRENT_RECONCILES"
 
-	RequiredHealthyStreakEnv     = "MDB_REQUIRED_HEALTHY_STREAK"
+	RequiredHealthyStreakEnv     = "MDB_MEMBER_CLUSTER_REQUIRED_HEALTHY_STREAK"
 	DefaultRequiredHealthyStreak = 5
 
 	// Search environment variables
