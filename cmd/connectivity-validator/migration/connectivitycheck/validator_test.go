@@ -38,8 +38,8 @@ func TestBuildClientOptions_SCRAMMissingKeyfile_Error(t *testing.T) {
 	assert.ErrorContains(t, err, "reading keyfile")
 }
 
-// TestBuildClientOptions_NoAuthWithMongodTLS ensures TLS is configured even when no auth
-// mechanism is set, as long as MongodTLSCAPath points to a valid CA file.
+// TestBuildClientOptions_NoAuthWithMongodTLS ensures TLS is attempted even when no auth
+// mechanism is set, and that an invalid CA file surfaces as a parse error.
 func TestBuildClientOptions_NoAuthWithMongodTLS_SetsTLS(t *testing.T) {
 	caFile := filepath.Join(t.TempDir(), "ca.pem")
 	err := os.WriteFile(caFile, []byte("not-a-pem"), 0o600)

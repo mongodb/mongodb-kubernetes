@@ -1,9 +1,9 @@
 """VM migration E2E: SCRAM auth over TLS transport.
 
-Same flow as vm_migration but mongod runs with requireSSL. This exercises the
-MongodTLSCAPath path in the connectivity validator: auth is SCRAM (keyfile) but
-the transport layer is TLS, so the validator must configure TLS without a client
-certificate to reach the mongod.
+Same flow as vm_migration but mongod runs with requireSSL and keyfile-based SCRAM auth.
+This exercises the MongodTLSCAPath path in the connectivity validator: auth is SCRAM
+(keyfile) and the transport layer is TLS, so the validator must configure TLS without a
+client certificate and authenticate as __system@local using the keyfile.
 """
 
 import yaml
@@ -18,13 +18,24 @@ from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.tls.vm_migration_dry_run import run_migration_dry_run_connectivity_passes
 
-VM_STS_NAME = "vm-mongodb-scram-tls"
-VM_RS_NAME = "vm-mongodb-scram-tls-rs"
+VM_STS_NAME = "vm-mongodb-tls-scram"
+VM_RS_NAME = "vm-mongodb-tls-scram-rs"
 MDB_RESOURCE_NAME = "my-replica-set"
 
 # Paths match operator constants (pkg/util/constants.go: TLSCaMountPath).
 SERVER_PEM_PATH = "/mongodb-automation/server.pem"
 CUSTOM_CA_PEM_PATH = "/mongodb-automation/tls/ca/ca-pem"
+
+# Path where the connectivity validator reads the keyfile for SCRAM auth.
+# Matches util.InternalClusterAuthMountPath + "keyfile".
+KEYFILE_MOUNT_PATH = "/mongodb-automation/cluster-auth/"
+
+# Static keyfile content: printable chars, 6-1024 chars (MongoDB keyfile requirement).
+# The OM agent writes this to /var/lib/mongodb-mms-automation/keyfile on VM pods.
+# The connectivity validator reads it from KEYFILE_MOUNT_PATH/keyfile.
+KEYFILE_CONTENT = "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6"
+
+KEYFILE_SECRET_NAME = "vm-tls-scram-keyfile"
 
 
 @fixture(scope="module")
@@ -54,12 +65,23 @@ def vm_tls_pem_secret(namespace: str, vm_server_certs: str) -> str:
         key_pem = key_pem.decode("utf-8")
     if isinstance(ca_pem, bytes):
         ca_pem = ca_pem.decode("utf-8")
-    create_or_update_secret(namespace, "vm-scram-tls-pem", {"server.pem": cert_pem + key_pem, "ca.pem": ca_pem})
-    return "vm-scram-tls-pem"
+    create_or_update_secret(namespace, "vm-tls-scram-pem", {"server.pem": cert_pem + key_pem, "ca.pem": ca_pem})
+    return "vm-tls-scram-pem"
 
 
 @fixture(scope="module")
-def vm_sts(namespace: str, om_tester: OMTester, vm_tls_pem_secret: str):
+def vm_keyfile_secret(namespace: str) -> str:
+    """Secret containing the shared SCRAM keyfile.
+
+    Mounted at KEYFILE_MOUNT_PATH in the operator StatefulSet so the connectivity
+    validator job can read it at /mongodb-automation/cluster-auth/keyfile.
+    """
+    create_or_update_secret(namespace, KEYFILE_SECRET_NAME, {"keyfile": KEYFILE_CONTENT})
+    return KEYFILE_SECRET_NAME
+
+
+@fixture(scope="module")
+def vm_sts(namespace: str, om_tester: OMTester, vm_tls_pem_secret: str, vm_keyfile_secret: str):
     """Deploy VM StatefulSet with TLS cert files mounted via subPath."""
     with open(yaml_fixture("vm_statefulset.yaml"), "r") as f:
         sts_body = yaml.safe_load(f.read())
@@ -110,6 +132,7 @@ def mdb_migration(
     custom_mdb_version: str,
     issuer_ca_configmap: str,
     vm_tls_pem_secret: str,
+    vm_keyfile_secret: str,
     mdb_tls_certs: str,
     vm_sts,
     vm_service,
@@ -123,6 +146,33 @@ def mdb_migration(
     resource["spec"]["replicaSetNameOverride"] = VM_RS_NAME
     resource["spec"]["security"] = {
         "tls": {"enabled": True, "ca": issuer_ca_configmap},
+        "authentication": {
+            "enabled": True,
+            "modes": ["SCRAM"],
+        },
+    }
+
+    # Mount the shared SCRAM keyfile Secret into the operator StatefulSet so the
+    # connectivity validator job inherits the mount and can read the keyfile at
+    # /mongodb-automation/cluster-auth/keyfile (util.InternalClusterAuthMountPath).
+    resource["spec"]["podSpec"] = {
+        "podTemplate": {
+            "spec": {
+                "volumes": [{"name": "scram-keyfile", "secret": {"secretName": vm_keyfile_secret}}],
+                "containers": [
+                    {
+                        "name": "mongodb-agent",
+                        "volumeMounts": [
+                            {
+                                "name": "scram-keyfile",
+                                "mountPath": KEYFILE_MOUNT_PATH,
+                                "readOnly": True,
+                            }
+                        ],
+                    }
+                ],
+            }
+        }
     }
 
     resource["spec"]["externalMembers"] = []
@@ -144,7 +194,7 @@ def mdb_migration(
     return resource
 
 
-@mark.e2e_vm_migration_scram_tls
+@mark.e2e_vm_migration_tls_scram
 def test_deploy_vm(namespace: str, vm_sts, vm_service):
     def sts_is_ready():
         sts = get_statefulset(namespace, vm_sts["metadata"]["name"])
@@ -153,13 +203,15 @@ def test_deploy_vm(namespace: str, vm_sts, vm_service):
     KubernetesTester.wait_until(sts_is_ready, timeout=300)
 
 
-@mark.e2e_vm_migration_scram_tls
+@mark.e2e_vm_migration_tls_scram
 def test_configure_ac(namespace: str, om_tester: OMTester, vm_sts, vm_service, custom_mdb_version):
-    """Configure VM processes with requireSSL and SCRAM keyfile auth in a single AC push.
+    """Configure VM processes with requireSSL, keyfile SCRAM auth in a single AC push.
 
     The top-level ac["ssl"] block must be present in the same request as per-process
-    sslMode — OM rejects per-process SSL config when the global ssl block is absent.
-    clientCertificateMode is OPTIONAL: SCRAM connections do not present a client cert.
+    sslMode: OM rejects per-process SSL config when the global ssl block is absent.
+    clientCertificateMode is OPTIONAL because SCRAM connections do not present a client cert.
+    The ac["auth"] block enables keyfile-based SCRAM. The KEYFILE_CONTENT is written to disk
+    by the OM agent; the validator reads the same content from its Secret mount.
     """
     ac = om_tester.api_get_automation_config()
     if len(ac["processes"]) > 0:
@@ -168,6 +220,20 @@ def test_configure_ac(namespace: str, om_tester: OMTester, vm_sts, vm_service, c
     ac["ssl"] = {
         "CAFilePath": CUSTOM_CA_PEM_PATH,
         "clientCertificateMode": "OPTIONAL",
+    }
+
+    ac["auth"] = {
+        "disabled": False,
+        "authoritativeSet": False,
+        "autoAuthMechanism": "SCRAM-SHA-256",
+        "autoAuthMechanisms": ["SCRAM-SHA-256"],
+        "autoAuthRestrictions": [],
+        "deploymentAuthMechanisms": ["SCRAM-SHA-256"],
+        "keyfile": "/var/lib/mongodb-mms-automation/keyfile",
+        "keyfileWindows": "%SystemDrive%\\MMSAutomation\\versions\\keyfile",
+        "key": KEYFILE_CONTENT,
+        "usersWanted": [],
+        "usersDeleted": [],
     }
 
     ac["processes"] = []
@@ -225,23 +291,23 @@ def test_configure_ac(namespace: str, om_tester: OMTester, vm_sts, vm_service, c
     om_tester.wait_agents_ready(timeout=600)
 
 
-@mark.e2e_vm_migration_scram_tls
+@mark.e2e_vm_migration_tls_scram
 def test_migration_dry_run_connectivity_passes(mdb_migration: MongoDB):
-    """Validator must reach each VM mongod over TLS using only the CA (no client cert, SCRAM auth)."""
+    """Validator must reach each VM mongod over TLS using only the CA, and authenticate via SCRAM."""
     run_migration_dry_run_connectivity_passes(mdb_migration)
 
 
-@mark.e2e_vm_migration_scram_tls
+@mark.e2e_vm_migration_tls_scram
 def test_install_operator(operator: Operator):
     operator.assert_is_running()
 
 
-@mark.e2e_vm_migration_scram_tls
+@mark.e2e_vm_migration_tls_scram
 def test_mdb_reaches_running(mdb_migration: MongoDB):
     mdb_migration.assert_reaches_phase(Phase.Running, timeout=600)
 
 
-@mark.e2e_vm_migration_scram_tls
+@mark.e2e_vm_migration_tls_scram
 def test_promote_and_prune(mdb_migration: MongoDB, vm_sts):
     try_load(mdb_migration)
     for i in range(vm_sts["spec"]["replicas"]):
