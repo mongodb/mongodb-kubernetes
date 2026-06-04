@@ -143,6 +143,10 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, clusterName,
 				podtemplatespec.WithPodLabels(labels),
 				podtemplatespec.WithVolumes(volumes),
 				podtemplatespec.WithServiceAccount(util.MongoDBServiceAccount),
+				// Default: spread this StatefulSet's mongot pods across hosts (preferred, not
+				// required). A clusters[].statefulSet affinity override replaces this term.
+				podtemplatespec.WithAffinity(labels[appLabelKey], appLabelKey, 100),
+				podtemplatespec.WithTopologyKey(util.DefaultAntiAffinityTopologyKey, 0),
 				podtemplatespec.WithContainer(MongotContainerName, mongodbSearchContainer(mdbSearch, perCluster, volumeMounts, searchImage, usePerPodConfig)),
 			),
 		),
