@@ -1,6 +1,5 @@
 variables:
   - &setup_and_teardown_group_gke_code_snippets
-    max_execution: 2
     setup_task_can_fail_task: true
     setup_group:
       - func: clone
