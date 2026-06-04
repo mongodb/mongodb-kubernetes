@@ -114,6 +114,12 @@ func isAgentImageOverriden(containers []corev1.Container) bool {
 }
 
 func (m *MongoDB) ForcedIndividualScaling() bool {
+	// This is so that we don't deploy all kube members at once if there are external members
+	// This allows the migration to begin with voting members from the get-go
+	// Without this, the deployment will fail if kube members are not set to 0 votes 0 priority
+	if len(m.Spec.GetExternalMembers()) > 0 {
+		return true
+	}
 	return false
 }
 
@@ -219,6 +225,16 @@ func (m *MongoDB) GetSecretsMountedIntoDBPod() []string {
 
 func (m *MongoDB) GetHostNameOverrideConfigmapName() string {
 	return fmt.Sprintf("%s-hostname-override", m.Name)
+}
+
+func (m *MongoDB) GetReplicaSetName() string {
+	if m.Spec.GetResourceType() != ReplicaSet {
+		panic(errors.Errorf("ReplicaSetName is only applicable for ReplicaSet topology, but got %s", m.Spec.Topology))
+	}
+	if m.Spec.ReplicaSetNameOverride != "" {
+		return m.Spec.ReplicaSetNameOverride
+	}
+	return m.GetName()
 }
 
 type AdditionalMongodConfigType int
@@ -457,11 +473,6 @@ type DbCommonSpec struct {
 	// +kubebuilder:validation:Enum=SingleCluster;MultiCluster
 	// +optional
 	Topology string `json:"topology,omitempty"`
-
-	// +optional
-	ExternalMembers []ExternalMember `json:"externalMembers,omitempty"`
-
-	ReplicaSetNameOverride string `json:"replicaSetNameOverride,omitempty"`
 }
 
 type MongoDbSpec struct {
@@ -481,6 +492,11 @@ type MongoDbSpec struct {
 	// +kubebuilder:pruning:PreserveUnknownFields
 	// +optional
 	MemberConfig []automationconfig.MemberOptions `json:"memberConfig,omitempty"`
+
+	// +optional
+	ExternalMembers []ExternalMember `json:"externalMembers,omitempty"`
+
+	ReplicaSetNameOverride string `json:"replicaSetNameOverride,omitempty"`
 }
 
 func (m *MongoDbSpec) GetExternalDomain() *string {
@@ -496,6 +512,18 @@ func (m *MongoDbSpec) GetHorizonConfig() []MongoDBHorizonConfig {
 
 func (m *MongoDbSpec) GetMemberOptions() []automationconfig.MemberOptions {
 	return m.MemberConfig
+}
+
+func (d *MongoDbSpec) GetExternalMembers() []ExternalMember {
+	return d.ExternalMembers
+}
+
+func (d *MongoDbSpec) GetExternalMemberProcessNames() []string {
+	var processNames []string
+	for _, m := range d.ExternalMembers {
+		processNames = append(processNames, m.ProcessName)
+	}
+	return processNames
 }
 
 type SnapshotSchedule struct {
@@ -830,7 +858,7 @@ func (d *DbCommonSpec) GetExternalDomain() *string {
 	return nil
 }
 
-func (d DbCommonSpec) GetAgentConfig() AgentConfig {
+func (d *DbCommonSpec) GetAgentConfig() AgentConfig {
 	return d.Agent
 }
 
@@ -840,18 +868,6 @@ func (d *DbCommonSpec) GetAdditionalMongodConfig() *AdditionalMongodConfig {
 	}
 
 	return d.AdditionalMongodConfig
-}
-
-func (d *DbCommonSpec) GetExternalMembers() []ExternalMember {
-	return d.ExternalMembers
-}
-
-func (d *DbCommonSpec) GetExternalMemberProcessNames() []string {
-	var processNames []string
-	for _, m := range d.ExternalMembers {
-		processNames = append(processNames, m.ProcessName)
-	}
-	return processNames
 }
 
 func (s *Security) IsTLSEnabled() bool {
