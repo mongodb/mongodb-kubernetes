@@ -163,38 +163,14 @@ def test_deploy_vm(namespace: str, vm_sts, vm_service):
 
 
 @mark.e2e_vm_migration_tls_scram
-def test_configure_ac(namespace: str, om_tester: OMTester, vm_sts, vm_service, custom_mdb_version):
-    """Configure VM processes with requireSSL, keyfile SCRAM auth in a single AC push.
+def test_configure_ac_processes(namespace: str, om_tester: OMTester, vm_sts, vm_service, custom_mdb_version):
+    """Step 1: Configure VM processes without TLS or auth so the replica set forms and agents register.
 
-    The top-level ac["ssl"] block must be present in the same request as per-process
-    sslMode: OM rejects per-process SSL config when the global ssl block is absent.
-    clientCertificateMode is OPTIONAL because SCRAM connections do not present a client cert.
-    The ac["auth"] block enables keyfile-based SCRAM. The KEYFILE_CONTENT is written to disk
-    by the OM agent; the validator reads the same content from its Secret mount.
+    OM rejects simultaneous TLS mode change + auth enablement, so both must be separate steps.
     """
     ac = om_tester.api_get_automation_config()
     if len(ac["processes"]) > 0:
         return
-
-    ac["ssl"] = {
-        "CAFilePath": CUSTOM_CA_PEM_PATH,
-        "clientCertificateMode": "OPTIONAL",
-    }
-
-    ac["auth"] = {
-        "disabled": False,
-        "authoritativeSet": False,
-        "autoUser": ac.get("auth", {}).get("autoUser", ""),
-        "autoAuthMechanism": "SCRAM-SHA-256",
-        "autoAuthMechanisms": ["SCRAM-SHA-256"],
-        "autoAuthRestrictions": [],
-        "deploymentAuthMechanisms": ["SCRAM-SHA-256"],
-        "keyfile": "/var/lib/mongodb-mms-automation/keyfile",
-        "keyfileWindows": "%SystemDrive%\\MMSAutomation\\versions\\keyfile",
-        "key": KEYFILE_CONTENT,
-        "usersWanted": [],
-        "usersDeleted": [],
-    }
 
     ac["processes"] = []
     ac["monitoringVersions"] = []
@@ -223,11 +199,7 @@ def test_configure_ac(namespace: str, om_tester: OMTester, vm_sts, vm_service, c
                 "args2_6": {
                     "net": {
                         "port": 27017,
-                        "tls": {
-                            "mode": "requireSSL",
-                            "certificateKeyFile": SERVER_PEM_PATH,
-                            "CAFile": CUSTOM_CA_PEM_PATH,
-                        },
+                        "tls": {"mode": "disabled"},
                     },
                     "storage": {"dbPath": "/data/"},
                     "systemLog": {"path": "/data/mongodb.log", "destination": "file"},
@@ -246,6 +218,75 @@ def test_configure_ac(namespace: str, om_tester: OMTester, vm_sts, vm_service, c
                 "arbiterOnly": False,
             }
         )
+
+    om_tester.api_put_automation_config(ac)
+    om_tester.wait_agents_ready(timeout=600)
+
+
+@mark.e2e_vm_migration_tls_scram
+def test_configure_ac_tls(namespace: str, om_tester: OMTester, vm_sts, vm_service):
+    """Step 2: Enable TLS on the running replica set (auth still disabled).
+
+    The top-level ac["ssl"] block must be present in the same request as per-process sslMode.
+    clientCertificateMode is OPTIONAL because SCRAM connections do not present a client cert.
+    Monitoring agents also need TLS params so they can connect to mongod after the switch.
+    """
+    ac = om_tester.api_get_automation_config()
+    tls_mode = ac.get("processes", [{}])[0].get("args2_6", {}).get("net", {}).get("tls", {}).get("mode")
+    if tls_mode in ("requireSSL", "requireTLS"):
+        return
+
+    ac["ssl"] = {
+        "CAFilePath": CUSTOM_CA_PEM_PATH,
+        "clientCertificateMode": "OPTIONAL",
+    }
+
+    for proc in ac.get("processes", []):
+        proc["args2_6"]["net"]["tls"] = {
+            "mode": "requireSSL",
+            "certificateKeyFile": SERVER_PEM_PATH,
+            "CAFile": CUSTOM_CA_PEM_PATH,
+        }
+
+    for mon in ac.get("monitoringVersions", []):
+        mon.setdefault("additionalParams", {}).update(
+            {
+                "sslTrustedServerCertificates": CUSTOM_CA_PEM_PATH,
+                "useSslForAllConnections": "true",
+            }
+        )
+
+    om_tester.api_put_automation_config(ac)
+    om_tester.wait_agents_ready(timeout=600)
+
+
+@mark.e2e_vm_migration_tls_scram
+def test_configure_ac_scram_auth(om_tester: OMTester):
+    """Step 3: Enable SCRAM keyfile auth (TLS already enabled in previous step).
+
+    autoUser is the conventional OM automation user created for keyfile-based SCRAM deployments.
+    The KEYFILE_CONTENT is written to disk by the OM agent; the operator reads it from OM,
+    stores it in the {rs}-agent-keyfile Secret, and the connectivity validator reads it from there.
+    """
+    ac = om_tester.api_get_automation_config()
+    if ac.get("auth", {}).get("disabled", True) is False:
+        return
+
+    ac["auth"] = {
+        "disabled": False,
+        "authoritativeSet": False,
+        "autoUser": "mms-automation-agent",
+        "autoPwd": "mms-automation-agent-password",
+        "autoAuthMechanism": "SCRAM-SHA-256",
+        "autoAuthMechanisms": ["SCRAM-SHA-256"],
+        "autoAuthRestrictions": [],
+        "deploymentAuthMechanisms": ["SCRAM-SHA-256"],
+        "keyfile": "/var/lib/mongodb-mms-automation/keyfile",
+        "keyfileWindows": "%SystemDrive%\\MMSAutomation\\versions\\keyfile",
+        "key": KEYFILE_CONTENT,
+        "usersWanted": [],
+        "usersDeleted": [],
+    }
 
     om_tester.api_put_automation_config(ac)
     om_tester.wait_agents_ready(timeout=600)
