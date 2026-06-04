@@ -169,9 +169,11 @@ func buildClientOptions(cfg Config, uri string) (*options.ClientOptions, error) 
 			if _, statErr := os.Stat(cfg.CertPath); statErr == nil {
 				log.Debugw("Configuring TLS transport with client cert", "caPath", cfg.MongodTLSCAPath, "certPath", cfg.CertPath)
 				tlsCfg, err = buildTLSConfig(cfg.CertPath, cfg.MongodTLSCAPath)
-			} else {
+			} else if os.IsNotExist(statErr) {
 				log.Debugw("Configuring TLS transport (CA only)", "caPath", cfg.MongodTLSCAPath)
 				tlsCfg, err = buildTLSConfigFromCA(cfg.MongodTLSCAPath)
+			} else {
+				return nil, fmt.Errorf("stat client cert: %w", statErr)
 			}
 		} else {
 			log.Debugw("Configuring TLS transport (CA only)", "caPath", cfg.MongodTLSCAPath)
@@ -221,7 +223,7 @@ func buildTLSConfig(certPath, caPath string) (*tls.Config, error) {
 	return &tls.Config{
 		Certificates: []tls.Certificate{cert},
 		RootCAs:      caPool,
-		MinVersion:   tls.VersionTLS12,
+		MinVersion:   tls.VersionTLS13,
 	}, nil
 }
 

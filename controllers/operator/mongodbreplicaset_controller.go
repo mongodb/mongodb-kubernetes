@@ -984,6 +984,7 @@ func (r *ReplicaSetReconcilerHelper) runConnectivityValidationDryRun(ctx context
 		); updateErr != nil {
 			return updateResult, updateErr
 		}
+		// Requeue after 5 minutes to retry once connectivity issues may be resolved.
 		return reconcile.Result{RequeueAfter: 5 * time.Minute}, nil
 	}
 }

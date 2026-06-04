@@ -27,8 +27,9 @@ SERVER_PEM_PATH = "/mongodb-automation/server.pem"
 CUSTOM_CA_PEM_PATH = "/mongodb-automation/tls/ca/ca-pem"
 
 # Keyfile content pushed into ac["auth"]["key"] so OM agents write it to disk on VM pods.
-# The operator reads this same value from OM and stores it in the {rs}-agent-keyfile Secret,
-# which the connectivity validator reads at InternalClusterAuthMountPath/keyfile.
+# During dry-run, the operator reads this value from OM and creates a temporary
+# {rs}-connectivity-check-keyfile Secret. The connectivity validator reads the keyfile from
+# that Secret, mounted at InternalClusterAuthMountPath/keyfile. The Secret is deleted after the job.
 KEYFILE_CONTENT = "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6"
 
 
@@ -265,8 +266,9 @@ def test_configure_ac_scram_auth(om_tester: OMTester):
     """Step 3: Enable SCRAM keyfile auth (TLS already enabled in previous step).
 
     autoUser is the conventional OM automation user created for keyfile-based SCRAM deployments.
-    The KEYFILE_CONTENT is written to disk by the OM agent; the operator reads it from OM,
-    stores it in the {rs}-agent-keyfile Secret, and the connectivity validator reads it from there.
+    The KEYFILE_CONTENT is written to disk by the OM agent; during dry-run the operator reads it
+    from OM, creates a temporary {rs}-connectivity-check-keyfile Secret, and the connectivity
+    validator reads the keyfile from that Secret. The Secret is deleted after the job completes.
     """
     ac = om_tester.api_get_automation_config()
     if ac.get("auth", {}).get("disabled", True) is False:
