@@ -105,10 +105,29 @@ func volumesAndMountsFromStatefulSet(sts *appsv1.StatefulSet) ([]corev1.Volume, 
 // volumes and mounts as the given StatefulSet, so STS and Job share the same code path.
 // agentCertHash is the hash key of the agent cert PEM file (path becomes AgentCertMountPath/hash).
 // subjectDN is the automation agent X.509 subject (RFC 4514) for MONGODB-X509; empty for SCRAM.
-// keyfileContent is the raw keyfile value for SCRAM auth read from OM; passed via KEYFILE_CONTENT
-// env var so no Kubernetes Secret is required during a dry-run.
-func BuildJobFromStatefulSet(rs *mdbv1.MongoDB, sts *appsv1.StatefulSet, operatorImage, connectionString string, externalMembers []string, currentAgentAuthMode, agentCertHash, subjectDN, keyfileContent string) *batchv1.Job {
+// keyfileSecretName is the name of a temporary Secret containing the keyfile for SCRAM auth;
+// when set it is mounted at InternalClusterAuthMountPath and KEYFILE_PATH is set accordingly.
+func BuildJobFromStatefulSet(rs *mdbv1.MongoDB, sts *appsv1.StatefulSet, operatorImage, connectionString string, externalMembers []string, currentAgentAuthMode, agentCertHash, subjectDN, keyfileSecretName string) *batchv1.Job {
 	volumes, volumeMounts := volumesAndMountsFromStatefulSet(sts)
+	keyfilePath := ""
+	if keyfileSecretName != "" {
+		keyfileVol := corev1.Volume{
+			Name: "connectivity-check-keyfile",
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName: keyfileSecretName,
+					Items:      []corev1.KeyToPath{{Key: "keyfile", Path: "keyfile"}},
+				},
+			},
+		}
+		volumes = append(volumes, keyfileVol)
+		volumeMounts = append(volumeMounts, corev1.VolumeMount{
+			Name:      keyfileVol.Name,
+			MountPath: util.InternalClusterAuthMountPath,
+			ReadOnly:  true,
+		})
+		keyfilePath = util.InternalClusterAuthMountPath + "keyfile"
+	}
 	security := rs.GetSecurity()
 	automationAuthEnabled := security != nil && security.Authentication != nil && security.Authentication.Enabled
 	currentAgentMechanism := security.GetAgentMechanism(currentAgentAuthMode)
@@ -142,7 +161,7 @@ func BuildJobFromStatefulSet(rs *mdbv1.MongoDB, sts *appsv1.StatefulSet, operato
 		{Name: "CONNECTION_STRING", Value: connectionString},
 		{Name: "AUTH_MECHANISM", Value: authMechanism},
 		{Name: "EXTERNAL_MEMBERS", Value: strings.Join(externalMembers, " ")},
-		{Name: "KEYFILE_CONTENT", Value: keyfileContent},
+		{Name: "KEYFILE_PATH", Value: keyfilePath},
 		{Name: "CERT_PATH", Value: certPath},
 		{Name: "CA_PATH", Value: caPath},
 		{Name: "SUBJECT_DN", Value: subjectDN},

@@ -32,8 +32,8 @@ type Config struct {
 	ExternalMembers []string
 	// AuthMechanism is "SCRAM-SHA-256", "SCRAM-SHA-1" (keyfile __system@local), "MONGODB-X509", or empty.
 	AuthMechanism string
-	// KeyfileContent is the raw keyfile value for SCRAM auth, passed via env var by the operator.
-	KeyfileContent string
+	// KeyfilePath is the path to the keyfile mounted from the temporary connectivity-check-keyfile Secret.
+	KeyfilePath string
 	// CertPath is the path to the combined cert+key PEM (X509).
 	CertPath string
 	// CAPath is the path to the CA PEM (X509).
@@ -126,11 +126,16 @@ func buildClientOptions(cfg Config, uri string) (*options.ClientOptions, error) 
 
 	switch cfg.AuthMechanism {
 	case "SCRAM-SHA-256", "SCRAM-SHA-1":
-		log.Debugw("Using keyfile SCRAM auth", "authMechanism", cfg.AuthMechanism)
-		password := strings.TrimSpace(cfg.KeyfileContent)
+		log.Debugw("Using keyfile SCRAM auth", "authMechanism", cfg.AuthMechanism, "keyfilePath", cfg.KeyfilePath)
+		keyfile, err := os.ReadFile(cfg.KeyfilePath)
+		if err != nil {
+			log.Warnw("Keyfile unavailable", "keyfilePath", cfg.KeyfilePath, "error", err)
+			return nil, fmt.Errorf("reading keyfile: %w", err)
+		}
+		password := strings.TrimSpace(string(keyfile))
 		if len(password) == 0 {
-			log.Warnw("Keyfile content is empty")
-			return nil, fmt.Errorf("KEYFILE_CONTENT is empty")
+			log.Warnw("Keyfile is empty", "keyfilePath", cfg.KeyfilePath)
+			return nil, fmt.Errorf("keyfile at %s is empty", cfg.KeyfilePath)
 		}
 		opts.SetAuth(options.Credential{
 			AuthMechanism: cfg.AuthMechanism,

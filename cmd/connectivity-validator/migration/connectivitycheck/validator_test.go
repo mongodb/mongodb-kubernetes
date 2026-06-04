@@ -26,15 +26,15 @@ func TestIsKeyfileSCRAM(t *testing.T) {
 	assert.False(t, isKeyfileSCRAM(""))
 }
 
-// TestBuildClientOptions_SCRAMEmptyKeyfileContent_Error ensures that an empty KEYFILE_CONTENT
+// TestBuildClientOptions_SCRAMMissingKeyfile_Error ensures a missing keyfile Secret mount
 // returns an error rather than proceeding without credentials.
-func TestBuildClientOptions_SCRAMEmptyKeyfileContent_Error(t *testing.T) {
+func TestBuildClientOptions_SCRAMMissingKeyfile_Error(t *testing.T) {
 	cfg := Config{
-		AuthMechanism:  "SCRAM-SHA-256",
-		KeyfileContent: "",
+		AuthMechanism: "SCRAM-SHA-256",
+		KeyfilePath:   filepath.Join(t.TempDir(), "nonexistent-keyfile"),
 	}
 	_, err := buildClientOptions(cfg, "mongodb://localhost:27017/")
-	assert.ErrorContains(t, err, "KEYFILE_CONTENT is empty")
+	assert.ErrorContains(t, err, "reading keyfile")
 }
 
 // TestBuildClientOptions_NoAuthWithMongodTLS ensures TLS is attempted even when no auth
