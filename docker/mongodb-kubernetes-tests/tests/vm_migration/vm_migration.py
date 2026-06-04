@@ -101,19 +101,19 @@ def mdb_health_checker(mongo_tester: MongoTester) -> MongoDBBackgroundTester:
     return health_checker
 
 
-def _connection_string(namespace: str, mdb_migration: MongoDB, srv: bool) -> str:
+def _connection_string(mdb_migration: MongoDB, srv: bool) -> str:
     """Read connectionString.standard from the credential-less secret published by the operator."""
-    secret = KubernetesTester.read_secret(namespace, f"{mdb_migration.name}-connection-string")
+    secret = KubernetesTester.read_secret(mdb_migration.namespace, f"{mdb_migration.name}-connection-string")
     if srv:
         return secret.get("connectionString.standardSrv", "")
     return secret.get("connectionString.standard", "")
 
 
-def _k8s_hostnames(mdb_migration: MongoDB, namespace: str) -> list:
+def _k8s_hostnames(mdb_migration: MongoDB) -> list:
     """Return the expected k8s pod DNS hostnames (host:port) for all RS members."""
     svc = f"{mdb_migration.name}-svc"
     return [
-        f"{mdb_migration.name}-{i}.{svc}.{namespace}.svc.cluster.local:27017"
+        f"{mdb_migration.name}-{i}.{svc}.{mdb_migration.namespace}.svc.cluster.local:27017"
         for i in range(mdb_migration.get_members())
     ]
 
@@ -228,7 +228,7 @@ def test_insert_sample_data(om_tester: OMTester, vm_sts, namespace):
         SearchTester(
             f"mongodb://{vm_sts['metadata']['name']}-0.{vm_sts['metadata']['name']}.{namespace}.svc.cluster.local:27017/?replicaSet={vm_sts['metadata']['name']}-rs"
         ),
-        mongodb_tools_pod.get_tools_pod(namespace)
+        mongodb_tools_pod.get_tools_pod(namespace),
     )
     sample_movies_helper.restore_sample_database()
 
@@ -242,8 +242,8 @@ def test_install_operator(default_operator: Operator):
 def test_mdb_reaches_running(namespace: str, mdb_migration: MongoDB, om_tester: OMTester, vm_sts):
     mdb_migration.assert_reaches_phase(Phase.Running, timeout=600)
 
-    conn_str = _connection_string(namespace, mdb_migration, False)
-    for hostname in _k8s_hostnames(mdb_migration, namespace):
+    conn_str = _connection_string(mdb_migration, False)
+    for hostname in _k8s_hostnames(mdb_migration):
         assert hostname in conn_str, f"k8s hostname {hostname!r} missing from connection string secret"
     for em in mdb_migration["spec"]["externalMembers"]:
         assert em["hostname"] in conn_str, f"external member {em['hostname']!r} missing from connection string secret"
@@ -307,8 +307,8 @@ def test_promote_and_prune(
             mdb_migration.assert_reaches_phase(Phase.Running)
 
         # After promote: all k8s pods and all remaining VM members must be present.
-        conn_str = _connection_string(namespace, mdb_migration, False)
-        for hostname in _k8s_hostnames(mdb_migration, namespace):
+        conn_str = _connection_string(mdb_migration, False)
+        for hostname in _k8s_hostnames(mdb_migration):
             assert hostname in conn_str, f"k8s hostname {hostname!r} missing after member {i} promoted"
         for em in mdb_migration["spec"]["externalMembers"]:
             assert em["hostname"] in conn_str, f"external member {em['hostname']!r} missing after member {i} promoted"
@@ -318,11 +318,11 @@ def test_promote_and_prune(
         mdb_migration.assert_reaches_phase(Phase.Running)
 
         # After prune: removed VM hostname must be gone; surviving hosts must be present.
-        conn_str = _connection_string(namespace, mdb_migration, False)
+        conn_str = _connection_string(mdb_migration, False)
         assert (
             pruned["hostname"] not in conn_str
         ), f"pruned hostname {pruned['hostname']!r} still in connection string after prune {i}"
-        for hostname in _k8s_hostnames(mdb_migration, namespace):
+        for hostname in _k8s_hostnames(mdb_migration):
             assert hostname in conn_str, f"k8s hostname {hostname!r} missing after prune {i}"
         for em in mdb_migration["spec"]["externalMembers"]:
             assert em["hostname"] in conn_str, f"external member {em['hostname']!r} missing after prune {i}"
@@ -338,26 +338,28 @@ def test_promote_and_prune(
     # TODO: doesn't work great locally
     mdb_health_checker.assert_healthiness()
 
+
 @mark.e2e_vm_migration
-def test_process_names(om_tester: OMTester, namespace, mdb_migration):
+def test_process_names(om_tester: OMTester, mdb_migration):
     ac_tester = om_tester.get_automation_config_tester()
     process_names = [process["name"] for process in ac_tester.get_all_processes()]
-    assert f"k8s/{namespace}/{mdb_migration.name}-0" in process_names
-    assert f"k8s/{namespace}/{mdb_migration.name}-1" in process_names
-    assert f"k8s/{namespace}/{mdb_migration.name}-2" in process_names
+    assert f"k8s/{mdb_migration.namespace}/{mdb_migration.name}-0" in process_names
+    assert f"k8s/{mdb_migration.namespace}/{mdb_migration.name}-1" in process_names
+    assert f"k8s/{mdb_migration.namespace}/{mdb_migration.name}-2" in process_names
 
 
 @mark.e2e_vm_migration
-def test_connection_string_after_full_migration(namespace: str, mdb_migration: MongoDB):
+def test_connection_string_after_full_migration(mdb_migration: MongoDB):
     """After all externalMembers are pruned the secret must contain only the k8s pod hostnames."""
     assert not mdb_migration["spec"].get("externalMembers"), "expected all external members to be pruned by now"
-    conn_str = _connection_string(namespace, mdb_migration, False)
+    conn_str = _connection_string(mdb_migration, False)
     assert conn_str.startswith("mongodb://"), "connection string must use mongodb:// scheme"
-    for hostname in _k8s_hostnames(mdb_migration, namespace):
+    for hostname in _k8s_hostnames(mdb_migration):
         assert hostname in conn_str, f"k8s hostname {hostname!r} missing from final connection string"
-    srv_conn_str = _connection_string(namespace, mdb_migration, True)
+    srv_conn_str = _connection_string(mdb_migration, True)
     assert srv_conn_str.startswith("mongodb+srv://"), "SRV connection string must use mongodb+srv:// scheme"
     assert f"{mdb_migration.get_service()}.{mdb_migration.namespace}.svc.cluster.local" in srv_conn_str
+
 
 @mark.e2e_vm_migration
 @skip_if_local
