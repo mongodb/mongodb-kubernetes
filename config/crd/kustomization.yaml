@@ -10,6 +10,7 @@ resources:
 - bases/mongodbcommunity.mongodb.com_mongodbcommunity.yaml
 - bases/mongodb.com_clustermongodbroles.yaml
 - bases/ai.mongodb.com_voyageais.yaml
+- bases/operator.mongodb.com_operatorconfigs.yaml
 # +kubebuilder:scaffold:crdkustomizeresource
 
 # the following config is for teaching kustomize how to do kustomization for CRDs.
