@@ -612,7 +612,7 @@ func buildEnvoyPodSpec(search *searchv1.MongoDBSearch, clusterIndex int, tlsCfg 
 									"app": search.LoadBalancerDeploymentNameForCluster(clusterIndex),
 								},
 							},
-							TopologyKey: "kubernetes.io/hostname",
+							TopologyKey: util.DefaultAntiAffinityTopologyKey,
 						},
 					},
 				},
