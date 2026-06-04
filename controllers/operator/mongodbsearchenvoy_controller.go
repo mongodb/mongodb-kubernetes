@@ -108,23 +108,13 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 		return result, err
 	}
 
-	// Validate the UN-NARROWED spec first (see mongodbsearch_controller.go::Reconcile
-	// for the rationale). Failures surface on /status/loadBalancer so the Envoy
-	// sub-status stays authoritative for LB shape errors.
-	if err := mdbSearch.ValidateSpec(); err != nil {
-		return r.updateLBStatus(ctx, mdbSearch, workflow.Invalid("%s", err.Error()), log)
-	}
-
-	// Simulated-MC operators require every spec.clusters[] entry to pin a ClusterIndex.
-	// Runs on the un-narrowed spec (before LocalizeToCluster) so it sees all clusters.
-	if r.operatorClusterName != "" {
-		if err := mdbSearch.ValidateSimulatedMCClusterIndices(); err != nil {
-			return r.updateLBStatus(ctx, mdbSearch, workflow.Invalid("%s", err.Error()), log)
-		}
-	}
-
-	if r.operatorClusterName != "" && !mdbSearch.LocalizeToCluster(r.operatorClusterName) {
-		return reconcile.Result{}, nil
+	// Envoy validation failures surface on /status/loadBalancer so the Envoy sub-status
+	// stays authoritative for LB shape errors.
+	if skip, result, err := prepareSearchForReconcile(ctx, mdbSearch, r.operatorClusterName,
+		func(st workflow.Status) (reconcile.Result, error) {
+			return r.updateLBStatus(ctx, mdbSearch, st, log)
+		}, log); skip {
+		return result, err
 	}
 
 	// TODO: can we find a better cleanup mechanism, and optimize the watching of the loadbalancer field by this controller ?

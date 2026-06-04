@@ -96,6 +96,36 @@ func resolveClusterMapping(
 	return state.ClusterMapping, nil
 }
 
+// prepareSearchForReconcile runs the shared pre-reconcile gate for both search
+// reconcilers. ValidateSpec runs on the UN-NARROWED spec first: simulated-MC narrows
+// spec.clusters[] via LocalizeToCluster, after which the MC validators short-circuit on
+// len(clusters) <= 1 and would silently accept misconfigured MC specs.
+// writeStatus routes validation failures to the caller's own status surface. Returns
+// skip=true when the caller should stop reconciling (validation failed, or this operator
+// does not own the CR). The operatorClusterName mode discriminator lives only here.
+func prepareSearchForReconcile(
+	ctx context.Context,
+	search *searchv1.MongoDBSearch,
+	operatorClusterName string,
+	writeStatus func(workflow.Status) (reconcile.Result, error),
+	log *zap.SugaredLogger,
+) (skip bool, res reconcile.Result, err error) {
+	if vErr := search.ValidateSpec(); vErr != nil {
+		r, e := writeStatus(workflow.Invalid("%s", vErr.Error()))
+		return true, r, e
+	}
+	if operatorClusterName != "" {
+		if vErr := search.ValidateSimulatedMCClusterIndices(); vErr != nil {
+			r, e := writeStatus(workflow.Invalid("%s", vErr.Error()))
+			return true, r, e
+		}
+		if !search.LocalizeToCluster(operatorClusterName) {
+			return true, reconcile.Result{}, nil
+		}
+	}
+	return false, reconcile.Result{}, nil
+}
+
 type MongoDBSearchReconciler struct {
 	kubeClient           kubernetesClient.Client
 	watch                *watch.ResourceWatcher
@@ -136,26 +166,11 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 		return result, err
 	}
 
-	// Validate the UN-NARROWED spec first. Simulated-MC narrows spec.clusters[] to a
-	// 1-element slice via LocalizeToCluster below; after narrowing the MC validators
-	// (e.g., validateMCExternalHostnamePlaceholders, validateMCRejectsUnmanagedLB)
-	// short-circuit on len(clusters) <= 1 and silently accept misconfigured MC specs.
-	// The reconcile helper still calls ValidateSpec defensively but only sees the
-	// narrowed spec — this top-level call is the source of truth for MC-shape rules.
-	if err := mdbSearch.ValidateSpec(); err != nil {
-		return commoncontroller.UpdateStatus(ctx, r.kubeClient, mdbSearch, workflow.Invalid("%s", err.Error()), log)
-	}
-
-	// Simulated-MC operators require every spec.clusters[] entry to pin a ClusterIndex.
-	// Runs on the un-narrowed spec (before LocalizeToCluster) so it sees all clusters.
-	if r.operatorClusterName != "" {
-		if err := mdbSearch.ValidateSimulatedMCClusterIndices(); err != nil {
-			return commoncontroller.UpdateStatus(ctx, r.kubeClient, mdbSearch, workflow.Invalid("%s", err.Error()), log)
-		}
-	}
-
-	if r.operatorClusterName != "" && !mdbSearch.LocalizeToCluster(r.operatorClusterName) {
-		return reconcile.Result{}, nil
+	if skip, result, err := prepareSearchForReconcile(ctx, mdbSearch, r.operatorClusterName,
+		func(st workflow.Status) (reconcile.Result, error) {
+			return commoncontroller.UpdateStatus(ctx, r.kubeClient, mdbSearch, st, log)
+		}, log); skip {
+		return result, err
 	}
 
 	clusterMapping, err := resolveClusterMapping(ctx, r.kubeClient, mdbSearch, log)
