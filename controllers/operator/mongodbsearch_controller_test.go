@@ -725,6 +725,17 @@ func driveSearchReconcileToRunning(
 	return got
 }
 
+// readSimulatedMCStateMapping decodes the persisted clusterName->index mapping from the {name}-state ConfigMap.
+func readSimulatedMCStateMapping(ctx context.Context, t *testing.T, c client.Client, search *searchv1.MongoDBSearch) map[string]int {
+	t.Helper()
+	stateCM := &corev1.ConfigMap{}
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: search.Name + "-state", Namespace: search.Namespace}, stateCM),
+		"state ConfigMap must exist in simulated-MC mode")
+	var state SearchDeploymentState
+	require.NoError(t, decodeStateJSON(stateCM, &state))
+	return state.ClusterMapping
+}
+
 // newSimulatedMCMongoDBSearch: baseline RS fixture with 2 ClusterIndex-pinned spec.clusters entries for simulated-MC reconcile tests.
 func newSimulatedMCMongoDBSearch(name, namespace string) *searchv1.MongoDBSearch {
 	clusters := []searchv1.ClusterSpec{
@@ -747,49 +758,59 @@ func newSimulatedMCMongoDBSearch(name, namespace string) *searchv1.MongoDBSearch
 	}
 }
 
-// Simulated-MC mode: only the local-cluster entry gets resources; the other cluster's resources MUST NOT appear.
+// Simulated-MC mode: only the local-cluster entry gets resources at its pinned ClusterIndex; the other cluster's resources MUST NOT appear. The non-zero-pin row guards that RS naming follows the pinned index, not array position 0 (which equals the pin after localization).
 func TestReconcile_SimulatedMC_ProjectedReconcilesLocalOnly(t *testing.T) {
-	ctx := context.Background()
-	search := newSimulatedMCMongoDBSearch("mdb-search", mock.TestNamespace)
+	cases := []struct {
+		name        string
+		opCluster   string
+		pinClusterB *int32 // override (*spec.Clusters)[1].ClusterIndex when non-nil
+		wantIdx     int
+		wrongIdx    int
+	}{
+		{name: "default_pins_cluster_a_index_0", opCluster: "cluster-a", pinClusterB: nil, wantIdx: 0, wrongIdx: 1},
+		{name: "cluster_b_pinned_to_index_7", opCluster: "cluster-b", pinClusterB: ptr.To(int32(7)), wantIdx: 7, wrongIdx: 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			search := newSimulatedMCMongoDBSearch("mdb-search", mock.TestNamespace)
+			if tc.pinClusterB != nil {
+				(*search.Spec.Clusters)[1].ClusterIndex = tc.pinClusterB
+			}
 
-	reconciler, c := newSimulatedMCSearchReconciler(t, "cluster-a", search)
+			reconciler, c := newSimulatedMCSearchReconciler(t, tc.opCluster, search)
 
-	got := driveSearchReconcileToRunning(ctx, t, reconciler, c, search, 3)
+			got := driveSearchReconcileToRunning(ctx, t, reconciler, c, search, 5)
 
-	// cluster-a's resources (index 0) must exist on the central (= operator's) client.
-	stsA := &appsv1.StatefulSet{}
-	require.NoError(t, c.Get(ctx, search.StatefulSetNamespacedNameForCluster(0), stsA),
-		"STS for cluster-a (index 0) must exist")
-	cmA := &corev1.ConfigMap{}
-	require.NoError(t, c.Get(ctx, search.MongotConfigConfigMapNameForCluster(0), cmA),
-		"mongot ConfigMap for cluster-a must exist")
-	proxyA := &corev1.Service{}
-	require.NoError(t, c.Get(ctx, search.ProxyServiceNamespacedNameForCluster(0), proxyA),
-		"proxy Service for cluster-a must exist")
+			// Local cluster's resources must exist at the PINNED index on the operator's client.
+			sts := &appsv1.StatefulSet{}
+			require.NoError(t, c.Get(ctx, search.StatefulSetNamespacedNameForCluster(tc.wantIdx), sts),
+				"STS at pinned index %d must exist", tc.wantIdx)
+			cm := &corev1.ConfigMap{}
+			require.NoError(t, c.Get(ctx, search.MongotConfigConfigMapNameForCluster(tc.wantIdx), cm),
+				"mongot ConfigMap at pinned index %d must exist", tc.wantIdx)
+			proxy := &corev1.Service{}
+			require.NoError(t, c.Get(ctx, search.ProxyServiceNamespacedNameForCluster(tc.wantIdx), proxy),
+				"proxy Service at pinned index %d must exist", tc.wantIdx)
 
-	// cluster-b's resources (index 1) MUST NOT exist — this operator never wrote them.
-	stsB := &appsv1.StatefulSet{}
-	err := c.Get(ctx, search.StatefulSetNamespacedNameForCluster(1), stsB)
-	assert.True(t, apiErrors.IsNotFound(err), "STS for cluster-b (index 1) must NOT exist; got err=%v", err)
-	cmB := &corev1.ConfigMap{}
-	err = c.Get(ctx, search.MongotConfigConfigMapNameForCluster(1), cmB)
-	assert.True(t, apiErrors.IsNotFound(err), "mongot ConfigMap for cluster-b must NOT exist; got err=%v", err)
-	proxyB := &corev1.Service{}
-	err = c.Get(ctx, search.ProxyServiceNamespacedNameForCluster(1), proxyB)
-	assert.True(t, apiErrors.IsNotFound(err), "proxy Service for cluster-b must NOT exist; got err=%v", err)
+			// The other cluster's index MUST be untouched — this operator never wrote it.
+			err := c.Get(ctx, search.StatefulSetNamespacedNameForCluster(tc.wrongIdx), &appsv1.StatefulSet{})
+			assert.True(t, apiErrors.IsNotFound(err), "STS at index %d must NOT exist; got err=%v", tc.wrongIdx, err)
+			err = c.Get(ctx, search.MongotConfigConfigMapNameForCluster(tc.wrongIdx), &corev1.ConfigMap{})
+			assert.True(t, apiErrors.IsNotFound(err), "mongot ConfigMap at index %d must NOT exist; got err=%v", tc.wrongIdx, err)
+			err = c.Get(ctx, search.ProxyServiceNamespacedNameForCluster(tc.wrongIdx), &corev1.Service{})
+			assert.True(t, apiErrors.IsNotFound(err), "proxy Service at index %d must NOT exist; got err=%v", tc.wrongIdx, err)
 
-	// The {search-name}-state ConfigMap IS used in simulated-MC mode now —
-	// LocalizeToCluster narrows spec.clusters[] to the local entry before the
-	// state-CM load, so the persisted mapping carries only this cluster's entry.
-	stateCM := &corev1.ConfigMap{}
-	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: search.Name + "-state", Namespace: search.Namespace}, stateCM),
-		"state ConfigMap must be created in simulated-MC mode")
+			// LocalizeToCluster narrows spec.clusters[] to the local entry BEFORE the state-CM
+			// write, so the persisted mapping carries ONLY this operator's cluster at its pin.
+			assert.Equal(t, map[string]int{tc.opCluster: tc.wantIdx},
+				readSimulatedMCStateMapping(ctx, t, c, search),
+				"persisted mapping must contain only the localized cluster at its pinned index")
 
-	// Status phase must reflect a normal reconcile outcome (Running or Pending,
-	// depending on STS-readiness timing) — anything else (Failed/Invalid) signals
-	// a regression in the projection path.
-	assert.Contains(t, []status.Phase{status.PhaseRunning, status.PhasePending}, got.Status.Phase,
-		"projected reconcile should land on Running or Pending; got %q (msg=%q)", got.Status.Phase, got.Status.Message)
+			require.Equal(t, status.PhaseRunning, got.Status.Phase,
+				"projected reconcile must reach Running; got %q (msg=%q)", got.Status.Phase, got.Status.Message)
+		})
+	}
 }
 
 // Simulated-MC: operator not in spec.clusters[] returns Result{}, nil and mutates nothing.
@@ -936,8 +957,14 @@ func TestReconcile_SimulatedMC_ShardedSource_ProjectedReconcilesLocalOnly(t *tes
 			err := c.Get(ctx, search.ProxyServiceNamespacedNameForCluster(tc.wrongIdx), wrongProxy)
 			assert.True(t, apiErrors.IsNotFound(err), "cluster-level proxy Service at idx %d must NOT exist; err=%v", tc.wrongIdx, err)
 
-			assert.Contains(t, []status.Phase{status.PhaseRunning, status.PhasePending}, got.Status.Phase,
-				"projected sharded reconcile should land Running or Pending; got %q (msg=%q)", got.Status.Phase, got.Status.Message)
+			// Localization narrows to the local entry before the state-CM write, so the
+			// persisted mapping carries only this operator's cluster at its pinned index.
+			assert.Equal(t, map[string]int{tc.opCluster: tc.wantIdx},
+				readSimulatedMCStateMapping(ctx, t, c, search),
+				"persisted mapping must contain only the localized cluster at its pinned index")
+
+			require.Equal(t, status.PhaseRunning, got.Status.Phase,
+				"projected sharded reconcile must reach Running; got %q (msg=%q)", got.Status.Phase, got.Status.Message)
 		})
 	}
 }
