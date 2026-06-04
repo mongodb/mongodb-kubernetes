@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/blang/semver"
@@ -30,6 +31,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/backup"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om/process"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
@@ -38,11 +40,14 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/configmap"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/secret"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/merge"
 	"github.com/mongodb/mongodb-kubernetes/pkg/agentVersionManagement"
+	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/commoncontroller"
 	"github.com/mongodb/mongodb-kubernetes/pkg/passwordhash"
@@ -383,12 +388,12 @@ func (r *ReconcileCommonController) prepareResourceForReconciliation(ctx context
 // the user may need to clean the resources from OM UI if they move the
 // resource to another project (as recommended by the migration instructions).
 // If there are any externalMembers set, we will ignore the excess processes which appear in this list, as those are expected to be there and should not block the reconciliation.
-func checkIfHasExcessProcesses(conn om.Connection, resourceName, replicaSetNameOverride string, externalMembers []string, log *zap.SugaredLogger) workflow.Status {
+func checkIfHasExcessProcesses(conn om.Connection, resourceName string, externalMembers []string, log *zap.SugaredLogger) workflow.Status {
 	deployment, err := conn.ReadDeployment()
 	if err != nil {
 		return workflow.Failed(err)
 	}
-	excessProcesses := deployment.GetNumberOfExcessProcesses(resourceName, replicaSetNameOverride, externalMembers)
+	excessProcesses := deployment.GetNumberOfExcessProcesses(resourceName, externalMembers)
 	if excessProcesses == 0 {
 		// cluster is empty or this resource is the only one living on it
 		return workflow.OK()
@@ -406,6 +411,193 @@ func checkIfHasExcessProcesses(conn om.Connection, resourceName, replicaSetNameO
 	}
 
 	return workflow.Pending("cannot have more than 1 MongoDB Cluster per project (see https://docs.mongodb.com/kubernetes-operator/stable/tutorial/migrate-to-single-resource/)")
+}
+
+// checkExternalMembersDrift checks if the external members specified in the CR are present in Ops Manager and if their fields match the ones specified in the CR.
+// If there is a drift, it returns an error with the details of the drift.
+func checkExternalMembersDrift(conn om.Connection, externalMembers []mdbv1.ExternalMember) workflow.Status {
+	if len(externalMembers) == 0 {
+		return workflow.OK()
+	}
+
+	deployment, err := conn.ReadDeployment()
+	if err != nil {
+		return workflow.Failed(err)
+	}
+
+	processNames := deployment.GetAllProcessNames()
+	processNamesSet := merge.StringsToSet(processNames)
+
+	for _, member := range externalMembers {
+		// Check missing external members in AC
+		if _, ok := processNamesSet[member.ProcessName]; !ok {
+			return workflow.Failed(xerrors.Errorf("External member with process name %s is not present in Ops Manager", member.ProcessName))
+		}
+		// Check the other fields from the external member match the AC process
+		if !deployment.CheckProcessFields(member.ProcessName, member.Hostname, member.Type, member.ReplicaSetName) {
+			return workflow.Failed(xerrors.Errorf("External member with process name %s has different AC fields than the ones specified in the CR", member.ProcessName))
+		}
+	}
+	return workflow.OK()
+}
+
+// MaxVotingMembers is MongoDB's hard limit on voting members per replica set.
+const MaxVotingMembers = 7
+
+// validateACForMigration checks that the pre-existing Automation Config is in a valid state for
+// migration. It runs only when external members are declared on the spec. Today it verifies:
+//   - net.tls.mode is set on all processes (operator-managed TLS requires this).
+//   - The combined number of voting members (K8s side from spec + external side from AC) does not
+//     exceed MongoDB's 7-voting-members limit. When external members are involved the operator no
+//     longer fully owns the AC, so we surface this misconfiguration as a reconcile failure with a
+//     detailed listing of every voting member and which ones should be made non-voting.
+func validateACForMigration(conn om.Connection, mdb *mdbv1.MongoDB) workflow.Status {
+	externalMembers := mdb.Spec.GetExternalMembers()
+	if len(externalMembers) == 0 {
+		return workflow.OK()
+	}
+	deployment, err := conn.ReadDeployment()
+	if err != nil {
+		return workflow.Failed(err)
+	}
+
+	processes := deployment.GetProcesses()
+
+	// Check net.tls.mode is not null
+	if len(processes) > 0 {
+		// Checking first process is enough since OM does not accept different values for net.tls.mode between processes
+		tls := processes[0].TLSConfig()
+		if _, ok := tls["mode"]; !ok {
+			return workflow.Failed(xerrors.Errorf("The deployment has processes with net.tls.mode unset. Please ensure all processes have TLS mode configured before migration. If TLS is not enabled, set net.tls.mode to disabled. If TLS is enabled, set net.tls.mode to one of the supported TLS modes."))
+		}
+	}
+
+	// Check voting-members limit. Only enforced when external members are declared (already gated
+	// by the early-return above). For pure-K8s deployments, Deployment.limitVotingMembers handles
+	// the limit by auto-zeroing votes on excess members during merge.
+	rs := deployment.GetReplicaSetByName(mdb.GetReplicaSetName())
+	if rs == nil {
+		// Drift / excess-process checks should already have caught a missing RS; be defensive.
+		return workflow.OK()
+	}
+
+	externalSet := merge.StringsToSet(mdb.Spec.GetExternalMemberProcessNames())
+
+	acVoting := collectACVotingMembers(rs, externalSet)
+	externalVotingCount, k8sVotingPositions, newlyVotingPositions := computePostReconcileVoting(mdb, rs, externalSet)
+
+	total := externalVotingCount + len(k8sVotingPositions)
+	if total <= MaxVotingMembers {
+		return workflow.OK()
+	}
+
+	excess := total - MaxVotingMembers
+	return workflow.Failed(xerrors.Errorf("%s", formatTooManyVotingMembersError(
+		mdb.GetReplicaSetName(), total, acVoting, newlyVotingPositions, excess,
+	)))
+}
+
+// votingMemberInfo names one voting member of a replica set for display purposes.
+type votingMemberInfo struct {
+	identifier string // AC host name
+	kind       string // "Kubernetes" or "external"
+}
+
+// collectACVotingMembers returns the voting members CURRENTLY in the Automation Config, in AC
+// order. By MongoDB's enforcement, len(returned) ≤ MaxVotingMembers.
+func collectACVotingMembers(rs om.ReplicaSet, externalSet map[string]struct{}) []votingMemberInfo {
+	out := make([]votingMemberInfo, 0)
+	for _, m := range rs.Members() {
+		if m.Votes() <= 0 {
+			continue
+		}
+		kind := "Kubernetes"
+		if _, isExternal := externalSet[m.Name()]; isExternal {
+			kind = "external"
+		}
+		out = append(out, votingMemberInfo{identifier: m.Name(), kind: kind})
+	}
+	return out
+}
+
+// computePostReconcileVoting returns:
+//   - externalVotingCount: external members currently voting in the AC (preserved during reconcile).
+//   - k8sVotingPositions: all spec positions [0..Members) that would be voting after this reconcile.
+//   - newlyVotingPositions: subset of k8sVotingPositions where the AC's corresponding K8s member
+//     is non-voting or absent (scale-up). These are the positions THIS reconcile would make voting
+//     — and therefore the actionable subset for the user to revert.
+//
+// "Corresponding K8s member" is found by position among AC members that are NOT in the external
+// set, in AC order. Position N in spec maps to the N-th non-external member of the AC.
+func computePostReconcileVoting(mdb *mdbv1.MongoDB, rs om.ReplicaSet, externalSet map[string]struct{}) (externalVotingCount int, k8sVotingPositions, newlyVotingPositions []int) {
+	rsMemberVotingMap := map[string]bool{}
+	for _, m := range rs.Members() {
+		if _, isExternal := externalSet[m.Name()]; isExternal {
+			if m.Votes() > 0 {
+				externalVotingCount++
+			}
+			continue
+		}
+		rsMemberVotingMap[m.Name()] = m.Votes() > 0
+	}
+
+	for i := 0; i < mdb.Spec.Members; i++ {
+		opts := automationconfig.MemberOptions{}
+		if i < len(mdb.Spec.GetMemberOptions()) {
+			opts = mdb.Spec.MemberConfig[i]
+		}
+		if opts.GetVotes() <= 0 {
+			continue
+		}
+		// We can safely assume that k8s process names are using the new naming scheme since external members are set
+		processName := process.PodNameToProcessName(dns.GetPodName(mdb.Name, i), mdb.Namespace)
+		k8sVotingPositions = append(k8sVotingPositions, i)
+		wasACVoting := rsMemberVotingMap[processName]
+		if !wasACVoting {
+			newlyVotingPositions = append(newlyVotingPositions, i)
+		}
+	}
+	return externalVotingCount, k8sVotingPositions, newlyVotingPositions
+}
+
+// formatTooManyVotingMembersError builds the user-facing error in five lines:
+//  1. Header: post-reconcile total + limit.
+//  2. AC voters (≤ 7 lines): live state, what the user can see in OM right now.
+//  3. Newly voting K8s positions: what this reconcile would make voting.
+//  4. Fix instruction: revert `excess` of the memberConfig entries to votes=0.
+//  5. Forward-looking suggestion: to make more K8s voting, drain externals first.
+//
+// By construction len(newlyVotingPositions) ≥ excess, because the AC is always within the limit
+// and the only way to exceed it is via newly voting K8s positions.
+func formatTooManyVotingMembersError(rsName string, total int, acVoting []votingMemberInfo, newlyVotingPositions []int, excess int) string {
+	var acLines []string
+	for i, v := range acVoting {
+		acLines = append(acLines, fmt.Sprintf("  %d. %s (%s)", i+1, v.identifier, v.kind))
+	}
+	if len(acLines) == 0 {
+		acLines = []string{"  (none)"}
+	}
+
+	var newlyLines []string
+	for _, i := range newlyVotingPositions {
+		newlyLines = append(newlyLines, fmt.Sprintf("  - spec.memberConfig[%d]", i))
+	}
+	if len(newlyLines) == 0 {
+		// We should never get here
+		newlyLines = []string{"  (none — AC already exceeds the limit; check Ops Manager for voting members the operator does not manage)"}
+	}
+
+	return fmt.Sprintf(
+		"%q: this reconcile would result in %d voting members (max: %d).\n"+
+			"Currently voting in the Automation Config (%d):\n%s\n"+
+			"This reconcile would make the following Kubernetes member(s) voting:\n%s\n"+
+			"To fix: revert %d of the above memberConfig entries to votes=0 and priority=\"0\".\n"+
+			"If you wish to make more of the kubernetes members voting, make sure to remove one of the voting external members in the list above.",
+		rsName, total, MaxVotingMembers,
+		len(acVoting), strings.Join(acLines, "\n"),
+		strings.Join(newlyLines, "\n"),
+		excess,
+	)
 }
 
 // validateInternalClusterCertsAndCheckTLSType verifies that all the x509 internal cluster certs exist and return whether they are built following the kubernetes.io/tls secret type (tls.crt/tls.key entries).
@@ -1080,18 +1272,33 @@ type PrometheusConfiguration struct {
 	prometheusCertHash string
 }
 
-func ReconcileReplicaSetAC(ctx context.Context, d om.Deployment, spec mdbv1.DbCommonSpec, lastMongodConfig map[string]interface{}, resourceName string, rs om.ReplicaSetWithProcesses, caFilePath string, internalClusterPath string, pc *PrometheusConfiguration, log *zap.SugaredLogger) error {
+func getReplicaSetProcessIdsFromReplicaSets(replicaSetName string, deployment om.Deployment) map[string]int {
+	processIds := map[string]int{}
+
+	replicaSet := deployment.GetReplicaSetByName(replicaSetName)
+	if replicaSet == nil {
+		return map[string]int{}
+	}
+
+	for _, m := range replicaSet.Members() {
+		processIds[m.Name()] = m.Id()
+	}
+
+	return processIds
+}
+
+func ReconcileReplicaSetAC(ctx context.Context, d om.Deployment, spec mdbv1.DbCommonSpec, lastMongodConfig map[string]interface{}, resourceName string, rs om.ReplicaSetWithProcesses, externalProcessNames []string, caFilePath string, internalClusterPath string, pc *PrometheusConfiguration, log *zap.SugaredLogger) error {
 	// it is not possible to disable internal cluster authentication once enabled
 	if d.ExistingProcessesHaveInternalClusterAuthentication(rs.Processes) && spec.Security.GetInternalClusterAuthenticationMode() == "" {
 		return xerrors.Errorf("cannot disable x509 internal cluster authentication")
 	}
 
-	//excessProcesses := d.GetNumberOfExcessProcesses(resourceName)
-	//if excessProcesses > 0 {
-	//	return xerrors.Errorf("cannot have more than 1 MongoDB Cluster per project (see https://docs.mongodb.com/kubernetes/current/tutorial/migrate-to-single-resource )")
-	//}
+	excessProcesses := d.GetNumberOfExcessProcesses(resourceName, externalProcessNames)
+	if excessProcesses > 0 {
+		return xerrors.Errorf("cannot have more than 1 MongoDB Cluster per project (see https://docs.mongodb.com/kubernetes/current/tutorial/migrate-to-single-resource )")
+	}
 
-	d.MergeReplicaSet(rs, spec.GetAdditionalMongodConfig().ToMap(), lastMongodConfig, spec.GetExternalMemberProcessNames(), log)
+	d.MergeReplicaSet(rs, spec.GetAdditionalMongodConfig().ToMap(), lastMongodConfig, externalProcessNames, log)
 	d.ConfigureMonitoringAndBackup(log, spec.GetSecurity().IsTLSEnabled(), caFilePath)
 	d.ConfigureTLS(spec.GetSecurity(), caFilePath)
 	d.ConfigureInternalClusterAuthentication(rs.GetProcessNames(), spec.GetSecurity().GetInternalClusterAuthenticationMode(), internalClusterPath)

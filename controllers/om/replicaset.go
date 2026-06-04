@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/merge"
 	"github.com/spf13/cast"
 	"go.uber.org/zap"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/merge"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
@@ -54,7 +54,7 @@ func NewReplicaSetMemberFromInterface(i interface{}) ReplicaSetMember {
 	return i.(map[string]interface{})
 }
 
-func NewReplicaSet(name, overrideName, version string) ReplicaSet {
+func NewReplicaSet(name, version string) ReplicaSet {
 	ans := ReplicaSet{}
 	ans["members"] = make([]ReplicaSetMember, 0)
 
@@ -67,12 +67,7 @@ func NewReplicaSet(name, overrideName, version string) ReplicaSet {
 		protocolVersion = "1"
 	}
 
-	if overrideName == "" {
-		initDefaultRs(ans, name, protocolVersion)
-	} else {
-		initDefaultRs(ans, overrideName, protocolVersion)
-	}
-
+	initDefaultRs(ans, name, protocolVersion)
 	return ans
 }
 
@@ -171,7 +166,7 @@ func initDefaultRs(set ReplicaSet, name string, protocolVersion string) {
 
 // Adding a member to the replicaset. The _id for the new member is calculated
 // based on last existing member in the RS.
-func (r ReplicaSet) addMember(process Process, id string, options automationconfig.MemberOptions) {
+func (r ReplicaSet) addMember(process Process, id *int, options automationconfig.MemberOptions) {
 	members := r.Members()
 	lastIndex := -1
 	if len(members) > 0 {
@@ -179,9 +174,11 @@ func (r ReplicaSet) addMember(process Process, id string, options automationconf
 	}
 
 	rsMember := ReplicaSetMember{}
-	rsMember["_id"] = id
-	if id == "" {
+
+	if id == nil {
 		rsMember["_id"] = lastIndex + 1
+	} else {
+		rsMember["_id"] = *id
 	}
 	rsMember["host"] = process.Name()
 
@@ -259,6 +256,29 @@ func (r ReplicaSet) Members() []ReplicaSetMember {
 	default:
 		panic("Unexpected type of members variable")
 	}
+}
+
+// CountVotingMembers returns the number of voting K8s members and voting external members in this
+// replica set. External members are identified by matching ReplicaSetMember.Name() (the AC "host"
+// field, which equals the process name) against externalMemberProcessNames. Members that are not in
+// externalMemberProcessNames are treated as K8s members. An external process name that does not
+// match any member of the RS is silently ignored — drift checks already guard against that case.
+func CountVotingMembers(r ReplicaSet, externalMemberProcessNames []string) (k8sVoting int, externalVoting int) {
+	externalSet := make(map[string]struct{}, len(externalMemberProcessNames))
+	for _, n := range externalMemberProcessNames {
+		externalSet[n] = struct{}{}
+	}
+	for _, m := range r.Members() {
+		if m.Votes() <= 0 {
+			continue
+		}
+		if _, isExternal := externalSet[m.Name()]; isExternal {
+			externalVoting++
+		} else {
+			k8sVoting++
+		}
+	}
+	return k8sVoting, externalVoting
 }
 
 func (r ReplicaSet) setName(name string) {

@@ -9,11 +9,16 @@ import yaml
 from kubetester import get_statefulset, try_load
 from kubetester.kubetester import KubernetesTester, fcv_from_version
 from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.kubetester import skip_if_local
 from kubetester.mongodb import MongoDB
+from kubetester.mongotester import MongoDBBackgroundTester, MongoTester
 from kubetester.omtester import OMContext, OMTester
 from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
+from tests.common.mongodb_tools_pod import mongodb_tools_pod
+from tests.common.search import movies_search_helper
+from tests.common.search.search_tester import SearchTester
 from tests.tls.vm_migration_dry_run import run_migration_dry_run_connectivity_passes
 
 
@@ -45,6 +50,8 @@ def vm_service(namespace: str):
     with open(yaml_fixture("vm_service.yaml"), "r") as f:
         service_body = yaml.safe_load(f.read())
 
+        service_body["spec"]["clusterIP"] = "None"  # This needs to be set to None for a headless service
+
     KubernetesTester.create_or_update_service(namespace, body=service_body)
     return service_body
 
@@ -64,7 +71,7 @@ def mdb_migration(namespace: str, custom_mdb_version: str, vm_sts, vm_service) -
         resource["spec"]["externalMembers"].append(
             {
                 "processName": f"{vm_sts['metadata']['name']}-{i}",
-                "hostname": f"{vm_sts['metadata']['name']}-{i}.{vm_service['metadata']['name']}.{namespace}.svc.cluster.local",
+                "hostname": f"{vm_sts['metadata']['name']}-{i}.{vm_service['metadata']['name']}.{namespace}.svc.cluster.local:27017",
                 "type": "mongod",
                 "replicaSetName": f"{vm_sts['metadata']['name']}-rs",
             }
@@ -80,6 +87,18 @@ def mdb_migration(namespace: str, custom_mdb_version: str, vm_sts, vm_service) -
         )
     resource.create()
     return resource
+
+
+@fixture(scope="module")
+def mongo_tester(mdb_migration: MongoDB):
+    return mdb_migration.tester()
+
+
+@fixture(scope="module")
+def mdb_health_checker(mongo_tester: MongoTester) -> MongoDBBackgroundTester:
+    health_checker = MongoDBBackgroundTester(mongo_tester)
+    health_checker.start()
+    return health_checker
 
 
 def _connection_string(namespace: str, mdb_migration: MongoDB, srv: bool) -> str:
@@ -103,7 +122,7 @@ def _k8s_hostnames(mdb_migration: MongoDB, namespace: str) -> list:
 def test_deploy_vm(namespace: str, vm_sts, vm_service):
     def sts_is_ready():
         sts = get_statefulset(namespace, vm_sts["metadata"]["name"])
-        return sts.status.ready_replicas == 3
+        return sts.status.ready_replicas == vm_sts["spec"]["replicas"]
 
     KubernetesTester.wait_until(sts_is_ready, timeout=300)
 
@@ -118,6 +137,7 @@ def test_update_vm_ac(namespace: str, om_tester: OMTester, vm_sts, vm_service, c
 
     ac["processes"] = []
     ac["monitoringVersions"] = []
+    ac["backupVersions"] = []
 
     ac["replicaSets"] = [
         {
@@ -133,6 +153,14 @@ def test_update_vm_ac(namespace: str, om_tester: OMTester, vm_sts, vm_service, c
             {
                 "hostname": f"{vm_sts['metadata']['name']}-{i}.{vm_service['metadata']['name']}.{namespace}.svc.cluster.local",
                 "logPath": "/var/log/mongodb-mms-automation/monitoring-agent.log",
+                "logRotate": {"sizeThresholdMB": 1000, "timeThresholdHrs": 24},
+            }
+        )
+
+        ac["backupVersions"].append(
+            {
+                "hostname": f"{vm_sts['metadata']['name']}-{i}.{vm_service['metadata']['name']}.{namespace}.svc.cluster.local",
+                "logPath": "/var/log/mongodb-mms-automation/backup-agent.log",
                 "logRotate": {"sizeThresholdMB": 1000, "timeThresholdHrs": 24},
             }
         )
@@ -162,7 +190,7 @@ def test_update_vm_ac(namespace: str, om_tester: OMTester, vm_sts, vm_service, c
 
         ac["replicaSets"][0]["members"].append(
             {
-                "_id": i + 100,  # Temporarily avoid conflicts with member IDs created by operator
+                "_id": i,  # This id should not conflict with the operator generated ids.
                 "host": f"{vm_sts['metadata']['name']}-{i}",
                 "priority": 1,
                 "votes": 1,
@@ -183,12 +211,35 @@ def test_migration_dry_run_connectivity_passes(mdb_migration: MongoDB):
 
 
 @mark.e2e_vm_migration
-def test_install_operator(operator: Operator):
-    operator.assert_is_running()
+def test_vm_deployment_is_ready(om_tester: OMTester, vm_sts):
+    om_tester.wait_agents_ready()
+    ac_tester = om_tester.get_automation_config_tester()
+
+    assert len(ac_tester.get_all_processes()) == vm_sts["spec"]["replicas"]
+    assert len(ac_tester.get_monitoring_versions()) == vm_sts["spec"]["replicas"]
+    assert len(ac_tester.get_backup_versions()) == vm_sts["spec"]["replicas"]
+    assert len(ac_tester.get_replica_set_processes(f"{vm_sts['metadata']['name']}-rs")) == vm_sts["spec"]["replicas"]
 
 
 @mark.e2e_vm_migration
-def test_mdb_reaches_running(namespace: str, mdb_migration: MongoDB):
+@skip_if_local
+def test_insert_sample_data(om_tester: OMTester, vm_sts, namespace):
+    sample_movies_helper = movies_search_helper.SampleMoviesSearchHelper(
+        SearchTester(
+            f"mongodb://{vm_sts['metadata']['name']}-0.{vm_sts['metadata']['name']}.{namespace}.svc.cluster.local:27017/?replicaSet={vm_sts['metadata']['name']}-rs"
+        ),
+        mongodb_tools_pod.get_tools_pod(namespace)
+    )
+    sample_movies_helper.restore_sample_database()
+
+
+@mark.e2e_vm_migration
+def test_install_operator(default_operator: Operator):
+    default_operator.assert_is_running()
+
+
+@mark.e2e_vm_migration
+def test_mdb_reaches_running(namespace: str, mdb_migration: MongoDB, om_tester: OMTester, vm_sts):
     mdb_migration.assert_reaches_phase(Phase.Running, timeout=600)
 
     conn_str = _connection_string(namespace, mdb_migration, False)
@@ -197,17 +248,63 @@ def test_mdb_reaches_running(namespace: str, mdb_migration: MongoDB):
     for em in mdb_migration["spec"]["externalMembers"]:
         assert em["hostname"] in conn_str, f"external member {em['hostname']!r} missing from connection string secret"
 
+    total_members = vm_sts["spec"]["replicas"] + mdb_migration.get_members()
+    ac_tester = om_tester.get_automation_config_tester()
+    assert len(ac_tester.get_all_processes()) == total_members
+    assert len(ac_tester.get_monitoring_versions()) == total_members
+    assert len(ac_tester.get_backup_versions()) == total_members
+    assert len(ac_tester.get_replica_set_processes(f"{vm_sts['metadata']['name']}-rs")) == total_members
 
-# TODO insert sample data, assert it is still there after migration
+
 @mark.e2e_vm_migration
-def test_promote_and_prune(namespace: str, mdb_migration: MongoDB, vm_sts):
-    try_load(mdb_migration)
-    for i in range(vm_sts["spec"]["replicas"]):
+def test_max_voting_members_validation(mdb_migration: MongoDB):
+    # Update all members as voting at once, this results in 8 voting members (5 external + 3 k8s) which is more than 7
+    for i in range(mdb_migration.get_members()):
         mdb_migration["spec"]["memberConfig"][i]["priority"] = "1"
         mdb_migration["spec"]["memberConfig"][i]["votes"] = 1
-        mdb_migration.update()
 
-        mdb_migration.assert_reaches_phase(Phase.Running)
+    mdb_migration.update()
+    mdb_migration.assert_reaches_phase(Phase.Failed, timeout=300)
+    err_msg = mdb_migration.get_status_message()
+    rs_name = mdb_migration["spec"]["replicaSetNameOverride"]
+    expected_err_msg = (
+        f'"{rs_name}": this reconcile would result in 8 voting members (max: 7).\n'
+        "Currently voting in the Automation Config (5):\n"
+        "  1. vm-mongodb-0 (external)\n"
+        "  2. vm-mongodb-1 (external)\n"
+        "  3. vm-mongodb-2 (external)\n"
+        "  4. vm-mongodb-3 (external)\n"
+        "  5. vm-mongodb-4 (external)\n"
+        "This reconcile would make the following Kubernetes member(s) voting:\n"
+        "  - spec.memberConfig[0]\n"
+        "  - spec.memberConfig[1]\n"
+        "  - spec.memberConfig[2]\n"
+        'To fix: revert 1 of the above memberConfig entries to votes=0 and priority="0".\n'
+        "If you wish to make more of the kubernetes members voting, make sure to remove one of the voting external members in the list above."
+    )
+    assert err_msg == expected_err_msg
+
+    # Reset to working state
+    for i in range(mdb_migration.get_members()):
+        mdb_migration["spec"]["memberConfig"][i]["priority"] = "0"
+        mdb_migration["spec"]["memberConfig"][i]["votes"] = 0
+
+    mdb_migration.update()
+    mdb_migration.assert_reaches_phase(Phase.Running, timeout=300)
+
+
+@mark.e2e_vm_migration
+def test_promote_and_prune(
+    mdb_migration: MongoDB, vm_sts, om_tester: OMTester, mdb_health_checker: MongoDBBackgroundTester
+):
+    try_load(mdb_migration)
+    for i in range(vm_sts["spec"]["replicas"]):
+        if i < mdb_migration.get_members():
+            mdb_migration["spec"]["memberConfig"][i]["priority"] = "1"
+            mdb_migration["spec"]["memberConfig"][i]["votes"] = 1
+            mdb_migration.update()
+
+            mdb_migration.assert_reaches_phase(Phase.Running)
 
         # After promote: all k8s pods and all remaining VM members must be present.
         conn_str = _connection_string(namespace, mdb_migration, False)
@@ -230,6 +327,25 @@ def test_promote_and_prune(namespace: str, mdb_migration: MongoDB, vm_sts):
         for em in mdb_migration["spec"]["externalMembers"]:
             assert em["hostname"] in conn_str, f"external member {em['hostname']!r} missing after prune {i}"
 
+        om_tester.assert_cluster_available(f"{vm_sts['metadata']['name']}-rs")
+        ac_tester = om_tester.get_automation_config_tester()
+        total_members = mdb_migration.get_members() + len(mdb_migration["spec"]["externalMembers"])
+        assert len(ac_tester.get_all_processes()) == total_members
+        assert len(ac_tester.get_monitoring_versions()) == total_members
+        assert len(ac_tester.get_backup_versions()) == total_members
+        assert len(ac_tester.get_replica_set_processes(f"{vm_sts['metadata']['name']}-rs")) == total_members
+
+    # TODO: doesn't work great locally
+    mdb_health_checker.assert_healthiness()
+
+@mark.e2e_vm_migration
+def test_process_names(om_tester: OMTester, namespace, mdb_migration):
+    ac_tester = om_tester.get_automation_config_tester()
+    process_names = [process["name"] for process in ac_tester.get_all_processes()]
+    assert f"k8s/{namespace}/{mdb_migration.name}-0" in process_names
+    assert f"k8s/{namespace}/{mdb_migration.name}-1" in process_names
+    assert f"k8s/{namespace}/{mdb_migration.name}-2" in process_names
+
 
 @mark.e2e_vm_migration
 def test_connection_string_after_full_migration(namespace: str, mdb_migration: MongoDB):
@@ -242,3 +358,11 @@ def test_connection_string_after_full_migration(namespace: str, mdb_migration: M
     srv_conn_str = _connection_string(namespace, mdb_migration, True)
     assert srv_conn_str.startswith("mongodb+srv://"), "SRV connection string must use mongodb+srv:// scheme"
     assert f"{mdb_migration.get_service()}.{mdb_migration.namespace}.svc.cluster.local" in srv_conn_str
+
+@mark.e2e_vm_migration
+@skip_if_local
+def test_sample_mflix_database_exists_and_not_empty(mongo_tester: MongoTester):
+    assert "sample_mflix" in mongo_tester.client.list_database_names(), "sample_mflix database does not exist"
+    assert (
+        mongo_tester.client["sample_mflix"]["movies"].count_documents({}) > 0
+    ), "sample_mflix.movies collection is empty"

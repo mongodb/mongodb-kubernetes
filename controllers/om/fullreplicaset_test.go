@@ -89,8 +89,8 @@ func TestNewMultiClusterReplicaSetWithProcesses(t *testing.T) {
 			expected: ReplicaSetWithProcesses{
 				Rs: ReplicaSet{
 					"_id": "mdb-multi", "members": []ReplicaSetMember{
-						{"_id": "0", "host": "p-0", "priority": float32(1.3), "tags": map[string]string{}, "votes": 1},
-						{"_id": "1", "host": "p-1", "priority": float32(0.7), "tags": map[string]string{}, "votes": 0},
+						{"_id": 0, "host": "p-0", "priority": float32(1.3), "tags": map[string]string{}, "votes": 1},
+						{"_id": 1, "host": "p-1", "priority": float32(0.7), "tags": map[string]string{}, "votes": 0},
 					},
 					"protocolVersion": "1",
 				},
@@ -129,8 +129,8 @@ func TestNewMultiClusterReplicaSetWithProcesses(t *testing.T) {
 			expected: ReplicaSetWithProcesses{
 				Rs: ReplicaSet{
 					"_id": "mdb-multi", "members": []ReplicaSetMember{
-						{"_id": "0", "host": "p-0", "priority": float32(1.3), "tags": map[string]string{}, "votes": 1},
-						{"_id": "1", "host": "p-1", "priority": float32(0.7), "tags": map[string]string{}, "votes": 0},
+						{"_id": 0, "host": "p-0", "priority": float32(1.3), "tags": map[string]string{}, "votes": 1},
+						{"_id": 1, "host": "p-1", "priority": float32(0.7), "tags": map[string]string{}, "votes": 0},
 					},
 					"protocolVersion": "1",
 				},
@@ -159,9 +159,9 @@ func TestNewMultiClusterReplicaSetWithProcesses(t *testing.T) {
 			expected: ReplicaSetWithProcesses{
 				Rs: ReplicaSet{
 					"_id": "mdb-multi", "members": []ReplicaSetMember{
-						{"_id": "0", "host": "p-0", "priority": float32(1.3), "tags": map[string]string{}, "votes": 1},
+						{"_id": 0, "host": "p-0", "priority": float32(1.3), "tags": map[string]string{}, "votes": 1},
 						// Defaulting priority 1.0 and votes to 1 when no member options are present
-						{"_id": "1", "host": "p-1", "priority": float32(1.0), "tags": map[string]string{}, "votes": 1},
+						{"_id": 1, "host": "p-1", "priority": float32(1.0), "tags": map[string]string{}, "votes": 1},
 					},
 					"protocolVersion": "1",
 				},
@@ -186,9 +186,9 @@ func TestNewMultiClusterReplicaSetWithProcesses(t *testing.T) {
 				Rs: ReplicaSet{
 					"_id": "mdb-multi", "members": []ReplicaSetMember{
 						// Defaulting priority 1.0 and votes to 1 when no member options are present
-						{"_id": "0", "host": "p-0", "priority": float32(1.0), "tags": map[string]string{}, "votes": 1},
+						{"_id": 0, "host": "p-0", "priority": float32(1.0), "tags": map[string]string{}, "votes": 1},
 						// Defaulting priority 1.0 and votes to 1 when no member options are present
-						{"_id": "1", "host": "p-1", "priority": float32(1.0), "tags": map[string]string{}, "votes": 1},
+						{"_id": 1, "host": "p-1", "priority": float32(1.0), "tags": map[string]string{}, "votes": 1},
 					},
 					"protocolVersion": "1",
 				},
@@ -220,7 +220,7 @@ func TestNewMultiClusterReplicaSetWithProcesses(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			actual := NewMultiClusterReplicaSetWithProcesses(NewReplicaSet("mdb-multi", "", "5.0.5"), tt.processes, tt.memberOptions, map[string]int{}, nil)
+			actual := NewMultiClusterReplicaSetWithProcesses(NewReplicaSet("mdb-multi", "5.0.5"), tt.processes, tt.memberOptions, map[string]int{}, nil)
 			assert.Equal(t, tt.expected, actual)
 		})
 	}
