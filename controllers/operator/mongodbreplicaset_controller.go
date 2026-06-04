@@ -811,9 +811,13 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 				}
 			}
 			if shouldMirrorKeyfileForMongot {
-				if err := r.mirrorKeyfileIntoSecretForMongot(ctx, d); err != nil {
+				secretName := fmt.Sprintf("%s-%s", rs.Name, searchcontroller.MongotKeyfileFilename)
+				if err := ensureKeyfileSecret(ctx, r.reconciler.client, r.resource, d, secretName, searchcontroller.MongotKeyfileFilename); err != nil {
 					return err
 				}
+			}
+			if err := ensureKeyfileSecret(ctx, r.reconciler.client, r.resource, d, r.resource.Name+"-agent-keyfile", "keyfile"); err != nil {
+				return err
 			}
 			return ReconcileReplicaSetAC(ctx, d, rs.Spec.DbCommonSpec, lastRsConfig.ToMap(), rs.Name, replicaSet, caFilePath, internalClusterCertPath, &prometheusConfiguration, log)
 		},
@@ -1070,25 +1074,25 @@ func (r *ReplicaSetReconcilerHelper) applySearchOverrides(ctx context.Context) (
 	return true, nil
 }
 
-func (r *ReplicaSetReconcilerHelper) mirrorKeyfileIntoSecretForMongot(ctx context.Context, d om.Deployment) error {
-	rs := r.resource
-	reconciler := r.reconciler
-	log := r.log
-
+// ensureKeyfileSecret creates or updates a Secret with the given name, storing the keyfile
+// contents from the automation config under dataKey. Returns nil (no-op) when the automation
+// config carries no keyfile content.
+func ensureKeyfileSecret(ctx context.Context, kubeClient client.Client, owner metav1.Object, d om.Deployment, secretName, dataKey string) error {
 	keyfileContents := maputil.ReadMapValueAsString(d, "auth", "key")
-	keyfileSecret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf("%s-%s", rs.Name, searchcontroller.MongotKeyfileFilename), Namespace: rs.Namespace}}
-
-	log.Infof("Mirroring the replicaset %s's keyfile into the secret %s", rs.ObjectKey(), kube.ObjectKeyFromApiObject(keyfileSecret))
-
-	_, err := controllerutil.CreateOrUpdate(ctx, reconciler.client, keyfileSecret, func() error {
-		keyfileSecret.StringData = map[string]string{searchcontroller.MongotKeyfileFilename: keyfileContents}
-		return controllerutil.SetOwnerReference(rs, keyfileSecret, reconciler.client.Scheme())
+	if keyfileContents == "" {
+		return nil
+	}
+	s := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: secretName, Namespace: owner.GetNamespace()}}
+	_, err := controllerutil.CreateOrUpdate(ctx, kubeClient, s, func() error {
+		s.StringData = map[string]string{dataKey: keyfileContents}
+		return controllerutil.SetOwnerReference(owner, s, kubeClient.Scheme())
 	})
 	if err != nil {
-		return xerrors.Errorf("failed to mirror the replicaset's keyfile into a secret: %w", err)
+		return xerrors.Errorf("failed to ensure keyfile secret %s: %w", secretName, err)
 	}
 	return nil
 }
+
 
 func (r *ReplicaSetReconcilerHelper) lookupCorrespondingSearchResource(ctx context.Context) (*searchv1.MongoDBSearch, error) {
 	rs := r.resource

@@ -26,16 +26,10 @@ MDB_RESOURCE_NAME = "my-replica-set"
 SERVER_PEM_PATH = "/mongodb-automation/server.pem"
 CUSTOM_CA_PEM_PATH = "/mongodb-automation/tls/ca/ca-pem"
 
-# Path where the connectivity validator reads the keyfile for SCRAM auth.
-# Matches util.InternalClusterAuthMountPath + "keyfile".
-KEYFILE_MOUNT_PATH = "/mongodb-automation/cluster-auth/"
-
-# Static keyfile content: printable chars, 6-1024 chars (MongoDB keyfile requirement).
-# The OM agent writes this to /var/lib/mongodb-mms-automation/keyfile on VM pods.
-# The connectivity validator reads it from KEYFILE_MOUNT_PATH/keyfile.
+# Keyfile content pushed into ac["auth"]["key"] so OM agents write it to disk on VM pods.
+# The operator reads this same value from OM and stores it in the {rs}-agent-keyfile Secret,
+# which the connectivity validator reads at InternalClusterAuthMountPath/keyfile.
 KEYFILE_CONTENT = "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6"
-
-KEYFILE_SECRET_NAME = "vm-tls-scram-keyfile"
 
 
 @fixture(scope="module")
@@ -70,18 +64,7 @@ def vm_tls_pem_secret(namespace: str, vm_server_certs: str) -> str:
 
 
 @fixture(scope="module")
-def vm_keyfile_secret(namespace: str) -> str:
-    """Secret containing the shared SCRAM keyfile.
-
-    Mounted at KEYFILE_MOUNT_PATH in the operator StatefulSet so the connectivity
-    validator job can read it at /mongodb-automation/cluster-auth/keyfile.
-    """
-    create_or_update_secret(namespace, KEYFILE_SECRET_NAME, {"keyfile": KEYFILE_CONTENT})
-    return KEYFILE_SECRET_NAME
-
-
-@fixture(scope="module")
-def vm_sts(namespace: str, om_tester: OMTester, vm_tls_pem_secret: str, vm_keyfile_secret: str):
+def vm_sts(namespace: str, om_tester: OMTester, vm_tls_pem_secret: str):
     """Deploy VM StatefulSet with TLS cert files mounted via subPath."""
     with open(yaml_fixture("vm_statefulset.yaml"), "r") as f:
         sts_body = yaml.safe_load(f.read())
@@ -132,7 +115,6 @@ def mdb_migration(
     custom_mdb_version: str,
     issuer_ca_configmap: str,
     vm_tls_pem_secret: str,
-    vm_keyfile_secret: str,
     mdb_tls_certs: str,
     vm_sts,
     vm_service,
@@ -150,29 +132,6 @@ def mdb_migration(
             "enabled": True,
             "modes": ["SCRAM"],
         },
-    }
-
-    # Mount the shared SCRAM keyfile Secret into the operator StatefulSet so the
-    # connectivity validator job inherits the mount and can read the keyfile at
-    # /mongodb-automation/cluster-auth/keyfile (util.InternalClusterAuthMountPath).
-    resource["spec"]["podSpec"] = {
-        "podTemplate": {
-            "spec": {
-                "volumes": [{"name": "scram-keyfile", "secret": {"secretName": vm_keyfile_secret}}],
-                "containers": [
-                    {
-                        "name": "mongodb-agent",
-                        "volumeMounts": [
-                            {
-                                "name": "scram-keyfile",
-                                "mountPath": KEYFILE_MOUNT_PATH,
-                                "readOnly": True,
-                            }
-                        ],
-                    }
-                ],
-            }
-        }
     }
 
     resource["spec"]["externalMembers"] = []
@@ -225,6 +184,7 @@ def test_configure_ac(namespace: str, om_tester: OMTester, vm_sts, vm_service, c
     ac["auth"] = {
         "disabled": False,
         "authoritativeSet": False,
+        "autoUser": ac.get("auth", {}).get("autoUser", ""),
         "autoAuthMechanism": "SCRAM-SHA-256",
         "autoAuthMechanisms": ["SCRAM-SHA-256"],
         "autoAuthRestrictions": [],

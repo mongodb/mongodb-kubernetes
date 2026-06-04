@@ -2193,7 +2193,7 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 
 			finalProcesses = d.GetProcessNames(om.ShardedCluster{}, sc.Name)
 
-			return nil
+			return ensureKeyfileSecret(ctx, r.commonController.client, sc, d, sc.Name+"-agent-keyfile", "keyfile")
 		},
 		log,
 	)
