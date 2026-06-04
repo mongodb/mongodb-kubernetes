@@ -78,31 +78,43 @@ apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
 - role: control-plane
   image: ${kind_image}
+  labels:
+    mongodb.com/evergreen: true
   extraMounts:
   - containerPath: /var/lib/kubelet/config.json
     hostPath: ${HOME}/.docker/config.json
 - role: control-plane
   image: ${kind_image}
+  labels:
+    mongodb.com/evergreen: true
   extraMounts:
   - containerPath: /var/lib/kubelet/config.json
     hostPath: ${HOME}/.docker/config.json
 - role: control-plane
   image: ${kind_image}
+  labels:
+    mongodb.com/evergreen: true
   extraMounts:
   - containerPath: /var/lib/kubelet/config.json
     hostPath: ${HOME}/.docker/config.json
 - role: worker
   image: ${kind_image}
+  labels:
+    mongodb.com/evergreen: true
   extraMounts:
   - containerPath: /var/lib/kubelet/config.json
     hostPath: ${HOME}/.docker/config.json
 - role: worker
   image: ${kind_image}
+  labels:
+    mongodb.com/evergreen: true
   extraMounts:
   - containerPath: /var/lib/kubelet/config.json
     hostPath: ${HOME}/.docker/config.json
 - role: worker
   image: ${kind_image}
+  labels:
+    mongodb.com/evergreen: true
   extraMounts:
   - containerPath: /var/lib/kubelet/config.json
     hostPath: ${HOME}/.docker/config.json
@@ -125,6 +137,8 @@ apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
 - role: control-plane
   image: ${kind_image}
+  labels:
+    mongodb.com/evergreen: true
   extraMounts:
   - containerPath: /var/lib/kubelet/config.json
     hostPath: ${HOME}/.docker/config.json
