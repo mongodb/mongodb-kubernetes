@@ -42,11 +42,23 @@ def get_operator_search_version(namespace: str, operator: Operator) -> str:
 
 
 def get_mongot_image_tag(namespace: str) -> str:
-    """Read the image tag from the mongot container in the search StatefulSet."""
-    sts = get_statefulset(namespace, mongot_statefulset_name(MDB_RESOURCE_NAME))
-    mongot = next((c for c in sts.spec.template.spec.containers if c.name == "mongot"), None)
-    assert mongot is not None, "mongot container not found in StatefulSet"
-    return mongot.image.split(":")[-1]
+    """Read the image tag from the mongot container in the search StatefulSet.
+
+    Because in this test installs released operator and the name of K8s resources is diff
+    there than what is expected by helpers. That's why we try the new cluster-indexed naming first,
+    then fall back to previous naming for when the released (old) operator created the StatefulSet.
+    
+    TODO: Remove fallback after the next operator release ships with new naming.
+    """
+    for name in [mongot_statefulset_name(MDB_RESOURCE_NAME), f"{MDB_RESOURCE_NAME}-search"]:
+        try:
+            sts = get_statefulset(namespace, name)
+            mongot = next((c for c in sts.spec.template.spec.containers if c.name == "mongot"), None)
+            if mongot:
+                return mongot.image.split(":")[-1]
+        except Exception:
+            continue
+    raise AssertionError("mongot StatefulSet not found with either naming convention")
 
 
 def assert_mongot_version_matches_operator(namespace: str, operator: Operator, phase: str):
