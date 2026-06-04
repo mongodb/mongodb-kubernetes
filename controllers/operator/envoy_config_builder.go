@@ -23,6 +23,7 @@ import (
 	routerv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/router/v3"
 	tlsinspectorv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/listener/tls_inspector/v3"
 	hcmv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
+	previoushostsv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/retry/host/previous_hosts/v3"
 	tlsv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
 	upstreamhttpv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/upstreams/http/v3"
 	discoveryv3 "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
@@ -207,6 +208,8 @@ func buildRetryPolicy(rp *searchv1.EnvoyRetryPolicy) *routev3.RetryPolicy {
 		}
 	}
 
+	previousHostsCfg, _ := anypb.New(&previoushostsv3.PreviousHostsPredicate{})
+
 	return &routev3.RetryPolicy{
 		RetryOn:       "connect-failure,refused-stream,unavailable,reset,resource-exhausted",
 		NumRetries:    wrapperspb.UInt32(numRetries),
@@ -214,6 +217,9 @@ func buildRetryPolicy(rp *searchv1.EnvoyRetryPolicy) *routev3.RetryPolicy {
 		RetryHostPredicate: []*routev3.RetryPolicy_RetryHostPredicate{
 			{
 				Name: "envoy.retry_host_predicates.previous_hosts",
+				ConfigType: &routev3.RetryPolicy_RetryHostPredicate_TypedConfig{
+					TypedConfig: previousHostsCfg,
+				},
 			},
 		},
 		HostSelectionRetryMaxAttempts: 3,
