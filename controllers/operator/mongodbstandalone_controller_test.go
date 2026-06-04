@@ -89,7 +89,7 @@ func TestStandaloneClusterReconcileContainerImages(t *testing.T) {
 
 	ctx := context.Background()
 	st := DefaultStandaloneBuilder().SetVersion("8.0.0").Build()
-	reconciler, kubeClient, _ := defaultReplicaSetReconciler(ctx, imageUrlsMock, "2.0.0", "1.0.0", st)
+	reconciler, kubeClient, _ := defaultStandaloneReconciler(ctx, imageUrlsMock, "2.0.0", "1.0.0", om.NewEmptyMockedOmConnection, st)
 
 	checkReconcileSuccessful(ctx, t, reconciler, st, kubeClient)
 
@@ -117,7 +117,7 @@ func TestStandaloneClusterReconcileContainerImagesWithStaticArchitecture(t *test
 
 	ctx := context.Background()
 	st := DefaultStandaloneBuilder().SetVersion("8.0.0").Build()
-	reconciler, kubeClient, omConnectionFactory := defaultReplicaSetReconciler(ctx, imageUrlsMock, "", "", st)
+	reconciler, kubeClient, omConnectionFactory := defaultStandaloneReconciler(ctx, imageUrlsMock, "", "", om.NewEmptyMockedOmConnection, st)
 	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
 		connection.(*om.MockedOmConnection).SetAgentVersion("12.0.30.7791-1", "")
 	})

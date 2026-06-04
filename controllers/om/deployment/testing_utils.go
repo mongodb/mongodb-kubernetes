@@ -6,9 +6,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/replicaset"
-	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
-	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 )
 
 // CreateFromReplicaSet builds the replica set for the automation config
@@ -19,11 +17,6 @@ import (
 // when testing that specific package
 // https://github.com/golang/go/issues/10184#issuecomment-84465873
 func CreateFromReplicaSet(mongoDBImage string, forceEnterprise bool, rs *mdb.MongoDB) om.Deployment {
-	sts := construct.DatabaseStatefulSet(*rs, construct.ReplicaSetOptions(
-		func(options *construct.DatabaseStatefulSetOptions) {
-			options.PodVars = &env.PodEnvVars{ProjectID: "abcd"}
-		},
-	), zap.S())
 	d := om.NewDeployment()
 
 	lastConfig, err := mdb.GetLastAdditionalMongodConfigByType(nil, mdb.ReplicaSetConfig)
@@ -32,7 +25,7 @@ func CreateFromReplicaSet(mongoDBImage string, forceEnterprise bool, rs *mdb.Mon
 	}
 
 	d.MergeReplicaSet(
-		replicaset.BuildFromStatefulSet(mongoDBImage, forceEnterprise, sts, rs.GetSpec(), rs.Status.FeatureCompatibilityVersion, ""),
+		replicaset.BuildFromMongoDBWithReplicas(mongoDBImage, forceEnterprise, rs, rs.Spec.Replicas(), rs.Status.FeatureCompatibilityVersion, "", nil),
 		rs.Spec.AdditionalMongodConfig.ToMap(),
 		lastConfig.ToMap(),
 		nil,
