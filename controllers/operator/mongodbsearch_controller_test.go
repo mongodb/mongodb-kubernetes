@@ -1000,23 +1000,6 @@ func TestReconcile_SimulatedMC_ShardedSource_NoMatchSilentNoOp(t *testing.T) {
 		"state ConfigMap must not be created in sharded no-match path")
 }
 
-// MC validators run on the UN-narrowed spec — confirm that an invalid spec surfaces as PhaseFailed at the reconciler level. Validator content is covered by TestValidateSpec_MCShardedSource.
-func TestReconcile_SimulatedMC_ShardedSource_ValidationRunsPreLocalization(t *testing.T) {
-	ctx := context.Background()
-	search := newSimulatedMCShardedMongoDBSearch("mdb-search", mock.TestNamespace)
-	search.Spec.LoadBalancer.Managed.ExternalHostname = "{clusterName}.lb.example.com:443" // missing {shardName}
-
-	reconciler, c := newSimulatedMCSearchReconciler(t, "cluster-a", search)
-	req := reconcile.Request{NamespacedName: types.NamespacedName{Name: search.Name, Namespace: search.Namespace}}
-	_, err := reconciler.Reconcile(ctx, req)
-	require.NoError(t, err, "workflow.Invalid returns nil error; assert via Status")
-
-	got := &searchv1.MongoDBSearch{}
-	require.NoError(t, c.Get(ctx, req.NamespacedName, got))
-	require.Equal(t, status.PhaseFailed, got.Status.Phase,
-		"invalid-spec must surface as Failed phase, got %q (msg=%q)", got.Status.Phase, got.Status.Message)
-}
-
 // Simulated-MC enforces ClusterIndex on every spec.clusters[] entry. Both empty-clusters
 // and a nil-ClusterIndex entry must surface as Invalid (Failed phase) before LocalizeToCluster.
 func TestReconcile_SimulatedMC_ClusterIndexEnforcement(t *testing.T) {
