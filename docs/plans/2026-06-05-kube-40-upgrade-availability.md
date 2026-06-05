@@ -178,30 +178,19 @@ new entries; `python scripts/evergreen/...validate` (if present) green.
 
 ---
 
-## Task 6: Operator-driven upgrade suite (managed LB) @tdd
+## Task 6: Operator-version upgrade suite (released → dev, managed LB) @tdd
 
-**Revised during execution.** The original plan extended
-`operator_upgrade_search.py` to add operator-flavor classes upgrading
-**from the latest released operator**. Two facts changed that:
+**Revised during execution** (see the design's "Revision" section for the
+full audit trail, including one corrected wrong turn). Net result:
 
-1. **The feature is unreleased.** The released operator has no
-   envoy/managed-LB controller (and the official-operator install only
-   installs the Deployment, not the CRDs), so managed-LB-before-upgrade
-   is impossible on `official -> dev`. Per the "from = patch's base"
-   decision, the upgrade source must be the dev build, not the release.
-2. **This change is test-only** — `git diff` vs the base touches only
-   `tests/`, `docs/`, and `.evergreen*.yml`; **no operator Go code, no
-   Helm chart.** So the base-of-patch operator binary is byte-identical
-   to this build. "from = patch's base" therefore means the **same dev
-   operator on both sides**, and the operator-version upgrade is faithfully
-   modelled as a **bundled-image change** on that one operator (no
-   separately-built base image needed or meaningful).
-
-This also collapses the flavor set for an unreleased feature: with no
-binary or chart delta available, only the image-set change is
-constructible. A real **chart-version** upgrade needs a prior released
-chart that carries the feature, which won't exist until GA — so it is
-**deferred** (documented in the suite docstring + README), not faked.
+- **Single-cluster managed Envoy LB shipped in MCK 1.8.0** (1.8.1 is the
+  current release); only multi-cluster GA is unreleased. KUBE-40's
+  single-cluster RS + managed LB topology is the 1.8.0 feature set, so the
+  **latest released operator can deploy it**.
+- So the upgrade source is the **latest released operator (1.8.1)** — the
+  real customer chart-upgrade path — not the dev build. The real binary
+  delta makes **no-image-bump** meaningful and the **chart-version**
+  upgrade constructible (no deferral).
 
 **Files:**
 - Create: `docker/mongodb-kubernetes-tests/tests/search/search_availability_upgrade_operator.py`
@@ -211,27 +200,28 @@ chart that carries the feature, which won't exist until GA — so it is
   (use the shared `assert_rolled_through`)
 
 New suite, marker `e2e_search_availability_upgrade_operator`, **own EVG
-task → own node** (one-deploy-per-node CPU limit; can't co-locate with the
-released-path deploy in `operator_upgrade_search.py`). Reuses the proven
-managed-LB bootstrap deploy chain (2 mongot + 2 envoy). The existing
-released-operator -> dev single-mongot test in
-`tests/upgrades/operator_upgrade_search.py` is left intact (additive).
+task → own node** (one-deploy-per-node CPU limit). Reuses the proven
+managed-LB bootstrap deploy chain (2 mongot + 2 envoy) on the **released
+operator** (`official_operator` fixture), then decomposes the upgrade to
+this build into its two effects on the one deployment:
 
-- `TestInstallOperator` — installs the dev operator pinned to older
-  `search.version` / `search.envoyImage` Helm values (the upgrade source).
-- `TestOperatorDefaultImageBump` — Helm-upgrade the operator back to the
-  build's default images; mongot (and envoy, when an older envoy image was
-  the source) rolls; assert ride-through + disruption ≤ bound; emit metric.
-  Skips when `OPERATOR_FROM_MONGOT_VERSION` is unset.
-- `TestOperatorNoImageBump` — restart the operator with images held;
-  measure the gratuitous-roll count + assert continuous availability. No
-  hard zero-roll assert yet (report until the gratuitous-roll fix lands).
+- `TestInstallOperator` — installs the latest released operator
+  (`official_operator`); deploy chain brings up managed LB on it.
+- `TestOperatorUpgradeNoImageBump` — upgrade the binary to this build with
+  the bundled mongot/envoy images **held** to the released operator's
+  values (read off its Deployment env into `search.version` /
+  `search.envoyImage` overrides); measure the gratuitous-roll count +
+  assert continuous availability. No hard zero-roll assert yet.
+- `TestOperatorUpgradeImageBump` — upgrade the images to the build
+  defaults; the data plane rolls; assert ride-through + disruption ≤ bound;
+  emit metric.
 
-All scenarios EVG-only: `pytest.skip` when the operator runs out-of-cluster
-(Deployment absent / `replicas==0`). The deploy chain runs anywhere.
+Together (binary + images) these are the released → dev chart upgrade.
+EVG-only: module `skipif local_operator()` — released-then-dev in-cluster
+operators are incompatible with the local `make run` operator.
 
-**RED/GREEN:** local → deploy runs, both scenarios SKIP (operator
-out-of-cluster). Real GREEN is the definitive patch.
+**RED/GREEN:** local → whole suite SKIPS (`local_operator()`). Real GREEN
+is the definitive patch.
 
 **Commit:** `test(search): operator-driven upgrade availability suite (managed LB)`
 

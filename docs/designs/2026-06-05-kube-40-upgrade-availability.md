@@ -165,40 +165,56 @@ does **not** match `e2e_search_availability_`:
 Changelog: internal test infra → `skip-changelog` label (KUBE-37
 precedent). TDD is e2e-only (no unit tests for the test framework).
 
-## Revision (during execution) — operator-flavor upgrade source
+## Revision (during execution) — operator-version upgrade source
 
-The original design extended `operator_upgrade_search.py` to add
-operator-flavor classes upgrading **from the latest released operator**.
-Execution surfaced two facts that reshaped this:
+The operator-version flavors went through one wrong turn before landing.
 
-- **The managed-LB/envoy feature is unreleased.** The released operator
-  has no envoy controller, and `install_official_operator` installs only
-  the operator Deployment (not the CRDs) — so managed-LB-before-upgrade
-  is impossible on `official -> dev`. The decision: **from = the patch's
-  base** (the dev build), not the release.
-- **This change is test-only.** The diff vs base touches only `tests/`,
-  `docs/`, and `.evergreen*.yml` — no operator Go code, no Helm chart. So
-  the base-of-patch operator binary is identical to this build, and
-  "from = patch's base" means the **same dev operator on both sides**.
-  The operator-version upgrade is then faithfully modelled as a
-  **bundled-image change** (`search.version` / `search.envoyImage` Helm
-  values) on that one operator — install pinned to older images, then
-  Helm-upgrade back to the build defaults so the operator rolls the data
-  plane. No separately-built base image is needed or meaningful.
+**Wrong turn (corrected):** an intermediate design assumed the
+managed-LB/envoy feature was unreleased, concluded `official -> dev`
+managed LB was impossible, and pivoted to a **dev -> dev bundled-image
+change** with the **chart-version flavor deferred**. A Glean check
+disproved the premise:
 
-Consequences:
-- The operator flavors moved to a **new managed-LB suite**,
-  `tests/search/search_availability_upgrade_operator.py` (marker
-  `e2e_search_availability_upgrade_operator`, own EVG task → own node, to
-  respect the one-deploy-per-node CPU limit). It runs the deploy on a
-  managed-LB topology so both mongot and envoy roll counts are meaningful.
-- `operator_upgrade_search.py` keeps its released-operator -> dev
+- **Single-cluster managed Envoy LB shipped in MCK 1.8.0 (2026-04-02);**
+  1.8.1 (2026-04-27) is the current public release. Only the **multi-cluster**
+  managed LB / full Search GA is unreleased (planned 1.9.0, 2026-06-30).
+- KUBE-40's topology is **single-cluster RS + managed LB** — exactly the
+  1.8.0 feature set. So the latest released operator **can** deploy it.
+
+**Corrected approach — from = the latest released operator (1.8.1):** the
+real customer chart-upgrade path, `released -> dev`, on a managed-LB
+deployment. This is strictly better than the dev -> dev workaround and
+makes all the behaviors honest:
+
+- A **real operator binary delta** (1.8.1 -> dev) makes **no-image-bump**
+  meaningful — it genuinely measures whether the new binary gratuitously
+  rolls the data plane (the real gratuitous-roll question), which the
+  dev -> dev version could not.
+- The **chart-version** upgrade is **constructible** (1.8.1 is a real
+  prior released chart that carries the feature) — no deferral.
+
+The suite decomposes the upgrade into its two effects on one managed-LB
+deployment (one EVG task → one node, respecting the one-deploy-per-node
+CPU limit), measured in isolation:
+
+1. **no-image-bump** — upgrade the binary with bundled images held to the
+   released operator's values (read off its Deployment env into
+   `search.version` / `search.envoyImage` overrides); measure the
+   gratuitous-roll count; assert continuous availability. No hard
+   zero-roll assert yet.
+2. **default-image-bump** — upgrade the images to the build defaults; the
+   data plane rolls; assert ride-through + a disruption bound.
+
+Together (binary + images) these are the released → dev chart upgrade.
+
+Consequences / artifacts:
+- New suite `tests/search/search_availability_upgrade_operator.py`
+  (marker `e2e_search_availability_upgrade_operator`), EVG-only
+  (`skipif local_operator()` — released-then-dev in-cluster operators are
+  incompatible with the local `make run` operator).
+- `operator_upgrade_search.py` keeps its atomic `released -> dev`
   single-mongot upgrade test intact (additive over the parent).
-- The **chart-version** flavor is **deferred**: a real chart-version
-  upgrade needs a prior released chart carrying the (unreleased) feature,
-  which won't exist until GA. Documented in the suite docstring + README
-  rather than faked.
-- The metric log prefix was renamed `KUBE40_METRIC` -> `SEARCH_UPGRADE_METRIC`
+- Metric log prefix renamed `KUBE40_METRIC` -> `SEARCH_UPGRADE_METRIC`
   (code carries no ticket references).
 
 See: docs/plans/2026-06-05-kube-40-upgrade-availability.md
