@@ -67,9 +67,11 @@ DISRUPTION_BOUND_S = 60.0
 # mongot tag to upgrade to (used as the image tag via spec.version). Default is a published
 # staging/mongodb-search manifest tag newer than the operator default; override per-env.
 MONGOT_UPGRADE_VERSION = os.getenv("MONGOT_UPGRADE_VERSION", "9872ab5089")
-# envoy image to upgrade to. Unset -> the envoy path skips (it needs an in-cluster operator
-# restart to take effect, so it only runs in CI where a target image is supplied).
-ENVOY_UPGRADE_IMAGE = os.getenv("ENVOY_UPGRADE_IMAGE")
+# envoy image to roll to (full image string set on the operator's MDB_ENVOY_IMAGE). Defaults to a
+# same-minor patch of the bundled envoy, which shares envoy's v3 config surface so it can't crashloop
+# yet still forces a real Deployment roll. Needs an in-cluster operator, so it only runs in CI; set to
+# an empty string to opt out.
+ENVOY_UPGRADE_IMAGE = os.getenv("ENVOY_UPGRADE_IMAGE", "envoyproxy/envoy:v1.37.0")
 # Operator env var that holds the managed-LB envoy image (pkg/util/constants.go EnvoyImageEnv).
 ENVOY_IMAGE_ENV = "MDB_ENVOY_IMAGE"
 

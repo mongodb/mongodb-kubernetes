@@ -74,10 +74,10 @@ DISRUPTION_BOUND_S = 60.0
 # Bundled images to install the "from" operator with, so the upgrade back to the build's defaults
 # rolls the data plane. ``search.version`` is the mongot image tag (default differs from the build's
 # bundled default, so the bump rolls mongot; override per-env); ``search.envoyImage`` the full envoy
-# image — unset by default, so envoy is not rolled by the bump until a valid alternate envoy image is
-# supplied (envoy-roll coverage otherwise lands on the dataplane envoy-image path).
+# image, defaulted to a same-minor patch of the bundled envoy so the bump rolls envoy too without risk
+# of a config-incompatible crashloop. Set either to an empty string to drop it from the bump.
 OPERATOR_FROM_MONGOT_VERSION = os.getenv("OPERATOR_FROM_MONGOT_VERSION", "9872ab5089")
-OPERATOR_FROM_ENVOY_IMAGE = os.getenv("OPERATOR_FROM_ENVOY_IMAGE")
+OPERATOR_FROM_ENVOY_IMAGE = os.getenv("OPERATOR_FROM_ENVOY_IMAGE", "envoyproxy/envoy:v1.37.0")
 
 
 # --- shared helpers -------------------------------------------------------
@@ -237,6 +237,10 @@ class TestOperatorDefaultImageBump:
         assert (
             rolls_mongot >= SEARCH.mongot_replicas
         ), f"expected all {SEARCH.mongot_replicas} mongot to roll, got {rolls_mongot}"
+        # When the "from" install pinned an older envoy image, the bump back to the bundled default
+        # must roll envoy too.
+        if OPERATOR_FROM_ENVOY_IMAGE:
+            assert rolls_envoy >= 1, f"envoy image bumped but no envoy pod rolled (rolls_envoy={rolls_envoy})"
         assert_rolled_through(
             paging.verdict,
             ok_at_recovery,
