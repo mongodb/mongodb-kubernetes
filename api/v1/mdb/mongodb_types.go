@@ -1889,10 +1889,10 @@ func NewMongoDBConnectionStringBuilder(mdb MongoDB, hostnames []string) *MongoDB
 }
 
 func (m *MongoDBConnectionStringBuilder) BuildConnectionString(username, password string, scheme connectionstring.Scheme, connectionParams map[string]string) string {
-	var name string
+	name := m.Name
 	if m.Spec.ResourceType == ShardedCluster {
 		name = m.MongosRsName()
-	} else {
+	} else if m.Spec.ResourceType == ReplicaSet {
 		name = m.GetReplicaSetName()
 	}
 
