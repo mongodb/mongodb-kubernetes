@@ -38,7 +38,21 @@ func newVoyageAIReconcilerWithConfig(
 	config OperatorVoyageAIConfig,
 	objects ...client.Object,
 ) (*VoyageAIReconciler, client.Client) {
-	builder := mock.NewEmptyFakeClientBuilder()
+	builder := mock.NewEmptyFakeClientBuilder().
+		WithIndex(&vaiv1.VoyageAI{}, voyageAITLSCertSecretIndex, func(o client.Object) []string {
+			vai := o.(*vaiv1.VoyageAI)
+			if vai.Spec.Security.TLS == nil {
+				return nil
+			}
+			return []string{vai.Spec.Security.TLS.CertificateKeySecretRef.Name}
+		}).
+		WithIndex(&vaiv1.VoyageAI{}, voyageAITLSCAConfigMapIndex, func(o client.Object) []string {
+			vai := o.(*vaiv1.VoyageAI)
+			if vai.Spec.Security.TLS == nil || vai.Spec.Security.TLS.CAConfigMapRef == nil {
+				return nil
+			}
+			return []string{vai.Spec.Security.TLS.CAConfigMapRef.Name}
+		})
 	if len(objects) > 0 {
 		builder.WithObjects(objects...)
 	}
@@ -624,6 +638,62 @@ func TestBuildResourceRequirements_UserOverridesGPU(t *testing.T) {
 
 // --- TLS volume mount tests ---
 
+func TestVoyageAI_Probes_mTLSUsesTCPSocket(t *testing.T) {
+	ctx := context.Background()
+	vai := newVoyageAI("vai", mock.TestNamespace, vaiv1.VoyageAIModelVoyage4, "1.0.0")
+	vai.Spec.Server.Port = 8080
+	vai.Spec.Security.TLS = &vaiv1.TLS{
+		CertificateKeySecretRef: corev1.LocalObjectReference{Name: "tls-secret"},
+		CAConfigMapRef:          &corev1.LocalObjectReference{Name: "ca-configmap"},
+	}
+	reconciler, c := newVoyageAIReconcilerWithConfig(defaultVoyageAIConfig(), vai)
+
+	_, err := reconcileVoyageAI(ctx, t, reconciler, vai.Name, vai.Namespace)
+	require.NoError(t, err)
+
+	dep := getVoyageAIDeployment(ctx, t, c, vai)
+	cont := getVoyageAIContainer(dep)
+
+	for name, probe := range map[string]*corev1.Probe{
+		"startup":   cont.StartupProbe,
+		"readiness": cont.ReadinessProbe,
+		"liveness":  cont.LivenessProbe,
+	} {
+		require.NotNil(t, probe, "%s probe should be set", name)
+		require.Nil(t, probe.HTTPGet, "%s probe should not be HTTPGet in mTLS mode", name)
+		require.Nil(t, probe.Exec, "%s probe should not be Exec in mTLS mode", name)
+		require.NotNil(t, probe.TCPSocket, "%s probe should be TCPSocket in mTLS mode", name)
+		assert.Equal(t, int32(8080), probe.TCPSocket.Port.IntVal)
+	}
+}
+
+func TestVoyageAI_Probes_TLSWithoutCAUsesHTTPS(t *testing.T) {
+	ctx := context.Background()
+	vai := newVoyageAI("vai", mock.TestNamespace, vaiv1.VoyageAIModelVoyage4, "1.0.0")
+	vai.Spec.Server.Port = 8443
+	vai.Spec.Security.TLS = &vaiv1.TLS{
+		CertificateKeySecretRef: corev1.LocalObjectReference{Name: "tls-secret"},
+	}
+	reconciler, c := newVoyageAIReconcilerWithConfig(defaultVoyageAIConfig(), vai)
+
+	_, err := reconcileVoyageAI(ctx, t, reconciler, vai.Name, vai.Namespace)
+	require.NoError(t, err)
+
+	dep := getVoyageAIDeployment(ctx, t, c, vai)
+	cont := getVoyageAIContainer(dep)
+
+	for name, probe := range map[string]*corev1.Probe{
+		"startup":   cont.StartupProbe,
+		"readiness": cont.ReadinessProbe,
+		"liveness":  cont.LivenessProbe,
+	} {
+		require.NotNil(t, probe, "%s probe should be set", name)
+		require.NotNil(t, probe.HTTPGet, "%s probe should be HTTPGet when no CA configured", name)
+		require.Nil(t, probe.Exec, "%s probe should not be Exec when no CA configured", name)
+		assert.Equal(t, corev1.URISchemeHTTPS, probe.HTTPGet.Scheme)
+	}
+}
+
 func TestVoyageAI_TLS(t *testing.T) {
 	ctx := context.Background()
 	vai := newVoyageAI("vai", mock.TestNamespace, vaiv1.VoyageAIModelVoyage4, "1.0.0")
@@ -917,6 +987,129 @@ func TestVoyageAIReconcile_StatusVersionFromOperatorConfig(t *testing.T) {
 	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: vai.Name, Namespace: vai.Namespace}, updated))
 	// Version from spec takes precedence
 	assert.Equal(t, "2.5.0", updated.Status.Version)
+}
+
+// --- Secondary-resource mapping tests ---
+
+func TestVoyageAI_MapSecretToVoyageAI_MatchesTLSCertRef(t *testing.T) {
+	ctx := context.Background()
+	vai := newVoyageAI("vai", mock.TestNamespace, vaiv1.VoyageAIModelVoyage4, "1.0.0")
+	vai.Spec.Security.TLS = &vaiv1.TLS{
+		CertificateKeySecretRef: corev1.LocalObjectReference{Name: "tls-secret"},
+	}
+	reconciler, _ := newVoyageAIReconcilerWithConfig(defaultVoyageAIConfig(), vai)
+
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "tls-secret", Namespace: mock.TestNamespace},
+	}
+
+	requests := reconciler.mapSecretToVoyageAI(ctx, secret)
+	require.Len(t, requests, 1)
+	assert.Equal(t, vai.Name, requests[0].Name)
+	assert.Equal(t, vai.Namespace, requests[0].Namespace)
+}
+
+func TestVoyageAI_MapSecretToVoyageAI_NoMatch(t *testing.T) {
+	ctx := context.Background()
+	vai := newVoyageAI("vai", mock.TestNamespace, vaiv1.VoyageAIModelVoyage4, "1.0.0")
+	vai.Spec.Security.TLS = &vaiv1.TLS{
+		CertificateKeySecretRef: corev1.LocalObjectReference{Name: "tls-secret"},
+	}
+	reconciler, _ := newVoyageAIReconcilerWithConfig(defaultVoyageAIConfig(), vai)
+
+	other := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "some-other-secret", Namespace: mock.TestNamespace},
+	}
+
+	assert.Empty(t, reconciler.mapSecretToVoyageAI(ctx, other))
+}
+
+func TestVoyageAI_MapSecretToVoyageAI_NoTLSConfigured(t *testing.T) {
+	ctx := context.Background()
+	vai := newVoyageAI("vai", mock.TestNamespace, vaiv1.VoyageAIModelVoyage4, "1.0.0")
+	reconciler, _ := newVoyageAIReconcilerWithConfig(defaultVoyageAIConfig(), vai)
+
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "anything", Namespace: mock.TestNamespace},
+	}
+
+	assert.Empty(t, reconciler.mapSecretToVoyageAI(ctx, secret))
+}
+
+func TestVoyageAI_MapSecretToVoyageAI_NamespaceIsolation(t *testing.T) {
+	ctx := context.Background()
+	vai := newVoyageAI("vai", mock.TestNamespace, vaiv1.VoyageAIModelVoyage4, "1.0.0")
+	vai.Spec.Security.TLS = &vaiv1.TLS{
+		CertificateKeySecretRef: corev1.LocalObjectReference{Name: "tls-secret"},
+	}
+	reconciler, _ := newVoyageAIReconcilerWithConfig(defaultVoyageAIConfig(), vai)
+
+	// Secret with the right name but in a different namespace must not match.
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "tls-secret", Namespace: "other-namespace"},
+	}
+
+	assert.Empty(t, reconciler.mapSecretToVoyageAI(ctx, secret))
+}
+
+func TestVoyageAI_MapConfigMapToVoyageAI_MatchesCARef(t *testing.T) {
+	ctx := context.Background()
+	vai := newVoyageAI("vai", mock.TestNamespace, vaiv1.VoyageAIModelVoyage4, "1.0.0")
+	vai.Spec.Security.TLS = &vaiv1.TLS{
+		CertificateKeySecretRef: corev1.LocalObjectReference{Name: "tls-secret"},
+		CAConfigMapRef:          &corev1.LocalObjectReference{Name: "ca-configmap"},
+	}
+	reconciler, _ := newVoyageAIReconcilerWithConfig(defaultVoyageAIConfig(), vai)
+
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: "ca-configmap", Namespace: mock.TestNamespace},
+	}
+
+	requests := reconciler.mapConfigMapToVoyageAI(ctx, cm)
+	require.Len(t, requests, 1)
+	assert.Equal(t, vai.Name, requests[0].Name)
+}
+
+func TestVoyageAI_MapConfigMapToVoyageAI_NoMatchWhenCAAbsent(t *testing.T) {
+	ctx := context.Background()
+	vai := newVoyageAI("vai", mock.TestNamespace, vaiv1.VoyageAIModelVoyage4, "1.0.0")
+	vai.Spec.Security.TLS = &vaiv1.TLS{
+		CertificateKeySecretRef: corev1.LocalObjectReference{Name: "tls-secret"},
+	}
+	reconciler, _ := newVoyageAIReconcilerWithConfig(defaultVoyageAIConfig(), vai)
+
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: "ca-configmap", Namespace: mock.TestNamespace},
+	}
+
+	assert.Empty(t, reconciler.mapConfigMapToVoyageAI(ctx, cm))
+}
+
+func TestVoyageAI_MapSecretToVoyageAI_MultipleDependents(t *testing.T) {
+	ctx := context.Background()
+	vaiA := newVoyageAI("vai-a", mock.TestNamespace, vaiv1.VoyageAIModelVoyage4, "1.0.0")
+	vaiA.Spec.Security.TLS = &vaiv1.TLS{
+		CertificateKeySecretRef: corev1.LocalObjectReference{Name: "shared-secret"},
+	}
+	vaiB := newVoyageAI("vai-b", mock.TestNamespace, vaiv1.VoyageAIModelRerank25, "1.0.0")
+	vaiB.Spec.Security.TLS = &vaiv1.TLS{
+		CertificateKeySecretRef: corev1.LocalObjectReference{Name: "shared-secret"},
+	}
+	reconciler, _ := newVoyageAIReconcilerWithConfig(defaultVoyageAIConfig(), vaiA, vaiB)
+
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "shared-secret", Namespace: mock.TestNamespace},
+	}
+
+	requests := reconciler.mapSecretToVoyageAI(ctx, secret)
+	require.Len(t, requests, 2)
+
+	names := map[string]bool{}
+	for _, req := range requests {
+		names[req.Name] = true
+	}
+	assert.True(t, names["vai-a"])
+	assert.True(t, names["vai-b"])
 }
 
 // --- Idempotent reconciliation test ---

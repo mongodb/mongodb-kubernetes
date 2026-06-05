@@ -9,10 +9,13 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -22,7 +25,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	vaiv1 "github.com/mongodb/mongodb-kubernetes/api/voyageai/v1/vai"
-	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/container"
@@ -47,6 +49,12 @@ const (
 	voyageAIStartupPath   = "/health/startup"
 	voyageAIReadinessPath = "/health/readiness"
 	voyageAILivenessPath  = "/health/liveness"
+
+	// Field indexes used to find VoyageAI resources that reference a given
+	// Secret or ConfigMap. The cache builds these indexes when the controller
+	// starts so map-funcs can look up dependents in O(1).
+	voyageAITLSCertSecretIndex  = ".spec.security.tls.certificateKeySecretRef.name"
+	voyageAITLSCAConfigMapIndex = ".spec.security.tls.caConfigMapRef.name"
 )
 
 type OperatorVoyageAIConfig struct {
@@ -56,14 +64,12 @@ type OperatorVoyageAIConfig struct {
 
 type VoyageAIReconciler struct {
 	kubeClient             kubernetesClient.Client
-	watch                  *watch.ResourceWatcher
 	operatorVoyageAIConfig OperatorVoyageAIConfig
 }
 
 func newVoyageAIReconciler(client client.Client, config OperatorVoyageAIConfig) *VoyageAIReconciler {
 	return &VoyageAIReconciler{
 		kubeClient:             kubernetesClient.NewClient(client),
-		watch:                  watch.NewResourceWatcher(),
 		operatorVoyageAIConfig: config,
 	}
 }
@@ -82,15 +88,6 @@ func (r *VoyageAIReconciler) Reconcile(ctx context.Context, request reconcile.Re
 
 	if err := vai.Validate(); err != nil {
 		return commoncontroller.UpdateStatus(ctx, r.kubeClient, vai, workflow.Failed(xerrors.Errorf("validation failed: %w", err)), log)
-	}
-
-	// Watch TLS secrets if configured
-	if vai.IsTLSConfigured() {
-		tlsCfg := vai.Spec.Security.TLS
-		r.watch.AddWatchedResourceIfNotAdded(tlsCfg.CertificateKeySecretRef.Name, vai.Namespace, watch.Secret, vai.NamespacedName())
-		if tlsCfg.CAConfigMapRef != nil {
-			r.watch.AddWatchedResourceIfNotAdded(tlsCfg.CAConfigMapRef.Name, vai.Namespace, watch.ConfigMap, vai.NamespacedName())
-		}
 	}
 
 	dep, err := r.ensureDeployment(ctx, vai, log)
@@ -136,6 +133,8 @@ func (r *VoyageAIReconciler) ensureDeployment(ctx context.Context, vai *vaiv1.Vo
 		})
 	}
 
+	mTLSEnabled := tlsEnabled && vai.Spec.Security.TLS.CAConfigMapRef != nil
+
 	containerMods := []container.Modification{
 		container.WithName("voyageai"),
 		container.WithImage(image),
@@ -143,13 +142,7 @@ func (r *VoyageAIReconciler) ensureDeployment(ctx context.Context, vai *vaiv1.Vo
 		container.WithEnvs(buildEnvVars(&vai.Spec, tlsEnabled)...),
 		container.WithResourceRequirements(buildResourceRequirements(vai.Spec.ResourceRequirements)),
 		container.WithStartupProbe(probes.Apply(
-			probes.WithHandler(corev1.ProbeHandler{
-				HTTPGet: &corev1.HTTPGetAction{
-					Path:   voyageAIStartupPath,
-					Port:   intstr.FromInt32(vai.Spec.Server.Port),
-					Scheme: probeScheme,
-				},
-			}),
+			probes.WithHandler(buildProbeHandler(voyageAIStartupPath, vai.Spec.Server.Port, probeScheme, mTLSEnabled)),
 			// GPU model weights can take many minutes to load into device memory.
 			// 60 failures × 10s period = 10 minutes before Kubernetes gives up.
 			probes.WithPeriodSeconds(10),
@@ -157,25 +150,13 @@ func (r *VoyageAIReconciler) ensureDeployment(ctx context.Context, vai *vaiv1.Vo
 			probes.WithTimeoutSeconds(5),
 		)),
 		container.WithReadinessProbe(probes.Apply(
-			probes.WithHandler(corev1.ProbeHandler{
-				HTTPGet: &corev1.HTTPGetAction{
-					Path:   voyageAIReadinessPath,
-					Port:   intstr.FromInt32(vai.Spec.Server.Port),
-					Scheme: probeScheme,
-				},
-			}),
+			probes.WithHandler(buildProbeHandler(voyageAIReadinessPath, vai.Spec.Server.Port, probeScheme, mTLSEnabled)),
 			probes.WithPeriodSeconds(10),
 			probes.WithFailureThreshold(3),
 			probes.WithTimeoutSeconds(5),
 		)),
 		container.WithLivenessProbe(probes.Apply(
-			probes.WithHandler(corev1.ProbeHandler{
-				HTTPGet: &corev1.HTTPGetAction{
-					Path:   voyageAILivenessPath,
-					Port:   intstr.FromInt32(vai.Spec.Server.Port),
-					Scheme: probeScheme,
-				},
-			}),
+			probes.WithHandler(buildProbeHandler(voyageAILivenessPath, vai.Spec.Server.Port, probeScheme, mTLSEnabled)),
 			probes.WithPeriodSeconds(10),
 			probes.WithFailureThreshold(3),
 			probes.WithTimeoutSeconds(5),
@@ -449,6 +430,27 @@ func voyageAIPodLabels(vai *vaiv1.VoyageAI) map[string]string {
 	}
 }
 
+// buildProbeHandler returns the appropriate probe handler for the given path.
+// In mTLS mode the kubelet's HTTPS probe cannot present a client certificate
+// (kubelet has no built-in support for it — see kubernetes/kubernetes#39637),
+// so we fall back to a TCP socket probe that just verifies the port is
+// listening. This loses application-level health signal in mTLS mode; see the
+// CRD design doc for the trade-off discussion.
+func buildProbeHandler(path string, port int32, scheme corev1.URIScheme, mTLS bool) corev1.ProbeHandler {
+	if mTLS {
+		return corev1.ProbeHandler{
+			TCPSocket: &corev1.TCPSocketAction{Port: intstr.FromInt32(port)},
+		}
+	}
+	return corev1.ProbeHandler{
+		HTTPGet: &corev1.HTTPGetAction{
+			Path:   path,
+			Port:   intstr.FromInt32(port),
+			Scheme: scheme,
+		},
+	}
+}
+
 func int32ToString(v int32) string {
 	return strconv.FormatInt(int64(v), 10)
 }
@@ -464,12 +466,67 @@ func msToSecondsFloat(ms int32) string {
 func AddVoyageAIController(ctx context.Context, mgr manager.Manager, config OperatorVoyageAIConfig) error {
 	r := newVoyageAIReconciler(mgr.GetClient(), config)
 
+	// Index VoyageAI resources by the names of the Secret and ConfigMap they
+	// reference. The map-funcs below query these indexes to enqueue dependents
+	// when a referenced Secret/ConfigMap changes.
+	if err := mgr.GetFieldIndexer().IndexField(ctx, &vaiv1.VoyageAI{}, voyageAITLSCertSecretIndex, func(o client.Object) []string {
+		vai := o.(*vaiv1.VoyageAI)
+		if vai.Spec.Security.TLS == nil {
+			return nil
+		}
+		return []string{vai.Spec.Security.TLS.CertificateKeySecretRef.Name}
+	}); err != nil {
+		return xerrors.Errorf("failed to index VoyageAI by TLS cert secret name: %w", err)
+	}
+
+	if err := mgr.GetFieldIndexer().IndexField(ctx, &vaiv1.VoyageAI{}, voyageAITLSCAConfigMapIndex, func(o client.Object) []string {
+		vai := o.(*vaiv1.VoyageAI)
+		if vai.Spec.Security.TLS == nil || vai.Spec.Security.TLS.CAConfigMapRef == nil {
+			return nil
+		}
+		return []string{vai.Spec.Security.TLS.CAConfigMapRef.Name}
+	}); err != nil {
+		return xerrors.Errorf("failed to index VoyageAI by TLS CA configmap name: %w", err)
+	}
+
 	return ctrl.NewControllerManagedBy(mgr).
 		WithOptions(controller.Options{MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)}). // nolint:forbidigo
 		For(&vaiv1.VoyageAI{}).
-		Watches(&corev1.Secret{}, &watch.ResourcesHandler{ResourceType: watch.Secret, ResourceWatcher: r.watch}).
-		Watches(&corev1.ConfigMap{}, &watch.ResourcesHandler{ResourceType: watch.ConfigMap, ResourceWatcher: r.watch}).
+		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.mapSecretToVoyageAI)).
+		Watches(&corev1.ConfigMap{}, handler.EnqueueRequestsFromMapFunc(r.mapConfigMapToVoyageAI)).
 		Owns(&appsv1.Deployment{}).
 		Owns(&corev1.Service{}).
 		Complete(r)
+}
+
+// mapSecretToVoyageAI returns reconcile requests for VoyageAI resources that
+// reference the given Secret via spec.security.tls.certificateKeySecretRef.
+// The cache index ensures this lookup is O(1) regardless of resource count.
+func (r *VoyageAIReconciler) mapSecretToVoyageAI(ctx context.Context, obj client.Object) []reconcile.Request {
+	return r.enqueueDependents(ctx, voyageAITLSCertSecretIndex, obj.GetName(), obj.GetNamespace())
+}
+
+// mapConfigMapToVoyageAI returns reconcile requests for VoyageAI resources that
+// reference the given ConfigMap via spec.security.tls.caConfigMapRef.
+func (r *VoyageAIReconciler) mapConfigMapToVoyageAI(ctx context.Context, obj client.Object) []reconcile.Request {
+	return r.enqueueDependents(ctx, voyageAITLSCAConfigMapIndex, obj.GetName(), obj.GetNamespace())
+}
+
+func (r *VoyageAIReconciler) enqueueDependents(ctx context.Context, indexKey, name, namespace string) []reconcile.Request {
+	var list vaiv1.VoyageAIList
+	if err := r.kubeClient.List(ctx, &list,
+		client.InNamespace(namespace),
+		client.MatchingFieldsSelector{Selector: fields.OneTermEqualSelector(indexKey, name)},
+	); err != nil {
+		zap.S().Errorf("failed to list VoyageAI resources for %s=%s in %s: %v", indexKey, name, namespace, err)
+		return nil
+	}
+
+	requests := make([]reconcile.Request, 0, len(list.Items))
+	for _, vai := range list.Items {
+		requests = append(requests, reconcile.Request{
+			NamespacedName: types.NamespacedName{Name: vai.Name, Namespace: vai.Namespace},
+		})
+	}
+	return requests
 }
