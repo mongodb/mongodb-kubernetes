@@ -10,6 +10,7 @@ spec:
   additionalMongodConfig:
     net:
       tls:
+        allowConnectionsWithoutCertificates: false
         mode: allowTLS
   agent:
     maxLogFileDurationHours: 0

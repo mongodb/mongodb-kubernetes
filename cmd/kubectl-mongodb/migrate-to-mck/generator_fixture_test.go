@@ -85,7 +85,7 @@ func TestFixtureMatch_ReplicaSet(t *testing.T) {
 	projectCfg := fullTestConfigs()
 	cases := []fixtureCase{
 		{
-			name:     "single-cluster replica set — SCRAM, TLS, LDAP, Prometheus, log rotation",
+			name:     "complex replica set with SCRAM, TLS, LDAP, Prometheus and log rotation",
 			fixture:  "singlecluster/replicaset/complex_replicaset/complex_replicaset",
 			hasUsers: true,
 			opts: GenerateOptions{
@@ -95,49 +95,49 @@ func TestFixtureMatch_ReplicaSet(t *testing.T) {
 			},
 		},
 		{
-			name:    "additionalMongodConfig — unknown fields (zstdCompressionLevel) are passed through",
+			name:    "unknown additionalMongodConfig fields like zstdCompressionLevel are passed through",
 			fixture: "singlecluster/replicaset/additional_mongod_config/additional_mongod_config",
 		},
 		{
-			name:    "different mongod config — additionalMongodConfig taken from first process",
+			name:    "additionalMongodConfig is taken from the first process when members differ",
 			fixture: "singlecluster/replicaset/different_mongod_config/different_mongod_config",
 		},
 		{
-			name:    "TLS requireSSL — TLS enabled, mode not in additionalMongodConfig",
+			name:    "TLS requireSSL with clientCertificateMode OPTIONAL does not set allowConnectionsWithoutCertificates",
 			fixture: "singlecluster/replicaset/tls/require/require",
 			opts:    GenerateOptions{CertsSecretPrefix: "mdb"},
 		},
 		{
-			name:    "TLS allowTLS — TLS enabled, mode preserved in additionalMongodConfig",
+			name:    "TLS allowTLS with clientCertificateMode REQUIRE sets allowConnectionsWithoutCertificates to false",
 			fixture: "singlecluster/replicaset/tls/allow/allow",
 			opts:    GenerateOptions{CertsSecretPrefix: "mdb"},
 		},
 		{
-			name:    "TLS disabled — no TLS section at all",
+			name:    "TLS disabled produces no TLS section in the CR",
 			fixture: "singlecluster/replicaset/tls/disabled/disabled",
 		},
 		{
-			name:    "auth disabled — no security block",
+			name:    "auth disabled produces no security block",
 			fixture: "singlecluster/replicaset/authentication/disabled/disabled",
 		},
 		{
-			name:     "SCRAM-SHA-256 auth — single mechanism with user password secrets",
+			name:     "SCRAM-SHA-256 auth generates user CRs with password secrets",
 			fixture:  "singlecluster/replicaset/authentication/scram_sha256/scram_sha256",
 			hasUsers: true,
 		},
 		{
-			name:     "SCRAM+X509 auth — MongoDB CR + user CRs",
+			name:     "SCRAM and X509 auth generates both MongoDB CR and user CRs",
 			fixture:  "singlecluster/replicaset/authentication/x509/x509",
 			hasUsers: true,
 			opts:     GenerateOptions{CertsSecretPrefix: "mdb"},
 		},
 		{
-			name:    "X509-only auth — single mode, keyFile internal cluster",
+			name:    "X509-only auth with keyFile internal cluster auth",
 			fixture: "singlecluster/replicaset/authentication/x509_only/x509_only",
 			opts:    GenerateOptions{CertsSecretPrefix: "mdb"},
 		},
 		{
-			name:    "member options — tags",
+			name:    "member tags are preserved in externalMembers",
 			fixture: "singlecluster/replicaset/member_options/member_options",
 		},
 	}

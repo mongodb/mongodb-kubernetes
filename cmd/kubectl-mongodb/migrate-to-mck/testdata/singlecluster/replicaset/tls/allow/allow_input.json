@@ -78,7 +78,7 @@
   "sharding": [],
   "tls": {
     "CAFilePath": "/mongodb-automation/tls/ca/ca-pem",
-    "clientCertificateMode": "OPTIONAL"
+    "clientCertificateMode": "REQUIRE"
   },
   "version": 1
 }

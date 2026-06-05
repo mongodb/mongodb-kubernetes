@@ -7,6 +7,10 @@ metadata:
   name: x509only-rs
   namespace: mongodb
 spec:
+  additionalMongodConfig:
+    net:
+      tls:
+        allowConnectionsWithoutCertificates: false
   agent:
     maxLogFileDurationHours: 0
     mongod:
