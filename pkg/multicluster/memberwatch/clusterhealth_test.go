@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 	"time"
 
@@ -29,6 +30,7 @@ const testRequiredHealthyStreak = 5
 func init() {
 	logger, _ := zap.NewDevelopment()
 	zap.ReplaceGlobals(logger)
+	_ = os.Setenv("PERFORM_FAILOVER", "false")
 }
 
 func TestIsMemberClusterHealthy(t *testing.T) {
