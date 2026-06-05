@@ -178,34 +178,62 @@ new entries; `python scripts/evergreen/...validate` (if present) green.
 
 ---
 
-## Task 6: Extend operator_upgrade_search.py — bg tester + metrics @tdd
+## Task 6: Operator-driven upgrade suite (managed LB) @tdd
+
+**Revised during execution.** The original plan extended
+`operator_upgrade_search.py` to add operator-flavor classes upgrading
+**from the latest released operator**. Two facts changed that:
+
+1. **The feature is unreleased.** The released operator has no
+   envoy/managed-LB controller (and the official-operator install only
+   installs the Deployment, not the CRDs), so managed-LB-before-upgrade
+   is impossible on `official -> dev`. Per the "from = patch's base"
+   decision, the upgrade source must be the dev build, not the release.
+2. **This change is test-only** — `git diff` vs the base touches only
+   `tests/`, `docs/`, and `.evergreen*.yml`; **no operator Go code, no
+   Helm chart.** So the base-of-patch operator binary is byte-identical
+   to this build. "from = patch's base" therefore means the **same dev
+   operator on both sides**, and the operator-version upgrade is faithfully
+   modelled as a **bundled-image change** on that one operator (no
+   separately-built base image needed or meaningful).
+
+This also collapses the flavor set for an unreleased feature: with no
+binary or chart delta available, only the image-set change is
+constructible. A real **chart-version** upgrade needs a prior released
+chart that carries the feature, which won't exist until GA — so it is
+**deferred** (documented in the suite docstring + README), not faked.
 
 **Files:**
-- Modify: `docker/mongodb-kubernetes-tests/tests/upgrades/operator_upgrade_search.py`
+- Create: `docker/mongodb-kubernetes-tests/tests/search/search_availability_upgrade_operator.py`
+- Modify: `docker/mongodb-kubernetes-tests/tests/common/search/upgrade_availability.py`
+  (add shared `assert_rolled_through`)
+- Modify: `docker/mongodb-kubernetes-tests/tests/search/search_availability_upgrade_dataplane.py`
+  (use the shared `assert_rolled_through`)
 
-Purely additive (existing `TestDeployOnOfficialOperator` /
-`TestOperatorUpgrade` / `TestScaleWithManagedLB` classes untouched).
-Add a module-scoped continuous paging background tester spanning the
-upgrade, and wrap the existing `TestOperatorUpgrade.test_upgrade_operator`
-with roll-count snapshots + recovery timing + `_emit_metric`. Add new
-classes under the **same** marker `e2e_operator_upgrade_search`:
+New suite, marker `e2e_search_availability_upgrade_operator`, **own EVG
+task → own node** (one-deploy-per-node CPU limit; can't co-locate with the
+released-path deploy in `operator_upgrade_search.py`). Reuses the proven
+managed-LB bootstrap deploy chain (2 mongot + 2 envoy). The existing
+released-operator -> dev single-mongot test in
+`tests/upgrades/operator_upgrade_search.py` is left intact (additive).
 
-- `TestOperatorUpgradeNoImageBump` — pin `MDB_SEARCH_VERSION` +
-  `MDB_ENVOY_IMAGE` across the Helm upgrade (via
-  `operator_installation_config` overrides); measure gratuitous rolls;
-  emit metric. No hard roll assert yet (report until KUBE-24).
-- `TestOperatorUpgradeDefaultImageBump` — let bundled images change;
-  assert disruption ≤ a documented bound constant; emit metric.
-- `TestChartVersionUpgrade` — Helm chart-version upgrade; measure
-  recovery; emit metric.
+- `TestInstallOperator` — installs the dev operator pinned to older
+  `search.version` / `search.envoyImage` Helm values (the upgrade source).
+- `TestOperatorDefaultImageBump` — Helm-upgrade the operator back to the
+  build's default images; mongot (and envoy, when an older envoy image was
+  the source) rolls; assert ride-through + disruption ≤ bound; emit metric.
+  Skips when `OPERATOR_FROM_MONGOT_VERSION` is unset.
+- `TestOperatorNoImageBump` — restart the operator with images held;
+  measure the gratuitous-roll count + assert continuous availability. No
+  hard zero-roll assert yet (report until the gratuitous-roll fix lands).
 
-All EVG-only: `pytest.skip` when the operator runs out-of-cluster
-(Deployment absent / `replicas==0`).
+All scenarios EVG-only: `pytest.skip` when the operator runs out-of-cluster
+(Deployment absent / `replicas==0`). The deploy chain runs anywhere.
 
-**RED/GREEN:** local → all new classes SKIP (operator out-of-cluster);
-existing classes unaffected. Real GREEN is the definitive patch.
+**RED/GREEN:** local → deploy runs, both scenarios SKIP (operator
+out-of-cluster). Real GREEN is the definitive patch.
 
-**Commit:** `test(upgrades): bg availability tester + roll/recovery metrics on operator upgrade`
+**Commit:** `test(search): operator-driven upgrade availability suite (managed LB)`
 
 ---
 
@@ -218,7 +246,7 @@ scripts/dev/wt-ctl attach -- bash scripts/dev/e2e_run.sh e2e_search_availability
 make precommit   # black/isort/flake/yamllint over changed files
 ```
 Expected: `e2e_search_availability_upgrade` — mongot scenario PASS, envoy
-scenario SKIP; precommit clean. Confirm a `KUBE40_METRIC path=mongot …`
+scenario SKIP; precommit clean. Confirm a `SEARCH_UPGRADE_METRIC path=mongot …`
 line in `logs/test-e2e_search_availability_upgrade-*.log`.
 
 ---

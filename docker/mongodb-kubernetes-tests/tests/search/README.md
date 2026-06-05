@@ -28,8 +28,14 @@ sub-check** that force-drains past the buffer to prove the cursor fault is obser
 | `search_availability_envoy_scale.py` | `e2e_search_availability_envoy_scale` | envoy scale up (additive) then down to 1, via `spec.loadBalancer.managed.replicas` |
 | `search_availability_infra.py` | `e2e_search_availability_infra` | node drain (cordon + evict), operator restart |
 | `search_availability_upgrade_dataplane.py` | `e2e_search_availability_upgrade` | mongot version upgrade (`spec.version`), envoy image upgrade (`MDB_ENVOY_IMAGE`, CI-only) |
+| `search_availability_upgrade_operator.py` | `e2e_search_availability_upgrade_operator` | operator default-image-bump (managed LB, CI-only), operator no-image-bump gratuitous-roll measurement (CI-only) |
 
-Operator-version and MCK-chart upgrades are availability-tested separately in
+The operator-driven upgrade suite runs on a managed-LB deployment and, since the data-plane upgrade
+is test-only (no operator code change), models the operator-version upgrade as a bundled-image change
+on the same dev operator: install pinned to older `search.version` / `search.envoyImage` Helm values,
+then Helm-upgrade back to the build defaults so the operator rolls the data plane. The
+chart-version upgrade path is deferred until a released chart carries the managed-LB/envoy feature.
+The released-operator -> dev single-mongot upgrade is availability-tested separately in
 `tests/upgrades/operator_upgrade_search.py` (`e2e_operator_upgrade_search`), which runs the same
 background tester across an in-cluster operator Helm upgrade.
 
@@ -48,6 +54,8 @@ shared bootstrap test-class chain, then runs its scenarios with a steady-state g
 | operator restart | continuous | continuous (control plane off the data path) | n/a |
 | mongot version upgrade | blip → recover | ride-through or transient drop → reopen | n/a (one-shot transition) |
 | envoy image upgrade | blip → recover | ride-through or transient drop → reopen | n/a (CI-only) |
+| operator default-image-bump | blip → recover | ride-through or transient drop → reopen | n/a (CI-only) |
+| operator no-image-bump | continuous | continuous (control plane off the data path) | n/a (measures gratuitous rolls) |
 
 Assertions check availability *properties*, never exact operation counts. The roll cursor cells
 assert the open cursor serves *fresh* pages after recovery (succeeded grows past a post-recovery
