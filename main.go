@@ -17,6 +17,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
+	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
@@ -46,12 +47,14 @@ import (
 	operatorv1 "github.com/mongodb/mongodb-kubernetes/api/operator/v1"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
+	operatorconfigcontroller "github.com/mongodb/mongodb-kubernetes/controllers/operatorconfig"
 	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
 	mcov1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"                       //nolint:depguard
 	mcoController "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers"          //nolint:depguard
 	mcoConstruct "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/construct" //nolint:depguard
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
+	"github.com/mongodb/mongodb-kubernetes/pkg/operatorconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/pprof"
 	"github.com/mongodb/mongodb-kubernetes/pkg/telemetry"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
@@ -131,6 +134,8 @@ func run() error {
 	}
 
 	ctx := signals.SetupSignalHandler()
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	operator.OmUpdateChannel = make(chan event.GenericEvent)
 
 	klog.InitFlags(nil)
@@ -158,6 +163,16 @@ func run() error {
 
 	// Get a config to talk to the apiserver
 	cfg := ctrl.GetConfigOrDie()
+
+	bootstrapClient, err := client.New(cfg, client.Options{Scheme: scheme})
+	if err != nil {
+		return fmt.Errorf("creating bootstrap client: %w", err)
+	}
+	operatorConfigName := env.ReadOrDefault(util.OperatorConfigNameEnv, util.DefaultOperatorConfigName)
+	operatorCfg, err := operatorconfig.Load(ctx, bootstrapClient, currentNamespace, operatorConfigName)
+	if err != nil {
+		return fmt.Errorf("loading OperatorConfig: %w", err)
+	}
 
 	log.Debugf("Setting up tracing with ID: %s, Parent ID: %s, Endpoint: %s", traceIDHex, spanIDHex, endpoint)
 	ctx, tp, err := telemetry.SetupTracingFromParent(ctx, traceIDHex, spanIDHex, endpoint)
@@ -194,6 +209,16 @@ func run() error {
 		}
 	}
 
+	managerOptions.Cache.ByObject = map[client.Object]cache.ByObject{
+		&operatorv1.OperatorConfig{}: {
+			Namespaces: map[string]cache.Config{
+				currentNamespace: {
+					FieldSelector: fields.OneTermEqualSelector("metadata.name", operatorConfigName),
+				},
+			},
+		},
+	}
+
 	if isInLocalMode() {
 		// managerOptions.MetricsBindAddress = "127.0.0.1:8180"
 		managerOptions.Metrics = metricsServer.Options{
@@ -210,6 +235,10 @@ func run() error {
 		return err
 	}
 	log.Info("Registering Components.")
+
+	if err := operatorconfigcontroller.AddOperatorConfigController(mgr, cancel, operatorCfg.ResourceVersion); err != nil {
+		return err
+	}
 
 	// Setup Scheme for all resources
 	if err := apiv1.AddToScheme(scheme); err != nil {

@@ -80,6 +80,14 @@ rules:
       - opsmanagers/status
       - mongodbmulticluster/status
       - mongodbsearch/status
+  - apiGroups:
+      - operator.mongodb.com
+    resources:
+      - operatorconfigs
+    verbs:
+      - get
+      - list
+      - watch
 ---
 # Source: mongodb-kubernetes/templates/operator-roles-base.yaml
 kind: RoleBinding
