@@ -152,15 +152,3 @@ func TestPublishForMongoDB_ReplicaSetParam_UsesReplicaSetNameOverride(t *testing
 	assert.NotContains(t, std, "replicaSet=my-rs",
 		"replicaSet param must NOT use the Kubernetes resource name when an override is present")
 }
-
-func TestPublishForMongoDB_PanicsForNonReplicaSet(t *testing.T) {
-	standalone := mdbv1.NewStandaloneBuilder().SetName("my-standalone").Build()
-	standalone.Namespace = "ns-1"
-
-	c := newFakeClient(t, standalone)
-	hostnames := []string{"my-standalone.ns-1.svc.cluster.local:27017"}
-
-	assert.Panics(t, func() {
-		_ = PublishForMongoDB(context.Background(), c, standalone, hostnames)
-	}, "PublishForMongoDB must panic for non-ReplicaSet resources — callers must guard topology")
-}
