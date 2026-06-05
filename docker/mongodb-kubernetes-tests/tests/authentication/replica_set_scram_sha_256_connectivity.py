@@ -30,16 +30,16 @@ CONNECTION_STRING_SECRET_NAME = "my-replica-set-connection-string"
 USER_PASSWORD = "my-password"
 USER_DATABASE = "admin"
 
-NON_ADMIN_USER_NAME = "mms-user-2"
-NON_ADMIN_PASSWORD_SECRET_NAME = "mms-user-2-password"
-NON_ADMIN_USER_PASSWORD = "my-password-2"
-NON_ADMIN_USER_DATABASE = "testdb"
-
 OM_SHA256_USER_NAME = "om-user-sha256"
 OM_SHA256_USER_PASSWORD_SECRET = "om-user-sha256-password"
 OM_SHA256_USER_PASSWORD = "om-sha256-password-1"
 
 SEEDED_OM_SHA256_CREDS = build_sha256_creds(OM_SHA256_USER_PASSWORD)
+
+NON_ADMIN_USER_NAME = "mms-user-2"
+NON_ADMIN_PASSWORD_SECRET_NAME = "mms-user-2-password"
+NON_ADMIN_USER_PASSWORD = "my-password-2"
+NON_ADMIN_USER_DATABASE = "testdb"
 
 
 def create_password_secret(namespace: str) -> str:
