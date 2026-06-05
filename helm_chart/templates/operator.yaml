@@ -19,9 +19,10 @@ spec:
         app.kubernetes.io/component: controller
         app.kubernetes.io/name: {{ .Values.operator.name }}
         app.kubernetes.io/instance: {{ .Values.operator.name }}
+      annotations:
+        mongodb.com/installation-method: {{ .Values.operator.installationMethod | default "helm" | quote }}
 {{- if .Values.operator.vaultSecretBackend }}
   {{- if .Values.operator.vaultSecretBackend.enabled }}
-      annotations:
         vault.hashicorp.com/agent-inject: "true"
         vault.hashicorp.com/role: "mongodbenterprise"
         {{- if .Values.operator.vaultSecretBackend.tlsSecretRef }}
@@ -220,6 +221,10 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
+            - name: MCK_INSTALLER
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.annotations['mongodb.com/installation-method']
             - name: OPERATOR_NAME
               value: {{ .Values.operator.name }}
             # Community Env Vars Start
