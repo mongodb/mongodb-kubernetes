@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"strings"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -30,10 +29,8 @@ type Config struct {
 	ConnectionString string
 	// ExternalMembers is the list of host:port pairs to ping directly.
 	ExternalMembers []string
-	// AuthMechanism is "SCRAM-SHA-256", "SCRAM-SHA-1" (keyfile __system@local), "MONGODB-X509", or empty.
+	// AuthMechanism is "MONGODB-X509" or empty (SCRAM deployments connect without credentials).
 	AuthMechanism string
-	// KeyfilePath is the path to the keyfile mounted from the temporary connectivity-check-keyfile Secret.
-	KeyfilePath string
 	// CertPath is the path to the combined cert+key PEM (X509).
 	CertPath string
 	// CAPath is the path to the CA PEM (X509).
@@ -45,15 +42,6 @@ type Config struct {
 	MongodTLSCAPath string
 }
 
-func isKeyfileSCRAM(authMechanism string) bool {
-	switch authMechanism {
-	case "SCRAM-SHA-256", "SCRAM-SHA-1", "MONGODB-CR":
-		return true
-	default:
-		return false
-	}
-}
-
 // Validate runs the full connectivity check and returns an exit code.
 func Validate(ctx context.Context, cfg Config) int {
 	log := zap.S()
@@ -62,7 +50,6 @@ func Validate(ctx context.Context, cfg Config) int {
 		"connectionString", cfg.ConnectionString,
 		"externalMembersCount", len(cfg.ExternalMembers),
 		"externalMembers", cfg.ExternalMembers,
-		"keyfilePath", cfg.KeyfilePath,
 		"certPath", cfg.CertPath,
 		"caPath", cfg.CAPath,
 		"subjectDN", cfg.SubjectDN,
@@ -97,17 +84,6 @@ func Validate(ctx context.Context, cfg Config) int {
 	}
 	log.Debugw("MongoDB ping succeeded")
 
-	// For keyfile SCRAM, verify authentication as __system@local.
-	// For X.509, connection + ping will only succeed if cert-based auth succeeded.
-	// When auth is disabled skip this check so local/dev runs can validate reachability.
-	if isKeyfileSCRAM(cfg.AuthMechanism) {
-		if !hasSystemRole(ctx, client) {
-			log.Warnw("__system@local role not found", "exitCode", exitcode.ExitAuthFailed, "exitCodeName", exitcode.Name(exitcode.ExitAuthFailed))
-			return exitcode.ExitAuthFailed
-		}
-		log.Debugw("__system@local role verified")
-	}
-
 	for i, member := range cfg.ExternalMembers {
 		log.Debugw("Pinging external member", "member", member, "index", i+1, "total", len(cfg.ExternalMembers))
 		if code := pingMemberDirect(ctx, member, cfg); code != exitcode.ExitSuccess {
@@ -126,29 +102,6 @@ func buildClientOptions(cfg Config, uri string) (*options.ClientOptions, error) 
 	opts := options.Client().ApplyURI(uri)
 
 	switch cfg.AuthMechanism {
-	case "SCRAM-SHA-256", "SCRAM-SHA-1", "MONGODB-CR":
-		log.Debugw("Using keyfile SCRAM auth", "authMechanism", cfg.AuthMechanism, "keyfilePath", cfg.KeyfilePath)
-		keyfile, err := os.ReadFile(cfg.KeyfilePath)
-		if err != nil {
-			log.Warnw("Keyfile unavailable", "keyfilePath", cfg.KeyfilePath, "error", err)
-			return nil, fmt.Errorf("reading keyfile: %w", err)
-		}
-		password := strings.TrimSpace(string(keyfile))
-		if len(password) == 0 {
-			log.Warnw("Keyfile is empty", "keyfilePath", cfg.KeyfilePath)
-			return nil, fmt.Errorf("keyfile at %s is empty", cfg.KeyfilePath)
-		}
-		// MONGODB-CR is the legacy OM name for SCRAM-SHA-1; the driver requires the canonical name.
-		mechanism := cfg.AuthMechanism
-		if mechanism == "MONGODB-CR" {
-			mechanism = "SCRAM-SHA-1"
-		}
-		opts.SetAuth(options.Credential{
-			AuthMechanism: mechanism,
-			AuthSource:    "local",
-			Username:      "__system",
-			Password:      password,
-		})
 	case "MONGODB-X509":
 		log.Debugw("Using MONGODB-X509 auth", "certPath", cfg.CertPath, "caPath", cfg.CAPath, "subjectDN", cfg.SubjectDN)
 		tlsCfg, err := buildTLSConfig(cfg.CertPath, cfg.CAPath)

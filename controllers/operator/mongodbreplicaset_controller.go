@@ -922,36 +922,10 @@ func (r *ReplicaSetReconcilerHelper) runConnectivityValidationDryRun(ctx context
 		subjectDN = userOpts.AutomationSubject
 	}
 
-	keyfileSecretName := ""
-	if sec := rs.GetSecurity(); sec != nil && sec.GetAgentMechanism(deploymentOpts.currentAgentAuthMode) == util.SCRAM {
-		d, err := conn.ReadDeployment()
-		if err != nil {
-			return r.updateStatus(ctx,
-				workflow.Failed(xerrors.Errorf("connectivity dry-run: reading OM deployment: %w", err)),
-				mdbstatus.NewMigrationConditionOption(mdbstatus.MigrationCondition(
-					mdbstatus.MigrationPhaseConnectivityCheckFailed, "ReadDeployment", err.Error(),
-				)),
-			)
-		}
-		keyfileContent := strings.TrimSpace(maputil.ReadMapValueAsString(d, "auth", "key"))
-		if keyfileContent != "" {
-			keyfileSecretName = rs.Name + "-connectivity-check-keyfile"
-			if err := r.ensureConnectivityCheckKeyfileSecret(ctx, keyfileSecretName, keyfileContent); err != nil {
-				return r.updateStatus(ctx,
-					workflow.Failed(xerrors.Errorf("connectivity dry-run: ensuring keyfile secret: %w", err)),
-					mdbstatus.NewMigrationConditionOption(mdbstatus.MigrationCondition(
-						mdbstatus.MigrationPhaseConnectivityCheckFailed, "EnsureKeyfileSecret", err.Error(),
-					)),
-				)
-			}
-		}
-	}
-
-	job := pkgMigration.BuildJobFromStatefulSet(rs, &sts, operatorImage, connectionString, hostnamePorts, deploymentOpts.currentAgentAuthMode, deploymentOpts.agentCertHash, subjectDN, keyfileSecretName)
+	job := pkgMigration.BuildJobFromStatefulSet(rs, &sts, operatorImage, connectionString, hostnamePorts, deploymentOpts.currentAgentAuthMode, deploymentOpts.agentCertHash, subjectDN)
 
 	result := opMigration.RunConnectivityJob(ctx, r.reconciler.client, job)
 	if result.Err != nil {
-		r.deleteConnectivityCheckKeyfileSecret(ctx, keyfileSecretName)
 		return r.updateStatus(ctx,
 			workflow.Failed(fmt.Errorf("connectivity dry run: %w", result.Err)),
 			mdbstatus.NewMigrationConditionOption(mdbstatus.MigrationCondition(
@@ -971,7 +945,6 @@ func (r *ReplicaSetReconcilerHelper) runConnectivityValidationDryRun(ctx context
 			)),
 		)
 	case mdbstatus.MigrationPhaseConnectivityCheckPassed:
-		r.deleteConnectivityCheckKeyfileSecret(ctx, keyfileSecretName)
 		return r.updateStatus(ctx,
 			workflow.ConnectivityValidation("Connectivity validation passed. Remove annotation %s to continue with migration", opMigration.AnnotationDryRun),
 			mdbstatus.NewMigrationConditionOption(mdbstatus.MigrationCondition(
@@ -979,7 +952,6 @@ func (r *ReplicaSetReconcilerHelper) runConnectivityValidationDryRun(ctx context
 			)),
 		)
 	default:
-		r.deleteConnectivityCheckKeyfileSecret(ctx, keyfileSecretName)
 		if updateResult, updateErr := r.updateStatus(ctx,
 			workflow.Failed(fmt.Errorf("%s: %s", result.Reason, result.Message)),
 			mdbstatus.NewMigrationConditionOption(mdbstatus.MigrationCondition(
@@ -990,25 +962,6 @@ func (r *ReplicaSetReconcilerHelper) runConnectivityValidationDryRun(ctx context
 		}
 		// Requeue after 5 minutes to retry once connectivity issues may be resolved.
 		return reconcile.Result{RequeueAfter: 5 * time.Minute}, nil
-	}
-}
-
-func (r *ReplicaSetReconcilerHelper) ensureConnectivityCheckKeyfileSecret(ctx context.Context, secretName, keyfileContent string) error {
-	s := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: secretName, Namespace: r.resource.Namespace}}
-	_, err := controllerutil.CreateOrUpdate(ctx, r.reconciler.client, s, func() error {
-		s.StringData = map[string]string{"keyfile": keyfileContent}
-		return controllerutil.SetOwnerReference(r.resource, s, r.reconciler.client.Scheme())
-	})
-	return err
-}
-
-func (r *ReplicaSetReconcilerHelper) deleteConnectivityCheckKeyfileSecret(ctx context.Context, secretName string) {
-	if secretName == "" {
-		return
-	}
-	s := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: secretName, Namespace: r.resource.Namespace}}
-	if err := r.reconciler.client.Delete(ctx, s); client.IgnoreNotFound(err) != nil {
-		r.log.Warnf("Failed to delete connectivity check keyfile secret %s: %v", secretName, err)
 	}
 }
 
