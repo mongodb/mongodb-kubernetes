@@ -642,10 +642,6 @@ func (p Process) ReplicaSetName() string {
 	return maputil.ReadMapValueAsString(p.Args(), "replication", "replSetName")
 }
 
-func (p Process) Port() int {
-	return maputil.ReadMapValueAsInt(p.Args(), "net", "port")
-}
-
 func (p Process) security() map[string]interface{} {
 	args := p.Args()
 	if _, ok := args["security"]; ok {

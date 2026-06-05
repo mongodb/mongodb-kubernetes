@@ -52,7 +52,7 @@ func generateReplicaSetSingleCluster(ac *om.AutomationConfig, opts GenerateOptio
 
 // buildReplicaSetDbCommonSpec constructs the DbCommonSpec for a replica set deployment,
 // including security, Prometheus, TLS, and connection settings.
-func buildReplicaSetDbCommonSpec(ac *om.AutomationConfig, opts GenerateOptions, version, fcv, rsName, resourceName string, externalMembers []mdbv1.ExternalMember) (mdbv1.DbCommonSpec, error) {
+func buildReplicaSetDbCommonSpec(ac *om.AutomationConfig, opts GenerateOptions, version, fcv, resourceName string) (mdbv1.DbCommonSpec, error) {
 	security, err := buildSecurity(ac, opts.CertsSecretPrefix, resourceName)
 	if err != nil {
 		return mdbv1.DbCommonSpec{}, fmt.Errorf("failed to build security config: %w", err)
@@ -81,7 +81,7 @@ func buildReplicaSetDbCommonSpec(ac *om.AutomationConfig, opts GenerateOptions, 
 	if fcv != "" {
 		featureCompatibilityVersion = &fcv
 	}
-	common := mdbv1.DbCommonSpec{
+	return mdbv1.DbCommonSpec{
 		Version:                     version,
 		ResourceType:                mdbv1.ReplicaSet,
 		FeatureCompatibilityVersion: featureCompatibilityVersion,
@@ -93,25 +93,25 @@ func buildReplicaSetDbCommonSpec(ac *om.AutomationConfig, opts GenerateOptions, 
 			},
 			Credentials: opts.CredentialsSecretName,
 		},
-		ExternalMembers:        externalMembers,
 		Security:               security,
 		Prometheus:             prom,
 		AdditionalMongodConfig: additionalConfig,
 		Agent:                  extractAgentConfig(opts.SourceProcess, opts.ProjectConfigs),
-	}
-	if resourceName != rsName {
-		common.ReplicaSetNameOverride = rsName
-	}
-	return common, nil
+	}, nil
 }
 
 func buildReplicaSetSpec(ac *om.AutomationConfig, opts GenerateOptions, version, fcv string, externalMembers []mdbv1.ExternalMember, rsName, resourceName string) (mdbv1.MongoDbSpec, error) {
-	common, err := buildReplicaSetDbCommonSpec(ac, opts, version, fcv, rsName, resourceName, externalMembers)
+	common, err := buildReplicaSetDbCommonSpec(ac, opts, version, fcv, resourceName)
 	if err != nil {
 		return mdbv1.MongoDbSpec{}, err
 	}
-	return mdbv1.MongoDbSpec{
-		DbCommonSpec: common,
-		Members:      0,
-	}, nil
+	spec := mdbv1.MongoDbSpec{
+		DbCommonSpec:    common,
+		Members:         0,
+		ExternalMembers: externalMembers,
+	}
+	if resourceName != rsName {
+		spec.ReplicaSetNameOverride = rsName
+	}
+	return spec, nil
 }

@@ -1519,6 +1519,11 @@ func ldapField[T any](getCR func(*Ldap) *T, getAC func(*ldap.Ldap) *T) ldapField
 	}
 }
 
+// ldapCustomField creates a bidirectional mapping for fields that require custom conversion logic.
+func ldapCustomField(toAC func(*Ldap, *ldap.Ldap), toCR func(*ldap.Ldap, *Ldap)) ldapFieldMapping {
+	return ldapFieldMapping{toAC: toAC, toCR: toCR}
+}
+
 var ldapFieldMappings = []ldapFieldMapping{
 	// Simple fields: same type, direct copy.
 	ldapField(func(c *Ldap) *string { return &c.BindQueryUser }, func(a *ldap.Ldap) *string { return &a.BindQueryUser }),
@@ -1528,7 +1533,7 @@ var ldapFieldMappings = []ldapFieldMapping{
 	ldapField(func(c *Ldap) *int { return &c.UserCacheInvalidationInterval }, func(a *ldap.Ldap) *int { return &a.UserCacheInvalidationInterval }),
 
 	// Fields requiring custom conversion logic.
-	{
+	ldapCustomField(
 		func(c *Ldap, a *ldap.Ldap) {
 			a.ValidateLDAPServerConfig = true
 			if c.ValidateLDAPServerConfig != nil {
@@ -1536,8 +1541,8 @@ var ldapFieldMappings = []ldapFieldMapping{
 			}
 		},
 		func(a *ldap.Ldap, c *Ldap) { c.ValidateLDAPServerConfig = &a.ValidateLDAPServerConfig },
-	},
-	{
+	),
+	ldapCustomField(
 		func(c *Ldap, a *ldap.Ldap) { a.Servers = strings.Join(c.Servers, ",") },
 		func(a *ldap.Ldap, c *Ldap) {
 			if a.Servers == "" {
@@ -1549,8 +1554,8 @@ var ldapFieldMappings = []ldapFieldMapping{
 			}
 			c.Servers = parts
 		},
-	},
-	{
+	),
+	ldapCustomField(
 		func(c *Ldap, a *ldap.Ldap) { a.TransportSecurity = string(GetTransportSecurity(c)) },
 		func(a *ldap.Ldap, c *Ldap) {
 			if a.TransportSecurity != "" {
@@ -1558,7 +1563,7 @@ var ldapFieldMappings = []ldapFieldMapping{
 				c.TransportSecurity = &ts
 			}
 		},
-	},
+	),
 }
 
 // GetLDAP converts the CR LDAP spec to the AC representation. See ConvertACLdapToCR for the reverse.

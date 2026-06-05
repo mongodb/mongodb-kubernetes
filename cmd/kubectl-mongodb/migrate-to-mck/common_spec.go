@@ -224,19 +224,3 @@ func extractAgentConfig(sourceProcess *om.Process, projectConfigs *ProjectConfig
 	}
 	return agentConfig
 }
-
-// distributeMembers creates a ClusterSpecList with Members=0 for each cluster.
-// The customer is expected to expand the replica set incrementally with non-voting Kubernetes members.
-func distributeMembers(clusterNames []string) mdbv1.ClusterSpecList {
-	if len(clusterNames) == 0 {
-		return nil
-	}
-	list := make(mdbv1.ClusterSpecList, len(clusterNames))
-	for i, name := range clusterNames {
-		list[i] = mdbv1.ClusterSpecItem{
-			ClusterName: name,
-			Members:     0,
-		}
-	}
-	return list
-}
