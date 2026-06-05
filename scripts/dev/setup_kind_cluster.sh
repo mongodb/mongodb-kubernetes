@@ -57,19 +57,14 @@ shift "$((OPTIND - 1))"
 
 kubeconfig_path="${HOME}/.kube/${cluster_name}"
 
-# create a cluster with the local registry enabled in containerd
-registry="docker.io"
-if [[ "${RUNNING_IN_EVG:-false}" == "true" ]]; then
-  registry="268558157000.dkr.ecr.eu-west-1.amazonaws.com/docker-hub-mirrors"
-fi
-
 metallb_version="v0.13.7"
 metrics_server_version="v0.7.2"
 
+# local registry
 reg_name='kind-registry'
 reg_port='5000'
-kube_max_version=$(jq -r '.kubernetes.max' kubernetes-versions.json)
-kind_image="${registry}/kindest/node:v${kube_max_version}"
+# kind image source
+kind_image="${KIND_NODE_IMAGE:-$(scripts/get-kind-image.sh max)}"
 
 kind_delete_cluster() {
   kind delete cluster --name "${cluster_name}" || true
