@@ -385,7 +385,7 @@ func ExtractExternalMembers(processes []Process) []mdbv1.ExternalMember {
 		}
 		out = append(out, mdbv1.ExternalMember{
 			ProcessName:    proc.Name(),
-			Hostname:       fmt.Sprintf("%s:%d", proc.HostName(), proc.Port()),
+			Hostname:       fmt.Sprintf("%s:%s", proc.HostName(), proc.Port()),
 			Type:           string(proc.ProcessType()),
 			ReplicaSetName: proc.ReplicaSetName(),
 		})

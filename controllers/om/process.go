@@ -652,7 +652,6 @@ func (p Process) ReplicaSetName() string {
 	return maputil.ReadMapValueAsString(p.Args(), "replication", "replSetName")
 }
 
-
 // ClusterRole returns the sharding role declared for this process (configsvr, shardsvr, or empty).
 func (p Process) ClusterRole() string {
 	return maputil.ReadMapValueAsString(p.Args(), "sharding", "clusterRole")
