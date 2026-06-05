@@ -211,7 +211,7 @@ def test_insert_sample_data(om_tester: OMTester, vm_sts, namespace):
         SearchTester(
             f"mongodb://{vm_sts['metadata']['name']}-0.{vm_sts['metadata']['name']}.{namespace}.svc.cluster.local:27017/?replicaSet={vm_sts['metadata']['name']}-rs"
         ),
-        mongodb_tools_pod.get_tools_pod(namespace)
+        mongodb_tools_pod.get_tools_pod(namespace),
     )
     sample_movies_helper.restore_sample_database()
 
