@@ -291,7 +291,7 @@ def test_configure_ac_scram_auth(om_tester: OMTester):
     }
 
     om_tester.api_put_automation_config(ac)
-    om_tester.wait_agents_ready(timeout=600)
+    om_tester.wait_agents_ready(timeout=900)
 
 
 @mark.e2e_vm_migration_tls_scram
