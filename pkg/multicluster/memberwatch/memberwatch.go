@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"slices"
+	"sync"
 	"time"
 
 	"go.uber.org/zap"
@@ -26,6 +27,13 @@ type MemberClusterHealthChecker struct {
 	Cache                 map[string]ClusterHealthChecker
 	HealthyStreak         map[string]int
 	RequiredHealthyStreak int
+	mu                    sync.RWMutex
+}
+
+func (m *MemberClusterHealthChecker) HealthyStreakFor(cluster string) int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.HealthyStreak[cluster]
 }
 
 type ClusterCredentials struct {
@@ -118,8 +126,11 @@ func (m *MemberClusterHealthChecker) WatchMemberClusterHealth(ctx context.Contex
 				}
 
 				// If failover is disabled we should remove the cluster from the annotation after a number of health checks have succeeded
+				m.mu.Lock()
 				m.HealthyStreak[k] = min(m.HealthyStreak[k]+1, m.RequiredHealthyStreak)
-				if m.HealthyStreak[k] == m.RequiredHealthyStreak {
+				streak := m.HealthyStreak[k]
+				m.mu.Unlock()
+				if streak == m.RequiredHealthyStreak {
 					for _, mdbm := range mdbmList.Items {
 						if isInFailedClusterAnnotation(mdbm.Annotations, k) {
 							log.Infof("Enqueuing resource: %s, because cluster %s has come back up", mdbm.Name, k)
@@ -135,7 +146,9 @@ func (m *MemberClusterHealthChecker) WatchMemberClusterHealth(ctx context.Contex
 			}
 
 			log.Warnf("Cluster %s reported unhealthy", k)
+			m.mu.Lock()
 			m.HealthyStreak[k] = 0
+			m.mu.Unlock()
 			// re-enqueue all the MDBMultis the operator is watching into the reconcile loop
 			for _, mdbm := range mdbmList.Items {
 				if !isInFailedClusterAnnotation(mdbm.Annotations, k) && multicluster.ShouldPerformFailover() {

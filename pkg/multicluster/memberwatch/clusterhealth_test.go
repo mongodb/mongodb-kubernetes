@@ -151,6 +151,8 @@ func TestAnnotationIsRemovedWhenClusterRecovers(t *testing.T) {
 		t.Fatal("timed out waiting for reconcile event after cluster recovery")
 	}
 
+	assert.Equal(t, testRequiredHealthyStreak, checker.HealthyStreakFor("cluster1"))
+
 	got := &mdbmulti.MongoDBMultiCluster{}
 	require.NoError(t, fakeClient.Get(ctx, types.NamespacedName{Name: "mdbmc", Namespace: "ns"}, got))
 	assert.False(t, isInFailedClusterAnnotation(got.Annotations, "cluster1"))
@@ -178,6 +180,11 @@ func TestNoEventBeforeStreakThreshold(t *testing.T) {
 	assert.Never(t, func() bool {
 		return len(watchChannel) > 0
 	}, 500*time.Millisecond, 50*time.Millisecond)
+
+	// Confirm the health check ran and incremented the streak without crossing the threshold.
+	assert.Eventually(t, func() bool {
+		return checker.HealthyStreakFor("cluster1") == testRequiredHealthyStreak-1
+	}, 5*time.Second, 50*time.Millisecond)
 }
 
 // TestNoEventWhenStreakAtCapWithoutAnnotation verifies that a cluster whose streak
@@ -202,6 +209,11 @@ func TestNoEventWhenStreakAtCapWithoutAnnotation(t *testing.T) {
 	assert.Never(t, func() bool {
 		return len(watchChannel) > 0
 	}, 500*time.Millisecond, 50*time.Millisecond)
+
+	// Confirm the streak stayed capped and didn't wrap or overflow.
+	assert.Eventually(t, func() bool {
+		return checker.HealthyStreakFor("cluster1") == testRequiredHealthyStreak
+	}, 5*time.Second, 50*time.Millisecond)
 }
 
 // TestStreakResetsOnUnhealthyWhenAlmostRecovered verifies that a cluster with a
@@ -228,7 +240,7 @@ func TestStreakResetsOnUnhealthyWhenAlmostRecovered(t *testing.T) {
 	go checker.WatchMemberClusterHealth(ctx, zap.S(), watchChannel, central, nil)
 
 	require.Eventually(t, func() bool {
-		return checker.HealthyStreak["cluster1"] == 0
+		return checker.HealthyStreakFor("cluster1") == 0
 	}, 5*time.Second, 50*time.Millisecond)
 
 	assert.Never(t, func() bool {
@@ -262,6 +274,11 @@ func TestNoEventWhenClusterNotInAnnotationAtThreshold(t *testing.T) {
 	assert.Never(t, func() bool {
 		return len(watchChannel) > 0
 	}, 500*time.Millisecond, 50*time.Millisecond)
+
+	// Confirm the streak reached the threshold even though no event was fired (no annotation present).
+	assert.Eventually(t, func() bool {
+		return checker.HealthyStreakFor("cluster1") == testRequiredHealthyStreak
+	}, 5*time.Second, 50*time.Millisecond)
 }
 
 // TestMultipleClustersIndependentStreaks verifies that streak state is tracked
@@ -304,6 +321,8 @@ func TestMultipleClustersIndependentStreaks(t *testing.T) {
 	}
 
 	// cluster2's annotation was removed — its streak reached the threshold independently of cluster1.
+	assert.Equal(t, testRequiredHealthyStreak, checker.HealthyStreakFor("cluster2"))
+
 	got := &mdbmulti.MongoDBMultiCluster{}
 	require.NoError(t, fakeClient.Get(ctx, types.NamespacedName{Name: "mdbmc", Namespace: "ns"}, got))
 	assert.False(t, isInFailedClusterAnnotation(got.Annotations, "cluster2"), "cluster2 annotation should be removed")
@@ -384,7 +403,7 @@ func TestFailedClusterAnnotationStaysWhenPerformFailoverTrue(t *testing.T) {
 	assert.Never(t, func() bool {
 		return len(watchChannel) > 0
 	}, 500*time.Millisecond, 50*time.Millisecond)
-	assert.Never(t, func() bool { return checker.HealthyStreak["cluster1"] > 0 }, 500*time.Millisecond, 50*time.Millisecond)
+	assert.Never(t, func() bool { return checker.HealthyStreakFor("cluster1") > 0 }, 500*time.Millisecond, 50*time.Millisecond)
 
 	got := &mdbmulti.MongoDBMultiCluster{}
 	require.NoError(t, fakeClient.Get(ctx, types.NamespacedName{Name: "mdbmc", Namespace: "ns"}, got))
