@@ -9,10 +9,7 @@ from typing import Callable, Optional
 
 from kubernetes import client
 from kubetester import list_matching_pods
-from tests.common.search.background_availability_tester import (
-    SearchAvailabilityBackgroundTester,
-    assert_no_outage,
-)
+from tests.common.search.background_availability_tester import SearchAvailabilityBackgroundTester, assert_no_outage
 from tests.common.search.connectivity import SearchConnectivityTool
 
 logger = logging.getLogger(__name__)
