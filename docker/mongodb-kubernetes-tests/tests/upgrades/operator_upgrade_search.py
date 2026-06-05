@@ -33,9 +33,8 @@ MONGOT_USER_PASSWORD = f"{MONGOT_USER_NAME}-password"
 USER_NAME = "mdb-user"
 USER_PASSWORD = f"{USER_NAME}-password"
 
-# Sustained-outage ceiling for the single-mongot operator upgrade (the cursor fully drops with only
-# one mongot, so this is an outage->recover window, not a ride-through). The measured value is logged
-# as SEARCH_UPGRADE_METRIC; the bound fails a pathological run (was 300s — too loose to ever fire).
+# Sustained-outage ceiling for the single-mongot operator upgrade: the cursor fully drops with one
+# mongot, so this is an outage->recover window, not a ride-through. Fails a pathological run.
 OPERATOR_UPGRADE_DISRUPTION_BOUND_S = 60.0
 
 

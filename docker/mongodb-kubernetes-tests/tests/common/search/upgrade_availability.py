@@ -1,9 +1,5 @@
-"""Shared helpers for the search upgrade-path availability suites.
-
-Used by tests/search/search_availability_upgrade_dataplane.py and the operator/chart
-upgrade suites in tests/upgrades/. Kept to pure functions (roll counting + a structured
-metric log line) so each suite keeps its own deploy chain and background-tester window.
-"""
+"""Shared helpers for the search upgrade-path availability suites: roll counting, a metric log line,
+and the ride-through assertion. Each suite keeps its own deploy chain and background-tester window."""
 
 from __future__ import annotations
 
@@ -30,9 +26,8 @@ def pod_uids(namespace: str, label_selector: str) -> dict[str, str]:
 
 
 def container_pod_uids(namespace: str, container_name: str) -> dict[str, str]:
-    """Pod name->uid for every pod running a container with this name. Naming-agnostic: survives
-    the StatefulSet/Deployment rename when an operator upgrade changes the resource naming scheme,
-    where a label-selector snapshot taken pre-upgrade would miss the renamed pods."""
+    """Pod name->uid for pods running a container with this name. Container-name based so it survives
+    the StatefulSet/Deployment rename an operator upgrade can cause (a label snapshot would miss them)."""
     pods = client.CoreV1Api().list_namespaced_pod(namespace).items
     return {
         p.metadata.name: p.metadata.uid
@@ -42,16 +37,15 @@ def container_pod_uids(namespace: str, container_name: str) -> dict[str, str]:
 
 
 def gone_or_changed(before_uids: dict[str, str], after_uids: dict[str, str]) -> int:
-    """Pods replaced since the snapshot: a uid that changed under the same name, or a name that
-    disappeared (replaced under a new name by a rename)."""
+    """Pods replaced since the snapshot: a uid changed under the same name, or a name that vanished."""
     changed = sum(1 for name, uid in after_uids.items() if name in before_uids and before_uids[name] != uid)
     gone = sum(1 for name in before_uids if name not in after_uids)
     return max(changed, gone)
 
 
 def roll_count(namespace: str, label_selector: str, before_uids: dict[str, str]) -> int:
-    """Pods replaced since the pre-upgrade snapshot. StatefulSet pods keep their name with a new
-    uid; Deployment pods get fresh names. Count both as a roll."""
+    """Pods replaced since the pre-upgrade snapshot (StatefulSet keeps the name with a new uid;
+    Deployment gets fresh names) — count both as a roll."""
     after = pod_uids(namespace, label_selector)
     changed = sum(1 for name, uid in after.items() if before_uids.get(name) != uid)
     gone = sum(1 for name in before_uids if name not in after)
@@ -59,8 +53,7 @@ def roll_count(namespace: str, label_selector: str, before_uids: dict[str, str])
 
 
 def emit_metric(path: str, *, rolls_mongot: int, rolls_envoy: int, recovery_s: float, disruption_s: float) -> None:
-    """One greppable line per upgrade path. The gratuitous-roll and disruption-bound stories cite
-    these numbers straight from the task log."""
+    """One greppable SEARCH_UPGRADE_METRIC line per path; the roll/disruption stories cite it from the log."""
     logger.info(
         f"SEARCH_UPGRADE_METRIC path={path} rolls_mongot={rolls_mongot} rolls_envoy={rolls_envoy} "
         f"recovery_s={recovery_s:.1f} disruption_s={disruption_s:.1f}"
@@ -70,13 +63,9 @@ def emit_metric(path: str, *, rolls_mongot: int, rolls_envoy: int, recovery_s: f
 def assert_rolled_through(
     verdict, succeeded_before: int, succeeded_after: int, context: str, *, disruption_s: float, bound_s: float
 ) -> None:
-    """Lightweight background-window ride-through check for a managed-LB roll. Asserts (1) no
-    *sustained* outage — the longest unavailable streak fits ``bound_s`` (recoverable cursor /
-    network / gRPC-deadline classes occur during a roll and are deliberately not asserted on, per
-    the suite's count-not-class rule), and (2) the open cursor served fresh pages after recovery.
-    This is the background-window check, not the deterministic cursor-loss proof — that lives in the
-    drained sub-checks of the roll suites, so a buffered page satisfying (2) is acceptable here and
-    is corroborated by the caller's "the roll actually happened" assertion."""
+    """Background-window ride-through check: no sustained outage (longest failure streak <= bound_s)
+    and the open cursor served fresh pages after recovery. Asserts on failure duration, not class —
+    a roll spans cursor/network/gRPC classes; the deterministic cursor-loss proof lives in the roll suites."""
     logger.info(f"{context} verdict: {verdict.as_dict()} disruption_s={disruption_s:.1f}s")
     assert (
         disruption_s <= bound_s
@@ -95,15 +84,11 @@ def run_upgrade_availability(
     path: str,
     disruption_bound_s: Optional[float] = None,
 ) -> None:
-    """Drive a continuous paging+oneshot load across an operator/chart upgrade and emit a per-run
-    roll count + recovery/disruption metric.
+    """Drive a continuous paging+oneshot load across an upgrade; emit a roll + recovery/disruption metric.
 
-    ``tool_factory`` returns a fresh connectivity tool (own client) per call — one per concurrent
-    background tester. ``apply_upgrade`` performs the upgrade and blocks until both planes have
-    reconverged (operator Running, MongoDBSearch Running, pods Ready). The operator-upgrade deploys
-    run a single mongot, so its roll is a brief outage rather than a ride-through; this asserts that
-    new queries *resumed* after the upgrade (progress past a post-recovery snapshot — not merely that
-    a fresh post-upgrade window is clean) and that any outage was bounded by ``disruption_bound_s``."""
+    ``tool_factory`` returns a fresh tool (own client) per tester; ``apply_upgrade`` performs the change
+    and blocks until both planes reconverge. Asserts new queries resumed (progress past a post-recovery
+    snapshot, not merely a clean fresh window) and any outage stayed within ``disruption_bound_s``."""
 
     tool_factory().wait_for_sentinel_indexed(timeout=300)
     mongot_before = container_pod_uids(namespace, "mongot")

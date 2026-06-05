@@ -59,9 +59,8 @@ ENVOY_SELECTOR = f"app={ENVOY_DEPLOYMENT}"
 BASELINE_OPS = 30
 POST_EVENT_OPS = 15
 
-# Sustained-outage ceiling for a managed-LB ride-through. The surviving replica serves through a
-# one-at-a-time roll, so the real value is small; this fails a pathological run (was 300s — so loose
-# it could never fire).
+# Sustained-outage ceiling for a managed-LB ride-through; the surviving replica serves through a
+# one-at-a-time roll, so the real value is small. Fails a pathological run.
 DISRUPTION_BOUND_S = 60.0
 
 # mongot tag to upgrade to (used as the image tag via spec.version). Default is a published
