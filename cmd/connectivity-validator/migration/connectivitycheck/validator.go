@@ -47,7 +47,7 @@ type Config struct {
 
 func isKeyfileSCRAM(authMechanism string) bool {
 	switch authMechanism {
-	case "SCRAM-SHA-256", "SCRAM-SHA-1":
+	case "SCRAM-SHA-256", "SCRAM-SHA-1", "MONGODB-CR":
 		return true
 	default:
 		return false
@@ -62,6 +62,7 @@ func Validate(ctx context.Context, cfg Config) int {
 		"connectionString", cfg.ConnectionString,
 		"externalMembersCount", len(cfg.ExternalMembers),
 		"externalMembers", cfg.ExternalMembers,
+		"keyfilePath", cfg.KeyfilePath,
 		"certPath", cfg.CertPath,
 		"caPath", cfg.CAPath,
 		"subjectDN", cfg.SubjectDN,
@@ -125,7 +126,7 @@ func buildClientOptions(cfg Config, uri string) (*options.ClientOptions, error) 
 	opts := options.Client().ApplyURI(uri)
 
 	switch cfg.AuthMechanism {
-	case "SCRAM-SHA-256", "SCRAM-SHA-1":
+	case "SCRAM-SHA-256", "SCRAM-SHA-1", "MONGODB-CR":
 		log.Debugw("Using keyfile SCRAM auth", "authMechanism", cfg.AuthMechanism, "keyfilePath", cfg.KeyfilePath)
 		keyfile, err := os.ReadFile(cfg.KeyfilePath)
 		if err != nil {
@@ -137,8 +138,13 @@ func buildClientOptions(cfg Config, uri string) (*options.ClientOptions, error) 
 			log.Warnw("Keyfile is empty", "keyfilePath", cfg.KeyfilePath)
 			return nil, fmt.Errorf("keyfile at %s is empty", cfg.KeyfilePath)
 		}
+		// MONGODB-CR is the legacy OM name for SCRAM-SHA-1; the driver requires the canonical name.
+		mechanism := cfg.AuthMechanism
+		if mechanism == "MONGODB-CR" {
+			mechanism = "SCRAM-SHA-1"
+		}
 		opts.SetAuth(options.Credential{
-			AuthMechanism: cfg.AuthMechanism,
+			AuthMechanism: mechanism,
 			AuthSource:    "local",
 			Username:      "__system",
 			Password:      password,
