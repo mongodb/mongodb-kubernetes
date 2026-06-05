@@ -33,9 +33,10 @@ MONGOT_USER_PASSWORD = f"{MONGOT_USER_NAME}-password"
 USER_NAME = "mdb-user"
 USER_PASSWORD = f"{USER_NAME}-password"
 
-# Generous guard on the single-mongot operator-upgrade outage window; the measured value (logged
-# as SEARCH_UPGRADE_METRIC) is what the disruption-bound story cites, this just fails a pathological run.
-OPERATOR_UPGRADE_DISRUPTION_BOUND_S = 300.0
+# Sustained-outage ceiling for the single-mongot operator upgrade (the cursor fully drops with only
+# one mongot, so this is an outage->recover window, not a ride-through). The measured value is logged
+# as SEARCH_UPGRADE_METRIC; the bound fails a pathological run (was 300s — too loose to ever fire).
+OPERATOR_UPGRADE_DISRUPTION_BOUND_S = 60.0
 
 
 def user_connectivity_tool(namespace: str) -> SearchConnectivityTool:

@@ -16,6 +16,7 @@ import time
 
 import pytest
 from kubernetes import client
+from kubetester import get_statefulset
 from kubetester.mongodb_search import MongoDBSearch
 from kubetester.phase import Phase
 from tests import test_logger
@@ -58,6 +59,11 @@ ENVOY_SELECTOR = f"app={ENVOY_DEPLOYMENT}"
 BASELINE_OPS = 30
 POST_EVENT_OPS = 15
 
+# Sustained-outage ceiling for a managed-LB ride-through. The surviving replica serves through a
+# one-at-a-time roll, so the real value is small; this fails a pathological run (was 300s — so loose
+# it could never fire).
+DISRUPTION_BOUND_S = 60.0
+
 # mongot tag to upgrade to (used as the image tag via spec.version). Default is a published
 # staging/mongodb-search manifest tag newer than the operator default; override per-env.
 MONGOT_UPGRADE_VERSION = os.getenv("MONGOT_UPGRADE_VERSION", "9872ab5089")
@@ -91,12 +97,18 @@ def _load_mdbs(namespace: str) -> MongoDBSearch:
     )
 
 
+def _mongot_image_tag(namespace: str) -> str:
+    """The mongot container's image tag in the search StatefulSet."""
+    sts = get_statefulset(namespace, search_resource_names.mongot_statefulset_name(MDBS_NAME))
+    mongot = next(c for c in sts.spec.template.spec.containers if c.name == "mongot")
+    return mongot.image.split(":")[-1]
+
+
 def _assert_steady(namespace: str) -> None:
-    """Recovery/steady-state gate: a clean window on both query types."""
-    tool = _user_tool(namespace)
-    tool.wait_for_sentinel_indexed(timeout=300)
+    """Recovery/steady-state gate: a clean window on both query types (fresh client per tester)."""
+    _user_tool(namespace).wait_for_sentinel_indexed(timeout=300)
     for mode in ("oneshot", "paging"):
-        with SearchAvailabilityBackgroundTester(tool, mode=mode, interval_seconds=0.1) as bg:
+        with SearchAvailabilityBackgroundTester(_user_tool(namespace), mode=mode, interval_seconds=0.1) as bg:
             bg.wait_for_operations(BASELINE_OPS)
         assert_no_outage(bg.verdict)
 
@@ -158,6 +170,7 @@ class TestMongotVersionUpgrade:
             paging.wait_for_operations(BASELINE_OPS)
             mongot_before = _pod_uids(namespace, MONGOT_SELECTOR)
             envoy_before = _pod_uids(namespace, ENVOY_SELECTOR)
+            tag_before = _mongot_image_tag(namespace)
             mdbs = _load_mdbs(namespace)
             mdbs.load()
             mdbs["spec"]["version"] = MONGOT_UPGRADE_VERSION
@@ -173,6 +186,7 @@ class TestMongotVersionUpgrade:
         disruption_s = paging.max_consecutive_failure * paging.interval_seconds
         rolls_mongot = _roll_count(namespace, MONGOT_SELECTOR, mongot_before)
         rolls_envoy = _roll_count(namespace, ENVOY_SELECTOR, envoy_before)
+        tag_after = _mongot_image_tag(namespace)
         logger.info(f"mongot-version oneshot verdict: {oneshot.verdict.as_dict()}")
         _emit_metric(
             "mongot",
@@ -181,7 +195,23 @@ class TestMongotVersionUpgrade:
             recovery_s=recovery_s,
             disruption_s=disruption_s,
         )
-        _assert_rolled_through(paging.verdict, ok_at_recovery, ok_after, "mongot-version")
+        # The upgrade actually happened (not a silent no-op): every mongot rolled to the new tag,
+        # and the mongot-only bump left envoy untouched.
+        assert (
+            tag_after == MONGOT_UPGRADE_VERSION and tag_after != tag_before
+        ), f"mongot version upgrade was a no-op: tag {tag_before}->{tag_after}, target {MONGOT_UPGRADE_VERSION}"
+        assert (
+            rolls_mongot >= SEARCH.mongot_replicas
+        ), f"expected all {SEARCH.mongot_replicas} mongot to roll, got {rolls_mongot}"
+        assert rolls_envoy == 0, f"a mongot version bump must not disturb envoy, but {rolls_envoy} envoy pod(s) rolled"
+        _assert_rolled_through(
+            paging.verdict,
+            ok_at_recovery,
+            ok_after,
+            "mongot-version",
+            disruption_s=disruption_s,
+            bound_s=DISRUPTION_BOUND_S,
+        )
         _assert_steady(namespace)
 
     def test_recovers_to_steady_state(self, namespace: str):
@@ -224,7 +254,17 @@ class TestEnvoyImageUpgrade:
         rolls_envoy = _roll_count(namespace, ENVOY_SELECTOR, envoy_before)
         logger.info(f"envoy-image oneshot verdict: {oneshot.verdict.as_dict()}")
         _emit_metric("envoy", rolls_mongot=0, rolls_envoy=rolls_envoy, recovery_s=recovery_s, disruption_s=disruption_s)
-        _assert_rolled_through(paging.verdict, ok_at_recovery, ok_after, "envoy-image")
+        assert (
+            rolls_envoy >= 1
+        ), f"envoy image upgrade rolled no envoy pod (rolls_envoy={rolls_envoy}); upgrade was a no-op"
+        _assert_rolled_through(
+            paging.verdict,
+            ok_at_recovery,
+            ok_after,
+            "envoy-image",
+            disruption_s=disruption_s,
+            bound_s=DISRUPTION_BOUND_S,
+        )
         _assert_steady(namespace)
 
     def test_recovers_to_steady_state(self, namespace: str):
