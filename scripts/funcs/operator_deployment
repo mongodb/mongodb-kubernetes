@@ -83,7 +83,6 @@ get_operator_helm_values() {
       # shellcheck disable=SC2154
       config+=("multiCluster.clusters={${comma_separated_list}}")
     fi
-    config+=("operator.createOperatorServiceAccount=false")
   fi
 
   if [[ "${BUILD_WITH_RACE_DETECTION:-}" == "true" ]]; then

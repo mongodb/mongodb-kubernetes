@@ -45,14 +45,6 @@ rules:
   verbs:
   - '*'
 - apiGroups:
-  - operator.mongodb.com
-  resources:
-  - operatorconfigs
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
   - ""
   resources:
   - secrets
