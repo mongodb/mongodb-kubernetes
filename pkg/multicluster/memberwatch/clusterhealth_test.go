@@ -30,7 +30,10 @@ const testRequiredHealthyStreak = 5
 func init() {
 	logger, _ := zap.NewDevelopment()
 	zap.ReplaceGlobals(logger)
-	_ = os.Setenv("PERFORM_FAILOVER", "false")
+	_ = os.Setenv("PERFORM_FAILOVER", "false") // nolint:forbidigo
+	defer func(key string) {
+		_ = os.Unsetenv(key) // nolint:forbidigo
+	}("PERFORM_FAILOVER")
 }
 
 func TestIsMemberClusterHealthy(t *testing.T) {
@@ -225,11 +228,15 @@ func TestStreakResetsOnUnhealthyWhenAlmostRecovered(t *testing.T) {
 	go checker.WatchMemberClusterHealth(ctx, zap.S(), watchChannel, central, nil)
 
 	require.Eventually(t, func() bool {
+		return checker.HealthyStreak["cluster1"] == 0
+	}, 5*time.Second, 50*time.Millisecond)
+
+	assert.Never(t, func() bool {
 		got := &mdbmulti.MongoDBMultiCluster{}
 		if err := fakeClient.Get(ctx, types.NamespacedName{Name: "mdbmc", Namespace: "ns"}, got); err != nil {
-			return false
+			return true
 		}
-		return isInFailedClusterAnnotation(got.Annotations, "cluster1")
+		return !isInFailedClusterAnnotation(got.Annotations, "cluster1")
 	}, 5*time.Second, 50*time.Millisecond)
 }
 
@@ -346,4 +353,40 @@ func TestAllMDBMultiResourcesCleared(t *testing.T) {
 		assert.False(t, isInFailedClusterAnnotation(got.Annotations, "cluster1"),
 			"annotation should be removed from %s", name)
 	}
+}
+
+func TestFailedClusterAnnotationStaysWhenPerformFailoverTrue(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	_ = os.Setenv("PERFORM_FAILOVER", "true") // nolint:forbidigo
+	defer func(key string) {
+		_ = os.Unsetenv(key) // nolint:forbidigo
+	}("PERFORM_FAILOVER")
+
+	failedAnnotation := getFailedClusterList([]string{"cluster1"})
+	mrs := newTestMDBMulti("mdbmc", "ns", map[string]string{
+		failedcluster.FailedClusterAnnotation: failedAnnotation,
+	})
+	fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme(t)).WithObjects(mrs).Build()
+	central := kubernetesClient.NewClient(fakeClient)
+	watchChannel := make(chan event.GenericEvent, 10)
+
+	// Healthy: true is the default from NewMockedMemberHealthCheck.
+	checker := &MemberClusterHealthChecker{
+		Cache:                 map[string]ClusterHealthChecker{"cluster1": NewMockedMemberHealthCheck("server1")},
+		HealthyStreak:         map[string]int{"cluster1": 0},
+		RequiredHealthyStreak: testRequiredHealthyStreak,
+	}
+
+	go checker.WatchMemberClusterHealth(ctx, zap.S(), watchChannel, central, nil)
+
+	assert.Never(t, func() bool {
+		return len(watchChannel) > 0
+	}, 500*time.Millisecond, 50*time.Millisecond)
+	assert.Never(t, func() bool { return checker.HealthyStreak["cluster1"] > 0 }, 500*time.Millisecond, 50*time.Millisecond)
+
+	got := &mdbmulti.MongoDBMultiCluster{}
+	require.NoError(t, fakeClient.Get(ctx, types.NamespacedName{Name: "mdbmc", Namespace: "ns"}, got))
+	assert.True(t, isInFailedClusterAnnotation(got.Annotations, "cluster1"))
 }
