@@ -37,6 +37,7 @@ from tests.common.search.connectivity import (
 )
 from tests.common.search.rs_search_helper import rs_search_tester
 from tests.common.search.search_deployment_helper import SearchDeploymentHelper
+from tests.common.search.upgrade_availability import assert_rolled_through as _assert_rolled_through
 from tests.common.search.upgrade_availability import emit_metric as _emit_metric
 from tests.common.search.upgrade_availability import pod_uids as _pod_uids
 from tests.common.search.upgrade_availability import roll_count as _roll_count
@@ -98,17 +99,6 @@ def _assert_steady(namespace: str) -> None:
         with SearchAvailabilityBackgroundTester(tool, mode=mode, interval_seconds=0.1) as bg:
             bg.wait_for_operations(BASELINE_OPS)
         assert_no_outage(bg.verdict)
-
-
-def _assert_rolled_through(verdict, succeeded_before: int, succeeded_after: int, context: str) -> None:
-    """A graceful upgrade must not cause a sustained outage: only recoverable cursor/network
-    classes may fail, and the open cursor must serve fresh pages after recovery (succeeded grew
-    past the recovery snapshot — proving it resumed, not just that baseline pages buffered)."""
-    logger.info(f"{context} paging verdict: {verdict.as_dict()}")
-    assert verdict.other_failed == 0, f"{context}: unexpected failure class; {verdict.as_dict()}"
-    assert (
-        succeeded_after > succeeded_before
-    ), f"{context}: cursor served no pages after recovery ({succeeded_before}->{succeeded_after}); {verdict.as_dict()}"
 
 
 def _operator_deployment(namespace: str):

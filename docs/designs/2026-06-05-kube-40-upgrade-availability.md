@@ -165,4 +165,40 @@ does **not** match `e2e_search_availability_`:
 Changelog: internal test infra → `skip-changelog` label (KUBE-37
 precedent). TDD is e2e-only (no unit tests for the test framework).
 
+## Revision (during execution) — operator-flavor upgrade source
+
+The original design extended `operator_upgrade_search.py` to add
+operator-flavor classes upgrading **from the latest released operator**.
+Execution surfaced two facts that reshaped this:
+
+- **The managed-LB/envoy feature is unreleased.** The released operator
+  has no envoy controller, and `install_official_operator` installs only
+  the operator Deployment (not the CRDs) — so managed-LB-before-upgrade
+  is impossible on `official -> dev`. The decision: **from = the patch's
+  base** (the dev build), not the release.
+- **This change is test-only.** The diff vs base touches only `tests/`,
+  `docs/`, and `.evergreen*.yml` — no operator Go code, no Helm chart. So
+  the base-of-patch operator binary is identical to this build, and
+  "from = patch's base" means the **same dev operator on both sides**.
+  The operator-version upgrade is then faithfully modelled as a
+  **bundled-image change** (`search.version` / `search.envoyImage` Helm
+  values) on that one operator — install pinned to older images, then
+  Helm-upgrade back to the build defaults so the operator rolls the data
+  plane. No separately-built base image is needed or meaningful.
+
+Consequences:
+- The operator flavors moved to a **new managed-LB suite**,
+  `tests/search/search_availability_upgrade_operator.py` (marker
+  `e2e_search_availability_upgrade_operator`, own EVG task → own node, to
+  respect the one-deploy-per-node CPU limit). It runs the deploy on a
+  managed-LB topology so both mongot and envoy roll counts are meaningful.
+- `operator_upgrade_search.py` keeps its released-operator -> dev
+  single-mongot upgrade test intact (additive over the parent).
+- The **chart-version** flavor is **deferred**: a real chart-version
+  upgrade needs a prior released chart carrying the (unreleased) feature,
+  which won't exist until GA. Documented in the suite docstring + README
+  rather than faked.
+- The metric log prefix was renamed `KUBE40_METRIC` -> `SEARCH_UPGRADE_METRIC`
+  (code carries no ticket references).
+
 See: docs/plans/2026-06-05-kube-40-upgrade-availability.md

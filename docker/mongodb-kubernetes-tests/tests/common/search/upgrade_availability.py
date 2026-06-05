@@ -59,12 +59,24 @@ def roll_count(namespace: str, label_selector: str, before_uids: dict[str, str])
 
 
 def emit_metric(path: str, *, rolls_mongot: int, rolls_envoy: int, recovery_s: float, disruption_s: float) -> None:
-    """One greppable line per upgrade path. KUBE-24 (gratuitous rolls) and KUBE-42 (disruption
-    bound) cite these numbers from the task log."""
+    """One greppable line per upgrade path. The gratuitous-roll and disruption-bound stories cite
+    these numbers straight from the task log."""
     logger.info(
-        f"KUBE40_METRIC path={path} rolls_mongot={rolls_mongot} rolls_envoy={rolls_envoy} "
+        f"SEARCH_UPGRADE_METRIC path={path} rolls_mongot={rolls_mongot} rolls_envoy={rolls_envoy} "
         f"recovery_s={recovery_s:.1f} disruption_s={disruption_s:.1f}"
     )
+
+
+def assert_rolled_through(verdict, succeeded_before: int, succeeded_after: int, context: str) -> None:
+    """A graceful roll on a managed-LB deployment must not cause a sustained outage: only recoverable
+    cursor/network classes may fail, and the open cursor must serve fresh pages after recovery
+    (succeeded grew past the recovery snapshot — proving it resumed, not that baseline pages
+    buffered)."""
+    logger.info(f"{context} paging verdict: {verdict.as_dict()}")
+    assert verdict.other_failed == 0, f"{context}: unexpected failure class; {verdict.as_dict()}"
+    assert (
+        succeeded_after > succeeded_before
+    ), f"{context}: cursor served no pages after recovery ({succeeded_before}->{succeeded_after}); {verdict.as_dict()}"
 
 
 def run_upgrade_availability(

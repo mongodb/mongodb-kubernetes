@@ -34,7 +34,7 @@ USER_NAME = "mdb-user"
 USER_PASSWORD = f"{USER_NAME}-password"
 
 # Generous guard on the single-mongot operator-upgrade outage window; the measured value (logged
-# as KUBE40_METRIC) is what the disruption-bound story cites, this just fails a pathological run.
+# as SEARCH_UPGRADE_METRIC) is what the disruption-bound story cites, this just fails a pathological run.
 OPERATOR_UPGRADE_DISRUPTION_BOUND_S = 300.0
 
 
