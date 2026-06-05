@@ -1,7 +1,7 @@
 from typing import Dict, Optional
 
 import kubernetes
-from kubetester import create_or_update_secret, find_fixture, read_secret, try_load, update_secret, wait_until
+from kubetester import create_or_update_secret, find_fixture, read_secret, try_load
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
@@ -24,15 +24,14 @@ from pytest import fixture
 class SHA1ConnectivityTests:
     # K8s-originated user (operator manages all creds).
     USER_NAME = "mms-user-1"
+    USER_PASSWORD = "my-password"
+    PASSWORD_SECRET_NAME = "mms-user-1-password"
     USER_DATABASE = "admin"
 
     NON_ADMIN_USER_NAME = "mms-user-2"
     NON_ADMIN_PASSWORD_SECRET_NAME = "mms-user-2-password"
     NON_ADMIN_USER_PASSWORD = "my-password-2"
     NON_ADMIN_USER_DATABASE = "testdb"
-
-    USER_PASSWORD = "my-password"
-    PASSWORD_SECRET_NAME = "mms-user-1-password"
 
     # Imported user seeded in the AC with only SHA-1 creds + SHA-1 mechanism.
     OM_SHA1_USER_NAME = "om-user-sha1"
@@ -168,56 +167,6 @@ class SHA1ConnectivityTests:
             auth_mechanism="SCRAM-SHA-1",
         )
 
-    # Credentials secret connectivity
-
-    @fixture
-    def standard_secret(self, namespace: str, mdb_resource_name: str) -> Dict[str, str]:
-        secret_name = f"{mdb_resource_name}-{self.USER_NAME}-{self.USER_DATABASE}"
-        return read_secret(namespace, secret_name)
-
-    @fixture
-    def non_admin_standard_secret(self, namespace: str, mdb_resource_name: str) -> Dict[str, str]:
-        secret_name = f"{mdb_resource_name}-{self.NON_ADMIN_USER_NAME}-{self.NON_ADMIN_USER_DATABASE}"
-        return read_secret(namespace, secret_name)
-
-    def test_credentials_secret_is_created(self, standard_secret: Dict[str, str]):
-        assert "username" in standard_secret
-        assert "password" in standard_secret
-        assert "connectionString.standard" in standard_secret
-        assert "connectionString.standardSrv" in standard_secret
-        assert f"authSource={self.USER_DATABASE}" in standard_secret["connectionString.standard"]
-        assert f"authSource={self.USER_DATABASE}" in standard_secret["connectionString.standardSrv"]
-
-    def test_credentials_can_connect_to_db(self, standard_secret: Dict[str, str]):
-        MongoTester(standard_secret["connectionString.standard"], use_ssl=False).assert_connectivity()
-
-    def test_credentials_can_connect_to_db_with_srv(self, standard_secret: Dict[str, str]):
-        MongoTester(standard_secret["connectionString.standardSrv"], use_ssl=False).assert_connectivity()
-
-    def test_create_non_admin_db_user(self, namespace: str, mdb_resource_name: str):
-        create_or_update_secret(
-            namespace, self.NON_ADMIN_PASSWORD_SECRET_NAME, {"password": self.NON_ADMIN_USER_PASSWORD}
-        )
-        resource = MongoDBUser.from_yaml(yaml_fixture("scram-sha-user-non-admin-db.yaml"), namespace=namespace)
-        resource["spec"]["mongodbResourceRef"]["name"] = mdb_resource_name
-        try_load(resource)
-        resource.update()
-        resource.assert_reaches_phase(Phase.Updated, timeout=150)
-
-    def test_non_admin_db_credentials_secret_is_created(self, non_admin_standard_secret: Dict[str, str]):
-        assert "username" in non_admin_standard_secret
-        assert "password" in non_admin_standard_secret
-        assert "connectionString.standard" in non_admin_standard_secret
-        assert "connectionString.standardSrv" in non_admin_standard_secret
-        assert f"authSource={self.NON_ADMIN_USER_DATABASE}" in non_admin_standard_secret["connectionString.standard"]
-        assert f"authSource={self.NON_ADMIN_USER_DATABASE}" in non_admin_standard_secret["connectionString.standardSrv"]
-
-    def test_non_admin_credentials_can_connect_to_db(self, non_admin_standard_secret: Dict[str, str]):
-        MongoTester(non_admin_standard_secret["connectionString.standard"], use_ssl=False).assert_connectivity()
-
-    def test_non_admin_credentials_can_connect_to_db_with_srv(self, non_admin_standard_secret: Dict[str, str]):
-        MongoTester(non_admin_standard_secret["connectionString.standardSrv"], use_ssl=False).assert_connectivity()
-
     def _seed_both_user_in_ac(self, mdb: MongoDB) -> None:
         seed_user_in_ac(
             om_tester=mdb.get_om_tester(),
@@ -270,11 +219,16 @@ class SHA1ConnectivityTests:
         resource.assert_reaches_phase(Phase.Updated)
 
     def test_om_user_sha1_mechanisms_empty_after_transition(self, mdb: MongoDB):
+        # After initPwd is processed by OM and the follow-up reconcile completes,
+        # the operator treats the user as K8s-managed (mechanisms=[]).
         tester = mdb.get_automation_config_tester()
         tester.assert_has_user(self.OM_SHA1_USER_NAME)
         assert_user_mechanisms(tester, self.OM_SHA1_USER_NAME, [])
 
     def test_om_user_sha1_creds_preserved_byte_for_byte(self, mdb: MongoDB):
+        # The original SHA-1 creds seeded in the AC must survive the import transition
+        # byte-for-byte. SHA-256 is generated separately on the follow-up reconcile and
+        # must not affect SHA-1.
         assert_creds_preserved(
             mdb.get_automation_config_tester(),
             self.OM_SHA1_USER_NAME,
@@ -282,6 +236,9 @@ class SHA1ConnectivityTests:
         )
 
     def test_om_user_sha1_gets_sha256_creds_after_transition(self, mdb: MongoDB):
+        # On the follow-up reconcile the operator treats the user as K8s-managed
+        # (mechanisms=[]) and generates only the missing SHA-256 creds. We capture
+        # them so we can assert they are not regenerated by the mode upgrade.
         user = get_ac_user(mdb.get_automation_config_tester(), self.OM_SHA1_USER_NAME)
         assert user.get("scramSha1Creds"), "SHA-1 creds must be present"
         assert user.get("scramSha256Creds"), "SHA-256 creds must be present after the follow-up reconcile"
@@ -355,6 +312,56 @@ class SHA1ConnectivityTests:
             auth_mechanism="SCRAM-SHA-1",
             attempts=20,
         )
+
+    # Credentials secret connectivity
+
+    @fixture
+    def standard_secret(self, namespace: str, mdb_resource_name: str) -> Dict[str, str]:
+        secret_name = f"{mdb_resource_name}-{self.USER_NAME}-{self.USER_DATABASE}"
+        return read_secret(namespace, secret_name)
+
+    @fixture
+    def non_admin_standard_secret(self, namespace: str, mdb_resource_name: str) -> Dict[str, str]:
+        secret_name = f"{mdb_resource_name}-{self.NON_ADMIN_USER_NAME}-{self.NON_ADMIN_USER_DATABASE}"
+        return read_secret(namespace, secret_name)
+
+    def test_credentials_secret_is_created(self, standard_secret: Dict[str, str]):
+        assert "username" in standard_secret
+        assert "password" in standard_secret
+        assert "connectionString.standard" in standard_secret
+        assert "connectionString.standardSrv" in standard_secret
+        assert f"authSource={self.USER_DATABASE}" in standard_secret["connectionString.standard"]
+        assert f"authSource={self.USER_DATABASE}" in standard_secret["connectionString.standardSrv"]
+
+    def test_credentials_can_connect_to_db(self, standard_secret: Dict[str, str]):
+        MongoTester(standard_secret["connectionString.standard"], use_ssl=False).assert_connectivity()
+
+    def test_credentials_can_connect_to_db_with_srv(self, standard_secret: Dict[str, str]):
+        MongoTester(standard_secret["connectionString.standardSrv"], use_ssl=False).assert_connectivity()
+
+    def test_create_non_admin_db_user(self, namespace: str, mdb_resource_name: str):
+        create_or_update_secret(
+            namespace, self.NON_ADMIN_PASSWORD_SECRET_NAME, {"password": self.NON_ADMIN_USER_PASSWORD}
+        )
+        resource = MongoDBUser.from_yaml(yaml_fixture("scram-sha-user-non-admin-db.yaml"), namespace=namespace)
+        resource["spec"]["mongodbResourceRef"]["name"] = mdb_resource_name
+        try_load(resource)
+        resource.update()
+        resource.assert_reaches_phase(Phase.Updated, timeout=150)
+
+    def test_non_admin_db_credentials_secret_is_created(self, non_admin_standard_secret: Dict[str, str]):
+        assert "username" in non_admin_standard_secret
+        assert "password" in non_admin_standard_secret
+        assert "connectionString.standard" in non_admin_standard_secret
+        assert "connectionString.standardSrv" in non_admin_standard_secret
+        assert f"authSource={self.NON_ADMIN_USER_DATABASE}" in non_admin_standard_secret["connectionString.standard"]
+        assert f"authSource={self.NON_ADMIN_USER_DATABASE}" in non_admin_standard_secret["connectionString.standardSrv"]
+
+    def test_non_admin_credentials_can_connect_to_db(self, non_admin_standard_secret: Dict[str, str]):
+        MongoTester(non_admin_standard_secret["connectionString.standard"], use_ssl=False).assert_connectivity()
+
+    def test_non_admin_credentials_can_connect_to_db_with_srv(self, non_admin_standard_secret: Dict[str, str]):
+        MongoTester(non_admin_standard_secret["connectionString.standardSrv"], use_ssl=False).assert_connectivity()
 
     def test_authentication_is_disabled_once_resource_is_deleted(self, mdb: MongoDB):
         mdb.delete()
