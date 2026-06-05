@@ -76,6 +76,7 @@ func buildReplicaSetDbCommonSpec(ac *om.AutomationConfig, opts GenerateOptions, 
 	if opts.SourceProcess != nil {
 		additionalConfig = opts.SourceProcess.AdditionalMongodConfig()
 	}
+	additionalConfig = applyClientCertificateMode(ac.AgentSSL, additionalConfig)
 
 	var featureCompatibilityVersion *string
 	if fcv != "" {

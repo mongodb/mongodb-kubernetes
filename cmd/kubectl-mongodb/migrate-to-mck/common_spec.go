@@ -206,6 +206,21 @@ func extractPrometheusConfig(d om.Deployment) (*mdbcv1.Prometheus, error) {
 	return prom, nil
 }
 
+// applyClientCertificateMode sets net.tls.allowConnectionsWithoutCertificates to false when the
+// Ops Manager AgentSSL requires client certificates (clientCertificateMode: REQUIRE), preserving
+// that setting in the generated CR's additionalMongodConfig. The OPTIONAL case is the operator
+// default and needs no explicit field.
+func applyClientCertificateMode(agentSSL *om.AgentSSL, additionalConfig *mdbv1.AdditionalMongodConfig) *mdbv1.AdditionalMongodConfig {
+	if agentSSL == nil || agentSSL.ClientCertificateMode != util.RequireClientCertificates {
+		return additionalConfig
+	}
+	if additionalConfig == nil {
+		additionalConfig = mdbv1.NewEmptyAdditionalMongodConfig()
+	}
+	additionalConfig.AddOption("net.tls.allowConnectionsWithoutCertificates", false)
+	return additionalConfig
+}
+
 // extractAgentConfig builds spec.agent from project-level log rotation and the source process systemLog.
 func extractAgentConfig(sourceProcess *om.Process, projectConfigs *ProjectConfigs) mdbv1.AgentConfig {
 	var agentConfig mdbv1.AgentConfig

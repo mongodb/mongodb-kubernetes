@@ -989,6 +989,42 @@ func TestExtractAdditionalMongodConfig_MultiMember_SamePort_Included(t *testing.
 	assert.Equal(t, 27018, maputil.ReadMapValueAsInt(config.ToMap(), "net", "port"))
 }
 
+func TestApplyClientCertificateMode_RequireCreatesField(t *testing.T) {
+	agentSSL := &om.AgentSSL{ClientCertificateMode: "REQUIRE"}
+	result := applyClientCertificateMode(agentSSL, nil)
+	require.NotNil(t, result)
+	tlsMap, ok := result.ToMap()["net"].(map[string]interface{})
+	require.True(t, ok)
+	tlsSub, ok := tlsMap["tls"].(map[string]interface{})
+	require.True(t, ok)
+	assert.Equal(t, false, tlsSub["allowConnectionsWithoutCertificates"])
+}
+
+func TestApplyClientCertificateMode_RequireMergesIntoExisting(t *testing.T) {
+	agentSSL := &om.AgentSSL{ClientCertificateMode: "REQUIRE"}
+	existing := mdbv1.NewAdditionalMongodConfig("net.port", 27018)
+	result := applyClientCertificateMode(agentSSL, existing)
+	require.NotNil(t, result)
+	m := result.ToMap()
+	netMap, ok := m["net"].(map[string]interface{})
+	require.True(t, ok)
+	assert.EqualValues(t, 27018, netMap["port"])
+	tlsSub, ok := netMap["tls"].(map[string]interface{})
+	require.True(t, ok)
+	assert.Equal(t, false, tlsSub["allowConnectionsWithoutCertificates"])
+}
+
+func TestApplyClientCertificateMode_OptionalNoChange(t *testing.T) {
+	agentSSL := &om.AgentSSL{ClientCertificateMode: "OPTIONAL"}
+	result := applyClientCertificateMode(agentSSL, nil)
+	assert.Nil(t, result)
+}
+
+func TestApplyClientCertificateMode_NilAgentSSLNoChange(t *testing.T) {
+	result := applyClientCertificateMode(nil, nil)
+	assert.Nil(t, result)
+}
+
 func strPtr(s string) *string {
 	return &s
 }
