@@ -69,10 +69,6 @@ operator:
   # 4*4=20 workers in total. Memory usage depends on the actual number of resources reconciles in parallel and is not allocated upfront.
   maxConcurrentReconciles: 1
 
-  # Create operator service account and roles
-  # if false, then operator RBAC will not be provided by the chart
-  createOperatorServiceAccount: true
-
   # Set to false to NOT create service accounts and roles for the resources managed by the operator
   # It might be necessary to disable it to avoid conflicts when
   # kubectl mongodb plugin is used to configure multi-cluster resources
