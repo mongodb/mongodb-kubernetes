@@ -218,3 +218,42 @@ Consequences / artifacts:
   (code carries no ticket references).
 
 See: docs/plans/2026-06-05-kube-40-upgrade-availability.md
+
+## Revision 2 (during execution) — CRD wall, then the right released → dev API
+
+The first released → dev attempt **failed in EVG** at search-resource
+create: the released 1.8.x CRD strict-rejected `spec.clusters` and
+`loadBalancer.managed.replicas`. Root cause was using the **dev-only
+unified API fields**, not the feature being unreleased. A reflexive revert
+to `dev -> dev` followed, which we then reversed: `dev -> dev` tests
+nothing an image bump doesn't — same binary, same CRD — so it is not an
+operator-upgrade test at all.
+
+Verified against the shipped CRDs (tags `1.8.0`/`1.8.1`):
+
+| Field | Released 1.8.1 | Dev |
+|---|---|---|
+| `spec.replicas` (multi-mongot) | present | present (deprecated → `clusters[].replicas`) |
+| `loadBalancer.managed` | present | present |
+| `loadBalancer.managed.replicas` (multi-envoy) | **absent** | present |
+| `spec.clusters` | **absent** | present |
+
+**Final approach:** deploy the "from" state with the **released CR API** —
+`spec.replicas=2` + `loadBalancer.managed: {}` (2 mongot, 1 envoy; both
+fields exist in both CRDs, so the resource survives the CRD migration and
+the dev operator auto-promotes the deprecated `spec.replicas`). A genuine
+`released -> dev` upgrade: new reconciler + CRD migration + 2-mongot
+ride-through.
+
+`search_availability_upgrade_operator.py` is rewritten accordingly:
+- **operator-upgrade** — `released -> dev`, mongot ride-through, mongot
+  image confirmed to change (no-op guard), disruption bound.
+- **envoy-scale** — post-upgrade, set `managed.replicas=2` (the dev-only
+  field the released CRD lacked): envoy scales 1 → 2, proving the migration
+  unlocked it, while availability holds. This adds an endpoint rather than
+  rolling; **multi-envoy ride-through** stays in
+  `search_availability_upgrade_dataplane.py` (no duplication).
+
+Multi-envoy ride-through across an operator upgrade is intentionally not
+covered — the 2-envoy field is dev-only, so the released "from" state can
+only carry one envoy.
