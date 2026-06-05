@@ -27,6 +27,11 @@ sub-check** that force-drains past the buffer to prove the cursor fault is obser
 | `search_availability_rolling_restart.py` | `e2e_search_availability_rolling_restart` | envoy Deployment roll, mongot StatefulSet roll |
 | `search_availability_envoy_scale.py` | `e2e_search_availability_envoy_scale` | envoy scale up (additive) then down to 1, via `spec.loadBalancer.managed.replicas` |
 | `search_availability_infra.py` | `e2e_search_availability_infra` | node drain (cordon + evict), operator restart |
+| `search_availability_upgrade_dataplane.py` | `e2e_search_availability_upgrade` | mongot version upgrade (`spec.version`), envoy image upgrade (`MDB_ENVOY_IMAGE`, CI-only) |
+
+Operator-version and MCK-chart upgrades are availability-tested separately in
+`tests/upgrades/operator_upgrade_search.py` (`e2e_operator_upgrade_search`), which runs the same
+background tester across an in-cluster operator Helm upgrade.
 
 Each file deploys once (external-source RS + managed Envoy LB, multi-replica defaults) via the
 shared bootstrap test-class chain, then runs its scenarios with a steady-state gate between them.
@@ -41,6 +46,8 @@ shared bootstrap test-class chain, then runs its scenarios with a steady-state g
 | envoy scale down (→1) | recover (log-only) | may drop → log-only + recover | n/a (see envoy roll) |
 | node drain | outage → recover on uncordon | outage → recover | n/a |
 | operator restart | continuous | continuous (control plane off the data path) | n/a |
+| mongot version upgrade | blip → recover | ride-through or transient drop → reopen | n/a (one-shot transition) |
+| envoy image upgrade | blip → recover | ride-through or transient drop → reopen | n/a (CI-only) |
 
 Assertions check availability *properties*, never exact operation counts. The roll cursor cells
 assert the open cursor serves *fresh* pages after recovery (succeeded grows past a post-recovery
