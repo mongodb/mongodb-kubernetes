@@ -325,6 +325,8 @@ spec:
         app.kubernetes.io/component: controller
         app.kubernetes.io/name: mongodb-kubernetes-operator
         app.kubernetes.io/instance: mongodb-kubernetes-operator
+      annotations:
+        mongodb.com/installation-method: "yaml"
     spec:
       serviceAccountName: mongodb-kubernetes-operator
       containers:
@@ -407,6 +409,10 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
+            - name: MCK_INSTALLER
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.annotations['mongodb.com/installation-method']
             - name: OPERATOR_NAME
               value: mongodb-kubernetes-operator
             # Community Env Vars Start
@@ -485,8 +491,8 @@ spec:
               value: "quay.io/mongodb/mongodb-agent:108.0.7.8810-1"
             - name: RELATED_IMAGE_AGENT_IMAGE_12_0_35_7911_1
               value: "quay.io/mongodb/mongodb-agent:12.0.35.7911-1"
-            - name: RELATED_IMAGE_AGENT_IMAGE_13_51_0_10584_1
-              value: "quay.io/mongodb/mongodb-agent:13.51.0.10584-1"
+            - name: RELATED_IMAGE_AGENT_IMAGE_13_52_0_10711_1
+              value: "quay.io/mongodb/mongodb-agent:13.52.0.10711-1"
             - name: RELATED_IMAGE_OPS_MANAGER_IMAGE_REPOSITORY_6_0_26
               value: "quay.io/mongodb/mongodb-enterprise-ops-manager-ubi:6.0.26"
             - name: RELATED_IMAGE_OPS_MANAGER_IMAGE_REPOSITORY_6_0_27
