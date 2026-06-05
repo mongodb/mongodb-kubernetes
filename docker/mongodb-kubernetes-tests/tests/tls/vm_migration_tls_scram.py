@@ -44,7 +44,7 @@ def om_tester(namespace: str, operator) -> OMTester:
 
 @fixture(scope="module")
 def vm_server_certs(issuer: str, namespace: str) -> str:
-    return create_mongodb_tls_certs(ISSUER_CA_NAME, namespace, VM_STS_NAME, f"{VM_STS_NAME}-cert", 3, None, VM_STS_NAME)
+    return create_mongodb_tls_certs(ISSUER_CA_NAME, namespace, VM_STS_NAME, f"{VM_STS_NAME}-cert", 5, None, VM_STS_NAME)
 
 
 @fixture(scope="module")
@@ -158,7 +158,7 @@ def mdb_migration(
 def test_deploy_vm(namespace: str, vm_sts, vm_service):
     def sts_is_ready():
         sts = get_statefulset(namespace, vm_sts["metadata"]["name"])
-        return sts.status.ready_replicas == 3
+        return sts.status.ready_replicas == vm_sts["spec"]["replicas"]
 
     KubernetesTester.wait_until(sts_is_ready, timeout=300)
 
@@ -291,7 +291,7 @@ def test_configure_ac_scram_auth(om_tester: OMTester):
     }
 
     om_tester.api_put_automation_config(ac)
-    om_tester.wait_agents_ready(timeout=900)
+    om_tester.wait_agents_ready(timeout=600)
 
 
 @mark.e2e_vm_migration_tls_scram
@@ -314,10 +314,11 @@ def test_mdb_reaches_running(mdb_migration: MongoDB):
 def test_promote_and_prune(mdb_migration: MongoDB, vm_sts):
     try_load(mdb_migration)
     for i in range(vm_sts["spec"]["replicas"]):
-        mdb_migration["spec"]["memberConfig"][i]["priority"] = "1"
-        mdb_migration["spec"]["memberConfig"][i]["votes"] = 1
-        mdb_migration.update()
-        mdb_migration.assert_reaches_phase(Phase.Running)
+        if i < mdb_migration.get_members():
+            mdb_migration["spec"]["memberConfig"][i]["priority"] = "1"
+            mdb_migration["spec"]["memberConfig"][i]["votes"] = 1
+            mdb_migration.update()
+            mdb_migration.assert_reaches_phase(Phase.Running)
 
         mdb_migration["spec"]["externalMembers"].pop()
         mdb_migration.update()
