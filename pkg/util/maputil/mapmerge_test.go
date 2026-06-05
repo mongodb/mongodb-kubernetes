@@ -24,14 +24,14 @@ func TestMergeMaps(t *testing.T) {
 	})
 	t.Run("Merge overrides only common fields", func(t *testing.T) {
 		dst := map[string]interface{}{
-			"key1":   "old value",                               // must be overridden
+			"key1":   "old value",                              // must be overridden
 			"key2":   map[string]interface{}{"rubbish": "yes"}, // completely different type - will be overridden
 			"oldkey": "must retain!",
 			"nestedMap": map[string]interface{}{
 				"key4": 100,
 				"nestedNestedMap": map[string]interface{}{
 					"key7":             float32(100.55),
-					"key8":             "mongod", // will be overridden by TypeMongos
+					"key8":             "mongod",        // will be overridden by TypeMongos
 					"key9":             []string{"old"}, // must be overridden
 					"oldkey2":          []int{1},
 					"anotherNestedMap": map[string]interface{}{},
