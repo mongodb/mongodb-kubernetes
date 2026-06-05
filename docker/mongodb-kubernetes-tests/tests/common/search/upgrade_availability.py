@@ -67,16 +67,24 @@ def emit_metric(path: str, *, rolls_mongot: int, rolls_envoy: int, recovery_s: f
     )
 
 
-def assert_rolled_through(verdict, succeeded_before: int, succeeded_after: int, context: str) -> None:
-    """A graceful roll on a managed-LB deployment must not cause a sustained outage: only recoverable
-    cursor/network classes may fail, and the open cursor must serve fresh pages after recovery
-    (succeeded grew past the recovery snapshot — proving it resumed, not that baseline pages
-    buffered)."""
-    logger.info(f"{context} paging verdict: {verdict.as_dict()}")
-    assert verdict.other_failed == 0, f"{context}: unexpected failure class; {verdict.as_dict()}"
+def assert_rolled_through(
+    verdict, succeeded_before: int, succeeded_after: int, context: str, *, disruption_s: float, bound_s: float
+) -> None:
+    """Lightweight background-window ride-through check for a managed-LB roll. Asserts (1) no
+    *sustained* outage — the longest unavailable streak fits ``bound_s`` (recoverable cursor /
+    network / gRPC-deadline classes occur during a roll and are deliberately not asserted on, per
+    the suite's count-not-class rule), and (2) the open cursor served fresh pages after recovery.
+    This is the background-window check, not the deterministic cursor-loss proof — that lives in the
+    drained sub-checks of the roll suites, so a buffered page satisfying (2) is acceptable here and
+    is corroborated by the caller's "the roll actually happened" assertion."""
+    logger.info(f"{context} verdict: {verdict.as_dict()} disruption_s={disruption_s:.1f}s")
     assert (
-        succeeded_after > succeeded_before
-    ), f"{context}: cursor served no pages after recovery ({succeeded_before}->{succeeded_after}); {verdict.as_dict()}"
+        disruption_s <= bound_s
+    ), f"{context}: sustained outage {disruption_s:.1f}s exceeded {bound_s:.1f}s bound; {verdict.as_dict()}"
+    assert succeeded_after > succeeded_before, (
+        f"{context}: open cursor served no fresh pages after recovery "
+        f"({succeeded_before}->{succeeded_after}); {verdict.as_dict()}"
+    )
 
 
 def run_upgrade_availability(
@@ -93,18 +101,16 @@ def run_upgrade_availability(
     ``tool_factory`` returns a fresh connectivity tool (own client) per call — one per concurrent
     background tester. ``apply_upgrade`` performs the upgrade and blocks until both planes have
     reconverged (operator Running, MongoDBSearch Running, pods Ready). The operator-upgrade deploys
-    run a single mongot, so its roll is a brief outage rather than a ride-through; this asserts
-    outage->recover (steady state restored after the upgrade), not zero failures.
-    ``disruption_bound_s``, when set, also hard-asserts the measured disruption fits a bound."""
+    run a single mongot, so its roll is a brief outage rather than a ride-through; this asserts that
+    new queries *resumed* after the upgrade (progress past a post-recovery snapshot — not merely that
+    a fresh post-upgrade window is clean) and that any outage was bounded by ``disruption_bound_s``."""
 
-    tool = tool_factory
-
-    tool().wait_for_sentinel_indexed(timeout=300)
+    tool_factory().wait_for_sentinel_indexed(timeout=300)
     mongot_before = container_pod_uids(namespace, "mongot")
     envoy_before = container_pod_uids(namespace, "envoy")
-    oneshot = SearchAvailabilityBackgroundTester(tool(), mode="oneshot", interval_seconds=0.2)
+    oneshot = SearchAvailabilityBackgroundTester(tool_factory(), mode="oneshot", interval_seconds=0.2)
     paging = SearchAvailabilityBackgroundTester(
-        tool(), mode="paging", paging_batch_size=5, paging_reset_every=50_000, interval_seconds=0.05
+        tool_factory(), mode="paging", paging_batch_size=5, paging_reset_every=50_000, interval_seconds=0.05
     )
     with oneshot, paging:
         oneshot.wait_for_operations(BASELINE_OPS)
@@ -112,8 +118,10 @@ def run_upgrade_availability(
         t0 = time.monotonic()
         apply_upgrade()
         recovery_s = time.monotonic() - t0
+        ok_at_recovery = oneshot.succeeded_count  # snapshot once the upgrade reconverged
         oneshot.wait_for_operations(POST_EVENT_OPS)
         paging.wait_for_operations(POST_EVENT_OPS)
+        ok_after = oneshot.succeeded_count
     disruption_s = paging.max_consecutive_failure * paging.interval_seconds
     rolls_mongot = gone_or_changed(mongot_before, container_pod_uids(namespace, "mongot"))
     rolls_envoy = gone_or_changed(envoy_before, container_pod_uids(namespace, "envoy"))
@@ -125,7 +133,11 @@ def run_upgrade_availability(
     if disruption_bound_s is not None:
         assert (
             disruption_s <= disruption_bound_s
-        ), f"{path}: disruption {disruption_s:.1f}s exceeded bound {disruption_bound_s:.1f}s"
-    with SearchAvailabilityBackgroundTester(tool(), mode="oneshot", interval_seconds=0.1) as bg:
+        ), f"{path}: disruption {disruption_s:.1f}s exceeded bound {disruption_bound_s:.1f}s; {paging.verdict.as_dict()}"
+    # New queries must resume after the upgrade, not merely a fresh window being clean.
+    assert (
+        ok_after > ok_at_recovery
+    ), f"{path}: new queries did not resume after upgrade ({ok_at_recovery}->{ok_after}); {oneshot.verdict.as_dict()}"
+    with SearchAvailabilityBackgroundTester(tool_factory(), mode="oneshot", interval_seconds=0.1) as bg:
         bg.wait_for_operations(BASELINE_OPS)
     assert_no_outage(bg.verdict)

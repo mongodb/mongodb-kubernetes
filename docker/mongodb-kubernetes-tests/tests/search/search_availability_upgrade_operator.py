@@ -1,37 +1,41 @@
 """Search availability across an operator-version upgrade, on a managed-LB deployment.
 
-The real customer upgrade path: deploy on the latest released operator (single-cluster managed Envoy
-LB shipped in MCK 1.8.0), then upgrade to this build. The upgrade is decomposed into its two
-distinct effects on one managed-LB deployment (2 mongot + 2 envoy), so each is measured in isolation:
+This change is test-only (no operator code change), so the base-of-patch operator binary equals this
+build; the operator-version upgrade is exercised as a bundled-image change on the same dev operator
+(install pinned to older mongot/envoy images via the ``search.version`` / ``search.envoyImage`` Helm
+values, then helm-upgrade to the build defaults). It stays on the dev operator throughout because the
+multi-mongot managed-LB CR API this topology uses (``spec.clusters``, ``loadBalancer.managed.replicas``)
+is dev-only — the latest released CRD rejects it under strict validation — so a released -> dev upgrade
+of *this* topology is not constructible. The released -> dev binary-delta upgrade is covered on the
+released-compatible single-mongot CR in tests/upgrades/operator_upgrade_search.py.
 
-  - no-image-bump (first): upgrade to the dev operator with the bundled mongot/envoy images held to
-    the released operator's values. Only the operator binary changes, so a well-behaved operator
-    re-templates the data plane identically and rolls nothing. Measures the gratuitous-roll count
-    (the real binary-version delta the released-operator source provides) and asserts continuous
-    availability. No hard zero-roll assert yet — reported until the gratuitous-roll fix lands.
-  - default-image-bump (second): upgrade the bundled images to the build's defaults. The data plane
-    rolls; the open cursor rides through and serves fresh pages after recovery. Asserts ride-through
-    plus a disruption bound.
+Two paths on one managed-LB deployment (2 mongot + 2 envoy):
+  - default-image-bump: helm-upgrade the operator's bundled images to the build defaults; mongot and
+    envoy roll; the open cursor rides through and serves fresh pages after recovery. Asserts the roll
+    happened, ride-through, and a disruption bound. Skips unless OPERATOR_FROM_MONGOT_VERSION supplies
+    an older source tag (no older image -> no bump to measure).
+  - no-image-bump: restart the operator with the bundled images held; measure the gratuitous-roll
+    count and require availability to ride through (managed LB). Does not hard-assert zero rolls yet —
+    reported until the gratuitous-roll fix lands.
 
-Together (binary change + image change) these are the released-operator -> dev chart upgrade,
-decomposed to attribute rolls to the binary vs the images. The atomic single-mongot variant lives in
-tests/upgrades/operator_upgrade_search.py.
-
-Both upgrades need in-cluster operators (released-then-dev), which is incompatible with the local
-out-of-cluster `make run` operator, so the whole suite is EVG-only and skips when LOCAL_OPERATOR.
+EVG-only: the upgrade/restart must reconcile via an in-cluster operator, which is incompatible with the
+local out-of-cluster `make run` operator, so the suite skips when LOCAL_OPERATOR.
 """
 
 from __future__ import annotations
 
+import os
 import time
+from datetime import datetime, timezone
 
 import pytest
 from kubernetes import client
-from kubetester import run_periodically
+from kubetester import get_statefulset, run_periodically
 from tests import test_logger
 from tests.common.search import search_resource_names
 from tests.common.search.background_availability_tester import SearchAvailabilityBackgroundTester, assert_no_outage
 from tests.common.search.bootstrap_test_mixins import (
+    InstallOperatorTests,
     MongoDBDeploymentConfig,
     MongoDBRsDeploymentTests,
     SampleDataAndIndexConfig,
@@ -41,20 +45,15 @@ from tests.common.search.bootstrap_test_mixins import (
 )
 from tests.common.search.connectivity import SearchConnectivityTool, wait_for_all_pods_replaced
 from tests.common.search.rs_search_helper import rs_search_tester
-from tests.common.search.upgrade_availability import (
-    assert_rolled_through,
-    emit_metric,
-    pod_uids,
-    roll_count,
-)
+from tests.common.search.upgrade_availability import assert_rolled_through, emit_metric, pod_uids, roll_count
 from tests.conftest import get_default_operator, get_namespace, local_operator
 
 logger = test_logger.get_test_logger(__name__)
 
 pytestmark = [
     pytest.mark.e2e_search_availability_upgrade_operator,
-    # Released-then-dev in-cluster operators are incompatible with the local `make run` operator.
-    pytest.mark.skipif(local_operator(), reason="operator-version upgrade needs in-cluster operators (EVG-only)"),
+    # An in-cluster operator must reconcile the upgrade/restart; the local `make run` operator can't.
+    pytest.mark.skipif(local_operator(), reason="operator-version upgrade needs an in-cluster operator (EVG-only)"),
 ]
 
 NAMESPACE = get_namespace()
@@ -68,14 +67,17 @@ ENVOY_SELECTOR = f"app={ENVOY_DEPLOYMENT}"
 BASELINE_OPS = 30
 POST_EVENT_OPS = 15
 
-# Generous guard on the image-bump disruption; the measured value (SEARCH_UPGRADE_METRIC) is what the
-# disruption-bound story cites — this only fails a pathological run.
-DISRUPTION_BOUND_S = 300.0
+# Sustained-outage ceiling for a managed-LB ride-through; the surviving replica serves through a
+# one-at-a-time roll, so the real value is small. Fails a pathological run.
+DISRUPTION_BOUND_S = 60.0
 
-# Operator env vars holding the bundled mongot version / envoy image (helm_chart search.version /
-# search.envoyImage). Read off the released operator to hold them across the no-image-bump upgrade.
-SEARCH_VERSION_ENV = "MDB_SEARCH_VERSION"
-ENVOY_IMAGE_ENV = "MDB_ENVOY_IMAGE"
+# Bundled images to install the "from" operator with, so the upgrade back to the build's defaults
+# rolls the data plane. ``search.version`` is the mongot image tag (default differs from the build's
+# bundled default, so the bump rolls mongot; override per-env); ``search.envoyImage`` the full envoy
+# image — unset by default, so envoy is not rolled by the bump until a valid alternate envoy image is
+# supplied (envoy-roll coverage otherwise lands on the dataplane envoy-image path).
+OPERATOR_FROM_MONGOT_VERSION = os.getenv("OPERATOR_FROM_MONGOT_VERSION", "9872ab5089")
+OPERATOR_FROM_ENVOY_IMAGE = os.getenv("OPERATOR_FROM_ENVOY_IMAGE")
 
 
 # --- shared helpers -------------------------------------------------------
@@ -86,6 +88,24 @@ def _user_tool(namespace: str) -> SearchConnectivityTool:
     return SearchConnectivityTool(rs_search_tester(MDB.mdb_resource_name, namespace, MDB.user_name, MDB.user_password))
 
 
+def _from_image_config(config: dict[str, str]) -> dict[str, str]:
+    """A copy of the operator install config pinned to the older bundled images (the upgrade
+    source). Returns the config unchanged when no older images are configured."""
+    overrides: dict[str, str] = {}
+    if OPERATOR_FROM_MONGOT_VERSION:
+        overrides["search.version"] = OPERATOR_FROM_MONGOT_VERSION
+    if OPERATOR_FROM_ENVOY_IMAGE:
+        overrides["search.envoyImage"] = OPERATOR_FROM_ENVOY_IMAGE
+    return {**config, **overrides} if overrides else config
+
+
+def _mongot_image_tag(namespace: str) -> str:
+    """The mongot container's image tag in the search StatefulSet."""
+    sts = get_statefulset(namespace, search_resource_names.mongot_statefulset_name(MDBS_NAME))
+    mongot = next(c for c in sts.spec.template.spec.containers if c.name == "mongot")
+    return mongot.image.split(":")[-1]
+
+
 def _operator_deployment(namespace: str):
     """The in-cluster operator Deployment, found by name so we don't hardcode a Helm label."""
     for d in client.AppsV1Api().list_namespaced_deployment(namespace).items:
@@ -94,20 +114,24 @@ def _operator_deployment(namespace: str):
     raise AssertionError("operator Deployment not found")
 
 
-def _operator_bundled_images(namespace: str) -> dict[str, str]:
-    """The running operator's bundled mongot version + envoy image, read from its Deployment env, as
-    Helm overrides — so an upgrade can hold the data-plane images exactly where they are."""
-    env = {e.name: e.value for e in (_operator_deployment(namespace).spec.template.spec.containers[0].env or [])}
-    overrides: dict[str, str] = {}
-    if env.get(SEARCH_VERSION_ENV):
-        overrides["search.version"] = env[SEARCH_VERSION_ENV]
-    if env.get(ENVOY_IMAGE_ENV):
-        overrides["search.envoyImage"] = env[ENVOY_IMAGE_ENV]
-    return overrides
-
-
-def _wait_for_operator_rolled(namespace: str) -> None:
-    """Block until the operator Deployment has finished rolling to the new template."""
+def _restart_operator(namespace: str) -> None:
+    """Roll the operator pod without changing bundled images (restartedAt annotation) and wait for
+    the new pod to be available, so a subsequent reconcile re-templates the data plane."""
+    apps = client.AppsV1Api()
+    name = _operator_deployment(namespace).metadata.name
+    apps.patch_namespaced_deployment(
+        name,
+        namespace,
+        {
+            "spec": {
+                "template": {
+                    "metadata": {
+                        "annotations": {"kubectl.kubernetes.io/restartedAt": datetime.now(timezone.utc).isoformat()}
+                    }
+                }
+            }
+        },
+    )
 
     def rolled() -> tuple[bool, str]:
         d = _operator_deployment(namespace)
@@ -119,26 +143,25 @@ def _wait_for_operator_rolled(namespace: str) -> None:
             f"updated={updated} available={available} spec={spec}",
         )
 
-    run_periodically(rolled, timeout=300, sleep_time=3, msg="operator upgrade rollout")
+    run_periodically(rolled, timeout=180, sleep_time=3, msg=f"operator {name} restart")
 
 
 def _assert_steady(namespace: str) -> None:
-    """Recovery/steady-state gate: a clean window on both query types."""
-    tool = _user_tool(namespace)
-    tool.wait_for_sentinel_indexed(timeout=300)
+    """Recovery/steady-state gate: a clean window on both query types (fresh client per tester)."""
+    _user_tool(namespace).wait_for_sentinel_indexed(timeout=300)
     for mode in ("oneshot", "paging"):
-        with SearchAvailabilityBackgroundTester(tool, mode=mode, interval_seconds=0.1) as bg:
+        with SearchAvailabilityBackgroundTester(_user_tool(namespace), mode=mode, interval_seconds=0.1) as bg:
             bg.wait_for_operations(BASELINE_OPS)
         assert_no_outage(bg.verdict)
 
 
-# --- deploy chain (once per file, on the released operator) ---------------
+# --- deploy chain (once per file, on the dev operator pinned to older images) ---
 
 
-class TestInstallOperator:
-    def test_install_official_operator(self, namespace: str, official_operator):
-        # Latest released operator (single-cluster managed Envoy LB shipped in MCK 1.8.0).
-        official_operator.assert_is_running()
+class TestInstallOperator(InstallOperatorTests):
+    def test_install_operator(self, namespace: str, operator_installation_config: dict[str, str]):
+        # Pin the older bundled images so the later upgrade to the build defaults rolls the data plane.
+        super().test_install_operator(namespace, _from_image_config(operator_installation_config))
 
 
 class TestMongoDBDeployment(MongoDBRsDeploymentTests):
@@ -163,58 +186,19 @@ class TestSampleData(SearchSampleDataAndIndexTests):
         return rs_search_tester(MDB.mdb_resource_name, namespace, MDB.user_name, MDB.user_password)
 
 
-# --- scenario: no-image-bump (operator binary change, images held) --------
-
-
-class TestOperatorUpgradeNoImageBump:
-    def test_steady_state_before(self, namespace: str):
-        _assert_steady(namespace)
-
-    def test_no_image_bump_availability(self, namespace: str, operator_installation_config: dict[str, str]):
-        """Upgrade the released operator to this build with the bundled images held to the released
-        operator's values. Only the binary changes — a well-behaved operator rolls nothing. Measure
-        the data-plane roll count (the gratuitous-roll baseline) and assert continuous availability."""
-        held_images = _operator_bundled_images(namespace)
-        oneshot = SearchAvailabilityBackgroundTester(_user_tool(namespace), mode="oneshot", interval_seconds=0.1)
-        with oneshot:
-            oneshot.wait_for_operations(BASELINE_OPS)
-            mongot_before = pod_uids(namespace, MONGOT_SELECTOR)
-            envoy_before = pod_uids(namespace, ENVOY_SELECTOR)
-            get_default_operator(
-                namespace,
-                operator_installation_config={**operator_installation_config, **held_images},
-                apply_crds_first=True,
-            ).assert_is_running()
-            _wait_for_operator_rolled(namespace)
-            oneshot.wait_for_operations(POST_EVENT_OPS)
-        rolls_mongot = roll_count(namespace, MONGOT_SELECTOR, mongot_before)
-        rolls_envoy = roll_count(namespace, ENVOY_SELECTOR, envoy_before)
-        logger.info(f"operator-no-bump rolls: mongot={rolls_mongot} envoy={rolls_envoy} (target: 0 each)")
-        emit_metric(
-            "operator_no_image_bump",
-            rolls_mongot=rolls_mongot,
-            rolls_envoy=rolls_envoy,
-            recovery_s=0.0,
-            disruption_s=0.0,
-        )
-        assert_no_outage(oneshot.verdict)
-        _assert_steady(namespace)
-
-    def test_recovers_to_steady_state(self, namespace: str):
-        _assert_steady(namespace)
-
-
 # --- scenario: default-image-bump (bundled images change) -----------------
 
 
-class TestOperatorUpgradeImageBump:
+class TestOperatorDefaultImageBump:
     def test_steady_state_before(self, namespace: str):
         _assert_steady(namespace)
 
     def test_default_image_bump_availability(self, namespace: str, operator_installation_config: dict[str, str]):
-        """Upgrade the bundled images to the build's defaults: the mongot StatefulSet and envoy
-        Deployment roll, the surviving replicas serve new queries, and the open cursor serves fresh
-        pages after recovery."""
+        """Helm-upgrade the operator to the build's default bundled images: the mongot StatefulSet and
+        envoy Deployment roll, the surviving replicas serve new queries, and the open cursor serves
+        fresh pages after recovery."""
+        if not OPERATOR_FROM_MONGOT_VERSION:
+            pytest.skip("OPERATOR_FROM_MONGOT_VERSION not set; supply an older bundled mongot tag to bump from")
         oneshot = SearchAvailabilityBackgroundTester(_user_tool(namespace), mode="oneshot", interval_seconds=0.2)
         paging = SearchAvailabilityBackgroundTester(
             _user_tool(namespace), mode="paging", paging_batch_size=5, paging_reset_every=50_000, interval_seconds=0.05
@@ -224,6 +208,7 @@ class TestOperatorUpgradeImageBump:
             paging.wait_for_operations(BASELINE_OPS)
             mongot_before = pod_uids(namespace, MONGOT_SELECTOR)
             envoy_before = pod_uids(namespace, ENVOY_SELECTOR)
+            tag_before = _mongot_image_tag(namespace)
             t0 = time.monotonic()
             # No image overrides -> the chart's default (build) bundled images.
             get_default_operator(
@@ -238,6 +223,7 @@ class TestOperatorUpgradeImageBump:
         disruption_s = paging.max_consecutive_failure * paging.interval_seconds
         rolls_mongot = roll_count(namespace, MONGOT_SELECTOR, mongot_before)
         rolls_envoy = roll_count(namespace, ENVOY_SELECTOR, envoy_before)
+        tag_after = _mongot_image_tag(namespace)
         logger.info(f"operator-default-bump oneshot verdict: {oneshot.verdict.as_dict()}")
         emit_metric(
             "operator_default_image_bump",
@@ -246,10 +232,73 @@ class TestOperatorUpgradeImageBump:
             recovery_s=recovery_s,
             disruption_s=disruption_s,
         )
-        assert_rolled_through(paging.verdict, ok_at_recovery, ok_after, "operator-default-bump")
+        # The bump actually happened (not a no-op): the mongot image changed and every mongot rolled.
+        assert tag_after != tag_before, f"operator-default-bump was a no-op: mongot tag stayed {tag_before}"
         assert (
-            disruption_s <= DISRUPTION_BOUND_S
-        ), f"operator-default-bump: disruption {disruption_s:.1f}s exceeded bound {DISRUPTION_BOUND_S:.1f}s"
+            rolls_mongot >= SEARCH.mongot_replicas
+        ), f"expected all {SEARCH.mongot_replicas} mongot to roll, got {rolls_mongot}"
+        assert_rolled_through(
+            paging.verdict,
+            ok_at_recovery,
+            ok_after,
+            "operator-default-bump",
+            disruption_s=disruption_s,
+            bound_s=DISRUPTION_BOUND_S,
+        )
+        _assert_steady(namespace)
+
+    def test_recovers_to_steady_state(self, namespace: str):
+        _assert_steady(namespace)
+
+
+# --- scenario: no-image-bump (operator restart, images held) --------------
+
+
+class TestOperatorNoImageBump:
+    def test_steady_state_before(self, namespace: str):
+        _assert_steady(namespace)
+
+    def test_no_image_bump_availability(self, namespace: str):
+        """Restart the operator with the bundled images held: a well-behaved operator re-templates
+        the data plane identically and rolls nothing. Measure the data-plane roll count (the
+        gratuitous-roll baseline) and require availability to ride through the restart."""
+        oneshot = SearchAvailabilityBackgroundTester(_user_tool(namespace), mode="oneshot", interval_seconds=0.1)
+        paging = SearchAvailabilityBackgroundTester(
+            _user_tool(namespace), mode="paging", paging_batch_size=5, paging_reset_every=50_000, interval_seconds=0.05
+        )
+        with oneshot, paging:
+            oneshot.wait_for_operations(BASELINE_OPS)
+            paging.wait_for_operations(BASELINE_OPS)
+            mongot_before = pod_uids(namespace, MONGOT_SELECTOR)
+            envoy_before = pod_uids(namespace, ENVOY_SELECTOR)
+            t0 = time.monotonic()
+            _restart_operator(namespace)
+            recovery_s = time.monotonic() - t0
+            ok_at_recovery = paging.succeeded_count
+            oneshot.wait_for_operations(POST_EVENT_OPS)
+            paging.wait_for_operations(POST_EVENT_OPS)
+            ok_after = paging.succeeded_count
+        disruption_s = paging.max_consecutive_failure * paging.interval_seconds
+        rolls_mongot = roll_count(namespace, MONGOT_SELECTOR, mongot_before)
+        rolls_envoy = roll_count(namespace, ENVOY_SELECTOR, envoy_before)
+        logger.info(f"operator-no-bump rolls: mongot={rolls_mongot} envoy={rolls_envoy} (target: 0 each)")
+        emit_metric(
+            "operator_no_image_bump",
+            rolls_mongot=rolls_mongot,
+            rolls_envoy=rolls_envoy,
+            recovery_s=recovery_s,
+            disruption_s=disruption_s,
+        )
+        # The roll count is measured (the gratuitous-roll baseline), not yet hard-asserted to be zero;
+        # availability must hold across the restart whether or not a gratuitous roll occurs.
+        assert_rolled_through(
+            paging.verdict,
+            ok_at_recovery,
+            ok_after,
+            "operator-no-bump",
+            disruption_s=disruption_s,
+            bound_s=DISRUPTION_BOUND_S,
+        )
         _assert_steady(namespace)
 
     def test_recovers_to_steady_state(self, namespace: str):
