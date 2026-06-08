@@ -36,6 +36,12 @@ OM_SHA256_USER_PASSWORD = "om-sha256-password-1"
 
 SEEDED_OM_SHA256_CREDS = build_sha256_creds(OM_SHA256_USER_PASSWORD)
 
+OM_NO_MECH_USER_NAME = "om-user-no-mech"
+OM_NO_MECH_USER_PASSWORD_SECRET = "om-user-no-mech-password"
+OM_NO_MECH_USER_PASSWORD = "om-no-mech-password-1"
+
+SEEDED_OM_NO_MECH_SHA256_CREDS = build_sha256_creds(OM_NO_MECH_USER_PASSWORD)
+
 NON_ADMIN_USER_NAME = "mms-user-2"
 NON_ADMIN_PASSWORD_SECRET_NAME = "mms-user-2-password"
 NON_ADMIN_USER_PASSWORD = "my-password-2"
@@ -110,6 +116,27 @@ def _build_sha256_user_in_k8s(namespace: str) -> MongoDBUser:
     resource = MongoDBUser.from_yaml(find_fixture("scram-sha-user.yaml"), namespace=namespace, name=OM_SHA256_USER_NAME)
     resource["spec"]["username"] = OM_SHA256_USER_NAME
     resource["spec"]["passwordSecretKeyRef"] = {"name": OM_SHA256_USER_PASSWORD_SECRET, "key": "password"}
+    resource["spec"]["mongodbResourceRef"]["name"] = MDB_RESOURCE
+    try_load(resource)
+    return resource
+
+
+def _seed_no_mech_user_in_ac(replica_set: MongoDB) -> None:
+    seed_user_in_ac(
+        om_tester=replica_set.get_om_tester(),
+        username=OM_NO_MECH_USER_NAME,
+        db=USER_DATABASE,
+        roles=[{"role": "readWrite", "db": USER_DATABASE}],
+        mechanisms=None,
+        sha256_creds=SEEDED_OM_NO_MECH_SHA256_CREDS,
+    )
+
+
+def _build_no_mech_user_in_k8s(namespace: str) -> MongoDBUser:
+    create_or_update_secret(namespace, OM_NO_MECH_USER_PASSWORD_SECRET, {"password": OM_NO_MECH_USER_PASSWORD})
+    resource = MongoDBUser.from_yaml(find_fixture("scram-sha-user.yaml"), namespace=namespace, name=OM_NO_MECH_USER_NAME)
+    resource["spec"]["username"] = OM_NO_MECH_USER_NAME
+    resource["spec"]["passwordSecretKeyRef"] = {"name": OM_NO_MECH_USER_PASSWORD_SECRET, "key": "password"}
     resource["spec"]["mongodbResourceRef"]["name"] = MDB_RESOURCE
     try_load(resource)
     return resource
@@ -361,6 +388,71 @@ class TestOMUserSha256OnlyPreserved(KubernetesTester):
         )
 
 
+# ---------------------------------------------------------------------------
+# Scenario: OM user with null mechanisms and SHA-256 creds
+# A user that OM stored with mechanisms=null is treated identically to a
+# K8s-managed user (no-mechanisms path). The operator preserves the existing
+# SHA-256 creds and generates the missing SHA-1 creds on the same reconcile.
+# ---------------------------------------------------------------------------
+
+
+@mark.e2e_replica_set_scram_sha_256_user_connectivity
+def test_seed_no_mech_user_in_ac(replica_set: MongoDB):
+    _seed_no_mech_user_in_ac(replica_set)
+
+
+@mark.e2e_replica_set_scram_sha_256_user_connectivity
+def test_om_user_no_mech_created(namespace: str):
+    resource = _build_no_mech_user_in_k8s(namespace)
+    resource.update()
+    resource.assert_reaches_phase(Phase.Updated)
+
+
+@mark.e2e_replica_set_scram_sha_256_user_connectivity
+class TestOMUserNullMechanismsIsK8sManaged(KubernetesTester):
+    def test_null_mechanisms_user_treated_as_k8s_managed(self, replica_set: MongoDB):
+        tester = replica_set.get_automation_config_tester()
+        tester.assert_has_user(OM_NO_MECH_USER_NAME)
+        assert_user_mechanisms(tester, OM_NO_MECH_USER_NAME, [])
+
+    def test_null_mechanisms_user_sha256_creds_preserved(self, replica_set: MongoDB):
+        assert_creds_preserved(
+            replica_set.get_automation_config_tester(),
+            OM_NO_MECH_USER_NAME,
+            sha256_creds=SEEDED_OM_NO_MECH_SHA256_CREDS,
+        )
+
+    def test_null_mechanisms_user_gets_sha1_creds(self, replica_set: MongoDB):
+        user = get_ac_user(replica_set.get_automation_config_tester(), OM_NO_MECH_USER_NAME)
+        assert user.get("scramSha256Creds"), "SHA-256 creds must be present"
+        assert user.get("scramSha1Creds"), "SHA-1 creds must be generated for a no-mechanisms user"
+
+    def test_null_mechanisms_user_can_authenticate(self, replica_set: MongoDB):
+        replica_set.tester().assert_scram_sha_authentication(
+            password=OM_NO_MECH_USER_PASSWORD,
+            username=OM_NO_MECH_USER_NAME,
+            auth_mechanism="SCRAM-SHA-256",
+            attempts=20,
+        )
+
+    def test_null_mechanisms_user_password_can_change(self, namespace: str, replica_set: MongoDB):
+        ac_version = replica_set.get_automation_config_tester().automation_config["version"]
+        new_password = "om-no-mech-password-new-1"
+        update_secret(namespace, OM_NO_MECH_USER_PASSWORD_SECRET, {"password": new_password})
+
+        wait_until(
+            lambda: replica_set.get_automation_config_tester().reached_version(ac_version + 1),
+            timeout=600,
+        )
+
+        assert_user_mechanisms(replica_set.get_automation_config_tester(), OM_NO_MECH_USER_NAME, [])
+        replica_set.tester().assert_scram_sha_authentication(
+            password=new_password,
+            username=OM_NO_MECH_USER_NAME,
+            auth_mechanism="SCRAM-SHA-256",
+        )
+
+
 @mark.e2e_replica_set_scram_sha_256_user_connectivity
 def test_authentication_is_still_configured_after_remove_authentication(namespace: str, replica_set: MongoDB):
     replica_set["spec"]["security"]["authentication"] = None
@@ -375,7 +467,7 @@ def test_authentication_is_still_configured_after_remove_authentication(namespac
             tester.assert_has_user(USER_NAME)
             tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256")
             tester.assert_authentication_enabled()
-            tester.assert_expected_users(2)
+            tester.assert_expected_users(4)
             tester.assert_authoritative_set(False)
             return True
         except AssertionError:
@@ -397,7 +489,7 @@ def test_authentication_can_be_disabled_without_modes(namespace: str, replica_se
         # we have explicitly set authentication to be disabled
         try:
             tester.assert_has_user(USER_NAME)
-            tester.assert_authentication_disabled(remaining_users=2)
+            tester.assert_authentication_disabled(remaining_users=4)
             return True
         except AssertionError:
             return False

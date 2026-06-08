@@ -25,7 +25,7 @@ def build_sha256_creds(password: str) -> dict:
 
 
 def build_sha1_creds(username: str, password: str) -> dict:
-    password_hash = hashlib.md5(f"{username}:mongo:{password}".encode()).hexdigest()
+    password_hash = hashlib.md5(f"{username}:mongo:{password}".encode()).hexdigest()  # nosec B324 - MD5 is mandated by the MongoDB SCRAM-SHA-1 protocol spec, not used for general password hashing
     salt = os.urandom(_SCRAM_SHA1_SALT_SIZE)
     salted_password = hashlib.pbkdf2_hmac("sha1", password_hash.encode("utf-8"), salt, _SCRAM_SHA1_ITERATIONS)
     client_key = hmac.new(salted_password, b"Client Key", hashlib.sha1).digest()
@@ -51,7 +51,9 @@ def seed_user_in_ac(
     ac = om_tester.om_request("get", f"/groups/{om_tester.context.project_id}/automationConfig").json()
     ac["auth"].setdefault("usersWanted", [])
     ac["auth"]["usersWanted"] = [u for u in ac["auth"]["usersWanted"] if u.get("user") != username]
-    entry = {"user": username, "db": db, "roles": roles, "mechanisms": mechanisms}
+    entry = {"user": username, "db": db, "roles": roles}
+    if mechanisms is not None:
+        entry["mechanisms"] = mechanisms
     if sha256_creds:
         entry["scramSha256Creds"] = sha256_creds
     if sha1_creds:

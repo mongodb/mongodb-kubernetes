@@ -1,7 +1,7 @@
 from typing import Dict, Optional
 
 import kubernetes
-from kubetester import create_or_update_secret, find_fixture, read_secret, try_load
+from kubetester import create_or_update_secret, find_fixture, read_secret, try_load, wait_until
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
@@ -45,6 +45,13 @@ class SHA1ConnectivityTests:
     OM_BOTH_USER_PASSWORD_SECRET = "om-user-both-password"
     SEEDED_BOTH_SHA1_CREDS = build_sha1_creds(OM_BOTH_USER_NAME, OM_BOTH_USER_PASSWORD)
     SEEDED_BOTH_SHA256_CREDS = build_sha256_creds(OM_BOTH_USER_PASSWORD)
+
+    # User seeded in the AC with null mechanisms and SHA-1 creds only.
+    # Exercises the no-mechanisms path: SHA-1 preserved, SHA-256 generated.
+    OM_NO_MECH_USER_NAME = "om-user-no-mech"
+    OM_NO_MECH_USER_PASSWORD = "om-no-mech-password-1"
+    OM_NO_MECH_USER_PASSWORD_SECRET = "om-user-no-mech-password"
+    SEEDED_NO_MECH_SHA1_CREDS = build_sha1_creds(OM_NO_MECH_USER_NAME, OM_NO_MECH_USER_PASSWORD)
 
     # Captured from the AC after the operator's follow-up reconcile generates SHA-256
     # for the sha1-only user. Used to assert the creds do not change across the
@@ -311,6 +318,79 @@ class SHA1ConnectivityTests:
             username=self.OM_BOTH_USER_NAME,
             auth_mechanism="SCRAM-SHA-1",
             attempts=20,
+        )
+
+    def _seed_no_mech_user_in_ac(self, mdb: MongoDB) -> None:
+        seed_user_in_ac(
+            om_tester=mdb.get_om_tester(),
+            username=self.OM_NO_MECH_USER_NAME,
+            db="admin",
+            roles=[{"role": "readWrite", "db": "admin"}],
+            mechanisms=None,
+            sha1_creds=self.SEEDED_NO_MECH_SHA1_CREDS,
+        )
+
+    def _build_no_mech_user_in_k8s(self, namespace: str, mdb_resource_name: str) -> MongoDBUser:
+        create_or_update_secret(namespace, self.OM_NO_MECH_USER_PASSWORD_SECRET, {"password": self.OM_NO_MECH_USER_PASSWORD})
+        resource = MongoDBUser.from_yaml(
+            find_fixture("scram-sha-user.yaml"), namespace=namespace, name=self.OM_NO_MECH_USER_NAME
+        )
+        resource["spec"]["username"] = self.OM_NO_MECH_USER_NAME
+        resource["spec"]["passwordSecretKeyRef"] = {"name": self.OM_NO_MECH_USER_PASSWORD_SECRET, "key": "password"}
+        resource["spec"]["mongodbResourceRef"]["name"] = mdb_resource_name
+        try_load(resource)
+        return resource
+
+    def test_seed_no_mech_user_in_ac(self, mdb: MongoDB):
+        self._seed_no_mech_user_in_ac(mdb)
+
+    def test_om_user_no_mech_created(self, namespace: str, mdb_resource_name: str):
+        resource = self._build_no_mech_user_in_k8s(namespace, mdb_resource_name)
+        resource.update()
+        resource.assert_reaches_phase(Phase.Updated)
+
+    def test_null_mechanisms_user_treated_as_k8s_managed(self, mdb: MongoDB):
+        tester = mdb.get_automation_config_tester()
+        tester.assert_has_user(self.OM_NO_MECH_USER_NAME)
+        assert_user_mechanisms(tester, self.OM_NO_MECH_USER_NAME, [])
+
+    def test_null_mechanisms_user_sha1_creds_preserved(self, mdb: MongoDB):
+        # The original SHA-1 creds seeded in the AC must survive byte-for-byte.
+        # SHA-256 is generated on the same reconcile but must not touch SHA-1.
+        assert_creds_preserved(
+            mdb.get_automation_config_tester(),
+            self.OM_NO_MECH_USER_NAME,
+            sha1_creds=self.SEEDED_NO_MECH_SHA1_CREDS,
+        )
+
+    def test_null_mechanisms_user_gets_sha256_creds(self, mdb: MongoDB):
+        user = get_ac_user(mdb.get_automation_config_tester(), self.OM_NO_MECH_USER_NAME)
+        assert user.get("scramSha1Creds"), "SHA-1 creds must be present"
+        assert user.get("scramSha256Creds"), "SHA-256 creds must be generated for a no-mechanisms user"
+
+    def test_null_mechanisms_user_can_authenticate(self, mdb: MongoDB):
+        mdb.tester().assert_scram_sha_authentication(
+            password=self.OM_NO_MECH_USER_PASSWORD,
+            username=self.OM_NO_MECH_USER_NAME,
+            auth_mechanism="SCRAM-SHA-1",
+            attempts=20,
+        )
+
+    def test_null_mechanisms_user_password_can_change(self, namespace: str, mdb: MongoDB):
+        ac_version = mdb.get_automation_config_tester().automation_config["version"]
+        new_password = "om-no-mech-password-new-1"
+        KubernetesTester.update_secret(namespace, self.OM_NO_MECH_USER_PASSWORD_SECRET, {"password": new_password})
+
+        wait_until(
+            lambda: mdb.get_automation_config_tester().reached_version(ac_version + 1),
+            timeout=600,
+        )
+
+        assert_user_mechanisms(mdb.get_automation_config_tester(), self.OM_NO_MECH_USER_NAME, [])
+        mdb.tester().assert_scram_sha_authentication(
+            password=new_password,
+            username=self.OM_NO_MECH_USER_NAME,
+            auth_mechanism="SCRAM-SHA-1",
         )
 
     # Credentials secret connectivity

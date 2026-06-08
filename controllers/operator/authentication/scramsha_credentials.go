@@ -66,12 +66,13 @@ func IsPasswordChanged(user *om.MongoDBUser, password string, acUser *om.MongoDB
 	return true, nil
 }
 
-// ConfigureScramCredentials sets SCRAM credentials for the user.
-// needsFollowUp is true for imported users (mechanisms set in AC). InitPassword is written
-// and the caller must requeue for OM to finalise creds on the next pass.
-// Not in AC: generate both algorithms.
-// Imported: preserve matching creds, error on mismatch, null mechanisms.
-// K8s-managed (no mechanisms): preserve or regenerate on password change.
+// ConfigureScramCredentials sets SCRAM credentials on user and returns needsFollowUp.
+// Three cases:
+//  1. User not in AC: generate both SHA-256 and SHA-1 creds.
+//  2. Mechanisms set in AC: preserve matching creds, error on mismatch, needsFollowUp=true.
+//     InitPassword is written so OM generates creds for its active mechanisms. The follow-up
+//     reconcile appends the remaining algorithm via the no-mechanisms path (case 3).
+//  3. No mechanisms in AC: preserve or regenerate each algorithm independently on password change.
 func ConfigureScramCredentials(user *om.MongoDBUser, password string, ac *om.AutomationConfig) (bool, error) {
 	_, acUser := ac.Auth.GetUser(user.Username, user.Database)
 
@@ -98,7 +99,7 @@ func ConfigureScramCredentials(user *om.MongoDBUser, password string, ac *om.Aut
 	}
 
 	if len(acUser.Mechanisms) > 0 {
-		// Imported user: reject any password that does not match existing creds.
+		// Mechanisms set in AC: reject a mismatched password to avoid silently regenerating creds.
 		if sha256Changed && acUser.ScramSha256Creds != nil {
 			return false, xerrors.Errorf("supplied password does not match existing scramSha256 credentials for user %s", user.Username)
 		}
@@ -112,15 +113,16 @@ func ConfigureScramCredentials(user *om.MongoDBUser, password string, ac *om.Aut
 		if !sha1Changed {
 			user.ScramSha1Creds = acUser.ScramSha1Creds
 		}
-		// Null mechanisms lets OM manage them. InitPassword lets OM generate
-		// any algorithm not yet present on the next automation pass.
+		// Null mechanisms: OM owns that field and the operator cannot write it directly.
+		// On the next reconcile acUser.Mechanisms will be empty, entering case 3 which
+		// fills in whichever algorithm is still missing.
 		user.Mechanisms = nil
 		user.InitPassword = password
 		return true, nil
 	}
 
-	// K8s-managed user: preserve each algorithm independently; only regenerate the one that is
-	// missing or whose stored creds no longer match the current password.
+	// No mechanisms in AC: preserve each algorithm independently; only regenerate the one
+	// that is missing or whose stored creds no longer match the current password.
 	if !sha256Changed {
 		user.ScramSha256Creds = acUser.ScramSha256Creds
 	} else {
