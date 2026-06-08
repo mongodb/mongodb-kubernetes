@@ -85,9 +85,17 @@ class ToolsPod:
                         image=TOOLS_POD_IMAGE,
                         command=["/bin/bash", "-c"],
                         args=["sleep infinity"],
+                        security_context=client.V1SecurityContext(
+                            allow_privilege_escalation=False,
+                            capabilities=client.V1Capabilities(drop=["ALL"]),
+                        ),
                     )
                 ],
                 restart_policy="Never",
+                security_context=client.V1PodSecurityContext(
+                    run_as_non_root=True,
+                    seccomp_profile=client.V1SeccompProfile(type="RuntimeDefault"),
+                ),
             ),
         )
 
