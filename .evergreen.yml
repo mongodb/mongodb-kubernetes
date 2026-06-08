@@ -905,6 +905,7 @@ task_groups:
       - e2e_search_cds_hot_reload
       - e2e_search_availability_smoke
       - e2e_search_availability_rolling_restart
+      - e2e_search_availability_envoy_drain
       - e2e_search_availability_envoy_scale
       - e2e_search_availability_infra
       - e2e_search_availability_upgrade
