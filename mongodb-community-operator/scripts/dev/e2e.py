@@ -99,6 +99,18 @@ def create_test_pod(args: argparse.Namespace, namespace: str) -> None:
                             "value": "/tmp/go-cache",
                         },
                         {
+                            "name": "HELM_CACHE_HOME",
+                            "value": "/tmp/helm-cache",
+                        },
+                        {
+                            "name": "HELM_CONFIG_HOME",
+                            "value": "/tmp/helm-config",
+                        },
+                        {
+                            "name": "HELM_DATA_HOME",
+                            "value": "/tmp/helm-data",
+                        },
+                        {
                             "name": "CLUSTER_WIDE",
                             "value": f"{args.cluster_wide}",
                         },

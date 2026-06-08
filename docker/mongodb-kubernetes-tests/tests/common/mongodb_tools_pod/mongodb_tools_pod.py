@@ -94,6 +94,7 @@ class ToolsPod:
                 restart_policy="Never",
                 security_context=client.V1PodSecurityContext(
                     run_as_non_root=True,
+                    run_as_user=2000,
                     seccomp_profile=client.V1SeccompProfile(type="RuntimeDefault"),
                 ),
             ),
