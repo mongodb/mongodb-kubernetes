@@ -12,8 +12,16 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
-	"github.com/mongodb/mongodb-kubernetes/pkg/util/versionutil"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
+
+// operatorVersion returns the operator version stamped at build time, or "latest" for development builds.
+func operatorVersion() string {
+	if util.OperatorVersion == "" {
+		return "latest"
+	}
+	return util.OperatorVersion
+}
 
 const (
 	PrometheusPasswordSecretName = "prometheus-password"
@@ -158,7 +166,7 @@ func buildCRObjectMeta(name, namespace string) metav1.ObjectMeta {
 		Name:      name,
 		Namespace: namespace,
 		Annotations: map[string]string{
-			migrateToolVersionAnnotation: versionutil.StaticContainersOperatorVersion(),
+			migrateToolVersionAnnotation: operatorVersion(),
 			MigrationDryRunAnnotation:    "true",
 		},
 	}
