@@ -672,6 +672,7 @@ func (r *MongoDBSearchReconcileHelper) applyReconcileUnit(
 		unit.configMapName,
 		unit.stsName.Name,
 		unit.clusterName,
+		unit.shardName,
 		unit.mongotConfigFn,
 		ingressTlsMongotModification,
 		mods.egressTlsMongot,
@@ -688,7 +689,7 @@ func (r *MongoDBSearchReconcileHelper) applyReconcileUnit(
 		},
 	))
 
-	stsFunc, err := CreateSearchStatefulSetFunc(r.mdbSearch, unit.clusterName, unit.stsName.Name, r.mdbSearch.Namespace, unit.headlessSvc.Name, unit.configMapName.Name, unit.podLabels, mods.searchImage, mods.usePerPodConfig)
+	stsFunc, err := CreateSearchStatefulSetFunc(r.mdbSearch, unit.clusterName, unit.shardName, unit.stsName.Name, r.mdbSearch.Namespace, unit.headlessSvc.Name, unit.configMapName.Name, unit.podLabels, mods.searchImage, mods.usePerPodConfig)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -985,8 +986,8 @@ func (r *MongoDBSearchReconcileHelper) ensureSearchService(ctx context.Context, 
 // ensureMongotConfig creates or updates the mongot ConfigMap. When
 // auto-embedding is configured, generates leader/follower config files plus
 // pod-name role keys.
-func (r *MongoDBSearchReconcileHelper) ensureMongotConfig(ctx context.Context, log *zap.SugaredLogger, kubeClient kubernetesClient.Client, cmName types.NamespacedName, stsName, clusterName string, modifications ...mongot.Modification) (string, error) {
-	replicas := r.mdbSearch.GetReplicasForCluster(clusterName)
+func (r *MongoDBSearchReconcileHelper) ensureMongotConfig(ctx context.Context, log *zap.SugaredLogger, kubeClient kubernetesClient.Client, cmName types.NamespacedName, stsName, clusterName, shardName string, modifications ...mongot.Modification) (string, error) {
+	replicas := r.mdbSearch.GetReplicasForClusterShard(clusterName, shardName)
 	usePerPodConfig := r.mdbSearch.HasAutoEmbedding()
 
 	mongotConfig := mongot.Config{}

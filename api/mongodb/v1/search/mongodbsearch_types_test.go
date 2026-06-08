@@ -10,6 +10,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 )
 
@@ -530,4 +531,97 @@ func TestMongoDBSearch_LocalizeToCluster(t *testing.T) {
 				"sharded source must be preserved by identity after LocalizeToCluster")
 		})
 	}
+}
+
+func TestResolveSizingForClusterShard(t *testing.T) {
+	clusterRes := &corev1.ResourceRequirements{}
+	overrideRes := &corev1.ResourceRequirements{}
+	clusterPersistence := &v1.Persistence{}
+	overridePersistence := &v1.Persistence{}
+
+	cluster := ClusterSpec{
+		ClusterName:          "east",
+		Replicas:             ptr.To(int32(2)),
+		ResourceRequirements: clusterRes,
+		Persistence:          clusterPersistence,
+		ShardOverrides: []ShardOverride{
+			{
+				ShardNames:           []string{"shard-1"},
+				Replicas:             ptr.To(int32(4)),
+				ResourceRequirements: overrideRes,
+			},
+			{
+				ShardNames:  []string{"shard-2"},
+				Persistence: overridePersistence,
+			},
+		},
+	}
+	s := &MongoDBSearch{Spec: MongoDBSearchSpec{Clusters: []ClusterSpec{cluster}}}
+
+	t.Run("shard without override inherits cluster values", func(t *testing.T) {
+		got, err := s.ResolveSizingForClusterShard("east", "shard-0")
+		require.NoError(t, err)
+		assert.Equal(t, ptr.To(int32(2)), got.Replicas)
+		assert.Same(t, clusterRes, got.ResourceRequirements)
+		assert.Same(t, clusterPersistence, got.Persistence)
+		assert.Nil(t, got.ShardOverrides)
+	})
+
+	t.Run("override replaces replicas and resources, inherits persistence", func(t *testing.T) {
+		got, err := s.ResolveSizingForClusterShard("east", "shard-1")
+		require.NoError(t, err)
+		assert.Equal(t, ptr.To(int32(4)), got.Replicas)
+		assert.Same(t, overrideRes, got.ResourceRequirements)
+		assert.Same(t, clusterPersistence, got.Persistence, "unset override field inherits cluster value")
+	})
+
+	t.Run("override replaces only persistence", func(t *testing.T) {
+		got, err := s.ResolveSizingForClusterShard("east", "shard-2")
+		require.NoError(t, err)
+		assert.Equal(t, ptr.To(int32(2)), got.Replicas, "unset override replicas inherits cluster value")
+		assert.Same(t, overridePersistence, got.Persistence)
+	})
+
+	t.Run("empty shardName returns cluster spec unchanged", func(t *testing.T) {
+		got, err := s.ResolveSizingForClusterShard("east", "")
+		require.NoError(t, err)
+		assert.Equal(t, ptr.To(int32(2)), got.Replicas)
+	})
+
+	t.Run("GetReplicasForClusterShard honors override and zero", func(t *testing.T) {
+		s := &MongoDBSearch{Spec: MongoDBSearchSpec{Clusters: []ClusterSpec{{
+			Replicas: ptr.To(int32(2)),
+			ShardOverrides: []ShardOverride{
+				{ShardNames: []string{"shard-off"}, Replicas: ptr.To(int32(0))},
+			},
+		}}}}
+		assert.Equal(t, 2, s.GetReplicasForClusterShard("", "shard-other"))
+		assert.Equal(t, 0, s.GetReplicasForClusterShard("", "shard-off"))
+	})
+}
+
+func TestResolveSizingForClusterShard_StatefulSetDeepMerge(t *testing.T) {
+	clusterSTS := &v1.StatefulSetConfiguration{}
+	clusterSTS.SpecWrapper.Spec.ServiceName = "cluster-svc"
+	clusterSTS.SpecWrapper.Spec.RevisionHistoryLimit = ptr.To(int32(7))
+
+	overrideSTS := &v1.StatefulSetConfiguration{}
+	overrideSTS.SpecWrapper.Spec.ServiceName = "override-svc"
+
+	s := &MongoDBSearch{Spec: MongoDBSearchSpec{Clusters: []ClusterSpec{{
+		StatefulSetConfiguration: clusterSTS,
+		ShardOverrides: []ShardOverride{
+			{ShardNames: []string{"shard-0"}, StatefulSetConfiguration: overrideSTS},
+		},
+	}}}}
+
+	got, err := s.ResolveSizingForClusterShard("", "shard-0")
+	require.NoError(t, err)
+	require.NotNil(t, got.StatefulSetConfiguration)
+	// override wins for ServiceName; cluster-only fields survive the deep-merge.
+	assert.Equal(t, "override-svc", got.StatefulSetConfiguration.SpecWrapper.Spec.ServiceName)
+	require.NotNil(t, got.StatefulSetConfiguration.SpecWrapper.Spec.RevisionHistoryLimit)
+	assert.Equal(t, int32(7), *got.StatefulSetConfiguration.SpecWrapper.Spec.RevisionHistoryLimit)
+	// original cluster config is not mutated.
+	assert.Equal(t, "cluster-svc", clusterSTS.SpecWrapper.Spec.ServiceName)
 }

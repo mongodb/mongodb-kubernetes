@@ -88,10 +88,11 @@ type TLSSourceConfig struct {
 // CreateSearchStatefulSetFunc returns a statefulset.Modification that configures a mongot StatefulSet.
 // It works for both non-sharded and per-shard deployments.
 //
-// clusterName selects which entry of EffectiveClusters() is read for the per-cluster
-// Persistence / ResourceRequirements / StatefulSetConfiguration fields. Empty string
-// = the single-cluster case (reads the sole spec.clusters[] entry).
-func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, clusterName, stsName, namespace, svcName, configMapName string, labels map[string]string, searchImage string, usePerPodConfig bool) (statefulset.Modification, error) {
+// (clusterName, shardName) select the resolved per-(cluster,shard) sizing read for
+// Replicas / Persistence / ResourceRequirements / StatefulSetConfiguration. An empty
+// clusterName is the single-cluster case; an empty shardName is a replica-set unit
+// (no per-shard override layering).
+func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, clusterName, shardName, stsName, namespace, svcName, configMapName string, labels map[string]string, searchImage string, usePerPodConfig bool) (statefulset.Modification, error) {
 	tmpVolume := statefulset.CreateVolumeFromEmptyDir("tmp")
 	tmpVolumeMount := statefulset.CreateVolumeMount(tmpVolume.Name, tempVolumePath, statefulset.WithReadOnly(false))
 
@@ -109,9 +110,10 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, clusterName,
 		mongotConfigVolumeMount = statefulset.CreateVolumeMount(mongotConfigVolumeName, MongotConfigPath, statefulset.WithReadOnly(true), statefulset.WithSubPath(MongotConfigFilename))
 	}
 
-	// Per-cluster spec for THIS cluster (sizing has a single home in
-	// spec.clusters[], no cross-tier cascade). Empty clusterName == single-cluster path.
-	perCluster, err := mdbSearch.EffectiveClusterFor(clusterName)
+	// Resolved sizing for THIS (cluster, shard) cell: the cluster's values with
+	// the matching shardOverride (if any) layered on top. Empty shardName == no
+	// per-shard layering (replica-set units).
+	perCluster, err := mdbSearch.ResolveSizingForClusterShard(clusterName, shardName)
 	if err != nil {
 		return nil, err
 	}
