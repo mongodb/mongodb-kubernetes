@@ -25,6 +25,7 @@ sub-check** that force-drains past the buffer to prove the cursor fault is obser
 | `search_availability_smoke.py` | `e2e_search_availability_smoke` | steady-state baseline (no disruption) |
 | `search_connectivity_tool.py` | `e2e_search_connectivity_tool` | mongot pod kill, envoy pod kill, mongot scale up/down/to-zero |
 | `search_availability_rolling_restart.py` | `e2e_search_availability_rolling_restart` | envoy Deployment roll, mongot StatefulSet roll |
+| `search_availability_envoy_drain.py` | `e2e_search_availability_envoy_drain` | stream-level drain finding, then envoy roll + mongot roll asserted at the HTTP/2 stream level |
 | `search_availability_envoy_scale.py` | `e2e_search_availability_envoy_scale` | envoy scale up (additive) then down to 1, via `spec.loadBalancer.managed.replicas` |
 | `search_availability_infra.py` | `e2e_search_availability_infra` | node drain (cordon + evict), operator restart |
 | `search_availability_upgrade_dataplane.py` | `e2e_search_availability_upgrade` | mongot version upgrade (`spec.version`), envoy image upgrade (`MDB_ENVOY_IMAGE`, CI-only) |
@@ -73,3 +74,37 @@ drained sub-checks. Every scenario closes with a steady-state gate proving full 
   recovery.
 - Operator restart skips locally, where the operator runs out-of-cluster (`replicas=0`) and there
   is no operator pod to delete. It is exercised in CI.
+
+## Envoy GOAWAY drain finding
+
+`search_availability_envoy_drain.py` asserts the drain at the **stream** level, using
+`tests/common/search/stream_tracing.py` (envoy JSON access log + admin `/stats`) rather than only
+the client-observed availability the background tester sees. The operator's preStop runs
+`GET /drain_listeners` against the admin port (plain, not `?graceful`); the admin allow-list
+exposes `/stats` (prefix) and `/drain_listeners` (exact match) only.
+
+`TestEnvoyDrainInvestigation` drains one envoy replica through the admin endpoint, snapshots
+`/stats` and access records before/after, probes whether `?graceful` is reachable through the
+exact-match allow-list, and emits one structured line:
+
+```
+KUBE45_FINDING emit_goaway=<bool> graceful_reachable=<bool> mongod_new_conn=<bool> forced_closed=<n> completed=<n> …
+```
+
+Finding (envoy `v1.37`, managed LB, 2 replicas):
+
+- **The preStop drain is a no-op.** `GET /drain_listeners` (the preStop's verb) returns
+  `405 Method Not Allowed` — this envoy build gates mutating admin endpoints behind POST. The
+  intended pre-SIGTERM drain never fires on pod termination.
+- **The drain mechanism works via POST.** `POST /drain_listeners` returns `200 OK`. The fix is a
+  verb change, but a kubelet `HTTPGet` preStop cannot issue POST — it needs an `exec` hook (or to
+  rely on envoy's own SIGTERM drain, bounded by `--drain-time-s`).
+- **`?graceful` is unreachable** through the exact-match `/drain_listeners` allow-list entry
+  (`403 Forbidden`), so the graceful variant is not selectable as the allow-list stands.
+- At the stream level a drain shows no forced closes and the surviving replica absorbs re-routed
+  load; the `listeners_draining` / `downstream_cx_drain_close` counters are transient and must be
+  sampled *during* the drain, not after.
+
+Because the operator does not initiate a graceful drain today, the scenario classes below are
+**observe-and-log** (they record the disposition rather than hard-asserting graceful ride-through)
+and the drain-emit gap is tracked as an operator-side follow-up.
