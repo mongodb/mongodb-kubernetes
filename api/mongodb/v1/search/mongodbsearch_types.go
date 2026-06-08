@@ -125,6 +125,11 @@ type MongoDBSearchSpec struct {
 	// https://www.mongodb.com/docs/manual/tutorial/mongot-sizing/advanced-guidance/hardware/#jvm-heap-sizing
 	// +optional
 	JVMFlags []string `json:"jvmFlags,omitempty"`
+	// FeatureFlags configures mongot feature flags. When a flag is set to true in the CR,
+	// it is rendered into the mongot config YAML. When omitted or false, the flag is not
+	// included in mongot config and mongot uses its built-in defaults.
+	// +optional
+	FeatureFlags *FeatureFlags `json:"featureFlags,omitempty"`
 	// Clusters configures the deployment per Kubernetes cluster: one entry for a
 	// single cluster (clusterName optional), or one entry per cluster for
 	// multi-cluster (clusterName required, len > 1). This is the place to set
@@ -244,6 +249,17 @@ type EmbeddingConfig struct {
 	// The Secret must contain two keys: query-key and indexing-key.
 	// +kubebuilder:validation:Required
 	EmbeddingModelAPIKeySecret corev1.LocalObjectReference `json:"embeddingModelAPIKeySecret"`
+}
+
+// FeatureFlags configures mongot feature flags. Each field maps to a named
+// feature flag in the mongot config.
+type FeatureFlags struct {
+	// EnableOverloadRetrySignal enables the OVERLOAD_RETRY_SIGNAL feature in mongot,
+	// allowing it to signal load shedding to upstream proxies (e.g., Envoy) via
+	// gRPC RESOURCE_EXHAUSTED status codes. Defaults to true.
+	// +optional
+	// +kubebuilder:default=true
+	EnableOverloadRetrySignal *bool `json:"enableOverloadRetrySignal,omitempty"`
 }
 
 type MongoDBSource struct {
