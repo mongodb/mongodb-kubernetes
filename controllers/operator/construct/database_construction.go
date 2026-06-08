@@ -1111,7 +1111,6 @@ func GetNonPersistentAgentVolumeMounts(volumes []corev1.Volume, volumeMounts []c
 
 	volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.PvMms, util.PvcMountPathTmp, statefulset.WithSubPath(util.PvcNameTmp)))
 
-	// Agent cache directory — must be writable even with readOnlyRootFilesystem: true
 	volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.PvMms, util.PvcMountPathAgentCache, statefulset.WithSubPath(util.PvcAgentCache)))
 	return volumes, volumeMounts
 }
