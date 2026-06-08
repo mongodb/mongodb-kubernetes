@@ -29,6 +29,7 @@ sub-check** that force-drains past the buffer to prove the cursor fault is obser
 | `search_availability_infra.py` | `e2e_search_availability_infra` | node drain (cordon + evict), operator restart |
 | `search_availability_upgrade_dataplane.py` | `e2e_search_availability_upgrade` | mongot version upgrade (`spec.version`), envoy image upgrade (`MDB_ENVOY_IMAGE`, CI-only) |
 | `search_availability_upgrade_operator.py` | `e2e_search_availability_upgrade_operator` | operator-version upgrade (released → dev) on managed LB, CI-only: no-image-bump gratuitous-roll measurement, then default-image-bump |
+| `search_availability_nontls_smoke.py` | `e2e_search_availability_nontls_smoke` | non-TLS search bootstrap (`search_tls=False`): mongot plaintext gRPC, no CR `spec.security.tls`, mongod `searchTLSMode=disabled` — asserts it deploys and serves (base for the TLS-enable suite) |
 
 The operator-version upgrade suite deploys on the **latest released operator** (single-cluster
 managed Envoy LB shipped in MCK 1.8.0) and upgrades to this build — the real customer chart-upgrade
