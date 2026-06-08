@@ -972,7 +972,7 @@ func TestEnsureMongotConfig_PerPodModes(t *testing.T) {
 			embeddingMod := func(c *mongot.Config) {
 				c.Embedding = &mongot.EmbeddingConfig{IsAutoEmbeddingViewWriter: ptr.To(true)}
 			}
-			_, err := helper.ensureMongotConfig(t.Context(), zap.S(), fakeClient, cmName, stsName, "", embeddingMod)
+			_, err := helper.ensureMongotConfig(t.Context(), zap.S(), fakeClient, cmName, stsName, "", "", embeddingMod)
 			require.NoError(t, err)
 
 			cm, err := fakeClient.GetConfigMap(t.Context(), cmName)
@@ -1009,12 +1009,12 @@ func TestEnsureMongotConfig_TransitionBetweenModes(t *testing.T) {
 	}
 
 	// Create ConfigMap in single config mode
-	_, err := helper.ensureMongotConfig(t.Context(), zap.S(), fakeClient, cmName, stsName, "", embeddingMod)
+	_, err := helper.ensureMongotConfig(t.Context(), zap.S(), fakeClient, cmName, stsName, "", "", embeddingMod)
 	require.NoError(t, err)
 
 	// Transition to per-pod config mode - verify old key is cleaned up
 	search.Spec.AutoEmbedding = &searchv1.EmbeddingConfig{}
-	_, err = helper.ensureMongotConfig(t.Context(), zap.S(), fakeClient, cmName, stsName, "", embeddingMod)
+	_, err = helper.ensureMongotConfig(t.Context(), zap.S(), fakeClient, cmName, stsName, "", "", embeddingMod)
 	require.NoError(t, err)
 
 	cm, err := fakeClient.GetConfigMap(t.Context(), cmName)
@@ -1023,7 +1023,7 @@ func TestEnsureMongotConfig_TransitionBetweenModes(t *testing.T) {
 
 	// Transition back to single config mode - verify per-pod keys are cleaned up
 	search.Spec.AutoEmbedding = nil
-	_, err = helper.ensureMongotConfig(t.Context(), zap.S(), fakeClient, cmName, stsName, "", embeddingMod)
+	_, err = helper.ensureMongotConfig(t.Context(), zap.S(), fakeClient, cmName, stsName, "", "", embeddingMod)
 	require.NoError(t, err)
 
 	cm, err = fakeClient.GetConfigMap(t.Context(), cmName)
@@ -1040,14 +1040,14 @@ func TestCreateSearchStatefulSetFunc_ConfigMounting(t *testing.T) {
 
 	// Single config mode
 	sts := &appsv1.StatefulSet{}
-	stsFunc, err := CreateSearchStatefulSetFunc(search, "", "sts", "ns", "svc", "cm", labels, "img:v1", false)
+	stsFunc, err := CreateSearchStatefulSetFunc(search, "", "", "sts", "ns", "svc", "cm", labels, "img:v1", false)
 	require.NoError(t, err)
 	stsFunc(sts)
 	assert.Contains(t, sts.Spec.Template.Spec.Containers[0].Args[1], MongotConfigPath)
 
 	// Per-pod config mode
 	sts = &appsv1.StatefulSet{}
-	stsFunc, err = CreateSearchStatefulSetFunc(search, "", "sts", "ns", "svc", "cm", labels, "img:v1", true)
+	stsFunc, err = CreateSearchStatefulSetFunc(search, "", "", "sts", "ns", "svc", "cm", labels, "img:v1", true)
 	require.NoError(t, err)
 	stsFunc(sts)
 	startupCmd := sts.Spec.Template.Spec.Containers[0].Args[1]

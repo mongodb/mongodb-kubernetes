@@ -114,7 +114,7 @@ func TestCreateSearchStatefulSetFunc_JVMFlags(t *testing.T) {
 				s.Spec.Clusters = []searchv1.ClusterSpec{cluster}
 			})
 
-			stsModification, err := CreateSearchStatefulSetFunc(search, "", "", "", "", "", nil, "mongot:latest", false)
+			stsModification, err := CreateSearchStatefulSetFunc(search, "", "", "", "", "", "", nil, "mongot:latest", false)
 			require.NoError(t, err)
 			sts := statefulset.New(stsModification)
 
@@ -215,7 +215,7 @@ func TestCreateSearchStatefulSetFunc_DefaultAntiAffinity(t *testing.T) {
 	search := newTestMongoDBSearch("test-search", "default")
 	labels := map[string]string{appLabelKey: "test-search-svc"}
 
-	stsMod, err := CreateSearchStatefulSetFunc(search, "", "test-search-db", "default", "test-search-svc", "cm", labels, "mongot:latest", false)
+	stsMod, err := CreateSearchStatefulSetFunc(search, "", "", "test-search-db", "default", "test-search-svc", "cm", labels, "mongot:latest", false)
 	require.NoError(t, err)
 	sts := statefulset.New(stsMod)
 
@@ -259,7 +259,7 @@ func TestCreateSearchStatefulSetFunc_StatefulSetOverrideReplacesAntiAffinity(t *
 	})
 	labels := map[string]string{appLabelKey: "test-search-svc"}
 
-	stsMod, err := CreateSearchStatefulSetFunc(search, "cluster-1", "test-search-db", "default", "test-search-svc", "cm", labels, "mongot:latest", false)
+	stsMod, err := CreateSearchStatefulSetFunc(search, "cluster-1", "", "test-search-db", "default", "test-search-svc", "cm", labels, "mongot:latest", false)
 	require.NoError(t, err)
 	overrideMod, err := StatefulSetOverrideModification(search, "cluster-1")
 	require.NoError(t, err)

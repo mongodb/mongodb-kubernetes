@@ -970,3 +970,61 @@ func TestValidateUnmanagedEndpointTemplate(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateShardOverrides(t *testing.T) {
+	shard := func(name string) ExternalShardConfig {
+		return ExternalShardConfig{ShardName: name, Hosts: []string{"host:27017"}}
+	}
+
+	t.Run("no overrides passes", func(t *testing.T) {
+		s := newSearch("my-search", []ExternalShardConfig{shard("shard-0")}, "", false, false)
+		assert.Equal(t, v1.SuccessLevel, validateShardOverrides(s).Level)
+	})
+
+	t.Run("override on non-sharded source is rejected", func(t *testing.T) {
+		s := &MongoDBSearch{
+			ObjectMeta: metav1.ObjectMeta{Name: "my-search", Namespace: "ns"},
+			Spec: MongoDBSearchSpec{
+				Source: &MongoDBSource{ExternalMongoDBSource: &ExternalMongoDBSource{HostAndPorts: []string{"h:27017"}}},
+				Clusters: []ClusterSpec{
+					{ShardOverrides: []ShardOverride{{ShardNames: []string{"shard-0"}}}},
+				},
+			},
+		}
+		res := validateShardOverrides(s)
+		assert.Equal(t, v1.ErrorLevel, res.Level)
+		assert.Contains(t, res.Msg, "only supported for external sharded sources")
+	})
+
+	t.Run("unknown shardName is rejected", func(t *testing.T) {
+		s := newSearch("my-search", []ExternalShardConfig{shard("shard-0")}, "", false, false)
+		s.Spec.Clusters = []ClusterSpec{
+			{ShardOverrides: []ShardOverride{{ShardNames: []string{"shard-9"}}}},
+		}
+		res := validateShardOverrides(s)
+		assert.Equal(t, v1.ErrorLevel, res.Level)
+		assert.Contains(t, res.Msg, "unknown shardName")
+	})
+
+	t.Run("shard in two override entries of one cluster is rejected", func(t *testing.T) {
+		s := newSearch("my-search", []ExternalShardConfig{shard("shard-0"), shard("shard-1")}, "", false, false)
+		s.Spec.Clusters = []ClusterSpec{
+			{ShardOverrides: []ShardOverride{
+				{ShardNames: []string{"shard-0"}},
+				{ShardNames: []string{"shard-0", "shard-1"}},
+			}},
+		}
+		res := validateShardOverrides(s)
+		assert.Equal(t, v1.ErrorLevel, res.Level)
+		assert.Contains(t, res.Msg, "more than one shardOverrides entry")
+	})
+
+	t.Run("same shard overridden in different clusters is allowed", func(t *testing.T) {
+		s := newSearch("my-search", []ExternalShardConfig{shard("shard-0")}, "", false, false)
+		s.Spec.Clusters = []ClusterSpec{
+			{ClusterName: "east", ShardOverrides: []ShardOverride{{ShardNames: []string{"shard-0"}}}},
+			{ClusterName: "west", ShardOverrides: []ShardOverride{{ShardNames: []string{"shard-0"}}}},
+		}
+		assert.Equal(t, v1.SuccessLevel, validateShardOverrides(s).Level)
+	})
+}

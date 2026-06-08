@@ -86,6 +86,7 @@ func commonValidators() []func(*MongoDBSearch) v1.ValidationResult {
 		validateX509AuthConfig,
 		validateLBConfig,
 		validateMultipleReplicasRequireLB,
+		validateShardOverrides,
 	}
 }
 
@@ -702,4 +703,52 @@ func externalSource(s *MongoDBSearch) *ExternalMongoDBSource {
 		return nil
 	}
 	return s.Spec.Source.ExternalMongoDBSource
+}
+
+// validateShardOverrides enforces the per-shard override rules:
+//   - shardOverrides may only be set when the source is an external sharded cluster;
+//   - every referenced shardName must exist in the declared shard set;
+//   - within one cluster, a shard may appear in at most one override entry.
+func validateShardOverrides(s *MongoDBSearch) v1.ValidationResult {
+	hasOverrides := false
+	for _, c := range s.Spec.Clusters {
+		if len(c.ShardOverrides) > 0 {
+			hasOverrides = true
+			break
+		}
+	}
+	if !hasOverrides {
+		return v1.ValidationSuccess()
+	}
+
+	if !s.IsExternalSourceSharded() {
+		return v1.ValidationError("spec.clusters[].shardOverrides is only supported for external sharded sources (spec.source.external.shardedCluster)")
+	}
+
+	declared := make(map[string]struct{})
+	for _, sh := range s.Spec.Source.ExternalMongoDBSource.ShardedCluster.Shards {
+		declared[sh.ShardName] = struct{}{}
+	}
+
+	for ci, c := range s.Spec.Clusters {
+		seen := make(map[string]int)
+		for oi, o := range c.ShardOverrides {
+			for _, name := range o.ShardNames {
+				if _, ok := declared[name]; !ok {
+					return v1.ValidationError(
+						"spec.clusters[%d].shardOverrides[%d] references unknown shardName %q; it must exist in spec.source.external.shardedCluster.shards",
+						ci, oi, name,
+					)
+				}
+				if first, dup := seen[name]; dup {
+					return v1.ValidationError(
+						"spec.clusters[%d]: shardName %q appears in more than one shardOverrides entry (entries %d and %d); a shard may be overridden at most once per cluster",
+						ci, name, first, oi,
+					)
+				}
+				seen[name] = oi
+			}
+		}
+	}
+	return v1.ValidationSuccess()
 }

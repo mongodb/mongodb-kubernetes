@@ -19,6 +19,7 @@ import (
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/user"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
 )
 
 const (
@@ -184,9 +185,39 @@ type ClusterSpec struct {
 	// LoadBalancer per-cluster override; deep-merged into spec.loadBalancer.managed.
 	// +optional
 	LoadBalancer *LoadBalancerConfig `json:"loadBalancer,omitempty"`
-	// JVMFlags overrides spec.jvmFlags for this cluster's mongot pods. Replace, not merge.
+	// JVMFlags sets the `--jvm-flags` option for this cluster's mongot pods.
 	// +optional
 	JVMFlags []string `json:"jvmFlags,omitempty"`
+	// ShardOverrides applies per-shard sizing exceptions within this cluster,
+	// for external sharded sources only. Each entry layers its set sizing fields
+	// onto this cluster's resolved values for the named shards.
+	// +optional
+	ShardOverrides []ShardOverride `json:"shardOverrides,omitempty"`
+}
+
+// ShardOverride sizes specific shards within the enclosing cluster differently
+// from the cluster default. Replicas, ResourceRequirements and Persistence
+// replace the cluster value for the named shards when set; StatefulSetConfiguration
+// is deep-merged onto the cluster value. Unset fields inherit the cluster value.
+type ShardOverride struct {
+	// ShardNames are the shards (within this cluster) this override applies to.
+	// Each must exist in spec.source.external.shardedCluster.shards[].
+	// +kubebuilder:validation:MinItems=1
+	ShardNames []string `json:"shardNames"`
+	// Replicas replaces the cluster's mongot replica count for these shards.
+	// Set to 0 to take these shards' mongot offline.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	Replicas *int32 `json:"replicas,omitempty"`
+	// ResourceRequirements replaces the cluster's mongot resource requests/limits for these shards.
+	// +optional
+	ResourceRequirements *corev1.ResourceRequirements `json:"resourceRequirements,omitempty"`
+	// Persistence replaces the cluster's mongot persistent volume config for these shards.
+	// +optional
+	Persistence *v1.Persistence `json:"persistence,omitempty"`
+	// StatefulSetConfiguration is deep-merged onto the cluster's StatefulSet override for these shards.
+	// +optional
+	StatefulSetConfiguration *v1.StatefulSetConfiguration `json:"statefulSet,omitempty"`
 }
 
 // ReplicasOrDefault returns the cluster's mongot replica count, defaulting to 1
@@ -844,19 +875,104 @@ func (s *MongoDBSearch) GetReplicasForCluster(clusterName string) int {
 	return c.ReplicasOrDefault()
 }
 
+// ResolveSizingForClusterShard returns the effective sizing for one
+// (cluster, shard) cell: the named cluster's ClusterSpec with the matching
+// shardOverride (if any) layered on top. Replicas, ResourceRequirements and
+// Persistence are replaced when the override sets them; StatefulSetConfiguration
+// is deep-merged onto the cluster value. An empty shardName (replica-set
+// sources) or a cluster without a matching override returns the cluster spec.
+func (s *MongoDBSearch) ResolveSizingForClusterShard(clusterName, shardName string) (ClusterSpec, error) {
+	resolved, err := s.EffectiveClusterFor(clusterName)
+	if err != nil {
+		return ClusterSpec{}, err
+	}
+	// The returned spec is a flat per-(cluster,shard) sizing; drop the override
+	// list so callers never re-layer it.
+	overrides := resolved.ShardOverrides
+	resolved.ShardOverrides = nil
+	if shardName == "" {
+		return resolved, nil
+	}
+	override := findShardOverride(overrides, shardName)
+	if override == nil {
+		return resolved, nil
+	}
+	if override.Replicas != nil {
+		resolved.Replicas = override.Replicas
+	}
+	if override.ResourceRequirements != nil {
+		resolved.ResourceRequirements = override.ResourceRequirements
+	}
+	if override.Persistence != nil {
+		resolved.Persistence = override.Persistence
+	}
+	if override.StatefulSetConfiguration != nil {
+		resolved.StatefulSetConfiguration = mergeStatefulSetConfiguration(resolved.StatefulSetConfiguration, override.StatefulSetConfiguration)
+	}
+	return resolved, nil
+}
+
+// findShardOverride returns the override whose ShardNames contains shardName, or nil.
+func findShardOverride(overrides []ShardOverride, shardName string) *ShardOverride {
+	for i := range overrides {
+		for _, name := range overrides[i].ShardNames {
+			if name == shardName {
+				return &overrides[i]
+			}
+		}
+	}
+	return nil
+}
+
+// mergeStatefulSetConfiguration deep-merges the override StatefulSetConfiguration
+// onto base (override wins per field). A nil base returns the override as-is.
+func mergeStatefulSetConfiguration(base, override *v1.StatefulSetConfiguration) *v1.StatefulSetConfiguration {
+	if base == nil {
+		return override
+	}
+	merged := base.DeepCopy()
+	merged.SpecWrapper.Spec = merge.StatefulSetSpecs(merged.SpecWrapper.Spec, override.SpecWrapper.Spec)
+	merged.MetadataWrapper.Labels = merge.StringToStringMap(merged.MetadataWrapper.Labels, override.MetadataWrapper.Labels)
+	merged.MetadataWrapper.Annotations = merge.StringToStringMap(merged.MetadataWrapper.Annotations, override.MetadataWrapper.Annotations)
+	return merged
+}
+
+// GetReplicasForClusterShard returns the resolved mongot replica count for one
+// (cluster, shard) cell after applying the matching shardOverride. Defaults to
+// 1 when unset; an explicit 0 is honored (see GetReplicasForCluster).
+func (s *MongoDBSearch) GetReplicasForClusterShard(clusterName, shardName string) int {
+	c, err := s.ResolveSizingForClusterShard(clusterName, shardName)
+	if err != nil {
+		return 1
+	}
+	if r := c.Replicas; r != nil {
+		return int(*r)
+	}
+	return 1
+}
+
 // HasMultipleReplicas reports whether any cluster runs more than one mongot
 // replica, the trigger for requiring a load balancer.
 func (s *MongoDBSearch) HasMultipleReplicas() bool {
 	return s.MaxReplicasAcrossClusters() > 1
 }
 
-// MaxReplicasAcrossClusters returns the largest per-cluster mongot replica
-// count (clusters default to 1 when Replicas is unset).
+// MaxReplicasAcrossClusters returns the largest resolved mongot replica count
+// across every (cluster, shard) cell, accounting for per-shard overrides
+// (clusters default to 1 when Replicas is unset).
 func (s *MongoDBSearch) MaxReplicasAcrossClusters() int {
 	highest := 0
-	for _, c := range s.Spec.Clusters {
-		if replicas := c.ReplicasOrDefault(); replicas > highest {
+	consider := func(replicas int) {
+		if replicas > highest {
 			highest = replicas
+		}
+	}
+	for _, c := range s.Spec.Clusters {
+		consider(c.ReplicasOrDefault())
+		for _, o := range c.ShardOverrides {
+			if o.Replicas != nil {
+				consider(int(*o.Replicas))
+			}
 		}
 	}
 	return highest
