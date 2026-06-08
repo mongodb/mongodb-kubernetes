@@ -9,7 +9,6 @@ import (
 	"net"
 	"os"
 
-	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	driver "go.mongodb.org/mongo-driver/x/mongo/driver"
@@ -86,14 +85,6 @@ func Validate(ctx context.Context, cfg Config) int {
 		return code
 	}
 	log.Debugw("MongoDB ping succeeded")
-
-	if cfg.AuthMechanism == "MONGODB-X509" {
-		if !hasSystemRole(ctx, client) {
-			log.Warnw("__system@local role not found", "exitCode", exitcode.ExitAuthFailed, "exitCodeName", exitcode.Name(exitcode.ExitAuthFailed))
-			return exitcode.ExitAuthFailed
-		}
-		log.Debugw("__system@local role verified")
-	}
 
 	for i, member := range cfg.ExternalMembers {
 		log.Debugw("Pinging external member", "member", member, "index", i+1, "total", len(cfg.ExternalMembers))
@@ -195,62 +186,6 @@ func buildTLSConfig(certPath, caPath string) (*tls.Config, error) {
 		RootCAs:      caPool,
 		MinVersion:   tls.VersionTLS13,
 	}, nil
-}
-
-func hasSystemRole(ctx context.Context, client *mongo.Client) bool {
-	log := zap.S()
-	var result bson.M
-	err := client.Database("admin").RunCommand(ctx, bson.D{{Key: "connectionStatus", Value: 1}}).Decode(&result)
-	if err != nil {
-		log.Warnw("connectionStatus command failed", "error", err)
-		return false
-	}
-	authInfo, ok := result["authInfo"].(bson.M)
-	if !ok {
-		log.Warnw("connectionStatus missing or invalid authInfo", "resultKeys", keys(result))
-		return false
-	}
-	// MongoDB does not populate authenticatedUserRoles for internal __system auth —
-	// check authenticatedUsers instead.
-	if users, ok := authInfo["authenticatedUsers"].(bson.A); ok {
-		for _, u := range users {
-			entry, ok := u.(bson.M)
-			if !ok {
-				continue
-			}
-			if entry["user"] == "__system" && entry["db"] == "local" {
-				log.Debugw("Found __system@local in authenticatedUsers")
-				return true
-			}
-		}
-	}
-	// Fallback: some MongoDB versions do populate authenticatedUserRoles.
-	if roles, ok := authInfo["authenticatedUserRoles"].(bson.A); ok {
-		for _, r := range roles {
-			entry, ok := r.(bson.M)
-			if !ok {
-				continue
-			}
-			if entry["role"] == "__system" && entry["db"] == "local" {
-				log.Debugw("Found __system@local in authenticatedUserRoles")
-				return true
-			}
-		}
-	}
-	log.Warnw("__system@local not found in authInfo", "authInfoKeys", keys(authInfo))
-	return false
-}
-
-// keys returns the keys of a bson.M for logging (avoid logging full auth payload).
-func keys(m bson.M) []string {
-	if m == nil {
-		return nil
-	}
-	k := make([]string, 0, len(m))
-	for key := range m {
-		k = append(k, key)
-	}
-	return k
 }
 
 func pingMemberDirect(ctx context.Context, hostPort string, cfg Config) int {
