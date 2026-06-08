@@ -25,10 +25,7 @@ from kubetester import list_matching_pods
 from kubetester.mongodb_search import MongoDBSearch
 from tests import test_logger
 from tests.common.search import search_resource_names
-from tests.common.search.background_availability_tester import (
-    SearchAvailabilityBackgroundTester,
-    assert_no_outage,
-)
+from tests.common.search.background_availability_tester import SearchAvailabilityBackgroundTester, assert_no_outage
 from tests.common.search.bootstrap_test_mixins import (
     InstallOperatorTests,
     MongoDBDeploymentConfig,
