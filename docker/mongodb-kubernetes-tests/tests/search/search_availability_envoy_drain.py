@@ -251,3 +251,56 @@ class TestEnvoyDrainInvestigation:
         # restore the drained replica so the downstream scenarios start from a healthy deploy
         _rollout_and_wait(namespace)
         _assert_steady(namespace)
+
+
+# --- scenario: envoy Deployment rolling restart, observed at the stream level ---
+
+
+def _assert_rolled_through(verdict, succeeded_before: int, succeeded_after: int, context: str) -> None:
+    """A roll must not cause a sustained outage: only recoverable cursor/network classes failed,
+    and the open cursor served fresh pages *after* recovery (succeeded grew past the snapshot)."""
+    logger.info(f"{context} paging verdict: {verdict.as_dict()}")
+    assert verdict.other_failed == 0, f"{context}: unexpected failure class; {verdict.as_dict()}"
+    assert (
+        succeeded_after > succeeded_before
+    ), f"{context}: cursor served no pages after recovery ({succeeded_before}->{succeeded_after}); {verdict.as_dict()}"
+
+
+class TestEnvoyRollingDrain:
+    """Envoy Deployment rolling restart, observed at the HTTP/2 stream level. The preStop drain is
+    a no-op on this build (see the finding above), so stream disposition is logged rather than
+    hard-asserted for graceful ride-through; the availability property — post-recovery progress —
+    is hard-asserted. A Deployment roll replaces the pods, so only the replacement pods' access
+    logs survive to read."""
+
+    def test_steady_state_before(self, namespace: str):
+        _assert_steady(namespace)
+
+    def test_envoy_roll_stream_level(self, namespace: str):
+        t0 = _utcnow()
+        oneshot = SearchAvailabilityBackgroundTester(_user_tool(namespace), mode="oneshot", interval_seconds=0.2)
+        paging = SearchAvailabilityBackgroundTester(
+            _user_tool(namespace), mode="paging", paging_batch_size=5, paging_reset_every=50_000, interval_seconds=0.05
+        )
+        with oneshot, paging:
+            oneshot.wait_for_operations(BASELINE_OPS)
+            paging.wait_for_operations(BASELINE_OPS)
+            _rollout_and_wait(namespace)
+            ok_at_recovery = paging.succeeded_count  # snapshot once replacement pods are Ready
+            oneshot.wait_for_operations(POST_EVENT_OPS)
+            paging.wait_for_operations(POST_EVENT_OPS)
+            ok_after = paging.succeeded_count
+        records = read_envoy_logs(namespace, ENVOY_SELECTOR)  # replacement pods only
+        post = streams_active_between(records, t0, _utcnow())
+        logger.info(
+            "envoy-roll stream disposition: "
+            f"records={len(records)} post_t0={len(post)} forced={len(forced_closed(post))} "
+            f"new_downstream={len(new_downstream_after(records, t0))} upstreams={sorted(upstream_hosts(records))} "
+            f"oneshot={oneshot.verdict.as_dict()}"
+        )
+        # availability property is hard-asserted; stream disposition above is observe-and-log
+        _assert_rolled_through(paging.verdict, ok_at_recovery, ok_after, "envoy-roll")
+        _assert_steady(namespace)
+
+    def test_recovers_to_steady_state(self, namespace: str):
+        _assert_steady(namespace)
