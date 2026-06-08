@@ -58,17 +58,13 @@ spec:
             properties:
               autoEmbedding:
                 description: |-
-                  Configure MongoDB Search's automatic generation of vector embeddings using an embedding model service.
-                  `embedding` field of mongot config is generated using the values provided here.
+                  AutoEmbedding configures MongoDB Search to generate vector embeddings automatically
+                  through an embedding model service. These values populate the `embedding` section of the mongot config.
                 properties:
                   embeddingModelAPIKeySecret:
                     description: |-
-                      EmbeddingModelAPIKeySecret would have the name of the secret that has two keys
-                      query-key and indexing-key for embedding model's API keys.
-                      It may be omitted only when ProviderEndpoint points to the Kubernetes Service
-                      exposing the self-hosted Voyage AI embedding model managed by this operator. For any
-                      other endpoint the secret remains required; the operator validates this at
-                      reconcile time.
+                      EmbeddingModelAPIKeySecret references a Secret holding the embedding model's API keys.
+                      The Secret must contain two keys: query-key and indexing-key.
                     properties:
                       name:
                         default: ""
@@ -82,27 +78,32 @@ spec:
                     type: object
                     x-kubernetes-map-type: atomic
                   providerEndpoint:
+                    description: ProviderEndpoint is the URL of the embedding model
+                      service.
                     type: string
+                required:
+                - embeddingModelAPIKeySecret
                 type: object
               clusters:
                 description: |-
-                  Clusters is the per-cluster distribution shape. Required for multi-cluster
-                  deployments (len > 1); when omitted, the reconciler defaults it to a single
-                  entry built from the top-level fields. Pointer-of-slice so omitted vs.
-                  empty is distinguishable.
+                  Clusters configures the deployment per Kubernetes cluster: one entry for a
+                  single cluster (clusterName optional), or one entry per cluster for
+                  multi-cluster (clusterName required, len > 1). This is the place to set
+                  replicas, resources, storage, and StatefulSet overrides.
+                  If omitted, the operator falls back to the deprecated top-level fields and
+                  runs in a single cluster.
                 items:
                   description: |-
                     ClusterSpec is one entry in spec.clusters[]. ClusterName is required and immutable
-                    when len(spec.clusters) > 1; optional in the single-cluster degenerate case.
-                    All other fields override the corresponding top-level value when set; nil/omitted inherits.
+                    when len(spec.clusters) > 1; optional in the single-cluster case.
+                    Each other field, when set, applies to this cluster; when unset, it falls back to
+                    the matching top-level default.
                   properties:
                     clusterName:
                       description: |-
                         ClusterName is the Kubernetes cluster name. Required and immutable
-                        when len(spec.clusters) > 1; optional in the single-cluster degenerate case.
-                        MaxLength bounds the per-element cost contributed to the parent
-                        clusters[] uniqueness CEL rule. 253 matches the DNS subdomain limit
-                        that K8s cluster names obey.
+                        when len(spec.clusters) > 1; optional in the single-cluster case.
+                        MaxLength is 253 — the DNS subdomain limit Kubernetes cluster names follow.
                       maxLength: 253
                       type: string
                     jvmFlags:
@@ -237,6 +238,8 @@ spec:
                         rule: (has(self.managed) && !has(self.unmanaged)) || (!has(self.managed)
                           && has(self.unmanaged))
                     persistence:
+                      description: Persistence configures this cluster's mongot persistent
+                        volume. Defaults to 10GB if unset.
                       properties:
                         multiple:
                           properties:
@@ -284,15 +287,17 @@ spec:
                       type: object
                     replicas:
                       description: |-
-                        Replicas overrides spec.replicas for this cluster's mongot StatefulSet.
-                        For sharded sources, this is mongot pods per shard, not total.
-                        0 is allowed (StatefulSet scales to 0 — see spec.replicas docs).
+                        Replicas is the number of mongot pods for this cluster's StatefulSet.
+                        For ReplicaSet sources this is the total; for sharded sources it is per shard.
+                        When Replicas > 1, a load balancer (spec.loadBalancer) is required to distribute
+                        traffic across mongot instances.
+                        Set to 0 to take mongot offline: the StatefulSet scales to 0 while the MongoDBSearch CR stays.
                       format: int32
                       minimum: 0
                       type: integer
                     resourceRequirements:
-                      description: ResourceRequirements describes the compute resource
-                        requirements.
+                      description: ResourceRequirements configures resource requests
+                        and limits for this cluster's mongot pods.
                       properties:
                         claims:
                           description: |-
@@ -352,8 +357,8 @@ spec:
                       type: object
                     statefulSet:
                       description: |-
-                        StatefulSetConfiguration holds the optional custom StatefulSet
-                        that should be merged into the operator created one.
+                        StatefulSetConfiguration is applied to this cluster's mongot StatefulSet at the end of the
+                        reconcile loop, for customizations not exposed as first-class fields.
                       properties:
                         metadata:
                           description: StatefulSetMetadataWrapper is a wrapper around
@@ -392,8 +397,8 @@ spec:
                           additionalProperties:
                             type: string
                           description: |-
-                            MatchTags renders into mongot's readPreferenceTags; the operator picks
-                            sync-source members whose replSetConfig tags match.
+                            MatchTags selects which sync-source mongods to read from by their replica-set tags.
+                            The operator passes these to mongot as readPreferenceTags.
                           maxProperties: 50
                           type: object
                       type: object
@@ -409,6 +414,20 @@ spec:
                     than one cluster is specified
                   rule: size(self) <= 1 || self.all(c1, has(c1.clusterName) && self.exists_one(c2,
                     has(c2.clusterName) && c2.clusterName == c1.clusterName))
+              featureFlags:
+                description: |-
+                  FeatureFlags configures mongot feature flags. When a flag is set to true in the CR,
+                  it is rendered into the mongot config YAML. When omitted or false, the flag is not
+                  included in mongot config and mongot uses its built-in defaults.
+                properties:
+                  enableOverloadRetrySignal:
+                    default: true
+                    description: |-
+                      EnableOverloadRetrySignal enables the OVERLOAD_RETRY_SIGNAL feature in mongot,
+                      allowing it to signal load shedding to upstream proxies (e.g., Envoy) via
+                      gRPC RESOURCE_EXHAUSTED status codes. Defaults to true.
+                    type: boolean
+                type: object
               jvmFlags:
                 description: |-
                   JVMFlags can be used to set the `--jvm-flags` option for the search (mongot) processes.
@@ -555,11 +574,8 @@ spec:
                 - ERROR
                 type: string
               persistence:
-                description: |-
-                  Deprecated: In multi-cluster deployments, prefer spec.clusters[].persistence. When
-                  spec.clusters is omitted, this value auto-promotes into spec.clusters[0].persistence.
-                  Setting both spec.persistence and spec.clusters at the same time is rejected by admission.
-                  Configure MongoDB Search's persistent volume. If not defined, the operator will request 10GB of storage.
+                description: 'Deprecated: use spec.clusters[].persistence instead;
+                  this top-level field will be removed.'
                 properties:
                   multiple:
                     properties:
@@ -618,27 +634,14 @@ spec:
                     type: integer
                 type: object
               replicas:
-                description: |-
-                  Deprecated: In multi-cluster deployments, prefer spec.clusters[].replicas. When
-                  spec.clusters is omitted, this value auto-promotes into spec.clusters[0].replicas.
-                  Setting both spec.replicas and spec.clusters at the same time is rejected by admission.
-                  Replicas is the number of mongot pods to deploy.
-                  For ReplicaSet source: the number of mongot pods in total.
-                  For Sharded source: the number mongot pods per shard.
-                  When Replicas > 1, a load balancer configuration (spec.loadBalancer)
-                  is required to distribute traffic across mongot instances.
-                  0 is allowed so operators (and operator-driven test harnesses) can
-                  take mongot offline cleanly via the CR — the StatefulSet is scaled
-                  to 0 by the reconciler; the MongoDBSearch CR itself stays around.
+                description: 'Deprecated: use spec.clusters[].replicas instead; this
+                  top-level field will be removed.'
                 format: int32
                 minimum: 0
                 type: integer
               resourceRequirements:
-                description: |-
-                  Deprecated: In multi-cluster deployments, prefer spec.clusters[].resourceRequirements. When
-                  spec.clusters is omitted, this value auto-promotes into spec.clusters[0].resourceRequirements.
-                  Setting both spec.resourceRequirements and spec.clusters at the same time is rejected by admission.
-                  Configure resource requests and limits for the MongoDB Search pods.
+                description: 'Deprecated: use spec.clusters[].resourceRequirements
+                  instead; this top-level field will be removed.'
                 properties:
                   claims:
                     description: |-
@@ -697,10 +700,11 @@ spec:
                     type: object
                 type: object
               security:
-                description: Configure security settings of the MongoDB Search server
-                  that MongoDB database is connecting to when performing search queries.
+                description: Security holds the TLS settings for the MongoDB Search
+                  server.
                 properties:
                   tls:
+                    description: TLS configures TLS for the MongoDB Search server.
                     properties:
                       certificateKeySecretRef:
                         description: |-
@@ -729,10 +733,13 @@ spec:
                     type: object
                 type: object
               source:
-                description: MongoDB database connection details from which MongoDB
-                  Search will synchronize data to build indexes.
+                description: Source is the MongoDB database that MongoDB Search syncs
+                  from to build its indexes.
                 properties:
                   external:
+                    description: |-
+                      ExternalMongoDBSource describes a MongoDB deployment the operator does not manage.
+                      Mutually exclusive with MongoDBResourceRef.
                     properties:
                       hostAndPorts:
                         description: |-
@@ -822,6 +829,9 @@ spec:
                         type: object
                     type: object
                   mongodbResourceRef:
+                    description: |-
+                      MongoDBResourceRef points to an operator-managed MongoDB resource to sync from.
+                      Mutually exclusive with External.
                     properties:
                       name:
                         type: string
@@ -831,10 +841,8 @@ spec:
                     - name
                     type: object
                   passwordSecretRef:
-                    description: |-
-                      SecretKeyRef is a reference to a value in a given secret in the same
-                      namespace. Based on:
-                      https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.15/#secretkeyselector-v1-core
+                    description: PasswordSecretRef references the Secret holding the
+                      sync-source user's password.
                     properties:
                       key:
                         type: string
@@ -844,6 +852,8 @@ spec:
                     - name
                     type: object
                   username:
+                    description: Username is the sync-source user mongot authenticates
+                      as. Defaults to search-sync-source.
                     type: string
                   x509:
                     description: |-
@@ -873,12 +883,8 @@ spec:
                     type: object
                 type: object
               statefulSet:
-                description: |-
-                  Deprecated: In multi-cluster deployments, prefer spec.clusters[].statefulSet. When
-                  spec.clusters is omitted, this value auto-promotes into spec.clusters[0].statefulSet.
-                  Setting both spec.statefulSet and spec.clusters at the same time is rejected by admission.
-                  StatefulSetSpec which the operator will apply to the MongoDB Search StatefulSet at the end of the reconcile loop. Use to provide necessary customizations,
-                  which aren't exposed as fields in the MongoDBSearch.spec.
+                description: 'Deprecated: use spec.clusters[].statefulSet instead;
+                  this top-level field will be removed.'
                 properties:
                   metadata:
                     description: StatefulSetMetadataWrapper is a wrapper around Labels
@@ -900,9 +906,8 @@ spec:
                 - spec
                 type: object
               version:
-                description: Optional version of MongoDB Search component (mongot).
-                  If not set, then the operator will set the most appropriate version
-                  of MongoDB Search.
+                description: Version of MongoDB Search (mongot) to run. If unset,
+                  the operator picks the most appropriate version.
                 type: string
             type: object
           status:
