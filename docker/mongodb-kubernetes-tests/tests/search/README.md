@@ -108,3 +108,12 @@ Finding (envoy `v1.37`, managed LB, 2 replicas):
 Because the operator does not initiate a graceful drain today, the scenario classes below are
 **observe-and-log** (they record the disposition rather than hard-asserting graceful ride-through)
 and the drain-emit gap is tracked as an operator-side follow-up.
+
+The mongot-roll scenario emits a `KUBE45_DRAIN_METRIC completed=… forced=… ratio=… recovery_s=…
+disruption_s=…` line measuring the default (no-drain) behaviour: across a mongot roll the surviving
+upstream + the mongod cursor buffer keep client `disruption_s` at 0, but a fraction of in-flight
+envoy↔mongot streams close forced rather than completing. **Recommended fix:** have the operator
+issue the drain with the right verb (`POST`) — via an `exec` preStop or an envoy `--drain-time-s`
+(≈30s, covering a normal getMore cycle) so in-flight streams complete before the listener closes —
+and add a `/drain_listeners?graceful` allow-list entry if the graceful variant is wanted. This
+suite asserts the drain *behaviour*; wiring the absent knob is the operator-side follow-up.
