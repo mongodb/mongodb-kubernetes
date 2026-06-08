@@ -86,6 +86,7 @@ func commonValidators() []func(*MongoDBSearch) v1.ValidationResult {
 		validateX509AuthConfig,
 		validateLBConfig,
 		validateMultipleReplicasRequireLB,
+		validateShardOverrides,
 	}
 }
 
@@ -106,12 +107,13 @@ func multiClusterValidators() []func(*MongoDBSearch) v1.ValidationResult {
 		validateMCRequiresExternalSource,
 		validateMCRequiresManagedLB,
 		validateMCMatchTagsNonEmpty,
-		validateMCExternalHostnamePlaceholders,
+		validateMCExternalHostnames,
 	}
 }
 
 // managedLBValidators run only when a managed load balancer is configured
-// (IsLBModeManaged). The dispatch guarantees spec.loadBalancer.managed != nil.
+// (IsLBModeManaged, keyed on the first cluster). validateLBConfig enforces that
+// every cluster sets the same mode, so members may assume managed everywhere.
 func managedLBValidators() []func(*MongoDBSearch) v1.ValidationResult {
 	return []func(*MongoDBSearch) v1.ValidationResult{
 		validateManagedLBExternalHostname,
@@ -120,7 +122,8 @@ func managedLBValidators() []func(*MongoDBSearch) v1.ValidationResult {
 }
 
 // unmanagedLBValidators run only when an unmanaged load balancer is configured
-// (IsLBModeUnmanaged). The dispatch guarantees spec.loadBalancer.unmanaged != nil.
+// (IsLBModeUnmanaged, keyed on the first cluster). validateLBConfig enforces that
+// every cluster sets the same mode, so members may assume unmanaged everywhere.
 func unmanagedLBValidators() []func(*MongoDBSearch) v1.ValidationResult {
 	return []func(*MongoDBSearch) v1.ValidationResult{
 		validateUnmanagedLBConfig,
@@ -143,52 +146,81 @@ func validateClustersNonEmpty(s *MongoDBSearch) v1.ValidationResult {
 // mongot replica in any cluster without a load balancer to distribute traffic
 // across the replicas. It depends only on spec fields, so it lives in the
 // spec-validation tier.
+// validateLBConfig (all-or-none) runs first, so LB presence is uniform across
+// clusters and checking the first cluster covers them all.
 func validateMultipleReplicasRequireLB(s *MongoDBSearch) v1.ValidationResult {
-	if max := s.MaxReplicasAcrossClusters(); max > 1 && s.Spec.LoadBalancer == nil {
+	if max := s.MaxReplicasAcrossClusters(); max > 1 && s.firstClusterLB() == nil {
 		return v1.ValidationError(
 			"multiple mongot replicas (%d) require load balancer configuration; "+
-				"please configure load balancing in spec.loadBalancer.",
+				"please configure load balancing in spec.clusters[].loadBalancer.",
 			max,
 		)
 	}
 	return v1.ValidationSuccess()
 }
 
+// validateLBConfig enforces the per-cluster load balancer rules:
+//   - each entry sets exactly one of managed or unmanaged (the XValidation marker
+//     on LoadBalancerConfig enforces this at the CRD level; this check provides
+//     the same guarantee at the controller level);
+//   - clusters agree on presence: all set loadBalancer, or none do;
+//   - clusters agree on mode: managed and unmanaged cannot be mixed.
 func validateLBConfig(s *MongoDBSearch) v1.ValidationResult {
-	if s.Spec.LoadBalancer == nil {
-		// LB config is optional
+	withLB, managedCount, unmanagedCount := 0, 0, 0
+	for i, c := range s.Spec.Clusters {
+		lb := c.LoadBalancer
+		if lb == nil {
+			continue
+		}
+		withLB++
+		if lb.Managed == nil && lb.Unmanaged == nil {
+			return v1.ValidationError("spec.clusters[%d].loadBalancer must have exactly one of 'managed' or 'unmanaged' set", i)
+		}
+		if lb.Managed != nil && lb.Unmanaged != nil {
+			return v1.ValidationError("spec.clusters[%d].loadBalancer.managed and spec.clusters[%d].loadBalancer.unmanaged are mutually exclusive", i, i)
+		}
+		if lb.Managed != nil {
+			managedCount++
+		} else {
+			unmanagedCount++
+		}
+	}
+	if withLB > 0 && withLB != len(s.Spec.Clusters) {
+		return v1.ValidationError("spec.clusters[].loadBalancer must be set on every cluster or on none; %d of %d clusters set it", withLB, len(s.Spec.Clusters))
+	}
+	if managedCount > 0 && unmanagedCount > 0 {
+		return v1.ValidationError("spec.clusters[].loadBalancer mode must be the same on every cluster; managed and unmanaged cannot be mixed")
+	}
+	return v1.ValidationSuccess()
+}
+
+// validateUnmanagedLBConfig validates that every cluster's unmanaged LB specifies an endpoint.
+func validateUnmanagedLBConfig(s *MongoDBSearch) v1.ValidationResult {
+	for i, c := range s.Spec.Clusters {
+		if c.LoadBalancer == nil || c.LoadBalancer.Unmanaged == nil {
+			continue
+		}
+		if c.LoadBalancer.Unmanaged.Endpoint == "" {
+			return v1.ValidationError("spec.clusters[%d].loadBalancer.unmanaged.endpoint must be specified when spec.clusters[%d].loadBalancer.unmanaged is configured", i, i)
+		}
+	}
+	return v1.ValidationSuccess()
+}
+
+// validateManagedLBExternalHostname validates that every cluster sets externalHostname when
+// using managed LB with an external MongoDB source (Rule 5: Envoy needs the hostname for SNI matching).
+func validateManagedLBExternalHostname(s *MongoDBSearch) v1.ValidationResult {
+	if !s.IsExternalMongoDBSource() {
 		return v1.ValidationSuccess()
 	}
-
-	// Exactly one of managed or unmanaged must be set.
-	// The XValidation marker on LoadBalancerConfig enforces this at the CRD level;
-	// this check provides the same guarantee at the controller level.
-	if s.Spec.LoadBalancer.Managed == nil && s.Spec.LoadBalancer.Unmanaged == nil {
-		return v1.ValidationError("spec.loadBalancer must have exactly one of 'managed' or 'unmanaged' set")
+	for i, c := range s.Spec.Clusters {
+		if c.LoadBalancer == nil || c.LoadBalancer.Managed == nil {
+			continue
+		}
+		if c.LoadBalancer.Managed.ExternalHostname == "" {
+			return v1.ValidationError("spec.clusters[%d].loadBalancer.managed.externalHostname must be specified when using managed load balancer with an external MongoDB source", i)
+		}
 	}
-	if s.Spec.LoadBalancer.Managed != nil && s.Spec.LoadBalancer.Unmanaged != nil {
-		return v1.ValidationError("spec.loadBalancer.managed and spec.loadBalancer.unmanaged are mutually exclusive")
-	}
-
-	return v1.ValidationSuccess()
-}
-
-// validateUnmanagedLBConfig validates that an endpoint is specified when unmanaged LB is configured.
-func validateUnmanagedLBConfig(s *MongoDBSearch) v1.ValidationResult {
-	if s.Spec.LoadBalancer.Unmanaged.Endpoint == "" {
-		return v1.ValidationError("spec.loadBalancer.unmanaged.endpoint must be specified when spec.loadBalancer.unmanaged is configured")
-	}
-
-	return v1.ValidationSuccess()
-}
-
-// validateManagedLBExternalHostname validates that externalHostname is set when using managed LB
-// with an external MongoDB source (Rule 5: Envoy needs the hostname for SNI matching).
-func validateManagedLBExternalHostname(s *MongoDBSearch) v1.ValidationResult {
-	if s.IsExternalMongoDBSource() && s.Spec.LoadBalancer.Managed.ExternalHostname == "" {
-		return v1.ValidationError("spec.loadBalancer.managed.externalHostname must be specified when using managed load balancer with an external MongoDB source")
-	}
-
 	return v1.ValidationSuccess()
 }
 
@@ -198,42 +230,47 @@ func isPlaceholderOnly(endpoint string) bool {
 	return strings.TrimSpace(strings.ReplaceAll(endpoint, ShardNamePlaceholder, "")) == ""
 }
 
-// validateUnmanagedEndpointTemplate validates the unmanaged endpoint template against the source
-// topology. For an external sharded source the endpoint must be a per-shard template: it must
-// contain at least one {shardName} placeholder (Rule 6) and more than just the placeholder. For
-// every other source (ReplicaSet) the endpoint must not contain a {shardName} placeholder, since
-// the template makes no sense for a ReplicaSet (Rule 8).
+// validateUnmanagedEndpointTemplate validates each cluster's unmanaged endpoint template against
+// the source topology. For an external sharded source the endpoint must be a per-shard template:
+// it must contain at least one {shardName} placeholder (Rule 6) and more than just the placeholder.
+// For every other source (ReplicaSet) the endpoint must not contain a {shardName} placeholder,
+// since the template makes no sense for a ReplicaSet (Rule 8).
 func validateUnmanagedEndpointTemplate(s *MongoDBSearch) v1.ValidationResult {
-	endpoint := s.Spec.LoadBalancer.Unmanaged.Endpoint
-	hasTemplate := s.HasEndpointTemplate()
-
-	// External sharded: the declared shard set means each shard needs its own
-	// endpoint, so the template is required and must carry more than the placeholder.
-	if s.IsExternalSourceSharded() {
-		if !hasTemplate {
-			return v1.ValidationError("spec.loadBalancer.unmanaged.endpoint must contain at least one %s placeholder to differentiate between shards", ShardNamePlaceholder)
+	for i, c := range s.Spec.Clusters {
+		if c.LoadBalancer == nil || c.LoadBalancer.Unmanaged == nil {
+			continue
 		}
-		if isPlaceholderOnly(endpoint) {
-			return v1.ValidationError("spec.loadBalancer.unmanaged.endpoint must contain more than just the %s placeholder", ShardNamePlaceholder)
+		endpoint := c.LoadBalancer.Unmanaged.Endpoint
+		hasTemplate := strings.Contains(endpoint, ShardNamePlaceholder)
+		path := fmt.Sprintf("spec.clusters[%d].loadBalancer.unmanaged.endpoint", i)
+
+		// External sharded: the declared shard set means each shard needs its own
+		// endpoint, so the template is required and must carry more than the placeholder.
+		if s.IsExternalSourceSharded() {
+			if !hasTemplate {
+				return v1.ValidationError("%s must contain at least one %s placeholder to differentiate between shards", path, ShardNamePlaceholder)
+			}
+			if isPlaceholderOnly(endpoint) {
+				return v1.ValidationError("%s must contain more than just the %s placeholder", path, ShardNamePlaceholder)
+			}
+			continue
 		}
-		return v1.ValidationSuccess()
-	}
 
-	// External ReplicaSet: a single mongot fleet, so a {shardName} template is meaningless.
-	if s.IsExternalMongoDBSource() {
-		if hasTemplate {
-			return v1.ValidationError("spec.loadBalancer.unmanaged.endpoint must not contain a %s placeholder for ReplicaSet deployments", ShardNamePlaceholder)
+		// External ReplicaSet: a single mongot fleet, so a {shardName} template is meaningless.
+		if s.IsExternalMongoDBSource() {
+			if hasTemplate {
+				return v1.ValidationError("%s must not contain a %s placeholder for ReplicaSet deployments", path, ShardNamePlaceholder)
+			}
+			continue
 		}
-		return v1.ValidationSuccess()
-	}
 
-	// Operator-managed source: sharded-ness is only known at reconcile time, so we
-	// neither require nor forbid the template, but a templated endpoint must carry
-	// more than the placeholder.
-	if hasTemplate && isPlaceholderOnly(endpoint) {
-		return v1.ValidationError("spec.loadBalancer.unmanaged.endpoint must contain more than just the %s placeholder", ShardNamePlaceholder)
+		// Operator-managed source: sharded-ness is only known at reconcile time, so we
+		// neither require nor forbid the template, but a templated endpoint must carry
+		// more than the placeholder.
+		if hasTemplate && isPlaceholderOnly(endpoint) {
+			return v1.ValidationError("%s must contain more than just the %s placeholder", path, ShardNamePlaceholder)
+		}
 	}
-
 	return v1.ValidationSuccess()
 }
 
@@ -330,30 +367,41 @@ func validateShardNames(s *MongoDBSearch) v1.ValidationResult {
 }
 
 // validateJVMFlags validates the JVM flags provided by the users in
-// spec.clusters[].jvmFlags. These flags are passed directly to the mongot
-// process that runs for that cluster.
+// spec.clusters[].jvmFlags and spec.clusters[].shardOverrides[].jvmFlags.
+// These flags are passed directly to the mongot process.
 func validateJVMFlags(s *MongoDBSearch) v1.ValidationResult {
 	for ci, c := range s.Spec.Clusters {
 		for i, flag := range c.JVMFlags {
-			if flag == "" {
-				return v1.ValidationError("MongoDBSearch resource is invalid, spec.clusters[%d].jvmFlags[%d] must not be empty", ci, i)
+			if reason := invalidJVMFlagReason(flag); reason != "" {
+				return v1.ValidationError("MongoDBSearch resource is invalid, spec.clusters[%d].jvmFlags[%d] %s", ci, i, reason)
 			}
-
-			if strings.Contains(flag, " ") {
-				return v1.ValidationError("MongoDBSearch resource is invalid, spec.clusters[%d].jvmFlags[%d] must not contain spaces, got '%s'", ci, i, flag)
-			}
-
-			if !strings.HasPrefix(flag, "-X") && !strings.HasPrefix(flag, "-XX:") && !strings.HasPrefix(flag, "-D") {
-				return v1.ValidationError("MongoDBSearch resource is invalid, spec.clusters[%d].jvmFlags[%d] must start with -X, -XX:, or -D, got '%s'", ci, i, flag)
-			}
-
-			if !validJVMFlagChars.MatchString(flag) {
-				return v1.ValidationError("MongoDBSearch resource is invalid, spec.clusters[%d].jvmFlags[%d] contains invalid characters, only [a-zA-Z0-9._+:-=] are allowed, got '%s'", ci, i, flag)
+		}
+		for oi, o := range c.ShardOverrides {
+			for i, flag := range o.JVMFlags {
+				if reason := invalidJVMFlagReason(flag); reason != "" {
+					return v1.ValidationError("MongoDBSearch resource is invalid, spec.clusters[%d].shardOverrides[%d].jvmFlags[%d] %s", ci, oi, i, reason)
+				}
 			}
 		}
 	}
 
 	return v1.ValidationSuccess()
+}
+
+// invalidJVMFlagReason returns why flag is not an acceptable mongot JVM flag,
+// or "" when it is valid.
+func invalidJVMFlagReason(flag string) string {
+	switch {
+	case flag == "":
+		return "must not be empty"
+	case strings.Contains(flag, " "):
+		return fmt.Sprintf("must not contain spaces, got '%s'", flag)
+	case !strings.HasPrefix(flag, "-X") && !strings.HasPrefix(flag, "-XX:") && !strings.HasPrefix(flag, "-D"):
+		return fmt.Sprintf("must start with -X, -XX:, or -D, got '%s'", flag)
+	case !validJVMFlagChars.MatchString(flag):
+		return fmt.Sprintf("contains invalid characters, only [a-zA-Z0-9._+:-=] are allowed, got '%s'", flag)
+	}
+	return ""
 }
 
 func validateResourceName(resource shardResourceName, searchName, shardName string) error {
@@ -538,32 +586,41 @@ func ValidateShardNameRFC1123(shardName string) error {
 	return nil
 }
 
-// validateMCExternalHostnamePlaceholders enforces, for multi-cluster specs:
-//   - When managed LB is in use, externalHostname must contain {clusterName} or
-//     {clusterIndex} so each cluster's resolved hostname is distinct.
-//   - When the source is external sharded, externalHostname must additionally
-//     contain {shardName} so the cluster-level form is derivable.
+// validateMCExternalHostnames enforces, for multi-cluster specs with a managed LB:
+//   - every cluster's externalHostname must be distinct, so per-cluster SNI
+//     hostnames don't collide;
+//   - when the source is external sharded, each hostname must contain {shardName}
+//     so the per-shard form is derivable.
 //
 // The dispatch scopes this to multi-cluster (len > 1); the LB-mode check stays
 // inline because this group is not LB-mode-scoped (it also runs for unmanaged MC,
 // where there is nothing to validate).
-func validateMCExternalHostnamePlaceholders(s *MongoDBSearch) v1.ValidationResult {
-	if !s.IsLBModeManaged() || s.Spec.LoadBalancer.Managed.ExternalHostname == "" {
+func validateMCExternalHostnames(s *MongoDBSearch) v1.ValidationResult {
+	if !s.IsLBModeManaged() {
 		return v1.ValidationSuccess()
 	}
-	tmpl := s.Spec.LoadBalancer.Managed.ExternalHostname
-	hasCluster := strings.Contains(tmpl, ClusterNamePlaceholder) || strings.Contains(tmpl, ClusterIndexPlaceholder)
-	if !hasCluster {
-		return v1.ValidationError(
-			"spec.loadBalancer.managed.externalHostname must contain %s or %s when len(spec.clusters) > 1",
-			ClusterNamePlaceholder, ClusterIndexPlaceholder,
-		)
-	}
-	if s.IsExternalSourceSharded() && !strings.Contains(tmpl, ShardNamePlaceholder) {
-		return v1.ValidationError(
-			"spec.loadBalancer.managed.externalHostname must contain %s for multi-cluster sharded deployments",
-			ShardNamePlaceholder,
-		)
+	seen := make(map[string]int, len(s.Spec.Clusters))
+	for i, c := range s.Spec.Clusters {
+		if c.LoadBalancer == nil || c.LoadBalancer.Managed == nil {
+			continue
+		}
+		tmpl := c.LoadBalancer.Managed.ExternalHostname
+		if tmpl == "" {
+			continue
+		}
+		if first, dup := seen[tmpl]; dup {
+			return v1.ValidationError(
+				"spec.clusters[%d].loadBalancer.managed.externalHostname %q is also used by spec.clusters[%d]; every cluster needs a distinct hostname",
+				i, tmpl, first,
+			)
+		}
+		seen[tmpl] = i
+		if s.IsExternalSourceSharded() && !strings.Contains(tmpl, ShardNamePlaceholder) {
+			return v1.ValidationError(
+				"spec.clusters[%d].loadBalancer.managed.externalHostname must contain %s for multi-cluster sharded deployments",
+				i, ShardNamePlaceholder,
+			)
+		}
 	}
 	return v1.ValidationSuccess()
 }
@@ -575,10 +632,6 @@ func validateMCExternalHostnamePlaceholders(s *MongoDBSearch) v1.ValidationResul
 // entire string is the host. Iterates spec.clusters[] (always >= 1) x
 // spec.source.external.shardedCluster.shards[] (may be empty).
 func validateExternalHostnameDNSLength(s *MongoDBSearch) v1.ValidationResult {
-	if s.Spec.LoadBalancer.Managed.ExternalHostname == "" {
-		return v1.ValidationSuccess()
-	}
-
 	var shardNames []string
 	if s.IsExternalSourceSharded() {
 		for _, sh := range s.Spec.Source.ExternalMongoDBSource.ShardedCluster.Shards {
@@ -586,31 +639,29 @@ func validateExternalHostnameDNSLength(s *MongoDBSearch) v1.ValidationResult {
 		}
 	}
 
-	check := func(host string) v1.ValidationResult {
+	check := func(clusterIdx int, host string) v1.ValidationResult {
+		path := fmt.Sprintf("spec.clusters[%d].loadBalancer.managed.externalHostname", clusterIdx)
 		h := host
 		if idx := strings.LastIndex(h, ":"); idx >= 0 {
 			h = h[:idx]
 		}
 		if len(h) == 0 {
-			return v1.ValidationError(
-				"spec.loadBalancer.managed.externalHostname resolves to an empty host: %q",
-				host,
-			)
+			return v1.ValidationError("%s resolves to an empty host: %q", path, host)
 		}
 		// IsDNS1123Subdomain caps the FQDN at 253 chars and enforces the
 		// overall regex, but does *not* enforce the per-label 63-char limit.
 		// Walk the labels separately so a single oversized cluster/shard label trips here.
 		if errs := validation.IsDNS1123Subdomain(h); len(errs) > 0 {
 			return v1.ValidationError(
-				"spec.loadBalancer.managed.externalHostname resolves to an invalid DNS subdomain %q: %s",
-				h, strings.Join(errs, ", "),
+				"%s resolves to an invalid DNS subdomain %q: %s",
+				path, h, strings.Join(errs, ", "),
 			)
 		}
 		for _, label := range strings.Split(h, ".") {
 			if errs := validation.IsDNS1123Label(label); len(errs) > 0 {
 				return v1.ValidationError(
-					"spec.loadBalancer.managed.externalHostname resolves to an invalid DNS subdomain %q: label %q: %s",
-					h, label, strings.Join(errs, ", "),
+					"%s resolves to an invalid DNS subdomain %q: label %q: %s",
+					path, h, label, strings.Join(errs, ", "),
 				)
 			}
 		}
@@ -620,21 +671,21 @@ func validateExternalHostnameDNSLength(s *MongoDBSearch) v1.ValidationResult {
 	// Iterate the cross-product. len(shardNames) == 0 runs a single pass per
 	// cluster with no shard substitution.
 	for i, c := range s.Spec.Clusters {
-		// Pinned ClusterIndex when set, else the array position — reachable only for
-		// single-entry specs under pinned-only; spec validation can't read the state CM.
-		idx := i
-		if c.ClusterIndex != nil {
-			idx = int(*c.ClusterIndex)
+		if c.LoadBalancer == nil || c.LoadBalancer.Managed == nil {
+			continue
 		}
-		base := s.GetManagedLBEndpointForCluster(idx, c.ClusterName)
+		base := c.LoadBalancer.Managed.ExternalHostname
+		if base == "" {
+			continue
+		}
 		if len(shardNames) == 0 {
-			if res := check(base); res.Level == v1.ErrorLevel {
+			if res := check(i, base); res.Level == v1.ErrorLevel {
 				return res
 			}
 			continue
 		}
 		for _, sn := range shardNames {
-			if res := check(strings.ReplaceAll(base, ShardNamePlaceholder, sn)); res.Level == v1.ErrorLevel {
+			if res := check(i, strings.ReplaceAll(base, ShardNamePlaceholder, sn)); res.Level == v1.ErrorLevel {
 				return res
 			}
 		}
@@ -643,20 +694,24 @@ func validateExternalHostnameDNSLength(s *MongoDBSearch) v1.ValidationResult {
 }
 
 // validateMCRequiresManagedLB enforces that a multi-cluster MongoDBSearch uses
-// spec.loadBalancer.managed. Multi-cluster at GA requires Envoy (managed LB), so
-// both a missing load balancer and an unmanaged one are rejected when there is
-// more than one cluster. The dispatch scopes this to multi-cluster (len > 1);
-// single-cluster keeps using no-LB / unmanaged LB.
+// a managed load balancer on every cluster. Multi-cluster at GA requires Envoy
+// (managed LB), so both a missing load balancer and an unmanaged one are rejected
+// when there is more than one cluster. The dispatch scopes this to multi-cluster
+// (len > 1); single-cluster keeps using no-LB / unmanaged LB.
 func validateMCRequiresManagedLB(s *MongoDBSearch) v1.ValidationResult {
-	if s.Spec.LoadBalancer == nil {
-		return v1.ValidationError(
-			"multi-cluster MongoDBSearch requires a managed load balancer (spec.loadBalancer.managed) at the moment; none is configured",
-		)
-	}
-	if s.Spec.LoadBalancer.Unmanaged != nil {
-		return v1.ValidationError(
-			"multi-cluster MongoDBSearch requires a managed load balancer (spec.loadBalancer.managed) at the moment; spec.loadBalancer.unmanaged is not supported for multi-cluster",
-		)
+	for i, c := range s.Spec.Clusters {
+		if c.LoadBalancer == nil {
+			return v1.ValidationError(
+				"multi-cluster MongoDBSearch requires a managed load balancer (spec.clusters[%d].loadBalancer.managed) at the moment; none is configured",
+				i,
+			)
+		}
+		if c.LoadBalancer.Unmanaged != nil {
+			return v1.ValidationError(
+				"multi-cluster MongoDBSearch requires a managed load balancer at the moment; spec.clusters[%d].loadBalancer.unmanaged is not supported for multi-cluster",
+				i,
+			)
+		}
 	}
 	return v1.ValidationSuccess()
 }
@@ -702,4 +757,52 @@ func externalSource(s *MongoDBSearch) *ExternalMongoDBSource {
 		return nil
 	}
 	return s.Spec.Source.ExternalMongoDBSource
+}
+
+// validateShardOverrides enforces the per-shard override rules:
+//   - shardOverrides may only be set when the source is an external sharded cluster;
+//   - every referenced shardName must exist in the declared shard set;
+//   - within one cluster, a shard may appear in at most one override entry.
+func validateShardOverrides(s *MongoDBSearch) v1.ValidationResult {
+	hasOverrides := false
+	for _, c := range s.Spec.Clusters {
+		if len(c.ShardOverrides) > 0 {
+			hasOverrides = true
+			break
+		}
+	}
+	if !hasOverrides {
+		return v1.ValidationSuccess()
+	}
+
+	if !s.IsExternalSourceSharded() {
+		return v1.ValidationError("spec.clusters[].shardOverrides is only supported for external sharded sources (spec.source.external.shardedCluster)")
+	}
+
+	declared := make(map[string]struct{})
+	for _, sh := range s.Spec.Source.ExternalMongoDBSource.ShardedCluster.Shards {
+		declared[sh.ShardName] = struct{}{}
+	}
+
+	for ci, c := range s.Spec.Clusters {
+		seen := make(map[string]int)
+		for oi, o := range c.ShardOverrides {
+			for _, name := range o.ShardNames {
+				if _, ok := declared[name]; !ok {
+					return v1.ValidationError(
+						"spec.clusters[%d].shardOverrides[%d] references unknown shardName %q; it must exist in spec.source.external.shardedCluster.shards",
+						ci, oi, name,
+					)
+				}
+				if first, dup := seen[name]; dup {
+					return v1.ValidationError(
+						"spec.clusters[%d]: shardName %q appears in more than one shardOverrides entry (entries %d and %d); a shard may be overridden at most once per cluster",
+						ci, name, first, oi,
+					)
+				}
+				seen[name] = oi
+			}
+		}
+	}
+	return v1.ValidationSuccess()
 }
