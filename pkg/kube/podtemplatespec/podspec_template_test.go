@@ -395,6 +395,12 @@ func TestMergeContainer(t *testing.T) {
 	otherDefaultContainer := getDefaultContainer()
 	otherDefaultContainer.Name = "default-side-car"
 	otherDefaultContainer.VolumeMounts = []corev1.VolumeMount{sideCarVol}
+	otherDefaultContainer.SecurityContext = &corev1.SecurityContext{
+		AllowPrivilegeEscalation: ptr.To(false),
+		Capabilities: &corev1.Capabilities{
+			Drop: []corev1.Capability{"ALL"},
+		},
+	}
 
 	overrideOtherDefaultContainer := otherDefaultContainer
 	overrideOtherDefaultContainer.Env = []corev1.EnvVar{{Name: "env_var", Value: "xxx"}}

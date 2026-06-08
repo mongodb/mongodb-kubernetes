@@ -83,9 +83,7 @@ def create_test_pod(args: argparse.Namespace, namespace: str) -> None:
                 "runAsNonRoot": True,
                 "runAsUser": 2000,
                 "fsGroup": 2000,
-                "seccompProfile": {
-                    "type": "RuntimeDefault"
-                }
+                "seccompProfile": {"type": "RuntimeDefault"},
             },
             "restartPolicy": "Never",
             "serviceAccountName": "e2e-test",
@@ -142,9 +140,7 @@ def create_test_pod(args: argparse.Namespace, namespace: str) -> None:
                     "volumeMounts": [{"name": "results", "mountPath": "/tmp/results"}],
                     "securityContext": {
                         "allowPrivilegeEscalation": False,
-                        "capabilities": {
-                            "drop": ["ALL"]
-                        }
+                        "capabilities": {"drop": ["ALL"]},
                     },
                 },
                 {
@@ -154,9 +150,7 @@ def create_test_pod(args: argparse.Namespace, namespace: str) -> None:
                     "volumeMounts": [{"name": "results", "mountPath": "/tmp/results"}],
                     "securityContext": {
                         "allowPrivilegeEscalation": False,
-                        "capabilities": {
-                            "drop": ["ALL"]
-                        },
+                        "capabilities": {"drop": ["ALL"]},
                     },
                 },
             ],
