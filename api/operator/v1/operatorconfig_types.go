@@ -56,12 +56,12 @@ type ProxyConfig struct {
 
 // MultiClusterConfig contains multi-cluster configuration settings.
 type MultiClusterConfig struct {
-	// ClusterClientTimeout is the timeout in seconds for connecting to a member
+	// MemberClusterClientTimeout is the timeout in seconds for connecting to a member
 	// cluster's Kubernetes API server.
 	// +optional
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:default=10
-	ClusterClientTimeout int `json:"clusterClientTimeout,omitempty"`
+	MemberClusterClientTimeout int `json:"memberClusterClientTimeout,omitempty"`
 }
 
 // AutomaticRecoveryConfig controls automatic recovery of resources with broken automation configuration.
