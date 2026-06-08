@@ -29,7 +29,11 @@ from tests.common.search.bootstrap_test_mixins import (
     SearchRsDeploymentTests,
     SearchSampleDataAndIndexTests,
 )
-from tests.common.search.connectivity import SearchConnectivityTool, wait_for_all_pods_replaced
+from tests.common.search.connectivity import (
+    SearchConnectivityTool,
+    wait_for_all_pods_replaced,
+    wait_for_pods_by_label_replaced,
+)
 from tests.common.search.rs_search_helper import rs_search_tester
 from tests.common.search.search_deployment_helper import SearchDeploymentHelper
 from tests.common.search.upgrade_availability import assert_rolled_through as _assert_rolled_through
@@ -59,6 +63,7 @@ DISRUPTION_BOUND_S = 60.0
 # Resource bumps that differ from the bootstrap defaults (mongot_cpu=1/mongot_memory=2Gi), so the
 # operator sees a real pod-spec change and rolls the group. Kept small to stay within node capacity.
 _MONGOT_RESOURCES = {"requests": {"cpu": "150m", "memory": "256Mi"}, "limits": {"cpu": "600m", "memory": "640Mi"}}
+_ENVOY_RESOURCES = {"requests": {"cpu": "150m", "memory": "192Mi"}, "limits": {"cpu": "600m", "memory": "640Mi"}}
 
 
 # --- shared helpers -------------------------------------------------------
@@ -184,6 +189,65 @@ class TestMongotResourceChange:
             ok_at_recovery,
             ok_after,
             "mongot-resources",
+            disruption_s=disruption_s,
+            bound_s=DISRUPTION_BOUND_S,
+        )
+        _assert_steady(namespace)
+
+    def test_recovers_to_steady_state(self, namespace: str):
+        _assert_steady(namespace)
+
+
+# --- scenario: envoy resourceRequirements change (CR spec.loadBalancer.managed.resourceRequirements) ---
+
+
+class TestEnvoyResourceChange:
+    def test_steady_state_before(self, namespace: str):
+        _assert_steady(namespace)
+
+    def test_envoy_resource_change_availability(self, namespace: str):
+        """Set spec.loadBalancer.managed.resourceRequirements: the operator rolls the managed-LB
+        Deployment, a surviving envoy replica serves new queries, and the open cursor serves fresh
+        pages after recovery. An envoy-only change must leave mongot untouched."""
+        oneshot = SearchAvailabilityBackgroundTester(_user_tool(namespace), mode="oneshot", interval_seconds=0.2)
+        paging = SearchAvailabilityBackgroundTester(
+            _user_tool(namespace), mode="paging", paging_batch_size=5, paging_reset_every=50_000, interval_seconds=0.05
+        )
+        with oneshot, paging:
+            oneshot.wait_for_operations(BASELINE_OPS)
+            paging.wait_for_operations(BASELINE_OPS)
+            mongot_before = _pod_uids(namespace, MONGOT_SELECTOR)
+            envoy_before = _pod_uids(namespace, ENVOY_SELECTOR)
+            mdbs = _load_mdbs(namespace)
+            mdbs.load()
+            mdbs["spec"]["loadBalancer"]["managed"]["resourceRequirements"] = _ENVOY_RESOURCES
+            t0 = time.monotonic()
+            mdbs.update()
+            wait_for_pods_by_label_replaced(namespace, ENVOY_SELECTOR, envoy_before, expected=SEARCH.envoy_lb_replicas)
+            mdbs.assert_reaches_phase(Phase.Running, timeout=600)
+            recovery_s = time.monotonic() - t0
+            ok_at_recovery = paging.succeeded_count  # snapshot once pods are Ready again
+            oneshot.wait_for_operations(POST_EVENT_OPS)
+            paging.wait_for_operations(POST_EVENT_OPS)
+            ok_after = paging.succeeded_count
+        disruption_s = paging.max_consecutive_failure * paging.interval_seconds
+        rolls_mongot = _roll_count(namespace, MONGOT_SELECTOR, mongot_before)
+        rolls_envoy = _roll_count(namespace, ENVOY_SELECTOR, envoy_before)
+        logger.info(f"envoy-resources oneshot verdict: {oneshot.verdict.as_dict()}")
+        _emit_metric(
+            "envoy-resources",
+            rolls_mongot=rolls_mongot,
+            rolls_envoy=rolls_envoy,
+            recovery_s=recovery_s,
+            disruption_s=disruption_s,
+        )
+        assert rolls_envoy >= 1, f"expected envoy to roll, but rolls_envoy={rolls_envoy}"
+        assert rolls_mongot == 0, f"an envoy resource change must not disturb mongot, but {rolls_mongot} rolled"
+        _assert_rolled_through(
+            paging.verdict,
+            ok_at_recovery,
+            ok_after,
+            "envoy-resources",
             disruption_s=disruption_s,
             bound_s=DISRUPTION_BOUND_S,
         )
