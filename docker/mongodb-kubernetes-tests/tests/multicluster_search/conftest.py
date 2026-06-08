@@ -275,7 +275,7 @@ def build_per_cluster_search_crs(
 
     clusters_spec = [
         {
-            "clusterName": mcc.cluster_name,
+            "name": mcc.cluster_name,
             "clusterIndex": _idx(mcc),
             "replicas": mongot_replicas,
             "loadBalancer": {

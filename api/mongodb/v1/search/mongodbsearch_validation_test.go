@@ -526,12 +526,12 @@ func TestValidateClustersClusterNameNonEmpty(t *testing.T) {
 		{
 			name:          "MC with empty clusterName at index 1",
 			clusters:      []ClusterSpec{pinnedSpec("us-east-k8s", 0), {ClusterName: ""}},
-			errorContains: "spec.clusters[1].clusterName is required",
+			errorContains: "spec.clusters[1].name is required",
 		},
 		{
 			name:          "MC with empty clusterName at index 0",
 			clusters:      []ClusterSpec{{ClusterName: ""}, pinnedSpec("eu-west-k8s", 1)},
-			errorContains: "spec.clusters[0].clusterName is required",
+			errorContains: "spec.clusters[0].name is required",
 		},
 		{
 			// Both names empty must surface the actionable "is required" hint, not
@@ -539,7 +539,7 @@ func TestValidateClustersClusterNameNonEmpty(t *testing.T) {
 			// non-empty rule wins regardless of validator-group ordering.
 			name:          "MC with two empty clusterNames reports is-required, not duplicate",
 			clusters:      []ClusterSpec{{ClusterName: ""}, {ClusterName: ""}},
-			errorContains: "spec.clusters[0].clusterName is required",
+			errorContains: "spec.clusters[0].name is required",
 		},
 	}
 	for _, tt := range tests {

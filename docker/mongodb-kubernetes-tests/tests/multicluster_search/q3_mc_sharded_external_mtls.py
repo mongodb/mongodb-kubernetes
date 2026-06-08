@@ -226,7 +226,7 @@ def mdbs(
 
     resource["spec"]["clusters"] = [
         {
-            "clusterName": mcc.cluster_name,
+            "name": mcc.cluster_name,
             "clusterIndex": mcc.cluster_index,
             "replicas": MONGOT_REPLICAS_PER_CLUSTER,
             "loadBalancer": {
