@@ -50,6 +50,7 @@ func newMongoDBSearch(name, namespace, mdbcName string) *searchv1.MongoDBSearch 
 	return &searchv1.MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
 		Spec: searchv1.MongoDBSearchSpec{
+			Clusters: []searchv1.ClusterSpec{{}},
 			Source: &searchv1.MongoDBSource{
 				MongoDBResourceRef: &userv1.MongoDBResourceRef{Name: mdbcName},
 			},
@@ -391,7 +392,9 @@ func TestMongoDBSearchReconcile_InvalidSearchImageVersion(t *testing.T) {
 			mdbc := newMongoDBCommunity("mdb", mock.TestNamespace)
 
 			search.Spec.Version = tc.specVersion
-			search.Spec.StatefulSetConfiguration = tc.statefulSetConfig
+			if tc.statefulSetConfig != nil {
+				search.Spec.Clusters = []searchv1.ClusterSpec{{StatefulSetConfiguration: tc.statefulSetConfig}}
+			}
 
 			operatorConfig := searchcontroller.OperatorSearchConfig{
 				SearchVersion: tc.operatorVersion,
@@ -464,7 +467,7 @@ func TestMongoDBSearchControllerReconcile_StateConfigMap(t *testing.T) {
 			for _, n := range names {
 				entries = append(entries, searchv1.ClusterSpec{ClusterName: n})
 			}
-			s.Spec.Clusters = &entries
+			s.Spec.Clusters = entries
 		}
 	}
 
@@ -529,8 +532,7 @@ func decodeStateJSON(cm *corev1.ConfigMap, dst interface{}) error {
 func TestMongoDBSearchControllerReconcile_StateConfigMap_NoOpOnStableMapping(t *testing.T) {
 	ctx := context.Background()
 	search := newMongoDBSearch("mysearch", mock.TestNamespace, "mdb")
-	clusters := []searchv1.ClusterSpec{{ClusterName: "us-east"}, {ClusterName: "us-west"}}
-	search.Spec.Clusters = &clusters
+	search.Spec.Clusters = []searchv1.ClusterSpec{{ClusterName: "us-east"}, {ClusterName: "us-west"}}
 	mdbc := newMongoDBCommunity("mdb", mock.TestNamespace)
 	reconciler, c := newSearchReconciler(mdbc, search)
 
@@ -557,8 +559,7 @@ func TestMongoDBSearchControllerReconcile_StateConfigMap_NoOpOnStableMapping(t *
 func TestMongoDBSearchControllerReconcile_StateConfigMap_OperatorRestart(t *testing.T) {
 	ctx := context.Background()
 	search := newMongoDBSearch("mysearch", mock.TestNamespace, "mdb")
-	clusters := []searchv1.ClusterSpec{{ClusterName: "us-east"}, {ClusterName: "us-west"}}
-	search.Spec.Clusters = &clusters
+	search.Spec.Clusters = []searchv1.ClusterSpec{{ClusterName: "us-east"}, {ClusterName: "us-west"}}
 	mdbc := newMongoDBCommunity("mdb", mock.TestNamespace)
 
 	// Build reconciler and client, then manually seed a state CM that already contains
@@ -601,7 +602,7 @@ func TestMongoDBSearchControllerReconcile_StateConfigMap_ReAddCluster(t *testing
 		for _, n := range names {
 			entries = append(entries, searchv1.ClusterSpec{ClusterName: n})
 		}
-		s.Spec.Clusters = &entries
+		s.Spec.Clusters = entries
 	}
 
 	search := newMongoDBSearch("mysearch", mock.TestNamespace, "mdb")
@@ -654,11 +655,10 @@ func TestMongoDBSearchReconcile_Success_MultiCluster(t *testing.T) {
 			LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot-{clusterName}.example.com"}},
 		},
 	}
-	clusters := []searchv1.ClusterSpec{
+	search.Spec.Clusters = []searchv1.ClusterSpec{
 		{ClusterName: "us-east", Replicas: ptr.To(int32(1))},
 		{ClusterName: "us-west", Replicas: ptr.To(int32(1))},
 	}
-	search.Spec.Clusters = &clusters
 
 	eastClient := mock.NewEmptyFakeClientBuilder().Build()
 	westClient := mock.NewEmptyFakeClientBuilder().Build()
@@ -780,7 +780,7 @@ func TestMongoDBSearchReconcile_MCSharded_CrossControllerLabelInvariant(t *testi
 			Namespace: mock.TestNamespace,
 		},
 		Spec: searchv1.MongoDBSearchSpec{
-			Clusters: &[]searchv1.ClusterSpec{
+			Clusters: []searchv1.ClusterSpec{
 				{ClusterName: "cluster-a", Replicas: ptr.To(int32(1))},
 				{ClusterName: "cluster-b", Replicas: ptr.To(int32(1))},
 			},

@@ -267,14 +267,12 @@ type rsWorkItem struct {
 	ClusterIndex int
 }
 
-// buildRSWorkList returns a 1-element work list with clusterName "" for the
-// legacy single-cluster path, or one item per spec.clusters[i] with
-// clusterIndex resolved from the persisted state.ClusterMapping for MC.
+// buildRSWorkList returns one item per spec.clusters[i] with clusterIndex
+// resolved from the persisted state.ClusterMapping. A single-cluster spec has
+// one entry with an empty clusterName, which maps to index 0 and routes to the
+// central client.
 func (r *MongoDBSearchReconcileHelper) buildRSWorkList() []rsWorkItem {
-	if r.mdbSearch.Spec.Clusters == nil || len(*r.mdbSearch.Spec.Clusters) == 0 {
-		return []rsWorkItem{{}}
-	}
-	clusters := *r.mdbSearch.Spec.Clusters
+	clusters := r.mdbSearch.Spec.Clusters
 	work := make([]rsWorkItem, 0, len(clusters))
 	for _, c := range clusters {
 		work = append(work, rsWorkItem{ClusterName: c.ClusterName, ClusterIndex: r.clusterMapping[c.ClusterName]})
@@ -292,18 +290,9 @@ type shardedWorkItem struct {
 }
 
 // buildShardedWorkList returns one item per (cluster, shard) combination.
-// Single-cluster (nil/empty spec.clusters) produces one cluster entry with ClusterName "" and ClusterIndex 0.
+// A single-cluster spec produces one cluster entry with ClusterName "" and ClusterIndex 0.
 func (r *MongoDBSearchReconcileHelper) buildShardedWorkList(shardNames []string) []shardedWorkItem {
-	var clusterItems []rsWorkItem
-	if r.mdbSearch.Spec.Clusters == nil || len(*r.mdbSearch.Spec.Clusters) == 0 {
-		clusterItems = []rsWorkItem{{}}
-	} else {
-		clusters := *r.mdbSearch.Spec.Clusters
-		clusterItems = make([]rsWorkItem, 0, len(clusters))
-		for _, c := range clusters {
-			clusterItems = append(clusterItems, rsWorkItem{ClusterName: c.ClusterName, ClusterIndex: r.clusterMapping[c.ClusterName]})
-		}
-	}
+	clusterItems := r.buildRSWorkList()
 
 	work := make([]shardedWorkItem, 0, len(clusterItems)*len(shardNames))
 	for _, cl := range clusterItems {
@@ -1729,13 +1718,15 @@ func (r *MongoDBSearchReconcileHelper) ValidateMultipleReplicasConfig() error {
 		return nil
 	}
 
+	maxReplicas := r.mdbSearch.MaxReplicasAcrossClusters()
+
 	// For sharded clusters, check if LB is configured (managed or unmanaged)
 	if _, ok := r.db.(SearchSourceShardedDeployment); ok {
 		if !r.mdbSearch.IsShardedUnmanagedLB() && !r.mdbSearch.IsLBModeManaged() {
 			return xerrors.Errorf(
 				"multiple mongot replicas (%d) require load balancer configuration; "+
 					"please configure load balancing in spec.loadBalancer.",
-				r.mdbSearch.GetReplicas(),
+				maxReplicas,
 			)
 		}
 		return nil
@@ -1746,7 +1737,7 @@ func (r *MongoDBSearchReconcileHelper) ValidateMultipleReplicasConfig() error {
 		return xerrors.Errorf(
 			"multiple mongot replicas (%d) require load balancer configuration; "+
 				"please configure load balancing in spec.loadBalancer.",
-			r.mdbSearch.GetReplicas(),
+			maxReplicas,
 		)
 	}
 

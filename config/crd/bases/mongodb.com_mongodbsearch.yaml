@@ -90,14 +90,12 @@ spec:
                   single cluster (clusterName optional), or one entry per cluster for
                   multi-cluster (clusterName required, len > 1). This is the place to set
                   replicas, resources, storage, and StatefulSet overrides.
-                  If omitted, the operator falls back to the deprecated top-level fields and
-                  runs in a single cluster.
                 items:
                   description: |-
                     ClusterSpec is one entry in spec.clusters[]. ClusterName is required and immutable
                     when len(spec.clusters) > 1; optional in the single-cluster case.
-                    Each other field, when set, applies to this cluster; when unset, it falls back to
-                    the matching top-level default.
+                    Each field, when set, applies to this cluster; when unset, the operator's
+                    per-field default applies.
                   properties:
                     clusterName:
                       description: |-
@@ -427,6 +425,7 @@ spec:
                         rule: '!(has(self.matchTags) && has(self.hosts))'
                   type: object
                 maxItems: 50
+                minItems: 1
                 type: array
                 x-kubernetes-validations:
                 - message: clusters[].clusterName must be set and unique when more
@@ -447,14 +446,6 @@ spec:
                       gRPC RESOURCE_EXHAUSTED status codes. Defaults to true.
                     type: boolean
                 type: object
-              jvmFlags:
-                description: |-
-                  JVMFlags can be used to set the `--jvm-flags` option for the search (mongot) processes.
-                  Top-level spec.jvmFlags serves as the default; spec.clusters[].jvmFlags replaces (not merges) it for that cluster.
-                  https://www.mongodb.com/docs/manual/tutorial/mongot-sizing/advanced-guidance/hardware/#jvm-heap-sizing
-                items:
-                  type: string
-                type: array
               loadBalancer:
                 description: |-
                   LoadBalancer configures how mongod/mongos connect to mongot (Managed vs Unmanaged/BYO Load Balancer).
@@ -611,54 +602,6 @@ spec:
                 - WARN
                 - ERROR
                 type: string
-              persistence:
-                description: 'Deprecated: use spec.clusters[].persistence instead;
-                  this top-level field will be removed.'
-                properties:
-                  multiple:
-                    properties:
-                      data:
-                        properties:
-                          labelSelector:
-                            type: object
-                            x-kubernetes-preserve-unknown-fields: true
-                          storage:
-                            type: string
-                          storageClass:
-                            type: string
-                        type: object
-                      journal:
-                        properties:
-                          labelSelector:
-                            type: object
-                            x-kubernetes-preserve-unknown-fields: true
-                          storage:
-                            type: string
-                          storageClass:
-                            type: string
-                        type: object
-                      logs:
-                        properties:
-                          labelSelector:
-                            type: object
-                            x-kubernetes-preserve-unknown-fields: true
-                          storage:
-                            type: string
-                          storageClass:
-                            type: string
-                        type: object
-                    type: object
-                  single:
-                    properties:
-                      labelSelector:
-                        type: object
-                        x-kubernetes-preserve-unknown-fields: true
-                      storage:
-                        type: string
-                      storageClass:
-                        type: string
-                    type: object
-                type: object
               prometheus:
                 description: Configure prometheus metrics endpoint in mongot. If not
                   set, the metrics endpoint will be disabled.
@@ -670,72 +613,6 @@ spec:
                     maximum: 65535
                     minimum: 0
                     type: integer
-                type: object
-              replicas:
-                description: 'Deprecated: use spec.clusters[].replicas instead; this
-                  top-level field will be removed.'
-                format: int32
-                minimum: 0
-                type: integer
-              resourceRequirements:
-                description: 'Deprecated: use spec.clusters[].resourceRequirements
-                  instead; this top-level field will be removed.'
-                properties:
-                  claims:
-                    description: |-
-                      Claims lists the names of resources, defined in spec.resourceClaims,
-                      that are used by this container.
-
-                      This is an alpha field and requires enabling the
-                      DynamicResourceAllocation feature gate.
-
-                      This field is immutable. It can only be set for containers.
-                    items:
-                      description: ResourceClaim references one entry in PodSpec.ResourceClaims.
-                      properties:
-                        name:
-                          description: |-
-                            Name must match the name of one entry in pod.spec.resourceClaims of
-                            the Pod where this field is used. It makes that resource available
-                            inside a container.
-                          type: string
-                        request:
-                          description: |-
-                            Request is the name chosen for a request in the referenced claim.
-                            If empty, everything from the claim is made available, otherwise
-                            only the result of this request.
-                          type: string
-                      required:
-                      - name
-                      type: object
-                    type: array
-                    x-kubernetes-list-map-keys:
-                    - name
-                    x-kubernetes-list-type: map
-                  limits:
-                    additionalProperties:
-                      anyOf:
-                      - type: integer
-                      - type: string
-                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
-                      x-kubernetes-int-or-string: true
-                    description: |-
-                      Limits describes the maximum amount of compute resources allowed.
-                      More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
-                    type: object
-                  requests:
-                    additionalProperties:
-                      anyOf:
-                      - type: integer
-                      - type: string
-                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
-                      x-kubernetes-int-or-string: true
-                    description: |-
-                      Requests describes the minimum amount of compute resources required.
-                      If Requests is omitted for a container, it defaults to Limits if that is explicitly specified,
-                      otherwise to an implementation-defined value. Requests cannot exceed Limits.
-                      More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
-                    type: object
                 type: object
               security:
                 description: Security holds the TLS settings for the MongoDB Search
@@ -920,33 +797,12 @@ spec:
                     - clientCertificateSecretRef
                     type: object
                 type: object
-              statefulSet:
-                description: 'Deprecated: use spec.clusters[].statefulSet instead;
-                  this top-level field will be removed.'
-                properties:
-                  metadata:
-                    description: StatefulSetMetadataWrapper is a wrapper around Labels
-                      and Annotations
-                    properties:
-                      annotations:
-                        additionalProperties:
-                          type: string
-                        type: object
-                      labels:
-                        additionalProperties:
-                          type: string
-                        type: object
-                    type: object
-                  spec:
-                    type: object
-                    x-kubernetes-preserve-unknown-fields: true
-                required:
-                - spec
-                type: object
               version:
                 description: Version of MongoDB Search (mongot) to run. If unset,
                   the operator picks the most appropriate version.
                 type: string
+            required:
+            - clusters
             type: object
           status:
             properties:

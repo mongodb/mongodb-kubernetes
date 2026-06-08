@@ -87,19 +87,6 @@ type MongoDBSearchSpec struct {
 	// Source is the MongoDB database that MongoDB Search syncs from to build its indexes.
 	// +optional
 	Source *MongoDBSource `json:"source"`
-	// Deprecated: use spec.clusters[].replicas instead; this top-level field will be removed.
-	// +optional
-	// +kubebuilder:validation:Minimum=0
-	Replicas *int32 `json:"replicas,omitempty"`
-	// Deprecated: use spec.clusters[].statefulSet instead; this top-level field will be removed.
-	// +optional
-	StatefulSetConfiguration *v1.StatefulSetConfiguration `json:"statefulSet,omitempty"`
-	// Deprecated: use spec.clusters[].persistence instead; this top-level field will be removed.
-	// +optional
-	Persistence *v1.Persistence `json:"persistence,omitempty"`
-	// Deprecated: use spec.clusters[].resourceRequirements instead; this top-level field will be removed.
-	// +optional
-	ResourceRequirements *corev1.ResourceRequirements `json:"resourceRequirements,omitempty"`
 	// Security holds the TLS settings for the MongoDB Search server.
 	// +optional
 	Security Security `json:"security"`
@@ -120,11 +107,6 @@ type MongoDBSearchSpec struct {
 	// spec.loadBalancer.unmanaged is top-level only — there is no per-cluster form.
 	// +optional
 	LoadBalancer *LoadBalancerConfig `json:"loadBalancer,omitempty"`
-	// JVMFlags can be used to set the `--jvm-flags` option for the search (mongot) processes.
-	// Top-level spec.jvmFlags serves as the default; spec.clusters[].jvmFlags replaces (not merges) it for that cluster.
-	// https://www.mongodb.com/docs/manual/tutorial/mongot-sizing/advanced-guidance/hardware/#jvm-heap-sizing
-	// +optional
-	JVMFlags []string `json:"jvmFlags,omitempty"`
 	// FeatureFlags configures mongot feature flags. When a flag is set to true in the CR,
 	// it is rendered into the mongot config YAML. When omitted or false, the flag is not
 	// included in mongot config and mongot uses its built-in defaults.
@@ -134,12 +116,11 @@ type MongoDBSearchSpec struct {
 	// single cluster (clusterName optional), or one entry per cluster for
 	// multi-cluster (clusterName required, len > 1). This is the place to set
 	// replicas, resources, storage, and StatefulSet overrides.
-	// If omitted, the operator falls back to the deprecated top-level fields and
-	// runs in a single cluster.
-	// +optional
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=50
 	// +kubebuilder:validation:XValidation:rule="size(self) <= 1 || self.all(c1, has(c1.clusterName) && self.exists_one(c2, has(c2.clusterName) && c2.clusterName == c1.clusterName))",message="clusters[].clusterName must be set and unique when more than one cluster is specified"
-	Clusters *[]ClusterSpec `json:"clusters,omitempty"`
+	Clusters []ClusterSpec `json:"clusters"`
 }
 
 // SyncSourceSelector picks which mongods this cluster's mongot fleet syncs from.
@@ -161,8 +142,8 @@ type SyncSourceSelector struct {
 
 // ClusterSpec is one entry in spec.clusters[]. ClusterName is required and immutable
 // when len(spec.clusters) > 1; optional in the single-cluster case.
-// Each other field, when set, applies to this cluster; when unset, it falls back to
-// the matching top-level default.
+// Each field, when set, applies to this cluster; when unset, the operator's
+// per-field default applies.
 type ClusterSpec struct {
 	// ClusterName is the Kubernetes cluster name. Required and immutable
 	// when len(spec.clusters) > 1; optional in the single-cluster case.
@@ -780,82 +761,26 @@ func (s *MongoDBSearch) GetEndpointForShard(shardName string) string {
 }
 
 // EffectiveClusters returns the per-cluster distribution slice the reconcile
-// loop should iterate over, with the top-level
-// Replicas/ResourceRequirements/Persistence/StatefulSetConfiguration/JVMFlags
-// cascaded into each entry as defaults.
-//
-//   - When spec.clusters is nil, it auto-promotes the top-level fields into a
-//     one-element ClusterSpec for the legacy single-cluster path.
-//   - When spec.clusters is non-nil, each entry is returned with the cascade
-//     applied: pointer / struct fields are REPLACE-if-nil (cluster-set wins;
-//     nil inherits top-level); JVMFlags is REPLACE-if-empty (non-empty
-//     per-cluster slice wins; no append). Atomic per field — to override one
-//     sub-field of a struct (e.g. one container's image), spell out the full
-//     struct at cluster level. Matches sharded MC's processClusterSpecList
-//     semantics (no recursive merge for MVP).
-//
-// The function is pure — no mutation of s, no side effects.
+// loop iterates over: spec.clusters[] as authored, with no cross-tier cascade.
+// Sizing has a single home (the per-cluster entry), so this is an identity
+// accessor — kept as the canonical entry point readers go through.
 func (s *MongoDBSearch) EffectiveClusters() []ClusterSpec {
-	//nolint:staticcheck // SA1019: deprecated top-level fields are the documented default for the cascade.
-	topReplicas := s.Spec.Replicas
-	//nolint:staticcheck // SA1019
-	topResReq := s.Spec.ResourceRequirements
-	//nolint:staticcheck // SA1019
-	topPersistence := s.Spec.Persistence
-	//nolint:staticcheck // SA1019
-	topSTSConfig := s.Spec.StatefulSetConfiguration
-	//nolint:staticcheck // SA1019
-	topJVMFlags := s.Spec.JVMFlags
-
-	if s.Spec.Clusters == nil {
-		return []ClusterSpec{{
-			Replicas:                 topReplicas,
-			ResourceRequirements:     topResReq,
-			Persistence:              topPersistence,
-			StatefulSetConfiguration: topSTSConfig,
-			JVMFlags:                 topJVMFlags,
-		}}
-	}
-
-	clusters := *s.Spec.Clusters
-	out := make([]ClusterSpec, 0, len(clusters))
-	for _, c := range clusters {
-		resolved := c
-		if resolved.Replicas == nil {
-			resolved.Replicas = topReplicas
-		}
-		if resolved.ResourceRequirements == nil {
-			resolved.ResourceRequirements = topResReq
-		}
-		if resolved.Persistence == nil {
-			resolved.Persistence = topPersistence
-		}
-		// TODO: whole-struct REPLACE-if-nil here; sharded MC deep-merges the inner
-		// PodTemplateSpec via merge.PodTemplateSpecs. Gated on shardOverrides API
-		// redesign — revisit before GA.
-		if resolved.StatefulSetConfiguration == nil {
-			resolved.StatefulSetConfiguration = topSTSConfig
-		}
-		if len(resolved.JVMFlags) == 0 {
-			resolved.JVMFlags = topJVMFlags
-		}
-		out = append(out, resolved)
-	}
-	return out
+	return s.Spec.Clusters
 }
 
-// EffectiveClusterFor returns the cascaded ClusterSpec for the named cluster.
-// Empty clusterName returns the auto-promoted single-cluster entry (legacy path).
-// Returns an error if the named cluster is not found in spec.clusters[].
+// EffectiveClusterFor returns the ClusterSpec for the named cluster.
+// Empty clusterName returns the first entry (single-cluster case, where
+// clusterName may be omitted). Returns an error if the named cluster is not
+// found in spec.clusters[].
 func (s *MongoDBSearch) EffectiveClusterFor(clusterName string) (ClusterSpec, error) {
-	effective := s.EffectiveClusters()
+	clusters := s.Spec.Clusters
 	if clusterName == "" {
-		if len(effective) > 0 {
-			return effective[0], nil
+		if len(clusters) > 0 {
+			return clusters[0], nil
 		}
 		return ClusterSpec{}, fmt.Errorf("cluster %q not found in spec.clusters", clusterName)
 	}
-	for _, c := range effective {
+	for _, c := range clusters {
 		if c.ClusterName == clusterName {
 			return c, nil
 		}
@@ -863,29 +788,15 @@ func (s *MongoDBSearch) EffectiveClusterFor(clusterName string) (ClusterSpec, er
 	return ClusterSpec{}, fmt.Errorf("cluster %q not found in spec.clusters", clusterName)
 }
 
-func (s *MongoDBSearch) GetReplicas() int {
-	// Single legitimate read of the deprecated top-level field — this is the
-	// operator-side default ("1 when unset") for the legacy single-cluster path.
-	// An explicit 0 is honored (callers can take mongot offline via the CR).
-	// Multi-cluster readers go through EffectiveClusters() instead.
-	//nolint:staticcheck // SA1019: deprecated field is the documented fallback.
-	if s.Spec.Replicas != nil {
-		return int(*s.Spec.Replicas)
-	}
-	return 1
-}
-
-// GetReplicasForCluster returns the per-cluster mongot replica count after
-// applying the EffectiveClusters cascade (cluster-set wins, top-level is the
-// default, "1" if neither is set). clusterName="" returns the single-cluster
-// auto-promoted value (equivalent to GetReplicas).
+// GetReplicasForCluster returns the per-cluster mongot replica count: the
+// cluster's Replicas, or the default "1" when unset. clusterName="" reads the
+// first entry (single-cluster case).
 //
-// An explicit 0 is honored, matching the documented contract on GetReplicas:
-// callers (and the connectivity-tool / availability-tester e2e tests) take
-// mongot offline by setting spec.replicas=0 on the MongoDBSearch CR. The
-// earlier `*r > 0` guard silently clamped that to 1, so the operator never
-// actually scaled the mongot StatefulSet down and the tests waiting on the
-// scale-to-0 timed out.
+// An explicit 0 is honored: callers (and the connectivity-tool /
+// availability-tester e2e tests) take mongot offline by setting
+// spec.clusters[].replicas=0 on the MongoDBSearch CR. A `> 0` guard would
+// silently clamp that to 1, so the operator would never scale the mongot
+// StatefulSet down and tests waiting on the scale-to-0 would time out.
 func (s *MongoDBSearch) GetReplicasForCluster(clusterName string) int {
 	c, err := s.EffectiveClusterFor(clusterName)
 	if err != nil {
@@ -897,8 +808,26 @@ func (s *MongoDBSearch) GetReplicasForCluster(clusterName string) int {
 	return 1
 }
 
+// HasMultipleReplicas reports whether any cluster runs more than one mongot
+// replica — the trigger for requiring a load balancer.
 func (s *MongoDBSearch) HasMultipleReplicas() bool {
-	return s.GetReplicas() > 1
+	return s.MaxReplicasAcrossClusters() > 1
+}
+
+// MaxReplicasAcrossClusters returns the largest per-cluster mongot replica
+// count (clusters default to 1 when Replicas is unset).
+func (s *MongoDBSearch) MaxReplicasAcrossClusters() int {
+	max := 0
+	for _, c := range s.Spec.Clusters {
+		replicas := 1
+		if c.Replicas != nil {
+			replicas = int(*c.Replicas)
+		}
+		if replicas > max {
+			max = replicas
+		}
+	}
+	return max
 }
 
 // HasAutoEmbedding returns true when auto-embedding is configured.
@@ -974,10 +903,7 @@ func (s *MongoDBSearch) GetManagedLBEndpointForCluster(i int) string {
 		return ""
 	}
 	out := s.Spec.LoadBalancer.Managed.ExternalHostname
-	if s.Spec.Clusters == nil {
-		return out
-	}
-	clusters := *s.Spec.Clusters
+	clusters := s.Spec.Clusters
 	if i < 0 || i >= len(clusters) {
 		return out
 	}
@@ -1012,13 +938,7 @@ func (s *MongoDBSearch) GetManagedLBEndpointForClusterLevel(i int) string {
 	}
 	hasClusterPlaceholder := strings.Contains(trimmed, ClusterNamePlaceholder) ||
 		strings.Contains(trimmed, ClusterIndexPlaceholder)
-	if s.Spec.Clusters == nil {
-		if hasClusterPlaceholder {
-			return ""
-		}
-		return trimmed
-	}
-	clusters := *s.Spec.Clusters
+	clusters := s.Spec.Clusters
 	if i < 0 || i >= len(clusters) {
 		if hasClusterPlaceholder {
 			return ""

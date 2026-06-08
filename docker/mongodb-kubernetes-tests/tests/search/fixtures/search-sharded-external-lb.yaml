@@ -3,7 +3,6 @@ kind: MongoDBSearch
 metadata:
   name: mdb-sh
 spec:
-  replicas: 2
   logLevel: DEBUG
   source:
     mongodbResourceRef:
@@ -19,3 +18,5 @@ spec:
       # Endpoint template with {shardName} placeholder
       # NAMESPACE placeholder is replaced with actual namespace by the test fixture
       endpoint: "mdb-sh-search-0-{shardName}-proxy-svc.NAMESPACE.svc.cluster.local:27029"
+  clusters:
+    - replicas: 2

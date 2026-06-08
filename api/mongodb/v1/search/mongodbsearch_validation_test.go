@@ -100,7 +100,7 @@ func TestValidateShardNames(t *testing.T) {
 				for i := range clusters {
 					clusters[i] = ClusterSpec{ClusterName: "c" + strconv.Itoa(i)}
 				}
-				s.Spec.Clusters = &clusters
+				s.Spec.Clusters = clusters
 				return s
 			}(),
 		},
@@ -115,7 +115,7 @@ func TestValidateShardNames(t *testing.T) {
 				for i := range clusters {
 					clusters[i] = ClusterSpec{ClusterName: "c" + strconv.Itoa(i)}
 				}
-				s.Spec.Clusters = &clusters
+				s.Spec.Clusters = clusters
 				return s
 			}(),
 			errorContains: "exceeds",
@@ -239,7 +239,7 @@ func TestValidateClustersSyncSourceSelector(t *testing.T) {
 			s := &MongoDBSearch{
 				ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"},
 				Spec: MongoDBSearchSpec{
-					Clusters: &[]ClusterSpec{{ClusterName: "us-east-k8s", SyncSourceSelector: tt.selector}},
+					Clusters: []ClusterSpec{{ClusterName: "us-east-k8s", SyncSourceSelector: tt.selector}},
 				},
 			}
 			res := validateClustersSyncSourceSelector(s)
@@ -279,62 +279,9 @@ func TestValidateClustersUniqueClusterName(t *testing.T) {
 			clusters := tt.clusters
 			s := &MongoDBSearch{
 				ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"},
-				Spec:       MongoDBSearchSpec{Clusters: &clusters},
+				Spec:       MongoDBSearchSpec{Clusters: clusters},
 			}
 			res := validateClustersUniqueClusterName(s)
-			if tt.errorContains != "" {
-				assert.Equal(t, v1.ErrorLevel, res.Level)
-				assert.Contains(t, res.Msg, tt.errorContains)
-			} else {
-				assert.Equal(t, v1.SuccessLevel, res.Level)
-			}
-		})
-	}
-}
-
-func TestValidateClustersAndTopLevelFieldsMutuallyExclusive(t *testing.T) {
-	cluster := func() ClusterSpec { return ClusterSpec{ClusterName: "us-east"} }
-	tests := []struct {
-		name          string
-		spec          MongoDBSearchSpec
-		errorContains string
-	}{
-		{
-			name: "no clusters, top-level Replicas set — legacy path, OK",
-			spec: MongoDBSearchSpec{Replicas: ptr.To(int32(3))},
-		},
-		{
-			name: "clusters set, no top-level distribution fields — OK",
-			spec: MongoDBSearchSpec{Clusters: &[]ClusterSpec{cluster()}},
-		},
-		{
-			name:          "top-level Replicas + clusters set — reject",
-			spec:          MongoDBSearchSpec{Replicas: ptr.To(int32(2)), Clusters: &[]ClusterSpec{cluster()}},
-			errorContains: "spec.replicas and spec.clusters are mutually exclusive",
-		},
-		{
-			name:          "top-level ResourceRequirements + clusters set — reject",
-			spec:          MongoDBSearchSpec{ResourceRequirements: &corev1.ResourceRequirements{}, Clusters: &[]ClusterSpec{cluster()}},
-			errorContains: "spec.resourceRequirements and spec.clusters are mutually exclusive",
-		},
-		{
-			name:          "top-level Persistence + clusters set — reject",
-			spec:          MongoDBSearchSpec{Persistence: &v1.Persistence{}, Clusters: &[]ClusterSpec{cluster()}},
-			errorContains: "spec.persistence and spec.clusters are mutually exclusive",
-		},
-		{
-			name:          "top-level StatefulSet + clusters set — reject",
-			spec:          MongoDBSearchSpec{StatefulSetConfiguration: &v1.StatefulSetConfiguration{}, Clusters: &[]ClusterSpec{cluster()}},
-			errorContains: "spec.statefulSet and spec.clusters are mutually exclusive",
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			s := &MongoDBSearch{
-				ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"},
-				Spec:       tt.spec,
-			}
-			res := validateClustersAndTopLevelFieldsMutuallyExclusive(s)
 			if tt.errorContains != "" {
 				assert.Equal(t, v1.ErrorLevel, res.Level)
 				assert.Contains(t, res.Msg, tt.errorContains)
@@ -354,8 +301,7 @@ func TestValidateMCExternalHostnamePlaceholders(t *testing.T) {
 			},
 		}
 		if clusters != nil {
-			cs := clusters
-			s.Spec.Clusters = &cs
+			s.Spec.Clusters = clusters
 		}
 		if sharded {
 			s.Spec.Source = &MongoDBSource{
@@ -455,8 +401,7 @@ func TestValidateExternalHostnameDNSLength(t *testing.T) {
 			},
 		}
 		if clusters != nil {
-			cs := clusters
-			s.Spec.Clusters = &cs
+			s.Spec.Clusters = clusters
 		}
 		if shardNames != nil {
 			shards := make([]ExternalShardConfig, 0, len(shardNames))
@@ -602,8 +547,7 @@ func TestValidateMCRejectsUnmanagedLB(t *testing.T) {
 				Spec:       MongoDBSearchSpec{LoadBalancer: tt.lb},
 			}
 			if tt.clusters != nil {
-				cs := tt.clusters
-				s.Spec.Clusters = &cs
+				s.Spec.Clusters = tt.clusters
 			}
 			res := validateMCRejectsUnmanagedLB(s)
 			if tt.errorContains != "" {
@@ -657,8 +601,7 @@ func TestValidateMCRequiresLoadBalancerManaged(t *testing.T) {
 				Spec:       MongoDBSearchSpec{LoadBalancer: tt.lb},
 			}
 			if tt.clusters != nil {
-				cs := tt.clusters
-				s.Spec.Clusters = &cs
+				s.Spec.Clusters = tt.clusters
 			}
 			res := validateMCRequiresLoadBalancerManaged(s)
 			if tt.errorContains != "" {
@@ -698,10 +641,9 @@ func TestValidateClustersClusterNameNonEmpty(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			clusters := tt.clusters
 			s := &MongoDBSearch{
 				ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"},
-				Spec:       MongoDBSearchSpec{Clusters: &clusters},
+				Spec:       MongoDBSearchSpec{Clusters: tt.clusters},
 			}
 			res := validateClustersClusterNameNonEmpty(s)
 			if tt.errorContains != "" {
@@ -756,10 +698,9 @@ func TestValidateMCMatchTagsNonEmpty(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			clusters := tt.clusters
 			s := &MongoDBSearch{
 				ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"},
-				Spec:       MongoDBSearchSpec{Clusters: &clusters},
+				Spec:       MongoDBSearchSpec{Clusters: tt.clusters},
 			}
 			res := validateMCMatchTagsNonEmpty(s)
 			if tt.errorContains != "" {
@@ -798,7 +739,7 @@ func newSearch(name string, shards []ExternalShardConfig, tlsPrefix string, isTL
 func TestValidateMCRequiresExternalSource(t *testing.T) {
 	mdbBad := &MongoDBSearch{
 		Spec: MongoDBSearchSpec{
-			Clusters: &[]ClusterSpec{
+			Clusters: []ClusterSpec{
 				{ClusterName: "cluster-a"},
 				{ClusterName: "cluster-b"},
 			},
@@ -812,7 +753,7 @@ func TestValidateMCRequiresExternalSource(t *testing.T) {
 
 	mdbRS := &MongoDBSearch{
 		Spec: MongoDBSearchSpec{
-			Clusters: &[]ClusterSpec{
+			Clusters: []ClusterSpec{
 				{ClusterName: "cluster-a"},
 				{ClusterName: "cluster-b"},
 			},
@@ -827,7 +768,7 @@ func TestValidateMCRequiresExternalSource(t *testing.T) {
 
 	mdbSharded := &MongoDBSearch{
 		Spec: MongoDBSearchSpec{
-			Clusters: &[]ClusterSpec{
+			Clusters: []ClusterSpec{
 				{ClusterName: "cluster-a"},
 				{ClusterName: "cluster-b"},
 			},
@@ -847,7 +788,7 @@ func TestValidateMCRequiresExternalSource(t *testing.T) {
 
 	mdbSC := &MongoDBSearch{
 		Spec: MongoDBSearchSpec{
-			Clusters: &[]ClusterSpec{{ClusterName: "cluster-a"}},
+			Clusters: []ClusterSpec{{ClusterName: "cluster-a"}},
 		},
 	}
 	assert.Equal(t, v1.SuccessLevel, validateMCRequiresExternalSource(mdbSC).Level, "single-cluster path is a no-op")
@@ -897,7 +838,7 @@ func TestValidateClustersEnvoyResourceNames(t *testing.T) {
 				for _, cn := range tt.clusterNames {
 					clusters = append(clusters, ClusterSpec{ClusterName: cn})
 				}
-				s.Spec.Clusters = &clusters
+				s.Spec.Clusters = clusters
 			}
 			res := validateClustersEnvoyResourceNames(s)
 			if tt.errorContains != "" {

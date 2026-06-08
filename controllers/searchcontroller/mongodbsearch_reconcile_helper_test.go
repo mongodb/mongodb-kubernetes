@@ -43,6 +43,7 @@ func newTestMongoDBSearch(name, namespace string, modifications ...func(*searchv
 			Namespace: namespace,
 		},
 		Spec: searchv1.MongoDBSearchSpec{
+			Clusters: []searchv1.ClusterSpec{{}},
 			Source: &searchv1.MongoDBSource{
 				MongoDBResourceRef: &userv1.MongoDBResourceRef{
 					Name: "test-mongodb",
@@ -866,8 +867,7 @@ func TestEnsureMongotConfig_PerPodModes(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			search := newTestMongoDBSearch("test-search", "test-ns")
-			//nolint:staticcheck // SA1019: exercising the legacy single-cluster auto-promotion path.
-			search.Spec.Replicas = ptr.To(tc.replicas)
+			search.Spec.Clusters = []searchv1.ClusterSpec{{Replicas: ptr.To(tc.replicas)}}
 			if tc.hasAutoEmbedding {
 				search.Spec.AutoEmbedding = &searchv1.EmbeddingConfig{}
 			}
@@ -905,8 +905,7 @@ func TestEnsureMongotConfig_PerPodModes(t *testing.T) {
 
 func TestEnsureMongotConfig_TransitionBetweenModes(t *testing.T) {
 	search := newTestMongoDBSearch("test-search", "test-ns")
-	//nolint:staticcheck // SA1019: exercising the legacy single-cluster auto-promotion path.
-	search.Spec.Replicas = ptr.To(int32(1))
+	search.Spec.Clusters = []searchv1.ClusterSpec{{Replicas: ptr.To(int32(1))}}
 	fakeClient := newTestFakeClient(search)
 	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, newTestOperatorSearchConfig(), nil, nil)
 	cmName := search.MongotConfigConfigMapNamespacedName()
@@ -1288,7 +1287,7 @@ func TestValidateMultipleReplicasConfig(t *testing.T) {
 					Namespace: "test",
 				},
 				Spec: searchv1.MongoDBSearchSpec{
-					Replicas: ptr.To(int32(3)),
+					Clusters: []searchv1.ClusterSpec{{Replicas: ptr.To(int32(3))}},
 					Source: &searchv1.MongoDBSource{
 						MongoDBResourceRef: &userv1.MongoDBResourceRef{
 							Name: "test-mongodb",
@@ -1306,7 +1305,7 @@ func TestValidateMultipleReplicasConfig(t *testing.T) {
 					Namespace: "test",
 				},
 				Spec: searchv1.MongoDBSearchSpec{
-					Replicas: ptr.To(int32(3)),
+					Clusters: []searchv1.ClusterSpec{{Replicas: ptr.To(int32(3))}},
 					Source: &searchv1.MongoDBSource{
 						MongoDBResourceRef: &userv1.MongoDBResourceRef{
 							Name: "test-mongodb",
@@ -1550,7 +1549,7 @@ func TestGetMongosConfigParametersForSharded(t *testing.T) {
 							ExternalHostname: "{shardName}.{clusterName}.search.example.com:443",
 						},
 					},
-					Clusters: &[]searchv1.ClusterSpec{
+					Clusters: []searchv1.ClusterSpec{
 						{ClusterName: "us-east-k8s"},
 						{ClusterName: "eu-west-k8s"},
 					},
@@ -2653,11 +2652,10 @@ func (f *fakeExternalSource) HostSeeds(_ string) ([]string, error) {
 
 func TestBuildReplicaSetPlan_PerClusterUnitsForMC(t *testing.T) {
 	mdb := newTestMongoDBSearch("mdb-search", "ns")
-	clusters := []searchv1.ClusterSpec{
+	mdb.Spec.Clusters = []searchv1.ClusterSpec{
 		{ClusterName: "cluster-a", Replicas: ptr.To(int32(2))},
 		{ClusterName: "cluster-b", Replicas: ptr.To(int32(2))},
 	}
-	mdb.Spec.Clusters = &clusters
 	mdb.Spec.Source = &searchv1.MongoDBSource{
 		ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{
 			HostAndPorts: []string{"a.example:27017", "b.example:27017"},
@@ -2708,11 +2706,10 @@ func TestBuildReplicaSetPlan_SingleClusterUsesIndexZeroNames(t *testing.T) {
 // clusterName, never on the central client.
 func TestReconcilePlan_UsesPerClusterClient(t *testing.T) {
 	mdb := newTestMongoDBSearch("mdb-search", "ns")
-	clusters := []searchv1.ClusterSpec{
+	mdb.Spec.Clusters = []searchv1.ClusterSpec{
 		{ClusterName: "cluster-a", Replicas: ptr.To(int32(2))},
 		{ClusterName: "cluster-b", Replicas: ptr.To(int32(2))},
 	}
-	mdb.Spec.Clusters = &clusters
 	mdb.Spec.Source = &searchv1.MongoDBSource{
 		ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{
 			HostAndPorts: []string{"a.example:27017"},
@@ -2776,11 +2773,10 @@ func TestReconcilePlan_UsesPerClusterClient(t *testing.T) {
 // cluster-level proxy Service per cluster.
 func TestBuildShardedPlan_PerClusterShardUnitsForMC(t *testing.T) {
 	search := newTestMongoDBSearch("mdb-search", "ns")
-	clusters := []searchv1.ClusterSpec{
+	search.Spec.Clusters = []searchv1.ClusterSpec{
 		{ClusterName: "cluster-a"},
 		{ClusterName: "cluster-b"},
 	}
-	search.Spec.Clusters = &clusters
 
 	shardedSource := &mockShardedSource{
 		shardNames: []string{"sh-0", "sh-1"},
@@ -2835,11 +2831,10 @@ func TestBuildShardedPlan_PerClusterShardUnitsForMC(t *testing.T) {
 // cluster. Central client receives nothing.
 func TestReconcileShardedMC_FanOutUsesPerClusterClient(t *testing.T) {
 	search := newTestMongoDBSearch("mdb-search", "ns")
-	clusters := []searchv1.ClusterSpec{
+	search.Spec.Clusters = []searchv1.ClusterSpec{
 		{ClusterName: "cluster-a"},
 		{ClusterName: "cluster-b"},
 	}
-	search.Spec.Clusters = &clusters
 
 	shardedSource := &mockShardedSource{
 		shardNames: []string{"sh-0", "sh-1"},
@@ -2950,11 +2945,10 @@ func TestReconcileShardedMC_FanOutUsesPerClusterClient(t *testing.T) {
 // none of them can become Ready under a fake client.
 func TestReconcileShardedMC_AllUnitsAppliedBeforeReadinessCheck(t *testing.T) {
 	search := newTestMongoDBSearch("mdb-search", "ns")
-	clusters := []searchv1.ClusterSpec{
+	search.Spec.Clusters = []searchv1.ClusterSpec{
 		{ClusterName: "cluster-a"},
 		{ClusterName: "cluster-b"},
 	}
-	search.Spec.Clusters = &clusters
 	search.Spec.Source = &searchv1.MongoDBSource{
 		ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{
 			ShardedCluster: &searchv1.ExternalShardedClusterConfig{
@@ -3076,11 +3070,10 @@ type mcShardedFixture struct {
 func newMCShardedFixture(t *testing.T) *mcShardedFixture {
 	t.Helper()
 	search := newTestMongoDBSearch("mdb-search", "ns")
-	clusters := []searchv1.ClusterSpec{
+	search.Spec.Clusters = []searchv1.ClusterSpec{
 		{ClusterName: "cluster-a"},
 		{ClusterName: "cluster-b"},
 	}
-	search.Spec.Clusters = &clusters
 	search.Spec.Source = &searchv1.MongoDBSource{
 		ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{
 			ShardedCluster: &searchv1.ExternalShardedClusterConfig{
@@ -3251,11 +3244,10 @@ func TestCleanupStaleShardResources_MCFanOut(t *testing.T) {
 	search := newTestMongoDBSearch("mdb-search", "ns", func(s *searchv1.MongoDBSearch) {
 		s.UID = "search-uid"
 		s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{}}
-		clusters := []searchv1.ClusterSpec{
+		s.Spec.Clusters = []searchv1.ClusterSpec{
 			{ClusterName: "cluster-a"},
 			{ClusterName: "cluster-b"},
 		}
-		s.Spec.Clusters = &clusters
 	})
 
 	// memberProxySvc builds a proxy Service with the search-owner labels the MC

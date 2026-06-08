@@ -50,7 +50,6 @@ func (s *MongoDBSearch) RunValidations() []v1.ValidationResult {
 		validateClustersClusterNameNonEmpty,
 		validateClustersUniqueClusterName,
 		validateClustersSyncSourceSelector,
-		validateClustersAndTopLevelFieldsMutuallyExclusive,
 		validateClustersEnvoyResourceNames,
 		validateMCExternalHostnamePlaceholders,
 		validateExternalHostnameDNSLength,
@@ -204,10 +203,10 @@ func generateShardResourceNames(s *MongoDBSearch, shardName string, clusterIndex
 // len-1 after remove→re-add cycles. Admission underestimates the real max; read
 // the persisted mapping to tighten.
 func maxValidationClusterIndex(s *MongoDBSearch) int {
-	if s.Spec.Clusters == nil || len(*s.Spec.Clusters) == 0 {
+	if s.Spec.Clusters == nil || len(s.Spec.Clusters) == 0 {
 		return 0
 	}
-	return len(*s.Spec.Clusters) - 1
+	return len(s.Spec.Clusters) - 1
 }
 
 func validateShardNames(s *MongoDBSearch) v1.ValidationResult {
@@ -248,25 +247,27 @@ func validateShardNames(s *MongoDBSearch) v1.ValidationResult {
 	return v1.ValidationSuccess()
 }
 
-// validateJVMFlags validates the JVM flags provided by the users using MongoDBSearch's
-// spec.JVMFlags field.
-// These jvm flags are directly passed to the mongot process that we run.
+// validateJVMFlags validates the JVM flags provided by the users in
+// spec.clusters[].jvmFlags. These flags are passed directly to the mongot
+// process that runs for that cluster.
 func validateJVMFlags(s *MongoDBSearch) v1.ValidationResult {
-	for i, flag := range s.Spec.JVMFlags {
-		if flag == "" {
-			return v1.ValidationError("MongoDBSearch resource is invalid, spec.jvmFlags[%d] must not be empty", i)
-		}
+	for ci, c := range s.Spec.Clusters {
+		for i, flag := range c.JVMFlags {
+			if flag == "" {
+				return v1.ValidationError("MongoDBSearch resource is invalid, spec.clusters[%d].jvmFlags[%d] must not be empty", ci, i)
+			}
 
-		if strings.Contains(flag, " ") {
-			return v1.ValidationError("MongoDBSearch resource is invalid, spec.jvmFlags[%d] must not contain spaces, got '%s'", i, flag)
-		}
+			if strings.Contains(flag, " ") {
+				return v1.ValidationError("MongoDBSearch resource is invalid, spec.clusters[%d].jvmFlags[%d] must not contain spaces, got '%s'", ci, i, flag)
+			}
 
-		if !strings.HasPrefix(flag, "-X") && !strings.HasPrefix(flag, "-XX:") && !strings.HasPrefix(flag, "-D") {
-			return v1.ValidationError("MongoDBSearch resource is invalid, spec.jvmFlags[%d] must start with -X, -XX:, or -D, got '%s'", i, flag)
-		}
+			if !strings.HasPrefix(flag, "-X") && !strings.HasPrefix(flag, "-XX:") && !strings.HasPrefix(flag, "-D") {
+				return v1.ValidationError("MongoDBSearch resource is invalid, spec.clusters[%d].jvmFlags[%d] must start with -X, -XX:, or -D, got '%s'", ci, i, flag)
+			}
 
-		if !validJVMFlagChars.MatchString(flag) {
-			return v1.ValidationError("MongoDBSearch resource is invalid, spec.jvmFlags[%d] contains invalid characters, only [a-zA-Z0-9._+:-=] are allowed, got '%s'", i, flag)
+			if !validJVMFlagChars.MatchString(flag) {
+				return v1.ValidationError("MongoDBSearch resource is invalid, spec.clusters[%d].jvmFlags[%d] contains invalid characters, only [a-zA-Z0-9._+:-=] are allowed, got '%s'", ci, i, flag)
+			}
 		}
 	}
 
@@ -341,10 +342,10 @@ func validateX509AuthConfig(s *MongoDBSearch) v1.ValidationResult {
 // "is required" message fires here so a two-empty-names spec surfaces the actionable
 // hint instead of "duplicate".
 func validateClustersClusterNameNonEmpty(s *MongoDBSearch) v1.ValidationResult {
-	if s.Spec.Clusters == nil || len(*s.Spec.Clusters) <= 1 {
+	if s.Spec.Clusters == nil || len(s.Spec.Clusters) <= 1 {
 		return v1.ValidationSuccess()
 	}
-	for i, c := range *s.Spec.Clusters {
+	for i, c := range s.Spec.Clusters {
 		if c.ClusterName == "" {
 			return v1.ValidationError(
 				"spec.clusters[%d].clusterName is required when len(spec.clusters) > 1",
@@ -360,8 +361,8 @@ func validateClustersUniqueClusterName(s *MongoDBSearch) v1.ValidationResult {
 	if s.Spec.Clusters == nil {
 		return v1.ValidationSuccess()
 	}
-	seen := make(map[string]int, len(*s.Spec.Clusters))
-	for i, c := range *s.Spec.Clusters {
+	seen := make(map[string]int, len(s.Spec.Clusters))
+	for i, c := range s.Spec.Clusters {
 		if first, dup := seen[c.ClusterName]; dup {
 			return v1.ValidationError(
 				"duplicate clusterName %q in spec.clusters (entries %d and %d)",
@@ -379,7 +380,7 @@ func validateClustersSyncSourceSelector(s *MongoDBSearch) v1.ValidationResult {
 	if s.Spec.Clusters == nil {
 		return v1.ValidationSuccess()
 	}
-	for i, c := range *s.Spec.Clusters {
+	for i, c := range s.Spec.Clusters {
 		sel := c.SyncSourceSelector
 		if sel == nil {
 			continue
@@ -405,7 +406,7 @@ func validateClustersEnvoyResourceNames(s *MongoDBSearch) v1.ValidationResult {
 	if s.Spec.Clusters == nil {
 		return v1.ValidationSuccess()
 	}
-	for i, c := range *s.Spec.Clusters {
+	for i, c := range s.Spec.Clusters {
 		if c.ClusterName == "" {
 			continue
 		}
@@ -426,39 +427,6 @@ func validateClustersEnvoyResourceNames(s *MongoDBSearch) v1.ValidationResult {
 				return v1.ValidationError("%s", err.Error())
 			}
 		}
-	}
-	return v1.ValidationSuccess()
-}
-
-// validateClustersAndTopLevelFieldsMutuallyExclusive enforces the mutual-exclusion
-// rule: when spec.clusters is set, none of the auto-promotion-eligible top-level
-// distribution fields (spec.replicas, spec.resourceRequirements, spec.persistence,
-// spec.statefulSet) may also be set. This keeps the migration path unambiguous —
-// either the user is on the legacy single-cluster path (top-level only) or on
-// the new per-cluster shape (spec.clusters only).
-//
-// jvmFlags and loadBalancer remain top-level + per-cluster combinable on purpose
-// (top-level is the default that per-cluster overrides) and are intentionally
-// excluded from this check.
-func validateClustersAndTopLevelFieldsMutuallyExclusive(s *MongoDBSearch) v1.ValidationResult {
-	if s.Spec.Clusters == nil {
-		return v1.ValidationSuccess()
-	}
-	//nolint:staticcheck // SA1019: deprecated fields — this is the documented detection path.
-	if s.Spec.Replicas != nil {
-		return v1.ValidationError("spec.replicas and spec.clusters are mutually exclusive; specify replicas inside spec.clusters[].replicas instead")
-	}
-	//nolint:staticcheck // SA1019
-	if s.Spec.ResourceRequirements != nil {
-		return v1.ValidationError("spec.resourceRequirements and spec.clusters are mutually exclusive; specify resourceRequirements inside spec.clusters[].resourceRequirements instead")
-	}
-	//nolint:staticcheck // SA1019
-	if s.Spec.Persistence != nil {
-		return v1.ValidationError("spec.persistence and spec.clusters are mutually exclusive; specify persistence inside spec.clusters[].persistence instead")
-	}
-	//nolint:staticcheck // SA1019
-	if s.Spec.StatefulSetConfiguration != nil {
-		return v1.ValidationError("spec.statefulSet and spec.clusters are mutually exclusive; specify statefulSet inside spec.clusters[].statefulSet instead")
 	}
 	return v1.ValidationSuccess()
 }
@@ -489,7 +457,7 @@ func validateMCExternalHostnamePlaceholders(s *MongoDBSearch) v1.ValidationResul
 	if !s.IsLBModeManaged() || s.Spec.LoadBalancer.Managed.ExternalHostname == "" {
 		return v1.ValidationSuccess()
 	}
-	if s.Spec.Clusters == nil || len(*s.Spec.Clusters) <= 1 {
+	if s.Spec.Clusters == nil || len(s.Spec.Clusters) <= 1 {
 		return v1.ValidationSuccess()
 	}
 	tmpl := s.Spec.LoadBalancer.Managed.ExternalHostname
@@ -522,7 +490,7 @@ func validateExternalHostnameDNSLength(s *MongoDBSearch) v1.ValidationResult {
 
 	var clusterCount int
 	if s.Spec.Clusters != nil {
-		clusterCount = len(*s.Spec.Clusters)
+		clusterCount = len(s.Spec.Clusters)
 	}
 
 	var shardNames []string
@@ -596,7 +564,7 @@ func validateExternalHostnameDNSLength(s *MongoDBSearch) v1.ValidationResult {
 // Single-cluster (and the single-entry spec.clusters case) keep
 // using unmanaged LB without change.
 func validateMCRejectsUnmanagedLB(s *MongoDBSearch) v1.ValidationResult {
-	if s.Spec.Clusters == nil || len(*s.Spec.Clusters) <= 1 {
+	if s.Spec.Clusters == nil || len(s.Spec.Clusters) <= 1 {
 		return v1.ValidationSuccess()
 	}
 	if s.Spec.LoadBalancer == nil || s.Spec.LoadBalancer.Unmanaged == nil {
@@ -614,7 +582,7 @@ func validateMCRejectsUnmanagedLB(s *MongoDBSearch) v1.ValidationResult {
 // "MC at GA = Q1 or Q2 = managed LB" rule symbolically without inspecting
 // per-cluster replicas.
 func validateMCRequiresLoadBalancerManaged(s *MongoDBSearch) v1.ValidationResult {
-	if s.Spec.Clusters == nil || len(*s.Spec.Clusters) <= 1 {
+	if s.Spec.Clusters == nil || len(s.Spec.Clusters) <= 1 {
 		return v1.ValidationSuccess()
 	}
 	if s.Spec.LoadBalancer != nil {
@@ -632,10 +600,10 @@ func validateMCRequiresLoadBalancerManaged(s *MongoDBSearch) v1.ValidationResult
 // validateClustersSyncSourceSelector covers the matchTags-vs-hosts mutual
 // exclusion; this rule covers the non-nil-but-empty case.
 func validateMCMatchTagsNonEmpty(s *MongoDBSearch) v1.ValidationResult {
-	if s.Spec.Clusters == nil || len(*s.Spec.Clusters) <= 1 {
+	if s.Spec.Clusters == nil || len(s.Spec.Clusters) <= 1 {
 		return v1.ValidationSuccess()
 	}
-	for i, c := range *s.Spec.Clusters {
+	for i, c := range s.Spec.Clusters {
 		if c.SyncSourceSelector == nil {
 			continue
 		}
@@ -656,7 +624,7 @@ func validateMCRequiresExternalSource(s *MongoDBSearch) v1.ValidationResult {
 	if s.Spec.Clusters == nil {
 		return v1.ValidationSuccess()
 	}
-	if len(*s.Spec.Clusters) <= 1 {
+	if len(s.Spec.Clusters) <= 1 {
 		return v1.ValidationSuccess()
 	}
 	ext := externalSource(s)

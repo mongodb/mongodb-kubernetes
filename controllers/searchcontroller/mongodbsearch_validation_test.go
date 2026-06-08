@@ -284,7 +284,7 @@ func TestValidateJVMFlags(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			search := newTestMongoDBSearch("test-search", "default", func(s *searchv1.MongoDBSearch) {
-				s.Spec.JVMFlags = tc.jvmFlags
+				s.Spec.Clusters = []searchv1.ClusterSpec{{JVMFlags: tc.jvmFlags}}
 			})
 
 			err := search.ValidateSpec()
