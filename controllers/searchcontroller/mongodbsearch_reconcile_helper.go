@@ -231,7 +231,10 @@ func (r *MongoDBSearchReconcileHelper) buildReplicaSetPlan(rsSource SearchSource
 	}
 
 	work := r.buildRSWorkList()
-	mongotConfigFn := mongot.Apply(baseMongotConfig(r.mdbSearch, hostSeeds), wireprotoMongotMod(r.mdbSearch))
+	mongotConfigFn := mongot.Apply(
+		baseMongotConfig(r.mdbSearch, hostSeeds),
+		wireprotoMongotMod(r.mdbSearch),
+		featureFlagsMongotMod(r.mdbSearch))
 
 	units := make([]reconcileUnit, 0, len(work))
 	for _, w := range work {
@@ -358,6 +361,10 @@ func (r *MongoDBSearchReconcileHelper) buildShardedPlan(shardedSource SearchSour
 			logFields = []any{"shard", w.ShardName, "shardIdx", w.ShardIndex}
 		}
 
+		mongotConfigFn := mongot.Apply(baseMongotConfig(
+			r.mdbSearch, hostSeeds),
+			routerMongotMod(r.mdbSearch, shardedSource),
+			featureFlagsMongotMod(r.mdbSearch))
 		units = append(units, reconcileUnit{
 			stsName:             stsName,
 			headlessSvc:         r.mdbSearch.MongotServiceForClusterShard(w.ClusterIndex, w.ShardName),
@@ -368,7 +375,7 @@ func (r *MongoDBSearchReconcileHelper) buildShardedPlan(shardedSource SearchSour
 			publishNotReady:     true,
 			logFields:           logFields,
 			tlsResource:         &perShardTLSResource{MongoDBSearch: r.mdbSearch, clusterIndex: w.ClusterIndex, shardName: w.ShardName},
-			mongotConfigFn:      mongot.Apply(baseMongotConfig(r.mdbSearch, hostSeeds), routerMongotMod(r.mdbSearch, shardedSource)),
+			mongotConfigFn:      mongotConfigFn,
 			clusterName:         w.ClusterName,
 			clusterIndex:        w.ClusterIndex,
 		})
@@ -1552,6 +1559,26 @@ func routerMongotMod(search *searchv1.MongoDBSearch, shardedSource SearchSourceS
 			TLS:          ptr.To(false),
 		}
 	}
+}
+
+// featureFlagsMongotMod sets mongot feature flags in the config.
+// EnableOverloadRetrySignal defaults to true (load shedding enabled) unless
+// the user explicitly sets it to false in the CR.
+func featureFlagsMongotMod(search *searchv1.MongoDBSearch) mongot.Modification {
+	return func(config *mongot.Config) {
+		if ptr.Deref(retrySigFromFeatureFlags(search.Spec.FeatureFlags), true) {
+			config.FeatureFlags = &mongot.ConfigFeatureFlags{
+				OverloadRetrySignal: new(true),
+			}
+		}
+	}
+}
+
+func retrySigFromFeatureFlags(ff *searchv1.FeatureFlags) *bool {
+	if ff == nil {
+		return nil
+	}
+	return ff.EnableOverloadRetrySignal
 }
 
 func GetMongodConfigParameters(search *searchv1.MongoDBSearch, clusterDomain string) map[string]any {
