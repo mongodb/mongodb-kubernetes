@@ -374,6 +374,8 @@ spec:
               value: "168h"
             - name: CLUSTER_CLIENT_TIMEOUT
               value: "10"
+            - name: MDB_MEMBER_CLUSTER_REQUIRED_HEALTHY_STREAK
+              value: "5"
             - name: IMAGE_PULL_POLICY
               value: Always
             # Database

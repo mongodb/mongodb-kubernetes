@@ -187,6 +187,7 @@ multiCluster:
   kubeConfigSecretName: mongodb-enterprise-operator-multi-cluster-kubeconfig
   performFailOver: true
   clusterClientTimeout: 10
+  memberClusterRequiredHealthyStreak: 5
 
 # Resources only for the MongoDBCommunity resource reconciler
 community:

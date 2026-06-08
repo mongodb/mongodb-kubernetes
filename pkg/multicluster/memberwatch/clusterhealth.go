@@ -16,10 +16,10 @@ import (
 )
 
 type ClusterHealthChecker interface {
-	IsClusterHealthy() bool
+	IsClusterHealthy(log *zap.SugaredLogger) bool
 }
 
-type MemberHeathCheck struct {
+type MemberHealthCheck struct {
 	Server string
 	Client *retryablehttp.Client
 	Token  string
@@ -43,7 +43,7 @@ func WithRetryConfig(retryWaitMin, retryWaitMax time.Duration, retryMax int) Hea
 	}
 }
 
-func NewMemberHealthCheck(server string, ca []byte, token string, log *zap.SugaredLogger, opts ...HealthCheckOption) *MemberHeathCheck {
+func NewMemberHealthCheck(server string, ca []byte, token string, log *zap.SugaredLogger, opts ...HealthCheckOption) ClusterHealthChecker {
 	certpool := x509.NewCertPool()
 	certpool.AppendCertsFromPEM(ca)
 
@@ -78,7 +78,7 @@ func NewMemberHealthCheck(server string, ca []byte, token string, log *zap.Sugar
 		opt(client)
 	}
 
-	return &MemberHeathCheck{
+	return &MemberHealthCheck{
 		Server: server,
 		Client: client,
 		Token:  token,
@@ -87,7 +87,7 @@ func NewMemberHealthCheck(server string, ca []byte, token string, log *zap.Sugar
 
 // IsMemberClusterHealthy checks if there are some member clusters that are not in a "healthy" state
 // by curl "ing" the /readyz endpoint of the clusters.
-func (m *MemberHeathCheck) IsClusterHealthy(log *zap.SugaredLogger) bool {
+func (m *MemberHealthCheck) IsClusterHealthy(log *zap.SugaredLogger) bool {
 	statusCode, err := check(m.Client, m.Server, m.Token)
 	if err != nil {
 		log.Errorf("Error running healthcheck for server: %s, error: %v", m.Server, err)
