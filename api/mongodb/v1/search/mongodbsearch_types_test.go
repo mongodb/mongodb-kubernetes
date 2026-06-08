@@ -10,35 +10,24 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 )
 
-func TestGetReplicasForCluster(t *testing.T) {
+func TestReplicasOrDefault(t *testing.T) {
 	t.Run("unset defaults to one", func(t *testing.T) {
-		s := &MongoDBSearch{Spec: MongoDBSearchSpec{Clusters: []ClusterSpec{{}}}}
-		assert.Equal(t, 1, s.GetReplicasForCluster(""))
+		assert.Equal(t, 1, ClusterSpec{}.ReplicasOrDefault())
 	})
 
 	t.Run("explicit value", func(t *testing.T) {
-		s := &MongoDBSearch{Spec: MongoDBSearchSpec{Clusters: []ClusterSpec{{Replicas: ptr.To(int32(3))}}}}
-		assert.Equal(t, 3, s.GetReplicasForCluster(""))
+		assert.Equal(t, 3, ClusterSpec{Replicas: ptr.To(int32(3))}.ReplicasOrDefault())
 	})
 
 	t.Run("explicit zero is honored", func(t *testing.T) {
 		// clusters[].replicas=0 is a legitimate value (operator-driven scale-to-0
 		// for taking mongot offline via the CR). Distinguishing it from "unset"
 		// is the contract callers like search-connectivity tests rely on.
-		s := &MongoDBSearch{Spec: MongoDBSearchSpec{Clusters: []ClusterSpec{{Replicas: ptr.To(int32(0))}}}}
-		assert.Equal(t, 0, s.GetReplicasForCluster(""))
-	})
-
-	t.Run("by cluster name", func(t *testing.T) {
-		s := &MongoDBSearch{Spec: MongoDBSearchSpec{Clusters: []ClusterSpec{
-			{ClusterName: "a", Replicas: ptr.To(int32(2))},
-			{ClusterName: "b", Replicas: ptr.To(int32(5))},
-		}}}
-		assert.Equal(t, 2, s.GetReplicasForCluster("a"))
-		assert.Equal(t, 5, s.GetReplicasForCluster("b"))
+		assert.Equal(t, 0, ClusterSpec{Replicas: ptr.To(int32(0))}.ReplicasOrDefault())
 	})
 }
 
@@ -180,7 +169,7 @@ func TestIsLoadBalancerReady(t *testing.T) {
 			name: "managed LB, status nil",
 			search: MongoDBSearch{
 				Spec: MongoDBSearchSpec{
-					LoadBalancer: &LoadBalancerConfig{Managed: &ManagedLBConfig{}},
+					Clusters: []ClusterSpec{{LoadBalancer: &LoadBalancerConfig{Managed: &ManagedLBConfig{}}}},
 				},
 			},
 			expected: false,
@@ -189,7 +178,7 @@ func TestIsLoadBalancerReady(t *testing.T) {
 			name: "managed LB, status Running",
 			search: MongoDBSearch{
 				Spec: MongoDBSearchSpec{
-					LoadBalancer: &LoadBalancerConfig{Managed: &ManagedLBConfig{}},
+					Clusters: []ClusterSpec{{LoadBalancer: &LoadBalancerConfig{Managed: &ManagedLBConfig{}}}},
 				},
 				Status: MongoDBSearchStatus{
 					LoadBalancer: &LoadBalancerStatus{Phase: status.PhaseRunning},
@@ -201,7 +190,7 @@ func TestIsLoadBalancerReady(t *testing.T) {
 			name: "managed LB, status Pending",
 			search: MongoDBSearch{
 				Spec: MongoDBSearchSpec{
-					LoadBalancer: &LoadBalancerConfig{Managed: &ManagedLBConfig{}},
+					Clusters: []ClusterSpec{{LoadBalancer: &LoadBalancerConfig{Managed: &ManagedLBConfig{}}}},
 				},
 				Status: MongoDBSearchStatus{
 					LoadBalancer: &LoadBalancerStatus{Phase: status.PhasePending},
@@ -219,98 +208,48 @@ func TestIsLoadBalancerReady(t *testing.T) {
 }
 
 func TestGetManagedLBEndpointForCluster(t *testing.T) {
-	tests := []struct {
-		name         string
-		template     string
-		clusterIndex int
-		clusterName  string
-		want         string
-	}{
-		{
-			name:         "clusterName substitution first cluster",
-			template:     "{clusterName}.search-lb.example.com:443",
-			clusterIndex: 0,
-			clusterName:  "us-east-k8s",
-			want:         "us-east-k8s.search-lb.example.com:443",
-		},
-		{
-			name:         "clusterIndex substitution second cluster",
-			template:     "search-{clusterIndex}.lb.example.com:443",
-			clusterIndex: 1,
-			clusterName:  "eu-west-k8s",
-			want:         "search-1.lb.example.com:443",
-		},
-		{
-			name:         "both placeholders present",
-			template:     "{clusterName}-{clusterIndex}.lb.example.com:443",
-			clusterIndex: 1,
-			clusterName:  "eu-west-k8s",
-			want:         "eu-west-k8s-1.lb.example.com:443",
-		},
-		{
-			name:         "no placeholders left untouched",
-			template:     "static.lb.example.com:443",
-			clusterIndex: 0,
-			clusterName:  "us-east-k8s",
-			want:         "static.lb.example.com:443",
-		},
-		{
-			name:         "empty clusterName with only {clusterIndex} still renders",
-			template:     "search-{clusterIndex}.lb.example.com:443",
-			clusterIndex: 0,
-			clusterName:  "",
-			want:         "search-0.lb.example.com:443",
-		},
-		{
-			name:         "resolved index 7 renders verbatim",
-			template:     "mongot-{clusterIndex}.example.com",
-			clusterIndex: 7,
-			clusterName:  "us-east",
-			want:         "mongot-7.example.com",
-		},
-		{
-			name:         "resolved index 0 renders verbatim",
-			template:     "mongot-{clusterIndex}.example.com",
-			clusterIndex: 0,
-			clusterName:  "us-east",
-			want:         "mongot-0.example.com",
+	managed := func(hostname string) *LoadBalancerConfig {
+		return &LoadBalancerConfig{Managed: &ManagedLBConfig{ExternalHostname: hostname}}
+	}
+	s := &MongoDBSearch{
+		Spec: MongoDBSearchSpec{
+			Clusters: []ClusterSpec{
+				{ClusterName: "us-east-k8s", LoadBalancer: managed("us-east.search-lb.example.com:443")},
+				{ClusterName: "eu-west-k8s", LoadBalancer: managed("eu-west.search-lb.example.com:443")},
+				{ClusterName: "ap-south-k8s"},
+			},
 		},
 	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			s := &MongoDBSearch{
-				Spec: MongoDBSearchSpec{
-					LoadBalancer: &LoadBalancerConfig{Managed: &ManagedLBConfig{ExternalHostname: tc.template}},
-				},
-			}
-			assert.Equal(t, tc.want, s.GetManagedLBEndpointForCluster(tc.clusterIndex, tc.clusterName))
-		})
-	}
+	assert.Equal(t, "us-east.search-lb.example.com:443", s.GetManagedLBEndpointForCluster("us-east-k8s"))
+	assert.Equal(t, "eu-west.search-lb.example.com:443", s.GetManagedLBEndpointForCluster("eu-west-k8s"))
+	assert.Equal(t, "us-east.search-lb.example.com:443", s.GetManagedLBEndpointForCluster(""), "empty name means first cluster")
+	assert.Equal(t, "", s.GetManagedLBEndpointForCluster("ap-south-k8s"), "cluster without LB")
+	assert.Equal(t, "", s.GetManagedLBEndpointForCluster("unknown"), "unknown cluster name")
 }
 
 func TestGetManagedLBEndpointForCluster_NotManaged(t *testing.T) {
 	s := &MongoDBSearch{Spec: MongoDBSearchSpec{}}
-	assert.Equal(t, "", s.GetManagedLBEndpointForCluster(0, "us-east-k8s"))
+	assert.Equal(t, "", s.GetManagedLBEndpointForCluster(""))
 
-	s.Spec.LoadBalancer = &LoadBalancerConfig{Managed: &ManagedLBConfig{ExternalHostname: ""}}
-	assert.Equal(t, "", s.GetManagedLBEndpointForCluster(0, "us-east-k8s"))
+	s.Spec.Clusters = []ClusterSpec{{LoadBalancer: &LoadBalancerConfig{Managed: &ManagedLBConfig{ExternalHostname: ""}}}}
+	assert.Equal(t, "", s.GetManagedLBEndpointForCluster(""))
 }
 
 func TestGetManagedLBEndpointForClusterShard_CrossProduct(t *testing.T) {
-	template := "{clusterName}.{shardName}.lb.example.com:443"
-	clusters := []ClusterSpec{{ClusterName: "us-east-k8s"}, {ClusterName: "eu-west-k8s"}}
-	shards := []string{"shard-0", "shard-1"}
-	s := &MongoDBSearch{
-		Spec: MongoDBSearchSpec{
-			LoadBalancer: &LoadBalancerConfig{Managed: &ManagedLBConfig{ExternalHostname: template}},
-			Clusters:     clusters,
-		},
+	managed := func(hostname string) *LoadBalancerConfig {
+		return &LoadBalancerConfig{Managed: &ManagedLBConfig{ExternalHostname: hostname}}
 	}
+	clusters := []ClusterSpec{
+		{ClusterName: "us-east-k8s", LoadBalancer: managed("us-east-k8s.{shardName}.lb.example.com:443")},
+		{ClusterName: "eu-west-k8s", LoadBalancer: managed("eu-west-k8s.{shardName}.lb.example.com:443")},
+	}
+	shards := []string{"shard-0", "shard-1"}
+	s := &MongoDBSearch{Spec: MongoDBSearchSpec{Clusters: clusters}}
 
 	got := make(map[string]struct{})
-	for i := range clusters {
+	for _, c := range clusters {
 		for _, sh := range shards {
-			got[s.GetManagedLBEndpointForClusterShard(i, clusters[i].ClusterName, sh)] = struct{}{}
+			got[s.GetManagedLBEndpointForClusterShard(c.ClusterName, sh)] = struct{}{}
 		}
 	}
 	assert.Len(t, got, 4, "2x2 cross-product should yield 4 distinct hostnames")
@@ -320,64 +259,43 @@ func TestGetManagedLBEndpointForClusterShard_CrossProduct(t *testing.T) {
 	assert.Contains(t, got, "eu-west-k8s.shard-1.lb.example.com:443")
 }
 
-func TestGetManagedLBEndpointForClusterShard_ClusterIndex(t *testing.T) {
-	template := "search-{clusterIndex}.{shardName}.lb.example.com:443"
-	clusters := []ClusterSpec{{ClusterName: "us-east-k8s"}, {ClusterName: "eu-west-k8s"}}
-	s := &MongoDBSearch{
-		Spec: MongoDBSearchSpec{
-			LoadBalancer: &LoadBalancerConfig{Managed: &ManagedLBConfig{ExternalHostname: template}},
-			Clusters:     clusters,
-		},
-	}
-	assert.Equal(t, "search-0.shard-a.lb.example.com:443", s.GetManagedLBEndpointForClusterShard(0, "us-east-k8s", "shard-a"))
-	assert.Equal(t, "search-1.shard-b.lb.example.com:443", s.GetManagedLBEndpointForClusterShard(1, "eu-west-k8s", "shard-b"))
-}
-
 func TestGetManagedLBEndpointForClusterShard_NotManaged(t *testing.T) {
 	s := &MongoDBSearch{Spec: MongoDBSearchSpec{}}
-	assert.Equal(t, "", s.GetManagedLBEndpointForClusterShard(0, "us-east-k8s", "shard-0"))
+	assert.Equal(t, "", s.GetManagedLBEndpointForClusterShard("", "shard-0"))
 }
 
 func TestGetManagedLBEndpointForClusterLevel(t *testing.T) {
 	mk := func(tmpl string) *MongoDBSearch {
 		return &MongoDBSearch{
 			Spec: MongoDBSearchSpec{
-				LoadBalancer: &LoadBalancerConfig{Managed: &ManagedLBConfig{ExternalHostname: tmpl}},
+				Clusters: []ClusterSpec{
+					{ClusterName: "us-east-k8s", LoadBalancer: &LoadBalancerConfig{Managed: &ManagedLBConfig{ExternalHostname: tmpl}}},
+				},
 			},
 		}
 	}
 	tests := []struct {
-		name         string
-		template     string
-		clusterIndex int
-		clusterName  string
-		want         string
+		name     string
+		template string
+		want     string
 	}{
-		{"strip prefix, resolve clusterName", "{shardName}.{clusterName}.search.example.com", 0, "us-east-k8s", "us-east-k8s.search.example.com"},
-		{"strip prefix, resolve clusterIndex", "{shardName}.search-{clusterIndex}.example.com", 1, "eu-west-k8s", "search-1.example.com"},
-		{"strip prefix, single-cluster sharded shape (no cluster placeholders)", "{shardName}.search.example.com", 0, "us-east-k8s", "search.example.com"},
+		{"strip leading shardName prefix", "{shardName}.us-east.search.example.com", "us-east.search.example.com"},
+		{"no shardName returned as-is", "us-east.search.example.com", "us-east.search.example.com"},
 		// {shardName} as a name component (not a leading prefix) is not derivable to a
 		// single cluster-level hostname; expect "" so the caller falls back to the
 		// cluster-level proxy Service FQDN.
-		{"shardName as name component returns empty", "search-{clusterIndex}-{shardName}-proxy.example.com", 0, "us-east-k8s", ""},
-		// {clusterName} with an empty name (operator-managed sharded mongos path)
-		// is unresolvable; return "" so the caller falls back to the proxy-svc FQDN
-		// rather than emitting a malformed ".search.example.com".
-		{"empty clusterName with {clusterName} placeholder returns empty", "{shardName}.{clusterName}.search.example.com", 0, "", ""},
-		// {clusterIndex} with an empty name still resolves — 0 is well-formed.
-		{"empty clusterName with only {clusterIndex} resolves", "{shardName}.search-{clusterIndex}.example.com", 0, "", "search-0.example.com"},
-		{"cluster-level strips prefix and renders resolved index 7", "{shardName}.search-{clusterIndex}.lb.example.com:443", 7, "us-east", "search-7.lb.example.com:443"},
+		{"shardName as name component returns empty", "search-{shardName}-proxy.example.com", ""},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, mk(tc.template).GetManagedLBEndpointForClusterLevel(tc.clusterIndex, tc.clusterName))
+			assert.Equal(t, tc.want, mk(tc.template).GetManagedLBEndpointForClusterLevel("us-east-k8s"))
 		})
 	}
 }
 
 func TestGetManagedLBEndpointForClusterLevel_NotManaged(t *testing.T) {
 	s := &MongoDBSearch{Spec: MongoDBSearchSpec{}}
-	assert.Equal(t, "", s.GetManagedLBEndpointForClusterLevel(0, "us-east-k8s"))
+	assert.Equal(t, "", s.GetManagedLBEndpointForClusterLevel(""))
 }
 
 func TestValidateSimulatedMCClusterIndices(t *testing.T) {
@@ -530,4 +448,151 @@ func TestMongoDBSearch_LocalizeToCluster(t *testing.T) {
 				"sharded source must be preserved by identity after LocalizeToCluster")
 		})
 	}
+}
+
+func TestResolveSizingForClusterShard(t *testing.T) {
+	clusterRes := &corev1.ResourceRequirements{}
+	overrideRes := &corev1.ResourceRequirements{}
+	clusterPersistence := &v1.Persistence{}
+	overridePersistence := &v1.Persistence{}
+
+	cluster := ClusterSpec{
+		ClusterName:          "east",
+		Replicas:             ptr.To(int32(2)),
+		ResourceRequirements: clusterRes,
+		Persistence:          clusterPersistence,
+		JVMFlags:             []string{"-Xmx2g"},
+		ShardOverrides: []ShardOverride{
+			{
+				ShardNames:           []string{"shard-1"},
+				Replicas:             ptr.To(int32(4)),
+				ResourceRequirements: overrideRes,
+				JVMFlags:             []string{"-Xmx8g"},
+			},
+			{
+				ShardNames:  []string{"shard-2"},
+				Persistence: overridePersistence,
+			},
+		},
+	}
+	s := &MongoDBSearch{Spec: MongoDBSearchSpec{Clusters: []ClusterSpec{cluster}}}
+
+	replicasFor := func(t *testing.T, s *MongoDBSearch, clusterName, shardName string) int {
+		t.Helper()
+		c, err := s.ResolveSizingForClusterShard(clusterName, shardName)
+		require.NoError(t, err)
+		return c.ReplicasOrDefault()
+	}
+
+	t.Run("shard without override inherits cluster values", func(t *testing.T) {
+		got, err := s.ResolveSizingForClusterShard("east", "shard-0")
+		require.NoError(t, err)
+		assert.Equal(t, ptr.To(int32(2)), got.Replicas)
+		assert.Same(t, clusterRes, got.ResourceRequirements)
+		assert.Same(t, clusterPersistence, got.Persistence)
+		assert.Nil(t, got.ShardOverrides)
+	})
+
+	t.Run("override replaces replicas, resources and jvm flags, inherits persistence", func(t *testing.T) {
+		got, err := s.ResolveSizingForClusterShard("east", "shard-1")
+		require.NoError(t, err)
+		assert.Equal(t, ptr.To(int32(4)), got.Replicas)
+		assert.Same(t, overrideRes, got.ResourceRequirements)
+		assert.Equal(t, []string{"-Xmx8g"}, got.JVMFlags)
+		assert.Same(t, clusterPersistence, got.Persistence, "unset override field inherits cluster value")
+	})
+
+	t.Run("empty override jvm flags inherit cluster value", func(t *testing.T) {
+		got, err := s.ResolveSizingForClusterShard("east", "shard-2")
+		require.NoError(t, err)
+		assert.Equal(t, []string{"-Xmx2g"}, got.JVMFlags)
+	})
+
+	t.Run("override replaces only persistence", func(t *testing.T) {
+		got, err := s.ResolveSizingForClusterShard("east", "shard-2")
+		require.NoError(t, err)
+		assert.Equal(t, ptr.To(int32(2)), got.Replicas, "unset override replicas inherits cluster value")
+		assert.Same(t, overridePersistence, got.Persistence)
+	})
+
+	t.Run("empty shardName returns cluster spec unchanged", func(t *testing.T) {
+		got, err := s.ResolveSizingForClusterShard("east", "")
+		require.NoError(t, err)
+		assert.Equal(t, ptr.To(int32(2)), got.Replicas)
+	})
+
+	t.Run("resolved replicas honor override and zero", func(t *testing.T) {
+		s := &MongoDBSearch{Spec: MongoDBSearchSpec{Clusters: []ClusterSpec{{
+			Replicas: ptr.To(int32(2)),
+			ShardOverrides: []ShardOverride{
+				{ShardNames: []string{"shard-off"}, Replicas: ptr.To(int32(0))},
+			},
+		}}}}
+		assert.Equal(t, 2, replicasFor(t, s, "", "shard-other"))
+		assert.Equal(t, 0, replicasFor(t, s, "", "shard-off"))
+	})
+
+	t.Run("every shard in a multi-name override entry resolves to the override", func(t *testing.T) {
+		s := &MongoDBSearch{Spec: MongoDBSearchSpec{Clusters: []ClusterSpec{{
+			Replicas: ptr.To(int32(1)),
+			ShardOverrides: []ShardOverride{
+				{ShardNames: []string{"shard-a", "shard-b"}, Replicas: ptr.To(int32(5))},
+			},
+		}}}}
+		assert.Equal(t, 5, replicasFor(t, s, "", "shard-a"))
+		assert.Equal(t, 5, replicasFor(t, s, "", "shard-b"))
+		assert.Equal(t, 1, replicasFor(t, s, "", "shard-c"))
+	})
+
+	t.Run("override in one cluster does not leak into another cluster", func(t *testing.T) {
+		s := &MongoDBSearch{Spec: MongoDBSearchSpec{Clusters: []ClusterSpec{
+			{ClusterName: "east", Replicas: ptr.To(int32(1)), ShardOverrides: []ShardOverride{
+				{ShardNames: []string{"shard-0"}, Replicas: ptr.To(int32(4))},
+			}},
+			{ClusterName: "west", Replicas: ptr.To(int32(2))},
+		}}}
+		assert.Equal(t, 4, replicasFor(t, s, "east", "shard-0"))
+		assert.Equal(t, 2, replicasFor(t, s, "west", "shard-0"))
+	})
+}
+
+func TestResolveSizingForClusterShard_StatefulSetDeepMerge(t *testing.T) {
+	clusterSTS := &v1.StatefulSetConfiguration{}
+	clusterSTS.SpecWrapper.Spec.ServiceName = "cluster-svc"
+	clusterSTS.SpecWrapper.Spec.RevisionHistoryLimit = ptr.To(int32(7))
+
+	overrideSTS := &v1.StatefulSetConfiguration{}
+	overrideSTS.SpecWrapper.Spec.ServiceName = "override-svc"
+
+	s := &MongoDBSearch{Spec: MongoDBSearchSpec{Clusters: []ClusterSpec{{
+		StatefulSetConfiguration: clusterSTS,
+		ShardOverrides: []ShardOverride{
+			{ShardNames: []string{"shard-0"}, StatefulSetConfiguration: overrideSTS},
+		},
+	}}}}
+
+	got, err := s.ResolveSizingForClusterShard("", "shard-0")
+	require.NoError(t, err)
+	require.NotNil(t, got.StatefulSetConfiguration)
+	// override wins for ServiceName; cluster-only fields survive the deep-merge.
+	assert.Equal(t, "override-svc", got.StatefulSetConfiguration.SpecWrapper.Spec.ServiceName)
+	require.NotNil(t, got.StatefulSetConfiguration.SpecWrapper.Spec.RevisionHistoryLimit)
+	assert.Equal(t, int32(7), *got.StatefulSetConfiguration.SpecWrapper.Spec.RevisionHistoryLimit)
+	// original cluster config is not mutated.
+	assert.Equal(t, "cluster-svc", clusterSTS.SpecWrapper.Spec.ServiceName)
+
+	t.Run("nil cluster config returns a copy of the override", func(t *testing.T) {
+		s := &MongoDBSearch{Spec: MongoDBSearchSpec{Clusters: []ClusterSpec{{
+			ShardOverrides: []ShardOverride{
+				{ShardNames: []string{"shard-0"}, StatefulSetConfiguration: overrideSTS},
+			},
+		}}}}
+
+		got, err := s.ResolveSizingForClusterShard("", "shard-0")
+		require.NoError(t, err)
+		require.NotNil(t, got.StatefulSetConfiguration)
+		assert.Equal(t, "override-svc", got.StatefulSetConfiguration.SpecWrapper.Spec.ServiceName)
+		// the result must not alias the spec's override object.
+		assert.NotSame(t, overrideSTS, got.StatefulSetConfiguration)
+	})
 }

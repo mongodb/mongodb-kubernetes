@@ -116,14 +116,16 @@ spec:
                       maxLength: 253
                       type: string
                     jvmFlags:
-                      description: JVMFlags overrides spec.jvmFlags for this cluster's
-                        mongot pods. Replace, not merge.
+                      description: JVMFlags sets the `--jvm-flags` option for this
+                        cluster's mongot pods.
                       items:
                         type: string
                       type: array
                     loadBalancer:
-                      description: LoadBalancer per-cluster override; deep-merged
-                        into spec.loadBalancer.managed.
+                      description: |-
+                        LoadBalancer configures how mongod/mongos connect to this cluster's mongot
+                        (managed Envoy or user-provided). Every cluster must agree on the mode:
+                        either all clusters set managed, all set unmanaged, or none set loadBalancer.
                       properties:
                         managed:
                           description: Managed configures an operator-managed Envoy
@@ -157,8 +159,7 @@ spec:
                               description: |-
                                 ExternalHostname is the hostname Envoy expects for SNI matching on incoming requests.
                                 For sharded clusters, may contain a {shardName} placeholder.
-                                In multi-cluster deployments, may contain a {clusterName} placeholder so per-cluster
-                                SNI hostnames stay distinct.
+                                In multi-cluster deployments, every cluster's hostname must be distinct.
                                 Required when MongoDB is externally managed. Ignored for operator-managed MongoDB.
                               type: string
                             minMongotReadyReplicas:
@@ -327,8 +328,8 @@ spec:
                       description: |-
                         Replicas is the number of mongot pods for this cluster's StatefulSet.
                         For ReplicaSet sources this is the total; for sharded sources it is per shard.
-                        When Replicas > 1, a load balancer (spec.loadBalancer) is required to distribute
-                        traffic across mongot instances.
+                        When Replicas > 1, a load balancer (spec.clusters[].loadBalancer) is required to
+                        distribute traffic across mongot instances.
                         Set to 0 to take mongot offline: the StatefulSet scales to 0 while the MongoDBSearch CR stays.
                       format: int32
                       minimum: 0
@@ -393,6 +394,176 @@ spec:
                             More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
                           type: object
                       type: object
+                    shardOverrides:
+                      description: |-
+                        ShardOverrides applies per-shard sizing exceptions within this cluster,
+                        for external sharded sources only. Each entry layers its set sizing fields
+                        onto this cluster's resolved values for the named shards.
+                      items:
+                        description: |-
+                          ShardOverride sizes specific shards within the enclosing cluster differently
+                          from the cluster default. Replicas, ResourceRequirements, Persistence and
+                          JVMFlags replace the cluster value for the named shards when set;
+                          StatefulSetConfiguration is deep-merged onto the cluster value. Unset fields
+                          inherit the cluster value.
+                        properties:
+                          jvmFlags:
+                            description: JVMFlags replaces the cluster's jvmFlags
+                              for these shards when non-empty.
+                            items:
+                              type: string
+                            type: array
+                          persistence:
+                            description: Persistence replaces the cluster's mongot
+                              persistent volume config for these shards.
+                            properties:
+                              multiple:
+                                properties:
+                                  data:
+                                    properties:
+                                      labelSelector:
+                                        type: object
+                                        x-kubernetes-preserve-unknown-fields: true
+                                      storage:
+                                        type: string
+                                      storageClass:
+                                        type: string
+                                    type: object
+                                  journal:
+                                    properties:
+                                      labelSelector:
+                                        type: object
+                                        x-kubernetes-preserve-unknown-fields: true
+                                      storage:
+                                        type: string
+                                      storageClass:
+                                        type: string
+                                    type: object
+                                  logs:
+                                    properties:
+                                      labelSelector:
+                                        type: object
+                                        x-kubernetes-preserve-unknown-fields: true
+                                      storage:
+                                        type: string
+                                      storageClass:
+                                        type: string
+                                    type: object
+                                type: object
+                              single:
+                                properties:
+                                  labelSelector:
+                                    type: object
+                                    x-kubernetes-preserve-unknown-fields: true
+                                  storage:
+                                    type: string
+                                  storageClass:
+                                    type: string
+                                type: object
+                            type: object
+                          replicas:
+                            description: |-
+                              Replicas replaces the cluster's mongot replica count for these shards.
+                              Set to 0 to take these shards' mongot offline.
+                            format: int32
+                            minimum: 0
+                            type: integer
+                          resourceRequirements:
+                            description: ResourceRequirements replaces the cluster's
+                              mongot resource requests/limits for these shards.
+                            properties:
+                              claims:
+                                description: |-
+                                  Claims lists the names of resources, defined in spec.resourceClaims,
+                                  that are used by this container.
+
+                                  This is an alpha field and requires enabling the
+                                  DynamicResourceAllocation feature gate.
+
+                                  This field is immutable. It can only be set for containers.
+                                items:
+                                  description: ResourceClaim references one entry
+                                    in PodSpec.ResourceClaims.
+                                  properties:
+                                    name:
+                                      description: |-
+                                        Name must match the name of one entry in pod.spec.resourceClaims of
+                                        the Pod where this field is used. It makes that resource available
+                                        inside a container.
+                                      type: string
+                                    request:
+                                      description: |-
+                                        Request is the name chosen for a request in the referenced claim.
+                                        If empty, everything from the claim is made available, otherwise
+                                        only the result of this request.
+                                      type: string
+                                  required:
+                                  - name
+                                  type: object
+                                type: array
+                                x-kubernetes-list-map-keys:
+                                - name
+                                x-kubernetes-list-type: map
+                              limits:
+                                additionalProperties:
+                                  anyOf:
+                                  - type: integer
+                                  - type: string
+                                  pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                  x-kubernetes-int-or-string: true
+                                description: |-
+                                  Limits describes the maximum amount of compute resources allowed.
+                                  More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                                type: object
+                              requests:
+                                additionalProperties:
+                                  anyOf:
+                                  - type: integer
+                                  - type: string
+                                  pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                  x-kubernetes-int-or-string: true
+                                description: |-
+                                  Requests describes the minimum amount of compute resources required.
+                                  If Requests is omitted for a container, it defaults to Limits if that is explicitly specified,
+                                  otherwise to an implementation-defined value. Requests cannot exceed Limits.
+                                  More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                                type: object
+                            type: object
+                          shardNames:
+                            description: |-
+                              ShardNames are the shards (within this cluster) this override applies to.
+                              Each must exist in spec.source.external.shardedCluster.shards[].
+                            items:
+                              type: string
+                            minItems: 1
+                            type: array
+                          statefulSet:
+                            description: StatefulSetConfiguration is deep-merged onto
+                              the cluster's StatefulSet override for these shards.
+                            properties:
+                              metadata:
+                                description: StatefulSetMetadataWrapper is a wrapper
+                                  around Labels and Annotations
+                                properties:
+                                  annotations:
+                                    additionalProperties:
+                                      type: string
+                                    type: object
+                                  labels:
+                                    additionalProperties:
+                                      type: string
+                                    type: object
+                                type: object
+                              spec:
+                                type: object
+                                x-kubernetes-preserve-unknown-fields: true
+                            required:
+                            - spec
+                            type: object
+                        required:
+                        - shardNames
+                        type: object
+                      type: array
                     statefulSet:
                       description: |-
                         StatefulSetConfiguration is applied to this cluster's mongot StatefulSet at the end of the
@@ -473,162 +644,6 @@ spec:
                       gRPC RESOURCE_EXHAUSTED status codes. Defaults to true.
                     type: boolean
                 type: object
-              loadBalancer:
-                description: |-
-                  LoadBalancer configures how mongod/mongos connect to mongot (Managed vs Unmanaged/BYO Load Balancer).
-                  Top-level spec.loadBalancer.managed.* serves as the default for every entry in spec.clusters;
-                  per-cluster overrides deep-merge into this template (see spec.clusters[].loadBalancer.managed).
-                  spec.loadBalancer.unmanaged is top-level only — there is no per-cluster form.
-                properties:
-                  managed:
-                    description: Managed configures an operator-managed Envoy load
-                      balancer.
-                    properties:
-                      deployment:
-                        description: |-
-                          Deployment holds optional overrides merged into the operator-created Envoy Deployment.
-                          Follows the same convention as spec.statefulSet on MongoDB resources.
-                        properties:
-                          metadata:
-                            description: DeploymentMetadataWrapper is a wrapper around
-                              Labels and Annotations
-                            properties:
-                              annotations:
-                                additionalProperties:
-                                  type: string
-                                type: object
-                              labels:
-                                additionalProperties:
-                                  type: string
-                                type: object
-                            type: object
-                          spec:
-                            type: object
-                            x-kubernetes-preserve-unknown-fields: true
-                        required:
-                        - spec
-                        type: object
-                      externalHostname:
-                        description: |-
-                          ExternalHostname is the hostname Envoy expects for SNI matching on incoming requests.
-                          For sharded clusters, may contain a {shardName} placeholder.
-                          In multi-cluster deployments, may contain a {clusterName} placeholder so per-cluster
-                          SNI hostnames stay distinct.
-                          Required when MongoDB is externally managed. Ignored for operator-managed MongoDB.
-                        type: string
-                      minMongotReadyReplicas:
-                        description: |-
-                          MinMongotReadyReplicas is the minimum number of ready mongot replicas in a group
-                          before this mongot group can be considered ready and envoy routes real traffic to it.
-                          Until this threshold is met, traffic for that shard is forwarded to a healthy mongot group with the
-                          routed_from_another_shard header (returning empty results).
-                          Defaults to 1 if not specified.
-                        format: int32
-                        minimum: 1
-                        type: integer
-                      replicas:
-                        description: |-
-                          Replicas is the number of Envoy proxy pods to deploy.
-                          Defaults to 1 if not specified.
-                        format: int32
-                        minimum: 1
-                        type: integer
-                      resourceRequirements:
-                        description: |-
-                          ResourceRequirements for the Envoy container.
-                          When not set, defaults to requests: {cpu: 100m, memory: 128Mi}, limits: {cpu: 500m, memory: 512Mi}.
-                        properties:
-                          claims:
-                            description: |-
-                              Claims lists the names of resources, defined in spec.resourceClaims,
-                              that are used by this container.
-
-                              This is an alpha field and requires enabling the
-                              DynamicResourceAllocation feature gate.
-
-                              This field is immutable. It can only be set for containers.
-                            items:
-                              description: ResourceClaim references one entry in PodSpec.ResourceClaims.
-                              properties:
-                                name:
-                                  description: |-
-                                    Name must match the name of one entry in pod.spec.resourceClaims of
-                                    the Pod where this field is used. It makes that resource available
-                                    inside a container.
-                                  type: string
-                                request:
-                                  description: |-
-                                    Request is the name chosen for a request in the referenced claim.
-                                    If empty, everything from the claim is made available, otherwise
-                                    only the result of this request.
-                                  type: string
-                              required:
-                              - name
-                              type: object
-                            type: array
-                            x-kubernetes-list-map-keys:
-                            - name
-                            x-kubernetes-list-type: map
-                          limits:
-                            additionalProperties:
-                              anyOf:
-                              - type: integer
-                              - type: string
-                              pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
-                              x-kubernetes-int-or-string: true
-                            description: |-
-                              Limits describes the maximum amount of compute resources allowed.
-                              More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
-                            type: object
-                          requests:
-                            additionalProperties:
-                              anyOf:
-                              - type: integer
-                              - type: string
-                              pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
-                              x-kubernetes-int-or-string: true
-                            description: |-
-                              Requests describes the minimum amount of compute resources required.
-                              If Requests is omitted for a container, it defaults to Limits if that is explicitly specified,
-                              otherwise to an implementation-defined value. Requests cannot exceed Limits.
-                              More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
-                            type: object
-                        type: object
-                      retryPolicy:
-                        description: |-
-                          RetryPolicy configures Envoy retry behavior for individual gRPC streams to upstream mongot clusters.
-                          When not set, retries are enabled with sensible defaults (2 retries, 60s per-try timeout).
-                        properties:
-                          numRetries:
-                            description: |-
-                              NumRetries is the maximum number of retries per request.
-                              Defaults to 2 if not specified (3 total attempts including the original).
-                            format: int32
-                            minimum: 1
-                            type: integer
-                          perTryTimeout:
-                            description: |-
-                              PerTryTimeout is the timeout for each retry attempt (including the original).
-                              Specified as a Go duration string (e.g., "60s", "30s").
-                              Defaults to "60s" if not specified.
-                            type: string
-                        type: object
-                    type: object
-                  unmanaged:
-                    description: Unmanaged configures a user-provided (BYO) L7 load
-                      balancer.
-                    properties:
-                      endpoint:
-                        description: |-
-                          Endpoint is the full host:port of the BYO load balancer written into mongod config.
-                          For sharded clusters, must contain a {shardName} placeholder.
-                        type: string
-                    type: object
-                type: object
-                x-kubernetes-validations:
-                - message: exactly one of managed or unmanaged must be set
-                  rule: (has(self.managed) && !has(self.unmanaged)) || (!has(self.managed)
-                    && has(self.unmanaged))
               logLevel:
                 description: Configure verbosity of mongot logs. Defaults to INFO
                   if not set.
@@ -848,7 +863,7 @@ spec:
               loadBalancer:
                 description: |-
                   LoadBalancer reports the state of the operator-managed load balancer.
-                  Only populated when spec.loadBalancer.managed is set.
+                  Only populated when spec.clusters[].loadBalancer.managed is set.
                 properties:
                   message:
                     type: string
