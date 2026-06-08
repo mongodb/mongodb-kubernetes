@@ -182,8 +182,8 @@ def mdbs(
     """MongoDBSearch over external MongoDBMulti source, MC topology.
 
     spec.source.external.hostAndPorts is the same top-level seed list rendered to
-    every cluster's mongot ConfigMap. spec.loadBalancer.managed.externalHostname
-    uses {clusterIndex} so all three per-cluster names (cert SANs, AC mongotHost,
+    every cluster's mongot ConfigMap. Each cluster's loadBalancer.managed.externalHostname
+    carries its own index so all three per-cluster names (cert SANs, AC mongotHost,
     Envoy SNI) resolve to the same per-cluster proxy-svc FQDN.
     """
     resource = MongoDBSearch.from_yaml(
@@ -210,16 +210,19 @@ def mdbs(
         "tls": {"certsSecretPrefix": MDBS_TLS_CERT_PREFIX},
     }
 
-    resource["spec"]["loadBalancer"] = {
-        "managed": {
-            "externalHostname": (
-                f"{MDBS_RESOURCE_NAME}-search-{{clusterIndex}}-proxy-svc.{namespace}.svc.cluster.local"
-            ),
-        },
-    }
-
     resource["spec"]["clusters"] = [
-        {"clusterName": mcc.cluster_name, "clusterIndex": mcc.cluster_index, "replicas": MONGOT_REPLICAS_PER_CLUSTER}
+        {
+            "clusterName": mcc.cluster_name,
+            "clusterIndex": mcc.cluster_index,
+            "replicas": MONGOT_REPLICAS_PER_CLUSTER,
+            "loadBalancer": {
+                "managed": {
+                    "externalHostname": search_resource_names.mc_proxy_svc_fqdn(
+                        MDBS_RESOURCE_NAME, namespace, mcc.cluster_index
+                    ),
+                },
+            },
+        }
         for mcc in member_cluster_clients
     ]
 
@@ -473,11 +476,6 @@ def _per_cluster_envoy_deployment_name(mdbs_name: str, cluster_index: int) -> st
 def _per_cluster_envoy_configmap_name(mdbs_name: str, cluster_index: int) -> str:
     """Mirror LoadBalancerConfigMapNameForCluster: `{name}-search-lb-0-{clusterIndex}-config`."""
     return f"{mdbs_name}-search-lb-0-{cluster_index}-config"
-
-
-def _expected_proxy_svc_fqdn(mdbs_name: str, cluster_index: int, namespace: str) -> str:
-    """Per-cluster proxy-svc FQDN (no port) — matches GetManagedLBEndpointForCluster output."""
-    return f"{mdbs_name}-search-{cluster_index}-proxy-svc.{namespace}.svc.cluster.local"
 
 
 def _read_mongod_set_parameter(
@@ -771,7 +769,7 @@ def test_per_cluster_envoy_sni_observed(
     for mcc in member_cluster_clients:
         cluster_idx = helper.cluster_index(mcc.cluster_name)
         cm_name = _per_cluster_envoy_configmap_name(MDBS_RESOURCE_NAME, cluster_idx)
-        expected_fqdn = _expected_proxy_svc_fqdn(MDBS_RESOURCE_NAME, cluster_idx, namespace)
+        expected_fqdn = search_resource_names.mc_proxy_svc_fqdn(MDBS_RESOURCE_NAME, namespace, cluster_idx)
 
         cm = mcc.core_v1_api().read_namespaced_config_map(name=cm_name, namespace=namespace)
         lds_json = (cm.data or {}).get("lds.json")
@@ -797,7 +795,7 @@ def test_per_cluster_envoy_sni_observed(
             if other.cluster_name == mcc.cluster_name:
                 continue
             other_idx = helper.cluster_index(other.cluster_name)
-            other_fqdn = _expected_proxy_svc_fqdn(MDBS_RESOURCE_NAME, other_idx, namespace)
+            other_fqdn = search_resource_names.mc_proxy_svc_fqdn(MDBS_RESOURCE_NAME, namespace, other_idx)
             assert other_fqdn not in sni_names, (
                 f"[{mcc.cluster_name}] foreign SNI {other_fqdn!r} present in "
                 f"lds.json server_names — per-cluster Envoy must only match its own FQDN"

@@ -674,10 +674,10 @@ def patch_envoy_deployment_configuration(
 ):
     """Patch the MongoDBSearch CR with a deployment override and wait for Running.
 
-    Preserves any existing fields under spec.loadBalancer.managed.
+    Preserves any existing fields under spec.clusters[0].loadBalancer.managed.
     """
     mdbs.load()
-    mdbs["spec"]["loadBalancer"].setdefault("managed", {})["deployment"] = deployment_config
+    mdbs["spec"]["clusters"][0]["loadBalancer"].setdefault("managed", {})["deployment"] = deployment_config
     mdbs.update()
     mdbs.assert_reaches_phase(Phase.Running, timeout=timeout)
 

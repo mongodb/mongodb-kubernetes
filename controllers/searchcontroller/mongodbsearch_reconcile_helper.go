@@ -179,7 +179,8 @@ type reconcileUnit struct {
 	mongotConfigFn      mongot.Modification
 	clusterName         string // "" routes to the central client (single-cluster)
 	clusterIndex        int
-	shardName           string // shard name for sharded topologies; "" for RS
+	shardName           string               // shard name for sharded topologies; "" for RS
+	sizing              searchv1.ClusterSpec // resolved per-(cluster, shard) sizing, see ResolveSizingForClusterShard
 }
 
 // SearchSourceReplicaSet is the subset of SearchSourceDBResource the RS plan
@@ -247,6 +248,10 @@ func (r *MongoDBSearchReconcileHelper) buildReplicaSetPlan(rsSource SearchSource
 
 	units := make([]reconcileUnit, 0, len(work))
 	for _, w := range work {
+		sizing, err := r.mdbSearch.ResolveSizingForClusterShard(w.ClusterName, "")
+		if err != nil {
+			return reconcilePlan{}, err
+		}
 		stsName, headlessSvc, proxySvc, configMapName := r.rsResourceNames(w)
 		units = append(units, reconcileUnit{
 			stsName:            stsName,
@@ -259,6 +264,7 @@ func (r *MongoDBSearchReconcileHelper) buildReplicaSetPlan(rsSource SearchSource
 			mongotConfigFn:     mongotConfigFn,
 			clusterName:        w.ClusterName,
 			clusterIndex:       w.ClusterIndex,
+			sizing:             sizing,
 		})
 	}
 
@@ -350,6 +356,11 @@ func (r *MongoDBSearchReconcileHelper) buildShardedPlan(shardedSource SearchSour
 	for _, w := range work {
 		hostSeeds := hostSeedsByShard[w.ShardName]
 
+		sizing, err := r.mdbSearch.ResolveSizingForClusterShard(w.ClusterName, w.ShardName)
+		if err != nil {
+			return reconcilePlan{}, err
+		}
+
 		stsName := r.mdbSearch.MongotStatefulSetForClusterShard(w.ClusterIndex, w.ShardName)
 
 		var logFields []any
@@ -377,6 +388,7 @@ func (r *MongoDBSearchReconcileHelper) buildShardedPlan(shardedSource SearchSour
 			clusterName:         w.ClusterName,
 			clusterIndex:        w.ClusterIndex,
 			shardName:           w.ShardName,
+			sizing:              sizing,
 		})
 
 		if !seenClusters[w.ClusterIndex] {
@@ -672,6 +684,7 @@ func (r *MongoDBSearchReconcileHelper) applyReconcileUnit(
 		unit.configMapName,
 		unit.stsName.Name,
 		unit.clusterName,
+		unit.sizing.ReplicasOrDefault(),
 		unit.mongotConfigFn,
 		ingressTlsMongotModification,
 		mods.egressTlsMongot,
@@ -688,14 +701,8 @@ func (r *MongoDBSearchReconcileHelper) applyReconcileUnit(
 		},
 	))
 
-	stsFunc, err := CreateSearchStatefulSetFunc(r.mdbSearch, unit.clusterName, unit.stsName.Name, r.mdbSearch.Namespace, unit.headlessSvc.Name, unit.configMapName.Name, unit.podLabels, mods.searchImage, mods.usePerPodConfig)
-	if err != nil {
-		return nil, nil, err
-	}
-	stsOverride, err := StatefulSetOverrideModification(r.mdbSearch, unit.clusterName)
-	if err != nil {
-		return nil, nil, err
-	}
+	stsFunc := CreateSearchStatefulSetFunc(r.mdbSearch, unit.sizing, unit.stsName.Name, r.mdbSearch.Namespace, unit.headlessSvc.Name, unit.configMapName.Name, unit.podLabels, mods.searchImage, mods.usePerPodConfig)
+	stsOverride := StatefulSetOverrideModification(unit.sizing.StatefulSetConfiguration)
 	mutatedSts, err := r.createOrUpdateStatefulSet(ctx,
 		log,
 		unitClient,
@@ -985,8 +992,7 @@ func (r *MongoDBSearchReconcileHelper) ensureSearchService(ctx context.Context, 
 // ensureMongotConfig creates or updates the mongot ConfigMap. When
 // auto-embedding is configured, generates leader/follower config files plus
 // pod-name role keys.
-func (r *MongoDBSearchReconcileHelper) ensureMongotConfig(ctx context.Context, log *zap.SugaredLogger, kubeClient kubernetesClient.Client, cmName types.NamespacedName, stsName, clusterName string, modifications ...mongot.Modification) (string, error) {
-	replicas := r.mdbSearch.GetReplicasForCluster(clusterName)
+func (r *MongoDBSearchReconcileHelper) ensureMongotConfig(ctx context.Context, log *zap.SugaredLogger, kubeClient kubernetesClient.Client, cmName types.NamespacedName, stsName, clusterName string, replicas int, modifications ...mongot.Modification) (string, error) {
 	usePerPodConfig := r.mdbSearch.HasAutoEmbedding()
 
 	mongotConfig := mongot.Config{}
@@ -1839,9 +1845,11 @@ func GetMongodConfigParametersForShard(search *searchv1.MongoDBSearch, shardName
 // GetMongosConfigParametersForSharded picks the mongos→mongot endpoint by topology. No-LB targets the
 // first shard's per-shard proxy svc FQDN (the only sharded mongot hostname per-shard cert SANs cover);
 // the cluster-level Service would route to the same pod but isn't in SANs.
+// clusterIndex (from the persisted ClusterMapping) is for resource naming only;
+// clusterName resolves the cluster's LB config (empty = first cluster).
 func GetMongosConfigParametersForSharded(search *searchv1.MongoDBSearch, clusterIndex int, clusterName string, shardNames []string, clusterDomain string) map[string]any {
 	var endpoint string
-	// Three branches: explicit unmanaged LB, no spec.loadBalancer (pre-MVP
+	// Three branches: explicit unmanaged LB, no loadBalancer (pre-MVP
 	// single-cluster shape), and managed LB. The TD lists no-LB as RS-only at
 	// GA, so case B should die when admission tightens; kept for now to avoid
 	// regressing pre-MVP.
@@ -1862,7 +1870,7 @@ func GetMongosConfigParametersForSharded(search *searchv1.MongoDBSearch, cluster
 // the cluster-level proxy Service in-cluster FQDN.
 func mongotEndpointForClusterLevel(search *searchv1.MongoDBSearch, clusterIndex int, clusterName string, clusterDomain string) string {
 	if search.IsLBModeManaged() {
-		if endpoint := search.GetManagedLBEndpointForClusterLevel(clusterIndex, clusterName); endpoint != "" {
+		if endpoint := search.GetManagedLBEndpointForClusterLevel(clusterName); endpoint != "" {
 			return endpoint
 		}
 	}
@@ -1897,7 +1905,7 @@ func buildSearchSetParameters(mongotEndpoint string, tlsMode automationconfig.TL
 // For no LB (single mongot), the first pod's headless FQDN is returned (pod-0.svc).
 func mongotHostAndPort(search *searchv1.MongoDBSearch, clusterDomain string) string {
 	if search.IsReplicaSetUnmanagedLB() {
-		return search.GetReplicaSetUnmanagedLBEndpoint()
+		return search.GetUnmanagedLBEndpoint()
 	}
 	port := search.GetEffectiveMongotPort()
 	if search.IsLBModeManaged() {
@@ -1974,7 +1982,7 @@ func (r *MongoDBSearchReconcileHelper) ValidateMultipleReplicasUnmanagedLBTopolo
 	if _, ok := r.db.(SearchSourceShardedDeployment); ok {
 		if !r.mdbSearch.IsShardedUnmanagedLB() {
 			return xerrors.Errorf(
-				"spec.loadBalancer.unmanaged.endpoint must contain a %s placeholder for a sharded source with multiple mongot replicas; "+
+				"spec.clusters[].loadBalancer.unmanaged.endpoint must contain a %s placeholder for a sharded source with multiple mongot replicas; "+
 					"without it the endpoint cannot differentiate shards and traffic pins to a single mongot",
 				searchv1.ShardNamePlaceholder,
 			)
@@ -1984,7 +1992,7 @@ func (r *MongoDBSearchReconcileHelper) ValidateMultipleReplicasUnmanagedLBTopolo
 
 	if !r.mdbSearch.IsReplicaSetUnmanagedLB() {
 		return xerrors.Errorf(
-			"spec.loadBalancer.unmanaged.endpoint must not contain a %s placeholder for a replica set source with multiple mongot replicas",
+			"spec.clusters[].loadBalancer.unmanaged.endpoint must not contain a %s placeholder for a replica set source with multiple mongot replicas",
 			searchv1.ShardNamePlaceholder,
 		)
 	}

@@ -89,10 +89,10 @@ func TestValidateShardNames(t *testing.T) {
 			name: "valid MC Proxy Service at borderline with single-digit max index",
 			search: func() *MongoDBSearch {
 				s := newSearch(strings.Repeat("a", 20), []ExternalShardConfig{shard(strings.Repeat("s", 23))}, "", false, true)
-				s.Spec.LoadBalancer.Managed.ExternalHostname = "{shardName}.{clusterName}.example.com"
 				clusters := make([]ClusterSpec, 10)
 				for i := range clusters {
 					clusters[i] = pinnedSpec("c"+strconv.Itoa(i), int32(i))
+					clusters[i].LoadBalancer = managedLBWithHostname("{shardName}.c" + strconv.Itoa(i) + ".example.com")
 				}
 				s.Spec.Clusters = clusters
 				return s
@@ -104,10 +104,10 @@ func TestValidateShardNames(t *testing.T) {
 			name: "invalid MC Proxy Service overshoots at two-digit max index",
 			search: func() *MongoDBSearch {
 				s := newSearch(strings.Repeat("a", 20), []ExternalShardConfig{shard(strings.Repeat("s", 23))}, "", false, true)
-				s.Spec.LoadBalancer.Managed.ExternalHostname = "{shardName}.{clusterName}.example.com"
 				clusters := make([]ClusterSpec, 11)
 				for i := range clusters {
 					clusters[i] = pinnedSpec("c"+strconv.Itoa(i), int32(i))
+					clusters[i].LoadBalancer = managedLBWithHostname("{shardName}.c" + strconv.Itoa(i) + ".example.com")
 				}
 				s.Spec.Clusters = clusters
 				return s
@@ -286,16 +286,19 @@ func TestValidateClustersUniqueClusterName(t *testing.T) {
 	}
 }
 
-func TestValidateMCExternalHostnamePlaceholders(t *testing.T) {
-	mkSearch := func(template string, clusters []ClusterSpec, sharded bool) *MongoDBSearch {
+func TestValidateMCExternalHostnames(t *testing.T) {
+	mkSearch := func(hostnames []string, sharded bool) *MongoDBSearch {
+		clusters := make([]ClusterSpec, 0, len(hostnames))
+		for i, hn := range hostnames {
+			c := ClusterSpec{ClusterName: "cluster-" + strconv.Itoa(i)}
+			if hn != "" {
+				c.LoadBalancer = managedLBWithHostname(hn)
+			}
+			clusters = append(clusters, c)
+		}
 		s := &MongoDBSearch{
 			ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"},
-			Spec: MongoDBSearchSpec{
-				LoadBalancer: &LoadBalancerConfig{Managed: &ManagedLBConfig{ExternalHostname: template}},
-			},
-		}
-		if clusters != nil {
-			s.Spec.Clusters = clusters
+			Spec:       MongoDBSearchSpec{Clusters: clusters},
 		}
 		if sharded {
 			s.Spec.Source = &MongoDBSource{
@@ -312,60 +315,45 @@ func TestValidateMCExternalHostnamePlaceholders(t *testing.T) {
 
 	tests := []struct {
 		name          string
-		template      string
-		clusters      []ClusterSpec
+		hostnames     []string
 		sharded       bool
 		errorContains string
 	}{
 		{
-			name:     "MC RS with clusterName placeholder",
-			template: "{clusterName}.lb.example.com:443",
-			clusters: []ClusterSpec{{ClusterName: "us-east-k8s"}, {ClusterName: "eu-west-k8s"}},
+			name:      "MC RS with distinct hostnames",
+			hostnames: []string{"us-east.lb.example.com:443", "eu-west.lb.example.com:443"},
 		},
 		{
-			name:     "MC RS with clusterIndex placeholder",
-			template: "search-{clusterIndex}.lb.example.com:443",
-			clusters: []ClusterSpec{{ClusterName: "us-east-k8s"}, {ClusterName: "eu-west-k8s"}},
+			name:          "MC RS with duplicate hostnames rejected",
+			hostnames:     []string{"static.lb.example.com:443", "static.lb.example.com:443"},
+			errorContains: "distinct hostname",
 		},
 		{
-			name:          "MC RS missing both cluster placeholders",
-			template:      "static.lb.example.com:443",
-			clusters:      []ClusterSpec{{ClusterName: "us-east-k8s"}, {ClusterName: "eu-west-k8s"}},
-			errorContains: "{clusterName}",
+			name:      "MC sharded with shardName in each hostname",
+			hostnames: []string{"{shardName}.us-east.lb.example.com:443", "{shardName}.eu-west.lb.example.com:443"},
+			sharded:   true,
 		},
 		{
-			name:     "MC sharded starts with shardName",
-			template: "{shardName}.{clusterName}.lb.example.com:443",
-			clusters: []ClusterSpec{{ClusterName: "us-east-k8s"}, {ClusterName: "eu-west-k8s"}},
-			sharded:  true,
-		},
-		{
-			name:          "MC sharded missing shardName",
-			template:      "{clusterName}.lb.example.com:443",
-			clusters:      []ClusterSpec{{ClusterName: "us-east-k8s"}, {ClusterName: "eu-west-k8s"}},
+			name:          "MC sharded missing shardName rejected",
+			hostnames:     []string{"us-east.lb.example.com:443", "eu-west.lb.example.com:443"},
 			sharded:       true,
 			errorContains: "{shardName}",
 		},
 		{
-			name:     "MC sharded shardName as name component is allowed",
-			template: "search-{clusterIndex}-{shardName}-proxy.lb.example.com:443",
-			clusters: []ClusterSpec{{ClusterName: "us-east-k8s"}, {ClusterName: "eu-west-k8s"}},
-			sharded:  true,
+			name:      "MC sharded shardName as name component is allowed",
+			hostnames: []string{"search-us-east-{shardName}-proxy.lb.example.com:443", "search-eu-west-{shardName}-proxy.lb.example.com:443"},
+			sharded:   true,
 		},
 		{
-			name:     "no managed LB returns success",
-			template: "",
-			clusters: []ClusterSpec{{ClusterName: "us-east-k8s"}, {ClusterName: "eu-west-k8s"}},
+			name:      "no managed LB returns success",
+			hostnames: []string{"", ""},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s := mkSearch(tt.template, tt.clusters, tt.sharded)
-			if tt.template == "" {
-				s.Spec.LoadBalancer = nil
-			}
-			res := validateMCExternalHostnamePlaceholders(s)
+			s := mkSearch(tt.hostnames, tt.sharded)
+			res := validateMCExternalHostnames(s)
 			if tt.errorContains != "" {
 				assert.Equal(t, v1.ErrorLevel, res.Level, "expected error, got %+v", res)
 				assert.Contains(t, res.Msg, tt.errorContains)
@@ -377,15 +365,18 @@ func TestValidateMCExternalHostnamePlaceholders(t *testing.T) {
 }
 
 func TestValidateExternalHostnameDNSLength(t *testing.T) {
-	mkSearch := func(template string, clusters []ClusterSpec, shardNames []string) *MongoDBSearch {
+	mkSearch := func(hostnames []string, shardNames []string) *MongoDBSearch {
+		clusters := make([]ClusterSpec, 0, len(hostnames))
+		for i, hn := range hostnames {
+			c := ClusterSpec{ClusterName: "cluster-" + strconv.Itoa(i)}
+			if hn != "" {
+				c.LoadBalancer = managedLBWithHostname(hn)
+			}
+			clusters = append(clusters, c)
+		}
 		s := &MongoDBSearch{
 			ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"},
-			Spec: MongoDBSearchSpec{
-				LoadBalancer: &LoadBalancerConfig{Managed: &ManagedLBConfig{ExternalHostname: template}},
-			},
-		}
-		if clusters != nil {
-			s.Spec.Clusters = clusters
+			Spec:       MongoDBSearchSpec{Clusters: clusters},
 		}
 		if shardNames != nil {
 			shards := make([]ExternalShardConfig, 0, len(shardNames))
@@ -407,80 +398,62 @@ func TestValidateExternalHostnameDNSLength(t *testing.T) {
 	// Build a > 63-char label.
 	longLabel := strings.Repeat("a", 64)
 
-	// Build a > 253-char total host: 4 labels of 60 chars each separated by dots = 4*60 + 3 = 243 (<253),
-	// so use longer labels to overflow. 5 labels of 60 chars: 5*60 + 4 = 304 > 253.
-	longClusterLabel := strings.Repeat("c", 60)
-
 	tests := []struct {
 		name          string
-		template      string
-		clusters      []ClusterSpec
+		hostnames     []string
 		shardNames    []string
 		errorContains string
 	}{
 		{
-			name:     "short hostname RS single-cluster passes",
-			template: "search.lb.example.com:443",
-			clusters: []ClusterSpec{{}},
+			name:      "short hostname RS single-cluster passes",
+			hostnames: []string{"search.lb.example.com:443"},
 		},
 		{
-			name:     "short hostname MC RS passes",
-			template: "{clusterName}.search-lb.example.com:443",
-			clusters: []ClusterSpec{{ClusterName: "us-east-k8s"}, {ClusterName: "eu-west-k8s"}},
+			name:      "short hostname MC RS passes",
+			hostnames: []string{"us-east.search-lb.example.com:443", "eu-west.search-lb.example.com:443"},
 		},
 		{
 			name:       "short hostname MC sharded passes",
-			template:   "{clusterName}.{shardName}.lb.example.com:443",
-			clusters:   []ClusterSpec{{ClusterName: "us-east-k8s"}, {ClusterName: "eu-west-k8s"}},
+			hostnames:  []string{"us-east.{shardName}.lb.example.com:443", "eu-west.{shardName}.lb.example.com:443"},
 			shardNames: []string{"shard-0", "shard-1"},
 		},
 		{
-			name:          "DNS label > 63 after substitution rejected",
-			template:      "{clusterName}.lb.example.com:443",
-			clusters:      []ClusterSpec{{ClusterName: longLabel}, {ClusterName: "ok"}},
+			name:          "DNS label > 63 rejected",
+			hostnames:     []string{longLabel + ".lb.example.com:443", "ok.lb.example.com:443"},
 			errorContains: "invalid DNS subdomain",
 		},
 		{
-			// Each label fits 63, but the FQDN exceeds 253 after substitution.
-			// 4 x 60-char labels + 4 dots = 244; plus "{clusterName}." (60+1=61) and tail (suffix) bring it well over 253.
-			name:     "FQDN > 253 after cross-product rejected",
-			template: "{clusterName}." + strings.Repeat("a", 60) + "." + strings.Repeat("b", 60) + "." + strings.Repeat("c", 60) + "." + strings.Repeat("d", 60) + ".lb.example.com:443",
-			clusters: []ClusterSpec{
-				{ClusterName: longClusterLabel},
-				{ClusterName: "ok"},
-			},
+			// Each label fits 63, but the FQDN exceeds 253.
+			// 5 x 60-char labels + 4 dots = 304 > 253.
+			name:          "FQDN > 253 rejected",
+			hostnames:     []string{strings.Repeat("c", 60) + "." + strings.Repeat("a", 60) + "." + strings.Repeat("b", 60) + "." + strings.Repeat("c", 60) + "." + strings.Repeat("d", 60) + ".lb.example.com:443"},
 			errorContains: "invalid DNS subdomain",
 		},
 		{
-			name:     "single-entry clusters substitutes and validates",
-			template: "{clusterName}.lb.example.com:443",
-			clusters: []ClusterSpec{{ClusterName: "us-east-k8s"}},
+			name:       "shard substitution validates each resolved hostname",
+			hostnames:  []string{"{shardName}.lb.example.com:443"},
+			shardNames: []string{"shard-0"},
 		},
 		{
 			name:          "empty host after port-stripping rejected",
-			template:      ":443",
-			clusters:      []ClusterSpec{{}},
+			hostnames:     []string{":443"},
 			errorContains: "empty host",
 		},
 		{
-			name:     "no port present validates whole string as host",
-			template: "{clusterName}.lb.example.com",
-			clusters: []ClusterSpec{{ClusterName: "us-east-k8s"}, {ClusterName: "eu-west-k8s"}},
+			name:      "no port present validates whole string as host",
+			hostnames: []string{"us-east.lb.example.com", "eu-west.lb.example.com"},
 		},
 		{
-			// 62-char label + {clusterIndex}: pinned index 70 renders a 64-char label
-			// (overflow), array position 0 would render 63 (valid). Single entry, so the
-			// validator only overflows if it honors the pinned ClusterIndex, not position 0.
-			name:          "pinned clusterIndex (not array position) drives DNS-label overflow",
-			template:      strings.Repeat("a", 62) + "{clusterIndex}.lb.example.com:443",
-			clusters:      []ClusterSpec{pinnedSpec("us-east-k8s", 70)},
+			name:          "oversized shard label rejected after substitution",
+			hostnames:     []string{"{shardName}.lb.example.com:443"},
+			shardNames:    []string{longLabel},
 			errorContains: "invalid DNS subdomain",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s := mkSearch(tt.template, tt.clusters, tt.shardNames)
+			s := mkSearch(tt.hostnames, tt.shardNames)
 			res := validateExternalHostnameDNSLength(s)
 			if tt.errorContains != "" {
 				assert.Equal(t, v1.ErrorLevel, res.Level, "expected error, got %+v", res)
@@ -496,7 +469,6 @@ func TestValidateExternalHostnameDNSLength(t *testing.T) {
 // dispatch scopes this validator to multi-cluster specs, so only the LB shape
 // matters here. Both no-LB and unmanaged-LB are rejected; managed is accepted.
 func TestValidateMCRequiresManagedLB(t *testing.T) {
-	clusters := []ClusterSpec{{ClusterName: "us-east-k8s"}, {ClusterName: "eu-west-k8s"}}
 	tests := []struct {
 		name          string
 		lb            *LoadBalancerConfig
@@ -504,24 +476,27 @@ func TestValidateMCRequiresManagedLB(t *testing.T) {
 	}{
 		{
 			name: "MC + managed LB allowed",
-			lb:   &LoadBalancerConfig{Managed: &ManagedLBConfig{ExternalHostname: "{clusterName}.lb.example.com:443"}},
+			lb:   &LoadBalancerConfig{Managed: &ManagedLBConfig{ExternalHostname: "lb.example.com:443"}},
 		},
 		{
 			name:          "MC + no LB rejected",
 			lb:            nil,
-			errorContains: "requires a managed load balancer (spec.loadBalancer.managed) at the moment; none is configured",
+			errorContains: "requires a managed load balancer (spec.clusters[0].loadBalancer.managed) at the moment; none is configured",
 		},
 		{
 			name:          "MC + unmanaged LB rejected",
 			lb:            &LoadBalancerConfig{Unmanaged: &UnmanagedLBConfig{Endpoint: "lb.example.com:443"}},
-			errorContains: "spec.loadBalancer.unmanaged is not supported for multi-cluster",
+			errorContains: "spec.clusters[0].loadBalancer.unmanaged is not supported for multi-cluster",
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s := &MongoDBSearch{
 				ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"},
-				Spec:       MongoDBSearchSpec{Clusters: clusters, LoadBalancer: tt.lb},
+				Spec: MongoDBSearchSpec{Clusters: []ClusterSpec{
+					{ClusterName: "us-east-k8s", LoadBalancer: tt.lb},
+					{ClusterName: "eu-west-k8s", LoadBalancer: tt.lb},
+				}},
 			}
 			res := validateMCRequiresManagedLB(s)
 			if tt.errorContains != "" {
@@ -580,7 +555,9 @@ func TestValidateClustersClusterNameNonEmpty(t *testing.T) {
 				s.Spec.Source = &MongoDBSource{
 					ExternalMongoDBSource: &ExternalMongoDBSource{HostAndPorts: []string{"h:27017"}},
 				}
-				s.Spec.LoadBalancer = &LoadBalancerConfig{Managed: &ManagedLBConfig{ExternalHostname: "{clusterName}.lb.example.com:443"}}
+				for i := range s.Spec.Clusters {
+					s.Spec.Clusters[i].LoadBalancer = managedLBWithHostname("c" + strconv.Itoa(i) + ".lb.example.com:443")
+				}
 			}
 			err := s.ValidateSpec()
 			if tt.errorContains != "" {
@@ -642,7 +619,9 @@ func TestValidateMCMatchTagsNonEmpty(t *testing.T) {
 				s.Spec.Source = &MongoDBSource{
 					ExternalMongoDBSource: &ExternalMongoDBSource{HostAndPorts: []string{"h:27017"}},
 				}
-				s.Spec.LoadBalancer = &LoadBalancerConfig{Managed: &ManagedLBConfig{ExternalHostname: "{clusterName}.lb.example.com:443"}}
+				for i := range s.Spec.Clusters {
+					s.Spec.Clusters[i].LoadBalancer = managedLBWithHostname("c" + strconv.Itoa(i) + ".lb.example.com:443")
+				}
 			}
 			err := s.ValidateSpec()
 			if tt.errorContains != "" {
@@ -687,17 +666,21 @@ func TestValidateClustersClusterIndexRequired(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			clusters := append([]ClusterSpec(nil), tt.clusters...)
 			s := &MongoDBSearch{
 				ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"},
-				Spec:       MongoDBSearchSpec{Clusters: tt.clusters},
+				Spec:       MongoDBSearchSpec{Clusters: clusters},
 			}
-			// Multi-cluster specs need an external source + managed LB so the
-			// clusterIndex check is the rule under test, not the MC source/LB checks.
-			if len(tt.clusters) > 1 {
+			// Multi-cluster specs need an external source + managed LB on every
+			// cluster so the clusterIndex check is the rule under test, not the MC
+			// source/LB checks.
+			if len(clusters) > 1 {
 				s.Spec.Source = &MongoDBSource{
 					ExternalMongoDBSource: &ExternalMongoDBSource{HostAndPorts: []string{"h:27017"}},
 				}
-				s.Spec.LoadBalancer = &LoadBalancerConfig{Managed: &ManagedLBConfig{ExternalHostname: "{clusterName}.lb.example.com:443"}}
+				for i := range clusters {
+					clusters[i].LoadBalancer = managedLBWithHostname("c" + strconv.Itoa(i) + ".lb.example.com:443")
+				}
 			}
 			err := s.ValidateSpec()
 			if tt.errorContains != "" {
@@ -708,6 +691,11 @@ func TestValidateClustersClusterIndexRequired(t *testing.T) {
 			}
 		})
 	}
+}
+
+// managedLBWithHostname is a shorthand for a per-cluster managed LB entry.
+func managedLBWithHostname(hostname string) *LoadBalancerConfig {
+	return &LoadBalancerConfig{Managed: &ManagedLBConfig{ExternalHostname: hostname}}
 }
 
 func newSearch(name string, shards []ExternalShardConfig, tlsPrefix string, isTLS, isLBManaged bool) *MongoDBSearch {
@@ -729,7 +717,7 @@ func newSearch(name string, shards []ExternalShardConfig, tlsPrefix string, isTL
 		search.Spec.Security.TLS = &TLS{CertsSecretPrefix: tlsPrefix}
 	}
 	if isLBManaged {
-		search.Spec.LoadBalancer = &LoadBalancerConfig{Managed: &ManagedLBConfig{}}
+		search.Spec.Clusters[0].LoadBalancer = &LoadBalancerConfig{Managed: &ManagedLBConfig{}}
 	}
 	return search
 }
@@ -783,6 +771,66 @@ func TestValidateMCRequiresExternalSource(t *testing.T) {
 		},
 	}
 	assert.Equal(t, v1.SuccessLevel, validateMCRequiresExternalSource(mdbSharded).Level, "MC sharded source must be accepted")
+}
+
+// TestValidateLBConfig covers the per-cluster LB shape rules: exactly one of
+// managed/unmanaged per entry, all-or-none presence, and no mode mixing.
+func TestValidateLBConfig(t *testing.T) {
+	managed := &LoadBalancerConfig{Managed: &ManagedLBConfig{ExternalHostname: "lb.example.com:443"}}
+	unmanaged := &LoadBalancerConfig{Unmanaged: &UnmanagedLBConfig{Endpoint: "lb.example.com:443"}}
+	tests := []struct {
+		name          string
+		clusters      []ClusterSpec
+		errorContains string
+	}{
+		{
+			name:     "no LB anywhere ok",
+			clusters: []ClusterSpec{{ClusterName: "a"}, {ClusterName: "b"}},
+		},
+		{
+			name:     "managed everywhere ok",
+			clusters: []ClusterSpec{{ClusterName: "a", LoadBalancer: managed}, {ClusterName: "b", LoadBalancer: managed}},
+		},
+		{
+			name:     "unmanaged everywhere ok",
+			clusters: []ClusterSpec{{ClusterName: "a", LoadBalancer: unmanaged}, {ClusterName: "b", LoadBalancer: unmanaged}},
+		},
+		{
+			name:          "neither managed nor unmanaged rejected",
+			clusters:      []ClusterSpec{{ClusterName: "a", LoadBalancer: &LoadBalancerConfig{}}},
+			errorContains: "exactly one of 'managed' or 'unmanaged'",
+		},
+		{
+			name:          "both managed and unmanaged rejected",
+			clusters:      []ClusterSpec{{ClusterName: "a", LoadBalancer: &LoadBalancerConfig{Managed: &ManagedLBConfig{}, Unmanaged: &UnmanagedLBConfig{Endpoint: "e:443"}}}},
+			errorContains: "mutually exclusive",
+		},
+		{
+			name:          "partial presence rejected",
+			clusters:      []ClusterSpec{{ClusterName: "a", LoadBalancer: managed}, {ClusterName: "b"}},
+			errorContains: "every cluster or on none",
+		},
+		{
+			name:          "mixed modes rejected",
+			clusters:      []ClusterSpec{{ClusterName: "a", LoadBalancer: managed}, {ClusterName: "b", LoadBalancer: unmanaged}},
+			errorContains: "cannot be mixed",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &MongoDBSearch{
+				ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"},
+				Spec:       MongoDBSearchSpec{Clusters: tt.clusters},
+			}
+			res := validateLBConfig(s)
+			if tt.errorContains != "" {
+				assert.Equal(t, v1.ErrorLevel, res.Level)
+				assert.Contains(t, res.Msg, tt.errorContains)
+			} else {
+				assert.Equal(t, v1.SuccessLevel, res.Level)
+			}
+		})
+	}
 }
 
 // TestValidateClustersEnvoyResourceNames is the admission check for the
@@ -883,12 +931,26 @@ func TestValidateMultipleReplicasRequireLB(t *testing.T) {
 			clusters: []ClusterSpec{{Replicas: ptr.To(int32(3))}},
 			lb:       &LoadBalancerConfig{Managed: &ManagedLBConfig{}},
 		},
+		{
+			name: "shard override replicas without LB rejected",
+			clusters: []ClusterSpec{{
+				Replicas:       ptr.To(int32(1)),
+				ShardOverrides: []ShardOverride{{ShardNames: []string{"shard-1"}, Replicas: ptr.To(int32(2))}},
+			}},
+			errorContains: "multiple mongot replicas (2) require load balancer",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			clusters := tt.clusters
+			for i := range clusters {
+				if tt.lb != nil {
+					clusters[i].LoadBalancer = tt.lb
+				}
+			}
 			s := &MongoDBSearch{
 				ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"},
-				Spec:       MongoDBSearchSpec{Clusters: tt.clusters, LoadBalancer: tt.lb},
+				Spec:       MongoDBSearchSpec{Clusters: clusters},
 			}
 			res := validateMultipleReplicasRequireLB(s)
 			if tt.errorContains != "" {
@@ -956,8 +1018,10 @@ func TestValidateUnmanagedEndpointTemplate(t *testing.T) {
 			s := &MongoDBSearch{
 				ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"},
 				Spec: MongoDBSearchSpec{
-					Source:       tt.source,
-					LoadBalancer: &LoadBalancerConfig{Unmanaged: &UnmanagedLBConfig{Endpoint: tt.endpoint}},
+					Source: tt.source,
+					Clusters: []ClusterSpec{
+						{LoadBalancer: &LoadBalancerConfig{Unmanaged: &UnmanagedLBConfig{Endpoint: tt.endpoint}}},
+					},
 				},
 			}
 			res := validateUnmanagedEndpointTemplate(s)
@@ -969,4 +1033,62 @@ func TestValidateUnmanagedEndpointTemplate(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestValidateShardOverrides(t *testing.T) {
+	shard := func(name string) ExternalShardConfig {
+		return ExternalShardConfig{ShardName: name, Hosts: []string{"host:27017"}}
+	}
+
+	t.Run("no overrides passes", func(t *testing.T) {
+		s := newSearch("my-search", []ExternalShardConfig{shard("shard-0")}, "", false, false)
+		assert.Equal(t, v1.SuccessLevel, validateShardOverrides(s).Level)
+	})
+
+	t.Run("override on non-sharded source is rejected", func(t *testing.T) {
+		s := &MongoDBSearch{
+			ObjectMeta: metav1.ObjectMeta{Name: "my-search", Namespace: "ns"},
+			Spec: MongoDBSearchSpec{
+				Source: &MongoDBSource{ExternalMongoDBSource: &ExternalMongoDBSource{HostAndPorts: []string{"h:27017"}}},
+				Clusters: []ClusterSpec{
+					{ShardOverrides: []ShardOverride{{ShardNames: []string{"shard-0"}}}},
+				},
+			},
+		}
+		res := validateShardOverrides(s)
+		assert.Equal(t, v1.ErrorLevel, res.Level)
+		assert.Contains(t, res.Msg, "only supported for external sharded sources")
+	})
+
+	t.Run("unknown shardName is rejected", func(t *testing.T) {
+		s := newSearch("my-search", []ExternalShardConfig{shard("shard-0")}, "", false, false)
+		s.Spec.Clusters = []ClusterSpec{
+			{ShardOverrides: []ShardOverride{{ShardNames: []string{"shard-9"}}}},
+		}
+		res := validateShardOverrides(s)
+		assert.Equal(t, v1.ErrorLevel, res.Level)
+		assert.Contains(t, res.Msg, "unknown shardName")
+	})
+
+	t.Run("shard in two override entries of one cluster is rejected", func(t *testing.T) {
+		s := newSearch("my-search", []ExternalShardConfig{shard("shard-0"), shard("shard-1")}, "", false, false)
+		s.Spec.Clusters = []ClusterSpec{
+			{ShardOverrides: []ShardOverride{
+				{ShardNames: []string{"shard-0"}},
+				{ShardNames: []string{"shard-0", "shard-1"}},
+			}},
+		}
+		res := validateShardOverrides(s)
+		assert.Equal(t, v1.ErrorLevel, res.Level)
+		assert.Contains(t, res.Msg, "more than one shardOverrides entry")
+	})
+
+	t.Run("same shard overridden in different clusters is allowed", func(t *testing.T) {
+		s := newSearch("my-search", []ExternalShardConfig{shard("shard-0")}, "", false, false)
+		s.Spec.Clusters = []ClusterSpec{
+			{ClusterName: "east", ShardOverrides: []ShardOverride{{ShardNames: []string{"shard-0"}}}},
+			{ClusterName: "west", ShardOverrides: []ShardOverride{{ShardNames: []string{"shard-0"}}}},
+		}
+		assert.Equal(t, v1.SuccessLevel, validateShardOverrides(s).Level)
+	})
 }

@@ -33,13 +33,13 @@ spec:
   security:
     tls:
       certsSecretPrefix: ${MDB_TLS_CERT_SECRET_PREFIX}
-  # loadBalancer.managed -- operator auto-deploys
-  # and configures Envoy proxy
-  loadBalancer:
-    managed:
-      externalHostname: ${MDB_SEARCH_RESOURCE_NAME}-search-0-{shardName}-proxy-svc.${MDB_NS}.svc.cluster.local
   clusters:
     - replicas: ${MDB_MONGOT_REPLICAS}
+      # loadBalancer.managed -- operator auto-deploys
+      # and configures Envoy proxy
+      loadBalancer:
+        managed:
+          externalHostname: ${MDB_SEARCH_RESOURCE_NAME}-search-0-{shardName}-proxy-svc.${MDB_NS}.svc.cluster.local
       resourceRequirements:
         limits:
           cpu: "2"
