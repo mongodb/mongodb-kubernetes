@@ -213,7 +213,7 @@ community:
     imageType: ubi8
   agent:
     name: mongodb-agent
-    version: 108.0.2.8729-1
+    version: 108.0.24.9016-1
   registry:
     agent: quay.io/mongodb
   resource:
