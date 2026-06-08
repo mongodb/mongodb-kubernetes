@@ -16,7 +16,7 @@ from kubetester.ldap import (
     ldap_initialize,
 )
 from pytest import fixture
-from tests.conftest import is_member_cluster
+from tests.conftest import create_issuer, is_member_cluster
 
 LDAP_PASSWORD = "LDAPPassword."
 LDAP_NAME = "openldap"
@@ -129,11 +129,20 @@ def secondary_openldap(ldap_namespace: str) -> OpenLDAP:
     return openldap_install(ldap_namespace, f"{LDAP_NAME}secondary")
 
 
+@fixture(scope="session")
+def ldap_issuer(ldap_namespace: str) -> str:
+    """Creates a cert-manager Issuer in the openldap namespace."""
+    return create_issuer(ldap_namespace)
+
+
 @fixture(scope="module")
-def openldap_cert(namespace: str, ldap_namespace: str, issuer: str) -> str:
-    """Returns a new secret to be used to enable TLS on LDAP."""
+def openldap_cert(namespace: str, ldap_namespace: str, ldap_issuer: str) -> str:
+    """Returns a new secret to be used to enable TLS on LDAP.
+
+    The secret is created directly in ldap_namespace so the openldap pod can mount it.
+    """
     host = ldap_host(ldap_namespace, LDAP_NAME)
-    return generate_cert(namespace, "openldap", host, issuer)
+    return generate_cert(ldap_namespace, "openldap", host, ldap_issuer)
 
 
 @fixture(scope="module")
