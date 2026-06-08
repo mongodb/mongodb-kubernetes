@@ -40,6 +40,7 @@ from tests.common.search.bootstrap_test_mixins import (
 )
 from tests.common.search.connectivity import (
     SearchConnectivityTool,
+    wait_for_all_pods_replaced,
     wait_for_pods_by_label_replaced,
 )
 from tests.common.search.rs_search_helper import rs_search_tester
@@ -51,6 +52,7 @@ from tests.common.search.stream_tracing import (
     new_downstream_after,
     read_envoy_logs,
     streams_active_between,
+    upstream_for_stream,
     upstream_hosts,
 )
 from tests.conftest import get_namespace
@@ -66,6 +68,7 @@ SEARCH = SearchDeploymentConfig()
 MDBS_NAME = MDB.mdb_resource_name
 ENVOY_DEPLOYMENT = search_resource_names.lb_deployment_name(MDBS_NAME)
 ENVOY_SELECTOR = f"app={ENVOY_DEPLOYMENT}"
+MONGOT_SELECTOR = f"app={search_resource_names.mongot_service_name_for_cluster(MDBS_NAME)}"
 
 BASELINE_OPS = 30  # above assert_no_outage's min_operations=5 floor
 POST_EVENT_OPS = 15
@@ -118,6 +121,19 @@ def _rollout_and_wait(namespace: str) -> None:
     uids = _pod_uids(namespace, ENVOY_SELECTOR)
     _rollout_restart(namespace, ENVOY_DEPLOYMENT)
     wait_for_pods_by_label_replaced(namespace, ENVOY_SELECTOR, uids)
+
+
+def _rollout_mongot_and_wait(namespace: str) -> None:
+    """Rolling-restart the mongot StatefulSet and wait for its pods to be replaced (StatefulSet
+    keeps pod names; replacement is detected by uid change). The envoy pods stay up across this,
+    so their access logs persist and the upstream migration is observable end to end."""
+    sts = search_resource_names.mongot_statefulset_name_for_cluster(MDBS_NAME)
+    uids = _pod_uids(namespace, MONGOT_SELECTOR)
+    stamp = _utcnow().isoformat()
+    patch = {"spec": {"template": {"metadata": {"annotations": {"kubectl.kubernetes.io/restartedAt": stamp}}}}}
+    client.AppsV1Api().patch_namespaced_stateful_set(name=sts, namespace=namespace, body=patch)
+    logger.info(f"rollout-restart statefulset/{sts}")
+    wait_for_all_pods_replaced(namespace, uids)
 
 
 def _assert_steady(namespace: str) -> None:
@@ -300,6 +316,52 @@ class TestEnvoyRollingDrain:
         )
         # availability property is hard-asserted; stream disposition above is observe-and-log
         _assert_rolled_through(paging.verdict, ok_at_recovery, ok_after, "envoy-roll")
+        _assert_steady(namespace)
+
+    def test_recovers_to_steady_state(self, namespace: str):
+        _assert_steady(namespace)
+
+
+# --- scenario: mongot StatefulSet rolling restart (upstream drain) ---------
+
+
+class TestMongotRollingDrain:
+    """mongot StatefulSet rolling restart, observed from the envoy side. The envoy pods survive
+    the roll, so their access logs span it: a client whose stream was pinned to the draining
+    mongot should migrate to the surviving upstream. Availability recovery is hard-asserted; the
+    paging cursor disposition is drain-dependent (the empirical cursor-fault truth) so its class
+    is logged, not hard-asserted."""
+
+    def test_steady_state_before(self, namespace: str):
+        _assert_steady(namespace)
+
+    def test_mongot_roll_upstream_migration(self, namespace: str):
+        t0 = _utcnow()
+        oneshot = SearchAvailabilityBackgroundTester(_user_tool(namespace), mode="oneshot", interval_seconds=0.2)
+        paging = SearchAvailabilityBackgroundTester(
+            _user_tool(namespace), mode="paging", paging_batch_size=5, paging_reset_every=50_000, interval_seconds=0.05
+        )
+        with oneshot, paging:
+            oneshot.wait_for_operations(BASELINE_OPS)
+            paging.wait_for_operations(BASELINE_OPS)
+            _rollout_mongot_and_wait(namespace)
+            ok_at_recovery = paging.succeeded_count  # snapshot once replacement pods are Ready
+            oneshot.wait_for_operations(POST_EVENT_OPS)
+            paging.wait_for_operations(POST_EVENT_OPS)
+            ok_after = paging.succeeded_count
+        records = read_envoy_logs(namespace, ENVOY_SELECTOR)  # envoy survives the mongot roll
+        window = streams_active_between(records, t0, _utcnow())
+        migrated = [
+            cid for cid in {r.client_id for r in window if r.client_id} if len(upstream_for_stream(window, cid)) > 1
+        ]
+        logger.info(
+            "mongot-roll stream disposition: "
+            f"records={len(records)} window={len(window)} forced={len(forced_closed(window))} "
+            f"upstreams={sorted(upstream_hosts(window))} migrated_clients={len(migrated)} "
+            f"oneshot={oneshot.verdict.as_dict()} paging={paging.verdict.as_dict()}"
+        )
+        # availability property is hard-asserted; the cursor class + migration above are observe-and-log
+        _assert_rolled_through(paging.verdict, ok_at_recovery, ok_after, "mongot-roll")
         _assert_steady(namespace)
 
     def test_recovers_to_steady_state(self, namespace: str):
