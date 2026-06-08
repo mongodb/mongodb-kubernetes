@@ -25,7 +25,7 @@ def build_sha256_creds(password: str) -> dict:
 
 
 def build_sha1_creds(username: str, password: str) -> dict:
-    password_hash = hashlib.md5(f"{username}:mongo:{password}".encode()).hexdigest()  # nosec B324 - MD5 is mandated by the MongoDB SCRAM-SHA-1 protocol spec, not used for general password hashing
+    password_hash = hashlib.md5(f"{username}:mongo:{password}".encode()).hexdigest()  # nosec B324  # codeql[py/weak-cryptographic-algorithm] - MD5 is mandated by the MongoDB SCRAM-SHA-1 protocol spec (RFC 5802), not used for general password hashing
     salt = os.urandom(_SCRAM_SHA1_SALT_SIZE)
     salted_password = hashlib.pbkdf2_hmac("sha1", password_hash.encode("utf-8"), salt, _SCRAM_SHA1_ITERATIONS)
     client_key = hmac.new(salted_password, b"Client Key", hashlib.sha1).digest()
