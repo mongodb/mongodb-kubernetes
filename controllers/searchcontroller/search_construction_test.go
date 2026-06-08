@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/utils/ptr"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -273,6 +274,32 @@ func TestCreateSearchStatefulSetFunc_StatefulSetOverrideReplacesAntiAffinity(t *
 	require.Len(t, pa.RequiredDuringSchedulingIgnoredDuringExecution, 1)
 	assert.Equal(t, "topology.kubernetes.io/zone", pa.RequiredDuringSchedulingIgnoredDuringExecution[0].TopologyKey)
 	assert.Equal(t, map[string]string{"custom": "selector"}, pa.RequiredDuringSchedulingIgnoredDuringExecution[0].LabelSelector.MatchLabels)
+}
+
+func TestCreateSearchStatefulSetFunc_ShardOverrideReplicas(t *testing.T) {
+	search := newTestMongoDBSearch("test-search", "default", func(s *searchv1.MongoDBSearch) {
+		s.Spec.Clusters = []searchv1.ClusterSpec{{
+			Replicas: ptr.To(int32(1)),
+			ShardOverrides: []searchv1.ShardOverride{
+				{ShardNames: []string{"shard-1"}, Replicas: ptr.To(int32(3))},
+			},
+		}}
+	})
+	labels := map[string]string{appLabelKey: "test-search-svc"}
+
+	// The overridden shard's StatefulSet uses the override replica count.
+	stsMod, err := CreateSearchStatefulSetFunc(search, "", "shard-1", "test-search-db", "default", "test-search-svc", "cm", labels, "mongot:latest", false)
+	require.NoError(t, err)
+	sts := statefulset.New(stsMod)
+	require.NotNil(t, sts.Spec.Replicas)
+	assert.Equal(t, int32(3), *sts.Spec.Replicas)
+
+	// A shard without an override keeps the cluster default.
+	stsMod, err = CreateSearchStatefulSetFunc(search, "", "shard-0", "test-search-db", "default", "test-search-svc", "cm", labels, "mongot:latest", false)
+	require.NoError(t, err)
+	sts = statefulset.New(stsMod)
+	require.NotNil(t, sts.Spec.Replicas)
+	assert.Equal(t, int32(1), *sts.Spec.Replicas)
 }
 
 type containerInfo struct {
