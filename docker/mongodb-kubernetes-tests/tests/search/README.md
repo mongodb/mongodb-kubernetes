@@ -30,6 +30,7 @@ sub-check** that force-drains past the buffer to prove the cursor fault is obser
 | `search_availability_upgrade_dataplane.py` | `e2e_search_availability_upgrade` | mongot version upgrade (`spec.version`), envoy image upgrade (`MDB_ENVOY_IMAGE`, CI-only) |
 | `search_availability_upgrade_operator.py` | `e2e_search_availability_upgrade_operator` | operator-version upgrade (released → dev) on managed LB, CI-only: no-image-bump gratuitous-roll measurement, then default-image-bump |
 | `search_availability_nontls_smoke.py` | `e2e_search_availability_nontls_smoke` | non-TLS search bootstrap (`search_tls=False`): mongot plaintext gRPC, no CR `spec.security.tls`, mongod `searchTLSMode=disabled` — asserts it deploys and serves (base for the TLS-enable suite) |
+| `search_availability_tls_enable.py` | `e2e_search_availability_tls_enable` | off→on search-TLS enablement (bootstrap non-TLS → add CR `spec.security.tls` + flip mongod `searchTLSMode` to `requireTLS`): rolls mongot + envoy onto TLS, then a search-server cert rotation. Enablement is an inherent bounded outage (recovers), rotation is a ride-through |
 
 The operator-version upgrade suite deploys on the **latest released operator** (single-cluster
 managed Envoy LB shipped in MCK 1.8.0) and upgrades to this build — the real customer chart-upgrade
@@ -59,6 +60,8 @@ shared bootstrap test-class chain, then runs its scenarios with a steady-state g
 | envoy image upgrade | blip → recover | ride-through or transient drop → reopen | n/a (CI-only) |
 | operator default-image-bump | blip → recover | ride-through or transient drop → reopen | n/a (CI-only) |
 | operator no-image-bump | continuous | continuous (control plane off the data path) | n/a (measures gratuitous rolls) |
+| TLS enable (off→on) | outage → recover | outage → recover | n/a (inherent bounded cutover; see note) |
+| TLS cert rotation | blip → recover | ride-through or transient drop → reopen | n/a (one-shot transition; rolls both) |
 
 Assertions check availability *properties*, never exact operation counts. The roll cursor cells
 assert the open cursor serves *fresh* pages after recovery (succeeded grows past a post-recovery
@@ -74,3 +77,10 @@ drained sub-checks. Every scenario closes with a steady-state gate proving full 
   recovery.
 - Operator restart skips locally, where the operator runs out-of-cluster (`replicas=0`) and there
   is no operator pod to delete. It is exercised in CI.
+- TLS enable (off→on) is an **inherent bounded outage**, not a ride-through. mongot's gRPC TLS mode
+  is binary (plaintext or TLS, no dual-listen) and no mongod `searchTLSMode` accepts both endpoint
+  kinds at once, so the plaintext→TLS cutover drops in-flight `$search` until mongod and mongot
+  reconverge (the source-mongod automation agent applying `requireTLS` dominates the tail). The
+  suite asserts both groups roll onto TLS, the mongod reaches `requireTLS`, and search recovers to
+  steady state (the recovery wait bounds the outage) — it does not assert no-outage. Cert *rotation*
+  (TLS→TLS) stays a ride-through because both endpoints serve TLS throughout.
