@@ -137,10 +137,10 @@ spec:
               multiCluster:
                 description: MultiCluster contains multi-cluster configuration.
                 properties:
-                  clusterClientTimeout:
+                  memberClusterClientTimeout:
                     default: 10
                     description: |-
-                      ClusterClientTimeout is the timeout in seconds for connecting to a member
+                      MemberClusterClientTimeout is the timeout in seconds for connecting to a member
                       cluster's Kubernetes API server.
                     minimum: 1
                     type: integer
