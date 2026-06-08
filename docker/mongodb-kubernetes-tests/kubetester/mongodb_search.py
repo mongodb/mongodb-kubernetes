@@ -76,9 +76,9 @@ class MongoDBSearch(MongoDB, CustomObject):
             return None
 
     def is_lb_mode_managed(self) -> bool:
-        """Returns True if spec.loadBalancer.managed is set."""
+        """Returns True if any cluster entry has spec.clusters[].loadBalancer.managed set."""
         try:
-            return "managed" in self["spec"]["loadBalancer"]
+            return any("managed" in (c.get("loadBalancer") or {}) for c in self["spec"]["clusters"])
         except KeyError:
             return False
 

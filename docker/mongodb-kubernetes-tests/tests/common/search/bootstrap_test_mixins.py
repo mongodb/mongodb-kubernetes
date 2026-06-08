@@ -597,14 +597,16 @@ class SearchShardedDeploymentTests(SearchDeploymentTests):
             },
         }
         resource["spec"]["security"] = {"tls": {"certsSecretPrefix": self.search_config.tls_cert_prefix}}
-        resource["spec"]["loadBalancer"] = {
-            "managed": {
-                "externalHostname": (
-                    f"{mdbs_name}-search-{{clusterIndex}}-{{shardName}}-proxy-svc.{self.namespace}.svc.cluster.local"
-                ),
-            },
-        }
-        resource["spec"]["clusters"] = self.search_clusters()
+        clusters = self.search_clusters()
+        for i, cluster in enumerate(clusters):
+            cluster["loadBalancer"] = {
+                "managed": {
+                    "externalHostname": search_resource_names.shard_proxy_svc_hostname_template(
+                        mdbs_name, self.namespace, i
+                    ),
+                },
+            }
+        resource["spec"]["clusters"] = clusters
         return resource
 
     def deploy_lb_certificates(self) -> None:

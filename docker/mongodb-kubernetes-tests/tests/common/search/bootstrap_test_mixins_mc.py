@@ -128,8 +128,8 @@ class SearchRsMcDeploymentTests(SearchDeploymentTests):
         ]
 
     def build_mdbs(self) -> MongoDBSearch:
-        # MC source: MongoDBMulti per-pod FQDNs; managed externalHostname uses the
-        # {clusterIndex} template so per-cluster cert SANs, AC mongotHost, and Envoy
+        # MC source: MongoDBMulti per-pod FQDNs; each cluster's managed externalHostname
+        # carries its own index so per-cluster cert SANs, AC mongotHost, and Envoy
         # SNI all resolve to the same per-cluster proxy-svc FQDN.
         mdbs_name = self.effective_mdbs_resource_name()
         resource = MongoDBSearch.from_yaml(
@@ -155,12 +155,14 @@ class SearchRsMcDeploymentTests(SearchDeploymentTests):
             },
         }
         resource["spec"]["security"] = {"tls": {"certsSecretPrefix": self.search_config.tls_cert_prefix}}
-        resource["spec"]["loadBalancer"] = {
-            "managed": {
-                "externalHostname": f"{mdbs_name}-search-{{clusterIndex}}-proxy-svc.{self.namespace}.svc.cluster.local",
-            },
-        }
-        resource["spec"]["clusters"] = self.search_clusters()
+        clusters = self.search_clusters()
+        for i, cluster in enumerate(clusters):
+            cluster["loadBalancer"] = {
+                "managed": {
+                    "externalHostname": search_resource_names.mc_proxy_svc_fqdn(mdbs_name, self.namespace, i),
+                },
+            }
+        resource["spec"]["clusters"] = clusters
         return resource
 
     def deploy_lb_certificates(self) -> None:

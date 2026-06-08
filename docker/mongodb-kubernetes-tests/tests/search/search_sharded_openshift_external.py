@@ -129,7 +129,7 @@ def create_ocp_routes_for_shards(namespace: str) -> dict[str, str]:
 
 
 def derive_lb_endpoint_template(route_hostnames: dict[str, str]) -> str:
-    """Derive the spec.loadBalancer.managed.externalHostname template from route hostnames.
+    """Derive the spec.clusters[].loadBalancer.managed.externalHostname template from route hostnames.
 
     Takes one hostname like 'mongot-mdb-sh-0-ns.apps.domain' and replaces the
     shard name with {shardName} placeholder: 'mongot-{shardName}-ns.apps.domain'.
@@ -218,7 +218,9 @@ def mdbs(namespace: str, mdb: MongoDB, helper: SearchDeploymentHelper) -> MongoD
     # The helper sets it to the in-cluster proxy-svc FQDN, but on OCP
     # mongod connects via Route hostnames instead.
     if _route_hostnames:
-        resource["spec"]["loadBalancer"]["managed"]["externalHostname"] = derive_lb_endpoint_template(_route_hostnames)
+        resource["spec"]["clusters"][0]["loadBalancer"]["managed"]["externalHostname"] = derive_lb_endpoint_template(
+            _route_hostnames
+        )
     # Shared OpenShift cluster: only 2 schedulable workers (other nodes are tainted master/infra), and this
     # test runs 4 mongot pods. CPU requests must stay low enough that 4 pods fit alongside other concurrent
     # tasks, otherwise pods go Pending with FailedScheduling. Memory drives mongot's JVM heap: -Xmx is set
@@ -248,7 +250,7 @@ def mongot_user(helper: SearchDeploymentHelper, mdbs: MongoDBSearch) -> MongoDBU
 def test_install_operator(namespace: str, operator_installation_config: dict[str, str]):
     """Test that the operator is installed and running.
     apply_crds_first=True is needed on shared OCP clusters where a stale CRD
-    (missing new fields like spec.loadBalancer) may already exist."""
+    (missing new fields like spec.clusters[].loadBalancer) may already exist."""
     operator = get_default_operator(
         namespace, operator_installation_config=operator_installation_config, apply_crds_first=True
     )
