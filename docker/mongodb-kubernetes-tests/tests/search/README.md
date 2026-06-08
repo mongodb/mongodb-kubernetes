@@ -29,6 +29,8 @@ sub-check** that force-drains past the buffer to prove the cursor fault is obser
 | `search_availability_infra.py` | `e2e_search_availability_infra` | node drain (cordon + evict), operator restart |
 | `search_availability_upgrade_dataplane.py` | `e2e_search_availability_upgrade` | mongot version upgrade (`spec.version`), envoy image upgrade (`MDB_ENVOY_IMAGE`, CI-only) |
 | `search_availability_upgrade_operator.py` | `e2e_search_availability_upgrade_operator` | operator-version upgrade (released → dev) on managed LB, CI-only: no-image-bump gratuitous-roll measurement, then default-image-bump |
+| `search_availability_config_change.py` | `e2e_search_availability_config_change` | mongot `resourceRequirements` change (rolls mongot StatefulSet), envoy `resourceRequirements` change (rolls managed-LB Deployment); each touches only its own group |
+| `search_availability_tls_rotation.py` | `e2e_search_availability_tls_rotation` | search-server TLS cert rotation (`spec.security.tls.certsSecretPrefix` → freshly-issued prefix; rolls mongot + envoy onto the new cert) |
 
 The operator-version upgrade suite deploys on the **latest released operator** (single-cluster
 managed Envoy LB shipped in MCK 1.8.0) and upgrades to this build — the real customer chart-upgrade
@@ -58,6 +60,9 @@ shared bootstrap test-class chain, then runs its scenarios with a steady-state g
 | envoy image upgrade | blip → recover | ride-through or transient drop → reopen | n/a (CI-only) |
 | operator default-image-bump | blip → recover | ride-through or transient drop → reopen | n/a (CI-only) |
 | operator no-image-bump | continuous | continuous (control plane off the data path) | n/a (measures gratuitous rolls) |
+| mongot resource change | blip → recover | ride-through or transient drop → reopen | n/a (one-shot transition; envoy untouched) |
+| envoy resource change | blip → recover | ride-through or transient drop → reopen | n/a (one-shot transition; mongot untouched) |
+| TLS cert rotation | blip → recover | ride-through or transient drop → reopen | n/a (one-shot transition; rolls both) |
 
 Assertions check availability *properties*, never exact operation counts. The roll cursor cells
 assert the open cursor serves *fresh* pages after recovery (succeeded grows past a post-recovery
