@@ -252,9 +252,11 @@ func TestGetMongodConfigParameters_ManagedLB(t *testing.T) {
 			Namespace: "test",
 		},
 		Spec: searchv1.MongoDBSearchSpec{
-			LoadBalancer: &searchv1.LoadBalancerConfig{
-				Managed: &searchv1.ManagedLBConfig{},
-			},
+			Clusters: []searchv1.ClusterSpec{{
+				LoadBalancer: &searchv1.LoadBalancerConfig{
+					Managed: &searchv1.ManagedLBConfig{},
+				},
+			}},
 		},
 	}
 
@@ -330,7 +332,7 @@ func TestBuildProxyService_ManagedLB_NotReady(t *testing.T) {
 	search := &searchv1.MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "ns"},
 		Spec: searchv1.MongoDBSearchSpec{
-			LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{}},
+			Clusters: []searchv1.ClusterSpec{{LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{}}}},
 		},
 		// No status.loadBalancer → IsLoadBalancerReady() = false
 	}
@@ -346,7 +348,7 @@ func TestBuildProxyService_ManagedLB_Ready(t *testing.T) {
 	search := &searchv1.MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "ns"},
 		Spec: searchv1.MongoDBSearchSpec{
-			LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{}},
+			Clusters: []searchv1.ClusterSpec{{LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{}}}},
 		},
 		Status: searchv1.MongoDBSearchStatus{
 			LoadBalancer: &searchv1.LoadBalancerStatus{Phase: status.PhaseRunning},
@@ -365,7 +367,7 @@ func TestBuildProxyServiceForShard_ManagedLB_NotReady(t *testing.T) {
 	search := &searchv1.MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "ns"},
 		Spec: searchv1.MongoDBSearchSpec{
-			LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{}},
+			Clusters: []searchv1.ClusterSpec{{LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{}}}},
 		},
 	}
 	unit := newTestShardUnit(search, "shard-0")
@@ -379,7 +381,7 @@ func TestBuildProxyServiceForShard_ManagedLB_Ready(t *testing.T) {
 	search := &searchv1.MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "ns"},
 		Spec: searchv1.MongoDBSearchSpec{
-			LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{}},
+			Clusters: []searchv1.ClusterSpec{{LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{}}}},
 		},
 		Status: searchv1.MongoDBSearchStatus{
 			LoadBalancer: &searchv1.LoadBalancerStatus{Phase: status.PhaseRunning},
@@ -397,7 +399,7 @@ func TestBuildProxyService_ManagedLB_Ready_PerCluster(t *testing.T) {
 	search := &searchv1.MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "ns"},
 		Spec: searchv1.MongoDBSearchSpec{
-			LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{}},
+			Clusters: []searchv1.ClusterSpec{{LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{}}}},
 		},
 		Status: searchv1.MongoDBSearchStatus{
 			LoadBalancer: &searchv1.LoadBalancerStatus{Phase: status.PhaseRunning},
@@ -420,7 +422,7 @@ func TestBuildProxyService_ManagedLB_Ready_SingleCluster(t *testing.T) {
 	search := &searchv1.MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "ns"},
 		Spec: searchv1.MongoDBSearchSpec{
-			LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{}},
+			Clusters: []searchv1.ClusterSpec{{LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{}}}},
 		},
 		Status: searchv1.MongoDBSearchStatus{
 			LoadBalancer: &searchv1.LoadBalancerStatus{Phase: status.PhaseRunning},
@@ -972,7 +974,7 @@ func TestEnsureMongotConfig_PerPodModes(t *testing.T) {
 			embeddingMod := func(c *mongot.Config) {
 				c.Embedding = &mongot.EmbeddingConfig{IsAutoEmbeddingViewWriter: ptr.To(true)}
 			}
-			_, err := helper.ensureMongotConfig(t.Context(), zap.S(), fakeClient, cmName, stsName, "", embeddingMod)
+			_, err := helper.ensureMongotConfig(t.Context(), zap.S(), fakeClient, cmName, stsName, "", int(tc.replicas), embeddingMod)
 			require.NoError(t, err)
 
 			cm, err := fakeClient.GetConfigMap(t.Context(), cmName)
@@ -1009,12 +1011,12 @@ func TestEnsureMongotConfig_TransitionBetweenModes(t *testing.T) {
 	}
 
 	// Create ConfigMap in single config mode
-	_, err := helper.ensureMongotConfig(t.Context(), zap.S(), fakeClient, cmName, stsName, "", embeddingMod)
+	_, err := helper.ensureMongotConfig(t.Context(), zap.S(), fakeClient, cmName, stsName, "", 1, embeddingMod)
 	require.NoError(t, err)
 
 	// Transition to per-pod config mode - verify old key is cleaned up
 	search.Spec.AutoEmbedding = &searchv1.EmbeddingConfig{}
-	_, err = helper.ensureMongotConfig(t.Context(), zap.S(), fakeClient, cmName, stsName, "", embeddingMod)
+	_, err = helper.ensureMongotConfig(t.Context(), zap.S(), fakeClient, cmName, stsName, "", 1, embeddingMod)
 	require.NoError(t, err)
 
 	cm, err := fakeClient.GetConfigMap(t.Context(), cmName)
@@ -1023,7 +1025,7 @@ func TestEnsureMongotConfig_TransitionBetweenModes(t *testing.T) {
 
 	// Transition back to single config mode - verify per-pod keys are cleaned up
 	search.Spec.AutoEmbedding = nil
-	_, err = helper.ensureMongotConfig(t.Context(), zap.S(), fakeClient, cmName, stsName, "", embeddingMod)
+	_, err = helper.ensureMongotConfig(t.Context(), zap.S(), fakeClient, cmName, stsName, "", 1, embeddingMod)
 	require.NoError(t, err)
 
 	cm, err = fakeClient.GetConfigMap(t.Context(), cmName)
@@ -1040,15 +1042,13 @@ func TestCreateSearchStatefulSetFunc_ConfigMounting(t *testing.T) {
 
 	// Single config mode
 	sts := &appsv1.StatefulSet{}
-	stsFunc, err := CreateSearchStatefulSetFunc(search, "", "sts", "ns", "svc", "cm", labels, "img:v1", false)
-	require.NoError(t, err)
+	stsFunc := CreateSearchStatefulSetFunc(search, resolvedSizing(t, search, "", ""), "sts", "ns", "svc", "cm", labels, "img:v1", false)
 	stsFunc(sts)
 	assert.Contains(t, sts.Spec.Template.Spec.Containers[0].Args[1], MongotConfigPath)
 
 	// Per-pod config mode
 	sts = &appsv1.StatefulSet{}
-	stsFunc, err = CreateSearchStatefulSetFunc(search, "", "sts", "ns", "svc", "cm", labels, "img:v1", true)
-	require.NoError(t, err)
+	stsFunc = CreateSearchStatefulSetFunc(search, resolvedSizing(t, search, "", ""), "sts", "ns", "svc", "cm", labels, "img:v1", true)
 	stsFunc(sts)
 	startupCmd := sts.Spec.Template.Spec.Containers[0].Args[1]
 	assert.Contains(t, startupCmd, MongotPerPodConfigDirPath)
@@ -1097,9 +1097,11 @@ func TestGetMongodConfigParametersForShard(t *testing.T) {
 							Name: "test-mdb",
 						},
 					},
-					LoadBalancer: &searchv1.LoadBalancerConfig{
-						Unmanaged: &searchv1.UnmanagedLBConfig{Endpoint: "lb-{shardName}.example.com:27028"},
-					},
+					Clusters: []searchv1.ClusterSpec{{
+						LoadBalancer: &searchv1.LoadBalancerConfig{
+							Unmanaged: &searchv1.UnmanagedLBConfig{Endpoint: "lb-{shardName}.example.com:27028"},
+						},
+					}},
 				},
 			},
 			shardName:      "test-mdb-0",
@@ -1120,9 +1122,11 @@ func TestGetMongodConfigParametersForShard(t *testing.T) {
 							Name: "test-mdb",
 						},
 					},
-					LoadBalancer: &searchv1.LoadBalancerConfig{
-						Unmanaged: &searchv1.UnmanagedLBConfig{Endpoint: "lb-{shardName}.example.com:27028"},
-					},
+					Clusters: []searchv1.ClusterSpec{{
+						LoadBalancer: &searchv1.LoadBalancerConfig{
+							Unmanaged: &searchv1.UnmanagedLBConfig{Endpoint: "lb-{shardName}.example.com:27028"},
+						},
+					}},
 				},
 			},
 			shardName:      "test-mdb-1",
@@ -1152,7 +1156,7 @@ func TestGetMongodConfigParametersForShard(t *testing.T) {
 
 func TestCreateShardMongotConfig(t *testing.T) {
 	search := newTestMongoDBSearch("test-search", "test", func(s *searchv1.MongoDBSearch) {
-		s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
+		s.Spec.Clusters[0].LoadBalancer = &searchv1.LoadBalancerConfig{
 			Unmanaged: &searchv1.UnmanagedLBConfig{Endpoint: "lb-{shardName}.example.com:27028"},
 		}
 	})
@@ -1192,7 +1196,7 @@ func TestCreateShardMongotConfig(t *testing.T) {
 
 func TestShardedMongotConfigWithTLS(t *testing.T) {
 	search := newTestMongoDBSearch("test-search", "test", func(s *searchv1.MongoDBSearch) {
-		s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
+		s.Spec.Clusters[0].LoadBalancer = &searchv1.LoadBalancerConfig{
 			Unmanaged: &searchv1.UnmanagedLBConfig{Endpoint: "lb-{shardName}.example.com:27028"},
 		}
 	})
@@ -1237,7 +1241,7 @@ func TestShardedMongotConfigWithTLS(t *testing.T) {
 
 func TestShardedMongotConfigWithoutTLS(t *testing.T) {
 	search := newTestMongoDBSearch("test-search", "test", func(s *searchv1.MongoDBSearch) {
-		s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
+		s.Spec.Clusters[0].LoadBalancer = &searchv1.LoadBalancerConfig{
 			Unmanaged: &searchv1.UnmanagedLBConfig{Endpoint: "lb-{shardName}.example.com:27028"},
 		}
 	})
@@ -1352,7 +1356,7 @@ func TestValidateManagedLBShardedTLS(t *testing.T) {
 		{
 			name: "non-sharded source, managed LB, no TLS - ok",
 			search: newTestMongoDBSearch("test-search", "test", func(s *searchv1.MongoDBSearch) {
-				s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
+				s.Spec.Clusters[0].LoadBalancer = &searchv1.LoadBalancerConfig{
 					Managed: &searchv1.ManagedLBConfig{},
 				}
 			}),
@@ -1366,7 +1370,7 @@ func TestValidateManagedLBShardedTLS(t *testing.T) {
 		{
 			name: "sharded source, managed LB, TLS configured - ok",
 			search: newTestMongoDBSearch("test-search", "test", func(s *searchv1.MongoDBSearch) {
-				s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
+				s.Spec.Clusters[0].LoadBalancer = &searchv1.LoadBalancerConfig{
 					Managed: &searchv1.ManagedLBConfig{},
 				}
 				s.Spec.Security.TLS = &searchv1.TLS{CertsSecretPrefix: "prefix"}
@@ -1376,7 +1380,7 @@ func TestValidateManagedLBShardedTLS(t *testing.T) {
 		{
 			name: "sharded source, managed LB, no TLS - error",
 			search: newTestMongoDBSearch("test-search", "test", func(s *searchv1.MongoDBSearch) {
-				s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
+				s.Spec.Clusters[0].LoadBalancer = &searchv1.LoadBalancerConfig{
 					Managed: &searchv1.ManagedLBConfig{},
 				}
 			}),
@@ -1386,7 +1390,7 @@ func TestValidateManagedLBShardedTLS(t *testing.T) {
 		{
 			name: "sharded source, unmanaged LB, no TLS - ok",
 			search: newTestMongoDBSearch("test-search", "test", func(s *searchv1.MongoDBSearch) {
-				s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
+				s.Spec.Clusters[0].LoadBalancer = &searchv1.LoadBalancerConfig{
 					Unmanaged: &searchv1.UnmanagedLBConfig{Endpoint: "lb.example.com:27028"},
 				}
 			}),
@@ -1426,7 +1430,7 @@ func TestValidateMultipleReplicasUnmanagedLBTopology(t *testing.T) {
 	}
 	withUnmanaged := func(endpoint string) func(*searchv1.MongoDBSearch) {
 		return func(s *searchv1.MongoDBSearch) {
-			s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
+			s.Spec.Clusters[0].LoadBalancer = &searchv1.LoadBalancerConfig{
 				Unmanaged: &searchv1.UnmanagedLBConfig{Endpoint: endpoint},
 			}
 		}
@@ -1468,7 +1472,7 @@ func TestValidateMultipleReplicasUnmanagedLBTopology(t *testing.T) {
 		{
 			name: "multiple replicas, managed LB - ok",
 			search: newTestMongoDBSearch("test-search", "test", multiReplica, func(s *searchv1.MongoDBSearch) {
-				s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{}}
+				s.Spec.Clusters[0].LoadBalancer = &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{}}
 			}),
 			source: &mockShardedSource{shardNames: []string{"shard-0"}},
 		},
@@ -1540,7 +1544,9 @@ func TestGetMongosConfigParametersForSharded(t *testing.T) {
 							Name: "test-mdb",
 						},
 					},
-					LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{}},
+					Clusters: []searchv1.ClusterSpec{{
+						LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{}},
+					}},
 				},
 			},
 			shardNames:    []string{"test-mdb-0", "test-mdb-1"},
@@ -1560,9 +1566,11 @@ func TestGetMongosConfigParametersForSharded(t *testing.T) {
 							Name: "test-mdb",
 						},
 					},
-					LoadBalancer: &searchv1.LoadBalancerConfig{
-						Unmanaged: &searchv1.UnmanagedLBConfig{Endpoint: "lb-{shardName}.example.com:27028"},
-					},
+					Clusters: []searchv1.ClusterSpec{{
+						LoadBalancer: &searchv1.LoadBalancerConfig{
+							Unmanaged: &searchv1.UnmanagedLBConfig{Endpoint: "lb-{shardName}.example.com:27028"},
+						},
+					}},
 				},
 			},
 			shardNames:    []string{"test-mdb-0", "test-mdb-1"},
@@ -1597,11 +1605,13 @@ func TestGetMongosConfigParametersForSharded(t *testing.T) {
 							Name: "test-mdb",
 						},
 					},
-					LoadBalancer: &searchv1.LoadBalancerConfig{
-						Managed: &searchv1.ManagedLBConfig{
-							ExternalHostname: "{shardName}.search.example.com:443",
+					Clusters: []searchv1.ClusterSpec{{
+						LoadBalancer: &searchv1.LoadBalancerConfig{
+							Managed: &searchv1.ManagedLBConfig{
+								ExternalHostname: "{shardName}.search.example.com:443",
+							},
 						},
-					},
+					}},
 				},
 			},
 			shardNames:    []string{"test-mdb-0", "test-mdb-1"},
@@ -1610,7 +1620,7 @@ func TestGetMongosConfigParametersForSharded(t *testing.T) {
 			expectedHost: "search.example.com:443",
 		},
 		{
-			name: "MC managed LB - cluster-level form resolves {clusterName} for clusterIndex>0",
+			name: "MC managed LB - cluster-level form uses cluster's own externalHostname for clusterIndex>0",
 			search: &searchv1.MongoDBSearch{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-search",
@@ -1622,14 +1632,17 @@ func TestGetMongosConfigParametersForSharded(t *testing.T) {
 							Name: "test-mdb",
 						},
 					},
-					LoadBalancer: &searchv1.LoadBalancerConfig{
-						Managed: &searchv1.ManagedLBConfig{
-							ExternalHostname: "{shardName}.{clusterName}.search.example.com:443",
-						},
-					},
 					Clusters: []searchv1.ClusterSpec{
-						{ClusterName: "us-east-k8s"},
-						{ClusterName: "eu-west-k8s"},
+						{ClusterName: "us-east-k8s", LoadBalancer: &searchv1.LoadBalancerConfig{
+							Managed: &searchv1.ManagedLBConfig{
+								ExternalHostname: "{shardName}.us-east-k8s.search.example.com:443",
+							},
+						}},
+						{ClusterName: "eu-west-k8s", LoadBalancer: &searchv1.LoadBalancerConfig{
+							Managed: &searchv1.ManagedLBConfig{
+								ExternalHostname: "{shardName}.eu-west-k8s.search.example.com:443",
+							},
+						}},
 					},
 				},
 			},
@@ -1637,7 +1650,7 @@ func TestGetMongosConfigParametersForSharded(t *testing.T) {
 			clusterName:   "eu-west-k8s",
 			shardNames:    []string{"test-mdb-0", "test-mdb-1"},
 			clusterDomain: "cluster.local",
-			// Strip "{shardName}." then resolve {clusterName} from the supplied clusterName.
+			// Strip "{shardName}." from spec.clusters[1]'s own externalHostname.
 			expectedHost: "eu-west-k8s.search.example.com:443",
 		},
 	}
@@ -1665,6 +1678,33 @@ func TestGetMongosConfigParametersForSharded(t *testing.T) {
 	}
 }
 
+// TestGetMongosConfigParametersForSharded_PersistedIndexNotSpecPosition: the
+// clusterIndex callers pass comes from the persisted ClusterMapping, which
+// outlives spec positions (indices are never reused on remove/re-add). The
+// endpoint must still resolve to the named cluster's externalHostname.
+// Scenario: [cluster-a, cluster-b] -> [cluster-b]; cluster-b keeps index 1.
+func TestGetMongosConfigParametersForSharded_PersistedIndexNotSpecPosition(t *testing.T) {
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-search", Namespace: "test-ns"},
+		Spec: searchv1.MongoDBSearchSpec{
+			Source: &searchv1.MongoDBSource{
+				MongoDBResourceRef: &userv1.MongoDBResourceRef{Name: "test-mdb"},
+			},
+			Clusters: []searchv1.ClusterSpec{
+				{ClusterName: "cluster-b", LoadBalancer: &searchv1.LoadBalancerConfig{
+					Managed: &searchv1.ManagedLBConfig{ExternalHostname: "{shardName}.b.example.com:443"},
+				}},
+			},
+		},
+	}
+
+	config := GetMongosConfigParametersForSharded(search, 1, "cluster-b", []string{"test-mdb-0"}, "cluster.local")
+	setParameter, ok := config["setParameter"].(map[string]any)
+	require.True(t, ok, "setParameter should be a map")
+	assert.Equal(t, "b.example.com:443", setParameter["mongotHost"],
+		"mongos must get cluster-b's externalHostname even though its persisted index (1) is not its spec position (0)")
+}
+
 func TestMongotHostAndPort_ReplicaSet(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -1683,7 +1723,7 @@ func TestMongotHostAndPort_ReplicaSet(t *testing.T) {
 			search: &searchv1.MongoDBSearch{
 				ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "ns"},
 				Spec: searchv1.MongoDBSearchSpec{
-					LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{}},
+					Clusters: []searchv1.ClusterSpec{{LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{}}}},
 				},
 			},
 			expectedHost: "test-search-0-proxy-svc.ns.svc.cluster.local:27028",
@@ -1693,9 +1733,11 @@ func TestMongotHostAndPort_ReplicaSet(t *testing.T) {
 			search: &searchv1.MongoDBSearch{
 				ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "ns"},
 				Spec: searchv1.MongoDBSearchSpec{
-					LoadBalancer: &searchv1.LoadBalancerConfig{
-						Unmanaged: &searchv1.UnmanagedLBConfig{Endpoint: "my-lb.example.com:27028"},
-					},
+					Clusters: []searchv1.ClusterSpec{{
+						LoadBalancer: &searchv1.LoadBalancerConfig{
+							Unmanaged: &searchv1.UnmanagedLBConfig{Endpoint: "my-lb.example.com:27028"},
+						},
+					}},
 				},
 			},
 			expectedHost: "my-lb.example.com:27028",
@@ -1730,7 +1772,7 @@ func TestMongotEndpointForShard(t *testing.T) {
 			search: &searchv1.MongoDBSearch{
 				ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "ns"},
 				Spec: searchv1.MongoDBSearchSpec{
-					LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{}},
+					Clusters: []searchv1.ClusterSpec{{LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{}}}},
 				},
 			},
 			shardName:    "shard-0",
@@ -1741,9 +1783,11 @@ func TestMongotEndpointForShard(t *testing.T) {
 			search: &searchv1.MongoDBSearch{
 				ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "ns"},
 				Spec: searchv1.MongoDBSearchSpec{
-					LoadBalancer: &searchv1.LoadBalancerConfig{
-						Unmanaged: &searchv1.UnmanagedLBConfig{Endpoint: "lb-{shardName}.example.com:27028"},
-					},
+					Clusters: []searchv1.ClusterSpec{{
+						LoadBalancer: &searchv1.LoadBalancerConfig{
+							Unmanaged: &searchv1.UnmanagedLBConfig{Endpoint: "lb-{shardName}.example.com:27028"},
+						},
+					}},
 				},
 			},
 			shardName:    "shard-0",
@@ -1789,7 +1833,7 @@ func TestEndpointTemplateSubstitution(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			search := newTestMongoDBSearch("test-search", "default", func(s *searchv1.MongoDBSearch) {
-				s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
+				s.Spec.Clusters[0].LoadBalancer = &searchv1.LoadBalancerConfig{
 					Unmanaged: &searchv1.UnmanagedLBConfig{Endpoint: tc.endpointTemplate},
 				}
 			})
@@ -1906,7 +1950,7 @@ func TestValidateEndpointTemplate(t *testing.T) {
 						},
 					},
 				}
-				s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
+				s.Spec.Clusters[0].LoadBalancer = &searchv1.LoadBalancerConfig{
 					Unmanaged: &searchv1.UnmanagedLBConfig{Endpoint: tc.endpoint},
 				}
 			})
@@ -2625,7 +2669,7 @@ func TestReconcileSharded_CreatesPerShardResources(t *testing.T) {
 func TestCleanupStaleShardResources(t *testing.T) {
 	search := newTestMongoDBSearch("test-search", "test-ns", func(s *searchv1.MongoDBSearch) {
 		s.UID = "search-uid"
-		s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{}}
+		s.Spec.Clusters[0].LoadBalancer = &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{}}
 	})
 
 	proxySvc := func(shard string, owned bool) *corev1.Service {
@@ -2856,9 +2900,16 @@ func TestReconcilePlan_UsesPerClusterClient(t *testing.T) {
 // cluster-level proxy Service per cluster.
 func TestBuildShardedPlan_PerClusterShardUnitsForMC(t *testing.T) {
 	search := newTestMongoDBSearch("mdb-search", "ns")
+	// MC requires managed LB; sharded + managed-LB requires TLS. ExternalHostname
+	// must start with {shardName}. so the operator can derive the cluster-level
+	// form, and must be distinct per cluster.
 	search.Spec.Clusters = []searchv1.ClusterSpec{
-		{ClusterName: "cluster-a", ClusterIndex: ptr.To(int32(0))},
-		{ClusterName: "cluster-b", ClusterIndex: ptr.To(int32(1))},
+		{ClusterName: "cluster-a", ClusterIndex: ptr.To(int32(0)), LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{
+			ExternalHostname: "{shardName}.mdb-search-search-0-proxy-svc.ns.svc.cluster.local",
+		}}},
+		{ClusterName: "cluster-b", ClusterIndex: ptr.To(int32(1)), LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{
+			ExternalHostname: "{shardName}.mdb-search-search-1-proxy-svc.ns.svc.cluster.local",
+		}}},
 	}
 
 	shardedSource := &mockShardedSource{
@@ -2914,9 +2965,16 @@ func TestBuildShardedPlan_PerClusterShardUnitsForMC(t *testing.T) {
 // cluster. Central client receives nothing.
 func TestReconcileShardedMC_FanOutUsesPerClusterClient(t *testing.T) {
 	search := newTestMongoDBSearch("mdb-search", "ns")
+	// MC requires managed LB; sharded + managed-LB requires TLS. ExternalHostname
+	// must start with {shardName}. so the operator can derive the cluster-level
+	// form, and must be distinct per cluster.
 	search.Spec.Clusters = []searchv1.ClusterSpec{
-		{ClusterName: "cluster-a", ClusterIndex: ptr.To(int32(0))},
-		{ClusterName: "cluster-b", ClusterIndex: ptr.To(int32(1))},
+		{ClusterName: "cluster-a", ClusterIndex: ptr.To(int32(0)), LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{
+			ExternalHostname: "{shardName}.mdb-search-search-0-proxy-svc.ns.svc.cluster.local",
+		}}},
+		{ClusterName: "cluster-b", ClusterIndex: ptr.To(int32(1)), LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{
+			ExternalHostname: "{shardName}.mdb-search-search-1-proxy-svc.ns.svc.cluster.local",
+		}}},
 	}
 
 	shardedSource := &mockShardedSource{
@@ -3028,9 +3086,16 @@ func TestReconcileShardedMC_FanOutUsesPerClusterClient(t *testing.T) {
 // none of them can become Ready under a fake client.
 func TestReconcileShardedMC_AllUnitsAppliedBeforeReadinessCheck(t *testing.T) {
 	search := newTestMongoDBSearch("mdb-search", "ns")
+	// MC requires managed LB; sharded + managed-LB requires TLS. ExternalHostname
+	// must start with {shardName}. so the operator can derive the cluster-level
+	// form, and must be distinct per cluster.
 	search.Spec.Clusters = []searchv1.ClusterSpec{
-		{ClusterName: "cluster-a", ClusterIndex: ptr.To(int32(0))},
-		{ClusterName: "cluster-b", ClusterIndex: ptr.To(int32(1))},
+		{ClusterName: "cluster-a", ClusterIndex: ptr.To(int32(0)), LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{
+			ExternalHostname: "{shardName}.mdb-search-search-0-proxy-svc.ns.svc.cluster.local",
+		}}},
+		{ClusterName: "cluster-b", ClusterIndex: ptr.To(int32(1)), LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{
+			ExternalHostname: "{shardName}.mdb-search-search-1-proxy-svc.ns.svc.cluster.local",
+		}}},
 	}
 	search.Spec.Source = &searchv1.MongoDBSource{
 		ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{
@@ -3042,14 +3107,6 @@ func TestReconcileShardedMC_AllUnitsAppliedBeforeReadinessCheck(t *testing.T) {
 					{ShardName: "sh-2", Hosts: []string{"sh-2-a.example:27017"}},
 				},
 			},
-		},
-	}
-	// MC requires managed LB; sharded + managed-LB requires TLS. ExternalHostname
-	// must start with {shardName}. so the operator can derive the cluster-level
-	// form (M2 validator).
-	search.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
-		Managed: &searchv1.ManagedLBConfig{
-			ExternalHostname: "{shardName}.mdb-search-search-{clusterIndex}-proxy-svc.ns.svc.cluster.local",
 		},
 	}
 	search.Spec.Security = searchv1.Security{
@@ -3153,9 +3210,16 @@ type mcShardedFixture struct {
 func newMCShardedFixture(t *testing.T) *mcShardedFixture {
 	t.Helper()
 	search := newTestMongoDBSearch("mdb-search", "ns")
+	// MC requires managed LB; sharded + managed-LB requires TLS. ExternalHostname
+	// must start with {shardName}. so the operator can derive the cluster-level
+	// form, and must be distinct per cluster.
 	search.Spec.Clusters = []searchv1.ClusterSpec{
-		{ClusterName: "cluster-a", ClusterIndex: ptr.To(int32(0))},
-		{ClusterName: "cluster-b", ClusterIndex: ptr.To(int32(1))},
+		{ClusterName: "cluster-a", ClusterIndex: ptr.To(int32(0)), LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{
+			ExternalHostname: "{shardName}.mdb-search-search-0-proxy-svc.ns.svc.cluster.local",
+		}}},
+		{ClusterName: "cluster-b", ClusterIndex: ptr.To(int32(1)), LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{
+			ExternalHostname: "{shardName}.mdb-search-search-1-proxy-svc.ns.svc.cluster.local",
+		}}},
 	}
 	search.Spec.Source = &searchv1.MongoDBSource{
 		ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{
@@ -3167,11 +3231,6 @@ func newMCShardedFixture(t *testing.T) *mcShardedFixture {
 					{ShardName: "sh-2", Hosts: []string{"sh-2-a.example:27017"}},
 				},
 			},
-		},
-	}
-	search.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
-		Managed: &searchv1.ManagedLBConfig{
-			ExternalHostname: "{shardName}.mdb-search-search-{clusterIndex}-proxy-svc.ns.svc.cluster.local",
 		},
 	}
 	search.Spec.Security = searchv1.Security{
@@ -3326,10 +3385,9 @@ func TestReconcileShardedMC_MissingMemberClusterClient(t *testing.T) {
 func TestCleanupStaleShardResources_MCFanOut(t *testing.T) {
 	search := newTestMongoDBSearch("mdb-search", "ns", func(s *searchv1.MongoDBSearch) {
 		s.UID = "search-uid"
-		s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{}}
 		s.Spec.Clusters = []searchv1.ClusterSpec{
-			{ClusterName: "cluster-a"},
-			{ClusterName: "cluster-b"},
+			{ClusterName: "cluster-a", LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{}}},
+			{ClusterName: "cluster-b", LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{}}},
 		}
 	})
 
@@ -3520,7 +3578,7 @@ func TestReconcileSharded_RoutingSwitchOneWay(t *testing.T) {
 				},
 			},
 		}
-		s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
+		s.Spec.Clusters[0].LoadBalancer = &searchv1.LoadBalancerConfig{
 			Managed: &searchv1.ManagedLBConfig{
 				ExternalHostname: "{shardName}.mdb-search-search-0-proxy-svc.ns.svc.cluster.local",
 			},
@@ -3598,7 +3656,7 @@ func TestReconcileSharded_SwitchErrorsAggregatedAcrossUnits(t *testing.T) {
 				},
 			},
 		}
-		s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
+		s.Spec.Clusters[0].LoadBalancer = &searchv1.LoadBalancerConfig{
 			Managed: &searchv1.ManagedLBConfig{
 				ExternalHostname: "{shardName}.mdb-search-search-0-proxy-svc.ns.svc.cluster.local",
 			},
@@ -3710,4 +3768,71 @@ func TestReconcileSharded_StatefulSetTemplateStableAcrossReconciles(t *testing.T
 		"second reconcile must not change the pod template (a diff rolls every mongot pod)")
 	require.Len(t, updated.Spec.Template.Spec.InitContainers, 1)
 	assert.Equal(t, "startup-delay", updated.Spec.Template.Spec.InitContainers[0].Name)
+}
+
+// TestReconcileShardedMC_ShardOverrideReplicas drives the full reconcile with
+// shardOverrides through to the per-(cluster, shard) StatefulSets, then moves
+// the overrides and asserts the STSs converge to the new spec.
+func TestReconcileShardedMC_ShardOverrideReplicas(t *testing.T) {
+	fx := newMCShardedFixture(t)
+	fx.search.Spec.Clusters = []searchv1.ClusterSpec{
+		{
+			ClusterName:  "cluster-a",
+			ClusterIndex: ptr.To(int32(0)),
+			Replicas:     ptr.To(int32(1)),
+			LoadBalancer: fx.search.Spec.Clusters[0].LoadBalancer,
+			ShardOverrides: []searchv1.ShardOverride{
+				// One entry, two shards: both must pick up the override.
+				{ShardNames: []string{"sh-0", "sh-1"}, Replicas: ptr.To(int32(2))},
+			},
+		},
+		{
+			ClusterName:  "cluster-b",
+			ClusterIndex: ptr.To(int32(1)),
+			Replicas:     ptr.To(int32(3)),
+			LoadBalancer: fx.search.Spec.Clusters[1].LoadBalancer,
+			ShardOverrides: []searchv1.ShardOverride{
+				// Explicit 0 takes this shard's mongot offline.
+				{ShardNames: []string{"sh-2"}, Replicas: ptr.To(int32(0))},
+			},
+		},
+	}
+	helper := fx.newHelper()
+
+	assertShardReplicas := func(expected map[string]map[string]int32) {
+		t.Helper()
+		for clusterName, shards := range expected {
+			clusterIdx := fx.clusterMapping[clusterName]
+			for shardName, replicas := range shards {
+				stsName := fx.search.MongotStatefulSetForClusterShard(clusterIdx, shardName)
+				sts := &appsv1.StatefulSet{}
+				require.NoError(t, fx.members[clusterName].Get(t.Context(), stsName, sts))
+				require.NotNil(t, sts.Spec.Replicas, "cluster %s shard %s", clusterName, shardName)
+				assert.Equal(t, replicas, *sts.Spec.Replicas, "cluster %s shard %s", clusterName, shardName)
+			}
+		}
+	}
+
+	st := helper.reconcile(t.Context(), zap.S())
+	require.False(t, st.IsOK(), "fake STSs are never ready; reconcile reports Pending")
+
+	assertShardReplicas(map[string]map[string]int32{
+		"cluster-a": {"sh-0": 2, "sh-1": 2, "sh-2": 1}, // sh-2 keeps the cluster default
+		"cluster-b": {"sh-0": 3, "sh-1": 3, "sh-2": 0}, // cluster-a's override must not leak here
+	})
+
+	// Spec change: drop cluster-a's override, move cluster-b's to a different
+	// shard. The next pass re-resolves every cell from the new spec.
+	fx.search.Spec.Clusters[0].ShardOverrides = nil
+	fx.search.Spec.Clusters[1].ShardOverrides = []searchv1.ShardOverride{
+		{ShardNames: []string{"sh-0"}, Replicas: ptr.To(int32(5))},
+	}
+
+	st = helper.reconcile(t.Context(), zap.S())
+	require.False(t, st.IsOK())
+
+	assertShardReplicas(map[string]map[string]int32{
+		"cluster-a": {"sh-0": 1, "sh-1": 1, "sh-2": 1}, // back to the cluster default
+		"cluster-b": {"sh-0": 5, "sh-1": 3, "sh-2": 3}, // sh-2 back to default after the override moved
+	})
 }
