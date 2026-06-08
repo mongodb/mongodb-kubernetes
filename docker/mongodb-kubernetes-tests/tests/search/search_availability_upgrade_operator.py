@@ -65,7 +65,10 @@ pytestmark = mark.skipif(local_operator(), reason="operator-version upgrade need
 
 
 def user_connectivity_tool(namespace: str) -> SearchConnectivityTool:
-    return SearchConnectivityTool(rs_search_tester(MDB_RESOURCE_NAME, namespace, USER_NAME, USER_PASSWORD))
+    # The mongod RS is deployed without TLS, so connect without TLS to match it.
+    return SearchConnectivityTool(
+        rs_search_tester(MDB_RESOURCE_NAME, namespace, USER_NAME, USER_PASSWORD, use_ssl=False)
+    )
 
 
 def get_mongot_image_tag(namespace: str) -> str:
@@ -153,6 +156,7 @@ class TestDeployOnOfficialOperator:
     @skip_if_cloud_manager
     def test_create_ops_manager(self, namespace: str):
         ops_manager = get_ops_manager(namespace)
+        assert ops_manager is not None
         ops_manager.update()
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=1200)
         ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)

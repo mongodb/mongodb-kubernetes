@@ -39,8 +39,11 @@ OPERATOR_UPGRADE_DISRUPTION_BOUND_S = 60.0
 
 
 def user_connectivity_tool(namespace: str) -> SearchConnectivityTool:
-    """A fresh connectivity tool (own client) for the upgrade availability tester."""
-    return SearchConnectivityTool(rs_search_tester(MDB_RESOURCE_NAME, namespace, USER_NAME, USER_PASSWORD))
+    """A fresh connectivity tool (own client) for the upgrade availability tester. The mongod RS is
+    non-TLS, so connect without TLS to match it."""
+    return SearchConnectivityTool(
+        rs_search_tester(MDB_RESOURCE_NAME, namespace, USER_NAME, USER_PASSWORD, use_ssl=False)
+    )
 
 
 def get_operator_search_version(namespace: str, operator: Operator) -> str:
