@@ -1,0 +1,24 @@
+suite: test operator priorityClassName setting for values.yaml
+templates:
+  - operator.yaml
+tests:
+  - it: priorityClassName is not set by default
+    asserts:
+      - notExists:
+          path: spec.template.spec.priorityClassName
+  - it: priorityClassName is set when provided
+    set:
+      operator.priorityClassName: high-priority
+    asserts:
+      - equal:
+          path: spec.template.spec.priorityClassName
+          value: high-priority
+  - it: priorityClassName is set when provided for multi-cluster deployment
+    values:
+      - ../values-multi-cluster.yaml
+    set:
+      operator.priorityClassName: high-priority
+    asserts:
+      - equal:
+          path: spec.template.spec.priorityClassName
+          value: high-priority
