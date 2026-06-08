@@ -95,6 +95,10 @@ def create_test_pod(args: argparse.Namespace, namespace: str) -> None:
                     "imagePullPolicy": "Always",
                     "env": [
                         {
+                            "name": "GOCACHE",
+                            "value": "/tmp/go-cache",
+                        },
+                        {
                             "name": "CLUSTER_WIDE",
                             "value": f"{args.cluster_wide}",
                         },
