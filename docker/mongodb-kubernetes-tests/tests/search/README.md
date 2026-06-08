@@ -51,6 +51,8 @@ shared bootstrap test-class chain, then runs its scenarios with a steady-state g
 |---|---|---|---|
 | envoy roll | blip → recover | ride-through or transient drop → reopen | `cursor_lost` observable |
 | mongot roll | blip → recover | ride-through or transient drop → reopen | `cursor_lost` observable |
+| envoy drain (roll, stream-level) | blip → recover | ride-through | n/a — stream disposition observe-and-log (preStop drain is a no-op) |
+| mongot drain (roll, upstream) | blip → recover | ride-through | n/a — upstream migration + forced closes observe-and-log |
 | envoy scale up | no outage | rides through (no outage) | n/a (additive) |
 | envoy scale down (→1) | recover (log-only) | may drop → log-only + recover | n/a (see envoy roll) |
 | node drain | outage → recover on uncordon | outage → recover | n/a |
