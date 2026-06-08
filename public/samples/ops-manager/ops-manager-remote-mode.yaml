@@ -73,7 +73,6 @@ spec:
           volumeMounts:
             - name: mongodb-versions
               mountPath: /mongodb-ops-manager/mongodb-releases/linux
-
         - name: setting-up-rhel-mongodb-4-4-ent
           image: curlimages/curl:latest
           command:

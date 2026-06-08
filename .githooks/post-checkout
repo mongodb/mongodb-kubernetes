@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+#
+# Git post-checkout hook that sets up symlinks for linked worktrees.
+#
+# When a new worktree is checked out it will automatically symlink:
+#   - scripts/dev/contexts/private-context  (user-local dev config)
+#   - venv/                                 (shared Python virtual environment)
+# from the original repository clone into the worktree root.
+#
+# To set up: git config core.hooksPath .githooks
+#
+
+set -Eeou pipefail
+
+# Hook arguments:
+#   $1 - previous HEAD ref
+#   $2 - new HEAD ref
+#   $3 - flag: 1 = branch checkout, 0 = file checkout
+CHECKOUT_TYPE="${3:-}"
+
+# Only run on branch checkouts.
+if [[ "${CHECKOUT_TYPE}" != "1" ]]; then
+    exit 0
+fi
+
+# Only run inside a linked worktree. In a linked worktree .git is a regular
+# file; in the main clone it is a directory.
+if [[ ! -f ".git" ]]; then
+    exit 0
+fi
+
+# Resolve the root of the original ("main") clone via the shared git dir.
+# `git rev-parse --git-common-dir` returns e.g. /path/to/main-clone/.git
+git_common_dir="$(git rev-parse --git-common-dir)"
+main_repo_root="$(cd "${git_common_dir}/.." && pwd)"
+worktree_root="$(pwd)"
+
+echo "post-checkout: detected linked worktree at ${worktree_root}"
+echo "post-checkout: main repo at ${main_repo_root}"
+
+# ---------------------------------------------------------------------------
+# Helper: copy a file or directory if the target does not already exist.
+# Usage: maybe_copy <rel-path-in-worktree> <abs-source-path>
+# ---------------------------------------------------------------------------
+maybe_copy() {
+    local rel_path="${1}"
+    local source="${2}"
+    local dest="${worktree_root}/${rel_path}"
+    local dest_dir
+    dest_dir="$(dirname "${dest}")"
+
+    if [[ -e "${dest}" ]]; then
+        echo "post-checkout: '${rel_path}' already exists, skipping."
+        return
+    fi
+
+    if [[ ! -e "${source}" ]]; then
+        echo "post-checkout: source '${source}' not found in main repo, skipping."
+        return
+    fi
+
+    mkdir -p "${dest_dir}"
+    cp -r "${source}" "${dest}"
+    echo "post-checkout: copied '${source}' -> '${rel_path}'"
+}
+
+# ---------------------------------------------------------------------------
+# 1. private-context
+# ---------------------------------------------------------------------------
+maybe_copy \
+    "scripts/dev/contexts/private-context" \
+    "${main_repo_root}/scripts/dev/contexts/private-context"
+
+# ---------------------------------------------------------------------------
+# 2. venv
+# ---------------------------------------------------------------------------
+maybe_copy \
+    "venv" \
+    "${main_repo_root}/venv"
+
+# ---------------------------------------------------------------------------
+# 3. .generated
+# ---------------------------------------------------------------------------
+maybe_copy \
+    ".generated" \
+    "${main_repo_root}/.generated"

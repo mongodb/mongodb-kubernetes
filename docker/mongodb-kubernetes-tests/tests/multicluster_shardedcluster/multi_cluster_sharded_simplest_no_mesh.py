@@ -23,9 +23,6 @@ def sharded_cluster(namespace: str, custom_mdb_version: str) -> MongoDB:
         find_fixture("sharded-cluster-multi-cluster.yaml"), namespace=namespace, name=MDB_RESOURCE_NAME
     )
 
-    if try_load(resource):
-        return resource
-
     resource.set_version(ensure_ent_version(custom_mdb_version))
 
     enable_multi_cluster_deployment(resource=resource)
@@ -33,6 +30,7 @@ def sharded_cluster(namespace: str, custom_mdb_version: str) -> MongoDB:
 
     resource.set_architecture_annotation()
 
+    try_load(resource)
     return resource
 
 

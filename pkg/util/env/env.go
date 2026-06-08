@@ -77,19 +77,19 @@ func ReadIntOrPanic(key string) int {
 	return i
 }
 
-func ReadOrDefault(key string, dflt string) string {
+func ReadOrDefault(key string, defaultValue string) string {
 	value, exists := os.LookupEnv(key)
 	if !exists || value == "" {
-		return dflt
+		return defaultValue
 	}
 	return value
 }
 
-func ReadIntOrDefault(key string, dflt int) int {
-	value := ReadOrDefault(key, strconv.Itoa(dflt))
+func ReadIntOrDefault(key string, defaultValue int) int {
+	value := ReadOrDefault(key, strconv.Itoa(defaultValue))
 	i, e := cast.ToIntE(value)
 	if e != nil {
-		return dflt
+		return defaultValue
 	}
 	return i
 }
@@ -128,4 +128,26 @@ func ToMap(vars ...corev1.EnvVar) map[string]string {
 		variablesMap[envVar.Name] = envVar.Value
 	}
 	return variablesMap
+}
+
+// MergeWithOverride merges two EnvVar slices by name; values in `desired` override
+// values in `existing`. The result is sorted by name for determinism.
+func MergeWithOverride(existing, desired []corev1.EnvVar) []corev1.EnvVar {
+	envMap := make(map[string]corev1.EnvVar)
+	for _, env := range existing {
+		envMap[env.Name] = env
+	}
+	for _, env := range desired {
+		envMap[env.Name] = env
+	}
+
+	mergedEnv := make([]corev1.EnvVar, 0, len(envMap))
+	for _, env := range envMap {
+		mergedEnv = append(mergedEnv, env)
+	}
+
+	sort.SliceStable(mergedEnv, func(i, j int) bool {
+		return mergedEnv[i].Name < mergedEnv[j].Name
+	})
+	return mergedEnv
 }

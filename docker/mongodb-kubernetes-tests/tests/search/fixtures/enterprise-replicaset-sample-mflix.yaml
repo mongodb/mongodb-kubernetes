@@ -5,7 +5,7 @@ metadata:
   name: mdb-rs
 spec:
   members: 3
-  version: 8.0.10-ent
+  version: 8.2.0-ent
   type: ReplicaSet
   opsManager:
     configMapRef:
@@ -19,16 +19,15 @@ spec:
       - SCRAM
   agent:
     logLevel: DEBUG
-  statefulSet:
-    spec:
-      template:
-        spec:
-          containers:
-          - name: mongodb-enterprise-database
-            resources:
-              limits:
-                cpu: "2"
-                memory: 2Gi
-              requests:
-                cpu: "1"
-                memory: 1Gi
+  podSpec:
+    podTemplate:
+      spec:
+        containers:
+        - name: mongodb-enterprise-database
+          resources:
+            limits:
+              cpu: "2"
+              memory: 2Gi
+            requests:
+              cpu: "1"
+              memory: 1Gi

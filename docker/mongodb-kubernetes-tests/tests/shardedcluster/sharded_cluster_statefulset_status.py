@@ -28,9 +28,6 @@ def sc(namespace: str, custom_mdb_version: str) -> MongoDB:
         name="sharded-cluster-status",
     )
 
-    if try_load(resource):
-        return resource
-
     resource.set_version(ensure_ent_version(custom_mdb_version))
     resource.set_architecture_annotation()
 
@@ -44,12 +41,18 @@ def sc(namespace: str, custom_mdb_version: str) -> MongoDB:
             configsrv_members_array=[None, 1, 1],
         )
 
-    return resource.update()
+    try_load(resource)
+    return resource
 
 
 @mark.e2e_sharded_cluster_statefulset_status
 def test_install_operator(operator: Operator):
     operator.assert_is_running()
+
+
+@mark.e2e_sharded_cluster_statefulset_status
+def test_create_sharded_cluster(sc: MongoDB):
+    sc.update()
 
 
 @mark.e2e_sharded_cluster_statefulset_status
@@ -102,7 +105,7 @@ def cluster_reaches_not_ready(sc: MongoDB, sts_name: str):
         if s.get_status_resources_not_ready() is None:
             return False
 
-        for idx, resource in enumerate(s.get_status_resources_not_ready()):
+        for idx, resource in enumerate(s.get_status_resources_not_ready() or []):
             if resource["name"] == sts_name:
                 assert resource["kind"] == "StatefulSet"
                 assert re.search("Not all the Pods are ready \(wanted: 1.*\)", resource["message"]) is not None

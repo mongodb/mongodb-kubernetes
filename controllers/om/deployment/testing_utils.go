@@ -3,7 +3,7 @@ package deployment
 import (
 	"go.uber.org/zap"
 
-	"github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/replicaset"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
@@ -26,7 +26,7 @@ func CreateFromReplicaSet(mongoDBImage string, forceEnterprise bool, rs *mdb.Mon
 	), zap.S())
 	d := om.NewDeployment()
 
-	lastConfig, err := rs.GetLastAdditionalMongodConfigByType(mdb.ReplicaSetConfig)
+	lastConfig, err := mdb.GetLastAdditionalMongodConfigByType(nil, mdb.ReplicaSetConfig)
 	if err != nil {
 		panic(err)
 	}
@@ -37,7 +37,7 @@ func CreateFromReplicaSet(mongoDBImage string, forceEnterprise bool, rs *mdb.Mon
 		lastConfig.ToMap(),
 		zap.S(),
 	)
-	d.AddMonitoringAndBackup(zap.S(), rs.Spec.GetSecurity().IsTLSEnabled(), util.CAFilePathInContainer)
+	d.ConfigureMonitoringAndBackup(zap.S(), rs.Spec.GetSecurity().IsTLSEnabled(), util.CAFilePathInContainer)
 	d.ConfigureTLS(rs.Spec.GetSecurity(), util.CAFilePathInContainer)
 	return d
 }

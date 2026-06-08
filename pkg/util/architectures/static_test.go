@@ -5,6 +5,8 @@ import (
 )
 
 func TestIsRunningStaticArchitecture(t *testing.T) {
+	t.Setenv(DefaultEnvArchitecture, "")
+
 	tests := []struct {
 		name        string
 		annotations map[string]string

@@ -14,9 +14,9 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 
-	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/create"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
+	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
@@ -234,7 +234,8 @@ func (c *clusterChecks) checkAgentCertsSecret(ctx context.Context, certificatesS
 	sec := corev1.Secret{}
 	err := c.kubeClient.Get(ctx, kube.ObjectKey(c.namespace, fmt.Sprintf("%s-%s-%s-pem", certificatesSecretsPrefix, resourceName, util.AgentSecretName)), &sec)
 	require.NoError(c.t, err, "clusterName: %s", c.clusterName)
-	require.Contains(c.t, sec.Data, util.AutomationAgentPemSecretKey, "clusterName: %s", c.clusterName)
+	require.Contains(c.t, sec.Data, util.LatestHashSecretKey, "clusterName: %s", c.clusterName)
+	require.Contains(c.t, sec.Data, string(sec.Data[util.LatestHashSecretKey]), "clusterName: %s", c.clusterName)
 }
 
 func (c *clusterChecks) checkMongosCertsSecret(ctx context.Context, certificatesSecretsPrefix string, resourceName string, shouldExist bool) {

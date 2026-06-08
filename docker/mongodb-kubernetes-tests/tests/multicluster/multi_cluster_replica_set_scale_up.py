@@ -3,6 +3,7 @@ from typing import List
 import kubernetes
 import kubetester
 import pytest
+from kubetester import try_load
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.certs_mongodb_multi import create_multi_cluster_mongodb_tls_certs
 from kubetester.kubetester import fixture as yaml_fixture
@@ -63,7 +64,8 @@ def mongodb_multi(mongodb_multi_unmarshalled: MongoDBMulti, server_certs: str) -
     mongodb_multi_unmarshalled["spec"]["clusterSpecList"][0]["members"] = 1
     mongodb_multi_unmarshalled["spec"]["clusterSpecList"][1]["members"] = 1
     mongodb_multi_unmarshalled["spec"]["clusterSpecList"][2]["members"] = 1
-    return mongodb_multi_unmarshalled.create()
+    try_load(mongodb_multi_unmarshalled)
+    return mongodb_multi_unmarshalled
 
 
 @pytest.mark.e2e_multi_cluster_replica_set_scale_up
@@ -73,6 +75,7 @@ def test_deploy_operator(multi_cluster_operator: Operator):
 
 @pytest.mark.e2e_multi_cluster_replica_set_scale_up
 def test_create_mongodb_multi(mongodb_multi: MongoDBMulti):
+    mongodb_multi.update()
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=600)
 
 
@@ -85,26 +88,32 @@ def test_statefulsets_have_been_created_correctly(
     # checking the expected number of replicas for STS makes the test flaky because of an issue mentioned in detail in this ticket https://jira.mongodb.org/browse/CLOUDP-329231.
     # That's why we are waiting for STS to have expected number of replicas. This change can be reverted when we make the proper fix as
     # mentioned in the above ticket.
-    def fn():
+    def fn_cluster_one():
         cluster_one_client = member_cluster_clients[0]
         cluster_one_statefulsets = mongodb_multi.read_statefulsets([cluster_one_client])
         return cluster_one_statefulsets[cluster_one_client.cluster_name].status.ready_replicas == 1
 
-    kubetester.wait_until(fn, timeout=60, message="Verifying sts has correct number of replicas in cluster one")
+    kubetester.wait_until(
+        fn_cluster_one, timeout=60, message="Verifying sts has correct number of replicas in cluster one"
+    )
 
-    def fn():
+    def fn_cluster_two():
         cluster_two_client = member_cluster_clients[1]
         cluster_two_statefulsets = mongodb_multi.read_statefulsets([cluster_two_client])
         return cluster_two_statefulsets[cluster_two_client.cluster_name].status.ready_replicas == 1
 
-    kubetester.wait_until(fn, timeout=60, message="Verifying sts has correct number of replicas in cluster two")
+    kubetester.wait_until(
+        fn_cluster_two, timeout=60, message="Verifying sts has correct number of replicas in cluster two"
+    )
 
-    def fn():
+    def fn_cluster_three():
         cluster_three_client = member_cluster_clients[2]
         cluster_three_statefulsets = mongodb_multi.read_statefulsets([cluster_three_client])
         return cluster_three_statefulsets[cluster_three_client.cluster_name].status.ready_replicas == 1
 
-    kubetester.wait_until(fn, timeout=60, message="Verifying sts has correct number of replicas in cluster three")
+    kubetester.wait_until(
+        fn_cluster_three, timeout=60, message="Verifying sts has correct number of replicas in cluster three"
+    )
 
 
 @pytest.mark.e2e_multi_cluster_replica_set_scale_up
@@ -133,31 +142,33 @@ def test_statefulsets_have_been_scaled_up_correctly(
     # checking the expected number of replicas for STS makes the test flaky because of an issue mentioned in detail in this ticket https://jira.mongodb.org/browse/CLOUDP-329231.
     # That's why we are waiting for STS to have expected number of replicas. This change can be reverted when we make the proper fix as
     # mentioned in the above ticket.
-    def fn():
+    def fn_cluster_one():
         cluster_one_client = member_cluster_clients[0]
         cluster_one_statefulsets = mongodb_multi.read_statefulsets([cluster_one_client])
         return cluster_one_statefulsets[cluster_one_client.cluster_name].status.ready_replicas == 2
 
     kubetester.wait_until(
-        fn, timeout=60, message="Verifying sts has correct number of replicas after scale up in cluster one"
+        fn_cluster_one, timeout=60, message="Verifying sts has correct number of replicas after scale up in cluster one"
     )
 
-    def fn():
+    def fn_cluster_two():
         cluster_two_client = member_cluster_clients[1]
         cluster_two_statefulsets = mongodb_multi.read_statefulsets([cluster_two_client])
         return cluster_two_statefulsets[cluster_two_client.cluster_name].status.ready_replicas == 1
 
     kubetester.wait_until(
-        fn, timeout=60, message="Verifying sts has correct number of replicas after scale up in cluster two"
+        fn_cluster_two, timeout=60, message="Verifying sts has correct number of replicas after scale up in cluster two"
     )
 
-    def fn():
+    def fn_cluster_three():
         cluster_three_client = member_cluster_clients[2]
         cluster_three_statefulsets = mongodb_multi.read_statefulsets([cluster_three_client])
         return cluster_three_statefulsets[cluster_three_client.cluster_name].status.ready_replicas == 2
 
     kubetester.wait_until(
-        fn, timeout=60, message="Verifying sts has correct number of replicas after scale up in cluster three"
+        fn_cluster_three,
+        timeout=60,
+        message="Verifying sts has correct number of replicas after scale up in cluster three",
     )
 
 

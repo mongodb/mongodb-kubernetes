@@ -5,33 +5,19 @@ and where to fetch and calculate parameters."""
 import datetime
 import json
 import os
-import shutil
 from concurrent.futures import ProcessPoolExecutor
 from copy import copy
 from queue import Queue
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Optional, Tuple
 
-import python_on_whales
 import requests
 from opentelemetry import trace
 
 from lib.base_logger import logger
-from scripts.release.agent.detect_ops_manager_changes import (
-    detect_ops_manager_changes,
-    get_all_agents_for_rebuild,
-    get_currently_used_agents,
-)
-from scripts.release.agent.validation import (
-    generate_agent_build_args,
-    generate_tools_build_args,
-)
+from scripts.release.agent.agents_to_rebuild import get_all_agents_for_rebuild, get_currently_used_agents
+from scripts.release.agent.validation import generate_agent_build_args, generate_tools_build_args
 from scripts.release.build.image_build_configuration import ImageBuildConfiguration
-from scripts.release.build.image_build_process import execute_docker_build
-from scripts.release.build.image_signing import (
-    mongodb_artifactory_login,
-    sign_image,
-    verify_signature,
-)
+from scripts.release.build.image_signing import mongodb_artifactory_login, sign_image, verify_signature
 
 TRACER = trace.get_tracer("evergreen-agent")
 
@@ -60,6 +46,7 @@ def build_image(
     Build an image, sign (optionally) it, then tag and push to all repositories in the registry list.
     """
     image_name = build_configuration.image_name()
+    builder = build_configuration.builder
     span = trace.get_current_span()
     span.set_attribute("mck.image_name", image_name)
 
@@ -75,23 +62,30 @@ def build_image(
     # Build the image once with all repository tags
     tags = []
     for registry in registries:
-        tags.append(f"{registry}:{build_configuration.version}")
-        if build_configuration.latest_tag:
-            tags.append(f"{registry}:latest")
-        if build_configuration.olm_tag:
-            olm_tag = create_olm_version_tag(build_configuration.version)
-            tags.append(f"{registry}:{olm_tag}")
+        arch_suffix = ""
+        if build_configuration.architecture_suffix and len(build_configuration.platforms) == 1:
+            arch_suffix = f"-{build_configuration.platforms[0].split("/")[1]}"
 
-    logger.info(
-        f"Building image with tags {tags} for platforms={build_configuration.platforms}, dockerfile args: {build_args}"
-    )
+        tag = f"{registry}:{build_configuration.version}{arch_suffix}"
+        if build_configuration.skip_if_exists and builder.check_if_image_exists(tag):
+            logger.info(f"Image with tag {tag} already exists. Skipping it.")
+        else:
+            tags.append(tag)
+            if build_configuration.latest_tag:
+                tags.append(f"{registry}:latest{arch_suffix}")
+            if build_configuration.olm_tag:
+                olm_tag = create_olm_version_tag(build_configuration.version)
+                tags.append(f"{registry}:{olm_tag}{arch_suffix}")
 
-    execute_docker_build(
+    if not tags:
+        logger.info("All specified image tags already exist. Skipping build.")
+        return
+
+    builder.build_image(
         tags=tags,
         dockerfile=build_configuration.dockerfile_path,
         path=build_path,
         args=build_args,
-        push=True,
         platforms=build_configuration.platforms,
     )
 
@@ -109,23 +103,6 @@ def build_meko_tests_image(build_configuration: ImageBuildConfiguration):
     Builds image used to run tests.
     """
 
-    # helm directory needs to be copied over to the tests docker context.
-    helm_src = "helm_chart"
-    helm_dest = "docker/mongodb-kubernetes-tests/helm_chart"
-    requirements_dest = "docker/mongodb-kubernetes-tests/requirements.txt"
-    public_src = "public"
-    public_dest = "docker/mongodb-kubernetes-tests/public"
-
-    # Remove existing directories/files if they exist
-    shutil.rmtree(helm_dest, ignore_errors=True)
-    shutil.rmtree(public_dest, ignore_errors=True)
-
-    # Copy directories and files (recursive copy)
-    shutil.copytree(helm_src, helm_dest)
-    shutil.copytree(public_src, public_dest)
-    shutil.copyfile("release.json", "docker/mongodb-kubernetes-tests/release.json")
-    shutil.copyfile("requirements.txt", requirements_dest)
-
     python_version = os.getenv("PYTHON_VERSION")
     if not python_version:
         raise Exception("PYTHON_VERSION environment variable is not set or empty - it should be set in root-context")
@@ -135,7 +112,6 @@ def build_meko_tests_image(build_configuration: ImageBuildConfiguration):
     build_image(
         build_configuration=build_configuration,
         build_args=build_args,
-        build_path="docker/mongodb-kubernetes-tests",
     )
 
 
@@ -236,13 +212,7 @@ def build_init_om_image(build_configuration: ImageBuildConfiguration):
 
 
 def build_om_image(build_configuration: ImageBuildConfiguration):
-    # Make this a parameter for the Evergreen build
-    # https://github.com/evergreen-ci/evergreen/wiki/Parameterized-Builds
-    om_version = os.environ.get("om_version")
-    if om_version is None:
-        raise ValueError("`om_version` should be defined.")
-
-    build_configuration.version = om_version
+    om_version = build_configuration.version
 
     om_download_url = os.environ.get("om_download_url", "")
     if om_download_url == "":
@@ -251,31 +221,6 @@ def build_om_image(build_configuration: ImageBuildConfiguration):
     args = {
         "version": om_version,
         "om_download_url": om_download_url,
-    }
-
-    build_image(
-        build_configuration=build_configuration,
-        build_args=args,
-    )
-
-
-def build_init_appdb_image(build_configuration: ImageBuildConfiguration):
-    release = load_release_file()
-    base_url = "https://fastdl.mongodb.org/tools/db"
-
-    tools_version = extract_tools_version_from_release(release)
-
-    platform_build_args = generate_tools_build_args(
-        platforms=build_configuration.platforms, tools_version=tools_version
-    )
-    if not platform_build_args:
-        logger.warning(f"Skipping build for init-appdb - tools version {tools_version} not found in repository")
-        return
-
-    args = {
-        "version": build_configuration.version,
-        "mongodb_tools_url": base_url,  # Base URL for platform-specific downloads
-        **platform_build_args,  # Add the platform-specific build args
     }
 
     build_image(
@@ -293,9 +238,6 @@ def build_init_database_image(build_configuration: ImageBuildConfiguration):
     platform_build_args = generate_tools_build_args(
         platforms=build_configuration.platforms, tools_version=tools_version
     )
-    if not platform_build_args:
-        logger.warning(f"Skipping build for init-database - tools version {tools_version} not found in repository")
-        return
 
     args = {
         "version": build_configuration.version,
@@ -330,22 +272,23 @@ def build_upgrade_hook_image(build_configuration: ImageBuildConfiguration):
 
 
 def build_agent(build_configuration: ImageBuildConfiguration):
-    """
-    Build the agent only for the latest operator for patches and operator releases.
+    """Build the agent image(s). Validation happens in pipeline.py."""
+    version = build_configuration.version
 
-    """
-    if build_configuration.all_agents:
+    if version == "all":
         agent_versions_to_build = get_all_agents_for_rebuild()
         logger.info("building all agents")
-    elif build_configuration.currently_used_agents:
+    elif version == "current":
         agent_versions_to_build = get_currently_used_agents()
-        logger.info("building current used agents")
+        logger.info("building currently used agents")
+    elif version and build_configuration.agent_tools_version:
+        agent_versions_to_build = [(version, build_configuration.agent_tools_version)]
+        logger.info(f"building agent {version} with tools {build_configuration.agent_tools_version}")
     else:
-        agent_versions_to_build = detect_ops_manager_changes()
-        logger.info("building agents for changed OM versions")
+        raise ValueError("No agent selection provided - this should be caught by pipeline.py validation")
 
     if not agent_versions_to_build:
-        logger.info("No changes detected, skipping agent build")
+        logger.warning("No agent versions found to build")
         return
 
     logger.info(f"Building Agent versions: {agent_versions_to_build}")
@@ -364,7 +307,6 @@ def build_agent(build_configuration: ImageBuildConfiguration):
             _build_agent(
                 agent_tools_version,
                 build_configuration,
-                build_configuration.platforms,
                 executor,
                 tasks_queue,
             )
@@ -375,33 +317,29 @@ def build_agent(build_configuration: ImageBuildConfiguration):
 def _build_agent(
     agent_tools_version: Tuple[str, str],
     build_configuration: ImageBuildConfiguration,
-    available_platforms: List[str],
     executor: ProcessPoolExecutor,
     tasks_queue: Queue,
 ):
     agent_version = agent_tools_version[0]
     tools_version = agent_tools_version[1]
 
-    tasks_queue.put(
-        executor.submit(build_agent_pipeline, build_configuration, agent_version, tools_version, available_platforms)
-    )
+    tasks_queue.put(executor.submit(build_agent_pipeline, build_configuration, agent_version, tools_version))
 
 
 def build_agent_pipeline(
     build_configuration: ImageBuildConfiguration,
     agent_version: str,
     tools_version: str,
-    available_platforms: List[str],
 ):
     build_configuration_copy = copy(build_configuration)
     build_configuration_copy.version = agent_version
-    build_configuration_copy.platforms = available_platforms  # Use only available platforms
+
     print(
         f"======== Building agent pipeline for version {agent_version}, build configuration version: {build_configuration.version}"
     )
 
     platform_build_args = generate_agent_build_args(
-        platforms=available_platforms, agent_version=agent_version, tools_version=tools_version
+        platforms=build_configuration_copy.platforms, agent_version=agent_version, tools_version=tools_version
     )
 
     agent_base_url = (

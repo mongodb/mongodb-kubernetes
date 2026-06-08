@@ -1,3 +1,5 @@
+//go:build community_e2e
+
 package replica_set_operator_upgrade
 
 import (
@@ -63,7 +65,7 @@ func TestReplicaSetOperatorUpgradeMCOToMCK(t *testing.T) {
 
 	// Step 3: Install the new MCK chart
 	t.Log("Step 2: Installing MCK operator")
-	err = setup.DeployMCKOperator(ctx, t, testConfig, resourceName, false, false, setup.HelmArg{
+	err = setup.DeployMCKOperator(ctx, t, testConfig, false, false, setup.HelmArg{
 		Name:  "operator.name",
 		Value: setup.MCKHelmChartAndDeploymentName,
 	})
@@ -88,7 +90,7 @@ func TestReplicaSetOperatorUpgradeMCOToMCK(t *testing.T) {
 		t.Run("MongoDB Reaches Running Phase", mongodbtests.MongoDBReachesRunningPhase(ctx, &mdb))
 		t.Run("AutomationConfig's version has been increased", mongodbtests.AutomationConfigVersionHasTheExpectedVersion(ctx, &mdb, 4)) // 4, because the mck upgrade already forces one version bump
 		t.Run("Test Status Was Updated", mongodbtests.Status(ctx, &mdb, mdbv1.MongoDBCommunityStatus{
-			MongoURI:                           mdb.MongoURI(""),
+			MongoURI:                           mdb.MongoURI(),
 			Phase:                              mdbv1.Running,
 			Version:                            mdb.GetMongoDBVersion(),
 			CurrentMongoDBMembers:              5,
@@ -131,7 +133,7 @@ func TestReplicaSetOperatorUpgrade(t *testing.T) {
 	mongodbtests.SkipTestIfLocal(t, "Ensure MongoDB TLS Configuration", func(t *testing.T) {
 		t.Run("Has TLS Mode", tester.HasTlsMode("requireSSL", 60, WithTls(ctx, mdb)))
 		t.Run("Basic Connectivity Succeeds", tester.ConnectivitySucceeds(WithTls(ctx, mdb)))
-		t.Run("SRV Connectivity Succeeds", tester.ConnectivitySucceeds(WithURI(mdb.MongoSRVURI("")), WithTls(ctx, mdb)))
+		t.Run("SRV Connectivity Succeeds", tester.ConnectivitySucceeds(WithURI(mdb.MongoSRVURI()), WithTls(ctx, mdb)))
 		t.Run("Basic Connectivity With Generated Connection String Secret Succeeds",
 			tester.ConnectivitySucceeds(WithURI(mongodbtests.GetConnectionStringForUser(ctx, mdb, scramUser)), WithTls(ctx, mdb)))
 		t.Run("SRV Connectivity With Generated Connection String Secret Succeeds",
@@ -142,7 +144,7 @@ func TestReplicaSetOperatorUpgrade(t *testing.T) {
 
 	// upgrade the operator to master
 	config := setup.LoadTestConfigFromEnv()
-	err = setup.DeployMCKOperator(ctx, t, config, resourceName, true, false)
+	err = setup.DeployMCKOperator(ctx, t, config, true, false)
 	assert.NoError(t, err)
 
 	// Perform the basic tests
@@ -189,7 +191,7 @@ func TestReplicaSetOperatorUpgradeFrom0_7_2(t *testing.T) {
 		t.Run("Keyfile authentication is configured", tester.HasKeyfileAuth(3))
 		t.Run("Has TLS Mode", tester.HasTlsMode("requireSSL", 60, WithTls(ctx, mdb)))
 		t.Run("Test Basic Connectivity", tester.ConnectivitySucceeds())
-		t.Run("Test SRV Connectivity", tester.ConnectivitySucceeds(WithURI(mdb.MongoSRVURI("")), WithoutTls(), WithReplicaSet(mdb.Name)))
+		t.Run("Test SRV Connectivity", tester.ConnectivitySucceeds(WithURI(mdb.MongoSRVURI()), WithoutTls(), WithReplicaSet(mdb.Name)))
 		t.Run("Test Basic Connectivity with generated connection string secret",
 			tester.ConnectivitySucceeds(WithURI(mongodbtests.GetConnectionStringForUser(ctx, mdb, scramUser))))
 		t.Run("Test SRV Connectivity with generated connection string secret",
@@ -203,7 +205,7 @@ func TestReplicaSetOperatorUpgradeFrom0_7_2(t *testing.T) {
 	// rescale helm operator deployment to zero and run local operator then.
 
 	testConfig = setup.LoadTestConfigFromEnv()
-	err = setup.DeployMCKOperator(ctx, t, testConfig, resourceName, true, false)
+	err = setup.DeployMCKOperator(ctx, t, testConfig, true, false)
 	assert.NoError(t, err)
 
 	runTests(t)

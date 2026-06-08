@@ -207,6 +207,11 @@ dump_pod_readiness_state() {
     ([[ -f "${agent_health_status}" ]] && jq . < "${agent_health_status}" > tmpfile && mv tmpfile "${agent_health_status}")
 
     if [[ ! -f "${agent_health_status}" ]]; then
+      kubectl --context="${context}" cp -c "mongodb-enterprise-database" "${namespace}/${pod}:/var/log/mongodb-mms-automation/agent-health-status.json" "${agent_health_status}" &> /dev/null
+      ([[ -f "${agent_health_status}" ]] && jq . < "${agent_health_status}" > tmpfile && mv tmpfile "${agent_health_status}")
+    fi
+
+    if [[ ! -f "${agent_health_status}" ]]; then
       echo "Agent health status not found; trying community health status: "
       kubectl --context="${context}" cp -c "mongodb-agent" "${namespace}/${pod}:/var/log/mongodb-mms-automation/healthstatus/agent-health-status.json" "${agent_health_status}" &> /dev/null
       ([[ -f "${agent_health_status}" ]] && jq . < "${agent_health_status}" > tmpfile && mv tmpfile "${agent_health_status}")
@@ -381,6 +386,7 @@ dump_namespace() {
     # Download test results from the test pod in community
     download_test_results "${context}" "${namespace}" "e2e-test"
 
+    dump_objects "${context}" jobs "Jobs" "${namespace}" "get -o yaml" "logs/${prefix}z_jobs.txt"
     dump_objects "${context}" pvc "Persistent Volume Claims" "${namespace}" "get -o yaml" "logs/${prefix}z_persistent_volume_claims.txt"
     dump_objects "${context}" deploy "Deployments" "${namespace}" "get -o yaml" "logs/${prefix}z_deployments.txt"
     dump_objects "${context}" deploy "Deployments" "${namespace}" "describe" "logs/${prefix}z_deployments_describe.txt"

@@ -1,3 +1,5 @@
+//go:build community_e2e
+
 package replica_set
 
 import (
@@ -6,12 +8,12 @@ import (
 	"os"
 	"testing"
 
-	v1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
+	rootv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	e2eutil "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e/mongodbtests"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e/setup"
 	. "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e/util/mongotester"
+	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 )
 
 func TestMain(m *testing.M) {
@@ -83,8 +85,8 @@ func TestReplicaSet(t *testing.T) {
 	settings := map[string]interface{}{
 		"electionTimeoutMillis": float64(20),
 	}
-	mdb.Spec.AutomationConfigOverride = &v1.AutomationConfigOverride{
-		ReplicaSet: v1.OverrideReplicaSet{Settings: v1.MapWrapper{Object: settings}},
+	mdb.Spec.AutomationConfigOverride = &rootv1.AutomationConfigOverride{
+		ReplicaSet: rootv1.OverrideReplicaSet{Settings: rootv1.MapWrapper{Object: settings}},
 	}
 
 	tester, err := FromResource(ctx, t, mdb)
@@ -97,7 +99,7 @@ func TestReplicaSet(t *testing.T) {
 	t.Run("Keyfile authentication is configured", tester.HasKeyfileAuth(3))
 	t.Run("AutomationConfig has the correct logRotateConfig", mongodbtests.AutomationConfigHasLogRotationConfig(ctx, &mdb, &lcr))
 	t.Run("Test Basic Connectivity", tester.ConnectivitySucceeds())
-	t.Run("Test SRV Connectivity", tester.ConnectivitySucceeds(WithURI(mdb.MongoSRVURI("")), WithoutTls(), WithReplicaSet(mdb.Name)))
+	t.Run("Test SRV Connectivity", tester.ConnectivitySucceeds(WithURI(mdb.MongoSRVURI()), WithoutTls(), WithReplicaSet(mdb.Name)))
 	t.Run("Test Basic Connectivity with generated connection string secret",
 		tester.ConnectivitySucceeds(WithURI(mongodbtests.GetConnectionStringForUser(ctx, mdb, scramUser))))
 	t.Run("Test SRV Connectivity with generated connection string secret",

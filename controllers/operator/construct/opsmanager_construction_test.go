@@ -13,15 +13,15 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	omv1 "github.com/mongodb/mongodb-kubernetes/api/v1/om"
+	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/container"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/podtemplatespec"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/merge"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/podtemplatespec"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
 	"github.com/mongodb/mongodb-kubernetes/pkg/vault"
 )
 
@@ -464,4 +464,110 @@ func buildSafeResourceList(cpu, memory string) corev1.ResourceList {
 		res[corev1.ResourceMemory] = q
 	}
 	return res
+}
+
+func TestHasVolumeMount(t *testing.T) {
+	tests := []struct {
+		name      string
+		opts      OpsManagerStatefulSetOptions
+		mountPath string
+		expected  bool
+	}{
+		{
+			name:      "nil StatefulSetSpecOverride returns false",
+			opts:      OpsManagerStatefulSetOptions{},
+			mountPath: "/tmp",
+			expected:  false,
+		},
+		{
+			name: "no matching mount path returns false",
+			opts: OpsManagerStatefulSetOptions{
+				StatefulSetSpecOverride: &appsv1.StatefulSetSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{
+									Name: util.OpsManagerContainerName,
+									VolumeMounts: []corev1.VolumeMount{
+										{Name: "other-volume", MountPath: "/other"},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			mountPath: "/tmp",
+			expected:  false,
+		},
+		{
+			name: "matching /tmp mount path returns true",
+			opts: OpsManagerStatefulSetOptions{
+				StatefulSetSpecOverride: &appsv1.StatefulSetSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{
+									Name: util.OpsManagerContainerName,
+									VolumeMounts: []corev1.VolumeMount{
+										{Name: "custom-tmp", MountPath: "/tmp"},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			mountPath: "/tmp",
+			expected:  true,
+		},
+		{
+			name: "multiple containers with matching mount in second container returns true",
+			opts: OpsManagerStatefulSetOptions{
+				StatefulSetSpecOverride: &appsv1.StatefulSetSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{
+									Name: "sidecar",
+									VolumeMounts: []corev1.VolumeMount{
+										{Name: "other", MountPath: "/other"},
+									},
+								},
+								{
+									Name: util.OpsManagerContainerName,
+									VolumeMounts: []corev1.VolumeMount{
+										{Name: "custom-tmp", MountPath: "/tmp"},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			mountPath: "/tmp",
+			expected:  true,
+		},
+		{
+			name: "empty containers list returns false",
+			opts: OpsManagerStatefulSetOptions{
+				StatefulSetSpecOverride: &appsv1.StatefulSetSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{},
+						},
+					},
+				},
+			},
+			mountPath: "/tmp",
+			expected:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := hasVolumeMount(tt.opts, tt.mountPath)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
 }

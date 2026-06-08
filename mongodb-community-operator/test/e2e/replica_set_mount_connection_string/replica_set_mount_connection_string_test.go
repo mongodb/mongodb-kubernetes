@@ -1,3 +1,5 @@
+//go:build community_e2e
+
 package replica_set_mount_connection_string
 
 import (
@@ -84,7 +86,7 @@ func TestMountConnectionString(t *testing.T) {
 	t.Run("Basic tests", mongodbtests.BasicFunctionality(ctx, &mdb))
 	t.Run("Keyfile authentication is configured", tester.HasKeyfileAuth(3))
 	t.Run("Test Basic Connectivity", tester.ConnectivitySucceeds())
-	t.Run("Test SRV Connectivity", tester.ConnectivitySucceeds(WithURI(mdb.MongoSRVURI("")), WithoutTls(), WithReplicaSet((mdb.Name))))
+	t.Run("Test SRV Connectivity", tester.ConnectivitySucceeds(WithURI(mdb.MongoSRVURI()), WithoutTls(), WithReplicaSet((mdb.Name))))
 	t.Run("Test Basic Connectivity with generated connection string secret",
 		tester.ConnectivitySucceeds(WithURI(mongodbtests.GetConnectionStringForUser(ctx, mdb, scramUser))))
 	t.Run("Test SRV Connectivity with generated connection string secret",

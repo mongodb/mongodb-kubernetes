@@ -1,3 +1,5 @@
+//go:build community_e2e
+
 package replica_set_remove_user
 
 import (
@@ -6,12 +8,13 @@ import (
 	"os"
 	"testing"
 
+	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
 	e2eutil "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e/mongodbtests"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e/setup"
 	. "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e/util/mongotester"
+	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 )
 
 func TestMain(m *testing.M) {
@@ -60,13 +63,13 @@ func TestCleanupUsers(t *testing.T) {
 	settings := map[string]interface{}{
 		"electionTimeoutMillis": float64(20),
 	}
-	mdb.Spec.AutomationConfigOverride = &mdbv1.AutomationConfigOverride{
-		ReplicaSet: mdbv1.OverrideReplicaSet{Settings: mdbv1.MapWrapper{Object: settings}},
+	mdb.Spec.AutomationConfigOverride = &v1.AutomationConfigOverride{
+		ReplicaSet: v1.OverrideReplicaSet{Settings: v1.MapWrapper{Object: settings}},
 	}
 
 	newUser := mdbv1.MongoDBUser{
 		Name: fmt.Sprintf("%s-user-2", "mdb-0"),
-		PasswordSecretRef: mdbv1.SecretKeyReference{
+		PasswordSecretRef: v1.SecretKeyReference{
 			Key:  fmt.Sprintf("%s-password-2", "mdb-0"),
 			Name: fmt.Sprintf("%s-%s-password-secret-2", "mdb-0", testCtx.ExecutionId),
 		},
@@ -111,7 +114,7 @@ func TestCleanupUsers(t *testing.T) {
 	t.Run("Basic tests", mongodbtests.BasicFunctionality(ctx, &mdb))
 	t.Run("Keyfile authentication is configured", tester.HasKeyfileAuth(3))
 	t.Run("Test Basic Connectivity", tester.ConnectivitySucceeds())
-	t.Run("Test SRV Connectivity", tester.ConnectivitySucceeds(WithURI(mdb.MongoSRVURI("")), WithoutTls(), WithReplicaSet(mdb.Name)))
+	t.Run("Test SRV Connectivity", tester.ConnectivitySucceeds(WithURI(mdb.MongoSRVURI()), WithoutTls(), WithReplicaSet(mdb.Name)))
 	t.Run("Add new user to MongoDB Resource", mongodbtests.AddUserToMongoDBCommunity(ctx, &mdb, newUser))
 	t.Run("MongoDB reaches Running phase", mongodbtests.MongoDBReachesRunningPhase(ctx, &mdb))
 	editedUser := mdb.Spec.Users[1]

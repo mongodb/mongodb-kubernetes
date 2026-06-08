@@ -36,7 +36,6 @@ spec:
                   topologyKey: "mongos"
                 weight: 40
   shardPodSpec:
-    cpu: "2" # ignored as podTemplate takes precedence if provided
     podTemplate:
       spec:
         containers:

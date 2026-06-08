@@ -14,23 +14,22 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
-	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/container"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/persistentvolumeclaim"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/podtemplatespec"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/probes"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/merge"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/scale"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/persistentvolumeclaim"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/podtemplatespec"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/probes"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/scale"
 	"github.com/mongodb/mongodb-kubernetes/pkg/vault"
 )
 
@@ -42,8 +41,6 @@ const (
 	caCertMountPath = "/mongodb-automation/certs"
 	// CaCertName is the name of the volume with the CA Cert
 	CaCertName = "ca-cert-volume"
-	// AgentCertMountPath defines where in the Pod the ca cert will be mounted.
-	agentCertMountPath = "/mongodb-automation/" + util.AgentSecretName
 
 	databaseLivenessProbeCommand  = "/opt/scripts/probe.sh"
 	databaseReadinessProbeCommand = "/opt/scripts/readinessprobe"
@@ -95,6 +92,7 @@ type DatabaseStatefulSetOptions struct {
 	PodVars                 *env.PodEnvVars
 	CurrentAgentAuthMode    string
 	CertificateHash         string
+	AgentCertHash           string
 	PrometheusTLSCertHash   string
 	InternalClusterHash     string
 	ServicePort             int32
@@ -123,6 +121,9 @@ type DatabaseStatefulSetOptions struct {
 	// The certificate secrets and other dependencies named using the resource name will use the `Name` field.
 	StatefulSetNameOverride       string // this needs to be overriden of the
 	HostNameOverrideConfigmapName string
+
+	AgentDebug      bool
+	AgentDebugImage string
 }
 
 func (d DatabaseStatefulSetOptions) IsMongos() bool {
@@ -144,7 +145,7 @@ type databaseStatefulSetSource interface {
 
 	GetSecurity() *mdbv1.Security
 
-	GetPrometheus() *mdbcv1.Prometheus
+	GetPrometheus() *v1.Prometheus
 
 	GetAnnotations() map[string]string
 }
@@ -376,9 +377,10 @@ func buildVaultDatabaseSecretsToInject(mdb databaseStatefulSetSource, opts Datab
 	secretsToInject := vault.DatabaseSecretsToInject{Config: opts.VaultConfig}
 
 	if mdb.GetSecurity().ShouldUseX509(opts.CurrentAgentAuthMode) || mdb.GetSecurity().ShouldUseClientCertificates() {
-		secretName := mdb.GetSecurity().AgentClientCertificateSecretName(mdb.GetName()).Name
+		secretName := mdb.GetSecurity().AgentClientCertificateSecretName(mdb.GetName())
 		secretName = fmt.Sprintf("%s%s", secretName, certs.OperatorGeneratedCertSuffix)
 		secretsToInject.AgentCerts = secretName
+		secretsToInject.AgentCertsHash = opts.AgentCertHash
 	}
 
 	if mdb.GetSecurity().GetInternalClusterAuthenticationMode() == util.X509 {
@@ -480,7 +482,6 @@ func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource
 	}
 
 	shareProcessNs := statefulset.NOOP()
-	secondContainerModification := podtemplatespec.NOOP()
 
 	var databaseImage string
 	var staticMods []podtemplatespec.Modification
@@ -500,17 +501,39 @@ func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource
 		databaseImage = opts.DatabaseNonStaticImage
 	}
 
+	agentDebugMod := podtemplatespec.NOOP()
+	if opts.AgentDebug {
+		if opts.AgentDebugImage == "" {
+			log.Warnf("%s is true but delve image is not configured. Plese configure %s", util.EnvVarDebug, util.EnvVarDebugImage)
+		} else {
+			shareProcessNs = func(sts *appsv1.StatefulSet) {
+				sts.Spec.Template.Spec.ShareProcessNamespace = ptr.To(true)
+			}
+
+			agentDebugMod = podtemplatespec.WithInitContainer("delve-sidecar", func(c *corev1.Container) {
+				container.WithImage(opts.AgentDebugImage)(c)
+				container.WithRestartPolicy(corev1.ContainerRestartPolicyAlways)(c)
+				container.WithPorts([]corev1.ContainerPort{
+					{
+						Name:          "delve",
+						ContainerPort: 2345,
+					},
+				})(c)
+			})
+		}
+	}
+
 	podTemplateModifications := []podtemplatespec.Modification{
 		podTemplateAnnotationFunc,
 		podtemplatespec.WithAffinity(podAffinity, PodAntiAffinityLabelKey, 100),
 		podtemplatespec.WithTerminationGracePeriodSeconds(util.DefaultPodTerminationPeriodSeconds),
 		podtemplatespec.WithPodLabels(podLabels),
 		podtemplatespec.WithContainerByIndex(0, sharedDatabaseContainerFunc(databaseImage, *opts.PodSpec, volumeMounts, configureContainerSecurityContext, opts.ServicePort)),
-		secondContainerModification,
 		volumesFunc,
 		configurePodSpecSecurityContext,
 		configureImagePullSecrets,
 		podTemplateSpecFunc,
+		agentDebugMod,
 	}
 	podTemplateModifications = append(podTemplateModifications, staticMods...)
 
@@ -539,7 +562,7 @@ func buildPersistentVolumeClaimsFuncs(opts DatabaseStatefulSetOptions) (map[stri
 	if podSpec.Persistence == nil ||
 		(podSpec.Persistence.SingleConfig == nil && podSpec.Persistence.MultipleConfig == nil) ||
 		podSpec.Persistence.SingleConfig != nil {
-		var config *common.PersistenceConfig
+		var config *v1.PersistenceConfig
 		if podSpec.Persistence != nil && podSpec.Persistence.SingleConfig != nil {
 			config = podSpec.Persistence.SingleConfig
 		}
@@ -583,7 +606,7 @@ func sharedDatabaseContainerFunc(databaseImage string, podSpecWrapper mdbv1.PodS
 //
 // The Secret will be mounted in:
 // `/var/lib/mongodb-automation/secrets/prometheus`.
-func getTLSPrometheusVolumeAndVolumeMount(prom *mdbcv1.Prometheus) ([]corev1.Volume, []corev1.VolumeMount) {
+func getTLSPrometheusVolumeAndVolumeMount(prom *v1.Prometheus) ([]corev1.Volume, []corev1.VolumeMount) {
 	volumes := []corev1.Volume{}
 	volumeMounts := []corev1.VolumeMount{}
 
@@ -638,7 +661,7 @@ func getVolumesAndVolumeMounts(mdb databaseStatefulSetSource, databaseOpts Datab
 	if !vault.IsVaultSecretBackend() && mdb.GetSecurity().ShouldUseX509(databaseOpts.CurrentAgentAuthMode) || mdb.GetSecurity().ShouldUseClientCertificates() {
 		agentSecretVolume := statefulset.CreateVolumeFromSecret(util.AgentSecretName, agentCertsSecretName)
 		volumeMounts = append(volumeMounts, corev1.VolumeMount{
-			MountPath: agentCertMountPath,
+			MountPath: util.AgentCertMountPath,
 			Name:      agentSecretVolume.Name,
 			ReadOnly:  true,
 		})
@@ -999,12 +1022,6 @@ func databaseEnvVars(opts DatabaseStatefulSetOptions) []corev1.EnvVar {
 				Value: strconv.FormatBool(opts.PodVars.SSLRequireValidMMSServerCertificates),
 			},
 		)
-	}
-
-	// This is only used for debugging
-	if useDebugAgent := os.Getenv(util.EnvVarDebug); useDebugAgent != "" { // nolint:forbidigo
-		zap.S().Debugf("running the agent in debug mode")
-		vars = append(vars, corev1.EnvVar{Name: util.EnvVarDebug, Value: useDebugAgent})
 	}
 
 	// This is only used for debugging

@@ -1,6 +1,7 @@
 from typing import Optional
 
 import pytest
+from kubetester import try_load
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import skip_if_local
 from kubetester.opsmanager import MongoDBOpsManager
@@ -20,7 +21,7 @@ def ops_manager(namespace: str, custom_version: Optional[str], custom_appdb_vers
     resource.set_version(custom_version)
     resource.set_appdb_version(custom_appdb_version)
 
-    resource.update()
+    try_load(resource)
     return resource
 
 
@@ -31,6 +32,7 @@ class TestOpsManagerCreation:
     """
 
     def test_create_om(self, ops_manager: MongoDBOpsManager):
+        ops_manager.update()
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=1200)
         ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
 
@@ -135,6 +137,10 @@ class TestOpsManagerAppDbScaleDown:
             statefulset = ops_manager.read_appdb_statefulset()
             assert statefulset.status.ready_replicas == 3
             assert statefulset.status.current_replicas == 3
+
+    def test_hosts_removed_from_monitoring_after_scale_down(self, ops_manager: MongoDBOpsManager):
+        """Verifies that scaled-down AppDB hosts are removed from OM monitoring."""
+        ops_manager.assert_appdb_hostnames_are_correct()
 
     def test_admin_config_map(self, ops_manager: MongoDBOpsManager):
         ops_manager.get_automation_config_tester().reached_version(3)

@@ -18,12 +18,13 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/authentication/authtypes"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/container"
 	e2eutil "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e/util/wait"
+	"github.com/mongodb/mongodb-kubernetes/pkg/authentication/authtypes"
+	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
 )
 
 // SkipTestIfLocal skips tests locally which tests connectivity to mongodb pods
@@ -501,7 +502,7 @@ func BasicFunctionality(ctx context.Context, mdb *mdbv1.MongoDBCommunity, skipSt
 		// TODO: this is temporary, remove the need for skipStatuscheck after 0.7.4 operator release
 		if len(skipStatusCheck) > 0 && !skipStatusCheck[0] {
 			t.Run("Test Status Was Updated", Status(ctx, mdb, mdbv1.MongoDBCommunityStatus{
-				MongoURI:                   mdb.MongoURI(""),
+				MongoURI:                   mdb.MongoURI(),
 				Phase:                      mdbv1.Running,
 				Version:                    mdb.GetMongoDBVersion(),
 				CurrentMongoDBMembers:      mdb.Spec.Members,
@@ -663,8 +664,8 @@ func AddConnectionStringOption(ctx context.Context, mdb *mdbv1.MongoDBCommunity,
 func ResetConnectionStringOptions(ctx context.Context, mdb *mdbv1.MongoDBCommunity) func(t *testing.T) {
 	return func(t *testing.T) {
 		err := e2eutil.UpdateMongoDBResource(ctx, mdb, func(db *mdbv1.MongoDBCommunity) {
-			db.Spec.AdditionalConnectionStringConfig = mdbv1.NewMapWrapper()
-			db.Spec.Users[0].AdditionalConnectionStringConfig = mdbv1.NewMapWrapper()
+			db.Spec.AdditionalConnectionStringConfig = v1.NewMapWrapper()
+			db.Spec.Users[0].AdditionalConnectionStringConfig = v1.NewMapWrapper()
 		})
 		if err != nil {
 			t.Fatal(err)

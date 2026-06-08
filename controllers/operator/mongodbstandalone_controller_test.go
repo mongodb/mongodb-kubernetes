@@ -2,6 +2,7 @@ package operator
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"testing"
@@ -18,17 +19,16 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/controlledfeature"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
-	mcoConstruct "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/construct"
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/versionutil"
@@ -71,7 +71,7 @@ func TestOnAddStandalone(t *testing.T) {
 	assert.Len(t, mock.GetMapForObject(kubeClient, &corev1.Service{}), 1)
 	assert.Len(t, mock.GetMapForObject(kubeClient, &appsv1.StatefulSet{}), 1)
 	assert.Equal(t, *mock.GetMapForObject(kubeClient, &appsv1.StatefulSet{})[st.ObjectKey()].(*appsv1.StatefulSet).Spec.Replicas, int32(1))
-	assert.Len(t, mock.GetMapForObject(kubeClient, &corev1.Secret{}), 2)
+	assert.Len(t, mock.GetMapForObject(kubeClient, &corev1.Secret{}), 3)
 
 	omConn.(*om.MockedOmConnection).CheckDeployment(t, createDeploymentFromStandalone(st), "auth", "tls")
 	omConn.(*om.MockedOmConnection).CheckNumberOfUpdateRequests(t, 1)
@@ -106,12 +106,12 @@ func TestStandaloneClusterReconcileContainerImages(t *testing.T) {
 func TestStandaloneClusterReconcileContainerImagesWithStaticArchitecture(t *testing.T) {
 	t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.Static))
 
-	databaseRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_8_0_0_ubi9", mcoConstruct.MongodbImageEnv)
+	databaseRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_8_0_0_ubi9", util.MongodbImageEnv)
 
 	imageUrlsMock := images.ImageUrls{
-		architectures.MdbAgentImageRepo: "quay.io/mongodb/mongodb-agent",
-		mcoConstruct.MongodbImageEnv:    "quay.io/mongodb/mongodb-enterprise-server",
-		databaseRelatedImageEnv:         "quay.io/mongodb/mongodb-enterprise-server:@sha256:MONGODB_DATABASE",
+		util.AgentImageUrlEnv:   "quay.io/mongodb/mongodb-agent",
+		util.MongodbImageEnv:    "quay.io/mongodb/mongodb-enterprise-server",
+		databaseRelatedImageEnv: "quay.io/mongodb/mongodb-enterprise-server:@sha256:MONGODB_DATABASE",
 	}
 
 	ctx := context.Background()
@@ -150,7 +150,7 @@ func TestOnAddStandaloneWithDelay(t *testing.T) {
 		},
 	})
 
-	reconciler := newStandaloneReconciler(ctx, kubeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, omConnectionFactory.GetConnectionFunc)
+	reconciler := newStandaloneReconciler(ctx, kubeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", omConnectionFactory.GetConnectionFunc)
 
 	checkReconcilePending(ctx, t, reconciler, st, "StatefulSet not ready", kubeClient, 3)
 	// this affects Get interceptor func, blocking automatically marking sts as ready
@@ -323,13 +323,51 @@ func TestStandaloneAgentVersionMapping(t *testing.T) {
 	agentVersionMappingTest(ctx, t, defaultResources, overriddenResources)
 }
 
+func TestStandaloneRoleAnnotationIsSet(t *testing.T) {
+	ctx := context.Background()
+
+	role := mdbv1.MongoDBRole{
+		Role: "embedded-role",
+		Db:   "admin",
+		Roles: []mdbv1.InheritedRole{{
+			Db:   "admin",
+			Role: "read",
+		}},
+	}
+
+	st := DefaultStandaloneBuilder().SetRoles([]mdbv1.MongoDBRole{role}).Build()
+	reconciler, client, omConnectionFactory := defaultStandaloneReconciler(ctx, nil, "", "", om.NewEmptyMockedOmConnection, st)
+
+	checkReconcileSuccessful(ctx, t, reconciler, st, client)
+
+	roleString, _ := json.Marshal([]string{"embedded-role@admin"})
+
+	// Assert that the member ids are saved in the annotation
+	assert.Equal(t, st.GetAnnotations()[util.LastConfiguredRoles], string(roleString))
+
+	roles := omConnectionFactory.GetConnection().(*om.MockedOmConnection).GetRoles()
+	assert.Len(t, roles, 1)
+
+	st.GetSecurity().Roles = []mdbv1.MongoDBRole{}
+	err := client.Update(ctx, st)
+	assert.NoError(t, err)
+
+	checkReconcileSuccessful(ctx, t, reconciler, st, client)
+
+	// Assert that the roles annotation is updated and role is removed
+	assert.Equal(t, st.GetAnnotations()[util.LastConfiguredRoles], "[]")
+
+	roles = omConnectionFactory.GetConnection().(*om.MockedOmConnection).GetRoles()
+	assert.Len(t, roles, 0)
+}
+
 // defaultStandaloneReconciler is the standalone reconciler used in unit test. It "adds" necessary
 // additional K8s objects (st, connection config map and secrets) necessary for reconciliation,
 // so it's possible to call 'reconcileAppDB()' on it right away
 func defaultStandaloneReconciler(ctx context.Context, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, omConnectionFactoryFunc om.ConnectionFactory, rs *mdbv1.MongoDB) (*ReconcileMongoDbStandalone, kubernetesClient.Client, *om.CachedOMConnectionFactory) {
 	omConnectionFactory := om.NewCachedOMConnectionFactory(omConnectionFactoryFunc)
 	kubeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, rs)
-	return newStandaloneReconciler(ctx, kubeClient, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, false, false, omConnectionFactory.GetConnectionFunc), kubeClient, omConnectionFactory
+	return newStandaloneReconciler(ctx, kubeClient, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, false, false, false, "", omConnectionFactory.GetConnectionFunc), kubeClient, omConnectionFactory
 }
 
 // TODO remove in favor of '/api/mongodbbuilder.go'
@@ -385,6 +423,14 @@ func (b *StandaloneBuilder) SetService(s string) *StandaloneBuilder {
 	return b
 }
 
+func (b *StandaloneBuilder) SetRoles(roles []mdbv1.MongoDBRole) *StandaloneBuilder {
+	if b.Spec.Security == nil {
+		b.Spec.Security = &mdbv1.Security{}
+	}
+	b.Spec.Security.Roles = roles
+	return b
+}
+
 func (b *StandaloneBuilder) SetPodSpecTemplate(spec corev1.PodTemplateSpec) *StandaloneBuilder {
 	if b.Spec.PodSpec == nil {
 		b.Spec.PodSpec = &mdbv1.MongoDbPodSpec{}
@@ -411,6 +457,6 @@ func createDeploymentFromStandalone(st *mdbv1.MongoDB) om.Deployment {
 	}
 
 	d.MergeStandalone(process, st.Spec.AdditionalMongodConfig.ToMap(), lastConfig.ToMap(), nil)
-	d.AddMonitoringAndBackup(zap.S(), st.Spec.GetSecurity().IsTLSEnabled(), util.CAFilePathInContainer)
+	d.ConfigureMonitoringAndBackup(zap.S(), st.Spec.GetSecurity().IsTLSEnabled(), util.CAFilePathInContainer)
 	return d
 }

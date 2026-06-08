@@ -2,8 +2,9 @@ from dataclasses import dataclass
 from typing import List, Optional
 
 from scripts.release.build.build_scenario import BuildScenario
+from scripts.release.build.image_build_process import ImageBuilder
 
-SUPPORTED_PLATFORMS = ["linux/amd64", "linux/arm64"]
+SUPPORTED_PLATFORMS = ["darwin/amd64", "darwin/arm64", "linux/amd64", "linux/arm64", "linux/s390x", "linux/ppc64le"]
 
 
 @dataclass
@@ -14,13 +15,16 @@ class ImageBuildConfiguration:
     olm_tag: bool
     registries: List[str]
     dockerfile_path: str
+    builder: ImageBuilder
+    platforms: List[str] = None
+    sign: bool = False
+    skip_if_exists: bool = False
 
+    # Agent specific
     parallel: bool = False
     parallel_factor: int = 0
-    platforms: Optional[List[str]] = None
-    sign: bool = False
-    all_agents: bool = False
-    currently_used_agents: bool = False
+    architecture_suffix: bool = False
+    agent_tools_version: Optional[str] = None  # Explicit tools version for agent builds
 
     def is_release_scenario(self) -> bool:
         return self.scenario == BuildScenario.RELEASE

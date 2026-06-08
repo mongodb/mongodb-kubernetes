@@ -3,6 +3,7 @@ from typing import Callable, List
 import kubernetes
 import pytest
 from kubernetes import client
+from kubetester import try_load
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.certs_mongodb_multi import create_multi_cluster_mongodb_tls_certs
 from kubetester.kubetester import fixture as yaml_fixture
@@ -12,7 +13,8 @@ from kubetester.mongotester import with_tls
 from kubetester.multicluster_client import MultiClusterClient
 from kubetester.operator import Operator
 from kubetester.phase import Phase
-from tests.conftest import MULTI_CLUSTER_OPERATOR_NAME, run_kube_config_creation_tool
+from tests.conftest import run_kube_config_creation_tool
+from tests.constants import MULTI_CLUSTER_OPERATOR_NAME
 from tests.multicluster.conftest import cluster_spec_list
 
 RESOURCE_NAME = "multi-replica-set"
@@ -61,7 +63,8 @@ def server_certs(
 @pytest.fixture(scope="module")
 def mongodb_multi(mongodb_multi_unmarshalled: MongoDBMulti, server_certs: str) -> MongoDBMulti:
     mongodb_multi_unmarshalled["spec"]["clusterSpecList"].pop()
-    return mongodb_multi_unmarshalled.create()
+    try_load(mongodb_multi_unmarshalled)
+    return mongodb_multi_unmarshalled
 
 
 @pytest.mark.e2e_multi_cluster_scale_up_cluster_new_cluster
@@ -78,6 +81,7 @@ def test_deploy_operator(
 
 @pytest.mark.e2e_multi_cluster_scale_up_cluster_new_cluster
 def test_create_mongodb_multi(mongodb_multi: MongoDBMulti):
+    mongodb_multi.update()
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1200)
 
 

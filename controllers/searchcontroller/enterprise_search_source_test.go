@@ -7,7 +7,10 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
+	searchv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/search"
+	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
+	userv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/user"
 )
 
 func newEnterpriseSearchSource(version string, topology string, resourceType mdbv1.ResourceType, authModes []string, internalClusterAuth string) EnterpriseResourceSearchSource {
@@ -77,20 +80,20 @@ func TestEnterpriseResourceSearchSource_Validate(t *testing.T) {
 			resourceType:   mdbv1.ReplicaSet,
 			authModes:      []string{},
 			expectError:    true,
-			expectedErrMsg: "MongoDB version must be 8.0.10 or higher",
+			expectedErrMsg: "MongoDB version must be 8.2.0 or higher",
 		},
 		{
 			name:           "Version just below minimum",
-			version:        "8.0.9",
+			version:        "8.1.9",
 			topology:       mdbv1.ClusterTopologySingleCluster,
 			resourceType:   mdbv1.ReplicaSet,
 			authModes:      []string{},
 			expectError:    true,
-			expectedErrMsg: "MongoDB version must be 8.0.10 or higher",
+			expectedErrMsg: "MongoDB version must be 8.2.0 or higher",
 		},
 		{
 			name:         "Valid minimum version",
-			version:      "8.0.10",
+			version:      "8.2.0",
 			topology:     mdbv1.ClusterTopologySingleCluster,
 			resourceType: mdbv1.ReplicaSet,
 			authModes:    []string{},
@@ -98,7 +101,7 @@ func TestEnterpriseResourceSearchSource_Validate(t *testing.T) {
 		},
 		{
 			name:         "Version above minimum",
-			version:      "8.1.0",
+			version:      "8.3.0",
 			topology:     mdbv1.ClusterTopologySingleCluster,
 			resourceType: mdbv1.ReplicaSet,
 			authModes:    []string{},
@@ -107,7 +110,7 @@ func TestEnterpriseResourceSearchSource_Validate(t *testing.T) {
 		// Topology validation tests
 		{
 			name:           "Invalid topology - MultiCluster",
-			version:        "8.0.10",
+			version:        "8.2.0",
 			topology:       mdbv1.ClusterTopologyMultiCluster,
 			resourceType:   mdbv1.ReplicaSet,
 			authModes:      []string{},
@@ -116,7 +119,7 @@ func TestEnterpriseResourceSearchSource_Validate(t *testing.T) {
 		},
 		{
 			name:         "Valid topology - SingleCluster",
-			version:      "8.0.10",
+			version:      "8.2.0",
 			topology:     mdbv1.ClusterTopologySingleCluster,
 			resourceType: mdbv1.ReplicaSet,
 			authModes:    []string{},
@@ -124,7 +127,7 @@ func TestEnterpriseResourceSearchSource_Validate(t *testing.T) {
 		},
 		{
 			name:         "Empty topology defaults to SingleCluster",
-			version:      "8.0.10",
+			version:      "8.2.0",
 			topology:     "",
 			resourceType: mdbv1.ReplicaSet,
 			authModes:    []string{},
@@ -133,7 +136,7 @@ func TestEnterpriseResourceSearchSource_Validate(t *testing.T) {
 		// Resource type validation tests
 		{
 			name:           "Invalid resource type - Standalone",
-			version:        "8.0.10",
+			version:        "8.2.0",
 			topology:       mdbv1.ClusterTopologySingleCluster,
 			resourceType:   mdbv1.Standalone,
 			authModes:      []string{},
@@ -142,7 +145,7 @@ func TestEnterpriseResourceSearchSource_Validate(t *testing.T) {
 		},
 		{
 			name:           "Invalid resource type - ShardedCluster",
-			version:        "8.0.10",
+			version:        "8.2.0",
 			topology:       mdbv1.ClusterTopologySingleCluster,
 			resourceType:   mdbv1.ShardedCluster,
 			authModes:      []string{},
@@ -151,7 +154,7 @@ func TestEnterpriseResourceSearchSource_Validate(t *testing.T) {
 		},
 		{
 			name:         "Valid resource type - ReplicaSet",
-			version:      "8.0.10",
+			version:      "8.2.0",
 			topology:     mdbv1.ClusterTopologySingleCluster,
 			resourceType: mdbv1.ReplicaSet,
 			authModes:    []string{},
@@ -160,7 +163,7 @@ func TestEnterpriseResourceSearchSource_Validate(t *testing.T) {
 		// Authentication mode tests
 		{
 			name:           "No SCRAM authentication",
-			version:        "8.0.10",
+			version:        "8.2.0",
 			topology:       mdbv1.ClusterTopologySingleCluster,
 			resourceType:   mdbv1.ReplicaSet,
 			authModes:      []string{"X509"},
@@ -169,7 +172,7 @@ func TestEnterpriseResourceSearchSource_Validate(t *testing.T) {
 		},
 		{
 			name:         "Empty authentication modes",
-			version:      "8.0.10",
+			version:      "8.2.0",
 			topology:     mdbv1.ClusterTopologySingleCluster,
 			resourceType: mdbv1.ReplicaSet,
 			authModes:    []string{},
@@ -177,7 +180,7 @@ func TestEnterpriseResourceSearchSource_Validate(t *testing.T) {
 		},
 		{
 			name:         "Nil authentication modes",
-			version:      "8.0.10",
+			version:      "8.2.0",
 			topology:     mdbv1.ClusterTopologySingleCluster,
 			resourceType: mdbv1.ReplicaSet,
 			authModes:    nil,
@@ -185,7 +188,7 @@ func TestEnterpriseResourceSearchSource_Validate(t *testing.T) {
 		},
 		{
 			name:         "Valid SCRAM authentication",
-			version:      "8.0.10",
+			version:      "8.2.0",
 			topology:     mdbv1.ClusterTopologySingleCluster,
 			resourceType: mdbv1.ReplicaSet,
 			authModes:    []string{"SCRAM-SHA-256"},
@@ -193,7 +196,7 @@ func TestEnterpriseResourceSearchSource_Validate(t *testing.T) {
 		},
 		{
 			name:         "Mixed auth modes with SCRAM",
-			version:      "8.0.10",
+			version:      "8.2.0",
 			topology:     mdbv1.ClusterTopologySingleCluster,
 			resourceType: mdbv1.ReplicaSet,
 			authModes:    []string{"X509", "SCRAM-SHA-256"},
@@ -201,7 +204,7 @@ func TestEnterpriseResourceSearchSource_Validate(t *testing.T) {
 		},
 		{
 			name:         "Case insensitive SCRAM",
-			version:      "8.0.10",
+			version:      "8.2.0",
 			topology:     mdbv1.ClusterTopologySingleCluster,
 			resourceType: mdbv1.ReplicaSet,
 			authModes:    []string{"scram-sha-256"},
@@ -209,7 +212,7 @@ func TestEnterpriseResourceSearchSource_Validate(t *testing.T) {
 		},
 		{
 			name:         "SCRAM variants",
-			version:      "8.0.10",
+			version:      "8.2.0",
 			topology:     mdbv1.ClusterTopologySingleCluster,
 			resourceType: mdbv1.ReplicaSet,
 			authModes:    []string{"SCRAM", "SCRAM-SHA-1", "SCRAM-SHA-256"},
@@ -218,17 +221,16 @@ func TestEnterpriseResourceSearchSource_Validate(t *testing.T) {
 		// Internal cluster authentication tests
 		{
 			name:                "X509 internal cluster auth not supported",
-			version:             "8.0.10",
+			version:             "8.2.0",
 			topology:            mdbv1.ClusterTopologySingleCluster,
 			resourceType:        mdbv1.ReplicaSet,
 			authModes:           []string{"SCRAM-SHA-256"},
 			internalClusterAuth: "X509",
-			expectError:         true,
-			expectedErrMsg:      "MongoDBSearch does not support X.509 internal cluster authentication",
+			expectError:         false,
 		},
 		{
 			name:                "Valid internal cluster auth - empty",
-			version:             "8.0.10",
+			version:             "8.2.0",
 			topology:            mdbv1.ClusterTopologySingleCluster,
 			resourceType:        mdbv1.ReplicaSet,
 			authModes:           []string{"SCRAM-SHA-256"},
@@ -237,7 +239,7 @@ func TestEnterpriseResourceSearchSource_Validate(t *testing.T) {
 		},
 		{
 			name:                "Valid internal cluster auth - SCRAM",
-			version:             "8.0.10",
+			version:             "8.2.0",
 			topology:            mdbv1.ClusterTopologySingleCluster,
 			resourceType:        mdbv1.ReplicaSet,
 			authModes:           []string{"SCRAM-SHA-256"},
@@ -252,11 +254,11 @@ func TestEnterpriseResourceSearchSource_Validate(t *testing.T) {
 			resourceType:   mdbv1.Standalone,
 			authModes:      []string{"X509"},
 			expectError:    true,
-			expectedErrMsg: "MongoDB version must be 8.0.10 or higher",
+			expectedErrMsg: "MongoDB version must be 8.2.0 or higher",
 		},
 		{
 			name:           "Valid version, invalid topology",
-			version:        "8.0.10",
+			version:        "8.2.0",
 			topology:       mdbv1.ClusterTopologyMultiCluster,
 			resourceType:   mdbv1.ReplicaSet,
 			authModes:      []string{},
@@ -265,7 +267,7 @@ func TestEnterpriseResourceSearchSource_Validate(t *testing.T) {
 		},
 		{
 			name:           "Valid version and topology, invalid resource type",
-			version:        "8.0.10",
+			version:        "8.2.0",
 			topology:       mdbv1.ClusterTopologySingleCluster,
 			resourceType:   mdbv1.Standalone,
 			authModes:      []string{},
@@ -285,6 +287,87 @@ func TestEnterpriseResourceSearchSource_Validate(t *testing.T) {
 			} else {
 				assert.NoError(t, err)
 			}
+		})
+	}
+}
+
+func newShardedClusterMongoDB(name, namespace string, shardCount int, version string) *mdbv1.MongoDB {
+	return &mdbv1.MongoDB{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+		},
+		Spec: mdbv1.MongoDbSpec{
+			DbCommonSpec: mdbv1.DbCommonSpec{
+				Version:      version,
+				ResourceType: mdbv1.ShardedCluster,
+			},
+			MongodbShardedClusterSizeConfig: status.MongodbShardedClusterSizeConfig{
+				ShardCount: shardCount,
+			},
+		},
+	}
+}
+
+func newShardedUnmanagedLBSearch(name, namespace, mdbName string, endpointTemplate string) *searchv1.MongoDBSearch {
+	var lb *searchv1.LoadBalancerConfig
+	if endpointTemplate != "" {
+		lb = &searchv1.LoadBalancerConfig{
+			Unmanaged: &searchv1.UnmanagedLBConfig{Endpoint: endpointTemplate},
+		}
+	}
+	return &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+		},
+		Spec: searchv1.MongoDBSearchSpec{
+			Replicas: 1,
+			Source: &searchv1.MongoDBSource{
+				MongoDBResourceRef: &userv1.MongoDBResourceRef{
+					Name: mdbName,
+				},
+			},
+			LoadBalancer: lb,
+		},
+	}
+}
+
+func TestShardedEnterpriseSearchSource_GetShardNames(t *testing.T) {
+	tests := []struct {
+		name           string
+		shardCount     int
+		mdbName        string
+		expectedShards []string
+	}{
+		{
+			name:           "Single shard",
+			shardCount:     1,
+			mdbName:        "my-cluster",
+			expectedShards: []string{"my-cluster-0"},
+		},
+		{
+			name:           "Three shards",
+			shardCount:     3,
+			mdbName:        "my-cluster",
+			expectedShards: []string{"my-cluster-0", "my-cluster-1", "my-cluster-2"},
+		},
+		{
+			name:           "Five shards",
+			shardCount:     5,
+			mdbName:        "test-sharded",
+			expectedShards: []string{"test-sharded-0", "test-sharded-1", "test-sharded-2", "test-sharded-3", "test-sharded-4"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			mdb := newShardedClusterMongoDB(tc.mdbName, "test-ns", tc.shardCount, "8.2.0")
+			search := newShardedUnmanagedLBSearch("test-search", "test-ns", tc.mdbName, "")
+			src := NewShardedInternalSearchSource(mdb, search)
+
+			shardNames := src.GetShardNames()
+			assert.Equal(t, tc.expectedShards, shardNames)
 		})
 	}
 }

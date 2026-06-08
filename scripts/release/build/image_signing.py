@@ -183,7 +183,7 @@ def sign_image(repository: str, tag: str) -> None:
     ]
     env_file_content = "\n".join(env_file_content)
     temp_file = "./env-file"
-    with open(temp_file, "w") as f:
+    with open(temp_file, "w") as f:  # lgtm[py/clear-text-storage-sensitive-data]
         f.write(env_file_content)
 
     additional_args = [
@@ -195,6 +195,8 @@ def sign_image(repository: str, tag: str) -> None:
         "sign",
         f"--key={pkcs11_uri}",
         f"--sign-container-identity={image}",
+        f"--use-signing-config=false",
+        f"--new-bundle-format=false",
         f"--tlog-upload=false",
         image_ref,
     ]
@@ -206,6 +208,8 @@ def sign_image(repository: str, tag: str) -> None:
         # Fail the pipeline if signing fails
         logger.error(f"Failed to sign image {image}: {e.stderr}")
         raise
+    finally:
+        os.unlink(temp_file)
 
     end_time = time.time()
     duration = end_time - start_time

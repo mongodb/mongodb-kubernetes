@@ -3,7 +3,7 @@ from kubetester.awss3client import s3_endpoint
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.opsmanager import MongoDBOpsManager
 from tests.common.constants import S3_BLOCKSTORE_NAME, S3_OPLOG_NAME
-from tests.conftest import AWS_REGION
+from tests.constants import AWS_REGION
 
 
 def ops_manager_multi_cluster_with_tls_s3_backups(

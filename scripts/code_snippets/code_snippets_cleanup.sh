@@ -32,5 +32,9 @@ for snippet_dir in $(bash "${script_dir}/find_snippets_directories.sh"); do
 done
 
 wait
+
+echo "Cleaning up snippets outputs"
+rm -rf "scripts/code_snippets/tests/outputs/*"
+
 echo "Cleaning up done."
 

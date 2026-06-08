@@ -1,7 +1,7 @@
 package operator
 
 import (
-	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
@@ -51,6 +51,13 @@ func ServiceName(serviceName string) func(options *construct.DatabaseStatefulSet
 func CertificateHash(hash string) func(options *construct.DatabaseStatefulSetOptions) {
 	return func(options *construct.DatabaseStatefulSetOptions) {
 		options.CertificateHash = hash
+	}
+}
+
+// AgentCertHash will assign the given AgentCertHash during StatefulSet construction.
+func AgentCertHash(hash string) func(options *construct.DatabaseStatefulSetOptions) {
+	return func(options *construct.DatabaseStatefulSetOptions) {
+		options.AgentCertHash = hash
 	}
 }
 
@@ -125,5 +132,17 @@ func WithMongodbImage(image string) func(*construct.DatabaseStatefulSetOptions) 
 func WithAgentImage(image string) func(*construct.DatabaseStatefulSetOptions) {
 	return func(opts *construct.DatabaseStatefulSetOptions) {
 		opts.AgentImage = image
+	}
+}
+
+func WithAgentDebug(debug bool) func(options *construct.DatabaseStatefulSetOptions) {
+	return func(options *construct.DatabaseStatefulSetOptions) {
+		options.AgentDebug = debug
+	}
+}
+
+func WithAgentDebugImage(debugImage string) func(options *construct.DatabaseStatefulSetOptions) {
+	return func(options *construct.DatabaseStatefulSetOptions) {
+		options.AgentDebugImage = debugImage
 	}
 }

@@ -1,3 +1,7 @@
+#!/usr/bin/env bash
+
+set -Eeou pipefail
+
 # Function to normalize identifier to contain only alphanumeric characters.
 # It's also cutting the string in the middle if exceeds max_len.
 # Example:

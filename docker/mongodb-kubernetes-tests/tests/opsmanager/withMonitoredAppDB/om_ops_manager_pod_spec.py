@@ -15,7 +15,8 @@ from kubetester.kubetester import is_default_architecture_static
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 from pytest import fixture, mark
-from tests.conftest import APPDB_SA_NAME, OM_SA_NAME, is_multi_cluster
+from tests.conftest import is_multi_cluster
+from tests.constants import APPDB_SA_NAME, OM_SA_NAME
 from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
 
 
@@ -26,15 +27,13 @@ def ops_manager(namespace: str, custom_version: Optional[str], custom_appdb_vers
         yaml_fixture("om_ops_manager_pod_spec.yaml"), namespace=namespace
     )
 
-    if try_load(om):
-        return om
-
     om.set_version(custom_version)
     om.set_appdb_version(custom_appdb_version)
 
     if is_multi_cluster():
         enable_multi_cluster_deployment(om)
 
+    try_load(om)
     return om
 
 
@@ -268,8 +267,9 @@ class TestOpsManagerCreation:
                 continue
             assert om_container[k] == expected_spec[k]
 
+        volume_mounts = list(expected_spec["volume_mounts"])
         if not is_default_architecture_static():
-            expected_spec["volume_mounts"].append(
+            volume_mounts.append(
                 {
                     "name": "ops-manager-scripts",
                     "mount_path": "/opt/scripts",
@@ -281,7 +281,7 @@ class TestOpsManagerCreation:
                 },
             )
 
-        assert_volume_mounts_are_equal(om_container["volume_mounts"], expected_spec["volume_mounts"])
+        assert_volume_mounts_are_equal(om_container["volume_mounts"], volume_mounts)
 
         # new volume was added and the old ones ('gen-key' and 'ops-manager-scripts') stayed there
         if is_default_architecture_static():

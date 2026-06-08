@@ -13,22 +13,12 @@ import kubernetes
 from kubeobject import CustomObject
 from kubernetes import client
 from kubernetes.client.rest import ApiException
-from kubetester import (
-    create_secret,
-    delete_secret,
-    kubetester,
-    random_k8s_name,
-    read_secret,
-)
+from kubetester import create_secret, delete_secret, kubetester, random_k8s_name, read_secret
 from kubetester.kubetester import KubernetesTester
 from kubetester.phase import Phase
 from opentelemetry import trace
 from tests import test_logger
-from tests.vaultintegration import (
-    store_secret_in_vault,
-    vault_namespace_name,
-    vault_sts_name,
-)
+from tests.vaultintegration import store_secret_in_vault, vault_namespace_name, vault_sts_name
 
 TRACER = trace.get_tracer("evergreen-agent")
 logger = test_logger.get_test_logger(__name__)
@@ -91,14 +81,14 @@ class Issuer(IssuerType, WaitForConditions):
     Reason = "KeyPairVerified"
 
 
-class ClusterIssuer(ClusterIssuerType, WaitForConditions):
+class ClusterIssuer(ClusterIssuerType, WaitForConditions):  # type: ignore[valid-type, misc]
     Reason = "KeyPairVerified"
 
 
 def generate_cert(
     namespace: str,
-    pod: str,
-    dns: str,
+    pod: str | list[str],
+    dns: str | list[str],
     issuer: str,
     spec: Optional[Dict] = None,
     additional_domains: Optional[List[str]] = None,
@@ -123,15 +113,18 @@ def generate_cert(
     cert = Certificate(namespace=namespace, name=secret_name)
 
     if multi_cluster_mode:
-        dns_names = dns_list
+        dns_names = dns_list if dns_list is not None else []
     else:
-        dns_names = [dns]
+        dns_names = dns if isinstance(dns, list) else [dns]
 
     if not multi_cluster_mode:
-        dns_names.append(pod)
+        if isinstance(pod, list):
+            dns_names.extend(pod)
+        else:
+            dns_names.append(pod)
 
     if additional_domains is not None:
-        dns_names += additional_domains
+        dns_names = dns_names + additional_domains
 
     issuerRef = {"name": issuer, "kind": "Issuer"}
     if clusterwide:
@@ -186,8 +179,8 @@ def create_tls_certs(
     namespace: str,
     resource_name: str,
     replicas: int = 3,
-    replicas_cluster_distribution: Optional[List[int]] = None,
-    service_name: str = None,
+    replicas_cluster_distribution: Optional[List[Optional[int]]] = None,
+    service_name: Optional[str] = None,
     spec: Optional[Dict] = None,
     secret_name: Optional[str] = None,
     additional_domains: Optional[List[str]] = None,
@@ -318,8 +311,8 @@ def create_mongodb_tls_certs(
     resource_name: str,
     bundle_secret_name: str,
     replicas: int = 3,
-    replicas_cluster_distribution: Optional[List[int]] = None,
-    service_name: str = None,
+    replicas_cluster_distribution: Optional[List[Optional[int]]] = None,
+    service_name: Optional[str] = None,
     spec: Optional[Dict] = None,
     additional_domains: Optional[List[str]] = None,
     secret_backend: Optional[str] = None,
@@ -352,7 +345,7 @@ def create_mongodb_tls_certs(
 def multi_cluster_service_fqdns(
     resource_name: str,
     namespace: str,
-    external_domain: str,
+    external_domain: Optional[str],
     cluster_index: int,
     replicas: int,
 ) -> List[str]:
@@ -384,11 +377,14 @@ def create_x509_mongodb_tls_certs(
     resource_name: str,
     bundle_secret_name: str,
     replicas: int = 3,
-    replicas_cluster_distribution: Optional[List[int]] = None,
-    service_name: str = None,
+    replicas_cluster_distribution: Optional[List[Optional[int]]] = None,
+    service_name: Optional[str] = None,
+    spec: Optional[Dict] = None,
     additional_domains: Optional[List[str]] = None,
     secret_backend: Optional[str] = None,
     vault_subpath: Optional[str] = None,
+    process_hostnames: Optional[List[str]] = None,
+    clusterwide: bool = False,
 ) -> str:
     spec = get_mongodb_x509_subject(namespace)
 
@@ -404,6 +400,8 @@ def create_x509_mongodb_tls_certs(
         additional_domains=additional_domains,
         secret_backend=secret_backend,
         vault_subpath=vault_subpath,
+        process_hostnames=process_hostnames,
+        clusterwide=clusterwide,
     )
 
 
@@ -494,9 +492,10 @@ def create_sharded_cluster_certs(
     additional_domains: Optional[List[str]] = None,
     secret_prefix: Optional[str] = None,
     secret_backend: Optional[str] = None,
-    shard_distribution: Optional[List[int]] = None,
-    mongos_distribution: Optional[List[int]] = None,
-    config_srv_distribution: Optional[List[int]] = None,
+    shard_distribution: Optional[List[Optional[int]]] = None,
+    mongos_distribution: Optional[List[Optional[int]]] = None,
+    config_srv_distribution: Optional[List[Optional[int]]] = None,
+    mongos_service_dns_names: Optional[List[str]] = None,
 ):
     cert_generation_func = create_mongodb_tls_certs
     if x509_certs:
@@ -583,9 +582,8 @@ def create_sharded_cluster_certs(
             secret_backend=secret_backend,
         )
 
-    additional_domains_for_mongos = None
+    additional_domains_for_mongos = []
     if additional_domains is not None:
-        additional_domains_for_mongos = []
         for domain in additional_domains:
             if mongos_distribution is None:
                 for pod_idx in range(mongos):
@@ -594,6 +592,10 @@ def create_sharded_cluster_certs(
                 for cluster_idx, pod_count in enumerate(mongos_distribution):
                     for pod_idx in range(pod_count or 0):
                         additional_domains_for_mongos.append(f"{resource_name}-mongos-{cluster_idx}-{pod_idx}.{domain}")
+
+    # Add service DNS names directly (e.g., for mongot to connect to mongos service)
+    if mongos_service_dns_names is not None:
+        additional_domains_for_mongos.extend(mongos_service_dns_names)
 
     secret_name = f"{resource_name}-mongos-cert"
     if secret_prefix is not None:
@@ -606,7 +608,7 @@ def create_sharded_cluster_certs(
         service_name=resource_name + "-svc",
         replicas=mongos,
         replicas_cluster_distribution=mongos_distribution,
-        additional_domains=additional_domains_for_mongos,
+        additional_domains=additional_domains_for_mongos if additional_domains_for_mongos else None,
         secret_backend=secret_backend,
     )
 

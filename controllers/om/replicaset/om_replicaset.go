@@ -6,11 +6,11 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 
-	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/process"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/scale"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/scale"
 )
 
 // BuildFromStatefulSet returns a replica set that can be set in the Automation Config
@@ -27,6 +27,16 @@ func BuildFromStatefulSetWithReplicas(mongoDBImage string, forceEnterprise bool,
 	replicaSet := om.NewReplicaSet(set.Name, dbSpec.GetMongoDBVersion())
 	rsWithProcesses := om.NewReplicaSetWithProcesses(replicaSet, members, dbSpec.GetMemberOptions())
 	rsWithProcesses.SetHorizons(dbSpec.GetHorizonConfig())
+	return rsWithProcesses
+}
+
+// BuildFromMongoDBWithReplicas returns a replica set that can be set in the Automation Config
+// based on the given MongoDB resource directly without requiring a StatefulSet.
+func BuildFromMongoDBWithReplicas(mongoDBImage string, forceEnterprise bool, mdb *mdbv1.MongoDB, replicas int, fcv string, tlsCertPath string) om.ReplicaSetWithProcesses {
+	members := process.CreateMongodProcessesFromMongoDB(mongoDBImage, forceEnterprise, mdb, replicas, fcv, tlsCertPath)
+	replicaSet := om.NewReplicaSet(mdb.Name, mdb.Spec.GetMongoDBVersion())
+	rsWithProcesses := om.NewReplicaSetWithProcesses(replicaSet, members, mdb.Spec.GetMemberOptions())
+	rsWithProcesses.SetHorizons(mdb.Spec.GetHorizonConfig())
 	return rsWithProcesses
 }
 
@@ -65,30 +75,13 @@ func PrepareScaleDownFromMap(omClient om.Connection, rsMembers map[string][]stri
 		log.Debugw("Marked replica set members as non-voting", "replica set with members", rsMembers)
 	}
 
-	// TODO practice shows that automation agents can get stuck on setting db to "disabled" also it seems that this process
-	// works correctly without explicit disabling - feel free to remove this code after some time when it is clear
-	// that everything works correctly without disabling
-
-	// Stage 2. Set disabled to true
-	//err = omClient.ReadUpdateDeployment(
-	//	func(d om.Deployment) error {
-	//		d.DisableProcesses(allProcesses)
-	//		return nil
-	//	},
-	//)
-	//
-	//if err != nil {
-	//	return errors.New(fmt.Sprintf("Unable to set disabled to true, hosts: %v, err: %w", allProcesses, err))
-	//}
-	//log.Debugw("Disabled processes", "processes", allProcesses)
-
 	log.Infow("Performed some preliminary steps to support scale down", "hosts", processes)
 
 	return nil
 }
 
-func PrepareScaleDownFromStatefulSet(omClient om.Connection, statefulSet appsv1.StatefulSet, rs *mdbv1.MongoDB, log *zap.SugaredLogger) error {
-	_, podNames := dns.GetDnsForStatefulSetReplicasSpecified(statefulSet, rs.Spec.GetClusterDomain(), rs.Status.Members, nil)
+func PrepareScaleDownFromMongoDB(omClient om.Connection, rs *mdbv1.MongoDB, log *zap.SugaredLogger) error {
+	_, podNames := dns.GetDNSNames(rs.Name, rs.ServiceName(), rs.Namespace, rs.Spec.GetClusterDomain(), rs.Status.Members, rs.Spec.DbCommonSpec.GetExternalDomain())
 	podNames = podNames[scale.ReplicasThisReconciliation(rs):rs.Status.Members]
 
 	if len(podNames) != 1 {

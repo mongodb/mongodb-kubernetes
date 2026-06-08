@@ -2,65 +2,29 @@ kubectl apply --context "${K8S_CTX}" -n "${MDB_NS}" -f - <<EOF
 apiVersion: mongodbcommunity.mongodb.com/v1
 kind: MongoDBCommunity
 metadata:
-  name: mdbc-rs
+  name: ${MDB_RESOURCE_NAME}
 spec:
   version: ${MDB_VERSION}
   type: ReplicaSet
   members: 3
   security:
+    tls:
+      enabled: true
+      certificateKeySecretRef:
+        name: ${MDB_TLS_SERVER_CERT_SECRET_NAME}
+      caConfigMapRef:
+        name: ${MDB_TLS_CA_CONFIGMAP}
     authentication:
       ignoreUnknownUsers: true
       modes:
         - SCRAM
-    roles:
-      - role: searchCoordinator
-        db: admin
-        roles:
-          - name: clusterMonitor
-            db: admin
-          - name: directShardOperations
-            db: admin
-          - name: readAnyDatabase
-            db: admin
-        privileges:
-          - resource:
-              db: "__mdb_internal_search"
-              collection: ""
-            actions:
-              - "changeStream"
-              - "collStats"
-              - "dbHash"
-              - "dbStats"
-              - "find"
-              - "killCursors"
-              - "listCollections"
-              - "listIndexes"
-              - "listSearchIndexes"
-              - "planCacheRead"
-              - "cleanupStructuredEncryptionData"
-              - "compactStructuredEncryptionData"
-              - "convertToCapped"
-              - "createCollection"
-              - "createIndex"
-              - "createSearchIndexes"
-              - "dropCollection"
-              - "dropIndex"
-              - "dropSearchIndex"
-              - "insert"
-              - "remove"
-              - "renameCollectionSameDB"
-              - "update"
-              - "updateSearchIndex"
-          - resource:
-              cluster: true
-            actions:
-              - "bypassDefaultMaxTimeMS"
   additionalMongodConfig:
     setParameter:
-      mongotHost: ${MDB_SEARCH_HOSTNAME}:27027
-      searchIndexManagementHostAndPort: ${MDB_SEARCH_HOSTNAME}:27027
+      mongotHost: ${MDB_SEARCH_HOSTNAME}:27028
+      searchIndexManagementHostAndPort: ${MDB_SEARCH_HOSTNAME}:27028
       skipAuthenticationToSearchIndexManagementServer: false
-      searchTLSMode: disabled
+      searchTLSMode: requireTLS
+      useGrpcForSearch: true
   agent:
     logLevel: DEBUG
   statefulSet:
@@ -113,8 +77,8 @@ spec:
       db: admin
       # a reference to the secret that will be used to generate the user's password
       passwordSecretRef:
-        name: mdbc-rs-search-sync-source-password
-      scramCredentialsSecretName: mdbc-rs-search-sync-source
+        name: ${MDB_RESOURCE_NAME}-search-sync-source-password
+      scramCredentialsSecretName: ${MDB_RESOURCE_NAME}-search-sync-source
       roles:
         - name: searchCoordinator
           db: admin

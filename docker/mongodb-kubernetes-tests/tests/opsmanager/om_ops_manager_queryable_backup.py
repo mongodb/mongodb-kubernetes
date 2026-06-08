@@ -1,7 +1,7 @@
 import logging
 import os
 from operator import attrgetter
-from typing import Dict, Optional
+from typing import Dict, Iterator, Optional
 
 from kubernetes import client
 from kubetester import (
@@ -20,7 +20,8 @@ from kubetester.om_queryable_backups import generate_queryable_pem
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 from pytest import fixture, mark
-from tests.conftest import AWS_REGION, is_multi_cluster
+from tests.conftest import is_multi_cluster
+from tests.constants import AWS_REGION
 from tests.opsmanager.om_ops_manager_backup import create_aws_secret, create_s3_bucket
 from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
 
@@ -94,7 +95,7 @@ def new_om_data_store(
 
 
 @fixture(scope="module")
-def s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> str:
+def s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> Iterator[str]:
     create_aws_secret(aws_s3_client, S3_SECRET_NAME, namespace)
     yield from create_s3_bucket(aws_s3_client, "test-bucket-s3")
 

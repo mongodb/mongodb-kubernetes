@@ -12,18 +12,16 @@ bindir="${PROJECT_DIR}/bin"
 tmpdir="${PROJECT_DIR}/tmp"
 mkdir -p "${bindir}" "${tmpdir}"
 
-echo "Downloading latest kubectl for ${ARCH}"
-curl -s --retry 3 -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/${ARCH}/kubectl"
-chmod +x kubectl
+# Use pinned version from root-context (no external API call needed)
+download_kubectl_binary "${KUBECTL_VERSION}" "${ARCH}"
 echo "kubectl version --client"
 ./kubectl version --client
 mv kubectl "${bindir}"
 
-echo "Downloading helm for ${ARCH}"
-helm_archive="${tmpdir}/helm.tgz"
-helm_version="v3.17.1"
-curl -s https://get.helm.sh/helm-${helm_version}-linux-"${ARCH}".tar.gz --output "${helm_archive}"
+pushd "${tmpdir}" > /dev/null
+download_helm_binary "${HELM_VERSION}" "${ARCH}"
+mv "linux-${ARCH}/helm" "${bindir}"
+rm -rf "linux-${ARCH}/"
+popd > /dev/null
 
-tar xfz "${helm_archive}" -C "${tmpdir}" &> /dev/null
-mv "${tmpdir}/linux-${ARCH}/helm" "${bindir}"
 "${bindir}"/helm version

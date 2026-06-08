@@ -8,11 +8,7 @@ from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests import test_logger
-from tests.conftest import (
-    get_central_cluster_client,
-    get_member_cluster_names,
-    read_deployment_state,
-)
+from tests.conftest import get_central_cluster_client, get_member_cluster_names, read_deployment_state
 from tests.multicluster.conftest import cluster_spec_list
 from tests.multicluster_shardedcluster import (
     build_expected_statefulsets,
@@ -39,12 +35,10 @@ def sc(namespace: str, custom_mdb_version: str) -> MongoDB:
         namespace=namespace,
     )
 
-    if try_load(resource):
-        return resource
-
     resource.set_version(ensure_ent_version(custom_mdb_version))
     resource.set_architecture_annotation()
-    return resource.update()
+    try_load(resource)
+    return resource
 
 
 @mark.e2e_sharded_cluster_shard_overrides
@@ -59,6 +53,7 @@ class TestShardedClusterShardOverrides:
     """
 
     def test_sharded_cluster_running(self, sc: MongoDB):
+        sc.update()
         sc.assert_reaches_phase(Phase.Running, timeout=1000 if is_multi_cluster() else 800)
 
     def test_assert_correct_automation_config(self, sc: MongoDB):
@@ -78,11 +73,11 @@ class TestShardedClusterShardOverrides:
             # We need the unique cluster index, stored in the state configmap, for computing expected sts names
             cluster_mapping = read_deployment_state(sc.name, namespace, get_central_cluster_client())["clusterMapping"]
             logger.debug(f"Cluster mapping in state: {cluster_mapping}")
-            expected_statefulsets = build_expected_statefulsets_multi(sc, cluster_mapping)
-            validate_correct_sts_in_cluster_multi(expected_statefulsets, namespace, member_cluster_clients)
+            expected_multi = build_expected_statefulsets_multi(sc, cluster_mapping)
+            validate_correct_sts_in_cluster_multi(expected_multi, namespace, member_cluster_clients)
         else:
-            expected_statefulsets = build_expected_statefulsets(sc)
-            validate_correct_sts_in_cluster(expected_statefulsets, namespace, "__default", central_cluster_client)
+            expected_single = build_expected_statefulsets(sc)
+            validate_correct_sts_in_cluster(expected_single, namespace, "__default", central_cluster_client)
 
     def test_scale_shard_overrides(self, sc: MongoDB):
         if is_multi_cluster():
@@ -133,8 +128,8 @@ class TestShardedClusterShardOverrides:
             # We need the unique cluster index, stored in the state configmap, for computing expected sts names
             cluster_mapping = read_deployment_state(sc.name, namespace, get_central_cluster_client())["clusterMapping"]
             logger.debug(f"Cluster mapping in state: {cluster_mapping}")
-            expected_statefulsets = build_expected_statefulsets_multi(sc, cluster_mapping)
-            validate_correct_sts_in_cluster_multi(expected_statefulsets, namespace, member_cluster_clients)
+            expected_multi = build_expected_statefulsets_multi(sc, cluster_mapping)
+            validate_correct_sts_in_cluster_multi(expected_multi, namespace, member_cluster_clients)
         else:
-            expected_statefulsets = build_expected_statefulsets(sc)
-            validate_correct_sts_in_cluster(expected_statefulsets, namespace, "__default", central_cluster_client)
+            expected_single = build_expected_statefulsets(sc)
+            validate_correct_sts_in_cluster(expected_single, namespace, "__default", central_cluster_client)

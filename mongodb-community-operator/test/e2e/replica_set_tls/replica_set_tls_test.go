@@ -1,3 +1,5 @@
+//go:build community_e2e
+
 package replica_set_tls
 
 import (
@@ -24,7 +26,7 @@ func TestReplicaSetTLS(t *testing.T) {
 	ctx := context.Background()
 	resourceName := "mdb-tls"
 
-	testCtx, testConfig := setup.SetupWithTLS(ctx, t, resourceName)
+	testCtx, testConfig := setup.SetupWithTLS(ctx, t, resourceName, true, false)
 	defer testCtx.Teardown()
 
 	mdb, user := e2eutil.NewTestMongoDB(testCtx, resourceName, testConfig.Namespace)
@@ -46,7 +48,7 @@ func TestReplicaSetTLS(t *testing.T) {
 	mongodbtests.SkipTestIfLocal(t, "Ensure MongoDB TLS Configuration", func(t *testing.T) {
 		t.Run("Has TLS Mode", tester.HasTlsMode("requireSSL", 60, WithTls(ctx, mdb)))
 		t.Run("Basic Connectivity Succeeds", tester.ConnectivitySucceeds(WithTls(ctx, mdb)))
-		t.Run("SRV Connectivity Succeeds", tester.ConnectivitySucceeds(WithURI(mdb.MongoSRVURI("")), WithTls(ctx, mdb)))
+		t.Run("SRV Connectivity Succeeds", tester.ConnectivitySucceeds(WithURI(mdb.MongoSRVURI()), WithTls(ctx, mdb)))
 		t.Run("Basic Connectivity With Generated Connection String Secret Succeeds",
 			tester.ConnectivitySucceeds(WithURI(mongodbtests.GetConnectionStringForUser(ctx, mdb, scramUser)), WithTls(ctx, mdb)))
 		t.Run("SRV Connectivity With Generated Connection String Secret Succeeds",

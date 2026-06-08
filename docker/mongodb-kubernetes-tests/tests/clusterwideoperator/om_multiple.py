@@ -13,13 +13,11 @@ from pytest import fixture, mark
 from tests.conftest import (
     get_central_cluster_client,
     get_evergreen_task_id,
-    get_member_cluster_api_client,
     get_member_cluster_clients,
     get_multi_cluster_operator_clustermode,
     get_multi_cluster_operator_installation_config,
     get_operator_clusterwide,
     get_operator_installation_config,
-    get_version_id,
     is_multi_cluster,
 )
 from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
@@ -53,7 +51,7 @@ def install_database_roles(
         raise e
 
 
-def create_om_admin_secret(ops_manager_namespace: str, api_client: kubernetes.client.ApiClient = None):
+def create_om_admin_secret(ops_manager_namespace: str, api_client: kubernetes.client.ApiClient | None = None):
     data = dict(
         Username="test-user",
         Password="@Sihjifutestpass21nnH",

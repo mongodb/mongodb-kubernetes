@@ -4,6 +4,9 @@
 
 set -Eeou pipefail
 
+source scripts/funcs/install
+source scripts/funcs/printing
+
 set_limits() {
   echo "Increasing fs.inotify.max_user_instances"
   sudo sysctl -w fs.inotify.max_user_instances=8192
@@ -26,32 +29,47 @@ set_limits() {
 EOF
 }
 
-# retrieve arch variable off the shell command line
-ARCH=${1-"amd64"}
+set_auto_recreate() {
+  echo "Creating systemd service for recreating kind clusters on reboot"
+
+  sudo cp /home/ubuntu/mongodb-kubernetes/scripts/dev/kindclusters.service /etc/systemd/system/kindclusters.service
+  sudo systemctl enable kindclusters.service
+}
+
+# Detect architecture from the environment
+ARCH=$(detect_architecture)
+echo "Detected architecture: ${ARCH}"
 
 download_kind() {
   scripts/evergreen/setup_kind.sh /usr/local
 }
 
-download_curl() {
-  echo "Downloading curl..."
-  curl -s -o kubectl -L https://dl.k8s.io/release/"$(curl -L -s https://dl.k8s.io/release/stable.txt)"/bin/linux/"${ARCH}"/kubectl
-  chmod +x kubectl
+download_kubectl() {
+  # Use pinned version (KUBECTL_VERSION from root-context)
+  # Falls back to fetching stable.txt if KUBECTL_VERSION is not set
+  local version="${KUBECTL_VERSION:-}"
+  if [[ -z "${version}" ]]; then
+    version=$(curl_with_retry -Ls https://dl.k8s.io/release/stable.txt | tail -n1 | tr -d '\n')
+  fi
+
+  download_kubectl_binary "${version}" "${ARCH}"
   sudo mv kubectl /usr/local/bin/kubectl
 }
 
 download_helm() {
-  echo "Downloading helm..."
-  curl -s -o helm.tar.gz -L https://get.helm.sh/helm-v3.17.1-linux-"${ARCH}"tar.gz
-  tar -xf helm.tar.gz 2>/dev/null
-  sudo mv linux-"${ARCH}"helm /usr/local/bin/helm
-  rm helm.tar.gz
+  download_helm_binary "${HELM_VERSION}" "${ARCH}"
+  sudo mv linux-"${ARCH}"/helm /usr/local/bin/helm
   rm -rf linux-"${ARCH}/"
 }
 
-set_limits
-download_kind &
-download_curl &
-download_helm &
+set_limits | prepend "set_limits"
+download_kind | prepend "download_kind" &
+download_kubectl | prepend "download_kubectl" &
+download_helm | prepend "download_helm" &
+
+AUTO_RECREATE=${1:-false}
+if [[ "${AUTO_RECREATE}" == "true" ]]; then
+  set_auto_recreate | prepend "set_auto_recreate" &
+fi
 
 wait

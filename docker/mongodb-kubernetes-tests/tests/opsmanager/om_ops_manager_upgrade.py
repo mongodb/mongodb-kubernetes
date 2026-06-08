@@ -1,5 +1,5 @@
 from time import sleep
-from typing import Optional
+from typing import Iterator, Optional
 
 import pytest
 import semver
@@ -7,15 +7,9 @@ from kubernetes import client
 from kubernetes.client.rest import ApiException
 from kubetester import try_load
 from kubetester.awss3client import AwsS3Client
-from kubetester.kubetester import (
-    ensure_ent_version,
-)
+from kubetester.kubetester import ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.kubetester import (
-    is_default_architecture_static,
-    run_periodically,
-    skip_if_local,
-)
+from kubetester.kubetester import is_default_architecture_static, run_periodically, skip_if_local
 from kubetester.mongodb import MongoDB
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
@@ -23,12 +17,7 @@ from pytest import fixture
 from tests import test_logger
 from tests.conftest import get_member_cluster_clients, is_multi_cluster
 from tests.opsmanager.om_appdb_scram import OM_USER_NAME
-from tests.opsmanager.om_ops_manager_backup import (
-    OPLOG_RS_NAME,
-    S3_SECRET_NAME,
-    create_aws_secret,
-    create_s3_bucket,
-)
+from tests.opsmanager.om_ops_manager_backup import OPLOG_RS_NAME, S3_SECRET_NAME, create_aws_secret, create_s3_bucket
 from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
 
 # Current test focuses on Ops Manager upgrade which involves upgrade for both OpsManager and AppDB.
@@ -39,7 +28,7 @@ logger = test_logger.get_test_logger(__name__)
 
 
 @fixture(scope="module")
-def s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> str:
+def s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> Iterator[str]:
     create_aws_secret(aws_s3_client, S3_SECRET_NAME, namespace)
     yield from create_s3_bucket(aws_s3_client, bucket_prefix="test-s3-bucket-")
 
@@ -54,9 +43,6 @@ def ops_manager(
     resource: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_ops_manager_upgrade.yaml"), namespace=namespace
     )
-
-    if try_load(resource):
-        return resource
 
     resource.allow_mdb_rc_versions()
     resource.set_version(custom_om_prev_version)
@@ -130,7 +116,9 @@ class TestOpsManagerCreation:
         om_tester.assert_test_service()
         try:
             om_tester.assert_support_page_enabled()
-            pytest.xfail("mms.helpAndSupportPage.enabled is expected to be false")
+            pytest.xfail(
+                "mms.helpAndSupportPage.enabled is expected to be false"  # ty: ignore[too-many-positional-arguments]
+            )
         except AssertionError:
             pass
 
@@ -251,7 +239,7 @@ class TestOpsManagerConfigurationChange:
         om_tester.assert_support_page_enabled()
         try:
             om_tester.assert_test_service()
-            pytest.xfail("mms.testUtil.enabled is expected to be false")
+            pytest.xfail("mms.testUtil.enabled is expected to be false")  # ty: ignore[too-many-positional-arguments]
         except AssertionError:
             pass
 
@@ -278,7 +266,7 @@ class TestOpsManagerVersionUpgrade:
     agent_version = None
 
     def test_agent_version(self, mdb: MongoDB):
-        if is_default_architecture_static:
+        if is_default_architecture_static():
             # Containers will not call the upgrade endpoint. Therefore, agent_version is not part of AC
             pod = client.CoreV1Api().read_namespaced_pod(mdb.name + "-0", mdb.namespace)
             image_tag = pod.spec.containers[0].image.split(":")[-1]
@@ -381,7 +369,7 @@ class TestMongoDbsVersionUpgrade:
 class TestAppDBScramShaUpdated:
     def test_appdb_reconcile(self, ops_manager: MongoDBOpsManager):
         ops_manager.load()
-        ops_manager["spec"]["applicationDatabase"]["logLevel"] = "DEBUG"
+        ops_manager["spec"]["applicationDatabase"]["agent"] = {"logLevel": "DEBUG"}
         ops_manager.update()
 
         ops_manager.appdb_status().assert_reaches_phase(Phase.Running)

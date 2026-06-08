@@ -1,3 +1,5 @@
+//go:build community_e2e
+
 package replica_set_custom_annotations_test
 
 import (
@@ -9,7 +11,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
+	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	e2eutil "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e/mongodbtests"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e/setup"
@@ -50,7 +52,7 @@ func TestReplicaSetCustomAnnotations(t *testing.T) {
 			},
 		},
 	}
-	mdb.Spec.StatefulSetConfiguration.MetadataWrapper = common.StatefulSetMetadataWrapper{
+	mdb.Spec.StatefulSetConfiguration.MetadataWrapper = v1.StatefulSetMetadataWrapper{
 		Labels:      e2eutil.TestLabels(),
 		Annotations: e2eutil.TestAnnotations(),
 	}
@@ -70,7 +72,7 @@ func TestReplicaSetCustomAnnotations(t *testing.T) {
 	t.Run("Basic tests", mongodbtests.BasicFunctionality(ctx, &mdb))
 	t.Run("Keyfile authentication is configured", tester.HasKeyfileAuth(3))
 	t.Run("Test Basic Connectivity", tester.ConnectivitySucceeds())
-	t.Run("Test SRV Connectivity", tester.ConnectivitySucceeds(WithURI(mdb.MongoSRVURI("")), WithoutTls(), WithReplicaSet((mdb.Name))))
+	t.Run("Test SRV Connectivity", tester.ConnectivitySucceeds(WithURI(mdb.MongoSRVURI()), WithoutTls(), WithReplicaSet((mdb.Name))))
 	t.Run("Test Basic Connectivity with generated connection string secret",
 		tester.ConnectivitySucceeds(WithURI(mongodbtests.GetConnectionStringForUser(ctx, mdb, scramUser))))
 	t.Run("Test SRV Connectivity with generated connection string secret",

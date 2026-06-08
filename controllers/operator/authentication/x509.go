@@ -1,11 +1,13 @@
 package authentication
 
 import (
+	"context"
 	"regexp"
 
 	"go.uber.org/zap"
 
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 )
@@ -16,7 +18,7 @@ func (x *connectionX509) GetName() MechanismName {
 	return MongoDBX509
 }
 
-func (x *connectionX509) EnableAgentAuthentication(conn om.Connection, opts Options, log *zap.SugaredLogger) error {
+func (x *connectionX509) EnableAgentAuthentication(_ context.Context, _ kubernetesClient.Client, conn om.Connection, opts Options, log *zap.SugaredLogger) error {
 	log.Info("Configuring x509 authentication")
 	err := conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
 		if err := ac.EnsureKeyFileContents(); err != nil {
@@ -29,7 +31,7 @@ func (x *connectionX509) EnableAgentAuthentication(conn om.Connection, opts Opti
 		auth.KeyFile = util.AutomationAgentKeyFilePathInContainer
 		auth.KeyFileWindows = util.AutomationAgentWindowsKeyFilePath
 		ac.AgentSSL = &om.AgentSSL{
-			AutoPEMKeyFilePath:    util.AutomationAgentPemFilePath,
+			AutoPEMKeyFilePath:    opts.AutoPEMKeyFilePath,
 			CAFilePath:            opts.CAFilePath,
 			ClientCertificateMode: opts.ClientCertificates,
 		}
@@ -46,7 +48,7 @@ func (x *connectionX509) EnableAgentAuthentication(conn om.Connection, opts Opti
 
 	log.Info("Configuring backup agent user")
 	err = conn.ReadUpdateBackupAgentConfig(func(config *om.BackupAgentConfig) error {
-		config.EnableX509Authentication(opts.AutomationSubject)
+		config.EnableX509Authentication(opts.AutomationSubject, opts.AutoPEMKeyFilePath)
 		config.SetLdapGroupDN(opts.AutoLdapGroupDN)
 		return nil
 	}, log)
@@ -56,7 +58,7 @@ func (x *connectionX509) EnableAgentAuthentication(conn om.Connection, opts Opti
 
 	log.Info("Configuring monitoring agent user")
 	return conn.ReadUpdateMonitoringAgentConfig(func(config *om.MonitoringAgentConfig) error {
-		config.EnableX509Authentication(opts.AutomationSubject)
+		config.EnableX509Authentication(opts.AutomationSubject, opts.AutoPEMKeyFilePath)
 		config.SetLdapGroupDN(opts.AutoLdapGroupDN)
 		return nil
 	}, log)
@@ -110,7 +112,7 @@ func (x *connectionX509) DisableDeploymentAuthentication(conn om.Connection, log
 	}, log)
 }
 
-func (x *connectionX509) IsAgentAuthenticationConfigured(ac *om.AutomationConfig, _ Options) bool {
+func (x *connectionX509) IsAgentAuthenticationConfigured(ac *om.AutomationConfig, opts Options) bool {
 	if ac.Auth.Disabled {
 		return false
 	}
@@ -124,6 +126,10 @@ func (x *connectionX509) IsAgentAuthenticationConfigured(ac *om.AutomationConfig
 	}
 
 	if ac.Auth.Key == "" || ac.Auth.KeyFile == "" || ac.Auth.KeyFileWindows == "" {
+		return false
+	}
+
+	if ac.AgentSSL != nil && ac.AgentSSL.AutoPEMKeyFilePath != opts.AutoPEMKeyFilePath {
 		return false
 	}
 

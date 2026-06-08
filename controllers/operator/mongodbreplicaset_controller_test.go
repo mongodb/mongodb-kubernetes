@@ -2,9 +2,11 @@ package operator
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/google/uuid"
@@ -23,9 +25,10 @@ import (
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
-	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
-	"github.com/mongodb/mongodb-kubernetes/api/v1/status/pvc"
+	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
+	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
+	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status/pvc"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/backup"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/deployment"
@@ -37,11 +40,9 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/pem"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
-	mcoConstruct "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/construct"
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 )
@@ -60,7 +61,7 @@ func TestCreateReplicaSet(t *testing.T) {
 
 	assert.Len(t, mock.GetMapForObject(client, &corev1.Service{}), 1)
 	assert.Len(t, mock.GetMapForObject(client, &appsv1.StatefulSet{}), 1)
-	assert.Len(t, mock.GetMapForObject(client, &corev1.Secret{}), 2)
+	assert.Len(t, mock.GetMapForObject(client, &corev1.Secret{}), 3)
 
 	sts, err := client.GetStatefulSet(ctx, rs.ObjectKey())
 	assert.NoError(t, err)
@@ -68,7 +69,7 @@ func TestCreateReplicaSet(t *testing.T) {
 
 	connection := omConnectionFactory.GetConnection()
 	connection.(*om.MockedOmConnection).CheckDeployment(t, deployment.CreateFromReplicaSet("fake-mongoDBImage", false, rs), "auth", "ssl")
-	connection.(*om.MockedOmConnection).CheckNumberOfUpdateRequests(t, 2)
+	connection.(*om.MockedOmConnection).CheckNumberOfUpdateRequests(t, 1)
 }
 
 func TestReplicaSetRace(t *testing.T) {
@@ -92,7 +93,7 @@ func TestReplicaSetRace(t *testing.T) {
 			Get: mock.GetFakeClientInterceptorGetFunc(omConnectionFactory, true, true),
 		}).Build()
 
-	reconciler := newReplicaSetReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, omConnectionFactory.GetConnectionFunc)
+	reconciler := newReplicaSetReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", omConnectionFactory.GetConnectionFunc)
 
 	testConcurrentReconciles(ctx, t, fakeClient, reconciler, rs, rs2, rs3)
 }
@@ -126,12 +127,12 @@ func TestReplicaSetClusterReconcileContainerImages(t *testing.T) {
 func TestReplicaSetClusterReconcileContainerImagesWithStaticArchitecture(t *testing.T) {
 	t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.Static))
 
-	databaseRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_8_0_0_ubi9", mcoConstruct.MongodbImageEnv)
+	databaseRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_8_0_0_ubi9", util.MongodbImageEnv)
 
 	imageUrlsMock := images.ImageUrls{
-		architectures.MdbAgentImageRepo: "quay.io/mongodb/mongodb-agent",
-		mcoConstruct.MongodbImageEnv:    "quay.io/mongodb/mongodb-enterprise-server",
-		databaseRelatedImageEnv:         "quay.io/mongodb/mongodb-enterprise-server:@sha256:MONGODB_DATABASE",
+		util.AgentImageUrlEnv:   "quay.io/mongodb/mongodb-agent",
+		util.MongodbImageEnv:    "quay.io/mongodb/mongodb-enterprise-server",
+		databaseRelatedImageEnv: "quay.io/mongodb/mongodb-enterprise-server:@sha256:MONGODB_DATABASE",
 	}
 
 	ctx := context.Background()
@@ -183,7 +184,7 @@ func buildReplicaSetWithCustomProjectName(rsName string) (*mdbv1.MongoDB, *corev
 func TestReplicaSetServiceName(t *testing.T) {
 	ctx := context.Background()
 	rs := DefaultReplicaSetBuilder().SetService("rs-svc").Build()
-	rs.Spec.StatefulSetConfiguration = &common.StatefulSetConfiguration{}
+	rs.Spec.StatefulSetConfiguration = &v1.StatefulSetConfiguration{}
 	rs.Spec.StatefulSetConfiguration.SpecWrapper.Spec.ServiceName = "foo"
 
 	reconciler, client, _ := defaultReplicaSetReconciler(ctx, nil, "", "", rs)
@@ -385,65 +386,50 @@ func TestCreateReplicaSet_TLS(t *testing.T) {
 	assert.Equal(t, "OPTIONAL", sslConfig["clientCertificateMode"])
 }
 
-// TestUpdateDeploymentTLSConfiguration a combination of tests checking that:
-//
-// TLS Disabled -> TLS Disabled: should not lock members
-// TLS Disabled -> TLS Enabled: should not lock members
-// TLS Enabled -> TLS Enabled: should not lock members
-// TLS Enabled -> TLS Disabled: *should lock members*
-func TestUpdateDeploymentTLSConfiguration(t *testing.T) {
-	rsWithTLS := mdbv1.NewReplicaSetBuilder().SetSecurityTLSEnabled().Build()
-	rsNoTLS := mdbv1.NewReplicaSetBuilder().Build()
-	deploymentWithTLS := deployment.CreateFromReplicaSet("fake-mongoDBImage", false, rsWithTLS)
-	deploymentNoTLS := deployment.CreateFromReplicaSet("fake-mongoDBImage", false, rsNoTLS)
-	stsWithTLS := construct.DatabaseStatefulSet(*rsWithTLS, construct.ReplicaSetOptions(construct.GetPodEnvOptions()), zap.S())
-	stsNoTLS := construct.DatabaseStatefulSet(*rsNoTLS, construct.ReplicaSetOptions(construct.GetPodEnvOptions()), zap.S())
-
-	// TLS Disabled -> TLS Disabled
-	shouldLockMembers, err := updateOmDeploymentDisableTLSConfiguration(om.NewMockedOmConnection(deploymentNoTLS), "fake-mongoDBImage", false, 3, rsNoTLS, stsNoTLS, zap.S(), util.CAFilePathInContainer, "")
-	assert.NoError(t, err)
-	assert.False(t, shouldLockMembers)
-
-	// TLS Disabled -> TLS Enabled
-	shouldLockMembers, err = updateOmDeploymentDisableTLSConfiguration(om.NewMockedOmConnection(deploymentNoTLS), "fake-mongoDBImage", false, 3, rsWithTLS, stsWithTLS, zap.S(), util.CAFilePathInContainer, "")
-	assert.NoError(t, err)
-	assert.False(t, shouldLockMembers)
-
-	// TLS Enabled -> TLS Enabled
-	shouldLockMembers, err = updateOmDeploymentDisableTLSConfiguration(om.NewMockedOmConnection(deploymentWithTLS), "fake-mongoDBImage", false, 3, rsWithTLS, stsWithTLS, zap.S(), util.CAFilePathInContainer, "")
-	assert.NoError(t, err)
-	assert.False(t, shouldLockMembers)
-
-	// TLS Enabled -> TLS Disabled
-	shouldLockMembers, err = updateOmDeploymentDisableTLSConfiguration(om.NewMockedOmConnection(deploymentWithTLS), "fake-mongoDBImage", false, 3, rsNoTLS, stsNoTLS, zap.S(), util.CAFilePathInContainer, "")
-	assert.NoError(t, err)
-	assert.True(t, shouldLockMembers)
-}
-
 // TestCreateDeleteReplicaSet checks that no state is left in OpsManager on removal of the replicaset
 func TestCreateDeleteReplicaSet(t *testing.T) {
-	ctx := context.Background()
-	// First we need to create a replicaset
-	rs := DefaultReplicaSetBuilder().Build()
+	testCases := []struct {
+		name  string
+		build func() *mdbv1.MongoDB
+	}{
+		{
+			name: "WithoutExternalDomain",
+			build: func() *mdbv1.MongoDB {
+				return DefaultReplicaSetBuilder().Build()
+			},
+		},
+		{
+			name: "WithExternalDomain",
+			build: func() *mdbv1.MongoDB {
+				domain := "cluster.testing"
+				return DefaultReplicaSetBuilder().ExposedExternally(nil, nil, &domain).Build()
+			},
+		},
+	}
 
-	omConnectionFactory := om.NewCachedOMConnectionFactory(omConnectionFactoryFuncSettingVersion())
-	fakeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, rs)
-	reconciler := newReplicaSetReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, omConnectionFactory.GetConnectionFunc)
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			rs := tc.build()
 
-	checkReconcileSuccessful(ctx, t, reconciler, rs, fakeClient)
-	omConn := omConnectionFactory.GetConnection()
-	mockedOmConn := omConn.(*om.MockedOmConnection)
-	mockedOmConn.CleanHistory()
+			reconciler, fakeClient, omConnectionFactory := defaultReplicaSetReconciler(ctx, nil, "", "", rs)
 
-	// Now delete it
-	assert.NoError(t, reconciler.OnDelete(ctx, rs, zap.S()))
+			checkReconcileSuccessful(ctx, t, reconciler, rs, fakeClient)
+			omConn := omConnectionFactory.GetConnection()
+			mockedOmConn := omConn.(*om.MockedOmConnection)
+			mockedOmConn.CleanHistory()
 
-	// Operator doesn't mutate K8s state, so we don't check its changes, only OM
-	mockedOmConn.CheckResourcesDeleted(t)
+			// Now delete it
+			assert.NoError(t, reconciler.OnDelete(ctx, rs, zap.S()))
 
-	mockedOmConn.CheckOrderOfOperations(t,
-		reflect.ValueOf(mockedOmConn.ReadUpdateDeployment), reflect.ValueOf(mockedOmConn.ReadAutomationStatus),
-		reflect.ValueOf(mockedOmConn.GetHosts), reflect.ValueOf(mockedOmConn.RemoveHost))
+			// Operator doesn't mutate K8s state, so we don't check its changes, only OM
+			mockedOmConn.CheckResourcesDeleted(t)
+
+			mockedOmConn.CheckOrderOfOperations(t,
+				reflect.ValueOf(mockedOmConn.ReadUpdateDeployment), reflect.ValueOf(mockedOmConn.ReadAutomationStatus),
+				reflect.ValueOf(mockedOmConn.GetHosts), reflect.ValueOf(mockedOmConn.RemoveHost))
+		})
+	}
 }
 
 func TestReplicaSetScramUpgradeDowngrade(t *testing.T) {
@@ -567,7 +553,7 @@ func TestFeatureControlPolicyAndTagAddedWithNewerOpsManager(t *testing.T) {
 
 	omConnectionFactory := om.NewCachedOMConnectionFactory(omConnectionFactoryFuncSettingVersion())
 	fakeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, rs)
-	reconciler := newReplicaSetReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, omConnectionFactory.GetConnectionFunc)
+	reconciler := newReplicaSetReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", omConnectionFactory.GetConnectionFunc)
 
 	checkReconcileSuccessful(ctx, t, reconciler, rs, fakeClient)
 
@@ -591,7 +577,7 @@ func TestFeatureControlPolicyNoAuthNewerOpsManager(t *testing.T) {
 
 	omConnectionFactory := om.NewCachedOMConnectionFactory(omConnectionFactoryFuncSettingVersion())
 	fakeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, rs)
-	reconciler := newReplicaSetReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, omConnectionFactory.GetConnectionFunc)
+	reconciler := newReplicaSetReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", omConnectionFactory.GetConnectionFunc)
 
 	checkReconcileSuccessful(ctx, t, reconciler, rs, fakeClient)
 
@@ -837,60 +823,224 @@ func TestReplicaSetAgentVersionMapping(t *testing.T) {
 }
 
 func TestHandlePVCResize(t *testing.T) {
-	statefulSet := &appsv1.StatefulSet{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "example-sts",
-			Namespace: "default",
-		},
-		Spec: appsv1.StatefulSetSpec{
-			Replicas: ptr.To(int32(3)),
-			VolumeClaimTemplates: []corev1.PersistentVolumeClaim{
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "data-pvc",
-					},
-					Spec: corev1.PersistentVolumeClaimSpec{
-						Resources: corev1.VolumeResourceRequirements{
-							Requests: corev1.ResourceList{
-								corev1.ResourceStorage: resource.MustParse("1Gi"),
+	synctest.Test(t, func(t *testing.T) {
+		statefulSet := &appsv1.StatefulSet{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "example-sts",
+				Namespace: "default",
+			},
+			Spec: appsv1.StatefulSetSpec{
+				Replicas: ptr.To(int32(3)),
+				VolumeClaimTemplates: []corev1.PersistentVolumeClaim{
+					{
+						ObjectMeta: metav1.ObjectMeta{
+							Name: "data-pvc",
+						},
+						Spec: corev1.PersistentVolumeClaimSpec{
+							Resources: corev1.VolumeResourceRequirements{
+								Requests: corev1.ResourceList{
+									corev1.ResourceStorage: resource.MustParse("1Gi"),
+								},
 							},
 						},
 					},
 				},
 			},
-		},
-	}
+		}
 
-	p := &corev1.PersistentVolumeClaim{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "data-pvc-example-sts-0",
-			Namespace: "default",
-		},
-		Spec: corev1.PersistentVolumeClaimSpec{Resources: corev1.VolumeResourceRequirements{Requests: map[corev1.ResourceName]resource.Quantity{corev1.ResourceStorage: resource.MustParse("1Gi")}}},
-		Status: corev1.PersistentVolumeClaimStatus{
-			Capacity: corev1.ResourceList{
-				corev1.ResourceStorage: resource.MustParse("1Gi"),
+		p := &corev1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "data-pvc-example-sts-0",
+				Namespace: "default",
 			},
-		},
+			Spec: corev1.PersistentVolumeClaimSpec{Resources: corev1.VolumeResourceRequirements{Requests: map[corev1.ResourceName]resource.Quantity{corev1.ResourceStorage: resource.MustParse("1Gi")}}},
+			Status: corev1.PersistentVolumeClaimStatus{
+				Capacity: corev1.ResourceList{
+					corev1.ResourceStorage: resource.MustParse("1Gi"),
+				},
+			},
+		}
+
+		ctx := context.TODO()
+		logger := zap.NewExample().Sugar()
+		reconciledResource := DefaultReplicaSetBuilder().SetName("temple").Build()
+
+		memberClient, _ := setupClients(t, ctx, p, statefulSet, reconciledResource)
+
+		// *** "PVC Phase: No Action" ***
+		testPhaseNoActionRequired(t, ctx, memberClient, statefulSet, logger)
+
+		// *** "PVC Phase: No Action, Storage Increase Detected" ***
+		testPVCResizeStarted(t, ctx, memberClient, reconciledResource, statefulSet, logger)
+
+		// *** "PVC Phase: PVCResize, Still Resizing" ***
+		testPVCStillResizing(t, ctx, memberClient, reconciledResource, statefulSet, logger)
+
+		// *** "PVC Phase: PVCResize, Finished Resizing ***
+		testPVCFinishedResizing(t, ctx, memberClient, p, reconciledResource, statefulSet, logger)
+	})
+}
+
+// ===== Test for state and vault annotations handling in replicaset controller =====
+
+// TestReplicaSetAnnotations_WrittenOnSuccess verifies that lastAchievedSpec annotation is written after successful
+// reconciliation.
+func TestReplicaSetAnnotations_WrittenOnSuccess(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().Build()
+
+	reconciler, client, _ := defaultReplicaSetReconciler(ctx, nil, "", "", rs)
+
+	checkReconcileSuccessful(ctx, t, reconciler, rs, client)
+
+	err := client.Get(ctx, rs.ObjectKey(), rs)
+	require.NoError(t, err)
+
+	require.Contains(t, rs.Annotations, util.LastAchievedSpec,
+		"lastAchievedSpec annotation should be written on successful reconciliation")
+
+	var lastSpec mdbv1.MongoDbSpec
+	err = json.Unmarshal([]byte(rs.Annotations[util.LastAchievedSpec]), &lastSpec)
+	require.NoError(t, err)
+	assert.Equal(t, 3, lastSpec.Members)
+	assert.Equal(t, "4.0.0", lastSpec.Version)
+}
+
+// TestReplicaSetAnnotations_NotWrittenOnFailure verifies that lastAchievedSpec annotation
+// is NOT written when reconciliation fails.
+func TestReplicaSetAnnotations_NotWrittenOnFailure(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().Build()
+
+	// Setup without credentials secret to cause failure
+	kubeClient := mock.NewEmptyFakeClientBuilder().
+		WithObjects(rs).
+		WithObjects(mock.GetProjectConfigMap(mock.TestProjectConfigMapName, "testProject", "testOrg")).
+		Build()
+
+	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", nil)
+
+	_, err := reconciler.Reconcile(ctx, requestFromObject(rs))
+	require.NoError(t, err, "Reconcile should not return error (error captured in status)")
+
+	err = kubeClient.Get(ctx, rs.ObjectKey(), rs)
+	require.NoError(t, err)
+
+	assert.NotEqual(t, status.PhaseRunning, rs.Status.Phase)
+
+	assert.NotContains(t, rs.Annotations, util.LastAchievedSpec,
+		"lastAchievedSpec should NOT be written when reconciliation fails")
+}
+
+// TestReplicaSetAnnotations_PreservedOnSubsequentFailure verifies that annotations from a previous successful
+// reconciliation are preserved when a later reconciliation fails.
+func TestReplicaSetAnnotations_PreservedOnSubsequentFailure(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().Build()
+
+	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(rs)
+	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", omConnectionFactory.GetConnectionFunc)
+
+	_, err := reconciler.Reconcile(ctx, requestFromObject(rs))
+	require.NoError(t, err)
+
+	err = kubeClient.Get(ctx, rs.ObjectKey(), rs)
+	require.NoError(t, err)
+	require.Contains(t, rs.Annotations, util.LastAchievedSpec)
+
+	originalLastAchievedSpec := rs.Annotations[util.LastAchievedSpec]
+
+	// Delete credentials to cause failure
+	credentialsSecret := mock.GetCredentialsSecret("testUser", "testApiKey")
+	err = kubeClient.Delete(ctx, credentialsSecret)
+	require.NoError(t, err)
+
+	rs.Spec.Members = 5
+	err = kubeClient.Update(ctx, rs)
+	require.NoError(t, err)
+
+	_, err = reconciler.Reconcile(ctx, requestFromObject(rs))
+	require.NoError(t, err)
+
+	err = kubeClient.Get(ctx, rs.ObjectKey(), rs)
+	require.NoError(t, err)
+
+	assert.Contains(t, rs.Annotations, util.LastAchievedSpec)
+	assert.NotEqual(t, status.PhaseRunning, rs.Status.Phase)
+	assert.Equal(t, originalLastAchievedSpec, rs.Annotations[util.LastAchievedSpec],
+		"lastAchievedSpec should remain unchanged when reconciliation fails")
+
+	var lastSpec mdbv1.MongoDbSpec
+	err = json.Unmarshal([]byte(rs.Annotations[util.LastAchievedSpec]), &lastSpec)
+	require.NoError(t, err)
+	assert.Equal(t, 3, lastSpec.Members,
+		"Should still reflect previous successful state (3 members, not 5)")
+}
+
+// TestVaultAnnotations_NotWrittenWhenDisabled verifies that vault annotations are NOT
+// written when vault backend is disabled.
+func TestVaultAnnotations_NotWrittenWhenDisabled(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().Build()
+
+	t.Setenv("SECRET_BACKEND", "K8S_SECRET_BACKEND")
+
+	reconciler, client, _ := defaultReplicaSetReconciler(ctx, nil, "", "", rs)
+
+	checkReconcileSuccessful(ctx, t, reconciler, rs, client)
+
+	err := client.Get(ctx, rs.ObjectKey(), rs)
+	require.NoError(t, err)
+
+	require.Contains(t, rs.Annotations, util.LastAchievedSpec,
+		"lastAchievedSpec should be written even when vault is disabled")
+
+	// Vault annotations would be simple secret names like "my-secret": "5"
+	for key := range rs.Annotations {
+		if key == util.LastAchievedSpec {
+			continue
+		}
+		assert.NotRegexp(t, "^[a-z0-9-]+$", key,
+			"Should not have simple secret name annotations when vault disabled - found: %s", key)
+	}
+}
+
+func TestReplicasetRoleAnnotationIsSet(t *testing.T) {
+	ctx := context.Background()
+
+	role := mdbv1.MongoDBRole{
+		Role: "embedded-role",
+		Db:   "admin",
+		Roles: []mdbv1.InheritedRole{{
+			Db:   "admin",
+			Role: "read",
+		}},
 	}
 
-	ctx := context.TODO()
-	logger := zap.NewExample().Sugar()
-	reconciledResource := DefaultReplicaSetBuilder().SetName("temple").Build()
+	rs := DefaultReplicaSetBuilder().SetRoles([]mdbv1.MongoDBRole{role}).Build()
+	reconciler, client, omConnectionFactory := defaultReplicaSetReconciler(ctx, nil, "", "", rs)
 
-	memberClient, _ := setupClients(t, ctx, p, statefulSet, reconciledResource)
+	checkReconcileSuccessful(ctx, t, reconciler, rs, client)
 
-	// *** "PVC Phase: No Action" ***
-	testPhaseNoActionRequired(t, ctx, memberClient, statefulSet, logger)
+	roleString, _ := json.Marshal([]string{"embedded-role@admin"})
 
-	// *** "PVC Phase: No Action, Storage Increase Detected" ***
-	testPVCResizeStarted(t, ctx, memberClient, reconciledResource, statefulSet, logger)
+	// Assert that the member ids are saved in the annotation
+	assert.Equal(t, rs.GetAnnotations()[util.LastConfiguredRoles], string(roleString))
 
-	// *** "PVC Phase: PVCResize, Still Resizing" ***
-	testPVCStillResizing(t, ctx, memberClient, reconciledResource, statefulSet, logger)
+	roles := omConnectionFactory.GetConnection().(*om.MockedOmConnection).GetRoles()
+	assert.Len(t, roles, 1)
 
-	// *** "PVC Phase: PVCResize, Finished Resizing ***
-	testPVCFinishedResizing(t, ctx, memberClient, p, reconciledResource, statefulSet, logger)
+	rs.GetSecurity().Roles = []mdbv1.MongoDBRole{}
+	err := client.Update(ctx, rs)
+	assert.NoError(t, err)
+
+	checkReconcileSuccessful(ctx, t, reconciler, rs, client)
+
+	// Assert that the roles annotation is updated and role is removed
+	assert.Equal(t, rs.GetAnnotations()[util.LastConfiguredRoles], "[]")
+
+	roles = omConnectionFactory.GetConnection().(*om.MockedOmConnection).GetRoles()
+	assert.Len(t, roles, 0)
 }
 
 func testPVCFinishedResizing(t *testing.T, ctx context.Context, memberClient kubernetesClient.Client, p *corev1.PersistentVolumeClaim, reconciledResource *mdbv1.MongoDB, statefulSet *appsv1.StatefulSet, logger *zap.SugaredLogger) {
@@ -1001,7 +1151,23 @@ func assertCorrectNumberOfMembersAndProcesses(ctx context.Context, t *testing.T,
 
 func defaultReplicaSetReconciler(ctx context.Context, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, rs *mdbv1.MongoDB) (*ReconcileMongoDbReplicaSet, kubernetesClient.Client, *om.CachedOMConnectionFactory) {
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(rs)
-	return newReplicaSetReconciler(ctx, kubeClient, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, false, false, omConnectionFactory.GetConnectionFunc), kubeClient, omConnectionFactory
+	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
+		connection.(*om.MockedOmConnection).Hostnames = calculateReplicaSetExternalHostnames(rs)
+	})
+	return newReplicaSetReconciler(ctx, kubeClient, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, false, false, false, "", omConnectionFactory.GetConnectionFunc), kubeClient, omConnectionFactory
+}
+
+func calculateReplicaSetExternalHostnames(rs *mdbv1.MongoDB) []string {
+	domain := rs.Spec.GetExternalDomain()
+	if domain == nil {
+		return nil
+	}
+
+	hostnames := make([]string, rs.Spec.Members)
+	for i := 0; i < rs.Spec.Members; i++ {
+		hostnames[i] = fmt.Sprintf("%s-%d.%s", rs.Name, i, *domain)
+	}
+	return hostnames
 }
 
 // newDefaultPodSpec creates pod spec with default values,sets only the topology key and persistence sizes,
@@ -1190,7 +1356,7 @@ func (b *ReplicaSetBuilder) ExposedExternally(specOverride *corev1.ServiceSpec, 
 	b.Spec.ExternalAccessConfiguration = &mdbv1.ExternalAccessConfiguration{}
 	b.Spec.ExternalAccessConfiguration.ExternalDomain = externalDomain
 	if specOverride != nil {
-		b.Spec.ExternalAccessConfiguration.ExternalService.SpecWrapper = &common.ServiceSpecWrapper{Spec: *specOverride}
+		b.Spec.ExternalAccessConfiguration.ExternalService.SpecWrapper = &v1.ServiceSpecWrapper{Spec: *specOverride}
 	}
 	if len(annotationsOverride) > 0 {
 		b.Spec.ExternalAccessConfiguration.ExternalService.Annotations = annotationsOverride
@@ -1201,4 +1367,205 @@ func (b *ReplicaSetBuilder) ExposedExternally(specOverride *corev1.ServiceSpec, 
 func (b *ReplicaSetBuilder) Build() *mdbv1.MongoDB {
 	b.InitDefaults()
 	return b.DeepCopy()
+}
+
+// Helper functions for TestPublishAutomationConfigFirstRS
+
+func baseTestStatefulSet(name string, replicas int32) *appsv1.StatefulSet {
+	return &appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: mock.TestNamespace,
+		},
+		Spec: appsv1.StatefulSetSpec{
+			Replicas: ptr.To(replicas),
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{Name: util.DatabaseContainerName},
+					},
+				},
+			},
+		},
+	}
+}
+
+func baseTestMongoDB(name string, members int) mdbv1.MongoDB {
+	return mdbv1.MongoDB{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: mock.TestNamespace,
+		},
+		Spec: mdbv1.MongoDbSpec{
+			DbCommonSpec: mdbv1.DbCommonSpec{
+				Security: &mdbv1.Security{
+					TLSConfig:      &mdbv1.TLSConfig{},
+					Authentication: &mdbv1.Authentication{},
+				},
+			},
+			Members: members,
+		},
+	}
+}
+
+// TestPublishAutomationConfigFirstRS tests the publishAutomationConfigFirstRS function which determines
+// whether the OM automation config should be updated before the StatefulSet in certain scenarios
+// (e.g., TLS disabled, CA removed, scaling down, agent auth changes, version changes).
+func TestPublishAutomationConfigFirstRS(t *testing.T) {
+	ctx := context.Background()
+
+	testCases := []struct {
+		name                   string
+		existingSts            *appsv1.StatefulSet
+		mdb                    mdbv1.MongoDB
+		lastSpec               *mdbv1.MongoDbSpec
+		currentAgentAuthMode   string
+		sslMMSCAConfigMap      string
+		extraObjects           []client.Object
+		expectedPublishACFirst bool
+	}{
+		{
+			name:        "New StatefulSet",
+			existingSts: nil,
+			mdb: func() mdbv1.MongoDB {
+				m := baseTestMongoDB("test-rs", 3)
+				m.Spec.Security = nil // Simple case without security
+				return m
+			}(),
+			expectedPublishACFirst: false,
+		},
+		{
+			name:                   "Scaling down",
+			existingSts:            baseTestStatefulSet("test-rs", 5),
+			mdb:                    baseTestMongoDB("test-rs", 3),
+			expectedPublishACFirst: true,
+		},
+		{
+			name: "TLS disabled with mounted cert",
+			existingSts: func() *appsv1.StatefulSet {
+				sts := baseTestStatefulSet("test-rs", 3)
+				sts.Spec.Template.Spec.Volumes = []corev1.Volume{
+					{
+						Name: util.SecretVolumeName,
+						VolumeSource: corev1.VolumeSource{
+							Secret: &corev1.SecretVolumeSource{SecretName: "test-rs-cert"},
+						},
+					},
+				}
+				sts.Spec.Template.Spec.Containers[0].VolumeMounts = []corev1.VolumeMount{
+					{Name: util.SecretVolumeName, MountPath: "/tls"},
+				}
+				return sts
+			}(),
+			mdb: func() mdbv1.MongoDB {
+				m := baseTestMongoDB("test-rs", 3)
+				m.Spec.Security.TLSConfig.Enabled = false
+				return m
+			}(),
+			extraObjects: []client.Object{
+				&corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{Name: "test-rs-cert", Namespace: mock.TestNamespace},
+				},
+			},
+			expectedPublishACFirst: true,
+		},
+		{
+			name: "CA configmap removed",
+			existingSts: func() *appsv1.StatefulSet {
+				sts := baseTestStatefulSet("test-rs", 3)
+				sts.Spec.Template.Spec.Volumes = []corev1.Volume{
+					{
+						Name: util.ConfigMapVolumeCAMountPath,
+						VolumeSource: corev1.VolumeSource{
+							ConfigMap: &corev1.ConfigMapVolumeSource{
+								LocalObjectReference: corev1.LocalObjectReference{Name: "custom-ca-configmap"},
+							},
+						},
+					},
+				}
+				sts.Spec.Template.Spec.Containers[0].VolumeMounts = []corev1.VolumeMount{
+					{Name: util.ConfigMapVolumeCAMountPath, MountPath: "/ca"},
+				}
+				return sts
+			}(),
+			mdb: func() mdbv1.MongoDB {
+				m := baseTestMongoDB("test-rs", 3)
+				m.Spec.Security.TLSConfig.Enabled = true
+				m.Spec.Security.TLSConfig.CA = ""
+				return m
+			}(),
+			extraObjects: []client.Object{
+				&corev1.ConfigMap{
+					ObjectMeta: metav1.ObjectMeta{Name: "custom-ca-configmap", Namespace: mock.TestNamespace},
+				},
+			},
+			expectedPublishACFirst: true,
+		},
+		{
+			name: "SSL MMS CA removed",
+			existingSts: func() *appsv1.StatefulSet {
+				sts := baseTestStatefulSet("test-rs", 3)
+				sts.Spec.Template.Spec.Containers[0].VolumeMounts = []corev1.VolumeMount{
+					{Name: construct.CaCertName, MountPath: "/mms-ca"},
+				}
+				return sts
+			}(),
+			mdb:                    baseTestMongoDB("test-rs", 3),
+			sslMMSCAConfigMap:      "",
+			expectedPublishACFirst: true,
+		},
+		{
+			name: "Agent X509 disabled",
+			existingSts: func() *appsv1.StatefulSet {
+				sts := baseTestStatefulSet("test-rs", 3)
+				sts.Spec.Template.Spec.Containers[0].VolumeMounts = []corev1.VolumeMount{
+					{Name: util.AgentSecretName, MountPath: "/agent-certs"},
+				}
+				return sts
+			}(),
+			mdb: func() mdbv1.MongoDB {
+				m := baseTestMongoDB("test-rs", 3)
+				m.Spec.Security.Authentication.Agents = mdbv1.AgentAuthentication{Mode: "SCRAM"}
+				return m
+			}(),
+			currentAgentAuthMode:   "X509",
+			expectedPublishACFirst: true,
+		},
+		{
+			name:        "Version change in static architecture",
+			existingSts: baseTestStatefulSet("test-rs", 3),
+			mdb: func() mdbv1.MongoDB {
+				m := baseTestMongoDB("test-rs", 3)
+				m.Annotations = map[string]string{
+					architectures.ArchitectureAnnotation: string(architectures.Static),
+				}
+				m.Spec.Version = "8.0.0"
+				return m
+			}(),
+			lastSpec: &mdbv1.MongoDbSpec{
+				DbCommonSpec: mdbv1.DbCommonSpec{Version: "7.0.0"},
+			},
+			expectedPublishACFirst: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			objects := []client.Object{}
+			if tc.existingSts != nil {
+				objects = append(objects, tc.existingSts)
+			}
+			objects = append(objects, tc.extraObjects...)
+
+			fakeClient := mock.NewEmptyFakeClientBuilder().
+				WithObjects(objects...).
+				WithObjects(mock.GetDefaultResources()...).
+				Build()
+			kubeClient := kubernetesClient.NewClient(fakeClient)
+
+			result := publishAutomationConfigFirstRS(ctx, kubeClient, tc.mdb, tc.lastSpec, tc.currentAgentAuthMode, tc.sslMMSCAConfigMap, zap.S())
+
+			assert.Equal(t, tc.expectedPublishACFirst, result)
+		})
+	}
 }

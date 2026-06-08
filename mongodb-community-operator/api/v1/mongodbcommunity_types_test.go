@@ -10,8 +10,9 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/authentication/authtypes"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/constants"
+	rootv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
+	"github.com/mongodb/mongodb-kubernetes/pkg/authentication/authtypes"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
 )
 
 type args struct {
@@ -94,7 +95,8 @@ func TestMongoDB_MongoURI(t *testing.T) {
 	for _, params := range tests {
 		mdb := newReplicaSet(params.members, params.name, params.namespace)
 		mdb.Spec.AdditionalMongodConfig.Object = params.additionalMongodConfig
-		assert.Equal(t, mdb.MongoURI(params.clusterDomain), params.connectionString)
+		mdb.Spec.ClusterDomain = params.clusterDomain
+		assert.Equal(t, mdb.MongoURI(), params.connectionString)
 	}
 }
 
@@ -152,14 +154,16 @@ func TestMongoDB_MongoURI_With_Options(t *testing.T) {
 		mdb := newReplicaSet(params.members, params.name, params.namespace)
 		mdb.Spec.AdditionalMongodConfig.Object = params.additionalMongodConfig
 		mdb.Spec.AdditionalConnectionStringConfig.Object = params.additionalConnectionStringConfig
-		assert.Equal(t, mdb.MongoURI(params.clusterDomain), params.connectionString)
+		mdb.Spec.ClusterDomain = params.clusterDomain
+		assert.Equal(t, mdb.MongoURI(), params.connectionString)
 	}
 }
 
 func TestMongoDB_MongoSRVURI(t *testing.T) {
 	mdb := newReplicaSet(2, "my-rs", "my-namespace")
-	assert.Equal(t, mdb.MongoSRVURI(""), "mongodb+srv://my-rs-svc.my-namespace.svc.cluster.local/?replicaSet=my-rs")
-	assert.Equal(t, mdb.MongoSRVURI("my.cluster"), "mongodb+srv://my-rs-svc.my-namespace.svc.my.cluster/?replicaSet=my-rs")
+	assert.Equal(t, mdb.MongoSRVURI(), "mongodb+srv://my-rs-svc.my-namespace.svc.cluster.local/?replicaSet=my-rs")
+	mdb.Spec.ClusterDomain = "my.cluster"
+	assert.Equal(t, mdb.MongoSRVURI(), "mongodb+srv://my-rs-svc.my-namespace.svc.my.cluster/?replicaSet=my-rs")
 }
 
 func TestMongoDB_MongoSRVURI_With_Options(t *testing.T) {
@@ -167,19 +171,21 @@ func TestMongoDB_MongoSRVURI_With_Options(t *testing.T) {
 	mdb.Spec.AdditionalConnectionStringConfig.Object = map[string]interface{}{
 		"readPreference": "primary",
 	}
-	assert.Equal(t, mdb.MongoSRVURI(""), "mongodb+srv://my-rs-svc.my-namespace.svc.cluster.local/?replicaSet=my-rs&readPreference=primary")
-	assert.Equal(t, mdb.MongoSRVURI("my.cluster"), "mongodb+srv://my-rs-svc.my-namespace.svc.my.cluster/?replicaSet=my-rs&readPreference=primary")
+	assert.Equal(t, mdb.MongoSRVURI(), "mongodb+srv://my-rs-svc.my-namespace.svc.cluster.local/?replicaSet=my-rs&readPreference=primary")
+	mdb.Spec.ClusterDomain = "my.cluster"
+	assert.Equal(t, mdb.MongoSRVURI(), "mongodb+srv://my-rs-svc.my-namespace.svc.my.cluster/?replicaSet=my-rs&readPreference=primary")
 
 	mdb = newReplicaSet(2, "my-rs", "my-namespace")
 	mdb.Spec.AdditionalConnectionStringConfig.Object = map[string]interface{}{
 		"readPreference": "primary", "replicaSet": "differentName", "tls": true, "ssl": true,
 	}
-	assert.Equal(t, mdb.MongoSRVURI(""), "mongodb+srv://my-rs-svc.my-namespace.svc.cluster.local/?replicaSet=my-rs&readPreference=primary")
-	assert.Equal(t, mdb.MongoSRVURI("my.cluster"), "mongodb+srv://my-rs-svc.my-namespace.svc.my.cluster/?replicaSet=my-rs&readPreference=primary")
+	assert.Equal(t, mdb.MongoSRVURI(), "mongodb+srv://my-rs-svc.my-namespace.svc.cluster.local/?replicaSet=my-rs&readPreference=primary")
+	mdb.Spec.ClusterDomain = "my.cluster"
+	assert.Equal(t, mdb.MongoSRVURI(), "mongodb+srv://my-rs-svc.my-namespace.svc.my.cluster/?replicaSet=my-rs&readPreference=primary")
 }
 
 func TestMongodConfiguration(t *testing.T) {
-	mc := NewMongodConfiguration()
+	mc := rootv1.NewMongodConfiguration()
 	assert.Equal(t, mc.Object, map[string]interface{}{})
 	assert.Equal(t, mc.GetDBDataDir(), "/data")
 	assert.Equal(t, mc.GetDBPort(), 27017)
@@ -204,7 +210,7 @@ func TestMongodConfigurationWithNestedMapsAfterUnmarshalling(t *testing.T) {
 			"storage.dbPath": "/other/data/path"
 		}
 	`
-	mc := NewMongodConfiguration()
+	mc := rootv1.NewMongodConfiguration()
 	require.NoError(t, json.Unmarshal([]byte(jsonStr), &mc))
 	assert.Equal(t, map[string]interface{}{
 		"net": map[string]interface{}{
@@ -399,7 +405,7 @@ func TestMongoDBCommunity_MongoAuthUserURI(t *testing.T) {
 	for _, params := range tests {
 		mdb.Spec.AdditionalConnectionStringConfig.Object = params.additionalConnectionStringConfig
 		testuser.ConnectionStringOptions = params.userConnectionStringConfig
-		assert.Equal(t, mdb.MongoAuthUserURI(testuser, "password", ""), params.connectionString)
+		assert.Equal(t, mdb.MongoAuthUserURI(testuser, "password"), params.connectionString)
 	}
 
 	testuser = authtypes.User{
@@ -408,7 +414,7 @@ func TestMongoDBCommunity_MongoAuthUserURI(t *testing.T) {
 	}
 	mdb = newReplicaSet(2, "my-rs", "my-namespace")
 
-	assert.Equal(t, mdb.MongoAuthUserURI(testuser, "", ""), "mongodb://my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017/$external?replicaSet=my-rs&ssl=false")
+	assert.Equal(t, mdb.MongoAuthUserURI(testuser, ""), "mongodb://my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017/$external?replicaSet=my-rs&ssl=false")
 }
 
 func TestMongoDBCommunity_MongoAuthUserSRVURI(t *testing.T) {
@@ -460,7 +466,7 @@ func TestMongoDBCommunity_MongoAuthUserSRVURI(t *testing.T) {
 	for _, params := range tests {
 		mdb.Spec.AdditionalConnectionStringConfig.Object = params.additionalConnectionStringConfig
 		testuser.ConnectionStringOptions = params.userConnectionStringConfig
-		assert.Equal(t, mdb.MongoAuthUserSRVURI(testuser, "password", ""), params.connectionString)
+		assert.Equal(t, mdb.MongoAuthUserSRVURI(testuser, "password"), params.connectionString)
 	}
 
 	testuser = authtypes.User{
@@ -469,7 +475,7 @@ func TestMongoDBCommunity_MongoAuthUserSRVURI(t *testing.T) {
 	}
 	mdb = newReplicaSet(2, "my-rs", "my-namespace")
 
-	assert.Equal(t, mdb.MongoAuthUserSRVURI(testuser, "", ""), "mongodb+srv://my-rs-svc.my-namespace.svc.cluster.local/$external?replicaSet=my-rs&ssl=false")
+	assert.Equal(t, mdb.MongoAuthUserSRVURI(testuser, ""), "mongodb+srv://my-rs-svc.my-namespace.svc.cluster.local/$external?replicaSet=my-rs&ssl=false")
 }
 
 func TestConvertAuthModeToAuthMechanism(t *testing.T) {
@@ -504,7 +510,7 @@ func TestMongoDBCommunity_GetAuthUsers(t *testing.T) {
 		{
 			Name:              "my-user",
 			DB:                "admin",
-			PasswordSecretRef: SecretKeyReference{Name: "my-user-password"},
+			PasswordSecretRef: rootv1.SecretKeyReference{Name: "my-user-password"},
 			Roles: []Role{
 				{
 					DB:   "admin",
@@ -513,12 +519,12 @@ func TestMongoDBCommunity_GetAuthUsers(t *testing.T) {
 			},
 			ScramCredentialsSecretName:       "my-scram",
 			ConnectionStringSecretName:       "",
-			AdditionalConnectionStringConfig: MapWrapper{},
+			AdditionalConnectionStringConfig: rootv1.MapWrapper{},
 		},
 		{
 			Name:              "CN=my-x509-authenticated-user,OU=organizationalunit,O=organization",
 			DB:                "$external",
-			PasswordSecretRef: SecretKeyReference{},
+			PasswordSecretRef: rootv1.SecretKeyReference{},
 			Roles: []Role{
 				{
 					DB:   "admin",
@@ -527,7 +533,7 @@ func TestMongoDBCommunity_GetAuthUsers(t *testing.T) {
 			},
 			ScramCredentialsSecretName:       "",
 			ConnectionStringSecretName:       "",
-			AdditionalConnectionStringConfig: MapWrapper{},
+			AdditionalConnectionStringConfig: rootv1.MapWrapper{},
 		},
 	}
 

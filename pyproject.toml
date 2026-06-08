@@ -5,3 +5,7 @@ include = '\.pyi?$'
 
 [tool.isort]
 profile = "black"
+line_length = 120
+
+[tool.ty.analysis]
+allowed-unresolved-imports = ["kubernetes.**", "ldap.**", "boto3.**", "botocore.**", "jsonpatch.**", "pycognito.**"]

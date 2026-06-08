@@ -8,7 +8,7 @@ import (
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/types"
 
-	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
@@ -22,12 +22,16 @@ func NewEnterpriseResourceSearchSource(mdb *mdbv1.MongoDB) SearchSourceDBResourc
 	return EnterpriseResourceSearchSource{mdb}
 }
 
-func (r EnterpriseResourceSearchSource) HostSeeds() []string {
-	seeds := make([]string, r.Spec.Members)
-	for i := range seeds {
-		seeds[i] = fmt.Sprintf("%s-%d.%s.%s.svc.cluster.local:%d", r.Name, i, r.ServiceName(), r.Namespace, r.Spec.GetAdditionalMongodConfig().GetPortOrDefault())
+func (r EnterpriseResourceSearchSource) HostSeeds(shardName string) ([]string, error) {
+	if shardName != "" {
+		return nil, fmt.Errorf("shardName is not supported for replica set")
 	}
-	return seeds
+	seeds := make([]string, r.Spec.Members)
+	clusterDomain := r.Spec.GetClusterDomain()
+	for i := range seeds {
+		seeds[i] = fmt.Sprintf("%s-%d.%s.%s.svc.%s:%d", r.Name, i, r.ServiceName(), r.Namespace, clusterDomain, r.Spec.GetAdditionalMongodConfig().GetPortOrDefault())
+	}
+	return seeds, nil
 }
 
 func (r EnterpriseResourceSearchSource) TLSConfig() *TLSSourceConfig {
@@ -50,12 +54,16 @@ func (r EnterpriseResourceSearchSource) KeyfileSecretName() string {
 	return fmt.Sprintf("%s-%s", r.Name, MongotKeyfileFilename)
 }
 
+func (r EnterpriseResourceSearchSource) ResourceType() mdbv1.ResourceType {
+	return r.GetResourceType()
+}
+
 func (r EnterpriseResourceSearchSource) Validate() error {
 	version, err := semver.ParseTolerant(util.StripEnt(r.Spec.GetMongoDBVersion()))
 	if err != nil {
 		return xerrors.Errorf("error parsing MongoDB version '%s': %w", r.Spec.GetMongoDBVersion(), err)
-	} else if version.LT(semver.MustParse("8.0.10")) {
-		return xerrors.New("MongoDB version must be 8.0.10 or higher")
+	} else if version.LT(semver.MustParse("8.2.0")) {
+		return xerrors.New("MongoDB version must be 8.2.0 or higher")
 	}
 
 	if r.Spec.GetTopology() != mdbv1.ClusterTopologySingleCluster {
@@ -78,10 +86,6 @@ func (r EnterpriseResourceSearchSource) Validate() error {
 
 	if !foundScram && len(authModes) > 0 {
 		return xerrors.New("MongoDBSearch requires SCRAM authentication to be enabled")
-	}
-
-	if r.Spec.Security.GetInternalClusterAuthenticationMode() == util.X509 {
-		return xerrors.New("MongoDBSearch does not support X.509 internal cluster authentication")
 	}
 
 	return nil

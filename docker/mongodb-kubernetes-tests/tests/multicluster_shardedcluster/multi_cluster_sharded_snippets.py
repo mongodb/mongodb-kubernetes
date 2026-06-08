@@ -21,13 +21,13 @@ SNIPPETS_FILES = [
 logger = test_logger.get_test_logger(__name__)
 
 
-def load_resource(namespace: str, file_path: str, resource_name: str = None) -> MongoDB:
+def load_resource(namespace: str, file_path: str, resource_name: str | None = None) -> MongoDB:
     resource = MongoDB.from_yaml(file_path, namespace=namespace, name=resource_name)
     return resource
 
 
 def get_project_directory() -> str:
-    project_dir = os.environ.get("PROJECT_DIR")
+    project_dir = os.environ["PROJECT_DIR"]
     logger.debug(f"PROJECT_DIR: {project_dir}")
     return project_dir
 
@@ -104,7 +104,7 @@ def test_running(namespace: str):
         try:
             logger.debug(f"Waiting for {sc.name} to reach Running phase")
             # Once the first resource reached Running, it shouldn't take more than ~300s for the others to do so
-            sc.assert_reaches_phase(Phase.Running, timeout=900 if first_iter else 300)
+            sc.assert_reaches_phase(Phase.Running, timeout=1200 if first_iter else 300)
             succeeded_resources.append(sc.name)
             first_iter = False
             logger.info(f"{sc.name} reached Running phase")

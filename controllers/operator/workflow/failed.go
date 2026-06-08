@@ -7,8 +7,8 @@ import (
 	"golang.org/x/xerrors"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/apierrors"
+	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/apierrors"
 )
 
 // failedStatus indicates that the reconciliation process must be suspended and CR should get "Pending" status

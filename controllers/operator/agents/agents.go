@@ -12,12 +12,12 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 
-	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 )
@@ -46,7 +46,7 @@ func EnsureAgentKeySecretExists(ctx context.Context, secretClient secrets.Secret
 	log = log.With("secret", secretName)
 	agentKeySecret, err := secretClient.ReadSecret(ctx, kube.ObjectKey(namespace, secretName), basePath)
 	if err != nil {
-		if !secrets.SecretNotExist(err) {
+		if !secret.SecretNotExist(err) {
 			return "", xerrors.Errorf("error reading agent key secret: %w", err)
 		}
 
@@ -88,6 +88,19 @@ func WaitForRsAgentsToRegister(set appsv1.StatefulSet, members int, clusterName 
 	hostnames, _ := dns.GetDnsForStatefulSetReplicasSpecified(set, clusterName, members, rs.Spec.DbCommonSpec.GetExternalDomain())
 
 	log = log.With("statefulset", set.Name)
+
+	ok, msg := waitUntilRegistered(omConnection, log, retryParams{retrials: 5, waitSeconds: 3}, hostnames...)
+	if !ok {
+		return getAgentRegisterError(msg)
+	}
+	return nil
+}
+
+// WaitForRsAgentsToRegisterByResource waits for RS agents to register using MongoDB resource directly without StatefulSet
+func WaitForRsAgentsToRegisterByResource(rs *mdbv1.MongoDB, members int, omConnection om.Connection, log *zap.SugaredLogger) error {
+	hostnames, _ := dns.GetDNSNames(rs.Name, rs.ServiceName(), rs.Namespace, rs.Spec.GetClusterDomain(), members, rs.Spec.DbCommonSpec.GetExternalDomain())
+
+	log = log.With("mongodb", rs.Name)
 
 	ok, msg := waitUntilRegistered(omConnection, log, retryParams{retrials: 5, waitSeconds: 3}, hostnames...)
 	if !ok {

@@ -17,16 +17,16 @@ import (
 
 	kubeclient "sigs.k8s.io/controller-runtime/pkg/client"
 
-	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
-	mdbmultiv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdbmulti"
-	omv1 "github.com/mongodb/mongodb-kubernetes/api/v1/om"
-	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
-	userv1 "github.com/mongodb/mongodb-kubernetes/api/v1/user"
-	mcov1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/envvar"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
+	mdbmultiv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
+	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
+	searchv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/search"
+	userv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/user"
+	mcov1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1" //nolint:depguard
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/versionutil"
 )
 
@@ -91,7 +91,7 @@ func RunTelemetry(leaderTrace context.Context, mongodbImage, databaseNonStaticIm
 	)
 	defer span.End()
 
-	intervalStr := envvar.GetEnvOrDefault(CollectionFrequency, DefaultCollectionFrequencyStr) // nolint:forbidigo
+	intervalStr := env.ReadOrDefault(CollectionFrequency, DefaultCollectionFrequencyStr) // nolint:forbidigo
 	duration, err := time.ParseDuration(intervalStr)
 	if err != nil || duration < time.Minute {
 		Logger.Warn("Failed converting %s to a duration or value is too small (minimum is one minute), using default 1h", CollectionFrequency)
@@ -399,13 +399,16 @@ func addSearchEvents(ctx context.Context, operatorClusterClient kubeclient.Clien
 		if !ok { // search source doesn't exist yet, don't generate a telemetry event
 			continue
 		}
-		properties := DeploymentUsageSnapshotProperties{
-			DeploymentUID:            string(item.UID),
-			OperatorID:               operatorUUID,
-			Architecture:             architecture,
-			IsMultiCluster:           false, // Search doesn't support multi-cluster
-			Type:                     "Search",
-			IsRunningEnterpriseImage: isEnterprise,
+		properties := SearchDeploymentUsageSnapshotProperties{
+			DeploymentUsageSnapshotProperties: DeploymentUsageSnapshotProperties{
+				DeploymentUID:            string(item.UID),
+				OperatorID:               operatorUUID,
+				Architecture:             architecture,
+				IsMultiCluster:           false, // Search doesn't support multi-cluster
+				Type:                     "Search",
+				IsRunningEnterpriseImage: isEnterprise,
+			},
+			IsAutoEmbeddingEnabled: item.Spec.AutoEmbedding != nil,
 		}
 		if event := createEvent(properties, now, Deployments); event != nil {
 			events = append(events, *event)
@@ -429,7 +432,7 @@ func getMaxNumberOfClustersSCIsDeployedOn(item mdbv1.MongoDB) int {
 }
 
 func ReadBoolWithTrueAsDefault(envVarName string) bool {
-	envVar := envvar.GetEnvOrDefault(envVarName, "true") // nolint:forbidigo
+	envVar := env.ReadOrDefault(envVarName, "true") // nolint:forbidigo
 	return strings.TrimSpace(strings.ToLower(envVar)) == "true"
 }
 

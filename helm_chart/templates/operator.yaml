@@ -32,14 +32,11 @@ spec:
 {{- end }}
     spec:
       serviceAccountName: {{ .Values.operator.name }}
-{{- if not .Values.managedSecurityContext }}
+      {{- if and (not .Values.managedSecurityContext) .Values.operator.podSecurityContext }}
       securityContext:
-        runAsNonRoot: true
-        runAsUser: 2000
-        seccompProfile:
-          type: RuntimeDefault
-{{- end }}
-{{- if .Values.registry.imagePullSecrets }}
+        {{- toYaml .Values.operator.podSecurityContext | nindent 8 }}
+      {{- end }}
+{{- if .Values.registry.imagePullSecrets}}
       imagePullSecrets:
         - name: {{ .Values.registry.imagePullSecrets }}
 {{- end }}
@@ -64,8 +61,10 @@ spec:
           command:
             - /usr/local/bin/mongodb-kubernetes-operator
           {{- end }}
-          {{- if .Values.multiCluster.clusters }}
           volumeMounts:
+            - mountPath: /tmp/k8s-webhook-server/serving-certs
+              name: webhook-server-dir
+          {{- if .Values.multiCluster.clusters }}
             - mountPath: /etc/config/kubeconfig
               name: kube-config-volume
           {{- end }}
@@ -76,12 +75,9 @@ spec:
             requests:
               cpu: {{ .Values.operator.resources.requests.cpu }}
               memory: {{ .Values.operator.resources.requests.memory }}
-          {{- if not .Values.managedSecurityContext }}
+          {{- if and (not .Values.managedSecurityContext) .Values.operator.securityContext }}
           securityContext:
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop:
-                - ALL
+            {{- toYaml .Values.operator.securityContext | nindent 12 }}
           {{- end }}
           env:
             - name: OPERATOR_ENV
@@ -162,13 +158,11 @@ spec:
     {{- $opsManagerImageRepositoryEnv := "OPS_MANAGER_IMAGE_REPOSITORY" -}}
     {{- $agentImageRepository := "MDB_AGENT_IMAGE_REPOSITORY" -}}
     {{- $initOpsManagerImageRepositoryEnv := "INIT_OPS_MANAGER_IMAGE_REPOSITORY" -}}
-    {{- $initAppDbImageRepositoryEnv := "INIT_APPDB_IMAGE_REPOSITORY" -}}
     {{- $agentImageEnv := "AGENT_IMAGE" -}}
     {{- $mongodbImageEnv := "MONGODB_IMAGE" -}}
     {{- $initDatabaseVersion := print .Values.initDatabase.version (.Values.build | default "") -}}
     {{- $databaseVersion := print .Values.database.version (.Values.build | default "") -}}
     {{- $initOpsManagerVersion := print .Values.initOpsManager.version (.Values.build | default "") -}}
-    {{- $initAppDbVersion := print .Values.initAppDb.version (.Values.build | default "") -}}
     {{- $agentVersion := .Values.agent.version }}
             - name: IMAGE_PULL_POLICY
               value: {{ .Values.registry.pullPolicy }}
@@ -178,21 +172,16 @@ spec:
             - name: {{ $initDatabaseImageRepositoryEnv }}
               value: {{ .Values.registry.initDatabase }}/{{ .Values.initDatabase.name }}
             - name: INIT_DATABASE_VERSION
-              value: {{ $initDatabaseVersion }}
+              value: {{ $initDatabaseVersion | quote }}
             - name: DATABASE_VERSION
-              value: {{ $databaseVersion }}
+              value: {{ $databaseVersion | quote }}
             # Ops Manager
             - name: {{ $opsManagerImageRepositoryEnv }}
               value: {{ .Values.registry.opsManager }}/{{ .Values.opsManager.name }}
             - name: {{ $initOpsManagerImageRepositoryEnv }}
               value: {{ .Values.registry.initOpsManager }}/{{ .Values.initOpsManager.name }}
             - name: INIT_OPS_MANAGER_VERSION
-              value: {{ $initOpsManagerVersion }}
-            # AppDB
-            - name: {{ $initAppDbImageRepositoryEnv }}
-              value: {{ .Values.registry.initAppDb }}/{{ .Values.initAppDb.name }}
-            - name: INIT_APPDB_VERSION
-              value: {{ $initAppDbVersion }}
+              value: {{ $initOpsManagerVersion | quote }}
             - name: OPS_MANAGER_IMAGE_PULL_POLICY
               value: {{ .Values.registry.pullPolicy }}
             - name: {{ $agentImageEnv }}
@@ -203,12 +192,6 @@ spec:
               value: {{ .Values.mongodb.name }}
             - name: MONGODB_REPO_URL
               value: {{ .Values.mongodb.repo }}
-            - name: MDB_IMAGE_TYPE
-              {{- if eq .Values.operator.mdbDefaultArchitecture "static" }}
-              value: "ubi9"
-              {{- else }}
-              value: {{ .Values.mongodb.imageType }}
-              {{- end }}
     {{- if eq .Values.mongodb.appdbAssumeOldFormat true }}
             - name: MDB_APPDB_ASSUME_OLD_FORMAT
               value: 'true'
@@ -224,6 +207,10 @@ spec:
     {{- if not .Values.operator.webhook.registerConfiguration }}
             - name: MDB_WEBHOOK_REGISTER_CONFIGURATION
               value: "false"
+    {{- end }}
+    {{- if .Values.operator.webhook.name }}
+            - name: MDB_WEBHOOK_NAME
+              value: {{ .Values.operator.webhook.name | quote }}
     {{- end }}
     {{- if .Values.operator.maxConcurrentReconciles }}
             - name: MDB_MAX_CONCURRENT_RECONCILES
@@ -256,8 +243,6 @@ spec:
               value: "{{ .Values.registry.initDatabase }}/{{ .Values.initDatabase.name }}:{{ $initDatabaseVersion }}"
             - name: RELATED_IMAGE_{{ $initOpsManagerImageRepositoryEnv }}_{{ $initOpsManagerVersion | replace "." "_" | replace "-" "_" }}
               value: "{{ .Values.registry.initOpsManager }}/{{ .Values.initOpsManager.name }}:{{ $initOpsManagerVersion }}"
-            - name: RELATED_IMAGE_{{ $initAppDbImageRepositoryEnv }}_{{ $initAppDbVersion | replace "." "_" | replace "-" "_" }}
-              value: "{{ .Values.registry.initAppDb }}/{{ .Values.initAppDb.name }}:{{ $initAppDbVersion }}"
       {{- range $version := .Values.relatedImages.agent }}
             - name: RELATED_IMAGE_{{ $agentImageEnv }}_{{ $version | replace "." "_" | replace "-" "_" }}
               value: "{{ $.Values.registry.agent }}/{{ $.Values.agent.name }}:{{ $version }}"
@@ -266,7 +251,7 @@ spec:
             - name: RELATED_IMAGE_{{ $opsManagerImageRepositoryEnv }}_{{ $version | replace "." "_" | replace "-" "_" }}
               value: "{{ $.Values.registry.opsManager }}/{{ $.Values.opsManager.name }}:{{ $version }}"
       {{- end }}
-      # since the official server images end with a different suffix we can re-use the same $mongodbImageEnv
+            # since the official server images end with a different suffix we can re-use the same $mongodbImageEnv
       {{- range $version := .Values.relatedImages.mongodb }}
             - name: RELATED_IMAGE_{{ $mongodbImageEnv }}_{{ $version | replace "." "_" | replace "-" "_" }}
               value: "{{ $.Values.mongodb.repo }}/{{ $.Values.mongodb.name }}:{{ $version }}"
@@ -274,6 +259,8 @@ spec:
       {{- if .Values.search }}
             - name: RELATED_IMAGE_MDB_SEARCH_IMAGE_{{ .Values.search.version | replace "." "_" | replace "-" "_" }}
               value: "{{ .Values.search.repo }}/{{ .Values.search.name }}:{{ $.Values.search.version }}"
+            - name: RELATED_IMAGE_MDB_ENVOY_IMAGE
+              value: "{{ .Values.search.envoyImage }}"
       {{- end }}
     {{- end }}
     {{- if .Values.search }}
@@ -283,20 +270,24 @@ spec:
               value: "{{ .Values.search.name }}"
             - name: MDB_SEARCH_VERSION
               value: "{{ .Values.search.version }}"
+            - name: MDB_ENVOY_IMAGE
+              value: "{{ .Values.search.envoyImage }}"
     {{- end }}
     {{- if .Values.customEnvVars }}
       {{- range split "&" .Values.customEnvVars }}
-            - name: {{ (split "=" .)._0 }}
-              value: '{{ (split "=" .)._1 }}'
+            - name: {{ (splitn "=" 2 .)._0 }}
+              value: '{{ (splitn "=" 2 .)._1 }}'
       {{- end }}
     {{- end }}
-{{- if .Values.multiCluster.clusters }}
       volumes:
+        - name: webhook-server-dir
+          emptyDir: {}
+        {{- if .Values.multiCluster.clusters }}
         - name: kube-config-volume
           secret:
             defaultMode: 420
             secretName: {{ .Values.multiCluster.kubeConfigSecretName }}
-{{- end }}
+        {{- end }}
 
 {{- with .Values.operator }}
   {{- with .nodeSelector }}

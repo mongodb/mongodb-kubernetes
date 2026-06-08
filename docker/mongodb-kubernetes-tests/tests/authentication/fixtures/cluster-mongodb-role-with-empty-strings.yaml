@@ -1,0 +1,40 @@
+apiVersion: mongodb.com/v1
+kind: ClusterMongoDBRole
+metadata:
+  name: customrole-with-empty-strings
+spec:
+  role: "myClusterwideAdminWithEmptyStrings"
+  db: "admin"
+  roles:
+    - db: "admin"
+      role: "read"
+  privileges:
+    - resource:
+        db: "config"
+        collection: ""
+      actions:
+        - "find"
+        - "update"
+        - "insert"
+        - "remove"
+    - resource:
+        db: "users"
+        collection: "usersCollection"
+      actions:
+        - "update"
+        - "insert"
+        - "remove"
+    - resource:
+        db: ""
+        collection: ""
+      actions:
+        - "find"
+    - resource:
+        cluster: true
+      actions:
+        - "bypassWriteBlockingMode"
+  authenticationRestrictions:
+    - clientSource:
+        - "127.0.0.0/8"
+      serverAddress:
+        - "10.0.0.0/8"

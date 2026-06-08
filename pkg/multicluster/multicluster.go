@@ -18,7 +18,7 @@ import (
 	restclient "k8s.io/client-go/rest"
 
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 	intp "github.com/mongodb/mongodb-kubernetes/pkg/util/int"
 )

@@ -3,7 +3,7 @@ package om
 import (
 	"encoding/json"
 
-	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
@@ -45,14 +45,15 @@ func (m *MonitoringAgentConfig) UnsetAgentPassword() {
 	m.MonitoringAgentTemplate.Password = util.MergoDelete
 }
 
-func (m *MonitoringAgentConfig) EnableX509Authentication(MonitoringAgentSubject string) {
-	m.MonitoringAgentTemplate.SSLPemKeyFile = util.AutomationAgentPemFilePath
-	m.SetAgentUserName(MonitoringAgentSubject)
+func (m *MonitoringAgentConfig) EnableX509Authentication(monitoringAgentSubject, automationAgentPemFilePath string) {
+	m.MonitoringAgentTemplate.SSLPemKeyFile = automationAgentPemFilePath
+	m.SetAgentUserName(monitoringAgentSubject)
 }
 
 func (m *MonitoringAgentConfig) DisableX509Authentication() {
 	m.MonitoringAgentTemplate.SSLPemKeyFile = util.MergoDelete
 	m.UnsetAgentUsername()
+	m.UnsetAgentPassword()
 }
 
 func (m *MonitoringAgentConfig) EnableLdapAuthentication(monitoringAgentSubject string, monitoringAgentPwd string) {

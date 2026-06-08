@@ -1,9 +1,12 @@
 package searchcontroller
 
 import (
+	"fmt"
+
 	"k8s.io/apimachinery/pkg/types"
 
-	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
+	searchv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 )
@@ -16,6 +19,10 @@ func NewExternalSearchSource(namespace string, spec *searchv1.ExternalMongoDBSou
 type externalSearchResource struct {
 	namespace string
 	spec      *searchv1.ExternalMongoDBSource
+}
+
+func (r *externalSearchResource) ResourceType() mdbv1.ResourceType {
+	return mdbv1.ReplicaSet
 }
 
 func (r *externalSearchResource) Validate() error {
@@ -31,7 +38,7 @@ func (r *externalSearchResource) TLSConfig() *TLSSourceConfig {
 	}
 
 	return &TLSSourceConfig{
-		CAFileName: "ca.crt",
+		CAFileName: tlsCACertName,
 		CAVolume:   statefulset.CreateVolumeFromSecret("ca", r.spec.TLS.CA.Name),
 		ResourcesToWatch: map[watch.Type][]types.NamespacedName{
 			watch.Secret: {
@@ -49,4 +56,10 @@ func (r *externalSearchResource) KeyfileSecretName() string {
 	return ""
 }
 
-func (r *externalSearchResource) HostSeeds() []string { return r.spec.HostAndPorts }
+func (r *externalSearchResource) HostSeeds(shardName string) ([]string, error) {
+	if shardName != "" {
+		return nil, fmt.Errorf("shardName is not supported for replica set")
+	}
+
+	return r.spec.HostAndPorts, nil
+}

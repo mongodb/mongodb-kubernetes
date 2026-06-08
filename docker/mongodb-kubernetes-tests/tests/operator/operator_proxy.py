@@ -1,10 +1,8 @@
 import os
 
 from kubernetes import client
-from kubetester import create_or_update_configmap
-from kubetester.create_or_replace_from_yaml import (
-    create_or_replace_from_yaml as apply_yaml,
-)
+from kubetester import create_or_update_configmap, try_load
+from kubetester.create_or_replace_from_yaml import create_or_replace_from_yaml as apply_yaml
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as _fixture
 from kubetester.kubetester import get_pods
@@ -56,7 +54,7 @@ def replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(_fixture("replica-set-basic.yaml"), namespace=namespace, name=MDB_RESOURCE)
     resource.set_version(ensure_ent_version(custom_mdb_version))
     resource.set_architecture_annotation()
-    resource.update()
+    try_load(resource)
 
     return resource
 
@@ -70,6 +68,7 @@ def test_install_operator_with_proxy(
 
 @mark.e2e_operator_proxy
 def test_replica_set_reconciles(replica_set: MongoDB):
+    replica_set.update()
     replica_set.assert_reaches_phase(Phase.Running)
 
 

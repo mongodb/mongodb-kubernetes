@@ -9,7 +9,6 @@ source "${script_dir}/root-context"
 
 export ops_manager_version="cloud_qa"
 
-
 export CUSTOM_MDB_VERSION=8.0.12-ent
 export KUBE_ENVIRONMENT_NAME=kind
 export CLUSTER_TYPE=kind

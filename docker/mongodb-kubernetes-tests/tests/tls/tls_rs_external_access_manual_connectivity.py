@@ -2,6 +2,7 @@ from typing import List
 
 import pytest
 import yaml
+from kubetester import try_load
 from kubetester.certs import ISSUER_CA_NAME, create_mongodb_tls_certs
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as load_fixture
@@ -78,15 +79,15 @@ def mdb(
     worker_node_hostname: str,
     node_ports: List[int],
 ) -> MongoDB:
-    res = MongoDB.from_yaml(load_fixture("test-tls-base-rs-external-access.yaml"), namespace=namespace)
-    res["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
-    res["spec"]["connectivity"]["replicaSetHorizons"] = [
+    resource = MongoDB.from_yaml(load_fixture("test-tls-base-rs-external-access.yaml"), namespace=namespace)
+    resource["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
+    resource["spec"]["connectivity"]["replicaSetHorizons"] = [
         {"test-horizon": f"{worker_node_hostname}:{node_ports[0]}"},
         {"test-horizon": f"{worker_node_hostname}:{node_ports[1]}"},
         {"test-horizon": f"{worker_node_hostname}:{node_ports[2]}"},
     ]
-
-    return res.create()
+    try_load(resource)
+    return resource
 
 
 @pytest.mark.e2e_tls_rs_external_access_manual_connectivity
@@ -96,6 +97,7 @@ def test_install_operator(operator: Operator):
 
 @pytest.mark.e2e_tls_rs_external_access_manual_connectivity
 def test_mdb_reaches_running_state(mdb: MongoDB):
+    mdb.update()
     mdb.assert_reaches_phase(Phase.Running, timeout=900)
 
 

@@ -27,15 +27,15 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
-	"github.com/mongodb/mongodb-kubernetes/api/v1/mdbmulti"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
+	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/deployment"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/secret"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/test"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
@@ -47,7 +47,7 @@ func TestX509CanBeEnabled_WhenThereAreOnlyTlsDeployments_ReplicaSet(t *testing.T
 
 	addKubernetesTlsResources(ctx, kubeClient, rs)
 
-	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, omConnectionFactory.GetConnectionFunc)
+	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", omConnectionFactory.GetConnectionFunc)
 	checkReconcileSuccessful(ctx, t, reconciler, rs, kubeClient)
 }
 
@@ -57,7 +57,7 @@ func TestX509ClusterAuthentication_CanBeEnabled_IfX509AuthenticationIsEnabled_Re
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(rs)
 	addKubernetesTlsResources(ctx, kubeClient, rs)
 
-	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, omConnectionFactory.GetConnectionFunc)
+	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", omConnectionFactory.GetConnectionFunc)
 	checkReconcileSuccessful(ctx, t, reconciler, rs, kubeClient)
 }
 
@@ -65,7 +65,7 @@ func TestX509ClusterAuthentication_CanBeEnabled_IfX509AuthenticationIsEnabled_Sh
 	ctx := context.Background()
 	scWithTls := test.DefaultClusterBuilder().EnableTLS().EnableX509().SetName("sc-with-tls").SetTLSCA("custom-ca").Build()
 
-	reconciler, _, client, _, err := defaultClusterReconciler(ctx, nil, "", "", scWithTls, nil)
+	reconciler, _, client, _, err := defaultShardedClusterReconciler(ctx, nil, "", "", scWithTls, nil, testBackupEnableDelay)
 	require.NoError(t, err)
 	addKubernetesTlsResources(ctx, client, scWithTls)
 
@@ -76,7 +76,7 @@ func TestX509CanBeEnabled_WhenThereAreOnlyTlsDeployments_ShardedCluster(t *testi
 	ctx := context.Background()
 	scWithTls := test.DefaultClusterBuilder().EnableTLS().EnableX509().SetName("sc-with-tls").SetTLSCA("custom-ca").Build()
 
-	reconciler, _, client, _, err := defaultClusterReconciler(ctx, nil, "", "", scWithTls, nil)
+	reconciler, _, client, _, err := defaultShardedClusterReconciler(ctx, nil, "", "", scWithTls, nil, testBackupEnableDelay)
 	require.NoError(t, err)
 	addKubernetesTlsResources(ctx, client, scWithTls)
 
@@ -90,9 +90,8 @@ func TestUpdateOmAuthentication_NoAuthenticationEnabled(t *testing.T) {
 	processNames := []string{"my-rs-0", "my-rs-1", "my-rs-2"}
 
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(rs)
-	r := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, omConnectionFactory.GetConnectionFunc)
-	agentCertSecretSelector := rs.GetSecurity().AgentClientCertificateSecretName(rs.Name)
-	r.updateOmAuthentication(ctx, conn, processNames, rs, agentCertSecretSelector, "", "", false, zap.S())
+	r := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", omConnectionFactory.GetConnectionFunc)
+	r.updateOmAuthentication(ctx, conn, processNames, rs, "", "", "", false, zap.S())
 
 	ac, _ := conn.ReadAutomationConfig()
 
@@ -112,9 +111,8 @@ func TestUpdateOmAuthentication_EnableX509_TlsNotEnabled(t *testing.T) {
 	rs.Spec.Security.TLSConfig.Enabled = true
 
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(rs)
-	r := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, omConnectionFactory.GetConnectionFunc)
-	agentCertSecretSelector := rs.GetSecurity().AgentClientCertificateSecretName(rs.Name)
-	status, isMultiStageReconciliation := r.updateOmAuthentication(ctx, conn, []string{"my-rs-0", "my-rs-1", "my-rs-2"}, rs, agentCertSecretSelector, "", "", false, zap.S())
+	r := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", omConnectionFactory.GetConnectionFunc)
+	status, isMultiStageReconciliation := r.updateOmAuthentication(ctx, conn, []string{"my-rs-0", "my-rs-1", "my-rs-2"}, rs, "", "", "", false, zap.S())
 
 	assert.True(t, status.IsOK(), "configuring both options at once should not result in a failed status")
 	assert.True(t, isMultiStageReconciliation, "configuring both tls and x509 at once should result in a multi stage reconciliation")
@@ -125,9 +123,8 @@ func TestUpdateOmAuthentication_EnableX509_WithTlsAlreadyEnabled(t *testing.T) {
 	rs := DefaultReplicaSetBuilder().SetName("my-rs").SetMembers(3).EnableTLS().Build()
 	omConnectionFactory := om.NewCachedOMConnectionFactoryWithInitializedConnection(om.NewMockedOmConnection(deployment.CreateFromReplicaSet("fake-mongoDBImage", false, rs)))
 	kubeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, rs)
-	r := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, omConnectionFactory.GetConnectionFunc)
-	agentCertSecretSelector := rs.GetSecurity().AgentClientCertificateSecretName(rs.Name)
-	status, isMultiStageReconciliation := r.updateOmAuthentication(ctx, omConnectionFactory.GetConnection(), []string{"my-rs-0", "my-rs-1", "my-rs-2"}, rs, agentCertSecretSelector, "", "", false, zap.S())
+	r := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", omConnectionFactory.GetConnectionFunc)
+	status, isMultiStageReconciliation := r.updateOmAuthentication(ctx, omConnectionFactory.GetConnection(), []string{"my-rs-0", "my-rs-1", "my-rs-2"}, rs, "", "", "", false, zap.S())
 
 	assert.True(t, status.IsOK(), "configuring x509 when tls has already been enabled should not result in a failed status")
 	assert.False(t, isMultiStageReconciliation, "if tls is already enabled, we should be able to configure x509 is a single reconciliation")
@@ -141,10 +138,9 @@ func TestUpdateOmAuthentication_AuthenticationIsNotConfigured_IfAuthIsNotSet(t *
 
 	omConnectionFactory := om.NewCachedOMConnectionFactoryWithInitializedConnection(om.NewMockedOmConnection(deployment.CreateFromReplicaSet("fake-mongoDBImage", false, rs)))
 	kubeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, rs)
-	r := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, omConnectionFactory.GetConnectionFunc)
+	r := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", omConnectionFactory.GetConnectionFunc)
 
-	agentCertSecretSelector := rs.GetSecurity().AgentClientCertificateSecretName(rs.Name)
-	status, _ := r.updateOmAuthentication(ctx, omConnectionFactory.GetConnection(), []string{"my-rs-0", "my-rs-1", "my-rs-2"}, rs, agentCertSecretSelector, "", "", false, zap.S())
+	status, _ := r.updateOmAuthentication(ctx, omConnectionFactory.GetConnection(), []string{"my-rs-0", "my-rs-1", "my-rs-2"}, rs, "", "", "", false, zap.S())
 	assert.True(t, status.IsOK(), "no authentication should have been configured")
 
 	ac, _ := omConnectionFactory.GetConnection().ReadAutomationConfig()
@@ -165,7 +161,7 @@ func TestUpdateOmAuthentication_DoesNotDisableAuth_IfAuthIsNotSet(t *testing.T) 
 		Build()
 
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(rs)
-	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, omConnectionFactory.GetConnectionFunc)
+	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", omConnectionFactory.GetConnectionFunc)
 
 	addKubernetesTlsResources(ctx, kubeClient, rs)
 
@@ -178,7 +174,7 @@ func TestUpdateOmAuthentication_DoesNotDisableAuth_IfAuthIsNotSet(t *testing.T) 
 
 	rs.Spec.Security.Authentication = nil
 
-	reconciler = newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, omConnectionFactory.GetConnectionFunc)
+	reconciler = newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", omConnectionFactory.GetConnectionFunc)
 
 	checkReconcileSuccessful(ctx, t, reconciler, rs, kubeClient)
 
@@ -200,7 +196,7 @@ func TestCanConfigureAuthenticationDisabled_WithNoModes(t *testing.T) {
 		Build()
 
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(rs)
-	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, omConnectionFactory.GetConnectionFunc)
+	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", omConnectionFactory.GetConnectionFunc)
 
 	addKubernetesTlsResources(ctx, kubeClient, rs)
 
@@ -212,11 +208,11 @@ func TestUpdateOmAuthentication_EnableX509_FromEmptyDeployment(t *testing.T) {
 	rs := DefaultReplicaSetBuilder().SetName("my-rs").SetMembers(3).EnableTLS().EnableAuth().EnableX509().Build()
 	omConnectionFactory := om.NewCachedOMConnectionFactoryWithInitializedConnection(om.NewMockedOmConnection(om.NewDeployment()))
 	kubeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, rs)
-	r := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, omConnectionFactory.GetConnectionFunc)
-	createAgentCSRs(t, ctx, 1, r.client, certsv1.CertificateApproved)
+	r := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", omConnectionFactory.GetConnectionFunc)
+	secretName := util.AgentSecretName
+	createAgentCSRs(t, ctx, r.client, secretName, certsv1.CertificateApproved)
 
-	agentCertSecretSelector := rs.GetSecurity().AgentClientCertificateSecretName(rs.Name)
-	status, isMultiStageReconciliation := r.updateOmAuthentication(ctx, omConnectionFactory.GetConnection(), []string{"my-rs-0", "my-rs-1", "my-rs-2"}, rs, agentCertSecretSelector, "", "", false, zap.S())
+	status, isMultiStageReconciliation := r.updateOmAuthentication(ctx, omConnectionFactory.GetConnection(), []string{"my-rs-0", "my-rs-1", "my-rs-2"}, rs, "", "", "", false, zap.S())
 	assert.True(t, status.IsOK(), "configuring x509 and tls when there are no processes should not result in a failed status")
 	assert.False(t, isMultiStageReconciliation, "if we are enabling tls and x509 at once, this should be done in a single reconciliation")
 }
@@ -233,11 +229,11 @@ func TestX509AgentUserIsCorrectlyConfigured(t *testing.T) {
 
 	// configure x509/tls resources
 	addKubernetesTlsResources(ctx, kubeClient, rs)
-	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, omConnectionFactory.GetConnectionFunc)
+	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", omConnectionFactory.GetConnectionFunc)
 
 	checkReconcileSuccessful(ctx, t, reconciler, rs, kubeClient)
 
-	userReconciler := newMongoDBUserReconciler(ctx, kubeClient, omConnectionFactory.GetConnectionFunc, memberClusterMap)
+	userReconciler := newMongoDBUserReconciler(ctx, kubeClient, omConnectionFactory.GetConnectionFunc, memberClusterMap, testBackupEnableDelay)
 
 	actual, err := userReconciler.Reconcile(ctx, requestFromObject(x509User))
 	expected := reconcile.Result{RequeueAfter: util.TWENTY_FOUR_HOURS}
@@ -269,11 +265,11 @@ func TestScramAgentUserIsCorrectlyConfigured(t *testing.T) {
 
 	assert.NoError(t, err)
 
-	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, omConnectionFactory.GetConnectionFunc)
+	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", omConnectionFactory.GetConnectionFunc)
 
 	checkReconcileSuccessful(ctx, t, reconciler, rs, kubeClient)
 
-	userReconciler := newMongoDBUserReconciler(ctx, kubeClient, omConnectionFactory.GetConnectionFunc, memberClusterMap)
+	userReconciler := newMongoDBUserReconciler(ctx, kubeClient, omConnectionFactory.GetConnectionFunc, memberClusterMap, testBackupEnableDelay)
 
 	actual, err := userReconciler.Reconcile(ctx, requestFromObject(scramUser))
 	expected := reconcile.Result{RequeueAfter: util.TWENTY_FOUR_HOURS}
@@ -299,7 +295,7 @@ func TestScramAgentUser_IsNotOverridden(t *testing.T) {
 		}
 	})
 
-	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, omConnectionFactory.GetConnectionFunc)
+	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", omConnectionFactory.GetConnectionFunc)
 
 	checkReconcileSuccessful(ctx, t, reconciler, rs, kubeClient)
 
@@ -318,7 +314,7 @@ func TestX509InternalClusterAuthentication_CanBeEnabledWithScram_ReplicaSet(t *t
 		Build()
 
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(rs)
-	r := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, omConnectionFactory.GetConnectionFunc)
+	r := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", omConnectionFactory.GetConnectionFunc)
 	addKubernetesTlsResources(ctx, r.client, rs)
 
 	checkReconcileSuccessful(ctx, t, r, rs, kubeClient)
@@ -337,7 +333,7 @@ func TestX509InternalClusterAuthentication_CanBeEnabledWithScram_ShardedCluster(
 		EnableX509InternalClusterAuth().
 		Build()
 
-	r, _, kubeClient, omConnectionFactory, _ := defaultClusterReconciler(ctx, nil, "", "", sc, nil)
+	r, _, kubeClient, omConnectionFactory, _ := defaultShardedClusterReconciler(ctx, nil, "", "", sc, nil, testBackupEnableDelay)
 	addKubernetesTlsResources(ctx, r.client, sc)
 	checkReconcileSuccessful(ctx, t, r, sc, kubeClient)
 
@@ -371,7 +367,7 @@ func TestConfigureLdapDeploymentAuthentication_WithScramAgentAuthentication(t *t
 		Build()
 
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(rs)
-	r := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, omConnectionFactory.GetConnectionFunc)
+	r := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", omConnectionFactory.GetConnectionFunc)
 	data := map[string]string{
 		"password": "LITZTOd6YiCV8j",
 	}
@@ -428,7 +424,7 @@ func TestConfigureLdapDeploymentAuthentication_WithCustomRole(t *testing.T) {
 		Build()
 
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(rs)
-	r := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, omConnectionFactory.GetConnectionFunc)
+	r := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", omConnectionFactory.GetConnectionFunc)
 	data := map[string]string{
 		"password": "LITZTOd6YiCV8j",
 	}
@@ -482,7 +478,7 @@ func TestConfigureLdapDeploymentAuthentication_WithAuthzQueryTemplate_AndUserToD
 		Build()
 
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(rs)
-	r := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, omConnectionFactory.GetConnectionFunc)
+	r := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", omConnectionFactory.GetConnectionFunc)
 	data := map[string]string{
 		"password": "LITZTOd6YiCV8j",
 	}
@@ -745,7 +741,7 @@ func TestInvalidPEM_SecretDoesNotContainKey(t *testing.T) {
 		Build()
 
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(rs)
-	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, omConnectionFactory.GetConnectionFunc)
+	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", omConnectionFactory.GetConnectionFunc)
 	addKubernetesTlsResources(ctx, kubeClient, rs)
 
 	// Replace the secret with an empty one
@@ -774,15 +770,16 @@ func Test_NoAdditionalDomainsPresent(t *testing.T) {
 	// The default secret we create does not contain additional domains so it will not be valid for this RS
 	rs.Spec.Security.TLSConfig.AdditionalCertificateDomains = []string{"foo"}
 
-	reconciler, _, client, _, err := defaultClusterReconciler(ctx, nil, "", "", rs, nil)
-	require.NoError(t, err)
-	addKubernetesTlsResources(ctx, client, rs)
+	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(rs)
+	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", omConnectionFactory.GetConnectionFunc)
+	addKubernetesTlsResources(ctx, kubeClient, rs)
 
-	secret := &corev1.Secret{}
+	certSecret := &corev1.Secret{}
 
-	_ = client.Get(ctx, types.NamespacedName{Name: fmt.Sprintf("%s-cert", rs.Name), Namespace: rs.Namespace}, secret)
+	_ = kubeClient.Get(ctx, types.NamespacedName{Name: fmt.Sprintf("%s-cert", rs.Name), Namespace: rs.Namespace}, certSecret)
 
-	err = certs.VerifyAndEnsureCertificatesForStatefulSet(ctx, reconciler.SecretClient, reconciler.SecretClient, fmt.Sprintf("%s-cert", rs.Name), certs.ReplicaSetConfig(*rs), nil)
+	err := certs.VerifyAndEnsureCertificatesForStatefulSet(ctx, reconciler.SecretClient, reconciler.SecretClient, fmt.Sprintf("%s-cert", rs.Name), certs.ReplicaSetConfig(*rs), nil)
+	require.Error(t, err)
 	for i := 0; i < rs.Spec.Members; i++ {
 		expectedErrorMessage := fmt.Sprintf("domain %s-%d.foo is not contained in the list of DNSNames", rs.Name, i)
 		assert.Contains(t, err.Error(), expectedErrorMessage)
@@ -800,7 +797,7 @@ func Test_NoExternalDomainPresent(t *testing.T) {
 	rs.Spec.ExternalAccessConfiguration = &mdbv1.ExternalAccessConfiguration{ExternalDomain: ptr.To("foo")}
 
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(rs)
-	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, omConnectionFactory.GetConnectionFunc)
+	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", omConnectionFactory.GetConnectionFunc)
 	addKubernetesTlsResources(ctx, kubeClient, rs)
 
 	secret := &corev1.Secret{}
@@ -812,17 +809,14 @@ func Test_NoExternalDomainPresent(t *testing.T) {
 }
 
 // createAgentCSRs creates all the agent CSRs needed for x509 at the specified condition type
-func createAgentCSRs(t *testing.T, ctx context.Context, numAgents int, client kubernetesClient.Client, conditionType certsv1.RequestConditionType) {
-	if numAgents != 1 && numAgents != 3 {
-		return
-	}
+func createAgentCSRs(t *testing.T, ctx context.Context, client kubernetesClient.Client, secretName string, conditionType certsv1.RequestConditionType) {
 	// create the secret the agent certs will exist in
 	certAuto, _ := os.ReadFile("testdata/certificates/cert_auto")
 
 	builder := secret.Builder().
 		SetNamespace(mock.TestNamespace).
-		SetName(util.AgentSecretName).
-		SetField(util.AutomationAgentPemSecretKey, string(certAuto))
+		SetName(secretName).
+		SetField(corev1.TLSCertKey, string(certAuto))
 
 	err := client.CreateSecret(ctx, builder.Build())
 	assert.NoError(t, err)

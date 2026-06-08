@@ -11,10 +11,7 @@ from kubetester.kubetester import run_periodically
 
 # Re-exports
 from .kubetester import fixture as find_fixture
-from .security_context import (
-    assert_pod_container_security_context,
-    assert_pod_security_context,
-)
+from .security_context import assert_pod_container_security_context, assert_pod_security_context
 
 
 def create_secret(
@@ -78,7 +75,7 @@ def delete_service_account(namespace: str, name: str) -> str:
 
 def get_service(
     namespace: str, name: str, api_client: Optional[kubernetes.client.ApiClient] = None
-) -> client.V1ServiceSpec:
+) -> Optional[client.V1Service]:
     """Gets a service with `name` in `namespace.
     :return None if the service does not exist
     """
@@ -131,7 +128,6 @@ def create_or_update_configmap(
     data: Dict[str, str],
     api_client: Optional[kubernetes.client.ApiClient] = None,
 ) -> str:
-    print("Logging inside create_or_update configmap")
     try:
         create_configmap(namespace, name, data, api_client)
     except kubernetes.client.ApiException as e:
@@ -152,6 +148,13 @@ def create_or_update_service(
     service: Optional[client.V1Service] = None,
 ) -> str:
     print("Logging inside create_or_update_service")
+    if service_name is None and service is not None:
+        if isinstance(service, dict):
+            service_name = service.get("metadata", {}).get("name")
+        elif hasattr(service, "metadata") and service.metadata is not None:
+            service_name = service.metadata.name
+    if service_name is None:
+        raise ValueError("service_name must not be None")
     try:
         create_service(namespace, service_name, cluster_ip=cluster_ip, ports=ports, selector=selector, service=service)
     except kubernetes.client.ApiException as e:
@@ -251,8 +254,8 @@ def delete_pod(namespace: str, name: str, api_client: Optional[kubernetes.client
 
 def create_or_update_namespace(
     namespace: str,
-    labels: dict = None,
-    annotations: dict = None,
+    labels: Optional[dict] = None,
+    annotations: Optional[dict] = None,
     api_client: Optional[kubernetes.client.ApiClient] = None,
 ):
     namespace_resource = client.V1Namespace(
@@ -272,6 +275,11 @@ def create_or_update_namespace(
 def delete_namespace(name: str):
     c = client.CoreV1Api()
     c.delete_namespace(name, body=c.V1DeleteOptions())
+
+
+def label_namespace(name: str, labels: dict):
+    body = {"metadata": {"labels": labels}}
+    client.CoreV1Api().patch_namespace(name, body)
 
 
 def get_deployments(namespace: str):
@@ -372,7 +380,7 @@ def get_pod_when_ready(
     """
     cnt = 0
 
-    while True and cnt < default_retry:
+    while default_retry is not None and cnt < default_retry:
         print(f"get_pod_when_ready: namespace={namespace}, label_selector={label_selector}")
 
         if cnt > 0:
@@ -433,7 +441,7 @@ def is_pod_ready(
     return None
 
 
-def get_default_storage_class() -> str:
+def get_default_storage_class() -> Optional[str]:
     default_class_annotations = (
         "storageclass.kubernetes.io/is-default-class",  # storage.k8s.io/v1
         "storageclass.beta.kubernetes.io/is-default-class",  # storage.k8s.io/v1beta1
@@ -444,6 +452,7 @@ def get_default_storage_class() -> str:
             sc.metadata.annotations.get(a) == "true" for a in default_class_annotations
         ):
             return sc.metadata.name
+    return None
 
 
 def decode_secret(data: Dict[str, str]) -> Dict[str, str]:

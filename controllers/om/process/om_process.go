@@ -5,8 +5,8 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 
-	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
-	mdbmultiv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdbmulti"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
+	mdbmultiv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 )
@@ -17,6 +17,18 @@ func CreateMongodProcessesWithLimit(mongoDBImage string, forceEnterprise bool, s
 
 	for idx, hostname := range hostnames {
 		processes[idx] = om.NewMongodProcess(names[idx], hostname, mongoDBImage, forceEnterprise, dbSpec.GetAdditionalMongodConfig(), dbSpec, tlsCertPath, set.Annotations, fcv)
+	}
+
+	return processes
+}
+
+// CreateMongodProcessesFromMongoDB creates mongod processes directly from MongoDB resource without StatefulSet
+func CreateMongodProcessesFromMongoDB(mongoDBImage string, forceEnterprise bool, mdb *mdbv1.MongoDB, limit int, fcv string, tlsCertPath string) []om.Process {
+	hostnames, names := dns.GetDNSNames(mdb.Name, mdb.ServiceName(), mdb.Namespace, mdb.Spec.GetClusterDomain(), limit, mdb.Spec.DbCommonSpec.GetExternalDomain())
+	processes := make([]om.Process, len(hostnames))
+
+	for idx, hostname := range hostnames {
+		processes[idx] = om.NewMongodProcess(names[idx], hostname, mongoDBImage, forceEnterprise, mdb.Spec.GetAdditionalMongodConfig(), &mdb.Spec, tlsCertPath, mdb.Annotations, fcv)
 	}
 
 	return processes

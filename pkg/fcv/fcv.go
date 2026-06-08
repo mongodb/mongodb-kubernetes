@@ -1,6 +1,12 @@
 package fcv
 
-import "github.com/mongodb/mongodb-kubernetes/pkg/util"
+import (
+	"fmt"
+
+	"github.com/blang/semver"
+
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+)
 
 func CalculateFeatureCompatibilityVersion(currentVersionFromCR string, fcvFromStatus string, fcvFromCR *string) string {
 	majorMinorVersionFromCR, setVersion, _ := util.MajorMinorVersion(currentVersionFromCR)
@@ -43,4 +49,8 @@ func CalculateFeatureCompatibilityVersion(currentVersionFromCR string, fcvFromSt
 	}
 
 	return lastAppliedMajorMinorVersion
+}
+
+func FeatureCompatibilityVersionToSemverFormat(fcv string) (semver.Version, error) {
+	return semver.Make(fmt.Sprintf("%s.0", fcv))
 }

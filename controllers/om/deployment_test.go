@@ -11,8 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 
-	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
+	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
@@ -150,20 +150,6 @@ func TestConfigureSSL_Deployment(t *testing.T) {
 
 	d.ConfigureTLS(&mdbv1.Security{}, util.CAFilePathInContainer)
 	assert.Equal(t, d["tls"], map[string]any{"clientCertificateMode": string(automationconfig.ClientCertificateModeOptional)})
-}
-
-func TestTLSConfigurationWillBeDisabled(t *testing.T) {
-	d := Deployment{}
-	d.ConfigureTLS(&mdbv1.Security{TLSConfig: &mdbv1.TLSConfig{Enabled: false}}, util.CAFilePathInContainer)
-
-	assert.False(t, d.TLSConfigurationWillBeDisabled(&mdbv1.Security{TLSConfig: &mdbv1.TLSConfig{Enabled: false}}))
-	assert.False(t, d.TLSConfigurationWillBeDisabled(&mdbv1.Security{TLSConfig: &mdbv1.TLSConfig{Enabled: true}}))
-
-	d = Deployment{}
-	d.ConfigureTLS(&mdbv1.Security{TLSConfig: &mdbv1.TLSConfig{Enabled: true}}, util.CAFilePathInContainer)
-
-	assert.False(t, d.TLSConfigurationWillBeDisabled(&mdbv1.Security{TLSConfig: &mdbv1.TLSConfig{Enabled: true}}))
-	assert.True(t, d.TLSConfigurationWillBeDisabled(&mdbv1.Security{TLSConfig: &mdbv1.TLSConfig{Enabled: false}}))
 }
 
 // TestMergeDeployment_BigReplicaset ensures that adding a big replica set (> 7 members) works correctly and no more than
@@ -503,12 +489,12 @@ func TestConfiguringTlsProcessFromOpsManager(t *testing.T) {
 	}
 }
 
-func TestAddMonitoring(t *testing.T) {
+func TestConfigureMonitoring(t *testing.T) {
 	d := NewDeployment()
 
 	rs0 := buildRsByProcesses("my-rs", createReplicaSetProcessesCount(3, "my-rs"))
 	d.MergeReplicaSet(rs0, nil, nil, zap.S())
-	d.AddMonitoring(zap.S(), false, util.CAFilePathInContainer)
+	d.ConfigureMonitoring(zap.S(), false, util.CAFilePathInContainer)
 
 	expectedMonitoringVersions := []interface{}{
 		map[string]interface{}{"hostname": "my-rs-0.some.host", "name": MonitoringAgentDefaultVersion},
@@ -518,16 +504,16 @@ func TestAddMonitoring(t *testing.T) {
 	assert.Equal(t, expectedMonitoringVersions, d.getMonitoringVersions())
 
 	// adding again - nothing changes
-	d.AddMonitoring(zap.S(), false, util.CAFilePathInContainer)
+	d.ConfigureMonitoring(zap.S(), false, util.CAFilePathInContainer)
 	assert.Equal(t, expectedMonitoringVersions, d.getMonitoringVersions())
 }
 
-func TestAddMonitoringTls(t *testing.T) {
+func TestConfigureMonitoringTls(t *testing.T) {
 	d := NewDeployment()
 
 	rs0 := buildRsByProcesses("my-rs", createReplicaSetProcessesCount(3, "my-rs"))
 	d.MergeReplicaSet(rs0, nil, nil, zap.S())
-	d.AddMonitoring(zap.S(), true, util.CAFilePathInContainer)
+	d.ConfigureMonitoring(zap.S(), true, util.CAFilePathInContainer)
 
 	expectedAdditionalParams := map[string]string{
 		"useSslForAllConnections":      "true",
@@ -542,16 +528,45 @@ func TestAddMonitoringTls(t *testing.T) {
 	assert.Equal(t, expectedMonitoringVersions, d.getMonitoringVersions())
 
 	// adding again - nothing changes
-	d.AddMonitoring(zap.S(), false, util.CAFilePathInContainer)
+	d.ConfigureMonitoring(zap.S(), true, util.CAFilePathInContainer)
 	assert.Equal(t, expectedMonitoringVersions, d.getMonitoringVersions())
 }
 
-func TestAddBackup(t *testing.T) {
+func TestConfigureMonitoringTLSDisable(t *testing.T) {
 	d := NewDeployment()
 
 	rs0 := buildRsByProcesses("my-rs", createReplicaSetProcessesCount(3, "my-rs"))
 	d.MergeReplicaSet(rs0, nil, nil, zap.S())
-	d.addBackup(zap.S())
+	d.ConfigureMonitoring(zap.S(), true, util.CAFilePathInContainer)
+
+	// verify TLS is present in additionalParams
+	expectedAdditionalParams := map[string]string{
+		"useSslForAllConnections":      "true",
+		"sslTrustedServerCertificates": util.CAFilePathInContainer,
+	}
+	expectedMonitoringVersionsWithTls := []interface{}{
+		map[string]interface{}{"hostname": "my-rs-0.some.host", "name": MonitoringAgentDefaultVersion, "additionalParams": expectedAdditionalParams},
+		map[string]interface{}{"hostname": "my-rs-1.some.host", "name": MonitoringAgentDefaultVersion, "additionalParams": expectedAdditionalParams},
+		map[string]interface{}{"hostname": "my-rs-2.some.host", "name": MonitoringAgentDefaultVersion, "additionalParams": expectedAdditionalParams},
+	}
+	assert.Equal(t, expectedMonitoringVersionsWithTls, d.getMonitoringVersions())
+
+	// disabling TLS should clear additionalParams (CLOUDP-351614)
+	d.ConfigureMonitoring(zap.S(), false, util.CAFilePathInContainer)
+	expectedMonitoringVersionsWithoutTls := []interface{}{
+		map[string]interface{}{"hostname": "my-rs-0.some.host", "name": MonitoringAgentDefaultVersion},
+		map[string]interface{}{"hostname": "my-rs-1.some.host", "name": MonitoringAgentDefaultVersion},
+		map[string]interface{}{"hostname": "my-rs-2.some.host", "name": MonitoringAgentDefaultVersion},
+	}
+	assert.Equal(t, expectedMonitoringVersionsWithoutTls, d.getMonitoringVersions())
+}
+
+func TestConfigureBackup(t *testing.T) {
+	d := NewDeployment()
+
+	rs0 := buildRsByProcesses("my-rs", createReplicaSetProcessesCount(3, "my-rs"))
+	d.MergeReplicaSet(rs0, nil, nil, zap.S())
+	d.ConfigureBackup(zap.S())
 
 	expectedBackupVersions := []interface{}{
 		map[string]interface{}{"hostname": "my-rs-0.some.host", "name": BackupAgentDefaultVersion},
@@ -561,7 +576,7 @@ func TestAddBackup(t *testing.T) {
 	assert.Equal(t, expectedBackupVersions, d.getBackupVersions())
 
 	// adding again - nothing changes
-	d.addBackup(zap.S())
+	d.ConfigureBackup(zap.S())
 	assert.Equal(t, expectedBackupVersions, d.getBackupVersions())
 }
 

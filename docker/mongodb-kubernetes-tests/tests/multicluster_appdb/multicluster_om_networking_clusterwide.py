@@ -17,9 +17,7 @@ from tests.multicluster import prepare_multi_cluster_namespaces
 from tests.multicluster.conftest import cluster_spec_list, create_namespace
 
 from ..common.constants import MEMBER_CLUSTER_1, MEMBER_CLUSTER_2, MEMBER_CLUSTER_3
-from ..common.ops_manager.multi_cluster import (
-    ops_manager_multi_cluster_with_tls_s3_backups,
-)
+from ..common.ops_manager.multi_cluster import ops_manager_multi_cluster_with_tls_s3_backups
 from .conftest import create_s3_bucket_blockstore, create_s3_bucket_oplog
 
 # This test is for checking networking when OM is deployed in a complex multi-cluster scenario involving:
@@ -105,9 +103,6 @@ def ops_manager(
         OM_NAMESPACE, OM_NAME, central_cluster_client, custom_appdb_version, s3_bucket_blockstore, s3_bucket_oplog
     )
 
-    if try_load(resource):
-        return resource
-
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
     resource["spec"]["version"] = custom_version
     resource["spec"]["topology"] = "MultiCluster"
@@ -134,6 +129,7 @@ def ops_manager(
         },
     }
 
+    try_load(resource)
     return resource
 
 
@@ -266,6 +262,7 @@ def test_enable_external_connectivity(ops_manager: MongoDBOpsManager):
 @mark.e2e_multi_cluster_om_networking_clusterwide
 def test_external_services_are_created(ops_manager: MongoDBOpsManager):
     _, external = ops_manager.services(MEMBER_CLUSTER_1)
+    assert external is not None
     assert external.spec.type == "NodePort"
     assert external.metadata.annotations == {"test-annotation": "test-value"}
     assert len(external.spec.ports) == 2
@@ -273,12 +270,14 @@ def test_external_services_are_created(ops_manager: MongoDBOpsManager):
     assert external.spec.ports[0].target_port == 8443
 
     _, external = ops_manager.services(MEMBER_CLUSTER_2)
+    assert external is not None
     assert external.spec.type == "LoadBalancer"
     assert len(external.spec.ports) == 2
     assert external.spec.ports[0].port == 5000
     assert external.spec.ports[0].target_port == 8443
 
     _, external = ops_manager.services(MEMBER_CLUSTER_3)
+    assert external is not None
     assert external.spec.type == "LoadBalancer"
     assert len(external.spec.ports) == 2
     assert external.spec.ports[0].port == 9000

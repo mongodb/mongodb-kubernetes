@@ -14,7 +14,6 @@ import (
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -29,32 +28,33 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	k8sClient "sigs.k8s.io/controller-runtime/pkg/client"
 
-	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
-	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
+	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
+	searchv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/search"
+	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller" //nolint:depguard
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/construct"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/predicates"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/validation"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/watch"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/agent"
+	mcoagent "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/agent"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/authentication"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/annotations"
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/container"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/podtemplatespec"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/service"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/functions"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/merge"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/result"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/scale"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/status"
+	"github.com/mongodb/mongodb-kubernetes/pkg/agent"
+	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/podtemplatespec"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/service"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/scale"
 )
 
 const (
-	clusterDomain = "CLUSTER_DOMAIN"
-
 	lastSuccessfulConfiguration = "mongodb.com/v1.lastSuccessfulConfiguration"
 	lastAppliedMongoDBVersion   = "mongodb.com/v1.lastAppliedMongoDBVersion"
 )
@@ -236,7 +236,7 @@ func (r ReplicaSetReconciler) Reconcile(ctx context.Context, request reconcile.R
 	}
 
 	res, err := status.Update(ctx, r.client.Status(), &mdb, statusOptions().
-		withMongoURI(mdb.MongoURI(os.Getenv(clusterDomain))). // nolint:forbidigo
+		withMongoURI(mdb.MongoURI()). // nolint:forbidigo
 		withMongoDBMembers(mdb.AutomationConfigMembersThisReconciliation()).
 		withStatefulSetReplicas(mdb.StatefulSetReplicasThisReconciliation()).
 		withStatefulSetArbiters(mdb.StatefulSetArbitersThisReconciliation()).
@@ -249,7 +249,7 @@ func (r ReplicaSetReconciler) Reconcile(ctx context.Context, request reconcile.R
 		return res, err
 	}
 
-	if err := r.updateConnectionStringSecrets(ctx, mdb, os.Getenv(clusterDomain)); err != nil { // nolint:forbidigo
+	if err := r.updateConnectionStringSecrets(ctx, mdb); err != nil { // nolint:forbidigo
 		r.log.Errorf("Could not update connection string secrets: %s", err)
 	}
 
@@ -480,7 +480,7 @@ func (r *ReplicaSetReconciler) ensureService(ctx context.Context, mdb mdbv1.Mong
 // createProcessPortManager is a helper method for creating new ReplicaSetPortManager.
 // ReplicaSetPortManager needs current automation config and current pod state and the code for getting them
 // was extracted here as it is used in ensureService and buildAutomationConfig.
-func (r *ReplicaSetReconciler) createProcessPortManager(ctx context.Context, mdb mdbv1.MongoDBCommunity) (*agent.ReplicaSetPortManager, error) {
+func (r *ReplicaSetReconciler) createProcessPortManager(ctx context.Context, mdb mdbv1.MongoDBCommunity) (*mcoagent.ReplicaSetPortManager, error) {
 	currentAC, err := automationconfig.ReadFromSecret(ctx, r.client, types.NamespacedName{Name: mdb.AutomationConfigSecretName(), Namespace: mdb.Namespace})
 	if err != nil {
 		return nil, fmt.Errorf("could not read existing automation config: %s", err)
@@ -491,7 +491,7 @@ func (r *ReplicaSetReconciler) createProcessPortManager(ctx context.Context, mdb
 		return nil, fmt.Errorf("cannot get all pods goal state: %w", err)
 	}
 
-	return agent.NewReplicaSetPortManager(r.log, mdb.Spec.AdditionalMongodConfig.GetDBPort(), currentPodStates, currentAC.Processes), nil
+	return mcoagent.NewReplicaSetPortManager(r.log, mdb.Spec.AdditionalMongodConfig.GetDBPort(), currentPodStates, currentAC.Processes), nil
 }
 
 func (r *ReplicaSetReconciler) createOrUpdateStatefulSet(ctx context.Context, mdb mdbv1.MongoDBCommunity, isArbiter bool) error {
@@ -532,8 +532,8 @@ func (r ReplicaSetReconciler) ensureAutomationConfig(mdb mdbv1.MongoDBCommunity,
 }
 
 func buildAutomationConfig(mdb mdbv1.MongoDBCommunity, isEnterprise bool, auth automationconfig.Auth, currentAc automationconfig.AutomationConfig, modifications ...automationconfig.Modification) (automationconfig.AutomationConfig, error) {
-	domain := getDomain(mdb.ServiceName(), mdb.Namespace, os.Getenv(clusterDomain))        // nolint:forbidigo
-	arbiterDomain := getDomain(mdb.ServiceName(), mdb.Namespace, os.Getenv(clusterDomain)) // nolint:forbidigo
+	domain := getDomain(mdb.ServiceName(), mdb.Namespace, mdb.Spec.GetClusterDomain())        // nolint:forbidigo
+	arbiterDomain := getDomain(mdb.ServiceName(), mdb.Namespace, mdb.Spec.GetClusterDomain()) // nolint:forbidigo
 
 	zap.S().Debugw("AutomationConfigMembersThisReconciliation", "mdb.AutomationConfigMembersThisReconciliation()", mdb.AutomationConfigMembersThisReconciliation())
 
@@ -594,14 +594,14 @@ func guessEnterprise(mdb mdbv1.MongoDBCommunity, mongodbImage string) bool {
 		}
 	}
 	if len(overriddenImage) > 0 {
-		return strings.Contains(overriddenImage, construct.OfficialMongodbEnterpriseServerImageName)
+		return strings.Contains(overriddenImage, util.OfficialEnterpriseServerImageName)
 	}
-	return mongodbImage == construct.OfficialMongodbEnterpriseServerImageName
+	return mongodbImage == util.OfficialEnterpriseServerImageName
 }
 
 // buildService creates a Service that will be used for the Replica Set StatefulSet
 // that allows all the members of the STS to see each other.
-func (r *ReplicaSetReconciler) buildService(mdb mdbv1.MongoDBCommunity, portManager *agent.ReplicaSetPortManager) corev1.Service {
+func (r *ReplicaSetReconciler) buildService(mdb mdbv1.MongoDBCommunity, portManager *mcoagent.ReplicaSetPortManager) corev1.Service {
 	label := make(map[string]string)
 	name := mdb.ServiceName()
 
@@ -707,7 +707,7 @@ func (r ReplicaSetReconciler) buildAutomationConfig(ctx context.Context, mdb mdb
 	var search *searchv1.MongoDBSearch
 	searchList := &searchv1.MongoDBSearchList{}
 	if err := r.client.List(ctx, searchList, &k8sClient.ListOptions{
-		FieldSelector: fields.OneTermEqualSelector(searchcontroller.MongoDBSearchIndexFieldName, mdb.Namespace+"/"+mdb.Name),
+		FieldSelector: fields.OneTermEqualSelector(searchv1.MongoDBSearchIndexFieldName, mdb.Namespace+"/"+mdb.Name),
 	}); err != nil {
 		r.log.Debug(err)
 	}
@@ -730,8 +730,7 @@ func (r ReplicaSetReconciler) buildAutomationConfig(ctx context.Context, mdb mdb
 		customRolesModification,
 		prometheusModification,
 		processPortManager.GetPortsModification(),
-		getMongodConfigSearchModification(search),
-		searchCoordinatorCustomRoleModification(search, mdb.GetMongoDBVersion()),
+		getMongodConfigSearchModification(search, mdb.Spec.GetClusterDomain()),
 	)
 	if err != nil {
 		return automationconfig.AutomationConfig{}, fmt.Errorf("could not create an automation config: %s", err)
@@ -744,69 +743,9 @@ func (r ReplicaSetReconciler) buildAutomationConfig(ctx context.Context, mdb mdb
 	return automationConfig, nil
 }
 
-// TODO: remove this as soon as searchCoordinator builtin role is backported
-func searchCoordinatorCustomRoleModification(search *searchv1.MongoDBSearch, mongodbVersion string) automationconfig.Modification {
-	if search == nil || !searchcontroller.NeedsSearchCoordinatorRolePolyfill(mongodbVersion) {
-		return automationconfig.NOOP()
-	}
-
-	return func(ac *automationconfig.AutomationConfig) {
-		searchCoordinatorRole := searchCoordinatorCustomRoleStruct()
-		ac.Roles = append(ac.Roles, searchCoordinatorRole)
-	}
-}
-
-func searchCoordinatorCustomRoleStruct() automationconfig.CustomRole {
-	// direct translation of https://github.com/10gen/mongo/blob/6f8d95a513eea8f91ea9f5d895dd8a288dfcf725/src/mongo/db/auth/builtin_roles.yml#L652
-	return automationconfig.CustomRole{
-		Role: "searchCoordinator",
-		DB:   "admin",
-		Roles: []automationconfig.Role{
-			{
-				Role:     "clusterMonitor",
-				Database: "admin",
-			},
-			{
-				Role:     "directShardOperations",
-				Database: "admin",
-			},
-			{
-				Role:     "readAnyDatabase",
-				Database: "admin",
-			},
-		},
-		Privileges: []automationconfig.Privilege{
-			{
-				Resource: automationconfig.Resource{
-					DB:         ptr.To("__mdb_internal_search"),
-					Collection: ptr.To(""),
-				},
-				Actions: []string{
-					"changeStream", "collStats", "dbHash", "dbStats", "find",
-					"killCursors", "listCollections", "listIndexes", "listSearchIndexes",
-					// performRawDataOperations is available only on mongod master
-					// "performRawDataOperations",
-					"planCacheRead", "cleanupStructuredEncryptionData",
-					"compactStructuredEncryptionData", "convertToCapped", "createCollection",
-					"createIndex", "createSearchIndexes", "dropCollection", "dropIndex",
-					"dropSearchIndex", "insert", "remove", "renameCollectionSameDB",
-					"update", "updateSearchIndex",
-				},
-			},
-			{
-				Resource: automationconfig.Resource{
-					Cluster: true,
-				},
-				Actions: []string{"bypassDefaultMaxTimeMS"},
-			},
-		},
-		AuthenticationRestrictions: nil,
-	}
-}
-
 // OverrideToAutomationConfig turns an automation config override from the resource spec into an automation config
 // which can be used to merge.
-func OverrideToAutomationConfig(override mdbv1.AutomationConfigOverride) automationconfig.AutomationConfig {
+func OverrideToAutomationConfig(override v1.AutomationConfigOverride) automationconfig.AutomationConfig {
 	var processes []automationconfig.Process
 	for _, o := range override.Processes {
 		p := automationconfig.Process{
@@ -836,13 +775,13 @@ func getMongodConfigModification(mdb mdbv1.MongoDBCommunity) automationconfig.Mo
 
 // getMongodConfigModification will merge the additional configuration in the CRD
 // into the configuration set up by the operator.
-func getMongodConfigSearchModification(search *searchv1.MongoDBSearch) automationconfig.Modification {
+func getMongodConfigSearchModification(search *searchv1.MongoDBSearch, clusterDomain string) automationconfig.Modification {
 	// Condition for skipping add parameter if it is external mongod
 	if search == nil || search.IsExternalMongoDBSource() {
 		return automationconfig.NOOP()
 	}
 
-	searchConfigParameters := searchcontroller.GetMongodConfigParameters(search)
+	searchConfigParameters := searchcontroller.GetMongodConfigParameters(search, clusterDomain)
 	return func(ac *automationconfig.AutomationConfig) {
 		for i := range ac.Processes {
 			err := mergo.Merge(&ac.Processes[i].Args26, objx.New(searchConfigParameters), mergo.WithOverride)
@@ -856,7 +795,7 @@ func getMongodConfigSearchModification(search *searchv1.MongoDBSearch) automatio
 // buildStatefulSetModificationFunction takes a MongoDB resource and converts it into
 // the corresponding stateful set
 func buildStatefulSetModificationFunction(mdb mdbv1.MongoDBCommunity, mongodbImage, agentImage, versionUpgradeHookImage, readinessProbeImage string) statefulset.Modification {
-	commonModification := construct.BuildMongoDBReplicaSetStatefulSetModificationFunction(&mdb, &mdb, mongodbImage, agentImage, versionUpgradeHookImage, readinessProbeImage, true, "")
+	commonModification := construct.BuildMongoDBReplicaSetStatefulSetModificationFunction(&mdb, &mdb, mongodbImage, agentImage, versionUpgradeHookImage, readinessProbeImage)
 	return statefulset.Apply(
 		commonModification,
 		statefulset.WithOwnerReference(mdb.GetOwnerReferences()),
@@ -902,7 +841,7 @@ func getMongoDBImage(repoUrl, mongodbImage, mongodbImageType, version string) st
 		repoUrl = strings.TrimRight(repoUrl, "/")
 	}
 	mongoImageName := mongodbImage
-	for _, officialUrl := range construct.OfficialMongodbRepoUrls {
+	for _, officialUrl := range util.OfficialMongodbRepoUrls {
 		if repoUrl == officialUrl {
 			return fmt.Sprintf("%s/%s:%s-%s", repoUrl, mongoImageName, version, mongodbImageType)
 		}

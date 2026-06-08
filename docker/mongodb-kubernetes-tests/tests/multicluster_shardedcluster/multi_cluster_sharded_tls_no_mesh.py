@@ -2,12 +2,7 @@ import logging
 
 import kubernetes
 from kubetester import try_load
-from kubetester.certs import (
-    SetPropertiesMultiCluster,
-    generate_cert,
-    get_agent_x509_subject,
-    get_mongodb_x509_subject,
-)
+from kubetester.certs import SetPropertiesMultiCluster, generate_cert, get_agent_x509_subject, get_mongodb_x509_subject
 from kubetester.certs_mongodb_multi import create_multi_cluster_tls_certs
 from kubetester.kubetester import fixture as _fixture
 from kubetester.kubetester import skip_if_local
@@ -109,9 +104,6 @@ def sharded_cluster(
         name=MDB_RESOURCE,
         namespace=namespace,
     )
-    if try_load(mdb):
-        return mdb
-
     mdb["spec"]["security"] = {
         "authentication": {
             "enabled": True,
@@ -130,6 +122,7 @@ def sharded_cluster(
     setup_external_access(resource=mdb)
     mdb.set_architecture_annotation()
 
+    try_load(mdb)
     return mdb
 
 

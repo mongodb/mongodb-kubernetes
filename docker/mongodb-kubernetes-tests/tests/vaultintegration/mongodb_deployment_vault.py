@@ -5,18 +5,8 @@ import kubetester
 import pytest
 from kubernetes import client
 from kubernetes.client.rest import ApiException
-from kubetester import (
-    create_configmap,
-    delete_secret,
-    get_statefulset,
-    random_k8s_name,
-    read_secret,
-)
-from kubetester.certs import (
-    create_mongodb_tls_certs,
-    create_x509_agent_tls_certs,
-    create_x509_mongodb_tls_certs,
-)
+from kubetester import create_configmap, delete_secret, get_statefulset, random_k8s_name, read_secret, try_load
+from kubetester.certs import create_mongodb_tls_certs, create_x509_agent_tls_certs, create_x509_mongodb_tls_certs
 from kubetester.http import https_endpoint_is_reachable
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
@@ -27,7 +17,7 @@ from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
 
-from ..conftest import DATABASE_SA_NAME, OPERATOR_NAME
+from ..constants import DATABASE_SA_NAME, OPERATOR_NAME
 from . import run_command_in_vault, store_secret_in_vault
 
 MDB_RESOURCE = "my-replica-set"
@@ -90,7 +80,7 @@ def replica_set(
             "name": prom_cert_secret,
         },
     }
-    resource.create()
+    try_load(resource)
 
     return resource
 
@@ -102,7 +92,7 @@ def agent_certs(issuer: str, namespace: str) -> str:
 
 @fixture(scope="module")
 def server_certs(vault_namespace: str, vault_name: str, namespace: str, issuer: str) -> str:
-    create_x509_mongodb_tls_certs(
+    return create_x509_mongodb_tls_certs(
         issuer,
         namespace,
         MDB_RESOURCE,
@@ -114,7 +104,7 @@ def server_certs(vault_namespace: str, vault_name: str, namespace: str, issuer: 
 
 @fixture(scope="module")
 def clusterfile_certs(vault_namespace: str, vault_name: str, namespace: str, issuer: str) -> str:
-    create_x509_mongodb_tls_certs(
+    return create_x509_mongodb_tls_certs(
         issuer,
         namespace,
         MDB_RESOURCE,
@@ -169,7 +159,8 @@ def sharded_cluster(
         },
     }
 
-    return resource.create()
+    try_load(resource)
+    return resource
 
 
 @fixture(scope="module")
@@ -184,7 +175,9 @@ def mongodb_user(namespace: str) -> MongoDBUser:
 
     resource["spec"]["mongodbResourceRef"]["name"] = MDB_RESOURCE
     resource["spec"]["mongodbResourceRef"]["namespace"] = namespace
-    return resource.create()
+
+    try_load(resource)
+    return resource
 
 
 @mark.e2e_vault_setup
@@ -245,8 +238,8 @@ def test_enable_kubernetes_auth(vault_name: str, vault_namespace: str):
 
     response = run_command_in_vault(vault_namespace, vault_name, cmd, expected_message=[])
 
-    response = response.split("\n")
-    for line in response:
+    response_lines = response.split("\n")
+    for line in response_lines:
         l = line.strip()
         if str.startswith(l, "KUBERNETES_PORT_443_TCP_ADDR"):
             cluster_ip = l.split("=")[1]
@@ -353,6 +346,7 @@ def test_enable_vault_role_for_database_pod(
 
 @mark.e2e_vault_setup
 def test_mdb_created(replica_set: MongoDB, namespace: str):
+    replica_set.update()
     replica_set.assert_reaches_phase(Phase.Running, timeout=500, ignore_errors=True)
     for pod_name in get_pods(MDB_RESOURCE + "-{}", 3):
         pod = client.CoreV1Api().read_namespaced_pod(pod_name, namespace)
@@ -405,6 +399,7 @@ def test_rotate_server_certs_with_sts_restarting(
 @mark.e2e_vault_setup
 def test_rotate_agent_certs(replica_set: MongoDB, vault_namespace: str, vault_name: str, namespace: str):
     replica_set.load()
+    old_ac_version = KubernetesTester.get_automation_config()["version"]
     old_version = replica_set["metadata"]["annotations"]["agent-certs"]
     cmd = [
         "vault",
@@ -421,6 +416,15 @@ def test_rotate_agent_certs(replica_set: MongoDB, vault_namespace: str, vault_na
         return old_version != replica_set["metadata"]["annotations"]["agent-certs"]
 
     kubetester.wait_until(wait_for_agent_certs, timeout=600, sleep_time=10)
+
+    def check_version_increased() -> bool:
+        current_version = KubernetesTester.get_automation_config()["version"]
+        version_increased = current_version > old_ac_version
+
+        return version_increased
+
+    kubetester.wait_until(check_version_increased, timeout=600)
+    kubetester.kubetester.wait_processes_ready()
 
 
 @mark.e2e_vault_setup
@@ -461,6 +465,7 @@ def test_prometheus_endpoint_on_replica_set(replica_set: MongoDB, namespace: str
 
 @mark.e2e_vault_setup
 def test_sharded_mdb_created(sharded_cluster: MongoDB):
+    sharded_cluster.update()
     sharded_cluster.assert_reaches_phase(Phase.Running, timeout=600, ignore_errors=True)
 
 
@@ -497,4 +502,5 @@ def test_create_mongodb_user(mongodb_user: MongoDBUser, vault_name: str, vault_n
         f"secret/mongodbenterprise/database/{namespace}/{PASSWORD_SECRET_NAME}",
     )
 
+    mongodb_user.update()
     mongodb_user.assert_reaches_phase(Phase.Updated, timeout=100)

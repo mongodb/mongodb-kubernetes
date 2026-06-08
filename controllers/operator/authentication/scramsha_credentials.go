@@ -28,10 +28,57 @@ const (
 	rfc5802MandatedSaltSize = 4
 )
 
+func isPasswordChanged(user *om.MongoDBUser, password string, acUser *om.MongoDBUser) (bool, error) {
+	// if something unexpected happens return true to make sure that the scramShaCreds will be generated again.
+	if acUser == nil || acUser.ScramSha256Creds == nil || acUser.ScramSha1Creds == nil {
+		return true, nil
+	}
+
+	if acUser.ScramSha256Creds.Salt != "" && acUser.ScramSha1Creds.Salt != "" {
+		sha256Salt, err := base64.StdEncoding.DecodeString(acUser.ScramSha256Creds.Salt)
+		if err != nil {
+			return true, err
+		}
+		sha1Salt, err := base64.StdEncoding.DecodeString(acUser.ScramSha1Creds.Salt)
+		if err != nil {
+			return true, nil
+		}
+		// generate scramshacreds with (new) password but with old salt to verify if given password
+		// is actually changed
+		newScramSha256Creds, err := computeScramShaCreds(user.Username, password, sha256Salt, ScramSha256)
+		if err != nil {
+			return false, xerrors.Errorf("error generating scramSha256 creds to verify with already present user on automation config %w", err)
+		}
+
+		newScramSha1Creds, err := computeScramShaCreds(user.Username, password, sha1Salt, MongoDBCR)
+		if err != nil {
+			return false, xerrors.Errorf("error generating scramSha1 creds to verify with already present user on automation config %w", err)
+		}
+		return !newScramSha256Creds.Equals(*acUser.ScramSha256Creds) || !newScramSha1Creds.Equals(*acUser.ScramSha1Creds), nil
+	}
+
+	return true, nil
+}
+
 // ConfigureScramCredentials creates both SCRAM-SHA-1 and SCRAM-SHA-256 credentials. This ensures
 // that changes to the authentication settings on the MongoDB resources won't leave MongoDBUsers without
 // the correct credentials.
-func ConfigureScramCredentials(user *om.MongoDBUser, password string) error {
+func ConfigureScramCredentials(user *om.MongoDBUser, password string, ac *om.AutomationConfig) error {
+	// there are chances that the reconciliation is happening again for this user resource and we wouldn't
+	// want to generate scram creds again if the password of the user has not changed.
+	_, acUser := ac.Auth.GetUser(user.Username, user.Database)
+	changed, err := isPasswordChanged(user, password, acUser)
+	if err != nil {
+		return err
+	}
+	if !changed {
+		// since the scram creds generated using the old salt are same with the scram creds stored in automation config
+		// there is no need to generate new salt/creds.
+		user.ScramSha256Creds = acUser.ScramSha256Creds
+		user.ScramSha1Creds = acUser.ScramSha1Creds
+		return nil
+	}
+
 	scram256Salt, err := generateSalt(sha256.New)
 	if err != nil {
 		return xerrors.Errorf("error generating scramSha256 salt: %w", err)

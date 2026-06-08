@@ -224,6 +224,8 @@ spec:
                       type: object
                     type: array
                   replicaSet:
+                    description: OverrideReplicaSet holds replica set override fields
+                      for the AutomationConfig.
                     properties:
                       id:
                         description: |-
@@ -240,6 +242,9 @@ spec:
                         x-kubernetes-preserve-unknown-fields: true
                     type: object
                 type: object
+              clusterDomain:
+                format: hostname
+                type: string
               featureCompatibilityVersion:
                 description: |-
                   FeatureCompatibilityVersion configures the feature compatibility version that will

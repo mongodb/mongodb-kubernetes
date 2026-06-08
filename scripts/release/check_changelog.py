@@ -3,20 +3,9 @@ import pathlib
 
 from git import Repo
 
+from scripts.release.argparse_utils import str2bool
 from scripts.release.changelog import get_changelog_entries
 from scripts.release.constants import DEFAULT_CHANGELOG_PATH, DEFAULT_REPOSITORY_PATH
-
-
-def str2bool(v):
-    if isinstance(v, bool):
-        return v
-    if v.lower() in ("yes", "true", "t", "y", "1"):
-        return True
-    elif v.lower() in ("no", "false", "f", "n", "0"):
-        return False
-    else:
-        raise argparse.ArgumentTypeError("Boolean value expected.")
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -52,7 +41,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "-f",
-        "--fail-on-no-changes",
+        "--fail-if-no-changes",
         default=True,
         metavar="",
         action="store",
@@ -73,7 +62,7 @@ if __name__ == "__main__":
 
     if not changelog:
         print("No changelog entries found.")
-        if args.fail_on_no_changes:
+        if args.fail_if_no_changes:
             print("Exiting with error due to no changelog entries found.")
             exit(1)
     else:

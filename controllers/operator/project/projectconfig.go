@@ -7,8 +7,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/configmap"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/configmap"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 )
@@ -70,12 +70,6 @@ func ReadProjectConfig(ctx context.Context, cmGetter configmap.Getter, projectCo
 		}
 	}
 
-	var useCustomCA bool
-	useCustomCAData, ok := data[util.UseCustomCAConfigMap]
-	if ok {
-		useCustomCA = useCustomCAData != falseCustomCASetting
-	}
-
 	return mdbv1.ProjectConfig{
 		BaseURL:     baseURL,
 		ProjectName: projectName,
@@ -100,9 +94,5 @@ func ReadProjectConfig(ctx context.Context, cmGetter configmap.Getter, projectCo
 			// Pod.
 			SSLMMSCAConfigMapContents: caFile,
 		},
-
-		Credentials: data[util.OmCredentials],
-
-		UseCustomCA: useCustomCA,
 	}, nil
 }
