@@ -232,13 +232,13 @@ type ManagedLBConfig struct {
 	// Follows the same convention as spec.statefulSet on MongoDB resources.
 	// +optional
 	Deployment *v1.DeploymentConfiguration `json:"deployment,omitempty"`
-	// RetryPolicy configures Envoy retry behavior for requests to upstream mongot clusters.
+	// RetryPolicy configures Envoy retry behavior for individual gRPC streams to upstream mongot clusters.
 	// When not set, retries are enabled with sensible defaults (2 retries, 60s per-try timeout).
 	// +optional
 	RetryPolicy *EnvoyRetryPolicy `json:"retryPolicy,omitempty"`
 }
 
-// EnvoyRetryPolicy configures retry behavior for requests to upstream mongot clusters.
+// EnvoyRetryPolicy configures retry behavior for individual gRPC streams to upstream mongot clusters.
 // Retries are always attempted on a different host than the one that failed.
 // All fields are optional; when nil, operator defaults are used.
 type EnvoyRetryPolicy struct {
