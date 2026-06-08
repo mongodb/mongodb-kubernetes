@@ -344,7 +344,9 @@ class TestMongotRollingDrain:
         with oneshot, paging:
             oneshot.wait_for_operations(BASELINE_OPS)
             paging.wait_for_operations(BASELINE_OPS)
+            roll_started = time.monotonic()
             _rollout_mongot_and_wait(namespace)
+            recovery_s = time.monotonic() - roll_started  # roll-trigger → replacement pods Ready
             ok_at_recovery = paging.succeeded_count  # snapshot once replacement pods are Ready
             oneshot.wait_for_operations(POST_EVENT_OPS)
             paging.wait_for_operations(POST_EVENT_OPS)
@@ -354,11 +356,21 @@ class TestMongotRollingDrain:
         migrated = [
             cid for cid in {r.client_id for r in window if r.client_id} if len(upstream_for_stream(window, cid)) > 1
         ]
+        forced_n = len(forced_closed(window))
+        completed_n = len(window) - forced_n
+        ratio = completed_n / len(window) if window else 0.0
+        disruption_s = paging.max_consecutive_failure * paging.interval_seconds
         logger.info(
             "mongot-roll stream disposition: "
-            f"records={len(records)} window={len(window)} forced={len(forced_closed(window))} "
+            f"records={len(records)} window={len(window)} forced={forced_n} "
             f"upstreams={sorted(upstream_hosts(window))} migrated_clients={len(migrated)} "
             f"oneshot={oneshot.verdict.as_dict()} paging={paging.verdict.as_dict()}"
+        )
+        # Drain-window measurement at envoy's default (no operator drain-time knob today): the
+        # completed-vs-forced stream ratio across the roll and the longest client unavailability.
+        logger.info(
+            f"KUBE45_DRAIN_METRIC completed={completed_n} forced={forced_n} ratio={ratio:.3f} "
+            f"recovery_s={recovery_s:.1f} disruption_s={disruption_s:.1f}"
         )
         # availability property is hard-asserted; the cursor class + migration above are observe-and-log
         _assert_rolled_through(paging.verdict, ok_at_recovery, ok_after, "mongot-roll")
