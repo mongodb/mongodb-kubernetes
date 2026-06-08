@@ -331,3 +331,23 @@ func TestMergeMongodProcess_AdditionalMongodConfig_CanBeRemoved(t *testing.T) {
 
 	assert.Equal(t, expectedArgs, args, "option2 should have been removed as it was not specified")
 }
+
+func TestPort_ReturnsPortWhenSet(t *testing.T) {
+	spec := defaultMongoDBVersioned("7.0.0")
+	p := NewMongodProcess(
+		"rs-0", "rs-0.svc.cluster.local",
+		"mongodb/mongodb-enterprise-server:7.0.0",
+		false, &mdbv1.AdditionalMongodConfig{},
+		spec, "", nil, "7.0",
+	)
+	assert.Equal(t, "27017", p.Port())
+}
+
+func TestPort_ReturnsEmptyWhenNotSet(t *testing.T) {
+	p := Process{
+		"hostname":    "foo",
+		"processType": ProcessTypeMongod,
+		"args2_6":     map[string]interface{}{"net": map[string]interface{}{}},
+	}
+	assert.Equal(t, "", p.Port())
+}

@@ -510,3 +510,103 @@ func TestAdditionalMongodConfigMarshalJSON(t *testing.T) {
 	actual := unmarshalledSpec.AdditionalMongodConfig.ToMap()
 	assert.Equal(t, expected, actual)
 }
+
+func TestGetReplicaSetName_NoOverride(t *testing.T) {
+	mdb := NewReplicaSetBuilder().SetName("my-rs").Build()
+	assert.Equal(t, "my-rs", mdb.GetReplicaSetName())
+}
+
+func TestGetReplicaSetName_WithOverride(t *testing.T) {
+	mdb := NewReplicaSetBuilder().SetName("my-rs").Build()
+	mdb.Spec.ReplicaSetNameOverride = "custom-rs-name"
+	assert.Equal(t, "custom-rs-name", mdb.GetReplicaSetName())
+}
+
+func TestGetReplicaSetName_PanicsForNonReplicaSet(t *testing.T) {
+	mdb := NewStandaloneBuilder().SetName("my-standalone").Build()
+	assert.Panics(t, func() { mdb.GetReplicaSetName() })
+}
+
+func TestGetAgentConfig_ReturnsAgent(t *testing.T) {
+	spec := DbCommonSpec{
+		Agent: AgentConfig{
+			StartupParameters: StartupParameters{"maxLogFileDurationHrs": "24"},
+		},
+	}
+	cfg := spec.GetAgentConfig()
+	assert.Equal(t, "24", cfg.StartupParameters["maxLogFileDurationHrs"])
+}
+
+func TestGetAgentConfig_Empty(t *testing.T) {
+	spec := DbCommonSpec{}
+	assert.Equal(t, AgentConfig{}, spec.GetAgentConfig())
+}
+
+func TestGetExternalMembers_Nil(t *testing.T) {
+	spec := MongoDbSpec{}
+	assert.Nil(t, spec.GetExternalMembers())
+}
+
+func TestGetExternalMembers_ReturnsList(t *testing.T) {
+	spec := MongoDbSpec{
+		ExternalMembers: []ExternalMember{
+			{ProcessName: "ext-0", Hostname: "ext-0.host:27017", Type: "mongod"},
+		},
+	}
+	members := spec.GetExternalMembers()
+	assert.Len(t, members, 1)
+	assert.Equal(t, "ext-0", members[0].ProcessName)
+}
+
+func TestGetRSHostnamesAndPorts_ReplicaSet_WithExternalDomain(t *testing.T) {
+	externalDomain := "example.com"
+	rs := NewReplicaSetBuilder().SetMembers(2).ExposedExternally(nil, nil, &externalDomain).Build()
+
+	got := rs.GetRSHostnamesAndPorts()
+
+	assert.Equal(t, []string{
+		"test-mdb-0.example.com:27017",
+		"test-mdb-1.example.com:27017",
+	}, got)
+}
+
+func TestGetRSHostnamesAndPorts_ReplicaSet_WithCustomClusterDomain(t *testing.T) {
+	rs := NewReplicaSetBuilder().SetMembers(2).SetClusterDomain("company.domain.net").Build()
+
+	got := rs.GetRSHostnamesAndPorts()
+
+	assert.Equal(t, []string{
+		"test-mdb-0.test-mdb-svc.testNS.svc.company.domain.net:27017",
+		"test-mdb-1.test-mdb-svc.testNS.svc.company.domain.net:27017",
+	}, got)
+}
+
+func TestGetRSHostnamesAndPorts_ReplicaSet_WithCustomPort(t *testing.T) {
+	rs := NewReplicaSetBuilder().SetMembers(2).Build()
+	rs.Spec.AdditionalMongodConfig = &AdditionalMongodConfig{object: map[string]interface{}{"net": map[string]interface{}{"port": float64(30000)}}}
+
+	got := rs.GetRSHostnamesAndPorts()
+
+	assert.Equal(t, []string{
+		"test-mdb-0.test-mdb-svc.testNS.svc.cluster.local:30000",
+		"test-mdb-1.test-mdb-svc.testNS.svc.cluster.local:30000",
+	}, got)
+}
+
+func TestGetExternalMembersHostnames_ShardedCluster_NoExternalMembers(t *testing.T) {
+	sc := NewClusterBuilder().SetName("contractsDb").SetNamespace("ns").Build()
+
+	got := sc.GetExternalMembersHostnames()
+	assert.Empty(t, got)
+}
+
+func TestGetExternalMembersHostnames_ShardedCluster_OnlyMongodMembers_ReturnsEmpty(t *testing.T) {
+	sc := NewClusterBuilder().SetName("contractsDb").SetNamespace("ns").Build()
+	sc.Spec.ExternalMembers = []ExternalMember{
+		{ProcessName: "vm-mongod-0", Hostname: "vm-mongod-0.example.com:27018", Type: "mongod"},
+		{ProcessName: "vm-untyped", Hostname: "vm-untyped.example.com:27017", Type: ""},
+	}
+
+	got := sc.GetExternalMembersHostnames()
+	assert.Empty(t, got, "sharded must drop non-mongos entries (mongod and untyped)")
+}

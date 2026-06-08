@@ -3,15 +3,13 @@ package operator
 import (
 	"context"
 	"fmt"
-	"time"
-
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/hashicorp/go-multierror"
-	"github.com/mongodb/mongodb-kubernetes/pkg/agentVersionManagement"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -46,6 +44,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connection"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connectionstringsecret"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct/scalers"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct/scalers/interfaces"
@@ -66,6 +65,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/service"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/merge"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/scale"
+	"github.com/mongodb/mongodb-kubernetes/pkg/agentVersionManagement"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
@@ -883,10 +883,6 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 		return r.updateStatus(ctx, sc, workflow.Failed(err), log)
 	}
 
-	if !architectures.IsRunningStaticArchitecture(sc.Annotations) {
-		agents.UpgradeAllIfNeeded(ctx, agents.ClientSecret{Client: r.commonController.client, SecretClient: r.commonController.SecretClient}, r.omConnectionFactory, GetWatchedNamespace(), false)
-	}
-
 	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(ctx, r.commonController.client, r.commonController.SecretClient, sc, log)
 	if err != nil {
 		return r.updateStatus(ctx, sc, workflow.Failed(err), log)
@@ -895,6 +891,10 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 	conn, agentAPIKey, err := connection.PrepareOpsManagerConnection(ctx, r.commonController.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, sc.Namespace, log)
 	if err != nil {
 		return r.updateStatus(ctx, sc, workflow.Failed(err), log)
+	}
+
+	if !architectures.IsRunningStaticArchitecture(sc.Annotations) {
+		agents.UpgradeIfNeeded(sc, conn)
 	}
 
 	if err := r.replicateAgentKeySecret(ctx, conn, agentAPIKey, log); err != nil {
@@ -991,6 +991,15 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 
 	// Save last achieved spec in state
 	r.deploymentState.LastAchievedSpec = &sc.Spec
+
+	// Generate connection string secret
+	connStringHostnames := r.GetAllMongosHostnamesAndPorts()
+	extHostnames := sc.GetExternalMembersHostnames()
+	connStringHostnames = append(connStringHostnames, extHostnames...)
+	if err := connectionstringsecret.PublishForMongoDB(ctx, r.commonController.client, sc, connStringHostnames); err != nil {
+		return r.updateStatus(ctx, sc, workflow.Failed(xerrors.Errorf("failed to publish connection string secret: %w", err)), log)
+	}
+
 	log.Infof("Finished reconciliation for Sharded Cluster! %s", completionMessage(conn.BaseURL(), conn.GroupID()))
 	// It's the second place in the reconcile logic we're updating sizes of all the components
 	// We're also updating the shardCount here - it's the only place we're doing that.
@@ -1127,7 +1136,7 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 
 	r.commonController.SetupCommonWatchers(sc, getTLSSecretNames(sc), getInternalAuthSecretNames(sc), sc.Name)
 
-	reconcileResult := checkIfHasExcessProcesses(conn, sc.Name, "", sc.Spec.GetExternalMemberProcessNames(), log)
+	reconcileResult := checkIfHasExcessProcesses(conn, sc.Name, sc.Spec.GetExternalMemberProcessNames(), log)
 	if !reconcileResult.IsOK() {
 		return reconcileResult
 	}
@@ -2145,7 +2154,7 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 			if sc.Spec.Security.GetInternalClusterAuthenticationMode() == "" && d.ExistingProcessesHaveInternalClusterAuthentication(allProcesses) {
 				return xerrors.Errorf("cannot disable x509 internal cluster authentication")
 			}
-			numberOfOtherMembers := d.GetNumberOfExcessProcesses(sc.Name, "", sc.Spec.GetExternalMemberProcessNames())
+			numberOfOtherMembers := d.GetNumberOfExcessProcesses(sc.Name, sc.Spec.GetExternalMemberProcessNames())
 			if numberOfOtherMembers > 0 {
 				return xerrors.Errorf("cannot have more than 1 MongoDB Cluster per project (see https://docs.mongodb.com/kubernetes-operator/stable/tutorial/migrate-to-single-resource/)")
 			}
@@ -2352,6 +2361,18 @@ func (r *ShardedClusterReconcileHelper) GetAllMongosHostnames() []string {
 	return hostnames
 }
 
+func (r *ShardedClusterReconcileHelper) GetAllMongosHostnamesAndPorts() []string {
+	hostnames := r.GetAllMongosHostnames()
+	portOrDefault := r.desiredMongosConfiguration.AdditionalMongodConfig.GetPortOrDefault()
+
+	hostnamesAndPorts := make([]string, len(hostnames))
+	for idx, hostname := range hostnames {
+		hostnamesAndPorts[idx] = fmt.Sprintf("%s:%d", hostname, portOrDefault)
+	}
+
+	return hostnamesAndPorts
+}
+
 func (r *ShardedClusterReconcileHelper) createDesiredMongosProcesses(certificateFilePath string) []om.Process {
 	var processes []om.Process
 	for _, memberCluster := range r.mongosMemberClusters {
@@ -2431,7 +2452,7 @@ func createMongodProcessForShardedCluster(mongoDBImage string, forceEnterprise b
 // buildReplicaSetFromProcesses creates the 'ReplicaSetWithProcesses' with specified processes. This is of use only
 // for sharded cluster (config server, shards)
 func buildReplicaSetFromProcesses(name string, members []om.Process, mdb *mdbv1.MongoDB, memberOptions []automationconfig.MemberOptions, deployment om.Deployment) (om.ReplicaSetWithProcesses, error) {
-	replicaSet := om.NewReplicaSet(name, "", mdb.Spec.GetMongoDBVersion())
+	replicaSet := om.NewReplicaSet(name, mdb.Spec.GetMongoDBVersion())
 
 	existingProcessIds := getReplicaSetProcessIdsFromReplicaSets(replicaSet.Name(), deployment)
 	var rsWithProcesses om.ReplicaSetWithProcesses
@@ -2442,7 +2463,7 @@ func buildReplicaSetFromProcesses(name string, members []om.Process, mdb *mdbv1.
 		// horizons are not needed
 		rsWithProcesses = om.NewMultiClusterReplicaSetWithProcesses(replicaSet, members, memberOptions, existingProcessIds, nil)
 	} else {
-		rsWithProcesses = om.NewReplicaSetWithProcesses(replicaSet, members, memberOptions)
+		rsWithProcesses = om.NewReplicaSetWithProcesses(replicaSet, members, memberOptions, nil)
 		rsWithProcesses.SetHorizons(mdb.Spec.Connectivity.ReplicaSetHorizons)
 	}
 	return rsWithProcesses, nil

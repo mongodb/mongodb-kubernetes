@@ -65,7 +65,7 @@ def om_tester(namespace: str, operator) -> OMTester:
 @fixture(scope="module")
 def vm_server_certs(issuer: str, namespace: str):
     """TLS certs for VM mongod processes (hostnames vm-mongodb-0, vm-mongodb-1, vm-mongodb-2)."""
-    return create_mongodb_tls_certs(ISSUER_CA_NAME, namespace, VM_STS_NAME, f"{VM_STS_NAME}-cert", 3, None, VM_STS_NAME)
+    return create_mongodb_tls_certs(ISSUER_CA_NAME, namespace, VM_STS_NAME, f"{VM_STS_NAME}-cert", 5, None, VM_STS_NAME)
 
 
 @fixture(scope="module")
@@ -229,7 +229,7 @@ def mdb_k8s(
         resource["spec"]["externalMembers"].append(
             {
                 "processName": f"{VM_STS_NAME}-{i}",
-                "hostname": f"{VM_STS_NAME}-{i}.{vm_service['metadata']['name']}.{namespace}.svc.cluster.local",
+                "hostname": f"{VM_STS_NAME}-{i}.{vm_service['metadata']['name']}.{namespace}.svc.cluster.local:27017",
                 "type": "mongod",
                 "replicaSetName": VM_RS_NAME,
             }
@@ -314,7 +314,7 @@ def _build_processes(vm_sts: dict, vm_service: dict, namespace: str, custom_mdb_
 def test_vm_mdb_reaches_running(namespace: str, vm_sts, vm_service):
     def sts_is_ready():
         sts = get_statefulset(namespace, vm_sts["metadata"]["name"])
-        return sts.status.ready_replicas == 3
+        return sts.status.ready_replicas == vm_sts["spec"]["replicas"]
 
     KubernetesTester.wait_until(sts_is_ready, timeout=300)
 
@@ -418,7 +418,6 @@ def test_migration_dry_run_connectivity_passes(mdb_k8s: MongoDB):
     run_migration_dry_run_connectivity_passes(mdb_k8s)
 
 
-# TODO insert sample data, assert it is still there after migration
 @mark.e2e_vm_migration_x509
 def test_promote_and_prune(mdb_k8s: MongoDB, vm_sts):
     promote_and_prune_members(mdb_k8s, vm_sts)

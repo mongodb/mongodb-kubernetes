@@ -23,6 +23,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/annotations"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/scale"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/fcv"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
@@ -114,6 +115,12 @@ func isAgentImageOverriden(containers []corev1.Container) bool {
 }
 
 func (m *MongoDB) ForcedIndividualScaling() bool {
+	// This is so that we don't deploy all kube members at once if there are external members
+	// This allows the migration to begin with voting members from the get-go
+	// Without this, the deployment will fail if kube members are not set to 0 votes 0 priority
+	if len(m.Spec.GetExternalMembers()) > 0 {
+		return true
+	}
 	return false
 }
 
@@ -155,6 +162,10 @@ func (m *MongoDB) GetBackupSpec() *Backup {
 
 func (m *MongoDB) GetResourceType() ResourceType {
 	return m.Spec.ResourceType
+}
+
+func (m *MongoDB) IsReplicaSet() bool {
+	return m.GetResourceType() == ReplicaSet
 }
 
 func (m *MongoDB) IsShardedCluster() bool {
@@ -219,6 +230,16 @@ func (m *MongoDB) GetSecretsMountedIntoDBPod() []string {
 
 func (m *MongoDB) GetHostNameOverrideConfigmapName() string {
 	return fmt.Sprintf("%s-hostname-override", m.Name)
+}
+
+func (m *MongoDB) GetReplicaSetName() string {
+	if m.Spec.GetResourceType() != ReplicaSet {
+		panic(errors.Errorf("ReplicaSetName is only applicable for ReplicaSet topology, but got %s", m.Spec.Topology))
+	}
+	if m.Spec.ReplicaSetNameOverride != "" {
+		return m.Spec.ReplicaSetNameOverride
+	}
+	return m.GetName()
 }
 
 type AdditionalMongodConfigType int
@@ -465,11 +486,6 @@ type DbCommonSpec struct {
 	// +kubebuilder:validation:Enum=SingleCluster;MultiCluster
 	// +optional
 	Topology string `json:"topology,omitempty"`
-
-	// +optional
-	ExternalMembers []ExternalMember `json:"externalMembers,omitempty"`
-
-	ReplicaSetNameOverride string `json:"replicaSetNameOverride,omitempty"`
 }
 
 type MongoDbSpec struct {
@@ -489,6 +505,11 @@ type MongoDbSpec struct {
 	// +kubebuilder:pruning:PreserveUnknownFields
 	// +optional
 	MemberConfig []automationconfig.MemberOptions `json:"memberConfig,omitempty"`
+
+	// +optional
+	ExternalMembers []ExternalMember `json:"externalMembers,omitempty"`
+
+	ReplicaSetNameOverride string `json:"replicaSetNameOverride,omitempty"`
 }
 
 func (m *MongoDbSpec) GetExternalDomain() *string {
@@ -504,6 +525,18 @@ func (m *MongoDbSpec) GetHorizonConfig() []MongoDBHorizonConfig {
 
 func (m *MongoDbSpec) GetMemberOptions() []automationconfig.MemberOptions {
 	return m.MemberConfig
+}
+
+func (d *MongoDbSpec) GetExternalMembers() []ExternalMember {
+	return d.ExternalMembers
+}
+
+func (d *MongoDbSpec) GetExternalMemberProcessNames() []string {
+	var processNames []string
+	for _, m := range d.ExternalMembers {
+		processNames = append(processNames, m.ProcessName)
+	}
+	return processNames
 }
 
 type SnapshotSchedule struct {
@@ -838,7 +871,7 @@ func (d *DbCommonSpec) GetExternalDomain() *string {
 	return nil
 }
 
-func (d DbCommonSpec) GetAgentConfig() AgentConfig {
+func (d *DbCommonSpec) GetAgentConfig() AgentConfig {
 	return d.Agent
 }
 
@@ -850,16 +883,45 @@ func (d *DbCommonSpec) GetAdditionalMongodConfig() *AdditionalMongodConfig {
 	return d.AdditionalMongodConfig
 }
 
-func (d *DbCommonSpec) GetExternalMembers() []ExternalMember {
-	return d.ExternalMembers
+// GetExternalMembersHostnames returns the hostname list (host:port) the
+// caller should embed in this MongoDB resource's connection string:
+func (m *MongoDB) GetExternalMembersHostnames() []string {
+	var hostnames []string
+
+	// External members, filtered by Type.
+	var allowed func(em ExternalMember) bool
+	switch m.Spec.ResourceType {
+	case ReplicaSet:
+		allowed = func(em ExternalMember) bool { return em.Type == "" || em.Type == "mongod" }
+	case ShardedCluster:
+		allowed = func(em ExternalMember) bool { return em.Type == "mongos" }
+	}
+	if allowed != nil {
+		for _, em := range m.Spec.ExternalMembers {
+			if allowed(em) {
+				hostnames = append(hostnames, em.Hostname)
+			}
+		}
+	}
+
+	return hostnames
 }
 
-func (d *DbCommonSpec) GetExternalMemberProcessNames() []string {
-	var processNames []string
-	for _, m := range d.ExternalMembers {
-		processNames = append(processNames, m.ProcessName)
+// GetRSHostnamesAndPorts returns all hostnames and ports for each member of the replicaset, not including external members
+// This function is only used for replica sets.
+// It can't be used for sharded clusters due to dependencies on the cluster mapping. Use the reconciler helper object in that case.
+func (m *MongoDB) GetRSHostnamesAndPorts() []string {
+	if !m.IsReplicaSet() {
+		return nil
 	}
-	return processNames
+	hostnames, _ := dns.GetDNSNames(m.Name, m.ServiceName(), m.Namespace, m.Spec.GetClusterDomain(), scale.ReplicasThisReconciliation(m), m.Spec.DbCommonSpec.GetExternalDomain())
+	portOrDefault := m.Spec.GetAdditionalMongodConfig().GetPortOrDefault()
+
+	hostnamePorts := make([]string, len(hostnames))
+	for idx, hostname := range hostnames {
+		hostnamePorts[idx] = fmt.Sprintf("%s:%d", hostname, portOrDefault)
+	}
+	return hostnamePorts
 }
 
 func (s *Security) IsTLSEnabled() bool {
@@ -1865,6 +1927,8 @@ func (m *MongoDBConnectionStringBuilder) BuildConnectionString(username, passwor
 	name := m.Name
 	if m.Spec.ResourceType == ShardedCluster {
 		name = m.MongosRsName()
+	} else if m.Spec.ResourceType == ReplicaSet {
+		name = m.GetReplicaSetName()
 	}
 
 	builder := connectionstring.Builder().
