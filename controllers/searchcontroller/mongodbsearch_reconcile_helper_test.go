@@ -1164,10 +1164,21 @@ func TestCreateShardMongotConfig(t *testing.T) {
 
 	seeds0, _ := shardedSource.HostSeeds(shardedSource.shardNames[0])
 	config := mongot.Config{}
-	mongot.Apply(baseMongotConfig(search, seeds0), routerMongotMod(search, shardedSource))(&config)
+	mongot.Apply(baseMongotConfig(search, seeds0), routerMongotMod(search, shardedSource), featureFlagsMongotMod(search))(&config)
 
 	assert.Equal(t, []string{"my-cluster-0-0.svc:27017", "my-cluster-0-1.svc:27017", "my-cluster-0-2.svc:27017"}, config.SyncSource.ReplicaSet.HostAndPort)
 	assert.Equal(t, search.SourceUsername(), config.SyncSource.ReplicaSet.Username)
+
+	// OverloadRetrySignal defaults to true even when featureFlags is not set in CR
+	require.NotNil(t, config.FeatureFlags)
+	assert.Equal(t, true, *config.FeatureFlags.OverloadRetrySignal)
+
+	// Explicitly disable feature flag and verify it's absent from config
+	search.Spec.FeatureFlags = &searchv1.FeatureFlags{EnableOverloadRetrySignal: ptr.To(false)}
+	configDisabled := mongot.Config{}
+	mongot.Apply(baseMongotConfig(search, seeds0), routerMongotMod(search, shardedSource), featureFlagsMongotMod(search))(&configDisabled)
+
+	assert.Nil(t, configDisabled.FeatureFlags, "featureflags should be absent when explicitly disabled")
 
 	seeds1, _ := shardedSource.HostSeeds(shardedSource.shardNames[1])
 	config2 := mongot.Config{}

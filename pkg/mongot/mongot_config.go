@@ -15,13 +15,18 @@ func Apply(modifications ...Modification) func(*Config) {
 }
 
 type Config struct {
-	SyncSource  ConfigSyncSource  `json:"syncSource"`
-	Storage     ConfigStorage     `json:"storage"`
-	Server      ConfigServer      `json:"server"`
-	Metrics     ConfigMetrics     `json:"metrics"`
-	HealthCheck ConfigHealthCheck `json:"healthCheck"`
-	Logging     ConfigLogging     `json:"logging"`
-	Embedding   *EmbeddingConfig  `json:"embedding,omitempty"`
+	SyncSource   ConfigSyncSource    `json:"syncSource"`
+	Storage      ConfigStorage       `json:"storage"`
+	Server       ConfigServer        `json:"server"`
+	Metrics      ConfigMetrics       `json:"metrics"`
+	HealthCheck  ConfigHealthCheck   `json:"healthCheck"`
+	Logging      ConfigLogging       `json:"logging"`
+	Embedding    *EmbeddingConfig    `json:"embedding,omitempty"`
+	FeatureFlags *ConfigFeatureFlags `json:"featureflags,omitempty"`
+}
+
+type ConfigFeatureFlags struct {
+	OverloadRetrySignal *bool `json:"overloadRetrySignal,omitempty"`
 }
 
 type EmbeddingConfig struct {
