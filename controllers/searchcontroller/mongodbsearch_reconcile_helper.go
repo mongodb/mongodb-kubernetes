@@ -443,10 +443,6 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 		return workflow.Failed(err)
 	}
 
-	if err := r.ValidateMultipleReplicasConfig(); err != nil {
-		return workflow.Failed(err)
-	}
-
 	// This validation lives at reconcile level (not spec validations level) because for internal MongoDB sources, the
 	// sharded topology is only known after fetching the referenced MongoDB resource.
 	// It's not part of the MongoDBSearch spec itself.
@@ -1706,39 +1702,6 @@ func (r *MongoDBSearchReconcileHelper) ValidateSingleMongoDBSearchForSearchSourc
 func (r *MongoDBSearchReconcileHelper) ValidateSearchImageVersion(version string) error {
 	if strings.Contains(version, unsupportedSearchVersion) {
 		return xerrors.Errorf(unsupportedSearchVersionErrorFmt, unsupportedSearchVersion)
-	}
-
-	return nil
-}
-
-// ValidateMultipleReplicasConfig validates that when multiple mongot replicas are configured,
-// an external load balancer endpoint is also configured to distribute traffic across the replicas.
-func (r *MongoDBSearchReconcileHelper) ValidateMultipleReplicasConfig() error {
-	if !r.mdbSearch.HasMultipleReplicas() {
-		return nil
-	}
-
-	maxReplicas := r.mdbSearch.MaxReplicasAcrossClusters()
-
-	// For sharded clusters, check if LB is configured (managed or unmanaged)
-	if _, ok := r.db.(SearchSourceShardedDeployment); ok {
-		if !r.mdbSearch.IsShardedUnmanagedLB() && !r.mdbSearch.IsLBModeManaged() {
-			return xerrors.Errorf(
-				"multiple mongot replicas (%d) require load balancer configuration; "+
-					"please configure load balancing in spec.loadBalancer.",
-				maxReplicas,
-			)
-		}
-		return nil
-	}
-
-	// For replica sets, check if LB is configured (managed or unmanaged)
-	if !r.mdbSearch.IsReplicaSetUnmanagedLB() && !r.mdbSearch.IsLBModeManaged() {
-		return xerrors.Errorf(
-			"multiple mongot replicas (%d) require load balancer configuration; "+
-				"please configure load balancing in spec.loadBalancer.",
-			maxReplicas,
-		)
 	}
 
 	return nil
