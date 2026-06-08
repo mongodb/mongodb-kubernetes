@@ -382,6 +382,7 @@ def verify_per_cluster_envoy_sni(
                 f"in lds.json filter_chain_match.server_names, got {sni_names}"
             )
 
+            # Defensive: no OTHER cluster's proxy-svc FQDN should appear.
             for other in member_cluster_clients:
                 if other.cluster_name == mcc.cluster_name:
                     continue

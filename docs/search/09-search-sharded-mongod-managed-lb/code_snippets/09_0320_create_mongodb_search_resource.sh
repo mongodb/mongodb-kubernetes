@@ -14,11 +14,11 @@ spec:
   security:
     tls:
       certsSecretPrefix: ${MDB_TLS_CERT_SECRET_PREFIX}
-  # loadBalancer.managed -- operator automatically deploys and configures Envoy proxy
-  loadBalancer:
-    managed: {}
   clusters:
     - replicas: ${MDB_MONGOT_REPLICAS}
+      # loadBalancer.managed -- operator automatically deploys and configures Envoy proxy
+      loadBalancer:
+        managed: {}
       resourceRequirements:
         limits:
           cpu: "2"

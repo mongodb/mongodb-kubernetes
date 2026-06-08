@@ -323,13 +323,12 @@ func newShardedUnmanagedLBSearch(name, namespace, mdbName string, endpointTempla
 			Namespace: namespace,
 		},
 		Spec: searchv1.MongoDBSearchSpec{
-			Clusters: []searchv1.ClusterSpec{{Replicas: ptr.To(int32(1))}},
+			Clusters: []searchv1.ClusterSpec{{Replicas: ptr.To(int32(1)), LoadBalancer: lb}},
 			Source: &searchv1.MongoDBSource{
 				MongoDBResourceRef: &userv1.MongoDBResourceRef{
 					Name: mdbName,
 				},
 			},
-			LoadBalancer: lb,
 		},
 	}
 }

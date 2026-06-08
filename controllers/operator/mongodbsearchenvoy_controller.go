@@ -247,8 +247,11 @@ func (r *MongoDBSearchEnvoyReconciler) buildClusterWorkList(search *searchv1.Mon
 }
 
 // reconcileForCluster runs the ConfigMap + Deployment ensure for one cluster's
-// work item. routingReadyMongotGroups is the state-CM switch — shards not listed
-// get fallback routing. Returns a workflow.Status describing the per-cluster outcome.
+// work item. clusterName resolves the cluster's LB config and is used for log
+// context; clusterIndex is used for resource naming ONLY (it comes from the
+// persisted ClusterMapping, which outlives spec positions). routingReadyMongotGroups
+// is the state-CM switch — shards not listed get fallback routing.
+// Returns a workflow.Status describing the per-cluster outcome.
 func (r *MongoDBSearchEnvoyReconciler) reconcileForCluster(
 	ctx context.Context,
 	search *searchv1.MongoDBSearch,
@@ -276,7 +279,12 @@ func (r *MongoDBSearchEnvoyReconciler) reconcileForCluster(
 	if err != nil {
 		return workflow.Failed(fmt.Errorf("cluster=%q: %w", clusterName, err))
 	}
-	ldsJSON, err := buildLDSJSON(routes, tlsEnabled, caKeyName, search.GetManagedLBRetryPolicy())
+	managedLB := search.GetManagedLBForCluster(clusterName)
+	var retryPolicy *searchv1.EnvoyRetryPolicy
+	if managedLB != nil {
+		retryPolicy = managedLB.RetryPolicy
+	}
+	ldsJSON, err := buildLDSJSON(routes, tlsEnabled, caKeyName, retryPolicy)
 	if err != nil {
 		return workflow.Failed(fmt.Errorf("cluster=%q: %w", clusterName, err))
 	}
@@ -285,7 +293,7 @@ func (r *MongoDBSearchEnvoyReconciler) reconcileForCluster(
 		return workflow.Failed(fmt.Errorf("cluster=%q: %w", clusterName, err))
 	}
 	// Ensure Deployment (hash only bootstrap — CDS/LDS are hot-reloaded by Envoy via filesystem xDS)
-	if err := r.ensureDeployment(ctx, search, bootstrapJSON, clusterName, clusterIndex, c, tlsCfg, log); err != nil {
+	if err := r.ensureDeployment(ctx, search, bootstrapJSON, clusterName, clusterIndex, managedLB, c, tlsCfg, log); err != nil {
 		return workflow.Failed(fmt.Errorf("cluster=%q: %w", clusterName, err))
 	}
 	return workflow.OK()
@@ -383,7 +391,7 @@ func buildShardRoutes(search *searchv1.MongoDBSearch, shardNames []string, clust
 		upstreamFQDN := fmt.Sprintf("%s.%s.svc.cluster.local", mongotServiceName, namespace)
 
 		sniHostname := fmt.Sprintf("%s.%s.svc.cluster.local", sniServiceName, namespace)
-		if endpoint := search.GetManagedLBEndpointForClusterShard(clusterIndex, clusterName, shardName); endpoint != "" {
+		if endpoint := search.GetManagedLBEndpointForClusterShard(clusterName, shardName); endpoint != "" {
 			sniHostname = endpoint
 		}
 
@@ -420,7 +428,7 @@ func buildShardRoutes(search *searchv1.MongoDBSearch, shardNames []string, clust
 	// the user supplied a managed-LB externalHostname (with {shardName}. prefix stripped).
 	clusterLevelSvcName := search.ProxyServiceNamespacedNameForCluster(clusterIndex).Name
 	clusterLevelSNI := fmt.Sprintf("%s.%s.svc.cluster.local", clusterLevelSvcName, namespace)
-	if endpoint := search.GetManagedLBEndpointForClusterLevel(clusterIndex, clusterName); endpoint != "" {
+	if endpoint := search.GetManagedLBEndpointForClusterLevel(clusterName); endpoint != "" {
 		clusterLevelSNI = endpoint
 	}
 
@@ -459,7 +467,7 @@ func buildReplicaSetRouteForCluster(search *searchv1.MongoDBSearch, clusterIndex
 
 	sniServiceName := search.ProxyServiceNamespacedNameForCluster(clusterIndex).Name
 	sniHostname := fmt.Sprintf("%s.%s.svc.cluster.local", sniServiceName, namespace)
-	if endpoint := search.GetManagedLBEndpointForCluster(clusterIndex, clusterName); endpoint != "" {
+	if endpoint := search.GetManagedLBEndpointForCluster(clusterName); endpoint != "" {
 		sniHostname = endpoint
 	}
 
@@ -525,12 +533,12 @@ func envoyConfigHash(configJSON string) (string, error) {
 // hot-reloaded by Envoy via filesystem xDS and do not require a pod restart.
 //
 // Cross-cluster ownership note: see ensureConfigMap.
-func (r *MongoDBSearchEnvoyReconciler) ensureDeployment(ctx context.Context, search *searchv1.MongoDBSearch, bootstrapJSON, clusterName string, clusterIndex int, c kubernetesClient.Client, tlsCfg *searchcontroller.TLSSourceConfig, log *zap.SugaredLogger) error {
+func (r *MongoDBSearchEnvoyReconciler) ensureDeployment(ctx context.Context, search *searchv1.MongoDBSearch, bootstrapJSON, clusterName string, clusterIndex int, managedLB *searchv1.ManagedLBConfig, c kubernetesClient.Client, tlsCfg *searchcontroller.TLSSourceConfig, log *zap.SugaredLogger) error {
 	configHash, err := envoyConfigHash(bootstrapJSON)
 	if err != nil {
 		return err
 	}
-	replicas := envoyReplicas(search)
+	replicas := envoyReplicas(managedLB)
 	labels := envoyLabelsForCluster(search, clusterName, clusterIndex)
 	podLabels := envoyPodLabelsForCluster(search, clusterIndex)
 	tlsEnabled := search.IsTLSConfigured()
@@ -538,7 +546,7 @@ func (r *MongoDBSearchEnvoyReconciler) ensureDeployment(ctx context.Context, sea
 	if err != nil {
 		return err
 	}
-	resources := envoyResourceRequirements(search)
+	resources := envoyResourceRequirements(managedLB)
 	managedSecurityContext := env.ReadBoolOrDefault(podtemplatespec.ManagedSecurityContextEnv, false) // nolint:forbidigo
 
 	dep := &appsv1.Deployment{
@@ -568,10 +576,10 @@ func (r *MongoDBSearchEnvoyReconciler) ensureDeployment(ctx context.Context, sea
 		}
 
 		// Apply user deployment configuration override
-		if depCfg := search.GetManagedLBDeploymentConfig(); depCfg != nil {
-			dep.Spec = merge.DeploymentSpecs(dep.Spec, depCfg.SpecWrapper.Spec)
-			dep.Labels = merge.StringToStringMap(dep.Labels, depCfg.MetadataWrapper.Labels)
-			dep.Annotations = merge.StringToStringMap(dep.Annotations, depCfg.MetadataWrapper.Annotations)
+		if managedLB != nil && managedLB.Deployment != nil {
+			dep.Spec = merge.DeploymentSpecs(dep.Spec, managedLB.Deployment.SpecWrapper.Spec)
+			dep.Labels = merge.StringToStringMap(dep.Labels, managedLB.Deployment.MetadataWrapper.Labels)
+			dep.Annotations = merge.StringToStringMap(dep.Annotations, managedLB.Deployment.MetadataWrapper.Annotations)
 		}
 
 		if clusterName == "" {
@@ -745,11 +753,11 @@ func (r *MongoDBSearchEnvoyReconciler) envoyContainerImage() (string, error) {
 	return r.defaultEnvoyImage, nil
 }
 
-// envoyResourceRequirements returns user-specified resource requirements
+// envoyResourceRequirements returns the cluster's resource requirements
 // or the defaults (100m/128Mi requests, 500m/512Mi limits).
-func envoyResourceRequirements(search *searchv1.MongoDBSearch) corev1.ResourceRequirements {
-	if reqs := search.GetManagedLBResourceRequirements(); reqs != nil {
-		return *reqs
+func envoyResourceRequirements(managedLB *searchv1.ManagedLBConfig) corev1.ResourceRequirements {
+	if managedLB != nil && managedLB.ResourceRequirements != nil {
+		return *managedLB.ResourceRequirements
 	}
 	return defaultEnvoyResourceRequirements()
 }
@@ -789,11 +797,11 @@ func envoyLabelsForCluster(search *searchv1.MongoDBSearch, clusterName string, c
 	return labels
 }
 
-// envoyReplicas returns the desired Envoy replica count.
-// Uses spec.loadBalancer.managed.replicas if set, otherwise defaults to 1.
-func envoyReplicas(search *searchv1.MongoDBSearch) int32 {
-	if cfg := search.Spec.LoadBalancer; cfg != nil && cfg.Managed != nil && cfg.Managed.Replicas != nil {
-		return *cfg.Managed.Replicas
+// envoyReplicas returns the cluster's desired Envoy replica count.
+// Uses spec.clusters[].loadBalancer.managed.replicas if set, otherwise defaults to 1.
+func envoyReplicas(managedLB *searchv1.ManagedLBConfig) int32 {
+	if managedLB != nil && managedLB.Replicas != nil {
+		return *managedLB.Replicas
 	}
 	return envoyReplicasDefault
 }
