@@ -147,7 +147,7 @@ repos:
         language: system
         pass_filenames: false
         files: (\.go$|^go\.(mod|sum)$)
-
+        stages: [pre-commit]
 
   - repo: https://github.com/golangci/golangci-lint
     rev: v2.0.2
