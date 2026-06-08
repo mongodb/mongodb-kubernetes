@@ -36,8 +36,7 @@ def helm_template(
     args = ("helm", "template", *command_args, helm_chart_path)
     logger.info(" ".join(args))
 
-    home = os.getenv("HOME")
-    yaml_file_name = os.path.join(home, "{}.yaml".format(str(uuid.uuid4())))
+    yaml_file_name = "{}.yaml".format(str(uuid.uuid4()))
     with open(yaml_file_name, "w") as output:
         process_run_and_check(" ".join(args), stdout=output, check=True, shell=True)
 
