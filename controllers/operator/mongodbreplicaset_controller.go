@@ -1107,7 +1107,6 @@ func (r *ReplicaSetReconcilerHelper) mirrorKeyfileIntoSecretForMongot(ctx contex
 	return nil
 }
 
-
 func (r *ReplicaSetReconcilerHelper) lookupCorrespondingSearchResource(ctx context.Context) (*searchv1.MongoDBSearch, error) {
 	rs := r.resource
 	reconciler := r.reconciler

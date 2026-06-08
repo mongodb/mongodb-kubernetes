@@ -1,9 +1,8 @@
-"""VM migration E2E: SCRAM auth over TLS transport.
+"""VM migration E2E: SCRAM-enabled mongod with TLS transport.
 
 Same flow as vm_migration but mongod runs with requireSSL and keyfile-based SCRAM auth.
-This exercises the MongodTLSCAPath path in the connectivity validator: auth is SCRAM
-(keyfile) and the transport layer is TLS, so the validator must configure TLS without a
-client certificate and authenticate as __system@local using the keyfile.
+This exercises the MongodTLSCAPath path in the connectivity validator: the validator must
+connect to each VM mongod over TLS using only the CA (no client certificate).
 """
 
 import yaml
@@ -26,10 +25,8 @@ MDB_RESOURCE_NAME = "my-replica-set"
 SERVER_PEM_PATH = "/mongodb-automation/server.pem"
 CUSTOM_CA_PEM_PATH = "/mongodb-automation/tls/ca/ca-pem"
 
-# Keyfile content pushed into ac["auth"]["key"] so OM agents write it to disk on VM pods.
-# During dry-run, the operator reads this value from OM and creates a temporary
-# {rs}-connectivity-check-keyfile Secret. The connectivity validator reads the keyfile from
-# that Secret, mounted at InternalClusterAuthMountPath/keyfile. The Secret is deleted after the job.
+# Keyfile content pushed into ac["auth"]["key"] so OM agents enable keyfile-based SCRAM auth on the VM pods.
+# The connectivity validator does not mount or use the keyfile; it only verifies TLS reachability.
 KEYFILE_CONTENT = "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6"
 
 
@@ -266,9 +263,7 @@ def test_configure_ac_scram_auth(om_tester: OMTester):
     """Step 3: Enable SCRAM keyfile auth (TLS already enabled in previous step).
 
     autoUser is the conventional OM automation user created for keyfile-based SCRAM deployments.
-    The KEYFILE_CONTENT is written to disk by the OM agent; during dry-run the operator reads it
-    from OM, creates a temporary {rs}-connectivity-check-keyfile Secret, and the connectivity
-    validator reads the keyfile from that Secret. The Secret is deleted after the job completes.
+    The KEYFILE_CONTENT is written to disk by the OM agent so mongod enforces SCRAM authentication.
     """
     ac = om_tester.api_get_automation_config()
     if ac.get("auth", {}).get("disabled", True) is False:
@@ -296,7 +291,7 @@ def test_configure_ac_scram_auth(om_tester: OMTester):
 
 @mark.e2e_vm_migration_tls_scram
 def test_migration_dry_run_connectivity_passes(mdb_migration: MongoDB):
-    """Validator must reach each VM mongod over TLS using only the CA, and authenticate via SCRAM."""
+    """Validator must reach each VM mongod over TLS using only the CA (no client certificate)."""
     run_migration_dry_run_connectivity_passes(mdb_migration)
 
 

@@ -29,7 +29,9 @@ type Config struct {
 	ConnectionString string
 	// ExternalMembers is the list of host:port pairs to ping directly.
 	ExternalMembers []string
-	// AuthMechanism is "MONGODB-X509" or empty (SCRAM deployments connect without credentials).
+	// AuthMechanism is "MONGODB-X509" to use X.509 client certificate auth. SCRAM values
+	// ("SCRAM-SHA-256", "SCRAM-SHA-1") may be passed by the job builder but are intentionally
+	// ignored. Those deployments are checked for reachability only.
 	AuthMechanism string
 	// CertPath is the path to the combined cert+key PEM (X509).
 	CertPath string
@@ -53,6 +55,7 @@ func Validate(ctx context.Context, cfg Config) int {
 		"certPath", cfg.CertPath,
 		"caPath", cfg.CAPath,
 		"subjectDN", cfg.SubjectDN,
+		"mongodTLSCAPath", cfg.MongodTLSCAPath,
 	)
 
 	clientOpts, err := buildClientOptions(cfg, cfg.ConnectionString)
@@ -83,6 +86,14 @@ func Validate(ctx context.Context, cfg Config) int {
 		return code
 	}
 	log.Debugw("MongoDB ping succeeded")
+
+	if cfg.AuthMechanism == "MONGODB-X509" {
+		if !hasSystemRole(ctx, client) {
+			log.Warnw("__system@local role not found", "exitCode", exitcode.ExitAuthFailed, "exitCodeName", exitcode.Name(exitcode.ExitAuthFailed))
+			return exitcode.ExitAuthFailed
+		}
+		log.Debugw("__system@local role verified")
+	}
 
 	for i, member := range cfg.ExternalMembers {
 		log.Debugw("Pinging external member", "member", member, "index", i+1, "total", len(cfg.ExternalMembers))

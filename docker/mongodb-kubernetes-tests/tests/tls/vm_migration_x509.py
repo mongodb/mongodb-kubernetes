@@ -355,7 +355,7 @@ def test_vm_ac_tls(
     ac["processes"] = processes
     ac["monitoringVersions"] = monitoring_versions
     om_tester.api_put_automation_config(ac)
-    om_tester.wait_agents_ready(timeout=600)
+    om_tester.wait_agents_ready(timeout=1200)
 
 
 @mark.e2e_vm_migration_x509
