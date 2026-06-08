@@ -162,12 +162,10 @@ type Security struct {
 type TLS struct {
 	// CertificateKeySecretRef is a reference to a Secret containing a private key and certificate for TLS.
 	// The key and cert are expected to be PEM encoded and available at "tls.key" and "tls.crt".
+	// This enables server-side TLS only. For mutual TLS (client certificate
+	// verification) use a service mesh such as Istio or Linkerd.
 	// +kubebuilder:validation:Required
 	CertificateKeySecretRef corev1.LocalObjectReference `json:"certificateKeySecretRef"`
-
-	// CAConfigMapRef is an optional reference to a ConfigMap containing a CA certificate at "ca.crt".
-	// +optional
-	CAConfigMapRef *corev1.LocalObjectReference `json:"caConfigMapRef,omitempty"`
 }
 
 type DataParallelConfig struct {

@@ -45,13 +45,6 @@ func newVoyageAIReconcilerWithConfig(
 				return nil
 			}
 			return []string{vai.Spec.Security.TLS.CertificateKeySecretRef.Name}
-		}).
-		WithIndex(&vaiv1.VoyageAI{}, voyageAITLSCAConfigMapIndex, func(o client.Object) []string {
-			vai := o.(*vaiv1.VoyageAI)
-			if vai.Spec.Security.TLS == nil || vai.Spec.Security.TLS.CAConfigMapRef == nil {
-				return nil
-			}
-			return []string{vai.Spec.Security.TLS.CAConfigMapRef.Name}
 		})
 	if len(objects) > 0 {
 		builder.WithObjects(objects...)
@@ -133,8 +126,12 @@ func getVoyageAIService(ctx context.Context, t *testing.T, c client.Client, vai 
 }
 
 func getVoyageAIContainer(dep *appsv1.Deployment) corev1.Container {
+	return getVoyageAIContainerByName(dep, "voyageai")
+}
+
+func getVoyageAIContainerByName(dep *appsv1.Deployment, name string) corev1.Container {
 	for _, c := range dep.Spec.Template.Spec.Containers {
-		if c.Name == "voyageai" {
+		if c.Name == name {
 			return c
 		}
 	}
@@ -638,36 +635,62 @@ func TestBuildResourceRequirements_UserOverridesGPU(t *testing.T) {
 
 // --- TLS volume mount tests ---
 
-func TestVoyageAI_Probes_mTLSUsesTCPSocket(t *testing.T) {
+// TestVoyageAI_DisablingTLS_PrunesCertVolumeAndEnv exercises the pod-template
+// reset in ensureDeployment: removing TLS from a previously-TLS deployment must
+// drop the cert volume, the SERVER__TLS__* env, and flip probes back to HTTP.
+func TestVoyageAI_DisablingTLS_PrunesCertVolumeAndEnv(t *testing.T) {
 	ctx := context.Background()
 	vai := newVoyageAI("vai", mock.TestNamespace, vaiv1.VoyageAIModelVoyage4, "1.0.0")
 	vai.Spec.Server.Port = 8080
 	vai.Spec.Security.TLS = &vaiv1.TLS{
 		CertificateKeySecretRef: corev1.LocalObjectReference{Name: "tls-secret"},
-		CAConfigMapRef:          &corev1.LocalObjectReference{Name: "ca-configmap"},
 	}
 	reconciler, c := newVoyageAIReconcilerWithConfig(defaultVoyageAIConfig(), vai)
 
+	// First reconcile: TLS on -> cert volume + HTTPS probes.
 	_, err := reconcileVoyageAI(ctx, t, reconciler, vai.Name, vai.Namespace)
 	require.NoError(t, err)
-
 	dep := getVoyageAIDeployment(ctx, t, c, vai)
-	cont := getVoyageAIContainer(dep)
-
-	for name, probe := range map[string]*corev1.Probe{
-		"startup":   cont.StartupProbe,
-		"readiness": cont.ReadinessProbe,
-		"liveness":  cont.LivenessProbe,
-	} {
-		require.NotNil(t, probe, "%s probe should be set", name)
-		require.Nil(t, probe.HTTPGet, "%s probe should not be HTTPGet in mTLS mode", name)
-		require.Nil(t, probe.Exec, "%s probe should not be Exec in mTLS mode", name)
-		require.NotNil(t, probe.TCPSocket, "%s probe should be TCPSocket in mTLS mode", name)
-		assert.Equal(t, int32(8080), probe.TCPSocket.Port.IntVal)
+	volNames := map[string]bool{}
+	for _, v := range dep.Spec.Template.Spec.Volumes {
+		volNames[v.Name] = true
 	}
+	require.True(t, volNames["tls-cert"], "tls-cert volume should exist while TLS on")
+	require.Equal(t, corev1.URISchemeHTTPS, getVoyageAIContainer(dep).StartupProbe.HTTPGet.Scheme)
+
+	// Disable TLS, reconcile again on the same client (in-place Deployment update).
+	updated := &vaiv1.VoyageAI{}
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: vai.Name, Namespace: vai.Namespace}, updated))
+	updated.Spec.Security.TLS = nil
+	require.NoError(t, c.Update(ctx, updated))
+
+	_, err = reconcileVoyageAI(ctx, t, reconciler, vai.Name, vai.Namespace)
+	require.NoError(t, err)
+
+	dep = getVoyageAIDeployment(ctx, t, c, vai)
+
+	// Cert volume must be pruned.
+	volNames = map[string]bool{}
+	for _, v := range dep.Spec.Template.Spec.Volumes {
+		volNames[v.Name] = true
+	}
+	assert.False(t, volNames["tls-cert"], "tls-cert volume should be pruned after disabling TLS")
+
+	// Stale TLS cert env must be gone; probes back to HTTP.
+	cont := getVoyageAIContainer(dep)
+	envMap := map[string]string{}
+	for _, e := range cont.Env {
+		envMap[e.Name] = e.Value
+	}
+	_, hasCert := envMap["SERVER__TLS__CERTFILE"]
+	assert.False(t, hasCert, "SERVER__TLS__CERTFILE should be pruned after disabling TLS")
+	assert.Equal(t, "false", envMap["SERVER__TLS__ENABLED"])
+
+	require.NotNil(t, cont.StartupProbe.HTTPGet)
+	assert.Equal(t, corev1.URISchemeHTTP, cont.StartupProbe.HTTPGet.Scheme, "probe should be plain HTTP after disabling TLS")
 }
 
-func TestVoyageAI_Probes_TLSWithoutCAUsesHTTPS(t *testing.T) {
+func TestVoyageAI_Probes_TLSUsesHTTPS(t *testing.T) {
 	ctx := context.Background()
 	vai := newVoyageAI("vai", mock.TestNamespace, vaiv1.VoyageAIModelVoyage4, "1.0.0")
 	vai.Spec.Server.Port = 8443
@@ -699,7 +722,6 @@ func TestVoyageAI_TLS(t *testing.T) {
 	vai := newVoyageAI("vai", mock.TestNamespace, vaiv1.VoyageAIModelVoyage4, "1.0.0")
 	vai.Spec.Security.TLS = &vaiv1.TLS{
 		CertificateKeySecretRef: corev1.LocalObjectReference{Name: "tls-secret"},
-		CAConfigMapRef:          &corev1.LocalObjectReference{Name: "ca-configmap"},
 	}
 	reconciler, c := newVoyageAIReconcilerWithConfig(defaultVoyageAIConfig(), vai)
 
@@ -709,76 +731,30 @@ func TestVoyageAI_TLS(t *testing.T) {
 	dep := getVoyageAIDeployment(ctx, t, c, vai)
 	container := getVoyageAIContainer(dep)
 
-	// Verify volumes exist
+	// Server-only TLS: the cert volume is mounted; no CA / mTLS handling.
 	volumes := dep.Spec.Template.Spec.Volumes
 	volumeNames := make(map[string]bool)
 	for _, v := range volumes {
 		volumeNames[v.Name] = true
-	}
-	assert.True(t, volumeNames["tls-cert"], "tls-cert volume should exist")
-	assert.True(t, volumeNames["tls-ca"], "tls-ca volume should exist")
-
-	// Verify volume sources
-	for _, v := range volumes {
 		if v.Name == "tls-cert" {
 			require.NotNil(t, v.Secret)
 			assert.Equal(t, "tls-secret", v.Secret.SecretName)
 		}
-		if v.Name == "tls-ca" {
-			require.NotNil(t, v.ConfigMap)
-			assert.Equal(t, "ca-configmap", v.ConfigMap.Name)
-		}
 	}
+	assert.True(t, volumeNames["tls-cert"], "tls-cert volume should exist")
+	assert.False(t, volumeNames["tls-ca"], "tls-ca volume must not exist (mTLS removed)")
 
-	// Verify volume mounts
 	mountPaths := make(map[string]corev1.VolumeMount)
 	for _, vm := range container.VolumeMounts {
 		mountPaths[vm.Name] = vm
 	}
-
 	certMount, ok := mountPaths["tls-cert"]
 	require.True(t, ok, "tls-cert volume mount should exist")
 	assert.Equal(t, "/etc/voyageai/tls", certMount.MountPath)
 	assert.True(t, certMount.ReadOnly)
+	_, hasCAMount := mountPaths["tls-ca"]
+	assert.False(t, hasCAMount, "tls-ca mount must not exist (mTLS removed)")
 
-	caMount, ok := mountPaths["tls-ca"]
-	require.True(t, ok, "tls-ca volume mount should exist")
-	assert.Equal(t, "/etc/voyageai/tls/ca", caMount.MountPath)
-	assert.True(t, caMount.ReadOnly)
-
-	// Verify TLS environment variables
-	envMap := make(map[string]string)
-	for _, e := range container.Env {
-		envMap[e.Name] = e.Value
-	}
-	assert.Equal(t, "true", envMap["SERVER__TLS__ENABLED"])
-	assert.Equal(t, voyageAITLSCertFile, envMap["SERVER__TLS__CERTFILE"])
-	assert.Equal(t, voyageAITLSKeyFile, envMap["SERVER__TLS__KEYFILE"])
-	assert.Equal(t, voyageAITLSCACerts, envMap["SERVER__TLS__CA_CERTS"])
-}
-
-func TestVoyageAI_TLS_NoCA(t *testing.T) {
-	ctx := context.Background()
-	vai := newVoyageAI("vai", mock.TestNamespace, vaiv1.VoyageAIModelVoyage4, "1.0.0")
-	vai.Spec.Security.TLS = &vaiv1.TLS{
-		CertificateKeySecretRef: corev1.LocalObjectReference{Name: "tls-secret"},
-	}
-	reconciler, c := newVoyageAIReconcilerWithConfig(defaultVoyageAIConfig(), vai)
-
-	_, err := reconcileVoyageAI(ctx, t, reconciler, vai.Name, vai.Namespace)
-	require.NoError(t, err)
-
-	dep := getVoyageAIDeployment(ctx, t, c, vai)
-
-	volumeNames := make(map[string]bool)
-	for _, v := range dep.Spec.Template.Spec.Volumes {
-		volumeNames[v.Name] = true
-	}
-	assert.True(t, volumeNames["tls-cert"], "tls-cert volume should exist")
-	assert.False(t, volumeNames["tls-ca"], "tls-ca volume should not exist when CAConfigMapRef is nil")
-
-	// Verify TLS environment variables
-	container := getVoyageAIContainer(dep)
 	envMap := make(map[string]string)
 	for _, e := range container.Env {
 		envMap[e.Name] = e.Value
@@ -787,7 +763,7 @@ func TestVoyageAI_TLS_NoCA(t *testing.T) {
 	assert.Equal(t, voyageAITLSCertFile, envMap["SERVER__TLS__CERTFILE"])
 	assert.Equal(t, voyageAITLSKeyFile, envMap["SERVER__TLS__KEYFILE"])
 	_, hasCA := envMap["SERVER__TLS__CA_CERTS"]
-	assert.False(t, hasCA, "SERVER__TLS__CA_CERTS should not be set when CAConfigMapRef is nil")
+	assert.False(t, hasCA, "SERVER__TLS__CA_CERTS must not be set (mTLS removed)")
 }
 
 // --- Service tests ---
@@ -1050,39 +1026,6 @@ func TestVoyageAI_MapSecretToVoyageAI_NamespaceIsolation(t *testing.T) {
 	}
 
 	assert.Empty(t, reconciler.mapSecretToVoyageAI(ctx, secret))
-}
-
-func TestVoyageAI_MapConfigMapToVoyageAI_MatchesCARef(t *testing.T) {
-	ctx := context.Background()
-	vai := newVoyageAI("vai", mock.TestNamespace, vaiv1.VoyageAIModelVoyage4, "1.0.0")
-	vai.Spec.Security.TLS = &vaiv1.TLS{
-		CertificateKeySecretRef: corev1.LocalObjectReference{Name: "tls-secret"},
-		CAConfigMapRef:          &corev1.LocalObjectReference{Name: "ca-configmap"},
-	}
-	reconciler, _ := newVoyageAIReconcilerWithConfig(defaultVoyageAIConfig(), vai)
-
-	cm := &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{Name: "ca-configmap", Namespace: mock.TestNamespace},
-	}
-
-	requests := reconciler.mapConfigMapToVoyageAI(ctx, cm)
-	require.Len(t, requests, 1)
-	assert.Equal(t, vai.Name, requests[0].Name)
-}
-
-func TestVoyageAI_MapConfigMapToVoyageAI_NoMatchWhenCAAbsent(t *testing.T) {
-	ctx := context.Background()
-	vai := newVoyageAI("vai", mock.TestNamespace, vaiv1.VoyageAIModelVoyage4, "1.0.0")
-	vai.Spec.Security.TLS = &vaiv1.TLS{
-		CertificateKeySecretRef: corev1.LocalObjectReference{Name: "tls-secret"},
-	}
-	reconciler, _ := newVoyageAIReconcilerWithConfig(defaultVoyageAIConfig(), vai)
-
-	cm := &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{Name: "ca-configmap", Namespace: mock.TestNamespace},
-	}
-
-	assert.Empty(t, reconciler.mapConfigMapToVoyageAI(ctx, cm))
 }
 
 func TestVoyageAI_MapSecretToVoyageAI_MultipleDependents(t *testing.T) {

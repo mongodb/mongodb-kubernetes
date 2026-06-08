@@ -40,21 +40,18 @@ import (
 
 const (
 	voyageAITLSCertPath = "/etc/voyageai/tls"
-	voyageAITLSCAPath   = voyageAITLSCertPath + "/ca"
 
 	voyageAITLSCertFile = voyageAITLSCertPath + "/tls.crt"
 	voyageAITLSKeyFile  = voyageAITLSCertPath + "/tls.key"
-	voyageAITLSCACerts  = voyageAITLSCAPath + "/ca.crt"
 
 	voyageAIStartupPath   = "/health/startup"
 	voyageAIReadinessPath = "/health/readiness"
 	voyageAILivenessPath  = "/health/liveness"
 
-	// Field indexes used to find VoyageAI resources that reference a given
-	// Secret or ConfigMap. The cache builds these indexes when the controller
-	// starts so map-funcs can look up dependents in O(1).
-	voyageAITLSCertSecretIndex  = ".spec.security.tls.certificateKeySecretRef.name"
-	voyageAITLSCAConfigMapIndex = ".spec.security.tls.caConfigMapRef.name"
+	// voyageAITLSCertSecretIndex lets the cache find VoyageAI resources that
+	// reference a given Secret, so the map-func can look up dependents in O(1)
+	// when a watched Secret changes.
+	voyageAITLSCertSecretIndex = ".spec.security.tls.certificateKeySecretRef.name"
 )
 
 type OperatorVoyageAIConfig struct {
@@ -133,7 +130,7 @@ func (r *VoyageAIReconciler) ensureDeployment(ctx context.Context, vai *vaiv1.Vo
 		})
 	}
 
-	mTLSEnabled := tlsEnabled && vai.Spec.Security.TLS.CAConfigMapRef != nil
+	probePort := vai.Spec.Server.Port
 
 	containerMods := []container.Modification{
 		container.WithName("voyageai"),
@@ -142,7 +139,7 @@ func (r *VoyageAIReconciler) ensureDeployment(ctx context.Context, vai *vaiv1.Vo
 		container.WithEnvs(buildEnvVars(&vai.Spec, tlsEnabled)...),
 		container.WithResourceRequirements(buildResourceRequirements(vai.Spec.ResourceRequirements)),
 		container.WithStartupProbe(probes.Apply(
-			probes.WithHandler(buildProbeHandler(voyageAIStartupPath, vai.Spec.Server.Port, probeScheme, mTLSEnabled)),
+			probes.WithHandler(buildProbeHandler(voyageAIStartupPath, probePort, probeScheme)),
 			// GPU model weights can take many minutes to load into device memory.
 			// 60 failures × 10s period = 10 minutes before Kubernetes gives up.
 			probes.WithPeriodSeconds(10),
@@ -150,13 +147,13 @@ func (r *VoyageAIReconciler) ensureDeployment(ctx context.Context, vai *vaiv1.Vo
 			probes.WithTimeoutSeconds(5),
 		)),
 		container.WithReadinessProbe(probes.Apply(
-			probes.WithHandler(buildProbeHandler(voyageAIReadinessPath, vai.Spec.Server.Port, probeScheme, mTLSEnabled)),
+			probes.WithHandler(buildProbeHandler(voyageAIReadinessPath, probePort, probeScheme)),
 			probes.WithPeriodSeconds(10),
 			probes.WithFailureThreshold(3),
 			probes.WithTimeoutSeconds(5),
 		)),
 		container.WithLivenessProbe(probes.Apply(
-			probes.WithHandler(buildProbeHandler(voyageAILivenessPath, vai.Spec.Server.Port, probeScheme, mTLSEnabled)),
+			probes.WithHandler(buildProbeHandler(voyageAILivenessPath, probePort, probeScheme)),
 			probes.WithPeriodSeconds(10),
 			probes.WithFailureThreshold(3),
 			probes.WithTimeoutSeconds(5),
@@ -189,21 +186,6 @@ func (r *VoyageAIReconciler) ensureDeployment(ctx context.Context, vai *vaiv1.Vo
 				),
 				container.WithVolumeMounts([]corev1.VolumeMount{tlsCertVolumeMount}),
 			))
-
-		if tlsCfg.CAConfigMapRef != nil {
-			tlsCAVolume := statefulset.CreateVolumeFromConfigMap("tls-ca", tlsCfg.CAConfigMapRef.Name)
-			tlsCAVolumeMount := statefulset.CreateVolumeMount("tls-ca", voyageAITLSCAPath, statefulset.WithReadOnly(true))
-
-			podTemplateMods = append(podTemplateMods, podtemplatespec.WithVolume(tlsCAVolume))
-			containerMods = append(containerMods,
-				container.Apply(
-					container.WithEnvs(
-						corev1.EnvVar{Name: "SERVER__TLS__ENABLED", Value: strconv.FormatBool(true)},
-						corev1.EnvVar{Name: "SERVER__TLS__CA_CERTS", Value: voyageAITLSCACerts},
-					),
-					container.WithVolumeMounts([]corev1.VolumeMount{tlsCAVolumeMount}),
-				))
-		}
 	}
 
 	if vai.Spec.NodeAffinity != nil {
@@ -233,6 +215,13 @@ func (r *VoyageAIReconciler) ensureDeployment(ctx context.Context, vai *vaiv1.Vo
 	}
 
 	_, err := controllerutil.CreateOrUpdate(ctx, r.kubeClient, dep, func() error {
+		// Reset the pod template before rebuilding it. The builder helpers merge
+		// by name (WithContainer appends, WithEnvs replaces-or-appends), so
+		// without this an element that is no longer desired would persist across
+		// reconciles — e.g. the TLS cert volume and SERVER__TLS__* env would
+		// linger after TLS is disabled. Rebuilding from empty makes the desired
+		// spec authoritative.
+		dep.Spec.Template = corev1.PodTemplateSpec{}
 		deployment.Apply(modifications...)(dep)
 		return controllerutil.SetOwnerReference(vai, dep, r.kubeClient.Scheme())
 	})
@@ -430,18 +419,11 @@ func voyageAIPodLabels(vai *vaiv1.VoyageAI) map[string]string {
 	}
 }
 
-// buildProbeHandler returns the appropriate probe handler for the given path.
-// In mTLS mode the kubelet's HTTPS probe cannot present a client certificate
-// (kubelet has no built-in support for it — see kubernetes/kubernetes#39637),
-// so we fall back to a TCP socket probe that just verifies the port is
-// listening. This loses application-level health signal in mTLS mode; see the
-// CRD design doc for the trade-off discussion.
-func buildProbeHandler(path string, port int32, scheme corev1.URIScheme, mTLS bool) corev1.ProbeHandler {
-	if mTLS {
-		return corev1.ProbeHandler{
-			TCPSocket: &corev1.TCPSocketAction{Port: intstr.FromInt32(port)},
-		}
-	}
+// buildProbeHandler returns an HTTP GET probe handler for the given path, port
+// and scheme. With server-only TLS the kubelet's HTTPS prober reaches the
+// server directly. mTLS (which the kubelet cannot satisfy) is intentionally not
+// supported by the operator — use a service mesh for mutual TLS.
+func buildProbeHandler(path string, port int32, scheme corev1.URIScheme) corev1.ProbeHandler {
 	return corev1.ProbeHandler{
 		HTTPGet: &corev1.HTTPGetAction{
 			Path:   path,
@@ -466,9 +448,8 @@ func msToSecondsFloat(ms int32) string {
 func AddVoyageAIController(ctx context.Context, mgr manager.Manager, config OperatorVoyageAIConfig) error {
 	r := newVoyageAIReconciler(mgr.GetClient(), config)
 
-	// Index VoyageAI resources by the names of the Secret and ConfigMap they
-	// reference. The map-funcs below query these indexes to enqueue dependents
-	// when a referenced Secret/ConfigMap changes.
+	// Index VoyageAI resources by the name of the TLS cert Secret they reference,
+	// so the map-func can enqueue dependents when that Secret changes.
 	if err := mgr.GetFieldIndexer().IndexField(ctx, &vaiv1.VoyageAI{}, voyageAITLSCertSecretIndex, func(o client.Object) []string {
 		vai := o.(*vaiv1.VoyageAI)
 		if vai.Spec.Security.TLS == nil {
@@ -479,21 +460,10 @@ func AddVoyageAIController(ctx context.Context, mgr manager.Manager, config Oper
 		return xerrors.Errorf("failed to index VoyageAI by TLS cert secret name: %w", err)
 	}
 
-	if err := mgr.GetFieldIndexer().IndexField(ctx, &vaiv1.VoyageAI{}, voyageAITLSCAConfigMapIndex, func(o client.Object) []string {
-		vai := o.(*vaiv1.VoyageAI)
-		if vai.Spec.Security.TLS == nil || vai.Spec.Security.TLS.CAConfigMapRef == nil {
-			return nil
-		}
-		return []string{vai.Spec.Security.TLS.CAConfigMapRef.Name}
-	}); err != nil {
-		return xerrors.Errorf("failed to index VoyageAI by TLS CA configmap name: %w", err)
-	}
-
 	return ctrl.NewControllerManagedBy(mgr).
 		WithOptions(controller.Options{MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)}). // nolint:forbidigo
 		For(&vaiv1.VoyageAI{}).
 		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.mapSecretToVoyageAI)).
-		Watches(&corev1.ConfigMap{}, handler.EnqueueRequestsFromMapFunc(r.mapConfigMapToVoyageAI)).
 		Owns(&appsv1.Deployment{}).
 		Owns(&corev1.Service{}).
 		Complete(r)
@@ -504,12 +474,6 @@ func AddVoyageAIController(ctx context.Context, mgr manager.Manager, config Oper
 // The cache index ensures this lookup is O(1) regardless of resource count.
 func (r *VoyageAIReconciler) mapSecretToVoyageAI(ctx context.Context, obj client.Object) []reconcile.Request {
 	return r.enqueueDependents(ctx, voyageAITLSCertSecretIndex, obj.GetName(), obj.GetNamespace())
-}
-
-// mapConfigMapToVoyageAI returns reconcile requests for VoyageAI resources that
-// reference the given ConfigMap via spec.security.tls.caConfigMapRef.
-func (r *VoyageAIReconciler) mapConfigMapToVoyageAI(ctx context.Context, obj client.Object) []reconcile.Request {
-	return r.enqueueDependents(ctx, voyageAITLSCAConfigMapIndex, obj.GetName(), obj.GetNamespace())
 }
 
 func (r *VoyageAIReconciler) enqueueDependents(ctx context.Context, indexKey, name, namespace string) []reconcile.Request {
