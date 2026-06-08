@@ -175,6 +175,10 @@ cert:
 recreate-e2e-multicluster-kind:
 	scripts/dev/recreate_kind_clusters.sh
 
+.PHONY: check-kubernetes-versions
+check-kubernetes-versions:
+	scripts/check-kube-versions.sh
+
 ####################################
 ## operator-sdk provided Makefile ##
 ####################################

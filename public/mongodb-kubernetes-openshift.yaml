@@ -325,6 +325,8 @@ spec:
         app.kubernetes.io/component: controller
         app.kubernetes.io/name: mongodb-kubernetes-operator
         app.kubernetes.io/instance: mongodb-kubernetes-operator
+      annotations:
+        mongodb.com/installation-method: "yaml"
     spec:
       serviceAccountName: mongodb-kubernetes-operator
       containers:
@@ -371,6 +373,8 @@ spec:
               value: "168h"
             - name: CLUSTER_CLIENT_TIMEOUT
               value: "10"
+            - name: MDB_MEMBER_CLUSTER_REQUIRED_HEALTHY_STREAK
+              value: "5"
             - name: IMAGE_PULL_POLICY
               value: Always
             # Database
@@ -407,6 +411,10 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
+            - name: MCK_INSTALLER
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.annotations['mongodb.com/installation-method']
             - name: OPERATOR_NAME
               value: mongodb-kubernetes-operator
             # Community Env Vars Start
