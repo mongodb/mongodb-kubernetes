@@ -1433,6 +1433,11 @@ tasks:
     commands:
       - func: "e2e_test"
 
+  - name: e2e_search_availability_tls_enable
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
   - name: e2e_search_cds_hot_reload
     tags: [ "patch-run" ]
     commands:
