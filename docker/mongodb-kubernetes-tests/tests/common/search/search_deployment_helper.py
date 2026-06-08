@@ -380,6 +380,7 @@ class SearchDeploymentHelper:
         replicas: Optional[int] = None,
         clusters: Optional[list] = None,
         envoy_replicas: Optional[int] = None,
+        set_search_tls: bool = True,
     ) -> MongoDBSearch:
         """Create MongoDBSearch with an external RS source.
 
@@ -387,6 +388,8 @@ class SearchDeploymentHelper:
         a single entry with no clusterName models a single-cluster RS at index 0.
         ``envoy_replicas`` sets spec.loadBalancer.managed.replicas (managed LB only);
         the operator defaults to a single Envoy pod when it is unset.
+        ``set_search_tls=False`` omits spec.security.tls so the operator deploys mongot/envoy
+        without TLS (plaintext gRPC) — the non-TLS bootstrap for off->on enable tests.
         """
         resource = MongoDBSearch.from_yaml(
             yaml_fixture("search-minimal.yaml"),
@@ -414,9 +417,10 @@ class SearchDeploymentHelper:
             },
         }
 
-        resource["spec"]["security"] = {
-            "tls": {"certsSecretPrefix": self.tls_cert_prefix},
-        }
+        if set_search_tls:
+            resource["spec"]["security"] = {
+                "tls": {"certsSecretPrefix": self.tls_cert_prefix},
+            }
 
         if lb_mode:
             if lb_mode == "Managed":
