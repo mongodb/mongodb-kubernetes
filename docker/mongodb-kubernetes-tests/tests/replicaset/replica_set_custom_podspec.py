@@ -123,7 +123,6 @@ def test_stateful_set_spec_updated(replica_set, namespace):
                     "recursive_read_only": None,
                 },
             ],
-            "security_context": {"allow_privilege_escalation": False, "capabilities": {"add": None, "drop": ["ALL"]}},
         },
         {
             "name": "side-car",
@@ -141,7 +140,6 @@ def test_stateful_set_spec_updated(replica_set, namespace):
             ],
             "command": ["/bin/sh"],
             "args": ["-c", "echo ok > /somewhere/busybox_file && sleep 7200"],
-            "security_context": {"allow_privilege_escalation": False, "capabilities": {"add": None, "drop": ["ALL"]}},
         },
     ]
 

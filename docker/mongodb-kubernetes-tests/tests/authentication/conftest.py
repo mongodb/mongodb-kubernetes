@@ -2,7 +2,7 @@ import os
 from typing import Dict, Generator, List, Optional
 
 from kubernetes import client
-from kubetester import get_pod_when_ready, read_secret
+from kubetester import create_or_update_namespace, get_pod_when_ready, read_secret
 from kubetester.certs import generate_cert
 from kubetester.helm import helm_uninstall, helm_upgrade
 from kubetester.ldap import (
@@ -20,6 +20,7 @@ from tests.conftest import is_member_cluster
 
 LDAP_PASSWORD = "LDAPPassword."
 LDAP_NAME = "openldap"
+LDAP_NAMESPACE = "openldap"
 LDAP_POD_LABEL = "app=openldap"
 LDAP_PORT_PLAIN = 389
 LDAP_PORT_TLS = 636
@@ -27,6 +28,14 @@ LDAP_PROTO_PLAIN = "ldap"
 LDAP_PROTO_TLS = "ldaps"
 
 AUTOMATION_AGENT_NAME = "mms-automation-agent"
+
+
+def _ensure_ldap_namespace() -> str:
+    create_or_update_namespace(
+        LDAP_NAMESPACE,
+        labels={"pod-security.kubernetes.io/warn": "restricted"},
+    )
+    return LDAP_NAMESPACE
 
 
 def pytest_runtest_setup(item):
@@ -87,15 +96,15 @@ def openldap_tls(
     In order to do it, this fixture will install the vendored openldap Helm chart
     located in `vendor/openldap` directory inside the `tests` container image.
     """
-
+    ldap_ns = _ensure_ldap_namespace()
     helm_args = {
         "tls.enabled": "true",
         "tls.secret": openldap_cert,
         # Do not require client certificates
         "env.LDAP_TLS_VERIFY_CLIENT": "never",
-        "namespace": namespace,
+        "namespace": ldap_ns,
     }
-    server = openldap_install(namespace, name=LDAP_NAME, helm_args=helm_args, tls=True)
+    server = openldap_install(ldap_ns, name=LDAP_NAME, helm_args=helm_args, tls=True)
     # When creating a new OpenLDAP container with TLS enabled, the container is ready, but the server is not accepting
     # requests, as it's generating DH parameters for the TLS config. Only using retries!=0 for ldap_initialize when creating
     # the OpenLDAP server.
@@ -110,20 +119,22 @@ def openldap(namespace: str) -> OpenLDAP:
     In order to do it, this fixture will install the vendored openldap Helm chart
     located in `vendor/openldap` directory inside the `tests` container image.
     """
-    ref = openldap_install(namespace, LDAP_NAME)
+    ldap_ns = _ensure_ldap_namespace()
+    ref = openldap_install(ldap_ns, LDAP_NAME)
     print(f"Returning OpenLDAP=: {ref}")
     return ref
 
 
 @fixture(scope="module")
 def secondary_openldap(namespace: str) -> OpenLDAP:
-    return openldap_install(namespace, f"{LDAP_NAME}secondary")
+    ldap_ns = _ensure_ldap_namespace()
+    return openldap_install(ldap_ns, f"{LDAP_NAME}secondary")
 
 
 @fixture(scope="module")
 def openldap_cert(namespace: str, issuer: str) -> str:
     """Returns a new secret to be used to enable TLS on LDAP."""
-    host = ldap_host(namespace, LDAP_NAME)
+    host = ldap_host(LDAP_NAMESPACE, LDAP_NAME)
     return generate_cert(namespace, "openldap", host, issuer)
 
 
