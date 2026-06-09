@@ -29,17 +29,17 @@ NON_ADMIN_PASSWORD_SECRET_NAME = "mms-user-2-password"
 NON_ADMIN_USER_PASSWORD = "my-password-2"
 NON_ADMIN_USER_DATABASE = "testdb"
 
+# User that already exists in Ops Manager with only SHA-256 creds and the SCRAM-SHA-256 mechanism.
 OM_SHA256_USER_NAME = "om-user-sha256"
-OM_SHA256_USER_PASSWORD_SECRET = "om-user-sha256-password"
 OM_SHA256_USER_PASSWORD = "om-sha256-password-1"
+OM_SHA256_USER_PASSWORD_SECRET = "om-user-sha256-password"
+SEEDED_SHA256_CREDS = build_sha256_creds(OM_SHA256_USER_PASSWORD)
 
-SEEDED_OM_SHA256_CREDS = build_sha256_creds(OM_SHA256_USER_PASSWORD)
-
+# User that already exists in Ops Manager with no mechanisms list and only SHA-256 creds.
 OM_NO_MECH_USER_NAME = "om-user-no-mech"
-OM_NO_MECH_USER_PASSWORD_SECRET = "om-user-no-mech-password"
 OM_NO_MECH_USER_PASSWORD = "om-no-mech-password-1"
-
-SEEDED_OM_NO_MECH_SHA256_CREDS = build_sha256_creds(OM_NO_MECH_USER_PASSWORD)
+OM_NO_MECH_USER_PASSWORD_SECRET = "om-user-no-mech-password"
+SEEDED_NO_MECH_SHA256_CREDS = build_sha256_creds(OM_NO_MECH_USER_PASSWORD)
 
 
 @fixture(scope="function")
@@ -231,7 +231,7 @@ def _seed_sha256_user_in_ac() -> None:
         db=USER_DATABASE,
         roles=[{"role": "readWrite", "db": USER_DATABASE}],
         mechanisms=["SCRAM-SHA-256"],
-        sha256_creds=SEEDED_OM_SHA256_CREDS,
+        sha256_creds=SEEDED_SHA256_CREDS,
     )
 
 
@@ -254,7 +254,7 @@ def _seed_no_mech_user_in_ac() -> None:
         db=USER_DATABASE,
         roles=[{"role": "readWrite", "db": USER_DATABASE}],
         mechanisms=None,
-        sha256_creds=SEEDED_OM_NO_MECH_SHA256_CREDS,
+        sha256_creds=SEEDED_NO_MECH_SHA256_CREDS,
     )
 
 
@@ -282,6 +282,13 @@ class TestK8sUserHasEmptyMechanisms(KubernetesTester):
         assert user.get("scramSha1Creds"), "scramSha1Creds should be present"
 
 
+# Tests importing a user that already exists in Ops Manager into K8s management.
+# The user has only SHA-256 creds. The two setup steps below must run in order:
+# step 1 creates the user directly in Ops Manager, step 2 registers it with the operator
+# via a MongoDBUser resource. TestOMUserSha256OnlyPreserved then checks that the original
+# SHA-256 creds are kept intact and that the operator generates the missing SHA-1 creds.
+
+
 @pytest.mark.e2e_sharded_cluster_scram_sha_256_user_connectivity
 def test_seed_sha256_user_in_ac():
     _seed_sha256_user_in_ac()
@@ -297,18 +304,23 @@ def test_om_user_sha256_created(namespace: str):
 @pytest.mark.e2e_sharded_cluster_scram_sha_256_user_connectivity
 class TestOMUserSha256OnlyPreserved(KubernetesTester):
     def test_om_user_sha256_mechanisms_empty_after_transition(self):
+        # Once Ops Manager processes the password and the operator reconciles again,
+        # it treats the imported user as K8s-managed (mechanisms=[]).
         tester = AutomationConfigTester(KubernetesTester.get_automation_config())
         tester.assert_has_user(OM_SHA256_USER_NAME)
         assert_user_mechanisms(tester, OM_SHA256_USER_NAME, [])
 
     def test_om_user_sha256_creds_preserved_byte_for_byte(self):
+        # The SHA-256 creds set in Ops Manager before the import must remain unchanged.
+        # Only the missing SHA-1 creds should be added.
         assert_creds_preserved(
             AutomationConfigTester(KubernetesTester.get_automation_config()),
             OM_SHA256_USER_NAME,
-            sha256_creds=SEEDED_OM_SHA256_CREDS,
+            sha256_creds=SEEDED_SHA256_CREDS,
         )
 
     def test_om_user_sha256_gets_sha1_creds_after_transition(self):
+        # After the import the operator generates only the missing SHA-1 creds.
         user = get_ac_user(AutomationConfigTester(KubernetesTester.get_automation_config()), OM_SHA256_USER_NAME)
         assert user.get("scramSha256Creds"), "SHA-256 creds must be present"
         assert user.get("scramSha1Creds"), "SHA-1 creds must be present after the follow-up reconcile"
@@ -320,6 +332,28 @@ class TestOMUserSha256OnlyPreserved(KubernetesTester):
             auth_mechanism="SCRAM-SHA-256",
             attempts=20,
         )
+
+    def test_om_user_sha256_password_can_change(self):
+        ac_version = AutomationConfigTester(KubernetesTester.get_automation_config()).automation_config["version"]
+        new_password = "om-sha256-password-new-1"
+        KubernetesTester.update_secret(KubernetesTester.get_namespace(), OM_SHA256_USER_PASSWORD_SECRET, {"password": new_password})
+
+        wait_until(
+            lambda: AutomationConfigTester(KubernetesTester.get_automation_config()).reached_version(ac_version + 1),
+            timeout=600,
+        )
+
+        assert_user_mechanisms(AutomationConfigTester(KubernetesTester.get_automation_config()), OM_SHA256_USER_NAME, [])
+        ShardedClusterTester(MDB_RESOURCE, 2).assert_scram_sha_authentication(
+            password=new_password,
+            username=OM_SHA256_USER_NAME,
+            auth_mechanism="SCRAM-SHA-256",
+        )
+
+
+# Same import scenario as above, but the user has no mechanisms list set in Ops Manager.
+# The operator treats this the same as a K8s-managed user: it keeps the existing SHA-256
+# creds and generates the missing SHA-1 creds in the same reconcile pass.
 
 
 @pytest.mark.e2e_sharded_cluster_scram_sha_256_user_connectivity
@@ -336,24 +370,29 @@ def test_om_user_no_mech_created(namespace: str):
 
 @pytest.mark.e2e_sharded_cluster_scram_sha_256_user_connectivity
 class TestOMUserNullMechanismsIsK8sManaged(KubernetesTester):
-    def test_null_mechanisms_user_treated_as_k8s_managed(self):
+    def test_om_user_no_mech_mechanisms_empty_after_transition(self):
+        # Once Ops Manager processes the password and the operator reconciles again,
+        # it treats the imported user as K8s-managed (mechanisms=[]).
         tester = AutomationConfigTester(KubernetesTester.get_automation_config())
         tester.assert_has_user(OM_NO_MECH_USER_NAME)
         assert_user_mechanisms(tester, OM_NO_MECH_USER_NAME, [])
 
-    def test_null_mechanisms_user_sha256_creds_preserved(self):
+    def test_om_user_no_mech_sha256_creds_preserved(self):
+        # The SHA-256 creds set in Ops Manager before the import must remain unchanged.
+        # Only the missing SHA-1 creds should be added.
         assert_creds_preserved(
             AutomationConfigTester(KubernetesTester.get_automation_config()),
             OM_NO_MECH_USER_NAME,
-            sha256_creds=SEEDED_OM_NO_MECH_SHA256_CREDS,
+            sha256_creds=SEEDED_NO_MECH_SHA256_CREDS,
         )
 
-    def test_null_mechanisms_user_gets_sha1_creds(self):
+    def test_om_user_no_mech_gets_sha1_creds_after_transition(self):
+        # After the import the operator generates only the missing SHA-1 creds.
         user = get_ac_user(AutomationConfigTester(KubernetesTester.get_automation_config()), OM_NO_MECH_USER_NAME)
         assert user.get("scramSha256Creds"), "SHA-256 creds must be present"
-        assert user.get("scramSha1Creds"), "SHA-1 creds must be generated for a no-mechanisms user"
+        assert user.get("scramSha1Creds"), "SHA-1 creds must be present after the follow-up reconcile"
 
-    def test_null_mechanisms_user_can_authenticate(self):
+    def test_om_user_no_mech_can_authenticate_after_transition(self):
         ShardedClusterTester(MDB_RESOURCE, 2).assert_scram_sha_authentication(
             password=OM_NO_MECH_USER_PASSWORD,
             username=OM_NO_MECH_USER_NAME,
@@ -361,7 +400,7 @@ class TestOMUserNullMechanismsIsK8sManaged(KubernetesTester):
             attempts=20,
         )
 
-    def test_null_mechanisms_user_password_can_change(self):
+    def test_om_user_no_mech_password_can_change(self):
         ac_version = AutomationConfigTester(KubernetesTester.get_automation_config()).automation_config["version"]
         new_password = "om-no-mech-password-new-1"
         KubernetesTester.update_secret(KubernetesTester.get_namespace(), OM_NO_MECH_USER_PASSWORD_SECRET, {"password": new_password})
