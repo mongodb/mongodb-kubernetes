@@ -431,6 +431,8 @@ func noExternalMembersAdditionOrChanges(newObj, oldObj MongoDbSpec) v1.Validatio
 	return v1.ValidationSuccess()
 }
 
+// noShardNameOverridesAddedOrModified rejects updates that add or change shardNameOverrides entries.
+// Entries are immutable once set because they map a shard to its AC identity.
 func noShardNameOverridesAddedOrModified(newObj, oldObj MongoDbSpec) v1.ValidationResult {
 	oldByShardName := make(map[string]ShardNameOverride, len(oldObj.ShardNameOverrides))
 	for _, o := range oldObj.ShardNameOverrides {
