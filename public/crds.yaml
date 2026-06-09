@@ -4243,6 +4243,25 @@ spec:
                                     More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
                                   type: object
                               type: object
+                            retryPolicy:
+                              description: |-
+                                RetryPolicy configures Envoy retry behavior for requests to upstream mongot clusters.
+                                When not set, retries are enabled with sensible defaults (2 retries, 60s per-try timeout).
+                              properties:
+                                numRetries:
+                                  description: |-
+                                    NumRetries is the maximum number of retries per request.
+                                    Defaults to 2 if not specified (3 total attempts including the original).
+                                  format: int32
+                                  minimum: 1
+                                  type: integer
+                                perTryTimeout:
+                                  description: |-
+                                    PerTryTimeout is the timeout for each retry attempt (including the original).
+                                    Specified as a Go duration string (e.g., "60s", "30s").
+                                    Defaults to "60s" if not specified.
+                                  type: string
+                              type: object
                           type: object
                         unmanaged:
                           description: Unmanaged configures a user-provided (BYO)
@@ -4568,6 +4587,25 @@ spec:
                               otherwise to an implementation-defined value. Requests cannot exceed Limits.
                               More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
                             type: object
+                        type: object
+                      retryPolicy:
+                        description: |-
+                          RetryPolicy configures Envoy retry behavior for requests to upstream mongot clusters.
+                          When not set, retries are enabled with sensible defaults (2 retries, 60s per-try timeout).
+                        properties:
+                          numRetries:
+                            description: |-
+                              NumRetries is the maximum number of retries per request.
+                              Defaults to 2 if not specified (3 total attempts including the original).
+                            format: int32
+                            minimum: 1
+                            type: integer
+                          perTryTimeout:
+                            description: |-
+                              PerTryTimeout is the timeout for each retry attempt (including the original).
+                              Specified as a Go duration string (e.g., "60s", "30s").
+                              Defaults to "60s" if not specified.
+                            type: string
                         type: object
                     type: object
                   unmanaged:
