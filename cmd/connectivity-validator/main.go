@@ -28,15 +28,16 @@ func main() {
 	zap.ReplaceGlobals(logger) // validator package uses zap.S()
 	log := logger.Sugar()
 
-	members := strings.Fields(os.Getenv("EXTERNAL_MEMBERS"))
+	members := strings.Fields(os.Getenv("EXTERNAL_MEMBERS")) //nolint:forbidigo
 	cfg := connectivitycheck.Config{
-		ConnectionString: os.Getenv("CONNECTION_STRING"),
-		ExternalMembers:  members,
-		AuthMechanism:    os.Getenv("AUTH_MECHANISM"),
-		CertPath:         os.Getenv("CERT_PATH"),
-		CAPath:           os.Getenv("CA_PATH"),
-		SubjectDN:        os.Getenv("SUBJECT_DN"),
-		MongodTLSCAPath:  os.Getenv("MONGOD_TLS_CA_PATH"),
+		ConnectionString:   os.Getenv("CONNECTION_STRING"), //nolint:forbidigo
+		ExternalMembers:    members,
+		AuthMechanism:      os.Getenv("AUTH_MECHANISM"),                 //nolint:forbidigo
+		CertPath:           os.Getenv("CERT_PATH"),                      //nolint:forbidigo
+		CAPath:             os.Getenv("CA_PATH"),                        //nolint:forbidigo
+		SubjectDN:          os.Getenv("SUBJECT_DN"),                     //nolint:forbidigo
+		MongodTLSCAPath:    os.Getenv("MONGOD_TLS_CA_PATH"),             //nolint:forbidigo
+		ClientCertRequired: os.Getenv("CLIENT_CERT_REQUIRED") == "true", //nolint:forbidigo
 	}
 	if cfg.ConnectionString == "" {
 		log.Error("CONNECTION_STRING is required")

@@ -11,9 +11,10 @@ import (
 
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
-	driver "go.mongodb.org/mongo-driver/x/mongo/driver"
 	"go.mongodb.org/mongo-driver/x/mongo/driver/topology"
 	"go.uber.org/zap"
+
+	driver "go.mongodb.org/mongo-driver/x/mongo/driver"
 
 	"github.com/mongodb/mongodb-kubernetes/cmd/connectivity-validator/exitcode"
 )
@@ -41,6 +42,10 @@ type Config struct {
 	// MongodTLSCAPath is the path to the CA PEM used to verify mongod TLS certificates.
 	// When set, TLS transport is enabled for all connections even when using SCRAM auth.
 	MongodTLSCAPath string
+	// ClientCertRequired indicates that the mongod requires a client certificate
+	// (clientCertificateMode: REQUIRE). When true, a missing cert file is an error rather
+	// than a silent fallback to CA-only TLS.
+	ClientCertRequired bool
 }
 
 // Validate runs the full connectivity check and returns an exit code.
@@ -133,8 +138,13 @@ func buildClientOptions(cfg Config, uri string) (*options.ClientOptions, error) 
 			if _, statErr := os.Stat(cfg.CertPath); statErr == nil {
 				log.Debugw("Configuring TLS transport with client cert", "caPath", cfg.MongodTLSCAPath, "certPath", cfg.CertPath)
 				tlsCfg, err = buildTLSConfig(cfg.CertPath, cfg.MongodTLSCAPath)
+			} else if os.IsNotExist(statErr) && !cfg.ClientCertRequired {
+				log.Debugw("Configuring TLS transport (CA only)", "caPath", cfg.MongodTLSCAPath)
+				tlsCfg, err = buildTLSConfigFromCA(cfg.MongodTLSCAPath)
+			} else if os.IsNotExist(statErr) && cfg.ClientCertRequired {
+				return nil, fmt.Errorf("client certificate required but not found at %q", cfg.CertPath)
 			} else {
-				return nil, fmt.Errorf("stat client cert: %w", statErr)
+				return nil, fmt.Errorf("stat client cert %q: %w", cfg.CertPath, statErr)
 			}
 		} else {
 			log.Debugw("Configuring TLS transport (CA only)", "caPath", cfg.MongodTLSCAPath)
