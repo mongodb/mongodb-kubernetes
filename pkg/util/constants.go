@@ -217,8 +217,6 @@ const (
 	MdbWebhookPortEnv                  = "MDB_WEBHOOK_PORT"
 	MdbWebhookNameEnv                  = "MDB_WEBHOOK_NAME"
 
-	MaxConcurrentReconcilesEnv = "MDB_MAX_CONCURRENT_RECONCILES"
-
 	// Search environment variables
 	SearchRepoURLEnv = "MDB_SEARCH_REPO_URL"
 	SearchNameEnv    = "MDB_SEARCH_NAME"
