@@ -464,7 +464,7 @@ func envoyPodLabels(search *searchv1.MongoDBSearch) map[string]string {
 }
 
 // Controller Registration
-func AddMongoDBSearchEnvoyController(ctx context.Context, mgr manager.Manager, defaultEnvoyImage string) error {
+func AddMongoDBSearchEnvoyController(ctx context.Context, mgr manager.Manager, defaultEnvoyImage string, maxConcurrentReconciles int) error {
 	// NOTE: The field index for MongoDBSearchIndexFieldName is already registered
 	// by AddMongoDBSearchController. Do not register it again here.
 
@@ -472,7 +472,7 @@ func AddMongoDBSearchEnvoyController(ctx context.Context, mgr manager.Manager, d
 
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("mongodbsearchenvoy").
-		WithOptions(controller.Options{MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)}). // nolint:forbidigo
+		WithOptions(controller.Options{MaxConcurrentReconciles: maxConcurrentReconciles}).
 		For(&searchv1.MongoDBSearch{}).
 		Watches(&mdbv1.MongoDB{}, &watch.ResourcesHandler{ResourceType: watch.MongoDB, ResourceWatcher: r.watch}).
 		Watches(&mdbcv1.MongoDBCommunity{}, &watch.ResourcesHandler{ResourceType: "MongoDBCommunity", ResourceWatcher: r.watch}).
