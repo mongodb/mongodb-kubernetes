@@ -439,6 +439,7 @@ def patch_per_cluster_mongot_host_via_om(
     logger.info(f"patched {len(patched_processes)} processes: {patched_processes}")
 
     ac["version"] = ac.get("version", 0) + 1
+    om_tester.clear_feature_controls()
     om_tester.om_request("put", ac_path, json_object=ac)
     logger.info(f"PUT automation config v{ac['version']} with per-cluster mongotHost")
 
@@ -591,6 +592,7 @@ def patch_per_cluster_sharded_mongot_host_via_om(
     logger.info(f"patched {len(patched)} sharded processes: {patched}")
 
     ac["version"] = ac.get("version", 0) + 1
+    om_tester.clear_feature_controls()
     om_tester.om_request("put", ac_path, json_object=ac)
     logger.info(f"PUT automation config v{ac['version']} with per-(cluster,shard) mongotHost")
 

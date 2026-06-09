@@ -445,6 +445,19 @@ class OMTester(object):
     def get_feature_controls(self):
         return self.om_request("get", f"/groups/{self.context.project_id}/controlledFeature").json()
 
+    def clear_feature_controls(self) -> None:
+        """Reset controlledFeature to no policies so a direct automationConfig PUT is
+        accepted past the operator's EXTERNALLY_MANAGED_LOCK. Same call as
+        delete_om_projects.sh / setup_cloud_qa.py; the operator re-asserts the lock on
+        its next reconcile, so this only opens a window for the immediately-following PUT.
+        """
+        self.om_request(
+            "put",
+            f"/groups/{self.context.project_id}/controlledFeature",
+            json_object={"externalManagementSystem": {"name": "mongodb-kubernetes-operator"}, "policies": []},
+        )
+        logger.info("cleared controlledFeature policies (EXTERNALLY_MANAGED_LOCK) before direct automationConfig PUT")
+
     def find_group_id(self):
         """
         Obtains the group id of the group with specified name.
