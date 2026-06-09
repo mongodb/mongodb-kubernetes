@@ -95,17 +95,7 @@ func NewEmptyFakeClientBuilder() *fake.ClientBuilder {
 		return nil
 	}
 
-	err = searchv1.AddToScheme(s)
-	if err != nil {
-		return nil
-	}
-
 	err = mdbcv1.AddToScheme(s)
-	if err != nil {
-		return nil
-	}
-
-	err = rolev1.AddToScheme(s)
 	if err != nil {
 		return nil
 	}
