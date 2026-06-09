@@ -23,6 +23,7 @@ import (
 	routerv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/router/v3"
 	tlsinspectorv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/listener/tls_inspector/v3"
 	hcmv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
+	previoushostsv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/retry/host/previous_hosts/v3"
 	tlsv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
 	upstreamhttpv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/upstreams/http/v3"
 	discoveryv3 "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
@@ -119,10 +120,10 @@ func buildCDSJSON(routes []envoyRoute, tlsEnabled bool, caKeyName string) (strin
 
 // buildLDSJSON builds the LDS (Listener Discovery Service) DiscoveryResponse JSON containing the listener.
 // The listener has one filter chain per route (per shard or single RS).
-func buildLDSJSON(routes []envoyRoute, tlsEnabled bool, caKeyName string) (string, error) {
+func buildLDSJSON(routes []envoyRoute, tlsEnabled bool, caKeyName string, rp *searchv1.EnvoyRetryPolicy) (string, error) {
 	filterChains := make([]*listenerv3.FilterChain, 0, len(routes))
 	for _, route := range routes {
-		fc, err := buildFilterChain(route, tlsEnabled, caKeyName)
+		fc, err := buildFilterChain(route, tlsEnabled, caKeyName, rp)
 		if err != nil {
 			return "", fmt.Errorf("failed to build filter chain for route %s: %w", route.Name, err)
 		}
@@ -190,8 +191,43 @@ func socketAddress(addr string, port uint32) *corev3.Address {
 	}
 }
 
+// buildRetryPolicy constructs the Envoy retry policy from user config (or defaults).
+// Retries always target a different host than the one that failed.
+func buildRetryPolicy(rp *searchv1.EnvoyRetryPolicy) *routev3.RetryPolicy {
+	numRetries := uint32(2)
+	perTryTimeout := 60 * time.Second
+
+	if rp != nil {
+		if rp.NumRetries != nil {
+			numRetries = *rp.NumRetries
+		}
+		if rp.PerTryTimeout != nil {
+			if d, err := time.ParseDuration(*rp.PerTryTimeout); err == nil {
+				perTryTimeout = d
+			}
+		}
+	}
+
+	previousHostsCfg, _ := anypb.New(&previoushostsv3.PreviousHostsPredicate{})
+
+	return &routev3.RetryPolicy{
+		RetryOn:       "connect-failure,refused-stream,unavailable,reset,resource-exhausted",
+		NumRetries:    wrapperspb.UInt32(numRetries),
+		PerTryTimeout: durationpb.New(perTryTimeout),
+		RetryHostPredicate: []*routev3.RetryPolicy_RetryHostPredicate{
+			{
+				Name: "envoy.retry_host_predicates.previous_hosts",
+				ConfigType: &routev3.RetryPolicy_RetryHostPredicate_TypedConfig{
+					TypedConfig: previousHostsCfg,
+				},
+			},
+		},
+		HostSelectionRetryMaxAttempts: 3,
+	}
+}
+
 // buildFilterChain builds a filter chain for one route.
-func buildFilterChain(route envoyRoute, tlsEnabled bool, caKeyName string) (*listenerv3.FilterChain, error) {
+func buildFilterChain(route envoyRoute, tlsEnabled bool, caKeyName string, rp *searchv1.EnvoyRetryPolicy) (*listenerv3.FilterChain, error) {
 	clusterName := fmt.Sprintf("mongot_%s_cluster", route.NameSafe)
 
 	routerFilterCfg, err := anypb.New(&routerv3.Router{})
@@ -212,8 +248,9 @@ func buildFilterChain(route envoyRoute, tlsEnabled bool, caKeyName string) (*lis
 				Name: fmt.Sprintf("%s_route", route.NameSafe),
 				VirtualHosts: []*routev3.VirtualHost{
 					{
-						Name:    fmt.Sprintf("mongot_%s_backend", route.NameSafe),
-						Domains: []string{"*"},
+						Name:                       fmt.Sprintf("mongot_%s_backend", route.NameSafe),
+						Domains:                    []string{"*"},
+						IncludeRequestAttemptCount: true,
 						Routes: []*routev3.Route{
 							{
 								Match: &routev3.RouteMatch{
@@ -224,6 +261,7 @@ func buildFilterChain(route envoyRoute, tlsEnabled bool, caKeyName string) (*lis
 									Route: &routev3.RouteAction{
 										ClusterSpecifier: &routev3.RouteAction_Cluster{Cluster: clusterName},
 										Timeout:          durationpb.New(300 * time.Second),
+										RetryPolicy:      buildRetryPolicy(rp),
 									},
 								},
 							},
