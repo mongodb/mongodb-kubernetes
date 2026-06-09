@@ -1,4 +1,4 @@
-from kubetester import label_namespace
+from kubetester import downgrade_pss_to_warn
 from pytest import fixture
 
 
@@ -11,11 +11,5 @@ def namespace(namespace: str) -> str:
     significant image changes. The namespace is downgraded to warn so the nginx
     pod can start while PSS violations are still surfaced as warnings.
     """
-    label_namespace(
-        namespace,
-        {
-            "pod-security.kubernetes.io/enforce": None,
-            "pod-security.kubernetes.io/warn": "restricted",
-        },
-    )
+    downgrade_pss_to_warn(namespace)
     return namespace

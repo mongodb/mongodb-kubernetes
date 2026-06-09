@@ -6,7 +6,6 @@
 # https://docs.google.com/document/d/12Y5h7XDFedcgpSIWRxMgcjZClL6kZdIwdxPRotkuKck/edit#
 # -----------------------------------------------------------
 
-import time
 from typing import Dict, Optional
 
 from kubernetes import client
@@ -21,7 +20,9 @@ from kubetester import (
 )
 
 KMIP_NAMESPACE = "kmip"
+
 from kubetester.certs import create_tls_certs
+from kubetester.kubetester import KubernetesTester
 
 
 class KMIPDeployment(object):
@@ -201,24 +202,14 @@ class KMIPDeploymentStatus:
     def __init__(self, deployment: KMIPDeployment):
         self.deployment = deployment
 
-    def assert_is_running(self, timeout: int = 120):
+    def assert_is_running(self):
         """
         Waits and assert if the KMIP server is running.
         :return: raises an error if the server is not running within the timeout.
         """
-        appsv1 = client.AppsV1Api()
-        deadline = time.time() + timeout
-        while time.time() < deadline:
-            try:
-                sts = appsv1.read_namespaced_stateful_set(
-                    self.deployment.statefulset_name, self.deployment.kmip_namespace
-                )
-                if sts.status.current_replicas == 1:
-                    return
-            except Exception:
-                pass
-            time.sleep(0.5)
-        raise TimeoutError(
-            f"Timed out waiting for KMIP StatefulSet '{self.deployment.statefulset_name}' "
-            f"in namespace '{self.deployment.kmip_namespace}' to reach 1 running replica"
+        KubernetesTester.wait_for_condition_stateful_set(
+            self.deployment.kmip_namespace,
+            self.deployment.statefulset_name,
+            "status.current_replicas",
+            1,
         )

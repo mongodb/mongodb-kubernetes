@@ -1,4 +1,4 @@
-from kubetester import label_namespace
+from kubetester import downgrade_pss_to_warn
 from pytest import fixture
 
 
@@ -12,11 +12,5 @@ def namespace(namespace: str) -> str:
     TODO: remove once 1.9.0 is released — from that version the operator Helm
     chart includes the required securityContext fields and will pass enforcement.
     """
-    label_namespace(
-        namespace,
-        {
-            "pod-security.kubernetes.io/enforce": None,
-            "pod-security.kubernetes.io/warn": "restricted",
-        },
-    )
+    downgrade_pss_to_warn(namespace)
     return namespace

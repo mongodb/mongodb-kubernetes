@@ -1,7 +1,7 @@
 from typing import Iterator
 
 import kubernetes
-from kubetester import label_namespace
+from kubetester import downgrade_pss_to_warn
 from kubetester.awss3client import AwsS3Client
 from pytest import fixture
 from tests.common.constants import S3_BLOCKSTORE_NAME, S3_OPLOG_NAME
@@ -15,13 +15,7 @@ def namespace(namespace: str) -> str:
     These tests install released operator versions that predate PSS-restricted
     compliance and therefore cannot run under enforce mode.
     """
-    label_namespace(
-        namespace,
-        {
-            "pod-security.kubernetes.io/enforce": None,
-            "pod-security.kubernetes.io/warn": "restricted",
-        },
-    )
+    downgrade_pss_to_warn(namespace)
     return namespace
 
 

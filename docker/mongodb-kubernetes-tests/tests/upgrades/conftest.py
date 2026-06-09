@@ -1,4 +1,4 @@
-from kubetester import label_namespace
+from kubetester import downgrade_pss_to_warn
 from pytest import fixture
 
 
@@ -9,11 +9,5 @@ def namespace(namespace: str) -> str:
     Upgrade tests install released operator versions that predate PSS-restricted
     compliance and therefore cannot run under enforce mode.
     """
-    label_namespace(
-        namespace,
-        {
-            "pod-security.kubernetes.io/enforce": None,
-            "pod-security.kubernetes.io/warn": "restricted",
-        },
-    )
+    downgrade_pss_to_warn(namespace)
     return namespace
