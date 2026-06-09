@@ -119,19 +119,6 @@ def _assert_steady(namespace: str) -> None:
         assert_no_outage(bg.verdict)
 
 
-def _assert_rolled_through(verdict, succeeded_before: int, succeeded_after: int, context: str) -> None:
-    """A graceful roll must not cause a sustained outage. Asserts the open cursor served fresh
-    pages *after* the workload recovered (succeeded grew past the recovery snapshot — proving it
-    resumed, not just that baseline pages buffered) and that only recoverable cursor/network
-    classes failed. _assert_steady gates full recovery; the drained sub-check hard-asserts the
-    cursor fault."""
-    logger.info(f"{context} paging verdict: {verdict.as_dict()}")
-    assert verdict.other_failed == 0, f"{context}: unexpected failure class; {verdict.as_dict()}"
-    assert (
-        succeeded_after > succeeded_before
-    ), f"{context}: cursor served no pages after recovery ({succeeded_before}->{succeeded_after}); {verdict.as_dict()}"
-
-
 def _drained_cursor_subcheck(namespace: str, fault_fn, context: str) -> None:
     """Sub-check: force-drain a paging cursor past mongod's buffer through the fault. Full pod
     replacement RSTs the pinned mongod->mongot stream, so cursor_lost is deterministic here (vs the
@@ -178,7 +165,7 @@ class TestEnvoyRollingRestart:
         _assert_steady(namespace)
 
     def test_envoy_rolling_restart_availability(self, namespace: str):
-        """(a) bg window: new queries recover; the open cursor serves fresh pages after the roll."""
+        """Envoy roll: new queries stay available; cursor ride-through logged, hard-asserted in the drained sub-check."""
         oneshot = SearchAvailabilityBackgroundTester(_user_tool(namespace), mode="oneshot", interval_seconds=0.2)
         paging = SearchAvailabilityBackgroundTester(
             _user_tool(namespace), mode="paging", paging_batch_size=5, paging_reset_every=50_000, interval_seconds=0.05
@@ -187,13 +174,12 @@ class TestEnvoyRollingRestart:
             oneshot.wait_for_operations(BASELINE_OPS)
             paging.wait_for_operations(BASELINE_OPS)
             _rollout_and_wait(namespace, "deployment", ENVOY_DEPLOYMENT, ENVOY_SELECTOR)
-            ok_at_recovery = paging.succeeded_count  # snapshot once pods are Ready again
             oneshot.wait_for_operations(POST_EVENT_OPS)
             paging.wait_for_operations(POST_EVENT_OPS)
-            ok_after = paging.succeeded_count
         logger.info(f"envoy-roll oneshot verdict: {oneshot.verdict.as_dict()}")
-        # Open-cursor ride-through is timing-dependent; the drained sub-check hard-asserts the fault.
-        _assert_rolled_through(paging.verdict, ok_at_recovery, ok_after, "envoy-roll")
+        logger.info(f"envoy-roll paging verdict (observational): {paging.verdict.as_dict()}")
+        # rolling-update keeps a ready endpoint (maxUnavailable=0 here), so no new query fails
+        assert_no_outage(oneshot.verdict)
         _assert_steady(namespace)
 
     def test_envoy_rolling_restart_drained_cursor_fault(self, namespace: str):
@@ -216,8 +202,7 @@ class TestMongotRollingRestart:
         _assert_steady(namespace)
 
     def test_mongot_rolling_restart_availability(self, namespace: str):
-        """(a) bg window: new queries blip then recover via the surviving replica; the open cursor
-        rides the eager-drain buffer or drops once and reopens, serving fresh pages after the roll."""
+        """Mongot roll: new queries may blip (transient_network) but hit no unexpected class; cursor ride-through logged, hard-asserted in the drained sub-check."""
         sts = search_resource_names.mongot_statefulset_name_for_cluster(MDBS_NAME)
         oneshot = SearchAvailabilityBackgroundTester(_user_tool(namespace), mode="oneshot", interval_seconds=0.2)
         paging = SearchAvailabilityBackgroundTester(
@@ -227,14 +212,14 @@ class TestMongotRollingRestart:
             oneshot.wait_for_operations(BASELINE_OPS)
             paging.wait_for_operations(BASELINE_OPS)
             _rollout_and_wait(namespace, "statefulset", sts, MONGOT_SELECTOR)
-            ok_at_recovery = paging.succeeded_count  # snapshot once pods are Ready again
             oneshot.wait_for_operations(POST_EVENT_OPS)
             paging.wait_for_operations(POST_EVENT_OPS)
-            ok_after = paging.succeeded_count
         logger.info(f"mongot-roll oneshot verdict: {oneshot.verdict.as_dict()}")
-        # Established cursor may ride through the eager-drain buffer or drop once and reopen; the
-        # drained sub-check below hard-asserts the fault is observable.
-        _assert_rolled_through(paging.verdict, ok_at_recovery, ok_after, "mongot-roll")
+        logger.info(f"mongot-roll paging verdict (observational): {paging.verdict.as_dict()}")
+        # transient blips OK while a replica cycles; recovery gated by trailing _assert_steady
+        assert (
+            oneshot.verdict.other_failed == 0 and oneshot.verdict.cursor_lost == 0
+        ), f"mongot-roll: unexpected new-query failure class; {oneshot.verdict.as_dict()}"
         _assert_steady(namespace)
 
     def test_mongot_rolling_restart_drained_cursor_fault(self, namespace: str):

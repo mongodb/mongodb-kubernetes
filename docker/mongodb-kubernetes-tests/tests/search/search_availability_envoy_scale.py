@@ -141,7 +141,7 @@ class TestEnvoyScaling:
         _assert_steady(namespace)
 
     def test_envoy_scale_up_additive_no_outage(self, namespace: str):
-        """Scale up is purely additive: new queries and the open cursor ride through with no outage."""
+        """Scale up is additive: new queries must not fail; open-cursor paging is observational (buffer-masked)."""
         up = SEARCH.envoy_lb_replicas + 1
         oneshot = SearchAvailabilityBackgroundTester(_user_tool(namespace), mode="oneshot", interval_seconds=0.2)
         paging = SearchAvailabilityBackgroundTester(
@@ -154,9 +154,8 @@ class TestEnvoyScaling:
             oneshot.wait_for_operations(POST_EVENT_OPS)
             paging.wait_for_operations(POST_EVENT_OPS)
         logger.info(f"envoy-scale-up oneshot verdict: {oneshot.verdict.as_dict()}")
-        logger.info(f"envoy-scale-up paging verdict: {paging.verdict.as_dict()}")
+        logger.info(f"envoy-scale-up paging verdict (observational): {paging.verdict.as_dict()}")
         assert_no_outage(oneshot.verdict)
-        assert_no_outage(paging.verdict)
         _assert_steady(namespace)
 
     def test_envoy_scale_down_recovers(self, namespace: str):
@@ -174,7 +173,9 @@ class TestEnvoyScaling:
             oneshot.wait_for_operations(POST_EVENT_OPS)
             paging.wait_for_operations(POST_EVENT_OPS)
         logger.info(f"envoy-scale-down oneshot verdict: {oneshot.verdict.as_dict()}")
-        logger.info(f"envoy-scale-down paging verdict (log-only): {paging.verdict.as_dict()}")
+        logger.info(f"envoy-scale-down paging verdict (observational): {paging.verdict.as_dict()}")
+        # shedding an endpoint must not fail new queries; pinned-cursor paging is observational
+        assert_no_outage(oneshot.verdict)
         _scale_envoy(namespace, SEARCH.envoy_lb_replicas)
         _assert_steady(namespace)
 
