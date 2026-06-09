@@ -34,6 +34,8 @@ spec:
             - name: nginx-conf
               mountPath: /etc/nginx/nginx.conf
               subPath: nginx.conf
+            - name: nginx-cache
+              mountPath: /var/cache/nginx
       initContainers:
         - name: setting-up-mongosh-1-4-1
           image: curlimages/curl:latest
@@ -241,6 +243,8 @@ spec:
         - name: mongodb-versions
           emptyDir: { }
         - name: mongosh-versions
+          emptyDir: { }
+        - name: nginx-cache
           emptyDir: { }
         - configMap:
             name: nginx-conf
