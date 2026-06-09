@@ -414,7 +414,14 @@ class SearchSampleDataAndIndexTests:
         logger.info(f"Tools pod {search_tools_pod.pod_name} is ready")
 
     def test_restore_sample_database(self, namespace: str, search_tools_pod: mongodb_tools_pod.ToolsPod):
-        self.admin_tester(namespace).mongorestore_from_url(
+        # mongorestore --drop recreates the collection (new UUID) and orphans mongot's
+        # search index, so skip the restore when the sample data is already present.
+        db, coll = self.sample_config.sample_database, self.sample_config.sample_collection
+        tester = self.admin_tester(namespace)
+        if tester.client[db][coll].count_documents({"synthetic": {"$ne": True}}, limit=1) > 0:
+            logger.info(f"sample data already present in {db}.{coll}; skipping mongorestore")
+            return
+        tester.mongorestore_from_url(
             archive_url="https://atlas-education.s3.amazonaws.com/sample_mflix.archive",
             ns_include=f"{self.sample_config.sample_database}.*",
             tools_pod=search_tools_pod,
@@ -436,10 +443,14 @@ class SearchSampleDataAndIndexTests:
 
     def test_create_search_index(self, namespace: str):
         tester = self.user_tester(namespace)
-        tester.create_search_index(self.sample_config.sample_database, self.sample_config.sample_collection)
-        tester.wait_for_search_indexes_ready(
-            self.sample_config.sample_database, self.sample_config.sample_collection, timeout=300
-        )
+        db, coll = self.sample_config.sample_database, self.sample_config.sample_collection
+        name = self.sample_config.search_index_name
+        existing = {i.get("name") for i in tester.client[db][coll].aggregate([{"$listSearchIndexes": {}}])}
+        if name in existing:
+            logger.info(f"search index {name!r} already exists on {db}.{coll}; skipping create")
+        else:
+            tester.create_search_index(db, coll)
+        tester.wait_for_search_indexes_ready(db, coll, timeout=300)
 
     def test_smoke_search_query_succeeds(self, namespace: str):
         tester = self.user_tester(namespace)
@@ -542,8 +553,9 @@ class SearchShardedDeploymentTests(SearchDeploymentTests):
         api_client = self.search_api_client()
         if api_client is not None:
             resource.api = kubernetes.client.CustomObjectsApi(api_client)
-        if try_load(resource):
-            return resource
+        # Load if it exists so update() patches in place, but always rebuild the spec so a
+        # grown shard_count (e.g. after adding a shard) is reflected.
+        try_load(resource)
         resource["spec"]["source"] = {
             "username": self.mdb_config.mongot_user_name,
             "passwordSecretRef": {

@@ -286,6 +286,141 @@ def verify_sharded_mongod_parameters(
     logger.info("All shards have correct mongod search parameters")
 
 
+def log_shard_distribution(
+    admin_tester: SearchTester,
+    database_name: str,
+    collection_name: str,
+    label: str = "",
+) -> dict[str, int]:
+    """Log and return the per-shard document distribution for a collection.
+
+    Uses ``$collStats`` (one doc per shard); the ``shard`` field is the shard
+    name as registered in the sharded cluster (e.g. ``mdb-sh-routed-2``).
+    """
+    coll = admin_tester.client[database_name][collection_name]
+    stats = list(coll.aggregate([{"$collStats": {"storageStats": {}}}]))
+    per_shard = {s.get("shard") or s.get("host"): s.get("storageStats", {}).get("count", 0) for s in stats}
+    total = sum(per_shard.values())
+    prefix = f"{label} " if label else ""
+    logger.info(f"{prefix}per-shard '{database_name}.{collection_name}' counts: {per_shard} total={total}")
+    return per_shard
+
+
+def get_balancer_status(admin_tester: SearchTester) -> dict:
+    """Return (and log) the sharded-cluster balancer status from mongos."""
+    status = admin_tester.client.admin.command("balancerStatus")
+    logger.info(
+        f"balancer status: mode={status.get('mode')} inBalancerRound={status.get('inBalancerRound')} "
+        f"numBalancerRounds={status.get('numBalancerRounds')}"
+    )
+    return status
+
+
+def ensure_balancer_running(admin_tester: SearchTester) -> None:
+    """Start the balancer if it is not already in 'full' mode.
+
+    A freshly added shard is populated by the balancer migrating chunks onto it.
+    Unlike ``reshardCollection``/``shardAndDistributeCollection``, balancer chunk
+    migrations preserve the collection and its search indexes (mongot resyncs the
+    migrated ranges on the new shard's mongot), so search availability is kept.
+    """
+    status = get_balancer_status(admin_tester)
+    if status.get("mode") != "full":
+        logger.info("balancer is not in 'full' mode — starting it via balancerStart")
+        admin_tester.client.admin.command("balancerStart")
+        get_balancer_status(admin_tester)
+    else:
+        logger.info("balancer already running (mode=full)")
+
+
+def _collection_chunks(admin_tester: SearchTester, ns: str) -> tuple[object, list[dict]]:
+    client = admin_tester.client
+    coll = client.config.collections.find_one({"_id": ns})
+    if coll is None:
+        raise AssertionError(f"{ns} is not sharded (no config.collections entry)")
+    uuid = coll["uuid"]
+    return uuid, list(client.config.chunks.find({"uuid": uuid}))
+
+
+def redistribute_chunks_to_new_shard(
+    admin_tester: SearchTester,
+    database_name: str,
+    collection_name: str,
+    new_shard_name: str,
+    *,
+    min_docs: int = 50,
+    timeout: int = 300,
+    sleep_time: int = 10,
+) -> dict[str, int]:
+    """Give a freshly added shard a fair share of a hashed-sharded collection's data.
+
+    Why the balancer alone does NOT do this: the balancer migrates only *whole*
+    chunks and only once the per-shard *data-size* imbalance crosses a threshold.
+    A freshly sharded sample collection here has just one chunk per pre-existing
+    shard, so there is nothing for the balancer to hand the new (empty) shard — it
+    stays at 0 docs no matter how many balancer rounds run (observed: balancer in
+    mode=full, hundreds of rounds, distribution unchanged). To populate the new
+    shard we explicitly split the donor chunks at their median and ``moveChunk`` a
+    proportional share onto it. Unlike ``reshardCollection`` (forceRedistribution),
+    chunk migration keeps the collection and its mongot search index intact — the
+    new shard's mongot resyncs the migrated range — so it composes with the
+    search-availability assertion.
+
+    Idempotent: if the new shard already owns chunks, the split/move is skipped.
+    Returns the final per-shard counts; raises on timeout so a real gap is loud.
+    """
+    ns = f"{database_name}.{collection_name}"
+    client = admin_tester.client
+
+    ensure_balancer_running(admin_tester)
+    log_shard_distribution(admin_tester, database_name, collection_name, label="[before redistribute]")
+
+    _, chunks = _collection_chunks(admin_tester, ns)
+    shard_ids = [s["_id"] for s in client.config.shards.find()]
+    num_shards = len(shard_ids)
+    already_owned = sum(1 for ch in chunks if ch["shard"] == new_shard_name)
+
+    if already_owned == 0:
+        logger.info(
+            f"{new_shard_name} owns 0 chunks of {ns} (total chunks={len(chunks)}); "
+            f"splitting donor chunks and moving a ~1/{num_shards} share onto it"
+        )
+        # Median-split every existing chunk so there are movable pieces.
+        for ch in list(chunks):
+            try:
+                client.admin.command("split", ns, bounds=[ch["min"], ch["max"]])
+            except pymongo.errors.OperationFailure as e:
+                logger.info(f"split skipped for chunk on {ch['shard']} ({ch['min']}..{ch['max']}): {e}")
+        _, chunks = _collection_chunks(admin_tester, ns)
+        donors = [ch for ch in chunks if ch["shard"] != new_shard_name]
+        move_count = max(1, len(chunks) // num_shards)
+        for ch in donors[:move_count]:
+            logger.info(f"moveChunk {ch['min']}..{ch['max']} from {ch['shard']} -> {new_shard_name}")
+            client.admin.command("moveChunk", ns, bounds=[ch["min"], ch["max"]], to=new_shard_name)
+    else:
+        logger.info(f"{new_shard_name} already owns {already_owned} chunk(s) of {ns}; skipping split/move")
+
+    # moveChunk returns once the range is on the new shard's mongod; $collStats then
+    # reflects it (donor orphan cleanup lags, so totals may transiently overcount —
+    # we only gate on the new shard's own count).
+    def populated():
+        per_shard = log_shard_distribution(
+            admin_tester, database_name, collection_name, label=f"[await {new_shard_name}]"
+        )
+        count = per_shard.get(new_shard_name, 0)
+        return count >= min_docs, f"{new_shard_name}={count} docs (need >= {min_docs})"
+
+    run_periodically(
+        populated,
+        timeout=timeout,
+        sleep_time=sleep_time,
+        msg=f"new shard {new_shard_name} to hold >= {min_docs} docs of {ns}",
+    )
+    final = log_shard_distribution(admin_tester, database_name, collection_name, label="[redistributed]")
+    logger.info(f"new shard {new_shard_name} now holds {final.get(new_shard_name, 0)} docs of {ns}")
+    return final
+
+
 def verify_text_search_query(search_tester: SearchTester):
     """Execute a text search for 'star wars' and verify results are returned."""
     movies_helper = SampleMoviesSearchHelper(search_tester)
