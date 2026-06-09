@@ -194,11 +194,13 @@ class TestSearchRoutedFromAnotherShard:
         )
         assert_clean_no_mongot_gap(gap, "onboarding gap: data on new shard, no mongot")
 
-        # Now bring up the new shard's mongot (data already present -> genuine initial
-        # sync, held out of Envoy by the fresh-server readiness gate) and wire mongotHost.
+        # Wire mongotHost (rolls the shard mongod) BEFORE creating the mongot, so the
+        # roll never interrupts a serving mongot's change stream. The mongot then boots
+        # with data already present -> genuine initial sync, held out of Envoy by the
+        # fresh-server readiness gate until synced.
         search_tests = self._search_tests()
-        search_tests.test_create_search_resource()
         search_tests.test_wire_mongot_host()
+        search_tests.test_create_search_resource()
 
         # Once the new mongot finishes syncing the present data it joins Envoy rotation
         # and $search recovers — with no index-state rejection ever leaking.
