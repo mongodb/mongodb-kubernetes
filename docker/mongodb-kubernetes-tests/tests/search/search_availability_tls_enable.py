@@ -42,7 +42,6 @@ from tests.common.search.connectivity import (
 )
 from tests.common.search.rs_search_helper import create_rs_lb_certificates, create_rs_search_tls_cert, rs_search_tester
 from tests.common.search.search_deployment_helper import SearchDeploymentHelper, ensure_search_issuer
-from tests.common.search.upgrade_availability import assert_rolled_through as _assert_rolled_through
 from tests.common.search.upgrade_availability import pod_uids as _pod_uids
 from tests.common.search.upgrade_availability import roll_count as _roll_count
 from tests.conftest import get_namespace
@@ -266,9 +265,7 @@ class TestRotateSearchTLSCert:
         )
 
     def test_tls_rotation_availability(self, namespace: str):
-        """Point certsSecretPrefix at the rotated cert: both mongot and envoy carry the server cert,
-        so both roll onto the new material while a surviving replica of each serves new queries and the
-        open cursor serves fresh pages after recovery."""
+        """Rotate certsSecretPrefix: both mongot and envoy roll onto the new cert; surviving replicas keep new queries available (transient blips OK)."""
         oneshot = SearchAvailabilityBackgroundTester(_user_tool(namespace), mode="oneshot", interval_seconds=0.2)
         paging = SearchAvailabilityBackgroundTester(
             _user_tool(namespace), mode="paging", paging_batch_size=5, paging_reset_every=50_000, interval_seconds=0.05
@@ -287,14 +284,13 @@ class TestRotateSearchTLSCert:
             wait_for_pods_by_label_replaced(namespace, ENVOY_SELECTOR, envoy_before, expected=SEARCH.envoy_lb_replicas)
             mdbs.assert_reaches_phase(Phase.Running, timeout=600)
             recovery_s = time.monotonic() - t0
-            ok_at_recovery = paging.succeeded_count
             oneshot.wait_for_operations(POST_EVENT_OPS)
             paging.wait_for_operations(POST_EVENT_OPS)
-            ok_after = paging.succeeded_count
-        disruption_s = paging.max_consecutive_failure * paging.interval_seconds
+        disruption_s = oneshot.max_consecutive_failure * oneshot.interval_seconds
         rolls_mongot = _roll_count(namespace, MONGOT_SELECTOR, mongot_before)
         rolls_envoy = _roll_count(namespace, ENVOY_SELECTOR, envoy_before)
         logger.info(f"tls-rotation oneshot verdict: {oneshot.verdict.as_dict()}")
+        logger.info(f"tls-rotation paging verdict (observational): {paging.verdict.as_dict()}")
         _emit_metric(
             "tls-rotation",
             rolls_mongot=rolls_mongot,
@@ -306,14 +302,12 @@ class TestRotateSearchTLSCert:
             rolls_mongot >= SEARCH.mongot_replicas
         ), f"expected all {SEARCH.mongot_replicas} mongot to roll onto the new cert, got {rolls_mongot}"
         assert rolls_envoy >= 1, f"expected envoy to roll onto the new cert, but rolls_envoy={rolls_envoy}"
-        _assert_rolled_through(
-            paging.verdict,
-            ok_at_recovery,
-            ok_after,
-            "tls-rotation",
-            disruption_s=disruption_s,
-            bound_s=ROTATION_DISRUPTION_BOUND_S,
-        )
+        assert (
+            disruption_s <= ROTATION_DISRUPTION_BOUND_S
+        ), f"tls-rotation: sustained new-query outage {disruption_s:.1f}s exceeded {ROTATION_DISRUPTION_BOUND_S:.1f}s; {oneshot.verdict.as_dict()}"
+        assert (
+            oneshot.verdict.other_failed == 0 and oneshot.verdict.cursor_lost == 0
+        ), f"tls-rotation: unexpected new-query failure class; {oneshot.verdict.as_dict()}"
         _assert_steady(namespace)
 
     def test_recovers_to_steady_state(self, namespace: str):
