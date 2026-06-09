@@ -12,8 +12,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	e2eutil "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e"
