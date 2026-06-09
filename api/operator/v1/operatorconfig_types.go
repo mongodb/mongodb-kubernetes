@@ -62,6 +62,15 @@ type MultiClusterConfig struct {
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:default=10
 	MemberClusterClientTimeout int `json:"memberClusterClientTimeout,omitempty"`
+
+	// MemberClusterRequiredHealthyStreak is the number of consecutive successful health
+	// checks required before a previously failed member cluster is considered recovered
+	// and its failed-cluster annotation is removed. Only relevant when automatic failover
+	// is disabled.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:default=5
+	MemberClusterRequiredHealthyStreak int `json:"memberClusterRequiredHealthyStreak,omitempty"`
 }
 
 // AutomaticRecoveryConfig controls automatic recovery of resources with broken automation configuration.
