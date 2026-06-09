@@ -8903,6 +8903,15 @@ spec:
                       cluster's Kubernetes API server.
                     minimum: 1
                     type: integer
+                  memberClusterRequiredHealthyStreak:
+                    default: 5
+                    description: |-
+                      MemberClusterRequiredHealthyStreak is the number of consecutive successful health
+                      checks required before a previously failed member cluster is considered recovered
+                      and its failed-cluster annotation is removed. Only relevant when automatic failover
+                      is disabled.
+                    minimum: 1
+                    type: integer
                 type: object
               proxy:
                 description: Proxy contains proxy environment variable propagation
