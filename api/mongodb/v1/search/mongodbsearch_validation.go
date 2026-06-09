@@ -37,9 +37,8 @@ func (s *MongoDBSearch) ValidateSpec() error {
 	return nil
 }
 
-// isMultiCluster reports whether the spec targets more than one member cluster.
-// This is the primary topology axis the dispatch keys on: len > 1 selects the
-// multi-cluster validator group, len <= 1 the single-cluster group.
+// isMultiCluster reports whether the spec targets more than one member cluster
+// the primary topology axis the validator dispatch keys on.
 func (s *MongoDBSearch) isMultiCluster() bool {
 	return len(s.Spec.Clusters) > 1
 }
@@ -141,8 +140,8 @@ func validateClustersNonEmpty(s *MongoDBSearch) v1.ValidationResult {
 
 // validateMultipleReplicasRequireLB rejects a spec that runs more than one
 // mongot replica in any cluster without a load balancer to distribute traffic
-// across the replicas. Moved here from the reconcile helper: it depends only on
-// spec fields, so it belongs in the spec-validation tier.
+// across the replicas. It depends only on spec fields, so it lives in the
+// spec-validation tier.
 func validateMultipleReplicasRequireLB(s *MongoDBSearch) v1.ValidationResult {
 	if s.HasMultipleReplicas() && s.Spec.LoadBalancer == nil {
 		return v1.ValidationError(
@@ -193,7 +192,7 @@ func validateManagedLBExternalHostname(s *MongoDBSearch) v1.ValidationResult {
 }
 
 // isPlaceholderOnly reports whether endpoint is nothing but {shardName} placeholders
-// (and whitespace) — i.e. it carries no actual hostname to differentiate shards.
+// (and whitespace), i.e. it carries no actual hostname to differentiate shards.
 func isPlaceholderOnly(endpoint string) bool {
 	return strings.TrimSpace(strings.ReplaceAll(endpoint, ShardNamePlaceholder, "")) == ""
 }
@@ -228,7 +227,7 @@ func validateUnmanagedEndpointTemplate(s *MongoDBSearch) v1.ValidationResult {
 	}
 
 	// Operator-managed source: sharded-ness is only known at reconcile time, so we
-	// neither require nor forbid the template — but a templated endpoint must carry
+	// neither require nor forbid the template, but a templated endpoint must carry
 	// more than the placeholder.
 	if hasTemplate && isPlaceholderOnly(endpoint) {
 		return v1.ValidationError("spec.loadBalancer.unmanaged.endpoint must contain more than just the %s placeholder", ShardNamePlaceholder)
@@ -637,7 +636,7 @@ func validateMCRequiresManagedLB(s *MongoDBSearch) v1.ValidationResult {
 	}
 	if s.Spec.LoadBalancer.Unmanaged != nil {
 		return v1.ValidationError(
-			"Q3/Q4-MC topologies are deferred — multi-cluster MongoDBSearch requires spec.loadBalancer.managed; spec.loadBalancer.unmanaged is single-cluster only at GA",
+			"Q3/Q4-MC topologies are deferred: multi-cluster MongoDBSearch requires spec.loadBalancer.managed; spec.loadBalancer.unmanaged is single-cluster only at GA",
 		)
 	}
 	return v1.ValidationSuccess()

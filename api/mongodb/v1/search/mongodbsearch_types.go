@@ -808,7 +808,7 @@ func (s *MongoDBSearch) GetReplicasForCluster(clusterName string) int {
 }
 
 // HasMultipleReplicas reports whether any cluster runs more than one mongot
-// replica — the trigger for requiring a load balancer.
+// replica, the trigger for requiring a load balancer.
 func (s *MongoDBSearch) HasMultipleReplicas() bool {
 	return s.MaxReplicasAcrossClusters() > 1
 }
