@@ -12,6 +12,7 @@ import (
 	clusterv3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
 	corev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	listenerv3 "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
+	hcmv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
 	tlsv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
 	discoveryv3 "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
 
@@ -170,7 +171,7 @@ func TestBuildCDSJSON_MultipleShards(t *testing.T) {
 
 func TestBuildLDSJSON_SingleShard_NoTLS(t *testing.T) {
 	route := testRoute("mdb-sh-0")
-	result, err := buildLDSJSON([]envoyRoute{route}, false, testCAKeyName())
+	result, err := buildLDSJSON([]envoyRoute{route}, false, testCAKeyName(), nil)
 	require.NoError(t, err)
 	assert.True(t, json.Valid([]byte(result)))
 
@@ -190,7 +191,7 @@ func TestBuildLDSJSON_SingleShard_NoTLS(t *testing.T) {
 
 func TestBuildLDSJSON_SingleShard_WithTLS(t *testing.T) {
 	route := testRoute("mdb-sh-0")
-	result, err := buildLDSJSON([]envoyRoute{route}, true, testCAKeyName())
+	result, err := buildLDSJSON([]envoyRoute{route}, true, testCAKeyName(), nil)
 	require.NoError(t, err)
 
 	resp := unmarshalDiscoveryResponse(t, result)
@@ -225,7 +226,7 @@ func TestBuildLDSJSON_MultipleShards_WithTLS(t *testing.T) {
 		{Name: "mdb-sh-2", NameSafe: "mdb_sh_2", SNIHostname: "shard2.ns.svc.cluster.local", UpstreamHosts: []string{"mongot2.ns.svc.cluster.local"}, UpstreamPort: 27028},
 	}
 
-	result, err := buildLDSJSON(routes, true, testCAKeyName())
+	result, err := buildLDSJSON(routes, true, testCAKeyName(), nil)
 	require.NoError(t, err)
 
 	resp := unmarshalDiscoveryResponse(t, result)
@@ -253,7 +254,7 @@ func TestBuildLDSJSON_ReplicaSet_NoTLS(t *testing.T) {
 		UpstreamPort:  27028,
 	}
 
-	result, err := buildLDSJSON([]envoyRoute{route}, false, testCAKeyName())
+	result, err := buildLDSJSON([]envoyRoute{route}, false, testCAKeyName(), nil)
 	require.NoError(t, err)
 
 	resp := unmarshalDiscoveryResponse(t, result)
@@ -294,7 +295,7 @@ func TestBuildCDSJSON_ReplicaSet_NoTLS(t *testing.T) {
 
 func TestBuildFilterChain_NoTLS_NoSNIMatch(t *testing.T) {
 	route := testRoute("test-shard")
-	chain, err := buildFilterChain(route, false, testCAKeyName())
+	chain, err := buildFilterChain(route, false, testCAKeyName(), nil)
 	require.NoError(t, err)
 
 	assert.Nil(t, chain.FilterChainMatch, "no SNI match when TLS disabled")
@@ -304,7 +305,7 @@ func TestBuildFilterChain_NoTLS_NoSNIMatch(t *testing.T) {
 
 func TestBuildFilterChain_WithTLS_HasSNIMatch(t *testing.T) {
 	route := testRoute("test-shard")
-	chain, err := buildFilterChain(route, true, testCAKeyName())
+	chain, err := buildFilterChain(route, true, testCAKeyName(), nil)
 	require.NoError(t, err)
 
 	require.NotNil(t, chain.FilterChainMatch, "SNI match should be present with TLS")
@@ -314,7 +315,7 @@ func TestBuildFilterChain_WithTLS_HasSNIMatch(t *testing.T) {
 
 func TestBuildLDSJSON_NoTLS_NoTLSInspector(t *testing.T) {
 	route := testRoute("test-shard")
-	result, err := buildLDSJSON([]envoyRoute{route}, false, testCAKeyName())
+	result, err := buildLDSJSON([]envoyRoute{route}, false, testCAKeyName(), nil)
 	require.NoError(t, err)
 
 	resp := unmarshalDiscoveryResponse(t, result)
@@ -326,7 +327,7 @@ func TestBuildLDSJSON_NoTLS_NoTLSInspector(t *testing.T) {
 
 func TestBuildLDSJSON_WithTLS_HasTLSInspector(t *testing.T) {
 	route := testRoute("test-shard")
-	result, err := buildLDSJSON([]envoyRoute{route}, true, testCAKeyName())
+	result, err := buildLDSJSON([]envoyRoute{route}, true, testCAKeyName(), nil)
 	require.NoError(t, err)
 
 	resp := unmarshalDiscoveryResponse(t, result)
@@ -378,4 +379,47 @@ func TestBuildCluster_UsesTypedExtensionProtocolOptions(t *testing.T) {
 
 	// Verify TypedExtensionProtocolOptions is set
 	require.Contains(t, cluster.TypedExtensionProtocolOptions, "envoy.extensions.upstreams.http.v3.HttpProtocolOptions")
+}
+
+func TestBuildRetryPolicy_PartialOverride(t *testing.T) {
+	numRetries := uint32(5)
+	rp := buildRetryPolicy(&searchv1.EnvoyRetryPolicy{
+		NumRetries: &numRetries,
+		// PerTryTimeout left nil — should use default 60s
+	})
+
+	assert.Equal(t, uint32(5), rp.NumRetries.GetValue())
+	assert.Equal(t, int64(60), rp.PerTryTimeout.GetSeconds(), "should use default timeout")
+}
+
+func TestBuildFilterChain_HasRetryPolicy(t *testing.T) {
+	route := testRoute("mdb-sh-0")
+	chain, err := buildFilterChain(route, false, testCAKeyName(), nil)
+	require.NoError(t, err)
+
+	// Extract HCM from the filter chain
+	hcm := &hcmv3.HttpConnectionManager{}
+	err = chain.Filters[0].GetTypedConfig().UnmarshalTo(hcm)
+	require.NoError(t, err)
+
+	// Get the retry policy from the route action
+	routeConfig := hcm.GetRouteConfig()
+	require.NotNil(t, routeConfig)
+	require.Len(t, routeConfig.VirtualHosts, 1)
+
+	vh := routeConfig.VirtualHosts[0]
+	assert.True(t, vh.IncludeRequestAttemptCount, "should include request attempt count in config so that it can be set in header")
+
+	require.Len(t, vh.Routes, 1)
+	routeAction := vh.Routes[0].GetRoute()
+	require.NotNil(t, routeAction)
+	require.NotNil(t, routeAction.RetryPolicy)
+
+	rp := routeAction.RetryPolicy
+	assert.Equal(t, "connect-failure,refused-stream,unavailable,reset,resource-exhausted", rp.RetryOn)
+	assert.Equal(t, uint32(2), rp.NumRetries.GetValue())
+	assert.Equal(t, int64(60), rp.PerTryTimeout.GetSeconds())
+	require.Len(t, rp.RetryHostPredicate, 1)
+	assert.Equal(t, "envoy.retry_host_predicates.previous_hosts", rp.RetryHostPredicate[0].Name)
+	assert.Equal(t, int64(3), rp.HostSelectionRetryMaxAttempts)
 }
