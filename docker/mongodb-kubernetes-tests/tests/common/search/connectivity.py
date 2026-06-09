@@ -33,6 +33,11 @@ FAILURE_TRANSIENT_NETWORK = "transient_network"
 FAILURE_INDEX_UNAVAILABLE = "index_unavailable"
 # mongod has no mongotHost on the shard at all (search not enabled there).
 FAILURE_SEARCH_NOT_ENABLED = "search_not_enabled"
+# The $search fan-out stalled to MaxTimeMSExpired: mongotHost set but nothing
+# answers (e.g. Envoy not deployed yet) — or, indistinguishably at this layer, a
+# reachable mongot that stalls instead of rejecting. Treated as a clean gap;
+# only an explicit index-state rejection proves the bad Ready-while-syncing mode.
+FAILURE_MONGOT_UNREACHABLE = "mongot_unreachable"
 FAILURE_OTHER = "other"
 
 _CURSOR_LOST_MESSAGE_RE = re.compile(
@@ -44,8 +49,10 @@ _TRANSIENT_NETWORK_MESSAGE_RE = re.compile(
     re.IGNORECASE,
 )
 # mongot index-state rejection from LuceneSearchIndex.throwIfUnavailableForQuerying.
+# Generic "while in state <X>": queries only ever get this for unservable states,
+# so match any state token — a rewording/new state must not slip past the tripwire.
 _INDEX_UNAVAILABLE_MESSAGE_RE = re.compile(
-    r"while in state (INITIAL_SYNC|NOT_STARTED|UNKNOWN|FAILED)|INITIAL_SYNC",
+    r"while in state \w+|INITIAL_SYNC",
     re.IGNORECASE,
 )
 _TRANSIENT_NETWORK_CLASSES = frozenset(
@@ -61,25 +68,32 @@ _TRANSIENT_NETWORK_CLASSES = frozenset(
 def classify_failure(error_class: str, error_code: Optional[int], error_message: str) -> str:
     """Map ``(class, code, message)`` to a failure class.
 
-    cursor_lost takes precedence: "Remote error from mongot" during a pod
-    restart is unrecoverable on the same cursor even if mongot comes back.
-    index_unavailable is checked before transient_network so a mongot index-state
-    rejection is never mistaken for a clean "no upstream" gap.
+    Precedence: explicit cursor-loss (code 43) first, then the index_unavailable
+    tripwire, then the cursor-lost message heuristic — so a mongot index-state
+    rejection is never misfiled under cursor_lost or transient_network.
     """
     msg = error_message or ""
     if error_class == "CursorNotFound" or error_code == 43:
         return FAILURE_CURSOR_LOST
+    # Tripwire first: mongod may wrap a mongot rejection as "remote error from
+    # mongot :: ... while in state INITIAL_SYNC" — that must never land in
+    # cursor_lost and bypass the index_unavailable==0 invariant.
+    if _INDEX_UNAVAILABLE_MESSAGE_RE.search(msg):
+        return FAILURE_INDEX_UNAVAILABLE
     if _CURSOR_LOST_MESSAGE_RE.search(msg):
         return FAILURE_CURSOR_LOST
     # SearchNotEnabled (31082): the shard's mongod has no mongotHost.
     if error_code == 31082:
         return FAILURE_SEARCH_NOT_ENABLED
-    if _INDEX_UNAVAILABLE_MESSAGE_RE.search(msg):
-        return FAILURE_INDEX_UNAVAILABLE
     if error_class in _TRANSIENT_NETWORK_CLASSES:
         return FAILURE_TRANSIENT_NETWORK
     if error_class == "OperationFailure" and _TRANSIENT_NETWORK_MESSAGE_RE.search(msg):
         return FAILURE_TRANSIENT_NETWORK
+    # MaxTimeMSExpired (50): the fan-out stalled because the shard's mongotHost
+    # has nothing answering (Envoy proxy not yet deployed). Checked after
+    # index_unavailable so a real INITIAL_SYNC rejection is never masked.
+    if error_code == 50:
+        return FAILURE_MONGOT_UNREACHABLE
     return FAILURE_OTHER
 
 
@@ -125,6 +139,7 @@ class ConnectivityVerdict:
     transient_network: int = 0
     index_unavailable: int = 0
     search_not_enabled: int = 0
+    mongot_unreachable: int = 0
     other_failed: int = 0
     # Cumulative records returned by the tool across the whole session, summed
     # over every cursor roll.
@@ -149,6 +164,7 @@ class ConnectivityVerdict:
             "transient_network": self.transient_network,
             "index_unavailable": self.index_unavailable,
             "search_not_enabled": self.search_not_enabled,
+            "mongot_unreachable": self.mongot_unreachable,
             "other_failed": self.other_failed,
             "total_returned_records": self.total_returned_records,
             "cursor_reopens": self.cursor_reopens,
@@ -435,6 +451,8 @@ class SearchConnectivityTool:
                     v.index_unavailable += 1
                 elif r.failure_class == FAILURE_SEARCH_NOT_ENABLED:
                     v.search_not_enabled += 1
+                elif r.failure_class == FAILURE_MONGOT_UNREACHABLE:
+                    v.mongot_unreachable += 1
                 else:
                     v.other_failed += 1
                 klass = r.error_class or "Unknown"
@@ -747,6 +765,15 @@ def delete_mongot_pvcs(
     volumeClaimTemplate are named ``<template>-<sts>-<ordinal>``, so we match on the
     ``-<sts>-`` infix. Returns the deleted PVC names; missing PVCs are a no-op.
     """
+    # Enforce the docstring's precondition: a live STS instantly recreates/holds claims.
+    try:
+        sts = client.AppsV1Api(api_client=api_client).read_namespaced_stateful_set(sts_name, namespace)
+        desired = (sts.spec.replicas if sts.spec else 0) or 0
+        if desired > 0:
+            raise AssertionError(f"delete_mongot_pvcs called while STS {sts_name} has replicas={desired}")
+    except client.exceptions.ApiException as exc:
+        if exc.status != 404:
+            raise
     core = client.CoreV1Api(api_client=api_client)
     pvcs = core.list_namespaced_persistent_volume_claim(namespace).items
     deleted: list[str] = []
@@ -862,20 +889,21 @@ def assert_clean_no_mongot_gap(verdict: "ConnectivityVerdict", context: str = ""
     """Assert the onboarding gap is the clean "no mongot reachable" failure.
 
     The contract: at least one probe failed with the clean no-mongot signal
-    (transient_network "no healthy upstream" or search_not_enabled "mongotHost
-    absent"), and *no* probe got a mongot index-state rejection. Incidental
-    ``other`` failures are tolerated but logged — the hard invariants are
-    "saw the clean gap" and "never saw INITIAL_SYNC".
+    (transient_network "no healthy upstream", search_not_enabled "mongotHost
+    absent", or mongot_unreachable "mongotHost set but nothing answers"), and
+    *no* probe got a mongot index-state rejection. Incidental ``other`` failures
+    are tolerated but logged — the hard invariants are "saw the clean gap" and
+    "never saw INITIAL_SYNC".
     """
     ctx = f"[{context}] " if context else ""
     if verdict.failed == 0:
         raise AssertionError(f"{ctx}expected the onboarding gap to fail some probes; verdict={verdict.as_dict()}")
     assert_no_index_unavailable(verdict, context)
-    clean = verdict.transient_network + verdict.search_not_enabled
+    clean = verdict.transient_network + verdict.search_not_enabled + verdict.mongot_unreachable
     if clean == 0:
         raise AssertionError(
             f"{ctx}gap failed but with no clean no-mongot signal "
-            f"(transient_network/search_not_enabled both 0); verdict={verdict.as_dict()}"
+            f"(transient_network/search_not_enabled/mongot_unreachable all 0); verdict={verdict.as_dict()}"
         )
     if clean < verdict.failed:
         logger.warning(f"{ctx}{verdict.failed - clean} incidental non-gap failure(s); verdict={verdict.as_dict()}")

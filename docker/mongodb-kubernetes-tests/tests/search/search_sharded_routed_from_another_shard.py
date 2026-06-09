@@ -6,7 +6,7 @@ import kubernetes
 import pytest
 import yaml
 from kubernetes import client
-from kubetester import list_matching_pods, wait_for_no_pods_ready, wait_for_pods_ready
+from kubetester import wait_for_pods_ready
 from kubetester.kubetester import KubernetesTester, run_periodically
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_search import MongoDBSearch
@@ -28,19 +28,17 @@ from tests.common.search.connectivity import (
     assert_clean_no_mongot_gap,
     assert_no_index_unavailable,
     delete_mongot_pvcs,
-    delete_pods,
     patch_mongot_readiness_probe_to_false,
     restore_mongot_readiness_probe,
     set_resource_disabled_annotation,
 )
 from tests.common.search.mc_search_helper import patch_per_cluster_sharded_mongot_host_via_om
-from tests.common.search.rs_search_helper import rs_search_tester
 from tests.common.search.sharded_search_helper import (
     log_shard_distribution,
     redistribute_chunks_to_new_shard,
     sharded_search_tester,
 )
-from tests.conftest import get_namespace, assert_data_got_restored
+from tests.conftest import get_namespace
 
 logger = test_logger.get_test_logger(__name__)
 
@@ -51,10 +49,6 @@ MDB = MongoDBDeploymentConfig(mdb_resource_name="mdb-sh-routed", shard_count=2)
 # 1 mongot replica per shard so onboarding a 4th shard fits a single kind node's CPU.
 SEARCH = SearchDeploymentConfig(mongot_replicas=1)
 MDBS_NAME = MDB.mdb_resource_name
-
-
-def _user_tool(namespace: str) -> SearchConnectivityTool:
-    return SearchConnectivityTool(sharded_search_tester(MDBS_NAME, namespace, MDB.user_name, MDB.user_password))
 
 
 class TestInstallOperator(InstallOperatorTests):
@@ -123,12 +117,13 @@ class TestSearchRoutedFromAnotherShard:
         MDB.shard_count = shard_count
 
         source_tests = MongoDBShardedDeploymentTests()
-        source_tests.namespace = NAMESPACE
+        source_tests.namespace = namespace
         source_tests.mdb_config = MDB
         source_tests.search_config = SEARCH
         source_tests.install_source_tls_certificates()
 
         search_tests = self._search_tests()
+        search_tests.namespace = namespace
         search_tests.deploy_lb_certificates()
         search_tests.create_search_tls_certificate()
 
@@ -155,7 +150,6 @@ class TestSearchRoutedFromAnotherShard:
         still-syncing range and yield INITIAL_SYNC at query time)."""
         target_shard_count = MDB.shard_count + 1
         new_shard_name = f"{MDB.mdb_resource_name}-{target_shard_count - 1}"
-        onboard_index = target_shard_count - 1
         logger.info(f"adding shard: {MDB.shard_count} -> {target_shard_count} (new shard: {new_shard_name})")
 
         # The new shard's certs must exist before the operator can reconcile it to Running.
@@ -186,7 +180,8 @@ class TestSearchRoutedFromAnotherShard:
             final = redistribute_chunks_to_new_shard(
                 admin_tester, "sample_mflix", "movies", new_shard_name, min_docs=50, timeout=300
             )
-            bg_gap.wait_for_operations(self.PROBE_COUNT, since=bg_gap.operations_count)
+            # Sized for the worst case of every probe stalling to its 15s maxTimeMS.
+            bg_gap.wait_for_operations(self.PROBE_COUNT, since=bg_gap.operations_count, timeout=self.PROBE_COUNT * 16 + 60)
         gap = bg_gap.verdict
         logger.info(f"[onboarding gap, data on mongot-less shard] verdict: {gap.as_dict()}")
         assert final.get(new_shard_name, 0) >= 50, (
@@ -225,7 +220,7 @@ class TestShardOnboardingAvailabilityStages:
     Stages (one shard, walked forward):
       1. shard added + data rebalanced, NO mongotHost, NO per-shard mongot STS
       2. mongotHost set on the shard's mongod, but Envoy route + mongot STS still absent
-      3. mongot STS + Envoy route deployed, but mongot held NOT-ready (index building)
+      3. mongot STS + Envoy route deployed, but mongot held NOT-ready (out of rotation)
       4. mongot ready -> queries recover
     """
 
@@ -324,8 +319,11 @@ class TestShardOnboardingAvailabilityStages:
             final = redistribute_chunks_to_new_shard(
                 admin, self.DB, self.COLL, self.new_shard_name, min_docs=50, timeout=300
             )
-            # Collect a full batch of probes after the data has landed.
-            bg_during.wait_for_operations(self.PROBE_COUNT, since=bg_during.operations_count)
+            # Collect a full batch of probes after the data has landed; sized for the
+            # worst case of every probe stalling to its 15s maxTimeMS.
+            bg_during.wait_for_operations(
+                self.PROBE_COUNT, since=bg_during.operations_count, timeout=self.PROBE_COUNT * 16 + 60
+            )
         verdict = bg_during.verdict
         logger.info(f"[stage1, onboarding without search config] background verdict: {verdict.as_dict()}")
 
@@ -367,16 +365,18 @@ class TestShardOnboardingAvailabilityStages:
         # mongot) -> Envoy "no healthy upstream" -> clean gap, never INITIAL_SYNC.
         assert_clean_no_mongot_gap(verdict, "stage2: mongotHost set, Envoy + mongot absent")
 
-    def test_03_deploy_mongot_envoy_but_index_not_ready(self, namespace: str):
+    def test_03_deploy_mongot_envoy_but_not_ready(self, namespace: str):
+        """Deploy the new shard's mongot, then force it NOT-ready and prove Envoy
+        excludes it: queries fail with the clean "no healthy upstream" gap, never an
+        index-state rejection. (create_search_resource waits for Running, so the
+        mongot has already synced — this stage emulates a not-ready mongot by forcing
+        it out of rotation, it does not reproduce a mid-initial-sync pod.)"""
         assert self.onboard_index is not None, "stage 1 must run first"
         search_tests = self._search_tests()
         # Per-shard mongot TLS + LB SAN for the new shard (operator needs these).
         search_tests.create_search_tls_certificate()
         search_tests.deploy_lb_certificates()
 
-        # Hold the new shard's mongot NOT-ready before it exists, so that as soon as
-        # the operator creates the STS it can never report ready — emulating a long
-        # index build. We patch right after creation and verify it stays not-ready.
         sts_name = self._mongot_sts_name(self.onboard_index)
 
         # Clear any stale PVC so this mongot syncs the already-present data fresh and
@@ -384,14 +384,14 @@ class TestShardOnboardingAvailabilityStages:
         delete_mongot_pvcs(namespace, sts_name)
 
         # Update MongoDBSearch to include the new shard -> operator creates its mongot
-        # STS and extends the Envoy config.
+        # STS and extends the Envoy config; Running gates on the STS being ready.
         search_tests.test_create_search_resource()
+        assert self._mongot_sts(self.onboard_index) is not None, f"{sts_name} missing after Running"
 
-        # Wait for the STS object to exist, then force its readiness probe to fail.
-        def sts_exists():
-            return self._mongot_sts(self.onboard_index) is not None, f"waiting for {sts_name}"
-
-        run_periodically(sts_exists, timeout=300, sleep_time=5, msg=f"mongot STS {sts_name} to be created")
+        # Pause reconciliation so the operator can't revert the probe override
+        # (it watches owned STSs — the patch itself would trigger a reconcile).
+        mdbs = MongoDBSearch(name=MDBS_NAME, namespace=namespace)
+        set_resource_disabled_annotation(mdbs, True)
         patch_mongot_readiness_probe_to_false(namespace, sts_name)
 
         # Give the probe time to take effect and confirm the mongot is NOT ready.
@@ -401,17 +401,19 @@ class TestShardOnboardingAvailabilityStages:
             return ready == 0, f"{sts_name} ready_replicas={ready}"
 
         run_periodically(not_ready, timeout=120, sleep_time=5, msg=f"{sts_name} to report not-ready")
-        logger.info(f"state OK: {sts_name} exists but is held not-ready (index-building emulation)")
+        logger.info(f"state OK: {sts_name} exists but is held not-ready (forced out of rotation)")
 
         verdict = self._probe_oneshot("stage3: mongot deployed but not ready")
-        # mongod reaches the Envoy route but the mongot upstream is not ready -> Envoy
-        # "no healthy upstream". Because the held-not-ready mongot never joined the
-        # rotation, queries see the clean gap, never an INITIAL_SYNC rejection.
+        # Envoy excludes the not-ready backend -> "no healthy upstream" -> clean gap.
         assert_clean_no_mongot_gap(verdict, "stage3: mongot deployed but held not-ready")
 
     def test_04_recovers_when_mongot_ready(self, namespace: str):
         assert self.onboard_index is not None, "stage 1 must run first"
         sts_name = self._mongot_sts_name(self.onboard_index)
+        # Resume reconciliation so the operator restores its real readiness probe,
+        # then clear the override + roll the pod.
+        mdbs = MongoDBSearch(name=MDBS_NAME, namespace=namespace)
+        set_resource_disabled_annotation(mdbs, False)
         restore_mongot_readiness_probe(namespace, sts_name)
         wait_for_pods_ready(namespace, name_prefix=sts_name)
 

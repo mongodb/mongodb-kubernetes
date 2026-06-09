@@ -390,6 +390,20 @@ def _read_mongod_set_parameter(
     return parsed.get("setParameter", {}) or {}
 
 
+def _put_automation_config_past_lock(om_tester, ac_path: str, ac: dict, attempts: int = 3) -> None:
+    """clear_feature_controls + PUT, retried on 401 — the operator can re-assert
+    EXTERNALLY_MANAGED_LOCK between the clear and the PUT."""
+    for attempt in range(1, attempts + 1):
+        om_tester.clear_feature_controls()
+        try:
+            om_tester.om_request("put", ac_path, json_object=ac)
+            return
+        except Exception as e:
+            if "401" not in str(e) or attempt == attempts:
+                raise
+            logger.warning(f"automationConfig PUT got 401 (operator re-locked); retry {attempt}/{attempts - 1}")
+
+
 def patch_per_cluster_mongot_host_via_om(
     *,
     mdb: MongoDBMulti,
@@ -439,8 +453,7 @@ def patch_per_cluster_mongot_host_via_om(
     logger.info(f"patched {len(patched_processes)} processes: {patched_processes}")
 
     ac["version"] = ac.get("version", 0) + 1
-    om_tester.clear_feature_controls()
-    om_tester.om_request("put", ac_path, json_object=ac)
+    _put_automation_config_past_lock(om_tester, ac_path, ac)
     logger.info(f"PUT automation config v{ac['version']} with per-cluster mongotHost")
 
     # Block until every mongod has applied the new goal version — setParameter
@@ -592,8 +605,7 @@ def patch_per_cluster_sharded_mongot_host_via_om(
     logger.info(f"patched {len(patched)} sharded processes: {patched}")
 
     ac["version"] = ac.get("version", 0) + 1
-    om_tester.clear_feature_controls()
-    om_tester.om_request("put", ac_path, json_object=ac)
+    _put_automation_config_past_lock(om_tester, ac_path, ac)
     logger.info(f"PUT automation config v{ac['version']} with per-(cluster,shard) mongotHost")
 
     # setParameter changes require a process restart — block until every agent

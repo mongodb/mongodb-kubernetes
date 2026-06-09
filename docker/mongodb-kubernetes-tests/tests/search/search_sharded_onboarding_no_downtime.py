@@ -132,7 +132,6 @@ class TestShardOnboardingNoDowntime:
     def test_onboard_shard_with_zero_errors(self, namespace: str):
         target = MDB.shard_count + 1
         new_shard_name = f"{MDB.mdb_resource_name}-{target - 1}"
-        onboard_index = target - 1
         logger.info(f"onboarding shard {new_shard_name} ({MDB.shard_count}->{target}) with zero-error contract")
 
         self._provision_certs_for_shard_count(target)
@@ -155,10 +154,11 @@ class TestShardOnboardingNoDowntime:
             log_shard_distribution(admin, self.DB, self.COLL, label="[after addShard]")
             final = redistribute_chunks_to_new_shard(admin, self.DB, self.COLL, new_shard_name, min_docs=50, timeout=300)
 
-            # Then the mongot group for the new shard, and wire mongotHost.
+            # Wire mongotHost BEFORE creating the mongot group — the wiring-induced
+            # mongod roll must never interrupt a serving mongot's change stream.
             search_tests = self._search_tests()
-            search_tests.test_create_search_resource()
             search_tests.test_wire_mongot_host()
+            search_tests.test_create_search_resource()
 
             # Hold the window open across provisioning + initial sync.
             def synced():
@@ -166,7 +166,8 @@ class TestShardOnboardingNoDowntime:
                 return probe.success, (probe.error_class or "ok")
 
             run_periodically(synced, timeout=600, sleep_time=10, msg="new shard mongot to finish initial sync")
-            bg.wait_for_operations(self.PROBE_COUNT, since=bg.operations_count)
+            # Sized for the worst case of every probe stalling to its 15s maxTimeMS.
+            bg.wait_for_operations(self.PROBE_COUNT, since=bg.operations_count, timeout=self.PROBE_COUNT * 16 + 60)
 
         verdict = bg.verdict
         logger.info(f"[onboarding, zero-error contract] verdict: {verdict.as_dict()}")

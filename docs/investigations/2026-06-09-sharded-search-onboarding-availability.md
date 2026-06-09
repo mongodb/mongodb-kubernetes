@@ -78,7 +78,8 @@ Classes assigned by `classify_failure()` in
 |---|---|---|---|
 | `search_not_enabled` | code **31082** | shard's mongod | shard owns data but has no `mongotHost` — search not enabled there. **Clean gap.** |
 | `transient_network` | `"no healthy upstream"`, connection refused/reset, `NetworkTimeout`/`AutoReconnect`/`ServerSelectionTimeoutError` | Envoy LB / network | no ready mongot upstream behind the route (none deployed, or pod not Ready). **Clean gap.** |
-| `index_unavailable` | code **8**, `"…while in state INITIAL_SYNC\|NOT_STARTED\|UNKNOWN\|FAILED"` | **mongot** | query reached a **Ready** mongot, which rejected it because the index isn't servable. **The bad mode — must never occur.** |
+| `mongot_unreachable` | code **50** (`MaxTimeMSExpired`) | mongod fan-out stall | `mongotHost` set but nothing answers (e.g. Envoy not deployed yet) — or, indistinguishably, a reachable mongot that stalls instead of rejecting. **Clean gap** (only an explicit index-state rejection proves the bad mode). |
+| `index_unavailable` | message `"…while in state <X>"` (any state token; typically code 8) | **mongot** | query reached a **Ready** mongot, which rejected it because the index isn't servable. **The bad mode — must never occur.** Matched by message, not code — code 8 is a generic error code. |
 | `cursor_lost` | code 43 / `CursorNotFound`, `"remote error from mongot"`, `rst_stream` | mongot mid-stream | established cursor lost (relevant to paging tests). |
 | `other` | anything else | — | unclassified; tolerated as incidental noise but logged. |
 
@@ -148,7 +149,8 @@ error.**
 **New contract (what the prepared test will assert):**
 
 - Ordering is still **data-first, then mongot**: migrate data onto the new shard, then
-  create that shard's mongot group and wire `mongotHost`.
+  wire `mongotHost` (the induced mongod roll must never interrupt a serving mongot's
+  change stream), then create that shard's mongot group.
 - Throughout the *entire* onboarding window — shard add, mongot-group creation, pod
   provisioning, and initial sync — **every `$search` succeeds**:
   `failed == 0`, and every failure class (`transient_network`, `search_not_enabled`,

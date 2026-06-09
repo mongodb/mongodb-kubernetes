@@ -447,9 +447,10 @@ class OMTester(object):
 
     def clear_feature_controls(self) -> None:
         """Reset controlledFeature to no policies so a direct automationConfig PUT is
-        accepted past the operator's EXTERNALLY_MANAGED_LOCK. Same call as
-        delete_om_projects.sh / setup_cloud_qa.py; the operator re-asserts the lock on
-        its next reconcile, so this only opens a window for the immediately-following PUT.
+        accepted past the operator's EXTERNALLY_MANAGED_LOCK. Same mechanism as
+        delete_om_projects.sh / setup_cloud_qa.py (which still use the legacy
+        mongodb-enterprise-operator name); the operator re-asserts the lock on its
+        next reconcile, so this only opens a window for the immediately-following PUT.
         """
         self.om_request(
             "put",
