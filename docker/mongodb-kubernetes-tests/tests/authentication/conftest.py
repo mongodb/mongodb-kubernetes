@@ -129,8 +129,8 @@ def secondary_openldap(ldap_namespace: str) -> OpenLDAP:
     return openldap_install(ldap_namespace, f"{LDAP_NAME}secondary")
 
 
-@fixture(scope="session")
-def ldap_issuer(ldap_namespace: str) -> str:
+@fixture(scope="module")
+def ldap_issuer(cert_manager: str, ldap_namespace: str) -> str:
     """Creates a cert-manager Issuer in the openldap namespace."""
     return create_issuer(ldap_namespace)
 
