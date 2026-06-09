@@ -1,10 +1,13 @@
 """Sharded cluster scale up and scale down when shardNameOverrides are set.
 
-Creates a 2-shard cluster using both override forms:
+Creates a 2-shard cluster using both override forms for shards, plus config server
+and mongos name overrides:
   - Shard 0: full form, where shardId and replicaSetName differ from the K8s StatefulSet name.
   - Shard 1: brevity form, where shardName only is set and all three values are equal.
+  - Config server: configSrvRsNameOverride sets a custom AC replicaSetName.
+  - Mongos: mongosRsNameOverride sets a custom AC cluster name.
 Verifies that:
-  - The AC uses the correct names for each form after creation.
+  - The AC uses the correct names for all four override forms after creation.
   - Scaling down removes the override entry for the scaled-away shard.
   - Scaling up adds a new shard that uses the K8s default name in the AC.
 """
@@ -21,7 +24,8 @@ from pytest import fixture, mark
 
 MARK = "e2e_sharded_cluster_scale_shards_name_overrides"
 
-CONFIG_RS_NAME = "sc-scale-overrides-config"
+CONFIG_RS_AC_NAME = "ac-config"
+MONGOS_AC_NAME = "ac-mongos"
 SHARD_0_AC_NAME = "ac-rs-0"
 SHARD_1_K8S_NAME = "sc-scale-overrides-1"
 
@@ -68,7 +72,7 @@ class TestCreateWithNameOverrides:
 
     def test_ac_uses_override_names(self, om_tester: OMTester):
         ac_tester = om_tester.get_automation_config_tester()
-        ac_tester.assert_sharded_cluster_processes(CONFIG_RS_NAME, [SHARD_0_AC_NAME, SHARD_1_K8S_NAME], 1)
+        ac_tester.assert_sharded_cluster_processes(CONFIG_RS_AC_NAME, [SHARD_0_AC_NAME, SHARD_1_K8S_NAME], 1)
 
     def test_ac_has_two_shards(self, om_tester: OMTester):
         ac_tester = om_tester.get_automation_config_tester()
@@ -77,6 +81,12 @@ class TestCreateWithNameOverrides:
         shard_ids = {s["_id"] for s in shards}
         assert SHARD_0_AC_NAME in shard_ids
         assert SHARD_1_K8S_NAME in shard_ids
+
+    def test_ac_config_and_mongos_use_override_names(self, om_tester: OMTester):
+        ac_tester = om_tester.get_automation_config_tester()
+        sharding_entry = ac_tester.get_sharding_entries()[0]
+        assert sharding_entry["configServer"] == CONFIG_RS_AC_NAME
+        assert sharding_entry["name"] == MONGOS_AC_NAME
 
 
 @mark.e2e_sharded_cluster_scale_shards_name_overrides
@@ -99,7 +109,7 @@ class TestScaleDownWithNameOverrides:
 
     def test_ac_shard_1_removed(self, om_tester: OMTester):
         ac_tester = om_tester.get_automation_config_tester()
-        ac_tester.assert_sharded_cluster_processes(CONFIG_RS_NAME, [SHARD_0_AC_NAME], 1)
+        ac_tester.assert_sharded_cluster_processes(CONFIG_RS_AC_NAME, [SHARD_0_AC_NAME], 1)
 
     def test_ac_has_one_shard(self, om_tester: OMTester):
         ac_tester = om_tester.get_automation_config_tester()
@@ -125,7 +135,7 @@ class TestScaleUpWithoutNewOverride:
 
     def test_ac_new_shard_uses_k8s_name(self, om_tester: OMTester):
         ac_tester = om_tester.get_automation_config_tester()
-        ac_tester.assert_sharded_cluster_processes(CONFIG_RS_NAME, [SHARD_0_AC_NAME, SHARD_1_K8S_NAME], 1)
+        ac_tester.assert_sharded_cluster_processes(CONFIG_RS_AC_NAME, [SHARD_0_AC_NAME, SHARD_1_K8S_NAME], 1)
 
     def test_ac_has_two_shards(self, om_tester: OMTester):
         ac_tester = om_tester.get_automation_config_tester()
