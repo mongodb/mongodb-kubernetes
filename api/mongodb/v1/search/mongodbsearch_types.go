@@ -761,9 +761,8 @@ func (s *MongoDBSearch) GetEndpointForShard(shardName string) string {
 }
 
 // EffectiveClusters returns the per-cluster distribution slice the reconcile
-// loop iterates over: spec.clusters[] as authored, with no cross-tier cascade.
-// Sizing has a single home (the per-cluster entry), so this is an identity
-// accessor — kept as the canonical entry point readers go through.
+// loop iterates over: spec.clusters[] as authored. Sizing has a single home (the
+// per-cluster entry) with no cross-tier cascade, so this is an identity accessor.
 func (s *MongoDBSearch) EffectiveClusters() []ClusterSpec {
 	return s.Spec.Clusters
 }
@@ -817,17 +816,17 @@ func (s *MongoDBSearch) HasMultipleReplicas() bool {
 // MaxReplicasAcrossClusters returns the largest per-cluster mongot replica
 // count (clusters default to 1 when Replicas is unset).
 func (s *MongoDBSearch) MaxReplicasAcrossClusters() int {
-	max := 0
+	highest := 0
 	for _, c := range s.Spec.Clusters {
 		replicas := 1
 		if c.Replicas != nil {
 			replicas = int(*c.Replicas)
 		}
-		if replicas > max {
-			max = replicas
+		if replicas > highest {
+			highest = replicas
 		}
 	}
-	return max
+	return highest
 }
 
 // HasAutoEmbedding returns true when auto-embedding is configured.

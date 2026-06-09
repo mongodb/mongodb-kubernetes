@@ -98,9 +98,8 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, clusterName,
 		mongotConfigVolumeMount = statefulset.CreateVolumeMount(mongotConfigVolumeName, MongotConfigPath, statefulset.WithReadOnly(true), statefulset.WithSubPath(MongotConfigFilename))
 	}
 
-	// Per-cluster spec for THIS cluster, cascaded over the top-level defaults
-	// (REPLACE-if-nil for Persistence / ResourceRequirements /
-	// StatefulSetConfiguration). Empty clusterName == single-cluster path.
+	// Per-cluster spec for THIS cluster (sizing has a single home in
+	// spec.clusters[], no cross-tier cascade). Empty clusterName == single-cluster path.
 	perCluster, err := mdbSearch.EffectiveClusterFor(clusterName)
 	if err != nil {
 		return nil, err

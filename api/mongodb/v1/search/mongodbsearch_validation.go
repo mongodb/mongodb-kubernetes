@@ -65,8 +65,6 @@ func (s *MongoDBSearch) RunValidations() []v1.ValidationResult {
 	}
 	if s.isMultiCluster() {
 		collect(multiClusterValidators())
-	} else {
-		collect(singleClusterValidators())
 	}
 	if s.IsLBModeManaged() {
 		collect(managedLBValidators())
@@ -98,12 +96,6 @@ func externalShardedValidators() []func(*MongoDBSearch) v1.ValidationResult {
 	return []func(*MongoDBSearch) v1.ValidationResult{
 		validateShardNames,
 	}
-}
-
-// singleClusterValidators run only for single-cluster specs (len(spec.clusters)
-// <= 1). Empty today; the explicit home for future single-cluster-only rules.
-func singleClusterValidators() []func(*MongoDBSearch) v1.ValidationResult {
-	return nil
 }
 
 // multiClusterValidators run only for multi-cluster specs (len(spec.clusters) >
@@ -200,6 +192,12 @@ func validateManagedLBExternalHostname(s *MongoDBSearch) v1.ValidationResult {
 	return v1.ValidationSuccess()
 }
 
+// isPlaceholderOnly reports whether endpoint is nothing but {shardName} placeholders
+// (and whitespace) — i.e. it carries no actual hostname to differentiate shards.
+func isPlaceholderOnly(endpoint string) bool {
+	return strings.TrimSpace(strings.ReplaceAll(endpoint, ShardNamePlaceholder, "")) == ""
+}
+
 // validateUnmanagedEndpointTemplate validates the unmanaged endpoint template against the source
 // topology. For an external sharded source the endpoint must be a per-shard template: it must
 // contain at least one {shardName} placeholder (Rule 6) and more than just the placeholder. For
@@ -215,7 +213,7 @@ func validateUnmanagedEndpointTemplate(s *MongoDBSearch) v1.ValidationResult {
 		if !hasTemplate {
 			return v1.ValidationError("spec.loadBalancer.unmanaged.endpoint must contain at least one %s placeholder to differentiate between shards", ShardNamePlaceholder)
 		}
-		if strings.TrimSpace(strings.ReplaceAll(endpoint, ShardNamePlaceholder, "")) == "" {
+		if isPlaceholderOnly(endpoint) {
 			return v1.ValidationError("spec.loadBalancer.unmanaged.endpoint must contain more than just the %s placeholder", ShardNamePlaceholder)
 		}
 		return v1.ValidationSuccess()
@@ -232,7 +230,7 @@ func validateUnmanagedEndpointTemplate(s *MongoDBSearch) v1.ValidationResult {
 	// Operator-managed source: sharded-ness is only known at reconcile time, so we
 	// neither require nor forbid the template — but a templated endpoint must carry
 	// more than the placeholder.
-	if hasTemplate && strings.TrimSpace(strings.ReplaceAll(endpoint, ShardNamePlaceholder, "")) == "" {
+	if hasTemplate && isPlaceholderOnly(endpoint) {
 		return v1.ValidationError("spec.loadBalancer.unmanaged.endpoint must contain more than just the %s placeholder", ShardNamePlaceholder)
 	}
 
