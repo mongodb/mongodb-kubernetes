@@ -147,6 +147,7 @@ func buildExpectedMongotConfig(search *searchv1.MongoDBSearch, mdbc *mdbcv1.Mong
 			Verbosity: logLevel,
 			LogPath:   nil,
 		},
+		// OverloadRetrySignal defaults to true (see featureFlagsMongotMod) unless the CR disables it.
 		FeatureFlags: &mongot.ConfigFeatureFlags{
 			OverloadRetrySignal: ptr.To(true),
 		},
