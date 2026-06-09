@@ -12,19 +12,9 @@ spec:
       labels:
         run: nginx
     spec:
-      securityContext:
-        runAsNonRoot: true
-        seccompProfile:
-          type: RuntimeDefault
       containers:
         - image: macbre/nginx-http3:latest
           name: nginx
-          securityContext:
-            runAsUser: 1337
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop:
-              - ALL
           volumeMounts:
             - mountPath: /etc/nginx/nginx.conf
               name: nginx-conf
