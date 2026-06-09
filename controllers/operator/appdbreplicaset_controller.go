@@ -2324,7 +2324,7 @@ func (r *ReconcileAppDbReplicaSet) reconcileManagedByMetaOM(
 	acStr := headlessConfig[automationconfig.ConfigKey]
 	metaAC, acErr := om.BuildAutomationConfigFromBytes([]byte(acStr))
 	if acErr != nil {
-		return construct.MetaOMEnvVars{}, workflow.Failed(xerrors.Errorf("failed to parse headless automation config: %w", err))
+		return construct.MetaOMEnvVars{}, workflow.Failed(xerrors.Errorf("failed to parse headless automation config: %w", acErr))
 	}
 
 	// This is most important part with updating the headless Automation Config to be accepted by OpsManager API

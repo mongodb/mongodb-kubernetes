@@ -1,13 +1,15 @@
+import time
 from typing import Iterator, Optional
 
-from kubetester import create_or_update_secret, read_secret, try_load
+import pymongo
+from kubetester import create_or_update_secret, delete_pod, delete_pvc, read_secret, try_load
 from kubetester.awss3client import AwsS3Client
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.omtester import OMTester
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 from pytest import fixture, mark
-from tests.conftest import get_central_cluster_client
+from tests.conftest import assert_data_got_restored, get_central_cluster_client
 from tests.opsmanager.om_ops_manager_backup import create_aws_secret, create_s3_bucket
 
 """
@@ -38,6 +40,8 @@ META_OM_OPLOG_SECRET_NAME = "meta-om-s3-secret-oplog"
 
 AGENT_CONTAINER_NAME = "mongodb-agent"
 
+APPDB_TEST_DATA = {"_id": "appdb_pitr_witness", "status": "before_change"}
+
 
 @fixture(scope="module")
 def meta_s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> Iterator[str]:
@@ -56,7 +60,7 @@ def meta_om_appdb_tester(meta_ops_manager: MongoDBOpsManager) -> OMTester:
     return meta_ops_manager.get_om_tester(project_name=META_OM_PROJECT_NAME)
 
 
-@fixture(scope="module")
+@fixture(scope="function")
 def primary_ops_manager(
     namespace: str,
     custom_version: Optional[str],
@@ -237,6 +241,11 @@ class TestAppDBBackupInMetaOM:
     """Enable and verify backup for Primary AppDB managed by Meta OM.
     Since the AppDB CRD has no backup.mode field, backup is enabled directly via the Meta OM API."""
 
+    def test_insert_test_data(self, primary_appdb_collection):
+        """Insert known data before enabling backup so it is captured in the first snapshot."""
+        primary_appdb_collection.delete_many({"_id": APPDB_TEST_DATA["_id"]})
+        primary_appdb_collection.insert_one(APPDB_TEST_DATA.copy())
+
     def test_enable_appdb_backup(self, meta_om_appdb_tester: OMTester):
         """Wait for the AppDB cluster to register in Meta OM's backup system, then enable backup."""
         meta_om_appdb_tester.api_enable_backup(timeout=300)
@@ -246,3 +255,78 @@ class TestAppDBBackupInMetaOM:
 
     def test_appdb_snapshot_ready(self, meta_om_appdb_tester: OMTester):
         meta_om_appdb_tester.wait_until_backup_snapshots_are_ready(expected_count=1)
+
+
+@fixture(scope="function")
+def primary_appdb_collection(primary_ops_manager: MongoDBOpsManager):
+    connection_string = primary_ops_manager.read_appdb_connection_url()
+    client = pymongo.MongoClient(connection_string, serverSelectionTimeoutMS=30000)
+    yield client["testdb"]["testcollection"]
+    client.close()
+
+@mark.e2e_om_appdb_meta_om_mode_switch
+class TestAppDBDisasterRecovery:
+    """Simulate complete AppDB data loss (all PVCs deleted) and verify restore from Meta OM backup."""
+
+    def test_delete_appdb_pvcs_and_pods(self, primary_ops_manager: MongoDBOpsManager, namespace: str):
+        """Simulate total data loss: delete all AppDB PVCs and pods.
+        PVCs are deleted first; pod deletion releases the pvc-protection finalizer so PVCs
+        are fully removed before the StatefulSet recreates pods with fresh empty PVCs."""
+        sts_name = primary_ops_manager.app_db_name()
+        members = primary_ops_manager.get_appdb_members_count()
+        for i in range(members):
+            delete_pvc(namespace, f"data-{sts_name}-{i}")
+            delete_pod(namespace, f"{sts_name}-{i}")
+
+    def test_appdb_reaches_running_after_recreation(self, primary_ops_manager: MongoDBOpsManager):
+        """Operator recreates AppDB with empty PVCs; agent reconnects to Meta OM."""
+        primary_ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=1900)
+
+    def test_data_is_gone_after_recreation(self, primary_appdb_collection):
+        """Verify data loss — confirms the fresh PVCs contain no prior data.
+        Retries until the AppDB is connectable (pods may still be starting after recreation)."""
+        start = time.time()
+        timeout = 300
+        last_error = None
+        while time.time() - start < timeout:
+            try:
+                records = list(primary_appdb_collection.find({"_id": APPDB_TEST_DATA["_id"]}))
+                assert records == [], f"Expected empty collection after PVC deletion, got: {records}"
+                return
+            except AssertionError:
+                raise
+            except Exception as e:
+                last_error = e
+                time.sleep(5)
+        raise AssertionError(f"AppDB not connectable within {timeout}s after recreation. Last error: {last_error}")
+
+    def test_restore_from_snapshot(self, meta_om_appdb_tester: OMTester):
+        """Restore from the latest snapshot stored in Meta OM.
+        PITR is not applicable here: PVC deletion breaks oplog continuity, making any
+        pre-disaster pit time invalid. Snapshot restore is the correct recovery mechanism.
+        Primary OM goes down during AppDB restore; completion is verified via OM recovery below."""
+        meta_om_appdb_tester.create_restore_job_snapshot()
+
+
+    def test_primary_om_reaches_running_after_restore(self, primary_ops_manager: MongoDBOpsManager):
+        """Wait for Primary OM to come back — this implies AppDB was fully restored."""
+        primary_ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=3600)
+        primary_ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=3600)
+
+    def test_data_restored(self, primary_appdb_collection):
+        """Wait until the restored snapshot data appears in the collection.
+        Retries on both connection errors (mongod restarting during apply) and empty results."""
+        start = time.time()
+        timeout = 3600
+        last_error = None
+        while time.time() - start < timeout:
+            try:
+                records = list(primary_appdb_collection.find({"_id": APPDB_TEST_DATA["_id"]}))
+                if records == [APPDB_TEST_DATA]:
+                    return
+                last_error = f"data not yet present: {records}"
+            except Exception as e:
+                last_error = e
+            time.sleep(5)
+        raise AssertionError(f"Data not restored within {timeout}s after snapshot restore. Last error: {last_error}")
+

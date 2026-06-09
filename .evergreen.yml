@@ -1373,6 +1373,7 @@ task_groups:
     <<: *setup_and_teardown_task
     tasks:
       - e2e_om_ops_manager_backup_object_lock
+      - e2e_om_appdb_meta_om_mode_switch
     <<: *teardown_group
 
   # Tests features only supported on OM70 and OM80, its only upgrade test as we test upgrading from 6 to 7 or 7 to 8
