@@ -31,6 +31,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/backup"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connection"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connectionstringsecret"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/controlledfeature"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
@@ -88,7 +89,7 @@ func TestReconcileCreateShardedCluster(t *testing.T) {
 	require.NoError(t, err)
 
 	checkReconcileSuccessful(ctx, t, reconciler, sc, c)
-	assert.Len(t, mock.GetMapForObject(c, &corev1.Secret{}), 3)
+	assert.Len(t, mock.GetMapForObject(c, &corev1.Secret{}), 4)
 	assert.Len(t, mock.GetMapForObject(c, &corev1.Service{}), 3)
 	assert.Len(t, mock.GetMapForObject(c, &appsv1.StatefulSet{}), 4)
 	assert.Equal(t, getStsReplicas(ctx, c, kube.ObjectKey(sc.Namespace, sc.ConfigRsName()), t), int32(sc.Spec.ConfigServerCount))
@@ -2142,3 +2143,34 @@ func generateAllHostsSingleCluster(sc *mdbv1.MongoDB, mongosCount int, configSrv
 	return allHosts, allPodNames
 }
 
+func TestShardedClusterReconcile_PublishesConnectionStringSecret(t *testing.T) {
+	ctx := context.Background()
+	sc := test.DefaultClusterBuilder().SetName("conn-str-sc").Build()
+	sc.Spec.ExternalMembers = []mdbv1.ExternalMember{
+		{ProcessName: "vm-mongod", Hostname: "vm-mongod.example.com:27018", Type: "mongod"},
+		{ProcessName: "vm-mongos", Hostname: "vm-mongos.example.com:27017", Type: "mongos"},
+	}
+
+	reconciler, _, kubeClient, _, err := defaultShardedClusterReconciler(ctx, nil, "", "", sc, nil, testBackupEnableDelay)
+	require.NoError(t, err)
+
+	checkReconcileSuccessful(ctx, t, reconciler, sc, kubeClient)
+
+	secret := &corev1.Secret{}
+	require.NoError(t, kubeClient.Get(ctx,
+		kube.ObjectKey(sc.Namespace, "conn-str-sc"+connectionstringsecret.SecretNameSuffix),
+		secret))
+
+	std := string(secret.Data["connectionString.standard"])
+	// k8s mongos hostnames present.
+	assert.Contains(t, std, "conn-str-sc-mongos-0.")
+	// External mongos appended; external mongod filtered out.
+	assert.Contains(t, std, "vm-mongos.example.com:27017")
+	assert.NotContains(t, std, "vm-mongod.example.com")
+	// Credential-less.
+	assert.NotContains(t, std, "@")
+
+	require.Len(t, secret.OwnerReferences, 1)
+	assert.Equal(t, "MongoDB", secret.OwnerReferences[0].Kind)
+	assert.Equal(t, mdbv1.GroupVersion.String(), secret.OwnerReferences[0].APIVersion)
+}

@@ -5,6 +5,8 @@ Automation config sets agentVersion.name to that tag so it matches the VM agents
 
 """
 
+from typing import Tuple
+
 import yaml
 from kubetester import get_statefulset, try_load
 from kubetester.kubetester import KubernetesTester, fcv_from_version
@@ -13,13 +15,28 @@ from kubetester.kubetester import skip_if_local
 from kubetester.mongodb import MongoDB
 from kubetester.mongotester import MongoDBBackgroundTester, MongoTester
 from kubetester.omtester import OMContext, OMTester
-from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.search import movies_search_helper
 from tests.common.search.search_tester import SearchTester
+from tests.conftest import local_operator
 from tests.tls.vm_migration_dry_run import run_migration_dry_run_connectivity_passes
+
+
+def _connection_string(mdb_migration: MongoDB) -> Tuple[str, str]:
+    """Read connectionString.standard and connectionString.standardSrv from the credential-less secret published by the operator."""
+    secret = KubernetesTester.read_secret(mdb_migration.namespace, f"{mdb_migration.name}-connection-string")
+    return secret.get("connectionString.standard", ""), secret.get("connectionString.standardSrv", "")
+
+
+def _k8s_hostnames(mdb_migration: MongoDB) -> list:
+    """Return the expected k8s pod DNS hostnames (host:port) for all RS members."""
+    svc = f"{mdb_migration.name}-svc"
+    return [
+        f"{mdb_migration.name}-{i}.{svc}.{mdb_migration.namespace}.svc.cluster.local:27017"
+        for i in range(mdb_migration.get_members())
+    ]
 
 
 @fixture(scope="module")
@@ -97,7 +114,6 @@ def mongo_tester(mdb_migration: MongoDB):
 @fixture(scope="module")
 def mdb_health_checker(mongo_tester: MongoTester) -> MongoDBBackgroundTester:
     health_checker = MongoDBBackgroundTester(mongo_tester)
-    health_checker.start()
     return health_checker
 
 
@@ -188,14 +204,7 @@ def test_update_vm_ac(namespace: str, om_tester: OMTester, vm_sts, vm_service, c
 
 
 @mark.e2e_vm_migration
-def test_migration_dry_run_connectivity_passes(mdb_migration: MongoDB):
-    """Run migration dry-run: operator only validates connectivity to externalMembers, then we clear the annotation."""
-    run_migration_dry_run_connectivity_passes(mdb_migration)
-
-
-@mark.e2e_vm_migration
-def test_vm_deployment_is_ready(om_tester: OMTester, vm_sts):
-    om_tester.wait_agents_ready()
+def test_vm_deployment_automation_config(om_tester: OMTester, vm_sts):
     ac_tester = om_tester.get_automation_config_tester()
 
     assert len(ac_tester.get_all_processes()) == vm_sts["spec"]["replicas"]
@@ -205,25 +214,31 @@ def test_vm_deployment_is_ready(om_tester: OMTester, vm_sts):
 
 
 @mark.e2e_vm_migration
-@skip_if_local
+def test_migration_dry_run_connectivity_passes(mdb_migration: MongoDB):
+    """Run migration dry-run: operator only validates connectivity to externalMembers, then we clear the annotation."""
+    run_migration_dry_run_connectivity_passes(mdb_migration)
+
+
+@mark.e2e_vm_migration
 def test_insert_sample_data(om_tester: OMTester, vm_sts, namespace):
     sample_movies_helper = movies_search_helper.SampleMoviesSearchHelper(
         SearchTester(
             f"mongodb://{vm_sts['metadata']['name']}-0.{vm_sts['metadata']['name']}.{namespace}.svc.cluster.local:27017/?replicaSet={vm_sts['metadata']['name']}-rs"
         ),
-        mongodb_tools_pod.get_tools_pod(namespace)
+        mongodb_tools_pod.get_tools_pod(namespace),
     )
     sample_movies_helper.restore_sample_database()
 
 
 @mark.e2e_vm_migration
-def test_install_operator(default_operator: Operator):
-    default_operator.assert_is_running()
-
-
-@mark.e2e_vm_migration
-def test_mdb_reaches_running(mdb_migration: MongoDB, om_tester: OMTester, vm_sts):
+def test_mdb_reaches_running(namespace: str, mdb_migration: MongoDB, om_tester: OMTester, vm_sts):
     mdb_migration.assert_reaches_phase(Phase.Running, timeout=600)
+
+    conn_str, _ = _connection_string(mdb_migration)
+    for hostname in _k8s_hostnames(mdb_migration):
+        assert hostname in conn_str, f"k8s hostname {hostname!r} missing from connection string secret"
+    for em in mdb_migration["spec"]["externalMembers"]:
+        assert em["hostname"] in conn_str, f"external member {em['hostname']!r} missing from connection string secret"
 
     total_members = vm_sts["spec"]["replicas"] + mdb_migration.get_members()
     ac_tester = om_tester.get_automation_config_tester()
@@ -271,9 +286,13 @@ def test_max_voting_members_validation(mdb_migration: MongoDB):
 
 
 @mark.e2e_vm_migration
-def test_promote_and_prune(
-    mdb_migration: MongoDB, vm_sts, om_tester: OMTester, mdb_health_checker: MongoDBBackgroundTester
-):
+@skip_if_local
+def test_start_background_health_checker(mdb_health_checker):
+    mdb_health_checker.start()
+
+
+@mark.e2e_vm_migration
+def test_promote_and_prune(mdb_migration: MongoDB, vm_sts, om_tester: OMTester):
     try_load(mdb_migration)
     k8s_members = mdb_migration.get_members()
     for i in range(vm_sts["spec"]["replicas"]):
@@ -283,9 +302,32 @@ def test_promote_and_prune(
             mdb_migration.update()
             mdb_migration.assert_reaches_phase(Phase.Running)
 
-        mdb_migration["spec"]["externalMembers"].pop()
+        # After promote: all k8s pods and all remaining VM members must be present.
+        conn_str, _ = _connection_string(mdb_migration)
+        for hostname in _k8s_hostnames(mdb_migration):
+            assert hostname in conn_str, f"k8s hostname {hostname!r} missing after member {i} promoted"
+        for em in mdb_migration["spec"]["externalMembers"]:
+            assert em["hostname"] in conn_str, f"external member {em['hostname']!r} missing after member {i} promoted"
+
+        pruned = mdb_migration["spec"]["externalMembers"].pop()
         mdb_migration.update()
         mdb_migration.assert_reaches_phase(Phase.Running)
+
+        # After prune: removed VM hostname must be gone; surviving hosts must be present.
+        conn_str, conn_srv = _connection_string(mdb_migration)
+        assert (
+            pruned["hostname"] not in conn_str
+        ), f"pruned hostname {pruned['hostname']!r} still in connection string after prune {i}"
+        for hostname in _k8s_hostnames(mdb_migration):
+            assert hostname in conn_str, f"k8s hostname {hostname!r} missing after prune {i}"
+        for em in mdb_migration["spec"]["externalMembers"]:
+            assert em["hostname"] in conn_str, f"external member {em['hostname']!r} missing after prune {i}"
+
+        # Test connectivity with generated connection string
+        MongoTester(conn_str, use_ssl=False).assert_connectivity(attempts=1)
+        if not local_operator():
+            # srv connections don't work via kubefwd
+            MongoTester(conn_srv, use_ssl=False).assert_connectivity(attempts=1)
 
         om_tester.assert_cluster_available(f"{vm_sts['metadata']['name']}-rs")
         ac_tester = om_tester.get_automation_config_tester()
@@ -295,21 +337,39 @@ def test_promote_and_prune(
         assert len(ac_tester.get_backup_versions()) == total_members
         assert len(ac_tester.get_replica_set_processes(f"{vm_sts['metadata']['name']}-rs")) == total_members
 
-    # TODO: doesn't work great locally
-    mdb_health_checker.assert_healthiness()
-
-
-@mark.e2e_vm_migration
-def test_process_names(om_tester: OMTester, namespace, mdb_migration):
-    ac_tester = om_tester.get_automation_config_tester()
-    process_names = [process["name"] for process in ac_tester.get_all_processes()]
-    assert f"k8s/{namespace}/{mdb_migration.name}-0" in process_names
-    assert f"k8s/{namespace}/{mdb_migration.name}-1" in process_names
-    assert f"k8s/{namespace}/{mdb_migration.name}-2" in process_names
-
 
 @mark.e2e_vm_migration
 @skip_if_local
+def test_mongodb_reachable_during_promote_and_prune(mdb_health_checker):
+    mdb_health_checker.assert_healthiness()
+    mdb_health_checker.stop()
+
+
+@mark.e2e_vm_migration
+def test_process_names(om_tester: OMTester, mdb_migration):
+    ac_tester = om_tester.get_automation_config_tester()
+    process_names = [process["name"] for process in ac_tester.get_all_processes()]
+    assert f"k8s/{mdb_migration.namespace}/{mdb_migration.name}-0" in process_names
+    assert f"k8s/{mdb_migration.namespace}/{mdb_migration.name}-1" in process_names
+    assert f"k8s/{mdb_migration.namespace}/{mdb_migration.name}-2" in process_names
+
+
+@mark.e2e_vm_migration
+def test_connection_string_after_full_migration(mdb_migration: MongoDB):
+    """After all externalMembers are pruned the secret must contain only the k8s pod hostnames."""
+    assert not mdb_migration["spec"].get("externalMembers"), "expected all external members to be pruned by now"
+    conn_str, conn_srv = _connection_string(mdb_migration)
+    assert conn_str.startswith("mongodb://"), "connection string must use mongodb:// scheme"
+    for hostname in _k8s_hostnames(mdb_migration):
+        assert hostname in conn_str, f"k8s hostname {hostname!r} missing from final connection string"
+    assert f"replicaSet={mdb_migration["spec"]["replicaSetNameOverride"]}" in conn_str
+
+    assert conn_srv.startswith("mongodb+srv://"), "SRV connection string must use mongodb+srv:// scheme"
+    assert f"{mdb_migration.get_service()}.{mdb_migration.namespace}.svc.cluster.local" in conn_srv
+    assert f"replicaSet={mdb_migration["spec"]["replicaSetNameOverride"]}" in conn_str
+
+
+@mark.e2e_vm_migration
 def test_sample_mflix_database_exists_and_not_empty(mongo_tester: MongoTester):
     assert "sample_mflix" in mongo_tester.client.list_database_names(), "sample_mflix database does not exist"
     assert (
