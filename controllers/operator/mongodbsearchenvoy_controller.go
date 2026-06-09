@@ -255,7 +255,7 @@ func (r *MongoDBSearchEnvoyReconciler) reconcileForCluster(
 	if err != nil {
 		return workflow.Failed(fmt.Errorf("cluster=%q: %w", clusterName, err))
 	}
-	ldsJSON, err := buildLDSJSON(routes, tlsEnabled, caKeyName)
+	ldsJSON, err := buildLDSJSON(routes, tlsEnabled, caKeyName, search.GetManagedLBRetryPolicy())
 	if err != nil {
 		return workflow.Failed(fmt.Errorf("cluster=%q: %w", clusterName, err))
 	}
