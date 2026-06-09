@@ -106,6 +106,9 @@ func buildClientOptions(cfg Config, uri string) (*options.ClientOptions, error) 
 	switch cfg.AuthMechanism {
 	case "MONGODB-X509":
 		log.Debugw("Using MONGODB-X509 auth", "certPath", cfg.CertPath, "caPath", cfg.CAPath, "subjectDN", cfg.SubjectDN)
+		if _, statErr := os.Stat(cfg.CertPath); statErr != nil {
+			return nil, fmt.Errorf("stat X.509 cert: %w", statErr)
+		}
 		tlsCfg, err := buildTLSConfig(cfg.CertPath, cfg.CAPath)
 		if err != nil {
 			return nil, err
@@ -130,9 +133,6 @@ func buildClientOptions(cfg Config, uri string) (*options.ClientOptions, error) 
 			if _, statErr := os.Stat(cfg.CertPath); statErr == nil {
 				log.Debugw("Configuring TLS transport with client cert", "caPath", cfg.MongodTLSCAPath, "certPath", cfg.CertPath)
 				tlsCfg, err = buildTLSConfig(cfg.CertPath, cfg.MongodTLSCAPath)
-			} else if os.IsNotExist(statErr) {
-				log.Debugw("Configuring TLS transport (CA only)", "caPath", cfg.MongodTLSCAPath)
-				tlsCfg, err = buildTLSConfigFromCA(cfg.MongodTLSCAPath)
 			} else {
 				return nil, fmt.Errorf("stat client cert: %w", statErr)
 			}
