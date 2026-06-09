@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
@@ -1423,7 +1424,7 @@ func TestAtMostOneMigrationChangeAtATime_ShardedCluster_ExternalMembersOnly(t *t
 	}
 }
 
-func TestNoShardNameOverridesChanges(t *testing.T) {
+func TestNoShardNameOverridesAddedOrModified(t *testing.T) {
 	initial := []ShardNameOverride{
 		{ShardName: "vm-shard-A", ShardId: "vm-id-A", ReplicaSetName: "vm-rs-A"},
 		{ShardName: "vm-shard-B"},
@@ -1437,10 +1438,8 @@ func TestNoShardNameOverridesChanges(t *testing.T) {
 		errorMsg     string
 	}{
 		{
-			name:         "no overrides in either version passes",
-			oldOverrides: nil,
-			newOverrides: nil,
-			expectError:  false,
+			name:        "no overrides in either version passes",
+			expectError: false,
 		},
 		{
 			name:         "adding overrides to an existing resource that had none fails",
@@ -1463,21 +1462,14 @@ func TestNoShardNameOverridesChanges(t *testing.T) {
 			errorMsg:     "Cannot add",
 		},
 		{
-			name:         "removing an entry from existing overrides fails",
-			oldOverrides: initial,
-			newOverrides: initial[:1],
-			expectError:  true,
-			errorMsg:     "Cannot remove",
-		},
-		{
-			name: "modifying ReplicaSetName in an existing entry fails",
+			name:         "modifying ReplicaSetName in an existing entry fails",
 			oldOverrides: initial,
 			newOverrides: []ShardNameOverride{
 				{ShardName: "vm-shard-A", ShardId: "vm-id-A", ReplicaSetName: "changed-rs"},
 				{ShardName: "vm-shard-B"},
 			},
 			expectError: true,
-			errorMsg:    "index 0",
+			errorMsg:    "\"vm-shard-A\" was changed",
 		},
 	}
 
@@ -1485,7 +1477,72 @@ func TestNoShardNameOverridesChanges(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			oldSpec := MongoDbSpec{ShardedClusterSpec: ShardedClusterSpec{ShardNameOverrides: tt.oldOverrides}}
 			newSpec := MongoDbSpec{ShardedClusterSpec: ShardedClusterSpec{ShardNameOverrides: tt.newOverrides}}
-			result := noShardNameOverridesChanges(newSpec, oldSpec)
+			result := noShardNameOverridesAddedOrModified(newSpec, oldSpec)
+			if tt.expectError {
+				assert.Equal(t, v1.ErrorLevel, result.Level)
+				assert.Contains(t, result.Msg, tt.errorMsg)
+			} else {
+				assert.Equal(t, v1.ValidationSuccess(), result)
+			}
+		})
+	}
+}
+
+func TestNoShardNameOverridesRemovedForActiveShards(t *testing.T) {
+	resourceName := "my-mdb"
+	initial := []ShardNameOverride{
+		{ShardName: "my-mdb-0", ShardId: "vm-id-0", ReplicaSetName: "vm-rs-0"},
+		{ShardName: "my-mdb-1"},
+	}
+
+	buildMDB := func(shardCount int, overrides []ShardNameOverride) *MongoDB {
+		return &MongoDB{
+			ObjectMeta: metav1.ObjectMeta{Name: resourceName},
+			Spec: MongoDbSpec{
+				MongodbShardedClusterSizeConfig: status.MongodbShardedClusterSizeConfig{ShardCount: shardCount},
+				ShardedClusterSpec:              ShardedClusterSpec{ShardNameOverrides: overrides},
+			},
+		}
+	}
+
+	tests := []struct {
+		name        string
+		newMDB      *MongoDB
+		oldMDB      *MongoDB
+		expectError bool
+		errorMsg    string
+	}{
+		{
+			name:        "removing an entry for an active shard fails",
+			newMDB:      buildMDB(2, initial[:1]),
+			oldMDB:      buildMDB(2, initial),
+			expectError: true,
+			errorMsg:    "my-mdb-1",
+		},
+		{
+			name:        "removing the wrong entry when scaling down fails",
+			newMDB:      buildMDB(1, initial[1:]),
+			oldMDB:      buildMDB(2, initial),
+			expectError: true,
+			errorMsg:    "my-mdb-0",
+		},
+		{
+			name:        "removing the scaled-away entry when scaling down passes",
+			newMDB:      buildMDB(1, initial[:1]),
+			oldMDB:      buildMDB(2, initial),
+			expectError: false,
+		},
+		{
+			name:        "no removal passes",
+			newMDB:      buildMDB(2, initial),
+			oldMDB:      buildMDB(2, initial),
+			expectError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tt.newMDB.noShardNameOverridesRemovedForActiveShards(tt.oldMDB)
 			if tt.expectError {
 				assert.Equal(t, v1.ErrorLevel, result.Level)
 				assert.Contains(t, result.Msg, tt.errorMsg)
@@ -1545,13 +1602,39 @@ func TestShardNameOverridesValidForm(t *testing.T) {
 				{ShardName: "vm-shard-0"},
 			},
 			expectError: true,
-			errorMsg:    "is a duplicate",
+			errorMsg:    "shardName \"vm-shard-0\" is a duplicate",
+		},
+		{
+			name: "duplicate shardId fails",
+			overrides: []ShardNameOverride{
+				{ShardName: "vm-shard-0", ShardId: "vm-id-0", ReplicaSetName: "vm-rs-0"},
+				{ShardName: "vm-shard-1", ShardId: "vm-id-0", ReplicaSetName: "vm-rs-1"},
+			},
+			expectError: true,
+			errorMsg:    "shardId \"vm-id-0\" is a duplicate",
+		},
+		{
+			name: "duplicate replicaSetName fails",
+			overrides: []ShardNameOverride{
+				{ShardName: "vm-shard-0", ShardId: "vm-id-0", ReplicaSetName: "vm-rs-0"},
+				{ShardName: "vm-shard-1", ShardId: "vm-id-1", ReplicaSetName: "vm-rs-0"},
+			},
+			expectError: true,
+			errorMsg:    "replicaSetName \"vm-rs-0\" is a duplicate",
 		},
 		{
 			name: "unique shardNames pass",
 			overrides: []ShardNameOverride{
 				{ShardName: "vm-shard-0"},
 				{ShardName: "vm-shard-1"},
+			},
+			expectError: false,
+		},
+		{
+			name: "unique full-form entries pass",
+			overrides: []ShardNameOverride{
+				{ShardName: "vm-shard-0", ShardId: "vm-id-0", ReplicaSetName: "vm-rs-0"},
+				{ShardName: "vm-shard-1", ShardId: "vm-id-1", ReplicaSetName: "vm-rs-1"},
 			},
 			expectError: false,
 		},

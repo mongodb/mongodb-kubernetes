@@ -196,23 +196,40 @@ func shardOverridesClusterSpecListsCorrect(m MongoDB) v1.ValidationResult {
 	// shardOverride.ClusterSpecList.Members and shardOverride.ClusterSpecList.MemberConfig are used instead
 }
 
-// shardNameOverridesValidForm enforces that each entry is either brevity form (ShardName only)
-// or full form (ShardName + ShardId + ReplicaSetName). Partial forms are rejected.
-// ShardName values must be unique across all entries.
+// shardNameOverridesValidForm validates each entry has one of the accepted forms:
+// 1. ShardName only (brevity): all three values (_id, replicaSetName, K8s name) are equal.
+// 2. ShardName + ShardId + ReplicaSetName: full form when any AC value differs from the K8s name.
+//
+// ShardId and ReplicaSetName must both be set or both be omitted.
+// ShardName, ShardId, and ReplicaSetName values must each be unique across all entries.
 func shardNameOverridesValidForm(m MongoDB) v1.ValidationResult {
-	seen := make(map[string]bool, len(m.Spec.ShardNameOverrides))
+	seenShardName := make(map[string]bool, len(m.Spec.ShardNameOverrides))
+	seenShardId := make(map[string]bool, len(m.Spec.ShardNameOverrides))
+	seenReplicaSetName := make(map[string]bool, len(m.Spec.ShardNameOverrides))
 	for i, o := range m.Spec.ShardNameOverrides {
 		if o.ShardName == "" {
 			return v1.ValidationError("spec.shardNameOverrides[%d]: shardName is required", i)
 		}
-		if seen[o.ShardName] {
+		if seenShardName[o.ShardName] {
 			return v1.ValidationError("spec.shardNameOverrides[%d]: shardName %q is a duplicate", i, o.ShardName)
 		}
-		seen[o.ShardName] = true
+		seenShardName[o.ShardName] = true
 		hasId := o.ShardId != ""
 		hasRs := o.ReplicaSetName != ""
 		if hasId != hasRs {
 			return v1.ValidationError("spec.shardNameOverrides[%d]: shardId and replicaSetName must both be set or both be omitted", i)
+		}
+		if hasId {
+			if seenShardId[o.ShardId] {
+				return v1.ValidationError("spec.shardNameOverrides[%d]: shardId %q is a duplicate", i, o.ShardId)
+			}
+			seenShardId[o.ShardId] = true
+		}
+		if hasRs {
+			if seenReplicaSetName[o.ReplicaSetName] {
+				return v1.ValidationError("spec.shardNameOverrides[%d]: replicaSetName %q is a duplicate", i, o.ReplicaSetName)
+			}
+			seenReplicaSetName[o.ReplicaSetName] = true
 		}
 	}
 	return v1.ValidationSuccess()

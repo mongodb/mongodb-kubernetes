@@ -522,8 +522,7 @@ func (d *MongoDbSpec) GetExternalMemberProcessNames() []string {
 	return externalMemberProcessNames(d.ExternalMembers)
 }
 
-// GetExternalMembersForRS returns external members whose ReplicaSetName matches rsName and whose Type is "mongod".
-// Use this to obtain the external members that belong to a specific config server or shard replica set.
+// GetExternalMembersForRS filters to mongod members matching the given replicaSetName.
 func (d *MongoDbSpec) GetExternalMembersForRS(rsName string) []ExternalMember {
 	var members []ExternalMember
 	for _, m := range d.ExternalMembers {
@@ -534,17 +533,19 @@ func (d *MongoDbSpec) GetExternalMembersForRS(rsName string) []ExternalMember {
 	return members
 }
 
-// GetExternalMemberProcessNamesForRS returns the process names of external members belonging to the given replica set.
+// GetExternalMemberProcessNamesForRS returns process names for mongod external members in the given replica set.
 func (d *MongoDbSpec) GetExternalMemberProcessNamesForRS(rsName string) []string {
 	return externalMemberProcessNames(d.GetExternalMembersForRS(rsName))
 }
 
-// GetExternalMemberProcessNamesForConfigRS returns the process names of external members belonging to the config server replica set.
+// GetExternalMemberProcessNamesForConfigRS returns process names for external mongod members of the config server.
+// Uses the AC replica set name, which may differ from the K8s default when an override is set.
 func (m *MongoDB) GetExternalMemberProcessNamesForConfigRS() []string {
-	return m.Spec.GetExternalMemberProcessNamesForRS(m.ConfigRsName())
+	return m.Spec.GetExternalMemberProcessNamesForRS(m.ConfigACRsName())
 }
 
-// GetExternalMemberProcessNamesForMongos returns the process names of external members whose Type is "mongos".
+// GetExternalMemberProcessNamesForMongos returns process names for external mongos members.
+// Mongos processes carry no replica set name, so filtering is by type rather than by RS name.
 func (d *MongoDbSpec) GetExternalMemberProcessNamesForMongos() []string {
 	var mongos []ExternalMember
 	for _, m := range d.ExternalMembers {
@@ -1352,8 +1353,22 @@ func (m *MongoDB) MongosRsName() string {
 	return m.Name + "-mongos"
 }
 
+func (m *MongoDB) MongosACRsName() string {
+	if m.Spec.MongosRsNameOverride != "" {
+		return m.Spec.MongosRsNameOverride
+	}
+	return m.MongosRsName()
+}
+
 func (m *MongoDB) ConfigRsName() string {
 	return m.Name + "-config"
+}
+
+func (m *MongoDB) ConfigACRsName() string {
+	if m.Spec.ConfigSrvRsNameOverride != "" {
+		return m.Spec.ConfigSrvRsNameOverride
+	}
+	return m.ConfigRsName()
 }
 
 func (m *MongoDB) ShardRsName(i int) string {
@@ -1370,30 +1385,29 @@ func (m *MongoDB) ShardRsNames() []string {
 	return names
 }
 
-// ShardACRsName returns the automation config replicaSetName for the shard at index i.
-// When only ShardName is set (brevity form), all three values (_id, rs, shardName) are equal.
-// Returns the K8s default for shards without an override entry.
-func (m *MongoDB) ShardACRsName(i int) string {
-	if i < len(m.Spec.ShardNameOverrides) {
-		o := m.Spec.ShardNameOverrides[i]
-		if o.ReplicaSetName != "" {
-			return o.ReplicaSetName
+// ShardNameOverrideForShard returns the override entry matching shard i by K8s StatefulSet name, or nil.
+func (m *MongoDB) ShardNameOverrideForShard(i int) *ShardNameOverride {
+	k8sName := m.ShardRsName(i)
+	for j := range m.Spec.ShardNameOverrides {
+		if m.Spec.ShardNameOverrides[j].ShardName == k8sName {
+			return &m.Spec.ShardNameOverrides[j]
 		}
-		return o.ShardName
+	}
+	return nil
+}
+
+// ShardACRsName returns the AC replicaSetName for shard i. Falls back to the K8s default for brevity-form or missing entries.
+func (m *MongoDB) ShardACRsName(i int) string {
+	if o := m.ShardNameOverrideForShard(i); o != nil && o.ReplicaSetName != "" {
+		return o.ReplicaSetName
 	}
 	return m.ShardRsName(i)
 }
 
-// ShardACShardId returns the automation config shard _id for the shard at index i.
-// When ShardId is not set, _id equals the replicaSetName.
-// Returns the K8s default for shards without an override entry.
+// ShardACShardId returns the AC shard _id for shard i. Falls back to the K8s default for brevity-form or missing entries.
 func (m *MongoDB) ShardACShardId(i int) string {
-	if i < len(m.Spec.ShardNameOverrides) {
-		o := m.Spec.ShardNameOverrides[i]
-		if o.ShardId != "" {
-			return o.ShardId
-		}
-		return m.ShardACRsName(i)
+	if o := m.ShardNameOverrideForShard(i); o != nil && o.ShardId != "" {
+		return o.ShardId
 	}
 	return m.ShardRsName(i)
 }

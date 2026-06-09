@@ -303,9 +303,12 @@ func (r *ShardedClusterReconcileHelper) getShardNameToShardIdxMap() map[string]i
 	mapping := map[string]int{}
 	for shardIdx := 0; shardIdx < max(r.sc.Spec.ShardCount, r.deploymentState.Status.ShardCount); shardIdx++ {
 		mapping[r.sc.ShardRsName(shardIdx)] = shardIdx
-		if shardIdx < len(r.sc.Spec.ShardNameOverrides) {
-			if name := r.sc.Spec.ShardNameOverrides[shardIdx].ShardName; name != "" {
-				mapping[name] = shardIdx
+		if o := r.sc.ShardNameOverrideForShard(shardIdx); o != nil {
+			if o.ShardId != "" {
+				mapping[o.ShardId] = shardIdx
+			}
+			if o.ReplicaSetName != "" {
+				mapping[o.ReplicaSetName] = shardIdx
 			}
 		}
 	}
@@ -1925,7 +1928,7 @@ func (r *ShardedClusterReconcileHelper) computeMembersToScaleDown(configSrvMembe
 		_, currentPodNames := r.getConfigSrvHostnames(memberCluster, currentReplicas)
 		if desiredReplicas < currentReplicas {
 			log.Debugf("Detected configSrv in cluster %s is scaling down: desiredReplicas=%d, currentReplicas=%d", memberCluster.Name, desiredReplicas, currentReplicas)
-			configRsName := r.sc.ConfigRsName()
+			configRsName := r.sc.ConfigACRsName()
 			if _, ok := membersToScaleDown[configRsName]; !ok {
 				membersToScaleDown[configRsName] = []string{}
 			}
@@ -2113,7 +2116,7 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 	}
 
 	configSrvProcesses, configSrvMemberOptions := r.createDesiredConfigSrvProcessesAndMemberOptions(configSrvMemberCertPath)
-	configRs, _ := buildReplicaSetFromProcesses(sc.ConfigRsName(), configSrvProcesses, sc, configSrvMemberOptions, existingDeployment)
+	configRs, _ := buildReplicaSetFromProcesses(sc.ConfigACRsName(), configSrvProcesses, sc, configSrvMemberOptions, existingDeployment)
 
 	// Shards
 	shards := make([]om.ReplicaSetWithProcesses, sc.Spec.ShardCount)
@@ -3143,7 +3146,7 @@ func (r *ShardedClusterReconcileHelper) getHealthyProcessNamesToWaitForReadyStat
 		return processList
 	}
 
-	if mongosDeadlock, deadlockedMongos := checkForMongosDeadlock(clusterState, r.sc.MongosRsName(), r.isStillScaling(), log); mongosDeadlock {
+	if mongosDeadlock, deadlockedMongos := checkForMongosDeadlock(clusterState, r.sc.MongosACRsName(), r.isStillScaling(), log); mongosDeadlock {
 		deadlockedProcessNames := util.Transform(deadlockedMongos, func(obj agents.ProcessState) string {
 			return obj.ProcessName
 		})

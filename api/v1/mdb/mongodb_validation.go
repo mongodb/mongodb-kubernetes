@@ -431,17 +431,57 @@ func noExternalMembersAdditionOrChanges(newObj, oldObj MongoDbSpec) v1.Validatio
 	return v1.ValidationSuccess()
 }
 
-func noShardNameOverridesChanges(newObj, oldObj MongoDbSpec) v1.ValidationResult {
-	if len(newObj.ShardNameOverrides) < len(oldObj.ShardNameOverrides) {
-		return v1.ValidationError("Cannot remove shardNameOverrides entries from an existing MongoDB resource.")
+func noShardNameOverridesAddedOrModified(newObj, oldObj MongoDbSpec) v1.ValidationResult {
+	oldByShardName := make(map[string]ShardNameOverride, len(oldObj.ShardNameOverrides))
+	for _, o := range oldObj.ShardNameOverrides {
+		oldByShardName[o.ShardName] = o
 	}
-	if len(newObj.ShardNameOverrides) > len(oldObj.ShardNameOverrides) {
-		return v1.ValidationError("Cannot add shardNameOverrides entries to an existing MongoDB resource.")
-	}
-	for i, o := range newObj.ShardNameOverrides {
-		if o != oldObj.ShardNameOverrides[i] {
-			return v1.ValidationError("Cannot make changes to existing shardNameOverrides entries. Entry at index %d was changed.", i)
+	for _, n := range newObj.ShardNameOverrides {
+		old, exists := oldByShardName[n.ShardName]
+		if !exists {
+			return v1.ValidationError("Cannot add shardNameOverrides entries to an existing MongoDB resource.")
 		}
+		if n != old {
+			return v1.ValidationError("Cannot make changes to existing shardNameOverrides entries. Entry for shard %q was changed.", n.ShardName)
+		}
+	}
+	return v1.ValidationSuccess()
+}
+
+// noShardNameOverridesRemovedForActiveShards ensures that only entries for scaled-away shards may be removed.
+// It requires the full MongoDB object to resolve K8s shard names by index.
+func (m *MongoDB) noShardNameOverridesRemovedForActiveShards(old *MongoDB) v1.ValidationResult {
+	if len(m.Spec.ShardNameOverrides) >= len(old.Spec.ShardNameOverrides) {
+		return v1.ValidationSuccess()
+	}
+	newByShardName := make(map[string]struct{}, len(m.Spec.ShardNameOverrides))
+	for _, o := range m.Spec.ShardNameOverrides {
+		newByShardName[o.ShardName] = struct{}{}
+	}
+	for _, o := range old.Spec.ShardNameOverrides {
+		if _, exists := newByShardName[o.ShardName]; exists {
+			continue
+		}
+		// Entry was removed. It is only allowed if the shard no longer exists.
+		for i := 0; i < m.Spec.ShardCount; i++ {
+			if m.ShardRsName(i) == o.ShardName {
+				return v1.ValidationError("Cannot remove shardNameOverrides entry for active shard %q.", o.ShardName)
+			}
+		}
+	}
+	return v1.ValidationSuccess()
+}
+
+func noConfigSrvRsNameOverrideChanges(newObj, oldObj MongoDbSpec) v1.ValidationResult {
+	if oldObj.ConfigSrvRsNameOverride != "" && newObj.ConfigSrvRsNameOverride != oldObj.ConfigSrvRsNameOverride {
+		return v1.ValidationError("Cannot change configSrvRsNameOverride once set.")
+	}
+	return v1.ValidationSuccess()
+}
+
+func noMongosRsNameOverrideChanges(newObj, oldObj MongoDbSpec) v1.ValidationResult {
+	if oldObj.MongosRsNameOverride != "" && newObj.MongosRsNameOverride != oldObj.MongosRsNameOverride {
+		return v1.ValidationError("Cannot change mongosRsNameOverride once set.")
 	}
 	return v1.ValidationSuccess()
 }
@@ -605,7 +645,9 @@ func (m *MongoDB) RunValidations(old *MongoDB) []v1.ValidationResult {
 		noSimultaneousTLSDisablingAndScaling,
 		atMostOneMigrationChangeAtATime,
 		noExternalMembersAdditionOrChanges,
-		noShardNameOverridesChanges,
+		noShardNameOverridesAddedOrModified,
+		noConfigSrvRsNameOverrideChanges,
+		noMongosRsNameOverrideChanges,
 	}
 
 	var validationResults []v1.ValidationResult
@@ -659,6 +701,9 @@ func (m *MongoDB) RunValidations(old *MongoDB) []v1.ValidationResult {
 		if res.Level > 0 {
 			validationResults = append(validationResults, res)
 		}
+	}
+	if res := m.noShardNameOverridesRemovedForActiveShards(old); res.Level > 0 {
+		validationResults = append(validationResults, res)
 	}
 
 	return validationResults

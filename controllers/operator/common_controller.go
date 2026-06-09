@@ -460,7 +460,7 @@ func validateACForMigration(conn om.Connection, mdb *mdbv1.MongoDB) workflow.Sta
 		return workflow.Failed(err)
 	}
 
-	// Check net.tls.mode is not null — applies to all resource types.
+	// Check net.tls.mode is not null. Applies to all resource types.
 	if processes := deployment.GetProcesses(); len(processes) > 0 {
 		// Checking first process is enough since OM does not accept different values for net.tls.mode between processes
 		tls := processes[0].TLSConfig()
@@ -560,7 +560,7 @@ func validateVotingLimitSharded(sc *mdbv1.MongoDB, deployment om.Deployment) wor
 // shardedRSK8sConfig returns the K8s member count and per-member voting options for the RS
 // component identified by rsName (the AC replicaSetName). Returns (0, nil) for unknown RS names.
 func shardedRSK8sConfig(sc *mdbv1.MongoDB, rsName string) (members int, memberConfig []automationconfig.MemberOptions) {
-	if rsName == sc.ConfigRsName() {
+	if rsName == sc.ConfigACRsName() {
 		return sc.Spec.ConfigServerCount, sc.Spec.MemberConfig
 	}
 	for i := 0; i < sc.Spec.ShardCount; i++ {

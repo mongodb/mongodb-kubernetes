@@ -633,8 +633,8 @@ func TestShardACRsName(t *testing.T) {
 
 	t.Run("returns ReplicaSetName from override", func(t *testing.T) {
 		mdb.Spec.ShardNameOverrides = []ShardNameOverride{
-			{ShardName: "vm-shard-A", ShardId: "vm-id-A", ReplicaSetName: "vm-rs-A"},
-			{ShardName: "vm-shard-B", ShardId: "vm-id-B", ReplicaSetName: "vm-rs-B"},
+			{ShardName: "mdb-sc-0", ShardId: "vm-id-A", ReplicaSetName: "vm-rs-A"},
+			{ShardName: "mdb-sc-1", ShardId: "vm-id-B", ReplicaSetName: "vm-rs-B"},
 		}
 		assert.Equal(t, "vm-rs-A", mdb.ShardACRsName(0))
 		assert.Equal(t, "vm-rs-B", mdb.ShardACRsName(1))
@@ -642,16 +642,16 @@ func TestShardACRsName(t *testing.T) {
 
 	t.Run("brevity form: ShardName equals _id and rs when ReplicaSetName is not set", func(t *testing.T) {
 		mdb.Spec.ShardNameOverrides = []ShardNameOverride{
-			{ShardName: "vm-shard-A"},
-			{ShardName: "vm-shard-B"},
+			{ShardName: "mdb-sc-0"},
+			{ShardName: "mdb-sc-1"},
 		}
-		assert.Equal(t, "vm-shard-A", mdb.ShardACRsName(0))
-		assert.Equal(t, "vm-shard-B", mdb.ShardACRsName(1))
+		assert.Equal(t, "mdb-sc-0", mdb.ShardACRsName(0))
+		assert.Equal(t, "mdb-sc-1", mdb.ShardACRsName(1))
 	})
 
-	t.Run("index beyond override slice returns K8s default", func(t *testing.T) {
+	t.Run("no matching entry returns K8s default", func(t *testing.T) {
 		mdb.Spec.ShardNameOverrides = []ShardNameOverride{
-			{ShardName: "vm-shard-A", ShardId: "vm-id-A", ReplicaSetName: "vm-rs-A"},
+			{ShardName: "mdb-sc-0", ShardId: "vm-id-A", ReplicaSetName: "vm-rs-A"},
 		}
 		assert.Equal(t, "mdb-sc-1", mdb.ShardACRsName(1))
 	})
@@ -669,8 +669,8 @@ func TestShardACShardId(t *testing.T) {
 
 	t.Run("returns ShardId from override", func(t *testing.T) {
 		mdb.Spec.ShardNameOverrides = []ShardNameOverride{
-			{ShardName: "vm-shard-A", ShardId: "vm-id-A", ReplicaSetName: "vm-rs-A"},
-			{ShardName: "vm-shard-B", ShardId: "vm-id-B", ReplicaSetName: "vm-rs-B"},
+			{ShardName: "mdb-sc-0", ShardId: "vm-id-A", ReplicaSetName: "vm-rs-A"},
+			{ShardName: "mdb-sc-1", ShardId: "vm-id-B", ReplicaSetName: "vm-rs-B"},
 		}
 		assert.Equal(t, "vm-id-A", mdb.ShardACShardId(0))
 		assert.Equal(t, "vm-id-B", mdb.ShardACShardId(1))
@@ -678,16 +678,16 @@ func TestShardACShardId(t *testing.T) {
 
 	t.Run("brevity form: _id equals rs equals ShardName when neither ShardId nor ReplicaSetName is set", func(t *testing.T) {
 		mdb.Spec.ShardNameOverrides = []ShardNameOverride{
-			{ShardName: "vm-shard-A"},
-			{ShardName: "vm-shard-B"},
+			{ShardName: "mdb-sc-0"},
+			{ShardName: "mdb-sc-1"},
 		}
-		assert.Equal(t, "vm-shard-A", mdb.ShardACShardId(0))
-		assert.Equal(t, "vm-shard-B", mdb.ShardACShardId(1))
+		assert.Equal(t, "mdb-sc-0", mdb.ShardACShardId(0))
+		assert.Equal(t, "mdb-sc-1", mdb.ShardACShardId(1))
 	})
 
-	t.Run("index beyond override slice returns K8s default", func(t *testing.T) {
+	t.Run("no matching entry returns K8s default", func(t *testing.T) {
 		mdb.Spec.ShardNameOverrides = []ShardNameOverride{
-			{ShardName: "vm-shard-A", ShardId: "vm-id-A", ReplicaSetName: "vm-rs-A"},
+			{ShardName: "mdb-sc-0", ShardId: "vm-id-A", ReplicaSetName: "vm-rs-A"},
 		}
 		assert.Equal(t, "mdb-sc-1", mdb.ShardACShardId(1))
 	})

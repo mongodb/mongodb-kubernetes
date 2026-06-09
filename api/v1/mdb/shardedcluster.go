@@ -7,23 +7,27 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
 )
 
-// ShardNameOverride maps one Kubernetes shard to its automation config identity during a VM-to-Kubernetes migration.
-// The slice is position-significant: index 0 targets shard 0, index 1 targets shard 1, and so on.
-// Shards beyond the slice length keep their K8s default names.
-// Once set, entries are immutable and must not be reordered or extended.
-// ShardName is the override name used to reference this shard in shardOverrides.shardNames.
-// ShardId and ReplicaSetName are the corresponding automation config values for this shard.
+// ShardNameOverride maps a Kubernetes shard StatefulSet name to its automation config identity.
+// Use this when the AC _id or replicaSetName for a shard differs from the K8s StatefulSet name.
+// Entries are matched by ShardName so order is not significant. Entries are immutable once set.
+//
+// Two forms are supported:
+// 1. ShardName only (brevity): all three values (_id, replicaSetName, K8s name) are equal.
+// 2. ShardName + ShardId + ReplicaSetName: full form when any AC value differs from the K8s name.
+//
+// ShardId and ReplicaSetName must always be set together or omitted together.
 type ShardNameOverride struct {
-	// ShardName is the override name used to reference this shard in shardOverrides.shardNames. Always required.
+	// ShardName is the Kubernetes StatefulSet name for this shard (e.g. "my-mdb-0").
+	// It identifies which shard this entry applies to. Always required.
 	ShardName string `json:"shardName,omitempty"`
 
 	// ShardId is the shard _id in the automation config sharding section.
-	// Set this only when the shard _id differs from the replicaSetName.
+	// Must be set together with ReplicaSetName. Omit when AC values match the K8s StatefulSet name.
 	// +optional
 	ShardId string `json:"shardId,omitempty"`
 
-	// ReplicaSetName is the replica set name used in the automation config for this shard's processes.
-	// Set this only when the replicaSetName differs from the shard _id.
+	// ReplicaSetName is the replicaSetName in the automation config for this shard's processes.
+	// Must be set together with ShardId. Omit when AC values match the K8s StatefulSet name.
 	// +optional
 	ReplicaSetName string `json:"replicaSetName,omitempty"`
 }
@@ -44,10 +48,20 @@ type ShardedClusterSpec struct {
 	// +optional
 	ShardOverrides []ShardOverride `json:"shardOverrides,omitempty"`
 
-	// ShardNameOverrides provides the VM-managed names for shards during a VM-to-Kubernetes migration.
-	// The slice is position-significant: index i overrides shard i. Entries are immutable once set.
+	// ShardNameOverrides maps shard K8s StatefulSet names to their automation config identities.
+	// Entries are matched by ShardName so order is not significant. Entries are immutable once set.
 	// +optional
 	ShardNameOverrides []ShardNameOverride `json:"shardNameOverrides,omitempty"`
+
+	// ConfigSrvRsNameOverride overrides the automation config replicaSetName for the config server.
+	// When omitted, the K8s default ("{resourceName}-config") is used. Immutable once set.
+	// +optional
+	ConfigSrvRsNameOverride string `json:"configSrvRsNameOverride,omitempty"`
+
+	// MongosRsNameOverride overrides the automation config cluster name for the mongos processes.
+	// When omitted, the K8s default ("{resourceName}-mongos") is used. Immutable once set.
+	// +optional
+	MongosRsNameOverride string `json:"mongosRsNameOverride,omitempty"`
 
 	ConfigSrvPodSpec *MongoDbPodSpec `json:"configSrvPodSpec,omitempty"`
 	MongosPodSpec    *MongoDbPodSpec `json:"mongosPodSpec,omitempty"`
