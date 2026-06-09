@@ -47,7 +47,7 @@ def get_mongot_image_tag(namespace: str) -> str:
     Because in this test installs released operator and the name of K8s resources is diff
     there than what is expected by helpers. That's why we try the new cluster-indexed naming first,
     then fall back to previous naming for when the released (old) operator created the StatefulSet.
-    
+
     TODO: Remove fallback after the next operator release ships with new naming.
     """
     for name in [mongot_statefulset_name(MDB_RESOURCE_NAME), f"{MDB_RESOURCE_NAME}-search"]:
