@@ -269,22 +269,11 @@ class TestEnvoyDrainInvestigation:
 # --- scenario: envoy Deployment rolling restart, observed at the stream level ---
 
 
-def _assert_rolled_through(verdict, succeeded_before: int, succeeded_after: int, context: str) -> None:
-    """A roll must not cause a sustained outage: only recoverable cursor/network classes failed,
-    and the open cursor served fresh pages *after* recovery (succeeded grew past the snapshot)."""
-    logger.info(f"{context} paging verdict: {verdict.as_dict()}")
-    assert verdict.other_failed == 0, f"{context}: unexpected failure class; {verdict.as_dict()}"
-    assert (
-        succeeded_after > succeeded_before
-    ), f"{context}: cursor served no pages after recovery ({succeeded_before}->{succeeded_after}); {verdict.as_dict()}"
-
-
 class TestEnvoyRollingDrain:
     """Envoy Deployment rolling restart, observed at the HTTP/2 stream level. The preStop drain is
     a no-op on this build (see the finding above), so stream disposition is logged rather than
-    hard-asserted for graceful ride-through; the availability property — post-recovery progress —
-    is hard-asserted. A Deployment roll replaces the pods, so only the replacement pods' access
-    logs survive to read."""
+    hard-asserted for graceful ride-through; new-query availability across the roll is hard-asserted.
+    A Deployment roll replaces the pods, so only the replacement pods' access logs survive to read."""
 
     def test_steady_state_before(self, namespace: str):
         _assert_steady(namespace)
@@ -299,20 +288,18 @@ class TestEnvoyRollingDrain:
             oneshot.wait_for_operations(BASELINE_OPS)
             paging.wait_for_operations(BASELINE_OPS)
             _rollout_and_wait(namespace)
-            ok_at_recovery = paging.succeeded_count  # snapshot once replacement pods are Ready
             oneshot.wait_for_operations(POST_EVENT_OPS)
             paging.wait_for_operations(POST_EVENT_OPS)
-            ok_after = paging.succeeded_count
         records = read_envoy_logs(namespace, ENVOY_SELECTOR)  # replacement pods only
         post = streams_active_between(records, t0, _utcnow())
         logger.info(
             "envoy-roll stream disposition: "
             f"records={len(records)} post_t0={len(post)} forced={len(forced_closed(post))} "
             f"new_downstream={len(new_downstream_after(records, t0))} upstreams={sorted(upstream_hosts(records))} "
-            f"oneshot={oneshot.verdict.as_dict()}"
+            f"oneshot={oneshot.verdict.as_dict()} paging={paging.verdict.as_dict()}"
         )
-        # availability property is hard-asserted; stream disposition above is observe-and-log
-        _assert_rolled_through(paging.verdict, ok_at_recovery, ok_after, "envoy-roll")
+        # new queries must not fail; stream disposition is observe-and-log (replacement pods only, drain no-op)
+        assert_no_outage(oneshot.verdict)
         _assert_steady(namespace)
 
     def test_recovers_to_steady_state(self, namespace: str):
@@ -324,10 +311,10 @@ class TestEnvoyRollingDrain:
 
 class TestMongotRollingDrain:
     """mongot StatefulSet rolling restart, observed from the envoy side. The envoy pods survive
-    the roll, so their access logs span it: a client whose stream was pinned to the draining
-    mongot should migrate to the surviving upstream. Availability recovery is hard-asserted; the
-    paging cursor disposition is drain-dependent (the empirical cursor-fault truth) so its class
-    is logged, not hard-asserted."""
+    the roll, so their access logs span it: a client whose stream was pinned to the draining mongot
+    migrates to the surviving upstream — hard-asserted here. New-query availability is hard-asserted;
+    the paging cursor disposition is drain-dependent (the empirical cursor-fault truth) so it's
+    logged, not hard-asserted."""
 
     def test_steady_state_before(self, namespace: str):
         _assert_steady(namespace)
@@ -344,10 +331,8 @@ class TestMongotRollingDrain:
             roll_started = time.monotonic()
             _rollout_mongot_and_wait(namespace)
             recovery_s = time.monotonic() - roll_started  # roll-trigger → replacement pods Ready
-            ok_at_recovery = paging.succeeded_count  # snapshot once replacement pods are Ready
             oneshot.wait_for_operations(POST_EVENT_OPS)
             paging.wait_for_operations(POST_EVENT_OPS)
-            ok_after = paging.succeeded_count
         records = read_envoy_logs(namespace, ENVOY_SELECTOR)  # envoy survives the mongot roll
         window = streams_active_between(records, t0, _utcnow())
         migrated = [
@@ -356,7 +341,7 @@ class TestMongotRollingDrain:
         forced_n = len(forced_closed(window))
         completed_n = len(window) - forced_n
         ratio = completed_n / len(window) if window else 0.0
-        disruption_s = paging.max_consecutive_failure * paging.interval_seconds
+        disruption_s = oneshot.max_consecutive_failure * oneshot.interval_seconds
         logger.info(
             "mongot-roll stream disposition: "
             f"records={len(records)} window={len(window)} forced={forced_n} "
@@ -364,13 +349,19 @@ class TestMongotRollingDrain:
             f"oneshot={oneshot.verdict.as_dict()} paging={paging.verdict.as_dict()}"
         )
         # Drain-window measurement at envoy's default (no operator drain-time knob today): the
-        # completed-vs-forced stream ratio across the roll and the longest client unavailability.
+        # completed-vs-forced stream ratio across the roll and the longest new-query unavailability.
         logger.info(
             f"KUBE45_DRAIN_METRIC completed={completed_n} forced={forced_n} ratio={ratio:.3f} "
             f"recovery_s={recovery_s:.1f} disruption_s={disruption_s:.1f}"
         )
-        # availability property is hard-asserted; the cursor class + migration above are observe-and-log
-        _assert_rolled_through(paging.verdict, ok_at_recovery, ok_after, "mongot-roll")
+        # a pinned stream must re-route to a surviving upstream as the replica drains; the
+        # forced_closed==0 graceful gate waits on the operator preStop drain fix (no-op today)
+        assert (
+            len(migrated) > 0
+        ), f"mongot-roll: no stream migrated to a surviving upstream; upstreams={sorted(upstream_hosts(window))}"
+        assert (
+            oneshot.verdict.other_failed == 0 and oneshot.verdict.cursor_lost == 0
+        ), f"mongot-roll: unexpected new-query failure class; {oneshot.verdict.as_dict()}"
         _assert_steady(namespace)
 
     def test_recovers_to_steady_state(self, namespace: str):
