@@ -224,7 +224,7 @@ func TestBuildShardRoutes(t *testing.T) {
 				}
 			}
 
-			routes := buildShardRoutes(search, shardNames, 0, "")
+			routes := buildShardRoutes(search, shardNames, 0, "", nil)
 
 			// 2 per-shard routes + 1 cluster-level route.
 			require.Len(t, routes, 3)
@@ -468,7 +468,7 @@ func TestBuildRoutesForCluster_RS_TemplateSubstitutesClusterName(t *testing.T) {
 		},
 	}
 
-	routes := buildRoutesForCluster(search, nil, 0, "us-east-k8s")
+	routes := buildRoutesForCluster(search, nil, 0, "us-east-k8s", nil)
 	require.Len(t, routes, 1)
 	assert.Equal(t, "rs", routes[0].Name)
 	assert.Equal(t, "us-east-k8s", routes[0].ClusterID)
@@ -486,7 +486,7 @@ func TestBuildRoutesForCluster_RS_NoTemplateUsesPerClusterProxySvcFQDN(t *testin
 		},
 	}
 
-	routes := buildRoutesForCluster(search, nil, 0, "us-east-k8s")
+	routes := buildRoutesForCluster(search, nil, 0, "us-east-k8s", nil)
 	require.Len(t, routes, 1)
 	assert.Equal(t, "us-east-k8s", routes[0].ClusterID)
 	assert.Equal(t, "mdb-search-search-0-proxy-svc.test-ns.svc.cluster.local", routes[0].SNIHostname,
@@ -499,7 +499,7 @@ func TestBuildRoutesForCluster_SingleClusterUnchanged(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "test-ns"},
 	}
 
-	mc := buildRoutesForCluster(search, nil, 0, "")
+	mc := buildRoutesForCluster(search, nil, 0, "", nil)
 
 	require.Len(t, mc, 1)
 	assert.Equal(t, "", mc[0].ClusterID)
@@ -547,8 +547,8 @@ func TestBuildRoutesForCluster_Sharded_PerClusterShardSNI(t *testing.T) {
 	}
 	src := &mockShardedSourceForEnvoy{shardNames: []string{"mdb-sh-0", "mdb-sh-1"}}
 
-	east := buildRoutesForCluster(search, src, 0, "us-east-k8s")
-	west := buildRoutesForCluster(search, src, 1, "eu-west-k8s")
+	east := buildRoutesForCluster(search, src, 0, "us-east-k8s", nil)
+	west := buildRoutesForCluster(search, src, 1, "eu-west-k8s", nil)
 
 	// 2 per-shard routes + 1 cluster-level route per cluster.
 	require.Len(t, east, 3)
@@ -593,7 +593,7 @@ func TestBuildShardRoutes_MC_ClusterLevel_NoExternalHostname(t *testing.T) {
 		},
 	}
 
-	routes := buildShardRoutes(search, shardNames, 1, "cluster-b")
+	routes := buildShardRoutes(search, shardNames, 1, "cluster-b", nil)
 
 	// 3 per-shard + 1 cluster-level.
 	require.Len(t, routes, 4)
@@ -645,7 +645,7 @@ func TestBuildShardRoutes_MC_ClusterLevel_ManagedLB(t *testing.T) {
 		},
 	}
 
-	routes := buildShardRoutes(search, shardNames, 1, "cluster-b")
+	routes := buildShardRoutes(search, shardNames, 1, "cluster-b", nil)
 
 	require.Len(t, routes, 4)
 
@@ -658,6 +658,64 @@ func TestBuildShardRoutes_MC_ClusterLevel_ManagedLB(t *testing.T) {
 	// Cluster-level SNI strips "{shardName}." → "cluster-b.search.example.com:443".
 	assert.Equal(t, "cluster-b.search.example.com:443", routes[3].SNIHostname)
 	require.Len(t, routes[3].UpstreamHosts, 3)
+}
+
+func TestBuildShardRoutes_WithPendingShards(t *testing.T) {
+	one := int32(1)
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "mdb", Namespace: "mongodb"},
+		Spec: searchv1.MongoDBSearchSpec{
+			Replicas: &one,
+		},
+	}
+	shardNames := []string{"mdb-sh-0", "mdb-sh-1", "mdb-sh-2"}
+	pending := []string{"mdb-sh-2"}
+
+	routes := buildShardRoutes(search, shardNames, 0, "", pending)
+
+	// 3 per-shard routes + 1 cluster-level route
+	require.Len(t, routes, 4)
+
+	// First two shards are healthy — normal routing
+	assert.False(t, routes[0].RoutedFromAnotherShard)
+	assert.False(t, routes[1].RoutedFromAnotherShard)
+
+	// Third shard is pending — fallback routing
+	assert.True(t, routes[2].RoutedFromAnotherShard)
+	assert.Equal(t, "mdb-sh-2", routes[2].Name)
+
+	// Cluster-level route should exclude the pending shard
+	clusterLevel := routes[3]
+	assert.Equal(t, "cluster-level", clusterLevel.Name)
+	assert.Len(t, clusterLevel.UpstreamHosts, 2, "cluster-level should only include healthy shards")
+	assert.Contains(t, clusterLevel.UpstreamHosts, "mdb-search-0-mdb-sh-0-svc.mongodb.svc.cluster.local")
+	assert.Contains(t, clusterLevel.UpstreamHosts, "mdb-search-0-mdb-sh-1-svc.mongodb.svc.cluster.local")
+	assert.NotContains(t, clusterLevel.UpstreamHosts, "mdb-search-0-mdb-sh-2-svc.mongodb.svc.cluster.local")
+}
+
+func TestBuildShardRoutes_AllPending_NoFallback(t *testing.T) {
+	one := int32(1)
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "mdb", Namespace: "mongodb"},
+		Spec: searchv1.MongoDBSearchSpec{
+			Replicas: &one,
+		},
+	}
+	shardNames := []string{"mdb-sh-0", "mdb-sh-1"}
+	pending := []string{"mdb-sh-0", "mdb-sh-1"}
+
+	routes := buildShardRoutes(search, shardNames, 0, "", pending)
+
+	// 2 per-shard routes + 1 cluster-level route
+	require.Len(t, routes, 3)
+
+	// All shards pending but no healthy target — fallback disabled
+	assert.False(t, routes[0].RoutedFromAnotherShard, "no fallback when all shards pending")
+	assert.False(t, routes[1].RoutedFromAnotherShard, "no fallback when all shards pending")
+
+	// Cluster-level should include all shards (fresh install fallback)
+	clusterLevel := routes[2]
+	assert.Len(t, clusterLevel.UpstreamHosts, 2, "fresh install: cluster-level includes all shards")
 }
 
 // Each cluster's filter chain must use its own per-cluster proxy-svc FQDN as
@@ -697,7 +755,7 @@ func TestEnvoyFilterChain_PerClusterSNI(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.cluster, func(t *testing.T) {
-			routes := buildRoutesForCluster(search, nil, c.idx, c.cluster)
+			routes := buildRoutesForCluster(search, nil, c.idx, c.cluster, nil)
 			require.Len(t, routes, 1)
 			assert.Equal(t, c.cluster, routes[0].ClusterID)
 			assert.Equal(t, c.ownSNI, routes[0].SNIHostname,
@@ -709,7 +767,7 @@ func TestEnvoyFilterChain_PerClusterSNI(t *testing.T) {
 
 	allSNIs := map[string]struct{}{}
 	for _, c := range cases {
-		routes := buildRoutesForCluster(search, nil, c.idx, c.cluster)
+		routes := buildRoutesForCluster(search, nil, c.idx, c.cluster, nil)
 		require.Len(t, routes, 1)
 		allSNIs[routes[0].SNIHostname] = struct{}{}
 	}

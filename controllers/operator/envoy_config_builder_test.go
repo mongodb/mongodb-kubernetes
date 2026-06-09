@@ -423,3 +423,49 @@ func TestBuildFilterChain_HasRetryPolicy(t *testing.T) {
 	assert.Equal(t, "envoy.retry_host_predicates.previous_hosts", rp.RetryHostPredicate[0].Name)
 	assert.Equal(t, int64(3), rp.HostSelectionRetryMaxAttempts)
 }
+
+func TestBuildFilterChain_RoutedFromAnotherShard(t *testing.T) {
+	route := testRoute("mdb-sh-2")
+	route.RoutedFromAnotherShard = true
+
+	chain, err := buildFilterChain(route, false, testCAKeyName(), nil)
+	require.NoError(t, err)
+
+	// Extract HCM from the filter chain
+	hcm := &hcmv3.HttpConnectionManager{}
+	err = chain.Filters[0].GetTypedConfig().UnmarshalTo(hcm)
+	require.NoError(t, err)
+
+	// Route should point to the cluster-level cluster, not the per-shard cluster
+	routes := hcm.GetRouteConfig().GetVirtualHosts()[0].GetRoutes()
+	require.Len(t, routes, 1)
+	assert.Equal(t, "mongot_cluster_level_cluster", routes[0].GetRoute().GetCluster())
+
+	// Should have the search-envoy-metadata-bin header injected
+	headersToAdd := routes[0].GetRequestHeadersToAdd()
+	require.Len(t, headersToAdd, 1)
+	assert.Equal(t, searchEnvoyMetadataHeader, headersToAdd[0].GetHeader().GetKey())
+	assert.Equal(t, searchEnvoyMetadataRoutedValue, headersToAdd[0].GetHeader().GetValue())
+	assert.Equal(t, corev3.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD, headersToAdd[0].GetAppendAction())
+}
+
+func TestBuildFilterChain_NormalRoute_NoHeader(t *testing.T) {
+	route := testRoute("mdb-sh-0")
+	route.RoutedFromAnotherShard = false
+
+	chain, err := buildFilterChain(route, false, testCAKeyName(), nil)
+	require.NoError(t, err)
+
+	// Extract HCM from the filter chain
+	hcm := &hcmv3.HttpConnectionManager{}
+	err = chain.Filters[0].GetTypedConfig().UnmarshalTo(hcm)
+	require.NoError(t, err)
+
+	// Route should point to per-shard cluster
+	routes := hcm.GetRouteConfig().GetVirtualHosts()[0].GetRoutes()
+	require.Len(t, routes, 1)
+	assert.Equal(t, "mongot_mdb_sh_0_cluster", routes[0].GetRoute().GetCluster())
+
+	// Should NOT have any headers injected
+	assert.Empty(t, routes[0].GetRequestHeadersToAdd())
+}

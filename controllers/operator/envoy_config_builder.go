@@ -32,6 +32,17 @@ import (
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/search"
 )
 
+const (
+	// searchEnvoyMetadataHeader is the gRPC binary metadata key mongot uses
+	// to receive SearchEnvoyMetadata. The "-bin" suffix tells gRPC to base64-decode.
+	searchEnvoyMetadataHeader = "search-envoy-metadata-bin"
+
+	// searchEnvoyMetadataRoutedValue is the base64-encoded protobuf for
+	// SearchEnvoyMetadata{routed_from_another_shard: true}.
+	// Proto wire: field 1 (varint) = true → bytes [0x08, 0x01] → base64 "CAE="
+	searchEnvoyMetadataRoutedValue = "CAE="
+)
+
 // buildBootstrapJSON returns the static Envoy bootstrap config JSON.
 // This config points Envoy at filesystem-based CDS/LDS for dynamic resource
 // discovery and does not contain any static_resources. bootstrap config json
@@ -229,6 +240,11 @@ func buildRetryPolicy(rp *searchv1.EnvoyRetryPolicy) *routev3.RetryPolicy {
 // buildFilterChain builds a filter chain for one route.
 func buildFilterChain(route envoyRoute, tlsEnabled bool, caKeyName string, rp *searchv1.EnvoyRetryPolicy) (*listenerv3.FilterChain, error) {
 	clusterName := fmt.Sprintf("mongot_%s_cluster", route.NameSafe)
+	// For pending mongot groups, redirect the filter chain to the cluster-level cluster
+	// which contains only healthy (non-pending) mongot endpoints.
+	if route.RoutedFromAnotherShard {
+		clusterName = "mongot_cluster_level_cluster"
+	}
 
 	routerFilterCfg, err := anypb.New(&routerv3.Router{})
 	if err != nil {
@@ -238,6 +254,34 @@ func buildFilterChain(route envoyRoute, tlsEnabled bool, caKeyName string, rp *s
 	accessLog, err := buildHCMAccessLog()
 	if err != nil {
 		return nil, err
+	}
+
+	envoyRoute := &routev3.Route{
+		Match: &routev3.RouteMatch{
+			PathSpecifier: &routev3.RouteMatch_Prefix{Prefix: "/"},
+			Grpc:          &routev3.RouteMatch_GrpcRouteMatchOptions{},
+		},
+		Action: &routev3.Route_Route{
+			Route: &routev3.RouteAction{
+				ClusterSpecifier: &routev3.RouteAction_Cluster{Cluster: clusterName},
+				Timeout:          durationpb.New(300 * time.Second),
+				RetryPolicy:      buildRetryPolicy(rp),
+			},
+		},
+	}
+
+	// Inject the gRPC binary metadata header for fallback routes so mongot
+	// returns empty results instead of failing.
+	if route.RoutedFromAnotherShard {
+		envoyRoute.RequestHeadersToAdd = []*corev3.HeaderValueOption{
+			{
+				Header: &corev3.HeaderValue{
+					Key:   searchEnvoyMetadataHeader,
+					Value: searchEnvoyMetadataRoutedValue,
+				},
+				AppendAction: corev3.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD,
+			},
+		}
 	}
 
 	hcm := &hcmv3.HttpConnectionManager{
@@ -251,21 +295,7 @@ func buildFilterChain(route envoyRoute, tlsEnabled bool, caKeyName string, rp *s
 						Name:                       fmt.Sprintf("mongot_%s_backend", route.NameSafe),
 						Domains:                    []string{"*"},
 						IncludeRequestAttemptCount: true,
-						Routes: []*routev3.Route{
-							{
-								Match: &routev3.RouteMatch{
-									PathSpecifier: &routev3.RouteMatch_Prefix{Prefix: "/"},
-									Grpc:          &routev3.RouteMatch_GrpcRouteMatchOptions{},
-								},
-								Action: &routev3.Route_Route{
-									Route: &routev3.RouteAction{
-										ClusterSpecifier: &routev3.RouteAction_Cluster{Cluster: clusterName},
-										Timeout:          durationpb.New(300 * time.Second),
-										RetryPolicy:      buildRetryPolicy(rp),
-									},
-								},
-							},
-						},
+						Routes:                     []*routev3.Route{envoyRoute},
 					},
 				},
 			},

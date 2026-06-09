@@ -171,6 +171,7 @@ type reconcileUnit struct {
 	mongotConfigFn      mongot.Modification
 	clusterName         string // "" routes to the central client (single-cluster)
 	clusterIndex        int
+	shardName           string // shard name for sharded topologies; "" for RS
 }
 
 // SearchSourceReplicaSet is the subset of SearchSourceDBResource the RS plan
@@ -367,6 +368,7 @@ func (r *MongoDBSearchReconcileHelper) buildShardedPlan(shardedSource SearchSour
 			mongotConfigFn:      mongotConfigFn,
 			clusterName:         w.ClusterName,
 			clusterIndex:        w.ClusterIndex,
+			shardName:           w.ShardName,
 		})
 
 		if !seenClusters[w.ClusterIndex] {
@@ -548,8 +550,13 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 	// Worst-of readiness check — first non-OK status wins.
 	for _, res := range applied {
 		if statefulSetStatus := statefulset.GetStatefulSetStatus(ctx, r.mdbSearch.Namespace, res.unit.stsName.Name, res.expectedGeneration, res.unitClient); !statefulSetStatus.IsOK() {
+			// Even if not fully ready, check if routing-readiness threshold is met
+			// for pending shards so the envoy reconciler can route traffic to them.
+			r.removeFromPendingIfRoutingReady(ctx, log, res.unit, res.unitClient)
 			return statefulSetStatus
 		}
+		// Fully ready — definitely routing-ready too.
+		r.removeFromPendingIfRoutingReady(ctx, log, res.unit, res.unitClient)
 	}
 
 	if !r.mdbSearch.IsLoadBalancerReady() {
@@ -663,7 +670,7 @@ func (r *MongoDBSearchReconcileHelper) applyReconcileUnit(
 	if err != nil {
 		return nil, nil, err
 	}
-	mutatedSts, err := r.createOrUpdateStatefulSet(ctx,
+	mutatedSts, op, err := r.createOrUpdateStatefulSet(ctx,
 		log,
 		unitClient,
 		unit.stsName,
@@ -681,7 +688,33 @@ func (r *MongoDBSearchReconcileHelper) applyReconcileUnit(
 		return nil, nil, err
 	}
 
+	// Track newly created mongot StatefulSets as pending for routing-readiness.
+	// The envoy reconciler will apply fallback routing for shards in PendingMongotGroups.
+	if op == controllerutil.OperationResultCreated && r.mdbSearch.IsLBModeManaged() && unit.shardName != "" {
+		r.mdbSearch.AddToPendingMongotGroup(unit.shardName)
+		log.Infof("Added shard %q to PendingMongotGroups (mongot group created, awaiting routing-readiness)", unit.shardName)
+	}
+
 	return mutatedSts, unitClient, nil
+}
+
+// removeFromPendingIfRoutingReady checks if a shard in PendingMongotGroups
+// has reached the routing-readiness threshold and removes it if so.
+func (r *MongoDBSearchReconcileHelper) removeFromPendingIfRoutingReady(ctx context.Context, log *zap.SugaredLogger, unit reconcileUnit, unitClient kubernetesClient.Client) {
+	if unit.shardName == "" || !r.mdbSearch.IsShardInPendingMongotGroup(unit.shardName) {
+		return
+	}
+
+	sts, err := unitClient.GetStatefulSet(ctx, unit.stsName)
+	if err != nil {
+		return
+	}
+
+	if sts.Status.ReadyReplicas >= r.mdbSearch.GetMinMongotReadyReplicasForRouting() {
+		r.mdbSearch.RemovePendingMongotGroup(unit.shardName)
+		log.Infof("Removed shard %q from PendingMongotGroups (routing-ready: %d/%d replicas ready)",
+			unit.shardName, sts.Status.ReadyReplicas, r.mdbSearch.GetMinMongotReadyReplicasForRouting())
+	}
 }
 
 // isOwnedBy returns true if the object has an owner reference pointing to the given owner.
@@ -840,19 +873,19 @@ func (r *MongoDBSearchReconcileHelper) searchImageAndVersion() (string, string) 
 	return fmt.Sprintf("%s/%s", r.operatorSearchConfig.SearchRepo, r.operatorSearchConfig.SearchName), imageVersion
 }
 
-func (r *MongoDBSearchReconcileHelper) createOrUpdateStatefulSet(ctx context.Context, log *zap.SugaredLogger, kubeClient kubernetesClient.Client, stsName types.NamespacedName, modifications ...statefulset.Modification) (*appsv1.StatefulSet, error) {
+func (r *MongoDBSearchReconcileHelper) createOrUpdateStatefulSet(ctx context.Context, log *zap.SugaredLogger, kubeClient kubernetesClient.Client, stsName types.NamespacedName, modifications ...statefulset.Modification) (*appsv1.StatefulSet, controllerutil.OperationResult, error) {
 	sts := &appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Name: stsName.Name, Namespace: stsName.Namespace}}
 	op, err := controllerutil.CreateOrUpdate(ctx, kubeClient, sts, func() error {
 		statefulset.Apply(modifications...)(sts)
 		return controllerutil.SetOwnerReference(r.mdbSearch, sts, kubeClient.Scheme())
 	})
 	if err != nil {
-		return nil, xerrors.Errorf("error creating/updating search statefulset %v: %w", stsName, err)
+		return nil, "", xerrors.Errorf("error creating/updating search statefulset %v: %w", stsName, err)
 	}
 
 	log.Debugf("Search statefulset %s CreateOrUpdate result: %s", stsName, op)
 
-	return sts, nil
+	return sts, op, nil
 }
 
 func (r *MongoDBSearchReconcileHelper) ensureSearchService(ctx context.Context, log *zap.SugaredLogger, kubeClient kubernetesClient.Client, svcName types.NamespacedName, desired corev1.Service) error {

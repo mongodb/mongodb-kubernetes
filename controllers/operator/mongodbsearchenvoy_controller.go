@@ -71,6 +71,10 @@ type envoyRoute struct {
 	SNIHostname   string   // FQDN of the proxy service for SNI matching
 	UpstreamHosts []string // FQDNs of the mongot headless services (one per pool member)
 	UpstreamPort  int32    // typically 27028
+	// RoutedFromAnotherShard indicates this is a fallback route for a pending mongot group.
+	// When true, the LDS filter chain routes to the cluster-level cluster and injects
+	// the "search-envoy-metadata-bin" gRPC binary header (routed_from_another_shard) so mongot returns empty results.
+	RoutedFromAnotherShard bool
 }
 
 type MongoDBSearchEnvoyReconciler struct {
@@ -240,7 +244,7 @@ func (r *MongoDBSearchEnvoyReconciler) reconcileForCluster(
 		}
 	}
 
-	routes := buildRoutesForCluster(search, source, clusterIndex, clusterName)
+	routes := buildRoutesForCluster(search, source, clusterIndex, clusterName, search.Status.PendingMongotGroups)
 	if len(routes) == 0 {
 		return workflow.Pending("No routes to configure for load balancer (cluster=%q)", clusterName)
 	}
@@ -327,9 +331,9 @@ func caKeyNameFromTLSConfig(tlsCfg *searchcontroller.TLSSourceConfig) string {
 // buildRoutes returns the Envoy routes for the given topology.
 // It is the single topology-aware path in the controller. Everything downstream (config generation,
 // Service creation, cleanup) is topology-agnostic, using the envoyRoute data structure only.
-func buildRoutes(search *searchv1.MongoDBSearch, source searchcontroller.SearchSourceDBResource) []envoyRoute {
+func buildRoutes(search *searchv1.MongoDBSearch, source searchcontroller.SearchSourceDBResource, pendingMongotGroups []string) []envoyRoute {
 	if shardedSource, ok := source.(searchcontroller.SearchSourceShardedDeployment); ok {
-		return buildShardRoutes(search, shardedSource.GetShardNames(), 0, "")
+		return buildShardRoutes(search, shardedSource.GetShardNames(), 0, "", pendingMongotGroups)
 	}
 	return []envoyRoute{buildReplicaSetRouteForCluster(search, 0, "")}
 }
@@ -338,11 +342,20 @@ func buildRoutes(search *searchv1.MongoDBSearch, source searchcontroller.SearchS
 // clusterIndex and clusterName identify the cluster; in single-cluster installs pass (0, "").
 // Each per-shard route has one UpstreamHosts entry. The trailing cluster-level route
 // aggregates all per-shard mongot Service FQDNs so mongos can use a single SNI/filter chain.
-func buildShardRoutes(search *searchv1.MongoDBSearch, shardNames []string, clusterIndex int, clusterName string) []envoyRoute {
+// pendingMongotGroups lists shards whose mongot groups have never been routing-ready;
+// their per-shard filter chains are redirected to the cluster-level cluster with the
+// routed_from_another_shard header.
+func buildShardRoutes(search *searchv1.MongoDBSearch, shardNames []string, clusterIndex int, clusterName string, pendingMongotGroups []string) []envoyRoute {
 	// +1 for the cluster-level route appended at the end.
 	routes := make([]envoyRoute, 0, len(shardNames)+1)
 	namespace := search.Namespace
 	mongotPort := search.GetMongotGrpcPort()
+
+	// Build pending set for O(1) lookup.
+	pendingSet := make(map[string]struct{}, len(pendingMongotGroups))
+	for _, name := range pendingMongotGroups {
+		pendingSet[name] = struct{}{}
+	}
 
 	clusterLevelUpstreams := make([]string, 0, len(shardNames))
 
@@ -356,15 +369,33 @@ func buildShardRoutes(search *searchv1.MongoDBSearch, shardNames []string, clust
 			sniHostname = endpoint
 		}
 
+		_, isPending := pendingSet[shardName]
 		routes = append(routes, envoyRoute{
-			Name:          shardName,
-			NameSafe:      strings.ReplaceAll(shardName, "-", "_"),
-			ClusterID:     clusterName,
-			SNIHostname:   sniHostname,
-			UpstreamHosts: []string{upstreamFQDN},
-			UpstreamPort:  mongotPort,
+			Name:                   shardName,
+			NameSafe:               strings.ReplaceAll(shardName, "-", "_"),
+			ClusterID:              clusterName,
+			SNIHostname:            sniHostname,
+			UpstreamHosts:          []string{upstreamFQDN},
+			UpstreamPort:           mongotPort,
+			RoutedFromAnotherShard: isPending,
 		})
-		clusterLevelUpstreams = append(clusterLevelUpstreams, upstreamFQDN)
+
+		// Only include non-pending shards in the cluster-level cluster endpoints.
+		if !isPending {
+			clusterLevelUpstreams = append(clusterLevelUpstreams, upstreamFQDN)
+		}
+	}
+
+	// If all shards are pending (fresh install), include all endpoints in cluster-level
+	// and disable fallback routing (no healthy target to fall back to).
+	if len(clusterLevelUpstreams) == 0 {
+		for i := range routes {
+			routes[i].RoutedFromAnotherShard = false
+		}
+		for _, shardName := range shardNames {
+			mongotServiceName := search.MongotServiceForClusterShard(clusterIndex, shardName).Name
+			clusterLevelUpstreams = append(clusterLevelUpstreams, fmt.Sprintf("%s.%s.svc.cluster.local", mongotServiceName, namespace))
+		}
 	}
 
 	// Cluster-level route: mongos in this cluster uses this single SNI chain to reach
@@ -394,13 +425,13 @@ func buildShardRoutes(search *searchv1.MongoDBSearch, shardNames []string, clust
 
 // buildRoutesForCluster returns the Envoy routes for one member cluster.
 // Empty clusterName is the single-cluster path.
-func buildRoutesForCluster(search *searchv1.MongoDBSearch, source searchcontroller.SearchSourceDBResource, clusterIndex int, clusterName string) []envoyRoute {
+func buildRoutesForCluster(search *searchv1.MongoDBSearch, source searchcontroller.SearchSourceDBResource, clusterIndex int, clusterName string, pendingMongotGroups []string) []envoyRoute {
 	if clusterName == "" {
-		return buildRoutes(search, source)
+		return buildRoutes(search, source, pendingMongotGroups)
 	}
 
 	if shardedSource, ok := source.(searchcontroller.SearchSourceShardedDeployment); ok {
-		return buildShardRoutes(search, shardedSource.GetShardNames(), clusterIndex, clusterName)
+		return buildShardRoutes(search, shardedSource.GetShardNames(), clusterIndex, clusterName, pendingMongotGroups)
 	}
 	return []envoyRoute{buildReplicaSetRouteForCluster(search, clusterIndex, clusterName)}
 }

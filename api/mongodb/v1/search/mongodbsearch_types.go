@@ -3,6 +3,7 @@ package search
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -227,6 +228,14 @@ type ManagedLBConfig struct {
 	// When not set, retries are enabled with sensible defaults (2 retries, 60s per-try timeout).
 	// +optional
 	RetryPolicy *EnvoyRetryPolicy `json:"retryPolicy,omitempty"`
+	// MinMongotReadyReplicas is the minimum number of ready mongot replicas in a group
+	// before this mongot group can be considered ready and envoy routes real traffic to it.
+	// Until this threshold is met, traffic for that shard is forwarded to a healthy mongot group with the
+	// routed_from_another_shard header (returning empty results).
+	// Defaults to 1 if not specified.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	MinMongotReadyReplicas *int32 `json:"minMongotReadyReplicas,omitempty"`
 }
 
 // EnvoyRetryPolicy configures retry behavior for individual gRPC streams to upstream mongot clusters.
@@ -391,6 +400,15 @@ type MongoDBSearchStatus struct {
 	// Only populated when spec.loadBalancer.managed is set.
 	// +optional
 	LoadBalancer *LoadBalancerStatus `json:"loadBalancer,omitempty"`
+	// PendingMongotGroups lists shard names whose mongot groups have been created
+	// but have not yet reached the routing-readiness threshold, that means in that
+	// mongot group we don't have at least MinMongotReadyReplicas replias ready.
+	// The envoy reconciler uses this to build config in such a way that quries that are directed
+	// to these shards/mongot groups are routed to a healthy mongot group with routed_from_anothere_shard header.
+	// Once a group reaches the threshold (at least MinMongotReadyReplicas replicas are ready from that mongot group),
+	// the search controller removes it from this list.
+	// +optional
+	PendingMongotGroups []string `json:"pendingMongotGroups,omitempty"`
 }
 
 // +k8s:deepcopy-gen=true
@@ -470,6 +488,39 @@ func (s *MongoDBSearch) updateLoadBalancerStatus(phase status.Phase, statusOptio
 	s.Status.LoadBalancer.Message = ""
 	if option, exists := status.GetOption(statusOptions, status.MessageOption{}); exists {
 		s.Status.LoadBalancer.Message = option.(status.MessageOption).Message
+	}
+}
+
+// GetMinMongotReadyReplicasForRouting returns the minimum number of ready mongot
+// replicas required to consider a mongot group ready for envoy to route real traffic to a shard's mongot group.
+func (s *MongoDBSearch) GetMinMongotReadyReplicasForRouting() int32 {
+	if s.IsLBModeManaged() && s.Spec.LoadBalancer.Managed.MinMongotReadyReplicas != nil {
+		return *s.Spec.LoadBalancer.Managed.MinMongotReadyReplicas
+	}
+	return 1
+}
+
+// IsShardInPendingMongotGroup returns true if the shard is in the PendingMongotGroups list.
+func (s *MongoDBSearch) IsShardInPendingMongotGroup(shardName string) bool {
+	return slices.Contains(s.Status.PendingMongotGroups, shardName)
+}
+
+// AddToPendingMongotGroup adds a shard name to PendingMongotGroups if not already present.
+func (s *MongoDBSearch) AddToPendingMongotGroup(shardName string) {
+	if s.IsShardInPendingMongotGroup(shardName) {
+		return
+	}
+	s.Status.PendingMongotGroups = append(s.Status.PendingMongotGroups, shardName)
+}
+
+// RemovePendingMongotGroup removes a shard name from PendingMongotGroups.
+func (s *MongoDBSearch) RemovePendingMongotGroup(shardName string) {
+	groups := s.Status.PendingMongotGroups
+	for i, name := range groups {
+		if name == shardName {
+			s.Status.PendingMongotGroups = append(groups[:i], groups[i+1:]...)
+			return
+		}
 	}
 }
 
