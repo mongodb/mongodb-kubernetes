@@ -79,7 +79,7 @@ type TLSSourceConfig struct {
 //
 // clusterName selects which entry of EffectiveClusters() is read for the per-cluster
 // Persistence / ResourceRequirements / StatefulSetConfiguration fields. Empty string
-// = legacy single-cluster path (uses the auto-promoted top-level fields).
+// = the single-cluster case (reads the sole spec.clusters[] entry).
 func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, clusterName, stsName, namespace, svcName, configMapName string, labels map[string]string, searchImage string, usePerPodConfig bool) (statefulset.Modification, error) {
 	tmpVolume := statefulset.CreateVolumeFromEmptyDir("tmp")
 	tmpVolumeMount := statefulset.CreateVolumeMount(tmpVolume.Name, tempVolumePath, statefulset.WithReadOnly(false))
@@ -98,9 +98,8 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, clusterName,
 		mongotConfigVolumeMount = statefulset.CreateVolumeMount(mongotConfigVolumeName, MongotConfigPath, statefulset.WithReadOnly(true), statefulset.WithSubPath(MongotConfigFilename))
 	}
 
-	// Per-cluster spec for THIS cluster, cascaded over the top-level defaults
-	// (REPLACE-if-nil for Persistence / ResourceRequirements /
-	// StatefulSetConfiguration). Empty clusterName == single-cluster path.
+	// Per-cluster spec for THIS cluster (sizing has a single home in
+	// spec.clusters[], no cross-tier cascade). Empty clusterName == single-cluster path.
 	perCluster, err := mdbSearch.EffectiveClusterFor(clusterName)
 	if err != nil {
 		return nil, err
@@ -202,8 +201,6 @@ func CreateKeyfileModificationFunc(keyfileSecretName string) statefulset.Modific
 
 // jvmFlags builds the --jvm-flags argument from the per-cluster user-provided
 // JVMFlags slice plus a default heap-size pair derived from memory requests.
-// Caller passes the cascaded per-cluster JVMFlags so per-cluster overrides
-// take effect.
 func jvmFlags(userJVMFlags []string, resourceRequirements corev1.ResourceRequirements) string {
 	flags := []string{}
 

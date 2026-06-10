@@ -269,14 +269,12 @@ type rsWorkItem struct {
 	ClusterIndex int
 }
 
-// buildRSWorkList returns a 1-element work list with clusterName "" for the
-// legacy single-cluster path, or one item per spec.clusters[i] with
-// clusterIndex resolved from the persisted state.ClusterMapping for MC.
+// buildRSWorkList returns one item per spec.clusters[i] with clusterIndex
+// resolved from the persisted state.ClusterMapping. A single-cluster spec has
+// one entry with an empty clusterName, which maps to index 0 and routes to the
+// central client.
 func (r *MongoDBSearchReconcileHelper) buildRSWorkList() []rsWorkItem {
-	if r.mdbSearch.Spec.Clusters == nil || len(*r.mdbSearch.Spec.Clusters) == 0 {
-		return []rsWorkItem{{}}
-	}
-	clusters := *r.mdbSearch.Spec.Clusters
+	clusters := r.mdbSearch.Spec.Clusters
 	work := make([]rsWorkItem, 0, len(clusters))
 	for _, c := range clusters {
 		work = append(work, rsWorkItem{ClusterName: c.ClusterName, ClusterIndex: r.clusterMapping[c.ClusterName]})
@@ -294,18 +292,9 @@ type shardedWorkItem struct {
 }
 
 // buildShardedWorkList returns one item per (cluster, shard) combination.
-// Single-cluster (nil/empty spec.clusters) produces one cluster entry with ClusterName "" and ClusterIndex 0.
+// A single-cluster spec produces one cluster entry with ClusterName "" and ClusterIndex 0.
 func (r *MongoDBSearchReconcileHelper) buildShardedWorkList(shardNames []string) []shardedWorkItem {
-	var clusterItems []rsWorkItem
-	if r.mdbSearch.Spec.Clusters == nil || len(*r.mdbSearch.Spec.Clusters) == 0 {
-		clusterItems = []rsWorkItem{{}}
-	} else {
-		clusters := *r.mdbSearch.Spec.Clusters
-		clusterItems = make([]rsWorkItem, 0, len(clusters))
-		for _, c := range clusters {
-			clusterItems = append(clusterItems, rsWorkItem{ClusterName: c.ClusterName, ClusterIndex: r.clusterMapping[c.ClusterName]})
-		}
-	}
+	clusterItems := r.buildRSWorkList()
 
 	work := make([]shardedWorkItem, 0, len(clusterItems)*len(shardNames))
 	for _, cl := range clusterItems {
@@ -456,14 +445,14 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 		return workflow.Failed(err)
 	}
 
-	if err := r.ValidateMultipleReplicasConfig(); err != nil {
-		return workflow.Failed(err)
-	}
-
 	// This validation lives at reconcile level (not spec validations level) because for internal MongoDB sources, the
 	// sharded topology is only known after fetching the referenced MongoDB resource.
 	// It's not part of the MongoDBSearch spec itself.
 	if err := r.ValidateManagedLBShardedTLS(); err != nil {
+		return workflow.Failed(err)
+	}
+
+	if err := r.ValidateMultipleReplicasUnmanagedLBTopology(); err != nil {
 		return workflow.Failed(err)
 	}
 
@@ -1820,31 +1809,42 @@ func (r *MongoDBSearchReconcileHelper) ValidateSearchImageVersion(version string
 	return nil
 }
 
-// ValidateMultipleReplicasConfig validates that when multiple mongot replicas are configured,
-// an external load balancer endpoint is also configured to distribute traffic across the replicas.
-func (r *MongoDBSearchReconcileHelper) ValidateMultipleReplicasConfig() error {
-	if !r.mdbSearch.HasMultipleReplicas() {
+// ValidateMultipleReplicasUnmanagedLBTopology validates that an operator-managed
+// (internal) MongoDB source running multiple mongot replicas behind an unmanaged
+// load balancer uses an endpoint template that matches the resolved source topology:
+// a sharded source needs the per-shard {shardName} template, a replica set source
+// must not carry it. It lives at reconcile level because internal sources only
+// reveal their sharded-ness after the referenced MongoDB resource is fetched;
+// external sources are fully covered at spec-validation time by
+// validateUnmanagedEndpointTemplate, and the no-load-balancer case is covered by
+// validateMultipleReplicasRequireLB. Without this check a mismatched endpoint is
+// silently ignored (see GetEndpointForShard / mongotHostAndPort) and all mongot
+// traffic pins to pod 0, defeating the load balancer the user configured.
+func (r *MongoDBSearchReconcileHelper) ValidateMultipleReplicasUnmanagedLBTopology() error {
+	if !r.mdbSearch.HasMultipleReplicas() || !r.mdbSearch.IsLBModeUnmanaged() {
 		return nil
 	}
 
-	// For sharded clusters, check if LB is configured (managed or unmanaged)
+	// External sources are validated at spec time, where their topology is known.
+	if r.mdbSearch.IsExternalMongoDBSource() {
+		return nil
+	}
+
 	if _, ok := r.db.(SearchSourceShardedDeployment); ok {
-		if !r.mdbSearch.IsShardedUnmanagedLB() && !r.mdbSearch.IsLBModeManaged() {
+		if !r.mdbSearch.IsShardedUnmanagedLB() {
 			return xerrors.Errorf(
-				"multiple mongot replicas (%d) require load balancer configuration; "+
-					"please configure load balancing in spec.loadBalancer.",
-				r.mdbSearch.GetReplicas(),
+				"spec.loadBalancer.unmanaged.endpoint must contain a %s placeholder for a sharded source with multiple mongot replicas; "+
+					"without it the endpoint cannot differentiate shards and traffic pins to a single mongot",
+				searchv1.ShardNamePlaceholder,
 			)
 		}
 		return nil
 	}
 
-	// For replica sets, check if LB is configured (managed or unmanaged)
-	if !r.mdbSearch.IsReplicaSetUnmanagedLB() && !r.mdbSearch.IsLBModeManaged() {
+	if !r.mdbSearch.IsReplicaSetUnmanagedLB() {
 		return xerrors.Errorf(
-			"multiple mongot replicas (%d) require load balancer configuration; "+
-				"please configure load balancing in spec.loadBalancer.",
-			r.mdbSearch.GetReplicas(),
+			"spec.loadBalancer.unmanaged.endpoint must not contain a %s placeholder for a replica set source with multiple mongot replicas",
+			searchv1.ShardNamePlaceholder,
 		)
 	}
 

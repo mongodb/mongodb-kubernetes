@@ -199,11 +199,11 @@ type clusterWorkItem struct {
 //   - otherwise → one work item per spec.clusters[i]. ClusterIndex is resolved from
 //     mapping; -1 if the cluster is not yet in the mapping (first reconcile race).
 func (r *MongoDBSearchEnvoyReconciler) buildClusterWorkList(search *searchv1.MongoDBSearch, mapping map[string]int) []clusterWorkItem {
-	if len(r.memberClusterClientsMap) == 0 || search.Spec.Clusters == nil || len(*search.Spec.Clusters) == 0 {
+	if len(r.memberClusterClientsMap) == 0 || len(search.Spec.Clusters) == 0 {
 		return []clusterWorkItem{{ClusterName: "", ClusterIndex: 0, Client: r.kubeClient}}
 	}
-	work := make([]clusterWorkItem, 0, len(*search.Spec.Clusters))
-	for _, c := range *search.Spec.Clusters {
+	work := make([]clusterWorkItem, 0, len(search.Spec.Clusters))
+	for _, c := range search.Spec.Clusters {
 		idx, ok := mapping[c.ClusterName]
 		if !ok {
 			idx = -1
