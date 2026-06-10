@@ -120,13 +120,14 @@ class SearchRsMcDeploymentTests(SearchDeploymentTests):
         return [
             {
                 "clusterName": cluster_name,
+                "clusterIndex": i,
                 "replicas": self.search_config.mongot_replicas,
                 "resourceRequirements": {
                     "requests": {"cpu": "500m", "memory": self.search_config.mongot_memory},
                     "limits": {"cpu": self.search_config.mongot_cpu, "memory": self.search_config.mongot_memory},
                 },
             }
-            for cluster_name in get_member_cluster_names()
+            for i, cluster_name in enumerate(get_member_cluster_names())
         ]
 
     def build_mdbs(self) -> MongoDBSearch:
@@ -350,7 +351,8 @@ class SearchShardedMcDeploymentTests(SearchShardedDeploymentTests):
 
     def search_clusters(self) -> list:
         return [
-            {"clusterName": name, "replicas": self.search_config.mongot_replicas} for name in get_member_cluster_names()
+            {"clusterName": name, "clusterIndex": i, "replicas": self.search_config.mongot_replicas}
+            for i, name in enumerate(get_member_cluster_names())
         ]
 
     def source_router_hosts(self) -> List[str]:

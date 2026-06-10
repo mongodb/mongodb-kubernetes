@@ -112,13 +112,15 @@ class SearchTester(MongoTester):
             else:
                 raise
 
-    def mongorestore_from_url(self, archive_url: str, ns_include: str, tools_pod: ToolsPod):
+    def mongorestore_from_url(self, archive_url: str, ns_include: str, tools_pod: ToolsPod, drop: bool = True):
         """Run mongorestore from a URL using the tools pod.
 
         Args:
             archive_url: URL to download the archive from
             ns_include: Namespace include pattern for mongorestore
             tools_pod: ToolsPod instance to run the command in
+            drop: pass --drop (default). Set False to keep a pre-sharded target
+                collection — --drop would un-shard it.
         """
         logger.debug(f"running mongorestore from {archive_url} via tools pod")
         archive_path = "/tmp/sample.archive"
@@ -131,7 +133,7 @@ class SearchTester(MongoTester):
             "mongorestore",
             f"--archive={archive_path}",
             "--verbose=1",
-            "--drop",
+            *(["--drop"] if drop else []),
             "--nsInclude",
             ns_include,
             f"--uri={self.cnx_string}",

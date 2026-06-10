@@ -22,10 +22,11 @@ class ToolsPod:
     def __init__(self, namespace: str, api_client: Optional[client.ApiClient] = None):
         self.namespace = namespace
         self.pod_name = TOOLS_POD_NAME
+        self.api_client = api_client
         self.core_v1 = client.CoreV1Api(api_client=api_client)
 
     def run_command(self, cmd: list[str]):
-        """Execute a command in the tools pod and return the output."""
+        """Execute cmd in pod; raise RuntimeError on non-zero exit."""
         logger.debug(f"Running command in {self.pod_name}: {' '.join(cmd)}")
         resp = stream(
             self.core_v1.connect_get_namespaced_pod_exec,
@@ -37,9 +38,28 @@ class ToolsPod:
             stdin=False,
             stdout=True,
             tty=False,
+            _preload_content=False,
         )
-        logger.debug(f"Command output: {resp}")
-        return resp
+        stdout_chunks = []
+        stderr_chunks = []
+        while resp.is_open():
+            resp.update(timeout=1)
+            if resp.peek_stdout():
+                stdout_chunks.append(resp.read_stdout())
+            if resp.peek_stderr():
+                stderr_chunks.append(resp.read_stderr())
+        stdout = "".join(stdout_chunks)
+        stderr = "".join(stderr_chunks)
+        rc = resp.returncode
+        resp.close()
+        logger.debug(f"Command stdout: {stdout}")
+        if stderr:
+            logger.debug(f"Command stderr: {stderr}")
+        if rc not in (0, None):
+            raise RuntimeError(
+                f"Command in {self.pod_name} exited rc={rc}: {' '.join(cmd)}\n" f"stderr: {stderr}\nstdout: {stdout}"
+            )
+        return stdout
 
     def copy_file_to_pod(self, src_path: str, dest_path: str):
         """Copy a file from the local filesystem to the tools pod."""
@@ -110,9 +130,7 @@ class ToolsPod:
             else:
                 raise
 
-        pod = get_pod_when_ready(
-            self.namespace, "app=mongodb-tools", api_client=self.core_v1.api_client, default_retry=120
-        )
+        pod = get_pod_when_ready(self.namespace, "app=mongodb-tools", api_client=self.api_client, default_retry=120)
         if pod is None:
             raise TimeoutError(f"Timed out waiting for {self.pod_name} to be ready")
         logger.info(f"{self.pod_name} is ready")
