@@ -7,7 +7,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/blang/semver"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 
@@ -21,18 +20,6 @@ const (
 	MappingFilePathEnv     = "MDB_OM_VERSION_MAPPING_PATH"
 	mappingFileDefaultPath = "/usr/local/om_version_mapping.json"
 )
-
-var om6StaticContainersSupport = semver.Version{
-	Major: 6,
-	Minor: 0,
-	Patch: 21,
-}
-
-var om7StaticContainersSupport = semver.Version{
-	Major: 7,
-	Minor: 0,
-	Patch: 0,
-}
 
 var initializationMutex sync.Mutex
 
@@ -145,34 +132,11 @@ func (m *AgentVersionManager) GetAgentVersion(conn om.Connection, omVersion stri
 		return m.getClosestAgentVersionForOM(omVersion)
 	}
 
-	supportsStatic, err := m.supportsStaticContainers(omVersion)
-	if err != nil {
-		return "", err
-	}
-
-	if !supportsStatic {
-		return "", xerrors.Errorf("Ops Manager version %s does not support static containers, please use Ops Manager version of at least %s or %s", omVersion, om6StaticContainersSupport, om7StaticContainersSupport)
-	}
-
 	version, err := m.getAgentVersionFromOpsManager(conn)
 	if err != nil {
 		return "", err
 	}
 	return addVersionSuffixIfAbsent(version), nil
-}
-
-// supportsStaticContainers verifies whether the supplied omVersion supports static containers.
-// Agent changes are not backported into older releases.
-// Hence, we need to make sure that we run at least a specific agent version.
-// The safest way for that is to make sure that the customer uses a specific omVersion, since that is tied to an
-// agent version.
-func (m *AgentVersionManager) supportsStaticContainers(omVersion string) (bool, error) {
-	omVersionConverted := versionutil.OpsManagerVersion{VersionString: omVersion}
-	givenVersion, err := omVersionConverted.Semver()
-	if err != nil {
-		return false, err
-	}
-	return givenVersion.GTE(om6StaticContainersSupport) || givenVersion.GTE(om7StaticContainersSupport), nil
 }
 
 // ReleaseFile and following structs are used to unmarshall release.json fields
