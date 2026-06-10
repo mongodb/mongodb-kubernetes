@@ -386,7 +386,7 @@ def test_search_query_phase1(mdb: MongoDB):
 def test_scale_up_to_managed_lb(mdbs: MongoDBSearch, namespace: str):
     """Scale to 2 replicas and enable managed LB. mongotHost does NOT change."""
     mdbs.load()
-    mdbs["spec"]["replicas"] = 2
+    mdbs["spec"]["clusters"] = [{"replicas": 2}]
     external_hostname = f"{proxy_service_name(MDBS_RESOURCE_NAME)}.{namespace}.svc.cluster.local"
     mdbs["spec"]["loadBalancer"] = {"managed": {"externalHostname": external_hostname}}
     mdbs.update()
@@ -434,7 +434,7 @@ def test_search_query_phase2(mdb: MongoDB):
 def test_scale_down_remove_lb(mdbs: MongoDBSearch):
     """Scale back to 1 replica and remove LB. mongotHost still does NOT change."""
     mdbs.load()
-    mdbs["spec"]["replicas"] = 1
+    mdbs["spec"]["clusters"] = [{"replicas": 1}]
     # Remove the loadBalancer section entirely
     if "loadBalancer" in mdbs["spec"]:
         mdbs["spec"]["loadBalancer"] = None

@@ -191,7 +191,7 @@ class SearchDeploymentHelper:
             resource["spec"]["loadBalancer"] = lb
 
         if replicas is not None:
-            resource["spec"]["replicas"] = replicas
+            resource["spec"]["clusters"] = [{"replicas": replicas}]
 
         return resource
 
@@ -427,7 +427,7 @@ class SearchDeploymentHelper:
         if clusters is not None:
             resource["spec"]["clusters"] = clusters
         elif replicas is not None:
-            resource["spec"]["replicas"] = replicas
+            resource["spec"]["clusters"] = [{"replicas": replicas}]
 
         return resource
 
