@@ -102,6 +102,7 @@ func externalShardedValidators() []func(*MongoDBSearch) v1.ValidationResult {
 func multiClusterValidators() []func(*MongoDBSearch) v1.ValidationResult {
 	return []func(*MongoDBSearch) v1.ValidationResult{
 		validateClustersClusterNameNonEmpty,
+		validateClustersClusterIndexRequired,
 		validateMCRequiresExternalSource,
 		validateMCRequiresManagedLB,
 		validateMCMatchTagsNonEmpty,
@@ -242,7 +243,7 @@ const maxPodOrdinalSuffix = "-999"
 
 // generateShardResourceNames returns every resource name created for one (cluster, shard) pair.
 // Callers should pass the largest cluster index in spec.clusters so MC deployments don't
-// silently overshoot DNS limits at higher indices.
+// silently overshoot DNS limits at higher indices (clusterIndex is capped at Maximum=999).
 func generateShardResourceNames(s *MongoDBSearch, shardName string, clusterIndex int) []shardResourceName {
 	stsName := s.MongotStatefulSetForClusterShard(clusterIndex, shardName).Name
 	resources := []shardResourceName{
@@ -281,11 +282,11 @@ func generateShardResourceNames(s *MongoDBSearch, shardName string, clusterIndex
 	return resources
 }
 
-// maxValidationClusterIndex returns the largest persisted index admission can foresee
-// (= len(spec.clusters)-1 for a fresh assignment; 0 for single-cluster).
+// maxValidationClusterIndex returns the cluster index used for worst-case DNS-length
+// checks — len(spec.clusters)-1, a heuristic pinned indices can exceed (see TODO).
 //
-// TODO: ClusterMapping is monotonic-append-only, so persisted indices can exceed
-// len-1 after remove→re-add cycles. Admission underestimates the real max; read
+// TODO: pinned indices may exceed len-1 (Maximum=999) and removed clusters' mapping
+// entries are retained, so admission underestimates the real max; read the pins and
 // the persisted mapping to tighten.
 func maxValidationClusterIndex(s *MongoDBSearch) int {
 	if len(s.Spec.Clusters) == 0 {
@@ -430,6 +431,25 @@ func validateClustersClusterNameNonEmpty(s *MongoDBSearch) v1.ValidationResult {
 				i,
 			)
 		}
+	}
+	return v1.ValidationSuccess()
+}
+
+// validateClustersClusterIndexRequired mirrors the CRD CEL requiredness + uniqueness rules
+// for stale-CRD installs whose schema predates the clusterIndex markers.
+func validateClustersClusterIndexRequired(s *MongoDBSearch) v1.ValidationResult {
+	seen := make(map[int32]int, len(s.Spec.Clusters))
+	for i, c := range s.Spec.Clusters {
+		if c.ClusterIndex == nil {
+			return v1.ValidationError("spec.clusters[%d].clusterIndex is required when len(spec.clusters) > 1", i)
+		}
+		if first, dup := seen[*c.ClusterIndex]; dup {
+			return v1.ValidationError(
+				"clusterIndex %d is set on more than one spec.clusters[] entry (entries %d and %d); pinned indices must be distinct",
+				*c.ClusterIndex, first, i,
+			)
+		}
+		seen[*c.ClusterIndex] = i
 	}
 	return v1.ValidationSuccess()
 }
@@ -599,8 +619,14 @@ func validateExternalHostnameDNSLength(s *MongoDBSearch) v1.ValidationResult {
 
 	// Iterate the cross-product. len(shardNames) == 0 runs a single pass per
 	// cluster with no shard substitution.
-	for i := range s.Spec.Clusters {
-		base := s.GetManagedLBEndpointForCluster(i)
+	for i, c := range s.Spec.Clusters {
+		// Pinned ClusterIndex when set, else the array position — reachable only for
+		// single-entry specs under pinned-only; spec validation can't read the state CM.
+		idx := i
+		if c.ClusterIndex != nil {
+			idx = int(*c.ClusterIndex)
+		}
+		base := s.GetManagedLBEndpointForCluster(idx, c.ClusterName)
 		if len(shardNames) == 0 {
 			if res := check(base); res.Level == v1.ErrorLevel {
 				return res
