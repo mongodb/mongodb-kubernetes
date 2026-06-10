@@ -27,7 +27,9 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
@@ -916,7 +918,7 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 
 	r.automationAgentVersion = automationAgentVersion
 
-	workflowStatus := r.doShardedClusterProcessing(ctx, sc, conn, projectConfig, log)
+	workflowStatus := r.doShardedClusterProcessing(ctx, sc, conn, projectConfig, agentAPIKey, log)
 	if !workflowStatus.IsOK() || workflowStatus.Phase() == mdbstatus.PhaseUnsupported {
 		return r.updateStatus(ctx, sc, workflowStatus, log)
 	}
@@ -1106,7 +1108,7 @@ func (r *ShardedClusterReconcileHelper) lookupCorrespondingSearchResource(ctx co
 	return search, nil
 }
 
-func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.Context, obj interface{}, conn om.Connection, projectConfig mdbv1.ProjectConfig, log *zap.SugaredLogger) workflow.Status {
+func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.Context, obj interface{}, conn om.Connection, projectConfig mdbv1.ProjectConfig, agentAPIKey string, log *zap.SugaredLogger) workflow.Status {
 	log.Info("ShardedCluster.doShardedClusterProcessing")
 	sc := obj.(*mdbv1.MongoDB)
 
@@ -1214,6 +1216,13 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 		}
 	}
 
+	// Monarch pre-AC: create Services (needed for DNS resolution in maintainedMonarchComponents)
+	if sc.Spec.ShardedClusterSpec.Monarch != nil {
+		if status := r.reconcileMonarchPreACSharded(ctx); !status.IsOK() {
+			return status
+		}
+	}
+
 	workflowStatus = workflow.RunInGivenOrder(anyStatefulSetNeedsToPublishStateToOM(ctx, *sc, r.commonController.client, r.deploymentState.LastAchievedSpec, allConfigs, log),
 		func() workflow.Status {
 			return r.updateOmDeploymentShardedCluster(ctx, conn, sc, opts, false, log).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
@@ -1225,6 +1234,14 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 	if !workflowStatus.IsOK() {
 		return workflowStatus
 	}
+
+	// Monarch post-AC: create Secrets and Deployments (requires agent-API AC for credentials)
+	if sc.Spec.ShardedClusterSpec.Monarch != nil {
+		if status := r.reconcileMonarchPostACSharded(ctx, conn, agentAPIKey, log); !status.IsOK() {
+			return status
+		}
+	}
+
 	return reconcileResult
 }
 
@@ -2176,6 +2193,15 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 				configSrvInternalClusterPath, mongosInternalClusterPath, shardInternalClusterPaths)
 
 			_ = UpdatePrometheus(ctx, &d, conn, sc.GetPrometheus(), r.commonController.SecretClient, sc.GetNamespace(), opts.prometheusCertHash, log)
+
+			// Add Monarch components to AC if spec.monarch is set
+			if sc.Spec.ShardedClusterSpec.Monarch != nil {
+				monarchMC, err := r.buildMonarchComponentsForACSharded(ctx, conn, sc, log)
+				if err != nil {
+					return xerrors.Errorf("failed to build Monarch AC components: %w", err)
+				}
+				d.SetMaintainedMonarchComponents(monarchMC)
+			}
 
 			finalProcesses = d.GetProcessNames(om.ShardedCluster{}, sc.Name)
 
@@ -3229,4 +3255,336 @@ func checkForMongosDeadlock(clusterState agents.MongoDBClusterStateInOM, mongosR
 	}
 
 	return false, nil
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Monarch DR support for sharded clusters
+// ══════════════════════════════════════════════════════════════════════════════
+
+// getMonarchShardInfos returns metadata for all RS components (configRS + data shards)
+// that need Monarch shipper/injector instances.
+func (r *ShardedClusterReconcileHelper) getMonarchShardInfos() []om.ShardInfo {
+	sc := r.sc
+	clusterDomain := sc.Spec.GetClusterDomain()
+	namespace := sc.Namespace
+
+	var infos []om.ShardInfo
+
+	// configRS
+	configRSName := sc.ConfigRsName()
+	configSvcName := sc.ConfigSrvServiceName()
+	configHosts := make([]string, sc.Spec.ConfigServerCount)
+	configMongodURIs := make([]string, sc.Spec.ConfigServerCount)
+	for i := 0; i < sc.Spec.ConfigServerCount; i++ {
+		host := fmt.Sprintf("%s-%d.%s.%s.svc.%s:27017", configRSName, i, configSvcName, namespace, clusterDomain)
+		configHosts[i] = host
+		configMongodURIs[i] = fmt.Sprintf("mongodb://%s/", host)
+	}
+	role := "shipper"
+	if sc.Spec.ShardedClusterSpec.Monarch.Role == mdbv1.MonarchRoleStandby {
+		role = "injector"
+	}
+	configServiceDNS := construct.GetMonarchServiceDNSSharded(sc.Name, "configRS", role, namespace, clusterDomain)
+	infos = append(infos, om.ShardInfo{
+		ShardID:    "configRS",
+		RSName:     configRSName,
+		ServiceDNS: configServiceDNS,
+		MongoURI: fmt.Sprintf("mongodb://%s/?replicaSet=%s",
+			strings.Join(configHosts, ","), configRSName),
+		MongodURIs: configMongodURIs,
+	})
+
+	// data shards
+	for i := 0; i < sc.Spec.ShardCount; i++ {
+		shardID := fmt.Sprintf("myShard_%d", i)
+		rsName := sc.ShardRsName(i)
+		svcName := sc.ShardServiceName()
+		members := sc.Spec.MongodsPerShardCount
+		hosts := make([]string, members)
+		mongodURIs := make([]string, members)
+		for j := 0; j < members; j++ {
+			host := fmt.Sprintf("%s-%d.%s.%s.svc.%s:27017", rsName, j, svcName, namespace, clusterDomain)
+			hosts[j] = host
+			mongodURIs[j] = fmt.Sprintf("mongodb://%s/", host)
+		}
+		serviceDNS := construct.GetMonarchServiceDNSSharded(sc.Name, shardID, role, namespace, clusterDomain)
+		infos = append(infos, om.ShardInfo{
+			ShardID:    shardID,
+			RSName:     rsName,
+			ServiceDNS: serviceDNS,
+			MongoURI: fmt.Sprintf("mongodb://%s/?replicaSet=%s",
+				strings.Join(hosts, ","), rsName),
+			MongodURIs: mongodURIs,
+		})
+	}
+
+	return infos
+}
+
+// getAllShardIDs returns all shard IDs for the cluster (used for clusterStore.allShardIds).
+func (r *ShardedClusterReconcileHelper) getAllShardIDs() []string {
+	ids := []string{"configRS"}
+	for i := 0; i < r.sc.Spec.ShardCount; i++ {
+		ids = append(ids, fmt.Sprintf("myShard_%d", i))
+	}
+	return ids
+}
+
+// buildMonarchComponentsForACSharded builds the Monarch AC components for a sharded cluster.
+func (r *ShardedClusterReconcileHelper) buildMonarchComponentsForACSharded(
+	ctx context.Context,
+	conn om.Connection,
+	sc *mdbv1.MongoDB,
+	log *zap.SugaredLogger,
+) ([]om.MaintainedMonarchComponents, error) {
+	monarch := sc.Spec.ShardedClusterSpec.Monarch
+	if monarch == nil {
+		return nil, nil
+	}
+
+	// Get S3 credentials from the referenced secret
+	s3Secret := &corev1.Secret{}
+	secretKey := types.NamespacedName{
+		Name:      monarch.S3.CredentialsSecretRef.Name,
+		Namespace: sc.Namespace,
+	}
+	if err := r.commonController.client.Get(ctx, secretKey, s3Secret); err != nil {
+		return nil, xerrors.Errorf("failed to get S3 credentials secret %s: %w", secretKey, err)
+	}
+	awsAccessKeyId := string(s3Secret.Data["awsAccessKeyId"])
+	awsSecretAccessKey := string(s3Secret.Data["awsSecretAccessKey"])
+
+	shardInfos := r.getMonarchShardInfos()
+
+	return om.BuildMaintainedMonarchComponentsSharded(
+		monarch,
+		sc.Name,
+		awsAccessKeyId,
+		awsSecretAccessKey,
+		shardInfos,
+	)
+}
+
+// reconcileMonarchPreACSharded runs before the AC push for sharded clusters.
+// It validates the S3 credentials secret and creates Services for each shard
+// so the DNS in maintainedMonarchComponents resolves.
+func (r *ShardedClusterReconcileHelper) reconcileMonarchPreACSharded(ctx context.Context) workflow.Status {
+	sc := r.sc
+	monarch := sc.Spec.ShardedClusterSpec.Monarch
+	if monarch == nil {
+		return workflow.OK()
+	}
+
+	role := "shipper"
+	otherRole := "injector"
+	if monarch.Role == mdbv1.MonarchRoleStandby {
+		role = "injector"
+		otherRole = "shipper"
+	}
+
+	// Idempotent cleanup: delete resources for the OTHER role (post-promotion cleanup)
+	if status := r.deleteMonarchResourcesForRoleSharded(ctx, otherRole); !status.IsOK() {
+		return status
+	}
+
+	// Validate S3 credentials secret exists and has required keys
+	credSecret := &corev1.Secret{}
+	secretKey := types.NamespacedName{
+		Name:      monarch.S3.CredentialsSecretRef.Name,
+		Namespace: sc.Namespace,
+	}
+	if err := r.commonController.client.Get(ctx, secretKey, credSecret); err != nil {
+		return workflow.Failed(xerrors.Errorf("failed to read Monarch credentials secret %s: %w", monarch.S3.CredentialsSecretRef.Name, err))
+	}
+	for _, key := range []string{"awsAccessKeyId", "awsSecretAccessKey"} {
+		if _, ok := credSecret.Data[key]; !ok {
+			return workflow.Failed(xerrors.Errorf("Monarch credentials secret %s missing required key %q", monarch.S3.CredentialsSecretRef.Name, key))
+		}
+	}
+
+	// Create Services for each shard (configRS + data shards)
+	shardInfos := r.getMonarchShardInfos()
+	for _, info := range shardInfos {
+		svc := construct.BuildMonarchServiceSharded(sc, sc.Namespace, info.ShardID)
+		if _, err := controllerutil.CreateOrUpdate(ctx, r.commonController.client, svc, func() error {
+			fresh := construct.BuildMonarchServiceSharded(sc, sc.Namespace, info.ShardID)
+			svc.Spec.Selector = fresh.Spec.Selector
+			svc.Spec.Ports = fresh.Spec.Ports
+			svc.Labels = fresh.Labels
+			return nil
+		}); err != nil {
+			return workflow.Failed(xerrors.Errorf("failed to create/update Monarch Service %s for shard %s: %w", svc.Name, info.ShardID, err))
+		}
+	}
+
+	_ = role // used for logging
+	return workflow.OK()
+}
+
+// deleteMonarchResourcesForRoleSharded deletes all Monarch resources for the given role
+// across all shards. Used to clean up stale resources after a role flip.
+func (r *ShardedClusterReconcileHelper) deleteMonarchResourcesForRoleSharded(ctx context.Context, role string) workflow.Status {
+	sc := r.sc
+	shardIDs := r.getAllShardIDs()
+
+	for _, shardID := range shardIDs {
+		// Delete Service
+		svcName := construct.MonarchServiceNameSharded(sc.Name, shardID, role)
+		svc := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: svcName, Namespace: sc.Namespace}}
+		if err := r.commonController.client.Delete(ctx, svc); err != nil && !errors.IsNotFound(err) {
+			return workflow.Failed(xerrors.Errorf("failed to delete Monarch Service %s: %w", svcName, err))
+		}
+
+		// Delete Deployment
+		depName := construct.MonarchDeploymentNameSharded(sc.Name, shardID, role)
+		dep := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: depName, Namespace: sc.Namespace}}
+		if err := r.commonController.client.Delete(ctx, dep); err != nil && !errors.IsNotFound(err) {
+			return workflow.Failed(xerrors.Errorf("failed to delete Monarch Deployment %s: %w", depName, err))
+		}
+
+		// Delete config Secret
+		secretName := construct.MonarchConfigSecretNameSharded(sc.Name, shardID, role)
+		secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: secretName, Namespace: sc.Namespace}}
+		if err := r.commonController.client.Delete(ctx, secret); err != nil && !errors.IsNotFound(err) {
+			return workflow.Failed(xerrors.Errorf("failed to delete Monarch config Secret %s: %w", secretName, err))
+		}
+	}
+
+	return workflow.OK()
+}
+
+// reconcileMonarchPostACSharded creates Monarch K8s resources (Secrets, Deployments)
+// after the AC push has completed. Mirrors the RS controller's reconcileMonarchPostAC.
+func (r *ShardedClusterReconcileHelper) reconcileMonarchPostACSharded(ctx context.Context, conn om.Connection, agentAPIKey string, log *zap.SugaredLogger) workflow.Status {
+	sc := r.sc
+	monarch := sc.Spec.ShardedClusterSpec.Monarch
+	if monarch == nil {
+		return workflow.OK()
+	}
+
+	role := "shipper"
+	conditionType := mdbv1.ConditionShipperReady
+	if monarch.Role == mdbv1.MonarchRoleStandby {
+		role = "injector"
+		conditionType = mdbv1.ConditionInjectorReady
+	}
+
+	// Fetch the agent-API AC for cleartext mms-shipper credentials and keyfile
+	ac, err := conn.ReadAgentAutomationConfig(agentAPIKey)
+	if err != nil {
+		return workflow.Pending("Waiting for OM AC fetch: %v", err)
+	}
+
+	// Look up cleartext mms-shipper credentials when present
+	mongodUser, mongodPassword := "", ""
+	if monarch.Role == mdbv1.MonarchRoleActive {
+		for _, mc := range ac.GetMaintainedMonarchComponents() {
+			if mc.ReplicaSetID == sc.Name && mc.ShipperConfig != nil {
+				mongodUser = mc.ShipperConfig.ShipperUser
+				mongodPassword = mc.ShipperConfig.ShipperPwd
+				break
+			}
+		}
+	}
+
+	// Reconcile the Monarch secrets bundle (keyfile)
+	monarchSecretsName := ""
+	if ac.Auth != nil && ac.Auth.Key != "" {
+		monarchSecretsName = fmt.Sprintf("%s-monarch-secrets", sc.Name)
+		monarchSecrets := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:            monarchSecretsName,
+				Namespace:       sc.Namespace,
+				OwnerReferences: kube.BaseOwnerReference(sc),
+			},
+		}
+		if _, err := controllerutil.CreateOrUpdate(ctx, r.commonController.client, monarchSecrets, func() error {
+			monarchSecrets.Type = corev1.SecretTypeOpaque
+			if monarchSecrets.Data == nil {
+				monarchSecrets.Data = map[string][]byte{}
+			}
+			monarchSecrets.Data["keyfile"] = []byte(ac.Auth.Key)
+			return nil
+		}); err != nil {
+			return workflow.Failed(xerrors.Errorf("failed to create/update Monarch secrets bundle %s: %w", monarchSecretsName, err))
+		}
+	}
+
+	// Create config Secret and Deployment for each shard
+	shardInfos := r.getMonarchShardInfos()
+	allShardIDs := r.getAllShardIDs()
+	clusterDomain := sc.Spec.GetClusterDomain()
+
+	for _, info := range shardInfos {
+		// Build rsHosts from mongod URIs (strip mongodb:// prefix and trailing /)
+		rsHosts := make([]string, len(info.MongodURIs))
+		for i, uri := range info.MongodURIs {
+			host := strings.TrimPrefix(uri, "mongodb://")
+			host = strings.TrimSuffix(host, "/")
+			rsHosts[i] = host
+		}
+
+		injectorSvcDNS := construct.GetMonarchServiceDNSSharded(sc.Name, info.ShardID, role, sc.Namespace, clusterDomain)
+
+		configSecret := construct.BuildMonarchConfigSecretSharded(
+			sc, sc.Namespace,
+			info.ShardID, info.RSName,
+			rsHosts,
+			info.MongoURI,
+			mongodUser, mongodPassword,
+			monarchSecretsName,
+			allShardIDs,
+			injectorSvcDNS,
+		)
+		if _, err := controllerutil.CreateOrUpdate(ctx, r.commonController.client, configSecret, func() error {
+			fresh := construct.BuildMonarchConfigSecretSharded(
+				sc, sc.Namespace,
+				info.ShardID, info.RSName,
+				rsHosts,
+				info.MongoURI,
+				mongodUser, mongodPassword,
+				monarchSecretsName,
+				allShardIDs,
+				injectorSvcDNS,
+			)
+			configSecret.Data = fresh.Data
+			configSecret.Labels = fresh.Labels
+			return nil
+		}); err != nil {
+			return workflow.Failed(xerrors.Errorf("failed to create/update Monarch config Secret for shard %s: %w", info.ShardID, err))
+		}
+
+		// Hash triggers rolling restart when config changes
+		configHash := monarchConfigHashFromSecret(configSecret.Data)
+
+		dep := construct.BuildMonarchDeploymentSharded(sc, sc.Namespace, info.ShardID, monarchSecretsName)
+		if _, err := controllerutil.CreateOrUpdate(ctx, r.commonController.client, dep, func() error {
+			fresh := construct.BuildMonarchDeploymentSharded(sc, sc.Namespace, info.ShardID, monarchSecretsName)
+			dep.Spec = fresh.Spec
+			dep.Labels = fresh.Labels
+			if dep.Spec.Template.Annotations == nil {
+				dep.Spec.Template.Annotations = map[string]string{}
+			}
+			dep.Spec.Template.Annotations["checksum/config"] = configHash
+			return nil
+		}); err != nil {
+			apimeta.SetStatusCondition(&sc.Status.Conditions, metav1.Condition{
+				Type:    conditionType,
+				Status:  metav1.ConditionFalse,
+				Reason:  mdbv1.ReasonMonarchDeploymentFailed,
+				Message: fmt.Sprintf("Failed to create/update Monarch Deployment for shard %s: %v", info.ShardID, err),
+			})
+			return workflow.Failed(xerrors.Errorf("failed to create/update Monarch Deployment for shard %s: %w", info.ShardID, err))
+		}
+	}
+
+	apimeta.SetStatusCondition(&sc.Status.Conditions, metav1.Condition{
+		Type:    conditionType,
+		Status:  metav1.ConditionTrue,
+		Reason:  mdbv1.ReasonMonarchDeploymentReady,
+		Message: fmt.Sprintf("Monarch %s Deployments reconciled for %d shards (role=%s)", role, len(shardInfos), monarch.Role),
+	})
+	log.Infof("Reconciled Monarch %s K8s resources for %d shards", role, len(shardInfos))
+
+	return workflow.OK()
 }
