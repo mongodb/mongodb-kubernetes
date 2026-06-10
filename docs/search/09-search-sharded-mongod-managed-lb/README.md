@@ -293,7 +293,8 @@ kind: MongoDBSearch
 metadata:
   name: ${MDB_RESOURCE_NAME}
 spec:
-  replicas: ${MDB_MONGOT_REPLICAS}
+  clusters:
+    - replicas: ${MDB_MONGOT_REPLICAS}
   source:
     mongodbResourceRef:
       name: ${MDB_RESOURCE_NAME}

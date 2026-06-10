@@ -102,16 +102,16 @@ func TestCreateSearchStatefulSetFunc_JVMFlags(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			search := newTestMongoDBSearch("test-search", "default", func(s *searchv1.MongoDBSearch) {
-				s.Spec.JVMFlags = tc.userProvidedJVMFlags
+				cluster := searchv1.ClusterSpec{JVMFlags: tc.userProvidedJVMFlags}
 				if tc.userProvidedMemory != "" {
-					//nolint:staticcheck // SA1019: exercising the legacy single-cluster auto-promotion path.
-					s.Spec.ResourceRequirements = &corev1.ResourceRequirements{
+					cluster.ResourceRequirements = &corev1.ResourceRequirements{
 						Requests: corev1.ResourceList{
 							corev1.ResourceMemory: resource.MustParse(tc.userProvidedMemory),
 							corev1.ResourceCPU:    resource.MustParse("2"),
 						},
 					}
 				}
+				s.Spec.Clusters = []searchv1.ClusterSpec{cluster}
 			})
 
 			stsModification, err := CreateSearchStatefulSetFunc(search, "", "", "", "", "", nil, "mongot:latest", false)
@@ -242,7 +242,7 @@ func TestCreateSearchStatefulSetFunc_StatefulSetOverrideReplacesAntiAffinity(t *
 		}},
 	}
 	search := newTestMongoDBSearch("test-search", "default", func(s *searchv1.MongoDBSearch) {
-		s.Spec.Clusters = &[]searchv1.ClusterSpec{{
+		s.Spec.Clusters = []searchv1.ClusterSpec{{
 			ClusterName: "cluster-1",
 			StatefulSetConfiguration: &v1.StatefulSetConfiguration{
 				SpecWrapper: v1.StatefulSetSpecWrapper{

@@ -43,6 +43,7 @@ func newTestMongoDBSearch(name, namespace string, modifications ...func(*searchv
 			Namespace: namespace,
 		},
 		Spec: searchv1.MongoDBSearchSpec{
+			Clusters: []searchv1.ClusterSpec{{}},
 			Source: &searchv1.MongoDBSource{
 				MongoDBResourceRef: &userv1.MongoDBResourceRef{
 					Name: "test-mongodb",
@@ -955,8 +956,7 @@ func TestEnsureMongotConfig_PerPodModes(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			search := newTestMongoDBSearch("test-search", "test-ns")
-			//nolint:staticcheck // SA1019: exercising the legacy single-cluster auto-promotion path.
-			search.Spec.Replicas = ptr.To(tc.replicas)
+			search.Spec.Clusters = []searchv1.ClusterSpec{{Replicas: ptr.To(tc.replicas)}}
 			if tc.hasAutoEmbedding {
 				search.Spec.AutoEmbedding = &searchv1.EmbeddingConfig{}
 			}
@@ -994,8 +994,7 @@ func TestEnsureMongotConfig_PerPodModes(t *testing.T) {
 
 func TestEnsureMongotConfig_TransitionBetweenModes(t *testing.T) {
 	search := newTestMongoDBSearch("test-search", "test-ns")
-	//nolint:staticcheck // SA1019: exercising the legacy single-cluster auto-promotion path.
-	search.Spec.Replicas = ptr.To(int32(1))
+	search.Spec.Clusters = []searchv1.ClusterSpec{{Replicas: ptr.To(int32(1))}}
 	fakeClient := newTestFakeClient(search)
 	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, newTestOperatorSearchConfig(), nil, nil)
 	cmName := search.MongotConfigConfigMapNamespacedName()
@@ -1337,102 +1336,6 @@ func TestBuildShardSearchHeadlessService(t *testing.T) {
 	assert.Equal(t, int32(8080), healthPort.Port)
 }
 
-func TestValidateMultipleReplicasConfig(t *testing.T) {
-	mdbSearchSpec := searchv1.MongoDBSearchSpec{
-		Source: &searchv1.MongoDBSource{
-			MongoDBResourceRef: &userv1.MongoDBResourceRef{
-				Name: "test-mongodb",
-			},
-		},
-	}
-
-	mdbc := &mdbcv1.MongoDBCommunity{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-mongodb",
-			Namespace: "test",
-		},
-	}
-
-	tests := []struct {
-		name          string
-		search        *searchv1.MongoDBSearch
-		expectedError string
-	}{
-		{
-			name: "Single replica - no LB required",
-			search: &searchv1.MongoDBSearch{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-search",
-					Namespace: "test",
-				},
-				Spec: mdbSearchSpec,
-			},
-			expectedError: "",
-		},
-		{
-			name: "Multiple replicas without LB - error",
-			search: &searchv1.MongoDBSearch{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-search",
-					Namespace: "test",
-				},
-				Spec: searchv1.MongoDBSearchSpec{
-					Replicas: ptr.To(int32(3)),
-					Source: &searchv1.MongoDBSource{
-						MongoDBResourceRef: &userv1.MongoDBResourceRef{
-							Name: "test-mongodb",
-						},
-					},
-				},
-			},
-			expectedError: "multiple mongot replicas (3) require load balancer configuration; please configure load balancing in spec.loadBalancer.",
-		},
-		{
-			name: "Multiple replicas with unmanaged LB - valid",
-			search: &searchv1.MongoDBSearch{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-search",
-					Namespace: "test",
-				},
-				Spec: searchv1.MongoDBSearchSpec{
-					Replicas: ptr.To(int32(3)),
-					Source: &searchv1.MongoDBSource{
-						MongoDBResourceRef: &userv1.MongoDBResourceRef{
-							Name: "test-mongodb",
-						},
-					},
-					LoadBalancer: &searchv1.LoadBalancerConfig{
-						Unmanaged: &searchv1.UnmanagedLBConfig{Endpoint: "lb.example.com:27028"},
-					},
-				},
-			},
-			expectedError: "",
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			clientBuilder := mock.NewEmptyFakeClientBuilder()
-			clientBuilder.WithObjects(mdbc)
-
-			helper := NewMongoDBSearchReconcileHelper(
-				kubernetesClient.NewClient(clientBuilder.Build()),
-				tc.search,
-				NewCommunityResourceSearchSource(mdbc),
-				OperatorSearchConfig{},
-				nil, nil,
-			)
-
-			err := helper.ValidateMultipleReplicasConfig()
-			if tc.expectedError == "" {
-				assert.NoError(t, err)
-			} else {
-				assert.EqualError(t, err, tc.expectedError)
-			}
-		})
-	}
-}
-
 func TestValidateManagedLBShardedTLS(t *testing.T) {
 	mdbc := newTestMongoDBCommunity("test-mongodb", "test")
 
@@ -1501,6 +1404,86 @@ func TestValidateManagedLBShardedTLS(t *testing.T) {
 			)
 
 			err := helper.ValidateManagedLBShardedTLS()
+			if tc.expectedError == "" {
+				assert.NoError(t, err)
+			} else {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), tc.expectedError)
+			}
+		})
+	}
+}
+
+func TestValidateMultipleReplicasUnmanagedLBTopology(t *testing.T) {
+	mdbc := newTestMongoDBCommunity("test-mongodb", "test")
+
+	multiReplica := func(s *searchv1.MongoDBSearch) {
+		s.Spec.Clusters = []searchv1.ClusterSpec{{Replicas: ptr.To(int32(2))}}
+	}
+	withUnmanaged := func(endpoint string) func(*searchv1.MongoDBSearch) {
+		return func(s *searchv1.MongoDBSearch) {
+			s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
+				Unmanaged: &searchv1.UnmanagedLBConfig{Endpoint: endpoint},
+			}
+		}
+	}
+
+	tests := []struct {
+		name          string
+		search        *searchv1.MongoDBSearch
+		source        SearchSourceDBResource
+		expectedError string
+	}{
+		{
+			name:          "sharded source, multiple replicas, endpoint without {shardName} - error",
+			search:        newTestMongoDBSearch("test-search", "test", multiReplica, withUnmanaged("lb.example.com:27028")),
+			source:        &mockShardedSource{shardNames: []string{"shard-0"}},
+			expectedError: "must contain a {shardName} placeholder for a sharded source",
+		},
+		{
+			name:   "sharded source, multiple replicas, endpoint with {shardName} - ok",
+			search: newTestMongoDBSearch("test-search", "test", multiReplica, withUnmanaged("lb-{shardName}.example.com:27028")),
+			source: &mockShardedSource{shardNames: []string{"shard-0"}},
+		},
+		{
+			name:          "replica set source, multiple replicas, endpoint with {shardName} - error",
+			search:        newTestMongoDBSearch("test-search", "test", multiReplica, withUnmanaged("lb-{shardName}.example.com:27028")),
+			source:        NewCommunityResourceSearchSource(mdbc),
+			expectedError: "must not contain a {shardName} placeholder for a replica set source",
+		},
+		{
+			name:   "replica set source, multiple replicas, endpoint without template - ok",
+			search: newTestMongoDBSearch("test-search", "test", multiReplica, withUnmanaged("lb.example.com:27028")),
+			source: NewCommunityResourceSearchSource(mdbc),
+		},
+		{
+			name:   "single replica, sharded source, endpoint without {shardName} - ok",
+			search: newTestMongoDBSearch("test-search", "test", withUnmanaged("lb.example.com:27028")),
+			source: &mockShardedSource{shardNames: []string{"shard-0"}},
+		},
+		{
+			name: "multiple replicas, managed LB - ok",
+			search: newTestMongoDBSearch("test-search", "test", multiReplica, func(s *searchv1.MongoDBSearch) {
+				s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{}}
+			}),
+			source: &mockShardedSource{shardNames: []string{"shard-0"}},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			clientBuilder := mock.NewEmptyFakeClientBuilder()
+			clientBuilder.WithObjects(mdbc)
+
+			helper := NewMongoDBSearchReconcileHelper(
+				kubernetesClient.NewClient(clientBuilder.Build()),
+				tc.search,
+				tc.source,
+				OperatorSearchConfig{},
+				nil, nil,
+			)
+
+			err := helper.ValidateMultipleReplicasUnmanagedLBTopology()
 			if tc.expectedError == "" {
 				assert.NoError(t, err)
 			} else {
@@ -1639,7 +1622,7 @@ func TestGetMongosConfigParametersForSharded(t *testing.T) {
 							ExternalHostname: "{shardName}.{clusterName}.search.example.com:443",
 						},
 					},
-					Clusters: &[]searchv1.ClusterSpec{
+					Clusters: []searchv1.ClusterSpec{
 						{ClusterName: "us-east-k8s"},
 						{ClusterName: "eu-west-k8s"},
 					},
@@ -2742,11 +2725,10 @@ func (f *fakeExternalSource) HostSeeds(_ string) ([]string, error) {
 
 func TestBuildReplicaSetPlan_PerClusterUnitsForMC(t *testing.T) {
 	mdb := newTestMongoDBSearch("mdb-search", "ns")
-	clusters := []searchv1.ClusterSpec{
+	mdb.Spec.Clusters = []searchv1.ClusterSpec{
 		{ClusterName: "cluster-a", Replicas: ptr.To(int32(2))},
 		{ClusterName: "cluster-b", Replicas: ptr.To(int32(2))},
 	}
-	mdb.Spec.Clusters = &clusters
 	mdb.Spec.Source = &searchv1.MongoDBSource{
 		ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{
 			HostAndPorts: []string{"a.example:27017", "b.example:27017"},
@@ -2797,11 +2779,10 @@ func TestBuildReplicaSetPlan_SingleClusterUsesIndexZeroNames(t *testing.T) {
 // clusterName, never on the central client.
 func TestReconcilePlan_UsesPerClusterClient(t *testing.T) {
 	mdb := newTestMongoDBSearch("mdb-search", "ns")
-	clusters := []searchv1.ClusterSpec{
+	mdb.Spec.Clusters = []searchv1.ClusterSpec{
 		{ClusterName: "cluster-a", Replicas: ptr.To(int32(2))},
 		{ClusterName: "cluster-b", Replicas: ptr.To(int32(2))},
 	}
-	mdb.Spec.Clusters = &clusters
 	mdb.Spec.Source = &searchv1.MongoDBSource{
 		ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{
 			HostAndPorts: []string{"a.example:27017"},
@@ -2865,11 +2846,10 @@ func TestReconcilePlan_UsesPerClusterClient(t *testing.T) {
 // cluster-level proxy Service per cluster.
 func TestBuildShardedPlan_PerClusterShardUnitsForMC(t *testing.T) {
 	search := newTestMongoDBSearch("mdb-search", "ns")
-	clusters := []searchv1.ClusterSpec{
+	search.Spec.Clusters = []searchv1.ClusterSpec{
 		{ClusterName: "cluster-a"},
 		{ClusterName: "cluster-b"},
 	}
-	search.Spec.Clusters = &clusters
 
 	shardedSource := &mockShardedSource{
 		shardNames: []string{"sh-0", "sh-1"},
@@ -2924,11 +2904,10 @@ func TestBuildShardedPlan_PerClusterShardUnitsForMC(t *testing.T) {
 // cluster. Central client receives nothing.
 func TestReconcileShardedMC_FanOutUsesPerClusterClient(t *testing.T) {
 	search := newTestMongoDBSearch("mdb-search", "ns")
-	clusters := []searchv1.ClusterSpec{
+	search.Spec.Clusters = []searchv1.ClusterSpec{
 		{ClusterName: "cluster-a"},
 		{ClusterName: "cluster-b"},
 	}
-	search.Spec.Clusters = &clusters
 
 	shardedSource := &mockShardedSource{
 		shardNames: []string{"sh-0", "sh-1"},
@@ -3039,11 +3018,10 @@ func TestReconcileShardedMC_FanOutUsesPerClusterClient(t *testing.T) {
 // none of them can become Ready under a fake client.
 func TestReconcileShardedMC_AllUnitsAppliedBeforeReadinessCheck(t *testing.T) {
 	search := newTestMongoDBSearch("mdb-search", "ns")
-	clusters := []searchv1.ClusterSpec{
+	search.Spec.Clusters = []searchv1.ClusterSpec{
 		{ClusterName: "cluster-a"},
 		{ClusterName: "cluster-b"},
 	}
-	search.Spec.Clusters = &clusters
 	search.Spec.Source = &searchv1.MongoDBSource{
 		ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{
 			ShardedCluster: &searchv1.ExternalShardedClusterConfig{
@@ -3165,11 +3143,10 @@ type mcShardedFixture struct {
 func newMCShardedFixture(t *testing.T) *mcShardedFixture {
 	t.Helper()
 	search := newTestMongoDBSearch("mdb-search", "ns")
-	clusters := []searchv1.ClusterSpec{
+	search.Spec.Clusters = []searchv1.ClusterSpec{
 		{ClusterName: "cluster-a"},
 		{ClusterName: "cluster-b"},
 	}
-	search.Spec.Clusters = &clusters
 	search.Spec.Source = &searchv1.MongoDBSource{
 		ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{
 			ShardedCluster: &searchv1.ExternalShardedClusterConfig{
@@ -3340,11 +3317,10 @@ func TestCleanupStaleShardResources_MCFanOut(t *testing.T) {
 	search := newTestMongoDBSearch("mdb-search", "ns", func(s *searchv1.MongoDBSearch) {
 		s.UID = "search-uid"
 		s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{}}
-		clusters := []searchv1.ClusterSpec{
+		s.Spec.Clusters = []searchv1.ClusterSpec{
 			{ClusterName: "cluster-a"},
 			{ClusterName: "cluster-b"},
 		}
-		s.Spec.Clusters = &clusters
 	})
 
 	// memberProxySvc builds a proxy Service with the search-owner labels the MC

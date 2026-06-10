@@ -168,7 +168,8 @@ kind: MongoDBSearch
 metadata:
   name: ${MDB_SEARCH_RESOURCE_NAME}
 spec:
-  replicas: ${MDB_MONGOT_REPLICAS}
+  clusters:
+    - replicas: ${MDB_MONGOT_REPLICAS}
   source:
     username: search-sync-source
     passwordSecretRef:
