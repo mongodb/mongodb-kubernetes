@@ -219,7 +219,8 @@ def mdbs(
     }
 
     resource["spec"]["clusters"] = [
-        {"clusterName": mcc.cluster_name, "replicas": MONGOT_REPLICAS_PER_CLUSTER} for mcc in member_cluster_clients
+        {"clusterName": mcc.cluster_name, "clusterIndex": mcc.cluster_index, "replicas": MONGOT_REPLICAS_PER_CLUSTER}
+        for mcc in member_cluster_clients
     ]
 
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
