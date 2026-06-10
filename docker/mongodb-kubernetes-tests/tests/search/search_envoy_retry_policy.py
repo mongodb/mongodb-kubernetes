@@ -27,10 +27,7 @@ from tests.common.search.bootstrap_test_mixins import (
     SearchRsDeploymentTests,
     SearchSampleDataAndIndexTests,
 )
-from tests.common.search.connectivity import (
-    SearchConnectivityTool,
-    delete_pods,
-)
+from tests.common.search.connectivity import SearchConnectivityTool, delete_pods
 from tests.common.search.rs_search_helper import rs_search_tester
 from tests.conftest import get_namespace
 

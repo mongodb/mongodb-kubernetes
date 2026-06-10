@@ -157,7 +157,7 @@ func TestBuildReplicaSetRouteForCluster_PerClusterPlaceholders(t *testing.T) {
 					Namespace: "test-ns",
 				},
 			}
-			search.Spec.Clusters = &cs
+			search.Spec.Clusters = cs
 			if tt.endpoint != "" {
 				search.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
 					Managed: &searchv1.ManagedLBConfig{ExternalHostname: tt.endpoint},
@@ -456,7 +456,7 @@ func TestBuildRoutesForCluster_RS_TemplateSubstitutesClusterName(t *testing.T) {
 	search := &searchv1.MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "test-ns"},
 		Spec: searchv1.MongoDBSearchSpec{
-			Clusters: &[]searchv1.ClusterSpec{
+			Clusters: []searchv1.ClusterSpec{
 				{ClusterName: "us-east-k8s", Replicas: &one},
 				{ClusterName: "eu-west-k8s", Replicas: &one},
 			},
@@ -480,7 +480,7 @@ func TestBuildRoutesForCluster_RS_NoTemplateUsesPerClusterProxySvcFQDN(t *testin
 	search := &searchv1.MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "test-ns"},
 		Spec: searchv1.MongoDBSearchSpec{
-			Clusters: &[]searchv1.ClusterSpec{
+			Clusters: []searchv1.ClusterSpec{
 				{ClusterName: "us-east-k8s", Replicas: &one},
 			},
 		},
@@ -533,7 +533,7 @@ func TestBuildRoutesForCluster_Sharded_PerClusterShardSNI(t *testing.T) {
 	search := &searchv1.MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "test-ns"},
 		Spec: searchv1.MongoDBSearchSpec{
-			Clusters: &[]searchv1.ClusterSpec{
+			Clusters: []searchv1.ClusterSpec{
 				{ClusterName: "us-east-k8s", Replicas: &one},
 				{ClusterName: "eu-west-k8s", Replicas: &one},
 			},
@@ -586,7 +586,7 @@ func TestBuildShardRoutes_MC_ClusterLevel_NoExternalHostname(t *testing.T) {
 	search := &searchv1.MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "test-ns"},
 		Spec: searchv1.MongoDBSearchSpec{
-			Clusters: &[]searchv1.ClusterSpec{
+			Clusters: []searchv1.ClusterSpec{
 				{ClusterName: "cluster-a"},
 				{ClusterName: "cluster-b"},
 			},
@@ -633,7 +633,7 @@ func TestBuildShardRoutes_MC_ClusterLevel_ManagedLB(t *testing.T) {
 	search := &searchv1.MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "test-ns"},
 		Spec: searchv1.MongoDBSearchSpec{
-			Clusters: &[]searchv1.ClusterSpec{
+			Clusters: []searchv1.ClusterSpec{
 				{ClusterName: "cluster-a"},
 				{ClusterName: "cluster-b"},
 			},
@@ -667,7 +667,7 @@ func TestEnvoyFilterChain_PerClusterSNI(t *testing.T) {
 	search := &searchv1.MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"},
 		Spec: searchv1.MongoDBSearchSpec{
-			Clusters: &[]searchv1.ClusterSpec{
+			Clusters: []searchv1.ClusterSpec{
 				{ClusterName: "us-east-k8s", Replicas: &one},
 				{ClusterName: "eu-west-k8s", Replicas: &one},
 			},
@@ -758,7 +758,7 @@ func TestBuildClusterWorkList_ClientPopulation(t *testing.T) {
 	// Multi-cluster: known member → member client; unknown member → central fallback.
 	mcSearch := &searchv1.MongoDBSearch{
 		Spec: searchv1.MongoDBSearchSpec{
-			Clusters: &[]searchv1.ClusterSpec{
+			Clusters: []searchv1.ClusterSpec{
 				{ClusterName: "a"},
 				{ClusterName: "unknown"},
 			},
@@ -826,7 +826,6 @@ func envoyTestScheme(t *testing.T) *runtime.Scheme {
 	require.NoError(t, corev1.AddToScheme(scheme))
 	require.NoError(t, appsv1.AddToScheme(scheme))
 	require.NoError(t, v1.AddToScheme(scheme))
-	_ = searchv1.AddToScheme // keep import live
 	return scheme
 }
 
@@ -939,7 +938,7 @@ func TestBuildClusterWorkList_MultiCluster_OneItemPerSpecEntry(t *testing.T) {
 	})
 	search := &searchv1.MongoDBSearch{
 		Spec: searchv1.MongoDBSearchSpec{
-			Clusters: &[]searchv1.ClusterSpec{
+			Clusters: []searchv1.ClusterSpec{
 				{ClusterName: "a"},
 				{ClusterName: "b"},
 			},
@@ -961,7 +960,7 @@ func TestBuildClusterWorkList_MissingFromMapping_SentinelIndex(t *testing.T) {
 	})
 	search := &searchv1.MongoDBSearch{
 		Spec: searchv1.MongoDBSearchSpec{
-			Clusters: &[]searchv1.ClusterSpec{{ClusterName: "a"}},
+			Clusters: []searchv1.ClusterSpec{{ClusterName: "a"}},
 		},
 	}
 	// Empty mapping simulates first reconcile before main controller writes state.
@@ -980,7 +979,7 @@ func TestReconcileForCluster_UnknownClusterPending(t *testing.T) {
 	search := &searchv1.MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"},
 		Spec: searchv1.MongoDBSearchSpec{
-			Clusters: &[]searchv1.ClusterSpec{{ClusterName: "missing-cluster"}},
+			Clusters: []searchv1.ClusterSpec{{ClusterName: "missing-cluster"}},
 		},
 	}
 	st := r.reconcileForCluster(context.Background(), search, nil, false, nil, "missing-cluster", 0, r.kubeClient, zap.S())
@@ -1033,7 +1032,7 @@ func TestReconcileForCluster_RendersInMemberCluster(t *testing.T) {
 			LoadBalancer: &searchv1.LoadBalancerConfig{
 				Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot-{clusterName}.example.com"},
 			},
-			Clusters: &[]searchv1.ClusterSpec{{ClusterName: "a"}},
+			Clusters: []searchv1.ClusterSpec{{ClusterName: "a"}},
 		},
 	}
 
@@ -1065,7 +1064,7 @@ func TestEnsureDeployment_Replicas(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"},
 		Spec: searchv1.MongoDBSearchSpec{
 			LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{}},
-			Clusters:     &[]searchv1.ClusterSpec{{ClusterName: "a"}},
+			Clusters:     []searchv1.ClusterSpec{{ClusterName: "a"}},
 		},
 	}
 	for _, tc := range []struct {
@@ -1130,7 +1129,7 @@ func TestReconcile_WorstOfPhase_Aggregated(t *testing.T) {
 					ExternalHostname: "mongot-{clusterName}.example.com",
 				},
 			},
-			Clusters: &[]searchv1.ClusterSpec{
+			Clusters: []searchv1.ClusterSpec{
 				{ClusterName: "a"},
 				{ClusterName: "missing"},
 			},
@@ -1184,7 +1183,7 @@ func TestReconcile_AllClustersFailed_TopLevelPhaseIsFailed(t *testing.T) {
 					ExternalHostname: "mongot-{clusterName}.example.com",
 				},
 			},
-			Clusters: &[]searchv1.ClusterSpec{{ClusterName: "a"}},
+			Clusters: []searchv1.ClusterSpec{{ClusterName: "a"}},
 		},
 	}
 	central := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&searchv1.MongoDBSearch{}).WithObjects(search).Build()
@@ -1232,7 +1231,7 @@ func TestReconcile_NoStateCM_ClustersPending(t *testing.T) {
 					ExternalHostname: "mongot-{clusterName}.example.com",
 				},
 			},
-			Clusters: &[]searchv1.ClusterSpec{
+			Clusters: []searchv1.ClusterSpec{
 				{ClusterName: "cluster-a"},
 				{ClusterName: "cluster-b"},
 			},
@@ -1280,7 +1279,7 @@ func TestReconcile_UsesIndicesFromStateMapping(t *testing.T) {
 					ExternalHostname: "mongot-{clusterName}.example.com",
 				},
 			},
-			Clusters: &[]searchv1.ClusterSpec{
+			Clusters: []searchv1.ClusterSpec{
 				{ClusterName: "cluster-a"},
 				{ClusterName: "cluster-b"},
 			},
@@ -1355,7 +1354,7 @@ func TestReconcile_StableIndexAcrossClusterRemovals(t *testing.T) {
 						ExternalHostname: "mongot-{clusterName}.example.com",
 					},
 				},
-				Clusters: &clusters,
+				Clusters: clusters,
 			},
 		}
 	}
