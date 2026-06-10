@@ -33,6 +33,7 @@ const (
 	multiClusterSecretName = "test-pod-multi-cluster-config" //nolint:gosec
 	imageRegistriesSecret  = "image-registries-secret"
 	kubernetesServiceName  = "kubernetes"
+	clusterTypeKind        = "kind"
 )
 
 func main() {
@@ -76,7 +77,7 @@ func main() {
 
 	// Phase 1: KIND kubeconfig overrides
 	var kindKubeconfig string
-	if cfg.clusterType == "kind" {
+	if cfg.clusterType == clusterTypeKind {
 		fmt.Println("Phase 1: Overriding kubeconfig API servers for KIND clusters")
 		kindKubeconfig = overrideKindKubeconfig(ctx, cfg, clients, allClusters, collectErrorFor("kind-override"))
 	}
@@ -115,7 +116,7 @@ func main() {
 	go func() {
 		defer phase3wg.Done()
 		kubeconfigPath := cfg.kubeconfigPath
-		if cfg.clusterType == "kind" && kindKubeconfig != "" {
+		if cfg.clusterType == clusterTypeKind && kindKubeconfig != "" {
 			kubeconfigPath = kindKubeconfig
 		}
 		createKubeconfigSecret(ctx, clients[cfg.testPodCluster], cfg.testPodCluster, cfg.namespace, kubeconfigPath, collectErrorFor(cfg.testPodCluster))
@@ -159,8 +160,8 @@ func main() {
 	createMultiClusterConfigSecret(ctx, clients[cfg.testPodCluster], cfg, tokens, collectErrorFor(cfg.testPodCluster))
 
 	// Clean up KIND temp kubeconfig
-	if cfg.clusterType == "kind" && kindKubeconfig != "" {
-		os.Remove(kindKubeconfig)
+	if cfg.clusterType == clusterTypeKind && kindKubeconfig != "" {
+		_ = os.Remove(kindKubeconfig)
 	}
 
 	// Phase 6: Extract config files locally (parallel)
@@ -365,7 +366,10 @@ func overrideKindKubeconfig(ctx context.Context, cfg config, clients map[string]
 		return ""
 	}
 	tmpPath := tmpFile.Name()
-	tmpFile.Close()
+	if err := tmpFile.Close(); err != nil {
+		collectError(err, "failed to close temp kubeconfig")
+		return ""
+	}
 
 	if err := clientcmd.WriteToFile(*kubeConfig, tmpPath); err != nil {
 		collectError(err, "failed to write temp kubeconfig")
@@ -800,7 +804,7 @@ func writeConfigFile(dir, name string, data []byte, collectError func(error, str
 
 	// The typed API returns already-decoded data, no base64 step needed.
 	filePath := filepath.Join(dir, name)
-	if err := os.WriteFile(filePath, data, 0o644); err != nil {
+	if err := os.WriteFile(filePath, data, 0o600); err != nil {
 		collectError(err, fmt.Sprintf("failed to write config file %s", filePath))
 	}
 }
@@ -819,7 +823,7 @@ func setupKubectlMongodb(cfg config) error {
 		if err != nil {
 			return fmt.Errorf("failed to read pre-compiled binary: %v", err)
 		}
-		return os.WriteFile(cfg.kubeconfigCreatorPath, data, 0o755)
+		return os.WriteFile(cfg.kubeconfigCreatorPath, data, 0o755) //nolint:gosec // executable binary requires world-executable permissions
 	}
 
 	// Build from source
@@ -835,7 +839,7 @@ func setupKubectlMongodb(cfg config) error {
 	}
 	env = append(env, fmt.Sprintf("GOOS=%s", goos), fmt.Sprintf("GOARCH=%s", goarch))
 
-	cmd := exec.Command("go", "build", "-o", cfg.kubeconfigCreatorPath, "main.go")
+	cmd := exec.Command("go", "build", "-o", cfg.kubeconfigCreatorPath, "main.go") //nolint:gosec // developer script, inputs are trusted CLI config
 	cmd.Dir = cmdDir
 	cmd.Env = env
 	cmd.Stdout = os.Stdout
