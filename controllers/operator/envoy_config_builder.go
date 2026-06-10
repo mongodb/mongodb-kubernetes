@@ -66,11 +66,7 @@ func buildBootstrapJSON() (string, error) {
 			Cluster: "search-proxy",
 		},
 		Admin: &bootstrapv3.Admin{
-<<<<<<< HEAD
-			Address: socketAddress("0.0.0.0", uint32(envoyAdminPort)),
-=======
 			Address: socketAddress("0.0.0.0", uint32(EnvoyAdminPort)),
->>>>>>> 8d80de700 (KUBE-16: unify envoy logging (JSON component + access logs))
 			// enable just some endpoints because it's recommended to not enable all the admin endpoints by default.
 			AllowPaths: []*matcherv3.StringMatcher{
 				{MatchPattern: &matcherv3.StringMatcher_Exact{Exact: "/ready"}},

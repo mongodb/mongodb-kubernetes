@@ -42,12 +42,6 @@ func TestValidateShardNames(t *testing.T) {
 			name:   "valid multiple unique shards",
 			search: newSearch("my-search", []ExternalShardConfig{shard("shard0"), shard("shard1")}, "", false, false),
 		},
-		{
-			name: "non-sharded config skips validation",
-			search: &MongoDBSearch{
-				ObjectMeta: metav1.ObjectMeta{Name: "test-search", Namespace: "test-namespace"},
-			},
-		},
 
 		// Invalid cases
 		{
@@ -100,7 +94,7 @@ func TestValidateShardNames(t *testing.T) {
 				for i := range clusters {
 					clusters[i] = ClusterSpec{ClusterName: "c" + strconv.Itoa(i)}
 				}
-				s.Spec.Clusters = &clusters
+				s.Spec.Clusters = clusters
 				return s
 			}(),
 		},
@@ -115,7 +109,7 @@ func TestValidateShardNames(t *testing.T) {
 				for i := range clusters {
 					clusters[i] = ClusterSpec{ClusterName: "c" + strconv.Itoa(i)}
 				}
-				s.Spec.Clusters = &clusters
+				s.Spec.Clusters = clusters
 				return s
 			}(),
 			errorContains: "exceeds",
@@ -239,7 +233,7 @@ func TestValidateClustersSyncSourceSelector(t *testing.T) {
 			s := &MongoDBSearch{
 				ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"},
 				Spec: MongoDBSearchSpec{
-					Clusters: &[]ClusterSpec{{ClusterName: "us-east-k8s", SyncSourceSelector: tt.selector}},
+					Clusters: []ClusterSpec{{ClusterName: "us-east-k8s", SyncSourceSelector: tt.selector}},
 				},
 			}
 			res := validateClustersSyncSourceSelector(s)
@@ -267,11 +261,11 @@ func TestValidateClustersUniqueClusterName(t *testing.T) {
 			errorContains: "duplicate",
 		},
 		{
-			// Empty names are reserved for the single-cluster case;
-			// two empty names is still a duplicate.
-			name:          "two empty names",
-			clusters:      []ClusterSpec{{}, {}},
-			errorContains: "duplicate",
+			// Empty names are skipped here: validateClustersClusterNameNonEmpty owns
+			// the multi-cluster "is required" rule, so two empty names must not be
+			// pre-empted with a "duplicate" error.
+			name:     "two empty names skipped (non-empty validator owns this)",
+			clusters: []ClusterSpec{{}, {}},
 		},
 	}
 	for _, tt := range tests {
@@ -279,62 +273,9 @@ func TestValidateClustersUniqueClusterName(t *testing.T) {
 			clusters := tt.clusters
 			s := &MongoDBSearch{
 				ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"},
-				Spec:       MongoDBSearchSpec{Clusters: &clusters},
+				Spec:       MongoDBSearchSpec{Clusters: clusters},
 			}
 			res := validateClustersUniqueClusterName(s)
-			if tt.errorContains != "" {
-				assert.Equal(t, v1.ErrorLevel, res.Level)
-				assert.Contains(t, res.Msg, tt.errorContains)
-			} else {
-				assert.Equal(t, v1.SuccessLevel, res.Level)
-			}
-		})
-	}
-}
-
-func TestValidateClustersAndTopLevelFieldsMutuallyExclusive(t *testing.T) {
-	cluster := func() ClusterSpec { return ClusterSpec{ClusterName: "us-east"} }
-	tests := []struct {
-		name          string
-		spec          MongoDBSearchSpec
-		errorContains string
-	}{
-		{
-			name: "no clusters, top-level Replicas set — legacy path, OK",
-			spec: MongoDBSearchSpec{Replicas: ptr.To(int32(3))},
-		},
-		{
-			name: "clusters set, no top-level distribution fields — OK",
-			spec: MongoDBSearchSpec{Clusters: &[]ClusterSpec{cluster()}},
-		},
-		{
-			name:          "top-level Replicas + clusters set — reject",
-			spec:          MongoDBSearchSpec{Replicas: ptr.To(int32(2)), Clusters: &[]ClusterSpec{cluster()}},
-			errorContains: "spec.replicas and spec.clusters are mutually exclusive",
-		},
-		{
-			name:          "top-level ResourceRequirements + clusters set — reject",
-			spec:          MongoDBSearchSpec{ResourceRequirements: &corev1.ResourceRequirements{}, Clusters: &[]ClusterSpec{cluster()}},
-			errorContains: "spec.resourceRequirements and spec.clusters are mutually exclusive",
-		},
-		{
-			name:          "top-level Persistence + clusters set — reject",
-			spec:          MongoDBSearchSpec{Persistence: &v1.Persistence{}, Clusters: &[]ClusterSpec{cluster()}},
-			errorContains: "spec.persistence and spec.clusters are mutually exclusive",
-		},
-		{
-			name:          "top-level StatefulSet + clusters set — reject",
-			spec:          MongoDBSearchSpec{StatefulSetConfiguration: &v1.StatefulSetConfiguration{}, Clusters: &[]ClusterSpec{cluster()}},
-			errorContains: "spec.statefulSet and spec.clusters are mutually exclusive",
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			s := &MongoDBSearch{
-				ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"},
-				Spec:       tt.spec,
-			}
-			res := validateClustersAndTopLevelFieldsMutuallyExclusive(s)
 			if tt.errorContains != "" {
 				assert.Equal(t, v1.ErrorLevel, res.Level)
 				assert.Contains(t, res.Msg, tt.errorContains)
@@ -354,8 +295,7 @@ func TestValidateMCExternalHostnamePlaceholders(t *testing.T) {
 			},
 		}
 		if clusters != nil {
-			cs := clusters
-			s.Spec.Clusters = &cs
+			s.Spec.Clusters = clusters
 		}
 		if sharded {
 			s.Spec.Source = &MongoDBSource{
@@ -377,16 +317,6 @@ func TestValidateMCExternalHostnamePlaceholders(t *testing.T) {
 		sharded       bool
 		errorContains string
 	}{
-		{
-			name:     "single-cluster legacy no placeholder",
-			template: "static.lb.example.com:443",
-			clusters: nil,
-		},
-		{
-			name:     "single-entry clusters does not require placeholder",
-			template: "static.lb.example.com:443",
-			clusters: []ClusterSpec{{ClusterName: "us-east-k8s"}},
-		},
 		{
 			name:     "MC RS with clusterName placeholder",
 			template: "{clusterName}.lb.example.com:443",
@@ -455,8 +385,7 @@ func TestValidateExternalHostnameDNSLength(t *testing.T) {
 			},
 		}
 		if clusters != nil {
-			cs := clusters
-			s.Spec.Clusters = &cs
+			s.Spec.Clusters = clusters
 		}
 		if shardNames != nil {
 			shards := make([]ExternalShardConfig, 0, len(shardNames))
@@ -490,8 +419,9 @@ func TestValidateExternalHostnameDNSLength(t *testing.T) {
 		errorContains string
 	}{
 		{
-			name:     "short hostname RS legacy passes",
+			name:     "short hostname RS single-cluster passes",
 			template: "search.lb.example.com:443",
+			clusters: []ClusterSpec{{}},
 		},
 		{
 			name:     "short hostname MC RS passes",
@@ -527,14 +457,9 @@ func TestValidateExternalHostnameDNSLength(t *testing.T) {
 			clusters: []ClusterSpec{{ClusterName: "us-east-k8s"}},
 		},
 		{
-			name:     "no managed LB returns success",
-			template: "",
-			clusters: []ClusterSpec{{ClusterName: "us-east-k8s"}, {ClusterName: "eu-west-k8s"}},
-		},
-		{
 			name:          "empty host after port-stripping rejected",
 			template:      ":443",
-			clusters:      nil,
+			clusters:      []ClusterSpec{{}},
 			errorContains: "empty host",
 		},
 		{
@@ -547,9 +472,6 @@ func TestValidateExternalHostnameDNSLength(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s := mkSearch(tt.template, tt.clusters, tt.shardNames)
-			if tt.template == "" {
-				s.Spec.LoadBalancer = nil
-			}
 			res := validateExternalHostnameDNSLength(s)
 			if tt.errorContains != "" {
 				assert.Equal(t, v1.ErrorLevel, res.Level, "expected error, got %+v", res)
@@ -561,106 +483,38 @@ func TestValidateExternalHostnameDNSLength(t *testing.T) {
 	}
 }
 
-func TestValidateMCRejectsUnmanagedLB(t *testing.T) {
+// TestValidateMCRequiresManagedLB covers the multi-cluster LB-mode rule: the
+// dispatch scopes this validator to multi-cluster specs, so only the LB shape
+// matters here. Both no-LB and unmanaged-LB are rejected; managed is accepted.
+func TestValidateMCRequiresManagedLB(t *testing.T) {
+	clusters := []ClusterSpec{{ClusterName: "us-east-k8s"}, {ClusterName: "eu-west-k8s"}}
 	tests := []struct {
 		name          string
-		clusters      []ClusterSpec
 		lb            *LoadBalancerConfig
 		errorContains string
 	}{
 		{
-			name:     "single-cluster + unmanaged LB allowed (legacy)",
-			clusters: nil,
-			lb:       &LoadBalancerConfig{Unmanaged: &UnmanagedLBConfig{Endpoint: "lb.example.com:443"}},
-		},
-		{
-			name:     "single-entry clusters + unmanaged LB allowed",
-			clusters: []ClusterSpec{{ClusterName: "us-east-k8s"}},
-			lb:       &LoadBalancerConfig{Unmanaged: &UnmanagedLBConfig{Endpoint: "lb.example.com:443"}},
-		},
-		{
-			name:     "MC + managed LB allowed",
-			clusters: []ClusterSpec{{ClusterName: "us-east-k8s"}, {ClusterName: "eu-west-k8s"}},
-			lb:       &LoadBalancerConfig{Managed: &ManagedLBConfig{ExternalHostname: "{clusterName}.lb.example.com:443"}},
-		},
-		{
-			name:     "MC + no LB passes here (other validator rejects)",
-			clusters: []ClusterSpec{{ClusterName: "us-east-k8s"}, {ClusterName: "eu-west-k8s"}},
-			lb:       nil,
-		},
-		{
-			name:          "MC + unmanaged LB rejected",
-			clusters:      []ClusterSpec{{ClusterName: "us-east-k8s"}, {ClusterName: "eu-west-k8s"}},
-			lb:            &LoadBalancerConfig{Unmanaged: &UnmanagedLBConfig{Endpoint: "lb.example.com:443"}},
-			errorContains: "Q3/Q4-MC",
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			s := &MongoDBSearch{
-				ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"},
-				Spec:       MongoDBSearchSpec{LoadBalancer: tt.lb},
-			}
-			if tt.clusters != nil {
-				cs := tt.clusters
-				s.Spec.Clusters = &cs
-			}
-			res := validateMCRejectsUnmanagedLB(s)
-			if tt.errorContains != "" {
-				assert.Equal(t, v1.ErrorLevel, res.Level)
-				assert.Contains(t, res.Msg, tt.errorContains)
-			} else {
-				assert.Equal(t, v1.SuccessLevel, res.Level)
-			}
-		})
-	}
-}
-
-func TestValidateMCRequiresLoadBalancerManaged(t *testing.T) {
-	tests := []struct {
-		name          string
-		clusters      []ClusterSpec
-		lb            *LoadBalancerConfig
-		errorContains string
-	}{
-		{
-			name:     "single-cluster + no LB allowed (legacy Q5/Q6)",
-			clusters: nil,
-			lb:       nil,
-		},
-		{
-			name:     "single-entry clusters + no LB allowed",
-			clusters: []ClusterSpec{{ClusterName: "us-east-k8s"}},
-			lb:       nil,
-		},
-		{
-			name:     "MC + managed LB allowed",
-			clusters: []ClusterSpec{{ClusterName: "us-east-k8s"}, {ClusterName: "eu-west-k8s"}},
-			lb:       &LoadBalancerConfig{Managed: &ManagedLBConfig{ExternalHostname: "{clusterName}.lb.example.com:443"}},
-		},
-		{
-			name:     "MC + unmanaged LB passes here (other validator rejects)",
-			clusters: []ClusterSpec{{ClusterName: "us-east-k8s"}, {ClusterName: "eu-west-k8s"}},
-			lb:       &LoadBalancerConfig{Unmanaged: &UnmanagedLBConfig{Endpoint: "lb.example.com:443"}},
+			name: "MC + managed LB allowed",
+			lb:   &LoadBalancerConfig{Managed: &ManagedLBConfig{ExternalHostname: "{clusterName}.lb.example.com:443"}},
 		},
 		{
 			name:          "MC + no LB rejected",
-			clusters:      []ClusterSpec{{ClusterName: "us-east-k8s"}, {ClusterName: "eu-west-k8s"}},
 			lb:            nil,
-			errorContains: "Q5/Q6",
+			errorContains: "requires a managed load balancer (spec.loadBalancer.managed) at the moment; none is configured",
+		},
+		{
+			name:          "MC + unmanaged LB rejected",
+			lb:            &LoadBalancerConfig{Unmanaged: &UnmanagedLBConfig{Endpoint: "lb.example.com:443"}},
+			errorContains: "spec.loadBalancer.unmanaged is not supported for multi-cluster",
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s := &MongoDBSearch{
 				ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"},
-				Spec:       MongoDBSearchSpec{LoadBalancer: tt.lb},
+				Spec:       MongoDBSearchSpec{Clusters: clusters, LoadBalancer: tt.lb},
 			}
-			if tt.clusters != nil {
-				cs := tt.clusters
-				s.Spec.Clusters = &cs
-			}
-			res := validateMCRequiresLoadBalancerManaged(s)
+			res := validateMCRequiresManagedLB(s)
 			if tt.errorContains != "" {
 				assert.Equal(t, v1.ErrorLevel, res.Level)
 				assert.Contains(t, res.Msg, tt.errorContains)
@@ -695,20 +549,36 @@ func TestValidateClustersClusterNameNonEmpty(t *testing.T) {
 			clusters:      []ClusterSpec{{ClusterName: ""}, {ClusterName: "eu-west-k8s"}},
 			errorContains: "spec.clusters[0].clusterName is required",
 		},
+		{
+			// Both names empty must surface the actionable "is required" hint, not
+			// "duplicate" — validateClustersUniqueClusterName skips empties so the
+			// non-empty rule wins regardless of validator-group ordering.
+			name:          "MC with two empty clusterNames reports is-required, not duplicate",
+			clusters:      []ClusterSpec{{ClusterName: ""}, {ClusterName: ""}},
+			errorContains: "spec.clusters[0].clusterName is required",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			clusters := tt.clusters
 			s := &MongoDBSearch{
 				ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"},
-				Spec:       MongoDBSearchSpec{Clusters: &clusters},
+				Spec:       MongoDBSearchSpec{Clusters: tt.clusters},
 			}
-			res := validateClustersClusterNameNonEmpty(s)
+			// Multi-cluster specs need an external source to pass
+			// validateMCRequiresExternalSource so the clusterName check is the
+			// rule under test, not the source check.
+			if len(tt.clusters) > 1 {
+				s.Spec.Source = &MongoDBSource{
+					ExternalMongoDBSource: &ExternalMongoDBSource{HostAndPorts: []string{"h:27017"}},
+				}
+				s.Spec.LoadBalancer = &LoadBalancerConfig{Managed: &ManagedLBConfig{ExternalHostname: "{clusterName}.lb.example.com:443"}}
+			}
+			err := s.ValidateSpec()
 			if tt.errorContains != "" {
-				assert.Equal(t, v1.ErrorLevel, res.Level)
-				assert.Contains(t, res.Msg, tt.errorContains)
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errorContains)
 			} else {
-				assert.Equal(t, v1.SuccessLevel, res.Level)
+				assert.NoError(t, err)
 			}
 		})
 	}
@@ -756,17 +626,24 @@ func TestValidateMCMatchTagsNonEmpty(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			clusters := tt.clusters
 			s := &MongoDBSearch{
 				ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"},
-				Spec:       MongoDBSearchSpec{Clusters: &clusters},
+				Spec:       MongoDBSearchSpec{Clusters: tt.clusters},
 			}
-			res := validateMCMatchTagsNonEmpty(s)
+			// Multi-cluster specs need an external source + managed LB so the
+			// matchTags check is the rule under test, not the MC source/LB checks.
+			if len(tt.clusters) > 1 {
+				s.Spec.Source = &MongoDBSource{
+					ExternalMongoDBSource: &ExternalMongoDBSource{HostAndPorts: []string{"h:27017"}},
+				}
+				s.Spec.LoadBalancer = &LoadBalancerConfig{Managed: &ManagedLBConfig{ExternalHostname: "{clusterName}.lb.example.com:443"}}
+			}
+			err := s.ValidateSpec()
 			if tt.errorContains != "" {
-				assert.Equal(t, v1.ErrorLevel, res.Level)
-				assert.Contains(t, res.Msg, tt.errorContains)
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errorContains)
 			} else {
-				assert.Equal(t, v1.SuccessLevel, res.Level)
+				assert.NoError(t, err)
 			}
 		})
 	}
@@ -776,6 +653,7 @@ func newSearch(name string, shards []ExternalShardConfig, tlsPrefix string, isTL
 	search := &MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "test-namespace"},
 		Spec: MongoDBSearchSpec{
+			Clusters: []ClusterSpec{{}},
 			Source: &MongoDBSource{
 				ExternalMongoDBSource: &ExternalMongoDBSource{
 					ShardedCluster: &ExternalShardedClusterConfig{
@@ -798,7 +676,7 @@ func newSearch(name string, shards []ExternalShardConfig, tlsPrefix string, isTL
 func TestValidateMCRequiresExternalSource(t *testing.T) {
 	mdbBad := &MongoDBSearch{
 		Spec: MongoDBSearchSpec{
-			Clusters: &[]ClusterSpec{
+			Clusters: []ClusterSpec{
 				{ClusterName: "cluster-a"},
 				{ClusterName: "cluster-b"},
 			},
@@ -812,7 +690,7 @@ func TestValidateMCRequiresExternalSource(t *testing.T) {
 
 	mdbRS := &MongoDBSearch{
 		Spec: MongoDBSearchSpec{
-			Clusters: &[]ClusterSpec{
+			Clusters: []ClusterSpec{
 				{ClusterName: "cluster-a"},
 				{ClusterName: "cluster-b"},
 			},
@@ -827,7 +705,7 @@ func TestValidateMCRequiresExternalSource(t *testing.T) {
 
 	mdbSharded := &MongoDBSearch{
 		Spec: MongoDBSearchSpec{
-			Clusters: &[]ClusterSpec{
+			Clusters: []ClusterSpec{
 				{ClusterName: "cluster-a"},
 				{ClusterName: "cluster-b"},
 			},
@@ -844,18 +722,6 @@ func TestValidateMCRequiresExternalSource(t *testing.T) {
 		},
 	}
 	assert.Equal(t, v1.SuccessLevel, validateMCRequiresExternalSource(mdbSharded).Level, "MC sharded source must be accepted")
-
-	mdbSC := &MongoDBSearch{
-		Spec: MongoDBSearchSpec{
-			Clusters: &[]ClusterSpec{{ClusterName: "cluster-a"}},
-		},
-	}
-	assert.Equal(t, v1.SuccessLevel, validateMCRequiresExternalSource(mdbSC).Level, "single-cluster path is a no-op")
-
-	mdbLegacy := &MongoDBSearch{
-		Spec: MongoDBSearchSpec{},
-	}
-	assert.Equal(t, v1.SuccessLevel, validateMCRequiresExternalSource(mdbLegacy).Level)
 }
 
 // TestValidateClustersEnvoyResourceNames is the admission check for the
@@ -897,9 +763,143 @@ func TestValidateClustersEnvoyResourceNames(t *testing.T) {
 				for _, cn := range tt.clusterNames {
 					clusters = append(clusters, ClusterSpec{ClusterName: cn})
 				}
-				s.Spec.Clusters = &clusters
+				s.Spec.Clusters = clusters
 			}
 			res := validateClustersEnvoyResourceNames(s)
+			if tt.errorContains != "" {
+				assert.Equal(t, v1.ErrorLevel, res.Level)
+				assert.Contains(t, res.Msg, tt.errorContains)
+			} else {
+				assert.Equal(t, v1.SuccessLevel, res.Level)
+			}
+		})
+	}
+}
+
+// TestValidateClustersNonEmpty checks the reconcile backstop to the apiserver
+// Required+MinItems=1 rule: an empty spec.clusters surfaces as an error.
+func TestValidateClustersNonEmpty(t *testing.T) {
+	empty := &MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"},
+		Spec:       MongoDBSearchSpec{},
+	}
+	err := empty.ValidateSpec()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "at least one entry")
+
+	ok := &MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"},
+		Spec:       MongoDBSearchSpec{Clusters: []ClusterSpec{{}}},
+	}
+	assert.NoError(t, ok.ValidateSpec())
+}
+
+// TestValidateMultipleReplicasRequireLB covers the spec-tier rule that more than
+// one mongot replica in any cluster requires a load balancer.
+func TestValidateMultipleReplicasRequireLB(t *testing.T) {
+	tests := []struct {
+		name          string
+		clusters      []ClusterSpec
+		lb            *LoadBalancerConfig
+		errorContains string
+	}{
+		{
+			name:     "single replica no LB ok",
+			clusters: []ClusterSpec{{Replicas: ptr.To(int32(1))}},
+		},
+		{
+			name:          "multiple replicas without LB rejected",
+			clusters:      []ClusterSpec{{Replicas: ptr.To(int32(3))}},
+			errorContains: "multiple mongot replicas (3) require load balancer",
+		},
+		{
+			name:     "multiple replicas with unmanaged LB ok",
+			clusters: []ClusterSpec{{Replicas: ptr.To(int32(3))}},
+			lb:       &LoadBalancerConfig{Unmanaged: &UnmanagedLBConfig{Endpoint: "lb.example.com:443"}},
+		},
+		{
+			name:     "multiple replicas with managed LB ok",
+			clusters: []ClusterSpec{{Replicas: ptr.To(int32(3))}},
+			lb:       &LoadBalancerConfig{Managed: &ManagedLBConfig{}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &MongoDBSearch{
+				ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"},
+				Spec:       MongoDBSearchSpec{Clusters: tt.clusters, LoadBalancer: tt.lb},
+			}
+			res := validateMultipleReplicasRequireLB(s)
+			if tt.errorContains != "" {
+				assert.Equal(t, v1.ErrorLevel, res.Level)
+				assert.Contains(t, res.Msg, tt.errorContains)
+			} else {
+				assert.Equal(t, v1.SuccessLevel, res.Level)
+			}
+		})
+	}
+}
+
+// TestValidateUnmanagedEndpointTemplate covers the merged endpoint-template rule:
+// a sharded external source requires a {shardName} template; a ReplicaSet source
+// must not contain {shardName}. The dispatch guarantees unmanaged LB is set.
+func TestValidateUnmanagedEndpointTemplate(t *testing.T) {
+	shardedSource := func() *MongoDBSource {
+		return &MongoDBSource{
+			ExternalMongoDBSource: &ExternalMongoDBSource{
+				ShardedCluster: &ExternalShardedClusterConfig{
+					Router: ExternalRouterConfig{Hosts: []string{"mongos.example.com:27017"}},
+					Shards: []ExternalShardConfig{{ShardName: "shard-0", Hosts: []string{"h:27017"}}},
+				},
+			},
+		}
+	}
+
+	tests := []struct {
+		name          string
+		endpoint      string
+		source        *MongoDBSource
+		errorContains string
+	}{
+		{
+			name:     "sharded with shardName template ok",
+			endpoint: "{shardName}.lb.example.com:443",
+			source:   shardedSource(),
+		},
+		{
+			name:          "sharded without shardName template rejected",
+			endpoint:      "static.lb.example.com:443",
+			source:        shardedSource(),
+			errorContains: "at least one",
+		},
+		{
+			name:          "sharded with only placeholder rejected",
+			endpoint:      "{shardName}",
+			source:        shardedSource(),
+			errorContains: "more than just",
+		},
+		{
+			name:     "RS without shardName template ok",
+			endpoint: "lb.example.com:443",
+			source:   &MongoDBSource{ExternalMongoDBSource: &ExternalMongoDBSource{HostAndPorts: []string{"h:27017"}}},
+		},
+		{
+			name:          "RS with shardName template rejected",
+			endpoint:      "{shardName}.lb.example.com:443",
+			source:        &MongoDBSource{ExternalMongoDBSource: &ExternalMongoDBSource{HostAndPorts: []string{"h:27017"}}},
+			errorContains: "must not contain",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &MongoDBSearch{
+				ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"},
+				Spec: MongoDBSearchSpec{
+					Source:       tt.source,
+					LoadBalancer: &LoadBalancerConfig{Unmanaged: &UnmanagedLBConfig{Endpoint: tt.endpoint}},
+				},
+			}
+			res := validateUnmanagedEndpointTemplate(s)
 			if tt.errorContains != "" {
 				assert.Equal(t, v1.ErrorLevel, res.Level)
 				assert.Contains(t, res.Msg, tt.errorContains)
