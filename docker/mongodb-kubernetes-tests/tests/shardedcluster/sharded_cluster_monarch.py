@@ -29,6 +29,7 @@ from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_user import MongoDBUser
+from kubetester.operator import Operator
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 
@@ -338,6 +339,17 @@ def initialize_inventory_documents(active_sc: MongoDB, active_test_user: MongoDB
     count = col.count_documents({})
     assert count == len(INVENTORY_DOCS)
     return count
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# OPERATOR INSTALLATION
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+@mark.e2e_sharded_cluster_monarch
+def test_install_operator(operator: Operator):
+    """Ensure operator is running before any other tests."""
+    operator.assert_is_running()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
