@@ -5,6 +5,8 @@ metadata:
   name: mdb-mc-rs-ext-lb-search
 spec:
   logLevel: DEBUG
-  clusters: []
+  # clusters is always populated by the test harness before apply (one entry per member cluster)
+  clusters:
+    - {}
   loadBalancer:
     managed: {}

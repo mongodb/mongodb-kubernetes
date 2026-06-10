@@ -17,7 +17,8 @@ from tests.search.om_deployment import get_ops_manager
 logger = test_logger.get_test_logger(__name__)
 
 MDB_RESOURCE_NAME = "mdb-sh"
-MDBS_RESOURCE_NAME = MDB_RESOURCE_NAME
+# Distinct from MDB_RESOURCE_NAME so the search and sharded controllers don't share the <name>-state ConfigMap.
+MDBS_RESOURCE_NAME = "mdb-sh-search"
 SHARD_COUNT = 2
 MONGODS_PER_SHARD = 1
 MONGOS_COUNT = 1

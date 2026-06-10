@@ -10,3 +10,5 @@ spec:
   security:
     tls:
       certsSecretPrefix: certs
+  clusters:
+    - {}
