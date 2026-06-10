@@ -181,12 +181,14 @@ class TestSearchRoutedFromAnotherShard:
                 admin_tester, "sample_mflix", "movies", new_shard_name, min_docs=50, timeout=300
             )
             # Sized for the worst case of every probe stalling to its 15s maxTimeMS.
-            bg_gap.wait_for_operations(self.PROBE_COUNT, since=bg_gap.operations_count, timeout=self.PROBE_COUNT * 16 + 60)
+            bg_gap.wait_for_operations(
+                self.PROBE_COUNT, since=bg_gap.operations_count, timeout=self.PROBE_COUNT * 16 + 60
+            )
         gap = bg_gap.verdict
         logger.info(f"[onboarding gap, data on mongot-less shard] verdict: {gap.as_dict()}")
-        assert final.get(new_shard_name, 0) >= 50, (
-            f"new shard {new_shard_name} did not receive data; distribution={final}"
-        )
+        assert (
+            final.get(new_shard_name, 0) >= 50
+        ), f"new shard {new_shard_name} did not receive data; distribution={final}"
         assert_clean_no_mongot_gap(gap, "onboarding gap: data on new shard, no mongot")
 
         # Wire mongotHost (rolls the shard mongod) BEFORE creating the mongot, so the
@@ -295,10 +297,12 @@ class TestShardOnboardingAvailabilityStages:
         # Onboard the next index beyond the live topology.
         mdb = MongoDB(name=MDB.mdb_resource_name, namespace=namespace).load()
         current = int(mdb["spec"]["shardCount"])
-        TestShardOnboardingAvailabilityStages.onboard_index = current
-        TestShardOnboardingAvailabilityStages.new_shard_name = f"{MDB.mdb_resource_name}-{current}"
+        onboard_index = current
+        new_shard_name = f"{MDB.mdb_resource_name}-{current}"
+        TestShardOnboardingAvailabilityStages.onboard_index = onboard_index
+        TestShardOnboardingAvailabilityStages.new_shard_name = new_shard_name
         target = current + 1
-        logger.info(f"onboarding new shard {self.new_shard_name} (index {self.onboard_index}); {current}->{target}")
+        logger.info(f"onboarding new shard {new_shard_name} (index {onboard_index}); {current}->{target}")
 
         # Only the source mongod cert — deliberately no mongot/Envoy cert and no
         # MongoDBSearch update, so the new shard has no search path.
@@ -317,7 +321,7 @@ class TestShardOnboardingAvailabilityStages:
             mdb.assert_reaches_phase(Phase.Running, timeout=900)
             admin = self._admin_tester()
             final = redistribute_chunks_to_new_shard(
-                admin, self.DB, self.COLL, self.new_shard_name, min_docs=50, timeout=300
+                admin, self.DB, self.COLL, new_shard_name, min_docs=50, timeout=300
             )
             # Collect a full batch of probes after the data has landed; sized for the
             # worst case of every probe stalling to its 15s maxTimeMS.
@@ -328,16 +332,17 @@ class TestShardOnboardingAvailabilityStages:
         logger.info(f"[stage1, onboarding without search config] background verdict: {verdict.as_dict()}")
 
         # State: data present on the new shard, but no search wiring.
-        assert final.get(self.new_shard_name, 0) >= 50, f"new shard has no data: {final}"
-        assert self._shard_mongot_host(self.onboard_index) is None, "new shard unexpectedly has mongotHost already"
-        assert self._mongot_sts(self.onboard_index) is None, "new shard unexpectedly already has a mongot STS"
+        assert final.get(new_shard_name, 0) >= 50, f"new shard has no data: {final}"
+        assert self._shard_mongot_host(onboard_index) is None, "new shard unexpectedly has mongotHost already"
+        assert self._mongot_sts(onboard_index) is None, "new shard unexpectedly already has a mongot STS"
 
         # No mongotHost on the new shard's mongod -> SearchNotEnabled (a clean
         # "search not servable here" signal), never an index-state rejection.
         assert_clean_no_mongot_gap(verdict, "stage1: data on new shard, no search wiring")
 
     def test_02_configure_mongothost_without_envoy_or_mongot(self, namespace: str):
-        assert self.onboard_index is not None, "stage 1 must run first"
+        onboard_index, new_shard_name = self.onboard_index, self.new_shard_name
+        assert onboard_index is not None and new_shard_name is not None, "stage 1 must run first"
         # Point the new shard's mongod at its (not-yet-existing) per-shard Envoy proxy
         # host. mongotHost is set for ALL shards (idempotent for the existing ones).
         mdb = MongoDB(name=MDB.mdb_resource_name, namespace=namespace).load()
@@ -353,12 +358,12 @@ class TestShardOnboardingAvailabilityStages:
         mdb.assert_reaches_phase(Phase.Running, timeout=600)
 
         expected_host = search_resource_names.shard_proxy_service_host(
-            MDB.mdb_resource_name, self.new_shard_name, namespace, SEARCH.envoy_proxy_port
+            MDB.mdb_resource_name, new_shard_name, namespace, SEARCH.envoy_proxy_port
         )
-        actual_host = self._shard_mongot_host(self.onboard_index)
+        actual_host = self._shard_mongot_host(onboard_index)
         assert actual_host == expected_host, f"mongotHost on new shard = {actual_host!r}, expected {expected_host!r}"
-        assert self._mongot_sts(self.onboard_index) is None, "new shard's mongot STS should still be absent"
-        logger.info(f"state OK: {self.new_shard_name} mongotHost={actual_host}, mongot STS still absent")
+        assert self._mongot_sts(onboard_index) is None, "new shard's mongot STS should still be absent"
+        logger.info(f"state OK: {new_shard_name} mongotHost={actual_host}, mongot STS still absent")
 
         verdict = self._probe_oneshot("stage2: mongotHost set, Envoy route + mongot absent")
         # mongod now routes to the per-shard Envoy host, which has no upstream (no
@@ -371,13 +376,14 @@ class TestShardOnboardingAvailabilityStages:
         index-state rejection. (create_search_resource waits for Running, so the
         mongot has already synced — this stage emulates a not-ready mongot by forcing
         it out of rotation, it does not reproduce a mid-initial-sync pod.)"""
-        assert self.onboard_index is not None, "stage 1 must run first"
+        onboard_index = self.onboard_index
+        assert onboard_index is not None, "stage 1 must run first"
         search_tests = self._search_tests()
         # Per-shard mongot TLS + LB SAN for the new shard (operator needs these).
         search_tests.create_search_tls_certificate()
         search_tests.deploy_lb_certificates()
 
-        sts_name = self._mongot_sts_name(self.onboard_index)
+        sts_name = self._mongot_sts_name(onboard_index)
 
         # Clear any stale PVC so this mongot syncs the already-present data fresh and
         # can't latch Ready on a leftover index catalog.
@@ -386,7 +392,7 @@ class TestShardOnboardingAvailabilityStages:
         # Update MongoDBSearch to include the new shard -> operator creates its mongot
         # STS and extends the Envoy config; Running gates on the STS being ready.
         search_tests.test_create_search_resource()
-        assert self._mongot_sts(self.onboard_index) is not None, f"{sts_name} missing after Running"
+        assert self._mongot_sts(onboard_index) is not None, f"{sts_name} missing after Running"
 
         # Pause reconciliation so the operator can't revert the probe override
         # (it watches owned STSs — the patch itself would trigger a reconcile).
@@ -396,7 +402,7 @@ class TestShardOnboardingAvailabilityStages:
 
         # Give the probe time to take effect and confirm the mongot is NOT ready.
         def not_ready():
-            sts = self._mongot_sts(self.onboard_index)
+            sts = self._mongot_sts(onboard_index)
             ready = (sts.status.ready_replicas or 0) if sts else 0
             return ready == 0, f"{sts_name} ready_replicas={ready}"
 
@@ -408,8 +414,9 @@ class TestShardOnboardingAvailabilityStages:
         assert_clean_no_mongot_gap(verdict, "stage3: mongot deployed but held not-ready")
 
     def test_04_recovers_when_mongot_ready(self, namespace: str):
-        assert self.onboard_index is not None, "stage 1 must run first"
-        sts_name = self._mongot_sts_name(self.onboard_index)
+        onboard_index = self.onboard_index
+        assert onboard_index is not None, "stage 1 must run first"
+        sts_name = self._mongot_sts_name(onboard_index)
         # Resume reconciliation so the operator restores its real readiness probe,
         # then clear the override + roll the pod.
         mdbs = MongoDBSearch(name=MDBS_NAME, namespace=namespace)
@@ -431,7 +438,3 @@ class TestShardOnboardingAvailabilityStages:
         final = self._probe_oneshot("stage4: recovered")
         assert final.failed == 0 and final.succeeded > 0, f"queries did not fully recover: {final.as_dict()}"
         log_shard_distribution(self._admin_tester(), self.DB, self.COLL, label="[final, all shards onboarded]")
-
-
-
-
