@@ -294,9 +294,8 @@ def test_start_background_health_checker(mdb_health_checker):
 @mark.e2e_vm_migration
 def test_promote_and_prune(mdb_migration: MongoDB, vm_sts, om_tester: OMTester):
     try_load(mdb_migration)
-    k8s_members = mdb_migration.get_members()
     for i in range(vm_sts["spec"]["replicas"]):
-        if i < k8s_members:
+        if i < mdb_migration.get_members():
             mdb_migration["spec"]["memberConfig"][i]["priority"] = "1"
             mdb_migration["spec"]["memberConfig"][i]["votes"] = 1
             mdb_migration.update()
