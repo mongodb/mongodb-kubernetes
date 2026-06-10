@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
-	"regexp"
 	"slices"
 
 	"github.com/blang/semver"
@@ -239,11 +238,7 @@ type ExternalShardedCluster struct {
 // DeploymentShardedClusterMergeOptions contains all the required values to update the ShardedCluster
 // in the automation config. These values should be provided my the MongoDB resource.
 type DeploymentShardedClusterMergeOptions struct {
-	Name string
-	// ShardNamePrefix is the K8s StatefulSet name prefix used to recognise orphaned shard replica sets
-	// during scale-down.  It equals sc.Name (e.g. "my-sc"), while Name may differ when shardedClusterNameOverride
-	// is set (e.g. "ac-mongos").  When empty it falls back to Name.
-	ShardNamePrefix                      string
+	Name                                 string
 	MongosProcesses                      []Process
 	ConfigServerRs                       ReplicaSetWithProcesses
 	Shards                               []ReplicaSetWithProcesses
@@ -608,11 +603,8 @@ func (d Deployment) ProcessBelongsToResource(processName, resourceName string) b
 	return false
 }
 
-// GetNumberOfExcessProcesses calculates how many processes do not belong to
-// this resource.  shardNamePrefix is the K8s StatefulSet name prefix used to
-// identify orphaned shard replica sets during scale-down; pass resourceName
-// when there is no AC name override.
-func (d Deployment) GetNumberOfExcessProcesses(resourceName string, shardNamePrefix string, externalMembers []string) int {
+// GetNumberOfExcessProcesses calculates how many processes do not belong to this resource.
+func (d Deployment) GetNumberOfExcessProcesses(resourceName string, externalMembers []string) int {
 	processNames := d.GetAllProcessNames()
 	excessProcesses := len(processNames)
 	externalMembersSet := merge.StringsToSet(externalMembers)
@@ -626,7 +618,7 @@ func (d Deployment) GetNumberOfExcessProcesses(resourceName string, shardNamePre
 	// Edge case: for sharded cluster it's ok to have junk replica sets during scale down - we consider them as
 	// belonging to sharded cluster
 	if d.getShardedClusterByName(resourceName) != nil {
-		for _, r := range d.findReplicaSetsRemovedFromShardedCluster(resourceName, shardNamePrefix) {
+		for _, r := range d.findReplicaSetsRemovedFromShardedCluster(resourceName) {
 			excessProcesses -= len(d.GetProcessNames(ReplicaSet{}, r))
 		}
 	}
@@ -882,11 +874,7 @@ func (d Deployment) mergeShards(opts DeploymentShardedClusterMergeOptions, log *
 			removedShardRsNames := s.mergeFrom(cluster)
 			log.Debug("Merged sharded cluster into existing one")
 
-			shardPrefix := opts.ShardNamePrefix
-			if shardPrefix == "" {
-				shardPrefix = opts.Name
-			}
-			return d.handleShardsRemoval(opts.Finalizing, s, shardPrefix, removedShardRsNames, log)
+			return d.handleShardsRemoval(opts.Finalizing, s, removedShardRsNames, log)
 		}
 	}
 	// Adding the new sharded cluster
@@ -906,11 +894,10 @@ func (d Deployment) mergeShards(opts DeploymentShardedClusterMergeOptions, log *
 // - if 'finalizing' == true - this means that this is the 2nd phase of the process - when the shards were removed
 // from the sharded cluster and their data was rebalanced to the rest of the shards. Now we can remove the replica sets
 // and their processes and clean the 'draining' array.
-func (d Deployment) handleShardsRemoval(finalizing bool, s ShardedCluster, shardNamePrefix string, removedShardRsNames []string, log *zap.SugaredLogger) bool {
-	junkReplicaSets := d.findReplicaSetsRemovedFromShardedCluster(s.Name(), shardNamePrefix)
+func (d Deployment) handleShardsRemoval(finalizing bool, s ShardedCluster, removedShardRsNames []string, log *zap.SugaredLogger) bool {
+	junkReplicaSets := d.findReplicaSetsRemovedFromShardedCluster(s.Name())
 
-	// Shards removed by this merge may match neither the prefix pattern nor the draining list yet,
-	// as on scale down of a shard with a full form ShardNameOverride.
+	// Shards removed by this merge are not in the draining list yet, add them when their replica set exists.
 	for _, rsName := range removedShardRsNames {
 		if !stringutil.Contains(junkReplicaSets, rsName) && d.GetReplicaSetByName(rsName) != nil {
 			junkReplicaSets = append(junkReplicaSets, rsName)
@@ -1111,27 +1098,23 @@ func (d Deployment) getTLS() map[string]interface{} {
 	return util.ReadOrCreateMap(d, "tls")
 }
 
-// findReplicaSetsRemovedFromShardedCluster finds all replica sets which look like shards that have been removed from
-// the sharded cluster.  clusterName is used to look up the sharding section; shardNamePrefix is the K8s StatefulSet
-// name prefix (sc.Name) used for the pattern match. It differs from clusterName when shardedClusterNameOverride is set.
-// Draining replica sets are matched by name too since overridden names may not match the prefix.
-func (d Deployment) findReplicaSetsRemovedFromShardedCluster(clusterName, shardNamePrefix string) []string {
+// findReplicaSetsRemovedFromShardedCluster returns the replica sets recorded in the draining array of the
+// sharded cluster which still exist in the deployment. The draining array is the authoritative record of
+// shards scheduled for removal. It is written by handleShardsRemoval when shards leave the sharding section
+// and cleared once the replica sets and their processes are physically removed. Replica sets are matched by
+// exact name only, ownership is never guessed from name patterns.
+func (d Deployment) findReplicaSetsRemovedFromShardedCluster(clusterName string) []string {
 	shardedCluster := d.getShardedClusterByName(clusterName)
 	clusterReplicaSets := shardedCluster.getAllReplicaSets()
 	draining := shardedCluster.draining()
 	var ans []string
 
 	for _, v := range d.GetReplicaSets() {
-		if !stringutil.Contains(clusterReplicaSets, v.Name()) &&
-			(isShardOfShardedCluster(shardNamePrefix, v.Name()) || stringutil.Contains(draining, v.Name())) {
+		if !stringutil.Contains(clusterReplicaSets, v.Name()) && stringutil.Contains(draining, v.Name()) {
 			ans = append(ans, v.Name())
 		}
 	}
 	return ans
-}
-
-func isShardOfShardedCluster(clusterName, rsName string) bool {
-	return regexp.MustCompile(`^` + clusterName + `-[0-9]+$`).MatchString(rsName)
 }
 
 // removeMonitoring removes the monitoring agent configuration that match any of processes hosts 'processNames' parameter

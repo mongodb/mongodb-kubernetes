@@ -1729,7 +1729,7 @@ func buildShardedDeploymentForVotingTest(t *testing.T, sc *mdbv1.MongoDB, shardV
 
 func TestCheckIfHasExcessProcesses_ReadDeploymentError(t *testing.T) {
 	conn := failingOMConn{om.NewMockedOmConnection(om.NewDeployment())}
-	status := checkIfHasExcessProcesses(conn, "my-rs", "my-rs", nil, zap.S())
+	status := checkIfHasExcessProcesses(conn, "my-rs", nil, zap.S())
 	assert.False(t, status.IsOK())
 }
 
@@ -1739,7 +1739,7 @@ func TestCheckIfHasExcessProcesses_SingleResource(t *testing.T) {
 	d.MergeReplicaSet(rs, nil, nil, nil, zap.S())
 
 	conn := om.NewMockedOmConnection(d)
-	status := checkIfHasExcessProcesses(conn, "my-rs", "my-rs", nil, zap.S())
+	status := checkIfHasExcessProcesses(conn, "my-rs", nil, zap.S())
 	assert.True(t, status.IsOK())
 }
 
@@ -1751,7 +1751,7 @@ func TestCheckIfHasExcessProcesses_MultipleResources(t *testing.T) {
 	d.MergeReplicaSet(rs2, nil, nil, nil, zap.S())
 
 	conn := om.NewMockedOmConnection(d)
-	status := checkIfHasExcessProcesses(conn, "my-rs", "my-rs", nil, zap.S())
+	status := checkIfHasExcessProcesses(conn, "my-rs", nil, zap.S())
 	assert.False(t, status.IsOK())
 }
 

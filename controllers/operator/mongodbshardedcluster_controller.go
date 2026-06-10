@@ -1145,7 +1145,7 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 
 	r.commonController.SetupCommonWatchers(sc, getTLSSecretNames(sc), getInternalAuthSecretNames(sc), sc.Name)
 
-	reconcileResult := checkIfHasExcessProcesses(conn, sc.GetShardedClusterName(), sc.Name, sc.Spec.GetExternalMemberProcessNames(), log)
+	reconcileResult := checkIfHasExcessProcesses(conn, sc.GetShardedClusterName(), sc.Spec.GetExternalMemberProcessNames(), log)
 	if !reconcileResult.IsOK() {
 		return reconcileResult
 	}
@@ -2191,7 +2191,7 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 			if sc.Spec.Security.GetInternalClusterAuthenticationMode() == "" && d.ExistingProcessesHaveInternalClusterAuthentication(allProcesses) {
 				return xerrors.Errorf("cannot disable x509 internal cluster authentication")
 			}
-			numberOfOtherMembers := d.GetNumberOfExcessProcesses(sc.GetShardedClusterName(), sc.Name, sc.Spec.GetExternalMemberProcessNames())
+			numberOfOtherMembers := d.GetNumberOfExcessProcesses(sc.GetShardedClusterName(), sc.Spec.GetExternalMemberProcessNames())
 			if numberOfOtherMembers > 0 {
 				return xerrors.Errorf("cannot have more than 1 MongoDB Cluster per project (see https://docs.mongodb.com/kubernetes-operator/stable/tutorial/migrate-to-single-resource/)")
 			}
@@ -2213,7 +2213,6 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 
 			mergeOpts := om.DeploymentShardedClusterMergeOptions{
 				Name:                                 sc.GetShardedClusterName(),
-				ShardNamePrefix:                      sc.Name,
 				MongosProcesses:                      mongosProcesses,
 				ConfigServerRs:                       configRs,
 				Shards:                               shards,

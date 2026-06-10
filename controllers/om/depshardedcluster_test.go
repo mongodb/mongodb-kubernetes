@@ -650,7 +650,6 @@ func TestMergeShardedCluster_ScaleDownOverriddenShardRsName(t *testing.T) {
 
 	mergeOpts := DeploymentShardedClusterMergeOptions{
 		Name:            "sc",
-		ShardNamePrefix: "sc",
 		MongosProcesses: createMongosProcesses(3, "mongos", ""),
 		ConfigServerRs:  configRs,
 		Shards:          shards,
@@ -667,8 +666,8 @@ func TestMergeShardedCluster_ScaleDownOverriddenShardRsName(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, shardsRemoving)
 	assert.Equal(t, []string{"vmshard-0"}, d.getShardedClusterByName("sc").draining())
-	// The orphaned replica set is not counted as excess while draining, regardless of the prefix.
-	assert.Equal(t, 0, d.GetNumberOfExcessProcesses("sc", "sc", nil))
+	// The orphaned replica set is not counted as excess while draining.
+	assert.Equal(t, 0, d.GetNumberOfExcessProcesses("sc", nil))
 
 	// Finalizing pass physically removes the drained replica set and its processes.
 	mergeOpts.Finalizing = true
@@ -677,7 +676,45 @@ func TestMergeShardedCluster_ScaleDownOverriddenShardRsName(t *testing.T) {
 	assert.False(t, shardsRemoving)
 	assert.Nil(t, d.GetReplicaSetByName("vmshard-0"))
 	assert.Empty(t, d.getShardedClusterByName("sc").draining())
-	assert.Equal(t, 0, d.GetNumberOfExcessProcesses("sc", "sc", nil))
+	assert.Equal(t, 0, d.GetNumberOfExcessProcesses("sc", nil))
+}
+
+// TestMergeShardedCluster_UnrelatedReplicaSetMatchingShardPattern verifies that a replica set which
+// was never a shard of the cluster is left untouched even when its name looks like a shard name.
+// Removed shards are tracked through the draining array, ownership is never guessed from names.
+func TestMergeShardedCluster_UnrelatedReplicaSetMatchingShardPattern(t *testing.T) {
+	d := NewDeployment()
+	configRs := createConfigSrvRs("configSrv", false)
+	shards := createShards("cluster")
+
+	mergeOpts := DeploymentShardedClusterMergeOptions{
+		Name:            "cluster",
+		MongosProcesses: createMongosProcesses(3, "mongos", ""),
+		ConfigServerRs:  configRs,
+		Shards:          shards,
+		Finalizing:      false,
+	}
+	_, err := d.MergeShardedCluster(mergeOpts)
+	require.NoError(t, err)
+
+	// A replica set matching the shard naming pattern which never belonged to the sharding section.
+	mergeReplicaSet(d, "cluster-5", createReplicaSetProcesses("cluster-5"))
+
+	shardsRemoving, err := d.MergeShardedCluster(mergeOpts)
+	require.NoError(t, err)
+	assert.False(t, shardsRemoving)
+	assert.Empty(t, d.getShardedClusterByName("cluster").draining())
+	assert.NotNil(t, d.GetReplicaSetByName("cluster-5"))
+
+	// The unrelated replica set does not belong to the sharded cluster so its processes are excess.
+	assert.Equal(t, 3, d.GetNumberOfExcessProcesses("cluster", nil))
+
+	// A finalizing merge does not remove it either.
+	mergeOpts.Finalizing = true
+	shardsRemoving, err = d.MergeShardedCluster(mergeOpts)
+	require.NoError(t, err)
+	assert.False(t, shardsRemoving)
+	assert.NotNil(t, d.GetReplicaSetByName("cluster-5"))
 }
 
 // TestGetShardedClusterShardProcessNamesByRs verifies the lookup by replica set name stays correct
