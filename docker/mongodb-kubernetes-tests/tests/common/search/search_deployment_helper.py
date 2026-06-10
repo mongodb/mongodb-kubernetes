@@ -436,8 +436,8 @@ class MCSearchDeploymentHelper:
     """Per-cluster index and proxy-svc FQDN lookups for MC search e2e tests.
 
     Cluster ordering follows dict-insertion order of `member_cluster_clients`,
-    which mirrors the operator's persisted ClusterMapping (the state ConfigMap
-    assigns indexes in the order clusters first appear in spec.clusters[]).
+    which mirrors the explicit clusterIndex pins the e2e builders set on
+    spec.clusters[] (0..N-1 in the same client order).
     """
 
     def __init__(
