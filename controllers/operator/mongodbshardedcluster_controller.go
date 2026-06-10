@@ -3,15 +3,13 @@ package operator
 import (
 	"context"
 	"fmt"
-	"time"
-
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/hashicorp/go-multierror"
-	"github.com/mongodb/mongodb-kubernetes/pkg/agentVersionManagement"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -46,6 +44,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connection"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connectionstringsecret"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct/scalers"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct/scalers/interfaces"
@@ -66,6 +65,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/service"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/merge"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/scale"
+	"github.com/mongodb/mongodb-kubernetes/pkg/agentVersionManagement"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
@@ -991,6 +991,15 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 
 	// Save last achieved spec in state
 	r.deploymentState.LastAchievedSpec = &sc.Spec
+
+	// Generate connection string secret
+	connStringHostnames := r.GetAllMongosHostnamesAndPorts()
+	extHostnames := sc.GetExternalMembersHostnames()
+	connStringHostnames = append(connStringHostnames, extHostnames...)
+	if err := connectionstringsecret.PublishForMongoDB(ctx, r.commonController.client, sc, connStringHostnames); err != nil {
+		return r.updateStatus(ctx, sc, workflow.Failed(xerrors.Errorf("failed to publish connection string secret: %w", err)), log)
+	}
+
 	log.Infof("Finished reconciliation for Sharded Cluster! %s", completionMessage(conn.BaseURL(), conn.GroupID()))
 	// It's the second place in the reconcile logic we're updating sizes of all the components
 	// We're also updating the shardCount here - it's the only place we're doing that.
@@ -2350,6 +2359,18 @@ func (r *ShardedClusterReconcileHelper) GetAllMongosHostnames() []string {
 	hostnames, _ := r.getAllMongosHostnamesAndPodNames(true)
 
 	return hostnames
+}
+
+func (r *ShardedClusterReconcileHelper) GetAllMongosHostnamesAndPorts() []string {
+	hostnames := r.GetAllMongosHostnames()
+	portOrDefault := r.desiredMongosConfiguration.AdditionalMongodConfig.GetPortOrDefault()
+
+	hostnamesAndPorts := make([]string, len(hostnames))
+	for idx, hostname := range hostnames {
+		hostnamesAndPorts[idx] = fmt.Sprintf("%s:%d", hostname, portOrDefault)
+	}
+
+	return hostnamesAndPorts
 }
 
 func (r *ShardedClusterReconcileHelper) createDesiredMongosProcesses(certificateFilePath string) []om.Process {

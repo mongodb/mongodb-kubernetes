@@ -23,6 +23,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/annotations"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/scale"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/fcv"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
@@ -161,6 +162,10 @@ func (m *MongoDB) GetBackupSpec() *Backup {
 
 func (m *MongoDB) GetResourceType() ResourceType {
 	return m.Spec.ResourceType
+}
+
+func (m *MongoDB) IsReplicaSet() bool {
+	return m.GetResourceType() == ReplicaSet
 }
 
 func (m *MongoDB) IsShardedCluster() bool {
@@ -868,6 +873,47 @@ func (d *DbCommonSpec) GetAdditionalMongodConfig() *AdditionalMongodConfig {
 	}
 
 	return d.AdditionalMongodConfig
+}
+
+// GetExternalMembersHostnames returns the hostname list (host:port) the
+// caller should embed in this MongoDB resource's connection string:
+func (m *MongoDB) GetExternalMembersHostnames() []string {
+	var hostnames []string
+
+	// External members, filtered by Type.
+	var allowed func(em ExternalMember) bool
+	switch m.Spec.ResourceType {
+	case ReplicaSet:
+		allowed = func(em ExternalMember) bool { return em.Type == "" || em.Type == "mongod" }
+	case ShardedCluster:
+		allowed = func(em ExternalMember) bool { return em.Type == "mongos" }
+	}
+	if allowed != nil {
+		for _, em := range m.Spec.ExternalMembers {
+			if allowed(em) {
+				hostnames = append(hostnames, em.Hostname)
+			}
+		}
+	}
+
+	return hostnames
+}
+
+// GetRSHostnamesAndPorts returns all hostnames and ports for each member of the replicaset, not including external members
+// This function is only used for replica sets.
+// It can't be used for sharded clusters due to dependencies on the cluster mapping. Use the reconciler helper object in that case.
+func (m *MongoDB) GetRSHostnamesAndPorts() []string {
+	if !m.IsReplicaSet() {
+		return nil
+	}
+	hostnames, _ := dns.GetDNSNames(m.Name, m.ServiceName(), m.Namespace, m.Spec.GetClusterDomain(), scale.ReplicasThisReconciliation(m), m.Spec.DbCommonSpec.GetExternalDomain())
+	portOrDefault := m.Spec.GetAdditionalMongodConfig().GetPortOrDefault()
+
+	hostnamePorts := make([]string, len(hostnames))
+	for idx, hostname := range hostnames {
+		hostnamePorts[idx] = fmt.Sprintf("%s:%d", hostname, portOrDefault)
+	}
+	return hostnamePorts
 }
 
 func (s *Security) IsTLSEnabled() bool {
@@ -1846,6 +1892,8 @@ func (m *MongoDBConnectionStringBuilder) BuildConnectionString(username, passwor
 	name := m.Name
 	if m.Spec.ResourceType == ShardedCluster {
 		name = m.MongosRsName()
+	} else if m.Spec.ResourceType == ReplicaSet {
+		name = m.GetReplicaSetName()
 	}
 
 	builder := connectionstring.Builder().
