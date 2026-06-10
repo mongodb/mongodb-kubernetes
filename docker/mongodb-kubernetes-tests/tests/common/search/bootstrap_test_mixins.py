@@ -502,7 +502,8 @@ class MongoDBShardedDeploymentTests(MongoDBSourceDeploymentTests):
     def build_source(self) -> MongoDB:
         self.ensure_ca_configmap()
         resource = self.source_helper().create_sharded_mdb(set_tls_ca=self.mdb_config.set_tls_ca)
-        search_set_parameter = {"setParameter": dict(SEARCH_SET_PARAMETERS)}
+        mode = "requireTLS" if self.search_config.search_tls else "disabled"
+        search_set_parameter = {"setParameter": search_set_parameters(tls_mode=mode)}
         resource["spec"].setdefault("shard", {})["additionalMongodConfig"] = search_set_parameter
         resource["spec"].setdefault("mongos", {})["additionalMongodConfig"] = search_set_parameter
         return resource
@@ -579,7 +580,8 @@ class SearchShardedDeploymentTests(SearchDeploymentTests):
                 "tls": {"ca": {"name": self.mdb_config.ca_configmap_name}},
             },
         }
-        resource["spec"]["security"] = {"tls": {"certsSecretPrefix": self.search_config.tls_cert_prefix}}
+        if self.search_config.search_tls:
+            resource["spec"]["security"] = {"tls": {"certsSecretPrefix": self.search_config.tls_cert_prefix}}
         resource["spec"]["loadBalancer"] = {
             "managed": {
                 "externalHostname": (
@@ -591,6 +593,8 @@ class SearchShardedDeploymentTests(SearchDeploymentTests):
         return resource
 
     def deploy_lb_certificates(self) -> None:
+        if not self.search_config.search_tls:
+            return  # non-TLS bootstrap: envoy serves plaintext, no LB cert
         create_lb_certificates(
             self.namespace,
             ensure_search_issuer(self.namespace),
@@ -602,6 +606,8 @@ class SearchShardedDeploymentTests(SearchDeploymentTests):
         )
 
     def create_search_tls_certificate(self) -> None:
+        if not self.search_config.search_tls:
+            return  # non-TLS bootstrap: mongot serves plaintext gRPC, no server cert
         for cluster_index in self.cluster_indexes():
             create_per_shard_search_tls_certs(
                 self.namespace,
