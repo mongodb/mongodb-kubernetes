@@ -1519,3 +1519,18 @@ func (f failingWriteClient) Update(_ context.Context, _ client.Object, _ ...clie
 func (f failingWriteClient) Patch(_ context.Context, _ client.Object, _ client.Patch, _ ...client.PatchOption) error {
 	return fmt.Errorf("simulated write failure")
 }
+
+func TestEnvoyConfigHash_WhitespaceInvariant(t *testing.T) {
+	oneSpace, err := envoyConfigHash(`{"node": {"id": "envoy-search-proxy"}}`)
+	require.NoError(t, err)
+	twoSpaces, err := envoyConfigHash("{\"node\":  {\"id\":  \"envoy-search-proxy\"}}\n")
+	require.NoError(t, err)
+	assert.Equal(t, oneSpace, twoSpaces)
+
+	other, err := envoyConfigHash(`{"node": {"id": "other"}}`)
+	require.NoError(t, err)
+	assert.NotEqual(t, oneSpace, other)
+
+	_, err = envoyConfigHash(`{not json`)
+	assert.Error(t, err)
+}

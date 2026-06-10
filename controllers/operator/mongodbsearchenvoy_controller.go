@@ -1,8 +1,10 @@
 package operator
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -496,13 +498,27 @@ func (r *MongoDBSearchEnvoyReconciler) ensureConfigMap(ctx context.Context, sear
 	return nil
 }
 
+// envoyConfigHash hashes whitespace-normalized JSON: protojson output formatting
+// is deliberately randomized per compiled binary, so hashing raw bytes would roll
+// the Deployment on every operator rebuild.
+func envoyConfigHash(configJSON string) (string, error) {
+	var compact bytes.Buffer
+	if err := json.Compact(&compact, []byte(configJSON)); err != nil {
+		return "", fmt.Errorf("failed to compact Envoy config for hashing: %w", err)
+	}
+	return fmt.Sprintf("%x", sha256.Sum256(compact.Bytes())), nil
+}
+
 // ensureDeployment creates or updates the Envoy Deployment.
 // The config hash is computed from bootstrapJSON only — CDS/LDS changes are
 // hot-reloaded by Envoy via filesystem xDS and do not require a pod restart.
 //
 // Cross-cluster ownership note: see ensureConfigMap.
 func (r *MongoDBSearchEnvoyReconciler) ensureDeployment(ctx context.Context, search *searchv1.MongoDBSearch, bootstrapJSON, clusterName string, clusterIndex int, c kubernetesClient.Client, tlsCfg *searchcontroller.TLSSourceConfig, log *zap.SugaredLogger) error {
-	configHash := fmt.Sprintf("%x", sha256.Sum256([]byte(bootstrapJSON)))
+	configHash, err := envoyConfigHash(bootstrapJSON)
+	if err != nil {
+		return err
+	}
 	replicas := envoyReplicas(search)
 	labels := envoyLabelsForCluster(search, clusterName, clusterIndex)
 	podLabels := envoyPodLabelsForCluster(search, clusterIndex)
