@@ -1297,6 +1297,7 @@ task_groups:
       - e2e_om_ops_manager_backup_s3_tls
       - e2e_om_ops_manager_backup_restore_minio
       - e2e_replica_set_monarch
+      - e2e_sharded_cluster_monarch
       - e2e_om_ops_manager_backup_tls_custom_ca
       - e2e_om_ops_manager_backup_liveness_probe
       - e2e_om_ops_manager_backup_sharded_cluster
