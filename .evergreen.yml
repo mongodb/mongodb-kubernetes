@@ -1117,6 +1117,8 @@ task_groups:
       - e2e_sharded_cluster_oidc_m2m_user
       - e2e_multi_cluster_oidc_m2m_group
       - e2e_multi_cluster_oidc_m2m_user
+      - e2e_search_simulated_mc_rs
+      - e2e_search_simulated_mc_sharded
 
     <<: *teardown_group
 
