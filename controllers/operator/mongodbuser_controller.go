@@ -475,7 +475,7 @@ func (r *MongoDBUserReconciler) handleScramShaUser(ctx context.Context, user *us
 	// OM derives from it. Stays Pending until OM processes initPwd.
 	if needsFollowUp {
 		log.Info("initPwd synced for imported user, requeuing to finalize mechanisms and credentials")
-		return r.updateStatus(ctx, user, workflow.Pending("finalizing mechanisms after initPwd sync").WithRetry(3), log)
+		return r.updateStatus(ctx, user, workflow.Pending("finalizing mechanisms after initPwd sync").WithRetry(10), log)
 	}
 
 	// Before we update the MongoDBUser's status to Updated,

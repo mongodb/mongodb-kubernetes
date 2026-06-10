@@ -45,25 +45,9 @@ func isCredChanged(username, password string, creds *om.ScramShaCreds, mechanism
 	return !derived.Equals(*creds), nil
 }
 
-func IsPasswordChanged(user *om.MongoDBUser, password string, acUser *om.MongoDBUser) (bool, error) {
-	if acUser == nil {
-		return true, nil
-	}
-	if acUser.ScramSha256Creds != nil {
-		changed, err := isCredChanged(user.Username, password, acUser.ScramSha256Creds, ScramSha256)
-		if err != nil {
-			return true, err
-		}
-		return changed, nil
-	}
-	if acUser.ScramSha1Creds != nil {
-		changed, err := isCredChanged(user.Username, password, acUser.ScramSha1Creds, MongoDBCR)
-		if err != nil {
-			return true, err
-		}
-		return changed, nil
-	}
-	return true, nil
+// hasCreds reports whether stored creds are complete enough to validate a password against.
+func hasCreds(creds *om.ScramShaCreds) bool {
+	return creds != nil && creds.Salt != ""
 }
 
 // ConfigureScramCredentials sets SCRAM credentials on user and returns needsFollowUp.
@@ -99,11 +83,18 @@ func ConfigureScramCredentials(user *om.MongoDBUser, password string, ac *om.Aut
 	}
 
 	if len(acUser.Mechanisms) > 0 {
+		// Incomplete creds (missing or empty salt) cannot validate a password,
+		// so they are treated as absent rather than as a mismatch.
+		sha256Present := hasCreds(acUser.ScramSha256Creds)
+		sha1Present := hasCreds(acUser.ScramSha1Creds)
+		if !sha256Present && !sha1Present {
+			return false, xerrors.Errorf("user %s has mechanisms set in the automation config but no SCRAM credentials to validate the supplied password against", user.Username)
+		}
 		// Mechanisms set in AC: reject a mismatched password to avoid silently regenerating creds.
-		if sha256Changed && acUser.ScramSha256Creds != nil {
+		if sha256Changed && sha256Present {
 			return false, xerrors.Errorf("supplied password does not match existing scramSha256 credentials for user %s", user.Username)
 		}
-		if sha1Changed && acUser.ScramSha1Creds != nil {
+		if sha1Changed && sha1Present {
 			return false, xerrors.Errorf("supplied password does not match existing scramSha1 credentials for user %s", user.Username)
 		}
 		// Preserve only the algorithms already present.

@@ -1,4 +1,4 @@
-from typing import Dict, List
+from typing import Dict
 
 import pytest
 from kubetester import (
@@ -17,6 +17,7 @@ from kubetester.phase import Phase
 from kubetester.scram import (
     assert_creds_preserved,
     assert_user_mechanisms,
+    build_scram_user_resource,
     build_sha256_creds,
     get_ac_user,
     seed_user_in_ac,
@@ -112,13 +113,9 @@ def _seed_sha256_user_in_ac(replica_set: MongoDB) -> None:
 
 
 def _build_sha256_user_in_k8s(namespace: str) -> MongoDBUser:
-    create_or_update_secret(namespace, OM_SHA256_USER_PASSWORD_SECRET, {"password": OM_SHA256_USER_PASSWORD})
-    resource = MongoDBUser.from_yaml(find_fixture("scram-sha-user.yaml"), namespace=namespace, name=OM_SHA256_USER_NAME)
-    resource["spec"]["username"] = OM_SHA256_USER_NAME
-    resource["spec"]["passwordSecretKeyRef"] = {"name": OM_SHA256_USER_PASSWORD_SECRET, "key": "password"}
-    resource["spec"]["mongodbResourceRef"]["name"] = MDB_RESOURCE
-    try_load(resource)
-    return resource
+    return build_scram_user_resource(
+        namespace, OM_SHA256_USER_NAME, OM_SHA256_USER_PASSWORD, OM_SHA256_USER_PASSWORD_SECRET, MDB_RESOURCE
+    )
 
 
 def _seed_no_mech_user_in_ac(replica_set: MongoDB) -> None:
@@ -133,13 +130,9 @@ def _seed_no_mech_user_in_ac(replica_set: MongoDB) -> None:
 
 
 def _build_no_mech_user_in_k8s(namespace: str) -> MongoDBUser:
-    create_or_update_secret(namespace, OM_NO_MECH_USER_PASSWORD_SECRET, {"password": OM_NO_MECH_USER_PASSWORD})
-    resource = MongoDBUser.from_yaml(find_fixture("scram-sha-user.yaml"), namespace=namespace, name=OM_NO_MECH_USER_NAME)
-    resource["spec"]["username"] = OM_NO_MECH_USER_NAME
-    resource["spec"]["passwordSecretKeyRef"] = {"name": OM_NO_MECH_USER_PASSWORD_SECRET, "key": "password"}
-    resource["spec"]["mongodbResourceRef"]["name"] = MDB_RESOURCE
-    try_load(resource)
-    return resource
+    return build_scram_user_resource(
+        namespace, OM_NO_MECH_USER_NAME, OM_NO_MECH_USER_PASSWORD, OM_NO_MECH_USER_PASSWORD_SECRET, MDB_RESOURCE
+    )
 
 
 @mark.e2e_replica_set_scram_sha_256_user_connectivity

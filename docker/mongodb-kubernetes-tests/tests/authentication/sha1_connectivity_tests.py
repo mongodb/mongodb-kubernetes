@@ -1,7 +1,7 @@
 from typing import Dict, Optional
 
 import kubernetes
-from kubetester import create_or_update_secret, find_fixture, read_secret, try_load, wait_until
+from kubetester import create_or_update_secret, read_secret, try_load, wait_until
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
@@ -13,6 +13,7 @@ from kubetester.phase import Phase
 from kubetester.scram import (
     assert_creds_preserved,
     assert_user_mechanisms,
+    build_scram_user_resource,
     build_sha1_creds,
     build_sha256_creds,
     get_ac_user,
@@ -184,15 +185,13 @@ class SHA1ConnectivityTests:
         )
 
     def _build_both_user_in_k8s(self, namespace: str, mdb_resource_name: str) -> MongoDBUser:
-        create_or_update_secret(namespace, self.OM_BOTH_USER_PASSWORD_SECRET, {"password": self.OM_BOTH_USER_PASSWORD})
-        resource = MongoDBUser.from_yaml(
-            find_fixture("scram-sha-user.yaml"), namespace=namespace, name=self.OM_BOTH_USER_NAME
+        return build_scram_user_resource(
+            namespace,
+            self.OM_BOTH_USER_NAME,
+            self.OM_BOTH_USER_PASSWORD,
+            self.OM_BOTH_USER_PASSWORD_SECRET,
+            mdb_resource_name,
         )
-        resource["spec"]["username"] = self.OM_BOTH_USER_NAME
-        resource["spec"]["passwordSecretKeyRef"] = {"name": self.OM_BOTH_USER_PASSWORD_SECRET, "key": "password"}
-        resource["spec"]["mongodbResourceRef"]["name"] = mdb_resource_name
-        try_load(resource)
-        return resource
 
     def _seed_sha1_user_in_ac(self, mdb: MongoDB) -> None:
         seed_user_in_ac(
@@ -205,15 +204,13 @@ class SHA1ConnectivityTests:
         )
 
     def _build_sha1_user_in_k8s(self, namespace: str, mdb_resource_name: str) -> MongoDBUser:
-        create_or_update_secret(namespace, self.OM_SHA1_USER_PASSWORD_SECRET, {"password": self.OM_SHA1_USER_PASSWORD})
-        resource = MongoDBUser.from_yaml(
-            find_fixture("scram-sha-user.yaml"), namespace=namespace, name=self.OM_SHA1_USER_NAME
+        return build_scram_user_resource(
+            namespace,
+            self.OM_SHA1_USER_NAME,
+            self.OM_SHA1_USER_PASSWORD,
+            self.OM_SHA1_USER_PASSWORD_SECRET,
+            mdb_resource_name,
         )
-        resource["spec"]["username"] = self.OM_SHA1_USER_NAME
-        resource["spec"]["passwordSecretKeyRef"] = {"name": self.OM_SHA1_USER_PASSWORD_SECRET, "key": "password"}
-        resource["spec"]["mongodbResourceRef"]["name"] = mdb_resource_name
-        try_load(resource)
-        return resource
 
     # Tests importing a user that already exists in Ops Manager into K8s management.
     # The user has only SHA-1 creds. The two setup steps below must run in order:
@@ -372,15 +369,13 @@ class SHA1ConnectivityTests:
         )
 
     def _build_no_mech_user_in_k8s(self, namespace: str, mdb_resource_name: str) -> MongoDBUser:
-        create_or_update_secret(namespace, self.OM_NO_MECH_USER_PASSWORD_SECRET, {"password": self.OM_NO_MECH_USER_PASSWORD})
-        resource = MongoDBUser.from_yaml(
-            find_fixture("scram-sha-user.yaml"), namespace=namespace, name=self.OM_NO_MECH_USER_NAME
+        return build_scram_user_resource(
+            namespace,
+            self.OM_NO_MECH_USER_NAME,
+            self.OM_NO_MECH_USER_PASSWORD,
+            self.OM_NO_MECH_USER_PASSWORD_SECRET,
+            mdb_resource_name,
         )
-        resource["spec"]["username"] = self.OM_NO_MECH_USER_NAME
-        resource["spec"]["passwordSecretKeyRef"] = {"name": self.OM_NO_MECH_USER_PASSWORD_SECRET, "key": "password"}
-        resource["spec"]["mongodbResourceRef"]["name"] = mdb_resource_name
-        try_load(resource)
-        return resource
 
     # Same import scenario as above, but the user has no mechanisms list set in Ops Manager
     # and only SHA-1 creds. The operator treats this the same as a K8s-managed user: it

@@ -12,6 +12,7 @@ from kubetester.phase import Phase
 from kubetester.scram import (
     assert_creds_preserved,
     assert_user_mechanisms,
+    build_scram_user_resource,
     build_sha256_creds,
     get_ac_user,
     seed_user_in_ac,
@@ -236,13 +237,9 @@ def _seed_sha256_user_in_ac() -> None:
 
 
 def _build_sha256_user_in_k8s(namespace: str) -> MongoDBUser:
-    create_or_update_secret(namespace, OM_SHA256_USER_PASSWORD_SECRET, {"password": OM_SHA256_USER_PASSWORD})
-    resource = MongoDBUser.from_yaml(find_fixture("scram-sha-user.yaml"), namespace=namespace, name=OM_SHA256_USER_NAME)
-    resource["spec"]["username"] = OM_SHA256_USER_NAME
-    resource["spec"]["passwordSecretKeyRef"] = {"name": OM_SHA256_USER_PASSWORD_SECRET, "key": "password"}
-    resource["spec"]["mongodbResourceRef"]["name"] = MDB_RESOURCE
-    try_load(resource)
-    return resource
+    return build_scram_user_resource(
+        namespace, OM_SHA256_USER_NAME, OM_SHA256_USER_PASSWORD, OM_SHA256_USER_PASSWORD_SECRET, MDB_RESOURCE
+    )
 
 
 def _seed_no_mech_user_in_ac() -> None:
@@ -259,13 +256,9 @@ def _seed_no_mech_user_in_ac() -> None:
 
 
 def _build_no_mech_user_in_k8s(namespace: str) -> MongoDBUser:
-    create_or_update_secret(namespace, OM_NO_MECH_USER_PASSWORD_SECRET, {"password": OM_NO_MECH_USER_PASSWORD})
-    resource = MongoDBUser.from_yaml(find_fixture("scram-sha-user.yaml"), namespace=namespace, name=OM_NO_MECH_USER_NAME)
-    resource["spec"]["username"] = OM_NO_MECH_USER_NAME
-    resource["spec"]["passwordSecretKeyRef"] = {"name": OM_NO_MECH_USER_PASSWORD_SECRET, "key": "password"}
-    resource["spec"]["mongodbResourceRef"]["name"] = MDB_RESOURCE
-    try_load(resource)
-    return resource
+    return build_scram_user_resource(
+        namespace, OM_NO_MECH_USER_NAME, OM_NO_MECH_USER_PASSWORD, OM_NO_MECH_USER_PASSWORD_SECRET, MDB_RESOURCE
+    )
 
 
 @pytest.mark.e2e_sharded_cluster_scram_sha_256_user_connectivity
@@ -336,14 +329,18 @@ class TestOMUserSha256OnlyPreserved(KubernetesTester):
     def test_om_user_sha256_password_can_change(self):
         ac_version = AutomationConfigTester(KubernetesTester.get_automation_config()).automation_config["version"]
         new_password = "om-sha256-password-new-1"
-        KubernetesTester.update_secret(KubernetesTester.get_namespace(), OM_SHA256_USER_PASSWORD_SECRET, {"password": new_password})
+        KubernetesTester.update_secret(
+            KubernetesTester.get_namespace(), OM_SHA256_USER_PASSWORD_SECRET, {"password": new_password}
+        )
 
         wait_until(
             lambda: AutomationConfigTester(KubernetesTester.get_automation_config()).reached_version(ac_version + 1),
             timeout=600,
         )
 
-        assert_user_mechanisms(AutomationConfigTester(KubernetesTester.get_automation_config()), OM_SHA256_USER_NAME, [])
+        assert_user_mechanisms(
+            AutomationConfigTester(KubernetesTester.get_automation_config()), OM_SHA256_USER_NAME, []
+        )
         ShardedClusterTester(MDB_RESOURCE, 2).assert_scram_sha_authentication(
             password=new_password,
             username=OM_SHA256_USER_NAME,
@@ -403,14 +400,18 @@ class TestOMUserNullMechanismsIsK8sManaged(KubernetesTester):
     def test_om_user_no_mech_password_can_change(self):
         ac_version = AutomationConfigTester(KubernetesTester.get_automation_config()).automation_config["version"]
         new_password = "om-no-mech-password-new-1"
-        KubernetesTester.update_secret(KubernetesTester.get_namespace(), OM_NO_MECH_USER_PASSWORD_SECRET, {"password": new_password})
+        KubernetesTester.update_secret(
+            KubernetesTester.get_namespace(), OM_NO_MECH_USER_PASSWORD_SECRET, {"password": new_password}
+        )
 
         wait_until(
             lambda: AutomationConfigTester(KubernetesTester.get_automation_config()).reached_version(ac_version + 1),
             timeout=600,
         )
 
-        assert_user_mechanisms(AutomationConfigTester(KubernetesTester.get_automation_config()), OM_NO_MECH_USER_NAME, [])
+        assert_user_mechanisms(
+            AutomationConfigTester(KubernetesTester.get_automation_config()), OM_NO_MECH_USER_NAME, []
+        )
         ShardedClusterTester(MDB_RESOURCE, 2).assert_scram_sha_authentication(
             password=new_password,
             username=OM_NO_MECH_USER_NAME,
