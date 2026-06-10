@@ -424,6 +424,24 @@ func TestBuildFilterChain_HasRetryPolicy(t *testing.T) {
 	assert.Equal(t, int64(3), rp.HostSelectionRetryMaxAttempts)
 }
 
+func TestBuildFilterChain_DisablesRouteClusterValidation(t *testing.T) {
+	route := testRoute("mdb-sh-0")
+	chain, err := buildFilterChain(route, false, testCAKeyName(), nil)
+	require.NoError(t, err)
+
+	hcm := &hcmv3.HttpConnectionManager{}
+	err = chain.Filters[0].GetTypedConfig().UnmarshalTo(hcm)
+	require.NoError(t, err)
+
+	routeConfig := hcm.GetRouteConfig()
+	require.NotNil(t, routeConfig)
+	// Must be explicitly false: with the default (true for listener-inlined routes) Envoy
+	// rejects the whole LDS update when lds.json is read before cds.json adds a new
+	// shard's cluster, and never retries — wedging the new shard's $search path.
+	require.NotNil(t, routeConfig.ValidateClusters)
+	assert.False(t, routeConfig.ValidateClusters.GetValue())
+}
+
 func TestBuildFilterChain_RoutedFromAnotherShard(t *testing.T) {
 	route := testRoute("mdb-sh-2")
 	route.RoutedFromAnotherShard = true

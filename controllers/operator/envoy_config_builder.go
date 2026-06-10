@@ -298,6 +298,13 @@ func buildFilterChain(route envoyRoute, tlsEnabled bool, caKeyName string, rp *s
 						Routes:                     []*routev3.Route{envoyRoute},
 					},
 				},
+				// Envoy's filesystem xDS processes lds.json/cds.json independently; LDS can be
+				// read before CDS adds a new shard's cluster. With validation on (default for
+				// listener-inlined routes) that rejects the whole listener update and Envoy never
+				// retries, permanently dropping the new shard's filter chain. Disabling validation
+				// accepts the listener; a route to a not-yet-known cluster 503s only until the
+				// CDS update from the same ConfigMap swap lands milliseconds later.
+				ValidateClusters: wrapperspb.Bool(false),
 			},
 		},
 		HttpFilters: []*hcmv3.HttpFilter{
