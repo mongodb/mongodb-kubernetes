@@ -1431,13 +1431,9 @@ func (m *MongoDB) applyComputedReplicaSetMigrationStatus(priorStatusMembers int)
 	migratingReason := status.ComputeMigratingConditionReason(isDryRun, extCount, m.Status.MigrationObservedExternalMembersCount, desiredK8sMembers, priorStatusMembers)
 
 	meta.SetStatusCondition(&m.Status.Conditions, status.MigratingCondition(true, migratingReason))
-	observed := extCount
-	m.Status.MigrationObservedExternalMembersCount = &observed
 }
 
 func (m *MongoDB) UpdateStatus(phase status.Phase, statusOptions ...status.Option) {
-	priorMembers := m.Status.Members
-
 	m.Status.UpdateCommonFields(phase, m.GetGeneration(), statusOptions...)
 
 	if option, exists := status.GetOption(statusOptions, status.BackupStatusOption{}); exists {
@@ -1458,7 +1454,7 @@ func (m *MongoDB) UpdateStatus(phase status.Phase, statusOptions ...status.Optio
 		if option, exists := status.GetOption(statusOptions, status.ReplicaSetMembersOption{}); exists {
 			m.Status.Members = option.(status.ReplicaSetMembersOption).Members
 		}
-		m.applyComputedReplicaSetMigrationStatus(priorMembers)
+		m.applyComputedReplicaSetMigrationStatus(m.Status.Members)
 	case ShardedCluster:
 		if option, exists := status.GetOption(statusOptions, status.ShardedClusterSizeConfigOption{}); exists {
 			if sizeConfig := option.(status.ShardedClusterSizeConfigOption).SizeConfig; sizeConfig != nil {
@@ -1482,6 +1478,7 @@ func (m *MongoDB) UpdateStatus(phase status.Phase, statusOptions ...status.Optio
 		m.Status.Version = m.Spec.Version
 		m.Status.FeatureCompatibilityVersion = m.CalculateFeatureCompatibilityVersion()
 		m.Status.Message = ""
+		m.Status.MigrationObservedExternalMembersCount = new(len(m.Spec.GetExternalMembers()))
 
 		switch m.Spec.ResourceType {
 		case ShardedCluster:
