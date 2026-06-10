@@ -3,7 +3,6 @@ kind: MongoDBSearch
 metadata:
   name: mdb-rs
 spec:
-  replicas: 2
   logLevel: DEBUG
   source:
     mongodbResourceRef:
@@ -13,13 +12,15 @@ spec:
       certsSecretPrefix: certs
   loadBalancer:
     managed: {}
-  # Cap mongot at 1 CPU so a multi-replica search deployment + RS + envoy
-  # fit on a single-host kind cluster without CPU starvation. Operator
-  # default is 2 CPU / 4Gi memory.
-  resourceRequirements:
-    requests:
-      cpu: "500m"
-      memory: "2Gi"
-    limits:
-      cpu: "1"
-      memory: "2Gi"
+  clusters:
+    - # Cap mongot at 1 CPU so a multi-replica search deployment + RS + envoy
+      # fit on a single-host kind cluster without CPU starvation. Operator
+      # default is 2 CPU / 4Gi memory.
+      replicas: 2
+      resourceRequirements:
+        requests:
+          cpu: "500m"
+          memory: "2Gi"
+        limits:
+          cpu: "1"
+          memory: "2Gi"

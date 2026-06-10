@@ -159,10 +159,8 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 		return commoncontroller.UpdateStatus(ctx, r.kubeClient, mdbSearch, workflow.Failed(err), log)
 	}
 	var currentNames []string
-	if mdbSearch.Spec.Clusters != nil {
-		for _, c := range *mdbSearch.Spec.Clusters {
-			currentNames = append(currentNames, c.ClusterName)
-		}
+	for _, c := range mdbSearch.Spec.Clusters {
+		currentNames = append(currentNames, c.ClusterName)
 	}
 	newMapping := searchv1.AssignClusterIndices(state.ClusterMapping, currentNames)
 	if !reflect.DeepEqual(newMapping, state.ClusterMapping) {
@@ -321,7 +319,11 @@ func AddMongoDBSearchController(
 	// (single-cluster install) skips the goroutine entirely — there is nothing to watch.
 	if len(memberClusterObjectsMap) > 0 {
 		eventChannel := make(chan event.GenericEvent)
-		healthChecker := memberwatch.MemberClusterHealthChecker{Cache: make(map[string]*memberwatch.MemberHeathCheck)}
+		healthChecker := memberwatch.MemberClusterHealthChecker{
+			Cache:                 make(map[string]memberwatch.ClusterHealthChecker),
+			HealthyStreak:         make(map[string]int),
+			RequiredHealthyStreak: env.ReadIntOrDefault(util.RequiredHealthyStreakEnv, util.DefaultRequiredHealthyStreak), // nolint:forbidigo
+		}
 		go healthChecker.WatchMemberClusterHealth(ctx, zap.S(), eventChannel, r.kubeClient, memberClusterObjectsMap)
 
 		if err := c.Watch(source.Channel[client.Object](eventChannel, &handler.EnqueueRequestForObject{})); err != nil {

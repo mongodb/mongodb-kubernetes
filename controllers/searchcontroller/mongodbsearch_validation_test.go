@@ -11,6 +11,19 @@ import (
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/user"
 )
 
+// newExternalShardedSource returns a minimal external sharded MongoDB source so
+// endpoint-template validation takes the sharded ({shardName} required) branch.
+func newExternalShardedSource() *searchv1.MongoDBSource {
+	return &searchv1.MongoDBSource{
+		ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{
+			ShardedCluster: &searchv1.ExternalShardedClusterConfig{
+				Router: searchv1.ExternalRouterConfig{Hosts: []string{"mongos.example.com:27017"}},
+				Shards: []searchv1.ExternalShardConfig{{ShardName: "shard-0", Hosts: []string{"h:27017"}}},
+			},
+		},
+	}
+}
+
 func TestValidateLBConfig(t *testing.T) {
 	testCases := []struct {
 		name          string
@@ -100,8 +113,9 @@ func TestValidateLBConfig(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name: "Valid: unmanaged LB with shardName template",
+			name: "Valid: unmanaged LB with shardName template and sharded source",
 			modify: func(s *searchv1.MongoDBSearch) {
+				s.Spec.Source = newExternalShardedSource()
 				s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
 					Unmanaged: &searchv1.UnmanagedLBConfig{Endpoint: "lb-{shardName}.example.com:27028"},
 				}
@@ -109,14 +123,26 @@ func TestValidateLBConfig(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name: "Invalid: unmanaged endpoint is only template placeholder",
+			name: "Invalid: sharded unmanaged endpoint is only template placeholder",
 			modify: func(s *searchv1.MongoDBSearch) {
+				s.Spec.Source = newExternalShardedSource()
 				s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
 					Unmanaged: &searchv1.UnmanagedLBConfig{Endpoint: "{shardName}"},
 				}
 			},
 			expectError:   true,
 			errorContains: "must contain more than just",
+		},
+		{
+			name: "Invalid: sharded unmanaged endpoint without shardName template",
+			modify: func(s *searchv1.MongoDBSearch) {
+				s.Spec.Source = newExternalShardedSource()
+				s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
+					Unmanaged: &searchv1.UnmanagedLBConfig{Endpoint: "lb.example.com:27028"},
+				}
+			},
+			expectError:   true,
+			errorContains: "at least one",
 		},
 		{
 			name: "Invalid: RS external source with shardName template",
@@ -284,7 +310,7 @@ func TestValidateJVMFlags(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			search := newTestMongoDBSearch("test-search", "default", func(s *searchv1.MongoDBSearch) {
-				s.Spec.JVMFlags = tc.jvmFlags
+				s.Spec.Clusters = []searchv1.ClusterSpec{{JVMFlags: tc.jvmFlags}}
 			})
 
 			err := search.ValidateSpec()

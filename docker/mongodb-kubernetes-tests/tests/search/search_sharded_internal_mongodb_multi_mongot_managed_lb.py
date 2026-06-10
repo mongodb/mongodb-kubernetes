@@ -52,7 +52,9 @@ ENVOY_ADMIN_PORT = 9901
 
 # Resource names
 MDB_RESOURCE_NAME = "mdb-sh-managed-lb"
-MDBS_RESOURCE_NAME = MDB_RESOURCE_NAME
+# Distinct from MDB_RESOURCE_NAME so the search and sharded controllers don't share the <name>-state ConfigMap.
+# Shortened (no "-lb"): derived per-shard proxy Service names would otherwise hit the 63-char DNS label limit.
+MDBS_RESOURCE_NAME = "mdb-sh-managed-search"
 SHARD_COUNT = 2
 MONGODS_PER_SHARD = 1
 MONGOS_COUNT = 1
@@ -194,7 +196,7 @@ def test_create_search_resource(mdbs: MongoDBSearch):
 
 @mark.e2e_search_sharded_internal_mongodb_multi_mongot_managed_lb
 def test_verify_envoy_deployment(namespace: str):
-    envoy_deployment_name = search_resource_names.lb_deployment_name(MDB_RESOURCE_NAME)
+    envoy_deployment_name = search_resource_names.lb_deployment_name(MDBS_RESOURCE_NAME)
 
     # Verify Envoy Deployment is running (with polling)
     def check_envoy_deployment():
