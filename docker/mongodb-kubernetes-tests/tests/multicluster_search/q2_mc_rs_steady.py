@@ -6,6 +6,11 @@ written through the owning member-cluster client. The Envoy SNI config and the
 per-process mongotHost AC patch are verified on-disk so we catch regressions in
 Envoy fan-out and per-cluster mongotHost locality — not just that the resources
 were constructed, but that they resolved correctly at runtime.
+
+Also covers per-cluster `syncSourceSelector.matchTagSets` -> mongot `replicationReader.tagSets`
+(members tagged `nodeLocation`; each cluster's tag set selects its local members), asserted
+in the per-cluster mongot ConfigMap. Config-render is image-independent; the data-plane effect
+is exercised opportunistically when the deployed mongot image supports replicationReader.
 """
 
 import json
@@ -33,6 +38,7 @@ from pytest import fixture, mark
 from tests import test_logger
 from tests.common.multicluster.multicluster_utils import assert_deployment_ready_in_cluster
 from tests.common.search import search_resource_names
+from tests.common.search.connectivity import CLUSTER_LOCATION_TAG_KEY
 from tests.common.search.movies_search_helper import (
     EMBEDDING_QUERY_KEY_ENV_VAR,
     EmbeddedMoviesSearchHelper,
@@ -155,7 +161,15 @@ def mdb(
         name=MDB_RESOURCE_NAME,
         namespace=namespace,
     )
-    resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, MEMBERS_PER_CLUSTER)
+    # Tag every member `nodeLocation=<clusterName>` — this is what each cluster's mongot
+    # matchTagSets selects below, so cluster-i's mongot reads from cluster-i's local members.
+    member_configs = [
+        [{"tags": {CLUSTER_LOCATION_TAG_KEY: name}} for _ in range(count or 0)]
+        for name, count in zip(member_cluster_names, MEMBERS_PER_CLUSTER)
+    ]
+    resource["spec"]["clusterSpecList"] = cluster_spec_list(
+        member_cluster_names, MEMBERS_PER_CLUSTER, member_configs=member_configs
+    )
 
     resource["spec"]["additionalMongodConfig"] = {
         "setParameter": {
@@ -216,6 +230,10 @@ def mdbs(
         "tls": {"certsSecretPrefix": MDBS_TLS_CERT_PREFIX},
     }
 
+    # Per-cluster matchTagSets -> mongot syncSource.replicationReader.tagSets. spec.version is left
+    # unpinned on purpose: the operator then uses the pipeline's dev image (MDB_SEARCH_VERSION,
+    # a mongot-master build whose replicationReader understands tagSets), whereas pinning a
+    # public release tag here would ImagePullBackOff (the e2e ECR only carries dev tags).
     clusters = []
     for mcc in member_cluster_clients:
         assert mcc.cluster_index is not None, f"cluster_index unset on {mcc.cluster_name!r}"
@@ -231,6 +249,7 @@ def mdbs(
                         ),
                     },
                 },
+                "syncSourceSelector": {"matchTagSets": [{CLUSTER_LOCATION_TAG_KEY: mcc.cluster_name}]},
             }
         )
     resource["spec"]["clusters"] = clusters
@@ -572,6 +591,8 @@ def test_verify_per_cluster_mongot_resources(
     - the mongot ConfigMap on each cluster lists `spec.source.external.hostAndPorts`
       from the seed list (Phase 2 fan-out: top-level external host list is
       rendered into every cluster's mongot CM)
+    - each cluster's mongot ConfigMap carries a `replicationReader.tagSets` derived from
+      its `syncSourceSelector.matchTagSets`, under a non-primary read preference
     """
     expected_hosts = sorted(f"{svc}.{namespace}.svc.cluster.local:27017" for svc in mdb.service_names())
 
@@ -598,6 +619,21 @@ def test_verify_per_cluster_mongot_resources(
         assert sorted(cm_hosts) == expected_hosts, (
             f"mongot CM {cm_name} in cluster {mcc.cluster_name}: hostAndPort {sorted(cm_hosts)} "
             f"!= expected seed list {expected_hosts}"
+        )
+
+        # matchTagSets -> replicationReader.tagSets, derived from this cluster's syncSourceSelector
+        # under a non-primary read pref. Written before pod readiness, so this holds even if the
+        # mongot image predates replicationReader support (the CR just won't reach Running then).
+        rr = parsed.get("syncSource", {}).get("replicationReader")
+        expected_tag_sets = [[{"name": CLUSTER_LOCATION_TAG_KEY, "value": mcc.cluster_name}]]
+        assert rr is not None, f"mongot CM {cm_name} in cluster {mcc.cluster_name}: syncSource.replicationReader absent"
+        assert rr.get("readPreference") != "primary", (
+            f"mongot CM {cm_name} in cluster {mcc.cluster_name}: readPreference is 'primary' "
+            "(tagSets require a non-primary read preference)"
+        )
+        assert rr.get("tagSets") == expected_tag_sets, (
+            f"mongot CM {cm_name} in cluster {mcc.cluster_name}: replicationReader.tagSets "
+            f"{rr.get('tagSets')!r} != expected {expected_tag_sets!r}"
         )
 
         logger.info(
