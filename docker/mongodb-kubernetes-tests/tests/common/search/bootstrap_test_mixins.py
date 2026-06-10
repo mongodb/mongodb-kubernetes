@@ -59,6 +59,12 @@ SEARCH_SET_PARAMETERS = {
 }
 
 
+def search_set_parameters(*, tls_mode: str = "requireTLS") -> dict:
+    """SEARCH_SET_PARAMETERS with searchTLSMode overridden. tls_mode="disabled" for a non-TLS source
+    (mongot serves plaintext gRPC); "requireTLS" is the default TLS bootstrap."""
+    return {**SEARCH_SET_PARAMETERS, "searchTLSMode": tls_mode}
+
+
 @dataclass
 class MongoDBDeploymentConfig:
     """Flat external-source config holding RS + sharded + MC RS fields together."""
@@ -118,6 +124,10 @@ class SearchDeploymentConfig:
     envoy_lb_replicas: int = 2
     mongot_cpu: str = "1"
     mongot_memory: str = "2Gi"
+    # When False, bootstrap a non-TLS search deployment: the source mongod runs
+    # searchTLSMode=disabled, the MongoDBSearch CR omits spec.security.tls (mongot serves plaintext
+    # gRPC), and the LB/search cert steps are skipped. Used to test off->on TLS enablement.
+    search_tls: bool = True
 
 
 @dataclass
@@ -259,7 +269,8 @@ class MongoDBRsDeploymentTests(MongoDBSourceDeploymentTests):
     def build_source(self) -> MongoDB:
         self.ensure_ca_configmap()
         resource = self.source_helper().create_rs_mdb(set_tls=self.mdb_config.set_tls)
-        resource["spec"]["additionalMongodConfig"] = {"setParameter": dict(SEARCH_SET_PARAMETERS)}
+        mode = "requireTLS" if self.search_config.search_tls else "disabled"
+        resource["spec"]["additionalMongodConfig"] = {"setParameter": search_set_parameters(tls_mode=mode)}
         return resource
 
     def install_source_tls_certificates(self) -> None:
@@ -342,9 +353,12 @@ class SearchRsDeploymentTests(SearchDeploymentTests):
             lb_mode="Managed",
             clusters=self.search_clusters(),
             envoy_replicas=self.search_config.envoy_lb_replicas,
+            set_search_tls=self.search_config.search_tls,
         )
 
     def deploy_lb_certificates(self) -> None:
+        if not self.search_config.search_tls:
+            return  # non-TLS bootstrap: envoy serves plaintext, no LB cert
         create_rs_lb_certificates(
             self.namespace,
             ensure_search_issuer(self.namespace),
@@ -353,6 +367,8 @@ class SearchRsDeploymentTests(SearchDeploymentTests):
         )
 
     def create_search_tls_certificate(self) -> None:
+        if not self.search_config.search_tls:
+            return  # non-TLS bootstrap: mongot serves plaintext gRPC, no server cert
         # Index-0 headless-svc SAN: the operator deploys the RS mongot STS at index 0.
         indexed_svc = search_resource_names.mongot_service_name_for_cluster(self.effective_mdbs_resource_name())
         create_rs_search_tls_cert(
@@ -372,10 +388,15 @@ class SearchRsDeploymentTests(SearchDeploymentTests):
         host = search_resource_names.proxy_service_host(
             self.effective_mdbs_resource_name(), self.namespace, self.search_config.envoy_proxy_port
         )
+        mode = "requireTLS" if self.search_config.search_tls else "disabled"
         mdb = MongoDB(name=self.mdb_config.mdb_resource_name, namespace=self.namespace)
         mdb.load()
         mdb["spec"]["additionalMongodConfig"] = {
-            "setParameter": {"mongotHost": host, "searchIndexManagementHostAndPort": host, **SEARCH_SET_PARAMETERS}
+            "setParameter": {
+                "mongotHost": host,
+                "searchIndexManagementHostAndPort": host,
+                **search_set_parameters(tls_mode=mode),
+            }
         }
         mdb.update()
         mdb.assert_reaches_phase(Phase.Running, timeout=600)
@@ -481,7 +502,8 @@ class MongoDBShardedDeploymentTests(MongoDBSourceDeploymentTests):
     def build_source(self) -> MongoDB:
         self.ensure_ca_configmap()
         resource = self.source_helper().create_sharded_mdb(set_tls_ca=self.mdb_config.set_tls_ca)
-        search_set_parameter = {"setParameter": dict(SEARCH_SET_PARAMETERS)}
+        mode = "requireTLS" if self.search_config.search_tls else "disabled"
+        search_set_parameter = {"setParameter": search_set_parameters(tls_mode=mode)}
         resource["spec"].setdefault("shard", {})["additionalMongodConfig"] = search_set_parameter
         resource["spec"].setdefault("mongos", {})["additionalMongodConfig"] = search_set_parameter
         return resource
@@ -558,7 +580,8 @@ class SearchShardedDeploymentTests(SearchDeploymentTests):
                 "tls": {"ca": {"name": self.mdb_config.ca_configmap_name}},
             },
         }
-        resource["spec"]["security"] = {"tls": {"certsSecretPrefix": self.search_config.tls_cert_prefix}}
+        if self.search_config.search_tls:
+            resource["spec"]["security"] = {"tls": {"certsSecretPrefix": self.search_config.tls_cert_prefix}}
         resource["spec"]["loadBalancer"] = {
             "managed": {
                 "externalHostname": (
@@ -570,6 +593,8 @@ class SearchShardedDeploymentTests(SearchDeploymentTests):
         return resource
 
     def deploy_lb_certificates(self) -> None:
+        if not self.search_config.search_tls:
+            return  # non-TLS bootstrap: envoy serves plaintext, no LB cert
         create_lb_certificates(
             self.namespace,
             ensure_search_issuer(self.namespace),
@@ -581,6 +606,8 @@ class SearchShardedDeploymentTests(SearchDeploymentTests):
         )
 
     def create_search_tls_certificate(self) -> None:
+        if not self.search_config.search_tls:
+            return  # non-TLS bootstrap: mongot serves plaintext gRPC, no server cert
         for cluster_index in self.cluster_indexes():
             create_per_shard_search_tls_certs(
                 self.namespace,
