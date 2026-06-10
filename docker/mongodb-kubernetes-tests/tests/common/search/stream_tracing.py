@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import datetime
 import json
+import threading
 from dataclasses import dataclass
 from typing import Optional
 
@@ -103,6 +104,24 @@ def _envoy_pod_names(namespace: str, pod_or_selector: str) -> list[str]:
     return [pod_or_selector]
 
 
+def _parse_access_line(line: str) -> Optional[StreamRecord]:
+    """Parse one stdout line into a StreamRecord; None for non-JSON / non-access lines."""
+    line = line.strip()
+    if not line or line[0] != "{":
+        return None
+    try:
+        obj = json.loads(line)
+    except json.JSONDecodeError:
+        return None
+    if obj.get("logger") != "access":
+        return None
+    return StreamRecord.from_json(obj)
+
+
+def _by_ts(record: StreamRecord) -> datetime.datetime:
+    return record.ts or datetime.datetime.min.replace(tzinfo=datetime.timezone.utc)
+
+
 def read_envoy_logs(
     namespace: str,
     pod_or_selector: str,
@@ -128,18 +147,66 @@ def read_envoy_logs(
             logger.warning(f"could not read logs for envoy pod {pod}: {exc}")
             continue
         for line in raw_log.splitlines():
-            line = line.strip()
-            if not line or line[0] != "{":
-                continue
-            try:
-                obj = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if obj.get("logger") != "access":
-                continue
-            records.append(StreamRecord.from_json(obj))
-    records.sort(key=lambda r: (r.ts or datetime.datetime.min.replace(tzinfo=datetime.timezone.utc)))
+            record = _parse_access_line(line)
+            if record is not None:
+                records.append(record)
+    records.sort(key=_by_ts)
     return records
+
+
+class EnvoyLogFollower:
+    """Follows envoy pods' logs in daemon threads so records from pods that terminate mid-roll
+    survive (an after-the-fact ``read_envoy_logs`` only sees replacements). start() before the
+    disruption, stop() after — the bounded join means a stuck stream can't hang the test."""
+
+    def __init__(
+        self,
+        namespace: str,
+        pod_or_selector: str,
+        *,
+        api_client: Optional[client.ApiClient] = None,
+    ):
+        self._namespace = namespace
+        self._api_client = api_client
+        self._pods = _envoy_pod_names(namespace, pod_or_selector)
+        self._records: list[StreamRecord] = []
+        self._lock = threading.Lock()
+        self._threads: list[threading.Thread] = []
+
+    def start(self) -> "EnvoyLogFollower":
+        for pod in self._pods:
+            thread = threading.Thread(target=self._follow, args=(pod,), name=f"envoy-log-follow-{pod}", daemon=True)
+            thread.start()
+            self._threads.append(thread)
+        logger.info(f"following envoy logs of {self._pods}")
+        return self
+
+    def _follow(self, pod: str) -> None:
+        core_v1 = client.CoreV1Api(api_client=self._api_client)
+        try:
+            resp = core_v1.read_namespaced_pod_log(
+                name=pod,
+                namespace=self._namespace,
+                container=ENVOY_CONTAINER,
+                follow=True,
+                _preload_content=False,
+            )
+            for raw_line in resp:
+                record = _parse_access_line(raw_line.decode("utf-8", errors="replace"))
+                if record is not None:
+                    with self._lock:
+                        self._records.append(record)
+        except Exception as exc:  # the followed pod terminating mid-stream is the expected end
+            logger.info(f"log follow ended for envoy pod {pod}: {exc}")
+
+    def stop(self, timeout_seconds: float = 30.0) -> list[StreamRecord]:
+        """Join the follower threads and return the accumulated records, ts-sorted."""
+        for thread in self._threads:
+            thread.join(timeout=timeout_seconds)
+        with self._lock:
+            records = list(self._records)
+        records.sort(key=_by_ts)
+        return records
 
 
 # Query helpers the scenarios use --------------------------------------------

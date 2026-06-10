@@ -22,7 +22,6 @@ import time
 import pytest
 from kubernetes import client
 from kubetester import list_matching_pods
-from kubetester.mongodb_search import MongoDBSearch
 from tests import test_logger
 from tests.common.search import search_resource_names
 from tests.common.search.background_availability_tester import SearchAvailabilityBackgroundTester, assert_no_outage
@@ -41,10 +40,10 @@ from tests.common.search.connectivity import (
     wait_for_pods_by_label_replaced,
 )
 from tests.common.search.rs_search_helper import rs_search_tester
-from tests.common.search.search_deployment_helper import SearchDeploymentHelper
 from tests.common.search.stream_tracing import (
     ENVOY_ADMIN_PORT,
     EnvoyAdminStats,
+    EnvoyLogFollower,
     forced_closed,
     new_downstream_after,
     read_envoy_logs,
@@ -78,21 +77,6 @@ DRAIN_OBSERVE_SECONDS = 5  # let drained-listener access records flush before re
 def _user_tool(namespace: str) -> SearchConnectivityTool:
     """A fresh tool (own pymongo client) per call — never share one across concurrent testers."""
     return SearchConnectivityTool(rs_search_tester(MDB.mdb_resource_name, namespace, MDB.user_name, MDB.user_password))
-
-
-def _load_mdbs(namespace: str) -> MongoDBSearch:
-    helper = SearchDeploymentHelper(
-        namespace=namespace,
-        mdb_resource_name=MDB.mdb_resource_name,
-        mdbs_resource_name=MDBS_NAME,
-        ca_configmap_name=MDB.ca_configmap_name,
-    )
-    return helper.mdbs_for_ext_rs_source(
-        MDB.mongot_user_name,
-        members=MDB.rs_members,
-        lb_mode="Managed",
-        clusters=[{"replicas": SEARCH.mongot_replicas}],
-    )
 
 
 def _utcnow() -> datetime.datetime:
@@ -260,6 +244,8 @@ class TestEnvoyDrainInvestigation:
         # later scenarios. POST is the verb that drains; if it does not, the harness can't observe.
         assert post_drains, f"POST /drain_listeners did not drain target: {post_detail}"
         assert all_records, "no envoy access records across the LB — stream tracing not observing"
+        # preStop GET is a no-op today; this going red means drain works — upgrade the graceful asserts
+        assert not prestop_get_drains, f"operator preStop GET /drain_listeners now drains: {prestop_get_detail}"
 
         # restore the drained replica so the downstream scenarios start from a healthy deploy
         _rollout_and_wait(namespace)
@@ -273,13 +259,16 @@ class TestEnvoyRollingDrain:
     """Envoy Deployment rolling restart, observed at the HTTP/2 stream level. The preStop drain is
     a no-op on this build (see the finding above), so stream disposition is logged rather than
     hard-asserted for graceful ride-through; new-query availability across the roll is hard-asserted.
-    A Deployment roll replaces the pods, so only the replacement pods' access logs survive to read."""
+    The roll replaces the pods, so the pre-roll pods' logs (the only place drain/GOAWAY evidence
+    can appear) are followed live and combined with the replacement pods' logs."""
 
     def test_steady_state_before(self, namespace: str):
         _assert_steady(namespace)
 
     def test_envoy_roll_stream_level(self, namespace: str):
         t0 = _utcnow()
+        # follow the pre-roll pods now — terminated pods take their access logs to the grave
+        follower = EnvoyLogFollower(namespace, ENVOY_SELECTOR).start()
         oneshot = SearchAvailabilityBackgroundTester(_user_tool(namespace), mode="oneshot", interval_seconds=0.2)
         paging = SearchAvailabilityBackgroundTester(
             _user_tool(namespace), mode="paging", paging_batch_size=5, paging_reset_every=50_000, interval_seconds=0.05
@@ -290,7 +279,7 @@ class TestEnvoyRollingDrain:
             _rollout_and_wait(namespace)
             oneshot.wait_for_operations(POST_EVENT_OPS)
             paging.wait_for_operations(POST_EVENT_OPS)
-        records = read_envoy_logs(namespace, ENVOY_SELECTOR)  # replacement pods only
+        records = follower.stop() + read_envoy_logs(namespace, ENVOY_SELECTOR)  # pre-roll pods + replacements
         post = streams_active_between(records, t0, _utcnow())
         logger.info(
             "envoy-roll stream disposition: "
@@ -298,7 +287,7 @@ class TestEnvoyRollingDrain:
             f"new_downstream={len(new_downstream_after(records, t0))} upstreams={sorted(upstream_hosts(records))} "
             f"oneshot={oneshot.verdict.as_dict()} paging={paging.verdict.as_dict()}"
         )
-        # new queries must not fail; stream disposition is observe-and-log (replacement pods only, drain no-op)
+        # new queries must not fail; stream disposition is observe-and-log (drain is a no-op today)
         assert_no_outage(oneshot.verdict)
         _assert_steady(namespace)
 
@@ -354,8 +343,7 @@ class TestMongotRollingDrain:
             f"KUBE45_DRAIN_METRIC completed={completed_n} forced={forced_n} ratio={ratio:.3f} "
             f"recovery_s={recovery_s:.1f} disruption_s={disruption_s:.1f}"
         )
-        # a pinned stream must re-route to a surviving upstream as the replica drains; the
-        # forced_closed==0 graceful gate waits on the operator preStop drain fix (no-op today)
+        # a full roll forces migration whether graceful or RST+retry — this guards the client-id/upstream instrumentation, not drain
         assert (
             len(migrated) > 0
         ), f"mongot-roll: no stream migrated to a surviving upstream; upstreams={sorted(upstream_hosts(window))}"
