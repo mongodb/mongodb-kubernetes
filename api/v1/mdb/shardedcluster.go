@@ -19,8 +19,9 @@ import (
 type ShardNameOverride struct {
 	// ShardName is the operator-generated Kubernetes StatefulSet name for this shard (e.g. "my-mdb-0").
 	// It is always computed as {resourceName}-{index} and cannot be changed.
-	// Use this field to identify which shard the AC override applies to. Always required.
-	ShardName string `json:"shardName,omitempty"`
+	// Use this field to identify which shard the AC override applies to.
+	// +kubebuilder:validation:Required
+	ShardName string `json:"shardName"`
 
 	// ShardId is the shard _id in the automation config sharding section.
 	// Must be set together with ReplicaSetName. Omit when AC values match the K8s StatefulSet name.

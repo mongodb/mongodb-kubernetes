@@ -239,7 +239,7 @@ func TestNewReplicaSetWithProcesses_ShardedClusterPreservesProcessIds(t *testing
 			"shard-0-2": 30,
 		}
 
-		actual := NewMultiClusterReplicaSetWithProcesses(NewReplicaSet("shard-0", "7.0.0"), processes, []ac.MemberOptions{}, existingProcessIds, nil)
+		actual := NewReplicaSetWithProcesses(NewReplicaSet("shard-0", "7.0.0"), processes, []ac.MemberOptions{}, existingProcessIds)
 
 		members := actual.Rs.Members()
 		assert.Len(t, members, 3)
@@ -262,7 +262,7 @@ func TestNewReplicaSetWithProcesses_ShardedClusterPreservesProcessIds(t *testing
 			{"name": "shard-0-3"},
 		}
 
-		actual := NewMultiClusterReplicaSetWithProcesses(NewReplicaSet("shard-0", "7.0.0"), processes, []ac.MemberOptions{}, existingProcessIds, nil)
+		actual := NewReplicaSetWithProcesses(NewReplicaSet("shard-0", "7.0.0"), processes, []ac.MemberOptions{}, existingProcessIds)
 
 		members := actual.Rs.Members()
 		assert.Len(t, members, 4)

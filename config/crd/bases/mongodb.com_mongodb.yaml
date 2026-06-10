@@ -2131,8 +2131,10 @@ spec:
                       description: |-
                         ShardName is the operator-generated Kubernetes StatefulSet name for this shard (e.g. "my-mdb-0").
                         It is always computed as {resourceName}-{index} and cannot be changed.
-                        Use this field to identify which shard the AC override applies to. Always required.
+                        Use this field to identify which shard the AC override applies to.
                       type: string
+                  required:
+                  - shardName
                   type: object
                 type: array
               shardOverrides:

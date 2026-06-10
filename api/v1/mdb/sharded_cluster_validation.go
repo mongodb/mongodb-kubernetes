@@ -210,6 +210,9 @@ func shardNameOverridesValidForm(m MongoDB) v1.ValidationResult {
 		if o.ShardName == "" {
 			return v1.ValidationError("spec.shardNameOverrides[%d]: shardName is required", i)
 		}
+		if !validateShardName(o.ShardName, m.Spec.ShardCount, m.Name) {
+			return v1.ValidationError("spec.shardNameOverrides[%d]: shardName %q must be %s-{index} with index < %d", i, o.ShardName, m.Name, m.Spec.ShardCount)
+		}
 		if seenShardName[o.ShardName] {
 			return v1.ValidationError("spec.shardNameOverrides[%d]: shardName %q is a duplicate", i, o.ShardName)
 		}
