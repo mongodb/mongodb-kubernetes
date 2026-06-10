@@ -1659,15 +1659,8 @@ func TestAppDB_PVCStatusClearedAfterSuccessfulResize(t *testing.T) {
 			require.NoError(t, fakeClient.SubResource("status").Update(ctx, &updatedPVC))
 		}
 
-		// Reconcile 2: PVCs done; the STS is orphaned and recreated; status shows PhaseSTSOrphaned.
-		reconciler, err = newAppDbReconciler(ctx, fakeClient, opsManager, omConnectionFactory.GetConnectionFunc, zap.S())
-		require.NoError(t, err)
-		_, err = reconciler.ReconcileAppDB(ctx, opsManager)
-		require.NoError(t, err)
-		require.NoError(t, fakeClient.Get(ctx, types.NamespacedName{Name: opsManager.Name, Namespace: opsManager.Namespace}, opsManager))
-		require.Equal(t, pvc.PhaseSTSOrphaned, opsManager.Status.AppDbStatus.PVCs[0].Phase)
-
-		// Reconcile 3: no resize needed; the status should be fully cleared.
+		// Reconcile 2: PVCs done; the STS is orphaned and recreated. The reconcile completes
+		// successfully, so the final updateStatus clears the stale PVC entry in the same pass.
 		reconciler, err = newAppDbReconciler(ctx, fakeClient, opsManager, omConnectionFactory.GetConnectionFunc, zap.S())
 		require.NoError(t, err)
 		_, err = reconciler.ReconcileAppDB(ctx, opsManager)
@@ -1675,6 +1668,6 @@ func TestAppDB_PVCStatusClearedAfterSuccessfulResize(t *testing.T) {
 		require.NoError(t, fakeClient.Get(ctx, types.NamespacedName{Name: opsManager.Name, Namespace: opsManager.Namespace}, opsManager))
 
 		assert.Nil(t, opsManager.Status.AppDbStatus.PVCs,
-			"PVC status must be cleared after a successful resize; fix: add NewPVCsStatusOptionEmptyStatus() to the final updateStatus call in ReconcileAppDB")
+			"PVC status must be cleared after a successful resize")
 	})
 }
