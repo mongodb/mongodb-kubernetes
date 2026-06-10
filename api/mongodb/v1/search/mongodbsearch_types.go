@@ -1,6 +1,7 @@
 package search
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -786,7 +787,7 @@ func (s *MongoDBSearch) EffectiveClusterFor(clusterName string) (ClusterSpec, er
 		if len(clusters) > 0 {
 			return clusters[0], nil
 		}
-		return ClusterSpec{}, fmt.Errorf("cluster %q not found in spec.clusters", clusterName)
+		return ClusterSpec{}, errors.New("no clusters are configured in spec.clusters")
 	}
 	for _, c := range clusters {
 		if c.ClusterName == clusterName {
