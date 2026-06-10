@@ -3,8 +3,8 @@
 Two upgrade paths on one deployment: a mongot version upgrade driven through the
 MongoDBSearch CR (``spec.version``), and an envoy image upgrade driven through the
 operator's ``MDB_ENVOY_IMAGE``. Each runs a background-tester window across the upgrade
-and asserts post-recovery progress (the open cursor serves fresh pages after the roll),
-emitting a per-run roll count and recovery time. The envoy path needs an in-cluster
+and asserts the oneshot (new-query) verdict — paging is observational only — emitting a
+per-run roll count and recovery time. The envoy path needs an in-cluster
 operator restart, so it runs only in CI; the mongot path reconciles a CR field and runs
 anywhere. Operator/chart upgrades live in tests/upgrades/operator_upgrade_search.py.
 """
@@ -105,6 +105,13 @@ def _mongot_image_tag(namespace: str) -> str:
     return mongot.image.split(":")[-1]
 
 
+def _envoy_image(namespace: str) -> str:
+    """The envoy container's image in the managed-LB Deployment."""
+    dep = client.AppsV1Api().read_namespaced_deployment(ENVOY_DEPLOYMENT, namespace)
+    envoy = next(c for c in dep.spec.template.spec.containers if c.name == "envoy")
+    return envoy.image
+
+
 def _assert_steady(namespace: str) -> None:
     """Recovery/steady-state gate: a clean window on both query types (fresh client per tester)."""
     _user_tool(namespace).wait_for_sentinel_indexed(timeout=300)
@@ -181,7 +188,7 @@ class TestMongotVersionUpgrade:
             recovery_s = time.monotonic() - t0
             oneshot.wait_for_operations(POST_EVENT_OPS)
             paging.wait_for_operations(POST_EVENT_OPS)
-        disruption_s = oneshot.max_consecutive_failure * oneshot.interval_seconds
+        disruption_s = oneshot.max_failure_window_s
         rolls_mongot = _roll_count(namespace, MONGOT_SELECTOR, mongot_before)
         rolls_envoy = _roll_count(namespace, ENVOY_SELECTOR, envoy_before)
         tag_after = _mongot_image_tag(namespace)
@@ -237,6 +244,7 @@ class TestEnvoyImageUpgrade:
         with oneshot, paging:
             oneshot.wait_for_operations(BASELINE_OPS)
             paging.wait_for_operations(BASELINE_OPS)
+            mongot_before = _pod_uids(namespace, MONGOT_SELECTOR)
             envoy_before = _pod_uids(namespace, ENVOY_SELECTOR)
             t0 = time.monotonic()
             _set_operator_env(namespace, dep.metadata.name, ENVOY_IMAGE_ENV, ENVOY_UPGRADE_IMAGE)
@@ -244,19 +252,29 @@ class TestEnvoyImageUpgrade:
             recovery_s = time.monotonic() - t0
             oneshot.wait_for_operations(POST_EVENT_OPS)
             paging.wait_for_operations(POST_EVENT_OPS)
-        disruption_s = oneshot.max_consecutive_failure * oneshot.interval_seconds
+        disruption_s = oneshot.max_failure_window_s
+        rolls_mongot = _roll_count(namespace, MONGOT_SELECTOR, mongot_before)
         rolls_envoy = _roll_count(namespace, ENVOY_SELECTOR, envoy_before)
+        image_after = _envoy_image(namespace)
         logger.info(f"envoy-image oneshot verdict: {oneshot.verdict.as_dict()}")
-        _emit_metric("envoy", rolls_mongot=0, rolls_envoy=rolls_envoy, recovery_s=recovery_s, disruption_s=disruption_s)
+        _emit_metric(
+            "envoy",
+            rolls_mongot=rolls_mongot,
+            rolls_envoy=rolls_envoy,
+            recovery_s=recovery_s,
+            disruption_s=disruption_s,
+        )
+        assert (
+            image_after == ENVOY_UPGRADE_IMAGE
+        ), f"envoy image upgrade did not land: deployment image {image_after}, target {ENVOY_UPGRADE_IMAGE}"
         assert (
             rolls_envoy >= 1
         ), f"envoy image upgrade rolled no envoy pod (rolls_envoy={rolls_envoy}); upgrade was a no-op"
-        _assert_rolled_through(
-            oneshot.verdict,
-            "envoy-image",
-            disruption_s=disruption_s,
-            bound_s=DISRUPTION_BOUND_S,
-        )
+        assert (
+            rolls_mongot == 0
+        ), f"an envoy image bump must not disturb mongot, but {rolls_mongot} mongot pod(s) rolled"
+        # a surge-then-terminate envoy roll keeps a ready endpoint throughout — demand a zero-failure window
+        assert_no_outage(oneshot.verdict)
         _assert_steady(namespace)
 
     def test_recovers_to_steady_state(self, namespace: str):

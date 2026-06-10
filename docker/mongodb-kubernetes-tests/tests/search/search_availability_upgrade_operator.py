@@ -34,13 +34,13 @@ from kubetester.phase import Phase
 from pytest import fixture, mark, skip
 from tests import test_logger
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
-from tests.common.search.connectivity import SearchConnectivityTool
+from tests.common.search.connectivity import SearchConnectivityTool, wait_for_all_pods_replaced
 from tests.common.search.movies_search_helper import SampleMoviesSearchHelper
 from tests.common.search.rs_search_helper import rs_search_tester
 from tests.common.search.search_deployment_helper import SearchDeploymentHelper
 from tests.common.search.search_resource_names import lb_deployment_name, mongot_statefulset_name, proxy_service_name
 from tests.common.search.search_tester import SearchTester
-from tests.common.search.upgrade_availability import run_upgrade_availability
+from tests.common.search.upgrade_availability import container_pod_uids, run_upgrade_availability
 from tests.conftest import get_default_operator, local_operator, log_deployments_info
 from tests.search.om_deployment import get_ops_manager
 
@@ -202,9 +202,12 @@ class TestOperatorUpgrade:
         tag_before = get_mongot_image_tag(namespace)
 
         def apply_upgrade() -> None:
+            mongot_before = container_pod_uids(namespace, "mongot")
             get_default_operator(
                 namespace, operator_installation_config=operator_installation_config, apply_crds_first=True
             ).assert_is_running()
+            # Running can report before/mid mongot roll; block on the roll so it lands inside the tester window
+            wait_for_all_pods_replaced(namespace, mongot_before)
             mdbs.assert_reaches_phase(Phase.Running, timeout=600)
 
         run_upgrade_availability(
@@ -243,12 +246,13 @@ class TestEnvoyScaleAfterUpgrade:
             mdbs.assert_reaches_phase(Phase.Running, timeout=600)
             run_periodically(envoy_scaled, timeout=300, sleep_time=5, msg=f"envoy -> {ENVOY_REPLICAS_AFTER_SCALE}")
 
+        # scale-up only adds an endpoint — demand a zero-failure window
         run_upgrade_availability(
             namespace,
             tool_factory=lambda: user_connectivity_tool(namespace),
             apply_upgrade=apply_scale,
             path="envoy_scale_up",
-            disruption_bound_s=DISRUPTION_BOUND_S,
+            oneshot_accept=(),
         )
         assert envoy_ready_replicas(namespace) >= ENVOY_REPLICAS_AFTER_SCALE
 

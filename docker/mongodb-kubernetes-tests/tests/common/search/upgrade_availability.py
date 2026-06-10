@@ -75,10 +75,12 @@ def run_upgrade_availability(
     apply_upgrade: Callable[[], None],
     path: str,
     disruption_bound_s: Optional[float] = None,
+    oneshot_accept: tuple[str, ...] = ("transient_network",),
 ) -> None:
     """Drive continuous paging+oneshot load across an upgrade; emit a roll + recovery/disruption metric.
     ``apply_upgrade`` performs the change and blocks until both planes reconverge. Asserts new queries
-    hit no unexpected class and any outage stayed within ``disruption_bound_s``."""
+    hit no failure class outside ``oneshot_accept`` (empty tuple demands a zero-failure window) and any
+    outage stayed within ``disruption_bound_s``."""
 
     tool_factory().wait_for_sentinel_indexed(timeout=300)
     mongot_before = container_pod_uids(namespace, "mongot")
@@ -95,10 +97,11 @@ def run_upgrade_availability(
         recovery_s = time.monotonic() - t0
         oneshot.wait_for_operations(POST_EVENT_OPS)
         paging.wait_for_operations(POST_EVENT_OPS)
-    disruption_s = oneshot.max_consecutive_failure * oneshot.interval_seconds
+    disruption_s = oneshot.max_failure_window_s
     rolls_mongot = gone_or_changed(mongot_before, container_pod_uids(namespace, "mongot"))
     rolls_envoy = gone_or_changed(envoy_before, container_pod_uids(namespace, "envoy"))
-    logger.info(f"{path} oneshot verdict: {oneshot.verdict.as_dict()}")
+    verdict = oneshot.verdict
+    logger.info(f"{path} oneshot verdict: {verdict.as_dict()}")
     logger.info(f"{path} paging verdict (observational): {paging.verdict.as_dict()}")
     emit_metric(
         path, rolls_mongot=rolls_mongot, rolls_envoy=rolls_envoy, recovery_s=recovery_s, disruption_s=disruption_s
@@ -106,11 +109,23 @@ def run_upgrade_availability(
     if disruption_bound_s is not None:
         assert (
             disruption_s <= disruption_bound_s
-        ), f"{path}: new-query outage {disruption_s:.1f}s exceeded bound {disruption_bound_s:.1f}s; {oneshot.verdict.as_dict()}"
-    # transient blips OK during the roll; recovery gated by the trailing steady window
-    assert (
-        oneshot.verdict.other_failed == 0 and oneshot.verdict.cursor_lost == 0
-    ), f"{path}: unexpected new-query failure class; {oneshot.verdict.as_dict()}"
+        ), f"{path}: new-query outage {disruption_s:.1f}s exceeded bound {disruption_bound_s:.1f}s; {verdict.as_dict()}"
+    if not oneshot_accept:
+        assert_no_outage(verdict)
+    else:
+        # accepted classes may blip during the roll; recovery gated by the trailing steady window
+        rejected = {
+            klass: count
+            for klass, count in (
+                ("cursor_lost", verdict.cursor_lost),
+                ("transient_network", verdict.transient_network),
+                ("other", verdict.other_failed),
+            )
+            if klass not in oneshot_accept and count > 0
+        }
+        assert (
+            not rejected
+        ), f"{path}: new-query failures outside accepted classes {oneshot_accept}: {rejected}; {verdict.as_dict()}"
     with SearchAvailabilityBackgroundTester(tool_factory(), mode="oneshot", interval_seconds=0.1) as bg:
         bg.wait_for_operations(BASELINE_OPS)
     assert_no_outage(bg.verdict)

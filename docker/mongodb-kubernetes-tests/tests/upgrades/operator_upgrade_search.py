@@ -33,9 +33,9 @@ MONGOT_USER_PASSWORD = f"{MONGOT_USER_NAME}-password"
 USER_NAME = "mdb-user"
 USER_PASSWORD = f"{USER_NAME}-password"
 
-# Sustained-outage ceiling for the single-mongot operator upgrade: the cursor fully drops with one
-# mongot, so this is an outage->recover window, not a ride-through. Fails a pathological run.
-OPERATOR_UPGRADE_DISRUPTION_BOUND_S = 60.0
+# Sustained-outage ceiling for the single-mongot operator upgrade: the sole mongot is fully replaced
+# (incl. image pull), so this is an outage->recover window, not a ride-through. Fails a pathological run.
+OPERATOR_UPGRADE_DISRUPTION_BOUND_S = 180.0
 
 
 def user_connectivity_tool(namespace: str) -> SearchConnectivityTool:
@@ -206,6 +206,7 @@ class TestOperatorUpgrade:
         """Default-image-bump: the upgrade to the dev operator also changes the bundled mongot/envoy
         images, so the data plane rolls. Run the availability tester across the upgrade and emit the
         per-run roll count + recovery/disruption metric (feeds the disruption-bound story)."""
+        tag_before = get_mongot_image_tag(namespace)
 
         def apply_upgrade() -> None:
             operator = get_default_operator(
@@ -214,13 +215,17 @@ class TestOperatorUpgrade:
             operator.assert_is_running()
             mdbs.assert_reaches_phase(Phase.Running, timeout=600)
 
+        # single mongot, no LB: the roll drops the direct mongod->mongot path, surfacing as cursor_lost
         run_upgrade_availability(
             namespace,
             tool_factory=lambda: user_connectivity_tool(namespace),
             apply_upgrade=apply_upgrade,
             path="operator_default_image_bump",
             disruption_bound_s=OPERATOR_UPGRADE_DISRUPTION_BOUND_S,
+            oneshot_accept=("transient_network", "cursor_lost"),
         )
+        tag_after = get_mongot_image_tag(namespace)
+        assert tag_after != tag_before, f"operator upgrade was a no-op: mongot tag stayed {tag_before}"
         log_deployments_info(namespace)
 
     def test_search_running_after_upgrade(self, mdbs: MongoDBSearch):
