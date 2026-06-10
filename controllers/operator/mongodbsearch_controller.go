@@ -159,10 +159,8 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 		return commoncontroller.UpdateStatus(ctx, r.kubeClient, mdbSearch, workflow.Failed(err), log)
 	}
 	var currentNames []string
-	if mdbSearch.Spec.Clusters != nil {
-		for _, c := range *mdbSearch.Spec.Clusters {
-			currentNames = append(currentNames, c.ClusterName)
-		}
+	for _, c := range mdbSearch.Spec.Clusters {
+		currentNames = append(currentNames, c.ClusterName)
 	}
 	newMapping := searchv1.AssignClusterIndices(state.ClusterMapping, currentNames)
 	if !reflect.DeepEqual(newMapping, state.ClusterMapping) {

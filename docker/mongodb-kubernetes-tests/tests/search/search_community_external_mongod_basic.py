@@ -66,14 +66,12 @@ def mdbs(namespace: str, mdbc: MongoDBCommunity) -> MongoDBSearch:
         f"{mdbc.name}-{i}.{mdbc.name}-svc.{namespace}.svc.cluster.local:27017" for i in range(mdbc["spec"]["members"])
     ]
 
-    resource["spec"] = {
-        "source": {
-            "external": {
-                "hostAndPorts": seeds,
-            },
-            "passwordSecretRef": {"name": f"{MDBC_RESOURCE_NAME}-{MONGOT_USER_NAME}-password", "key": "password"},
-            "username": MONGOT_USER_NAME,
-        }
+    resource["spec"]["source"] = {
+        "external": {
+            "hostAndPorts": seeds,
+        },
+        "passwordSecretRef": {"name": f"{MDBC_RESOURCE_NAME}-{MONGOT_USER_NAME}-password", "key": "password"},
+        "username": MONGOT_USER_NAME,
     }
 
     return resource

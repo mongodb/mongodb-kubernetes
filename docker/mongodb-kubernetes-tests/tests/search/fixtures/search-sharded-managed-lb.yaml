@@ -3,7 +3,6 @@ kind: MongoDBSearch
 metadata:
   name: mdb-sh
 spec:
-  replicas: 2
   logLevel: DEBUG
   source:
     mongodbResourceRef:
@@ -16,13 +15,15 @@ spec:
       certsSecretPrefix: certs
   loadBalancer:
     managed: {}
-  # Cap each per-shard mongot at 1 CPU so a sharded search deployment
-  # (multiple shards × multiple mongots + envoy) fits on a single-host
-  # kind cluster without CPU starvation. Operator default is 2 CPU / 4Gi.
-  resourceRequirements:
-    requests:
-      cpu: "500m"
-      memory: "2Gi"
-    limits:
-      cpu: "1"
-      memory: "2Gi"
+  clusters:
+    - # Cap each per-shard mongot at 1 CPU so a sharded search deployment
+      # (multiple shards × multiple mongots + envoy) fits on a single-host
+      # kind cluster without CPU starvation. Operator default is 2 CPU / 4Gi.
+      replicas: 2
+      resourceRequirements:
+        requests:
+          cpu: "500m"
+          memory: "2Gi"
+        limits:
+          cpu: "1"
+          memory: "2Gi"
