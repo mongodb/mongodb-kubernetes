@@ -33,7 +33,8 @@ _CURSOR_LOST_MESSAGE_RE = re.compile(
     re.IGNORECASE,
 )
 _TRANSIENT_NETWORK_MESSAGE_RE = re.compile(
-    r"no healthy upstream|connection refused|connection reset|broken pipe",
+    r"no healthy upstream|connection refused|connection reset|broken pipe"
+    r"|failed to establish connectivity of grpc channel",
     re.IGNORECASE,
 )
 _TRANSIENT_NETWORK_CLASSES = frozenset(
