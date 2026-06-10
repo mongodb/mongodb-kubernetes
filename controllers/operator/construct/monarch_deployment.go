@@ -77,6 +77,27 @@ func GetMonarchServiceDNS(mdbName, role, namespace, clusterDomain string) string
 	return fmt.Sprintf("%s.%s.svc.%s", MonarchServiceName(mdbName, role), namespace, clusterDomain)
 }
 
+// MonarchDeploymentNameSharded returns the name for a per-shard Monarch Deployment.
+// shardID is "configRS" or "myShard_0", etc.
+func MonarchDeploymentNameSharded(scName, shardID, role string) string {
+	return fmt.Sprintf("%s-%s-monarch-%s", scName, shardID, role)
+}
+
+// MonarchServiceNameSharded returns the name for a per-shard Monarch Service.
+func MonarchServiceNameSharded(scName, shardID, role string) string {
+	return fmt.Sprintf("%s-%s-monarch-%s-svc", scName, shardID, role)
+}
+
+// MonarchConfigSecretNameSharded returns the name for a per-shard Monarch config Secret.
+func MonarchConfigSecretNameSharded(scName, shardID, role string) string {
+	return fmt.Sprintf("%s-%s-monarch-%s-config", scName, shardID, role)
+}
+
+// GetMonarchServiceDNSSharded returns the in-cluster DNS name for a per-shard Monarch Service.
+func GetMonarchServiceDNSSharded(scName, shardID, role, namespace, clusterDomain string) string {
+	return fmt.Sprintf("%s.%s.svc.%s", MonarchServiceNameSharded(scName, shardID, role), namespace, clusterDomain)
+}
+
 // monarchLabels returns the labels for Monarch resources.
 func monarchLabels(mdb *mdbv1.MongoDB, role string) map[string]string {
 	return map[string]string{
@@ -446,6 +467,300 @@ func BuildMonarchService(mdb *mdbv1.MongoDB, namespace string) *corev1.Service {
 			Namespace:       namespace,
 			Labels:          labels,
 			OwnerReferences: kube.BaseOwnerReference(mdb),
+		},
+		Spec: corev1.ServiceSpec{
+			Selector: labels,
+			Ports: []corev1.ServicePort{
+				{Name: "health", Port: monarchpkg.HealthPort, TargetPort: intstr.FromInt32(monarchpkg.HealthPort), Protocol: corev1.ProtocolTCP},
+				{Name: "replication", Port: monarchpkg.ReplicationPort, TargetPort: intstr.FromInt32(monarchpkg.ReplicationPort), Protocol: corev1.ProtocolTCP},
+				{Name: "monarch-api", Port: monarchpkg.APIPort, TargetPort: intstr.FromInt32(monarchpkg.APIPort), Protocol: corev1.ProtocolTCP},
+			},
+		},
+	}
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Sharded Cluster Monarch builders
+// ══════════════════════════════════════════════════════════════════════════════
+
+// monarchLabelsSharded returns the labels for per-shard Monarch resources.
+func monarchLabelsSharded(sc *mdbv1.MongoDB, shardID, role string) map[string]string {
+	return map[string]string{
+		"app":               fmt.Sprintf("monarch-%s", role),
+		"mongodb":           sc.Name,
+		"monarch-component": role,
+		"monarch-shard":     shardID,
+	}
+}
+
+// monarchVolumesSharded returns the Pod-level Volume list for a per-shard Monarch deployment.
+func monarchVolumesSharded(scName, shardID, role, monarchSecretsName string) []corev1.Volume {
+	volumes := []corev1.Volume{
+		{
+			Name: monarchConfigVolumeName,
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName: MonarchConfigSecretNameSharded(scName, shardID, role),
+				},
+			},
+		},
+	}
+	if monarchSecretsName != "" {
+		mode := int32(0o600)
+		volumes = append(volumes, corev1.Volume{
+			Name: monarchSecretsVolumeName,
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName:  monarchSecretsName,
+					DefaultMode: &mode,
+				},
+			},
+		})
+	}
+	return volumes
+}
+
+// BuildMonarchConfigSecretSharded creates a Secret with the Monarch YAML configuration
+// for a single shard (configRS or data shard) in a sharded cluster.
+//
+// shardID is "configRS" or "myShard_0", etc.
+// rsName is the actual replica set name.
+// rsHosts is the list of mongod pod DNS names for this RS.
+// allShardIDs is used for clusterStore.allShardIds (shipper only).
+func BuildMonarchConfigSecretSharded(
+	sc *mdbv1.MongoDB,
+	namespace string,
+	shardID, rsName string,
+	rsHosts []string,
+	srcURI string,
+	mongodUsername, mongodPassword string,
+	monarchSecretsName string,
+	allShardIDs []string,
+	injectorSvcDNS string,
+) *corev1.Secret {
+	spec := sc.Spec.ShardedClusterSpec.Monarch
+	role := monarchRole(spec)
+	labels := monarchLabelsSharded(sc, shardID, role)
+
+	replSetHostsYAML := ""
+	for _, h := range rsHosts {
+		replSetHostsYAML += fmt.Sprintf("\n  - \"%s\"", h)
+	}
+
+	modeLine := ""
+	if role == "shipper" {
+		modeLine = "\nmode: shipperAndSnapshotter"
+	}
+
+	// clusterStore block for shipper with all shard IDs
+	clusterStoreBlock := ""
+	if role == "shipper" {
+		allShardIDsJSON := "["
+		for i, sid := range allShardIDs {
+			if i > 0 {
+				allShardIDsJSON += ", "
+			}
+			allShardIDsJSON += fmt.Sprintf("\"%s\"", sid)
+		}
+		allShardIDsJSON += "]"
+		clusterStoreBlock = fmt.Sprintf(`
+clusterStore:
+  initialize: true
+  clusterId: "%s"
+  allShardIds: %s
+  shardDriftLimit: 60`, spec.S3.GetPrefix(sc.Name), allShardIDsJSON)
+	}
+
+	// backupMongoNodeURI points at first member directly
+	backupMongoNodeURI := ""
+	if len(rsHosts) > 0 {
+		backupMongoNodeURI = fmt.Sprintf("mongodb://%s/?directConnection=true&connectTimeoutMS=20000&serverSelectionTimeoutMS=20000", rsHosts[0])
+	}
+
+	srcURI = injectMongodCredsIntoURI(srcURI, mongodUsername, mongodPassword)
+	backupMongoNodeURI = injectMongodCredsIntoURI(backupMongoNodeURI, mongodUsername, mongodPassword)
+
+	config := fmt.Sprintf(`# Monarch %s configuration for shard %s - generated by mongodb-kubernetes-operator
+clusterPrefix: %s
+shardId: "%s"
+replSetName: "%s"
+replSetHosts:%s%s
+
+srcURI: "%s"
+backupMongoNodeURI: "%s"
+%s
+
+aws:
+  authMode: credentialsChain
+  bucketName: %s
+  region: %s`,
+		role, shardID,
+		spec.S3.GetPrefix(sc.Name),
+		shardID,
+		rsName,
+		replSetHostsYAML,
+		modeLine,
+		srcURI,
+		backupMongoNodeURI,
+		clusterStoreBlock,
+		spec.S3.Bucket,
+		spec.S3.Region,
+	)
+
+	if spec.S3.Endpoint != "" {
+		config += fmt.Sprintf(`
+  customBaseEndpoint: %s`, spec.S3.Endpoint)
+	}
+	if spec.S3.PathStyle {
+		config += `
+  usePathStyle: true`
+	}
+
+	config += fmt.Sprintf(`
+
+bindIp: "0.0.0.0"
+port: %d
+healthApiEndpoint: "0.0.0.0:%d"
+monarchApiEndpoint: "0.0.0.0:%d"
+`, monarchpkg.ReplicationPort, monarchpkg.HealthPort, monarchpkg.APIPort)
+
+	// Injector-specific config
+	if role == "injector" {
+		mongodURIsYAML := ""
+		for _, h := range rsHosts {
+			mongodURIsYAML += fmt.Sprintf("\n  - \"mongodb://%s/\"", h)
+		}
+		config += fmt.Sprintf(`mongodURIs:%s
+injectorHosts:
+  - "%s:%d"
+runCoordinator: true
+`, mongodURIsYAML, injectorSvcDNS, monarchpkg.ReplicationPort)
+	}
+
+	if monarchSecretsName != "" {
+		config += fmt.Sprintf("securityKeyFile: %s\n", MonarchKeyfilePath)
+	}
+
+	return &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            MonarchConfigSecretNameSharded(sc.Name, shardID, role),
+			Namespace:       namespace,
+			Labels:          labels,
+			OwnerReferences: kube.BaseOwnerReference(sc),
+		},
+		Data: map[string][]byte{
+			monarchConfigFileName: []byte(config),
+		},
+	}
+}
+
+// BuildMonarchDeploymentSharded creates a Deployment for a single shard's Monarch
+// shipper (active) or injector (standby) in a sharded cluster.
+func BuildMonarchDeploymentSharded(
+	sc *mdbv1.MongoDB,
+	namespace string,
+	shardID string,
+	monarchSecretsName string,
+) *appsv1.Deployment {
+	spec := sc.Spec.ShardedClusterSpec.Monarch
+	role := monarchRole(spec)
+	name := MonarchDeploymentNameSharded(sc.Name, shardID, role)
+	labels := monarchLabelsSharded(sc, shardID, role)
+
+	configPath := fmt.Sprintf("%s/%s", monarchConfigMountPath, monarchConfigFileName)
+	command := []string{
+		"monarch", role,
+		fmt.Sprintf("--config=%s", configPath),
+	}
+
+	envVars := []corev1.EnvVar{
+		{
+			Name: "AWS_ACCESS_KEY_ID",
+			ValueFrom: &corev1.EnvVarSource{
+				SecretKeyRef: &corev1.SecretKeySelector{
+					LocalObjectReference: corev1.LocalObjectReference{Name: spec.S3.CredentialsSecretRef.Name},
+					Key:                  "awsAccessKeyId",
+				},
+			},
+		},
+		{
+			Name: "AWS_SECRET_ACCESS_KEY",
+			ValueFrom: &corev1.EnvVarSource{
+				SecretKeyRef: &corev1.SecretKeySelector{
+					LocalObjectReference: corev1.LocalObjectReference{Name: spec.S3.CredentialsSecretRef.Name},
+					Key:                  "awsSecretAccessKey",
+				},
+			},
+		},
+	}
+
+	replicas := int32(DefaultMonarchReplicas)
+
+	return &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            name,
+			Namespace:       namespace,
+			Labels:          labels,
+			OwnerReferences: kube.BaseOwnerReference(sc),
+		},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: ptr.To(replicas),
+			Selector: &metav1.LabelSelector{
+				MatchLabels: labels,
+			},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: labels,
+					Annotations: map[string]string{
+						"checksum/config": "",
+					},
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:            fmt.Sprintf("monarch-%s", role),
+							Image:           monarchImage(spec),
+							ImagePullPolicy: corev1.PullAlways,
+							Command:         command,
+							Ports: []corev1.ContainerPort{
+								{Name: "health", ContainerPort: monarchpkg.HealthPort, Protocol: corev1.ProtocolTCP},
+								{Name: "replication", ContainerPort: monarchpkg.ReplicationPort, Protocol: corev1.ProtocolTCP},
+								{Name: "monarch-api", ContainerPort: monarchpkg.APIPort, Protocol: corev1.ProtocolTCP},
+							},
+							ReadinessProbe: &corev1.Probe{
+								ProbeHandler: corev1.ProbeHandler{
+									HTTPGet: &corev1.HTTPGetAction{
+										Path: "/api/v1/status",
+										Port: intstr.FromInt32(monarchpkg.HealthPort),
+									},
+								},
+								InitialDelaySeconds: 5,
+								PeriodSeconds:       10,
+								FailureThreshold:    3,
+							},
+							Env:          envVars,
+							VolumeMounts: monarchVolumeMounts(monarchSecretsName),
+						},
+					},
+					Volumes: monarchVolumesSharded(sc.Name, shardID, role, monarchSecretsName),
+				},
+			},
+		},
+	}
+}
+
+// BuildMonarchServiceSharded creates a Service that fronts a per-shard Monarch Deployment.
+func BuildMonarchServiceSharded(sc *mdbv1.MongoDB, namespace, shardID string) *corev1.Service {
+	spec := sc.Spec.ShardedClusterSpec.Monarch
+	role := monarchRole(spec)
+	labels := monarchLabelsSharded(sc, shardID, role)
+
+	return &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            MonarchServiceNameSharded(sc.Name, shardID, role),
+			Namespace:       namespace,
+			Labels:          labels,
+			OwnerReferences: kube.BaseOwnerReference(sc),
 		},
 		Spec: corev1.ServiceSpec{
 			Selector: labels,
