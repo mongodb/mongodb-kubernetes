@@ -357,6 +357,14 @@ func (oc *MockedOmConnection) ReadAutomationConfig() (*AutomationConfig, error) 
 	return oc.automationConfig, nil
 }
 
+// ReadAgentAutomationConfig mirrors ReadAutomationConfig for tests. The mock has
+// no notion of cleartext shipper credentials; tests that exercise that path
+// should populate the AC's MaintainedMonarchComponents directly.
+func (oc *MockedOmConnection) ReadAgentAutomationConfig(_ string) (*AutomationConfig, error) {
+	oc.addToHistory(reflect.ValueOf(oc.ReadAgentAutomationConfig))
+	return oc.ReadAutomationConfig()
+}
+
 func (oc *MockedOmConnection) ReadUpdateAutomationConfig(modifyACFunc func(ac *AutomationConfig) error, log *zap.SugaredLogger) error {
 	oc.addToHistory(reflect.ValueOf(oc.ReadUpdateAutomationConfig))
 	if oc.automationConfig == nil {

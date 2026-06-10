@@ -16,6 +16,7 @@ docker/mongodb-enterprise-ops-manager/scripts/mmsconfiguration
 docker/mongodb-kubernetes-tests/public
 
 my-*
+.worktrees/
 .vscode
 .env
 data

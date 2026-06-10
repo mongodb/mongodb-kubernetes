@@ -23,12 +23,26 @@ type AutomationStatus struct {
 	Processes   []ProcessStatus `json:"processes"`
 }
 
-// ProcessStatus status of the process and what's the last version achieved
+// ProcessStatus status of the process and what's the last version achieved.
+// ErrorString/ErrorCode/etc. surface the agent's last plan execution failure; they are
+// populated by the agent via mmsDirectorStatus and remain set until the agent's next
+// successful plan run.
 type ProcessStatus struct {
 	Hostname                string   `json:"hostname"`
 	Name                    string   `json:"name"`
 	LastGoalVersionAchieved int      `json:"lastGoalVersionAchieved"`
 	Plan                    []string `json:"plan"`
+	ErrorCode               int      `json:"errorCode"`
+	ErrorCodeDescription    string   `json:"errorCodeDescription"`
+	ErrorCodeHumanReadable  string   `json:"errorCodeHumanReadable"`
+	ErrorString             string   `json:"errorString"`
+}
+
+// HasPlanError reports whether the agent's last plan execution failed.
+// The plan fields remain populated after a failure, so the caller should clear
+// derived conditions once the process reaches goal state again.
+func (p ProcessStatus) HasPlanError() bool {
+	return p.ErrorString != ""
 }
 
 func buildAutomationStatusFromBytes(b []byte) (*AutomationStatus, error) {

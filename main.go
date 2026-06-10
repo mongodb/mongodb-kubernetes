@@ -290,7 +290,6 @@ func run() error {
 			return err
 		}
 	}
-
 	for _, r := range crds {
 		log.Infof("Registered CRD: %s", r)
 	}

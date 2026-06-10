@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/blang/semver"
 	"github.com/r3labs/diff/v3"
@@ -130,6 +131,12 @@ type AutomationConfigConnection interface {
 	// Note, that this method calls *the same* api endpoint as the `OmConnection.ReadDeployment` - just wraps the answer
 	// to the different object
 	ReadUpdateAutomationConfig(acFunc func(ac *AutomationConfig) error, log *zap.SugaredLogger) error
+
+	// ReadAgentAutomationConfig fetches the AC the way an automation agent fetches it.
+	// Required to access OM-managed cleartext credentials (e.g. shipperUser/shipperPwd
+	// in maintainedMonarchComponents[*].shipperConfig) — those are populated server-side
+	// only on this endpoint. The public REST AC returns SCRAM hashes instead.
+	ReadAgentAutomationConfig(agentApiKey string) (*AutomationConfig, error)
 
 	// Calls the API to update all the MongoDB Agents in the project to the latest. Returns the new version
 	UpgradeAgentsToLatest() (string, error)
@@ -386,6 +393,29 @@ func (oc *HTTPOmConnection) ReadAutomationConfig() (*AutomationConfig, error) {
 
 	ac, err := BuildAutomationConfigFromBytes(ans)
 
+	return ac, apierror.New(err)
+}
+
+// ReadAgentAutomationConfig fetches the AC the way an automation agent does. The
+// agent endpoint returns server-populated cleartext fields (notably
+// maintainedMonarchComponents[*].shipperConfig.shipperUser/shipperPwd) that the
+// public AC API does not expose. Auth is HTTP Basic with (groupID, agentApiKey),
+// matching how the agent itself authenticates (see SetBasicAuth in the agent's
+// retriever/urlretriever.go).
+func (oc *HTTPOmConnection) ReadAgentAutomationConfig(agentApiKey string) (*AutomationConfig, error) {
+	// The agent identifies itself via av/ag/aos/aa/ab/ad/ah/ahs/at query params.
+	// OM doesn't enforce them strictly for AC retrieval, but it does inspect them
+	// for telemetry and may apply per-host config tweaks. We mimic the same shape;
+	// "ah/ahs=operator" identifies this caller distinctly from any real agent.
+	path := fmt.Sprintf(
+		"/agents/api/automation/conf/v1/%s?av=109.0.0&ag=DEV&aos=linux&aa=x86_64&ab=64&ad=rhel93&ah=operator&ahs=operator&at=%d",
+		oc.GroupID(), time.Now().UnixMilli(),
+	)
+	ans, err := oc.getWithAgentAuth(path, agentApiKey)
+	if err != nil {
+		return nil, apierror.New(err)
+	}
+	ac, err := BuildAutomationConfigFromBytes(ans)
 	return ac, apierror.New(err)
 }
 
