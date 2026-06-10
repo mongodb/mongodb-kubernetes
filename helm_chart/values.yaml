@@ -28,6 +28,12 @@ operator:
   - mongodbsearch
   - voyageai
 
+  # When clusterName is set, this operator only reconciles spec.clusters[i] entries
+  # whose clusterName matches (multi-cluster with one operator per cluster).
+  # Leave empty for the single-operator (hub-and-spoke) multi-cluster pattern.
+  clusterIdentity:
+    clusterName: ''
+
   nodeSelector: {}
 
   tolerations: []

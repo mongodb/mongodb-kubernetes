@@ -196,6 +196,7 @@ const (
 	ImagePullSecrets                 = "IMAGE_PULL_SECRETS" //nolint
 	OmOperatorEnv                    = "OPERATOR_ENV"
 	MemberListConfigMapName          = OperatorName + "-member-list"
+	OperatorClusterNameEnv           = "OPERATOR_CLUSTER_NAME"
 	BackupDisableWaitSecondsEnv      = "BACKUP_WAIT_SEC"
 	BackupDisableWaitRetriesEnv      = "BACKUP_WAIT_RETRIES"
 	BackupStartDelaySecondsEnv       = "MDB_BACKUP_START_DELAY_SECONDS"
