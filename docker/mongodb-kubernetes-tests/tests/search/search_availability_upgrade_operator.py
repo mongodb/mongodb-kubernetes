@@ -206,8 +206,8 @@ class TestOperatorUpgrade:
             get_default_operator(
                 namespace, operator_installation_config=operator_installation_config, apply_crds_first=True
             ).assert_is_running()
-            # Running can report before/mid mongot roll; block on the roll so it lands inside the tester window
-            wait_for_all_pods_replaced(namespace, mongot_before)
+            # block on the roll so it lands in the tester window; 600s covers helm upgrade + reconcile before it starts
+            wait_for_all_pods_replaced(namespace, mongot_before, timeout=600)
             mdbs.assert_reaches_phase(Phase.Running, timeout=600)
 
         run_upgrade_availability(
