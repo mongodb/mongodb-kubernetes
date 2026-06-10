@@ -419,5 +419,5 @@ def test_migration_dry_run_connectivity_passes(mdb_k8s: MongoDB):
 
 
 @mark.e2e_vm_migration_x509
-def test_promote_and_prune(mdb_k8s: MongoDB, vm_sts):
-    promote_and_prune_members(mdb_k8s, vm_sts)
+def test_promote_and_prune(mdb_k8s: MongoDB, vm_sts, om_tester: OMTester):
+    promote_and_prune_members(mdb_k8s, vm_sts, om_tester)

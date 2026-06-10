@@ -1,5 +1,8 @@
 """VM migration E2E: pseudo-VM replica set, then MongoDB CR with externalMembers and promote/prune.
 
+Starts with ``spec.members: 0`` and VM-only ``externalMembers`` (K8s StatefulSet scale 0), then scales
+K8s members up while pruning VM members.
+
 Pseudo-VM pods run the automation agent from the same image tag as AGENT_IMAGE on the operator.
 Automation config sets agentVersion.name to that tag so it matches the VM agents.
 
@@ -20,23 +23,8 @@ from pytest import fixture, mark
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.search import movies_search_helper
 from tests.common.search.search_tester import SearchTester
-from tests.conftest import local_operator
 from tests.tls.vm_migration_dry_run import run_migration_dry_run_connectivity_passes
-
-
-def _connection_string(mdb_migration: MongoDB) -> Tuple[str, str]:
-    """Read connectionString.standard and connectionString.standardSrv from the credential-less secret published by the operator."""
-    secret = KubernetesTester.read_secret(mdb_migration.namespace, f"{mdb_migration.name}-connection-string")
-    return secret.get("connectionString.standard", ""), secret.get("connectionString.standardSrv", "")
-
-
-def _k8s_hostnames(mdb_migration: MongoDB) -> list:
-    """Return the expected k8s pod DNS hostnames (host:port) for all RS members."""
-    svc = f"{mdb_migration.name}-svc"
-    return [
-        f"{mdb_migration.name}-{i}.{svc}.{mdb_migration.namespace}.svc.cluster.local:27017"
-        for i in range(mdb_migration.get_members())
-    ]
+from tests.tls.vm_migration_promote_prune import promote_and_prune_members, _connection_string, _k8s_hostnames
 
 
 @fixture(scope="module")
@@ -67,14 +55,12 @@ def vm_service(namespace: str):
     with open(yaml_fixture("vm_service.yaml"), "r") as f:
         service_body = yaml.safe_load(f.read())
 
-        service_body["spec"]["clusterIP"] = "None"  # This needs to be set to None for a headless service
-
     KubernetesTester.create_or_update_service(namespace, body=service_body)
     return service_body
 
 
 @fixture(scope="module")
-def mdb_migration(namespace: str, custom_mdb_version: str, vm_sts, vm_service) -> MongoDB:
+def mdb_k8s(namespace: str, custom_mdb_version: str, vm_sts, vm_service) -> MongoDB:
     resource = MongoDB.from_yaml(yaml_fixture("replica-set.yaml"), namespace=namespace)
 
     if try_load(resource):
@@ -82,7 +68,8 @@ def mdb_migration(namespace: str, custom_mdb_version: str, vm_sts, vm_service) -
 
     resource.set_version(custom_mdb_version)
     resource["spec"]["replicaSetNameOverride"] = f"{vm_sts['metadata']['name']}-rs"
-
+    # No in-cluster mongods yet; replica set is VM-only until promote_and_prune scales members up.
+    resource["spec"]["members"] = 0
     resource["spec"]["externalMembers"] = []
     for i in range(vm_sts["spec"]["replicas"]):
         resource["spec"]["externalMembers"].append(
@@ -95,13 +82,6 @@ def mdb_migration(namespace: str, custom_mdb_version: str, vm_sts, vm_service) -
         )
 
     resource["spec"]["memberConfig"] = []
-    for i in range(resource.get_members()):
-        resource["spec"]["memberConfig"].append(
-            {
-                "votes": 0,
-                "priority": "0",
-            }
-        )
     resource.create()
     return resource
 
@@ -109,12 +89,6 @@ def mdb_migration(namespace: str, custom_mdb_version: str, vm_sts, vm_service) -
 @fixture(scope="module")
 def mongo_tester(mdb_migration: MongoDB):
     return mdb_migration.tester()
-
-
-@fixture(scope="module")
-def mdb_health_checker(mongo_tester: MongoTester) -> MongoDBBackgroundTester:
-    health_checker = MongoDBBackgroundTester(mongo_tester)
-    return health_checker
 
 
 @mark.e2e_vm_migration
@@ -231,16 +205,16 @@ def test_insert_sample_data(om_tester: OMTester, vm_sts, namespace):
 
 
 @mark.e2e_vm_migration
-def test_mdb_reaches_running(namespace: str, mdb_migration: MongoDB, om_tester: OMTester, vm_sts):
-    mdb_migration.assert_reaches_phase(Phase.Running, timeout=600)
+def test_mdb_reaches_running(namespace: str, mdb_k8s: MongoDB, om_tester: OMTester, vm_sts):
+    mdb_k8s.assert_reaches_phase(Phase.Running, timeout=600)
 
-    conn_str, _ = _connection_string(mdb_migration)
-    for hostname in _k8s_hostnames(mdb_migration):
+    conn_str, _ = _connection_string(mdb_k8s)
+    for hostname in _k8s_hostnames(mdb_k8s):
         assert hostname in conn_str, f"k8s hostname {hostname!r} missing from connection string secret"
-    for em in mdb_migration["spec"]["externalMembers"]:
+    for em in mdb_k8s["spec"]["externalMembers"]:
         assert em["hostname"] in conn_str, f"external member {em['hostname']!r} missing from connection string secret"
 
-    total_members = vm_sts["spec"]["replicas"] + mdb_migration.get_members()
+    total_members = len(mdb_k8s["spec"]["externalMembers"]) + mdb_k8s.get_members()
     ac_tester = om_tester.get_automation_config_tester()
     assert len(ac_tester.get_all_processes()) == total_members
     assert len(ac_tester.get_monitoring_versions()) == total_members
@@ -249,16 +223,14 @@ def test_mdb_reaches_running(namespace: str, mdb_migration: MongoDB, om_tester: 
 
 
 @mark.e2e_vm_migration
-def test_max_voting_members_validation(mdb_migration: MongoDB):
-    # Update all members as voting at once, this results in 8 voting members (5 external + 3 k8s) which is more than 7
-    for i in range(mdb_migration.get_members()):
-        mdb_migration["spec"]["memberConfig"][i]["priority"] = "1"
-        mdb_migration["spec"]["memberConfig"][i]["votes"] = 1
+def test_max_voting_members_validation(mdb_k8s: MongoDB):
+    # Update all members as voting at once, this results in 8 voting members (5 external + 5 k8s) which is more than 7
+    mdb_k8s["spec"]["members"] = 3
+    mdb_k8s.update()
+    mdb_k8s.assert_reaches_phase(Phase.Failed, timeout=300)
 
-    mdb_migration.update()
-    mdb_migration.assert_reaches_phase(Phase.Failed, timeout=300)
-    err_msg = mdb_migration.get_status_message()
-    rs_name = mdb_migration["spec"]["replicaSetNameOverride"]
+    err_msg = mdb_k8s.get_status_message()
+    rs_name = mdb_k8s["spec"]["replicaSetNameOverride"]
     expected_err_msg = (
         f'"{rs_name}": this reconcile would result in 8 voting members (max: 7).\n'
         "Currently voting in the Automation Config (5):\n"
@@ -277,96 +249,38 @@ def test_max_voting_members_validation(mdb_migration: MongoDB):
     assert err_msg == expected_err_msg
 
     # Reset to working state
-    for i in range(mdb_migration.get_members()):
-        mdb_migration["spec"]["memberConfig"][i]["priority"] = "0"
-        mdb_migration["spec"]["memberConfig"][i]["votes"] = 0
-
-    mdb_migration.update()
-    mdb_migration.assert_reaches_phase(Phase.Running, timeout=300)
+    mdb_k8s["spec"]["members"] = 0
+    mdb_k8s.update()
+    mdb_k8s.assert_reaches_phase(Phase.Running, timeout=300)
 
 
 @mark.e2e_vm_migration
-@skip_if_local
-def test_start_background_health_checker(mdb_health_checker):
-    mdb_health_checker.start()
+def test_promote_and_prune(mdb_k8s: MongoDB, vm_sts, om_tester: OMTester):
+    promote_and_prune_members(mdb_k8s, vm_sts, om_tester, test_connection=True)
 
 
 @mark.e2e_vm_migration
-def test_promote_and_prune(mdb_migration: MongoDB, vm_sts, om_tester: OMTester):
-    try_load(mdb_migration)
-    for i in range(vm_sts["spec"]["replicas"]):
-        if i < mdb_migration.get_members():
-            mdb_migration["spec"]["memberConfig"][i]["priority"] = "1"
-            mdb_migration["spec"]["memberConfig"][i]["votes"] = 1
-            mdb_migration.update()
-
-            mdb_migration.assert_reaches_phase(Phase.Running)
-
-        # After promote: all k8s pods and all remaining VM members must be present.
-        conn_str, _ = _connection_string(mdb_migration)
-        for hostname in _k8s_hostnames(mdb_migration):
-            assert hostname in conn_str, f"k8s hostname {hostname!r} missing after member {i} promoted"
-        for em in mdb_migration["spec"]["externalMembers"]:
-            assert em["hostname"] in conn_str, f"external member {em['hostname']!r} missing after member {i} promoted"
-
-        pruned = mdb_migration["spec"]["externalMembers"].pop()
-        mdb_migration.update()
-        mdb_migration.assert_reaches_phase(Phase.Running)
-
-        # After prune: removed VM hostname must be gone; surviving hosts must be present.
-        conn_str, conn_srv = _connection_string(mdb_migration)
-        assert (
-            pruned["hostname"] not in conn_str
-        ), f"pruned hostname {pruned['hostname']!r} still in connection string after prune {i}"
-        for hostname in _k8s_hostnames(mdb_migration):
-            assert hostname in conn_str, f"k8s hostname {hostname!r} missing after prune {i}"
-        for em in mdb_migration["spec"]["externalMembers"]:
-            assert em["hostname"] in conn_str, f"external member {em['hostname']!r} missing after prune {i}"
-
-        # Test connectivity with generated connection string
-        MongoTester(conn_str, use_ssl=False).assert_connectivity(attempts=1)
-        if not local_operator():
-            # srv connections don't work via kubefwd
-            MongoTester(conn_srv, use_ssl=False).assert_connectivity(attempts=1)
-
-        om_tester.assert_cluster_available(f"{vm_sts['metadata']['name']}-rs")
-        ac_tester = om_tester.get_automation_config_tester()
-        total_members = mdb_migration.get_members() + len(mdb_migration["spec"]["externalMembers"])
-        assert len(ac_tester.get_all_processes()) == total_members
-        assert len(ac_tester.get_monitoring_versions()) == total_members
-        assert len(ac_tester.get_backup_versions()) == total_members
-        assert len(ac_tester.get_replica_set_processes(f"{vm_sts['metadata']['name']}-rs")) == total_members
-
-
-@mark.e2e_vm_migration
-@skip_if_local
-def test_mongodb_reachable_during_promote_and_prune(mdb_health_checker):
-    mdb_health_checker.assert_healthiness()
-    mdb_health_checker.stop()
-
-
-@mark.e2e_vm_migration
-def test_process_names(om_tester: OMTester, mdb_migration):
+def test_process_names(om_tester: OMTester, mdb_k8s):
     ac_tester = om_tester.get_automation_config_tester()
     process_names = [process["name"] for process in ac_tester.get_all_processes()]
-    assert f"k8s/{mdb_migration.namespace}/{mdb_migration.name}-0" in process_names
-    assert f"k8s/{mdb_migration.namespace}/{mdb_migration.name}-1" in process_names
-    assert f"k8s/{mdb_migration.namespace}/{mdb_migration.name}-2" in process_names
+    assert f"k8s/{mdb_k8s.namespace}/{mdb_k8s.name}-0" in process_names
+    assert f"k8s/{mdb_k8s.namespace}/{mdb_k8s.name}-1" in process_names
+    assert f"k8s/{mdb_k8s.namespace}/{mdb_k8s.name}-2" in process_names
 
 
 @mark.e2e_vm_migration
-def test_connection_string_after_full_migration(mdb_migration: MongoDB):
+def test_connection_string_after_full_migration(mdb_k8s: MongoDB):
     """After all externalMembers are pruned the secret must contain only the k8s pod hostnames."""
-    assert not mdb_migration["spec"].get("externalMembers"), "expected all external members to be pruned by now"
-    conn_str, conn_srv = _connection_string(mdb_migration)
+    assert not mdb_k8s["spec"].get("externalMembers"), "expected all external members to be pruned by now"
+    conn_str, conn_srv = _connection_string(mdb_k8s)
     assert conn_str.startswith("mongodb://"), "connection string must use mongodb:// scheme"
-    for hostname in _k8s_hostnames(mdb_migration):
+    for hostname in _k8s_hostnames(mdb_k8s):
         assert hostname in conn_str, f"k8s hostname {hostname!r} missing from final connection string"
-    assert f"replicaSet={mdb_migration["spec"]["replicaSetNameOverride"]}" in conn_str
+    assert f"replicaSet={mdb_k8s["spec"]["replicaSetNameOverride"]}" in conn_str
 
     assert conn_srv.startswith("mongodb+srv://"), "SRV connection string must use mongodb+srv:// scheme"
-    assert f"{mdb_migration.get_service()}.{mdb_migration.namespace}.svc.cluster.local" in conn_srv
-    assert f"replicaSet={mdb_migration["spec"]["replicaSetNameOverride"]}" in conn_str
+    assert f"{mdb_k8s.get_service()}.{mdb_k8s.namespace}.svc.cluster.local" in conn_srv
+    assert f"replicaSet={mdb_k8s["spec"]["replicaSetNameOverride"]}" in conn_str
 
 
 @mark.e2e_vm_migration
