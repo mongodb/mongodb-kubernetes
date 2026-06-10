@@ -1410,6 +1410,7 @@ func TestGetMongosConfigParametersForSharded(t *testing.T) {
 		name          string
 		search        *searchv1.MongoDBSearch
 		clusterIndex  int
+		clusterName   string
 		shardNames    []string
 		clusterDomain string
 		expectedHost  string
@@ -1540,16 +1541,17 @@ func TestGetMongosConfigParametersForSharded(t *testing.T) {
 				},
 			},
 			clusterIndex:  1,
+			clusterName:   "eu-west-k8s",
 			shardNames:    []string{"test-mdb-0", "test-mdb-1"},
 			clusterDomain: "cluster.local",
-			// Strip "{shardName}." then resolve {clusterName} for spec.clusters[1].
+			// Strip "{shardName}." then resolve {clusterName} from the supplied clusterName.
 			expectedHost: "eu-west-k8s.search.example.com:443",
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			config := GetMongosConfigParametersForSharded(tc.search, tc.clusterIndex, tc.shardNames, tc.clusterDomain)
+			config := GetMongosConfigParametersForSharded(tc.search, tc.clusterIndex, tc.clusterName, tc.shardNames, tc.clusterDomain)
 
 			setParameter, ok := config["setParameter"].(map[string]any)
 			require.True(t, ok, "setParameter should be a map")
@@ -2758,8 +2760,8 @@ func TestReconcilePlan_UsesPerClusterClient(t *testing.T) {
 func TestBuildShardedPlan_PerClusterShardUnitsForMC(t *testing.T) {
 	search := newTestMongoDBSearch("mdb-search", "ns")
 	search.Spec.Clusters = []searchv1.ClusterSpec{
-		{ClusterName: "cluster-a"},
-		{ClusterName: "cluster-b"},
+		{ClusterName: "cluster-a", ClusterIndex: ptr.To(int32(0))},
+		{ClusterName: "cluster-b", ClusterIndex: ptr.To(int32(1))},
 	}
 
 	shardedSource := &mockShardedSource{
@@ -2816,8 +2818,8 @@ func TestBuildShardedPlan_PerClusterShardUnitsForMC(t *testing.T) {
 func TestReconcileShardedMC_FanOutUsesPerClusterClient(t *testing.T) {
 	search := newTestMongoDBSearch("mdb-search", "ns")
 	search.Spec.Clusters = []searchv1.ClusterSpec{
-		{ClusterName: "cluster-a"},
-		{ClusterName: "cluster-b"},
+		{ClusterName: "cluster-a", ClusterIndex: ptr.To(int32(0))},
+		{ClusterName: "cluster-b", ClusterIndex: ptr.To(int32(1))},
 	}
 
 	shardedSource := &mockShardedSource{
@@ -2930,8 +2932,8 @@ func TestReconcileShardedMC_FanOutUsesPerClusterClient(t *testing.T) {
 func TestReconcileShardedMC_AllUnitsAppliedBeforeReadinessCheck(t *testing.T) {
 	search := newTestMongoDBSearch("mdb-search", "ns")
 	search.Spec.Clusters = []searchv1.ClusterSpec{
-		{ClusterName: "cluster-a"},
-		{ClusterName: "cluster-b"},
+		{ClusterName: "cluster-a", ClusterIndex: ptr.To(int32(0))},
+		{ClusterName: "cluster-b", ClusterIndex: ptr.To(int32(1))},
 	}
 	search.Spec.Source = &searchv1.MongoDBSource{
 		ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{
@@ -3055,8 +3057,8 @@ func newMCShardedFixture(t *testing.T) *mcShardedFixture {
 	t.Helper()
 	search := newTestMongoDBSearch("mdb-search", "ns")
 	search.Spec.Clusters = []searchv1.ClusterSpec{
-		{ClusterName: "cluster-a"},
-		{ClusterName: "cluster-b"},
+		{ClusterName: "cluster-a", ClusterIndex: ptr.To(int32(0))},
+		{ClusterName: "cluster-b", ClusterIndex: ptr.To(int32(1))},
 	}
 	search.Spec.Source = &searchv1.MongoDBSource{
 		ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{
