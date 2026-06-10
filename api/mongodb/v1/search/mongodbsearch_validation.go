@@ -617,19 +617,19 @@ func validateExternalHostnameDNSLength(s *MongoDBSearch) v1.ValidationResult {
 }
 
 // validateMCRequiresManagedLB enforces that a multi-cluster MongoDBSearch uses
-// spec.loadBalancer.managed. Both no-LB (Q5-MC / Q6-MC) and unmanaged-LB (Q3-MC /
-// Q4-MC) topologies are rejected for multi-cluster per spec §4.4 / §B0.2:
-// multi-cluster at GA requires Envoy (managed LB). The dispatch scopes this to
-// multi-cluster (len > 1); single-cluster keeps using no-LB / unmanaged LB.
+// spec.loadBalancer.managed. Multi-cluster at GA requires Envoy (managed LB), so
+// both a missing load balancer and an unmanaged one are rejected when there is
+// more than one cluster. The dispatch scopes this to multi-cluster (len > 1);
+// single-cluster keeps using no-LB / unmanaged LB.
 func validateMCRequiresManagedLB(s *MongoDBSearch) v1.ValidationResult {
 	if s.Spec.LoadBalancer == nil {
 		return v1.ValidationError(
-			"multi-cluster MongoDBSearch requires spec.loadBalancer.managed; no-LB MC topologies (Q5/Q6) are not supported",
+			"multi-cluster MongoDBSearch requires a managed load balancer (spec.loadBalancer.managed) at the moment; none is configured",
 		)
 	}
 	if s.Spec.LoadBalancer.Unmanaged != nil {
 		return v1.ValidationError(
-			"Q3/Q4-MC topologies are deferred: multi-cluster MongoDBSearch requires spec.loadBalancer.managed; spec.loadBalancer.unmanaged is single-cluster only at GA",
+			"multi-cluster MongoDBSearch requires a managed load balancer (spec.loadBalancer.managed) at the moment; spec.loadBalancer.unmanaged is not supported for multi-cluster",
 		)
 	}
 	return v1.ValidationSuccess()

@@ -500,12 +500,12 @@ func TestValidateMCRequiresManagedLB(t *testing.T) {
 		{
 			name:          "MC + no LB rejected",
 			lb:            nil,
-			errorContains: "Q5/Q6",
+			errorContains: "requires a managed load balancer (spec.loadBalancer.managed) at the moment; none is configured",
 		},
 		{
 			name:          "MC + unmanaged LB rejected",
 			lb:            &LoadBalancerConfig{Unmanaged: &UnmanagedLBConfig{Endpoint: "lb.example.com:443"}},
-			errorContains: "Q3/Q4-MC",
+			errorContains: "spec.loadBalancer.unmanaged is not supported for multi-cluster",
 		},
 	}
 	for _, tt := range tests {
