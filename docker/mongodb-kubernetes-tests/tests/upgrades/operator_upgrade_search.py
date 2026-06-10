@@ -213,7 +213,7 @@ class TestScaleWithManagedLB:
 
     def test_enable_multi_mongot_and_managed_lb(self, mdbs: MongoDBSearch):
         mdbs.load()
-        mdbs["spec"]["replicas"] = 2
+        mdbs["spec"]["clusters"] = [{"replicas": 2}]
         mdbs["spec"]["loadBalancer"] = {"managed": {}}
         mdbs.update()
 

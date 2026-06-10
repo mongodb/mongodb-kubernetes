@@ -179,6 +179,15 @@ type ClusterSpec struct {
 	JVMFlags []string `json:"jvmFlags,omitempty"`
 }
 
+// ReplicasOrDefault returns the cluster's mongot replica count, defaulting to 1
+// when Replicas is unset. An explicit 0 is honored (used to take mongot offline).
+func (c ClusterSpec) ReplicasOrDefault() int {
+	if c.Replicas != nil {
+		return int(*c.Replicas)
+	}
+	return 1
+}
+
 // LoadBalancerConfig configures L7 load balancing between mongod/mongos and mongot.
 // Exactly one of Managed or Unmanaged must be set.
 // +kubebuilder:validation:XValidation:rule="(has(self.managed) && !has(self.unmanaged)) || (!has(self.managed) && has(self.unmanaged))",message="exactly one of managed or unmanaged must be set"
@@ -801,10 +810,7 @@ func (s *MongoDBSearch) GetReplicasForCluster(clusterName string) int {
 	if err != nil {
 		return 1
 	}
-	if r := c.Replicas; r != nil {
-		return int(*r)
-	}
-	return 1
+	return c.ReplicasOrDefault()
 }
 
 // HasMultipleReplicas reports whether any cluster runs more than one mongot
@@ -818,11 +824,7 @@ func (s *MongoDBSearch) HasMultipleReplicas() bool {
 func (s *MongoDBSearch) MaxReplicasAcrossClusters() int {
 	highest := 0
 	for _, c := range s.Spec.Clusters {
-		replicas := 1
-		if c.Replicas != nil {
-			replicas = int(*c.Replicas)
-		}
-		if replicas > highest {
+		if replicas := c.ReplicasOrDefault(); replicas > highest {
 			highest = replicas
 		}
 	}

@@ -4243,7 +4243,7 @@ spec:
                               type: object
                             retryPolicy:
                               description: |-
-                                RetryPolicy configures Envoy retry behavior for requests to upstream mongot clusters.
+                                RetryPolicy configures Envoy retry behavior for individual gRPC streams to upstream mongot clusters.
                                 When not set, retries are enabled with sensible defaults (2 retries, 60s per-try timeout).
                               properties:
                                 numRetries:
@@ -4581,7 +4581,7 @@ spec:
                         type: object
                       retryPolicy:
                         description: |-
-                          RetryPolicy configures Envoy retry behavior for requests to upstream mongot clusters.
+                          RetryPolicy configures Envoy retry behavior for individual gRPC streams to upstream mongot clusters.
                           When not set, retries are enabled with sensible defaults (2 retries, 60s per-try timeout).
                         properties:
                           numRetries:

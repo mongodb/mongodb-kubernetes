@@ -261,11 +261,11 @@ func TestValidateClustersUniqueClusterName(t *testing.T) {
 			errorContains: "duplicate",
 		},
 		{
-			// Empty names are reserved for the single-cluster case;
-			// two empty names is still a duplicate.
-			name:          "two empty names",
-			clusters:      []ClusterSpec{{}, {}},
-			errorContains: "duplicate",
+			// Empty names are skipped here: validateClustersClusterNameNonEmpty owns
+			// the multi-cluster "is required" rule, so two empty names must not be
+			// pre-empted with a "duplicate" error.
+			name:     "two empty names skipped (non-empty validator owns this)",
+			clusters: []ClusterSpec{{}, {}},
 		},
 	}
 	for _, tt := range tests {
@@ -419,8 +419,9 @@ func TestValidateExternalHostnameDNSLength(t *testing.T) {
 		errorContains string
 	}{
 		{
-			name:     "short hostname RS legacy passes",
+			name:     "short hostname RS single-cluster passes",
 			template: "search.lb.example.com:443",
+			clusters: []ClusterSpec{{}},
 		},
 		{
 			name:     "short hostname MC RS passes",
@@ -458,7 +459,7 @@ func TestValidateExternalHostnameDNSLength(t *testing.T) {
 		{
 			name:          "empty host after port-stripping rejected",
 			template:      ":443",
-			clusters:      nil,
+			clusters:      []ClusterSpec{{}},
 			errorContains: "empty host",
 		},
 		{
@@ -546,6 +547,14 @@ func TestValidateClustersClusterNameNonEmpty(t *testing.T) {
 		{
 			name:          "MC with empty clusterName at index 0",
 			clusters:      []ClusterSpec{{ClusterName: ""}, {ClusterName: "eu-west-k8s"}},
+			errorContains: "spec.clusters[0].clusterName is required",
+		},
+		{
+			// Both names empty must surface the actionable "is required" hint, not
+			// "duplicate" — validateClustersUniqueClusterName skips empties so the
+			// non-empty rule wins regardless of validator-group ordering.
+			name:          "MC with two empty clusterNames reports is-required, not duplicate",
+			clusters:      []ClusterSpec{{ClusterName: ""}, {ClusterName: ""}},
 			errorContains: "spec.clusters[0].clusterName is required",
 		},
 	}

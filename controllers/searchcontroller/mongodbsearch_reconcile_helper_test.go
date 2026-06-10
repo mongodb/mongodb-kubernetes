@@ -1325,6 +1325,86 @@ func TestValidateManagedLBShardedTLS(t *testing.T) {
 	}
 }
 
+func TestValidateMultipleReplicasUnmanagedLBTopology(t *testing.T) {
+	mdbc := newTestMongoDBCommunity("test-mongodb", "test")
+
+	multiReplica := func(s *searchv1.MongoDBSearch) {
+		s.Spec.Clusters = []searchv1.ClusterSpec{{Replicas: ptr.To(int32(2))}}
+	}
+	withUnmanaged := func(endpoint string) func(*searchv1.MongoDBSearch) {
+		return func(s *searchv1.MongoDBSearch) {
+			s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
+				Unmanaged: &searchv1.UnmanagedLBConfig{Endpoint: endpoint},
+			}
+		}
+	}
+
+	tests := []struct {
+		name          string
+		search        *searchv1.MongoDBSearch
+		source        SearchSourceDBResource
+		expectedError string
+	}{
+		{
+			name:          "sharded source, multiple replicas, endpoint without {shardName} - error",
+			search:        newTestMongoDBSearch("test-search", "test", multiReplica, withUnmanaged("lb.example.com:27028")),
+			source:        &mockShardedSource{shardNames: []string{"shard-0"}},
+			expectedError: "must contain a {shardName} placeholder for a sharded source",
+		},
+		{
+			name:   "sharded source, multiple replicas, endpoint with {shardName} - ok",
+			search: newTestMongoDBSearch("test-search", "test", multiReplica, withUnmanaged("lb-{shardName}.example.com:27028")),
+			source: &mockShardedSource{shardNames: []string{"shard-0"}},
+		},
+		{
+			name:          "replica set source, multiple replicas, endpoint with {shardName} - error",
+			search:        newTestMongoDBSearch("test-search", "test", multiReplica, withUnmanaged("lb-{shardName}.example.com:27028")),
+			source:        NewCommunityResourceSearchSource(mdbc),
+			expectedError: "must not contain a {shardName} placeholder for a replica set source",
+		},
+		{
+			name:   "replica set source, multiple replicas, endpoint without template - ok",
+			search: newTestMongoDBSearch("test-search", "test", multiReplica, withUnmanaged("lb.example.com:27028")),
+			source: NewCommunityResourceSearchSource(mdbc),
+		},
+		{
+			name:   "single replica, sharded source, endpoint without {shardName} - ok",
+			search: newTestMongoDBSearch("test-search", "test", withUnmanaged("lb.example.com:27028")),
+			source: &mockShardedSource{shardNames: []string{"shard-0"}},
+		},
+		{
+			name: "multiple replicas, managed LB - ok",
+			search: newTestMongoDBSearch("test-search", "test", multiReplica, func(s *searchv1.MongoDBSearch) {
+				s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{}}
+			}),
+			source: &mockShardedSource{shardNames: []string{"shard-0"}},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			clientBuilder := mock.NewEmptyFakeClientBuilder()
+			clientBuilder.WithObjects(mdbc)
+
+			helper := NewMongoDBSearchReconcileHelper(
+				kubernetesClient.NewClient(clientBuilder.Build()),
+				tc.search,
+				tc.source,
+				OperatorSearchConfig{},
+				nil, nil,
+			)
+
+			err := helper.ValidateMultipleReplicasUnmanagedLBTopology()
+			if tc.expectedError == "" {
+				assert.NoError(t, err)
+			} else {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), tc.expectedError)
+			}
+		})
+	}
+}
+
 func TestGetMongosConfigParametersForSharded(t *testing.T) {
 	tests := []struct {
 		name          string

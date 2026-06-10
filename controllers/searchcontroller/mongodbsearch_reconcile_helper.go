@@ -450,6 +450,10 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 		return workflow.Failed(err)
 	}
 
+	if err := r.ValidateMultipleReplicasUnmanagedLBTopology(); err != nil {
+		return workflow.Failed(err)
+	}
+
 	plan, err := r.buildReconcilePlan(log)
 	if err != nil {
 		return workflow.Failed(err)
@@ -1702,6 +1706,48 @@ func (r *MongoDBSearchReconcileHelper) ValidateSingleMongoDBSearchForSearchSourc
 func (r *MongoDBSearchReconcileHelper) ValidateSearchImageVersion(version string) error {
 	if strings.Contains(version, unsupportedSearchVersion) {
 		return xerrors.Errorf(unsupportedSearchVersionErrorFmt, unsupportedSearchVersion)
+	}
+
+	return nil
+}
+
+// ValidateMultipleReplicasUnmanagedLBTopology validates that an operator-managed
+// (internal) MongoDB source running multiple mongot replicas behind an unmanaged
+// load balancer uses an endpoint template that matches the resolved source topology:
+// a sharded source needs the per-shard {shardName} template, a replica set source
+// must not carry it. It lives at reconcile level because internal sources only
+// reveal their sharded-ness after the referenced MongoDB resource is fetched;
+// external sources are fully covered at spec-validation time by
+// validateUnmanagedEndpointTemplate, and the no-load-balancer case is covered by
+// validateMultipleReplicasRequireLB. Without this check a mismatched endpoint is
+// silently ignored (see GetEndpointForShard / mongotHostAndPort) and all mongot
+// traffic pins to pod 0, defeating the load balancer the user configured.
+func (r *MongoDBSearchReconcileHelper) ValidateMultipleReplicasUnmanagedLBTopology() error {
+	if !r.mdbSearch.HasMultipleReplicas() || !r.mdbSearch.IsLBModeUnmanaged() {
+		return nil
+	}
+
+	// External sources are validated at spec time, where their topology is known.
+	if r.mdbSearch.IsExternalMongoDBSource() {
+		return nil
+	}
+
+	if _, ok := r.db.(SearchSourceShardedDeployment); ok {
+		if !r.mdbSearch.IsShardedUnmanagedLB() {
+			return xerrors.Errorf(
+				"spec.loadBalancer.unmanaged.endpoint must contain a %s placeholder for a sharded source with multiple mongot replicas; "+
+					"without it the endpoint cannot differentiate shards and traffic pins to a single mongot",
+				searchv1.ShardNamePlaceholder,
+			)
+		}
+		return nil
+	}
+
+	if !r.mdbSearch.IsReplicaSetUnmanagedLB() {
+		return xerrors.Errorf(
+			"spec.loadBalancer.unmanaged.endpoint must not contain a %s placeholder for a replica set source with multiple mongot replicas",
+			searchv1.ShardNamePlaceholder,
+		)
 	}
 
 	return nil

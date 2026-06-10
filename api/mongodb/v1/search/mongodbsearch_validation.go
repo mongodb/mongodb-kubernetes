@@ -143,11 +143,11 @@ func validateClustersNonEmpty(s *MongoDBSearch) v1.ValidationResult {
 // across the replicas. It depends only on spec fields, so it lives in the
 // spec-validation tier.
 func validateMultipleReplicasRequireLB(s *MongoDBSearch) v1.ValidationResult {
-	if s.HasMultipleReplicas() && s.Spec.LoadBalancer == nil {
+	if max := s.MaxReplicasAcrossClusters(); max > 1 && s.Spec.LoadBalancer == nil {
 		return v1.ValidationError(
 			"multiple mongot replicas (%d) require load balancer configuration; "+
 				"please configure load balancing in spec.loadBalancer.",
-			s.MaxReplicasAcrossClusters(),
+			max,
 		)
 	}
 	return v1.ValidationSuccess()
@@ -204,7 +204,7 @@ func isPlaceholderOnly(endpoint string) bool {
 // the template makes no sense for a ReplicaSet (Rule 8).
 func validateUnmanagedEndpointTemplate(s *MongoDBSearch) v1.ValidationResult {
 	endpoint := s.Spec.LoadBalancer.Unmanaged.Endpoint
-	hasTemplate := strings.Contains(endpoint, ShardNamePlaceholder)
+	hasTemplate := s.HasEndpointTemplate()
 
 	// External sharded: the declared shard set means each shard needs its own
 	// endpoint, so the template is required and must carry more than the placeholder.
@@ -435,9 +435,15 @@ func validateClustersClusterNameNonEmpty(s *MongoDBSearch) v1.ValidationResult {
 }
 
 // validateClustersUniqueClusterName enforces clusterName uniqueness inside spec.clusters.
+// Empty clusterNames are skipped: validateClustersClusterNameNonEmpty owns the
+// multi-cluster "is required" rule and surfaces the actionable message, so a
+// two-empty-names spec must not be pre-empted here with a "duplicate" error.
 func validateClustersUniqueClusterName(s *MongoDBSearch) v1.ValidationResult {
 	seen := make(map[string]int, len(s.Spec.Clusters))
 	for i, c := range s.Spec.Clusters {
+		if c.ClusterName == "" {
+			continue
+		}
 		if first, dup := seen[c.ClusterName]; dup {
 			return v1.ValidationError(
 				"duplicate clusterName %q in spec.clusters (entries %d and %d)",
@@ -546,16 +552,11 @@ func validateMCExternalHostnamePlaceholders(s *MongoDBSearch) v1.ValidationResul
 // (cluster, shard) cross-product hostname is a valid RFC 1123 subdomain
 // (FQDN <= 253 chars, each label <= 63 chars). The host portion is the
 // substring before the last ":" (port stripped); if no ":" is present the
-// entire string is the host. Iterates spec.clusters[] x
-// spec.source.external.shardedCluster.shards[] (either may be empty).
+// entire string is the host. Iterates spec.clusters[] (always >= 1) x
+// spec.source.external.shardedCluster.shards[] (may be empty).
 func validateExternalHostnameDNSLength(s *MongoDBSearch) v1.ValidationResult {
 	if s.Spec.LoadBalancer.Managed.ExternalHostname == "" {
 		return v1.ValidationSuccess()
-	}
-
-	var clusterCount int
-	if s.Spec.Clusters != nil {
-		clusterCount = len(s.Spec.Clusters)
 	}
 
 	var shardNames []string
@@ -596,18 +597,10 @@ func validateExternalHostnameDNSLength(s *MongoDBSearch) v1.ValidationResult {
 		return v1.ValidationSuccess()
 	}
 
-	// Iterate the cross-product. clusterCount == 0 (legacy / no spec.clusters)
-	// runs a single pass with no cluster substitution; len(shardNames) == 0
-	// runs a single pass with no shard substitution.
-	clusterIters := clusterCount
-	if clusterIters == 0 {
-		clusterIters = 1
-	}
-	for i := 0; i < clusterIters; i++ {
-		base := s.Spec.LoadBalancer.Managed.ExternalHostname
-		if clusterCount > 0 {
-			base = s.GetManagedLBEndpointForCluster(i)
-		}
+	// Iterate the cross-product. len(shardNames) == 0 runs a single pass per
+	// cluster with no shard substitution.
+	for i := range s.Spec.Clusters {
+		base := s.GetManagedLBEndpointForCluster(i)
 		if len(shardNames) == 0 {
 			if res := check(base); res.Level == v1.ErrorLevel {
 				return res
