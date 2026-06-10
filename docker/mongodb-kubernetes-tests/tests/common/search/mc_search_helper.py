@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import json
-from typing import Dict, List, Mapping, Optional, Tuple
+from typing import Callable, Dict, List, Mapping, Optional, Tuple
 
 import kubernetes
 import yaml
 from kubernetes.client import CoreV1Api
-from kubetester import create_or_update_configmap, create_or_update_secret, read_secret
+from kubetester import create_or_update_configmap, create_or_update_secret, decode_secret, read_secret
 from kubetester.certs import create_tls_certs
 from kubetester.kubetester import KubernetesTester, run_periodically
 from kubetester.mongodb_multi import MongoDBMulti
@@ -47,25 +47,11 @@ def _assert_search_owner_labels(
     )
 
 
-# ---------------------------------------------------------------------------
-# Internal naming mirrors — track ``pkg/handler/names_search.go``.
-# ---------------------------------------------------------------------------
-
-
-def _per_cluster_mongot_config_name(mdbs_name: str, cluster_index: int) -> str:
-    return f"{mdbs_name}-search-{cluster_index}-config"
-
-
-def _per_cluster_envoy_deployment_name(mdbs_name: str, cluster_index: int) -> str:
-    return f"{mdbs_name}-search-lb-0-{cluster_index}"
-
-
-def _per_cluster_envoy_configmap_name(mdbs_name: str, cluster_index: int) -> str:
-    return f"{mdbs_name}-search-lb-0-{cluster_index}-config"
-
-
-def _expected_proxy_svc_fqdn(mdbs_name: str, cluster_index: int, namespace: str) -> str:
-    return f"{mdbs_name}-search-{cluster_index}-proxy-svc.{namespace}.svc.cluster.local"
+def _resolve_cluster_index(helper: Optional[MCSearchDeploymentHelper], mcc: MultiClusterClient) -> int:
+    if helper is not None:
+        return helper.cluster_index(mcc.cluster_name)
+    assert mcc.cluster_index is not None, f"cluster_index unset on {mcc.cluster_name!r}"
+    return mcc.cluster_index
 
 
 # ---------------------------------------------------------------------------
@@ -173,11 +159,12 @@ def replicate_search_secrets_to_members(
 
     for secret_name in secrets_to_replicate:
         source = central_core.read_namespaced_secret(name=secret_name, namespace=namespace)
+        data = decode_secret(source.data)
         for mcc in member_cluster_clients:
             create_or_update_secret(
                 namespace,
                 secret_name,
-                read_secret(namespace, secret_name, api_client=central_cluster_client),
+                data,
                 type=source.type or "Opaque",
                 api_client=mcc.api_client,
             )
@@ -244,6 +231,32 @@ def replicate_sharded_search_secrets_to_members(
 # ---------------------------------------------------------------------------
 
 
+def assert_mongot_sync_source_hosts(
+    mcc: MultiClusterClient,
+    cm_name: str,
+    namespace: str,
+    expected_hosts: List[str],
+    cm: Optional[kubernetes.client.V1ConfigMap] = None,
+) -> None:
+    """Iterates every config doc key (`config.yml`, or the per-pod
+    `config-leader.yml`/`config-follower.yml` pair) so the syncSource-hosts check holds in
+    both single- and per-pod-config modes. Pass a pre-fetched ``cm`` to skip the GET.
+    """
+    if cm is None:
+        cm = mcc.read_namespaced_config_map(cm_name, namespace)
+    docs = {k: v for k, v in (cm.data or {}).items() if k.endswith((".yml", ".yaml"))}
+    assert docs, f"[{mcc.cluster_name}] mongot CM {cm_name} has no config doc; got keys {list(cm.data or {})}"
+    want = sorted(expected_hosts)
+    for key, payload in docs.items():
+        parsed = yaml.safe_load(payload) or {}
+        got = parsed.get("syncSource", {}).get("replicaSet", {}).get("hostAndPort", [])
+        assert sorted(got) == want, (
+            f"[{mcc.cluster_name}] mongot CM {cm_name}[{key}]: syncSource.replicaSet.hostAndPort "
+            f"{sorted(got)} != expected seed list {want}"
+        )
+    logger.info(f"[{mcc.cluster_name}] mongot CM {cm_name} syncSource hosts == seed list ({len(docs)} doc(s))")
+
+
 def verify_per_cluster_mongot_resources(
     *,
     mdb: MongoDBMulti,
@@ -259,7 +272,7 @@ def verify_per_cluster_mongot_resources(
         idx = helper.cluster_index(mcc.cluster_name)
         sts_name = f"{mdbs_resource_name}-search-{idx}"
         svc_name = f"{mdbs_resource_name}-search-{idx}-svc"
-        cm_name = _per_cluster_mongot_config_name(mdbs_resource_name, idx)
+        cm_name = search_resource_names.mongot_configmap_name_for_cluster(mdbs_resource_name, idx)
         proxy_svc_name = f"{mdbs_resource_name}-search-{idx}-proxy-svc"
 
         sts = mcc.read_namespaced_stateful_set(sts_name, namespace)
@@ -277,14 +290,7 @@ def verify_per_cluster_mongot_resources(
             cm.metadata.labels or {}, mcc.cluster_name, f"mongot CM {cm_name}", mdbs_resource_name
         )
 
-        config_yaml = cm.data.get("config.yml") or cm.data.get("mongot.yaml")
-        assert config_yaml, f"mongot CM {cm_name} missing config payload; data keys={list(cm.data or {})}"
-        parsed = yaml.safe_load(config_yaml)
-        cm_hosts = parsed.get("syncSource", {}).get("replicaSet", {}).get("hostAndPort", [])
-        assert sorted(cm_hosts) == expected_hosts, (
-            f"mongot CM {cm_name} in cluster {mcc.cluster_name}: hostAndPort {sorted(cm_hosts)} "
-            f"!= expected seed list {expected_hosts}"
-        )
+        assert_mongot_sync_source_hosts(mcc, cm_name, namespace, expected_hosts, cm=cm)
 
         logger.info(
             f"per-cluster mongot resources verified in cluster {mcc.cluster_name} "
@@ -302,8 +308,8 @@ def verify_per_cluster_envoy_deployment(
     """Every cluster's Envoy Deployment + ConfigMap exist, fully ready, owner-labelled."""
     for mcc in member_cluster_clients:
         cluster_idx = helper.cluster_index(mcc.cluster_name)
-        envoy_deployment_name = _per_cluster_envoy_deployment_name(mdbs_resource_name, cluster_idx)
-        envoy_cm_name = _per_cluster_envoy_configmap_name(mdbs_resource_name, cluster_idx)
+        envoy_deployment_name = search_resource_names.lb_deployment_name(mdbs_resource_name, cluster_idx)
+        envoy_cm_name = search_resource_names.lb_configmap_name(mdbs_resource_name, cluster_idx)
         apps = mcc.apps_v1_api()
         assert_deployment_ready_in_cluster(apps, name=envoy_deployment_name, namespace=namespace)
         envoy_deploy = apps.read_namespaced_deployment(name=envoy_deployment_name, namespace=namespace)
@@ -325,19 +331,36 @@ def verify_per_cluster_envoy_sni(
     *,
     namespace: str,
     mdbs_resource_name: str,
-    helper: MCSearchDeploymentHelper,
     member_cluster_clients: List[MultiClusterClient],
+    helper: Optional[MCSearchDeploymentHelper] = None,
+    expected_upstreams_by_idx: Optional[Dict[int, List[str]]] = None,
 ) -> None:
-    """Each per-cluster Envoy ConfigMap's lds.json references exactly its
-    cluster-local proxy-svc FQDN in SNI server_names — no cross-cluster leakage.
+    """Each per-cluster Envoy ConfigMap routes ONLY to its own cluster's slice — pass
+    ``helper`` (SNI-FQDN anchor) and/or ``expected_upstreams_by_idx`` (cds.json upstream
+    anchor; deterministic regardless of the templated SNI externalHostname), then leak-scan
+    for any foreign ``-search-{idx}-`` segment.
+
+    The SNI-FQDN anchor is helper-only: simulated-MC callers omit ``helper`` (indexes come
+    from ``mcc.cluster_index``) because simulated sharded SNI carries per-shard FQDNs, not
+    the per-cluster proxy-svc FQDN this anchor checks.
+
+    Requires a TLS-enabled managed-LB config: Envoy emits SNI server_names only under TLS,
+    and the SNI assertions hard-fail without them.
     """
+    assert helper is not None or expected_upstreams_by_idx is not None, (
+        "verify_per_cluster_envoy_sni needs a positive anchor: pass helper (SNI FQDN anchor) "
+        "and/or expected_upstreams_by_idx (cds.json upstream anchor)"
+    )
+
+    indices = [_resolve_cluster_index(helper, mcc) for mcc in member_cluster_clients]
+
     for mcc in member_cluster_clients:
-        cluster_idx = helper.cluster_index(mcc.cluster_name)
-        cm_name = _per_cluster_envoy_configmap_name(mdbs_resource_name, cluster_idx)
-        expected_fqdn = _expected_proxy_svc_fqdn(mdbs_resource_name, cluster_idx, namespace)
+        cluster_idx = _resolve_cluster_index(helper, mcc)
+        cm_name = search_resource_names.lb_configmap_name(mdbs_resource_name, cluster_idx)
 
         cm = mcc.core_v1_api().read_namespaced_config_map(name=cm_name, namespace=namespace)
-        lds_json = (cm.data or {}).get("lds.json")
+        data = cm.data or {}
+        lds_json = data.get("lds.json")
         assert lds_json, f"lds.json missing in ConfigMap {cm_name} ({mcc.cluster_name})"
 
         lds_cfg = json.loads(lds_json)
@@ -346,24 +369,69 @@ def verify_per_cluster_envoy_sni(
             for fc in resource.get("filter_chains", []):
                 fcm = fc.get("filter_chain_match", {}) or {}
                 sni_names.extend(fcm.get("server_names", []) or [])
-
-        assert expected_fqdn in sni_names, (
-            f"[{mcc.cluster_name}] expected SNI server_name {expected_fqdn!r} "
-            f"in lds.json filter_chain_match.server_names, got {sni_names}"
+        assert sni_names, (
+            f"[{mcc.cluster_name}] Envoy LB (idx={cluster_idx}) lds.json parsed to zero SNI server_names — "
+            f"the SNI half of the foreign-leak check would be vacuously green"
         )
 
-        # Defensive: no OTHER cluster's proxy-svc FQDN should appear.
-        for other in member_cluster_clients:
-            if other.cluster_name == mcc.cluster_name:
-                continue
-            other_idx = helper.cluster_index(other.cluster_name)
-            other_fqdn = _expected_proxy_svc_fqdn(mdbs_resource_name, other_idx, namespace)
-            assert other_fqdn not in sni_names, (
-                f"[{mcc.cluster_name}] foreign SNI {other_fqdn!r} present in "
-                f"lds.json server_names — per-cluster Envoy must only match its own FQDN"
+        if helper is not None:
+            expected_fqdn = search_resource_names.mc_proxy_svc_fqdn(mdbs_resource_name, namespace, cluster_idx)
+            assert expected_fqdn in sni_names, (
+                f"[{mcc.cluster_name}] expected SNI server_name {expected_fqdn!r} "
+                f"in lds.json filter_chain_match.server_names, got {sni_names}"
             )
 
-        logger.info(f"[{mcc.cluster_name}] lds.json SNI server_names={sni_names} (expected match: {expected_fqdn})")
+            for other in member_cluster_clients:
+                if other.cluster_name == mcc.cluster_name:
+                    continue
+                other_fqdn = search_resource_names.mc_proxy_svc_fqdn(
+                    mdbs_resource_name, namespace, _resolve_cluster_index(helper, other)
+                )
+                assert other_fqdn not in sni_names, (
+                    f"[{mcc.cluster_name}] foreign SNI {other_fqdn!r} present in "
+                    f"lds.json server_names — per-cluster Envoy must only match its own FQDN"
+                )
+
+        upstreams: List[str] = []
+        if expected_upstreams_by_idx is not None:
+            expected_upstreams = expected_upstreams_by_idx.get(cluster_idx)
+            assert expected_upstreams, (
+                f"[{mcc.cluster_name}] empty/missing expected_upstreams for cluster_idx={cluster_idx} — "
+                f"the positive local-route anchor would be vacuously green"
+            )
+            cds_json = data.get("cds.json")
+            assert cds_json, f"[{mcc.cluster_name}] cds.json missing in ConfigMap {cm_name}; got keys {list(data)}"
+
+            for cluster in json.loads(cds_json).get("resources", []):
+                for ep in cluster.get("load_assignment", {}).get("endpoints", []):
+                    for lb in ep.get("lb_endpoints", []):
+                        addr = lb.get("endpoint", {}).get("address", {}).get("socket_address", {}).get("address")
+                        if addr:
+                            upstreams.append(addr)
+
+            for want in expected_upstreams:
+                assert want in upstreams, (
+                    f"[{mcc.cluster_name}] Envoy LB (idx={cluster_idx}) missing local mongot upstream {want!r}; "
+                    f"got upstreams={upstreams}"
+                )
+
+            all_names = sni_names + upstreams
+            for foreign_idx in indices:
+                if foreign_idx == cluster_idx:
+                    continue
+                foreign_segment = (
+                    f"{search_resource_names.mongot_statefulset_name_for_cluster(mdbs_resource_name, foreign_idx)}-"
+                )
+                for name in all_names:
+                    assert foreign_segment not in name, (
+                        f"[{mcc.cluster_name}] Envoy LB (idx={cluster_idx}) leaks foreign cluster idx={foreign_idx} "
+                        f"segment {foreign_segment!r} in {name!r} — per-cluster Envoy must reference only its own slice"
+                    )
+
+        logger.info(
+            f"[{mcc.cluster_name}] Envoy LB (idx={cluster_idx}) routes local-only: "
+            f"sni={sni_names} upstreams={upstreams}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -371,7 +439,7 @@ def verify_per_cluster_envoy_sni(
 # ---------------------------------------------------------------------------
 
 
-def _read_mongod_set_parameter(
+def read_mongod_set_parameter(
     pod_name: str,
     namespace: str,
     api_client: Optional[kubernetes.client.ApiClient] = None,
@@ -390,6 +458,40 @@ def _read_mongod_set_parameter(
     return parsed.get("setParameter", {}) or {}
 
 
+def patch_mongot_host_via_ac(
+    mdb,
+    resolve_host: Callable[[str], Optional[str]],
+    log=logger,
+    timeout: int = 900,
+    no_match_detail: str = "no AC processes matched the mongot-host resolver",
+) -> None:
+    """PUT mongotHost+searchIndexManagementHostAndPort per AC process, then block until
+    every agent applies the new goal version (setParameter changes require a restart).
+
+    MongoDBMultiCluster/MC-sharded expose no per-process additionalMongodConfig, so these
+    are set directly on the OM Automation Config — keeping them out of the CR spec ensures
+    operator reconciles never clobber them.
+    """
+    om_tester = mdb.get_om_tester()
+    ac_path = f"/groups/{om_tester.context.project_id}/automationConfig"
+    ac = om_tester.om_request("get", ac_path).json()
+    patched: List[str] = []
+    for process in ac.get("processes", []):
+        host = resolve_host(process.get("name", ""))
+        if host is None:
+            continue
+        sp = process.setdefault("args2_6", {}).setdefault("setParameter", {})
+        sp["mongotHost"] = host
+        sp["searchIndexManagementHostAndPort"] = host
+        patched.append(f"{process.get('name', '')}->{host}")
+    assert patched, f"{no_match_detail}; AC contained {[p.get('name') for p in ac.get('processes', [])]}"
+    log.info(f"patched {len(patched)} processes: {patched}")
+    ac["version"] = ac.get("version", 0) + 1
+    om_tester.om_request("put", ac_path, json_object=ac)
+    log.info(f"PUT automation config v{ac['version']} with per-cluster mongotHost")
+    om_tester.wait_agents_ready(timeout=timeout)
+
+
 def patch_per_cluster_mongot_host_via_om(
     *,
     mdb: MongoDBMulti,
@@ -397,16 +499,6 @@ def patch_per_cluster_mongot_host_via_om(
     member_cluster_clients: List[MultiClusterClient],
     envoy_proxy_port: int,
 ) -> None:
-    """PUT the OM automation config with per-cluster mongotHost / searchIndexManagementHostAndPort.
-
-    MongoDBMultiCluster doesn't yet expose per-cluster additionalMongodConfig, so the
-    per-process AC keys are set directly. Leaving them out of the MongoDBMulti spec
-    ensures subsequent operator reconciles never clobber this per-cluster locality.
-    """
-    om_tester = mdb.get_om_tester()
-    ac_path = f"/groups/{om_tester.context.project_id}/automationConfig"
-    ac = om_tester.om_request("get", ac_path).json()
-
     proxy_by_cluster_idx = {
         helper.cluster_index(mcc.cluster_name): f"{helper.proxy_svc_fqdn(mcc.cluster_name)}:{envoy_proxy_port}"
         for mcc in member_cluster_clients
@@ -414,86 +506,102 @@ def patch_per_cluster_mongot_host_via_om(
     logger.info(f"per-cluster mongotHost map: {proxy_by_cluster_idx}")
 
     process_prefix = f"{mdb.name}-"
-    patched_processes: List[str] = []
-    for process in ac.get("processes", []):
-        process_name = process.get("name", "")
+
+    def resolve_host(process_name: str) -> Optional[str]:
         if not process_name.startswith(process_prefix):
-            continue
+            return None
         try:
             cluster_idx = int(process_name[len(process_prefix) :].split("-")[0])
         except ValueError:
-            continue
-        if cluster_idx not in proxy_by_cluster_idx:
-            continue
+            return None
+        return proxy_by_cluster_idx.get(cluster_idx)
 
-        mongot_host = proxy_by_cluster_idx[cluster_idx]
-        set_parameter = process.setdefault("args2_6", {}).setdefault("setParameter", {})
-        set_parameter["mongotHost"] = mongot_host
-        set_parameter["searchIndexManagementHostAndPort"] = mongot_host
-        patched_processes.append(f"{process_name}->{mongot_host}")
-
-    assert patched_processes, (
-        f"no AC processes matched prefix {process_prefix!r}; "
-        f"AC contained {[p.get('name') for p in ac.get('processes', [])]}"
+    patch_mongot_host_via_ac(
+        mdb,
+        resolve_host,
+        no_match_detail=f"no AC processes matched prefix {process_prefix!r}",
     )
-    logger.info(f"patched {len(patched_processes)} processes: {patched_processes}")
 
-    ac["version"] = ac.get("version", 0) + 1
-    om_tester.om_request("put", ac_path, json_object=ac)
-    logger.info(f"PUT automation config v{ac['version']} with per-cluster mongotHost")
 
-    # Block until every mongod has applied the new goal version — setParameter
-    # changes here require a process restart.
-    om_tester.wait_agents_ready(timeout=900)
+def _assert_mongot_host_on_disk(
+    mdb: MongoDBMulti,
+    expected_by_idx: Dict[int, str],
+    member_cluster_clients: List[MultiClusterClient],
+    members_for_idx: Optional[Callable[[int], int]] = None,
+    index_of: Optional[Callable[[MultiClusterClient], int]] = None,
+    timeout: int = 300,
+) -> None:
+    """Reads /data/automation-mongod.conf on disk so we verify the AC patch landed AND the
+    agent applied it — not just that we set OM REST. ``members_for_idx`` widens the check
+    beyond the (possibly-primary) pod-0 to every member pod.
+    """
+    if members_for_idx is None:
+
+        def members_for_idx(_cluster_idx: int) -> int:
+            return 1  # pod-0 only — the central-MC default
+
+    if index_of is None:
+
+        def index_of(client: MultiClusterClient) -> int:
+            return _resolve_cluster_index(None, client)
+
+    def check() -> tuple:
+        all_correct = True
+        checked = 0
+        msgs: List[str] = []
+        for mcc in member_cluster_clients:
+            cluster_idx = index_of(mcc)
+            expected = expected_by_idx[cluster_idx]
+            for member in range(members_for_idx(cluster_idx)):
+                checked += 1
+                pod_name = f"{mdb.name}-{cluster_idx}-{member}"
+                try:
+                    params = read_mongod_set_parameter(pod_name, mdb.namespace, mcc.api_client)
+                    got_host = params.get("mongotHost", "")
+                    got_idx_mgmt = params.get("searchIndexManagementHostAndPort", "")
+                    if got_host != expected:
+                        all_correct = False
+                        msgs.append(f"[{mcc.cluster_name}] {pod_name}: mongotHost={got_host!r} expected={expected!r}")
+                    elif got_idx_mgmt != expected:
+                        all_correct = False
+                        msgs.append(
+                            f"[{mcc.cluster_name}] {pod_name}: searchIndexManagementHostAndPort="
+                            f"{got_idx_mgmt!r} expected={expected!r}"
+                        )
+                    else:
+                        msgs.append(f"[{mcc.cluster_name}] {pod_name}: mongotHost={expected} OK")
+                except Exception as exc:
+                    all_correct = False
+                    msgs.append(f"[{mcc.cluster_name}] {pod_name}: error reading conf: {exc}")
+        if checked == 0:
+            return (
+                False,
+                "no mongod pods checked (empty member_clients or members_for_idx==0) — would be vacuously green",
+            )
+        return all_correct, "\n".join(msgs)
+
+    run_periodically(check, timeout=timeout, sleep_time=10, msg="per-cluster mongotHost on disk")
 
 
 def assert_per_cluster_mongot_host_observed(
     *,
     mdb: MongoDBMulti,
-    helper: MCSearchDeploymentHelper,
     member_cluster_clients: List[MultiClusterClient],
+    helper: MCSearchDeploymentHelper,
     envoy_proxy_port: int,
     timeout: int = 300,
 ) -> None:
-    """Poll each cluster's first mongod and confirm the AC mongotHost / index-mgmt host
-    resolve to that cluster's local Envoy proxy-svc FQDN+port.
-
-    Reads /data/automation-mongod.conf on disk so we verify the AC patch
-    landed AND the agent applied it — not just that we set OM REST.
-    """
-    expected_per_cluster: Dict[str, str] = {
-        mcc.cluster_name: f"{helper.proxy_svc_fqdn(mcc.cluster_name)}:{envoy_proxy_port}"
+    expected_by_idx = {
+        helper.cluster_index(mcc.cluster_name): f"{helper.proxy_svc_fqdn(mcc.cluster_name)}:{envoy_proxy_port}"
         for mcc in member_cluster_clients
     }
-
-    def check() -> tuple:
-        all_correct = True
-        msgs: List[str] = []
-        for mcc in member_cluster_clients:
-            cluster_idx = helper.cluster_index(mcc.cluster_name)
-            pod_name = f"{mdb.name}-{cluster_idx}-0"  # first member of each cluster
-            expected = expected_per_cluster[mcc.cluster_name]
-            try:
-                params = _read_mongod_set_parameter(pod_name, mdb.namespace, mcc.api_client)
-                got_host = params.get("mongotHost", "")
-                got_idx_mgmt = params.get("searchIndexManagementHostAndPort", "")
-                if got_host != expected:
-                    all_correct = False
-                    msgs.append(f"[{mcc.cluster_name}] {pod_name}: mongotHost={got_host!r} expected={expected!r}")
-                elif got_idx_mgmt != expected:
-                    all_correct = False
-                    msgs.append(
-                        f"[{mcc.cluster_name}] {pod_name}: searchIndexManagementHostAndPort="
-                        f"{got_idx_mgmt!r} expected={expected!r}"
-                    )
-                else:
-                    msgs.append(f"[{mcc.cluster_name}] {pod_name}: mongotHost={expected} OK")
-            except Exception as exc:
-                all_correct = False
-                msgs.append(f"[{mcc.cluster_name}] {pod_name}: error reading conf: {exc}")
-        return all_correct, "\n".join(msgs)
-
-    run_periodically(check, timeout=timeout, sleep_time=10, msg="per-cluster mongotHost on disk")
+    _assert_mongot_host_on_disk(
+        mdb,
+        expected_by_idx,
+        member_cluster_clients,
+        index_of=lambda mcc: _resolve_cluster_index(helper, mcc),
+        timeout=timeout,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -559,44 +667,22 @@ def patch_per_cluster_sharded_mongot_host_via_om(
     logger.info(f"sharded shard-proxy map: {shard_proxy_host}")
     logger.info(f"sharded mongos-proxy map: {mongos_proxy_host}")
 
-    om_tester = mdb.get_om_tester()
-    ac_path = f"/groups/{om_tester.context.project_id}/automationConfig"
-    ac = om_tester.om_request("get", ac_path).json()
-
-    patched: List[str] = []
-    for process in ac.get("processes", []):
-        process_name = process.get("name", "")
+    def resolve_host(process_name: str) -> Optional[str]:
         classified = _classify_sharded_process(process_name, mdb.name, multi_cluster)
         if classified is None:
-            continue
+            return None
         role, cluster_index, shard_index = classified
         if role == "mongos":
-            host = mongos_proxy_host.get(cluster_index)
-        else:
-            # non-mongos roles (shard/config) always carry a concrete shard index
-            assert shard_index is not None
-            host = shard_proxy_host.get((cluster_index, shard_index))
-        if host is None:
-            continue
+            return mongos_proxy_host.get(cluster_index)
+        # non-mongos roles (shard/config) always carry a concrete shard index
+        assert shard_index is not None
+        return shard_proxy_host.get((cluster_index, shard_index))
 
-        set_parameter = process.setdefault("args2_6", {}).setdefault("setParameter", {})
-        set_parameter["mongotHost"] = host
-        set_parameter["searchIndexManagementHostAndPort"] = host
-        patched.append(f"{process_name}->{host}")
-
-    assert patched, (
-        f"no sharded AC processes matched mdb {mdb.name!r}; "
-        f"AC contained {[p.get('name') for p in ac.get('processes', [])]}"
+    patch_mongot_host_via_ac(
+        mdb,
+        resolve_host,
+        no_match_detail=f"no sharded AC processes matched mdb {mdb.name!r}",
     )
-    logger.info(f"patched {len(patched)} sharded processes: {patched}")
-
-    ac["version"] = ac.get("version", 0) + 1
-    om_tester.om_request("put", ac_path, json_object=ac)
-    logger.info(f"PUT automation config v{ac['version']} with per-(cluster,shard) mongotHost")
-
-    # setParameter changes require a process restart — block until every agent
-    # has applied the new goal version.
-    om_tester.wait_agents_ready(timeout=900)
 
 
 def assert_sharded_mongot_host_observed(
@@ -635,7 +721,7 @@ def assert_sharded_mongot_host_observed(
             if member_api_client_by_cluster is not None:
                 api_client = member_api_client_by_cluster.get(pod_to_cluster[pod_name])
             try:
-                params = _read_mongod_set_parameter(pod_name, namespace, api_client)
+                params = read_mongod_set_parameter(pod_name, namespace, api_client)
                 got_host = params.get("mongotHost", "")
                 got_idx = params.get("searchIndexManagementHostAndPort", "")
                 if got_host != want or got_idx != want:
