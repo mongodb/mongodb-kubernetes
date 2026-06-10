@@ -32,8 +32,8 @@ const (
 	ClusterNamePlaceholder = "{clusterName}"
 
 	// ClusterIndexPlaceholder is substituted with the stable cluster-index for
-	// spec.clusters[i]. The index is monotonic and never reused on remove/re-add
-	// (see api/mongodb/v1/search/cluster_index.go).
+	// spec.clusters[i]. The index is taken verbatim from the user pin; the persisted
+	// mapping retains removed clusters' entries (see cluster_index.go).
 	ClusterIndexPlaceholder = "{clusterIndex}"
 
 	// LabelResourceOwner is the label key used to identify the MongoDBSearch CR that
@@ -121,6 +121,8 @@ type MongoDBSearchSpec struct {
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=50
 	// +kubebuilder:validation:XValidation:rule="size(self) <= 1 || self.all(c1, has(c1.clusterName) && self.exists_one(c2, has(c2.clusterName) && c2.clusterName == c1.clusterName))",message="clusters[].clusterName must be set and unique when more than one cluster is specified"
+	// +kubebuilder:validation:XValidation:rule="self.all(c1, !has(c1.clusterIndex) || self.exists_one(c2, has(c2.clusterIndex) && c2.clusterIndex == c1.clusterIndex))",message="clusters[].clusterIndex must be unique when set"
+	// +kubebuilder:validation:XValidation:rule="size(self) <= 1 || self.all(c, has(c.clusterIndex))",message="clusters[].clusterIndex is required on every entry when more than one cluster is specified"
 	Clusters []ClusterSpec `json:"clusters"`
 }
 
@@ -152,6 +154,13 @@ type ClusterSpec struct {
 	// +optional
 	// +kubebuilder:validation:MaxLength=253
 	ClusterName string `json:"clusterName,omitempty"`
+	// ClusterIndex is the stable integer in per-cluster resource names. Required on every entry
+	// of a multi-cluster spec, and even on a single entry when each member cluster runs its own
+	// operator. Changing it renames this cluster's resources, orphaning those at the old index.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=999
+	ClusterIndex *int32 `json:"clusterIndex,omitempty"`
 	// Replicas is the number of mongot pods for this cluster's StatefulSet.
 	// For ReplicaSet sources this is the total; for sharded sources it is per shard.
 	// When Replicas > 1, a load balancer (spec.loadBalancer) is required to distribute
@@ -896,40 +905,34 @@ func (s *MongoDBSearch) GetManagedLBEndpointForShard(shardName string) string {
 	return strings.ReplaceAll(s.Spec.LoadBalancer.Managed.ExternalHostname, ShardNamePlaceholder, shardName)
 }
 
-// GetManagedLBEndpointForCluster resolves {clusterName} and {clusterIndex} in
-// the externalHostname template for spec.clusters[i]. Returns "" when managed
-// LB is not configured. Use GetManagedLBEndpointForClusterShard when {shardName}
-// also needs resolving.
-func (s *MongoDBSearch) GetManagedLBEndpointForCluster(i int) string {
+// GetManagedLBEndpointForCluster resolves {clusterName} and {clusterIndex} in the
+// externalHostname template from the caller's resolved index and name. Returns "" when
+// managed LB is not configured; use GetManagedLBEndpointForClusterShard to also resolve {shardName}.
+func (s *MongoDBSearch) GetManagedLBEndpointForCluster(clusterIndex int, clusterName string) string {
 	if !s.IsLBModeManaged() || s.Spec.LoadBalancer.Managed.ExternalHostname == "" {
 		return ""
 	}
 	out := s.Spec.LoadBalancer.Managed.ExternalHostname
-	clusters := s.Spec.Clusters
-	if i < 0 || i >= len(clusters) {
-		return out
-	}
-	out = strings.ReplaceAll(out, ClusterNamePlaceholder, clusters[i].ClusterName)
-	out = strings.ReplaceAll(out, ClusterIndexPlaceholder, strconv.Itoa(i))
+	out = strings.ReplaceAll(out, ClusterNamePlaceholder, clusterName)
+	out = strings.ReplaceAll(out, ClusterIndexPlaceholder, strconv.Itoa(clusterIndex))
 	return out
 }
 
 // GetManagedLBEndpointForClusterShard returns the externalHostname template with
 // {clusterName}, {clusterIndex}, and {shardName} all resolved for the
-// (spec.clusters[i], shardName) pair. Used for sharded multi-cluster
-// MongoDBSearch deployments. Returns "" when managed LB is not configured.
-func (s *MongoDBSearch) GetManagedLBEndpointForClusterShard(i int, shardName string) string {
-	out := s.GetManagedLBEndpointForCluster(i)
+// (cluster, shard) pair. Used for sharded multi-cluster MongoDBSearch
+// deployments. Returns "" when managed LB is not configured.
+func (s *MongoDBSearch) GetManagedLBEndpointForClusterShard(clusterIndex int, clusterName, shardName string) string {
+	out := s.GetManagedLBEndpointForCluster(clusterIndex, clusterName)
 	if out == "" {
 		return ""
 	}
 	return strings.ReplaceAll(out, ShardNamePlaceholder, shardName)
 }
 
-// GetManagedLBEndpointForClusterLevel derives the mongos-facing endpoint by stripping
-// the leading "{shardName}." from externalHostname. Returns "" when not derivable;
-// callers fall back to the cluster-level proxy Service FQDN.
-func (s *MongoDBSearch) GetManagedLBEndpointForClusterLevel(i int) string {
+// GetManagedLBEndpointForClusterLevel returns the mongos-facing endpoint: externalHostname
+// with the leading "{shardName}." stripped. Returns "" when not derivable so the caller falls back to the proxy Service FQDN.
+func (s *MongoDBSearch) GetManagedLBEndpointForClusterLevel(clusterIndex int, clusterName string) string {
 	if !s.IsLBModeManaged() || s.Spec.LoadBalancer.Managed.ExternalHostname == "" {
 		return ""
 	}
@@ -938,17 +941,13 @@ func (s *MongoDBSearch) GetManagedLBEndpointForClusterLevel(i int) string {
 	if strings.Contains(trimmed, ShardNamePlaceholder) {
 		return ""
 	}
-	hasClusterPlaceholder := strings.Contains(trimmed, ClusterNamePlaceholder) ||
-		strings.Contains(trimmed, ClusterIndexPlaceholder)
-	clusters := s.Spec.Clusters
-	if i < 0 || i >= len(clusters) {
-		if hasClusterPlaceholder {
-			return ""
-		}
-		return trimmed
+	// Empty clusterName (operator-managed sharded mongos passes "") would substitute to a
+	// blank label and emit a malformed ".host"; return "" so the caller falls back to the proxy FQDN.
+	if clusterName == "" && strings.Contains(trimmed, ClusterNamePlaceholder) {
+		return ""
 	}
-	out := strings.ReplaceAll(trimmed, ClusterNamePlaceholder, clusters[i].ClusterName)
-	out = strings.ReplaceAll(out, ClusterIndexPlaceholder, strconv.Itoa(i))
+	out := strings.ReplaceAll(trimmed, ClusterNamePlaceholder, clusterName)
+	out = strings.ReplaceAll(out, ClusterIndexPlaceholder, strconv.Itoa(clusterIndex))
 	return out
 }
 
@@ -1046,4 +1045,37 @@ func (s *MongoDBSearch) GetOwnerLabels() map[string]string {
 // GetKind implements v1.ObjectOwner.
 func (s *MongoDBSearch) GetKind() string {
 	return "MongoDBSearch"
+}
+
+// ValidateSimulatedMCClusterIndices requires a non-empty spec.clusters where every entry pins
+// a distinct ClusterIndex. Called only by operators in simulated-MC mode (operatorClusterName set).
+func (s *MongoDBSearch) ValidateSimulatedMCClusterIndices() error {
+	if len(s.Spec.Clusters) == 0 {
+		return fmt.Errorf("running one operator per cluster requires spec.clusters to be set")
+	}
+	seen := make(map[int32]string, len(s.Spec.Clusters))
+	for _, c := range s.Spec.Clusters {
+		if c.ClusterIndex == nil {
+			return fmt.Errorf("running one operator per cluster requires clusterIndex on every spec.clusters[] entry (missing on %q)", c.ClusterName)
+		}
+		if prev, dup := seen[*c.ClusterIndex]; dup {
+			return fmt.Errorf("clusterIndex %d is set on more than one spec.clusters[] entry (%q and %q); pinned indices must be distinct", *c.ClusterIndex, prev, c.ClusterName)
+		}
+		seen[*c.ClusterIndex] = c.ClusterName
+	}
+	return nil
+}
+
+// LocalizeToCluster narrows spec.Clusters to the entry matching name. Returns false if absent (different operator owns this CR).
+func (s *MongoDBSearch) LocalizeToCluster(name string) bool {
+	if len(s.Spec.Clusters) == 0 {
+		return true
+	}
+	for _, c := range s.Spec.Clusters {
+		if c.ClusterName == name {
+			s.Spec.Clusters = []ClusterSpec{c}
+			return true
+		}
+	}
+	return false
 }
