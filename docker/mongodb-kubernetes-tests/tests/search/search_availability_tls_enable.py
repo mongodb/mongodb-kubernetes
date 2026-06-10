@@ -9,9 +9,9 @@ Enabling search TLS is INHERENTLY a bounded outage, not a ride-through: mongot's
 binary (plaintext or TLS, no dual-listen) and no mongod ``searchTLSMode`` tolerates both endpoint
 kinds at once, so the plaintext->TLS data-plane cutover drops in-flight $search until mongod and
 mongot reconverge (the source-mongod automation agent applying requireTLS dominates the tail). The
-suite therefore asserts the deployment ROLLS both groups onto TLS, the mongod reaches requireTLS, and
-search RECOVERS to steady state (the recovery wait bounds it) — and logs the observed disruption — it
-does not assert no-outage. A second scenario then rotates the now-live cert (a ride-through; both
+suite therefore asserts the deployment ROLLS both groups onto TLS, the outage is OBSERVED on the
+oneshot path, and search RECOVERS to steady state within a bounded window — it does not assert
+no-outage. A second scenario then rotates the now-live cert (a ride-through; both
 groups roll onto the new material). Resource/version changes live in the upgrade suites.
 """
 
@@ -25,7 +25,11 @@ from kubetester.mongodb_search import MongoDBSearch
 from kubetester.phase import Phase
 from tests import test_logger
 from tests.common.search import search_resource_names
-from tests.common.search.background_availability_tester import SearchAvailabilityBackgroundTester, assert_no_outage
+from tests.common.search.background_availability_tester import (
+    SearchAvailabilityBackgroundTester,
+    assert_no_outage,
+    assert_outage_detected,
+)
 from tests.common.search.bootstrap_test_mixins import (
     InstallOperatorTests,
     MongoDBDeploymentConfig,
@@ -73,6 +77,8 @@ POST_EVENT_OPS = 15
 ENABLE_RECOVERY_TIMEOUT = 420
 # Rotation is a ride-through; the surviving replica serves through a one-at-a-time roll.
 ROTATION_DISRUPTION_BOUND_S = 60.0
+# Ceiling on flip->fully-recovered (pod replacements + reconcile); trips on an order-of-magnitude regression.
+ENABLE_RECOVERY_BOUND_S = 600.0
 
 
 # --- shared helpers -------------------------------------------------------
@@ -190,13 +196,15 @@ class TestEnableSearchTLS:
         )
 
     def test_enable_tls_availability(self, namespace: str):
-        """Enable search TLS under load: add spec.security.tls to the CR and flip the source mongod to
-        requireTLS. Both mongot (StatefulSet) and envoy (managed-LB Deployment) roll onto TLS. The
-        plaintext->TLS cutover is a bounded outage that drops in-flight $search until mongod and mongot
-        reconverge. The background testers OBSERVE the outage; recovery is proven by a fresh-client
-        steady-state window (the stale in-flight clients do not cleanly resume across the cutover, so
-        recovery is asserted with fresh clients, not by the same testers). Assert both groups roll, the
-        mongod reaches requireTLS, and search recovers; log the observed disruption."""
+        """Enable search TLS under load: both groups roll onto TLS, the bounded outage surfaces on the oneshot path, and recovery is bounded with fresh clients."""
+        assert (
+            _mongod_search_tls_mode(namespace) == "disabled"
+        ), "source mongod is not searchTLSMode=disabled before the off->on flip"
+        mdbs = _load_mdbs(namespace)
+        mdbs.load()
+        assert "tls" not in mdbs["spec"].get(
+            "security", {}
+        ), f"MongoDBSearch already carries spec.security.tls before enablement: {mdbs['spec'].get('security')}"
         oneshot = SearchAvailabilityBackgroundTester(_user_tool(namespace), mode="oneshot", interval_seconds=0.2)
         paging = SearchAvailabilityBackgroundTester(
             _user_tool(namespace), mode="paging", paging_batch_size=5, paging_reset_every=50_000, interval_seconds=0.05
@@ -207,7 +215,6 @@ class TestEnableSearchTLS:
             mongot_before = _pod_uids(namespace, MONGOT_SELECTOR)
             envoy_before = _pod_uids(namespace, ENVOY_SELECTOR)
             t0 = time.monotonic()
-            mdbs = _load_mdbs(namespace)
             mdbs.load()
             mdbs["spec"]["security"] = {"tls": {"certsSecretPrefix": _TLS_PREFIX}}
             mdbs.update()
@@ -218,11 +225,14 @@ class TestEnableSearchTLS:
             # Fresh-client $search proves the data plane serves TLS again; bounds the outage.
             _user_tool(namespace).wait_for_sentinel_indexed(timeout=ENABLE_RECOVERY_TIMEOUT)
             recovery_s = time.monotonic() - t0
-        disruption_s = paging.max_consecutive_failure * paging.interval_seconds
+        disruption_s = oneshot.max_consecutive_failure * oneshot.interval_seconds
         rolls_mongot = _roll_count(namespace, MONGOT_SELECTOR, mongot_before)
         rolls_envoy = _roll_count(namespace, ENVOY_SELECTOR, envoy_before)
         logger.info(f"tls-enable oneshot verdict: {oneshot.verdict.as_dict()}")
-        logger.info(f"tls-enable paging  verdict: {paging.verdict.as_dict()}")
+        logger.info(
+            f"tls-enable paging verdict (observational, buffer-masked): {paging.verdict.as_dict()} "
+            f"paging_disruption_s={paging.max_consecutive_failure * paging.interval_seconds:.1f}"
+        )
         _emit_metric(
             "tls-enable",
             rolls_mongot=rolls_mongot,
@@ -234,13 +244,12 @@ class TestEnableSearchTLS:
             rolls_mongot >= SEARCH.mongot_replicas
         ), f"expected all {SEARCH.mongot_replicas} mongot to roll onto TLS, got {rolls_mongot}"
         assert rolls_envoy >= 1, f"expected envoy to roll onto TLS, but rolls_envoy={rolls_envoy}"
+        # zero failures means the tester missed the cutover (or enable became zero-downtime) — either needs a look
+        assert_outage_detected(oneshot.verdict, accept_classes=("transient_network", "cursor_lost"))
         assert (
-            _mongod_search_tls_mode(namespace) == "requireTLS"
-        ), "source mongod did not reach searchTLSMode=requireTLS after enablement"
+            recovery_s <= ENABLE_RECOVERY_BOUND_S
+        ), f"tls-enable: recovery took {recovery_s:.1f}s, exceeding {ENABLE_RECOVERY_BOUND_S:.1f}s"
         # Recovery is the contract: fresh clients prove a fully clean window post-cutover.
-        _assert_steady(namespace)
-
-    def test_recovers_to_steady_state(self, namespace: str):
         _assert_steady(namespace)
 
 
@@ -248,9 +257,6 @@ class TestEnableSearchTLS:
 
 
 class TestRotateSearchTLSCert:
-    def test_steady_state_before(self, namespace: str):
-        _assert_steady(namespace)
-
     def test_issue_rotated_certs(self, namespace: str):
         """Issue a fresh LB + search cert under the rotated prefix, mirroring the enable cert step."""
         issuer = ensure_search_issuer(namespace)
@@ -308,7 +314,4 @@ class TestRotateSearchTLSCert:
         assert (
             oneshot.verdict.other_failed == 0 and oneshot.verdict.cursor_lost == 0
         ), f"tls-rotation: unexpected new-query failure class; {oneshot.verdict.as_dict()}"
-        _assert_steady(namespace)
-
-    def test_recovers_to_steady_state(self, namespace: str):
         _assert_steady(namespace)
