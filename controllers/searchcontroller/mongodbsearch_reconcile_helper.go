@@ -1699,7 +1699,7 @@ func GetMongodConfigParametersForShard(search *searchv1.MongoDBSearch, shardName
 // GetMongosConfigParametersForSharded picks the mongos→mongot endpoint by topology. No-LB targets the
 // first shard's per-shard proxy svc FQDN (the only sharded mongot hostname per-shard cert SANs cover);
 // the cluster-level Service would route to the same pod but isn't in SANs.
-func GetMongosConfigParametersForSharded(search *searchv1.MongoDBSearch, clusterIndex int, shardNames []string, clusterDomain string) map[string]any {
+func GetMongosConfigParametersForSharded(search *searchv1.MongoDBSearch, clusterIndex int, clusterName string, shardNames []string, clusterDomain string) map[string]any {
 	var endpoint string
 	// Three branches: explicit unmanaged LB, no spec.loadBalancer (pre-MVP
 	// single-cluster shape), and managed LB. The TD lists no-LB as RS-only at
@@ -1711,7 +1711,7 @@ func GetMongosConfigParametersForSharded(search *searchv1.MongoDBSearch, cluster
 	case !search.IsLBModeManaged() && len(shardNames) > 0:
 		endpoint = proxyServiceHostAndPortForShard(search, clusterIndex, shardNames[0], clusterDomain)
 	default:
-		endpoint = mongotEndpointForClusterLevel(search, clusterIndex, clusterDomain)
+		endpoint = mongotEndpointForClusterLevel(search, clusterIndex, clusterName, clusterDomain)
 	}
 	return buildSearchSetParameters(endpoint, searchTLSMode(search), true) // useGrpc must be true for mongos-to-mongot communication
 }
@@ -1720,9 +1720,9 @@ func GetMongosConfigParametersForSharded(search *searchv1.MongoDBSearch, cluster
 // For managed LB with an externalHostname, returns the cluster-level external form (template with
 // leading `{shardName}.` stripped). Otherwise (managed LB without externalHostname, or no LB) returns
 // the cluster-level proxy Service in-cluster FQDN.
-func mongotEndpointForClusterLevel(search *searchv1.MongoDBSearch, clusterIndex int, clusterDomain string) string {
+func mongotEndpointForClusterLevel(search *searchv1.MongoDBSearch, clusterIndex int, clusterName string, clusterDomain string) string {
 	if search.IsLBModeManaged() {
-		if endpoint := search.GetManagedLBEndpointForClusterLevel(clusterIndex); endpoint != "" {
+		if endpoint := search.GetManagedLBEndpointForClusterLevel(clusterIndex, clusterName); endpoint != "" {
 			return endpoint
 		}
 	}
