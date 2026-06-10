@@ -10,10 +10,13 @@ from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests import test_logger
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
+from tests.common.search.connectivity import SearchConnectivityTool
 from tests.common.search.movies_search_helper import SampleMoviesSearchHelper
+from tests.common.search.rs_search_helper import rs_search_tester
 from tests.common.search.search_deployment_helper import SearchDeploymentHelper
 from tests.common.search.search_resource_names import lb_deployment_name, mongot_statefulset_name, proxy_service_name
 from tests.common.search.search_tester import SearchTester
+from tests.common.search.upgrade_availability import run_upgrade_availability
 from tests.conftest import get_default_operator, log_deployments_info
 from tests.search.om_deployment import get_ops_manager
 
@@ -29,6 +32,18 @@ MONGOT_USER_PASSWORD = f"{MONGOT_USER_NAME}-password"
 
 USER_NAME = "mdb-user"
 USER_PASSWORD = f"{USER_NAME}-password"
+
+# Sustained-outage ceiling for the single-mongot operator upgrade: the sole mongot is fully replaced
+# (incl. image pull), so this is an outage->recover window, not a ride-through. Fails a pathological run.
+OPERATOR_UPGRADE_DISRUPTION_BOUND_S = 180.0
+
+
+def user_connectivity_tool(namespace: str) -> SearchConnectivityTool:
+    """A fresh connectivity tool (own client) for the upgrade availability tester. The mongod RS is
+    non-TLS, so connect without TLS to match it."""
+    return SearchConnectivityTool(
+        rs_search_tester(MDB_RESOURCE_NAME, namespace, USER_NAME, USER_PASSWORD, use_ssl=False)
+    )
 
 
 def get_operator_search_version(namespace: str, operator: Operator) -> str:
@@ -187,11 +202,30 @@ class TestDeployOnOfficialOperator:
 @mark.e2e_operator_upgrade_search
 class TestOperatorUpgrade:
 
-    def test_upgrade_operator(self, namespace: str, operator_installation_config: dict[str, str]):
-        operator = get_default_operator(
-            namespace, operator_installation_config=operator_installation_config, apply_crds_first=True
+    def test_upgrade_operator(self, namespace: str, operator_installation_config: dict[str, str], mdbs: MongoDBSearch):
+        """Default-image-bump: the upgrade to the dev operator also changes the bundled mongot/envoy
+        images, so the data plane rolls. Run the availability tester across the upgrade and emit the
+        per-run roll count + recovery/disruption metric (feeds the disruption-bound story)."""
+        tag_before = get_mongot_image_tag(namespace)
+
+        def apply_upgrade() -> None:
+            operator = get_default_operator(
+                namespace, operator_installation_config=operator_installation_config, apply_crds_first=True
+            )
+            operator.assert_is_running()
+            mdbs.assert_reaches_phase(Phase.Running, timeout=600)
+
+        # single mongot, no LB: the roll drops the direct mongod->mongot path, surfacing as cursor_lost
+        run_upgrade_availability(
+            namespace,
+            tool_factory=lambda: user_connectivity_tool(namespace),
+            apply_upgrade=apply_upgrade,
+            path="operator_default_image_bump",
+            disruption_bound_s=OPERATOR_UPGRADE_DISRUPTION_BOUND_S,
+            oneshot_accept=("transient_network", "cursor_lost"),
         )
-        operator.assert_is_running()
+        tag_after = get_mongot_image_tag(namespace)
+        assert tag_after != tag_before, f"operator upgrade was a no-op: mongot tag stayed {tag_before}"
         log_deployments_info(namespace)
 
     def test_search_running_after_upgrade(self, mdbs: MongoDBSearch):

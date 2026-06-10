@@ -48,6 +48,8 @@ class SearchAvailabilityBackgroundTester(threading.Thread):
         self.exception_number = 0
         self.last_exception: Optional[str] = None
         self.max_consecutive_failure = 0
+        # wall-clock length of the longest consecutive-failure window; slow-failing ops count their real duration
+        self.max_failure_window_s = 0.0
         self._stop_event = threading.Event()
         self.tool = tool
         self.mode = mode
@@ -77,14 +79,21 @@ class SearchAvailabilityBackgroundTester(threading.Thread):
 
     def run(self) -> None:
         consecutive_failure = 0
+        failure_window_started: Optional[float] = None
         while not self._stop_event.is_set():
             self.number_of_runs += 1
+            op_started = time.monotonic()
             result = self._run_one_iteration()
             with self._results_lock:
                 self._results.append(result)
             if result.success:
                 consecutive_failure = 0
+                if failure_window_started is not None:
+                    self.max_failure_window_s = max(self.max_failure_window_s, op_started - failure_window_started)
+                    failure_window_started = None
             else:
+                if failure_window_started is None:
+                    failure_window_started = op_started
                 consecutive_failure += 1
                 self.max_consecutive_failure = max(self.max_consecutive_failure, consecutive_failure)
                 self.exception_number += 1
@@ -93,6 +102,8 @@ class SearchAvailabilityBackgroundTester(threading.Thread):
             # on the stop event so stop() stays responsive.
             if self.interval_seconds > 0:
                 self._stop_event.wait(self.interval_seconds)
+        if failure_window_started is not None:
+            self.max_failure_window_s = max(self.max_failure_window_s, time.monotonic() - failure_window_started)
         self._close_cursor()
 
     def stop(self) -> None:
