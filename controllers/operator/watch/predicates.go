@@ -211,7 +211,7 @@ func statefulSetIsReady(sts *appsv1.StatefulSet) bool {
 // passes if either side carries them, so label add/remove transitions also
 // reconcile. Generic drops everything (informer-resync noise).
 //
-// Aligned with the Envoy controller's mapEnvoyObjectToSearch — both readers
+// Aligned with handler.EnqueueMemberClusterObjectToSearch — both readers
 // share the same label scheme.
 func PredicatesForMultiClusterSearchResource() predicate.Funcs {
 	hasOwnerLabels := func(obj client.Object) bool {
