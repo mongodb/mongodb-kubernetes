@@ -290,7 +290,11 @@ func run() error {
 		}
 	}
 	if slices.Contains(crds, mongoDBSearchCRDPlural) {
-		if err := setupMongoDBSearchCRD(ctx, mgr, memberClusterObjectsMap); err != nil {
+		operatorClusterName := env.ReadOrDefault(util.OperatorClusterNameEnv, "")
+		if operatorClusterName != "" {
+			log.Infof("Per-cluster operator mode enabled for MongoDBSearch: operator cluster identity = %q", operatorClusterName)
+		}
+		if err := setupMongoDBSearchCRD(ctx, mgr, memberClusterObjectsMap, operatorClusterName); err != nil {
 			return err
 		}
 	}
@@ -414,19 +418,20 @@ func setupMongoDBSearchCRD(
 	ctx context.Context,
 	mgr manager.Manager,
 	memberClusterObjectsMap map[string]runtime_cluster.Cluster,
+	operatorClusterName string,
 ) error {
 	if err := operator.AddMongoDBSearchController(ctx, mgr, searchcontroller.OperatorSearchConfig{
 		SearchRepo:    env.ReadOrPanic(util.SearchRepoURLEnv),
 		SearchName:    env.ReadOrPanic(util.SearchNameEnv),
 		SearchVersion: env.ReadOrPanic(util.SearchVersionEnv),
-	}, memberClusterObjectsMap); err != nil {
+	}, memberClusterObjectsMap, operatorClusterName); err != nil {
 		return err
 	}
 
 	// We cannot use ReadOrPanic here because this variable is only needed when Search is used with a managed load
 	// balancer
 	envoyImage := env.ReadOrDefault(util.EnvoyImageEnv, "")
-	if err := operator.AddMongoDBSearchEnvoyController(ctx, mgr, envoyImage, memberClusterObjectsMap); err != nil {
+	if err := operator.AddMongoDBSearchEnvoyController(ctx, mgr, envoyImage, memberClusterObjectsMap, operatorClusterName); err != nil {
 		return err
 	}
 

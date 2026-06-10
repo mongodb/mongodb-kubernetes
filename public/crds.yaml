@@ -4119,6 +4119,15 @@ spec:
                     Each field, when set, applies to this cluster; when unset, the operator's
                     per-field default applies.
                   properties:
+                    clusterIndex:
+                      description: |-
+                        ClusterIndex is the stable integer in per-cluster resource names. Required on every entry
+                        of a multi-cluster spec, and even on a single entry when each member cluster runs its own
+                        operator. Changing it renames this cluster's resources, orphaning those at the old index.
+                      format: int32
+                      maximum: 999
+                      minimum: 0
+                      type: integer
                     clusterName:
                       description: |-
                         ClusterName is the Kubernetes cluster name. Required and immutable
@@ -4454,6 +4463,12 @@ spec:
                     than one cluster is specified
                   rule: size(self) <= 1 || self.all(c1, has(c1.clusterName) && self.exists_one(c2,
                     has(c2.clusterName) && c2.clusterName == c1.clusterName))
+                - message: clusters[].clusterIndex must be unique when set
+                  rule: self.all(c1, !has(c1.clusterIndex) || self.exists_one(c2,
+                    has(c2.clusterIndex) && c2.clusterIndex == c1.clusterIndex))
+                - message: clusters[].clusterIndex is required on every entry when
+                    more than one cluster is specified
+                  rule: size(self) <= 1 || self.all(c, has(c.clusterIndex))
               featureFlags:
                 description: |-
                   FeatureFlags configures mongot feature flags. When a flag is set to true in the CR,
