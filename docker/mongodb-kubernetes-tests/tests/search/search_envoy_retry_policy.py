@@ -29,6 +29,7 @@ from tests.common.search.bootstrap_test_mixins import (
 )
 from tests.common.search.connectivity import SearchConnectivityTool, delete_pods
 from tests.common.search.rs_search_helper import rs_search_tester
+from kubetester import wait_for_pods_ready
 from tests.conftest import get_namespace
 
 logger = test_logger.get_test_logger(__name__)
@@ -157,7 +158,12 @@ class TestEnvoyRetryPolicy:
         )
 
         # Wait for the killed pod to come back before test teardown
-        _wait_for_mongot_ready(namespace, expected_count=2)
+        wait_for_pods_ready(
+            namespace,
+            label_selector=MONGOT_SELECTOR,
+            expected_count=2,
+            timeout=180,
+        )
         logger.info("Mongot pod recovered — test complete")
 
 
@@ -194,13 +200,3 @@ def _get_upstream_retry_count(tools_pod: mongodb_tools_pod.ToolsPod, envoy_pod_i
     return total
 
 
-def _wait_for_mongot_ready(namespace: str, expected_count: int, timeout: float = 180.0) -> None:
-    """Wait until all mongot pods are Running and Ready."""
-    from kubetester import wait_for_pods_ready
-
-    wait_for_pods_ready(
-        namespace,
-        label_selector=MONGOT_SELECTOR,
-        expected_count=expected_count,
-        timeout=int(timeout),
-    )
