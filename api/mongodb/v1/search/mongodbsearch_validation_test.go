@@ -92,7 +92,7 @@ func TestValidateShardNames(t *testing.T) {
 				s.Spec.LoadBalancer.Managed.ExternalHostname = "{shardName}.{clusterName}.example.com"
 				clusters := make([]ClusterSpec, 10)
 				for i := range clusters {
-					clusters[i] = ClusterSpec{ClusterName: "c" + strconv.Itoa(i)}
+					clusters[i] = pinnedSpec("c"+strconv.Itoa(i), int32(i))
 				}
 				s.Spec.Clusters = clusters
 				return s
@@ -107,7 +107,7 @@ func TestValidateShardNames(t *testing.T) {
 				s.Spec.LoadBalancer.Managed.ExternalHostname = "{shardName}.{clusterName}.example.com"
 				clusters := make([]ClusterSpec, 11)
 				for i := range clusters {
-					clusters[i] = ClusterSpec{ClusterName: "c" + strconv.Itoa(i)}
+					clusters[i] = pinnedSpec("c"+strconv.Itoa(i), int32(i))
 				}
 				s.Spec.Clusters = clusters
 				return s
@@ -467,6 +467,15 @@ func TestValidateExternalHostnameDNSLength(t *testing.T) {
 			template: "{clusterName}.lb.example.com",
 			clusters: []ClusterSpec{{ClusterName: "us-east-k8s"}, {ClusterName: "eu-west-k8s"}},
 		},
+		{
+			// 62-char label + {clusterIndex}: pinned index 70 renders a 64-char label
+			// (overflow), array position 0 would render 63 (valid). Single entry, so the
+			// validator only overflows if it honors the pinned ClusterIndex, not position 0.
+			name:          "pinned clusterIndex (not array position) drives DNS-label overflow",
+			template:      strings.Repeat("a", 62) + "{clusterIndex}.lb.example.com:443",
+			clusters:      []ClusterSpec{pinnedSpec("us-east-k8s", 70)},
+			errorContains: "invalid DNS subdomain",
+		},
 	}
 
 	for _, tt := range tests {
@@ -537,16 +546,16 @@ func TestValidateClustersClusterNameNonEmpty(t *testing.T) {
 		},
 		{
 			name:     "MC all non-empty",
-			clusters: []ClusterSpec{{ClusterName: "us-east-k8s"}, {ClusterName: "eu-west-k8s"}},
+			clusters: []ClusterSpec{pinnedSpec("us-east-k8s", 0), pinnedSpec("eu-west-k8s", 1)},
 		},
 		{
 			name:          "MC with empty clusterName at index 1",
-			clusters:      []ClusterSpec{{ClusterName: "us-east-k8s"}, {ClusterName: ""}},
+			clusters:      []ClusterSpec{pinnedSpec("us-east-k8s", 0), {ClusterName: ""}},
 			errorContains: "spec.clusters[1].clusterName is required",
 		},
 		{
 			name:          "MC with empty clusterName at index 0",
-			clusters:      []ClusterSpec{{ClusterName: ""}, {ClusterName: "eu-west-k8s"}},
+			clusters:      []ClusterSpec{{ClusterName: ""}, pinnedSpec("eu-west-k8s", 1)},
 			errorContains: "spec.clusters[0].clusterName is required",
 		},
 		{
@@ -595,31 +604,28 @@ func TestValidateMCMatchTagsNonEmpty(t *testing.T) {
 			clusters: []ClusterSpec{{SyncSourceSelector: &SyncSourceSelector{MatchTags: map[string]string{}}}},
 		},
 		{
-			name: "MC nil syncSourceSelector",
-			clusters: []ClusterSpec{
-				{ClusterName: "us-east-k8s"},
-				{ClusterName: "eu-west-k8s"},
-			},
+			name:     "MC nil syncSourceSelector",
+			clusters: []ClusterSpec{pinnedSpec("us-east-k8s", 0), pinnedSpec("eu-west-k8s", 1)},
 		},
 		{
 			name: "MC nil matchTags inherits",
 			clusters: []ClusterSpec{
-				{ClusterName: "us-east-k8s", SyncSourceSelector: &SyncSourceSelector{Hosts: []string{"h:27017"}}},
-				{ClusterName: "eu-west-k8s", SyncSourceSelector: &SyncSourceSelector{Hosts: []string{"h:27017"}}},
+				{ClusterName: "us-east-k8s", ClusterIndex: ptr.To(int32(0)), SyncSourceSelector: &SyncSourceSelector{Hosts: []string{"h:27017"}}},
+				{ClusterName: "eu-west-k8s", ClusterIndex: ptr.To(int32(1)), SyncSourceSelector: &SyncSourceSelector{Hosts: []string{"h:27017"}}},
 			},
 		},
 		{
 			name: "MC populated matchTags",
 			clusters: []ClusterSpec{
-				{ClusterName: "us-east-k8s", SyncSourceSelector: &SyncSourceSelector{MatchTags: map[string]string{"region": "us-east"}}},
-				{ClusterName: "eu-west-k8s", SyncSourceSelector: &SyncSourceSelector{MatchTags: map[string]string{"region": "eu-west"}}},
+				{ClusterName: "us-east-k8s", ClusterIndex: ptr.To(int32(0)), SyncSourceSelector: &SyncSourceSelector{MatchTags: map[string]string{"region": "us-east"}}},
+				{ClusterName: "eu-west-k8s", ClusterIndex: ptr.To(int32(1)), SyncSourceSelector: &SyncSourceSelector{MatchTags: map[string]string{"region": "eu-west"}}},
 			},
 		},
 		{
 			name: "MC empty matchTags rejected",
 			clusters: []ClusterSpec{
-				{ClusterName: "us-east-k8s", SyncSourceSelector: &SyncSourceSelector{MatchTags: map[string]string{"region": "us-east"}}},
-				{ClusterName: "eu-west-k8s", SyncSourceSelector: &SyncSourceSelector{MatchTags: map[string]string{}}},
+				{ClusterName: "us-east-k8s", ClusterIndex: ptr.To(int32(0)), SyncSourceSelector: &SyncSourceSelector{MatchTags: map[string]string{"region": "us-east"}}},
+				{ClusterName: "eu-west-k8s", ClusterIndex: ptr.To(int32(1)), SyncSourceSelector: &SyncSourceSelector{MatchTags: map[string]string{}}},
 			},
 			errorContains: "spec.clusters[1].syncSourceSelector.matchTags cannot be empty",
 		},
@@ -632,6 +638,61 @@ func TestValidateMCMatchTagsNonEmpty(t *testing.T) {
 			}
 			// Multi-cluster specs need an external source + managed LB so the
 			// matchTags check is the rule under test, not the MC source/LB checks.
+			if len(tt.clusters) > 1 {
+				s.Spec.Source = &MongoDBSource{
+					ExternalMongoDBSource: &ExternalMongoDBSource{HostAndPorts: []string{"h:27017"}},
+				}
+				s.Spec.LoadBalancer = &LoadBalancerConfig{Managed: &ManagedLBConfig{ExternalHostname: "{clusterName}.lb.example.com:443"}}
+			}
+			err := s.ValidateSpec()
+			if tt.errorContains != "" {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errorContains)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestValidateClustersClusterIndexRequired(t *testing.T) {
+	tests := []struct {
+		name          string
+		clusters      []ClusterSpec
+		errorContains string
+	}{
+		{
+			name:     "single-entry unpinned allowed",
+			clusters: []ClusterSpec{{ClusterName: "us-east-k8s"}},
+		},
+		{
+			name:     "MC all pinned distinct",
+			clusters: []ClusterSpec{pinnedSpec("us-east-k8s", 0), pinnedSpec("eu-west-k8s", 1)},
+		},
+		{
+			name:          "MC missing clusterIndex at index 0",
+			clusters:      []ClusterSpec{{ClusterName: "us-east-k8s"}, pinnedSpec("eu-west-k8s", 1)},
+			errorContains: "spec.clusters[0].clusterIndex is required when len(spec.clusters) > 1",
+		},
+		{
+			name:          "MC missing clusterIndex at index 1",
+			clusters:      []ClusterSpec{pinnedSpec("us-east-k8s", 0), {ClusterName: "eu-west-k8s"}},
+			errorContains: "spec.clusters[1].clusterIndex is required when len(spec.clusters) > 1",
+		},
+		{
+			name:          "MC duplicate clusterIndex",
+			clusters:      []ClusterSpec{pinnedSpec("us-east-k8s", 3), pinnedSpec("eu-west-k8s", 3)},
+			errorContains: "clusterIndex 3 is set on more than one spec.clusters[] entry (entries 0 and 1); pinned indices must be distinct",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &MongoDBSearch{
+				ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"},
+				Spec:       MongoDBSearchSpec{Clusters: tt.clusters},
+			}
+			// Multi-cluster specs need an external source + managed LB so the
+			// clusterIndex check is the rule under test, not the MC source/LB checks.
 			if len(tt.clusters) > 1 {
 				s.Spec.Source = &MongoDBSource{
 					ExternalMongoDBSource: &ExternalMongoDBSource{HostAndPorts: []string{"h:27017"}},
