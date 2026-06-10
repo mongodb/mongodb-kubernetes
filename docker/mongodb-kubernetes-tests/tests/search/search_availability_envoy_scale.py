@@ -178,6 +178,3 @@ class TestEnvoyScaling:
         assert_no_outage(oneshot.verdict)
         _scale_envoy(namespace, SEARCH.envoy_lb_replicas)
         _assert_steady(namespace)
-
-    def test_recovers_to_steady_state(self, namespace: str):
-        _assert_steady(namespace)

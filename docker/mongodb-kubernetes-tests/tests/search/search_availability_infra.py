@@ -157,8 +157,7 @@ class TestNodeDrain:
             try:
                 delete_pods(namespace, label_selector=ENVOY_SELECTOR, grace_period_seconds=0)
                 delete_pods(namespace, label_selector=MONGOT_SELECTOR, grace_period_seconds=0)
-                # Cordoned single node: replacements stay Pending, so the outage persists rather
-                # than racing. Require several failures, not just the first.
+                # cordon keeps replacements Pending, so a single genuine new-query failure proves the outage
                 failures_before = oneshot.failed_count
                 oneshot.wait_for_operations(POST_EVENT_OPS, stop_on_fault=True)
                 assert oneshot.failed_count > failures_before, "expected new-query failures while node cordoned"
@@ -172,10 +171,6 @@ class TestNodeDrain:
         # The outage is proven deterministically by the failed_count assertion above. A full node
         # outage surfaces in varying classes (connection refused, gRPC channel deadline, host
         # unreachable), so asserting a specific failure class here would be flaky.
-        # Prove outage->recovery atomically in this test, not only via the next method.
-        _assert_steady(namespace)
-
-    def test_recovers_to_steady_state(self, namespace: str):
         _assert_steady(namespace)
 
 
@@ -207,6 +202,8 @@ class TestOperatorRestart:
         with oneshot, paging:
             oneshot.wait_for_operations(BASELINE_OPS)
             paging.wait_for_operations(BASELINE_OPS)
+            envoy_uids = _pod_uids(namespace, ENVOY_SELECTOR)
+            mongot_uids = _pod_uids(namespace, MONGOT_SELECTOR)
             client.CoreV1Api().delete_namespaced_pod(
                 op.metadata.name, namespace, body=client.V1DeleteOptions(grace_period_seconds=0)
             )
@@ -219,6 +216,9 @@ class TestOperatorRestart:
         # control plane recovers: the deleted pod is replaced and the resource stays Running.
         wait_for_pods_by_label_replaced(namespace, selector, {op.metadata.name: op.metadata.uid})
         mdbs.assert_reaches_phase(Phase.Running, timeout=600)
+        # a spurious dataplane roll is invisible to oneshot (rolling-update keeps a ready endpoint)
+        assert _pod_uids(namespace, ENVOY_SELECTOR) == envoy_uids, "operator restart rolled envoy pods"
+        assert _pod_uids(namespace, MONGOT_SELECTOR) == mongot_uids, "operator restart rolled mongot pods"
 
     def test_recovers_to_steady_state(self, namespace: str):
         _assert_steady(namespace)
