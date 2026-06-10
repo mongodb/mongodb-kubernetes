@@ -7,7 +7,6 @@ metadata:
   name: ${MDB_SEARCH_RESOURCE_NAME}
 spec:
   logLevel: DEBUG
-  replicas: ${MDB_MONGOT_REPLICAS}
   source:
     username: search-sync-source
     passwordSecretRef:
@@ -27,13 +26,15 @@ spec:
   loadBalancer:
     managed:
       externalHostname: ${MDB_SEARCH_RESOURCE_NAME}-search-0-proxy-svc.${MDB_NS}.svc.cluster.local
-  resourceRequirements:
-    limits:
-      cpu: "2"
-      memory: 3Gi
-    requests:
-      cpu: "1"
-      memory: 2Gi
+  clusters:
+    - replicas: ${MDB_MONGOT_REPLICAS}
+      resourceRequirements:
+        limits:
+          cpu: "2"
+          memory: 3Gi
+        requests:
+          cpu: "1"
+          memory: 2Gi
 EOF
 
 echo "[ok] MongoDBSearch resource '${MDB_SEARCH_RESOURCE_NAME}' created"

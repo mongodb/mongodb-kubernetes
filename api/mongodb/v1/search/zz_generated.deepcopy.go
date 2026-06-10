@@ -21,10 +21,10 @@ limitations under the License.
 package search
 
 import (
-	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
+	mongodbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/user"
-	corev1 "k8s.io/api/core/v1"
+	"k8s.io/api/core/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 )
 
@@ -38,12 +38,12 @@ func (in *ClusterSpec) DeepCopyInto(out *ClusterSpec) {
 	}
 	if in.ResourceRequirements != nil {
 		in, out := &in.ResourceRequirements, &out.ResourceRequirements
-		*out = new(corev1.ResourceRequirements)
+		*out = new(v1.ResourceRequirements)
 		(*in).DeepCopyInto(*out)
 	}
 	if in.Persistence != nil {
 		in, out := &in.Persistence, &out.Persistence
-		*out = new(v1.Persistence)
+		*out = new(mongodbv1.Persistence)
 		(*in).DeepCopyInto(*out)
 	}
 	if in.StatefulSetConfiguration != nil {
@@ -158,7 +158,7 @@ func (in *ExternalMongodTLS) DeepCopyInto(out *ExternalMongodTLS) {
 	*out = *in
 	if in.CA != nil {
 		in, out := &in.CA, &out.CA
-		*out = new(corev1.LocalObjectReference)
+		*out = new(v1.LocalObjectReference)
 		**out = **in
 	}
 }
@@ -306,7 +306,7 @@ func (in *ManagedLBConfig) DeepCopyInto(out *ManagedLBConfig) {
 	}
 	if in.ResourceRequirements != nil {
 		in, out := &in.ResourceRequirements, &out.ResourceRequirements
-		*out = new(corev1.ResourceRequirements)
+		*out = new(v1.ResourceRequirements)
 		(*in).DeepCopyInto(*out)
 	}
 	if in.Deployment != nil {
@@ -397,25 +397,6 @@ func (in *MongoDBSearchSpec) DeepCopyInto(out *MongoDBSearchSpec) {
 		*out = new(MongoDBSource)
 		(*in).DeepCopyInto(*out)
 	}
-	if in.Replicas != nil {
-		in, out := &in.Replicas, &out.Replicas
-		*out = new(int32)
-		**out = **in
-	}
-	if in.StatefulSetConfiguration != nil {
-		in, out := &in.StatefulSetConfiguration, &out.StatefulSetConfiguration
-		*out = (*in).DeepCopy()
-	}
-	if in.Persistence != nil {
-		in, out := &in.Persistence, &out.Persistence
-		*out = new(v1.Persistence)
-		(*in).DeepCopyInto(*out)
-	}
-	if in.ResourceRequirements != nil {
-		in, out := &in.ResourceRequirements, &out.ResourceRequirements
-		*out = new(corev1.ResourceRequirements)
-		(*in).DeepCopyInto(*out)
-	}
 	in.Security.DeepCopyInto(&out.Security)
 	if in.Prometheus != nil {
 		in, out := &in.Prometheus, &out.Prometheus
@@ -432,11 +413,6 @@ func (in *MongoDBSearchSpec) DeepCopyInto(out *MongoDBSearchSpec) {
 		*out = new(LoadBalancerConfig)
 		(*in).DeepCopyInto(*out)
 	}
-	if in.JVMFlags != nil {
-		in, out := &in.JVMFlags, &out.JVMFlags
-		*out = make([]string, len(*in))
-		copy(*out, *in)
-	}
 	if in.FeatureFlags != nil {
 		in, out := &in.FeatureFlags, &out.FeatureFlags
 		*out = new(FeatureFlags)
@@ -444,13 +420,9 @@ func (in *MongoDBSearchSpec) DeepCopyInto(out *MongoDBSearchSpec) {
 	}
 	if in.Clusters != nil {
 		in, out := &in.Clusters, &out.Clusters
-		*out = new([]ClusterSpec)
-		if **in != nil {
-			in, out := *in, *out
-			*out = make([]ClusterSpec, len(*in))
-			for i := range *in {
-				(*in)[i].DeepCopyInto(&(*out)[i])
-			}
+		*out = make([]ClusterSpec, len(*in))
+		for i := range *in {
+			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
 	}
 }
