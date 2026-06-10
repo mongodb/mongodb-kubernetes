@@ -676,8 +676,8 @@ func collectACVotingMembers(rs om.ReplicaSet, externalSet map[string]struct{}) [
 //   - externalVotingCount: external members currently voting in the AC (preserved during reconcile).
 //   - k8sVotingPositions: all spec positions [0..Members) that would be voting after this reconcile.
 //   - newlyVotingPositions: subset of k8sVotingPositions where the AC's corresponding K8s member
-//     is non-voting or absent (scale-up). These are the positions THIS reconcile would make voting
-//     — and therefore the actionable subset for the user to revert.
+//     is non-voting or absent (scale-up). These are the positions THIS reconcile would make voting,
+//     and therefore the actionable subset for the user to revert.
 //
 // "Corresponding K8s member" is found by position among AC members that are NOT in the external
 // set, in AC order. Position N in spec maps to the N-th non-external member of the AC.
@@ -736,7 +736,7 @@ func formatTooManyVotingMembersError(rsName string, total int, acVoting []voting
 	}
 	if len(newlyLines) == 0 {
 		// We should never get here
-		newlyLines = []string{"  (none — AC already exceeds the limit; check Ops Manager for voting members the operator does not manage)"}
+		newlyLines = []string{"  (none. The AC already exceeds the limit. Check Ops Manager for voting members the operator does not manage)"}
 	}
 
 	return fmt.Sprintf(

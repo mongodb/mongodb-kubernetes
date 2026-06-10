@@ -1176,7 +1176,7 @@ func TestValidateACForMigration_TLSModeNotSet(t *testing.T) {
 	rs := buildRsByProcessesHelper("my-rs", createRSProcessesHelper("my-rs", 1))
 	d.MergeReplicaSet(rs, nil, nil, nil, zap.S())
 	// NewMongodProcess sets tls.mode="disabled" by default; delete the key entirely
-	// so net.tls.mode is absent — validateACForMigration rejects absent TLS, not just "disabled"
+	// so net.tls.mode is absent, validateACForMigration rejects absent TLS, not just "disabled"
 	delete(d.GetProcesses()[0].EnsureNetConfig(), "tls")
 
 	conn := om.NewMockedOmConnection(d)
@@ -1206,7 +1206,7 @@ func statusMsg(st workflow.Status) string {
 }
 
 func TestValidateACForMigration_BoundarySeven_OK(t *testing.T) {
-	// 3 K8s voting + 4 voting external = 7 — at boundary, should pass
+	// 3 K8s voting + 4 voting external = 7, at boundary, should pass
 	mdb := mongoDBForMigrationTest("my-rs", "my-ns", 3, fourExternalMembers())
 	conn := newMigrationACConn(t, mdb, fourVotingExternals(), 3)
 
@@ -1367,7 +1367,7 @@ func mongoDBForMigrationTest(name, namespace string, members int, externalMember
 // newMigrationACConn builds an Ops Manager connection whose deployment has the migration-shaped
 // replica set: externalMembers first (with low _ids 0..N-1) followed by k8sCount K8s members
 // (with _ids starting at len(externalMembers)). K8s member names use the k8s/<namespace>/...
-// naming scheme — which matches the names computePostReconcileVoting expects to find. TLS mode is
+// naming scheme, which matches the names computePostReconcileVoting expects to find. TLS mode is
 // set on the first process so the TLS check passes. By default each K8s member is voting.
 func newMigrationACConn(t *testing.T, mdb *mdbv1.MongoDB, externalMembers []om.ReplicaSetMember, k8sCount int) om.Connection {
 	t.Helper()
@@ -1409,7 +1409,7 @@ func newMigrationACConnWithK8sVotes(t *testing.T, mdb *mdbv1.MongoDB, externalMe
 }
 
 // createK8sProcessesForMigrationTest builds K8s processes whose Process.Name() equals
-// process.PodNameToProcessName(dns.GetPodName(rsName, i), namespace) — i.e. "k8s/<ns>/<rs>-<i>".
+// process.PodNameToProcessName(dns.GetPodName(rsName, i), namespace), i.e. "k8s/<ns>/<rs>-<i>".
 // This matches the name format computePostReconcileVoting expects when looking up K8s members in
 // the AC.
 func createK8sProcessesForMigrationTest(rsName, namespace string, count int) []om.Process {

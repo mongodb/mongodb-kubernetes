@@ -226,11 +226,11 @@ func TestGetAllProcessNames_MergedReplicaSetsAndShardedClusters(t *testing.T) {
 		[]string{
 			"my-rs-0", "my-rs-1", "my-rs-2",
 			"another-rs-0", "another-rs-1", "another-rs-2", "another-rs-3", "another-rs-4",
+			"pretty0", "pretty1", "pretty2",
 			"configSrv-0", "configSrv-1", "configSrv-2",
 			"myShard-0-0", "myShard-0-1", "myShard-0-2",
 			"myShard-1-0", "myShard-1-1", "myShard-1-2",
 			"myShard-2-0", "myShard-2-1", "myShard-2-2",
-			"pretty0", "pretty1", "pretty2",
 		},
 		d.GetAllProcessNames())
 }
@@ -251,11 +251,11 @@ func TestGetAllProcessNames_MergedShardedClusters(t *testing.T) {
 	assert.Equal(
 		t,
 		[]string{
+			"pretty0", "pretty1", "pretty2",
 			"configSrv-0", "configSrv-1", "configSrv-2",
 			"myShard-0-0", "myShard-0-1", "myShard-0-2",
 			"myShard-1-0", "myShard-1-1", "myShard-1-2",
 			"myShard-2-0", "myShard-2-1", "myShard-2-2",
-			"pretty0", "pretty1", "pretty2",
 		},
 		d.GetAllProcessNames(),
 	)
@@ -272,15 +272,15 @@ func TestGetAllProcessNames_MergedShardedClusters(t *testing.T) {
 	assert.Equal(
 		t,
 		[]string{
+			"pretty0", "pretty1", "pretty2",
 			"configSrv-0", "configSrv-1", "configSrv-2",
 			"myShard-0-0", "myShard-0-1", "myShard-0-2",
 			"myShard-1-0", "myShard-1-1", "myShard-1-2",
 			"myShard-2-0", "myShard-2-1", "myShard-2-2",
-			"pretty0", "pretty1", "pretty2",
+			"anotherMongos0", "anotherMongos1", "anotherMongos2",
 			"anotherClusterSh-0-0", "anotherClusterSh-0-1", "anotherClusterSh-0-2",
 			"anotherClusterSh-1-0", "anotherClusterSh-1-1", "anotherClusterSh-1-2",
 			"anotherClusterSh-2-0", "anotherClusterSh-2-1", "anotherClusterSh-2-2",
-			"anotherMongos0", "anotherMongos1", "anotherMongos2",
 		},
 		d.GetAllProcessNames(),
 	)
@@ -405,7 +405,7 @@ func TestGetNumberOfExcessProcesses_ACNameDiffersFromK8sName(t *testing.T) {
 	// The junk RS is still present in the deployment.
 	assert.Len(t, d.GetReplicaSets(), 3)
 
-	// Correct prefix: junk RS is recognised as belonging to the cluster — no excess.
+	// Correct prefix: junk RS is recognised as belonging to the cluster, no excess.
 	assert.Equal(t, 0, d.GetNumberOfExcessProcesses("ac-mongos", "sc-overrides", nil))
 
 	// With a prefix that does not match, the junk RS is still recognised through the draining list.

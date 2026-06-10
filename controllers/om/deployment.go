@@ -181,7 +181,7 @@ func (d Deployment) MergeReplicaSet(operatorRs ReplicaSetWithProcesses, specArgs
 
 	// In both cases (the new replicaset was added to OM deployment, or it was merged with OM one)
 	// we need to make sure there are no more than 7 voting members.
-	// limitVotingMembers no-ops when external members are present — see validateACForMigration
+	// limitVotingMembers no-ops when external members are present. See validateACForMigration
 	// in the reconciler for the user-facing failure path.
 	d.limitVotingMembers(operatorRs.Rs.Name(), externalMembers)
 }
@@ -263,13 +263,14 @@ type DeploymentShardedClusterMergeOptions struct {
 func (d Deployment) MergeShardedCluster(opts DeploymentShardedClusterMergeOptions) (bool, error) {
 	log := zap.S().With("sharded cluster", opts.Name)
 
+	err := d.mergeMongosProcesses(opts, log)
+	if err != nil {
+		return false, err
+	}
+
 	d.mergeConfigReplicaSet(opts, log)
 
 	shardsScheduledForRemoval := d.mergeShards(opts, log)
-
-	if err := d.mergeMongosProcesses(opts, log); err != nil {
-		return false, err
-	}
 
 	return shardsScheduledForRemoval, nil
 }
@@ -1112,7 +1113,7 @@ func (d Deployment) getTLS() map[string]interface{} {
 
 // findReplicaSetsRemovedFromShardedCluster finds all replica sets which look like shards that have been removed from
 // the sharded cluster.  clusterName is used to look up the sharding section; shardNamePrefix is the K8s StatefulSet
-// name prefix (sc.Name) used for the pattern match — it differs from clusterName when shardedClusterNameOverride is set.
+// name prefix (sc.Name) used for the pattern match. It differs from clusterName when shardedClusterNameOverride is set.
 // Draining replica sets are matched by name too since overridden names may not match the prefix.
 func (d Deployment) findReplicaSetsRemovedFromShardedCluster(clusterName, shardNamePrefix string) []string {
 	shardedCluster := d.getShardedClusterByName(clusterName)

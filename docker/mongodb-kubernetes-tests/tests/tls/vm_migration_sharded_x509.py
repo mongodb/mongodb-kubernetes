@@ -52,7 +52,7 @@ MONGOS_COUNT = 2
 
 MONGODB_VERSION = "7.0.14"
 
-# Cert paths inside the container — must match the AC certificateKeyFile values.
+# Cert paths inside the container, must match the AC certificateKeyFile values.
 MONGOD_SERVER_PEM_PATH = "/mongodb-automation/server.pem"
 MONGOS_SERVER_PEM_PATH = "/mongodb-automation/server.pem"
 CUSTOM_CA_PEM_PATH = "/mongodb-automation/tls/ca/ca-pem"

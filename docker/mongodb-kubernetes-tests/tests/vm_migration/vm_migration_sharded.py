@@ -228,7 +228,7 @@ def test_update_vm_sharded_ac(namespace: str, om_tester: OMTester):
     if len(ac["processes"]) > 0:
         existing = {p["name"] for p in ac["processes"]}
         if all(f"{MONGOS_STS_NAME}-{i}" in existing for i in range(MONGOS_COUNT)):
-            # All VM mongos are present in OM — nothing to restore.
+            # All VM mongos are present in OM, nothing to restore.
             return
         # VM mongos were removed by a previous operator run. Fall through to restore the full AC.
 

@@ -41,7 +41,7 @@ SERVER_PEM_PATH = "/mongodb-automation/server.pem"
 # Paths match operator constants (pkg/util/constants.go: TLSCaMountPath, AgentCertMountPath).
 CUSTOM_CA_PEM_PATH = "/mongodb-automation/tls/ca/ca-pem"
 
-# Custom cert path used for VM agents — intentionally different from the operator's default
+# Custom cert path used for VM agents, intentionally different from the operator's default
 # AgentCertMountPath to test that the operator preserves an arbitrary existing autoPEMKeyFilePath
 # and creates a matching mount on K8s pods rather than overwriting with its own hash-based path.
 CUSTOM_AGENT_CERT_DIR = "/var/lib/mongodb-mms-automation/certs"
@@ -139,7 +139,7 @@ def vm_sts(
     ]
 
     volumes = sts_body["spec"]["template"]["spec"].get("volumes") or []
-    # Combined cert+key PEM — MongoDB certificateKeyFile requires both in one file.
+    # Combined cert+key PEM, MongoDB certificateKeyFile requires both in one file.
     volumes.append(
         {
             "name": "mongodb-certs",

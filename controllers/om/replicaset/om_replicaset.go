@@ -44,7 +44,7 @@ func BuildFromMongoDBWithReplicas(mongoDBImage string, forceEnterprise bool, mdb
 }
 
 // IsLegacyDeployment Returns true when the AC already has processes under the old naming scheme.
-// External member names are excluded — they won't have the prefix but are not K8s-managed.
+// External member names are excluded, they won't have the prefix but are not K8s-managed.
 func IsLegacyDeployment(existingProcessIds map[string]int, externalMembers []string) bool {
 	if len(externalMembers) > 0 {
 		// If there are external members, we can be sure it is a new deployment.

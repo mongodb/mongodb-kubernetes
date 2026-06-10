@@ -604,7 +604,7 @@ func countMemberConfigChangesForExistingMembers(newConf, oldConf []automationcon
 // atMostOneMigrationChangeAtATime enforces that during migration (when
 // externalMembers is present on the old object) only one type of change may
 // occur per update: adding Kubernetes members, removing external members, or
-// updating member votes/priority — never two types simultaneously.
+// updating member votes/priority, never two types simultaneously.
 func atMostOneMigrationChangeAtATime(newObj, oldObj MongoDbSpec) v1.ValidationResult {
 	if len(oldObj.ExternalMembers) == 0 {
 		return v1.ValidationSuccess()

@@ -103,7 +103,7 @@ func newShard(rsName, shardId string) Shard {
 	return s
 }
 
-// mergeFrom merges the other (Kuberenetes owned) cluster configuration into OM one.
+// mergeFrom merges the other (Kubernetes owned) cluster configuration into OM one.
 // It returns the replica set names of the shards that were removed from the cluster.
 func (s ShardedCluster) mergeFrom(operatorCluster ShardedCluster) []string {
 	s.setName(operatorCluster.Name())
