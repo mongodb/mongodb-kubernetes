@@ -10,9 +10,6 @@ spec:
   mongosCount: 2
   configServerCount: 3
   version: 8.0.16
-  cloudManager:
-    configMapRef:
-      name: my-project
   credentials: my-credentials
   logLevel: WARN
   persistent: true
