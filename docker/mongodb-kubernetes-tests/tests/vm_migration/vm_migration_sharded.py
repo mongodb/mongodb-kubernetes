@@ -5,9 +5,9 @@ The mongod StatefulSet has 6 replicas: pods 0-2 form the config server RS and po
 The mongos StatefulSet has 2 replicas.
 
 All three VM-to-K8s name overrides are exercised:
-  - configSrvRsNameOverride: VM config RS name "vm-config" differs from the K8s default.
+  - configServerNameOverride: VM config RS name "vm-config" differs from the K8s default.
   - shardNameOverrides: VM shard RS name "vm-shard-0" differs from the K8s default.
-  - mongosRsNameOverride: VM mongos name "vm-mongos" differs from the K8s default.
+  - mongosNameOverride: VM mongos name "vm-mongos" differs from the K8s default.
 """
 
 import yaml
@@ -148,8 +148,8 @@ def mdb_sharded_migration(
 
     k8s_shard_name = f"{resource.name}-0"
 
-    resource["spec"]["configSrvRsNameOverride"] = VM_CONFIG_RS_NAME
-    resource["spec"]["mongosRsNameOverride"] = VM_MONGOS_NAME
+    resource["spec"]["configServerNameOverride"] = VM_CONFIG_RS_NAME
+    resource["spec"]["mongosNameOverride"] = VM_MONGOS_NAME
     # AC _id and replicaSetName are both VM_SHARD_RS_NAME, differing from the K8s name k8s_shard_name.
     resource["spec"]["shardNameOverrides"] = [
         {"shardName": k8s_shard_name, "shardId": VM_SHARD_RS_NAME, "replicaSetName": VM_SHARD_RS_NAME}
@@ -245,7 +245,7 @@ def test_update_vm_sharded_ac(namespace: str, om_tester: OMTester):
         config_server_count=CONFIG_SERVER_COUNT,
         shard_count=SHARD_COUNT,
         mongos_count=MONGOS_COUNT,
-        cluster_name=MDB_RESOURCE_NAME,
+        cluster_name=VM_MONGOS_NAME,
     )
     om_tester.api_put_automation_config(ac)
     om_tester.wait_agents_ready(timeout=1800)
@@ -315,16 +315,14 @@ def test_promote_and_prune_config_server(
 
         # Remove the next VM config server external member (they are the first CONFIG_SERVER_COUNT entries).
         config_external = [
-            m
-            for m in mdb_sharded_migration["spec"]["externalMembers"]
-            if m["replicaSetName"] == VM_CONFIG_RS_NAME
+            m for m in mdb_sharded_migration["spec"]["externalMembers"] if m["replicaSetName"] == VM_CONFIG_RS_NAME
         ]
         if config_external:
             mdb_sharded_migration["spec"]["externalMembers"].remove(config_external[-1])
             mdb_sharded_migration.update()
             mdb_sharded_migration.assert_reaches_phase(Phase.Running)
 
-        om_tester.assert_cluster_available(mdb_sharded_migration.name)
+        om_tester.assert_cluster_available(VM_MONGOS_NAME)
 
 
 @mark.e2e_vm_migration_sharded
@@ -346,7 +344,7 @@ def test_promote_and_prune_shard(
         mdb_sharded_migration["spec"]["externalMembers"].remove(current_shard_external[-1])
         mdb_sharded_migration.update()
         mdb_sharded_migration.assert_reaches_phase(Phase.Running)
-        om_tester.assert_cluster_available(mdb_sharded_migration.name)
+        om_tester.assert_cluster_available(VM_MONGOS_NAME)
 
 
 @mark.e2e_vm_migration_sharded
@@ -364,18 +362,19 @@ def test_prune_mongos(mdb_sharded_migration: MongoDB, mdb_health_checker: MongoD
 
 
 @mark.e2e_vm_migration_sharded
-def test_process_names(om_tester: OMTester, mdb_sharded_migration: MongoDB):
+def test_process_names(namespace: str, om_tester: OMTester, mdb_sharded_migration: MongoDB):
     ac_tester = om_tester.get_automation_config_tester()
     process_names = [process["name"] for process in ac_tester.get_all_processes()]
 
+    name = mdb_sharded_migration.name
     for i in range(mdb_sharded_migration["spec"]["configServerCount"]):
-        assert f"{mdb_sharded_migration.name}-config-{i}" in process_names
+        assert f"k8s/{namespace}/{name}-config-{i}" in process_names
 
     for i in range(mdb_sharded_migration["spec"]["mongodsPerShardCount"]):
-        assert f"{mdb_sharded_migration.name}-0-{i}" in process_names
+        assert f"k8s/{namespace}/{name}-0-{i}" in process_names
 
     for i in range(mdb_sharded_migration["spec"]["mongosCount"]):
-        assert f"{mdb_sharded_migration.name}-mongos-{i}" in process_names
+        assert f"k8s/{namespace}/{name}-mongos-{i}" in process_names
 
 
 @mark.e2e_vm_migration_sharded

@@ -1310,15 +1310,7 @@ func TestNoExternalMembersAdditionOrChanges_ShardedCluster(t *testing.T) {
 
 func TestAtMostOneMigrationChangeAtATime_ShardedCluster_ExternalMembersOnly(t *testing.T) {
 	// For a sharded cluster migration, ExternalMembers contains mongod and mongos entries across shards.
-	// The Members field is not used for sharded clusters; shard scaling uses MongodsPerShardCount and ShardCount.
-	// Because atMostOneMigrationChangeAtATime inspects newObj.Members - oldObj.Members for the k8s-member
-	// delta, and Members is always 0 for sharded clusters, that delta is always 0. As a result the validator
-	// does not detect sharded-specific scaling changes (MongodsPerShardCount or ShardCount) as a concurrent
-	// change alongside external-member removal. This is documented below as a known gap.
-	//
-	// TODO: extend atMostOneMigrationChangeAtATime to detect MongodsPerShardCount and ShardCount changes
-	// for sharded cluster migration so that simultaneous shard-scaling and external-member removal is also
-	// rejected.
+	// Members is always 0 for sharded clusters; scaling is detected via MongodsPerShardCount and ShardCount.
 	shardedExternalMembers := []ExternalMember{
 		{ProcessName: "shard0-0", Hostname: "vm-shard0-0.example.com:27017", Type: "mongod", ReplicaSetName: "myrs-0"},
 		{ProcessName: "shard0-1", Hostname: "vm-shard0-1.example.com:27017", Type: "mongod", ReplicaSetName: "myrs-0"},
@@ -1382,10 +1374,7 @@ func TestAtMostOneMigrationChangeAtATime_ShardedCluster_ExternalMembersOnly(t *t
 			errorMsg:    "external members may not be added once migration has started",
 		},
 		{
-			// For sharded clusters the Members field is always 0, so membersDelta is always 0.
-			// The validator therefore does not see MongodsPerShardCount changes as a conflicting
-			// change alongside external-member removal. This case documents the current behaviour.
-			name: "removing external member while also changing MongodsPerShardCount — currently allowed (known gap)",
+			name: "removing external member while also increasing MongodsPerShardCount — rejected",
 			oldSpec: MongoDbSpec{
 				ExternalMembers:                 shardedExternalMembers,
 				MongodbShardedClusterSizeConfig: status.MongodbShardedClusterSizeConfig{ShardCount: 2, MongodsPerShardCount: 3},
@@ -1394,11 +1383,11 @@ func TestAtMostOneMigrationChangeAtATime_ShardedCluster_ExternalMembersOnly(t *t
 				ExternalMembers:                 shardedExternalMembers[1:],
 				MongodbShardedClusterSizeConfig: status.MongodbShardedClusterSizeConfig{ShardCount: 2, MongodsPerShardCount: 4},
 			},
-			expectError: false,
+			expectError: true,
+			errorMsg:    "only one migration change type is allowed per update",
 		},
 		{
-			// Same gap as above: ShardCount change is invisible to the validator for sharded clusters.
-			name: "removing external member while also changing ShardCount — currently allowed (known gap)",
+			name: "removing external member while also increasing ShardCount — rejected",
 			oldSpec: MongoDbSpec{
 				ExternalMembers:                 shardedExternalMembers,
 				MongodbShardedClusterSizeConfig: status.MongodbShardedClusterSizeConfig{ShardCount: 2, MongodsPerShardCount: 3},
@@ -1407,7 +1396,63 @@ func TestAtMostOneMigrationChangeAtATime_ShardedCluster_ExternalMembersOnly(t *t
 				ExternalMembers:                 shardedExternalMembers[1:],
 				MongodbShardedClusterSizeConfig: status.MongodbShardedClusterSizeConfig{ShardCount: 3, MongodsPerShardCount: 3},
 			},
+			expectError: true,
+			errorMsg:    "only one migration change type is allowed per update",
+		},
+		{
+			name: "decreasing MongodsPerShardCount during migration — rejected",
+			oldSpec: MongoDbSpec{
+				ExternalMembers:                 shardedExternalMembers,
+				MongodbShardedClusterSizeConfig: status.MongodbShardedClusterSizeConfig{ShardCount: 2, MongodsPerShardCount: 3},
+			},
+			newSpec: MongoDbSpec{
+				ExternalMembers:                 shardedExternalMembers,
+				MongodbShardedClusterSizeConfig: status.MongodbShardedClusterSizeConfig{ShardCount: 2, MongodsPerShardCount: 2},
+			},
+			expectError: true,
+			errorMsg:    "Kubernetes members may not be removed during migration",
+		},
+		{
+			name: "decreasing ShardCount during migration — rejected",
+			oldSpec: MongoDbSpec{
+				ExternalMembers:                 shardedExternalMembers,
+				MongodbShardedClusterSizeConfig: status.MongodbShardedClusterSizeConfig{ShardCount: 2, MongodsPerShardCount: 3},
+			},
+			newSpec: MongoDbSpec{
+				ExternalMembers:                 shardedExternalMembers,
+				MongodbShardedClusterSizeConfig: status.MongodbShardedClusterSizeConfig{ShardCount: 1, MongodsPerShardCount: 3},
+			},
+			expectError: true,
+			errorMsg:    "Kubernetes members may not be removed during migration",
+		},
+		{
+			name: "updating memberConfig (promoting K8s config server member) alone — allowed",
+			oldSpec: MongoDbSpec{
+				ExternalMembers:                 shardedExternalMembers,
+				MongodbShardedClusterSizeConfig: status.MongodbShardedClusterSizeConfig{ShardCount: 1, MongodsPerShardCount: 3, ConfigServerCount: 3},
+				MemberConfig:                    []automationconfig.MemberOptions{{Votes: ptr.To(0), Priority: ptr.To("0")}},
+			},
+			newSpec: MongoDbSpec{
+				ExternalMembers:                 shardedExternalMembers,
+				MongodbShardedClusterSizeConfig: status.MongodbShardedClusterSizeConfig{ShardCount: 1, MongodsPerShardCount: 3, ConfigServerCount: 3},
+				MemberConfig:                    []automationconfig.MemberOptions{{Votes: ptr.To(1), Priority: ptr.To("1")}},
+			},
 			expectError: false,
+		},
+		{
+			name: "updating memberConfig while also removing an external member — rejected",
+			oldSpec: MongoDbSpec{
+				ExternalMembers:                 shardedExternalMembers,
+				MongodbShardedClusterSizeConfig: status.MongodbShardedClusterSizeConfig{ShardCount: 1, MongodsPerShardCount: 3, ConfigServerCount: 3},
+				MemberConfig:                    []automationconfig.MemberOptions{{Votes: ptr.To(0), Priority: ptr.To("0")}},
+			},
+			newSpec: MongoDbSpec{
+				ExternalMembers:                 shardedExternalMembers[1:],
+				MongodbShardedClusterSizeConfig: status.MongodbShardedClusterSizeConfig{ShardCount: 1, MongodsPerShardCount: 3, ConfigServerCount: 3},
+				MemberConfig:                    []automationconfig.MemberOptions{{Votes: ptr.To(1), Priority: ptr.To("1")}},
+			},
+			expectError: true,
+			errorMsg:    "only one migration change type is allowed per update",
 		},
 	}
 

@@ -126,6 +126,43 @@ func PrepareScaleDownFromMongoDB(omClient om.Connection, rs *mdbv1.MongoDB, log 
 		return xerrors.Errorf("dev error: the number of members being scaled down was > 1, scaling more than one member at a time is not possible! %s", podNames)
 	}
 
-	log.Debugw("Setting votes to 0 for members", "members", podNames)
-	return PrepareScaleDownFromMap(omClient, map[string][]string{rs.Name: podNames}, podNames, log)
+	processNames := podNamesToProcessNames(omClient, rs.Name, rs.Namespace, rs.Spec.GetExternalMemberProcessNames(), podNames, log)
+	log.Debugw("Setting votes to 0 for members", "members", processNames)
+	return PrepareScaleDownFromMap(omClient, map[string][]string{rs.Name: processNames}, processNames, log)
+}
+
+// ConvertPodNamesToProcessNames converts bare pod names to k8s/<namespace>/<pod> process names when
+// the existing deployment uses the new naming scheme. For legacy deployments the pod names are
+// returned unchanged.
+func ConvertPodNamesToProcessNames(existingIds map[string]int, externalMembers, podNames []string, namespace string) []string {
+	if IsLegacyDeployment(existingIds, externalMembers) {
+		return podNames
+	}
+	processNames := make([]string, len(podNames))
+	for i, name := range podNames {
+		processNames[i] = process.PodNameToProcessName(name, namespace)
+	}
+	return processNames
+}
+
+// podNamesToProcessNames converts bare pod names to k8s/<namespace>/<pod> process names when the
+// existing deployment uses the new naming scheme. For legacy deployments the pod names are returned
+// unchanged. Errors reading the deployment are logged and the pod names are returned as-is so that
+// the scale-down can proceed (the MarkRsMembersUnvoted error is already swallowed downstream).
+func podNamesToProcessNames(omClient om.Connection, rsName, namespace string, externalMembers, podNames []string, log *zap.SugaredLogger) []string {
+	existingDeployment, err := omClient.ReadDeployment()
+	if err != nil {
+		log.Warnw("Could not read deployment to determine process naming scheme for scale-down; using pod names as-is", "error", err)
+		return podNames
+	}
+
+	existingIds := map[string]int{}
+	rs := existingDeployment.GetReplicaSetByName(rsName)
+	if rs != nil {
+		for _, m := range rs.Members() {
+			existingIds[m.Name()] = m.Id()
+		}
+	}
+
+	return ConvertPodNamesToProcessNames(existingIds, externalMembers, podNames, namespace)
 }

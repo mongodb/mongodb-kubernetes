@@ -226,11 +226,11 @@ func TestGetAllProcessNames_MergedReplicaSetsAndShardedClusters(t *testing.T) {
 		[]string{
 			"my-rs-0", "my-rs-1", "my-rs-2",
 			"another-rs-0", "another-rs-1", "another-rs-2", "another-rs-3", "another-rs-4",
-			"pretty0", "pretty1", "pretty2",
 			"configSrv-0", "configSrv-1", "configSrv-2",
 			"myShard-0-0", "myShard-0-1", "myShard-0-2",
 			"myShard-1-0", "myShard-1-1", "myShard-1-2",
 			"myShard-2-0", "myShard-2-1", "myShard-2-2",
+			"pretty0", "pretty1", "pretty2",
 		},
 		d.GetAllProcessNames())
 }
@@ -251,11 +251,11 @@ func TestGetAllProcessNames_MergedShardedClusters(t *testing.T) {
 	assert.Equal(
 		t,
 		[]string{
-			"pretty0", "pretty1", "pretty2",
 			"configSrv-0", "configSrv-1", "configSrv-2",
 			"myShard-0-0", "myShard-0-1", "myShard-0-2",
 			"myShard-1-0", "myShard-1-1", "myShard-1-2",
 			"myShard-2-0", "myShard-2-1", "myShard-2-2",
+			"pretty0", "pretty1", "pretty2",
 		},
 		d.GetAllProcessNames(),
 	)
@@ -272,15 +272,15 @@ func TestGetAllProcessNames_MergedShardedClusters(t *testing.T) {
 	assert.Equal(
 		t,
 		[]string{
-			"pretty0", "pretty1", "pretty2",
 			"configSrv-0", "configSrv-1", "configSrv-2",
 			"myShard-0-0", "myShard-0-1", "myShard-0-2",
 			"myShard-1-0", "myShard-1-1", "myShard-1-2",
 			"myShard-2-0", "myShard-2-1", "myShard-2-2",
-			"anotherMongos0", "anotherMongos1", "anotherMongos2",
+			"pretty0", "pretty1", "pretty2",
 			"anotherClusterSh-0-0", "anotherClusterSh-0-1", "anotherClusterSh-0-2",
 			"anotherClusterSh-1-0", "anotherClusterSh-1-1", "anotherClusterSh-1-2",
 			"anotherClusterSh-2-0", "anotherClusterSh-2-1", "anotherClusterSh-2-2",
+			"anotherMongos0", "anotherMongos1", "anotherMongos2",
 		},
 		d.GetAllProcessNames(),
 	)
@@ -292,13 +292,13 @@ func TestDeploymentCountIsCorrect(t *testing.T) {
 	rs0 := buildRsByProcesses("my-rs", createReplicaSetProcessesCount(3, "my-rs"))
 	d.MergeReplicaSet(rs0, nil, nil, nil, zap.S())
 
-	excessProcesses := d.GetNumberOfExcessProcesses("my-rs", nil)
+	excessProcesses := d.GetNumberOfExcessProcesses("my-rs", "my-rs", nil)
 	// There's only one resource in this deployment
 	assert.Equal(t, 0, excessProcesses)
 
 	rs1 := buildRsByProcesses("my-rs-second", createReplicaSetProcessesCount(3, "my-rs-second"))
 	d.MergeReplicaSet(rs1, nil, nil, nil, zap.S())
-	excessProcesses = d.GetNumberOfExcessProcesses("my-rs", nil)
+	excessProcesses = d.GetNumberOfExcessProcesses("my-rs", "my-rs", nil)
 
 	// another replica set was added to the deployment. 3 processes do not belong to this one
 	assert.Equal(t, 3, excessProcesses)
@@ -315,18 +315,18 @@ func TestDeploymentCountIsCorrect(t *testing.T) {
 
 	_, err := d.MergeShardedCluster(mergeOpts)
 	assert.NoError(t, err)
-	excessProcesses = d.GetNumberOfExcessProcesses("my-rs", nil)
+	excessProcesses = d.GetNumberOfExcessProcesses("my-rs", "my-rs", nil)
 
 	// a Sharded Cluster was added, plenty of processes do not belong to "my-rs" anymore
 	assert.Equal(t, 18, excessProcesses)
 
 	// This unknown process does not belong in here
-	excessProcesses = d.GetNumberOfExcessProcesses("some-unknown-name", nil)
+	excessProcesses = d.GetNumberOfExcessProcesses("some-unknown-name", "some-unknown-name", nil)
 
 	// a Sharded Cluster was added, plenty of processes do not belong to "my-rs" anymore
 	assert.Equal(t, 21, excessProcesses)
 
-	excessProcesses = d.GetNumberOfExcessProcesses("sc001", nil)
+	excessProcesses = d.GetNumberOfExcessProcesses("sc001", "sc001", nil)
 	// There are 6 processes that do not belong to the sc001 sharded cluster
 	assert.Equal(t, 6, excessProcesses)
 }
@@ -347,7 +347,7 @@ func TestGetNumberOfExcessProcesses_ShardedClusterScaleDown(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Len(t, d.getShardedClusterByName("sc001").shards(), 3)
 	assert.Len(t, d.GetReplicaSets(), 4)
-	assert.Equal(t, 0, d.GetNumberOfExcessProcesses("sc001", nil))
+	assert.Equal(t, 0, d.GetNumberOfExcessProcesses("sc001", "sc001", nil))
 
 	// Now we are "scaling down" the sharded cluster - so junk replica sets will appear - this is still ok
 	twoShards := createShards("sc001")[0:2]
@@ -365,7 +365,52 @@ func TestGetNumberOfExcessProcesses_ShardedClusterScaleDown(t *testing.T) {
 	assert.Len(t, d.getShardedClusterByName("sc001").shards(), 2)
 	assert.Len(t, d.GetReplicaSets(), 4)
 
-	assert.Equal(t, 0, d.GetNumberOfExcessProcesses("sc001", nil))
+	assert.Equal(t, 0, d.GetNumberOfExcessProcesses("sc001", "sc001", nil))
+}
+
+// TestGetNumberOfExcessProcesses_ACNameDiffersFromK8sName verifies that junk
+// replica sets left behind during scale-down are correctly detected when the AC
+// cluster name (e.g. from mongosNameOverride) differs from the K8s StatefulSet
+// name prefix used for shard RS names.
+func TestGetNumberOfExcessProcesses_ACNameDiffersFromK8sName(t *testing.T) {
+	d := NewDeployment()
+	configRs := createConfigSrvRs("ac-config", false)
+
+	// Initial: cluster named "ac-mongos", two shards with K8s prefix "sc-overrides".
+	twoShards := createSpecificNumberOfShards(2, "sc-overrides")
+	_, err := d.MergeShardedCluster(DeploymentShardedClusterMergeOptions{
+		Name:            "ac-mongos",
+		ShardNamePrefix: "sc-overrides",
+		MongosProcesses: createMongosProcesses(1, "sc-overrides-mongos", "ac-mongos"),
+		ConfigServerRs:  configRs,
+		Shards:          twoShards,
+		Finalizing:      false,
+	})
+	assert.NoError(t, err)
+	assert.Equal(t, 0, d.GetNumberOfExcessProcesses("ac-mongos", "sc-overrides", nil))
+
+	// Scale down to 1 shard: "sc-overrides-1" is removed from the sharding section
+	// but its RS lingers in the deployment (phase 1 of scale-down).
+	oneShards := twoShards[0:1]
+	_, err = d.MergeShardedCluster(DeploymentShardedClusterMergeOptions{
+		Name:            "ac-mongos",
+		ShardNamePrefix: "sc-overrides",
+		MongosProcesses: createMongosProcesses(1, "sc-overrides-mongos", "ac-mongos"),
+		ConfigServerRs:  configRs,
+		Shards:          oneShards,
+		Finalizing:      false,
+	})
+	assert.NoError(t, err)
+	assert.Len(t, d.getShardedClusterByName("ac-mongos").shards(), 1)
+	// The junk RS is still present in the deployment.
+	assert.Len(t, d.GetReplicaSets(), 3)
+
+	// Correct prefix: junk RS is recognised as belonging to the cluster — no excess.
+	assert.Equal(t, 0, d.GetNumberOfExcessProcesses("ac-mongos", "sc-overrides", nil))
+
+	// Wrong prefix (using the AC cluster name): regex ^ac-mongos-[0-9]+$ does not
+	// match "sc-overrides-1", so the junk RS processes appear as excess.
+	assert.Greater(t, d.GetNumberOfExcessProcesses("ac-mongos", "ac-mongos", nil), 0)
 }
 
 func TestIsShardOf(t *testing.T) {
@@ -863,10 +908,10 @@ func TestGetNumberOfExcessProcesses_ExternalMembersNotCountedAsExcess(t *testing
 	d["processes"] = append(d.GetProcesses(), extProcess)
 
 	// Without declaring ext-0 as external: it is excess
-	assert.Equal(t, 1, d.GetNumberOfExcessProcesses("my-rs", nil))
+	assert.Equal(t, 1, d.GetNumberOfExcessProcesses("my-rs", "my-rs", nil))
 
 	// Declaring ext-0 as external by process name: no longer excess
-	assert.Equal(t, 0, d.GetNumberOfExcessProcesses("my-rs", []string{"ext-0"}))
+	assert.Equal(t, 0, d.GetNumberOfExcessProcesses("my-rs", "my-rs", []string{"ext-0"}))
 }
 
 func TestCheckProcessFields_ProcessNotFound(t *testing.T) {

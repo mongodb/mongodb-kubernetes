@@ -4,8 +4,8 @@ Creates a 2-shard cluster using both override forms for shards, plus config serv
 and mongos name overrides:
   - Shard 0: full form, where shardId and replicaSetName differ from the K8s StatefulSet name.
   - Shard 1: brevity form, where shardName only is set and all three values are equal.
-  - Config server: configSrvRsNameOverride sets a custom AC replicaSetName.
-  - Mongos: mongosRsNameOverride sets a custom AC cluster name.
+  - Config server: configServerNameOverride sets a custom AC replicaSetName.
+  - Mongos: mongosNameOverride sets a custom AC cluster name.
 Verifies that:
   - The AC uses the correct names for all four override forms after creation.
   - Scaling down removes the override entry for the scaled-away shard.
@@ -13,11 +13,10 @@ Verifies that:
 """
 
 from kubetester import try_load
-from kubetester.kubetester import ensure_ent_version
+from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
 from kubetester.omtester import OMContext, OMTester
-from kubetester.kubetester import KubernetesTester
 from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
@@ -85,7 +84,7 @@ class TestCreateWithNameOverrides:
     def test_ac_config_and_mongos_use_override_names(self, om_tester: OMTester):
         ac_tester = om_tester.get_automation_config_tester()
         sharding_entry = ac_tester.get_sharding_entries()[0]
-        assert sharding_entry["configServer"] == CONFIG_RS_AC_NAME
+        assert sharding_entry["configServerReplica"] == CONFIG_RS_AC_NAME
         assert sharding_entry["name"] == MONGOS_AC_NAME
 
 

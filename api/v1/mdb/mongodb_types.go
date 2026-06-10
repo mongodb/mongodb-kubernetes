@@ -1400,10 +1400,10 @@ func (m *MongoDB) MongosRsName() string {
 }
 
 func (m *MongoDB) MongosACRsName() string {
-	if m.Spec.MongosRsNameOverride != "" {
-		return m.Spec.MongosRsNameOverride
+	if m.Spec.MongosNameOverride != "" {
+		return m.Spec.MongosNameOverride
 	}
-	return m.MongosRsName()
+	return m.Name
 }
 
 func (m *MongoDB) ConfigRsName() string {
@@ -1411,8 +1411,8 @@ func (m *MongoDB) ConfigRsName() string {
 }
 
 func (m *MongoDB) ConfigACRsName() string {
-	if m.Spec.ConfigSrvRsNameOverride != "" {
-		return m.Spec.ConfigSrvRsNameOverride
+	if m.Spec.ConfigServerNameOverride != "" {
+		return m.Spec.ConfigServerNameOverride
 	}
 	return m.ConfigRsName()
 }

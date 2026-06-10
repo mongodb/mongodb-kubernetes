@@ -474,16 +474,16 @@ func (m *MongoDB) noShardNameOverridesRemovedForActiveShards(old *MongoDB) v1.Va
 	return v1.ValidationSuccess()
 }
 
-func noConfigSrvRsNameOverrideChanges(newObj, oldObj MongoDbSpec) v1.ValidationResult {
-	if oldObj.ConfigSrvRsNameOverride != "" && newObj.ConfigSrvRsNameOverride != oldObj.ConfigSrvRsNameOverride {
-		return v1.ValidationError("Cannot change configSrvRsNameOverride once set.")
+func noConfigServerNameOverrideChanges(newObj, oldObj MongoDbSpec) v1.ValidationResult {
+	if oldObj.ConfigServerNameOverride != "" && newObj.ConfigServerNameOverride != oldObj.ConfigServerNameOverride {
+		return v1.ValidationError("Cannot change configServerNameOverride once set.")
 	}
 	return v1.ValidationSuccess()
 }
 
-func noMongosRsNameOverrideChanges(newObj, oldObj MongoDbSpec) v1.ValidationResult {
-	if oldObj.MongosRsNameOverride != "" && newObj.MongosRsNameOverride != oldObj.MongosRsNameOverride {
-		return v1.ValidationError("Cannot change mongosRsNameOverride once set.")
+func noMongosNameOverrideChanges(newObj, oldObj MongoDbSpec) v1.ValidationResult {
+	if oldObj.MongosNameOverride != "" && newObj.MongosNameOverride != oldObj.MongosNameOverride {
+		return v1.ValidationError("Cannot change mongosNameOverride once set.")
 	}
 	return v1.ValidationSuccess()
 }
@@ -600,10 +600,23 @@ func atMostOneMigrationChangeAtATime(newObj, oldObj MongoDbSpec) v1.ValidationRe
 		return v1.ValidationSuccess()
 	}
 
+	// For RS resources, MongodsPerShardCount and ShardCount are always 0, so the sharded deltas below are
+	// always 0 and Members drives the check. For sharded clusters, Members is always 0, so the sharded
+	// deltas drive the check instead.
 	membersDelta := newObj.Members - oldObj.Members
+	perShardDelta := newObj.MongodsPerShardCount - oldObj.MongodsPerShardCount
+	shardCountDelta := newObj.ShardCount - oldObj.ShardCount
+	if perShardDelta < 0 || shardCountDelta < 0 {
+		membersDelta = -1
+	} else if perShardDelta > 0 || shardCountDelta > 0 {
+		// Increasing either count (or both simultaneously) is intentionally treated as one change
+		// because both represent "adding Kubernetes members" — the same migration step.
+		membersDelta = 1
+	}
+
 	externalDelta := len(oldObj.ExternalMembers) - len(newObj.ExternalMembers)
 	memberConfigChanges := countMemberConfigChangesForExistingMembers(
-		newObj.MemberConfig, oldObj.MemberConfig, oldObj.Members,
+		newObj.MemberConfig, oldObj.MemberConfig, oldObj.Members+oldObj.ConfigServerCount,
 	)
 
 	if membersDelta < 0 {
@@ -648,8 +661,8 @@ func (m *MongoDB) RunValidations(old *MongoDB) []v1.ValidationResult {
 		atMostOneMigrationChangeAtATime,
 		noExternalMembersAdditionOrChanges,
 		noShardNameOverridesAddedOrModified,
-		noConfigSrvRsNameOverrideChanges,
-		noMongosRsNameOverrideChanges,
+		noConfigServerNameOverrideChanges,
+		noMongosNameOverrideChanges,
 	}
 
 	var validationResults []v1.ValidationResult

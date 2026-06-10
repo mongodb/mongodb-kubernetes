@@ -240,6 +240,10 @@ type ExternalShardedCluster struct {
 // in the automation config. These values should be provided my the MongoDB resource.
 type DeploymentShardedClusterMergeOptions struct {
 	Name                                 string
+	// ShardNamePrefix is the K8s StatefulSet name prefix used to recognise orphaned shard replica sets
+	// during scale-down.  It equals sc.Name (e.g. "my-sc"), while Name may differ when mongosNameOverride
+	// is set (e.g. "ac-mongos").  When empty it falls back to Name.
+	ShardNamePrefix                      string
 	MongosProcesses                      []Process
 	ConfigServerRs                       ReplicaSetWithProcesses
 	Shards                               []ReplicaSetWithProcesses
@@ -259,14 +263,13 @@ type DeploymentShardedClusterMergeOptions struct {
 func (d Deployment) MergeShardedCluster(opts DeploymentShardedClusterMergeOptions) (bool, error) {
 	log := zap.S().With("sharded cluster", opts.Name)
 
-	err := d.mergeMongosProcesses(opts, log)
-	if err != nil {
-		return false, err
-	}
-
 	d.mergeConfigReplicaSet(opts, log)
 
 	shardsScheduledForRemoval := d.mergeShards(opts, log)
+
+	if err := d.mergeMongosProcesses(opts, log); err != nil {
+		return false, err
+	}
 
 	return shardsScheduledForRemoval, nil
 }
@@ -605,8 +608,10 @@ func (d Deployment) ProcessBelongsToResource(processName, resourceName string) b
 }
 
 // GetNumberOfExcessProcesses calculates how many processes do not belong to
-// this resource.
-func (d Deployment) GetNumberOfExcessProcesses(resourceName string, externalMembers []string) int {
+// this resource.  shardNamePrefix is the K8s StatefulSet name prefix used to
+// identify orphaned shard replica sets during scale-down; pass resourceName
+// when there is no AC name override.
+func (d Deployment) GetNumberOfExcessProcesses(resourceName string, shardNamePrefix string, externalMembers []string) int {
 	processNames := d.GetAllProcessNames()
 	excessProcesses := len(processNames)
 	externalMembersSet := merge.StringsToSet(externalMembers)
@@ -620,7 +625,7 @@ func (d Deployment) GetNumberOfExcessProcesses(resourceName string, externalMemb
 	// Edge case: for sharded cluster it's ok to have junk replica sets during scale down - we consider them as
 	// belonging to sharded cluster
 	if d.getShardedClusterByName(resourceName) != nil {
-		for _, r := range d.findReplicaSetsRemovedFromShardedCluster(resourceName) {
+		for _, r := range d.findReplicaSetsRemovedFromShardedCluster(resourceName, shardNamePrefix) {
 			excessProcesses -= len(d.GetProcessNames(ReplicaSet{}, r))
 		}
 	}
@@ -855,7 +860,11 @@ func (d Deployment) mergeShards(opts DeploymentShardedClusterMergeOptions, log *
 			s.mergeFrom(cluster)
 			log.Debug("Merged sharded cluster into existing one")
 
-			return d.handleShardsRemoval(opts.Finalizing, s, log)
+			shardPrefix := opts.ShardNamePrefix
+			if shardPrefix == "" {
+				shardPrefix = opts.Name
+			}
+			return d.handleShardsRemoval(opts.Finalizing, s, shardPrefix, log)
 		}
 	}
 	// Adding the new sharded cluster
@@ -873,8 +882,8 @@ func (d Deployment) mergeShards(opts DeploymentShardedClusterMergeOptions, log *
 // - if 'finalizing' == true - this means that this is the 2nd phase of the process - when the shards were removed
 // from the sharded cluster and their data was rebalanced to the rest of the shards. Now we can remove the replica sets
 // and their processes and clean the 'draining' array.
-func (d Deployment) handleShardsRemoval(finalizing bool, s ShardedCluster, log *zap.SugaredLogger) bool {
-	junkReplicaSets := d.findReplicaSetsRemovedFromShardedCluster(s.Name())
+func (d Deployment) handleShardsRemoval(finalizing bool, s ShardedCluster, shardNamePrefix string, log *zap.SugaredLogger) bool {
+	junkReplicaSets := d.findReplicaSetsRemovedFromShardedCluster(s.Name(), shardNamePrefix)
 
 	if len(junkReplicaSets) == 0 {
 		return false
@@ -1071,16 +1080,15 @@ func (d Deployment) getTLS() map[string]interface{} {
 }
 
 // findReplicaSetsRemovedFromShardedCluster finds all replica sets which look like shards that have been removed from
-// the sharded cluster.
-// To make this method work correctly the shards MUST have the same prefix as a shard (which is true for the
-// Operator-created resource)
-func (d Deployment) findReplicaSetsRemovedFromShardedCluster(clusterName string) []string {
+// the sharded cluster.  clusterName is used to look up the sharding section; shardNamePrefix is the K8s StatefulSet
+// name prefix (sc.Name) used for the pattern match — it differs from clusterName when mongosNameOverride is set.
+func (d Deployment) findReplicaSetsRemovedFromShardedCluster(clusterName, shardNamePrefix string) []string {
 	shardedCluster := d.getShardedClusterByName(clusterName)
 	clusterReplicaSets := shardedCluster.getAllReplicaSets()
 	var ans []string
 
 	for _, v := range d.GetReplicaSets() {
-		if !stringutil.Contains(clusterReplicaSets, v.Name()) && isShardOfShardedCluster(clusterName, v.Name()) {
+		if !stringutil.Contains(clusterReplicaSets, v.Name()) && isShardOfShardedCluster(shardNamePrefix, v.Name()) {
 			ans = append(ans, v.Name())
 		}
 	}

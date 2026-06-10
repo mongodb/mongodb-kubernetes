@@ -14,8 +14,8 @@ spec:
       name: my-project
   credentials: my-credentials
   persistent: false
-  configSrvRsNameOverride: ac-config
-  mongosRsNameOverride: ac-mongos
+  configServerNameOverride: ac-config
+  mongosNameOverride: ac-mongos
   shardNameOverrides:
     - shardName: sc-scale-overrides-0
       shardId: ac-rs-0
