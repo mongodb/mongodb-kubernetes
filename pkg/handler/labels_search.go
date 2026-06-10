@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"context"
+
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -29,4 +31,15 @@ func MapMemberClusterObjectToSearch(obj client.Object) reconcile.Request {
 		return reconcile.Request{}
 	}
 	return reconcile.Request{NamespacedName: types.NamespacedName{Name: name, Namespace: ns}}
+}
+
+// EnqueueMemberClusterObjectToSearch is the handler.MapFunc wrapper around
+// MapMemberClusterObjectToSearch, shared by both search controllers to enqueue
+// the central MongoDBSearch from member-cluster resource events.
+func EnqueueMemberClusterObjectToSearch(_ context.Context, obj client.Object) []reconcile.Request {
+	req := MapMemberClusterObjectToSearch(obj)
+	if req == (reconcile.Request{}) {
+		return nil
+	}
+	return []reconcile.Request{req}
 }
