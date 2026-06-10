@@ -1423,10 +1423,13 @@ tasks:
     commands:
       - func: "e2e_test"
 
-  - name: e2e_search_availability_upgrade_operator
-    tags: [ "patch-run" ]
-    commands:
-      - func: "e2e_test"
+  # TODO(KUBE-102): re-enable post-GA. Disabled because the MongoDBSearch CRD is
+  # intentionally broken on upgrade by the GA API refactor (sizing moved into clusters[]),
+  # so the upgrade test's pre-upgrade old-format search CR no longer applies.
+  # - name: e2e_search_availability_upgrade_operator
+  #   tags: [ "patch-run" ]
+  #   commands:
+  #     - func: "e2e_test"
 
   - name: e2e_search_cds_hot_reload
     tags: [ "patch-run" ]
