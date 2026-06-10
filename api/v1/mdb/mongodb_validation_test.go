@@ -1600,6 +1600,7 @@ func TestNoShardNameOverridesRemovedForActiveShards(t *testing.T) {
 
 func TestShardNameOverridesValidForm(t *testing.T) {
 	mdb := NewDefaultShardedClusterBuilder().Build()
+	mdb.Name = "vm-shard"
 
 	tests := []struct {
 		name        string

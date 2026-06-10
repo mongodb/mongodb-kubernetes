@@ -294,7 +294,7 @@ def mdb_sharded_migration(
     vm_shard_rs_name = "vm-shard-0"
 
     resource["spec"]["shardNameOverrides"] = [
-        {"shardName": vm_shard_rs_name, "shardId": vm_shard_rs_name, "replicaSetName": vm_shard_rs_name}
+        {"shardName": f"{resource.name}-0", "shardId": vm_shard_rs_name, "replicaSetName": vm_shard_rs_name}
     ]
 
     resource["spec"]["security"] = {
@@ -552,15 +552,16 @@ def test_prune_mongos(mdb_sharded_migration: MongoDB, mdb_health_checker: MongoD
 
 
 @mark.e2e_vm_migration_sharded_x509
-def test_process_names(om_tester: OMTester, mdb_sharded_migration: MongoDB):
+def test_process_names(namespace: str, om_tester: OMTester, mdb_sharded_migration: MongoDB):
     ac_tester = om_tester.get_automation_config_tester()
     process_names = [process["name"] for process in ac_tester.get_all_processes()]
+    name = mdb_sharded_migration.name
 
     for i in range(mdb_sharded_migration["spec"]["configServerCount"]):
-        assert f"{mdb_sharded_migration.name}-config-{i}" in process_names
+        assert f"k8s/{namespace}/{name}-config-{i}" in process_names
 
     for i in range(mdb_sharded_migration["spec"]["mongodsPerShardCount"]):
-        assert f"{mdb_sharded_migration.name}-0-{i}" in process_names
+        assert f"k8s/{namespace}/{name}-0-{i}" in process_names
 
     for i in range(mdb_sharded_migration["spec"]["mongosCount"]):
-        assert f"{mdb_sharded_migration.name}-mongos-{i}" in process_names
+        assert f"k8s/{namespace}/{name}-mongos-{i}" in process_names
