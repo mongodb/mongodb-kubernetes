@@ -1376,11 +1376,6 @@ spec:
                 x-kubernetes-preserve-unknown-fields: true
               mongosCount:
                 type: integer
-              mongosNameOverride:
-                description: |-
-                  MongosNameOverride overrides the automation config cluster name for the mongos processes.
-                  When omitted, the default ("{resourceName}") is used. Immutable once set.
-                type: string
               mongosPodSpec:
                 properties:
                   persistence:
@@ -2786,6 +2781,11 @@ spec:
                       x-kubernetes-preserve-unknown-fields: true
                   type: object
                 type: array
+              shardedClusterNameOverride:
+                description: |-
+                  ShardedClusterNameOverride overrides the automation config sharded cluster name.
+                  When omitted, the default ("{resourceName}") is used. Immutable once set.
+                type: string
               statefulSet:
                 description: |-
                   StatefulSetConfiguration provides the statefulset override for each of the cluster's statefulset

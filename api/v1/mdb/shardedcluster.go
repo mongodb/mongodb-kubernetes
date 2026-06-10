@@ -60,10 +60,10 @@ type ShardedClusterSpec struct {
 	// +optional
 	ConfigServerNameOverride string `json:"configServerNameOverride,omitempty"`
 
-	// MongosNameOverride overrides the automation config cluster name for the mongos processes.
+	// ShardedClusterNameOverride overrides the automation config sharded cluster name.
 	// When omitted, the default ("{resourceName}") is used. Immutable once set.
 	// +optional
-	MongosNameOverride string `json:"mongosNameOverride,omitempty"`
+	ShardedClusterNameOverride string `json:"shardedClusterNameOverride,omitempty"`
 
 	ConfigSrvPodSpec *MongoDbPodSpec `json:"configSrvPodSpec,omitempty"`
 	MongosPodSpec    *MongoDbPodSpec `json:"mongosPodSpec,omitempty"`

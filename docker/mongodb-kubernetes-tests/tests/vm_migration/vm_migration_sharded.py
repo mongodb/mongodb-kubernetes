@@ -7,7 +7,7 @@ The mongos StatefulSet has 2 replicas.
 All three VM-to-K8s name overrides are exercised:
   - configServerNameOverride: VM config RS name "vm-config" differs from the K8s default.
   - shardNameOverrides: VM shard RS name "vm-shard-0" differs from the K8s default.
-  - mongosNameOverride: VM mongos name "vm-mongos" differs from the K8s default.
+  - shardedClusterNameOverride: VM mongos name "vm-mongos" differs from the K8s default.
 """
 
 import yaml
@@ -149,7 +149,7 @@ def mdb_sharded_migration(
     k8s_shard_name = f"{resource.name}-0"
 
     resource["spec"]["configServerNameOverride"] = VM_CONFIG_RS_NAME
-    resource["spec"]["mongosNameOverride"] = VM_MONGOS_NAME
+    resource["spec"]["shardedClusterNameOverride"] = VM_MONGOS_NAME
     # AC _id and replicaSetName are both VM_SHARD_RS_NAME, differing from the K8s name k8s_shard_name.
     resource["spec"]["shardNameOverrides"] = [
         {"shardName": k8s_shard_name, "shardId": VM_SHARD_RS_NAME, "replicaSetName": VM_SHARD_RS_NAME}

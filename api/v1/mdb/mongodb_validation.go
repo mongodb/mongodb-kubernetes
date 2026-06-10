@@ -474,18 +474,28 @@ func (m *MongoDB) noShardNameOverridesRemovedForActiveShards(old *MongoDB) v1.Va
 	return v1.ValidationSuccess()
 }
 
-func noConfigServerNameOverrideChanges(newObj, oldObj MongoDbSpec) v1.ValidationResult {
-	if oldObj.ConfigServerNameOverride != "" && newObj.ConfigServerNameOverride != oldObj.ConfigServerNameOverride {
-		return v1.ValidationError("Cannot change configServerNameOverride once set.")
+// nameOverrideImmutable rejects adding, changing, or removing an AC name override field.
+// Overrides may only be set at creation.
+func nameOverrideImmutable(fieldName, oldVal, newVal string) v1.ValidationResult {
+	if newVal == oldVal {
+		return v1.ValidationSuccess()
 	}
-	return v1.ValidationSuccess()
+	if oldVal == "" {
+		return v1.ValidationError("Cannot add %s to an existing MongoDB resource.", fieldName)
+	}
+	return v1.ValidationError("Cannot change %s once set.", fieldName)
 }
 
-func noMongosNameOverrideChanges(newObj, oldObj MongoDbSpec) v1.ValidationResult {
-	if oldObj.MongosNameOverride != "" && newObj.MongosNameOverride != oldObj.MongosNameOverride {
-		return v1.ValidationError("Cannot change mongosNameOverride once set.")
-	}
-	return v1.ValidationSuccess()
+func noConfigServerNameOverrideChanges(newObj, oldObj MongoDbSpec) v1.ValidationResult {
+	return nameOverrideImmutable("configServerNameOverride", oldObj.ConfigServerNameOverride, newObj.ConfigServerNameOverride)
+}
+
+func noShardedClusterNameOverrideChanges(newObj, oldObj MongoDbSpec) v1.ValidationResult {
+	return nameOverrideImmutable("shardedClusterNameOverride", oldObj.ShardedClusterNameOverride, newObj.ShardedClusterNameOverride)
+}
+
+func noReplicaSetNameOverrideChanges(newObj, oldObj MongoDbSpec) v1.ValidationResult {
+	return nameOverrideImmutable("replicaSetNameOverride", oldObj.ReplicaSetNameOverride, newObj.ReplicaSetNameOverride)
 }
 
 // specWithExactlyOneSchema checks that exactly one among "Project/OpsManagerConfig/CloudManagerConfig"
@@ -600,23 +610,30 @@ func atMostOneMigrationChangeAtATime(newObj, oldObj MongoDbSpec) v1.ValidationRe
 		return v1.ValidationSuccess()
 	}
 
-	// For RS resources, MongodsPerShardCount and ShardCount are always 0, so the sharded deltas below are
-	// always 0 and Members drives the check. For sharded clusters, Members is always 0, so the sharded
-	// deltas drive the check instead.
-	membersDelta := newObj.Members - oldObj.Members
-	perShardDelta := newObj.MongodsPerShardCount - oldObj.MongodsPerShardCount
-	shardCountDelta := newObj.ShardCount - oldObj.ShardCount
-	if perShardDelta < 0 || shardCountDelta < 0 {
-		membersDelta = -1
-	} else if perShardDelta > 0 || shardCountDelta > 0 {
-		// Increasing either count (or both simultaneously) is intentionally treated as one change
-		// because both represent "adding Kubernetes members" — the same migration step.
-		membersDelta = 1
+	// The member delta and the memberConfig bound are computed per resource type.
+	var membersDelta, existingMembersCount int
+	switch newObj.ResourceType {
+	case ShardedCluster:
+		perShardDelta := newObj.MongodsPerShardCount - oldObj.MongodsPerShardCount
+		shardCountDelta := newObj.ShardCount - oldObj.ShardCount
+		configSrvDelta := newObj.ConfigServerCount - oldObj.ConfigServerCount
+		mongosDelta := newObj.MongosCount - oldObj.MongosCount
+		// The four counts fold into one delta, they all represent the same migration step.
+		if perShardDelta < 0 || shardCountDelta < 0 || configSrvDelta < 0 || mongosDelta < 0 {
+			membersDelta = -1
+		} else if perShardDelta > 0 || shardCountDelta > 0 || configSrvDelta > 0 || mongosDelta > 0 {
+			membersDelta = 1
+		}
+		// spec.memberConfig applies to both config server and shard members.
+		existingMembersCount = max(oldObj.ConfigServerCount, oldObj.MongodsPerShardCount)
+	default:
+		membersDelta = newObj.Members - oldObj.Members
+		existingMembersCount = oldObj.Members
 	}
 
 	externalDelta := len(oldObj.ExternalMembers) - len(newObj.ExternalMembers)
 	memberConfigChanges := countMemberConfigChangesForExistingMembers(
-		newObj.MemberConfig, oldObj.MemberConfig, oldObj.Members+oldObj.ConfigServerCount,
+		newObj.MemberConfig, oldObj.MemberConfig, existingMembersCount,
 	)
 
 	if membersDelta < 0 {
@@ -651,7 +668,6 @@ func (m *MongoDB) RunValidations(old *MongoDB) []v1.ValidationResult {
 		horizonDomainNamesMustBeValid,
 		additionalMongodConfig,
 		replicasetMemberIsSpecified,
-
 	}
 
 	updateValidators := []func(newObj MongoDbSpec, oldObj MongoDbSpec) v1.ValidationResult{
@@ -662,7 +678,8 @@ func (m *MongoDB) RunValidations(old *MongoDB) []v1.ValidationResult {
 		noExternalMembersAdditionOrChanges,
 		noShardNameOverridesAddedOrModified,
 		noConfigServerNameOverrideChanges,
-		noMongosNameOverrideChanges,
+		noShardedClusterNameOverrideChanges,
+		noReplicaSetNameOverrideChanges,
 	}
 
 	var validationResults []v1.ValidationResult

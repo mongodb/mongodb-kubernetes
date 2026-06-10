@@ -42,6 +42,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
 	mcoConstruct "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/construct"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
@@ -2229,13 +2230,19 @@ func TestShardedClusterReconcile_PublishesConnectionStringSecret(t *testing.T) {
 				"hostname":    "vm-mongos.example.com",
 				"processType": om.ProcessTypeMongos,
 				"version":     sc.Spec.Version,
-				"cluster":     sc.MongosACRsName(),
+				"cluster":     sc.GetShardedClusterName(),
 				"args2_6":     map[string]interface{}{"net": netWithTLS(27017)},
 			},
 		}
 		shard0Rs := om.NewReplicaSet(sc.ShardACRsName(0), sc.Spec.Version)
 		shard0Rs["members"] = []om.ReplicaSetMember{{"_id": 0, "host": "vm-mongod", "votes": 1, "priority": 1.0}}
 		d["replicaSets"] = []om.ReplicaSet{shard0Rs}
+		// validateShardedACIdentity requires the sharding section under the resolved AC cluster name.
+		d["sharding"] = []om.ShardedCluster{{
+			"name":                sc.GetShardedClusterName(),
+			"configServerReplica": sc.ConfigACRsName(),
+			"shards":              []om.Shard{{"_id": sc.ShardACShardId(0), "rs": sc.ShardACRsName(0)}},
+		}}
 		if _, err := conn.UpdateDeployment(d); err != nil {
 			panic(err)
 		}
@@ -2385,5 +2392,40 @@ func TestCreateDesiredProcesses_ExternalMembersForceNewNaming(t *testing.T) {
 	for i, p := range mongosProcesses {
 		assert.True(t, strings.HasPrefix(p.Name(), "k8s/"+ns+"/"),
 			"mongos process %d should use new naming when external members exist, got %q", i, p.Name())
+	}
+}
+
+// TestShardedRSK8sConfigMatchesDesiredConfiguration pins shardedRSK8sConfig to the reconcile side
+// resolution in prepareDesiredShardsConfiguration so the two cannot drift apart.
+func TestShardedRSK8sConfigMatchesDesiredConfiguration(t *testing.T) {
+	ctx := context.Background()
+	votes0 := 0
+	votes1 := 1
+	prio := "0"
+
+	sc := test.DefaultClusterBuilder().Build()
+	sc.Spec.MemberConfig = make([]automationconfig.MemberOptions, sc.Spec.MongodsPerShardCount)
+	for i := range sc.Spec.MemberConfig {
+		sc.Spec.MemberConfig[i] = automationconfig.MemberOptions{Votes: &votes0, Priority: &prio}
+	}
+	overrideConfig := make([]automationconfig.MemberOptions, sc.Spec.MongodsPerShardCount)
+	for i := range overrideConfig {
+		overrideConfig[i] = automationconfig.MemberOptions{Votes: &votes1, Priority: &prio}
+	}
+	overrideMembers := sc.Spec.MongodsPerShardCount + 1
+	sc.Spec.ShardOverrides = []mdbv1.ShardOverride{{
+		ShardNames:   []string{sc.ShardRsName(1)},
+		Members:      &overrideMembers,
+		MemberConfig: overrideConfig,
+	}}
+
+	_, reconcileHelper, _, _, err := defaultShardedClusterReconciler(ctx, nil, "", "", sc, nil, testBackupEnableDelay)
+	require.NoError(t, err)
+
+	for shardIdx := 0; shardIdx < sc.Spec.ShardCount; shardIdx++ {
+		members, memberConfig := shardedRSK8sConfig(sc, sc.ShardACRsName(shardIdx))
+		desired := reconcileHelper.desiredShardsConfiguration[shardIdx].ClusterSpecList[0]
+		assert.Equal(t, desired.Members, members, "shard %d members", shardIdx)
+		assert.Equal(t, desired.MemberConfig, memberConfig, "shard %d memberConfig", shardIdx)
 	}
 }

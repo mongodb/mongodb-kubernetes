@@ -1399,9 +1399,9 @@ func (m *MongoDB) MongosRsName() string {
 	return m.Name + "-mongos"
 }
 
-func (m *MongoDB) MongosACRsName() string {
-	if m.Spec.MongosNameOverride != "" {
-		return m.Spec.MongosNameOverride
+func (m *MongoDB) GetShardedClusterName() string {
+	if m.Spec.ShardedClusterNameOverride != "" {
+		return m.Spec.ShardedClusterNameOverride
 	}
 	return m.Name
 }
@@ -1448,6 +1448,15 @@ func (m *MongoDB) ShardACRsName(i int) string {
 		return o.ReplicaSetName
 	}
 	return m.ShardRsName(i)
+}
+
+// ShardACRsNames returns the AC replicaSetName of every shard, indexed by shard index.
+func (m *MongoDB) ShardACRsNames() []string {
+	names := make([]string, m.Spec.ShardCount)
+	for i := range names {
+		names[i] = m.ShardACRsName(i)
+	}
+	return names
 }
 
 // ShardACShardId returns the AC shard _id for shard i. Falls back to the K8s default for brevity-form or missing entries.

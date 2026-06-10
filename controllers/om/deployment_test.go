@@ -370,7 +370,7 @@ func TestGetNumberOfExcessProcesses_ShardedClusterScaleDown(t *testing.T) {
 
 // TestGetNumberOfExcessProcesses_ACNameDiffersFromK8sName verifies that junk
 // replica sets left behind during scale-down are correctly detected when the AC
-// cluster name (e.g. from mongosNameOverride) differs from the K8s StatefulSet
+// cluster name (e.g. from shardedClusterNameOverride) differs from the K8s StatefulSet
 // name prefix used for shard RS names.
 func TestGetNumberOfExcessProcesses_ACNameDiffersFromK8sName(t *testing.T) {
 	d := NewDeployment()
@@ -408,9 +408,8 @@ func TestGetNumberOfExcessProcesses_ACNameDiffersFromK8sName(t *testing.T) {
 	// Correct prefix: junk RS is recognised as belonging to the cluster — no excess.
 	assert.Equal(t, 0, d.GetNumberOfExcessProcesses("ac-mongos", "sc-overrides", nil))
 
-	// Wrong prefix (using the AC cluster name): regex ^ac-mongos-[0-9]+$ does not
-	// match "sc-overrides-1", so the junk RS processes appear as excess.
-	assert.Greater(t, d.GetNumberOfExcessProcesses("ac-mongos", "ac-mongos", nil), 0)
+	// With a prefix that does not match, the junk RS is still recognised through the draining list.
+	assert.Equal(t, 0, d.GetNumberOfExcessProcesses("ac-mongos", "ac-mongos", nil))
 }
 
 func TestIsShardOf(t *testing.T) {

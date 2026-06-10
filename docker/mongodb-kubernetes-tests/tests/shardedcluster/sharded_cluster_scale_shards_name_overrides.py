@@ -5,7 +5,7 @@ and mongos name overrides:
   - Shard 0: full form, where shardId and replicaSetName differ from the K8s StatefulSet name.
   - Shard 1: brevity form, where shardName only is set and all three values are equal.
   - Config server: configServerNameOverride sets a custom AC replicaSetName.
-  - Mongos: mongosNameOverride sets a custom AC cluster name.
+  - Mongos: shardedClusterNameOverride sets a custom AC cluster name.
 Verifies that:
   - The AC uses the correct names for all four override forms after creation.
   - Scaling down removes the override entry for the scaled-away shard.

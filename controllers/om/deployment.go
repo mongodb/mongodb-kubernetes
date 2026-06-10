@@ -239,9 +239,9 @@ type ExternalShardedCluster struct {
 // DeploymentShardedClusterMergeOptions contains all the required values to update the ShardedCluster
 // in the automation config. These values should be provided my the MongoDB resource.
 type DeploymentShardedClusterMergeOptions struct {
-	Name                                 string
+	Name string
 	// ShardNamePrefix is the K8s StatefulSet name prefix used to recognise orphaned shard replica sets
-	// during scale-down.  It equals sc.Name (e.g. "my-sc"), while Name may differ when mongosNameOverride
+	// during scale-down.  It equals sc.Name (e.g. "my-sc"), while Name may differ when shardedClusterNameOverride
 	// is set (e.g. "ac-mongos").  When empty it falls back to Name.
 	ShardNamePrefix                      string
 	MongosProcesses                      []Process
@@ -429,11 +429,11 @@ func (d Deployment) RemoveShardedClusterByName(clusterName string, log *zap.Suga
 
 	d.setShardedClusters(toKeep)
 
-	// 2. Remove all replicasets and their processes for shards
+	// 2. Remove all replicasets and their processes for shards, by replica set name, not by _id.
 	shards := sc.shards()
-	shardNames := make([]string, len(shards))
+	shardNames := make([]string, 0, len(shards))
 	for _, el := range shards {
-		shardNames = append(shardNames, el.id())
+		shardNames = append(shardNames, el.rs())
 	}
 	d.removeReplicaSets(shardNames, log)
 
@@ -750,6 +750,27 @@ func (d Deployment) GetShardedClusterShardProcessNames(name string, shardNum int
 	return nil
 }
 
+// GetShardedClusterByName returns the sharded cluster with the given name and whether it exists.
+func (d Deployment) GetShardedClusterByName(name string) (ShardedCluster, bool) {
+	if sc := d.getShardedClusterByName(name); sc != nil {
+		return *sc, true
+	}
+	return nil, false
+}
+
+// GetShardedClusterShardProcessNamesByRs returns the process names of the shard of cluster "name" whose
+// replica set name is rsName. The shards array is sorted by _id, so positional access is unreliable.
+func (d Deployment) GetShardedClusterShardProcessNamesByRs(name string, rsName string) []string {
+	if sc := d.getShardedClusterByName(name); sc != nil {
+		for _, shard := range sc.shards() {
+			if shard.rs() == rsName {
+				return d.getReplicaSetProcessNames(rsName)
+			}
+		}
+	}
+	return nil
+}
+
 // getShardedClusterShardsProcessNames returns the process names  fo sharded cluster named "name".
 func (d Deployment) getShardedClusterShardsProcessNames(name string) []string {
 	processNames := make([]string, 0)
@@ -857,14 +878,14 @@ func (d Deployment) mergeShards(opts DeploymentShardedClusterMergeOptions, log *
 	// Merging "sharding" json value
 	for _, s := range d.getShardedClusters() {
 		if s.Name() == opts.Name {
-			s.mergeFrom(cluster)
+			removedShardRsNames := s.mergeFrom(cluster)
 			log.Debug("Merged sharded cluster into existing one")
 
 			shardPrefix := opts.ShardNamePrefix
 			if shardPrefix == "" {
 				shardPrefix = opts.Name
 			}
-			return d.handleShardsRemoval(opts.Finalizing, s, shardPrefix, log)
+			return d.handleShardsRemoval(opts.Finalizing, s, shardPrefix, removedShardRsNames, log)
 		}
 	}
 	// Adding the new sharded cluster
@@ -874,6 +895,8 @@ func (d Deployment) mergeShards(opts DeploymentShardedClusterMergeOptions, log *
 }
 
 // handleShardsRemoval is a complicated method handling different scenarios.
+// Any shard dropped from the sharding section is drained and then removed, including shards added
+// out of band in Ops Manager.
 // - 'draining' array is empty and no extra shards were found in OM which should be removed - return
 // - if 'finalizing' == false - this means that this is the 1st phase of the process - when the shards are due to be removed
 // or have already been removed and their replica sets are added/already sit in the 'draining' array. Note, that this
@@ -882,8 +905,16 @@ func (d Deployment) mergeShards(opts DeploymentShardedClusterMergeOptions, log *
 // - if 'finalizing' == true - this means that this is the 2nd phase of the process - when the shards were removed
 // from the sharded cluster and their data was rebalanced to the rest of the shards. Now we can remove the replica sets
 // and their processes and clean the 'draining' array.
-func (d Deployment) handleShardsRemoval(finalizing bool, s ShardedCluster, shardNamePrefix string, log *zap.SugaredLogger) bool {
+func (d Deployment) handleShardsRemoval(finalizing bool, s ShardedCluster, shardNamePrefix string, removedShardRsNames []string, log *zap.SugaredLogger) bool {
 	junkReplicaSets := d.findReplicaSetsRemovedFromShardedCluster(s.Name(), shardNamePrefix)
+
+	// Shards removed by this merge may match neither the prefix pattern nor the draining list yet,
+	// as on scale down of a shard with a full form ShardNameOverride.
+	for _, rsName := range removedShardRsNames {
+		if !stringutil.Contains(junkReplicaSets, rsName) && d.GetReplicaSetByName(rsName) != nil {
+			junkReplicaSets = append(junkReplicaSets, rsName)
+		}
+	}
 
 	if len(junkReplicaSets) == 0 {
 		return false
@@ -1081,14 +1112,17 @@ func (d Deployment) getTLS() map[string]interface{} {
 
 // findReplicaSetsRemovedFromShardedCluster finds all replica sets which look like shards that have been removed from
 // the sharded cluster.  clusterName is used to look up the sharding section; shardNamePrefix is the K8s StatefulSet
-// name prefix (sc.Name) used for the pattern match — it differs from clusterName when mongosNameOverride is set.
+// name prefix (sc.Name) used for the pattern match — it differs from clusterName when shardedClusterNameOverride is set.
+// Draining replica sets are matched by name too since overridden names may not match the prefix.
 func (d Deployment) findReplicaSetsRemovedFromShardedCluster(clusterName, shardNamePrefix string) []string {
 	shardedCluster := d.getShardedClusterByName(clusterName)
 	clusterReplicaSets := shardedCluster.getAllReplicaSets()
+	draining := shardedCluster.draining()
 	var ans []string
 
 	for _, v := range d.GetReplicaSets() {
-		if !stringutil.Contains(clusterReplicaSets, v.Name()) && isShardOfShardedCluster(shardNamePrefix, v.Name()) {
+		if !stringutil.Contains(clusterReplicaSets, v.Name()) &&
+			(isShardOfShardedCluster(shardNamePrefix, v.Name()) || stringutil.Contains(draining, v.Name())) {
 			ans = append(ans, v.Name())
 		}
 	}
