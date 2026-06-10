@@ -131,6 +131,25 @@ def get_shard_mongod_tester(
     return SearchTester(conn_str, use_ssl=use_ssl, ca_path=ca_path)
 
 
+def per_cluster_search_tester(
+    host: str,
+    username: str,
+    password: str,
+) -> SearchTester:
+    """SearchTester pinned to a single cluster's mongod/mongos `host` (`name:port`).
+
+    directConnection=true so RS topology discovery does not silently follow back to
+    the primary — the connected pod serves the query. `$search` is a read aggregation
+    any node can serve, so readPreference=secondaryPreferred lets a secondary answer.
+    TLS + the issuer CA are always on (the source runs requireTLS).
+    """
+    conn_str = (
+        f"mongodb://{username}:{password}@{host}/"
+        "?directConnection=true&readPreference=secondaryPreferred&authSource=admin"
+    )
+    return SearchTester(conn_str, use_ssl=True, ca_path=get_issuer_ca_filepath())
+
+
 def create_lb_certificates(
     namespace: str,
     issuer: str,
