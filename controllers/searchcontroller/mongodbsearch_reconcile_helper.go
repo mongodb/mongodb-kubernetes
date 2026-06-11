@@ -1355,11 +1355,6 @@ func (r *MongoDBSearchReconcileHelper) ensureX509ClientCertConfig(ctx context.Co
 	}
 
 	mongotModification := func(config *mongot.Config) {
-		// config.SyncSource.ReplicaSet.Username = ""
-		// config.SyncSource.ReplicaSet.PasswordFile = ""
-		// we don't really HAVE TO set it to `$external`, mongot uses $external in case of x509 anyway
-		// config.SyncSource.ReplicaSet.AuthSource = ptr.To("$external")
-
 		config.SyncSource.ReplicaSet.ScramAuth = nil
 		config.SyncSource.ReplicaSet.X509 = &mongot.ConfigX509{
 			TLSCertificateKeyFile:    ptr.To(certPath),
@@ -1370,11 +1365,6 @@ func (r *MongoDBSearchReconcileHelper) ensureX509ClientCertConfig(ctx context.Co
 		}
 
 		if config.SyncSource.Router != nil {
-			// config.SyncSource.Router.Username = ""
-			// config.SyncSource.Router.PasswordFile = ""
-			// // we don't really HAVE TO set it to `$external`, mongot uses $external in case of x509 anyway
-			// config.SyncSource.Router.AuthSource = ptr.To("$external")
-
 			config.SyncSource.Router.ScramAuth = nil
 			config.SyncSource.Router.X509 = &mongot.ConfigX509{
 				TLSCertificateKeyFile:    ptr.To(certPath),
