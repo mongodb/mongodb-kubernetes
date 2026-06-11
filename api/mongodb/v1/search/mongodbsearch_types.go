@@ -239,8 +239,7 @@ type LoadBalancerConfig struct {
 type ManagedLBConfig struct {
 	// ExternalHostname is the hostname Envoy expects for SNI matching on incoming requests.
 	// For sharded clusters, may contain a {shardName} placeholder.
-	// In multi-cluster deployments, may contain a {clusterName} placeholder so per-cluster
-	// SNI hostnames stay distinct.
+	// In multi-cluster deployments, every cluster's hostname must be distinct.
 	// Required when MongoDB is externally managed. Ignored for operator-managed MongoDB.
 	// +optional
 	ExternalHostname string `json:"externalHostname,omitempty"`
@@ -434,7 +433,7 @@ type MongoDBSearchStatus struct {
 	Version       string           `json:"version,omitempty"`
 	Warnings      []status.Warning `json:"warnings,omitempty"`
 	// LoadBalancer reports the state of the operator-managed load balancer.
-	// Only populated when spec.loadBalancer.managed is set.
+	// Only populated when spec.clusters[].loadBalancer.managed is set.
 	// +optional
 	LoadBalancer *LoadBalancerStatus `json:"loadBalancer,omitempty"`
 }
