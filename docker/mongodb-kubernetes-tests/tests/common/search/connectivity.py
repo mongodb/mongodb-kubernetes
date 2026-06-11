@@ -593,7 +593,10 @@ def set_resource_disabled_annotation(mdbs, disabled: bool) -> None:
 
 
 def patch_mongot_readiness_probe_to_false(namespace: str, sts_name: str, container_name: str = "mongot") -> None:
-    """Patch ``container_name``'s readiness probe to ``/bin/false``."""
+    """Patch ``container_name``'s readiness probe to ``/bin/false`` on the STS pod
+    TEMPLATE. A template patch ROLLS an already-running pod (the process restarts);
+    the replacement pod runs with the failing probe and never reports Ready. Wait
+    for the rolled pod to be Running-but-not-ready before relying on the hold."""
     patch = {
         "spec": {
             "template": {
