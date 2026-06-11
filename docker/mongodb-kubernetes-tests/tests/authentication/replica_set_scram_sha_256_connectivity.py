@@ -265,10 +265,7 @@ def test_space_password_credentials_secret_is_created(space_password_standard_se
     assert "connectionString.standard" in space_password_standard_secret
     assert "connectionString.standardSrv" in space_password_standard_secret
     assert f"authSource={USER_DATABASE}" in space_password_standard_secret["connectionString.standard"]
-    assert (
-        f"authSource={USER_DATABASE}"
-        in space_password_standard_secret["connectionString.standardSrv"]
-    )
+    assert f"authSource={USER_DATABASE}" in space_password_standard_secret["connectionString.standardSrv"]
     # space must be encoded as %20, not + — check only the userinfo segment to avoid false positives
     for key in ("connectionString.standard", "connectionString.standardSrv"):
         conn = space_password_standard_secret[key]
@@ -315,10 +312,7 @@ def test_plus_password_credentials_secret_is_created(plus_password_standard_secr
     assert "connectionString.standard" in plus_password_standard_secret
     assert "connectionString.standardSrv" in plus_password_standard_secret
     assert f"authSource={USER_DATABASE}" in plus_password_standard_secret["connectionString.standard"]
-    assert (
-        f"authSource={USER_DATABASE}"
-        in plus_password_standard_secret["connectionString.standardSrv"]
-    )
+    assert f"authSource={USER_DATABASE}" in plus_password_standard_secret["connectionString.standardSrv"]
     # literal + in password must be percent-encoded as %2B in userinfo so that pymongo's
     # unquote_plus does not decode it as a space character
     for key in ("connectionString.standard", "connectionString.standardSrv"):
