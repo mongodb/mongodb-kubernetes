@@ -3711,3 +3711,74 @@ func TestReconcileSharded_StatefulSetTemplateStableAcrossReconciles(t *testing.T
 	require.Len(t, updated.Spec.Template.Spec.InitContainers, 1)
 	assert.Equal(t, "startup-delay", updated.Spec.Template.Spec.InitContainers[0].Name)
 }
+
+// TestReconcileShardedMC_ShardOverrideReplicas drives the full reconcile with
+// shardOverrides through to the per-(cluster, shard) StatefulSets:
+//   - the shard names the source reports must match the names overrides are
+//     keyed by (the wiring the construction-level tests bypass);
+//   - every shard listed in one override entry gets the override;
+//   - an override in one cluster never leaks into another cluster's same shard;
+//   - replicas: 0 takes a single shard's mongot offline.
+//
+// Resolution is a pure function of the spec, so add/move/remove of an override
+// is the same code path re-run: the second pass asserts the STSs converge to
+// the new spec with no transition logic.
+func TestReconcileShardedMC_ShardOverrideReplicas(t *testing.T) {
+	fx := newMCShardedFixture(t)
+	fx.search.Spec.Clusters = []searchv1.ClusterSpec{
+		{
+			ClusterName: "cluster-a",
+			Replicas:    ptr.To(int32(1)),
+			ShardOverrides: []searchv1.ShardOverride{
+				// One entry, two shards: both must pick up the override.
+				{ShardNames: []string{"sh-0", "sh-1"}, Replicas: ptr.To(int32(2))},
+			},
+		},
+		{
+			ClusterName: "cluster-b",
+			Replicas:    ptr.To(int32(3)),
+			ShardOverrides: []searchv1.ShardOverride{
+				// Explicit 0 takes this shard's mongot offline.
+				{ShardNames: []string{"sh-2"}, Replicas: ptr.To(int32(0))},
+			},
+		},
+	}
+	helper := fx.newHelper()
+
+	assertShardReplicas := func(expected map[string]map[string]int32) {
+		t.Helper()
+		for clusterName, shards := range expected {
+			clusterIdx := fx.clusterMapping[clusterName]
+			for shardName, replicas := range shards {
+				stsName := fx.search.MongotStatefulSetForClusterShard(clusterIdx, shardName)
+				sts := &appsv1.StatefulSet{}
+				require.NoError(t, fx.members[clusterName].Get(t.Context(), stsName, sts))
+				require.NotNil(t, sts.Spec.Replicas, "cluster %s shard %s", clusterName, shardName)
+				assert.Equal(t, replicas, *sts.Spec.Replicas, "cluster %s shard %s", clusterName, shardName)
+			}
+		}
+	}
+
+	st := helper.reconcile(t.Context(), zap.S())
+	require.False(t, st.IsOK(), "fake STSs are never ready; reconcile reports Pending")
+
+	assertShardReplicas(map[string]map[string]int32{
+		"cluster-a": {"sh-0": 2, "sh-1": 2, "sh-2": 1}, // sh-2 keeps the cluster default
+		"cluster-b": {"sh-0": 3, "sh-1": 3, "sh-2": 0}, // cluster-a's override must not leak here
+	})
+
+	// Spec change: drop cluster-a's override, move cluster-b's to a different
+	// shard. The next pass re-resolves every cell from the new spec.
+	fx.search.Spec.Clusters[0].ShardOverrides = nil
+	fx.search.Spec.Clusters[1].ShardOverrides = []searchv1.ShardOverride{
+		{ShardNames: []string{"sh-0"}, Replicas: ptr.To(int32(5))},
+	}
+
+	st = helper.reconcile(t.Context(), zap.S())
+	require.False(t, st.IsOK())
+
+	assertShardReplicas(map[string]map[string]int32{
+		"cluster-a": {"sh-0": 1, "sh-1": 1, "sh-2": 1}, // back to the cluster default
+		"cluster-b": {"sh-0": 5, "sh-1": 3, "sh-2": 3}, // sh-2 back to default after the override moved
+	})
+}
