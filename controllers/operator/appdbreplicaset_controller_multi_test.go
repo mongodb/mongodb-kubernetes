@@ -40,6 +40,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 )
 
 const opsManagerUserPassword = "MBPYfkAj5ZM0l9uw6C7ggw" //nolint
@@ -990,7 +991,7 @@ func TestAppDBMultiClusterRemoveResources(t *testing.T) {
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(opsManager)
 	clusters = []string{"a", "b", "c"}
 	memberClusterMap := getFakeMultiClusterMapWithClusters(clusters, omConnectionFactory)
-	reconciler, _, _ := defaultTestOmReconciler(ctx, t, nil, "", "", opsManager, memberClusterMap, omConnectionFactory)
+	reconciler, _, _ := defaultTestOmReconciler(ctx, t, nil, "", "", opsManager, memberClusterMap, omConnectionFactory, architectures.NonStatic)
 
 	// create opsmanager reconciler
 	appDBReconciler, _ := newAppDbMultiReconciler(ctx, kubeClient, opsManager, memberClusterMap, zap.S(), omConnectionFactory.GetConnectionFunc)
