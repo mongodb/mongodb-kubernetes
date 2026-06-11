@@ -958,3 +958,17 @@ functions:
           - SLACK_WEBHOOK_URL
           - version_id
         binary: scripts/dev/run_python.sh scripts/evergreen/notify_master_failures.py
+
+  # Watch temporarily-skipped search tests; alerts on unexpected failures or when
+  # credentials are restored (so the patchable:false skip can be reverted)
+  watch_skipped_search_tests:
+    - command: subprocess.exec
+      type: setup
+      params:
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        include_expansions_in_env:
+          - EVERGREEN_USER
+          - EVERGREEN_API_KEY
+          - SLACK_WEBHOOK_URL
+          - version_id
+        binary: scripts/dev/run_python.sh scripts/evergreen/watch_skipped_search_tests.py

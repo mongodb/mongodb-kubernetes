@@ -676,6 +676,13 @@ tasks:
       - func: python_venv
       - func: notify_master_failures
 
+  # Watch temporarily-skipped search tests on master (credentials broken, patchable:false skip in place)
+  - name: watch_skipped_search_tests
+    commands:
+      - func: clone
+      - func: python_venv
+      - func: watch_skipped_search_tests
+
   # Weekly flaky test report - queries Honeycomb and sends summary to Slack
   - name: notify_flaky_tests_weekly
     tags: [ "notification" ]
@@ -2243,6 +2250,7 @@ buildvariants:
       - ubuntu2404-small
     tasks:
       - name: notify_master_build_status
+      - name: watch_skipped_search_tests
 
   # Weekly flaky test report - runs every Monday at 9 AM UTC
   - name: flaky_test_report
