@@ -3808,3 +3808,18 @@ func TestReconcileShardedMC_InterleavedStatusConverges(t *testing.T) {
 	require.NotNil(t, got.Status.LoadBalancer, "LB sub-status still present")
 	require.Equal(t, status.PhaseRunning, got.Status.LoadBalancer.Phase)
 }
+
+// IsMultiClusterMode requires BOTH member-cluster clients and spec.clusters:
+// clients without clusters is a legacy stored CR (single-cluster semantics),
+// clusters without clients is a single-cluster operator that must not fan out.
+func TestIsMultiClusterMode(t *testing.T) {
+	// The client value is irrelevant; the predicate only checks map length.
+	clients := map[string]kubernetesClient.Client{"cluster-a": nil}
+	withClusters := &searchv1.MongoDBSearch{Spec: searchv1.MongoDBSearchSpec{Clusters: []searchv1.ClusterSpec{{ClusterName: "cluster-a"}}}}
+	withoutClusters := &searchv1.MongoDBSearch{}
+
+	assert.True(t, IsMultiClusterMode(withClusters, clients))
+	assert.False(t, IsMultiClusterMode(withClusters, nil), "spec.clusters without member clients must stay single-cluster")
+	assert.False(t, IsMultiClusterMode(withoutClusters, clients), "legacy CR without spec.clusters must stay single-cluster")
+	assert.False(t, IsMultiClusterMode(withoutClusters, nil))
+}

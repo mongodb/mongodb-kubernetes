@@ -30,6 +30,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/user"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1" //nolint:depguard
 	khandler "github.com/mongodb/mongodb-kubernetes/pkg/handler"
@@ -1052,6 +1053,163 @@ func TestMongoDBSearchOnDelete_StateConfigMapAlreadyGarbageCollected(t *testing.
 
 	assert.Zero(t, countSearchOwnedObjects(ctx, t, eastClient, search), "us-east must be cleaned without the state CM")
 	assert.Zero(t, countSearchOwnedObjects(ctx, t, westClient, search), "us-west must be cleaned without the state CM")
+}
+
+// watchEntriesFor counts watcher registrations whose dependent resource is owner.
+func watchEntriesFor(w *watch.ResourceWatcher, owner types.NamespacedName) int {
+	count := 0
+	for _, dependents := range w.GetWatchedResources() {
+		for _, d := range dependents {
+			if d == owner {
+				count++
+			}
+		}
+	}
+	return count
+}
+
+// Single-cluster OnDelete must NOT delete anything: resources are owner-ref'd
+// to the CR on the same cluster, so Kubernetes garbage collection owns cleanup
+// (sharded-cluster parity). Only the watch registrations are dropped.
+func TestMongoDBSearchOnDelete_SingleCluster_SkipsSweep(t *testing.T) {
+	ctx := context.Background()
+	search := newMongoDBSearch("search", mock.TestNamespace, "mdb")
+	mdbc := newMongoDBCommunity("mdb", mock.TestNamespace)
+	reconciler, c := newSearchReconciler(mdbc, search)
+	checkSearchReconcileSuccessful(ctx, t, reconciler, c, search)
+
+	before := countSearchOwnedObjects(ctx, t, c, search)
+	require.Greater(t, before, 0)
+	reconciler.watch.AddWatchedResourceIfNotAdded("source-secret", search.Namespace, watch.Secret, search.NamespacedName())
+	require.NotZero(t, watchEntriesFor(reconciler.watch, search.NamespacedName()))
+
+	deleted := &searchv1.MongoDBSearch{}
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: search.Name, Namespace: search.Namespace}, deleted))
+	require.NoError(t, c.Delete(ctx, deleted))
+	require.NoError(t, reconciler.OnDelete(ctx, deleted, zap.S()))
+
+	assert.Equal(t, before, countSearchOwnedObjects(ctx, t, c, search), "single-cluster OnDelete must not delete anything — owner-ref GC owns cleanup")
+	assert.NoError(t, c.Get(ctx, search.StatefulSetNamespacedNameForCluster(0), &appsv1.StatefulSet{}), "central mongot STS stays behind for Kubernetes GC")
+	assert.Zero(t, watchEntriesFor(reconciler.watch, search.NamespacedName()))
+}
+
+// A CR stored before spec.clusters existed keeps single-cluster semantics even
+// when the operator has member-cluster clients: its resources live on the
+// central cluster with owner refs, so OnDelete must not sweep members. Pins the
+// len(spec.Clusters) > 0 conjunct of IsMultiClusterMode at the OnDelete call
+// site.
+func TestMongoDBSearchOnDelete_LegacyCRWithoutClusters_SkipsSweep(t *testing.T) {
+	ctx := context.Background()
+	search := newMongoDBSearch("search", mock.TestNamespace, "mdb")
+	search.Spec.Clusters = nil
+
+	member := mock.NewEmptyFakeClientBuilder().Build()
+	// Name is arbitrary: the sweep matches on labels, and a legacy CR never
+	// created member-cluster resources in the first place.
+	ownedSTS := &appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "owner-labeled-leftover",
+			Namespace: search.Namespace,
+			Labels: map[string]string{
+				componentLabelKey:                         "mongot",
+				khandler.MongoDBSearchOwnerNameLabel:      search.Name,
+				khandler.MongoDBSearchOwnerNamespaceLabel: search.Namespace,
+			},
+		},
+	}
+	require.NoError(t, member.Create(ctx, ownedSTS))
+
+	reconciler, _ := newSearchReconcilerWithMembers(t, nil, map[string]client.Client{"us-east": member}, search)
+	require.NoError(t, reconciler.OnDelete(ctx, search, zap.S()))
+
+	assert.NoError(t, member.Get(ctx, client.ObjectKeyFromObject(ownedSTS), &appsv1.StatefulSet{}),
+		"nil spec.clusters means single-cluster semantics: no member sweep even with member clients configured")
+}
+
+// OnDelete must drop only the deleted search's entries from the watcher on both
+// controllers. Without this, events on watched secrets keep enqueuing the
+// deleted CR forever; with too much, another search's registrations are lost.
+func TestMongoDBSearchOnDelete_RemovesWatchRegistrations(t *testing.T) {
+	ctx := context.Background()
+	search := newMultiClusterExternalSearch()
+
+	memberClients := map[string]client.Client{
+		"us-east": mock.NewEmptyFakeClientBuilder().Build(),
+		"us-west": mock.NewEmptyFakeClientBuilder().Build(),
+	}
+	reconciler, centralClient := newSearchReconcilerWithMembers(t, nil, memberClients, search)
+	envoyReconciler := newMongoDBSearchEnvoyReconciler(centralClient, "envoy:test", memberClients)
+
+	otherOwner := types.NamespacedName{Name: "other-search", Namespace: search.Namespace}
+	for _, w := range []*watch.ResourceWatcher{reconciler.watch, envoyReconciler.watch} {
+		w.AddWatchedResourceIfNotAdded("source-secret", search.Namespace, watch.Secret, search.NamespacedName())
+		w.AddWatchedResourceIfNotAdded("other-secret", search.Namespace, watch.Secret, otherOwner)
+		require.Equal(t, 1, watchEntriesFor(w, search.NamespacedName()))
+	}
+
+	require.NoError(t, reconciler.OnDelete(ctx, search, zap.S()))
+	require.NoError(t, envoyReconciler.OnDelete(ctx, search, zap.S()))
+
+	for name, w := range map[string]*watch.ResourceWatcher{"search": reconciler.watch, "envoy": envoyReconciler.watch} {
+		assert.Zero(t, watchEntriesFor(w, search.NamespacedName()), "%s controller must drop the deleted search's watch registrations", name)
+		assert.Equal(t, 1, watchEntriesFor(w, otherOwner), "%s controller must keep other searches' registrations", name)
+	}
+}
+
+// A cluster dropped from spec.clusters may still hold resources when the CR is
+// deleted (the persisted mapping may already be GC'd with the state CM). Both
+// OnDelete sweeps iterate the operator's full member-client map — not
+// spec.clusters — so the dropped cluster is cleaned too.
+func TestMongoDBSearchOnDelete_SweepsClusterDroppedFromSpec(t *testing.T) {
+	ctx := context.Background()
+	search := newMultiClusterExternalSearch() // spec.clusters: us-east, us-west
+
+	euCentralClient := mock.NewEmptyFakeClientBuilder().Build()
+	memberClients := map[string]client.Client{
+		"us-east":    mock.NewEmptyFakeClientBuilder().Build(),
+		"us-west":    mock.NewEmptyFakeClientBuilder().Build(),
+		"eu-central": euCentralClient,
+	}
+
+	// Named what the MC reconcile would have created for cluster index 2,
+	// before eu-central was dropped from spec.clusters.
+	leftoverSTS := &appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      search.StatefulSetNamespacedNameForCluster(2).Name,
+			Namespace: search.Namespace,
+			Labels: map[string]string{
+				componentLabelKey:                         "mongot",
+				khandler.MongoDBSearchOwnerNameLabel:      search.Name,
+				khandler.MongoDBSearchOwnerNamespaceLabel: search.Namespace,
+			},
+		},
+	}
+	leftoverEnvoyDep := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      search.LoadBalancerDeploymentNameForCluster(2),
+			Namespace: search.Namespace,
+			Labels: map[string]string{
+				componentLabelKey:                         envoyComponent,
+				khandler.MongoDBSearchOwnerNameLabel:      search.Name,
+				khandler.MongoDBSearchOwnerNamespaceLabel: search.Namespace,
+			},
+		},
+	}
+	require.NoError(t, euCentralClient.Create(ctx, leftoverSTS))
+	require.NoError(t, euCentralClient.Create(ctx, leftoverEnvoyDep))
+
+	reconciler, centralClient := newSearchReconcilerWithMembers(t, nil, memberClients, search)
+	envoyReconciler := newMongoDBSearchEnvoyReconciler(centralClient, "envoy:test", memberClients)
+
+	require.NoError(t, reconciler.OnDelete(ctx, search, zap.S()))
+	assert.True(t, apiErrors.IsNotFound(euCentralClient.Get(ctx, client.ObjectKeyFromObject(leftoverSTS), &appsv1.StatefulSet{})),
+		"search sweep must clean the cluster dropped from spec.clusters")
+	assert.NoError(t, euCentralClient.Get(ctx, client.ObjectKeyFromObject(leftoverEnvoyDep), &appsv1.Deployment{}),
+		"Envoy resources are the Envoy controller's to sweep, not the search controller's")
+
+	require.NoError(t, envoyReconciler.OnDelete(ctx, search, zap.S()))
+	assert.True(t, apiErrors.IsNotFound(euCentralClient.Get(ctx, client.ObjectKeyFromObject(leftoverEnvoyDep), &appsv1.Deployment{})),
+		"Envoy sweep must clean the cluster dropped from spec.clusters")
 }
 
 // markAllDeploymentsAvailable mirrors MarkAllStatefulSetsAsReady for the Envoy
