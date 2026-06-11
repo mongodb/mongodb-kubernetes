@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import json
+
 import kubernetes
 import pytest
 import yaml
 from kubernetes import client
-from kubetester import wait_for_pods_ready
+from kubetester import read_configmap, wait_for_pods_ready
 from kubetester.kubetester import KubernetesTester, run_periodically
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_search import MongoDBSearch
@@ -278,6 +280,65 @@ class TestShardOnboardingAvailabilityStages:
         t.search_config = SEARCH
         return t
 
+    def _shard_route(self, shard_name: str) -> tuple[str, dict[str, str]]:
+        """Return ``(target_cluster, request_headers)`` for the shard's Envoy filter
+        chain from the LB config CM's lds.json. A pending shard routes to
+        ``mongot_cluster_level_cluster`` with the routed_from_another_shard header; a
+        latched shard routes to its own ``mongot_<shard>_cluster`` with no header.
+
+        Envoy's filesystem-xDS LDS is the source of truth for pending/latched here:
+        the ``<search>-state`` ConfigMap is named ``<search>-state`` and the sharded
+        MongoDB CR (sharing this name) writes its own state to the same ConfigMap, so
+        the persisted ``routingReadyMongotGroups`` key is unreliable. The lds.json (and
+        the status mirror) reflect the operator's live routing decision."""
+        sni = search_resource_names.shard_proxy_service_name(MDBS_NAME, shard_name)
+        lds = json.loads(read_configmap(NAMESPACE, search_resource_names.lb_configmap_name(MDBS_NAME))["lds.json"])
+        for listener in lds.get("resources", []):
+            for chain in listener.get("filter_chains", []):
+                server_names = chain.get("filter_chain_match", {}).get("server_names", [])
+                if not any(s.startswith(f"{sni}.") for s in server_names):
+                    continue
+                hcm = next(
+                    f["typed_config"]
+                    for f in chain["filters"]
+                    if f["name"] == "envoy.filters.network.http_connection_manager"
+                )
+                route = hcm["route_config"]["virtual_hosts"][0]["routes"][0]
+                headers = {h["header"]["key"]: h["header"]["value"] for h in route.get("request_headers_to_add", [])}
+                return route["route"]["cluster"], headers
+        raise AssertionError(f"no filter chain for shard {shard_name} (SNI {sni}) in lds.json")
+
+    def _assert_pending_fallback(self, shard_name: str, context: str) -> None:
+        """The shard's Envoy chain routes to the cluster-level mongot WITH the
+        routed_from_another_shard header (pending), and the status mirror lists it."""
+        cluster, headers = self._shard_route(shard_name)
+        assert (
+            cluster == "mongot_cluster_level_cluster"
+        ), f"[{context}] shard {shard_name} routes to {cluster!r}, expected cluster-level fallback"
+        assert (
+            headers.get("search-envoy-metadata-bin") == "CAE="
+        ), f"[{context}] shard {shard_name} fallback chain missing routed_from_another_shard header; headers={headers}"
+        assert (
+            shard_name in self._status_pending_mirror()
+        ), f"[{context}] shard {shard_name} absent from status.pendingMongotGroups"
+
+    def _assert_latched(self, shard_name: str, context: str) -> None:
+        """The shard's Envoy chain routes to its OWN mongot cluster (latched), and the
+        status mirror does not list it as pending."""
+        cluster, _ = self._shard_route(shard_name)
+        expected = f"mongot_{shard_name.replace('-', '_')}_cluster"
+        assert (
+            cluster == expected
+        ), f"[{context}] shard {shard_name} routes to {cluster!r}, expected own cluster {expected!r}"
+        assert (
+            shard_name not in self._status_pending_mirror()
+        ), f"[{context}] shard {shard_name} still in status.pendingMongotGroups"
+
+    def _status_pending_mirror(self) -> list[str]:
+        mdbs = MongoDBSearch(name=MDBS_NAME, namespace=NAMESPACE)
+        mdbs.load()
+        return (mdbs["status"] or {}).get("pendingMongotGroups", []) or []
+
     # --- stages (definition order = execution order) ---
 
     def test_01_add_shard_and_rebalance_without_search_config(self, namespace: str):
@@ -370,14 +431,20 @@ class TestShardOnboardingAvailabilityStages:
         # mongot) -> Envoy "no healthy upstream" -> clean gap, never INITIAL_SYNC.
         assert_clean_no_mongot_gap(verdict, "stage2: mongotHost set, Envoy + mongot absent")
 
-    def test_03_deploy_mongot_envoy_but_not_ready(self, namespace: str):
-        """Deploy the new shard's mongot, then force it NOT-ready and prove Envoy
-        excludes it: queries fail with the clean "no healthy upstream" gap, never an
-        index-state rejection. (create_search_resource waits for Running, so the
-        mongot has already synced — this stage emulates a not-ready mongot by forcing
-        it out of rotation, it does not reproduce a mid-initial-sync pod.)"""
-        onboard_index = self.onboard_index
-        assert onboard_index is not None, "stage 1 must run first"
+    def test_03_fallback_serves_while_pending(self, namespace: str):
+        """THE CORE PROOF: while the new shard's mongot has NEVER been routing-ready
+        (pending -> fallback active), ``$search`` through mongos SUCCEEDS — the shard
+        contributes empty results via the cluster-level mongot. A large initial index
+        build therefore causes no query downtime.
+
+        We deploy the new shard's mongot WITHOUT waiting for Running, then immediately
+        disable reconciliation and force its readiness probe false so the mongot stays
+        out of rotation (never latches routing-ready). The contract surface (Envoy
+        fallback chain to the cluster-level mongot with the routed_from_another_shard
+        header + status.pendingMongotGroups mirror) is asserted, then a full probe
+        batch must go clean WHILE ready_replicas==0."""
+        onboard_index, new_shard_name = self.onboard_index, self.new_shard_name
+        assert onboard_index is not None and new_shard_name is not None, "stage 1 must run first"
         search_tests = self._search_tests()
         # Per-shard mongot TLS + LB SAN for the new shard (operator needs these).
         search_tests.create_search_tls_certificate()
@@ -385,37 +452,66 @@ class TestShardOnboardingAvailabilityStages:
 
         sts_name = self._mongot_sts_name(onboard_index)
 
-        # Clear any stale PVC so this mongot syncs the already-present data fresh and
-        # can't latch Ready on a leftover index catalog.
+        # Clear any stale PVC so this mongot syncs fresh and can't latch Ready on a
+        # leftover index catalog.
         delete_mongot_pvcs(namespace, sts_name)
 
-        # Update MongoDBSearch to include the new shard -> operator creates its mongot
-        # STS and extends the Envoy config; Running gates on the STS being ready.
-        search_tests.test_create_search_resource()
-        assert self._mongot_sts(onboard_index) is not None, f"{sts_name} missing after Running"
+        # Add the new shard to MongoDBSearch WITHOUT waiting for Running — we want to
+        # catch the window before the new mongot is ever routing-ready.
+        search_tests.create_search_resource(wait=False)
 
-        # Pause reconciliation so the operator can't revert the probe override
-        # (it watches owned STSs — the patch itself would trigger a reconcile).
+        # As soon as the operator creates the new mongot STS, freeze reconciliation
+        # (so the main controller can't latch routing-ready or revert the probe) and
+        # force the readiness probe false.
+        def sts_exists():
+            return self._mongot_sts(onboard_index) is not None, f"{sts_name} not created yet"
+
+        run_periodically(sts_exists, timeout=300, sleep_time=3, msg=f"{sts_name} to be created")
         mdbs = MongoDBSearch(name=MDBS_NAME, namespace=namespace)
         set_resource_disabled_annotation(mdbs, True)
         patch_mongot_readiness_probe_to_false(namespace, sts_name)
 
-        # Give the probe time to take effect and confirm the mongot is NOT ready.
         def not_ready():
             sts = self._mongot_sts(onboard_index)
             ready = (sts.status.ready_replicas or 0) if sts else 0
             return ready == 0, f"{sts_name} ready_replicas={ready}"
 
         run_periodically(not_ready, timeout=120, sleep_time=5, msg=f"{sts_name} to report not-ready")
-        logger.info(f"state OK: {sts_name} exists but is held not-ready (forced out of rotation)")
+        logger.info(f"state OK: {sts_name} exists but is held not-ready (never routing-ready -> pending)")
 
-        verdict = self._probe_oneshot("stage3: mongot deployed but not ready")
-        # Envoy excludes the not-ready backend -> "no healthy upstream" -> clean gap.
-        assert_clean_no_mongot_gap(verdict, "stage3: mongot deployed but held not-ready")
+        # Contract surface: Envoy routes the new shard's chain to the cluster-level
+        # mongot WITH the routed_from_another_shard header, and the status mirror lists
+        # it as pending.
+        self._assert_pending_fallback(new_shard_name, context="stage3: pending")
+        logger.info(f"contract OK: {new_shard_name} pending + Envoy fallback chain with header injection present")
+
+        # CORE ASSERTION: poll until a full probe batch is clean (failed==0, succeeded>0)
+        # WHILE the mongot STS still has 0 ready replicas. Allow ~180s for kubelet
+        # ConfigMap propagation of the LB config before the batch must go clean.
+        def fallback_serves():
+            verdict = self._probe_oneshot("stage3: fallback while pending")
+            assert_no_index_unavailable(verdict, "stage3: fallback while pending")
+            return verdict.failed == 0 and verdict.succeeded > 0, verdict.as_dict()
+
+        run_periodically(
+            fallback_serves,
+            timeout=180,
+            sleep_time=10,
+            msg="$search to serve cleanly via fallback while mongot pending",
+        )
+
+        # Re-assert the unreadiness/pending invariants right after the clean batch:
+        # the success above happened with the new shard's mongot still out of rotation.
+        ready, ready_msg = not_ready()
+        assert ready, f"mongot became ready during the fallback proof: {ready_msg}"
+        self._assert_pending_fallback(new_shard_name, context="stage3: still pending after clean batch")
 
     def test_04_recovers_when_mongot_ready(self, namespace: str):
-        onboard_index = self.onboard_index
-        assert onboard_index is not None, "stage 1 must run first"
+        """Clear the disable annotation + restore the probe; the mongot becomes ready,
+        the shard latches routing-ready, and queries fully recover. The latch must
+        hold afterwards."""
+        onboard_index, new_shard_name = self.onboard_index, self.new_shard_name
+        assert onboard_index is not None and new_shard_name is not None, "stage 1 must run first"
         sts_name = self._mongot_sts_name(onboard_index)
         # Resume reconciliation so the operator restores its real readiness probe,
         # then clear the override + roll the pod.
@@ -424,10 +520,6 @@ class TestShardOnboardingAvailabilityStages:
         restore_mongot_readiness_probe(namespace, sts_name)
         wait_for_pods_ready(namespace, name_prefix=sts_name)
 
-        # mongot must finish indexing the migrated range before $search is whole again.
-        # Until then probes fail with the clean no-upstream gap; an INITIAL_SYNC
-        # rejection here would mean the pod rejoined Envoy while still syncing, so
-        # fail hard if one ever surfaces.
         def queries_recover():
             verdict = self._probe_oneshot("stage4: awaiting recovery")
             assert_no_index_unavailable(verdict, "stage4: awaiting recovery")
@@ -435,6 +527,66 @@ class TestShardOnboardingAvailabilityStages:
 
         run_periodically(queries_recover, timeout=600, sleep_time=15, msg="$search to fully recover on all shards")
 
+        # The shard latches routing-ready once its mongot is ready: its Envoy chain
+        # flips to its own mongot cluster and the status mirror drops it from pending.
+        def latched():
+            cluster, _ = self._shard_route(new_shard_name)
+            own = f"mongot_{new_shard_name.replace('-', '_')}_cluster"
+            return cluster == own and new_shard_name not in self._status_pending_mirror(), f"route={cluster}"
+
+        run_periodically(latched, timeout=120, sleep_time=5, msg=f"{new_shard_name} to latch routing-ready")
+
         final = self._probe_oneshot("stage4: recovered")
+        assert final.failed == 0 and final.succeeded > 0, f"queries did not fully recover: {final.as_dict()}"
+        self._assert_latched(new_shard_name, context="stage4: latch held after recovery")
+        log_shard_distribution(self._admin_tester(), self.DB, self.COLL, label="[final, all shards onboarded]")
+
+    def test_05_post_onboarding_not_ready_fails_clean(self, namespace: str):
+        """Once latched, a later mongot un-readiness is the clean own-cluster no-mongot
+        gap (NO fallback — the latch is one-way), and the shard NEVER re-enters pending."""
+        onboard_index, new_shard_name = self.onboard_index, self.new_shard_name
+        assert onboard_index is not None and new_shard_name is not None, "stage 1 must run first"
+        sts_name = self._mongot_sts_name(onboard_index)
+
+        # Pause reconciliation so the operator can't revert the probe override, then
+        # force the (already-latched) mongot out of rotation.
+        mdbs = MongoDBSearch(name=MDBS_NAME, namespace=namespace)
+        set_resource_disabled_annotation(mdbs, True)
+        patch_mongot_readiness_probe_to_false(namespace, sts_name)
+
+        def not_ready():
+            sts = self._mongot_sts(onboard_index)
+            ready = (sts.status.ready_replicas or 0) if sts else 0
+            return ready == 0, f"{sts_name} ready_replicas={ready}"
+
+        run_periodically(not_ready, timeout=120, sleep_time=5, msg=f"{sts_name} to report not-ready")
+        logger.info(f"state OK: {sts_name} held not-ready post-latch")
+
+        verdict = self._probe_oneshot("stage5: latched mongot forced not-ready")
+        # One-way latch: no fallback re-entry -> Envoy excludes the not-ready backend
+        # -> clean "no healthy upstream" gap, never an index-state rejection.
+        assert_clean_no_mongot_gap(verdict, "stage5: latched mongot held not-ready")
+        # CRITICAL: the shard must stay latched (never re-enter pending) — its Envoy
+        # chain still targets its own mongot cluster (no fallback re-entry).
+        self._assert_latched(new_shard_name, context="stage5: latch held while not-ready")
+
+    def test_06_recovers_again(self, namespace: str):
+        """Resume reconciliation + restore the probe; queries fully recover again."""
+        onboard_index = self.onboard_index
+        assert onboard_index is not None, "stage 1 must run first"
+        sts_name = self._mongot_sts_name(onboard_index)
+        mdbs = MongoDBSearch(name=MDBS_NAME, namespace=namespace)
+        set_resource_disabled_annotation(mdbs, False)
+        restore_mongot_readiness_probe(namespace, sts_name)
+        wait_for_pods_ready(namespace, name_prefix=sts_name)
+
+        def queries_recover():
+            verdict = self._probe_oneshot("stage6: awaiting recovery")
+            assert_no_index_unavailable(verdict, "stage6: awaiting recovery")
+            return verdict.failed == 0 and verdict.succeeded > 0, verdict.as_dict()
+
+        run_periodically(queries_recover, timeout=600, sleep_time=15, msg="$search to fully recover again")
+
+        final = self._probe_oneshot("stage6: recovered")
         assert final.failed == 0 and final.succeeded > 0, f"queries did not fully recover: {final.as_dict()}"
         log_shard_distribution(self._admin_tester(), self.DB, self.COLL, label="[final, all shards onboarded]")

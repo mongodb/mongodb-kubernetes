@@ -1,5 +1,4 @@
-"""Reusable pytest test-class bases for the managed-LB search bootstrap.
-"""
+"""Reusable pytest test-class bases for the managed-LB search bootstrap."""
 
 from __future__ import annotations
 
@@ -308,10 +307,18 @@ class SearchDeploymentTests:
     def test_create_search_tls_certificate(self):
         self.create_search_tls_certificate()
 
-    def test_create_search_resource(self):
+    def create_search_resource(self, wait: bool = True) -> MongoDBSearch:
+        """Apply the MongoDBSearch spec. With ``wait`` (default) block until Running;
+        ``wait=False`` returns right after update() so a caller can observe the
+        not-yet-ready window."""
         mdbs = self.build_mdbs()
         mdbs.update()
-        mdbs.assert_reaches_phase(Phase.Running, timeout=self.search_config.create_timeout)
+        if wait:
+            mdbs.assert_reaches_phase(Phase.Running, timeout=self.search_config.create_timeout)
+        return mdbs
+
+    def test_create_search_resource(self):
+        self.create_search_resource()
 
     def test_verify_search_deployment(self):
         self.verify_search_deployment()
