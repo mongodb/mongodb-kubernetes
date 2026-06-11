@@ -601,8 +601,8 @@ class SearchShardedDeploymentTests(SearchDeploymentTests):
         for i, cluster in enumerate(clusters):
             cluster["loadBalancer"] = {
                 "managed": {
-                    "externalHostname": (
-                        f"{mdbs_name}-search-{i}-{{shardName}}-proxy-svc.{self.namespace}.svc.cluster.local"
+                    "externalHostname": search_resource_names.shard_proxy_svc_hostname_template(
+                        mdbs_name, self.namespace, i
                     ),
                 },
             }
