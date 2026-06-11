@@ -374,4 +374,3 @@ spec:
       volumes:
         - name: webhook-server-dir
           emptyDir: {}
-
