@@ -965,7 +965,7 @@ func getWatch(namespace string, resourceName string, t watch.Type) watch.Object 
 
 type testReconciliationResources struct {
 	Resource          *mdbv1.MongoDB
-	ReconcilerFactory func(rs *mdbv1.MongoDB) (reconcile.Reconciler, kubernetesClient.Client)
+	ReconcilerFactory func(rs *mdbv1.MongoDB, arch architectures.DefaultArchitecture) (reconcile.Reconciler, kubernetesClient.Client)
 }
 
 // agentVersionMappingTest is a helper function to verify that the version mapping mechanism works correctly in controllers
@@ -974,29 +974,25 @@ func agentVersionMappingTest(ctx context.Context, t *testing.T, defaultResource 
 	nonExistingPath := "/foo/bar/foo"
 
 	t.Run("Static architecture, version retrieving fails, image is overriden, reconciliation should succeed", func(t *testing.T) {
-		t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.Static))
 		t.Setenv(agentVersionManagement.MappingFilePathEnv, nonExistingPath)
-		overridenReconciler, overridenClient := overridenResource.ReconcilerFactory(overridenResource.Resource)
+		overridenReconciler, overridenClient := overridenResource.ReconcilerFactory(overridenResource.Resource, architectures.Static)
 		checkReconcileSuccessful(ctx, t, overridenReconciler, overridenResource.Resource, overridenClient)
 	})
 
 	t.Run("Static architecture, version retrieving fails, image is not overriden, reconciliation should fail", func(t *testing.T) {
-		t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.Static))
 		t.Setenv(agentVersionManagement.MappingFilePathEnv, nonExistingPath)
-		defaultReconciler, defaultClient := defaultResource.ReconcilerFactory(defaultResource.Resource)
+		defaultReconciler, defaultClient := defaultResource.ReconcilerFactory(defaultResource.Resource, architectures.Static)
 		checkReconcileFailed(ctx, t, defaultReconciler, defaultResource.Resource, true, "", defaultClient)
 	})
 
 	t.Run("Static architecture, version retrieving succeeds, image is not overriden, reconciliation should succeed", func(t *testing.T) {
-		t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.Static))
-		defaultReconciler, defaultClient := defaultResource.ReconcilerFactory(defaultResource.Resource)
+		defaultReconciler, defaultClient := defaultResource.ReconcilerFactory(defaultResource.Resource, architectures.Static)
 		checkReconcileSuccessful(ctx, t, defaultReconciler, defaultResource.Resource, defaultClient)
 	})
 
 	t.Run("Non-Static architecture, version retrieving fails, image is not overriden, reconciliation should succeed", func(t *testing.T) {
-		t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.NonStatic))
 		t.Setenv(agentVersionManagement.MappingFilePathEnv, nonExistingPath)
-		defaultReconciler, defaultClient := defaultResource.ReconcilerFactory(defaultResource.Resource)
+		defaultReconciler, defaultClient := defaultResource.ReconcilerFactory(defaultResource.Resource, architectures.NonStatic)
 		checkReconcileSuccessful(ctx, t, defaultReconciler, defaultResource.Resource, defaultClient)
 	})
 }
