@@ -345,6 +345,10 @@ func createSearchResourceRequirements(userRequirements *corev1.ResourceRequireme
 		return defaults
 	}
 
+	// Default into a copy: userRequirements may point into the live CR spec
+	// (cluster or shardOverride entry), which must never be mutated.
+	userRequirements = userRequirements.DeepCopy()
+
 	if userRequirements.Requests == nil {
 		userRequirements.Requests = defaults.Requests
 		return *userRequirements

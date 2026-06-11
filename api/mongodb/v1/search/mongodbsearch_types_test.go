@@ -624,4 +624,19 @@ func TestResolveSizingForClusterShard_StatefulSetDeepMerge(t *testing.T) {
 	assert.Equal(t, int32(7), *got.StatefulSetConfiguration.SpecWrapper.Spec.RevisionHistoryLimit)
 	// original cluster config is not mutated.
 	assert.Equal(t, "cluster-svc", clusterSTS.SpecWrapper.Spec.ServiceName)
+
+	t.Run("nil cluster config returns a copy of the override", func(t *testing.T) {
+		s := &MongoDBSearch{Spec: MongoDBSearchSpec{Clusters: []ClusterSpec{{
+			ShardOverrides: []ShardOverride{
+				{ShardNames: []string{"shard-0"}, StatefulSetConfiguration: overrideSTS},
+			},
+		}}}}
+
+		got, err := s.ResolveSizingForClusterShard("", "shard-0")
+		require.NoError(t, err)
+		require.NotNil(t, got.StatefulSetConfiguration)
+		assert.Equal(t, "override-svc", got.StatefulSetConfiguration.SpecWrapper.Spec.ServiceName)
+		// the result must not alias the spec's override object.
+		assert.NotSame(t, overrideSTS, got.StatefulSetConfiguration)
+	})
 }
