@@ -218,16 +218,19 @@ def mdbs(
         "tls": {"certsSecretPrefix": MDBS_TLS_CERT_PREFIX},
     }
 
-    resource["spec"]["loadBalancer"] = {
-        "managed": {
-            "externalHostname": (
-                f"{MDBS_RESOURCE_NAME}-search-{{clusterIndex}}-{{shardName}}-proxy-svc.{namespace}.svc.cluster.local"
-            ),
-        },
-    }
-
     resource["spec"]["clusters"] = [
-        {"clusterName": mcc.cluster_name, "clusterIndex": mcc.cluster_index, "replicas": MONGOT_REPLICAS_PER_CLUSTER}
+        {
+            "clusterName": mcc.cluster_name,
+            "clusterIndex": mcc.cluster_index,
+            "replicas": MONGOT_REPLICAS_PER_CLUSTER,
+            "loadBalancer": {
+                "managed": {
+                    "externalHostname": (
+                        f"{MDBS_RESOURCE_NAME}-search-{mcc.cluster_index}-{{shardName}}-proxy-svc.{namespace}.svc.cluster.local"
+                    ),
+                },
+            },
+        }
         for mcc in member_cluster_clients
     ]
 

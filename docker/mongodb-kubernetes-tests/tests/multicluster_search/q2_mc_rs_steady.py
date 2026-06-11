@@ -182,8 +182,8 @@ def mdbs(
     """MongoDBSearch over external MongoDBMulti source, MC topology.
 
     spec.source.external.hostAndPorts is the same top-level seed list rendered to
-    every cluster's mongot ConfigMap. spec.loadBalancer.managed.externalHostname
-    uses {clusterIndex} so all three per-cluster names (cert SANs, AC mongotHost,
+    every cluster's mongot ConfigMap. Each cluster's loadBalancer.managed.externalHostname
+    carries its own index so all three per-cluster names (cert SANs, AC mongotHost,
     Envoy SNI) resolve to the same per-cluster proxy-svc FQDN.
     """
     resource = MongoDBSearch.from_yaml(
@@ -210,16 +210,17 @@ def mdbs(
         "tls": {"certsSecretPrefix": MDBS_TLS_CERT_PREFIX},
     }
 
-    resource["spec"]["loadBalancer"] = {
-        "managed": {
-            "externalHostname": (
-                f"{MDBS_RESOURCE_NAME}-search-{{clusterIndex}}-proxy-svc.{namespace}.svc.cluster.local"
-            ),
-        },
-    }
-
     resource["spec"]["clusters"] = [
-        {"clusterName": mcc.cluster_name, "clusterIndex": mcc.cluster_index, "replicas": MONGOT_REPLICAS_PER_CLUSTER}
+        {
+            "clusterName": mcc.cluster_name,
+            "clusterIndex": mcc.cluster_index,
+            "replicas": MONGOT_REPLICAS_PER_CLUSTER,
+            "loadBalancer": {
+                "managed": {
+                    "externalHostname": f"{MDBS_RESOURCE_NAME}-search-{mcc.cluster_index}-proxy-svc.{namespace}.svc.cluster.local",
+                },
+            },
+        }
         for mcc in member_cluster_clients
     ]
 
