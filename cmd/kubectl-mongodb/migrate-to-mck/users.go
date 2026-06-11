@@ -212,12 +212,11 @@ func collectUserSecretNamesInteractively(ctx context.Context, kubeClient kuberne
 
 func validatePasswordAgainstOM(username, database, password string, ac *om.AutomationConfig) error {
 	_, acUser := ac.Auth.GetUser(username, database)
-	user := &om.MongoDBUser{Username: username, Database: database}
-	changed, err := authentication.IsPasswordChanged(user, password, acUser)
+	matches, err := authentication.PasswordMatchesStoredCreds(username, password, acUser)
 	if err != nil {
 		return fmt.Errorf("failed to validate password for user %q: %w", username, err)
 	}
-	if changed {
+	if !matches {
 		return fmt.Errorf("password for user %q does not match the existing credentials in Ops Manager", username)
 	}
 	return nil
