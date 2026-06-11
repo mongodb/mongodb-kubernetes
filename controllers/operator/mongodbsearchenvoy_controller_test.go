@@ -89,9 +89,11 @@ func TestBuildReplicaSetRoute(t *testing.T) {
 				},
 			}
 			if tt.endpoint != "" {
-				search.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
-					Managed: &searchv1.ManagedLBConfig{ExternalHostname: tt.endpoint},
-				}
+				search.Spec.Clusters = []searchv1.ClusterSpec{{
+					LoadBalancer: &searchv1.LoadBalancerConfig{
+						Managed: &searchv1.ManagedLBConfig{ExternalHostname: tt.endpoint},
+					},
+				}}
 			}
 
 			route := buildReplicaSetRouteForCluster(search, 0, "")
@@ -106,54 +108,47 @@ func TestBuildReplicaSetRoute(t *testing.T) {
 	}
 }
 
-func TestBuildReplicaSetRouteForCluster_PerClusterPlaceholders(t *testing.T) {
-	clusters := []searchv1.ClusterSpec{
-		{ClusterName: "kind-e2e-cluster-1"},
-		{ClusterName: "kind-e2e-cluster-2"},
-	}
+func TestBuildReplicaSetRouteForCluster_PerClusterHostnames(t *testing.T) {
+	clusterNames := []string{"kind-e2e-cluster-1", "kind-e2e-cluster-2"}
 
 	tests := []struct {
 		name         string
-		endpoint     string
+		endpoints    []string
 		expectedSNIs []string
 	}{
 		{
-			name:     "no endpoint: per-cluster proxy-svc FQDN",
-			endpoint: "",
+			name:      "no endpoint: per-cluster proxy-svc FQDN",
+			endpoints: nil,
 			expectedSNIs: []string{
 				"mdb-search-search-0-proxy-svc.test-ns.svc.cluster.local",
 				"mdb-search-search-1-proxy-svc.test-ns.svc.cluster.local",
 			},
 		},
 		{
-			name:     "{clusterIndex} placeholder substitutes per cluster",
-			endpoint: "mdb-search-search-{clusterIndex}-proxy-svc.test-ns.svc.cluster.local",
-			expectedSNIs: []string{
-				"mdb-search-search-0-proxy-svc.test-ns.svc.cluster.local",
-				"mdb-search-search-1-proxy-svc.test-ns.svc.cluster.local",
+			name: "per-cluster literal hostnames",
+			endpoints: []string{
+				"us-east.lb.example.com:443",
+				"eu-west.lb.example.com:443",
 			},
-		},
-		{
-			name:     "{clusterName} placeholder substitutes per cluster",
-			endpoint: "mongot-{clusterName}.apps.example.com",
 			expectedSNIs: []string{
-				"mongot-kind-e2e-cluster-1.apps.example.com",
-				"mongot-kind-e2e-cluster-2.apps.example.com",
-			},
-		},
-		{
-			name:     "{clusterName} and {clusterIndex} both substituted",
-			endpoint: "{clusterName}-{clusterIndex}.apps.example.com",
-			expectedSNIs: []string{
-				"kind-e2e-cluster-1-0.apps.example.com",
-				"kind-e2e-cluster-2-1.apps.example.com",
+				"us-east.lb.example.com:443",
+				"eu-west.lb.example.com:443",
 			},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cs := append([]searchv1.ClusterSpec{}, clusters...)
+			cs := make([]searchv1.ClusterSpec, 0, len(clusterNames))
+			for i, n := range clusterNames {
+				c := searchv1.ClusterSpec{ClusterName: n}
+				if tt.endpoints != nil {
+					c.LoadBalancer = &searchv1.LoadBalancerConfig{
+						Managed: &searchv1.ManagedLBConfig{ExternalHostname: tt.endpoints[i]},
+					}
+				}
+				cs = append(cs, c)
+			}
 			search := &searchv1.MongoDBSearch{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "mdb-search",
@@ -161,11 +156,6 @@ func TestBuildReplicaSetRouteForCluster_PerClusterPlaceholders(t *testing.T) {
 				},
 			}
 			search.Spec.Clusters = cs
-			if tt.endpoint != "" {
-				search.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
-					Managed: &searchv1.ManagedLBConfig{ExternalHostname: tt.endpoint},
-				}
-			}
 
 			for i, c := range cs {
 				route := buildReplicaSetRouteForCluster(search, i, c.ClusterName)
@@ -222,9 +212,11 @@ func TestBuildShardRoutes(t *testing.T) {
 				},
 			}
 			if tt.endpoint != "" {
-				search.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
-					Managed: &searchv1.ManagedLBConfig{ExternalHostname: tt.endpoint},
-				}
+				search.Spec.Clusters = []searchv1.ClusterSpec{{
+					LoadBalancer: &searchv1.LoadBalancerConfig{
+						Managed: &searchv1.ManagedLBConfig{ExternalHostname: tt.endpoint},
+					},
+				}}
 			}
 
 			routes := buildShardRoutes(search, shardNames, 0, "", nil)
@@ -248,7 +240,7 @@ func TestBuildEnvoyPodSpec_DefaultResources(t *testing.T) {
 	search := &searchv1.MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "ns"},
 	}
-	resources := envoyResourceRequirements(search)
+	resources := envoyResourceRequirements(search, 0)
 	podSpec := buildEnvoyPodSpec(search, 0, nil, false, "envoy:latest", resources, false)
 
 	assert.Len(t, podSpec.Containers, 1)
@@ -283,7 +275,7 @@ func TestBuildEnvoyPodSpec_ConfigMapVolumePerCluster(t *testing.T) {
 	search := &searchv1.MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"},
 	}
-	resources := envoyResourceRequirements(search)
+	resources := envoyResourceRequirements(search, 0)
 
 	cases := []struct {
 		name           string
@@ -330,33 +322,35 @@ func TestBuildEnvoyPodSpec_WithDeploymentConfigurationOverride(t *testing.T) {
 	search := &searchv1.MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "ns"},
 		Spec: searchv1.MongoDBSearchSpec{
-			LoadBalancer: &searchv1.LoadBalancerConfig{
-				Managed: &searchv1.ManagedLBConfig{
-					Deployment: &v1.DeploymentConfiguration{
-						SpecWrapper: v1.DeploymentSpecWrapper{
-							Spec: appsv1.DeploymentSpec{
-								Template: corev1.PodTemplateSpec{
-									Spec: corev1.PodSpec{
-										Tolerations: []corev1.Toleration{
-											{Key: "dedicated", Value: "search", Effect: corev1.TaintEffectNoSchedule},
+			Clusters: []searchv1.ClusterSpec{{
+				LoadBalancer: &searchv1.LoadBalancerConfig{
+					Managed: &searchv1.ManagedLBConfig{
+						Deployment: &v1.DeploymentConfiguration{
+							SpecWrapper: v1.DeploymentSpecWrapper{
+								Spec: appsv1.DeploymentSpec{
+									Template: corev1.PodTemplateSpec{
+										Spec: corev1.PodSpec{
+											Tolerations: []corev1.Toleration{
+												{Key: "dedicated", Value: "search", Effect: corev1.TaintEffectNoSchedule},
+											},
+											NodeSelector: map[string]string{"node-type": "search"},
 										},
-										NodeSelector: map[string]string{"node-type": "search"},
 									},
 								},
 							},
-						},
-						MetadataWrapper: v1.DeploymentMetadataWrapper{
-							Labels:      map[string]string{"custom-label": "value"},
-							Annotations: map[string]string{"custom-annotation": "value"},
+							MetadataWrapper: v1.DeploymentMetadataWrapper{
+								Labels:      map[string]string{"custom-label": "value"},
+								Annotations: map[string]string{"custom-annotation": "value"},
+							},
 						},
 					},
 				},
-			},
+			}},
 		},
 	}
 
 	// Build the base pod spec as the controller would
-	resources := envoyResourceRequirements(search)
+	resources := envoyResourceRequirements(search, 0)
 	podSpec := buildEnvoyPodSpec(search, 0, nil, false, "envoy:latest", resources, false)
 
 	// Verify base spec has no tolerations
@@ -375,7 +369,7 @@ func TestBuildEnvoyPodSpec_WithDeploymentConfigurationOverride(t *testing.T) {
 		},
 	}
 
-	depCfg := search.Spec.LoadBalancer.Managed.Deployment
+	depCfg := search.Spec.Clusters[0].LoadBalancer.Managed.Deployment
 	dep.Spec = merge.DeploymentSpecs(dep.Spec, depCfg.SpecWrapper.Spec)
 	dep.Labels = merge.StringToStringMap(dep.Labels, depCfg.MetadataWrapper.Labels)
 	dep.Annotations = merge.StringToStringMap(dep.Annotations, depCfg.MetadataWrapper.Annotations)
@@ -400,24 +394,26 @@ func TestDeploymentConfigurationOverride_ResourceRequirementsComposition(t *test
 	search := &searchv1.MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "ns"},
 		Spec: searchv1.MongoDBSearchSpec{
-			LoadBalancer: &searchv1.LoadBalancerConfig{
-				Managed: &searchv1.ManagedLBConfig{
-					ResourceRequirements: &corev1.ResourceRequirements{
-						Requests: corev1.ResourceList{
-							corev1.ResourceCPU: resource.MustParse("200m"),
+			Clusters: []searchv1.ClusterSpec{{
+				LoadBalancer: &searchv1.LoadBalancerConfig{
+					Managed: &searchv1.ManagedLBConfig{
+						ResourceRequirements: &corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("200m"),
+							},
 						},
-					},
-					Deployment: &v1.DeploymentConfiguration{
-						SpecWrapper: v1.DeploymentSpecWrapper{
-							Spec: appsv1.DeploymentSpec{
-								Template: corev1.PodTemplateSpec{
-									Spec: corev1.PodSpec{
-										Containers: []corev1.Container{
-											{
-												Name: "envoy",
-												Resources: corev1.ResourceRequirements{
-													Requests: corev1.ResourceList{
-														corev1.ResourceCPU: resource.MustParse("500m"),
+						Deployment: &v1.DeploymentConfiguration{
+							SpecWrapper: v1.DeploymentSpecWrapper{
+								Spec: appsv1.DeploymentSpec{
+									Template: corev1.PodTemplateSpec{
+										Spec: corev1.PodSpec{
+											Containers: []corev1.Container{
+												{
+													Name: "envoy",
+													Resources: corev1.ResourceRequirements{
+														Requests: corev1.ResourceList{
+															corev1.ResourceCPU: resource.MustParse("500m"),
+														},
 													},
 												},
 											},
@@ -428,12 +424,12 @@ func TestDeploymentConfigurationOverride_ResourceRequirementsComposition(t *test
 						},
 					},
 				},
-			},
+			}},
 		},
 	}
 
 	// Build base with resourceRequirements (200m)
-	resources := envoyResourceRequirements(search)
+	resources := envoyResourceRequirements(search, 0)
 	assert.Equal(t, resource.MustParse("200m"), resources.Requests[corev1.ResourceCPU])
 
 	podSpec := buildEnvoyPodSpec(search, 0, nil, false, "envoy:latest", resources, false)
@@ -445,7 +441,7 @@ func TestDeploymentConfigurationOverride_ResourceRequirementsComposition(t *test
 	}
 
 	// Apply deployment override
-	depCfg := search.Spec.LoadBalancer.Managed.Deployment
+	depCfg := search.Spec.Clusters[0].LoadBalancer.Managed.Deployment
 	dep.Spec = merge.DeploymentSpecs(dep.Spec, depCfg.SpecWrapper.Spec)
 
 	// deployment override wins (500m)
@@ -454,18 +450,23 @@ func TestDeploymentConfigurationOverride_ResourceRequirementsComposition(t *test
 
 // --- per-cluster route renderer tests -----------------------------------------
 
-func TestBuildRoutesForCluster_RS_TemplateSubstitutesClusterName(t *testing.T) {
+func TestBuildRoutesForCluster_RS_PerClusterHostname(t *testing.T) {
 	one := int32(1)
 	search := &searchv1.MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "test-ns"},
 		Spec: searchv1.MongoDBSearchSpec{
 			Clusters: []searchv1.ClusterSpec{
-				{ClusterName: "us-east-k8s", Replicas: &one},
-				{ClusterName: "eu-west-k8s", Replicas: &one},
-			},
-			LoadBalancer: &searchv1.LoadBalancerConfig{
-				Managed: &searchv1.ManagedLBConfig{
-					ExternalHostname: "mongot-{clusterName}.example.com",
+				{
+					ClusterName: "us-east-k8s", Replicas: &one,
+					LoadBalancer: &searchv1.LoadBalancerConfig{
+						Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot-us-east.example.com"},
+					},
+				},
+				{
+					ClusterName: "eu-west-k8s", Replicas: &one,
+					LoadBalancer: &searchv1.LoadBalancerConfig{
+						Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot-eu-west.example.com"},
+					},
 				},
 			},
 		},
@@ -475,7 +476,7 @@ func TestBuildRoutesForCluster_RS_TemplateSubstitutesClusterName(t *testing.T) {
 	require.Len(t, routes, 1)
 	assert.Equal(t, "rs", routes[0].Name)
 	assert.Equal(t, "us-east-k8s", routes[0].ClusterID)
-	assert.Equal(t, "mongot-us-east-k8s.example.com", routes[0].SNIHostname)
+	assert.Equal(t, "mongot-us-east.example.com", routes[0].SNIHostname)
 }
 
 func TestBuildRoutesForCluster_RS_NoTemplateUsesPerClusterProxySvcFQDN(t *testing.T) {
@@ -537,13 +538,21 @@ func TestBuildRoutesForCluster_Sharded_PerClusterShardSNI(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "test-ns"},
 		Spec: searchv1.MongoDBSearchSpec{
 			Clusters: []searchv1.ClusterSpec{
-				{ClusterName: "us-east-k8s", Replicas: &one},
-				{ClusterName: "eu-west-k8s", Replicas: &one},
-			},
-			LoadBalancer: &searchv1.LoadBalancerConfig{
-				Managed: &searchv1.ManagedLBConfig{
-					// Both placeholders present — must substitute both.
-					ExternalHostname: "mongot-{clusterName}-{shardName}.example.com",
+				{
+					ClusterName: "us-east-k8s", Replicas: &one,
+					LoadBalancer: &searchv1.LoadBalancerConfig{
+						Managed: &searchv1.ManagedLBConfig{
+							ExternalHostname: "mongot-us-east-{shardName}.example.com",
+						},
+					},
+				},
+				{
+					ClusterName: "eu-west-k8s", Replicas: &one,
+					LoadBalancer: &searchv1.LoadBalancerConfig{
+						Managed: &searchv1.ManagedLBConfig{
+							ExternalHostname: "mongot-eu-west-{shardName}.example.com",
+						},
+					},
 				},
 			},
 		},
@@ -557,12 +566,12 @@ func TestBuildRoutesForCluster_Sharded_PerClusterShardSNI(t *testing.T) {
 	require.Len(t, east, 3)
 	require.Len(t, west, 3)
 
-	// Per-(cluster, shard) SNI emitted with both substitutions.
+	// Per-(cluster, shard) SNI emitted with the per-cluster hostname and {shardName} substituted.
 	assert.Equal(t, "us-east-k8s", east[0].ClusterID)
-	assert.Equal(t, "mongot-us-east-k8s-mdb-sh-0.example.com", east[0].SNIHostname)
-	assert.Equal(t, "mongot-us-east-k8s-mdb-sh-1.example.com", east[1].SNIHostname)
-	assert.Equal(t, "mongot-eu-west-k8s-mdb-sh-0.example.com", west[0].SNIHostname)
-	assert.Equal(t, "mongot-eu-west-k8s-mdb-sh-1.example.com", west[1].SNIHostname)
+	assert.Equal(t, "mongot-us-east-mdb-sh-0.example.com", east[0].SNIHostname)
+	assert.Equal(t, "mongot-us-east-mdb-sh-1.example.com", east[1].SNIHostname)
+	assert.Equal(t, "mongot-eu-west-mdb-sh-0.example.com", west[0].SNIHostname)
+	assert.Equal(t, "mongot-eu-west-mdb-sh-1.example.com", west[1].SNIHostname)
 
 	// Last route in each cluster is the cluster-level route.
 	assert.Equal(t, "cluster-level", east[2].Name)
@@ -627,22 +636,31 @@ func TestBuildShardRoutes_MC_ClusterLevel_NoExternalHostname(t *testing.T) {
 	}
 }
 
-// TestBuildShardRoutes_MC_ClusterLevel_ManagedLB asserts that with a managed-LB
-// externalHostname of "{shardName}.{clusterName}.search.example.com:443", the
-// per-shard SNIs resolve per-shard and the cluster-level SNI strips the
-// "{shardName}." prefix to produce "{clusterName}.search.example.com:443".
+// TestBuildShardRoutes_MC_ClusterLevel_ManagedLB asserts that with a per-cluster
+// managed-LB externalHostname of "{shardName}.cluster-b.search.example.com:443",
+// the per-shard SNIs resolve per-shard and the cluster-level SNI strips the
+// "{shardName}." prefix to produce "cluster-b.search.example.com:443".
 func TestBuildShardRoutes_MC_ClusterLevel_ManagedLB(t *testing.T) {
 	shardNames := []string{"mdb-sh-0", "mdb-sh-1", "mdb-sh-2"}
 	search := &searchv1.MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "test-ns"},
 		Spec: searchv1.MongoDBSearchSpec{
 			Clusters: []searchv1.ClusterSpec{
-				{ClusterName: "cluster-a"},
-				{ClusterName: "cluster-b"},
-			},
-			LoadBalancer: &searchv1.LoadBalancerConfig{
-				Managed: &searchv1.ManagedLBConfig{
-					ExternalHostname: "{shardName}.{clusterName}.search.example.com:443",
+				{
+					ClusterName: "cluster-a",
+					LoadBalancer: &searchv1.LoadBalancerConfig{
+						Managed: &searchv1.ManagedLBConfig{
+							ExternalHostname: "{shardName}.cluster-a.search.example.com:443",
+						},
+					},
+				},
+				{
+					ClusterName: "cluster-b",
+					LoadBalancer: &searchv1.LoadBalancerConfig{
+						Managed: &searchv1.ManagedLBConfig{
+							ExternalHostname: "{shardName}.cluster-b.search.example.com:443",
+						},
+					},
 				},
 			},
 		},
@@ -652,7 +670,7 @@ func TestBuildShardRoutes_MC_ClusterLevel_ManagedLB(t *testing.T) {
 
 	require.Len(t, routes, 4)
 
-	// Per-shard SNIs must resolve both {clusterName} and {shardName}.
+	// Per-shard SNIs must resolve {shardName} against cluster-b's own hostname.
 	for i, shardName := range shardNames {
 		expected := fmt.Sprintf("%s.cluster-b.search.example.com:443", shardName)
 		assert.Equal(t, expected, routes[i].SNIHostname, "per-shard SNI mismatch for shard %s", shardName)
@@ -874,7 +892,7 @@ func TestEnvoyLabels_StampsCrossClusterEnqueueLabels(t *testing.T) {
 
 func TestEnvoyReplicas_DefaultsTo1(t *testing.T) {
 	search := &searchv1.MongoDBSearch{ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"}}
-	assert.Equal(t, int32(1), envoyReplicas(search))
+	assert.Equal(t, int32(1), envoyReplicas(search, 0))
 }
 
 // envoyTestScheme returns a runtime.Scheme registered for the types ensureDeployment/
@@ -1069,10 +1087,12 @@ func TestReconcileForCluster_RendersInMemberCluster(t *testing.T) {
 	search := &searchv1.MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"},
 		Spec: searchv1.MongoDBSearchSpec{
-			LoadBalancer: &searchv1.LoadBalancerConfig{
-				Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot-{clusterName}.example.com"},
-			},
-			Clusters: []searchv1.ClusterSpec{{ClusterName: "a"}},
+			Clusters: []searchv1.ClusterSpec{{
+				ClusterName: "a",
+				LoadBalancer: &searchv1.LoadBalancerConfig{
+					Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot-a.example.com"},
+				},
+			}},
 		},
 	}
 
@@ -1103,8 +1123,10 @@ func TestEnsureDeployment_Replicas(t *testing.T) {
 	search := &searchv1.MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"},
 		Spec: searchv1.MongoDBSearchSpec{
-			LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{}},
-			Clusters:     []searchv1.ClusterSpec{{ClusterName: "a"}},
+			Clusters: []searchv1.ClusterSpec{{
+				ClusterName:  "a",
+				LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{}},
+			}},
 		},
 	}
 	for _, tc := range []struct {
@@ -1124,7 +1146,7 @@ func TestEnsureDeployment_Replicas(t *testing.T) {
 			expectedDeplReplicas: 4,
 		},
 	} {
-		search.Spec.LoadBalancer.Managed.Replicas = tc.lbReplicas
+		search.Spec.Clusters[0].LoadBalancer.Managed.Replicas = tc.lbReplicas
 		// cluster "a" is at index 0.
 		require.NoError(t, r.ensureDeployment(context.Background(), search, `{"x":1}`, "a", 0, r.clientForCluster("a"), nil, zap.S()))
 
@@ -1164,14 +1186,19 @@ func TestReconcile_WorstOfPhase_Aggregated(t *testing.T) {
 					HostAndPorts: []string{"mongo-0:27017"},
 				},
 			},
-			LoadBalancer: &searchv1.LoadBalancerConfig{
-				Managed: &searchv1.ManagedLBConfig{
-					ExternalHostname: "mongot-{clusterName}.example.com",
-				},
-			},
 			Clusters: []searchv1.ClusterSpec{
-				{ClusterName: "a", ClusterIndex: ptr.To(int32(0))},
-				{ClusterName: "missing", ClusterIndex: ptr.To(int32(1))},
+				{
+					ClusterName: "a", ClusterIndex: ptr.To(int32(0)),
+					LoadBalancer: &searchv1.LoadBalancerConfig{
+						Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot-a.example.com"},
+					},
+				},
+				{
+					ClusterName: "missing", ClusterIndex: ptr.To(int32(1)),
+					LoadBalancer: &searchv1.LoadBalancerConfig{
+						Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot-missing.example.com"},
+					},
+				},
 			},
 		},
 	}
@@ -1218,12 +1245,12 @@ func TestReconcile_AllClustersFailed_TopLevelPhaseIsFailed(t *testing.T) {
 					HostAndPorts: []string{"mongo-0:27017"},
 				},
 			},
-			LoadBalancer: &searchv1.LoadBalancerConfig{
-				Managed: &searchv1.ManagedLBConfig{
-					ExternalHostname: "mongot-{clusterName}.example.com",
+			Clusters: []searchv1.ClusterSpec{{
+				ClusterName: "a",
+				LoadBalancer: &searchv1.LoadBalancerConfig{
+					Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot-a.example.com"},
 				},
-			},
-			Clusters: []searchv1.ClusterSpec{{ClusterName: "a"}},
+			}},
 		},
 	}
 	central := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&searchv1.MongoDBSearch{}).WithObjects(search).Build()
@@ -1266,14 +1293,19 @@ func TestReconcile_NoStateCM_ClustersPending(t *testing.T) {
 					HostAndPorts: []string{"mongo-0:27017"},
 				},
 			},
-			LoadBalancer: &searchv1.LoadBalancerConfig{
-				Managed: &searchv1.ManagedLBConfig{
-					ExternalHostname: "mongot-{clusterName}.example.com",
-				},
-			},
 			Clusters: []searchv1.ClusterSpec{
-				{ClusterName: "cluster-a", ClusterIndex: ptr.To(int32(0))},
-				{ClusterName: "cluster-b", ClusterIndex: ptr.To(int32(1))},
+				{
+					ClusterName: "cluster-a", ClusterIndex: ptr.To(int32(0)),
+					LoadBalancer: &searchv1.LoadBalancerConfig{
+						Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot-cluster-a.example.com"},
+					},
+				},
+				{
+					ClusterName: "cluster-b", ClusterIndex: ptr.To(int32(1)),
+					LoadBalancer: &searchv1.LoadBalancerConfig{
+						Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot-cluster-b.example.com"},
+					},
+				},
 			},
 		},
 	}
@@ -1314,14 +1346,19 @@ func TestReconcile_UsesIndicesFromStateMapping(t *testing.T) {
 					HostAndPorts: []string{"mongo-0:27017"},
 				},
 			},
-			LoadBalancer: &searchv1.LoadBalancerConfig{
-				Managed: &searchv1.ManagedLBConfig{
-					ExternalHostname: "mongot-{clusterName}.example.com",
-				},
-			},
 			Clusters: []searchv1.ClusterSpec{
-				{ClusterName: "cluster-a", ClusterIndex: ptr.To(int32(5))},
-				{ClusterName: "cluster-b", ClusterIndex: ptr.To(int32(7))},
+				{
+					ClusterName: "cluster-a", ClusterIndex: ptr.To(int32(5)),
+					LoadBalancer: &searchv1.LoadBalancerConfig{
+						Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot-cluster-a.example.com"},
+					},
+				},
+				{
+					ClusterName: "cluster-b", ClusterIndex: ptr.To(int32(7)),
+					LoadBalancer: &searchv1.LoadBalancerConfig{
+						Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot-cluster-b.example.com"},
+					},
+				},
 			},
 		},
 	}
@@ -1379,7 +1416,14 @@ func TestReconcile_StableIndexAcrossClusterRemovals(t *testing.T) {
 	mkSearch := func(clusterNames ...string) *searchv1.MongoDBSearch {
 		clusters := make([]searchv1.ClusterSpec, 0, len(clusterNames))
 		for i, n := range clusterNames {
-			cs := searchv1.ClusterSpec{ClusterName: n}
+			cs := searchv1.ClusterSpec{
+				ClusterName: n,
+				LoadBalancer: &searchv1.LoadBalancerConfig{
+					Managed: &searchv1.ManagedLBConfig{
+						ExternalHostname: fmt.Sprintf("mongot-%s.example.com", n),
+					},
+				},
+			}
 			// clusterIndex is required only for multi-cluster (len > 1) specs.
 			if len(clusterNames) > 1 {
 				cs.ClusterIndex = ptr.To(int32(i))
@@ -1392,11 +1436,6 @@ func TestReconcile_StableIndexAcrossClusterRemovals(t *testing.T) {
 				Source: &searchv1.MongoDBSource{
 					ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{
 						HostAndPorts: []string{"mongo-0:27017"},
-					},
-				},
-				LoadBalancer: &searchv1.LoadBalancerConfig{
-					Managed: &searchv1.ManagedLBConfig{
-						ExternalHostname: "mongot-{clusterName}.example.com",
 					},
 				},
 				Clusters: clusters,
@@ -1591,19 +1630,17 @@ func newMCEnvoySearch(name, namespace, uid string, clusters ...searchv1.ClusterS
 }
 
 func newSimulatedMCEnvoySearch(name, namespace string, clusterBIndex int32) *searchv1.MongoDBSearch {
+	clusterA := pinnedCluster("cluster-a", 0)
+	clusterA.LoadBalancer = &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot-cluster-a.example.com"}}
+	clusterB := pinnedCluster("cluster-b", clusterBIndex)
+	clusterB.LoadBalancer = &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot-cluster-b.example.com"}}
 	return &searchv1.MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
 		Spec: searchv1.MongoDBSearchSpec{
 			Source: &searchv1.MongoDBSource{
 				ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{HostAndPorts: []string{"mongo-0:27017"}},
 			},
-			LoadBalancer: &searchv1.LoadBalancerConfig{
-				Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot-{clusterName}.example.com"},
-			},
-			Clusters: []searchv1.ClusterSpec{
-				pinnedCluster("cluster-a", 0),
-				pinnedCluster("cluster-b", clusterBIndex),
-			},
+			Clusters: []searchv1.ClusterSpec{clusterA, clusterB},
 		},
 	}
 }
@@ -1987,9 +2024,11 @@ func TestEnvoyReconcile_ValidationFailure_NoLBConfigured_NoLBStatusWrite(t *test
 	scheme := envoyTestScheme(t)
 
 	// Removing the LB from the fully-pinned 2-cluster fixture makes ValidateSpec fail
-	// (multi-cluster requires spec.loadBalancer.managed) on a CR with no LB surface.
+	// (multi-cluster requires spec.clusters[].loadBalancer.managed) on a CR with no LB surface.
 	search := newSimulatedMCEnvoySearch("mdb-search", "ns", 1)
-	search.Spec.LoadBalancer = nil
+	for i := range search.Spec.Clusters {
+		search.Spec.Clusters[i].LoadBalancer = nil
+	}
 	central := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&searchv1.MongoDBSearch{}).WithObjects(search).Build()
 
 	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", nil, "cluster-a")
