@@ -17,6 +17,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
+	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
@@ -27,13 +28,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/manager/signals"
 
-	golog "log"
-	localruntime "runtime"
-
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	corev1 "k8s.io/api/core/v1"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	golog "log"
+	localruntime "runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	runtime_cluster "sigs.k8s.io/controller-runtime/pkg/cluster"
 	kubelog "sigs.k8s.io/controller-runtime/pkg/log"
@@ -54,6 +54,7 @@ import (
 	mcoConstruct "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/construct" //nolint:depguard
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
+	"github.com/mongodb/mongodb-kubernetes/pkg/operatorconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/pprof"
 	"github.com/mongodb/mongodb-kubernetes/pkg/telemetry"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
@@ -136,6 +137,8 @@ func run() error {
 	}
 
 	ctx := signals.SetupSignalHandler()
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	operator.OmUpdateChannel = make(chan event.GenericEvent)
 
 	klog.InitFlags(nil)
@@ -164,6 +167,8 @@ func run() error {
 
 	// Get a config to talk to the apiserver
 	cfg := ctrl.GetConfigOrDie()
+
+	operatorConfigName := env.ReadOrDefault(util.OperatorConfigNameEnv, util.DefaultOperatorConfigName)
 
 	log.Debugf("Setting up tracing with ID: %s, Parent ID: %s, Endpoint: %s", traceIDHex, spanIDHex, endpoint)
 	ctx, tp, err := telemetry.SetupTracingFromParent(ctx, traceIDHex, spanIDHex, endpoint)
@@ -200,6 +205,19 @@ func run() error {
 		}
 	}
 
+	// Restrict the OperatorConfig informer to the single named instance in the operator's own
+	// namespace. Without this, a change to any OperatorConfig in any watched namespace would
+	// trigger a restart.
+	managerOptions.Cache.ByObject = map[client.Object]cache.ByObject{
+		&operatorv1.OperatorConfig{}: {
+			Namespaces: map[string]cache.Config{
+				currentNamespace: {
+					FieldSelector: fields.OneTermEqualSelector("metadata.name", operatorConfigName),
+				},
+			},
+		},
+	}
+
 	if isInLocalMode() {
 		// managerOptions.MetricsBindAddress = "127.0.0.1:8180"
 		managerOptions.Metrics = metricsServer.Options{
@@ -215,7 +233,17 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	// TODO(m1kola): use operatorCfg to configure controllers as settings are migrated from env vars
+	_, err = operatorconfig.Load(ctx, mgr.GetAPIReader(), currentNamespace, operatorConfigName)
+	if err != nil {
+		return fmt.Errorf("loading OperatorConfig: %w", err)
+	}
+
 	log.Info("Registering Components.")
+
+	if err := mgr.Add(operatorconfig.NewWatcher(mgr.GetCache(), cancel)); err != nil {
+		return err
+	}
 
 	// Setup Scheme for all resources
 	if err := apiv1.AddToScheme(scheme); err != nil {
