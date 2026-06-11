@@ -161,6 +161,10 @@ const (
 	OIDC                              = "OIDC"
 	MinimumScramSha256MdbVersion      = "4.0.0"
 
+	// OperatorConfig variables
+	OperatorConfigNameEnv     = "MDB_OPERATOR_CONFIG_NAME"
+	DefaultOperatorConfigName = "operator-config"
+
 	// pprof variables
 	OperatorPprofEnabledEnv  = "MDB_OPERATOR_PPROF_ENABLED"
 	OperatorPprofPortEnv     = "MDB_OPERATOR_PPROF_PORT"
