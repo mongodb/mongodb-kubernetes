@@ -25,6 +25,16 @@ type staleSweepExpectations struct {
 	configMaps   map[string]bool
 }
 
+// OnDelete deletes every search-owned mongot StatefulSet, headless Service,
+// ConfigMap, and proxy Service across the central and all member clusters by
+// running the stale sweep with empty expectations. PVCs are not deleted
+// explicitly: the mongot StatefulSet sets persistentVolumeClaimRetentionPolicy
+// whenDeleted=Delete (see search_construction.go), so deleting the StatefulSet
+// reaps its PVCs — same posture as sharded MC, which doesn't delete PVCs either.
+func (r *MongoDBSearchReconcileHelper) OnDelete(ctx context.Context, log *zap.SugaredLogger) error {
+	return r.cleanupStaleResources(ctx, log, staleSweepExpectations{})
+}
+
 // cleanupStaleResources deletes search-owned mongot StatefulSets, Services, and
 // ConfigMaps (plus proxy Services in managed-LB mode) that the current reconcile
 // plan no longer expects. It runs across the central client and every member

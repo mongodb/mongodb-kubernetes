@@ -10,16 +10,19 @@ import (
 	"github.com/ghodss/yaml"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
@@ -644,22 +647,7 @@ func TestMongoDBSearchControllerReconcile_StateConfigMap_ReAddCluster(t *testing
 func TestMongoDBSearchReconcile_Success_MultiCluster(t *testing.T) {
 	ctx := context.Background()
 
-	// MC GA requires external source (Q2); managed source + MC (Q3) is post-MVP.
-	search := &searchv1.MongoDBSearch{
-		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: mock.TestNamespace},
-		Spec: searchv1.MongoDBSearchSpec{
-			Source: &searchv1.MongoDBSource{
-				ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{
-					HostAndPorts: []string{"mdb-0.mdb.svc:27017", "mdb-1.mdb.svc:27017"},
-				},
-			},
-			LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot-{clusterName}.example.com"}},
-		},
-	}
-	search.Spec.Clusters = []searchv1.ClusterSpec{
-		{ClusterName: "us-east", Replicas: ptr.To(int32(1))},
-		{ClusterName: "us-west", Replicas: ptr.To(int32(1))},
-	}
+	search := newMultiClusterExternalSearch()
 
 	eastClient := mock.NewEmptyFakeClientBuilder().Build()
 	westClient := mock.NewEmptyFakeClientBuilder().Build()
@@ -670,31 +658,7 @@ func TestMongoDBSearchReconcile_Success_MultiCluster(t *testing.T) {
 
 	reconciler, centralClient := newSearchReconcilerWithMembers(t, nil, memberClients, search)
 
-	req := reconcile.Request{NamespacedName: types.NamespacedName{Name: search.Name, Namespace: search.Namespace}}
-
-	// First reconcile creates state CM, then fans out per-cluster resources.
-	// The per-unit STS readiness gate makes the helper exit Pending as soon
-	// as one unit's STS isn't ready, so several reconciles are needed for the
-	// loop to walk every unit. Each iteration, mark STSes ready on all clients
-	// so the next pass progresses to the next unit.
-	got := &searchv1.MongoDBSearch{}
-	const maxPasses = 5
-	for i := 0; i < maxPasses; i++ {
-		_, err := reconciler.Reconcile(ctx, req)
-		require.NoError(t, err)
-		require.NoError(t, centralClient.Get(ctx, req.NamespacedName, got))
-		// The Envoy controller would normally drive LB status; we seed it so
-		// IsLoadBalancerReady() returns true once STSes are caught up.
-		if got.Status.LoadBalancer == nil {
-			got.Status.LoadBalancer = &searchv1.LoadBalancerStatus{Phase: status.PhaseRunning}
-			require.NoError(t, centralClient.Status().Update(ctx, got))
-		}
-		require.NoError(t, mock.MarkAllStatefulSetsAsReady(ctx, search.Namespace, centralClient, eastClient, westClient))
-		if got.Status.Phase == status.PhaseRunning {
-			break
-		}
-	}
-	require.Equal(t, status.PhaseRunning, got.Status.Phase, "reconciler must reach Running within %d passes", maxPasses)
+	driveSearchToRunning(ctx, t, reconciler, nil, centralClient, search, eastClient, westClient)
 
 	// State CM lives on the central client and records the mapping the helper
 	// fanned out over.
@@ -887,6 +851,207 @@ func TestMongoDBSearchReconcile_MCSharded_CrossControllerLabelInvariant(t *testi
 			"%s: cluster-level proxy Selector must point at the LB Deployment label, got %q",
 			clusterName, svc.Spec.Selector["app"])
 	}
+}
+
+// newMultiClusterExternalSearch returns the standard 2-cluster external-RS
+// search fixture. Managed LB is mandatory for multi-cluster MongoDBSearch, so
+// it is always configured. (MC GA requires external source (Q2); managed
+// source + MC (Q3) is post-MVP.)
+func newMultiClusterExternalSearch() *searchv1.MongoDBSearch {
+	return &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: mock.TestNamespace},
+		Spec: searchv1.MongoDBSearchSpec{
+			Source: &searchv1.MongoDBSource{
+				ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{
+					HostAndPorts: []string{"mdb-0.mdb.svc:27017", "mdb-1.mdb.svc:27017"},
+				},
+			},
+			Clusters: []searchv1.ClusterSpec{
+				{ClusterName: "us-east", Replicas: ptr.To(int32(1))},
+				{ClusterName: "us-west", Replicas: ptr.To(int32(1))},
+			},
+			LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot-{clusterName}.example.com"}},
+		},
+	}
+}
+
+// driveSearchToRunning loops Reconcile (and the Envoy reconciler when given)
+// until the search reaches Running, marking STSes ready and seeding the LB
+// status each pass, mirroring TestMongoDBSearchReconcile_Success_MultiCluster.
+func driveSearchToRunning(
+	ctx context.Context,
+	t *testing.T,
+	reconciler *MongoDBSearchReconciler,
+	envoyReconciler *MongoDBSearchEnvoyReconciler,
+	centralClient client.Client,
+	search *searchv1.MongoDBSearch,
+	memberClients ...client.Client,
+) {
+	t.Helper()
+	req := reconcile.Request{NamespacedName: types.NamespacedName{Name: search.Name, Namespace: search.Namespace}}
+	got := &searchv1.MongoDBSearch{}
+	const maxPasses = 5
+	for i := 0; i < maxPasses; i++ {
+		_, err := reconciler.Reconcile(ctx, req)
+		require.NoError(t, err)
+		if envoyReconciler != nil {
+			_, err = envoyReconciler.Reconcile(ctx, req)
+			require.NoError(t, err)
+		}
+		require.NoError(t, centralClient.Get(ctx, req.NamespacedName, got))
+		if search.IsLBModeManaged() && got.Status.LoadBalancer == nil {
+			got.Status.LoadBalancer = &searchv1.LoadBalancerStatus{Phase: status.PhaseRunning}
+			require.NoError(t, centralClient.Status().Update(ctx, got))
+		}
+		require.NoError(t, mock.MarkAllStatefulSetsAsReady(ctx, search.Namespace, append([]client.Client{centralClient}, memberClients...)...))
+		if got.Status.Phase == status.PhaseRunning {
+			break
+		}
+	}
+	require.Equal(t, status.PhaseRunning, got.Status.Phase, "search must reach Running within %d passes", maxPasses)
+}
+
+// countSearchOwnedObjects lists every STS / Service / ConfigMap / Deployment in
+// the search namespace on c and counts those carrying this search's owner labels.
+func countSearchOwnedObjects(ctx context.Context, t *testing.T, c client.Client, search *searchv1.MongoDBSearch) int {
+	t.Helper()
+	ownerLabels := client.MatchingLabels{
+		khandler.MongoDBSearchOwnerNameLabel:      search.Name,
+		khandler.MongoDBSearchOwnerNamespaceLabel: search.Namespace,
+	}
+	count := 0
+	for _, list := range []client.ObjectList{&appsv1.StatefulSetList{}, &corev1.ServiceList{}, &corev1.ConfigMapList{}, &appsv1.DeploymentList{}} {
+		require.NoError(t, c.List(ctx, list, client.InNamespace(search.Namespace), ownerLabels))
+		items, err := meta.ExtractList(list)
+		require.NoError(t, err)
+		count += len(items)
+	}
+	return count
+}
+
+func TestMongoDBSearchOnDelete_MultiCluster_RemovesAllOwnedResources(t *testing.T) {
+	ctx := context.Background()
+	search := newMultiClusterExternalSearch()
+
+	eastClient := mock.NewEmptyFakeClientBuilder().Build()
+	westClient := mock.NewEmptyFakeClientBuilder().Build()
+	memberClients := map[string]client.Client{"us-east": eastClient, "us-west": westClient}
+
+	reconciler, centralClient := newSearchReconcilerWithMembers(t, nil, memberClients, search)
+	envoyReconciler := newMongoDBSearchEnvoyReconciler(centralClient, "envoy:test", memberClients)
+
+	driveSearchToRunning(ctx, t, reconciler, envoyReconciler, centralClient, search, eastClient, westClient)
+
+	// Sanity: both members hold mongot + Envoy resources before the delete.
+	require.Greater(t, countSearchOwnedObjects(ctx, t, eastClient, search), 0)
+	require.Greater(t, countSearchOwnedObjects(ctx, t, westClient, search), 0)
+	envoyDep := &appsv1.Deployment{}
+	require.NoError(t, eastClient.Get(ctx, types.NamespacedName{Name: search.LoadBalancerDeploymentNameForCluster(0), Namespace: search.Namespace}, envoyDep))
+
+	// Foreign-owned look-alikes: same component labels, different owner. The
+	// sweep must not touch them.
+	foreignSTS := &appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "other-search-mongot-0",
+			Namespace: search.Namespace,
+			Labels: map[string]string{
+				componentLabelKey:                         "mongot",
+				khandler.MongoDBSearchOwnerNameLabel:      "other-search",
+				khandler.MongoDBSearchOwnerNamespaceLabel: search.Namespace,
+			},
+		},
+	}
+	foreignEnvoyDep := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "other-search-search-lb-0",
+			Namespace: search.Namespace,
+			Labels: map[string]string{
+				componentLabelKey:                         envoyComponent,
+				khandler.MongoDBSearchOwnerNameLabel:      "other-search",
+				khandler.MongoDBSearchOwnerNamespaceLabel: search.Namespace,
+			},
+		},
+	}
+	require.NoError(t, eastClient.Create(ctx, foreignSTS))
+	require.NoError(t, eastClient.Create(ctx, foreignEnvoyDep))
+
+	// Simulate the CR delete event: the CR is already gone from the API server
+	// when the watch fires, and both controllers' OnDelete receive the tombstone
+	// object carried by the Delete event.
+	deleted := &searchv1.MongoDBSearch{}
+	require.NoError(t, centralClient.Get(ctx, types.NamespacedName{Name: search.Name, Namespace: search.Namespace}, deleted))
+	require.NoError(t, centralClient.Delete(ctx, deleted))
+	require.NoError(t, reconciler.OnDelete(ctx, deleted, zap.S()))
+	require.NoError(t, envoyReconciler.OnDelete(ctx, deleted, zap.S()))
+
+	for name, c := range map[string]client.Client{"central": centralClient, "us-east": eastClient, "us-west": westClient} {
+		assert.Zero(t, countSearchOwnedObjects(ctx, t, c, search), "no search-owned objects may remain on %s", name)
+	}
+
+	// Spot-check the per-cluster resource names are gone from their member clients.
+	for idx, mc := range map[int]client.Client{0: eastClient, 1: westClient} {
+		assert.True(t, apiErrors.IsNotFound(mc.Get(ctx, search.StatefulSetNamespacedNameForCluster(idx), &appsv1.StatefulSet{})))
+		assert.True(t, apiErrors.IsNotFound(mc.Get(ctx, search.SearchServiceNamespacedNameForCluster(idx), &corev1.Service{})))
+		assert.True(t, apiErrors.IsNotFound(mc.Get(ctx, search.ProxyServiceNamespacedNameForCluster(idx), &corev1.Service{})))
+		assert.True(t, apiErrors.IsNotFound(mc.Get(ctx, search.MongotConfigConfigMapNameForCluster(idx), &corev1.ConfigMap{})))
+		assert.True(t, apiErrors.IsNotFound(mc.Get(ctx, types.NamespacedName{Name: search.LoadBalancerDeploymentNameForCluster(idx), Namespace: search.Namespace}, &appsv1.Deployment{})))
+		assert.True(t, apiErrors.IsNotFound(mc.Get(ctx, types.NamespacedName{Name: search.LoadBalancerConfigMapNameForCluster(idx), Namespace: search.Namespace}, &corev1.ConfigMap{})))
+	}
+
+	// Foreign-owned look-alikes survive.
+	assert.NoError(t, eastClient.Get(ctx, client.ObjectKeyFromObject(foreignSTS), &appsv1.StatefulSet{}), "foreign mongot STS must survive the sweep")
+	assert.NoError(t, eastClient.Get(ctx, client.ObjectKeyFromObject(foreignEnvoyDep), &appsv1.Deployment{}), "foreign Envoy Deployment must survive the sweep")
+}
+
+func TestMongoDBSearchOnDelete_MemberClusterFailure_StillCleansOthers(t *testing.T) {
+	ctx := context.Background()
+	search := newMultiClusterExternalSearch()
+
+	eastClient := mock.NewEmptyFakeClientBuilder().Build()
+	deleteFailure := fmt.Errorf("simulated us-west delete failure")
+	westClient := interceptor.NewClient(mock.NewEmptyFakeClientBuilder().Build(), interceptor.Funcs{
+		Delete: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.DeleteOption) error {
+			return deleteFailure
+		},
+	})
+	memberClients := map[string]client.Client{"us-east": eastClient, "us-west": westClient}
+
+	reconciler, centralClient := newSearchReconcilerWithMembers(t, nil, memberClients, search)
+	driveSearchToRunning(ctx, t, reconciler, nil, centralClient, search, eastClient, westClient)
+	require.Greater(t, countSearchOwnedObjects(ctx, t, westClient, search), 0)
+
+	deleted := &searchv1.MongoDBSearch{}
+	require.NoError(t, centralClient.Get(ctx, types.NamespacedName{Name: search.Name, Namespace: search.Namespace}, deleted))
+	err := reconciler.OnDelete(ctx, deleted, zap.S())
+
+	require.Error(t, err, "OnDelete must surface the failing member cluster")
+	assert.Contains(t, err.Error(), "us-west")
+	assert.Zero(t, countSearchOwnedObjects(ctx, t, eastClient, search), "healthy member must be fully cleaned despite the us-west failure")
+	assert.Greater(t, countSearchOwnedObjects(ctx, t, westClient, search), 0, "failing member keeps its resources (deletes are rejected)")
+}
+
+func TestMongoDBSearchOnDelete_StateConfigMapAlreadyGarbageCollected(t *testing.T) {
+	ctx := context.Background()
+	search := newMultiClusterExternalSearch()
+
+	eastClient := mock.NewEmptyFakeClientBuilder().Build()
+	westClient := mock.NewEmptyFakeClientBuilder().Build()
+	memberClients := map[string]client.Client{"us-east": eastClient, "us-west": westClient}
+
+	reconciler, centralClient := newSearchReconcilerWithMembers(t, nil, memberClients, search)
+	driveSearchToRunning(ctx, t, reconciler, nil, centralClient, search, eastClient, westClient)
+
+	// The state CM is owner-ref'd to the search CR on the central cluster, so
+	// Kubernetes GC may remove it before the delete event reaches the operator.
+	stateCM := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: search.Name + "-state", Namespace: search.Namespace}}
+	require.NoError(t, centralClient.Delete(ctx, stateCM))
+
+	deleted := &searchv1.MongoDBSearch{}
+	require.NoError(t, centralClient.Get(ctx, types.NamespacedName{Name: search.Name, Namespace: search.Namespace}, deleted))
+	require.NoError(t, reconciler.OnDelete(ctx, deleted, zap.S()))
+
+	assert.Zero(t, countSearchOwnedObjects(ctx, t, eastClient, search), "us-east must be cleaned without the state CM")
+	assert.Zero(t, countSearchOwnedObjects(ctx, t, westClient, search), "us-west must be cleaned without the state CM")
 }
 
 // markAllDeploymentsAvailable mirrors MarkAllStatefulSetsAsReady for the Envoy
