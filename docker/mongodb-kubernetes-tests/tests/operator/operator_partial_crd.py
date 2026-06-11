@@ -13,6 +13,9 @@ def ops_manager_and_mongodb_crds():
     """Installs OM and MDB CRDs only (we need to do this manually as Helm 3 doesn't support templating for CRDs"""
     create_or_replace_from_yaml(client.api_client.ApiClient(), "helm_chart/crds/mongodb.com_mongodb.yaml")
     create_or_replace_from_yaml(client.api_client.ApiClient(), "helm_chart/crds/mongodb.com_opsmanagers.yaml")
+    create_or_replace_from_yaml(
+        client.api_client.ApiClient(), "helm_chart/crds/operator.mongodb.com_operatorconfigs.yaml"
+    )
 
 
 @fixture(scope="module")
@@ -35,6 +38,9 @@ def operator_only_ops_manager_and_mongodb(
 def mongodb_crds():
     """Installs OM and MDB CRDs only (we need to do this manually as Helm 3 doesn't support templating for CRDs"""
     create_or_replace_from_yaml(client.api_client.ApiClient(), "helm_chart/crds/mongodb.com_mongodb.yaml")
+    create_or_replace_from_yaml(
+        client.api_client.ApiClient(), "helm_chart/crds/operator.mongodb.com_operatorconfigs.yaml"
+    )
 
 
 @fixture(scope="module")
@@ -65,9 +71,10 @@ def test_install_operator_ops_manager_and_mongodb_only(
 @pytest.mark.e2e_operator_partial_crd
 def test_only_ops_manager_and_mongodb_crds_exist():
     operator_crds = list_operator_crds()
-    assert len(operator_crds) == 2
+    assert len(operator_crds) == 3
     assert operator_crds[0].metadata.name == "mongodb.mongodb.com"
-    assert operator_crds[1].metadata.name == "opsmanagers.mongodb.com"
+    assert operator_crds[1].metadata.name == "operatorconfigs.operator.mongodb.com"
+    assert operator_crds[2].metadata.name == "opsmanagers.mongodb.com"
 
 
 @pytest.mark.e2e_operator_partial_crd
@@ -84,5 +91,6 @@ def test_install_operator_mongodb_only(operator_only_mongodb: Operator):
 @pytest.mark.e2e_operator_partial_crd
 def test_only_mongodb_and_users_crds_exists():
     operator_crds = list_operator_crds()
-    assert len(operator_crds) == 1
+    assert len(operator_crds) == 2
     assert operator_crds[0].metadata.name == "mongodb.mongodb.com"
+    assert operator_crds[1].metadata.name == "operatorconfigs.operator.mongodb.com"

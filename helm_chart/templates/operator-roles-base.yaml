@@ -100,6 +100,14 @@ rules:
       - voyageais
       - voyageais/finalizers
       - voyageais/status
+  - apiGroups:
+      - operator.mongodb.com
+    resources:
+      - operatorconfigs
+    verbs:
+      - get
+      - list
+      - watch
 {{- if eq $roleScope "ClusterRole" }}
   - apiGroups:
       - ''

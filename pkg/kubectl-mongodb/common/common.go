@@ -401,6 +401,11 @@ func getCentralRules() []rbacv1.PolicyRule {
 			Resources: []string{"voyageais", "voyageais/finalizers", "voyageais/status"},
 			APIGroups: []string{"ai.mongodb.com"},
 		},
+		{
+			Verbs:     []string{"get", "list", "watch"},
+			Resources: []string{"operatorconfigs"},
+			APIGroups: []string{"operator.mongodb.com"},
+		},
 	}
 }
 
