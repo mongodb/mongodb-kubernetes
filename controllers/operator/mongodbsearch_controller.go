@@ -61,6 +61,28 @@ func NewSearchDeploymentState() *SearchDeploymentState {
 	}
 }
 
+// searchStateCMName returns the search controllers' state ConfigMap name — the
+// single place that knows it. Deliberately NOT "<name>-state": that is the source
+// MongoDB's StateStore ConfigMap, and a MongoDBSearch commonly shares its source's
+// name, so the suffixes must not collide.
+func searchStateCMName(search *searchv1.MongoDBSearch) string {
+	return fmt.Sprintf("%s-search-state", search.Name)
+}
+
+// searchStateFromCM unmarshals the state key; a missing key yields fresh state.
+func searchStateFromCM(cm *corev1.ConfigMap) (*SearchDeploymentState, error) {
+	state := NewSearchDeploymentState()
+	if raw, ok := cm.Data[stateKey]; ok {
+		if err := json.Unmarshal([]byte(raw), state); err != nil {
+			return nil, xerrors.Errorf("cannot unmarshal search state %s/%s: %w", cm.Namespace, cm.Name, err)
+		}
+	}
+	if state.ClusterMapping == nil {
+		state.ClusterMapping = map[string]int{}
+	}
+	return state, nil
+}
+
 // loadOrInitSearchState reads the per-CR state ConfigMap, treating NotFound as
 // fresh state.
 func loadOrInitSearchState(
@@ -68,18 +90,14 @@ func loadOrInitSearchState(
 	c kubernetesClient.Client,
 	search *searchv1.MongoDBSearch,
 ) (*SearchDeploymentState, error) {
-	store := NewStateStore[SearchDeploymentState](search, kube.BaseOwnerReference(search), c)
-	state, err := store.ReadState(ctx)
-	if err != nil {
+	cm := &corev1.ConfigMap{}
+	if err := c.Get(ctx, kube.ObjectKey(search.Namespace, searchStateCMName(search)), cm); err != nil {
 		if apierrors.IsNotFound(err) {
 			return NewSearchDeploymentState(), nil
 		}
 		return nil, err
 	}
-	if state.ClusterMapping == nil {
-		state.ClusterMapping = map[string]int{}
-	}
-	return state, nil
+	return searchStateFromCM(cm)
 }
 
 // mutateSearchState performs a resourceVersion-checked read-modify-write of the
@@ -88,7 +106,7 @@ func loadOrInitSearchState(
 // with configmap.CreateOrUpdate — that is a blind no-RV Update). mutate returns
 // true when the state changed and must be persisted.
 func mutateSearchState(ctx context.Context, c kubernetesClient.Client, search *searchv1.MongoDBSearch, mutate func(*SearchDeploymentState) bool) (*SearchDeploymentState, error) {
-	cmName := fmt.Sprintf("%s-state", search.Name)
+	cmName := searchStateCMName(search)
 	cm := &corev1.ConfigMap{}
 	err := c.Get(ctx, kube.ObjectKey(search.Namespace, cmName), cm)
 	if apierrors.IsNotFound(err) {
@@ -112,14 +130,9 @@ func mutateSearchState(ctx context.Context, c kubernetesClient.Client, search *s
 		return nil, err
 	}
 
-	state := NewSearchDeploymentState()
-	if raw, ok := cm.Data[stateKey]; ok {
-		if err := json.Unmarshal([]byte(raw), state); err != nil {
-			return nil, xerrors.Errorf("cannot unmarshal search state %s/%s: %w", search.Namespace, cmName, err)
-		}
-	}
-	if state.ClusterMapping == nil {
-		state.ClusterMapping = map[string]int{}
+	state, err := searchStateFromCM(cm)
+	if err != nil {
+		return nil, err
 	}
 	if !mutate(state) {
 		return state, nil

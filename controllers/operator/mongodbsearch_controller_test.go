@@ -484,7 +484,7 @@ func TestMongoDBSearchControllerReconcile_StateConfigMap(t *testing.T) {
 	require.NoError(t, err)
 
 	stateCM := &corev1.ConfigMap{}
-	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: "mysearch-state", Namespace: mock.TestNamespace}, stateCM))
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: "mysearch-search-state", Namespace: mock.TestNamespace}, stateCM))
 
 	var gotState SearchDeploymentState
 	require.NoError(t, decodeStateJSON(stateCM, &gotState))
@@ -503,7 +503,7 @@ func TestMongoDBSearchControllerReconcile_StateConfigMap(t *testing.T) {
 	_, err = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: search.Name, Namespace: search.Namespace}})
 	require.NoError(t, err)
 
-	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: "mysearch-state", Namespace: mock.TestNamespace}, stateCM))
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: "mysearch-search-state", Namespace: mock.TestNamespace}, stateCM))
 	require.NoError(t, decodeStateJSON(stateCM, &gotState))
 	assert.Equal(t, map[string]int{"us-east": 0, "us-west": 1, "eu-central": 2}, gotState.ClusterMapping)
 
@@ -516,7 +516,7 @@ func TestMongoDBSearchControllerReconcile_StateConfigMap(t *testing.T) {
 	_, err = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: search.Name, Namespace: search.Namespace}})
 	require.NoError(t, err)
 
-	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: "mysearch-state", Namespace: mock.TestNamespace}, stateCM))
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: "mysearch-search-state", Namespace: mock.TestNamespace}, stateCM))
 	require.NoError(t, decodeStateJSON(stateCM, &gotState))
 	assert.Equal(t, map[string]int{"us-east": 0, "us-west": 1, "eu-central": 2}, gotState.ClusterMapping, "removed cluster must be retained")
 }
@@ -544,7 +544,7 @@ func TestMongoDBSearchControllerReconcile_StateConfigMap_NoOpOnStableMapping(t *
 	require.NoError(t, err)
 
 	stateCM := &corev1.ConfigMap{}
-	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: "mysearch-state", Namespace: mock.TestNamespace}, stateCM))
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: "mysearch-search-state", Namespace: mock.TestNamespace}, stateCM))
 	rvAfterFirst := stateCM.ResourceVersion
 
 	// Second reconcile with identical spec — mapping is stable; state CM must not be rewritten.
@@ -552,7 +552,7 @@ func TestMongoDBSearchControllerReconcile_StateConfigMap_NoOpOnStableMapping(t *
 	require.NoError(t, err)
 
 	stateCM2 := &corev1.ConfigMap{}
-	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: "mysearch-state", Namespace: mock.TestNamespace}, stateCM2))
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: "mysearch-search-state", Namespace: mock.TestNamespace}, stateCM2))
 	assert.Equal(t, rvAfterFirst, stateCM2.ResourceVersion, "state CM must not be rewritten when mapping is unchanged")
 }
 
@@ -578,7 +578,7 @@ func TestMongoDBSearchControllerReconcile_StateConfigMap_OperatorRestart(t *test
 	require.NoError(t, err)
 	seedCM := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "mysearch-state",
+			Name:      "mysearch-search-state",
 			Namespace: mock.TestNamespace,
 		},
 		Data: map[string]string{stateKey: string(stateJSON)},
@@ -589,7 +589,7 @@ func TestMongoDBSearchControllerReconcile_StateConfigMap_OperatorRestart(t *test
 	require.NoError(t, err)
 
 	stateCM := &corev1.ConfigMap{}
-	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: "mysearch-state", Namespace: mock.TestNamespace}, stateCM))
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: "mysearch-search-state", Namespace: mock.TestNamespace}, stateCM))
 	var gotState SearchDeploymentState
 	require.NoError(t, decodeStateJSON(stateCM, &gotState))
 	assert.Equal(t, map[string]int{"us-east": 0, "us-west": 1}, gotState.ClusterMapping, "existing mapping must be preserved across operator restart")
@@ -636,7 +636,7 @@ func TestMongoDBSearchControllerReconcile_StateConfigMap_ReAddCluster(t *testing
 	require.NoError(t, err)
 
 	stateCM := &corev1.ConfigMap{}
-	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: "mysearch-state", Namespace: mock.TestNamespace}, stateCM))
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: "mysearch-search-state", Namespace: mock.TestNamespace}, stateCM))
 	var gotState SearchDeploymentState
 	require.NoError(t, decodeStateJSON(stateCM, &gotState))
 	assert.Equal(t, map[string]int{"us-east": 0, "us-west": 1, "eu-central": 2}, gotState.ClusterMapping,
@@ -701,7 +701,7 @@ func TestMongoDBSearchReconcile_Success_MultiCluster(t *testing.T) {
 	// State CM lives on the central client and records the mapping the helper
 	// fanned out over.
 	stateCM := &corev1.ConfigMap{}
-	require.NoError(t, centralClient.Get(ctx, types.NamespacedName{Name: "mdb-search-state", Namespace: mock.TestNamespace}, stateCM))
+	require.NoError(t, centralClient.Get(ctx, types.NamespacedName{Name: "mdb-search-search-state", Namespace: mock.TestNamespace}, stateCM))
 	var state SearchDeploymentState
 	require.NoError(t, decodeStateJSON(stateCM, &state))
 	require.Equal(t, map[string]int{"us-east": 0, "us-west": 1}, state.ClusterMapping)
@@ -926,7 +926,7 @@ func TestSearchRoutingLatch_StateCMWrites(t *testing.T) {
 	ctx := context.Background()
 	search := newMongoDBSearch("mysearch", mock.TestNamespace, "mdb")
 	search.UID = "search-uid"
-	stateCMName := types.NamespacedName{Name: "mysearch-state", Namespace: mock.TestNamespace}
+	stateCMName := types.NamespacedName{Name: "mysearch-search-state", Namespace: mock.TestNamespace}
 
 	newLatch := func(c client.Client) *searchRoutingLatch {
 		return &searchRoutingLatch{client: kubernetesClient.NewClient(c), search: search, state: NewSearchDeploymentState()}

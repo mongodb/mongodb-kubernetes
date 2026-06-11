@@ -721,9 +721,7 @@ func newShardedClusterReconcilerHelper(
 		}
 	}
 
-	// The Phase check skips statuses synthesized by initializeStateStore's nil-guard —
-	// a real saved status always carries a phase.
-	if helper.deploymentState.Status != nil && helper.deploymentState.Status.Phase != "" && !readOnly {
+	if helper.deploymentState.Status != nil && !readOnly {
 		// If we have the status in the deployment state, we make sure that status in the CR is the same.
 		// Status in the deployment state takes precedence. E.g. in case of restoring CR from yaml/git, the user-facing Status field will be restored
 		// from the deployment state.
@@ -796,8 +794,6 @@ func (r *ShardedClusterReconcileHelper) initializeStateStore(ctx context.Context
 		}
 	} else {
 		r.deploymentState = state
-		// Synthesize an empty status for a status-less state configmap — the scaler
-		// logic dereferences Status.SizeStatusInClusters unconditionally.
 		if r.deploymentState.Status == nil {
 			r.deploymentState.Status = &mdbv1.MongoDbStatus{}
 		}

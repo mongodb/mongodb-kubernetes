@@ -54,7 +54,7 @@ func seedSearchStateCM(t *testing.T, ctx context.Context, c client.Client, searc
 	require.NoError(t, err)
 	cm := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      searchName + "-state",
+			Name:      searchName + "-search-state",
 			Namespace: ns,
 		},
 		Data: map[string]string{stateKey: string(raw)},
