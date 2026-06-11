@@ -3,7 +3,6 @@ package operator
 import (
 	"context"
 	"fmt"
-	"path"
 	"slices"
 	"sort"
 	"strconv"
@@ -1173,27 +1172,6 @@ func (r *ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(ctx context.Contex
 
 				p.Args26.Set("net.tls.certificateKeyFile", certFile)
 
-			}
-			systemLog := &automationconfig.SystemLog{
-				Destination: automationconfig.File,
-				Path:        path.Join(util.PvcMountPathLogs, "mongodb.log"),
-			}
-
-			if opsManager.Spec.AppDB.AutomationAgent.SystemLog != nil {
-				systemLog = opsManager.Spec.AppDB.AutomationAgent.SystemLog
-			}
-
-			// This setting takes precedence, above has been deprecated, and we should favor the one after mongod
-			if opsManager.Spec.AppDB.AutomationAgent.Mongod.SystemLog != nil {
-				systemLog = opsManager.Spec.AppDB.AutomationAgent.Mongod.SystemLog
-			}
-
-			if acType == automation {
-				if opsManager.Spec.AppDB.AutomationAgent.Mongod.HasLoggingConfigured() {
-					automationconfig.ConfigureAgentConfiguration(systemLog, opsManager.Spec.AppDB.AutomationAgent.Mongod.LogRotate, opsManager.Spec.AppDB.AutomationAgent.Mongod.AuditLogRotate, p)
-				} else {
-					automationconfig.ConfigureAgentConfiguration(systemLog, opsManager.Spec.AppDB.AutomationAgent.LogRotate, opsManager.Spec.AppDB.AutomationAgent.Mongod.AuditLogRotate, p)
-				}
 			}
 		}).
 		AddModifications(func(automationConfig *automationconfig.AutomationConfig) {

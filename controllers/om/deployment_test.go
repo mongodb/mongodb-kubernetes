@@ -496,10 +496,11 @@ func TestConfigureMonitoring(t *testing.T) {
 	d.MergeReplicaSet(rs0, nil, nil, zap.S())
 	d.ConfigureMonitoring(zap.S(), false, util.CAFilePathInContainer)
 
+	stdoutLogParams := map[string]string{"logFile": StdoutLogPath}
 	expectedMonitoringVersions := []interface{}{
-		map[string]interface{}{"hostname": "my-rs-0.some.host", "name": MonitoringAgentDefaultVersion},
-		map[string]interface{}{"hostname": "my-rs-1.some.host", "name": MonitoringAgentDefaultVersion},
-		map[string]interface{}{"hostname": "my-rs-2.some.host", "name": MonitoringAgentDefaultVersion},
+		map[string]interface{}{"hostname": "my-rs-0.some.host", "name": MonitoringAgentDefaultVersion, "additionalParams": stdoutLogParams},
+		map[string]interface{}{"hostname": "my-rs-1.some.host", "name": MonitoringAgentDefaultVersion, "additionalParams": stdoutLogParams},
+		map[string]interface{}{"hostname": "my-rs-2.some.host", "name": MonitoringAgentDefaultVersion, "additionalParams": stdoutLogParams},
 	}
 	assert.Equal(t, expectedMonitoringVersions, d.getMonitoringVersions())
 
@@ -518,6 +519,7 @@ func TestConfigureMonitoringTls(t *testing.T) {
 	expectedAdditionalParams := map[string]string{
 		"useSslForAllConnections":      "true",
 		"sslTrustedServerCertificates": util.CAFilePathInContainer,
+		"logFile":                      StdoutLogPath,
 	}
 
 	expectedMonitoringVersions := []interface{}{
@@ -543,6 +545,7 @@ func TestConfigureMonitoringTLSDisable(t *testing.T) {
 	expectedAdditionalParams := map[string]string{
 		"useSslForAllConnections":      "true",
 		"sslTrustedServerCertificates": util.CAFilePathInContainer,
+		"logFile":                      StdoutLogPath,
 	}
 	expectedMonitoringVersionsWithTls := []interface{}{
 		map[string]interface{}{"hostname": "my-rs-0.some.host", "name": MonitoringAgentDefaultVersion, "additionalParams": expectedAdditionalParams},
@@ -551,12 +554,13 @@ func TestConfigureMonitoringTLSDisable(t *testing.T) {
 	}
 	assert.Equal(t, expectedMonitoringVersionsWithTls, d.getMonitoringVersions())
 
-	// disabling TLS should clear additionalParams (CLOUDP-351614)
+	// disabling TLS should clear TLS params but keep logFile (CLOUDP-351614)
 	d.ConfigureMonitoring(zap.S(), false, util.CAFilePathInContainer)
+	stdoutLogParams := map[string]string{"logFile": StdoutLogPath}
 	expectedMonitoringVersionsWithoutTls := []interface{}{
-		map[string]interface{}{"hostname": "my-rs-0.some.host", "name": MonitoringAgentDefaultVersion},
-		map[string]interface{}{"hostname": "my-rs-1.some.host", "name": MonitoringAgentDefaultVersion},
-		map[string]interface{}{"hostname": "my-rs-2.some.host", "name": MonitoringAgentDefaultVersion},
+		map[string]interface{}{"hostname": "my-rs-0.some.host", "name": MonitoringAgentDefaultVersion, "additionalParams": stdoutLogParams},
+		map[string]interface{}{"hostname": "my-rs-1.some.host", "name": MonitoringAgentDefaultVersion, "additionalParams": stdoutLogParams},
+		map[string]interface{}{"hostname": "my-rs-2.some.host", "name": MonitoringAgentDefaultVersion, "additionalParams": stdoutLogParams},
 	}
 	assert.Equal(t, expectedMonitoringVersionsWithoutTls, d.getMonitoringVersions())
 }
@@ -568,10 +572,11 @@ func TestConfigureBackup(t *testing.T) {
 	d.MergeReplicaSet(rs0, nil, nil, zap.S())
 	d.ConfigureBackup(zap.S())
 
+	stdoutLogParams := map[string]string{"logFile": StdoutLogPath}
 	expectedBackupVersions := []interface{}{
-		map[string]interface{}{"hostname": "my-rs-0.some.host", "name": BackupAgentDefaultVersion},
-		map[string]interface{}{"hostname": "my-rs-1.some.host", "name": BackupAgentDefaultVersion},
-		map[string]interface{}{"hostname": "my-rs-2.some.host", "name": BackupAgentDefaultVersion},
+		map[string]interface{}{"hostname": "my-rs-0.some.host", "name": BackupAgentDefaultVersion, "additionalParams": stdoutLogParams},
+		map[string]interface{}{"hostname": "my-rs-1.some.host", "name": BackupAgentDefaultVersion, "additionalParams": stdoutLogParams},
+		map[string]interface{}{"hostname": "my-rs-2.some.host", "name": BackupAgentDefaultVersion, "additionalParams": stdoutLogParams},
 	}
 	assert.Equal(t, expectedBackupVersions, d.getBackupVersions())
 

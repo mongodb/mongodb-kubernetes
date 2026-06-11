@@ -7,6 +7,10 @@ const (
 	TLSParamClientCert  = "sslClientCertificate"
 )
 
+// StdoutLogPath is the container PID 1's stdout, used so daemonized agent modules
+// write their logs to the pod's stdout regardless of fork/redirection.
+const StdoutLogPath = "/proc/1/fd/1"
+
 // NewTLSParams creates and returns a new map with TLS parameters.
 func NewTLSParams(caFilePath string, pemKeyFile interface{}) map[string]string {
 	params := map[string]string{

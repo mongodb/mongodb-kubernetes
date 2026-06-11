@@ -3,7 +3,6 @@ package construct
 import (
 	"fmt"
 	"os"
-	"path"
 	"sort"
 	"strconv"
 
@@ -27,7 +26,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
-	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/scale"
 	"github.com/mongodb/mongodb-kubernetes/pkg/vault"
@@ -60,13 +58,6 @@ const (
 	AgentAPIKeySecretPath = "/mongodb-automation/agent-api-key" //nolint
 	AgentAPIKeyVolumeName = "agent-api-key"                     //nolint
 
-	LogFileAutomationAgentEnv        = "MDB_LOG_FILE_AUTOMATION_AGENT"
-	LogFileAutomationAgentVerboseEnv = "MDB_LOG_FILE_AUTOMATION_AGENT_VERBOSE"
-	LogFileAutomationAgentStderrEnv  = "MDB_LOG_FILE_AUTOMATION_AGENT_STDERR"
-	LogFileMongoDBAuditEnv           = "MDB_LOG_FILE_MONGODB_AUDIT"
-	LogFileMongoDBEnv                = "MDB_LOG_FILE_MONGODB"
-	LogFileAgentMonitoringEnv        = "MDB_LOG_FILE_MONITORING_AGENT"
-	LogFileAgentBackupEnv            = "MDB_LOG_FILE_BACKUP_AGENT"
 )
 
 type StsType int
@@ -720,7 +711,6 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 		container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.AutomationAgentImagePullPolicy))), // nolint:forbidigo
 		container.WithLivenessProbe(DatabaseLivenessProbe()),
 		container.WithEnvs(startupParametersToAgentFlag(opts.AgentConfig.StartupParameters)),
-		container.WithEnvs(logConfigurationToEnvVars(opts.AgentConfig.StartupParameters, opts.AdditionalMongodConfig)...),
 		container.WithEnvs(staticContainersEnvVars(mdb)...),
 		container.WithEnvs(readinessEnvironmentVariablesToEnvVars(opts.AgentConfig.ReadinessProbe.EnvironmentVariables)...),
 		container.WithCommand([]string{"/usr/local/bin/agent-launcher-shim.sh"}),
@@ -733,7 +723,7 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 		container.WithResourceRequirements(buildRequirementsFromPodSpec(*opts.PodSpec)),
 		container.WithImage(opts.MongodbImage),
 		container.WithEnvs(databaseEnvVars(opts)...),
-		container.WithCommand([]string{"bash", "-c", "tail -F -n0 ${MDB_LOG_FILE_MONGODB} mongodb_marker"}),
+		container.WithCommand([]string{"bash", "-c", "touch /tmp/mongodb_marker && tail -f /tmp/mongodb_marker"}),
 		configureContainerSecurityContext,
 	)}
 
@@ -792,7 +782,6 @@ func buildNonStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, 
 		container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.AutomationAgentImagePullPolicy))), // nolint:forbidigo
 		container.WithLivenessProbe(DatabaseLivenessProbe()),
 		container.WithEnvs(startupParametersToAgentFlag(opts.AgentConfig.StartupParameters)),
-		container.WithEnvs(logConfigurationToEnvVars(opts.AgentConfig.StartupParameters, opts.AdditionalMongodConfig)...),
 		container.WithEnvs(staticContainersEnvVars(mdb)...),
 		container.WithEnvs(readinessEnvironmentVariablesToEnvVars(opts.AgentConfig.ReadinessProbe.EnvironmentVariables)...),
 	)}
@@ -905,20 +894,7 @@ func readinessEnvironmentVariablesToEnvVars(parameters mdbv1.EnvironmentVariable
 }
 
 func defaultAgentParameters() mdbv1.StartupParameters {
-	return map[string]string{"logFile": path.Join(util.PvcMountPathLogs, "automation-agent.log")}
-}
-
-func logConfigurationToEnvVars(parameters mdbv1.StartupParameters, additionalMongodConfig *mdbv1.AdditionalMongodConfig) []corev1.EnvVar {
-	var envVars []corev1.EnvVar
-	envVars = append(envVars, getAutomationLogEnvVars(parameters)...)
-	envVars = append(envVars, getAuditLogEnvVar(additionalMongodConfig))
-
-	// the following are hardcoded log files where we don't support changing the names
-	envVars = append(envVars, corev1.EnvVar{Name: LogFileMongoDBEnv, Value: path.Join(util.PvcMountPathLogs, "mongodb.log")})
-	envVars = append(envVars, corev1.EnvVar{Name: LogFileAgentMonitoringEnv, Value: path.Join(util.PvcMountPathLogs, "monitoring-agent.log")})
-	envVars = append(envVars, corev1.EnvVar{Name: LogFileAgentBackupEnv, Value: path.Join(util.PvcMountPathLogs, "backup-agent.log")})
-
-	return envVars
+	return map[string]string{}
 }
 
 func staticContainersEnvVars(mdb databaseStatefulSetSource) []corev1.EnvVar {
@@ -929,39 +905,6 @@ func staticContainersEnvVars(mdb databaseStatefulSetSource) []corev1.EnvVar {
 	return envVars
 }
 
-func getAuditLogEnvVar(additionalMongodConfig *mdbv1.AdditionalMongodConfig) corev1.EnvVar {
-	auditLogFile := path.Join(util.PvcMountPathLogs, "mongodb-audit.log")
-	if additionalMongodConfig != nil {
-		if auditLogMap := maputil.ReadMapValueAsMap(additionalMongodConfig.ToMap(), "auditLog"); auditLogMap != nil {
-			auditLogDestination := maputil.ReadMapValueAsString(auditLogMap, "destination")
-			auditLogFilePath := maputil.ReadMapValueAsString(auditLogMap, "path")
-			if auditLogDestination == "file" && len(auditLogFile) > 0 {
-				auditLogFile = auditLogFilePath
-			}
-		}
-	}
-
-	return corev1.EnvVar{Name: LogFileMongoDBAuditEnv, Value: auditLogFile}
-}
-
-func getAutomationLogEnvVars(parameters mdbv1.StartupParameters) []corev1.EnvVar {
-	automationLogFile := path.Join(util.PvcMountPathLogs, "automation-agent.log")
-	if logFileValue, ok := parameters["logFile"]; ok && len(logFileValue) > 0 {
-		automationLogFile = logFileValue
-	}
-
-	logFileDir, logFileName := path.Split(automationLogFile)
-	logFileExt := path.Ext(logFileName)
-	logFileWithoutExt := logFileName[0 : len(logFileName)-len(logFileExt)]
-
-	verboseLogFile := fmt.Sprintf("%s%s-verbose%s", logFileDir, logFileWithoutExt, logFileExt)
-	stderrLogFile := fmt.Sprintf("%s%s-stderr%s", logFileDir, logFileWithoutExt, logFileExt)
-	return []corev1.EnvVar{
-		{Name: LogFileAutomationAgentVerboseEnv, Value: verboseLogFile},
-		{Name: LogFileAutomationAgentStderrEnv, Value: stderrLogFile},
-		{Name: LogFileAutomationAgentEnv, Value: automationLogFile},
-	}
-}
 
 // databaseScriptsVolumeMount constructs the VolumeMount for the Database scripts
 // this should be readonly for the Database, and not read only for the init container.

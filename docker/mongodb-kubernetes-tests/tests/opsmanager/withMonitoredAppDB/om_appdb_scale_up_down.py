@@ -2,6 +2,7 @@ from typing import Optional
 
 import pytest
 from kubetester import try_load
+from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import skip_if_local
 from kubetester.opsmanager import MongoDBOpsManager
@@ -46,6 +47,20 @@ class TestOpsManagerCreation:
         data = secret.data
         assert "publicKey" in data
         assert "privateKey" in data
+
+    def test_appdb_agent_logs_in_stdout(self, ops_manager: MongoDBOpsManager):
+        """AppDB main agent logs must reach the pod's stdout."""
+        for api_client, pod in ops_manager.read_appdb_pods():
+            logs = KubernetesTester.read_pod_logs(
+                ops_manager.namespace,
+                pod.metadata.name,
+                "mongodb-agent",
+                api_client=api_client,
+            )
+            assert "[.info]" in logs or "[.debug]" in logs, (
+                f"Expected agent log markers in stdout for appdb pod {pod.metadata.name}, "
+                f"got none. log_length={len(logs)}"
+            )
 
     def test_appdb_connection_url_secret(self, ops_manager: MongoDBOpsManager):
         assert len(ops_manager.read_appdb_members_from_connection_url_secret()) == 3
