@@ -847,13 +847,9 @@ spec:
                 type: integer
               pendingMongotGroups:
                 description: |-
-                  PendingMongotGroups lists shard names whose mongot groups have been created
-                  but have not yet reached the routing-readiness threshold, that means in that
-                  mongot group we don't have at least MinMongotReadyReplicas replias ready.
-                  The envoy reconciler uses this to build config in such a way that quries that are directed
-                  to these shards/mongot groups are routed to a healthy mongot group with routed_from_anothere_shard header.
-                  Once a group reaches the threshold (at least MinMongotReadyReplicas replicas are ready from that mongot group),
-                  the search controller removes it from this list.
+                  PendingMongotGroups is a read-only mirror derived from the routing-readiness
+                  latch in the <name>-state ConfigMap: sharded managed-LB shards whose mongot
+                  group has never been routing-ready. Rebuilt by the operator on every reconcile.
                 items:
                   type: string
                 type: array

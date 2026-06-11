@@ -3,7 +3,6 @@ package search
 import (
 	"errors"
 	"fmt"
-	"slices"
 	"strconv"
 	"strings"
 
@@ -400,13 +399,9 @@ type MongoDBSearchStatus struct {
 	// Only populated when spec.loadBalancer.managed is set.
 	// +optional
 	LoadBalancer *LoadBalancerStatus `json:"loadBalancer,omitempty"`
-	// PendingMongotGroups lists shard names whose mongot groups have been created
-	// but have not yet reached the routing-readiness threshold, that means in that
-	// mongot group we don't have at least MinMongotReadyReplicas replias ready.
-	// The envoy reconciler uses this to build config in such a way that quries that are directed
-	// to these shards/mongot groups are routed to a healthy mongot group with routed_from_anothere_shard header.
-	// Once a group reaches the threshold (at least MinMongotReadyReplicas replicas are ready from that mongot group),
-	// the search controller removes it from this list.
+	// PendingMongotGroups is a read-only mirror derived from the routing-readiness
+	// latch in the <name>-state ConfigMap: sharded managed-LB shards whose mongot
+	// group has never been routing-ready. Rebuilt by the operator on every reconcile.
 	// +optional
 	PendingMongotGroups []string `json:"pendingMongotGroups,omitempty"`
 }
@@ -498,30 +493,6 @@ func (s *MongoDBSearch) GetMinMongotReadyReplicasForRouting() int32 {
 		return *s.Spec.LoadBalancer.Managed.MinMongotReadyReplicas
 	}
 	return 1
-}
-
-// IsShardInPendingMongotGroup returns true if the shard is in the PendingMongotGroups list.
-func (s *MongoDBSearch) IsShardInPendingMongotGroup(shardName string) bool {
-	return slices.Contains(s.Status.PendingMongotGroups, shardName)
-}
-
-// AddToPendingMongotGroup adds a shard name to PendingMongotGroups if not already present.
-func (s *MongoDBSearch) AddToPendingMongotGroup(shardName string) {
-	if s.IsShardInPendingMongotGroup(shardName) {
-		return
-	}
-	s.Status.PendingMongotGroups = append(s.Status.PendingMongotGroups, shardName)
-}
-
-// RemovePendingMongotGroup removes a shard name from PendingMongotGroups.
-func (s *MongoDBSearch) RemovePendingMongotGroup(shardName string) {
-	groups := s.Status.PendingMongotGroups
-	for i, name := range groups {
-		if name == shardName {
-			s.Status.PendingMongotGroups = append(groups[:i], groups[i+1:]...)
-			return
-		}
-	}
 }
 
 func (s *MongoDBSearch) NamespacedName() types.NamespacedName {

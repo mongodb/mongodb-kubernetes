@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 
 	"go.uber.org/zap"
@@ -121,7 +122,7 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 	// If LB was previously active (status exists), clean up Envoy resources first.
 	if !mdbSearch.IsLBModeManaged() {
 		if mdbSearch.Status.LoadBalancer != nil {
-			state, _, stErr := loadOrInitSearchState(ctx, r.kubeClient, mdbSearch)
+			state, stErr := loadOrInitSearchState(ctx, r.kubeClient, mdbSearch)
 			var workList []clusterWorkItem
 			if stErr != nil {
 				log.Warnf("Failed to load search state for Envoy cleanup, falling back to central only: %s", stErr)
@@ -146,8 +147,9 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 		return r.updateLBStatus(ctx, mdbSearch, workflow.Pending("Waiting for search source: %s", err), log)
 	}
 
-	// Load the per-CR state to get the stable clusterName → clusterIndex mapping.
-	state, _, err := loadOrInitSearchState(ctx, r.kubeClient, mdbSearch)
+	// Load the per-CR state to get the stable clusterName → clusterIndex mapping
+	// and the routing-readiness latch.
+	state, err := loadOrInitSearchState(ctx, r.kubeClient, mdbSearch)
 	if err != nil {
 		return r.updateLBStatus(ctx, mdbSearch, workflow.Pending("Waiting for search state: %s", err), log)
 	}
@@ -155,6 +157,7 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 	tlsCfg := searchSource.TLSConfig()
 	tlsEnabled := mdbSearch.IsTLSConfigured()
 
+	pendingMongotGroups := pendingMongotGroupsFromState(searchSource, state.RoutingReadyMongotGroups)
 	workList := r.buildClusterWorkList(mdbSearch, state.ClusterMapping)
 	var firstFailure error
 	var worstPhase status.Phase
@@ -166,7 +169,7 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 			// reconciles after the main search controller writes the mapping.
 			st = workflow.Pending("Waiting for cluster %q to be registered in search state", w.ClusterName)
 		} else {
-			st = r.reconcileForCluster(ctx, mdbSearch, searchSource, tlsEnabled, tlsCfg, w.ClusterName, w.ClusterIndex, w.Client, log)
+			st = r.reconcileForCluster(ctx, mdbSearch, searchSource, tlsEnabled, tlsCfg, w.ClusterName, w.ClusterIndex, pendingMongotGroups, w.Client, log)
 		}
 		worstPhase = searchv1.WorstOfPhase(worstPhase, st.Phase())
 		if !st.IsOK() && firstFailure == nil {
@@ -223,8 +226,25 @@ func (r *MongoDBSearchEnvoyReconciler) buildClusterWorkList(search *searchv1.Mon
 	return work
 }
 
+// pendingMongotGroupsFromState derives the fallback-routing pending set from the
+// state ConfigMap latch: sharded shards not yet latched routing-ready.
+func pendingMongotGroupsFromState(source searchcontroller.SearchSourceDBResource, routingReadyMongotGroups []string) []string {
+	shardedSource, ok := source.(searchcontroller.SearchSourceShardedDeployment)
+	if !ok {
+		return nil
+	}
+	var pending []string
+	for _, shardName := range shardedSource.GetShardNames() {
+		if !slices.Contains(routingReadyMongotGroups, shardName) {
+			pending = append(pending, shardName)
+		}
+	}
+	return pending
+}
+
 // reconcileForCluster runs the ConfigMap + Deployment ensure for one cluster.
 // clusterName is used for log context; clusterIndex is used for resource naming;
+// pendingMongotGroups is the latch-derived fallback-routing set;
 // c is the pre-resolved Kubernetes client for the target cluster.
 // Returns a workflow.Status describing the per-cluster outcome.
 func (r *MongoDBSearchEnvoyReconciler) reconcileForCluster(
@@ -235,6 +255,7 @@ func (r *MongoDBSearchEnvoyReconciler) reconcileForCluster(
 	tlsCfg *searchcontroller.TLSSourceConfig,
 	clusterName string,
 	clusterIndex int,
+	pendingMongotGroups []string,
 	c kubernetesClient.Client,
 	log *zap.SugaredLogger,
 ) workflow.Status {
@@ -246,7 +267,7 @@ func (r *MongoDBSearchEnvoyReconciler) reconcileForCluster(
 		}
 	}
 
-	routes := buildRoutesForCluster(search, source, clusterIndex, clusterName, search.Status.PendingMongotGroups)
+	routes := buildRoutesForCluster(search, source, clusterIndex, clusterName, pendingMongotGroups)
 	if len(routes) == 0 {
 		return workflow.Pending("No routes to configure for load balancer (cluster=%q)", clusterName)
 	}

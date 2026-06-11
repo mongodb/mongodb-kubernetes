@@ -75,6 +75,16 @@ type OperatorSearchConfig struct {
 	SearchVersion string
 }
 
+// RoutingReadyLatch is the one-way per-shard routing-readiness latch persisted in
+// the search state ConfigMap (implemented by the operator package). Once a shard
+// is marked routing-ready it never re-enters fallback routing; entries are pruned
+// only when the shard no longer exists.
+type RoutingReadyLatch interface {
+	IsRoutingReady(shardName string) bool
+	MarkRoutingReady(ctx context.Context, shardName string) error
+	PruneRoutingReady(ctx context.Context, liveShardNames []string) error
+}
+
 type MongoDBSearchReconcileHelper struct {
 	client               kubernetesClient.Client
 	mdbSearch            *searchv1.MongoDBSearch
@@ -89,6 +99,8 @@ type MongoDBSearchReconcileHelper struct {
 	// the search state ConfigMap. Per-cluster resource names use these indexes
 	// so spec.clusters[] reorders don't rename resources.
 	clusterMapping map[string]int
+
+	routingLatch RoutingReadyLatch
 }
 
 // NewMongoDBSearchReconcileHelper constructs a reconcile helper. Pass nil/nil for memberClusterClients
@@ -100,6 +112,7 @@ func NewMongoDBSearchReconcileHelper(
 	operatorSearchConfig OperatorSearchConfig,
 	memberClusterClients map[string]kubernetesClient.Client,
 	clusterMapping map[string]int,
+	routingLatch RoutingReadyLatch,
 ) *MongoDBSearchReconcileHelper {
 	return &MongoDBSearchReconcileHelper{
 		client:               client,
@@ -108,6 +121,7 @@ func NewMongoDBSearchReconcileHelper(
 		db:                   db,
 		memberClusterClients: memberClusterClients,
 		clusterMapping:       clusterMapping,
+		routingLatch:         routingLatch,
 	}
 }
 
@@ -393,6 +407,11 @@ func (r *MongoDBSearchReconcileHelper) buildShardedPlan(shardedSource SearchSour
 			if err := r.cleanupStaleShardResources(ctx, log, shardNames); err != nil {
 				log.Warnf("Failed to cleanup stale shard resources: %s", err)
 			}
+			if r.mdbSearch.IsLBModeManaged() {
+				if err := r.routingLatch.PruneRoutingReady(ctx, shardNames); err != nil {
+					log.Warnf("Failed to prune routing-ready latch entries: %s", err)
+				}
+			}
 		},
 	}
 	if manageProxySvc {
@@ -404,10 +423,29 @@ func (r *MongoDBSearchReconcileHelper) buildShardedPlan(shardedSource SearchSour
 func (r *MongoDBSearchReconcileHelper) Reconcile(ctx context.Context, log *zap.SugaredLogger) workflow.Status {
 	workflowStatus := r.reconcile(ctx, log)
 
+	// status.pendingMongotGroups is a read-only mirror of the latch-derived pending set.
+	r.mdbSearch.Status.PendingMongotGroups = r.derivePendingMongotGroups()
+
 	if _, err := commoncontroller.UpdateStatus(ctx, r.client, r.mdbSearch, workflowStatus, log); err != nil {
 		return workflow.Failed(err)
 	}
 	return workflowStatus
+}
+
+// derivePendingMongotGroups returns the sharded managed-LB shards not yet latched
+// routing-ready; nil for all other topologies.
+func (r *MongoDBSearchReconcileHelper) derivePendingMongotGroups() []string {
+	shardedSource, ok := r.db.(SearchSourceShardedDeployment)
+	if !ok || !r.mdbSearch.IsLBModeManaged() {
+		return nil
+	}
+	var pending []string
+	for _, shardName := range shardedSource.GetShardNames() {
+		if !r.routingLatch.IsRoutingReady(shardName) {
+			pending = append(pending, shardName)
+		}
+	}
+	return pending
 }
 
 // MessageFromStatus extracts the user-visible message from a workflow.Status.
@@ -547,16 +585,19 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 
 	plan.cleanup(ctx, log)
 
+	// Latch routing-ready shards across ALL units before the worst-of readiness
+	// return: one not-ready shard must not block latching of the others.
+	for _, res := range applied {
+		if err := r.markRoutingReadyIfThresholdMet(ctx, log, res.unit, res.unitClient); err != nil {
+			return workflow.Failed(err)
+		}
+	}
+
 	// Worst-of readiness check — first non-OK status wins.
 	for _, res := range applied {
 		if statefulSetStatus := statefulset.GetStatefulSetStatus(ctx, r.mdbSearch.Namespace, res.unit.stsName.Name, res.expectedGeneration, res.unitClient); !statefulSetStatus.IsOK() {
-			// Even if not fully ready, check if routing-readiness threshold is met
-			// for pending shards so the envoy reconciler can route traffic to them.
-			r.removeFromPendingIfRoutingReady(ctx, log, res.unit, res.unitClient)
 			return statefulSetStatus
 		}
-		// Fully ready — definitely routing-ready too.
-		r.removeFromPendingIfRoutingReady(ctx, log, res.unit, res.unitClient)
 	}
 
 	if !r.mdbSearch.IsLoadBalancerReady() {
@@ -670,7 +711,7 @@ func (r *MongoDBSearchReconcileHelper) applyReconcileUnit(
 	if err != nil {
 		return nil, nil, err
 	}
-	mutatedSts, op, err := r.createOrUpdateStatefulSet(ctx,
+	mutatedSts, _, err := r.createOrUpdateStatefulSet(ctx,
 		log,
 		unitClient,
 		unit.stsName,
@@ -688,33 +729,31 @@ func (r *MongoDBSearchReconcileHelper) applyReconcileUnit(
 		return nil, nil, err
 	}
 
-	// Track newly created mongot StatefulSets as pending for routing-readiness.
-	// The envoy reconciler will apply fallback routing for shards in PendingMongotGroups.
-	if op == controllerutil.OperationResultCreated && r.mdbSearch.IsLBModeManaged() && unit.shardName != "" {
-		r.mdbSearch.AddToPendingMongotGroup(unit.shardName)
-		log.Infof("Added shard %q to PendingMongotGroups (mongot group created, awaiting routing-readiness)", unit.shardName)
-	}
-
 	return mutatedSts, unitClient, nil
 }
 
-// removeFromPendingIfRoutingReady checks if a shard in PendingMongotGroups
-// has reached the routing-readiness threshold and removes it if so.
-func (r *MongoDBSearchReconcileHelper) removeFromPendingIfRoutingReady(ctx context.Context, log *zap.SugaredLogger, unit reconcileUnit, unitClient kubernetesClient.Client) {
-	if unit.shardName == "" || !r.mdbSearch.IsShardInPendingMongotGroup(unit.shardName) {
-		return
+// markRoutingReadyIfThresholdMet latches a shard once its mongot STS first meets
+// the routing-readiness threshold. The latch is one-way: a later STS
+// delete/recreate does not put the shard back into fallback routing.
+func (r *MongoDBSearchReconcileHelper) markRoutingReadyIfThresholdMet(ctx context.Context, log *zap.SugaredLogger, unit reconcileUnit, unitClient kubernetesClient.Client) error {
+	if unit.shardName == "" || !r.mdbSearch.IsLBModeManaged() || r.routingLatch.IsRoutingReady(unit.shardName) {
+		return nil
 	}
 
 	sts, err := unitClient.GetStatefulSet(ctx, unit.stsName)
 	if err != nil {
-		return
+		return err
 	}
 
-	if sts.Status.ReadyReplicas >= r.mdbSearch.GetMinMongotReadyReplicasForRouting() {
-		r.mdbSearch.RemovePendingMongotGroup(unit.shardName)
-		log.Infof("Removed shard %q from PendingMongotGroups (routing-ready: %d/%d replicas ready)",
-			unit.shardName, sts.Status.ReadyReplicas, r.mdbSearch.GetMinMongotReadyReplicasForRouting())
+	minReady := r.mdbSearch.GetMinMongotReadyReplicasForRouting()
+	if sts.Status.ReadyReplicas < minReady {
+		return nil
 	}
+	if err := r.routingLatch.MarkRoutingReady(ctx, unit.shardName); err != nil {
+		return err
+	}
+	log.Infof("Marked shard %q routing-ready (%d/%d replicas ready)", unit.shardName, sts.Status.ReadyReplicas, minReady)
+	return nil
 }
 
 // isOwnedBy returns true if the object has an owner reference pointing to the given owner.
