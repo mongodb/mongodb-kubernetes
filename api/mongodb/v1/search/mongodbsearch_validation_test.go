@@ -883,6 +883,14 @@ func TestValidateMultipleReplicasRequireLB(t *testing.T) {
 			clusters: []ClusterSpec{{Replicas: ptr.To(int32(3))}},
 			lb:       &LoadBalancerConfig{Managed: &ManagedLBConfig{}},
 		},
+		{
+			name: "shard override replicas without LB rejected",
+			clusters: []ClusterSpec{{
+				Replicas:       ptr.To(int32(1)),
+				ShardOverrides: []ShardOverride{{ShardNames: []string{"shard-1"}, Replicas: ptr.To(int32(2))}},
+			}},
+			errorContains: "multiple mongot replicas (2) require load balancer",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

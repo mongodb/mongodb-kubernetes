@@ -925,10 +925,11 @@ func findShardOverride(overrides []ShardOverride, shardName string) *ShardOverri
 }
 
 // mergeStatefulSetConfiguration deep-merges the override StatefulSetConfiguration
-// onto base (override wins per field). A nil base returns the override as-is.
+// onto base (override wins per field). The result never aliases the inputs, so
+// callers may mutate it without touching the CR spec.
 func mergeStatefulSetConfiguration(base, override *v1.StatefulSetConfiguration) *v1.StatefulSetConfiguration {
 	if base == nil {
-		return override
+		return override.DeepCopy()
 	}
 	merged := base.DeepCopy()
 	merged.SpecWrapper.Spec = merge.StatefulSetSpecs(merged.SpecWrapper.Spec, override.SpecWrapper.Spec)

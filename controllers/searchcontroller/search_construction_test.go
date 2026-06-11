@@ -210,6 +210,23 @@ func TestCreateSearchResourceRequirements(t *testing.T) {
 				"expected memory %s, got %s", tc.expectedMemory.String(), result.Requests.Memory().String())
 		})
 	}
+
+	t.Run("input requirements are not mutated", func(t *testing.T) {
+		// userRequirements may point into the live CR spec (cluster or
+		// shardOverride entry); defaulting must not write through it.
+		user := &corev1.ResourceRequirements{
+			Requests: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("8Gi")},
+		}
+		result := createSearchResourceRequirements(user)
+		assert.True(t, result.Requests.Cpu().Equal(defaultCPU))
+		_, hasCPU := user.Requests[corev1.ResourceCPU]
+		assert.False(t, hasCPU, "default CPU written into the caller's requirements")
+
+		nilRequests := &corev1.ResourceRequirements{}
+		result = createSearchResourceRequirements(nilRequests)
+		assert.True(t, result.Requests.Cpu().Equal(defaultCPU))
+		assert.Nil(t, nilRequests.Requests, "defaults map assigned into the caller's requirements")
+	})
 }
 
 func TestCreateSearchStatefulSetFunc_DefaultAntiAffinity(t *testing.T) {
