@@ -1,5 +1,7 @@
 package main
 
+// This dummy chnage should force all tests anyway
+
 import (
 	"context"
 	"flag"
