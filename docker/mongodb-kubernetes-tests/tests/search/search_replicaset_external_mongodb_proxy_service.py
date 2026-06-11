@@ -387,9 +387,7 @@ def test_scale_up_to_managed_lb(mdbs: MongoDBSearch, namespace: str):
     """Scale to 2 replicas and enable managed LB. mongotHost does NOT change."""
     mdbs.load()
     external_hostname = f"{proxy_service_name(MDBS_RESOURCE_NAME)}.{namespace}.svc.cluster.local"
-    mdbs["spec"]["clusters"] = [
-        {"replicas": 2, "loadBalancer": {"managed": {"externalHostname": external_hostname}}}
-    ]
+    mdbs["spec"]["clusters"] = [{"replicas": 2, "loadBalancer": {"managed": {"externalHostname": external_hostname}}}]
     mdbs.update()
     mdbs.assert_reaches_phase(Phase.Running, timeout=600)
 
