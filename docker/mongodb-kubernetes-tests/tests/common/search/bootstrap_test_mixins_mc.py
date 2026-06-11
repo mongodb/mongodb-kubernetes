@@ -128,8 +128,8 @@ class SearchRsMcDeploymentTests(SearchDeploymentTests):
         ]
 
     def build_mdbs(self) -> MongoDBSearch:
-        # MC source: MongoDBMulti per-pod FQDNs; managed externalHostname uses the
-        # {clusterIndex} template so per-cluster cert SANs, AC mongotHost, and Envoy
+        # MC source: MongoDBMulti per-pod FQDNs; each cluster's managed externalHostname
+        # carries its own index so per-cluster cert SANs, AC mongotHost, and Envoy
         # SNI all resolve to the same per-cluster proxy-svc FQDN.
         mdbs_name = self.effective_mdbs_resource_name()
         resource = MongoDBSearch.from_yaml(
