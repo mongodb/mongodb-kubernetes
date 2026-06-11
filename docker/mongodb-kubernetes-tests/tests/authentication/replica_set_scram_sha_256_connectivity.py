@@ -374,7 +374,7 @@ def test_authentication_is_still_configured_after_remove_authentication(namespac
             tester.assert_has_user(USER_NAME)
             tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256")
             tester.assert_authentication_enabled()
-            tester.assert_expected_users(2)
+            tester.assert_expected_users(4)
             tester.assert_authoritative_set(False)
             return True
         except AssertionError:
