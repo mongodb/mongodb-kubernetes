@@ -15,6 +15,7 @@ is exercised opportunistically when the deployed mongot image supports replicati
 
 import json
 import os
+import re
 from typing import Dict, List
 
 import kubernetes
@@ -671,6 +672,59 @@ def test_verify_mongot_config_server_name(
             f"server.name={server_name!r}, expected {pod_name!r}"
         )
         logger.info(f"[{mcc.cluster_name}] {pod_name}: server.name={server_name} OK")
+
+
+@mark.e2e_search_q2_mc_rs_steady
+def test_per_cluster_mongot_sync_source_is_cluster_local(
+    namespace: str,
+    helper: MCSearchDeploymentHelper,
+    member_cluster_clients: List[MultiClusterClient],
+):
+    """Each cluster's mongot must have selected its initial sync host from its own
+    cluster's members only, verified from the 'Selected initial sync host' lines in
+    the mongot logs — proves replicationReader.tagSets actually constrained sync-source
+    selection at runtime, not just that the config rendered.
+    """
+    host_pattern = re.compile(rf"({re.escape(MDB_RESOURCE_NAME)}-(\d+)-\d+-svc\.[^\"]*)")
+
+    def check() -> tuple:
+        all_correct = True
+        msgs: List[str] = []
+        for mcc in member_cluster_clients:
+            idx = helper.cluster_index(mcc.cluster_name)
+            pod_name = f"{MDBS_RESOURCE_NAME}-search-{idx}-0"
+            try:
+                log = KubernetesTester.read_pod_logs(namespace, pod_name, container="mongot", api_client=mcc.api_client)
+            except Exception as exc:
+                all_correct = False
+                msgs.append(f"[{mcc.cluster_name}] {pod_name}: error reading mongot log: {exc}")
+                continue
+
+            total = 0
+            foreign_hosts: List[str] = []
+            for line in log.splitlines():
+                if "Selected initial sync host" not in line:
+                    continue
+                total += 1
+                m = host_pattern.search(line)
+                if m is None or int(m.group(2)) != idx:
+                    foreign_hosts.append(m.group(1) if m else line.strip())
+
+            if total == 0:
+                all_correct = False
+                msgs.append(f"[{mcc.cluster_name}] {pod_name}: no 'Selected initial sync host' lines in mongot log")
+            elif foreign_hosts:
+                all_correct = False
+                msgs.append(
+                    f"[{mcc.cluster_name}] {pod_name}: {len(foreign_hosts)}/{total} sync-source selections "
+                    f"are not cluster-local (want source cluster {idx}): {sorted(set(foreign_hosts))}"
+                )
+            else:
+                msgs.append(f"[{mcc.cluster_name}] {pod_name}: all {total} sync-source selections cluster-local")
+        return all_correct, "\n".join(msgs)
+
+    run_periodically(check, timeout=120, sleep_time=10, msg="per-cluster mongot sync-source selections cluster-local")
+    logger.info("per-cluster mongot sync-source locality verified from mongot logs")
 
 
 @mark.e2e_search_q2_mc_rs_steady
