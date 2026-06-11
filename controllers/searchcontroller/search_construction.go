@@ -52,6 +52,10 @@ const (
 	// The original is mounted read-only from a ConfigMap; we copy it to /tmp so that
 	// sed can replace the server-name placeholder with the actual pod hostname.
 	TempMongotConfigPath = tempVolumePath + "/" + MongotConfigFilename
+
+	GrpcKeyPasswordMountPath = "/mongot/grpc-key-password"           // #nosec G101 -- path, not a password
+	TempGrpcKeyPasswordPath  = tempVolumePath + "/grpc-key-password" // #nosec G101 -- path, not a password
+	GrpcKeyPasswordSecretKey = "tls.keyFilePassword"                 // #nosec G101 -- secret key name, not a password
 )
 
 // SearchSourceDBResource is an object wrapping a MongoDBCommunity object
