@@ -769,20 +769,14 @@ func (s *MongoDBSearch) GetPrometheus() *Prometheus {
 	return s.Spec.Prometheus
 }
 
-// lbForClusterIndex returns spec.clusters[i].loadBalancer, or nil when i is out
-// of range or the cluster does not set one.
-func (s *MongoDBSearch) lbForClusterIndex(i int) *LoadBalancerConfig {
-	if i < 0 || i >= len(s.Spec.Clusters) {
-		return nil
-	}
-	return s.Spec.Clusters[i].LoadBalancer
-}
-
 // firstClusterLB returns the first cluster's loadBalancer. Validation enforces
 // that every cluster sets the same mode (or none sets one), so the first entry
 // answers deployment-wide mode questions.
 func (s *MongoDBSearch) firstClusterLB() *LoadBalancerConfig {
-	return s.lbForClusterIndex(0)
+	if len(s.Spec.Clusters) == 0 {
+		return nil
+	}
+	return s.Spec.Clusters[0].LoadBalancer
 }
 
 func (s *MongoDBSearch) IsLBModeUnmanaged() bool {
@@ -798,25 +792,21 @@ func (s *MongoDBSearch) IsReplicaSetUnmanagedLB() bool {
 		!s.HasEndpointTemplate()
 }
 
-// GetUnmanagedLBEndpointForCluster returns spec.clusters[i].loadBalancer.unmanaged.endpoint,
-// or "" when cluster i does not configure an unmanaged LB.
-func (s *MongoDBSearch) GetUnmanagedLBEndpointForCluster(i int) string {
-	lb := s.lbForClusterIndex(i)
+// GetUnmanagedLBEndpoint returns the unmanaged endpoint, or "" when no
+// unmanaged LB is configured. Unmanaged LB is single-cluster-only
+// (validateMCRequiresManagedLB), so the first cluster is the only one.
+func (s *MongoDBSearch) GetUnmanagedLBEndpoint() string {
+	lb := s.firstClusterLB()
 	if lb == nil || lb.Unmanaged == nil {
 		return ""
 	}
 	return lb.Unmanaged.Endpoint
 }
 
-// HasEndpointTemplate returns true if the unmanaged endpoint contains the {shardName}
-// template placeholder. Validation enforces that every cluster's endpoint has the same
-// shape (templated or not), so the first cluster answers for the deployment.
+// HasEndpointTemplate returns true if the unmanaged endpoint contains the
+// {shardName} template placeholder.
 func (s *MongoDBSearch) HasEndpointTemplate() bool {
-	lb := s.firstClusterLB()
-	if lb == nil || lb.Unmanaged == nil {
-		return false
-	}
-	return strings.Contains(lb.Unmanaged.Endpoint, ShardNamePlaceholder)
+	return strings.Contains(s.GetUnmanagedLBEndpoint(), ShardNamePlaceholder)
 }
 
 // IsShardedUnmanagedLB returns true if this is a sharded unmanaged LB configuration
@@ -825,27 +815,13 @@ func (s *MongoDBSearch) IsShardedUnmanagedLB() bool {
 	return s.IsLBModeUnmanaged() && s.HasEndpointTemplate()
 }
 
-// IsShardedEndpoint returns true if the LB configuration uses a sharded endpoint pattern
-// (either unmanaged with {shardName} template, or managed with {shardName} in hostname).
-// This is a hint that the MongoDBSearch targets a sharded cluster, though the
-// authoritative check is the type assertion on SearchSourceShardedDeployment at the controller level.
-func (s *MongoDBSearch) IsShardedEndpoint() bool {
-	if s.IsShardedUnmanagedLB() {
-		return true
-	}
-	if s.IsLBModeManaged() && strings.Contains(s.firstClusterLB().Managed.ExternalHostname, ShardNamePlaceholder) {
-		return true
-	}
-	return false
-}
-
-// GetEndpointForClusterShard returns cluster i's unmanaged endpoint for a specific
-// shard by substituting the {shardName} placeholder.
-func (s *MongoDBSearch) GetEndpointForClusterShard(i int, shardName string) string {
+// GetEndpointForShard returns the unmanaged endpoint for a specific shard by
+// substituting the {shardName} placeholder.
+func (s *MongoDBSearch) GetEndpointForShard(shardName string) string {
 	if !s.IsShardedUnmanagedLB() {
 		return ""
 	}
-	return strings.ReplaceAll(s.GetUnmanagedLBEndpointForCluster(i), ShardNamePlaceholder, shardName)
+	return strings.ReplaceAll(s.GetUnmanagedLBEndpoint(), ShardNamePlaceholder, shardName)
 }
 
 // EffectiveClusters returns the per-cluster distribution slice the reconcile
@@ -991,31 +967,35 @@ func (s *MongoDBSearch) IsLBModeManaged() bool {
 	return lb != nil && lb.Managed != nil
 }
 
-// GetManagedLBForCluster returns spec.clusters[i].loadBalancer.managed, or nil
-// when cluster i does not configure a managed LB.
-func (s *MongoDBSearch) GetManagedLBForCluster(i int) *ManagedLBConfig {
-	lb := s.lbForClusterIndex(i)
-	if lb == nil {
+// GetManagedLBForCluster returns the named cluster's loadBalancer.managed, or
+// nil when the cluster is unknown or has no managed LB. An empty clusterName
+// means the first cluster (single-cluster installs). Resolution is by name:
+// controllers thread cluster indices from the persisted ClusterMapping, which
+// outlives spec positions, so an index must never be used to look up spec
+// entries (it is for resource naming only).
+func (s *MongoDBSearch) GetManagedLBForCluster(clusterName string) *ManagedLBConfig {
+	c, err := s.EffectiveClusterFor(clusterName)
+	if err != nil || c.LoadBalancer == nil {
 		return nil
 	}
-	return lb.Managed
+	return c.LoadBalancer.Managed
 }
 
-// GetManagedLBEndpointForCluster returns cluster i's externalHostname.
+// GetManagedLBEndpointForCluster returns the named cluster's externalHostname.
 // {shardName} may remain in the result; use GetManagedLBEndpointForClusterShard
-// when it needs resolving. Returns "" when cluster i has no managed LB.
-func (s *MongoDBSearch) GetManagedLBEndpointForCluster(i int) string {
-	cfg := s.GetManagedLBForCluster(i)
+// when it needs resolving. Returns "" when the cluster has no managed LB.
+func (s *MongoDBSearch) GetManagedLBEndpointForCluster(clusterName string) string {
+	cfg := s.GetManagedLBForCluster(clusterName)
 	if cfg == nil {
 		return ""
 	}
 	return cfg.ExternalHostname
 }
 
-// GetManagedLBEndpointForClusterShard returns cluster i's externalHostname with
-// {shardName} resolved. Used for sharded MongoDBSearch deployments.
-func (s *MongoDBSearch) GetManagedLBEndpointForClusterShard(i int, shardName string) string {
-	out := s.GetManagedLBEndpointForCluster(i)
+// GetManagedLBEndpointForClusterShard returns the named cluster's externalHostname
+// with {shardName} resolved. Used for sharded MongoDBSearch deployments.
+func (s *MongoDBSearch) GetManagedLBEndpointForClusterShard(clusterName, shardName string) string {
+	out := s.GetManagedLBEndpointForCluster(clusterName)
 	if out == "" {
 		return ""
 	}
@@ -1023,10 +1003,10 @@ func (s *MongoDBSearch) GetManagedLBEndpointForClusterShard(i int, shardName str
 }
 
 // GetManagedLBEndpointForClusterLevel derives the mongos-facing endpoint by stripping
-// the leading "{shardName}." from cluster i's externalHostname. Returns "" when not
-// derivable; callers fall back to the cluster-level proxy Service FQDN.
-func (s *MongoDBSearch) GetManagedLBEndpointForClusterLevel(i int) string {
-	tmpl := s.GetManagedLBEndpointForCluster(i)
+// the leading "{shardName}." from the named cluster's externalHostname. Returns ""
+// when not derivable; callers fall back to the cluster-level proxy Service FQDN.
+func (s *MongoDBSearch) GetManagedLBEndpointForClusterLevel(clusterName string) string {
+	tmpl := s.GetManagedLBEndpointForCluster(clusterName)
 	if tmpl == "" {
 		return ""
 	}

@@ -220,18 +220,19 @@ func TestGetManagedLBEndpointForCluster(t *testing.T) {
 			},
 		},
 	}
-	assert.Equal(t, "us-east.search-lb.example.com:443", s.GetManagedLBEndpointForCluster(0))
-	assert.Equal(t, "eu-west.search-lb.example.com:443", s.GetManagedLBEndpointForCluster(1))
-	assert.Equal(t, "", s.GetManagedLBEndpointForCluster(2), "cluster without LB")
-	assert.Equal(t, "", s.GetManagedLBEndpointForCluster(5), "out-of-range index")
+	assert.Equal(t, "us-east.search-lb.example.com:443", s.GetManagedLBEndpointForCluster("us-east-k8s"))
+	assert.Equal(t, "eu-west.search-lb.example.com:443", s.GetManagedLBEndpointForCluster("eu-west-k8s"))
+	assert.Equal(t, "us-east.search-lb.example.com:443", s.GetManagedLBEndpointForCluster(""), "empty name means first cluster")
+	assert.Equal(t, "", s.GetManagedLBEndpointForCluster("ap-south-k8s"), "cluster without LB")
+	assert.Equal(t, "", s.GetManagedLBEndpointForCluster("unknown"), "unknown cluster name")
 }
 
 func TestGetManagedLBEndpointForCluster_NotManaged(t *testing.T) {
 	s := &MongoDBSearch{Spec: MongoDBSearchSpec{}}
-	assert.Equal(t, "", s.GetManagedLBEndpointForCluster(0))
+	assert.Equal(t, "", s.GetManagedLBEndpointForCluster(""))
 
 	s.Spec.Clusters = []ClusterSpec{{LoadBalancer: &LoadBalancerConfig{Managed: &ManagedLBConfig{ExternalHostname: ""}}}}
-	assert.Equal(t, "", s.GetManagedLBEndpointForCluster(0))
+	assert.Equal(t, "", s.GetManagedLBEndpointForCluster(""))
 }
 
 func TestGetManagedLBEndpointForClusterShard_CrossProduct(t *testing.T) {
@@ -246,9 +247,9 @@ func TestGetManagedLBEndpointForClusterShard_CrossProduct(t *testing.T) {
 	s := &MongoDBSearch{Spec: MongoDBSearchSpec{Clusters: clusters}}
 
 	got := make(map[string]struct{})
-	for i := range clusters {
+	for _, c := range clusters {
 		for _, sh := range shards {
-			got[s.GetManagedLBEndpointForClusterShard(i, sh)] = struct{}{}
+			got[s.GetManagedLBEndpointForClusterShard(c.ClusterName, sh)] = struct{}{}
 		}
 	}
 	assert.Len(t, got, 4, "2x2 cross-product should yield 4 distinct hostnames")
@@ -260,7 +261,7 @@ func TestGetManagedLBEndpointForClusterShard_CrossProduct(t *testing.T) {
 
 func TestGetManagedLBEndpointForClusterShard_NotManaged(t *testing.T) {
 	s := &MongoDBSearch{Spec: MongoDBSearchSpec{}}
-	assert.Equal(t, "", s.GetManagedLBEndpointForClusterShard(0, "shard-0"))
+	assert.Equal(t, "", s.GetManagedLBEndpointForClusterShard("", "shard-0"))
 }
 
 func TestGetManagedLBEndpointForClusterLevel(t *testing.T) {
@@ -287,14 +288,14 @@ func TestGetManagedLBEndpointForClusterLevel(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, mk(tc.template).GetManagedLBEndpointForClusterLevel(0))
+			assert.Equal(t, tc.want, mk(tc.template).GetManagedLBEndpointForClusterLevel("us-east-k8s"))
 		})
 	}
 }
 
 func TestGetManagedLBEndpointForClusterLevel_NotManaged(t *testing.T) {
 	s := &MongoDBSearch{Spec: MongoDBSearchSpec{}}
-	assert.Equal(t, "", s.GetManagedLBEndpointForClusterLevel(0))
+	assert.Equal(t, "", s.GetManagedLBEndpointForClusterLevel(""))
 }
 
 func TestValidateSimulatedMCClusterIndices(t *testing.T) {
