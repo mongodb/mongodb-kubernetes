@@ -34,9 +34,12 @@ func newReleasePromoteCmd() *cobra.Command {
 			}
 			for _, tag := range tags {
 				if dryRun {
-					fmt.Fprintf(cmd.OutOrStdout(), "dry-run: would copy %s → %s/%s:%s\n", image, registryURL, repo, tag)
+					_, err = fmt.Fprintf(cmd.OutOrStdout(), "dry-run: would copy %s → %s/%s:%s\n", image, registryURL, repo, tag)
 				} else {
-					fmt.Fprintf(cmd.OutOrStdout(), "promoted: %s/%s:%s\n", registryURL, repo, tag)
+					_, err = fmt.Fprintf(cmd.OutOrStdout(), "promoted: %s/%s:%s\n", registryURL, repo, tag)
+				}
+				if err != nil {
+					return err
 				}
 			}
 			return nil
