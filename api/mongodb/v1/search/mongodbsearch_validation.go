@@ -146,24 +146,15 @@ func validateClustersNonEmpty(s *MongoDBSearch) v1.ValidationResult {
 // mongot replica in any cluster without a load balancer to distribute traffic
 // across the replicas. It depends only on spec fields, so it lives in the
 // spec-validation tier.
+// validateLBConfig (all-or-none) runs first, so LB presence is uniform across
+// clusters and checking the first cluster covers them all.
 func validateMultipleReplicasRequireLB(s *MongoDBSearch) v1.ValidationResult {
-	for i, c := range s.Spec.Clusters {
-		if c.LoadBalancer != nil {
-			continue
-		}
-		max := c.ReplicasOrDefault()
-		for _, o := range c.ShardOverrides {
-			if o.Replicas != nil && int(*o.Replicas) > max {
-				max = int(*o.Replicas)
-			}
-		}
-		if max > 1 {
-			return v1.ValidationError(
-				"multiple mongot replicas (%d) require load balancer configuration; "+
-					"please configure load balancing in spec.clusters[%d].loadBalancer.",
-				max, i,
-			)
-		}
+	if max := s.MaxReplicasAcrossClusters(); max > 1 && s.firstClusterLB() == nil {
+		return v1.ValidationError(
+			"multiple mongot replicas (%d) require load balancer configuration; "+
+				"please configure load balancing in spec.clusters[].loadBalancer.",
+			max,
+		)
 	}
 	return v1.ValidationSuccess()
 }
