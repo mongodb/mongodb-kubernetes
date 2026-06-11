@@ -3576,9 +3576,9 @@ func TestReconcileSharded_LatchErrorsAggregatedAcrossUnits(t *testing.T) {
 	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, source, newTestOperatorSearchConfig(), nil, nil, latch)
 
 	// Both shards meet the threshold; sh-0's latch write fails.
-	st := helper.reconcile(t.Context(), zap.S())
+	helper.reconcile(t.Context(), zap.S())
 	require.NoError(t, mock.MarkAllStatefulSetsAsReady(t.Context(), "ns", fakeClient))
-	st = helper.reconcile(t.Context(), zap.S())
+	st := helper.reconcile(t.Context(), zap.S())
 
 	require.False(t, st.IsOK())
 	assert.Contains(t, MessageFromStatus(st), "injected latch write failure for sh-0")

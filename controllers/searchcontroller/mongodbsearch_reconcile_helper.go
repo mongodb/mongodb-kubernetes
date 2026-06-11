@@ -717,7 +717,7 @@ func (r *MongoDBSearchReconcileHelper) applyReconcileUnit(
 	if err != nil {
 		return nil, nil, err
 	}
-	mutatedSts, _, err := r.createOrUpdateStatefulSet(ctx,
+	mutatedSts, err := r.createOrUpdateStatefulSet(ctx,
 		log,
 		unitClient,
 		unit.stsName,
@@ -918,19 +918,19 @@ func (r *MongoDBSearchReconcileHelper) searchImageAndVersion() (string, string) 
 	return fmt.Sprintf("%s/%s", r.operatorSearchConfig.SearchRepo, r.operatorSearchConfig.SearchName), imageVersion
 }
 
-func (r *MongoDBSearchReconcileHelper) createOrUpdateStatefulSet(ctx context.Context, log *zap.SugaredLogger, kubeClient kubernetesClient.Client, stsName types.NamespacedName, modifications ...statefulset.Modification) (*appsv1.StatefulSet, controllerutil.OperationResult, error) {
+func (r *MongoDBSearchReconcileHelper) createOrUpdateStatefulSet(ctx context.Context, log *zap.SugaredLogger, kubeClient kubernetesClient.Client, stsName types.NamespacedName, modifications ...statefulset.Modification) (*appsv1.StatefulSet, error) {
 	sts := &appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Name: stsName.Name, Namespace: stsName.Namespace}}
 	op, err := controllerutil.CreateOrUpdate(ctx, kubeClient, sts, func() error {
 		statefulset.Apply(modifications...)(sts)
 		return controllerutil.SetOwnerReference(r.mdbSearch, sts, kubeClient.Scheme())
 	})
 	if err != nil {
-		return nil, "", xerrors.Errorf("error creating/updating search statefulset %v: %w", stsName, err)
+		return nil, xerrors.Errorf("error creating/updating search statefulset %v: %w", stsName, err)
 	}
 
 	log.Debugf("Search statefulset %s CreateOrUpdate result: %s", stsName, op)
 
-	return sts, op, nil
+	return sts, nil
 }
 
 func (r *MongoDBSearchReconcileHelper) ensureSearchService(ctx context.Context, log *zap.SugaredLogger, kubeClient kubernetesClient.Client, svcName types.NamespacedName, desired corev1.Service) error {

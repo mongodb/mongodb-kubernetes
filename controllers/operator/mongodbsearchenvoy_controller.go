@@ -381,6 +381,7 @@ func buildShardRoutes(search *searchv1.MongoDBSearch, shardNames []string, clust
 	}
 
 	clusterLevelUpstreams := make([]string, 0, len(shardNames))
+	allUpstreams := make([]string, 0, len(shardNames))
 
 	for _, shardName := range shardNames {
 		sniServiceName := search.ProxyServiceNameForClusterShard(clusterIndex, shardName).Name
@@ -404,6 +405,7 @@ func buildShardRoutes(search *searchv1.MongoDBSearch, shardNames []string, clust
 		})
 
 		// Only include non-pending shards in the cluster-level cluster endpoints.
+		allUpstreams = append(allUpstreams, upstreamFQDN)
 		if !isPending {
 			clusterLevelUpstreams = append(clusterLevelUpstreams, upstreamFQDN)
 		}
@@ -415,10 +417,7 @@ func buildShardRoutes(search *searchv1.MongoDBSearch, shardNames []string, clust
 		for i := range routes {
 			routes[i].RoutedFromAnotherShard = false
 		}
-		for _, shardName := range shardNames {
-			mongotServiceName := search.MongotServiceForClusterShard(clusterIndex, shardName).Name
-			clusterLevelUpstreams = append(clusterLevelUpstreams, fmt.Sprintf("%s.%s.svc.cluster.local", mongotServiceName, namespace))
-		}
+		clusterLevelUpstreams = allUpstreams
 	}
 
 	// Cluster-level route: mongos in this cluster uses this single SNI chain to reach
