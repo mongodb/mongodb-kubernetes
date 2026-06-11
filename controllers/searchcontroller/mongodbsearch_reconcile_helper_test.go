@@ -10,9 +10,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest/observer"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -3491,6 +3494,137 @@ func TestReconcileShardedMC_SourceFlipsToReplicaSetSweepsShardedResources(t *tes
 		require.NoError(t, member.Get(t.Context(), fx.search.StatefulSetNamespacedNameForCluster(idx), &appsv1.StatefulSet{}),
 			"RS mongot STS for cluster index %d should be created", idx)
 	}
+}
+
+// dropClusterFromSpec removes a cluster from spec.clusters while leaving its
+// client and persisted mapping index in place — the centralized cluster-removal
+// shape: the operator still has the member client and the state ConfigMap still
+// records the index, but the cluster is no longer a desired target.
+func dropClusterFromSpec(search *searchv1.MongoDBSearch, clusterName string) {
+	kept := make([]searchv1.ClusterSpec, 0, len(search.Spec.Clusters))
+	for _, c := range search.Spec.Clusters {
+		if c.ClusterName != clusterName {
+			kept = append(kept, c)
+		}
+	}
+	search.Spec.Clusters = kept
+}
+
+// allResourceCount returns the total STS+CM+Svc count on a client, used to
+// assert a removed cluster has been swept clean.
+func allResourceCount(t *testing.T, c kubernetesClient.Client) int {
+	t.Helper()
+	var stsList appsv1.StatefulSetList
+	require.NoError(t, c.List(t.Context(), &stsList, client.InNamespace("ns")))
+	var cmList corev1.ConfigMapList
+	require.NoError(t, c.List(t.Context(), &cmList, client.InNamespace("ns")))
+	var svcList corev1.ServiceList
+	require.NoError(t, c.List(t.Context(), &svcList, client.InNamespace("ns")))
+	return len(stsList.Items) + len(cmList.Items) + len(svcList.Items)
+}
+
+// Centralized cluster removal: drop cluster-b from spec.clusters while its client
+// and mapping index persist. Reconcile must sweep ALL of cluster-b's mongot
+// resources from member B, leave cluster-a intact, retain B's mapping entry
+// (index never reused), and not enter a Failed state.
+func TestReconcileShardedMC_ClusterRemovalSweepsRemovedMember(t *testing.T) {
+	fx := newMCShardedFixture(t)
+	helper := fx.newHelper()
+
+	reconcileFixtureToOK(t, fx, helper)
+	require.Positive(t, allResourceCount(t, fx.members["cluster-b"]), "cluster-b should have resources before removal")
+
+	// Drop cluster-b from the spec; keep its client and mapping entry.
+	dropClusterFromSpec(fx.search, "cluster-b")
+
+	st := helper.reconcile(t.Context(), zap.S())
+	require.True(t, st.IsOK(), "cluster removal must reconcile cleanly, got: %s", MessageFromStatus(st))
+
+	// cluster-a's resources are untouched (all 3 shards intact)...
+	for _, shard := range []string{"sh-0", "sh-1", "sh-2"} {
+		assertShardResources(t, fx.members["cluster-a"], fx.search, 0, shard, true)
+	}
+	// ...including its cluster-level proxy Service (assertShardResources covers the
+	// per-shard objects but not this one — a sweep that ignored expected
+	// cluster-level Services would delete it and still pass the per-shard checks).
+	require.NoError(t, fx.members["cluster-a"].Get(t.Context(), fx.search.ProxyServiceNamespacedNameForCluster(0), &corev1.Service{}),
+		"cluster-a's cluster-level proxy Service must remain intact")
+	// cluster-b is swept clean: STS, headless Svc, CM, proxy Svc for every shard,
+	// plus the cluster-level proxy Service.
+	for _, shard := range []string{"sh-0", "sh-1", "sh-2"} {
+		assertShardResources(t, fx.members["cluster-b"], fx.search, 1, shard, false)
+	}
+	err := fx.members["cluster-b"].Get(t.Context(), fx.search.ProxyServiceNamespacedNameForCluster(1), &corev1.Service{})
+	require.True(t, apierrors.IsNotFound(err), "cluster-b's cluster-level proxy Service must be swept")
+	require.Zero(t, allResourceCount(t, fx.members["cluster-b"]), "cluster-b must be fully swept")
+
+	// The mapping entry for cluster-b is retained — the helper never mutates it,
+	// so the index is reserved and won't be reused.
+	require.Equal(t, 1, fx.clusterMapping["cluster-b"], "cluster-b's mapping index must be retained")
+}
+
+// Re-adding a removed cluster provisions fresh resources under its ORIGINAL
+// mapping index, because the persisted mapping reserved it.
+func TestReconcileShardedMC_ReAddedClusterReusesOriginalIndex(t *testing.T) {
+	fx := newMCShardedFixture(t)
+	helper := fx.newHelper()
+
+	reconcileFixtureToOK(t, fx, helper)
+
+	// Remove then re-add cluster-b. The mapping (state CM) still records index 1.
+	dropClusterFromSpec(fx.search, "cluster-b")
+	require.NotEqual(t, status.PhaseFailed, helper.reconcile(t.Context(), zap.S()).Phase())
+	require.Zero(t, allResourceCount(t, fx.members["cluster-b"]), "cluster-b swept after removal")
+
+	fx.search.Spec.Clusters = append(fx.search.Spec.Clusters, searchv1.ClusterSpec{ClusterName: "cluster-b"})
+
+	// Re-add re-creates cluster-b's STSs (not yet Ready), so reconcile is Pending,
+	// but the resources land under the original index 1.
+	require.NotEqual(t, status.PhaseFailed, helper.reconcile(t.Context(), zap.S()).Phase())
+	for _, shard := range []string{"sh-0", "sh-1", "sh-2"} {
+		assertShardResources(t, fx.members["cluster-b"], fx.search, 1, shard, true)
+	}
+	// Nothing leaked under any other index (e.g. index 2 from a re-assignment).
+	err := fx.members["cluster-b"].Get(t.Context(), fx.search.MongotStatefulSetForClusterShard(2, "sh-0"), &appsv1.StatefulSet{})
+	require.True(t, apierrors.IsNotFound(err), "re-added cluster-b must not provision under a new index")
+}
+
+// An unreachable removed member must not wedge the CR: cluster-b's client errors
+// on every call, yet cluster-a is still reconciled and the cleanup failure is
+// logged (best-effort), not surfaced as Failed. Asserting the warn fired proves
+// cleanup was ATTEMPTED on the unreachable member — without it the test couldn't
+// tell a tolerated error from cleanup never running.
+func TestReconcileShardedMC_UnreachableRemovedMemberDoesNotWedge(t *testing.T) {
+	fx := newMCShardedFixture(t)
+	helper := fx.newHelper()
+
+	reconcileFixtureToOK(t, fx, helper)
+
+	// Drop cluster-b; its client (the same map entry newHelper already holds)
+	// now errors on List/Delete, simulating an unreachable member.
+	dropClusterFromSpec(fx.search, "cluster-b")
+	fx.members["cluster-b"] = kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().
+		WithInterceptorFuncs(interceptor.Funcs{
+			List: func(context.Context, client.WithWatch, client.ObjectList, ...client.ListOption) error {
+				return assert.AnError
+			},
+			Delete: func(context.Context, client.WithWatch, client.Object, ...client.DeleteOption) error {
+				return assert.AnError
+			},
+		}).Build())
+
+	core, observed := observer.New(zapcore.WarnLevel)
+	st := helper.reconcile(t.Context(), zap.New(core).Sugar())
+	require.True(t, st.IsOK(), "an unreachable removed member must not wedge the CR (cleanup is best-effort), got: %s", MessageFromStatus(st))
+	require.NotEmpty(t, observed.FilterMessageSnippet("Failed to cleanup stale search resources").All(),
+		"cleanup must have been attempted on the unreachable member and warn-logged")
+
+	// cluster-a still has all its resources — the erroring cluster-b didn't abort its sweep/apply.
+	for _, shard := range []string{"sh-0", "sh-1", "sh-2"} {
+		assertShardResources(t, fx.members["cluster-a"], fx.search, 0, shard, true)
+	}
+	require.NoError(t, fx.members["cluster-a"].Get(t.Context(), fx.search.ProxyServiceNamespacedNameForCluster(0), &corev1.Service{}),
+		"cluster-a's cluster-level proxy Service must remain intact")
 }
 
 // Empty GetShardNames() yields an empty work list. The reconciler must not fail
