@@ -83,8 +83,6 @@ spec:
           env:
             - name: OPERATOR_ENV
               value: {{ .Values.operator.env }}
-            - name: MDB_DEFAULT_ARCHITECTURE
-              value: {{ .Values.operator.mdbDefaultArchitecture }}
             - name: NAMESPACE
               valueFrom:
                 fieldRef:

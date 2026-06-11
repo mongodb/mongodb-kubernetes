@@ -49,8 +49,6 @@ spec:
           env:
             - name: OPERATOR_ENV
               value: prod
-            - name: MDB_DEFAULT_ARCHITECTURE
-              value: non-static
             - name: NAMESPACE
               valueFrom:
                 fieldRef:
