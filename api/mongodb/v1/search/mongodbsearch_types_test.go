@@ -598,6 +598,29 @@ func TestResolveSizingForClusterShard(t *testing.T) {
 		assert.Equal(t, 2, s.GetReplicasForClusterShard("", "shard-other"))
 		assert.Equal(t, 0, s.GetReplicasForClusterShard("", "shard-off"))
 	})
+
+	t.Run("every shard in a multi-name override entry resolves to the override", func(t *testing.T) {
+		s := &MongoDBSearch{Spec: MongoDBSearchSpec{Clusters: []ClusterSpec{{
+			Replicas: ptr.To(int32(1)),
+			ShardOverrides: []ShardOverride{
+				{ShardNames: []string{"shard-a", "shard-b"}, Replicas: ptr.To(int32(5))},
+			},
+		}}}}
+		assert.Equal(t, 5, s.GetReplicasForClusterShard("", "shard-a"))
+		assert.Equal(t, 5, s.GetReplicasForClusterShard("", "shard-b"))
+		assert.Equal(t, 1, s.GetReplicasForClusterShard("", "shard-c"))
+	})
+
+	t.Run("override in one cluster does not leak into another cluster", func(t *testing.T) {
+		s := &MongoDBSearch{Spec: MongoDBSearchSpec{Clusters: []ClusterSpec{
+			{ClusterName: "east", Replicas: ptr.To(int32(1)), ShardOverrides: []ShardOverride{
+				{ShardNames: []string{"shard-0"}, Replicas: ptr.To(int32(4))},
+			}},
+			{ClusterName: "west", Replicas: ptr.To(int32(2))},
+		}}}
+		assert.Equal(t, 4, s.GetReplicasForClusterShard("east", "shard-0"))
+		assert.Equal(t, 2, s.GetReplicasForClusterShard("west", "shard-0"))
+	})
 }
 
 func TestResolveSizingForClusterShard_StatefulSetDeepMerge(t *testing.T) {
