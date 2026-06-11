@@ -87,8 +87,8 @@ def mdb_k8s(namespace: str, custom_mdb_version: str, vm_sts, vm_service) -> Mong
 
 
 @fixture(scope="module")
-def mongo_tester(mdb_migration: MongoDB):
-    return mdb_migration.tester()
+def mongo_tester(mdb_k8s: MongoDB):
+    return mdb_k8s.tester()
 
 
 @mark.e2e_vm_migration
@@ -188,9 +188,9 @@ def test_vm_deployment_automation_config(om_tester: OMTester, vm_sts):
 
 
 @mark.e2e_vm_migration
-def test_migration_dry_run_connectivity_passes(mdb_migration: MongoDB):
+def test_migration_dry_run_connectivity_passes(mdb_k8s: MongoDB):
     """Run migration dry-run: operator only validates connectivity to externalMembers, then we clear the annotation."""
-    run_migration_dry_run_connectivity_passes(mdb_migration)
+    run_migration_dry_run_connectivity_passes(mdb_k8s)
 
 
 @mark.e2e_vm_migration
