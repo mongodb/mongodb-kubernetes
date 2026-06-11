@@ -240,7 +240,7 @@ func TestBuildEnvoyPodSpec_DefaultResources(t *testing.T) {
 	search := &searchv1.MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "ns"},
 	}
-	resources := envoyResourceRequirements(search, 0)
+	resources := envoyResourceRequirements(search.GetManagedLBForCluster(""))
 	podSpec := buildEnvoyPodSpec(search, 0, nil, false, "envoy:latest", resources, false)
 
 	assert.Len(t, podSpec.Containers, 1)
@@ -275,7 +275,7 @@ func TestBuildEnvoyPodSpec_ConfigMapVolumePerCluster(t *testing.T) {
 	search := &searchv1.MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"},
 	}
-	resources := envoyResourceRequirements(search, 0)
+	resources := envoyResourceRequirements(search.GetManagedLBForCluster(""))
 
 	cases := []struct {
 		name           string
@@ -350,7 +350,7 @@ func TestBuildEnvoyPodSpec_WithDeploymentConfigurationOverride(t *testing.T) {
 	}
 
 	// Build the base pod spec as the controller would
-	resources := envoyResourceRequirements(search, 0)
+	resources := envoyResourceRequirements(search.GetManagedLBForCluster(""))
 	podSpec := buildEnvoyPodSpec(search, 0, nil, false, "envoy:latest", resources, false)
 
 	// Verify base spec has no tolerations
@@ -429,7 +429,7 @@ func TestDeploymentConfigurationOverride_ResourceRequirementsComposition(t *test
 	}
 
 	// Build base with resourceRequirements (200m)
-	resources := envoyResourceRequirements(search, 0)
+	resources := envoyResourceRequirements(search.GetManagedLBForCluster(""))
 	assert.Equal(t, resource.MustParse("200m"), resources.Requests[corev1.ResourceCPU])
 
 	podSpec := buildEnvoyPodSpec(search, 0, nil, false, "envoy:latest", resources, false)
@@ -892,7 +892,7 @@ func TestEnvoyLabels_StampsCrossClusterEnqueueLabels(t *testing.T) {
 
 func TestEnvoyReplicas_DefaultsTo1(t *testing.T) {
 	search := &searchv1.MongoDBSearch{ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"}}
-	assert.Equal(t, int32(1), envoyReplicas(search, 0))
+	assert.Equal(t, int32(1), envoyReplicas(search.GetManagedLBForCluster("")))
 }
 
 // envoyTestScheme returns a runtime.Scheme registered for the types ensureDeployment/
@@ -1150,7 +1150,7 @@ func TestEnsureDeployment_Replicas(t *testing.T) {
 	} {
 		search.Spec.Clusters[0].LoadBalancer.Managed.Replicas = tc.lbReplicas
 		// cluster "a" is at index 0.
-		require.NoError(t, r.ensureDeployment(context.Background(), search, `{"x":1}`, "a", 0, r.clientForCluster("a"), nil, zap.S()))
+		require.NoError(t, r.ensureDeployment(context.Background(), search, `{"x":1}`, "a", 0, search.GetManagedLBForCluster("a"), r.clientForCluster("a"), nil, zap.S()))
 
 		dep := &appsv1.Deployment{}
 		require.NoError(t, memberA.Get(context.Background(),

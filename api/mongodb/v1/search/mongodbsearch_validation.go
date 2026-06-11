@@ -222,8 +222,11 @@ func validateManagedLBExternalHostname(s *MongoDBSearch) v1.ValidationResult {
 	if !s.IsExternalMongoDBSource() {
 		return v1.ValidationSuccess()
 	}
-	for i := range s.Spec.Clusters {
-		if cfg := s.GetManagedLBForCluster(i); cfg != nil && cfg.ExternalHostname == "" {
+	for i, c := range s.Spec.Clusters {
+		if c.LoadBalancer == nil || c.LoadBalancer.Managed == nil {
+			continue
+		}
+		if c.LoadBalancer.Managed.ExternalHostname == "" {
 			return v1.ValidationError("spec.clusters[%d].loadBalancer.managed.externalHostname must be specified when using managed load balancer with an external MongoDB source", i)
 		}
 	}
@@ -606,8 +609,11 @@ func validateMCExternalHostnames(s *MongoDBSearch) v1.ValidationResult {
 		return v1.ValidationSuccess()
 	}
 	seen := make(map[string]int, len(s.Spec.Clusters))
-	for i := range s.Spec.Clusters {
-		tmpl := s.GetManagedLBEndpointForCluster(i)
+	for i, c := range s.Spec.Clusters {
+		if c.LoadBalancer == nil || c.LoadBalancer.Managed == nil {
+			continue
+		}
+		tmpl := c.LoadBalancer.Managed.ExternalHostname
 		if tmpl == "" {
 			continue
 		}
@@ -673,8 +679,11 @@ func validateExternalHostnameDNSLength(s *MongoDBSearch) v1.ValidationResult {
 
 	// Iterate the cross-product. len(shardNames) == 0 runs a single pass per
 	// cluster with no shard substitution.
-	for i := range s.Spec.Clusters {
-		base := s.GetManagedLBEndpointForCluster(i)
+	for i, c := range s.Spec.Clusters {
+		if c.LoadBalancer == nil || c.LoadBalancer.Managed == nil {
+			continue
+		}
+		base := c.LoadBalancer.Managed.ExternalHostname
 		if base == "" {
 			continue
 		}

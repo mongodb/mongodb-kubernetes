@@ -1698,7 +1698,7 @@ func TestGetMongosConfigParametersForSharded_PersistedIndexNotSpecPosition(t *te
 		},
 	}
 
-	config := GetMongosConfigParametersForSharded(search, 1, []string{"test-mdb-0"}, "cluster.local")
+	config := GetMongosConfigParametersForSharded(search, 1, "cluster-b", []string{"test-mdb-0"}, "cluster.local")
 	setParameter, ok := config["setParameter"].(map[string]any)
 	require.True(t, ok, "setParameter should be a map")
 	assert.Equal(t, "b.example.com:443", setParameter["mongotHost"],
@@ -1842,7 +1842,7 @@ func TestEndpointTemplateSubstitution(t *testing.T) {
 			assert.True(t, search.IsShardedUnmanagedLB())
 			assert.False(t, search.IsReplicaSetUnmanagedLB())
 
-			endpoint := search.GetEndpointForClusterShard(0, tc.shardName)
+			endpoint := search.GetEndpointForShard(tc.shardName)
 			assert.Equal(t, tc.expectedEndpoint, endpoint)
 		})
 	}

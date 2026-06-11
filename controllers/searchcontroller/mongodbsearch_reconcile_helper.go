@@ -1825,7 +1825,7 @@ func GetMongodConfigParameters(search *searchv1.MongoDBSearch, clusterDomain str
 // per-cluster mongotHost via spec.shardOverrides on the source MongoDB.
 func mongotEndpointForShard(search *searchv1.MongoDBSearch, shardName string, clusterDomain string) string {
 	if search.IsShardedUnmanagedLB() {
-		return search.GetEndpointForClusterShard(0, shardName)
+		return search.GetEndpointForShard(shardName)
 	}
 	if search.IsLBModeManaged() {
 		return proxyServiceHostAndPortForShard(search, 0, shardName, clusterDomain)
@@ -1845,9 +1845,11 @@ func GetMongodConfigParametersForShard(search *searchv1.MongoDBSearch, shardName
 // GetMongosConfigParametersForSharded picks the mongos→mongot endpoint by topology. No-LB targets the
 // first shard's per-shard proxy svc FQDN (the only sharded mongot hostname per-shard cert SANs cover);
 // the cluster-level Service would route to the same pod but isn't in SANs.
+// clusterIndex (from the persisted ClusterMapping) is for resource naming only;
+// clusterName resolves the cluster's LB config (empty = first cluster).
 func GetMongosConfigParametersForSharded(search *searchv1.MongoDBSearch, clusterIndex int, clusterName string, shardNames []string, clusterDomain string) map[string]any {
 	var endpoint string
-	// Three branches: explicit unmanaged LB, no spec.loadBalancer (pre-MVP
+	// Three branches: explicit unmanaged LB, no loadBalancer (pre-MVP
 	// single-cluster shape), and managed LB. The TD lists no-LB as RS-only at
 	// GA, so case B should die when admission tightens; kept for now to avoid
 	// regressing pre-MVP.
@@ -1868,7 +1870,7 @@ func GetMongosConfigParametersForSharded(search *searchv1.MongoDBSearch, cluster
 // the cluster-level proxy Service in-cluster FQDN.
 func mongotEndpointForClusterLevel(search *searchv1.MongoDBSearch, clusterIndex int, clusterName string, clusterDomain string) string {
 	if search.IsLBModeManaged() {
-		if endpoint := search.GetManagedLBEndpointForClusterLevel(clusterIndex, clusterName); endpoint != "" {
+		if endpoint := search.GetManagedLBEndpointForClusterLevel(clusterName); endpoint != "" {
 			return endpoint
 		}
 	}
@@ -1903,7 +1905,7 @@ func buildSearchSetParameters(mongotEndpoint string, tlsMode automationconfig.TL
 // For no LB (single mongot), the first pod's headless FQDN is returned (pod-0.svc).
 func mongotHostAndPort(search *searchv1.MongoDBSearch, clusterDomain string) string {
 	if search.IsReplicaSetUnmanagedLB() {
-		return search.GetUnmanagedLBEndpointForCluster(0)
+		return search.GetUnmanagedLBEndpoint()
 	}
 	port := search.GetEffectiveMongotPort()
 	if search.IsLBModeManaged() {
@@ -1965,7 +1967,7 @@ func (r *MongoDBSearchReconcileHelper) ValidateSearchImageVersion(version string
 // external sources are fully covered at spec-validation time by
 // validateUnmanagedEndpointTemplate, and the no-load-balancer case is covered by
 // validateMultipleReplicasRequireLB. Without this check a mismatched endpoint is
-// silently ignored (see GetEndpointForClusterShard / mongotHostAndPort) and all mongot
+// silently ignored (see GetEndpointForShard / mongotHostAndPort) and all mongot
 // traffic pins to pod 0, defeating the load balancer the user configured.
 func (r *MongoDBSearchReconcileHelper) ValidateMultipleReplicasUnmanagedLBTopology() error {
 	if !r.mdbSearch.HasMultipleReplicas() || !r.mdbSearch.IsLBModeUnmanaged() {

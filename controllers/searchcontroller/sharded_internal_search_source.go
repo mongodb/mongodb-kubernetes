@@ -117,5 +117,5 @@ func (r *ShardedInternalSearchSource) GetUnmanagedLBEndpointForShard(shardName s
 	if r.search == nil || !r.search.IsShardedUnmanagedLB() {
 		return ""
 	}
-	return r.search.GetEndpointForClusterShard(0, shardName)
+	return r.search.GetEndpointForShard(shardName)
 }
