@@ -57,7 +57,7 @@ func IsRunningStaticArchitecture(annotations map[string]string) bool {
 		}
 	}
 
-	operatorEnv := env.GetString(DefaultEnvArchitecture, string(NonStatic))
+	operatorEnv := env.GetString(DefaultEnvArchitecture, string(NonStatic)) //nolint:forbidigo
 	return operatorEnv == string(Static)
 }
 
