@@ -5335,6 +5335,32 @@ spec:
                       - members
                       type: object
                     type: array
+                  connection:
+                    description: |-
+                      Connection, when set, switches AppDB agents from headless mode to online
+                      mode connected to the referenced external Ops Manager instance.
+                      Follows the same ConfigMap + credentials Secret pattern as any MongoDB CR.
+                    properties:
+                      cloudManager:
+                        properties:
+                          configMapRef:
+                            properties:
+                              name:
+                                type: string
+                            type: object
+                        type: object
+                      credentials:
+                        description: Name of the Secret holding credentials information
+                        type: string
+                      opsManager:
+                        properties:
+                          configMapRef:
+                            properties:
+                              name:
+                                type: string
+                            type: object
+                        type: object
+                    type: object
                   connectivity:
                     properties:
                       replicaSetHorizons:
@@ -6642,6 +6668,10 @@ spec:
                     type: array
                   configServerCount:
                     type: integer
+                  externalGroupID:
+                    description: ExternalGroupID stores the project (group) ID assigned
+                      by the external OM when AppDB runs in online mode.
+                    type: string
                   featureCompatibilityVersion:
                     type: string
                   lastTransition:

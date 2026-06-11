@@ -2,6 +2,7 @@ package operator
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"path"
 	"slices"
@@ -32,6 +33,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/host"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connection"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct/scalers"
@@ -558,32 +560,54 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 	agentCertSecretName := opsManager.Spec.AppDB.GetSecurity().AgentClientCertificateSecretName(opsManager.Spec.AppDB.GetName())
 	_, agentCertPath := r.agentCertHashAndPath(ctx, log, opsManager.Namespace, agentCertSecretName, appdbSecretPath)
 
-	podVars, err := r.tryConfigureMonitoringInOpsManager(ctx, opsManager, opsManagerUserPassword, agentCertPath, log)
-	// it's possible that Ops Manager will not be available when we attempt to configure AppDB monitoring
-	// in Ops Manager. This is not a blocker to continue with the rest of the reconciliation.
-	if err != nil {
-		log.Errorf("Unable to configure monitoring of AppDB: %s, configuration will be attempted next reconciliation.", err)
-
-		if podVars.ProjectID != "" {
-			// when there is an error, but projectID is configured, then that means OM has been configured before but might be down
-			// in that case, we need to ensure that all member clusters have all the secrets to be mounted properly
-			// newly added member clusters will not contain them otherwise until OM is recreated and running
-			if err := r.ensureProjectIDConfigMap(ctx, opsManager, podVars.ProjectID); err != nil {
-				// we ignore the error here and let reconciler continue
-				log.Warnf("ignoring ensureProjectIDConfigMap error: %v", err)
-			}
-			// OM connection is passed as nil as it's used only for generating agent api key. Here we have it already
-			if _, err := r.ensureAppDbAgentApiKey(ctx, opsManager, nil, podVars.ProjectID, log); err != nil {
-				// we ignore the error here and let reconciler continue
-				log.Warnf("ignoring ensureAppDbAgentApiKey error: %v", err)
-			}
+	// If Connection is configured, transition agents to online mode.
+	var externalConn om.Connection
+	var agentConnConfig construct.AgentConnectionConfig
+	if opsManager.Spec.AppDB.Connection != nil {
+		var ws workflow.Status
+		externalConn, agentConnConfig, ws = r.reconcileOMConnection(ctx, opsManager, log)
+		if !ws.IsOK() {
+			return r.updateStatus(ctx, opsManager, ws, log, appDbStatusOption)
 		}
+		if err := r.replicateAgentKeySecret(ctx, opsManager, agentConnConfig.GroupID, log); err != nil {
+			return r.updateStatus(ctx, opsManager,
+				workflow.Failed(xerrors.Errorf("failed to replicate agent key secret: %w", err)),
+				log, appDbStatusOption)
+		}
+	}
 
-		// errors returned from "tryConfigureMonitoringInOpsManager" could be either transient or persistent. Transient errors could be when the ops-manager pods
-		// are not ready and trying to connect to the ops-manager service timeout, a persistent error is when the "ops-manager-admin-key" is corrupted, in this case
-		// any API call to ops-manager will fail(including the configuration of AppDB monitoring), this error should be reflected to the user in the "OPSMANAGER" status.
-		if strings.Contains(err.Error(), "401 (Unauthorized)") {
-			return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("The admin-key secret might be corrupted: %w", err)), log, omStatusOption)
+	// In online mode the AppDB agents connect to an external OM directly; monitoring setup
+	// against the primary OM is not needed and would fail (primary OM has no such org).
+	var podVars env.PodEnvVars
+	if opsManager.Spec.AppDB.Connection == nil {
+		var err error
+		podVars, err = r.tryConfigureMonitoringInOpsManager(ctx, opsManager, opsManagerUserPassword, agentCertPath, log)
+		// it's possible that Ops Manager will not be available when we attempt to configure AppDB monitoring
+		// in Ops Manager. This is not a blocker to continue with the rest of the reconciliation.
+		if err != nil {
+			log.Errorf("Unable to configure monitoring of AppDB: %s, configuration will be attempted next reconciliation.", err)
+
+			if podVars.ProjectID != "" {
+				// when there is an error, but projectID is configured, then that means OM has been configured before but might be down
+				// in that case, we need to ensure that all member clusters have all the secrets to be mounted properly
+				// newly added member clusters will not contain them otherwise until OM is recreated and running
+				if err := r.ensureProjectIDConfigMap(ctx, opsManager, podVars.ProjectID); err != nil {
+					// we ignore the error here and let reconciler continue
+					log.Warnf("ignoring ensureProjectIDConfigMap error: %v", err)
+				}
+				// OM connection is passed as nil as it's used only for generating agent api key. Here we have it already
+				if _, err := r.ensureAppDbAgentApiKey(ctx, opsManager, nil, podVars.ProjectID, log); err != nil {
+					// we ignore the error here and let reconciler continue
+					log.Warnf("ignoring ensureAppDbAgentApiKey error: %v", err)
+				}
+			}
+
+			// errors returned from "tryConfigureMonitoringInOpsManager" could be either transient or persistent. Transient errors could be when the ops-manager pods
+			// are not ready and trying to connect to the ops-manager service timeout, a persistent error is when the "ops-manager-admin-key" is corrupted, in this case
+			// any API call to ops-manager will fail(including the configuration of AppDB monitoring), this error should be reflected to the user in the "OPSMANAGER" status.
+			if strings.Contains(err.Error(), "401 (Unauthorized)") {
+				return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("The admin-key secret might be corrupted: %w", err)), log, omStatusOption)
+			}
 		}
 	}
 
@@ -629,7 +653,16 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 		return r.updateStatus(ctx, opsManager, workflowStatus, log, appDbStatusOption)
 	}
 
-	if workflowStatus := r.replicateSSLMMSCAConfigMap(ctx, opsManager, &podVars, log); !workflowStatus.IsOK() {
+	appdbOpts.Connection = agentConnConfig
+	// In online mode, set the project ID on podVars so that downstream functions
+	// (vault modification, TLS volumes, monitoring container) derive the correct secret name
+	// via agents.ApiKeySecretName(podVars.ProjectID).
+	if appdbOpts.Connection.Enabled {
+		podVars.ProjectID = appdbOpts.Connection.GroupID
+		podVars.BaseURL = appdbOpts.Connection.Server
+	}
+
+	if workflowStatus := r.replicateSSLMMSCAConfigMap(ctx, opsManager, &podVars, appdbOpts, log); !workflowStatus.IsOK() {
 		return r.updateStatus(ctx, opsManager, workflowStatus, log, appDbStatusOption)
 	}
 
@@ -660,7 +693,7 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 
 	workflowStatus = workflow.RunInGivenOrder(publishAutomationConfigFirst,
 		func() workflow.Status {
-			return r.deployAutomationConfigAndWaitForAgentsReachGoalState(ctx, log, opsManager, allStatefulSetsExist, appdbOpts)
+			return r.deployAutomationConfigAndWaitForAgentsReachGoalState(ctx, log, opsManager, allStatefulSetsExist, appdbOpts, externalConn)
 		},
 		func() workflow.Status {
 			return r.deployStatefulSet(ctx, opsManager, log, podVars, appdbOpts)
@@ -737,6 +770,32 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 	return r.updateStatus(ctx, opsManager, workflow.OK(), log, appDbStatusOption, status.AppDBMemberOptions(appDBScalers...))
 }
 
+// reconcileOMConnection establishes the AppDB's connection to an external Ops Manager instance
+// and returns the connection, agent connection config, and workflow status.
+func (r *ReconcileAppDbReplicaSet) reconcileOMConnection(
+	ctx context.Context,
+	opsManager *omv1.MongoDBOpsManager,
+	log *zap.SugaredLogger,
+) (om.Connection, construct.AgentConnectionConfig, workflow.Status) {
+	projectConfig, credentials, err := project.ReadConfigAndCredentials(
+		ctx, r.client, r.SecretClient, &opsManager.Spec.AppDB, log)
+	if err != nil {
+		return nil, construct.AgentConnectionConfig{}, workflow.Failed(xerrors.Errorf("failed to read external OM config and credentials: %w", err))
+	}
+	conn, _, err := connection.PrepareOpsManagerConnection(
+		ctx, r.SecretClient, projectConfig, credentials,
+		r.omConnectionFactory, opsManager.Namespace, log)
+	if err != nil {
+		return nil, construct.AgentConnectionConfig{}, workflow.Failed(xerrors.Errorf("failed to prepare external OM connection: %w", err))
+	}
+	opsManager.Status.AppDbStatus.ExternalGroupID = conn.GroupID()
+	return conn, construct.AgentConnectionConfig{
+		Enabled: true,
+		Server:  projectConfig.BaseURL,
+		GroupID: conn.GroupID(),
+	}, workflow.OK()
+}
+
 func (r *ReconcileAppDbReplicaSet) blockNonEmptyClusterSpecItemRemoval(appDBSpec omv1.AppDBSpec) error {
 	for _, memberCluster := range r.memberClusters {
 		searchFunc := func(item mdbv1.ClusterSpecItem) bool {
@@ -778,8 +837,8 @@ func (r *ReconcileAppDbReplicaSet) getLegacyMonitoringAgentVersion(ctx context.C
 	}
 }
 
-func (r *ReconcileAppDbReplicaSet) deployAutomationConfigAndWaitForAgentsReachGoalState(ctx context.Context, log *zap.SugaredLogger, opsManager *omv1.MongoDBOpsManager, allStatefulSetsExist bool, appdbOpts construct.AppDBStatefulSetOptions) workflow.Status {
-	configVersion, workflowStatus := r.deployAutomationConfigOnHealthyClusters(ctx, log, opsManager, appdbOpts)
+func (r *ReconcileAppDbReplicaSet) deployAutomationConfigAndWaitForAgentsReachGoalState(ctx context.Context, log *zap.SugaredLogger, opsManager *omv1.MongoDBOpsManager, allStatefulSetsExist bool, appdbOpts construct.AppDBStatefulSetOptions, externalConn om.Connection) workflow.Status {
+	configVersion, workflowStatus := r.deployAutomationConfigOnHealthyClusters(ctx, log, opsManager, appdbOpts, externalConn)
 	if !workflowStatus.IsOK() {
 		return workflowStatus
 	}
@@ -792,10 +851,10 @@ func (r *ReconcileAppDbReplicaSet) deployAutomationConfigAndWaitForAgentsReachGo
 	return r.allAgentsReachedGoalState(ctx, opsManager, configVersion, log)
 }
 
-func (r *ReconcileAppDbReplicaSet) deployAutomationConfigOnHealthyClusters(ctx context.Context, log *zap.SugaredLogger, opsManager *omv1.MongoDBOpsManager, appdbOpts construct.AppDBStatefulSetOptions) (int, workflow.Status) {
+func (r *ReconcileAppDbReplicaSet) deployAutomationConfigOnHealthyClusters(ctx context.Context, log *zap.SugaredLogger, opsManager *omv1.MongoDBOpsManager, appdbOpts construct.AppDBStatefulSetOptions, externalConn om.Connection) (int, workflow.Status) {
 	configVersions := map[int]struct{}{}
 	for _, memberCluster := range r.GetHealthyMemberClusters() {
-		if configVersion, workflowStatus := r.deployAutomationConfig(ctx, opsManager, appdbOpts.PrometheusTLSCertHash, memberCluster, log); !workflowStatus.IsOK() {
+		if configVersion, workflowStatus := r.deployAutomationConfig(ctx, opsManager, appdbOpts.PrometheusTLSCertHash, memberCluster, externalConn, log); !workflowStatus.IsOK() {
 			return 0, workflowStatus
 		} else {
 			log.Infof("Deployed Automation Config version: %d in cluster: %s", configVersion, memberCluster.Name)
@@ -1023,9 +1082,42 @@ func (r *ReconcileAppDbReplicaSet) replicateTLSCAConfigMap(ctx context.Context, 
 	return workflow.OK()
 }
 
-func (r *ReconcileAppDbReplicaSet) replicateSSLMMSCAConfigMap(ctx context.Context, om *omv1.MongoDBOpsManager, podVars *env.PodEnvVars, log *zap.SugaredLogger) workflow.Status {
+// replicateAgentKeySecret copies the agent API key Secret (created by PrepareOpsManagerConnection
+// in the central cluster) to all healthy member clusters so each AppDB pod can mount it.
+// This is a no-op for single-cluster deployments.
+func (r *ReconcileAppDbReplicaSet) replicateAgentKeySecret(ctx context.Context, opsManager *omv1.MongoDBOpsManager, groupID string, log *zap.SugaredLogger) error {
+	if !opsManager.Spec.AppDB.IsMultiCluster() {
+		return nil
+	}
+
+	var appdbSecretPath string
+	if r.VaultClient != nil {
+		appdbSecretPath = r.VaultClient.AppDBSecretPath()
+	}
+
+	secretName := agents.ApiKeySecretName(groupID)
+	keyData, err := r.SecretClient.ReadSecret(ctx, kube.ObjectKey(opsManager.Namespace, secretName), appdbSecretPath)
+	if err != nil {
+		return xerrors.Errorf("failed to read agent key secret %s: %w", secretName, err)
+	}
+
+	agentKeySecret := secret.Builder().
+		SetName(secretName).
+		SetNamespace(opsManager.Namespace).
+		SetStringMapToData(keyData).
+		Build()
+
+	for _, mc := range r.GetHealthyMemberClusters() {
+		if err := mc.SecretClient.PutSecret(ctx, agentKeySecret, appdbSecretPath); err != nil {
+			return xerrors.Errorf("failed to replicate agent key secret to cluster %s: %w", mc.Name, err)
+		}
+	}
+	return nil
+}
+
+func (r *ReconcileAppDbReplicaSet) replicateSSLMMSCAConfigMap(ctx context.Context, om *omv1.MongoDBOpsManager, podVars *env.PodEnvVars, opts construct.AppDBStatefulSetOptions, log *zap.SugaredLogger) workflow.Status {
 	appDBSpec := om.Spec.AppDB
-	if !appDBSpec.IsMultiCluster() || !construct.ShouldMountSSLMMSCAConfigMap(podVars) {
+	if !appDBSpec.IsMultiCluster() || !construct.ShouldMountSSLMMSCAConfigMap(podVars, opts) {
 		log.Debug("Skipping replication of SSLMMSCAConfigMap.")
 		return workflow.OK()
 	}
@@ -1852,13 +1944,29 @@ func (r *ReconcileAppDbReplicaSet) publishACVersionAsConfigMap(ctx context.Conte
 
 // deployAutomationConfig updates the Automation Config secret if necessary and waits for the pods to fall to "not ready"
 // In this case the next StatefulSet update will be safe as the rolling upgrade will wait for the pods to get ready
-func (r *ReconcileAppDbReplicaSet) deployAutomationConfig(ctx context.Context, opsManager *omv1.MongoDBOpsManager, prometheusCertHash string, memberCluster multicluster.MemberCluster, log *zap.SugaredLogger) (int, workflow.Status) {
+func (r *ReconcileAppDbReplicaSet) deployAutomationConfig(ctx context.Context, opsManager *omv1.MongoDBOpsManager, prometheusCertHash string, memberCluster multicluster.MemberCluster, externalConn om.Connection, log *zap.SugaredLogger) (int, workflow.Status) {
 	rs := opsManager.Spec.AppDB
 
 	config, err := r.buildAppDbAutomationConfig(ctx, opsManager, automation, prometheusCertHash, memberCluster.Name, log)
 	if err != nil {
 		return 0, workflow.Failed(err)
 	}
+
+	if externalConn != nil {
+		acBytes, err := json.Marshal(config)
+		if err != nil {
+			return 0, workflow.Failed(xerrors.Errorf("failed to marshal AC for external OM: %w", err))
+		}
+		omAC, err := om.BuildAutomationConfigFromBytes(acBytes)
+		if err != nil {
+			return 0, workflow.Failed(xerrors.Errorf("failed to build om.AutomationConfig from bytes: %w", err))
+		}
+		if err := externalConn.UpdateAutomationConfig(omAC, log); err != nil {
+			return 0, workflow.Failed(xerrors.Errorf("failed to push AC to external OM: %w", err))
+		}
+		return config.Version, workflow.OK()
+	}
+
 	var configVersion int
 	if configVersion, err = r.publishAutomationConfig(ctx, opsManager, config, rs.AutomationConfigSecretName(), memberCluster.SecretClient); err != nil {
 		return 0, workflow.Failed(err)

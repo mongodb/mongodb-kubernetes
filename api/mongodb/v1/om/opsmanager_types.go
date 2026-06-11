@@ -474,6 +474,9 @@ type OpsManagerVersionMapping struct {
 type AppDbStatus struct {
 	mdbv1.MongoDbStatus `json:",inline"`
 	ClusterStatusList   []status.ClusterStatusItem `json:"clusterStatusList,omitempty"`
+	// ExternalGroupID stores the project (group) ID assigned by the external OM when AppDB runs in online mode.
+	// +optional
+	ExternalGroupID string `json:"externalGroupID,omitempty"`
 }
 
 type BackupStatus struct {

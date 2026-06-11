@@ -48,7 +48,21 @@ const (
 	tmpSubpathName = "mongodb-agent-monitoring-tmp"
 
 	monitoringAgentHealthStatusFilePathValue = "/var/log/mongodb-mms-automation/healthstatus/monitoring-agent-health-status.json"
+
+	// agentCommonOptions mirrors the private automationAgentOptions constant in the community package.
+	// These flags are common to both headless and online agent modes.
+	agentCommonOptions = " -skipMongoStart -noDaemonize -useLocalMongoDbTools"
 )
+
+// AgentConnectionConfig holds the connection parameters for switching an AppDB agent
+// from headless mode to online mode.
+type AgentConnectionConfig struct {
+	// Enabled, when true, switches the agent from headless mode to online mode.
+	// Server and GroupID must be set.
+	Enabled bool
+	Server  string
+	GroupID string
+}
 
 type AppDBStatefulSetOptions struct {
 	VaultConfig vault.VaultConfiguration
@@ -60,6 +74,10 @@ type AppDBStatefulSetOptions struct {
 	LegacyMonitoringAgentImage string
 
 	PrometheusTLSCertHash string
+
+	// Connection holds OM connection env vars for online mode.
+	// When Connection.Enabled is true, the StatefulSet is built in online mode.
+	Connection AgentConnectionConfig
 }
 
 func getMonitoringAgentLogOptions(spec om.AppDBSpec) string {
@@ -166,14 +184,14 @@ cp /probes/version-upgrade-hook /hooks/version-upgrade
 
 // getTLSVolumesAndVolumeMounts returns the slices of volumes and volume-mounts
 // that the AppDB STS needs for TLS resources.
-func getTLSVolumesAndVolumeMounts(appDb om.AppDBSpec, podVars *env.PodEnvVars, log *zap.SugaredLogger) ([]corev1.Volume, []corev1.VolumeMount) {
+func getTLSVolumesAndVolumeMounts(appDb om.AppDBSpec, podVars *env.PodEnvVars, opts AppDBStatefulSetOptions, log *zap.SugaredLogger) ([]corev1.Volume, []corev1.VolumeMount) {
 	if log == nil {
 		log = zap.S()
 	}
 	var volumesToAdd []corev1.Volume
 	var volumeMounts []corev1.VolumeMount
 
-	if ShouldMountSSLMMSCAConfigMap(podVars) {
+	if ShouldMountSSLMMSCAConfigMap(podVars, opts) {
 		// This volume wil contain the OM CA
 		caCertVolume := statefulset.CreateVolumeFromConfigMap(CaCertName, podVars.SSLMMSCAConfigMap)
 		volumeMounts = append(volumeMounts, corev1.VolumeMount{
@@ -232,11 +250,11 @@ func CAConfigMapName(appDb om.AppDBSpec, log *zap.SugaredLogger) string {
 
 // tlsVolumes returns the podtemplatespec modification that adds all needed volumes
 // and volumemounts for TLS.
-func tlsVolumes(appDb om.AppDBSpec, podVars *env.PodEnvVars, log *zap.SugaredLogger) podtemplatespec.Modification {
-	volumesToAdd, volumeMounts := getTLSVolumesAndVolumeMounts(appDb, podVars, log)
+func tlsVolumes(appDb om.AppDBSpec, podVars *env.PodEnvVars, opts AppDBStatefulSetOptions, log *zap.SugaredLogger) podtemplatespec.Modification {
+	volumesToAdd, volumeMounts := getTLSVolumesAndVolumeMounts(appDb, podVars, opts, log)
 
 	// Add agent API key volume mount if not using vault and monitoring is enabled
-	if !vault.IsVaultSecretBackend() && ShouldEnableMonitoring(podVars) {
+	if !vault.IsVaultSecretBackend() && ShouldEnableMonitoring(podVars, opts) {
 		volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(AgentAPIKeyVolumeName, AgentAPIKeySecretPath))
 	}
 
@@ -287,7 +305,7 @@ func vaultModification(appDB om.AppDBSpec, podVars *env.PodEnvVars, opts AppDBSt
 		)
 
 	} else {
-		if ShouldEnableMonitoring(podVars) {
+		if ShouldEnableMonitoring(podVars, opts) {
 			// AGENT-API-KEY volume
 			modification = podtemplatespec.Apply(
 				modification,
@@ -358,9 +376,13 @@ func customPersistenceConfig(om *om.MongoDBOpsManager) statefulset.Modification 
 	}
 }
 
-// ShouldEnableMonitoring returns true if we need to add monitoring container (along with volume mounts) in the current reconcile loop.
-func ShouldEnableMonitoring(podVars *env.PodEnvVars) bool {
-	return GlobalMonitoringSettingEnabled() && podVars != nil && podVars.ProjectID != ""
+// ShouldEnableMonitoring returns true if the monitoring sidecar container should be added.
+// Monitoring sidecar is headless-mode only; online mode uses monitoringVersions in the AC.
+func ShouldEnableMonitoring(podVars *env.PodEnvVars, opts AppDBStatefulSetOptions) bool {
+	return GlobalMonitoringSettingEnabled() &&
+		podVars != nil &&
+		podVars.ProjectID != "" &&
+		!opts.Connection.Enabled
 }
 
 // GlobalMonitoringSettingEnabled returns global setting whether to enable or disable monitoring in appdb (OPS_MANAGER_MONITOR_APPDB env var)
@@ -369,8 +391,34 @@ func GlobalMonitoringSettingEnabled() bool {
 }
 
 // ShouldMountSSLMMSCAConfigMap returns true if we need to mount MMSCA to monitoring container in the current reconcile loop.
-func ShouldMountSSLMMSCAConfigMap(podVars *env.PodEnvVars) bool {
-	return ShouldEnableMonitoring(podVars) && podVars.SSLMMSCAConfigMap != ""
+func ShouldMountSSLMMSCAConfigMap(podVars *env.PodEnvVars, opts AppDBStatefulSetOptions) bool {
+	return ShouldEnableMonitoring(podVars, opts) && podVars.SSLMMSCAConfigMap != ""
+}
+
+// onlineAutomationAgentCommand builds the automation agent startup command for online mode.
+// Instead of reading a local -cluster file (headless), the agent connects directly to Meta OM
+// via -mmsBaseUrl. The API key is read at runtime from the mounted secret file and exported as
+// $AGENT_API_KEY by the GetMongodbUserCommandWithAPIKeyExport preamble.
+func onlineAutomationAgentCommand(withStatic bool, logLevel v1.LogLevel, logFile string, maxLogFileDurationHrs int, server, groupID string, extraParams mdbv1.StartupParameters) []string {
+	agentOptions := " -skipMongoStart -noDaemonize -useLocalMongoDbTools"
+	agentOptions += " -logFile " + logFile + " -logLevel " + string(logLevel) + " -maxLogFileDurationHrs " + strconv.Itoa(maxLogFileDurationHrs)
+
+	params := mdbv1.StartupParameters{
+		"mmsBaseUrl": server,
+		"mmsGroupId": groupID,
+		"mmsApiKey":  "${AGENT_API_KEY}",
+	}
+
+	for k, v := range extraParams {
+		params[k] = v
+	}
+
+	cmd := construct.GetMongodbUserCommandWithAPIKeyExport(withStatic) +
+		construct.BaseAgentCommand() +
+		agentOptions +
+		params.ToCommandLineArgs()
+
+	return []string{"/bin/bash", "-c", cmd}
 }
 
 // AppDbStatefulSet fully constructs the AppDb StatefulSet that is ready to be sent to the Kubernetes API server.
@@ -386,7 +434,7 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 
 	externalDomain := appDb.GetExternalDomainForMemberCluster(scaler.MemberClusterName())
 
-	if ShouldEnableMonitoring(podVars) {
+	if ShouldEnableMonitoring(podVars, opts) {
 		monitoringModification = addMonitoringContainer(*appDb, *podVars, opts, externalDomain, architectures.IsRunningStaticArchitecture(opsManager.Annotations), log)
 	} else {
 		// Otherwise, let's remove for now every podTemplateSpec related to monitoring
@@ -396,12 +444,27 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 		}
 	}
 
-	// We copy the Automation Agent command from community and add the agent startup parameters
-	automationAgentCommand := AutomationAgentCommand(architectures.IsRunningStaticArchitecture(opsManager.Annotations), true, opsManager.Spec.AppDB.GetAgentLogLevel(), opsManager.Spec.AppDB.GetAgentLogFile(), opsManager.Spec.AppDB.GetAgentMaxLogFileDurationHours())
-	idx := len(automationAgentCommand) - 1
-	automationAgentCommand[idx] += appDb.AutomationAgent.StartupParameters.ToCommandLineArgs()
-
-	automationAgentCommand[idx] += overrideLocalHostFlag(appDb, externalDomain)
+	// We copy the Automation Agent command from community and add the agent startup parameters.
+	// In online mode, we replace -cluster=<file> with -mmsBaseUrl and explicit auth params.
+	var automationAgentCommand []string
+	if opts.Connection.Enabled {
+		automationAgentCommand = onlineAutomationAgentCommand(
+			architectures.IsRunningStaticArchitecture(opsManager.Annotations),
+			opsManager.Spec.AppDB.GetAgentLogLevel(),
+			opsManager.Spec.AppDB.GetAgentLogFile(),
+			opsManager.Spec.AppDB.GetAgentMaxLogFileDurationHours(),
+			opts.Connection.Server,
+			opts.Connection.GroupID,
+			appDb.AutomationAgent.StartupParameters,
+		)
+		idx := len(automationAgentCommand) - 1
+		automationAgentCommand[idx] += overrideLocalHostFlag(appDb, externalDomain)
+	} else {
+		automationAgentCommand = AutomationAgentCommand(architectures.IsRunningStaticArchitecture(opsManager.Annotations), true, opsManager.Spec.AppDB.GetAgentLogLevel(), opsManager.Spec.AppDB.GetAgentLogFile(), opsManager.Spec.AppDB.GetAgentMaxLogFileDurationHours())
+		idx := len(automationAgentCommand) - 1
+		automationAgentCommand[idx] += appDb.AutomationAgent.StartupParameters.ToCommandLineArgs()
+		automationAgentCommand[idx] += overrideLocalHostFlag(appDb, externalDomain)
+	}
 
 	acVersionConfigMapVolume := statefulset.CreateVolumeFromConfigMap("automation-config-goal-version", opsManager.Spec.AppDB.AutomationConfigConfigMapName())
 	acVersionMount := corev1.VolumeMount{
@@ -483,6 +546,30 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 	mongodbAgentVolumeMounts = append(mongodbAgentVolumeMounts, acVersionMount)
 	podSecurityContext, _ := podtemplatespec.WithDefaultSecurityContextsModifications()
 
+	// In online mode the agent downloads MongoDB/mongosh binaries from Ops Manager's version
+	// catalog. The container root filesystem is read-only, so we need a writable emptyDir.
+	var agentConnectionVolumes []corev1.Volume
+	var agentConnectionVolumeMounts []corev1.VolumeMount
+	if opts.Connection.Enabled {
+		downloadsVolume := corev1.Volume{
+			Name: "agent-downloads",
+			VolumeSource: corev1.VolumeSource{
+				EmptyDir: &corev1.EmptyDirVolumeSource{},
+			},
+		}
+		agentConnectionVolumes = append(agentConnectionVolumes, downloadsVolume)
+		agentConnectionVolumeMounts = append(agentConnectionVolumeMounts, corev1.VolumeMount{
+			Name:      "agent-downloads",
+			MountPath: "/var/lib/mongodb-mms-automation/downloads",
+		})
+	}
+
+	agentConnectionEnvModification := container.NOOP()
+	if opts.Connection.Enabled {
+		// Remove headless-mode vars injected by community code; they must be absent in online mode.
+		agentConnectionEnvModification = container.WithoutEnvs(headlessAgentEnv, automationConfigMapEnv)
+	}
+
 	sts := statefulset.New(
 		statefulset.WithName(opsManager.Spec.AppDB.NameForCluster(scaler.MemberClusterNum())),
 		statefulset.WithNamespace(opsManager.Spec.AppDB.GetNamespace()),
@@ -511,12 +598,21 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 				upgradeInitContainer,
 				readinessInitContainer,
 				podtemplatespec.WithContainer(util.AgentContainerName,
-					container.WithEnvs(appdbContainerEnv(*appDb)...),
+					container.Apply(
+						container.WithEnvs(appdbContainerEnv(*appDb)...),
+						agentConnectionEnvModification,
+						container.WithVolumeMounts(agentConnectionVolumeMounts),
+					),
 				),
+				func(spec *corev1.PodTemplateSpec) {
+					for _, v := range agentConnectionVolumes {
+						podtemplatespec.WithVolume(v)(spec)
+					}
+				},
 				vaultModification(*appDb, podVars, opts),
 				appDbPodSpec(opts.InitAppDBImage, opsManager),
 				monitoringModification,
-				tlsVolumes(*appDb, podVars, log),
+				tlsVolumes(*appDb, podVars, opts, log),
 			),
 		),
 		customPersistenceConfig(&opsManager),
@@ -602,7 +698,9 @@ func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, opts App
 		command += " -cluster=/var/lib/automation/config/" + util.AppDBAutomationConfigKey
 	}
 
-	// 2. Startup parameters for the agent to enable monitoring
+	// 2. Startup parameters for the agent to enable monitoring.
+	// podVars.ProjectID holds the correct group ID for both online and headless agent modes.
+	// The API key is always read at runtime from the mounted secret file exported as $AGENT_API_KEY.
 	startupParams := mdbv1.StartupParameters{
 		"mmsApiKey":  "${AGENT_API_KEY}",
 		"mmsGroupId": podVars.ProjectID,
@@ -637,7 +735,7 @@ func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, opts App
 	monitoringCommand := []string{"/bin/bash", "-c", command}
 
 	// Add additional TLS volumes if needed
-	_, monitoringMounts := getTLSVolumesAndVolumeMounts(appDB, &podVars, log)
+	_, monitoringMounts := getTLSVolumesAndVolumeMounts(appDB, &podVars, opts, log)
 
 	return podtemplatespec.Apply(
 		monitoringACFunc,
@@ -688,12 +786,20 @@ func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, opts App
 				// AGENT_API_KEY volume
 				volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(AgentAPIKeyVolumeName, AgentAPIKeySecretPath))
 			}
+
+			agentConnectionEnvModification := container.NOOP()
+			if opts.Connection.Enabled {
+				// Remove headless-mode vars injected by community code; they must be absent in online mode.
+				agentConnectionEnvModification = container.WithoutEnvs(headlessAgentEnv, automationConfigMapEnv)
+			}
+
 			container.Apply(
 				container.WithVolumeMounts(volumeMounts),
 				container.WithCommand(monitoringCommand),
 				container.WithResourceRequirements(buildRequirementsFromPodSpec(*NewDefaultPodSpecWrapper(*appDB.PodSpec))),
 				container.WithVolumeMounts(monitoringMounts),
 				container.WithEnvs(appdbContainerEnv(appDB)...),
+				agentConnectionEnvModification,
 				container.WithEnvs(readinessEnvironmentVariablesToEnvVars(appDB.AutomationAgent.ReadinessProbe.EnvironmentVariables)...),
 			)(monitoringContainer)
 			podTemplateSpec.Spec.Containers = append(podTemplateSpec.Spec.Containers, *monitoringContainer)
