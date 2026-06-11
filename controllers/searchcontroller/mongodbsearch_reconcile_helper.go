@@ -505,7 +505,10 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 		passwordAuthStsModification = PasswordAuthModification(r.mdbSearch)
 	}
 
-	egressTlsMongotModification, egressTlsStsModification := r.ensureEgressTlsConfig(ctx)
+	egressTlsMongotModification, egressTlsStsModification, err := r.ensureEgressTlsConfig(ctx)
+	if err != nil {
+		return workflow.Failed(err)
+	}
 
 	x509MongotModification, x509StsModification, err := r.ensureX509ClientCertConfig(ctx)
 	if err != nil {
@@ -1664,24 +1667,58 @@ func (p *perShardTLSResource) TLSOperatorSecretNamespacedName() types.Namespaced
 	return p.TLSOperatorSecretForClusterShard(p.clusterIndex, p.shardName)
 }
 
-func (r *MongoDBSearchReconcileHelper) ensureEgressTlsConfig(ctx context.Context) (mongot.Modification, statefulset.Modification) {
+func (r *MongoDBSearchReconcileHelper) ensureEgressTlsConfig(ctx context.Context) (mongot.Modification, statefulset.Modification, error) {
 	tlsSourceConfig := r.db.TLSConfig()
 	if tlsSourceConfig == nil {
-		return mongot.NOOP(), statefulset.NOOP()
+		return mongot.NOOP(), statefulset.NOOP(), nil
+	}
+
+	// Process optional SCRAM client certificate for mTLS
+	var scramCertPath string
+	hasScramKeyPassword := false
+	if r.mdbSearch.HasScramClientCert() {
+		scramCertResource := &scramClientCertResource{MongoDBSearch: r.mdbSearch}
+		certFileName, err := tls.EnsureTLSSecret(ctx, r.client, scramCertResource)
+		if err != nil {
+			return nil, nil, err
+		}
+		scramCertPath = ScramClientCertOperatorMountPath + certFileName
+
+		// Check if the user-provided secret contains an optional key password
+		userProvidedSecret := r.mdbSearch.ScramClientCertSecret()
+		_, keyPasswordErr := secret.ReadKey(ctx, r.client, ScramKeyPasswordSecretKey, userProvidedSecret)
+		if keyPasswordErr == nil {
+			hasScramKeyPassword = true
+		}
 	}
 
 	mongotModification := func(config *mongot.Config) {
-		config.SyncSource.ReplicaSet.ScramAuth.TLS = &mongot.ScramAuthTLS{
+		scramTLS := &mongot.ScramAuthTLS{
 			Enabled:                  true,
 			CertificateAuthorityFile: ptr.To(tls.CAMountPath + tlsSourceConfig.CAFileName),
 		}
+		if scramCertPath != "" {
+			scramTLS.TLSCertificateKeyFile = ptr.To(scramCertPath)
+			if hasScramKeyPassword {
+				scramTLS.TLSCertificateKeyFilePasswordFile = ptr.To(TempScramKeyPasswordPath)
+			}
+		}
+
+		config.SyncSource.ReplicaSet.ScramAuth.TLS = scramTLS
 
 		// For sharded clusters, also enable TLS for the Router (mongos) connection
 		if config.SyncSource.Router != nil && config.SyncSource.Router.ScramAuth != nil {
-			config.SyncSource.Router.ScramAuth.TLS = &mongot.ScramAuthTLS{
+			routerScramTLS := &mongot.ScramAuthTLS{
 				Enabled:                  true,
 				CertificateAuthorityFile: ptr.To(tls.CAMountPath + tlsSourceConfig.CAFileName),
 			}
+			if scramCertPath != "" {
+				routerScramTLS.TLSCertificateKeyFile = ptr.To(scramCertPath)
+				if hasScramKeyPassword {
+					routerScramTLS.TLSCertificateKeyFilePasswordFile = ptr.To(TempScramKeyPasswordPath)
+				}
+			}
+			config.SyncSource.Router.ScramAuth.TLS = routerScramTLS
 		}
 
 		// if the gRPC server is configured to accept TLS connections then toggle mTLS as well
@@ -1692,16 +1729,55 @@ func (r *MongoDBSearchReconcileHelper) ensureEgressTlsConfig(ctx context.Context
 	}
 
 	caVolume := tlsSourceConfig.CAVolume
+	volumeMounts := []corev1.VolumeMount{
+		statefulset.CreateVolumeMount(caVolume.Name, tls.CAMountPath, statefulset.WithReadOnly(true)),
+	}
+	volumes := []podtemplatespec.Modification{podtemplatespec.WithVolume(caVolume)}
+	var containerMods []container.Modification
+
+	if scramCertPath != "" {
+		operatorSecret := r.mdbSearch.ScramClientCertOperatorManagedSecret()
+		scramCertVolume := statefulset.CreateVolumeFromSecret("scram-client-cert", operatorSecret.Name)
+		scramCertVolumeMount := statefulset.CreateVolumeMount("scram-client-cert", ScramClientCertOperatorMountPath, statefulset.WithReadOnly(true))
+
+		volumeMounts = append(volumeMounts, scramCertVolumeMount)
+		volumes = append(volumes, podtemplatespec.WithVolume(scramCertVolume))
+
+		if hasScramKeyPassword {
+			userProvidedSecret := r.mdbSearch.ScramClientCertSecret()
+			keyPasswordVolume := statefulset.CreateVolumeFromSecret("scram-key-password", userProvidedSecret.Name)
+			keyPasswordVolumeMount := statefulset.CreateVolumeMount("scram-key-password", ScramKeyPasswordMountPath,
+				statefulset.WithReadOnly(true), statefulset.WithSubPath(ScramKeyPasswordSecretKey))
+
+			volumeMounts = append(volumeMounts, keyPasswordVolumeMount)
+			volumes = append(volumes, podtemplatespec.WithVolume(keyPasswordVolume))
+			containerMods = append(containerMods, prependCommand(sensitiveFilePermissionsWorkaround(ScramKeyPasswordMountPath, TempScramKeyPasswordPath, "0600")))
+		}
+	}
+
+	containerMods = append(containerMods, container.WithVolumeMounts(volumeMounts))
+
 	statefulsetModification := statefulset.WithPodSpecTemplate(podtemplatespec.Apply(
-		podtemplatespec.WithVolume(caVolume),
-		podtemplatespec.WithContainer(MongotContainerName, container.Apply(
-			container.WithVolumeMounts([]corev1.VolumeMount{
-				statefulset.CreateVolumeMount(caVolume.Name, tls.CAMountPath, statefulset.WithReadOnly(true)),
-			}),
-		)),
+		append(volumes, podtemplatespec.WithContainer(MongotContainerName, container.Apply(
+			containerMods...,
+		)))...,
 	))
 
-	return mongotModification, statefulsetModification
+	return mongotModification, statefulsetModification, nil
+}
+
+// scramClientCertResource adapts MongoDBSearch to provide SCRAM client cert secret names.
+// It implements the tls.TLSConfigurableResource interface for use with tls.EnsureTLSSecret.
+type scramClientCertResource struct {
+	*searchv1.MongoDBSearch
+}
+
+func (s *scramClientCertResource) TLSSecretNamespacedName() types.NamespacedName {
+	return s.ScramClientCertSecret()
+}
+
+func (s *scramClientCertResource) TLSOperatorSecretNamespacedName() types.NamespacedName {
+	return s.ScramClientCertOperatorManagedSecret()
 }
 
 func hashBytes(bytes []byte) string {
