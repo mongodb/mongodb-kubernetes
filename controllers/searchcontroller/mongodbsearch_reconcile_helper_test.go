@@ -26,7 +26,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1" //nolint:depguard
-	khandler "github.com/mongodb/mongodb-kubernetes/pkg/handler"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/mongot"
 )
@@ -1212,6 +1211,19 @@ func (m *mockShardedSource) TLSConfig() *TLSSourceConfig {
 func (m *mockShardedSource) ResourceType() mdbv1.ResourceType {
 	return mdbv1.ShardedCluster
 }
+
+// mockReplicaSetSource is a non-sharded SearchSourceDBResource. It deliberately
+// does NOT implement SearchSourceShardedDeployment, so buildReconcilePlan routes
+// it to the RS plan.
+type mockReplicaSetSource struct {
+	hostSeeds []string
+}
+
+func (m *mockReplicaSetSource) HostSeeds(string) ([]string, error) { return m.hostSeeds, nil }
+func (m *mockReplicaSetSource) Validate() error                    { return nil }
+func (m *mockReplicaSetSource) KeyfileSecretName() string          { return "" }
+func (m *mockReplicaSetSource) TLSConfig() *TLSSourceConfig        { return nil }
+func (m *mockReplicaSetSource) ResourceType() mdbv1.ResourceType   { return mdbv1.ReplicaSet }
 
 func TestBuildShardSearchHeadlessService(t *testing.T) {
 	search := newTestMongoDBSearch("test-search", "test")
@@ -2523,48 +2535,6 @@ func TestReconcileSharded_CreatesPerShardResources(t *testing.T) {
 	}
 }
 
-func TestCleanupStaleShardResources(t *testing.T) {
-	search := newTestMongoDBSearch("test-search", "test-ns", func(s *searchv1.MongoDBSearch) {
-		s.UID = "search-uid"
-		s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{}}
-	})
-
-	proxySvc := func(shard string, owned bool) *corev1.Service {
-		svc := &corev1.Service{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: search.ProxyServiceNameForClusterShard(0, shard).Name, Namespace: "test-ns",
-				Labels: map[string]string{componentLabelKey: proxyServiceComponent},
-			},
-			Spec: corev1.ServiceSpec{ClusterIP: "10.0.0.1", Ports: []corev1.ServicePort{{Port: 27028}}},
-		}
-		if owned {
-			svc.OwnerReferences = []metav1.OwnerReference{{UID: search.UID}}
-		} else {
-			svc.OwnerReferences = []metav1.OwnerReference{{}}
-			svc.OwnerReferences[0].UID = "other-uid"
-		}
-		return svc
-	}
-
-	fakeClient := newTestFakeClient(search,
-		proxySvc("shard-0", true),  // active, owned
-		proxySvc("shard-1", true),  // active, owned
-		proxySvc("shard-2", true),  // stale, owned
-		proxySvc("shard-x", false), // different owner
-	)
-	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, newTestOperatorSearchConfig(), nil, nil)
-	require.NoError(t, helper.cleanupStaleShardResources(t.Context(), zap.S(), []string{"shard-0", "shard-1"}))
-
-	_, err := fakeClient.GetService(t.Context(), search.ProxyServiceNameForClusterShard(0, "shard-0"))
-	assert.NoError(t, err, "active shard preserved")
-	_, err = fakeClient.GetService(t.Context(), search.ProxyServiceNameForClusterShard(0, "shard-1"))
-	assert.NoError(t, err, "active shard preserved")
-	_, err = fakeClient.GetService(t.Context(), search.ProxyServiceNameForClusterShard(0, "shard-2"))
-	assert.Error(t, err, "stale shard deleted")
-	_, err = fakeClient.GetService(t.Context(), search.ProxyServiceNameForClusterShard(0, "shard-x"))
-	assert.NoError(t, err, "different owner untouched")
-}
-
 func TestReconcileReplicaSet_CreatesResources(t *testing.T) {
 	search := newTestMongoDBSearch("test-search", "test-ns")
 	mdbc := newTestMongoDBCommunity("test-mongodb", "test-ns")
@@ -2863,6 +2833,91 @@ func TestReconcilePlan_UsesPerClusterClient(t *testing.T) {
 	err = clusterBClient.Get(t.Context(),
 		types.NamespacedName{Name: "mdb-search-search-0", Namespace: "ns"}, &appsv1.StatefulSet{})
 	assert.True(t, apierrors.IsNotFound(err), "cluster B client must NOT have cluster A STS")
+}
+
+// RS twin of TestReconcileShardedMC_MultiPass: the RS plan's stale-sweep hook is
+// new, so this pins that it deletes nothing at steady state. An MC replica-set
+// source with managed LB is reconciled to OK, then reconciled once more; the
+// owned STS / ConfigMap / Service counts per cluster — including the per-cluster
+// proxy Service — must be identical after the extra pass (the sweep ran and
+// cannibalized none of the plan's own resources).
+func TestReconcileReplicaSetMC_SweepDeletesNothingAtSteadyState(t *testing.T) {
+	search := newTestMongoDBSearch("mdb-search", "ns")
+	search.Spec.Clusters = []searchv1.ClusterSpec{
+		{ClusterName: "cluster-a"},
+		{ClusterName: "cluster-b"},
+	}
+	search.Spec.Source = &searchv1.MongoDBSource{
+		ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{
+			HostAndPorts: []string{"a.example:27017", "b.example:27017"},
+		},
+	}
+	search.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
+		Managed: &searchv1.ManagedLBConfig{
+			ExternalHostname: "mdb-search-search-{clusterIndex}-proxy-svc.ns.svc.cluster.local",
+		},
+	}
+
+	central := kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().WithObjects(search).Build())
+	clusterA := kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().Build())
+	clusterB := kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().Build())
+	members := map[string]kubernetesClient.Client{"cluster-a": clusterA, "cluster-b": clusterB}
+
+	helper := &MongoDBSearchReconcileHelper{
+		mdbSearch:            search,
+		db:                   &mockReplicaSetSource{hostSeeds: search.Spec.Source.ExternalMongoDBSource.HostAndPorts},
+		client:               central,
+		memberClusterClients: members,
+		clusterMapping:       map[string]int{"cluster-a": 0, "cluster-b": 1},
+		operatorSearchConfig: newTestOperatorSearchConfig(),
+	}
+
+	countResources := func(c kubernetesClient.Client) (sts, cm, svc int) {
+		var stsList appsv1.StatefulSetList
+		require.NoError(t, c.List(t.Context(), &stsList, client.InNamespace("ns")))
+		var cmList corev1.ConfigMapList
+		require.NoError(t, c.List(t.Context(), &cmList, client.InNamespace("ns")))
+		var svcList corev1.ServiceList
+		require.NoError(t, c.List(t.Context(), &svcList, client.InNamespace("ns")))
+		return len(stsList.Items), len(cmList.Items), len(svcList.Items)
+	}
+
+	// Drive to OK: apply → STSs ready → LB Running.
+	require.False(t, helper.reconcile(t.Context(), zap.S()).IsOK(), "pass 1 should be Pending (STSs not ready)")
+	require.NoError(t, mock.MarkAllStatefulSetsAsReady(t.Context(), "ns", central, clusterA, clusterB))
+	require.False(t, helper.reconcile(t.Context(), zap.S()).IsOK(), "pass 2 should be Pending (LB not ready)")
+	search.Status.LoadBalancer = &searchv1.LoadBalancerStatus{Phase: status.PhaseRunning}
+	require.True(t, helper.reconcile(t.Context(), zap.S()).IsOK(), "pass 3 should be OK")
+
+	// Each cluster has its mongot STS + ConfigMap + (headless + proxy) Services.
+	for name, c := range members {
+		sts, cm, svc := countResources(c)
+		require.Equal(t, 1, sts, "%s: one mongot STS", name)
+		require.Equal(t, 1, cm, "%s: one mongot ConfigMap", name)
+		require.Equal(t, 2, svc, "%s: headless + proxy Services", name)
+	}
+	idxForCluster := map[string]int{"cluster-a": 0, "cluster-b": 1}
+	for name, c := range members {
+		require.NoError(t, c.Get(t.Context(), search.ProxyServiceNamespacedNameForCluster(idxForCluster[name]), &corev1.Service{}),
+			"%s: per-cluster proxy Service must exist before the extra sweep", name)
+	}
+
+	before := map[string][3]int{}
+	for name, c := range members {
+		sts, cm, svc := countResources(c)
+		before[name] = [3]int{sts, cm, svc}
+	}
+
+	// One more steady-state reconcile — its cleanup hook runs the sweep again.
+	require.True(t, helper.reconcile(t.Context(), zap.S()).IsOK(), "steady-state reconcile should stay OK")
+
+	for name, c := range members {
+		sts, cm, svc := countResources(c)
+		require.Equal(t, before[name], [3]int{sts, cm, svc},
+			"%s: steady-state sweep must delete nothing (counts unchanged)", name)
+		require.NoError(t, c.Get(t.Context(), search.ProxyServiceNamespacedNameForCluster(idxForCluster[name]), &corev1.Service{}),
+			"%s: per-cluster proxy Service must survive the steady-state sweep", name)
+	}
 }
 
 // Sharded MC: buildShardedPlan emits one unit per (cluster, shard) plus one
@@ -3334,84 +3389,107 @@ func TestReconcileShardedMC_MissingMemberClusterClient(t *testing.T) {
 	}
 }
 
-// cleanupStaleShardResources must reach into member clusters in MC sharded
-// mode — the per-shard proxy Services live on the member clients, not central.
-func TestCleanupStaleShardResources_MCFanOut(t *testing.T) {
-	search := newTestMongoDBSearch("mdb-search", "ns", func(s *searchv1.MongoDBSearch) {
-		s.UID = "search-uid"
-		s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{}}
-		s.Spec.Clusters = []searchv1.ClusterSpec{
-			{ClusterName: "cluster-a"},
-			{ClusterName: "cluster-b"},
-		}
-	})
+// reconcileFixtureToOK drives the MC sharded fixture through the multi-pass
+// lifecycle (apply → mark STSs ready → mark LB Running) until reconcile is OK.
+func reconcileFixtureToOK(t *testing.T, fx *mcShardedFixture, helper *MongoDBSearchReconcileHelper) {
+	t.Helper()
+	st := helper.reconcile(t.Context(), zap.S())
+	require.False(t, st.IsOK(), "pass 1 should be Pending (STSs not ready)")
+	require.NoError(t, mock.MarkAllStatefulSetsAsReady(t.Context(), "ns",
+		fx.central, fx.members["cluster-a"], fx.members["cluster-b"]))
+	st = helper.reconcile(t.Context(), zap.S())
+	require.False(t, st.IsOK(), "pass 2 should be Pending (LB not ready)")
+	fx.search.Status.LoadBalancer = &searchv1.LoadBalancerStatus{Phase: status.PhaseRunning}
+	st = helper.reconcile(t.Context(), zap.S())
+	require.True(t, st.IsOK(), "pass 3 should be OK, got: %s", MessageFromStatus(st))
+}
 
-	// memberProxySvc builds a proxy Service with the search-owner labels the MC
-	// cleanup path looks for. owned=false drops the labels — must be left alone.
-	memberProxySvc := func(name string, owned bool) *corev1.Service {
-		labels := map[string]string{"component": proxyServiceComponent}
-		if owned {
-			labels[khandler.MongoDBSearchOwnerNameLabel] = search.Name
-			labels[khandler.MongoDBSearchOwnerNamespaceLabel] = search.Namespace
+// assertShardResources asserts the STS / headless Svc / CM / proxy Svc for a
+// (clusterIndex, shard) pair are present (want=true) or absent (want=false).
+func assertShardResources(t *testing.T, c kubernetesClient.Client, search *searchv1.MongoDBSearch, clusterIndex int, shard string, want bool) {
+	t.Helper()
+	check := func(obj client.Object, nsName types.NamespacedName) {
+		err := c.Get(t.Context(), nsName, obj)
+		if want {
+			require.NoError(t, err, "%s (idx %d shard %s) should exist", nsName.Name, clusterIndex, shard)
+		} else {
+			require.True(t, apierrors.IsNotFound(err), "%s (idx %d shard %s) should be swept, got err=%v", nsName.Name, clusterIndex, shard, err)
 		}
-		return &corev1.Service{
-			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "ns", Labels: labels},
-			Spec:       corev1.ServiceSpec{ClusterIP: "10.0.0.1", Ports: []corev1.ServicePort{{Port: 27028}}},
+	}
+	check(&appsv1.StatefulSet{}, search.MongotStatefulSetForClusterShard(clusterIndex, shard))
+	check(&corev1.Service{}, search.MongotServiceForClusterShard(clusterIndex, shard))
+	check(&corev1.ConfigMap{}, search.MongotConfigMapForClusterShard(clusterIndex, shard))
+	check(&corev1.Service{}, search.ProxyServiceNameForClusterShard(clusterIndex, shard))
+}
+
+// Full-reconcile lifecycle: a sharded source with 3 shards is reconciled to OK,
+// then the source drops to 2 shards. The next reconcile's cleanup hook must
+// sweep shard-2's STS, headless Service, ConfigMap, and proxy Service from both
+// member clusters while shards 0-1 stay intact.
+func TestReconcileShardedMC_ShardReductionSweepsStaleResources(t *testing.T) {
+	fx := newMCShardedFixture(t)
+	helper := fx.newHelper()
+
+	reconcileFixtureToOK(t, fx, helper)
+
+	// All 3 shards present on both member clusters after the initial reconcile.
+	for idx, member := range []kubernetesClient.Client{fx.members["cluster-a"], fx.members["cluster-b"]} {
+		for _, shard := range []string{"sh-0", "sh-1", "sh-2"} {
+			assertShardResources(t, member, fx.search, idx, shard, true)
 		}
 	}
 
-	// cluster-a (idx 0): keep shard-0 + cluster-level; sh-stale should be deleted.
-	clusterA := kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().WithObjects(
-		memberProxySvc("mdb-search-search-0-sh-0-proxy-svc", true),
-		memberProxySvc("mdb-search-search-0-sh-stale-proxy-svc", true),
-		memberProxySvc("mdb-search-search-0-proxy-svc", true),
-		memberProxySvc("foreign-svc", false), // not search-owned
-	).Build())
-	// cluster-b (idx 1): same pattern, plus an unrelated owned-by-other-CR svc
-	// to guard the label-name check.
-	clusterB := kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().WithObjects(
-		memberProxySvc("mdb-search-search-1-sh-0-proxy-svc", true),
-		memberProxySvc("mdb-search-search-1-sh-stale-proxy-svc", true),
-		memberProxySvc("mdb-search-search-1-proxy-svc", true),
-		func() *corev1.Service {
-			svc := memberProxySvc("other-search-search-1-sh-0-proxy-svc", true)
-			svc.Labels[khandler.MongoDBSearchOwnerNameLabel] = "other-search"
-			return svc
-		}(),
-	).Build())
-	central := kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().Build())
+	// Drop sh-2 from the source and reconcile again.
+	fx.source.shardNames = []string{"sh-0", "sh-1"}
+	delete(fx.source.hostSeeds, "sh-2")
+	st := helper.reconcile(t.Context(), zap.S())
+	require.True(t, st.IsOK(), "post-reduction reconcile should be OK, got: %s", MessageFromStatus(st))
 
-	r := &MongoDBSearchReconcileHelper{
-		mdbSearch:            search,
-		client:               central,
-		memberClusterClients: map[string]kubernetesClient.Client{"cluster-a": clusterA, "cluster-b": clusterB},
-		clusterMapping:       map[string]int{"cluster-a": 0, "cluster-b": 1},
+	for idx, member := range []kubernetesClient.Client{fx.members["cluster-a"], fx.members["cluster-b"]} {
+		assertShardResources(t, member, fx.search, idx, "sh-0", true)
+		assertShardResources(t, member, fx.search, idx, "sh-1", true)
+		assertShardResources(t, member, fx.search, idx, "sh-2", false)
+	}
+}
+
+// Full-reconcile lifecycle: a deployment reconciled as sharded, then the source
+// flips to a replica set. The RS plan's cleanup hook must sweep the now-stale
+// sharded-named mongot resources (STS / headless Svc / CM / proxy Svc) on each
+// member cluster, since the RS plan no longer expects them.
+func TestReconcileShardedMC_SourceFlipsToReplicaSetSweepsShardedResources(t *testing.T) {
+	fx := newMCShardedFixture(t)
+	helper := fx.newHelper()
+
+	reconcileFixtureToOK(t, fx, helper)
+
+	// Confirm sharded resources exist before the flip.
+	for idx, member := range []kubernetesClient.Client{fx.members["cluster-a"], fx.members["cluster-b"]} {
+		assertShardResources(t, member, fx.search, idx, "sh-0", true)
 	}
 
-	require.NoError(t, r.cleanupStaleShardResources(t.Context(), zap.S(), []string{"sh-0"}))
+	// Flip the source to a replica set: same CR/clusters, RS-shaped source.
+	fx.search.Spec.Security.TLS = nil // RS plan doesn't use per-shard TLS secrets
+	rsSource := &mockReplicaSetSource{hostSeeds: []string{"rs-0.example:27017"}}
+	rsHelper := &MongoDBSearchReconcileHelper{
+		mdbSearch:            fx.search,
+		db:                   rsSource,
+		client:               fx.central,
+		memberClusterClients: fx.members,
+		clusterMapping:       fx.clusterMapping,
+		operatorSearchConfig: newTestOperatorSearchConfig(),
+	}
 
-	// Per-cluster expectations: active + cluster-level kept, stale deleted, foreign untouched.
-	for _, tc := range []struct {
-		c       kubernetesClient.Client
-		idx     int
-		cluster string
-		foreign string
-	}{
-		{clusterA, 0, "cluster-a", "foreign-svc"},
-		{clusterB, 1, "cluster-b", "other-search-search-1-sh-0-proxy-svc"},
-	} {
-		active := fmt.Sprintf("mdb-search-search-%d-sh-0-proxy-svc", tc.idx)
-		stale := fmt.Sprintf("mdb-search-search-%d-sh-stale-proxy-svc", tc.idx)
-		clusterLevel := fmt.Sprintf("mdb-search-search-%d-proxy-svc", tc.idx)
+	st := rsHelper.reconcile(t.Context(), zap.S())
+	require.False(t, st.IsOK(), "RS pass 1 should be Pending (new STSs not ready)")
 
-		err := tc.c.Get(t.Context(), types.NamespacedName{Name: active, Namespace: "ns"}, &corev1.Service{})
-		require.NoError(t, err, "%s: active per-shard proxy Service must survive cleanup", tc.cluster)
-		err = tc.c.Get(t.Context(), types.NamespacedName{Name: clusterLevel, Namespace: "ns"}, &corev1.Service{})
-		require.NoError(t, err, "%s: cluster-level proxy Service must survive cleanup", tc.cluster)
-		err = tc.c.Get(t.Context(), types.NamespacedName{Name: stale, Namespace: "ns"}, &corev1.Service{})
-		require.True(t, apierrors.IsNotFound(err), "%s: stale per-shard proxy Service must be deleted, got err=%v", tc.cluster, err)
-		err = tc.c.Get(t.Context(), types.NamespacedName{Name: tc.foreign, Namespace: "ns"}, &corev1.Service{})
-		require.NoError(t, err, "%s: foreign Service %q must be untouched", tc.cluster, tc.foreign)
+	// The RS plan's cleanup hook swept the old sharded-named resources on both clusters.
+	for idx, member := range []kubernetesClient.Client{fx.members["cluster-a"], fx.members["cluster-b"]} {
+		for _, shard := range []string{"sh-0", "sh-1", "sh-2"} {
+			assertShardResources(t, member, fx.search, idx, shard, false)
+		}
+		// The new RS-shaped mongot STS exists under the per-cluster index name.
+		require.NoError(t, member.Get(t.Context(), fx.search.StatefulSetNamespacedNameForCluster(idx), &appsv1.StatefulSet{}),
+			"RS mongot STS for cluster index %d should be created", idx)
 	}
 }
 

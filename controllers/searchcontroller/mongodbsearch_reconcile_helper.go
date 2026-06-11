@@ -263,7 +263,14 @@ func (r *MongoDBSearchReconcileHelper) buildReplicaSetPlan(rsSource SearchSource
 		units:          units,
 		manageProxySvc: !r.mdbSearch.IsReplicaSetUnmanagedLB(),
 		preflight:      func(context.Context, *zap.SugaredLogger) workflow.Status { return workflow.OK() },
-		cleanup:        func(context.Context, *zap.SugaredLogger) {},
+		cleanup: func(ctx context.Context, log *zap.SugaredLogger) {
+			// Deletes anything the RS plan no longer expects: stale sharded-named
+			// resources after a sharded→RS flip, and per-cluster resources for
+			// clusters dropped from spec.clusters.
+			if err := r.cleanupStaleResources(ctx, log, expectedNamesForUnits(units, nil)); err != nil {
+				log.Warnf("Failed to cleanup stale search resources: %s", err)
+			}
+		},
 	}, nil
 }
 
@@ -394,8 +401,8 @@ func (r *MongoDBSearchReconcileHelper) buildShardedPlan(shardedSource SearchSour
 			return r.validatePerShardTLSSecrets(ctx, log, shardNames)
 		},
 		cleanup: func(ctx context.Context, log *zap.SugaredLogger) {
-			if err := r.cleanupStaleShardResources(ctx, log, shardNames); err != nil {
-				log.Warnf("Failed to cleanup stale shard resources: %s", err)
+			if err := r.cleanupStaleResources(ctx, log, expectedNamesForUnits(units, clusterLevelResources)); err != nil {
+				log.Warnf("Failed to cleanup stale search resources: %s", err)
 			}
 		},
 	}
@@ -403,6 +410,27 @@ func (r *MongoDBSearchReconcileHelper) buildShardedPlan(shardedSource SearchSour
 		plan.clusterLevelResources = clusterLevelResources
 	}
 	return plan, nil
+}
+
+// expectedNamesForUnits collects the resource names the plan wants to exist into
+// the three name sets the stale sweep diffs against: every unit's STS, headless
+// Service, proxy Service, and ConfigMap, plus each cluster-level proxy Service.
+func expectedNamesForUnits(units []reconcileUnit, clusterLevelResources []clusterLevelResource) staleSweepExpectations {
+	expected := staleSweepExpectations{
+		services:     map[string]bool{},
+		statefulSets: map[string]bool{},
+		configMaps:   map[string]bool{},
+	}
+	for _, u := range units {
+		expected.statefulSets[u.stsName.Name] = true
+		expected.services[u.headlessSvc.Name] = true
+		expected.services[u.proxySvc.Name] = true
+		expected.configMaps[u.configMapName.Name] = true
+	}
+	for _, res := range clusterLevelResources {
+		expected.services[res.svcName.Name] = true
+	}
+	return expected
 }
 
 func (r *MongoDBSearchReconcileHelper) Reconcile(ctx context.Context, log *zap.SugaredLogger) workflow.Status {
@@ -702,70 +730,6 @@ func isOwnedBy(obj client.Object, owner client.Object) bool {
 		}
 	}
 	return false
-}
-
-// cleanupStaleShardResources deletes per-shard proxy Services for shards that no
-// longer exist. In MC the proxy Services live on the member clusters, so we
-// iterate the central client plus every member-cluster client and only touch
-// Services we own (by UID on central, by search-owner label on members —
-// cross-cluster owner refs don't exist).
-//
-// STSs / ConfigMaps / headless Services for stale shards are not handled here:
-// in MC their owners live cross-cluster and aren't GC'd by Kubernetes.
-func (r *MongoDBSearchReconcileHelper) cleanupStaleShardResources(ctx context.Context, log *zap.SugaredLogger, currentShardNames []string) error {
-	if r.mdbSearch.IsShardedUnmanagedLB() {
-		return nil
-	}
-
-	expectedNames := make(map[string]bool)
-	seenClusters := map[int]bool{}
-	for _, w := range r.buildShardedWorkList(currentShardNames) {
-		expectedNames[r.mdbSearch.ProxyServiceNameForClusterShard(w.ClusterIndex, w.ShardName).Name] = true
-		if !seenClusters[w.ClusterIndex] {
-			seenClusters[w.ClusterIndex] = true
-			expectedNames[r.mdbSearch.ProxyServiceNamespacedNameForCluster(w.ClusterIndex).Name] = true
-		}
-	}
-
-	clients := map[string]kubernetesClient.Client{"": r.client}
-	for name, c := range r.memberClusterClients {
-		clients[name] = c
-	}
-
-	for clusterName, c := range clients {
-		serviceList := &corev1.ServiceList{}
-		if err := c.List(ctx, serviceList,
-			client.InNamespace(r.mdbSearch.Namespace),
-			client.MatchingLabels{componentLabelKey: proxyServiceComponent},
-		); err != nil {
-			return xerrors.Errorf("failed to list proxy services on cluster %q: %w", clusterName, err)
-		}
-
-		for i := range serviceList.Items {
-			svc := &serviceList.Items[i]
-			if expectedNames[svc.Name] {
-				continue
-			}
-			// Owner refs don't cross clusters, so for member-cluster Services the
-			// owner check is by search-owner label instead of UID. Same intent:
-			// only touch Services we created.
-			if clusterName == "" {
-				if !isOwnedBy(svc, r.mdbSearch) {
-					continue
-				}
-			} else {
-				if svc.Labels[khandler.MongoDBSearchOwnerNameLabel] != r.mdbSearch.Name ||
-					svc.Labels[khandler.MongoDBSearchOwnerNamespaceLabel] != r.mdbSearch.Namespace {
-					continue
-				}
-			}
-			log.Infof("Deleting stale proxy Service %s on cluster %q", svc.Name, clusterName)
-			if err := c.Delete(ctx, svc); err != nil && !apierrors.IsNotFound(err) {
-				return xerrors.Errorf("failed to delete stale proxy Service %s on cluster %q: %w", svc.Name, clusterName, err)
-			}
-		}
-	}
-	return nil
 }
 
 // ensureKeyfileModification returns the keyfile StatefulSet modification if wireproto is enabled.
