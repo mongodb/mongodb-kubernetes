@@ -1426,6 +1426,7 @@ func TestValidateMultipleReplicasUnmanagedLBTopology(t *testing.T) {
 				tc.source,
 				OperatorSearchConfig{},
 				nil, nil,
+				newFakeRoutingLatch(),
 			)
 
 			err := helper.ValidateMultipleReplicasUnmanagedLBTopology()

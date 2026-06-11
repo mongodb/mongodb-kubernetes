@@ -664,12 +664,8 @@ func TestBuildShardRoutes_MC_ClusterLevel_ManagedLB(t *testing.T) {
 }
 
 func TestBuildShardRoutes_WithPendingShards(t *testing.T) {
-	one := int32(1)
 	search := &searchv1.MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{Name: "mdb", Namespace: "mongodb"},
-		Spec: searchv1.MongoDBSearchSpec{
-			Replicas: &one,
-		},
 	}
 	shardNames := []string{"mdb-sh-0", "mdb-sh-1", "mdb-sh-2"}
 	pending := []string{"mdb-sh-2"}
@@ -697,12 +693,8 @@ func TestBuildShardRoutes_WithPendingShards(t *testing.T) {
 }
 
 func TestBuildShardRoutes_AllPending_NoFallback(t *testing.T) {
-	one := int32(1)
 	search := &searchv1.MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{Name: "mdb", Namespace: "mongodb"},
-		Spec: searchv1.MongoDBSearchSpec{
-			Replicas: &one,
-		},
 	}
 	shardNames := []string{"mdb-sh-0", "mdb-sh-1"}
 	pending := []string{"mdb-sh-0", "mdb-sh-1"}
