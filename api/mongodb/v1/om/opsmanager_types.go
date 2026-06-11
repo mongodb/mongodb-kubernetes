@@ -1106,8 +1106,8 @@ type AppDBConfigurable struct {
 // GetOwnerReferences returns the OwnerReferences pointing to the MongoDBOpsManager instance and used by SCRAM related resources.
 func (m *AppDBConfigurable) GetOwnerReferences() []metav1.OwnerReference {
 	groupVersionKind := schema.GroupVersionKind{
-		Group:   GroupVersion.Group,
-		Version: GroupVersion.Version,
+		Group:   v1.SchemeGroupVersion.Group,
+		Version: v1.SchemeGroupVersion.Version,
 		Kind:    m.OpsManager.Kind,
 	}
 	ownerReference := *metav1.NewControllerRef(&m.OpsManager, groupVersionKind)

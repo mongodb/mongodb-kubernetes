@@ -794,6 +794,9 @@ func (r *ShardedClusterReconcileHelper) initializeStateStore(ctx context.Context
 		}
 	} else {
 		r.deploymentState = state
+		if r.deploymentState.Status == nil {
+			r.deploymentState.Status = &mdbv1.MongoDbStatus{}
+		}
 		if r.deploymentState.Status.SizeStatusInClusters == nil {
 			r.deploymentState.Status.SizeStatusInClusters = &mdbstatus.MongodbShardedSizeStatusInClusters{}
 		}

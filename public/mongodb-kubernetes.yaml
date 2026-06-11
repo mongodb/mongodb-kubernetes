@@ -332,6 +332,8 @@ spec:
       securityContext:
         runAsNonRoot: true
         runAsUser: 2000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: mongodb-kubernetes-operator
           image: "quay.io/mongodb/mongodb-kubernetes:1.8.2"
@@ -355,6 +357,11 @@ spec:
             requests:
               cpu: 500m
               memory: 200Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
           env:
             - name: OPERATOR_ENV
               value: prod
@@ -374,6 +381,8 @@ spec:
               value: "168h"
             - name: CLUSTER_CLIENT_TIMEOUT
               value: "10"
+            - name: MDB_MEMBER_CLUSTER_REQUIRED_HEALTHY_STREAK
+              value: "5"
             - name: IMAGE_PULL_POLICY
               value: Always
             # Database

@@ -120,7 +120,7 @@ linters:
         path: ^pkg\/util\/env
       - linters:
           - forbidigo
-        path: ^main.go$
+        path: (^|/)main\.go$
       - linters:
           - forbidigo
         path: ^mongodb-community-operator\/cmd\/(readiness|versionhook)\/main\.go$
