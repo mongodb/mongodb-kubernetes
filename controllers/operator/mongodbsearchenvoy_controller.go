@@ -276,7 +276,11 @@ func (r *MongoDBSearchEnvoyReconciler) reconcileForCluster(
 	if err != nil {
 		return workflow.Failed(fmt.Errorf("cluster=%q: %w", clusterName, err))
 	}
-	ldsJSON, err := buildLDSJSON(routes, tlsEnabled, caKeyName, search.GetManagedLBRetryPolicy())
+	var retryPolicy *searchv1.EnvoyRetryPolicy
+	if cfg := search.GetManagedLBForCluster(clusterIndex); cfg != nil {
+		retryPolicy = cfg.RetryPolicy
+	}
+	ldsJSON, err := buildLDSJSON(routes, tlsEnabled, caKeyName, retryPolicy)
 	if err != nil {
 		return workflow.Failed(fmt.Errorf("cluster=%q: %w", clusterName, err))
 	}
@@ -530,7 +534,7 @@ func (r *MongoDBSearchEnvoyReconciler) ensureDeployment(ctx context.Context, sea
 	if err != nil {
 		return err
 	}
-	replicas := envoyReplicas(search)
+	replicas := envoyReplicas(search, clusterIndex)
 	labels := envoyLabelsForCluster(search, clusterName, clusterIndex)
 	podLabels := envoyPodLabelsForCluster(search, clusterIndex)
 	tlsEnabled := search.IsTLSConfigured()
@@ -538,7 +542,7 @@ func (r *MongoDBSearchEnvoyReconciler) ensureDeployment(ctx context.Context, sea
 	if err != nil {
 		return err
 	}
-	resources := envoyResourceRequirements(search)
+	resources := envoyResourceRequirements(search, clusterIndex)
 	managedSecurityContext := env.ReadBoolOrDefault(podtemplatespec.ManagedSecurityContextEnv, false) // nolint:forbidigo
 
 	dep := &appsv1.Deployment{
@@ -568,10 +572,10 @@ func (r *MongoDBSearchEnvoyReconciler) ensureDeployment(ctx context.Context, sea
 		}
 
 		// Apply user deployment configuration override
-		if depCfg := search.GetManagedLBDeploymentConfig(); depCfg != nil {
-			dep.Spec = merge.DeploymentSpecs(dep.Spec, depCfg.SpecWrapper.Spec)
-			dep.Labels = merge.StringToStringMap(dep.Labels, depCfg.MetadataWrapper.Labels)
-			dep.Annotations = merge.StringToStringMap(dep.Annotations, depCfg.MetadataWrapper.Annotations)
+		if cfg := search.GetManagedLBForCluster(clusterIndex); cfg != nil && cfg.Deployment != nil {
+			dep.Spec = merge.DeploymentSpecs(dep.Spec, cfg.Deployment.SpecWrapper.Spec)
+			dep.Labels = merge.StringToStringMap(dep.Labels, cfg.Deployment.MetadataWrapper.Labels)
+			dep.Annotations = merge.StringToStringMap(dep.Annotations, cfg.Deployment.MetadataWrapper.Annotations)
 		}
 
 		if clusterName == "" {
@@ -745,11 +749,11 @@ func (r *MongoDBSearchEnvoyReconciler) envoyContainerImage() (string, error) {
 	return r.defaultEnvoyImage, nil
 }
 
-// envoyResourceRequirements returns user-specified resource requirements
+// envoyResourceRequirements returns the cluster's resource requirements
 // or the defaults (100m/128Mi requests, 500m/512Mi limits).
-func envoyResourceRequirements(search *searchv1.MongoDBSearch) corev1.ResourceRequirements {
-	if reqs := search.GetManagedLBResourceRequirements(); reqs != nil {
-		return *reqs
+func envoyResourceRequirements(search *searchv1.MongoDBSearch, clusterIndex int) corev1.ResourceRequirements {
+	if cfg := search.GetManagedLBForCluster(clusterIndex); cfg != nil && cfg.ResourceRequirements != nil {
+		return *cfg.ResourceRequirements
 	}
 	return defaultEnvoyResourceRequirements()
 }
@@ -789,11 +793,11 @@ func envoyLabelsForCluster(search *searchv1.MongoDBSearch, clusterName string, c
 	return labels
 }
 
-// envoyReplicas returns the desired Envoy replica count.
-// Uses spec.loadBalancer.managed.replicas if set, otherwise defaults to 1.
-func envoyReplicas(search *searchv1.MongoDBSearch) int32 {
-	if cfg := search.Spec.LoadBalancer; cfg != nil && cfg.Managed != nil && cfg.Managed.Replicas != nil {
-		return *cfg.Managed.Replicas
+// envoyReplicas returns the cluster's desired Envoy replica count.
+// Uses spec.clusters[].loadBalancer.managed.replicas if set, otherwise defaults to 1.
+func envoyReplicas(search *searchv1.MongoDBSearch, clusterIndex int) int32 {
+	if cfg := search.GetManagedLBForCluster(clusterIndex); cfg != nil && cfg.Replicas != nil {
+		return *cfg.Replicas
 	}
 	return envoyReplicasDefault
 }
