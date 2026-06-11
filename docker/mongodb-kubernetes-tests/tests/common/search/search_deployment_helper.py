@@ -176,6 +176,7 @@ class SearchDeploymentHelper:
             },
         }
 
+        lb = None
         if lb_mode or lb_endpoint:
             lb = {}
             if lb_mode == "Managed":
@@ -189,7 +190,6 @@ class SearchDeploymentHelper:
                 lb["unmanaged"]["endpoint"] = lb_endpoint
             elif lb_mode == "Unmanaged":
                 lb["unmanaged"] = {}
-            resource["spec"]["loadBalancer"] = lb
 
         if replicas is not None:
             resource["spec"]["clusters"] = [{"replicas": replicas}]
@@ -197,6 +197,12 @@ class SearchDeploymentHelper:
         if shard_overrides is not None:
             clusters = resource["spec"].get("clusters") or [{}]
             clusters[0]["shardOverrides"] = shard_overrides
+            resource["spec"]["clusters"] = clusters
+
+        if lb is not None:
+            clusters = resource["spec"].get("clusters") or [{}]
+            for cluster in clusters:
+                cluster["loadBalancer"] = lb
             resource["spec"]["clusters"] = clusters
 
         return resource
@@ -421,19 +427,26 @@ class SearchDeploymentHelper:
             "tls": {"certsSecretPrefix": self.tls_cert_prefix},
         }
 
+        lb = None
         if lb_mode:
             if lb_mode == "Managed":
                 external_hostname = (
                     f"{self.mdbs_resource_name}-search-0-proxy-svc" f".{self.namespace}.svc.cluster.local"
                 )
-                resource["spec"]["loadBalancer"] = {"managed": {"externalHostname": external_hostname}}
+                lb = {"managed": {"externalHostname": external_hostname}}
             elif lb_mode == "Unmanaged":
-                resource["spec"]["loadBalancer"] = {"unmanaged": {}}
+                lb = {"unmanaged": {}}
 
         if clusters is not None:
             resource["spec"]["clusters"] = clusters
         elif replicas is not None:
             resource["spec"]["clusters"] = [{"replicas": replicas}]
+
+        if lb is not None:
+            clusters_spec = resource["spec"].get("clusters") or [{}]
+            for cluster in clusters_spec:
+                cluster["loadBalancer"] = lb
+            resource["spec"]["clusters"] = clusters_spec
 
         return resource
 
