@@ -76,17 +76,7 @@ func patchUpdateStatus(ctx context.Context, kubeClient kubernetesClient.Client, 
 // if we just try and patch the full path directly, the subresource sections are not recursively created, so
 // we need to ensure that the actual object we're trying to write to exists, otherwise we will get errors.
 func ensureStatusSubresourceExists(ctx context.Context, kubeClient kubernetesClient.Client, resource v1.CustomResourceReadWriter, options ...status.Option) error {
-	fullPath := resource.GetStatusPath(options...)
-	parts := strings.Split(fullPath, "/")
-
-	if strings.HasPrefix(fullPath, "/") {
-		parts = parts[1:]
-	}
-
-	var path []string
-	for _, part := range parts {
-		pathStr := "/" + strings.Join(path, "/")
-		path = append(path, part)
+	for _, pathStr := range statusSubresourcePatchPaths(resource.GetStatusPath(options...)) {
 		emptyPatchPayload := []patchValue{{
 			Op:    "add",
 			Path:  pathStr,
@@ -102,4 +92,20 @@ func ensureStatusSubresourceExists(ctx context.Context, kubeClient kubernetesCli
 		}
 	}
 	return nil
+}
+
+// statusSubresourcePatchPaths returns the cumulative JSON-patch paths to ensure,
+// e.g. "/status/loadBalancer" → ["/status", "/status/loadBalancer"]. Never the
+// document root: a JSON-patch add at "/" would replace the entire status.
+func statusSubresourcePatchPaths(fullPath string) []string {
+	var paths []string
+	prefix := ""
+	for _, part := range strings.Split(fullPath, "/") {
+		if part == "" {
+			continue
+		}
+		prefix += "/" + part
+		paths = append(paths, prefix)
+	}
+	return paths
 }
