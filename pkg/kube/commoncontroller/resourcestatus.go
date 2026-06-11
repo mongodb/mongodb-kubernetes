@@ -75,8 +75,14 @@ func patchUpdateStatus(ctx context.Context, kubeClient kubernetesClient.Client, 
 // ensureStatusSubresourceExists ensures that the status subresource section we are trying to write to exists.
 // if we just try and patch the full path directly, the subresource sections are not recursively created, so
 // we need to ensure that the actual object we're trying to write to exists, otherwise we will get errors.
+// Each path (ancestors and leaf) is probed before being added: JSON-patch add
+// REPLACES an existing member, so an unconditional add at /status would wipe
+// sibling status fields written by another controller.
 func ensureStatusSubresourceExists(ctx context.Context, kubeClient kubernetesClient.Client, resource v1.CustomResourceReadWriter, options ...status.Option) error {
 	for _, pathStr := range statusSubresourcePatchPaths(resource.GetStatusPath(options...)) {
+		if !statusPathAbsent(ctx, kubeClient, resource, pathStr) {
+			continue
+		}
 		emptyPatchPayload := []patchValue{{
 			Op:    "add",
 			Path:  pathStr,
@@ -92,6 +98,21 @@ func ensureStatusSubresourceExists(ctx context.Context, kubeClient kubernetesCli
 		}
 	}
 	return nil
+}
+
+// statusPathAbsent probes a status path with a JSON-patch test against null,
+// which succeeds iff the member is absent (or null); any failure — including a
+// transport error, which the follow-up write will surface — means "exists".
+func statusPathAbsent(ctx context.Context, kubeClient kubernetesClient.Client, resource v1.CustomResourceReadWriter, pathStr string) bool {
+	data, err := json.Marshal([]patchValue{{
+		Op:    "test",
+		Path:  pathStr,
+		Value: nil,
+	}})
+	if err != nil {
+		return false
+	}
+	return kubeClient.Status().Patch(ctx, resource, client.RawPatch(types.JSONPatchType, data)) == nil
 }
 
 // statusSubresourcePatchPaths returns the cumulative JSON-patch paths to ensure,
