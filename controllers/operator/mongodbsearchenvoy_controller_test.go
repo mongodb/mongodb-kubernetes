@@ -528,6 +528,7 @@ type mockShardedSourceForEnvoy struct {
 
 func (m *mockShardedSourceForEnvoy) GetShardCount() int      { return len(m.shardNames) }
 func (m *mockShardedSourceForEnvoy) GetShardNames() []string { return m.shardNames }
+func (m *mockShardedSourceForEnvoy) DrainingShardCount() int { return 0 }
 func (m *mockShardedSourceForEnvoy) GetUnmanagedLBEndpointForShard(_ string) string {
 	return ""
 }

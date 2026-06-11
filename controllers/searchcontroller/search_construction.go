@@ -64,6 +64,10 @@ type SearchSourceShardedDeployment interface {
 	SearchSourceDBResource
 	GetShardCount() int
 	GetShardNames() []string
+	// DrainingShardCount is the number of removed shards the source is still
+	// draining (GetShardCount above the desired spec count). Search keeps
+	// serving these until the source completes the drain.
+	DrainingShardCount() int
 	GetUnmanagedLBEndpointForShard(shardName string) string
 	MongosHostsAndPorts() []string
 }

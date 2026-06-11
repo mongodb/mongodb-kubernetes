@@ -213,7 +213,7 @@ type reconcilePlan struct {
 func (r *MongoDBSearchReconcileHelper) buildReconcilePlan(log *zap.SugaredLogger) (reconcilePlan, error) {
 	if shardedSource, ok := r.db.(SearchSourceShardedDeployment); ok {
 		log.Infof("Reconciling MongoDBSearch for sharded source deployment with %d shards", shardedSource.GetShardCount())
-		return r.buildShardedPlan(shardedSource)
+		return r.buildShardedPlan(shardedSource, log)
 	}
 	return r.buildReplicaSetPlan(r.db)
 }
@@ -330,8 +330,11 @@ func (r *MongoDBSearchReconcileHelper) rsResourceNames(w rsWorkItem) (types.Name
 		r.mdbSearch.MongotConfigConfigMapNameForCluster(w.ClusterIndex)
 }
 
-func (r *MongoDBSearchReconcileHelper) buildShardedPlan(shardedSource SearchSourceShardedDeployment) (reconcilePlan, error) {
+func (r *MongoDBSearchReconcileHelper) buildShardedPlan(shardedSource SearchSourceShardedDeployment, log *zap.SugaredLogger) (reconcilePlan, error) {
 	shardNames := shardedSource.GetShardNames()
+	if draining := shardedSource.DrainingShardCount(); draining > 0 {
+		log.Infof("Source is draining %d shard(s); deferring search teardown until drain completes", draining)
+	}
 	work := r.buildShardedWorkList(shardNames)
 
 	// HostSeeds is invariant in cluster — resolve once per shard, then reuse

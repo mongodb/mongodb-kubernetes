@@ -372,3 +372,54 @@ func TestShardedEnterpriseSearchSource_GetShardNames(t *testing.T) {
 		})
 	}
 }
+
+func TestShardedInternalSearchSource_GetShardNames_Draining(t *testing.T) {
+	tests := []struct {
+		name             string
+		specShardCount   int
+		statusShardCount int
+		expectedShards   []string
+		expectedDraining int
+	}{
+		{
+			name:             "draining: status above spec keeps the draining shard",
+			specShardCount:   2,
+			statusShardCount: 3,
+			expectedShards:   []string{"sc-0", "sc-1", "sc-2"},
+			expectedDraining: 1,
+		},
+		{
+			name:             "status equals spec uses spec count",
+			specShardCount:   3,
+			statusShardCount: 3,
+			expectedShards:   []string{"sc-0", "sc-1", "sc-2"},
+			expectedDraining: 0,
+		},
+		{
+			name:             "scaling up: status below spec uses spec count",
+			specShardCount:   3,
+			statusShardCount: 2,
+			expectedShards:   []string{"sc-0", "sc-1", "sc-2"},
+			expectedDraining: 0,
+		},
+		{
+			name:             "fresh CR: zero status uses spec count",
+			specShardCount:   2,
+			statusShardCount: 0,
+			expectedShards:   []string{"sc-0", "sc-1"},
+			expectedDraining: 0,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			mdb := newShardedClusterMongoDB("sc", "test-ns", tc.specShardCount, "8.2.0")
+			mdb.Status.MongodbShardedClusterSizeConfig.ShardCount = tc.statusShardCount
+			search := newShardedUnmanagedLBSearch("test-search", "test-ns", "sc", "")
+			src := NewShardedInternalSearchSource(mdb, search)
+
+			assert.Equal(t, tc.expectedShards, src.GetShardNames())
+			assert.Equal(t, tc.expectedDraining, src.DrainingShardCount())
+		})
+	}
+}

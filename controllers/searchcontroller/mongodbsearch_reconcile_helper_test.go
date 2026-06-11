@@ -1176,6 +1176,9 @@ type mockShardedSource struct {
 	shardNames []string
 	hostSeeds  map[string][]string
 	tlsConfig  *TLSSourceConfig
+	// drainingShardCount must mirror how many of shardNames are draining
+	// (union − desired spec count), as the real source derives from GetShardCount.
+	drainingShardCount int
 }
 
 func (m *mockShardedSource) GetShardCount() int {
@@ -1184,6 +1187,10 @@ func (m *mockShardedSource) GetShardCount() int {
 
 func (m *mockShardedSource) GetShardNames() []string {
 	return m.shardNames
+}
+
+func (m *mockShardedSource) DrainingShardCount() int {
+	return m.drainingShardCount
 }
 
 func (m *mockShardedSource) GetUnmanagedLBEndpointForShard(shardName string) string {
@@ -2538,6 +2545,78 @@ func TestReconcileSharded_CreatesPerShardResources(t *testing.T) {
 	}
 }
 
+// TestReconcileSharded_DefersTeardownDuringDrain verifies that while the source
+// is draining a removed shard (GetShardNames still includes it), search keeps
+// building that shard's mongot units and logs the deferral; once the source's
+// achieved count converges down (the draining shard drops out of GetShardNames),
+// search stops building units for it.
+func TestReconcileSharded_DefersTeardownDuringDrain(t *testing.T) {
+	const drainingShard = "my-cluster-2"
+
+	assertShardUnitsBuilt := func(t *testing.T, fakeClient kubernetesClient.Client, search *searchv1.MongoDBSearch, shardName string, present bool) {
+		t.Helper()
+		_, stsErr := fakeClient.GetStatefulSet(t.Context(), search.MongotStatefulSetForClusterShard(0, shardName))
+		_, svcErr := fakeClient.GetService(t.Context(), search.MongotServiceForClusterShard(0, shardName))
+		_, cmErr := fakeClient.GetConfigMap(t.Context(), search.MongotConfigMapForClusterShard(0, shardName))
+		if present {
+			require.NoError(t, stsErr, "shard %s StatefulSet expected", shardName)
+			require.NoError(t, svcErr, "shard %s Service expected", shardName)
+			require.NoError(t, cmErr, "shard %s ConfigMap expected", shardName)
+		} else {
+			assert.True(t, apierrors.IsNotFound(stsErr), "shard %s StatefulSet should not be built", shardName)
+			assert.True(t, apierrors.IsNotFound(svcErr), "shard %s Service should not be built", shardName)
+			assert.True(t, apierrors.IsNotFound(cmErr), "shard %s ConfigMap should not be built", shardName)
+		}
+	}
+
+	hostSeeds := map[string][]string{
+		"my-cluster-0": {"my-cluster-0-0.my-cluster-sh.test-ns.svc.cluster.local:27017"},
+		"my-cluster-1": {"my-cluster-1-0.my-cluster-sh.test-ns.svc.cluster.local:27017"},
+		drainingShard:  {"my-cluster-2-0.my-cluster-sh.test-ns.svc.cluster.local:27017"},
+	}
+
+	t.Run("mid-drain keeps the draining shard and logs the deferral", func(t *testing.T) {
+		search := newTestMongoDBSearch("test-search", "test-ns")
+		// Spec wants 2 shards, source still serves 3 (one draining) → union = 3.
+		const specShardCount = 2
+		unionShards := []string{"my-cluster-0", "my-cluster-1", drainingShard}
+		shardedSource := &mockShardedSource{
+			shardNames:         unionShards,
+			hostSeeds:          hostSeeds,
+			drainingShardCount: len(unionShards) - specShardCount,
+		}
+		fakeClient := newTestFakeClient(search)
+		helper := NewMongoDBSearchReconcileHelper(fakeClient, search, shardedSource, newTestOperatorSearchConfig(), nil, nil)
+
+		core, logs := observer.New(zapcore.InfoLevel)
+		log := zap.New(core).Sugar()
+
+		result := helper.reconcile(t.Context(), log)
+		assert.False(t, result.IsOK())
+
+		assertShardUnitsBuilt(t, fakeClient, search, drainingShard, true)
+		assert.NotEmpty(t, logs.FilterMessage("Source is draining 1 shard(s); deferring search teardown until drain completes").All(),
+			"expected deferred-teardown log line")
+	})
+
+	t.Run("after convergence the drained shard is no longer built", func(t *testing.T) {
+		search := newTestMongoDBSearch("test-search", "test-ns")
+		// Source converged to 2 shards; the draining shard has dropped out.
+		shardedSource := &mockShardedSource{
+			shardNames: []string{"my-cluster-0", "my-cluster-1"},
+			hostSeeds:  hostSeeds,
+		}
+		fakeClient := newTestFakeClient(search)
+		helper := NewMongoDBSearchReconcileHelper(fakeClient, search, shardedSource, newTestOperatorSearchConfig(), nil, nil)
+
+		result := helper.reconcile(t.Context(), zap.S())
+		assert.False(t, result.IsOK())
+
+		assertShardUnitsBuilt(t, fakeClient, search, "my-cluster-0", true)
+		assertShardUnitsBuilt(t, fakeClient, search, drainingShard, false)
+	})
+}
+
 func TestReconcileReplicaSet_CreatesResources(t *testing.T) {
 	search := newTestMongoDBSearch("test-search", "test-ns")
 	mdbc := newTestMongoDBCommunity("test-mongodb", "test-ns")
@@ -2671,7 +2750,7 @@ func TestReconcileShardedMC_MongotComponentLabel(t *testing.T) {
 		operatorSearchConfig: newTestOperatorSearchConfig(),
 	}
 
-	plan, err := r.buildShardedPlan(shardedSource)
+	plan, err := r.buildShardedPlan(shardedSource, zap.S())
 	require.NoError(t, err)
 
 	for _, unit := range plan.units {
@@ -2946,7 +3025,7 @@ func TestBuildShardedPlan_PerClusterShardUnitsForMC(t *testing.T) {
 		clusterMapping: map[string]int{"cluster-a": 0, "cluster-b": 1},
 	}
 
-	plan, err := r.buildShardedPlan(shardedSource)
+	plan, err := r.buildShardedPlan(shardedSource, zap.S())
 	require.NoError(t, err)
 
 	require.Len(t, plan.units, 4, "expected one unit per (cluster, shard) pair")
@@ -3014,7 +3093,7 @@ func TestReconcileShardedMC_FanOutUsesPerClusterClient(t *testing.T) {
 		operatorSearchConfig: newTestOperatorSearchConfig(),
 	}
 
-	plan, err := r.buildShardedPlan(shardedSource)
+	plan, err := r.buildShardedPlan(shardedSource, zap.S())
 	require.NoError(t, err)
 
 	for _, unit := range plan.units {
@@ -3658,7 +3737,7 @@ func TestReconcileSharded_EmptyShardNames(t *testing.T) {
 		operatorSearchConfig: newTestOperatorSearchConfig(),
 	}
 
-	plan, err := r.buildShardedPlan(src)
+	plan, err := r.buildShardedPlan(src, zap.S())
 	require.NoError(t, err)
 	require.Empty(t, plan.units, "no shards → no reconcile units")
 	require.Empty(t, plan.clusterLevelResources, "no shards → no cluster-level proxy Services")

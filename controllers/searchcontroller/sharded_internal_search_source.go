@@ -29,12 +29,29 @@ func NewShardedInternalSearchSource(mdb *mdbv1.MongoDB, search *searchv1.MongoDB
 	}
 }
 
+// GetShardNames returns the names of the shards search must serve, including any
+// shard still draining on the source (see GetShardCount for the drain rationale).
 func (r *ShardedInternalSearchSource) GetShardNames() []string {
-	return r.ShardRsNames()
+	count := r.GetShardCount()
+	names := make([]string, count)
+	for i := 0; i < count; i++ {
+		names[i] = r.ShardRsName(i)
+	}
+	return names
 }
 
+// GetShardCount returns max(spec, achieved) shard count. The sharded-cluster
+// reconciler stamps Status.ShardCount only once the cluster reaches Running,
+// i.e. after drain phase 2, so it lags Spec.ShardCount during a shard-count
+// reduction; using the max keeps search serving the draining shards meanwhile.
 func (r *ShardedInternalSearchSource) GetShardCount() int {
-	return r.Spec.ShardCount
+	return max(r.Spec.ShardCount, r.Status.ShardCount)
+}
+
+// DrainingShardCount is the number of shards still draining on the source —
+// the gap between the count search serves (GetShardCount) and the desired spec.
+func (r *ShardedInternalSearchSource) DrainingShardCount() int {
+	return r.GetShardCount() - r.Spec.ShardCount
 }
 
 func (r *ShardedInternalSearchSource) HostSeeds(shardName string) ([]string, error) {
