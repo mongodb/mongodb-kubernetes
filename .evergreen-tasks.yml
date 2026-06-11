@@ -1337,11 +1337,13 @@ tasks:
 
   - name: e2e_search_community_auto_embedding
     tags: ["patch-run"]
+    patchable: false
     commands:
       - func: "e2e_test"
 
   - name: e2e_search_community_auto_embedding_multi_mongot
     tags: ["patch-run"]
+    patchable: false
     commands:
       - func: "e2e_test"
 
