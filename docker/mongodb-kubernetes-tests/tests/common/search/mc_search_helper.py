@@ -352,6 +352,181 @@ def verify_per_cluster_envoy_deployment(
         logger.info(f"Envoy Deployment {envoy_deployment_name} ready in cluster {mcc.cluster_name} (idx={cluster_idx})")
 
 
+# ---------------------------------------------------------------------------
+# Per-cluster full-resource-set presence / absence.
+# ---------------------------------------------------------------------------
+
+
+def data_pvc_prefix(mdbs_resource_name: str, cluster_index: int) -> str:
+    """PVC names are ``data-<mongot-sts>-<ordinal>``; the mongot data claim is ``data``."""
+    return f"data-{search_resource_names.mongot_statefulset_name_for_cluster(mdbs_resource_name, cluster_index)}-"
+
+
+def data_pvcs_for_cluster(mcc: MultiClusterClient, mdbs_resource_name: str, cluster_index: int, namespace: str) -> List:
+    """All mongot data PVCs for a cluster index, sorted by name (one per ordinal)."""
+    pvc_prefix = data_pvc_prefix(mdbs_resource_name, cluster_index)
+    pvcs = mcc.core_v1_api().list_namespaced_persistent_volume_claim(namespace)
+    return sorted((p for p in pvcs.items if p.metadata.name.startswith(pvc_prefix)), key=lambda p: p.metadata.name)
+
+
+def assert_cluster_search_resources_present(
+    *,
+    mcc: MultiClusterClient,
+    mdbs_resource_name: str,
+    cluster_index: int,
+    namespace: str,
+) -> None:
+    """The named cluster carries a complete, owner-labelled mongot + Envoy set."""
+    sts_name = search_resource_names.mongot_statefulset_name_for_cluster(mdbs_resource_name, cluster_index)
+    svc_name = search_resource_names.mongot_service_name_for_cluster(mdbs_resource_name, cluster_index)
+    proxy_svc_name = search_resource_names.mc_proxy_svc_name(mdbs_resource_name, cluster_index)
+    cm_name = search_resource_names.mongot_configmap_name_for_cluster(mdbs_resource_name, cluster_index)
+    envoy_deploy_name = search_resource_names.lb_deployment_name(mdbs_resource_name, cluster_index)
+    envoy_cm_name = search_resource_names.lb_configmap_name(mdbs_resource_name, cluster_index)
+
+    sts = mcc.read_namespaced_stateful_set(sts_name, namespace)
+    headless = mcc.read_namespaced_service(svc_name, namespace)
+    proxy = mcc.read_namespaced_service(proxy_svc_name, namespace)
+    cm = mcc.read_namespaced_config_map(cm_name, namespace)
+    assert_search_owner_labels(sts.metadata.labels or {}, mcc.cluster_name, f"STS {sts_name}", mdbs_resource_name)
+    assert_search_owner_labels(
+        headless.metadata.labels or {}, mcc.cluster_name, f"headless Service {svc_name}", mdbs_resource_name
+    )
+    assert_search_owner_labels(
+        proxy.metadata.labels or {}, mcc.cluster_name, f"proxy Service {proxy_svc_name}", mdbs_resource_name
+    )
+    assert_search_owner_labels(cm.metadata.labels or {}, mcc.cluster_name, f"mongot CM {cm_name}", mdbs_resource_name)
+
+    apps = mcc.apps_v1_api()
+    assert_deployment_ready_in_cluster(apps, name=envoy_deploy_name, namespace=namespace)
+    envoy_deploy = apps.read_namespaced_deployment(name=envoy_deploy_name, namespace=namespace)
+    envoy_cm = mcc.read_namespaced_config_map(envoy_cm_name, namespace)
+    assert_search_owner_labels(
+        envoy_deploy.metadata.labels or {},
+        mcc.cluster_name,
+        f"Envoy Deployment {envoy_deploy_name}",
+        mdbs_resource_name,
+    )
+    assert_search_owner_labels(
+        envoy_cm.metadata.labels or {}, mcc.cluster_name, f"Envoy CM {envoy_cm_name}", mdbs_resource_name
+    )
+
+    logger.info(
+        f"cluster {mcc.cluster_name} (idx={cluster_index}) has full search resource set: "
+        f"{sts_name}, {svc_name}, {proxy_svc_name}, {cm_name}, {envoy_deploy_name}, {envoy_cm_name}"
+    )
+
+
+def wait_for_cluster_search_resources_present(
+    *,
+    mcc: MultiClusterClient,
+    mdbs_resource_name: str,
+    cluster_index: int,
+    namespace: str,
+    timeout: int = 600,
+) -> None:
+    """Poll until the named cluster's mongot + Envoy resources have materialized."""
+
+    def check():
+        try:
+            assert_cluster_search_resources_present(
+                mcc=mcc, mdbs_resource_name=mdbs_resource_name, cluster_index=cluster_index, namespace=namespace
+            )
+            return True, f"cluster {mcc.cluster_name} (idx={cluster_index}) resources present"
+        except (kubernetes.client.ApiException, AssertionError) as exc:
+            return False, f"cluster {mcc.cluster_name} (idx={cluster_index}) not ready yet: {exc}"
+
+    run_periodically(check, timeout=timeout, sleep_time=10, msg=f"cluster {mcc.cluster_name} search resources present")
+
+
+def wait_for_cluster_search_resources_absent(
+    *,
+    mcc: MultiClusterClient,
+    mdbs_resource_name: str,
+    cluster_index: int,
+    namespace: str,
+    timeout: int = 600,
+) -> None:
+    """Poll until EVERY search-owned resource for the named cluster is gone.
+
+    Covers mongot StatefulSet, headless + proxy Services, mongot ConfigMap, the
+    backing PVCs (reaped by the StatefulSet's whenDeleted: Delete policy), and the
+    Envoy Deployment + ConfigMap. Each kind is checked independently so a partial
+    sweep surfaces the specific resource that leaked.
+    """
+    apps = mcc.apps_v1_api()
+    core = mcc.core_v1_api()
+
+    sts_name = search_resource_names.mongot_statefulset_name_for_cluster(mdbs_resource_name, cluster_index)
+    svc_name = search_resource_names.mongot_service_name_for_cluster(mdbs_resource_name, cluster_index)
+    proxy_svc_name = search_resource_names.mc_proxy_svc_name(mdbs_resource_name, cluster_index)
+    cm_name = search_resource_names.mongot_configmap_name_for_cluster(mdbs_resource_name, cluster_index)
+    envoy_deploy_name = search_resource_names.lb_deployment_name(mdbs_resource_name, cluster_index)
+    envoy_cm_name = search_resource_names.lb_configmap_name(mdbs_resource_name, cluster_index)
+    pvc_prefix = data_pvc_prefix(mdbs_resource_name, cluster_index)
+
+    def _read_gone(read_fn, name: str, kind: str):
+        try:
+            read_fn(name, namespace)
+            return False, f"{kind} {name} still exists in {mcc.cluster_name}"
+        except kubernetes.client.ApiException as e:
+            if e.status == 404:
+                return True, f"{kind} {name} deleted in {mcc.cluster_name}"
+            raise
+
+    def pvcs_gone():
+        pvcs = core.list_namespaced_persistent_volume_claim(namespace)
+        leftover = [p.metadata.name for p in pvcs.items if p.metadata.name.startswith(pvc_prefix)]
+        if leftover:
+            return False, f"PVC(s) for {mcc.cluster_name} still exist: {leftover}"
+        return True, f"no PVCs with prefix {pvc_prefix!r} remain in {mcc.cluster_name}"
+
+    checks = [
+        (lambda: _read_gone(apps.read_namespaced_stateful_set, sts_name, "StatefulSet"), f"StatefulSet {sts_name}"),
+        (
+            lambda: _read_gone(core.read_namespaced_service, svc_name, "headless Service"),
+            f"headless Service {svc_name}",
+        ),
+        (
+            lambda: _read_gone(core.read_namespaced_service, proxy_svc_name, "proxy Service"),
+            f"proxy Service {proxy_svc_name}",
+        ),
+        (lambda: _read_gone(core.read_namespaced_config_map, cm_name, "mongot ConfigMap"), f"mongot CM {cm_name}"),
+        (
+            lambda: _read_gone(apps.read_namespaced_deployment, envoy_deploy_name, "Envoy Deployment"),
+            f"Envoy Deployment {envoy_deploy_name}",
+        ),
+        (
+            lambda: _read_gone(core.read_namespaced_config_map, envoy_cm_name, "Envoy ConfigMap"),
+            f"Envoy CM {envoy_cm_name}",
+        ),
+        (pvcs_gone, f"PVCs {pvc_prefix}*"),
+    ]
+    for check, label in checks:
+        run_periodically(check, timeout=timeout, sleep_time=10, msg=f"{label} deletion in {mcc.cluster_name}")
+        logger.info(f"{label} confirmed deleted in {mcc.cluster_name} (idx={cluster_index})")
+
+
+def state_configmap_name(mdbs_resource_name: str) -> str:
+    """Name of the central-cluster state ConfigMap carrying the persisted ClusterMapping."""
+    return f"{mdbs_resource_name}-state"
+
+
+def read_persisted_cluster_mapping(
+    *,
+    namespace: str,
+    central_cluster_client: kubernetes.client.ApiClient,
+    mdbs_resource_name: str,
+) -> Dict[str, int]:
+    """Return the operator's persisted ClusterMapping from the ``<name>-state`` ConfigMap."""
+    state_cm_name = state_configmap_name(mdbs_resource_name)
+    core = CoreV1Api(api_client=central_cluster_client)
+    state_cm = core.read_namespaced_config_map(name=state_cm_name, namespace=namespace)
+    raw = (state_cm.data or {}).get("state")
+    assert raw, f"state ConfigMap {state_cm_name} missing 'state' key; got {list((state_cm.data or {}).keys())}"
+    return json.loads(raw).get("clusterMapping") or {}
+
+
 def _read_envoy_sni_server_names(
     mcc: MultiClusterClient,
     mdbs_resource_name: str,
