@@ -126,18 +126,24 @@ func searchOwnerLabels(search *searchv1.MongoDBSearch, clusterName string) map[s
 	return labels
 }
 
-// withSearchOwnerLabels merges the search-owner labels into the STS ObjectMeta
-// labels. It does NOT touch the selector/pod-template (which is immutable on
-// existing STS); the pod-routing labels stay in the unit's podLabels.
-func withSearchOwnerLabels(search *searchv1.MongoDBSearch, clusterName string) statefulset.Modification {
+// withStsMetaLabels merges labels into the STS ObjectMeta labels. It does NOT
+// touch the selector/pod-template (the selector is immutable on existing STS;
+// pod-template label changes would roll every mongot pod on operator upgrade).
+func withStsMetaLabels(labels map[string]string) statefulset.Modification {
 	return func(set *appsv1.StatefulSet) {
 		if set.Labels == nil {
 			set.Labels = map[string]string{}
 		}
-		for k, v := range searchOwnerLabels(search, clusterName) {
+		for k, v := range labels {
 			set.Labels[k] = v
 		}
 	}
+}
+
+// withSearchOwnerLabels merges the search-owner labels into the STS ObjectMeta
+// labels; the pod-routing labels stay in the unit's podLabels.
+func withSearchOwnerLabels(search *searchv1.MongoDBSearch, clusterName string) statefulset.Modification {
+	return withStsMetaLabels(searchOwnerLabels(search, clusterName))
 }
 
 // clientForCluster returns the Kubernetes client for a unit's member cluster.
@@ -668,7 +674,9 @@ func (r *MongoDBSearchReconcileHelper) applyReconcileUnit(
 		unitClient,
 		unit.stsName,
 		stsFunc,
+		// Label mods must follow stsFunc: WithLabels inside it replaces ObjectMeta labels wholesale.
 		withSearchOwnerLabels(r.mdbSearch, unit.clusterName),
+		withStsMetaLabels(map[string]string{componentLabelKey: mongotComponent}),
 		mods.passwordAuthSts,
 		configHashModification,
 		mods.keyfileSts,
@@ -728,7 +736,7 @@ func (r *MongoDBSearchReconcileHelper) cleanupStaleShardResources(ctx context.Co
 		serviceList := &corev1.ServiceList{}
 		if err := c.List(ctx, serviceList,
 			client.InNamespace(r.mdbSearch.Namespace),
-			client.MatchingLabels{"component": proxyServiceComponent},
+			client.MatchingLabels{componentLabelKey: proxyServiceComponent},
 		); err != nil {
 			return xerrors.Errorf("failed to list proxy services on cluster %q: %w", clusterName, err)
 		}
@@ -909,6 +917,7 @@ func (r *MongoDBSearchReconcileHelper) ensureMongotConfig(ctx context.Context, l
 		if cm.Labels == nil {
 			cm.Labels = map[string]string{}
 		}
+		cm.Labels[componentLabelKey] = mongotComponent
 		for k, v := range searchOwnerLabels(r.mdbSearch, clusterName) {
 			cm.Labels[k] = v
 		}
@@ -1048,13 +1057,15 @@ func mongotServicePorts(search *searchv1.MongoDBSearch) []corev1.ServicePort {
 const (
 	appLabelKey           = "app"
 	shardLabelKey         = "shard"
+	componentLabelKey     = "component"
 	proxyServiceComponent = "search-proxy"
+	mongotComponent       = "mongot"
 )
 
 // buildHeadlessService builds a headless Service for a reconcile unit. All topology-specific
 // behavior comes from the unit's explicit fields — no branching on "is this a shard?".
 func buildHeadlessService(search *searchv1.MongoDBSearch, unit reconcileUnit) corev1.Service {
-	svcLabels := map[string]string{appLabelKey: unit.headlessSvc.Name}
+	svcLabels := map[string]string{appLabelKey: unit.headlessSvc.Name, componentLabelKey: mongotComponent}
 	for k, v := range unit.additionalSvcLabels {
 		svcLabels[k] = v
 	}
@@ -1096,8 +1107,8 @@ func buildProxyService(search *searchv1.MongoDBSearch, unit reconcileUnit) corev
 	}
 
 	labels := map[string]string{
-		appLabelKey: unit.proxySvc.Name,
-		"component": proxyServiceComponent,
+		appLabelKey:       unit.proxySvc.Name,
+		componentLabelKey: proxyServiceComponent,
 	}
 	for k, v := range unit.additionalSvcLabels {
 		labels[k] = v
@@ -1142,8 +1153,8 @@ func buildClusterLevelProxyService(search *searchv1.MongoDBSearch, res clusterLe
 	}
 
 	labels := map[string]string{
-		appLabelKey: res.svcName.Name,
-		"component": proxyServiceComponent,
+		appLabelKey:       res.svcName.Name,
+		componentLabelKey: proxyServiceComponent,
 	}
 	for k, v := range searchOwnerLabels(search, res.clusterName) {
 		labels[k] = v

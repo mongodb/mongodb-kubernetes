@@ -2533,7 +2533,7 @@ func TestCleanupStaleShardResources(t *testing.T) {
 		svc := &corev1.Service{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: search.ProxyServiceNameForClusterShard(0, shard).Name, Namespace: "test-ns",
-				Labels: map[string]string{"component": proxyServiceComponent},
+				Labels: map[string]string{componentLabelKey: proxyServiceComponent},
 			},
 			Spec: corev1.ServiceSpec{ClusterIP: "10.0.0.1", Ports: []corev1.ServicePort{{Port: 27028}}},
 		}
@@ -2624,6 +2624,118 @@ func TestReconcileReplicaSet_CreatesResources(t *testing.T) {
 
 	assert.Equal(t, "test-search-search-0-config", cm.Name)
 	assert.Contains(t, cm.Data, MongotConfigFilename)
+}
+
+// TestReconcileReplicaSet_MongotComponentLabel verifies that after reconcile
+// the mongot STS, headless Service, and mongot ConfigMap all carry
+// component=mongot on their ObjectMeta labels.
+func TestReconcileReplicaSet_MongotComponentLabel(t *testing.T) {
+	search := newTestMongoDBSearch("test-search", "test-ns")
+	mdbc := newTestMongoDBCommunity("test-mongodb", "test-ns")
+	fakeClient := newTestFakeClient(search, mdbc)
+
+	helper := NewMongoDBSearchReconcileHelper(
+		fakeClient,
+		search,
+		NewCommunityResourceSearchSource(mdbc),
+		newTestOperatorSearchConfig(),
+		nil, nil,
+	)
+
+	result := helper.reconcile(t.Context(), zap.S())
+	assert.False(t, result.IsOK())
+	require.NoError(t, mock.MarkAllStatefulSetsAsReady(t.Context(), search.Namespace, fakeClient))
+	result = helper.reconcile(t.Context(), zap.S())
+	assert.True(t, result.IsOK())
+
+	stsNsName := search.StatefulSetNamespacedNameForCluster(0)
+	sts, err := fakeClient.GetStatefulSet(t.Context(), stsNsName)
+	require.NoError(t, err)
+	assert.Equal(t, mongotComponent, sts.Labels[componentLabelKey], "mongot STS must carry component=mongot")
+	assert.Empty(t, sts.Spec.Template.Labels[componentLabelKey], "component label must NOT bleed into pod template")
+
+	svcNsName := search.SearchServiceNamespacedNameForCluster(0)
+	svc, err := fakeClient.GetService(t.Context(), svcNsName)
+	require.NoError(t, err)
+	assert.Equal(t, mongotComponent, svc.Labels[componentLabelKey], "headless Service must carry component=mongot")
+
+	cmNsName := search.MongotConfigConfigMapNameForCluster(0)
+	cm, err := fakeClient.GetConfigMap(t.Context(), cmNsName)
+	require.NoError(t, err)
+	assert.Equal(t, mongotComponent, cm.Labels[componentLabelKey], "mongot ConfigMap must carry component=mongot")
+}
+
+// TestReconcileShardedMC_MongotComponentLabel verifies that after a sharded MC
+// reconcile the mongot STS, headless Service, and mongot ConfigMap on each
+// member cluster carry component=mongot on their ObjectMeta labels.
+func TestReconcileShardedMC_MongotComponentLabel(t *testing.T) {
+	search := newTestMongoDBSearch("mdb-search", "ns")
+	search.Spec.Clusters = []searchv1.ClusterSpec{
+		{ClusterName: "cluster-a"},
+		{ClusterName: "cluster-b"},
+	}
+
+	shardedSource := &mockShardedSource{
+		shardNames: []string{"sh-0"},
+		hostSeeds: map[string][]string{
+			"sh-0": {"sh-0-0.svc:27017"},
+		},
+	}
+
+	centralClient := kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().WithObjects(search).Build())
+	clusterAClient := kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().Build())
+	clusterBClient := kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().Build())
+
+	r := &MongoDBSearchReconcileHelper{
+		mdbSearch: search,
+		db:        shardedSource,
+		client:    centralClient,
+		memberClusterClients: map[string]kubernetesClient.Client{
+			"cluster-a": clusterAClient,
+			"cluster-b": clusterBClient,
+		},
+		clusterMapping:       map[string]int{"cluster-a": 0, "cluster-b": 1},
+		operatorSearchConfig: newTestOperatorSearchConfig(),
+	}
+
+	plan, err := r.buildShardedPlan(shardedSource)
+	require.NoError(t, err)
+
+	for _, unit := range plan.units {
+		_, _, err := r.applyReconcileUnit(t.Context(), zap.S(), plan, unit, reconcileUnitMods{})
+		require.NoError(t, err)
+	}
+
+	for _, tc := range []struct {
+		c   kubernetesClient.Client
+		idx int
+	}{
+		{clusterAClient, 0},
+		{clusterBClient, 1},
+	} {
+		stsNsName := search.MongotStatefulSetForClusterShard(tc.idx, "sh-0")
+		sts := &appsv1.StatefulSet{}
+		require.NoError(t, tc.c.Get(t.Context(), stsNsName, sts),
+			"STS %s must exist on cluster index %d", stsNsName.Name, tc.idx)
+		assert.Equal(t, mongotComponent, sts.Labels[componentLabelKey],
+			"mongot STS %s must carry component=mongot", stsNsName.Name)
+		assert.Empty(t, sts.Spec.Template.Labels[componentLabelKey],
+			"component label must NOT bleed into pod template for %s", stsNsName.Name)
+
+		svcNsName := search.MongotServiceForClusterShard(tc.idx, "sh-0")
+		svc := &corev1.Service{}
+		require.NoError(t, tc.c.Get(t.Context(), svcNsName, svc),
+			"headless Service %s must exist on cluster index %d", svcNsName.Name, tc.idx)
+		assert.Equal(t, mongotComponent, svc.Labels[componentLabelKey],
+			"headless Service %s must carry component=mongot", svcNsName.Name)
+
+		cmNsName := search.MongotConfigMapForClusterShard(tc.idx, "sh-0")
+		cm := &corev1.ConfigMap{}
+		require.NoError(t, tc.c.Get(t.Context(), cmNsName, cm),
+			"ConfigMap %s must exist on cluster index %d", cmNsName.Name, tc.idx)
+		assert.Equal(t, mongotComponent, cm.Labels[componentLabelKey],
+			"mongot ConfigMap %s must carry component=mongot", cmNsName.Name)
+	}
 }
 
 type fakeExternalSource struct {
