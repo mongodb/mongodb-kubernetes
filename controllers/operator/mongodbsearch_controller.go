@@ -319,7 +319,11 @@ func AddMongoDBSearchController(
 	// (single-cluster install) skips the goroutine entirely — there is nothing to watch.
 	if len(memberClusterObjectsMap) > 0 {
 		eventChannel := make(chan event.GenericEvent)
-		healthChecker := memberwatch.MemberClusterHealthChecker{Cache: make(map[string]*memberwatch.MemberHeathCheck)}
+		healthChecker := memberwatch.MemberClusterHealthChecker{
+			Cache:                 make(map[string]memberwatch.ClusterHealthChecker),
+			HealthyStreak:         make(map[string]int),
+			RequiredHealthyStreak: env.ReadIntOrDefault(util.RequiredHealthyStreakEnv, util.DefaultRequiredHealthyStreak), // nolint:forbidigo
+		}
 		go healthChecker.WatchMemberClusterHealth(ctx, zap.S(), eventChannel, r.kubeClient, memberClusterObjectsMap)
 
 		if err := c.Watch(source.Channel[client.Object](eventChannel, &handler.EnqueueRequestForObject{})); err != nil {

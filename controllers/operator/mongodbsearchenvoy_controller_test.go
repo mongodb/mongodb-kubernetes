@@ -826,7 +826,6 @@ func envoyTestScheme(t *testing.T) *runtime.Scheme {
 	require.NoError(t, corev1.AddToScheme(scheme))
 	require.NoError(t, appsv1.AddToScheme(scheme))
 	require.NoError(t, v1.AddToScheme(scheme))
-	_ = searchv1.AddToScheme // keep import live
 	return scheme
 }
 
