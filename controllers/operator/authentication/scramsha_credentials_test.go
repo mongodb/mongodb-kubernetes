@@ -52,7 +52,9 @@ func acWithUser(u *om.MongoDBUser) *om.AutomationConfig {
 	return ac
 }
 
-func Test_IsPasswordChanged(t *testing.T) {
+// Test_isCredChanged_PasswordChangeDetection verifies that creds derived from the same
+// password are reported unchanged and a different password is reported as changed.
+func Test_isCredChanged_PasswordChangeDetection(t *testing.T) {
 	userPassword := "secretpassword"
 	userNewPassword := "newsecretpassword"
 
@@ -63,26 +65,70 @@ func Test_IsPasswordChanged(t *testing.T) {
 
 	ac := emptyAC()
 	// will generate scram creds for the user mongoUser and set it in its fields
-	_, _ = ConfigureScramCredentials(&mongoUser, userPassword, ac)
+	_, err := ConfigureScramCredentials(&mongoUser, userPassword, ac)
+	require.NoError(t, err)
 
-	ac.Auth.Users = append(ac.Auth.Users, &om.MongoDBUser{
-		Username:         mongoUser.Username,
-		Database:         mongoUser.Database,
-		ScramSha256Creds: mongoUser.ScramSha256Creds,
-		ScramSha1Creds:   mongoUser.ScramSha1Creds,
-	})
-
-	// now that the scram creds are set in the automation config, let's say the reconciliation happens again
-	// with the same user and same password, IsPasswordChanged should return false
-	_, u := ac.Auth.GetUser(mongoUser.Username, mongoUser.Database)
-	op, err := IsPasswordChanged(&mongoUser, userPassword, u)
+	changed, err := isCredChanged(mongoUser.Username, userPassword, mongoUser.ScramSha256Creds, ScramSha256)
 	assert.Nil(t, err)
-	assert.False(t, op)
+	assert.False(t, changed)
 
-	// if reconciliation happens again with diff password, IsPasswordChanged should return true
-	op, err = IsPasswordChanged(&mongoUser, userNewPassword, u)
+	changed, err = isCredChanged(mongoUser.Username, userPassword, mongoUser.ScramSha1Creds, MongoDBCR)
 	assert.Nil(t, err)
-	assert.True(t, op)
+	assert.False(t, changed)
+
+	changed, err = isCredChanged(mongoUser.Username, userNewPassword, mongoUser.ScramSha256Creds, ScramSha256)
+	assert.Nil(t, err)
+	assert.True(t, changed)
+
+	changed, err = isCredChanged(mongoUser.Username, userNewPassword, mongoUser.ScramSha1Creds, MongoDBCR)
+	assert.Nil(t, err)
+	assert.True(t, changed)
+}
+
+// Test_ConfigureScramCredentials_MechanismsSetWithoutCreds_Errors verifies that an AC user
+// with mechanisms set but no SCRAM creds to validate against is rejected instead of
+// silently resetting the password via InitPassword.
+func Test_ConfigureScramCredentials_MechanismsSetWithoutCreds_Errors(t *testing.T) {
+	acUser := &om.MongoDBUser{
+		Username:   "kim",
+		Database:   "admin",
+		Mechanisms: []string{util.AutomationConfigScramSha256Option},
+	}
+	ac := acWithUser(acUser)
+
+	user := om.MongoDBUser{Username: "kim", Database: "admin", Mechanisms: []string{}}
+	_, err := ConfigureScramCredentials(&user, "pass", ac)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no SCRAM credentials to validate")
+	assert.Empty(t, user.InitPassword)
+}
+
+// Test_ConfigureScramCredentials_EmptySaltCredsTreatedAsAbsent verifies that stored creds
+// with an empty salt do not produce a misleading password mismatch error when the other
+// algorithm validates the password successfully.
+func Test_ConfigureScramCredentials_EmptySaltCredsTreatedAsAbsent(t *testing.T) {
+	seed := om.MongoDBUser{Username: "lena", Database: "admin", Mechanisms: []string{}}
+	seedAC := emptyAC()
+	_, err := ConfigureScramCredentials(&seed, "pass", seedAC)
+	require.NoError(t, err)
+
+	acUser := &om.MongoDBUser{
+		Username:         "lena",
+		Database:         "admin",
+		ScramSha256Creds: &om.ScramShaCreds{Salt: ""},
+		ScramSha1Creds:   seed.ScramSha1Creds,
+		Mechanisms:       []string{util.SCRAMSHA1},
+	}
+	ac := acWithUser(acUser)
+
+	user := om.MongoDBUser{Username: "lena", Database: "admin", Mechanisms: []string{}}
+	followUp, err := ConfigureScramCredentials(&user, "pass", ac)
+	require.NoError(t, err)
+	assert.True(t, followUp)
+
+	assert.Nil(t, user.ScramSha256Creds, "empty salt creds must not be preserved")
+	assert.Equal(t, seed.ScramSha1Creds, user.ScramSha1Creds)
+	assert.Equal(t, "pass", user.InitPassword)
 }
 
 // Test_ConfigureScramCredentials_NewUser verifies that a brand-new user (not in
