@@ -22,6 +22,7 @@ from tests import test_logger
 OPERATOR_CRDS = (
     "mongodb.mongodb.com",
     "mongodbusers.mongodb.com",
+    "operatorconfigs.operator.mongodb.com",
     "opsmanagers.mongodb.com",
 )
 
