@@ -1070,6 +1070,7 @@ task_groups:
       - e2e_multi_cluster_scale_up_cluster_new_cluster
       - e2e_multi_cluster_replica_set_scale_down
       - e2e_multi_cluster_scale_down_cluster
+      - e2e_mc_search_cluster_add_remove
       - e2e_multi_sts_override
       - e2e_multi_cluster_tls_with_scram
       - e2e_multi_cluster_upgrade_downgrade
