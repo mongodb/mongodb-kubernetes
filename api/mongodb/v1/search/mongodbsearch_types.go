@@ -3,7 +3,6 @@ package search
 import (
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -25,17 +24,6 @@ import (
 const (
 	// ShardNamePlaceholder is the placeholder used in endpoint templates for sharded clusters
 	ShardNamePlaceholder = "{shardName}"
-
-	// ClusterNamePlaceholder is substituted with spec.clusters[i].ClusterName when
-	// resolving spec.loadBalancer.managed.externalHostname for cluster i in
-	// multi-cluster MongoDBSearch deployments. The Envoy reconciler substitutes the
-	// member cluster name so per-cluster SNI hostnames stay distinct.
-	ClusterNamePlaceholder = "{clusterName}"
-
-	// ClusterIndexPlaceholder is substituted with the stable cluster-index for
-	// spec.clusters[i]. The index is taken verbatim from the user pin; the persisted
-	// mapping retains removed clusters' entries (see cluster_index.go).
-	ClusterIndexPlaceholder = "{clusterIndex}"
 
 	// LabelResourceOwner is the label key used to identify the MongoDBSearch CR that
 	// owns a resource. Used as part of GetOwnerLabels for StateStore ConfigMap selection.
@@ -103,12 +91,6 @@ type MongoDBSearchSpec struct {
 	// through an embedding model service. These values populate the `embedding` section of the mongot config.
 	// +optional
 	AutoEmbedding *EmbeddingConfig `json:"autoEmbedding,omitempty"`
-	// LoadBalancer configures how mongod/mongos connect to mongot (Managed vs Unmanaged/BYO Load Balancer).
-	// Top-level spec.loadBalancer.managed.* serves as the default for every entry in spec.clusters;
-	// per-cluster overrides deep-merge into this template (see spec.clusters[].loadBalancer.managed).
-	// spec.loadBalancer.unmanaged is top-level only — there is no per-cluster form.
-	// +optional
-	LoadBalancer *LoadBalancerConfig `json:"loadBalancer,omitempty"`
 	// FeatureFlags configures mongot feature flags. When a flag is set to true in the CR,
 	// it is rendered into the mongot config YAML. When omitted or false, the flag is not
 	// included in mongot config and mongot uses its built-in defaults.
@@ -164,8 +146,8 @@ type ClusterSpec struct {
 	ClusterIndex *int32 `json:"clusterIndex,omitempty"`
 	// Replicas is the number of mongot pods for this cluster's StatefulSet.
 	// For ReplicaSet sources this is the total; for sharded sources it is per shard.
-	// When Replicas > 1, a load balancer (spec.loadBalancer) is required to distribute
-	// traffic across mongot instances.
+	// When Replicas > 1, a load balancer (spec.clusters[].loadBalancer) is required to
+	// distribute traffic across mongot instances.
 	// Set to 0 to take mongot offline: the StatefulSet scales to 0 while the MongoDBSearch CR stays.
 	// +optional
 	// +kubebuilder:validation:Minimum=0
@@ -182,7 +164,9 @@ type ClusterSpec struct {
 	StatefulSetConfiguration *v1.StatefulSetConfiguration `json:"statefulSet,omitempty"`
 	// +optional
 	SyncSourceSelector *SyncSourceSelector `json:"syncSourceSelector,omitempty"`
-	// LoadBalancer per-cluster override; deep-merged into spec.loadBalancer.managed.
+	// LoadBalancer configures how mongod/mongos connect to this cluster's mongot
+	// (managed Envoy or user-provided). Every cluster must agree on the mode:
+	// either all clusters set managed, all set unmanaged, or none set loadBalancer.
 	// +optional
 	LoadBalancer *LoadBalancerConfig `json:"loadBalancer,omitempty"`
 	// JVMFlags sets the `--jvm-flags` option for this cluster's mongot pods.
@@ -538,8 +522,8 @@ func (s *MongoDBSearch) updateLoadBalancerStatus(phase status.Phase, statusOptio
 // GetMinMongotReadyReplicasForRouting returns the minimum number of ready mongot
 // replicas required to consider a mongot group ready for envoy to route real traffic to a shard's mongot group.
 func (s *MongoDBSearch) GetMinMongotReadyReplicasForRouting() int32 {
-	if s.IsLBModeManaged() && s.Spec.LoadBalancer.Managed.MinMongotReadyReplicas != nil {
-		return *s.Spec.LoadBalancer.Managed.MinMongotReadyReplicas
+	if lb := s.firstClusterLB(); lb != nil && lb.Managed != nil && lb.Managed.MinMongotReadyReplicas != nil {
+		return *lb.Managed.MinMongotReadyReplicas
 	}
 	return 1
 }
@@ -785,31 +769,54 @@ func (s *MongoDBSearch) GetPrometheus() *Prometheus {
 	return s.Spec.Prometheus
 }
 
+// lbForClusterIndex returns spec.clusters[i].loadBalancer, or nil when i is out
+// of range or the cluster does not set one.
+func (s *MongoDBSearch) lbForClusterIndex(i int) *LoadBalancerConfig {
+	if i < 0 || i >= len(s.Spec.Clusters) {
+		return nil
+	}
+	return s.Spec.Clusters[i].LoadBalancer
+}
+
+// firstClusterLB returns the first cluster's loadBalancer. Validation enforces
+// that every cluster sets the same mode (or none sets one), so the first entry
+// answers deployment-wide mode questions.
+func (s *MongoDBSearch) firstClusterLB() *LoadBalancerConfig {
+	return s.lbForClusterIndex(0)
+}
+
 func (s *MongoDBSearch) IsLBModeUnmanaged() bool {
-	return s.Spec.LoadBalancer != nil && s.Spec.LoadBalancer.Unmanaged != nil
+	lb := s.firstClusterLB()
+	return lb != nil && lb.Unmanaged != nil
 }
 
 // IsReplicaSetUnmanagedLB returns true if this is a ReplicaSet with unmanaged LB configuration.
 // An endpoint with a template placeholder ({shardName}) is NOT considered a ReplicaSet endpoint.
 func (s *MongoDBSearch) IsReplicaSetUnmanagedLB() bool {
 	return s.IsLBModeUnmanaged() &&
-		s.Spec.LoadBalancer.Unmanaged.Endpoint != "" &&
+		s.firstClusterLB().Unmanaged.Endpoint != "" &&
 		!s.HasEndpointTemplate()
 }
 
-func (s *MongoDBSearch) GetReplicaSetUnmanagedLBEndpoint() string {
-	if !s.IsReplicaSetUnmanagedLB() {
+// GetUnmanagedLBEndpointForCluster returns spec.clusters[i].loadBalancer.unmanaged.endpoint,
+// or "" when cluster i does not configure an unmanaged LB.
+func (s *MongoDBSearch) GetUnmanagedLBEndpointForCluster(i int) string {
+	lb := s.lbForClusterIndex(i)
+	if lb == nil || lb.Unmanaged == nil {
 		return ""
 	}
-	return s.Spec.LoadBalancer.Unmanaged.Endpoint
+	return lb.Unmanaged.Endpoint
 }
 
-// HasEndpointTemplate returns true if the unmanaged endpoint contains the {shardName} template placeholder.
+// HasEndpointTemplate returns true if the unmanaged endpoint contains the {shardName}
+// template placeholder. Validation enforces that every cluster's endpoint has the same
+// shape (templated or not), so the first cluster answers for the deployment.
 func (s *MongoDBSearch) HasEndpointTemplate() bool {
-	if s.Spec.LoadBalancer == nil || s.Spec.LoadBalancer.Unmanaged == nil {
+	lb := s.firstClusterLB()
+	if lb == nil || lb.Unmanaged == nil {
 		return false
 	}
-	return strings.Contains(s.Spec.LoadBalancer.Unmanaged.Endpoint, ShardNamePlaceholder)
+	return strings.Contains(lb.Unmanaged.Endpoint, ShardNamePlaceholder)
 }
 
 // IsShardedUnmanagedLB returns true if this is a sharded unmanaged LB configuration
@@ -826,19 +833,19 @@ func (s *MongoDBSearch) IsShardedEndpoint() bool {
 	if s.IsShardedUnmanagedLB() {
 		return true
 	}
-	if s.IsLBModeManaged() && strings.Contains(s.Spec.LoadBalancer.Managed.ExternalHostname, ShardNamePlaceholder) {
+	if s.IsLBModeManaged() && strings.Contains(s.firstClusterLB().Managed.ExternalHostname, ShardNamePlaceholder) {
 		return true
 	}
 	return false
 }
 
-// GetEndpointForShard returns the endpoint for a specific shard by substituting
-// the {shardName} placeholder in the endpoint template.
-func (s *MongoDBSearch) GetEndpointForShard(shardName string) string {
+// GetEndpointForClusterShard returns cluster i's unmanaged endpoint for a specific
+// shard by substituting the {shardName} placeholder.
+func (s *MongoDBSearch) GetEndpointForClusterShard(i int, shardName string) string {
 	if !s.IsShardedUnmanagedLB() {
 		return ""
 	}
-	return strings.ReplaceAll(s.Spec.LoadBalancer.Unmanaged.Endpoint, ShardNamePlaceholder, shardName)
+	return strings.ReplaceAll(s.GetUnmanagedLBEndpointForCluster(i), ShardNamePlaceholder, shardName)
 }
 
 // EffectiveClusters returns the per-cluster distribution slice the reconcile
@@ -980,96 +987,54 @@ func (s *MongoDBSearch) MongotConfigMapForClusterShard(clusterIndex int, shardNa
 }
 
 func (s *MongoDBSearch) IsLBModeManaged() bool {
-	return s.Spec.LoadBalancer != nil && s.Spec.LoadBalancer.Managed != nil
+	lb := s.firstClusterLB()
+	return lb != nil && lb.Managed != nil
 }
 
-// GetManagedLBDeploymentConfig returns the user-provided Envoy Deployment override, or nil.
-func (s *MongoDBSearch) GetManagedLBDeploymentConfig() *v1.DeploymentConfiguration {
-	if s.IsLBModeManaged() {
-		return s.Spec.LoadBalancer.Managed.Deployment
+// GetManagedLBForCluster returns spec.clusters[i].loadBalancer.managed, or nil
+// when cluster i does not configure a managed LB.
+func (s *MongoDBSearch) GetManagedLBForCluster(i int) *ManagedLBConfig {
+	lb := s.lbForClusterIndex(i)
+	if lb == nil {
+		return nil
 	}
-	return nil
+	return lb.Managed
 }
 
-// GetManagedLBResourceRequirements returns user-specified Envoy resource requirements, or nil.
-func (s *MongoDBSearch) GetManagedLBResourceRequirements() *corev1.ResourceRequirements {
-	if s.IsLBModeManaged() {
-		return s.Spec.LoadBalancer.Managed.ResourceRequirements
-	}
-	return nil
-}
-
-// GetManagedLBRetryPolicy returns user-specified Envoy retry policy, or nil.
-func (s *MongoDBSearch) GetManagedLBRetryPolicy() *EnvoyRetryPolicy {
-	if s.IsLBModeManaged() {
-		return s.Spec.LoadBalancer.Managed.RetryPolicy
-	}
-	return nil
-}
-
-// GetManagedLBEndpoint returns the external hostname from spec.loadBalancer.managed.externalHostname
-// when managed LB is configured. Returns "" otherwise.
-func (s *MongoDBSearch) GetManagedLBEndpoint() string {
-	if !s.IsLBModeManaged() {
+// GetManagedLBEndpointForCluster returns cluster i's externalHostname.
+// {shardName} may remain in the result; use GetManagedLBEndpointForClusterShard
+// when it needs resolving. Returns "" when cluster i has no managed LB.
+func (s *MongoDBSearch) GetManagedLBEndpointForCluster(i int) string {
+	cfg := s.GetManagedLBForCluster(i)
+	if cfg == nil {
 		return ""
 	}
-	return s.Spec.LoadBalancer.Managed.ExternalHostname
+	return cfg.ExternalHostname
 }
 
-// GetManagedLBEndpointForShard returns the external hostname for a specific shard by substituting
-// the {shardName} template in spec.loadBalancer.managed.externalHostname (no cluster placeholders).
-// Returns "" if managed LB is not configured or externalHostname is empty.
-func (s *MongoDBSearch) GetManagedLBEndpointForShard(shardName string) string {
-	if !s.IsLBModeManaged() || s.Spec.LoadBalancer.Managed.ExternalHostname == "" {
-		return ""
-	}
-	return strings.ReplaceAll(s.Spec.LoadBalancer.Managed.ExternalHostname, ShardNamePlaceholder, shardName)
-}
-
-// GetManagedLBEndpointForCluster resolves {clusterName} and {clusterIndex} in the
-// externalHostname template from the caller's resolved index and name. Returns "" when
-// managed LB is not configured; use GetManagedLBEndpointForClusterShard to also resolve {shardName}.
-func (s *MongoDBSearch) GetManagedLBEndpointForCluster(clusterIndex int, clusterName string) string {
-	if !s.IsLBModeManaged() || s.Spec.LoadBalancer.Managed.ExternalHostname == "" {
-		return ""
-	}
-	out := s.Spec.LoadBalancer.Managed.ExternalHostname
-	out = strings.ReplaceAll(out, ClusterNamePlaceholder, clusterName)
-	out = strings.ReplaceAll(out, ClusterIndexPlaceholder, strconv.Itoa(clusterIndex))
-	return out
-}
-
-// GetManagedLBEndpointForClusterShard returns the externalHostname template with
-// {clusterName}, {clusterIndex}, and {shardName} all resolved for the
-// (cluster, shard) pair. Used for sharded multi-cluster MongoDBSearch
-// deployments. Returns "" when managed LB is not configured.
-func (s *MongoDBSearch) GetManagedLBEndpointForClusterShard(clusterIndex int, clusterName, shardName string) string {
-	out := s.GetManagedLBEndpointForCluster(clusterIndex, clusterName)
+// GetManagedLBEndpointForClusterShard returns cluster i's externalHostname with
+// {shardName} resolved. Used for sharded MongoDBSearch deployments.
+func (s *MongoDBSearch) GetManagedLBEndpointForClusterShard(i int, shardName string) string {
+	out := s.GetManagedLBEndpointForCluster(i)
 	if out == "" {
 		return ""
 	}
 	return strings.ReplaceAll(out, ShardNamePlaceholder, shardName)
 }
 
-// GetManagedLBEndpointForClusterLevel returns the mongos-facing endpoint: externalHostname
-// with the leading "{shardName}." stripped. Returns "" when not derivable so the caller falls back to the proxy Service FQDN.
-func (s *MongoDBSearch) GetManagedLBEndpointForClusterLevel(clusterIndex int, clusterName string) string {
-	if !s.IsLBModeManaged() || s.Spec.LoadBalancer.Managed.ExternalHostname == "" {
+// GetManagedLBEndpointForClusterLevel derives the mongos-facing endpoint by stripping
+// the leading "{shardName}." from cluster i's externalHostname. Returns "" when not
+// derivable; callers fall back to the cluster-level proxy Service FQDN.
+func (s *MongoDBSearch) GetManagedLBEndpointForClusterLevel(i int) string {
+	tmpl := s.GetManagedLBEndpointForCluster(i)
+	if tmpl == "" {
 		return ""
 	}
-	tmpl := s.Spec.LoadBalancer.Managed.ExternalHostname
 	trimmed := strings.TrimPrefix(tmpl, ShardNamePlaceholder+".")
 	if strings.Contains(trimmed, ShardNamePlaceholder) {
 		return ""
 	}
-	// Empty clusterName (operator-managed sharded mongos passes "") would substitute to a
-	// blank label and emit a malformed ".host"; return "" so the caller falls back to the proxy FQDN.
-	if clusterName == "" && strings.Contains(trimmed, ClusterNamePlaceholder) {
-		return ""
-	}
-	out := strings.ReplaceAll(trimmed, ClusterNamePlaceholder, clusterName)
-	out = strings.ReplaceAll(out, ClusterIndexPlaceholder, strconv.Itoa(clusterIndex))
-	return out
+	return trimmed
 }
 
 // IsLoadBalancerReady returns true if managed LB is not configured,
