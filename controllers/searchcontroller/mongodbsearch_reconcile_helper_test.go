@@ -1431,6 +1431,7 @@ func TestGetMongosConfigParametersForSharded(t *testing.T) {
 	tests := []struct {
 		name          string
 		search        *searchv1.MongoDBSearch
+		clusterName   string
 		clusterIndex  int
 		shardNames    []string
 		clusterDomain string
@@ -1561,17 +1562,18 @@ func TestGetMongosConfigParametersForSharded(t *testing.T) {
 					},
 				},
 			},
+			clusterName:   "eu-west-k8s",
 			clusterIndex:  1,
 			shardNames:    []string{"test-mdb-0", "test-mdb-1"},
 			clusterDomain: "cluster.local",
-			// Strip "{shardName}." then resolve {clusterName} for spec.clusters[1].
+			// Strip "{shardName}." then resolve {clusterName} from the passed name + index.
 			expectedHost: "eu-west-k8s.search.example.com:443",
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			config := GetMongosConfigParametersForSharded(tc.search, tc.clusterIndex, tc.shardNames, tc.clusterDomain)
+			config := GetMongosConfigParametersForSharded(tc.search, tc.clusterName, tc.clusterIndex, tc.shardNames, tc.clusterDomain)
 
 			setParameter, ok := config["setParameter"].(map[string]any)
 			require.True(t, ok, "setParameter should be a map")

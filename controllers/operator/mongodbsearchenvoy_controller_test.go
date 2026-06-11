@@ -489,6 +489,62 @@ func TestBuildRoutesForCluster_RS_TemplateSubstitutesClusterName(t *testing.T) {
 	assert.Equal(t, "mongot-us-east-k8s.example.com", routes[0].SNIHostname)
 }
 
+// TestBuildRoutesForCluster_RS_SurvivingClusterAfterRemoval is the route-level
+// regression for the index-space bug (KUBE-114 lifecycle): cluster "b" was
+// removed, so spec.clusters is [a, c] but the surviving cluster "c" keeps its
+// PERSISTED index 2. The envoy controller passes (clusterName="c", index=2). The
+// SNI hostname must substitute c's name and index 2 — no positional Spec.Clusters[2]
+// lookup (which would be out of range and leave the template raw) and no `{` residue.
+func TestBuildRoutesForCluster_RS_SurvivingClusterAfterRemoval(t *testing.T) {
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "test-ns"},
+		Spec: searchv1.MongoDBSearchSpec{
+			// "b" removed; only a (idx 0) and c (persisted idx 2) remain in spec.
+			Clusters: []searchv1.ClusterSpec{
+				{ClusterName: "a"},
+				{ClusterName: "c"},
+			},
+			LoadBalancer: &searchv1.LoadBalancerConfig{
+				Managed: &searchv1.ManagedLBConfig{
+					ExternalHostname: "mongot-{clusterName}-{clusterIndex}.example.com",
+				},
+			},
+		},
+	}
+
+	// Persisted index for surviving cluster "c" is 2 (append-only mapping {a:0,b:1,c:2}).
+	routes := buildRoutesForCluster(search, nil, 2, "c")
+	require.Len(t, routes, 1)
+	assert.Equal(t, "c", routes[0].ClusterID)
+	assert.Equal(t, "mongot-c-2.example.com", routes[0].SNIHostname,
+		"surviving cluster must resolve its own name + persisted index after a non-last removal")
+	assert.NotContains(t, routes[0].SNIHostname, "{", "no unresolved placeholder may remain in the SNI hostname")
+}
+
+// TestBuildRoutesForCluster_RS_NamedSingleClusterResolvesName pins the
+// named-single-cluster regression: a single named cluster reconciled by an
+// operator with no member clients gets clusterName "" from buildClusterWorkList,
+// but a {clusterName} template must still resolve to the spec's single cluster
+// name in the SNI hostname — never render the placeholder literally.
+func TestBuildRoutesForCluster_RS_NamedSingleClusterResolvesName(t *testing.T) {
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "test-ns"},
+		Spec: searchv1.MongoDBSearchSpec{
+			Clusters: []searchv1.ClusterSpec{{ClusterName: "x"}},
+			LoadBalancer: &searchv1.LoadBalancerConfig{
+				Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot-{clusterName}.example.com"},
+			},
+		},
+	}
+
+	// Single-cluster path: buildClusterWorkList hands the reconciler clusterName "".
+	routes := buildRoutesForCluster(search, nil, 0, "")
+	require.Len(t, routes, 1)
+	assert.Equal(t, "mongot-x.example.com", routes[0].SNIHostname,
+		"named single cluster must resolve {clusterName} from spec.clusters[0]")
+	assert.NotContains(t, routes[0].SNIHostname, "{", "no unresolved placeholder may remain in the SNI hostname")
+}
+
 func TestBuildRoutesForCluster_RS_NoTemplateUsesPerClusterProxySvcFQDN(t *testing.T) {
 	one := int32(1)
 	search := &searchv1.MongoDBSearch{

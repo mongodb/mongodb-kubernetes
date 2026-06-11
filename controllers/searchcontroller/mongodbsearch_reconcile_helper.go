@@ -1578,7 +1578,7 @@ func GetMongodConfigParametersForShard(search *searchv1.MongoDBSearch, shardName
 // GetMongosConfigParametersForSharded picks the mongos→mongot endpoint by topology. No-LB targets the
 // first shard's per-shard proxy svc FQDN (the only sharded mongot hostname per-shard cert SANs cover);
 // the cluster-level Service would route to the same pod but isn't in SANs.
-func GetMongosConfigParametersForSharded(search *searchv1.MongoDBSearch, clusterIndex int, shardNames []string, clusterDomain string) map[string]any {
+func GetMongosConfigParametersForSharded(search *searchv1.MongoDBSearch, clusterName string, clusterIndex int, shardNames []string, clusterDomain string) map[string]any {
 	var endpoint string
 	// Three branches: explicit unmanaged LB, no spec.loadBalancer (pre-MVP
 	// single-cluster shape), and managed LB. The TD lists no-LB as RS-only at
@@ -1590,7 +1590,7 @@ func GetMongosConfigParametersForSharded(search *searchv1.MongoDBSearch, cluster
 	case !search.IsLBModeManaged() && len(shardNames) > 0:
 		endpoint = proxyServiceHostAndPortForShard(search, clusterIndex, shardNames[0], clusterDomain)
 	default:
-		endpoint = mongotEndpointForClusterLevel(search, clusterIndex, clusterDomain)
+		endpoint = mongotEndpointForClusterLevel(search, clusterName, clusterIndex, clusterDomain)
 	}
 	return buildSearchSetParameters(endpoint, searchTLSMode(search), true) // useGrpc must be true for mongos-to-mongot communication
 }
@@ -1598,10 +1598,11 @@ func GetMongosConfigParametersForSharded(search *searchv1.MongoDBSearch, cluster
 // mongotEndpointForClusterLevel resolves the shard-agnostic mongot endpoint for a cluster's mongos.
 // For managed LB with an externalHostname, returns the cluster-level external form (template with
 // leading `{shardName}.` stripped). Otherwise (managed LB without externalHostname, or no LB) returns
-// the cluster-level proxy Service in-cluster FQDN.
-func mongotEndpointForClusterLevel(search *searchv1.MongoDBSearch, clusterIndex int, clusterDomain string) string {
+// the cluster-level proxy Service in-cluster FQDN. clusterName is the cluster's name for
+// {clusterName} substitution ("" in the single-cluster path); clusterIndex is its persisted index.
+func mongotEndpointForClusterLevel(search *searchv1.MongoDBSearch, clusterName string, clusterIndex int, clusterDomain string) string {
 	if search.IsLBModeManaged() {
-		if endpoint := search.GetManagedLBEndpointForClusterLevel(clusterIndex); endpoint != "" {
+		if endpoint := search.GetManagedLBEndpointForClusterLevel(clusterName, clusterIndex); endpoint != "" {
 			return endpoint
 		}
 	}

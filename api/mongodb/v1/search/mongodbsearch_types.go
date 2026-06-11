@@ -25,15 +25,15 @@ const (
 	// ShardNamePlaceholder is the placeholder used in endpoint templates for sharded clusters
 	ShardNamePlaceholder = "{shardName}"
 
-	// ClusterNamePlaceholder is substituted with spec.clusters[i].ClusterName when
-	// resolving spec.loadBalancer.managed.externalHostname for cluster i in
-	// multi-cluster MongoDBSearch deployments. The Envoy reconciler substitutes the
-	// member cluster name so per-cluster SNI hostnames stay distinct.
+	// ClusterNamePlaceholder is substituted in spec.loadBalancer.managed.externalHostname
+	// with the caller-supplied cluster name (see GetManagedLBEndpointForCluster's
+	// name + persisted-index contract — NOT a spec-array lookup). The Envoy
+	// reconciler passes the member cluster name so per-cluster SNI hostnames stay distinct.
 	ClusterNamePlaceholder = "{clusterName}"
 
-	// ClusterIndexPlaceholder is substituted with the stable cluster-index for
-	// spec.clusters[i]. The index is monotonic and never reused on remove/re-add
-	// (see api/mongodb/v1/search/cluster_index.go).
+	// ClusterIndexPlaceholder is substituted with the caller-supplied persisted
+	// cluster index (see GetManagedLBEndpointForCluster). The index is monotonic and
+	// never reused on remove/re-add (see api/mongodb/v1/search/cluster_index.go).
 	ClusterIndexPlaceholder = "{clusterIndex}"
 
 	// LabelResourceOwner is the label key used to identify the MongoDBSearch CR that
@@ -897,29 +897,27 @@ func (s *MongoDBSearch) GetManagedLBEndpointForShard(shardName string) string {
 }
 
 // GetManagedLBEndpointForCluster resolves {clusterName} and {clusterIndex} in
-// the externalHostname template for spec.clusters[i]. Returns "" when managed
-// LB is not configured. Use GetManagedLBEndpointForClusterShard when {shardName}
-// also needs resolving.
-func (s *MongoDBSearch) GetManagedLBEndpointForCluster(i int) string {
+// the externalHostname template for one cluster. The caller passes the cluster's
+// name and its PERSISTED ClusterMapping index (never a spec-array position):
+// after a non-last cluster is removed from spec.clusters[], the persisted index
+// of a surviving cluster no longer equals its spec position, so a positional
+// lookup here would substitute the wrong cluster (or leave the template raw).
+// Returns "" when managed LB is not configured. Use
+// GetManagedLBEndpointForClusterShard when {shardName} also needs resolving.
+func (s *MongoDBSearch) GetManagedLBEndpointForCluster(clusterName string, clusterIndex int) string {
 	if !s.IsLBModeManaged() || s.Spec.LoadBalancer.Managed.ExternalHostname == "" {
 		return ""
 	}
-	out := s.Spec.LoadBalancer.Managed.ExternalHostname
-	clusters := s.Spec.Clusters
-	if i < 0 || i >= len(clusters) {
-		return out
-	}
-	out = strings.ReplaceAll(out, ClusterNamePlaceholder, clusters[i].ClusterName)
-	out = strings.ReplaceAll(out, ClusterIndexPlaceholder, strconv.Itoa(i))
-	return out
+	return resolveClusterPlaceholders(s.Spec.LoadBalancer.Managed.ExternalHostname, s.effectiveClusterName(clusterName), clusterIndex)
 }
 
 // GetManagedLBEndpointForClusterShard returns the externalHostname template with
 // {clusterName}, {clusterIndex}, and {shardName} all resolved for the
-// (spec.clusters[i], shardName) pair. Used for sharded multi-cluster
-// MongoDBSearch deployments. Returns "" when managed LB is not configured.
-func (s *MongoDBSearch) GetManagedLBEndpointForClusterShard(i int, shardName string) string {
-	out := s.GetManagedLBEndpointForCluster(i)
+// (cluster, shardName) pair. Used for sharded multi-cluster MongoDBSearch
+// deployments. See GetManagedLBEndpointForCluster on the name + persisted-index
+// contract. Returns "" when managed LB is not configured.
+func (s *MongoDBSearch) GetManagedLBEndpointForClusterShard(clusterName string, clusterIndex int, shardName string) string {
+	out := s.GetManagedLBEndpointForCluster(clusterName, clusterIndex)
 	if out == "" {
 		return ""
 	}
@@ -928,28 +926,39 @@ func (s *MongoDBSearch) GetManagedLBEndpointForClusterShard(i int, shardName str
 
 // GetManagedLBEndpointForClusterLevel derives the mongos-facing endpoint by stripping
 // the leading "{shardName}." from externalHostname. Returns "" when not derivable;
-// callers fall back to the cluster-level proxy Service FQDN.
-func (s *MongoDBSearch) GetManagedLBEndpointForClusterLevel(i int) string {
+// callers fall back to the cluster-level proxy Service FQDN. See
+// GetManagedLBEndpointForCluster on the name + persisted-index contract.
+func (s *MongoDBSearch) GetManagedLBEndpointForClusterLevel(clusterName string, clusterIndex int) string {
 	if !s.IsLBModeManaged() || s.Spec.LoadBalancer.Managed.ExternalHostname == "" {
 		return ""
 	}
-	tmpl := s.Spec.LoadBalancer.Managed.ExternalHostname
-	trimmed := strings.TrimPrefix(tmpl, ShardNamePlaceholder+".")
+	trimmed := strings.TrimPrefix(s.Spec.LoadBalancer.Managed.ExternalHostname, ShardNamePlaceholder+".")
 	if strings.Contains(trimmed, ShardNamePlaceholder) {
 		return ""
 	}
-	hasClusterPlaceholder := strings.Contains(trimmed, ClusterNamePlaceholder) ||
-		strings.Contains(trimmed, ClusterIndexPlaceholder)
-	clusters := s.Spec.Clusters
-	if i < 0 || i >= len(clusters) {
-		if hasClusterPlaceholder {
-			return ""
-		}
-		return trimmed
+	return resolveClusterPlaceholders(trimmed, s.effectiveClusterName(clusterName), clusterIndex)
+}
+
+// effectiveClusterName fills in the cluster name for the single-cluster path.
+// buildClusterWorkList emits clusterName == "" for a single-cluster install even
+// when spec.clusters[0] is named (the empty name doubles as the "no member-client
+// lookup" sentinel in reconcileForCluster). Recover the real name here so a
+// {clusterName} template still resolves; the single-cluster shape is the only one
+// that passes "", and there spec position 0 == persisted index 0 trivially.
+func (s *MongoDBSearch) effectiveClusterName(clusterName string) string {
+	if clusterName == "" && len(s.Spec.Clusters) == 1 {
+		return s.Spec.Clusters[0].ClusterName
 	}
-	out := strings.ReplaceAll(trimmed, ClusterNamePlaceholder, clusters[i].ClusterName)
-	out = strings.ReplaceAll(out, ClusterIndexPlaceholder, strconv.Itoa(i))
-	return out
+	return clusterName
+}
+
+// resolveClusterPlaceholders substitutes {clusterName} (only when clusterName is
+// non-empty) and {clusterIndex} in tmpl.
+func resolveClusterPlaceholders(tmpl, clusterName string, clusterIndex int) string {
+	if clusterName != "" {
+		tmpl = strings.ReplaceAll(tmpl, ClusterNamePlaceholder, clusterName)
+	}
+	return strings.ReplaceAll(tmpl, ClusterIndexPlaceholder, strconv.Itoa(clusterIndex))
 }
 
 // IsLoadBalancerReady returns true if managed LB is not configured,
