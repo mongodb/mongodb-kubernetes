@@ -10,6 +10,7 @@ import (
 
 	"github.com/Masterminds/semver/v3"
 	"github.com/ghodss/yaml"
+	"github.com/hashicorp/go-multierror"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/fields"
@@ -586,11 +587,16 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 	plan.cleanup(ctx, log)
 
 	// Latch routing-ready shards across ALL units before the worst-of readiness
-	// return: one not-ready shard must not block latching of the others.
+	// return: one not-ready or failing unit must not block latching of the others,
+	// so per-unit errors are aggregated instead of failing fast.
+	var latchErrs error
 	for _, res := range applied {
 		if err := r.markRoutingReadyIfThresholdMet(ctx, log, res.unit, res.unitClient); err != nil {
-			return workflow.Failed(err)
+			latchErrs = multierror.Append(latchErrs, err)
 		}
+	}
+	if latchErrs != nil {
+		return workflow.Failed(latchErrs)
 	}
 
 	// Worst-of readiness check — first non-OK status wins.

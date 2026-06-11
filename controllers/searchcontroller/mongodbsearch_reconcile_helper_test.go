@@ -98,11 +98,12 @@ func newTestFakeClient(objects ...client.Object) kubernetesClient.Client {
 
 // fakeRoutingLatch is an in-memory RoutingReadyLatch for tests.
 type fakeRoutingLatch struct {
-	ready map[string]bool
+	ready   map[string]bool
+	markErr map[string]error // per-shard MarkRoutingReady error injection
 }
 
 func newFakeRoutingLatch(readyShards ...string) *fakeRoutingLatch {
-	f := &fakeRoutingLatch{ready: map[string]bool{}}
+	f := &fakeRoutingLatch{ready: map[string]bool{}, markErr: map[string]error{}}
 	for _, shard := range readyShards {
 		f.ready[shard] = true
 	}
@@ -112,6 +113,9 @@ func newFakeRoutingLatch(readyShards ...string) *fakeRoutingLatch {
 func (f *fakeRoutingLatch) IsRoutingReady(shardName string) bool { return f.ready[shardName] }
 
 func (f *fakeRoutingLatch) MarkRoutingReady(_ context.Context, shardName string) error {
+	if err := f.markErr[shardName]; err != nil {
+		return err
+	}
 	f.ready[shardName] = true
 	return nil
 }
@@ -3521,4 +3525,62 @@ func TestReconcileSharded_RoutingLatchOneWayAndStatusMirror(t *testing.T) {
 	require.Equal(t, int32(0), recreated.Status.ReadyReplicas, "recreated STS must start unready")
 	assert.True(t, latch.IsRoutingReady("sh-0"), "latch must survive STS delete/recreate")
 	assert.Equal(t, []string{"sh-1"}, pendingInStatus())
+}
+
+// One unit's latch error must not starve latching of the remaining units: errors
+// are aggregated across ALL units and surfaced after the loop.
+func TestReconcileSharded_LatchErrorsAggregatedAcrossUnits(t *testing.T) {
+	search := newTestMongoDBSearch("mdb-search", "ns", func(s *searchv1.MongoDBSearch) {
+		s.Spec.Source = &searchv1.MongoDBSource{
+			ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{
+				ShardedCluster: &searchv1.ExternalShardedClusterConfig{
+					Router: searchv1.ExternalRouterConfig{Hosts: []string{"mongos.example:27017"}},
+					Shards: []searchv1.ExternalShardConfig{
+						{ShardName: "sh-0", Hosts: []string{"sh-0-a.example:27017"}},
+						{ShardName: "sh-1", Hosts: []string{"sh-1-a.example:27017"}},
+					},
+				},
+			},
+		}
+		s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
+			Managed: &searchv1.ManagedLBConfig{
+				ExternalHostname: "{shardName}.mdb-search-search-0-proxy-svc.ns.svc.cluster.local",
+			},
+		}
+		s.Spec.Security = searchv1.Security{TLS: &searchv1.TLS{CertsSecretPrefix: "certs"}}
+	})
+
+	source := &mockShardedSource{
+		shardNames: []string{"sh-0", "sh-1"},
+		hostSeeds: map[string][]string{
+			"sh-0": {"sh-0-a.example:27017"},
+			"sh-1": {"sh-1-a.example:27017"},
+		},
+	}
+
+	objects := []client.Object{search}
+	for _, shard := range source.shardNames {
+		objects = append(objects, &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      fmt.Sprintf("certs-mdb-search-search-0-%s-cert", shard),
+				Namespace: "ns",
+			},
+			Data: map[string][]byte{"tls.crt": []byte("dummy-cert"), "tls.key": []byte("dummy-key")},
+		})
+	}
+	fakeClient := newTestFakeClient(objects...)
+
+	latch := newFakeRoutingLatch()
+	latch.markErr["sh-0"] = fmt.Errorf("injected latch write failure for sh-0")
+	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, source, newTestOperatorSearchConfig(), nil, nil, latch)
+
+	// Both shards meet the threshold; sh-0's latch write fails.
+	st := helper.reconcile(t.Context(), zap.S())
+	require.NoError(t, mock.MarkAllStatefulSetsAsReady(t.Context(), "ns", fakeClient))
+	st = helper.reconcile(t.Context(), zap.S())
+
+	require.False(t, st.IsOK())
+	assert.Contains(t, MessageFromStatus(st), "injected latch write failure for sh-0")
+	assert.True(t, latch.IsRoutingReady("sh-1"), "sh-1 must still be latched despite sh-0's error")
+	assert.False(t, latch.IsRoutingReady("sh-0"))
 }
