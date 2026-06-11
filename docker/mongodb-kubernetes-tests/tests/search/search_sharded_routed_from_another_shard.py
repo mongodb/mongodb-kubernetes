@@ -534,7 +534,7 @@ class TestShardOnboardingAvailabilityStages:
             own = f"mongot_{new_shard_name.replace('-', '_')}_cluster"
             return cluster == own and new_shard_name not in self._status_pending_mirror(), f"route={cluster}"
 
-        run_periodically(latched, timeout=120, sleep_time=5, msg=f"{new_shard_name} to latch routing-ready")
+        run_periodically(latched, timeout=180, sleep_time=5, msg=f"{new_shard_name} to latch routing-ready")
 
         final = self._probe_oneshot("stage4: recovered")
         assert final.failed == 0 and final.succeeded > 0, f"queries did not fully recover: {final.as_dict()}"

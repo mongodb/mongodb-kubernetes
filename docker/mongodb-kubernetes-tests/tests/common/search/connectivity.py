@@ -583,10 +583,9 @@ def set_resource_disabled_annotation(mdbs, disabled: bool) -> None:
     mdbs.load()
     metadata = mdbs["metadata"]
     annotations = metadata.get("annotations") or {}
-    if disabled:
-        annotations[DISABLE_RECONCILIATION_ANNOTATION] = "true"
-    else:
-        annotations.pop(DISABLE_RECONCILIATION_ANNOTATION, None)
+    # update() is a JSON merge patch: deleting a key requires an explicit None
+    # (popping it is a no-op and would leave reconciliation disabled forever).
+    annotations[DISABLE_RECONCILIATION_ANNOTATION] = "true" if disabled else None
     metadata["annotations"] = annotations
     mdbs["metadata"] = metadata
     mdbs.update()
