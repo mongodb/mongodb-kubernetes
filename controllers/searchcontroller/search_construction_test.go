@@ -20,6 +20,13 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
+func resolvedSizing(t *testing.T, s *searchv1.MongoDBSearch, clusterName, shardName string) searchv1.ClusterSpec {
+	t.Helper()
+	sizing, err := s.ResolveSizingForClusterShard(clusterName, shardName)
+	require.NoError(t, err)
+	return sizing
+}
+
 func TestCreateSearchStatefulSetFunc_JVMFlags(t *testing.T) {
 	testCases := []struct {
 		name                 string
@@ -115,8 +122,7 @@ func TestCreateSearchStatefulSetFunc_JVMFlags(t *testing.T) {
 				s.Spec.Clusters = []searchv1.ClusterSpec{cluster}
 			})
 
-			stsModification, err := CreateSearchStatefulSetFunc(search, "", "", "", "", "", "", nil, "mongot:latest", false)
-			require.NoError(t, err)
+			stsModification := CreateSearchStatefulSetFunc(search, resolvedSizing(t, search, "", ""), "", "", "", "", nil, "mongot:latest", false)
 			sts := statefulset.New(stsModification)
 
 			// Find the mongot container
@@ -233,8 +239,7 @@ func TestCreateSearchStatefulSetFunc_DefaultAntiAffinity(t *testing.T) {
 	search := newTestMongoDBSearch("test-search", "default")
 	labels := map[string]string{appLabelKey: "test-search-svc"}
 
-	stsMod, err := CreateSearchStatefulSetFunc(search, "", "", "test-search-db", "default", "test-search-svc", "cm", labels, "mongot:latest", false)
-	require.NoError(t, err)
+	stsMod := CreateSearchStatefulSetFunc(search, resolvedSizing(t, search, "", ""), "test-search-db", "default", "test-search-svc", "cm", labels, "mongot:latest", false)
 	sts := statefulset.New(stsMod)
 
 	affinity := sts.Spec.Template.Spec.Affinity
@@ -277,10 +282,9 @@ func TestCreateSearchStatefulSetFunc_StatefulSetOverrideReplacesAntiAffinity(t *
 	})
 	labels := map[string]string{appLabelKey: "test-search-svc"}
 
-	stsMod, err := CreateSearchStatefulSetFunc(search, "cluster-1", "", "test-search-db", "default", "test-search-svc", "cm", labels, "mongot:latest", false)
-	require.NoError(t, err)
-	overrideMod, err := StatefulSetOverrideModification(search, "cluster-1")
-	require.NoError(t, err)
+	sizing := resolvedSizing(t, search, "cluster-1", "")
+	stsMod := CreateSearchStatefulSetFunc(search, sizing, "test-search-db", "default", "test-search-svc", "cm", labels, "mongot:latest", false)
+	overrideMod := StatefulSetOverrideModification(sizing.StatefulSetConfiguration)
 	// The override is applied last in the reconcile pipeline, after all other modifications.
 	sts := statefulset.New(stsMod, overrideMod)
 
@@ -305,15 +309,13 @@ func TestCreateSearchStatefulSetFunc_ShardOverrideReplicas(t *testing.T) {
 	labels := map[string]string{appLabelKey: "test-search-svc"}
 
 	// The overridden shard's StatefulSet uses the override replica count.
-	stsMod, err := CreateSearchStatefulSetFunc(search, "", "shard-1", "test-search-db", "default", "test-search-svc", "cm", labels, "mongot:latest", false)
-	require.NoError(t, err)
+	stsMod := CreateSearchStatefulSetFunc(search, resolvedSizing(t, search, "", "shard-1"), "test-search-db", "default", "test-search-svc", "cm", labels, "mongot:latest", false)
 	sts := statefulset.New(stsMod)
 	require.NotNil(t, sts.Spec.Replicas)
 	assert.Equal(t, int32(3), *sts.Spec.Replicas)
 
 	// A shard without an override keeps the cluster default.
-	stsMod, err = CreateSearchStatefulSetFunc(search, "", "shard-0", "test-search-db", "default", "test-search-svc", "cm", labels, "mongot:latest", false)
-	require.NoError(t, err)
+	stsMod = CreateSearchStatefulSetFunc(search, resolvedSizing(t, search, "", "shard-0"), "test-search-db", "default", "test-search-svc", "cm", labels, "mongot:latest", false)
 	sts = statefulset.New(stsMod)
 	require.NotNil(t, sts.Spec.Replicas)
 	assert.Equal(t, int32(1), *sts.Spec.Replicas)

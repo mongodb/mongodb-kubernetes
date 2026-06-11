@@ -88,11 +88,10 @@ type TLSSourceConfig struct {
 // CreateSearchStatefulSetFunc returns a statefulset.Modification that configures a mongot StatefulSet.
 // It works for both non-sharded and per-shard deployments.
 //
-// (clusterName, shardName) select the resolved per-(cluster,shard) sizing read for
-// Replicas / Persistence / ResourceRequirements / StatefulSetConfiguration. An empty
-// clusterName is the single-cluster case; an empty shardName is a replica-set unit
-// (no per-shard override layering).
-func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, clusterName, shardName, stsName, namespace, svcName, configMapName string, labels map[string]string, searchImage string, usePerPodConfig bool) (statefulset.Modification, error) {
+// sizing is the resolved per-(cluster, shard) ClusterSpec — see
+// MongoDBSearch.ResolveSizingForClusterShard — read for Replicas / Persistence /
+// ResourceRequirements / JVMFlags / StatefulSetConfiguration.
+func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, sizing searchv1.ClusterSpec, stsName, namespace, svcName, configMapName string, labels map[string]string, searchImage string, usePerPodConfig bool) statefulset.Modification {
 	tmpVolume := statefulset.CreateVolumeFromEmptyDir("tmp")
 	tmpVolumeMount := statefulset.CreateVolumeMount(tmpVolume.Name, tempVolumePath, statefulset.WithReadOnly(false))
 
@@ -110,17 +109,9 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, clusterName,
 		mongotConfigVolumeMount = statefulset.CreateVolumeMount(mongotConfigVolumeName, MongotConfigPath, statefulset.WithReadOnly(true), statefulset.WithSubPath(MongotConfigFilename))
 	}
 
-	// Resolved sizing for THIS (cluster, shard) cell: the cluster's values with
-	// the matching shardOverride (if any) layered on top. Empty shardName == no
-	// per-shard layering (replica-set units).
-	perCluster, err := mdbSearch.ResolveSizingForClusterShard(clusterName, shardName)
-	if err != nil {
-		return nil, err
-	}
-
 	var persistenceConfig *v1.PersistenceConfig
-	if perCluster.Persistence != nil && perCluster.Persistence.SingleConfig != nil {
-		persistenceConfig = perCluster.Persistence.SingleConfig
+	if sizing.Persistence != nil && sizing.Persistence.SingleConfig != nil {
+		persistenceConfig = sizing.Persistence.SingleConfig
 	}
 
 	defaultPersistenceConfig := v1.PersistenceConfig{Storage: util.DefaultMongodStorageSize}
@@ -146,7 +137,7 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, clusterName,
 		statefulset.WithLabels(labels),
 		statefulset.WithOwnerReference(mdbSearch.GetOwnerReferences()),
 		statefulset.WithMatchLabels(labels),
-		statefulset.WithReplicas(mdbSearch.GetReplicasForClusterShard(clusterName, shardName)),
+		statefulset.WithReplicas(sizing.ReplicasOrDefault()),
 		statefulset.WithUpdateStrategyType(appsv1.RollingUpdateStatefulSetStrategyType),
 		dataVolumeClaim,
 		statefulset.WithPodSpecTemplate(
@@ -159,36 +150,33 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, clusterName,
 				// required). A clusters[].statefulSet affinity override replaces this term.
 				podtemplatespec.WithAffinity(labels[appLabelKey], appLabelKey, 100),
 				podtemplatespec.WithTopologyKey(util.DefaultAntiAffinityTopologyKey, 0),
-				podtemplatespec.WithContainer(MongotContainerName, mongodbSearchContainer(mdbSearch, perCluster, volumeMounts, searchImage, usePerPodConfig)),
+				podtemplatespec.WithContainer(MongotContainerName, mongodbSearchContainer(mdbSearch, sizing, volumeMounts, searchImage, usePerPodConfig)),
 			),
 		),
 	}
 
-	return statefulset.Apply(stsModifications...), nil
+	return statefulset.Apply(stsModifications...)
 }
 
-// StatefulSetOverrideModification applies spec.clusters[].statefulSet. It must run
-// LAST in the modification chain, over the fully built StatefulSet: the override
+// StatefulSetOverrideModification applies the resolved clusters[].statefulSet, with any
+// shardOverrides[].statefulSet already deep-merged in (see ResolveSizingForClusterShard).
+// It must run LAST in the modification chain, over the fully built StatefulSet: the override
 // merge sorts volumes by name, so merging mid-pipeline (before the password/TLS
 // volume modifications append) yields a different volume order on the create and
 // update paths — the first reconcile after STS creation then sees a spurious
 // template diff and rolls every mongot pod. Applying last also makes the user
 // override win over operator-set fields, as the CRD field documents.
-func StatefulSetOverrideModification(mdbSearch *searchv1.MongoDBSearch, clusterName string) (statefulset.Modification, error) {
-	perCluster, err := mdbSearch.EffectiveClusterFor(clusterName)
-	if err != nil {
-		return nil, err
-	}
-	if perCluster.StatefulSetConfiguration == nil {
-		return statefulset.NOOP(), nil
+func StatefulSetOverrideModification(stsConfig *v1.StatefulSetConfiguration) statefulset.Modification {
+	if stsConfig == nil {
+		return statefulset.NOOP()
 	}
 	return statefulset.Apply(
-		statefulset.WithCustomSpecs(perCluster.StatefulSetConfiguration.SpecWrapper.Spec),
+		statefulset.WithCustomSpecs(stsConfig.SpecWrapper.Spec),
 		statefulset.WithObjectMetadata(
-			perCluster.StatefulSetConfiguration.MetadataWrapper.Labels,
-			perCluster.StatefulSetConfiguration.MetadataWrapper.Annotations,
+			stsConfig.MetadataWrapper.Labels,
+			stsConfig.MetadataWrapper.Annotations,
 		),
-	), nil
+	)
 }
 
 // PasswordAuthModification returns a statefulset.Modification that mounts the password secret

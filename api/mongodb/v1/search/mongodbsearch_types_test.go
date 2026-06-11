@@ -14,32 +14,20 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 )
 
-func TestGetReplicasForCluster(t *testing.T) {
+func TestReplicasOrDefault(t *testing.T) {
 	t.Run("unset defaults to one", func(t *testing.T) {
-		s := &MongoDBSearch{Spec: MongoDBSearchSpec{Clusters: []ClusterSpec{{}}}}
-		assert.Equal(t, 1, s.GetReplicasForCluster(""))
+		assert.Equal(t, 1, ClusterSpec{}.ReplicasOrDefault())
 	})
 
 	t.Run("explicit value", func(t *testing.T) {
-		s := &MongoDBSearch{Spec: MongoDBSearchSpec{Clusters: []ClusterSpec{{Replicas: ptr.To(int32(3))}}}}
-		assert.Equal(t, 3, s.GetReplicasForCluster(""))
+		assert.Equal(t, 3, ClusterSpec{Replicas: ptr.To(int32(3))}.ReplicasOrDefault())
 	})
 
 	t.Run("explicit zero is honored", func(t *testing.T) {
 		// clusters[].replicas=0 is a legitimate value (operator-driven scale-to-0
 		// for taking mongot offline via the CR). Distinguishing it from "unset"
 		// is the contract callers like search-connectivity tests rely on.
-		s := &MongoDBSearch{Spec: MongoDBSearchSpec{Clusters: []ClusterSpec{{Replicas: ptr.To(int32(0))}}}}
-		assert.Equal(t, 0, s.GetReplicasForCluster(""))
-	})
-
-	t.Run("by cluster name", func(t *testing.T) {
-		s := &MongoDBSearch{Spec: MongoDBSearchSpec{Clusters: []ClusterSpec{
-			{ClusterName: "a", Replicas: ptr.To(int32(2))},
-			{ClusterName: "b", Replicas: ptr.To(int32(5))},
-		}}}
-		assert.Equal(t, 2, s.GetReplicasForCluster("a"))
-		assert.Equal(t, 5, s.GetReplicasForCluster("b"))
+		assert.Equal(t, 0, ClusterSpec{Replicas: ptr.To(int32(0))}.ReplicasOrDefault())
 	})
 }
 
@@ -544,11 +532,13 @@ func TestResolveSizingForClusterShard(t *testing.T) {
 		Replicas:             ptr.To(int32(2)),
 		ResourceRequirements: clusterRes,
 		Persistence:          clusterPersistence,
+		JVMFlags:             []string{"-Xmx2g"},
 		ShardOverrides: []ShardOverride{
 			{
 				ShardNames:           []string{"shard-1"},
 				Replicas:             ptr.To(int32(4)),
 				ResourceRequirements: overrideRes,
+				JVMFlags:             []string{"-Xmx8g"},
 			},
 			{
 				ShardNames:  []string{"shard-2"},
@@ -557,6 +547,13 @@ func TestResolveSizingForClusterShard(t *testing.T) {
 		},
 	}
 	s := &MongoDBSearch{Spec: MongoDBSearchSpec{Clusters: []ClusterSpec{cluster}}}
+
+	replicasFor := func(t *testing.T, s *MongoDBSearch, clusterName, shardName string) int {
+		t.Helper()
+		c, err := s.ResolveSizingForClusterShard(clusterName, shardName)
+		require.NoError(t, err)
+		return c.ReplicasOrDefault()
+	}
 
 	t.Run("shard without override inherits cluster values", func(t *testing.T) {
 		got, err := s.ResolveSizingForClusterShard("east", "shard-0")
@@ -567,12 +564,19 @@ func TestResolveSizingForClusterShard(t *testing.T) {
 		assert.Nil(t, got.ShardOverrides)
 	})
 
-	t.Run("override replaces replicas and resources, inherits persistence", func(t *testing.T) {
+	t.Run("override replaces replicas, resources and jvm flags, inherits persistence", func(t *testing.T) {
 		got, err := s.ResolveSizingForClusterShard("east", "shard-1")
 		require.NoError(t, err)
 		assert.Equal(t, ptr.To(int32(4)), got.Replicas)
 		assert.Same(t, overrideRes, got.ResourceRequirements)
+		assert.Equal(t, []string{"-Xmx8g"}, got.JVMFlags)
 		assert.Same(t, clusterPersistence, got.Persistence, "unset override field inherits cluster value")
+	})
+
+	t.Run("empty override jvm flags inherit cluster value", func(t *testing.T) {
+		got, err := s.ResolveSizingForClusterShard("east", "shard-2")
+		require.NoError(t, err)
+		assert.Equal(t, []string{"-Xmx2g"}, got.JVMFlags)
 	})
 
 	t.Run("override replaces only persistence", func(t *testing.T) {
@@ -588,15 +592,15 @@ func TestResolveSizingForClusterShard(t *testing.T) {
 		assert.Equal(t, ptr.To(int32(2)), got.Replicas)
 	})
 
-	t.Run("GetReplicasForClusterShard honors override and zero", func(t *testing.T) {
+	t.Run("resolved replicas honor override and zero", func(t *testing.T) {
 		s := &MongoDBSearch{Spec: MongoDBSearchSpec{Clusters: []ClusterSpec{{
 			Replicas: ptr.To(int32(2)),
 			ShardOverrides: []ShardOverride{
 				{ShardNames: []string{"shard-off"}, Replicas: ptr.To(int32(0))},
 			},
 		}}}}
-		assert.Equal(t, 2, s.GetReplicasForClusterShard("", "shard-other"))
-		assert.Equal(t, 0, s.GetReplicasForClusterShard("", "shard-off"))
+		assert.Equal(t, 2, replicasFor(t, s, "", "shard-other"))
+		assert.Equal(t, 0, replicasFor(t, s, "", "shard-off"))
 	})
 
 	t.Run("every shard in a multi-name override entry resolves to the override", func(t *testing.T) {
@@ -606,9 +610,9 @@ func TestResolveSizingForClusterShard(t *testing.T) {
 				{ShardNames: []string{"shard-a", "shard-b"}, Replicas: ptr.To(int32(5))},
 			},
 		}}}}
-		assert.Equal(t, 5, s.GetReplicasForClusterShard("", "shard-a"))
-		assert.Equal(t, 5, s.GetReplicasForClusterShard("", "shard-b"))
-		assert.Equal(t, 1, s.GetReplicasForClusterShard("", "shard-c"))
+		assert.Equal(t, 5, replicasFor(t, s, "", "shard-a"))
+		assert.Equal(t, 5, replicasFor(t, s, "", "shard-b"))
+		assert.Equal(t, 1, replicasFor(t, s, "", "shard-c"))
 	})
 
 	t.Run("override in one cluster does not leak into another cluster", func(t *testing.T) {
@@ -618,8 +622,8 @@ func TestResolveSizingForClusterShard(t *testing.T) {
 			}},
 			{ClusterName: "west", Replicas: ptr.To(int32(2))},
 		}}}
-		assert.Equal(t, 4, s.GetReplicasForClusterShard("east", "shard-0"))
-		assert.Equal(t, 2, s.GetReplicasForClusterShard("west", "shard-0"))
+		assert.Equal(t, 4, replicasFor(t, s, "east", "shard-0"))
+		assert.Equal(t, 2, replicasFor(t, s, "west", "shard-0"))
 	})
 }
 

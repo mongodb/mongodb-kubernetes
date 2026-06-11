@@ -196,9 +196,10 @@ type ClusterSpec struct {
 }
 
 // ShardOverride sizes specific shards within the enclosing cluster differently
-// from the cluster default. Replicas, ResourceRequirements and Persistence
-// replace the cluster value for the named shards when set; StatefulSetConfiguration
-// is deep-merged onto the cluster value. Unset fields inherit the cluster value.
+// from the cluster default. Replicas, ResourceRequirements, Persistence and
+// JVMFlags replace the cluster value for the named shards when set;
+// StatefulSetConfiguration is deep-merged onto the cluster value. Unset fields
+// inherit the cluster value.
 type ShardOverride struct {
 	// ShardNames are the shards (within this cluster) this override applies to.
 	// Each must exist in spec.source.external.shardedCluster.shards[].
@@ -218,10 +219,19 @@ type ShardOverride struct {
 	// StatefulSetConfiguration is deep-merged onto the cluster's StatefulSet override for these shards.
 	// +optional
 	StatefulSetConfiguration *v1.StatefulSetConfiguration `json:"statefulSet,omitempty"`
+	// JVMFlags replaces the cluster's jvmFlags for these shards when non-empty.
+	// +optional
+	JVMFlags []string `json:"jvmFlags,omitempty"`
 }
 
 // ReplicasOrDefault returns the cluster's mongot replica count, defaulting to 1
-// when Replicas is unset. An explicit 0 is honored (used to take mongot offline).
+// when Replicas is unset.
+//
+// An explicit 0 is honored: callers (and the connectivity-tool /
+// availability-tester e2e tests) take mongot offline by setting
+// spec.clusters[].replicas=0 on the MongoDBSearch CR. A `> 0` guard would
+// silently clamp that to 1, so the operator would never scale the mongot
+// StatefulSet down and tests waiting on the scale-to-0 would time out.
 func (c ClusterSpec) ReplicasOrDefault() int {
 	if c.Replicas != nil {
 		return int(*c.Replicas)
@@ -858,29 +868,13 @@ func (s *MongoDBSearch) EffectiveClusterFor(clusterName string) (ClusterSpec, er
 	return ClusterSpec{}, fmt.Errorf("cluster %q not found in spec.clusters", clusterName)
 }
 
-// GetReplicasForCluster returns the per-cluster mongot replica count: the
-// cluster's Replicas, or the default "1" when unset. clusterName="" reads the
-// first entry (single-cluster case).
-//
-// An explicit 0 is honored: callers (and the connectivity-tool /
-// availability-tester e2e tests) take mongot offline by setting
-// spec.clusters[].replicas=0 on the MongoDBSearch CR. A `> 0` guard would
-// silently clamp that to 1, so the operator would never scale the mongot
-// StatefulSet down and tests waiting on the scale-to-0 would time out.
-func (s *MongoDBSearch) GetReplicasForCluster(clusterName string) int {
-	c, err := s.EffectiveClusterFor(clusterName)
-	if err != nil {
-		return 1
-	}
-	return c.ReplicasOrDefault()
-}
-
 // ResolveSizingForClusterShard returns the effective sizing for one
 // (cluster, shard) cell: the named cluster's ClusterSpec with the matching
-// shardOverride (if any) layered on top. Replicas, ResourceRequirements and
-// Persistence are replaced when the override sets them; StatefulSetConfiguration
-// is deep-merged onto the cluster value. An empty shardName (replica-set
-// sources) or a cluster without a matching override returns the cluster spec.
+// shardOverride (if any) layered on top. Replicas, ResourceRequirements,
+// Persistence and JVMFlags are replaced when the override sets them;
+// StatefulSetConfiguration is deep-merged onto the cluster value. An empty
+// shardName (replica-set sources) or a cluster without a matching override
+// returns the cluster spec.
 func (s *MongoDBSearch) ResolveSizingForClusterShard(clusterName, shardName string) (ClusterSpec, error) {
 	resolved, err := s.EffectiveClusterFor(clusterName)
 	if err != nil {
@@ -905,6 +899,9 @@ func (s *MongoDBSearch) ResolveSizingForClusterShard(clusterName, shardName stri
 	}
 	if override.Persistence != nil {
 		resolved.Persistence = override.Persistence
+	}
+	if len(override.JVMFlags) > 0 {
+		resolved.JVMFlags = override.JVMFlags
 	}
 	if override.StatefulSetConfiguration != nil {
 		resolved.StatefulSetConfiguration = mergeStatefulSetConfiguration(resolved.StatefulSetConfiguration, override.StatefulSetConfiguration)
@@ -936,20 +933,6 @@ func mergeStatefulSetConfiguration(base, override *v1.StatefulSetConfiguration) 
 	merged.MetadataWrapper.Labels = merge.StringToStringMap(merged.MetadataWrapper.Labels, override.MetadataWrapper.Labels)
 	merged.MetadataWrapper.Annotations = merge.StringToStringMap(merged.MetadataWrapper.Annotations, override.MetadataWrapper.Annotations)
 	return merged
-}
-
-// GetReplicasForClusterShard returns the resolved mongot replica count for one
-// (cluster, shard) cell after applying the matching shardOverride. Defaults to
-// 1 when unset; an explicit 0 is honored (see GetReplicasForCluster).
-func (s *MongoDBSearch) GetReplicasForClusterShard(clusterName, shardName string) int {
-	c, err := s.ResolveSizingForClusterShard(clusterName, shardName)
-	if err != nil {
-		return 1
-	}
-	if r := c.Replicas; r != nil {
-		return int(*r)
-	}
-	return 1
 }
 
 // HasMultipleReplicas reports whether any cluster runs more than one mongot
