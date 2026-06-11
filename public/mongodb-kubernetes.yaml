@@ -95,6 +95,7 @@ subjects:
   - kind: ServiceAccount
     name: mongodb-kubernetes-operator
     namespace: mongodb
+
 ---
 # Source: mongodb-kubernetes/templates/operator-roles-clustermongodbroles.yaml
 kind: ClusterRole
@@ -122,6 +123,7 @@ subjects:
   - kind: ServiceAccount
     name: mongodb-kubernetes-operator
     namespace: mongodb
+
 ---
 # Source: mongodb-kubernetes/templates/operator-roles-pvc-resize.yaml
 kind: Role
@@ -156,6 +158,7 @@ subjects:
   - kind: ServiceAccount
     name: mongodb-kubernetes-operator
     namespace: mongodb
+
 ---
 # Source: mongodb-kubernetes/templates/operator-roles-telemetry.yaml
 # Additional ClusterRole for clusterVersionDetection
@@ -199,6 +202,7 @@ subjects:
   - kind: ServiceAccount
     name: mongodb-kubernetes-operator
     namespace: mongodb
+
 ---
 # Source: mongodb-kubernetes/templates/operator-roles-webhook.yaml
 kind: ClusterRole
@@ -240,6 +244,7 @@ subjects:
   - kind: ServiceAccount
     name: mongodb-kubernetes-operator
     namespace: mongodb
+
 ---
 # Source: mongodb-kubernetes/templates/database-roles.yaml
 apiVersion: v1
@@ -298,13 +303,15 @@ subjects:
   - kind: ServiceAccount
     name: mongodb-kubernetes-appdb
     namespace: mongodb
+
 ---
 # Source: mongodb-kubernetes/templates/operator-sa.yaml
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: mongodb-kubernetes-operator
-  namespace: mongodb
+  namespace: mongodb 
+
 ---
 # Source: mongodb-kubernetes/templates/operator.yaml
 apiVersion: apps/v1
@@ -450,3 +457,4 @@ spec:
       volumes:
         - name: webhook-server-dir
           emptyDir: {}
+
