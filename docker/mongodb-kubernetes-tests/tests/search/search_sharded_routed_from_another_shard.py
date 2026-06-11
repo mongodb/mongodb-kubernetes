@@ -289,17 +289,16 @@ class TestShardOnboardingAvailabilityStages:
         t.search_config = SEARCH
         return t
 
+    def _routing_ready_groups(self) -> list[str]:
+        """The one-way routing-readiness latch from the ``<name>-search-state`` ConfigMap."""
+        data = read_configmap(NAMESPACE, f"{MDBS_NAME}-search-state")
+        return json.loads(data["state"]).get("routingReadyMongotGroups") or []
+
     def _shard_route(self, shard_name: str) -> tuple[str, dict[str, str]]:
         """Return ``(target_cluster, request_headers)`` for the shard's Envoy filter
         chain from the LB config CM's lds.json. A pending shard routes to
         ``mongot_cluster_level_cluster`` with the routed_from_another_shard header; a
-        latched shard routes to its own ``mongot_<shard>_cluster`` with no header.
-
-        Envoy's filesystem-xDS LDS is the source of truth for pending/latched here:
-        the ``<search>-state`` ConfigMap is named ``<search>-state`` and the sharded
-        MongoDB CR (sharing this name) writes its own state to the same ConfigMap, so
-        the persisted ``routingReadyMongotGroups`` key is unreliable. The lds.json (and
-        the status mirror) reflect the operator's live routing decision."""
+        latched shard routes to its own ``mongot_<shard>_cluster`` with no header."""
         sni = search_resource_names.shard_proxy_service_name(MDBS_NAME, shard_name)
         lds = json.loads(read_configmap(NAMESPACE, search_resource_names.lb_configmap_name(MDBS_NAME))["lds.json"])
         for listener in lds.get("resources", []):
@@ -318,8 +317,9 @@ class TestShardOnboardingAvailabilityStages:
         raise AssertionError(f"no filter chain for shard {shard_name} (SNI {sni}) in lds.json")
 
     def _assert_pending_fallback(self, shard_name: str, context: str) -> None:
-        """The shard's Envoy chain routes to the cluster-level mongot WITH the
-        routed_from_another_shard header (pending), and the status mirror lists it."""
+        """Pending contract: not latched in the state CM, listed in the status mirror,
+        and the shard's Envoy chain routes to the cluster-level mongot WITH the
+        routed_from_another_shard header."""
         cluster, headers = self._shard_route(shard_name)
         assert (
             cluster == "mongot_cluster_level_cluster"
@@ -327,18 +327,25 @@ class TestShardOnboardingAvailabilityStages:
         assert (
             headers.get("search-envoy-metadata-bin") == "CAE="
         ), f"[{context}] shard {shard_name} fallback chain missing routed_from_another_shard header; headers={headers}"
+        latch = self._routing_ready_groups()
+        assert (
+            shard_name not in latch
+        ), f"[{context}] shard {shard_name} already latched: routingReadyMongotGroups={latch}"
         assert (
             shard_name in self._status_pending_mirror()
         ), f"[{context}] shard {shard_name} absent from status.pendingMongotGroups"
 
     def _assert_latched(self, shard_name: str, context: str) -> None:
-        """The shard's Envoy chain routes to its OWN mongot cluster (latched), and the
-        status mirror does not list it as pending."""
+        """Latched contract: present in the state CM's routingReadyMongotGroups, absent
+        from the status mirror, and the shard's Envoy chain routes to its OWN mongot
+        cluster."""
         cluster, _ = self._shard_route(shard_name)
         expected = f"mongot_{shard_name.replace('-', '_')}_cluster"
         assert (
             cluster == expected
         ), f"[{context}] shard {shard_name} routes to {cluster!r}, expected own cluster {expected!r}"
+        latch = self._routing_ready_groups()
+        assert shard_name in latch, f"[{context}] shard {shard_name} not latched: routingReadyMongotGroups={latch}"
         assert (
             shard_name not in self._status_pending_mirror()
         ), f"[{context}] shard {shard_name} still in status.pendingMongotGroups"
