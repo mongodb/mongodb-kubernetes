@@ -795,7 +795,7 @@ def test_per_cluster_envoy_sni_observed(
             if other.cluster_name == mcc.cluster_name:
                 continue
             other_idx = helper.cluster_index(other.cluster_name)
-            other_fqdn = _expected_proxy_svc_fqdn(MDBS_RESOURCE_NAME, other_idx, namespace)
+            other_fqdn = search_resource_names.mc_proxy_svc_fqdn(MDBS_RESOURCE_NAME, namespace, other_idx)
             assert other_fqdn not in sni_names, (
                 f"[{mcc.cluster_name}] foreign SNI {other_fqdn!r} present in "
                 f"lds.json server_names — per-cluster Envoy must only match its own FQDN"
