@@ -438,8 +438,9 @@ class OMTester(object):
                 logger.error(message)
                 # Include the response body in the exception message so callers
                 # can inspect it (e.g. PIT restore helpers looking for 409/invalid restore point)
-                # and implement their own retry/timeout logic.
-                raise Exception(message)
+                # and implement their own retry/timeout logic. HTTPError carries the
+                # response so callers can check e.response.status_code directly.
+                raise requests.HTTPError(message, response=response)
             return response
 
     def get_feature_controls(self):

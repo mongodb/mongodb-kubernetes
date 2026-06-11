@@ -4,6 +4,7 @@ import json
 from typing import Dict, List, Mapping, Optional, Tuple
 
 import kubernetes
+import requests
 import yaml
 from kubernetes.client import CoreV1Api
 from kubetester import create_or_update_configmap, create_or_update_secret, read_secret
@@ -398,8 +399,8 @@ def _put_automation_config_past_lock(om_tester, ac_path: str, ac: dict, attempts
         try:
             om_tester.om_request("put", ac_path, json_object=ac)
             return
-        except Exception as e:
-            if "401" not in str(e) or attempt == attempts:
+        except requests.HTTPError as e:
+            if e.response is None or e.response.status_code != 401 or attempt == attempts:
                 raise
             logger.warning(f"automationConfig PUT got 401 (operator re-locked); retry {attempt}/{attempts - 1}")
 

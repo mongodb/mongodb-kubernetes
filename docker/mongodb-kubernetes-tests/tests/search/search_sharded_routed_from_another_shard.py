@@ -1,4 +1,13 @@
-"""E2E tests for the search connectivity tool against a single-cluster sharded source."""
+"""E2E: ``$search`` availability while onboarding shards into a single-cluster
+sharded MongoDBSearch deployment.
+
+Verifies the routed_from_another_shard contract: while a newly added shard's
+mongot is pending (never yet routing-ready), Envoy routes its filter chain to the
+cluster-level mongot with the fallback header so ``$search`` through mongos keeps
+succeeding; once the mongot is ready the shard latches routing-ready one-way and
+later un-readiness fails with the clean no-mongot gap, never an index-state
+rejection.
+"""
 
 from __future__ import annotations
 
