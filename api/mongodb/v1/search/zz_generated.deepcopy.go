@@ -425,11 +425,6 @@ func (in *MongoDBSearchSpec) DeepCopyInto(out *MongoDBSearchSpec) {
 		*out = new(EmbeddingConfig)
 		**out = **in
 	}
-	if in.LoadBalancer != nil {
-		in, out := &in.LoadBalancer, &out.LoadBalancer
-		*out = new(LoadBalancerConfig)
-		(*in).DeepCopyInto(*out)
-	}
 	if in.FeatureFlags != nil {
 		in, out := &in.FeatureFlags, &out.FeatureFlags
 		*out = new(FeatureFlags)
