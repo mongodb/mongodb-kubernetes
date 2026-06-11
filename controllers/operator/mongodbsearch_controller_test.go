@@ -479,8 +479,10 @@ func setupStateCMTest(t *testing.T, clusters ...searchv1.ClusterSpec) (*MongoDBS
 			HostAndPorts: []string{"mdb-0.mdb.svc:27017", "mdb-1.mdb.svc:27017"},
 		},
 	}
-	search.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
-		Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot-{clusterName}.example.com"},
+	for i := range clusters {
+		clusters[i].LoadBalancer = &searchv1.LoadBalancerConfig{
+			Managed: &searchv1.ManagedLBConfig{ExternalHostname: fmt.Sprintf("mongot-%s.example.com", clusters[i].ClusterName)},
+		}
 	}
 	search.Spec.Clusters = clusters
 	mdbc := newMongoDBCommunity("mdb", mock.TestNamespace)
@@ -512,6 +514,13 @@ func updateSearchClusters(t *testing.T, ctx context.Context, c client.Client, na
 	t.Helper()
 	latest := &searchv1.MongoDBSearch{}
 	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: name, Namespace: mock.TestNamespace}, latest))
+	// Stamp the per-cluster managed LB every cluster needs to pass MC validation,
+	// matching setupStateCMTest so add/remove updates stay MC-valid.
+	for i := range clusters {
+		clusters[i].LoadBalancer = &searchv1.LoadBalancerConfig{
+			Managed: &searchv1.ManagedLBConfig{ExternalHostname: fmt.Sprintf("mongot-%s.example.com", clusters[i].ClusterName)},
+		}
+	}
 	latest.Spec.Clusters = clusters
 	require.NoError(t, c.Update(ctx, latest))
 }
@@ -589,12 +598,17 @@ func TestMongoDBSearchReconcile_Success_MultiCluster(t *testing.T) {
 					HostAndPorts: []string{"mdb-0.mdb.svc:27017", "mdb-1.mdb.svc:27017"},
 				},
 			},
-			LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot-{clusterName}.example.com"}},
 		},
 	}
 	search.Spec.Clusters = []searchv1.ClusterSpec{
-		{ClusterName: "us-east", ClusterIndex: ptr.To(int32(0)), Replicas: ptr.To(int32(1))},
-		{ClusterName: "us-west", ClusterIndex: ptr.To(int32(1)), Replicas: ptr.To(int32(1))},
+		{
+			ClusterName: "us-east", ClusterIndex: ptr.To(int32(0)), Replicas: ptr.To(int32(1)),
+			LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot-us-east.example.com"}},
+		},
+		{
+			ClusterName: "us-west", ClusterIndex: ptr.To(int32(1)), Replicas: ptr.To(int32(1)),
+			LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot-us-west.example.com"}},
+		},
 	}
 
 	eastClient := mock.NewEmptyFakeClientBuilder().Build()
@@ -743,8 +757,10 @@ func assertSearchOwnerLabels(t *testing.T, search *searchv1.MongoDBSearch, clust
 
 func newSimulatedMCMongoDBSearch(name, namespace string) *searchv1.MongoDBSearch {
 	clusters := []searchv1.ClusterSpec{
-		{ClusterName: "cluster-a", ClusterIndex: ptr.To(int32(0)), Replicas: ptr.To(int32(1))},
-		{ClusterName: "cluster-b", ClusterIndex: ptr.To(int32(1)), Replicas: ptr.To(int32(1))},
+		{ClusterName: "cluster-a", ClusterIndex: ptr.To(int32(0)), Replicas: ptr.To(int32(1)),
+			LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot-cluster-a.example.com"}}},
+		{ClusterName: "cluster-b", ClusterIndex: ptr.To(int32(1)), Replicas: ptr.To(int32(1)),
+			LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot-cluster-b.example.com"}}},
 	}
 	return &searchv1.MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
@@ -753,9 +769,6 @@ func newSimulatedMCMongoDBSearch(name, namespace string) *searchv1.MongoDBSearch
 				ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{
 					HostAndPorts: []string{"mdb-0.mdb.svc:27017", "mdb-1.mdb.svc:27017"},
 				},
-			},
-			LoadBalancer: &searchv1.LoadBalancerConfig{
-				Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot-{clusterName}.example.com"},
 			},
 			Clusters: clusters,
 		},
@@ -1083,11 +1096,9 @@ func TestReconcile_SimulatedMC_ClusterIndexEnforcement(t *testing.T) {
 
 	t.Run("empty clusters is Invalid", func(t *testing.T) {
 		search := newSimulatedMCMongoDBSearch("mdb-search", mock.TestNamespace)
+		// Empty clusters means there is no per-cluster loadBalancer either, so the
+		// failure is attributable to the clusters check, not the LB validators.
 		search.Spec.Clusters = []searchv1.ClusterSpec{}
-		// Use a placeholder-free hostname so the failure is attributable to the
-		// clusters checks, not the DNS-length validator rejecting an unsubstituted
-		// {clusterName} literal.
-		search.Spec.LoadBalancer.Managed.ExternalHostname = "mongot.example.com"
 
 		reconciler, c := newSearchReconcilerWithMembers(t, nil, nil, "cluster-a", search)
 		req := reconcile.Request{NamespacedName: types.NamespacedName{Name: search.Name, Namespace: search.Namespace}}
@@ -1114,10 +1125,12 @@ func TestMongoDBSearchReconcile_ResolveClusterMappingFailure_Failed(t *testing.T
 	search.Spec.Source = &searchv1.MongoDBSource{
 		ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{HostAndPorts: []string{"mdb-0.mdb.svc:27017"}},
 	}
-	search.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
-		Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot-{clusterName}.example.com"},
-	}
 	search.Spec.Clusters = []searchv1.ClusterSpec{pinnedCluster("us-east", 0), pinnedCluster("us-west", 1)}
+	for i := range search.Spec.Clusters {
+		search.Spec.Clusters[i].LoadBalancer = &searchv1.LoadBalancerConfig{
+			Managed: &searchv1.ManagedLBConfig{ExternalHostname: fmt.Sprintf("mongot-%s.example.com", search.Spec.Clusters[i].ClusterName)},
+		}
+	}
 
 	base := mock.NewEmptyFakeClientBuilder().WithStatusSubresource(&searchv1.MongoDBSearch{}).WithObjects(search).Build()
 	// failingWriteClient rejects the state-CM write that resolveClusterMapping
@@ -1152,8 +1165,22 @@ func TestMongoDBSearchReconcile_MCSharded_CrossControllerLabelInvariant(t *testi
 		},
 		Spec: searchv1.MongoDBSearchSpec{
 			Clusters: []searchv1.ClusterSpec{
-				{ClusterName: "cluster-a", ClusterIndex: ptr.To(int32(0)), Replicas: ptr.To(int32(1))},
-				{ClusterName: "cluster-b", ClusterIndex: ptr.To(int32(1)), Replicas: ptr.To(int32(1))},
+				{
+					ClusterName: "cluster-a", ClusterIndex: ptr.To(int32(0)), Replicas: ptr.To(int32(1)),
+					LoadBalancer: &searchv1.LoadBalancerConfig{
+						Managed: &searchv1.ManagedLBConfig{
+							ExternalHostname: "{shardName}.mdb-search-search-0-proxy-svc.example.com",
+						},
+					},
+				},
+				{
+					ClusterName: "cluster-b", ClusterIndex: ptr.To(int32(1)), Replicas: ptr.To(int32(1)),
+					LoadBalancer: &searchv1.LoadBalancerConfig{
+						Managed: &searchv1.ManagedLBConfig{
+							ExternalHostname: "{shardName}.mdb-search-search-1-proxy-svc.example.com",
+						},
+					},
+				},
 			},
 			Source: &searchv1.MongoDBSource{
 				ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{
@@ -1165,11 +1192,6 @@ func TestMongoDBSearchReconcile_MCSharded_CrossControllerLabelInvariant(t *testi
 							{ShardName: "sh-2", Hosts: []string{"sh-2-a.example:27017"}},
 						},
 					},
-				},
-			},
-			LoadBalancer: &searchv1.LoadBalancerConfig{
-				Managed: &searchv1.ManagedLBConfig{
-					ExternalHostname: "{shardName}.mdb-search-search-{clusterIndex}-proxy-svc.example.com",
 				},
 			},
 			Security: searchv1.Security{TLS: &searchv1.TLS{CertsSecretPrefix: "certs"}},
