@@ -136,6 +136,10 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, clusterName,
 		statefulset.WithReplicas(mdbSearch.GetReplicasForCluster(clusterName)),
 		statefulset.WithUpdateStrategyType(appsv1.RollingUpdateStatefulSetStrategyType),
 		dataVolumeClaim,
+		// The mongot data PVC is disposable — mongot rebuilds its index from the
+		// source on a fresh volume — so delete it both on STS delete and on
+		// scale-down rather than orphaning volumes after teardown or scale-in.
+		withPVCRetentionPolicyDelete(),
 		statefulset.WithPodSpecTemplate(
 			podtemplatespec.Apply(
 				podSecurityContext,
@@ -160,6 +164,19 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, clusterName,
 	}
 
 	return statefulset.Apply(stsModifications...), nil
+}
+
+// withPVCRetentionPolicyDelete sets the StatefulSet to delete its PVCs both when
+// the StatefulSet is deleted and when it is scaled down. Requires Kubernetes
+// >= 1.27 (StatefulSetAutoDeletePVC, GA in 1.32); on older clusters the field is
+// ignored and PVCs are retained as before.
+func withPVCRetentionPolicyDelete() statefulset.Modification {
+	return func(sts *appsv1.StatefulSet) {
+		sts.Spec.PersistentVolumeClaimRetentionPolicy = &appsv1.StatefulSetPersistentVolumeClaimRetentionPolicy{
+			WhenDeleted: appsv1.DeletePersistentVolumeClaimRetentionPolicyType,
+			WhenScaled:  appsv1.DeletePersistentVolumeClaimRetentionPolicyType,
+		}
+	}
 }
 
 // PasswordAuthModification returns a statefulset.Modification that mounts the password secret
