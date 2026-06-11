@@ -217,7 +217,9 @@ def mdbs(
             "replicas": MONGOT_REPLICAS_PER_CLUSTER,
             "loadBalancer": {
                 "managed": {
-                    "externalHostname": f"{MDBS_RESOURCE_NAME}-search-{mcc.cluster_index}-proxy-svc.{namespace}.svc.cluster.local",
+                    "externalHostname": search_resource_names.mc_proxy_svc_fqdn(
+                        MDBS_RESOURCE_NAME, namespace, mcc.cluster_index
+                    ),
                 },
             },
         }
@@ -474,11 +476,6 @@ def _per_cluster_envoy_deployment_name(mdbs_name: str, cluster_index: int) -> st
 def _per_cluster_envoy_configmap_name(mdbs_name: str, cluster_index: int) -> str:
     """Mirror LoadBalancerConfigMapNameForCluster: `{name}-search-lb-0-{clusterIndex}-config`."""
     return f"{mdbs_name}-search-lb-0-{cluster_index}-config"
-
-
-def _expected_proxy_svc_fqdn(mdbs_name: str, cluster_index: int, namespace: str) -> str:
-    """Per-cluster proxy-svc FQDN (no port) — matches GetManagedLBEndpointForCluster output."""
-    return f"{mdbs_name}-search-{cluster_index}-proxy-svc.{namespace}.svc.cluster.local"
 
 
 def _read_mongod_set_parameter(
@@ -772,7 +769,7 @@ def test_per_cluster_envoy_sni_observed(
     for mcc in member_cluster_clients:
         cluster_idx = helper.cluster_index(mcc.cluster_name)
         cm_name = _per_cluster_envoy_configmap_name(MDBS_RESOURCE_NAME, cluster_idx)
-        expected_fqdn = _expected_proxy_svc_fqdn(MDBS_RESOURCE_NAME, cluster_idx, namespace)
+        expected_fqdn = search_resource_names.mc_proxy_svc_fqdn(MDBS_RESOURCE_NAME, namespace, cluster_idx)
 
         cm = mcc.core_v1_api().read_namespaced_config_map(name=cm_name, namespace=namespace)
         lds_json = (cm.data or {}).get("lds.json")

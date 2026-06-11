@@ -176,21 +176,6 @@ class SearchDeploymentHelper:
             },
         }
 
-        lb = None
-        if lb_mode or lb_endpoint:
-            lb = {}
-            if lb_mode == "Managed":
-                external_hostname = (
-                    f"{self.mdbs_resource_name}-search-0-{{shardName}}-proxy-svc" f".{self.namespace}.svc.cluster.local"
-                )
-                lb["managed"] = {"externalHostname": external_hostname}
-            if lb_endpoint:
-                if "unmanaged" not in lb:
-                    lb["unmanaged"] = {}
-                lb["unmanaged"]["endpoint"] = lb_endpoint
-            elif lb_mode == "Unmanaged":
-                lb["unmanaged"] = {}
-
         if replicas is not None:
             resource["spec"]["clusters"] = [{"replicas": replicas}]
 
@@ -199,9 +184,20 @@ class SearchDeploymentHelper:
             clusters[0]["shardOverrides"] = shard_overrides
             resource["spec"]["clusters"] = clusters
 
-        if lb is not None:
+        if lb_mode or lb_endpoint:
             clusters = resource["spec"].get("clusters") or [{}]
-            for cluster in clusters:
+            for i, cluster in enumerate(clusters):
+                lb = {}
+                if lb_mode == "Managed":
+                    lb["managed"] = {
+                        "externalHostname": search_resource_names.shard_proxy_svc_hostname_template(
+                            self.mdbs_resource_name, self.namespace, i
+                        )
+                    }
+                if lb_endpoint:
+                    lb["unmanaged"] = {"endpoint": lb_endpoint}
+                elif lb_mode == "Unmanaged":
+                    lb["unmanaged"] = {}
                 cluster["loadBalancer"] = lb
             resource["spec"]["clusters"] = clusters
 
@@ -427,25 +423,24 @@ class SearchDeploymentHelper:
             "tls": {"certsSecretPrefix": self.tls_cert_prefix},
         }
 
-        lb = None
-        if lb_mode:
-            if lb_mode == "Managed":
-                external_hostname = (
-                    f"{self.mdbs_resource_name}-search-0-proxy-svc" f".{self.namespace}.svc.cluster.local"
-                )
-                lb = {"managed": {"externalHostname": external_hostname}}
-            elif lb_mode == "Unmanaged":
-                lb = {"unmanaged": {}}
-
         if clusters is not None:
             resource["spec"]["clusters"] = clusters
         elif replicas is not None:
             resource["spec"]["clusters"] = [{"replicas": replicas}]
 
-        if lb is not None:
+        if lb_mode:
             clusters_spec = resource["spec"].get("clusters") or [{}]
-            for cluster in clusters_spec:
-                cluster["loadBalancer"] = lb
+            for i, cluster in enumerate(clusters_spec):
+                if lb_mode == "Managed":
+                    cluster["loadBalancer"] = {
+                        "managed": {
+                            "externalHostname": search_resource_names.mc_proxy_svc_fqdn(
+                                self.mdbs_resource_name, self.namespace, i
+                            )
+                        }
+                    }
+                elif lb_mode == "Unmanaged":
+                    cluster["loadBalancer"] = {"unmanaged": {}}
             resource["spec"]["clusters"] = clusters_spec
 
         return resource

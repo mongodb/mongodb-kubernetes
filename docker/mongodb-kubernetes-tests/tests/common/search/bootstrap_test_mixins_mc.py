@@ -159,7 +159,7 @@ class SearchRsMcDeploymentTests(SearchDeploymentTests):
         for i, cluster in enumerate(clusters):
             cluster["loadBalancer"] = {
                 "managed": {
-                    "externalHostname": f"{mdbs_name}-search-{i}-proxy-svc.{self.namespace}.svc.cluster.local",
+                    "externalHostname": search_resource_names.mc_proxy_svc_fqdn(mdbs_name, self.namespace, i),
                 },
             }
         resource["spec"]["clusters"] = clusters

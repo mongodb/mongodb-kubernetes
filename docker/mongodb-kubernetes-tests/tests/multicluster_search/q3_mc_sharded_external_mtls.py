@@ -225,8 +225,8 @@ def mdbs(
             "replicas": MONGOT_REPLICAS_PER_CLUSTER,
             "loadBalancer": {
                 "managed": {
-                    "externalHostname": (
-                        f"{MDBS_RESOURCE_NAME}-search-{mcc.cluster_index}-{{shardName}}-proxy-svc.{namespace}.svc.cluster.local"
+                    "externalHostname": search_resource_names.shard_proxy_svc_hostname_template(
+                        MDBS_RESOURCE_NAME, namespace, mcc.cluster_index
                     ),
                 },
             },

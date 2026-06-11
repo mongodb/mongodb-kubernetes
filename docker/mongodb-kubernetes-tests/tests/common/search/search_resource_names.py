@@ -173,6 +173,12 @@ def mc_proxy_svc_fqdn(search_name: str, namespace: str, cluster_index: int) -> s
     return f"{mc_proxy_svc_name(search_name, cluster_index)}.{namespace}.svc.cluster.local"
 
 
+def shard_proxy_svc_hostname_template(search_name: str, namespace: str, cluster_index: int = 0) -> str:
+    """externalHostname for a sharded managed LB: the per-shard proxy-svc FQDN
+    with the {shardName} placeholder kept for the operator to resolve."""
+    return f"{search_name}-search-{cluster_index}-{{shardName}}-proxy-svc.{namespace}.svc.cluster.local"
+
+
 # ============================================================================
 # Managed load balancer resources
 # ============================================================================
