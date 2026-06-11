@@ -13,6 +13,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/search"
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/user"
 )
@@ -23,7 +24,7 @@ func newSecretsPresenceScheme(t *testing.T) *runtime.Scheme {
 	if err := corev1.AddToScheme(scheme); err != nil {
 		t.Fatalf("scheme: %v", err)
 	}
-	if err := searchv1.AddToScheme(scheme); err != nil {
+	if err := v1.AddToScheme(scheme); err != nil {
 		t.Fatalf("scheme: %v", err)
 	}
 	return scheme
