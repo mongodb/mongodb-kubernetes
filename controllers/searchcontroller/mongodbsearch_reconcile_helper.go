@@ -179,7 +179,8 @@ type reconcileUnit struct {
 	mongotConfigFn      mongot.Modification
 	clusterName         string // "" routes to the central client (single-cluster)
 	clusterIndex        int
-	shardName           string // shard name for sharded topologies; "" for RS
+	shardName           string               // shard name for sharded topologies; "" for RS
+	sizing              searchv1.ClusterSpec // resolved per-(cluster, shard) sizing, see ResolveSizingForClusterShard
 }
 
 // SearchSourceReplicaSet is the subset of SearchSourceDBResource the RS plan
@@ -247,6 +248,10 @@ func (r *MongoDBSearchReconcileHelper) buildReplicaSetPlan(rsSource SearchSource
 
 	units := make([]reconcileUnit, 0, len(work))
 	for _, w := range work {
+		sizing, err := r.mdbSearch.ResolveSizingForClusterShard(w.ClusterName, "")
+		if err != nil {
+			return reconcilePlan{}, err
+		}
 		stsName, headlessSvc, proxySvc, configMapName := r.rsResourceNames(w)
 		units = append(units, reconcileUnit{
 			stsName:            stsName,
@@ -259,6 +264,7 @@ func (r *MongoDBSearchReconcileHelper) buildReplicaSetPlan(rsSource SearchSource
 			mongotConfigFn:     mongotConfigFn,
 			clusterName:        w.ClusterName,
 			clusterIndex:       w.ClusterIndex,
+			sizing:             sizing,
 		})
 	}
 
@@ -350,6 +356,11 @@ func (r *MongoDBSearchReconcileHelper) buildShardedPlan(shardedSource SearchSour
 	for _, w := range work {
 		hostSeeds := hostSeedsByShard[w.ShardName]
 
+		sizing, err := r.mdbSearch.ResolveSizingForClusterShard(w.ClusterName, w.ShardName)
+		if err != nil {
+			return reconcilePlan{}, err
+		}
+
 		stsName := r.mdbSearch.MongotStatefulSetForClusterShard(w.ClusterIndex, w.ShardName)
 
 		var logFields []any
@@ -377,6 +388,7 @@ func (r *MongoDBSearchReconcileHelper) buildShardedPlan(shardedSource SearchSour
 			clusterName:         w.ClusterName,
 			clusterIndex:        w.ClusterIndex,
 			shardName:           w.ShardName,
+			sizing:              sizing,
 		})
 
 		if !seenClusters[w.ClusterIndex] {
@@ -672,7 +684,7 @@ func (r *MongoDBSearchReconcileHelper) applyReconcileUnit(
 		unit.configMapName,
 		unit.stsName.Name,
 		unit.clusterName,
-		unit.shardName,
+		unit.sizing.ReplicasOrDefault(),
 		unit.mongotConfigFn,
 		ingressTlsMongotModification,
 		mods.egressTlsMongot,
@@ -689,14 +701,8 @@ func (r *MongoDBSearchReconcileHelper) applyReconcileUnit(
 		},
 	))
 
-	stsFunc, err := CreateSearchStatefulSetFunc(r.mdbSearch, unit.clusterName, unit.shardName, unit.stsName.Name, r.mdbSearch.Namespace, unit.headlessSvc.Name, unit.configMapName.Name, unit.podLabels, mods.searchImage, mods.usePerPodConfig)
-	if err != nil {
-		return nil, nil, err
-	}
-	stsOverride, err := StatefulSetOverrideModification(r.mdbSearch, unit.clusterName)
-	if err != nil {
-		return nil, nil, err
-	}
+	stsFunc := CreateSearchStatefulSetFunc(r.mdbSearch, unit.sizing, unit.stsName.Name, r.mdbSearch.Namespace, unit.headlessSvc.Name, unit.configMapName.Name, unit.podLabels, mods.searchImage, mods.usePerPodConfig)
+	stsOverride := StatefulSetOverrideModification(unit.sizing.StatefulSetConfiguration)
 	mutatedSts, err := r.createOrUpdateStatefulSet(ctx,
 		log,
 		unitClient,
@@ -986,8 +992,7 @@ func (r *MongoDBSearchReconcileHelper) ensureSearchService(ctx context.Context, 
 // ensureMongotConfig creates or updates the mongot ConfigMap. When
 // auto-embedding is configured, generates leader/follower config files plus
 // pod-name role keys.
-func (r *MongoDBSearchReconcileHelper) ensureMongotConfig(ctx context.Context, log *zap.SugaredLogger, kubeClient kubernetesClient.Client, cmName types.NamespacedName, stsName, clusterName, shardName string, modifications ...mongot.Modification) (string, error) {
-	replicas := r.mdbSearch.GetReplicasForClusterShard(clusterName, shardName)
+func (r *MongoDBSearchReconcileHelper) ensureMongotConfig(ctx context.Context, log *zap.SugaredLogger, kubeClient kubernetesClient.Client, cmName types.NamespacedName, stsName, clusterName string, replicas int, modifications ...mongot.Modification) (string, error) {
 	usePerPodConfig := r.mdbSearch.HasAutoEmbedding()
 
 	mongotConfig := mongot.Config{}

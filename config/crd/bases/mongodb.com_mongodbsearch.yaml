@@ -401,10 +401,17 @@ spec:
                       items:
                         description: |-
                           ShardOverride sizes specific shards within the enclosing cluster differently
-                          from the cluster default. Replicas, ResourceRequirements and Persistence
-                          replace the cluster value for the named shards when set; StatefulSetConfiguration
-                          is deep-merged onto the cluster value. Unset fields inherit the cluster value.
+                          from the cluster default. Replicas, ResourceRequirements, Persistence and
+                          JVMFlags replace the cluster value for the named shards when set;
+                          StatefulSetConfiguration is deep-merged onto the cluster value. Unset fields
+                          inherit the cluster value.
                         properties:
+                          jvmFlags:
+                            description: JVMFlags replaces the cluster's jvmFlags
+                              for these shards when non-empty.
+                            items:
+                              type: string
+                            type: array
                           persistence:
                             description: Persistence replaces the cluster's mongot
                               persistent volume config for these shards.

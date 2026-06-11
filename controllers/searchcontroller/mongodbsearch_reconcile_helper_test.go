@@ -972,7 +972,7 @@ func TestEnsureMongotConfig_PerPodModes(t *testing.T) {
 			embeddingMod := func(c *mongot.Config) {
 				c.Embedding = &mongot.EmbeddingConfig{IsAutoEmbeddingViewWriter: ptr.To(true)}
 			}
-			_, err := helper.ensureMongotConfig(t.Context(), zap.S(), fakeClient, cmName, stsName, "", "", embeddingMod)
+			_, err := helper.ensureMongotConfig(t.Context(), zap.S(), fakeClient, cmName, stsName, "", int(tc.replicas), embeddingMod)
 			require.NoError(t, err)
 
 			cm, err := fakeClient.GetConfigMap(t.Context(), cmName)
@@ -1009,12 +1009,12 @@ func TestEnsureMongotConfig_TransitionBetweenModes(t *testing.T) {
 	}
 
 	// Create ConfigMap in single config mode
-	_, err := helper.ensureMongotConfig(t.Context(), zap.S(), fakeClient, cmName, stsName, "", "", embeddingMod)
+	_, err := helper.ensureMongotConfig(t.Context(), zap.S(), fakeClient, cmName, stsName, "", 1, embeddingMod)
 	require.NoError(t, err)
 
 	// Transition to per-pod config mode - verify old key is cleaned up
 	search.Spec.AutoEmbedding = &searchv1.EmbeddingConfig{}
-	_, err = helper.ensureMongotConfig(t.Context(), zap.S(), fakeClient, cmName, stsName, "", "", embeddingMod)
+	_, err = helper.ensureMongotConfig(t.Context(), zap.S(), fakeClient, cmName, stsName, "", 1, embeddingMod)
 	require.NoError(t, err)
 
 	cm, err := fakeClient.GetConfigMap(t.Context(), cmName)
@@ -1023,7 +1023,7 @@ func TestEnsureMongotConfig_TransitionBetweenModes(t *testing.T) {
 
 	// Transition back to single config mode - verify per-pod keys are cleaned up
 	search.Spec.AutoEmbedding = nil
-	_, err = helper.ensureMongotConfig(t.Context(), zap.S(), fakeClient, cmName, stsName, "", "", embeddingMod)
+	_, err = helper.ensureMongotConfig(t.Context(), zap.S(), fakeClient, cmName, stsName, "", 1, embeddingMod)
 	require.NoError(t, err)
 
 	cm, err = fakeClient.GetConfigMap(t.Context(), cmName)
@@ -1040,15 +1040,13 @@ func TestCreateSearchStatefulSetFunc_ConfigMounting(t *testing.T) {
 
 	// Single config mode
 	sts := &appsv1.StatefulSet{}
-	stsFunc, err := CreateSearchStatefulSetFunc(search, "", "", "sts", "ns", "svc", "cm", labels, "img:v1", false)
-	require.NoError(t, err)
+	stsFunc := CreateSearchStatefulSetFunc(search, resolvedSizing(t, search, "", ""), "sts", "ns", "svc", "cm", labels, "img:v1", false)
 	stsFunc(sts)
 	assert.Contains(t, sts.Spec.Template.Spec.Containers[0].Args[1], MongotConfigPath)
 
 	// Per-pod config mode
 	sts = &appsv1.StatefulSet{}
-	stsFunc, err = CreateSearchStatefulSetFunc(search, "", "", "sts", "ns", "svc", "cm", labels, "img:v1", true)
-	require.NoError(t, err)
+	stsFunc = CreateSearchStatefulSetFunc(search, resolvedSizing(t, search, "", ""), "sts", "ns", "svc", "cm", labels, "img:v1", true)
 	stsFunc(sts)
 	startupCmd := sts.Spec.Template.Spec.Containers[0].Args[1]
 	assert.Contains(t, startupCmd, MongotPerPodConfigDirPath)
@@ -3713,30 +3711,24 @@ func TestReconcileSharded_StatefulSetTemplateStableAcrossReconciles(t *testing.T
 }
 
 // TestReconcileShardedMC_ShardOverrideReplicas drives the full reconcile with
-// shardOverrides through to the per-(cluster, shard) StatefulSets:
-//   - the shard names the source reports must match the names overrides are
-//     keyed by (the wiring the construction-level tests bypass);
-//   - every shard listed in one override entry gets the override;
-//   - an override in one cluster never leaks into another cluster's same shard;
-//   - replicas: 0 takes a single shard's mongot offline.
-//
-// Resolution is a pure function of the spec, so add/move/remove of an override
-// is the same code path re-run: the second pass asserts the STSs converge to
-// the new spec with no transition logic.
+// shardOverrides through to the per-(cluster, shard) StatefulSets, then moves
+// the overrides and asserts the STSs converge to the new spec.
 func TestReconcileShardedMC_ShardOverrideReplicas(t *testing.T) {
 	fx := newMCShardedFixture(t)
 	fx.search.Spec.Clusters = []searchv1.ClusterSpec{
 		{
-			ClusterName: "cluster-a",
-			Replicas:    ptr.To(int32(1)),
+			ClusterName:  "cluster-a",
+			ClusterIndex: ptr.To(int32(0)),
+			Replicas:     ptr.To(int32(1)),
 			ShardOverrides: []searchv1.ShardOverride{
 				// One entry, two shards: both must pick up the override.
 				{ShardNames: []string{"sh-0", "sh-1"}, Replicas: ptr.To(int32(2))},
 			},
 		},
 		{
-			ClusterName: "cluster-b",
-			Replicas:    ptr.To(int32(3)),
+			ClusterName:  "cluster-b",
+			ClusterIndex: ptr.To(int32(1)),
+			Replicas:     ptr.To(int32(3)),
 			ShardOverrides: []searchv1.ShardOverride{
 				// Explicit 0 takes this shard's mongot offline.
 				{ShardNames: []string{"sh-2"}, Replicas: ptr.To(int32(0))},

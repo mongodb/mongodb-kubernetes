@@ -324,4 +324,15 @@ func TestValidateJVMFlags(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("Invalid: shard override jvm flag", func(t *testing.T) {
+		search := newTestMongoDBSearch("test-search", "default", func(s *searchv1.MongoDBSearch) {
+			s.Spec.Clusters = []searchv1.ClusterSpec{{
+				ShardOverrides: []searchv1.ShardOverride{{ShardNames: []string{"sh-0"}, JVMFlags: []string{"-invalid"}}},
+			}}
+		})
+
+		err := search.ValidateSpec()
+		assert.ErrorContains(t, err, "shardOverrides[0].jvmFlags[0] must start with -X")
+	})
 }

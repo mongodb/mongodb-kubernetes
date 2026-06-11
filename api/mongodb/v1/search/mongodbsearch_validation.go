@@ -331,30 +331,41 @@ func validateShardNames(s *MongoDBSearch) v1.ValidationResult {
 }
 
 // validateJVMFlags validates the JVM flags provided by the users in
-// spec.clusters[].jvmFlags. These flags are passed directly to the mongot
-// process that runs for that cluster.
+// spec.clusters[].jvmFlags and spec.clusters[].shardOverrides[].jvmFlags.
+// These flags are passed directly to the mongot process.
 func validateJVMFlags(s *MongoDBSearch) v1.ValidationResult {
 	for ci, c := range s.Spec.Clusters {
 		for i, flag := range c.JVMFlags {
-			if flag == "" {
-				return v1.ValidationError("MongoDBSearch resource is invalid, spec.clusters[%d].jvmFlags[%d] must not be empty", ci, i)
+			if reason := invalidJVMFlagReason(flag); reason != "" {
+				return v1.ValidationError("MongoDBSearch resource is invalid, spec.clusters[%d].jvmFlags[%d] %s", ci, i, reason)
 			}
-
-			if strings.Contains(flag, " ") {
-				return v1.ValidationError("MongoDBSearch resource is invalid, spec.clusters[%d].jvmFlags[%d] must not contain spaces, got '%s'", ci, i, flag)
-			}
-
-			if !strings.HasPrefix(flag, "-X") && !strings.HasPrefix(flag, "-XX:") && !strings.HasPrefix(flag, "-D") {
-				return v1.ValidationError("MongoDBSearch resource is invalid, spec.clusters[%d].jvmFlags[%d] must start with -X, -XX:, or -D, got '%s'", ci, i, flag)
-			}
-
-			if !validJVMFlagChars.MatchString(flag) {
-				return v1.ValidationError("MongoDBSearch resource is invalid, spec.clusters[%d].jvmFlags[%d] contains invalid characters, only [a-zA-Z0-9._+:-=] are allowed, got '%s'", ci, i, flag)
+		}
+		for oi, o := range c.ShardOverrides {
+			for i, flag := range o.JVMFlags {
+				if reason := invalidJVMFlagReason(flag); reason != "" {
+					return v1.ValidationError("MongoDBSearch resource is invalid, spec.clusters[%d].shardOverrides[%d].jvmFlags[%d] %s", ci, oi, i, reason)
+				}
 			}
 		}
 	}
 
 	return v1.ValidationSuccess()
+}
+
+// invalidJVMFlagReason returns why flag is not an acceptable mongot JVM flag,
+// or "" when it is valid.
+func invalidJVMFlagReason(flag string) string {
+	switch {
+	case flag == "":
+		return "must not be empty"
+	case strings.Contains(flag, " "):
+		return fmt.Sprintf("must not contain spaces, got '%s'", flag)
+	case !strings.HasPrefix(flag, "-X") && !strings.HasPrefix(flag, "-XX:") && !strings.HasPrefix(flag, "-D"):
+		return fmt.Sprintf("must start with -X, -XX:, or -D, got '%s'", flag)
+	case !validJVMFlagChars.MatchString(flag):
+		return fmt.Sprintf("contains invalid characters, only [a-zA-Z0-9._+:-=] are allowed, got '%s'", flag)
+	}
+	return ""
 }
 
 func validateResourceName(resource shardResourceName, searchName, shardName string) error {
