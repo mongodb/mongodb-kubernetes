@@ -1678,6 +1678,33 @@ func TestGetMongosConfigParametersForSharded(t *testing.T) {
 	}
 }
 
+// TestGetMongosConfigParametersForSharded_PersistedIndexNotSpecPosition: the
+// clusterIndex callers pass comes from the persisted ClusterMapping, which
+// outlives spec positions (indices are never reused on remove/re-add). The
+// endpoint must still resolve to the named cluster's externalHostname.
+// Scenario: [cluster-a, cluster-b] -> [cluster-b]; cluster-b keeps index 1.
+func TestGetMongosConfigParametersForSharded_PersistedIndexNotSpecPosition(t *testing.T) {
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-search", Namespace: "test-ns"},
+		Spec: searchv1.MongoDBSearchSpec{
+			Source: &searchv1.MongoDBSource{
+				MongoDBResourceRef: &userv1.MongoDBResourceRef{Name: "test-mdb"},
+			},
+			Clusters: []searchv1.ClusterSpec{
+				{ClusterName: "cluster-b", LoadBalancer: &searchv1.LoadBalancerConfig{
+					Managed: &searchv1.ManagedLBConfig{ExternalHostname: "{shardName}.b.example.com:443"},
+				}},
+			},
+		},
+	}
+
+	config := GetMongosConfigParametersForSharded(search, 1, []string{"test-mdb-0"}, "cluster.local")
+	setParameter, ok := config["setParameter"].(map[string]any)
+	require.True(t, ok, "setParameter should be a map")
+	assert.Equal(t, "b.example.com:443", setParameter["mongotHost"],
+		"mongos must get cluster-b's externalHostname even though its persisted index (1) is not its spec position (0)")
+}
+
 func TestMongotHostAndPort_ReplicaSet(t *testing.T) {
 	tests := []struct {
 		name         string
