@@ -1591,6 +1591,7 @@ func baseMongotConfig(search *searchv1.MongoDBSearch, hostAndPorts []string) mon
 			DataPath: MongotDataPath,
 		}
 		config.Server = mongot.ConfigServer{
+			Name: ServerNamePlaceholder,
 			Grpc: &mongot.ConfigGrpc{
 				Address: fmt.Sprintf("0.0.0.0:%d", search.GetMongotGrpcPort()),
 				TLS: &mongot.ConfigGrpcTLS{
