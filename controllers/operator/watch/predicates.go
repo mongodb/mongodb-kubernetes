@@ -151,6 +151,24 @@ func PredicatesForStatefulSet() predicate.Funcs {
 	}
 }
 
+func PredicatesForShardedStatefulSet() predicate.Funcs {
+	return predicate.Funcs{
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			oldSts := e.ObjectOld.(*appsv1.StatefulSet)
+			newSts := e.ObjectNew.(*appsv1.StatefulSet)
+
+			val, ok := newSts.Annotations["type"]
+			if ok && val == "ShardedCluster" {
+				return !reflect.DeepEqual(oldSts.Status, newSts.Status) && newSts.Status.ReadyReplicas < *newSts.Spec.Replicas
+			}
+			return false
+		},
+		DeleteFunc:  func(e event.DeleteEvent) bool { return false },
+		GenericFunc: func(e event.GenericEvent) bool { return false },
+		CreateFunc:  func(e event.CreateEvent) bool { return false },
+	}
+}
+
 // PredicatesForMultiStatefulSet is the predicate functions for the custom Statefulset Event
 // handler used for Multicluster reconciler
 func PredicatesForMultiStatefulSet() predicate.Funcs {

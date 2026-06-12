@@ -31,6 +31,7 @@ func MultiClusterReplicaSetOptions(additionalOpts ...func(options *construct.Dat
 			HostNameOverrideConfigmapName: mdbm.GetHostNameOverrideConfigmapName(),
 			StatefulSetSpecOverride:       &stsSpec,
 			StsType:                       construct.MultiReplicaSet,
+			Annotations:                   handler.MultiClusterStatefulSetAnnotations(mdbm.Name),
 		}
 		for _, opt := range additionalOpts {
 			opt(&opts)
@@ -65,20 +66,8 @@ func WithStsOverride(stsOverride *appsv1.StatefulSetSpec) func(options *construc
 	}
 }
 
-func WithAnnotations(resourceName string) func(options *construct.DatabaseStatefulSetOptions) {
-	return func(options *construct.DatabaseStatefulSetOptions) {
-		options.Annotations = statefulSetAnnotations(resourceName)
-	}
-}
-
 func statefulSetName(mdbmName string, clusterNum int) string {
 	return fmt.Sprintf("%s-%d", mdbmName, clusterNum)
-}
-
-func statefulSetAnnotations(mdbmName string) map[string]string {
-	return map[string]string{
-		handler.MongoDBMultiResourceAnnotation: mdbmName,
-	}
 }
 
 func PodLabel(mdbmName string) map[string]string {

@@ -153,3 +153,9 @@ func WithDefaultArchitecture(defaultArchitecture architectures.DefaultArchitectu
 		options.DefaultArchitecture = defaultArchitecture
 	}
 }
+
+func WithStsAnnotations(annotations map[string]string) func(options *construct.DatabaseStatefulSetOptions) {
+	return func(options *construct.DatabaseStatefulSetOptions) {
+		options.Annotations = annotations
+	}
+}
