@@ -9,6 +9,7 @@ import (
 
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -187,6 +188,24 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 	return r.updateLBStatus(ctx, mdbSearch, workflow.OK(), log)
 }
 
+// OnDelete implements Deleter; the ResourceEventHandler invokes it synchronously
+// when the MongoDBSearch CR is deleted. Envoy Deployments/ConfigMaps on member
+// clusters aren't GC'd by Kubernetes (owner refs don't cross cluster
+// boundaries), so they are torn down explicitly, reusing the managed→unmanaged
+// teardown path. Central-cluster resources are owner-ref'd and would be GC'd
+// anyway; deleting them immediately is harmless. The CR's watched-resource
+// registrations (added by getSearchSource for managed sources) are dropped so
+// source-resource events stop enqueuing the deleted CR.
+func (r *MongoDBSearchEnvoyReconciler) OnDelete(ctx context.Context, obj runtime.Object, log *zap.SugaredLogger) error {
+	search, ok := obj.(*searchv1.MongoDBSearch)
+	if !ok {
+		return fmt.Errorf("expected *searchv1.MongoDBSearch but got %T", obj)
+	}
+	err := r.deleteAllEnvoyResources(ctx, search, log)
+	r.watch.RemoveDependentWatchedResources(search.NamespacedName())
+	return err
+}
+
 // clusterWorkItem represents one (clusterName, clusterIndex, client) unit the reconciler must process.
 // In single-cluster (no spec.clusters or empty memberClusterClientsMap) the slice
 // has one entry with ClusterName == "" and ClusterIndex == 0.
@@ -205,7 +224,7 @@ type clusterWorkItem struct {
 //   - otherwise → one work item per spec.clusters[i]. ClusterIndex is resolved from
 //     mapping; -1 if the cluster is not yet in the mapping (first reconcile race).
 func (r *MongoDBSearchEnvoyReconciler) buildClusterWorkList(search *searchv1.MongoDBSearch, mapping map[string]int) []clusterWorkItem {
-	if len(r.memberClusterClientsMap) == 0 || len(search.Spec.Clusters) == 0 {
+	if !searchcontroller.IsMultiClusterMode(search, r.memberClusterClientsMap) {
 		return []clusterWorkItem{{ClusterName: "", ClusterIndex: 0, Client: r.kubeClient}}
 	}
 	work := make([]clusterWorkItem, 0, len(search.Spec.Clusters))
@@ -870,7 +889,11 @@ func AddMongoDBSearchEnvoyController(ctx context.Context, mgr manager.Manager, d
 		return err
 	}
 
-	if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), &searchv1.MongoDBSearch{}, &handler.EnqueueRequestForObject{})); err != nil {
+	// ResourceEventHandler routes the CR's Delete event to r.OnDelete so the
+	// per-cluster Envoy resources (not covered by owner-ref GC on member
+	// clusters) are cleaned up. The main search controller registers its own
+	// delete handler for the mongot resources it owns.
+	if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), &searchv1.MongoDBSearch{}, &ResourceEventHandler{deleter: r})); err != nil {
 		return err
 	}
 	if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), &mdbv1.MongoDB{}, &watch.ResourcesHandler{ResourceType: watch.MongoDB, ResourceWatcher: r.watch})); err != nil {

@@ -7,6 +7,7 @@ import (
 
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
@@ -192,6 +193,38 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 	return result, nil
 }
 
+// OnDelete sweeps member-cluster resources in multi-cluster mode, where owner
+// references can't cross cluster boundaries; single-cluster cleanup is left to
+// Kubernetes GC (same gating as the sharded cluster's OnDelete).
+//
+// The sweep iterates the operator's full member-cluster client map rather than
+// the persisted ClusterMapping: the state ConfigMap is owner-ref'd to the
+// search CR and may already be GC'd when the delete event fires, and a cluster
+// recently dropped from spec.clusters may still hold resources. Owner-label
+// filtering makes clusters that never hosted this search's resources no-ops.
+//
+// There is no Ops Manager state to clean (search owns no OM project). For
+// managed replica-set sources the mongotHost setParameters self-clean on the
+// source's next reconcile: applySearchOverrides no longer injects them, and the
+// lastAchievedSpec-vs-desired diff in Process.mergeFrom removes them from the
+// automation config.
+func (r *MongoDBSearchReconciler) OnDelete(ctx context.Context, obj runtime.Object, log *zap.SugaredLogger) error {
+	search, ok := obj.(*searchv1.MongoDBSearch)
+	if !ok {
+		return xerrors.Errorf("expected *searchv1.MongoDBSearch but got %T", obj)
+	}
+
+	var err error
+	if searchcontroller.IsMultiClusterMode(search, r.memberClusterClientsMap) {
+		// db source and cluster mapping are not used by the delete sweep.
+		helper := searchcontroller.NewMongoDBSearchReconcileHelper(r.kubeClient, search, nil, r.operatorSearchConfig, r.memberClusterClientsMap, nil)
+		err = helper.OnDelete(ctx, log)
+	}
+
+	r.watch.RemoveDependentWatchedResources(search.NamespacedName())
+	return err
+}
+
 // surfaceMissingSecrets logs one entry per cluster that has gaps. The reconcile
 // loop returns RequeueAfter so the controller waits without exponential backoff
 // while the customer replicates the missing secrets.
@@ -295,11 +328,13 @@ func AddMongoDBSearchController(
 	}
 
 	ownerHandler := handler.EnqueueRequestForOwner(mgr.GetScheme(), mgr.GetRESTMapper(), &searchv1.MongoDBSearch{}, handler.OnlyControllerOwner())
+	// ResourceEventHandler routes the CR's Delete event to r.OnDelete so
+	// member-cluster resources (not covered by owner-ref GC) are cleaned up.
 	centralWatches := []struct {
 		obj     client.Object
 		handler handler.EventHandler
 	}{
-		{&searchv1.MongoDBSearch{}, &handler.EnqueueRequestForObject{}},
+		{&searchv1.MongoDBSearch{}, &ResourceEventHandler{deleter: r}},
 		{&mdbv1.MongoDB{}, &watch.ResourcesHandler{ResourceType: watch.MongoDB, ResourceWatcher: r.watch}},
 		{&mdbcv1.MongoDBCommunity{}, &watch.ResourcesHandler{ResourceType: "MongoDBCommunity", ResourceWatcher: r.watch}},
 		{&corev1.Secret{}, &watch.ResourcesHandler{ResourceType: watch.Secret, ResourceWatcher: r.watch}},

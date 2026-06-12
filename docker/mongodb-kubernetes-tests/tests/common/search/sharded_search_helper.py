@@ -286,7 +286,7 @@ def verify_sharded_mongod_parameters(
     logger.info("All shards have correct mongod search parameters")
 
 
-def verify_text_search_query(search_tester: SearchTester):
+def verify_text_search_query(search_tester: SearchTester, timeout: int = 60):
     """Execute a text search for 'star wars' and verify results are returned."""
     movies_helper = SampleMoviesSearchHelper(search_tester)
 
@@ -305,7 +305,7 @@ def verify_text_search_query(search_tester: SearchTester):
         except pymongo.errors.PyMongoError as e:
             return False, f"Error: {e}"
 
-    run_periodically(execute_search, timeout=60, sleep_time=5, msg="search query to succeed")
+    run_periodically(execute_search, timeout=timeout, sleep_time=5, msg="search query to succeed")
     logger.info("Text search query executed successfully through mongos")
 
 

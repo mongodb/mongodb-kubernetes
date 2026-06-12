@@ -146,11 +146,19 @@ func withSearchOwnerLabels(search *searchv1.MongoDBSearch, clusterName string) s
 	return withStsMetaLabels(searchOwnerLabels(search, clusterName))
 }
 
+// IsMultiClusterMode reports whether search reconciliation fans out across
+// member clusters: the operator has member-cluster clients AND the CR declares
+// spec.clusters. The single shared predicate for MC-mode decisions — keep all
+// call sites on it so they can't drift.
+func IsMultiClusterMode(search *searchv1.MongoDBSearch, memberClusterClients map[string]kubernetesClient.Client) bool {
+	return len(memberClusterClients) > 0 && len(search.Spec.Clusters) > 0
+}
+
 // clientForCluster returns the Kubernetes client for a unit's member cluster.
-// Empty clusterName / empty memberClusterClients map fall back to the central
-// client (single-cluster install). Unknown clusterName is an error.
+// Empty clusterName / single-cluster mode fall back to the central client.
+// Unknown clusterName is an error.
 func (r *MongoDBSearchReconcileHelper) clientForCluster(clusterName string) (kubernetesClient.Client, error) {
-	if clusterName == "" || len(r.memberClusterClients) == 0 {
+	if clusterName == "" || !IsMultiClusterMode(r.mdbSearch, r.memberClusterClients) {
 		return r.client, nil
 	}
 	c, ok := r.memberClusterClients[clusterName]

@@ -14,12 +14,10 @@ spans the first 2; the 3rd is the spare search cluster. The tools pod and the
 mongotHost target are pinned to member clusters (central is outside the mesh).
 """
 
-import json
 from typing import Dict, List
 
 import kubernetes
 import pymongo.errors
-from kubernetes.client import CoreV1Api
 from kubetester import create_or_update_secret, try_load
 from kubetester.certs_mongodb_multi import create_multi_cluster_mongodb_tls_certs
 from kubetester.kubetester import fixture as yaml_fixture
@@ -33,11 +31,9 @@ from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests import test_logger
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
-from tests.common.multicluster.multicluster_utils import assert_deployment_ready_in_cluster
-from tests.common.search import search_resource_names
+from tests.common.search import mc_search_helper, search_resource_names
 from tests.common.search.mc_search_helper import (
     assert_cluster_envoy_sni,
-    assert_search_owner_labels,
     assert_source_mongot_host_observed,
     build_mongodb_user,
     create_mc_lb_certificates,
@@ -64,8 +60,6 @@ SOURCE_MEMBERS_PER_CLUSTER: List[int | None] = [2, 2]
 MONGOT_REPLICAS_PER_CLUSTER = 1
 ENVOY_LB_REPLICAS = 2
 ENVOY_PROXY_PORT = 27028
-
-# Owner-label helpers/constants are imported from mc_search_helper.
 
 ADMIN_USER_NAME = "mdb-admin-user"
 ADMIN_USER_PASSWORD = "mdb-admin-user-pass"
@@ -102,159 +96,44 @@ def _clusters_spec(cluster_names: List[str]) -> List[Dict]:
     return [{"clusterName": name, "replicas": MONGOT_REPLICAS_PER_CLUSTER} for name in cluster_names]
 
 
-def _assert_search_owner_labels(obj_labels: Dict[str, str], cluster_name: str, where: str) -> None:
-    """Bind MDBS_RESOURCE_NAME and delegate to the shared assertion."""
-    assert_search_owner_labels(obj_labels, cluster_name, where, MDBS_RESOURCE_NAME)
-
-
-def _mongot_config_name(cluster_index: int) -> str:
-    return search_resource_names.mongot_configmap_name_for_cluster(MDBS_RESOURCE_NAME, cluster_index)
-
-
-def _envoy_deployment_name(cluster_index: int) -> str:
-    return search_resource_names.lb_deployment_name(MDBS_RESOURCE_NAME, cluster_index)
-
-
-def _envoy_configmap_name(cluster_index: int) -> str:
-    return search_resource_names.lb_configmap_name(MDBS_RESOURCE_NAME, cluster_index)
-
-
-def _data_pvc_prefix(cluster_index: int) -> str:
-    """PVCs are "data-<mongot-sts>-<ordinal>"; the mongot data claim is "data"."""
-    return f"data-{search_resource_names.mongot_statefulset_name_for_cluster(MDBS_RESOURCE_NAME, cluster_index)}-"
-
-
-def _data_pvcs_for_cluster(mcc: MultiClusterClient, cluster_index: int, namespace: str) -> List:
-    """All mongot data PVCs for a cluster index, sorted by name (one per ordinal)."""
-    pvc_prefix = _data_pvc_prefix(cluster_index)
-    pvcs = mcc.core_v1_api().list_namespaced_persistent_volume_claim(namespace)
-    return sorted((p for p in pvcs.items if p.metadata.name.startswith(pvc_prefix)), key=lambda p: p.metadata.name)
-
-
 # =============================================================================
 # Existence / absence assertions for a cluster's full per-cluster resource set
+# (thin MDBS_RESOURCE_NAME-binding wrappers over the shared mc_search_helper
+# implementations).
 # =============================================================================
 
 
-def assert_cluster_search_resources_present(
-    mcc: MultiClusterClient,
-    cluster_index: int,
-    namespace: str,
-) -> None:
+def assert_cluster_search_resources_present(mcc: MultiClusterClient, cluster_index: int, namespace: str) -> None:
     """The named cluster carries a complete, owner-labelled mongot + Envoy set."""
-    sts_name = search_resource_names.mongot_statefulset_name_for_cluster(MDBS_RESOURCE_NAME, cluster_index)
-    svc_name = search_resource_names.mongot_service_name_for_cluster(MDBS_RESOURCE_NAME, cluster_index)
-    proxy_svc_name = search_resource_names.mc_proxy_svc_name(MDBS_RESOURCE_NAME, cluster_index)
-    cm_name = _mongot_config_name(cluster_index)
-    envoy_deploy_name = _envoy_deployment_name(cluster_index)
-    envoy_cm_name = _envoy_configmap_name(cluster_index)
-
-    sts = mcc.read_namespaced_stateful_set(sts_name, namespace)
-    headless = mcc.read_namespaced_service(svc_name, namespace)
-    proxy = mcc.read_namespaced_service(proxy_svc_name, namespace)
-    cm = mcc.read_namespaced_config_map(cm_name, namespace)
-    _assert_search_owner_labels(sts.metadata.labels or {}, mcc.cluster_name, f"STS {sts_name}")
-    _assert_search_owner_labels(headless.metadata.labels or {}, mcc.cluster_name, f"headless Service {svc_name}")
-    _assert_search_owner_labels(proxy.metadata.labels or {}, mcc.cluster_name, f"proxy Service {proxy_svc_name}")
-    _assert_search_owner_labels(cm.metadata.labels or {}, mcc.cluster_name, f"mongot CM {cm_name}")
-
-    apps = mcc.apps_v1_api()
-    assert_deployment_ready_in_cluster(apps, name=envoy_deploy_name, namespace=namespace)
-    envoy_deploy = apps.read_namespaced_deployment(name=envoy_deploy_name, namespace=namespace)
-    envoy_cm = mcc.read_namespaced_config_map(envoy_cm_name, namespace)
-    _assert_search_owner_labels(
-        envoy_deploy.metadata.labels or {}, mcc.cluster_name, f"Envoy Deployment {envoy_deploy_name}"
-    )
-    _assert_search_owner_labels(envoy_cm.metadata.labels or {}, mcc.cluster_name, f"Envoy CM {envoy_cm_name}")
-
-    logger.info(
-        f"cluster {mcc.cluster_name} (idx={cluster_index}) has full search resource set: "
-        f"{sts_name}, {svc_name}, {proxy_svc_name}, {cm_name}, {envoy_deploy_name}, {envoy_cm_name}"
+    mc_search_helper.assert_cluster_search_resources_present(
+        mcc=mcc, mdbs_resource_name=MDBS_RESOURCE_NAME, cluster_index=cluster_index, namespace=namespace
     )
 
 
 def wait_for_cluster_search_resources_present(
-    mcc: MultiClusterClient,
-    cluster_index: int,
-    namespace: str,
-    timeout: int = 600,
+    mcc: MultiClusterClient, cluster_index: int, namespace: str, timeout: int = 600
 ) -> None:
     """Poll until the named cluster's mongot + Envoy resources have materialized."""
-
-    def check():
-        try:
-            assert_cluster_search_resources_present(mcc, cluster_index, namespace)
-            return True, f"cluster {mcc.cluster_name} (idx={cluster_index}) resources present"
-        except (kubernetes.client.ApiException, AssertionError) as exc:
-            return False, f"cluster {mcc.cluster_name} (idx={cluster_index}) not ready yet: {exc}"
-
-    run_periodically(check, timeout=timeout, sleep_time=10, msg=f"cluster {mcc.cluster_name} search resources present")
+    mc_search_helper.wait_for_cluster_search_resources_present(
+        mcc=mcc,
+        mdbs_resource_name=MDBS_RESOURCE_NAME,
+        cluster_index=cluster_index,
+        namespace=namespace,
+        timeout=timeout,
+    )
 
 
 def wait_for_cluster_search_resources_absent(
-    mcc: MultiClusterClient,
-    cluster_index: int,
-    namespace: str,
-    timeout: int = 600,
+    mcc: MultiClusterClient, cluster_index: int, namespace: str, timeout: int = 600
 ) -> None:
-    """Poll until EVERY search-owned resource for the named cluster is gone.
-
-    Covers mongot StatefulSet, headless + proxy Services, mongot ConfigMap, the
-    backing PVCs (reaped by the StatefulSet's whenDeleted: Delete policy), and the
-    Envoy Deployment + ConfigMap. Each kind is checked independently so a partial
-    sweep surfaces the specific resource that leaked.
-    """
-    apps = mcc.apps_v1_api()
-    core = mcc.core_v1_api()
-
-    sts_name = search_resource_names.mongot_statefulset_name_for_cluster(MDBS_RESOURCE_NAME, cluster_index)
-    svc_name = search_resource_names.mongot_service_name_for_cluster(MDBS_RESOURCE_NAME, cluster_index)
-    proxy_svc_name = search_resource_names.mc_proxy_svc_name(MDBS_RESOURCE_NAME, cluster_index)
-    cm_name = _mongot_config_name(cluster_index)
-    envoy_deploy_name = _envoy_deployment_name(cluster_index)
-    envoy_cm_name = _envoy_configmap_name(cluster_index)
-    pvc_prefix = _data_pvc_prefix(cluster_index)
-
-    def _read_gone(read_fn, name: str, kind: str):
-        try:
-            read_fn(name, namespace)
-            return False, f"{kind} {name} still exists in {mcc.cluster_name}"
-        except kubernetes.client.ApiException as e:
-            if e.status == 404:
-                return True, f"{kind} {name} deleted in {mcc.cluster_name}"
-            raise
-
-    def pvcs_gone():
-        pvcs = core.list_namespaced_persistent_volume_claim(namespace)
-        leftover = [p.metadata.name for p in pvcs.items if p.metadata.name.startswith(pvc_prefix)]
-        if leftover:
-            return False, f"PVC(s) for {mcc.cluster_name} still exist: {leftover}"
-        return True, f"no PVCs with prefix {pvc_prefix!r} remain in {mcc.cluster_name}"
-
-    checks = [
-        (lambda: _read_gone(apps.read_namespaced_stateful_set, sts_name, "StatefulSet"), f"StatefulSet {sts_name}"),
-        (
-            lambda: _read_gone(core.read_namespaced_service, svc_name, "headless Service"),
-            f"headless Service {svc_name}",
-        ),
-        (
-            lambda: _read_gone(core.read_namespaced_service, proxy_svc_name, "proxy Service"),
-            f"proxy Service {proxy_svc_name}",
-        ),
-        (lambda: _read_gone(core.read_namespaced_config_map, cm_name, "mongot ConfigMap"), f"mongot CM {cm_name}"),
-        (
-            lambda: _read_gone(apps.read_namespaced_deployment, envoy_deploy_name, "Envoy Deployment"),
-            f"Envoy Deployment {envoy_deploy_name}",
-        ),
-        (
-            lambda: _read_gone(core.read_namespaced_config_map, envoy_cm_name, "Envoy ConfigMap"),
-            f"Envoy CM {envoy_cm_name}",
-        ),
-        (pvcs_gone, f"PVCs {pvc_prefix}*"),
-    ]
-    for check, label in checks:
-        run_periodically(check, timeout=timeout, sleep_time=10, msg=f"{label} deletion in {mcc.cluster_name}")
-        logger.info(f"{label} confirmed deleted in {mcc.cluster_name} (idx={cluster_index})")
+    """Poll until EVERY search-owned resource for the named cluster is gone."""
+    mc_search_helper.wait_for_cluster_search_resources_absent(
+        mcc=mcc,
+        mdbs_resource_name=MDBS_RESOURCE_NAME,
+        cluster_index=cluster_index,
+        namespace=namespace,
+        timeout=timeout,
+    )
 
 
 def read_persisted_cluster_mapping(
@@ -262,12 +141,9 @@ def read_persisted_cluster_mapping(
     central_cluster_client: kubernetes.client.ApiClient,
 ) -> Dict[str, int]:
     """Return the operator's persisted ClusterMapping from the <name>-state ConfigMap."""
-    state_cm_name = f"{MDBS_RESOURCE_NAME}-state"
-    core = CoreV1Api(api_client=central_cluster_client)
-    state_cm = core.read_namespaced_config_map(name=state_cm_name, namespace=namespace)
-    raw = (state_cm.data or {}).get("state")
-    assert raw, f"state ConfigMap {state_cm_name} missing 'state' key; got {list((state_cm.data or {}).keys())}"
-    return json.loads(raw).get("clusterMapping") or {}
+    return mc_search_helper.read_persisted_cluster_mapping(
+        namespace=namespace, central_cluster_client=central_cluster_client, mdbs_resource_name=MDBS_RESOURCE_NAME
+    )
 
 
 # =============================================================================
@@ -629,7 +505,7 @@ def test_phaseA_record_cluster1_pvc(
     """
     cluster1 = member_cluster_clients[1]
     idx = helper.cluster_index(cluster1.cluster_name)
-    pvcs = _data_pvcs_for_cluster(cluster1, idx, namespace)
+    pvcs = mc_search_helper.data_pvcs_for_cluster(cluster1, MDBS_RESOURCE_NAME, idx, namespace)
     assert pvcs, f"no mongot data PVC found for cluster {cluster1.cluster_name} (idx={idx}) to record"
     recorded_pvc["name"] = pvcs[0].metadata.name
     recorded_pvc["uid"] = pvcs[0].metadata.uid
@@ -842,7 +718,7 @@ def test_phaseD_readd_uses_original_index_and_fresh_pvc(
         f"want ORIGINAL {original_idx}; full mapping={mapping}"
     )
 
-    pvcs = _data_pvcs_for_cluster(readded, original_idx, namespace)
+    pvcs = mc_search_helper.data_pvcs_for_cluster(readded, MDBS_RESOURCE_NAME, original_idx, namespace)
     assert pvcs, f"expected a freshly-provisioned PVC for cluster {readded.cluster_name} after re-add; found none"
     new_uids = {p.metadata.uid for p in pvcs}
     assert recorded_pvc.get("uid"), "Phase A did not record the original cluster-1 PVC uid"
