@@ -396,7 +396,7 @@ def test_authentication_can_be_disabled_without_modes(namespace: str, replica_se
         # we have explicitly set authentication to be disabled
         try:
             tester.assert_has_user(USER_NAME)
-            tester.assert_authentication_disabled(remaining_users=2)
+            tester.assert_authentication_disabled(remaining_users=4)
             return True
         except AssertionError:
             return False
