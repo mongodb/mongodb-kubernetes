@@ -1,3 +1,4 @@
+import datetime
 import time
 from typing import Iterator, Optional
 
@@ -6,7 +7,7 @@ import pymongo
 from kubetester import create_or_update_secret, delete_pod, delete_pvc, read_secret, try_load
 from kubetester.awss3client import AwsS3Client
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.omtester import OMTester
+from kubetester.omtester import OMTester, time_to_millis
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 from pytest import fixture, mark
@@ -43,6 +44,12 @@ META_OM_OPLOG_SECRET_NAME = "meta-om-s3-secret-oplog"
 AGENT_CONTAINER_NAME = "mongodb-agent"
 
 APPDB_TEST_DATA = {"_id": "appdb_pitr_witness", "status": "before_change"}
+APPDB_TEST_DATA_CHANGED = {"_id": "appdb_pitr_witness", "status": "after_change"}
+
+# Pre-disaster PIT target (epoch millis), captured before the PVC wipe and read by the
+# restore step. Module-level because pytest does not reliably share instance/class state
+# across test methods.
+_PIT_TARGET: dict[str, float] = {}
 
 
 @fixture(scope="module")
@@ -282,7 +289,23 @@ def primary_appdb_collection(primary_ops_manager: MongoDBOpsManager):
 
 @mark.e2e_om_appdb_meta_om_mode_switch
 class TestAppDBDisasterRecovery:
-    """Simulate complete AppDB data loss (all PVCs deleted) and verify restore from Meta OM backup."""
+    """Simulate complete AppDB data loss (all PVCs deleted) and verify recovery via
+    point-in-time restore from Meta OM backup. The post-snapshot marker change lives only in
+    the backed-up oplog, so its return proves oplog replay survives the wipe."""
+
+    def test_change_marker_and_record_pit(self, primary_appdb_collection):
+        """Mutate the marker AFTER the snapshot so the new state lives only in the oplog, then
+        record a pre-disaster PIT target. Sleep so the backup agent ships oplog slices covering
+        that target to Meta OM's S3 oplog store before the cluster is wiped."""
+        primary_appdb_collection.update_one(
+            {"_id": APPDB_TEST_DATA["_id"]},
+            {"$set": {"status": APPDB_TEST_DATA_CHANGED["status"]}},
+        )
+        # let the write replicate before timestamping
+        time.sleep(5)
+        _PIT_TARGET["millis"] = time_to_millis(datetime.datetime.now(tz=datetime.timezone.utc))
+        # let the backup agent ship oplog slices covering the PIT target to S3 before the wipe
+        time.sleep(60)
 
     def test_delete_appdb_pvcs_and_pods(self, primary_ops_manager: MongoDBOpsManager, namespace: str):
         """Simulate total data loss: delete all AppDB PVCs and pods.
@@ -316,12 +339,12 @@ class TestAppDBDisasterRecovery:
                 time.sleep(5)
         raise AssertionError(f"AppDB not connectable within {timeout}s after recreation. Last error: {last_error}")
 
-    def test_restore_from_snapshot(self, meta_om_appdb_tester: OMTester):
-        """Restore from the latest snapshot stored in Meta OM.
-        PITR is not applicable here: PVC deletion breaks oplog continuity, making any
-        pre-disaster pit time invalid. Snapshot restore is the correct recovery mechanism.
-        Primary OM goes down during AppDB restore; completion is verified via OM recovery below."""
-        meta_om_appdb_tester.create_restore_job_snapshot()
+    def test_restore_pit(self, meta_om_appdb_tester: OMTester):
+        """Recover via point-in-time restore to the pre-disaster target.
+        PIT replays the backed-up oplog stored in Meta OM's S3 oplog store, which survives the
+        PVC wipe — so a pre-disaster target remains valid even though the live oplog was lost.
+        Primary OM goes down during the AppDB restore; completion is verified via OM recovery below."""
+        meta_om_appdb_tester.create_restore_job_pit(_PIT_TARGET["millis"])
 
 
     def test_primary_om_reaches_running_after_restore(self, primary_ops_manager: MongoDBOpsManager):
@@ -330,18 +353,20 @@ class TestAppDBDisasterRecovery:
         primary_ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=3600)
 
     def test_data_restored(self, primary_appdb_collection):
-        """Wait until the restored snapshot data appears in the collection.
-        Retries on both connection errors (mongod restarting during apply) and empty results."""
+        """Wait until the PIT-restored marker appears in its post-snapshot ("after_change") state.
+        That state only ever existed in the oplog, so seeing it return proves oplog replay
+        survived the wipe. Retries on connection errors (mongod restarting during apply) and on
+        the not-yet-restored state."""
         start = time.time()
         timeout = 3600
         last_error = None
         while time.time() - start < timeout:
             try:
                 records = list(primary_appdb_collection.find({"_id": APPDB_TEST_DATA["_id"]}))
-                if records == [APPDB_TEST_DATA]:
+                if records == [APPDB_TEST_DATA_CHANGED]:
                     return
-                last_error = f"data not yet present: {records}"
+                last_error = f"data not yet at expected PIT state: {records}"
             except Exception as e:
                 last_error = e
             time.sleep(5)
-        raise AssertionError(f"Data not restored within {timeout}s after snapshot restore. Last error: {last_error}")
+        raise AssertionError(f"Data not PIT-restored within {timeout}s. Last error: {last_error}")
