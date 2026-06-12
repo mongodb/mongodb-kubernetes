@@ -7,6 +7,7 @@ import (
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	monarchpkg "github.com/mongodb/mongodb-kubernetes/pkg/monarch"
+	"k8s.io/utils/ptr"
 )
 
 // AwsStorageConfig holds S3 credentials and bucket configuration nested under "awsConfig".
@@ -90,6 +91,41 @@ const (
 	MonarchUserManagedByKey   = "managedBy"
 	MonarchUserManagedByValue = "mongodb-kubernetes"
 )
+
+// EnsureMonarchShipperRole adds the shipperRole custom role to deployment.roles[]
+// so the agent runs createRole on mongod before the user referencing it is created.
+// This must be called before EnsureMonarchShipperUser. Mirrors OM's ensureShipperRole.
+// Idempotent: updates the privilege list in place if the role already exists.
+func (d Deployment) EnsureMonarchShipperRole() {
+	localDb := "local"
+	clusterTrue := true
+	shipperRole := mdbv1.MongoDBRole{
+		Role: MonarchShipperRole,
+		Db:   MonarchShipperUserDatabase,
+		Privileges: []mdbv1.Privilege{
+			{
+				Resource: mdbv1.Resource{Db: &localDb, Collection: ptr.To("oplog.rs")},
+				Actions:  []string{"find"},
+			},
+			{
+				Resource: mdbv1.Resource{Cluster: &clusterTrue},
+				Actions:  []string{"fsync", "readBackupFile", "inprog", "replSetGetStatus"},
+			},
+		},
+	}
+
+	roles := d.GetRoles()
+	roleId := MonarchShipperRole + "@" + MonarchShipperUserDatabase
+	// Remove any prior entry and re-add with the current privilege list.
+	filtered := make([]mdbv1.MongoDBRole, 0, len(roles))
+	for _, r := range roles {
+		if r.Role+"@"+r.Db != roleId {
+			filtered = append(filtered, r)
+		}
+	}
+	filtered = append(filtered, shipperRole)
+	d.SetRoles(filtered)
+}
 
 // EnsureMonarchShipperUser adds (or updates) the mms-shipper SCRAM user to the
 // deployment auth so the agent provisions it server-side from the supplied

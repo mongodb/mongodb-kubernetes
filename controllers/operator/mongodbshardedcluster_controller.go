@@ -2218,6 +2218,9 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 				// OM-side idempotency guard — separate PR — no-ops when the user/role
 				// already exists.)
 				if r.monarchShipperPassword != "" {
+					// Ensure the shipperRole custom role exists before adding the user
+					// that references it, else OM validation rejects the AC.
+					d.EnsureMonarchShipperRole()
 					ac, err := om.BuildAutomationConfigFromDeployment(d)
 					if err != nil {
 						return err
