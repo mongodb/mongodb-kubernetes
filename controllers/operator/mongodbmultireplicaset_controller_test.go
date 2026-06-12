@@ -72,7 +72,7 @@ func checkMultiReconcileSuccessful(ctx context.Context, t *testing.T, reconciler
 func TestChangingFCVMultiCluster(t *testing.T) {
 	ctx := context.Background()
 	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
-	reconciler, cl, _, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs)
+	reconciler, cl, _, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.NonStatic)
 	checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, cl, false)
 
 	// Helper function to update and verify FCV
@@ -94,7 +94,7 @@ func TestCreateMultiReplicaSet(t *testing.T) {
 	ctx := context.Background()
 	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
 
-	reconciler, client, _, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs)
+	reconciler, client, _, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.NonStatic)
 	checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
 }
 
@@ -109,7 +109,7 @@ func TestMultiReplicaSetClusterReconcileContainerImages(t *testing.T) {
 
 	ctx := context.Background()
 	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).SetVersion("8.0.0").Build()
-	reconciler, kubeClient, memberClients, _ := defaultMultiReplicaSetReconciler(ctx, imageUrlsMock, "2.0.0", "1.0.0", mrs)
+	reconciler, kubeClient, memberClients, _ := defaultMultiReplicaSetReconciler(ctx, imageUrlsMock, "2.0.0", "1.0.0", mrs, architectures.NonStatic)
 
 	checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, kubeClient, false)
 
@@ -133,8 +133,6 @@ func TestMultiReplicaSetClusterReconcileContainerImages(t *testing.T) {
 }
 
 func TestMultiReplicaSetClusterReconcileContainerImagesWithStaticArchitecture(t *testing.T) {
-	t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.Static))
-
 	databaseRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_8_0_0_ubi9", util.MongodbImageEnv)
 
 	imageUrlsMock := images.ImageUrls{
@@ -145,7 +143,7 @@ func TestMultiReplicaSetClusterReconcileContainerImagesWithStaticArchitecture(t 
 
 	ctx := context.Background()
 	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).SetVersion("8.0.0").Build()
-	reconciler, kubeClient, memberClients, omConnectionFactory := defaultMultiReplicaSetReconciler(ctx, imageUrlsMock, "", "", mrs)
+	reconciler, kubeClient, memberClients, omConnectionFactory := defaultMultiReplicaSetReconciler(ctx, imageUrlsMock, "", "", mrs, architectures.Static)
 	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
 		connection.(*om.MockedOmConnection).SetAgentVersion("12.0.30.7791-1", "")
 	})
@@ -197,7 +195,7 @@ func TestReconcilePVCResizeMultiCluster(t *testing.T) {
 		mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
 		mrs.Spec.StatefulSetConfiguration = &configuration
 
-		reconciler, c, clusterMap, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs)
+		reconciler, c, clusterMap, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.NonStatic)
 
 		// first, we create the shardedCluster with sts and pvc,
 		// no resize happening, even after running reconcile multiple times
@@ -335,7 +333,7 @@ func TestReconcileFails_WhenProjectConfig_IsNotFound(t *testing.T) {
 	ctx := context.Background()
 	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
 
-	reconciler, _, _, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs)
+	reconciler, _, _, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.NonStatic)
 
 	result, err := reconciler.Reconcile(ctx, requestFromObject(mrs))
 	assert.Nil(t, err)
@@ -346,7 +344,7 @@ func TestMultiClusterConfigMapAndSecretWatched(t *testing.T) {
 	ctx := context.Background()
 	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
 
-	reconciler, client, _, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs)
+	reconciler, client, _, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.NonStatic)
 	checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
 
 	expected := map[watch.Object][]types.NamespacedName{
@@ -366,7 +364,7 @@ func TestServiceCreation_WithExternalName(t *testing.T) {
 				ExternalDomain: ptr.To("cluster-%d.testing"),
 			}, ptr.To("cluster-%d.testing")).
 		Build()
-	reconciler, client, memberClusterMap, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs)
+	reconciler, client, memberClusterMap, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.NonStatic)
 	checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
 
 	clusterSpecList, err := mrs.GetClusterSpecItems()
@@ -419,7 +417,7 @@ func TestServiceCreation_WithPlaceholders(t *testing.T) {
 			}, nil).
 		Build()
 	mrs.Spec.DuplicateServiceObjects = util.BooleanRef(false)
-	reconciler, client, memberClusterMap, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs)
+	reconciler, client, memberClusterMap, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.NonStatic)
 	checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
 
 	clusterSpecList, err := mrs.GetClusterSpecItems()
@@ -461,7 +459,7 @@ func TestServiceCreation_WithoutDuplicates(t *testing.T) {
 	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().
 		SetClusterSpecList(clusters).
 		Build()
-	reconciler, client, memberClusterMap, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs)
+	reconciler, client, memberClusterMap, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.NonStatic)
 	checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
 
 	clusterSpecList, err := mrs.GetClusterSpecItems()
@@ -498,7 +496,7 @@ func TestServiceCreation_WithDuplicates(t *testing.T) {
 		Build()
 	mrs.Spec.DuplicateServiceObjects = util.BooleanRef(true)
 
-	reconciler, client, memberClusterMap, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs)
+	reconciler, client, memberClusterMap, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.NonStatic)
 	checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
 
 	clusterSpecs, err := mrs.GetClusterSpecItems()
@@ -525,7 +523,7 @@ func TestHeadlessServiceCreation(t *testing.T) {
 		SetClusterSpecList(clusters).
 		Build()
 
-	reconciler, client, memberClusterMap, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs)
+	reconciler, client, memberClusterMap, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.NonStatic)
 	checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
 
 	clusterSpecs, err := mrs.GetClusterSpecItems()
@@ -578,7 +576,7 @@ func TestResourceDeletion(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
 			mrs := tc.create()
-			reconciler, client, memberClients, omConnectionFactory := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs)
+			reconciler, client, memberClients, omConnectionFactory := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.NonStatic)
 			checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
 
 			t.Run("Resources are created", func(t *testing.T) {
@@ -684,7 +682,7 @@ func TestResourceDeletion(t *testing.T) {
 func TestGroupSecret_IsCopied_ToEveryMemberCluster(t *testing.T) {
 	ctx := context.Background()
 	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
-	reconciler, client, memberClusterMap, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs)
+	reconciler, client, memberClusterMap, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.NonStatic)
 	checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
 
 	for _, clusterName := range clusters {
@@ -707,7 +705,7 @@ func TestAuthentication_IsEnabledInOM_WhenConfiguredInCR(t *testing.T) {
 		Authentication: &mdb.Authentication{Enabled: true, Modes: []mdb.AuthMode{"SCRAM"}},
 	}).SetClusterSpecList(clusters).Build()
 
-	reconciler, client, _, omConnectionFactory := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs)
+	reconciler, client, _, omConnectionFactory := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.NonStatic)
 
 	t.Run("Reconciliation is successful when configuring scram", func(t *testing.T) {
 		checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
@@ -735,7 +733,7 @@ func TestTls_IsEnabledInOM_WhenConfiguredInCR(t *testing.T) {
 		CertificatesSecretsPrefix: "some-prefix",
 	}).Build()
 
-	reconciler, client, _, omConnectionFactory := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs)
+	reconciler, client, _, omConnectionFactory := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.NonStatic)
 	createMultiClusterReplicaSetTLSData(t, ctx, client, mrs, "some-ca")
 
 	t.Run("Reconciliation is successful when configuring tls", func(t *testing.T) {
@@ -754,7 +752,7 @@ func TestTls_IsEnabledInOM_WhenConfiguredInCR(t *testing.T) {
 func TestSpecIsSavedAsAnnotation_WhenReconciliationIsSuccessful(t *testing.T) {
 	ctx := context.Background()
 	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
-	reconciler, client, _, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs)
+	reconciler, client, _, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.NonStatic)
 	checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
 
 	// fetch the resource after reconciliation
@@ -792,7 +790,7 @@ func TestMultiReplicaSetRace(t *testing.T) {
 
 	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory().WithResourceToProjectMapping(resourceToProjectMapping)
 	memberClusterMap := getFakeMultiClusterMapWithConfiguredInterceptor(clusters, omConnectionFactory, true, true)
-	reconciler := newMultiClusterReplicaSetReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", omConnectionFactory.GetConnectionFunc, memberClusterMap)
+	reconciler := newMultiClusterReplicaSetReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, omConnectionFactory.GetConnectionFunc, memberClusterMap)
 
 	testConcurrentReconciles(ctx, t, fakeClient, reconciler, rs1, rs2, rs3)
 }
@@ -813,7 +811,7 @@ func TestScaling(t *testing.T) {
 
 	t.Run("Can scale to max amount when creating the resource", func(t *testing.T) {
 		mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
-		reconciler, client, memberClusters, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs)
+		reconciler, client, memberClusters, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.NonStatic)
 		checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
 
 		statefulSets := readStatefulSets(ctx, mrs, memberClusters)
@@ -844,7 +842,7 @@ func TestScaling(t *testing.T) {
 		mrs.Spec.ClusterSpecList[0].StatefulSetConfiguration = stsWrapper
 		mrs.Spec.ClusterSpecList[1].Members = 1
 		mrs.Spec.ClusterSpecList[2].Members = 1
-		reconciler, client, memberClusters, omConnectionFactory := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs)
+		reconciler, client, memberClusters, omConnectionFactory := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.NonStatic)
 
 		checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
 		statefulSets := readStatefulSets(ctx, mrs, memberClusters)
@@ -890,7 +888,7 @@ func TestScaling(t *testing.T) {
 		mrs.Spec.ClusterSpecList[0].Members = 3
 		mrs.Spec.ClusterSpecList[1].Members = 2
 		mrs.Spec.ClusterSpecList[2].Members = 3
-		reconciler, client, memberClusters, omConnectionFactory := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs)
+		reconciler, client, memberClusters, omConnectionFactory := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.NonStatic)
 
 		checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
 		statefulSets := readStatefulSets(ctx, mrs, memberClusters)
@@ -938,7 +936,7 @@ func TestScaling(t *testing.T) {
 		mrs.Spec.ClusterSpecList[0].Members = 1
 		mrs.Spec.ClusterSpecList[1].Members = 1
 		mrs.Spec.ClusterSpecList[2].Members = 1
-		reconciler, client, _, omConnectionFactory := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs)
+		reconciler, client, _, omConnectionFactory := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.NonStatic)
 		checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
 
 		assert.Len(t, omConnectionFactory.GetConnection().(*om.MockedOmConnection).GetProcesses(), 3)
@@ -987,7 +985,7 @@ func TestScaling(t *testing.T) {
 		mrs.Spec.ClusterSpecList[0].Members = 1
 		mrs.Spec.ClusterSpecList[1].Members = 1
 		mrs.Spec.ClusterSpecList[2].Members = 1
-		reconciler, client, _, omConnectionFactory := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs)
+		reconciler, client, _, omConnectionFactory := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.NonStatic)
 		checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
 
 		assert.Len(t, omConnectionFactory.GetConnection().(*om.MockedOmConnection).GetProcesses(), 3)
@@ -1048,7 +1046,7 @@ func TestScaling(t *testing.T) {
 
 		// We simulate a changing the project by recreating the omConnection. The resource will keep the annotation.
 		// This part would have failed before 1.2.0.
-		reconciler, client, _, omConnectionFactory = defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs)
+		reconciler, client, _, omConnectionFactory = defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.NonStatic)
 		checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
 
 		dep, err = omConnectionFactory.GetConnection().ReadDeployment()
@@ -1070,7 +1068,7 @@ func TestScaling(t *testing.T) {
 		mrs.Spec.ClusterSpecList[0].Members = 1
 		mrs.Spec.ClusterSpecList[1].Members = 1
 
-		reconciler, client, memberClusters, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs)
+		reconciler, client, memberClusters, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.NonStatic)
 		checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
 
 		assertStatefulSetReplicas(ctx, t, mrs, memberClusters, 1, 1)
@@ -1108,7 +1106,7 @@ func TestScaling(t *testing.T) {
 		mrs.Spec.ClusterSpecList[1].Members = 2
 		mrs.Spec.ClusterSpecList[2].Members = 3
 
-		reconciler, client, memberClusters, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs)
+		reconciler, client, memberClusters, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.NonStatic)
 		checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
 
 		assertStatefulSetReplicas(ctx, t, mrs, memberClusters, 3, 2, 3)
@@ -1146,7 +1144,7 @@ func TestScaling(t *testing.T) {
 		mrs.Spec.ClusterSpecList[1].Members = 1
 		mrs.Spec.ClusterSpecList[2].Members = 2
 
-		reconciler, client, memberClusters, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs)
+		reconciler, client, memberClusters, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.NonStatic)
 		checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
 
 		assertStatefulSetReplicas(ctx, t, mrs, memberClusters, 2, 1, 2)
@@ -1176,7 +1174,7 @@ func TestClusterNumbering(t *testing.T) {
 
 	t.Run("Create MDB CR first time", func(t *testing.T) {
 		mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
-		reconciler, client, _, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs)
+		reconciler, client, _, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.NonStatic)
 		checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
 
 		clusterNumMap := getClusterNumMapping(t, mrs)
@@ -1187,7 +1185,7 @@ func TestClusterNumbering(t *testing.T) {
 		mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
 		mrs.Spec.ClusterSpecList = mrs.Spec.ClusterSpecList[:len(mrs.Spec.ClusterSpecList)-1]
 
-		reconciler, client, _, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs)
+		reconciler, client, _, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.NonStatic)
 		checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
 
 		clusterNumMap := getClusterNumMapping(t, mrs)
@@ -1215,7 +1213,7 @@ func TestClusterNumbering(t *testing.T) {
 		mrs.Spec.ClusterSpecList[1].Members = 1
 		mrs.Spec.ClusterSpecList[2].Members = 1
 
-		reconciler, client, _, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs)
+		reconciler, client, _, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.NonStatic)
 		checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
 
 		clusterNumMap := getClusterNumMapping(t, mrs)
@@ -1284,7 +1282,7 @@ func TestBackupConfigurationReplicaSet(t *testing.T) {
 			Mode: "enabled",
 		}).Build()
 
-	reconciler, client, _, omConnectionFactory := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs)
+	reconciler, client, _, omConnectionFactory := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.NonStatic)
 	uuidStr := uuid.New().String()
 	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
 		_, err := connection.UpdateBackupConfig(&backup.Config{
@@ -1356,7 +1354,7 @@ func TestMultiClusterFailover(t *testing.T) {
 	ctx := context.Background()
 	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
 
-	reconciler, client, memberClusters, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs)
+	reconciler, client, memberClusters, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.NonStatic)
 	checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
 
 	// trigger failover by adding an annotation to the CR
@@ -1412,29 +1410,25 @@ func TestMultiReplicaSet_AgentVersionMapping(t *testing.T) {
 	nonExistingPath := "/foo/bar/foo"
 
 	t.Run("Static architecture, version retrieving fails, image is overriden, reconciliation should succeeds", func(t *testing.T) {
-		t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.Static))
 		t.Setenv(agentVersionManagement.MappingFilePathEnv, nonExistingPath)
-		overridenReconciler, overridenClient, _, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", overridenResource)
+		overridenReconciler, overridenClient, _, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", overridenResource, architectures.Static)
 		checkMultiReconcileSuccessful(ctx, t, overridenReconciler, overridenResource, overridenClient, false)
 	})
 
 	t.Run("Static architecture, version retrieving fails, image is not overriden, reconciliation should fail", func(t *testing.T) {
-		t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.Static))
 		t.Setenv(agentVersionManagement.MappingFilePathEnv, nonExistingPath)
-		reconciler, client, _, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", defaultResource)
+		reconciler, client, _, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", defaultResource, architectures.Static)
 		checkMultiReconcileSuccessful(ctx, t, reconciler, defaultResource, client, true)
 	})
 
 	t.Run("Static architecture, version retrieving succeeds, image is not overriden, reconciliation should succeed", func(t *testing.T) {
-		t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.Static))
-		reconciler, client, _, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", defaultResource)
+		reconciler, client, _, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", defaultResource, architectures.Static)
 		checkMultiReconcileSuccessful(ctx, t, reconciler, defaultResource, client, false)
 	})
 
 	t.Run("Non-Static architecture, version retrieving fails, image is not overriden, reconciliation should succeed", func(t *testing.T) {
-		t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.NonStatic))
 		t.Setenv(agentVersionManagement.MappingFilePathEnv, nonExistingPath)
-		reconciler, client, _, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", defaultResource)
+		reconciler, client, _, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", defaultResource, architectures.NonStatic)
 		checkMultiReconcileSuccessful(ctx, t, reconciler, defaultResource, client, false)
 	})
 }
@@ -1444,7 +1438,7 @@ func TestValidationsRunOnReconcile(t *testing.T) {
 	duplicateName := "duplicate"
 	clustersWithDuplicate := []string{duplicateName, duplicateName, "cluster-3"}
 	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clustersWithDuplicate).Build()
-	reconciler, client, _, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs)
+	reconciler, client, _, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.NonStatic)
 
 	// copied
 	err := client.Update(ctx, mrs)
@@ -1473,7 +1467,7 @@ func TestRoleAnnotationIsSet(t *testing.T) {
 	}
 
 	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).SetRoles([]mdb.MongoDBRole{role}).Build()
-	reconciler, client, _, omConnectionFactory := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs)
+	reconciler, client, _, omConnectionFactory := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.NonStatic)
 	checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
 
 	roleString, _ := json.Marshal([]string{"embedded-role@admin"})
@@ -1553,8 +1547,8 @@ func specsAreEqual(spec1, spec2 mdbmulti.MongoDBMultiSpec) (bool, error) {
 	return bytes.Equal(spec1Bytes, spec2Bytes), nil
 }
 
-func defaultMultiReplicaSetReconciler(ctx context.Context, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, m *mdbmulti.MongoDBMultiCluster) (*ReconcileMongoDbMultiReplicaSet, kubernetesClient.Client, map[string]client.Client, *om.CachedOMConnectionFactory) {
-	multiReplicaSetController, client, clusterMap, omConnectionFactory := multiReplicaSetReconciler(ctx, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, m)
+func defaultMultiReplicaSetReconciler(ctx context.Context, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, m *mdbmulti.MongoDBMultiCluster, arch architectures.DefaultArchitecture) (*ReconcileMongoDbMultiReplicaSet, kubernetesClient.Client, map[string]client.Client, *om.CachedOMConnectionFactory) {
+	multiReplicaSetController, client, clusterMap, omConnectionFactory := multiReplicaSetReconciler(ctx, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, m, arch)
 	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
 		connection.(*om.MockedOmConnection).Hostnames = calculateHostNamesForExternalDomains(m)
 	})
@@ -1582,10 +1576,10 @@ func calculateHostNamesForExternalDomains(m *mdbmulti.MongoDBMultiCluster) []str
 	return expectedHostnames
 }
 
-func multiReplicaSetReconciler(ctx context.Context, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, m *mdbmulti.MongoDBMultiCluster) (*ReconcileMongoDbMultiReplicaSet, kubernetesClient.Client, map[string]client.Client, *om.CachedOMConnectionFactory) {
+func multiReplicaSetReconciler(ctx context.Context, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, m *mdbmulti.MongoDBMultiCluster, arch architectures.DefaultArchitecture) (*ReconcileMongoDbMultiReplicaSet, kubernetesClient.Client, map[string]client.Client, *om.CachedOMConnectionFactory) {
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(m)
 	memberClusterMap := getFakeMultiClusterMap(omConnectionFactory)
-	return newMultiClusterReplicaSetReconciler(ctx, kubeClient, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, false, false, false, "", omConnectionFactory.GetConnectionFunc, memberClusterMap), kubeClient, memberClusterMap, omConnectionFactory
+	return newMultiClusterReplicaSetReconciler(ctx, kubeClient, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, false, false, false, "", arch, omConnectionFactory.GetConnectionFunc, memberClusterMap), kubeClient, memberClusterMap, omConnectionFactory
 }
 
 func getFakeMultiClusterMap(omConnectionFactory *om.CachedOMConnectionFactory) map[string]client.Client {

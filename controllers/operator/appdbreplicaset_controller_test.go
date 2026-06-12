@@ -44,6 +44,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 )
 
@@ -395,7 +396,7 @@ func TestTryConfigureMonitoringInOpsManager(t *testing.T) {
 	assert.Empty(t, podVars.User)
 
 	opsManager.Spec.AppDB.Members = 5
-	appDbSts, err := construct.AppDbStatefulSet(*opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, appsv1.OnDeleteStatefulSetStrategyType, zap.S())
+	appDbSts, err := construct.AppDbStatefulSet(*opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, appsv1.OnDeleteStatefulSetStrategyType, architectures.NonStatic, zap.S())
 	assert.NoError(t, err)
 
 	assert.Nil(t, findVolumeByName(appDbSts.Spec.Template.Spec.Volumes, construct.AgentAPIKeyVolumeName))
@@ -435,7 +436,7 @@ func TestTryConfigureMonitoringInOpsManager(t *testing.T) {
 
 	assertExpectedHostnamesAndPreferred(t, omConnectionFactory.GetConnection().(*om.MockedOmConnection), expectedHostnames)
 
-	appDbSts, err = construct.AppDbStatefulSet(*opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, appsv1.OnDeleteStatefulSetStrategyType, zap.S())
+	appDbSts, err = construct.AppDbStatefulSet(*opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, appsv1.OnDeleteStatefulSetStrategyType, architectures.NonStatic, zap.S())
 	assert.NoError(t, err)
 
 	assert.NotNil(t, findVolumeByName(appDbSts.Spec.Template.Spec.Volumes, construct.AgentAPIKeyVolumeName))
@@ -470,7 +471,7 @@ func TestTryConfigureMonitoringInOpsManagerWithCustomTemplate(t *testing.T) {
 
 	t.Run("do not override images while activating monitoring", func(t *testing.T) {
 		podVars := env.PodEnvVars{ProjectID: "something"}
-		appDbSts, err := construct.AppDbStatefulSet(*opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, appsv1.OnDeleteStatefulSetStrategyType, zap.S())
+		appDbSts, err := construct.AppDbStatefulSet(*opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, appsv1.OnDeleteStatefulSetStrategyType, architectures.NonStatic, zap.S())
 		assert.NoError(t, err)
 		assert.NotNil(t, appDbSts)
 
@@ -496,7 +497,7 @@ func TestTryConfigureMonitoringInOpsManagerWithCustomTemplate(t *testing.T) {
 
 	t.Run("do not override images, but remove monitoring if not activated", func(t *testing.T) {
 		podVars := env.PodEnvVars{}
-		appDbSts, err := construct.AppDbStatefulSet(*opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, appsv1.OnDeleteStatefulSetStrategyType, zap.S())
+		appDbSts, err := construct.AppDbStatefulSet(*opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, appsv1.OnDeleteStatefulSetStrategyType, architectures.NonStatic, zap.S())
 		assert.NoError(t, err)
 		assert.NotNil(t, appDbSts)
 
@@ -540,7 +541,7 @@ func TestTryConfigureMonitoringInOpsManagerWithExternalDomains(t *testing.T) {
 	assert.Empty(t, podVars.User)
 
 	opsManager.Spec.AppDB.Members = 5
-	appDbSts, err := construct.AppDbStatefulSet(*opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, appsv1.OnDeleteStatefulSetStrategyType, zap.S())
+	appDbSts, err := construct.AppDbStatefulSet(*opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, appsv1.OnDeleteStatefulSetStrategyType, architectures.NonStatic, zap.S())
 	assert.NoError(t, err)
 
 	assert.Nil(t, findVolumeByName(appDbSts.Spec.Template.Spec.Volumes, construct.AgentAPIKeyVolumeName))
@@ -580,7 +581,7 @@ func TestTryConfigureMonitoringInOpsManagerWithExternalDomains(t *testing.T) {
 
 	assertExpectedHostnamesAndPreferred(t, omConnectionFactory.GetConnection().(*om.MockedOmConnection), expectedHostnames)
 
-	appDbSts, err = construct.AppDbStatefulSet(*opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, appsv1.OnDeleteStatefulSetStrategyType, zap.S())
+	appDbSts, err = construct.AppDbStatefulSet(*opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, appsv1.OnDeleteStatefulSetStrategyType, architectures.NonStatic, zap.S())
 	assert.NoError(t, err)
 
 	assert.NotNil(t, findVolumeByName(appDbSts.Spec.Template.Spec.Volumes, construct.AgentAPIKeyVolumeName))
@@ -1167,7 +1168,7 @@ func TestAppDBScaleUp_HappensIncrementally_FullOpsManagerReconcile(t *testing.T)
 		SetVersion("7.0.0").
 		Build()
 	omConnectionFactory := om.NewCachedOMConnectionFactory(om.NewEmptyMockedOmConnection)
-	omReconciler, client, _ := defaultTestOmReconciler(ctx, t, nil, "", "", opsManager, nil, omConnectionFactory)
+	omReconciler, client, _ := defaultTestOmReconciler(ctx, t, nil, "", "", opsManager, nil, omConnectionFactory, architectures.NonStatic)
 
 	checkOMReconciliationSuccessful(ctx, t, omReconciler, opsManager, client)
 
@@ -1205,7 +1206,7 @@ func TestAppDbPortIsConfigurable_WithAdditionalMongoConfig(t *testing.T) {
 		SetAdditionalMongodbConfig(mdbv1.NewAdditionalMongodConfig("net.port", 30000)).
 		Build()
 	omConnectionFactory := om.NewCachedOMConnectionFactory(om.NewEmptyMockedOmConnection)
-	omReconciler, client, _ := defaultTestOmReconciler(ctx, t, nil, "", "", opsManager, nil, omConnectionFactory)
+	omReconciler, client, _ := defaultTestOmReconciler(ctx, t, nil, "", "", opsManager, nil, omConnectionFactory, architectures.NonStatic)
 
 	checkOMReconciliationSuccessful(ctx, t, omReconciler, opsManager, client)
 
@@ -1416,13 +1417,13 @@ func checkDeploymentEqualToPublished(t *testing.T, expected automationconfig.Aut
 
 func newAppDbReconciler(ctx context.Context, c client.Client, opsManager *omv1.MongoDBOpsManager, omConnectionFactoryFunc om.ConnectionFactory, log *zap.SugaredLogger) (*ReconcileAppDbReplicaSet, error) {
 	commonController := NewReconcileCommonController(ctx, c)
-	return NewAppDBReplicaSetReconciler(ctx, nil, "", opsManager.Spec.AppDB, commonController, omConnectionFactoryFunc, opsManager.Annotations, nil, log, kube.BaseOwnerReference(opsManager))
+	return NewAppDBReplicaSetReconciler(ctx, nil, "", opsManager.Spec.AppDB, commonController, omConnectionFactoryFunc, opsManager.Annotations, nil, architectures.NonStatic, log, kube.BaseOwnerReference(opsManager))
 }
 
 func newAppDbMultiReconciler(ctx context.Context, c client.Client, opsManager *omv1.MongoDBOpsManager, memberClusterMap map[string]client.Client, log *zap.SugaredLogger, omConnectionFactoryFunc om.ConnectionFactory) (*ReconcileAppDbReplicaSet, error) {
 	_ = c.Update(ctx, opsManager)
 	commonController := NewReconcileCommonController(ctx, c)
-	return NewAppDBReplicaSetReconciler(ctx, nil, "", opsManager.Spec.AppDB, commonController, omConnectionFactoryFunc, opsManager.Annotations, memberClusterMap, log, kube.BaseOwnerReference(opsManager))
+	return NewAppDBReplicaSetReconciler(ctx, nil, "", opsManager.Spec.AppDB, commonController, omConnectionFactoryFunc, opsManager.Annotations, memberClusterMap, architectures.NonStatic, log, kube.BaseOwnerReference(opsManager))
 }
 
 func TestChangingFCVAppDB(t *testing.T) {

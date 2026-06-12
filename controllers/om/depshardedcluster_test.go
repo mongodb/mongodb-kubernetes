@@ -10,6 +10,7 @@ import (
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 )
 
 // TestMergeShardedClusterNoExisting that just merges the Sharded cluster into an empty deployment
@@ -109,7 +110,7 @@ func TestMergeShardedCluster_ReplicaSetsModified(t *testing.T) {
 	// These OM changes must be overriden
 	(*d.getReplicaSetByName("cluster-0"))["protocolVersion"] = util.Int32Ref(2)
 	(*d.getReplicaSetByName("configSrv")).addMember(
-		NewMongodProcess("foo", "bar", "fake-mongoDBImage", false, &mdbv1.AdditionalMongodConfig{}, mdbv1.NewStandaloneBuilder().Build().GetSpec(), "", nil, ""), "", automationconfig.MemberOptions{},
+		NewMongodProcess("foo", "bar", "fake-mongoDBImage", false, &mdbv1.AdditionalMongodConfig{}, mdbv1.NewStandaloneBuilder().Build().GetSpec(), "", nil, "", architectures.NonStatic), "", automationconfig.MemberOptions{},
 	)
 	(*d.getReplicaSetByName("cluster-2")).setMembers(d.getReplicaSetByName("cluster-2").Members()[0:2])
 
