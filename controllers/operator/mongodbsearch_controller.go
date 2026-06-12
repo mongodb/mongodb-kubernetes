@@ -193,12 +193,9 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 	return result, nil
 }
 
-// OnDelete implements Deleter; the ResourceEventHandler invokes it synchronously
-// when the MongoDBSearch CR is deleted. Member-cluster resources are deleted
-// explicitly only in multi-cluster mode, where owner references can't cross
-// cluster boundaries; in single-cluster deployments Kubernetes garbage
-// collection handles cleanup via owner references (same gating as the sharded
-// cluster's OnDelete).
+// OnDelete sweeps member-cluster resources in multi-cluster mode, where owner
+// references can't cross cluster boundaries; single-cluster cleanup is left to
+// Kubernetes GC (same gating as the sharded cluster's OnDelete).
 //
 // The sweep iterates the operator's full member-cluster client map rather than
 // the persisted ClusterMapping: the state ConfigMap is owner-ref'd to the

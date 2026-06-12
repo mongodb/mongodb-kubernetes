@@ -1,42 +1,22 @@
 """Centralized-MC CR-deletion e2e for MongoDBSearch (OnDelete path).
 
 Owner references do not cross cluster boundaries, so Kubernetes GC alone cannot
-clean up the per-cluster resources a centralized MongoDBSearch fans out to its
-member clusters. The operator wires an OnDelete handler on both the search and
-Envoy controllers that explicitly sweeps every search-owned resource from every
-member cluster when the CR is deleted (mongot StatefulSet / headless Service /
-ConfigMap / proxy Service + Envoy Deployment / ConfigMap; PVCs are reaped via
-the StatefulSet's persistentVolumeClaimRetentionPolicy whenDeleted: Delete).
+clean up the per-cluster resources a centralized MongoDBSearch fans out to
+member clusters; the OnDelete sweep on both controllers does it explicitly
+(PVCs ride along via persistentVolumeClaimRetentionPolicy whenDeleted: Delete).
+Presence is asserted per kind before the delete so the absence polling cannot
+pass vacuously, and the same CR is re-created afterwards to prove the deletion
+left no wreckage blocking reinstall.
 
-Phases:
-  1. Deploy a 2-cluster external MongoDBMulti RS source (TLS+SCRAM) and a
-     MongoDBSearch spanning both clusters with a managed LB; drive to Running.
-  2. Presence guard: assert the FULL expected resource set exists per member
-     cluster (mongot kinds, proxy Svc, Envoy Deployment/CM, data PVC) plus the
-     state ConfigMap on the central cluster. Without this, phase 4's absence
-     polling could pass vacuously.
-  3. Light data-plane confidence: restore sample data, create a $search index,
-     run one query — proves the deployment being deleted was real.
-  4. DELETE the MongoDBSearch CR. Assert ZERO search-owned objects remain in
-     EACH member cluster (every kind from phase 2 including PVCs), the state CM
-     on central is GC'd (owner-ref), and the source MongoDBMulti is untouched
-     (still Running, its StatefulSets present in both clusters).
-  5. Re-create the same MongoDBSearch and drive it to Running again — a fresh
-     provision proves the deletion left no wreckage that blocks reinstall.
+Runs on the e2e_multi_cluster_2_clusters variant; the tools pod is pinned to
+member cluster 0 for consistency with the 3-cluster add/remove test (where the
+central cluster is outside the mesh).
 
-Runs on the e2e_multi_cluster_2_clusters variant (deletion semantics need no
-third cluster). On this variant the central cluster doubles as member 1, so the
-default-client tools pod would work — but it is pinned to member cluster 0 for
-consistency with the 3-cluster add/remove test where the central cluster is
-outside the mesh.
-
-The source is external, so the operator does not inject search setParameters;
-the test patches every source mongod's mongotHost via OM AC, pointing them all
-at cluster 0's proxy-svc FQDN (single stable target). That FQDN disappears with
-the sweep and reappears on re-create under the same name (cluster indices are
+The source is external, so the operator injects no search setParameters; the
+test patches every source mongod's mongotHost via OM AC at cluster 0's
+proxy-svc FQDN. That FQDN reappears on re-create under the same name (indices
 re-assigned in first-seen spec order after the state CM is GC'd), so no
-re-patching is needed — and a stale mongotHost never affects mongod health or
-the source's Running phase.
+re-patching is needed — and a stale mongotHost never affects mongod health.
 """
 
 from typing import List
