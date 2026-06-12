@@ -15,6 +15,7 @@ from kubeobject import CustomObject
 from kubernetes.client.rest import ApiException
 from kubetester import create_configmap, create_or_update_secret, read_secret
 from kubetester.automation_config_tester import AutomationConfigTester
+from kubetester.failure_fingerprint import failure_category, failure_fingerprint
 from kubetester.kubetester import KubernetesTester, build_list_of_hosts, get_pods, is_default_architecture_static
 from kubetester.mongodb_common import MongoDBCommon
 from kubetester.mongodb_utils_state import in_desired_state
@@ -1052,25 +1053,42 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
             )
 
             start_time = time.time()
-            self.ops_manager.wait_for(
-                lambda s: in_desired_state(
-                    current_state=self.get_phase(),
-                    desired_state=phase,
-                    current_generation=self.ops_manager.get_generation(),
-                    observed_generation=self.get_observed_generation(),
-                    current_message=self.get_message(),
-                    msg_regexp=msg_regexp,
-                    ignore_errors=ignore_errors,
-                    intermediate_events=intermediate_events,
-                ),
-                timeout,
-                should_raise=True,
-            )
-            end_time = time.time()
+
             span = trace.get_current_span()
             span.set_attribute("mck.resource", self.__class__.__name__)
             span.set_attribute("mck.action", "assert_phase")
             span.set_attribute("mck.desired_phase", phase.name)
+
+            try:
+                self.ops_manager.wait_for(
+                    lambda s: in_desired_state(
+                        current_state=self.get_phase(),
+                        desired_state=phase,
+                        current_generation=self.ops_manager.get_generation(),
+                        observed_generation=self.get_observed_generation(),
+                        current_message=self.get_message(),
+                        msg_regexp=msg_regexp,
+                        ignore_errors=ignore_errors,
+                        intermediate_events=intermediate_events,
+                    ),
+                    timeout,
+                    should_raise=True,
+                )
+            except Exception as e:
+                # Emit failure attributes so failures are analyzable in Honeycomb without
+                # regex-on-message. See kubetester/failure_fingerprint.py.
+                span.set_attribute("mck.time_needed", time.time() - start_time)
+                span.set_attribute("mck.outcome", "failed")
+                observed_phase = self.get_phase()
+                if observed_phase is not None:
+                    span.set_attribute("mck.observed_phase", observed_phase.name)
+                fingerprint = failure_fingerprint(str(e))
+                span.set_attribute("mck.failure_pattern", fingerprint)
+                span.set_attribute("mck.failure_category", failure_category(fingerprint))
+                raise
+
+            end_time = time.time()
+            span.set_attribute("mck.outcome", "reached")
             span.set_attribute("mck.time_needed", end_time - start_time)
             logger.debug(
                 f"Reaching phase {phase.name} for resource {self.__class__.__name__} took {end_time - start_time}s"

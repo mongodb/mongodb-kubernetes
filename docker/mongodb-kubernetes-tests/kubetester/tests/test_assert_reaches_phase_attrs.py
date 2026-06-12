@@ -18,6 +18,7 @@ if not hasattr(_provider, "add_span_processor"):
 _provider.add_span_processor(SimpleSpanProcessor(_exporter))
 
 from kubetester.mongodb import MongoDB  # noqa: E402
+from kubetester.opsmanager import MongoDBOpsManager  # noqa: E402
 from kubetester.phase import Phase  # noqa: E402
 
 
@@ -69,6 +70,26 @@ class TestAssertReachesPhaseAttributes(unittest.TestCase):
         self.assertIn("mck.time_needed", attrs)
         self.assertNotIn("mck.failure_pattern", attrs)
         self.assertNotIn("mck.failure_category", attrs)
+
+    def test_om_status_failure_path_emits_fingerprint_and_category(self):
+        # OmStatus/AppDbStatus/BackupStatus share StatusCommon.assert_reaches_phase.
+        om = MongoDBOpsManager.__new__(MongoDBOpsManager)
+        status = MongoDBOpsManager.OmStatus(om)
+        msg = (
+            'Got into Failed phase while waiting for Running! ("Status: 401 (Unauthorized), '
+            'Detail: You are not authorized for this resource.")'
+        )
+        with patch.object(om, "wait_for", create=True, side_effect=Exception(msg)), patch.object(
+            MongoDBOpsManager.OmStatus, "get_phase", return_value=Phase.Failed
+        ):
+            with self.assertRaises(Exception):
+                status.assert_reaches_phase(Phase.Running, timeout=1)
+
+        attrs = _last_span_attrs()
+        self.assertEqual(attrs["mck.outcome"], "failed")
+        self.assertEqual(attrs["mck.observed_phase"], "Failed")
+        self.assertEqual(attrs["mck.failure_category"], "infra")
+        self.assertIn("Status: 401", attrs["mck.failure_pattern"])
 
 
 if __name__ == "__main__":
