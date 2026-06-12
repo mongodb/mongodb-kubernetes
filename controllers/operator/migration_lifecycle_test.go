@@ -16,6 +16,7 @@ import (
 	mdbstatus "github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
 )
 
@@ -80,8 +81,8 @@ func defaultReplicaSetReconcilerWithPreloadedMembersFromVMs(ctx context.Context,
 		for i, m := range rs.Spec.ExternalMembers {
 			processes[i] = om.Process{"name": m.ProcessName, "hostname": m.Hostname, "processType": "mongod"}
 		}
-		omRS := om.NewReplicaSet(rsName, rsName, rs.Spec.Version)
-		rsWithProcesses := om.NewReplicaSetWithProcesses(omRS, processes, nil)
+		omRS := om.NewReplicaSet(rsName, rs.Spec.Version)
+		rsWithProcesses := om.NewReplicaSetWithProcesses(omRS, processes, make([]automationconfig.MemberOptions, len(processes)), nil)
 		_ = mc.ReadUpdateDeployment(func(d om.Deployment) error {
 			d["replicaSets"] = append(d.GetReplicaSets(), rsWithProcesses.Rs)
 			return nil

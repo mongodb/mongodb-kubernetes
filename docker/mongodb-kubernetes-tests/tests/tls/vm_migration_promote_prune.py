@@ -50,6 +50,7 @@ def _k8s_hostnames(mdb_migration: MongoDB) -> list:
         for i in range(mdb_migration.get_members())
     ]
 
+
 def promote_and_prune_members(mdb: MongoDB, vm_sts: dict, om_tester: OMTester, test_connection: bool = False) -> None:
     """Run the full VM → K8s cutover: extend, prune, and re-prioritize one member at a time.
 
@@ -116,8 +117,10 @@ def promote_and_prune_members(mdb: MongoDB, vm_sts: dict, om_tester: OMTester, t
             # Test connectivity with generated connection string
             MongoTester(conn_str).assert_connectivity(attempts=1)
             if not local_operator():
-                # srv connections don't work via kubefwd
-                MongoTester(conn_srv).assert_connectivity(attempts=1)
+                # srv connections don't work via kubefwd.
+                # mongodb+srv:// defaults to tls=true in the driver, so a non-TLS deployment
+                # must explicitly disable it (the operator only adds ssl=true for TLS deployments, but does not ssl=false).
+                MongoTester(conn_srv, use_ssl=mdb.is_tls_enabled()).assert_connectivity(attempts=1)
 
         om_tester.assert_cluster_available(f"{vm_sts['metadata']['name']}-rs")
         ac_tester = om_tester.get_automation_config_tester()

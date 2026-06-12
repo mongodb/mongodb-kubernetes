@@ -24,7 +24,7 @@ from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.search import movies_search_helper
 from tests.common.search.search_tester import SearchTester
 from tests.tls.vm_migration_dry_run import run_migration_dry_run_connectivity_passes
-from tests.tls.vm_migration_promote_prune import promote_and_prune_members, _connection_string, _k8s_hostnames
+from tests.tls.vm_migration_promote_prune import _connection_string, _k8s_hostnames, promote_and_prune_members
 
 
 @fixture(scope="module")
@@ -224,8 +224,8 @@ def test_mdb_reaches_running(namespace: str, mdb_k8s: MongoDB, om_tester: OMTest
 
 @mark.e2e_vm_migration
 def test_max_voting_members_validation(mdb_k8s: MongoDB):
-    # Update all members as voting at once, this results in 8 voting members (5 external + 5 k8s) which is more than 7
-    mdb_k8s["spec"]["members"] = 3
+    # Update all members as voting at once, this results in 8 voting members (3 external + 5 k8s) which is more than 7
+    mdb_k8s["spec"]["members"] = 5
     mdb_k8s.update()
     mdb_k8s.assert_reaches_phase(Phase.Failed, timeout=300)
 
@@ -233,16 +233,16 @@ def test_max_voting_members_validation(mdb_k8s: MongoDB):
     rs_name = mdb_k8s["spec"]["replicaSetNameOverride"]
     expected_err_msg = (
         f'"{rs_name}": this reconcile would result in 8 voting members (max: 7).\n'
-        "Currently voting in the Automation Config (5):\n"
+        "Currently voting in the Automation Config (3):\n"
         "  1. vm-mongodb-0 (external)\n"
         "  2. vm-mongodb-1 (external)\n"
         "  3. vm-mongodb-2 (external)\n"
-        "  4. vm-mongodb-3 (external)\n"
-        "  5. vm-mongodb-4 (external)\n"
         "This reconcile would make the following Kubernetes member(s) voting:\n"
         "  - spec.memberConfig[0]\n"
         "  - spec.memberConfig[1]\n"
         "  - spec.memberConfig[2]\n"
+        "  - spec.memberConfig[3]\n"
+        "  - spec.memberConfig[4]\n"
         'To fix: revert 1 of the above memberConfig entries to votes=0 and priority="0".\n'
         "If you wish to make more of the kubernetes members voting, make sure to remove one of the voting external members in the list above."
     )
