@@ -1952,9 +1952,9 @@ func (r *ReconcileAppDbReplicaSet) deployAutomationConfig(ctx context.Context, o
 	}
 
 	if externalConn != nil {
-		// TODO: verify with e2e that fresh-built AC needs no sanitisation before push
 		// Note: om.Auth and automationconfig.Auth have different field sets; the roundtrip
-		// may lose auth fields not present in om.Auth (e.g. usersDeleted). Verify with e2e before removing this TODO.
+		// may lose auth fields not present in om.Auth (e.g. usersDeleted). This blind-PUT path
+		// is interim; the read-modify-update rewrite (preserving OM-owned fields) is the follow-up.
 		acBytes, err := json.Marshal(config)
 		if err != nil {
 			return 0, workflow.Failed(xerrors.Errorf("failed to marshal AC for external OM: %w", err))
@@ -1963,6 +1963,10 @@ func (r *ReconcileAppDbReplicaSet) deployAutomationConfig(ctx context.Context, o
 		if err != nil {
 			return 0, workflow.Failed(xerrors.Errorf("failed to build om.AutomationConfig from bytes: %w", err))
 		}
+		// The headless AC carries fields the OM HTTP API rejects: mongoDbVersions with empty
+		// build URLs (Meta OM manages version downloads itself) and numberArbiters. Strip them
+		// before the push so the AC passes OM's schema validation.
+		stripUnsupportedACFields(omAC)
 		if err := externalConn.UpdateAutomationConfig(omAC, log); err != nil {
 			return 0, workflow.Failed(xerrors.Errorf("failed to push AC to external OM: %w", err))
 		}
@@ -2353,8 +2357,6 @@ func (r *ReconcileAppDbReplicaSet) reconcileOMConnection(
 		GroupID: conn.GroupID(),
 	}, workflow.OK()
 }
-
-// TODO: remove after e2e verification that fresh-built AC needs no sanitisation (PR 2)
 
 // stripUnsupportedACFields removes fields from an AutomationConfig deployment that are
 // accepted by the local headless agent but rejected by the Ops Manager HTTP API:
