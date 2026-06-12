@@ -881,6 +881,55 @@ func TestHandlePVCResize(t *testing.T) {
 	})
 }
 
+// TestReplicaSetReconciler_PVCStatusClearedAfterSuccessfulResize verifies that after a full PVC
+// resize cycle the reconciler clears the stale PVC status entry from the CRD status.
+// This complements TestHandlePVCResize (which only unit-tests HandlePVCResize) by going through
+// the full Reconcile path and asserting the final updateStatus call clears the field.
+func TestReplicaSetReconciler_PVCStatusClearedAfterSuccessfulResize(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx := context.Background()
+		podSpec := newDefaultPodSpec()
+		podSpec.Persistence = &v1.Persistence{SingleConfig: &v1.PersistenceConfig{Storage: "1Gi"}}
+		rs := DefaultReplicaSetBuilder().
+			SetPersistent(util.BooleanRef(true)).
+			SetPodSpec(&podSpec).
+			Build()
+
+		reconciler, kubeClient, _ := defaultReplicaSetReconciler(ctx, nil, "", "", rs)
+		checkReconcileSuccessful(ctx, t, reconciler, rs, kubeClient)
+
+		// Read the STS the reconciler created and manufacture the matching PVCs
+		// (in a real cluster the StatefulSet controller would do this automatically).
+		sts, err := kubeClient.GetStatefulSet(ctx, kube.ObjectKey(rs.Namespace, rs.Name))
+		require.NoError(t, err)
+		pvcs := createPVCs(t, sts, kubeClient)
+
+		// Trigger a resize by increasing the storage in the spec.
+		rs.Spec.PodSpec.Persistence = &v1.Persistence{SingleConfig: &v1.PersistenceConfig{Storage: "2Gi"}}
+		err = kubeClient.Update(ctx, rs)
+		require.NoError(t, err)
+
+		// Reconcile 1: resize detected; PVCs are patched but Capacity not yet updated.
+		_, err = reconciler.Reconcile(ctx, requestFromObject(rs))
+		require.NoError(t, err)
+		require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(rs.Namespace, rs.Name), rs))
+		require.Equal(t, pvc.PhasePVCResize, rs.Status.PVCs[0].Phase)
+
+		// Simulate Kubernetes completing the PVC resize.
+		for i := range pvcs {
+			setPVCWithUpdatedResource(ctx, t, kubeClient, &pvcs[i])
+		}
+
+		// Reconcile 2: PVCs done; STS orphaned and recreated; reconcile completes successfully.
+		// The final updateStatus must clear the stale PVC status entry.
+		_, err = reconciler.Reconcile(ctx, requestFromObject(rs))
+		require.NoError(t, err)
+		require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(rs.Namespace, rs.Name), rs))
+
+		assert.Nil(t, rs.Status.PVCs, "PVC status must be cleared after a successful resize")
+	})
+}
+
 // ===== Test for state and vault annotations handling in replicaset controller =====
 
 // TestReplicaSetAnnotations_WrittenOnSuccess verifies that lastAchievedSpec annotation is written after successful
