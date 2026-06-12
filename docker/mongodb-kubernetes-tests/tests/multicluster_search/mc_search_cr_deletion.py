@@ -631,9 +631,9 @@ def test_recreated_resources_present_per_cluster(
         central_cluster_client=central_cluster_client,
         mdbs_resource_name=MDBS_RESOURCE_NAME,
     )
-    assert mapping == {mcc.cluster_name: helper.cluster_index(mcc.cluster_name) for mcc in member_cluster_clients}, (
-        f"re-created CR must re-assign the original cluster indices, got {mapping}"
-    )
+    assert mapping == {
+        mcc.cluster_name: helper.cluster_index(mcc.cluster_name) for mcc in member_cluster_clients
+    }, f"re-created CR must re-assign the original cluster indices, got {mapping}"
 
     for mcc in member_cluster_clients:
         mc_search_helper.wait_for_cluster_search_resources_present(
