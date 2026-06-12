@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
@@ -15,7 +16,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
@@ -85,7 +85,8 @@ func TestCleanupStaleResources_CentralClusterByOwnerRef(t *testing.T) {
 		s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{}}
 	})
 
-	objs := []client.Object{search,
+	objs := []client.Object{
+		search,
 		ownedCentral(sweepSts("mdb-search-search-0-sh-0", mongotComponent), search),
 		ownedCentral(sweepSvc("mdb-search-search-0-sh-0-svc", mongotComponent), search),
 		ownedCentral(sweepCM("mdb-search-search-0-sh-0-config", mongotComponent), search),

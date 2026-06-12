@@ -414,7 +414,7 @@ func TestShardedInternalSearchSource_GetShardNames_Draining(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			mdb := newShardedClusterMongoDB("sc", "test-ns", tc.specShardCount, "8.2.0")
-			mdb.Status.MongodbShardedClusterSizeConfig.ShardCount = tc.statusShardCount
+			mdb.Status.ShardCount = tc.statusShardCount
 			search := newShardedUnmanagedLBSearch("test-search", "test-ns", "sc", "")
 			src := NewShardedInternalSearchSource(mdb, search)
 
