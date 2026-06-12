@@ -3,4 +3,4 @@ kind: fix
 date: 2026-06-10
 ---
 
-* **OpsManager AppDB**: Fixed an issue where the `status.applicationDatabase.pvc` field in the `MongoDBOpsManager` CRD retained a stale `PVC Resize - STS has been orphaned` phase indefinitely after a PVC resize completed successfully. The AppDB was healthy and fully operational, but the misleading status entry required manual intervention to clear.
+* **OpsManager AppDB**: Fixed an issue where the `status.applicationDatabase.pvc` field in the `MongoDBOpsManager` CRD retained a stale `PVC Resize - STS has been orphaned` phase indefinitely after a PVC resize completed successfully.
