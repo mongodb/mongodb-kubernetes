@@ -45,6 +45,8 @@ const (
 	TempX509KeyPasswordPath         = tempVolumePath + "/x509-key-password" // #nosec G101 -- path, not a password
 	X509KeyPasswordSecretKey        = "tls.keyFilePassword"                 // #nosec G101 -- secret key name, not a password
 	X509ClientCertOperatorMountPath = "/var/lib/tls/x509-client/"
+
+	ServerNamePlaceholder = "__SERVER_NAME__"
 )
 
 // SearchSourceDBResource is an object wrapping a MongoDBCommunity object
@@ -239,7 +241,8 @@ func mongodbSearchContainer(mdbSearch *searchv1.MongoDBSearch, perCluster search
 	if usePerPodConfig {
 		mongotStartCommand = mongotPerPodConfigStartCommand(jvmFlags)
 	} else {
-		mongotStartCommand = fmt.Sprintf("/mongot-community/mongot --config %s %s", MongotConfigPath, jvmFlags)
+		mongotStartCommand = fmt.Sprintf(`sed -i "s/%s/$HOSTNAME/" %s
+/mongot-community/mongot --config %s %s`, ServerNamePlaceholder, MongotConfigPath, MongotConfigPath, jvmFlags)
 	}
 
 	return container.Apply(
@@ -262,8 +265,10 @@ func mongodbSearchContainer(mdbSearch *searchv1.MongoDBSearch, perCluster search
 // mongotPerPodConfigStartCommand returns the shell script that reads the pod's role from ConfigMap.
 func mongotPerPodConfigStartCommand(jvmFlags string) string {
 	return fmt.Sprintf(`ROLE=$(cat "%s/$HOSTNAME")
-/mongot-community/mongot --config %s/config-${ROLE}.yml %s`,
-		MongotPerPodConfigDirPath, MongotPerPodConfigDirPath, jvmFlags)
+CONFIG_FILE="%s/config-${ROLE}.yml"
+sed -i "s/%s/$HOSTNAME/" "$CONFIG_FILE"
+/mongot-community/mongot --config "$CONFIG_FILE" %s`,
+		MongotPerPodConfigDirPath, MongotPerPodConfigDirPath, ServerNamePlaceholder, jvmFlags)
 }
 
 func mongotLivenessProbe(search *searchv1.MongoDBSearch) func(*corev1.Probe) {
