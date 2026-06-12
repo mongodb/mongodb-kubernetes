@@ -9,6 +9,57 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
+func TestBuild_DatabaseInPath(t *testing.T) {
+	build := func(database string) string {
+		return Builder().
+			SetAuthenticationModes([]string{util.SCRAM}).
+			SetHostnames([]string{"host:27017"}).
+			SetUsername("user").
+			SetPassword("password").
+			SetDatabase(database).
+			Build()
+	}
+
+	t.Run("database appears in URI path", func(t *testing.T) {
+		cs := build("mydb")
+		assert.Contains(t, cs, "/mydb?")
+		assert.NotContains(t, cs, "/?")
+	})
+
+	t.Run("no database produces empty path segment", func(t *testing.T) {
+		cs := build("")
+		assert.Contains(t, cs, "/?")
+	})
+}
+
+func TestBuild_AuthSourcePreservedOnVersionParseError(t *testing.T) {
+	cs := Builder().
+		SetAuthenticationModes([]string{util.SCRAM}).
+		SetHostnames([]string{"host:27017"}).
+		SetUsername("user").
+		SetPassword("password").
+		Build()
+	assert.Contains(t, cs, "authSource=admin", "authSource must still be set when version is unknown")
+	assert.NotContains(t, cs, "authMechanism=", "authMechanism must not be set when version is unknown")
+}
+
+func TestBuild_SSLRespectsIsTLSEnabled(t *testing.T) {
+	build := func(isTLSEnabled bool, extraParams map[string]string) string {
+		b := Builder()
+		b.SetAuthenticationModes([]string{util.SCRAM}).
+			SetHostnames([]string{"host:27017"}).
+			SetUsername("user").
+			SetPassword("password").
+			SetIsTLSEnabled(isTLSEnabled).
+			SetConnectionParams(extraParams)
+		return b.Build()
+	}
+
+	t.Run("ssl=true when TLS enabled", func(t *testing.T) {
+		assert.Contains(t, build(true, nil), "ssl=true")
+	})
+}
+
 func TestBuild_CredentialEncoding(t *testing.T) {
 	scram := func(username, password string) string {
 		b := Builder()
