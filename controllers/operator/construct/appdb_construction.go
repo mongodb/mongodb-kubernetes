@@ -417,14 +417,11 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 	tmpVolume := statefulset.CreateVolumeFromEmptyDir("tmp")
 	tmpVolumeMount := statefulset.CreateVolumeMount(tmpVolume.Name, "/tmp", statefulset.WithReadOnly(false))
 
-	agentCacheVolume := statefulset.CreateVolumeFromEmptyDir(util.PvcAgentCache)
-	agentCacheVolumeMount := statefulset.CreateVolumeMount(agentCacheVolume.Name, util.PvcMountPathAgentCache)
-
 	keyFileNsName := appDb.GetAgentKeyfileSecretNamespacedName()
 	keyFileVolume := statefulset.CreateVolumeFromEmptyDir(keyFileNsName.Name)
 	keyFileVolumeMount := statefulset.CreateVolumeMount(keyFileVolume.Name, "/var/lib/mongodb-mms-automation/authentication", statefulset.WithReadOnly(false))
 
-	mongodbAgentVolumeMounts := []corev1.VolumeMount{agentHealthStatusVolumeMount, keyFileVolumeMount, tmpVolumeMount, agentCacheVolumeMount}
+	mongodbAgentVolumeMounts := []corev1.VolumeMount{agentHealthStatusVolumeMount, keyFileVolumeMount, tmpVolumeMount}
 
 	automationConfigVolumeFunc := podtemplatespec.NOOP()
 	if appDb.NeedsAutomationConfigVolume() {
@@ -507,7 +504,6 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 				scriptsVolumeMod,
 				podtemplatespec.WithVolume(tmpVolume),
 				podtemplatespec.WithVolume(keyFileVolume),
-				podtemplatespec.WithVolume(agentCacheVolume),
 				podtemplatespec.WithVolume(acVersionConfigMapVolume),
 				podtemplatespec.WithContainer(util.AgentContainerName, appdbMongodbAgentContainer(appDb.AutomationConfigSecretName(), mongodbAgentVolumeMounts, opts.AgentImage, automationAgentCommand)),
 				podtemplatespec.WithContainer(util.MongodbContainerName, appdbMongodbContainer(opts.MongodbImage, mongodVolumeMounts, appDb.GetMongodConfiguration(), !withInitContainers)),

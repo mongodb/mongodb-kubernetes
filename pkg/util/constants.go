@@ -116,8 +116,6 @@ const (
 	PvcMms                         = "mongodb-mms-automation"
 	PvcMmsMountPath                = "/var/lib/mongodb-mms-automation"
 	PvMms                          = "agent"
-	PvcAgentCache                  = "mms-automation-cache"
-	PvcMountPathAgentCache         = "/var/cache/mongodb-mms-automation"
 	AgentDownloadsDir              = PvcMmsMountPath + "/downloads"
 	AgentAuthenticationKeyfilePath = PvcMmsMountPath + "/keyfile"
 	AutomationConfigFilePath       = PvcMountPathData + "/automation-mongod.conf"
