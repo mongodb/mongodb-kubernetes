@@ -70,6 +70,79 @@ type MonarchInstance struct {
 // monarchShipperMode is the only valid value for ShipperConfig.Mode per ops-manager validation.
 const monarchShipperMode = "shipperAndSnapshotter"
 
+const (
+	// MonarchShipperUsername is the SCRAM user the Monarch shipper authenticates as
+	// against mongod. The operator owns this user (generates it for active clusters,
+	// seeds it for standbys) rather than relying on Ops Manager to inject it.
+	MonarchShipperUsername = "mms-shipper"
+	// MonarchShipperUserDatabase is the auth database for the shipper user.
+	MonarchShipperUserDatabase = "admin"
+	// MonarchShipperRole is the minimal role granting readBackupFile (SERVER-110899)
+	// that OM provisions for the shipper user. The operator references it when adding
+	// the user to the automation config.
+	MonarchShipperRole = "shipperRole"
+)
+
+// EnsureMonarchShipperUser adds (or updates) the mms-shipper SCRAM user to the
+// deployment auth so the agent provisions it server-side from the supplied
+// cleartext password (via initPwd — no SCRAM hashing happens in the operator).
+//
+// This makes the operator own the shipper credential and push it in the same AC
+// as maintainedMonarchComponents, eliminating the prior poll-fetch race where the
+// operator had to wait for OM to inject shipperUser/shipperPwd on a later
+// agent-API AC read. It depends on the OM-side idempotency guard (separate PR)
+// that no-ops when the shipper user/role already exists.
+//
+// Idempotent: when the user already exists with the same initPwd and roles it is
+// left untouched so we don't churn the AC every reconcile.
+func (a *Auth) EnsureMonarchShipperUser(password string) {
+	desired := MongoDBUser{
+		Username:   MonarchShipperUsername,
+		Database:   MonarchShipperUserDatabase,
+		Mechanisms: []string{"SCRAM-SHA-256"},
+		Roles: []*Role{
+			{Role: MonarchShipperRole, Database: MonarchShipperUserDatabase},
+		},
+		InitPassword: password,
+	}
+
+	if _, existing := a.GetUser(MonarchShipperUsername, MonarchShipperUserDatabase); existing != nil {
+		if monarchShipperUserMatches(existing, desired) {
+			return
+		}
+	}
+	a.EnsureUser(desired)
+}
+
+// monarchShipperUserMatches reports whether an existing user already equals the
+// desired mms-shipper user on the fields the operator manages (initPwd + roles +
+// mechanisms), so EnsureMonarchShipperUser can stay idempotent.
+func monarchShipperUserMatches(existing *MongoDBUser, desired MongoDBUser) bool {
+	if existing.InitPassword != desired.InitPassword {
+		return false
+	}
+	if len(existing.Mechanisms) != len(desired.Mechanisms) {
+		return false
+	}
+	for i := range desired.Mechanisms {
+		if existing.Mechanisms[i] != desired.Mechanisms[i] {
+			return false
+		}
+	}
+	if len(existing.Roles) != len(desired.Roles) {
+		return false
+	}
+	for i := range desired.Roles {
+		if existing.Roles[i] == nil || desired.Roles[i] == nil {
+			return false
+		}
+		if existing.Roles[i].Role != desired.Roles[i].Role || existing.Roles[i].Database != desired.Roles[i].Database {
+			return false
+		}
+	}
+	return true
+}
+
 type ShipperConfig struct {
 	Version string         `json:"version"`
 	Shards  []MonarchShard `json:"shards"`
@@ -212,11 +285,11 @@ func buildMongodURIs(mdb *mdbv1.MongoDB) []string {
 // ShardInfo holds metadata for one shard (configRS or data shard) when building
 // Monarch AC components for a sharded cluster.
 type ShardInfo struct {
-	ShardID     string   // "configRS" or "myShard_0", "myShard_1", etc.
-	RSName      string   // Actual replica set name (e.g., "mycluster-config", "sh-0")
-	ServiceDNS  string   // K8s Service DNS for the Monarch Deployment for this shard
-	MongoURI    string   // mongodb:// URI for this shard's mongod members
-	MongodURIs  []string // Per-member URIs for injector config (standby only)
+	ShardID    string   // "configRS" or "myShard_0", "myShard_1", etc.
+	RSName     string   // Actual replica set name (e.g., "mycluster-config", "sh-0")
+	ServiceDNS string   // K8s Service DNS for the Monarch Deployment for this shard
+	MongoURI   string   // mongodb:// URI for this shard's mongod members
+	MongodURIs []string // Per-member URIs for injector config (standby only)
 }
 
 // BuildMaintainedMonarchComponentsSharded builds the automation config entries for Monarch
@@ -243,8 +316,11 @@ func BuildMaintainedMonarchComponentsSharded(
 		initialMode = "ACTIVE"
 	}
 
+	// For sharded clusters, replicaSetId must match an actual RS in the AC.
+	// We use the configRS name (first shard in the list).
+	configRSName := shards[0].RSName
 	mc := MaintainedMonarchComponents{
-		ReplicaSetID:  clusterName,
+		ReplicaSetID:  configRSName,
 		ClusterPrefix: monarch.S3.GetPrefix(clusterName),
 		InitialMode:   initialMode,
 		AwsConfig: &AwsStorageConfig{

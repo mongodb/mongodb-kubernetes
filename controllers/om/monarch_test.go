@@ -201,3 +201,39 @@ func TestBuildMaintainedMonarchComponents_NilMonarch(t *testing.T) {
 	_, err := BuildMaintainedMonarchComponents(mdb, "rs", "AKID", "SECRET", "", "")
 	require.Error(t, err)
 }
+
+func TestEnsureMonarchShipperUser(t *testing.T) {
+	t.Run("adds the user when absent", func(t *testing.T) {
+		auth := NewAuth()
+		auth.EnsureMonarchShipperUser("pwd1")
+
+		idx, user := auth.GetUser(MonarchShipperUsername, MonarchShipperUserDatabase)
+		require.NotNil(t, user)
+		assert.GreaterOrEqual(t, idx, 0)
+		assert.Equal(t, MonarchShipperUsername, user.Username)
+		assert.Equal(t, MonarchShipperUserDatabase, user.Database)
+		assert.Equal(t, "pwd1", user.InitPassword)
+		assert.Equal(t, []string{"SCRAM-SHA-256"}, user.Mechanisms)
+		require.Len(t, user.Roles, 1)
+		assert.Equal(t, MonarchShipperRole, user.Roles[0].Role)
+		assert.Equal(t, MonarchShipperUserDatabase, user.Roles[0].Database)
+	})
+
+	t.Run("idempotent when user already matches", func(t *testing.T) {
+		auth := NewAuth()
+		auth.EnsureMonarchShipperUser("pwd1")
+		require.Len(t, auth.Users, 1)
+		auth.EnsureMonarchShipperUser("pwd1")
+		assert.Len(t, auth.Users, 1, "must not duplicate the user")
+	})
+
+	t.Run("updates password in place when changed", func(t *testing.T) {
+		auth := NewAuth()
+		auth.EnsureMonarchShipperUser("pwd1")
+		auth.EnsureMonarchShipperUser("pwd2")
+		require.Len(t, auth.Users, 1)
+		_, user := auth.GetUser(MonarchShipperUsername, MonarchShipperUserDatabase)
+		require.NotNil(t, user)
+		assert.Equal(t, "pwd2", user.InitPassword)
+	})
+}

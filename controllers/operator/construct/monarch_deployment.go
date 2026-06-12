@@ -77,20 +77,26 @@ func GetMonarchServiceDNS(mdbName, role, namespace, clusterDomain string) string
 	return fmt.Sprintf("%s.%s.svc.%s", MonarchServiceName(mdbName, role), namespace, clusterDomain)
 }
 
+// sanitizeShardIDForDNS converts a shardID like "configRS" or "myShard_0" to a
+// DNS-1035 compatible string: lowercase, underscores replaced with dashes.
+func sanitizeShardIDForDNS(shardID string) string {
+	return strings.ReplaceAll(strings.ToLower(shardID), "_", "-")
+}
+
 // MonarchDeploymentNameSharded returns the name for a per-shard Monarch Deployment.
-// shardID is "configRS" or "myShard_0", etc.
+// shardID is "configRS" or "myShard_0", etc. Sanitized to satisfy DNS-1035.
 func MonarchDeploymentNameSharded(scName, shardID, role string) string {
-	return fmt.Sprintf("%s-%s-monarch-%s", scName, shardID, role)
+	return fmt.Sprintf("%s-%s-monarch-%s", scName, sanitizeShardIDForDNS(shardID), role)
 }
 
 // MonarchServiceNameSharded returns the name for a per-shard Monarch Service.
 func MonarchServiceNameSharded(scName, shardID, role string) string {
-	return fmt.Sprintf("%s-%s-monarch-%s-svc", scName, shardID, role)
+	return fmt.Sprintf("%s-%s-monarch-%s-svc", scName, sanitizeShardIDForDNS(shardID), role)
 }
 
 // MonarchConfigSecretNameSharded returns the name for a per-shard Monarch config Secret.
 func MonarchConfigSecretNameSharded(scName, shardID, role string) string {
-	return fmt.Sprintf("%s-%s-monarch-%s-config", scName, shardID, role)
+	return fmt.Sprintf("%s-%s-monarch-%s-config", scName, sanitizeShardIDForDNS(shardID), role)
 }
 
 // GetMonarchServiceDNSSharded returns the in-cluster DNS name for a per-shard Monarch Service.
@@ -489,7 +495,7 @@ func monarchLabelsSharded(sc *mdbv1.MongoDB, shardID, role string) map[string]st
 		"app":               fmt.Sprintf("monarch-%s", role),
 		"mongodb":           sc.Name,
 		"monarch-component": role,
-		"monarch-shard":     shardID,
+		"monarch-shard":     sanitizeShardIDForDNS(shardID),
 	}
 }
 
@@ -538,7 +544,7 @@ func BuildMonarchConfigSecretSharded(
 	allShardIDs []string,
 	injectorSvcDNS string,
 ) *corev1.Secret {
-	spec := sc.Spec.ShardedClusterSpec.Monarch
+	spec := sc.Spec.Monarch
 	role := monarchRole(spec)
 	labels := monarchLabelsSharded(sc, shardID, role)
 
@@ -662,7 +668,7 @@ func BuildMonarchDeploymentSharded(
 	shardID string,
 	monarchSecretsName string,
 ) *appsv1.Deployment {
-	spec := sc.Spec.ShardedClusterSpec.Monarch
+	spec := sc.Spec.Monarch
 	role := monarchRole(spec)
 	name := MonarchDeploymentNameSharded(sc.Name, shardID, role)
 	labels := monarchLabelsSharded(sc, shardID, role)
@@ -751,7 +757,7 @@ func BuildMonarchDeploymentSharded(
 
 // BuildMonarchServiceSharded creates a Service that fronts a per-shard Monarch Deployment.
 func BuildMonarchServiceSharded(sc *mdbv1.MongoDB, namespace, shardID string) *corev1.Service {
-	spec := sc.Spec.ShardedClusterSpec.Monarch
+	spec := sc.Spec.Monarch
 	role := monarchRole(spec)
 	labels := monarchLabelsSharded(sc, shardID, role)
 

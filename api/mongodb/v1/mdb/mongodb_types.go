@@ -138,6 +138,17 @@ type MonarchSpec struct {
 	// Image is the Monarch container image to use (e.g., "quay.io/mongodb/monarch:0.1.1").
 	// Must include the full image path and tag.
 	Image string `json:"image"`
+
+	// SourceAgentAuthSecretRef (standby only) names the active cluster's agent
+	// auth secret (`<active>-agent-auth-secret`). A standby mongod is bootstrapped
+	// via FCBIS from the active's snapshot, which carries the active cluster's
+	// mms-automation-agent SCRAM credential. The standby's own agent must therefore
+	// authenticate with the active's automation-agent-password, not its own
+	// independently-generated one. When set, the operator seeds the standby's
+	// agent auth secret from this reference before pushing the automation config,
+	// so the standby AC's auth.autoPwd matches the restored data. Ignored for active.
+	// +optional
+	SourceAgentAuthSecretRef *corev1.LocalObjectReference `json:"sourceAgentAuthSecretRef,omitempty"`
 }
 
 // MonarchS3Config configures the S3 bucket for Monarch oplog data.

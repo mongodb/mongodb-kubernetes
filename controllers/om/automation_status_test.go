@@ -120,6 +120,78 @@ func TestCheckAutomationStatusIsGoal(t *testing.T) {
 	}
 }
 
+func TestCheckAutomationStatusIsGoal_MonarchStandbyProvisioning(t *testing.T) {
+	tests := []struct {
+		name              string
+		as                *AutomationStatus
+		relevantProcesses []string
+		expectedResult    bool
+	}{
+		{
+			// A standby mongod blocked in ProvisionStandby (waiting for its injector)
+			// is below goal version, but we treat it as ready-for-now so the reconcile
+			// can proceed to create the injector Deployment.
+			name: "below goal but in ProvisionStandby is treated as ready",
+			as: &AutomationStatus{
+				Processes: []ProcessStatus{
+					{
+						Name:                    "standby-0",
+						Plan:                    []string{automationAgentProvisionStandbyMove},
+						LastGoalVersionAchieved: 0,
+					},
+				},
+				GoalVersion: 1,
+			},
+			relevantProcesses: []string{"standby-0"},
+			expectedResult:    true,
+		},
+		{
+			// A process below goal with no special move must still NOT be treated as
+			// ready — genuine breakage is still surfaced.
+			name: "below goal without ProvisionStandby is not ready",
+			as: &AutomationStatus{
+				Processes: []ProcessStatus{
+					{
+						Name:                    "standby-0",
+						Plan:                    []string{"FCV"},
+						LastGoalVersionAchieved: 0,
+					},
+				},
+				GoalVersion: 1,
+			},
+			relevantProcesses: []string{"standby-0"},
+			expectedResult:    false,
+		},
+		{
+			// The ProvisionStandby move on an irrelevant process must not unblock the wait.
+			name: "ProvisionStandby on irrelevant process is ignored",
+			as: &AutomationStatus{
+				Processes: []ProcessStatus{
+					{
+						Name:                    "other",
+						Plan:                    []string{automationAgentProvisionStandbyMove},
+						LastGoalVersionAchieved: 0,
+					},
+					{
+						Name:                    "standby-0",
+						Plan:                    []string{"FCV"},
+						LastGoalVersionAchieved: 0,
+					},
+				},
+				GoalVersion: 1,
+			},
+			relevantProcesses: []string{"standby-0"},
+			expectedResult:    false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			goal, _ := checkAutomationStatusIsGoal(tt.as, tt.relevantProcesses, zap.S())
+			assert.Equal(t, tt.expectedResult, goal)
+		})
+	}
+}
+
 func TestCheckAutomationStatusIsGoal_AuthenticationTransitions(t *testing.T) {
 	logger := zap.NewNop().Sugar()
 

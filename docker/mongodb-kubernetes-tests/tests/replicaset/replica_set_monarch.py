@@ -24,10 +24,8 @@ import json
 import os
 import time
 
-import boto3
 import pymongo
 import pytest
-from botocore.config import Config as BotoConfig
 from kubernetes import client as k8s_client
 from kubernetes.stream import stream
 from pytest import fixture, mark
@@ -41,227 +39,39 @@ from kubetester.mongodb_user import MongoDBUser
 from kubetester.mongotester import with_scram
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
+from tests.common.monarch_helpers import (
+    AGENT_IMAGE,
+    CLUSTER_PREFIX,
+    DEFAULT_SHARD_IDS,
+    INVENTORY_COLLECTION,
+    INVENTORY_DOCS,
+    MINIO_NAME,
+    MINIO_PASSWORD,
+    MINIO_USER,
+    MONARCH_MIN_MDB_VERSION,
+    OM_IMAGE,
+    PRODUCTS_DB,
+    S3_BUCKET,
+    S3_CREDS_SECRET,
+    TEST_USER,
+    TEST_USER_PASSWORD,
+    TEST_USER_PASSWORD_SECRET,
+    authed_client as _authed_client,
+    create_test_user as _create_test_user,
+    ensure_s3_bucket as _ensure_s3_bucket,
+    minio_endpoint as _minio_endpoint,
+    monarch_spec as _monarch_spec,
+    s3_client as _s3_client,
+    wait_for_deployment_ready as _wait_for_deployment_ready,
+    wait_for_monarch_condition as _wait_for_monarch_condition,
+    wait_for_s3_data as _wait_for_s3_data,
+    wait_for_snapshot_complete_marker as _wait_for_snapshot_complete_marker,
+)
 
 # ── resource names ──────────────────────────────────────────────────────────
 ACTIVE_RS_NAME = "monarch-active-rs"
 STANDBY_RS_NAME = "monarch-standby-rs"
-MINIO_NAME = "monarch-minio"
-
-# ── S3 / Monarch config ────────────────────────────────────────────────────
-S3_BUCKET = "monarch-standby-bucket"
-CLUSTER_PREFIX = "failoverdemo"
-SHARD_ID = "0"
-MINIO_USER = "minioadmin"
-MINIO_PASSWORD = "minioadmin123"
-AWS_REGION = "eu-north-1"
-S3_CREDS_SECRET = "monarch-s3-creds"
-
-# Monarch requires mongod ≥ 8.0.16 (SERVER-110899 introduced the readBackupFile
-# privilege that OM's shipperRole depends on). Earlier versions reject createRole
-# with `(BadValue) Unknown action type in privilege set: 'readBackupFile'`. Pin
-# explicitly so the test isn't silently broken by an older CUSTOM_MDB_VERSION
-# default in conftest or in CI.
-MONARCH_MIN_MDB_VERSION = "8.0.16"
-
-# ── SCRAM auth (RS fixtures enable it so OM auto-provisions mms-shipper) ────
-TEST_USER = "monarch-test-user"
-TEST_USER_PASSWORD = "monarch-test-password"
-TEST_USER_PASSWORD_SECRET = "monarch-test-user-password"
-
-
-# ── custom images ───────────────────────────────────────────────────────────
-# Hard-coded to the staging ECR images pushed by scripts/dev/build-monarch-images.sh.
-# Evergreen has no Monarch-aware build pipeline yet, so the test pins the :monarch
-# tag of each image rather than reading from environment variables. Once Evergreen
-# has its own Monarch build steps, we can switch back to env-overrideable defaults.
-_STAGING_ECR = "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging"
-OM_IMAGE = f"{_STAGING_ECR}/mongodb-enterprise-ops-manager-ubi:monarch"
-MONARCH_IMAGE = f"{_STAGING_ECR}/mongodb-kubernetes-monarch-injector:monarch"
-AGENT_IMAGE = f"{_STAGING_ECR}/mongodb-agent:monarch"
-
-# ── test data ───────────────────────────────────────────────────────────────
-PRODUCTS_DB = "products"
-INVENTORY_COLLECTION = "inventory"
-INVENTORY_DOCS = [
-    {"item": "laptop", "qty": 25, "price": 999.99, "warehouse": "A"},
-    {"item": "phone", "qty": 100, "price": 699.99, "warehouse": "B"},
-    {"item": "tablet", "qty": 50, "price": 449.99, "warehouse": "A"},
-    {"item": "monitor", "qty": 75, "price": 329.99, "warehouse": "C"},
-    {"item": "keyboard", "qty": 200, "price": 79.99, "warehouse": "B"},
-    {"item": "mouse", "qty": 150, "price": 49.99, "warehouse": "A"},
-    {"item": "headphones", "qty": 80, "price": 199.99, "warehouse": "C"},
-    {"item": "webcam", "qty": 60, "price": 89.99, "warehouse": "B"},
-    {"item": "charger", "qty": 300, "price": 29.99, "warehouse": "A"},
-    {"item": "cable", "qty": 500, "price": 14.99, "warehouse": "C"},
-]
-
-
-# ── helpers ─────────────────────────────────────────────────────────────────
-
-
-def _minio_endpoint(namespace: str) -> str:
-    return f"http://{MINIO_NAME}.{namespace}.svc.cluster.local:9000"
-
-
-def _authed_client(rs: MongoDB, *, prefer_secondary: bool = False) -> pymongo.MongoClient:
-    """Return a pymongo client authenticated as TEST_USER (SCRAM-SHA-256).
-
-    The fixture enables SCRAM on the replica set, which in turn lets OM auto-provision
-    mms-shipper@admin (needed for FCBIS snapshots). All test ops on application data
-    must therefore authenticate; we use a separate test user with readWrite on all
-    databases so any test collection works.
-
-    When prefer_secondary is True, the client uses secondaryPreferred read preference.
-    Required for Monarch standby clusters: by design they elect no primary — the
-    injector replays oplogs into all members as SECONDARY. A `primary`-pinned read
-    (pymongo's default) hangs forever waiting for an election that never happens.
-    """
-    tester = rs.tester()
-    kwargs = dict(
-        username=TEST_USER,
-        password=TEST_USER_PASSWORD,
-        authSource="admin",
-        authMechanism="SCRAM-SHA-256",
-        serverSelectionTimeoutMs=120000,
-    )
-    if prefer_secondary:
-        kwargs["readPreference"] = "secondaryPreferred"
-    return pymongo.MongoClient(tester.cnx_string, **kwargs)
-
-
-def _create_test_user(rs: MongoDB, namespace: str) -> MongoDBUser:
-    """Create a SCRAM-SHA-256 user with readWriteAnyDatabase on the given RS.
-
-    Idempotent — reuses the same password Secret across both RS resources so
-    one TEST_USER credential pair works against both active and standby."""
-    create_or_update_secret(
-        namespace=namespace,
-        name=TEST_USER_PASSWORD_SECRET,
-        data={"password": TEST_USER_PASSWORD},
-    )
-    user_resource_name = f"{rs.name}-{TEST_USER}"
-    user = MongoDBUser(name=user_resource_name, namespace=namespace)
-    try_load(user)
-    user["spec"] = {
-        "username": TEST_USER,
-        "db": "admin",
-        "passwordSecretKeyRef": {"name": TEST_USER_PASSWORD_SECRET, "key": "password"},
-        "mongodbResourceRef": {"name": rs.name},
-        "roles": [
-            {"db": "admin", "name": "readWriteAnyDatabase"},
-            {"db": "admin", "name": "clusterMonitor"},
-        ],
-    }
-    user.update()
-    return user
-
-
-def _wait_for_deployment_ready(namespace: str, name: str, timeout: int = 120):
-    """Wait until all desired replicas of a Deployment are Ready.
-
-    Catches CrashLoopBackOff and similar pod-level failures that the operator
-    treats as 'created' but which leave the workload non-functional.
-
-    On timeout, embeds the last 30 log lines from a non-Ready pod's container
-    in the TimeoutError message so the failing test's pytest output points at
-    the actual cause, no artifact dive needed.
-    """
-    apps = k8s_client.AppsV1Api()
-    core = k8s_client.CoreV1Api()
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        dep = apps.read_namespaced_deployment(name, namespace)
-        desired = dep.spec.replicas or 0
-        ready = dep.status.ready_replicas or 0
-        if desired > 0 and ready == desired:
-            return
-        time.sleep(3)
-
-    # Timeout — find a non-Ready pod and tail its log so the cause shows up
-    # right in the test failure output.
-    diag = []
-    try:
-        selector = dep.spec.selector.match_labels if dep.spec.selector else {}
-        label_str = ",".join(f"{k}={v}" for k, v in selector.items())
-        pods = core.list_namespaced_pod(namespace, label_selector=label_str)
-        for pod in pods.items:
-            statuses = pod.status.container_statuses or []
-            non_ready = [cs for cs in statuses if not cs.ready]
-            if not non_ready:
-                continue
-            for cs in non_ready:
-                diag.append(f"  pod={pod.metadata.name} container={cs.name} restarts={cs.restart_count}")
-                # Try previous container log first (catches CLB where current log is empty),
-                # fall back to current.
-                for previous in (True, False):
-                    try:
-                        log = core.read_namespaced_pod_log(
-                            pod.metadata.name, namespace,
-                            container=cs.name, tail_lines=30, previous=previous,
-                        )
-                        if log.strip():
-                            diag.append(f"  --- {cs.name} {'previous' if previous else 'current'} log (last 30 lines) ---")
-                            for line in log.splitlines():
-                                diag.append(f"    {line}")
-                            break
-                    except Exception:
-                        continue
-            break  # one non-Ready pod is enough
-    except Exception as e:
-        diag.append(f"  (diagnostic-tail failed: {e})")
-
-    raise TimeoutError(
-        f"Deployment {name} not fully ready after {timeout}s (ready={ready}/{desired})\n"
-        + "\n".join(diag)
-    )
-
-
-def _s3_client(endpoint: str):
-    return boto3.client(
-        "s3",
-        endpoint_url=endpoint,
-        aws_access_key_id=MINIO_USER,
-        aws_secret_access_key=MINIO_PASSWORD,
-        region_name=AWS_REGION,
-        config=BotoConfig(signature_version="s3v4"),
-    )
-
-
-def _ensure_s3_bucket(namespace: str, timeout: int = 120):
-    """Create the S3 bucket, retrying until MinIO is fully ready to accept API calls."""
-    s3 = _s3_client(_minio_endpoint(namespace))
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        try:
-            s3.create_bucket(Bucket=S3_BUCKET)
-            return
-        except s3.exceptions.BucketAlreadyOwnedByYou:
-            return
-        except Exception:
-            time.sleep(3)
-    raise TimeoutError(f"Failed to create S3 bucket {S3_BUCKET} in MinIO after {timeout}s")
-
-
-def _wait_for_s3_data(namespace: str, timeout: int = 300, expected_shard_ids: tuple = (SHARD_ID,)):
-    """Wait for at least one S3 object under each expected shard's prefix.
-
-    Parameterized on shard ids to mirror EA's verify_s3 (which iterates
-    configRS + every myShard_N) — single-shard today, multi-shard when
-    the operator grows sharded-cluster Monarch support.
-    """
-    s3 = _s3_client(_minio_endpoint(namespace))
-    deadline = time.time() + timeout
-    pending = set(expected_shard_ids)
-    while time.time() < deadline:
-        for shard in list(pending):
-            if s3.list_objects_v2(Bucket=S3_BUCKET, Prefix=f"{CLUSTER_PREFIX}/{shard}/").get("KeyCount", 0) > 0:
-                pending.discard(shard)
-        if not pending:
-            return
-        time.sleep(5)
-    raise TimeoutError(
-        f"No S3 objects after {timeout}s for shard(s) {sorted(pending)} — shipper may not be running"
-    )
+SHARD_ID = DEFAULT_SHARD_IDS[0]
 
 
 def _dr_state_key(cluster_name: str) -> str:
@@ -289,80 +99,11 @@ def _write_dr_state(namespace: str, cluster_name: str, state: str, previous_stat
     )
 
 
-def _wait_for_snapshot_complete_marker(
-    namespace: str, timeout: int = 600, expected_shard_ids: tuple = (SHARD_ID,)
-):
-    """Poll S3 for at least one `backups/checkpoint_<ts>_v1/complete` marker
-    under each expected shard's prefix.
-
-    Mirrors verify_s3() in mms-automation/docker/e2e-om-infra/e2e.py: a fresh
-    `slices/*.bson` listing alone proves the shipper is writing oplog frames,
-    but the snapshot-complete marker is what proves the shipper finished a
-    full backup checkpoint — the actual gate before standby bootstrap is safe.
-
-    Parameterized on shard ids so the helper is shaped right when sharded
-    Monarch lands; single-shard default keeps current call sites unchanged.
-    Returns a dict mapping shard_id -> marker key.
-    """
-    s3 = _s3_client(_minio_endpoint(namespace))
-    pending = {shard: f"{CLUSTER_PREFIX}/{shard}/backups/" for shard in expected_shard_ids}
-    found: dict = {}
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        for shard, prefix in list(pending.items()):
-            for obj in s3.list_objects_v2(Bucket=S3_BUCKET, Prefix=prefix).get("Contents", []):
-                key = obj["Key"]
-                if key.endswith("/complete") and "/checkpoint_" in key:
-                    found[shard] = key
-                    pending.pop(shard)
-                    break
-        if not pending:
-            return found
-        time.sleep(10)
-    raise TimeoutError(
-        f"No `backups/checkpoint_*_v1/complete` marker for shard(s) {sorted(pending)} "
-        f"under s3://{S3_BUCKET}/{CLUSTER_PREFIX}/ after {timeout}s — "
-        f"shipper may not have completed a snapshot"
-    )
-
-
 def _read_dr_state_full(namespace: str, cluster_name: str) -> dict:
     """Read the full DR state JSON; raises if missing or unparseable."""
     s3 = _s3_client(_minio_endpoint(namespace))
     resp = s3.get_object(Bucket=S3_BUCKET, Key=_dr_state_key(cluster_name))
     return json.loads(resp["Body"].read().decode("utf-8"))
-
-
-def _wait_for_monarch_condition(mdb: MongoDB, timeout: int = 300):
-    """Wait until the ShipperReady or InjectorReady condition on the MongoDB CR is True."""
-    role = mdb["spec"]["monarch"]["role"]
-    condition_type = "ShipperReady" if role == "active" else "InjectorReady"
-
-    def is_ready(resource: MongoDB) -> bool:
-        for cond in resource["status"]["conditions"]:
-            if cond.get("type") == condition_type and cond.get("status") == "True":
-                return True
-        return False
-
-    mdb.wait_for(is_ready, timeout=timeout, should_raise=True)
-
-
-def _monarch_spec(namespace: str, role: str, **extra) -> dict:
-    """Build a Monarch spec using the simplified API structure."""
-    spec = {
-        "role": role,
-        "s3": {
-            "bucket": S3_BUCKET,
-            "region": AWS_REGION,
-            "credentialsSecretRef": {"name": S3_CREDS_SECRET},
-            "prefix": CLUSTER_PREFIX,
-            "endpoint": _minio_endpoint(namespace),
-            "pathStyle": True,
-        },
-        "image": MONARCH_IMAGE,
-    }
-    spec.update(extra)
-    return spec
 
 
 # ── diagnostics on failure ──────────────────────────────────────────────────
