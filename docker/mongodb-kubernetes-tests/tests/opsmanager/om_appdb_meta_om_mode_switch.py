@@ -49,7 +49,7 @@ APPDB_TEST_DATA_CHANGED = {"_id": "appdb_pitr_witness", "status": "after_change"
 # Pre-disaster PIT target (epoch millis), captured before the PVC wipe and read by the
 # restore step. Module-level because pytest does not reliably share instance/class state
 # across test methods.
-_PIT_TARGET: dict[str, float] = {}
+_PIT_TARGET: dict[str, int] = {}
 
 
 @fixture(scope="module")
@@ -303,7 +303,7 @@ class TestAppDBDisasterRecovery:
         )
         # let the write replicate before timestamping
         time.sleep(5)
-        _PIT_TARGET["millis"] = time_to_millis(datetime.datetime.now(tz=datetime.timezone.utc))
+        _PIT_TARGET["millis"] = int(time_to_millis(datetime.datetime.now(tz=datetime.timezone.utc)))
         # let the backup agent ship oplog slices covering the PIT target to S3 before the wipe
         time.sleep(60)
 
@@ -344,6 +344,9 @@ class TestAppDBDisasterRecovery:
         PIT replays the backed-up oplog stored in Meta OM's S3 oplog store, which survives the
         PVC wipe — so a pre-disaster target remains valid even though the live oplog was lost.
         Primary OM goes down during the AppDB restore; completion is verified via OM recovery below."""
+        assert "millis" in _PIT_TARGET, (
+            "_PIT_TARGET not set — test_change_marker_and_record_pit must run first"
+        )
         meta_om_appdb_tester.create_restore_job_pit(_PIT_TARGET["millis"])
 
 
