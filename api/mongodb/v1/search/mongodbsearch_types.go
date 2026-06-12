@@ -227,9 +227,11 @@ type ManagedLBConfig struct {
 	// When not set, retries are enabled with sensible defaults (2 retries, 60s per-try timeout).
 	// +optional
 	RetryPolicy *EnvoyRetryPolicy `json:"retryPolicy,omitempty"`
-	// MinMongotReadyReplicas is the minimum number of ready mongot replicas before a
-	// shard's mongot group receives real traffic; until then the shard's queries are
-	// served by a ready mongot group (routed_from_another_shard). Defaults to 1.
+	// MinMongotReadyReplicas is the minimum number of ready mongot replicas in a group
+	// before this mongot group can be considered ready and envoy routes real traffic to it.
+	// Until this threshold is met, traffic for that shard is forwarded to a healthy mongot group with the
+	// routed_from_another_shard header (returning empty results).
+	// Defaults to 1 if not specified.
 	// +optional
 	// +kubebuilder:validation:Minimum=1
 	MinMongotReadyReplicas *int32 `json:"minMongotReadyReplicas,omitempty"`
@@ -397,11 +399,6 @@ type MongoDBSearchStatus struct {
 	// Only populated when spec.loadBalancer.managed is set.
 	// +optional
 	LoadBalancer *LoadBalancerStatus `json:"loadBalancer,omitempty"`
-	// PendingMongotGroups is a read-only mirror derived from the routing-readiness
-	// latch in the <name>-search-state ConfigMap: sharded managed-LB shards whose
-	// mongot group has never been routing-ready. Rebuilt on every reconcile.
-	// +optional
-	PendingMongotGroups []string `json:"pendingMongotGroups,omitempty"`
 }
 
 // +k8s:deepcopy-gen=true

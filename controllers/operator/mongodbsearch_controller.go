@@ -2,10 +2,7 @@ package operator
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 	"reflect"
-	"slices"
 	"time"
 
 	"go.uber.org/zap"
@@ -31,10 +28,8 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1" //nolint:depguard
 	khandler "github.com/mongodb/mongodb-kubernetes/pkg/handler"
-	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/commoncontroller"
-	"github.com/mongodb/mongodb-kubernetes/pkg/kube/configmap"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster/memberwatch"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
@@ -46,154 +41,6 @@ import (
 // (Result{RequeueAfter: secretsCheckRequeueAfter}, nil) so we don't trigger
 // exponential backoff while the customer is fixing the gap.
 const secretsCheckRequeueAfter = 30 * time.Second
-
-type SearchDeploymentState struct {
-	CommonDeploymentState `json:",inline"`
-	// RoutingReadyMongotGroups is the one-way latch of shard names whose mongot
-	// group has EVER met the routing-readiness threshold; a shard is pending iff
-	// it is not listed here. Pruned only when a shard no longer exists.
-	RoutingReadyMongotGroups []string `json:"routingReadyMongotGroups,omitempty"`
-}
-
-func NewSearchDeploymentState() *SearchDeploymentState {
-	return &SearchDeploymentState{
-		CommonDeploymentState: CommonDeploymentState{ClusterMapping: map[string]int{}},
-	}
-}
-
-// searchStateCMName returns the search controllers' state ConfigMap name — the
-// single place that knows it. Deliberately NOT "<name>-state": that is the source
-// MongoDB's StateStore ConfigMap, and a MongoDBSearch commonly shares its source's
-// name, so the suffixes must not collide.
-func searchStateCMName(search *searchv1.MongoDBSearch) string {
-	return fmt.Sprintf("%s-search-state", search.Name)
-}
-
-// searchStateFromCM unmarshals the state key; a missing key yields fresh state.
-func searchStateFromCM(cm *corev1.ConfigMap) (*SearchDeploymentState, error) {
-	state := NewSearchDeploymentState()
-	if raw, ok := cm.Data[stateKey]; ok {
-		if err := json.Unmarshal([]byte(raw), state); err != nil {
-			return nil, xerrors.Errorf("cannot unmarshal search state %s/%s: %w", cm.Namespace, cm.Name, err)
-		}
-	}
-	if state.ClusterMapping == nil {
-		state.ClusterMapping = map[string]int{}
-	}
-	return state, nil
-}
-
-// loadOrInitSearchState reads the per-CR state ConfigMap, treating NotFound as
-// fresh state.
-func loadOrInitSearchState(
-	ctx context.Context,
-	c kubernetesClient.Client,
-	search *searchv1.MongoDBSearch,
-) (*SearchDeploymentState, error) {
-	cm := &corev1.ConfigMap{}
-	if err := c.Get(ctx, kube.ObjectKey(search.Namespace, searchStateCMName(search)), cm); err != nil {
-		if apierrors.IsNotFound(err) {
-			return NewSearchDeploymentState(), nil
-		}
-		return nil, err
-	}
-	return searchStateFromCM(cm)
-}
-
-// mutateSearchState performs a resourceVersion-checked read-modify-write of the
-// search state ConfigMap: a stale base yields 409 Conflict and the reconcile
-// requeues, instead of silently losing a concurrent write (do NOT replace this
-// with configmap.CreateOrUpdate — that is a blind no-RV Update). mutate returns
-// true when the state changed and must be persisted.
-func mutateSearchState(ctx context.Context, c kubernetesClient.Client, search *searchv1.MongoDBSearch, mutate func(*SearchDeploymentState) bool) (*SearchDeploymentState, error) {
-	cmName := searchStateCMName(search)
-	cm := &corev1.ConfigMap{}
-	err := c.Get(ctx, kube.ObjectKey(search.Namespace, cmName), cm)
-	if apierrors.IsNotFound(err) {
-		state := NewSearchDeploymentState()
-		if !mutate(state) {
-			return state, nil
-		}
-		data, err := json.Marshal(state)
-		if err != nil {
-			return nil, err
-		}
-		newCM := configmap.Builder().
-			SetName(cmName).
-			SetNamespace(search.Namespace).
-			SetLabels(search.GetOwnerLabels()).
-			SetOwnerReferences(kube.BaseOwnerReference(search)).
-			SetDataField(stateKey, string(data)).
-			Build()
-		return state, c.Create(ctx, &newCM)
-	} else if err != nil {
-		return nil, err
-	}
-
-	state, err := searchStateFromCM(cm)
-	if err != nil {
-		return nil, err
-	}
-	if !mutate(state) {
-		return state, nil
-	}
-	data, err := json.Marshal(state)
-	if err != nil {
-		return nil, err
-	}
-	if cm.Data == nil {
-		cm.Data = map[string]string{}
-	}
-	cm.Data[stateKey] = string(data)
-	// Update on the Get result carries its resourceVersion — stale base → Conflict.
-	return state, c.Update(ctx, cm)
-}
-
-// searchRoutingLatch implements searchcontroller.RoutingReadyLatch on the search
-// state ConfigMap. state is the snapshot loaded at reconcile start, refreshed on
-// every successful write.
-type searchRoutingLatch struct {
-	client kubernetesClient.Client
-	search *searchv1.MongoDBSearch
-	state  *SearchDeploymentState
-}
-
-func (l *searchRoutingLatch) IsRoutingReady(shardName string) bool {
-	return slices.Contains(l.state.RoutingReadyMongotGroups, shardName)
-}
-
-func (l *searchRoutingLatch) MarkRoutingReady(ctx context.Context, shardName string) error {
-	state, err := mutateSearchState(ctx, l.client, l.search, func(s *SearchDeploymentState) bool {
-		if slices.Contains(s.RoutingReadyMongotGroups, shardName) {
-			return false
-		}
-		s.RoutingReadyMongotGroups = append(s.RoutingReadyMongotGroups, shardName)
-		return true
-	})
-	if err != nil {
-		return err
-	}
-	l.state = state
-	return nil
-}
-
-func (l *searchRoutingLatch) PruneRoutingReady(ctx context.Context, liveShardNames []string) error {
-	state, err := mutateSearchState(ctx, l.client, l.search, func(s *SearchDeploymentState) bool {
-		pruned := slices.DeleteFunc(slices.Clone(s.RoutingReadyMongotGroups), func(name string) bool {
-			return !slices.Contains(liveShardNames, name)
-		})
-		if len(pruned) == len(s.RoutingReadyMongotGroups) {
-			return false
-		}
-		s.RoutingReadyMongotGroups = pruned
-		return true
-	})
-	if err != nil {
-		return err
-	}
-	l.state = state
-	return nil
-}
 
 type MongoDBSearchReconciler struct {
 	kubeClient           kubernetesClient.Client
@@ -279,7 +126,7 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 	for _, c := range mdbSearch.Spec.Clusters {
 		currentNames = append(currentNames, c.ClusterName)
 	}
-	state, err := mutateSearchState(ctx, r.kubeClient, mdbSearch, func(s *SearchDeploymentState) bool {
+	state, err := searchcontroller.MutateSearchState(ctx, r.kubeClient, mdbSearch, func(s *searchcontroller.SearchDeploymentState) bool {
 		newMapping := searchv1.AssignClusterIndices(s.ClusterMapping, currentNames)
 		if reflect.DeepEqual(newMapping, s.ClusterMapping) {
 			return false
@@ -291,8 +138,7 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 		return commoncontroller.UpdateStatus(ctx, r.kubeClient, mdbSearch, workflow.Failed(err), log)
 	}
 
-	routingLatch := &searchRoutingLatch{client: r.kubeClient, search: mdbSearch, state: state}
-	reconcileHelper := searchcontroller.NewMongoDBSearchReconcileHelper(r.kubeClient, mdbSearch, searchSource, r.operatorSearchConfig, r.memberClusterClientsMap, state.ClusterMapping, routingLatch)
+	reconcileHelper := searchcontroller.NewMongoDBSearchReconcileHelper(r.kubeClient, mdbSearch, searchSource, r.operatorSearchConfig, r.memberClusterClientsMap, state)
 
 	result, err := reconcileHelper.Reconcile(ctx, log).ReconcileResult()
 	if err != nil {

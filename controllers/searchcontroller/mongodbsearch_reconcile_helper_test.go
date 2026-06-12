@@ -96,7 +96,7 @@ func newTestFakeClient(objects ...client.Object) kubernetesClient.Client {
 	return kubernetesClient.NewClient(clientBuilder.Build())
 }
 
-// fakeRoutingLatch is an in-memory RoutingReadyLatch for tests.
+// fakeRoutingLatch is an in-memory routingReadyLatch for tests.
 type fakeRoutingLatch struct {
 	ready   map[string]bool
 	markErr map[string]error // per-shard MarkRoutingReady error injection
@@ -135,7 +135,7 @@ func reconcileMongoDBSearch(ctx context.Context, fakeClient kubernetesClient.Cli
 		mdbSearch,
 		NewCommunityResourceSearchSource(mdbc),
 		operatorConfig,
-		nil, nil, newFakeRoutingLatch(),
+		nil, nil,
 	)
 
 	return helper.Reconcile(ctx, zap.S())
@@ -208,7 +208,7 @@ func TestMongoDBSearchReconcileHelper_ValidateSingleMongoDBSearchForSearchSource
 				clientBuilder.WithObjects(v)
 			}
 
-			helper := NewMongoDBSearchReconcileHelper(kubernetesClient.NewClient(clientBuilder.Build()), mdbSearch, NewCommunityResourceSearchSource(mdbc), OperatorSearchConfig{}, nil, nil, newFakeRoutingLatch())
+			helper := NewMongoDBSearchReconcileHelper(kubernetesClient.NewClient(clientBuilder.Build()), mdbSearch, NewCommunityResourceSearchSource(mdbc), OperatorSearchConfig{}, nil, nil)
 			err := helper.ValidateSingleMongoDBSearchForSearchSource(t.Context())
 			if c.expectedError == "" {
 				assert.NoError(t, err)
@@ -637,7 +637,7 @@ func TestEnsureEmbeddingConfig_APIKeySecretAndProviderEndpont(t *testing.T) {
 	fakeClient := newTestFakeClient(search, apiKeySecret)
 	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, OperatorSearchConfig{
 		SearchVersion: "0.60.0",
-	}, nil, nil, newFakeRoutingLatch())
+	}, nil, nil)
 	mongotModif, stsModif, err := helper.ensureEmbeddingConfig(ctx, nil)
 	assert.Nil(t, err)
 
@@ -668,7 +668,7 @@ syncSource:
 	fakeClient := newTestFakeClient(search)
 	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, OperatorSearchConfig{
 		SearchVersion: "0.58.0",
-	}, nil, nil, newFakeRoutingLatch())
+	}, nil, nil)
 	ctx := context.TODO()
 	mongotModif, stsModif, err := helper.ensureEmbeddingConfig(ctx, nil)
 	assert.Nil(t, err)
@@ -717,7 +717,7 @@ func TestEnsureEmbeddingConfig_JustAPIKeys(t *testing.T) {
 	fakeClient := newTestFakeClient(search, apiKeySecret)
 	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, OperatorSearchConfig{
 		SearchVersion: "0.60.0",
-	}, nil, nil, newFakeRoutingLatch())
+	}, nil, nil)
 	ctx := context.TODO()
 	mongotModif, stsModif, err := helper.ensureEmbeddingConfig(ctx, nil)
 	assert.Nil(t, err)
@@ -858,7 +858,7 @@ func TestValidateSearchResource(t *testing.T) {
 		fakeClient := newTestFakeClient(search, tc.apiKeySecret)
 		helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, OperatorSearchConfig{
 			SearchVersion: tc.searchVersion,
-		}, nil, nil, newFakeRoutingLatch())
+		}, nil, nil)
 		_, _, err := helper.ensureEmbeddingConfig(ctx, nil)
 		tc.errAssertion(t, err)
 		if tc.errMsg != "" {
@@ -906,7 +906,7 @@ func TestEnsureMongotConfig_PerPodModes(t *testing.T) {
 				search.Spec.AutoEmbedding = &searchv1.EmbeddingConfig{}
 			}
 			fakeClient := newTestFakeClient(search)
-			helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, newTestOperatorSearchConfig(), nil, nil, newFakeRoutingLatch())
+			helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, newTestOperatorSearchConfig(), nil, nil)
 			cmName := search.MongotConfigConfigMapNamespacedName()
 			stsName := search.StatefulSetNamespacedName().Name
 
@@ -941,7 +941,7 @@ func TestEnsureMongotConfig_TransitionBetweenModes(t *testing.T) {
 	search := newTestMongoDBSearch("test-search", "test-ns")
 	search.Spec.Clusters = []searchv1.ClusterSpec{{Replicas: ptr.To(int32(1))}}
 	fakeClient := newTestFakeClient(search)
-	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, newTestOperatorSearchConfig(), nil, nil, newFakeRoutingLatch())
+	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, newTestOperatorSearchConfig(), nil, nil)
 	cmName := search.MongotConfigConfigMapNamespacedName()
 	stsName := search.StatefulSetNamespacedName().Name
 
@@ -1345,7 +1345,7 @@ func TestValidateManagedLBShardedTLS(t *testing.T) {
 				tc.search,
 				tc.source,
 				OperatorSearchConfig{},
-				nil, nil, newFakeRoutingLatch(),
+				nil, nil,
 			)
 
 			err := helper.ValidateManagedLBShardedTLS()
@@ -1426,7 +1426,6 @@ func TestValidateMultipleReplicasUnmanagedLBTopology(t *testing.T) {
 				tc.source,
 				OperatorSearchConfig{},
 				nil, nil,
-				newFakeRoutingLatch(),
 			)
 
 			err := helper.ValidateMultipleReplicasUnmanagedLBTopology()
@@ -2071,7 +2070,7 @@ func TestReconcileSharded_CertificateKeySecretRefRejected(t *testing.T) {
 		search,
 		shardedSource,
 		newTestOperatorSearchConfig(),
-		nil, nil, newFakeRoutingLatch(),
+		nil, nil,
 	)
 
 	result := helper.reconcile(t.Context(), zap.S())
@@ -2192,7 +2191,7 @@ func TestValidatePerShardTLSSecrets(t *testing.T) {
 				search,
 				shardedSource,
 				newTestOperatorSearchConfig(),
-				nil, nil, newFakeRoutingLatch(),
+				nil, nil,
 			)
 
 			status := helper.validatePerShardTLSSecrets(t.Context(), zap.S(), tc.shardNames)
@@ -2247,7 +2246,7 @@ func TestValidatePerShardTLSSecretsAllExist(t *testing.T) {
 		search,
 		shardedSource,
 		newTestOperatorSearchConfig(),
-		nil, nil, newFakeRoutingLatch(),
+		nil, nil,
 	)
 
 	status := helper.validatePerShardTLSSecrets(t.Context(), zap.S(), shardNames)
@@ -2258,7 +2257,7 @@ func TestEnsureX509ClientCertConfig_NoopWhenNotConfigured(t *testing.T) {
 	search := newTestMongoDBSearch("test-search", "test-ns")
 
 	fakeClient := newTestFakeClient(search)
-	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, newTestOperatorSearchConfig(), nil, nil, newFakeRoutingLatch())
+	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, newTestOperatorSearchConfig(), nil, nil)
 
 	mongotMod, stsMod, err := helper.ensureX509ClientCertConfig(t.Context())
 	require.NoError(t, err)
@@ -2297,7 +2296,7 @@ func TestEnsureX509ClientCertConfig_ErrorWhenTLSNotConfigured(t *testing.T) {
 	dbSource := &mockShardedSource{tlsConfig: nil} // No TLS on source
 
 	fakeClient := newTestFakeClient(search)
-	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, dbSource, newTestOperatorSearchConfig(), nil, nil, newFakeRoutingLatch())
+	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, dbSource, newTestOperatorSearchConfig(), nil, nil)
 
 	_, _, err := helper.ensureX509ClientCertConfig(t.Context())
 	require.Error(t, err)
@@ -2322,7 +2321,7 @@ func TestEnsureX509ClientCertConfig_MongotAndStsModification(t *testing.T) {
 	}
 
 	fakeClient := newTestFakeClient(search, x509Secret)
-	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, dbSource, newTestOperatorSearchConfig(), nil, nil, newFakeRoutingLatch())
+	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, dbSource, newTestOperatorSearchConfig(), nil, nil)
 
 	mongotMod, stsMod, err := helper.ensureX509ClientCertConfig(t.Context())
 	require.NoError(t, err)
@@ -2415,7 +2414,7 @@ func TestEnsureX509ClientCertConfig_KeyPassword(t *testing.T) {
 	}
 
 	fakeClient := newTestFakeClient(search, x509Secret)
-	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, dbSource, newTestOperatorSearchConfig(), nil, nil, newFakeRoutingLatch())
+	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, dbSource, newTestOperatorSearchConfig(), nil, nil)
 
 	mongotMod, stsMod, err := helper.ensureX509ClientCertConfig(t.Context())
 	require.NoError(t, err)
@@ -2504,7 +2503,7 @@ func TestReconcileSharded_CreatesPerShardResources(t *testing.T) {
 		search,
 		shardedSource,
 		newTestOperatorSearchConfig(),
-		nil, nil, newFakeRoutingLatch(),
+		nil, nil,
 	)
 
 	// Pass 1: applies resources for ALL shards in a single pass, then the
@@ -2587,7 +2586,7 @@ func TestCleanupStaleShardResources(t *testing.T) {
 		proxySvc("shard-2", true),  // stale, owned
 		proxySvc("shard-x", false), // different owner
 	)
-	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, newTestOperatorSearchConfig(), nil, nil, newFakeRoutingLatch())
+	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, newTestOperatorSearchConfig(), nil, nil)
 	require.NoError(t, helper.cleanupStaleShardResources(t.Context(), zap.S(), []string{"shard-0", "shard-1"}))
 
 	_, err := fakeClient.GetService(t.Context(), search.ProxyServiceNameForClusterShard(0, "shard-0"))
@@ -2610,7 +2609,7 @@ func TestReconcileReplicaSet_CreatesResources(t *testing.T) {
 		search,
 		NewCommunityResourceSearchSource(mdbc),
 		newTestOperatorSearchConfig(),
-		nil, nil, newFakeRoutingLatch(),
+		nil, nil,
 	)
 
 	// Pass 1: creates resources, returns Pending (StatefulSet not ready)
@@ -3443,9 +3442,8 @@ func TestReconcileShardedMC_InterleavedStatusConverges(t *testing.T) {
 
 // Routing-readiness latch lifecycle: shards stay pending until their mongot STS
 // first meets the threshold, the latch survives STS delete/recreate (one-way),
-// stale latch entries are pruned, and status.pendingMongotGroups mirrors the
-// derived pending set after every Reconcile.
-func TestReconcileSharded_RoutingLatchOneWayAndStatusMirror(t *testing.T) {
+// and stale latch entries are pruned.
+func TestReconcileSharded_RoutingLatchOneWay(t *testing.T) {
 	search := newTestMongoDBSearch("mdb-search", "ns", func(s *searchv1.MongoDBSearch) {
 		s.Spec.Source = &searchv1.MongoDBSource{
 			ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{
@@ -3488,19 +3486,13 @@ func TestReconcileSharded_RoutingLatchOneWayAndStatusMirror(t *testing.T) {
 
 	// Pre-latched entry for a shard that no longer exists — must be pruned.
 	latch := newFakeRoutingLatch("sh-removed")
-	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, source, newTestOperatorSearchConfig(), nil, nil, latch)
+	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, source, newTestOperatorSearchConfig(), nil, nil)
+	helper.routingLatch = latch
 
-	pendingInStatus := func() []string {
-		got := &searchv1.MongoDBSearch{}
-		require.NoError(t, fakeClient.Get(t.Context(), search.NamespacedName(), got))
-		return got.Status.PendingMongotGroups
-	}
-
-	// Pass 1: STSs created, none routing-ready → both shards pending in the mirror.
+	// Pass 1: STSs created, none routing-ready.
 	helper.Reconcile(t.Context(), zap.S())
 	assert.False(t, latch.IsRoutingReady("sh-0"))
 	assert.False(t, latch.IsRoutingReady("sh-removed"), "latch entry for a removed shard must be pruned")
-	assert.Equal(t, []string{"sh-0", "sh-1"}, pendingInStatus())
 
 	// sh-0 reaches the routing-readiness threshold (sh-1 stays unready).
 	stsName := search.MongotStatefulSetForClusterShard(0, "sh-0")
@@ -3509,11 +3501,10 @@ func TestReconcileSharded_RoutingLatchOneWayAndStatusMirror(t *testing.T) {
 	sts.Status.ReadyReplicas = 1
 	require.NoError(t, fakeClient.Status().Update(t.Context(), &sts))
 
-	// Pass 2: sh-0 is latched even though sh-1 is still unready; mirror shrinks.
+	// Pass 2: sh-0 is latched even though sh-1 is still unready.
 	helper.Reconcile(t.Context(), zap.S())
 	assert.True(t, latch.IsRoutingReady("sh-0"))
 	assert.False(t, latch.IsRoutingReady("sh-1"))
-	assert.Equal(t, []string{"sh-1"}, pendingInStatus())
 
 	// STS recreate: pass 3 recreates sh-0's STS with 0 ready replicas. The latch
 	// is one-way, so sh-0 must NOT re-enter the pending set.
@@ -3525,7 +3516,6 @@ func TestReconcileSharded_RoutingLatchOneWayAndStatusMirror(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int32(0), recreated.Status.ReadyReplicas, "recreated STS must start unready")
 	assert.True(t, latch.IsRoutingReady("sh-0"), "latch must survive STS delete/recreate")
-	assert.Equal(t, []string{"sh-1"}, pendingInStatus())
 }
 
 // One unit's latch error must not starve latching of the remaining units: errors
@@ -3573,7 +3563,8 @@ func TestReconcileSharded_LatchErrorsAggregatedAcrossUnits(t *testing.T) {
 
 	latch := newFakeRoutingLatch()
 	latch.markErr["sh-0"] = fmt.Errorf("injected latch write failure for sh-0")
-	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, source, newTestOperatorSearchConfig(), nil, nil, latch)
+	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, source, newTestOperatorSearchConfig(), nil, nil)
+	helper.routingLatch = latch
 
 	// Both shards meet the threshold; sh-0's latch write fails.
 	helper.reconcile(t.Context(), zap.S())

@@ -76,11 +76,11 @@ type OperatorSearchConfig struct {
 	SearchVersion string
 }
 
-// RoutingReadyLatch is the one-way per-shard routing-readiness latch persisted in
-// the search state ConfigMap (implemented by the operator package). Once a shard
-// is marked routing-ready it never re-enters fallback routing; entries are pruned
-// only when the shard no longer exists.
-type RoutingReadyLatch interface {
+// routingReadyLatch is the one-way per-shard routing-readiness latch persisted in
+// the search state ConfigMap. Once a shard is marked routing-ready it never
+// re-enters fallback routing; entries are pruned only when the shard no longer
+// exists. Interface seam for tests; production uses searchRoutingLatch.
+type routingReadyLatch interface {
 	IsRoutingReady(shardName string) bool
 	MarkRoutingReady(ctx context.Context, shardName string) error
 	PruneRoutingReady(ctx context.Context, liveShardNames []string) error
@@ -101,28 +101,30 @@ type MongoDBSearchReconcileHelper struct {
 	// so spec.clusters[] reorders don't rename resources.
 	clusterMapping map[string]int
 
-	routingLatch RoutingReadyLatch
+	routingLatch routingReadyLatch
 }
 
-// NewMongoDBSearchReconcileHelper constructs a reconcile helper. Pass nil/nil for memberClusterClients
-// and clusterMapping on single-cluster installs.
+// NewMongoDBSearchReconcileHelper constructs a reconcile helper. Pass nil for
+// memberClusterClients on single-cluster installs; nil state is treated as fresh.
 func NewMongoDBSearchReconcileHelper(
 	client kubernetesClient.Client,
 	mdbSearch *searchv1.MongoDBSearch,
 	db SearchSourceDBResource,
 	operatorSearchConfig OperatorSearchConfig,
 	memberClusterClients map[string]kubernetesClient.Client,
-	clusterMapping map[string]int,
-	routingLatch RoutingReadyLatch,
+	state *SearchDeploymentState,
 ) *MongoDBSearchReconcileHelper {
+	if state == nil {
+		state = NewSearchDeploymentState()
+	}
 	return &MongoDBSearchReconcileHelper{
 		client:               client,
 		operatorSearchConfig: operatorSearchConfig,
 		mdbSearch:            mdbSearch,
 		db:                   db,
 		memberClusterClients: memberClusterClients,
-		clusterMapping:       clusterMapping,
-		routingLatch:         routingLatch,
+		clusterMapping:       state.ClusterMapping,
+		routingLatch:         &searchRoutingLatch{client: client, search: mdbSearch, state: state},
 	}
 }
 
@@ -424,29 +426,10 @@ func (r *MongoDBSearchReconcileHelper) buildShardedPlan(shardedSource SearchSour
 func (r *MongoDBSearchReconcileHelper) Reconcile(ctx context.Context, log *zap.SugaredLogger) workflow.Status {
 	workflowStatus := r.reconcile(ctx, log)
 
-	// status.pendingMongotGroups is a read-only mirror of the latch-derived pending set.
-	r.mdbSearch.Status.PendingMongotGroups = r.derivePendingMongotGroups()
-
 	if _, err := commoncontroller.UpdateStatus(ctx, r.client, r.mdbSearch, workflowStatus, log); err != nil {
 		return workflow.Failed(err)
 	}
 	return workflowStatus
-}
-
-// derivePendingMongotGroups returns the sharded managed-LB shards not yet latched
-// routing-ready; nil for all other topologies.
-func (r *MongoDBSearchReconcileHelper) derivePendingMongotGroups() []string {
-	shardedSource, ok := r.db.(SearchSourceShardedDeployment)
-	if !ok || !r.mdbSearch.IsLBModeManaged() {
-		return nil
-	}
-	var pending []string
-	for _, shardName := range shardedSource.GetShardNames() {
-		if !r.routingLatch.IsRoutingReady(shardName) {
-			pending = append(pending, shardName)
-		}
-	}
-	return pending
 }
 
 // MessageFromStatus extracts the user-visible message from a workflow.Status.

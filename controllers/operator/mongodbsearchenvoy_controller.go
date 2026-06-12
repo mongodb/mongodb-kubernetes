@@ -122,7 +122,7 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 	// If LB was previously active (status exists), clean up Envoy resources first.
 	if !mdbSearch.IsLBModeManaged() {
 		if mdbSearch.Status.LoadBalancer != nil {
-			state, stErr := loadOrInitSearchState(ctx, r.kubeClient, mdbSearch)
+			state, stErr := searchcontroller.ReadSearchState(ctx, r.kubeClient, mdbSearch)
 			var workList []clusterWorkItem
 			if stErr != nil {
 				log.Warnf("Failed to load search state for Envoy cleanup, falling back to central only: %s", stErr)
@@ -149,7 +149,7 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 
 	// Load the per-CR state to get the stable clusterName → clusterIndex mapping
 	// and the routing-readiness latch.
-	state, err := loadOrInitSearchState(ctx, r.kubeClient, mdbSearch)
+	state, err := searchcontroller.ReadSearchState(ctx, r.kubeClient, mdbSearch)
 	if err != nil {
 		return r.updateLBStatus(ctx, mdbSearch, workflow.Pending("Waiting for search state: %s", err), log)
 	}

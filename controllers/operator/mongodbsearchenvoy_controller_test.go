@@ -46,8 +46,8 @@ import (
 // Envoy controller can resolve indices without the full main-controller path.
 func seedSearchStateCM(t *testing.T, ctx context.Context, c client.Client, searchName, ns string, mapping map[string]int, routingReady []string) {
 	t.Helper()
-	state := SearchDeploymentState{
-		CommonDeploymentState:    CommonDeploymentState{ClusterMapping: mapping},
+	state := searchcontroller.SearchDeploymentState{
+		ClusterMapping:           mapping,
 		RoutingReadyMongotGroups: routingReady,
 	}
 	raw, err := json.Marshal(state)

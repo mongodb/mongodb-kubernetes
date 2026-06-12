@@ -323,9 +323,8 @@ class TestShardOnboardingAvailabilityStages:
         raise AssertionError(f"no filter chain for shard {shard_name} (SNI {sni}) in lds.json")
 
     def _assert_pending_fallback(self, shard_name: str, context: str) -> None:
-        """Pending contract: not latched in the state CM, listed in the status mirror,
-        and the shard's Envoy chain routes to the cluster-level mongot WITH the
-        routed_from_another_shard header."""
+        """Pending contract: not latched in the state CM, and the shard's Envoy chain
+        routes to the cluster-level mongot WITH the routed_from_another_shard header."""
         cluster, headers = self._shard_route(shard_name)
         assert (
             cluster == "mongot_cluster_level_cluster"
@@ -337,14 +336,10 @@ class TestShardOnboardingAvailabilityStages:
         assert (
             shard_name not in latch
         ), f"[{context}] shard {shard_name} already latched: routingReadyMongotGroups={latch}"
-        assert (
-            shard_name in self._status_pending_mirror()
-        ), f"[{context}] shard {shard_name} absent from status.pendingMongotGroups"
 
     def _assert_latched(self, shard_name: str, context: str) -> None:
-        """Latched contract: present in the state CM's routingReadyMongotGroups, absent
-        from the status mirror, and the shard's Envoy chain routes to its OWN mongot
-        cluster."""
+        """Latched contract: present in the state CM's routingReadyMongotGroups, and
+        the shard's Envoy chain routes to its OWN mongot cluster."""
         cluster, _ = self._shard_route(shard_name)
         expected = f"mongot_{shard_name.replace('-', '_')}_cluster"
         assert (
@@ -352,14 +347,6 @@ class TestShardOnboardingAvailabilityStages:
         ), f"[{context}] shard {shard_name} routes to {cluster!r}, expected own cluster {expected!r}"
         latch = self._routing_ready_groups()
         assert shard_name in latch, f"[{context}] shard {shard_name} not latched: routingReadyMongotGroups={latch}"
-        assert (
-            shard_name not in self._status_pending_mirror()
-        ), f"[{context}] shard {shard_name} still in status.pendingMongotGroups"
-
-    def _status_pending_mirror(self) -> list[str]:
-        mdbs = MongoDBSearch(name=MDBS_NAME, namespace=NAMESPACE)
-        mdbs.load()
-        return (mdbs["status"] or {}).get("pendingMongotGroups", []) or []
 
     # --- stages (definition order = execution order) ---
 
@@ -463,8 +450,8 @@ class TestShardOnboardingAvailabilityStages:
         disable reconciliation and patch its readiness probe to always-fail so the pod
         never reports Ready (never latches routing-ready). The contract surface (Envoy
         fallback chain to the cluster-level mongot with the routed_from_another_shard
-        header + status.pendingMongotGroups mirror) is asserted, then a full probe
-        batch must go clean WHILE ready_replicas==0."""
+        header + the state CM latch) is asserted, then a full probe batch must go
+        clean WHILE ready_replicas==0."""
         onboard_index, new_shard_name = self.onboard_index, self.new_shard_name
         assert onboard_index is not None and new_shard_name is not None, "stage 1 must run first"
         search_tests = self._search_tests()
@@ -550,16 +537,16 @@ class TestShardOnboardingAvailabilityStages:
         run_periodically(queries_recover, timeout=600, sleep_time=15, msg="$search to fully recover on all shards")
 
         # The shard latches routing-ready once its mongot is ready: its Envoy chain
-        # flips to its own mongot cluster and the status mirror drops it from pending.
+        # flips to its own mongot cluster.
         # NOTE: probes succeed under both the fallback and the latched Envoy config, so
         # this stage can only assert the latch at the control-plane level (state CM +
-        # lds.json CM + status mirror); the Envoy pod loads the new LDS only after
-        # kubelet ConfigMap propagation (up to ~1min). The data-plane flip to the
-        # own-mongot route is proven by stage 5: its clean gap can only occur there.
+        # lds.json CM); the Envoy pod loads the new LDS only after kubelet ConfigMap
+        # propagation (up to ~1min). The data-plane flip to the own-mongot route is
+        # proven by stage 5: its clean gap can only occur there.
         def latched():
             cluster, _ = self._shard_route(new_shard_name)
             own = f"mongot_{new_shard_name.replace('-', '_')}_cluster"
-            return cluster == own and new_shard_name not in self._status_pending_mirror(), f"route={cluster}"
+            return cluster == own and new_shard_name in self._routing_ready_groups(), f"route={cluster}"
 
         run_periodically(latched, timeout=180, sleep_time=5, msg=f"{new_shard_name} to latch routing-ready")
 

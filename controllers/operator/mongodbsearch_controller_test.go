@@ -15,7 +15,6 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
-	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -31,7 +30,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1" //nolint:depguard
 	khandler "github.com/mongodb/mongodb-kubernetes/pkg/handler"
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/mongot"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
@@ -486,7 +484,7 @@ func TestMongoDBSearchControllerReconcile_StateConfigMap(t *testing.T) {
 	stateCM := &corev1.ConfigMap{}
 	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: "mysearch-search-state", Namespace: mock.TestNamespace}, stateCM))
 
-	var gotState SearchDeploymentState
+	var gotState searchcontroller.SearchDeploymentState
 	require.NoError(t, decodeStateJSON(stateCM, &gotState))
 	assert.Equal(t, map[string]int{"us-east": 0, "us-west": 1}, gotState.ClusterMapping)
 
@@ -569,10 +567,8 @@ func TestMongoDBSearchControllerReconcile_StateConfigMap_OperatorRestart(t *test
 	// a non-trivial mapping — as if a previous operator instance had written it.
 	reconciler, c := newSearchReconciler(mdbc, search)
 
-	existingState := SearchDeploymentState{
-		CommonDeploymentState: CommonDeploymentState{
-			ClusterMapping: map[string]int{"us-east": 0, "us-west": 1},
-		},
+	existingState := searchcontroller.SearchDeploymentState{
+		ClusterMapping: map[string]int{"us-east": 0, "us-west": 1},
 	}
 	stateJSON, err := json.Marshal(existingState)
 	require.NoError(t, err)
@@ -590,7 +586,7 @@ func TestMongoDBSearchControllerReconcile_StateConfigMap_OperatorRestart(t *test
 
 	stateCM := &corev1.ConfigMap{}
 	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: "mysearch-search-state", Namespace: mock.TestNamespace}, stateCM))
-	var gotState SearchDeploymentState
+	var gotState searchcontroller.SearchDeploymentState
 	require.NoError(t, decodeStateJSON(stateCM, &gotState))
 	assert.Equal(t, map[string]int{"us-east": 0, "us-west": 1}, gotState.ClusterMapping, "existing mapping must be preserved across operator restart")
 }
@@ -637,7 +633,7 @@ func TestMongoDBSearchControllerReconcile_StateConfigMap_ReAddCluster(t *testing
 
 	stateCM := &corev1.ConfigMap{}
 	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: "mysearch-search-state", Namespace: mock.TestNamespace}, stateCM))
-	var gotState SearchDeploymentState
+	var gotState searchcontroller.SearchDeploymentState
 	require.NoError(t, decodeStateJSON(stateCM, &gotState))
 	assert.Equal(t, map[string]int{"us-east": 0, "us-west": 1, "eu-central": 2}, gotState.ClusterMapping,
 		"re-added cluster must reclaim its original index")
@@ -702,7 +698,7 @@ func TestMongoDBSearchReconcile_Success_MultiCluster(t *testing.T) {
 	// fanned out over.
 	stateCM := &corev1.ConfigMap{}
 	require.NoError(t, centralClient.Get(ctx, types.NamespacedName{Name: "mdb-search-search-state", Namespace: mock.TestNamespace}, stateCM))
-	var state SearchDeploymentState
+	var state searchcontroller.SearchDeploymentState
 	require.NoError(t, decodeStateJSON(stateCM, &state))
 	require.Equal(t, map[string]int{"us-east": 0, "us-west": 1}, state.ClusterMapping)
 
@@ -917,119 +913,4 @@ func markAllDeploymentsAvailable(ctx context.Context, namespace string, clients 
 		}
 	}
 	return nil
-}
-
-// searchRoutingLatch persists through RV-checked read-modify-writes on the state
-// ConfigMap: creation with owner metadata, monotonic appends, no-op rewrites,
-// pruning, and 409 Conflict on a stale base instead of a silent lost update.
-func TestSearchRoutingLatch_StateCMWrites(t *testing.T) {
-	ctx := context.Background()
-	search := newMongoDBSearch("mysearch", mock.TestNamespace, "mdb")
-	search.UID = "search-uid"
-	stateCMName := types.NamespacedName{Name: "mysearch-search-state", Namespace: mock.TestNamespace}
-
-	newLatch := func(c client.Client) *searchRoutingLatch {
-		return &searchRoutingLatch{client: kubernetesClient.NewClient(c), search: search, state: NewSearchDeploymentState()}
-	}
-	readState := func(t *testing.T, c client.Client) SearchDeploymentState {
-		t.Helper()
-		cm := &corev1.ConfigMap{}
-		require.NoError(t, c.Get(ctx, stateCMName, cm))
-		var st SearchDeploymentState
-		require.NoError(t, decodeStateJSON(cm, &st))
-		return st
-	}
-
-	t.Run("first mark creates the state CM with owner metadata", func(t *testing.T) {
-		c := mock.NewEmptyFakeClientBuilder().Build()
-		latch := newLatch(c)
-		require.NoError(t, latch.MarkRoutingReady(ctx, "sh-0"))
-		assert.True(t, latch.IsRoutingReady("sh-0"))
-
-		cm := &corev1.ConfigMap{}
-		require.NoError(t, c.Get(ctx, stateCMName, cm))
-		assert.Equal(t, []string{"sh-0"}, readState(t, c).RoutingReadyMongotGroups)
-		require.Len(t, cm.OwnerReferences, 1)
-		assert.Equal(t, search.UID, cm.OwnerReferences[0].UID)
-		for k, v := range search.GetOwnerLabels() {
-			assert.Equal(t, v, cm.Labels[k], "owner label %s", k)
-		}
-	})
-
-	t.Run("mark appends and preserves the cluster mapping", func(t *testing.T) {
-		c := mock.NewEmptyFakeClientBuilder().Build()
-		_, err := mutateSearchState(ctx, kubernetesClient.NewClient(c), search, func(s *SearchDeploymentState) bool {
-			s.ClusterMapping = map[string]int{"us-east": 0}
-			s.RoutingReadyMongotGroups = []string{"sh-0"}
-			return true
-		})
-		require.NoError(t, err)
-
-		require.NoError(t, newLatch(c).MarkRoutingReady(ctx, "sh-1"))
-		st := readState(t, c)
-		assert.Equal(t, []string{"sh-0", "sh-1"}, st.RoutingReadyMongotGroups)
-		assert.Equal(t, map[string]int{"us-east": 0}, st.ClusterMapping)
-	})
-
-	t.Run("already latched shard is a no-op write", func(t *testing.T) {
-		c := mock.NewEmptyFakeClientBuilder().Build()
-		latch := newLatch(c)
-		require.NoError(t, latch.MarkRoutingReady(ctx, "sh-0"))
-		cm := &corev1.ConfigMap{}
-		require.NoError(t, c.Get(ctx, stateCMName, cm))
-		rv := cm.ResourceVersion
-
-		require.NoError(t, latch.MarkRoutingReady(ctx, "sh-0"))
-		require.NoError(t, c.Get(ctx, stateCMName, cm))
-		assert.Equal(t, rv, cm.ResourceVersion, "re-marking a latched shard must not rewrite the CM")
-	})
-
-	t.Run("prune removes only shards that no longer exist", func(t *testing.T) {
-		c := mock.NewEmptyFakeClientBuilder().Build()
-		latch := newLatch(c)
-		for _, shard := range []string{"sh-0", "sh-1", "sh-2"} {
-			require.NoError(t, latch.MarkRoutingReady(ctx, shard))
-		}
-
-		require.NoError(t, latch.PruneRoutingReady(ctx, []string{"sh-0", "sh-2"}))
-		assert.Equal(t, []string{"sh-0", "sh-2"}, readState(t, c).RoutingReadyMongotGroups)
-		assert.False(t, latch.IsRoutingReady("sh-1"))
-
-		cm := &corev1.ConfigMap{}
-		require.NoError(t, c.Get(ctx, stateCMName, cm))
-		rv := cm.ResourceVersion
-		require.NoError(t, latch.PruneRoutingReady(ctx, []string{"sh-0", "sh-2"}))
-		require.NoError(t, c.Get(ctx, stateCMName, cm))
-		assert.Equal(t, rv, cm.ResourceVersion, "prune without changes must not rewrite the CM")
-	})
-
-	t.Run("stale base write conflicts instead of clobbering", func(t *testing.T) {
-		base := mock.NewEmptyFakeClientBuilder().Build()
-		require.NoError(t, newLatch(base).MarkRoutingReady(ctx, "sh-0"))
-
-		// A concurrent writer lands between our Get and Update: the write must
-		// surface 409 Conflict (the fake client enforces the carried RV), never
-		// silently overwrite the concurrent change.
-		raced := false
-		c := interceptor.NewClient(base, interceptor.Funcs{
-			Get: func(ctx context.Context, cl client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
-				if err := cl.Get(ctx, key, obj, opts...); err != nil {
-					return err
-				}
-				if key.Name == stateCMName.Name && !raced {
-					raced = true
-					concurrent := obj.(*corev1.ConfigMap).DeepCopy()
-					concurrent.Data["concurrent"] = "write"
-					if err := cl.Update(ctx, concurrent); err != nil {
-						return err
-					}
-				}
-				return nil
-			},
-		})
-
-		err := newLatch(c).MarkRoutingReady(ctx, "sh-1")
-		require.Error(t, err)
-		assert.True(t, apiErrors.IsConflict(err), "stale base must surface 409 Conflict, got: %v", err)
-	})
 }

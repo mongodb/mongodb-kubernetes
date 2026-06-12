@@ -841,14 +841,6 @@ spec:
               observedGeneration:
                 format: int64
                 type: integer
-              pendingMongotGroups:
-                description: |-
-                  PendingMongotGroups is a read-only mirror derived from the routing-readiness
-                  latch in the <name>-search-state ConfigMap: sharded managed-LB shards whose
-                  mongot group has never been routing-ready. Rebuilt on every reconcile.
-                items:
-                  type: string
-                type: array
               phase:
                 type: string
               pvc:
