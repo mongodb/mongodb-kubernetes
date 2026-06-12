@@ -72,6 +72,7 @@ type OpsManagerStatefulSetOptions struct {
 	HeadDbPersistenceConfig *v1.PersistenceConfig
 	Annotations             map[string]string
 	LoggingConfiguration    *omv1.Logging
+	DefaultArchitecture     architectures.DefaultArchitecture
 }
 
 type KmipClientConfiguration struct {
@@ -172,6 +173,12 @@ func WithStsOverride(stsOverride *appsv1.StatefulSetSpec) func(opts *OpsManagerS
 func WithDebugPort(port int32) func(opts *OpsManagerStatefulSetOptions) {
 	return func(opts *OpsManagerStatefulSetOptions) {
 		opts.DebugPort = port
+	}
+}
+
+func WithOMDefaultArchitecture(defaultArchitecture architectures.DefaultArchitecture) func(opts *OpsManagerStatefulSetOptions) {
+	return func(opts *OpsManagerStatefulSetOptions) {
+		opts.DefaultArchitecture = defaultArchitecture
 	}
 }
 
@@ -347,7 +354,7 @@ func backupAndOpsManagerSharedConfiguration(opts OpsManagerStatefulSetOptions) s
 
 	var omVolumes []corev1.Volume
 
-	if !architectures.IsRunningStaticArchitecture(opts.Annotations) {
+	if !architectures.IsRunningStaticArchitecture(opts.Annotations, opts.DefaultArchitecture) {
 		omScriptsVolume := statefulset.CreateVolumeFromEmptyDir("ops-manager-scripts")
 		omVolumes = append(omVolumes, omScriptsVolume)
 		omScriptsVolumeMount := buildOmScriptsVolumeMount(true)
@@ -442,7 +449,7 @@ func backupAndOpsManagerSharedConfiguration(opts OpsManagerStatefulSetOptions) s
 
 	initContainerMod := podtemplatespec.NOOP()
 
-	if !architectures.IsRunningStaticArchitecture(opts.Annotations) {
+	if !architectures.IsRunningStaticArchitecture(opts.Annotations, opts.DefaultArchitecture) {
 		initContainerMod = podtemplatespec.WithInitContainerByIndex(0,
 			buildOpsManagerAndBackupInitContainer(opts.InitOpsManagerImage),
 		)

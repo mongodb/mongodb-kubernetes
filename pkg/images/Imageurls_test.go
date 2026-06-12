@@ -177,7 +177,7 @@ func TestGetAppDBImage(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			tt.setupEnvs(t)
 			imageUrlsMock := LoadImageUrlsFromEnv()
-			assert.Equalf(t, tt.want, GetOfficialImage(imageUrlsMock, tt.input, tt.annotations), "getOfficialImage(%v)", tt.input)
+			assert.Equalf(t, tt.want, GetOfficialImage(imageUrlsMock, tt.input, tt.annotations, architectures.NonStatic), "getOfficialImage(%v)", tt.input)
 		})
 	}
 }

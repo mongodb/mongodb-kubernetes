@@ -98,11 +98,12 @@ type OpsManagerReconciler struct {
 	imageUrls                  images.ImageUrls
 	initDatabaseVersion        string
 	initOpsManagerImageVersion string
+	defaultArchitecture        architectures.DefaultArchitecture
 }
 
 var _ reconcile.Reconciler = &OpsManagerReconciler{}
 
-func NewOpsManagerReconciler(ctx context.Context, kubeClient client.Client, memberClustersMap map[string]client.Client, imageUrls images.ImageUrls, initDatabaseVersion, initOpsManagerImageVersion string, omFunc om.ConnectionFactory, initializer api.Initializer, adminProvider api.AdminProvider) *OpsManagerReconciler {
+func NewOpsManagerReconciler(ctx context.Context, kubeClient client.Client, memberClustersMap map[string]client.Client, imageUrls images.ImageUrls, initDatabaseVersion, initOpsManagerImageVersion string, defaultArchitecture architectures.DefaultArchitecture, omFunc om.ConnectionFactory, initializer api.Initializer, adminProvider api.AdminProvider) *OpsManagerReconciler {
 	return &OpsManagerReconciler{
 		ReconcileCommonController:  NewReconcileCommonController(ctx, kubeClient),
 		omConnectionFactory:        omFunc,
@@ -114,6 +115,7 @@ func NewOpsManagerReconciler(ctx context.Context, kubeClient client.Client, memb
 		imageUrls:                  imageUrls,
 		initDatabaseVersion:        initDatabaseVersion,
 		initOpsManagerImageVersion: initOpsManagerImageVersion,
+		defaultArchitecture:        defaultArchitecture,
 	}
 }
 
@@ -701,7 +703,7 @@ func (r *OpsManagerReconciler) reconcileOpsManager(ctx context.Context, reconcil
 	}
 
 	// 4. Trigger agents upgrade if necessary
-	if err := triggerOmChangedEventIfNeeded(ctx, opsManager, r.client, log); err != nil {
+	if err := triggerOmChangedEventIfNeeded(ctx, opsManager, r.client, r.defaultArchitecture, log); err != nil {
 		log.Warn("Not triggering an Ops Manager version changed event: %s", err)
 	}
 
@@ -720,7 +722,7 @@ func (r *OpsManagerReconciler) reconcileOpsManager(ctx context.Context, reconcil
 
 // triggerOmChangedEventIfNeeded triggers upgrade process for all the MongoDB agents in the system if the major/minor version upgrade
 // happened for Ops Manager
-func triggerOmChangedEventIfNeeded(ctx context.Context, opsManager *omv1.MongoDBOpsManager, c kubernetesClient.Client, log *zap.SugaredLogger) error {
+func triggerOmChangedEventIfNeeded(ctx context.Context, opsManager *omv1.MongoDBOpsManager, c kubernetesClient.Client, defaultArchitecture architectures.DefaultArchitecture, log *zap.SugaredLogger) error {
 	if opsManager.Spec.Version == opsManager.Status.OpsManagerStatus.Version || opsManager.Status.OpsManagerStatus.Version == "" {
 		return nil
 	}
@@ -734,7 +736,7 @@ func triggerOmChangedEventIfNeeded(ctx context.Context, opsManager *omv1.MongoDB
 	}
 	if newVersion.Major != oldVersion.Major || newVersion.Minor != oldVersion.Minor {
 		log.Infof("Ops Manager version has upgraded from %s to %s - scheduling the upgrade for all the Agents in the system", oldVersion, newVersion)
-		if architectures.IsRunningStaticArchitecture(opsManager.Annotations) {
+		if architectures.IsRunningStaticArchitecture(opsManager.Annotations, defaultArchitecture) {
 			mdbList := &mdbv1.MongoDBList{}
 			err := c.List(ctx, mdbList)
 			if err != nil {
@@ -933,6 +935,7 @@ func (r *OpsManagerReconciler) createOpsManagerStatefulsetInMemberCluster(ctx co
 		construct.WithStsOverride(clusterSpecItem.GetStatefulSetSpecOverride()),
 		construct.WithReplicas(reconcilerHelper.OpsManagerMembersForMemberCluster(memberCluster)),
 		construct.WithDebugPort(debugPort),
+		construct.WithOMDefaultArchitecture(r.defaultArchitecture),
 	)
 	if err != nil {
 		return nil, xerrors.Errorf("error building OpsManager stateful set: %w", err)
@@ -941,8 +944,8 @@ func (r *OpsManagerReconciler) createOpsManagerStatefulsetInMemberCluster(ctx co
 	return create.OpsManagerInKubernetes(ctx, memberCluster, opsManager, sts, log)
 }
 
-func AddOpsManagerController(ctx context.Context, mgr manager.Manager, memberClustersMap map[string]cluster.Cluster, imageUrls images.ImageUrls, initDatabaseVersion, initOpsManagerImageVersion string) error {
-	reconciler := NewOpsManagerReconciler(ctx, mgr.GetClient(), multicluster.ClustersMapToClientMap(memberClustersMap), imageUrls, initDatabaseVersion, initOpsManagerImageVersion, om.NewOpsManagerConnection, &api.DefaultInitializer{}, api.NewOmAdmin)
+func AddOpsManagerController(ctx context.Context, mgr manager.Manager, memberClustersMap map[string]cluster.Cluster, imageUrls images.ImageUrls, initDatabaseVersion, initOpsManagerImageVersion string, defaultArchitecture architectures.DefaultArchitecture) error {
+	reconciler := NewOpsManagerReconciler(ctx, mgr.GetClient(), multicluster.ClustersMapToClientMap(memberClustersMap), imageUrls, initDatabaseVersion, initOpsManagerImageVersion, defaultArchitecture, om.NewOpsManagerConnection, &api.DefaultInitializer{}, api.NewOmAdmin)
 	c, err := controller.New(util.MongoDbOpsManagerController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)}) // nolint:forbidigo
 	if err != nil {
 		return err
@@ -1037,6 +1040,7 @@ func (r *OpsManagerReconciler) createBackupDaemonStatefulset(ctx context.Context
 		construct.WithKmipConfig(ctx, reconcilerHelper.opsManager, memberCluster.Client, log),
 		construct.WithStsOverride(clusterSpecItem.GetBackupStatefulSetSpecOverride()),
 		construct.WithReplicas(reconcilerHelper.BackupDaemonMembersForMemberCluster(memberCluster)),
+		construct.WithOMDefaultArchitecture(r.defaultArchitecture),
 	)
 	if err != nil {
 		return nil, xerrors.Errorf("error building stateful set: %w", err)
@@ -2155,7 +2159,7 @@ func (r *OpsManagerReconciler) OnDelete(ctx context.Context, obj interface{}, lo
 }
 
 func (r *OpsManagerReconciler) createNewAppDBReconciler(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) (*ReconcileAppDbReplicaSet, error) {
-	return NewAppDBReplicaSetReconciler(ctx, r.imageUrls, r.initDatabaseVersion, opsManager.Spec.AppDB, r.ReconcileCommonController, r.omConnectionFactory, opsManager.Annotations, r.memberClustersMap, log, kube.BaseOwnerReference(opsManager))
+	return NewAppDBReplicaSetReconciler(ctx, r.imageUrls, r.initDatabaseVersion, opsManager.Spec.AppDB, r.ReconcileCommonController, r.omConnectionFactory, opsManager.Annotations, r.memberClustersMap, r.defaultArchitecture, log, kube.BaseOwnerReference(opsManager))
 }
 
 // getAnnotationsForOpsManagerResource returns all the annotations that should be applied to the resource
