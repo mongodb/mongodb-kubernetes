@@ -323,7 +323,6 @@ func TestMongoDBConnectionURLExternalDomainWithSCRAMSHA1Auth(t *testing.T) {
 		"test-mdb-1.example.com:27017/?authMechanism=SCRAM-SHA-1&authSource=admin&"+
 		"connectTimeoutMS=20000&replicaSet=test-mdb&serverSelectionTimeoutMS=20000",
 		cnx)
-
 }
 
 func TestMongoDBConnectionURLMultiClusterSharded(t *testing.T) {
