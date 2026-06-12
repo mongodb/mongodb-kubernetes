@@ -2,7 +2,7 @@ package operator
 
 import (
 	"context"
-	"reflect"
+	"maps"
 	"time"
 
 	"go.uber.org/zap"
@@ -128,7 +128,7 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 	}
 	state, err := searchcontroller.MutateSearchState(ctx, r.kubeClient, mdbSearch, func(s *searchcontroller.SearchDeploymentState) bool {
 		newMapping := searchv1.AssignClusterIndices(s.ClusterMapping, currentNames)
-		if reflect.DeepEqual(newMapping, s.ClusterMapping) {
+		if maps.Equal(newMapping, s.ClusterMapping) {
 			return false
 		}
 		s.ClusterMapping = newMapping
