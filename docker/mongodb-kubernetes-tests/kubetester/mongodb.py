@@ -21,6 +21,7 @@ from kubetester.omtester import OMContext, OMTester
 from opentelemetry import trace
 from tests import test_logger
 
+from .failure_fingerprint import failure_category, failure_fingerprint
 from .mongodb_common import MongoDBCommon
 from .mongodb_utils_state import in_desired_state
 from .mongotester import MongoTester, ReplicaSetTester, ShardedClusterTester, StandaloneTester
@@ -95,26 +96,42 @@ class MongoDB(CustomObject, MongoDBCommon):
 
         start_time = time.time()
 
-        self.wait_for(
-            lambda s: in_desired_state(
-                current_state=self.get_status_phase(),
-                desired_state=phase,
-                current_generation=self.get_generation(),
-                observed_generation=self.get_status_observed_generation(),
-                current_message=self.get_status_message(),
-                msg_regexp=msg_regexp,
-                ignore_errors=ignore_errors,
-                intermediate_events=intermediate_events,
-            ),
-            timeout,
-            should_raise=True,
-        )
-
-        end_time = time.time()
         span = trace.get_current_span()
         span.set_attribute("mck.resource", self.__class__.__name__)
         span.set_attribute("mck.action", "assert_phase")
         span.set_attribute("mck.desired_phase", phase.name)
+
+        try:
+            self.wait_for(
+                lambda s: in_desired_state(
+                    current_state=self.get_status_phase(),
+                    desired_state=phase,
+                    current_generation=self.get_generation(),
+                    observed_generation=self.get_status_observed_generation(),
+                    current_message=self.get_status_message(),
+                    msg_regexp=msg_regexp,
+                    ignore_errors=ignore_errors,
+                    intermediate_events=intermediate_events,
+                ),
+                timeout,
+                should_raise=True,
+            )
+        except Exception as e:
+            # Emit failure attributes so failures are analyzable in Honeycomb without
+            # regex-on-message: the phase we got stuck in, plus a low-cardinality
+            # fingerprint/category of the error. See kubetester/failure_fingerprint.py.
+            span.set_attribute("mck.time_needed", time.time() - start_time)
+            span.set_attribute("mck.outcome", "failed")
+            observed_phase = self.get_status_phase()
+            if observed_phase is not None:
+                span.set_attribute("mck.observed_phase", observed_phase.name)
+            fingerprint = failure_fingerprint(str(e))
+            span.set_attribute("mck.failure_pattern", fingerprint)
+            span.set_attribute("mck.failure_category", failure_category(fingerprint))
+            raise
+
+        end_time = time.time()
+        span.set_attribute("mck.outcome", "reached")
         span.set_attribute("mck.time_needed", end_time - start_time)
         logger.debug(
             f"Reaching phase {phase.name} for resource {self.__class__.__name__} took {end_time - start_time}s"
