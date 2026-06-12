@@ -106,15 +106,6 @@ def test_stateful_set_spec_updated(replica_set, namespace):
                 },
                 {
                     "name": "agent",
-                    "mount_path": "/var/cache/mongodb-mms-automation",
-                    "sub_path": "mms-automation-cache",
-                    "sub_path_expr": None,
-                    "mount_propagation": None,
-                    "read_only": None,
-                    "recursive_read_only": None,
-                },
-                {
-                    "name": "agent",
                     "mount_path": "/var/lib/mongodb-mms-automation",
                     "sub_path": "mongodb-mms-automation",
                     "sub_path_expr": None,
