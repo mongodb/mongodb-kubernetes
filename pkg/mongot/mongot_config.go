@@ -71,6 +71,7 @@ type ConfigStorage struct {
 }
 
 type ConfigServer struct {
+	Name      string           `json:"name,omitempty"`
 	Wireproto *ConfigWireproto `json:"wireproto,omitempty"`
 	Grpc      *ConfigGrpc      `json:"grpc,omitempty"`
 }
