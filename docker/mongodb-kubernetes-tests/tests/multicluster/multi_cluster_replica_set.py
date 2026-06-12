@@ -103,6 +103,26 @@ def test_statefulset_is_created_across_multiple_clusters(
 
 
 @pytest.mark.e2e_multi_cluster_replica_set
+def test_statefulsets_multi_cluster_identity(
+    mongodb_multi: MongoDBMulti,
+    member_cluster_clients: List[MultiClusterClient],
+):
+    """Regression test: multi-cluster StatefulSets must carry no ownerReferences.
+
+    A cross-cluster ownerReference points to a CR that does not exist in the member cluster.
+    The Kubernetes GC treats the StatefulSet as an orphan and deletes it immediately, causing
+    an infinite create-delete reconciliation loop. Cleanup on CR deletion is handled through
+    explicit label-based deletion instead."""
+    statefulsets = mongodb_multi.read_statefulsets(member_cluster_clients)
+    for cluster_name, sts in statefulsets.items():
+        owner_refs = sts.metadata.owner_references
+        assert not owner_refs, (
+            f"StatefulSet {sts.metadata.name} in cluster {cluster_name} must have no "
+            f"ownerReferences in multi-cluster mode, but got: {owner_refs}"
+        )
+
+
+@pytest.mark.e2e_multi_cluster_replica_set
 def test_pvc_not_created(
     mongodb_multi: MongoDBMulti,
     member_cluster_clients: List[MultiClusterClient],

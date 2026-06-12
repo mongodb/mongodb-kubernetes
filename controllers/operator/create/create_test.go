@@ -46,9 +46,9 @@ func TestBuildService(t *testing.T) {
 		LoadBalancerIP: "loadbalancerip",
 	})
 
-	assert.Len(t, svc.OwnerReferences, 1)
-	assert.Equal(t, mdb.Name, svc.OwnerReferences[0].Name)
-	assert.Equal(t, "MongoDB", svc.OwnerReferences[0].Kind)
+	// BuildService does not set OwnerReferences; callers are responsible for setting them
+	// explicitly (single-cluster) or leaving them nil (multi-cluster).
+	assert.Empty(t, svc.OwnerReferences)
 	assert.Equal(t, mock.TestNamespace, svc.Namespace)
 	assert.Equal(t, "my-svc", svc.Name)
 	assert.Equal(t, "loadbalancerip", svc.Spec.LoadBalancerIP)
@@ -65,9 +65,7 @@ func TestBuildService(t *testing.T) {
 		LoadBalancerIP: "loadbalancerip",
 	})
 
-	assert.Len(t, svc.OwnerReferences, 1)
-	assert.Equal(t, mdb.Name, svc.OwnerReferences[0].Name)
-	assert.Equal(t, "MongoDB", svc.OwnerReferences[0].Kind)
+	assert.Empty(t, svc.OwnerReferences)
 	assert.Equal(t, mock.TestNamespace, svc.Namespace)
 	assert.Equal(t, "my-svc", svc.Name)
 	assert.Equal(t, "loadbalancerip", svc.Spec.LoadBalancerIP)
@@ -200,15 +198,7 @@ func TestOpsManagerInKubernetes_ClusterSpecificExternalConnectivity(t *testing.T
 							util.OperatorLabelName:  util.OperatorLabelValue,
 							omv1.LabelResourceOwner: "test-om",
 						},
-						OwnerReferences: []metav1.OwnerReference{
-							{
-								APIVersion:         "mongodb.com/v1",
-								Kind:               "MongoDBOpsManager",
-								Name:               "test-om",
-								Controller:         ptr.To(true),
-								BlockOwnerDeletion: ptr.To(true),
-							},
-						},
+						OwnerReferences: nil,
 					},
 					Spec: corev1.ServiceSpec{
 						Ports: []corev1.ServicePort{
@@ -242,15 +232,7 @@ func TestOpsManagerInKubernetes_ClusterSpecificExternalConnectivity(t *testing.T
 							util.OperatorLabelName:  util.OperatorLabelValue,
 							omv1.LabelResourceOwner: "test-om",
 						},
-						OwnerReferences: []metav1.OwnerReference{
-							{
-								APIVersion:         "mongodb.com/v1",
-								Kind:               "MongoDBOpsManager",
-								Name:               "test-om",
-								Controller:         ptr.To(true),
-								BlockOwnerDeletion: ptr.To(true),
-							},
-						},
+						OwnerReferences: nil,
 					},
 					Spec: corev1.ServiceSpec{
 						Ports: []corev1.ServicePort{
@@ -319,15 +301,7 @@ func TestOpsManagerInKubernetes_ClusterSpecificExternalConnectivity(t *testing.T
 							util.OperatorLabelName:  util.OperatorLabelValue,
 							omv1.LabelResourceOwner: "test-om",
 						},
-						OwnerReferences: []metav1.OwnerReference{
-							{
-								APIVersion:         "mongodb.com/v1",
-								Kind:               "MongoDBOpsManager",
-								Name:               "test-om",
-								Controller:         ptr.To(true),
-								BlockOwnerDeletion: ptr.To(true),
-							},
-						},
+						OwnerReferences: nil,
 					},
 					Spec: corev1.ServiceSpec{
 						Ports: []corev1.ServicePort{
@@ -361,15 +335,7 @@ func TestOpsManagerInKubernetes_ClusterSpecificExternalConnectivity(t *testing.T
 							util.OperatorLabelName:  util.OperatorLabelValue,
 							omv1.LabelResourceOwner: "test-om",
 						},
-						OwnerReferences: []metav1.OwnerReference{
-							{
-								APIVersion:         "mongodb.com/v1",
-								Kind:               "MongoDBOpsManager",
-								Name:               "test-om",
-								Controller:         ptr.To(true),
-								BlockOwnerDeletion: ptr.To(true),
-							},
-						},
+						OwnerReferences: nil,
 						Annotations: map[string]string{
 							"test-annotation": "test-value",
 						},
@@ -406,15 +372,7 @@ func TestOpsManagerInKubernetes_ClusterSpecificExternalConnectivity(t *testing.T
 							util.OperatorLabelName:  util.OperatorLabelValue,
 							omv1.LabelResourceOwner: "test-om",
 						},
-						OwnerReferences: []metav1.OwnerReference{
-							{
-								APIVersion:         "mongodb.com/v1",
-								Kind:               "MongoDBOpsManager",
-								Name:               "test-om",
-								Controller:         ptr.To(true),
-								BlockOwnerDeletion: ptr.To(true),
-							},
-						},
+						OwnerReferences: nil,
 					},
 					Spec: corev1.ServiceSpec{
 						Ports: []corev1.ServicePort{
@@ -1400,6 +1358,194 @@ func TestGetMatchingPVCTemplateFromSTS(t *testing.T) {
 			assert.Equal(t, tt.expectedIndex, index, "PVC template index should match")
 		})
 	}
+}
+
+// TestAppDBInKubernetes_ServiceOwnerReference verifies that the headless service created by
+// AppDBInKubernetes has no ownerReference in multi-cluster mode.
+// In multi-cluster mode the MongoDBOpsManager CR only exists in the central cluster.
+// A cross-cluster ownerReference causes the Kubernetes garbage collector in remote member
+// clusters to delete the service as an orphan, preventing the AppDB from ever becoming ready.
+func TestAppDBInKubernetes_ServiceOwnerReference(t *testing.T) {
+	ctx := context.Background()
+
+	minimalSts := func(namespace, serviceName string) appsv1.StatefulSet {
+		return appsv1.StatefulSet{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "appdb-0",
+				Namespace: namespace,
+			},
+			Spec: appsv1.StatefulSetSpec{
+				ServiceName: serviceName,
+				Selector:    &metav1.LabelSelector{MatchLabels: map[string]string{"app": "appdb"}},
+				Template: corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "appdb"}},
+					Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: "mongodb-agent", Image: "agent:latest"}}},
+				},
+			},
+		}
+	}
+
+	t.Run("multi-cluster mode produces no ownerReferences on the service", func(t *testing.T) {
+		om := omv1.NewOpsManagerBuilderDefault().
+			SetName("test-om").
+			SetAppDBTopology(omv1.ClusterTopologyMultiCluster).
+			Build()
+
+		fakeClient, _ := mock.NewDefaultFakeClient()
+		sts := minimalSts(om.Namespace, "appdb-svc")
+		_, err := AppDBInKubernetes(ctx, fakeClient, om, sts, "appdb-0", zap.S())
+		assert.NoError(t, err)
+
+		svc, err := fakeClient.GetService(ctx, kube.ObjectKey(om.Namespace, "appdb-svc"))
+		assert.NoError(t, err)
+		assert.Empty(t, svc.OwnerReferences,
+			"headless service in a remote member cluster must not carry an ownerReference pointing to the MongoDBOpsManager CR")
+	})
+
+	t.Run("single-cluster mode produces an ownerReference on the service", func(t *testing.T) {
+		om := omv1.NewOpsManagerBuilderDefault().
+			SetName("test-om").
+			Build()
+
+		fakeClient, _ := mock.NewDefaultFakeClient()
+		sts := minimalSts(om.Namespace, "appdb-svc")
+		_, err := AppDBInKubernetes(ctx, fakeClient, om, sts, "appdb-0", zap.S())
+		assert.NoError(t, err)
+
+		svc, err := fakeClient.GetService(ctx, kube.ObjectKey(om.Namespace, "appdb-svc"))
+		assert.NoError(t, err)
+		assert.Len(t, svc.OwnerReferences, 1,
+			"headless service in single-cluster mode must carry an ownerReference so Kubernetes GC can clean it up")
+	})
+}
+
+// TestBackupDaemonInKubernetes_ServiceOwnerReference verifies that the service created by
+// BackupDaemonInKubernetes has no ownerReference in multi-cluster mode.
+// In multi-cluster mode the MongoDBOpsManager CR only exists in the central cluster.
+// A cross-cluster ownerReference causes the Kubernetes garbage collector in remote member
+// clusters to delete the service as an orphan, preventing the backup daemon from starting.
+func TestBackupDaemonInKubernetes_ServiceOwnerReference(t *testing.T) {
+	ctx := context.Background()
+
+	minimalSts := func(namespace, serviceName string) appsv1.StatefulSet {
+		return appsv1.StatefulSet{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "backup-daemon-0",
+				Namespace: namespace,
+			},
+			Spec: appsv1.StatefulSetSpec{
+				ServiceName: serviceName,
+				Selector:    &metav1.LabelSelector{MatchLabels: map[string]string{"app": "backup-daemon"}},
+				Template: corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "backup-daemon"}},
+					Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: "mongodb-backup-daemon", Image: "agent:latest"}}},
+				},
+			},
+		}
+	}
+
+	t.Run("multi-cluster mode produces no ownerReferences on the service", func(t *testing.T) {
+		om := omv1.NewOpsManagerBuilderDefault().
+			SetName("test-om").
+			SetOpsManagerTopology(mdbv1.ClusterTopologyMultiCluster).
+			Build()
+
+		fakeClient, _ := mock.NewDefaultFakeClient()
+		sts := minimalSts(om.Namespace, "backup-daemon-svc")
+		_, err := BackupDaemonInKubernetes(ctx, fakeClient, om, sts, zap.S())
+		assert.NoError(t, err)
+
+		svc, err := fakeClient.GetService(ctx, kube.ObjectKey(om.Namespace, "backup-daemon-svc"))
+		assert.NoError(t, err)
+		assert.Empty(t, svc.OwnerReferences,
+			"backup daemon service in a remote member cluster must not carry an ownerReference pointing to the MongoDBOpsManager CR")
+	})
+
+	t.Run("single-cluster mode produces an ownerReference on the service", func(t *testing.T) {
+		om := omv1.NewOpsManagerBuilderDefault().
+			SetName("test-om").
+			Build()
+
+		fakeClient, _ := mock.NewDefaultFakeClient()
+		sts := minimalSts(om.Namespace, "backup-daemon-svc")
+		_, err := BackupDaemonInKubernetes(ctx, fakeClient, om, sts, zap.S())
+		assert.NoError(t, err)
+
+		svc, err := fakeClient.GetService(ctx, kube.ObjectKey(om.Namespace, "backup-daemon-svc"))
+		assert.NoError(t, err)
+		assert.Len(t, svc.OwnerReferences, 1,
+			"backup daemon service in single-cluster mode must carry an ownerReference so Kubernetes GC can clean it up")
+	})
+}
+
+// TestOpsManagerInKubernetes_ServiceOwnerReference verifies that the internal and external
+// services created by OpsManagerInKubernetes have no ownerReference in multi-cluster mode.
+// In multi-cluster mode the MongoDBOpsManager CR only exists in the central cluster.
+// A cross-cluster ownerReference causes the Kubernetes garbage collector in remote member
+// clusters to delete those services as orphans.
+func TestOpsManagerInKubernetes_ServiceOwnerReference(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("multi-cluster mode produces no ownerReferences on internal and external services", func(t *testing.T) {
+		om := omv1.NewOpsManagerBuilderDefault().
+			SetName("test-om").
+			SetOpsManagerTopology(mdbv1.ClusterTopologyMultiCluster).
+			SetExternalConnectivity(omv1.MongoDBOpsManagerServiceDefinition{
+				Type: corev1.ServiceTypeLoadBalancer,
+			}).
+			SetAppDBPassword("my-secret", "password").
+			Build()
+
+		fakeClient, _ := mock.NewDefaultFakeClient()
+		secretsClient := secrets.SecretClient{VaultClient: &vault.VaultClient{}, KubeClient: fakeClient}
+		memberCluster := multicluster.GetLegacyCentralMemberCluster(om.Spec.Replicas, 0, fakeClient, secretsClient)
+
+		sts, err := construct.OpsManagerStatefulSet(ctx, secretsClient, om, memberCluster, zap.S())
+		assert.NoError(t, err)
+
+		_, err = OpsManagerInKubernetes(ctx, memberCluster, om, sts, zap.S())
+		assert.NoError(t, err)
+
+		internalSvc, err := fakeClient.GetService(ctx, kube.ObjectKey(om.Namespace, om.SvcName()))
+		assert.NoError(t, err)
+		assert.Empty(t, internalSvc.OwnerReferences,
+			"internal service in a remote member cluster must not carry an ownerReference pointing to the MongoDBOpsManager CR")
+
+		externalSvc, err := fakeClient.GetService(ctx, kube.ObjectKey(om.Namespace, om.ExternalSvcName()))
+		assert.NoError(t, err)
+		assert.Empty(t, externalSvc.OwnerReferences,
+			"external service in a remote member cluster must not carry an ownerReference pointing to the MongoDBOpsManager CR")
+	})
+
+	t.Run("single-cluster mode produces ownerReferences on internal and external services", func(t *testing.T) {
+		om := omv1.NewOpsManagerBuilderDefault().
+			SetName("test-om").
+			SetExternalConnectivity(omv1.MongoDBOpsManagerServiceDefinition{
+				Type: corev1.ServiceTypeLoadBalancer,
+			}).
+			SetAppDBPassword("my-secret", "password").
+			Build()
+
+		fakeClient, _ := mock.NewDefaultFakeClient()
+		secretsClient := secrets.SecretClient{VaultClient: &vault.VaultClient{}, KubeClient: fakeClient}
+		memberCluster := multicluster.GetLegacyCentralMemberCluster(om.Spec.Replicas, 0, fakeClient, secretsClient)
+
+		sts, err := construct.OpsManagerStatefulSet(ctx, secretsClient, om, memberCluster, zap.S())
+		assert.NoError(t, err)
+
+		_, err = OpsManagerInKubernetes(ctx, memberCluster, om, sts, zap.S())
+		assert.NoError(t, err)
+
+		internalSvc, err := fakeClient.GetService(ctx, kube.ObjectKey(om.Namespace, om.SvcName()))
+		assert.NoError(t, err)
+		assert.Len(t, internalSvc.OwnerReferences, 1,
+			"internal service in single-cluster mode must carry an ownerReference so Kubernetes GC can clean it up")
+
+		externalSvc, err := fakeClient.GetService(ctx, kube.ObjectKey(om.Namespace, om.ExternalSvcName()))
+		assert.NoError(t, err)
+		assert.Len(t, externalSvc.OwnerReferences, 1,
+			"external service in single-cluster mode must carry an ownerReference so Kubernetes GC can clean it up")
+	})
 }
 
 func TestCheckStatefulsetIsDeleted(t *testing.T) {

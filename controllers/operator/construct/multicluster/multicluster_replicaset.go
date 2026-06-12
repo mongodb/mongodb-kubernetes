@@ -26,6 +26,7 @@ func MultiClusterReplicaSetOptions(additionalOpts ...func(options *construct.Dat
 			AgentConfig:                   &mdbm.Spec.Agent,
 			PodSpec:                       construct.NewDefaultPodSpecWrapper(*mdbv1.NewMongoDbPodSpec()),
 			Labels:                        mdbm.GetOwnerLabels(),
+			OwnerReference:                nil,
 			MultiClusterMode:              true,
 			HostNameOverrideConfigmapName: mdbm.GetHostNameOverrideConfigmapName(),
 			StatefulSetSpecOverride:       &stsSpec,

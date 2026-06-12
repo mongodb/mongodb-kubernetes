@@ -241,7 +241,8 @@ func OpsManagerStatefulSet(ctx context.Context, centralClusterSecretClient secre
 	opts := opsManagerOptions(memberCluster, additionalOpts...)(opsManager)
 
 	opts.Annotations = opsManager.Annotations
-	if err := opts.updateHTTPSCertSecret(ctx, centralClusterSecretClient, memberCluster, opsManager.OwnerReferences, log); err != nil {
+
+	if err := opts.updateHTTPSCertSecret(ctx, centralClusterSecretClient, memberCluster, opsManager.OwnerReferenceForMemberCluster(), log); err != nil {
 		return appsv1.StatefulSet{}, err
 	}
 
@@ -275,7 +276,7 @@ func OpsManagerStatefulSet(ctx context.Context, centralClusterSecretClient secre
 // and BackupDaemon StatefulSets
 func getSharedOpsManagerOptions(opsManager *omv1.MongoDBOpsManager) OpsManagerStatefulSetOptions {
 	return OpsManagerStatefulSetOptions{
-		OwnerReference:          kube.BaseOwnerReference(opsManager),
+		OwnerReference:          opsManager.OwnerReferenceForMemberCluster(),
 		OwnerName:               opsManager.Name,
 		HTTPSCertSecretName:     opsManager.TLSCertificateSecretName(),
 		AppDBTlsCAConfigMapName: opsManager.Spec.AppDB.GetCAConfigMapName(),

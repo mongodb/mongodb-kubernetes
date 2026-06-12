@@ -2914,6 +2914,8 @@ func (r *ShardedClusterReconcileHelper) createHeadlessServiceForStatefulSet(ctx 
 	headlessServiceName := dns.GetMultiHeadlessServiceName(stsName, memberCluster.Index)
 	nameSpacedName := kube.ObjectKey(r.sc.Namespace, headlessServiceName)
 	headlessService := create.BuildService(nameSpacedName, r.sc, ptr.To(headlessServiceName), nil, port, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
+	headlessService.OwnerReferences = r.sc.OwnerReferenceForMemberCluster()
+
 	if err := service.CreateOrUpdateService(ctx, memberCluster.Client, headlessService); err != nil && !errors.IsAlreadyExists(err) {
 		return xerrors.Errorf("failed to create pod service %s in cluster: %s, err: %w", headlessService.Name, memberCluster.Name, err)
 	}

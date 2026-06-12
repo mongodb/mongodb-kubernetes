@@ -247,7 +247,7 @@ func shardedOptions(cfg shardedOptionCfg, additionalOpts ...func(options *Databa
 		ServiceName:             cfg.serviceName,
 		PodSpec:                 NewDefaultPodSpecWrapper(podSpec),
 		ServicePort:             cfg.componentSpec.GetAdditionalMongodConfig().GetPortOrDefault(),
-		OwnerReference:          kube.BaseOwnerReference(&cfg.mdb),
+		OwnerReference:          cfg.mdb.OwnerReferenceForMemberCluster(),
 		AgentConfig:             cfg.componentSpec.GetAgentConfig(),
 		StatefulSetSpecOverride: statefulSetSpecOverride,
 		Labels:                  cfg.mdb.Labels,

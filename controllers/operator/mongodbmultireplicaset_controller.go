@@ -949,6 +949,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileServices(ctx context.Context,
 		headlessServiceName := mrs.MultiHeadlessServiceName(mrs.ClusterNum(e.ClusterName))
 		nameSpacedName := kube.ObjectKey(mrs.Namespace, headlessServiceName)
 		headlessService := create.BuildService(nameSpacedName, mrs, ptr.To(headlessServiceName), nil, mrs.Spec.AdditionalMongodConfig.GetPortOrDefault(), omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
+		headlessService.OwnerReferences = nil
 		if err := ensureHeadlessService(ctx, client, headlessService, e.ClusterName); err != nil {
 			return err
 		}
