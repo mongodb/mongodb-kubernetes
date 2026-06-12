@@ -125,9 +125,11 @@ func MutateSearchState(ctx context.Context, c kubernetesClient.Client, search *s
 	return state, c.Update(ctx, cm)
 }
 
-// searchRoutingLatch implements routingReadyLatch on the search state ConfigMap.
-// state is the snapshot loaded at reconcile start, refreshed on every successful
-// write.
+// searchRoutingLatch is the one-way per-shard routing-readiness latch persisted
+// in the search state ConfigMap: once a shard is marked routing-ready it never
+// re-enters fallback routing; entries are pruned only when the shard no longer
+// exists. state is the snapshot loaded at reconcile start, refreshed on every
+// successful write.
 type searchRoutingLatch struct {
 	client kubernetesClient.Client
 	search *searchv1.MongoDBSearch

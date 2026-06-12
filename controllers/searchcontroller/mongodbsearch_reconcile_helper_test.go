@@ -2,6 +2,7 @@ package searchcontroller
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -94,39 +96,6 @@ func newTestFakeClient(objects ...client.Object) kubernetesClient.Client {
 
 	clientBuilder.WithObjects(objects...)
 	return kubernetesClient.NewClient(clientBuilder.Build())
-}
-
-// fakeRoutingLatch is an in-memory routingReadyLatch for tests.
-type fakeRoutingLatch struct {
-	ready   map[string]bool
-	markErr map[string]error // per-shard MarkRoutingReady error injection
-}
-
-func newFakeRoutingLatch(readyShards ...string) *fakeRoutingLatch {
-	f := &fakeRoutingLatch{ready: map[string]bool{}, markErr: map[string]error{}}
-	for _, shard := range readyShards {
-		f.ready[shard] = true
-	}
-	return f
-}
-
-func (f *fakeRoutingLatch) IsRoutingReady(shardName string) bool { return f.ready[shardName] }
-
-func (f *fakeRoutingLatch) MarkRoutingReady(_ context.Context, shardName string) error {
-	if err := f.markErr[shardName]; err != nil {
-		return err
-	}
-	f.ready[shardName] = true
-	return nil
-}
-
-func (f *fakeRoutingLatch) PruneRoutingReady(_ context.Context, liveShardNames []string) error {
-	for shard := range f.ready {
-		if !slices.Contains(liveShardNames, shard) {
-			delete(f.ready, shard)
-		}
-	}
-	return nil
 }
 
 func reconcileMongoDBSearch(ctx context.Context, fakeClient kubernetesClient.Client, mdbSearch *searchv1.MongoDBSearch, mdbc *mdbcv1.MongoDBCommunity, operatorConfig OperatorSearchConfig) workflow.Status {
@@ -3035,7 +3004,7 @@ func TestReconcileShardedMC_AllUnitsAppliedBeforeReadinessCheck(t *testing.T) {
 		},
 		clusterMapping:       map[string]int{"cluster-a": 0, "cluster-b": 1},
 		operatorSearchConfig: newTestOperatorSearchConfig(),
-		routingLatch:         newFakeRoutingLatch(),
+		routingLatch:         &searchRoutingLatch{client: centralClient, search: search, state: NewSearchDeploymentState()},
 	}
 
 	st := r.reconcile(t.Context(), zap.S())
@@ -3157,7 +3126,7 @@ func (f *mcShardedFixture) newHelper() *MongoDBSearchReconcileHelper {
 		memberClusterClients: f.members,
 		clusterMapping:       f.clusterMapping,
 		operatorSearchConfig: newTestOperatorSearchConfig(),
-		routingLatch:         newFakeRoutingLatch(),
+		routingLatch:         &searchRoutingLatch{client: f.central, search: f.search, state: NewSearchDeploymentState()},
 	}
 }
 
@@ -3485,9 +3454,10 @@ func TestReconcileSharded_RoutingLatchOneWay(t *testing.T) {
 	fakeClient := newTestFakeClient(objects...)
 
 	// Pre-latched entry for a shard that no longer exists — must be pruned.
-	latch := newFakeRoutingLatch("sh-removed")
-	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, source, newTestOperatorSearchConfig(), nil, nil)
-	helper.routingLatch = latch
+	state := NewSearchDeploymentState()
+	state.RoutingReadyMongotGroups = []string{"sh-removed"}
+	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, source, newTestOperatorSearchConfig(), nil, state)
+	latch := helper.routingLatch
 
 	// Pass 1: STSs created, none routing-ready.
 	helper.Reconcile(t.Context(), zap.S())
@@ -3559,12 +3529,36 @@ func TestReconcileSharded_LatchErrorsAggregatedAcrossUnits(t *testing.T) {
 			Data: map[string][]byte{"tls.crt": []byte("dummy-cert"), "tls.key": []byte("dummy-key")},
 		})
 	}
-	fakeClient := newTestFakeClient(objects...)
-
-	latch := newFakeRoutingLatch()
-	latch.markErr["sh-0"] = fmt.Errorf("injected latch write failure for sh-0")
+	// Fail any state-CM write that would latch sh-0; sh-1's writes pass through.
+	injectedErr := fmt.Errorf("injected latch write failure for sh-0")
+	latchesSh0 := func(obj client.Object) bool {
+		cm, ok := obj.(*corev1.ConfigMap)
+		if !ok || cm.Name != SearchStateCMName(search) {
+			return false
+		}
+		var st SearchDeploymentState
+		if json.Unmarshal([]byte(cm.Data[searchStateKey]), &st) != nil {
+			return false
+		}
+		return slices.Contains(st.RoutingReadyMongotGroups, "sh-0")
+	}
+	base := mock.NewEmptyFakeClientBuilder().WithObjects(objects...).Build()
+	fakeClient := kubernetesClient.NewClient(interceptor.NewClient(base, interceptor.Funcs{
+		Create: func(ctx context.Context, cl client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+			if latchesSh0(obj) {
+				return injectedErr
+			}
+			return cl.Create(ctx, obj, opts...)
+		},
+		Update: func(ctx context.Context, cl client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+			if latchesSh0(obj) {
+				return injectedErr
+			}
+			return cl.Update(ctx, obj, opts...)
+		},
+	}))
 	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, source, newTestOperatorSearchConfig(), nil, nil)
-	helper.routingLatch = latch
+	latch := helper.routingLatch
 
 	// Both shards meet the threshold; sh-0's latch write fails.
 	helper.reconcile(t.Context(), zap.S())

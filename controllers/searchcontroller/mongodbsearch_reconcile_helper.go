@@ -76,16 +76,6 @@ type OperatorSearchConfig struct {
 	SearchVersion string
 }
 
-// routingReadyLatch is the one-way per-shard routing-readiness latch persisted in
-// the search state ConfigMap. Once a shard is marked routing-ready it never
-// re-enters fallback routing; entries are pruned only when the shard no longer
-// exists. Interface seam for tests; production uses searchRoutingLatch.
-type routingReadyLatch interface {
-	IsRoutingReady(shardName string) bool
-	MarkRoutingReady(ctx context.Context, shardName string) error
-	PruneRoutingReady(ctx context.Context, liveShardNames []string) error
-}
-
 type MongoDBSearchReconcileHelper struct {
 	client               kubernetesClient.Client
 	mdbSearch            *searchv1.MongoDBSearch
@@ -101,7 +91,7 @@ type MongoDBSearchReconcileHelper struct {
 	// so spec.clusters[] reorders don't rename resources.
 	clusterMapping map[string]int
 
-	routingLatch routingReadyLatch
+	routingLatch *searchRoutingLatch
 }
 
 // NewMongoDBSearchReconcileHelper constructs a reconcile helper. Pass nil for
@@ -741,7 +731,8 @@ func (r *MongoDBSearchReconcileHelper) markRoutingReadyIfThresholdMet(ctx contex
 	if err := r.routingLatch.MarkRoutingReady(ctx, unit.shardName); err != nil {
 		return err
 	}
-	log.Infof("Marked shard %q routing-ready (%d/%d replicas ready)", unit.shardName, sts.Status.ReadyReplicas, minReady)
+	log.Infof("Marked shard %q routing-ready: %d of %d replicas ready, min required %d",
+		unit.shardName, sts.Status.ReadyReplicas, ptr.Deref(sts.Spec.Replicas, 1), minReady)
 	return nil
 }
 
