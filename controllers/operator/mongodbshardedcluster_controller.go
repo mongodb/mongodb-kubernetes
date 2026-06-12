@@ -1049,7 +1049,12 @@ func (r *ShardedClusterReconcileHelper) applySearchParametersForShards(ctx conte
 		}
 	}
 
-	// Apply search configuration to each shard (all modes: no-LB, unmanaged LB, managed LB)
+	// Apply search configuration to each shard (all modes: no-LB, unmanaged LB, managed LB).
+	// Iterating Spec.ShardCount (not the achieved count) is safe during a shard-count
+	// reduction: a draining shard's processes stay in the automation config until drain
+	// phase 2, and MergeShardedCluster does not touch them in phase 1, so the mongotHost
+	// setParameter written here in a prior reconcile survives until the shard is removed.
+	// See TestMergeShardedCluster_DrainingShardRetainsSearchParam.
 	for shardIdx := 0; shardIdx < sc.Spec.ShardCount; shardIdx++ {
 		shardName := shardNames[shardIdx]
 		shardConfig := r.desiredShardsConfiguration[shardIdx]
@@ -1070,9 +1075,10 @@ func (r *ShardedClusterReconcileHelper) applySearchParametersForShards(ctx conte
 		r.desiredMongosConfiguration.AdditionalMongodConfig = mdbv1.NewEmptyAdditionalMongodConfig()
 	}
 
-	// clusterIndex=0: operator-managed sharded source is single-cluster only at MVP.
-	// Q1-MC sharded would need per-cluster mongos config (gated on ShardOverrides API redesign).
-	searchMongosConfig := searchcontroller.GetMongosConfigParametersForSharded(search, 0, shardNames, sc.Spec.GetClusterDomain())
+	// clusterName="", clusterIndex=0: operator-managed sharded source is single-cluster
+	// only at MVP. Q1-MC sharded would need per-cluster mongos config (gated on
+	// ShardOverrides API redesign).
+	searchMongosConfig := searchcontroller.GetMongosConfigParametersForSharded(search, "", 0, shardNames, sc.Spec.GetClusterDomain())
 	r.desiredMongosConfiguration.AdditionalMongodConfig.AddOption("setParameter", searchMongosConfig["setParameter"])
 
 	log.Infof("Applied search config for mongos: mongotHost=%v", searchMongosConfig["setParameter"])

@@ -15,6 +15,7 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -57,6 +58,19 @@ func seedSearchStateCM(t *testing.T, ctx context.Context, c client.Client, searc
 		Data: map[string]string{stateKey: string(raw)},
 	}
 	require.NoError(t, c.Create(ctx, cm))
+}
+
+// notFound / exists assert the (non-)existence of a namespace "ns" object by
+// name, collapsing the repeated Get + IsNotFound 2-liners across the sweep tests.
+func notFound(t *testing.T, c client.Client, obj client.Object, name string) {
+	t.Helper()
+	err := c.Get(context.Background(), types.NamespacedName{Name: name, Namespace: "ns"}, obj)
+	require.True(t, apierrors.IsNotFound(err), "%s must be deleted, got err=%v", name, err)
+}
+
+func exists(t *testing.T, c client.Client, obj client.Object, name string) {
+	t.Helper()
+	require.NoError(t, c.Get(context.Background(), types.NamespacedName{Name: name, Namespace: "ns"}, obj), "%s must survive the sweep", name)
 }
 
 func TestBuildReplicaSetRoute(t *testing.T) {
@@ -475,6 +489,62 @@ func TestBuildRoutesForCluster_RS_TemplateSubstitutesClusterName(t *testing.T) {
 	assert.Equal(t, "mongot-us-east-k8s.example.com", routes[0].SNIHostname)
 }
 
+// TestBuildRoutesForCluster_RS_SurvivingClusterAfterRemoval is the route-level
+// regression for the index-space bug (KUBE-114 lifecycle): cluster "b" was
+// removed, so spec.clusters is [a, c] but the surviving cluster "c" keeps its
+// PERSISTED index 2. The envoy controller passes (clusterName="c", index=2). The
+// SNI hostname must substitute c's name and index 2 — no positional Spec.Clusters[2]
+// lookup (which would be out of range and leave the template raw) and no `{` residue.
+func TestBuildRoutesForCluster_RS_SurvivingClusterAfterRemoval(t *testing.T) {
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "test-ns"},
+		Spec: searchv1.MongoDBSearchSpec{
+			// "b" removed; only a (idx 0) and c (persisted idx 2) remain in spec.
+			Clusters: []searchv1.ClusterSpec{
+				{ClusterName: "a"},
+				{ClusterName: "c"},
+			},
+			LoadBalancer: &searchv1.LoadBalancerConfig{
+				Managed: &searchv1.ManagedLBConfig{
+					ExternalHostname: "mongot-{clusterName}-{clusterIndex}.example.com",
+				},
+			},
+		},
+	}
+
+	// Persisted index for surviving cluster "c" is 2 (append-only mapping {a:0,b:1,c:2}).
+	routes := buildRoutesForCluster(search, nil, 2, "c")
+	require.Len(t, routes, 1)
+	assert.Equal(t, "c", routes[0].ClusterID)
+	assert.Equal(t, "mongot-c-2.example.com", routes[0].SNIHostname,
+		"surviving cluster must resolve its own name + persisted index after a non-last removal")
+	assert.NotContains(t, routes[0].SNIHostname, "{", "no unresolved placeholder may remain in the SNI hostname")
+}
+
+// TestBuildRoutesForCluster_RS_NamedSingleClusterResolvesName pins the
+// named-single-cluster regression: a single named cluster reconciled by an
+// operator with no member clients gets clusterName "" from buildClusterWorkList,
+// but a {clusterName} template must still resolve to the spec's single cluster
+// name in the SNI hostname — never render the placeholder literally.
+func TestBuildRoutesForCluster_RS_NamedSingleClusterResolvesName(t *testing.T) {
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "test-ns"},
+		Spec: searchv1.MongoDBSearchSpec{
+			Clusters: []searchv1.ClusterSpec{{ClusterName: "x"}},
+			LoadBalancer: &searchv1.LoadBalancerConfig{
+				Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot-{clusterName}.example.com"},
+			},
+		},
+	}
+
+	// Single-cluster path: buildClusterWorkList hands the reconciler clusterName "".
+	routes := buildRoutesForCluster(search, nil, 0, "")
+	require.Len(t, routes, 1)
+	assert.Equal(t, "mongot-x.example.com", routes[0].SNIHostname,
+		"named single cluster must resolve {clusterName} from spec.clusters[0]")
+	assert.NotContains(t, routes[0].SNIHostname, "{", "no unresolved placeholder may remain in the SNI hostname")
+}
+
 func TestBuildRoutesForCluster_RS_NoTemplateUsesPerClusterProxySvcFQDN(t *testing.T) {
 	one := int32(1)
 	search := &searchv1.MongoDBSearch{
@@ -514,6 +584,7 @@ type mockShardedSourceForEnvoy struct {
 
 func (m *mockShardedSourceForEnvoy) GetShardCount() int      { return len(m.shardNames) }
 func (m *mockShardedSourceForEnvoy) GetShardNames() []string { return m.shardNames }
+func (m *mockShardedSourceForEnvoy) DrainingShardCount() int { return 0 }
 func (m *mockShardedSourceForEnvoy) GetUnmanagedLBEndpointForShard(_ string) string {
 	return ""
 }
@@ -1101,6 +1172,64 @@ func TestEnsureDeployment_Replicas(t *testing.T) {
 	}
 }
 
+// The component label must stay confined to ObjectMeta — in the immutable
+// selector or the pod-template labels a value change would churn pods. The
+// fake client doesn't enforce selector immutability, so the explicit
+// selector/pod-template assertions below are the guard, not a reconcile error.
+func TestEnsureDeployment_ComponentLabelUpdatedInPlace(t *testing.T) {
+	ctx := context.Background()
+	scheme := envoyTestScheme(t)
+	central := fake.NewClientBuilder().WithScheme(scheme).Build()
+	memberA := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", map[string]client.Client{"a": memberA})
+
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"},
+		Spec: searchv1.MongoDBSearchSpec{
+			LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{}},
+			Clusters:     []searchv1.ClusterSpec{{ClusterName: "a"}},
+		},
+	}
+
+	// Pre-existing Deployment created before the rename: OLD component value on
+	// ObjectMeta, app-only selector + pod template (component never lived there).
+	podLabels := map[string]string{"app": search.LoadBalancerDeploymentNameForCluster(0)}
+	preExisting := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      search.LoadBalancerDeploymentNameForCluster(0),
+			Namespace: "ns",
+			Labels:    map[string]string{"app": podLabels["app"], "component": "search-proxy"},
+		},
+		Spec: appsv1.DeploymentSpec{
+			Selector: &metav1.LabelSelector{MatchLabels: podLabels},
+			Template: corev1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{Labels: podLabels}},
+		},
+	}
+	require.NoError(t, memberA.Create(ctx, preExisting))
+
+	// Reconcile the Deployment — must update the immutable-free metadata label.
+	require.NoError(t, r.ensureDeployment(ctx, search, `{"x":1}`, "a", 0, r.memberClusterClientsMap["a"], nil, zap.S()))
+
+	updated := &appsv1.Deployment{}
+	require.NoError(t, memberA.Get(ctx,
+		types.NamespacedName{Name: search.LoadBalancerDeploymentNameForCluster(0), Namespace: "ns"}, updated))
+
+	// ObjectMeta label flipped to the new value in place.
+	assert.Equal(t, envoyComponent, updated.Labels["component"],
+		"ObjectMeta component label must update in place to the new value")
+
+	// Selector must not carry the component label — it is immutable on a real
+	// API server, so a value here would break the next reconcile.
+	require.NotNil(t, updated.Spec.Selector)
+	_, selHasComponent := updated.Spec.Selector.MatchLabels["component"]
+	assert.False(t, selHasComponent, "selector must not carry the component label")
+
+	// Pod-template labels must not carry the component label (would churn pods).
+	_, tmplHasComponent := updated.Spec.Template.Labels["component"]
+	assert.False(t, tmplHasComponent, "pod-template labels must not carry the component label")
+}
+
 // --- end-to-end Reconcile + status aggregation -------------------------------
 
 // TestReconcile_WorstOfPhase_Aggregated exercises the full Reconcile path:
@@ -1396,7 +1525,10 @@ func TestReconcile_StableIndexAcrossClusterRemovals(t *testing.T) {
 		"b Deployment must retain index 1 after a is removed from spec.clusters")
 }
 
-func TestDeleteEnvoyResources_MCFanOut(t *testing.T) {
+// TestDeleteEnvoyResourcesExcept_TeardownMCFanOut exercises the managed→unmanaged
+// LB transition path: an empty expected set tears down every owned Envoy resource
+// across all member clusters.
+func TestDeleteEnvoyResourcesExcept_TeardownMCFanOut(t *testing.T) {
 	ctx := context.Background()
 	scheme := envoyTestScheme(t)
 	central := fake.NewClientBuilder().WithScheme(scheme).Build()
@@ -1404,44 +1536,54 @@ func TestDeleteEnvoyResources_MCFanOut(t *testing.T) {
 	search := &searchv1.MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"},
 	}
-	depA := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: search.LoadBalancerDeploymentNameForCluster(0), Namespace: "ns"}}
-	cmA := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: search.LoadBalancerConfigMapNameForCluster(0), Namespace: "ns"}}
-	depB := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: search.LoadBalancerDeploymentNameForCluster(1), Namespace: "ns"}}
-	cmB := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: search.LoadBalancerConfigMapNameForCluster(1), Namespace: "ns"}}
-	memberA := fake.NewClientBuilder().WithScheme(scheme).WithObjects(depA, cmA).Build()
-	memberB := fake.NewClientBuilder().WithScheme(scheme).WithObjects(depB, cmB).Build()
+	memberA := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+		envoyDepWithLabels(search, "a", 0),
+		envoyCMWithLabels(search, "a", 0),
+	).Build()
+	memberB := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+		envoyDepWithLabels(search, "b", 1),
+		envoyCMWithLabels(search, "b", 1),
+	).Build()
 
 	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", map[string]client.Client{"a": memberA, "b": memberB})
 
-	workList := []clusterWorkItem{
-		{ClusterName: "a", ClusterIndex: 0, Client: r.memberClusterClientsMap["a"]},
-		{ClusterName: "b", ClusterIndex: 1, Client: r.memberClusterClientsMap["b"]},
-	}
-	r.deleteEnvoyResources(ctx, search, workList, zap.S())
+	// Empty expected set => tear everything down.
+	require.NoError(t, r.deleteAllEnvoyResources(ctx, search, zap.S()))
 
 	// Both member clusters: Deployment + ConfigMap gone at their respective indices.
-	assert.True(t, apierrors.IsNotFound(memberA.Get(ctx,
-		types.NamespacedName{Name: search.LoadBalancerDeploymentNameForCluster(0), Namespace: "ns"}, &appsv1.Deployment{})))
-	assert.True(t, apierrors.IsNotFound(memberA.Get(ctx,
-		types.NamespacedName{Name: search.LoadBalancerConfigMapNameForCluster(0), Namespace: "ns"}, &corev1.ConfigMap{})))
-	assert.True(t, apierrors.IsNotFound(memberB.Get(ctx,
-		types.NamespacedName{Name: search.LoadBalancerDeploymentNameForCluster(1), Namespace: "ns"}, &appsv1.Deployment{})))
-	assert.True(t, apierrors.IsNotFound(memberB.Get(ctx,
-		types.NamespacedName{Name: search.LoadBalancerConfigMapNameForCluster(1), Namespace: "ns"}, &corev1.ConfigMap{})))
+	notFound(t, memberA, &appsv1.Deployment{}, search.LoadBalancerDeploymentNameForCluster(0))
+	notFound(t, memberA, &corev1.ConfigMap{}, search.LoadBalancerConfigMapNameForCluster(0))
+	notFound(t, memberB, &appsv1.Deployment{}, search.LoadBalancerDeploymentNameForCluster(1))
+	notFound(t, memberB, &corev1.ConfigMap{}, search.LoadBalancerConfigMapNameForCluster(1))
 }
 
-func TestDeleteEnvoyResources_SkipsUnregisteredCluster(t *testing.T) {
+// TestDeleteEnvoyResourcesExcept_TeardownSkipsForeign asserts the teardown path
+// still respects ownership: a foreign resource (no owner labels) survives a full
+// teardown even though its name is not in the expected set.
+func TestDeleteEnvoyResourcesExcept_TeardownSkipsForeign(t *testing.T) {
 	ctx := context.Background()
 	scheme := envoyTestScheme(t)
 	central := fake.NewClientBuilder().WithScheme(scheme).Build()
-	memberA := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+	search := &searchv1.MongoDBSearch{ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"}}
+	foreignDep := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "other-search-search-lb-0-0",
+			Namespace: "ns",
+			Labels:    map[string]string{"component": envoyComponent},
+		},
+	}
+	memberA := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+		envoyDepWithLabels(search, "a", 0),
+		foreignDep,
+	).Build()
 
 	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", map[string]client.Client{"a": memberA})
-	search := &searchv1.MongoDBSearch{ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"}}
+	require.NoError(t, r.deleteAllEnvoyResources(ctx, search, zap.S()))
 
-	r.deleteEnvoyResources(ctx, search, []clusterWorkItem{
-		{ClusterName: "a", ClusterIndex: -1, Client: r.memberClusterClientsMap["a"]},
-	}, zap.S())
+	// Our own resource torn down; foreign resource survives.
+	notFound(t, memberA, &appsv1.Deployment{}, search.LoadBalancerDeploymentNameForCluster(0))
+	exists(t, memberA, &appsv1.Deployment{}, foreignDep.Name)
 }
 
 // failingWriteClient wraps a client.Client and rejects every write so we can
@@ -1460,4 +1602,295 @@ func (f failingWriteClient) Update(_ context.Context, _ client.Object, _ ...clie
 
 func (f failingWriteClient) Patch(_ context.Context, _ client.Object, _ client.Patch, _ ...client.PatchOption) error {
 	return fmt.Errorf("simulated write failure")
+}
+
+// envoyDepWithLabels builds an Envoy Deployment object carrying the
+// component + owner labels for the given search/cluster, so tests can seed
+// pre-existing per-cluster resources the sweep is expected to find.
+func envoyDepWithLabels(search *searchv1.MongoDBSearch, clusterName string, clusterIndex int) *appsv1.Deployment {
+	return &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      search.LoadBalancerDeploymentNameForCluster(clusterIndex),
+			Namespace: search.Namespace,
+			Labels:    envoyLabelsForCluster(search, clusterName, clusterIndex),
+		},
+	}
+}
+
+func envoyCMWithLabels(search *searchv1.MongoDBSearch, clusterName string, clusterIndex int) *corev1.ConfigMap {
+	return &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      search.LoadBalancerConfigMapNameForCluster(clusterIndex),
+			Namespace: search.Namespace,
+			Labels:    envoyLabelsForCluster(search, clusterName, clusterIndex),
+		},
+	}
+}
+
+// TestSweepStaleEnvoyResources_RemovedCluster covers the core gap (KUBE-114):
+// cluster "b" is removed from spec.clusters[] but still present in the persisted
+// mapping. The sweep must delete b's Envoy Deployment + ConfigMap from member b
+// while leaving a's resources untouched.
+func TestSweepStaleEnvoyResources_RemovedCluster(t *testing.T) {
+	ctx := context.Background()
+	scheme := envoyTestScheme(t)
+
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns", UID: "abc"},
+		Spec: searchv1.MongoDBSearchSpec{
+			// "b" has been removed from spec; only "a" remains.
+			Clusters: []searchv1.ClusterSpec{{ClusterName: "a"}},
+		},
+	}
+
+	memberA := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+		envoyDepWithLabels(search, "a", 0),
+		envoyCMWithLabels(search, "a", 0),
+	).Build()
+	// member b still hosts its index-1 Envoy resources from before the removal.
+	memberB := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+		envoyDepWithLabels(search, "b", 1),
+		envoyCMWithLabels(search, "b", 1),
+	).Build()
+
+	central := fake.NewClientBuilder().WithScheme(scheme).Build()
+	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", map[string]client.Client{
+		"a": memberA,
+		"b": memberB,
+	})
+
+	// Mapping is append-only: removed "b" keeps its entry at index 1.
+	mapping := map[string]int{"a": 0, "b": 1}
+	require.NoError(t, r.sweepStaleEnvoyResources(ctx, search, mapping, zap.S()))
+
+	// a's resources (current spec, index 0) untouched.
+	exists(t, memberA, &appsv1.Deployment{}, search.LoadBalancerDeploymentNameForCluster(0))
+	exists(t, memberA, &corev1.ConfigMap{}, search.LoadBalancerConfigMapNameForCluster(0))
+
+	// b's resources (removed cluster, index 1) swept.
+	notFound(t, memberB, &appsv1.Deployment{}, search.LoadBalancerDeploymentNameForCluster(1))
+	notFound(t, memberB, &corev1.ConfigMap{}, search.LoadBalancerConfigMapNameForCluster(1))
+}
+
+// TestSweepStaleEnvoyResources_StaleIndexLeftovers covers rename / index-change
+// leftovers: a still-listed cluster "a" currently at index 0 has orphaned
+// resources at a different index 9 (from a previous mapping). The stale index-9
+// resources must be swept while the current index-0 resources survive.
+func TestSweepStaleEnvoyResources_StaleIndexLeftovers(t *testing.T) {
+	ctx := context.Background()
+	scheme := envoyTestScheme(t)
+
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns", UID: "abc"},
+		Spec: searchv1.MongoDBSearchSpec{
+			Clusters: []searchv1.ClusterSpec{{ClusterName: "a"}},
+		},
+	}
+
+	memberA := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+		// Current resources at index 0.
+		envoyDepWithLabels(search, "a", 0),
+		envoyCMWithLabels(search, "a", 0),
+		// Stale leftovers at index 9 (still labeled as owned by this search).
+		envoyDepWithLabels(search, "a", 9),
+		envoyCMWithLabels(search, "a", 9),
+	).Build()
+
+	central := fake.NewClientBuilder().WithScheme(scheme).Build()
+	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", map[string]client.Client{"a": memberA})
+
+	mapping := map[string]int{"a": 0}
+	require.NoError(t, r.sweepStaleEnvoyResources(ctx, search, mapping, zap.S()))
+
+	// Current index-0 resources untouched.
+	exists(t, memberA, &appsv1.Deployment{}, search.LoadBalancerDeploymentNameForCluster(0))
+	exists(t, memberA, &corev1.ConfigMap{}, search.LoadBalancerConfigMapNameForCluster(0))
+
+	// Stale index-9 leftovers swept.
+	notFound(t, memberA, &appsv1.Deployment{}, search.LoadBalancerDeploymentNameForCluster(9))
+	notFound(t, memberA, &corev1.ConfigMap{}, search.LoadBalancerConfigMapNameForCluster(9))
+}
+
+// TestSweepStaleEnvoyResources_ForeignResourcesUntouched asserts the sweep only
+// deletes resources it owns. A foreign Deployment + ConfigMap with NO owner
+// labels (different owner) but carrying the search-envoy component label must be
+// left alone even though their names are not in the expected set.
+func TestSweepStaleEnvoyResources_ForeignResourcesUntouched(t *testing.T) {
+	ctx := context.Background()
+	scheme := envoyTestScheme(t)
+
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns", UID: "abc"},
+		Spec: searchv1.MongoDBSearchSpec{
+			Clusters: []searchv1.ClusterSpec{{ClusterName: "a"}},
+		},
+	}
+
+	// Foreign resources: component label present (so List finds them), but no
+	// owner-name/namespace labels — owned by some other search CR.
+	foreignDep := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "other-search-search-lb-0-1",
+			Namespace: "ns",
+			Labels:    map[string]string{"component": envoyComponent},
+		},
+	}
+	foreignCM := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "other-search-search-lb-0-1-config",
+			Namespace: "ns",
+			Labels:    map[string]string{"component": envoyComponent},
+		},
+	}
+
+	memberA := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+		envoyDepWithLabels(search, "a", 0),
+		envoyCMWithLabels(search, "a", 0),
+		foreignDep,
+		foreignCM,
+	).Build()
+
+	central := fake.NewClientBuilder().WithScheme(scheme).Build()
+	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", map[string]client.Client{"a": memberA})
+
+	require.NoError(t, r.sweepStaleEnvoyResources(ctx, search, map[string]int{"a": 0}, zap.S()))
+
+	// Foreign resources untouched (not owned by this search).
+	exists(t, memberA, &appsv1.Deployment{}, foreignDep.Name)
+	exists(t, memberA, &corev1.ConfigMap{}, foreignCM.Name)
+
+	// Our own current resources still present.
+	exists(t, memberA, &appsv1.Deployment{}, search.LoadBalancerDeploymentNameForCluster(0))
+}
+
+// TestSweepStaleEnvoyResources_BestEffortAcrossClusters asserts a broken member
+// cluster (List fails) yields an aggregated error naming that cluster but does
+// NOT stop the healthy member from being swept.
+func TestSweepStaleEnvoyResources_BestEffortAcrossClusters(t *testing.T) {
+	ctx := context.Background()
+	scheme := envoyTestScheme(t)
+
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns", UID: "abc"},
+		Spec: searchv1.MongoDBSearchSpec{
+			Clusters: []searchv1.ClusterSpec{{ClusterName: "a"}},
+		},
+	}
+
+	// Healthy member a hosts a stale index-1 Deployment that must still be swept.
+	memberA := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+		envoyDepWithLabels(search, "a", 0),
+		envoyCMWithLabels(search, "a", 0),
+		envoyDepWithLabels(search, "a", 1),
+	).Build()
+	// Member b's client fails every List.
+	memberB := fake.NewClientBuilder().WithScheme(scheme).WithInterceptorFuncs(interceptor.Funcs{
+		List: func(context.Context, client.WithWatch, client.ObjectList, ...client.ListOption) error {
+			return assert.AnError
+		},
+	}).Build()
+
+	central := fake.NewClientBuilder().WithScheme(scheme).Build()
+	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", map[string]client.Client{"a": memberA, "b": memberB})
+
+	err := r.sweepStaleEnvoyResources(ctx, search, map[string]int{"a": 0, "b": 1}, zap.S())
+	require.Error(t, err, "broken member cluster must surface an aggregated error")
+	assert.Contains(t, err.Error(), `"b"`, "error must name the failing cluster")
+
+	// Despite the broken cluster, member a's stale index-1 Deployment was swept;
+	// its current index-0 resource is untouched.
+	notFound(t, memberA, &appsv1.Deployment{}, search.LoadBalancerDeploymentNameForCluster(1))
+	exists(t, memberA, &appsv1.Deployment{}, search.LoadBalancerDeploymentNameForCluster(0))
+}
+
+// TestSweepStaleEnvoyResources_DeleteErrorAccumulated asserts the per-object
+// error-accumulation branch in deleteIfStale: when Delete on a stale resource
+// fails, the error surfaces (naming the cluster) and the OTHER stale resource on
+// the same cluster is still attempted.
+func TestSweepStaleEnvoyResources_DeleteErrorAccumulated(t *testing.T) {
+	ctx := context.Background()
+	scheme := envoyTestScheme(t)
+
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns", UID: "abc"},
+		Spec: searchv1.MongoDBSearchSpec{
+			Clusters: []searchv1.ClusterSpec{{ClusterName: "a"}},
+		},
+	}
+
+	staleDepName := search.LoadBalancerDeploymentNameForCluster(1)
+	// Member a has a current index-0 set plus a stale index-1 Deployment + CM.
+	// Delete fails only for the stale Deployment; the stale ConfigMap must still
+	// be deleted, and the current index-0 resources must survive.
+	memberA := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+		envoyDepWithLabels(search, "a", 0),
+		envoyCMWithLabels(search, "a", 0),
+		envoyDepWithLabels(search, "a", 1),
+		envoyCMWithLabels(search, "a", 1),
+	).WithInterceptorFuncs(interceptor.Funcs{
+		Delete: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.DeleteOption) error {
+			if obj.GetName() == staleDepName {
+				return assert.AnError
+			}
+			return c.Delete(ctx, obj, opts...)
+		},
+	}).Build()
+
+	central := fake.NewClientBuilder().WithScheme(scheme).Build()
+	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", map[string]client.Client{"a": memberA})
+
+	err := r.sweepStaleEnvoyResources(ctx, search, map[string]int{"a": 0}, zap.S())
+	require.Error(t, err, "stale-resource Delete failure must surface")
+	assert.Contains(t, err.Error(), `"a"`, "error must name the failing cluster")
+
+	// The stale ConfigMap was still deleted despite the Deployment delete failing.
+	notFound(t, memberA, &corev1.ConfigMap{}, search.LoadBalancerConfigMapNameForCluster(1))
+	// Current index-0 resources survive.
+	exists(t, memberA, &appsv1.Deployment{}, search.LoadBalancerDeploymentNameForCluster(0))
+	exists(t, memberA, &corev1.ConfigMap{}, search.LoadBalancerConfigMapNameForCluster(0))
+}
+
+// TestSweepStaleEnvoyResources_CentralOwnerUID asserts the central-cluster path
+// filters by owner UID (owner references), not owner labels: a central-cluster
+// Deployment owned by this search (via owner ref) at a stale index is swept,
+// while a central Deployment owned by a different UID is left alone.
+func TestSweepStaleEnvoyResources_CentralOwnerUID(t *testing.T) {
+	ctx := context.Background()
+	scheme := envoyTestScheme(t)
+
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns", UID: "abc"},
+	}
+
+	ownedStale := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      search.LoadBalancerDeploymentNameForCluster(3),
+			Namespace: "ns",
+			Labels:    map[string]string{"component": envoyComponent},
+			OwnerReferences: []metav1.OwnerReference{
+				{APIVersion: "mongodb.com/v1", Kind: "MongoDBSearch", Name: "mdb-search", UID: "abc"},
+			},
+		},
+	}
+	foreignOwned := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "another-search-search-lb-0-0",
+			Namespace: "ns",
+			Labels:    map[string]string{"component": envoyComponent},
+			OwnerReferences: []metav1.OwnerReference{
+				{APIVersion: "mongodb.com/v1", Kind: "MongoDBSearch", Name: "another-search", UID: "zzz"},
+			},
+		},
+	}
+
+	central := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ownedStale, foreignOwned).Build()
+	// Single-cluster install: no member clients; sweep runs against central only.
+	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", nil)
+
+	// Single-cluster: expected index is 0; the index-3 owned resource is stale.
+	require.NoError(t, r.sweepStaleEnvoyResources(ctx, search, map[string]int{}, zap.S()))
+
+	// Owned-by-UID stale resource swept; resource owned by a different UID untouched.
+	notFound(t, central, &appsv1.Deployment{}, ownedStale.Name)
+	exists(t, central, &appsv1.Deployment{}, foreignOwned.Name)
 }

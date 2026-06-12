@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -57,7 +58,12 @@ const (
 
 	envoyConfigHashAnnotation = "mongodb.com/envoy-config-hash"
 
-	labelName = "search-proxy"
+	componentLabelKey = "component"
+	// envoyComponent is the value of the component metadata label on the Envoy
+	// Deployment and ConfigMap. It doubles as the List selector for the
+	// stale-cluster sweep, so it must be distinct from the mongot proxy Service
+	// component ("search-proxy") used by the search controller.
+	envoyComponent = "search-envoy"
 )
 
 // envoyRoute defines routing information for one Envoy entrypoint.
@@ -112,18 +118,12 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 
 	// TODO: can we find a better cleanup mechanism, and optimize the watching of the loadbalancer field by this controller ?
 	// Only act when lb.mode == Managed.
-	// If LB was previously active (status exists), clean up Envoy resources first.
+	// If LB was previously active (status exists), tear down Envoy resources first.
 	if !mdbSearch.IsLBModeManaged() {
 		if mdbSearch.Status.LoadBalancer != nil {
-			state, _, stErr := loadOrInitSearchState(ctx, r.kubeClient, mdbSearch)
-			var workList []clusterWorkItem
-			if stErr != nil {
-				log.Warnf("Failed to load search state for Envoy cleanup, falling back to central only: %s", stErr)
-				workList = []clusterWorkItem{{ClusterName: "", ClusterIndex: 0, Client: r.kubeClient}}
-			} else {
-				workList = r.buildClusterWorkList(mdbSearch, state.ClusterMapping)
+			if err := r.deleteAllEnvoyResources(ctx, mdbSearch, log); err != nil {
+				log.Warnf("Envoy resource teardown encountered errors (continuing): %s", err)
 			}
-			r.deleteEnvoyResources(ctx, mdbSearch, workList, log)
 			r.clearLBStatus(ctx, mdbSearch, log)
 		}
 		return reconcile.Result{}, nil
@@ -166,6 +166,12 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 		if !st.IsOK() && firstFailure == nil {
 			firstFailure = fmt.Errorf("cluster %q: %s", w.ClusterName, searchcontroller.MessageFromStatus(st))
 		}
+	}
+
+	// Best-effort: delete Envoy resources for clusters removed from spec.clusters[]
+	// (or left under a stale index). Sweep errors never fail the reconcile.
+	if err := r.sweepStaleEnvoyResources(ctx, mdbSearch, state.ClusterMapping, log); err != nil {
+		log.Warnf("Stale Envoy resource sweep encountered errors (continuing): %s", err)
 	}
 
 	if firstFailure != nil {
@@ -289,31 +295,116 @@ func (r *MongoDBSearchEnvoyReconciler) clearLBStatus(ctx context.Context, search
 	}
 }
 
-// deleteEnvoyResources removes per-cluster Envoy resources on managed→unmanaged LB transition.
-// ClusterIndex == -1 sentinel is skipped: the cluster isn't yet in state and could not have created anything.
-func (r *MongoDBSearchEnvoyReconciler) deleteEnvoyResources(ctx context.Context, search *searchv1.MongoDBSearch, workList []clusterWorkItem, log *zap.SugaredLogger) {
-	ns := search.Namespace
-	for _, w := range workList {
+// sweepStaleEnvoyResources deletes Envoy Deployments and ConfigMaps that this
+// search owns but that no longer correspond to a current spec.clusters[] entry
+// at its mapped index. It exists because the persisted ClusterMapping is
+// append-only (indices never reused): a cluster removed from spec.clusters[]
+// keeps its mapping entry, so the reconcile loop (which builds from the current
+// spec) never revisits its index — the Envoy resources leak forever (KUBE-114).
+// The sweep also catches stale-index leftovers from a rename / index change for
+// a still-listed cluster. Best-effort: errors accumulate across clusters and
+// don't fail the reconcile.
+func (r *MongoDBSearchEnvoyReconciler) sweepStaleEnvoyResources(ctx context.Context, search *searchv1.MongoDBSearch, mapping map[string]int, log *zap.SugaredLogger) error {
+	// The expected set is keyed by resource name, which is globally unique per
+	// (search, clusterIndex) — so a single name-keyed set is correct across all
+	// clusters, not per-cluster. Matches the searchcontroller stale sweep.
+	expected := make(map[string]bool)
+	for _, w := range r.buildClusterWorkList(search, mapping) {
 		if w.ClusterIndex == -1 {
 			continue
 		}
-		depName := search.LoadBalancerDeploymentNameForCluster(w.ClusterIndex)
-		cmName := search.LoadBalancerConfigMapNameForCluster(w.ClusterIndex)
-
-		dep := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: depName, Namespace: ns}}
-		if err := w.Client.Delete(ctx, dep); err != nil && !apierrors.IsNotFound(err) {
-			log.Warnf("Failed to delete Envoy Deployment %s (cluster=%q): %s", depName, w.ClusterName, err)
-		} else if err == nil {
-			log.Infof("Deleted Envoy Deployment %s (cluster=%q)", depName, w.ClusterName)
-		}
-
-		cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: cmName, Namespace: ns}}
-		if err := w.Client.Delete(ctx, cm); err != nil && !apierrors.IsNotFound(err) {
-			log.Warnf("Failed to delete Envoy ConfigMap %s (cluster=%q): %s", cmName, w.ClusterName, err)
-		} else if err == nil {
-			log.Infof("Deleted Envoy ConfigMap %s (cluster=%q)", cmName, w.ClusterName)
-		}
+		expected[search.LoadBalancerDeploymentNameForCluster(w.ClusterIndex)] = true
+		expected[search.LoadBalancerConfigMapNameForCluster(w.ClusterIndex)] = true
 	}
+	return r.deleteEnvoyResourcesExcept(ctx, search, expected, log)
+}
+
+// deleteAllEnvoyResources tears down every owned Envoy Deployment / ConfigMap
+// across all clusters. Used on the managed→unmanaged LB transition.
+func (r *MongoDBSearchEnvoyReconciler) deleteAllEnvoyResources(ctx context.Context, search *searchv1.MongoDBSearch, log *zap.SugaredLogger) error {
+	return r.deleteEnvoyResourcesExcept(ctx, search, nil, log)
+}
+
+// deleteEnvoyResourcesExcept deletes every owned Envoy Deployment / ConfigMap
+// whose name is not in expected, across the central client and all member
+// clients (in MC these resources live on the member clusters and aren't GC'd by
+// Kubernetes — owner refs don't cross cluster boundaries). A List/Delete failure
+// on one cluster does not abort the others: per-cluster errors are collected and
+// joined.
+func (r *MongoDBSearchEnvoyReconciler) deleteEnvoyResourcesExcept(ctx context.Context, search *searchv1.MongoDBSearch, expected map[string]bool, log *zap.SugaredLogger) error {
+	clients := map[string]kubernetesClient.Client{"": r.kubeClient}
+	for name, c := range r.memberClusterClientsMap {
+		clients[name] = c
+	}
+
+	var errs []error
+	for clusterName, c := range clients {
+		errs = append(errs, r.deleteEnvoyResourcesExceptInCluster(ctx, search, clusterName, c, expected, log))
+	}
+	return errors.Join(errs...)
+}
+
+// deleteEnvoyResourcesExceptInCluster deletes the not-expected owned Envoy
+// Deployments and ConfigMaps on a single cluster client. clusterName == "" is
+// the central cluster (ownership by owner-UID); a non-empty clusterName is a
+// member cluster (ownership by owner labels).
+func (r *MongoDBSearchEnvoyReconciler) deleteEnvoyResourcesExceptInCluster(
+	ctx context.Context,
+	search *searchv1.MongoDBSearch,
+	clusterName string,
+	c kubernetesClient.Client,
+	expected map[string]bool,
+	log *zap.SugaredLogger,
+) error {
+	selector := client.MatchingLabels{componentLabelKey: envoyComponent}
+
+	depList := &appsv1.DeploymentList{}
+	if err := c.List(ctx, depList, client.InNamespace(search.Namespace), selector); err != nil {
+		return fmt.Errorf("failed to list Envoy Deployments on cluster %q: %w", clusterName, err)
+	}
+	cmList := &corev1.ConfigMapList{}
+	if err := c.List(ctx, cmList, client.InNamespace(search.Namespace), selector); err != nil {
+		return fmt.Errorf("failed to list Envoy ConfigMaps on cluster %q: %w", clusterName, err)
+	}
+
+	var errs []error
+	for i := range depList.Items {
+		errs = append(errs, r.deleteIfStale(ctx, log, clusterName, c, &depList.Items[i], "Deployment", search, expected))
+	}
+	for i := range cmList.Items {
+		errs = append(errs, r.deleteIfStale(ctx, log, clusterName, c, &cmList.Items[i], "ConfigMap", search, expected))
+	}
+	return errors.Join(errs...)
+}
+
+// deleteIfStale deletes obj when it is owned by this search but not in the
+// expected-names set. NotFound on delete is tolerated.
+func (r *MongoDBSearchEnvoyReconciler) deleteIfStale(ctx context.Context, log *zap.SugaredLogger, clusterName string, c kubernetesClient.Client, obj client.Object, kind string, search *searchv1.MongoDBSearch, expected map[string]bool) error {
+	if expected[obj.GetName()] || !r.ownsForSweep(clusterName, obj, search) {
+		return nil
+	}
+	log.Infof("Deleting stale Envoy %s %s on cluster %q", kind, obj.GetName(), clusterName)
+	if err := c.Delete(ctx, obj); err != nil && !apierrors.IsNotFound(err) {
+		return fmt.Errorf("failed to delete stale Envoy %s %s on cluster %q: %w", kind, obj.GetName(), clusterName, err)
+	}
+	return nil
+}
+
+// ownsForSweep reports whether the search owns obj for cleanup purposes: by
+// owner-ref UID on the central cluster, by owner labels on member clusters
+// (owner refs don't cross cluster boundaries).
+func (r *MongoDBSearchEnvoyReconciler) ownsForSweep(clusterName string, obj client.Object, search *searchv1.MongoDBSearch) bool {
+	if clusterName == "" {
+		for _, ref := range obj.GetOwnerReferences() {
+			if ref.UID == search.GetUID() {
+				return true
+			}
+		}
+		return false
+	}
+	labels := obj.GetLabels()
+	return labels[khandler.MongoDBSearchOwnerNameLabel] == search.Name &&
+		labels[khandler.MongoDBSearchOwnerNamespaceLabel] == search.Namespace
 }
 
 // caKeyNameFromTLSConfig returns the CA key filename for Envoy config file paths.
@@ -352,7 +443,7 @@ func buildShardRoutes(search *searchv1.MongoDBSearch, shardNames []string, clust
 		upstreamFQDN := fmt.Sprintf("%s.%s.svc.cluster.local", mongotServiceName, namespace)
 
 		sniHostname := fmt.Sprintf("%s.%s.svc.cluster.local", sniServiceName, namespace)
-		if endpoint := search.GetManagedLBEndpointForClusterShard(clusterIndex, shardName); endpoint != "" {
+		if endpoint := search.GetManagedLBEndpointForClusterShard(clusterName, clusterIndex, shardName); endpoint != "" {
 			sniHostname = endpoint
 		}
 
@@ -372,7 +463,7 @@ func buildShardRoutes(search *searchv1.MongoDBSearch, shardNames []string, clust
 	// the user supplied a managed-LB externalHostname (with {shardName}. prefix stripped).
 	clusterLevelSvcName := search.ProxyServiceNamespacedNameForCluster(clusterIndex).Name
 	clusterLevelSNI := fmt.Sprintf("%s.%s.svc.cluster.local", clusterLevelSvcName, namespace)
-	if endpoint := search.GetManagedLBEndpointForClusterLevel(clusterIndex); endpoint != "" {
+	if endpoint := search.GetManagedLBEndpointForClusterLevel(clusterName, clusterIndex); endpoint != "" {
 		clusterLevelSNI = endpoint
 	}
 
@@ -415,7 +506,7 @@ func buildReplicaSetRouteForCluster(search *searchv1.MongoDBSearch, clusterIndex
 
 	sniServiceName := search.ProxyServiceNamespacedNameForCluster(clusterIndex).Name
 	sniHostname := fmt.Sprintf("%s.%s.svc.cluster.local", sniServiceName, namespace)
-	if endpoint := search.GetManagedLBEndpointForCluster(clusterIndex); endpoint != "" {
+	if endpoint := search.GetManagedLBEndpointForCluster(clusterName, clusterIndex); endpoint != "" {
 		sniHostname = endpoint
 	}
 
@@ -436,7 +527,7 @@ func buildReplicaSetRouteForCluster(search *searchv1.MongoDBSearch, clusterIndex
 // Cross-cluster ownership note: Kubernetes garbage collection does not span
 // clusters, so we only set an OwnerReference when writing into the central
 // cluster (clusterName == ""). Cleanup of member-cluster objects is handled
-// explicitly in deleteEnvoyResources.
+// explicitly by the label-driven sweep (see sweepStaleEnvoyResources).
 func (r *MongoDBSearchEnvoyReconciler) ensureConfigMap(ctx context.Context, search *searchv1.MongoDBSearch, bootstrapJSON, cdsJSON, ldsJSON, clusterName string, clusterIndex int, c kubernetesClient.Client, log *zap.SugaredLogger) error {
 	cm := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
@@ -720,7 +811,7 @@ func defaultEnvoyResourceRequirements() corev1.ResourceRequirements {
 func envoyLabelsForCluster(search *searchv1.MongoDBSearch, clusterName string, clusterIndex int) map[string]string {
 	labels := map[string]string{
 		"app":                                search.LoadBalancerDeploymentNameForCluster(clusterIndex),
-		"component":                          labelName,
+		componentLabelKey:                    envoyComponent,
 		khandler.MongoDBSearchOwnerNameLabel: search.Name,
 		khandler.MongoDBSearchOwnerNamespaceLabel: search.Namespace,
 	}

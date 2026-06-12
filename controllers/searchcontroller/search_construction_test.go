@@ -272,6 +272,24 @@ func TestCreateSearchStatefulSetFunc_StatefulSetOverrideReplacesAntiAffinity(t *
 	assert.Equal(t, map[string]string{"custom": "selector"}, pa.RequiredDuringSchedulingIgnoredDuringExecution[0].LabelSelector.MatchLabels)
 }
 
+// The mongot data PVC is dynamically provisioned and disposable (mongot rebuilds
+// its index from the source on a fresh volume), so the StatefulSet deletes the
+// PVC both when the STS is deleted and when scaled down — preventing orphaned
+// volumes from accumulating after teardown or scale-in.
+func TestCreateSearchStatefulSetFunc_PVCRetentionPolicyDeletesOnDeleteAndScale(t *testing.T) {
+	search := newTestMongoDBSearch("test-search", "default")
+	labels := map[string]string{appLabelKey: "test-search-svc"}
+
+	stsMod, err := CreateSearchStatefulSetFunc(search, "", "test-search-db", "default", "test-search-svc", "cm", labels, "mongot:latest", false)
+	require.NoError(t, err)
+	sts := statefulset.New(stsMod)
+
+	policy := sts.Spec.PersistentVolumeClaimRetentionPolicy
+	require.NotNil(t, policy, "mongot STS must set a PVC retention policy")
+	assert.Equal(t, appsv1.DeletePersistentVolumeClaimRetentionPolicyType, policy.WhenDeleted, "PVC must be deleted when the StatefulSet is deleted")
+	assert.Equal(t, appsv1.DeletePersistentVolumeClaimRetentionPolicyType, policy.WhenScaled, "PVC must be deleted when the StatefulSet is scaled down")
+}
+
 type containerInfo struct {
 	args []string
 }

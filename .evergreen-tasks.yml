@@ -1425,6 +1425,11 @@ tasks:
     commands:
       - func: "e2e_test"
 
+  - name: e2e_mc_search_cluster_add_remove
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
   - name: e2e_search_q3_mc_sharded_external_mtls
     tags: [ "patch-run" ]
     commands:

@@ -126,18 +126,24 @@ func searchOwnerLabels(search *searchv1.MongoDBSearch, clusterName string) map[s
 	return labels
 }
 
-// withSearchOwnerLabels merges the search-owner labels into the STS ObjectMeta
-// labels. It does NOT touch the selector/pod-template (which is immutable on
-// existing STS); the pod-routing labels stay in the unit's podLabels.
-func withSearchOwnerLabels(search *searchv1.MongoDBSearch, clusterName string) statefulset.Modification {
+// withStsMetaLabels merges labels into the STS ObjectMeta labels. It does NOT
+// touch the selector/pod-template (the selector is immutable on existing STS;
+// pod-template label changes would roll every mongot pod on operator upgrade).
+func withStsMetaLabels(labels map[string]string) statefulset.Modification {
 	return func(set *appsv1.StatefulSet) {
 		if set.Labels == nil {
 			set.Labels = map[string]string{}
 		}
-		for k, v := range searchOwnerLabels(search, clusterName) {
+		for k, v := range labels {
 			set.Labels[k] = v
 		}
 	}
+}
+
+// withSearchOwnerLabels merges the search-owner labels into the STS ObjectMeta
+// labels; the pod-routing labels stay in the unit's podLabels.
+func withSearchOwnerLabels(search *searchv1.MongoDBSearch, clusterName string) statefulset.Modification {
+	return withStsMetaLabels(searchOwnerLabels(search, clusterName))
 }
 
 // clientForCluster returns the Kubernetes client for a unit's member cluster.
@@ -207,7 +213,7 @@ type reconcilePlan struct {
 func (r *MongoDBSearchReconcileHelper) buildReconcilePlan(log *zap.SugaredLogger) (reconcilePlan, error) {
 	if shardedSource, ok := r.db.(SearchSourceShardedDeployment); ok {
 		log.Infof("Reconciling MongoDBSearch for sharded source deployment with %d shards", shardedSource.GetShardCount())
-		return r.buildShardedPlan(shardedSource)
+		return r.buildShardedPlan(shardedSource, log)
 	}
 	return r.buildReplicaSetPlan(r.db)
 }
@@ -257,7 +263,14 @@ func (r *MongoDBSearchReconcileHelper) buildReplicaSetPlan(rsSource SearchSource
 		units:          units,
 		manageProxySvc: !r.mdbSearch.IsReplicaSetUnmanagedLB(),
 		preflight:      func(context.Context, *zap.SugaredLogger) workflow.Status { return workflow.OK() },
-		cleanup:        func(context.Context, *zap.SugaredLogger) {},
+		cleanup: func(ctx context.Context, log *zap.SugaredLogger) {
+			// Deletes anything the RS plan no longer expects: stale sharded-named
+			// resources after a sharded→RS flip, and per-cluster resources for
+			// clusters dropped from spec.clusters.
+			if err := r.cleanupStaleResources(ctx, log, expectedNamesForUnits(units, nil)); err != nil {
+				log.Warnf("Failed to cleanup stale search resources: %s", err)
+			}
+		},
 	}, nil
 }
 
@@ -317,8 +330,11 @@ func (r *MongoDBSearchReconcileHelper) rsResourceNames(w rsWorkItem) (types.Name
 		r.mdbSearch.MongotConfigConfigMapNameForCluster(w.ClusterIndex)
 }
 
-func (r *MongoDBSearchReconcileHelper) buildShardedPlan(shardedSource SearchSourceShardedDeployment) (reconcilePlan, error) {
+func (r *MongoDBSearchReconcileHelper) buildShardedPlan(shardedSource SearchSourceShardedDeployment, log *zap.SugaredLogger) (reconcilePlan, error) {
 	shardNames := shardedSource.GetShardNames()
+	if draining := shardedSource.DrainingShardCount(); draining > 0 {
+		log.Infof("Source is draining %d shard(s); deferring search teardown until drain completes", draining)
+	}
 	work := r.buildShardedWorkList(shardNames)
 
 	// HostSeeds is invariant in cluster — resolve once per shard, then reuse
@@ -388,8 +404,8 @@ func (r *MongoDBSearchReconcileHelper) buildShardedPlan(shardedSource SearchSour
 			return r.validatePerShardTLSSecrets(ctx, log, shardNames)
 		},
 		cleanup: func(ctx context.Context, log *zap.SugaredLogger) {
-			if err := r.cleanupStaleShardResources(ctx, log, shardNames); err != nil {
-				log.Warnf("Failed to cleanup stale shard resources: %s", err)
+			if err := r.cleanupStaleResources(ctx, log, expectedNamesForUnits(units, clusterLevelResources)); err != nil {
+				log.Warnf("Failed to cleanup stale search resources: %s", err)
 			}
 		},
 	}
@@ -397,6 +413,27 @@ func (r *MongoDBSearchReconcileHelper) buildShardedPlan(shardedSource SearchSour
 		plan.clusterLevelResources = clusterLevelResources
 	}
 	return plan, nil
+}
+
+// expectedNamesForUnits collects the resource names the plan wants to exist into
+// the three name sets the stale sweep diffs against: every unit's STS, headless
+// Service, proxy Service, and ConfigMap, plus each cluster-level proxy Service.
+func expectedNamesForUnits(units []reconcileUnit, clusterLevelResources []clusterLevelResource) staleSweepExpectations {
+	expected := staleSweepExpectations{
+		services:     map[string]bool{},
+		statefulSets: map[string]bool{},
+		configMaps:   map[string]bool{},
+	}
+	for _, u := range units {
+		expected.statefulSets[u.stsName.Name] = true
+		expected.services[u.headlessSvc.Name] = true
+		expected.services[u.proxySvc.Name] = true
+		expected.configMaps[u.configMapName.Name] = true
+	}
+	for _, res := range clusterLevelResources {
+		expected.services[res.svcName.Name] = true
+	}
+	return expected
 }
 
 func (r *MongoDBSearchReconcileHelper) Reconcile(ctx context.Context, log *zap.SugaredLogger) workflow.Status {
@@ -668,7 +705,9 @@ func (r *MongoDBSearchReconcileHelper) applyReconcileUnit(
 		unitClient,
 		unit.stsName,
 		stsFunc,
+		// Label mods must follow stsFunc: WithLabels inside it replaces ObjectMeta labels wholesale.
 		withSearchOwnerLabels(r.mdbSearch, unit.clusterName),
+		withStsMetaLabels(map[string]string{componentLabelKey: mongotComponent}),
 		mods.passwordAuthSts,
 		configHashModification,
 		mods.keyfileSts,
@@ -694,70 +733,6 @@ func isOwnedBy(obj client.Object, owner client.Object) bool {
 		}
 	}
 	return false
-}
-
-// cleanupStaleShardResources deletes per-shard proxy Services for shards that no
-// longer exist. In MC the proxy Services live on the member clusters, so we
-// iterate the central client plus every member-cluster client and only touch
-// Services we own (by UID on central, by search-owner label on members —
-// cross-cluster owner refs don't exist).
-//
-// STSs / ConfigMaps / headless Services for stale shards are not handled here:
-// in MC their owners live cross-cluster and aren't GC'd by Kubernetes.
-func (r *MongoDBSearchReconcileHelper) cleanupStaleShardResources(ctx context.Context, log *zap.SugaredLogger, currentShardNames []string) error {
-	if r.mdbSearch.IsShardedUnmanagedLB() {
-		return nil
-	}
-
-	expectedNames := make(map[string]bool)
-	seenClusters := map[int]bool{}
-	for _, w := range r.buildShardedWorkList(currentShardNames) {
-		expectedNames[r.mdbSearch.ProxyServiceNameForClusterShard(w.ClusterIndex, w.ShardName).Name] = true
-		if !seenClusters[w.ClusterIndex] {
-			seenClusters[w.ClusterIndex] = true
-			expectedNames[r.mdbSearch.ProxyServiceNamespacedNameForCluster(w.ClusterIndex).Name] = true
-		}
-	}
-
-	clients := map[string]kubernetesClient.Client{"": r.client}
-	for name, c := range r.memberClusterClients {
-		clients[name] = c
-	}
-
-	for clusterName, c := range clients {
-		serviceList := &corev1.ServiceList{}
-		if err := c.List(ctx, serviceList,
-			client.InNamespace(r.mdbSearch.Namespace),
-			client.MatchingLabels{"component": proxyServiceComponent},
-		); err != nil {
-			return xerrors.Errorf("failed to list proxy services on cluster %q: %w", clusterName, err)
-		}
-
-		for i := range serviceList.Items {
-			svc := &serviceList.Items[i]
-			if expectedNames[svc.Name] {
-				continue
-			}
-			// Owner refs don't cross clusters, so for member-cluster Services the
-			// owner check is by search-owner label instead of UID. Same intent:
-			// only touch Services we created.
-			if clusterName == "" {
-				if !isOwnedBy(svc, r.mdbSearch) {
-					continue
-				}
-			} else {
-				if svc.Labels[khandler.MongoDBSearchOwnerNameLabel] != r.mdbSearch.Name ||
-					svc.Labels[khandler.MongoDBSearchOwnerNamespaceLabel] != r.mdbSearch.Namespace {
-					continue
-				}
-			}
-			log.Infof("Deleting stale proxy Service %s on cluster %q", svc.Name, clusterName)
-			if err := c.Delete(ctx, svc); err != nil && !apierrors.IsNotFound(err) {
-				return xerrors.Errorf("failed to delete stale proxy Service %s on cluster %q: %w", svc.Name, clusterName, err)
-			}
-		}
-	}
-	return nil
 }
 
 // ensureKeyfileModification returns the keyfile StatefulSet modification if wireproto is enabled.
@@ -909,6 +884,7 @@ func (r *MongoDBSearchReconcileHelper) ensureMongotConfig(ctx context.Context, l
 		if cm.Labels == nil {
 			cm.Labels = map[string]string{}
 		}
+		cm.Labels[componentLabelKey] = mongotComponent
 		for k, v := range searchOwnerLabels(r.mdbSearch, clusterName) {
 			cm.Labels[k] = v
 		}
@@ -1048,13 +1024,15 @@ func mongotServicePorts(search *searchv1.MongoDBSearch) []corev1.ServicePort {
 const (
 	appLabelKey           = "app"
 	shardLabelKey         = "shard"
+	componentLabelKey     = "component"
 	proxyServiceComponent = "search-proxy"
+	mongotComponent       = "mongot"
 )
 
 // buildHeadlessService builds a headless Service for a reconcile unit. All topology-specific
 // behavior comes from the unit's explicit fields — no branching on "is this a shard?".
 func buildHeadlessService(search *searchv1.MongoDBSearch, unit reconcileUnit) corev1.Service {
-	svcLabels := map[string]string{appLabelKey: unit.headlessSvc.Name}
+	svcLabels := map[string]string{appLabelKey: unit.headlessSvc.Name, componentLabelKey: mongotComponent}
 	for k, v := range unit.additionalSvcLabels {
 		svcLabels[k] = v
 	}
@@ -1096,8 +1074,8 @@ func buildProxyService(search *searchv1.MongoDBSearch, unit reconcileUnit) corev
 	}
 
 	labels := map[string]string{
-		appLabelKey: unit.proxySvc.Name,
-		"component": proxyServiceComponent,
+		appLabelKey:       unit.proxySvc.Name,
+		componentLabelKey: proxyServiceComponent,
 	}
 	for k, v := range unit.additionalSvcLabels {
 		labels[k] = v
@@ -1142,8 +1120,8 @@ func buildClusterLevelProxyService(search *searchv1.MongoDBSearch, res clusterLe
 	}
 
 	labels := map[string]string{
-		appLabelKey: res.svcName.Name,
-		"component": proxyServiceComponent,
+		appLabelKey:       res.svcName.Name,
+		componentLabelKey: proxyServiceComponent,
 	}
 	for k, v := range searchOwnerLabels(search, res.clusterName) {
 		labels[k] = v
@@ -1600,7 +1578,7 @@ func GetMongodConfigParametersForShard(search *searchv1.MongoDBSearch, shardName
 // GetMongosConfigParametersForSharded picks the mongos→mongot endpoint by topology. No-LB targets the
 // first shard's per-shard proxy svc FQDN (the only sharded mongot hostname per-shard cert SANs cover);
 // the cluster-level Service would route to the same pod but isn't in SANs.
-func GetMongosConfigParametersForSharded(search *searchv1.MongoDBSearch, clusterIndex int, shardNames []string, clusterDomain string) map[string]any {
+func GetMongosConfigParametersForSharded(search *searchv1.MongoDBSearch, clusterName string, clusterIndex int, shardNames []string, clusterDomain string) map[string]any {
 	var endpoint string
 	// Three branches: explicit unmanaged LB, no spec.loadBalancer (pre-MVP
 	// single-cluster shape), and managed LB. The TD lists no-LB as RS-only at
@@ -1612,7 +1590,7 @@ func GetMongosConfigParametersForSharded(search *searchv1.MongoDBSearch, cluster
 	case !search.IsLBModeManaged() && len(shardNames) > 0:
 		endpoint = proxyServiceHostAndPortForShard(search, clusterIndex, shardNames[0], clusterDomain)
 	default:
-		endpoint = mongotEndpointForClusterLevel(search, clusterIndex, clusterDomain)
+		endpoint = mongotEndpointForClusterLevel(search, clusterName, clusterIndex, clusterDomain)
 	}
 	return buildSearchSetParameters(endpoint, searchTLSMode(search), true) // useGrpc must be true for mongos-to-mongot communication
 }
@@ -1620,10 +1598,11 @@ func GetMongosConfigParametersForSharded(search *searchv1.MongoDBSearch, cluster
 // mongotEndpointForClusterLevel resolves the shard-agnostic mongot endpoint for a cluster's mongos.
 // For managed LB with an externalHostname, returns the cluster-level external form (template with
 // leading `{shardName}.` stripped). Otherwise (managed LB without externalHostname, or no LB) returns
-// the cluster-level proxy Service in-cluster FQDN.
-func mongotEndpointForClusterLevel(search *searchv1.MongoDBSearch, clusterIndex int, clusterDomain string) string {
+// the cluster-level proxy Service in-cluster FQDN. clusterName is the cluster's name for
+// {clusterName} substitution ("" in the single-cluster path); clusterIndex is its persisted index.
+func mongotEndpointForClusterLevel(search *searchv1.MongoDBSearch, clusterName string, clusterIndex int, clusterDomain string) string {
 	if search.IsLBModeManaged() {
-		if endpoint := search.GetManagedLBEndpointForClusterLevel(clusterIndex); endpoint != "" {
+		if endpoint := search.GetManagedLBEndpointForClusterLevel(clusterName, clusterIndex); endpoint != "" {
 			return endpoint
 		}
 	}

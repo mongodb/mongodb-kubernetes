@@ -275,6 +275,60 @@ func TestMergeShardedCluster_ShardsRemoved(t *testing.T) {
 	checkShardedClusterCheckExtraReplicaSets(t, d, NewShardedCluster("cluster", configRs.Rs.Name(), shards), shards, true)
 }
 
+// TestMergeShardedCluster_DrainingShardRetainsSearchParam pins the source-side
+// invariant the search drain-handling relies on: during phase 1 of a shard
+// removal (Finalizing=false) the removed shard's processes are kept in the
+// deployment (only added to the 'draining' array), and the merge does not strip
+// the per-shard search setParameter (mongotHost) the operator wrote in a prior
+// reconcile. Search keeps serving the draining shard's mongot, so its mongod
+// must keep pointing at that mongot until phase 2 physically removes it.
+func TestMergeShardedCluster_DrainingShardRetainsSearchParam(t *testing.T) {
+	d := NewDeployment()
+	configRs := createConfigSrvRs("configSrv", false)
+
+	// Stamp a per-shard mongotHost setParameter on every process, as the source
+	// controller's applySearchParametersForShards does via AdditionalMongodConfig.
+	withMongotHost := func(shards []ReplicaSetWithProcesses) []ReplicaSetWithProcesses {
+		for _, shard := range shards {
+			host := shard.Rs.Name() + "-search-svc.test-ns.svc.cluster.local:27027"
+			for _, p := range shard.Processes {
+				p.Args()["setParameter"] = map[string]interface{}{"mongotHost": host}
+			}
+		}
+		return shards
+	}
+
+	_, err := d.MergeShardedCluster(DeploymentShardedClusterMergeOptions{
+		Name:            "cluster",
+		MongosProcesses: createMongosProcesses(3, "pretty", ""),
+		ConfigServerRs:  configRs,
+		Shards:          withMongotHost(createSpecificNumberOfShards(3, "cluster")),
+		Finalizing:      false,
+	})
+	require.NoError(t, err)
+
+	// Phase 1 of the drain: spec drops to 2 shards, Finalizing=false.
+	shardsRemoving, err := d.MergeShardedCluster(DeploymentShardedClusterMergeOptions{
+		Name:            "cluster",
+		MongosProcesses: createMongosProcesses(2, "pretty", ""),
+		ConfigServerRs:  configRs,
+		Shards:          withMongotHost(createSpecificNumberOfShards(2, "cluster")),
+		Finalizing:      false,
+	})
+	require.NoError(t, err)
+	assert.True(t, shardsRemoving, "shard removal should be in progress")
+
+	// The removed shard is draining, not gone.
+	assert.Contains(t, d.getShardedClusterByName("cluster").draining(), "cluster-2")
+
+	// Its processes survive with the mongotHost setParameter intact.
+	drainingProc := d.getProcessByName("cluster-2-0")
+	require.NotNil(t, drainingProc, "draining shard process must remain during phase 1")
+	setParameter, ok := drainingProc.Args()["setParameter"].(map[string]interface{})
+	require.True(t, ok, "draining shard process must retain its setParameter map")
+	assert.Equal(t, "cluster-2-search-svc.test-ns.svc.cluster.local:27027", setParameter["mongotHost"])
+}
+
 // TestMergeShardedCluster_MongosCountChanged checks the scenario of incrementing and decrementing the number of mongos
 func TestMergeShardedCluster_MongosCountChanged(t *testing.T) {
 	d := NewDeployment()

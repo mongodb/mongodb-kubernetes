@@ -598,9 +598,13 @@ func validateExternalHostnameDNSLength(s *MongoDBSearch) v1.ValidationResult {
 	}
 
 	// Iterate the cross-product. len(shardNames) == 0 runs a single pass per
-	// cluster with no shard substitution.
+	// cluster with no shard substitution. The webhook cannot see the persisted
+	// ClusterMapping, so spec position approximates the persisted index; post-removal
+	// they diverge, but the check is charset-insensitive to the index value (digits
+	// only) — only the digit count near the 253/63-char limits could differ, accepted
+	// as best-effort.
 	for i := range s.Spec.Clusters {
-		base := s.GetManagedLBEndpointForCluster(i)
+		base := s.GetManagedLBEndpointForCluster(s.Spec.Clusters[i].ClusterName, i)
 		if len(shardNames) == 0 {
 			if res := check(base); res.Level == v1.ErrorLevel {
 				return res

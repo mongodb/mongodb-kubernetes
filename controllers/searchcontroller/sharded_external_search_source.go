@@ -92,6 +92,11 @@ func (r *ShardedExternalSearchSource) GetShardCount() int {
 	return len(r.spec.ShardedCluster.Shards)
 }
 
+// GetShardNames returns the shard names declared in spec.source.external.shardedCluster.shards.
+// Customer contract: remove a shards[] entry only AFTER that shard has fully
+// drained on the external MongoDB cluster. Search has no visibility into the
+// external drain, so a premature removal drops the shard's mongot/routing config
+// while it may still serve data, breaking $search for the duration.
 func (r *ShardedExternalSearchSource) GetShardNames() []string {
 	if r.spec.ShardedCluster == nil {
 		return nil
@@ -101,6 +106,13 @@ func (r *ShardedExternalSearchSource) GetShardNames() []string {
 		names[i] = shard.ShardName
 	}
 	return names
+}
+
+// DrainingShardCount is always 0 for external sources: the operator does not
+// drive the drain, so there is no achieved-vs-desired lag to bridge. The
+// customer owns shard lifecycle (see GetShardNames contract).
+func (r *ShardedExternalSearchSource) DrainingShardCount() int {
+	return 0
 }
 
 func (r *ShardedExternalSearchSource) HostSeeds(shardName string) ([]string, error) {
