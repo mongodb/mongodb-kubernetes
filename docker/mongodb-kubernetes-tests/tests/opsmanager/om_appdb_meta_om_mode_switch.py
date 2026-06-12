@@ -212,7 +212,7 @@ class TestModeSwitchToMetaOM:
         create_or_update_configmap(
             namespace,
             META_OM_PROJECT_CONFIGMAP,
-            {"baseUrl": base_url, "projectName": META_OM_PROJECT_NAME},
+            {"baseUrl": base_url, "projectName": META_OM_PROJECT_NAME, "orgId": ""},
             api_client=get_central_cluster_client(),
         )
 
