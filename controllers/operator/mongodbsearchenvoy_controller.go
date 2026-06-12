@@ -302,15 +302,8 @@ func (r *MongoDBSearchEnvoyReconciler) clearLBStatus(ctx context.Context, search
 // keeps its mapping entry, so the reconcile loop (which builds from the current
 // spec) never revisits its index — the Envoy resources leak forever (KUBE-114).
 // The sweep also catches stale-index leftovers from a rename / index change for
-// a still-listed cluster.
-//
-// Best-effort: errors are accumulated across clusters so one broken cluster
-// neither aborts the sweep nor fails the reconcile (the caller logs and moves on).
-//
-// Cross-controller ordering: the search controller separately sweeps mongot
-// resources (see controllers/searchcontroller/stale_sweep.go); ordering between
-// the two controllers is eventual, and Envoy's preStop drain (KUBE-9) covers
-// connection draining — immediate teardown, no TTL.
+// a still-listed cluster. Best-effort: errors accumulate across clusters and
+// don't fail the reconcile.
 func (r *MongoDBSearchEnvoyReconciler) sweepStaleEnvoyResources(ctx context.Context, search *searchv1.MongoDBSearch, mapping map[string]int, log *zap.SugaredLogger) error {
 	// The expected set is keyed by resource name, which is globally unique per
 	// (search, clusterIndex) — so a single name-keyed set is correct across all

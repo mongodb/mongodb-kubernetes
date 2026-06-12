@@ -1,35 +1,17 @@
-"""Centralized-MC cluster add/remove e2e for MongoDBSearch (KUBE-114).
+"""Centralized-MC cluster add/remove e2e for MongoDBSearch (KUBE-114): add a
+3rd search cluster, drop the middle one (full per-cluster teardown; the
+persisted ClusterMapping keeps its index), then re-add it (fresh provision
+under the ORIGINAL never-reused index, new PVC).
 
-A single centralized operator fans mongot out to the member clusters named in
-``spec.clusters[]``. This test exercises the full cluster-membership lifecycle
-and the stale-resource sweep that backs it:
+The external MongoDBMulti source is fixed throughout: ``spec.source.external``
+is a flat seed list independent of ``spec.clusters[]``. Because the source is
+external the operator injects no search setParameters; the test patches every
+source mongod's mongotHost via OM AC at cluster 0's proxy-svc FQDN (cluster 0
+is never dropped, so the target survives every membership change unpatched).
 
-  Phase A  Start with 2 search clusters (indices 0,1) over an external 2-cluster
-           MongoDBMulti RS source; assert per-cluster mongot + Envoy resources.
-  Phase B  ADD a 3rd cluster to spec.clusters[] -> it materializes under the next
-           free index (2); clusters 0,1 are untouched and keep serving.
-  Phase C  DROP the middle cluster (index 1) from spec.clusters[] -> ALL of its
-           search-owned resources (mongot StatefulSet/Service/ConfigMap, proxy
-           Service, PVCs, Envoy Deployment/ConfigMap) are deleted in that member,
-           the persisted ClusterMapping KEEPS its index, and the surviving
-           clusters keep serving.
-  Phase D  RE-ADD the dropped cluster -> fresh provision under its ORIGINAL index
-           (monotonic, never reused; see api/.../cluster_index.go) with a NEW PVC.
-
-The source MongoDBMulti topology is fixed throughout: ``spec.source.external``
-is a flat seed list independent of ``spec.clusters[]``, so mongot in any search
-cluster syncs from the same source regardless of how many search clusters exist.
-Because the source is external, the operator does not inject search setParameters;
-the test patches every source mongod's mongotHost via OM AC, pointing them all at
-cluster 0's proxy-svc FQDN (cluster 0 is never dropped, so the target stays valid
-through every phase with no re-patching). Phases C and D also assert each surviving
-cluster's Envoy lds.json SNI resolves to its own per-PERSISTED-index proxy-svc FQDN
-with no template placeholder residue.
-
-Requires 3 member clusters (the e2e_multi_cluster_kind variant); the source RS
-occupies the first 2, and the 3rd is added/used as the spare search cluster. The
-tools pod and mongotHost target are pinned to member clusters (not the central
-operator cluster, which on this variant is outside the mesh).
+Requires 3 member clusters (e2e_multi_cluster_kind variant): the source RS
+spans the first 2; the 3rd is the spare search cluster. The tools pod and the
+mongotHost target are pinned to member clusters (central is outside the mesh).
 """
 
 import json

@@ -1172,18 +1172,10 @@ func TestEnsureDeployment_Replicas(t *testing.T) {
 	}
 }
 
-// TestEnsureDeployment_ComponentLabelUpdatedInPlace pins that the component
-// label lives in ObjectMeta only, never in the immutable selector or the
-// pod-template labels. It pre-seeds a Deployment carrying the OLD component
-// value ("search-proxy", as a resource created before the rename would) with a
-// selector/pod-template that has no component label, then reconciles and
-// asserts the label updates to "search-envoy" in place.
-//
-// The fake client does not enforce selector immutability, so the guard here is
-// the explicit selector + pod-template assertions, not an error from the
-// reconcile: they prove the component label is confined to ObjectMeta (where it
-// is mutable) and never reaches the immutable selector or the pod template
-// (where a change would churn pods).
+// The component label must stay confined to ObjectMeta — in the immutable
+// selector or the pod-template labels a value change would churn pods. The
+// fake client doesn't enforce selector immutability, so the explicit
+// selector/pod-template assertions below are the guard, not a reconcile error.
 func TestEnsureDeployment_ComponentLabelUpdatedInPlace(t *testing.T) {
 	ctx := context.Background()
 	scheme := envoyTestScheme(t)
