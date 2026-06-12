@@ -81,6 +81,14 @@ const (
 	// that OM provisions for the shipper user. The operator references it when adding
 	// the user to the automation config.
 	MonarchShipperRole = "shipperRole"
+
+	// MonarchUserManagedByKey / MonarchUserManagedByValue stamp the shipper user's
+	// customData so Ops Manager can recognise an operator-owned user and leave its
+	// password and lifecycle alone (rather than resetting or deleting it). This is
+	// the ownership signal the OM-side guard keys on — it is an assertion of
+	// ownership, not a heuristic on role presence.
+	MonarchUserManagedByKey   = "managedBy"
+	MonarchUserManagedByValue = "mongodb-kubernetes"
 )
 
 // EnsureMonarchShipperUser adds (or updates) the mms-shipper SCRAM user to the
@@ -104,6 +112,11 @@ func (a *Auth) EnsureMonarchShipperUser(password string) {
 			{Role: MonarchShipperRole, Database: MonarchShipperUserDatabase},
 		},
 		InitPassword: password,
+		// Stamp ownership so Ops Manager leaves this user's password and lifecycle
+		// to the operator (see MonarchUserManagedBy* and the OM-side guard).
+		CustomData: map[string]interface{}{
+			MonarchUserManagedByKey: MonarchUserManagedByValue,
+		},
 	}
 
 	if _, existing := a.GetUser(MonarchShipperUsername, MonarchShipperUserDatabase); existing != nil {
@@ -137,6 +150,13 @@ func monarchShipperUserMatches(existing *MongoDBUser, desired MongoDBUser) bool 
 			return false
 		}
 		if existing.Roles[i].Role != desired.Roles[i].Role || existing.Roles[i].Database != desired.Roles[i].Database {
+			return false
+		}
+	}
+	// The ownership stamp must match too, so a user lacking it (or carrying a
+	// different value) is rewritten to assert operator ownership.
+	for k, v := range desired.CustomData {
+		if existing.CustomData[k] != v {
 			return false
 		}
 	}
