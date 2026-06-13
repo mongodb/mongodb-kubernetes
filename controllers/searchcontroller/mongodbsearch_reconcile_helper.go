@@ -505,16 +505,6 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 		passwordAuthStsModification = PasswordAuthModification(r.mdbSearch)
 	}
 
-	egressTlsMongotModification, egressTlsStsModification, err := r.ensureEgressTlsConfig(ctx)
-	if err != nil {
-		return workflow.Failed(err)
-	}
-
-	x509MongotModification, x509StsModification, err := r.ensureX509ClientCertConfig(ctx)
-	if err != nil {
-		return workflow.Failed(err)
-	}
-
 	embeddingConfigMongotModification, embeddingConfigStsModification, err := r.ensureEmbeddingConfig(ctx, log)
 	if err != nil {
 		return workflow.Failed(err)
@@ -526,10 +516,6 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 
 	mods := reconcileUnitMods{
 		passwordAuthSts:       passwordAuthStsModification,
-		egressTlsMongot:       egressTlsMongotModification,
-		egressTlsSts:          egressTlsStsModification,
-		x509Mongot:            x509MongotModification,
-		x509Sts:               x509StsModification,
 		embeddingConfigMongot: embeddingConfigMongotModification,
 		embeddingConfigSts:    embeddingConfigStsModification,
 		keyfileSts:            keyfileStsModification,
@@ -607,10 +593,6 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 // every unit. Nil fields are replaced with NOOPs in withDefaults.
 type reconcileUnitMods struct {
 	passwordAuthSts       statefulset.Modification
-	egressTlsMongot       mongot.Modification
-	egressTlsSts          statefulset.Modification
-	x509Mongot            mongot.Modification
-	x509Sts               statefulset.Modification
 	embeddingConfigMongot mongot.Modification
 	embeddingConfigSts    statefulset.Modification
 	keyfileSts            statefulset.Modification
@@ -622,18 +604,6 @@ type reconcileUnitMods struct {
 func (m reconcileUnitMods) withDefaults() reconcileUnitMods {
 	if m.passwordAuthSts == nil {
 		m.passwordAuthSts = statefulset.NOOP()
-	}
-	if m.egressTlsMongot == nil {
-		m.egressTlsMongot = mongot.NOOP()
-	}
-	if m.egressTlsSts == nil {
-		m.egressTlsSts = statefulset.NOOP()
-	}
-	if m.x509Mongot == nil {
-		m.x509Mongot = mongot.NOOP()
-	}
-	if m.x509Sts == nil {
-		m.x509Sts = statefulset.NOOP()
 	}
 	if m.embeddingConfigMongot == nil {
 		m.embeddingConfigMongot = mongot.NOOP()
@@ -681,6 +651,19 @@ func (r *MongoDBSearchReconcileHelper) applyReconcileUnit(
 		return nil, nil, err
 	}
 
+	// Per-unit egress TLS (SCRAM CA + optional client cert): uses unitClient so the
+	// operator-managed secret is created on the cluster where mongot pods run.
+	egressTlsMongotModification, egressTlsStsModification, err := r.ensureEgressTlsConfig(ctx, unitClient)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Per-unit x509 client cert: uses unitClient for the same reason as egress TLS.
+	x509MongotModification, x509StsModification, err := r.ensureX509ClientCertConfig(ctx, unitClient)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	configHash, err := r.ensureMongotConfig(ctx,
 		log,
 		unitClient,
@@ -690,8 +673,8 @@ func (r *MongoDBSearchReconcileHelper) applyReconcileUnit(
 		unit.sizing.ReplicasOrDefault(),
 		unit.mongotConfigFn,
 		ingressTlsMongotModification,
-		mods.egressTlsMongot,
-		mods.x509Mongot,
+		egressTlsMongotModification,
+		x509MongotModification,
 		mods.embeddingConfigMongot,
 	)
 	if err != nil {
@@ -716,8 +699,8 @@ func (r *MongoDBSearchReconcileHelper) applyReconcileUnit(
 		configHashModification,
 		mods.keyfileSts,
 		ingressTlsStsModification,
-		mods.egressTlsSts,
-		mods.x509Sts,
+		egressTlsStsModification,
+		x509StsModification,
 		mods.embeddingConfigSts,
 		stsOverride, // must be last: see StatefulSetOverrideModification
 	)
@@ -1561,7 +1544,7 @@ func (x *x509AuthResource) TLSOperatorSecretNamespacedName() types.NamespacedNam
 
 // ensureX509ClientCertConfig processes x509 client certificate configuration for the sync source in case of mongot to mongod communication.
 // When x509 is configured, it replaces username/password auth with x509 certificate auth.
-func (r *MongoDBSearchReconcileHelper) ensureX509ClientCertConfig(ctx context.Context) (mongot.Modification, statefulset.Modification, error) {
+func (r *MongoDBSearchReconcileHelper) ensureX509ClientCertConfig(ctx context.Context, kubeClient kubernetesClient.Client) (mongot.Modification, statefulset.Modification, error) {
 	if !r.mdbSearch.IsX509Auth() {
 		return mongot.NOOP(), statefulset.NOOP(), nil
 	}
@@ -1574,7 +1557,7 @@ func (r *MongoDBSearchReconcileHelper) ensureX509ClientCertConfig(ctx context.Co
 	}
 
 	x509Resource := &x509AuthResource{MongoDBSearch: r.mdbSearch}
-	certFileName, err := tls.EnsureTLSSecret(ctx, r.client, x509Resource)
+	certFileName, err := tls.EnsureTLSSecret(ctx, kubeClient, x509Resource)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1584,7 +1567,7 @@ func (r *MongoDBSearchReconcileHelper) ensureX509ClientCertConfig(ctx context.Co
 	// Check if the user secret contains an optional key password
 	hasKeyPassword := false
 	userProvidedClientSecret := r.mdbSearch.X509ClientCertSecret()
-	_, keyPasswordErr := secret.ReadKey(ctx, r.client, X509KeyPasswordSecretKey, userProvidedClientSecret)
+	_, keyPasswordErr := secret.ReadKey(ctx, kubeClient, X509KeyPasswordSecretKey, userProvidedClientSecret)
 	if keyPasswordErr == nil {
 		hasKeyPassword = true
 	}
@@ -1667,7 +1650,7 @@ func (p *perShardTLSResource) TLSOperatorSecretNamespacedName() types.Namespaced
 	return p.TLSOperatorSecretForClusterShard(p.clusterIndex, p.shardName)
 }
 
-func (r *MongoDBSearchReconcileHelper) ensureEgressTlsConfig(ctx context.Context) (mongot.Modification, statefulset.Modification, error) {
+func (r *MongoDBSearchReconcileHelper) ensureEgressTlsConfig(ctx context.Context, kubeClient kubernetesClient.Client) (mongot.Modification, statefulset.Modification, error) {
 	tlsSourceConfig := r.db.TLSConfig()
 	if tlsSourceConfig == nil {
 		return mongot.NOOP(), statefulset.NOOP(), nil
@@ -1678,7 +1661,7 @@ func (r *MongoDBSearchReconcileHelper) ensureEgressTlsConfig(ctx context.Context
 	hasScramKeyPassword := false
 	if r.mdbSearch.HasScramClientCert() {
 		scramCertResource := &scramClientCertResource{MongoDBSearch: r.mdbSearch}
-		certFileName, err := tls.EnsureTLSSecret(ctx, r.client, scramCertResource)
+		certFileName, err := tls.EnsureTLSSecret(ctx, kubeClient, scramCertResource)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -1686,7 +1669,7 @@ func (r *MongoDBSearchReconcileHelper) ensureEgressTlsConfig(ctx context.Context
 
 		// Check if the user-provided secret contains an optional key password
 		userProvidedSecret := r.mdbSearch.ScramClientCertSecret()
-		_, keyPasswordErr := secret.ReadKey(ctx, r.client, ScramKeyPasswordSecretKey, userProvidedSecret)
+		_, keyPasswordErr := secret.ReadKey(ctx, kubeClient, ScramKeyPasswordSecretKey, userProvidedSecret)
 		if keyPasswordErr == nil {
 			hasScramKeyPassword = true
 		}
