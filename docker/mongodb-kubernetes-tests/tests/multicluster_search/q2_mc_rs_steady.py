@@ -599,6 +599,37 @@ def test_verify_per_cluster_mongot_resources(
 
 
 @mark.e2e_search_q2_mc_rs_steady
+def test_verify_mongot_config_server_name(
+    namespace: str,
+    helper: MCSearchDeploymentHelper,
+    member_cluster_clients: List[MultiClusterClient],
+):
+    """The runtime mongot config inside each pod must have server.name set to the pod hostname.
+
+    The operator writes a placeholder in the ConfigMap; the container start script copies
+    the config to /tmp/config.yml and replaces the placeholder with $HOSTNAME via sed.
+    """
+    for mcc in member_cluster_clients:
+        idx = helper.cluster_index(mcc.cluster_name)
+        pod_name = f"{MDBS_RESOURCE_NAME}-search-{idx}-0"
+
+        raw = KubernetesTester.run_command_in_pod_container(
+            pod_name,
+            namespace,
+            ["cat", "/tmp/config.yml"],
+            container="mongot",
+            api_client=mcc.api_client,
+        )
+        parsed = yaml.safe_load(raw) or {}
+        server_name = parsed.get("server", {}).get("name", "")
+        assert server_name == pod_name, (
+            f"mongot pod {pod_name} in cluster {mcc.cluster_name}: "
+            f"server.name={server_name!r}, expected {pod_name!r}"
+        )
+        logger.info(f"[{mcc.cluster_name}] {pod_name}: server.name={server_name} OK")
+
+
+@mark.e2e_search_q2_mc_rs_steady
 def test_verify_per_cluster_envoy_deployment(
     namespace: str,
     helper: MCSearchDeploymentHelper,
