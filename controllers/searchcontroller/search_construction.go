@@ -47,6 +47,11 @@ const (
 	X509ClientCertOperatorMountPath = "/var/lib/tls/x509-client/"
 
 	ServerNamePlaceholder = "__SERVER_NAME__"
+
+	// TempMongotConfigPath is the writable copy of the mongot config used at runtime.
+	// The original is mounted read-only from a ConfigMap; we copy it to /tmp so that
+	// sed can replace the server-name placeholder with the actual pod hostname.
+	TempMongotConfigPath = tempVolumePath + "/" + MongotConfigFilename
 )
 
 // SearchSourceDBResource is an object wrapping a MongoDBCommunity object
@@ -241,9 +246,11 @@ func mongodbSearchContainer(mdbSearch *searchv1.MongoDBSearch, perCluster search
 	if usePerPodConfig {
 		mongotStartCommand = mongotPerPodConfigStartCommand(jvmFlags)
 	} else {
-		// replace the string `ServerNamePlaceholder` from base mongot config (server.name) with pod name using `sed`
-		mongotStartCommand = fmt.Sprintf(`sed -i "s/%s/$HOSTNAME/" %s
-/mongot-community/mongot --config %s %s`, ServerNamePlaceholder, MongotConfigPath, MongotConfigPath, jvmFlags)
+		// Copy config from read-only ConfigMap mount to writable /tmp, replace the
+		// server-name placeholder with the actual pod hostname, then start mongot.
+		mongotStartCommand = fmt.Sprintf(`cp %s %s
+sed -i "s/%s/$HOSTNAME/" %s
+/mongot-community/mongot --config %s %s`, MongotConfigPath, TempMongotConfigPath, ServerNamePlaceholder, TempMongotConfigPath, TempMongotConfigPath, jvmFlags)
 	}
 
 	return container.Apply(
@@ -265,12 +272,13 @@ func mongodbSearchContainer(mdbSearch *searchv1.MongoDBSearch, perCluster search
 
 // mongotPerPodConfigStartCommand returns the shell script that reads the pod's role from ConfigMap.
 func mongotPerPodConfigStartCommand(jvmFlags string) string {
-	// replace the string `ServerNamePlaceholder` from base mongot config (server.name) with pod name using `sed`
+	// Copy the role-specific config from the read-only ConfigMap mount to writable /tmp,
+	// replace the server-name placeholder with the actual pod hostname, then start mongot.
 	return fmt.Sprintf(`ROLE=$(cat "%s/$HOSTNAME")
-CONFIG_FILE="%s/config-${ROLE}.yml"
-sed -i "s/%s/$HOSTNAME/" "$CONFIG_FILE"
-/mongot-community/mongot --config "$CONFIG_FILE" %s`,
-		MongotPerPodConfigDirPath, MongotPerPodConfigDirPath, ServerNamePlaceholder, jvmFlags)
+cp "%s/config-${ROLE}.yml" %s
+sed -i "s/%s/$HOSTNAME/" %s
+/mongot-community/mongot --config %s %s`,
+		MongotPerPodConfigDirPath, MongotPerPodConfigDirPath, TempMongotConfigPath, ServerNamePlaceholder, TempMongotConfigPath, TempMongotConfigPath, jvmFlags)
 }
 
 func mongotLivenessProbe(search *searchv1.MongoDBSearch) func(*corev1.Probe) {
