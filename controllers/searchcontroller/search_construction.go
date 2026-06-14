@@ -241,6 +241,7 @@ func mongodbSearchContainer(mdbSearch *searchv1.MongoDBSearch, perCluster search
 	if usePerPodConfig {
 		mongotStartCommand = mongotPerPodConfigStartCommand(jvmFlags)
 	} else {
+		// replace the string `ServerNamePlaceholder` from base mongot config (server.name) with pod name using `sed`
 		mongotStartCommand = fmt.Sprintf(`sed -i "s/%s/$HOSTNAME/" %s
 /mongot-community/mongot --config %s %s`, ServerNamePlaceholder, MongotConfigPath, MongotConfigPath, jvmFlags)
 	}
@@ -264,6 +265,7 @@ func mongodbSearchContainer(mdbSearch *searchv1.MongoDBSearch, perCluster search
 
 // mongotPerPodConfigStartCommand returns the shell script that reads the pod's role from ConfigMap.
 func mongotPerPodConfigStartCommand(jvmFlags string) string {
+	// replace the string `ServerNamePlaceholder` from base mongot config (server.name) with pod name using `sed`
 	return fmt.Sprintf(`ROLE=$(cat "%s/$HOSTNAME")
 CONFIG_FILE="%s/config-${ROLE}.yml"
 sed -i "s/%s/$HOSTNAME/" "$CONFIG_FILE"
