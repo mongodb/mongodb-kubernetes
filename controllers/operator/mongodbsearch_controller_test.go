@@ -134,6 +134,7 @@ func buildExpectedMongotConfig(search *searchv1.MongoDBSearch, mdbc *mdbcv1.Mong
 			DataPath: searchcontroller.MongotDataPath,
 		},
 		Server: mongot.ConfigServer{
+			Name: searchcontroller.ServerNamePlaceholder,
 			Grpc: &mongot.ConfigGrpc{
 				Address: fmt.Sprintf("0.0.0.0:%d", search.GetMongotGrpcPort()),
 				TLS:     &mongot.ConfigGrpcTLS{Mode: mongot.ConfigTLSModeDisabled},
