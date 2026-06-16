@@ -330,3 +330,47 @@ class TestAppDBDisasterRecovery:
             time.sleep(5)
         raise AssertionError(f"Data not restored within {timeout}s after snapshot restore. Last error: {last_error}")
 
+
+@mark.e2e_om_appdb_meta_om_mode_switch
+class TestPITRAfterSnapshotRestore:
+    """Empirically verify whether PITR is possible after a snapshot restore.
+
+    After snapshot restore the AppDB is running again, and Meta OM still holds the
+    oplog slices captured before the disaster (T1→T_disaster).  If OM considers those
+    slices valid, a PITR job to the original snapshot timestamp (T1) should succeed —
+    the restore uses the snapshot as base and replays zero oplog (pit == snapshot time).
+
+    If OM reset the backup timeline when the fresh AppDB agent reconnected (between
+    the disaster and the restore), 'Invalid restore point' will be returned and the
+    test will fail, empirically confirming the limitation.
+    """
+
+    def test_pitr_to_snapshot_time(self, meta_om_appdb_tester: OMTester):
+        """Attempt PITR to 2 minutes after the original snapshot creation time.
+        pit_time == snapshot_time fails with 'no snapshot older than restore point'
+        because OM requires a snapshot taken strictly before the pit time.
+        Adding 120s gives OM a valid base snapshot and tests whether pre-disaster
+        oplog slices (snapshot_time → snapshot_time+2min) survived the disaster cycle."""
+        pit_millis = int(meta_om_appdb_tester.get_latest_backup_completion_time()) + 120_000
+        assert pit_millis > 120_000, "Snapshot completion time not recorded — check test_appdb_snapshot_ready ran"
+        meta_om_appdb_tester.create_restore_job_pit(pit_millis)
+
+    def test_primary_om_reaches_running_after_pitr(self, primary_ops_manager: MongoDBOpsManager):
+        primary_ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=3600)
+        primary_ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=3600)
+
+    def test_data_present_after_pitr(self, primary_appdb_collection):
+        """Data inserted before the snapshot must survive the PITR restore."""
+        start = time.time()
+        timeout = 3600
+        last_error = None
+        while time.time() - start < timeout:
+            try:
+                records = list(primary_appdb_collection.find({"_id": APPDB_TEST_DATA["_id"]}))
+                if records == [APPDB_TEST_DATA]:
+                    return
+                last_error = f"data not yet present: {records}"
+            except Exception as e:
+                last_error = e
+            time.sleep(5)
+        raise AssertionError(f"Data not present within {timeout}s after PITR restore. Last error: {last_error}")
