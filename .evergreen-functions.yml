@@ -497,8 +497,10 @@ functions:
         shell: bash
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         script: |
-          scripts/dev/run_python.sh \
-            docker/mongodb-kubernetes-tests/scripts/send_logs_to_honeycomb.py \
+          source scripts/dev/set_env_context.sh
+          source "${PROJECT_DIR}/venv/bin/activate" 2>/dev/null || true
+          export PYTHONPATH="${PROJECT_DIR}:${PROJECT_DIR}/docker/mongodb-kubernetes-tests"
+          python docker/mongodb-kubernetes-tests/scripts/send_logs_to_honeycomb.py \
             --logs-dir logs \
             --task-id "${task_id}" \
             --version-id "${version_id}"
