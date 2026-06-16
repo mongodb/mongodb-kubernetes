@@ -42,6 +42,9 @@ _DROP_FIXTURE_SPANS = frozenset(
         # Multi-cluster operator config object — read-only dict wrapper
         "multi_cluster_operator_installation_config setup",
         "multi_cluster_operator_installation_config teardown",
+        # Reads a ConfigMap and returns it as a dict — no resource creation
+        "operator_installation_config setup",
+        "operator_installation_config teardown",
     }
 )
 
