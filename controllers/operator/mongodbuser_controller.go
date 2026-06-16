@@ -21,6 +21,7 @@ import (
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
+	mdbstatus "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/user"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
@@ -419,7 +420,7 @@ func (r *MongoDBUserReconciler) handleScramShaUser(ctx context.Context, user *us
 	}
 
 	log.Infof("Finished reconciliation for MongoDBUser!")
-	return r.updateStatus(ctx, user, workflow.OK(), log)
+	return r.updateStatus(ctx, user, workflow.OK(), log, mdbstatus.NewProjectIdOption(conn.GroupID()))
 }
 
 func (r *MongoDBUserReconciler) handleExternalAuthUser(ctx context.Context, user *userv1.MongoDBUser, conn om.Connection, log *zap.SugaredLogger) (reconcile.Result, error) {
@@ -469,7 +470,7 @@ func (r *MongoDBUserReconciler) handleExternalAuthUser(ctx context.Context, user
 	}
 
 	log.Infow("Finished reconciliation for MongoDBUser!")
-	return r.updateStatus(ctx, user, workflow.OK(), log)
+	return r.updateStatus(ctx, user, workflow.OK(), log, mdbstatus.NewProjectIdOption(conn.GroupID()))
 }
 
 func waitForReadyState(conn om.Connection, log *zap.SugaredLogger) error {
