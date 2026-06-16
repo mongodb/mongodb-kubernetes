@@ -890,7 +890,7 @@ func TestReplicaSetReconciler_PVCStatusClearedAfterSuccessfulResize(t *testing.T
 			SetPodSpec(&podSpec).
 			Build()
 
-		reconciler, kubeClient, _ := defaultReplicaSetReconciler(ctx, nil, "", "", rs)
+		reconciler, kubeClient, _ := defaultReplicaSetReconciler(ctx, nil, "", "", rs, architectures.NonStatic)
 		checkReconcileSuccessful(ctx, t, reconciler, rs, kubeClient)
 
 		// Read the STS the reconciler created and manufacture the matching PVCs
