@@ -122,12 +122,18 @@ func buildExpectedMongotConfig(search *searchv1.MongoDBSearch, mdbc *mdbcv1.Mong
 	return mongot.Config{
 		SyncSource: mongot.ConfigSyncSource{
 			ReplicaSet: mongot.ConfigReplicaSet{
-				HostAndPort:    hostAndPorts,
-				Username:       searchv1.MongotDefaultSyncSourceUsername,
-				PasswordFile:   searchcontroller.TempSourceUserPasswordPath,
-				TLS:            ptr.To(false),
+				HostAndPort: hostAndPorts,
+				ScramAuth: &mongot.ConfigScramAuth{
+					Username:     searchv1.MongotDefaultSyncSourceUsername,
+					PasswordFile: searchcontroller.TempSourceUserPasswordPath,
+					TLS: &mongot.ScramAuthTLS{
+						Enabled: false,
+					},
+					AuthSource: ptr.To("admin"),
+				},
+			},
+			ReplicationReader: &mongot.ConfigReplicationReader{
 				ReadPreference: ptr.To("secondaryPreferred"),
-				AuthSource:     ptr.To("admin"),
 			},
 		},
 		Storage: mongot.ConfigStorage{
