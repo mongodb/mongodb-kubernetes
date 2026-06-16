@@ -500,6 +500,7 @@ functions:
           source scripts/dev/set_env_context.sh
           source "${PROJECT_DIR}/venv/bin/activate" 2>/dev/null || true
           export PYTHONPATH="${PROJECT_DIR}:${PROJECT_DIR}/docker/mongodb-kubernetes-tests"
+          export HONEYCOMB_API_KEY="${honeycomb_api_key}"
           python docker/mongodb-kubernetes-tests/scripts/send_logs_to_honeycomb.py \
             --logs-dir logs \
             --task-id "${task_id}" \
