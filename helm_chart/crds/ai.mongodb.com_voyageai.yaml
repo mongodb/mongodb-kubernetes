@@ -406,6 +406,15 @@ spec:
                 format: int32
                 minimum: 1
                 type: integer
+              repository:
+                default: quay.io/mongodb/voyageai
+                description: |-
+                  Repository is the registry path the model image is pulled from. The full
+                  image is composed as <repository>/<model>:<version>. It defaults to
+                  quay.io/mongodb/voyageai, which is credential-protected; configure the
+                  operator's IMAGE_PULL_SECRETS so pods can pull it. Override this to mirror
+                  the image into a private or airgapped registry.
+                type: string
               resourceRequirements:
                 description: ResourceRequirements configures resource requests and
                   limits for the VoyageAI container.
@@ -533,11 +542,13 @@ spec:
                     type: integer
                 type: object
               version:
-                description: Version is the version of the VoyageAI model image.
+                description: Version is the version (image tag) of the VoyageAI model
+                  image.
                 minLength: 1
                 type: string
             required:
             - model
+            - version
             type: object
           status:
             properties:

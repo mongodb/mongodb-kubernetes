@@ -41,3 +41,4 @@ subjects:
   - kind: ServiceAccount
     name: mongodb-kubernetes-operator
     namespace: mongodb
+

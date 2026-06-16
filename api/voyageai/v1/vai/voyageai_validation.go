@@ -9,5 +9,8 @@ func (v *VoyageAI) Validate() error {
 	if v.Spec.Model == "" {
 		return fmt.Errorf("spec.model must be set")
 	}
+	if v.Spec.Version == "" {
+		return fmt.Errorf("spec.version must be set")
+	}
 	return nil
 }

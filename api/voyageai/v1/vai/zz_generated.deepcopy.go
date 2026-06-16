@@ -117,7 +117,7 @@ func (in *Security) DeepCopyInto(out *Security) {
 	if in.TLS != nil {
 		in, out := &in.TLS, &out.TLS
 		*out = new(TLS)
-		(*in).DeepCopyInto(*out)
+		**out = **in
 	}
 }
 

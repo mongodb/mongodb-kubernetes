@@ -56,3 +56,4 @@ subjects:
   - kind: ServiceAccount
     name: mongodb-kubernetes-appdb
     namespace: mongodb
+

@@ -418,10 +418,7 @@ func setupMongoDBMultiClusterCRD(ctx context.Context, mgr manager.Manager, image
 }
 
 func setupVoyageAICRD(ctx context.Context, mgr manager.Manager) error {
-	return operator.AddVoyageAIController(ctx, mgr, operator.OperatorVoyageAIConfig{
-		VoyageAIRepo:    env.ReadOrPanic(util.VoyageAIRepoURLEnv),
-		VoyageAIVersion: env.ReadOrPanic(util.VoyageAIVersionEnv),
-	})
+	return operator.AddVoyageAIController(ctx, mgr)
 }
 
 func setupMongoDBSearchCRD(ctx context.Context, mgr manager.Manager) error {

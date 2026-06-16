@@ -54,20 +54,13 @@ const (
 	voyageAITLSCertSecretIndex = ".spec.security.tls.certificateKeySecretRef.name"
 )
 
-type OperatorVoyageAIConfig struct {
-	VoyageAIRepo    string
-	VoyageAIVersion string
-}
-
 type VoyageAIReconciler struct {
-	kubeClient             kubernetesClient.Client
-	operatorVoyageAIConfig OperatorVoyageAIConfig
+	kubeClient kubernetesClient.Client
 }
 
-func newVoyageAIReconciler(client client.Client, config OperatorVoyageAIConfig) *VoyageAIReconciler {
+func newVoyageAIReconciler(client client.Client) *VoyageAIReconciler {
 	return &VoyageAIReconciler{
-		kubeClient:             kubernetesClient.NewClient(client),
-		operatorVoyageAIConfig: config,
+		kubeClient: kubernetesClient.NewClient(client),
 	}
 }
 
@@ -98,8 +91,7 @@ func (r *VoyageAIReconciler) Reconcile(ctx context.Context, request reconcile.Re
 
 	log.Info("VoyageAI reconciliation complete")
 
-	version := r.voyageAIVersion(vai)
-	versionOption := vaiv1.NewVoyageAIVersionOption(version)
+	versionOption := vaiv1.NewVoyageAIVersionOption(vai.Spec.Version)
 
 	if deploymentStatus := deployment.GetDeploymentStatus(ctx, vai.Namespace, vai.Name, dep.GetGeneration(), r.kubeClient); !deploymentStatus.IsOK() {
 		return commoncontroller.UpdateStatus(ctx, r.kubeClient, vai, deploymentStatus, log, versionOption)
@@ -109,7 +101,7 @@ func (r *VoyageAIReconciler) Reconcile(ctx context.Context, request reconcile.Re
 }
 
 func (r *VoyageAIReconciler) ensureDeployment(ctx context.Context, vai *vaiv1.VoyageAI, log *zap.SugaredLogger) (*appsv1.Deployment, error) {
-	image := r.voyageAIContainerImage(vai)
+	image := voyageAIContainerImage(vai)
 	labels := voyageAILabels(vai)
 	podLabels := voyageAIPodLabels(vai)
 	tlsEnabled := vai.IsTLSConfigured()
@@ -169,6 +161,19 @@ func (r *VoyageAIReconciler) ensureDeployment(ctx context.Context, vai *vaiv1.Vo
 				Effect:   corev1.TaintEffectNoSchedule,
 			},
 		}),
+	}
+
+	// VoyageAI images on quay.io/mongodb/voyageai are credential-protected;
+	// attach the operator-wide pull secret to the pods when configured.
+	if pullSecrets, found := env.Read(util.ImagePullSecrets); found { // nolint:forbidigo
+		podTemplateMods = append(podTemplateMods, func(pts *corev1.PodTemplateSpec) {
+			for _, v := range pts.Spec.ImagePullSecrets {
+				if v.Name == pullSecrets {
+					return
+				}
+			}
+			pts.Spec.ImagePullSecrets = append(pts.Spec.ImagePullSecrets, corev1.LocalObjectReference{Name: pullSecrets})
+		})
 	}
 
 	if tlsEnabled {
@@ -392,15 +397,8 @@ func (r *VoyageAIReconciler) ensureService(ctx context.Context, vai *vaiv1.Voyag
 	return nil
 }
 
-func (r *VoyageAIReconciler) voyageAIVersion(vai *vaiv1.VoyageAI) string {
-	if vai.Spec.Version != "" {
-		return vai.Spec.Version
-	}
-	return r.operatorVoyageAIConfig.VoyageAIVersion
-}
-
-func (r *VoyageAIReconciler) voyageAIContainerImage(vai *vaiv1.VoyageAI) string {
-	return fmt.Sprintf("%s/voyageai/%s:%s", r.operatorVoyageAIConfig.VoyageAIRepo, vai.Spec.Model, r.voyageAIVersion(vai))
+func voyageAIContainerImage(vai *vaiv1.VoyageAI) string {
+	return fmt.Sprintf("%s/%s:%s", vai.Spec.Repository, vai.Spec.Model, vai.Spec.Version)
 }
 
 func voyageAILabels(vai *vaiv1.VoyageAI) map[string]string {
@@ -445,8 +443,8 @@ func msToSecondsFloat(ms int32) string {
 	return fmt.Sprintf("%.2f", float64(ms)/1000.0)
 }
 
-func AddVoyageAIController(ctx context.Context, mgr manager.Manager, config OperatorVoyageAIConfig) error {
-	r := newVoyageAIReconciler(mgr.GetClient(), config)
+func AddVoyageAIController(ctx context.Context, mgr manager.Manager) error {
+	r := newVoyageAIReconciler(mgr.GetClient())
 
 	// Index VoyageAI resources by the name of the TLS cert Secret they reference,
 	// so the map-func can enqueue dependents when that Secret changes.

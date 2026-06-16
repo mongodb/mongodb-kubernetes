@@ -30,14 +30,14 @@ func newVoyageAI(name, namespace string, model vaiv1.VoyageAIModel, version stri
 		Spec: vaiv1.VoyageAISpec{
 			Model:   model,
 			Version: version,
+			// Mirrors the spec.repository CRD default, which the fake client does
+			// not apply for us.
+			Repository: "quay.io/mongodb/voyageai",
 		},
 	}
 }
 
-func newVoyageAIReconcilerWithConfig(
-	config OperatorVoyageAIConfig,
-	objects ...client.Object,
-) (*VoyageAIReconciler, client.Client) {
+func newVoyageAIReconcilerForTest(objects ...client.Object) (*VoyageAIReconciler, client.Client) {
 	builder := mock.NewEmptyFakeClientBuilder().
 		WithIndex(&vaiv1.VoyageAI{}, voyageAITLSCertSecretIndex, func(o client.Object) []string {
 			vai := o.(*vaiv1.VoyageAI)
@@ -50,14 +50,7 @@ func newVoyageAIReconcilerWithConfig(
 		builder.WithObjects(objects...)
 	}
 	fakeClient := builder.Build()
-	return newVoyageAIReconciler(fakeClient, config), fakeClient
-}
-
-func defaultVoyageAIConfig() OperatorVoyageAIConfig {
-	return OperatorVoyageAIConfig{
-		VoyageAIRepo:    "testrepo",
-		VoyageAIVersion: "1.0.0",
-	}
+	return newVoyageAIReconciler(fakeClient), fakeClient
 }
 
 func markDeploymentReady(ctx context.Context, t *testing.T, c client.Client, name, namespace string) {
@@ -142,7 +135,7 @@ func getVoyageAIContainerByName(dep *appsv1.Deployment, name string) corev1.Cont
 
 func TestVoyageAIReconcile_NotFound(t *testing.T) {
 	ctx := context.Background()
-	reconciler, _ := newVoyageAIReconcilerWithConfig(defaultVoyageAIConfig())
+	reconciler, _ := newVoyageAIReconcilerForTest()
 
 	res, err := reconcileVoyageAI(ctx, t, reconciler, "missing", mock.TestNamespace)
 
@@ -154,7 +147,7 @@ func TestVoyageAIReconcile_NotFound(t *testing.T) {
 func TestVoyageAIReconcile_ValidationFailed_EmptyModel(t *testing.T) {
 	ctx := context.Background()
 	vai := newVoyageAI("vai", mock.TestNamespace, "", "1.0.0")
-	reconciler, c := newVoyageAIReconcilerWithConfig(defaultVoyageAIConfig(), vai)
+	reconciler, c := newVoyageAIReconcilerForTest(vai)
 
 	_, err := reconcileVoyageAI(ctx, t, reconciler, vai.Name, vai.Namespace)
 	assert.NoError(t, err)
@@ -168,8 +161,7 @@ func TestVoyageAIReconcile_ValidationFailed_EmptyModel(t *testing.T) {
 func TestVoyageAIReconcile_Success(t *testing.T) {
 	ctx := context.Background()
 	vai := newVoyageAI("vai", mock.TestNamespace, vaiv1.VoyageAIModelVoyage4, "2.0.0")
-	config := OperatorVoyageAIConfig{VoyageAIRepo: "testrepo", VoyageAIVersion: "1.0.0"}
-	reconciler, c := newVoyageAIReconcilerWithConfig(config, vai)
+	reconciler, c := newVoyageAIReconcilerForTest(vai)
 
 	reconcileVoyageAISuccessful(ctx, t, reconciler, c, vai)
 
@@ -192,7 +184,7 @@ func TestVoyageAIReconcile_Pending(t *testing.T) {
 	ctx := context.Background()
 	vai := newVoyageAI("vai", mock.TestNamespace, vaiv1.VoyageAIModelVoyage4, "1.0.0")
 	vai.Spec.Replicas = 1
-	reconciler, c := newVoyageAIReconcilerWithConfig(defaultVoyageAIConfig(), vai)
+	reconciler, c := newVoyageAIReconcilerForTest(vai)
 
 	// Reconcile without marking deployment ready
 	_, err := reconcileVoyageAI(ctx, t, reconciler, vai.Name, vai.Namespace)
@@ -209,8 +201,7 @@ func TestVoyageAI_DeploymentSpec(t *testing.T) {
 	ctx := context.Background()
 	vai := newVoyageAI("vai", mock.TestNamespace, vaiv1.VoyageAIModelVoyage4, "2.0.0")
 	vai.Spec.Replicas = 3
-	config := OperatorVoyageAIConfig{VoyageAIRepo: "myrepo", VoyageAIVersion: "1.0.0"}
-	reconciler, c := newVoyageAIReconcilerWithConfig(config, vai)
+	reconciler, c := newVoyageAIReconcilerForTest(vai)
 
 	_, err := reconcileVoyageAI(ctx, t, reconciler, vai.Name, vai.Namespace)
 	require.NoError(t, err)
@@ -223,7 +214,7 @@ func TestVoyageAI_DeploymentSpec(t *testing.T) {
 
 	// Container image
 	container := getVoyageAIContainer(dep)
-	assert.Equal(t, "myrepo/voyageai/voyage-4:2.0.0", container.Image)
+	assert.Equal(t, "quay.io/mongodb/voyageai/voyage-4:2.0.0", container.Image)
 
 	// Container port (default 8080 from zero-value ServerConfig; kubebuilder defaults don't apply in unit tests)
 	// With zero-value ServerConfig, Port=0 so the container port will be 0.
@@ -268,7 +259,7 @@ func TestVoyageAI_DeploymentSpec_ExplicitPort(t *testing.T) {
 	ctx := context.Background()
 	vai := newVoyageAI("vai", mock.TestNamespace, vaiv1.VoyageAIModelVoyage4, "1.0.0")
 	vai.Spec.Server.Port = 9090
-	reconciler, c := newVoyageAIReconcilerWithConfig(defaultVoyageAIConfig(), vai)
+	reconciler, c := newVoyageAIReconcilerForTest(vai)
 
 	_, err := reconcileVoyageAI(ctx, t, reconciler, vai.Name, vai.Namespace)
 	require.NoError(t, err)
@@ -285,7 +276,7 @@ func TestVoyageAI_HealthProbes(t *testing.T) {
 	ctx := context.Background()
 	vai := newVoyageAI("vai", mock.TestNamespace, vaiv1.VoyageAIModelVoyage4, "1.0.0")
 	vai.Spec.Server.Port = 8080
-	reconciler, c := newVoyageAIReconcilerWithConfig(defaultVoyageAIConfig(), vai)
+	reconciler, c := newVoyageAIReconcilerForTest(vai)
 
 	_, err := reconcileVoyageAI(ctx, t, reconciler, vai.Name, vai.Namespace)
 	require.NoError(t, err)
@@ -322,7 +313,7 @@ func TestVoyageAI_HealthProbes_TLS(t *testing.T) {
 	vai.Spec.Security.TLS = &vaiv1.TLS{
 		CertificateKeySecretRef: corev1.LocalObjectReference{Name: "tls-secret"},
 	}
-	reconciler, c := newVoyageAIReconcilerWithConfig(defaultVoyageAIConfig(), vai)
+	reconciler, c := newVoyageAIReconcilerForTest(vai)
 
 	_, err := reconcileVoyageAI(ctx, t, reconciler, vai.Name, vai.Namespace)
 	require.NoError(t, err)
@@ -543,7 +534,7 @@ func TestVoyageAI_Metrics_DedicatedPort_ContainerAndService(t *testing.T) {
 		Path:    "/metrics",
 		Port:    &metricsPort,
 	}
-	reconciler, c := newVoyageAIReconcilerWithConfig(defaultVoyageAIConfig(), vai)
+	reconciler, c := newVoyageAIReconcilerForTest(vai)
 
 	_, err := reconcileVoyageAI(ctx, t, reconciler, vai.Name, vai.Namespace)
 	require.NoError(t, err)
@@ -645,7 +636,7 @@ func TestVoyageAI_DisablingTLS_PrunesCertVolumeAndEnv(t *testing.T) {
 	vai.Spec.Security.TLS = &vaiv1.TLS{
 		CertificateKeySecretRef: corev1.LocalObjectReference{Name: "tls-secret"},
 	}
-	reconciler, c := newVoyageAIReconcilerWithConfig(defaultVoyageAIConfig(), vai)
+	reconciler, c := newVoyageAIReconcilerForTest(vai)
 
 	// First reconcile: TLS on -> cert volume + HTTPS probes.
 	_, err := reconcileVoyageAI(ctx, t, reconciler, vai.Name, vai.Namespace)
@@ -697,7 +688,7 @@ func TestVoyageAI_Probes_TLSUsesHTTPS(t *testing.T) {
 	vai.Spec.Security.TLS = &vaiv1.TLS{
 		CertificateKeySecretRef: corev1.LocalObjectReference{Name: "tls-secret"},
 	}
-	reconciler, c := newVoyageAIReconcilerWithConfig(defaultVoyageAIConfig(), vai)
+	reconciler, c := newVoyageAIReconcilerForTest(vai)
 
 	_, err := reconcileVoyageAI(ctx, t, reconciler, vai.Name, vai.Namespace)
 	require.NoError(t, err)
@@ -723,7 +714,7 @@ func TestVoyageAI_TLS(t *testing.T) {
 	vai.Spec.Security.TLS = &vaiv1.TLS{
 		CertificateKeySecretRef: corev1.LocalObjectReference{Name: "tls-secret"},
 	}
-	reconciler, c := newVoyageAIReconcilerWithConfig(defaultVoyageAIConfig(), vai)
+	reconciler, c := newVoyageAIReconcilerForTest(vai)
 
 	_, err := reconcileVoyageAI(ctx, t, reconciler, vai.Name, vai.Namespace)
 	require.NoError(t, err)
@@ -772,7 +763,7 @@ func TestVoyageAI_Service(t *testing.T) {
 	ctx := context.Background()
 	vai := newVoyageAI("vai", mock.TestNamespace, vaiv1.VoyageAIModelVoyage4, "1.0.0")
 	vai.Spec.Server.Port = 8080
-	reconciler, c := newVoyageAIReconcilerWithConfig(defaultVoyageAIConfig(), vai)
+	reconciler, c := newVoyageAIReconcilerForTest(vai)
 
 	_, err := reconcileVoyageAI(ctx, t, reconciler, vai.Name, vai.Namespace)
 	require.NoError(t, err)
@@ -823,7 +814,7 @@ func TestVoyageAI_NodeAffinity(t *testing.T) {
 			},
 		},
 	}
-	reconciler, c := newVoyageAIReconcilerWithConfig(defaultVoyageAIConfig(), vai)
+	reconciler, c := newVoyageAIReconcilerForTest(vai)
 
 	_, err := reconcileVoyageAI(ctx, t, reconciler, vai.Name, vai.Namespace)
 	require.NoError(t, err)
@@ -843,7 +834,7 @@ func TestVoyageAI_NodeAffinity(t *testing.T) {
 func TestVoyageAI_NoNodeAffinity(t *testing.T) {
 	ctx := context.Background()
 	vai := newVoyageAI("vai", mock.TestNamespace, vaiv1.VoyageAIModelVoyage4, "1.0.0")
-	reconciler, c := newVoyageAIReconcilerWithConfig(defaultVoyageAIConfig(), vai)
+	reconciler, c := newVoyageAIReconcilerForTest(vai)
 
 	_, err := reconcileVoyageAI(ctx, t, reconciler, vai.Name, vai.Namespace)
 	require.NoError(t, err)
@@ -852,24 +843,80 @@ func TestVoyageAI_NoNodeAffinity(t *testing.T) {
 	assert.Nil(t, dep.Spec.Template.Spec.Affinity, "Affinity should be nil when NodeAffinity is not set")
 }
 
-// --- Version resolution tests ---
+// --- Image composition / version validation tests ---
 
-func TestVoyageAI_VersionFromSpec(t *testing.T) {
-	vai := newVoyageAI("vai", mock.TestNamespace, vaiv1.VoyageAIModelRerank25, "3.0.0")
-	config := OperatorVoyageAIConfig{VoyageAIRepo: "myrepo", VoyageAIVersion: "2.0.0"}
-	r := &VoyageAIReconciler{operatorVoyageAIConfig: config}
+func TestVoyageAI_ContainerImage(t *testing.T) {
+	tests := []struct {
+		name       string
+		model      vaiv1.VoyageAIModel
+		version    string
+		repository string
+		expected   string
+	}{
+		{
+			name:       "quay.io default repository",
+			model:      vaiv1.VoyageAIModelRerank25,
+			version:    "3.0.0",
+			repository: "quay.io/mongodb/voyageai",
+			expected:   "quay.io/mongodb/voyageai/rerank-2.5:3.0.0",
+		},
+		{
+			name:       "repository overrides the default registry for airgapped mirrors",
+			model:      vaiv1.VoyageAIModelVoyage4,
+			version:    "1.0.0",
+			repository: "myregistry.internal/voyageai",
+			expected:   "myregistry.internal/voyageai/voyage-4:1.0.0",
+		},
+	}
 
-	assert.Equal(t, "3.0.0", r.voyageAIVersion(vai))
-	assert.Equal(t, "myrepo/voyageai/rerank-2.5:3.0.0", r.voyageAIContainerImage(vai))
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			vai := newVoyageAI("vai", mock.TestNamespace, tc.model, tc.version)
+			vai.Spec.Repository = tc.repository
+			assert.Equal(t, tc.expected, voyageAIContainerImage(vai))
+		})
+	}
 }
 
-func TestVoyageAI_VersionFallback(t *testing.T) {
-	vai := newVoyageAI("vai", mock.TestNamespace, vaiv1.VoyageAIModelVoyage4Lite, "")
-	config := OperatorVoyageAIConfig{VoyageAIRepo: "myrepo", VoyageAIVersion: "2.0.0"}
-	r := &VoyageAIReconciler{operatorVoyageAIConfig: config}
+func TestVoyageAI_ImagePullSecrets(t *testing.T) {
+	ctx := context.Background()
+	t.Setenv(util.ImagePullSecrets, "quay-pull-secret")
 
-	assert.Equal(t, "2.0.0", r.voyageAIVersion(vai))
-	assert.Equal(t, "myrepo/voyageai/voyage-4-lite:2.0.0", r.voyageAIContainerImage(vai))
+	vai := newVoyageAI("vai", mock.TestNamespace, vaiv1.VoyageAIModelVoyage4, "1.0.0")
+	reconciler, c := newVoyageAIReconcilerForTest(vai)
+
+	_, err := reconcileVoyageAI(ctx, t, reconciler, vai.Name, vai.Namespace)
+	require.NoError(t, err)
+
+	dep := getVoyageAIDeployment(ctx, t, c, vai)
+	require.Len(t, dep.Spec.Template.Spec.ImagePullSecrets, 1)
+	assert.Equal(t, "quay-pull-secret", dep.Spec.Template.Spec.ImagePullSecrets[0].Name)
+}
+
+func TestVoyageAI_NoImagePullSecretsWhenEnvUnset(t *testing.T) {
+	ctx := context.Background()
+	vai := newVoyageAI("vai", mock.TestNamespace, vaiv1.VoyageAIModelVoyage4, "1.0.0")
+	reconciler, c := newVoyageAIReconcilerForTest(vai)
+
+	_, err := reconcileVoyageAI(ctx, t, reconciler, vai.Name, vai.Namespace)
+	require.NoError(t, err)
+
+	dep := getVoyageAIDeployment(ctx, t, c, vai)
+	assert.Empty(t, dep.Spec.Template.Spec.ImagePullSecrets)
+}
+
+func TestVoyageAIReconcile_ValidationFailed_EmptyVersion(t *testing.T) {
+	ctx := context.Background()
+	vai := newVoyageAI("vai", mock.TestNamespace, vaiv1.VoyageAIModelVoyage4Lite, "")
+	reconciler, c := newVoyageAIReconcilerForTest(vai)
+
+	_, err := reconcileVoyageAI(ctx, t, reconciler, vai.Name, vai.Namespace)
+	assert.NoError(t, err)
+
+	updated := &vaiv1.VoyageAI{}
+	assert.NoError(t, c.Get(ctx, types.NamespacedName{Name: vai.Name, Namespace: vai.Namespace}, updated))
+	assert.Equal(t, status.PhaseFailed, updated.Status.Phase)
+	assert.Contains(t, updated.Status.Message, "spec.version must be set")
 }
 
 // --- Model variants test ---
@@ -879,17 +926,17 @@ func TestVoyageAI_AllModelVariants(t *testing.T) {
 		model         vaiv1.VoyageAIModel
 		expectedImage string
 	}{
-		{vaiv1.VoyageAIModelVoyage4, "testrepo/voyageai/voyage-4:1.0.0"},
-		{vaiv1.VoyageAIModelVoyage4Lite, "testrepo/voyageai/voyage-4-lite:1.0.0"},
-		{vaiv1.VoyageAIModelRerank25, "testrepo/voyageai/rerank-2.5:1.0.0"},
-		{vaiv1.VoyageAIModelRerank25Lite, "testrepo/voyageai/rerank-2.5-lite:1.0.0"},
+		{vaiv1.VoyageAIModelVoyage4, "quay.io/mongodb/voyageai/voyage-4:1.0.0"},
+		{vaiv1.VoyageAIModelVoyage4Lite, "quay.io/mongodb/voyageai/voyage-4-lite:1.0.0"},
+		{vaiv1.VoyageAIModelRerank25, "quay.io/mongodb/voyageai/rerank-2.5:1.0.0"},
+		{vaiv1.VoyageAIModelRerank25Lite, "quay.io/mongodb/voyageai/rerank-2.5-lite:1.0.0"},
 	}
 
 	for _, tc := range tests {
 		t.Run(string(tc.model), func(t *testing.T) {
 			ctx := context.Background()
 			vai := newVoyageAI("vai", mock.TestNamespace, tc.model, "1.0.0")
-			reconciler, c := newVoyageAIReconcilerWithConfig(defaultVoyageAIConfig(), vai)
+			reconciler, c := newVoyageAIReconcilerForTest(vai)
 
 			_, err := reconcileVoyageAI(ctx, t, reconciler, vai.Name, vai.Namespace)
 			require.NoError(t, err)
@@ -954,8 +1001,7 @@ func TestMsToSecondsFloat(t *testing.T) {
 func TestVoyageAIReconcile_StatusVersionFromOperatorConfig(t *testing.T) {
 	ctx := context.Background()
 	vai := newVoyageAI("vai", mock.TestNamespace, vaiv1.VoyageAIModelVoyage4, "2.5.0")
-	config := OperatorVoyageAIConfig{VoyageAIRepo: "testrepo", VoyageAIVersion: "1.0.0"}
-	reconciler, c := newVoyageAIReconcilerWithConfig(config, vai)
+	reconciler, c := newVoyageAIReconcilerForTest(vai)
 
 	reconcileVoyageAISuccessful(ctx, t, reconciler, c, vai)
 
@@ -973,7 +1019,7 @@ func TestVoyageAI_MapSecretToVoyageAI_MatchesTLSCertRef(t *testing.T) {
 	vai.Spec.Security.TLS = &vaiv1.TLS{
 		CertificateKeySecretRef: corev1.LocalObjectReference{Name: "tls-secret"},
 	}
-	reconciler, _ := newVoyageAIReconcilerWithConfig(defaultVoyageAIConfig(), vai)
+	reconciler, _ := newVoyageAIReconcilerForTest(vai)
 
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: "tls-secret", Namespace: mock.TestNamespace},
@@ -991,7 +1037,7 @@ func TestVoyageAI_MapSecretToVoyageAI_NoMatch(t *testing.T) {
 	vai.Spec.Security.TLS = &vaiv1.TLS{
 		CertificateKeySecretRef: corev1.LocalObjectReference{Name: "tls-secret"},
 	}
-	reconciler, _ := newVoyageAIReconcilerWithConfig(defaultVoyageAIConfig(), vai)
+	reconciler, _ := newVoyageAIReconcilerForTest(vai)
 
 	other := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: "some-other-secret", Namespace: mock.TestNamespace},
@@ -1003,7 +1049,7 @@ func TestVoyageAI_MapSecretToVoyageAI_NoMatch(t *testing.T) {
 func TestVoyageAI_MapSecretToVoyageAI_NoTLSConfigured(t *testing.T) {
 	ctx := context.Background()
 	vai := newVoyageAI("vai", mock.TestNamespace, vaiv1.VoyageAIModelVoyage4, "1.0.0")
-	reconciler, _ := newVoyageAIReconcilerWithConfig(defaultVoyageAIConfig(), vai)
+	reconciler, _ := newVoyageAIReconcilerForTest(vai)
 
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: "anything", Namespace: mock.TestNamespace},
@@ -1018,7 +1064,7 @@ func TestVoyageAI_MapSecretToVoyageAI_NamespaceIsolation(t *testing.T) {
 	vai.Spec.Security.TLS = &vaiv1.TLS{
 		CertificateKeySecretRef: corev1.LocalObjectReference{Name: "tls-secret"},
 	}
-	reconciler, _ := newVoyageAIReconcilerWithConfig(defaultVoyageAIConfig(), vai)
+	reconciler, _ := newVoyageAIReconcilerForTest(vai)
 
 	// Secret with the right name but in a different namespace must not match.
 	secret := &corev1.Secret{
@@ -1038,7 +1084,7 @@ func TestVoyageAI_MapSecretToVoyageAI_MultipleDependents(t *testing.T) {
 	vaiB.Spec.Security.TLS = &vaiv1.TLS{
 		CertificateKeySecretRef: corev1.LocalObjectReference{Name: "shared-secret"},
 	}
-	reconciler, _ := newVoyageAIReconcilerWithConfig(defaultVoyageAIConfig(), vaiA, vaiB)
+	reconciler, _ := newVoyageAIReconcilerForTest(vaiA, vaiB)
 
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: "shared-secret", Namespace: mock.TestNamespace},
@@ -1061,7 +1107,7 @@ func TestVoyageAIReconcile_Idempotent(t *testing.T) {
 	ctx := context.Background()
 	vai := newVoyageAI("vai", mock.TestNamespace, vaiv1.VoyageAIModelVoyage4, "1.0.0")
 	vai.Spec.Server.Port = 8080
-	reconciler, c := newVoyageAIReconcilerWithConfig(defaultVoyageAIConfig(), vai)
+	reconciler, c := newVoyageAIReconcilerForTest(vai)
 
 	// First reconcile
 	reconcileVoyageAISuccessful(ctx, t, reconciler, c, vai)
