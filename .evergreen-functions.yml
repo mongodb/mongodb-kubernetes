@@ -489,6 +489,19 @@ functions:
   # reachable. Note that after a timeout, Evergreen kills the running process
   # and any running container in the host (which kills Kind).
   upload_e2e_logs:
+    # Send structured log events (kube Warning events, agent health, operator errors)
+    # to Honeycomb before S3 upload. Best-effort: skipped if HONEYCOMB_API_KEY unset.
+    - command: shell.exec
+      params:
+        continue_on_err: true
+        shell: bash
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        script: |
+          scripts/dev/run_python.sh \
+            docker/mongodb-kubernetes-tests/scripts/send_logs_to_honeycomb.py \
+            --logs-dir logs \
+            --task-id "${task_id}" \
+            --version-id "${version_id}"
     # Upload HTML reports with proper content type so they render in browser
     - command: s3.put
       params:
