@@ -24,6 +24,10 @@ def in_desired_state(
 ) -> bool:
     """Returns true if the current_state is equal to desired state, fails fast if got into Failed error.
     Optionally checks if the message matches the specified regexp expression"""
+    # This span is called every 3s inside wait_for; it carries no custom attributes and
+    # adds no signal beyond what wait_for/assert_reaches_phase already captures.
+    # DROP_SPAN=True tells the Honeycomb ingestion pipeline to discard it (~28M spans/7d).
+    trace.get_current_span().set_attribute("DROP_SPAN", True)
     if current_state is None:
         return False
 

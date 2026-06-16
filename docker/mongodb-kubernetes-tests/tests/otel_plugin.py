@@ -11,11 +11,49 @@ from opentelemetry.sdk.trace import ReadableSpan, Span, SpanProcessor, TracerPro
 from pytest_opentelemetry.instrumentation import OpenTelemetryPlugin
 
 
+# Fixture spans that carry no failure signal and are generated in large numbers.
+# These are pure configuration reads or trivial setup/teardown steps whose timing
+# and outcome add no value for debugging. DROP_SPAN=True causes the Honeycomb
+# ingestion pipeline to discard them before storage.
+# ~7-8M spans/7d reduced by keeping this list tight.
+_DROP_FIXTURE_SPANS = frozenset(
+    {
+        # Python event-loop setup — always sub-ms, never fails
+        "event_loop_policy setup",
+        "event_loop_policy teardown",
+        # Kubernetes namespace name — just returns a string constant
+        "namespace setup",
+        "namespace teardown",
+        # Cluster topology helpers — read-only accessors, no resource creation
+        "central_cluster_name setup",
+        "central_cluster_name teardown",
+        "member_cluster_names setup",
+        "member_cluster_names teardown",
+        "central_cluster_client setup",
+        "central_cluster_client teardown",
+        "member_cluster_clients setup",
+        "member_cluster_clients teardown",
+        # Generic helper fixture (returns tester utility, no I/O)
+        "helper setup",
+        "helper teardown",
+        # Version string accessor
+        "custom_mdb_version setup",
+        "custom_mdb_version teardown",
+        # Multi-cluster operator config object — read-only dict wrapper
+        "multi_cluster_operator_installation_config setup",
+        "multi_cluster_operator_installation_config teardown",
+    }
+)
+
+
 class PrefixProcessor(SpanProcessor):
     def on_start(self, span: Span, parent_context=None):
         # Create a new dictionary for updated attributes, span.attribute is immutable
         prefixed_attributes = EnhancedOpenTelemetryPlugin._prefix_attributes(span.attributes)
         span.set_attributes(prefixed_attributes)
+
+        if span.name in _DROP_FIXTURE_SPANS:
+            span.set_attribute("DROP_SPAN", True)
 
     def on_end(self, span: ReadableSpan):
         pass
