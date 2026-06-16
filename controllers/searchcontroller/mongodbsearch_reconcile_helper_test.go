@@ -1077,7 +1077,7 @@ func TestCreateShardMongotConfig(t *testing.T) {
 	mongot.Apply(baseMongotConfig(search, seeds0), routerMongotMod(search, shardedSource), featureFlagsMongotMod(search))(&config)
 
 	assert.Equal(t, []string{"my-cluster-0-0.svc:27017", "my-cluster-0-1.svc:27017", "my-cluster-0-2.svc:27017"}, config.SyncSource.ReplicaSet.HostAndPort)
-	assert.Equal(t, search.SourceUsername(), config.SyncSource.ReplicaSet.Username)
+	assert.Equal(t, search.SourceUsername(), config.SyncSource.ReplicaSet.ScramAuth.Username)
 
 	// OverloadRetrySignal defaults to true even when featureFlags is not set in CR
 	require.NotNil(t, config.FeatureFlags)
@@ -1119,27 +1119,27 @@ func TestShardedMongotConfigWithTLS(t *testing.T) {
 	config := mongot.Config{}
 	mongot.Apply(baseMongotConfig(search, seedsTLS), routerMongotMod(search, shardedSource))(&config)
 
-	require.NotNil(t, config.SyncSource.ReplicaSet.TLS)
-	assert.False(t, *config.SyncSource.ReplicaSet.TLS, "ReplicaSet TLS should initially be false")
+	require.NotNil(t, config.SyncSource.ReplicaSet.ScramAuth.TLS.Enabled)
+	assert.False(t, config.SyncSource.ReplicaSet.ScramAuth.TLS.Enabled, "ReplicaSet TLS should initially be false")
 	require.NotNil(t, config.SyncSource.Router)
-	require.NotNil(t, config.SyncSource.Router.TLS)
-	assert.False(t, *config.SyncSource.Router.TLS, "Router TLS should initially be false")
+	require.NotNil(t, config.SyncSource.Router.ScramAuth.TLS.Enabled)
+	assert.False(t, config.SyncSource.Router.ScramAuth.TLS.Enabled, "Router TLS should initially be false")
 
 	// Simulate what ensureEgressTlsConfig does when TLS is enabled
 	tlsSourceConfig := shardedSource.TLSConfig()
 	require.NotNil(t, tlsSourceConfig, "TLS config should not be nil")
 
 	// Apply the TLS modification (simulating ensureEgressTlsConfig behavior)
-	config.SyncSource.ReplicaSet.TLS = ptr.To(true)
-	config.SyncSource.CertificateAuthorityFile = ptr.To("/mongodb-automation/ca/" + tlsSourceConfig.CAFileName)
+	config.SyncSource.ReplicaSet.ScramAuth.TLS.Enabled = true
+	config.SyncSource.ReplicaSet.ScramAuth.TLS.CertificateAuthorityFile = ptr.To("/mongodb-automation/ca/" + tlsSourceConfig.CAFileName)
 	if config.SyncSource.Router != nil {
-		config.SyncSource.Router.TLS = ptr.To(true)
+		config.SyncSource.Router.ScramAuth.TLS.Enabled = true
 	}
 
-	assert.True(t, *config.SyncSource.ReplicaSet.TLS, "ReplicaSet TLS should be enabled")
-	require.NotNil(t, config.SyncSource.CertificateAuthorityFile)
-	assert.Equal(t, "/mongodb-automation/ca/ca-pem", *config.SyncSource.CertificateAuthorityFile)
-	assert.True(t, *config.SyncSource.Router.TLS, "Router TLS should be enabled for sharded clusters")
+	assert.True(t, config.SyncSource.ReplicaSet.ScramAuth.TLS.Enabled, "ReplicaSet TLS should be enabled")
+	require.NotNil(t, config.SyncSource.ReplicaSet.ScramAuth.TLS.CertificateAuthorityFile)
+	assert.Equal(t, "/mongodb-automation/ca/ca-pem", *config.SyncSource.ReplicaSet.ScramAuth.TLS.CertificateAuthorityFile)
+	assert.True(t, config.SyncSource.Router.ScramAuth.TLS.Enabled, "Router TLS should be enabled for sharded clusters")
 }
 
 func TestShardedMongotConfigWithoutTLS(t *testing.T) {
@@ -1161,12 +1161,12 @@ func TestShardedMongotConfigWithoutTLS(t *testing.T) {
 	config := mongot.Config{}
 	mongot.Apply(baseMongotConfig(search, seedsNoTLS), routerMongotMod(search, shardedSource))(&config)
 
-	require.NotNil(t, config.SyncSource.ReplicaSet.TLS)
-	assert.False(t, *config.SyncSource.ReplicaSet.TLS, "ReplicaSet TLS should be false when source has no TLS")
+	require.NotNil(t, config.SyncSource.ReplicaSet.ScramAuth.TLS.Enabled)
+	assert.False(t, config.SyncSource.ReplicaSet.ScramAuth.TLS.Enabled, "ReplicaSet TLS should be false when source has no TLS")
 	require.NotNil(t, config.SyncSource.Router)
-	require.NotNil(t, config.SyncSource.Router.TLS)
-	assert.False(t, *config.SyncSource.Router.TLS, "Router TLS should be false when source has no TLS")
-	assert.Nil(t, config.SyncSource.CertificateAuthorityFile)
+	require.NotNil(t, config.SyncSource.Router.ScramAuth.TLS.Enabled)
+	assert.False(t, config.SyncSource.Router.ScramAuth.TLS.Enabled, "Router TLS should be false when source has no TLS")
+	assert.Nil(t, config.SyncSource.ReplicaSet.ScramAuth.TLS.CertificateAuthorityFile)
 }
 
 // mockShardedSource is a mock implementation of ShardedSearchSourceDBResource for testing
@@ -2234,17 +2234,19 @@ func TestEnsureX509ClientCertConfig_NoopWhenNotConfigured(t *testing.T) {
 	config := &mongot.Config{
 		SyncSource: mongot.ConfigSyncSource{
 			ReplicaSet: mongot.ConfigReplicaSet{
-				Username:     "original-user",
-				PasswordFile: "/original/path",
-				AuthSource:   ptr.To("admin"),
+				ScramAuth: &mongot.ConfigScramAuth{
+					Username:     "original-user",
+					PasswordFile: "/original/path",
+					AuthSource:   ptr.To("admin"),
+				},
 			},
 		},
 	}
 	mongotMod(config)
 
-	assert.Equal(t, "original-user", config.SyncSource.ReplicaSet.Username)
-	assert.Equal(t, "/original/path", config.SyncSource.ReplicaSet.PasswordFile)
-	assert.Equal(t, "admin", *config.SyncSource.ReplicaSet.AuthSource)
+	assert.Equal(t, "original-user", config.SyncSource.ReplicaSet.ScramAuth.Username)
+	assert.Equal(t, "/original/path", config.SyncSource.ReplicaSet.ScramAuth.PasswordFile)
+	assert.Equal(t, "admin", *config.SyncSource.ReplicaSet.ScramAuth.AuthSource)
 	assert.Nil(t, config.SyncSource.ReplicaSet.X509)
 
 	sts := newBaseMongotStatefulSet()
@@ -2298,23 +2300,25 @@ func TestEnsureX509ClientCertConfig_MongotAndStsModification(t *testing.T) {
 	config := &mongot.Config{
 		SyncSource: mongot.ConfigSyncSource{
 			ReplicaSet: mongot.ConfigReplicaSet{
-				Username:     "search-sync-source",
-				PasswordFile: TempSourceUserPasswordPath,
-				AuthSource:   ptr.To("admin"),
+				ScramAuth: &mongot.ConfigScramAuth{
+					Username:     "search-sync-source",
+					PasswordFile: TempSourceUserPasswordPath,
+					AuthSource:   ptr.To("admin"),
+				},
 			},
 			Router: &mongot.ConfigRouter{
-				HostAndPort:  []string{"mongos-svc:27017"},
-				Username:     "search-sync-source",
-				PasswordFile: TempSourceUserPasswordPath,
+				HostAndPort: []string{"mongos-svc:27017"},
+				ScramAuth: &mongot.ConfigScramAuth{
+					Username:     "search-sync-source",
+					PasswordFile: TempSourceUserPasswordPath,
+				},
 			},
 		},
 	}
 	mongotMod(config)
 
-	// ReplicaSet: username/password cleared, authSource=$external, x509 cert path set
-	assert.Empty(t, config.SyncSource.ReplicaSet.Username)
-	assert.Empty(t, config.SyncSource.ReplicaSet.PasswordFile)
-	assert.Equal(t, "$external", *config.SyncSource.ReplicaSet.AuthSource)
+	// ReplicaSet: scramAuth cleared, x509 cert path set
+	assert.Nil(t, config.SyncSource.ReplicaSet.ScramAuth)
 	require.NotNil(t, config.SyncSource.ReplicaSet.X509)
 	require.NotNil(t, config.SyncSource.ReplicaSet.X509.TLSCertificateKeyFile)
 	assert.True(t, strings.HasPrefix(*config.SyncSource.ReplicaSet.X509.TLSCertificateKeyFile, X509ClientCertOperatorMountPath))
@@ -2322,9 +2326,7 @@ func TestEnsureX509ClientCertConfig_MongotAndStsModification(t *testing.T) {
 	assert.Nil(t, config.SyncSource.ReplicaSet.X509.TLSCertificateKeyFilePasswordFile)
 
 	// Router: same x509 modifications, cert path matches ReplicaSet
-	assert.Empty(t, config.SyncSource.Router.Username)
-	assert.Empty(t, config.SyncSource.Router.PasswordFile)
-	assert.Equal(t, "$external", *config.SyncSource.Router.AuthSource)
+	assert.Nil(t, config.SyncSource.Router.ScramAuth)
 	require.NotNil(t, config.SyncSource.Router.X509)
 	require.NotNil(t, config.SyncSource.Router.X509.TLSCertificateKeyFile)
 	assert.Equal(t, *config.SyncSource.ReplicaSet.X509.TLSCertificateKeyFile, *config.SyncSource.Router.X509.TLSCertificateKeyFile)
@@ -2391,8 +2393,10 @@ func TestEnsureX509ClientCertConfig_KeyPassword(t *testing.T) {
 	config := &mongot.Config{
 		SyncSource: mongot.ConfigSyncSource{
 			ReplicaSet: mongot.ConfigReplicaSet{
-				Username:     "search-sync-source",
-				PasswordFile: TempSourceUserPasswordPath,
+				ScramAuth: &mongot.ConfigScramAuth{
+					Username:     "search-sync-source",
+					PasswordFile: TempSourceUserPasswordPath,
+				},
 			},
 		},
 	}

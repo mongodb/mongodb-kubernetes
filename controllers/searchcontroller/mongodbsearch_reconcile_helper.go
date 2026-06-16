@@ -1331,9 +1331,10 @@ func (r *MongoDBSearchReconcileHelper) ensureX509ClientCertConfig(ctx context.Co
 		return mongot.NOOP(), statefulset.NOOP(), nil
 	}
 
+	tlsSourceConfig := r.db.TLSConfig()
 	// in this https://docs.google.com/document/d/11xdolqdUR2Ht107AbxO5VKW658ytl6rPoJlYYc36ufE/edit?tab=t.0#heading=h.xpj7eo2nhgir document
 	// it's mentioned that tls=true is required for x509 auth.
-	if r.db.TLSConfig() == nil {
+	if tlsSourceConfig == nil {
 		return nil, nil, xerrors.New("tls must be enabled for syncSource to enable x509 auth for search resource")
 	}
 
@@ -1354,24 +1355,20 @@ func (r *MongoDBSearchReconcileHelper) ensureX509ClientCertConfig(ctx context.Co
 	}
 
 	mongotModification := func(config *mongot.Config) {
-		config.SyncSource.ReplicaSet.Username = ""
-		config.SyncSource.ReplicaSet.PasswordFile = ""
-		// we don't really HAVE TO set it to `$external`, mongot uses $external in case of x509 anyway
-		config.SyncSource.ReplicaSet.AuthSource = ptr.To("$external")
+		config.SyncSource.ReplicaSet.ScramAuth = nil
 		config.SyncSource.ReplicaSet.X509 = &mongot.ConfigX509{
-			TLSCertificateKeyFile: ptr.To(certPath),
+			TLSCertificateKeyFile:    ptr.To(certPath),
+			CertificateAuthorityFile: ptr.To(tls.CAMountPath + tlsSourceConfig.CAFileName),
 		}
 		if hasKeyPassword {
 			config.SyncSource.ReplicaSet.X509.TLSCertificateKeyFilePasswordFile = ptr.To(TempX509KeyPasswordPath)
 		}
 
 		if config.SyncSource.Router != nil {
-			config.SyncSource.Router.Username = ""
-			config.SyncSource.Router.PasswordFile = ""
-			// we don't really HAVE TO set it to `$external`, mongot uses $external in case of x509 anyway
-			config.SyncSource.Router.AuthSource = ptr.To("$external")
+			config.SyncSource.Router.ScramAuth = nil
 			config.SyncSource.Router.X509 = &mongot.ConfigX509{
-				TLSCertificateKeyFile: ptr.To(certPath),
+				TLSCertificateKeyFile:    ptr.To(certPath),
+				CertificateAuthorityFile: ptr.To(tls.CAMountPath + tlsSourceConfig.CAFileName),
 			}
 			if hasKeyPassword {
 				config.SyncSource.Router.X509.TLSCertificateKeyFilePasswordFile = ptr.To(TempX509KeyPasswordPath)
@@ -1442,18 +1439,23 @@ func (r *MongoDBSearchReconcileHelper) ensureEgressTlsConfig(ctx context.Context
 	}
 
 	mongotModification := func(config *mongot.Config) {
-		config.SyncSource.ReplicaSet.TLS = ptr.To(true)
-		config.SyncSource.CertificateAuthorityFile = ptr.To(tls.CAMountPath + tlsSourceConfig.CAFileName)
+		config.SyncSource.ReplicaSet.ScramAuth.TLS = &mongot.ScramAuthTLS{
+			Enabled:                  true,
+			CertificateAuthorityFile: ptr.To(tls.CAMountPath + tlsSourceConfig.CAFileName),
+		}
 
 		// For sharded clusters, also enable TLS for the Router (mongos) connection
-		if config.SyncSource.Router != nil {
-			config.SyncSource.Router.TLS = ptr.To(true)
+		if config.SyncSource.Router != nil && config.SyncSource.Router.ScramAuth != nil {
+			config.SyncSource.Router.ScramAuth.TLS = &mongot.ScramAuthTLS{
+				Enabled:                  true,
+				CertificateAuthorityFile: ptr.To(tls.CAMountPath + tlsSourceConfig.CAFileName),
+			}
 		}
 
 		// if the gRPC server is configured to accept TLS connections then toggle mTLS as well
 		if config.Server.Grpc.TLS.Mode == mongot.ConfigTLSModeTLS {
 			config.Server.Grpc.TLS.Mode = mongot.ConfigTLSModeMTLS
-			config.Server.Grpc.TLS.CertificateAuthorityFile = config.SyncSource.CertificateAuthorityFile
+			config.Server.Grpc.TLS.CertificateAuthorityFile = ptr.To(tls.CAMountPath + tlsSourceConfig.CAFileName)
 		}
 	}
 
@@ -1481,12 +1483,18 @@ func baseMongotConfig(search *searchv1.MongoDBSearch, hostAndPorts []string) mon
 	return func(config *mongot.Config) {
 		config.SyncSource = mongot.ConfigSyncSource{
 			ReplicaSet: mongot.ConfigReplicaSet{
-				HostAndPort:    hostAndPorts,
-				Username:       search.SourceUsername(),
-				PasswordFile:   TempSourceUserPasswordPath,
-				TLS:            ptr.To(false),
+				HostAndPort: hostAndPorts,
+				ScramAuth: &mongot.ConfigScramAuth{
+					Username:     search.SourceUsername(),
+					PasswordFile: TempSourceUserPasswordPath,
+					TLS: &mongot.ScramAuthTLS{
+						Enabled: false,
+					},
+					AuthSource: ptr.To("admin"),
+				},
+			},
+			ReplicationReader: &mongot.ConfigReplicationReader{
 				ReadPreference: ptr.To("secondaryPreferred"),
-				AuthSource:     ptr.To("admin"),
 			},
 		}
 		config.Storage = mongot.ConfigStorage{
@@ -1543,10 +1551,14 @@ func wireprotoMongotMod(search *searchv1.MongoDBSearch) mongot.Modification {
 func routerMongotMod(search *searchv1.MongoDBSearch, shardedSource SearchSourceShardedDeployment) mongot.Modification {
 	return func(config *mongot.Config) {
 		config.SyncSource.Router = &mongot.ConfigRouter{
-			HostAndPort:  shardedSource.MongosHostsAndPorts(),
-			Username:     search.SourceUsername(),
-			PasswordFile: TempSourceUserPasswordPath,
-			TLS:          ptr.To(false),
+			HostAndPort: shardedSource.MongosHostsAndPorts(),
+			ScramAuth: &mongot.ConfigScramAuth{
+				Username:     search.SourceUsername(),
+				PasswordFile: TempSourceUserPasswordPath,
+				TLS: &mongot.ScramAuthTLS{
+					Enabled: false,
+				},
+			},
 		}
 	}
 }
