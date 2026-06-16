@@ -35,9 +35,14 @@ kind_lb_ip() {
 
 # Per-cluster metallb ranges as "<from>-<to>" strings (the format
 # setup_kind_cluster.sh -l expects).
-export KIND_METALLB_RANGE_OPERATOR="$(kind_lb_ip 200 0)-$(kind_lb_ip 200 10)"
-export KIND_METALLB_RANGE_CLUSTER_1="$(kind_lb_ip 210 0)-$(kind_lb_ip 210 10)"
-export KIND_METALLB_RANGE_CLUSTER_2="$(kind_lb_ip 220 0)-$(kind_lb_ip 220 10)"
-export KIND_METALLB_RANGE_CLUSTER_3="$(kind_lb_ip 230 0)-$(kind_lb_ip 230 10)"
+KIND_METALLB_RANGE_OPERATOR="$(kind_lb_ip 200 0)-$(kind_lb_ip 200 10)"
+export KIND_METALLB_RANGE_OPERATOR
+KIND_METALLB_RANGE_CLUSTER_1="$(kind_lb_ip 210 0)-$(kind_lb_ip 210 10)"
+export KIND_METALLB_RANGE_CLUSTER_1
+KIND_METALLB_RANGE_CLUSTER_2="$(kind_lb_ip 220 0)-$(kind_lb_ip 220 10)"
+export KIND_METALLB_RANGE_CLUSTER_2
+KIND_METALLB_RANGE_CLUSTER_3="$(kind_lb_ip 230 0)-$(kind_lb_ip 230 10)"
+export KIND_METALLB_RANGE_CLUSTER_3
 # Single 'kind' cluster uses the full lower half (.200-.250) historically.
-export KIND_METALLB_RANGE_SINGLE="$(kind_lb_ip 200 0)-$(kind_lb_ip 200 50)"
+KIND_METALLB_RANGE_SINGLE="$(kind_lb_ip 200 0)-$(kind_lb_ip 200 50)"
+export KIND_METALLB_RANGE_SINGLE
