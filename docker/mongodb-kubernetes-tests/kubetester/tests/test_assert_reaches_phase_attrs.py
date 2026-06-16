@@ -36,7 +36,7 @@ class TestAssertReachesPhaseAttributes(unittest.TestCase):
     def setUp(self):
         _exporter.clear()
 
-    def test_failure_path_emits_fingerprint_and_category(self):
+    def test_failure_path_emits_fingerprint(self):
         mdb = _make_mdb()
         msg = (
             "Timeout (300) reached while waiting for MongoDB (mdb-rs)| status: Phase.Pending| "
@@ -56,7 +56,7 @@ class TestAssertReachesPhaseAttributes(unittest.TestCase):
             attrs["mck.failure_pattern"],
             "Timeout (<n>) reached while waiting for MongoDB (<name>)| status: Phase.Pending| message: StatefulSet not ready",
         )
-        self.assertEqual(attrs["mck.failure_category"], "not_ready")
+        self.assertNotIn("mck.failure_category", attrs)
         self.assertIn("mck.time_needed", attrs)
 
     def test_success_path_emits_reached_outcome(self):
@@ -71,7 +71,7 @@ class TestAssertReachesPhaseAttributes(unittest.TestCase):
         self.assertNotIn("mck.failure_pattern", attrs)
         self.assertNotIn("mck.failure_category", attrs)
 
-    def test_om_status_failure_path_emits_fingerprint_and_category(self):
+    def test_om_status_failure_path_emits_fingerprint(self):
         # OmStatus/AppDbStatus/BackupStatus share StatusCommon.assert_reaches_phase.
         om = MongoDBOpsManager.__new__(MongoDBOpsManager)
         status = MongoDBOpsManager.OmStatus(om)
@@ -88,7 +88,7 @@ class TestAssertReachesPhaseAttributes(unittest.TestCase):
         attrs = _last_span_attrs()
         self.assertEqual(attrs["mck.outcome"], "failed")
         self.assertEqual(attrs["mck.observed_phase"], "Failed")
-        self.assertEqual(attrs["mck.failure_category"], "infra")
+        self.assertNotIn("mck.failure_category", attrs)
         self.assertIn("Status: 401", attrs["mck.failure_pattern"])
 
 

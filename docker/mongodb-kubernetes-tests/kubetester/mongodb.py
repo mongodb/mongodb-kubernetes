@@ -21,7 +21,7 @@ from kubetester.omtester import OMContext, OMTester
 from opentelemetry import trace
 from tests import test_logger
 
-from .failure_fingerprint import failure_category, failure_fingerprint
+from .failure_fingerprint import failure_fingerprint
 from .mongodb_common import MongoDBCommon
 from .mongodb_utils_state import in_desired_state
 from .mongotester import MongoTester, ReplicaSetTester, ShardedClusterTester, StandaloneTester
@@ -118,16 +118,15 @@ class MongoDB(CustomObject, MongoDBCommon):
             )
         except Exception as e:
             # Emit failure attributes so failures are analyzable in Honeycomb without
-            # regex-on-message: the phase we got stuck in, plus a low-cardinality
-            # fingerprint/category of the error. See kubetester/failure_fingerprint.py.
+            # regex-on-message. The fingerprint masks variable tokens (resource names,
+            # timeouts, org ids) into a stable template — break down by mck.failure_pattern
+            # to group failures. See kubetester/failure_fingerprint.py.
             span.set_attribute("mck.time_needed", time.time() - start_time)
             span.set_attribute("mck.outcome", "failed")
             observed_phase = self.get_status_phase()
             if observed_phase is not None:
                 span.set_attribute("mck.observed_phase", observed_phase.name)
-            fingerprint = failure_fingerprint(str(e))
-            span.set_attribute("mck.failure_pattern", fingerprint)
-            span.set_attribute("mck.failure_category", failure_category(fingerprint))
+            span.set_attribute("mck.failure_pattern", failure_fingerprint(str(e)))
             raise
 
         end_time = time.time()

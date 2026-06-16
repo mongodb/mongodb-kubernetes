@@ -15,7 +15,7 @@ from kubeobject import CustomObject
 from kubernetes.client.rest import ApiException
 from kubetester import create_configmap, create_or_update_secret, read_secret
 from kubetester.automation_config_tester import AutomationConfigTester
-from kubetester.failure_fingerprint import failure_category, failure_fingerprint
+from kubetester.failure_fingerprint import failure_fingerprint
 from kubetester.kubetester import KubernetesTester, build_list_of_hosts, get_pods, is_default_architecture_static
 from kubetester.mongodb_common import MongoDBCommon
 from kubetester.mongodb_utils_state import in_desired_state
@@ -1082,9 +1082,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
                 observed_phase = self.get_phase()
                 if observed_phase is not None:
                     span.set_attribute("mck.observed_phase", observed_phase.name)
-                fingerprint = failure_fingerprint(str(e))
-                span.set_attribute("mck.failure_pattern", fingerprint)
-                span.set_attribute("mck.failure_category", failure_category(fingerprint))
+                span.set_attribute("mck.failure_pattern", failure_fingerprint(str(e)))
                 raise
 
             end_time = time.time()
