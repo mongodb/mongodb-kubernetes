@@ -498,9 +498,9 @@ functions:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         script: |
           set -eo pipefail
-          PROJECT_DIR="${workdir}/src/github.com/mongodb/mongodb-kubernetes"
-          source "${PROJECT_DIR}/venv/bin/activate"
-          export PYTHONPATH="${PROJECT_DIR}:${PROJECT_DIR}/docker/mongodb-kubernetes-tests"
+          # working_dir is already src/github.com/mongodb/mongodb-kubernetes so PWD = project root
+          source "venv/bin/activate"
+          export PYTHONPATH=".:docker/mongodb-kubernetes-tests"
           export HONEYCOMB_API_KEY="${honeycomb_api_key}"
           python docker/mongodb-kubernetes-tests/scripts/send_logs_to_honeycomb.py \
             --logs-dir logs \
