@@ -37,31 +37,47 @@ type EmbeddingConfig struct {
 }
 
 type ConfigSyncSource struct {
-	ReplicaSet               ConfigReplicaSet `json:"replicaSet"`
-	Router                   *ConfigRouter    `json:"router,omitempty"`
-	CertificateAuthorityFile *string          `json:"caFile,omitempty"`
+	ReplicaSet        ConfigReplicaSet         `json:"replicaSet"`
+	Router            *ConfigRouter            `json:"router,omitempty"`
+	ReplicationReader *ConfigReplicationReader `json:"replicationReader,omitempty"`
+}
+
+type ConfigReplicationReader struct {
+	ReadPreference *string       `json:"readPreference,omitempty"`
+	TagSets        [][]ConfigTag `json:"tagSets,omitempty"`
+}
+
+type ConfigTag struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
 }
 
 type ConfigRouter struct {
-	HostAndPort  []string    `json:"hostAndPort"`
-	Username     string      `json:"username,omitempty"`
-	PasswordFile string      `json:"passwordFile,omitempty"`
-	TLS          *bool       `json:"tls,omitempty"`
-	AuthSource   *string     `json:"authSource,omitempty"`
-	X509         *ConfigX509 `json:"x509,omitempty"`
+	HostAndPort []string         `json:"hostAndPort"`
+	X509        *ConfigX509      `json:"x509,omitempty"`
+	ScramAuth   *ConfigScramAuth `json:"scramAuth,omitempty"`
 }
 
 type ConfigReplicaSet struct {
-	HostAndPort    []string    `json:"hostAndPort"`
-	Username       string      `json:"username,omitempty"`
-	PasswordFile   string      `json:"passwordFile,omitempty"`
-	TLS            *bool       `json:"tls,omitempty"`
-	ReadPreference *string     `json:"readPreference,omitempty"`
-	AuthSource     *string     `json:"authSource,omitempty"`
-	X509           *ConfigX509 `json:"x509,omitempty"`
+	HostAndPort []string         `json:"hostAndPort"`
+	X509        *ConfigX509      `json:"x509,omitempty"`
+	ScramAuth   *ConfigScramAuth `json:"scramAuth,omitempty"`
+}
+
+type ConfigScramAuth struct {
+	Username     string        `json:"username"`
+	PasswordFile string        `json:"passwordFile"`
+	TLS          *ScramAuthTLS `json:"tls,omitempty"`
+	AuthSource   *string       `json:"authSource,omitempty"`
+}
+
+type ScramAuthTLS struct {
+	Enabled                  bool    `json:"enabled"`
+	CertificateAuthorityFile *string `json:"caFile,omitempty"`
 }
 
 type ConfigX509 struct {
+	CertificateAuthorityFile          *string `json:"caFile,omitempty"`
 	TLSCertificateKeyFile             *string `json:"tlsCertificateKeyFile,omitempty"`
 	TLSCertificateKeyFilePasswordFile *string `json:"tlsCertificateKeyFilePasswordFile,omitempty"`
 }
