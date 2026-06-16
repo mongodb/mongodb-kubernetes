@@ -121,8 +121,6 @@ func BuildMongoDBReplicaSetStatefulSetModificationFunction(mdb MongoDBStatefulSe
 
 	hooksVolume := corev1.Volume{}
 	scriptsVolume := corev1.Volume{}
-	upgradeInitContainer := podtemplatespec.NOOP()
-	readinessInitContainer := podtemplatespec.NOOP()
 
 	// tmp volume is required by the mongodb-agent and mongod
 	tmpVolume := statefulset.CreateVolumeFromEmptyDir("tmp")
@@ -154,8 +152,8 @@ func BuildMongoDBReplicaSetStatefulSetModificationFunction(mdb MongoDBStatefulSe
 
 	mongodVolumeMounts = append(mongodVolumeMounts, hooksVolumeMount)
 	mongodbAgentVolumeMounts = append(mongodbAgentVolumeMounts, scriptsVolumeMount)
-	upgradeInitContainer = podtemplatespec.WithInitContainer(versionUpgradeHookName, versionUpgradeHookInit([]corev1.VolumeMount{hooksVolumeMount}, versionUpgradeHookImage))
-	readinessInitContainer = podtemplatespec.WithInitContainer(ReadinessProbeContainerName, readinessProbeInit([]corev1.VolumeMount{scriptsVolumeMount}, readinessProbeImage))
+	upgradeInitContainer := podtemplatespec.WithInitContainer(versionUpgradeHookName, versionUpgradeHookInit([]corev1.VolumeMount{hooksVolumeMount}, versionUpgradeHookImage))
+	readinessInitContainer := podtemplatespec.WithInitContainer(ReadinessProbeContainerName, readinessProbeInit([]corev1.VolumeMount{scriptsVolumeMount}, readinessProbeImage))
 
 	dataVolumeClaim := statefulset.NOOP()
 	logVolumeClaim := statefulset.NOOP()
@@ -299,20 +297,6 @@ func mongodbAgentContainer(automationConfigSecretName string, volumeMounts []cor
 				Value: agentHealthStatusFilePathValue,
 			},
 		),
-	)
-}
-
-func mongodbAgentUtilitiesContainer(volumeMounts []corev1.VolumeMount, initDatabaseImage string) container.Modification {
-	_, containerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
-	return container.Apply(
-		container.WithName(util.AgentContainerUtilitiesName),
-		container.WithImage(initDatabaseImage),
-		container.WithImagePullPolicy(corev1.PullAlways),
-		container.WithResourceRequirements(resourcerequirements.Defaults()),
-		container.WithVolumeMounts(volumeMounts),
-		container.WithCommand([]string{"bash", "-c", "touch /tmp/agent-utilities-holder_marker && tail -F -n0 /tmp/agent-utilities-holder_marker"}),
-		container.WithArgs([]string{""}),
-		containerSecurityContext,
 	)
 }
 

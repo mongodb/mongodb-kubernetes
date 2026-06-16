@@ -307,15 +307,15 @@ def test_delete_database_statefulsets_in_failed_cluster(
 
 
 @mark.e2e_multi_cluster_recover_clusterwide
-def test_mongodb_multi_nsa_enters_failed_stated(mongodb_multi_a: MongoDBMulti):
+def test_mongodb_multi_nsa_is_stable(mongodb_multi_a: MongoDBMulti):
     mongodb_multi_a.load()
-    mongodb_multi_a.assert_reaches_phase(Phase.Failed, timeout=100)
+    mongodb_multi_a.assert_reaches_phase(Phase.Running, timeout=100)
 
 
 @mark.e2e_multi_cluster_recover_clusterwide
-def test_mongodb_multi_nsb_enters_failed_stated(mongodb_multi_b: MongoDBMulti):
+def test_mongodb_multi_nsb_is_stable(mongodb_multi_b: MongoDBMulti):
     mongodb_multi_b.load()
-    mongodb_multi_b.assert_reaches_phase(Phase.Failed, timeout=100)
+    mongodb_multi_b.assert_reaches_phase(Phase.Running, timeout=100)
 
 
 @mark.e2e_multi_cluster_recover_clusterwide

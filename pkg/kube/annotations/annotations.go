@@ -19,7 +19,7 @@ type Versioned interface {
 type patchValue struct {
 	Op    string      `json:"op"`
 	Path  string      `json:"path"`
-	Value interface{} `json:"value"`
+	Value interface{} `json:"value,omitempty"`
 }
 
 const (
@@ -71,6 +71,42 @@ func SetAnnotations(ctx context.Context, object client.Object, annotations map[s
 	if err = kubeClient.Patch(ctx, currentObject, patch); err != nil {
 		return err
 	}
+	object.SetAnnotations(currentObject.GetAnnotations())
+	return nil
+}
+
+// RemoveAnnotation deletes a single annotation key from the supplied object,
+// both locally on the in-memory struct and on the kubernetes-backed copy.
+// It is a no-op when the key is absent on the persisted object.
+func RemoveAnnotation(ctx context.Context, object client.Object, annotationKey string, kubeClient client.Client) error {
+	currentObject := object.DeepCopyObject().(client.Object)
+	if err := kubeClient.Get(ctx, types.NamespacedName{Name: object.GetName(), Namespace: object.GetNamespace()}, currentObject); err != nil {
+		return err
+	}
+
+	// JSON-Patch "remove" against a missing path returns an error from the
+	// API server. Short-circuit so callers can use RemoveAnnotation
+	// idempotently without checking presence first.
+	if _, ok := currentObject.GetAnnotations()[annotationKey]; !ok {
+		return nil
+	}
+
+	payload := []patchValue{{
+		Op: "remove",
+		// "/" in keys must be escaped as ~1 per RFC 6901 (same as SetAnnotations).
+		Path: "/metadata/annotations/" + strings.Replace(annotationKey, "/", "~1", 1),
+	}}
+
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+
+	patch := client.RawPatch(types.JSONPatchType, data)
+	if err := kubeClient.Patch(ctx, currentObject, patch); err != nil {
+		return err
+	}
+
 	object.SetAnnotations(currentObject.GetAnnotations())
 	return nil
 }

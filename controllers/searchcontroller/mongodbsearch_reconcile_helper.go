@@ -54,11 +54,11 @@ const (
 	indexingKeyName = "indexing-key"
 	queryKeyName    = "query-key"
 
-	apiKeysTempVolumeName = "api-keys-config"
+	apiKeysTempVolumeName = "api-keys-config" //nolint:gosec // volume name, not a credential
 	// To overcome the strict requirement of api keys having 0400 permission we mount the api keys
 	// to a temp location apiKeysTempVolumeMount and then copy it to correct location embeddingKeyFilePath,
 	// changing the permission to 0400.
-	apiKeysTempVolumeMount = "/tmp/auto-embedding-api-keys"
+	apiKeysTempVolumeMount = "/tmp/auto-embedding-api-keys" //nolint:gosec // mount path, not a credential
 
 	// is the minimum search image version that is required to enable the auto embeddings for vector search
 	minSearchImageVersionForEmbedding = "0.60.0"
@@ -758,10 +758,10 @@ func ensureEmbeddingAPIKeySecret(ctx context.Context, client secret.Getter, secr
 	}
 
 	if _, ok := data[indexingKeyName]; !ok {
-		return "", fmt.Errorf(`Required key "%s" is not present in the Secret %s/%s`, indexingKeyName, secretObj.Namespace, secretObj.Name)
+		return "", fmt.Errorf(`required key "%s" is not present in the Secret %s/%s`, indexingKeyName, secretObj.Namespace, secretObj.Name)
 	}
 	if _, ok := data[queryKeyName]; !ok {
-		return "", fmt.Errorf(`Required key "%s" is not present in the Secret %s/%s`, queryKeyName, secretObj.Namespace, secretObj.Name)
+		return "", fmt.Errorf(`required key "%s" is not present in the Secret %s/%s`, queryKeyName, secretObj.Namespace, secretObj.Name)
 	}
 
 	d, err := json.Marshal(data)
@@ -896,11 +896,11 @@ type x509AuthResource struct {
 }
 
 func (x *x509AuthResource) TLSSecretNamespacedName() types.NamespacedName {
-	return x.MongoDBSearch.X509ClientCertSecret()
+	return x.X509ClientCertSecret()
 }
 
 func (x *x509AuthResource) TLSOperatorSecretNamespacedName() types.NamespacedName {
-	return x.MongoDBSearch.X509OperatorManagedSecret()
+	return x.X509OperatorManagedSecret()
 }
 
 // ensureX509ClientCertConfig processes x509 client certificate configuration for the sync source in case of mongot to mongod communication.
@@ -1005,12 +1005,12 @@ type perShardTLSResource struct {
 
 // TLSSecretNamespacedName returns the per-shard source secret name.
 func (p *perShardTLSResource) TLSSecretNamespacedName() types.NamespacedName {
-	return p.MongoDBSearch.TLSSecretForShard(p.shardName)
+	return p.TLSSecretForShard(p.shardName)
 }
 
 // TLSOperatorSecretNamespacedName returns the per-shard operator-managed secret name.
 func (p *perShardTLSResource) TLSOperatorSecretNamespacedName() types.NamespacedName {
-	return p.MongoDBSearch.TLSOperatorSecretForShard(p.shardName)
+	return p.TLSOperatorSecretForShard(p.shardName)
 }
 
 func (r *MongoDBSearchReconcileHelper) ensureEgressTlsConfig(ctx context.Context) (mongot.Modification, statefulset.Modification) {

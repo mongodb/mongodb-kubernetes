@@ -397,8 +397,8 @@ func (s *MongoDBSearch) StatefulSetNamespacedName() types.NamespacedName {
 
 func (s *MongoDBSearch) GetOwnerReferences() []metav1.OwnerReference {
 	ownerReference := *metav1.NewControllerRef(s, schema.GroupVersionKind{
-		Group:   GroupVersion.Group,
-		Version: GroupVersion.Version,
+		Group:   v1.SchemeGroupVersion.Group,
+		Version: v1.SchemeGroupVersion.Version,
 		Kind:    s.Kind,
 	})
 	return []metav1.OwnerReference{ownerReference}

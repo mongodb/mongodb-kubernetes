@@ -713,7 +713,7 @@ func TestValidateSearchResource(t *testing.T) {
 				},
 			},
 			errAssertion: assert.Error,
-			errMsg:       fmt.Sprintf("Required key \"%s\" is not present in the Secret mongodb/%s", indexingKeyName, testApiKeySecretName),
+			errMsg:       fmt.Sprintf("required key \"%s\" is not present in the Secret mongodb/%s", indexingKeyName, testApiKeySecretName),
 		},
 		{
 			apiKeySecret: &corev1.Secret{
@@ -726,7 +726,7 @@ func TestValidateSearchResource(t *testing.T) {
 				},
 			},
 			errAssertion: assert.Error,
-			errMsg:       fmt.Sprintf("Required key \"%s\" is not present in the Secret mongodb/%s", queryKeyName, testApiKeySecretName),
+			errMsg:       fmt.Sprintf("required key \"%s\" is not present in the Secret mongodb/%s", queryKeyName, testApiKeySecretName),
 		},
 		{
 			apiKeySecret: &corev1.Secret{
@@ -2238,7 +2238,7 @@ func TestEnsureX509ClientCertConfig_MongotAndStsModification(t *testing.T) {
 		}
 	}
 	require.NotNil(t, x509Volume, "x509-client-cert volume should exist")
-	assert.Equal(t, "test-search-x509-client-cert", x509Volume.VolumeSource.Secret.SecretName)
+	assert.Equal(t, "test-search-x509-client-cert", x509Volume.Secret.SecretName)
 
 	// Verify x509 volume mount on mongot container
 	mongotContainer := sts.Spec.Template.Spec.Containers[0]
@@ -2309,7 +2309,7 @@ func TestEnsureX509ClientCertConfig_KeyPassword(t *testing.T) {
 		}
 	}
 	require.NotNil(t, keyPasswordVolume, "x509-key-password volume should exist")
-	assert.Equal(t, "x509-cert", keyPasswordVolume.VolumeSource.Secret.SecretName)
+	assert.Equal(t, "x509-cert", keyPasswordVolume.Secret.SecretName)
 
 	mongotContainer := sts.Spec.Template.Spec.Containers[0]
 	var keyPasswordMount *corev1.VolumeMount
