@@ -497,8 +497,9 @@ functions:
         shell: bash
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         script: |
-          source scripts/dev/set_env_context.sh
-          source "${PROJECT_DIR}/venv/bin/activate" 2>/dev/null || true
+          set -eo pipefail
+          PROJECT_DIR="${workdir}/src/github.com/mongodb/mongodb-kubernetes"
+          source "${PROJECT_DIR}/venv/bin/activate"
           export PYTHONPATH="${PROJECT_DIR}:${PROJECT_DIR}/docker/mongodb-kubernetes-tests"
           export HONEYCOMB_API_KEY="${honeycomb_api_key}"
           python docker/mongodb-kubernetes-tests/scripts/send_logs_to_honeycomb.py \
