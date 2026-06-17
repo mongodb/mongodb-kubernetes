@@ -90,7 +90,7 @@ type MongoDBSearchReconcileHelper struct {
 	// state is the per-CR persisted state from the search state ConfigMap:
 	// the clusterName → clusterIndex mapping (per-cluster resource names use
 	// these indexes so spec.clusters[] reorders don't rename resources) and the
-	// routing-ready latch. Refreshed after every successful latch write.
+	// routing-ready switch. Refreshed after every successful switch write.
 	state *SearchDeploymentState
 }
 
@@ -401,7 +401,7 @@ func (r *MongoDBSearchReconcileHelper) buildShardedPlan(shardedSource SearchSour
 			}
 			if r.mdbSearch.IsLBModeManaged() {
 				if err := r.pruneRoutingReady(ctx, shardNames); err != nil {
-					log.Warnf("Failed to prune routing-ready latch entries: %s", err)
+					log.Warnf("Failed to prune routing-ready switch entries: %s", err)
 				}
 			}
 		},
@@ -558,18 +558,18 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 
 	plan.cleanup(ctx, log)
 
-	// Mark routing-ready shards across ALL units (a one-way latch persisted in the
+	// Mark routing-ready shards across ALL units (a one-way switch persisted in the
 	// state CM) before the worst-of readiness return: one not-ready or failing unit
-	// must not block latching of the others, so per-unit errors are aggregated
-	// instead of failing fast.
-	var latchErrs error
+	// must not block the others, so per-unit errors are aggregated instead of
+	// failing fast.
+	var switchErrs error
 	for _, res := range applied {
 		if err := r.markRoutingReadyIfThresholdMet(ctx, log, res.unit, res.unitClient); err != nil {
-			latchErrs = multierror.Append(latchErrs, err)
+			switchErrs = multierror.Append(switchErrs, err)
 		}
 	}
-	if latchErrs != nil {
-		return workflow.Failed(latchErrs)
+	if switchErrs != nil {
+		return workflow.Failed(switchErrs)
 	}
 
 	// Worst-of readiness check — first non-OK status wins.
@@ -716,9 +716,9 @@ func (r *MongoDBSearchReconcileHelper) applyReconcileUnit(
 	return mutatedSts, unitClient, nil
 }
 
-// markRoutingReadyIfThresholdMet latches a shard once its mongot STS first meets
-// the routing-readiness threshold. The latch is one-way: a later STS
-// delete/recreate does not put the shard back into fallback routing.
+// markRoutingReadyIfThresholdMet flips a shard's routing-ready switch once its
+// mongot STS first meets the routing-readiness threshold. The switch is one-way:
+// a later STS delete/recreate does not put the shard back into fallback routing.
 func (r *MongoDBSearchReconcileHelper) markRoutingReadyIfThresholdMet(ctx context.Context, log *zap.SugaredLogger, unit reconcileUnit, unitClient kubernetesClient.Client) error {
 	if unit.shardName == "" || !r.mdbSearch.IsLBModeManaged() || slices.Contains(r.state.RoutingReadyMongotGroups, unit.shardName) {
 		return nil
@@ -726,8 +726,8 @@ func (r *MongoDBSearchReconcileHelper) markRoutingReadyIfThresholdMet(ctx contex
 
 	sts, err := unitClient.GetStatefulSet(ctx, unit.stsName)
 	if err != nil {
-		// Just-created STS not yet in the informer cache: not ready to latch this
-		// pass, but not a failure — the latch is re-evaluated every reconcile.
+		// Just-created STS not yet in the informer cache: not ready to flip the
+		// switch this pass, but not a failure — re-evaluated every reconcile.
 		if apierrors.IsNotFound(err) {
 			return nil
 		}
@@ -746,8 +746,8 @@ func (r *MongoDBSearchReconcileHelper) markRoutingReadyIfThresholdMet(ctx contex
 	return nil
 }
 
-// markRoutingReady appends the shard to the routing-ready latch in the state
-// ConfigMap. Only the latch slice is refreshed from the write's result — the
+// markRoutingReady appends the shard to the routing-ready switch in the state
+// ConfigMap. Only the switch slice is refreshed from the write's result — the
 // ClusterMapping snapshot loaded at reconcile start stays authoritative for
 // resource naming within this reconcile.
 func (r *MongoDBSearchReconcileHelper) markRoutingReady(ctx context.Context, shardName string) error {
@@ -765,8 +765,8 @@ func (r *MongoDBSearchReconcileHelper) markRoutingReady(ctx context.Context, sha
 	return nil
 }
 
-// pruneRoutingReady drops latch entries for shards that no longer exist; live
-// shards are never removed (the latch is one-way).
+// pruneRoutingReady drops switch entries for shards that no longer exist; live
+// shards are never removed (the switch is one-way).
 func (r *MongoDBSearchReconcileHelper) pruneRoutingReady(ctx context.Context, liveShardNames []string) error {
 	state, err := MutateSearchState(ctx, r.client, r.mdbSearch, func(s *SearchDeploymentState) bool {
 		pruned := slices.DeleteFunc(slices.Clone(s.RoutingReadyMongotGroups), func(name string) bool {

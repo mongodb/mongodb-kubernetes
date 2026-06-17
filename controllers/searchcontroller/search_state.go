@@ -24,9 +24,10 @@ type SearchDeploymentState struct {
 	// per-cluster resource names use these indexes so spec.clusters[] reorders
 	// don't rename resources.
 	ClusterMapping map[string]int `json:"clusterMapping"`
-	// RoutingReadyMongotGroups is the one-way latch of shard names whose mongot
-	// group has EVER met the routing-readiness threshold; a shard is pending iff
-	// it is not listed here. Pruned only when a shard no longer exists.
+	// RoutingReadyMongotGroups is the one-way routing-ready switch: the set of
+	// shard names whose mongot group has EVER met the routing-readiness threshold;
+	// a shard is pending iff it is not listed here. Pruned only when a shard no
+	// longer exists.
 	RoutingReadyMongotGroups []string `json:"routingReadyMongotGroups,omitempty"`
 }
 

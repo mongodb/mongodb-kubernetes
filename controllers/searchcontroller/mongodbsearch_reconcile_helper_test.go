@@ -3415,10 +3415,10 @@ func TestReconcileShardedMC_InterleavedStatusConverges(t *testing.T) {
 	require.Equal(t, status.PhaseRunning, got.Status.LoadBalancer.Phase)
 }
 
-// Routing-readiness latch lifecycle: shards stay pending until their mongot STS
-// first meets the threshold, the latch survives STS delete/recreate (one-way),
-// and stale latch entries are pruned.
-func TestReconcileSharded_RoutingLatchOneWay(t *testing.T) {
+// Routing-readiness switch lifecycle: shards stay pending until their mongot STS
+// first meets the threshold, the switch survives STS delete/recreate (one-way),
+// and stale switch entries are pruned.
+func TestReconcileSharded_RoutingSwitchOneWay(t *testing.T) {
 	search := newTestMongoDBSearch("mdb-search", "ns", func(s *searchv1.MongoDBSearch) {
 		s.Spec.Source = &searchv1.MongoDBSource{
 			ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{
@@ -3459,16 +3459,16 @@ func TestReconcileSharded_RoutingLatchOneWay(t *testing.T) {
 	}
 	fakeClient := newTestFakeClient(objects...)
 
-	// Pre-latched entry for a shard that no longer exists — must be pruned.
+	// Pre-existing switch entry for a shard that no longer exists — must be pruned.
 	state := NewSearchDeploymentState()
 	state.RoutingReadyMongotGroups = []string{"sh-removed"}
 	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, source, newTestOperatorSearchConfig(), nil, state)
-	latched := func(shard string) bool { return slices.Contains(helper.state.RoutingReadyMongotGroups, shard) }
+	switchedOn := func(shard string) bool { return slices.Contains(helper.state.RoutingReadyMongotGroups, shard) }
 
 	// Pass 1: STSs created, none routing-ready.
 	helper.Reconcile(t.Context(), zap.S())
-	assert.False(t, latched("sh-0"))
-	assert.False(t, latched("sh-removed"), "latch entry for a removed shard must be pruned")
+	assert.False(t, switchedOn("sh-0"))
+	assert.False(t, switchedOn("sh-removed"), "switch entry for a removed shard must be pruned")
 
 	// sh-0 reaches the routing-readiness threshold (sh-1 stays unready).
 	stsName := search.MongotStatefulSetForClusterShard(0, "sh-0")
@@ -3477,12 +3477,12 @@ func TestReconcileSharded_RoutingLatchOneWay(t *testing.T) {
 	sts.Status.ReadyReplicas = 1
 	require.NoError(t, fakeClient.Status().Update(t.Context(), &sts))
 
-	// Pass 2: sh-0 is latched even though sh-1 is still unready.
+	// Pass 2: sh-0's switch flips on even though sh-1 is still unready.
 	helper.Reconcile(t.Context(), zap.S())
-	assert.True(t, latched("sh-0"))
-	assert.False(t, latched("sh-1"))
+	assert.True(t, switchedOn("sh-0"))
+	assert.False(t, switchedOn("sh-1"))
 
-	// STS recreate: pass 3 recreates sh-0's STS with 0 ready replicas. The latch
+	// STS recreate: pass 3 recreates sh-0's STS with 0 ready replicas. The switch
 	// is one-way, so sh-0 must NOT re-enter the pending set.
 	require.NoError(t, fakeClient.Delete(t.Context(), &appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{Name: stsName.Name, Namespace: stsName.Namespace},
@@ -3491,12 +3491,12 @@ func TestReconcileSharded_RoutingLatchOneWay(t *testing.T) {
 	recreated, err := fakeClient.GetStatefulSet(t.Context(), stsName)
 	require.NoError(t, err)
 	require.Equal(t, int32(0), recreated.Status.ReadyReplicas, "recreated STS must start unready")
-	assert.True(t, latched("sh-0"), "latch must survive STS delete/recreate")
+	assert.True(t, switchedOn("sh-0"), "switch must survive STS delete/recreate")
 }
 
-// One unit's latch error must not starve latching of the remaining units: errors
+// One unit's switch error must not starve the remaining units: errors
 // are aggregated across ALL units and surfaced after the loop.
-func TestReconcileSharded_LatchErrorsAggregatedAcrossUnits(t *testing.T) {
+func TestReconcileSharded_SwitchErrorsAggregatedAcrossUnits(t *testing.T) {
 	search := newTestMongoDBSearch("mdb-search", "ns", func(s *searchv1.MongoDBSearch) {
 		s.Spec.Source = &searchv1.MongoDBSource{
 			ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{
@@ -3535,9 +3535,9 @@ func TestReconcileSharded_LatchErrorsAggregatedAcrossUnits(t *testing.T) {
 			Data: map[string][]byte{"tls.crt": []byte("dummy-cert"), "tls.key": []byte("dummy-key")},
 		})
 	}
-	// Fail any state-CM write that would latch sh-0; sh-1's writes pass through.
-	injectedErr := fmt.Errorf("injected latch write failure for sh-0")
-	latchesSh0 := func(obj client.Object) bool {
+	// Fail any state-CM write that would flip sh-0's switch; sh-1's writes pass through.
+	injectedErr := fmt.Errorf("injected switch write failure for sh-0")
+	flipsSh0 := func(obj client.Object) bool {
 		cm, ok := obj.(*corev1.ConfigMap)
 		if !ok || cm.Name != SearchStateCMName(search) {
 			return false
@@ -3551,30 +3551,30 @@ func TestReconcileSharded_LatchErrorsAggregatedAcrossUnits(t *testing.T) {
 	base := mock.NewEmptyFakeClientBuilder().WithObjects(objects...).Build()
 	fakeClient := kubernetesClient.NewClient(interceptor.NewClient(base, interceptor.Funcs{
 		Create: func(ctx context.Context, cl client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
-			if latchesSh0(obj) {
+			if flipsSh0(obj) {
 				return injectedErr
 			}
 			return cl.Create(ctx, obj, opts...)
 		},
 		Update: func(ctx context.Context, cl client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
-			if latchesSh0(obj) {
+			if flipsSh0(obj) {
 				return injectedErr
 			}
 			return cl.Update(ctx, obj, opts...)
 		},
 	}))
 	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, source, newTestOperatorSearchConfig(), nil, nil)
-	latched := func(shard string) bool { return slices.Contains(helper.state.RoutingReadyMongotGroups, shard) }
+	switchedOn := func(shard string) bool { return slices.Contains(helper.state.RoutingReadyMongotGroups, shard) }
 
-	// Both shards meet the threshold; sh-0's latch write fails.
+	// Both shards meet the threshold; sh-0's switch write fails.
 	helper.reconcile(t.Context(), zap.S())
 	require.NoError(t, mock.MarkAllStatefulSetsAsReady(t.Context(), "ns", fakeClient))
 	st := helper.reconcile(t.Context(), zap.S())
 
 	require.False(t, st.IsOK())
-	assert.Contains(t, MessageFromStatus(st), "injected latch write failure for sh-0")
-	assert.True(t, latched("sh-1"), "sh-1 must still be latched despite sh-0's error")
-	assert.False(t, latched("sh-0"))
+	assert.Contains(t, MessageFromStatus(st), "injected switch write failure for sh-0")
+	assert.True(t, switchedOn("sh-1"), "sh-1's switch must still flip despite sh-0's error")
+	assert.False(t, switchedOn("sh-0"))
 }
 
 func TestReconcileSharded_StatefulSetTemplateStableAcrossReconciles(t *testing.T) {

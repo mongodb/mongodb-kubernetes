@@ -28,10 +28,10 @@ func decodeStateJSON(cm *corev1.ConfigMap, dst interface{}) error {
 	return json.Unmarshal([]byte(raw), dst)
 }
 
-// The routing-ready latch persists through RV-checked read-modify-writes on the
+// The routing-ready switch persists through RV-checked read-modify-writes on the
 // state ConfigMap: creation with owner metadata, monotonic appends, no-op
 // rewrites, pruning, and 409 Conflict on a stale base instead of a silent lost update.
-func TestRoutingLatch_StateCMWrites(t *testing.T) {
+func TestRoutingSwitch_StateCMWrites(t *testing.T) {
 	ctx := context.Background()
 	search := newTestMongoDBSearch("mysearch", mock.TestNamespace)
 	search.UID = "search-uid"
@@ -40,7 +40,7 @@ func TestRoutingLatch_StateCMWrites(t *testing.T) {
 	newHelper := func(c client.Client) *MongoDBSearchReconcileHelper {
 		return NewMongoDBSearchReconcileHelper(kubernetesClient.NewClient(c), search, nil, OperatorSearchConfig{}, nil, nil)
 	}
-	latched := func(h *MongoDBSearchReconcileHelper, shard string) bool {
+	switchedOn := func(h *MongoDBSearchReconcileHelper, shard string) bool {
 		return slices.Contains(h.state.RoutingReadyMongotGroups, shard)
 	}
 	readState := func(t *testing.T, c client.Client) SearchDeploymentState {
@@ -56,7 +56,7 @@ func TestRoutingLatch_StateCMWrites(t *testing.T) {
 		c := mock.NewEmptyFakeClientBuilder().Build()
 		helper := newHelper(c)
 		require.NoError(t, helper.markRoutingReady(ctx, "sh-0"))
-		assert.True(t, latched(helper, "sh-0"))
+		assert.True(t, switchedOn(helper, "sh-0"))
 
 		cm := &corev1.ConfigMap{}
 		require.NoError(t, c.Get(ctx, stateCMName, cm))
@@ -83,7 +83,7 @@ func TestRoutingLatch_StateCMWrites(t *testing.T) {
 		assert.Equal(t, map[string]int{"us-east": 0}, st.ClusterMapping)
 	})
 
-	t.Run("already latched shard is a no-op write", func(t *testing.T) {
+	t.Run("already-on switch is a no-op write", func(t *testing.T) {
 		c := mock.NewEmptyFakeClientBuilder().Build()
 		helper := newHelper(c)
 		require.NoError(t, helper.markRoutingReady(ctx, "sh-0"))
@@ -93,7 +93,7 @@ func TestRoutingLatch_StateCMWrites(t *testing.T) {
 
 		require.NoError(t, helper.markRoutingReady(ctx, "sh-0"))
 		require.NoError(t, c.Get(ctx, stateCMName, cm))
-		assert.Equal(t, rv, cm.ResourceVersion, "re-marking a latched shard must not rewrite the CM")
+		assert.Equal(t, rv, cm.ResourceVersion, "re-marking an already-on shard must not rewrite the CM")
 	})
 
 	t.Run("prune removes only shards that no longer exist", func(t *testing.T) {
@@ -105,7 +105,7 @@ func TestRoutingLatch_StateCMWrites(t *testing.T) {
 
 		require.NoError(t, helper.pruneRoutingReady(ctx, []string{"sh-0", "sh-2"}))
 		assert.Equal(t, []string{"sh-0", "sh-2"}, readState(t, c).RoutingReadyMongotGroups)
-		assert.False(t, latched(helper, "sh-1"))
+		assert.False(t, switchedOn(helper, "sh-1"))
 
 		cm := &corev1.ConfigMap{}
 		require.NoError(t, c.Get(ctx, stateCMName, cm))

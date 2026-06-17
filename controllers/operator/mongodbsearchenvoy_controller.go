@@ -176,7 +176,7 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 	}
 
 	// Load the per-CR state to get the stable clusterName → clusterIndex mapping
-	// and the routing-readiness latch.
+	// and the routing-readiness switch.
 	state, err := searchcontroller.ReadSearchState(ctx, r.kubeClient, mdbSearch)
 	if err != nil {
 		return r.updateLBStatus(ctx, mdbSearch, workflow.Pending("Waiting for search state: %s", err), log)
@@ -247,7 +247,7 @@ func (r *MongoDBSearchEnvoyReconciler) buildClusterWorkList(search *searchv1.Mon
 }
 
 // reconcileForCluster runs the ConfigMap + Deployment ensure for one cluster's
-// work item. routingReadyMongotGroups is the state-CM latch — shards not listed
+// work item. routingReadyMongotGroups is the state-CM switch — shards not listed
 // get fallback routing. Returns a workflow.Status describing the per-cluster outcome.
 func (r *MongoDBSearchEnvoyReconciler) reconcileForCluster(
 	ctx context.Context,
@@ -360,7 +360,7 @@ func buildRoutes(search *searchv1.MongoDBSearch, source searchcontroller.SearchS
 // clusterIndex and clusterName identify the cluster; in single-cluster installs pass (0, "").
 // Each per-shard route has one UpstreamHosts entry. The trailing cluster-level route
 // aggregates all per-shard mongot Service FQDNs so mongos can use a single SNI/filter chain.
-// routingReadyMongotGroups is the state-CM latch; a shard not listed is pending and
+// routingReadyMongotGroups is the state-CM switch; a shard not listed is pending and
 // its per-shard filter chain is redirected to the cluster-level cluster with the
 // routed_from_another_shard header.
 func buildShardRoutes(search *searchv1.MongoDBSearch, shardNames []string, clusterIndex int, clusterName string, routingReadyMongotGroups []string) []envoyRoute {

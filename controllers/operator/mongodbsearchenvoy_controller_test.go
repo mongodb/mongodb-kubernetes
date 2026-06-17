@@ -40,7 +40,7 @@ import (
 //   - Status updates for the loadBalancer sub-status
 
 // seedSearchStateCM writes a <searchName>-state ConfigMap carrying the given
-// clusterName→clusterIndex mapping and routing-readiness latch into c, simulating
+// clusterName→clusterIndex mapping and routing-readiness switch into c, simulating
 // a previous write by the main search controller. Tests that exercise the Envoy
 // reconcile loop must seed this CM before constructing the reconciler so the
 // Envoy controller can resolve indices without the full main-controller path.
@@ -668,7 +668,7 @@ func TestBuildShardRoutes_WithPendingShards(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "mdb", Namespace: "mongodb"},
 	}
 	shardNames := []string{"mdb-sh-0", "mdb-sh-1", "mdb-sh-2"}
-	// mdb-sh-2 is not latched routing-ready, so it is pending.
+	// mdb-sh-2's switch is off (not routing-ready), so it is pending.
 	routingReady := []string{"mdb-sh-0", "mdb-sh-1"}
 
 	routes := buildShardRoutes(search, shardNames, 0, "", routingReady)
@@ -706,7 +706,7 @@ func TestBuildShardRoutes_AllPending_NoFallback(t *testing.T) {
 	}
 	shardNames := []string{"mdb-sh-0", "mdb-sh-1"}
 
-	// Empty latch (fresh install): every shard is pending.
+	// Empty switch (fresh install): every shard is pending.
 	routes := buildShardRoutes(search, shardNames, 0, "", nil)
 
 	// 2 per-shard routes + 1 cluster-level route
@@ -1522,9 +1522,9 @@ func TestEnvoyConfigHash_WhitespaceInvariant(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// The Envoy reconciler derives fallback routing from the state CM latch: latched
-// shards route to their own mongot cluster; non-latched shards route to
-// mongot_cluster_level_cluster with the routed_from_another_shard header.
+// The Envoy reconciler derives fallback routing from the state CM switch:
+// switched-on shards route to their own mongot cluster; switched-off shards route
+// to mongot_cluster_level_cluster with the routed_from_another_shard header.
 func TestReconcile_RoutingReadyFromState_DrivesFallbackRoutes(t *testing.T) {
 	ctx := context.Background()
 	scheme := envoyTestScheme(t)
@@ -1549,7 +1549,7 @@ func TestReconcile_RoutingReadyFromState_DrivesFallbackRoutes(t *testing.T) {
 	}
 
 	central := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&searchv1.MongoDBSearch{}).WithObjects(search).Build()
-	// sh-0 latched routing-ready; sh-1 never ready → fallback.
+	// sh-0 switched routing-ready; sh-1 never ready → fallback.
 	seedSearchStateCM(t, ctx, central, "mdb-search", "ns", map[string]int{"cluster-a": 0}, []string{"sh-0"})
 
 	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", nil, "")
@@ -1565,9 +1565,9 @@ func TestReconcile_RoutingReadyFromState_DrivesFallbackRoutes(t *testing.T) {
 	ldsStr := lds.String()
 
 	assert.Contains(t, ldsStr, `"cluster":"mongot_sh_0_cluster"`,
-		"latched shard must route to its own mongot cluster")
+		"switched-on shard must route to its own mongot cluster")
 	assert.NotContains(t, ldsStr, `"cluster":"mongot_sh_1_cluster"`,
-		"non-latched shard must not route to its own mongot cluster")
+		"switched-off shard must not route to its own mongot cluster")
 	assert.Equal(t, 2, strings.Count(ldsStr, `"cluster":"mongot_cluster_level_cluster"`),
 		"cluster-level chain plus the pending shard's fallback chain must target the cluster-level cluster")
 	assert.Contains(t, ldsStr, `"key":"search-envoy-metadata-bin"`,
