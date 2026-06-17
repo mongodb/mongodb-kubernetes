@@ -158,15 +158,31 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, clusterName,
 		),
 	}
 
-	if perCluster.StatefulSetConfiguration != nil {
-		stsModifications = append(stsModifications, statefulset.WithCustomSpecs(perCluster.StatefulSetConfiguration.SpecWrapper.Spec))
-		stsModifications = append(stsModifications, statefulset.WithObjectMetadata(
+	return statefulset.Apply(stsModifications...), nil
+}
+
+// StatefulSetOverrideModification applies spec.clusters[].statefulSet. It must run
+// LAST in the modification chain, over the fully built StatefulSet: the override
+// merge sorts volumes by name, so merging mid-pipeline (before the password/TLS
+// volume modifications append) yields a different volume order on the create and
+// update paths — the first reconcile after STS creation then sees a spurious
+// template diff and rolls every mongot pod. Applying last also makes the user
+// override win over operator-set fields, as the CRD field documents.
+func StatefulSetOverrideModification(mdbSearch *searchv1.MongoDBSearch, clusterName string) (statefulset.Modification, error) {
+	perCluster, err := mdbSearch.EffectiveClusterFor(clusterName)
+	if err != nil {
+		return nil, err
+	}
+	if perCluster.StatefulSetConfiguration == nil {
+		return statefulset.NOOP(), nil
+	}
+	return statefulset.Apply(
+		statefulset.WithCustomSpecs(perCluster.StatefulSetConfiguration.SpecWrapper.Spec),
+		statefulset.WithObjectMetadata(
 			perCluster.StatefulSetConfiguration.MetadataWrapper.Labels,
 			perCluster.StatefulSetConfiguration.MetadataWrapper.Annotations,
-		))
-	}
-
-	return statefulset.Apply(stsModifications...), nil
+		),
+	), nil
 }
 
 // PasswordAuthModification returns a statefulset.Modification that mounts the password secret

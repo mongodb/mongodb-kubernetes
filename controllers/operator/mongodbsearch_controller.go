@@ -2,7 +2,7 @@ package operator
 
 import (
 	"context"
-	"reflect"
+	"maps"
 	"time"
 
 	"go.uber.org/zap"
@@ -28,7 +28,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1" //nolint:depguard
 	khandler "github.com/mongodb/mongodb-kubernetes/pkg/handler"
-	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/commoncontroller"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
@@ -42,59 +41,6 @@ import (
 // (Result{RequeueAfter: secretsCheckRequeueAfter}, nil) so we don't trigger
 // exponential backoff while the customer is fixing the gap.
 const secretsCheckRequeueAfter = 30 * time.Second
-
-type SearchDeploymentState struct {
-	CommonDeploymentState `json:",inline"`
-}
-
-func NewSearchDeploymentState() *SearchDeploymentState {
-	return &SearchDeploymentState{
-		CommonDeploymentState: CommonDeploymentState{ClusterMapping: map[string]int{}},
-	}
-}
-
-// loadOrInitSearchState reads the per-CR state ConfigMap, treating NotFound as
-// fresh state. Returns the state plus the bound store so callers can WriteState.
-func loadOrInitSearchState(
-	ctx context.Context,
-	c kubernetesClient.Client,
-	search *searchv1.MongoDBSearch,
-) (*SearchDeploymentState, *StateStore[SearchDeploymentState], error) {
-	store := NewStateStore[SearchDeploymentState](search, kube.BaseOwnerReference(search), c)
-	state, err := store.ReadState(ctx)
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			return NewSearchDeploymentState(), store, nil
-		}
-		return nil, nil, err
-	}
-	if state.ClusterMapping == nil {
-		state.ClusterMapping = map[string]int{}
-	}
-	return state, store, nil
-}
-
-// Single writer of the clusterName→index mapping in the per-CR state CM; the Envoy
-// reconciler only reads it (via loadOrInitSearchState) and must never write it.
-func resolveClusterMapping(
-	ctx context.Context,
-	central kubernetesClient.Client,
-	search *searchv1.MongoDBSearch,
-	log *zap.SugaredLogger,
-) (map[string]int, error) {
-	state, store, err := loadOrInitSearchState(ctx, central, search)
-	if err != nil {
-		return nil, err
-	}
-	newMapping := searchv1.AssignClusterIndices(state.ClusterMapping, search.Spec.Clusters)
-	if !reflect.DeepEqual(newMapping, state.ClusterMapping) {
-		state.ClusterMapping = newMapping
-		if err := store.WriteState(ctx, state, log); err != nil {
-			return nil, err
-		}
-	}
-	return state.ClusterMapping, nil
-}
 
 // prepareSearchFunc is the shared pre-reconcile gate for both search reconcilers;
 // writeStatus routes validation failures to the caller's own status surface. Returns
@@ -191,11 +137,6 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 		return result, err
 	}
 
-	clusterMapping, err := resolveClusterMapping(ctx, r.kubeClient, mdbSearch, log)
-	if err != nil {
-		return commoncontroller.UpdateStatus(ctx, r.kubeClient, mdbSearch, workflow.Failed(xerrors.Errorf("failed to resolve cluster mapping: %w", err)), log)
-	}
-
 	searchSource, err := r.getSourceMongoDBForSearch(ctx, r.kubeClient, mdbSearch, log)
 	if err != nil {
 		return commoncontroller.UpdateStatus(ctx, r.kubeClient, mdbSearch, workflow.Failed(xerrors.Errorf("Waiting for MongoDB source: %s", err)), log)
@@ -230,7 +171,20 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 		r.watch.AddWatchedResourceIfNotAdded(mdbSearch.Spec.AutoEmbedding.EmbeddingModelAPIKeySecret.Name, mdbSearch.Namespace, watch.Secret, mdbSearch.NamespacedName())
 	}
 
-	reconcileHelper := searchcontroller.NewMongoDBSearchReconcileHelper(r.kubeClient, mdbSearch, searchSource, r.operatorSearchConfig, r.memberClusterClientsMap, clusterMapping)
+	state, err := searchcontroller.MutateSearchState(ctx, r.kubeClient, mdbSearch, func(s *searchcontroller.SearchDeploymentState) bool {
+		newMapping := searchv1.AssignClusterIndices(s.ClusterMapping, mdbSearch.Spec.Clusters)
+		if maps.Equal(newMapping, s.ClusterMapping) {
+			return false
+		}
+		s.ClusterMapping = newMapping
+		return true
+	})
+	if err != nil {
+		return commoncontroller.UpdateStatus(ctx, r.kubeClient, mdbSearch, workflow.Failed(xerrors.Errorf("failed to update cluster index mapping: %w", err)), log)
+	}
+	clusterMapping := state.ClusterMapping
+
+	reconcileHelper := searchcontroller.NewMongoDBSearchReconcileHelper(r.kubeClient, mdbSearch, searchSource, r.operatorSearchConfig, r.memberClusterClientsMap, state)
 
 	result, err := reconcileHelper.Reconcile(ctx, log).ReconcileResult()
 	if err != nil {
