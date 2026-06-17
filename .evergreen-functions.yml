@@ -491,21 +491,18 @@ functions:
   upload_e2e_logs:
     # Send structured log events (kube Warning events, agent health, operator errors)
     # to Honeycomb before S3 upload. Best-effort: skipped if HONEYCOMB_API_KEY unset.
-    - command: shell.exec
+    - command: subprocess.exec
       params:
         continue_on_err: true
-        shell: bash
         working_dir: src/github.com/mongodb/mongodb-kubernetes
-        script: |
-          set -eo pipefail
-          # working_dir is already src/github.com/mongodb/mongodb-kubernetes so PWD = project root
-          source "venv/bin/activate"
-          export PYTHONPATH=".:docker/mongodb-kubernetes-tests"
-          export HONEYCOMB_API_KEY="${honeycomb_api_key}"
-          python docker/mongodb-kubernetes-tests/scripts/send_logs_to_honeycomb.py \
-            --logs-dir logs \
-            --task-id "${task_id}" \
-            --version-id "${version_id}"
+        include_expansions_in_env:
+          - HONEYCOMB_API_KEY
+          - task_id
+          - version_id
+        binary: docker/mongodb-kubernetes-tests/scripts/send_logs_to_honeycomb_evg.sh
+        args:
+          - ${task_id}
+          - ${version_id}
     # Upload HTML reports with proper content type so they render in browser
     - command: s3.put
       params:
