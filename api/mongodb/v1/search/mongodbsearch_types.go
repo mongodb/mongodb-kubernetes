@@ -236,6 +236,14 @@ type ManagedLBConfig struct {
 	// When not set, retries are enabled with sensible defaults (2 retries, 60s per-try timeout).
 	// +optional
 	RetryPolicy *EnvoyRetryPolicy `json:"retryPolicy,omitempty"`
+	// MinMongotReadyReplicas is the minimum number of ready mongot replicas in a group
+	// before this mongot group can be considered ready and envoy routes real traffic to it.
+	// Until this threshold is met, traffic for that shard is forwarded to a healthy mongot group with the
+	// routed_from_another_shard header (returning empty results).
+	// Defaults to 1 if not specified.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	MinMongotReadyReplicas *int32 `json:"minMongotReadyReplicas,omitempty"`
 }
 
 // EnvoyRetryPolicy configures retry behavior for individual gRPC streams to upstream mongot clusters.
@@ -480,6 +488,15 @@ func (s *MongoDBSearch) updateLoadBalancerStatus(phase status.Phase, statusOptio
 	if option, exists := status.GetOption(statusOptions, status.MessageOption{}); exists {
 		s.Status.LoadBalancer.Message = option.(status.MessageOption).Message
 	}
+}
+
+// GetMinMongotReadyReplicasForRouting returns the minimum number of ready mongot
+// replicas required to consider a mongot group ready for envoy to route real traffic to a shard's mongot group.
+func (s *MongoDBSearch) GetMinMongotReadyReplicasForRouting() int32 {
+	if s.IsLBModeManaged() && s.Spec.LoadBalancer.Managed.MinMongotReadyReplicas != nil {
+		return *s.Spec.LoadBalancer.Managed.MinMongotReadyReplicas
+	}
+	return 1
 }
 
 func (s *MongoDBSearch) NamespacedName() types.NamespacedName {

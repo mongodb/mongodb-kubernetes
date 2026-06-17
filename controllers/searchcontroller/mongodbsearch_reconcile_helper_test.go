@@ -2,7 +2,9 @@ package searchcontroller
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -13,12 +15,14 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
@@ -2653,8 +2657,8 @@ func TestBuildReplicaSetPlan_PerClusterUnitsForMC(t *testing.T) {
 	}
 
 	r := &MongoDBSearchReconcileHelper{
-		mdbSearch:      mdb,
-		clusterMapping: map[string]int{"cluster-a": 0, "cluster-b": 1},
+		mdbSearch: mdb,
+		state:     &SearchDeploymentState{ClusterMapping: map[string]int{"cluster-a": 0, "cluster-b": 1}},
 	}
 	source := &fakeExternalSource{hosts: mdb.Spec.Source.ExternalMongoDBSource.HostAndPorts}
 
@@ -2680,7 +2684,7 @@ func TestBuildReplicaSetPlan_SingleClusterUsesIndexZeroNames(t *testing.T) {
 			HostAndPorts: []string{"a.example:27017"},
 		},
 	}
-	r := &MongoDBSearchReconcileHelper{mdbSearch: mdb}
+	r := &MongoDBSearchReconcileHelper{mdbSearch: mdb, state: NewSearchDeploymentState()}
 	source := &fakeExternalSource{hosts: mdb.Spec.Source.ExternalMongoDBSource.HostAndPorts}
 
 	plan, err := r.buildReplicaSetPlan(source)
@@ -2719,7 +2723,7 @@ func TestReconcilePlan_UsesPerClusterClient(t *testing.T) {
 		mdbSearch:            mdb,
 		client:               centralClient,
 		memberClusterClients: memberClients,
-		clusterMapping:       map[string]int{"cluster-a": 0, "cluster-b": 1},
+		state:                &SearchDeploymentState{ClusterMapping: map[string]int{"cluster-a": 0, "cluster-b": 1}},
 		operatorSearchConfig: newTestOperatorSearchConfig(),
 	}
 
@@ -2777,9 +2781,9 @@ func TestBuildShardedPlan_PerClusterShardUnitsForMC(t *testing.T) {
 	}
 
 	r := &MongoDBSearchReconcileHelper{
-		mdbSearch:      search,
-		db:             shardedSource,
-		clusterMapping: map[string]int{"cluster-a": 0, "cluster-b": 1},
+		mdbSearch: search,
+		db:        shardedSource,
+		state:     &SearchDeploymentState{ClusterMapping: map[string]int{"cluster-a": 0, "cluster-b": 1}},
 	}
 
 	plan, err := r.buildShardedPlan(shardedSource)
@@ -2846,7 +2850,7 @@ func TestReconcileShardedMC_FanOutUsesPerClusterClient(t *testing.T) {
 			"cluster-a": clusterAClient,
 			"cluster-b": clusterBClient,
 		},
-		clusterMapping:       map[string]int{"cluster-a": 0, "cluster-b": 1},
+		state:                &SearchDeploymentState{ClusterMapping: map[string]int{"cluster-a": 0, "cluster-b": 1}},
 		operatorSearchConfig: newTestOperatorSearchConfig(),
 	}
 
@@ -3005,7 +3009,7 @@ func TestReconcileShardedMC_AllUnitsAppliedBeforeReadinessCheck(t *testing.T) {
 			"cluster-a": clusterAClient,
 			"cluster-b": clusterBClient,
 		},
-		clusterMapping:       map[string]int{"cluster-a": 0, "cluster-b": 1},
+		state:                &SearchDeploymentState{ClusterMapping: map[string]int{"cluster-a": 0, "cluster-b": 1}},
 		operatorSearchConfig: newTestOperatorSearchConfig(),
 	}
 
@@ -3126,7 +3130,7 @@ func (f *mcShardedFixture) newHelper() *MongoDBSearchReconcileHelper {
 		db:                   f.source,
 		client:               f.central,
 		memberClusterClients: f.members,
-		clusterMapping:       f.clusterMapping,
+		state:                &SearchDeploymentState{ClusterMapping: f.clusterMapping},
 		operatorSearchConfig: newTestOperatorSearchConfig(),
 	}
 }
@@ -3279,7 +3283,7 @@ func TestCleanupStaleShardResources_MCFanOut(t *testing.T) {
 		mdbSearch:            search,
 		client:               central,
 		memberClusterClients: map[string]kubernetesClient.Client{"cluster-a": clusterA, "cluster-b": clusterB},
-		clusterMapping:       map[string]int{"cluster-a": 0, "cluster-b": 1},
+		state:                &SearchDeploymentState{ClusterMapping: map[string]int{"cluster-a": 0, "cluster-b": 1}},
 	}
 
 	require.NoError(t, r.cleanupStaleShardResources(t.Context(), zap.S(), []string{"sh-0"}))
@@ -3338,6 +3342,7 @@ func TestReconcileSharded_EmptyShardNames(t *testing.T) {
 		db:                   src,
 		client:               central,
 		operatorSearchConfig: newTestOperatorSearchConfig(),
+		state:                NewSearchDeploymentState(),
 	}
 
 	plan, err := r.buildShardedPlan(src)
@@ -3408,4 +3413,212 @@ func TestReconcileShardedMC_InterleavedStatusConverges(t *testing.T) {
 	require.NoError(t, fx.central.Get(t.Context(), fx.search.NamespacedName(), got))
 	require.NotNil(t, got.Status.LoadBalancer, "LB sub-status still present")
 	require.Equal(t, status.PhaseRunning, got.Status.LoadBalancer.Phase)
+}
+
+// Routing-readiness switch lifecycle: shards stay pending until their mongot STS
+// first meets the threshold, the switch survives STS delete/recreate (one-way),
+// and stale switch entries are pruned.
+func TestReconcileSharded_RoutingSwitchOneWay(t *testing.T) {
+	search := newTestMongoDBSearch("mdb-search", "ns", func(s *searchv1.MongoDBSearch) {
+		s.Spec.Source = &searchv1.MongoDBSource{
+			ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{
+				ShardedCluster: &searchv1.ExternalShardedClusterConfig{
+					Router: searchv1.ExternalRouterConfig{Hosts: []string{"mongos.example:27017"}},
+					Shards: []searchv1.ExternalShardConfig{
+						{ShardName: "sh-0", Hosts: []string{"sh-0-a.example:27017"}},
+						{ShardName: "sh-1", Hosts: []string{"sh-1-a.example:27017"}},
+					},
+				},
+			},
+		}
+		s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
+			Managed: &searchv1.ManagedLBConfig{
+				ExternalHostname: "{shardName}.mdb-search-search-0-proxy-svc.ns.svc.cluster.local",
+			},
+		}
+		s.Spec.Security = searchv1.Security{TLS: &searchv1.TLS{CertsSecretPrefix: "certs"}}
+	})
+
+	source := &mockShardedSource{
+		shardNames: []string{"sh-0", "sh-1"},
+		hostSeeds: map[string][]string{
+			"sh-0": {"sh-0-a.example:27017"},
+			"sh-1": {"sh-1-a.example:27017"},
+		},
+	}
+
+	objects := []client.Object{search}
+	for _, shard := range source.shardNames {
+		objects = append(objects, &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      fmt.Sprintf("certs-mdb-search-search-0-%s-cert", shard),
+				Namespace: "ns",
+			},
+			Data: map[string][]byte{"tls.crt": []byte("dummy-cert"), "tls.key": []byte("dummy-key")},
+		})
+	}
+	fakeClient := newTestFakeClient(objects...)
+
+	// Pre-existing switch entry for a shard that no longer exists — must be pruned.
+	state := NewSearchDeploymentState()
+	state.RoutingReadyMongotGroups = []string{"sh-removed"}
+	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, source, newTestOperatorSearchConfig(), nil, state)
+	switchedOn := func(shard string) bool { return slices.Contains(helper.state.RoutingReadyMongotGroups, shard) }
+
+	// Pass 1: STSs created, none routing-ready.
+	helper.Reconcile(t.Context(), zap.S())
+	assert.False(t, switchedOn("sh-0"))
+	assert.False(t, switchedOn("sh-removed"), "switch entry for a removed shard must be pruned")
+
+	// sh-0 reaches the routing-readiness threshold (sh-1 stays unready).
+	stsName := search.MongotStatefulSetForClusterShard(0, "sh-0")
+	sts, err := fakeClient.GetStatefulSet(t.Context(), stsName)
+	require.NoError(t, err)
+	sts.Status.ReadyReplicas = 1
+	require.NoError(t, fakeClient.Status().Update(t.Context(), &sts))
+
+	// Pass 2: sh-0's switch flips on even though sh-1 is still unready.
+	helper.Reconcile(t.Context(), zap.S())
+	assert.True(t, switchedOn("sh-0"))
+	assert.False(t, switchedOn("sh-1"))
+
+	// STS recreate: pass 3 recreates sh-0's STS with 0 ready replicas. The switch
+	// is one-way, so sh-0 must NOT re-enter the pending set.
+	require.NoError(t, fakeClient.Delete(t.Context(), &appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{Name: stsName.Name, Namespace: stsName.Namespace},
+	}))
+	helper.Reconcile(t.Context(), zap.S())
+	recreated, err := fakeClient.GetStatefulSet(t.Context(), stsName)
+	require.NoError(t, err)
+	require.Equal(t, int32(0), recreated.Status.ReadyReplicas, "recreated STS must start unready")
+	assert.True(t, switchedOn("sh-0"), "switch must survive STS delete/recreate")
+}
+
+// One unit's switch error must not starve the remaining units: errors
+// are aggregated across ALL units and surfaced after the loop.
+func TestReconcileSharded_SwitchErrorsAggregatedAcrossUnits(t *testing.T) {
+	search := newTestMongoDBSearch("mdb-search", "ns", func(s *searchv1.MongoDBSearch) {
+		s.Spec.Source = &searchv1.MongoDBSource{
+			ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{
+				ShardedCluster: &searchv1.ExternalShardedClusterConfig{
+					Router: searchv1.ExternalRouterConfig{Hosts: []string{"mongos.example:27017"}},
+					Shards: []searchv1.ExternalShardConfig{
+						{ShardName: "sh-0", Hosts: []string{"sh-0-a.example:27017"}},
+						{ShardName: "sh-1", Hosts: []string{"sh-1-a.example:27017"}},
+					},
+				},
+			},
+		}
+		s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
+			Managed: &searchv1.ManagedLBConfig{
+				ExternalHostname: "{shardName}.mdb-search-search-0-proxy-svc.ns.svc.cluster.local",
+			},
+		}
+		s.Spec.Security = searchv1.Security{TLS: &searchv1.TLS{CertsSecretPrefix: "certs"}}
+	})
+
+	source := &mockShardedSource{
+		shardNames: []string{"sh-0", "sh-1"},
+		hostSeeds: map[string][]string{
+			"sh-0": {"sh-0-a.example:27017"},
+			"sh-1": {"sh-1-a.example:27017"},
+		},
+	}
+
+	objects := []client.Object{search}
+	for _, shard := range source.shardNames {
+		objects = append(objects, &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      fmt.Sprintf("certs-mdb-search-search-0-%s-cert", shard),
+				Namespace: "ns",
+			},
+			Data: map[string][]byte{"tls.crt": []byte("dummy-cert"), "tls.key": []byte("dummy-key")},
+		})
+	}
+	// Fail any state-CM write that would flip sh-0's switch; sh-1's writes pass through.
+	injectedErr := fmt.Errorf("injected switch write failure for sh-0")
+	flipsSh0 := func(obj client.Object) bool {
+		cm, ok := obj.(*corev1.ConfigMap)
+		if !ok || cm.Name != SearchStateCMName(search) {
+			return false
+		}
+		var st SearchDeploymentState
+		if json.Unmarshal([]byte(cm.Data[searchStateKey]), &st) != nil {
+			return false
+		}
+		return slices.Contains(st.RoutingReadyMongotGroups, "sh-0")
+	}
+	base := mock.NewEmptyFakeClientBuilder().WithObjects(objects...).Build()
+	fakeClient := kubernetesClient.NewClient(interceptor.NewClient(base, interceptor.Funcs{
+		Create: func(ctx context.Context, cl client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+			if flipsSh0(obj) {
+				return injectedErr
+			}
+			return cl.Create(ctx, obj, opts...)
+		},
+		Update: func(ctx context.Context, cl client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+			if flipsSh0(obj) {
+				return injectedErr
+			}
+			return cl.Update(ctx, obj, opts...)
+		},
+	}))
+	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, source, newTestOperatorSearchConfig(), nil, nil)
+	switchedOn := func(shard string) bool { return slices.Contains(helper.state.RoutingReadyMongotGroups, shard) }
+
+	// Both shards meet the threshold; sh-0's switch write fails.
+	helper.reconcile(t.Context(), zap.S())
+	require.NoError(t, mock.MarkAllStatefulSetsAsReady(t.Context(), "ns", fakeClient))
+	st := helper.reconcile(t.Context(), zap.S())
+
+	require.False(t, st.IsOK())
+	assert.Contains(t, MessageFromStatus(st), "injected switch write failure for sh-0")
+	assert.True(t, switchedOn("sh-1"), "sh-1's switch must still flip despite sh-0's error")
+	assert.False(t, switchedOn("sh-0"))
+}
+
+func TestReconcileSharded_StatefulSetTemplateStableAcrossReconciles(t *testing.T) {
+	// With spec.clusters[].statefulSet set, the override merge sorts volumes by
+	// name; applied mid-pipeline it produced a different volume order on the
+	// create vs update paths, so the first reconcile after STS creation saw a
+	// spurious template diff and rolled every mongot pod.
+	search := newTestMongoDBSearch("test-search", "test-ns", func(s *searchv1.MongoDBSearch) {
+		s.Spec.Clusters[0].StatefulSetConfiguration = &v1.StatefulSetConfiguration{
+			SpecWrapper: v1.StatefulSetSpecWrapper{
+				Spec: appsv1.StatefulSetSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							InitContainers: []corev1.Container{
+								{Name: "startup-delay", Image: "busybox", Command: []string{"sh", "-c", "sleep 1"}},
+							},
+						},
+					},
+				},
+			},
+		}
+	})
+
+	shardedSource := &mockShardedSource{
+		shardNames: []string{"my-cluster-0"},
+		hostSeeds: map[string][]string{
+			"my-cluster-0": {"my-cluster-0-0.my-cluster-sh.test-ns.svc.cluster.local:27017"},
+		},
+	}
+	fakeClient := newTestFakeClient(search)
+	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, shardedSource, newTestOperatorSearchConfig(), nil, nil)
+
+	helper.reconcile(t.Context(), zap.S())
+	stsNsName := search.MongotStatefulSetForClusterShard(0, "my-cluster-0")
+	created, err := fakeClient.GetStatefulSet(t.Context(), stsNsName)
+	require.NoError(t, err)
+	require.NoError(t, mock.MarkAllStatefulSetsAsReady(t.Context(), search.Namespace, fakeClient))
+
+	helper.reconcile(t.Context(), zap.S())
+	updated, err := fakeClient.GetStatefulSet(t.Context(), stsNsName)
+	require.NoError(t, err)
+
+	assert.Equal(t, created.Spec.Template, updated.Spec.Template,
+		"second reconcile must not change the pod template (a diff rolls every mongot pod)")
+	require.Len(t, updated.Spec.Template.Spec.InitContainers, 1)
+	assert.Equal(t, "startup-delay", updated.Spec.Template.Spec.InitContainers[0].Name)
 }

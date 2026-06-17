@@ -1,8 +1,10 @@
 package operator
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -71,6 +73,10 @@ type envoyRoute struct {
 	SNIHostname   string   // FQDN of the proxy service for SNI matching
 	UpstreamHosts []string // FQDNs of the mongot headless services (one per pool member)
 	UpstreamPort  int32    // typically 27028
+	// RoutedFromAnotherShard indicates this is a fallback route for a pending mongot group.
+	// When true, the LDS filter chain routes to the cluster-level cluster and injects
+	// the "search-envoy-metadata-bin" gRPC binary header (routed_from_another_shard) so mongot returns empty results.
+	RoutedFromAnotherShard bool
 }
 
 type MongoDBSearchEnvoyReconciler struct {
@@ -100,7 +106,14 @@ func newMongoDBSearchEnvoyReconciler(c client.Client, defaultEnvoyImage string, 
 		// Single-cluster and per-cluster-operator installs render everything locally.
 		r.clientForCluster = func(string) kubernetesClient.Client { return r.kubeClient }
 	} else {
-		r.clientForCluster = func(clusterName string) kubernetesClient.Client { return clientsMap[clusterName] }
+		// Empty clusterName is the central/local cluster (single-cluster sharded
+		// search in a hub-and-spoke install); only named entries are member clusters.
+		r.clientForCluster = func(clusterName string) kubernetesClient.Client {
+			if clusterName == "" {
+				return r.kubeClient
+			}
+			return clientsMap[clusterName]
+		}
 	}
 	return r
 }
@@ -137,7 +150,7 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 	// If LB was previously active (status exists), clean up Envoy resources first.
 	if !mdbSearch.IsLBModeManaged() {
 		if mdbSearch.Status.LoadBalancer != nil {
-			state, _, stErr := loadOrInitSearchState(ctx, r.kubeClient, mdbSearch)
+			state, stErr := searchcontroller.ReadSearchState(ctx, r.kubeClient, mdbSearch)
 			var workList []clusterWorkItem
 			if stErr != nil {
 				log.Warnf("Failed to load search state for Envoy cleanup, falling back to central only: %s", stErr)
@@ -162,8 +175,9 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 		return r.updateLBStatus(ctx, mdbSearch, workflow.Pending("Waiting for search source: %s", err), log)
 	}
 
-	// Load the per-CR state to get the stable clusterName → clusterIndex mapping.
-	state, _, err := loadOrInitSearchState(ctx, r.kubeClient, mdbSearch)
+	// Load the per-CR state to get the stable clusterName → clusterIndex mapping
+	// and the routing-readiness switch.
+	state, err := searchcontroller.ReadSearchState(ctx, r.kubeClient, mdbSearch)
 	if err != nil {
 		return r.updateLBStatus(ctx, mdbSearch, workflow.Pending("Waiting for search state: %s", err), log)
 	}
@@ -185,7 +199,7 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 			// reconciles after the main search controller writes the mapping.
 			st = workflow.Pending("Waiting for cluster %q to be registered in search state", w.ClusterName)
 		default:
-			st = r.reconcileForCluster(ctx, mdbSearch, searchSource, tlsEnabled, tlsCfg, w.ClusterName, w.ClusterIndex, w.Client, log)
+			st = r.reconcileForCluster(ctx, mdbSearch, searchSource, tlsEnabled, tlsCfg, w, state.RoutingReadyMongotGroups, log)
 		}
 		worstPhase = searchv1.WorstOfPhase(worstPhase, st.Phase())
 		if !st.IsOK() && firstFailure == nil {
@@ -232,22 +246,22 @@ func (r *MongoDBSearchEnvoyReconciler) buildClusterWorkList(search *searchv1.Mon
 	return work
 }
 
-// reconcileForCluster runs the ConfigMap + Deployment ensure for one cluster.
-// clusterName is used for log context; clusterIndex is used for resource naming;
-// c is the pre-resolved Kubernetes client for the target cluster.
-// Returns a workflow.Status describing the per-cluster outcome.
+// reconcileForCluster runs the ConfigMap + Deployment ensure for one cluster's
+// work item. routingReadyMongotGroups is the state-CM switch — shards not listed
+// get fallback routing. Returns a workflow.Status describing the per-cluster outcome.
 func (r *MongoDBSearchEnvoyReconciler) reconcileForCluster(
 	ctx context.Context,
 	search *searchv1.MongoDBSearch,
 	source searchcontroller.SearchSourceDBResource,
 	tlsEnabled bool,
 	tlsCfg *searchcontroller.TLSSourceConfig,
-	clusterName string,
-	clusterIndex int,
-	c kubernetesClient.Client,
+	w clusterWorkItem,
+	routingReadyMongotGroups []string,
 	log *zap.SugaredLogger,
 ) workflow.Status {
-	routes := buildRoutesForCluster(search, source, clusterIndex, clusterName)
+	clusterName, clusterIndex, c := w.ClusterName, w.ClusterIndex, w.Client
+
+	routes := buildRoutesForCluster(search, source, clusterIndex, clusterName, routingReadyMongotGroups)
 	if len(routes) == 0 {
 		return workflow.Pending("No routes to configure for load balancer (cluster=%q)", clusterName)
 	}
@@ -335,9 +349,9 @@ func caKeyNameFromTLSConfig(tlsCfg *searchcontroller.TLSSourceConfig) string {
 // buildRoutes returns the Envoy routes for the given topology.
 // It is the single topology-aware path in the controller. Everything downstream (config generation,
 // Service creation, cleanup) is topology-agnostic, using the envoyRoute data structure only.
-func buildRoutes(search *searchv1.MongoDBSearch, source searchcontroller.SearchSourceDBResource) []envoyRoute {
+func buildRoutes(search *searchv1.MongoDBSearch, source searchcontroller.SearchSourceDBResource, routingReadyMongotGroups []string) []envoyRoute {
 	if shardedSource, ok := source.(searchcontroller.SearchSourceShardedDeployment); ok {
-		return buildShardRoutes(search, shardedSource.GetShardNames(), 0, "")
+		return buildShardRoutes(search, shardedSource.GetShardNames(), 0, "", routingReadyMongotGroups)
 	}
 	return []envoyRoute{buildReplicaSetRouteForCluster(search, 0, "")}
 }
@@ -346,13 +360,22 @@ func buildRoutes(search *searchv1.MongoDBSearch, source searchcontroller.SearchS
 // clusterIndex and clusterName identify the cluster; in single-cluster installs pass (0, "").
 // Each per-shard route has one UpstreamHosts entry. The trailing cluster-level route
 // aggregates all per-shard mongot Service FQDNs so mongos can use a single SNI/filter chain.
-func buildShardRoutes(search *searchv1.MongoDBSearch, shardNames []string, clusterIndex int, clusterName string) []envoyRoute {
+// routingReadyMongotGroups is the state-CM switch; a shard not listed is pending and
+// its per-shard filter chain is redirected to the cluster-level cluster with the
+// routed_from_another_shard header.
+func buildShardRoutes(search *searchv1.MongoDBSearch, shardNames []string, clusterIndex int, clusterName string, routingReadyMongotGroups []string) []envoyRoute {
 	// +1 for the cluster-level route appended at the end.
 	routes := make([]envoyRoute, 0, len(shardNames)+1)
 	namespace := search.Namespace
 	mongotPort := search.GetMongotGrpcPort()
 
+	readySet := make(map[string]struct{}, len(routingReadyMongotGroups))
+	for _, name := range routingReadyMongotGroups {
+		readySet[name] = struct{}{}
+	}
+
 	clusterLevelUpstreams := make([]string, 0, len(shardNames))
+	allUpstreams := make([]string, 0, len(shardNames))
 
 	for _, shardName := range shardNames {
 		sniServiceName := search.ProxyServiceNameForClusterShard(clusterIndex, shardName).Name
@@ -364,15 +387,32 @@ func buildShardRoutes(search *searchv1.MongoDBSearch, shardNames []string, clust
 			sniHostname = endpoint
 		}
 
+		_, ok := readySet[shardName]
+		isPending := !ok
 		routes = append(routes, envoyRoute{
-			Name:          shardName,
-			NameSafe:      strings.ReplaceAll(shardName, "-", "_"),
-			ClusterID:     clusterName,
-			SNIHostname:   sniHostname,
-			UpstreamHosts: []string{upstreamFQDN},
-			UpstreamPort:  mongotPort,
+			Name:                   shardName,
+			NameSafe:               strings.ReplaceAll(shardName, "-", "_"),
+			ClusterID:              clusterName,
+			SNIHostname:            sniHostname,
+			UpstreamHosts:          []string{upstreamFQDN},
+			UpstreamPort:           mongotPort,
+			RoutedFromAnotherShard: isPending,
 		})
-		clusterLevelUpstreams = append(clusterLevelUpstreams, upstreamFQDN)
+
+		// Only include non-pending shards in the cluster-level cluster endpoints.
+		allUpstreams = append(allUpstreams, upstreamFQDN)
+		if !isPending {
+			clusterLevelUpstreams = append(clusterLevelUpstreams, upstreamFQDN)
+		}
+	}
+
+	// If all shards are pending (fresh install), include all endpoints in cluster-level
+	// and disable fallback routing (no healthy target to fall back to).
+	if len(clusterLevelUpstreams) == 0 {
+		for i := range routes {
+			routes[i].RoutedFromAnotherShard = false
+		}
+		clusterLevelUpstreams = allUpstreams
 	}
 
 	// Cluster-level route: mongos in this cluster uses this single SNI chain to reach
@@ -384,13 +424,9 @@ func buildShardRoutes(search *searchv1.MongoDBSearch, shardNames []string, clust
 		clusterLevelSNI = endpoint
 	}
 
-	nameSafe := "cluster_level"
-	if clusterIndex > 0 {
-		nameSafe = fmt.Sprintf("cluster_level_%d", clusterIndex)
-	}
 	routes = append(routes, envoyRoute{
 		Name:          "cluster-level",
-		NameSafe:      nameSafe,
+		NameSafe:      "cluster_level",
 		ClusterID:     clusterName,
 		SNIHostname:   clusterLevelSNI,
 		UpstreamHosts: clusterLevelUpstreams,
@@ -402,13 +438,13 @@ func buildShardRoutes(search *searchv1.MongoDBSearch, shardNames []string, clust
 
 // buildRoutesForCluster returns the Envoy routes for one member cluster.
 // Empty clusterName is the single-cluster path.
-func buildRoutesForCluster(search *searchv1.MongoDBSearch, source searchcontroller.SearchSourceDBResource, clusterIndex int, clusterName string) []envoyRoute {
+func buildRoutesForCluster(search *searchv1.MongoDBSearch, source searchcontroller.SearchSourceDBResource, clusterIndex int, clusterName string, routingReadyMongotGroups []string) []envoyRoute {
 	if clusterName == "" {
-		return buildRoutes(search, source)
+		return buildRoutes(search, source, routingReadyMongotGroups)
 	}
 
 	if shardedSource, ok := source.(searchcontroller.SearchSourceShardedDeployment); ok {
-		return buildShardRoutes(search, shardedSource.GetShardNames(), clusterIndex, clusterName)
+		return buildShardRoutes(search, shardedSource.GetShardNames(), clusterIndex, clusterName, routingReadyMongotGroups)
 	}
 	return []envoyRoute{buildReplicaSetRouteForCluster(search, clusterIndex, clusterName)}
 }
@@ -473,13 +509,27 @@ func (r *MongoDBSearchEnvoyReconciler) ensureConfigMap(ctx context.Context, sear
 	return nil
 }
 
+// envoyConfigHash hashes whitespace-normalized JSON: protojson output formatting
+// is deliberately randomized per compiled binary, so hashing raw bytes would roll
+// the Deployment on every operator rebuild.
+func envoyConfigHash(configJSON string) (string, error) {
+	var compact bytes.Buffer
+	if err := json.Compact(&compact, []byte(configJSON)); err != nil {
+		return "", fmt.Errorf("failed to compact Envoy config for hashing: %w", err)
+	}
+	return fmt.Sprintf("%x", sha256.Sum256(compact.Bytes())), nil
+}
+
 // ensureDeployment creates or updates the Envoy Deployment.
 // The config hash is computed from bootstrapJSON only — CDS/LDS changes are
 // hot-reloaded by Envoy via filesystem xDS and do not require a pod restart.
 //
 // Cross-cluster ownership note: see ensureConfigMap.
 func (r *MongoDBSearchEnvoyReconciler) ensureDeployment(ctx context.Context, search *searchv1.MongoDBSearch, bootstrapJSON, clusterName string, clusterIndex int, c kubernetesClient.Client, tlsCfg *searchcontroller.TLSSourceConfig, log *zap.SugaredLogger) error {
-	configHash := fmt.Sprintf("%x", sha256.Sum256([]byte(bootstrapJSON)))
+	configHash, err := envoyConfigHash(bootstrapJSON)
+	if err != nil {
+		return err
+	}
 	replicas := envoyReplicas(search)
 	labels := envoyLabelsForCluster(search, clusterName, clusterIndex)
 	podLabels := envoyPodLabelsForCluster(search, clusterIndex)

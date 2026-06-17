@@ -1,9 +1,11 @@
+import json
+import threading
 from typing import Callable
 
 import pymongo.errors
 import yaml
 from kubernetes import client
-from kubetester import create_or_update_configmap, create_or_update_secret
+from kubetester import create_or_update_configmap, create_or_update_secret, list_matching_pods
 from kubetester.certs import create_tls_certs
 from kubetester.kubetester import KubernetesTester, run_periodically
 from kubetester.mongodb import MongoDB
@@ -303,6 +305,263 @@ def verify_sharded_mongod_parameters(
 
     run_periodically(check_mongod_parameters, timeout=300, sleep_time=10, msg="mongod search parameters")
     logger.info("All shards have correct mongod search parameters")
+
+
+def log_shard_distribution(
+    admin_tester: SearchTester,
+    database_name: str,
+    collection_name: str,
+    label: str = "",
+) -> dict[str, int]:
+    """Log and return the per-shard document distribution for a collection.
+
+    Uses ``$collStats`` (one doc per shard); the ``shard`` field is the shard
+    name as registered in the sharded cluster (e.g. ``mdb-sh-routed-2``).
+    """
+    coll = admin_tester.client[database_name][collection_name]
+    stats = list(coll.aggregate([{"$collStats": {"storageStats": {}}}]))
+    per_shard = {s.get("shard") or s.get("host"): s.get("storageStats", {}).get("count", 0) for s in stats}
+    total = sum(per_shard.values())
+    prefix = f"{label} " if label else ""
+    logger.info(f"{prefix}per-shard '{database_name}.{collection_name}' counts: {per_shard} total={total}")
+    return per_shard
+
+
+def set_mongo_log_verbosity(mongo_client, level: int) -> None:
+    """Set a mongod/mongos process COMMAND+NETWORK (and capped QUERY) log verbosity.
+
+    ``level=2`` makes the process emit every command-completion record (regardless of
+    slowOpThresholdMs) plus the gRPC egress-session open/close records — the data the
+    cross-layer log analyzer needs to stitch ``$search`` queries across mongos → shard
+    mongod → envoy → mongot. ``level=0`` restores defaults. Best-effort: logs and
+    swallows errors so it never breaks a test or its teardown.
+    """
+    try:
+        mongo_client.admin.command(
+            "setParameter",
+            1,
+            logComponentVerbosity={
+                "command": {"verbosity": level},
+                "network": {"verbosity": level},
+                "query": {"verbosity": min(level, 1)},
+            },
+        )
+    except Exception as e:
+        logger.info(f"set_mongo_log_verbosity({level}) failed: {type(e).__name__}: {e}")
+
+
+class ShardStatePoller(threading.Thread):
+    """Daemon thread that periodically logs, with wall-clock stamps, the per-shard
+    ``$collStats`` doc distribution and the collection's ``$listSearchIndexes``
+    per-host status. Use it to timestamp data movement and the
+    ``DOES_NOT_EXIST → PENDING/INITIAL_SYNC → READY`` transitions on a mongot index
+    during an onboarding / rebalance window. Start with ``.start()``, end with
+    ``.stop()`` (it is a daemon, so it also dies with the process)::
+
+        poller = ShardStatePoller(admin_tester, "sample_mflix", "movies", interval=2.0)
+        poller.start()
+        ...                      # drive the workload
+        poller.stop()
+    """
+
+    def __init__(
+        self,
+        tester: SearchTester,
+        database: str,
+        collection: str,
+        *,
+        highlight_ids=None,
+        interval: float = 2.0,
+        label: str = "[poll]",
+    ):
+        super().__init__(daemon=True)
+        self._tester = tester
+        self._db = database
+        self._coll = collection
+        self._highlight = set(highlight_ids or ())
+        self._interval = interval
+        self._label = label
+        self._stop = threading.Event()
+
+    def _log_index_status(self) -> None:
+        try:
+            docs = list(
+                self._tester.client[self._db][self._coll].aggregate([{"$listSearchIndexes": {}}], maxTimeMS=10_000)
+            )
+        except Exception as e:
+            logger.info(f"{self._label} $listSearchIndexes error: {type(e).__name__}: {e}")
+            return
+        for d in docs:
+            detail = ", ".join(
+                f"{(sd.get('hostname') or '?')}{'(new)' if sd.get('hostname') in self._highlight else ''}:"
+                f"{sd.get('status')}(q={sd.get('queryable')})"
+                for sd in (d.get("statusDetail") or [])
+            )
+            logger.info(
+                f"{self._label} index '{d.get('name')}' top={d.get('status')} q={d.get('queryable')} | {detail}"
+            )
+
+    def run(self) -> None:
+        while not self._stop.is_set():
+            try:
+                log_shard_distribution(self._tester, self._db, self._coll, label=self._label)
+                self._log_index_status()
+            except Exception as e:
+                logger.info(f"{self._label} poll error: {type(e).__name__}: {e}")
+            self._stop.wait(self._interval)
+
+    def stop(self) -> None:
+        self._stop.set()
+
+
+def get_balancer_status(admin_tester: SearchTester) -> dict:
+    """Return (and log) the sharded-cluster balancer status from mongos."""
+    status = admin_tester.client.admin.command("balancerStatus")
+    logger.info(
+        f"balancer status: mode={status.get('mode')} inBalancerRound={status.get('inBalancerRound')} "
+        f"numBalancerRounds={status.get('numBalancerRounds')}"
+    )
+    return status
+
+
+def ensure_balancer_running(admin_tester: SearchTester) -> None:
+    """Start the balancer if it is not already in 'full' mode.
+
+    A freshly added shard is populated by the balancer migrating chunks onto it.
+    Unlike ``reshardCollection``/``shardAndDistributeCollection``, balancer chunk
+    migrations preserve the collection and its search indexes (mongot resyncs the
+    migrated ranges on the new shard's mongot), so search availability is kept.
+    """
+    status = get_balancer_status(admin_tester)
+    if status.get("mode") != "full":
+        logger.info("balancer is not in 'full' mode — starting it via balancerStart")
+        admin_tester.client.admin.command("balancerStart")
+        get_balancer_status(admin_tester)
+    else:
+        logger.info("balancer already running (mode=full)")
+
+
+def redistribute_chunks_to_new_shard(
+    admin_tester: SearchTester,
+    database_name: str,
+    collection_name: str,
+    new_shard_name: str,
+    *,
+    min_docs: int = 50,
+    timeout: int = 300,
+    sleep_time: int = 10,
+) -> dict[str, int]:
+    """Let the balancer populate a freshly added shard with the collection's data.
+
+    The balancer (6.0+) balances on data size and auto-splits ranges during
+    migration, but a collection counts as balanced while the per-shard data spread
+    is below 3 x chunkSize — with the default 128MB chunkSize that threshold is
+    384MB, far above this suite's dataset, so a new shard would stay at 0 docs
+    forever. Dropping the collection's chunkSize to 1MB (the minimum) lowers the
+    threshold to 3MB and the balancer migrates ~1MB ranges onto the new shard on
+    its own. Unlike ``reshardCollection`` (forceRedistribution), balancer
+    migrations keep the collection and its mongot search index intact — the new
+    shard's mongot resyncs the migrated ranges — so this composes with the
+    search-availability assertions.
+
+    Idempotent: re-applying the chunkSize is a no-op and an already-populated
+    shard satisfies the poll immediately. Returns the final per-shard counts;
+    raises on timeout so a real gap is loud.
+    """
+    ns = f"{database_name}.{collection_name}"
+    client = admin_tester.client
+
+    log_shard_distribution(admin_tester, database_name, collection_name, label="[before rebalance]")
+    client.admin.command("configureCollectionBalancing", ns, chunkSize=1)
+    ensure_balancer_running(admin_tester)
+
+    # Balancer migrations are async; $collStats reflects each migrated range once
+    # it lands (donor orphan cleanup lags, so totals may transiently overcount —
+    # we only gate on the new shard's own count).
+    def populated():
+        per_shard = log_shard_distribution(
+            admin_tester, database_name, collection_name, label=f"[await {new_shard_name}]"
+        )
+        count = per_shard.get(new_shard_name, 0)
+        return count >= min_docs, f"{new_shard_name}={count} docs (need >= {min_docs})"
+
+    run_periodically(
+        populated,
+        timeout=timeout,
+        sleep_time=sleep_time,
+        msg=f"balancer to move >= {min_docs} docs of {ns} onto new shard {new_shard_name}",
+    )
+    final = log_shard_distribution(admin_tester, database_name, collection_name, label="[rebalanced]")
+    logger.info(f"new shard {new_shard_name} now holds {final.get(new_shard_name, 0)} docs of {ns}")
+    return final
+
+
+def routing_ready_groups(namespace: str, mdbs_resource_name: str) -> list[str]:
+    """The one-way routing-readiness latch from the ``<name>-search-state`` ConfigMap.
+    A shard's mongot group is pending iff it is not listed here."""
+    data = KubernetesTester.read_configmap(namespace, f"{mdbs_resource_name}-search-state")
+    return json.loads(data["state"]).get("routingReadyMongotGroups") or []
+
+
+def shard_route_from_lds(namespace: str, mdbs_resource_name: str, shard_name: str) -> tuple[str, dict[str, str]]:
+    """Return ``(target_cluster, request_headers)`` for the shard's Envoy filter
+    chain from the LB config CM's lds.json. A pending shard routes to
+    ``mongot_cluster_level_cluster`` with the routed_from_another_shard header; a
+    latched shard routes to its own ``mongot_<shard>_cluster`` with no header."""
+    sni = search_resource_names.shard_proxy_service_name(mdbs_resource_name, shard_name)
+    lds = json.loads(
+        KubernetesTester.read_configmap(namespace, search_resource_names.lb_configmap_name(mdbs_resource_name))[
+            "lds.json"
+        ]
+    )
+    for listener in lds.get("resources", []):
+        for chain in listener.get("filter_chains", []):
+            server_names = chain.get("filter_chain_match", {}).get("server_names", [])
+            if not any(s.startswith(f"{sni}.") for s in server_names):
+                continue
+            hcm = next(
+                f["typed_config"]
+                for f in chain["filters"]
+                if f["name"] == "envoy.filters.network.http_connection_manager"
+            )
+            route = hcm["route_config"]["virtual_hosts"][0]["routes"][0]
+            headers = {h["header"]["key"]: h["header"]["value"] for h in route.get("request_headers_to_add", [])}
+            return route["route"]["cluster"], headers
+    raise AssertionError(f"no filter chain for shard {shard_name} (SNI {sni}) in lds.json")
+
+
+def wait_for_envoy_loaded_shard_chain(
+    namespace: str, mdbs_resource_name: str, shard_name: str, timeout: int = 300
+) -> None:
+    """Block until every Envoy pod's MOUNTED lds.json contains the shard's filter chain.
+
+    The controller writing the LB ConfigMap is not enough: kubelet propagates the
+    mounted file with up to ~1min lag, and only the mounted file is what Envoy
+    hot-reloads (the filesystem-xDS watch fires within ms of the file swap).
+    Reading the file inside the envoy container is therefore the earliest
+    trustworthy "this proxy can serve the shard's SNI" signal — gate data
+    movement onto a freshly added shard on it."""
+    sni = search_resource_names.shard_proxy_service_name(mdbs_resource_name, shard_name)
+    dep_name = search_resource_names.lb_deployment_name(mdbs_resource_name)
+
+    def chain_mounted():
+        pods = list_matching_pods(namespace, name_prefix=f"{dep_name}-")
+        if not pods:
+            return False, f"no envoy pods with prefix {dep_name}-"
+        for pod in pods:
+            try:
+                content = KubernetesTester.run_command_in_pod_container(
+                    pod.metadata.name, namespace, ["cat", "/etc/envoy/lds.json"], container="envoy"
+                )
+            except Exception as e:
+                return False, f"{pod.metadata.name}: exec failed: {e}"
+            if sni not in content:
+                return False, f"{pod.metadata.name}: mounted lds.json has no chain for SNI {sni}"
+        return True, f"all {len(pods)} envoy pods mounted the {shard_name} chain"
+
+    run_periodically(
+        chain_mounted, timeout=timeout, sleep_time=5, msg=f"envoy pods to mount the {shard_name} filter chain"
+    )
 
 
 def verify_text_search_query(search_tester: SearchTester):

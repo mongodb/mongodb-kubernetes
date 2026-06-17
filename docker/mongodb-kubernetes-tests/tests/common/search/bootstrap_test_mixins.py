@@ -1,5 +1,4 @@
-"""Reusable pytest test-class bases for the managed-LB search bootstrap.
-"""
+"""Reusable pytest test-class bases for the managed-LB search bootstrap."""
 
 from __future__ import annotations
 
@@ -119,6 +118,15 @@ class SearchDeploymentConfig:
     envoy_lb_replicas: int = 2
     mongot_cpu: str = "1"
     mongot_memory: str = "2Gi"
+    mongot_cpu_request: str = "500m"
+
+    def mongot_resource_requirements(self) -> dict:
+        """Per-cluster mongot resourceRequirements. Without this the operator defaults
+        to requests of 2 CPU / 4Gi per mongot pod, which exhausts a kind node."""
+        return {
+            "requests": {"cpu": self.mongot_cpu_request, "memory": self.mongot_memory},
+            "limits": {"cpu": self.mongot_cpu, "memory": self.mongot_memory},
+        }
 
 
 @dataclass
@@ -308,10 +316,18 @@ class SearchDeploymentTests:
     def test_create_search_tls_certificate(self):
         self.create_search_tls_certificate()
 
-    def test_create_search_resource(self):
+    def create_search_resource(self, wait: bool = True) -> MongoDBSearch:
+        """Apply the MongoDBSearch spec. With ``wait`` (default) block until Running;
+        ``wait=False`` returns right after update() so a caller can observe the
+        not-yet-ready window."""
         mdbs = self.build_mdbs()
         mdbs.update()
-        mdbs.assert_reaches_phase(Phase.Running, timeout=self.search_config.create_timeout)
+        if wait:
+            mdbs.assert_reaches_phase(Phase.Running, timeout=self.search_config.create_timeout)
+        return mdbs
+
+    def test_create_search_resource(self):
+        self.create_search_resource()
 
     def test_verify_search_deployment(self):
         self.verify_search_deployment()
@@ -327,7 +343,12 @@ class SearchRsDeploymentTests(SearchDeploymentTests):
     """SC ReplicaSet search deploy. SC = one cluster entry, no clusterName (index 0)."""
 
     def search_clusters(self) -> list:
-        return [{"replicas": self.search_config.mongot_replicas}]
+        return [
+            {
+                "replicas": self.search_config.mongot_replicas,
+                "resourceRequirements": self.search_config.mongot_resource_requirements(),
+            }
+        ]
 
     def build_mdbs(self) -> MongoDBSearch:
         helper = SearchDeploymentHelper(
@@ -414,7 +435,14 @@ class SearchSampleDataAndIndexTests:
         logger.info(f"Tools pod {search_tools_pod.pod_name} is ready")
 
     def test_restore_sample_database(self, namespace: str, search_tools_pod: mongodb_tools_pod.ToolsPod):
-        self.admin_tester(namespace).mongorestore_from_url(
+        # mongorestore --drop recreates the collection (new UUID) and orphans mongot's
+        # search index, so skip the restore when the sample data is already present.
+        db, coll = self.sample_config.sample_database, self.sample_config.sample_collection
+        tester = self.admin_tester(namespace)
+        if tester.client[db][coll].count_documents({"synthetic": {"$ne": True}}, limit=1) > 0:
+            logger.info(f"sample data already present in {db}.{coll}; skipping mongorestore")
+            return
+        tester.mongorestore_from_url(
             archive_url="https://atlas-education.s3.amazonaws.com/sample_mflix.archive",
             ns_include=f"{self.sample_config.sample_database}.*",
             tools_pod=search_tools_pod,
@@ -436,10 +464,14 @@ class SearchSampleDataAndIndexTests:
 
     def test_create_search_index(self, namespace: str):
         tester = self.user_tester(namespace)
-        tester.create_search_index(self.sample_config.sample_database, self.sample_config.sample_collection)
-        tester.wait_for_search_indexes_ready(
-            self.sample_config.sample_database, self.sample_config.sample_collection, timeout=300
-        )
+        db, coll = self.sample_config.sample_database, self.sample_config.sample_collection
+        name = self.sample_config.search_index_name
+        existing = {i.get("name") for i in tester.client[db][coll].aggregate([{"$listSearchIndexes": {}}])}
+        if name in existing:
+            logger.info(f"search index {name!r} already exists on {db}.{coll}; skipping create")
+        else:
+            tester.create_search_index(db, coll)
+        tester.wait_for_search_indexes_ready(db, coll, timeout=300)
 
     def test_smoke_search_query_succeeds(self, namespace: str):
         tester = self.user_tester(namespace)
@@ -499,7 +531,12 @@ class SearchShardedDeploymentTests(SearchDeploymentTests):
     """SC sharded search deploy with explicit per-(cluster,shard) mongotHost wiring."""
 
     def search_clusters(self) -> list:
-        return [{"replicas": self.search_config.mongot_replicas}]
+        return [
+            {
+                "replicas": self.search_config.mongot_replicas,
+                "resourceRequirements": self.search_config.mongot_resource_requirements(),
+            }
+        ]
 
     def cluster_indexes(self) -> List[int]:
         return [0]
@@ -542,8 +579,9 @@ class SearchShardedDeploymentTests(SearchDeploymentTests):
         api_client = self.search_api_client()
         if api_client is not None:
             resource.api = kubernetes.client.CustomObjectsApi(api_client)
-        if try_load(resource):
-            return resource
+        # Load if it exists so update() patches in place, but always rebuild the spec so a
+        # grown shard_count (e.g. after adding a shard) is reflected.
+        try_load(resource)
         resource["spec"]["source"] = {
             "username": self.mdb_config.mongot_user_name,
             "passwordSecretRef": {

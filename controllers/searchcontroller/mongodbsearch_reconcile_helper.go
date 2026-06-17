@@ -6,10 +6,12 @@ import (
 	"encoding/base32"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/Masterminds/semver/v3"
 	"github.com/ghodss/yaml"
+	"github.com/hashicorp/go-multierror"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/fields"
@@ -85,29 +87,33 @@ type MongoDBSearchReconcileHelper struct {
 	// spec.clusters[i].clusterName. Empty in single-cluster installs.
 	memberClusterClients map[string]kubernetesClient.Client
 
-	// clusterMapping is the persisted clusterName → clusterIndex assignment from
-	// the search state ConfigMap. Per-cluster resource names use these indexes
-	// so spec.clusters[] reorders don't rename resources.
-	clusterMapping map[string]int
+	// state is the per-CR persisted state from the search state ConfigMap:
+	// the clusterName → clusterIndex mapping (per-cluster resource names use
+	// these indexes so spec.clusters[] reorders don't rename resources) and the
+	// routing-ready switch. Refreshed after every successful switch write.
+	state *SearchDeploymentState
 }
 
-// NewMongoDBSearchReconcileHelper constructs a reconcile helper. Pass nil/nil for memberClusterClients
-// and clusterMapping on single-cluster installs.
+// NewMongoDBSearchReconcileHelper constructs a reconcile helper. Pass nil for
+// memberClusterClients on single-cluster installs; nil state is treated as fresh.
 func NewMongoDBSearchReconcileHelper(
 	client kubernetesClient.Client,
 	mdbSearch *searchv1.MongoDBSearch,
 	db SearchSourceDBResource,
 	operatorSearchConfig OperatorSearchConfig,
 	memberClusterClients map[string]kubernetesClient.Client,
-	clusterMapping map[string]int,
+	state *SearchDeploymentState,
 ) *MongoDBSearchReconcileHelper {
+	if state == nil {
+		state = NewSearchDeploymentState()
+	}
 	return &MongoDBSearchReconcileHelper{
 		client:               client,
 		operatorSearchConfig: operatorSearchConfig,
 		mdbSearch:            mdbSearch,
 		db:                   db,
 		memberClusterClients: memberClusterClients,
-		clusterMapping:       clusterMapping,
+		state:                state,
 	}
 }
 
@@ -171,6 +177,7 @@ type reconcileUnit struct {
 	mongotConfigFn      mongot.Modification
 	clusterName         string // "" routes to the central client (single-cluster)
 	clusterIndex        int
+	shardName           string // shard name for sharded topologies; "" for RS
 }
 
 // SearchSourceReplicaSet is the subset of SearchSourceDBResource the RS plan
@@ -275,7 +282,7 @@ func (r *MongoDBSearchReconcileHelper) buildRSWorkList() []rsWorkItem {
 	clusters := r.mdbSearch.Spec.Clusters
 	work := make([]rsWorkItem, 0, len(clusters))
 	for _, c := range clusters {
-		work = append(work, rsWorkItem{ClusterName: c.ClusterName, ClusterIndex: r.clusterMapping[c.ClusterName]})
+		work = append(work, rsWorkItem{ClusterName: c.ClusterName, ClusterIndex: r.state.ClusterMapping[c.ClusterName]})
 	}
 	return work
 }
@@ -367,6 +374,7 @@ func (r *MongoDBSearchReconcileHelper) buildShardedPlan(shardedSource SearchSour
 			mongotConfigFn:      mongotConfigFn,
 			clusterName:         w.ClusterName,
 			clusterIndex:        w.ClusterIndex,
+			shardName:           w.ShardName,
 		})
 
 		if !seenClusters[w.ClusterIndex] {
@@ -390,6 +398,11 @@ func (r *MongoDBSearchReconcileHelper) buildShardedPlan(shardedSource SearchSour
 		cleanup: func(ctx context.Context, log *zap.SugaredLogger) {
 			if err := r.cleanupStaleShardResources(ctx, log, shardNames); err != nil {
 				log.Warnf("Failed to cleanup stale shard resources: %s", err)
+			}
+			if r.mdbSearch.IsLBModeManaged() {
+				if err := r.pruneRoutingReady(ctx, shardNames); err != nil {
+					log.Warnf("Failed to prune routing-ready switch entries: %s", err)
+				}
 			}
 		},
 	}
@@ -545,6 +558,20 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 
 	plan.cleanup(ctx, log)
 
+	// Mark routing-ready shards across ALL units (a one-way switch persisted in the
+	// state CM) before the worst-of readiness return: one not-ready or failing unit
+	// must not block the others, so per-unit errors are aggregated instead of
+	// failing fast.
+	var switchErrs error
+	for _, res := range applied {
+		if err := r.markRoutingReadyIfThresholdMet(ctx, log, res.unit, res.unitClient); err != nil {
+			switchErrs = multierror.Append(switchErrs, err)
+		}
+	}
+	if switchErrs != nil {
+		return workflow.Failed(switchErrs)
+	}
+
 	// Worst-of readiness check — first non-OK status wins.
 	for _, res := range applied {
 		if statefulSetStatus := statefulset.GetStatefulSetStatus(ctx, r.mdbSearch.Namespace, res.unit.stsName.Name, res.expectedGeneration, res.unitClient); !statefulSetStatus.IsOK() {
@@ -663,6 +690,10 @@ func (r *MongoDBSearchReconcileHelper) applyReconcileUnit(
 	if err != nil {
 		return nil, nil, err
 	}
+	stsOverride, err := StatefulSetOverrideModification(r.mdbSearch, unit.clusterName)
+	if err != nil {
+		return nil, nil, err
+	}
 	mutatedSts, err := r.createOrUpdateStatefulSet(ctx,
 		log,
 		unitClient,
@@ -676,12 +707,82 @@ func (r *MongoDBSearchReconcileHelper) applyReconcileUnit(
 		mods.egressTlsSts,
 		mods.x509Sts,
 		mods.embeddingConfigSts,
+		stsOverride, // must be last: see StatefulSetOverrideModification
 	)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	return mutatedSts, unitClient, nil
+}
+
+// markRoutingReadyIfThresholdMet flips a shard's routing-ready switch once its
+// mongot STS first meets the routing-readiness threshold. The switch is one-way:
+// a later STS delete/recreate does not put the shard back into fallback routing.
+func (r *MongoDBSearchReconcileHelper) markRoutingReadyIfThresholdMet(ctx context.Context, log *zap.SugaredLogger, unit reconcileUnit, unitClient kubernetesClient.Client) error {
+	if unit.shardName == "" || !r.mdbSearch.IsLBModeManaged() || slices.Contains(r.state.RoutingReadyMongotGroups, unit.shardName) {
+		return nil
+	}
+
+	sts, err := unitClient.GetStatefulSet(ctx, unit.stsName)
+	if err != nil {
+		// Just-created STS not yet in the informer cache: not ready to flip the
+		// switch this pass, but not a failure — re-evaluated every reconcile.
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		return err
+	}
+
+	minReady := r.mdbSearch.GetMinMongotReadyReplicasForRouting()
+	if sts.Status.ReadyReplicas < minReady {
+		return nil
+	}
+	if err := r.markRoutingReady(ctx, unit.shardName); err != nil {
+		return err
+	}
+	log.Infof("Marked shard %q routing-ready: %d of %d replicas ready, min required %d",
+		unit.shardName, sts.Status.ReadyReplicas, ptr.Deref(sts.Spec.Replicas, 1), minReady)
+	return nil
+}
+
+// markRoutingReady appends the shard to the routing-ready switch in the state
+// ConfigMap. Only the switch slice is refreshed from the write's result — the
+// ClusterMapping snapshot loaded at reconcile start stays authoritative for
+// resource naming within this reconcile.
+func (r *MongoDBSearchReconcileHelper) markRoutingReady(ctx context.Context, shardName string) error {
+	state, err := MutateSearchState(ctx, r.client, r.mdbSearch, func(s *SearchDeploymentState) bool {
+		if slices.Contains(s.RoutingReadyMongotGroups, shardName) {
+			return false
+		}
+		s.RoutingReadyMongotGroups = append(s.RoutingReadyMongotGroups, shardName)
+		return true
+	})
+	if err != nil {
+		return err
+	}
+	r.state.RoutingReadyMongotGroups = state.RoutingReadyMongotGroups
+	return nil
+}
+
+// pruneRoutingReady drops switch entries for shards that no longer exist; live
+// shards are never removed (the switch is one-way).
+func (r *MongoDBSearchReconcileHelper) pruneRoutingReady(ctx context.Context, liveShardNames []string) error {
+	state, err := MutateSearchState(ctx, r.client, r.mdbSearch, func(s *SearchDeploymentState) bool {
+		pruned := slices.DeleteFunc(slices.Clone(s.RoutingReadyMongotGroups), func(name string) bool {
+			return !slices.Contains(liveShardNames, name)
+		})
+		if len(pruned) == len(s.RoutingReadyMongotGroups) {
+			return false
+		}
+		s.RoutingReadyMongotGroups = pruned
+		return true
+	})
+	if err != nil {
+		return err
+	}
+	r.state.RoutingReadyMongotGroups = state.RoutingReadyMongotGroups
+	return nil
 }
 
 // isOwnedBy returns true if the object has an owner reference pointing to the given owner.
