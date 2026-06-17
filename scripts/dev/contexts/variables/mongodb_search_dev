@@ -2,7 +2,7 @@
 
 set -Eeou pipefail
 
-# Temporary development images built from mongot master
-export MDB_SEARCH_VERSION="7df8689e40" # built on commit 7df8689e40
-export MDB_SEARCH_NAME="dev/mongot-community"
+# Temporary development image — bazel build from mongot master (not a rapid-release)
+export MDB_SEARCH_VERSION="72ae26a806"
+export MDB_SEARCH_NAME="staging/mongodb-search"
 export MDB_SEARCH_REPO_URL="268558157000.dkr.ecr.us-east-1.amazonaws.com"

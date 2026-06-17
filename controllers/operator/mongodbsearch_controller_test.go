@@ -488,13 +488,13 @@ func setupStateCMTest(t *testing.T, clusters ...searchv1.ClusterSpec) (*MongoDBS
 	return reconciler, c, search
 }
 
-func reconcileAndGetState(t *testing.T, ctx context.Context, r *MongoDBSearchReconciler, c client.Client, name string) (*corev1.ConfigMap, SearchDeploymentState) {
+func reconcileAndGetState(t *testing.T, ctx context.Context, r *MongoDBSearchReconciler, c client.Client, name string) (*corev1.ConfigMap, searchcontroller.SearchDeploymentState) {
 	t.Helper()
 	_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: name, Namespace: mock.TestNamespace}})
 	require.NoError(t, err)
 	stateCM := &corev1.ConfigMap{}
-	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: name + "-state", Namespace: mock.TestNamespace}, stateCM))
-	var state SearchDeploymentState
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: name + "-search-state", Namespace: mock.TestNamespace}, stateCM))
+	var state searchcontroller.SearchDeploymentState
 	require.NoError(t, decodeStateJSON(stateCM, &state))
 	return stateCM, state
 }
@@ -551,13 +551,13 @@ func TestMongoDBSearchControllerReconcile_StateConfigMap(t *testing.T) {
 	t.Run("operator_restart_preserves_mapping", func(t *testing.T) {
 		reconciler, c, search := setupStateCMTest(t, pinnedCluster("us-east", 0), pinnedCluster("us-west", 1))
 		// Pre-seed a state CM as if a previous operator instance had written it.
-		stateJSON, err := json.Marshal(SearchDeploymentState{
-			CommonDeploymentState: CommonDeploymentState{ClusterMapping: map[string]int{"us-east": 0, "us-west": 1}},
+		stateJSON, err := json.Marshal(searchcontroller.SearchDeploymentState{
+			ClusterMapping: map[string]int{"us-east": 0, "us-west": 1},
 		})
 		require.NoError(t, err)
 		require.NoError(t, c.Create(ctx, &corev1.ConfigMap{
-			ObjectMeta: metav1.ObjectMeta{Name: "mysearch-state", Namespace: mock.TestNamespace},
-			Data:       map[string]string{stateKey: string(stateJSON)},
+			ObjectMeta: metav1.ObjectMeta{Name: "mysearch-search-state", Namespace: mock.TestNamespace},
+			Data:       map[string]string{"state": string(stateJSON)},
 		}))
 		_, state := reconcileAndGetState(t, ctx, reconciler, c, search.Name)
 		assert.Equal(t, map[string]int{"us-east": 0, "us-west": 1}, state.ClusterMapping, "existing mapping must be preserved across operator restart")
@@ -613,8 +613,8 @@ func TestMongoDBSearchReconcile_Success_MultiCluster(t *testing.T) {
 	// State CM lives on the central client and records the mapping the helper
 	// fanned out over.
 	stateCM := &corev1.ConfigMap{}
-	require.NoError(t, centralClient.Get(ctx, types.NamespacedName{Name: "mdb-search-state", Namespace: mock.TestNamespace}, stateCM))
-	var state SearchDeploymentState
+	require.NoError(t, centralClient.Get(ctx, types.NamespacedName{Name: "mdb-search-search-state", Namespace: mock.TestNamespace}, stateCM))
+	var state searchcontroller.SearchDeploymentState
 	require.NoError(t, decodeStateJSON(stateCM, &state))
 	require.Equal(t, map[string]int{"us-east": 0, "us-west": 1}, state.ClusterMapping)
 
@@ -719,9 +719,9 @@ func driveSearchReconcileToRunning(
 func readSimulatedMCStateMapping(ctx context.Context, t *testing.T, c client.Client, search *searchv1.MongoDBSearch) map[string]int {
 	t.Helper()
 	stateCM := &corev1.ConfigMap{}
-	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: search.Name + "-state", Namespace: search.Namespace}, stateCM),
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: search.Name + "-search-state", Namespace: search.Namespace}, stateCM),
 		"state ConfigMap must exist in simulated-MC mode")
-	var state SearchDeploymentState
+	var state searchcontroller.SearchDeploymentState
 	require.NoError(t, decodeStateJSON(stateCM, &state))
 	return state.ClusterMapping
 }
@@ -851,7 +851,7 @@ func TestReconcile_SimulatedMC_NoMatchSilentNoOp(t *testing.T) {
 	// State ConfigMap must not be created.
 	stateCM := &corev1.ConfigMap{}
 	assert.True(t, apiErrors.IsNotFound(
-		c.Get(ctx, types.NamespacedName{Name: search.Name + "-state", Namespace: search.Namespace}, stateCM)),
+		c.Get(ctx, types.NamespacedName{Name: search.Name + "-search-state", Namespace: search.Namespace}, stateCM)),
 		"state ConfigMap must not be created in no-match path")
 
 	// Status must NOT have been mutated — Phase remains the zero value.
@@ -1024,7 +1024,7 @@ func TestReconcile_SimulatedMC_ShardedSource_NoMatchSilentNoOp(t *testing.T) {
 
 	stateCM := &corev1.ConfigMap{}
 	assert.True(t, apiErrors.IsNotFound(
-		c.Get(ctx, types.NamespacedName{Name: search.Name + "-state", Namespace: search.Namespace}, stateCM)),
+		c.Get(ctx, types.NamespacedName{Name: search.Name + "-search-state", Namespace: search.Namespace}, stateCM)),
 		"state ConfigMap must not be created in sharded no-match path")
 
 	// Status must NOT have been mutated — Phase remains the zero value.
@@ -1105,7 +1105,7 @@ func TestReconcile_SimulatedMC_ClusterIndexEnforcement(t *testing.T) {
 }
 
 // resolveClusterMapping failure (state WriteState rejected) must surface
-// Phase=Failed with the "failed to resolve cluster mapping" message and return
+// Phase=Failed with the "failed to update cluster index mapping" message and return
 // before getSourceMongoDBForSearch — no per-cluster resources are created.
 func TestMongoDBSearchReconcile_ResolveClusterMappingFailure_Failed(t *testing.T) {
 	ctx := context.Background()
@@ -1133,7 +1133,7 @@ func TestMongoDBSearchReconcile_ResolveClusterMappingFailure_Failed(t *testing.T
 	require.NoError(t, base.Get(ctx, req.NamespacedName, got))
 	assert.Equal(t, status.PhaseFailed, got.Status.Phase)
 	// workflow.Failed capitalizes the first char, so match on the stable substring.
-	assert.Contains(t, got.Status.Message, "resolve cluster mapping")
+	assert.Contains(t, got.Status.Message, "cluster index mapping")
 
 	// Returned before any per-cluster resource fan-out.
 	sts := &appsv1.StatefulSet{}

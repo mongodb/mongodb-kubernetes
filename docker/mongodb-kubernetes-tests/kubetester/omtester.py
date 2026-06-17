@@ -438,12 +438,26 @@ class OMTester(object):
                 logger.error(message)
                 # Include the response body in the exception message so callers
                 # can inspect it (e.g. PIT restore helpers looking for 409/invalid restore point)
-                # and implement their own retry/timeout logic.
-                raise Exception(message)
+                # and implement their own retry/timeout logic. HTTPError carries the
+                # response so callers can check e.response.status_code directly.
+                raise requests.HTTPError(message, response=response)
             return response
 
     def get_feature_controls(self):
         return self.om_request("get", f"/groups/{self.context.project_id}/controlledFeature").json()
+
+    def clear_feature_controls(self) -> None:
+        """Reset controlledFeature to no policies so a direct automationConfig PUT is
+        accepted past the operator's EXTERNALLY_MANAGED_LOCK. The operator re-asserts
+        the lock on its next reconcile, so this only opens a window for the
+        immediately-following PUT.
+        """
+        self.om_request(
+            "put",
+            f"/groups/{self.context.project_id}/controlledFeature",
+            json_object={"externalManagementSystem": {"name": "mongodb-kubernetes-operator"}, "policies": []},
+        )
+        logger.info("cleared controlledFeature policies (EXTERNALLY_MANAGED_LOCK) before direct automationConfig PUT")
 
     def find_group_id(self):
         """
