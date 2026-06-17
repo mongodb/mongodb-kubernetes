@@ -39,6 +39,7 @@ class SearchAvailabilityBackgroundTester(threading.Thread):
         paging_batch_size: int = 5,
         paging_reset_every: Optional[int] = None,
         interval_seconds: float = 0.0,
+        query_timeout_ms: Optional[int] = 15_000,
     ) -> None:
         super().__init__()
         self.daemon = True
@@ -57,6 +58,8 @@ class SearchAvailabilityBackgroundTester(threading.Thread):
         # before a fault so the cursor doesn't drain mongod's buffer faster than
         # the pod terminates).
         self.interval_seconds = interval_seconds
+        # Bound each $search so a wedged shard is counted as a failed probe, not a hang.
+        self.query_timeout_ms = query_timeout_ms
         self._results: list[QueryResult] = []
         self._results_lock = threading.Lock()
         self._cursor = None
@@ -160,7 +163,7 @@ class SearchAvailabilityBackgroundTester(threading.Thread):
 
     def _run_one_iteration(self) -> QueryResult:
         if self.mode == "oneshot":
-            return self.tool.oneshot_search(cache_buster=True)
+            return self.tool.oneshot_search(cache_buster=True, timeout_ms=self.query_timeout_ms)
         return self._read_one_page()
 
     def _read_one_page(self) -> QueryResult:

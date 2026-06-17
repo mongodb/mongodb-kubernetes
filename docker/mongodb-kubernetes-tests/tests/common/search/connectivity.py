@@ -26,6 +26,18 @@ logger = test_logger.get_test_logger(__name__)
 
 FAILURE_CURSOR_LOST = "cursor_lost"
 FAILURE_TRANSIENT_NETWORK = "transient_network"
+# mongot was reached but rejected the query because the index isn't servable
+# (INITIAL_SYNC / NOT_STARTED / UNKNOWN / FAILED). This is the bad onboarding
+# mode: a Ready-latched mongot serving a still-syncing range. We must never see
+# it — the only acceptable onboarding gap is "no mongot reachable at all".
+FAILURE_INDEX_UNAVAILABLE = "index_unavailable"
+# mongod has no mongotHost on the shard at all (search not enabled there).
+FAILURE_SEARCH_NOT_ENABLED = "search_not_enabled"
+# The $search fan-out stalled to MaxTimeMSExpired: mongotHost set but nothing
+# answers (e.g. Envoy not deployed yet) — or, indistinguishably at this layer, a
+# reachable mongot that stalls instead of rejecting. Treated as a clean gap;
+# only an explicit index-state rejection proves the bad Ready-while-syncing mode.
+FAILURE_MONGOT_UNREACHABLE = "mongot_unreachable"
 FAILURE_OTHER = "other"
 
 _CURSOR_LOST_MESSAGE_RE = re.compile(
@@ -34,6 +46,13 @@ _CURSOR_LOST_MESSAGE_RE = re.compile(
 )
 _TRANSIENT_NETWORK_MESSAGE_RE = re.compile(
     r"no healthy upstream|connection refused|connection reset|broken pipe",
+    re.IGNORECASE,
+)
+# mongot index-state rejection from LuceneSearchIndex.throwIfUnavailableForQuerying.
+# Generic "while in state <X>": queries only ever get this for unservable states,
+# so match any state token — a rewording/new state must not slip past the tripwire.
+_INDEX_UNAVAILABLE_MESSAGE_RE = re.compile(
+    r"while in state \w+|INITIAL_SYNC",
     re.IGNORECASE,
 )
 _TRANSIENT_NETWORK_CLASSES = frozenset(
@@ -47,19 +66,34 @@ _TRANSIENT_NETWORK_CLASSES = frozenset(
 
 
 def classify_failure(error_class: str, error_code: Optional[int], error_message: str) -> str:
-    """Map ``(class, code, message)`` to one of cursor_lost / transient_network / other.
+    """Map ``(class, code, message)`` to a failure class.
 
-    cursor_lost takes precedence: "Remote error from mongot" during a pod
-    restart is unrecoverable on the same cursor even if mongot comes back.
+    Precedence: explicit cursor-loss (code 43) first, then the index_unavailable
+    tripwire, then the cursor-lost message heuristic — so a mongot index-state
+    rejection is never misfiled under cursor_lost or transient_network.
     """
+    msg = error_message or ""
     if error_class == "CursorNotFound" or error_code == 43:
         return FAILURE_CURSOR_LOST
-    if _CURSOR_LOST_MESSAGE_RE.search(error_message or ""):
+    # Tripwire first: mongod may wrap a mongot rejection as "remote error from
+    # mongot :: ... while in state INITIAL_SYNC" — that must never land in
+    # cursor_lost and bypass the index_unavailable==0 invariant.
+    if _INDEX_UNAVAILABLE_MESSAGE_RE.search(msg):
+        return FAILURE_INDEX_UNAVAILABLE
+    if _CURSOR_LOST_MESSAGE_RE.search(msg):
         return FAILURE_CURSOR_LOST
+    # SearchNotEnabled (31082): the shard's mongod has no mongotHost.
+    if error_code == 31082:
+        return FAILURE_SEARCH_NOT_ENABLED
     if error_class in _TRANSIENT_NETWORK_CLASSES:
         return FAILURE_TRANSIENT_NETWORK
-    if error_class == "OperationFailure" and _TRANSIENT_NETWORK_MESSAGE_RE.search(error_message or ""):
+    if error_class == "OperationFailure" and _TRANSIENT_NETWORK_MESSAGE_RE.search(msg):
         return FAILURE_TRANSIENT_NETWORK
+    # MaxTimeMSExpired (50): the fan-out stalled because the shard's mongotHost
+    # has nothing answering (Envoy proxy not yet deployed). Checked after
+    # index_unavailable so a real INITIAL_SYNC rejection is never masked.
+    if error_code == 50:
+        return FAILURE_MONGOT_UNREACHABLE
     return FAILURE_OTHER
 
 
@@ -103,6 +137,9 @@ class ConnectivityVerdict:
     failed: int = 0
     cursor_lost: int = 0
     transient_network: int = 0
+    index_unavailable: int = 0
+    search_not_enabled: int = 0
+    mongot_unreachable: int = 0
     other_failed: int = 0
     # Cumulative records returned by the tool across the whole session, summed
     # over every cursor roll.
@@ -125,6 +162,9 @@ class ConnectivityVerdict:
             "failed": self.failed,
             "cursor_lost": self.cursor_lost,
             "transient_network": self.transient_network,
+            "index_unavailable": self.index_unavailable,
+            "search_not_enabled": self.search_not_enabled,
+            "mongot_unreachable": self.mongot_unreachable,
             "other_failed": self.other_failed,
             "total_returned_records": self.total_returned_records,
             "cursor_reopens": self.cursor_reopens,
@@ -407,6 +447,12 @@ class SearchConnectivityTool:
                     v.cursor_lost += 1
                 elif r.failure_class == FAILURE_TRANSIENT_NETWORK:
                     v.transient_network += 1
+                elif r.failure_class == FAILURE_INDEX_UNAVAILABLE:
+                    v.index_unavailable += 1
+                elif r.failure_class == FAILURE_SEARCH_NOT_ENABLED:
+                    v.search_not_enabled += 1
+                elif r.failure_class == FAILURE_MONGOT_UNREACHABLE:
+                    v.mongot_unreachable += 1
                 else:
                     v.other_failed += 1
                 klass = r.error_class or "Unknown"
@@ -537,10 +583,9 @@ def set_resource_disabled_annotation(mdbs, disabled: bool) -> None:
     mdbs.load()
     metadata = mdbs["metadata"]
     annotations = metadata.get("annotations") or {}
-    if disabled:
-        annotations[DISABLE_RECONCILIATION_ANNOTATION] = "true"
-    else:
-        annotations.pop(DISABLE_RECONCILIATION_ANNOTATION, None)
+    # update() is a JSON merge patch: deleting a key requires an explicit None
+    # (popping it is a no-op and would leave reconciliation disabled forever).
+    annotations[DISABLE_RECONCILIATION_ANNOTATION] = "true" if disabled else None
     metadata["annotations"] = annotations
     mdbs["metadata"] = metadata
     mdbs.update()
@@ -548,7 +593,10 @@ def set_resource_disabled_annotation(mdbs, disabled: bool) -> None:
 
 
 def patch_mongot_readiness_probe_to_false(namespace: str, sts_name: str, container_name: str = "mongot") -> None:
-    """Patch ``container_name``'s readiness probe to ``/bin/false``."""
+    """Patch ``container_name``'s readiness probe to ``/bin/false`` on the STS pod
+    TEMPLATE. A template patch ROLLS an already-running pod (the process restarts);
+    the replacement pod runs with the failing probe and never reports Ready. Wait
+    for the rolled pod to be Running-but-not-ready before relying on the hold."""
     patch = {
         "spec": {
             "template": {
@@ -576,10 +624,27 @@ def patch_mongot_readiness_probe_to_false(namespace: str, sts_name: str, contain
     logger.info(f"patched {sts_name} container={container_name} readinessProbe -> /bin/false")
 
 
+def mongot_readiness_is_forced_false(namespace: str, sts_name: str, container_name: str = "mongot") -> bool:
+    """True iff ``container_name``'s readiness probe on the STS template is the
+    forced-fail ``/bin/false`` exec from patch_mongot_readiness_probe_to_false.
+    Lets callers detect a reconcile that reverted the patch and re-apply it."""
+    sts = client.AppsV1Api().read_namespaced_stateful_set(sts_name, namespace)
+    for c in sts.spec.template.spec.containers:
+        if c.name == container_name:
+            probe = c.readiness_probe
+            return bool(probe and probe._exec and probe._exec.command == ["/bin/false"])
+    return False
+
+
 def restore_mongot_readiness_probe(namespace: str, sts_name: str, container_name: str = "mongot") -> None:
-    """Clear the test-injected readiness probe override."""
+    """Clear the test readiness-probe override and delete the pod so it picks up the
+    change — a probe-only template edit doesn't roll a stuck not-ready pod."""
     patch = {"spec": {"template": {"spec": {"containers": [{"name": container_name, "readinessProbe": None}]}}}}
     client.AppsV1Api().patch_namespaced_stateful_set(name=sts_name, namespace=namespace, body=patch)
+    core = client.CoreV1Api()
+    for pod in list_matching_pods(namespace, name_prefix=sts_name):
+        core.delete_namespaced_pod(pod.metadata.name, namespace)
+        logger.info(f"deleted pod {pod.metadata.name} to roll the restored readiness probe")
     logger.info(f"cleared {sts_name} container={container_name} readinessProbe override")
 
 
@@ -698,6 +763,44 @@ def scale_mongot_statefulset(
     logger.info(f"scaled mongot StatefulSet {sts_name} -> replicas={replicas}")
 
 
+def delete_mongot_pvcs(
+    namespace: str,
+    sts_name: str,
+    *,
+    api_client: Optional[client.ApiClient] = None,
+) -> list[str]:
+    """Delete the PVCs backing a mongot StatefulSet so a recreated mongot starts
+    on a clean volume.
+
+    A reused volume carries the old index catalog; on restart mongot can latch its
+    one-way ``/ready`` state on stale indexes (or loop initial-sync on a dead
+    collectionUUID). Call this only when the STS is gone or scaled to 0 — otherwise
+    the STS controller immediately recreates the claim. PVCs from a
+    volumeClaimTemplate are named ``<template>-<sts>-<ordinal>``, so we match on the
+    ``-<sts>-`` infix. Returns the deleted PVC names; missing PVCs are a no-op.
+    """
+    # Enforce the docstring's precondition: a live STS instantly recreates/holds claims.
+    try:
+        sts = client.AppsV1Api(api_client=api_client).read_namespaced_stateful_set(sts_name, namespace)
+        desired = (sts.spec.replicas if sts.spec else 0) or 0
+        if desired > 0:
+            raise AssertionError(f"delete_mongot_pvcs called while STS {sts_name} has replicas={desired}")
+    except client.exceptions.ApiException as exc:
+        if exc.status != 404:
+            raise
+    core = client.CoreV1Api(api_client=api_client)
+    pvcs = core.list_namespaced_persistent_volume_claim(namespace).items
+    deleted: list[str] = []
+    for pvc in pvcs:
+        if f"-{sts_name}-" in f"-{pvc.metadata.name}":
+            core.delete_namespaced_persistent_volume_claim(pvc.metadata.name, namespace)
+            deleted.append(pvc.metadata.name)
+            logger.info(f"deleted PVC {pvc.metadata.name} for mongot STS {sts_name}")
+    if not deleted:
+        logger.info(f"no PVCs matched mongot STS {sts_name} in ns {namespace}")
+    return deleted
+
+
 def wait_for_mongot_statefulset_drained(
     sts_name: str,
     namespace: str,
@@ -778,3 +881,43 @@ def assert_disruption_observed(
         raise AssertionError(
             f"{ctx}no disruption observed: cursor_lost=0 transient_network=0; verdict={verdict.as_dict()}"
         )
+
+
+def assert_no_index_unavailable(verdict: "ConnectivityVerdict", context: str = "") -> None:
+    """Fail if any probe got a mongot index-state rejection (INITIAL_SYNC etc.).
+
+    That would mean a Ready-latched mongot served a still-syncing range — the
+    onboarding mode the operator can't yet route around. The only acceptable
+    onboarding-gap failure is "no mongot reachable" (transient_network /
+    search_not_enabled), never this.
+    """
+    ctx = f"[{context}] " if context else ""
+    if verdict.index_unavailable > 0:
+        raise AssertionError(
+            f"{ctx}{verdict.index_unavailable} probe(s) hit a mongot index-state rejection "
+            f"(INITIAL_SYNC/NOT_STARTED) instead of a clean no-upstream gap; verdict={verdict.as_dict()}"
+        )
+
+
+def assert_clean_no_mongot_gap(verdict: "ConnectivityVerdict", context: str = "") -> None:
+    """Assert the onboarding gap is the clean "no mongot reachable" failure.
+
+    The contract: at least one probe failed with the clean no-mongot signal
+    (transient_network "no healthy upstream", search_not_enabled "mongotHost
+    absent", or mongot_unreachable "mongotHost set but nothing answers"), and
+    *no* probe got a mongot index-state rejection. Incidental ``other`` failures
+    are tolerated but logged — the hard invariants are "saw the clean gap" and
+    "never saw INITIAL_SYNC".
+    """
+    ctx = f"[{context}] " if context else ""
+    if verdict.failed == 0:
+        raise AssertionError(f"{ctx}expected the onboarding gap to fail some probes; verdict={verdict.as_dict()}")
+    assert_no_index_unavailable(verdict, context)
+    clean = verdict.transient_network + verdict.search_not_enabled + verdict.mongot_unreachable
+    if clean == 0:
+        raise AssertionError(
+            f"{ctx}gap failed but with no clean no-mongot signal "
+            f"(transient_network/search_not_enabled/mongot_unreachable all 0); verdict={verdict.as_dict()}"
+        )
+    if clean < verdict.failed:
+        logger.warning(f"{ctx}{verdict.failed - clean} incidental non-gap failure(s); verdict={verdict.as_dict()}")
