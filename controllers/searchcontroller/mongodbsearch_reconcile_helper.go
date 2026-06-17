@@ -681,6 +681,11 @@ const (
 	appLabelKey           = "app"
 	shardLabelKey         = "shard"
 	proxyServiceComponent = "search-proxy"
+
+	nameLabelKey       = "app.kubernetes.io/name"
+	managedByLabelKey  = "app.kubernetes.io/managed-by"
+	voyageAILabelValue = "voyageai"
+	operatorLabelValue = "mongodb-kubernetes-operator"
 )
 
 // buildHeadlessService builds a headless Service for a reconcile unit. All topology-specific
@@ -916,8 +921,8 @@ func (r *MongoDBSearchReconcileHelper) isInternalVoyageAIEndpoint(ctx context.Co
 		return false, xerrors.Errorf("failed to resolve embedding provider Service %s/%s: %w", svcNamespace, svcName, err)
 	}
 
-	return svc.Labels["app.kubernetes.io/name"] == "voyageai" &&
-		svc.Labels["app.kubernetes.io/managed-by"] == "mongodb-kubernetes-operator", nil
+	return svc.Labels[nameLabelKey] == voyageAILabelValue &&
+		svc.Labels[managedByLabelKey] == operatorLabelValue, nil
 }
 
 // setupMongotContainerArgsForFakeAPIKeys writes placeholder embedding key files
