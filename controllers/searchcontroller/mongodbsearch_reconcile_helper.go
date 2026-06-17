@@ -558,9 +558,10 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 
 	plan.cleanup(ctx, log)
 
-	// Latch routing-ready shards across ALL units before the worst-of readiness
-	// return: one not-ready or failing unit must not block latching of the others,
-	// so per-unit errors are aggregated instead of failing fast.
+	// Mark routing-ready shards across ALL units (a one-way latch persisted in the
+	// state CM) before the worst-of readiness return: one not-ready or failing unit
+	// must not block latching of the others, so per-unit errors are aggregated
+	// instead of failing fast.
 	var latchErrs error
 	for _, res := range applied {
 		if err := r.markRoutingReadyIfThresholdMet(ctx, log, res.unit, res.unitClient); err != nil {

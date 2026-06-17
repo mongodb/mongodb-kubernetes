@@ -387,8 +387,8 @@ func buildShardRoutes(search *searchv1.MongoDBSearch, shardNames []string, clust
 			sniHostname = endpoint
 		}
 
-		_, isReady := readySet[shardName]
-		isPending := !isReady
+		_, ok := readySet[shardName]
+		isPending := !ok
 		routes = append(routes, envoyRoute{
 			Name:                   shardName,
 			NameSafe:               strings.ReplaceAll(shardName, "-", "_"),
