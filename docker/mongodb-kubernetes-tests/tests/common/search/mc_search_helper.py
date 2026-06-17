@@ -4,6 +4,7 @@ import json
 from typing import Callable, Dict, List, Mapping, Optional, Tuple
 
 import kubernetes
+import requests
 import yaml
 from kubernetes.client import CoreV1Api
 from kubetester import create_or_update_configmap, create_or_update_secret, decode_secret, read_secret
@@ -487,9 +488,23 @@ def patch_mongot_host_via_ac(
     assert patched, f"{no_match_detail}; AC contained {[p.get('name') for p in ac.get('processes', [])]}"
     log.info(f"patched {len(patched)} processes: {patched}")
     ac["version"] = ac.get("version", 0) + 1
-    om_tester.om_request("put", ac_path, json_object=ac)
+    _put_automation_config_past_lock(om_tester, ac_path, ac)
     log.info(f"PUT automation config v{ac['version']} with per-cluster mongotHost")
     om_tester.wait_agents_ready(timeout=timeout)
+
+
+def _put_automation_config_past_lock(om_tester, ac_path: str, ac: dict, attempts: int = 3) -> None:
+    """clear_feature_controls + PUT, retried on 401 — the operator can re-assert
+    EXTERNALLY_MANAGED_LOCK between the clear and the PUT."""
+    for attempt in range(1, attempts + 1):
+        om_tester.clear_feature_controls()
+        try:
+            om_tester.om_request("put", ac_path, json_object=ac)
+            return
+        except requests.HTTPError as e:
+            if e.response is None or e.response.status_code != 401 or attempt == attempts:
+                raise
+            logger.warning(f"automationConfig PUT got 401 (operator re-locked); retry {attempt}/{attempts - 1}")
 
 
 def patch_per_cluster_mongot_host_via_om(

@@ -4797,6 +4797,16 @@ spec:
                                 SNI hostnames stay distinct.
                                 Required when MongoDB is externally managed. Ignored for operator-managed MongoDB.
                               type: string
+                            minMongotReadyReplicas:
+                              description: |-
+                                MinMongotReadyReplicas is the minimum number of ready mongot replicas in a group
+                                before this mongot group can be considered ready and envoy routes real traffic to it.
+                                Until this threshold is met, traffic for that shard is forwarded to a healthy mongot group with the
+                                routed_from_another_shard header (returning empty results).
+                                Defaults to 1 if not specified.
+                              format: int32
+                              minimum: 1
+                              type: integer
                             replicas:
                               description: |-
                                 Replicas is the number of Envoy proxy pods to deploy.
@@ -5142,6 +5152,16 @@ spec:
                           SNI hostnames stay distinct.
                           Required when MongoDB is externally managed. Ignored for operator-managed MongoDB.
                         type: string
+                      minMongotReadyReplicas:
+                        description: |-
+                          MinMongotReadyReplicas is the minimum number of ready mongot replicas in a group
+                          before this mongot group can be considered ready and envoy routes real traffic to it.
+                          Until this threshold is met, traffic for that shard is forwarded to a healthy mongot group with the
+                          routed_from_another_shard header (returning empty results).
+                          Defaults to 1 if not specified.
+                        format: int32
+                        minimum: 1
+                        type: integer
                       replicas:
                         description: |-
                           Replicas is the number of Envoy proxy pods to deploy.
