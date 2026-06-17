@@ -11,7 +11,7 @@ rejection.
 
 from __future__ import annotations
 
-import time
+import time  # DIAG
 
 import kubernetes
 import pytest
@@ -45,10 +45,14 @@ from tests.common.search.connectivity import (
     set_resource_disabled_annotation,
 )
 from tests.common.search.mc_search_helper import patch_per_cluster_sharded_mongot_host_via_om
+from tests.common.search.sharded_search_helper import get_shard_mongod_tester  # DIAG
+from tests.common.search.sharded_search_helper import wait_for_envoy_loaded_shard_chain  # DIAG
 from tests.common.search.sharded_search_helper import (
+    ShardStatePoller,
     log_shard_distribution,
     redistribute_chunks_to_new_shard,
     routing_ready_groups,
+    set_mongo_log_verbosity,
     shard_route_from_lds,
     sharded_search_tester,
 )
@@ -71,6 +75,42 @@ def _pod_running_not_ready(pod) -> bool:
     return pod.status.phase == "Running" and not ready
 
 
+def _mongot_host_ids(tester, db: str = "sample_mflix", coll: str = "movies") -> set[str]:
+    """The mongot server-ids (opaque ObjectIds) currently reporting the index via mongos.
+
+    statusDetail[].hostname is NOT a pod name — it is the mongot's self-generated
+    serverId (the _id in __mdb_internal_search.serverState). We label the new shard's
+    mongot by set-difference against the ids seen before the shard was added.
+    """
+    try:
+        docs = list(tester.client[db][coll].aggregate([{"$listSearchIndexes": {}}], maxTimeMS=10_000))
+    except Exception:  # noqa: BLE001
+        return set()
+    return {sd.get("hostname") for d in docs for sd in (d.get("statusDetail") or []) if sd.get("hostname")}
+
+
+def _log_index_status(
+    tester, label: str, *, new_ids: set[str] | None = None, db: str = "sample_mflix", coll: str = "movies"
+) -> None:
+    """Log per-mongot ``$listSearchIndexes`` status through mongos (informational).
+
+    Entries whose serverId is in ``new_ids`` are tagged ``(new-shard)``.
+    """
+    new_ids = new_ids or set()
+    try:
+        docs = list(tester.client[db][coll].aggregate([{"$listSearchIndexes": {}}], maxTimeMS=10_000))
+    except Exception as e:  # noqa: BLE001
+        logger.info(f"{label} $listSearchIndexes error: {type(e).__name__}: {e}")
+        return
+    for d in docs:
+        detail = ", ".join(
+            f"{(sd.get('hostname') or '?')}{'(new-shard)' if sd.get('hostname') in new_ids else ''}:"
+            f"{sd.get('status')}(q={sd.get('queryable')})"
+            for sd in (d.get("statusDetail") or [])
+        )
+        logger.info(f"{label} index '{d.get('name')}' top={d.get('status')} q={d.get('queryable')} | {detail}")
+
+
 class TestInstallOperator(InstallOperatorTests):
     pass
 
@@ -89,10 +129,10 @@ class TestSearchShardedDeployment(SearchShardedDeploymentTests):
 
 class TestSampleData(SearchShardedSampleDataAndIndex):
     mdb_config = MDB
-    # ~71k corpus (≈21k restored + 50k synthetic). A smaller corpus means bigger chunks,
-    # so rebalancing onto the new shard lands data in a burst (faster than mongot syncs)
-    # — a discrete INITIAL_SYNC window. A large/slow migration instead trickles in and the
-    # pinned mongot absorbs it incrementally in steady-state (no window to exercise).
+    # REPRO-BURST: ~71k corpus (≈21k restored + 50k synthetic). Smaller corpus = bigger
+    # chunks = a burst-like migration onto the new shard (data lands faster than mongot
+    # syncs → a discrete INITIAL_SYNC window). A large/slow migration instead trickles in
+    # and 72ae26a806 absorbs it incrementally in steady-state (no window — proven).
     sample_config = SampleDataAndIndexConfig(extra_doc_count=50_000)
 
     def admin_tester(self, namespace: str):
@@ -186,7 +226,7 @@ class TestSearchRoutedFromAnotherShard:
         tool = SearchConnectivityTool(
             sharded_search_tester(MDB.mdb_resource_name, namespace, MDB.user_name, MDB.user_password)
         )
-        # Separate connection for a concurrent paging prober (own cursor/conn).
+        # REPRO: separate connection for a concurrent paging prober (own cursor/conn).
         paging_tool = SearchConnectivityTool(
             sharded_search_tester(MDB.mdb_resource_name, namespace, MDB.user_name, MDB.user_password)
         )
@@ -196,11 +236,17 @@ class TestSearchRoutedFromAnotherShard:
         sts_name = search_resource_names.shard_statefulset_name(MDB.mdb_resource_name, new_shard_name, 0)
         delete_mongot_pvcs(namespace, sts_name)
 
+        # Existing mongot server-ids before onboarding; the new shard's mongot is the
+        # id that appears afterwards (statusDetail.hostname is an opaque serverId).
+        before_ids = _mongot_host_ids(admin_tester)
+        logger.info(f"[onboarding] mongot server-ids before adding {new_shard_name}: {sorted(before_ids)}")
+
         # 30s probe bound: chunk migration on an oversubscribed kind node can push a
         # healthy $search past 15s; the bound exists to catch wedges, not slowness.
-        # Probe back-to-back (interval 0s) with a concurrent paging prober that reopens its
-        # cursor every page — each reopen is a fresh $search that needs mongot. The migrated-
-        # data INITIAL_SYNC window is only ~5s, so maximize sampling density to cover it.
+        # REPRO-BURST: probe back-to-back (interval 0s) and run a concurrent paging prober
+        # that reopens its cursor every page — each reopen is a fresh $search that needs
+        # mongot. The INITIAL_SYNC window is only ~5s on 72ae26a806, so maximize sampling
+        # density rather than window width.
         with (
             SearchAvailabilityBackgroundTester(
                 tool, mode="oneshot", interval_seconds=0.0, query_timeout_ms=30_000
@@ -220,6 +266,16 @@ class TestSearchRoutedFromAnotherShard:
             mdb.assert_reaches_phase(Phase.Running, timeout=900)
             logger.info(f"[onboarding] {new_shard_name} mongod reached Running (shard registered, still empty)")
 
+            # DIAG: boost mongo verbosity (mongos + every shard primary) so the
+            # loganalyser captures every $search COMMAND completion + gRPC egress session.
+            set_mongo_log_verbosity(admin_tester.client, 2)
+            _diag_shard_testers = []
+            for _i in range(target_shard_count):
+                _t = get_shard_mongod_tester(mdb, _i, 0, MDB.admin_user_name, MDB.admin_user_password)
+                set_mongo_log_verbosity(_t.client, 2)
+                _diag_shard_testers.append(_t)
+            logger.info(f"[diag] boosted COMMAND/NETWORK verbosity on mongos + {target_shard_count} shard primaries")
+
             search_tests = self._search_tests()
             search_tests.wire_mongot_host()
             search_tests.create_search_resource()
@@ -238,12 +294,15 @@ class TestSearchRoutedFromAnotherShard:
             # mongot and starts serving. The shard still owns no chunks here, so mongos
             # won't fan $search out to it yet — this window is invisible to queries.
             logger.info(f"[onboarding] LATCH acquired: {new_shard_name} routing-ready -> Envoy fallback dropped")
+            new_ids = _mongot_host_ids(admin_tester) - before_ids
+            logger.info(f"[onboarding] {new_shard_name} mongot server-id(s): {sorted(new_ids)}")
             at_latch = log_shard_distribution(
                 admin_tester,
                 "sample_mflix",
                 "movies",
                 label=f"[onboarding][at-latch] {new_shard_name} ready while empty",
             )
+            _log_index_status(admin_tester, "[onboarding][at-latch]", new_ids=new_ids)
             # Proof precondition: the latch (fallback drop) happened while the new shard
             # owned no chunks — exactly the window that used to risk an INITIAL_SYNC gap.
             assert at_latch.get(new_shard_name, 0) == 0, (
@@ -251,18 +310,25 @@ class TestSearchRoutedFromAnotherShard:
                 f"{at_latch.get(new_shard_name, 0)} docs at latch; distribution={at_latch}"
             )
 
-            # Hold a short settle floor after the latch — Envoy has flipped the shard's
-            # chain to its own mongot — before landing data, so the rebalance begins from
-            # a steady routing state rather than racing the CDS/LDS reload.
+            # DIAG: prove Envoy actually MOUNTED shard-2's direct chain, then hold a 20s
+            # settle floor BEFORE any data lands — so a post-rebalance hang is attributable
+            # to mongot index-build (hypothesis B), not Envoy CDS/LDS reload (hypothesis A).
+            wait_for_envoy_loaded_shard_chain(namespace, MDBS_NAME, new_shard_name, timeout=300)
+            logger.info("[diag] envoy mounted shard-2 direct chain; holding 20s settle floor before rebalance")
             time.sleep(20)
+            # DIAG: poll per-shard $collStats + shard-2 index state every 2s through the window.
+            _diag_poller = ShardStatePoller(
+                admin_tester, "sample_mflix", "movies", highlight_ids=new_ids, interval=2.0, label="[diag][poll]"
+            )
+            _diag_poller.start()
 
             logger.info(
                 f"[onboarding] rebalance START: moving chunks onto {new_shard_name} (post-latch, fallback gone)"
             )
-            # Move ~20k of ~71k docs in a fast burst (a few big chunks) so the new shard's
-            # mongot does a discrete INITIAL_SYNC over the migrated data. Larger targets
-            # trickle in (balancer-throttled) and get absorbed incrementally, leaving no
-            # window to exercise.
+            # REPRO-BURST: move ~20k of ~71k docs in a fast burst (a few big chunks) so the
+            # new shard's mongot does a discrete INITIAL_SYNC over the migrated data. Larger
+            # targets trickle in (balancer-throttled) and get absorbed incrementally → no
+            # window (the 100k variant timed out at populate with 0 index_unavailable).
             final = redistribute_chunks_to_new_shard(
                 admin_tester, "sample_mflix", "movies", new_shard_name, min_docs=20_000, timeout=900
             )
@@ -270,11 +336,22 @@ class TestSearchRoutedFromAnotherShard:
                 f"[onboarding] rebalance COMPLETE: {new_shard_name} now holds {final.get(new_shard_name, 0)} docs; "
                 f"distribution={final}"
             )
+            _log_index_status(admin_tester, "[onboarding][post-rebalance]", new_ids=new_ids)
 
             # One more full probe batch with data on the new shard before closing the window.
             bg.wait_for_operations(self.PROBE_COUNT, since=bg.operations_count, timeout=self.PROBE_COUNT * 31 + 60)
+            _log_index_status(admin_tester, "[onboarding][window-close]", new_ids=new_ids)
+            _diag_poller.stop()  # DIAG
         verdict = bg.verdict
         page_verdict = bg_page.verdict
+        # DIAG: restore verbosity (best-effort) before assertions so it always runs.
+        set_mongo_log_verbosity(admin_tester.client, 0)
+        for _t in _diag_shard_testers:
+            set_mongo_log_verbosity(_t.client, 0)
+            try:
+                _t.client.close()
+            except Exception:
+                pass
         logger.info(f"[onboarding] oneshot $search verdict across whole window: {verdict.as_dict()}")
         logger.info(f"[onboarding] paging  $search verdict across whole window: {page_verdict.as_dict()}")
         assert (
