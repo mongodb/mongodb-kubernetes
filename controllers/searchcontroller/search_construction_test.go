@@ -261,7 +261,10 @@ func TestCreateSearchStatefulSetFunc_StatefulSetOverrideReplacesAntiAffinity(t *
 
 	stsMod, err := CreateSearchStatefulSetFunc(search, "cluster-1", "test-search-db", "default", "test-search-svc", "cm", labels, "mongot:latest", false)
 	require.NoError(t, err)
-	sts := statefulset.New(stsMod)
+	overrideMod, err := StatefulSetOverrideModification(search, "cluster-1")
+	require.NoError(t, err)
+	// The override is applied last in the reconcile pipeline, after all other modifications.
+	sts := statefulset.New(stsMod, overrideMod)
 
 	pa := sts.Spec.Template.Spec.Affinity.PodAntiAffinity
 	require.NotNil(t, pa)
