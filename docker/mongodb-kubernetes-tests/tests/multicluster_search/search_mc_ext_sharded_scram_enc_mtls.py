@@ -207,7 +207,8 @@ def mdbs(
     }
 
     resource["spec"]["clusters"] = [
-        {"clusterName": mcc.cluster_name, "replicas": MONGOT_REPLICAS_PER_CLUSTER} for mcc in member_cluster_clients
+        {"clusterName": mcc.cluster_name, "clusterIndex": mcc.cluster_index, "replicas": MONGOT_REPLICAS_PER_CLUSTER}
+        for mcc in member_cluster_clients
     ]
 
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
@@ -227,7 +228,9 @@ def _build_user(yaml_filename, name, username, namespace, central_cluster_client
 
 @fixture(scope="module")
 def admin_user(namespace, central_cluster_client):
-    return _build_user("mongodbuser-mdb-admin.yaml", ADMIN_USER_NAME, ADMIN_USER_NAME, namespace, central_cluster_client)
+    return _build_user(
+        "mongodbuser-mdb-admin.yaml", ADMIN_USER_NAME, ADMIN_USER_NAME, namespace, central_cluster_client
+    )
 
 
 @fixture(scope="module")
@@ -276,8 +279,14 @@ def test_install_source_tls_certificates(
         )
 
     for shard_idx in range(SHARD_COUNT):
-        _issue(f"{MDB_RESOURCE_NAME}-{shard_idx}", f"{SOURCE_CERT_PREFIX}-{MDB_RESOURCE_NAME}-{shard_idx}-cert", MEMBERS_PER_CLUSTER)
-    _issue(f"{MDB_RESOURCE_NAME}-config", f"{SOURCE_CERT_PREFIX}-{MDB_RESOURCE_NAME}-config-cert", CONFIG_SRV_PER_CLUSTER)
+        _issue(
+            f"{MDB_RESOURCE_NAME}-{shard_idx}",
+            f"{SOURCE_CERT_PREFIX}-{MDB_RESOURCE_NAME}-{shard_idx}-cert",
+            MEMBERS_PER_CLUSTER,
+        )
+    _issue(
+        f"{MDB_RESOURCE_NAME}-config", f"{SOURCE_CERT_PREFIX}-{MDB_RESOURCE_NAME}-config-cert", CONFIG_SRV_PER_CLUSTER
+    )
     _issue(f"{MDB_RESOURCE_NAME}-mongos", f"{SOURCE_CERT_PREFIX}-{MDB_RESOURCE_NAME}-mongos-cert", MONGOS_PER_CLUSTER)
 
 
@@ -296,7 +305,12 @@ def test_create_user_credentials(
     mongot_user: MongoDBUser,
 ):
     def _apply(u, password):
-        create_or_update_secret(namespace, name=u["spec"]["passwordSecretKeyRef"]["name"], data={"password": password}, api_client=central_cluster_client)
+        create_or_update_secret(
+            namespace,
+            name=u["spec"]["passwordSecretKeyRef"]["name"],
+            data={"password": password},
+            api_client=central_cluster_client,
+        )
         u.update()
 
     _apply(admin_user, ADMIN_USER_PASSWORD)
@@ -436,7 +450,9 @@ def _mongos_search_tester(namespace: str, cluster_index: int) -> SearchTester:
 
 def _admin_search_tester(namespace: str) -> SearchTester:
     mongos_host = f"{MDB_RESOURCE_NAME}-mongos-0-0-svc.{namespace}.svc.cluster.local:27017"
-    conn_str = f"mongodb://{ADMIN_USER_NAME}:{ADMIN_USER_PASSWORD}@{mongos_host}/?directConnection=true&authSource=admin"
+    conn_str = (
+        f"mongodb://{ADMIN_USER_NAME}:{ADMIN_USER_PASSWORD}@{mongos_host}/?directConnection=true&authSource=admin"
+    )
     return SearchTester(conn_str, use_ssl=True, ca_path=get_issuer_ca_filepath())
 
 
@@ -512,4 +528,6 @@ def test_per_cluster_search_query(namespace: str, member_cluster_clients: List[M
             except pymongo.errors.PyMongoError as exc:
                 return False, f"cluster {_idx}: {exc}"
 
-        run_periodically(execute_search, timeout=SEARCH_QUERY_RETRY_TIMEOUT, sleep_time=5, msg=f"cluster {cluster_index}")
+        run_periodically(
+            execute_search, timeout=SEARCH_QUERY_RETRY_TIMEOUT, sleep_time=5, msg=f"cluster {cluster_index}"
+        )

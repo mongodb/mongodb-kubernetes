@@ -162,7 +162,8 @@ def mdbs(
     }
 
     resource["spec"]["clusters"] = [
-        {"clusterName": mcc.cluster_name, "replicas": MONGOT_REPLICAS_PER_CLUSTER} for mcc in member_cluster_clients
+        {"clusterName": mcc.cluster_name, "clusterIndex": mcc.cluster_index, "replicas": MONGOT_REPLICAS_PER_CLUSTER}
+        for mcc in member_cluster_clients
     ]
 
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
@@ -182,7 +183,9 @@ def _build_user(yaml_filename, name, username, namespace, central_cluster_client
 
 @fixture(scope="module")
 def admin_user(namespace, central_cluster_client):
-    return _build_user("mongodbuser-mdb-admin.yaml", ADMIN_USER_NAME, ADMIN_USER_NAME, namespace, central_cluster_client)
+    return _build_user(
+        "mongodbuser-mdb-admin.yaml", ADMIN_USER_NAME, ADMIN_USER_NAME, namespace, central_cluster_client
+    )
 
 
 @fixture(scope="module")
@@ -223,13 +226,24 @@ def test_install_source_tls_certificates(
 ):
     """Source MongoDB TLS bundle + agent/clusterfile certs for x509 (multi-cluster aware)."""
     create_multi_cluster_mongodb_x509_tls_certs(
-        multi_cluster_issuer, SOURCE_BUNDLE_SECRET, member_cluster_clients, central_cluster_client, mdb,
+        multi_cluster_issuer,
+        SOURCE_BUNDLE_SECRET,
+        member_cluster_clients,
+        central_cluster_client,
+        mdb,
     )
     create_multi_cluster_x509_agent_certs(
-        multi_cluster_issuer, f"{SOURCE_CERT_PREFIX}-{MDB_RESOURCE_NAME}-agent-certs", central_cluster_client, mdb,
+        multi_cluster_issuer,
+        f"{SOURCE_CERT_PREFIX}-{MDB_RESOURCE_NAME}-agent-certs",
+        central_cluster_client,
+        mdb,
     )
     create_multi_cluster_mongodb_x509_tls_certs(
-        multi_cluster_issuer, f"{SOURCE_CERT_PREFIX}-{MDB_RESOURCE_NAME}-clusterfile", member_cluster_clients, central_cluster_client, mdb,
+        multi_cluster_issuer,
+        f"{SOURCE_CERT_PREFIX}-{MDB_RESOURCE_NAME}-clusterfile",
+        member_cluster_clients,
+        central_cluster_client,
+        mdb,
     )
 
 
@@ -247,11 +261,21 @@ def test_create_user_credentials(
     user: MongoDBUser,
     x509_mongot_user: MongoDBUser,
 ):
-    create_or_update_secret(namespace, name=admin_user["spec"]["passwordSecretKeyRef"]["name"], data={"password": ADMIN_USER_PASSWORD}, api_client=central_cluster_client)
+    create_or_update_secret(
+        namespace,
+        name=admin_user["spec"]["passwordSecretKeyRef"]["name"],
+        data={"password": ADMIN_USER_PASSWORD},
+        api_client=central_cluster_client,
+    )
     admin_user.update()
     admin_user.assert_reaches_phase(Phase.Updated, timeout=300)
 
-    create_or_update_secret(namespace, name=user["spec"]["passwordSecretKeyRef"]["name"], data={"password": USER_PASSWORD}, api_client=central_cluster_client)
+    create_or_update_secret(
+        namespace,
+        name=user["spec"]["passwordSecretKeyRef"]["name"],
+        data={"password": USER_PASSWORD},
+        api_client=central_cluster_client,
+    )
     user.update()
     user.assert_reaches_phase(Phase.Updated, timeout=300)
 
@@ -271,16 +295,22 @@ def test_deploy_lb_certificates(namespace: str, multi_cluster_issuer: str, helpe
     ]
 
     create_tls_certs(
-        issuer=multi_cluster_issuer, namespace=namespace,
+        issuer=multi_cluster_issuer,
+        namespace=namespace,
         resource_name=search_resource_names.lb_deployment_name(MDBS_RESOURCE_NAME),
-        replicas=ENVOY_LB_REPLICAS, service_name=server_domains[0].split(".")[0],
-        additional_domains=server_domains, secret_name=lb_server_cert_name,
+        replicas=ENVOY_LB_REPLICAS,
+        service_name=server_domains[0].split(".")[0],
+        additional_domains=server_domains,
+        secret_name=lb_server_cert_name,
     )
     create_tls_certs(
-        issuer=multi_cluster_issuer, namespace=namespace,
+        issuer=multi_cluster_issuer,
+        namespace=namespace,
         resource_name=f"{search_resource_names.lb_deployment_name(MDBS_RESOURCE_NAME)}-client",
-        replicas=1, service_name=server_domains[0].split(".")[0],
-        additional_domains=[f"*.{namespace}.svc.cluster.local"], secret_name=lb_client_cert_name,
+        replicas=1,
+        service_name=server_domains[0].split(".")[0],
+        additional_domains=[f"*.{namespace}.svc.cluster.local"],
+        secret_name=lb_client_cert_name,
     )
 
 
@@ -295,9 +325,11 @@ def test_create_search_tls_certificate(namespace: str, multi_cluster_issuer: str
         additional_domains.append(f"{MDBS_RESOURCE_NAME}-search-{idx}-proxy-svc.{namespace}.svc.cluster.local")
 
     create_tls_certs(
-        issuer=multi_cluster_issuer, namespace=namespace,
+        issuer=multi_cluster_issuer,
+        namespace=namespace,
         resource_name=search_resource_names.mongot_statefulset_name(MDBS_RESOURCE_NAME),
-        secret_name=secret_name, additional_domains=additional_domains,
+        secret_name=secret_name,
+        additional_domains=additional_domains,
     )
     encrypt_tls_key_with_password(namespace, secret_name, GRPC_KEY_PASSWORD)
     logger.info(f"gRPC server cert {secret_name} encrypted with password")
@@ -307,12 +339,25 @@ def test_create_search_tls_certificate(namespace: str, multi_cluster_issuer: str
 def test_create_x509_client_certificate(namespace: str, multi_cluster_issuer: str):
     """X509 client cert for mongot auth to mongod, with encrypted key."""
     x509_spec = {
-        "subject": {"countries": ["US"], "provinces": ["NY"], "localities": ["NY"], "organizations": ["cluster.local-client"], "organizationalUnits": [namespace]},
+        "subject": {
+            "countries": ["US"],
+            "provinces": ["NY"],
+            "localities": ["NY"],
+            "organizations": ["cluster.local-client"],
+            "organizationalUnits": [namespace],
+        },
         "commonName": X509_CLIENT_CERT_CN,
         "usages": ["digital signature", "key encipherment", "client auth"],
         "dnsNames": [X509_CLIENT_CERT_CN],
     }
-    generate_cert(namespace=namespace, pod="", dns="", issuer=multi_cluster_issuer, spec=x509_spec, secret_name=X509_CLIENT_CERT_SECRET_NAME)
+    generate_cert(
+        namespace=namespace,
+        pod="",
+        dns="",
+        issuer=multi_cluster_issuer,
+        spec=x509_spec,
+        secret_name=X509_CLIENT_CERT_SECRET_NAME,
+    )
     encrypt_tls_key_with_password(namespace, X509_CLIENT_CERT_SECRET_NAME, X509_AUTH_KEY_PASSWORD)
     logger.info(f"X509 client cert {X509_CLIENT_CERT_SECRET_NAME} created and encrypted")
 
@@ -337,7 +382,13 @@ def test_replicate_secrets_to_members(
     for secret_name in secrets_to_replicate:
         source = central_core.read_namespaced_secret(name=secret_name, namespace=namespace)
         for mcc in member_cluster_clients:
-            create_or_update_secret(namespace, secret_name, read_secret(namespace, secret_name, api_client=central_cluster_client), type=source.type or "Opaque", api_client=mcc.api_client)
+            create_or_update_secret(
+                namespace,
+                secret_name,
+                read_secret(namespace, secret_name, api_client=central_cluster_client),
+                type=source.type or "Opaque",
+                api_client=mcc.api_client,
+            )
         logger.info(f"replicated Secret {secret_name}")
 
     source_cm = central_core.read_namespaced_config_map(name=CA_CONFIGMAP_NAME, namespace=namespace)
@@ -353,7 +404,9 @@ def test_create_search_resource(mdbs: MongoDBSearch):
 
 
 @mark.e2e_search_ext_mc_rs_x509_enc_mtls
-def test_verify_per_cluster_resources(namespace: str, helper: MCSearchDeploymentHelper, member_cluster_clients: List[MultiClusterClient]):
+def test_verify_per_cluster_resources(
+    namespace: str, helper: MCSearchDeploymentHelper, member_cluster_clients: List[MultiClusterClient]
+):
     for mcc in member_cluster_clients:
         idx = helper.cluster_index(mcc.cluster_name)
         mcc.read_namespaced_stateful_set(f"{MDBS_RESOURCE_NAME}-search-{idx}", namespace)
@@ -383,7 +436,9 @@ def test_patch_per_cluster_mongot_host(
         # hostname pattern: mdb-mc-rs-x509-{clusterIdx}-{podIdx}-svc.namespace...
         cluster_idx = int(parts[-2])
 
-        proxy_host = f"{MDBS_RESOURCE_NAME}-search-{cluster_idx}-proxy-svc.{namespace}.svc.cluster.local:{ENVOY_PROXY_PORT}"
+        proxy_host = (
+            f"{MDBS_RESOURCE_NAME}-search-{cluster_idx}-proxy-svc.{namespace}.svc.cluster.local:{ENVOY_PROXY_PORT}"
+        )
         set_param = process.setdefault("args2_6", {}).setdefault("setParameter", {})
         set_param["mongotHost"] = proxy_host
         set_param["searchIndexManagementHostAndPort"] = proxy_host
@@ -393,7 +448,6 @@ def test_patch_per_cluster_mongot_host(
     om_tester.om_request("put", ac_path, json_object=ac)
     om_tester.wait_agents_ready(timeout=900)
     logger.info("All agents reached goal state with mongotHost configured")
-
 
 
 def _search_tester(mdb: MongoDBMulti, username: str, password: str) -> SearchTester:
@@ -407,7 +461,8 @@ def test_restore_sample_database(mdb: MongoDBMulti, tools_pod):
     tester = _search_tester(mdb, ADMIN_USER_NAME, ADMIN_USER_PASSWORD)
     tester.mongorestore_from_url(
         archive_url="https://atlas-education.s3.amazonaws.com/sample_mflix.archive",
-        ns_include="sample_mflix.*", tools_pod=tools_pod,
+        ns_include="sample_mflix.*",
+        tools_pod=tools_pod,
     )
 
 
