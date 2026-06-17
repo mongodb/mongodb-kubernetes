@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/ghodss/yaml"
-	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
@@ -18,14 +17,15 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
-	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
-	userv1 "github.com/mongodb/mongodb-kubernetes/api/v1/user"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
+	searchv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/search"
+	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
+	userv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/user"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
-	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/mongot"
+	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1" //nolint:depguard
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/pkg/mongot"
 )
 
 func init() {
@@ -464,26 +464,29 @@ func TestMongoDBSearchReconcileHelper_ServiceCreation(t *testing.T) {
 	}
 }
 
-var testApiKeySecretName = "api-key-secret"
-var embeddingWriterTrue = true
-var mode = int32(400)
-var expectedVolumes = []corev1.Volume{
-	{
-		Name: embeddingKeyVolumeName,
-		VolumeSource: corev1.VolumeSource{
-			Secret: &corev1.SecretVolumeSource{
-				SecretName:  testApiKeySecretName,
-				DefaultMode: &mode,
+var (
+	testApiKeySecretName = "api-key-secret"
+	embeddingWriterTrue  = true
+	mode                 = int32(400)
+	expectedVolumes      = []corev1.Volume{
+		{
+			Name: embeddingKeyVolumeName,
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName:  testApiKeySecretName,
+					DefaultMode: &mode,
+				},
 			},
 		},
-	},
-	{
-		Name: apiKeysTempVolumeName,
-		VolumeSource: corev1.VolumeSource{
-			EmptyDir: &corev1.EmptyDirVolumeSource{},
+		{
+			Name: apiKeysTempVolumeName,
+			VolumeSource: corev1.VolumeSource{
+				EmptyDir: &corev1.EmptyDirVolumeSource{},
+			},
 		},
-	},
-}
+	}
+)
+
 var expectedVolumeMount = []corev1.VolumeMount{
 	{
 		Name:      apiKeysTempVolumeName,
@@ -710,7 +713,7 @@ func TestValidateSearchResource(t *testing.T) {
 				},
 			},
 			errAssertion: assert.Error,
-			errMsg:       fmt.Sprintf("Required key \"%s\" is not present in the Secret mongodb/%s", indexingKeyName, testApiKeySecretName),
+			errMsg:       fmt.Sprintf("required key \"%s\" is not present in the Secret mongodb/%s", indexingKeyName, testApiKeySecretName),
 		},
 		{
 			apiKeySecret: &corev1.Secret{
@@ -723,7 +726,7 @@ func TestValidateSearchResource(t *testing.T) {
 				},
 			},
 			errAssertion: assert.Error,
-			errMsg:       fmt.Sprintf("Required key \"%s\" is not present in the Secret mongodb/%s", queryKeyName, testApiKeySecretName),
+			errMsg:       fmt.Sprintf("required key \"%s\" is not present in the Secret mongodb/%s", queryKeyName, testApiKeySecretName),
 		},
 		{
 			apiKeySecret: &corev1.Secret{
@@ -2235,7 +2238,7 @@ func TestEnsureX509ClientCertConfig_MongotAndStsModification(t *testing.T) {
 		}
 	}
 	require.NotNil(t, x509Volume, "x509-client-cert volume should exist")
-	assert.Equal(t, "test-search-x509-client-cert", x509Volume.VolumeSource.Secret.SecretName)
+	assert.Equal(t, "test-search-x509-client-cert", x509Volume.Secret.SecretName)
 
 	// Verify x509 volume mount on mongot container
 	mongotContainer := sts.Spec.Template.Spec.Containers[0]
@@ -2306,7 +2309,7 @@ func TestEnsureX509ClientCertConfig_KeyPassword(t *testing.T) {
 		}
 	}
 	require.NotNil(t, keyPasswordVolume, "x509-key-password volume should exist")
-	assert.Equal(t, "x509-cert", keyPasswordVolume.VolumeSource.Secret.SecretName)
+	assert.Equal(t, "x509-cert", keyPasswordVolume.Secret.SecretName)
 
 	mongotContainer := sts.Spec.Template.Spec.Containers[0]
 	var keyPasswordMount *corev1.VolumeMount

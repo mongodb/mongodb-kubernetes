@@ -17,7 +17,7 @@ operator:
   operator_image_name: mongodb-kubernetes
 
   # Version of mongodb-kubernetes-operator
-  version: 1.8.0
+  version: 1.8.2
 
   # The Custom Resources that will be watched by the Operator. Needs to be changed if only some of the CRDs are installed
   watchedResources:
@@ -45,8 +45,14 @@ operator:
   podSecurityContext:
     runAsNonRoot: true
     runAsUser: 2000
+    seccompProfile:
+      type: RuntimeDefault
 
-  securityContext: {}
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+      - ALL
 
   # Control how many reconciles can be performed in parallel.
   # It sets MaxConcurrentReconciles https://pkg.go.dev/github.com/kubernetes-sigs/controller-runtime/pkg/controller#Options).
@@ -131,11 +137,11 @@ operator:
 ## Database
 database:
   name: mongodb-kubernetes-database
-  version: 1.8.0
+  version: 1.8.2
 
 initDatabase:
   name: mongodb-kubernetes-init-database
-  version: 1.8.0
+  version: 1.8.2
 
 ## Ops Manager
 opsManager:
@@ -143,7 +149,7 @@ opsManager:
 
 initOpsManager:
   name: mongodb-kubernetes-init-ops-manager
-  version: 1.8.0
+  version: 1.8.2
 
 agent:
   name: mongodb-agent
@@ -187,6 +193,7 @@ multiCluster:
   kubeConfigSecretName: mongodb-enterprise-operator-multi-cluster-kubeconfig
   performFailOver: true
   clusterClientTimeout: 10
+  memberClusterRequiredHealthyStreak: 5
 
 # Resources only for the MongoDBCommunity resource reconciler
 community:

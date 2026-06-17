@@ -6,7 +6,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
 )
 
@@ -26,6 +27,7 @@ func TestCreateMongodProcessesFromMongoDB(t *testing.T) {
 			3,
 			defaultFCV,
 			"",
+			architectures.NonStatic,
 		)
 
 		assert.Len(t, processes, 3, "Should create 3 processes")
@@ -50,6 +52,7 @@ func TestCreateMongodProcessesFromMongoDB(t *testing.T) {
 			3, // limit
 			defaultFCV,
 			"",
+			architectures.NonStatic,
 		)
 		assert.Len(t, processesScaleUp, 3, "Limit should control process count during scale up")
 
@@ -61,6 +64,7 @@ func TestCreateMongodProcessesFromMongoDB(t *testing.T) {
 			7, // limit
 			defaultFCV,
 			"",
+			architectures.NonStatic,
 		)
 		assert.Len(t, processesScaleDown, 7, "Limit should control process count during scale down")
 
@@ -72,6 +76,7 @@ func TestCreateMongodProcessesFromMongoDB(t *testing.T) {
 			0, // limit
 			defaultFCV,
 			"",
+			architectures.NonStatic,
 		)
 		assert.Empty(t, processesZero, "Zero limit should create empty process slice")
 	})
@@ -90,6 +95,7 @@ func TestCreateMongodProcessesFromMongoDB(t *testing.T) {
 			2,
 			defaultFCV,
 			tlsCertPath,
+			architectures.NonStatic,
 		)
 
 		assert.Len(t, processes, 2)
@@ -123,6 +129,7 @@ func TestCreateMongodProcessesFromMongoDB_AdditionalConfig(t *testing.T) {
 		2,
 		defaultFCV,
 		"",
+		architectures.NonStatic,
 	)
 
 	assert.Len(t, processes, 2)

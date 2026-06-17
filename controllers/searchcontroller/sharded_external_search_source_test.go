@@ -4,10 +4,11 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
 	corev1 "k8s.io/api/core/v1"
 
-	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
-	userv1 "github.com/mongodb/mongodb-kubernetes/api/v1/user"
+	searchv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/search"
+	userv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/user"
 )
 
 func newShardedExternalSearchSource(spec *searchv1.ExternalMongoDBSource) *ShardedExternalSearchSource {
@@ -22,7 +23,6 @@ func newExternalShardedConfig(routerHosts []string, shards []searchv1.ExternalSh
 		Shards: shards,
 	}
 }
-
 
 func TestShardedExternalSearchSource_Validate(t *testing.T) {
 	cases := []struct {
@@ -371,7 +371,7 @@ func TestShardedExternalSearchSource_TLSConfig(t *testing.T) {
 		assert.NotNil(t, tlsConfig)
 		assert.Equal(t, "ca.crt", tlsConfig.CAFileName)
 		assert.Equal(t, "ca", tlsConfig.CAVolume.Name)
-		assert.Equal(t, "top-level-ca-secret", tlsConfig.CAVolume.VolumeSource.Secret.SecretName)
+		assert.Equal(t, "top-level-ca-secret", tlsConfig.CAVolume.Secret.SecretName)
 		assert.NotNil(t, tlsConfig.ResourcesToWatch)
 	})
 
@@ -390,6 +390,6 @@ func TestShardedExternalSearchSource_TLSConfig(t *testing.T) {
 		tlsConfig := src.TLSConfig()
 
 		assert.NotNil(t, tlsConfig)
-		assert.Equal(t, "ca-secret", tlsConfig.CAVolume.VolumeSource.Secret.SecretName)
+		assert.Equal(t, "ca-secret", tlsConfig.CAVolume.Secret.SecretName)
 	})
 }

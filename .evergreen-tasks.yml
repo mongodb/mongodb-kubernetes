@@ -21,6 +21,7 @@ tasks:
     commands:
       - func: clone
       - func: python_venv
+      - func: update_evergreen_expansions
       - func: setup_preflight
       - func: preflight_image
         vars:
@@ -53,16 +54,18 @@ tasks:
       - func: run_preflight_om_and_agents
 
   # One check-only preflight per commit: validates openshift-preflight + Quay + scripts still work.
+  # Uses "latest" tag (published by the release pipeline) so the image is always available on Quay,
+  # regardless of what release.json contains.
   - name: preflight_check_smoke
     tags: [ "image_preflight" ]
     commands:
       - func: clone
       - func: python_venv
-      - func: update_evergreen_expansions
       - func: setup_preflight
       - func: preflight_image
         vars:
           image_name: mongodb-kubernetes
+          mongodbOperator: "latest"
 
 # Code snippets tasks
 # Each task is selected by convention by running scripts/code_snippets/${task_name}_test.sh

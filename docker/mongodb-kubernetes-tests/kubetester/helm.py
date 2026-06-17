@@ -2,7 +2,7 @@ import glob
 import os
 import re
 import subprocess
-import uuid
+import tempfile
 from typing import Dict, List, Optional, Tuple
 
 from tests import test_logger
@@ -36,7 +36,7 @@ def helm_template(
     args = ("helm", "template", *command_args, helm_chart_path)
     logger.info(" ".join(args))
 
-    yaml_file_name = "{}.yaml".format(str(uuid.uuid4()))
+    _, yaml_file_name = tempfile.mkstemp(suffix=".yaml")
     with open(yaml_file_name, "w") as output:
         process_run_and_check(" ".join(args), stdout=output, check=True, shell=True)
 

@@ -13,6 +13,7 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -22,21 +23,20 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 
-	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
+	searchv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/container"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/podtemplatespec"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/secret"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/service"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/mongot"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/tls"
+	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/commoncontroller"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/podtemplatespec"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/service"
+	"github.com/mongodb/mongodb-kubernetes/pkg/mongot"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
+	"github.com/mongodb/mongodb-kubernetes/pkg/tls"
 )
 
 const (
@@ -54,11 +54,11 @@ const (
 	indexingKeyName = "indexing-key"
 	queryKeyName    = "query-key"
 
-	apiKeysTempVolumeName = "api-keys-config"
+	apiKeysTempVolumeName = "api-keys-config" //nolint:gosec // volume name, not a credential
 	// To overcome the strict requirement of api keys having 0400 permission we mount the api keys
 	// to a temp location apiKeysTempVolumeMount and then copy it to correct location embeddingKeyFilePath,
 	// changing the permission to 0400.
-	apiKeysTempVolumeMount = "/tmp/auto-embedding-api-keys"
+	apiKeysTempVolumeMount = "/tmp/auto-embedding-api-keys" //nolint:gosec // mount path, not a credential
 
 	// is the minimum search image version that is required to enable the auto embeddings for vector search
 	minSearchImageVersionForEmbedding = "0.60.0"
@@ -116,10 +116,10 @@ type reconcileUnit struct {
 // topology-wide knobs and hooks that surround the loop. Everything sharded-specific lives
 // here in hook closures so the reconcile body stays a straight, unbranched sequence.
 type reconcilePlan struct {
-	units        []reconcileUnit
-	manageProxySvc bool                                                              // topology-wide: true when the operator owns the proxy Service lifecycle (i.e. the LB is not user-managed)
-	preflight    func(context.Context, *zap.SugaredLogger) workflow.Status           // runs before the loop; must return workflow.OK() to proceed
-	cleanup      func(context.Context, *zap.SugaredLogger)                           // runs after the loop; best-effort, errors logged
+	units          []reconcileUnit
+	manageProxySvc bool                                                      // topology-wide: true when the operator owns the proxy Service lifecycle (i.e. the LB is not user-managed)
+	preflight      func(context.Context, *zap.SugaredLogger) workflow.Status // runs before the loop; must return workflow.OK() to proceed
+	cleanup        func(context.Context, *zap.SugaredLogger)                 // runs after the loop; best-effort, errors logged
 }
 
 // buildReconcilePlan returns the full reconcile plan for the current topology.
@@ -162,8 +162,8 @@ func (r *MongoDBSearchReconcileHelper) buildReplicaSetPlan() (reconcilePlan, err
 			mongotConfigFn:     mongot.Apply(baseMongotConfig(r.mdbSearch, hostSeeds), wireprotoMongotMod(r.mdbSearch)),
 		}},
 		manageProxySvc: !r.mdbSearch.IsReplicaSetUnmanagedLB(),
-		preflight:    func(context.Context, *zap.SugaredLogger) workflow.Status { return workflow.OK() },
-		cleanup:      func(context.Context, *zap.SugaredLogger) {},
+		preflight:      func(context.Context, *zap.SugaredLogger) workflow.Status { return workflow.OK() },
+		cleanup:        func(context.Context, *zap.SugaredLogger) {},
 	}, nil
 }
 
@@ -193,7 +193,7 @@ func (r *MongoDBSearchReconcileHelper) buildShardedPlan(shardedSource SearchSour
 	}
 
 	return reconcilePlan{
-		units:        units,
+		units:          units,
 		manageProxySvc: !r.mdbSearch.IsShardedUnmanagedLB(),
 		preflight: func(ctx context.Context, log *zap.SugaredLogger) workflow.Status {
 			return r.validatePerShardTLSSecrets(ctx, log, shardNames)
@@ -749,7 +749,6 @@ func buildProxyService(search *searchv1.MongoDBSearch, unit reconcileUnit) corev
 	return serviceBuilder.Build()
 }
 
-
 // EnsureEmbeddingAPIKeySecret makes sure that the scret that is provided in MDBSearch resource
 // for embedding model's keys is present and has expected keys.
 func ensureEmbeddingAPIKeySecret(ctx context.Context, client secret.Getter, secretObj client.ObjectKey) (string, error) {
@@ -759,10 +758,10 @@ func ensureEmbeddingAPIKeySecret(ctx context.Context, client secret.Getter, secr
 	}
 
 	if _, ok := data[indexingKeyName]; !ok {
-		return "", fmt.Errorf(`Required key "%s" is not present in the Secret %s/%s`, indexingKeyName, secretObj.Namespace, secretObj.Name)
+		return "", fmt.Errorf(`required key "%s" is not present in the Secret %s/%s`, indexingKeyName, secretObj.Namespace, secretObj.Name)
 	}
 	if _, ok := data[queryKeyName]; !ok {
-		return "", fmt.Errorf(`Required key "%s" is not present in the Secret %s/%s`, queryKeyName, secretObj.Namespace, secretObj.Name)
+		return "", fmt.Errorf(`required key "%s" is not present in the Secret %s/%s`, queryKeyName, secretObj.Namespace, secretObj.Name)
 	}
 
 	d, err := json.Marshal(data)
@@ -897,11 +896,11 @@ type x509AuthResource struct {
 }
 
 func (x *x509AuthResource) TLSSecretNamespacedName() types.NamespacedName {
-	return x.MongoDBSearch.X509ClientCertSecret()
+	return x.X509ClientCertSecret()
 }
 
 func (x *x509AuthResource) TLSOperatorSecretNamespacedName() types.NamespacedName {
-	return x.MongoDBSearch.X509OperatorManagedSecret()
+	return x.X509OperatorManagedSecret()
 }
 
 // ensureX509ClientCertConfig processes x509 client certificate configuration for the sync source in case of mongot to mongod communication.
@@ -1006,12 +1005,12 @@ type perShardTLSResource struct {
 
 // TLSSecretNamespacedName returns the per-shard source secret name.
 func (p *perShardTLSResource) TLSSecretNamespacedName() types.NamespacedName {
-	return p.MongoDBSearch.TLSSecretForShard(p.shardName)
+	return p.TLSSecretForShard(p.shardName)
 }
 
 // TLSOperatorSecretNamespacedName returns the per-shard operator-managed secret name.
 func (p *perShardTLSResource) TLSOperatorSecretNamespacedName() types.NamespacedName {
-	return p.MongoDBSearch.TLSOperatorSecretForShard(p.shardName)
+	return p.TLSOperatorSecretForShard(p.shardName)
 }
 
 func (r *MongoDBSearchReconcileHelper) ensureEgressTlsConfig(ctx context.Context) (mongot.Modification, statefulset.Modification) {

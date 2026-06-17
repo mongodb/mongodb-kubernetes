@@ -13,7 +13,6 @@ from tests.olm.olm_test_commons import (
     get_latest_released_operator_version,
     get_operator_group_resource,
     get_subscription_custom_object,
-    increment_patch_version,
     wait_for_operator_ready,
 )
 
@@ -26,11 +25,10 @@ from tests.olm.olm_test_commons import (
 def test_upgrade_operator_only(namespace: str, version_id: str):
     latest_released_operator_version = get_latest_released_operator_version("mongodb-kubernetes")
     current_operator_version = get_current_operator_version()
-    incremented_operator_version = increment_patch_version(current_operator_version)
 
     get_operator_group_resource(namespace, namespace).update()
     catalog_source_resource = get_catalog_source_resource(
-        namespace, get_catalog_image(f"{incremented_operator_version}-{version_id}")
+        namespace, get_catalog_image(f"{current_operator_version}-{version_id}")
     )
     catalog_source_resource.update()
 
@@ -65,7 +63,7 @@ def test_upgrade_operator_only(namespace: str, version_id: str):
     subscription["spec"]["channel"] = "fast"  # fast channel contains operator build from the current branch
     subscription.update()
 
-    wait_for_operator_ready(namespace, OPERATOR_NAME, f"mongodb-kubernetes.v{incremented_operator_version}")
+    wait_for_operator_ready(namespace, OPERATOR_NAME, f"mongodb-kubernetes.v{current_operator_version}")
 
 
 @pytest.mark.e2e_olm_operator_upgrade

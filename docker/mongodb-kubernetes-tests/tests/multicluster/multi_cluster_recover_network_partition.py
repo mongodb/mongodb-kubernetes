@@ -3,7 +3,7 @@ from typing import List
 import kubernetes
 from kubeobject import CustomObject
 from kubernetes import client
-from kubetester import delete_statefulset, statefulset_is_deleted
+from kubetester import delete_statefulset, statefulset_is_deleted, wait_until
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import run_periodically
 from kubetester.mongodb_multi import MongoDBMulti
@@ -84,6 +84,57 @@ def test_update_service_entry_block_failed_cluster_traffic(
 
 
 @mark.e2e_multi_cluster_recover_network_partition
+def test_failed_cluster_annotation_appears(namespace: str, mongodb_multi):
+    def failed_annotation():
+        mongodb_multi.load()
+        return (
+            "failedClusters" in mongodb_multi["metadata"]["annotations"]
+            and mongodb_multi["metadata"]["annotations"]["failedClusters"] is not None
+        )
+
+    wait_until(failed_annotation, timeout=300)
+
+
+@mark.e2e_multi_cluster_recover_network_partition
+def test_recreate_service_entries(
+    namespace: str,
+    central_cluster_client: kubernetes.client.ApiClient,
+    member_cluster_names: List[str],
+):
+    service_entries = create_service_entries_objects(namespace, central_cluster_client, member_cluster_names)
+    for service_entry in service_entries:
+        service_entry.update()
+
+
+@mark.e2e_multi_cluster_recover_network_partition
+def test_failed_cluster_annotation_is_removed(namespace: str, mongodb_multi):
+    def failed_annotation():
+        mongodb_multi.load()
+        return "failedClusters" not in mongodb_multi["metadata"]["annotations"]
+
+    wait_until(failed_annotation, timeout=300)
+
+
+@mark.e2e_multi_cluster_recover_network_partition
+def test_update_service_entry_block_failed_cluster_traffic_again(
+    namespace: str,
+    central_cluster_client: kubernetes.client.ApiClient,
+    member_cluster_names: List[str],
+):
+    healthy_cluster_names = [
+        cluster_name for cluster_name in member_cluster_names if cluster_name != FAILED_MEMBER_CLUSTER_NAME
+    ]
+    service_entries = create_service_entries_objects(
+        namespace,
+        central_cluster_client,
+        healthy_cluster_names,
+    )
+    for service_entry in service_entries:
+        print(f"service_entry={service_entries}")
+        service_entry.update()
+
+
+@mark.e2e_multi_cluster_recover_network_partition
 def test_delete_database_statefulset_in_failed_cluster(
     mongodb_multi: MongoDBMulti,
     member_cluster_names: list[str],
@@ -112,13 +163,14 @@ def test_delete_database_statefulset_in_failed_cluster(
 
 
 @mark.e2e_multi_cluster_recover_network_partition
-def test_mongodb_multi_enters_failed_state(
+def test_mongodb_multi_is_stable(
     mongodb_multi: MongoDBMulti,
     namespace: str,
     central_cluster_client: client.ApiClient,
 ):
+    # Even if a cluster is failed, MongoDBMultiCluster should be stable and reconcile the rest of the healthy clusters
     mongodb_multi.load()
-    mongodb_multi.assert_reaches_phase(Phase.Failed, timeout=100)
+    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=100)
 
 
 @mark.e2e_multi_cluster_recover_network_partition

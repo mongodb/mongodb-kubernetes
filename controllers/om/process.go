@@ -8,8 +8,8 @@ import (
 
 	"github.com/spf13/cast"
 
-	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
+	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/tls"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
@@ -93,12 +93,12 @@ func NewProcessFromInterface(i interface{}) Process {
 	return i.(map[string]interface{})
 }
 
-func NewMongosProcess(name, hostName, mongoDBImage string, forceEnterprise bool, additionalMongodConfig *mdbv1.AdditionalMongodConfig, spec mdbv1.DbSpec, certificateFilePath string, annotations map[string]string, fcv string) Process {
+func NewMongosProcess(name, hostName, mongoDBImage string, forceEnterprise bool, additionalMongodConfig *mdbv1.AdditionalMongodConfig, spec mdbv1.DbSpec, certificateFilePath string, annotations map[string]string, fcv string, defaultArchitecture architectures.DefaultArchitecture) Process {
 	if additionalMongodConfig == nil {
 		additionalMongodConfig = mdbv1.NewEmptyAdditionalMongodConfig()
 	}
 
-	architecture := architectures.GetArchitecture(annotations)
+	architecture := architectures.GetArchitecture(annotations, defaultArchitecture)
 	processVersion := architectures.GetMongoVersionForAutomationConfig(mongoDBImage, spec.GetMongoDBVersion(), forceEnterprise, architecture)
 	p := createProcess(
 		WithName(name),
@@ -119,12 +119,12 @@ func NewMongosProcess(name, hostName, mongoDBImage string, forceEnterprise bool,
 	return p
 }
 
-func NewMongodProcess(name, hostName, mongoDBImage string, forceEnterprise bool, additionalConfig *mdbv1.AdditionalMongodConfig, spec mdbv1.DbSpec, certificateFilePath string, annotations map[string]string, fcv string) Process {
+func NewMongodProcess(name, hostName, mongoDBImage string, forceEnterprise bool, additionalConfig *mdbv1.AdditionalMongodConfig, spec mdbv1.DbSpec, certificateFilePath string, annotations map[string]string, fcv string, defaultArchitecture architectures.DefaultArchitecture) Process {
 	if additionalConfig == nil {
 		additionalConfig = mdbv1.NewEmptyAdditionalMongodConfig()
 	}
 
-	architecture := architectures.GetArchitecture(annotations)
+	architecture := architectures.GetArchitecture(annotations, defaultArchitecture)
 	processVersion := architectures.GetMongoVersionForAutomationConfig(mongoDBImage, spec.GetMongoDBVersion(), forceEnterprise, architecture)
 	p := createProcess(
 		WithName(name),
