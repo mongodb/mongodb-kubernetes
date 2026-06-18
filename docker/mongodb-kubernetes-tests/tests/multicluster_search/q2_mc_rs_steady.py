@@ -661,11 +661,11 @@ def test_verify_persisted_cluster_mapping(
     central_cluster_client: kubernetes.client.ApiClient,
     helper: MCSearchDeploymentHelper,
 ):
-    """The `<name>-state` ConfigMap on the central cluster must carry a ClusterMapping
+    """The `<name>-search-state` ConfigMap on the central cluster must carry a ClusterMapping
     entry for every member cluster. This is the operator's source of truth for
     cluster-index pinning across spec.clusters[] reorders and restarts.
     """
-    state_cm_name = f"{MDBS_RESOURCE_NAME}-state"
+    state_cm_name = search_resource_names.search_state_configmap_name(MDBS_RESOURCE_NAME)
     core = CoreV1Api(api_client=central_cluster_client)
     state_cm = core.read_namespaced_config_map(name=state_cm_name, namespace=namespace)
 

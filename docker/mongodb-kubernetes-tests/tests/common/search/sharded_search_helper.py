@@ -499,7 +499,9 @@ def redistribute_chunks_to_new_shard(
 def routing_ready_groups(namespace: str, mdbs_resource_name: str) -> list[str]:
     """The one-way routing-readiness latch from the ``<name>-search-state`` ConfigMap.
     A shard's mongot group is pending iff it is not listed here."""
-    data = KubernetesTester.read_configmap(namespace, f"{mdbs_resource_name}-search-state")
+    data = KubernetesTester.read_configmap(
+        namespace, search_resource_names.search_state_configmap_name(mdbs_resource_name)
+    )
     return json.loads(data["state"]).get("routingReadyMongotGroups") or []
 
 
