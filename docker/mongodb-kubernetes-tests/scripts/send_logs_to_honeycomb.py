@@ -329,7 +329,6 @@ def main() -> None:
     args = parser.parse_args()
 
     api_key = os.getenv("HONEYCOMB_API_KEY", "")
-    log.info("HONEYCOMB_API_KEY present: %s (len=%d)", bool(api_key), len(api_key))
     if not api_key and not args.dry_run:
         log.info("HONEYCOMB_API_KEY not set — skipping Honeycomb log ingestion")
         return
