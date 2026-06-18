@@ -41,6 +41,16 @@ def mongot_configmap_name(search_name: str) -> str:
     return mongot_configmap_name_for_cluster(search_name, 0)
 
 
+def search_state_configmap_name(search_name: str) -> str:
+    """State ConfigMap name persisted by the search controllers.
+
+    Matches the operator's ``searchcontroller.SearchStateCMName`` — deliberately
+    ``<name>-search-state`` (not ``<name>-state``) so it cannot collide with the
+    source MongoDB's StateStore ConfigMap when a MongoDBSearch shares its name.
+    """
+    return f"{search_name}-search-state"
+
+
 def mongot_service_host(search_name: str, namespace: str, port: int) -> str:
     """Full hostname:port for the RS mongot Service."""
     return f"{mongot_service_name(search_name)}.{namespace}.svc.cluster.local:{port}"
