@@ -51,9 +51,15 @@ type DeploymentUsageSnapshotProperties struct {
 	Type                     string   `json:"type"` // RS, SC, OM, Single
 	IsRunningEnterpriseImage bool     `json:"IsRunningEnterpriseImage"`
 	ExternalDomains          string   `json:"externalDomains"`                   // None, Uniform, ClusterSpecific, Mixed
-	CustomRoles              string   `json:"customRoles,omitempty"`             // Custom roles used 	// None, Uniform, ClusterSpecific, Mixed
-	AuthenticationAgentMode  string   `json:"authenticationAgentMode,omitempty"` // Agent authentication mode
-	AuthenticationModes      []string `json:"-"`                                 // Deployment authentication modes
+	CustomRoles              string   `json:"customRoles,omitempty"`
+	AuthenticationAgentMode  string   `json:"authenticationAgentMode,omitempty"`
+	AuthenticationModes      []string `json:"-"`
+	MigrationPhase           string   `json:"migrationPhase,omitempty"`
+	ExternalMembersCount     *int     `json:"externalMembersCount,omitempty"`
+	ReservedExternalMembers  *int     `json:"reservedExternalMembers,omitempty"`
+	MigrationStartedAt       string   `json:"migrationStartedAt,omitempty"`
+	MigrationCompletedAt     string   `json:"migrationCompletedAt,omitempty"`
+	MigrationDurationSeconds *int64   `json:"migrationDurationSeconds,omitempty"`
 }
 
 type FakeDeploymentUsageSnapshotProperties DeploymentUsageSnapshotProperties
