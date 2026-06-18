@@ -6,6 +6,8 @@ import (
 	"encoding/base32"
 	"encoding/json"
 	"fmt"
+	"net"
+	"net/url"
 	"strings"
 
 	"github.com/Masterminds/semver/v3"
@@ -679,6 +681,11 @@ const (
 	appLabelKey           = "app"
 	shardLabelKey         = "shard"
 	proxyServiceComponent = "search-proxy"
+
+	nameLabelKey       = "app.kubernetes.io/name"
+	managedByLabelKey  = "app.kubernetes.io/managed-by"
+	voyageAILabelValue = "voyageai"
+	operatorLabelValue = "mongodb-kubernetes-operator"
 )
 
 // buildHeadlessService builds a headless Service for a reconcile unit. All topology-specific
@@ -789,18 +796,36 @@ func validateSearchVesionForEmbedding(version string, log *zap.SugaredLogger) er
 // ensureEmbeddingConfig returns the mongot config and stateful set modification function based on the values provided in the search CR, it
 // also returns the hash of the secret that has the embedding API keys so that if the keys are changed the search pod is automatically restarted.
 func (r *MongoDBSearchReconcileHelper) ensureEmbeddingConfig(ctx context.Context, log *zap.SugaredLogger) (mongot.Modification, statefulset.Modification, error) {
-	if r.mdbSearch.Spec.AutoEmbedding == nil {
+	ae := r.mdbSearch.Spec.AutoEmbedding
+	if ae == nil {
 		return mongot.NOOP(), statefulset.NOOP(), nil
 	}
 
-	// If AutoEmbedding is not nil, it's safe to assume that EmbeddingModelAPIKeySecret would be provided because we have marked it
-	// a required field.
-	apiKeySecretHash, err := ensureEmbeddingAPIKeySecret(ctx, r.client, client.ObjectKey{
-		Name:      r.mdbSearch.Spec.AutoEmbedding.EmbeddingModelAPIKeySecret.Name,
-		Namespace: r.mdbSearch.Namespace,
-	})
-	if err != nil {
-		return nil, nil, err
+	// The API key secret is optional only when the provider endpoint refers to an
+	// in-cluster VoyageAI service (ai.mongodb.com), which authenticates at the
+	// network layer rather than via API keys. For any external provider it is required.
+	// The endpoint detection (a Service lookup) only matters when no secret is given,
+	// so it is skipped when one is — keeping the secret path free of Service lookups.
+	hasAPIKeySecret := ae.EmbeddingModelAPIKeySecret.Name != ""
+
+	apiKeySecretHash := ""
+	if hasAPIKeySecret {
+		var err error
+		apiKeySecretHash, err = ensureEmbeddingAPIKeySecret(ctx, r.client, client.ObjectKey{
+			Name:      ae.EmbeddingModelAPIKeySecret.Name,
+			Namespace: r.mdbSearch.Namespace,
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+	} else {
+		internal, err := r.isInternalVoyageAIEndpoint(ctx, ae.ProviderEndpoint)
+		if err != nil {
+			return nil, nil, err
+		}
+		if !internal {
+			return nil, nil, xerrors.Errorf("spec.autoEmbedding.embeddingModelAPIKeySecret is required unless spec.autoEmbedding.providerEndpoint refers to an in-cluster VoyageAI service")
+		}
 	}
 
 	_, version := r.searchImageAndVersion()
@@ -811,6 +836,9 @@ func (r *MongoDBSearchReconcileHelper) ensureEmbeddingConfig(ctx context.Context
 	autoEmbeddingViewWriterTrue := true
 	mongotModification := func(config *mongot.Config) {
 		config.Embedding = &mongot.EmbeddingConfig{
+			// mongot mandates the key files at bootstrap even when the provider ignores
+			// them, so the paths are always set. For the internal VoyageAI case the
+			// operator writes placeholder files (see below).
 			IndexingKeyFile: fmt.Sprintf("%s/%s", embeddingKeyFilePath, indexingKeyName),
 			QueryKeyFile:    fmt.Sprintf("%s/%s", embeddingKeyFilePath, queryKeyName),
 		}
@@ -819,16 +847,29 @@ func (r *MongoDBSearchReconcileHelper) ensureEmbeddingConfig(ctx context.Context
 		// Once we start supporting multiple mongot instances, we need to figure this out and then set here.
 		config.Embedding.IsAutoEmbeddingViewWriter = &autoEmbeddingViewWriterTrue
 
-		if r.mdbSearch.Spec.AutoEmbedding.ProviderEndpoint != "" {
-			config.Embedding.ProviderEndpoint = r.mdbSearch.Spec.AutoEmbedding.ProviderEndpoint
+		if ae.ProviderEndpoint != "" {
+			config.Embedding.ProviderEndpoint = ae.ProviderEndpoint
 		}
 	}
-	readOnlyByOwnerPermission := int32(400)
-	apiKeyVolume := statefulset.CreateVolumeFromSecret(embeddingKeyVolumeName, r.mdbSearch.Spec.AutoEmbedding.EmbeddingModelAPIKeySecret.Name, statefulset.WithSecretDefaultMode(&readOnlyByOwnerPermission))
-	apiKeyVolumeMount := statefulset.CreateVolumeMount(embeddingKeyVolumeName, apiKeysTempVolumeMount, statefulset.WithReadOnly(true))
 
 	emptyDirVolume := statefulset.CreateVolumeFromEmptyDir(apiKeysTempVolumeName)
 	emptyDirVolumeMount := statefulset.CreateVolumeMount(apiKeysTempVolumeName, embeddingKeyFilePath)
+
+	if !hasAPIKeySecret {
+		// Internal VoyageAI endpoint: no user secret. The in-cluster VoyageAI server
+		// authenticates at the network layer and ignores API keys, but mongot still
+		// requires the key files to exist. Write placeholder files into the emptyDir.
+		stsModification := statefulset.WithPodSpecTemplate(podtemplatespec.Apply(
+			podtemplatespec.WithVolume(emptyDirVolume),
+			podtemplatespec.WithVolumeMounts(MongotContainerName, emptyDirVolumeMount),
+			podtemplatespec.WithContainer(MongotContainerName, setupMongotContainerArgsForFakeAPIKeys()),
+		))
+		return mongotModification, stsModification, nil
+	}
+
+	readOnlyByOwnerPermission := int32(400)
+	apiKeyVolume := statefulset.CreateVolumeFromSecret(embeddingKeyVolumeName, ae.EmbeddingModelAPIKeySecret.Name, statefulset.WithSecretDefaultMode(&readOnlyByOwnerPermission))
+	apiKeyVolumeMount := statefulset.CreateVolumeMount(embeddingKeyVolumeName, apiKeysTempVolumeMount, statefulset.WithReadOnly(true))
 
 	stsModification := statefulset.WithPodSpecTemplate(podtemplatespec.Apply(
 		podtemplatespec.WithVolume(apiKeyVolume),
@@ -841,6 +882,63 @@ func (r *MongoDBSearchReconcileHelper) ensureEmbeddingConfig(ctx context.Context
 		}),
 	))
 	return mongotModification, stsModification, nil
+}
+
+// isInternalVoyageAIEndpoint reports whether the given provider endpoint URL points
+// at an in-cluster VoyageAI Service (ai.mongodb.com) managed by this operator. The
+// host is parsed into a Service name/namespace (<svc>[.<ns>[.svc...]]) and the
+// backing Service is checked for the VoyageAI operator labels. A non-cluster host,
+// a missing Service, or a Service without those labels is treated as external.
+func (r *MongoDBSearchReconcileHelper) isInternalVoyageAIEndpoint(ctx context.Context, endpoint string) (bool, error) {
+	if endpoint == "" {
+		return false, nil
+	}
+	u, err := url.Parse(endpoint)
+	if err != nil || u.Hostname() == "" {
+		return false, nil
+	}
+	host := u.Hostname()
+	if net.ParseIP(host) != nil {
+		return false, nil
+	}
+
+	// The host is assumed to be cluster-internal Service DNS of the form
+	// <svc>[.<ns>[.svc[.cluster.local]]]. A bare name resolves to this resource's
+	// namespace. External hostnames (e.g. api.voyageai.com) fall through to the
+	// Service lookup below and are rejected as not-found / not VoyageAI-labelled.
+	parts := strings.Split(host, ".")
+	svcName := parts[0]
+	svcNamespace := r.mdbSearch.Namespace
+	if len(parts) >= 2 {
+		svcNamespace = parts[1]
+	}
+
+	svc := &corev1.Service{}
+	if err := r.client.Get(ctx, client.ObjectKey{Name: svcName, Namespace: svcNamespace}, svc); err != nil {
+		if apierrors.IsNotFound(err) {
+			return false, nil
+		}
+		return false, xerrors.Errorf("failed to resolve embedding provider Service %s/%s: %w", svcNamespace, svcName, err)
+	}
+
+	return svc.Labels[nameLabelKey] == voyageAILabelValue &&
+		svc.Labels[managedByLabelKey] == operatorLabelValue, nil
+}
+
+// setupMongotContainerArgsForFakeAPIKeys writes placeholder embedding key files
+// for the internal-VoyageAI case. The in-cluster VoyageAI server ignores API keys
+// (it authenticates at the network layer), but mongot fails to bootstrap unless the
+// key files exist, so the operator fabricates them with 0400 permissions.
+func setupMongotContainerArgsForFakeAPIKeys() container.Modification {
+	return prependCommand(fakeAPIKeysCommand(embeddingKeyFilePath))
+}
+
+func fakeAPIKeysCommand(destFilePath string) string {
+	return fmt.Sprintf(`
+printf 'internal' > %[1]s/%[2]s
+printf 'internal' > %[1]s/%[3]s
+chmod 0400 %[1]s/%[2]s %[1]s/%[3]s
+`, destFilePath, queryKeyName, indexingKeyName)
 }
 
 func setupMongotContainerArgsForAPIKeys() container.Modification {
