@@ -640,7 +640,7 @@ func TestEnsureEmbeddingConfig_InternalVoyageAI_NoSecretRequired(t *testing.T) {
 	})
 	// The Service backing the endpoint is an operator-managed VoyageAI service.
 	fakeClient := newTestFakeClient(search, voyageAIService("voyage-embedding-svc", "mongodb"))
-	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, OperatorSearchConfig{SearchVersion: "0.60.0"})
+	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, OperatorSearchConfig{SearchVersion: "0.60.0"}, nil, nil)
 
 	mongotModif, stsModif, err := helper.ensureEmbeddingConfig(ctx, nil)
 	require.NoError(t, err)
@@ -699,7 +699,7 @@ func TestEnsureEmbeddingConfig_SecretRequiredForNonInternal(t *testing.T) {
 				s.Spec.AutoEmbedding = &searchv1.EmbeddingConfig{ProviderEndpoint: tc.endpoint}
 			})
 			fakeClient := newTestFakeClient(append([]client.Object{search}, tc.objects...)...)
-			helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, OperatorSearchConfig{SearchVersion: "0.60.0"})
+			helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, OperatorSearchConfig{SearchVersion: "0.60.0"}, nil, nil)
 
 			_, _, err := helper.ensureEmbeddingConfig(context.TODO(), nil)
 			require.Error(t, err)
