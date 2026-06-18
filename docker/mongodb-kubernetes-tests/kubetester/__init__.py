@@ -477,7 +477,7 @@ def try_load(resource: CustomObject) -> bool:
     return True
 
 
-def wait_for_webhook(namespace, retries=5, delay=5, service_name="operator-webhook"):
+def wait_for_webhook(namespace, retries=20, delay=10, service_name="operator-webhook"):
     webhook_api = client.AdmissionregistrationV1Api()
     core_api = client.CoreV1Api()
 
@@ -486,7 +486,19 @@ def wait_for_webhook(namespace, retries=5, delay=5, service_name="operator-webho
             core_api.read_namespaced_service(service_name, namespace)
 
             # make sure the validating_webhook is installed.
-            webhook_api.read_validating_webhook_configuration("mdbpolicy.mongodb.com")
+            wh = webhook_api.read_validating_webhook_configuration("mdbpolicy.mongodb.com")
+
+            # Wait for the caBundle to be injected (cert-manager injects it asynchronously).
+            # Without a populated caBundle the webhook server won't accept connections yet.
+            ca_bundle_ready = any(
+                w.client_config.ca_bundle for w in (wh.webhooks or []) if w.client_config
+            )
+            if not ca_bundle_ready:
+                raise kubernetes.client.ApiException(status=503, reason="caBundle not yet injected")
+
+            # Extra stabilization delay: the TLS certificate may still be loading into
+            # the webhook server's listener even after the caBundle is populated.
+            time.sleep(5)
             print("Webhook is ready.")
             return True
         except kubernetes.client.ApiException as e:
