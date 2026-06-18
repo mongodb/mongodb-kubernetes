@@ -2776,6 +2776,8 @@ spec:
                 type: integer
               phase:
                 type: string
+              projectId:
+                type: string
               pvc:
                 items:
                   properties:
@@ -4087,6 +4089,10 @@ spec:
                     description: |-
                       EmbeddingModelAPIKeySecret references a Secret holding the embedding model's API keys.
                       The Secret must contain two keys: query-key and indexing-key.
+                      It may be omitted only when ProviderEndpoint points to the Kubernetes Service
+                      exposing the self-hosted Voyage AI embedding model managed by this operator. For any
+                      other endpoint the secret remains required; the operator validates this at
+                      reconcile time.
                     properties:
                       name:
                         default: ""
@@ -4103,8 +4109,6 @@ spec:
                     description: ProviderEndpoint is the URL of the embedding model
                       service.
                     type: string
-                required:
-                - embeddingModelAPIKeySecret
                 type: object
               clusters:
                 description: |-
@@ -5047,6 +5051,8 @@ spec:
               phase:
                 type: string
               project:
+                type: string
+              projectId:
                 type: string
               pvc:
                 items:
@@ -6949,6 +6955,8 @@ spec:
                     format: int64
                     type: integer
                   phase:
+                    type: string
+                  projectId:
                     type: string
                   pvc:
                     items:
