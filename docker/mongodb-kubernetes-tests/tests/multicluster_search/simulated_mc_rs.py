@@ -574,7 +574,7 @@ def test_state_configmap_mapping_persisted(
     namespace: str,
     per_cluster_mdbs_search: List[Tuple[MultiClusterClient, MongoDBSearch]],
 ):
-    """Each cluster's `{mdbs}-state` ConfigMap pins clusterMapping[thisCluster]==thisIndex
+    """Each cluster's `{mdbs}-search-state` ConfigMap pins clusterMapping[thisCluster]==thisIndex
     and must hold ONLY the local entry — it must not leak the foreign cluster's name.
     """
     assert_state_configmap_local_mapping(namespace, per_cluster_mdbs_search, MDBS_RESOURCE_NAME)
