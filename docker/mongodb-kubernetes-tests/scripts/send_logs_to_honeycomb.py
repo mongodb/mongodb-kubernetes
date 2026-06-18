@@ -82,9 +82,15 @@ def _post_batch(events: list[dict], api_key: str, dry_run: bool) -> None:
         },
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        body = resp.read().decode()
-        log.info("Honeycomb batch response %d: %s", resp.status, body[:200])
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            body = resp.read().decode()
+            log.info("Honeycomb batch response %d: %s", resp.status, body[:200])
+    except urllib.error.HTTPError as e:
+        body = e.read().decode()
+        log.warning("Honeycomb batch HTTP %d: %s (key prefix: %s...)", e.code, body[:200], api_key[:6])
+    except Exception as e:
+        log.warning("Honeycomb batch failed: %s", e)
 
 
 # ---------------------------------------------------------------------------
