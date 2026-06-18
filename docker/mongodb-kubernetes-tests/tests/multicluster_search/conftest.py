@@ -264,12 +264,16 @@ def build_per_cluster_search_crs(
     member_cluster_clients: List[MultiClusterClient],
     mdbs_resource_name: str,
     mongot_replicas: int,
-    external_hostname_template: str,
+    external_hostname_for_cluster: Callable[[int], str],
     source_external: dict,
 ) -> List[Tuple[MultiClusterClient, MongoDBSearch]]:
     """Build the SAME MongoDBSearch CR (spec.clusters lists all clusters) against each
     member's API; each simulated operator projects to its own slice. `source_external`
     carries the variant-specific spec.source.external block (hostAndPorts vs shardedCluster).
+
+    `external_hostname_for_cluster(cluster_index)` returns that cluster's literal managed-LB
+    externalHostname; #1238 moved the LB under spec.clusters[] and dropped the per-cluster
+    hostname placeholder, so each cluster needs a distinct literal (validation rejects duplicates).
     """
     results: List[Tuple[MultiClusterClient, MongoDBSearch]] = []
 
@@ -281,7 +285,7 @@ def build_per_cluster_search_crs(
             "loadBalancer": {
                 "managed": {
                     "replicas": ENVOY_LB_REPLICAS,
-                    "externalHostname": external_hostname_template.replace("{clusterIndex}", str(_idx(mcc))),
+                    "externalHostname": external_hostname_for_cluster(_idx(mcc)),
                 },
             },
         }
