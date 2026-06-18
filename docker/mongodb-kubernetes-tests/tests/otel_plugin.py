@@ -13,9 +13,6 @@ from opentelemetry import trace
 from opentelemetry.sdk.trace import ReadableSpan, Span, SpanProcessor, TracerProvider
 from pytest_opentelemetry.instrumentation import OpenTelemetryPlugin
 
-_LOG_INGEST_TRACER = trace.get_tracer("mck-log-ingest")
-
-
 def _emit_log_events() -> None:
     """Emit kube Warning events and agent health as OTel spans using the existing pipeline."""
     namespace = os.getenv("NAMESPACE", "")
@@ -29,6 +26,8 @@ def _emit_log_events() -> None:
 
 
 def _emit_kube_warning_events(namespace: str, task_id: str) -> None:
+    # Get tracer lazily — the provider is configured after module import in pytest_sessionstart
+    tracer = trace.get_tracer("mck-log-ingest")
     result = subprocess.run(
         ["kubectl", "get", "events", "-n", namespace, "-o", "json",
          "--field-selector", "type=Warning"],
@@ -44,7 +43,7 @@ def _emit_kube_warning_events(namespace: str, task_id: str) -> None:
             continue  # too noisy, no signal
         msg = item.get("message", "")
         obj = item.get("involvedObject", {})
-        with _LOG_INGEST_TRACER.start_as_current_span("kube_warning_event") as span:
+        with tracer.start_as_current_span("kube_warning_event") as span:
             span.set_attribute("source", "kube_events")
             span.set_attribute("reason", reason)
             span.set_attribute("message", msg)
