@@ -1,4 +1,7 @@
+import json
 import logging
+import os
+import subprocess
 from typing import Any, Optional
 
 import pytest
@@ -9,6 +12,47 @@ from _pytest.runner import CallInfo
 from opentelemetry import trace
 from opentelemetry.sdk.trace import ReadableSpan, Span, SpanProcessor, TracerProvider
 from pytest_opentelemetry.instrumentation import OpenTelemetryPlugin
+
+_LOG_INGEST_TRACER = trace.get_tracer("mck-log-ingest")
+
+
+def _emit_log_events() -> None:
+    """Emit kube Warning events and agent health as OTel spans using the existing pipeline."""
+    namespace = os.getenv("NAMESPACE", "")
+    task_id = os.getenv("TASK_ID", "")
+    if not namespace or not task_id:
+        return
+    try:
+        _emit_kube_warning_events(namespace, task_id)
+    except Exception as e:
+        logging.getLogger(__name__).warning("log ingest: kube events failed: %s", e)
+
+
+def _emit_kube_warning_events(namespace: str, task_id: str) -> None:
+    result = subprocess.run(
+        ["kubectl", "get", "events", "-n", namespace, "-o", "json",
+         "--field-selector", "type=Warning"],
+        capture_output=True, text=True, timeout=10,
+    )
+    if result.returncode != 0:
+        return
+    data = json.loads(result.stdout)
+    items = data.get("items", [])
+    for item in items:
+        reason = item.get("reason", "")
+        if reason in ("Unhealthy", "ProbeWarning"):
+            continue  # too noisy, no signal
+        msg = item.get("message", "")
+        obj = item.get("involvedObject", {})
+        with _LOG_INGEST_TRACER.start_as_current_span("kube_warning_event") as span:
+            span.set_attribute("source", "kube_events")
+            span.set_attribute("reason", reason)
+            span.set_attribute("message", msg)
+            span.set_attribute("involved_object_kind", obj.get("kind", ""))
+            span.set_attribute("involved_object_name", obj.get("name", ""))
+            span.set_attribute("count", item.get("count", 1))
+            span.set_attribute("evergreen.task.id", task_id)
+            span.set_attribute("DROP_SPAN", False)
 
 
 # Fixture spans that carry no failure signal and are generated in large numbers.
@@ -70,6 +114,10 @@ class EnhancedOpenTelemetryPlugin(OpenTelemetryPlugin):
     def pytest_sessionfinish(self, session: Session, exitstatus: Optional[int] = None) -> None:
         # Add the exit status as an attribute if available
         self.session_span.set_attribute("mck.pytest.overall_exit_status", int(session.exitstatus))
+
+        # Emit structured log events (kube Warning events + agent health) as spans
+        # before the OTel flush so they ride the existing auth pipeline.
+        _emit_log_events()
 
         # Call the parent implementation
         super().pytest_sessionfinish(session)
