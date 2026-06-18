@@ -802,7 +802,7 @@ def test_state_configmap_mapping_persisted(
     namespace: str,
     per_cluster_mdbs_search: List[Tuple[MultiClusterClient, MongoDBSearch]],
 ):
-    """Each cluster's `{mdbs}-state` ConfigMap pins clusterMapping[thisCluster]==thisIndex.
+    """Each cluster's `{mdbs}-search-state` ConfigMap pins clusterMapping[thisCluster]==thisIndex.
     Simulated-MC narrows spec.clusters[] (LocalizeToCluster) so the mapping is LOCAL-only —
     this cluster's entry, never the foreign cluster's name.
     """
