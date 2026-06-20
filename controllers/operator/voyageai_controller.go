@@ -52,6 +52,13 @@ const (
 	// reference a given Secret, so the map-func can look up dependents in O(1)
 	// when a watched Secret changes.
 	voyageAITLSCertSecretIndex = ".spec.security.tls.certificateKeySecretRef.name"
+
+	// defaultVoyageAIImageRepository is the registry path used when the operator
+	// is not configured with the MDB_VOYAGEAI_REPO_URL environment variable. It
+	// is credential-protected; the pull secret configured via the operator's
+	// IMAGE_PULL_SECRETS environment variable is attached to VoyageAI pods.
+	// Airgapped or private deployments point MDB_VOYAGEAI_REPO_URL at a mirror.
+	defaultVoyageAIImageRepository = "quay.io/mongodb/voyageai"
 )
 
 type VoyageAIReconciler struct {
@@ -398,7 +405,8 @@ func (r *VoyageAIReconciler) ensureService(ctx context.Context, vai *vaiv1.Voyag
 }
 
 func voyageAIContainerImage(vai *vaiv1.VoyageAI) string {
-	return fmt.Sprintf("%s/%s:%s", vai.Spec.Repository, vai.Spec.Model, vai.Spec.Version)
+	repository := env.ReadOrDefault(util.VoyageAIRepoURLEnv, defaultVoyageAIImageRepository)
+	return fmt.Sprintf("%s/%s:%s", repository, vai.Spec.Model, vai.Spec.Version)
 }
 
 func voyageAILabels(vai *vaiv1.VoyageAI) map[string]string {

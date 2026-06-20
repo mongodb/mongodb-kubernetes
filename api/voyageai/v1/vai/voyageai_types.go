@@ -55,19 +55,13 @@ type VoyageAISpec struct {
 	// +kubebuilder:validation:Required
 	Model VoyageAIModel `json:"model"`
 
-	// Version is the version (image tag) of the VoyageAI model image.
+	// Version is the version (image tag) of the VoyageAI model image. The full
+	// image is composed as <repository>/<model>:<version>, where the repository
+	// is configured operator-wide via the MDB_VOYAGEAI_REPO_URL environment
+	// variable (defaulting to quay.io/mongodb/voyageai).
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinLength=1
 	Version string `json:"version"`
-
-	// Repository is the registry path the model image is pulled from. The full
-	// image is composed as <repository>/<model>:<version>. It defaults to
-	// quay.io/mongodb/voyageai, which is credential-protected; configure the
-	// operator's IMAGE_PULL_SECRETS so pods can pull it. Override this to mirror
-	// the image into a private or airgapped registry.
-	// +optional
-	// +kubebuilder:default=quay.io/mongodb/voyageai
-	Repository string `json:"repository,omitempty"`
 
 	// Replicas is the number of VoyageAI pods to deploy.
 	// +optional

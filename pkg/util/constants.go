@@ -226,6 +226,9 @@ const (
 	SearchVersionEnv = "MDB_SEARCH_VERSION"
 	EnvoyImageEnv    = "MDB_ENVOY_IMAGE"
 
+	// VoyageAI environment variables
+	VoyageAIRepoURLEnv = "MDB_VOYAGEAI_REPO_URL"
+
 	// Different default configuration values
 	DefaultMongodStorageSize           = "16G"
 	DefaultConfigSrvStorageSize        = "5G"

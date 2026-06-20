@@ -30,9 +30,6 @@ func newVoyageAI(name, namespace string, model vaiv1.VoyageAIModel, version stri
 		Spec: vaiv1.VoyageAISpec{
 			Model:   model,
 			Version: version,
-			// Mirrors the spec.repository CRD default, which the fake client does
-			// not apply for us.
-			Repository: "quay.io/mongodb/voyageai",
 		},
 	}
 }
@@ -847,32 +844,33 @@ func TestVoyageAI_NoNodeAffinity(t *testing.T) {
 
 func TestVoyageAI_ContainerImage(t *testing.T) {
 	tests := []struct {
-		name       string
-		model      vaiv1.VoyageAIModel
-		version    string
-		repository string
-		expected   string
+		name     string
+		model    vaiv1.VoyageAIModel
+		version  string
+		repoEnv  string // value of MDB_VOYAGEAI_REPO_URL; empty means unset
+		expected string
 	}{
 		{
-			name:       "quay.io default repository",
-			model:      vaiv1.VoyageAIModelRerank25,
-			version:    "3.0.0",
-			repository: "quay.io/mongodb/voyageai",
-			expected:   "quay.io/mongodb/voyageai/rerank-2.5:3.0.0",
+			name:     "defaults to quay.io when the repo env var is unset",
+			model:    vaiv1.VoyageAIModelRerank25,
+			version:  "3.0.0",
+			expected: "quay.io/mongodb/voyageai/rerank-2.5:3.0.0",
 		},
 		{
-			name:       "repository overrides the default registry for airgapped mirrors",
-			model:      vaiv1.VoyageAIModelVoyage4,
-			version:    "1.0.0",
-			repository: "myregistry.internal/voyageai",
-			expected:   "myregistry.internal/voyageai/voyage-4:1.0.0",
+			name:     "MDB_VOYAGEAI_REPO_URL overrides the registry for airgapped mirrors",
+			model:    vaiv1.VoyageAIModelVoyage4,
+			version:  "1.0.0",
+			repoEnv:  "myregistry.internal/voyageai",
+			expected: "myregistry.internal/voyageai/voyage-4:1.0.0",
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			if tc.repoEnv != "" {
+				t.Setenv(util.VoyageAIRepoURLEnv, tc.repoEnv)
+			}
 			vai := newVoyageAI("vai", mock.TestNamespace, tc.model, tc.version)
-			vai.Spec.Repository = tc.repository
 			assert.Equal(t, tc.expected, voyageAIContainerImage(vai))
 		})
 	}
