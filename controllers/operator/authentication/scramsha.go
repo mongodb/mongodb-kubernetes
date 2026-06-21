@@ -65,7 +65,7 @@ func (s *automationConfigScramSha) EnableDeploymentAuthentication(conn om.Connec
 	}, log)
 }
 
-func (s *automationConfigScramSha) IsAgentAuthenticationConfigured(ac *om.AutomationConfig, _ Options) bool {
+func (s *automationConfigScramSha) IsAgentAuthenticationConfigured(ac *om.AutomationConfig, opts Options) bool {
 	if ac.Auth.Disabled {
 		return false
 	}
@@ -74,7 +74,7 @@ func (s *automationConfigScramSha) IsAgentAuthenticationConfigured(ac *om.Automa
 		return false
 	}
 
-	if ac.Auth.AutoUser != util.AutomationAgentName || (ac.Auth.AutoPwd == "" || ac.Auth.AutoPwd == util.MergoDelete) {
+	if ac.Auth.AutoUser != opts.AutoUser || (ac.Auth.AutoPwd == "" || ac.Auth.AutoPwd == util.MergoDelete) {
 		return false
 	}
 
