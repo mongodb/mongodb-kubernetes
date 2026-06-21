@@ -199,10 +199,13 @@ spec:
               model:
                 description: Model is the VoyageAI model to deploy.
                 enum:
+                - voyage-4-large
                 - voyage-4
                 - voyage-4-lite
                 - rerank-2.5
                 - rerank-2.5-lite
+                - voyage-context-3
+                - voyage-code-3
                 type: string
               nodeAffinity:
                 description: NodeAffinity configures node affinity scheduling rules
