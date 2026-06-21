@@ -64,7 +64,7 @@ func newVoyageAIReconcilerForTest(objects ...client.Object) (*VoyageAIReconciler
 		builder.WithObjects(objects...)
 	}
 	fakeClient := builder.Build()
-	return newVoyageAIReconciler(fakeClient), fakeClient
+	return newVoyageAIReconciler(fakeClient, defaultVoyageAIImageRepository), fakeClient
 }
 
 func markDeploymentReady(ctx context.Context, t *testing.T, c client.Client, name, namespace string) {
@@ -963,11 +963,13 @@ func TestVoyageAI_ContainerImage(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			repo := defaultVoyageAIImageRepository
 			if tc.repoEnv != "" {
-				t.Setenv(util.VoyageAIRepoURLEnv, tc.repoEnv)
+				repo = tc.repoEnv
 			}
+			r := &VoyageAIReconciler{imageRepository: repo}
 			vai := newVoyageAI("vai", mock.TestNamespace, tc.model, tc.version)
-			assert.Equal(t, tc.expected, voyageAIContainerImage(vai))
+			assert.Equal(t, tc.expected, r.voyageAIContainerImage(vai))
 		})
 	}
 }

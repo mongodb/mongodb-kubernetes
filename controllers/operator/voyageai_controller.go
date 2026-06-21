@@ -8,7 +8,6 @@ import (
 
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/types"
@@ -22,6 +21,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 
@@ -63,12 +63,14 @@ const (
 )
 
 type VoyageAIReconciler struct {
-	kubeClient kubernetesClient.Client
+	kubeClient      kubernetesClient.Client
+	imageRepository string
 }
 
-func newVoyageAIReconciler(client client.Client) *VoyageAIReconciler {
+func newVoyageAIReconciler(client client.Client, imageRepository string) *VoyageAIReconciler {
 	return &VoyageAIReconciler{
-		kubeClient: kubernetesClient.NewClient(client),
+		kubeClient:      kubernetesClient.NewClient(client),
+		imageRepository: imageRepository,
 	}
 }
 
@@ -127,7 +129,7 @@ func (r *VoyageAIReconciler) Reconcile(ctx context.Context, request reconcile.Re
 }
 
 func (r *VoyageAIReconciler) ensureDeployment(ctx context.Context, vai *vaiv1.VoyageAI, log *zap.SugaredLogger) (*appsv1.Deployment, error) {
-	image := voyageAIContainerImage(vai)
+	image := r.voyageAIContainerImage(vai)
 	labels := voyageAILabels(vai)
 	podLabels := voyageAIPodLabels(vai)
 	tlsEnabled := vai.IsTLSConfigured()
@@ -432,9 +434,8 @@ func (r *VoyageAIReconciler) ensureService(ctx context.Context, vai *vaiv1.Voyag
 	return nil
 }
 
-func voyageAIContainerImage(vai *vaiv1.VoyageAI) string {
-	repository := env.ReadOrDefault(util.VoyageAIRepoURLEnv, defaultVoyageAIImageRepository)
-	return fmt.Sprintf("%s/%s:%s", repository, vai.Spec.Model, vai.Spec.Version)
+func (r *VoyageAIReconciler) voyageAIContainerImage(vai *vaiv1.VoyageAI) string {
+	return fmt.Sprintf("%s/%s:%s", r.imageRepository, vai.Spec.Model, vai.Spec.Version)
 }
 
 func voyageAILabels(vai *vaiv1.VoyageAI) map[string]string {
@@ -479,8 +480,8 @@ func msToSecondsFloat(ms int32) string {
 	return fmt.Sprintf("%.2f", float64(ms)/1000.0)
 }
 
-func AddVoyageAIController(ctx context.Context, mgr manager.Manager) error {
-	r := newVoyageAIReconciler(mgr.GetClient())
+func AddVoyageAIController(ctx context.Context, mgr manager.Manager, imageRepository string) error {
+	r := newVoyageAIReconciler(mgr.GetClient(), imageRepository)
 
 	// Index VoyageAI resources by the name of the TLS cert Secret they reference,
 	// so the map-func can enqueue dependents when that Secret changes.
