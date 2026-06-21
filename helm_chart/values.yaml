@@ -234,11 +234,10 @@ search:
   version: 0.64.0
   envoyImage: envoyproxy/envoy:v1.37-latest
 
+# VoyageAI settings
 voyageai:
   # Base registry path for VoyageAI model images. The full image is constructed as
   # {voyageai.repo}/{VoyageAI.spec.model}:{VoyageAI.spec.version}. This repository is
   # credential-protected; provide a pull secret to the operator via IMAGE_PULL_SECRETS.
   # Override it to mirror the images into a private or airgapped registry.
   repo: quay.io/mongodb/voyageai
-
-# VoyageAI settings

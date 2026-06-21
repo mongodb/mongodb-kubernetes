@@ -226,11 +226,7 @@ func (in *VoyageAISpec) DeepCopyInto(out *VoyageAISpec) {
 	*out = *in
 	out.Server = in.Server
 	in.Security.DeepCopyInto(&out.Security)
-	if in.Metrics != nil {
-		in, out := &in.Metrics, &out.Metrics
-		*out = new(MetricsConfig)
-		(*in).DeepCopyInto(*out)
-	}
+	in.Metrics.DeepCopyInto(&out.Metrics)
 	in.DataParallel.DeepCopyInto(&out.DataParallel)
 	if in.ResourceRequirements != nil {
 		in, out := &in.ResourceRequirements, &out.ResourceRequirements

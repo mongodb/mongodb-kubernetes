@@ -80,7 +80,8 @@ type VoyageAISpec struct {
 
 	// Metrics configures the Prometheus metrics endpoint exposed by the server.
 	// +optional
-	Metrics *MetricsConfig `json:"metrics,omitempty"`
+	// +kubebuilder:default={}
+	Metrics MetricsConfig `json:"metrics,omitempty"`
 
 	// DataParallel configures data parallel processing settings.
 	// +optional
@@ -214,6 +215,7 @@ type BatchingConfig struct {
 	// Strategy is the batching strategy to use.
 	// +optional
 	// +kubebuilder:validation:Enum=simple;time_window
+	// +kubebuilder:default=simple
 	Strategy string `json:"strategy,omitempty"`
 
 	// MaxWaitTimeMs is the maximum time in milliseconds to wait for a batch to fill.

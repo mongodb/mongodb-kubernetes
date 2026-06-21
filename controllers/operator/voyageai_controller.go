@@ -8,6 +8,7 @@ import (
 
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/types"
@@ -87,6 +88,22 @@ func (r *VoyageAIReconciler) Reconcile(ctx context.Context, request reconcile.Re
 		return commoncontroller.UpdateStatus(ctx, r.kubeClient, vai, workflow.Failed(xerrors.Errorf("validation failed: %w", err)), log)
 	}
 
+	// When TLS is configured the Deployment mounts the referenced Secret as a
+	// volume. If that Secret is missing, the pods hang in ContainerCreating with
+	// no actionable signal in the resource status. Check up front and surface a
+	// clear Pending message; the Secret watch re-triggers reconcile once it
+	// appears.
+	if vai.IsTLSConfigured() {
+		secretName := vai.Spec.Security.TLS.CertificateKeySecretRef.Name
+		secret := &corev1.Secret{}
+		err := r.kubeClient.Get(ctx, types.NamespacedName{Name: secretName, Namespace: vai.Namespace}, secret)
+		if apierrors.IsNotFound(err) {
+			return commoncontroller.UpdateStatus(ctx, r.kubeClient, vai, workflow.Pending("TLS certificate secret %q not found", secretName), log)
+		} else if err != nil {
+			return commoncontroller.UpdateStatus(ctx, r.kubeClient, vai, workflow.Failed(xerrors.Errorf("failed to get TLS certificate secret %q: %w", secretName, err)), log)
+		}
+	}
+
 	dep, err := r.ensureDeployment(ctx, vai, log)
 	if err != nil {
 		return commoncontroller.UpdateStatus(ctx, r.kubeClient, vai, workflow.Failed(xerrors.Errorf("failed to ensure Deployment: %w", err)), log)
@@ -98,13 +115,15 @@ func (r *VoyageAIReconciler) Reconcile(ctx context.Context, request reconcile.Re
 
 	log.Info("VoyageAI reconciliation complete")
 
-	versionOption := vaiv1.NewVoyageAIVersionOption(vai.Spec.Version)
-
+	// Report status.version only once the Deployment is fully rolled out, mirroring
+	// the MongoDBSearch controller, which attaches its version option after the
+	// StatefulSet readiness check passes. This keeps status.version reflecting the
+	// running version rather than the desired one while a rollout is in progress.
 	if deploymentStatus := deployment.GetDeploymentStatus(ctx, vai.Namespace, vai.Name, dep.GetGeneration(), r.kubeClient); !deploymentStatus.IsOK() {
-		return commoncontroller.UpdateStatus(ctx, r.kubeClient, vai, deploymentStatus, log, versionOption)
+		return commoncontroller.UpdateStatus(ctx, r.kubeClient, vai, deploymentStatus, log)
 	}
 
-	return commoncontroller.UpdateStatus(ctx, r.kubeClient, vai, workflow.OK(), log, versionOption)
+	return commoncontroller.UpdateStatus(ctx, r.kubeClient, vai, workflow.OK(), log, vaiv1.NewVoyageAIVersionOption(vai.Spec.Version))
 }
 
 func (r *VoyageAIReconciler) ensureDeployment(ctx context.Context, vai *vaiv1.VoyageAI, log *zap.SugaredLogger) (*appsv1.Deployment, error) {
@@ -121,7 +140,7 @@ func (r *VoyageAIReconciler) ensureDeployment(ctx context.Context, vai *vaiv1.Vo
 	containerPorts := []corev1.ContainerPort{
 		{Name: "http", ContainerPort: vai.Spec.Server.Port, Protocol: corev1.ProtocolTCP},
 	}
-	if vai.Spec.Metrics != nil && vai.Spec.Metrics.Port != nil {
+	if vai.Spec.Metrics.Port != nil {
 		containerPorts = append(containerPorts, corev1.ContainerPort{
 			Name:          "metrics",
 			ContainerPort: *vai.Spec.Metrics.Port,
@@ -220,6 +239,12 @@ func (r *VoyageAIReconciler) ensureDeployment(ctx context.Context, vai *vaiv1.Vo
 		deployment.WithLabels(labels),
 		deployment.WithMatchLabels(podLabels),
 		deployment.WithReplicas(vai.Spec.Replicas),
+		// VoyageAI pods each require a dedicated GPU (nvidia.com/gpu: 1). The default
+		// RollingUpdate strategy surges a new pod before terminating the old one, so
+		// on GPU-constrained nodes the new pod cannot schedule (no free GPU) and the
+		// rollout wedges. Recreate tears down old pods first, freeing GPUs for the
+		// replacement, at the cost of brief downtime during upgrades.
+		deployment.WithStrategyType(appsv1.RecreateDeploymentStrategyType),
 		deployment.WithPodSpecTemplate(podtemplatespec.Apply(podTemplateMods...)),
 	}
 
@@ -276,8 +301,9 @@ func buildEnvVars(spec *vaiv1.VoyageAISpec, tlsEnabled bool) []corev1.EnvVar {
 		)
 	}
 
-	// Metrics config
-	if spec.Metrics != nil {
+	// Metrics config. Metrics is a value (not a pointer) with a defaulted empty
+	// object, so it is always present and these env vars are always emitted.
+	{
 		m := spec.Metrics
 		envs = append(envs,
 			corev1.EnvVar{Name: "SERVER__METRICS__ENABLED", Value: strconv.FormatBool(m.Enabled)},
@@ -370,7 +396,7 @@ func (r *VoyageAIReconciler) ensureService(ctx context.Context, vai *vaiv1.Voyag
 			TargetPort: intstr.FromInt32(vai.Spec.Server.Port),
 			Protocol:   corev1.ProtocolTCP,
 		})
-	if vai.Spec.Metrics != nil && vai.Spec.Metrics.Port != nil {
+	if vai.Spec.Metrics.Port != nil {
 		svcBuilder = svcBuilder.AddPort(&corev1.ServicePort{
 			Name:       "metrics",
 			Port:       *vai.Spec.Metrics.Port,
@@ -388,16 +414,14 @@ func (r *VoyageAIReconciler) ensureService(ctx context.Context, vai *vaiv1.Voyag
 	}
 
 	_, err := controllerutil.CreateOrUpdate(ctx, r.kubeClient, svc, func() error {
-		resourceVersion := svc.ResourceVersion
-		existingClusterIP := svc.Spec.ClusterIP
-		*svc = desired
-		svc.ResourceVersion = resourceVersion
-		// Preserve the assigned ClusterIP for non-headless Services.
-		// Kubernetes assigns a ClusterIP on creation and it is immutable.
-		// For headless Services (desired.Spec.ClusterIP == "None"), this is a no-op.
-		if desired.Spec.ClusterIP == "" && existingClusterIP != "" {
-			svc.Spec.ClusterIP = existingClusterIP
-		}
+		// Surgically set only the fields the operator owns, leaving Kubernetes-managed
+		// fields (ClusterIP, ResourceVersion) and any out-of-band labels/annotations
+		// intact. ClusterIP is assigned by Kubernetes on creation and is immutable, so
+		// we must never clobber it.
+		svc.Labels = desired.Labels
+		svc.Spec.Type = desired.Spec.Type
+		svc.Spec.Selector = desired.Spec.Selector
+		svc.Spec.Ports = desired.Spec.Ports
 		return controllerutil.SetOwnerReference(vai, svc, r.kubeClient.Scheme())
 	})
 	if err != nil {

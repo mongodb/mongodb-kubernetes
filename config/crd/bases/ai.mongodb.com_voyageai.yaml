@@ -76,6 +76,7 @@ spec:
                         format: int32
                         type: integer
                       strategy:
+                        default: simple
                         description: Strategy is the batching strategy to use.
                         enum:
                         - simple
@@ -165,6 +166,7 @@ spec:
                     type: integer
                 type: object
               metrics:
+                default: {}
                 description: Metrics configures the Prometheus metrics endpoint exposed
                   by the server.
                 properties:
