@@ -112,19 +112,19 @@ type ServerConfig struct {
 	// Timeout is the server request timeout in seconds.
 	// +optional
 	// +kubebuilder:validation:Minimum=1
-	// +kubebuilder:default=120
+	// +kubebuilder:default=30
 	Timeout int32 `json:"timeout,omitempty"`
 
 	// MaxRequests is the maximum number of requests before a worker is restarted.
 	// +optional
 	// +kubebuilder:validation:Minimum=0
-	// +kubebuilder:default=1000
+	// +kubebuilder:default=0
 	MaxRequests int32 `json:"maxRequests,omitempty"`
 
 	// MaxRequestsJitter is the jitter applied to MaxRequests.
 	// +optional
 	// +kubebuilder:validation:Minimum=0
-	// +kubebuilder:default=50
+	// +kubebuilder:default=0
 	MaxRequestsJitter int32 `json:"maxRequestsJitter,omitempty"`
 }
 
@@ -184,7 +184,7 @@ type DataParallelConfig struct {
 	// LoadBalancingStrategy is the strategy for distributing work across workers.
 	// +optional
 	// +kubebuilder:validation:Enum=round_robin;least_loaded;token_aware
-	// +kubebuilder:default=token_aware
+	// +kubebuilder:default=round_robin
 	LoadBalancingStrategy string `json:"loadBalancingStrategy,omitempty"`
 
 	// WorkerInitTimeoutSeconds is the timeout in seconds for worker initialization.
@@ -240,8 +240,9 @@ type HealthMonitoringConfig struct {
 	// +kubebuilder:default=3
 	MaxConsecutiveTimeouts int32 `json:"maxConsecutiveTimeouts,omitempty"`
 
-	// EnableActiveChecks controls whether active health checks are enabled. Nil means use default.
+	// EnableActiveChecks controls whether active health checks are enabled.
 	// +optional
+	// +kubebuilder:default=false
 	EnableActiveChecks *bool `json:"enableActiveChecks,omitempty"`
 
 	// ActiveCheckIntervalSeconds is the interval in seconds between active health checks.

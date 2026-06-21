@@ -110,8 +110,9 @@ spec:
                         format: int32
                         type: integer
                       enableActiveChecks:
+                        default: false
                         description: EnableActiveChecks controls whether active health
-                          checks are enabled. Nil means use default.
+                          checks are enabled.
                         type: boolean
                       maxConsecutiveTimeouts:
                         default: 3
@@ -133,7 +134,7 @@ spec:
                         type: integer
                     type: object
                   loadBalancingStrategy:
-                    default: token_aware
+                    default: round_robin
                     description: LoadBalancingStrategy is the strategy for distributing
                       work across workers.
                     enum:
@@ -502,14 +503,14 @@ spec:
                 description: Server configures the VoyageAI server settings.
                 properties:
                   maxRequests:
-                    default: 1000
+                    default: 0
                     description: MaxRequests is the maximum number of requests before
                       a worker is restarted.
                     format: int32
                     minimum: 0
                     type: integer
                   maxRequestsJitter:
-                    default: 50
+                    default: 0
                     description: MaxRequestsJitter is the jitter applied to MaxRequests.
                     format: int32
                     minimum: 0
@@ -522,7 +523,7 @@ spec:
                     minimum: 0
                     type: integer
                   timeout:
-                    default: 120
+                    default: 30
                     description: Timeout is the server request timeout in seconds.
                     format: int32
                     minimum: 1
