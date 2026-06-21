@@ -19,6 +19,8 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	vaiv1 "github.com/mongodb/mongodb-kubernetes/api/voyageai/v1/vai"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/podtemplatespec"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
@@ -267,6 +269,41 @@ func TestVoyageAI_DeploymentSpec_ExplicitPort(t *testing.T) {
 	require.Len(t, container.Ports, 1)
 	assert.Equal(t, int32(9090), container.Ports[0].ContainerPort)
 	assert.Equal(t, corev1.ProtocolTCP, container.Ports[0].Protocol)
+}
+
+func TestVoyageAI_DeploymentSpec_SecurityContext(t *testing.T) {
+	tests := []struct {
+		name                   string
+		managedSecurityContext string
+		wantDefault            bool
+	}{
+		{name: "operator managed", managedSecurityContext: "false", wantDefault: true},
+		{name: "platform managed", managedSecurityContext: "true", wantDefault: false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			t.Setenv(util.ManagedSecurityContextEnv, tc.managedSecurityContext)
+			vai := newVoyageAI("vai", mock.TestNamespace, vaiv1.VoyageAIModelVoyage4, "1.0.0")
+			reconciler, c := newVoyageAIReconcilerForTest(vai)
+
+			_, err := reconcileVoyageAI(ctx, t, reconciler, vai.Name, vai.Namespace)
+			require.NoError(t, err)
+
+			dep := getVoyageAIDeployment(ctx, t, c, vai)
+			cont := getVoyageAIContainer(dep)
+			if tc.wantDefault {
+				require.NotNil(t, dep.Spec.Template.Spec.SecurityContext)
+				assert.Equal(t, podtemplatespec.DefaultPodSecurityContext(), *dep.Spec.Template.Spec.SecurityContext)
+				require.NotNil(t, cont.SecurityContext)
+				assert.Equal(t, container.DefaultSecurityContext(), *cont.SecurityContext)
+			} else {
+				assert.Nil(t, dep.Spec.Template.Spec.SecurityContext)
+				assert.Nil(t, cont.SecurityContext)
+			}
+		})
+	}
 }
 
 func TestVoyageAI_HealthProbes(t *testing.T) {

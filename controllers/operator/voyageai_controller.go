@@ -129,10 +129,13 @@ func (r *VoyageAIReconciler) ensureDeployment(ctx context.Context, vai *vaiv1.Vo
 		})
 	}
 
+	configurePodSpecSecurityContext, configureContainerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
+
 	probePort := vai.Spec.Server.Port
 
 	containerMods := []container.Modification{
 		container.WithName("voyageai"),
+		configureContainerSecurityContext,
 		container.WithImage(image),
 		container.WithPorts(containerPorts),
 		container.WithEnvs(buildEnvVars(&vai.Spec, tlsEnabled)...),
@@ -161,6 +164,7 @@ func (r *VoyageAIReconciler) ensureDeployment(ctx context.Context, vai *vaiv1.Vo
 
 	podTemplateMods := []podtemplatespec.Modification{
 		podtemplatespec.WithPodLabels(podLabels),
+		configurePodSpecSecurityContext,
 		podtemplatespec.WithTolerations([]corev1.Toleration{
 			{
 				Key:      "nvidia.com/gpu",
