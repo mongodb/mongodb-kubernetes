@@ -75,8 +75,11 @@ type User struct {
 	// ConnectionStringSecretAnnotations is the annotations of the secret object created by the operator which exposes the connection strings for the user.
 	ConnectionStringSecretAnnotations map[string]string
 
-	// ConnectionStringDatabase is the database placed in the connection string URI path.
-	ConnectionStringDatabase string
+	// AuthSource is the database used to authenticate this user.
+	AuthSource string
+
+	// DefaultDatabase is the default database placed in the connection string URI path.
+	DefaultDatabase string
 
 	// ConnectionStringOptions contains connection string options for this user
 	// These options will be appended at the end of the connection string and
@@ -84,20 +87,34 @@ type User struct {
 	ConnectionStringOptions map[string]interface{}
 }
 
-// GetConnectionStringDatabase returns the database to place in the connection string URI path.
-// $external is an auth only pseudo database, so it never appears in the path.
-func (u User) GetConnectionStringDatabase() string {
-	if u.ConnectionStringDatabase == constants.ExternalDB {
-		return ""
+// GetPathDatabase returns the database to place in the connection string URI path.
+// Uses DefaultDatabase if set, otherwise falls back to Database for backward compatibility.
+func (u User) GetPathDatabase() string {
+	if u.DefaultDatabase != "" {
+		return u.DefaultDatabase
 	}
-	return u.ConnectionStringDatabase
+	return u.Database
+}
+
+// GetUserDatabase returns the database the user is created in (used in AutomationConfig).
+// Uses AuthSource if set, otherwise falls back to Database for backward compatibility.
+func (u User) GetUserDatabase() string {
+	if u.AuthSource != "" {
+		return u.AuthSource
+	}
+	return u.Database
+}
+
+// IsExternalAuth returns true if this user authenticates against an external database.
+func (u User) IsExternalAuth() bool {
+	return u.AuthSource == constants.ExternalDB || u.Database == constants.ExternalDB
 }
 
 func (u User) GetLoginString(password string) string {
-	if u.Database != constants.ExternalDB {
-		return stringutil.EncodeUserinfoComponent(u.Username) + ":" + stringutil.EncodeUserinfoComponent(password) + "@"
+	if u.AuthSource == constants.ExternalDB || u.Database == constants.ExternalDB {
+		return ""
 	}
-	return ""
+	return stringutil.EncodeUserinfoComponent(u.Username) + ":" + stringutil.EncodeUserinfoComponent(password) + "@"
 }
 
 // Configurable is an interface which any resource which can configure ScramSha authentication should implement.

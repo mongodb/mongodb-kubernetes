@@ -47,7 +47,7 @@ def ldap_user_mongodb(sharded_cluster: MongoDB, namespace: str, ldap_mongodb_use
     user = generic_user(
         namespace,
         username=ldap_mongodb_user_tls.username,
-        db="$external",
+        auth_source="$external", default_database="$external",
         mongodb_resource=sharded_cluster,
         password=ldap_mongodb_user_tls.password,
     )

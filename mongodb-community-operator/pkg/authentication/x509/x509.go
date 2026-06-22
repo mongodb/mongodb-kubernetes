@@ -75,7 +75,7 @@ func ensureAgent(ctx context.Context, auth *automationconfig.Auth, secretGetUpda
 func convertMongoDBResourceUsersToAutomationConfigUsers(mdb authtypes.Configurable) []automationconfig.MongoDBUser {
 	var usersWanted []automationconfig.MongoDBUser
 	for _, u := range mdb.GetAuthUsers() {
-		if u.Database == constants.ExternalDB {
+		if u.IsExternalAuth() {
 			acUser := convertMongoDBUserToAutomationConfigUser(u)
 			usersWanted = append(usersWanted, acUser)
 		}
@@ -88,7 +88,7 @@ func convertMongoDBResourceUsersToAutomationConfigUsers(mdb authtypes.Configurab
 func convertMongoDBUserToAutomationConfigUser(user authtypes.User) automationconfig.MongoDBUser {
 	acUser := automationconfig.MongoDBUser{
 		Username: user.Username,
-		Database: user.Database,
+		Database: user.GetUserDatabase(),
 	}
 	for _, role := range user.Roles {
 		acUser.Roles = append(acUser.Roles, automationconfig.Role{

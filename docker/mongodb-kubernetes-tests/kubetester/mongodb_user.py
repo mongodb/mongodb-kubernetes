@@ -98,7 +98,8 @@ class Role:
 def generic_user(
     namespace: str,
     username: str,
-    db: str = "admin",
+    auth_source: str = "admin",
+    default_database: str = "admin",
     password: Optional[str] = None,
     mongodb_resource: Optional[MongoDB] = None,
 ) -> MongoDBUser:
@@ -106,7 +107,8 @@ def generic_user(
     user = MongoDBUser(name=random_k8s_name("user-"), namespace=namespace)
     user["spec"] = {
         "username": username,
-        "db": db,
+        "authSource": auth_source,
+        "defaultDatabase": default_database,
     }
 
     if mongodb_resource is not None:

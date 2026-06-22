@@ -86,20 +86,59 @@ type MongoDBResourceRef struct {
 }
 
 type MongoDBUserSpec struct {
-	Roles    []Role `json:"roles,omitempty"`
-	Username string `json:"username"`
-	Database string `json:"db"`
-	// ConnectionStringDatabase is the database placed in the connection string URI path.
-	// Leaves the URI path empty when unset. Ignored when Database is "$external",
-	// since it is an auth only pseudo database and must not appear in the URI path.
+	Roles []Role `json:"roles,omitempty"`
 	// +optional
-	ConnectionStringDatabase string `json:"connectionStringDatabase,omitempty"`
+	Username string `json:"username"`
+	// Deprecated: use AuthSource and DefaultDatabase instead.
+	// +optional
+	Database string `json:"db,omitempty"`
+	// AuthSource is the authentication database for the user. Required when not using the deprecated db field.
+	// +optional
+	AuthSource string `json:"authSource,omitempty"`
+	// DefaultDatabase is the database placed in the connection string URI path. Required when AuthSource is set.
+	// +optional
+	DefaultDatabase string `json:"defaultDatabase,omitempty"`
 	// +optional
 	MongoDBResourceRef MongoDBResourceRef `json:"mongodbResourceRef"`
 	// +optional
 	PasswordSecretKeyRef SecretKeyRef `json:"passwordSecretKeyRef"`
 	// +optional
 	ConnectionStringSecretName string `json:"connectionStringSecretName"`
+}
+
+// ValidateSpec returns an error if the spec fields are in an invalid combination.
+// Either the deprecated db field must be set, or both authSource and defaultDatabase must be set together.
+func (spec MongoDBUserSpec) ValidateSpec() error {
+	usingLegacy := spec.Database != ""
+	usingNew := spec.AuthSource != "" || spec.DefaultDatabase != ""
+	if usingLegacy && usingNew {
+		return fmt.Errorf("spec.db is deprecated and cannot be combined with spec.authSource or spec.defaultDatabase")
+	}
+	if !usingLegacy && spec.AuthSource != "" && spec.DefaultDatabase == "" {
+		return fmt.Errorf("spec.defaultDatabase is required when spec.authSource is set")
+	}
+	if !usingLegacy && spec.DefaultDatabase != "" && spec.AuthSource == "" {
+		return fmt.Errorf("spec.authSource is required when spec.defaultDatabase is set")
+	}
+	return nil
+}
+
+// EffectiveAuthDatabase returns the authentication database for this user.
+// Returns spec.db if set (deprecated path), otherwise returns spec.authSource.
+func (spec MongoDBUserSpec) EffectiveAuthDatabase() string {
+	if spec.Database != "" {
+		return spec.Database
+	}
+	return spec.AuthSource
+}
+
+// EffectivePathDatabase returns the database placed in the connection string URI path.
+// Returns spec.db if set (deprecated path), otherwise returns spec.defaultDatabase.
+func (spec MongoDBUserSpec) EffectivePathDatabase() string {
+	if spec.Database != "" {
+		return spec.Database
+	}
+	return spec.DefaultDatabase
 }
 
 type MongoDBUserStatus struct {
@@ -132,7 +171,7 @@ func (u *MongoDBUser) ChangedIdentifier() bool {
 	if u.Status.Username == "" || u.Status.Database == "" {
 		return false
 	}
-	return u.Status.Username != u.Spec.Username || u.Status.Database != u.Spec.Database
+	return u.Status.Username != u.Spec.Username || u.Status.Database != u.Spec.EffectiveAuthDatabase()
 }
 
 func (u *MongoDBUser) UpdateStatus(phase status.Phase, statusOptions ...status.Option) {
@@ -147,7 +186,7 @@ func (u *MongoDBUser) UpdateStatus(phase status.Phase, statusOptions ...status.O
 	if phase == status.PhaseRunning {
 		u.Status.Phase = status.PhaseUpdated
 		u.Status.Roles = u.Spec.Roles
-		u.Status.Database = u.Spec.Database
+		u.Status.Database = u.Spec.EffectiveAuthDatabase()
 		u.Status.Username = u.Spec.Username
 	}
 }
@@ -161,7 +200,7 @@ func (u MongoDBUser) GetConnectionStringSecretName() string {
 		resourceRef = u.Spec.MongoDBResourceRef.Name + "-"
 	}
 
-	database := u.Spec.Database
+	database := u.Spec.EffectiveAuthDatabase()
 	if database == "$external" {
 		database = strings.TrimPrefix(database, "$")
 	}

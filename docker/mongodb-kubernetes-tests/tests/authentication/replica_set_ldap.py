@@ -75,7 +75,7 @@ def user_ldap(replica_set: MongoDB, namespace: str, ldap_mongodb_users: List[LDA
     user = generic_user(
         namespace,
         username=mongodb_user.username,
-        db="$external",
+        auth_source="$external", default_database="$external",
         password=mongodb_user.password,
         mongodb_resource=replica_set,
     )
@@ -96,7 +96,7 @@ def user_scram(replica_set: MongoDB, namespace: str) -> MongoDBUser:
     user = generic_user(
         namespace,
         username="mms-user-1",
-        db="admin",
+        auth_source="admin", default_database="admin",
         mongodb_resource=replica_set,
     )
     secret_name = "user-password"
@@ -210,7 +210,7 @@ def user_x509(replica_set: MongoDB, namespace: str) -> MongoDBUser:
     user = generic_user(
         namespace,
         username="CN=x509-testing-user",
-        db="$external",
+        auth_source="$external", default_database="$external",
         mongodb_resource=replica_set,
     )
 

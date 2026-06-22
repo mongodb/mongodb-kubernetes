@@ -253,11 +253,20 @@ type MongoDBUser struct {
 	// Name is the username of the user
 	Name string `json:"name"`
 
-	// DB is the database the user is stored in. Defaults to "admin"
+	// DB is the database the user is stored in. Defaults to "admin".
+	// Deprecated: use AuthSource and DefaultDatabase instead.
 	// +optional
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:default:=admin
 	DB string `json:"db,omitempty"`
+
+	// AuthSource is the authentication database for the user. Required when not using the deprecated db field.
+	// +optional
+	AuthSource string `json:"authSource,omitempty"`
+
+	// DefaultDatabase is the database placed in the connection string URI path. Required when AuthSource is set.
+	// +optional
+	DefaultDatabase string `json:"defaultDatabase,omitempty"`
 
 	// PasswordSecretRef is a reference to the secret containing this user's password
 	// +optional
@@ -307,6 +316,41 @@ func (m MongoDBUser) GetScramCredentialsSecretName() string {
 	return fmt.Sprintf("%s-%s", m.ScramCredentialsSecretName, "scram-credentials")
 }
 
+// ValidateUser returns an error if the user fields are in an invalid combination.
+// Either the deprecated db field must be set, or both authSource and defaultDatabase must be set together.
+func (m MongoDBUser) ValidateUser() error {
+	usingLegacy := m.DB != ""
+	usingNew := m.AuthSource != "" || m.DefaultDatabase != ""
+	if usingLegacy && usingNew {
+		return fmt.Errorf("db is deprecated and cannot be combined with authSource or defaultDatabase for user %q", m.Name)
+	}
+	if !usingLegacy && m.AuthSource != "" && m.DefaultDatabase == "" {
+		return fmt.Errorf("defaultDatabase is required when authSource is set for user %q", m.Name)
+	}
+	if !usingLegacy && m.DefaultDatabase != "" && m.AuthSource == "" {
+		return fmt.Errorf("authSource is required when defaultDatabase is set for user %q", m.Name)
+	}
+	return nil
+}
+
+// EffectiveAuthDatabase returns the authentication database for this user.
+// Returns db if set (deprecated path), otherwise returns authSource.
+func (m MongoDBUser) EffectiveAuthDatabase() string {
+	if m.DB != "" {
+		return m.DB
+	}
+	return m.AuthSource
+}
+
+// EffectivePathDatabase returns the database placed in the connection string URI path.
+// Returns db if set (deprecated path), otherwise returns defaultDatabase.
+func (m MongoDBUser) EffectivePathDatabase() string {
+	if m.DB != "" {
+		return m.DB
+	}
+	return m.DefaultDatabase
+}
+
 // GetConnectionStringSecretName gets the connection string secret name provided by the user or generated
 // from the SCRAM user configuration.
 func (m MongoDBUser) GetConnectionStringSecretName(resourceName string) string {
@@ -314,7 +358,7 @@ func (m MongoDBUser) GetConnectionStringSecretName(resourceName string) string {
 		return m.ConnectionStringSecretName
 	}
 
-	return normalizeName(fmt.Sprintf("%s-%s-%s", resourceName, m.DB, m.Name))
+	return normalizeName(fmt.Sprintf("%s-%s-%s", resourceName, m.EffectiveAuthDatabase(), m.Name))
 }
 
 // GetConnectionStringSecretNamespace gets the connection string secret namespace provided by the user or generated
@@ -569,13 +613,14 @@ func (m *MongoDBCommunity) GetAuthUsers() []authtypes.User {
 		// we are working with is local -- it has not been posted to the
 		// Kubernetes API and the `u.DB` was not set to the default ("admin").
 		// This is why the "admin" value is being set here.
-		if u.DB == "" {
-			u.DB = defaultDBForUser
+		if u.DB == "" && u.AuthSource == "" { //nolint:staticcheck
+			u.DB = defaultDBForUser //nolint:staticcheck
 		}
 
 		users[i] = authtypes.User{
 			Username:                          u.Name,
-			Database:                          u.DB,
+			AuthSource:                        u.EffectiveAuthDatabase(),
+			DefaultDatabase:                   u.EffectivePathDatabase(),
 			Roles:                             roles,
 			ConnectionStringSecretName:        u.GetConnectionStringSecretName(m.Name),
 			ConnectionStringSecretNamespace:   u.GetConnectionStringSecretNamespace(m.Namespace),
@@ -583,7 +628,7 @@ func (m *MongoDBCommunity) GetAuthUsers() []authtypes.User {
 			ConnectionStringOptions:           u.AdditionalConnectionStringConfig.Object,
 		}
 
-		if u.DB != constants.ExternalDB {
+		if u.EffectiveAuthDatabase() != constants.ExternalDB {
 			users[i].ScramCredentialsSecretName = u.GetScramCredentialsSecretName()
 			users[i].PasswordSecretKey = u.GetPasswordSecretKey()
 			users[i].PasswordSecretName = u.PasswordSecretRef.Name
@@ -717,9 +762,18 @@ func (m *MongoDBCommunity) GetOptionsString() string {
 func (m *MongoDBCommunity) GetUserOptionsString(user authtypes.User) string {
 	generalOptionsMap := m.Spec.AdditionalConnectionStringConfig.Object
 	userOptionsMap := user.ConnectionStringOptions
-	optionValues := make([]string, len(generalOptionsMap)+len(userOptionsMap))
+	optionValues := make([]string, len(generalOptionsMap)+len(userOptionsMap)+1)
 	i := 0
+
+	if user.AuthSource != "" {
+		optionValues[i] = fmt.Sprintf("authSource=%v", user.AuthSource)
+		i += 1
+	}
+
 	for key, value := range userOptionsMap {
+		if key == "authSource" {
+			continue
+		}
 		if _, protected := protectedConnectionStringOptions[key]; !protected {
 			optionValues[i] = fmt.Sprintf("%s=%v", key, value)
 			i += 1
@@ -728,6 +782,9 @@ func (m *MongoDBCommunity) GetUserOptionsString(user authtypes.User) string {
 
 	for key, value := range generalOptionsMap {
 		_, ok := userOptionsMap[key]
+		if key == "authSource" {
+			continue
+		}
 		if _, protected := protectedConnectionStringOptions[key]; !ok && !protected {
 			optionValues[i] = fmt.Sprintf("%s=%v", key, value)
 			i += 1
@@ -764,7 +821,7 @@ func (m *MongoDBCommunity) MongoAuthUserURI(user authtypes.User, password string
 	return fmt.Sprintf("mongodb://%s%s/%s?replicaSet=%s&ssl=%t%s",
 		user.GetLoginString(password),
 		strings.Join(m.Hosts(), ","),
-		user.Database,
+		user.GetPathDatabase(),
 		m.Name,
 		m.Spec.Security.TLS.Enabled,
 		optionsString)
@@ -779,7 +836,7 @@ func (m *MongoDBCommunity) MongoAuthUserSRVURI(user authtypes.User, password str
 		m.ServiceName(),
 		m.Namespace,
 		m.Spec.GetClusterDomain(),
-		user.Database,
+		user.GetPathDatabase(),
 		m.Name,
 		m.Spec.Security.TLS.Enabled,
 		optionsString)
