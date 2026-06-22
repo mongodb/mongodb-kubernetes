@@ -9,11 +9,10 @@
 #
 set -Eeuo pipefail
 
-GOTELEMETRY=off go run golang.org/x/vuln/cmd/govulncheck@v1.3.0 ./...
-
-exit_code=$?
-if [ $exit_code -eq 3 ]; then
+exit_code=0
+GOTELEMETRY=off go run golang.org/x/vuln/cmd/govulncheck@v1.3.0 ./... || exit_code=$?
+if [ "${exit_code}" -eq 3 ]; then
   echo "Stdlib vulnerabilities found (informational only, not a code issue)."
   exit 0
 fi
-exit $exit_code
+exit "${exit_code}"
