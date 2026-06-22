@@ -8,14 +8,13 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"strings"
 
-	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
-	driver "go.mongodb.org/mongo-driver/x/mongo/driver"
 	"go.mongodb.org/mongo-driver/x/mongo/driver/topology"
 	"go.uber.org/zap"
+
+	driver "go.mongodb.org/mongo-driver/x/mongo/driver"
 
 	"github.com/mongodb/mongodb-kubernetes/cmd/connectivity-validator/exitcode"
 )
@@ -30,25 +29,23 @@ type Config struct {
 	ConnectionString string
 	// ExternalMembers is the list of host:port pairs to ping directly.
 	ExternalMembers []string
-	// AuthMechanism is "SCRAM-SHA-256", "SCRAM-SHA-1" (keyfile __system@local), "MONGODB-X509", or empty.
+	// AuthMechanism is "MONGODB-X509" to use X.509 client certificate auth. SCRAM values
+	// ("SCRAM-SHA-256", "SCRAM-SHA-1") may be passed by the job builder but are intentionally
+	// ignored. Those deployments are checked for reachability only.
 	AuthMechanism string
-	// KeyfilePath is the path to the keyfile secret mount (SCRAM).
-	KeyfilePath string
 	// CertPath is the path to the combined cert+key PEM (X509).
 	CertPath string
 	// CAPath is the path to the CA PEM (X509).
 	CAPath string
 	// SubjectDN is the X.509 subject DN used as the username.
 	SubjectDN string
-}
-
-func isKeyfileSCRAM(authMechanism string) bool {
-	switch authMechanism {
-	case "SCRAM-SHA-256", "SCRAM-SHA-1":
-		return true
-	default:
-		return false
-	}
+	// MongodTLSCAPath is the path to the CA PEM used to verify mongod TLS certificates.
+	// When set, TLS transport is enabled for all connections even when using SCRAM auth.
+	MongodTLSCAPath string
+	// ClientCertRequired indicates that the mongod requires a client certificate
+	// (clientCertificateMode: REQUIRE). When true, a missing cert file is an error rather
+	// than a silent fallback to CA-only TLS.
+	ClientCertRequired bool
 }
 
 // Validate runs the full connectivity check and returns an exit code.
@@ -59,10 +56,10 @@ func Validate(ctx context.Context, cfg Config) int {
 		"connectionString", cfg.ConnectionString,
 		"externalMembersCount", len(cfg.ExternalMembers),
 		"externalMembers", cfg.ExternalMembers,
-		"keyfilePath", cfg.KeyfilePath,
 		"certPath", cfg.CertPath,
 		"caPath", cfg.CAPath,
 		"subjectDN", cfg.SubjectDN,
+		"mongodTLSCAPath", cfg.MongodTLSCAPath,
 	)
 
 	clientOpts, err := buildClientOptions(cfg, cfg.ConnectionString)
@@ -94,17 +91,6 @@ func Validate(ctx context.Context, cfg Config) int {
 	}
 	log.Debugw("MongoDB ping succeeded")
 
-	// For keyfile SCRAM, verify authentication as __system@local.
-	// For X.509, connection + ping will only succeed if cert-based auth succeeded.
-	// When auth is disabled skip this check so local/dev runs can validate reachability.
-	if isKeyfileSCRAM(cfg.AuthMechanism) {
-		if !hasSystemRole(ctx, client) {
-			log.Warnw("__system@local role not found", "exitCode", exitcode.ExitAuthFailed, "exitCodeName", exitcode.Name(exitcode.ExitAuthFailed))
-			return exitcode.ExitAuthFailed
-		}
-		log.Debugw("__system@local role verified")
-	}
-
 	for i, member := range cfg.ExternalMembers {
 		log.Debugw("Pinging external member", "member", member, "index", i+1, "total", len(cfg.ExternalMembers))
 		if code := pingMemberDirect(ctx, member, cfg); code != exitcode.ExitSuccess {
@@ -123,26 +109,11 @@ func buildClientOptions(cfg Config, uri string) (*options.ClientOptions, error) 
 	opts := options.Client().ApplyURI(uri)
 
 	switch cfg.AuthMechanism {
-	case "SCRAM-SHA-256", "SCRAM-SHA-1":
-		log.Debugw("Using keyfile SCRAM auth", "authMechanism", cfg.AuthMechanism, "keyfilePath", cfg.KeyfilePath)
-		keyfile, err := os.ReadFile(cfg.KeyfilePath)
-		if err != nil {
-			log.Warnw("Failed to read keyfile", "keyfilePath", cfg.KeyfilePath, "error", err)
-			return nil, fmt.Errorf("reading keyfile: %w", err)
-		}
-		password := strings.TrimSpace(string(keyfile))
-		if len(password) == 0 {
-			log.Warnw("Keyfile is empty", "keyfilePath", cfg.KeyfilePath)
-			return nil, fmt.Errorf("empty keyfile")
-		}
-		opts.SetAuth(options.Credential{
-			AuthMechanism: cfg.AuthMechanism,
-			AuthSource:    "local",
-			Username:      "__system",
-			Password:      password,
-		})
 	case "MONGODB-X509":
 		log.Debugw("Using MONGODB-X509 auth", "certPath", cfg.CertPath, "caPath", cfg.CAPath, "subjectDN", cfg.SubjectDN)
+		if _, statErr := os.Stat(cfg.CertPath); statErr != nil {
+			return nil, fmt.Errorf("stat X.509 cert: %w", statErr)
+		}
 		tlsCfg, err := buildTLSConfig(cfg.CertPath, cfg.CAPath)
 		if err != nil {
 			return nil, err
@@ -152,10 +123,54 @@ func buildClientOptions(cfg Config, uri string) (*options.ClientOptions, error) 
 			AuthMechanism: "MONGODB-X509",
 			Username:      cfg.SubjectDN,
 		})
+		return opts, nil
 	default:
 		log.Debugw("No auth mechanism", "authMechanism", cfg.AuthMechanism)
 	}
+
+	// Apply TLS transport whenever the mongod requires it. Covers SCRAM and the no-auth case.
+	// If the agent cert file is present (TLS client auth is configured), include it so the
+	// validator can connect to mongod instances that require client certificates.
+	if cfg.MongodTLSCAPath != "" {
+		var tlsCfg *tls.Config
+		var err error
+		if cfg.CertPath != "" {
+			if _, statErr := os.Stat(cfg.CertPath); statErr == nil {
+				log.Debugw("Configuring TLS transport with client cert", "caPath", cfg.MongodTLSCAPath, "certPath", cfg.CertPath)
+				tlsCfg, err = buildTLSConfig(cfg.CertPath, cfg.MongodTLSCAPath)
+			} else if os.IsNotExist(statErr) && !cfg.ClientCertRequired {
+				log.Debugw("Configuring TLS transport (CA only)", "caPath", cfg.MongodTLSCAPath)
+				tlsCfg, err = buildTLSConfigFromCA(cfg.MongodTLSCAPath)
+			} else if os.IsNotExist(statErr) && cfg.ClientCertRequired {
+				return nil, fmt.Errorf("client certificate required but not found at %q", cfg.CertPath)
+			} else {
+				return nil, fmt.Errorf("stat client cert %q: %w", cfg.CertPath, statErr)
+			}
+		} else {
+			log.Debugw("Configuring TLS transport (CA only)", "caPath", cfg.MongodTLSCAPath)
+			tlsCfg, err = buildTLSConfigFromCA(cfg.MongodTLSCAPath)
+		}
+		if err != nil {
+			return nil, err
+		}
+		opts.SetTLSConfig(tlsCfg)
+	}
 	return opts, nil
+}
+
+func buildTLSConfigFromCA(caPath string) (*tls.Config, error) {
+	log := zap.S()
+	caPEM, err := os.ReadFile(caPath)
+	if err != nil {
+		log.Warnw("Failed to read mongod CA file", "caPath", caPath, "error", err)
+		return nil, fmt.Errorf("reading mongod CA: %w", err)
+	}
+	caPool := x509.NewCertPool()
+	if !caPool.AppendCertsFromPEM(caPEM) {
+		log.Warnw("Failed to parse mongod CA certificate", "caPath", caPath)
+		return nil, fmt.Errorf("parsing mongod CA certificate")
+	}
+	return &tls.Config{RootCAs: caPool, MinVersion: tls.VersionTLS13}, nil
 }
 
 func buildTLSConfig(certPath, caPath string) (*tls.Config, error) {
@@ -181,62 +196,6 @@ func buildTLSConfig(certPath, caPath string) (*tls.Config, error) {
 		RootCAs:      caPool,
 		MinVersion:   tls.VersionTLS13,
 	}, nil
-}
-
-func hasSystemRole(ctx context.Context, client *mongo.Client) bool {
-	log := zap.S()
-	var result bson.M
-	err := client.Database("admin").RunCommand(ctx, bson.D{{Key: "connectionStatus", Value: 1}}).Decode(&result)
-	if err != nil {
-		log.Warnw("connectionStatus command failed", "error", err)
-		return false
-	}
-	authInfo, ok := result["authInfo"].(bson.M)
-	if !ok {
-		log.Warnw("connectionStatus missing or invalid authInfo", "resultKeys", keys(result))
-		return false
-	}
-	// MongoDB does not populate authenticatedUserRoles for internal __system auth —
-	// check authenticatedUsers instead.
-	if users, ok := authInfo["authenticatedUsers"].(bson.A); ok {
-		for _, u := range users {
-			entry, ok := u.(bson.M)
-			if !ok {
-				continue
-			}
-			if entry["user"] == "__system" && entry["db"] == "local" {
-				log.Debugw("Found __system@local in authenticatedUsers")
-				return true
-			}
-		}
-	}
-	// Fallback: some MongoDB versions do populate authenticatedUserRoles.
-	if roles, ok := authInfo["authenticatedUserRoles"].(bson.A); ok {
-		for _, r := range roles {
-			entry, ok := r.(bson.M)
-			if !ok {
-				continue
-			}
-			if entry["role"] == "__system" && entry["db"] == "local" {
-				log.Debugw("Found __system@local in authenticatedUserRoles")
-				return true
-			}
-		}
-	}
-	log.Warnw("__system@local not found in authInfo", "authInfoKeys", keys(authInfo))
-	return false
-}
-
-// keys returns the keys of a bson.M for logging (avoid logging full auth payload).
-func keys(m bson.M) []string {
-	if m == nil {
-		return nil
-	}
-	k := make([]string, 0, len(m))
-	for key := range m {
-		k = append(k, key)
-	}
-	return k
 }
 
 func pingMemberDirect(ctx context.Context, hostPort string, cfg Config) int {
@@ -330,7 +289,7 @@ func classifyConnectionError(err error) int {
 	}
 	var netErr net.Error
 	if errors.As(err, &netErr) {
-		log.Debugw("Classified as network error", "timeout", netErr.Timeout(), "temporary", netErr.Temporary())
+		log.Debugw("Classified as network error", "timeout", netErr.Timeout())
 		return exitcode.ExitNetworkFailed
 	}
 	log.Debugw("Unclassified error", "error", err, "type", fmt.Sprintf("%T", err))

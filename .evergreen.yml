@@ -891,6 +891,7 @@ task_groups:
       # VM Migration
       - e2e_vm_migration
       - e2e_vm_migration_x509
+      - e2e_vm_migration_tls_scram
 
   # MongoDBSearch tests that require a large instance (multiple mongots per shard:
   # 2 shards x 2 mongots x 2 CPU = 8 CPU). Added to cloudqa-large variants.

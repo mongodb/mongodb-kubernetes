@@ -6,10 +6,11 @@ import (
 	"os"
 	"strings"
 
-	"github.com/mongodb/mongodb-kubernetes/cmd/connectivity-validator/exitcode"
-	"github.com/mongodb/mongodb-kubernetes/cmd/connectivity-validator/migration/connectivitycheck"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+
+	"github.com/mongodb/mongodb-kubernetes/cmd/connectivity-validator/exitcode"
+	"github.com/mongodb/mongodb-kubernetes/cmd/connectivity-validator/migration/connectivitycheck"
 )
 
 func main() {
@@ -29,13 +30,14 @@ func main() {
 
 	members := strings.Fields(os.Getenv("EXTERNAL_MEMBERS"))
 	cfg := connectivitycheck.Config{
-		ConnectionString: os.Getenv("CONNECTION_STRING"),
-		ExternalMembers:  members,
-		AuthMechanism:    os.Getenv("AUTH_MECHANISM"),
-		KeyfilePath:      os.Getenv("KEYFILE_PATH"),
-		CertPath:         os.Getenv("CERT_PATH"),
-		CAPath:           os.Getenv("CA_PATH"),
-		SubjectDN:        os.Getenv("SUBJECT_DN"),
+		ConnectionString:   os.Getenv("CONNECTION_STRING"),
+		ExternalMembers:    members,
+		AuthMechanism:      os.Getenv("AUTH_MECHANISM"),
+		CertPath:           os.Getenv("CERT_PATH"),
+		CAPath:             os.Getenv("CA_PATH"),
+		SubjectDN:          os.Getenv("SUBJECT_DN"),
+		MongodTLSCAPath:    os.Getenv("MONGOD_TLS_CA_PATH"),
+		ClientCertRequired: os.Getenv("CLIENT_CERT_REQUIRED") == "true",
 	}
 	if cfg.ConnectionString == "" {
 		log.Error("CONNECTION_STRING is required")
