@@ -303,6 +303,15 @@ func vaultModification(appDB om.AppDBSpec, podVars *env.PodEnvVars, opts AppDBSt
 			podtemplatespec.WithAnnotations(appDBSecretsToInject.AppDBAnnotations(appDB.Namespace)),
 		)
 
+	} else if opts.Connection.Enabled {
+		// Online mode: the agent authenticates to the external (Meta) OM with -mmsApiKey, read at
+		// runtime from the mounted agent-api-key secret. podVars is empty in online mode, so the
+		// project id comes from the connection — matching the secret created by
+		// PrepareOpsManagerConnection and replicated by replicateAgentKeySecret for the external project.
+		modification = podtemplatespec.Apply(
+			modification,
+			podtemplatespec.WithVolume(statefulset.CreateVolumeFromSecret(AgentAPIKeyVolumeName, agents.ApiKeySecretName(opts.Connection.GroupID))),
+		)
 	} else {
 		if ShouldEnableMonitoring(podVars, opts) {
 			// AGENT-API-KEY volume
