@@ -217,10 +217,6 @@ spec:
             - name: MDB_WEBHOOK_NAME
               value: {{ .Values.operator.webhook.name | quote }}
     {{- end }}
-    {{- if .Values.operator.maxConcurrentReconciles }}
-            - name: MDB_MAX_CONCURRENT_RECONCILES
-              value: "{{ .Values.operator.maxConcurrentReconciles }}"
-    {{- end }}
             - name: POD_NAME
               valueFrom:
                 fieldRef:
