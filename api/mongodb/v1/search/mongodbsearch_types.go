@@ -110,20 +110,13 @@ type MongoDBSearchSpec struct {
 }
 
 // SyncSourceSelector picks which mongods this cluster's mongot fleet syncs from.
-// At-most-one of MatchTags or Hosts may be set.
-// +kubebuilder:validation:XValidation:rule="!(has(self.matchTags) && has(self.hosts))",message="syncSourceSelector.matchTags and syncSourceSelector.hosts are mutually exclusive"
 type SyncSourceSelector struct {
-	// MatchTags selects which sync-source mongods to read from by their replica-set tags.
-	// The operator passes these to mongot as readPreferenceTags.
+	// MatchTagSets selects sync-source mongods by replica-set tags: an ordered list of
+	// tag sets passed to mongot's syncSource.replicationReader (secondaryPreferred).
+	// mongot syncs from the first set with matches; a trailing {} is a match-any fallback.
 	// +optional
-	// +kubebuilder:validation:MaxProperties=50
-	MatchTags map[string]string `json:"matchTags,omitempty"`
-	// Hosts is an explicit list of host:port sync-source members.
-	// Mutually exclusive with MatchTags.
-	// +optional
-	// +kubebuilder:validation:MaxItems=100
-	// +kubebuilder:validation:items:MaxLength=253
-	Hosts []string `json:"hosts,omitempty"`
+	// +kubebuilder:validation:MaxItems=50
+	MatchTagSets []map[string]string `json:"matchTagSets,omitempty"`
 }
 
 // ClusterSpec is one entry in spec.clusters[]. The cluster name (spec.clusters[].name)
