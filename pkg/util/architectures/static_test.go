@@ -5,66 +5,57 @@ import (
 )
 
 func TestIsRunningStaticArchitecture(t *testing.T) {
-	t.Setenv(DefaultEnvArchitecture, "")
-
 	tests := []struct {
-		name        string
-		annotations map[string]string
-		want        bool
-		envFunc     func(t *testing.T)
+		name                string
+		annotations         map[string]string
+		defaultArchitecture DefaultArchitecture
+		want                bool
 	}{
 		{
-			name:        "no annotation and no env",
-			annotations: nil,
-			want:        false,
-			envFunc:     nil,
+			name:                "no annotation and no default",
+			annotations:         nil,
+			defaultArchitecture: "",
+			want:                false,
 		},
 		{
-			name: "only env and is static",
-			want: true,
-			envFunc: func(t *testing.T) {
-				t.Setenv(DefaultEnvArchitecture, string(Static))
-			},
+			name:                "only default and is static",
+			defaultArchitecture: Static,
+			want:                true,
 		},
 		{
-			name: "only env and is non static",
-			want: false,
-			envFunc: func(t *testing.T) {
-				t.Setenv(DefaultEnvArchitecture, string(NonStatic))
-			},
+			name:                "only default and is non-static",
+			defaultArchitecture: NonStatic,
+			want:                false,
 		},
 		{
-			name:        "only annotation and is static",
-			annotations: map[string]string{ArchitectureAnnotation: string(Static)},
-			want:        true,
+			name:                "only annotation and is static",
+			annotations:         map[string]string{ArchitectureAnnotation: string(Static)},
+			defaultArchitecture: "",
+			want:                true,
 		},
 		{
-			name:        "only annotation and is not static",
-			annotations: map[string]string{ArchitectureAnnotation: string(NonStatic)},
-
-			want: false,
+			name:                "only annotation and is not static",
+			annotations:         map[string]string{ArchitectureAnnotation: string(NonStatic)},
+			defaultArchitecture: "",
+			want:                false,
 		},
 		{
-			name:        "only annotation and is wrong value",
-			annotations: map[string]string{ArchitectureAnnotation: "brokenValue"},
-			want:        false,
+			name:                "only annotation and is wrong value",
+			annotations:         map[string]string{ArchitectureAnnotation: "brokenValue"},
+			defaultArchitecture: "",
+			want:                false,
 		},
 		{
-			name:        "env and annotation differ. Annotations has precedence",
-			annotations: map[string]string{ArchitectureAnnotation: string(Static)},
-			envFunc: func(t *testing.T) {
-				t.Setenv(DefaultEnvArchitecture, string(NonStatic))
-			},
-			want: true,
+			name:                "annotation takes precedence over default",
+			annotations:         map[string]string{ArchitectureAnnotation: string(Static)},
+			defaultArchitecture: NonStatic,
+			want:                true,
 		},
 	}
 	for _, tt := range tests {
 		testConfig := tt
 		t.Run(testConfig.name, func(t *testing.T) {
-			if testConfig.envFunc != nil {
-				testConfig.envFunc(t)
-			}
-			if got := IsRunningStaticArchitecture(testConfig.annotations); got != testConfig.want {
+			if got := IsRunningStaticArchitecture(testConfig.annotations, testConfig.defaultArchitecture); got != testConfig.want {
 				t.Errorf("IsRunningStaticArchitecture() = %v, want %v", got, testConfig.want)
 			}
 		})

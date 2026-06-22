@@ -362,6 +362,7 @@ type MongoDbStatus struct {
 	Members                                int                                        `json:"members,omitempty"`
 	Version                                string                                     `json:"version"`
 	Link                                   string                                     `json:"link,omitempty"`
+	ProjectId                              string                                     `json:"projectId,omitempty"`
 	FeatureCompatibilityVersion            string                                     `json:"featureCompatibilityVersion,omitempty"`
 	Warnings                               []status.Warning                           `json:"warnings,omitempty"`
 }
@@ -1297,6 +1298,9 @@ func (m *MongoDB) UpdateStatus(phase status.Phase, statusOptions ...status.Optio
 	}
 	if option, exists := status.GetOption(statusOptions, status.BaseUrlOption{}); exists {
 		m.Status.Link = option.(status.BaseUrlOption).BaseUrl
+	}
+	if option, exists := status.GetOption(statusOptions, status.ProjectIdOption{}); exists {
+		m.Status.ProjectId = option.(status.ProjectIdOption).ProjectId
 	}
 	switch m.Spec.ResourceType {
 	case ReplicaSet:

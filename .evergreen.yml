@@ -15,7 +15,7 @@ variables:
 
   - &ops_manager_70_latest 7.0.23 # The order/index is important, since these are anchors. Please do not change
 
-  - &ops_manager_80_latest 8.0.23 # The order/index is important, since these are anchors. Please do not change
+  - &ops_manager_80_latest 8.0.24 # The order/index is important, since these are anchors. Please do not change
 
   # The dependency unification between static and non-static is intentional here.
   # Even though some images are exclusive, in EVG they all are built once and in parallel.
@@ -619,45 +619,14 @@ tasks:
       - func: setup_prepare_openshift_bundles
       - func: prepare_openshift_bundles_for_e2e
 
-  - name: backup_csv_images_dry_run
+  # Dummy placeholder: will call `mckctl release promote` once the tool is wired into CI.
+  # Runs after all staging tests pass on a master merge to confirm the build is promotable.
+  - name: mckctl_release_promote
     commands:
-      - func: clone
-      - func: quay_login
-      - command: subprocess.exec
+      - command: shell.exec
         params:
-          working_dir: src/github.com/mongodb/mongodb-kubernetes
-          binary: python3
-          args:
-            - scripts/dev/release/backup_csv_images.py
-            - scripts/dev/release/1.2.0.clusterserviceversion.yaml
-            - --dry-run
-            - --verbose
-  - name: backup_csv_images_limit_3
-    commands:
-      - func: clone
-      - func: quay_login
-      - command: subprocess.exec
-        params:
-          working_dir: src/github.com/mongodb/mongodb-kubernetes
-          binary: python3
-          args:
-            - scripts/dev/release/backup_csv_images.py
-            - scripts/dev/release/1.2.0.clusterserviceversion.yaml
-            - --limit
-            - "3"
-            - --verbose
-  - name: backup_csv_images_all
-    commands:
-      - func: clone
-      - func: quay_login
-      - command: subprocess.exec
-        params:
-          working_dir: src/github.com/mongodb/mongodb-kubernetes
-          binary: python3
-          args:
-            - scripts/dev/release/backup_csv_images.py
-            - scripts/dev/release/1.2.0.clusterserviceversion.yaml
-            - --verbose
+          script: |
+            echo "would run: mckctl release promote --version ${OPERATOR_VERSION}"
 
   # Notify Slack about build failures
   # On patches: stdout only. On mainline: stdout + Slack
@@ -2142,17 +2111,6 @@ buildvariants:
 
   ### Build variants for manual patch only
 
-  - name: backup_csv_images
-    display_name: "Backup CSV Images"
-    tags: [ "manual_patch" ]
-    allowed_requesters: [ "patch" ]
-    run_on:
-      - ubuntu2404-small
-    tasks:
-      - name: backup_csv_images_dry_run
-      - name: backup_csv_images_limit_3
-      - name: backup_csv_images_all
-
   - name: publish_om70_images
     display_name: publish_om70_images
     tags: [ "manual_patch" ]
@@ -2203,6 +2161,20 @@ buildvariants:
       - name: release_om_and_agents
 
   # Notification task - runs after all staging tasks complete to report build status.
+  # Runs after all staging tests (including GKE snippets) succeed on master merge.
+  # Only on commit builds — see DEVPROD-27436 note on notify_master_build_status below.
+  - name: mckctl_release_promote
+    display_name: mckctl_release_promote
+    allowed_requesters: [ "commit" ]
+    depends_on:
+      - name: "*"
+        variant: ".staging"
+        status: "success"
+    run_on:
+      - ubuntu2404-small
+    tasks:
+      - name: mckctl_release_promote
+
   # Only runs on commit builds (not patches) because of Evergreen bug DEVPROD-27436:
   # depends_on with patch_optional:true generates phantom dependencies for tasks that
   # don't exist in the patch, causing the task to hang indefinitely.

@@ -145,8 +145,12 @@ type EmbeddingConfig struct {
 	ProviderEndpoint string `json:"providerEndpoint,omitempty"`
 	// EmbeddingModelAPIKeySecret would have the name of the secret that has two keys
 	// query-key and indexing-key for embedding model's API keys.
-	// +kubebuilder:validation:Required
-	EmbeddingModelAPIKeySecret corev1.LocalObjectReference `json:"embeddingModelAPIKeySecret"`
+	// It may be omitted only when ProviderEndpoint points to the Kubernetes Service
+	// exposing the self-hosted Voyage AI embedding model managed by this operator. For any
+	// other endpoint the secret remains required; the operator validates this at
+	// reconcile time.
+	// +optional
+	EmbeddingModelAPIKeySecret corev1.LocalObjectReference `json:"embeddingModelAPIKeySecret,omitempty"`
 }
 
 type MongoDBSource struct {
@@ -397,8 +401,8 @@ func (s *MongoDBSearch) StatefulSetNamespacedName() types.NamespacedName {
 
 func (s *MongoDBSearch) GetOwnerReferences() []metav1.OwnerReference {
 	ownerReference := *metav1.NewControllerRef(s, schema.GroupVersionKind{
-		Group:   GroupVersion.Group,
-		Version: GroupVersion.Version,
+		Group:   v1.SchemeGroupVersion.Group,
+		Version: v1.SchemeGroupVersion.Version,
 		Kind:    s.Kind,
 	})
 	return []metav1.OwnerReference{ownerReference}

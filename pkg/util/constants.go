@@ -215,6 +215,11 @@ const (
 
 	MaxConcurrentReconcilesEnv = "MDB_MAX_CONCURRENT_RECONCILES"
 
+	// This default for the healthy streak is also configured in the values.yaml file.
+	// It should always be consistent with the default in the helm chart. Always change both.
+	DefaultRequiredHealthyStreak = 5
+	RequiredHealthyStreakEnv     = "MDB_MEMBER_CLUSTER_REQUIRED_HEALTHY_STREAK"
+
 	// Search environment variables
 	SearchRepoURLEnv = "MDB_SEARCH_REPO_URL"
 	SearchNameEnv    = "MDB_SEARCH_NAME"
