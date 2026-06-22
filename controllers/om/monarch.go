@@ -209,6 +209,102 @@ func buildMongodURIs(mdb *mdbv1.MongoDB) []string {
 	return uris
 }
 
+// ShardInfo holds metadata for one shard (configRS or data shard) when building
+// Monarch AC components for a sharded cluster.
+type ShardInfo struct {
+	ShardID    string   // "configRS" or "myShard_0", "myShard_1", etc.
+	RSName     string   // Actual replica set name (e.g., "mycluster-config", "sh-0")
+	ServiceDNS string   // K8s Service DNS for the Monarch Deployment for this shard
+	MongoURI   string   // mongodb:// URI for this shard's mongod members
+	MongodURIs []string // Per-member URIs for injector config (standby only)
+}
+
+// BuildMaintainedMonarchComponentsSharded builds the automation config entries for Monarch
+// on a sharded cluster. Each shard (configRS + data shards) gets an entry in the
+// shards[] array, each pointing to its own K8s Service.
+//
+// clusterName is the sharded cluster's name (used for clusterPrefix if spec.monarch.s3.prefix is empty).
+// shards contains info for configRS first, then each data shard in order.
+func BuildMaintainedMonarchComponentsSharded(
+	monarch *mdbv1.MonarchSpec,
+	clusterName string,
+	awsAccessKeyId, awsSecretAccessKey string,
+	shards []ShardInfo,
+) ([]MaintainedMonarchComponents, error) {
+	if monarch == nil {
+		return nil, fmt.Errorf("monarch spec is nil")
+	}
+	if len(shards) == 0 {
+		return nil, fmt.Errorf("shards slice is empty")
+	}
+
+	initialMode := "STANDBY"
+	if monarch.Role == mdbv1.MonarchRoleActive {
+		initialMode = "ACTIVE"
+	}
+
+	version := extractVersionFromImage(monarch.Image)
+
+	// Build one MaintainedMonarchComponents entry per shard so that OM's
+	// StandbyModificationsSvc generates standbyModifications for every RS
+	// (configRS + each data shard). A single entry with replicaSetId=configRS
+	// would only trigger modifications for the configRS, leaving data shard RSes
+	// without the injector member — ValidateStandbyConfig would then fail for
+	// those shards and shard_repl_status_v1.bson would never be written.
+	result := make([]MaintainedMonarchComponents, len(shards))
+	for i, shard := range shards {
+		instance := MonarchInstance{
+			ID:                 i,
+			Hostname:           shard.ServiceDNS,
+			Port:               int(monarchpkg.ReplicationPort), //nolint:gosec
+			ExternallyManaged:  true,
+			HealthAPIEndpoint:  fmt.Sprintf("%s:%d", shard.ServiceDNS, monarchpkg.HealthPort),
+			MonarchAPIEndpoint: fmt.Sprintf("%s:%d", shard.ServiceDNS, monarchpkg.APIPort),
+		}
+
+		if monarch.Role == mdbv1.MonarchRoleActive {
+			instance.Mode = monarchShipperMode
+			instance.BackupMongoNodeURI = shard.MongoURI
+		} else {
+			instance.SrcURI = shard.MongoURI
+			instance.MongodURIs = shard.MongodURIs
+			instance.InjectorHosts = []string{
+				fmt.Sprintf("%s:%d", shard.ServiceDNS, monarchpkg.ReplicationPort),
+			}
+		}
+
+		monarchShard := MonarchShard{
+			ShardID:     shard.ShardID,
+			ReplSetName: shard.RSName,
+			Instances:   []MonarchInstance{instance},
+		}
+
+		mc := MaintainedMonarchComponents{
+			ReplicaSetID:  shard.RSName,
+			ClusterPrefix: monarch.S3.GetPrefix(clusterName),
+			InitialMode:   initialMode,
+			AwsConfig: &AwsStorageConfig{
+				AWSBucketName:      monarch.S3.Bucket,
+				AWSRegion:          monarch.S3.Region,
+				AWSAccessKeyID:     awsAccessKeyId,
+				AWSSecretAccessKey: awsSecretAccessKey,
+				S3BucketEndpoint:   monarch.S3.Endpoint,
+				S3PathStyleAccess:  monarch.S3.PathStyle,
+			},
+		}
+
+		if monarch.Role == mdbv1.MonarchRoleActive {
+			mc.ShipperConfig = &ShipperConfig{Version: version, Shards: []MonarchShard{monarchShard}}
+		} else {
+			mc.InjectorConfig = &InjectorConfig{Version: version, Shards: []MonarchShard{monarchShard}}
+		}
+
+		result[i] = mc
+	}
+
+	return result, nil
+}
+
 // extractVersionFromImage extracts the tag from a container image reference.
 // e.g., "quay.io/mongodb/monarch:0.1.1" -> "0.1.1"
 // If no tag is found, returns "latest".

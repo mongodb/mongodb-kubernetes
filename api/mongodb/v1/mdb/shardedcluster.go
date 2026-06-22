@@ -15,6 +15,12 @@ type ShardedClusterSpec struct {
 	MongosSpec *ShardedClusterComponentSpec `json:"mongos,omitempty"`
 	// +kubebuilder:pruning:PreserveUnknownFields
 	ShardSpec *ShardedClusterComponentSpec `json:"shard,omitempty"`
+
+	// Monarch configures disaster recovery for this sharded cluster.
+	// When set, the operator provisions shippers (active) or injectors (standby)
+	// for configRS and each data shard.
+	// +optional
+	Monarch *MonarchSpec `json:"monarch,omitempty"`
 	// ShardOverrides allow for overriding the configuration of a specific shard.
 	// It replaces deprecated spec.shard.shardSpecificPodSpec field. When spec.shard.shardSpecificPodSpec is still defined then
 	// spec.shard.shardSpecificPodSpec is applied first to the particular shard and then spec.shardOverrides is applied on top

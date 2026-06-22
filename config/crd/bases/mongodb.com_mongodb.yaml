@@ -885,7 +885,10 @@ spec:
                 description: Amount of members for this MongoDB Replica Set
                 type: integer
               monarch:
-                description: Monarch configures disaster recovery using Monarch shipper/injector
+                description: |-
+                  Monarch configures disaster recovery for this sharded cluster.
+                  When set, the operator provisions shippers (active) or injectors (standby)
+                  for configRS and each data shard.
                 properties:
                   image:
                     description: |-
@@ -893,16 +896,20 @@ spec:
                       Must include the full image path and tag.
                     type: string
                   role:
+                    allOf:
+                    - enum:
+                      - active
+                      - standby
+                    - enum:
+                      - active
+                      - standby
                     description: Role determines whether this is an active (shipper)
                       or standby (injector) cluster.
-                    enum:
-                    - active
-                    - standby
                     type: string
                   s3:
                     description: |-
                       S3 configures the S3 bucket for oplog data.
-                      Active and standby clusters in a DR pair must use the same s3.prefix to share data.
+                      Clusters sharing Monarch DR data must use the same s3.prefix.
                     properties:
                       bucket:
                         description: Bucket is the S3 bucket name for storing/retrieving

@@ -103,7 +103,7 @@ done
     fi
 
     # shellcheck disable=SC2128
-  helm upgrade --install mongodb-kubernetes-operator helm_chart --set "$(echo "${helm_values}" | tr ' ' ',')"
+  helm upgrade --install mongodb-kubernetes-operator helm_chart -n "${NAMESPACE}" --set "$(echo "${helm_values}" | tr ' ' ',')"
   fi
 ) 2>&1 | prepend "deploy operator"
 

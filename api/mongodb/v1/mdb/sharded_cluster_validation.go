@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strconv"
 
+	"github.com/blang/semver"
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 )
 
@@ -17,6 +18,9 @@ func ShardedClusterCommonValidators() []func(m MongoDB) v1.ValidationResult {
 		shardOverridesShardNamesCorrectValues,
 		shardOverridesClusterSpecListsCorrect,
 		shardCountSpecified,
+		shardedMonarchConfigRequired,
+		shardedMonarchRequiresMinMongoDBVersion,
+		shardedMonarchRequiresScramAuth,
 	}
 }
 
@@ -372,5 +376,82 @@ func validateMemberClusterIsSubsetOfKubeConfig(m MongoDB) v1.ValidationResult {
 		}
 	}
 
+	return v1.ValidationSuccess()
+}
+
+// shardedMonarchConfigRequired validates that Monarch spec has required configuration for sharded clusters.
+func shardedMonarchConfigRequired(m MongoDB) v1.ValidationResult {
+	if m.Spec.ShardedClusterSpec.Monarch == nil {
+		return v1.ValidationSuccess()
+	}
+	monarch := m.Spec.ShardedClusterSpec.Monarch
+	if monarch.Image == "" {
+		return v1.ValidationError("spec.monarch.image is required")
+	}
+	if monarch.S3.Bucket == "" {
+		return v1.ValidationError("spec.monarch.s3.bucket is required")
+	}
+	if monarch.S3.Region == "" {
+		return v1.ValidationError("spec.monarch.s3.region is required")
+	}
+	if monarch.S3.CredentialsSecretRef.Name == "" {
+		return v1.ValidationError("spec.monarch.s3.credentialsSecretRef.name is required")
+	}
+	return v1.ValidationSuccess()
+}
+
+// shardedMonarchRequiresMinMongoDBVersion rejects spec.version < 8.0.16 when spec.monarch is set.
+func shardedMonarchRequiresMinMongoDBVersion(m MongoDB) v1.ValidationResult {
+	if m.Spec.ShardedClusterSpec.Monarch == nil {
+		return v1.ValidationSuccess()
+	}
+	if m.Spec.Version == "" {
+		return v1.ValidationError(
+			"spec.version must be set when spec.monarch is enabled (Monarch requires mongod >= %s)",
+			monarchMinMongoDBVersion)
+	}
+	// Strip -ent suffix if present for semver parsing
+	versionStr := m.Spec.Version
+	if idx := len(versionStr) - 4; idx > 0 && versionStr[idx:] == "-ent" {
+		versionStr = versionStr[:idx]
+	}
+	ver, err := semver.Make(versionStr)
+	if err != nil {
+		return v1.ValidationError("spec.version %q is not a valid semver: %s", m.Spec.Version, err)
+	}
+	minVer, err := semver.Make(monarchMinMongoDBVersion)
+	if err != nil {
+		return v1.ValidationError("internal error parsing monarchMinMongoDBVersion: %s", err)
+	}
+	if ver.LT(minVer) {
+		return v1.ValidationError(
+			"spec.version %q is below the minimum supported mongod version for Monarch (%s). "+
+				"Monarch requires the readBackupFile privilege introduced in SERVER-110899.",
+			m.Spec.Version, monarchMinMongoDBVersion)
+	}
+	return v1.ValidationSuccess()
+}
+
+// shardedMonarchRequiresScramAuth rejects non-SCRAM auth modes when spec.monarch is set.
+func shardedMonarchRequiresScramAuth(m MongoDB) v1.ValidationResult {
+	if m.Spec.ShardedClusterSpec.Monarch == nil {
+		return v1.ValidationSuccess()
+	}
+	modes := m.Spec.Security.Authentication.Modes
+	if len(modes) == 0 {
+		return v1.ValidationSuccess()
+	}
+	var unsupported []string
+	for _, mode := range modes {
+		if mode != "SCRAM" && mode != "SCRAM-SHA-256" && mode != "SCRAM-SHA-1" {
+			unsupported = append(unsupported, string(mode))
+		}
+	}
+	if len(unsupported) > 0 {
+		return v1.ValidationError(
+			"spec.security.authentication.modes contains unsupported modes for Monarch: %v. "+
+				"Monarch requires SCRAM authentication for the mms-shipper user.",
+			unsupported)
+	}
 	return v1.ValidationSuccess()
 }

@@ -1411,6 +1411,11 @@ func (in *ShardedClusterSpec) DeepCopyInto(out *ShardedClusterSpec) {
 		*out = new(ShardedClusterComponentSpec)
 		(*in).DeepCopyInto(*out)
 	}
+	if in.Monarch != nil {
+		in, out := &in.Monarch, &out.Monarch
+		*out = new(MonarchSpec)
+		**out = **in
+	}
 	if in.ShardOverrides != nil {
 		in, out := &in.ShardOverrides, &out.ShardOverrides
 		*out = make([]ShardOverride, len(*in))

@@ -17,6 +17,16 @@ import (
 
 const automationAgentKubeUpgradeMove = "ChangeVersionKube"
 
+// automationAgentProvisionStandbyMove is the agent plan move a Monarch standby
+// mongod reports while it is blocked waiting for its injector (steps
+// WaitForInjectorReady → DownloadFCBIS). The operator creates the injector
+// Deployment in the post-AC step, so during the initial AC push the standby
+// agents legitimately cannot reach goal state yet. Treating this move as
+// "ready for now" (like ChangeVersionKube) lets the reconcile proceed to create
+// the injectors; the agent then converges and the next reconcile confirms real
+// goal state (the move is gone from the plan once provisioning completes).
+const automationAgentProvisionStandbyMove = "ProvisionStandby"
+
 // AutomationStatus represents the status of automation agents registered with Ops Manager
 type AutomationStatus struct {
 	GoalVersion int             `json:"goalVersion"`
@@ -94,6 +104,10 @@ func WaitForReadyState(oc Connection, processNames []string, supressErrors bool,
 // will fix this later)
 func checkAutomationStatusIsGoal(as *AutomationStatus, relevantProcesses []string, log *zap.SugaredLogger) (bool, string) {
 	if areAnyAgentsInKubeUpgradeMode(as, relevantProcesses, log) {
+		return true, ""
+	}
+
+	if areAnyAgentsInStandbyProvisioning(as, relevantProcesses, log) {
 		return true, ""
 	}
 
@@ -176,6 +190,29 @@ func areAnyAgentsInKubeUpgradeMode(as *AutomationStatus, relevantProcesses []str
 			// - this can only happen if the statefulset is ready, therefore we are returning ready here
 			if move == automationAgentKubeUpgradeMove {
 				log.Debug("cluster is in changeVersionKube mode, returning the agent is ready.")
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// areAnyAgentsInStandbyProvisioning reports whether any relevant process is a
+// Monarch standby mongod blocked in the ProvisionStandby move (waiting for its
+// injector to become healthy so it can download the FCBIS snapshot). The
+// operator creates the injector Deployment only after the AC push, so during the
+// initial push these agents cannot reach goal state. We treat that transitional
+// state as "ready for now" so the reconcile can proceed to create the injectors;
+// once provisioning completes the move leaves the plan and genuine goal state is
+// required again on the next poll.
+func areAnyAgentsInStandbyProvisioning(as *AutomationStatus, relevantProcesses []string, log *zap.SugaredLogger) bool {
+	for _, p := range as.Processes {
+		if !stringutil.Contains(relevantProcesses, p.Name) {
+			continue
+		}
+		for _, move := range p.Plan {
+			if move == automationAgentProvisionStandbyMove {
+				log.Infow("process is provisioning as a Monarch standby (waiting for injector), treating as ready for this reconcile", "process", p.Name)
 				return true
 			}
 		}

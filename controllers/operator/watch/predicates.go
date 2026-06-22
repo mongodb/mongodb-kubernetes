@@ -1,12 +1,15 @@
 package watch
 
 import (
+	"context"
 	"reflect"
 
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	appsv1 "k8s.io/api/apps/v1"
+	"k8s.io/apimachinery/pkg/types"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
@@ -147,6 +150,44 @@ func PredicatesForStatefulSet() predicate.Funcs {
 		},
 		CreateFunc: func(e event.CreateEvent) bool {
 			return false
+		},
+	}
+}
+
+// PredicatesForOwnedDeployment filters Deployment events by checking if the owning
+// MongoDB resource is of the specified type. This prevents the RS controller from
+// being triggered by Deployments owned by ShardedCluster resources (and vice versa).
+func PredicatesForOwnedDeployment(kubeClient client.Client, resourceType mdbv1.ResourceType) predicate.Funcs {
+	checkOwnerType := func(obj client.Object) bool {
+		owners := obj.GetOwnerReferences()
+		for _, owner := range owners {
+			if owner.Kind == "MongoDB" && owner.Controller != nil && *owner.Controller {
+				// Fetch the owner to check its ResourceType
+				mdb := &mdbv1.MongoDB{}
+				if err := kubeClient.Get(context.Background(), types.NamespacedName{
+					Namespace: obj.GetNamespace(),
+					Name:      owner.Name,
+				}, mdb); err != nil {
+					return false
+				}
+				return mdb.Spec.ResourceType == resourceType
+			}
+		}
+		return false
+	}
+
+	return predicate.Funcs{
+		CreateFunc: func(e event.CreateEvent) bool {
+			return checkOwnerType(e.Object)
+		},
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			return checkOwnerType(e.ObjectNew)
+		},
+		DeleteFunc: func(e event.DeleteEvent) bool {
+			return checkOwnerType(e.Object)
+		},
+		GenericFunc: func(e event.GenericEvent) bool {
+			return checkOwnerType(e.Object)
 		},
 	}
 }

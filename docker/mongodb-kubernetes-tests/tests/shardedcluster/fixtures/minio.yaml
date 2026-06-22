@@ -1,0 +1,44 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: monarch-minio
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: monarch-minio
+  template:
+    metadata:
+      labels:
+        app: monarch-minio
+    spec:
+      containers:
+        - name: minio
+          image: minio/minio:latest
+          args: ["server", "/data", "--console-address", ":9001"]
+          env:
+            - name: MINIO_ROOT_USER
+              value: minioadmin
+            - name: MINIO_ROOT_PASSWORD
+              value: minioadmin123
+          ports:
+            - containerPort: 9000
+          readinessProbe:
+            httpGet:
+              path: /minio/health/live
+              port: 9000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: monarch-minio
+spec:
+  selector:
+    app: monarch-minio
+  ports:
+    - name: api
+      port: 9000
+      targetPort: 9000

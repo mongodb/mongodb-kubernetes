@@ -1,0 +1,20 @@
+---
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: monarch-sc
+spec:
+  shardCount: 2
+  type: ShardedCluster
+  mongodsPerShardCount: 3
+  mongosCount: 1
+  configServerCount: 3
+  version: 8.0.16
+  credentials: my-credentials
+  logLevel: WARN
+  persistent: true
+  security:
+    authentication:
+      enabled: true
+      modes:
+        - SCRAM
