@@ -13,6 +13,7 @@ from tests.common.search import movies_search_helper, search_resource_names
 from tests.common.search.replicaset_search_helper import verify_rs_mongod_parameters
 from tests.common.search.search_deployment_helper import SearchDeploymentHelper
 from tests.common.search.search_tester import SearchTester
+from tests.common.search.tls_utils import encrypt_tls_key_with_password
 from tests.conftest import get_default_operator, get_issuer_ca_filepath
 from tests.search.om_deployment import get_ops_manager
 
@@ -31,6 +32,9 @@ USER_PASSWORD = f"{USER_NAME}-password"
 
 # MongoDBSearch TLS configuration -- convention: {name}-search-cert
 MDBS_TLS_SECRET_NAME = search_resource_names.mongot_tls_cert_name(MDB_RESOURCE_NAME)
+
+# Password used to encrypt the gRPC server certificate private key
+GRPC_KEY_PASSWORD = "test-grpc-key-password"
 
 
 @fixture(scope="function")
@@ -116,6 +120,10 @@ def test_install_tls_secrets_and_configmaps(namespace: str, mdb: MongoDB, mdbs: 
         ],
         secret_name=MDBS_TLS_SECRET_NAME,
     )
+
+    # Encrypt the gRPC server certificate key with a password to verify
+    # that mongot can handle password-protected keys via tls.keyFilePassword
+    encrypt_tls_key_with_password(namespace, MDBS_TLS_SECRET_NAME, GRPC_KEY_PASSWORD)
 
 
 @mark.e2e_search_enterprise_tls
