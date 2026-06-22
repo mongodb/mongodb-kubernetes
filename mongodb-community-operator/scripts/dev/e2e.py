@@ -46,7 +46,9 @@ def _prepare_test_environment(namespace) -> None:
     print("Creating Namespace")
     k8s_conditions.ignore_if_already_exists(
         lambda: corev1.create_namespace(
-            client.V1Namespace(metadata=dict(name=namespace, labels={"pod-security.kubernetes.io/warn": "restricted"}))
+            client.V1Namespace(
+                metadata=dict(name=namespace, labels={"pod-security.kubernetes.io/enforce": "restricted"})
+            )
         )
     )
 
@@ -77,6 +79,12 @@ def create_test_pod(args: argparse.Namespace, namespace: str) -> None:
             "labels": {"e2e-test": "true"},
         },
         "spec": {
+            "securityContext": {
+                "runAsNonRoot": True,
+                "runAsUser": 2000,
+                "fsGroup": 2000,
+                "seccompProfile": {"type": "RuntimeDefault"},
+            },
             "restartPolicy": "Never",
             "serviceAccountName": "e2e-test",
             "volumes": [{"name": "results", "emptyDir": {}}],
@@ -86,6 +94,22 @@ def create_test_pod(args: argparse.Namespace, namespace: str) -> None:
                     "image": f"{os.getenv('REGISTRY')}/mongodb-community-tests:{os.getenv('OPERATOR_VERSION')}",
                     "imagePullPolicy": "Always",
                     "env": [
+                        {
+                            "name": "GOCACHE",
+                            "value": "/tmp/go-cache",
+                        },
+                        {
+                            "name": "HELM_CACHE_HOME",
+                            "value": "/tmp/helm-cache",
+                        },
+                        {
+                            "name": "HELM_CONFIG_HOME",
+                            "value": "/tmp/helm-config",
+                        },
+                        {
+                            "name": "HELM_DATA_HOME",
+                            "value": "/tmp/helm-data",
+                        },
                         {
                             "name": "CLUSTER_WIDE",
                             "value": f"{args.cluster_wide}",
@@ -130,12 +154,20 @@ def create_test_pod(args: argparse.Namespace, namespace: str) -> None:
                         f"set -o pipefail; go test -tags=community_e2e -v -timeout=45m -failfast ./mongodb-community-operator/test/e2e/{args.test} 2>&1 | tee -a /tmp/results/result.suite",
                     ],
                     "volumeMounts": [{"name": "results", "mountPath": "/tmp/results"}],
+                    "securityContext": {
+                        "allowPrivilegeEscalation": False,
+                        "capabilities": {"drop": ["ALL"]},
+                    },
                 },
                 {
                     "name": "keepalive",
                     "image": "busybox",
                     "command": ["sh", "-c", "sleep inf"],
                     "volumeMounts": [{"name": "results", "mountPath": "/tmp/results"}],
+                    "securityContext": {
+                        "allowPrivilegeEscalation": False,
+                        "capabilities": {"drop": ["ALL"]},
+                    },
                 },
             ],
         },

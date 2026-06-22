@@ -568,6 +568,95 @@ func TestEnsureEmbeddingConfig_APIKeySecretAndProviderEndpont(t *testing.T) {
 	assert.Equal(t, expectedMongotConfig.Embedding, conf.Embedding)
 }
 
+func voyageAIService(name, namespace string) *corev1.Service {
+	return &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+			Labels: map[string]string{
+				"app.kubernetes.io/name":       "voyageai",
+				"app.kubernetes.io/managed-by": "mongodb-kubernetes-operator",
+			},
+		},
+	}
+}
+
+func TestEnsureEmbeddingConfig_InternalVoyageAI_NoSecretRequired(t *testing.T) {
+	ctx := context.TODO()
+	endpoint := "http://voyage-embedding-svc.mongodb.svc.cluster.local:8080/embeddings"
+	search := newTestMongoDBSearch("mdb-search", "mongodb", func(s *searchv1.MongoDBSearch) {
+		s.Spec.AutoEmbedding = &searchv1.EmbeddingConfig{ProviderEndpoint: endpoint} // no API key secret
+	})
+	// The Service backing the endpoint is an operator-managed VoyageAI service.
+	fakeClient := newTestFakeClient(search, voyageAIService("voyage-embedding-svc", "mongodb"))
+	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, OperatorSearchConfig{SearchVersion: "0.60.0"})
+
+	mongotModif, stsModif, err := helper.ensureEmbeddingConfig(ctx, nil)
+	require.NoError(t, err)
+
+	// mongot config: endpoint set, and key file paths set (mongot requires them);
+	// the operator fabricates the files since the VoyageAI server ignores the keys.
+	conf := &mongot.Config{}
+	mongotModif(conf)
+	require.NotNil(t, conf.Embedding)
+	assert.Equal(t, endpoint, conf.Embedding.ProviderEndpoint)
+	assert.Equal(t, fmt.Sprintf("%s/%s", embeddingKeyFilePath, indexingKeyName), conf.Embedding.IndexingKeyFile)
+	assert.Equal(t, fmt.Sprintf("%s/%s", embeddingKeyFilePath, queryKeyName), conf.Embedding.QueryKeyFile)
+	assert.True(t, *conf.Embedding.IsAutoEmbeddingViewWriter)
+
+	// Only the emptyDir is mounted (no user secret volume), and the container writes
+	// placeholder key files.
+	sts := &appsv1.StatefulSet{Spec: appsv1.StatefulSetSpec{Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{
+		Containers: []corev1.Container{{Name: MongotContainerName, Args: []string{"-c", "exec mongot"}}}, Volumes: []corev1.Volume{},
+	}}}}
+	stsModif(sts)
+	volNames := map[string]bool{}
+	for _, v := range sts.Spec.Template.Spec.Volumes {
+		volNames[v.Name] = true
+	}
+	assert.True(t, volNames[apiKeysTempVolumeName], "emptyDir for key files should be mounted")
+	assert.False(t, volNames[embeddingKeyVolumeName], "no user secret volume should be mounted")
+	assert.Contains(t, sts.Spec.Template.Spec.Containers[0].Args[1], queryKeyName)
+	assert.Contains(t, sts.Spec.Template.Spec.Containers[0].Args[1], "chmod 0400")
+}
+
+// Without an API key secret, the secret is required for any endpoint that is not
+// an in-cluster VoyageAI service: external hosts, in-cluster non-VoyageAI Services,
+// and an empty endpoint all error.
+func TestEnsureEmbeddingConfig_SecretRequiredForNonInternal(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		endpoint string
+		objects  []client.Object // extra objects, e.g. a non-VoyageAI Service at the endpoint host
+	}{
+		{
+			name:     "external endpoint",
+			endpoint: "https://api.voyageai.com/v1/embeddings",
+		},
+		{
+			name:     "in-cluster non-VoyageAI service",
+			endpoint: "http://some-svc.mongodb.svc.cluster.local:8080/embeddings",
+			objects:  []client.Object{&corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: "some-svc", Namespace: "mongodb"}}},
+		},
+		{
+			name:     "empty endpoint",
+			endpoint: "",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			search := newTestMongoDBSearch("mdb-search", "mongodb", func(s *searchv1.MongoDBSearch) {
+				s.Spec.AutoEmbedding = &searchv1.EmbeddingConfig{ProviderEndpoint: tc.endpoint}
+			})
+			fakeClient := newTestFakeClient(append([]client.Object{search}, tc.objects...)...)
+			helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, OperatorSearchConfig{SearchVersion: "0.60.0"})
+
+			_, _, err := helper.ensureEmbeddingConfig(context.TODO(), nil)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "embeddingModelAPIKeySecret is required")
+		})
+	}
+}
+
 func TestEnsureEmbeddingConfig_WOAutoEmbedding(t *testing.T) {
 	mongotCMWithoutEmbedding := `healthCheck:
   address: ""
