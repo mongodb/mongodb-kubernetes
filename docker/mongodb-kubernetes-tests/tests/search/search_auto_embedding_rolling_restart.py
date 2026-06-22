@@ -54,6 +54,30 @@ DB_NAME = "sample_mflix"
 COL_NAME = "movies"
 SENTINEL_COUNT = 20
 
+# distinct plots: near-identical text clusters in ANN space and makes rank-1 self-match unreliable
+_SENTINEL_PLOTS = [
+    "A submarine crew discovers ancient ruins beneath the Arctic Ocean floor.",
+    "An astronomer traces coded messages hidden inside century-old star charts.",
+    "Rival perfumers battle to recreate a fragrance that triggers lost memories.",
+    "A lighthouse keeper receives transmissions from a ship that sank decades ago.",
+    "Underground engineers reroute medieval aqueducts beneath a modern skyscraper.",
+    "A chess grandmaster tutors prisoners using stolen championship theory.",
+    "Forensic botanists identify a poisoner through rare pollen found in a wound.",
+    "A metallurgist forges swords from ore salvaged inside a meteorite crater.",
+    "Nomadic astronomers chart constellations invisible to settled civilizations.",
+    "A dye merchant smuggles coded dispatches inside bolts of ceremonial fabric.",
+    "Competing salvage crews fight over a sunken nuclear-powered icebreaker.",
+    "Blind clockmakers in a monastery build instruments that predict storms.",
+    "A mycologist discovers a fungal network recording human speech underground.",
+    "Desert travelers find a crashed aircraft carrying classified cargo from 1952.",
+    "A cartographer deciphers coordinates hidden inside cathedral stained glass.",
+    "Rival falconers duel with engineered raptors over contested mountain airspace.",
+    "A disgraced chef recreates a banned recipe using forbidden spice combinations.",
+    "An archaeologist uncovers evidence that rewrites the history of writing itself.",
+    "A volcanologist discovers a civilization living inside a dormant caldera.",
+    "An ice diver recovers a manuscript proving an alternative history of mathematics.",
+]
+
 
 @fixture(scope="module")
 def ca_configmap(issuer_ca_filepath: str, namespace: str) -> str:
@@ -211,6 +235,8 @@ def test_create_auto_embedding_index(sample_movies_helper: SampleMoviesSearchHel
 def test_wait_for_auto_embedding_index(sample_movies_helper: SampleMoviesSearchHelper):
     # initial sync embeds ~21k docs through the embedding API; 600s to ensure READY before the roll
     sample_movies_helper.search_tester.wait_for_search_indexes_ready(DB_NAME, COL_NAME, timeout=600)
+    # metadata READY != queryable; smoke-query until $vectorSearch actually returns results
+    sample_movies_helper.assert_auto_emb_vector_search_query(retry_timeout=60)
 
 
 @mark.e2e_search_auto_embedding_rolling_restart
@@ -225,8 +251,9 @@ def test_backlog_drains_through_roll(
 
     sentinels = _make_sentinel_docs(SENTINEL_COUNT)
 
-    # trigger a real STS rolling restart then insert sentinels across the window
     _rollout_restart_sts(namespace, sts_name)
+    # inserts must land after a pod goes not-Ready; otherwise they land at full health and never hit a backlog
+    _wait_for_pod_not_ready(namespace, f"{sts_name}-1")
     sample_movies_helper.search_tester.client[DB_NAME][COL_NAME].insert_many(sentinels)
 
     wait_for_all_pods_replaced(namespace, old_uids, timeout=600)
@@ -244,8 +271,8 @@ def _make_sentinel_docs(n: int) -> list[dict]:
         {
             "_id": f"sentinel-roll-{tag}-{i}",
             "title": f"Sentinel Roll {tag} {i}",
-            # distinctive plot text: query by this to find the sentinel as nearest neighbor
-            "plot": f"A unique sentinel document inserted during rolling restart {tag} number {i}.",
+            # unique run tag appended so re-runs don't collide with stale data from prior tests
+            "plot": f"{_SENTINEL_PLOTS[i % len(_SENTINEL_PLOTS)]} Unique run: {tag}.",
         }
         for i in range(n)
     ]
@@ -260,18 +287,37 @@ def _rollout_restart_sts(namespace: str, sts_name: str) -> None:
     )
 
 
+def _wait_for_pod_not_ready(namespace: str, pod_name: str, timeout: int = 120) -> None:
+    """Block until the named pod is Gone or NotReady (confirms the disruption window is open)."""
+    core_v1 = k8s_client.CoreV1Api()
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            pod = core_v1.read_namespaced_pod(name=pod_name, namespace=namespace)
+            conditions = pod.status.conditions or []
+            if not any(c.type == "Ready" and c.status == "True" for c in conditions):
+                return
+        except Exception as e:
+            if getattr(e, "status", None) == 404:
+                return  # pod deleted → definitely not ready
+            raise
+        time.sleep(2)
+    raise TimeoutError(f"{pod_name} never went not-Ready within {timeout}s")
+
+
 def _poll_vector_search_for_sentinel_titles(
     helper: SampleMoviesSearchHelper, sentinels: list[dict], timeout: int = 300
 ) -> set[str]:
     """Return titles NOT found via $vectorSearch within timeout. Empty set = all indexed."""
-    not_found = {s["title"]: s["plot"] for s in sentinels}
+    not_found = {s["_id"]: (s["title"], s["plot"]) for s in sentinels}
     deadline = time.time() + timeout
+    col = helper.search_tester.client[DB_NAME][COL_NAME]
     while not_found and time.time() < deadline:
-        for title, plot in list(not_found.items()):
+        for doc_id, (title, plot) in list(not_found.items()):
             try:
-                # plot self-query → cosine ≈ 1.0 → target ranks #1; limit covers all sentinels (tight cluster)
-                results = list(
-                    helper.search_tester.client[DB_NAME][COL_NAME].aggregate(
+                # distinct plot self-query → target is rank #1 (cosine ≈ 1.0); limit=1 + _id check is exact
+                hits = list(
+                    col.aggregate(
                         [
                             {
                                 "$vectorSearch": {
@@ -279,20 +325,20 @@ def _poll_vector_search_for_sentinel_titles(
                                     "path": "plot",
                                     "query": plot,
                                     "numCandidates": 150,
-                                    "limit": SENTINEL_COUNT,
+                                    "limit": 1,
                                 }
                             },
-                            {"$project": {"title": 1, "_id": 0}},
+                            {"$project": {"_id": 1}},
                         ]
                     )
                 )
-                if any(r.get("title") == title for r in results):
-                    del not_found[title]
-            except pymongo.errors.OperationFailure:
-                pass  # transient 503 from mongot during recovery; retry next cycle
+                if hits and hits[0].get("_id") == doc_id:
+                    del not_found[doc_id]
+            except pymongo.errors.PyMongoError:
+                pass  # transient path error during recovery; retry next cycle
         if not_found:
             time.sleep(5)
-    return set(not_found.keys())
+    return {title for title, _ in not_found.values()}
 
 
 def _diagnose_missing_sentinels(helper: SampleMoviesSearchHelper, missing_docs: list[dict]) -> str:
@@ -319,7 +365,7 @@ def _diagnose_missing_sentinels(helper: SampleMoviesSearchHelper, missing_docs: 
                 )
             )
             indexed = any(r.get("_id") == s["_id"] for r in hits)
-        except Exception:
-            indexed = False
+        except Exception as exc:
+            indexed = f"err:{exc}"
         lines.append(f"  {s['title']}: exists={exists}, indexed={indexed}")
     return "\n".join(lines)
