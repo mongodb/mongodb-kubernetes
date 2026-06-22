@@ -302,8 +302,17 @@ layered_runtime:
                                     },
                                     {"name": "ca-cert", "mountPath": "/etc/envoy/tls/ca", "readOnly": True},
                                 ],
+                                "securityContext": {
+                                    "allowPrivilegeEscalation": False,
+                                    "capabilities": {"drop": ["ALL"]},
+                                },
                             }
                         ],
+                        "securityContext": {
+                            "runAsNonRoot": True,
+                            "runAsUser": 2000,
+                            "seccompProfile": {"type": "RuntimeDefault"},
+                        },
                         "volumes": [
                             {"name": "envoy-config", "configMap": {"name": self.configmap_name}},
                             {"name": "envoy-server-cert", "secret": {"secretName": self.SERVER_CERT_SECRET}},
