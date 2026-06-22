@@ -1450,6 +1450,16 @@ tasks:
     commands:
       - func: "e2e_test"
 
+  - name: e2e_search_ext_mc_rs_x509_enc_mtls
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_search_ext_mc_sharded_scram_enc_mtls
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
   - name: e2e_search_replicaset_external_mongodb_multi_mongot_managed_lb
     tags: [ "patch-run" ]
     commands:
