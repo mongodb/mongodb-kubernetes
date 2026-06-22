@@ -841,6 +841,7 @@ task_groups:
       - e2e_search_community_auto_embedding
       - e2e_search_community_auto_embedding_multi_mongot
       - e2e_search_auto_embedding_version_gate
+      - e2e_search_auto_embedding_bad_secret
       - e2e_search_community_tls
       - e2e_search_community_external_mongod_basic
       - e2e_search_community_external_mongod_tls
@@ -889,6 +890,7 @@ task_groups:
       - e2e_search_community_auto_embedding
       - e2e_search_community_auto_embedding_multi_mongot
       - e2e_search_auto_embedding_version_gate
+      - e2e_search_auto_embedding_bad_secret
       - e2e_search_community_tls
       - e2e_search_community_external_mongod_basic
       - e2e_search_community_external_mongod_tls
