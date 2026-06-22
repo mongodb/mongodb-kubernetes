@@ -56,7 +56,25 @@ func init() {
 	v1.SchemeBuilder.Register(&MongoDBSearch{}, &MongoDBSearchList{})
 }
 
+// PrometheusMode controls whether the Prometheus metrics endpoint in mongot is enabled.
+// +kubebuilder:validation:Enum=enabled;disabled
+type PrometheusMode string
+
+const (
+	// PrometheusModeEnabled enables the Prometheus metrics endpoint in mongot.
+	PrometheusModeEnabled PrometheusMode = "enabled"
+	// PrometheusModeDisabled disables the Prometheus metrics endpoint in mongot.
+	PrometheusModeDisabled PrometheusMode = "disabled"
+)
+
 type Prometheus struct {
+	// Mode controls whether the Prometheus metrics endpoint in mongot is enabled.
+	// Defaults to enabled.
+	// +optional
+	// +kubebuilder:default=enabled
+	// +kubebuilder:validation:Enum=enabled;disabled
+	Mode PrometheusMode `json:"mode,omitempty"`
+
 	// Port where metrics endpoint will be exposed on. Defaults to 9946.
 	// +optional
 	// +kubebuilder:validation:Minimum=0
@@ -65,11 +83,23 @@ type Prometheus struct {
 	Port int `json:"port,omitempty"`
 }
 
-func (p *Prometheus) GetPort() int32 {
+func (p Prometheus) IsEnabled() bool {
+	return p.Mode != PrometheusModeDisabled
+}
+
+func (p Prometheus) GetPort() int32 {
 	//nolint:gosec
 	return int32(p.Port)
 }
 
+// ObservabilityConfig holds observability-related configuration for MongoDBSearch.
+type ObservabilityConfig struct {
+	// Prometheus configures the Prometheus metrics endpoint in mongot.
+	// By default the endpoint is enabled on port 9946.
+	// +optional
+	// +kubebuilder:default={}
+	Prometheus Prometheus `json:"prometheus,omitempty"`
+}
 type MongoDBSearchSpec struct {
 	// Version of MongoDB Search (mongot) to run. If unset, the operator picks the most appropriate version.
 	// +optional
@@ -84,9 +114,10 @@ type MongoDBSearchSpec struct {
 	// +kubebuilder:validation:Enum=TRACE;DEBUG;INFO;WARN;ERROR
 	// +optional
 	LogLevel mdb.LogLevel `json:"logLevel,omitempty"`
-	// Configure prometheus metrics endpoint in mongot. If not set, the metrics endpoint will be disabled.
+	// Observability configures observability features (e.g. Prometheus endpoint and metrics forwarding to Ops Manager).
 	// +optional
-	Prometheus *Prometheus `json:"prometheus,omitempty"`
+	// +kubebuilder:default={}
+	Observability ObservabilityConfig `json:"observability,omitempty"`
 	// AutoEmbedding configures MongoDB Search to generate vector embeddings automatically
 	// through an embedding model service. These values populate the `embedding` section of the mongot config.
 	// +optional

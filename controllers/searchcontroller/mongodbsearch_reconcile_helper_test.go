@@ -54,6 +54,12 @@ func newTestMongoDBSearch(name, namespace string, modifications ...func(*searchv
 					Name: "test-mongodb",
 				},
 			},
+			// immitate apiserver defaulting for .observability and .observability.prometheus
+			Observability: searchv1.ObservabilityConfig{
+				Prometheus: searchv1.Prometheus{
+					Port: int(searchv1.MongotDefaultPrometheusPort),
+				},
+			},
 		},
 	}
 
@@ -475,9 +481,19 @@ func TestMongoDBSearchReconcileHelper_ServiceCreation(t *testing.T) {
 		expectedPorts map[string]int32
 	}{
 		{
+			name:         "Prometheus implicitly enabled with default port",
+			modifySearch: func(search *searchv1.MongoDBSearch) {},
+			expectedPorts: map[string]int32{
+				"mongot-grpc": searchv1.MongotDefaultGrpcPort,
+				"prometheus":  searchv1.MongotDefaultPrometheusPort,
+				"healthcheck": searchv1.MongotDefautHealthCheckPort,
+			},
+		},
+		{
 			name: "Prometheus enabled with custom port",
 			modifySearch: func(search *searchv1.MongoDBSearch) {
-				search.Spec.Prometheus = &searchv1.Prometheus{
+				search.Spec.Observability.Prometheus = searchv1.Prometheus{
+					Mode: searchv1.PrometheusModeEnabled,
 					Port: 9999,
 				}
 			},
@@ -490,7 +506,9 @@ func TestMongoDBSearchReconcileHelper_ServiceCreation(t *testing.T) {
 		{
 			name: "Prometheus disabled",
 			modifySearch: func(search *searchv1.MongoDBSearch) {
-				search.Spec.Prometheus = nil
+				search.Spec.Observability.Prometheus = searchv1.Prometheus{
+					Mode: searchv1.PrometheusModeDisabled,
+				}
 			},
 			expectedPorts: map[string]int32{
 				"mongot-grpc": searchv1.MongotDefaultGrpcPort,

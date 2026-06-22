@@ -650,17 +650,38 @@ spec:
                 - WARN
                 - ERROR
                 type: string
-              prometheus:
-                description: Configure prometheus metrics endpoint in mongot. If not
-                  set, the metrics endpoint will be disabled.
+              observability:
+                default: {}
+                description: Observability configures observability features (e.g.
+                  Prometheus endpoint and metrics forwarding to Ops Manager).
                 properties:
-                  port:
-                    default: 9946
-                    description: Port where metrics endpoint will be exposed on. Defaults
-                      to 9946.
-                    maximum: 65535
-                    minimum: 0
-                    type: integer
+                  prometheus:
+                    default: {}
+                    description: |-
+                      Prometheus configures the Prometheus metrics endpoint in mongot.
+                      By default the endpoint is enabled on port 9946.
+                    properties:
+                      mode:
+                        allOf:
+                        - enum:
+                          - enabled
+                          - disabled
+                        - enum:
+                          - enabled
+                          - disabled
+                        default: enabled
+                        description: |-
+                          Mode controls whether the Prometheus metrics endpoint in mongot is enabled.
+                          Defaults to enabled.
+                        type: string
+                      port:
+                        default: 9946
+                        description: Port where metrics endpoint will be exposed on.
+                          Defaults to 9946.
+                        maximum: 65535
+                        minimum: 0
+                        type: integer
+                    type: object
                 type: object
               security:
                 description: Security holds the TLS settings for the MongoDB Search
