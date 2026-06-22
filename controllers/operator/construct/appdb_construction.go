@@ -252,8 +252,10 @@ func CAConfigMapName(appDb om.AppDBSpec, log *zap.SugaredLogger) string {
 func tlsVolumes(appDb om.AppDBSpec, podVars *env.PodEnvVars, opts AppDBStatefulSetOptions, log *zap.SugaredLogger) podtemplatespec.Modification {
 	volumesToAdd, volumeMounts := getTLSVolumesAndVolumeMounts(appDb, podVars, opts, log)
 
-	// Add agent API key volume mount if not using vault and monitoring is enabled
-	if !vault.IsVaultSecretBackend() && ShouldEnableMonitoring(podVars, opts) {
+	// Add agent API key volume mount if not using vault and either monitoring is enabled
+	// (headless) or we're in online mode (the agent authenticates to the external OM with
+	// -mmsApiKey, read from this mounted secret).
+	if !vault.IsVaultSecretBackend() && (ShouldEnableMonitoring(podVars, opts) || opts.Connection.Enabled) {
 		volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(AgentAPIKeyVolumeName, AgentAPIKeySecretPath))
 	}
 
