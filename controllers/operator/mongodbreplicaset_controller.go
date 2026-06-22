@@ -65,7 +65,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
-	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/generate"
 	util_int "github.com/mongodb/mongodb-kubernetes/pkg/util/int"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
@@ -654,10 +653,10 @@ func (r *ReplicaSetReconcilerHelper) buildStatefulSetOptions(ctx context.Context
 
 // AddReplicaSetController creates a new MongoDbReplicaset Controller and adds it to the Manager. The Manager will set fields on the Controller
 // and Start it when the Manager is Started.
-func AddReplicaSetController(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture) error {
+func AddReplicaSetController(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, maxConcurrentReconciles int) error {
 	// Create a new controller
 	reconciler := newReplicaSetReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, om.NewOpsManagerConnection)
-	c, err := controller.New(util.MongoDbReplicaSetController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)}) // nolint:forbidigo
+	c, err := controller.New(util.MongoDbReplicaSetController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: maxConcurrentReconciles})
 	if err != nil {
 		return err
 	}
