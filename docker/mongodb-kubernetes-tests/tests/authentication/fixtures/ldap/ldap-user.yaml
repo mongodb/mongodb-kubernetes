@@ -5,7 +5,8 @@ metadata:
   name: ldap-user-0
 spec:
   username: "uid=mdb0,dc=example,dc=org"
-  db: "$external"
+  authSource: "$external"
+  defaultDatabase: "$external"
   mongodbResourceRef:
     name: ldap-replica-set
   roles:

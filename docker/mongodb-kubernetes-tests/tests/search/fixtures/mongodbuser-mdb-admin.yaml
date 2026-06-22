@@ -5,7 +5,8 @@ metadata:
   name: mdb-admin
 spec:
   username: mdb-admin
-  db: admin
+  authSource: admin
+  defaultDatabase: admin
   mongodbResourceRef:
     name: mdb-rs
   passwordSecretKeyRef:

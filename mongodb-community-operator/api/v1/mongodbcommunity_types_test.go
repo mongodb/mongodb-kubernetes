@@ -240,8 +240,9 @@ func TestGetScramCredentialsSecretName(t *testing.T) {
 	}{
 		{
 			MongoDBUser{
-				Name: "mdb-0",
-				DB:   "admin",
+				Name:            "mdb-0",
+				AuthSource:      "admin",
+				DefaultDatabase: "admin",
 				Roles: []Role{
 					// roles on testing db for general connectivity
 					{
@@ -268,8 +269,9 @@ func TestGetScramCredentialsSecretName(t *testing.T) {
 		},
 		{
 			MongoDBUser{
-				Name: "mdb-1",
-				DB:   "admin",
+				Name:            "mdb-1",
+				AuthSource:      "admin",
+				DefaultDatabase: "admin",
 				Roles: []Role{
 					// roles on testing db for general connectivity
 					{
@@ -309,7 +311,8 @@ func TestGetConnectionStringSecretName(t *testing.T) {
 		{
 			MongoDBUser{
 				Name:                       "mdb-0",
-				DB:                         "admin",
+				AuthSource:                 "admin",
+				DefaultDatabase:            "admin",
 				ScramCredentialsSecretName: "scram-credential-secret-name-0",
 			},
 			"replica-set-admin-mdb-0",
@@ -317,7 +320,8 @@ func TestGetConnectionStringSecretName(t *testing.T) {
 		{
 			MongoDBUser{
 				Name:                       "?_normalize/_-username/?@with/[]?no]?/:allowed:chars[only?",
-				DB:                         "admin",
+				AuthSource:                 "admin",
+				DefaultDatabase:            "admin",
 				ScramCredentialsSecretName: "scram-credential-secret-name-0",
 			},
 			"replica-set-admin-normalize-username-with-no-allowed-chars-only",
@@ -325,7 +329,8 @@ func TestGetConnectionStringSecretName(t *testing.T) {
 		{
 			MongoDBUser{
 				Name:                       "AppUser",
-				DB:                         "Administrators",
+				AuthSource:                 "Administrators",
+				DefaultDatabase:            "Administrators",
 				ScramCredentialsSecretName: "scram-credential-secret-name-0",
 			},
 			"replica-set-administrators-appuser",
@@ -333,7 +338,8 @@ func TestGetConnectionStringSecretName(t *testing.T) {
 		{
 			MongoDBUser{
 				Name:                       "mdb-0",
-				DB:                         "admin",
+				AuthSource:                 "admin",
+				DefaultDatabase:            "admin",
 				ScramCredentialsSecretName: "scram-credential-secret-name-0",
 				ConnectionStringSecretName: "connection-string-secret",
 			},
@@ -342,7 +348,8 @@ func TestGetConnectionStringSecretName(t *testing.T) {
 		{
 			MongoDBUser{
 				Name:                            "mdb-2",
-				DB:                              "admin",
+				AuthSource:                      "admin",
+				DefaultDatabase:                 "admin",
 				ScramCredentialsSecretName:      "scram-credential-secret-name-2",
 				ConnectionStringSecretName:      "connection-string-secret-2",
 				ConnectionStringSecretNamespace: "other-namespace",
@@ -521,7 +528,8 @@ func TestMongoDBCommunity_GetAuthUsers(t *testing.T) {
 	mdb.Spec.Users = []MongoDBUser{
 		{
 			Name:              "my-user",
-			DB:                "admin",
+			AuthSource:        "admin",
+			DefaultDatabase:   "admin",
 			PasswordSecretRef: rootv1.SecretKeyReference{Name: "my-user-password"},
 			Roles: []Role{
 				{
@@ -535,7 +543,8 @@ func TestMongoDBCommunity_GetAuthUsers(t *testing.T) {
 		},
 		{
 			Name:              "CN=my-x509-authenticated-user,OU=organizationalunit,O=organization",
-			DB:                "$external",
+			AuthSource:        "$external",
+			DefaultDatabase:   "$external",
 			PasswordSecretRef: rootv1.SecretKeyReference{},
 			Roles: []Role{
 				{
@@ -552,8 +561,9 @@ func TestMongoDBCommunity_GetAuthUsers(t *testing.T) {
 	authUsers := mdb.GetAuthUsers()
 
 	assert.Equal(t, authtypes.User{
-		Username: "my-user",
-		Database: "admin",
+		Username:        "my-user",
+		AuthSource:      "admin",
+		DefaultDatabase: "admin",
 		Roles: []authtypes.Role{{
 			Database: "admin",
 			Name:     "readWriteAnyDatabase",
@@ -566,8 +576,9 @@ func TestMongoDBCommunity_GetAuthUsers(t *testing.T) {
 		ConnectionStringOptions:         nil,
 	}, authUsers[0])
 	assert.Equal(t, authtypes.User{
-		Username: "CN=my-x509-authenticated-user,OU=organizationalunit,O=organization",
-		Database: "$external",
+		Username:        "CN=my-x509-authenticated-user,OU=organizationalunit,O=organization",
+		AuthSource:      "$external",
+		DefaultDatabase: "$external",
 		Roles: []authtypes.Role{{
 			Database: "admin",
 			Name:     "readWriteAnyDatabase",
@@ -579,6 +590,64 @@ func TestMongoDBCommunity_GetAuthUsers(t *testing.T) {
 		ConnectionStringSecretNamespace: mdb.Namespace,
 		ConnectionStringOptions:         nil,
 	}, authUsers[1])
+}
+
+func TestMongoDBUser_ValidateUser(t *testing.T) {
+	t.Run("legacy db field alone is valid", func(t *testing.T) {
+		u := MongoDBUser{Name: "u", DB: "admin"}
+		assert.NoError(t, u.ValidateUser())
+	})
+
+	t.Run("authSource and defaultDatabase together are valid", func(t *testing.T) {
+		u := MongoDBUser{Name: "u", AuthSource: "admin", DefaultDatabase: "myapp"}
+		assert.NoError(t, u.ValidateUser())
+	})
+
+	t.Run("empty is valid (controller defaults db to admin)", func(t *testing.T) {
+		u := MongoDBUser{Name: "u"}
+		assert.NoError(t, u.ValidateUser())
+	})
+
+	t.Run("db combined with authSource is invalid", func(t *testing.T) {
+		u := MongoDBUser{Name: "u", DB: "admin", AuthSource: "admin"}
+		assert.Error(t, u.ValidateUser())
+	})
+
+	t.Run("authSource without defaultDatabase is invalid", func(t *testing.T) {
+		u := MongoDBUser{Name: "u", AuthSource: "admin"}
+		assert.Error(t, u.ValidateUser())
+	})
+
+	t.Run("defaultDatabase without authSource is invalid", func(t *testing.T) {
+		u := MongoDBUser{Name: "u", DefaultDatabase: "myapp"}
+		assert.Error(t, u.ValidateUser())
+	})
+}
+
+func TestMongoDBUser_EffectiveHelpers(t *testing.T) {
+	t.Run("legacy db used for both auth and path", func(t *testing.T) {
+		u := MongoDBUser{DB: "admin"}
+		assert.Equal(t, "admin", u.EffectiveAuthDatabase())
+		assert.Equal(t, "admin", u.EffectivePathDatabase())
+	})
+
+	t.Run("new fields: authSource for auth, defaultDatabase for path", func(t *testing.T) {
+		u := MongoDBUser{AuthSource: "admin", DefaultDatabase: "myapp"}
+		assert.Equal(t, "admin", u.EffectiveAuthDatabase())
+		assert.Equal(t, "myapp", u.EffectivePathDatabase())
+	})
+}
+
+func TestMongoDBCommunity_MongoAuthUserURI_WithAuthSource(t *testing.T) {
+	mdb := newReplicaSet(2, "my-rs", "my-namespace")
+	testuser := authtypes.User{
+		Username:   "testuser",
+		Database:   "myapp",
+		AuthSource: "admin",
+	}
+	uri := mdb.MongoAuthUserURI(testuser, "password")
+	assert.Contains(t, uri, "/myapp?")
+	assert.Contains(t, uri, "authSource=admin")
 }
 
 func newReplicaSet(members int, name, namespace string) MongoDBCommunity {

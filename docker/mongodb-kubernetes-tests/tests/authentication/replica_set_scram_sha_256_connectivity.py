@@ -250,7 +250,8 @@ def test_create_user_with_space_in_password(replica_set: MongoDB, namespace: str
     resource = MongoDBUser(name=SPACE_PASSWORD_USER_NAME, namespace=namespace)
     resource["spec"] = {
         "username": SPACE_PASSWORD_USER_NAME,
-        "db": USER_DATABASE,
+        "authSource": USER_DATABASE,
+        "defaultDatabase": USER_DATABASE,
         "mongodbResourceRef": {"name": replica_set.name},
         "passwordSecretKeyRef": {"name": SPACE_PASSWORD_SECRET_NAME, "key": "password"},
         "roles": [{"db": USER_DATABASE, "name": "readWrite"}],
@@ -297,7 +298,8 @@ def test_create_user_with_plus_in_password(replica_set: MongoDB, namespace: str)
     resource = MongoDBUser(name=PLUS_PASSWORD_USER_NAME, namespace=namespace)
     resource["spec"] = {
         "username": PLUS_PASSWORD_USER_NAME,
-        "db": USER_DATABASE,
+        "authSource": USER_DATABASE,
+        "defaultDatabase": USER_DATABASE,
         "mongodbResourceRef": {"name": replica_set.name},
         "passwordSecretKeyRef": {"name": PLUS_PASSWORD_SECRET_NAME, "key": "password"},
         "roles": [{"db": USER_DATABASE, "name": "readWrite"}],

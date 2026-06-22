@@ -8,7 +8,8 @@ spec:
     name: mms-user-1-password
     key: password
   username: "mms-user-1"
-  db: "admin"
+  authSource: "admin"
+  defaultDatabase: "admin"
   mongodbResourceRef:
     name: "my-replica-set"
   roles:

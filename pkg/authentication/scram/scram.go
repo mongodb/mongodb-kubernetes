@@ -242,7 +242,7 @@ func readExistingCredentials(ctx context.Context, secretGetter secret.Getter, md
 func convertMongoDBResourceUsersToAutomationConfigUsers(ctx context.Context, secretGetUpdateCreateDeleter secret.GetUpdateCreateDeleter, mdb authtypes.Configurable) ([]automationconfig.MongoDBUser, error) {
 	var usersWanted []automationconfig.MongoDBUser
 	for _, u := range mdb.GetAuthUsers() {
-		if u.Database != constants.ExternalDB {
+		if !u.IsExternalAuth() {
 			acUser, err := convertMongoDBUserToAutomationConfigUser(ctx, secretGetUpdateCreateDeleter, mdb.NamespacedName(), mdb.GetOwnerReferences(), u)
 			if err != nil {
 				return nil, fmt.Errorf("failed to convert scram user %s to Automation Config user: %s", u.Username, err)
@@ -258,7 +258,7 @@ func convertMongoDBResourceUsersToAutomationConfigUsers(ctx context.Context, sec
 func convertMongoDBUserToAutomationConfigUser(ctx context.Context, secretGetUpdateCreateDeleter secret.GetUpdateCreateDeleter, mdbNsName types.NamespacedName, ownerRef []metav1.OwnerReference, user authtypes.User) (automationconfig.MongoDBUser, error) {
 	acUser := automationconfig.MongoDBUser{
 		Username: user.Username,
-		Database: user.Database,
+		Database: user.GetUserDatabase(),
 	}
 	for _, role := range user.Roles {
 		acUser.Roles = append(acUser.Roles, automationconfig.Role{

@@ -52,6 +52,12 @@ func validateSpec(mdb mdbv1.MongoDBCommunity, log *zap.SugaredLogger) error {
 
 // validateUsers checks if the users configuration is valid
 func validateUsers(mdb mdbv1.MongoDBCommunity) error {
+	for _, u := range mdb.Spec.Users {
+		if err := u.ValidateUser(); err != nil {
+			return err
+		}
+	}
+
 	connectionStringSecretNameMap := map[string]authtypes.User{}
 	nameCollisions := []string{}
 
@@ -78,7 +84,7 @@ func validateUsers(mdb mdbv1.MongoDBCommunity) error {
 					previousUser.Username,
 					previousUser.Database,
 					user.Username,
-					user.Database))
+					user.AuthSource))
 		} else {
 			connectionStringSecretNameMap[connectionStringSecretName] = user
 		}
@@ -97,7 +103,7 @@ func validateUsers(mdb mdbv1.MongoDBCommunity) error {
 			}
 		}
 
-		if user.Database == constants.ExternalDB {
+		if user.IsExternalAuth() {
 			if _, ok := expectedAuthMethods[constants.X509]; !ok {
 				return fmt.Errorf("X.509 user %s present but X.509 is not enabled", user.Username)
 			}

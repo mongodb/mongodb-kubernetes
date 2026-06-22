@@ -18,7 +18,7 @@ import (
 )
 
 type ConnectionStringBuilder interface {
-	BuildConnectionString(userName, password, specDb string, scheme Scheme, connectionParams map[string]string) string
+	BuildConnectionString(userName, password, authSource, defaultDatabase string, scheme Scheme, connectionParams map[string]string) string
 }
 
 // Scheme states the connection string format.
@@ -48,8 +48,9 @@ type builder struct {
 	isReplicaSet        bool
 	isTLSEnabled        bool
 
-	hostnames []string
-	database  string
+	hostnames   []string
+	database    string
+	authSource  string
 
 	scheme           Scheme
 	connectionParams map[string]string
@@ -130,6 +131,11 @@ func (b *builder) SetDatabase(database string) *builder {
 	return b
 }
 
+func (b *builder) SetAuthSource(authSource string) *builder {
+	b.authSource = authSource
+	return b
+}
+
 func (b *builder) SetScheme(scheme Scheme) *builder {
 	b.scheme = scheme
 	return b
@@ -178,7 +184,7 @@ func (b *builder) Build() string {
 		connectionParams["ssl"] = "true"
 	}
 
-	if src := resolveAuthSource(b.authenticationModes, b.database); src != "" {
+	if src := resolveAuthSource(b.authenticationModes, b.authSource); src != "" {
 		connectionParams["authSource"] = src
 	}
 	if mech := resolveAuthMechanism(b.authenticationModes, b.version); mech != "" {
@@ -221,11 +227,11 @@ func Builder() *builder {
 	}
 }
 
-// resolveAuthSource returns the authSource for the URI. specDb takes precedence;
+// resolveAuthSource returns the authSource for the URI. An explicit authSource takes precedence;
 // when empty, any SCRAM variant falls back to the default user database.
-func resolveAuthSource(authenticationModes []string, specDb string) string {
-	if specDb != "" {
-		return specDb
+func resolveAuthSource(authenticationModes []string, authSource string) string {
+	if authSource != "" {
+		return authSource
 	}
 	if stringutil.Contains(authenticationModes, util.SCRAM) || stringutil.Contains(authenticationModes, util.SCRAMSHA1) {
 		return util.DefaultUserDatabase

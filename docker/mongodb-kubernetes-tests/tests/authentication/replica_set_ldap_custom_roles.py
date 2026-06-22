@@ -43,7 +43,7 @@ def ldap_user_mongodb(
     user = generic_user(
         namespace,
         username=ldap_mongodb_user.uid,
-        db="$external",
+        auth_source="$external", default_database="$external",
         mongodb_resource=replica_set,
         password=ldap_mongodb_user.password,
     )
