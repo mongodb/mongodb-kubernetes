@@ -1455,3 +1455,8 @@ tasks:
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
+
+  - name: e2e_vm_migration_tls_scram
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
