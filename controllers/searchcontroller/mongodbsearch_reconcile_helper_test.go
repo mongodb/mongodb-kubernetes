@@ -93,7 +93,7 @@ func newTestOperatorSearchConfig() OperatorSearchConfig {
 	config := OperatorSearchConfig{
 		SearchRepo:    "test-repo",
 		SearchName:    "mongot",
-		SearchVersion: "0.0.0",
+		SearchVersion: minSupportedSearchVersion,
 	}
 
 	return config
@@ -981,39 +981,8 @@ func TestValidateSearchResource(t *testing.T) {
 					"query-key":    []byte(""),
 				},
 			},
-			errAssertion:  assert.Error,
-			searchVersion: "0.55.0",
-			errMsg:        "The MongoDB search version 0.55.0 doesn't support auto embeddings. Please use version 0.60.0 or newer.",
-		},
-		{
-			apiKeySecret: &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      testApiKeySecretName,
-					Namespace: "mongodb",
-				},
-				Data: map[string][]byte{
-					"indexing-key": []byte(""),
-					"query-key":    []byte(""),
-				},
-			},
-			errAssertion:  assert.Error,
-			searchVersion: "0.58.0",
-			errMsg:        "The MongoDB search version 0.58.0 doesn't support auto embeddings. Please use version 0.60.0 or newer.",
-		},
-		{
-			apiKeySecret: &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      testApiKeySecretName,
-					Namespace: "mongodb",
-				},
-				Data: map[string][]byte{
-					"indexing-key": []byte(""),
-					"query-key":    []byte(""),
-				},
-			},
-			errAssertion:  assert.NoError,
-			searchVersion: "1.58.0",
-			errMsg:        "",
+			errAssertion: assert.NoError,
+			errMsg:       "",
 		},
 	} {
 		fakeClient := newTestFakeClient(search, tc.apiKeySecret)
@@ -1025,6 +994,56 @@ func TestValidateSearchResource(t *testing.T) {
 		if tc.errMsg != "" {
 			assert.Equal(t, tc.errMsg, err.Error())
 		}
+	}
+}
+
+func TestValidateSearchImageVersion(t *testing.T) {
+	search := newTestMongoDBSearch("mdb-search", "mongodb")
+	helper := NewMongoDBSearchReconcileHelper(newTestFakeClient(search), search, nil, OperatorSearchConfig{}, nil, nil)
+
+	for _, tc := range []struct {
+		name         string
+		version      string
+		errAssertion assert.ErrorAssertionFunc
+	}{
+		{
+			name:         "equal to minimum is allowed",
+			version:      minSupportedSearchVersion,
+			errAssertion: assert.NoError,
+		},
+		{
+			name:         "newer than minimum is allowed",
+			version:      "1.71.0",
+			errAssertion: assert.NoError,
+		},
+		{
+			name:         "older than minimum is rejected",
+			version:      "1.64.0",
+			errAssertion: assert.Error,
+		},
+		{
+			name:         "much older is rejected",
+			version:      "0.64.0",
+			errAssertion: assert.Error,
+		},
+		{
+			name:         "non-semver dev tag is allowed",
+			version:      "72ae26a806",
+			errAssertion: assert.NoError,
+		},
+		{
+			name:         "empty version is rejected",
+			version:      "",
+			errAssertion: assert.Error,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := helper.ValidateSearchImageVersion(tc.version)
+			tc.errAssertion(t, err)
+			if err != nil {
+				assert.Contains(t, err.Error(), minSupportedSearchVersion)
+			}
+		})
 	}
 }
 

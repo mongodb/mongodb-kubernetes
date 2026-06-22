@@ -48,11 +48,15 @@ import (
 )
 
 const (
-	unsupportedSearchVersion         = "1.47.0"
-	unsupportedSearchVersionErrorFmt = "MongoDBSearch version %s is not supported because of breaking changes. " +
+	// minSupportedSearchVersion is the minimum MongoDBSearch (mongot) version supported by this
+	// operator. MCK GA only supports the search GA (1.70.0) release and later, which guarantees a single
+	// mongot config format and feature set (e.g. auto embeddings) to reason about.
+	minSupportedSearchVersion        = "1.70.0"
+	unsupportedSearchVersionErrorFmt = "MongoDBSearch version '%s' is not supported. " +
+		"This operator requires MongoDBSearch version '%s' or newer. " +
 		"The operator will ignore this resource: it will not reconcile or reconfigure the workload. " +
 		"Existing deployments will continue to run, but cannot be managed by the operator. " +
-		"To regain operator management, you must delete and recreate the MongoDBSearch resource."
+		"To regain operator management, set a supported version and recreate the MongoDBSearch resource."
 
 	// embeddingKeyFilePath is the path that is used in mongot config to specify the api keys
 	// this where query and index keys would be available.
@@ -67,9 +71,6 @@ const (
 	// to a temp location apiKeysTempVolumeMount and then copy it to correct location embeddingKeyFilePath,
 	// changing the permission to 0400.
 	apiKeysTempVolumeMount = "/tmp/auto-embedding-api-keys" //nolint:gosec // mount path, not a credential
-
-	// is the minimum search image version that is required to enable the auto embeddings for vector search
-	minSearchImageVersionForEmbedding = "0.60.0"
 
 	// autoEmbeddingDetailsAnnKey has the annotation key that would be added to search pod with emebdding API Key secret hash
 	autoEmbeddingDetailsAnnKey = "autoEmbeddingDetailsHash"
@@ -1314,20 +1315,6 @@ func ensureEmbeddingAPIKeySecret(ctx context.Context, client secret.Getter, secr
 	return hashBytes(d), nil
 }
 
-func validateSearchVesionForEmbedding(version string, log *zap.SugaredLogger) error {
-	searchVersion, err := semver.NewVersion(version)
-	if err != nil {
-		log.Debugf("Failed getting semver of search image version. Version %s doesn't seem to be valid semver.", version)
-		return nil
-	}
-	minAllowedVersion, _ := semver.NewVersion(minSearchImageVersionForEmbedding)
-
-	if a := searchVersion.Compare(minAllowedVersion); a == -1 {
-		return xerrors.Errorf("The MongoDB search version %s doesn't support auto embeddings. Please use version %s or newer.", version, minSearchImageVersionForEmbedding)
-	}
-	return nil
-}
-
 // ensureEmbeddingConfig returns the mongot config and stateful set modification function based on the values provided in the search CR, it
 // also returns the hash of the secret that has the embedding API keys so that if the keys are changed the search pod is automatically restarted.
 func (r *MongoDBSearchReconcileHelper) ensureEmbeddingConfig(ctx context.Context, log *zap.SugaredLogger) (mongot.Modification, statefulset.Modification, error) {
@@ -1361,11 +1348,6 @@ func (r *MongoDBSearchReconcileHelper) ensureEmbeddingConfig(ctx context.Context
 		if !internal {
 			return nil, nil, xerrors.Errorf("spec.autoEmbedding.embeddingModelAPIKeySecret is required unless spec.autoEmbedding.providerEndpoint refers to an in-cluster VoyageAI service")
 		}
-	}
-
-	_, version := r.searchImageAndVersion()
-	if err := validateSearchVesionForEmbedding(version, log); err != nil {
-		return nil, nil, err
 	}
 
 	autoEmbeddingViewWriterTrue := true
@@ -2072,8 +2054,22 @@ func (r *MongoDBSearchReconcileHelper) ValidateSingleMongoDBSearchForSearchSourc
 }
 
 func (r *MongoDBSearchReconcileHelper) ValidateSearchImageVersion(version string) error {
-	if strings.Contains(version, unsupportedSearchVersion) {
-		return xerrors.Errorf(unsupportedSearchVersionErrorFmt, unsupportedSearchVersion)
+	if strings.TrimSpace(version) == "" {
+		// An empty version means we could not resolve a search version at all (neither from
+		// spec.version nor the operator default); that is a misconfiguration, not a dev image.
+		return xerrors.Errorf(unsupportedSearchVersionErrorFmt, version, minSupportedSearchVersion)
+	}
+
+	searchVersion, err := semver.NewVersion(version)
+	if err != nil {
+		// Non-semver versions are development/CI image tags (e.g. a git sha); we cannot
+		// reason about them, so we let them through rather than blocking the reconcile.
+		return nil
+	}
+
+	minAllowedVersion, _ := semver.NewVersion(minSupportedSearchVersion)
+	if searchVersion.LessThan(minAllowedVersion) {
+		return xerrors.Errorf(unsupportedSearchVersionErrorFmt, version, minSupportedSearchVersion)
 	}
 
 	return nil
