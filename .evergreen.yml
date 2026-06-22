@@ -619,46 +619,6 @@ tasks:
       - func: setup_prepare_openshift_bundles
       - func: prepare_openshift_bundles_for_e2e
 
-  - name: backup_csv_images_dry_run
-    commands:
-      - func: clone
-      - func: quay_login
-      - command: subprocess.exec
-        params:
-          working_dir: src/github.com/mongodb/mongodb-kubernetes
-          binary: python3
-          args:
-            - scripts/dev/release/backup_csv_images.py
-            - scripts/dev/release/1.2.0.clusterserviceversion.yaml
-            - --dry-run
-            - --verbose
-  - name: backup_csv_images_limit_3
-    commands:
-      - func: clone
-      - func: quay_login
-      - command: subprocess.exec
-        params:
-          working_dir: src/github.com/mongodb/mongodb-kubernetes
-          binary: python3
-          args:
-            - scripts/dev/release/backup_csv_images.py
-            - scripts/dev/release/1.2.0.clusterserviceversion.yaml
-            - --limit
-            - "3"
-            - --verbose
-  - name: backup_csv_images_all
-    commands:
-      - func: clone
-      - func: quay_login
-      - command: subprocess.exec
-        params:
-          working_dir: src/github.com/mongodb/mongodb-kubernetes
-          binary: python3
-          args:
-            - scripts/dev/release/backup_csv_images.py
-            - scripts/dev/release/1.2.0.clusterserviceversion.yaml
-            - --verbose
-
   # Dummy placeholder: will call `mckctl release promote` once the tool is wired into CI.
   # Runs after all staging tests pass on a master merge to confirm the build is promotable.
   - name: mckctl_release_promote
@@ -2150,17 +2110,6 @@ buildvariants:
       - name: rebuild_specific_agent
 
   ### Build variants for manual patch only
-
-  - name: backup_csv_images
-    display_name: "Backup CSV Images"
-    tags: [ "manual_patch" ]
-    allowed_requesters: [ "patch" ]
-    run_on:
-      - ubuntu2404-small
-    tasks:
-      - name: backup_csv_images_dry_run
-      - name: backup_csv_images_limit_3
-      - name: backup_csv_images_all
 
   - name: publish_om70_images
     display_name: publish_om70_images
