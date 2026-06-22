@@ -27,12 +27,12 @@ prepare_snippets
 
 run 12_0040_validate_env.sh
 run 12_0045_create_namespaces.sh
-run 12_0046_create_image_pull_secrets.sh
+run 12_0046_internal_create_image_pull_secrets.sh
 
 run_for_output 12_0100_install_operator.sh
 
-# Ops Manager resources (for the operator-managed cluster)
-run 12_0300_create_ops_manager_resources.sh
+# Ops Manager resources (for the simulated external cluster)
+run 12_0300_internal_create_ops_manager_resources.sh
 
 # ============================================================================
 # TLS CONFIGURATION
@@ -40,21 +40,20 @@ run 12_0300_create_ops_manager_resources.sh
 
 run_for_output 12_0301_install_cert_manager.sh
 run 12_0302_configure_tls_prerequisites.sh
-run 12_0302a_configure_tls_prerequisites_mongod.sh
+run 12_0302a_internal_configure_tls_prerequisites_mongod.sh
 run 12_0302b_configure_tls_prerequisites_mongot.sh
-run 12_0304_generate_tls_certificates.sh
+run 12_0304_internal_generate_tls_certificates.sh
 
 # ============================================================================
-# OPERATOR-MANAGED MULTI-CLUSTER MONGODB REPLICA SET
+# SIMULATED EXTERNAL MULTI-CLUSTER MONGODB REPLICA SET
 # ============================================================================
 
-# Create the multi-cluster replica set (search setParameters are configured
-# on spec.additionalMongodConfig -- there is no auto-wiring on multi-cluster)
-run 12_0310_create_mongodb_mc_rs.sh
-run_for_output 12_0315_wait_for_rs.sh
+# Create simulated external multi-cluster replica set
+run 12_0310_internal_create_mongodb_mc_rs.sh
+run_for_output 12_0315_internal_wait_for_rs.sh
 
 # Create users AFTER the cluster is ready (MongoDBUser CRDs reference it)
-run 12_0316_create_mongodb_users.sh
+run 12_0316_internal_create_mongodb_users.sh
 
 # ============================================================================
 # MONGODB SEARCH WITH PER-CLUSTER MANAGED ENVOY LB
