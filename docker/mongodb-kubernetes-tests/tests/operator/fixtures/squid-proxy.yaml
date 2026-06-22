@@ -8,29 +8,31 @@ spec:
   selector:
     matchLabels:
       app: squid
+      role: operator-tests
   template:
     metadata:
       labels:
         app: squid
+        role: operator-tests
     spec:
       containers:
-        - name: squid
-          image: ubuntu/squid:edge
-          ports:
-            - containerPort: 3128
-              name: squid
-              protocol: TCP
-          volumeMounts:
-            - name: squid-config-volume
-              mountPath: /etc/squid/squid.conf
-              subPath: squid.conf
-      volumes:
+      - name: squid
+        image: ubuntu/squid:edge
+        ports:
+        - containerPort: 3128
+          name: squid
+          protocol: TCP
+        volumeMounts:
         - name: squid-config-volume
-          configMap:
-            name: squid-config
-            items:
-              - key: squid
-                path: squid.conf
+          mountPath: /etc/squid/squid.conf
+          subPath: squid.conf
+      volumes:
+      - name: squid-config-volume
+        configMap:
+          name: squid-config
+          items:
+          - key: squid
+            path: squid.conf
 ---
 apiVersion: v1
 kind: Service
@@ -38,8 +40,10 @@ metadata:
   name: squid-service
   labels:
     app: squid
+    role: operator-tests
 spec:
   ports:
-    - port: 3128
+  - port: 3128
   selector:
     app: squid
+    role: operator-tests

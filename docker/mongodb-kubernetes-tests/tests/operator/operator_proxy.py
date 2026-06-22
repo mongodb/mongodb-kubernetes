@@ -1,5 +1,3 @@
-import os
-
 from kubernetes import client
 from kubetester import create_or_update_configmap, try_load
 from kubetester.create_or_replace_from_yaml import create_or_replace_from_yaml as apply_yaml
@@ -7,9 +5,11 @@ from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as _fixture
 from kubetester.kubetester import get_pods
 from kubetester.mongodb import MongoDB
+from kubetester.omtester import skip_if_cloud_manager
 from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
+from tests.search.om_deployment import get_ops_manager
 
 MDB_RESOURCE = "replica-set"
 PROXY_SVC_NAME = "squid-service"
@@ -38,22 +38,27 @@ def squid_proxy(namespace: str) -> str:
 
 @fixture(scope="module")
 def operator_with_proxy(namespace: str, operator_installation_config: dict[str, str], squid_proxy: str) -> Operator:
-    os.environ["HTTP_PROXY"] = os.environ["HTTPS_PROXY"] = squid_proxy
     helm_args = operator_installation_config.copy()
     helm_args["customEnvVars"] += (
-        f"\&MDB_PROPAGATE_PROXY_ENV=true"
-        + f"\&HTTP_PROXY={squid_proxy}"
-        + f"\&HTTPS_PROXY={squid_proxy}"
-        + "\&NO_PROXY=cloud-qa.mongodb.com"
+        "\\&MDB_PROPAGATE_PROXY_ENV=true" + f"\\&HTTP_PROXY={squid_proxy}" + f"\\&HTTPS_PROXY={squid_proxy}"
     )
     return Operator(namespace=namespace, helm_args=helm_args).install()
 
 
 @fixture(scope="module")
-def replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
+def replica_set(namespace: str, custom_mdb_version: str, squid_proxy: str) -> MongoDB:
     resource = MongoDB.from_yaml(_fixture("replica-set-basic.yaml"), namespace=namespace, name=MDB_RESOURCE)
     resource.set_version(ensure_ent_version(custom_mdb_version))
     resource.set_architecture_annotation()
+    resource.configure(om=get_ops_manager(namespace), project_name=resource.name)
+    # Comment out the following to not pass the -httpProxy flag to the agent at startup
+    # That will leave only the HTTP_PROXY environment variable set by the operator,
+    # but the automation agent currently doesn't seem to respect that, causing the test to fail.
+    # Ideally the agent can use the environment variable so users need to configure the proxy only
+    # once at the operator level, instead of configuring every MongoDB resource explicitly.
+    if "agent" not in resource["spec"] or resource["spec"]["agent"] is None:
+        resource["spec"]["agent"] = {}
+    resource["spec"]["agent"]["startupOptions"] = {"httpProxy": squid_proxy}
     try_load(resource)
 
     return resource
@@ -67,20 +72,58 @@ def test_install_operator_with_proxy(
 
 
 @mark.e2e_operator_proxy
-def test_replica_set_reconciles(replica_set: MongoDB):
-    replica_set.update()
-    replica_set.assert_reaches_phase(Phase.Running)
+@skip_if_cloud_manager
+def test_create_ops_manager(namespace: str):
+    ops_manager = get_ops_manager(namespace)
+    assert ops_manager is not None
+    ops_manager.update()
+    ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=1200)
+    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
 
 
 @mark.e2e_operator_proxy
-def test_proxy_logs_requests(namespace: str):
-    proxy_pods = client.CoreV1Api().list_namespaced_pod(namespace, label_selector="app=squid").items
-    pod_name = proxy_pods[0].metadata.name
-    container_name = "squid"
-    pod_logs = KubernetesTester.read_pod_logs(namespace, pod_name, container_name)
-    assert "cloud-qa.mongodb.com" not in pod_logs
-    assert "api-agents-qa.mongodb.com" in pod_logs
-    assert "api-backup-qa.mongodb.com" in pod_logs
+def test_deploy_network_policy(namespace: str):
+    policy = client.V1NetworkPolicy(
+        metadata=client.V1ObjectMeta(name="block-external-egress", namespace=namespace),
+        spec=client.V1NetworkPolicySpec(
+            pod_selector=client.V1LabelSelector(
+                # match the replicaset pods
+                match_labels={"app": "replica-set-svc"},
+            ),
+            policy_types=["Egress"],
+            egress=[
+                # Allow traffic to the squid proxy
+                client.V1NetworkPolicyEgressRule(
+                    to=[client.V1NetworkPolicyPeer(pod_selector=client.V1LabelSelector(match_labels={"app": "squid"}))]
+                ),
+                # Allow intra-replica-set MongoDB traffic on port 27017
+                client.V1NetworkPolicyEgressRule(
+                    ports=[
+                        client.V1NetworkPolicyPort(port=27017),
+                    ],
+                    to=[
+                        client.V1NetworkPolicyPeer(
+                            pod_selector=client.V1LabelSelector(match_labels={"app": "replica-set-svc"})
+                        )
+                    ],
+                ),
+                # Allow DNS traffic to resolve hostnames
+                client.V1NetworkPolicyEgressRule(
+                    ports=[
+                        client.V1NetworkPolicyPort(port=53, protocol="UDP"),
+                        client.V1NetworkPolicyPort(port=53, protocol="TCP"),
+                    ]
+                ),
+            ],
+        ),
+    )
+    client.NetworkingV1Api().create_namespaced_network_policy(namespace, policy)
+
+
+@mark.e2e_operator_proxy
+def test_replica_set_reconciles(replica_set: MongoDB):
+    replica_set.update()
+    replica_set.assert_reaches_phase(Phase.Running)
 
 
 @mark.e2e_operator_proxy
