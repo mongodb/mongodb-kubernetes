@@ -9,7 +9,7 @@ from kubetester.omtester import OMTester
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 from pytest import fixture, mark
-from tests.conftest import assert_data_got_restored, get_central_cluster_client
+from tests.conftest import get_central_cluster_client
 from tests.opsmanager.om_ops_manager_backup import create_aws_secret, create_s3_bucket
 
 """
@@ -40,7 +40,15 @@ META_OM_OPLOG_SECRET_NAME = "meta-om-s3-secret-oplog"
 
 AGENT_CONTAINER_NAME = "mongodb-agent"
 
+# Inserted before backup is enabled — captured in the first snapshot.
 APPDB_TEST_DATA = {"_id": "appdb_pitr_witness", "status": "before_change"}
+
+# Inserted after the snapshot then deleted ~20s later while backup runs normally.
+# PITR to a point between insert and delete must replay the oplog and bring it back.
+APPDB_CLEAN_PITR_DATA = {"_id": "appdb_clean_pitr_witness", "status": "exists_before_delete"}
+
+# Recorded between the insert and delete of APPDB_CLEAN_PITR_DATA.
+_clean_pitr_pit_millis: int = 0
 
 
 @fixture(scope="module")
@@ -195,7 +203,6 @@ class TestModeSwitchToMetaOM:
     def test_patch_primary_om_managed_by_meta_om(
         self,
         primary_ops_manager: MongoDBOpsManager,
-        meta_ops_manager: MongoDBOpsManager,
     ):
         """Patch spec.applicationDatabase.managedByMetaOM on Primary OM to trigger the mode switch."""
         primary_ops_manager.load()
@@ -217,7 +224,6 @@ class TestModeSwitchToMetaOM:
         env = _get_agent_container_env_vars(primary_ops_manager)
         assert "HEADLESS_AGENT" not in env, "HEADLESS_AGENT must be absent after mode switch"
         assert "AUTOMATION_CONFIG_MAP" not in env, "AUTOMATION_CONFIG_MAP must be absent after mode switch"
-        # mmsGroupId and mmsApiKey are explicit command params, not env vars
         assert "MMS_GROUP_ID" not in env, "MMS_GROUP_ID must be absent (passed as -mmsGroupId cmd param)"
         assert "MMS_API_KEY" not in env, "MMS_API_KEY must be absent (passed as -mmsApiKey cmd param)"
 
@@ -228,7 +234,6 @@ class TestModeSwitchToMetaOM:
 
     def test_appdb_registered_in_meta_om(
         self,
-        primary_ops_manager: MongoDBOpsManager,
         meta_ops_manager: MongoDBOpsManager,
     ):
         """The AppDB project must now exist inside Meta OM."""
@@ -264,9 +269,79 @@ def primary_appdb_collection(primary_ops_manager: MongoDBOpsManager):
     yield client["testdb"]["testcollection"]
     client.close()
 
+
 @mark.e2e_om_appdb_meta_om_mode_switch
-class TestAppDBDisasterRecovery:
-    """Simulate complete AppDB data loss (all PVCs deleted) and verify restore from Meta OM backup."""
+class TestPITRWithoutDataLoss:
+    """Verify PITR works on a healthy backup (no PVC loss).
+
+    Runs before TestSnapshotRestore intentionally: the disaster recovery test wipes PVCs
+    which triggers a resync in Meta OM and resets lastOplogPush, breaking the oplog
+    timeline for any subsequent PITR attempt.
+
+    Writes a witness doc, waits, then deletes it — all while backup keeps running and
+    the oplog timeline stays intact. A PITR to a point between the insert and the delete
+    must replay the oplog and bring the doc back.
+    """
+
+    def test_insert_then_delete_witness(self, primary_appdb_collection):
+        """Insert a witness doc, record a PIT where it exists, wait, then delete it.
+        The recorded PIT sits firmly between the insert and delete oplog entries
+        (a 5s margin keeps it after the insert; oplog timestamps have 1s granularity)."""
+        global _clean_pitr_pit_millis
+        primary_appdb_collection.delete_many({"_id": APPDB_CLEAN_PITR_DATA["_id"]})
+        primary_appdb_collection.insert_one(APPDB_CLEAN_PITR_DATA.copy())
+        time.sleep(5)
+        _clean_pitr_pit_millis = int(time.time() * 1000)
+        time.sleep(20)
+        primary_appdb_collection.delete_one({"_id": APPDB_CLEAN_PITR_DATA["_id"]})
+
+    def test_witness_is_deleted(self, primary_appdb_collection):
+        """Sanity: the witness is gone in the live DB before we attempt PITR."""
+        records = list(primary_appdb_collection.find({"_id": APPDB_CLEAN_PITR_DATA["_id"]}))
+        assert records == [], f"Expected witness deleted before PITR, got: {records}"
+
+    def test_pitr_to_witness_exists_time(self, meta_om_appdb_tester: OMTester):
+        """PITR to the moment the witness existed. create_restore_job_pit retries on
+        409 / 'Invalid restore point' until the oplog slice covering the PIT is flushed
+        to S3 — the timeline is intact, so this resolves rather than failing."""
+        assert _clean_pitr_pit_millis > 0, (
+            "_clean_pitr_pit_millis not set — check test_insert_then_delete_witness ran"
+        )
+        meta_om_appdb_tester.create_restore_job_pit(_clean_pitr_pit_millis)
+
+    def test_primary_om_reaches_running_after_pitr(self, primary_ops_manager: MongoDBOpsManager):
+        """AppDB goes down during the PITR restore; wait for it and Primary OM to recover."""
+        primary_ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=3600)
+        primary_ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=3600)
+
+    def test_witness_restored_by_pitr(self, primary_appdb_collection):
+        """The witness must reappear: PITR replayed the insert but not the later delete.
+        Retries on connection errors (mongod restarting during apply) and on empty results."""
+        start = time.time()
+        timeout = 3600
+        last_error = None
+        while time.time() - start < timeout:
+            try:
+                records = list(primary_appdb_collection.find({"_id": APPDB_CLEAN_PITR_DATA["_id"]}))
+                if records == [APPDB_CLEAN_PITR_DATA]:
+                    return
+                last_error = f"witness not yet present: {records}"
+            except Exception as e:
+                last_error = e
+            time.sleep(5)
+        raise AssertionError(
+            f"Witness not restored within {timeout}s after healthy PITR. Last error: {last_error}"
+        )
+
+
+@mark.e2e_om_appdb_meta_om_mode_switch
+class TestSnapshotRestore:
+    """Simulate complete AppDB data loss (all PVCs deleted) and verify restore from Meta OM snapshot.
+
+    Runs after TestPITRWithoutDataLoss intentionally: PVC deletion triggers a resync in Meta OM
+    which resets lastOplogPush and breaks the oplog timeline, making PITR impossible afterwards.
+    Snapshot restore is the only reliable recovery path after total data loss.
+    """
 
     def test_delete_appdb_pvcs_and_pods(self, primary_ops_manager: MongoDBOpsManager, namespace: str):
         """Simulate total data loss: delete all AppDB PVCs and pods.
@@ -282,31 +357,33 @@ class TestAppDBDisasterRecovery:
         """Operator recreates AppDB with empty PVCs; agent reconnects to Meta OM."""
         primary_ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=1900)
 
-    def test_data_is_gone_after_recreation(self, primary_appdb_collection):
-        """Verify data loss — confirms the fresh PVCs contain no prior data.
-        Retries until the AppDB is connectable (pods may still be starting after recreation)."""
+    def test_appdb_connectable_after_recreation(self, primary_appdb_collection):
+        """Wait until AppDB accepts connections after pod/PVC recreation.
+        The CRD Running status can be stale so this is the real connectivity barrier.
+        Note: data may still be present — sequential PVC deletion lets surviving members
+        replicate to freshly-recreated pods before all three are wiped. That is expected
+        and does not affect snapshot restore (which overwrites whatever is there)."""
         start = time.time()
-        timeout = 300
+        timeout = 1800
         last_error = None
         while time.time() - start < timeout:
             try:
-                records = list(primary_appdb_collection.find({"_id": APPDB_TEST_DATA["_id"]}))
-                assert records == [], f"Expected empty collection after PVC deletion, got: {records}"
+                primary_appdb_collection.database.command("ping")
                 return
-            except AssertionError:
-                raise
             except Exception as e:
                 last_error = e
                 time.sleep(5)
-        raise AssertionError(f"AppDB not connectable within {timeout}s after recreation. Last error: {last_error}")
+        raise AssertionError(f"AppDB not connectable within {timeout}s after PVC recreation. Last error: {last_error}")
+
+    def test_wait_backup_running_before_restore(self, meta_om_appdb_tester: OMTester):
+        """After PITR and PVC recreation Meta OM needs time to close the previous restore job
+        and resume backup before it will accept a new restore request."""
+        meta_om_appdb_tester.wait_until_backup_running(timeout=600)
 
     def test_restore_from_snapshot(self, meta_om_appdb_tester: OMTester):
         """Restore from the latest snapshot stored in Meta OM.
-        PITR is not applicable here: PVC deletion breaks oplog continuity, making any
-        pre-disaster pit time invalid. Snapshot restore is the correct recovery mechanism.
         Primary OM goes down during AppDB restore; completion is verified via OM recovery below."""
         meta_om_appdb_tester.create_restore_job_snapshot()
-
 
     def test_primary_om_reaches_running_after_restore(self, primary_ops_manager: MongoDBOpsManager):
         """Wait for Primary OM to come back — this implies AppDB was fully restored."""
@@ -329,48 +406,3 @@ class TestAppDBDisasterRecovery:
                 last_error = e
             time.sleep(5)
         raise AssertionError(f"Data not restored within {timeout}s after snapshot restore. Last error: {last_error}")
-
-
-@mark.e2e_om_appdb_meta_om_mode_switch
-class TestPITRAfterSnapshotRestore:
-    """Empirically verify whether PITR is possible after a snapshot restore.
-
-    After snapshot restore the AppDB is running again, and Meta OM still holds the
-    oplog slices captured before the disaster (T1→T_disaster).  If OM considers those
-    slices valid, a PITR job to the original snapshot timestamp (T1) should succeed —
-    the restore uses the snapshot as base and replays zero oplog (pit == snapshot time).
-
-    If OM reset the backup timeline when the fresh AppDB agent reconnected (between
-    the disaster and the restore), 'Invalid restore point' will be returned and the
-    test will fail, empirically confirming the limitation.
-    """
-
-    def test_pitr_to_snapshot_time(self, meta_om_appdb_tester: OMTester):
-        """Attempt PITR to 2 minutes after the original snapshot creation time.
-        pit_time == snapshot_time fails with 'no snapshot older than restore point'
-        because OM requires a snapshot taken strictly before the pit time.
-        Adding 120s gives OM a valid base snapshot and tests whether pre-disaster
-        oplog slices (snapshot_time → snapshot_time+2min) survived the disaster cycle."""
-        pit_millis = int(meta_om_appdb_tester.get_latest_backup_completion_time()) + 120_000
-        assert pit_millis > 120_000, "Snapshot completion time not recorded — check test_appdb_snapshot_ready ran"
-        meta_om_appdb_tester.create_restore_job_pit(pit_millis)
-
-    def test_primary_om_reaches_running_after_pitr(self, primary_ops_manager: MongoDBOpsManager):
-        primary_ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=3600)
-        primary_ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=3600)
-
-    def test_data_present_after_pitr(self, primary_appdb_collection):
-        """Data inserted before the snapshot must survive the PITR restore."""
-        start = time.time()
-        timeout = 3600
-        last_error = None
-        while time.time() - start < timeout:
-            try:
-                records = list(primary_appdb_collection.find({"_id": APPDB_TEST_DATA["_id"]}))
-                if records == [APPDB_TEST_DATA]:
-                    return
-                last_error = f"data not yet present: {records}"
-            except Exception as e:
-                last_error = e
-            time.sleep(5)
-        raise AssertionError(f"Data not present within {timeout}s after PITR restore. Last error: {last_error}")
