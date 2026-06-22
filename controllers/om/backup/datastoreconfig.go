@@ -1,6 +1,5 @@
 package backup
 
-
 type DataStoreConfigResponse struct {
 	DataStoreConfigs []DataStoreConfig `json:"results"`
 }
