@@ -819,7 +819,7 @@ func envoyPodLabelsForCluster(search *searchv1.MongoDBSearch, clusterIndex int) 
 //
 // For each member cluster we register watches on Envoy Deployment + ConfigMap
 // using the label-based mapper (cross-cluster owner refs do not GC).
-func AddMongoDBSearchEnvoyController(ctx context.Context, mgr manager.Manager, defaultEnvoyImage string, memberClusterObjectsMap map[string]runtimeCluster.Cluster, operatorClusterName string) error {
+func AddMongoDBSearchEnvoyController(ctx context.Context, mgr manager.Manager, defaultEnvoyImage string, memberClusterObjectsMap map[string]runtimeCluster.Cluster, operatorClusterName string, maxConcurrentReconciles int) error {
 	// NOTE: The field index for MongoDBSearchIndexFieldName is already registered
 	// by AddMongoDBSearchController. Do not register it again here.
 
@@ -827,7 +827,7 @@ func AddMongoDBSearchEnvoyController(ctx context.Context, mgr manager.Manager, d
 
 	c, err := controller.New("mongodbsearchenvoy", mgr, controller.Options{
 		Reconciler:              r,
-		MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1), // nolint:forbidigo
+		MaxConcurrentReconciles: maxConcurrentReconciles,
 	})
 	if err != nil {
 		return err

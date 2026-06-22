@@ -299,6 +299,7 @@ func AddMongoDBSearchController(
 	operatorSearchConfig searchcontroller.OperatorSearchConfig,
 	memberClusterObjectsMap map[string]cluster.Cluster,
 	operatorClusterName string,
+	maxConcurrentReconciles int,
 ) error {
 	if err := mgr.GetFieldIndexer().IndexField(ctx, &searchv1.MongoDBSearch{}, searchv1.MongoDBSearchIndexFieldName, mdbcSearchIndexBuilder); err != nil {
 		return err
@@ -313,7 +314,7 @@ func AddMongoDBSearchController(
 
 	c, err := controller.New(util.MongoDbSearchController, mgr, controller.Options{
 		Reconciler:              r,
-		MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1), // nolint:forbidigo
+		MaxConcurrentReconciles: maxConcurrentReconciles,
 	})
 	if err != nil {
 		return err

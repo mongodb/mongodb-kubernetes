@@ -218,8 +218,6 @@ const (
 	MdbWebhookPortEnv                  = "MDB_WEBHOOK_PORT"
 	MdbWebhookNameEnv                  = "MDB_WEBHOOK_NAME"
 
-	MaxConcurrentReconcilesEnv = "MDB_MAX_CONCURRENT_RECONCILES"
-
 	// This default for the healthy streak is also configured in the values.yaml file.
 	// It should always be consistent with the default in the helm chart. Always change both.
 	DefaultRequiredHealthyStreak = 5

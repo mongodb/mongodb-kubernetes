@@ -422,8 +422,6 @@ spec:
               value: quay.io/mongodb
             - name: PERFORM_FAILOVER
               value: 'true'
-            - name: MDB_MAX_CONCURRENT_RECONCILES
-              value: "1"
             - name: POD_NAME
               valueFrom:
                 fieldRef:
