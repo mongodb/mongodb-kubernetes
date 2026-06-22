@@ -122,9 +122,10 @@ type ConfigWireprotoTLS struct {
 }
 
 type ConfigGrpcTLS struct {
-	Mode                     ConfigTLSMode `json:"mode"`
-	CertificateKeyFile       *string       `json:"certificateKeyFile,omitempty"`
-	CertificateAuthorityFile *string       `json:"caFile,omitempty"`
+	Mode                           ConfigTLSMode `json:"mode"`
+	CertificateKeyFile             *string       `json:"certificateKeyFile,omitempty"`
+	CertificateKeyFilePasswordFile *string       `json:"certificateKeyFilePasswordFile,omitempty"`
+	CertificateAuthorityFile       *string       `json:"caFile,omitempty"`
 }
 
 type ConfigMetrics struct {
