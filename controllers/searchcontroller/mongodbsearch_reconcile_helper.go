@@ -1486,10 +1486,21 @@ func (r *MongoDBSearchReconcileHelper) ensureIngressTlsConfig(ctx context.Contex
 		return nil, nil, err
 	}
 
+	// Check if the user-provided TLS secret contains an optional key password
+	hasKeyPassword := false
+	userProvidedTLSSecret := tlsResource.TLSSecretNamespacedName()
+	_, keyPasswordErr := secret.ReadKey(ctx, kubeClient, GrpcKeyPasswordSecretKey, userProvidedTLSSecret)
+	if keyPasswordErr == nil {
+		hasKeyPassword = true
+	}
+
 	mongotModification := func(config *mongot.Config) {
 		certPath := tls.OperatorSecretMountPath + certFileName
 		config.Server.Grpc.TLS.Mode = mongot.ConfigTLSModeTLS
 		config.Server.Grpc.TLS.CertificateKeyFile = ptr.To(certPath)
+		if hasKeyPassword {
+			config.Server.Grpc.TLS.CertificateKeyFilePasswordFile = ptr.To(TempGrpcKeyPasswordPath)
+		}
 		if config.Server.Wireproto != nil {
 			config.Server.Wireproto.TLS.Mode = mongot.ConfigTLSModeTLS
 			config.Server.Wireproto.TLS.CertificateKeyFile = ptr.To(certPath)
@@ -1499,11 +1510,27 @@ func (r *MongoDBSearchReconcileHelper) ensureIngressTlsConfig(ctx context.Contex
 	tlsSecret := tlsResource.TLSOperatorSecretNamespacedName()
 	tlsVolume := statefulset.CreateVolumeFromSecret("tls", tlsSecret.Name)
 	tlsVolumeMount := statefulset.CreateVolumeMount("tls", tls.OperatorSecretMountPath, statefulset.WithReadOnly(true))
+
+	volumeMounts := []corev1.VolumeMount{tlsVolumeMount}
+	volumes := []podtemplatespec.Modification{podtemplatespec.WithVolume(tlsVolume)}
+	var containerMods []container.Modification
+
+	if hasKeyPassword {
+		keyPasswordVolume := statefulset.CreateVolumeFromSecret("grpc-key-password", userProvidedTLSSecret.Name)
+		keyPasswordVolumeMount := statefulset.CreateVolumeMount("grpc-key-password", GrpcKeyPasswordMountPath,
+			statefulset.WithReadOnly(true), statefulset.WithSubPath(GrpcKeyPasswordSecretKey))
+
+		volumeMounts = append(volumeMounts, keyPasswordVolumeMount)
+		volumes = append(volumes, podtemplatespec.WithVolume(keyPasswordVolume))
+		containerMods = append(containerMods, prependCommand(sensitiveFilePermissionsWorkaround(GrpcKeyPasswordMountPath, TempGrpcKeyPasswordPath, "0600")))
+	}
+
+	containerMods = append(containerMods, container.WithVolumeMounts(volumeMounts))
+
 	statefulsetModification := statefulset.WithPodSpecTemplate(podtemplatespec.Apply(
-		podtemplatespec.WithVolume(tlsVolume),
-		podtemplatespec.WithContainer(MongotContainerName, container.Apply(
-			container.WithVolumeMounts([]corev1.VolumeMount{tlsVolumeMount}),
-		)),
+		append(volumes, podtemplatespec.WithContainer(MongotContainerName, container.Apply(
+			containerMods...,
+		)))...,
 	))
 
 	return mongotModification, statefulsetModification, nil
