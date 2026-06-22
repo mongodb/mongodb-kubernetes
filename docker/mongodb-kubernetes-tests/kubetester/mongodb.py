@@ -332,7 +332,7 @@ class MongoDB(CustomObject, MongoDBCommon):
     def read_configmap(self) -> Dict[str, str]:
         return KubernetesTester.read_configmap(self.namespace, self.config_map_name)
 
-    def mongo_uri(self, user_name: Optional[str] = None, password: Optional[str] = None) -> str:
+    def mongo_uri(self, user_name: Optional[str] = None, password: Optional[str] = None, database: str = "") -> str:
         """Returns the mongo uri for the MongoDB resource. The logic matches the one in 'types.go'"""
         proto = "mongodb://"
         auth = ""
@@ -343,7 +343,9 @@ class MongoDB(CustomObject, MongoDBCommon):
                 urllib.parse.quote(user_name, safe=""),
                 urllib.parse.quote(password, safe=""),
             )
-            params["authSource"] = "admin"
+            if not database:
+                database = "admin"
+            params["authSource"] = database
             if self.get_version().startswith("3.6"):
                 params["authMechanism"] = "SCRAM-SHA-1"
             else:
@@ -359,7 +361,7 @@ class MongoDB(CustomObject, MongoDBCommon):
 
         query_params = ["{}={}".format(key, params[key]) for key in sorted(params.keys())]
         joined_params = "&".join(query_params)
-        return proto + auth + hosts + "/?" + joined_params
+        return proto + auth + hosts + "/" + database + "?" + joined_params
 
     def get_members(self) -> int:
         return self["spec"]["members"]
