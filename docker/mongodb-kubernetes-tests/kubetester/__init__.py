@@ -277,6 +277,27 @@ def delete_namespace(name: str):
     c.delete_namespace(name, body=c.V1DeleteOptions())
 
 
+def label_namespace(name: str, labels: dict):
+    body = {"metadata": {"labels": labels}}
+    client.CoreV1Api().patch_namespace(name, body)
+
+
+def downgrade_pss_to_warn(namespace: str) -> None:
+    """Downgrade a namespace from PSS enforce to warn mode.
+
+    Used for test namespaces that contain third-party or legacy components that
+    predate PSS-restricted compliance (e.g. old operator releases, nginx images
+    that run as root). PSS violations are still surfaced as warnings.
+    """
+    label_namespace(
+        namespace,
+        {
+            "pod-security.kubernetes.io/enforce": None,
+            "pod-security.kubernetes.io/warn": "restricted",
+        },
+    )
+
+
 def get_deployments(namespace: str):
     return client.AppsV1Api().list_namespaced_deployment(namespace)
 

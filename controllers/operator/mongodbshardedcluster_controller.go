@@ -27,9 +27,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
@@ -69,7 +67,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
-	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/scale"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/versionutil"
@@ -89,12 +86,13 @@ type ReconcileMongoDbShardedCluster struct {
 	initDatabaseNonStaticImageVersion string
 	databaseNonStaticImageVersion     string
 
-	agentDebug        bool
-	agentDebugImage   string
-	backupEnableDelay time.Duration
+	agentDebug          bool
+	agentDebugImage     string
+	backupEnableDelay   time.Duration
+	defaultArchitecture architectures.DefaultArchitecture
 }
 
-func newShardedClusterReconciler(ctx context.Context, kubeClient client.Client, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, memberClusterMap map[string]client.Client, omFunc om.ConnectionFactory, backupEnableDelay time.Duration) *ReconcileMongoDbShardedCluster {
+func newShardedClusterReconciler(ctx context.Context, kubeClient client.Client, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, memberClusterMap map[string]client.Client, omFunc om.ConnectionFactory, backupEnableDelay time.Duration) *ReconcileMongoDbShardedCluster {
 	return &ReconcileMongoDbShardedCluster{
 		ReconcileCommonController: NewReconcileCommonController(ctx, kubeClient),
 		omConnectionFactory:       omFunc,
@@ -106,9 +104,10 @@ func newShardedClusterReconciler(ctx context.Context, kubeClient client.Client, 
 		initDatabaseNonStaticImageVersion: initDatabaseNonStaticImageVersion,
 		databaseNonStaticImageVersion:     databaseNonStaticImageVersion,
 
-		agentDebug:        agentDebug,
-		agentDebugImage:   agentDebugImage,
-		backupEnableDelay: backupEnableDelay,
+		agentDebug:          agentDebug,
+		agentDebugImage:     agentDebugImage,
+		backupEnableDelay:   backupEnableDelay,
+		defaultArchitecture: defaultArchitecture,
 	}
 }
 
@@ -602,9 +601,10 @@ type ShardedClusterReconcileHelper struct {
 	initDatabaseNonStaticImageVersion string
 	databaseNonStaticImageVersion     string
 
-	agentDebug        bool
-	agentDebugImage   string
-	backupEnableDelay time.Duration
+	agentDebug          bool
+	agentDebugImage     string
+	backupEnableDelay   time.Duration
+	defaultArchitecture architectures.DefaultArchitecture
 
 	// sc is the resource being reconciled
 	sc *mdbv1.MongoDB
@@ -630,17 +630,6 @@ type ShardedClusterReconcileHelper struct {
 
 	// This parameter helps us decide whether write operations should be conducted in the constructor.
 	readOnly bool
-
-	// monarchShipperPassword holds the operator-owned cleartext mms-shipper
-	// password for an active Monarch sharded cluster. Generated in
-	// reconcileMonarchServices (pre-AC), added to the AC auth during the AC push,
-	// and reused in reconcileMonarchReconcileDeploymentsAndSecrets to embed into
-	// the shipper URIs. Empty for standby or when SCRAM is disabled.
-	monarchShipperPassword string
-	// monarchKeyfile is the cluster auth.key captured from the in-memory deployment
-	// during the AC push, used to write the Monarch secrets bundle without an
-	// agent-API AC read-back.
-	monarchKeyfile string
 }
 
 func NewReadOnlyClusterReconcilerHelper(
@@ -652,7 +641,7 @@ func NewReadOnlyClusterReconcilerHelper(
 	backupEnableDelay time.Duration,
 ) (*ShardedClusterReconcileHelper, error) {
 	return newShardedClusterReconcilerHelper(ctx, reconciler, nil, "", "", false, false, false, "",
-		sc, globalMemberClustersMap, nil, log, true, backupEnableDelay)
+		architectures.NonStatic, sc, globalMemberClustersMap, nil, log, true, backupEnableDelay)
 }
 
 func NewShardedClusterReconcilerHelper(
@@ -665,6 +654,7 @@ func NewShardedClusterReconcilerHelper(
 	enableClusterMongoDBRoles bool,
 	agentDebug bool,
 	agentDebugImage string,
+	defaultArchitecture architectures.DefaultArchitecture,
 	sc *mdbv1.MongoDB,
 	globalMemberClustersMap map[string]client.Client,
 	omConnectionFactory om.ConnectionFactory,
@@ -672,7 +662,7 @@ func NewShardedClusterReconcilerHelper(
 	backupEnableDelay time.Duration,
 ) (*ShardedClusterReconcileHelper, error) {
 	return newShardedClusterReconcilerHelper(ctx, reconciler, imageUrls, initDatabaseNonStaticImageVersion,
-		databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, sc, globalMemberClustersMap, omConnectionFactory, log, false, backupEnableDelay)
+		databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, sc, globalMemberClustersMap, omConnectionFactory, log, false, backupEnableDelay)
 }
 
 func newShardedClusterReconcilerHelper(
@@ -685,6 +675,7 @@ func newShardedClusterReconcilerHelper(
 	enableClusterMongoDBRoles bool,
 	agentDebug bool,
 	agentDebugImage string,
+	defaultArchitecture architectures.DefaultArchitecture,
 	sc *mdbv1.MongoDB,
 	globalMemberClustersMap map[string]client.Client,
 	omConnectionFactory om.ConnectionFactory,
@@ -709,9 +700,10 @@ func newShardedClusterReconcilerHelper(
 		initDatabaseNonStaticImageVersion: initDatabaseNonStaticImageVersion,
 		databaseNonStaticImageVersion:     databaseNonStaticImageVersion,
 
-		agentDebug:        agentDebug,
-		agentDebugImage:   agentDebugImage,
-		backupEnableDelay: backupEnableDelay,
+		agentDebug:          agentDebug,
+		agentDebugImage:     agentDebugImage,
+		backupEnableDelay:   backupEnableDelay,
+		defaultArchitecture: defaultArchitecture,
 
 		readOnly: readOnly,
 	}
@@ -808,6 +800,9 @@ func (r *ShardedClusterReconcileHelper) initializeStateStore(ctx context.Context
 		}
 	} else {
 		r.deploymentState = state
+		if r.deploymentState.Status == nil {
+			r.deploymentState.Status = &mdbv1.MongoDbStatus{}
+		}
 		if r.deploymentState.Status.SizeStatusInClusters == nil {
 			r.deploymentState.Status.SizeStatusInClusters = &mdbstatus.MongodbShardedSizeStatusInClusters{}
 		}
@@ -839,7 +834,7 @@ func (r *ReconcileMongoDbShardedCluster) Reconcile(ctx context.Context, request 
 		return reconcileResult, err
 	}
 
-	reconcilerHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, r.imageUrls, r.initDatabaseNonStaticImageVersion, r.databaseNonStaticImageVersion, r.forceEnterprise, r.enableClusterMongoDBRoles, r.agentDebug, r.agentDebugImage, sc, r.memberClustersMap, r.omConnectionFactory, log, r.backupEnableDelay)
+	reconcilerHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, r.imageUrls, r.initDatabaseNonStaticImageVersion, r.databaseNonStaticImageVersion, r.forceEnterprise, r.enableClusterMongoDBRoles, r.agentDebug, r.agentDebugImage, r.defaultArchitecture, sc, r.memberClustersMap, r.omConnectionFactory, log, r.backupEnableDelay)
 	if err != nil {
 		return r.updateStatus(ctx, sc, workflow.Failed(xerrors.Errorf("Failed to initialize sharded cluster reconciler: %w", err)), log)
 	}
@@ -848,7 +843,7 @@ func (r *ReconcileMongoDbShardedCluster) Reconcile(ctx context.Context, request 
 
 // OnDelete tries to complete a Deletion reconciliation event
 func (r *ReconcileMongoDbShardedCluster) OnDelete(ctx context.Context, obj runtime.Object, log *zap.SugaredLogger) error {
-	reconcilerHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, r.imageUrls, r.initDatabaseNonStaticImageVersion, r.databaseNonStaticImageVersion, r.forceEnterprise, r.enableClusterMongoDBRoles, r.agentDebug, r.agentDebugImage, obj.(*mdbv1.MongoDB), r.memberClustersMap, r.omConnectionFactory, log, r.backupEnableDelay)
+	reconcilerHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, r.imageUrls, r.initDatabaseNonStaticImageVersion, r.databaseNonStaticImageVersion, r.forceEnterprise, r.enableClusterMongoDBRoles, r.agentDebug, r.agentDebugImage, r.defaultArchitecture, obj.(*mdbv1.MongoDB), r.memberClustersMap, r.omConnectionFactory, log, r.backupEnableDelay)
 	if err != nil {
 		return err
 	}
@@ -891,7 +886,7 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 		return r.updateStatus(ctx, sc, workflow.Failed(err), log)
 	}
 
-	if !architectures.IsRunningStaticArchitecture(sc.Annotations) {
+	if !architectures.IsRunningStaticArchitecture(sc.Annotations, r.defaultArchitecture) {
 		agents.UpgradeAllIfNeeded(ctx, agents.ClientSecret{Client: r.commonController.client, SecretClient: r.commonController.SecretClient}, r.omConnectionFactory, GetWatchedNamespace(), false)
 	}
 
@@ -916,7 +911,7 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 	}
 
 	var automationAgentVersion string
-	if architectures.IsRunningStaticArchitecture(sc.Annotations) {
+	if architectures.IsRunningStaticArchitecture(sc.Annotations, r.defaultArchitecture) {
 		// In case the Agent *is* overridden, its version will be merged into the StatefulSet. The merging process
 		// happens after creating the StatefulSet definition.
 		if !sc.IsAgentImageOverridden() {
@@ -930,7 +925,7 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 
 	r.automationAgentVersion = automationAgentVersion
 
-	workflowStatus := r.doShardedClusterProcessing(ctx, sc, conn, projectConfig, agentAPIKey, log)
+	workflowStatus := r.doShardedClusterProcessing(ctx, sc, conn, projectConfig, log)
 	if !workflowStatus.IsOK() || workflowStatus.Phase() == mdbstatus.PhaseUnsupported {
 		return r.updateStatus(ctx, sc, workflowStatus, log)
 	}
@@ -1004,6 +999,7 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 	// We're also updating the shardCount here - it's the only place we're doing that.
 	return r.updateStatus(ctx, sc, workflowStatus, log,
 		mdbstatus.NewBaseUrlOption(deployment.Link(conn.BaseURL(), conn.GroupID())),
+		mdbstatus.NewProjectIdOption(conn.GroupID()),
 		mdbstatus.ShardedClusterSizeConfigOption{SizeConfig: sizeStatus},
 		mdbstatus.ShardedClusterSizeStatusInClustersOption{SizeConfigInClusters: sizeStatusInClusters},
 		mdbstatus.ShardedClusterMongodsPerShardCountOption{Members: r.sc.Spec.ShardCount},
@@ -1120,13 +1116,17 @@ func (r *ShardedClusterReconcileHelper) lookupCorrespondingSearchResource(ctx co
 	return search, nil
 }
 
-func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.Context, obj interface{}, conn om.Connection, projectConfig mdbv1.ProjectConfig, _ string, log *zap.SugaredLogger) workflow.Status {
+func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.Context, obj interface{}, conn om.Connection, projectConfig mdbv1.ProjectConfig, log *zap.SugaredLogger) workflow.Status {
 	log.Info("ShardedCluster.doShardedClusterProcessing")
 	sc := obj.(*mdbv1.MongoDB)
 
 	var databaseSecretPath string
 	if r.commonController.VaultClient != nil {
 		databaseSecretPath = r.commonController.VaultClient.DatabaseSecretPath()
+	}
+
+	if workflowStatus := ensureSupportedOpsManagerVersion(conn); workflowStatus.Phase() != mdbstatus.PhaseRunning {
+		return workflowStatus
 	}
 
 	r.commonController.SetupCommonWatchers(sc, getTLSSecretNames(sc), getInternalAuthSecretNames(sc), sc.Name)
@@ -1228,14 +1228,7 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 		}
 	}
 
-	// Monarch pre-AC: create Services (needed for DNS resolution in maintainedMonarchComponents)
-	if sc.Spec.Monarch != nil {
-		if status := r.reconcileMonarchServices(ctx); !status.IsOK() {
-			return status
-		}
-	}
-
-	workflowStatus = workflow.RunInGivenOrder(anyStatefulSetNeedsToPublishStateToOM(ctx, *sc, r.commonController.client, r.deploymentState.LastAchievedSpec, allConfigs, log),
+	workflowStatus = workflow.RunInGivenOrder(anyStatefulSetNeedsToPublishStateToOM(ctx, *sc, r.commonController.client, r.deploymentState.LastAchievedSpec, allConfigs, r.defaultArchitecture, log),
 		func() workflow.Status {
 			return r.updateOmDeploymentShardedCluster(ctx, conn, sc, opts, false, log).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
 		},
@@ -1246,14 +1239,6 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 	if !workflowStatus.IsOK() {
 		return workflowStatus
 	}
-
-	// Monarch post-AC: create Secrets and Deployments using operator-owned credentials.
-	if sc.Spec.Monarch != nil {
-		if status := r.reconcileMonarchReconcileDeploymentsAndSecrets(ctx, log); !status.IsOK() {
-			return status
-		}
-	}
-
 	return reconcileResult
 }
 
@@ -1346,9 +1331,9 @@ func getCertTypeForAllShardedClusterCertificates(certTypes map[string]bool) (cor
 
 // anyStatefulSetNeedsToPublishStateToOM checks to see if any stateful set
 // of the given sharded cluster needs to publish state to Ops Manager before updating Kubernetes resources
-func anyStatefulSetNeedsToPublishStateToOM(ctx context.Context, sc mdbv1.MongoDB, kubeClient kubernetesClient.Client, lastSpec *mdbv1.MongoDbSpec, configs []func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions, log *zap.SugaredLogger) bool {
+func anyStatefulSetNeedsToPublishStateToOM(ctx context.Context, sc mdbv1.MongoDB, kubeClient kubernetesClient.Client, lastSpec *mdbv1.MongoDbSpec, configs []func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions, defaultArchitecture architectures.DefaultArchitecture, log *zap.SugaredLogger) bool {
 	for _, cf := range configs {
-		if publishAutomationConfigFirst(ctx, kubeClient, sc, lastSpec, cf, log) {
+		if publishAutomationConfigFirst(ctx, kubeClient, sc, lastSpec, cf, defaultArchitecture, log) {
 			return true
 		}
 	}
@@ -1461,7 +1446,7 @@ func (r *ShardedClusterReconcileHelper) createKubernetesResources(ctx context.Co
 	// In static containers, the operator controls the order of up and downgrades.
 	// For sharded clusters, we need to reverse the order of downgrades vs. upgrades.
 	// See more here: https://www.mongodb.com/docs/manual/release-notes/6.0-downgrade-sharded-cluster/
-	if lastSpec != nil && architectures.IsRunningStaticArchitecture(s.Annotations) && versionutil.IsDowngrade(lastSpec.Version, s.Spec.Version) {
+	if lastSpec != nil && architectures.IsRunningStaticArchitecture(s.Annotations, r.defaultArchitecture) && versionutil.IsDowngrade(lastSpec.Version, s.Spec.Version) {
 		if mongosStatus := r.createOrUpdateMongos(ctx, s, opts, log); !mongosStatus.IsOK() {
 			return mongosStatus
 		}
@@ -1807,9 +1792,9 @@ func logDiffOfProcessNames(acProcesses []string, healthyProcesses []string, log 
 	}
 }
 
-func AddShardedClusterController(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, memberClustersMap map[string]cluster.Cluster, backupEnableDelay time.Duration) error {
+func AddShardedClusterController(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, memberClustersMap map[string]cluster.Cluster, backupEnableDelay time.Duration) error {
 	// Create a new controller
-	reconciler := newShardedClusterReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, multicluster.ClustersMapToClientMap(memberClustersMap), om.NewOpsManagerConnection, backupEnableDelay)
+	reconciler := newShardedClusterReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, multicluster.ClustersMapToClientMap(memberClustersMap), om.NewOpsManagerConnection, backupEnableDelay)
 	options := controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)} // nolint:forbidigo
 	c, err := controller.New(util.MongoDbShardedClusterController, mgr, options)
 	if err != nil {
@@ -2206,36 +2191,6 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 
 			_ = UpdatePrometheus(ctx, &d, conn, sc.GetPrometheus(), r.commonController.SecretClient, sc.GetNamespace(), opts.prometheusCertHash, log)
 
-			// Add Monarch components to AC if spec.monarch is set
-			if sc.Spec.Monarch != nil {
-				monarchMC, err := r.buildMonarchComponentsForACSharded(ctx, conn, sc, log)
-				if err != nil {
-					return xerrors.Errorf("failed to build Monarch AC components: %w", err)
-				}
-				d.SetMaintainedMonarchComponents(monarchMC)
-				// Active + SCRAM: add the operator-owned mms-shipper user to the auth
-				// in the same push, so the agent provisions it from initPwd. (The
-				// OM-side idempotency guard — separate PR — no-ops when the user/role
-				// already exists.)
-				if r.monarchShipperPassword != "" {
-					// Ensure the shipperRole custom role exists before adding the user
-					// that references it, else OM validation rejects the AC.
-					d.EnsureMonarchShipperRole()
-					ac, err := om.BuildAutomationConfigFromDeployment(d)
-					if err != nil {
-						return err
-					}
-					ac.Auth.EnsureMonarchShipperUser(r.monarchShipperPassword)
-					if err := ac.Apply(); err != nil {
-						return err
-					}
-				}
-				// Capture the cluster keyfile from the in-memory deployment so
-				// reconcileMonarchReconcileDeploymentsAndSecrets can write the Monarch
-				// secrets bundle without an agent-API AC read-back.
-				r.monarchKeyfile = maputil.ReadMapValueAsString(d, "auth", "key")
-			}
-
 			finalProcesses = d.GetProcessNames(om.ShardedCluster{}, sc.Name)
 
 			return nil
@@ -2413,6 +2368,7 @@ func (r *ShardedClusterReconcileHelper) createDesiredMongosProcesses(certificate
 				certificateFilePath,
 				r.sc.Annotations,
 				r.sc.CalculateFeatureCompatibilityVersion(),
+				r.defaultArchitecture,
 			)
 			processes = append(processes, process)
 		}
@@ -2427,7 +2383,7 @@ func (r *ShardedClusterReconcileHelper) createDesiredConfigSrvProcessesAndMember
 	for _, memberCluster := range r.configSrvMemberClusters {
 		hostnames, podNames := r.getConfigSrvHostnames(memberCluster, scale.ReplicasThisReconciliation(r.GetConfigSrvScaler(memberCluster)))
 		for i := range hostnames {
-			process := om.NewMongodProcess(podNames[i], hostnames[i], r.imageUrls[util.MongodbImageEnv], r.forceEnterprise, r.sc.Spec.ConfigSrvSpec.GetAdditionalMongodConfig(), r.sc.GetSpec(), certificateFilePath, r.sc.Annotations, r.sc.CalculateFeatureCompatibilityVersion())
+			process := om.NewMongodProcess(podNames[i], hostnames[i], r.imageUrls[util.MongodbImageEnv], r.forceEnterprise, r.sc.Spec.ConfigSrvSpec.GetAdditionalMongodConfig(), r.sc.GetSpec(), certificateFilePath, r.sc.Annotations, r.sc.CalculateFeatureCompatibilityVersion(), r.defaultArchitecture)
 			processes = append(processes, process)
 		}
 
@@ -2444,7 +2400,7 @@ func (r *ShardedClusterReconcileHelper) createDesiredShardProcessesAndMemberOpti
 	for _, memberCluster := range r.shardsMemberClustersMap[shardIdx] {
 		hostnames, podNames := r.getShardHostnames(shardIdx, memberCluster, scale.ReplicasThisReconciliation(r.GetShardScaler(shardIdx, memberCluster)))
 		for i := range hostnames {
-			process := om.NewMongodProcess(podNames[i], hostnames[i], r.imageUrls[util.MongodbImageEnv], r.forceEnterprise, r.desiredShardsConfiguration[shardIdx].GetAdditionalMongodConfig(), r.sc.GetSpec(), certificateFilePath, r.sc.Annotations, r.sc.CalculateFeatureCompatibilityVersion())
+			process := om.NewMongodProcess(podNames[i], hostnames[i], r.imageUrls[util.MongodbImageEnv], r.forceEnterprise, r.desiredShardsConfiguration[shardIdx].GetAdditionalMongodConfig(), r.sc.GetSpec(), certificateFilePath, r.sc.Annotations, r.sc.CalculateFeatureCompatibilityVersion(), r.defaultArchitecture)
 			processes = append(processes, process)
 		}
 		specMemberOptions := r.desiredShardsConfiguration[shardIdx].GetClusterSpecItem(memberCluster.Name).MemberConfig
@@ -2454,20 +2410,20 @@ func (r *ShardedClusterReconcileHelper) createDesiredShardProcessesAndMemberOpti
 	return processes, memberOptions
 }
 
-func createConfigSrvProcesses(mongoDBImage string, forceEnterprise bool, set appsv1.StatefulSet, mdb *mdbv1.MongoDB, certificateFilePath string) []om.Process {
-	return createMongodProcessForShardedCluster(mongoDBImage, forceEnterprise, set, mdb.Spec.ConfigSrvSpec.GetAdditionalMongodConfig(), mdb, certificateFilePath)
+func createConfigSrvProcesses(mongoDBImage string, forceEnterprise bool, set appsv1.StatefulSet, mdb *mdbv1.MongoDB, certificateFilePath string, defaultArchitecture architectures.DefaultArchitecture) []om.Process {
+	return createMongodProcessForShardedCluster(mongoDBImage, forceEnterprise, set, mdb.Spec.ConfigSrvSpec.GetAdditionalMongodConfig(), mdb, certificateFilePath, defaultArchitecture)
 }
 
-func createShardProcesses(mongoDBImage string, forceEnterprise bool, set appsv1.StatefulSet, mdb *mdbv1.MongoDB, certificateFilePath string) []om.Process {
-	return createMongodProcessForShardedCluster(mongoDBImage, forceEnterprise, set, mdb.Spec.ShardSpec.GetAdditionalMongodConfig(), mdb, certificateFilePath)
+func createShardProcesses(mongoDBImage string, forceEnterprise bool, set appsv1.StatefulSet, mdb *mdbv1.MongoDB, certificateFilePath string, defaultArchitecture architectures.DefaultArchitecture) []om.Process {
+	return createMongodProcessForShardedCluster(mongoDBImage, forceEnterprise, set, mdb.Spec.ShardSpec.GetAdditionalMongodConfig(), mdb, certificateFilePath, defaultArchitecture)
 }
 
-func createMongodProcessForShardedCluster(mongoDBImage string, forceEnterprise bool, set appsv1.StatefulSet, additionalMongodConfig *mdbv1.AdditionalMongodConfig, mdb *mdbv1.MongoDB, certificateFilePath string) []om.Process {
+func createMongodProcessForShardedCluster(mongoDBImage string, forceEnterprise bool, set appsv1.StatefulSet, additionalMongodConfig *mdbv1.AdditionalMongodConfig, mdb *mdbv1.MongoDB, certificateFilePath string, defaultArchitecture architectures.DefaultArchitecture) []om.Process {
 	hostnames, names := dns.GetDnsForStatefulSet(set, mdb.Spec.GetClusterDomain(), nil)
 	processes := make([]om.Process, len(hostnames))
 
 	for idx, hostname := range hostnames {
-		processes[idx] = om.NewMongodProcess(names[idx], hostname, mongoDBImage, forceEnterprise, additionalMongodConfig, &mdb.Spec, certificateFilePath, mdb.Annotations, mdb.CalculateFeatureCompatibilityVersion())
+		processes[idx] = om.NewMongodProcess(names[idx], hostname, mongoDBImage, forceEnterprise, additionalMongodConfig, &mdb.Spec, certificateFilePath, mdb.Annotations, mdb.CalculateFeatureCompatibilityVersion(), defaultArchitecture)
 	}
 
 	return processes
@@ -2522,9 +2478,10 @@ func (r *ShardedClusterReconcileHelper) getConfigServerOptions(ctx context.Conte
 		WithInitDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, util.InitDatabaseImageUrlEnv, r.initDatabaseNonStaticImageVersion)),
 		WithDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, util.NonStaticDatabaseEnterpriseImage, r.databaseNonStaticImageVersion)),
 		WithAgentImage(images.ContainerImage(r.imageUrls, util.AgentImageUrlEnv, r.automationAgentVersion)),
-		WithMongodbImage(images.GetOfficialImage(r.imageUrls, sc.Spec.Version, sc.GetAnnotations())),
+		WithMongodbImage(images.GetOfficialImage(r.imageUrls, sc.Spec.Version, sc.GetAnnotations(), r.defaultArchitecture)),
 		WithAgentDebug(r.agentDebug),
 		WithAgentDebugImage(r.agentDebugImage),
+		WithDefaultArchitecture(r.defaultArchitecture),
 	)
 }
 
@@ -2553,9 +2510,10 @@ func (r *ShardedClusterReconcileHelper) getMongosOptions(ctx context.Context, sc
 		WithInitDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, util.InitDatabaseImageUrlEnv, r.initDatabaseNonStaticImageVersion)),
 		WithDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, util.NonStaticDatabaseEnterpriseImage, r.databaseNonStaticImageVersion)),
 		WithAgentImage(images.ContainerImage(r.imageUrls, util.AgentImageUrlEnv, r.automationAgentVersion)),
-		WithMongodbImage(images.GetOfficialImage(r.imageUrls, sc.Spec.Version, sc.GetAnnotations())),
+		WithMongodbImage(images.GetOfficialImage(r.imageUrls, sc.Spec.Version, sc.GetAnnotations(), r.defaultArchitecture)),
 		WithAgentDebug(r.agentDebug),
 		WithAgentDebugImage(r.agentDebugImage),
+		WithDefaultArchitecture(r.defaultArchitecture),
 	)
 }
 
@@ -2586,9 +2544,10 @@ func (r *ShardedClusterReconcileHelper) getShardOptions(ctx context.Context, sc 
 		WithInitDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, util.InitDatabaseImageUrlEnv, r.initDatabaseNonStaticImageVersion)),
 		WithDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, util.NonStaticDatabaseEnterpriseImage, r.databaseNonStaticImageVersion)),
 		WithAgentImage(images.ContainerImage(r.imageUrls, util.AgentImageUrlEnv, r.automationAgentVersion)),
-		WithMongodbImage(images.GetOfficialImage(r.imageUrls, sc.Spec.Version, sc.GetAnnotations())),
+		WithMongodbImage(images.GetOfficialImage(r.imageUrls, sc.Spec.Version, sc.GetAnnotations(), r.defaultArchitecture)),
 		WithAgentDebug(r.agentDebug),
 		WithAgentDebugImage(r.agentDebugImage),
+		WithDefaultArchitecture(r.defaultArchitecture),
 	)
 }
 
@@ -3288,373 +3247,4 @@ func checkForMongosDeadlock(clusterState agents.MongoDBClusterStateInOM, mongosR
 	}
 
 	return false, nil
-}
-
-// ══════════════════════════════════════════════════════════════════════════════
-// Monarch DR support for sharded clusters
-// ══════════════════════════════════════════════════════════════════════════════
-
-// getMonarchShardInfos returns metadata for all RS components (configRS + data shards)
-// that need Monarch shipper/injector instances.
-func (r *ShardedClusterReconcileHelper) getMonarchShardInfos() []om.ShardInfo {
-	sc := r.sc
-	clusterDomain := sc.Spec.GetClusterDomain()
-	namespace := sc.Namespace
-
-	var infos []om.ShardInfo
-
-	// configRS
-	configRSName := sc.ConfigRsName()
-	configSvcName := sc.ConfigSrvServiceName()
-	configHosts := make([]string, sc.Spec.ConfigServerCount)
-	configMongodURIs := make([]string, sc.Spec.ConfigServerCount)
-	for i := 0; i < sc.Spec.ConfigServerCount; i++ {
-		host := fmt.Sprintf("%s-%d.%s.%s.svc.%s:27017", configRSName, i, configSvcName, namespace, clusterDomain)
-		configHosts[i] = host
-		configMongodURIs[i] = fmt.Sprintf("mongodb://%s/", host)
-	}
-	role := "shipper"
-	if sc.Spec.Monarch.Role == mdbv1.MonarchRoleStandby {
-		role = "injector"
-	}
-	configServiceDNS := construct.GetMonarchServiceDNSSharded(sc.Name, "configRS", role, namespace, clusterDomain)
-	infos = append(infos, om.ShardInfo{
-		ShardID:    "configRS",
-		RSName:     configRSName,
-		ServiceDNS: configServiceDNS,
-		MongoURI: fmt.Sprintf("mongodb://%s/?replicaSet=%s",
-			strings.Join(configHosts, ","), configRSName),
-		MongodURIs: configMongodURIs,
-	})
-
-	// data shards
-	for i := 0; i < sc.Spec.ShardCount; i++ {
-		shardID := fmt.Sprintf("myShard_%d", i)
-		rsName := sc.ShardRsName(i)
-		svcName := sc.ShardServiceName()
-		members := sc.Spec.MongodsPerShardCount
-		hosts := make([]string, members)
-		mongodURIs := make([]string, members)
-		for j := 0; j < members; j++ {
-			host := fmt.Sprintf("%s-%d.%s.%s.svc.%s:27017", rsName, j, svcName, namespace, clusterDomain)
-			hosts[j] = host
-			mongodURIs[j] = fmt.Sprintf("mongodb://%s/", host)
-		}
-		serviceDNS := construct.GetMonarchServiceDNSSharded(sc.Name, shardID, role, namespace, clusterDomain)
-		infos = append(infos, om.ShardInfo{
-			ShardID:    shardID,
-			RSName:     rsName,
-			ServiceDNS: serviceDNS,
-			MongoURI: fmt.Sprintf("mongodb://%s/?replicaSet=%s",
-				strings.Join(hosts, ","), rsName),
-			MongodURIs: mongodURIs,
-		})
-	}
-
-	return infos
-}
-
-// getAllShardIDs returns all shard IDs for the cluster (used for clusterStore.allShardIds).
-func (r *ShardedClusterReconcileHelper) getAllShardIDs() []string {
-	ids := []string{"configRS"}
-	for i := 0; i < r.sc.Spec.ShardCount; i++ {
-		ids = append(ids, fmt.Sprintf("myShard_%d", i))
-	}
-	return ids
-}
-
-// buildMonarchComponentsForACSharded builds the Monarch AC components for a sharded cluster.
-func (r *ShardedClusterReconcileHelper) buildMonarchComponentsForACSharded(
-	ctx context.Context,
-	conn om.Connection,
-	sc *mdbv1.MongoDB,
-	log *zap.SugaredLogger,
-) ([]om.MaintainedMonarchComponents, error) {
-	monarch := sc.Spec.Monarch
-	if monarch == nil {
-		return nil, nil
-	}
-
-	// Get S3 credentials from the referenced secret
-	s3Secret := &corev1.Secret{}
-	secretKey := types.NamespacedName{
-		Name:      monarch.S3.CredentialsSecretRef.Name,
-		Namespace: sc.Namespace,
-	}
-	if err := r.commonController.client.Get(ctx, secretKey, s3Secret); err != nil {
-		return nil, xerrors.Errorf("failed to get S3 credentials secret %s: %w", secretKey, err)
-	}
-	awsAccessKeyId := string(s3Secret.Data["awsAccessKeyId"])
-	awsSecretAccessKey := string(s3Secret.Data["awsSecretAccessKey"])
-
-	shardInfos := r.getMonarchShardInfos()
-
-	return om.BuildMaintainedMonarchComponentsSharded(
-		monarch,
-		sc.Name,
-		awsAccessKeyId,
-		awsSecretAccessKey,
-		shardInfos,
-	)
-}
-
-// reconcileMonarchServices runs before the AC push for sharded clusters.
-// It validates the S3 credentials secret and creates Services for each shard
-// so the DNS in maintainedMonarchComponents resolves.
-func (r *ShardedClusterReconcileHelper) reconcileMonarchServices(ctx context.Context) workflow.Status {
-	sc := r.sc
-	monarch := sc.Spec.Monarch
-	if monarch == nil {
-		return workflow.OK()
-	}
-
-	role := "shipper"
-	otherRole := "injector"
-	if monarch.Role == mdbv1.MonarchRoleStandby {
-		role = "injector"
-		otherRole = "shipper"
-	}
-
-	// TODO: Idempotent cleanup: delete resources for the OTHER role (post-promotion cleanup)// Revisit once we support planned failover
-	if status := r.deleteMonarchResourcesForRoleSharded(ctx, otherRole); !status.IsOK() {
-		return status
-	}
-
-	// Validate S3 credentials secret exists and has required keys
-	credSecret := &corev1.Secret{}
-	secretKey := types.NamespacedName{
-		Name:      monarch.S3.CredentialsSecretRef.Name,
-		Namespace: sc.Namespace,
-	}
-	if err := r.commonController.client.Get(ctx, secretKey, credSecret); err != nil {
-		return workflow.Failed(xerrors.Errorf("failed to read Monarch credentials secret %s: %w", monarch.S3.CredentialsSecretRef.Name, err))
-	}
-	for _, key := range []string{"awsAccessKeyId", "awsSecretAccessKey"} {
-		if _, ok := credSecret.Data[key]; !ok {
-			return workflow.Failed(xerrors.Errorf("Monarch credentials secret %s missing required key %q", monarch.S3.CredentialsSecretRef.Name, key))
-		}
-	}
-
-	// Standby: adopt the active cluster's automation-agent password before the AC push.
-	// The standby is bootstrapped via FCBIS from the active's snapshot, which carries the
-	// active's mms-automation-agent SCRAM credential; the standby agent must authenticate
-	// with that same password, not its own generated one. Seeding here (pre-AC) ensures
-	// EnsurePassword adopts it when the standby's automation config is first pushed.
-	if monarch.Role == mdbv1.MonarchRoleStandby && monarch.SourceAgentAuthSecretRef != nil {
-		if err := om.SeedAgentAuthSecretFrom(ctx, r.commonController.client, sc.Namespace, monarch.SourceAgentAuthSecretRef.Name, sc.Name); err != nil {
-			return workflow.Failed(xerrors.Errorf("failed to seed standby agent auth secret from active: %w", err))
-		}
-		// Seed the shipper password too: a standby reuses the active's mms-shipper
-		// credential (bootstrapped from the active's snapshot), never generating its
-		// own. The active's shipper secret name is derived from the same
-		// SourceAgentAuthSecretRef by convention (no new CRD field).
-		activeName := om.ActiveMdbNameFromAgentAuthSecretRef(monarch.SourceAgentAuthSecretRef.Name)
-		if err := om.SeedMonarchShipperSecretFrom(ctx, r.commonController.client, sc.Namespace, om.MonarchShipperSecretName(activeName), sc.Name); err != nil {
-			return workflow.Failed(xerrors.Errorf("failed to seed standby Monarch shipper secret from active: %w", err))
-		}
-	}
-
-	// Active + SCRAM: the operator owns the mms-shipper credential. Generate (or
-	// reuse) the password here, pre-AC, so it can be added to the deployment auth in
-	// the same AC push as maintainedMonarchComponents and reused in
-	// reconcileMonarchReconcileDeploymentsAndSecrets. Replaces the prior dependence
-	// on OM injecting shipperUser/shipperPwd (which surfaced only on a later
-	// agent-API AC read and caused a poll-fetch race).
-	if monarch.Role == mdbv1.MonarchRoleActive && monarchScramEnabled(sc) {
-		password, err := om.EnsureMonarchShipperPassword(ctx, r.commonController.client, sc.Namespace, sc.Name)
-		if err != nil {
-			return workflow.Failed(xerrors.Errorf("failed to ensure Monarch shipper password: %w", err))
-		}
-		r.monarchShipperPassword = password
-	}
-
-	// Create Services for each shard (configRS + data shards)
-	shardInfos := r.getMonarchShardInfos()
-	for _, info := range shardInfos {
-		svc := construct.BuildMonarchServiceSharded(sc, sc.Namespace, info.ShardID)
-		if _, err := controllerutil.CreateOrUpdate(ctx, r.commonController.client, svc, func() error {
-			fresh := construct.BuildMonarchServiceSharded(sc, sc.Namespace, info.ShardID)
-			svc.Spec.Selector = fresh.Spec.Selector
-			svc.Spec.Ports = fresh.Spec.Ports
-			svc.Labels = fresh.Labels
-			return nil
-		}); err != nil {
-			return workflow.Failed(xerrors.Errorf("failed to create/update Monarch Service %s for shard %s: %w", svc.Name, info.ShardID, err))
-		}
-	}
-
-	_ = role // used for logging
-	return workflow.OK()
-}
-
-// deleteMonarchResourcesForRoleSharded deletes all Monarch resources for the given role
-// across all shards. Used to clean up stale resources after a role flip.
-func (r *ShardedClusterReconcileHelper) deleteMonarchResourcesForRoleSharded(ctx context.Context, role string) workflow.Status {
-	sc := r.sc
-	shardIDs := r.getAllShardIDs()
-
-	for _, shardID := range shardIDs {
-		// Delete Service
-		svcName := construct.MonarchServiceNameSharded(sc.Name, shardID, role)
-		svc := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: svcName, Namespace: sc.Namespace}}
-		if err := r.commonController.client.Delete(ctx, svc); err != nil && !errors.IsNotFound(err) {
-			return workflow.Failed(xerrors.Errorf("failed to delete Monarch Service %s: %w", svcName, err))
-		}
-
-		// Delete Deployment
-		depName := construct.MonarchDeploymentNameSharded(sc.Name, shardID, role)
-		dep := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: depName, Namespace: sc.Namespace}}
-		if err := r.commonController.client.Delete(ctx, dep); err != nil && !errors.IsNotFound(err) {
-			return workflow.Failed(xerrors.Errorf("failed to delete Monarch Deployment %s: %w", depName, err))
-		}
-
-		// Delete config Secret
-		secretName := construct.MonarchConfigSecretNameSharded(sc.Name, shardID, role)
-		secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: secretName, Namespace: sc.Namespace}}
-		if err := r.commonController.client.Delete(ctx, secret); err != nil && !errors.IsNotFound(err) {
-			return workflow.Failed(xerrors.Errorf("failed to delete Monarch config Secret %s: %w", secretName, err))
-		}
-	}
-
-	return workflow.OK()
-}
-
-// reconcileMonarchReconcileDeploymentsAndSecrets creates Monarch K8s resources (Secrets, Deployments)
-// after the AC push has completed. Mirrors the RS controller's reconcileMonarchPostAC. The keyfile
-// and (active) shipper password are operator-owned (captured during the AC push / seeded from the
-// active for a standby), so this no longer fetches the agent-API AC.
-func (r *ShardedClusterReconcileHelper) reconcileMonarchReconcileDeploymentsAndSecrets(ctx context.Context, log *zap.SugaredLogger) workflow.Status {
-	sc := r.sc
-	monarch := sc.Spec.Monarch
-	if monarch == nil {
-		return workflow.OK()
-	}
-
-	role := "shipper"
-	conditionType := mdbv1.ConditionShipperReady
-	if monarch.Role == mdbv1.MonarchRoleStandby {
-		role = "injector"
-		conditionType = mdbv1.ConditionInjectorReady
-	}
-
-	// mms-shipper credentials and the cluster keyfile are now both owned by the
-	// operator and captured during the AC push — no agent-API AC read-back needed.
-	// This removes the prior poll-fetch race (we used to fetch the agent-API AC and
-	// requeue with workflow.Pending until OM had injected shipperUser/shipperPwd).
-	//
-	// NOTE: this depends on the OM-side idempotency guard (separate PR) that no-ops
-	// when the operator-supplied mms-shipper user/shipperRole already exists.
-	//
-	// (active only) cleartext mms-shipper credentials: username is the
-	// MonarchShipperUsername constant, password is the operator-generated value
-	// from reconcileMonarchServices (captured on r.monarchShipperPassword).
-	mongodUser, mongodPassword := "", ""
-	if monarch.Role == mdbv1.MonarchRoleActive && r.monarchShipperPassword != "" {
-		mongodUser = om.MonarchShipperUsername
-		mongodPassword = r.monarchShipperPassword
-	}
-
-	// Cluster keyfile captured from the in-memory deployment during the AC push.
-	keyfile := r.monarchKeyfile
-
-	// Reconcile the Monarch secrets bundle (keyfile)
-	monarchSecretsName := ""
-	if keyfile != "" {
-		monarchSecretsName = fmt.Sprintf("%s-monarch-secrets", sc.Name)
-		monarchSecrets := &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:            monarchSecretsName,
-				Namespace:       sc.Namespace,
-				OwnerReferences: kube.BaseOwnerReference(sc),
-			},
-		}
-		if _, err := controllerutil.CreateOrUpdate(ctx, r.commonController.client, monarchSecrets, func() error {
-			monarchSecrets.Type = corev1.SecretTypeOpaque
-			if monarchSecrets.Data == nil {
-				monarchSecrets.Data = map[string][]byte{}
-			}
-			monarchSecrets.Data["keyfile"] = []byte(keyfile)
-			return nil
-		}); err != nil {
-			return workflow.Failed(xerrors.Errorf("failed to create/update Monarch secrets bundle %s: %w", monarchSecretsName, err))
-		}
-	}
-
-	// Create config Secret and Deployment for each shard
-	shardInfos := r.getMonarchShardInfos()
-	allShardIDs := r.getAllShardIDs()
-	clusterDomain := sc.Spec.GetClusterDomain()
-
-	for _, info := range shardInfos {
-		// Build rsHosts from mongod URIs (strip mongodb:// prefix and trailing /)
-		rsHosts := make([]string, len(info.MongodURIs))
-		for i, uri := range info.MongodURIs {
-			host := strings.TrimPrefix(uri, "mongodb://")
-			host = strings.TrimSuffix(host, "/")
-			rsHosts[i] = host
-		}
-
-		injectorSvcDNS := construct.GetMonarchServiceDNSSharded(sc.Name, info.ShardID, role, sc.Namespace, clusterDomain)
-
-		configSecret := construct.BuildMonarchConfigSecretSharded(
-			sc, sc.Namespace,
-			info.ShardID, info.RSName,
-			rsHosts,
-			info.MongoURI,
-			mongodUser, mongodPassword,
-			monarchSecretsName,
-			allShardIDs,
-			injectorSvcDNS,
-		)
-		if _, err := controllerutil.CreateOrUpdate(ctx, r.commonController.client, configSecret, func() error {
-			fresh := construct.BuildMonarchConfigSecretSharded(
-				sc, sc.Namespace,
-				info.ShardID, info.RSName,
-				rsHosts,
-				info.MongoURI,
-				mongodUser, mongodPassword,
-				monarchSecretsName,
-				allShardIDs,
-				injectorSvcDNS,
-			)
-			configSecret.Data = fresh.Data
-			configSecret.Labels = fresh.Labels
-			return nil
-		}); err != nil {
-			return workflow.Failed(xerrors.Errorf("failed to create/update Monarch config Secret for shard %s: %w", info.ShardID, err))
-		}
-
-		// Hash triggers rolling restart when config changes
-		configHash := monarchConfigHashFromSecret(configSecret.Data)
-
-		dep := construct.BuildMonarchDeploymentSharded(sc, sc.Namespace, info.ShardID, monarchSecretsName)
-		if _, err := controllerutil.CreateOrUpdate(ctx, r.commonController.client, dep, func() error {
-			fresh := construct.BuildMonarchDeploymentSharded(sc, sc.Namespace, info.ShardID, monarchSecretsName)
-			dep.Spec = fresh.Spec
-			dep.Labels = fresh.Labels
-			if dep.Spec.Template.Annotations == nil {
-				dep.Spec.Template.Annotations = map[string]string{}
-			}
-			dep.Spec.Template.Annotations["checksum/config"] = configHash
-			return nil
-		}); err != nil {
-			apimeta.SetStatusCondition(&sc.Status.Conditions, metav1.Condition{
-				Type:    conditionType,
-				Status:  metav1.ConditionFalse,
-				Reason:  mdbv1.ReasonMonarchDeploymentFailed,
-				Message: fmt.Sprintf("Failed to create/update Monarch Deployment for shard %s: %v", info.ShardID, err),
-			})
-			return workflow.Failed(xerrors.Errorf("failed to create/update Monarch Deployment for shard %s: %w", info.ShardID, err))
-		}
-	}
-
-	apimeta.SetStatusCondition(&sc.Status.Conditions, metav1.Condition{
-		Type:    conditionType,
-		Status:  metav1.ConditionTrue,
-		Reason:  mdbv1.ReasonMonarchDeploymentReady,
-		Message: fmt.Sprintf("Monarch %s Deployments reconciled for %d shards (role=%s)", role, len(shardInfos), monarch.Role),
-	})
-	log.Infof("Reconciled Monarch %s K8s resources for %d shards", role, len(shardInfos))
-
-	return workflow.OK()
 }

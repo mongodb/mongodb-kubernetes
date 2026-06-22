@@ -2,17 +2,12 @@ package operator
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/json"
-	stderrors "errors"
 	"fmt"
-	"strings"
 
 	"github.com/hashicorp/go-multierror"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
-	k8serrors "k8s.io/apimachinery/pkg/api/errors"
-	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -41,7 +36,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connection"
-	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connectionstring"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/controlledfeature"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/create"
@@ -58,7 +52,6 @@ import (
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/configmap"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
-	"github.com/mongodb/mongodb-kubernetes/pkg/monarch/drstate"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
@@ -84,8 +77,9 @@ type ReconcileMongoDbReplicaSet struct {
 	initDatabaseNonStaticImageVersion string
 	databaseNonStaticImageVersion     string
 
-	agentDebug      bool
-	agentDebugImage string
+	agentDebug          bool
+	agentDebugImage     string
+	defaultArchitecture architectures.DefaultArchitecture
 }
 
 type replicaSetDeploymentState struct {
@@ -103,18 +97,6 @@ type ReplicaSetReconcilerHelper struct {
 	deploymentState *replicaSetDeploymentState
 	reconciler      *ReconcileMongoDbReplicaSet
 	log             *zap.SugaredLogger
-
-	// monarchShipperPassword holds the operator-owned cleartext mms-shipper
-	// password for an active Monarch cluster. Generated in reconcileMonarchPreAC,
-	// added to the AC's auth (as the shipper user's initPwd) during the AC push,
-	// and reused in reconcileMonarchPostAC to embed into the shipper URIs.
-	// Empty for standby clusters or when SCRAM is disabled.
-	monarchShipperPassword string
-	// monarchKeyfile is the cluster auth.key captured from the in-memory
-	// deployment during the AC push (via maputil.ReadMapValueAsString), then used
-	// in reconcileMonarchPostAC to write the Monarch secrets bundle. Capturing it
-	// here removes the need for a post-AC agent-API AC read-back.
-	monarchKeyfile string
 }
 
 func (r *ReconcileMongoDbReplicaSet) newReconcilerHelper(
@@ -206,7 +188,7 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	reconciler := r.reconciler
 
 	// === 1. Initial Checks and setup
-	if !architectures.IsRunningStaticArchitecture(rs.Annotations) {
+	if !architectures.IsRunningStaticArchitecture(rs.Annotations, reconciler.defaultArchitecture) {
 		agents.UpgradeAllIfNeeded(ctx, agents.ClientSecret{Client: reconciler.client, SecretClient: reconciler.SecretClient}, reconciler.omConnectionFactory, GetWatchedNamespace(), false)
 	}
 
@@ -226,6 +208,10 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	conn, _, err := connection.PrepareOpsManagerConnection(ctx, reconciler.SecretClient, projectConfig, credsConfig, reconciler.omConnectionFactory, rs.Namespace, log)
 	if err != nil {
 		return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("failed to prepare Ops Manager connection: %w", err)))
+	}
+
+	if status := ensureSupportedOpsManagerVersion(conn); status.Phase() != mdbstatus.PhaseRunning {
+		return r.updateStatus(ctx, status)
 	}
 
 	reconciler.SetupCommonWatchers(rs, nil, nil, rs.Name)
@@ -312,38 +298,8 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 		}
 	}
 
-	// 5. Promoted-standby gate.
-	//
-	// When a CR has spec.role=active AND a DR-state file in S3 (which only
-	// exists if it was provisioned as standby), this CR is mid-promotion or
-	// already promoted. Per the EA Standby Clusters playbook (PP scope), the
-	// operator must NOT push an active-shaped AC or reshape K8s infra in
-	// this state — the standby's AC + injector Deployment from first
-	// provisioning stay for the CR's lifetime. handlePromotedMonarchLifecycle
-	// handles all four S3 states (Standby/PromoteStandby/StandbyReadyToPromote/Active).
-	//
-	// Standby CRs (spec.role=standby) always fall through to regular
-	// reconciliation, even after the DR file is auto-seeded — that keeps
-	// InjectorReady fresh and the K8s resources in sync.
-	if status, handled := r.handlePromotedMonarchLifecycle(ctx, conn); handled {
-		return r.updateStatus(ctx, status)
-	}
-
-	// 5a. Monarch pre-AC step: ensure the Service (and clean up old-role resources).
-	// The Service must exist before the AC push so the DNS in maintainedMonarchComponents
-	// resolves. The ConfigMap and Deployment are NOT created here — for the active
-	// shipper, they need mms-shipper credentials that OM only emits *after* it sees
-	// maintainedMonarchComponents in the AC. Creating the Deployment here would put
-	// the shipper into CrashLoopBackOff until the next reconcile. Post-AC step below
-	// creates them once OM has populated the credentials.
-	if rs.Spec.Monarch != nil {
-		if monarchStatus := r.reconcileMonarchPreAC(ctx); !monarchStatus.IsOK() {
-			return r.updateStatus(ctx, monarchStatus)
-		}
-	}
-
-	// 5b. Ops Manager AC push and StatefulSet creation.
-	publishAutomationConfigFirst := publishAutomationConfigFirstRS(ctx, reconciler.client, *rs, r.deploymentState.LastAchievedSpec, deploymentOpts.currentAgentAuthMode, projectConfig.SSLMMSCAConfigMap, log)
+	// 5. Actual reconciliation execution, Ops Manager and kubernetes resources update
+	publishAutomationConfigFirst := publishAutomationConfigFirstRS(ctx, reconciler.client, *rs, r.deploymentState.LastAchievedSpec, deploymentOpts.currentAgentAuthMode, projectConfig.SSLMMSCAConfigMap, reconciler.defaultArchitecture, log)
 	status := workflow.RunInGivenOrder(publishAutomationConfigFirst,
 		func() workflow.Status {
 			return r.updateOmDeploymentRs(ctx, conn, r.deploymentState.LastReconcileMemberCount, tlsCertPath, internalClusterCertPath, deploymentOpts, shouldMirrorKeyfileForMongot, false).OnErrorPrepend("failed to create/update (Ops Manager reconciliation phase):")
@@ -351,22 +307,6 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 		func() workflow.Status {
 			return r.reconcileMemberResources(ctx, conn, projectConfig, deploymentOpts, r.deploymentState.LastConfiguredRoles)
 		})
-
-	// 5c. Monarch post-AC step: now that the AC includes maintainedMonarchComponents,
-	// fetch OM's cleartext mms-shipper credentials and create the ConfigMap + Deployment
-	// in one shot. Pods come up authenticated on first start — no CrashLoopBackOff
-	// window.
-	if status.IsOK() && rs.Spec.Monarch != nil {
-		if monarchStatus := r.reconcileMonarchPostAC(ctx); !monarchStatus.IsOK() {
-			status = monarchStatus
-		}
-	}
-
-	// Surface agent plan failures regardless of outcome so users can diagnose stuck
-	// reconciles without exec'ing into pods. Runs after the AC push (regardless of
-	// status) so it reflects the most recent agent state; must be before the
-	// status check below that may short-circuit on Pending/Failed.
-	r.surfaceAgentPlanStatus(ctx, conn)
 
 	if !status.IsOK() {
 		return r.updateStatus(ctx, status)
@@ -403,10 +343,10 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	}
 
 	log.Infof("Finished reconciliation for MongoDbReplicaSet! %s", completionMessage(conn.BaseURL(), conn.GroupID()))
-	return r.updateStatus(ctx, workflow.OK(), mdbstatus.NewBaseUrlOption(deployment.Link(conn.BaseURL(), conn.GroupID())), mdbstatus.MembersOption(rs), mdbstatus.NewPVCsStatusOptionEmptyStatus())
+	return r.updateStatus(ctx, workflow.OK(), mdbstatus.NewBaseUrlOption(deployment.Link(conn.BaseURL(), conn.GroupID())), mdbstatus.NewProjectIdOption(conn.GroupID()), mdbstatus.MembersOption(rs), mdbstatus.NewPVCsStatusOptionEmptyStatus())
 }
 
-func newReplicaSetReconciler(ctx context.Context, kubeClient client.Client, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, omFunc om.ConnectionFactory) *ReconcileMongoDbReplicaSet {
+func newReplicaSetReconciler(ctx context.Context, kubeClient client.Client, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, omFunc om.ConnectionFactory) *ReconcileMongoDbReplicaSet {
 	return &ReconcileMongoDbReplicaSet{
 		ReconcileCommonController: NewReconcileCommonController(ctx, kubeClient),
 		omConnectionFactory:       omFunc,
@@ -417,8 +357,9 @@ func newReplicaSetReconciler(ctx context.Context, kubeClient client.Client, imag
 		initDatabaseNonStaticImageVersion: initDatabaseNonStaticImageVersion,
 		databaseNonStaticImageVersion:     databaseNonStaticImageVersion,
 
-		agentDebug:      agentDebug,
-		agentDebugImage: agentDebugImage,
+		agentDebug:          agentDebug,
+		agentDebugImage:     agentDebugImage,
+		defaultArchitecture: defaultArchitecture,
 	}
 }
 
@@ -452,7 +393,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 	rs := &mdbv1.MongoDB{}
 
 	if reconcileResult, err := r.prepareResourceForReconciliation(ctx, request, rs, log); err != nil {
-		if k8serrors.IsNotFound(err) {
+		if errors.IsNotFound(err) {
 			return workflow.Invalid("Object for reconciliation not found").ReconcileResult()
 		}
 		return reconcileResult, err
@@ -468,11 +409,11 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 	return helper.Reconcile(ctx)
 }
 
-func publishAutomationConfigFirstRS(ctx context.Context, getter kubernetesClient.Client, mdb mdbv1.MongoDB, lastSpec *mdbv1.MongoDbSpec, currentAgentAuthMode string, sslMMSCAConfigMap string, log *zap.SugaredLogger) bool {
+func publishAutomationConfigFirstRS(ctx context.Context, getter kubernetesClient.Client, mdb mdbv1.MongoDB, lastSpec *mdbv1.MongoDbSpec, currentAgentAuthMode string, sslMMSCAConfigMap string, defaultArchitecture architectures.DefaultArchitecture, log *zap.SugaredLogger) bool {
 	namespacedName := kube.ObjectKey(mdb.Namespace, mdb.Name)
 	currentSts, err := getter.GetStatefulSet(ctx, namespacedName)
 	if err != nil {
-		if k8serrors.IsNotFound(err) {
+		if errors.IsNotFound(err) {
 			// No need to publish state as this is a new StatefulSet
 			log.Debugf("New StatefulSet %s", namespacedName)
 			return false
@@ -510,7 +451,7 @@ func publishAutomationConfigFirstRS(ctx context.Context, getter kubernetesClient
 		return true
 	}
 
-	if architectures.IsRunningStaticArchitecture(mdb.GetAnnotations()) {
+	if architectures.IsRunningStaticArchitecture(mdb.GetAnnotations(), defaultArchitecture) {
 		if mdb.Spec.IsInChangeVersion(lastSpec) {
 			return true
 		}
@@ -546,7 +487,7 @@ func (r *ReplicaSetReconcilerHelper) reconcileHostnameOverrideConfigMap(ctx cont
 
 	cm := getHostnameOverrideConfigMapForReplicaset(r.resource)
 	err := configmap.CreateOrUpdate(ctx, getUpdateCreator, cm)
-	if err != nil && !k8serrors.IsAlreadyExists(err) {
+	if err != nil && !errors.IsAlreadyExists(err) {
 		return xerrors.Errorf("failed to create configmap: %s, err: %w", cm.Name, err)
 	}
 	log.Infof("Successfully ensured configmap: %s", cm.Name)
@@ -573,709 +514,6 @@ func (r *ReplicaSetReconcilerHelper) reconcileMemberResources(ctx context.Contex
 	}
 
 	return r.reconcileStatefulSet(ctx, conn, projectConfig, deploymentOptions)
-}
-
-// reconcileMonarchResources ensures Monarch ConfigMap, Service, and Deployment exist.
-// It owns Kubernetes resources only; the automation config push (including
-// maintainedMonarchComponents) happens atomically in updateOmDeploymentRs so the
-// agent sees the full standby goal state on its first AC poll.
-//
-// This reconcile is purely declarative on spec.monarch.role:
-//   - role=active  → ensure shipper resources exist; ensure injector resources do NOT
-//   - role=standby → opposite
-//
-// No state machine, no lastAchievedSpec lookups, no overrides. Each reconcile reads
-// the spec and converges; running it again is a no-op.
-//
-// Failover triggers (both end up writing PromoteStandby to S3, the agent does the rest):
-//   - Customer/CLI: aws s3 cp ... PromoteStandby ... (operator just observes via
-//     reconcileMonarchS3State; sets SpecOutOfSync until the user updates the CR)
-//   - Operator: when role=active and S3 hasn't been promoted yet, triggerPromotionIfNeeded
-//     writes PromoteStandby to S3 — same destination, same agent reaction
-//
-// NOT supported: active → standby demotion. If the user flips role from active to
-// standby, this function will dutifully provision an injector while the agent on the
-// running mongod still thinks it's active. The result is broken. To remove a cluster,
-// delete the MongoDB CR.
-// reconcileMonarchPreAC runs *before* the AC push. It establishes the Service
-// (whose DNS the AC's maintainedMonarchComponents references), handles idempotent
-// cleanup of leftover other-role resources, and seeds the standby's agent-auth and
-// shipper secrets from the active. It deliberately does NOT create the ConfigMap or
-// Deployment yet — those are created in reconcileMonarchPostAC, after the AC push,
-// using the keyfile and (active) shipper password the operator owns locally.
-//
-// reconcileMonarchPostAC runs the rest of the work after the AC push has completed.
-func (r *ReplicaSetReconcilerHelper) reconcileMonarchPreAC(ctx context.Context) workflow.Status {
-	rs := r.resource
-	reconciler := r.reconciler
-
-	// Observe S3 state and surface any CR/S3 divergence as a condition. Does not
-	// drive provisioning — provisioning is purely from spec.Monarch.Role below.
-	if status := r.reconcileMonarchS3State(ctx); !status.IsOK() {
-		return status
-	}
-
-	role := rs.Spec.Monarch.Role
-	otherRole := "shipper"
-	if role == mdbv1.MonarchRoleActive {
-		otherRole = "injector"
-	}
-
-	// Idempotent cleanup: ensure resources for the OTHER role don't exist. After a
-	// standby→active flip this deletes the leftover injector resources. On a fresh
-	// install both calls are no-ops (NotFound is treated as success).
-	if status := r.deleteMonarchResourcesForRole(ctx, otherRole); !status.IsOK() {
-		return status
-	}
-
-	// Fail fast if S3 credentials secret doesn't exist or is missing required keys;
-	// values are consumed by the Deployment (in post-AC) and by buildMonarchComponentsForAC.
-	credSecret, err := reconciler.client.GetSecret(ctx, kube.ObjectKey(rs.Namespace, rs.Spec.Monarch.S3.CredentialsSecretRef.Name))
-	if err != nil {
-		return workflow.Failed(xerrors.Errorf("failed to read Monarch credentials secret %s: %w", rs.Spec.Monarch.S3.CredentialsSecretRef.Name, err))
-	}
-	for _, key := range []string{"awsAccessKeyId", "awsSecretAccessKey"} {
-		if _, ok := credSecret.Data[key]; !ok {
-			return workflow.Failed(xerrors.Errorf("Monarch credentials secret %s missing required key %q", rs.Spec.Monarch.S3.CredentialsSecretRef.Name, key))
-		}
-	}
-
-	// Standby: adopt the active cluster's automation-agent password before the AC push.
-	// The standby is bootstrapped via FCBIS from the active's snapshot, which carries the
-	// active's mms-automation-agent SCRAM credential; the standby agent must authenticate
-	// with that same password, not its own generated one. Seeding here (pre-AC) ensures
-	// EnsurePassword adopts it when the standby's automation config is first pushed.
-	if rs.Spec.Monarch.Role == mdbv1.MonarchRoleStandby && rs.Spec.Monarch.SourceAgentAuthSecretRef != nil {
-		if err := om.SeedAgentAuthSecretFrom(ctx, reconciler.client, rs.Namespace, rs.Spec.Monarch.SourceAgentAuthSecretRef.Name, rs.Name); err != nil {
-			return workflow.Failed(xerrors.Errorf("failed to seed standby agent auth secret from active: %w", err))
-		}
-		// Seed the shipper password too: a standby must reuse the active's
-		// mms-shipper credential (it is bootstrapped from the active's snapshot),
-		// never generate its own. The active's shipper secret name is derived from
-		// the same SourceAgentAuthSecretRef by convention (no new CRD field).
-		activeName := om.ActiveMdbNameFromAgentAuthSecretRef(rs.Spec.Monarch.SourceAgentAuthSecretRef.Name)
-		if err := om.SeedMonarchShipperSecretFrom(ctx, reconciler.client, rs.Namespace, om.MonarchShipperSecretName(activeName), rs.Name); err != nil {
-			return workflow.Failed(xerrors.Errorf("failed to seed standby Monarch shipper secret from active: %w", err))
-		}
-	}
-
-	// Active + SCRAM: the operator owns the mms-shipper credential. Generate (or
-	// reuse) the password here, pre-AC, so it can be added to the deployment auth
-	// in the same AC push as maintainedMonarchComponents (see updateOmDeploymentRs)
-	// and reused in reconcileMonarchPostAC. This replaces the prior dependence on
-	// OM injecting shipperUser/shipperPwd, which surfaced only on a later agent-API
-	// AC read and caused a poll-fetch race.
-	if rs.Spec.Monarch.Role == mdbv1.MonarchRoleActive && monarchScramEnabled(rs) {
-		password, err := om.EnsureMonarchShipperPassword(ctx, reconciler.client, rs.Namespace, rs.Name)
-		if err != nil {
-			return workflow.Failed(xerrors.Errorf("failed to ensure Monarch shipper password: %w", err))
-		}
-		r.monarchShipperPassword = password
-	}
-
-	// Service must exist before the AC push so the DNS in maintainedMonarchComponents
-	// resolves once the agent picks up the new AC.
-	svc := construct.BuildMonarchService(rs, rs.Namespace)
-	if _, err := controllerutil.CreateOrUpdate(ctx, reconciler.client, svc, func() error {
-		fresh := construct.BuildMonarchService(rs, rs.Namespace)
-		svc.Spec.Selector = fresh.Spec.Selector
-		svc.Spec.Ports = fresh.Spec.Ports
-		svc.Labels = fresh.Labels
-		return nil
-	}); err != nil {
-		return workflow.Failed(xerrors.Errorf("failed to create/update Monarch Service %s: %w", svc.Name, err))
-	}
-
-	return workflow.OK()
-}
-
-// reconcileMonarchPostAC creates the ConfigMap and Deployment after the AC push
-// has completed. For the active role it embeds the operator-generated mms-shipper
-// credentials into the shipper's URIs. The keyfile and shipper password are both
-// owned by the operator (captured during the AC push / seeded from the active for
-// a standby), so there is no longer any need to fetch the agent-API AC here.
-func (r *ReplicaSetReconcilerHelper) reconcileMonarchPostAC(ctx context.Context) workflow.Status {
-	rs := r.resource
-	reconciler := r.reconciler
-	log := r.log
-
-	role := rs.Spec.Monarch.Role
-	conditionType := mdbv1.ConditionInjectorReady
-	monarchRole := "injector"
-	if role == mdbv1.MonarchRoleActive {
-		conditionType = mdbv1.ConditionShipperReady
-		monarchRole = "shipper"
-	}
-
-	srcURI := connectionstring.Builder().
-		SetName(rs.Name).
-		SetNamespace(rs.Namespace).
-		SetReplicas(rs.Spec.Members).
-		SetService(rs.ServiceName()).
-		SetIsReplicaSet(true).
-		SetIsTLSEnabled(rs.Spec.IsSecurityTLSConfigEnabled()).
-		SetClusterDomain(rs.Spec.GetClusterDomain()).
-		Build()
-
-	// mms-shipper credentials and the cluster keyfile are now both owned by the
-	// operator and captured during the AC push — no agent-API AC read-back needed.
-	// This removes the prior poll-fetch race (we used to fetch the agent-API AC and
-	// requeue with workflow.Pending until OM had injected shipperUser/shipperPwd).
-	//
-	// NOTE: this depends on the OM-side idempotency guard (separate PR) that no-ops
-	// when the operator-supplied mms-shipper user/shipperRole already exists, so
-	// pushing the user in the AC does not conflict with OM's own provisioning.
-	//
-	//   - (active only) cleartext mms-shipper credentials: username is the
-	//     MonarchShipperUsername constant, password is the operator-generated
-	//     value from reconcileMonarchPreAC (captured on r.monarchShipperPassword).
-	//     The agent normally injects creds into backupMongoNodeURI at runtime, but
-	//     with externallyManaged=true it skips lifecycle management — so the
-	//     operator embeds them into the shipper's URIs here.
-	//   - (both) the cluster keyfile (auth.key), captured from the in-memory
-	//     deployment during the AC push (r.monarchKeyfile). The injector advertises
-	//     itself to the standby's mongod as a sync source on port 9995; mongod
-	//     heartbeats speak intra-cluster keyfile auth, so the injector binary needs
-	//     --securityKeyFile pointing at the same key. Same applies to the shipper
-	//     for symmetry — keyfile is harmless when unused.
-	//
-	// Promoted CR (was standby): we do NOT push a new active-shape AC at promotion,
-	// so r.monarchShipperPassword is empty and the shipper starts with empty creds.
-	// This is accepted for PP: promoted clusters do not resume shipping. To restore
-	// DR, rebuild from scratch per the EA Standby Clusters playbook.
-	mongodUser, mongodPassword := "", ""
-	if role == mdbv1.MonarchRoleActive && r.monarchShipperPassword != "" {
-		mongodUser = om.MonarchShipperUsername
-		mongodPassword = r.monarchShipperPassword
-	}
-
-	keyfile := r.monarchKeyfile
-
-	// Reconcile the Monarch secrets bundle — a single K8s Secret holding every
-	// agent-managed file the Monarch pods need (today: just the cluster keyfile;
-	// in the future also TLS member certs / CA bundles when we extend Monarch
-	// to TLS-enabled clusters). Consolidating into one Secret keeps the volume
-	// mount story simple: one Secret, one mountPath, multiple keys. Each new
-	// file type is then ~10 lines here (extract from AC + add map key) plus a
-	// matching `securityXFilePath:` line in the YAML config.
-	//
-	// Empty when SCRAM is off (no keyfile, no TLS yet) — downstream consumers
-	// see secretName="" and skip the mount.
-	monarchSecretsName := ""
-	if keyfile != "" {
-		monarchSecretsName = fmt.Sprintf("%s-monarch-secrets", rs.Name)
-		monarchSecrets := &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:            monarchSecretsName,
-				Namespace:       rs.Namespace,
-				OwnerReferences: kube.BaseOwnerReference(rs),
-			},
-		}
-		if _, err := controllerutil.CreateOrUpdate(ctx, reconciler.client, monarchSecrets, func() error {
-			monarchSecrets.Type = corev1.SecretTypeOpaque
-			if monarchSecrets.Data == nil {
-				monarchSecrets.Data = map[string][]byte{}
-			}
-			monarchSecrets.Data["keyfile"] = []byte(keyfile)
-			// Future: monarchSecrets.Data["tls.pem"] = ...
-			//         monarchSecrets.Data["ca.crt"]  = ...
-			return nil
-		}); err != nil {
-			return workflow.Failed(xerrors.Errorf("failed to create/update Monarch secrets bundle %s: %w", monarchSecretsName, err))
-		}
-	}
-
-	configSecret := construct.BuildMonarchConfigSecret(rs, rs.Namespace, srcURI, mongodUser, mongodPassword, monarchSecretsName)
-	if _, err := controllerutil.CreateOrUpdate(ctx, reconciler.client, configSecret, func() error {
-		fresh := construct.BuildMonarchConfigSecret(rs, rs.Namespace, srcURI, mongodUser, mongodPassword, monarchSecretsName)
-		configSecret.Data = fresh.Data
-		configSecret.Labels = fresh.Labels
-		return nil
-	}); err != nil {
-		return workflow.Failed(xerrors.Errorf("failed to create/update Monarch config Secret %s: %w", configSecret.Name, err))
-	}
-
-	// Hash triggers rolling restart when config changes (e.g. password rotation).
-	configHash := monarchConfigHashFromSecret(configSecret.Data)
-
-	dep := construct.BuildMonarchDeployment(rs, rs.Namespace, monarchSecretsName)
-	if _, err := controllerutil.CreateOrUpdate(ctx, reconciler.client, dep, func() error {
-		fresh := construct.BuildMonarchDeployment(rs, rs.Namespace, monarchSecretsName)
-		dep.Spec = fresh.Spec
-		dep.Labels = fresh.Labels
-		if dep.Spec.Template.Annotations == nil {
-			dep.Spec.Template.Annotations = map[string]string{}
-		}
-		dep.Spec.Template.Annotations["checksum/config"] = configHash
-		return nil
-	}); err != nil {
-		apimeta.SetStatusCondition(&rs.Status.Conditions, metav1.Condition{
-			Type:    conditionType,
-			Status:  metav1.ConditionFalse,
-			Reason:  mdbv1.ReasonMonarchDeploymentFailed,
-			Message: fmt.Sprintf("Failed to create/update Monarch Deployment: %v", err),
-		})
-		return workflow.Failed(xerrors.Errorf("failed to create/update Monarch Deployment %s: %w", dep.Name, err))
-	}
-
-	apimeta.SetStatusCondition(&rs.Status.Conditions, metav1.Condition{
-		Type:    conditionType,
-		Status:  metav1.ConditionTrue,
-		Reason:  mdbv1.ReasonMonarchDeploymentReady,
-		Message: fmt.Sprintf("Monarch %s Deployment reconciled (role=%s)", monarchRole, role),
-	})
-	log.Infof("Reconciled Monarch %s K8s resources", monarchRole)
-
-	// Note: post-promotion concerns (writing PromoteStandby to S3, waiting for
-	// the agent) are owned by handleStandbyMonarchLifecycle at the top of
-	// Reconcile, which intercepts before this code path runs. By the time we
-	// reach this function the CR has no DR file in S3 — either a fresh active
-	// CR or a fresh standby CR's first reconcile (auto-seed runs during preAC).
-	return workflow.OK()
-}
-
-// swapMonarchToShipper performs the K8s-side swap from injector to shipper
-// once S3 has reached Active. It is called from handlePromotedMonarchLifecycle
-// and never pushes an automation config — the agent has already applied the
-// active-shape AC server-side from its internal cache, and any operator-side
-// AC mutation here would clobber that.
-//
-// Idempotent: re-runs every reconcile and converges to a no-op once the swap
-// is complete (injector deleted, shipper ConfigMap + Deployment in place).
-//
-// Reuses reconcileMonarchPreAC and reconcileMonarchPostAC verbatim because they
-// already encode the right behavior for an active CR: pre-AC deletes the injector
-// resources and creates the shipper Service; post-AC writes the keyfile Secret and
-// creates the ConfigMap + Deployment using operator-owned credentials. The "no AC
-// push" rule is preserved because the gate returns handled=true so the regular
-// reconcile path (which would call updateOmDeploymentRs) is skipped entirely.
-func (r *ReplicaSetReconcilerHelper) swapMonarchToShipper(ctx context.Context, conn om.Connection) workflow.Status {
-	if status := r.reconcileMonarchPreAC(ctx); !status.IsOK() {
-		return status
-	}
-	// The promoted path does not push an AC, so the keyfile is not captured by the
-	// updateOmDeploymentRs closure. Read it from the existing deployment instead —
-	// the keyfile is operator-owned (auth.key) and present immediately, so this is
-	// not subject to the OM-injection poll-fetch race the read-back used to incur.
-	if dep, err := conn.ReadDeployment(); err == nil {
-		r.monarchKeyfile = maputil.ReadMapValueAsString(dep, "auth", "key")
-	}
-	return r.reconcileMonarchPostAC(ctx)
-}
-
-// handlePromotedMonarchLifecycle owns the reconcile for a CR that has been
-// flipped to spec.role=active AND has a DR-state file in S3 from when it was
-// previously a standby. This is the only state where the operator must NOT
-// run the regular provisioning path (which would push an active-shaped AC
-// and reshape K8s infra — both forbidden by the EA Standby Clusters playbook
-// for an existing DR-paired cluster).
-//
-// Returns (status, true) when this function owns the reconcile and the caller
-// must surface `status` and stop. Returns (workflow.OK(), false) when normal
-// provisioning should run: spec.role=standby (regular standby reconcile), or
-// spec.role=active with no DR file (fresh active CR).
-//
-// State machine (spec.role=active && DR file present):
-//
-//	S3=Standby                                   → write PromoteStandby, Pending  (promotion trigger)
-//	S3=PromoteStandby / StandbyReadyToPromote    → Pending (agent in flight)
-//	S3=Active                                    → no-op  (promoted-and-done)
-//	unexpected state                             → no-op  (defensive)
-//
-// Per the playbook (PP scope, unplanned failover only), the operator never
-// reshapes the AC or K8s infra after a standby has been provisioned. The
-// standby AC and injector Deployment written on the first reconcile stay for
-// the CR's lifetime. To re-pair a promoted cluster the customer creates a
-// new standby CR; the promoted-but-unshipping cluster does not auto-rewire.
-func (r *ReplicaSetReconcilerHelper) handlePromotedMonarchLifecycle(ctx context.Context, conn om.Connection) (workflow.Status, bool) {
-	rs := r.resource
-	log := r.log
-
-	// Only active-spec CRs have anything to gate. Standby CRs always run the
-	// regular reconcile path (which keeps InjectorReady fresh).
-	if rs.Spec.Monarch == nil || rs.Spec.Monarch.Role == mdbv1.MonarchRoleStandby {
-		return workflow.OK(), false
-	}
-
-	drClient, err := r.createDRStateClient(ctx)
-	if err != nil {
-		// reconcileMonarchS3State (regular path) will surface MonarchS3Unreachable.
-		return workflow.OK(), false
-	}
-
-	current, err := drClient.Read(ctx)
-	if err != nil {
-		log.Warnw("Skipping promoted Monarch gate: cannot read S3 DR state", "error", err)
-		return workflow.OK(), false
-	}
-	if current == nil {
-		// No DR file → fresh active CR with no DR pair history.
-		// Fall through to regular active provisioning.
-		return workflow.OK(), false
-	}
-
-	// Mirror observed S3 state on status so kubectl describe surfaces it.
-	now := metav1.Now()
-	if rs.Status.Monarch == nil {
-		rs.Status.Monarch = &mdbv1.MonarchStatus{}
-	}
-	rs.Status.Monarch.ObservedS3State = string(current.State)
-	rs.Status.Monarch.ObservedS3StateTime = &now
-
-	switch current.State {
-	case drstate.StateActive:
-		// Promoted-and-acknowledged: the customer flipped spec.role=active and
-		// the agent has advanced S3 all the way to Active. Per the playbook, the
-		// operator MUST NOT push a new AC at this point — the agent has already
-		// applied the active-shape AC server-side from its internal cache, and
-		// any operator-side AC push would clobber that. The only operator work
-		// left is the K8s swap: tear down the injector, stand up the shipper.
-		// swapMonarchToShipper is idempotent so it's a no-op once the swap has
-		// converged on a steady-state promoted CR.
-		return r.swapMonarchToShipper(ctx, conn), true
-
-	case drstate.StateStandby:
-		// Forward-only promotion trigger: customer flipped spec.role
-		// standby → active. Stamp PromoteStandby on the DR file. The agent
-		// drives the rest. Webhook rejects active → standby, so this is the
-		// only direction we ever see.
-		log.Info("Promotion triggered: spec.role=active, S3=Standby — writing PromoteStandby")
-		if _, err := drClient.TransitionTo(ctx, drstate.StatePromoteStandby); err != nil {
-			if stderrors.Is(err, drstate.ErrCASConflict) {
-				return workflow.Pending("CAS conflict writing PromoteStandby, retrying"), true
-			}
-			return workflow.Pending("Failed to write PromoteStandby to S3, will retry: %v", err), true
-		}
-		return workflow.Pending("Promotion triggered: wrote PromoteStandby to S3, awaiting agent advance to Active"), true
-
-	case drstate.StatePromoteStandby, drstate.StateStandbyReadyToPromote:
-		// Agent in flight. Just wait.
-		return workflow.Pending("Promotion in flight: S3 state is %s, awaiting agent advance to Active", current.State), true
-
-	default:
-		log.Warnw("Unexpected S3 state; leaving promoted Monarch alone", "s3State", current.State)
-		return workflow.OK(), true
-	}
-}
-
-// surfaceAgentPlanStatus reads OM's automation status and reflects any agent plan
-// execution failures on the CR via ConditionAgentPlanStuck. The agent's readiness
-// probe stays "ready" on stuck plans and the reconcile returns a generic
-// "StatefulSet not ready" Pending — this condition gives users the real reason
-// (e.g. a specific failing step on a specific process) directly on the CR.
-//
-// Best-effort: OM API errors are logged and ignored. Clears the condition when no
-// failing process is seen.
-func (r *ReplicaSetReconcilerHelper) surfaceAgentPlanStatus(ctx context.Context, conn om.Connection) {
-	rs := r.resource
-	log := r.log
-	_ = ctx // future-proofing: OM client does not take ctx today
-
-	as, err := conn.ReadAutomationStatus()
-	if err != nil {
-		log.Debugw("Could not read automation status for plan-error surfacing", "error", err)
-		return
-	}
-
-	// Match processes belonging to this replica set. Process names for a replica set
-	// are the pod names (e.g. "monarch-standby-rs-0"), so a prefix match against the
-	// RS name filters correctly.
-	prefix := rs.Name + "-"
-	for _, p := range as.Processes {
-		if p.Name != rs.Name && !strings.HasPrefix(p.Name, prefix) {
-			continue
-		}
-		if p.HasPlanError() {
-			apimeta.SetStatusCondition(&rs.Status.Conditions, metav1.Condition{
-				Type:    mdbv1.ConditionAgentPlanStuck,
-				Status:  metav1.ConditionTrue,
-				Reason:  mdbv1.ReasonAgentPlanError,
-				Message: fmt.Sprintf("%s: %s", p.Name, p.ErrorString),
-			})
-			return
-		}
-	}
-	apimeta.RemoveStatusCondition(&rs.Status.Conditions, mdbv1.ConditionAgentPlanStuck)
-}
-
-// monarchScramEnabled reports whether SCRAM authentication is enabled on the CR.
-// Monarch requires SCRAM (enforced by monarchRequiresScramAuth in validation), and
-// the operator only owns the mms-shipper SCRAM user / cluster keyfile when auth is
-// on. Mirrors the gate used elsewhere for keyfile/auth handling.
-func monarchScramEnabled(rs *mdbv1.MongoDB) bool {
-	auth := rs.Spec.Security.Authentication
-	if auth == nil || !auth.Enabled {
-		return false
-	}
-	for _, mode := range auth.GetModes() {
-		switch mode {
-		case util.SCRAM, util.SCRAMSHA256, util.SCRAMSHA1:
-			return true
-		}
-	}
-	return false
-}
-
-// buildMonarchComponentsForAC builds the maintainedMonarchComponents payload for
-// the atomic AC push in updateOmDeploymentRs. Returns nil when spec.monarch is unset.
-func (r *ReplicaSetReconcilerHelper) buildMonarchComponentsForAC(ctx context.Context) ([]om.MaintainedMonarchComponents, error) {
-	rs := r.resource
-	reconciler := r.reconciler
-	if rs.Spec.Monarch == nil {
-		return nil, nil
-	}
-
-	credSecret, err := reconciler.client.GetSecret(ctx, kube.ObjectKey(rs.Namespace, rs.Spec.Monarch.S3.CredentialsSecretRef.Name))
-	if err != nil {
-		return nil, xerrors.Errorf("failed to read Monarch credentials secret %s: %w", rs.Spec.Monarch.S3.CredentialsSecretRef.Name, err)
-	}
-
-	monarchRole := "injector"
-	if rs.Spec.Monarch.Role == mdbv1.MonarchRoleActive {
-		monarchRole = "shipper"
-	}
-	serviceDNS := construct.GetMonarchServiceDNS(rs.Name, monarchRole, rs.Namespace, rs.Spec.GetClusterDomain())
-	srcURI := connectionstring.Builder().
-		SetName(rs.Name).
-		SetNamespace(rs.Namespace).
-		SetReplicas(rs.Spec.Members).
-		SetService(rs.ServiceName()).
-		SetIsReplicaSet(true).
-		SetIsTLSEnabled(rs.Spec.IsSecurityTLSConfigEnabled()).
-		SetClusterDomain(rs.Spec.GetClusterDomain()).
-		Build()
-
-	return om.BuildMaintainedMonarchComponents(rs, rs.Name,
-		string(credSecret.Data["awsAccessKeyId"]),
-		string(credSecret.Data["awsSecretAccessKey"]),
-		serviceDNS, srcURI)
-}
-
-// handleCASConflict logs and returns a pending status for S3 CAS conflicts.
-func (r *ReplicaSetReconcilerHelper) handleCASConflict(operation string) workflow.Status {
-	r.log.Warnf("CAS conflict %s, will retry", operation)
-	return workflow.Pending("CAS conflict %s, retrying", operation)
-}
-
-// reconcileMonarchS3State reads the S3 DR state on every reconcile and handles unplanned failover.
-// This addresses the case where an external tool (CLI) writes to S3 directly without updating the CR.
-// Per K8s conventions:
-// - S3 drives infrastructure (swap shipper/injector based on S3 state)
-// - status.Monarch reflects observed S3 state
-// - SpecOutOfSync condition warns when CR differs from S3
-// - CR spec remains unchanged (user's declared intent is preserved)
-//
-// IMPORTANT: Only standby clusters monitor the S3 DR state file. Active clusters only have a shipper
-// (no injector config), so the agent doesn't monitor S3 state. For unplanned failover, only the
-// standby cluster needs to detect when an external tool writes PromoteStandby to S3.
-// reconcileMonarchS3State observes the S3 DR state file on every reconcile and reflects
-// it on the CR status. It does NOT drive provisioning — provisioning is purely from
-// spec.Monarch.Role in reconcileMonarchResources. This function's job is informational:
-//
-//   - Update status.monarch.observedS3State so users can see the agent's view via kubectl
-//   - Set MonarchS3Unreachable when S3 is unreadable (provisioning continues regardless)
-//   - Set SpecOutOfSync when the CR's spec.monarch.role disagrees with what S3 implies
-//
-// Why no auto-infrastructure-swap on divergence: when a customer writes PromoteStandby to
-// S3 directly (the EA CLI runbook), the agent advances S3 to Active. If the CR still says
-// standby, the operator surfaces the drift and waits for the user to update spec.monarch.role.
-// Updating the spec then drives the standard idempotent provisioning. This matches K8s
-// convention — operators don't silently mutate user spec, and they don't override the
-// declared desired state based on out-of-band actions.
-//
-// During the divergence window the cluster's mongod is serving writes (per the agent's RS
-// reconfiguration) but no shipper is running, so oplogs aren't being uploaded to S3. The
-// user is expected to acknowledge the promotion by updating the CR; that's a deliberate
-// trade for clarity over silent convergence.
-func (r *ReplicaSetReconcilerHelper) reconcileMonarchS3State(ctx context.Context) workflow.Status {
-	rs := r.resource
-	log := r.log
-
-	// Active CRs do not interact with S3 from the operator side. The DR-state
-	// file is owned by the standby. Promoted-from-standby CRs are intercepted
-	// by handlePromotedMonarchLifecycle before this function runs (it returns
-	// handled=true for any active CR with a DR file). So once we reach this
-	// function with role=active, it's a fresh active CR with no DR pair: no-op.
-	if rs.Spec.Monarch == nil || rs.Spec.Monarch.Role == mdbv1.MonarchRoleActive {
-		return workflow.OK()
-	}
-
-	drClient, err := r.createDRStateClient(ctx)
-	if err != nil {
-		apimeta.SetStatusCondition(&rs.Status.Conditions, metav1.Condition{
-			Type:    mdbv1.ConditionMonarchS3Unreachable,
-			Status:  metav1.ConditionTrue,
-			Reason:  "ClientCreationFailed",
-			Message: fmt.Sprintf("Cannot construct Monarch S3 client: %v", err),
-		})
-		log.Warnw("Failed to create DR state client, skipping S3 state check", "error", err)
-		return workflow.OK() // Non-fatal: provisioning still proceeds from spec
-	}
-
-	s3State, err := drClient.Read(ctx)
-	if err != nil {
-		apimeta.SetStatusCondition(&rs.Status.Conditions, metav1.Condition{
-			Type:    mdbv1.ConditionMonarchS3Unreachable,
-			Status:  metav1.ConditionTrue,
-			Reason:  "ReadFailed",
-			Message: fmt.Sprintf("Cannot read Monarch S3 DR state file: %v", err),
-		})
-		log.Warnw("Failed to read DR state from S3", "error", err)
-		return workflow.OK()
-	}
-
-	apimeta.RemoveStatusCondition(&rs.Status.Conditions, mdbv1.ConditionMonarchS3Unreachable)
-
-	now := metav1.Now()
-	if rs.Status.Monarch == nil {
-		rs.Status.Monarch = &mdbv1.MonarchStatus{}
-	}
-	if s3State != nil {
-		rs.Status.Monarch.ObservedS3State = string(s3State.State)
-		rs.Status.Monarch.ObservedS3StateTime = &now
-	} else {
-		rs.Status.Monarch.ObservedS3State = ""
-	}
-
-	// Auto-seed the S3 DR state file when absent. Standby-only — active CRs are
-	// guarded out at the top of this function. TransitionTo on an absent file
-	// writes from scratch (current==nil branch in drstate/drstate.go::TransitionTo).
-	if s3State == nil {
-		seedState := drstate.StateStandby
-		log.Infow("S3 DR state file absent; auto-seeding Standby",
-			"role", rs.Spec.Monarch.Role, "seedState", seedState)
-		seeded, err := drClient.TransitionTo(ctx, seedState)
-		if err != nil {
-			apimeta.SetStatusCondition(&rs.Status.Conditions, metav1.Condition{
-				Type:    mdbv1.ConditionMonarchS3Unreachable,
-				Status:  metav1.ConditionTrue,
-				Reason:  "SeedFailed",
-				Message: fmt.Sprintf("Failed to seed Monarch S3 DR state file: %v", err),
-			})
-			return workflow.Pending("Failed to seed S3 DR state, will retry: %v", err)
-		}
-		// Reflect the seed in the in-memory s3State so the rest of the function works
-		// against the value we just wrote.
-		s3State = &drstate.DRStateWithETag{DRState: seeded.DRState, ETag: seeded.ETag}
-		rs.Status.Monarch.ObservedS3State = string(s3State.State)
-		rs.Status.Monarch.ObservedS3StateTime = &now
-	}
-	apimeta.RemoveStatusCondition(&rs.Status.Conditions, mdbv1.ConditionMonarchS3StateRequired)
-
-	// Only standby CRs reach this point (active CRs guarded at top). Surface
-	// SpecOutOfSync when S3 says the cluster has been promoted (Active or
-	// StandbyReadyToPromote) but spec.role is still standby — the customer
-	// must flip spec.role to active so handlePromotedMonarchLifecycle can run
-	// the K8s swap.
-	s3ImpliesActive := s3State.State == drstate.StateActive || s3State.State == drstate.StateStandbyReadyToPromote
-	if !s3ImpliesActive {
-		apimeta.RemoveStatusCondition(&rs.Status.Conditions, mdbv1.ConditionSpecOutOfSync)
-		return workflow.OK()
-	}
-
-	apimeta.SetStatusCondition(&rs.Status.Conditions, metav1.Condition{
-		Type:   mdbv1.ConditionSpecOutOfSync,
-		Status: metav1.ConditionTrue,
-		Reason: "S3StateMismatch",
-		Message: fmt.Sprintf(
-			"S3 DR state is '%s' but spec.monarch.role is 'standby'. The agent has promoted "+
-				"this cluster; update spec.monarch.role to 'active' so the operator starts the shipper.",
-			s3State.State),
-	})
-	log.Infow("CR/S3 divergence (informational, no action)",
-		"s3State", s3State.State, "crRole", rs.Spec.Monarch.Role)
-	return workflow.OK()
-}
-
-// monarchDeploymentExists checks if a Monarch Deployment exists for the given role.
-func (r *ReplicaSetReconcilerHelper) monarchDeploymentExists(ctx context.Context, role string) bool {
-	rs := r.resource
-	reconciler := r.reconciler
-
-	dep := &appsv1.Deployment{}
-	err := reconciler.client.Get(ctx, types.NamespacedName{
-		Name:      construct.MonarchDeploymentName(rs.Name, role),
-		Namespace: rs.Namespace,
-	}, dep)
-	return err == nil
-}
-
-// createDRStateClient creates a DR state client for S3 coordination during failover.
-func (r *ReplicaSetReconcilerHelper) createDRStateClient(ctx context.Context) (*drstate.Client, error) {
-	rs := r.resource
-	reconciler := r.reconciler
-	s3Cfg := rs.Spec.Monarch.S3
-
-	// Read AWS credentials from the secret
-	credSecret, err := reconciler.client.GetSecret(ctx, kube.ObjectKey(rs.Namespace, s3Cfg.CredentialsSecretRef.Name))
-	if err != nil {
-		return nil, xerrors.Errorf("failed to read Monarch credentials secret %s: %w", s3Cfg.CredentialsSecretRef.Name, err)
-	}
-
-	awsKeyId := string(credSecret.Data["awsAccessKeyId"])
-	awsSecret := string(credSecret.Data["awsSecretAccessKey"])
-
-	if awsKeyId == "" || awsSecret == "" {
-		return nil, xerrors.Errorf("Monarch credentials secret %s missing awsAccessKeyId or awsSecretAccessKey", s3Cfg.CredentialsSecretRef.Name)
-	}
-
-	cfg := drstate.ClientConfig{
-		BucketName:      s3Cfg.Bucket,
-		Region:          s3Cfg.Region,
-		ClusterPrefix:   s3Cfg.GetPrefix(rs.Name),
-		ClusterName:     rs.Name,
-		Endpoint:        s3Cfg.Endpoint,
-		PathStyleAccess: s3Cfg.PathStyle,
-		AccessKeyID:     awsKeyId,
-		SecretAccessKey: awsSecret,
-	}
-
-	return drstate.NewClient(ctx, cfg)
-}
-
-// deleteMonarchResourcesForRole deletes Deployment, Service, and ConfigMap for the specified role.
-func (r *ReplicaSetReconcilerHelper) deleteMonarchResourcesForRole(ctx context.Context, role string) workflow.Status {
-	rs := r.resource
-	reconciler := r.reconciler
-	log := r.log
-
-	log.Infow("Deleting Monarch resources for role", "role", role)
-
-	// Delete Deployment
-	dep := &appsv1.Deployment{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      construct.MonarchDeploymentName(rs.Name, role),
-			Namespace: rs.Namespace,
-		},
-	}
-	if err := reconciler.client.Delete(ctx, dep); err != nil && !k8serrors.IsNotFound(err) {
-		return workflow.Failed(xerrors.Errorf("failed to delete Monarch %s Deployment: %w", role, err))
-	}
-
-	// Delete Service
-	svc := &corev1.Service{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      construct.MonarchServiceName(rs.Name, role),
-			Namespace: rs.Namespace,
-		},
-	}
-	if err := reconciler.client.Delete(ctx, svc); err != nil && !k8serrors.IsNotFound(err) {
-		return workflow.Failed(xerrors.Errorf("failed to delete Monarch %s Service: %w", role, err))
-	}
-
-	// Delete config Secret
-	configSecret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      construct.MonarchConfigSecretName(rs.Name, role),
-			Namespace: rs.Namespace,
-		},
-	}
-	if err := reconciler.client.Delete(ctx, configSecret); err != nil && !k8serrors.IsNotFound(err) {
-		return workflow.Failed(xerrors.Errorf("failed to delete Monarch %s config Secret: %w", role, err))
-	}
-
-	log.Infow("Deleted Monarch resources for role", "role", role)
-	return workflow.OK()
 }
 
 func (r *ReplicaSetReconcilerHelper) reconcileStatefulSet(ctx context.Context, conn om.Connection, projectConfig mdbv1.ProjectConfig, deploymentOptions deploymentOptionsRS) workflow.Status {
@@ -1354,7 +592,7 @@ func (r *ReplicaSetReconcilerHelper) buildStatefulSetOptions(ctx context.Context
 
 	// Determine automation agent version for static architecture
 	var automationAgentVersion string
-	if architectures.IsRunningStaticArchitecture(rs.Annotations) {
+	if architectures.IsRunningStaticArchitecture(rs.Annotations, reconciler.defaultArchitecture) {
 		// In case the Agent *is* overridden, its version will be merged into the StatefulSet. The merging process
 		// happens after creating the StatefulSet definition.
 		if !rs.IsAgentImageOverridden() {
@@ -1382,9 +620,10 @@ func (r *ReplicaSetReconcilerHelper) buildStatefulSetOptions(ctx context.Context
 		WithInitDatabaseNonStaticImage(images.ContainerImage(reconciler.imageUrls, util.InitDatabaseImageUrlEnv, reconciler.initDatabaseNonStaticImageVersion)),
 		WithDatabaseNonStaticImage(images.ContainerImage(reconciler.imageUrls, util.NonStaticDatabaseEnterpriseImage, reconciler.databaseNonStaticImageVersion)),
 		WithAgentImage(images.ContainerImage(reconciler.imageUrls, util.AgentImageUrlEnv, automationAgentVersion)),
-		WithMongodbImage(images.GetOfficialImage(reconciler.imageUrls, rs.Spec.Version, rs.GetAnnotations())),
+		WithMongodbImage(images.GetOfficialImage(reconciler.imageUrls, rs.Spec.Version, rs.GetAnnotations(), reconciler.defaultArchitecture)),
 		WithAgentDebug(reconciler.agentDebug),
 		WithAgentDebugImage(reconciler.agentDebugImage),
+		WithDefaultArchitecture(reconciler.defaultArchitecture),
 	)
 
 	return rsConfig, nil
@@ -1392,9 +631,9 @@ func (r *ReplicaSetReconcilerHelper) buildStatefulSetOptions(ctx context.Context
 
 // AddReplicaSetController creates a new MongoDbReplicaset Controller and adds it to the Manager. The Manager will set fields on the Controller
 // and Start it when the Manager is Started.
-func AddReplicaSetController(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string) error {
+func AddReplicaSetController(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture) error {
 	// Create a new controller
-	reconciler := newReplicaSetReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, om.NewOpsManagerConnection)
+	reconciler := newReplicaSetReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, om.NewOpsManagerConnection)
 	c, err := controller.New(util.MongoDbReplicaSetController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)}) // nolint:forbidigo
 	if err != nil {
 		return err
@@ -1417,15 +656,6 @@ func AddReplicaSetController(ctx context.Context, mgr manager.Manager, imageUrls
 		source.Kind[client.Object](mgr.GetCache(), &appsv1.StatefulSet{},
 			handler.EnqueueRequestForOwner(mgr.GetScheme(), mgr.GetRESTMapper(), &mdbv1.MongoDB{}, handler.OnlyControllerOwner()),
 			watch.PredicatesForStatefulSet()))
-	if err != nil {
-		return err
-	}
-
-	// Watch Deployments for Monarch components (ReplicaSet only - ShardedCluster has its own watch)
-	err = c.Watch(
-		source.Kind[client.Object](mgr.GetCache(), &appsv1.Deployment{},
-			handler.EnqueueRequestForOwner(mgr.GetScheme(), mgr.GetRESTMapper(), &mdbv1.MongoDB{}, handler.OnlyControllerOwner()),
-			watch.PredicatesForOwnedDeployment(mgr.GetClient(), mdbv1.ReplicaSet)))
 	if err != nil {
 		return err
 	}
@@ -1509,54 +739,7 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 
 	caFilePath := fmt.Sprintf("%s/ca-pem", util.TLSCaMountPath)
 
-	replicaSet := replicaset.BuildFromMongoDBWithReplicas(reconciler.imageUrls[util.MongodbImageEnv], reconciler.forceEnterprise, rs, replicasTarget, rs.CalculateFeatureCompatibilityVersion(), tlsCertPath)
-
-	// dbPath handling for Monarch.
-	//
-	// OM enforces: dbPath may not change for an existing process
-	// (AutomationDiffValidationSvc.failIfDbPathChange). So we MUST never mutate
-	// dbPath on a process that's already in OM. The operator's default in
-	// process.go is "/data", which is the mount root in our pods.
-	//
-	// The agent's FCBIS DownloadFCBIS step (mms-automation
-	// action/downloadoplogmigrationsnapshot/downloadoplogmigrationsnapshot_seeder.go::snapshotStagingDir)
-	// stages snapshots as a sibling of dbPath, then atomic-renames onto it.
-	// dbPath="/data" makes the sibling resolve under "/" (read-only container
-	// root) and the atomic rename target a mount point — both fail. So fresh
-	// Monarch processes need dbPath one level inside the mount (/data/db).
-	//
-	// Combined rule:
-	//   - Process exists in OM with a known dbPath: preserve it. Mutating would
-	//     trip OM's validator. This makes "active extension" (existing /data RS
-	//     + spec.monarch.role: active) and "standby→active promotion" (process
-	//     was provisioned at /data/db) both safe — neither mutates dbPath.
-	//   - New process AND spec.monarch != nil: default to /data/db so FCBIS
-	//     works on first standby provisioning.
-	//   - New process AND spec.monarch == nil: leave the operator default ("/data")
-	//     untouched.
-	//
-	// Reading from OM (vs LastAchievedSpec / annotations) is authoritative:
-	// OM is the system that enforces the constraint, and its view is robust
-	// against operator-local state drift (backup/restore of the CR, manual OM
-	// edits, etc.). The cost is one extra ReadDeployment, which we already do
-	// inside ReadUpdateDeployment below — we capture its result here.
-	existingDbPaths := map[string]string{}
-	if existingDeployment, err := conn.ReadDeployment(); err == nil {
-		for _, p := range existingDeployment.ProcessesCopy() {
-			if dp := p.DbPath(); dp != "" {
-				existingDbPaths[p.Name()] = dp
-			}
-		}
-	}
-	for i := range replicaSet.Processes {
-		name := replicaSet.Processes[i].Name()
-		if existing, ok := existingDbPaths[name]; ok {
-			replicaSet.Processes[i].SetDbPath(existing)
-		} else if rs.Spec.Monarch != nil {
-			replicaSet.Processes[i].SetDbPath("/data/db")
-		}
-	}
-
+	replicaSet := replicaset.BuildFromMongoDBWithReplicas(reconciler.imageUrls[util.MongodbImageEnv], reconciler.forceEnterprise, rs, replicasTarget, rs.CalculateFeatureCompatibilityVersion(), tlsCertPath, reconciler.defaultArchitecture)
 	processNames := replicaSet.GetProcessNames()
 
 	status, additionalReconciliationRequired := reconciler.updateOmAuthentication(ctx, conn, processNames, rs, deploymentOptions.agentCertPath, caFilePath, internalClusterCertPath, isRecovering, log)
@@ -1577,15 +760,6 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 		prometheusCertHash: deploymentOptions.prometheusCertHash,
 	}
 
-	// Build maintainedMonarchComponents so it can be pushed atomically with RS
-	// processes in the single ReadUpdateDeployment below. Splitting these into
-	// two AC writes lets agents initialize a regular RS between the writes,
-	// which the mms-automation planner cannot reconfigure into standby mode.
-	monarchMC, err := r.buildMonarchComponentsForAC(ctx)
-	if err != nil && !isRecovering {
-		return workflow.Failed(err)
-	}
-
 	err = conn.ReadUpdateDeployment(
 		func(d om.Deployment) error {
 			if shouldMirrorKeyfileForMongot {
@@ -1593,34 +767,7 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 					return err
 				}
 			}
-			if err := ReconcileReplicaSetAC(ctx, d, rs.Spec.DbCommonSpec, lastRsConfig.ToMap(), rs.Name, replicaSet, caFilePath, internalClusterCertPath, &prometheusConfiguration, log); err != nil {
-				return err
-			}
-			if monarchMC != nil {
-				d.SetMaintainedMonarchComponents(monarchMC)
-				// Active + SCRAM: add the operator-owned mms-shipper user to the
-				// auth in the same push, so the agent provisions it from initPwd.
-				// (The OM-side idempotency guard — separate PR — no-ops when the
-				// user/role already exists.)
-				if r.monarchShipperPassword != "" {
-					// Ensure the shipperRole custom role exists before adding the user
-					// that references it, else OM validation rejects the AC.
-					d.EnsureMonarchShipperRole()
-					ac, err := om.BuildAutomationConfigFromDeployment(d)
-					if err != nil {
-						return err
-					}
-					ac.Auth.EnsureMonarchShipperUser(r.monarchShipperPassword)
-					if err := ac.Apply(); err != nil {
-						return err
-					}
-				}
-				// Capture the cluster keyfile from the in-memory deployment so
-				// reconcileMonarchPostAC can write the Monarch secrets bundle
-				// without an agent-API AC read-back. Mirrors mirrorKeyfileIntoSecretForMongot.
-				r.monarchKeyfile = maputil.ReadMapValueAsString(d, "auth", "key")
-			}
-			return nil
+			return ReconcileReplicaSetAC(ctx, d, rs.Spec.DbCommonSpec, lastRsConfig.ToMap(), rs.Name, replicaSet, caFilePath, internalClusterCertPath, &prometheusConfiguration, log)
 		},
 		log,
 	)
@@ -1689,11 +836,6 @@ func (r *ReplicaSetReconcilerHelper) cleanOpsManagerState(ctx context.Context, r
 			// deletion cleanup happened twice and the first one cleaned OM state already)
 			if e := d.RemoveReplicaSetByName(rs.Name, log); e != nil {
 				log.Warnf("Failed to remove replica set from automation config: %s", e)
-			}
-			// Remove Monarch components so the agent stops trying to reach deleted endpoints.
-			// Only needed when Monarch was configured on this CR.
-			if rs.Spec.Monarch != nil {
-				delete(d, "maintainedMonarchComponents")
 			}
 
 			return nil
@@ -1834,12 +976,4 @@ func (r *ReplicaSetReconcilerHelper) lookupCorrespondingSearchResource(ctx conte
 		}
 	}
 	return search, nil
-}
-
-// monarchConfigHashFromSecret returns a short SHA256 hash of the Secret data to use
-// as a pod template annotation, triggering a rolling restart when config changes.
-func monarchConfigHashFromSecret(data map[string][]byte) string {
-	b, _ := json.Marshal(data)
-	sum := sha256.Sum256(b)
-	return fmt.Sprintf("%x", sum[:8])
 }

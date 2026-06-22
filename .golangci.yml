@@ -82,6 +82,9 @@ linters:
         - pattern: env\.(Read.*?|EnsureVar|MergeWithOverride)
           pkg: github.com/mongodb/mongodb-kubernetes/pkg/util/env
           msg: "Using this env package here is prohibited. Please work with environment variables in the main package."
+        - pattern: env\.Get.*
+          pkg: k8s.io/utils/env
+          msg: "Reading environment variables here is prohibited. Please read environment variables in the main package."
       # Rules with the `pkg` depend on it
       analyze-types: true
     staticcheck:
@@ -123,7 +126,7 @@ linters:
         path: ^pkg\/util\/env
       - linters:
           - forbidigo
-        path: ^main.go$
+        path: (^|/)main\.go$
       - linters:
           - forbidigo
         path: ^mongodb-community-operator\/cmd\/(readiness|versionhook)\/main\.go$

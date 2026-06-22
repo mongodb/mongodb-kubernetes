@@ -179,8 +179,11 @@ repos:
   - repo: https://github.com/golangci/golangci-lint
     rev: v2.1.0
     hooks:
-      - id: golangci-lint
+      # golangci-lint-full (not golangci-lint) runs on the entire module rather than only
+      # files changed since HEAD, so linters that need whole-program analysis (e.g. unused,
+      # staticcheck) see the full codebase and pre-existing violations are not silently skipped.
+      - id: golangci-lint-full
         args: [--timeout=10m]
-        language_version: 1.26.3
+        language_version: 1.26.4
       - id: golangci-lint-fmt
-        language_version: 1.26.3
+        language_version: 1.26.4
