@@ -3,6 +3,8 @@ import time
 import uuid
 from datetime import datetime, timezone
 
+import pymongo.errors
+
 from kubernetes import client as k8s_client
 from kubetester import create_or_update_secret, try_load
 from kubetester.certs import create_tls_certs
@@ -206,6 +208,12 @@ def test_create_auto_embedding_index(sample_movies_helper: SampleMoviesSearchHel
 
 
 @mark.e2e_search_auto_embedding_rolling_restart
+def test_wait_for_auto_embedding_index(sample_movies_helper: SampleMoviesSearchHelper):
+    # initial sync embeds ~21k docs through the embedding API; 600s to ensure READY before the roll
+    sample_movies_helper.search_tester.wait_for_search_indexes_ready(DB_NAME, COL_NAME, timeout=600)
+
+
+@mark.e2e_search_auto_embedding_rolling_restart
 def test_backlog_drains_through_roll(
     sample_movies_helper: SampleMoviesSearchHelper, namespace: str, mdbs: MongoDBSearch
 ):
@@ -223,10 +231,11 @@ def test_backlog_drains_through_roll(
 
     wait_for_all_pods_replaced(namespace, old_uids, timeout=600)
 
-    missing = _poll_vector_search_for_sentinel_titles(
-        sample_movies_helper, {s["title"] for s in sentinels}, timeout=300
-    )
-    assert not missing, f"sentinels never indexed after roll (backlog stalled): {missing}"
+    missing_titles = _poll_vector_search_for_sentinel_titles(sample_movies_helper, sentinels, timeout=300)
+    if missing_titles:
+        missing_docs = [s for s in sentinels if s["title"] in missing_titles]
+        diagnostics = _diagnose_missing_sentinels(sample_movies_helper, missing_docs)
+        assert False, f"sentinels never indexed after roll (backlog stalled):\n{diagnostics}"
 
 
 def _make_sentinel_docs(n: int) -> list[dict]:
@@ -252,31 +261,65 @@ def _rollout_restart_sts(namespace: str, sts_name: str) -> None:
 
 
 def _poll_vector_search_for_sentinel_titles(
-    helper: SampleMoviesSearchHelper, expected_titles: set[str], timeout: int = 300
+    helper: SampleMoviesSearchHelper, sentinels: list[dict], timeout: int = 300
 ) -> set[str]:
-    """Return the set of expected titles NOT found within timeout. Empty set = all found."""
-    not_found = set(expected_titles)
+    """Return titles NOT found via $vectorSearch within timeout. Empty set = all indexed."""
+    not_found = {s["title"]: s["plot"] for s in sentinels}
     deadline = time.time() + timeout
     while not_found and time.time() < deadline:
-        for title in list(not_found):
-            results = list(
-                helper.search_tester.client[DB_NAME][COL_NAME].aggregate(
+        for title, plot in list(not_found.items()):
+            try:
+                # plot self-query → cosine ≈ 1.0 → target ranks #1; limit covers all sentinels (tight cluster)
+                results = list(
+                    helper.search_tester.client[DB_NAME][COL_NAME].aggregate(
+                        [
+                            {
+                                "$vectorSearch": {
+                                    "index": "vector_auto_embed_index",
+                                    "path": "plot",
+                                    "query": plot,
+                                    "numCandidates": 150,
+                                    "limit": SENTINEL_COUNT,
+                                }
+                            },
+                            {"$project": {"title": 1, "_id": 0}},
+                        ]
+                    )
+                )
+                if any(r.get("title") == title for r in results):
+                    del not_found[title]
+            except pymongo.errors.OperationFailure:
+                pass  # transient 503 from mongot during recovery; retry next cycle
+        if not_found:
+            time.sleep(5)
+    return set(not_found.keys())
+
+
+def _diagnose_missing_sentinels(helper: SampleMoviesSearchHelper, missing_docs: list[dict]) -> str:
+    """For each missing sentinel emit: exists-in-mongo (insert confirmed) + indexed (embedding ran)."""
+    lines = []
+    col = helper.search_tester.client[DB_NAME][COL_NAME]
+    for s in missing_docs:
+        exists = col.find_one({"_id": s["_id"]}) is not None
+        try:
+            hits = list(
+                col.aggregate(
                     [
                         {
                             "$vectorSearch": {
                                 "index": "vector_auto_embed_index",
                                 "path": "plot",
-                                "query": title,
-                                "numCandidates": 10,
-                                "limit": 5,
+                                "query": s["plot"],
+                                "numCandidates": 150,
+                                "limit": 1,
                             }
                         },
-                        {"$project": {"title": 1, "_id": 0}},
+                        {"$project": {"_id": 1}},
                     ]
                 )
             )
-            if any(r.get("title") == title for r in results):
-                not_found.discard(title)
-        if not_found:
-            time.sleep(5)
-    return not_found
+            indexed = any(r.get("_id") == s["_id"] for r in hits)
+        except Exception:
+            indexed = False
+        lines.append(f"  {s['title']}: exists={exists}, indexed={indexed}")
+    return "\n".join(lines)
