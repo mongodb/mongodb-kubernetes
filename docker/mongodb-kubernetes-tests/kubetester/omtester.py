@@ -512,20 +512,19 @@ class OMTester(object):
         return self.om_request("get", f"/groups/{self.context.project_id}/backupConfigs").json()["results"]
 
     def api_enable_backup(self, timeout: int = 300):
-        """Waits for the cluster to register in backupConfigs and backup agents to be ready,
-        initializes the group backup config, then retries PATCH statusName=STARTED with the
-        full backup config payload until OM accepts it.
-        Useful when backup cannot be enabled via the CRD spec (e.g. AppDB in MetaOM mode)."""
+        """Waits for the cluster to register in backupConfigs, then retries PATCH statusName=STARTED
+        with the full backup config payload until OM accepts it.
+        Useful when backup cannot be enabled via the CRD spec (e.g. AppDB in MetaOM mode).
+
+        Note: we do NOT wait for a BACKUP agent beforehand. With the unified agent the backup
+        subprocess (and the BACKUP agent registration) only starts AFTER backup is set to STARTED,
+        so waiting for it first would deadlock. Backup readiness is verified by the caller via
+        wait_until_backup_running / wait_until_backup_snapshots_are_ready."""
 
         def wait_for_backup_config():
             return len(self.api_read_backup_configs()) > 0
 
         run_periodically(fn=wait_for_backup_config, timeout=timeout)
-
-        def wait_for_backup_agents():
-            return len(self.api_read_backup_agents()) > 0
-
-        run_periodically(fn=wait_for_backup_agents, timeout=timeout)
 
         configs = self.api_read_backup_configs()
         cluster_id = configs[0]["clusterId"]

@@ -1768,37 +1768,3 @@ func TestReconcileAppDB_WithConnection_UpdatesStatefulSetEnvVars(t *testing.T) {
 	assert.Contains(t, agentCmd, om.TestURL, "agent command must contain the external OM URL")
 	assert.Contains(t, agentCmd, om.TestGroupID, "agent command must contain the group ID")
 }
-
-// TestStripUnsupportedACFields guards the fix for the external-OM push: the headless AC carries
-// mongoDbVersions (with empty build URLs) and numberArbiters, both of which the OM HTTP API
-// rejects. They must be removed before the push while operator-owned fields are preserved.
-func TestStripUnsupportedACFields(t *testing.T) {
-	ac := &om.AutomationConfig{
-		Deployment: om.Deployment{
-			"mongoDbVersions": []interface{}{
-				map[string]interface{}{"name": "8.0.6-ent", "builds": []interface{}{map[string]interface{}{}}},
-			},
-			"replicaSets": []interface{}{
-				map[string]interface{}{
-					"_id":            "rs",
-					"numberArbiters": 0,
-					"members":        []interface{}{},
-				},
-			},
-			"processes": []interface{}{
-				map[string]interface{}{"name": "rs-0"},
-			},
-		},
-	}
-
-	stripUnsupportedACFields(ac)
-
-	assert.NotContains(t, ac.Deployment, "mongoDbVersions", "mongoDbVersions must be removed; Meta OM supplies its own version manifest")
-
-	rs := ac.Deployment["replicaSets"].([]interface{})[0].(map[string]interface{})
-	assert.NotContains(t, rs, "numberArbiters", "numberArbiters must be stripped from each replica set entry")
-
-	// Operator-owned topology must survive the sanitisation.
-	assert.Contains(t, ac.Deployment, "processes")
-	assert.Contains(t, ac.Deployment, "replicaSets")
-}

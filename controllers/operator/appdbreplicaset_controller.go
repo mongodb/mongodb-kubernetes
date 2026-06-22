@@ -1952,9 +1952,6 @@ func (r *ReconcileAppDbReplicaSet) deployAutomationConfig(ctx context.Context, o
 	}
 
 	if externalConn != nil {
-		// Note: om.Auth and automationconfig.Auth have different field sets; the roundtrip
-		// may lose auth fields not present in om.Auth (e.g. usersDeleted). This blind-PUT path
-		// is interim; the read-modify-update rewrite (preserving OM-owned fields) is the follow-up.
 		acBytes, err := json.Marshal(config)
 		if err != nil {
 			return 0, workflow.Failed(xerrors.Errorf("failed to marshal AC for external OM: %w", err))
@@ -1963,11 +1960,23 @@ func (r *ReconcileAppDbReplicaSet) deployAutomationConfig(ctx context.Context, o
 		if err != nil {
 			return 0, workflow.Failed(xerrors.Errorf("failed to build om.AutomationConfig from bytes: %w", err))
 		}
-		// The headless AC carries fields the OM HTTP API rejects: mongoDbVersions with empty
-		// build URLs (Meta OM manages version downloads itself) and numberArbiters. Strip them
-		// before the push so the AC passes OM's schema validation.
-		stripUnsupportedACFields(omAC)
-		if err := externalConn.UpdateAutomationConfig(omAC, log); err != nil {
+		// Read-modify-update: overlay only the operator-owned fields (replica set topology + auth +
+		// TLS) onto Meta OM's current deployment, leaving the OM-managed fields untouched —
+		// mongoDbVersions (carries real build URLs; avoids the schema 404), and crucially
+		// backupVersions/monitoringVersions which OM populates when backup/monitoring is enabled.
+		// A blind PUT would reset those to empty every reconcile, so the agent would never run the
+		// backup/monitoring subprocesses (no BACKUP/MONITORING agent ever registers).
+		ownedFields := []string{"processes", "replicaSets", "auth", "tls", "ssl"}
+		if err := externalConn.ReadUpdateDeployment(func(d om.Deployment) error {
+			for _, f := range ownedFields {
+				if v, ok := omAC.Deployment[f]; ok {
+					d[f] = v
+				} else {
+					delete(d, f)
+				}
+			}
+			return nil
+		}, log); err != nil {
 			return 0, workflow.Failed(xerrors.Errorf("failed to push AC to external OM: %w", err))
 		}
 		return config.Version, workflow.OK()
@@ -2356,32 +2365,6 @@ func (r *ReconcileAppDbReplicaSet) reconcileOMConnection(
 		Server:  projectConfig.BaseURL,
 		GroupID: conn.GroupID(),
 	}, workflow.OK()
-}
-
-// stripUnsupportedACFields removes fields from an AutomationConfig deployment that are
-// accepted by the local headless agent but rejected by the Ops Manager HTTP API:
-//   - "numberArbiters" in replica set entries: always serialized as 0 by the community code
-//     (no omitempty) and is not a valid attribute in the OM public API.
-//   - "mongoDbVersions": in online mode Meta OM manages MongoDB version downloads itself;
-//     the headless config entries often have empty "url" fields which the OM API rejects.
-func stripUnsupportedACFields(ac *om.AutomationConfig) {
-	// Strip mongoDbVersions — Meta OM manages version downloads in online mode.
-	delete(ac.Deployment, "mongoDbVersions")
-
-	// Strip numberArbiters from each replica set entry.
-	rsList, ok := ac.Deployment["replicaSets"]
-	if !ok {
-		return
-	}
-	entries, ok := rsList.([]interface{})
-	if !ok {
-		return
-	}
-	for _, entry := range entries {
-		if rs, ok := entry.(map[string]interface{}); ok {
-			delete(rs, "numberArbiters")
-		}
-	}
 }
 
 // markAppDBAsBackingProject will configure the AppDB project to be read only. Errors are ignored
