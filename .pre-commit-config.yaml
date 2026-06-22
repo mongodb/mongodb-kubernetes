@@ -151,7 +151,7 @@ repos:
     hooks:
       - id: govulncheck
         name: govulncheck
-        entry: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+        entry: scripts/dev/govulncheck.sh
         language: system
         pass_filenames: false
         files: (\.go$|^go\.(mod|sum)$)

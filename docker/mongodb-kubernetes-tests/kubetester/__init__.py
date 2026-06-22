@@ -490,9 +490,7 @@ def wait_for_webhook(namespace, retries=20, delay=10, service_name="operator-web
 
             # Wait for the caBundle to be injected (cert-manager injects it asynchronously).
             # Without a populated caBundle the webhook server won't accept connections yet.
-            ca_bundle_ready = any(
-                w.client_config.ca_bundle for w in (wh.webhooks or []) if w.client_config
-            )
+            ca_bundle_ready = any(w.client_config.ca_bundle for w in (wh.webhooks or []) if w.client_config)
             if not ca_bundle_ready:
                 raise kubernetes.client.ApiException(status=503, reason="caBundle not yet injected")
 
