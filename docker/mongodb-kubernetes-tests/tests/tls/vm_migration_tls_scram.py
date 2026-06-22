@@ -295,9 +295,7 @@ def test_configure_ac_scram_auth(om_tester: OMTester):
 
 
 @mark.e2e_vm_migration_tls_scram
-def test_migration_dry_run_wrong_ca_fails_then_passes(
-    namespace: str, mdb_migration: MongoDB, issuer_ca_configmap: str
-):
+def test_migration_dry_run_wrong_ca_fails_then_passes(namespace: str, mdb_migration: MongoDB, issuer_ca_configmap: str):
     """Dry-run with a wrong CA must fail; restoring the correct CA must make it pass."""
     wrong_ca_name = "wrong-issuer-ca-scram"
     wrong_ca_pem = generate_wrong_ca_pem()

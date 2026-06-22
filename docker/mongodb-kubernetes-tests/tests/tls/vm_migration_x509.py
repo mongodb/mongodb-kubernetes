@@ -401,9 +401,7 @@ def test_vm_ac_x509_auth(
 
 
 @mark.e2e_vm_migration_x509
-def test_migration_dry_run_wrong_ca_fails_then_passes(
-    namespace: str, mdb_migration: MongoDB, issuer_ca_configmap: str
-):
+def test_migration_dry_run_wrong_ca_fails_then_passes(namespace: str, mdb_migration: MongoDB, issuer_ca_configmap: str):
     """Dry-run with a wrong CA must fail; restoring the correct CA must make it pass."""
     wrong_ca_name = "wrong-issuer-ca"
     wrong_ca_pem = generate_wrong_ca_pem()
