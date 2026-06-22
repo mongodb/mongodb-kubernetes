@@ -502,7 +502,7 @@ func msToSecondsFloat(ms int32) string {
 	return fmt.Sprintf("%.2f", float64(ms)/1000.0)
 }
 
-func AddVoyageAIController(ctx context.Context, mgr manager.Manager, imageRepository string) error {
+func AddVoyageAIController(ctx context.Context, mgr manager.Manager, imageRepository string, maxConcurrentReconciles int) error {
 	r := newVoyageAIReconciler(mgr.GetClient(), imageRepository)
 
 	// Index VoyageAI resources by the name of the TLS cert Secret they reference,
@@ -518,7 +518,7 @@ func AddVoyageAIController(ctx context.Context, mgr manager.Manager, imageReposi
 	}
 
 	return ctrl.NewControllerManagedBy(mgr).
-		WithOptions(controller.Options{MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)}). // nolint:forbidigo
+		WithOptions(controller.Options{MaxConcurrentReconciles: maxConcurrentReconciles}).
 		For(&vaiv1.VoyageAI{}).
 		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.mapSecretToVoyageAI)).
 		Owns(&appsv1.Deployment{}).
