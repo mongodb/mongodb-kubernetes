@@ -101,8 +101,6 @@ spec:
               value: 'true'
             - name: MDB_WEBHOOK_REGISTER_CONFIGURATION
               value: "false"
-            - name: MDB_MAX_CONCURRENT_RECONCILES
-              value: "1"
             - name: POD_NAME
               valueFrom:
                 fieldRef:
