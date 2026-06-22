@@ -56,23 +56,6 @@ def _resolve_cluster_index(helper: Optional[MCSearchDeploymentHelper], mcc: Mult
 
 
 # ---------------------------------------------------------------------------
-# Internal naming mirrors — track ``pkg/handler/names_search.go``.
-# ---------------------------------------------------------------------------
-
-
-def _per_cluster_mongot_config_name(mdbs_name: str, cluster_index: int) -> str:
-    return f"{mdbs_name}-search-{cluster_index}-config"
-
-
-def _per_cluster_envoy_deployment_name(mdbs_name: str, cluster_index: int) -> str:
-    return f"{mdbs_name}-search-lb-0-{cluster_index}"
-
-
-def _per_cluster_envoy_configmap_name(mdbs_name: str, cluster_index: int) -> str:
-    return f"{mdbs_name}-search-lb-0-{cluster_index}-config"
-
-
-# ---------------------------------------------------------------------------
 # Cert + secret bring-up.
 # ---------------------------------------------------------------------------
 
