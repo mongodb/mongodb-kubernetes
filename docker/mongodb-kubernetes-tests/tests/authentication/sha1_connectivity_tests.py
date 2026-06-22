@@ -1,7 +1,7 @@
 from typing import Dict, Optional
 
 import kubernetes
-from kubetester import create_or_update_secret, find_fixture, read_secret, try_load, wait_until
+from kubetester import create_or_update_secret, read_secret, try_load, wait_until
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture

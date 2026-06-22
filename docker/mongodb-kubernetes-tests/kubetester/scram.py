@@ -46,7 +46,7 @@ def seed_user_in_ac(
     username: str,
     db: str,
     roles: list,
-    mechanisms: list,
+    mechanisms: Optional[list],
     sha256_creds: Optional[dict] = None,
     sha1_creds: Optional[dict] = None,
 ) -> None:
