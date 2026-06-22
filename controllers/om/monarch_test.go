@@ -202,38 +202,72 @@ func TestBuildMaintainedMonarchComponents_NilMonarch(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestEnsureMonarchShipperUser(t *testing.T) {
-	t.Run("adds the user when absent", func(t *testing.T) {
-		auth := NewAuth()
-		auth.EnsureMonarchShipperUser("pwd1")
+func TestBuildMaintainedMonarchComponentsSharded_Standby(t *testing.T) {
+	monarch := &mdbv1.MonarchSpec{
+		Role:  mdbv1.MonarchRoleStandby,
+		Image: "quay.io/mongodb/monarch:0.1.1",
+		S3: mdbv1.MonarchS3Config{
+			Bucket:   "my-bucket",
+			Region:   "us-east-1",
+			Endpoint: "http://minio:9000",
+			PathStyle: true,
+		},
+	}
+	shards := []ShardInfo{
+		{ShardID: "configRS", RSName: "my-sc-config", ServiceDNS: "my-sc-configrs-injector-svc.ns.svc.cluster.local", MongoURI: "mongodb://my-sc-config-0:27017", MongodURIs: []string{"mongodb://my-sc-config-0:27017/", "mongodb://my-sc-config-1:27017/"}},
+		{ShardID: "myShard_0", RSName: "my-sc-0", ServiceDNS: "my-sc-myshard-0-injector-svc.ns.svc.cluster.local", MongoURI: "mongodb://my-sc-0-0:27017", MongodURIs: []string{"mongodb://my-sc-0-0:27017/", "mongodb://my-sc-0-1:27017/"}},
+		{ShardID: "myShard_1", RSName: "my-sc-1", ServiceDNS: "my-sc-myshard-1-injector-svc.ns.svc.cluster.local", MongoURI: "mongodb://my-sc-1-0:27017", MongodURIs: []string{"mongodb://my-sc-1-0:27017/", "mongodb://my-sc-1-1:27017/"}},
+	}
 
-		idx, user := auth.GetUser(MonarchShipperUsername, MonarchShipperUserDatabase)
-		require.NotNil(t, user)
-		assert.GreaterOrEqual(t, idx, 0)
-		assert.Equal(t, MonarchShipperUsername, user.Username)
-		assert.Equal(t, MonarchShipperUserDatabase, user.Database)
-		assert.Equal(t, "pwd1", user.InitPassword)
-		assert.Equal(t, []string{"SCRAM-SHA-256"}, user.Mechanisms)
-		require.Len(t, user.Roles, 1)
-		assert.Equal(t, MonarchShipperRole, user.Roles[0].Role)
-		assert.Equal(t, MonarchShipperUserDatabase, user.Roles[0].Database)
-	})
+	result, err := BuildMaintainedMonarchComponentsSharded(monarch, "my-sc", "AKID", "SECRET", shards)
+	require.NoError(t, err)
+	// One MMC entry per shard so OM generates standbyModifications for each RS.
+	require.Len(t, result, 3)
 
-	t.Run("idempotent when user already matches", func(t *testing.T) {
-		auth := NewAuth()
-		auth.EnsureMonarchShipperUser("pwd1")
-		require.Len(t, auth.Users, 1)
-		auth.EnsureMonarchShipperUser("pwd1")
-		assert.Len(t, auth.Users, 1, "must not duplicate the user")
-	})
-
-	t.Run("updates password in place when changed", func(t *testing.T) {
-		auth := NewAuth()
-		auth.EnsureMonarchShipperUser("pwd1")
-		auth.EnsureMonarchShipperUser("pwd2")
-		require.Len(t, auth.Users, 1)
-		_, user := auth.GetUser(MonarchShipperUsername, MonarchShipperUserDatabase)
-		require.NotNil(t, user)
-		assert.Equal(t, "pwd2", user.InitPassword)
-	})
+	for i, shard := range shards {
+		mc := result[i]
+		assert.Equal(t, shard.RSName, mc.ReplicaSetID, "entry %d replicaSetId", i)
+		assert.NotNil(t, mc.InjectorConfig, "entry %d must have injectorConfig", i)
+		assert.Nil(t, mc.ShipperConfig, "entry %d must not have shipperConfig", i)
+		require.Len(t, mc.InjectorConfig.Shards, 1, "entry %d shards", i)
+		assert.Equal(t, shard.ShardID, mc.InjectorConfig.Shards[0].ShardID)
+		assert.Equal(t, shard.RSName, mc.InjectorConfig.Shards[0].ReplSetName)
+		require.Len(t, mc.InjectorConfig.Shards[0].Instances, 1)
+		inst := mc.InjectorConfig.Shards[0].Instances[0]
+		assert.Equal(t, shard.ServiceDNS, inst.Hostname)
+		assert.Equal(t, shard.MongoURI, inst.SrcURI)
+		assert.Equal(t, shard.MongodURIs, inst.MongodURIs)
+		assert.Equal(t, []string{shard.ServiceDNS + ":9995"}, inst.InjectorHosts)
+	}
 }
+
+func TestBuildMaintainedMonarchComponentsSharded_Active(t *testing.T) {
+	monarch := &mdbv1.MonarchSpec{
+		Role:  mdbv1.MonarchRoleActive,
+		Image: "quay.io/mongodb/monarch:0.1.1",
+		S3: mdbv1.MonarchS3Config{
+			Bucket: "my-bucket",
+			Region: "us-east-1",
+		},
+	}
+	shards := []ShardInfo{
+		{ShardID: "configRS", RSName: "my-sc-config", ServiceDNS: "my-sc-configrs-shipper-svc.ns.svc.cluster.local", MongoURI: "mongodb://my-sc-config-0:27017"},
+		{ShardID: "myShard_0", RSName: "my-sc-0", ServiceDNS: "my-sc-myshard-0-shipper-svc.ns.svc.cluster.local", MongoURI: "mongodb://my-sc-0-0:27017"},
+	}
+
+	result, err := BuildMaintainedMonarchComponentsSharded(monarch, "my-sc", "AKID", "SECRET", shards)
+	require.NoError(t, err)
+	require.Len(t, result, 2)
+
+	for i, shard := range shards {
+		mc := result[i]
+		assert.Equal(t, shard.RSName, mc.ReplicaSetID, "entry %d replicaSetId", i)
+		assert.NotNil(t, mc.ShipperConfig, "entry %d must have shipperConfig", i)
+		assert.Nil(t, mc.InjectorConfig, "entry %d must not have injectorConfig", i)
+		require.Len(t, mc.ShipperConfig.Shards, 1, "entry %d shards", i)
+		inst := mc.ShipperConfig.Shards[0].Instances[0]
+		assert.Equal(t, monarchShipperMode, inst.Mode)
+		assert.Equal(t, shard.MongoURI, inst.BackupMongoNodeURI)
+	}
+}
+

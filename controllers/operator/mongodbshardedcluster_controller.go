@@ -69,7 +69,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
-	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/scale"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/versionutil"
@@ -631,16 +630,6 @@ type ShardedClusterReconcileHelper struct {
 	// This parameter helps us decide whether write operations should be conducted in the constructor.
 	readOnly bool
 
-	// monarchShipperPassword holds the operator-owned cleartext mms-shipper
-	// password for an active Monarch sharded cluster. Generated in
-	// reconcileMonarchServices (pre-AC), added to the AC auth during the AC push,
-	// and reused in reconcileMonarchReconcileDeploymentsAndSecrets to embed into
-	// the shipper URIs. Empty for standby or when SCRAM is disabled.
-	monarchShipperPassword string
-	// monarchKeyfile is the cluster auth.key captured from the in-memory deployment
-	// during the AC push, used to write the Monarch secrets bundle without an
-	// agent-API AC read-back.
-	monarchKeyfile string
 }
 
 func NewReadOnlyClusterReconcilerHelper(
@@ -1120,7 +1109,7 @@ func (r *ShardedClusterReconcileHelper) lookupCorrespondingSearchResource(ctx co
 	return search, nil
 }
 
-func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.Context, obj interface{}, conn om.Connection, projectConfig mdbv1.ProjectConfig, _ string, log *zap.SugaredLogger) workflow.Status {
+func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.Context, obj interface{}, conn om.Connection, projectConfig mdbv1.ProjectConfig, agentAPIKey string, log *zap.SugaredLogger) workflow.Status {
 	log.Info("ShardedCluster.doShardedClusterProcessing")
 	sc := obj.(*mdbv1.MongoDB)
 
@@ -1249,7 +1238,7 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 
 	// Monarch post-AC: create Secrets and Deployments using operator-owned credentials.
 	if sc.Spec.Monarch != nil {
-		if status := r.reconcileMonarchReconcileDeploymentsAndSecrets(ctx, log); !status.IsOK() {
+		if status := r.reconcileMonarchReconcileDeploymentsAndSecrets(ctx, conn, agentAPIKey, log); !status.IsOK() {
 			return status
 		}
 	}
@@ -2150,7 +2139,6 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 		}
 		logWarnIgnoredDueToRecovery(log, workflowStatus)
 	}
-
 	var finalProcesses []string
 	shardsRemoving := false
 	err = conn.ReadUpdateDeployment(
@@ -2213,27 +2201,6 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 					return xerrors.Errorf("failed to build Monarch AC components: %w", err)
 				}
 				d.SetMaintainedMonarchComponents(monarchMC)
-				// Active + SCRAM: add the operator-owned mms-shipper user to the auth
-				// in the same push, so the agent provisions it from initPwd. (The
-				// OM-side idempotency guard — separate PR — no-ops when the user/role
-				// already exists.)
-				if r.monarchShipperPassword != "" {
-					// Ensure the shipperRole custom role exists before adding the user
-					// that references it, else OM validation rejects the AC.
-					d.EnsureMonarchShipperRole()
-					ac, err := om.BuildAutomationConfigFromDeployment(d)
-					if err != nil {
-						return err
-					}
-					ac.Auth.EnsureMonarchShipperUser(r.monarchShipperPassword)
-					if err := ac.Apply(); err != nil {
-						return err
-					}
-				}
-				// Capture the cluster keyfile from the in-memory deployment so
-				// reconcileMonarchReconcileDeploymentsAndSecrets can write the Monarch
-				// secrets bundle without an agent-API AC read-back.
-				r.monarchKeyfile = maputil.ReadMapValueAsString(d, "auth", "key")
 			}
 
 			finalProcesses = d.GetProcessNames(om.ShardedCluster{}, sc.Name)
@@ -3435,39 +3402,6 @@ func (r *ShardedClusterReconcileHelper) reconcileMonarchServices(ctx context.Con
 		}
 	}
 
-	// Standby: adopt the active cluster's automation-agent password before the AC push.
-	// The standby is bootstrapped via FCBIS from the active's snapshot, which carries the
-	// active's mms-automation-agent SCRAM credential; the standby agent must authenticate
-	// with that same password, not its own generated one. Seeding here (pre-AC) ensures
-	// EnsurePassword adopts it when the standby's automation config is first pushed.
-	if monarch.Role == mdbv1.MonarchRoleStandby && monarch.SourceAgentAuthSecretRef != nil {
-		if err := om.SeedAgentAuthSecretFrom(ctx, r.commonController.client, sc.Namespace, monarch.SourceAgentAuthSecretRef.Name, sc.Name); err != nil {
-			return workflow.Failed(xerrors.Errorf("failed to seed standby agent auth secret from active: %w", err))
-		}
-		// Seed the shipper password too: a standby reuses the active's mms-shipper
-		// credential (bootstrapped from the active's snapshot), never generating its
-		// own. The active's shipper secret name is derived from the same
-		// SourceAgentAuthSecretRef by convention (no new CRD field).
-		activeName := om.ActiveMdbNameFromAgentAuthSecretRef(monarch.SourceAgentAuthSecretRef.Name)
-		if err := om.SeedMonarchShipperSecretFrom(ctx, r.commonController.client, sc.Namespace, om.MonarchShipperSecretName(activeName), sc.Name); err != nil {
-			return workflow.Failed(xerrors.Errorf("failed to seed standby Monarch shipper secret from active: %w", err))
-		}
-	}
-
-	// Active + SCRAM: the operator owns the mms-shipper credential. Generate (or
-	// reuse) the password here, pre-AC, so it can be added to the deployment auth in
-	// the same AC push as maintainedMonarchComponents and reused in
-	// reconcileMonarchReconcileDeploymentsAndSecrets. Replaces the prior dependence
-	// on OM injecting shipperUser/shipperPwd (which surfaced only on a later
-	// agent-API AC read and caused a poll-fetch race).
-	if monarch.Role == mdbv1.MonarchRoleActive && monarchScramEnabled(sc) {
-		password, err := om.EnsureMonarchShipperPassword(ctx, r.commonController.client, sc.Namespace, sc.Name)
-		if err != nil {
-			return workflow.Failed(xerrors.Errorf("failed to ensure Monarch shipper password: %w", err))
-		}
-		r.monarchShipperPassword = password
-	}
-
 	// Create Services for each shard (configRS + data shards)
 	shardInfos := r.getMonarchShardInfos()
 	for _, info := range shardInfos {
@@ -3520,10 +3454,9 @@ func (r *ShardedClusterReconcileHelper) deleteMonarchResourcesForRoleSharded(ctx
 }
 
 // reconcileMonarchReconcileDeploymentsAndSecrets creates Monarch K8s resources (Secrets, Deployments)
-// after the AC push has completed. Mirrors the RS controller's reconcileMonarchPostAC. The keyfile
-// and (active) shipper password are operator-owned (captured during the AC push / seeded from the
-// active for a standby), so this no longer fetches the agent-API AC.
-func (r *ShardedClusterReconcileHelper) reconcileMonarchReconcileDeploymentsAndSecrets(ctx context.Context, log *zap.SugaredLogger) workflow.Status {
+// after the AC push has completed. Mirrors the RS controller's reconcileMonarchPostAC. Fetches the
+// agent-API AC to read OM-injected cleartext shipperUser/shipperPwd and the cluster keyfile.
+func (r *ShardedClusterReconcileHelper) reconcileMonarchReconcileDeploymentsAndSecrets(ctx context.Context, conn om.Connection, agentAPIKey string, log *zap.SugaredLogger) workflow.Status {
 	sc := r.sc
 	monarch := sc.Spec.Monarch
 	if monarch == nil {
@@ -3537,25 +3470,28 @@ func (r *ShardedClusterReconcileHelper) reconcileMonarchReconcileDeploymentsAndS
 		conditionType = mdbv1.ConditionInjectorReady
 	}
 
-	// mms-shipper credentials and the cluster keyfile are now both owned by the
-	// operator and captured during the AC push — no agent-API AC read-back needed.
-	// This removes the prior poll-fetch race (we used to fetch the agent-API AC and
-	// requeue with workflow.Pending until OM had injected shipperUser/shipperPwd).
-	//
-	// NOTE: this depends on the OM-side idempotency guard (separate PR) that no-ops
-	// when the operator-supplied mms-shipper user/shipperRole already exists.
-	//
-	// (active only) cleartext mms-shipper credentials: username is the
-	// MonarchShipperUsername constant, password is the operator-generated value
-	// from reconcileMonarchServices (captured on r.monarchShipperPassword).
-	mongodUser, mongodPassword := "", ""
-	if monarch.Role == mdbv1.MonarchRoleActive && r.monarchShipperPassword != "" {
-		mongodUser = om.MonarchShipperUsername
-		mongodPassword = r.monarchShipperPassword
+	// Fetch agent-API AC to read OM-injected cleartext shipperUser/shipperPwd and keyfile.
+	ac, err := conn.ReadAgentAutomationConfig(agentAPIKey)
+	if err != nil {
+		return workflow.Pending("waiting for OM agent AC fetch: %v", err)
 	}
 
-	// Cluster keyfile captured from the in-memory deployment during the AC push.
-	keyfile := r.monarchKeyfile
+	// Extract cleartext mms-shipper credentials from the agent AC (active only).
+	mongodUser, mongodPassword := "", ""
+	if monarch.Role == mdbv1.MonarchRoleActive {
+		for _, mc := range ac.GetMaintainedMonarchComponents() {
+			if mc.ShipperConfig != nil && mc.ShipperConfig.ShipperPwd != "" {
+				mongodUser = mc.ShipperConfig.ShipperUser
+				mongodPassword = mc.ShipperConfig.ShipperPwd
+				break
+			}
+		}
+	}
+
+	keyfile := ""
+	if ac.Auth != nil {
+		keyfile = ac.Auth.Key
+	}
 
 	// Reconcile the Monarch secrets bundle (keyfile)
 	monarchSecretsName := ""

@@ -126,10 +126,10 @@ type AutomationConfigConnection interface {
 	// Note, that this method calls *the same* api endpoint as the `OmConnection.UpdateDeployment` - just uses a
 	// Deployment wrapper (AutomationConfig) as a parameter
 	UpdateAutomationConfig(ac *AutomationConfig, log *zap.SugaredLogger) error
-	ReadAutomationConfig() (*AutomationConfig, error)
 	// ReadAutomationConfig reads the Automation Config from Ops Manager
 	// Note, that this method calls *the same* api endpoint as the `OmConnection.ReadDeployment` - just wraps the answer
 	// to the different object
+	ReadAutomationConfig() (*AutomationConfig, error)
 	ReadUpdateAutomationConfig(acFunc func(ac *AutomationConfig) error, log *zap.SugaredLogger) error
 
 	// ReadAgentAutomationConfig fetches the AC the way an automation agent fetches it.
@@ -393,29 +393,6 @@ func (oc *HTTPOmConnection) ReadAutomationConfig() (*AutomationConfig, error) {
 
 	ac, err := BuildAutomationConfigFromBytes(ans)
 
-	return ac, apierror.New(err)
-}
-
-// ReadAgentAutomationConfig fetches the AC the way an automation agent does. The
-// agent endpoint returns server-populated cleartext fields (notably
-// maintainedMonarchComponents[*].shipperConfig.shipperUser/shipperPwd) that the
-// public AC API does not expose. Auth is HTTP Basic with (groupID, agentApiKey),
-// matching how the agent itself authenticates (see SetBasicAuth in the agent's
-// retriever/urlretriever.go).
-func (oc *HTTPOmConnection) ReadAgentAutomationConfig(agentApiKey string) (*AutomationConfig, error) {
-	// The agent identifies itself via av/ag/aos/aa/ab/ad/ah/ahs/at query params.
-	// OM doesn't enforce them strictly for AC retrieval, but it does inspect them
-	// for telemetry and may apply per-host config tweaks. We mimic the same shape;
-	// "ah/ahs=operator" identifies this caller distinctly from any real agent.
-	path := fmt.Sprintf(
-		"/agents/api/automation/conf/v1/%s?av=109.0.0&ag=DEV&aos=linux&aa=x86_64&ab=64&ad=rhel93&ah=operator&ahs=operator&at=%d",
-		oc.GroupID(), time.Now().UnixMilli(),
-	)
-	ans, err := oc.getWithAgentAuth(path, agentApiKey)
-	if err != nil {
-		return nil, apierror.New(err)
-	}
-	ac, err := BuildAutomationConfigFromBytes(ans)
 	return ac, apierror.New(err)
 }
 
@@ -1016,6 +993,24 @@ func (oc *HTTPOmConnection) AddPreferredHostname(agentApiKey string, value strin
 		return err
 	}
 	return nil
+}
+
+// ReadAgentAutomationConfig fetches the AC the way an automation agent does. The
+// agent endpoint returns server-populated cleartext fields (notably
+// maintainedMonarchComponents[*].shipperConfig.shipperUser/shipperPwd) that the
+// public AC API does not expose. Auth is HTTP Basic with (groupID, agentApiKey),
+// matching how the agent itself authenticates.
+func (oc *HTTPOmConnection) ReadAgentAutomationConfig(agentApiKey string) (*AutomationConfig, error) {
+	path := fmt.Sprintf(
+		"/agents/api/automation/conf/v1/%s?av=109.0.0&ag=DEV&aos=linux&aa=x86_64&ab=64&ad=rhel93&ah=operator&ahs=operator&at=%d",
+		oc.GroupID(), time.Now().UnixMilli(),
+	)
+	ans, err := oc.getWithAgentAuth(path, agentApiKey)
+	if err != nil {
+		return nil, apierror.New(err)
+	}
+	ac, err := BuildAutomationConfigFromBytes(ans)
+	return ac, apierror.New(err)
 }
 
 func GetReplicaSetMemberIds(conn Connection) (map[string]map[string]int, error) {

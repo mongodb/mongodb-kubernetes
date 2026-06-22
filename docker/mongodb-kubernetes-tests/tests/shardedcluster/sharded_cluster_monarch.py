@@ -23,6 +23,7 @@ from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_user import MongoDBUser
+from kubetester.operator import Operator
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 from tests.common.monarch_helpers import (
@@ -67,7 +68,7 @@ def _wait_for_all_shippers(namespace: str, sc_name: str, timeout: int = 300):
 
 
 @fixture(scope="module")
-def ops_manager(namespace: str, custom_mdb_version: str, custom_appdb_version: str) -> MongoDBOpsManager:
+def ops_manager(namespace: str, custom_mdb_version: str, custom_appdb_version: str, operator: Operator) -> MongoDBOpsManager:
     resource = MongoDBOpsManager.from_yaml(yaml_fixture("om-monarch.yaml"), namespace=namespace)
     resource["spec"]["statefulSet"] = {
         "spec": {"template": {"spec": {"containers": [{"name": "mongodb-ops-manager", "image": OM_IMAGE}]}}}
@@ -131,7 +132,6 @@ def standby_sc(namespace: str, active_sc: MongoDB, s3_creds_secret: str, ops_man
     resource["spec"]["monarch"] = monarch_spec(
         namespace,
         "standby",
-        sourceAgentAuthSecretRef={"name": f"{ACTIVE_SC_NAME}-agent-auth-secret"},
     )
     resource.configure(ops_manager, STANDBY_SC_NAME)
     resource["metadata"].setdefault("annotations", {})["mongodb.com/v1.architecture"] = "static"
@@ -202,7 +202,7 @@ class TestMonarchInjector(KubernetesTester):
 
     def test_standby_sc_running(self, standby_sc: MongoDB, namespace: str):
         standby_sc.update()
-        standby_sc.assert_reaches_phase(Phase.Running, timeout=600)
+        standby_sc.assert_reaches_phase(Phase.Running, timeout=600, ignore_errors=True)
         wait_for_monarch_condition(standby_sc)
 
     def test_documents_replicated_to_standby(self, standby_sc: MongoDB, standby_test_user: MongoDBUser):

@@ -7,7 +7,6 @@ import (
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	monarchpkg "github.com/mongodb/mongodb-kubernetes/pkg/monarch"
-	"k8s.io/utils/ptr"
 )
 
 // AwsStorageConfig holds S3 credentials and bucket configuration nested under "awsConfig".
@@ -70,134 +69,6 @@ type MonarchInstance struct {
 
 // monarchShipperMode is the only valid value for ShipperConfig.Mode per ops-manager validation.
 const monarchShipperMode = "shipperAndSnapshotter"
-
-const (
-	// MonarchShipperUsername is the SCRAM user the Monarch shipper authenticates as
-	// against mongod. The operator owns this user (generates it for active clusters,
-	// seeds it for standbys) rather than relying on Ops Manager to inject it.
-	MonarchShipperUsername = "mms-shipper"
-	// MonarchShipperUserDatabase is the auth database for the shipper user.
-	MonarchShipperUserDatabase = "admin"
-	// MonarchShipperRole is the minimal role granting readBackupFile (SERVER-110899)
-	// that OM provisions for the shipper user. The operator references it when adding
-	// the user to the automation config.
-	MonarchShipperRole = "shipperRole"
-
-	// MonarchUserManagedByKey / MonarchUserManagedByValue stamp the shipper user's
-	// customData so Ops Manager can recognise an operator-owned user and leave its
-	// password and lifecycle alone (rather than resetting or deleting it). This is
-	// the ownership signal the OM-side guard keys on — it is an assertion of
-	// ownership, not a heuristic on role presence.
-	MonarchUserManagedByKey   = "managedBy"
-	MonarchUserManagedByValue = "mongodb-kubernetes"
-)
-
-// EnsureMonarchShipperRole adds the shipperRole custom role to deployment.roles[]
-// so the agent runs createRole on mongod before the user referencing it is created.
-// This must be called before EnsureMonarchShipperUser. Mirrors OM's ensureShipperRole.
-// Idempotent: updates the privilege list in place if the role already exists.
-func (d Deployment) EnsureMonarchShipperRole() {
-	localDb := "local"
-	clusterTrue := true
-	shipperRole := mdbv1.MongoDBRole{
-		Role: MonarchShipperRole,
-		Db:   MonarchShipperUserDatabase,
-		Privileges: []mdbv1.Privilege{
-			{
-				Resource: mdbv1.Resource{Db: &localDb, Collection: ptr.To("oplog.rs")},
-				Actions:  []string{"find"},
-			},
-			{
-				Resource: mdbv1.Resource{Cluster: &clusterTrue},
-				Actions:  []string{"fsync", "readBackupFile", "inprog", "replSetGetStatus"},
-			},
-		},
-	}
-
-	roles := d.GetRoles()
-	roleId := MonarchShipperRole + "@" + MonarchShipperUserDatabase
-	// Remove any prior entry and re-add with the current privilege list.
-	filtered := make([]mdbv1.MongoDBRole, 0, len(roles))
-	for _, r := range roles {
-		if r.Role+"@"+r.Db != roleId {
-			filtered = append(filtered, r)
-		}
-	}
-	filtered = append(filtered, shipperRole)
-	d.SetRoles(filtered)
-}
-
-// EnsureMonarchShipperUser adds (or updates) the mms-shipper SCRAM user to the
-// deployment auth so the agent provisions it server-side from the supplied
-// cleartext password (via initPwd — no SCRAM hashing happens in the operator).
-//
-// This makes the operator own the shipper credential and push it in the same AC
-// as maintainedMonarchComponents, eliminating the prior poll-fetch race where the
-// operator had to wait for OM to inject shipperUser/shipperPwd on a later
-// agent-API AC read. It depends on the OM-side idempotency guard (separate PR)
-// that no-ops when the shipper user/role already exists.
-//
-// Idempotent: when the user already exists with the same initPwd and roles it is
-// left untouched so we don't churn the AC every reconcile.
-func (a *Auth) EnsureMonarchShipperUser(password string) {
-	desired := MongoDBUser{
-		Username:   MonarchShipperUsername,
-		Database:   MonarchShipperUserDatabase,
-		Mechanisms: []string{"SCRAM-SHA-256"},
-		Roles: []*Role{
-			{Role: MonarchShipperRole, Database: MonarchShipperUserDatabase},
-		},
-		InitPassword: password,
-		// Stamp ownership so Ops Manager leaves this user's password and lifecycle
-		// to the operator (see MonarchUserManagedBy* and the OM-side guard).
-		CustomData: map[string]interface{}{
-			MonarchUserManagedByKey: MonarchUserManagedByValue,
-		},
-	}
-
-	if _, existing := a.GetUser(MonarchShipperUsername, MonarchShipperUserDatabase); existing != nil {
-		if monarchShipperUserMatches(existing, desired) {
-			return
-		}
-	}
-	a.EnsureUser(desired)
-}
-
-// monarchShipperUserMatches reports whether an existing user already equals the
-// desired mms-shipper user on the fields the operator manages (initPwd + roles +
-// mechanisms), so EnsureMonarchShipperUser can stay idempotent.
-func monarchShipperUserMatches(existing *MongoDBUser, desired MongoDBUser) bool {
-	if existing.InitPassword != desired.InitPassword {
-		return false
-	}
-	if len(existing.Mechanisms) != len(desired.Mechanisms) {
-		return false
-	}
-	for i := range desired.Mechanisms {
-		if existing.Mechanisms[i] != desired.Mechanisms[i] {
-			return false
-		}
-	}
-	if len(existing.Roles) != len(desired.Roles) {
-		return false
-	}
-	for i := range desired.Roles {
-		if existing.Roles[i] == nil || desired.Roles[i] == nil {
-			return false
-		}
-		if existing.Roles[i].Role != desired.Roles[i].Role || existing.Roles[i].Database != desired.Roles[i].Database {
-			return false
-		}
-	}
-	// The ownership stamp must match too, so a user lacking it (or carrying a
-	// different value) is rewritten to assert operator ownership.
-	for k, v := range desired.CustomData {
-		if existing.CustomData[k] != v {
-			return false
-		}
-	}
-	return true
-}
 
 type ShipperConfig struct {
 	Version string         `json:"version"`
@@ -372,27 +243,15 @@ func BuildMaintainedMonarchComponentsSharded(
 		initialMode = "ACTIVE"
 	}
 
-	// For sharded clusters, replicaSetId must match an actual RS in the AC.
-	// We use the configRS name (first shard in the list).
-	configRSName := shards[0].RSName
-	mc := MaintainedMonarchComponents{
-		ReplicaSetID:  configRSName,
-		ClusterPrefix: monarch.S3.GetPrefix(clusterName),
-		InitialMode:   initialMode,
-		AwsConfig: &AwsStorageConfig{
-			AWSBucketName:      monarch.S3.Bucket,
-			AWSRegion:          monarch.S3.Region,
-			AWSAccessKeyID:     awsAccessKeyId,
-			AWSSecretAccessKey: awsSecretAccessKey,
-			S3BucketEndpoint:   monarch.S3.Endpoint,
-			S3PathStyleAccess:  monarch.S3.PathStyle,
-		},
-	}
-
 	version := extractVersionFromImage(monarch.Image)
 
-	// Build MonarchShard for each shard (configRS + data shards)
-	monarchShards := make([]MonarchShard, len(shards))
+	// Build one MaintainedMonarchComponents entry per shard so that OM's
+	// StandbyModificationsSvc generates standbyModifications for every RS
+	// (configRS + each data shard). A single entry with replicaSetId=configRS
+	// would only trigger modifications for the configRS, leaving data shard RSes
+	// without the injector member — ValidateStandbyConfig would then fail for
+	// those shards and shard_repl_status_v1.bson would never be written.
+	result := make([]MaintainedMonarchComponents, len(shards))
 	for i, shard := range shards {
 		instance := MonarchInstance{
 			ID:                 i,
@@ -414,26 +273,36 @@ func BuildMaintainedMonarchComponentsSharded(
 			}
 		}
 
-		monarchShards[i] = MonarchShard{
+		monarchShard := MonarchShard{
 			ShardID:     shard.ShardID,
 			ReplSetName: shard.RSName,
 			Instances:   []MonarchInstance{instance},
 		}
+
+		mc := MaintainedMonarchComponents{
+			ReplicaSetID:  shard.RSName,
+			ClusterPrefix: monarch.S3.GetPrefix(clusterName),
+			InitialMode:   initialMode,
+			AwsConfig: &AwsStorageConfig{
+				AWSBucketName:      monarch.S3.Bucket,
+				AWSRegion:          monarch.S3.Region,
+				AWSAccessKeyID:     awsAccessKeyId,
+				AWSSecretAccessKey: awsSecretAccessKey,
+				S3BucketEndpoint:   monarch.S3.Endpoint,
+				S3PathStyleAccess:  monarch.S3.PathStyle,
+			},
+		}
+
+		if monarch.Role == mdbv1.MonarchRoleActive {
+			mc.ShipperConfig = &ShipperConfig{Version: version, Shards: []MonarchShard{monarchShard}}
+		} else {
+			mc.InjectorConfig = &InjectorConfig{Version: version, Shards: []MonarchShard{monarchShard}}
+		}
+
+		result[i] = mc
 	}
 
-	if monarch.Role == mdbv1.MonarchRoleActive {
-		mc.ShipperConfig = &ShipperConfig{
-			Version: version,
-			Shards:  monarchShards,
-		}
-	} else {
-		mc.InjectorConfig = &InjectorConfig{
-			Version: version,
-			Shards:  monarchShards,
-		}
-	}
-
-	return []MaintainedMonarchComponents{mc}, nil
+	return result, nil
 }
 
 // extractVersionFromImage extracts the tag from a container image reference.
