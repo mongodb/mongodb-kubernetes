@@ -1284,12 +1284,12 @@ func (r *MongoDBSearchMetricsForwarderReconciler) deleteMetricsForwarderResource
 }
 
 // AddMongoDBSearchMetricsForwarderController registers the metrics forwarder controller with the manager.
-func AddMongoDBSearchMetricsForwarderController(ctx context.Context, mgr manager.Manager, defaultImage string, memberClusterObjectsMap map[string]runtimeCluster.Cluster, operatorClusterName string) error {
+func AddMongoDBSearchMetricsForwarderController(ctx context.Context, mgr manager.Manager, defaultImage string, memberClusterObjectsMap map[string]runtimeCluster.Cluster, operatorClusterName string, maxConcurrentReconciles int) error {
 	r := newMongoDBSearchMetricsForwarderReconciler(mgr.GetClient(), defaultImage, multicluster.ClustersMapToClientMap(memberClusterObjectsMap), operatorClusterName)
 
 	c, err := controller.New("mongodbsearchmetricsforwarder", mgr, controller.Options{
 		Reconciler:              r,
-		MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1), // nolint:forbidigo
+		MaxConcurrentReconciles: maxConcurrentReconciles,
 	})
 	if err != nil {
 		return err
