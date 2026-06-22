@@ -528,6 +528,14 @@ class OMTester(object):
 
         configs = self.api_read_backup_configs()
         cluster_id = configs[0]["clusterId"]
+
+        # Idempotent: OM rejects starting backup unless the cluster is INACTIVE or STOPPED
+        # (409 CANNOT_START_BACKUP_INVALID_STATE). If it is already STARTED, backup is enabled
+        # and there is nothing to do.
+        if configs[0].get("statusName") == BackupStatus.STARTED:
+            logger.info("Backup is already STARTED for this cluster; nothing to enable.")
+            return
+
         # Use the full backup config payload (mirrors UpdateBackupConfig in the Go operator).
         backup_config = dict(configs[0])
         backup_config["statusName"] = BackupStatus.STARTED
@@ -544,7 +552,7 @@ class OMTester(object):
                 )
                 return True
             except Exception as e:
-                logger.error(self, f"Failed to patch backup config to STARTED, will retry until timeout. Error: {e}")
+                logger.error(f"Failed to patch backup config to STARTED, will retry until timeout. Error: {e}")
                 return False
 
         run_periodically(fn=patch_backup_started, timeout=timeout)
