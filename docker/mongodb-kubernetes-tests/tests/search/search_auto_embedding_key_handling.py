@@ -1,4 +1,5 @@
 import os
+import re
 
 from kubernetes import client as k8s_client
 from kubetester import create_or_update_secret, try_load
@@ -131,14 +132,20 @@ def test_keys_not_leaked(mdbs: MongoDBSearch, namespace: str):
     assert idx not in status_blob and qry not in status_blob, "embedding key leaked into CR status"
 
     sts_name = search_resource_names.mongot_statefulset_name(mdbs.name)
-    pod_name = f"{sts_name}-0"
-    logs = KubernetesTester.read_pod_logs(namespace, pod_name, container=MONGOT_CONTAINER)
-    assert idx not in logs and qry not in logs, "embedding key leaked into mongot pod logs"
+    core_v1 = k8s_client.CoreV1Api()
+    for ordinal in range(2):
+        pod_name = f"{sts_name}-{ordinal}"
+        logs = KubernetesTester.read_pod_logs(namespace, pod_name, container=MONGOT_CONTAINER)
+        assert idx not in logs and qry not in logs, f"embedding key leaked into {pod_name} mongot pod logs"
 
-    pod = k8s_client.CoreV1Api().read_namespaced_pod(name=pod_name, namespace=namespace)
-    ann = pod.metadata.annotations or {}
-    h = ann.get("autoEmbeddingDetailsHash")
-    assert h and h != idx and h != qry, f"autoEmbeddingDetailsHash must be a hash not the raw key, got: {h!r}"
+        pod = core_v1.read_namespaced_pod(name=pod_name, namespace=namespace)
+        ann = pod.metadata.annotations or {}
+        h = ann.get("autoEmbeddingDetailsHash")
+        # hash is SHA-256 encoded as base32 no-padding → 52 chars in [A-Z2-7]
+        assert h and re.fullmatch(r"[A-Z2-7]{52}", h), (
+            f"{pod_name} autoEmbeddingDetailsHash must be a base32 SHA-256 hash, got: {h!r}"
+        )
+        assert h != idx and h != qry, f"{pod_name} autoEmbeddingDetailsHash must not equal a raw key"
 
 
 @mark.e2e_search_auto_embedding_key_handling

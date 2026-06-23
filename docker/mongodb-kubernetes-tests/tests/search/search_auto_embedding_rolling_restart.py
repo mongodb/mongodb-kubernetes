@@ -4,7 +4,6 @@ import uuid
 from datetime import datetime, timezone
 
 import pymongo.errors
-
 from kubernetes import client as k8s_client
 from kubetester import create_or_update_secret, try_load
 from kubetester.certs import create_tls_certs
