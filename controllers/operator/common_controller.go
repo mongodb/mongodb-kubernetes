@@ -1137,7 +1137,7 @@ func acSnapshotFilter(changelog diff.Changelog) diff.Changelog {
 }
 
 // stripIgnoredDeploymentTopKeys returns a copy of dep without auto-managed top-level keys,
-// for persisting as _previous so the next reconcile stays under the ConfigMap size limit.
+// for persisting as _previous so the next reconcile stays under the Secret size limit.
 func stripIgnoredDeploymentTopKeys(dep om.Deployment) om.Deployment {
 	stripped := make(om.Deployment, len(dep))
 	for k, v := range dep {
@@ -1161,10 +1161,10 @@ func acSnapshotChangelog(previous, next om.Deployment) (diff.Changelog, error) {
 	return acSnapshotFilter(changelog), nil
 }
 
-// acSnapshotState is mutable hook state seeded from an existing ConfigMap so step numbering
+// acSnapshotState is mutable hook state seeded from an existing Secret so step numbering
 // and diff baseline carry across reconciles.
 type acSnapshotState struct {
-	// accumulated is the in-memory ConfigMap payload, it contains all the automation config steps
+	// accumulated is the in-memory Secret payload, it contains all the automation config steps
 	// with previous for diffing.
 	accumulated map[string]string
 	// previous is the automationConfig deployment after the last successful PUT,
@@ -1175,27 +1175,28 @@ type acSnapshotState struct {
 	lastWrittenStep int
 }
 
-func loadACSnapshotStateFromConfigMap(ctx context.Context, client kubernetesClient.Client, namespace, cmName string) acSnapshotState {
+func loadACSnapshotStateFromSecret(ctx context.Context, client kubernetesClient.Client, namespace, secretName string) acSnapshotState {
 	s := acSnapshotState{accumulated: make(map[string]string)}
-	existing := corev1.ConfigMap{}
-	if err := client.Get(ctx, types.NamespacedName{Name: cmName, Namespace: namespace}, &existing); err != nil {
+	existing := corev1.Secret{}
+	if err := client.Get(ctx, types.NamespacedName{Name: secretName, Namespace: namespace}, &existing); err != nil {
 		return s
 	}
 	for k, v := range existing.Data {
+		strVal := string(v)
 		if k == "_previous" {
 			var dep om.Deployment
-			if json.Unmarshal([]byte(v), &dep) == nil {
+			if json.Unmarshal([]byte(strVal), &dep) == nil {
 				s.previous = dep
 			}
 			continue
 		}
-		s.accumulated[k] = v
+		s.accumulated[k] = strVal
 	}
 	s.lastWrittenStep = len(s.accumulated)
 	return s
 }
 
-func (s *acSnapshotState) persistAutomationConfigSnapshot(ctx context.Context, client kubernetesClient.Client, namespace, cmName string, body []byte, log *zap.SugaredLogger) {
+func (s *acSnapshotState) persistAutomationConfigSnapshot(ctx context.Context, client kubernetesClient.Client, namespace, secretName string, body []byte, log *zap.SugaredLogger) {
 	var dep om.Deployment
 	if err := json.Unmarshal(body, &dep); err != nil {
 		log.Warnw("AC snapshot: failed to unmarshal deployment", "error", err)
@@ -1219,17 +1220,17 @@ func (s *acSnapshotState) persistAutomationConfigSnapshot(ctx context.Context, c
 	if prevData, marshalErr := json.Marshal(stripIgnoredDeploymentTopKeys(dep)); marshalErr == nil {
 		s.accumulated["_previous"] = string(prevData)
 	}
-	cm := corev1.ConfigMap{}
-	cm.Name = cmName
-	cm.Namespace = namespace
-	cm.Data = s.accumulated
-	if err := configmap.CreateOrUpdate(ctx, client, cm); err != nil {
-		log.Warnw("AC snapshot: failed to write ConfigMap", "name", cmName, "error", err)
+	sec := corev1.Secret{}
+	sec.Name = secretName
+	sec.Namespace = namespace
+	sec.StringData = s.accumulated
+	if err := secret.CreateOrUpdate(ctx, client, sec); err != nil {
+		log.Warnw("AC snapshot: failed to write Secret", "name", secretName, "error", err)
 	}
 }
 
 // attachACSnapshotHook sets a debug hook on the underlying HTTP client of conn that fires after every
-// successful PUT to the main automationConfig endpoint. Each entry in the ConfigMap named
+// successful PUT to the main automationConfig endpoint. Each entry in the Secret named
 // <resourceName>-ac-snapshot is the r3labs/diff Changelog from the previous step, with
 // auto-managed fields (mongodbVersions etc.) filtered out by path.
 // Enable with MDB_AC_SNAPSHOT=true on the operator Pod. No-ops when conn is not *om.HTTPOmConnection.
@@ -1238,8 +1239,8 @@ func attachACSnapshotHook(ctx context.Context, client kubernetesClient.Client, c
 	if !ok {
 		return
 	}
-	cmName := resourceName + "-ac-snapshot"
-	state := loadACSnapshotStateFromConfigMap(ctx, client, namespace, cmName)
+	secretName := resourceName + "-ac-snapshot"
+	state := loadACSnapshotStateFromSecret(ctx, client, namespace, secretName)
 
 	hConn.SetPUTHook(func(path string, body []byte) {
 		// Only capture the main automationConfig endpoint, not sub-endpoints
@@ -1247,6 +1248,6 @@ func attachACSnapshotHook(ctx context.Context, client kubernetesClient.Client, c
 		if !strings.HasSuffix(path, "/automationConfig") {
 			return
 		}
-		state.persistAutomationConfigSnapshot(ctx, client, namespace, cmName, body, log)
+		state.persistAutomationConfigSnapshot(ctx, client, namespace, secretName, body, log)
 	})
 }
