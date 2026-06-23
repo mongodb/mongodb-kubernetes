@@ -41,24 +41,24 @@ func TestHasMultipleReplicas(t *testing.T) {
 	assert.True(t, mk(ClusterSpec{Replicas: ptr.To(int32(2))}).HasMultipleReplicas())
 	// Any single cluster over one replica trips the load-balancer requirement.
 	assert.True(t, mk(
-		ClusterSpec{ClusterName: "a", Replicas: ptr.To(int32(1))},
-		ClusterSpec{ClusterName: "b", Replicas: ptr.To(int32(3))},
+		ClusterSpec{Name: "a", Replicas: ptr.To(int32(1))},
+		ClusterSpec{Name: "b", Replicas: ptr.To(int32(3))},
 	).HasMultipleReplicas())
 }
 
 func TestEffectiveClusters(t *testing.T) {
 	clusters := []ClusterSpec{
-		{ClusterName: "us-east", Replicas: ptr.To(int32(2))},
-		{ClusterName: "us-west", Replicas: ptr.To(int32(3))},
+		{Name: "us-east", Replicas: ptr.To(int32(2))},
+		{Name: "us-west", Replicas: ptr.To(int32(3))},
 	}
 	s := &MongoDBSearch{Spec: MongoDBSearchSpec{Clusters: clusters}}
 	assert.Equal(t, clusters, s.EffectiveClusters())
 }
 
 func TestEffectiveClusterFor(t *testing.T) {
-	clusterA := ClusterSpec{ClusterName: "cluster-a"}
+	clusterA := ClusterSpec{Name: "cluster-a"}
 	resB := &corev1.ResourceRequirements{}
-	clusterB := ClusterSpec{ClusterName: "cluster-b", ResourceRequirements: resB}
+	clusterB := ClusterSpec{Name: "cluster-b", ResourceRequirements: resB}
 
 	t.Run("empty clusterName returns first entry", func(t *testing.T) {
 		s := &MongoDBSearch{Spec: MongoDBSearchSpec{Clusters: []ClusterSpec{clusterA, clusterB}}}
@@ -76,7 +76,7 @@ func TestEffectiveClusterFor(t *testing.T) {
 
 	t.Run("unknown clusterName returns error", func(t *testing.T) {
 		s := &MongoDBSearch{Spec: MongoDBSearchSpec{
-			Clusters: []ClusterSpec{{ClusterName: "only"}},
+			Clusters: []ClusterSpec{{Name: "only"}},
 		}}
 		got, err := s.EffectiveClusterFor("missing")
 		require.Error(t, err)
@@ -214,9 +214,9 @@ func TestGetManagedLBEndpointForCluster(t *testing.T) {
 	s := &MongoDBSearch{
 		Spec: MongoDBSearchSpec{
 			Clusters: []ClusterSpec{
-				{ClusterName: "us-east-k8s", LoadBalancer: managed("us-east.search-lb.example.com:443")},
-				{ClusterName: "eu-west-k8s", LoadBalancer: managed("eu-west.search-lb.example.com:443")},
-				{ClusterName: "ap-south-k8s"},
+				{Name: "us-east-k8s", LoadBalancer: managed("us-east.search-lb.example.com:443")},
+				{Name: "eu-west-k8s", LoadBalancer: managed("eu-west.search-lb.example.com:443")},
+				{Name: "ap-south-k8s"},
 			},
 		},
 	}
@@ -240,8 +240,8 @@ func TestGetManagedLBEndpointForClusterShard_CrossProduct(t *testing.T) {
 		return &LoadBalancerConfig{Managed: &ManagedLBConfig{ExternalHostname: hostname}}
 	}
 	clusters := []ClusterSpec{
-		{ClusterName: "us-east-k8s", LoadBalancer: managed("us-east-k8s.{shardName}.lb.example.com:443")},
-		{ClusterName: "eu-west-k8s", LoadBalancer: managed("eu-west-k8s.{shardName}.lb.example.com:443")},
+		{Name: "us-east-k8s", LoadBalancer: managed("us-east-k8s.{shardName}.lb.example.com:443")},
+		{Name: "eu-west-k8s", LoadBalancer: managed("eu-west-k8s.{shardName}.lb.example.com:443")},
 	}
 	shards := []string{"shard-0", "shard-1"}
 	s := &MongoDBSearch{Spec: MongoDBSearchSpec{Clusters: clusters}}
@@ -249,7 +249,7 @@ func TestGetManagedLBEndpointForClusterShard_CrossProduct(t *testing.T) {
 	got := make(map[string]struct{})
 	for _, c := range clusters {
 		for _, sh := range shards {
-			got[s.GetManagedLBEndpointForClusterShard(c.ClusterName, sh)] = struct{}{}
+			got[s.GetManagedLBEndpointForClusterShard(c.Name, sh)] = struct{}{}
 		}
 	}
 	assert.Len(t, got, 4, "2x2 cross-product should yield 4 distinct hostnames")
@@ -269,7 +269,7 @@ func TestGetManagedLBEndpointForClusterLevel(t *testing.T) {
 		return &MongoDBSearch{
 			Spec: MongoDBSearchSpec{
 				Clusters: []ClusterSpec{
-					{ClusterName: "us-east-k8s", LoadBalancer: &LoadBalancerConfig{Managed: &ManagedLBConfig{ExternalHostname: tmpl}}},
+					{Name: "us-east-k8s", LoadBalancer: &LoadBalancerConfig{Managed: &ManagedLBConfig{ExternalHostname: tmpl}}},
 				},
 			},
 		}
@@ -317,24 +317,24 @@ func TestValidateSimulatedMCClusterIndices(t *testing.T) {
 		{
 			name: "all entries pin clusterIndex is ok",
 			clusters: []ClusterSpec{
-				{ClusterName: "us-east", ClusterIndex: ptr.To(int32(0))},
-				{ClusterName: "eu-west", ClusterIndex: ptr.To(int32(1))},
+				{Name: "us-east", ClusterIndex: ptr.To(int32(0))},
+				{Name: "eu-west", ClusterIndex: ptr.To(int32(1))},
 			},
 			wantErr: false,
 		},
 		{
 			name: "one entry missing clusterIndex is invalid",
 			clusters: []ClusterSpec{
-				{ClusterName: "us-east", ClusterIndex: ptr.To(int32(0))},
-				{ClusterName: "eu-west"},
+				{Name: "us-east", ClusterIndex: ptr.To(int32(0))},
+				{Name: "eu-west"},
 			},
 			wantErr: true,
 		},
 		{
 			name: "duplicate clusterIndex is invalid",
 			clusters: []ClusterSpec{
-				{ClusterName: "us-east", ClusterIndex: ptr.To(int32(0))},
-				{ClusterName: "eu-west", ClusterIndex: ptr.To(int32(0))},
+				{Name: "us-east", ClusterIndex: ptr.To(int32(0))},
+				{Name: "eu-west", ClusterIndex: ptr.To(int32(0))},
 			},
 			wantErr: true,
 		},
@@ -382,8 +382,8 @@ func TestMongoDBSearch_LocalizeToCluster(t *testing.T) {
 		// LocalizeToCluster is the simulated-MC narrowing function, so clusterIndex
 		// is mandatory and must be unique on every entry.
 		return []ClusterSpec{
-			{ClusterName: "us-east", ClusterIndex: ptr.To(int32(0))},
-			{ClusterName: "us-west", ClusterIndex: ptr.To(int32(1))},
+			{Name: "us-east", ClusterIndex: ptr.To(int32(0))},
+			{Name: "us-west", ClusterIndex: ptr.To(int32(1))},
 		}
 	}
 	tests := []struct {
@@ -411,7 +411,7 @@ func TestMongoDBSearch_LocalizeToCluster(t *testing.T) {
 			require.NotNil(t, s.Spec.Clusters)
 			require.Len(t, s.Spec.Clusters, tc.wantLen)
 			if tc.wantFirst != "" {
-				assert.Equal(t, tc.wantFirst, s.Spec.Clusters[0].ClusterName)
+				assert.Equal(t, tc.wantFirst, s.Spec.Clusters[0].Name)
 			}
 		})
 	}
@@ -437,8 +437,8 @@ func TestMongoDBSearch_LocalizeToCluster(t *testing.T) {
 			s := &MongoDBSearch{Spec: MongoDBSearchSpec{
 				Source: &MongoDBSource{ExternalMongoDBSource: &ExternalMongoDBSource{ShardedCluster: sharded}},
 				Clusters: []ClusterSpec{
-					{ClusterName: "us-east", ClusterIndex: ptr.To(int32(0))},
-					{ClusterName: "us-west", ClusterIndex: ptr.To(int32(1))},
+					{Name: "us-east", ClusterIndex: ptr.To(int32(0))},
+					{Name: "us-west", ClusterIndex: ptr.To(int32(1))},
 				},
 			}}
 			s.LocalizeToCluster(tc.localize)
@@ -457,7 +457,7 @@ func TestResolveSizingForClusterShard(t *testing.T) {
 	overridePersistence := &v1.Persistence{}
 
 	cluster := ClusterSpec{
-		ClusterName:          "east",
+		Name:                 "east",
 		Replicas:             ptr.To(int32(2)),
 		ResourceRequirements: clusterRes,
 		Persistence:          clusterPersistence,
@@ -546,10 +546,10 @@ func TestResolveSizingForClusterShard(t *testing.T) {
 
 	t.Run("override in one cluster does not leak into another cluster", func(t *testing.T) {
 		s := &MongoDBSearch{Spec: MongoDBSearchSpec{Clusters: []ClusterSpec{
-			{ClusterName: "east", Replicas: ptr.To(int32(1)), ShardOverrides: []ShardOverride{
+			{Name: "east", Replicas: ptr.To(int32(1)), ShardOverrides: []ShardOverride{
 				{ShardNames: []string{"shard-0"}, Replicas: ptr.To(int32(4))},
 			}},
-			{ClusterName: "west", Replicas: ptr.To(int32(2))},
+			{Name: "west", Replicas: ptr.To(int32(2))},
 		}}}
 		assert.Equal(t, 4, replicasFor(t, s, "east", "shard-0"))
 		assert.Equal(t, 2, replicasFor(t, s, "west", "shard-0"))

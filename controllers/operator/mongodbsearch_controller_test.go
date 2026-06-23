@@ -466,7 +466,7 @@ func TestMongoDBSearchReconcile_MissingSecret_Requeues(t *testing.T) {
 // pinnedCluster builds a spec.clusters[] entry with an explicit clusterIndex
 // (required on every entry of a multi-cluster spec).
 func pinnedCluster(name string, idx int32) searchv1.ClusterSpec {
-	return searchv1.ClusterSpec{ClusterName: name, ClusterIndex: ptr.To(idx)}
+	return searchv1.ClusterSpec{Name: name, ClusterIndex: ptr.To(idx)}
 }
 
 // setupStateCMTest's fixture must be MC-valid (external source + managed LB) so
@@ -481,7 +481,7 @@ func setupStateCMTest(t *testing.T, clusters ...searchv1.ClusterSpec) (*MongoDBS
 	}
 	for i := range clusters {
 		clusters[i].LoadBalancer = &searchv1.LoadBalancerConfig{
-			Managed: &searchv1.ManagedLBConfig{ExternalHostname: fmt.Sprintf("mongot-%s.example.com", clusters[i].ClusterName)},
+			Managed: &searchv1.ManagedLBConfig{ExternalHostname: fmt.Sprintf("mongot-%s.example.com", clusters[i].Name)},
 		}
 	}
 	search.Spec.Clusters = clusters
@@ -518,7 +518,7 @@ func updateSearchClusters(t *testing.T, ctx context.Context, c client.Client, na
 	// matching setupStateCMTest so add/remove updates stay MC-valid.
 	for i := range clusters {
 		clusters[i].LoadBalancer = &searchv1.LoadBalancerConfig{
-			Managed: &searchv1.ManagedLBConfig{ExternalHostname: fmt.Sprintf("mongot-%s.example.com", clusters[i].ClusterName)},
+			Managed: &searchv1.ManagedLBConfig{ExternalHostname: fmt.Sprintf("mongot-%s.example.com", clusters[i].Name)},
 		}
 	}
 	latest.Spec.Clusters = clusters
@@ -602,11 +602,11 @@ func TestMongoDBSearchReconcile_Success_MultiCluster(t *testing.T) {
 	}
 	search.Spec.Clusters = []searchv1.ClusterSpec{
 		{
-			ClusterName: "us-east", ClusterIndex: ptr.To(int32(0)), Replicas: ptr.To(int32(1)),
+			Name: "us-east", ClusterIndex: ptr.To(int32(0)), Replicas: ptr.To(int32(1)),
 			LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot-us-east.example.com"}},
 		},
 		{
-			ClusterName: "us-west", ClusterIndex: ptr.To(int32(1)), Replicas: ptr.To(int32(1)),
+			Name: "us-west", ClusterIndex: ptr.To(int32(1)), Replicas: ptr.To(int32(1)),
 			LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot-us-west.example.com"}},
 		},
 	}
@@ -758,11 +758,11 @@ func assertSearchOwnerLabels(t *testing.T, search *searchv1.MongoDBSearch, clust
 func newSimulatedMCMongoDBSearch(name, namespace string) *searchv1.MongoDBSearch {
 	clusters := []searchv1.ClusterSpec{
 		{
-			ClusterName: "cluster-a", ClusterIndex: ptr.To(int32(0)), Replicas: ptr.To(int32(1)),
+			Name: "cluster-a", ClusterIndex: ptr.To(int32(0)), Replicas: ptr.To(int32(1)),
 			LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot-cluster-a.example.com"}},
 		},
 		{
-			ClusterName: "cluster-b", ClusterIndex: ptr.To(int32(1)), Replicas: ptr.To(int32(1)),
+			Name: "cluster-b", ClusterIndex: ptr.To(int32(1)), Replicas: ptr.To(int32(1)),
 			LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot-cluster-b.example.com"}},
 		},
 	}
@@ -909,11 +909,11 @@ func newSimulatedMCShardedMongoDBSearch(name, namespace string) *searchv1.MongoD
 	// {shardName}. prefix is required for cluster-level form derivation.
 	clusters := []searchv1.ClusterSpec{
 		{
-			ClusterName: "cluster-a", ClusterIndex: ptr.To(int32(0)), Replicas: ptr.To(int32(1)),
+			Name: "cluster-a", ClusterIndex: ptr.To(int32(0)), Replicas: ptr.To(int32(1)),
 			LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{ExternalHostname: "{shardName}.cluster-a.example.com"}},
 		},
 		{
-			ClusterName: "cluster-b", ClusterIndex: ptr.To(int32(1)), Replicas: ptr.To(int32(1)),
+			Name: "cluster-b", ClusterIndex: ptr.To(int32(1)), Replicas: ptr.To(int32(1)),
 			LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{ExternalHostname: "{shardName}.cluster-b.example.com"}},
 		},
 	}
@@ -1060,7 +1060,7 @@ func TestReconcile_SimulatedMC_ClusterIndexEnforcement(t *testing.T) {
 		// Single-entry unpinned passes ValidateSpec (MC validators skip at len==1), so the
 		// failure is attributable to the sim-MC gate requiring the pin even on one entry.
 		search.Spec.Clusters = []searchv1.ClusterSpec{
-			{ClusterName: "cluster-a", Replicas: ptr.To(int32(1))},
+			{Name: "cluster-a", Replicas: ptr.To(int32(1))},
 		}
 
 		reconciler, c := newSearchReconcilerWithMembers(t, nil, nil, "cluster-a", search)
@@ -1133,7 +1133,7 @@ func TestMongoDBSearchReconcile_ResolveClusterMappingFailure_Failed(t *testing.T
 	search.Spec.Clusters = []searchv1.ClusterSpec{pinnedCluster("us-east", 0), pinnedCluster("us-west", 1)}
 	for i := range search.Spec.Clusters {
 		search.Spec.Clusters[i].LoadBalancer = &searchv1.LoadBalancerConfig{
-			Managed: &searchv1.ManagedLBConfig{ExternalHostname: fmt.Sprintf("mongot-%s.example.com", search.Spec.Clusters[i].ClusterName)},
+			Managed: &searchv1.ManagedLBConfig{ExternalHostname: fmt.Sprintf("mongot-%s.example.com", search.Spec.Clusters[i].Name)},
 		}
 	}
 
@@ -1171,7 +1171,7 @@ func TestMongoDBSearchReconcile_MCSharded_CrossControllerLabelInvariant(t *testi
 		Spec: searchv1.MongoDBSearchSpec{
 			Clusters: []searchv1.ClusterSpec{
 				{
-					ClusterName: "cluster-a", ClusterIndex: ptr.To(int32(0)), Replicas: ptr.To(int32(1)),
+					Name: "cluster-a", ClusterIndex: ptr.To(int32(0)), Replicas: ptr.To(int32(1)),
 					LoadBalancer: &searchv1.LoadBalancerConfig{
 						Managed: &searchv1.ManagedLBConfig{
 							ExternalHostname: "{shardName}.mdb-search-search-0-proxy-svc.example.com",
@@ -1179,7 +1179,7 @@ func TestMongoDBSearchReconcile_MCSharded_CrossControllerLabelInvariant(t *testi
 					},
 				},
 				{
-					ClusterName: "cluster-b", ClusterIndex: ptr.To(int32(1)), Replicas: ptr.To(int32(1)),
+					Name: "cluster-b", ClusterIndex: ptr.To(int32(1)), Replicas: ptr.To(int32(1)),
 					LoadBalancer: &searchv1.LoadBalancerConfig{
 						Managed: &searchv1.ManagedLBConfig{
 							ExternalHostname: "{shardName}.mdb-search-search-1-proxy-svc.example.com",
