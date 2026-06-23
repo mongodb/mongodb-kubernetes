@@ -153,6 +153,35 @@ func TestConfigureSSL_Deployment(t *testing.T) {
 	assert.Equal(t, d["tls"], map[string]any{"clientCertificateMode": string(automationconfig.ClientCertificateModeOptional)})
 }
 
+func TestConfigureTLSKeyFilePassword_Deployment(t *testing.T) {
+	d := NewDeployment()
+	d.MergeReplicaSet(buildRsByProcesses("my-rs", createReplicaSetProcesses("my-rs")), nil, nil, zap.S())
+
+	t.Run("Password is applied only to the named processes", func(t *testing.T) {
+		d.ConfigureTLSKeyFilePassword([]string{"my-rs-0", "my-rs-1"}, "s3cret")
+
+		assert.Equal(t, "s3cret", d.getProcessByName("my-rs-0").TLSConfig()["certificateKeyFilePassword"])
+		assert.Equal(t, "s3cret", d.getProcessByName("my-rs-1").TLSConfig()["certificateKeyFilePassword"])
+		_, present := d.getProcessByName("my-rs-2").TLSConfig()["certificateKeyFilePassword"]
+		assert.False(t, present, "process not in the list must be untouched")
+	})
+
+	t.Run("Empty password clears the field on the named processes", func(t *testing.T) {
+		d.ConfigureTLSKeyFilePassword([]string{"my-rs-0", "my-rs-1"}, "")
+
+		_, present0 := d.getProcessByName("my-rs-0").TLSConfig()["certificateKeyFilePassword"]
+		_, present1 := d.getProcessByName("my-rs-1").TLSConfig()["certificateKeyFilePassword"]
+		assert.False(t, present0)
+		assert.False(t, present1)
+	})
+
+	t.Run("Unknown process names are ignored", func(t *testing.T) {
+		assert.NotPanics(t, func() {
+			d.ConfigureTLSKeyFilePassword([]string{"does-not-exist"}, "s3cret")
+		})
+	})
+}
+
 // TestMergeDeployment_BigReplicaset ensures that adding a big replica set (> 7 members) works correctly and no more than
 // 7 voting members are added
 func TestMergeDeployment_BigReplicaset(t *testing.T) {

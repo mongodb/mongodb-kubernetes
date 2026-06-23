@@ -739,6 +739,15 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 
 	caFilePath := fmt.Sprintf("%s/ca-pem", util.TLSCaMountPath)
 
+	var databaseSecretPath string
+	if reconciler.VaultClient != nil {
+		databaseSecretPath = reconciler.VaultClient.DatabaseSecretPath()
+	}
+	tlsKeyFilePassword, err := certs.ReadTLSKeyFilePassword(ctx, reconciler.SecretClient, rs.Namespace, certs.ReplicaSetConfig(*rs).CertSecretName, databaseSecretPath)
+	if err != nil && !isRecovering {
+		return workflow.Failed(err)
+	}
+
 	replicaSet := replicaset.BuildFromMongoDBWithReplicas(reconciler.imageUrls[util.MongodbImageEnv], reconciler.forceEnterprise, rs, replicasTarget, rs.CalculateFeatureCompatibilityVersion(), tlsCertPath, reconciler.defaultArchitecture)
 	processNames := replicaSet.GetProcessNames()
 
@@ -767,7 +776,7 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 					return err
 				}
 			}
-			return ReconcileReplicaSetAC(ctx, d, rs.Spec.DbCommonSpec, lastRsConfig.ToMap(), rs.Name, replicaSet, caFilePath, internalClusterCertPath, &prometheusConfiguration, log)
+			return ReconcileReplicaSetAC(ctx, d, rs.Spec.DbCommonSpec, lastRsConfig.ToMap(), rs.Name, replicaSet, caFilePath, internalClusterCertPath, tlsKeyFilePassword, &prometheusConfiguration, log)
 		},
 		log,
 	)

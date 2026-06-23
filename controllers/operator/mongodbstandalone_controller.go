@@ -356,7 +356,17 @@ func (r *ReconcileMongoDbStandalone) updateOmDeployment(ctx context.Context, con
 	}
 
 	standaloneOmObject := createProcess(r.imageUrls[util.MongodbImageEnv], r.forceEnterprise, set, util.DatabaseContainerName, s, r.defaultArchitecture)
-	err := conn.ReadUpdateDeployment(
+
+	var databaseSecretPath string
+	if r.VaultClient != nil {
+		databaseSecretPath = r.VaultClient.DatabaseSecretPath()
+	}
+	tlsKeyFilePassword, err := certs.ReadTLSKeyFilePassword(ctx, r.SecretClient, s.Namespace, certs.StandaloneConfig(*s).CertSecretName, databaseSecretPath)
+	if err != nil && !isRecovering {
+		return workflow.Failed(err)
+	}
+
+	err = conn.ReadUpdateDeployment(
 		func(d om.Deployment) error {
 			excessProcesses := d.GetNumberOfExcessProcesses(s.Name)
 			if excessProcesses > 0 {
@@ -372,6 +382,7 @@ func (r *ReconcileMongoDbStandalone) updateOmDeployment(ctx context.Context, con
 			// TODO change last argument in separate PR
 			d.ConfigureMonitoringAndBackup(log, s.Spec.GetSecurity().IsTLSEnabled(), util.CAFilePathInContainer)
 			d.ConfigureTLS(s.Spec.GetSecurity(), util.CAFilePathInContainer)
+			d.ConfigureTLSKeyFilePassword([]string{set.Name}, tlsKeyFilePassword)
 			return nil
 		},
 		log,

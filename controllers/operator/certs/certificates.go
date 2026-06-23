@@ -36,6 +36,10 @@ const (
 	Database   = "database"
 	OpsManager = "opsmanager"
 	AppDB      = "appdb"
+
+	// TLSKeyFilePasswordSecretKey is the optional entry in a TLS cert secret holding the password
+	// that decrypts a password-encrypted PEM private key. Same key name used on the mongot side.
+	TLSKeyFilePasswordSecretKey = "tls.keyFilePassword" // #nosec G101 -- secret key name, not a password
 )
 
 // CreateOrUpdatePEMSecretWithPreviousCert creates a PEM secret from the original secretName.
@@ -139,6 +143,33 @@ func getOperatorGeneratedSecret(secretNamespacedName types.NamespacedName) types
 // VerifyTLSSecretForStatefulSet verifies a `Secret`'s `StringData` is a valid
 // certificate, considering the amount of members for a resource named on
 // `opts`.
+// ReadTLSKeyFilePassword reads the optional tls.keyFilePassword entry from a TLS cert secret.
+// It returns the password to supply to net.tls.certificateKeyFilePassword for a password-encrypted
+// PEM key, or "" when the secret or the key is absent (i.e. the key is not encrypted) — only a real
+// backend error is surfaced. Vault-aware, mirroring ReadHashFromSecret.
+func ReadTLSKeyFilePassword(ctx context.Context, secretClient secrets.SecretClient, namespace, name, basePath string) (string, error) {
+	var secretData map[string]string
+	if vault.IsVaultSecretBackend() {
+		path := fmt.Sprintf("%s/%s/%s", basePath, namespace, name)
+		data, err := secretClient.VaultClient.ReadSecretString(path)
+		if err != nil {
+			// Secret not present yet ⇒ no password.
+			return "", nil
+		}
+		secretData = data
+	} else {
+		s, err := secretClient.KubeClient.GetSecret(ctx, kube.ObjectKey(namespace, name))
+		if err != nil {
+			if secret.SecretNotExist(err) {
+				return "", nil
+			}
+			return "", err
+		}
+		secretData = secrets.DataToStringData(s.Data)
+	}
+	return secretData[TLSKeyFilePasswordSecretKey], nil
+}
+
 func VerifyTLSSecretForStatefulSet(secretData map[string][]byte, opts Options) (string, error) {
 	crt, key := secretData["tls.crt"], secretData["tls.key"]
 

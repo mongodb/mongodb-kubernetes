@@ -123,6 +123,32 @@ func TestConfigureSSL_Process_CertificateKeyFile(t *testing.T) {
 	})
 }
 
+func TestConfigureTLSKeyFilePassword_Process(t *testing.T) {
+	t.Run("Non-empty password sets certificateKeyFilePassword", func(t *testing.T) {
+		process := Process{}
+		process.ConfigureTLS(tls.Require, "pem-file0")
+		process.ConfigureTLSKeyFilePassword("s3cret")
+		assert.Equal(t, map[string]interface{}{
+			"mode":                       string(tls.Require),
+			"certificateKeyFile":         "pem-file0",
+			"certificateKeyFilePassword": "s3cret",
+		}, process.TLSConfig())
+	})
+
+	t.Run("Empty password is a no-op and clears a previously set value", func(t *testing.T) {
+		process := Process{}
+		process.ConfigureTLS(tls.Require, "pem-file0")
+		process.ConfigureTLSKeyFilePassword("s3cret")
+		process.ConfigureTLSKeyFilePassword("")
+		_, present := process.TLSConfig()["certificateKeyFilePassword"]
+		assert.False(t, present)
+		assert.Equal(t, map[string]interface{}{
+			"mode":               string(tls.Require),
+			"certificateKeyFile": "pem-file0",
+		}, process.TLSConfig())
+	})
+}
+
 func TestTlsConfig(t *testing.T) {
 	process := Process{}
 	process.ConfigureTLS(tls.Require, "another-pem-file")

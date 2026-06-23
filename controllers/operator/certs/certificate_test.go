@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/types"
 
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -96,6 +97,52 @@ func TestVerifyTLSSecretForStatefulSetHorizonMemberDifference(t *testing.T) {
 	})
 
 	assert.ErrorContains(t, err, "horizon configs")
+}
+
+func TestReadTLSKeyFilePassword(t *testing.T) {
+	ctx := context.Background()
+	namespace := "test"
+	certSecretName := "test-replica-set-cert"
+
+	t.Run("Returns the password when tls.keyFilePassword is present", func(t *testing.T) {
+		fakeClient, _ := mock.NewDefaultFakeClient()
+		secretClient := secrets.SecretClient{VaultClient: nil, KubeClient: fakeClient}
+		s := secret.Builder().
+			SetNamespace(namespace).
+			SetName(certSecretName).
+			SetField(TLSKeyFilePasswordSecretKey, "s3cret").
+			Build()
+		require.NoError(t, secretClient.PutSecret(ctx, s, ""))
+
+		pw, err := ReadTLSKeyFilePassword(ctx, secretClient, namespace, certSecretName, "")
+		assert.NoError(t, err)
+		assert.Equal(t, "s3cret", pw)
+	})
+
+	t.Run("Returns empty when the key is absent (unencrypted key)", func(t *testing.T) {
+		fakeClient, _ := mock.NewDefaultFakeClient()
+		secretClient := secrets.SecretClient{VaultClient: nil, KubeClient: fakeClient}
+		s := secret.Builder().
+			SetNamespace(namespace).
+			SetName(certSecretName).
+			SetField("tls.crt", "cert").
+			SetField("tls.key", "key").
+			Build()
+		require.NoError(t, secretClient.PutSecret(ctx, s, ""))
+
+		pw, err := ReadTLSKeyFilePassword(ctx, secretClient, namespace, certSecretName, "")
+		assert.NoError(t, err)
+		assert.Empty(t, pw)
+	})
+
+	t.Run("Returns empty without error when the secret does not exist", func(t *testing.T) {
+		fakeClient, _ := mock.NewDefaultFakeClient()
+		secretClient := secrets.SecretClient{VaultClient: nil, KubeClient: fakeClient}
+
+		pw, err := ReadTLSKeyFilePassword(ctx, secretClient, namespace, "does-not-exist", "")
+		assert.NoError(t, err)
+		assert.Empty(t, pw)
+	})
 }
 
 // This test uses mock hashes and certificate because CreatePemSecretClient does not verify the certificates.
