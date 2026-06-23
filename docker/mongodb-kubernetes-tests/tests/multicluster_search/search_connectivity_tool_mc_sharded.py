@@ -176,7 +176,7 @@ class TestSearchConnectivityToolMcSharded:
             mdbs.load()
             clusters = [dict(c) for c in original_clusters]
             for entry in clusters:
-                if entry["clusterName"] == faulted_name:
+                if entry["name"] == faulted_name:
                     entry["replicas"] = 0
             mdbs["spec"]["clusters"] = clusters
             mdbs.update()

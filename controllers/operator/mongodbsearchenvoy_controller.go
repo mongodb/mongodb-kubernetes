@@ -237,11 +237,11 @@ func (r *MongoDBSearchEnvoyReconciler) buildClusterWorkList(search *searchv1.Mon
 	}
 	work := make([]clusterWorkItem, 0, len(search.Spec.Clusters))
 	for _, c := range search.Spec.Clusters {
-		idx, ok := mapping[c.ClusterName]
+		idx, ok := mapping[c.Name]
 		if !ok {
 			idx = -1
 		}
-		work = append(work, clusterWorkItem{ClusterName: c.ClusterName, ClusterIndex: idx, Client: r.clientForCluster(c.ClusterName)})
+		work = append(work, clusterWorkItem{ClusterName: c.Name, ClusterIndex: idx, Client: r.clientForCluster(c.Name)})
 	}
 	return work
 }

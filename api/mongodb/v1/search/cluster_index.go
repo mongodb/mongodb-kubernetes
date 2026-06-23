@@ -9,9 +9,9 @@ func AssignClusterIndices(existing map[string]int, current []ClusterSpec) map[st
 	maps.Copy(result, existing)
 	for _, c := range current {
 		if c.ClusterIndex != nil {
-			result[c.ClusterName] = int(*c.ClusterIndex)
-		} else if _, ok := result[c.ClusterName]; !ok {
-			result[c.ClusterName] = 0
+			result[c.Name] = int(*c.ClusterIndex)
+		} else if _, ok := result[c.Name]; !ok {
+			result[c.Name] = 0
 		}
 	}
 	return result
