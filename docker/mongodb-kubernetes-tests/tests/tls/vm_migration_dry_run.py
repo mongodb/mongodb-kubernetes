@@ -1,10 +1,35 @@
 """Shared VM migration dry-run (connectivity-only) flow for plain-TLS and X509 E2E tests."""
 
+import datetime
+
+from cryptography import x509 as crypto_x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.x509.oid import NameOID
 from kubetester.mongodb import MongoDB
 
 # Annotation that triggers migration dry-run (connectivity validation only, no OM/StatefulSet changes).
 MIGRATION_DRY_RUN_ANNOTATION = "mongodb.com/migration-dry-run"
 CONDITION_NETWORK_CONNECTIVITY_VERIFIED = "NetworkConnectivityVerification"
+
+
+def generate_wrong_ca_pem() -> str:
+    """Return a self-signed CA certificate PEM that did not sign any of the VM server certs."""
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    name = crypto_x509.Name([crypto_x509.NameAttribute(NameOID.COMMON_NAME, "wrong-test-ca")])
+    now = datetime.datetime.utcnow()
+    cert = (
+        crypto_x509.CertificateBuilder()
+        .subject_name(name)
+        .issuer_name(name)
+        .public_key(key.public_key())
+        .serial_number(crypto_x509.random_serial_number())
+        .not_valid_before(now)
+        .not_valid_after(now + datetime.timedelta(days=365))
+        .add_extension(crypto_x509.BasicConstraints(ca=True, path_length=None), critical=True)
+        .sign(key, hashes.SHA256())
+    )
+    return cert.public_bytes(serialization.Encoding.PEM).decode("utf-8")
 
 
 def _migration_connectivity_passed(mdb: MongoDB) -> bool:
@@ -41,3 +66,32 @@ def run_migration_dry_run_connectivity_passes(mdb: MongoDB, *, timeout: int = 60
     if ann is not None and MIGRATION_DRY_RUN_ANNOTATION in ann:
         ann[MIGRATION_DRY_RUN_ANNOTATION] = None
         mdb.update()
+
+
+def _migration_connectivity_failed(mdb: MongoDB) -> bool:
+    try:
+        status = mdb["status"]
+    except (KeyError, AttributeError, TypeError):
+        status = {}
+    conditions = status.get("conditions", []) if isinstance(status, dict) else []
+    for c in conditions:
+        if c.get("type") == CONDITION_NETWORK_CONNECTIVITY_VERIFIED and c.get("status") == "False":
+            return True
+    return False
+
+
+def run_migration_dry_run_connectivity_fails(mdb: MongoDB, *, timeout: int = 300) -> None:
+    """Set migration-dry-run annotation and wait for NetworkConnectivityVerification to be False.
+
+    Does not remove the annotation so the caller can fix the root cause and re-trigger validation
+    by deleting the failed Job and updating the MDB resource.
+    """
+    mdb.load()
+    if "metadata" not in mdb:
+        mdb["metadata"] = {}
+    if "annotations" not in mdb["metadata"]:
+        mdb["metadata"]["annotations"] = {}
+    mdb["metadata"]["annotations"][MIGRATION_DRY_RUN_ANNOTATION] = "true"
+    mdb.update()
+
+    mdb.wait_for(_migration_connectivity_failed, timeout=timeout)
