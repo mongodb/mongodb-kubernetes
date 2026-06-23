@@ -70,6 +70,12 @@ SEARCH_QUERY_RETRY_TIMEOUT = 60
 # =============================================================================
 
 
+def _idx(mcc: MultiClusterClient) -> int:
+    """Narrow ``mcc.cluster_index`` (Optional[int]) to int for the resource-name helpers."""
+    assert mcc.cluster_index is not None, f"cluster_index unset on {mcc.cluster_name!r}"
+    return mcc.cluster_index
+
+
 @fixture(scope="module")
 def ca_configmap(
     issuer_ca_filepath: str,
@@ -226,7 +232,7 @@ def mdbs(
             "loadBalancer": {
                 "managed": {
                     "externalHostname": search_resource_names.shard_proxy_svc_hostname_template(
-                        MDBS_RESOURCE_NAME, namespace, mcc.cluster_index
+                        MDBS_RESOURCE_NAME, namespace, _idx(mcc)
                     ),
                 },
             },
