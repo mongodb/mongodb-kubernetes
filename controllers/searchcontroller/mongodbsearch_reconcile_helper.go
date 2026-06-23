@@ -290,7 +290,7 @@ func (r *MongoDBSearchReconcileHelper) buildRSWorkList() []rsWorkItem {
 	clusters := r.mdbSearch.Spec.Clusters
 	work := make([]rsWorkItem, 0, len(clusters))
 	for _, c := range clusters {
-		work = append(work, rsWorkItem{ClusterName: c.ClusterName, ClusterIndex: r.state.ClusterMapping[c.ClusterName]})
+		work = append(work, rsWorkItem{ClusterName: c.Name, ClusterIndex: r.state.ClusterMapping[c.Name]})
 	}
 	return work
 }

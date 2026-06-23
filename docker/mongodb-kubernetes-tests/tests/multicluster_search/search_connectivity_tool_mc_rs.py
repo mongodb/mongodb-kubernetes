@@ -132,7 +132,7 @@ class TestSearchConnectivityToolMC:
                 mdbs.load()
                 clusters = [dict(c) for c in original_clusters]
                 for entry in clusters:
-                    if entry["clusterName"] == outage_mcc.cluster_name:
+                    if entry["name"] == outage_mcc.cluster_name:
                         entry["replicas"] = 0
                 mdbs["spec"]["clusters"] = clusters
                 mdbs.update()
@@ -250,7 +250,7 @@ class TestSearchConnectivityToolMC:
                 mdbs.load()
                 clusters = [dict(c) for c in original_clusters]
                 for entry in clusters:
-                    if entry["clusterName"] == outage_mcc.cluster_name:
+                    if entry["name"] == outage_mcc.cluster_name:
                         entry["replicas"] = 0
                 mdbs["spec"]["clusters"] = clusters
                 mdbs.update()
