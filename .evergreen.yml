@@ -850,7 +850,7 @@ task_groups:
       - e2e_search_enterprise_basic
       - e2e_search_replicaset_external_mongodb_single_mongot
       - e2e_search_sharded_internal_mongodb_single_mongot
-      - e2e_search_enterprise_tls
+      - e2e_search_enterprise_enc_mtls
       - e2e_search_enterprise_x509_cluster_auth
       - e2e_search_sharded_external_mongodb_single_mongot
       - e2e_search_sharded_external_mongodb_multi_mongot_unmanaged_lb
@@ -902,7 +902,7 @@ task_groups:
       - e2e_search_enterprise_basic
       - e2e_search_replicaset_external_mongodb_single_mongot
       - e2e_search_sharded_internal_mongodb_single_mongot
-      - e2e_search_enterprise_tls
+      - e2e_search_enterprise_enc_mtls
       - e2e_search_enterprise_x509_cluster_auth
       - e2e_search_sharded_external_mongodb_single_mongot
       - e2e_search_sharded_external_mongodb_multi_mongot_unmanaged_lb
@@ -1105,6 +1105,8 @@ task_groups:
       - e2e_search_q3_mc_sharded_external_mtls
       - e2e_search_connectivity_tool_mc_rs
       - e2e_search_connectivity_tool_mc_sharded
+      - e2e_search_ext_mc_rs_x509_enc_mtls
+      - e2e_search_ext_mc_sharded_scram_enc_mtls
     <<: *teardown_group
 
   - name: e2e_multi_cluster_om_appdb_task_group
