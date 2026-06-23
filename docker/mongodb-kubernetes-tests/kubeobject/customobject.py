@@ -83,7 +83,6 @@ class CustomObject:
                 "kind": self.kind,
                 "apiVersion": "/".join(filter(None, [group, version])),
                 "spec": {},
-                "status": {},
             }
 
     def load(self) -> Self:
