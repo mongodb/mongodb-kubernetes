@@ -71,6 +71,12 @@ SEARCH_INDEX_READY_TIMEOUT = 300
 SEARCH_QUERY_RETRY_TIMEOUT = 60
 
 
+def _idx(mcc: MultiClusterClient) -> int:
+    """Narrow ``mcc.cluster_index`` (Optional[int]) to int for the resource-name helpers."""
+    assert mcc.cluster_index is not None, f"cluster_index unset on {mcc.cluster_name!r}"
+    return mcc.cluster_index
+
+
 @fixture(scope="module")
 def ca_configmap(
     issuer_ca_filepath: str,
@@ -198,16 +204,19 @@ def mdbs(
 
     resource["spec"]["security"] = {"tls": {"certsSecretPrefix": MDBS_TLS_CERT_PREFIX}}
 
-    resource["spec"]["loadBalancer"] = {
-        "managed": {
-            "externalHostname": (
-                f"{MDBS_RESOURCE_NAME}-search-{{clusterIndex}}-{{shardName}}-proxy-svc.{namespace}.svc.cluster.local"
-            ),
-        },
-    }
-
     resource["spec"]["clusters"] = [
-        {"clusterName": mcc.cluster_name, "clusterIndex": mcc.cluster_index, "replicas": MONGOT_REPLICAS_PER_CLUSTER}
+        {
+            "clusterName": mcc.cluster_name,
+            "clusterIndex": mcc.cluster_index,
+            "replicas": MONGOT_REPLICAS_PER_CLUSTER,
+            "loadBalancer": {
+                "managed": {
+                    "externalHostname": search_resource_names.shard_proxy_svc_hostname_template(
+                        MDBS_RESOURCE_NAME, namespace, _idx(mcc)
+                    ),
+                },
+            },
+        }
         for mcc in member_cluster_clients
     ]
 
