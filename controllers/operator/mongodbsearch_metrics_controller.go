@@ -1208,25 +1208,17 @@ func (r *MongoDBSearchMetricsForwarderReconciler) preDeletionCleanup(ctx context
 		topologyState = &searchTopologyState{}
 	}
 
-	// Phase 1: issue Deployment deletions and requeue. We must not deregister OM
-	// hosts while any forwarder pod is still running — a live collector would push
-	// metrics for those hosts, causing OM to implicitly re-add them and making the
-	// deregistration a no-op. We gate on the Deployments being fully gone (no running
-	// pods) rather than a fixed timer: once the Deployment is deleted and all its pods
-	// have terminated, there is no collector left to scrape and forward metrics.
+	// Check for running Deployments. If any exist, delete them and requeue. We must
+	// not deregister OM hosts while any forwarder pod is still running — a live collector would
+	// push metrics for those hosts, causing OM to implicitly re-add them and making the
+	// deregistration a no-op. We gate on the Deployments being fully gone (no running pods)
+	// rather than a fixed timer: once the Deployment is deleted and all its pods have terminated,
+	// there is no collector left to scrape and forward metrics.
+	//
+	// Checking before deleting ensures the requeue happens: if we deleted first and then checked,
+	// the check could find the object already gone (e.g. fake client in tests) and skip the wait.
 	ns := search.Namespace
-	for _, w := range workList {
-		if w.ClusterIndex == -1 || w.Client == nil {
-			continue
-		}
-		depName := search.MetricsForwarderDeploymentNameForCluster(w.ClusterIndex)
-		dep := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: depName, Namespace: ns}}
-		if err := w.Client.Delete(ctx, dep); err != nil && !apierrors.IsNotFound(err) {
-			log.Warnf("Failed to delete metrics forwarder Deployment %s (cluster=%q): %s", depName, w.ClusterName, err)
-		}
-	}
-
-	// Phase 2: wait until all Deployments are fully gone before deregistering OM hosts.
+	anyDepFound := false
 	for _, w := range workList {
 		if w.ClusterIndex == -1 || w.Client == nil {
 			continue
@@ -1234,11 +1226,17 @@ func (r *MongoDBSearchMetricsForwarderReconciler) preDeletionCleanup(ctx context
 		depName := search.MetricsForwarderDeploymentNameForCluster(w.ClusterIndex)
 		dep := &appsv1.Deployment{}
 		if err := w.Client.Get(ctx, kube.ObjectKey(ns, depName), dep); err == nil {
-			log.Infof("Metrics forwarder Deployment %s (cluster=%q) still terminating, requeuing", depName, w.ClusterName)
-			return workflow.Pending("Waiting for metrics forwarder Deployment to be fully deleted before deregistering Ops Manager hosts")
+			anyDepFound = true
+			log.Infof("Deleting metrics forwarder Deployment %s (cluster=%q) before deregistering Ops Manager hosts", depName, w.ClusterName)
+			if delErr := w.Client.Delete(ctx, dep); delErr != nil && !apierrors.IsNotFound(delErr) {
+				log.Warnf("Failed to delete metrics forwarder Deployment %s (cluster=%q): %s", depName, w.ClusterName, delErr)
+			}
 		} else if !apierrors.IsNotFound(err) {
 			return workflow.Failed(fmt.Errorf("failed to check metrics forwarder Deployment %s: %w", depName, err))
 		}
+	}
+	if anyDepFound {
+		return workflow.Pending("Waiting for metrics forwarder Deployment to be fully deleted before deregistering Ops Manager hosts")
 	}
 
 	// All Deployments are gone: deregister hosts, clean up remaining resources, and remove finalizer.
