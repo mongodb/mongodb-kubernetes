@@ -99,3 +99,20 @@ class MongoDBSearch(MongoDB, CustomObject):
         else:
             assert lb is None, f"status.loadBalancer should be absent for non-managed LB, got: {lb}"
             logger.info(f"MongoDBSearch {self.name}: loadBalancer status correctly absent")
+
+    def get_metrics_forwarder_status(self) -> Optional[dict]:
+        """Returns the status.metricsForwarder substatus dict, or None if absent."""
+        try:
+            return self["status"]["metricsForwarder"]
+        except KeyError:
+            return None
+
+    def get_metrics_forwarder_status_phase(self) -> Optional[Phase]:
+        """Returns the metricsForwarder substatus phase, or None if absent."""
+        mf = self.get_metrics_forwarder_status()
+        if mf is None:
+            return None
+        try:
+            return Phase[mf["phase"]]
+        except KeyError:
+            return None

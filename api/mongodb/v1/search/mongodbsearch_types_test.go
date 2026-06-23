@@ -596,3 +596,135 @@ func TestResolveSizingForClusterShard_StatefulSetDeepMerge(t *testing.T) {
 		assert.NotSame(t, overrideSTS, got.StatefulSetConfiguration)
 	})
 }
+
+func TestUpdateStatus_MetricsForwarderPath(t *testing.T) {
+	s := &MongoDBSearch{}
+	partOpt := NewSearchPartOption(SearchPartMetricsForwarder)
+	s.UpdateStatus(status.PhaseRunning, partOpt, status.NewMessageOption("forwarder ready"))
+
+	assert.NotNil(t, s.Status.MetricsForwarder)
+	assert.Equal(t, status.PhaseRunning, s.Status.MetricsForwarder.Phase)
+	assert.Equal(t, "forwarder ready", s.Status.MetricsForwarder.Message)
+	// Main status untouched
+	assert.Equal(t, status.Phase(""), s.Status.Phase)
+}
+
+func TestGetStatusPath_MetricsForwarder(t *testing.T) {
+	s := &MongoDBSearch{}
+	partOpt := NewSearchPartOption(SearchPartMetricsForwarder)
+	assert.Equal(t, "/status/metricsForwarder", s.GetStatusPath(partOpt))
+}
+
+func TestGetStatus_MetricsForwarder(t *testing.T) {
+	s := &MongoDBSearch{}
+	s.Status.MetricsForwarder = &MetricsForwarderStatus{Phase: status.PhaseRunning, Message: "ok"}
+	partOpt := NewSearchPartOption(SearchPartMetricsForwarder)
+	got := s.GetStatus(partOpt)
+	assert.Equal(t, s.Status.MetricsForwarder, got)
+}
+
+// nil MetricsForwarder → GetStatus returns nil
+func TestGetStatus_MetricsForwarderNil(t *testing.T) {
+	s := &MongoDBSearch{}
+	partOpt := NewSearchPartOption(SearchPartMetricsForwarder)
+	got := s.GetStatus(partOpt)
+	assert.Nil(t, got)
+}
+
+// Failed→Running transition must not carry over the old error message
+func TestUpdateStatus_MetricsForwarderClearsStaleMessage(t *testing.T) {
+	s := &MongoDBSearch{}
+	partOpt := NewSearchPartOption(SearchPartMetricsForwarder)
+
+	s.UpdateStatus(status.PhaseFailed, partOpt, status.NewMessageOption("scrape error"))
+	assert.Equal(t, "scrape error", s.Status.MetricsForwarder.Message)
+
+	s.UpdateStatus(status.PhaseRunning, partOpt)
+	assert.Equal(t, status.PhaseRunning, s.Status.MetricsForwarder.Phase)
+	assert.Equal(t, "", s.Status.MetricsForwarder.Message)
+}
+
+func TestIsMetricsForwarderEnabled(t *testing.T) {
+	externalSource := &MongoDBSource{
+		ExternalMongoDBSource: &ExternalMongoDBSource{
+			HostAndPorts: []string{"host:27017"},
+		},
+	}
+	opsManagerConfig := &MetricsForwarderOpsManagerConfig{
+		AgentCredentials:    corev1.LocalObjectReference{Name: "agent-creds"},
+		ProjectConfigMapRef: corev1.LocalObjectReference{Name: "project-cm"},
+	}
+
+	tests := []struct {
+		name     string
+		search   MongoDBSearch
+		expected bool
+	}{
+		{
+			name: "mode enabled",
+			search: MongoDBSearch{
+				Spec: MongoDBSearchSpec{
+					Observability: ObservabilityConfig{
+						MetricsForwarder: MetricsForwarderConfig{Mode: MetricsForwarderModeEnabled},
+					},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "mode disabled",
+			search: MongoDBSearch{
+				Spec: MongoDBSearchSpec{
+					Observability: ObservabilityConfig{
+						MetricsForwarder: MetricsForwarderConfig{Mode: MetricsForwarderModeDisabled},
+					},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "mode auto, external source, no OpsManager config → disabled",
+			search: MongoDBSearch{
+				Spec: MongoDBSearchSpec{
+					Source: externalSource,
+					Observability: ObservabilityConfig{
+						MetricsForwarder: MetricsForwarderConfig{Mode: MetricsForwarderModeAuto},
+					},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "mode auto, external source, with OpsManager config → enabled",
+			search: MongoDBSearch{
+				Spec: MongoDBSearchSpec{
+					Source: externalSource,
+					Observability: ObservabilityConfig{
+						MetricsForwarder: MetricsForwarderConfig{
+							Mode:       MetricsForwarderModeAuto,
+							OpsManager: opsManagerConfig,
+						},
+					},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "mode auto, internal source → enabled",
+			search: MongoDBSearch{
+				Spec: MongoDBSearchSpec{
+					Observability: ObservabilityConfig{
+						MetricsForwarder: MetricsForwarderConfig{Mode: MetricsForwarderModeAuto},
+					},
+				},
+			},
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, tt.search.IsMetricsForwarderEnabled())
+		})
+	}
+}

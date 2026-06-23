@@ -4,6 +4,7 @@ import kubernetes
 from kubernetes.client import CoreV1Api
 from kubetester import create_or_update_secret, try_load
 from kubetester.certs import create_mongodb_tls_certs, create_sharded_cluster_certs
+from kubetester.kubetester import ensure_nested_objects
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_search import MongoDBSearch
@@ -251,6 +252,25 @@ class SearchDeploymentHelper:
         self._wire_user_api(resource)
         return resource
 
+    def configure_metrics_forwarder_opsmanager(self, mdbs: MongoDBSearch, mdb: MongoDB) -> None:
+        """Point the metrics forwarder at the source MongoDB's Ops Manager project.
+
+        External sources don't expose a mongodbResourceRef, so the forwarder can't auto-resolve the
+        Ops Manager project the way it does for internal sources. It must instead be given the project
+        ConfigMap and the agent-credentials Secret that the operator created for the source MongoDB.
+        The agent-credentials Secret is named "{projectId}-group-secret" (see agents.ApiKeySecretName).
+
+        Must be called after the source MongoDB has reached Running so that status.projectId is set.
+        """
+        mdb.load()
+        project_id = mdb["status"]["projectId"]
+        project_config_map_name = mdb["spec"]["opsManager"]["configMapRef"]["name"]
+        ensure_nested_objects(mdbs, ["spec", "observability", "metricsForwarder"])
+        mdbs["spec"]["observability"]["metricsForwarder"]["opsManager"] = {
+            "projectConfigMapRef": {"name": project_config_map_name},
+            "agentCredentials": {"name": f"{project_id}-group-secret"},
+        }
+
     def apply_user_password(self, user_resource: MongoDBUser, password: str) -> None:
         """Create/update the user's password secret and re-apply the CR.
 
@@ -321,12 +341,12 @@ class SearchDeploymentHelper:
 
         return resource
 
-    def install_sharded_tls_certificates(self, secret_prefix: str = "mdb-sh-"):
+    def install_sharded_tls_certificates(self, secret_prefix: str = "mdb-sh-", shard_count: Optional[int] = None):
         mongos_service_dns = f"{self.mdb_resource_name}-svc.{self.namespace}.svc.cluster.local"
         create_sharded_cluster_certs(
             namespace=self.namespace,
             resource_name=self.mdb_resource_name,
-            shards=self.shard_count,
+            shards=shard_count if shard_count is not None else self.shard_count,
             mongod_per_shard=self.mongods_per_shard,
             config_servers=self.config_server_count,
             mongos=self.mongos_count,

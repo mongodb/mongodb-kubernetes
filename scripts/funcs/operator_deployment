@@ -38,6 +38,8 @@ get_operator_helm_values() {
     "search.repo=${MDB_SEARCH_REPO_URL}"
     "search.name=${MDB_SEARCH_NAME}"
     "search.version=${MDB_SEARCH_VERSION}"
+    "search.envoyImage=${MDB_ENVOY_IMAGE}"
+    "search.metricsForwarderImage=${MDB_SEARCH_METRICS_FORWARDER_IMAGE}"
     "community.registry.agent=${MDB_AGENT_REGISTRY}"
   )
 
