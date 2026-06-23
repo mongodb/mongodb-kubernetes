@@ -2364,7 +2364,7 @@ func TestEnsureX509ClientCertConfig_NoopWhenNotConfigured(t *testing.T) {
 	fakeClient := newTestFakeClient(search)
 	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, newTestOperatorSearchConfig(), nil, nil)
 
-	mongotMod, stsMod, err := helper.ensureX509ClientCertConfig(t.Context())
+	mongotMod, stsMod, err := helper.ensureX509ClientCertConfig(t.Context(), fakeClient)
 	require.NoError(t, err)
 
 	// Apply modifications and verify no changes
@@ -2405,7 +2405,7 @@ func TestEnsureX509ClientCertConfig_ErrorWhenTLSNotConfigured(t *testing.T) {
 	fakeClient := newTestFakeClient(search)
 	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, dbSource, newTestOperatorSearchConfig(), nil, nil)
 
-	_, _, err := helper.ensureX509ClientCertConfig(t.Context())
+	_, _, err := helper.ensureX509ClientCertConfig(t.Context(), fakeClient)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "tls must be enabled")
 }
@@ -2430,7 +2430,7 @@ func TestEnsureX509ClientCertConfig_MongotAndStsModification(t *testing.T) {
 	fakeClient := newTestFakeClient(search, x509Secret)
 	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, dbSource, newTestOperatorSearchConfig(), nil, nil)
 
-	mongotMod, stsMod, err := helper.ensureX509ClientCertConfig(t.Context())
+	mongotMod, stsMod, err := helper.ensureX509ClientCertConfig(t.Context(), fakeClient)
 	require.NoError(t, err)
 
 	// Apply mongot modification to a config with both ReplicaSet and Router (sharded scenario)
@@ -2523,7 +2523,7 @@ func TestEnsureX509ClientCertConfig_KeyPassword(t *testing.T) {
 	fakeClient := newTestFakeClient(search, x509Secret)
 	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, dbSource, newTestOperatorSearchConfig(), nil, nil)
 
-	mongotMod, stsMod, err := helper.ensureX509ClientCertConfig(t.Context())
+	mongotMod, stsMod, err := helper.ensureX509ClientCertConfig(t.Context(), fakeClient)
 	require.NoError(t, err)
 
 	// Verify mongot config has key password path
@@ -2777,6 +2777,22 @@ func (f *fakeExternalSource) HostSeeds(_ string) ([]string, error) {
 	return f.hosts, nil
 }
 
+func (f *fakeExternalSource) KeyfileSecretName() string {
+	return ""
+}
+
+func (f *fakeExternalSource) TLSConfig() *TLSSourceConfig {
+	return nil
+}
+
+func (f *fakeExternalSource) Validate() error {
+	return nil
+}
+
+func (f *fakeExternalSource) ResourceType() mdbv1.ResourceType {
+	return mdbv1.ReplicaSet
+}
+
 func TestBuildReplicaSetPlan_PerClusterUnitsForMC(t *testing.T) {
 	mdb := newTestMongoDBSearch("mdb-search", "ns")
 	mdb.Spec.Clusters = []searchv1.ClusterSpec{
@@ -2852,15 +2868,17 @@ func TestReconcilePlan_UsesPerClusterClient(t *testing.T) {
 		"cluster-b": clusterBClient,
 	}
 
+	source := &fakeExternalSource{hosts: mdb.Spec.Source.ExternalMongoDBSource.HostAndPorts}
+
 	r := &MongoDBSearchReconcileHelper{
 		mdbSearch:            mdb,
 		client:               centralClient,
 		memberClusterClients: memberClients,
 		state:                &SearchDeploymentState{ClusterMapping: map[string]int{"cluster-a": 0, "cluster-b": 1}},
 		operatorSearchConfig: newTestOperatorSearchConfig(),
+		db:                   source,
 	}
 
-	source := &fakeExternalSource{hosts: mdb.Spec.Source.ExternalMongoDBSource.HostAndPorts}
 	plan, err := r.buildReplicaSetPlan(source)
 	require.NoError(t, err)
 	require.Len(t, plan.units, 2)
