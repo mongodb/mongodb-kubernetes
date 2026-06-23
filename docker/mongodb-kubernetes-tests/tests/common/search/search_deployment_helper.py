@@ -391,7 +391,7 @@ class SearchDeploymentHelper:
         """Create MongoDBSearch with an external RS source.
 
         ``clusters`` (mutually exclusive with ``replicas``) writes spec.clusters;
-        a single entry with no clusterName models a single-cluster RS at index 0.
+        a single entry with no name models a single-cluster RS at index 0.
         """
         resource = MongoDBSearch.from_yaml(
             yaml_fixture("search-minimal.yaml"),
