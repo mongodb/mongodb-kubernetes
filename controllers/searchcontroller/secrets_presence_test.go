@@ -206,7 +206,7 @@ func TestCheckSecretsPresence_SingleClusterSharded_CentralIncludesPerShardCerts(
 func TestCheckSecretsPresence_SimulatedMC_UsesMappedIndex(t *testing.T) {
 	newPinnedSearch := func() *searchv1.MongoDBSearch {
 		s := mcShardedTLSSearch(t, "s", "ns", "shard-0")
-		s.Spec.Clusters = []searchv1.ClusterSpec{{ClusterName: "cluster-b", ClusterIndex: ptr.To(int32(7))}}
+		s.Spec.Clusters = []searchv1.ClusterSpec{{Name: "cluster-b", ClusterIndex: ptr.To(int32(7))}}
 		return s
 	}
 	mapping := map[string]int{"cluster-b": 7}

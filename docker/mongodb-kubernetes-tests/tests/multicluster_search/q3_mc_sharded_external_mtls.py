@@ -224,21 +224,24 @@ def mdbs(
         "tls": {"certsSecretPrefix": MDBS_TLS_CERT_PREFIX},
     }
 
-    resource["spec"]["clusters"] = [
-        {
-            "clusterName": mcc.cluster_name,
-            "clusterIndex": mcc.cluster_index,
-            "replicas": MONGOT_REPLICAS_PER_CLUSTER,
-            "loadBalancer": {
-                "managed": {
-                    "externalHostname": search_resource_names.shard_proxy_svc_hostname_template(
-                        MDBS_RESOURCE_NAME, namespace, _idx(mcc)
-                    ),
+    clusters = []
+    for mcc in member_cluster_clients:
+        assert mcc.cluster_index is not None, f"cluster_index unset on {mcc.cluster_name!r}"
+        clusters.append(
+            {
+                "name": mcc.cluster_name,
+                "clusterIndex": mcc.cluster_index,
+                "replicas": MONGOT_REPLICAS_PER_CLUSTER,
+                "loadBalancer": {
+                    "managed": {
+                        "externalHostname": search_resource_names.shard_proxy_svc_hostname_template(
+                            MDBS_RESOURCE_NAME, namespace, _idx(mcc)
+                        ),
+                    },
                 },
-            },
-        }
-        for mcc in member_cluster_clients
-    ]
+            }
+        )
+    resource["spec"]["clusters"] = clusters
 
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
     try_load(resource)

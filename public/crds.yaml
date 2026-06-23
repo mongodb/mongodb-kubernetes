@@ -4113,13 +4113,13 @@ spec:
               clusters:
                 description: |-
                   Clusters configures the deployment per Kubernetes cluster: one entry for a
-                  single cluster (clusterName optional), or one entry per cluster for
-                  multi-cluster (clusterName required, len > 1). This is the place to set
+                  single cluster (name optional), or one entry per cluster for
+                  multi-cluster (name required, len > 1). This is the place to set
                   replicas, resources, storage, and StatefulSet overrides.
                 items:
                   description: |-
-                    ClusterSpec is one entry in spec.clusters[]. ClusterName is required and immutable
-                    when len(spec.clusters) > 1; optional in the single-cluster case.
+                    ClusterSpec is one entry in spec.clusters[]. The cluster name (spec.clusters[].name)
+                    is required and immutable when len(spec.clusters) > 1; optional in the single-cluster case.
                     Each field, when set, applies to this cluster; when unset, the operator's
                     per-field default applies.
                   properties:
@@ -4132,13 +4132,6 @@ spec:
                       maximum: 999
                       minimum: 0
                       type: integer
-                    clusterName:
-                      description: |-
-                        ClusterName is the Kubernetes cluster name. Required and immutable
-                        when len(spec.clusters) > 1; optional in the single-cluster case.
-                        MaxLength is 253 — the DNS subdomain limit Kubernetes cluster names follow.
-                      maxLength: 253
-                      type: string
                     jvmFlags:
                       description: JVMFlags sets the `--jvm-flags` option for this
                         cluster's mongot pods.
@@ -4300,6 +4293,13 @@ spec:
                       - message: exactly one of managed or unmanaged must be set
                         rule: (has(self.managed) && !has(self.unmanaged)) || (!has(self.managed)
                           && has(self.unmanaged))
+                    name:
+                      description: |-
+                        Name is the Kubernetes cluster name. Required and immutable
+                        when len(spec.clusters) > 1; optional in the single-cluster case.
+                        MaxLength is 253 — the DNS subdomain limit Kubernetes cluster names follow.
+                      maxLength: 253
+                      type: string
                     persistence:
                       description: Persistence configures this cluster's mongot persistent
                         volume. Defaults to 10GB if unset.
@@ -4644,10 +4644,10 @@ spec:
                 minItems: 1
                 type: array
                 x-kubernetes-validations:
-                - message: clusters[].clusterName must be set and unique when more
-                    than one cluster is specified
-                  rule: size(self) <= 1 || self.all(c1, has(c1.clusterName) && self.exists_one(c2,
-                    has(c2.clusterName) && c2.clusterName == c1.clusterName))
+                - message: clusters[].name must be set and unique when more than one
+                    cluster is specified
+                  rule: size(self) <= 1 || self.all(c1, has(c1.name) && self.exists_one(c2,
+                    has(c2.name) && c2.name == c1.name))
                 - message: clusters[].clusterIndex must be unique when set
                   rule: self.all(c1, !has(c1.clusterIndex) || self.exists_one(c2,
                     has(c2.clusterIndex) && c2.clusterIndex == c1.clusterIndex))

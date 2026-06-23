@@ -266,7 +266,7 @@ func TestCreateSearchStatefulSetFunc_StatefulSetOverrideReplacesAntiAffinity(t *
 	}
 	search := newTestMongoDBSearch("test-search", "default", func(s *searchv1.MongoDBSearch) {
 		s.Spec.Clusters = []searchv1.ClusterSpec{{
-			ClusterName: "cluster-1",
+			Name: "cluster-1",
 			StatefulSetConfiguration: &v1.StatefulSetConfiguration{
 				SpecWrapper: v1.StatefulSetSpecWrapper{
 					Spec: appsv1.StatefulSetSpec{

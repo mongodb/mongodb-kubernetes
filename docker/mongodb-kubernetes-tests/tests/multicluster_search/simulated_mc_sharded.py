@@ -265,9 +265,10 @@ def per_cluster_mdbs_search(
         member_cluster_clients,
         MDBS_RESOURCE_NAME,
         MONGOT_REPLICAS_PER_CLUSTER,
-        # Per-cluster, per-shard externalHostname template — operator
-        # substitutes {clusterIndex} and {shardName} per resource.
-        f"{MDBS_RESOURCE_NAME}-search-{{clusterIndex}}-{{shardName}}-proxy-svc.{namespace}.svc.cluster.local",
+        # Per-cluster literal with the clusterIndex baked in (distinct per cluster); the
+        # {shardName} placeholder is retained for the operator to resolve per shard,
+        # mirroring q3_mc_sharded_external_mtls.
+        lambda idx: search_resource_names.shard_proxy_svc_hostname_template(MDBS_RESOURCE_NAME, namespace, idx),
         {
             "shardedCluster": {
                 "router": {"hosts": router_hosts},

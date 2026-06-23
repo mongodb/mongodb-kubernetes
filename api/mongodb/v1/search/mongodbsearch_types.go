@@ -97,13 +97,13 @@ type MongoDBSearchSpec struct {
 	// +optional
 	FeatureFlags *FeatureFlags `json:"featureFlags,omitempty"`
 	// Clusters configures the deployment per Kubernetes cluster: one entry for a
-	// single cluster (clusterName optional), or one entry per cluster for
-	// multi-cluster (clusterName required, len > 1). This is the place to set
+	// single cluster (name optional), or one entry per cluster for
+	// multi-cluster (name required, len > 1). This is the place to set
 	// replicas, resources, storage, and StatefulSet overrides.
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=50
-	// +kubebuilder:validation:XValidation:rule="size(self) <= 1 || self.all(c1, has(c1.clusterName) && self.exists_one(c2, has(c2.clusterName) && c2.clusterName == c1.clusterName))",message="clusters[].clusterName must be set and unique when more than one cluster is specified"
+	// +kubebuilder:validation:XValidation:rule="size(self) <= 1 || self.all(c1, has(c1.name) && self.exists_one(c2, has(c2.name) && c2.name == c1.name))",message="clusters[].name must be set and unique when more than one cluster is specified"
 	// +kubebuilder:validation:XValidation:rule="self.all(c1, !has(c1.clusterIndex) || self.exists_one(c2, has(c2.clusterIndex) && c2.clusterIndex == c1.clusterIndex))",message="clusters[].clusterIndex must be unique when set"
 	// +kubebuilder:validation:XValidation:rule="size(self) <= 1 || self.all(c, has(c.clusterIndex))",message="clusters[].clusterIndex is required on every entry when more than one cluster is specified"
 	Clusters []ClusterSpec `json:"clusters"`
@@ -126,17 +126,17 @@ type SyncSourceSelector struct {
 	Hosts []string `json:"hosts,omitempty"`
 }
 
-// ClusterSpec is one entry in spec.clusters[]. ClusterName is required and immutable
-// when len(spec.clusters) > 1; optional in the single-cluster case.
+// ClusterSpec is one entry in spec.clusters[]. The cluster name (spec.clusters[].name)
+// is required and immutable when len(spec.clusters) > 1; optional in the single-cluster case.
 // Each field, when set, applies to this cluster; when unset, the operator's
 // per-field default applies.
 type ClusterSpec struct {
-	// ClusterName is the Kubernetes cluster name. Required and immutable
+	// Name is the Kubernetes cluster name. Required and immutable
 	// when len(spec.clusters) > 1; optional in the single-cluster case.
 	// MaxLength is 253 — the DNS subdomain limit Kubernetes cluster names follow.
 	// +optional
 	// +kubebuilder:validation:MaxLength=253
-	ClusterName string `json:"clusterName,omitempty"`
+	Name string `json:"name,omitempty"`
 	// ClusterIndex is the stable integer in per-cluster resource names. Required on every entry
 	// of a multi-cluster spec, and even on a single entry when each member cluster runs its own
 	// operator. Changing it renames this cluster's resources, orphaning those at the old index.
@@ -880,7 +880,7 @@ func (s *MongoDBSearch) EffectiveClusterFor(clusterName string) (ClusterSpec, er
 		return ClusterSpec{}, errors.New("no clusters are configured in spec.clusters")
 	}
 	for _, c := range clusters {
-		if c.ClusterName == clusterName {
+		if c.Name == clusterName {
 			return c, nil
 		}
 	}
@@ -1158,12 +1158,12 @@ func (s *MongoDBSearch) ValidateSimulatedMCClusterIndices() error {
 	seen := make(map[int32]string, len(s.Spec.Clusters))
 	for _, c := range s.Spec.Clusters {
 		if c.ClusterIndex == nil {
-			return fmt.Errorf("running one operator per cluster requires clusterIndex on every spec.clusters[] entry (missing on %q)", c.ClusterName)
+			return fmt.Errorf("running one operator per cluster requires clusterIndex on every spec.clusters[] entry (missing on %q)", c.Name)
 		}
 		if prev, dup := seen[*c.ClusterIndex]; dup {
-			return fmt.Errorf("clusterIndex %d is set on more than one spec.clusters[] entry (%q and %q); pinned indices must be distinct", *c.ClusterIndex, prev, c.ClusterName)
+			return fmt.Errorf("clusterIndex %d is set on more than one spec.clusters[] entry (%q and %q); pinned indices must be distinct", *c.ClusterIndex, prev, c.Name)
 		}
-		seen[*c.ClusterIndex] = c.ClusterName
+		seen[*c.ClusterIndex] = c.Name
 	}
 	return nil
 }
@@ -1174,7 +1174,7 @@ func (s *MongoDBSearch) LocalizeToCluster(name string) bool {
 		return true
 	}
 	for _, c := range s.Spec.Clusters {
-		if c.ClusterName == name {
+		if c.Name == name {
 			s.Spec.Clusters = []ClusterSpec{c}
 			return true
 		}

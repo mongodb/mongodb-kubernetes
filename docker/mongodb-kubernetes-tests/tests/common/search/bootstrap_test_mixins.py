@@ -340,7 +340,7 @@ class SearchDeploymentTests:
 
 
 class SearchRsDeploymentTests(SearchDeploymentTests):
-    """SC ReplicaSet search deploy. SC = one cluster entry, no clusterName (index 0)."""
+    """SC ReplicaSet search deploy. SC = one cluster entry, no name (index 0)."""
 
     def search_clusters(self) -> list:
         return [

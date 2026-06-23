@@ -10,13 +10,13 @@ import (
 func clusterSpecsNamed(ns ...string) []ClusterSpec {
 	out := make([]ClusterSpec, 0, len(ns))
 	for _, n := range ns {
-		out = append(out, ClusterSpec{ClusterName: n})
+		out = append(out, ClusterSpec{Name: n})
 	}
 	return out
 }
 
 func pinnedSpec(name string, idx int32) ClusterSpec {
-	return ClusterSpec{ClusterName: name, ClusterIndex: ptr.To(idx)}
+	return ClusterSpec{Name: name, ClusterIndex: ptr.To(idx)}
 }
 
 func TestAssignClusterIndices(t *testing.T) {
