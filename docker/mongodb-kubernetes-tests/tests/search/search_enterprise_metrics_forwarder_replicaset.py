@@ -66,7 +66,7 @@ def mdb(namespace: str) -> MongoDB:
 @fixture(scope="function")
 def mdbs(namespace: str) -> MongoDBSearch:
     resource = MongoDBSearch.from_yaml(yaml_fixture("search-minimal.yaml"), namespace=namespace, name=MDB_RESOURCE_NAME)
-    ensure_nested_objects(resource, ["spec", "loadBalancer", "managed"])
+    ensure_nested_objects(resource["spec"]["clusters"][0], ["loadBalancer", "managed"])
     resource["spec"]["clusters"][0]["replicas"] = 1
     try_load(resource)
     return resource
