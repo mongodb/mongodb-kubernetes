@@ -40,3 +40,19 @@ export OPS_MANAGER_API_URL="${OM_BASE_URL}"
 export OPS_MANAGER_API_USER="${OM_USER}"
 export OPS_MANAGER_API_KEY="${OM_API_KEY}"
 export OPS_MANAGER_ORG_ID="${OM_ORGID}"
+
+# Override the user-supplied mongos and shard host placeholders with the
+# operator-managed Services created by the internal_ steps.
+# mongos naming: <resource>-mongos-<clusterIndex>-<memberIndex>-svc
+export MDB_MONGOS_HOST_0="${MDB_RESOURCE_NAME}-mongos-0-0-svc.${MDB_NS}.svc.cluster.local:27017"
+export MDB_MONGOS_HOST_1="${MDB_RESOURCE_NAME}-mongos-1-0-svc.${MDB_NS}.svc.cluster.local:27017"
+export MDB_ADMIN_CONNECTION_STRING="mongodb://mdb-admin:${MDB_ADMIN_USER_PASSWORD}@${MDB_MONGOS_HOST_0},${MDB_MONGOS_HOST_1}/?tls=true&tlsCAFile=/tls/ca.crt&authSource=admin&authMechanism=SCRAM-SHA-256"
+export MDB_USER_CONNECTION_STRING="mongodb://mdb-user:${MDB_USER_PASSWORD}@${MDB_MONGOS_HOST_0},${MDB_MONGOS_HOST_1}/?tls=true&tlsCAFile=/tls/ca.crt&authSource=admin&authMechanism=SCRAM-SHA-256"
+
+# Shard member host naming: <resource>-<shardIndex>-<clusterIndex>-<memberIndex>-svc
+export MDB_SHARD_0_HOST_CL0="${MDB_RESOURCE_NAME}-0-0-0-svc.${MDB_NS}.svc.cluster.local:27017"
+export MDB_SHARD_0_HOST_CL1="${MDB_RESOURCE_NAME}-0-1-0-svc.${MDB_NS}.svc.cluster.local:27017"
+export MDB_SHARD_1_HOST_CL0="${MDB_RESOURCE_NAME}-1-0-0-svc.${MDB_NS}.svc.cluster.local:27017"
+export MDB_SHARD_1_HOST_CL1="${MDB_RESOURCE_NAME}-1-1-0-svc.${MDB_NS}.svc.cluster.local:27017"
+export MDB_SHARD_2_HOST_CL0="${MDB_RESOURCE_NAME}-2-0-0-svc.${MDB_NS}.svc.cluster.local:27017"
+export MDB_SHARD_2_HOST_CL1="${MDB_RESOURCE_NAME}-2-1-0-svc.${MDB_NS}.svc.cluster.local:27017"

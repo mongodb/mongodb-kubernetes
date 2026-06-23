@@ -40,3 +40,13 @@ export OPS_MANAGER_API_URL="${OM_BASE_URL}"
 export OPS_MANAGER_API_USER="${OM_USER}"
 export OPS_MANAGER_API_KEY="${OM_API_KEY}"
 export OPS_MANAGER_ORG_ID="${OM_ORGID}"
+
+# Override the user-supplied RS host placeholders with the operator-managed
+# per-pod Services created by the internal_ steps (naming convention for
+# MongoDBMultiCluster: <resource>-<clusterIndex>-<memberIndex>-svc).
+export MDB_RS_HOST_0_0="${MDB_RESOURCE_NAME}-0-0-svc.${MDB_NS}.svc.cluster.local:27017"
+export MDB_RS_HOST_0_1="${MDB_RESOURCE_NAME}-0-1-svc.${MDB_NS}.svc.cluster.local:27017"
+export MDB_RS_HOST_1_0="${MDB_RESOURCE_NAME}-1-0-svc.${MDB_NS}.svc.cluster.local:27017"
+export MDB_RS_HOST_1_1="${MDB_RESOURCE_NAME}-1-1-svc.${MDB_NS}.svc.cluster.local:27017"
+export MDB_ADMIN_CONNECTION_STRING="mongodb://mdb-admin:${MDB_ADMIN_USER_PASSWORD}@${MDB_RS_HOST_0_0},${MDB_RS_HOST_0_1},${MDB_RS_HOST_1_0},${MDB_RS_HOST_1_1}/?replicaSet=${MDB_RESOURCE_NAME}&tls=true&tlsCAFile=/tls/ca.crt&authSource=admin&authMechanism=SCRAM-SHA-256"
+export MDB_USER_CONNECTION_STRING="mongodb://mdb-user:${MDB_USER_PASSWORD}@${MDB_RS_HOST_0_0},${MDB_RS_HOST_0_1},${MDB_RS_HOST_1_0},${MDB_RS_HOST_1_1}/?replicaSet=${MDB_RESOURCE_NAME}&tls=true&tlsCAFile=/tls/ca.crt&authSource=admin&authMechanism=SCRAM-SHA-256"

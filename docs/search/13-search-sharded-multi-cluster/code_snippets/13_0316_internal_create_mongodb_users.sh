@@ -1,7 +1,7 @@
 echo "Creating password secrets for MongoDB users..."
 
 # User resources are reconciled from the central cluster, like the
-# MongoDBMultiCluster resource they reference.
+# MongoDB resource they reference.
 kubectl apply --context "${K8S_CTX_0}" -n "${MDB_NS}" -f - <<EOF
 apiVersion: v1
 kind: Secret

@@ -19,18 +19,8 @@ for ctx in "${K8S_CTX_0}" "${K8S_CTX_1}"; do
 
   echo "Checking Envoy Deployment..."
   if kubectl get deployment "${envoy_deployment}" -n "${MDB_NS}" --context "${ctx}" &>/dev/null; then
-    ready=$(kubectl get deployment "${envoy_deployment}" -n "${MDB_NS}" --context "${ctx}" \
-      -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
-    desired=$(kubectl get deployment "${envoy_deployment}" -n "${MDB_NS}" --context "${ctx}" \
-      -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "1")
-
-    if [[ "${ready}" -ge "${desired}" ]]; then
-      echo "  [ok] Deployment '${envoy_deployment}' is ready (${ready}/${desired} replicas)"
-    else
-      echo "  [warn] Deployment '${envoy_deployment}' is not fully ready (${ready}/${desired} replicas)"
-      echo "    Waiting for Envoy pods..."
-      kubectl rollout status deployment/"${envoy_deployment}" -n "${MDB_NS}" --context "${ctx}" --timeout=120s
-    fi
+    kubectl rollout status deployment/"${envoy_deployment}" -n "${MDB_NS}" --context "${ctx}" --timeout=120s
+    echo "  [ok] Deployment '${envoy_deployment}' is ready"
   else
     echo "  [FAIL] Deployment '${envoy_deployment}' NOT FOUND" >&2
   fi

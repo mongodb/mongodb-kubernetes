@@ -104,17 +104,29 @@ export ENVOY_PROXY_PORT
 # Cluster 0's Envoy proxy Services (operator-derived, do not change). mongos
 # routes search traffic through the cluster-level proxy Service; each shard's
 # mongods route through their per-shard proxy Service -- all on cluster 0,
-# see 13_0310_create_mongodb_mc_sharded.sh.
+# see 13_0310_internal_create_mongodb_mc_sharded.sh.
 export MDB_PROXY_HOST_0="${MDB_SEARCH_RESOURCE_NAME}-search-0-proxy-svc.${MDB_NS}.svc.cluster.local:${ENVOY_PROXY_PORT}"
 export MDB_PROXY_HOST_SHARD_0="${MDB_SEARCH_RESOURCE_NAME}-search-0-${MDB_SHARD_0_NAME}-proxy-svc.${MDB_NS}.svc.cluster.local:${ENVOY_PROXY_PORT}"
 export MDB_PROXY_HOST_SHARD_1="${MDB_SEARCH_RESOURCE_NAME}-search-0-${MDB_SHARD_1_NAME}-proxy-svc.${MDB_NS}.svc.cluster.local:${ENVOY_PROXY_PORT}"
 export MDB_PROXY_HOST_SHARD_2="${MDB_SEARCH_RESOURCE_NAME}-search-0-${MDB_SHARD_2_NAME}-proxy-svc.${MDB_NS}.svc.cluster.local:${ENVOY_PROXY_PORT}"
 
-# mongos router endpoints (operator naming convention for multi-cluster:
-# <resource>-mongos-<clusterIndex>-<memberIndex>-svc)
-export MDB_MONGOS_HOST_0="${MDB_RESOURCE_NAME}-mongos-0-0-svc.${MDB_NS}.svc.cluster.local:27017"
-export MDB_MONGOS_HOST_1="${MDB_RESOURCE_NAME}-mongos-1-0-svc.${MDB_NS}.svc.cluster.local:27017"
+# mongos router endpoints supplied by you. Replace each placeholder with the
+# actual mongos host reachable from your Kubernetes cluster. For CI,
+# env_variables_e2e_private.sh overrides these with the operator-managed
+# Services (naming: <resource>-mongos-<clusterIndex>-<memberIndex>-svc).
+export MDB_MONGOS_HOST_0="<your-mongos-cluster0-host:27017>"
+export MDB_MONGOS_HOST_1="<your-mongos-cluster1-host:27017>"
 
-# Connection strings (built from the mongos hosts)
+# Per-shard mongod host:port for each member cluster supplied by you.
+# Replace each placeholder. For CI, env_variables_e2e_private.sh overrides
+# these (naming: <resource>-<shardIndex>-<clusterIndex>-<memberIndex>-svc).
+export MDB_SHARD_0_HOST_CL0="<your-shard-0-cluster0-host:27017>"
+export MDB_SHARD_0_HOST_CL1="<your-shard-0-cluster1-host:27017>"
+export MDB_SHARD_1_HOST_CL0="<your-shard-1-cluster0-host:27017>"
+export MDB_SHARD_1_HOST_CL1="<your-shard-1-cluster1-host:27017>"
+export MDB_SHARD_2_HOST_CL0="<your-shard-2-cluster0-host:27017>"
+export MDB_SHARD_2_HOST_CL1="<your-shard-2-cluster1-host:27017>"
+
+# Connection strings (built from the mongos hosts above)
 export MDB_ADMIN_CONNECTION_STRING="mongodb://mdb-admin:${MDB_ADMIN_USER_PASSWORD}@${MDB_MONGOS_HOST_0},${MDB_MONGOS_HOST_1}/?tls=true&tlsCAFile=/tls/ca.crt&authSource=admin&authMechanism=SCRAM-SHA-256"
 export MDB_USER_CONNECTION_STRING="mongodb://mdb-user:${MDB_USER_PASSWORD}@${MDB_MONGOS_HOST_0},${MDB_MONGOS_HOST_1}/?tls=true&tlsCAFile=/tls/ca.crt&authSource=admin&authMechanism=SCRAM-SHA-256"

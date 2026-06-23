@@ -93,16 +93,18 @@ ENVOY_PROXY_PORT="27028"
 export ENVOY_PROXY_PORT
 
 # Cluster 0's Envoy proxy Service (operator-derived, do not change). All mongod
-# members route search traffic here -- see 12_0310_create_mongodb_mc_rs.sh.
+# members route search traffic here -- see 12_0310_internal_create_mongodb_mc_rs.sh.
 export MDB_PROXY_HOST_0="${MDB_SEARCH_RESOURCE_NAME}-search-0-proxy-svc.${MDB_NS}.svc.cluster.local:${ENVOY_PROXY_PORT}"
 
-# Per-pod Service FQDNs of the replica set members (operator naming convention
-# for MongoDBMultiCluster: <resource>-<clusterIndex>-<memberIndex>-svc)
-export MDB_RS_HOST_0_0="${MDB_RESOURCE_NAME}-0-0-svc.${MDB_NS}.svc.cluster.local:27017"
-export MDB_RS_HOST_0_1="${MDB_RESOURCE_NAME}-0-1-svc.${MDB_NS}.svc.cluster.local:27017"
-export MDB_RS_HOST_1_0="${MDB_RESOURCE_NAME}-1-0-svc.${MDB_NS}.svc.cluster.local:27017"
-export MDB_RS_HOST_1_1="${MDB_RESOURCE_NAME}-1-1-svc.${MDB_NS}.svc.cluster.local:27017"
+# Per-pod Service host:port of the replica set members supplied by you.
+# Replace each placeholder with the actual host reachable from your Kubernetes
+# cluster. For CI, env_variables_e2e_private.sh overrides these with the
+# operator-managed Services (naming: <resource>-<clusterIndex>-<memberIndex>-svc).
+export MDB_RS_HOST_0_0="<your-rs-member-cluster0-0-host:27017>"
+export MDB_RS_HOST_0_1="<your-rs-member-cluster0-1-host:27017>"
+export MDB_RS_HOST_1_0="<your-rs-member-cluster1-0-host:27017>"
+export MDB_RS_HOST_1_1="<your-rs-member-cluster1-1-host:27017>"
 
-# Connection strings (built from the per-pod Service hosts)
+# Connection strings (built from the per-pod Service hosts above)
 export MDB_ADMIN_CONNECTION_STRING="mongodb://mdb-admin:${MDB_ADMIN_USER_PASSWORD}@${MDB_RS_HOST_0_0},${MDB_RS_HOST_0_1},${MDB_RS_HOST_1_0},${MDB_RS_HOST_1_1}/?replicaSet=${MDB_RESOURCE_NAME}&tls=true&tlsCAFile=/tls/ca.crt&authSource=admin&authMechanism=SCRAM-SHA-256"
 export MDB_USER_CONNECTION_STRING="mongodb://mdb-user:${MDB_USER_PASSWORD}@${MDB_RS_HOST_0_0},${MDB_RS_HOST_0_1},${MDB_RS_HOST_1_0},${MDB_RS_HOST_1_1}/?replicaSet=${MDB_RESOURCE_NAME}&tls=true&tlsCAFile=/tls/ca.crt&authSource=admin&authMechanism=SCRAM-SHA-256"
