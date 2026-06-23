@@ -532,7 +532,7 @@ def create_project_config_map(om: MongoDBOpsManager, mdb_name, project_name, cli
 
 @mark.e2e_multi_cluster_om_appdb_no_mesh
 def test_deploy_operator(multi_cluster_operator_with_monitored_appdb: Operator):
-    multi_cluster_operator_with_monitored_appdb.assert_is_running()
+    multi_cluster_operator_with_monitored_appdb.assert_is_running(multi_cluster=True)
 
 
 @mark.e2e_multi_cluster_om_appdb_no_mesh

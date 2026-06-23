@@ -189,7 +189,7 @@ def test_delete_cluster_role_and_binding(
 
 @mark.e2e_multi_cluster_recover_clusterwide
 def test_deploy_operator(install_operator: Operator):
-    install_operator.assert_is_running()
+    install_operator.assert_is_running(multi_cluster=True)
 
 
 @mark.e2e_multi_cluster_recover_clusterwide
@@ -334,7 +334,7 @@ def test_recover_operator_remove_cluster(
         api_client=central_cluster_client,
     )
     operator._wait_for_operator_ready()
-    operator.assert_is_running()
+    operator.assert_is_running(multi_cluster=True)
 
 
 @mark.e2e_multi_cluster_recover_clusterwide

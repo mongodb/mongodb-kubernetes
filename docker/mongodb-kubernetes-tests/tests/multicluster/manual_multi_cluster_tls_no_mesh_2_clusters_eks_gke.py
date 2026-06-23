@@ -131,7 +131,7 @@ def server_certs(
 
 
 def test_deploy_operator(multi_cluster_operator: Operator):
-    multi_cluster_operator.assert_is_running()
+    multi_cluster_operator.assert_is_running(multi_cluster=True)
 
 
 def test_create_mongodb_multi(

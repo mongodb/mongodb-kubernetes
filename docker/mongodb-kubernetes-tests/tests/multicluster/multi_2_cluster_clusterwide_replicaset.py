@@ -186,7 +186,7 @@ def test_create_namespaces(
 
 @pytest.mark.e2e_multi_cluster_2_clusters_clusterwide
 def test_deploy_operator(multi_cluster_operator_clustermode: Operator):
-    multi_cluster_operator_clustermode.assert_is_running()
+    multi_cluster_operator_clustermode.assert_is_running(multi_cluster=True)
 
 
 @pytest.mark.e2e_multi_cluster_2_clusters_clusterwide

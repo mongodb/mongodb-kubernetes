@@ -121,7 +121,7 @@ def sharded_cluster(
 
 @mark.e2e_multi_cluster_sharded_tls
 def test_deploy_operator(multi_cluster_operator: Operator):
-    multi_cluster_operator.assert_is_running()
+    multi_cluster_operator.assert_is_running(multi_cluster=True)
 
 
 @mark.e2e_multi_cluster_sharded_tls

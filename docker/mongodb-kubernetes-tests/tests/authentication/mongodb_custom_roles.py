@@ -350,7 +350,7 @@ def test_removing_role_from_resources(replica_set: MongoDB, sharded_cluster: Mon
 
 @mark.e2e_mongodb_custom_roles
 def test_install_operator_with_clustermongodbroles_disabled(multi_cluster_operator_no_cluster_mongodb_roles):
-    multi_cluster_operator_no_cluster_mongodb_roles.assert_is_running()
+    multi_cluster_operator_no_cluster_mongodb_roles.assert_is_running(multi_cluster=True)
 
 
 @mark.e2e_mongodb_custom_roles
