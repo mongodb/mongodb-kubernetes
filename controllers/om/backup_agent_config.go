@@ -79,6 +79,12 @@ func (bac *BackupAgentConfig) UnsetLdapGroupDN() {
 	bac.BackupAgentTemplate.LdapGroupDN = util.MergoDelete
 }
 
+// LogPath returns the logPath from the BackingMap, or empty if absent.
+func (bac *BackupAgentConfig) LogPath() string {
+	logPath, _ := bac.BackingMap["logPath"].(string)
+	return logPath
+}
+
 func BuildBackupAgentConfigFromBytes(jsonBytes []byte) (*BackupAgentConfig, error) {
 	fullMap := make(map[string]interface{})
 	if err := json.Unmarshal(jsonBytes, &fullMap); err != nil {
