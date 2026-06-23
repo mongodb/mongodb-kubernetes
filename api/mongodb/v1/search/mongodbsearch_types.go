@@ -136,7 +136,7 @@ type ClusterSpec struct {
 	// MaxLength is 253 — the DNS subdomain limit Kubernetes cluster names follow.
 	// +optional
 	// +kubebuilder:validation:MaxLength=253
-	ClusterName string `json:"name,omitempty"`
+	Name string `json:"name,omitempty"`
 	// ClusterIndex is the stable integer in per-cluster resource names. Required on every entry
 	// of a multi-cluster spec, and even on a single entry when each member cluster runs its own
 	// operator. Changing it renames this cluster's resources, orphaning those at the old index.
@@ -880,7 +880,7 @@ func (s *MongoDBSearch) EffectiveClusterFor(clusterName string) (ClusterSpec, er
 		return ClusterSpec{}, errors.New("no clusters are configured in spec.clusters")
 	}
 	for _, c := range clusters {
-		if c.ClusterName == clusterName {
+		if c.Name == clusterName {
 			return c, nil
 		}
 	}
@@ -1158,12 +1158,12 @@ func (s *MongoDBSearch) ValidateSimulatedMCClusterIndices() error {
 	seen := make(map[int32]string, len(s.Spec.Clusters))
 	for _, c := range s.Spec.Clusters {
 		if c.ClusterIndex == nil {
-			return fmt.Errorf("running one operator per cluster requires clusterIndex on every spec.clusters[] entry (missing on %q)", c.ClusterName)
+			return fmt.Errorf("running one operator per cluster requires clusterIndex on every spec.clusters[] entry (missing on %q)", c.Name)
 		}
 		if prev, dup := seen[*c.ClusterIndex]; dup {
-			return fmt.Errorf("clusterIndex %d is set on more than one spec.clusters[] entry (%q and %q); pinned indices must be distinct", *c.ClusterIndex, prev, c.ClusterName)
+			return fmt.Errorf("clusterIndex %d is set on more than one spec.clusters[] entry (%q and %q); pinned indices must be distinct", *c.ClusterIndex, prev, c.Name)
 		}
-		seen[*c.ClusterIndex] = c.ClusterName
+		seen[*c.ClusterIndex] = c.Name
 	}
 	return nil
 }
@@ -1174,7 +1174,7 @@ func (s *MongoDBSearch) LocalizeToCluster(name string) bool {
 		return true
 	}
 	for _, c := range s.Spec.Clusters {
-		if c.ClusterName == name {
+		if c.Name == name {
 			s.Spec.Clusters = []ClusterSpec{c}
 			return true
 		}

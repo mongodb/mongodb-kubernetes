@@ -233,7 +233,7 @@ func TestValidateClustersSyncSourceSelector(t *testing.T) {
 			s := &MongoDBSearch{
 				ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"},
 				Spec: MongoDBSearchSpec{
-					Clusters: []ClusterSpec{{ClusterName: "us-east-k8s", SyncSourceSelector: tt.selector}},
+					Clusters: []ClusterSpec{{Name: "us-east-k8s", SyncSourceSelector: tt.selector}},
 				},
 			}
 			res := validateClustersSyncSourceSelector(s)
@@ -254,10 +254,10 @@ func TestValidateClustersUniqueClusterName(t *testing.T) {
 		errorContains string
 	}{
 		{name: "single empty clusterName", clusters: []ClusterSpec{{}}},
-		{name: "two unique names", clusters: []ClusterSpec{{ClusterName: "a"}, {ClusterName: "b"}}},
+		{name: "two unique names", clusters: []ClusterSpec{{Name: "a"}, {Name: "b"}}},
 		{
 			name:          "duplicate names",
-			clusters:      []ClusterSpec{{ClusterName: "a"}, {ClusterName: "a"}},
+			clusters:      []ClusterSpec{{Name: "a"}, {Name: "a"}},
 			errorContains: "duplicate",
 		},
 		{
@@ -290,7 +290,7 @@ func TestValidateMCExternalHostnames(t *testing.T) {
 	mkSearch := func(hostnames []string, sharded bool) *MongoDBSearch {
 		clusters := make([]ClusterSpec, 0, len(hostnames))
 		for i, hn := range hostnames {
-			c := ClusterSpec{ClusterName: "cluster-" + strconv.Itoa(i)}
+			c := ClusterSpec{Name: "cluster-" + strconv.Itoa(i)}
 			if hn != "" {
 				c.LoadBalancer = managedLBWithHostname(hn)
 			}
@@ -368,7 +368,7 @@ func TestValidateExternalHostnameDNSLength(t *testing.T) {
 	mkSearch := func(hostnames []string, shardNames []string) *MongoDBSearch {
 		clusters := make([]ClusterSpec, 0, len(hostnames))
 		for i, hn := range hostnames {
-			c := ClusterSpec{ClusterName: "cluster-" + strconv.Itoa(i)}
+			c := ClusterSpec{Name: "cluster-" + strconv.Itoa(i)}
 			if hn != "" {
 				c.LoadBalancer = managedLBWithHostname(hn)
 			}
@@ -494,8 +494,8 @@ func TestValidateMCRequiresManagedLB(t *testing.T) {
 			s := &MongoDBSearch{
 				ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"},
 				Spec: MongoDBSearchSpec{Clusters: []ClusterSpec{
-					{ClusterName: "us-east-k8s", LoadBalancer: tt.lb},
-					{ClusterName: "eu-west-k8s", LoadBalancer: tt.lb},
+					{Name: "us-east-k8s", LoadBalancer: tt.lb},
+					{Name: "eu-west-k8s", LoadBalancer: tt.lb},
 				}},
 			}
 			res := validateMCRequiresManagedLB(s)
@@ -525,12 +525,12 @@ func TestValidateClustersClusterNameNonEmpty(t *testing.T) {
 		},
 		{
 			name:          "MC with empty clusterName at index 1",
-			clusters:      []ClusterSpec{pinnedSpec("us-east-k8s", 0), {ClusterName: ""}},
+			clusters:      []ClusterSpec{pinnedSpec("us-east-k8s", 0), {Name: ""}},
 			errorContains: "spec.clusters[1].name is required",
 		},
 		{
 			name:          "MC with empty clusterName at index 0",
-			clusters:      []ClusterSpec{{ClusterName: ""}, pinnedSpec("eu-west-k8s", 1)},
+			clusters:      []ClusterSpec{{Name: ""}, pinnedSpec("eu-west-k8s", 1)},
 			errorContains: "spec.clusters[0].name is required",
 		},
 		{
@@ -538,7 +538,7 @@ func TestValidateClustersClusterNameNonEmpty(t *testing.T) {
 			// "duplicate" — validateClustersUniqueClusterName skips empties so the
 			// non-empty rule wins regardless of validator-group ordering.
 			name:          "MC with two empty clusterNames reports is-required, not duplicate",
-			clusters:      []ClusterSpec{{ClusterName: ""}, {ClusterName: ""}},
+			clusters:      []ClusterSpec{{Name: ""}, {Name: ""}},
 			errorContains: "spec.clusters[0].name is required",
 		},
 	}
@@ -587,22 +587,22 @@ func TestValidateMCMatchTagsNonEmpty(t *testing.T) {
 		{
 			name: "MC nil matchTags inherits",
 			clusters: []ClusterSpec{
-				{ClusterName: "us-east-k8s", ClusterIndex: ptr.To(int32(0)), SyncSourceSelector: &SyncSourceSelector{Hosts: []string{"h:27017"}}},
-				{ClusterName: "eu-west-k8s", ClusterIndex: ptr.To(int32(1)), SyncSourceSelector: &SyncSourceSelector{Hosts: []string{"h:27017"}}},
+				{Name: "us-east-k8s", ClusterIndex: ptr.To(int32(0)), SyncSourceSelector: &SyncSourceSelector{Hosts: []string{"h:27017"}}},
+				{Name: "eu-west-k8s", ClusterIndex: ptr.To(int32(1)), SyncSourceSelector: &SyncSourceSelector{Hosts: []string{"h:27017"}}},
 			},
 		},
 		{
 			name: "MC populated matchTags",
 			clusters: []ClusterSpec{
-				{ClusterName: "us-east-k8s", ClusterIndex: ptr.To(int32(0)), SyncSourceSelector: &SyncSourceSelector{MatchTags: map[string]string{"region": "us-east"}}},
-				{ClusterName: "eu-west-k8s", ClusterIndex: ptr.To(int32(1)), SyncSourceSelector: &SyncSourceSelector{MatchTags: map[string]string{"region": "eu-west"}}},
+				{Name: "us-east-k8s", ClusterIndex: ptr.To(int32(0)), SyncSourceSelector: &SyncSourceSelector{MatchTags: map[string]string{"region": "us-east"}}},
+				{Name: "eu-west-k8s", ClusterIndex: ptr.To(int32(1)), SyncSourceSelector: &SyncSourceSelector{MatchTags: map[string]string{"region": "eu-west"}}},
 			},
 		},
 		{
 			name: "MC empty matchTags rejected",
 			clusters: []ClusterSpec{
-				{ClusterName: "us-east-k8s", ClusterIndex: ptr.To(int32(0)), SyncSourceSelector: &SyncSourceSelector{MatchTags: map[string]string{"region": "us-east"}}},
-				{ClusterName: "eu-west-k8s", ClusterIndex: ptr.To(int32(1)), SyncSourceSelector: &SyncSourceSelector{MatchTags: map[string]string{}}},
+				{Name: "us-east-k8s", ClusterIndex: ptr.To(int32(0)), SyncSourceSelector: &SyncSourceSelector{MatchTags: map[string]string{"region": "us-east"}}},
+				{Name: "eu-west-k8s", ClusterIndex: ptr.To(int32(1)), SyncSourceSelector: &SyncSourceSelector{MatchTags: map[string]string{}}},
 			},
 			errorContains: "spec.clusters[1].syncSourceSelector.matchTags cannot be empty",
 		},
@@ -642,7 +642,7 @@ func TestValidateClustersClusterIndexRequired(t *testing.T) {
 	}{
 		{
 			name:     "single-entry unpinned allowed",
-			clusters: []ClusterSpec{{ClusterName: "us-east-k8s"}},
+			clusters: []ClusterSpec{{Name: "us-east-k8s"}},
 		},
 		{
 			name:     "MC all pinned distinct",
@@ -650,12 +650,12 @@ func TestValidateClustersClusterIndexRequired(t *testing.T) {
 		},
 		{
 			name:          "MC missing clusterIndex at index 0",
-			clusters:      []ClusterSpec{{ClusterName: "us-east-k8s"}, pinnedSpec("eu-west-k8s", 1)},
+			clusters:      []ClusterSpec{{Name: "us-east-k8s"}, pinnedSpec("eu-west-k8s", 1)},
 			errorContains: "spec.clusters[0].clusterIndex is required when len(spec.clusters) > 1",
 		},
 		{
 			name:          "MC missing clusterIndex at index 1",
-			clusters:      []ClusterSpec{pinnedSpec("us-east-k8s", 0), {ClusterName: "eu-west-k8s"}},
+			clusters:      []ClusterSpec{pinnedSpec("us-east-k8s", 0), {Name: "eu-west-k8s"}},
 			errorContains: "spec.clusters[1].clusterIndex is required when len(spec.clusters) > 1",
 		},
 		{
@@ -726,8 +726,8 @@ func TestValidateMCRequiresExternalSource(t *testing.T) {
 	mdbBad := &MongoDBSearch{
 		Spec: MongoDBSearchSpec{
 			Clusters: []ClusterSpec{
-				{ClusterName: "cluster-a"},
-				{ClusterName: "cluster-b"},
+				{Name: "cluster-a"},
+				{Name: "cluster-b"},
 			},
 		},
 	}
@@ -740,8 +740,8 @@ func TestValidateMCRequiresExternalSource(t *testing.T) {
 	mdbRS := &MongoDBSearch{
 		Spec: MongoDBSearchSpec{
 			Clusters: []ClusterSpec{
-				{ClusterName: "cluster-a"},
-				{ClusterName: "cluster-b"},
+				{Name: "cluster-a"},
+				{Name: "cluster-b"},
 			},
 			Source: &MongoDBSource{
 				ExternalMongoDBSource: &ExternalMongoDBSource{
@@ -755,8 +755,8 @@ func TestValidateMCRequiresExternalSource(t *testing.T) {
 	mdbSharded := &MongoDBSearch{
 		Spec: MongoDBSearchSpec{
 			Clusters: []ClusterSpec{
-				{ClusterName: "cluster-a"},
-				{ClusterName: "cluster-b"},
+				{Name: "cluster-a"},
+				{Name: "cluster-b"},
 			},
 			Source: &MongoDBSource{
 				ExternalMongoDBSource: &ExternalMongoDBSource{
@@ -785,34 +785,34 @@ func TestValidateLBConfig(t *testing.T) {
 	}{
 		{
 			name:     "no LB anywhere ok",
-			clusters: []ClusterSpec{{ClusterName: "a"}, {ClusterName: "b"}},
+			clusters: []ClusterSpec{{Name: "a"}, {Name: "b"}},
 		},
 		{
 			name:     "managed everywhere ok",
-			clusters: []ClusterSpec{{ClusterName: "a", LoadBalancer: managed}, {ClusterName: "b", LoadBalancer: managed}},
+			clusters: []ClusterSpec{{Name: "a", LoadBalancer: managed}, {Name: "b", LoadBalancer: managed}},
 		},
 		{
 			name:     "unmanaged everywhere ok",
-			clusters: []ClusterSpec{{ClusterName: "a", LoadBalancer: unmanaged}, {ClusterName: "b", LoadBalancer: unmanaged}},
+			clusters: []ClusterSpec{{Name: "a", LoadBalancer: unmanaged}, {Name: "b", LoadBalancer: unmanaged}},
 		},
 		{
 			name:          "neither managed nor unmanaged rejected",
-			clusters:      []ClusterSpec{{ClusterName: "a", LoadBalancer: &LoadBalancerConfig{}}},
+			clusters:      []ClusterSpec{{Name: "a", LoadBalancer: &LoadBalancerConfig{}}},
 			errorContains: "exactly one of 'managed' or 'unmanaged'",
 		},
 		{
 			name:          "both managed and unmanaged rejected",
-			clusters:      []ClusterSpec{{ClusterName: "a", LoadBalancer: &LoadBalancerConfig{Managed: &ManagedLBConfig{}, Unmanaged: &UnmanagedLBConfig{Endpoint: "e:443"}}}},
+			clusters:      []ClusterSpec{{Name: "a", LoadBalancer: &LoadBalancerConfig{Managed: &ManagedLBConfig{}, Unmanaged: &UnmanagedLBConfig{Endpoint: "e:443"}}}},
 			errorContains: "mutually exclusive",
 		},
 		{
 			name:          "partial presence rejected",
-			clusters:      []ClusterSpec{{ClusterName: "a", LoadBalancer: managed}, {ClusterName: "b"}},
+			clusters:      []ClusterSpec{{Name: "a", LoadBalancer: managed}, {Name: "b"}},
 			errorContains: "every cluster or on none",
 		},
 		{
 			name:          "mixed modes rejected",
-			clusters:      []ClusterSpec{{ClusterName: "a", LoadBalancer: managed}, {ClusterName: "b", LoadBalancer: unmanaged}},
+			clusters:      []ClusterSpec{{Name: "a", LoadBalancer: managed}, {Name: "b", LoadBalancer: unmanaged}},
 			errorContains: "cannot be mixed",
 		},
 	}
@@ -870,7 +870,7 @@ func TestValidateClustersEnvoyResourceNames(t *testing.T) {
 			if tt.clusterNames != nil {
 				clusters := make([]ClusterSpec, 0, len(tt.clusterNames))
 				for _, cn := range tt.clusterNames {
-					clusters = append(clusters, ClusterSpec{ClusterName: cn})
+					clusters = append(clusters, ClusterSpec{Name: cn})
 				}
 				s.Spec.Clusters = clusters
 			}
@@ -1086,8 +1086,8 @@ func TestValidateShardOverrides(t *testing.T) {
 	t.Run("same shard overridden in different clusters is allowed", func(t *testing.T) {
 		s := newSearch("my-search", []ExternalShardConfig{shard("shard-0")}, "", false, false)
 		s.Spec.Clusters = []ClusterSpec{
-			{ClusterName: "east", ShardOverrides: []ShardOverride{{ShardNames: []string{"shard-0"}}}},
-			{ClusterName: "west", ShardOverrides: []ShardOverride{{ShardNames: []string{"shard-0"}}}},
+			{Name: "east", ShardOverrides: []ShardOverride{{ShardNames: []string{"shard-0"}}}},
+			{Name: "west", ShardOverrides: []ShardOverride{{ShardNames: []string{"shard-0"}}}},
 		}
 		assert.Equal(t, v1.SuccessLevel, validateShardOverrides(s).Level)
 	})

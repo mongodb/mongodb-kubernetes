@@ -473,7 +473,7 @@ func validateX509AuthConfig(s *MongoDBSearch) v1.ValidationResult {
 // actionable hint instead of "duplicate".
 func validateClustersClusterNameNonEmpty(s *MongoDBSearch) v1.ValidationResult {
 	for i, c := range s.Spec.Clusters {
-		if c.ClusterName == "" {
+		if c.Name == "" {
 			return v1.ValidationError(
 				"spec.clusters[%d].name is required when len(spec.clusters) > 1",
 				i,
@@ -509,16 +509,16 @@ func validateClustersClusterIndexRequired(s *MongoDBSearch) v1.ValidationResult 
 func validateClustersUniqueClusterName(s *MongoDBSearch) v1.ValidationResult {
 	seen := make(map[string]int, len(s.Spec.Clusters))
 	for i, c := range s.Spec.Clusters {
-		if c.ClusterName == "" {
+		if c.Name == "" {
 			continue
 		}
-		if first, dup := seen[c.ClusterName]; dup {
+		if first, dup := seen[c.Name]; dup {
 			return v1.ValidationError(
 				"duplicate name %q in spec.clusters (entries %d and %d)",
-				c.ClusterName, first, i,
+				c.Name, first, i,
 			)
 		}
-		seen[c.ClusterName] = i
+		seen[c.Name] = i
 	}
 	return v1.ValidationSuccess()
 }
@@ -550,7 +550,7 @@ func validateClustersSyncSourceSelector(s *MongoDBSearch) v1.ValidationResult {
 // validateResourceName.
 func validateClustersEnvoyResourceNames(s *MongoDBSearch) v1.ValidationResult {
 	for i, c := range s.Spec.Clusters {
-		if c.ClusterName == "" {
+		if c.Name == "" {
 			continue
 		}
 		resources := []shardResourceName{
@@ -566,7 +566,7 @@ func validateClustersEnvoyResourceNames(s *MongoDBSearch) v1.ValidationResult {
 			},
 		}
 		for _, resource := range resources {
-			if err := validateResourceName(resource, s.Name, c.ClusterName); err != nil {
+			if err := validateResourceName(resource, s.Name, c.Name); err != nil {
 				return v1.ValidationError("%s", err.Error())
 			}
 		}
