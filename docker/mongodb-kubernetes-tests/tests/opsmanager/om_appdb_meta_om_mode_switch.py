@@ -2,7 +2,7 @@ import time
 from typing import Iterator, Optional
 
 import pymongo
-from kubetester import create_or_update_secret, delete_pod, delete_pvc, read_secret, try_load
+from kubetester import create_or_update_secret, delete_pvc, delete_statefulset, read_secret, try_load
 from kubetester.awss3client import AwsS3Client
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.omtester import OMTester
@@ -313,13 +313,17 @@ class TestPITRAfterDisaster:
         closed slice for OM to accept the restore request."""
         time.sleep(300)
 
-    def test_delete_appdb_pvcs_and_pods(self, primary_ops_manager: MongoDBOpsManager, namespace: str):
-        """Simulate total data loss: delete all AppDB PVCs and pods."""
+    def test_delete_appdb_pvcs_and_statefulset(self, primary_ops_manager: MongoDBOpsManager, namespace: str):
+        """Simulate total data loss: delete all AppDB PVCs then the StatefulSet.
+        PVCs are deleted first (enter Terminating, held by pvc-protection finalizer while pods run).
+        Deleting the StatefulSet with Foreground cascade terminates all pods simultaneously,
+        which removes the pvc-protection finalizer from all PVCs at once — all PVCs are
+        fully deleted before the operator can recreate the StatefulSet with fresh empty PVCs."""
         sts_name = primary_ops_manager.app_db_name()
         members = primary_ops_manager.get_appdb_members_count()
         for i in range(members):
             delete_pvc(namespace, f"data-{sts_name}-{i}")
-            delete_pod(namespace, f"{sts_name}-{i}")
+        delete_statefulset(namespace, sts_name, propagation_policy="Foreground")
 
     def test_appdb_reaches_running_after_recreation(self, primary_ops_manager: MongoDBOpsManager):
         """Wait for the StatefulSet to recreate AppDB pods with fresh empty PVCs."""
@@ -435,7 +439,7 @@ class TestSnapshotRestore:
         members = primary_ops_manager.get_appdb_members_count()
         for i in range(members):
             delete_pvc(namespace, f"data-{sts_name}-{i}")
-            delete_pod(namespace, f"{sts_name}-{i}")
+        delete_statefulset(namespace, sts_name, propagation_policy="Foreground")
 
     def test_appdb_reaches_running_after_recreation(self, primary_ops_manager: MongoDBOpsManager):
         """Operator recreates AppDB with empty PVCs; agent reconnects to Meta OM."""
@@ -444,9 +448,9 @@ class TestSnapshotRestore:
     def test_appdb_connectable_after_recreation(self, primary_appdb_collection):
         """Wait until AppDB accepts connections after pod/PVC recreation.
         The CRD Running status can be stale so this is the real connectivity barrier.
-        Note: data may still be present — sequential PVC deletion lets surviving members
-        replicate to freshly-recreated pods before all three are wiped. That is expected
-        and does not affect snapshot restore (which overwrites whatever is there)."""
+        Note: data may still be present if RS replication completed before all pods were
+        terminated. That is expected and does not affect snapshot restore (which overwrites
+        whatever is there)."""
         start = time.time()
         timeout = 1800
         last_error = None
