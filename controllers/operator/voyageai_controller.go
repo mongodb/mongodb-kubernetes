@@ -225,6 +225,14 @@ func (r *VoyageAIReconciler) ensureDeployment(ctx context.Context, vai *vaiv1.Vo
 			))
 	}
 
+	// The default security context sets readOnlyRootFilesystem=true, so the
+	// container cannot write to the root filesystem. Mount an emptyDir at /tmp
+	// to provide a writable scratch space for temporary files.
+	tmpVolume := statefulset.CreateVolumeFromEmptyDir("tmp")
+	tmpVolumeMount := statefulset.CreateVolumeMount("tmp", "/tmp", statefulset.WithReadOnly(false))
+	podTemplateMods = append(podTemplateMods, podtemplatespec.WithVolume(tmpVolume))
+	containerMods = append(containerMods, container.WithVolumeMounts([]corev1.VolumeMount{tmpVolumeMount}))
+
 	if vai.Spec.NodeAffinity != nil {
 		podTemplateMods = append(podTemplateMods, func(pts *corev1.PodTemplateSpec) {
 			pts.Spec.Affinity = &corev1.Affinity{NodeAffinity: vai.Spec.NodeAffinity}
@@ -278,6 +286,23 @@ func (r *VoyageAIReconciler) ensureDeployment(ctx context.Context, vai *vaiv1.Vo
 
 func buildEnvVars(spec *vaiv1.VoyageAISpec, tlsEnabled bool) []corev1.EnvVar {
 	envs := []corev1.EnvVar{
+		// The default security context runs as UID 2000 which has no /etc/passwd
+		// entry. Python's getpass.getuser() calls pwd.getpwuid(os.getuid()) and
+		// raises KeyError when the UID is missing. Setting USER makes getuser()
+		// return early from the environment without the passwd lookup. This fixes
+		// crashes in PyTorch/vLLM code paths (both the main process and any
+		// subprocesses they spawn) that call getuser() to build cache directory
+		// paths.
+		{Name: "USER", Value: "voyageai"},
+		// Set HOME so that tools using ~/.cache (e.g. flashinfer JIT workspace,
+		// HuggingFace hub) write under /tmp instead of the read-only root
+		// filesystem.
+		{Name: "HOME", Value: "/tmp"},
+		// PyTorch's TorchInductor derives its default cache directory by resolving
+		// the current UID via getpwuid(), which fails when the UID (set by the
+		// default security context) has no /etc/passwd entry. Point it at /tmp
+		// explicitly so it never attempts the lookup.
+		{Name: "TORCHINDUCTOR_CACHE_DIR", Value: "/tmp/torchinductor_cache"},
 		// Internal hardcoded paths
 		{Name: "SERVER__INFO_PATH", Value: "/info"},
 		{Name: "SERVER__STARTUP_PATH", Value: voyageAIStartupPath},

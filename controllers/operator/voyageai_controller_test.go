@@ -267,6 +267,22 @@ func TestVoyageAI_DeploymentSpec(t *testing.T) {
 	require.NotNil(t, dep.Spec.Selector)
 	assert.Equal(t, "voyageai", dep.Spec.Selector.MatchLabels["app.kubernetes.io/name"])
 	assert.Equal(t, "vai", dep.Spec.Selector.MatchLabels["app.kubernetes.io/instance"])
+
+	// tmp emptyDir must always be present (readOnlyRootFilesystem requires a writable /tmp)
+	volNames := map[string]bool{}
+	for _, v := range dep.Spec.Template.Spec.Volumes {
+		volNames[v.Name] = true
+	}
+	assert.True(t, volNames["tmp"], "tmp volume should always be present")
+	tmpMount := corev1.VolumeMount{}
+	for _, vm := range container.VolumeMounts {
+		if vm.Name == "tmp" {
+			tmpMount = vm
+			break
+		}
+	}
+	assert.Equal(t, "/tmp", tmpMount.MountPath, "tmp volume should be mounted at /tmp")
+	assert.False(t, tmpMount.ReadOnly, "tmp volume mount should be writable")
 }
 
 func TestVoyageAI_DeploymentSpec_ExplicitPort(t *testing.T) {
