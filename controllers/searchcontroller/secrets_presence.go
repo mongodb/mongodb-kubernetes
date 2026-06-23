@@ -49,7 +49,7 @@ func CheckSecretsPresence(
 		// TLS certs) must be probed at that index, not 0.
 		idx := 0
 		if cs := search.Spec.Clusters; len(cs) == 1 {
-			if v, ok := clusterMapping[cs[0].ClusterName]; ok {
+			if v, ok := clusterMapping[cs[0].Name]; ok {
 				idx = v
 			} else if pinned := cs[0].ClusterIndex; pinned != nil {
 				idx = int(*pinned)

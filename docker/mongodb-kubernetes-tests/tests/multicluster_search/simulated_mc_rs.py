@@ -166,7 +166,9 @@ def per_cluster_mdbs_search(
         member_cluster_clients,
         MDBS_RESOURCE_NAME,
         MONGOT_REPLICAS_PER_CLUSTER,
-        f"{MDBS_RESOURCE_NAME}-search-{{clusterIndex}}-proxy-svc.{namespace}.svc.cluster.local",
+        # Per-cluster literal: the cluster's own proxy-svc FQDN (distinct per clusterIndex),
+        # mirroring q2_mc_rs_steady.
+        lambda idx: search_resource_names.mc_proxy_svc_fqdn(MDBS_RESOURCE_NAME, namespace, idx),
         {
             "hostAndPorts": seeds,
             "tls": {"ca": {"name": ca_configmap}},
