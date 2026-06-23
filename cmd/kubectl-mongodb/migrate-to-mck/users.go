@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+
 	k8svalidation "k8s.io/apimachinery/pkg/util/validation"
 
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/v1/user"
@@ -112,16 +113,9 @@ func runGenerateUsers(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	mongodbResourceName := uFlags.resourceNameOverride
-	if mongodbResourceName == "" {
-		replicaSets := ac.Deployment.GetReplicaSets()
-		if len(replicaSets) == 0 {
-			return fmt.Errorf("no replica sets found in the automation config")
-		}
-		mongodbResourceName = util.NormalizeName(replicaSets[0].Name())
-		if mongodbResourceName == "" {
-			return fmt.Errorf("replica set name %q cannot be normalized to a valid Kubernetes name. Use --resource-name-override to provide one", replicaSets[0].Name())
-		}
+	mongodbResourceName, err := resolveMongoDBResourceName(ac, uFlags.resourceNameOverride)
+	if err != nil {
+		return err
 	}
 
 	opts, err := buildUsersOptions(ctx, kubeClient, ac, os.Stdin, uFlags.namespace, uFlags.usersSecretsFile)
@@ -129,16 +123,22 @@ func runGenerateUsers(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	userObjects, err := GenerateUserCRs(ac, mongodbResourceName, uFlags.namespace, opts)
+	objects, err := GenerateUserCRs(ac, mongodbResourceName, uFlags.namespace, opts)
 	if err != nil {
 		return err
 	}
+	return writeObjects(objects, uFlags.outputFile)
+}
 
-	resources, err := marshalMultiDoc(userObjects)
-	if err != nil {
-		return err
+func resolveMongoDBResourceName(ac *om.AutomationConfig, override string) (string, error) {
+	if override != "" {
+		return override, nil
 	}
-	return writeOutput(resources, uFlags.outputFile)
+	replicaSets := ac.Deployment.GetReplicaSets()
+	if len(replicaSets) == 0 {
+		return "", fmt.Errorf("no replica sets found in the automation config")
+	}
+	return resolveReplicaSetResourceName(replicaSets[0].Name(), override)
 }
 
 func buildUsersOptions(ctx context.Context, kubeClient kubernetesClient.Client, ac *om.AutomationConfig, stdin io.Reader, namespace, usersSecretsFile string) (GenerateOptions, error) {
@@ -151,6 +151,10 @@ func buildUsersOptions(ctx context.Context, kubeClient kubernetesClient.Client, 
 }
 
 func userKey(username, database string) string { return username + ":" + database }
+
+func suggestedUserSecretName(user *om.MongoDBUser) string {
+	return userv1.NormalizeName(user.Username) + "-password"
+}
 
 func scramUsers(ac *om.AutomationConfig) []*om.MongoDBUser {
 	if ac.Auth == nil {
@@ -190,7 +194,7 @@ func collectUserSecretNamesInteractively(ctx context.Context, kubeClient kuberne
 
 	opts.ExistingUserSecrets = make(map[string]string)
 	for _, user := range users {
-		suggestedName := userv1.NormalizeName(user.Username) + "-password"
+		suggestedName := suggestedUserSecretName(user)
 		input, err := promptLine(scanner, fmt.Sprintf("Secret name for user %q (db: %s) [%s]: ", user.Username, user.Database, suggestedName))
 		if err != nil {
 			return fmt.Errorf("failed to read secret name for user %q: %w", user.Username, err)

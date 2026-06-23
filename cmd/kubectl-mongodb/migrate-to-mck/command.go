@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 )
@@ -60,7 +61,11 @@ func printValidationResults(w io.Writer, results []ValidationResult) int {
 	return errorCount
 }
 
-func writeOutput(resources, outputFile string) error {
+func writeObjects(objects []client.Object, outputFile string) error {
+	resources, err := renderObjects(objects)
+	if err != nil {
+		return err
+	}
 	if outputFile == "" {
 		_, err := fmt.Fprint(os.Stdout, resources)
 		return err
