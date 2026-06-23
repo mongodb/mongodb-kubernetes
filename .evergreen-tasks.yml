@@ -1390,7 +1390,7 @@ tasks:
     commands:
       - func: "e2e_test"
 
-  - name: e2e_search_enterprise_tls
+  - name: e2e_search_enterprise_enc_mtls
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
@@ -1471,6 +1471,16 @@ tasks:
       - func: "e2e_test"
 
   - name: e2e_search_q3_mc_sharded_external_mtls
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_search_ext_mc_rs_x509_enc_mtls
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_search_ext_mc_sharded_scram_enc_mtls
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"

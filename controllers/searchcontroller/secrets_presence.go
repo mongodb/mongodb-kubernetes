@@ -101,6 +101,9 @@ func expectedClusterInvariantSecretNames(search *searchv1.MongoDBSearch) []strin
 	if search.IsX509Auth() {
 		names = append(names, search.X509ClientCertSecret().Name)
 	}
+	if search.HasScramClientCert() {
+		names = append(names, search.ScramClientCertSecret().Name)
+	}
 	slices.Sort(names)
 	return slices.Compact(names)
 }

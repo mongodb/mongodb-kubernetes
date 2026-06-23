@@ -338,12 +338,29 @@ type MongoDBSource struct {
 	// Mutually exclusive with PasswordSecretRef and Username.
 	// +optional
 	X509 *X509Auth `json:"x509,omitempty"`
+	// TLS configures TLS transport settings for the sync source SCRAM connection.
+	// When set, mongot presents the specified client certificate during the TLS handshake.
+	// Only applicable when using SCRAM auth (passwordSecretRef). Mutually exclusive with X509.
+	// +optional
+	TLS *SourceTLS `json:"tls,omitempty"`
 }
 
 // X509Auth configures x509 client certificate authentication for mongot's sync source connection.
 type X509Auth struct {
 	// ClientCertificateSecret is a reference to a Secret containing the x509 client
 	// certificate and key for authenticating to the MongoDB sync source.
+	// Expected keys: "tls.crt", "tls.key" (required), "tls.keyFilePassword" (optional).
+	// +kubebuilder:validation:Required
+	ClientCertificateSecret corev1.LocalObjectReference `json:"clientCertificateSecretRef"`
+}
+
+// SourceTLS configures TLS transport settings for the sync source connection.
+// This is separate from authentication — when using SCRAM auth with mTLS,
+// mongot presents this client certificate during the TLS handshake while
+// still authenticating via username/password.
+type SourceTLS struct {
+	// ClientCertificateSecret is a reference to a Secret containing a TLS client
+	// certificate and key to present during the TLS handshake with the source MongoDB.
 	// Expected keys: "tls.crt", "tls.key" (required), "tls.keyFilePassword" (optional).
 	// +kubebuilder:validation:Required
 	ClientCertificateSecret corev1.LocalObjectReference `json:"clientCertificateSecretRef"`
@@ -725,6 +742,26 @@ func (s *MongoDBSearch) X509ClientCertSecret() types.NamespacedName {
 // containing the combined x509 client certificate and key.
 func (s *MongoDBSearch) X509OperatorManagedSecret() types.NamespacedName {
 	return types.NamespacedName{Name: s.Name + "-x509-client-cert", Namespace: s.Namespace}
+}
+
+// HasScramClientCert returns true if a TLS client certificate is configured for the SCRAM connection.
+func (s *MongoDBSearch) HasScramClientCert() bool {
+	return s.Spec.Source != nil && s.Spec.Source.TLS != nil &&
+		s.Spec.Source.TLS.ClientCertificateSecret.Name != ""
+}
+
+// ScramClientCertSecret returns the namespaced name of the user-provided SCRAM TLS client certificate secret.
+func (s *MongoDBSearch) ScramClientCertSecret() types.NamespacedName {
+	if !s.HasScramClientCert() {
+		return types.NamespacedName{}
+	}
+	return types.NamespacedName{Name: s.Spec.Source.TLS.ClientCertificateSecret.Name, Namespace: s.Namespace}
+}
+
+// ScramClientCertOperatorManagedSecret returns the namespaced name of the operator-managed secret
+// containing the combined SCRAM TLS client certificate and key.
+func (s *MongoDBSearch) ScramClientCertOperatorManagedSecret() types.NamespacedName {
+	return types.NamespacedName{Name: s.Name + "-scram-client-cert", Namespace: s.Namespace}
 }
 
 func (s *MongoDBSearch) GetMongotHealthCheckPort() int32 {
