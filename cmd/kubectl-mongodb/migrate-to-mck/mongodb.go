@@ -14,7 +14,6 @@ import (
 
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
-	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	pkgtls "github.com/mongodb/mongodb-kubernetes/pkg/tls"
 )
 
@@ -168,27 +167,13 @@ func ensureTLS(ac *om.AutomationConfig, opts *GenerateOptions, scanner *bufio.Sc
 	prefix := certsSecretPrefix
 	if prefix != "" {
 		if errs := k8svalidation.IsDNS1123Subdomain(prefix); len(errs) > 0 {
-			return fmt.Errorf("--certs-secret-prefix value %q is not a valid Kubernetes resource name: %s", prefix, errs[0])
+			return fmt.Errorf("spec.security.certsSecretPrefix value %q is not a valid Kubernetes resource name: %s", prefix, errs[0])
 		}
-		opts.CertsSecretPrefix = prefix
-		return nil
-	}
-	if prefix == "" {
-		for {
-			p, err := promptLine(scanner, "Enter value for security.certsSecretPrefix (e.g. mdb): ")
-			if err != nil {
-				return fmt.Errorf("failed to read certsSecretPrefix: %w", err)
-			}
-			if p == "" {
-				_, _ = fmt.Fprintln(promptOutput, "certsSecretPrefix cannot be empty, please try again.")
-				continue
-			}
-			if errs := k8svalidation.IsDNS1123Subdomain(p); len(errs) > 0 {
-				_, _ = fmt.Fprintf(promptOutput, "%q is not a valid Kubernetes name: %s. Please try again.\n", p, errs[0])
-				continue
-			}
-			prefix = p
-			break
+	} else {
+		var err error
+		prefix, err = promptKubernetesName(scanner, "Enter value for security.certsSecretPrefix (e.g. mdb): ", "")
+		if err != nil {
+			return fmt.Errorf("failed to read spec.security.certsSecretPrefix: %w", err)
 		}
 	}
 	opts.CertsSecretPrefix = prefix
@@ -200,28 +185,18 @@ func collectPrometheusCreds(ctx context.Context, kubeClient kubernetesClient.Cli
 	if acProm == nil || !acProm.Enabled || acProm.Username == "" {
 		return nil
 	}
-	if prometheusSecretName != "" {
-		secret, err := kubeClient.GetSecret(ctx, kube.ObjectKey(opts.Namespace, prometheusSecretName))
+	secretName := prometheusSecretName
+	if secretName == "" {
+		var err error
+		secretName, err = promptKubernetesName(scanner, fmt.Sprintf("Secret name for Prometheus user %q [%s]: ", acProm.Username, PrometheusPasswordSecretName), PrometheusPasswordSecretName)
 		if err != nil {
-			return fmt.Errorf("--prometheus-secret-name: secret %q not found in namespace %q: %w", prometheusSecretName, opts.Namespace, err)
+			return fmt.Errorf("failed to read spec.prometheus.passwordSecretRef.name: %w", err)
 		}
-		if _, ok := secret.Data[passwordSecretDataKey]; !ok {
-			return fmt.Errorf("--prometheus-secret-name: secret %q does not contain key \"password\"", prometheusSecretName)
-		}
-		opts.PrometheusSecretName = prometheusSecretName
-		return nil
 	}
-	for {
-		password, err := promptLine(scanner, "Enter password for Prometheus user: ")
-		if err != nil {
-			return fmt.Errorf("failed to read Prometheus password: %w", err)
-		}
-		if password == "" {
-			_, _ = fmt.Fprintln(promptOutput, "Prometheus password cannot be empty, please try again.")
-			continue
-		}
-		opts.PrometheusPassword = password
-		return nil
+	if _, err := requirePasswordSecret(ctx, kubeClient, opts.Namespace, secretName); err != nil {
+		return err
 	}
+	opts.PrometheusSecretName = secretName
+	return nil
 }
 

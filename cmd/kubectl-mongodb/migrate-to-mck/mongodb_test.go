@@ -41,31 +41,30 @@ func TestCollectPrometheusCreds_NoPrometheus(t *testing.T) {
 	opts := &GenerateOptions{Namespace: "mongodb"}
 	err := collectPrometheusCreds(context.Background(), nil, ac, opts, nil, "")
 	require.NoError(t, err)
-	assert.Empty(t, opts.PrometheusPassword)
 	assert.Empty(t, opts.PrometheusSecretName)
 }
 
-func TestCollectPrometheusCreds_InteractivePassword(t *testing.T) {
+func TestCollectPrometheusCreds_InteractiveInvalidNameCancels(t *testing.T) {
 	ac := om.NewAutomationConfig(om.Deployment{
 		"processes":   []any{},
 		"replicaSets": []any{},
 		"prometheus":  map[string]any{"enabled": true, "username": "prom-user"},
 	})
 	opts := &GenerateOptions{Namespace: "mongodb"}
-	scanner := bufio.NewScanner(strings.NewReader("supersecret\n"))
+	// Invalid k8s name is rejected; input exhausted on the reprompt.
+	scanner := bufio.NewScanner(strings.NewReader("INVALID_NAME!\n"))
 	err := collectPrometheusCreds(context.Background(), nil, ac, opts, scanner, "")
-	require.NoError(t, err)
-	assert.Equal(t, "supersecret", opts.PrometheusPassword)
+	assert.ErrorContains(t, err, "input cancelled")
 }
 
-func TestCollectPrometheusCreds_EmptyPassword(t *testing.T) {
+func TestCollectPrometheusCreds_NoInputCancels(t *testing.T) {
 	ac := om.NewAutomationConfig(om.Deployment{
 		"processes":   []any{},
 		"replicaSets": []any{},
 		"prometheus":  map[string]any{"enabled": true, "username": "prom-user"},
 	})
 	opts := &GenerateOptions{Namespace: "mongodb"}
-	scanner := bufio.NewScanner(strings.NewReader("\n"))
+	scanner := bufio.NewScanner(strings.NewReader(""))
 	err := collectPrometheusCreds(context.Background(), nil, ac, opts, scanner, "")
 	assert.ErrorContains(t, err, "input cancelled")
 }

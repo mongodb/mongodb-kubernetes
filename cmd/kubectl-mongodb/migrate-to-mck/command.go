@@ -2,14 +2,18 @@ package migratetomck
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"io"
 	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
+	k8svalidation "k8s.io/apimachinery/pkg/util/validation"
 
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 )
 
 const defaultNamespace = "default"
@@ -75,6 +79,43 @@ func writeOutput(resources, outputFile string) error {
 	}
 	fmt.Fprintf(os.Stderr, "CRs written to %s\n", outputFile)
 	return nil
+}
+
+// requirePasswordSecret fetches secretName and returns its "password" key bytes.
+// Returns an error if the secret does not exist or is missing the key.
+func requirePasswordSecret(ctx context.Context, kubeClient kubernetesClient.Client, namespace, secretName string) ([]byte, error) {
+	secret, err := kubeClient.GetSecret(ctx, kube.ObjectKey(namespace, secretName))
+	if err != nil {
+		return nil, fmt.Errorf("secret %q not found in namespace %q: %w", secretName, namespace, err)
+	}
+	passwordBytes, ok := secret.Data[passwordSecretDataKey]
+	if !ok {
+		return nil, fmt.Errorf("secret %q does not contain key \"password\"", secretName)
+	}
+	return passwordBytes, nil
+}
+
+// promptKubernetesName prompts for a Kubernetes DNS name, re-prompting on empty or invalid input.
+// If suggested is non-empty it is used as the default when the user presses Enter.
+func promptKubernetesName(scanner *bufio.Scanner, prompt, suggested string) (string, error) {
+	for {
+		p, err := promptLine(scanner, prompt)
+		if err != nil {
+			return "", err
+		}
+		if p == "" {
+			if suggested != "" {
+				return suggested, nil
+			}
+			_, _ = fmt.Fprintln(promptOutput, "Value cannot be empty, please try again.")
+			continue
+		}
+		if errs := k8svalidation.IsDNS1123Subdomain(p); len(errs) > 0 {
+			_, _ = fmt.Fprintf(promptOutput, "%q is not a valid Kubernetes name: %s. Please try again.\n", p, errs[0])
+			continue
+		}
+		return p, nil
+	}
 }
 
 func promptLine(scanner *bufio.Scanner, prompt string) (string, error) {

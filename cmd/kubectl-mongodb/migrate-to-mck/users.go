@@ -15,7 +15,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
-	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
@@ -191,16 +190,9 @@ func collectUserSecretNamesInteractively(ctx context.Context, kubeClient kuberne
 	opts.ExistingUserSecrets = make(map[string]string)
 	for _, user := range users {
 		suggestedName := userv1.NormalizeName(user.Username) + "-password"
-		input, err := promptLine(scanner, fmt.Sprintf("Secret name for user %q (db: %s) [%s]: ", user.Username, user.Database, suggestedName))
+		secretName, err := promptKubernetesName(scanner, fmt.Sprintf("Secret name for user %q (db: %s) [%s]: ", user.Username, user.Database, suggestedName), suggestedName)
 		if err != nil {
-			return fmt.Errorf("failed to read secret name for user %q: %w", user.Username, err)
-		}
-		secretName := input
-		if secretName == "" {
-			secretName = suggestedName
-		}
-		if errs := k8svalidation.IsDNS1123Subdomain(secretName); len(errs) > 0 {
-			return fmt.Errorf("secret name %q for user %q is not a valid Kubernetes name: %s", secretName, user.Username, errs[0])
+			return fmt.Errorf("failed to read spec.passwordSecretKeyRef.name for user %q: %w", user.Username, err)
 		}
 		if err := validateUserSecret(ctx, kubeClient, user, secretName, ac, opts.Namespace); err != nil {
 			return err
@@ -239,13 +231,9 @@ func collectExistingUserSecrets(ctx context.Context, kubeClient kubernetesClient
 }
 
 func validateUserSecret(ctx context.Context, kubeClient kubernetesClient.Client, user *om.MongoDBUser, secretName string, ac *om.AutomationConfig, namespace string) error {
-	secret, err := kubeClient.GetSecret(ctx, kube.ObjectKey(namespace, secretName))
+	passwordBytes, err := requirePasswordSecret(ctx, kubeClient, namespace, secretName)
 	if err != nil {
-		return fmt.Errorf("secret %q not found in namespace %q (user %q): %w", secretName, namespace, user.Username, err)
-	}
-	passwordBytes, ok := secret.Data[passwordSecretDataKey]
-	if !ok {
-		return fmt.Errorf("secret %q does not contain key \"password\" (required for user %q)", secretName, user.Username)
+		return fmt.Errorf("%w for user %q", err, user.Username)
 	}
 	return validatePasswordAgainstOM(user.Username, user.Database, string(passwordBytes), ac)
 }
@@ -256,7 +244,7 @@ func parseUsersSecretsFile(path string) (map[string]string, error) {
 	}
 	f, err := os.Open(path)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open file: %w", err)
+		return nil, fmt.Errorf("failed to open %q: %w", path, err)
 	}
 	defer func() { _ = f.Close() }()
 

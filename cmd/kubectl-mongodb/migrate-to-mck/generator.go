@@ -59,7 +59,6 @@ type GenerateOptions struct {
 	ExistingUserSecrets map[string]string
 
 	// Prometheus credentials
-	PrometheusPassword   string // plaintext password; a Secret is generated when set
 	PrometheusSecretName string // name of a pre-created Secret; no Secret YAML is written when set
 }
 
@@ -82,12 +81,6 @@ func generateExtraResources(ac *om.AutomationConfig, opts GenerateOptions) []cli
 		}
 		if ldap.CaFileContents != "" {
 			resources = append(resources, buildLdapCAConfigMap(opts.Namespace, ldap.CaFileContents))
-		}
-	}
-	acProm := ac.Deployment.GetPrometheus()
-	if acProm != nil && acProm.Enabled && acProm.Username != "" {
-		if opts.PrometheusSecretName == "" && opts.PrometheusPassword != "" {
-			resources = append(resources, GeneratePasswordSecret(PrometheusPasswordSecretName, opts.Namespace, opts.PrometheusPassword))
 		}
 	}
 	return resources
