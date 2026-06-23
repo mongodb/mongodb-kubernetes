@@ -79,6 +79,12 @@ func (m *MonitoringAgentConfig) SetLogRotate(logRotateConfig mdbv1.LogRotateForB
 	m.MonitoringAgentTemplate.LogRotate = logRotateConfig
 }
 
+// LogPath returns the logPath from the BackingMap, or empty if absent.
+func (m *MonitoringAgentConfig) LogPath() string {
+	logPath, _ := m.BackingMap["logPath"].(string)
+	return logPath
+}
+
 func BuildMonitoringAgentConfigFromBytes(jsonBytes []byte) (*MonitoringAgentConfig, error) {
 	fullMap := make(map[string]interface{})
 	if err := json.Unmarshal(jsonBytes, &fullMap); err != nil {
