@@ -5458,6 +5458,32 @@ spec:
                     required:
                     - name
                     type: object
+                  tls:
+                    description: |-
+                      TLS configures TLS transport settings for the sync source SCRAM connection.
+                      When set, mongot presents the specified client certificate during the TLS handshake.
+                      Only applicable when using SCRAM auth (passwordSecretRef). Mutually exclusive with X509.
+                    properties:
+                      clientCertificateSecretRef:
+                        description: |-
+                          ClientCertificateSecret is a reference to a Secret containing a TLS client
+                          certificate and key to present during the TLS handshake with the source MongoDB.
+                          Expected keys: "tls.crt", "tls.key" (required), "tls.keyFilePassword" (optional).
+                        properties:
+                          name:
+                            default: ""
+                            description: |-
+                              Name of the referent.
+                              This field is effectively required, but due to backwards compatibility is
+                              allowed to be empty. Instances of this type with an empty value here are
+                              almost certainly wrong.
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                            type: string
+                        type: object
+                        x-kubernetes-map-type: atomic
+                    required:
+                    - clientCertificateSecretRef
+                    type: object
                   username:
                     description: Username is the sync-source user mongot authenticates
                       as. Defaults to search-sync-source.

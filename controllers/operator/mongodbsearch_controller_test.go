@@ -757,10 +757,14 @@ func assertSearchOwnerLabels(t *testing.T, search *searchv1.MongoDBSearch, clust
 
 func newSimulatedMCMongoDBSearch(name, namespace string) *searchv1.MongoDBSearch {
 	clusters := []searchv1.ClusterSpec{
-		{ClusterName: "cluster-a", ClusterIndex: ptr.To(int32(0)), Replicas: ptr.To(int32(1)),
-			LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot-cluster-a.example.com"}}},
-		{ClusterName: "cluster-b", ClusterIndex: ptr.To(int32(1)), Replicas: ptr.To(int32(1)),
-			LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot-cluster-b.example.com"}}},
+		{
+			ClusterName: "cluster-a", ClusterIndex: ptr.To(int32(0)), Replicas: ptr.To(int32(1)),
+			LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot-cluster-a.example.com"}},
+		},
+		{
+			ClusterName: "cluster-b", ClusterIndex: ptr.To(int32(1)), Replicas: ptr.To(int32(1)),
+			LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot-cluster-b.example.com"}},
+		},
 	}
 	return &searchv1.MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
@@ -904,10 +908,14 @@ func newSimulatedMCShardedMongoDBSearch(name, namespace string) *searchv1.MongoD
 	// Each cluster gets its own externalHostname (distinct per cluster); the
 	// {shardName}. prefix is required for cluster-level form derivation.
 	clusters := []searchv1.ClusterSpec{
-		{ClusterName: "cluster-a", ClusterIndex: ptr.To(int32(0)), Replicas: ptr.To(int32(1)),
-			LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{ExternalHostname: "{shardName}.cluster-a.example.com"}}},
-		{ClusterName: "cluster-b", ClusterIndex: ptr.To(int32(1)), Replicas: ptr.To(int32(1)),
-			LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{ExternalHostname: "{shardName}.cluster-b.example.com"}}},
+		{
+			ClusterName: "cluster-a", ClusterIndex: ptr.To(int32(0)), Replicas: ptr.To(int32(1)),
+			LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{ExternalHostname: "{shardName}.cluster-a.example.com"}},
+		},
+		{
+			ClusterName: "cluster-b", ClusterIndex: ptr.To(int32(1)), Replicas: ptr.To(int32(1)),
+			LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{ExternalHostname: "{shardName}.cluster-b.example.com"}},
+		},
 	}
 	return &searchv1.MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},

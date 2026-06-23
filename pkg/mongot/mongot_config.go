@@ -72,8 +72,10 @@ type ConfigScramAuth struct {
 }
 
 type ScramAuthTLS struct {
-	Enabled                  bool    `json:"enabled"`
-	CertificateAuthorityFile *string `json:"caFile,omitempty"`
+	Enabled                           bool    `json:"enabled"`
+	TLSCertificateKeyFile             *string `json:"tlsCertificateKeyFile,omitempty"`
+	TLSCertificateKeyFilePasswordFile *string `json:"tlsCertificateKeyFilePasswordFile,omitempty"`
+	CertificateAuthorityFile          *string `json:"caFile,omitempty"`
 }
 
 type ConfigX509 struct {
