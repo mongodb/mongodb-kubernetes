@@ -10,7 +10,7 @@ import (
 
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/ldap"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
+	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 )
 
 func loadTestAutomationConfig(t *testing.T, filename string) *om.AutomationConfig {
