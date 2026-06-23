@@ -83,7 +83,8 @@ def test_missing_indexing_key_reconcile_error(mdbs: MongoDBSearch):
     }
     mdbs.update()
     mdbs.assert_reaches_phase(Phase.Failed, timeout=120)
-    assert 'Required key "indexing-key" is not present' in mdbs.get_status_message()
+    msg = mdbs.get_status_message()
+    assert msg and 'Required key "indexing-key" is not present' in msg
 
 
 @mark.e2e_search_auto_embedding_bad_secret

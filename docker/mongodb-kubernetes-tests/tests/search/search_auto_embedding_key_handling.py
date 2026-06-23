@@ -1,5 +1,6 @@
 import os
 
+from kubernetes import client as k8s_client
 from kubetester import create_or_update_secret, try_load
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
@@ -134,7 +135,7 @@ def test_keys_not_leaked(mdbs: MongoDBSearch, namespace: str):
     logs = KubernetesTester.read_pod_logs(namespace, pod_name, container=MONGOT_CONTAINER)
     assert idx not in logs and qry not in logs, "embedding key leaked into mongot pod logs"
 
-    pod = KubernetesTester.read_pod(namespace, pod_name)
+    pod = k8s_client.CoreV1Api().read_namespaced_pod(name=pod_name, namespace=namespace)
     ann = pod.metadata.annotations or {}
     h = ann.get("autoEmbeddingDetailsHash")
     assert h and h != idx and h != qry, f"autoEmbeddingDetailsHash must be a hash not the raw key, got: {h!r}"

@@ -93,4 +93,4 @@ def test_version_gate_rejects_sub_min(mdbs: MongoDBSearch):
     mdbs.update()
     mdbs.assert_reaches_phase(Phase.Failed, timeout=120)
     msg = mdbs.get_status_message()
-    assert "auto embeddings" in msg and "0.60.0" in msg, f"unexpected status message: {msg}"
+    assert msg and "auto embeddings" in msg and "0.60.0" in msg, f"unexpected status message: {msg}"
