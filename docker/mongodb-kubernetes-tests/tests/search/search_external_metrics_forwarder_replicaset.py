@@ -33,8 +33,6 @@ from tests.common.search.search_deployment_helper import SearchDeploymentHelper
 from tests.common.search.search_resource_names import (
     metrics_forwarder_configmap_name,
     metrics_forwarder_deployment_name,
-    mongot_service_name,
-    mongot_statefulset_name,
 )
 from tests.common.search.sharded_search_helper import create_issuer_ca
 from tests.conftest import get_default_operator
@@ -188,20 +186,23 @@ def test_metrics_forwarder_status(om: MongoDBOpsManager, mdbs: MongoDBSearch):
 
     run_periodically(check_metrics_forwarder_status, timeout=120, interval=10)
 
-    assert_hosts(om, mdbs)
+    tester = om.get_om_tester(project_name=MDB_RESOURCE_NAME)
+    tester.assert_mongot_hosts_converged(mdbs.mongot_pod_hostnames())
 
 
 @mark.e2e_search_external_metrics_forwarder_replicaset
 def test_scaling_updates_hosts(om: MongoDBOpsManager, mdbs: MongoDBSearch):
+    tester = om.get_om_tester(project_name=MDB_RESOURCE_NAME)
+
     mdbs["spec"]["clusters"][0]["replicas"] = 3
     mdbs.update()
     mdbs.assert_reaches_phase(Phase.Running, timeout=300)
-    assert_hosts(om, mdbs)
+    tester.assert_mongot_hosts_converged(mdbs.mongot_pod_hostnames())
 
     mdbs["spec"]["clusters"][0]["replicas"] = 2
     mdbs.update()
     mdbs.assert_reaches_phase(Phase.Running, timeout=300)
-    assert_hosts(om, mdbs)
+    tester.assert_mongot_hosts_converged(mdbs.mongot_pod_hostnames())
 
 
 @mark.e2e_search_external_metrics_forwarder_replicaset
@@ -243,42 +244,3 @@ def test_disable_metrics_forwarder(mdbs: MongoDBSearch):
     run_periodically(check_configmap_deleted, timeout=60, interval=5)
 
 
-def assert_hosts(om: MongoDBOpsManager, mdbs: MongoDBSearch):
-    """Assert Ops Manager has exactly one MONGOT host per mongot pod.
-
-    Registering/deregistering MONGOT hosts in Ops Manager is an asynchronous step that can lag behind
-    the MongoDBSearch resource reporting Running, so we poll until the registered hosts match the
-    expected set exactly rather than asserting once. A count-only check can pass transiently while
-    membership is still wrong (e.g. during a scale-down where a not-yet-deregistered host masks a
-    missing one).
-
-    Because the source MongoDB and the MongoDBSearch have different names, hosts are addressed via the
-    MongoDBSearch's mongot Service while the Ops Manager project belongs to the source MongoDB.
-    """
-    tester = om.get_om_tester(project_name=MDB_RESOURCE_NAME)
-
-    replicas = mdbs["spec"]["clusters"][0].get("replicas", 1)
-    expected_hostnames = {
-        f"{mongot_statefulset_name(mdbs.name)}-{i}.{mongot_service_name(mdbs.name)}.{mdbs.namespace}.svc.cluster.local"
-        for i in range(replicas)
-    }
-
-    hosts: list[dict] = []
-
-    def mongot_hosts_converged():
-        nonlocal hosts
-        hosts = [h for h in tester.api_get_hosts()["results"] if h.get("typeName") == "MONGOT"]
-        actual_hostnames = {h.get("hostname") for h in hosts}
-        return actual_hostnames == expected_hostnames, f"expected {expected_hostnames}, got {actual_hostnames}"
-
-    run_periodically(
-        mongot_hosts_converged,
-        timeout=120,
-        sleep_time=10,
-        msg="Ops Manager MONGOT hosts to converge to the expected set",
-    )
-
-    for host in hosts:
-        assert (
-            host.get("port") == MONGOT_GRPC_PORT
-        ), f"Expected port {MONGOT_GRPC_PORT}, got {host.get('port')} for host {host.get('hostname')}"
