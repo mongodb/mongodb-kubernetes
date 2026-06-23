@@ -56,6 +56,11 @@ const (
 	GrpcKeyPasswordMountPath = "/mongot/grpc-key-password"           // #nosec G101 -- path, not a password
 	TempGrpcKeyPasswordPath  = tempVolumePath + "/grpc-key-password" // #nosec G101 -- path, not a password
 	GrpcKeyPasswordSecretKey = "tls.keyFilePassword"                 // #nosec G101 -- secret key name, not a password
+
+	ScramClientCertOperatorMountPath = "/var/lib/tls/scram-client/"
+	ScramKeyPasswordMountPath        = "/mongot/scram-key-password"           // #nosec G101 -- path, not a password
+	TempScramKeyPasswordPath         = tempVolumePath + "/scram-key-password" // #nosec G101 -- path, not a password
+	ScramKeyPasswordSecretKey        = "tls.keyFilePassword"                  // #nosec G101 -- secret key name, not a password
 )
 
 // SearchSourceDBResource is an object wrapping a MongoDBCommunity object
