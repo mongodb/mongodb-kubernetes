@@ -50,6 +50,12 @@ APPDB_CLEAN_PITR_DATA = {"_id": "appdb_clean_pitr_witness", "status": "exists_be
 # Recorded between the insert and delete of APPDB_CLEAN_PITR_DATA.
 _clean_pitr_pit_millis: int = 0
 
+# Inserted before disaster (PVC deletion); used to test PITR to a pre-disaster moment.
+APPDB_PITR_DISASTER_DATA = {"_id": "appdb_pitr_disaster_witness", "status": "written_before_disaster"}
+
+# Recorded after inserting APPDB_PITR_DISASTER_DATA and waiting for oplog flush.
+_pitr_disaster_pit_millis: int = 0
+
 
 @fixture(scope="module")
 def meta_s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> Iterator[str]:
@@ -271,17 +277,94 @@ def primary_appdb_collection(primary_ops_manager: MongoDBOpsManager):
 
 
 @mark.e2e_om_appdb_meta_om_mode_switch
-class TestPITRWithoutDataLoss:
-    """Verify PITR works on a healthy backup (no PVC loss).
+class TestPITRAfterDisaster:
+    """Investigates whether PITR is possible after total AppDB data loss (all PVCs deleted).
 
-    Runs before TestSnapshotRestore intentionally: the disaster recovery test wipes PVCs
-    which triggers a resync in Meta OM and resets lastOplogPush, breaking the oplog
-    timeline for any subsequent PITR attempt.
+    Flow:
+      1. Insert a witness document.
+      2. Wait 5 minutes so the oplog entries are flushed to S3.
+      3. Record the PIT (timestamp after the insert).
+      4. Delete all AppDB PVCs and pods — simulate disaster.
+      5. Wait for AppDB to come back up (StatefulSet recreates pods with empty PVCs).
+      6. Attempt PITR to the pre-disaster PIT.
+
+    Expected outcome with current OM: RESTORE_INITIATION_FAILED —
+    "Invalid restore point: Are you sure your backups were running at the time you selected?"
+
+    Root cause: the fresh empty AppDB triggers a resync in Meta OM which clears lastOplogPush,
+    making the pre-disaster oplog slices (still physically present in S3) unreachable via the
+    restore API.  See architecture/appdb-pitr-after-data-loss.md for a detailed explanation.
+
+    This test is left failing intentionally to get Ops Manager developers' input on whether
+    this is by design or a limitation that could be addressed.
+    """
+
+    def test_insert_pre_disaster_data(self, primary_appdb_collection):
+        """Insert a witness document and record the PIT after a 5s settle window."""
+        global _pitr_disaster_pit_millis
+        primary_appdb_collection.delete_many({"_id": APPDB_PITR_DISASTER_DATA["_id"]})
+        primary_appdb_collection.insert_one(APPDB_PITR_DISASTER_DATA.copy())
+        time.sleep(5)
+        _pitr_disaster_pit_millis = int(time.time() * 1000)
+
+    def test_wait_for_oplog_flush(self):
+        """Wait 5 minutes to ensure the pre-disaster oplog entries are flushed to S3.
+        Oplog slices are batched in ~5 minute windows; the PIT must fall inside a fully
+        closed slice for OM to accept the restore request."""
+        time.sleep(300)
+
+    def test_delete_appdb_pvcs_and_pods(self, primary_ops_manager: MongoDBOpsManager, namespace: str):
+        """Simulate total data loss: delete all AppDB PVCs and pods."""
+        sts_name = primary_ops_manager.app_db_name()
+        members = primary_ops_manager.get_appdb_members_count()
+        for i in range(members):
+            delete_pvc(namespace, f"data-{sts_name}-{i}")
+            delete_pod(namespace, f"{sts_name}-{i}")
+
+    def test_appdb_reaches_running_after_recreation(self, primary_ops_manager: MongoDBOpsManager):
+        """Wait for the StatefulSet to recreate AppDB pods with fresh empty PVCs."""
+        primary_ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=1900)
+
+    def test_pitr_to_pre_disaster_time(self, meta_om_appdb_tester: OMTester):
+        """Attempt PITR to the pre-disaster moment.
+
+        This is expected to fail: PVC deletion triggers a resync which resets lastOplogPush
+        in Meta OM.  The pre-disaster S3 oplog slices exist but are no longer reachable.
+        The error is: 409 RESTORE_INITIATION_FAILED — "Are you sure your backups were running
+        at the time you selected?"
+
+        Question for OM developers: is this limitation intentional, and is there a supported
+        path to PITR after total replica set data loss?
+        """
+        assert _pitr_disaster_pit_millis > 0, "_pitr_disaster_pit_millis not set"
+        meta_om_appdb_tester.create_restore_job_pit(_pitr_disaster_pit_millis)
+
+    def test_primary_om_reaches_running_after_pitr_attempt(self, primary_ops_manager: MongoDBOpsManager):
+        """If PITR was somehow accepted, wait for Primary OM to recover.
+        If PITR was rejected (expected), AppDB is still up and this passes quickly."""
+        primary_ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=3600)
+        primary_ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=3600)
+
+
+@mark.e2e_om_appdb_meta_om_mode_switch
+class TestPITRWithoutDataLoss:
+    """Verify PITR works on a healthy backup after a post-disaster resync.
+
+    Runs after TestPITRAfterDisaster: the PVC deletion there triggers a resync in Meta OM
+    which resets the oplog timeline. A new snapshot must be taken before PITR can work again.
+    This class waits for that snapshot, then verifies that PITR on a clean (unbroken) timeline
+    correctly replays the oplog.
 
     Writes a witness doc, waits, then deletes it — all while backup keeps running and
     the oplog timeline stays intact. A PITR to a point between the insert and the delete
     must replay the oplog and bring the doc back.
     """
+
+    def test_wait_new_snapshot_after_disaster_resync(self, meta_om_appdb_tester: OMTester):
+        """After TestPITRAfterDisaster's PVC deletion Meta OM resyncs and starts a fresh
+        oplog timeline. PITR needs a snapshot as its base — wait for the post-resync snapshot
+        before inserting witness data."""
+        meta_om_appdb_tester.wait_until_backup_snapshots_are_ready(expected_count=2)
 
     def test_insert_then_delete_witness(self, primary_appdb_collection):
         """Insert a witness doc, record a PIT where it exists, wait, then delete it.
@@ -338,9 +421,10 @@ class TestPITRWithoutDataLoss:
 class TestSnapshotRestore:
     """Simulate complete AppDB data loss (all PVCs deleted) and verify restore from Meta OM snapshot.
 
-    Runs after TestPITRWithoutDataLoss intentionally: PVC deletion triggers a resync in Meta OM
-    which resets lastOplogPush and breaks the oplog timeline, making PITR impossible afterwards.
-    Snapshot restore is the only reliable recovery path after total data loss.
+    Runs after TestPITRWithoutDataLoss and TestPITRAfterDisaster intentionally: PVC deletion
+    triggers a resync in Meta OM which resets lastOplogPush and breaks the oplog timeline,
+    making PITR impossible afterwards. Snapshot restore is the only reliable recovery path
+    after total data loss.
     """
 
     def test_delete_appdb_pvcs_and_pods(self, primary_ops_manager: MongoDBOpsManager, namespace: str):
