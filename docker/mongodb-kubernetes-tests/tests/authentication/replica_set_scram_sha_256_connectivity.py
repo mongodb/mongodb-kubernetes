@@ -1,4 +1,4 @@
-from typing import Dict
+from typing import Dict, List
 
 import pytest
 from kubetester import (

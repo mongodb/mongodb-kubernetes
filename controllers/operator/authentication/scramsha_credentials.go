@@ -50,6 +50,40 @@ func hasCreds(creds *om.ScramShaCreds) bool {
 	return creds != nil && creds.Salt != ""
 }
 
+// PasswordMatchesStoredCreds reports whether the password reproduces every complete set
+// of SCRAM credentials stored on the AC user. Incomplete creds are skipped. It returns
+// an error when the user is missing or has no creds to validate against.
+func PasswordMatchesStoredCreds(username, password string, acUser *om.MongoDBUser) (bool, error) {
+	if acUser == nil {
+		return false, xerrors.Errorf("user %s not found in the automation config", username)
+	}
+	validated := false
+	if hasCreds(acUser.ScramSha256Creds) {
+		changed, err := isCredChanged(username, password, acUser.ScramSha256Creds, ScramSha256)
+		if err != nil {
+			return false, err
+		}
+		if changed {
+			return false, nil
+		}
+		validated = true
+	}
+	if hasCreds(acUser.ScramSha1Creds) {
+		changed, err := isCredChanged(username, password, acUser.ScramSha1Creds, MongoDBCR)
+		if err != nil {
+			return false, err
+		}
+		if changed {
+			return false, nil
+		}
+		validated = true
+	}
+	if !validated {
+		return false, xerrors.Errorf("user %s has no SCRAM credentials to validate the supplied password against", username)
+	}
+	return true, nil
+}
+
 // ConfigureScramCredentials sets SCRAM credentials on user and returns needsFollowUp.
 // Three cases:
 //  1. User not in AC: generate both SHA-256 and SHA-1 creds.

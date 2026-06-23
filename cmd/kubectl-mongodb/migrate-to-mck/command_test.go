@@ -2,6 +2,7 @@ package migratetomck
 
 import (
 	"bytes"
+	"io"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -10,12 +11,16 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 )
 
+func init() {
+	promptOutput = io.Discard
+}
+
 func TestFetchAndValidate_ValidDeployment(t *testing.T) {
 	d := om.Deployment(map[string]any{
 		"processes": []any{
 			map[string]any{
 				"name":        "host-0",
-				"processType": "mongod",
+				"processType": string(om.ProcessTypeMongod),
 				"hostname":    "host-0.example.com",
 				"args2_6": map[string]any{
 					"net":         map[string]any{"port": 27017},

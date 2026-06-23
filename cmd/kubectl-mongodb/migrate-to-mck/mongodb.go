@@ -1,10 +1,20 @@
 package migratetomck
 
 import (
+	"bufio"
+	"context"
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/spf13/cobra"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	k8svalidation "k8s.io/apimachinery/pkg/util/validation"
+
+	"github.com/mongodb/mongodb-kubernetes/controllers/om"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
+	pkgtls "github.com/mongodb/mongodb-kubernetes/pkg/tls"
 )
 
 type mongodbFlags struct {
@@ -22,16 +32,54 @@ var mFlags mongodbFlags
 var MongodbCmd = &cobra.Command{
 	Use:   "mongodb",
 	Short: "Generate a MongoDB Kubernetes CR",
-	Long: `Generates a MongoDB Kubernetes CR from an Ops Manager/Cloud Manager
-automation config. The automation config is validated before generation. If any blockers are
-found, the command fails without producing output.
+	Long: `Generate a MongoDB CR from an Ops Manager or Cloud Manager automation config.
 
-Requires a ConfigMap (baseUrl, orgId, projectName) and a Secret (publicKey,
-privateKey) in the same format used by the operator.
+The automation config is validated before output is produced. The command exits
+with an error if any blockers are found.
 
-Example:
+PREREQUISITES
 
-kubectl mongodb migrate mongodb --config-map-name my-project --secret-name my-credentials --namespace mongodb`,
+  A ConfigMap and a Secret must exist in the target namespace before running this
+  command:
+
+    kubectl create configmap my-project \
+      --from-literal=baseUrl=<url> \
+      --from-literal=orgId=<id> \
+      --from-literal=projectName=<name>
+
+    kubectl create secret generic my-credentials \
+      --from-literal=publicKey=<key> \
+      --from-literal=privateKey=<key>
+
+  If Prometheus is enabled, create a Secret containing the Prometheus password:
+
+    kubectl create secret generic <secret-name> \
+      --from-literal=password=<password> \
+      -n <namespace>
+
+USAGE
+
+  When TLS is enabled, the command prompts for spec.security.certsSecretPrefix.
+  Pass --certs-secret-prefix to skip the prompt.
+
+  When Prometheus is enabled, the command prompts for the name of the password
+  Secret. Pass --prometheus-secret-name to skip the prompt.
+
+EXAMPLES
+
+  Interactive:
+    kubectl mongodb migrate mongodb \
+      --config-map-name my-project \
+      --secret-name my-credentials \
+      --namespace mongodb
+
+  Non-interactive:
+    kubectl mongodb migrate mongodb \
+      --config-map-name my-project \
+      --secret-name my-credentials \
+      --namespace mongodb \
+      --certs-secret-prefix mdb \
+      --prometheus-secret-name prom-secret`,
 	RunE: runGenerateMongodb,
 }
 
@@ -39,7 +87,7 @@ func init() {
 	MongodbCmd.Flags().StringVar(&mFlags.configMapName, "config-map-name", "", "Name of the ConfigMap containing the OM connection details (baseUrl, orgId, projectName) (required)")
 	MongodbCmd.Flags().StringVar(&mFlags.secretName, "secret-name", "", "Name of the Secret containing the OM API credentials (publicKey, privateKey) (required)")
 	MongodbCmd.Flags().StringVar(&mFlags.namespace, "namespace", defaultNamespace, "Namespace of the ConfigMap and Secret")
-MongodbCmd.Flags().StringVarP(&mFlags.outputFile, "output", "o", "", "Write generated CRs to this file instead of stdout")
+	MongodbCmd.Flags().StringVarP(&mFlags.outputFile, "output", "o", "", "Write generated CRs to this file instead of stdout")
 	MongodbCmd.Flags().StringVar(&mFlags.resourceNameOverride, "resource-name-override", "", "Kubernetes resource name (metadata.name) for the generated CR. When the replica set name is not a valid Kubernetes name it is auto-normalized, but this flag lets you choose a custom name. spec.replicaSetNameOverride is set automatically")
 	MongodbCmd.Flags().StringVar(&mFlags.certsSecretPrefix, "certs-secret-prefix", "", "Value for spec.security.certsSecretPrefix. Required when TLS is enabled and suppresses the interactive prompt")
 	MongodbCmd.Flags().StringVar(&mFlags.prometheusSecretName, "prometheus-secret-name", "", "Name of a pre-created Kubernetes Secret containing the Prometheus password (key: \"password\"). Suppresses the interactive prompt")
@@ -50,16 +98,104 @@ MongodbCmd.Flags().StringVarP(&mFlags.outputFile, "output", "o", "", "Write gene
 func runGenerateMongodb(cmd *cobra.Command, _ []string) error {
 	ctx := cmd.Context()
 
-	conn, _, err := prepareConnection(ctx, mFlags.namespace, mFlags.configMapName, mFlags.secretName)
+	conn, kubeClient, err := prepareConnection(ctx, mFlags.namespace, mFlags.configMapName, mFlags.secretName)
 	if err != nil {
 		return err
 	}
 
-	_, _, _, err = fetchAndValidate(conn)
+	ac, projectConfigs, sourceProcess, err := fetchAndValidate(conn)
 	if err != nil {
 		return err
 	}
 
-	_, _ = fmt.Fprintln(os.Stderr, "Validation passed. CR generation is not yet available in this build.")
+	opts, err := buildMongodbOptions(ctx, kubeClient, ac, projectConfigs, sourceProcess, os.Stdin, mFlags)
+	if err != nil {
+		return err
+	}
+
+	mongodbCR, _, err := GenerateMongoDBCR(ac, opts)
+	if err != nil {
+		return err
+	}
+
+	extra := generateExtraResources(ac, opts)
+	objects := make([]client.Object, 0, 1+len(extra))
+	objects = append(objects, mongodbCR)
+	objects = append(objects, extra...)
+
+	resources, err := marshalMultiDoc(objects)
+	if err != nil {
+		return err
+	}
+	return writeOutput(resources, mFlags.outputFile)
+}
+
+func buildMongodbOptions(ctx context.Context, kubeClient kubernetesClient.Client, ac *om.AutomationConfig, projectConfigs *ProjectConfigs, sourceProcess *om.Process, stdin io.Reader, flags mongodbFlags) (GenerateOptions, error) {
+	opts := GenerateOptions{
+		ResourceNameOverride:  flags.resourceNameOverride,
+		CredentialsSecretName: flags.secretName,
+		ConfigMapName:         flags.configMapName,
+		Namespace:             flags.namespace,
+		ProjectConfigs:        projectConfigs,
+		SourceProcess:         sourceProcess,
+	}
+
+	scanner := bufio.NewScanner(stdin)
+
+	if err := ensureTLS(ac, &opts, scanner, flags.certsSecretPrefix); err != nil {
+		return GenerateOptions{}, err
+	}
+	if err := collectPrometheusCreds(ctx, kubeClient, ac, &opts, scanner, flags.prometheusSecretName); err != nil {
+		return GenerateOptions{}, err
+	}
+	return opts, nil
+}
+
+func isTLSEnabled(processMap map[string]om.Process) bool {
+	for _, proc := range processMap {
+		if len(proc.NetTLSSections()) > 0 && pkgtls.GetTLSModeFromMongodConfig(proc.Args()) != pkgtls.Disabled {
+			return true
+		}
+	}
+	return false
+}
+
+func ensureTLS(ac *om.AutomationConfig, opts *GenerateOptions, scanner *bufio.Scanner, certsSecretPrefix string) error {
+	if !isTLSEnabled(ac.Deployment.ProcessMap()) {
+		return nil
+	}
+	prefix := certsSecretPrefix
+	if prefix != "" {
+		if errs := k8svalidation.IsDNS1123Subdomain(prefix); len(errs) > 0 {
+			return fmt.Errorf("spec.security.certsSecretPrefix value %q is not a valid Kubernetes resource name: %s", prefix, errs[0])
+		}
+	} else {
+		var err error
+		prefix, err = promptKubernetesName(scanner, "Enter value for security.certsSecretPrefix (e.g. mdb): ", "")
+		if err != nil {
+			return fmt.Errorf("failed to read spec.security.certsSecretPrefix: %w", err)
+		}
+	}
+	opts.CertsSecretPrefix = prefix
+	return nil
+}
+
+func collectPrometheusCreds(ctx context.Context, kubeClient kubernetesClient.Client, ac *om.AutomationConfig, opts *GenerateOptions, scanner *bufio.Scanner, prometheusSecretName string) error {
+	acProm := ac.Deployment.GetPrometheus()
+	if acProm == nil || !acProm.Enabled || acProm.Username == "" {
+		return nil
+	}
+	secretName := prometheusSecretName
+	if secretName == "" {
+		var err error
+		secretName, err = promptKubernetesName(scanner, fmt.Sprintf("Secret name for Prometheus user %q [%s]: ", acProm.Username, PrometheusPasswordSecretName), PrometheusPasswordSecretName)
+		if err != nil {
+			return fmt.Errorf("failed to read spec.prometheus.passwordSecretRef.name: %w", err)
+		}
+	}
+	if _, err := requirePasswordSecret(ctx, kubeClient, opts.Namespace, secretName); err != nil {
+		return err
+	}
+	opts.PrometheusSecretName = secretName
 	return nil
 }
