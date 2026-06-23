@@ -77,12 +77,12 @@ def sc(namespace: str, issuer_ca_configmap: str, custom_mdb_version: str, all_ce
     return resource
 
 
-@mark.e2e_sharded_cluster_tls_encrypted_keyfile
+@mark.e2e_sharded_cluster_tls_mongod_encrypted_keyfile
 def test_install_operator(operator: Operator):
     operator.assert_is_running()
 
 
-@mark.e2e_sharded_cluster_tls_encrypted_keyfile
+@mark.e2e_sharded_cluster_tls_mongod_encrypted_keyfile
 def test_tls_keys_are_encrypted(all_certs, namespace: str):
     # Negative confidence: every tier's key must be a genuinely encrypted PEM, so a green Running
     # below cannot be a false pass with an unencrypted key on any tier.
@@ -92,7 +92,7 @@ def test_tls_keys_are_encrypted(all_certs, namespace: str):
         assert secret_data["tls.keyFilePassword"] == KEY_FILE_PASSWORD
 
 
-@mark.e2e_sharded_cluster_tls_encrypted_keyfile
+@mark.e2e_sharded_cluster_tls_mongod_encrypted_keyfile
 def test_sharded_cluster_gets_to_running_state(sc: MongoDB):
     # Reaching Running proves mongos, config servers, and shard mongods all loaded their encrypted
     # keys with the per-tier operator-injected passwords.
@@ -100,7 +100,7 @@ def test_sharded_cluster_gets_to_running_state(sc: MongoDB):
     sc.assert_reaches_phase(Phase.Running, timeout=1200)
 
 
-@mark.e2e_sharded_cluster_tls_encrypted_keyfile
+@mark.e2e_sharded_cluster_tls_mongod_encrypted_keyfile
 @skip_if_local
 def test_sharded_cluster_has_connectivity_with_tls(sc: MongoDB, ca_path: str):
     service_names = get_mongos_service_names(sc)
@@ -108,7 +108,7 @@ def test_sharded_cluster_has_connectivity_with_tls(sc: MongoDB, ca_path: str):
     tester.assert_connectivity()
 
 
-@mark.e2e_sharded_cluster_tls_encrypted_keyfile
+@mark.e2e_sharded_cluster_tls_mongod_encrypted_keyfile
 @skip_if_local
 def test_sharded_cluster_has_no_connectivity_without_tls(sc: MongoDB):
     service_names = get_mongos_service_names(sc)

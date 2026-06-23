@@ -51,12 +51,12 @@ def mdb(namespace: str, server_certs: str, issuer_ca_configmap: str) -> MongoDB:
     return resource
 
 
-@pytest.mark.e2e_replica_set_tls_encrypted_keyfile
+@pytest.mark.e2e_replica_set_tls_mongod_encrypted_keyfile
 def test_install_operator(operator: Operator):
     operator.assert_is_running()
 
 
-@pytest.mark.e2e_replica_set_tls_encrypted_keyfile
+@pytest.mark.e2e_replica_set_tls_mongod_encrypted_keyfile
 def test_tls_key_is_encrypted(server_certs: str, namespace: str):
     # Negative confidence: ensure the key is genuinely encrypted, so a green Running below cannot be a
     # false pass with an unencrypted key (which would make the password irrelevant).
@@ -65,20 +65,20 @@ def test_tls_key_is_encrypted(server_certs: str, namespace: str):
     assert secret_data["tls.keyFilePassword"] == KEY_FILE_PASSWORD
 
 
-@pytest.mark.e2e_replica_set_tls_encrypted_keyfile
+@pytest.mark.e2e_replica_set_tls_mongod_encrypted_keyfile
 def test_replica_set_running(mdb: MongoDB):
     # Reaching Running proves every mongod loaded its encrypted key using the operator-injected password.
     mdb.update()
     mdb.assert_reaches_phase(Phase.Running, timeout=400)
 
 
-@pytest.mark.e2e_replica_set_tls_encrypted_keyfile
+@pytest.mark.e2e_replica_set_tls_mongod_encrypted_keyfile
 @skip_if_local()
 def test_mdb_is_not_reachable_without_ssl(mdb: MongoDB):
     mdb.tester(use_ssl=False).assert_no_connection()
 
 
-@pytest.mark.e2e_replica_set_tls_encrypted_keyfile
+@pytest.mark.e2e_replica_set_tls_mongod_encrypted_keyfile
 @skip_if_local()
 def test_mdb_is_reachable_with_ssl(mdb: MongoDB, ca_path: str):
     mdb.tester(use_ssl=True, ca_path=ca_path).assert_connectivity()
