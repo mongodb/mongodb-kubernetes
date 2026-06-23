@@ -30,7 +30,7 @@ spec:
       kmip:
         clientCertificateFile: "/kmip/cert/tls.crt"
         serverCAFile: "/kmip/ca/ca.pem"
-        serverName: kmip-svc
+        serverName: kmip-svc.kmip.svc.cluster.local
         port: 5696
   podSpec:
     podTemplate:

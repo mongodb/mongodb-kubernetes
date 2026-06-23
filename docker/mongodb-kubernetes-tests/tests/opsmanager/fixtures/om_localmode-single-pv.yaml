@@ -37,6 +37,10 @@ spec:
               image: curlimages/curl:latest
               securityContext:
                 runAsUser: 1337 # workaround for init-container istio issue -> https://istio.io/latest/docs/setup/additional-setup/cni/#compatibility-with-application-init-containers
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                  - ALL
               command:
                 - curl
                 - -L
@@ -50,6 +54,10 @@ spec:
               image: curlimages/curl:latest
               securityContext:
                 runAsUser: 1337 # workaround for init-container istio issue -> https://istio.io/latest/docs/setup/additional-setup/cni/#compatibility-with-application-init-containers
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                  - ALL
               command:
                 - curl
                 - -L
@@ -63,6 +71,10 @@ spec:
               image: curlimages/curl:latest
               securityContext:
                 runAsUser: 1337 # workaround for init-container istio issue -> https://istio.io/latest/docs/setup/additional-setup/cni/#compatibility-with-application-init-containers
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                  - ALL
               command:
                 - curl
                 - -L
@@ -76,6 +88,10 @@ spec:
               image: curlimages/curl:latest
               securityContext:
                 runAsUser: 1337 # workaround for init-container istio issue -> https://istio.io/latest/docs/setup/additional-setup/cni/#compatibility-with-application-init-containers
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                  - ALL
               command:
                 - curl
                 - -L

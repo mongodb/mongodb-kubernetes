@@ -1452,7 +1452,7 @@ buildvariants:
 
   - name: e2e_static_custom_domain_mdb_kind_ubi_cloudqa
     display_name: e2e_static_custom_domain_mdb_kind_ubi_cloudqa
-    tags: [ "pr_patch", "staging", "e2e_test_suite", "cloudqa", "static" ]
+    tags: [ "staging", "e2e_test_suite", "cloudqa", "static" ]
     run_on:
       - ubuntu2404-large
     depends_on:
@@ -1786,7 +1786,7 @@ buildvariants:
 
   - name: e2e_static_multi_cluster_2_clusters
     display_name: e2e_static_multi_cluster_2_clusters
-    tags: [ "pr_patch", "staging", "e2e_test_suite", "cloudqa", "static" ]
+    tags: [ "staging", "e2e_test_suite", "cloudqa", "static" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om7_dependency
@@ -1872,7 +1872,7 @@ buildvariants:
 
   - name: e2e_static_kind_olm_ubi
     display_name: e2e_static_kind_olm_ubi
-    tags: [ "pr_patch", "staging", "e2e_test_suite", "static" ]
+    tags: [ "staging", "e2e_test_suite", "static" ]
     run_on:
       - ubuntu2404-large
     depends_on:

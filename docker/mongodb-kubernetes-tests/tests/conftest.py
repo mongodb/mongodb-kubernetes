@@ -8,7 +8,7 @@ from http import HTTPStatus
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterator, List, Optional
 
-from dotenv import load_dotenv  # ty: ignore[unresolved-import]
+from dotenv import load_dotenv
 
 if os.environ.get("PYTEST_OTEL_ENABLED", "true") == "false":
     # otel_plugin.py requires pytest-opentelemetry which is disabled via PYTEST_OTEL_ENABLED=false on s390x.
