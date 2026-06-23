@@ -64,6 +64,12 @@ SEARCH_OWNER_NAMESPACE_LABEL = "mongodb.com/search-namespace"
 SEARCH_CLUSTER_NAME_LABEL = "mongodb.com/cluster-name"
 
 
+def _idx(mcc: MultiClusterClient) -> int:
+    """Narrow ``mcc.cluster_index`` (Optional[int]) to int for the resource-name helpers."""
+    assert mcc.cluster_index is not None, f"cluster_index unset on {mcc.cluster_name!r}"
+    return mcc.cluster_index
+
+
 def _assert_search_owner_labels(obj_labels: Dict[str, str], cluster_name: str, where: str) -> None:
     """Assert all three search-owner labels are present and correct on a per-cluster resource."""
     assert (
@@ -218,7 +224,7 @@ def mdbs(
             "loadBalancer": {
                 "managed": {
                     "externalHostname": search_resource_names.mc_proxy_svc_fqdn(
-                        MDBS_RESOURCE_NAME, namespace, mcc.cluster_index
+                        MDBS_RESOURCE_NAME, namespace, _idx(mcc)
                     ),
                 },
             },

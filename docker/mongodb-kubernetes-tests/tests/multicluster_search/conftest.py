@@ -278,6 +278,12 @@ def build_per_cluster_search_crs(
             "clusterName": mcc.cluster_name,
             "clusterIndex": _idx(mcc),
             "replicas": mongot_replicas,
+            "loadBalancer": {
+                "managed": {
+                    "replicas": ENVOY_LB_REPLICAS,
+                    "externalHostname": external_hostname_template.replace("{clusterIndex}", str(_idx(mcc))),
+                },
+            },
         }
         for mcc in member_cluster_clients
     ]
@@ -289,12 +295,6 @@ def build_per_cluster_search_crs(
             namespace=namespace,
         )
         mdbs["spec"]["clusters"] = clusters_spec
-        mdbs["spec"]["loadBalancer"] = {
-            "managed": {
-                "replicas": ENVOY_LB_REPLICAS,
-                "externalHostname": external_hostname_template,
-            },
-        }
         mdbs["spec"]["source"] = {
             "username": MONGOT_USER_NAME,
             "passwordSecretRef": {
