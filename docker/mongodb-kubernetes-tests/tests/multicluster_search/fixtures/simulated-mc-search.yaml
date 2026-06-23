@@ -6,8 +6,6 @@ metadata:
 spec:
   logLevel: DEBUG
   clusters: []
-  loadBalancer:
-    managed: {}
   source:
     external:
       hostAndPorts: []
