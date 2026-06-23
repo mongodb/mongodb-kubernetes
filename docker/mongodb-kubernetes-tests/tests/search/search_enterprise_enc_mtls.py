@@ -210,7 +210,7 @@ def test_search_verify_prometheus_enabled(namespace: str, mdbs: MongoDBSearch):
 
 @mark.e2e_search_enterprise_enc_mtls
 def test_search_change_prometheus_to_custom_port(mdbs: MongoDBSearch):
-    mdbs["spec"]["prometheus"] = {"port": 10000}
+    mdbs["spec"]["observability"]["prometheus"] = {"port": 10000}
     mdbs.update()
     mdbs.assert_reaches_phase(Phase.Running, timeout=300)
 
