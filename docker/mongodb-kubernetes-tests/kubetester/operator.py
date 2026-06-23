@@ -79,8 +79,7 @@ class Operator(object):
         This is equal to helm template...| kubectl apply -"""
         yaml_file = helm_template(self.helm_arguments, helm_chart_path=self.helm_chart_path)
         create_or_replace_from_yaml(client.api_client.ApiClient(), yaml_file)
-        self._wait_for_operator_ready()
-        self._wait_operator_webhook_is_ready()
+        self.assert_is_running()
 
         return self
 
@@ -97,8 +96,7 @@ class Operator(object):
             helm_options=self.helm_options,
             custom_operator_version=custom_operator_version,
         )
-        self._wait_for_operator_ready()
-        self._wait_operator_webhook_is_ready()
+        self.assert_is_running()
 
         return self
 
@@ -118,8 +116,7 @@ class Operator(object):
             custom_operator_version=custom_operator_version,
             apply_crds_first=apply_crds_first,
         )
-        self._wait_for_operator_ready()
-        self._wait_operator_webhook_is_ready(multi_cluster=multi_cluster)
+        self.assert_is_running(multi_cluster=multi_cluster)
 
         return self
 
@@ -145,8 +142,9 @@ class Operator(object):
     def read_deployment(self) -> V1Deployment:
         return client.AppsV1Api(api_client=self.api_client).read_namespaced_deployment(self.name, self.namespace)
 
-    def assert_is_running(self):
+    def assert_is_running(self, multi_cluster: bool = False):
         self._wait_for_operator_ready()
+        self._wait_operator_webhook_is_ready(multi_cluster=multi_cluster)
 
     def _wait_for_operator_ready(self, retries: int = 60):
         """waits until the Operator deployment is ready."""
