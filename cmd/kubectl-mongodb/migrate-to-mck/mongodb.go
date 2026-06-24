@@ -14,7 +14,6 @@ import (
 
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
-	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	pkgtls "github.com/mongodb/mongodb-kubernetes/pkg/tls"
 )
 
@@ -114,21 +113,24 @@ func runGenerateMongodb(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	mongodbCR, _, err := GenerateMongoDBCR(ac, opts)
+	objects, err := generateMongodbObjects(ac, opts)
 	if err != nil {
 		return err
 	}
-
-	extra := generateExtraResources(ac, opts)
-	objects := make([]client.Object, 0, 1+len(extra))
-	objects = append(objects, mongodbCR)
-	objects = append(objects, extra...)
-
-	resources, err := marshalMultiDoc(objects)
+	resources, err := renderObjects(objects)
 	if err != nil {
 		return err
 	}
 	return writeOutput(resources, mFlags.outputFile)
+}
+
+func generateMongodbObjects(ac *om.AutomationConfig, opts GenerateOptions) ([]client.Object, error) {
+	mongodbCR, _, err := GenerateMongoDBCR(ac, opts)
+	if err != nil {
+		return nil, err
+	}
+	extra := generateExtraResources(ac, opts)
+	return append([]client.Object{mongodbCR}, extra...), nil
 }
 
 func buildMongodbOptions(ctx context.Context, kubeClient kubernetesClient.Client, ac *om.AutomationConfig, projectConfigs *ProjectConfigs, sourceProcess *om.Process, stdin io.Reader, flags mongodbFlags) (GenerateOptions, error) {
@@ -199,34 +201,4 @@ func collectPrometheusCreds(ctx context.Context, kubeClient kubernetesClient.Cli
 	}
 	opts.PrometheusSecretName = secretName
 	return nil
-}
-
-func collectPrometheusCreds(ctx context.Context, kubeClient kubernetesClient.Client, ac *om.AutomationConfig, opts *GenerateOptions, scanner *bufio.Scanner, prometheusSecretName string) error {
-	acProm := ac.Deployment.GetPrometheus()
-	if acProm == nil || !acProm.Enabled || acProm.Username == "" {
-		return nil
-	}
-	if prometheusSecretName != "" {
-		secret, err := kubeClient.GetSecret(ctx, kube.ObjectKey(opts.Namespace, prometheusSecretName))
-		if err != nil {
-			return fmt.Errorf("--prometheus-secret-name: secret %q not found in namespace %q: %w", prometheusSecretName, opts.Namespace, err)
-		}
-		if _, ok := secret.Data[passwordSecretDataKey]; !ok {
-			return fmt.Errorf("--prometheus-secret-name: secret %q does not contain key \"password\"", prometheusSecretName)
-		}
-		opts.PrometheusSecretName = prometheusSecretName
-		return nil
-	}
-	for {
-		password, err := promptLine(scanner, "Enter password for Prometheus user: ")
-		if err != nil {
-			return fmt.Errorf("failed to read Prometheus password: %w", err)
-		}
-		if password == "" {
-			_, _ = fmt.Fprintln(promptOutput, "Prometheus password cannot be empty, please try again.")
-			continue
-		}
-		opts.PrometheusPassword = password
-		return nil
-	}
 }

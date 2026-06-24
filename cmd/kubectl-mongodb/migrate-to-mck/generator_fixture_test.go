@@ -75,9 +75,9 @@ func TestFixtureMatch_ReplicaSet(t *testing.T) {
 			fixture:  "singlecluster/replicaset/complex_replicaset/complex_replicaset",
 			hasUsers: true,
 			opts: GenerateOptions{
-				CertsSecretPrefix:  "mdb",
-				PrometheusPassword: "prom-s3cret",
-				ProjectConfigs:     projectCfg,
+				CertsSecretPrefix:    "mdb",
+				PrometheusSecretName: PrometheusPasswordSecretName,
+				ProjectConfigs:       projectCfg,
 			},
 		},
 		{
