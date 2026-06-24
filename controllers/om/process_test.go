@@ -272,7 +272,7 @@ func TestMergeMongodProcess_MongodbOptions(t *testing.T) {
 		},
 		"systemLog": map[string]interface{}{
 			"destination": "file",
-			"path":        "/proc/1/fd/1",
+			"path":        "/var/log/mongodb-mms-automation/mongod-stdout",
 		},
 	}
 
@@ -323,7 +323,7 @@ func TestMergeMongodProcess_AdditionalMongodConfig_CanBeRemoved(t *testing.T) {
 		},
 		"systemLog": map[string]interface{}{
 			"destination": "file",
-			"path":        "/proc/1/fd/1",
+			"path":        "/var/log/mongodb-mms-automation/mongod-stdout",
 		},
 	}
 

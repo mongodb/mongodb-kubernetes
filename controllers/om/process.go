@@ -106,7 +106,7 @@ func NewMongosProcess(name, hostName, mongoDBImage string, forceEnterprise bool,
 		WithResourceSpec(processVersion, fcv),
 	)
 
-	p.SetLogPath("/proc/1/fd/1")
+	p.SetLogPath(MongodStdoutLogPath)
 	if certificateFilePath == "" {
 		certificateFilePath = util.PEMKeyFilePathInContainer
 	}
@@ -132,7 +132,7 @@ func NewMongodProcess(name, hostName, mongoDBImage string, forceEnterprise bool,
 	)
 
 	p.SetDbPath("/data")
-	p.SetLogPath("/proc/1/fd/1")
+	p.SetLogPath(MongodStdoutLogPath)
 
 	if certificateFilePath == "" {
 		certificateFilePath = util.PEMKeyFilePathInContainer

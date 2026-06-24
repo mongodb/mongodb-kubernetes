@@ -8,6 +8,14 @@ MDB_STATIC_CONTAINERS_ARCHITECTURE="${MDB_STATIC_CONTAINERS_ARCHITECTURE:-}"
 MMS_HOME=${MMS_HOME:-/mongodb-automation}
 MMS_LOG_DIR=${MMS_LOG_DIR:-/var/log/mongodb-mms-automation}
 
+# mongod logs to ${MMS_LOG_DIR}/mongod-stdout; this symlink resolves to THIS
+# container's stdout pipe. Under ShareProcessNamespace (static arch) PID 1 is the
+# pause container and /proc/1/fd/1 is /dev/null, so point at the launcher's own fd.
+# ponytail: hardcodes MMS_LOG_DIR default; add override handling if a deployment overrides it.
+# $$ resolves to 1 in non static and in static to launcher pid.
+mkdir -p "${MMS_LOG_DIR}"
+ln -sf "/proc/$$/fd/1" "${MMS_LOG_DIR}/mongod-stdout"
+
 if [ -z "${MDB_STATIC_CONTAINERS_ARCHITECTURE}" ]; then
   AGENT_BINARY_PATH="${MMS_HOME}/files/mongodb-mms-automation-agent"
 else

@@ -141,7 +141,7 @@ def test_log_readiness_probe_path_set_via_env_var(replica_set: MongoDB, namespac
 @mark.e2e_replica_set_agent_flags_and_readinessProbe
 def test_log_types_with_custom_automation_log_file(replica_set: MongoDB):
     # When user sets a custom -logFile, agent writes to that file.
-    # mongod still uses /proc/1/fd/1, so mongod JSON must still appear in stdout.
+    # mongod logs via /var/log/mongodb-mms-automation/mongod-stdout (symlink to container stdout), so mongod JSON must still appear in stdout.
     _assert_pod_mongodb_logs_in_stdout(replica_set)
 
 
