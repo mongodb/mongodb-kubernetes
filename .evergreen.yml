@@ -644,14 +644,18 @@ tasks:
       - func: setup_prepare_openshift_bundles
       - func: prepare_openshift_bundles_for_e2e
 
-  # Dummy placeholder: will call `mckci release promote` once the tool is wired into CI.
-  # Runs after all staging tests pass on a master merge to confirm the build is promotable.
+  # Runs after all staging tests pass on a master merge: promotes every release
+  # image (build_info.json) at the merged commit to its primary staging repo.
   - name: mckci_release_promote
     commands:
+      - func: clone
+      - func: setup_building_host
       - command: shell.exec
+        type: test
         params:
+          working_dir: src/github.com/mongodb/mongodb-kubernetes
           script: |
-            echo "would run: mckci release promote --version ${OPERATOR_VERSION}"
+            scripts/mckci release promote group --commit "${revision}"
 
   # Notify Slack about build failures
   # On patches: stdout only. On mainline: stdout + Slack
