@@ -20,10 +20,6 @@ import (
 const searchStateKey = "state"
 
 type SearchDeploymentState struct {
-	// ClusterMapping is the persisted clusterName → clusterIndex assignment;
-	// per-cluster resource names use these indexes so spec.clusters[] reorders
-	// don't rename resources.
-	ClusterMapping map[string]int `json:"clusterMapping"`
 	// RoutingReadyMongotGroups is the one-way routing-ready switch: the set of
 	// shard names whose mongot group has EVER met the routing-readiness threshold;
 	// a shard is pending iff it is not listed here. Pruned only when a shard no
@@ -32,7 +28,7 @@ type SearchDeploymentState struct {
 }
 
 func NewSearchDeploymentState() *SearchDeploymentState {
-	return &SearchDeploymentState{ClusterMapping: map[string]int{}}
+	return &SearchDeploymentState{}
 }
 
 // SearchStateCMName returns the search controllers' state ConfigMap name — the
@@ -50,9 +46,6 @@ func searchStateFromCM(cm *corev1.ConfigMap) (*SearchDeploymentState, error) {
 		if err := json.Unmarshal([]byte(raw), state); err != nil {
 			return nil, xerrors.Errorf("cannot unmarshal search state %s/%s: %w", cm.Namespace, cm.Name, err)
 		}
-	}
-	if state.ClusterMapping == nil {
-		state.ClusterMapping = map[string]int{}
 	}
 	return state, nil
 }

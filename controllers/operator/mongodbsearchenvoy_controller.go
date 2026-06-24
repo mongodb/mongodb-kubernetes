@@ -150,15 +150,7 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 	// If LB was previously active (status exists), clean up Envoy resources first.
 	if !mdbSearch.IsLBModeManaged() {
 		if mdbSearch.Status.LoadBalancer != nil {
-			state, stErr := searchcontroller.ReadSearchState(ctx, r.kubeClient, mdbSearch)
-			var workList []clusterWorkItem
-			if stErr != nil {
-				log.Warnf("Failed to load search state for Envoy cleanup, falling back to central only: %s", stErr)
-				workList = []clusterWorkItem{{ClusterName: "", ClusterIndex: 0, Client: r.kubeClient}}
-			} else {
-				workList = r.buildClusterWorkList(mdbSearch, state.ClusterMapping)
-			}
-			r.deleteEnvoyResources(ctx, mdbSearch, workList, log)
+			r.deleteEnvoyResources(ctx, mdbSearch, r.buildClusterWorkList(mdbSearch), log)
 			r.clearLBStatus(ctx, mdbSearch, log)
 		}
 		return reconcile.Result{}, nil
@@ -175,8 +167,7 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 		return r.updateLBStatus(ctx, mdbSearch, workflow.Pending("Waiting for search source: %s", err), log)
 	}
 
-	// Load the per-CR state to get the stable clusterName → clusterIndex mapping
-	// and the routing-readiness switch.
+	// Load the per-CR state for the routing-readiness switch.
 	state, err := searchcontroller.ReadSearchState(ctx, r.kubeClient, mdbSearch)
 	if err != nil {
 		return r.updateLBStatus(ctx, mdbSearch, workflow.Pending("Waiting for search state: %s", err), log)
@@ -185,19 +176,15 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 	tlsCfg := searchSource.TLSConfig()
 	tlsEnabled := mdbSearch.IsTLSConfigured()
 
-	workList := r.buildClusterWorkList(mdbSearch, state.ClusterMapping)
+	workList := r.buildClusterWorkList(mdbSearch)
 	var firstFailure error
 	var worstPhase status.Phase
 
 	for _, w := range workList {
 		var st workflow.Status
-		switch {
-		case w.Client == nil:
+		switch w.Client {
+		case nil:
 			st = workflow.Pending("Member cluster %q not registered with the operator", w.ClusterName)
-		case w.ClusterIndex == -1:
-			// Cluster not yet registered in state mapping; Envoy controller
-			// reconciles after the main search controller writes the mapping.
-			st = workflow.Pending("Waiting for cluster %q to be registered in search state", w.ClusterName)
 		default:
 			st = r.reconcileForCluster(ctx, mdbSearch, searchSource, tlsEnabled, tlsCfg, w, state.RoutingReadyMongotGroups, log)
 		}
@@ -221,7 +208,6 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 }
 
 // clusterWorkItem is one per-cluster unit. Single-cluster: ClusterName="", ClusterIndex=0.
-// ClusterIndex == -1 sentinel = cluster not yet in state mapping (first-reconcile race).
 // Client == nil sentinel = cluster not registered with the operator (hub-and-spoke only).
 type clusterWorkItem struct {
 	ClusterName  string
@@ -231,17 +217,13 @@ type clusterWorkItem struct {
 
 // spec.clusters is validated non-empty, so the empty-clusters branch is a
 // defensive backstop only.
-func (r *MongoDBSearchEnvoyReconciler) buildClusterWorkList(search *searchv1.MongoDBSearch, mapping map[string]int) []clusterWorkItem {
+func (r *MongoDBSearchEnvoyReconciler) buildClusterWorkList(search *searchv1.MongoDBSearch) []clusterWorkItem {
 	if len(search.Spec.Clusters) == 0 {
 		return []clusterWorkItem{{ClusterName: "", ClusterIndex: 0, Client: r.kubeClient}}
 	}
 	work := make([]clusterWorkItem, 0, len(search.Spec.Clusters))
 	for _, c := range search.Spec.Clusters {
-		idx, ok := mapping[c.Name]
-		if !ok {
-			idx = -1
-		}
-		work = append(work, clusterWorkItem{ClusterName: c.Name, ClusterIndex: idx, Client: r.clientForCluster(c.Name)})
+		work = append(work, clusterWorkItem{ClusterName: c.Name, ClusterIndex: c.ResolveIndex(), Client: r.clientForCluster(c.Name)})
 	}
 	return work
 }
@@ -249,8 +231,8 @@ func (r *MongoDBSearchEnvoyReconciler) buildClusterWorkList(search *searchv1.Mon
 // reconcileForCluster runs the ConfigMap + Deployment ensure for one cluster's
 // work item. clusterName resolves the cluster's LB config and is used for log
 // context; clusterIndex is used for resource naming ONLY (it comes from the
-// persisted ClusterMapping, which outlives spec positions). routingReadyMongotGroups
-// is the state-CM switch — shards not listed get fallback routing.
+// spec.clusters[i] pin). routingReadyMongotGroups is the state-CM switch —
+// shards not listed get fallback routing.
 // Returns a workflow.Status describing the per-cluster outcome.
 func (r *MongoDBSearchEnvoyReconciler) reconcileForCluster(
 	ctx context.Context,
@@ -319,12 +301,12 @@ func (r *MongoDBSearchEnvoyReconciler) clearLBStatus(ctx context.Context, search
 }
 
 // deleteEnvoyResources removes per-cluster Envoy resources on managed→unmanaged LB transition.
-// ClusterIndex == -1 (not yet in state) and Client == nil (cluster not registered) sentinels
-// are skipped: the reconciler could not have created anything for those clusters.
+// Client == nil (cluster not registered) work items are skipped: the reconciler could not
+// have created anything for those clusters.
 func (r *MongoDBSearchEnvoyReconciler) deleteEnvoyResources(ctx context.Context, search *searchv1.MongoDBSearch, workList []clusterWorkItem, log *zap.SugaredLogger) {
 	ns := search.Namespace
 	for _, w := range workList {
-		if w.ClusterIndex == -1 || w.Client == nil {
+		if w.Client == nil {
 			continue
 		}
 		depName := search.LoadBalancerDeploymentNameForCluster(w.ClusterIndex)
@@ -352,16 +334,6 @@ func caKeyNameFromTLSConfig(tlsCfg *searchcontroller.TLSSourceConfig) string {
 		return tlsCfg.CAFileName
 	}
 	return envoyCAKey
-}
-
-// buildRoutes returns the Envoy routes for the given topology.
-// It is the single topology-aware path in the controller. Everything downstream (config generation,
-// Service creation, cleanup) is topology-agnostic, using the envoyRoute data structure only.
-func buildRoutes(search *searchv1.MongoDBSearch, source searchcontroller.SearchSourceDBResource, routingReadyMongotGroups []string) []envoyRoute {
-	if shardedSource, ok := source.(searchcontroller.SearchSourceShardedDeployment); ok {
-		return buildShardRoutes(search, shardedSource.GetShardNames(), 0, "", routingReadyMongotGroups)
-	}
-	return []envoyRoute{buildReplicaSetRouteForCluster(search, 0, "")}
 }
 
 // buildShardRoutes builds per-shard routes plus one cluster-level route for a single cluster.
@@ -444,13 +416,12 @@ func buildShardRoutes(search *searchv1.MongoDBSearch, shardNames []string, clust
 	return routes
 }
 
-// buildRoutesForCluster returns the Envoy routes for one member cluster.
-// Empty clusterName is the single-cluster path.
+// buildRoutesForCluster returns the Envoy routes for one member cluster — the single
+// topology-aware path; everything downstream consumes the topology-agnostic envoyRoute.
+// clusterName "" is the single-cluster path, but clusterIndex is still the CRD-pinned
+// index (a single-entry CR pinned non-zero must not reconcile at 0). routingReadyMongotGroups
+// gives a not-yet-listed mongot group fallback routing via the routed_from_another_shard header.
 func buildRoutesForCluster(search *searchv1.MongoDBSearch, source searchcontroller.SearchSourceDBResource, clusterIndex int, clusterName string, routingReadyMongotGroups []string) []envoyRoute {
-	if clusterName == "" {
-		return buildRoutes(search, source, routingReadyMongotGroups)
-	}
-
 	if shardedSource, ok := source.(searchcontroller.SearchSourceShardedDeployment); ok {
 		return buildShardRoutes(search, shardedSource.GetShardNames(), clusterIndex, clusterName, routingReadyMongotGroups)
 	}

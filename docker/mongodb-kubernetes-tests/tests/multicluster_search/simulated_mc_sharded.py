@@ -73,7 +73,6 @@ from tests.multicluster_search.conftest import (
     apply_search_crs_and_assert_running,
     assert_cross_cluster_isolation,
     assert_per_cluster_count,
-    assert_state_configmap_local_mapping,
     assert_status_running_local_only,
     build_per_cluster_search_crs,
     create_search_users,
@@ -796,15 +795,3 @@ def test_cross_cluster_isolation_absence(
     """
     shard_names = [f"{MDB_RESOURCE_NAME}-{shard_idx}" for shard_idx in range(SHARD_COUNT)]
     assert_cross_cluster_isolation(namespace, per_cluster_mdbs_search, MDBS_RESOURCE_NAME, shard_names=shard_names)
-
-
-@mark.e2e_search_simulated_mc_sharded
-def test_state_configmap_mapping_persisted(
-    namespace: str,
-    per_cluster_mdbs_search: List[Tuple[MultiClusterClient, MongoDBSearch]],
-):
-    """Each cluster's `{mdbs}-search-state` ConfigMap pins clusterMapping[thisCluster]==thisIndex.
-    Simulated-MC narrows spec.clusters[] (LocalizeToCluster) so the mapping is LOCAL-only —
-    this cluster's entry, never the foreign cluster's name.
-    """
-    assert_state_configmap_local_mapping(namespace, per_cluster_mdbs_search, MDBS_RESOURCE_NAME)

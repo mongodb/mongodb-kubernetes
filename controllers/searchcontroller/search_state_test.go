@@ -68,19 +68,16 @@ func TestRoutingSwitch_StateCMWrites(t *testing.T) {
 		}
 	})
 
-	t.Run("mark appends and preserves the cluster mapping", func(t *testing.T) {
+	t.Run("mark appends to an existing switch", func(t *testing.T) {
 		c := mock.NewEmptyFakeClientBuilder().Build()
 		_, err := MutateSearchState(ctx, kubernetesClient.NewClient(c), search, func(s *SearchDeploymentState) bool {
-			s.ClusterMapping = map[string]int{"us-east": 0}
 			s.RoutingReadyMongotGroups = []string{"sh-0"}
 			return true
 		})
 		require.NoError(t, err)
 
 		require.NoError(t, newHelper(c).markRoutingReady(ctx, "sh-1"))
-		st := readState(t, c)
-		assert.Equal(t, []string{"sh-0", "sh-1"}, st.RoutingReadyMongotGroups)
-		assert.Equal(t, map[string]int{"us-east": 0}, st.ClusterMapping)
+		assert.Equal(t, []string{"sh-0", "sh-1"}, readState(t, c).RoutingReadyMongotGroups)
 	})
 
 	t.Run("already-on switch is a no-op write", func(t *testing.T) {

@@ -31,7 +31,6 @@ func CheckSecretsPresence(
 	search *searchv1.MongoDBSearch,
 	central client.Client,
 	members map[string]client.Client,
-	clusterMapping map[string]int,
 ) []SecretCheckResult {
 	results := make([]SecretCheckResult, 0, len(members)+1)
 	appendIfMissing := func(clusterName string, c client.Client, names []string) {
@@ -45,23 +44,20 @@ func CheckSecretsPresence(
 
 	if len(members) == 0 {
 		// Single-cluster or simulated-MC. In simulated-MC the narrowed 1-entry
-		// spec.clusters may map to a non-zero index; index-keyed names (per-shard
-		// TLS certs) must be probed at that index, not 0.
-		idx := 0
-		if cs := search.Spec.Clusters; len(cs) == 1 {
-			if v, ok := clusterMapping[cs[0].Name]; ok {
-				idx = v
-			} else if pinned := cs[0].ClusterIndex; pinned != nil {
-				idx = int(*pinned)
-			}
-		}
-		appendIfMissing("", central, expectedSecretNamesForCluster(search, idx))
+		// spec.clusters may be pinned to a non-zero index; index-keyed names
+		// (per-shard TLS certs) must be probed at that index, not 0.
+		appendIfMissing("", central, expectedSecretNamesForCluster(search, ResolveSingleClusterIndex(search)))
 		return results
+	}
+
+	indexByCluster := make(map[string]int, len(search.Spec.Clusters))
+	for _, c := range search.Spec.Clusters {
+		indexByCluster[c.Name] = c.ResolveIndex()
 	}
 
 	appendIfMissing("", central, expectedClusterInvariantSecretNames(search))
 	for name, c := range members {
-		appendIfMissing(name, c, expectedSecretNamesForCluster(search, clusterMapping[name]))
+		appendIfMissing(name, c, expectedSecretNamesForCluster(search, indexByCluster[name]))
 	}
 	return results
 }

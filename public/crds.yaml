@@ -4130,9 +4130,9 @@ spec:
                         The operator neither reads nor modifies it; operator-generated settings are unaffected.
                       type: object
                       x-kubernetes-preserve-unknown-fields: true
-                    clusterIndex:
+                    index:
                       description: |-
-                        ClusterIndex is the stable integer in per-cluster resource names. Required on every entry
+                        Index is the stable integer in per-cluster resource names. Required on every entry
                         of a multi-cluster spec, and even on a single entry when each member cluster runs its own
                         operator. Changing it renames this cluster's resources, orphaning those at the old index.
                       format: int32
@@ -4644,12 +4644,12 @@ spec:
                     cluster is specified
                   rule: size(self) <= 1 || self.all(c1, has(c1.name) && self.exists_one(c2,
                     has(c2.name) && c2.name == c1.name))
-                - message: clusters[].clusterIndex must be unique when set
-                  rule: self.all(c1, !has(c1.clusterIndex) || self.exists_one(c2,
-                    has(c2.clusterIndex) && c2.clusterIndex == c1.clusterIndex))
-                - message: clusters[].clusterIndex is required on every entry when
-                    more than one cluster is specified
-                  rule: size(self) <= 1 || self.all(c, has(c.clusterIndex))
+                - message: clusters[].index must be unique when set
+                  rule: self.all(c1, !has(c1.index) || self.exists_one(c2, has(c2.index)
+                    && c2.index == c1.index))
+                - message: clusters[].index is required on every entry when more than
+                    one cluster is specified
+                  rule: size(self) <= 1 || self.all(c, has(c.index))
               featureFlags:
                 description: |-
                   FeatureFlags configures mongot feature flags. When a flag is set to true in the CR,
