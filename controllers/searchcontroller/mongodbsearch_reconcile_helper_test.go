@@ -2942,6 +2942,104 @@ func TestBuildReplicaSetPlan_PerClusterUnitsForMC(t *testing.T) {
 	assert.Equal(t, 1, plan.units[1].clusterIndex)
 }
 
+func TestReplicationReaderTagSetsMod(t *testing.T) {
+	secondaryPreferred := ptr.To("secondaryPreferred")
+	tests := []struct {
+		name     string
+		selector *searchv1.SyncSourceSelector
+		want     *mongot.ConfigReplicationReader
+	}{
+		{
+			name:     "nil selector leaves base default untouched",
+			selector: nil,
+			want:     &mongot.ConfigReplicationReader{ReadPreference: secondaryPreferred},
+		},
+		{
+			name:     "empty matchTagSets leaves base default untouched",
+			selector: &searchv1.SyncSourceSelector{MatchTagSets: []map[string]string{}},
+			want:     &mongot.ConfigReplicationReader{ReadPreference: secondaryPreferred},
+		},
+		{
+			name:     "single tag set",
+			selector: &searchv1.SyncSourceSelector{MatchTagSets: []map[string]string{{"region": "us-east"}}},
+			want: &mongot.ConfigReplicationReader{
+				ReadPreference: secondaryPreferred,
+				TagSets:        [][]mongot.ConfigTag{{{Name: "region", Value: "us-east"}}},
+			},
+		},
+		{
+			name:     "multiple tags sorted by key",
+			selector: &searchv1.SyncSourceSelector{MatchTagSets: []map[string]string{{"zone": "z1", "region": "us-east"}}},
+			want: &mongot.ConfigReplicationReader{
+				ReadPreference: secondaryPreferred,
+				TagSets:        [][]mongot.ConfigTag{{{Name: "region", Value: "us-east"}, {Name: "zone", Value: "z1"}}},
+			},
+		},
+		{
+			name: "ordered tag sets with empty fallback set",
+			selector: &searchv1.SyncSourceSelector{MatchTagSets: []map[string]string{
+				{"zone": "z1", "region": "us-east"},
+				{"region": "eu-west"},
+				{},
+			}},
+			want: &mongot.ConfigReplicationReader{
+				ReadPreference: secondaryPreferred,
+				TagSets: [][]mongot.ConfigTag{
+					{{Name: "region", Value: "us-east"}, {Name: "zone", Value: "z1"}},
+					{{Name: "region", Value: "eu-west"}},
+					{},
+				},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Seed the ReplicationReader default that baseMongotConfig always applies
+			// first in the real Apply chain; the mod only populates its tagSets.
+			cfg := mongot.Config{}
+			cfg.SyncSource.ReplicationReader = &mongot.ConfigReplicationReader{ReadPreference: secondaryPreferred}
+			replicationReaderTagSetsMod(tt.selector)(&cfg)
+			assert.Equal(t, tt.want, cfg.SyncSource.ReplicationReader)
+		})
+	}
+}
+
+// Each cluster's mongot config carries that cluster's own matchTagSets; a cluster
+// without a selector keeps the base config's match-any default (no tagSets).
+func TestBuildReplicaSetPlan_PerClusterMatchTagSets(t *testing.T) {
+	mdb := newTestMongoDBSearch("mdb-search", "ns")
+	mdb.Spec.Clusters = []searchv1.ClusterSpec{
+		{Name: "cluster-a", Replicas: ptr.To(int32(1)), SyncSourceSelector: &searchv1.SyncSourceSelector{MatchTagSets: []map[string]string{{"region": "us-east"}}}},
+		{Name: "cluster-b", Replicas: ptr.To(int32(1))},
+	}
+	mdb.Spec.Source = &searchv1.MongoDBSource{
+		ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{HostAndPorts: []string{"a.example:27017"}},
+	}
+
+	r := &MongoDBSearchReconcileHelper{
+		mdbSearch: mdb,
+		state:     &SearchDeploymentState{ClusterMapping: map[string]int{"cluster-a": 0, "cluster-b": 1}},
+	}
+	source := &fakeExternalSource{hosts: mdb.Spec.Source.ExternalMongoDBSource.HostAndPorts}
+
+	plan, err := r.buildReplicaSetPlan(source)
+	require.NoError(t, err)
+	require.Len(t, plan.units, 2)
+
+	cfgA := mongot.Config{}
+	plan.units[0].mongotConfigFn(&cfgA)
+	assert.Equal(t, &mongot.ConfigReplicationReader{
+		ReadPreference: ptr.To("secondaryPreferred"),
+		TagSets:        [][]mongot.ConfigTag{{{Name: "region", Value: "us-east"}}},
+	}, cfgA.SyncSource.ReplicationReader)
+
+	cfgB := mongot.Config{}
+	plan.units[1].mongotConfigFn(&cfgB)
+	assert.Equal(t, &mongot.ConfigReplicationReader{
+		ReadPreference: ptr.To("secondaryPreferred"),
+	}, cfgB.SyncSource.ReplicationReader)
+}
+
 func TestBuildReplicaSetPlan_SingleClusterUsesIndexZeroNames(t *testing.T) {
 	mdb := newTestMongoDBSearch("mdb-search", "ns")
 	mdb.Spec.Source = &searchv1.MongoDBSource{
@@ -3092,6 +3190,52 @@ func TestBuildShardedPlan_PerClusterShardUnitsForMC(t *testing.T) {
 	assert.Equal(t, "cluster-b", plan.clusterLevelResources[1].clusterName)
 	assert.Equal(t, 1, plan.clusterLevelResources[1].clusterIndex)
 	assert.Equal(t, "mdb-search-search-1-proxy-svc", plan.clusterLevelResources[1].svcName.Name)
+}
+
+// A cluster's matchTagSets threads onto every shard unit of that cluster; a cluster
+// without a selector keeps the base config's match-any default (no tagSets).
+func TestBuildShardedPlan_PerClusterMatchTagSets(t *testing.T) {
+	search := newTestMongoDBSearch("mdb-search", "ns")
+	search.Spec.Clusters = []searchv1.ClusterSpec{
+		{Name: "cluster-a", ClusterIndex: ptr.To(int32(0)), SyncSourceSelector: &searchv1.SyncSourceSelector{MatchTagSets: []map[string]string{{"region": "us-east"}}}, LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{
+			ExternalHostname: "{shardName}.mdb-search-search-0-proxy-svc.ns.svc.cluster.local",
+		}}},
+		{Name: "cluster-b", ClusterIndex: ptr.To(int32(1)), LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{
+			ExternalHostname: "{shardName}.mdb-search-search-1-proxy-svc.ns.svc.cluster.local",
+		}}},
+	}
+
+	shardedSource := &mockShardedSource{
+		shardNames: []string{"sh-0", "sh-1"},
+		hostSeeds: map[string][]string{
+			"sh-0": {"sh-0-0.svc:27017"},
+			"sh-1": {"sh-1-0.svc:27017"},
+		},
+	}
+
+	r := &MongoDBSearchReconcileHelper{
+		mdbSearch: search,
+		db:        shardedSource,
+		state:     &SearchDeploymentState{ClusterMapping: map[string]int{"cluster-a": 0, "cluster-b": 1}},
+	}
+
+	plan, err := r.buildShardedPlan(shardedSource)
+	require.NoError(t, err)
+	require.Len(t, plan.units, 4)
+
+	taggedRR := &mongot.ConfigReplicationReader{
+		ReadPreference: ptr.To("secondaryPreferred"),
+		TagSets:        [][]mongot.ConfigTag{{{Name: "region", Value: "us-east"}}},
+	}
+	bareRR := &mongot.ConfigReplicationReader{ReadPreference: ptr.To("secondaryPreferred")}
+
+	// units 0,1 = cluster-a (selector applies to both its shards); units 2,3 = cluster-b (no selector).
+	want := []*mongot.ConfigReplicationReader{taggedRR, taggedRR, bareRR, bareRR}
+	for i, w := range want {
+		cfg := mongot.Config{}
+		plan.units[i].mongotConfigFn(&cfg)
+		assert.Equal(t, w, cfg.SyncSource.ReplicationReader, "unit %d (%s/%s) replicationReader", i, plan.units[i].clusterName, plan.units[i].additionalSvcLabels[shardLabelKey])
+	}
 }
 
 // Sharded MC: per-(cluster, shard) STS + ConfigMap land on the matching
