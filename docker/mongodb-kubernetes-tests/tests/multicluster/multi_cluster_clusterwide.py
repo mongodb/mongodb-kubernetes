@@ -178,12 +178,12 @@ def test_prepare_namespace(
 
 @mark.e2e_multi_cluster_clusterwide
 def test_deploy_operator(multi_cluster_operator_clustermode: Operator):
-    multi_cluster_operator_clustermode.assert_is_running()
+    multi_cluster_operator_clustermode.wait_for_operator_ready()
 
 
 @mark.e2e_multi_cluster_specific_namespaces
 def test_deploy_operator_specific_namespaces(install_operator: Operator):
-    install_operator.assert_is_running()
+    install_operator.wait_for_operator_ready()
 
 
 @mark.e2e_multi_cluster_specific_namespaces

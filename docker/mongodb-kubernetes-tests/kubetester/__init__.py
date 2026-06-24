@@ -5,13 +5,17 @@ from base64 import b64decode
 from typing import Any, Callable, Dict, List, Optional
 
 import kubernetes.client
+import requests
 from kubeobject import CustomObject
 from kubernetes import client, utils
 from kubetester.kubetester import run_periodically
+from tests import test_logger
 
 # Re-exports
 from .kubetester import fixture as find_fixture
 from .security_context import assert_pod_container_security_context, assert_pod_security_context
+
+logger = test_logger.get_test_logger(__name__)
 
 
 def create_secret(
@@ -498,31 +502,58 @@ def try_load(resource: CustomObject) -> bool:
     return True
 
 
-def wait_for_webhook(namespace, retries=20, delay=10, service_name="operator-webhook"):
-    webhook_api = client.AdmissionregistrationV1Api()
-    core_api = client.CoreV1Api()
+def wait_for_webhook(namespace, retries: int = 10, multi_cluster: bool = False, service_name="operator-webhook"):
+    from tests.conftest import get_central_cluster_name, get_cluster_domain, get_test_pod_cluster_name, local_operator
 
-    for attempt in range(retries):
+    # we don't want to wait for the operator webhook if the operator is running locally and not in a pod
+    if local_operator():
+        return
+
+    # in multi-cluster mode the operator and the test pod are in different clusters(test pod won't be able to talk to webhook),
+    # so we skip this extra check for multi-cluster
+    if multi_cluster and get_central_cluster_name() != get_test_pod_cluster_name():
+        logger.info(
+            f"Skipping waiting for the webhook as we cannot call the webhook endpoint from a test_pod_cluster ({get_test_pod_cluster_name()}) "
+            f"to central cluster ({get_central_cluster_name()}); sleeping for 10s instead"
+        )
+        # We need to sleep here otherwise the function returns too early and we create a race condition in tests
+        time.sleep(10)
+        return
+
+    webhook_services = client.CoreV1Api().list_namespaced_service(namespace)
+    logger.debug("Listing webhook services...")
+    for svc in webhook_services.items:
+        if "webhook" in svc.metadata.name:
+            logger.debug(
+                f"Service: {svc.metadata.name}, ClusterIP: {svc.spec.cluster_ip}, Ports: {svc.spec.ports}, Selector: {svc.spec.selector}"
+            )
+
+    logger.debug("wait_for_webhook")
+    validation_endpoint = "validate-mongodb-com-v1-mongodb"
+    webhook_endpoint = "https://{}.{}.svc.{}/{}".format(
+        service_name, namespace, get_cluster_domain(), validation_endpoint
+    )
+    headers = {"Content-Type": "application/json"}
+    logger.debug(f"Webhook_endpoint: {webhook_endpoint}")
+    retry_count = retries + 1
+    while retry_count > 0:
+        retry_count -= 1
+        logger.debug("Waiting for operator/webhook to be functional")
         try:
-            core_api.read_namespaced_service(service_name, namespace)
+            response = requests.post(webhook_endpoint, headers=headers, verify=False, timeout=2)
+        except Exception as e:
+            logger.warning(e)
+            time.sleep(2)
+            continue
 
-            # make sure the validating_webhook is installed.
-            wh = webhook_api.read_validating_webhook_configuration("mdbpolicy.mongodb.com")
+        try:
+            # Let's assume that if we get a json response, then the webhook
+            # is already in place.
+            response.json()
+        except Exception:
+            logger.warning("Didn't get a json response from webhook")
+        else:
+            return
+        time.sleep(2)
 
-            # Wait for the caBundle to be injected (cert-manager injects it asynchronously).
-            # Without a populated caBundle the webhook server won't accept connections yet.
-            ca_bundle_ready = any(w.client_config.ca_bundle for w in (wh.webhooks or []) if w.client_config)
-            if not ca_bundle_ready:
-                raise kubernetes.client.ApiException(status=503, reason="caBundle not yet injected")
-
-            # Extra stabilization delay: the TLS certificate may still be loading into
-            # the webhook server's listener even after the caBundle is populated.
-            time.sleep(5)
-            print("Webhook is ready.")
-            return True
-        except kubernetes.client.ApiException as e:
-            print(f"Attempt {attempt + 1} failed, webhook not ready. Sleeping: {delay}, error: {e}")
-            time.sleep(delay)
-
-    print("Webhook did not become ready in time.")
-    return False
+    raise Exception("Operator webhook didn't start after {} retries".format(retries))

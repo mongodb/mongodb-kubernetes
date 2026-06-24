@@ -158,7 +158,7 @@ def x509_mongot_user(namespace: str, helper: SearchDeploymentHelper) -> MongoDBU
 @mark.e2e_search_mongot_replicaset_x509_auth
 def test_install_operator(namespace: str, operator_installation_config: dict[str, str]):
     operator = get_default_operator(namespace, operator_installation_config=operator_installation_config)
-    operator.assert_is_running()
+    operator.wait_for_operator_ready()
 
 
 @mark.e2e_search_mongot_replicaset_x509_auth

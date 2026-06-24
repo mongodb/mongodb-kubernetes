@@ -37,7 +37,7 @@ def mdb(namespace: str, server_certs: str, agent_certs: str, issuer_ca_configmap
 
 @pytest.mark.e2e_tls_x509_configure_all_options_rs
 def test_install_operator(operator: Operator):
-    operator.assert_is_running()
+    operator.wait_for_operator_ready()
 
 
 @pytest.mark.e2e_tls_x509_configure_all_options_rs

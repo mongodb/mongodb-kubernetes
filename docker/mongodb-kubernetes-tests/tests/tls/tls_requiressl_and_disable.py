@@ -31,7 +31,7 @@ def tls_replica_set(namespace: str, custom_mdb_version: str, issuer_ca_configmap
 
 @pytest.mark.e2e_replica_set_tls_require_and_disable
 def test_install_operator(operator: Operator):
-    operator.assert_is_running()
+    operator.wait_for_operator_ready()
 
 
 @pytest.mark.e2e_replica_set_tls_require_and_disable

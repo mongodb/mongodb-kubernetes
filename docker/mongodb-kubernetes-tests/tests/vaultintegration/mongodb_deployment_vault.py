@@ -278,7 +278,7 @@ def test_enable_vault_role_for_operator_pod(
 
 @mark.e2e_vault_setup
 def test_operator_install_with_vault_backend(operator_vault_secret_backend: Operator):
-    operator_vault_secret_backend.assert_is_running()
+    operator_vault_secret_backend.wait_for_operator_ready()
 
 
 @mark.e2e_vault_setup

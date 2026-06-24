@@ -85,7 +85,7 @@ def unmanaged_mdb(ops_manager: MongoDBOpsManager, unmanaged_namespace: str) -> M
 
 @pytest.mark.e2e_operator_clusterwide
 def test_install_clusterwide_operator(operator_clusterwide: Operator):
-    operator_clusterwide.assert_is_running()
+    operator_clusterwide.wait_for_operator_ready()
 
 
 @pytest.mark.e2e_operator_multi_namespaces
@@ -103,7 +103,7 @@ def test_install_multi_namespace_operator(
     helm_args = operator_installation_config.copy()
     helm_args["operator.watchNamespace"] = ops_manager_namespace + "," + mdb_namespace
 
-    Operator(namespace=namespace, helm_args=helm_args).install().assert_is_running()
+    Operator(namespace=namespace, helm_args=helm_args).install().wait_for_operator_ready()
 
 
 @pytest.mark.e2e_operator_clusterwide

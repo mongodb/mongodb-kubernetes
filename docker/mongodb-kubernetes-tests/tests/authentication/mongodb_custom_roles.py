@@ -3,6 +3,7 @@ from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.mongodb_multi import MongoDBMulti
 from kubetester.mongodb_role import ClusterMongoDBRole, ClusterMongoDBRoleKind
+from kubetester.operator import Operator
 from pytest import fixture, mark
 from tests.multicluster.conftest import cluster_spec_list
 
@@ -349,8 +350,8 @@ def test_removing_role_from_resources(replica_set: MongoDB, sharded_cluster: Mon
 
 
 @mark.e2e_mongodb_custom_roles
-def test_install_operator_with_clustermongodbroles_disabled(multi_cluster_operator_no_cluster_mongodb_roles):
-    multi_cluster_operator_no_cluster_mongodb_roles.assert_is_running()
+def test_install_operator_with_clustermongodbroles_disabled(multi_cluster_operator_no_cluster_mongodb_roles: Operator):
+    multi_cluster_operator_no_cluster_mongodb_roles.wait_for_operator_ready()
 
 
 @mark.e2e_mongodb_custom_roles

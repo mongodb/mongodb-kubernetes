@@ -55,7 +55,7 @@ def test_create_service_entry(service_entries: List[CustomObject]):
 
 @mark.e2e_multi_cluster_recover_network_partition
 def test_deploy_operator(multi_cluster_operator_manual_remediation: Operator):
-    multi_cluster_operator_manual_remediation.assert_is_running()
+    multi_cluster_operator_manual_remediation.wait_for_operator_ready()
 
 
 @mark.e2e_multi_cluster_recover_network_partition
@@ -186,8 +186,7 @@ def test_recover_operator_remove_cluster(
         namespace=namespace,
         api_client=central_cluster_client,
     )
-    operator._wait_for_operator_ready()
-    operator.assert_is_running()
+    operator.wait_for_operator_ready()
 
 
 @mark.e2e_multi_cluster_recover_network_partition

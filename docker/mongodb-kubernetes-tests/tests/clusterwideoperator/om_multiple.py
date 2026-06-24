@@ -146,7 +146,7 @@ def om_operator_clusterwide(namespace: str):
 
 @mark.e2e_om_multiple
 def test_install_operator(om_operator_clusterwide: Operator):
-    om_operator_clusterwide.assert_is_running()
+    om_operator_clusterwide.wait_for_operator_ready()
 
 
 @mark.e2e_om_multiple

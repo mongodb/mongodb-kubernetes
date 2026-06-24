@@ -5,7 +5,7 @@ from pytest import mark
 
 @mark.e2e_sharded_cluster_schema_validation
 def test_install_operator(default_operator: Operator):
-    default_operator.assert_is_running()
+    default_operator.wait_for_operator_ready()
 
 
 @mark.e2e_sharded_cluster_schema_validation

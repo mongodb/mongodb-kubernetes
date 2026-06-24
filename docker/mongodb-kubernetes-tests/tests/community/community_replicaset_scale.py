@@ -22,7 +22,7 @@ def mdbc(namespace: str) -> MongoDBCommunity:
 
 @mark.e2e_community_replicaset_scale
 def test_install_operator(default_operator: Operator):
-    default_operator.assert_is_running()
+    default_operator.wait_for_operator_ready()
 
 
 @mark.e2e_community_replicaset_scale

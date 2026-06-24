@@ -170,7 +170,7 @@ def user_ldap(
 @skip_if_static_containers
 @mark.e2e_multi_cluster_with_ldap
 def test_deploy_operator(multi_cluster_operator: Operator):
-    multi_cluster_operator.assert_is_running()
+    multi_cluster_operator.wait_for_operator_ready()
 
 
 @skip_if_static_containers

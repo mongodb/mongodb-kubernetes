@@ -34,7 +34,7 @@ def mongodb_multi(
 
 @pytest.mark.e2e_multi_cluster_pvc_resize
 def test_deploy_operator(multi_cluster_operator: Operator):
-    multi_cluster_operator.assert_is_running()
+    multi_cluster_operator.wait_for_operator_ready()
 
 
 @pytest.mark.e2e_multi_cluster_pvc_resize

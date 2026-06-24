@@ -66,7 +66,7 @@ def mdb_multiple_horizons(namespace: str, server_certs_multiple_horizons: str, i
 
 @pytest.mark.e2e_tls_rs_external_access
 def test_install_operator(operator: Operator):
-    operator.assert_is_running()
+    operator.wait_for_operator_ready()
 
 
 @pytest.mark.e2e_tls_rs_external_access
