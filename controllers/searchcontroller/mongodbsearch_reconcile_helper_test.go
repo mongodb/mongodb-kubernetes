@@ -3076,6 +3076,52 @@ func TestBuildShardedPlan_PerClusterShardUnitsForMC(t *testing.T) {
 	assert.Equal(t, "mdb-search-search-1-proxy-svc", plan.clusterLevelResources[1].svcName.Name)
 }
 
+// A cluster's matchTagSets threads onto every shard unit of that cluster; a cluster
+// without a selector keeps the base config's match-any default (no tagSets).
+func TestBuildShardedPlan_PerClusterMatchTagSets(t *testing.T) {
+	search := newTestMongoDBSearch("mdb-search", "ns")
+	search.Spec.Clusters = []searchv1.ClusterSpec{
+		{Name: "cluster-a", ClusterIndex: ptr.To(int32(0)), SyncSourceSelector: &searchv1.SyncSourceSelector{MatchTagSets: []map[string]string{{"region": "us-east"}}}, LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{
+			ExternalHostname: "{shardName}.mdb-search-search-0-proxy-svc.ns.svc.cluster.local",
+		}}},
+		{Name: "cluster-b", ClusterIndex: ptr.To(int32(1)), LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{
+			ExternalHostname: "{shardName}.mdb-search-search-1-proxy-svc.ns.svc.cluster.local",
+		}}},
+	}
+
+	shardedSource := &mockShardedSource{
+		shardNames: []string{"sh-0", "sh-1"},
+		hostSeeds: map[string][]string{
+			"sh-0": {"sh-0-0.svc:27017"},
+			"sh-1": {"sh-1-0.svc:27017"},
+		},
+	}
+
+	r := &MongoDBSearchReconcileHelper{
+		mdbSearch: search,
+		db:        shardedSource,
+		state:     &SearchDeploymentState{ClusterMapping: map[string]int{"cluster-a": 0, "cluster-b": 1}},
+	}
+
+	plan, err := r.buildShardedPlan(shardedSource)
+	require.NoError(t, err)
+	require.Len(t, plan.units, 4)
+
+	taggedRR := &mongot.ConfigReplicationReader{
+		ReadPreference: ptr.To("secondaryPreferred"),
+		TagSets:        [][]mongot.ConfigTag{{{Name: "region", Value: "us-east"}}},
+	}
+	bareRR := &mongot.ConfigReplicationReader{ReadPreference: ptr.To("secondaryPreferred")}
+
+	// units 0,1 = cluster-a (selector applies to both its shards); units 2,3 = cluster-b (no selector).
+	want := []*mongot.ConfigReplicationReader{taggedRR, taggedRR, bareRR, bareRR}
+	for i, w := range want {
+		cfg := mongot.Config{}
+		plan.units[i].mongotConfigFn(&cfg)
+		assert.Equal(t, w, cfg.SyncSource.ReplicationReader, "unit %d (%s/%s) replicationReader", i, plan.units[i].clusterName, plan.units[i].additionalSvcLabels[shardLabelKey])
+	}
+}
+
 // Sharded MC: per-(cluster, shard) STS + ConfigMap land on the matching
 // member-cluster client, and the cluster-level proxy Service lands once per
 // cluster. Central client receives nothing.
