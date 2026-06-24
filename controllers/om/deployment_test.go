@@ -551,7 +551,7 @@ func TestConfigureMonitoringTLSDisable(t *testing.T) {
 	}
 	assert.Equal(t, expectedMonitoringVersionsWithTls, d.getMonitoringVersions())
 
-	// disabling TLS should clear TLS params
+	// disabling TLS should clear additionalParams (CLOUDP-351614)
 	d.ConfigureMonitoring(zap.S(), false, util.CAFilePathInContainer)
 	expectedMonitoringVersionsWithoutTls := []interface{}{
 		map[string]interface{}{"hostname": "my-rs-0.some.host", "name": MonitoringAgentDefaultVersion},

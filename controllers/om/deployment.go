@@ -290,27 +290,22 @@ func (d Deployment) ConfigureMonitoring(log *zap.SugaredLogger, tls bool, caFile
 			return m.(map[string]interface{})["hostname"] == hostname
 		})
 
-		var additionalParams map[string]string
-		if tls {
-			additionalParams = NewTLSParams(caFilePath, pemKeyFile)
-		}
-
 		if foundIdx == -1 {
 			mv := map[string]interface{}{
 				"hostname": hostname,
 				"name":     MonitoringAgentDefaultVersion,
 			}
-			if len(additionalParams) > 0 {
-				mv["additionalParams"] = additionalParams
+			if tls {
+				mv["additionalParams"] = NewTLSParams(caFilePath, pemKeyFile)
 			}
 			log.Debugw("Added monitoring agent configuration", "host", hostname, "tls", tls)
 			monitoringVersions = append(monitoringVersions, mv)
 		} else {
 			mv := monitoringVersions[foundIdx].(map[string]interface{})
-			if len(additionalParams) > 0 {
-				mv["additionalParams"] = additionalParams
+			if tls {
+				mv["additionalParams"] = NewTLSParams(caFilePath, pemKeyFile)
 			} else {
-				delete(mv, "additionalParams")
+				ClearTLSParamsFromMonitoringVersion(mv)
 			}
 		}
 	}

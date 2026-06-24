@@ -7,10 +7,6 @@ const (
 	TLSParamClientCert  = "sslClientCertificate"
 )
 
-// StdoutLogPath is the container PID 1's stdout, used so daemonized agent modules
-// write their logs to the pod's stdout regardless of fork/redirection.
-const StdoutLogPath = "/proc/1/fd/1"
-
 // MongodStdoutLogPath is a symlink created by agent-launcher.sh that resolves to
 // the database container's stdout pipe. Used for mongod systemLog because under
 // ShareProcessNamespace (static arch) /proc/1/fd/1 is the pause container's
