@@ -2712,6 +2712,7 @@ func newBaseMongotStatefulSet() *appsv1.StatefulSet {
 
 func TestReconcileSharded_CreatesPerShardResources(t *testing.T) {
 	search := newTestMongoDBSearch("test-search", "test-ns")
+	withAdvancedMongotConfigs(t, search, `{"indexing":{"lucene":{"fieldLimit":1000}}}`)
 
 	shardedSource := &mockShardedSource{
 		shardNames: []string{"my-cluster-0", "my-cluster-1"},
@@ -2771,7 +2772,8 @@ func TestReconcileSharded_CreatesPerShardResources(t *testing.T) {
 		assert.Equal(t, shardName, sts.Labels["shard"])
 	}
 
-	// Verify per-shard ConfigMaps
+	// Verify per-shard ConfigMaps; each shard's config.yml carries the cluster's
+	// advancedMongotConfigs verbatim (the block is per-cluster, identical across shards).
 	for _, shardName := range shardedSource.GetShardNames() {
 		cmNsName := search.MongotConfigMapForClusterShard(0, shardName)
 		cm, err := fakeClient.GetConfigMap(t.Context(), cmNsName)
@@ -2779,6 +2781,10 @@ func TestReconcileSharded_CreatesPerShardResources(t *testing.T) {
 
 		assert.Equal(t, fmt.Sprintf("test-search-search-0-%s-config", shardName), cm.Name)
 		assert.Contains(t, cm.Data, MongotConfigFilename)
+
+		rendered := map[string]interface{}{}
+		require.NoError(t, yaml.Unmarshal([]byte(cm.Data[MongotConfigFilename]), &rendered))
+		assert.Equal(t, 1000, maputil.ReadMapValueAsInt(rendered, "advancedConfigs", "indexing", "lucene", "fieldLimit"))
 	}
 }
 
