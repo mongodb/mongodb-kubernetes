@@ -17,6 +17,7 @@ from helm_files_handler import (
     set_value_in_yaml_file,
     update_all_helm_values_files,
     update_community_agent_image_in_file,
+    update_community_agent_image_in_go_file,
 )
 
 RELEASE_JSON_TO_HELM_KEY = {
@@ -71,6 +72,7 @@ def update_community_manifests(agent_version: str):
     update_community_agent_image_in_file(
         "mongodb-community-operator/deploy/openshift/operator_openshift.yaml", agent_version
     )
+    update_community_agent_image_in_go_file("mongodb-community-operator/test/e2e/setup/test_config.go", agent_version)
 
 
 def update_helm_charts(operator_version, release, agent_version):
