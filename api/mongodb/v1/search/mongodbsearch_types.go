@@ -109,6 +109,20 @@ type MongoDBSearchSpec struct {
 	Clusters []ClusterSpec `json:"clusters"`
 }
 
+// AdvancedMongotConfigs wraps free-form mongot configuration. The CRD generator
+// does not support map[string]interface{} directly, hence the MapWrapper indirection.
+type AdvancedMongotConfigs struct {
+	v1.MapWrapper `json:"-"`
+}
+
+// ToMap returns a deep copy of the wrapped config, or nil when unset.
+func (a *AdvancedMongotConfigs) ToMap() map[string]interface{} {
+	if a == nil || a.Object == nil {
+		return nil
+	}
+	return a.MapWrapper.DeepCopy().Object
+}
+
 // SyncSourceSelector picks which mongods this cluster's mongot fleet syncs from.
 // At-most-one of MatchTags or Hosts may be set.
 // +kubebuilder:validation:XValidation:rule="!(has(self.matchTags) && has(self.hosts))",message="syncSourceSelector.matchTags and syncSourceSelector.hosts are mutually exclusive"
@@ -177,6 +191,12 @@ type ClusterSpec struct {
 	// onto this cluster's resolved values for the named shards.
 	// +optional
 	ShardOverrides []ShardOverride `json:"shardOverrides,omitempty"`
+	// AdvancedMongotConfigs is an opaque block of mongot settings rendered verbatim
+	// under the advancedConfigs key of this cluster's mongot config file.
+	// The operator neither reads nor modifies it; operator-generated settings are unaffected.
+	// +kubebuilder:pruning:PreserveUnknownFields
+	// +optional
+	AdvancedMongotConfigs *AdvancedMongotConfigs `json:"advancedMongotConfigs,omitempty"`
 }
 
 // ShardOverride sizes specific shards within the enclosing cluster differently

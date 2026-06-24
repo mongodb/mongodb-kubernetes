@@ -33,6 +33,7 @@ import (
 	khandler "github.com/mongodb/mongodb-kubernetes/pkg/handler"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/mongot"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
 )
 
 func init() {
@@ -1034,6 +1035,121 @@ func TestEnsureMongotConfig_TransitionBetweenModes(t *testing.T) {
 	assert.NotContains(t, cm.Data, MongotConfigFollowerFilename, "config-follower.yml should be removed after transition")
 	assert.NotContains(t, cm.Data, stsName+"-0", "pod role key should be removed after transition")
 	assert.NotContains(t, cm.Data, stsName+"-1", "pod role key should be removed after transition")
+}
+
+func renderMongotConfig(t *testing.T, search *searchv1.MongoDBSearch, mods ...mongot.Modification) map[string]string {
+	fakeClient := newTestFakeClient(search)
+	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, newTestOperatorSearchConfig(), nil, nil)
+	cmName := search.MongotConfigConfigMapNamespacedName()
+	stsName := search.StatefulSetNamespacedName().Name
+
+	_, err := helper.ensureMongotConfig(t.Context(), zap.S(), fakeClient, cmName, stsName, "", 1, mods...)
+	require.NoError(t, err)
+
+	cm, err := fakeClient.GetConfigMap(t.Context(), cmName)
+	require.NoError(t, err)
+	return cm.Data
+}
+
+func withAdvancedMongotConfigs(t *testing.T, search *searchv1.MongoDBSearch, jsonConfig string) {
+	withClusterAdvancedMongotConfigs(t, search, 0, jsonConfig)
+}
+
+func withClusterAdvancedMongotConfigs(t *testing.T, search *searchv1.MongoDBSearch, clusterIdx int, jsonConfig string) {
+	search.Spec.Clusters[clusterIdx].AdvancedMongotConfigs = &searchv1.AdvancedMongotConfigs{}
+	require.NoError(t, json.Unmarshal([]byte(jsonConfig), search.Spec.Clusters[clusterIdx].AdvancedMongotConfigs))
+}
+
+func TestEnsureMongotConfig_AdvancedMongotConfigs(t *testing.T) {
+	operatorMod := func(c *mongot.Config) {
+		c.Storage.DataPath = "/mongot/data"
+	}
+	search := newTestMongoDBSearch("test-search", "test-ns")
+	withAdvancedMongotConfigs(t, search, `{"indexing":{"lucene":{"fieldLimit":1000}},"querying":{"lucene":{"enableConcurrentSearch":true}}}`)
+
+	data := renderMongotConfig(t, search, operatorMod)
+
+	rendered := map[string]interface{}{}
+	require.NoError(t, yaml.Unmarshal([]byte(data[MongotConfigFilename]), &rendered))
+	assert.Equal(t, 1000, maputil.ReadMapValueAsInt(rendered, "advancedConfigs", "indexing", "lucene", "fieldLimit"))
+	assert.Equal(t, true, maputil.ReadMapValueAsInterface(rendered, "advancedConfigs", "querying", "lucene", "enableConcurrentSearch"))
+	assert.Equal(t, "/mongot/data", maputil.ReadMapValueAsString(rendered, "storage", "dataPath"))
+}
+
+func TestEnsureMongotConfig_AdvancedMongotConfigsPerCluster(t *testing.T) {
+	search := newTestMongoDBSearch("test-search", "test-ns")
+	search.Spec.Clusters = []searchv1.ClusterSpec{{Name: "cluster-a"}, {Name: "cluster-b"}}
+	withClusterAdvancedMongotConfigs(t, search, 0, `{"indexing":{"lucene":{"fieldLimit":1000}}}`)
+	withClusterAdvancedMongotConfigs(t, search, 1, `{"querying":{"lucene":{"maxClauseLimit":2048}}}`)
+
+	fakeClient := newTestFakeClient(search)
+	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, newTestOperatorSearchConfig(), nil, nil)
+	stsName := search.StatefulSetNamespacedName().Name
+
+	renderCluster := func(clusterName string, clusterIdx int) map[string]interface{} {
+		cmName := search.MongotConfigConfigMapNameForCluster(clusterIdx)
+		_, err := helper.ensureMongotConfig(t.Context(), zap.S(), fakeClient, cmName, stsName, clusterName, 1)
+		require.NoError(t, err)
+		cm, err := fakeClient.GetConfigMap(t.Context(), cmName)
+		require.NoError(t, err)
+		rendered := map[string]interface{}{}
+		require.NoError(t, yaml.Unmarshal([]byte(cm.Data[MongotConfigFilename]), &rendered))
+		return rendered
+	}
+
+	renderedA := renderCluster("cluster-a", 0)
+	renderedB := renderCluster("cluster-b", 1)
+
+	assert.Equal(t, 1000, maputil.ReadMapValueAsInt(renderedA, "advancedConfigs", "indexing", "lucene", "fieldLimit"))
+	assert.Nil(t, maputil.ReadMapValueAsInterface(renderedA, "advancedConfigs", "querying"), "cluster-a must not get cluster-b's config")
+	assert.Equal(t, 2048, maputil.ReadMapValueAsInt(renderedB, "advancedConfigs", "querying", "lucene", "maxClauseLimit"))
+	assert.Nil(t, maputil.ReadMapValueAsInterface(renderedB, "advancedConfigs", "indexing"), "cluster-b must not get cluster-a's config")
+}
+
+func TestEnsureMongotConfig_AdvancedMongotConfigsAbsentUnchanged(t *testing.T) {
+	operatorMod := func(c *mongot.Config) {
+		c.Storage.DataPath = "/mongot/data"
+	}
+	baseline := renderMongotConfig(t, newTestMongoDBSearch("test-search", "test-ns"), operatorMod)
+
+	empty := newTestMongoDBSearch("test-search", "test-ns")
+	empty.Spec.Clusters[0].AdvancedMongotConfigs = &searchv1.AdvancedMongotConfigs{}
+	assert.Equal(t, baseline[MongotConfigFilename], renderMongotConfig(t, empty, operatorMod)[MongotConfigFilename])
+}
+
+func TestReconcileReplicaSet_AdvancedMongotConfigs(t *testing.T) {
+	search := newTestMongoDBSearch("test-search", "test-ns")
+	withAdvancedMongotConfigs(t, search, `{"indexing":{"lucene":{"fieldLimit":1000}},"syncSource":{"replicaSet":{"hostAndPort":["evil:1"]}}}`)
+	mdbc := newTestMongoDBCommunity("test-mongodb", "test-ns")
+	fakeClient := newTestFakeClient(search, mdbc)
+
+	helper := NewMongoDBSearchReconcileHelper(
+		fakeClient,
+		search,
+		NewCommunityResourceSearchSource(mdbc),
+		newTestOperatorSearchConfig(),
+		nil, nil,
+	)
+
+	result := helper.reconcile(t.Context(), zap.S())
+	assert.False(t, result.IsOK())
+	require.NoError(t, mock.MarkAllStatefulSetsAsReady(t.Context(), search.Namespace, fakeClient))
+	result = helper.reconcile(t.Context(), zap.S())
+	assert.True(t, result.IsOK())
+
+	cm, err := fakeClient.GetConfigMap(t.Context(), search.MongotConfigConfigMapNameForCluster(0))
+	require.NoError(t, err)
+
+	rendered := map[string]interface{}{}
+	require.NoError(t, yaml.Unmarshal([]byte(cm.Data[MongotConfigFilename]), &rendered))
+
+	assert.Equal(t, 1000, maputil.ReadMapValueAsInt(rendered, "advancedConfigs", "indexing", "lucene", "fieldLimit"))
+	hosts := maputil.ReadMapValueAsInterface(rendered, "syncSource", "replicaSet", "hostAndPort")
+	assert.NotEmpty(t, hosts, "operator-derived sync source must be rendered untouched")
+	assert.NotContains(t, hosts, "evil:1", "the block must never leak into operator sections")
+	assert.Equal(t, []interface{}{"evil:1"},
+		maputil.ReadMapValueAsInterface(rendered, "advancedConfigs", "syncSource", "replicaSet", "hostAndPort"),
+		"the block appears verbatim under the advancedConfigs key")
 }
 
 func TestCreateSearchStatefulSetFunc_ConfigMounting(t *testing.T) {
