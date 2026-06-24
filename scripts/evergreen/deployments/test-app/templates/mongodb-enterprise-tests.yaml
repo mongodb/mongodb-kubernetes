@@ -42,6 +42,8 @@ spec:
       emptyDir: { }
     - name: diagnostics
       emptyDir: { }
+    - name: tests-home-dir
+      emptyDir: { }
   {{ if .Values.multiCluster.memberClusters }}
     - name: kube-config-volume
       secret:
@@ -52,6 +54,12 @@ spec:
         defaultMode: 420
         secretName: test-pod-multi-cluster-config
   {{ end }}
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 2000
+    fsGroup: 2000
+    seccompProfile:
+      type: RuntimeDefault
   containers:
   - image: public.ecr.aws/docker/library/busybox:1.37.0
     name: keepalive
@@ -61,6 +69,11 @@ spec:
         mountPath: /tmp/results
       - name: diagnostics
         mountPath: /tmp/diagnostics
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+        - ALL
   - name: mongodb-enterprise-operator-tests
     env:
     # OTEL env vars can either be used to construct custom spans or are used by pytest opentelemetry dynamic instrumentation
@@ -80,6 +93,8 @@ spec:
     - name: OTEL_RESOURCE_ATTRIBUTES
       value: "{{ .Values.otel_resource_attributes }}"
     {{ end }}
+    - name: PYTEST_OTEL_ENABLED
+      value: "{{ .Values.pytestOtelEnabled }}"
     # Set service name to identify this component in the trace
     - name: OTEL_SERVICE_NAME
       value: mongodb-e2e-tests
@@ -182,10 +197,8 @@ spec:
       value: "{{ .Values.helm.oci.registry }}"
     - name: OCI_HELM_REPOSITORY
       value: "{{ .Values.helm.oci.repository }}"
-    - name: OCI_HELM_REGION
-      value: "{{ .Values.helm.oci.region }}"
     - name: DEFAULT_HELM_CHART_PATH
-      value: "oci://{{ .Values.helm.oci.registry }}/{{ .Values.helm.oci.repository }}/mongodb-kubernetes"
+      value: "oci://{{ .Values.helm.oci.repository }}/mongodb-kubernetes"
     - name: ops_manager_version
       value: "{{ .Values.opsManagerVersion }}"
     - name: cognito_user_pool_id
@@ -201,15 +214,18 @@ spec:
     - name: cognito_workload_url
       value: "{{ .Values.cognito_workload_url }}"
     - name: cognito_workload_user_id
-      value: "{{ .Values.cognito_workload_user_id }}"
+      value: {{ .Values.cognito_workload_user_id }}
+    - name: HOME
+      value: /home/tests-home
     - name: AI_MONGODB_EMBEDDING_INDEXING_KEY
       value: "{{ .Values.autoEmbedding.providerMongoDB.indexingKey }}"
     - name: AI_MONGODB_EMBEDDING_QUERY_KEY
       value: "{{ .Values.autoEmbedding.providerMongoDB.queryKey }}"
     image: "{{ .Values.mekoTestsRegistry }}/mongodb-kubernetes-tests:{{ .Values.mekoTestsVersion }}"
+    # Used by helm to create .config and .cache directories. Also used by some tests that need to write files.
     # Options to pytest command should go in the pytest.ini file.
     command: ["pytest"]
-    {{ if .Values.otel_endpoint }}
+    {{ if and .Values.otel_endpoint .Values.pytestOtelEnabled }}
     # Use trace-parent to create the root span with specified trace ID and parent ID
     # Note: we create the root span here, and the operator will create child spans that connect to it
     args: ["-vv", "-m", "{{ .Values.taskName }}", "--trace-parent", "00-{{ .Values.otel_trace_id }}-{{ .Values.otel_parent_id }}-01", "--export-traces"]
@@ -222,9 +238,16 @@ spec:
         mountPath: /tmp/results
       - name: diagnostics
         mountPath: /tmp/diagnostics
+      - name: tests-home-dir
+        mountPath: /home/tests-home
     {{ if .Values.multiCluster.memberClusters }}
       - mountPath: /etc/config
         name: kube-config-volume
       - mountPath: /etc/multicluster
         name: multi-cluster-config
     {{ end }}
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+          - ALL

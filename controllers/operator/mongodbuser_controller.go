@@ -19,9 +19,10 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 
-	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
-	"github.com/mongodb/mongodb-kubernetes/api/v1/mdbmulti"
-	userv1 "github.com/mongodb/mongodb-kubernetes/api/v1/user"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
+	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
+	mdbstatus "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
+	userv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/user"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connection"
@@ -30,10 +31,10 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/annotations"
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
@@ -280,8 +281,8 @@ func (r *MongoDBUserReconciler) updateConnectionStringSecret(ctx context.Context
 		return xerrors.Errorf("connection string secret %s already exists and is not managed by the operator", secretName)
 	}
 
-	mongoAuthUserURI := connectionBuilder.BuildConnectionString(user.Spec.Username, password, connectionstring.SchemeMongoDB, map[string]string{})
-	mongoAuthUserSRVURI := connectionBuilder.BuildConnectionString(user.Spec.Username, password, connectionstring.SchemeMongoDBSRV, map[string]string{})
+	mongoAuthUserURI := connectionBuilder.BuildConnectionString(user.Spec.Username, password, connectionstring.SchemeMongoDB, map[string]string{"authSource": user.Spec.Database})
+	mongoAuthUserSRVURI := connectionBuilder.BuildConnectionString(user.Spec.Username, password, connectionstring.SchemeMongoDBSRV, map[string]string{"authSource": user.Spec.Database})
 
 	connectionStringSecret := secret.Builder().
 		SetName(secretName).
@@ -419,7 +420,7 @@ func (r *MongoDBUserReconciler) handleScramShaUser(ctx context.Context, user *us
 	}
 
 	log.Infof("Finished reconciliation for MongoDBUser!")
-	return r.updateStatus(ctx, user, workflow.OK(), log)
+	return r.updateStatus(ctx, user, workflow.OK(), log, mdbstatus.NewProjectIdOption(conn.GroupID()))
 }
 
 func (r *MongoDBUserReconciler) handleExternalAuthUser(ctx context.Context, user *userv1.MongoDBUser, conn om.Connection, log *zap.SugaredLogger) (reconcile.Result, error) {
@@ -469,7 +470,7 @@ func (r *MongoDBUserReconciler) handleExternalAuthUser(ctx context.Context, user
 	}
 
 	log.Infow("Finished reconciliation for MongoDBUser!")
-	return r.updateStatus(ctx, user, workflow.OK(), log)
+	return r.updateStatus(ctx, user, workflow.OK(), log, mdbstatus.NewProjectIdOption(conn.GroupID()))
 }
 
 func waitForReadyState(conn om.Connection, log *zap.SugaredLogger) error {

@@ -11,6 +11,7 @@ from opentelemetry import trace
 from tests import test_logger
 
 logger = test_logger.get_test_logger(__name__)
+TRACER = trace.get_tracer("evergreen-agent")
 
 
 class MongoDBSearch(MongoDB, CustomObject):
@@ -29,6 +30,7 @@ class MongoDBSearch(MongoDB, CustomObject):
         resource = super().from_yaml(yaml_file=yaml_file, name=name, namespace=namespace)
         return resource
 
+    @TRACER.start_as_current_span("assert_reaches_phase")
     def assert_reaches_phase(self, phase: Phase, msg_regexp=None, timeout=None, ignore_errors=False):
         start_time = time.time()
 

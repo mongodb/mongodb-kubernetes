@@ -21,11 +21,11 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
-	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
-	omv1 "github.com/mongodb/mongodb-kubernetes/api/v1/om"
-	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
-	userv1 "github.com/mongodb/mongodb-kubernetes/api/v1/user"
+	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
+	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
+	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
+	userv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/user"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/api"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/apierror"
@@ -35,18 +35,17 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
-	mcoConstruct "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/construct"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/authentication/scramcredentials"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/configmap"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/secret"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/constants"
+	"github.com/mongodb/mongodb-kubernetes/pkg/authentication/scramcredentials"
+	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/configmap"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
 )
 
 func TestOpsManagerReconciler_watchedResources(t *testing.T) {
@@ -61,7 +60,7 @@ func TestOpsManagerReconciler_watchedResources(t *testing.T) {
 	testOm.Spec.Backup.OplogStoreConfigs = []omv1.DataStoreConfig{{MongoDBResourceRef: userv1.MongoDBResourceRef{Name: "oplog1"}}}
 
 	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
-	reconciler, _, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory)
+	reconciler, _, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory, architectures.NonStatic)
 	reconciler.watchMongoDBResourcesReferencedByBackup(ctx, testOm, zap.S())
 	reconciler.watchMongoDBResourcesReferencedByBackup(ctx, otherTestOm, zap.S())
 
@@ -108,7 +107,7 @@ func TestOMTLSResourcesAreWatchedAndUnwatched(t *testing.T) {
 	}
 
 	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
-	reconciler, client, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory)
+	reconciler, client, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory, architectures.NonStatic)
 	addOMTLSResources(ctx, client, "om-tls-secret")
 	addAppDBTLSResources(ctx, client, testOm.Spec.AppDB.GetTlsCertificatesSecretName())
 	addKMIPTestResources(ctx, client, testOm, "test-mdb", "test-prefix")
@@ -202,7 +201,7 @@ func TestOpsManagerReconciler_removeWatchedResources(t *testing.T) {
 	testOm.Spec.Backup.OplogStoreConfigs = []omv1.DataStoreConfig{{MongoDBResourceRef: userv1.MongoDBResourceRef{Name: resourceName}}}
 
 	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
-	reconciler, _, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory)
+	reconciler, _, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory, architectures.NonStatic)
 	reconciler.watchMongoDBResourcesReferencedByBackup(ctx, testOm, zap.S())
 
 	key := watch.Object{
@@ -285,7 +284,7 @@ func TestOpsManagerReconciler_OnDeleteClusterResourceCleanup(t *testing.T) {
 			})
 			kubeClient := kubernetesClient.NewClient(fakeClientBuilder.Build())
 
-			reconciler := NewOpsManagerReconciler(ctx, kubeClient, memberClustersMap, images.ImageUrls{}, "", "", omConnectionFactory.GetConnectionFunc, &MockedInitializer{expectedOmURL: testOm.CentralURL(), t: t}, func(baseUrl string, user string, publicApiKey string, ca *string) api.OpsManagerAdmin {
+			reconciler := NewOpsManagerReconciler(ctx, kubeClient, memberClustersMap, images.ImageUrls{}, "", "", architectures.NonStatic, omConnectionFactory.GetConnectionFunc, &MockedInitializer{expectedOmURL: testOm.CentralURL(), t: t}, func(baseUrl string, user string, publicApiKey string, ca *string) api.OpsManagerAdmin {
 				return api.NewMockedAdminProvider(baseUrl, user, publicApiKey, true).(*api.MockedOmAdmin)
 			})
 
@@ -304,7 +303,7 @@ func TestOpsManagerReconciler_prepareOpsManager(t *testing.T) {
 	ctx := context.Background()
 	testOm := DefaultOpsManagerBuilder().Build()
 	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
-	reconciler, client, initializer := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory)
+	reconciler, client, initializer := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory, architectures.NonStatic)
 
 	reconcileStatus, _ := reconciler.prepareOpsManager(ctx, testOm, testOm.CentralURL(), zap.S())
 
@@ -339,7 +338,7 @@ func TestOpsManagerReconcilerPrepareOpsManagerWithTLS(t *testing.T) {
 	}).Build()
 
 	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
-	reconciler, _, initializer := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory)
+	reconciler, _, initializer := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory, architectures.NonStatic)
 	initializer.expectedCaContent = ptr.To("abc")
 
 	addOmCACm(ctx, t, testOm, reconciler)
@@ -358,7 +357,7 @@ func TestOpsManagerReconcilePrepareOpsManagerWithTLSHostCA(t *testing.T) {
 	}).Build()
 
 	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
-	reconciler, _, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory)
+	reconciler, _, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory, architectures.NonStatic)
 	reconcileStatus, _ := reconciler.prepareOpsManager(ctx, testOm, testOm.CentralURL(), zap.S())
 
 	assert.Equal(t, workflow.OK(), reconcileStatus)
@@ -380,7 +379,7 @@ func TestOpsManagerReconciler_prepareOpsManagerTwoCalls(t *testing.T) {
 	ctx := context.Background()
 	testOm := DefaultOpsManagerBuilder().Build()
 	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
-	reconciler, client, initializer := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory)
+	reconciler, client, initializer := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory, architectures.NonStatic)
 
 	reconciler.prepareOpsManager(ctx, testOm, testOm.CentralURL(), zap.S())
 
@@ -415,7 +414,7 @@ func TestOpsManagerReconciler_prepareOpsManagerDuplicatedUser(t *testing.T) {
 	ctx := context.Background()
 	testOm := DefaultOpsManagerBuilder().Build()
 	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
-	reconciler, client, initializer := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory)
+	reconciler, client, initializer := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory, architectures.NonStatic)
 
 	reconciler.prepareOpsManager(ctx, testOm, testOm.CentralURL(), zap.S())
 
@@ -466,7 +465,7 @@ func TestOpsManagerUsersPassword_SpecifiedInSpec(t *testing.T) {
 	log := zap.S()
 	testOm := DefaultOpsManagerBuilder().SetAppDBPassword("my-secret", "password").Build()
 	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
-	reconciler, client, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory)
+	reconciler, client, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory, architectures.NonStatic)
 
 	s := corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: testOm.Spec.AppDB.PasswordSecretKeyRef.Name, Namespace: testOm.Namespace},
@@ -495,7 +494,7 @@ func TestBackupStatefulSetIsNotRemoved_WhenDisabled(t *testing.T) {
 		Enabled: true,
 	}).Build()
 	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
-	reconciler, client, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory)
+	reconciler, client, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory, architectures.NonStatic)
 
 	checkOMReconciliationInvalid(ctx, t, reconciler, testOm, client)
 
@@ -523,7 +522,7 @@ func TestOpsManagerPodTemplateSpec_IsAnnotatedWithHash(t *testing.T) {
 		Enabled: false,
 	}).Build()
 	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
-	reconciler, client, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory)
+	reconciler, client, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory, architectures.NonStatic)
 
 	s := secret.Builder().
 		SetName(testOm.Spec.AppDB.GetOpsManagerUserPasswordSecretName()).
@@ -562,7 +561,7 @@ func TestOpsManagerPodTemplateSpec_IsAnnotatedWithHash(t *testing.T) {
 func TestOpsManagerReconcileContainerImages(t *testing.T) {
 	initOpsManagerRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_1_2_3", util.InitOpsManagerImageUrl)
 	opsManagerRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_8_0_0", util.OpsManagerImageUrl)
-	mongodbRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_8_0_0", mcoConstruct.MongodbImageEnv)
+	mongodbRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_8_0_0", util.MongodbImageEnv)
 	initDatabaseRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_3_4_5", util.InitDatabaseImageUrlEnv)
 
 	imageUrlsMock := images.ImageUrls{
@@ -571,7 +570,7 @@ func TestOpsManagerReconcileContainerImages(t *testing.T) {
 		opsManagerRelatedImageEnv:     "quay.io/mongodb/mongodb-enterprise-ops-manager:@sha256:MONGODB_OPS_MANAGER",
 
 		// AppDB images
-		mcoConstruct.AgentImageEnv:  "quay.io/mongodb/mongodb-agent@sha256:AGENT_SHA", // In non-static architecture, this env var holds full container image uri
+		util.AgentImageEnv:          "quay.io/mongodb/mongodb-agent@sha256:AGENT_SHA",
 		mongodbRelatedImageEnv:      "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi@sha256:MONGODB_SHA",
 		initDatabaseRelatedImageEnv: "quay.io/mongodb/mongodb-kubernetes-init-database@sha256:INIT_DATABASE_SHA",
 	}
@@ -585,7 +584,7 @@ func TestOpsManagerReconcileContainerImages(t *testing.T) {
 		Build()
 
 	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
-	reconciler, client, _ := defaultTestOmReconciler(ctx, t, imageUrlsMock, "3.4.5", "1.2.3", testOm, nil, omConnectionFactory)
+	reconciler, client, _ := defaultTestOmReconciler(ctx, t, imageUrlsMock, "3.4.5", "1.2.3", testOm, nil, omConnectionFactory, architectures.NonStatic)
 	configureBackupResources(ctx, client, testOm)
 
 	checkOMReconciliationSuccessful(ctx, t, reconciler, testOm, reconciler.client)
@@ -621,18 +620,16 @@ func TestOpsManagerReconcileContainerImages(t *testing.T) {
 }
 
 func TestOpsManagerReconcileContainerImagesWithStaticArchitecture(t *testing.T) {
-	t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.Static))
-
 	opsManagerRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_8_0_0", util.OpsManagerImageUrl)
-	mongodbRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_8_0_0", mcoConstruct.MongodbImageEnv)
+	mongodbRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_8_0_0", util.MongodbImageEnv)
 
 	imageUrlsMock := images.ImageUrls{
 		// Ops manager & backup daemon images
 		opsManagerRelatedImageEnv: "quay.io/mongodb/mongodb-enterprise-ops-manager:@sha256:MONGODB_OPS_MANAGER",
 
 		// AppDB images
-		mongodbRelatedImageEnv:          "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi@sha256:MONGODB_SHA",
-		architectures.MdbAgentImageRepo: "quay.io/mongodb/mongodb-agent",
+		mongodbRelatedImageEnv: "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi@sha256:MONGODB_SHA",
+		util.AgentImageUrlEnv:  "quay.io/mongodb/mongodb-agent",
 	}
 
 	ctx := context.Background()
@@ -644,7 +641,7 @@ func TestOpsManagerReconcileContainerImagesWithStaticArchitecture(t *testing.T) 
 		Build()
 
 	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
-	reconciler, client, _ := defaultTestOmReconciler(ctx, t, imageUrlsMock, "", "", testOm, nil, omConnectionFactory)
+	reconciler, client, _ := defaultTestOmReconciler(ctx, t, imageUrlsMock, "", "", testOm, nil, omConnectionFactory, architectures.Static)
 	configureBackupResources(ctx, client, testOm)
 
 	checkOMReconciliationSuccessful(ctx, t, reconciler, testOm, reconciler.client)
@@ -682,7 +679,7 @@ func TestOpsManagerConnectionString_IsPassedAsSecretRef(t *testing.T) {
 		Enabled: false,
 	}).Build()
 	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
-	reconciler, client, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory)
+	reconciler, client, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory, architectures.NonStatic)
 
 	checkOMReconciliationSuccessful(ctx, t, reconciler, testOm, reconciler.client)
 
@@ -728,7 +725,7 @@ func TestOpsManagerWithKMIP(t *testing.T) {
 	}
 
 	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
-	reconciler, client, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory)
+	reconciler, client, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory, architectures.NonStatic)
 	addKMIPTestResources(ctx, client, testOm, mdbName, clientCertificatePrefix)
 	configureBackupResources(ctx, client, testOm)
 
@@ -807,7 +804,7 @@ func TestOpsManagerBackupAssignmentLabels(t *testing.T) {
 	testOm.Spec.Backup.S3Configs[0].AssignmentLabels = assignmentLabels
 
 	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
-	reconciler, client, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory)
+	reconciler, client, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory, architectures.NonStatic)
 	configureBackupResources(ctx, client, testOm)
 
 	mockedAdmin := api.NewMockedAdminProvider("testUrl", "publicApiKey", "privateApiKey", true)
@@ -840,7 +837,7 @@ func TestOpsManagerBackupObjectLock(t *testing.T) {
 		Build()
 
 	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
-	reconciler, client, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory)
+	reconciler, client, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory, architectures.NonStatic)
 	configureBackupResources(ctx, client, testOm)
 
 	mockedAdmin := api.NewMockedAdminProvider("testUrl", "publicApiKey", "privateApiKey", true)
@@ -866,7 +863,7 @@ func TestOpsManagerBackupObjectLockNotSentWhenUnset(t *testing.T) {
 		Build()
 
 	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
-	reconciler, client, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory)
+	reconciler, client, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory, architectures.NonStatic)
 	configureBackupResources(ctx, client, testOm)
 
 	mockedAdmin := api.NewMockedAdminProvider("testUrl", "publicApiKey", "privateApiKey", true)
@@ -886,22 +883,22 @@ func TestTriggerOmChangedEventIfNeeded(t *testing.T) {
 	ctx := context.Background()
 	t.Run("Om changed event got triggered, major version update", func(t *testing.T) {
 		nextScheduledTime := agents.NextScheduledUpgradeTime()
-		assert.NoError(t, triggerOmChangedEventIfNeeded(ctx, omv1.NewOpsManagerBuilder().SetVersion("5.2.13").SetOMStatusVersion("4.2.13").Build(), nil, zap.S()))
+		assert.NoError(t, triggerOmChangedEventIfNeeded(ctx, omv1.NewOpsManagerBuilder().SetVersion("5.2.13").SetOMStatusVersion("4.2.13").Build(), nil, architectures.NonStatic, zap.S()))
 		assert.NotEqual(t, nextScheduledTime, agents.NextScheduledUpgradeTime())
 	})
 	t.Run("Om changed event got triggered, minor version update", func(t *testing.T) {
 		nextScheduledTime := agents.NextScheduledUpgradeTime()
-		assert.NoError(t, triggerOmChangedEventIfNeeded(ctx, omv1.NewOpsManagerBuilder().SetVersion("4.4.0").SetOMStatusVersion("4.2.13").Build(), nil, zap.S()))
+		assert.NoError(t, triggerOmChangedEventIfNeeded(ctx, omv1.NewOpsManagerBuilder().SetVersion("4.4.0").SetOMStatusVersion("4.2.13").Build(), nil, architectures.NonStatic, zap.S()))
 		assert.NotEqual(t, nextScheduledTime, agents.NextScheduledUpgradeTime())
 	})
 	t.Run("Om changed event got triggered, minor version update, candidate version", func(t *testing.T) {
 		nextScheduledTime := agents.NextScheduledUpgradeTime()
-		assert.NoError(t, triggerOmChangedEventIfNeeded(ctx, omv1.NewOpsManagerBuilder().SetVersion("4.4.0-rc2").SetOMStatusVersion("4.2.13").Build(), nil, zap.S()))
+		assert.NoError(t, triggerOmChangedEventIfNeeded(ctx, omv1.NewOpsManagerBuilder().SetVersion("4.4.0-rc2").SetOMStatusVersion("4.2.13").Build(), nil, architectures.NonStatic, zap.S()))
 		assert.NotEqual(t, nextScheduledTime, agents.NextScheduledUpgradeTime())
 	})
 	t.Run("Om changed event not triggered, patch version update", func(t *testing.T) {
 		nextScheduledTime := agents.NextScheduledUpgradeTime()
-		assert.NoError(t, triggerOmChangedEventIfNeeded(ctx, omv1.NewOpsManagerBuilder().SetVersion("4.4.10").SetOMStatusVersion("4.4.0").Build(), nil, zap.S()))
+		assert.NoError(t, triggerOmChangedEventIfNeeded(ctx, omv1.NewOpsManagerBuilder().SetVersion("4.4.10").SetOMStatusVersion("4.4.0").Build(), nil, architectures.NonStatic, zap.S()))
 		assert.Equal(t, nextScheduledTime, agents.NextScheduledUpgradeTime())
 	})
 }
@@ -914,7 +911,7 @@ func TestBackupIsStillConfigured_WhenAppDBIsConfigured_WithTls(t *testing.T) {
 		Build()
 
 	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
-	reconciler, mockedClient, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory)
+	reconciler, mockedClient, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory, architectures.NonStatic)
 
 	addAppDBTLSResources(ctx, mockedClient, fmt.Sprintf("%s-cert", testOm.Spec.AppDB.Name()))
 	configureBackupResources(ctx, mockedClient, testOm)
@@ -942,7 +939,7 @@ func TestBackupConfig_ChangingName_ResultsIn_DeleteAndAdd(t *testing.T) {
 		Build()
 
 	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
-	reconciler, mockedClient, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory)
+	reconciler, mockedClient, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory, architectures.NonStatic)
 
 	configureBackupResources(ctx, mockedClient, testOm)
 
@@ -1024,7 +1021,7 @@ func TestOpsManagerRace(t *testing.T) {
 
 	initializer := &MockedInitializer{expectedOmURL: opsManager1.CentralURL(), t: t, skipChecks: true}
 
-	reconciler := NewOpsManagerReconciler(ctx, kubeClient, nil, nil, "fake-initDatabaseVersion", "fake-initOpsManagerImageVersion", omConnectionFactory.GetConnectionFunc, initializer, func(baseUrl string, user string, publicApiKey string, ca *string) api.OpsManagerAdmin {
+	reconciler := NewOpsManagerReconciler(ctx, kubeClient, nil, nil, "fake-initDatabaseVersion", "fake-initOpsManagerImageVersion", architectures.NonStatic, omConnectionFactory.GetConnectionFunc, initializer, func(baseUrl string, user string, publicApiKey string, ca *string) api.OpsManagerAdmin {
 		return api.NewMockedAdminProvider(baseUrl, user, publicApiKey, false).(*api.MockedOmAdmin)
 	})
 
@@ -1048,7 +1045,7 @@ func TestBackupConfigs_AreRemoved_WhenRemovedFromCR(t *testing.T) {
 		Build()
 
 	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
-	reconciler, mockedClient, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory)
+	reconciler, mockedClient, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory, architectures.NonStatic)
 
 	configureBackupResources(ctx, mockedClient, testOm)
 
@@ -1242,7 +1239,7 @@ func TestDependentResources_AreRemoved_WhenBackupIsDisabled(t *testing.T) {
 		Build()
 
 	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
-	reconciler, mockedClient, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory)
+	reconciler, mockedClient, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory, architectures.NonStatic)
 
 	configureBackupResources(ctx, mockedClient, testOm)
 
@@ -1377,7 +1374,7 @@ func configureBackupResources(ctx context.Context, m kubernetesClient.Client, te
 	}
 }
 
-func defaultTestOmReconciler(ctx context.Context, t *testing.T, imageUrls images.ImageUrls, initDatabaseVersion, initOpsManagerImageVersion string, opsManager *omv1.MongoDBOpsManager, globalMemberClustersMap map[string]client.Client, omConnectionFactory *om.CachedOMConnectionFactory) (*OpsManagerReconciler, kubernetesClient.Client, *MockedInitializer) {
+func defaultTestOmReconciler(ctx context.Context, t *testing.T, imageUrls images.ImageUrls, initDatabaseVersion, initOpsManagerImageVersion string, opsManager *omv1.MongoDBOpsManager, globalMemberClustersMap map[string]client.Client, omConnectionFactory *om.CachedOMConnectionFactory, arch architectures.DefaultArchitecture) (*OpsManagerReconciler, kubernetesClient.Client, *MockedInitializer) {
 	kubeClient := mock.NewEmptyFakeClientWithInterceptor(omConnectionFactory, opsManager.DeepCopy())
 
 	// create an admin user secret
@@ -1393,7 +1390,7 @@ func defaultTestOmReconciler(ctx context.Context, t *testing.T, imageUrls images
 
 	initializer := &MockedInitializer{expectedOmURL: opsManager.CentralURL(), t: t}
 
-	reconciler := NewOpsManagerReconciler(ctx, kubeClient, globalMemberClustersMap, imageUrls, initDatabaseVersion, initOpsManagerImageVersion, omConnectionFactory.GetConnectionFunc, initializer, func(baseUrl string, user string, publicApiKey string, ca *string) api.OpsManagerAdmin {
+	reconciler := NewOpsManagerReconciler(ctx, kubeClient, globalMemberClustersMap, imageUrls, initDatabaseVersion, initOpsManagerImageVersion, arch, omConnectionFactory.GetConnectionFunc, initializer, func(baseUrl string, user string, publicApiKey string, ca *string) api.OpsManagerAdmin {
 		if api.CurrMockedAdmin == nil {
 			api.CurrMockedAdmin = api.NewMockedAdminProvider(baseUrl, user, publicApiKey, true).(*api.MockedOmAdmin)
 		}

@@ -403,9 +403,9 @@ def mongodb_multi_collection(mongodb_multi: MongoDBMulti, ca_path: str):
         ca_path=ca_path,
     )
 
-    collection = pymongo.MongoClient(tester.cnx_string, **tester.default_opts)["testdb"]
+    db: pymongo.database.Database = pymongo.MongoClient(tester.cnx_string, **tester.default_opts)["testdb"]
 
-    return collection["testcollection"]
+    return db["testcollection"]
 
 
 @fixture(scope="function")
@@ -518,8 +518,10 @@ def mongodb_multi(
 
 def create_project_config_map(om: MongoDBOpsManager, mdb_name, project_name, client, custom_ca):
     name = f"{mdb_name}-config"
-    data = {
-        "baseUrl": om.om_status().get_url(),
+    base_url = om.om_status().get_url()
+    assert base_url is not None, "OpsManager URL must not be None"
+    data: dict[str, str] = {
+        "baseUrl": base_url,
         "projectName": project_name,
         "sslMMSCAConfigMap": custom_ca,
         "orgId": "",
@@ -608,6 +610,7 @@ def test_telemetry_configmap(namespace: str):
 
     try:
         payload_string = config.get("lastSendPayloadDeployments")
+        assert payload_string is not None
         payload = json.loads(payload_string)
         # Perform a rudimentary check
         assert isinstance(payload, list), "payload should be a list"

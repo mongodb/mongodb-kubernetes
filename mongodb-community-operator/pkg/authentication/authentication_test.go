@@ -9,13 +9,14 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/authentication/authtypes"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/authentication/mocks"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/authentication/x509"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/secret"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/constants"
+	"github.com/mongodb/mongodb-kubernetes/pkg/authentication/authtypes"
+	"github.com/mongodb/mongodb-kubernetes/pkg/authentication/mocks"
+	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
 )
 
 func TestEnable(t *testing.T) {
@@ -147,7 +148,7 @@ func TestGetDeletedUsers(t *testing.T) {
 		Users: []mdbv1.MongoDBUser{
 			{
 				Name: "testUser",
-				PasswordSecretRef: mdbv1.SecretKeyReference{
+				PasswordSecretRef: v1.SecretKeyReference{
 					Name: "password-secret-name",
 				},
 				ConnectionStringSecretName: "connection-string-secret",
@@ -177,7 +178,7 @@ func TestGetDeletedUsers(t *testing.T) {
 			Users: []mdbv1.MongoDBUser{
 				{
 					Name: "testUser",
-					PasswordSecretRef: mdbv1.SecretKeyReference{
+					PasswordSecretRef: v1.SecretKeyReference{
 						Name: "password-secret-name",
 					},
 					ConnectionStringSecretName: "connection-string-secret",
@@ -185,7 +186,7 @@ func TestGetDeletedUsers(t *testing.T) {
 				},
 				{
 					Name: "newUser",
-					PasswordSecretRef: mdbv1.SecretKeyReference{
+					PasswordSecretRef: v1.SecretKeyReference{
 						Name: "new-password-secret-name",
 					},
 					ConnectionStringSecretName: "new-connection-string-secret",

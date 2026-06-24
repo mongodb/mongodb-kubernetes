@@ -6,10 +6,11 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 
-	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
+	corev1 "k8s.io/api/core/v1"
+
+	searchv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 )

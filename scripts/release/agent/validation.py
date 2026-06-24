@@ -1,5 +1,4 @@
 import json
-import sys
 from typing import Callable, Dict, List
 
 import requests
@@ -40,8 +39,7 @@ class PlatformConfiguration:
 
         for platform in platforms:
             if platform not in self.agent_info["platforms"]:
-                logger.error(f"Platform {platform} not found in agent mappings, skipping")
-                continue
+                raise RuntimeError(f"Platform {platform} not found in agent mappings")
 
             arch = platform.split("/")[-1]
 
@@ -71,8 +69,7 @@ class PlatformConfiguration:
 
         for platform in platforms:
             if platform not in self.agent_info["platforms"]:
-                logger.warning(f"Platform {platform} not found in agent mappings, skipping")
-                continue
+                raise RuntimeError(f"Platform {platform} not found in agent mappings")
 
             arch = platform.split("/")[-1]
 
@@ -175,40 +172,6 @@ def _find_working_filename(
 
     logger.warning(f"No working {version_type} filename found for {platform}, platform will be skipped")
     return ""
-
-
-def _get_available_platforms(
-    version: str,
-    platforms: List[str],
-    base_url: str,
-    filenames_builder: Callable[[dict, str, str], List[str]],
-    version_type: str,
-) -> List[str]:
-    """
-    Generic function to get the list of platforms where a version is actually available,
-    trying multiple filename possibilities for each platform.
-
-    Args:
-        version: Version to check
-        platforms: List of platforms to check
-        base_url: Base URL for downloads
-        filenames_builder: Function that builds list of filenames from (agent_info, version, platform)
-        version_type: Type of version being validated (for logging)
-
-    Returns:
-        List of platforms where the version exists
-    """
-    available_platforms = []
-
-    for platform in platforms:
-        working_filename = _find_working_filename(version, platform, base_url, filenames_builder, version_type)
-        if working_filename:
-            available_platforms.append(platform)
-            logger.debug(
-                f"{version_type.title()} version {version} available for platform {platform} using {working_filename}"
-            )
-
-    return available_platforms
 
 
 def get_working_agent_filename(agent_version: str, platform: str) -> str:

@@ -11,10 +11,9 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	corev1 "k8s.io/api/core/v1"
-	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/secret"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/vault"
 )
 
@@ -139,13 +138,6 @@ func (r SecretClient) PutSecretIfChanged(ctx context.Context, s corev1.Secret, b
 	}
 
 	return secret.CreateOrUpdateIfNeeded(ctx, r.KubeClient, s)
-}
-
-func SecretNotExist(err error) bool {
-	if err == nil {
-		return false
-	}
-	return apiErrors.IsNotFound(err) || strings.Contains(err.Error(), "secret not found")
 }
 
 // These methods implement the secretGetterUpdateCreateDeleter interface from community.

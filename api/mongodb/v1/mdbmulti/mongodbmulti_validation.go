@@ -1,0 +1,118 @@
+package mdbmulti
+
+import (
+	"context"
+	"errors"
+
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
+
+	runtime "k8s.io/apimachinery/pkg/runtime"
+
+	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
+	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
+)
+
+type MongoDBMultiClusterValidator struct{}
+
+func (m MongoDBMultiClusterValidator) ValidateCreate(_ context.Context, obj runtime.Object) (warnings admission.Warnings, err error) {
+	return nil, obj.(*MongoDBMultiCluster).ProcessValidationsOnReconcile(nil)
+}
+
+func (m MongoDBMultiClusterValidator) ValidateUpdate(_ context.Context, oldObj, newObj runtime.Object) (warnings admission.Warnings, err error) {
+	return nil, newObj.(*MongoDBMultiCluster).ProcessValidationsOnReconcile(oldObj.(*MongoDBMultiCluster))
+}
+
+func (m MongoDBMultiClusterValidator) ValidateDelete(_ context.Context, obj runtime.Object) (warnings admission.Warnings, err error) {
+	return nil, nil
+}
+
+var _ admission.CustomValidator = &MongoDBMultiClusterValidator{}
+
+func (m *MongoDBMultiCluster) ProcessValidationsOnReconcile(old *MongoDBMultiCluster) error {
+	for _, res := range m.RunValidations(old) {
+		if res.Level == v1.ErrorLevel {
+			return errors.New(res.Msg)
+		}
+		if res.Level == v1.WarningLevel {
+			m.AddWarningIfNotExists(status.Warning(res.Msg))
+		}
+	}
+	return nil
+}
+
+func (m *MongoDBMultiCluster) RunValidations(old *MongoDBMultiCluster) []v1.ValidationResult {
+	multiClusterValidators := []func(ms MongoDBMultiSpec) v1.ValidationResult{
+		validateUniqueExternalDomains,
+	}
+
+	// shared validators between MongoDBMulti and AppDB
+	multiClusterAppDBSharedClusterValidators := []func(ms mdbv1.ClusterSpecList) v1.ValidationResult{
+		mdbv1.ValidateUniqueClusterNames,
+		mdbv1.ValidateNonEmptyClusterSpecList,
+		mdbv1.ValidateMemberClusterIsSubsetOfKubeConfig,
+	}
+
+	var validationResults []v1.ValidationResult
+
+	for _, validator := range mdbv1.CommonValidators(m.Spec.DbCommonSpec) {
+		res := validator(m.Spec.DbCommonSpec)
+		if res.Level > 0 {
+			validationResults = append(validationResults, res)
+		}
+	}
+
+	for _, validator := range multiClusterValidators {
+		res := validator(m.Spec)
+		if res.Level > 0 {
+			validationResults = append(validationResults, res)
+		}
+	}
+
+	for _, validator := range multiClusterAppDBSharedClusterValidators {
+		res := validator(m.Spec.ClusterSpecList)
+		if res.Level > 0 {
+			validationResults = append(validationResults, res)
+		}
+	}
+
+	return validationResults
+}
+
+// validateUniqueExternalDomains validates uniqueness of the domains if they are provided.
+// External domain might be specified at the top level in spec.externalAccess.externalDomain or in every member cluster.
+// We make sure that if external domains are used, every member cluster has unique external domain defined.
+func validateUniqueExternalDomains(ms MongoDBMultiSpec) v1.ValidationResult {
+	externalDomains := make(map[string]string)
+
+	for _, e := range ms.ClusterSpecList {
+		if externalDomain := ms.GetExternalDomainForMemberCluster(e.ClusterName); externalDomain != nil {
+			externalDomains[e.ClusterName] = *externalDomain
+		}
+	}
+
+	// We don't need to validate external domains if there aren't any specified.
+	// We don't have any flag that enables usage of external domains. We use them if they are provided.
+	if len(externalDomains) == 0 {
+		return v1.ValidationSuccess()
+	}
+
+	present := map[string]struct{}{}
+	for _, e := range ms.ClusterSpecList {
+		externalDomain, ok := externalDomains[e.ClusterName]
+		if !ok {
+			return v1.ValidationError("The externalDomain is not set for member cluster: %s", e.ClusterName)
+		}
+
+		if _, ok := present[externalDomain]; ok {
+			return v1.ValidationError("Multiple member clusters with the same externalDomain (%s) are not allowed. "+
+				"Check if all spec.clusterSpecList[*].externalAccess.externalDomain fields are defined and are unique.", externalDomain)
+		}
+		present[externalDomain] = struct{}{}
+	}
+	return v1.ValidationSuccess()
+}
+
+func (m *MongoDBMultiCluster) AddWarningIfNotExists(warning status.Warning) {
+	m.Status.Warnings = status.Warnings(m.Status.Warnings).AddIfNotExists(warning)
+}

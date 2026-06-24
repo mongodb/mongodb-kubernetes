@@ -5,8 +5,8 @@ import (
 
 	"k8s.io/apimachinery/pkg/types"
 
-	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
-	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
+	searchv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 )

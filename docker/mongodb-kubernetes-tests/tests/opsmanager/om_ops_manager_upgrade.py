@@ -1,5 +1,5 @@
 from time import sleep
-from typing import Optional
+from typing import Iterator, Optional
 
 import pytest
 import semver
@@ -28,7 +28,7 @@ logger = test_logger.get_test_logger(__name__)
 
 
 @fixture(scope="module")
-def s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> str:
+def s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> Iterator[str]:
     create_aws_secret(aws_s3_client, S3_SECRET_NAME, namespace)
     yield from create_s3_bucket(aws_s3_client, bucket_prefix="test-s3-bucket-")
 

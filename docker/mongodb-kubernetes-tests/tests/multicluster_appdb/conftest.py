@@ -1,4 +1,7 @@
+from typing import Iterator
+
 import kubernetes
+from kubetester import downgrade_pss_to_warn
 from kubetester.awss3client import AwsS3Client
 from pytest import fixture
 from tests.common.constants import S3_BLOCKSTORE_NAME, S3_OPLOG_NAME
@@ -6,11 +9,22 @@ from tests.opsmanager.om_ops_manager_backup import create_aws_secret, create_s3_
 
 
 @fixture(scope="module")
+def namespace(namespace: str) -> str:
+    """Downgrade PSS from enforce to warn for multi-cluster appdb upgrade tests.
+
+    These tests install released operator versions that predate PSS-restricted
+    compliance and therefore cannot run under enforce mode.
+    """
+    downgrade_pss_to_warn(namespace)
+    return namespace
+
+
+@fixture(scope="module")
 def s3_bucket_oplog(
     aws_s3_client: AwsS3Client,
     namespace: str,
     central_cluster_client: kubernetes.client.ApiClient,
-) -> str:
+) -> Iterator[str]:
     yield from create_s3_bucket_oplog(namespace, aws_s3_client, central_cluster_client)
 
 
@@ -24,7 +38,7 @@ def s3_bucket_blockstore(
     aws_s3_client: AwsS3Client,
     namespace: str,
     central_cluster_client: kubernetes.client.ApiClient,
-) -> str:
+) -> Iterator[str]:
     yield from create_s3_bucket_blockstore(namespace, aws_s3_client, api_client=central_cluster_client)
 
 

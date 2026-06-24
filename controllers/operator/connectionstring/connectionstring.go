@@ -9,7 +9,6 @@ package connectionstring
 
 import (
 	"fmt"
-	"net/url"
 	"sort"
 	"strings"
 
@@ -140,10 +139,10 @@ func (b *builder) SetConnectionParams(cParams map[string]string) *builder {
 // Build builds a new connection string from the builder.
 func (b *builder) Build() string {
 	var userAuth string
-	if stringutil.Contains(b.authenticationModes, util.SCRAM) &&
-		b.username != "" && b.password != "" {
-
-		userAuth = fmt.Sprintf("%s:%s@", url.QueryEscape(b.username), url.QueryEscape(b.password))
+	scramEnabled := stringutil.Contains(b.authenticationModes, util.SCRAM) ||
+		stringutil.Contains(b.authenticationModes, util.SCRAMSHA1)
+	if scramEnabled && b.username != "" && b.password != "" {
+		userAuth = fmt.Sprintf("%s:%s@", stringutil.EncodeUserinfoComponent(b.username), stringutil.EncodeUserinfoComponent(b.password))
 	}
 
 	var uri string
@@ -173,8 +172,10 @@ func (b *builder) Build() string {
 	}
 
 	authSource, authMechanism := authSourceAndMechanism(b.authenticationModes, b.version)
-	if authSource != "" && authMechanism != "" {
+	if authSource != "" {
 		connectionParams["authSource"] = authSource
+	}
+	if authMechanism != "" {
 		connectionParams["authMechanism"] = authMechanism
 	}
 
@@ -183,6 +184,7 @@ func (b *builder) Build() string {
 	for k, v := range b.connectionParams {
 		connectionParams[k] = v
 	}
+
 	var keys []string
 	for k := range connectionParams {
 		keys = append(keys, k)
@@ -220,6 +222,10 @@ func authSourceAndMechanism(authenticationModes []string, version string) (strin
 		} else {
 			authMechanism = "SCRAM-SHA-256"
 		}
+	}
+
+	if stringutil.Contains(authenticationModes, util.SCRAMSHA1) {
+		authMechanism = "SCRAM-SHA-1"
 	}
 
 	return authSource, authMechanism

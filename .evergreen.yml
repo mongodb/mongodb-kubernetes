@@ -15,7 +15,7 @@ variables:
 
   - &ops_manager_70_latest 7.0.23 # The order/index is important, since these are anchors. Please do not change
 
-  - &ops_manager_80_latest 8.0.21 # The order/index is important, since these are anchors. Please do not change
+  - &ops_manager_80_latest 8.0.24 # The order/index is important, since these are anchors. Please do not change
 
   # The dependency unification between static and non-static is intentional here.
   # Even though some images are exclusive, in EVG they all are built once and in parallel.
@@ -211,8 +211,8 @@ patch_aliases:
   - alias: "periodic_teardowns"
     variant_tags: [ "periodic_teardown" ]
     task: ".*"
-  - alias: "release_agent"
-    variant_tags: [ "release_agent" ]
+  - alias: "release_specific_agent_manually"
+    variant_tags: [ "release_specific_agent_manually" ]
     task: ".*"
   - alias: "release_all_agents_manually"
     variant_tags: [ "release_all_agents_manually" ]
@@ -231,6 +231,10 @@ patch_aliases:
     task: ".*"
   - alias: "release"
     variant_tags: [ "release" ]
+    task: ".*"
+  - alias: "preflight_release_test"
+    description: "Release-style preflight only (no image release, no Pyxis submit); patch-only. See EVERGREEN.md."
+    variant_tags: [ "preflight_release_test" ]
     task: ".*"
   - alias: "staging"
     variant_tags: [ "staging" ]
@@ -297,6 +301,11 @@ tasks:
     tags: [ "unit_tests" ]
     commands:
       - func: lint_repo
+
+  - name: go_bump_policy_tests
+    tags: [ "unit_tests" ]
+    commands:
+      - func: "test_go_bump_policy"
 
   # Runs on every merge - detects release.json changes and releases appropriate images
   - name: release_om_and_agents
@@ -383,6 +392,22 @@ tasks:
           image_name: agent
           flags: "--parallel --skip-if-exists=false"
 
+  - name: rebuild_specific_agent
+    # this enables us to run this manually (patch) and rebuild specific agent versions to verify
+    # Dockerfile, script changes etc.
+    allowed_requesters: [ "patch" ]
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: quay_login
+      - func: pipeline
+        include_expansions_in_env:
+          - agent_version # You need to specify agent version for this task via --param flag!
+          - agent_tools_version # You need to specify tool version for this task --param flag!
+        vars:
+          image_name: agent
+          flags: "--skip-if-exists=false"
+
   - name: build_kubectl_mongodb_plugin
     commands:
       - func: clone
@@ -396,6 +421,7 @@ tasks:
       - func: download_multi_cluster_binary
         vars:
           platform: linux/amd64
+      - func: quay_staging_login
       - func: pipeline
         vars:
           image_name: meko-tests
@@ -407,6 +433,7 @@ tasks:
       - func: download_multi_cluster_binary
         vars:
           platform: linux/arm64
+      - func: quay_staging_login
       - func: pipeline
         vars:
           image_name: meko-tests-arm64
@@ -420,6 +447,7 @@ tasks:
       - func: download_multi_cluster_binary
         vars:
           platform: linux/s390x
+      - func: quay_staging_login
       - func: pipeline
         vars:
           image_name: meko-tests-ibm-z
@@ -433,6 +461,7 @@ tasks:
       - func: download_multi_cluster_binary
         vars:
           platform: linux/ppc64le
+      - func: quay_staging_login
       - func: pipeline
         vars:
           image_name: meko-tests-ibm-power
@@ -441,6 +470,7 @@ tasks:
     commands:
       - func: clone
       - func: setup_building_host
+      - func: quay_staging_login
       - func: pipeline
         vars:
           image_name: mco-tests
@@ -449,6 +479,7 @@ tasks:
     commands:
       - func: clone
       - func: setup_building_host
+      - func: quay_staging_login
       - func: pipeline
         vars:
           image_name: operator
@@ -457,6 +488,7 @@ tasks:
     commands:
       - func: clone
       - func: setup_building_host
+      - func: quay_staging_login
       - func: pipeline
         vars:
           image_name: operator-race
@@ -465,6 +497,7 @@ tasks:
     commands:
       - func: clone
       - func: setup_building_host
+      - func: quay_staging_login
       - func: pipeline
         vars:
           image_name: init-ops-manager
@@ -473,7 +506,7 @@ tasks:
     commands:
       - func: clone
       - func: setup_building_host
-      - func: quay_login
+      - func: quay_staging_login
       - func: pipeline
         vars:
           image_name: agent
@@ -484,6 +517,7 @@ tasks:
     commands:
       - func: clone
       - func: setup_building_host
+      - func: quay_staging_login
       - func: pipeline
         vars:
           image_name: init-database
@@ -492,6 +526,7 @@ tasks:
     commands:
       - func: clone
       - func: setup_building_host
+      - func: quay_staging_login
       - func: pipeline
         vars:
           image_name: database
@@ -500,6 +535,7 @@ tasks:
     commands:
       - func: clone
       - func: setup_building_host
+      - func: quay_staging_login
       - func: pipeline
         vars:
           image_name: readiness-probe
@@ -508,6 +544,7 @@ tasks:
     commands:
       - func: clone
       - func: setup_building_host
+      - func: quay_staging_login
       - func: pipeline
         vars:
           image_name: upgrade-hook
@@ -518,8 +555,7 @@ tasks:
       - func: python_venv
       - func: setup_kubectl
       - func: setup_aws
-      - func: prepare_aws
-      - func: helm_registry_login
+      - func: helm_registry_login_staging
       - func: publish_helm_chart
 
   - name: prepare_aws
@@ -562,6 +598,7 @@ tasks:
       - func: clone
       - func: switch_context
       - func: setup_building_host
+      - func: quay_staging_login
       - func: pipeline
         vars:
           image_name: ops-manager
@@ -586,45 +623,14 @@ tasks:
       - func: setup_prepare_openshift_bundles
       - func: prepare_openshift_bundles_for_e2e
 
-  - name: backup_csv_images_dry_run
+  # Dummy placeholder: will call `mckctl release promote` once the tool is wired into CI.
+  # Runs after all staging tests pass on a master merge to confirm the build is promotable.
+  - name: mckctl_release_promote
     commands:
-      - func: clone
-      - func: quay_login
-      - command: subprocess.exec
+      - command: shell.exec
         params:
-          working_dir: src/github.com/mongodb/mongodb-kubernetes
-          binary: python3
-          args:
-            - scripts/dev/release/backup_csv_images.py
-            - scripts/dev/release/1.2.0.clusterserviceversion.yaml
-            - --dry-run
-            - --verbose
-  - name: backup_csv_images_limit_3
-    commands:
-      - func: clone
-      - func: quay_login
-      - command: subprocess.exec
-        params:
-          working_dir: src/github.com/mongodb/mongodb-kubernetes
-          binary: python3
-          args:
-            - scripts/dev/release/backup_csv_images.py
-            - scripts/dev/release/1.2.0.clusterserviceversion.yaml
-            - --limit
-            - "3"
-            - --verbose
-  - name: backup_csv_images_all
-    commands:
-      - func: clone
-      - func: quay_login
-      - command: subprocess.exec
-        params:
-          working_dir: src/github.com/mongodb/mongodb-kubernetes
-          binary: python3
-          args:
-            - scripts/dev/release/backup_csv_images.py
-            - scripts/dev/release/1.2.0.clusterserviceversion.yaml
-            - --verbose
+          script: |
+            echo "would run: mckctl release promote --version ${OPERATOR_VERSION}"
 
   # Notify Slack about build failures
   # On patches: stdout only. On mainline: stdout + Slack
@@ -651,6 +657,14 @@ tasks:
             - SLACK_WEBHOOK_URL
 
 task_groups:
+  - name: check_ocp_version_drift_task_group
+    setup_group:
+      - func: clone
+      - func: setup_openshift_client
+      - func: setup_gh
+    tasks:
+      - check_ocp_version_drift_task
+
   - name: unit_task_group
     max_hosts: -1
     setup_group_can_fail_task: true
@@ -664,6 +678,7 @@ task_groups:
       - unit_tests_python
       - unit_tests_helm
       - sbom_tests
+      - go_bump_policy_tests
     teardown_task:
       - command: attach.xunit_results
         params:
@@ -1371,6 +1386,17 @@ task_groups:
     <<: *teardown_group
 
 buildvariants:
+  ## OCP version drift check — opens a PR if the cluster version has changed
+  ## and kubernetes-versions.json is out of date.
+
+  - name: check_ocp_version_drift
+    display_name: check_ocp_version_drift
+    tags: [ "pr_patch", "staging" ]
+    run_on:
+      - ubuntu2404-small
+    tasks:
+      - name: check_ocp_version_drift_task_group
+
   ## Unit tests + lint build variant
 
   - name: unit_tests
@@ -1430,7 +1456,7 @@ buildvariants:
 
   - name: e2e_static_custom_domain_mdb_kind_ubi_cloudqa
     display_name: e2e_static_custom_domain_mdb_kind_ubi_cloudqa
-    tags: [ "pr_patch", "staging", "e2e_test_suite", "cloudqa", "static" ]
+    tags: [ "staging", "e2e_test_suite", "cloudqa", "static" ]
     run_on:
       - ubuntu2404-large
     depends_on:
@@ -1664,9 +1690,6 @@ buildvariants:
       - rhel9-zseries-small
       - rhel9-zseries-large
     allowed_requesters: [ "patch", "commit" ]
-    # TODO: Re-enable when ibm_z series is stable
-    # https://jira.mongodb.org/browse/DEVPROD-23283
-    disable: true
     depends_on:
       - name: build_operator_ubi
         variant: init_test_run
@@ -1684,9 +1707,6 @@ buildvariants:
   - name: e2e_static_smoke_ibm_z
     display_name: e2e_static_smoke_ibm_z
     tags: [ "staging", "e2e_smoke_test_suite", "static" ]
-    # TODO: Re-enable when ibm_z series is stable
-    # https://jira.mongodb.org/browse/DEVPROD-23283
-    disable: true
     run_on:
       - rhel9-zseries-small
       - rhel9-zseries-large
@@ -1770,7 +1790,7 @@ buildvariants:
 
   - name: e2e_static_multi_cluster_2_clusters
     display_name: e2e_static_multi_cluster_2_clusters
-    tags: [ "pr_patch", "staging", "e2e_test_suite", "cloudqa", "static" ]
+    tags: [ "staging", "e2e_test_suite", "cloudqa", "static" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om7_dependency
@@ -1856,7 +1876,7 @@ buildvariants:
 
   - name: e2e_static_kind_olm_ubi
     display_name: e2e_static_kind_olm_ubi
-    tags: [ "pr_patch", "staging", "e2e_test_suite", "static" ]
+    tags: [ "staging", "e2e_test_suite", "static" ]
     run_on:
       - ubuntu2404-large
     depends_on:
@@ -1955,9 +1975,6 @@ buildvariants:
     display_name: init_test_run_ibm_z
     max_hosts: -1
     tags: [ "staging" ]
-    # TODO: Re-enable when ibm_z series is stable
-    # https://jira.mongodb.org/browse/DEVPROD-23283
-    disable: true
     run_on:
       - rhel9-zseries-small
       - rhel9-zseries-large
@@ -2012,6 +2029,7 @@ buildvariants:
 
   ### Variants that run on each commit
 
+  # Toolchain smoke: one check-only preflight (operator image) every staging build so preflight regressions surface before release.
   - name: preflight_release_images_check_only
     display_name: preflight_release_images_check_only
     tags: [ "staging" ]
@@ -2020,7 +2038,23 @@ buildvariants:
     expansions:
       preflight_submit: false
     tasks:
-      - name: preflight_images_task_group
+      - name: preflight_check_smoke
+
+  # Preflight OM + agent images after release_om_and_agents (same version set as that script). Check-only on master.
+  - name: preflight_om_and_agents
+    display_name: preflight_om_and_agents
+    tags: [ "staging" ]
+    run_on:
+      - rhel90-large
+    allowed_requesters: [ "commit" ]
+    patchable: false
+    depends_on:
+      - name: release_om_and_agents
+        variant: release_om_and_agents
+    expansions:
+      preflight_submit: false
+    tasks:
+      - name: preflight_om_and_agents_task_group
 
   # OM60 images build - kept for on-demand testing only
   - name: build_om60_images
@@ -2067,18 +2101,19 @@ buildvariants:
     tasks:
       - name: rebuild_currently_used_agents
 
-  ### Build variants for manual patch only
-
-  - name: backup_csv_images
-    display_name: "Backup CSV Images"
-    tags: [ "manual_patch" ]
-    allowed_requesters: [ "patch" ]
+    # Only called manually. It's used for releasing or rebuilding specific agent image version.
+    # Example command:
+    # evergreen patch -p mongodb-kubernetes -a release_specific_agent_manually -d "Rebuild 13.49.0.10397-1 CM agent" -u --path .evergreen.yml --param agent_version=13.49.0.10397-1 --param agent_tools_version=100.14.0
+    # To target staging or release repositories specify correct e.g. --param BUILD_SCENARIO=staging or --param BUILD_SCENARIO=release
+  - name: manual_release_specific_agent
+    display_name: manual_release_specific_agent
+    tags: [ "manual_patch", "release_specific_agent_manually" ]
     run_on:
-      - ubuntu2404-small
+      - ubuntu2404-large
     tasks:
-      - name: backup_csv_images_dry_run
-      - name: backup_csv_images_limit_3
-      - name: backup_csv_images_all
+      - name: rebuild_specific_agent
+
+  ### Build variants for manual patch only
 
   - name: publish_om70_images
     display_name: publish_om70_images
@@ -2130,6 +2165,20 @@ buildvariants:
       - name: release_om_and_agents
 
   # Notification task - runs after all staging tasks complete to report build status.
+  # Runs after all staging tests (including GKE snippets) succeed on master merge.
+  # Only on commit builds — see DEVPROD-27436 note on notify_master_build_status below.
+  - name: mckctl_release_promote
+    display_name: mckctl_release_promote
+    allowed_requesters: [ "commit" ]
+    depends_on:
+      - name: "*"
+        variant: ".staging"
+        status: "success"
+    run_on:
+      - ubuntu2404-small
+    tasks:
+      - name: mckctl_release_promote
+
   # Only runs on commit builds (not patches) because of Evergreen bug DEVPROD-27436:
   # depends_on with patch_optional:true generates phantom dependencies for tasks that
   # don't exist in the patch, causing the task to hang indefinitely.
@@ -2152,7 +2201,6 @@ buildvariants:
   - name: flaky_test_report
     display_name: "Flaky Test Weekly Report"
     cron: "0 9 * * 1"
-    allowed_requesters: [ "ad_hoc", "patch" ] # only run on cron jobs or manually via patches
     run_on:
       - ubuntu2404-small
     tasks:

@@ -6,8 +6,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
+	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 )
 
 func makeMinimalRsWithProcesses() ReplicaSetWithProcesses {
@@ -17,7 +18,7 @@ func makeMinimalRsWithProcesses() ReplicaSetWithProcesses {
 	processes := make([]Process, 3)
 	memberOptions := make([]automationconfig.MemberOptions, 3)
 	for i := range processes {
-		proc := NewMongodProcess("my-test-repl-"+strconv.Itoa(i), "my-test-repl-"+strconv.Itoa(i), "fake-mongoDBImage", false, &mdbv1.AdditionalMongodConfig{}, &mdb.Spec, "", nil, "")
+		proc := NewMongodProcess("my-test-repl-"+strconv.Itoa(i), "my-test-repl-"+strconv.Itoa(i), "fake-mongoDBImage", false, &mdbv1.AdditionalMongodConfig{}, &mdb.Spec, "", nil, "", architectures.NonStatic)
 		processes[i] = proc
 		replicaSetWithProcesses.addMember(proc, "", memberOptions[i])
 	}

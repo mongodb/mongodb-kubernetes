@@ -13,15 +13,15 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	omv1 "github.com/mongodb/mongodb-kubernetes/api/v1/om"
+	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/container"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/podtemplatespec"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/merge"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/podtemplatespec"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
 	"github.com/mongodb/mongodb-kubernetes/pkg/vault"
 )
 
@@ -46,6 +46,9 @@ func Test_buildOpsManagerAndBackupInitContainer(t *testing.T) {
 		SecurityContext: &corev1.SecurityContext{
 			ReadOnlyRootFilesystem:   ptr.To(true),
 			AllowPrivilegeEscalation: ptr.To(false),
+			Capabilities: &corev1.Capabilities{
+				Drop: []corev1.Capability{"ALL"},
+			},
 		},
 	}
 	assert.Equal(t, expectedContainer, containerObj)

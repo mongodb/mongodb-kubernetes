@@ -109,6 +109,6 @@ class TestTheCorrectUserIsDeleted(KubernetesTester):
         assert "CN=mms-user-4,OU=cloud,O=MongoDB,L=New York,ST=New York,C=US" not in [user["user"] for user in users]
 
 
-def get_user_pkix_names(ac, agent_name: str) -> str:
+def get_user_pkix_names(ac, agent_name: str) -> dict[str, str]:
     subject = [u["user"] for u in ac["auth"]["usersWanted"] if agent_name in u["user"]][0]
     return dict(name.split("=") for name in subject.split(","))

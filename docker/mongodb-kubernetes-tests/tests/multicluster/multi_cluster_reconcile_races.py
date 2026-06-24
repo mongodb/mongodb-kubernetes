@@ -343,11 +343,13 @@ def test_telemetry_configmap(namespace: str):
     config = KubernetesTester.read_configmap(namespace, TELEMETRY_CONFIGMAP_NAME)
     for ts_key in ["lastSendTimestampClusters", "lastSendTimestampDeployments", "lastSendTimestampOperators"]:
         ts_cm = config.get(ts_key)
+        assert ts_cm is not None
         assert ts_cm.isdigit()  # it should be a timestamp
 
     for ps_key in ["lastSendPayloadClusters", "lastSendPayloadDeployments", "lastSendPayloadOperators"]:
         try:
             payload_string = config.get(ps_key)
+            assert payload_string is not None
             payload = json.loads(payload_string)
             # Perform a rudimentary check
             assert isinstance(payload, list), "payload should be a list"

@@ -26,10 +26,10 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 
-	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
-	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
-	rolev1 "github.com/mongodb/mongodb-kubernetes/api/v1/role"
-	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
+	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
+	rolev1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/role"
+	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/backup"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
@@ -39,14 +39,13 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
-	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/configmap"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/container"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/agentVersionManagement"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/commoncontroller"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/configmap"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/passwordhash"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
@@ -842,7 +841,7 @@ func isPrometheusSupported(conn om.Connection) bool {
 }
 
 // UpdatePrometheus configures Prometheus on the Deployment for this resource.
-func UpdatePrometheus(ctx context.Context, d *om.Deployment, conn om.Connection, prometheus *mdbcv1.Prometheus, sClient secrets.SecretClient, namespace string, certName string, log *zap.SugaredLogger) error {
+func UpdatePrometheus(ctx context.Context, d *om.Deployment, conn om.Connection, prometheus *v1.Prometheus, sClient secrets.SecretClient, namespace string, certName string, log *zap.SugaredLogger) error {
 	if prometheus == nil {
 		return nil
 	}
@@ -990,7 +989,7 @@ func wasCAConfigMapMounted(ctx context.Context, configMapGetter configmap.Getter
 // needs to be updated first. In the case of unmounting certs, for instance, the certs should be not
 // required anymore before we unmount them, or the automation-agent and readiness probe will never
 // reach goal state.
-func publishAutomationConfigFirst(ctx context.Context, getter kubernetesClient.Client, mdb mdbv1.MongoDB, lastSpec *mdbv1.MongoDbSpec, configFunc func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions, log *zap.SugaredLogger) bool {
+func publishAutomationConfigFirst(ctx context.Context, getter kubernetesClient.Client, mdb mdbv1.MongoDB, lastSpec *mdbv1.MongoDbSpec, configFunc func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions, defaultArchitecture architectures.DefaultArchitecture, log *zap.SugaredLogger) bool {
 	opts := configFunc(mdb)
 
 	namespacedName := kube.ObjectKey(mdb.Namespace, opts.GetStatefulSetName())
@@ -1035,7 +1034,7 @@ func publishAutomationConfigFirst(ctx context.Context, getter kubernetesClient.C
 		return true
 	}
 
-	if architectures.IsRunningStaticArchitecture(mdb.GetAnnotations()) {
+	if architectures.IsRunningStaticArchitecture(mdb.GetAnnotations(), defaultArchitecture) {
 		if mdb.Spec.IsInChangeVersion(lastSpec) {
 			return true
 		}
@@ -1064,7 +1063,7 @@ func getAnnotationsForResource(mdb *mdbv1.MongoDB) (map[string]string, error) {
 }
 
 type PrometheusConfiguration struct {
-	prometheus         *mdbcv1.Prometheus
+	prometheus         *v1.Prometheus
 	conn               om.Connection
 	secretsClient      secrets.SecretClient
 	namespace          string

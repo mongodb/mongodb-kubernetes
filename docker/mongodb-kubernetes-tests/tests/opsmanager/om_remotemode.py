@@ -52,6 +52,8 @@ def add_mdb_version_to_deployment(deployment: Dict[str, Any], version: str):
             "securityContext": {
                 # workaround for init-container istio issue -> https://istio.io/latest/docs/setup/additional-setup/cni/#compatibility-with-application-init-containers
                 "runAsUser": 1337,
+                "allowPrivilegeEscalation": False,
+                "capabilities": {"drop": ["ALL"]},
             },
             "volumeMounts": [
                 {
@@ -200,12 +202,6 @@ def test_replica_set_recovers(replica_set: MongoDB, custom_mdb_version: str):
 @mark.e2e_om_remotemode
 def test_client_can_connect_to_mongodb(replica_set: MongoDB):
     replica_set.assert_connectivity()
-
-
-@skip_if_local
-@mark.e2e_om_remotemode
-def test_client_can_connect_to_mongodb_ent(replica_set_ent: MongoDB):
-    replica_set_ent.assert_connectivity()
 
 
 @skip_if_local

@@ -148,6 +148,13 @@ def create_or_update_service(
     service: Optional[client.V1Service] = None,
 ) -> str:
     print("Logging inside create_or_update_service")
+    if service_name is None and service is not None:
+        if isinstance(service, dict):
+            service_name = service.get("metadata", {}).get("name")
+        elif hasattr(service, "metadata") and service.metadata is not None:
+            service_name = service.metadata.name
+    if service_name is None:
+        raise ValueError("service_name must not be None")
     try:
         create_service(namespace, service_name, cluster_ip=cluster_ip, ports=ports, selector=selector, service=service)
     except kubernetes.client.ApiException as e:
@@ -247,8 +254,8 @@ def delete_pod(namespace: str, name: str, api_client: Optional[kubernetes.client
 
 def create_or_update_namespace(
     namespace: str,
-    labels: dict = None,
-    annotations: dict = None,
+    labels: Optional[dict] = None,
+    annotations: Optional[dict] = None,
     api_client: Optional[kubernetes.client.ApiClient] = None,
 ):
     namespace_resource = client.V1Namespace(
@@ -268,6 +275,27 @@ def create_or_update_namespace(
 def delete_namespace(name: str):
     c = client.CoreV1Api()
     c.delete_namespace(name, body=c.V1DeleteOptions())
+
+
+def label_namespace(name: str, labels: dict):
+    body = {"metadata": {"labels": labels}}
+    client.CoreV1Api().patch_namespace(name, body)
+
+
+def downgrade_pss_to_warn(namespace: str) -> None:
+    """Downgrade a namespace from PSS enforce to warn mode.
+
+    Used for test namespaces that contain third-party or legacy components that
+    predate PSS-restricted compliance (e.g. old operator releases, nginx images
+    that run as root). PSS violations are still surfaced as warnings.
+    """
+    label_namespace(
+        namespace,
+        {
+            "pod-security.kubernetes.io/enforce": None,
+            "pod-security.kubernetes.io/warn": "restricted",
+        },
+    )
 
 
 def get_deployments(namespace: str):
@@ -368,7 +396,7 @@ def get_pod_when_ready(
     """
     cnt = 0
 
-    while True and cnt < default_retry:
+    while default_retry is not None and cnt < default_retry:
         print(f"get_pod_when_ready: namespace={namespace}, label_selector={label_selector}")
 
         if cnt > 0:
@@ -429,7 +457,7 @@ def is_pod_ready(
     return None
 
 
-def get_default_storage_class() -> str:
+def get_default_storage_class() -> Optional[str]:
     default_class_annotations = (
         "storageclass.kubernetes.io/is-default-class",  # storage.k8s.io/v1
         "storageclass.beta.kubernetes.io/is-default-class",  # storage.k8s.io/v1beta1
@@ -440,6 +468,7 @@ def get_default_storage_class() -> str:
             sc.metadata.annotations.get(a) == "true" for a in default_class_annotations
         ):
             return sc.metadata.name
+    return None
 
 
 def decode_secret(data: Dict[str, str]) -> Dict[str, str]:
@@ -469,7 +498,7 @@ def try_load(resource: CustomObject) -> bool:
     return True
 
 
-def wait_for_webhook(namespace, retries=5, delay=5, service_name="operator-webhook"):
+def wait_for_webhook(namespace, retries=20, delay=10, service_name="operator-webhook"):
     webhook_api = client.AdmissionregistrationV1Api()
     core_api = client.CoreV1Api()
 
@@ -478,7 +507,17 @@ def wait_for_webhook(namespace, retries=5, delay=5, service_name="operator-webho
             core_api.read_namespaced_service(service_name, namespace)
 
             # make sure the validating_webhook is installed.
-            webhook_api.read_validating_webhook_configuration("mdbpolicy.mongodb.com")
+            wh = webhook_api.read_validating_webhook_configuration("mdbpolicy.mongodb.com")
+
+            # Wait for the caBundle to be injected (cert-manager injects it asynchronously).
+            # Without a populated caBundle the webhook server won't accept connections yet.
+            ca_bundle_ready = any(w.client_config.ca_bundle for w in (wh.webhooks or []) if w.client_config)
+            if not ca_bundle_ready:
+                raise kubernetes.client.ApiException(status=503, reason="caBundle not yet injected")
+
+            # Extra stabilization delay: the TLS certificate may still be loading into
+            # the webhook server's listener even after the caBundle is populated.
+            time.sleep(5)
             print("Webhook is ready.")
             return True
         except kubernetes.client.ApiException as e:

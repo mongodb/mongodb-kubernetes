@@ -15,26 +15,25 @@ import (
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
-	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
-	omv1 "github.com/mongodb/mongodb-kubernetes/api/v1/om"
+	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
+	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
 	enterprisepem "github.com/mongodb/mongodb-kubernetes/controllers/operator/pem"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/container"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/lifecycle"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/podtemplatespec"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/probes"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/secret"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/merge"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/lifecycle"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/podtemplatespec"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/probes"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
 	"github.com/mongodb/mongodb-kubernetes/pkg/vault"
 )
 
@@ -70,9 +69,10 @@ type OpsManagerStatefulSetOptions struct {
 	kmip                         *KmipConfiguration
 	DebugPort                    int32
 	// backup daemon only
-	HeadDbPersistenceConfig *common.PersistenceConfig
+	HeadDbPersistenceConfig *v1.PersistenceConfig
 	Annotations             map[string]string
 	LoggingConfiguration    *omv1.Logging
+	DefaultArchitecture     architectures.DefaultArchitecture
 }
 
 type KmipClientConfiguration struct {
@@ -173,6 +173,12 @@ func WithStsOverride(stsOverride *appsv1.StatefulSetSpec) func(opts *OpsManagerS
 func WithDebugPort(port int32) func(opts *OpsManagerStatefulSetOptions) {
 	return func(opts *OpsManagerStatefulSetOptions) {
 		opts.DebugPort = port
+	}
+}
+
+func WithOMDefaultArchitecture(defaultArchitecture architectures.DefaultArchitecture) func(opts *OpsManagerStatefulSetOptions) {
+	return func(opts *OpsManagerStatefulSetOptions) {
+		opts.DefaultArchitecture = defaultArchitecture
 	}
 }
 
@@ -348,7 +354,7 @@ func backupAndOpsManagerSharedConfiguration(opts OpsManagerStatefulSetOptions) s
 
 	var omVolumes []corev1.Volume
 
-	if !architectures.IsRunningStaticArchitecture(opts.Annotations) {
+	if !architectures.IsRunningStaticArchitecture(opts.Annotations, opts.DefaultArchitecture) {
 		omScriptsVolume := statefulset.CreateVolumeFromEmptyDir("ops-manager-scripts")
 		omVolumes = append(omVolumes, omScriptsVolume)
 		omScriptsVolumeMount := buildOmScriptsVolumeMount(true)
@@ -443,7 +449,7 @@ func backupAndOpsManagerSharedConfiguration(opts OpsManagerStatefulSetOptions) s
 
 	initContainerMod := podtemplatespec.NOOP()
 
-	if !architectures.IsRunningStaticArchitecture(opts.Annotations) {
+	if !architectures.IsRunningStaticArchitecture(opts.Annotations, opts.DefaultArchitecture) {
 		initContainerMod = podtemplatespec.WithInitContainerByIndex(0,
 			buildOpsManagerAndBackupInitContainer(opts.InitOpsManagerImage),
 		)

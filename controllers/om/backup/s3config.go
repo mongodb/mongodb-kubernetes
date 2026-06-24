@@ -1,11 +1,9 @@
 package backup
 
 import (
-	"fmt"
-
 	"go.uber.org/zap"
 
-	omv1 "github.com/mongodb/mongodb-kubernetes/api/v1/om"
+	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/versionutil"
 )
@@ -172,9 +170,4 @@ func (s S3Config) MergeIntoOpsManagerConfig(opsManagerS3Config S3Config) S3Confi
 	opsManagerS3Config.CustomCertificates = s.CustomCertificates
 	opsManagerS3Config.ObjectLockEnabled = s.ObjectLockEnabled
 	return opsManagerS3Config
-}
-
-func (s S3Config) String() string {
-	return fmt.Sprintf("id %s, uri: %s, enabled: %t, awsAccessKey: %s, awsSecretKey: %s, bucketEndpoint: %s, bucketName: %s, pathStyleAccessEnabled: %t",
-		s.Id, util.RedactMongoURI(s.Uri), s.AssignmentEnabled, util.Redact(s.AccessKey), util.Redact(s.SecretKey), s.Endpoint, s.Name, s.PathStyleAccessEnabled)
 }
