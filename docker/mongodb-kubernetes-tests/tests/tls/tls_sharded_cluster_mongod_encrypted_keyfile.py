@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Sharded cluster with password-encrypted TLS server private keys on every tier.
+"""Sharded cluster with password-encrypted TLS server private keys on every tier (mongos, mongod, config server).
 
 Proves the operator supplies net.tls.certificateKeyFilePassword per tier (mongos, config servers,
 shards), each with its own cert secret + password. Reaching Running is the proof that all three

@@ -2272,7 +2272,7 @@ func setupInternalClusterAuth(d om.Deployment, name string, internalClusterAuthM
 	}
 }
 
-// setupTLSKeyFilePassword applies the per-tier TLS keyFilePassword (to decrypt a password-encrypted
+// setupTLSKeyFilePassword applies the per-tier (mongos, mongod, config server) TLS keyFilePassword (to decrypt a password-encrypted
 // PEM key) to the config server, mongos, and each shard's processes. An empty password per tier is
 // a no-op, so unencrypted tiers are unaffected.
 func setupTLSKeyFilePassword(d om.Deployment, name string, mongosKeyFilePassword string, configSrvKeyFilePassword string, shardKeyFilePasswords []string) {
