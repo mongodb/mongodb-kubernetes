@@ -5,17 +5,12 @@ from kubetester import (
     scale_statefulset,
     try_load,
     wait_for_statefulset_ready,
-    wait_for_statefulset_replicas,
     wait_for_statefulset_recreated,
+    wait_for_statefulset_replicas,
 )
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as load_fixture
-from kubetester.kubetester import (
-    run_periodically,
-    skip_if_local,
-    skip_if_multi_cluster,
-    skip_if_single_cluster,
-)
+from kubetester.kubetester import run_periodically, skip_if_local, skip_if_multi_cluster, skip_if_single_cluster
 from kubetester.mongodb import MongoDB
 from kubetester.operator import Operator
 from kubetester.phase import Phase

@@ -1,9 +1,4 @@
-from kubetester import (
-    find_fixture,
-    get_statefulset,
-    scale_statefulset,
-    wait_for_statefulset_replicas,
-)
+from kubetester import find_fixture, get_statefulset, scale_statefulset, wait_for_statefulset_replicas
 from kubetester.kubetester import skip_if_multi_cluster
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
