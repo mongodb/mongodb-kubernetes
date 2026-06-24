@@ -4284,6 +4284,16 @@ spec:
                                     Defaults to "60s" if not specified.
                                   type: string
                               type: object
+                            routerHostname:
+                              description: |-
+                                RouterHostname is the host:port a sharded cluster's mongos (router) uses to reach this cluster's
+                                mongot via the managed Envoy LB, and the SNI hostname Envoy matches for the cluster-level filter
+                                chain. Unlike ExternalHostname it is shard-agnostic and must NOT contain a {shardName}
+                                placeholder. This value is per-cluster: in multi-cluster deployments each cluster has its own
+                                Envoy LB and its mongos routes to it, so every cluster's RouterHostname must be distinct.
+                                Required for an external sharded MongoDB source with managed LB; ignored for ReplicaSet sources
+                                and operator-managed MongoDB. Must be covered by the Envoy LB server certificate SANs.
+                              type: string
                           type: object
                         unmanaged:
                           description: Unmanaged configures a user-provided (BYO)

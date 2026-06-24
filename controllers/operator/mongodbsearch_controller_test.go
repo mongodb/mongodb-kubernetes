@@ -761,16 +761,16 @@ func TestReconcile_SimulatedMC_RePinUpdatesNames(t *testing.T) {
 }
 
 func newSimulatedMCShardedMongoDBSearch(name, namespace string) *searchv1.MongoDBSearch {
-	// Each cluster gets its own externalHostname (distinct per cluster); the
-	// {shardName}. prefix is required for cluster-level form derivation.
+	// Each cluster gets its own externalHostname (distinct per cluster, {shardName} per-shard) and a
+	// distinct shard-agnostic routerHostname (required for external sharded + managed LB).
 	clusters := []searchv1.ClusterSpec{
 		{
 			Name: "cluster-a", Index: ptr.To(int32(0)), Replicas: ptr.To(int32(1)),
-			LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{ExternalHostname: "{shardName}.cluster-a.example.com"}},
+			LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{ExternalHostname: "{shardName}.cluster-a.example.com", RouterHostname: "router.cluster-a.example.com"}},
 		},
 		{
 			Name: "cluster-b", Index: ptr.To(int32(1)), Replicas: ptr.To(int32(1)),
-			LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{ExternalHostname: "{shardName}.cluster-b.example.com"}},
+			LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{ExternalHostname: "{shardName}.cluster-b.example.com", RouterHostname: "router.cluster-b.example.com"}},
 		},
 	}
 	return &searchv1.MongoDBSearch{
@@ -986,6 +986,7 @@ func TestMongoDBSearchReconcile_MCSharded_CrossControllerLabelInvariant(t *testi
 					LoadBalancer: &searchv1.LoadBalancerConfig{
 						Managed: &searchv1.ManagedLBConfig{
 							ExternalHostname: "{shardName}.mdb-search-search-0-proxy-svc.example.com",
+							RouterHostname:   "mdb-search-search-0-proxy-svc.example.com",
 						},
 					},
 				},
@@ -994,6 +995,7 @@ func TestMongoDBSearchReconcile_MCSharded_CrossControllerLabelInvariant(t *testi
 					LoadBalancer: &searchv1.LoadBalancerConfig{
 						Managed: &searchv1.ManagedLBConfig{
 							ExternalHostname: "{shardName}.mdb-search-search-1-proxy-svc.example.com",
+							RouterHostname:   "mdb-search-search-1-proxy-svc.example.com",
 						},
 					},
 				},

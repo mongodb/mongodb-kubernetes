@@ -355,6 +355,87 @@ func TestValidateMCExternalHostnames(t *testing.T) {
 	}
 }
 
+func TestValidateRouterHostname(t *testing.T) {
+	// builds a managed-LB cluster spec with the given routerHostnames; sharded toggles whether the
+	// source is an external sharded cluster (the only case the validator applies to).
+	mkSearch := func(routerHostnames []string, sharded bool) *MongoDBSearch {
+		clusters := make([]ClusterSpec, 0, len(routerHostnames))
+		for i, rh := range routerHostnames {
+			c := ClusterSpec{Name: "cluster-" + strconv.Itoa(i), LoadBalancer: &LoadBalancerConfig{Managed: &ManagedLBConfig{ExternalHostname: "{shardName}.c" + strconv.Itoa(i) + ".example.com", RouterHostname: rh}}}
+			clusters = append(clusters, c)
+		}
+		s := &MongoDBSearch{ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"}, Spec: MongoDBSearchSpec{Clusters: clusters}}
+		if sharded {
+			s.Spec.Source = &MongoDBSource{ExternalMongoDBSource: &ExternalMongoDBSource{ShardedCluster: &ExternalShardedClusterConfig{
+				Router: ExternalRouterConfig{Hosts: []string{"mongos.example.com:27017"}},
+				Shards: []ExternalShardConfig{{ShardName: "shard-0", Hosts: []string{"h:27017"}}},
+			}}}
+		}
+		return s
+	}
+
+	tests := []struct {
+		name            string
+		routerHostnames []string
+		sharded         bool
+		errorContains   string
+	}{
+		{name: "sharded with routerHostname set", routerHostnames: []string{"search.example.com:443"}, sharded: true},
+		{name: "sharded missing routerHostname rejected", routerHostnames: []string{""}, sharded: true, errorContains: "must be specified"},
+		{name: "sharded routerHostname with shardName placeholder rejected", routerHostnames: []string{"{shardName}.search.example.com:443"}, sharded: true, errorContains: "must not contain"},
+		// Not an external sharded source → validator is a no-op even if unset.
+		{name: "non-sharded source ignored", routerHostnames: []string{""}, sharded: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			res := validateRouterHostname(mkSearch(tt.routerHostnames, tt.sharded))
+			if tt.errorContains != "" {
+				assert.Equal(t, v1.ErrorLevel, res.Level, "expected error, got %+v", res)
+				assert.Contains(t, res.Msg, tt.errorContains)
+			} else {
+				assert.Equal(t, v1.SuccessLevel, res.Level, "expected success, got %+v", res)
+			}
+		})
+	}
+}
+
+func TestValidateMCRouterHostnames(t *testing.T) {
+	mkSearch := func(routerHostnames []string) *MongoDBSearch {
+		clusters := make([]ClusterSpec, 0, len(routerHostnames))
+		for i, rh := range routerHostnames {
+			c := ClusterSpec{Name: "cluster-" + strconv.Itoa(i)}
+			if rh != "" {
+				c.LoadBalancer = &LoadBalancerConfig{Managed: &ManagedLBConfig{ExternalHostname: "{shardName}.c" + strconv.Itoa(i) + ".example.com", RouterHostname: rh}}
+			}
+			clusters = append(clusters, c)
+		}
+		return &MongoDBSearch{ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"}, Spec: MongoDBSearchSpec{Clusters: clusters}}
+	}
+
+	tests := []struct {
+		name            string
+		routerHostnames []string
+		errorContains   string
+	}{
+		{name: "distinct routerHostnames", routerHostnames: []string{"us-east.example.com:443", "eu-west.example.com:443"}},
+		{name: "duplicate routerHostnames rejected", routerHostnames: []string{"shared.example.com:443", "shared.example.com:443"}, errorContains: "distinct hostname"},
+		{name: "no managed LB returns success", routerHostnames: []string{"", ""}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			res := validateMCRouterHostnames(mkSearch(tt.routerHostnames))
+			if tt.errorContains != "" {
+				assert.Equal(t, v1.ErrorLevel, res.Level, "expected error, got %+v", res)
+				assert.Contains(t, res.Msg, tt.errorContains)
+			} else {
+				assert.Equal(t, v1.SuccessLevel, res.Level, "expected success, got %+v", res)
+			}
+		})
+	}
+}
+
 func TestValidateExternalHostnameDNSLength(t *testing.T) {
 	mkSearch := func(hostnames []string, shardNames []string) *MongoDBSearch {
 		clusters := make([]ClusterSpec, 0, len(hostnames))
@@ -622,7 +703,11 @@ func TestValidateClustersClusterIndexRequired(t *testing.T) {
 
 // managedLBWithHostname is a shorthand for a per-cluster managed LB entry.
 func managedLBWithHostname(hostname string) *LoadBalancerConfig {
-	return &LoadBalancerConfig{Managed: &ManagedLBConfig{ExternalHostname: hostname}}
+	// routerHostname must be set for external sharded managed LB, distinct per cluster, and free of
+	// {shardName}. Derive it from the (distinct) externalHostname by dropping any "{shardName}."
+	// prefix so callers passing distinct externalHostnames get distinct, placeholder-free routers.
+	router := strings.ReplaceAll(hostname, ShardNamePlaceholder+".", "")
+	return &LoadBalancerConfig{Managed: &ManagedLBConfig{ExternalHostname: hostname, RouterHostname: router}}
 }
 
 func newSearch(name string, shards []ExternalShardConfig, tlsPrefix string, isTLS, isLBManaged bool) *MongoDBSearch {
