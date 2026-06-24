@@ -998,7 +998,7 @@ func AddOpsManagerController(ctx context.Context, mgr manager.Manager, memberClu
 	err = c.Watch(
 		source.Kind[client.Object](mgr.GetCache(), &appsv1.StatefulSet{},
 			handler.EnqueueRequestForOwner(mgr.GetScheme(), mgr.GetRESTMapper(), &omv1.MongoDBOpsManager{}, handler.OnlyControllerOwner()),
-			watch.PredicatesForStatefulSet()))
+			watch.PredicatesForOpsManagerStatefulSet()))
 	if err != nil {
 		return err
 	}

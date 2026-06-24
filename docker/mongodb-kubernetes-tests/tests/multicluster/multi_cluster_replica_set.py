@@ -4,7 +4,14 @@ import kubernetes
 import pytest
 from kubernetes import client
 from kubernetes.client.rest import ApiException
-from kubetester import delete_statefulset, get_statefulset, try_load, wait_until
+from kubetester import (
+    delete_statefulset,
+    get_statefulset,
+    try_load,
+    wait_for_statefulset_ready,
+    wait_for_statefulset_recreated,
+    wait_until,
+)
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import skip_if_local
@@ -223,18 +230,8 @@ def test_delete_member_cluster_sts(
         name=sts_name,
         api_client=api_client,
     )
-
-    def check_if_sts_was_recreated() -> bool:
-        try:
-            sts = get_statefulset(namespace, sts_name, api_client)
-            return sts.metadata.uid != sts_old.metadata.uid
-        except ApiException as e:
-            if e.status == 404:
-                return False
-            else:
-                raise e
-
-    wait_until(check_if_sts_was_recreated, timeout=120)
+    wait_for_statefulset_recreated(namespace, sts_name, sts_old.metadata.uid, api_client=api_client)
+    wait_for_statefulset_ready(namespace, sts_name, api_client=api_client, timeout=800)
 
     # the operator should reconcile and recreate the statefulset
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=400)
