@@ -5,7 +5,7 @@ from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.conftest import is_multi_cluster
-from tests.pod_logs import get_pod_logs, get_agent_logs, get_mongodb_logs
+from tests.pod_logs import get_agent_logs, get_mongodb_logs, get_pod_logs
 from tests.shardedcluster.conftest import (
     enable_multi_cluster_deployment,
     get_member_cluster_clients_using_cluster_mapping,

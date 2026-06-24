@@ -242,7 +242,6 @@ func (p Process) WiredTigerCache() *float32 {
 	return &f
 }
 
-
 func (p Process) SetLogPath(logPath string) Process {
 	sysLogMap := util.ReadOrCreateMap(p.Args(), "systemLog")
 	sysLogMap["destination"] = "file"

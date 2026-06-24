@@ -290,23 +290,28 @@ func (d Deployment) ConfigureMonitoring(log *zap.SugaredLogger, tls bool, caFile
 			return m.(map[string]interface{})["hostname"] == hostname
 		})
 
-		additionalParams := map[string]string{}
+		var additionalParams map[string]string
 		if tls {
 			additionalParams = NewTLSParams(caFilePath, pemKeyFile)
 		}
-		additionalParams["logFile"] = StdoutLogPath
 
 		if foundIdx == -1 {
 			mv := map[string]interface{}{
-				"hostname":         hostname,
-				"name":             MonitoringAgentDefaultVersion,
-				"additionalParams": additionalParams,
+				"hostname": hostname,
+				"name":     MonitoringAgentDefaultVersion,
+			}
+			if len(additionalParams) > 0 {
+				mv["additionalParams"] = additionalParams
 			}
 			log.Debugw("Added monitoring agent configuration", "host", hostname, "tls", tls)
 			monitoringVersions = append(monitoringVersions, mv)
 		} else {
 			mv := monitoringVersions[foundIdx].(map[string]interface{})
-			mv["additionalParams"] = additionalParams
+			if len(additionalParams) > 0 {
+				mv["additionalParams"] = additionalParams
+			} else {
+				delete(mv, "additionalParams")
+			}
 		}
 	}
 	d.setMonitoringVersions(monitoringVersions)
@@ -1073,7 +1078,7 @@ func (d Deployment) ConfigureBackup(log *zap.SugaredLogger) {
 		}
 
 		if !found {
-			backupVersion = map[string]interface{}{"hostname": p.HostName(), "name": BackupAgentDefaultVersion, "additionalParams": map[string]string{"logFile": StdoutLogPath}}
+			backupVersion = map[string]interface{}{"hostname": p.HostName(), "name": BackupAgentDefaultVersion}
 			backupVersions = append(backupVersions, backupVersion)
 			log.Debugw("Added backup agent configuration", "host", p.HostName())
 		}

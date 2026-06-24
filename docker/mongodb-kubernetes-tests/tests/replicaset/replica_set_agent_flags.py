@@ -5,7 +5,7 @@ from kubetester.kubetester import KubernetesTester, ensure_ent_version, is_defau
 from kubetester.mongodb import MongoDB
 from kubetester.phase import Phase
 from pytest import fixture, mark
-from tests.pod_logs import get_pod_logs, get_agent_logs, get_mongodb_logs
+from tests.pod_logs import get_agent_logs, get_mongodb_logs, get_pod_logs
 
 custom_agent_log_path = "/var/log/mongodb-mms-automation/customLogFile"
 custom_readiness_log_path = "/var/log/mongodb-mms-automation/customReadinessLogFile"

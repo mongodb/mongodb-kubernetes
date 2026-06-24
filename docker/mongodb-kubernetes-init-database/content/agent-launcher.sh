@@ -213,11 +213,8 @@ fi
 # Audit log is user-configured. If the user routes audit to a file, tail it to stdout.
 tail -F -n0 "${MDB_LOG_FILE_MONGODB_AUDIT:-${MMS_LOG_DIR}/mongodb-audit.log}" 2>/dev/null &
 
-# Monitoring and backup agent modules use a rolling file appender that requires a real
-# file (cannot use /proc/1/fd/1 because rotation renames the file). Tail those files
-# to surface their logs in stdout.
-tail -F -n0 "${MMS_LOG_DIR}/monitoring-agent.log" 2>/dev/null &
-tail -F -n0 "${MMS_LOG_DIR}/backup-agent.log" 2>/dev/null &
+# Monitoring and backup modules now log to the agent process stderr (no logFile set),
+# captured by kubectl logs, so no tail needed.
 
 # Run agent directly to stdout (no file logging, no tailing)
 "${AGENT_BINARY_PATH}" "${agentOpts[@]}" "${splittedAgentFlags[@]}" &

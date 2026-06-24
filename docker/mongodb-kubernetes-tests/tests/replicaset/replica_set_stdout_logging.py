@@ -3,12 +3,12 @@ not to log files inside the container."""
 
 import json
 
-from kubetester.kubetester import KubernetesTester, ensure_ent_version, is_default_architecture_static
+from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.kubetester import is_default_architecture_static
 from kubetester.mongodb import MongoDB
 from kubetester.phase import Phase
 from pytest import fixture, mark
-
 
 RESOURCE_NAME = "rs-stdout-test"
 
@@ -84,8 +84,8 @@ def test_mongodb_json_logs_in_stdout(deployed_replica_set: MongoDB):
 
 @mark.e2e_replica_set_stdout_logging
 def test_only_module_log_tails(deployed_replica_set: MongoDB):
-    """Main automation-agent and mongod no longer use tails. Only the audit, monitoring
-    and backup module log files are tailed to stdout — at most 3 tail processes."""
+    """Main automation-agent and mongod no longer use tails. Only the audit-log file
+    is tailed to stdout; monitoring and backup log to stderr directly — at most 1 tail process."""
     namespace = deployed_replica_set.namespace
     pod_name = f"{deployed_replica_set.name}-0"
 
@@ -94,9 +94,8 @@ def test_only_module_log_tails(deployed_replica_set: MongoDB):
     )
     tail_count = int(result.strip())
 
-    assert tail_count <= 3, (
-        f"Expected at most 3 tail processes (audit, monitoring, backup) in "
-        f"{namespace}/{pod_name}, got {tail_count}"
+    assert tail_count <= 1, (
+        f"Expected at most 1 tail process (audit-log) in " f"{namespace}/{pod_name}, got {tail_count}"
     )
 
 
@@ -150,8 +149,7 @@ def test_no_log_files_written(deployed_replica_set: MongoDB):
     file_count = result.strip()
 
     assert file_count == "0", (
-        f"Expected none of {expected_absent} to exist in {namespace}/{pod_name}, "
-        f"got {file_count} present"
+        f"Expected none of {expected_absent} to exist in {namespace}/{pod_name}, " f"got {file_count} present"
     )
 
 
