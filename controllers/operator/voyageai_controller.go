@@ -309,10 +309,10 @@ func buildEnvVars(spec *vaiv1.VoyageAISpec, tlsEnabled bool) []corev1.EnvVar {
 		{Name: "SERVER__READINESS_PATH", Value: voyageAIReadinessPath},
 		{Name: "SERVER__LIVENESS_PATH", Value: voyageAILivenessPath},
 		{Name: "SERVER__OPENAPI_PATH", Value: "/openapi.json"},
-		{Name: "SERVER__EMBEDDINGS_PATH", Value: "/embeddings"},
-		{Name: "SERVER__CONTEXTUALIZED_EMBEDDINGS_PATH", Value: "/contextualizedembeddings"},
-		{Name: "SERVER__MULTIMODAL_EMBEDDINGS_PATH", Value: "/multimodalembeddings"},
-		{Name: "SERVER__RERANK_PATH", Value: "/rerank"},
+		{Name: "SERVER__EMBEDDINGS_PATH", Value: "/v1/embeddings"},
+		{Name: "SERVER__CONTEXTUALIZED_EMBEDDINGS_PATH", Value: "/v1/contextualizedembeddings"},
+		{Name: "SERVER__MULTIMODAL_EMBEDDINGS_PATH", Value: "/v1/multimodalembeddings"},
+		{Name: "SERVER__RERANK_PATH", Value: "/v1/rerank"},
 		{Name: "SERVER__TLS__ENABLED", Value: strconv.FormatBool(tlsEnabled)},
 	}
 

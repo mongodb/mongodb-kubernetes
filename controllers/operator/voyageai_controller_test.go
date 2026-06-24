@@ -418,10 +418,10 @@ func TestBuildEnvVars_Defaults(t *testing.T) {
 	assert.Equal(t, "/health/readiness", envMap["SERVER__READINESS_PATH"])
 	assert.Equal(t, "/health/liveness", envMap["SERVER__LIVENESS_PATH"])
 	assert.Equal(t, "/openapi.json", envMap["SERVER__OPENAPI_PATH"])
-	assert.Equal(t, "/embeddings", envMap["SERVER__EMBEDDINGS_PATH"])
-	assert.Equal(t, "/contextualizedembeddings", envMap["SERVER__CONTEXTUALIZED_EMBEDDINGS_PATH"])
-	assert.Equal(t, "/multimodalembeddings", envMap["SERVER__MULTIMODAL_EMBEDDINGS_PATH"])
-	assert.Equal(t, "/rerank", envMap["SERVER__RERANK_PATH"])
+	assert.Equal(t, "/v1/embeddings", envMap["SERVER__EMBEDDINGS_PATH"])
+	assert.Equal(t, "/v1/contextualizedembeddings", envMap["SERVER__CONTEXTUALIZED_EMBEDDINGS_PATH"])
+	assert.Equal(t, "/v1/multimodalembeddings", envMap["SERVER__MULTIMODAL_EMBEDDINGS_PATH"])
+	assert.Equal(t, "/v1/rerank", envMap["SERVER__RERANK_PATH"])
 
 	// TLS disabled
 	assert.Equal(t, "false", envMap["SERVER__TLS__ENABLED"])
