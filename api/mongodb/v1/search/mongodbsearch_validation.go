@@ -80,7 +80,6 @@ func commonValidators() []func(*MongoDBSearch) v1.ValidationResult {
 	return []func(*MongoDBSearch) v1.ValidationResult{
 		validateClustersNonEmpty,
 		validateClustersUniqueClusterName,
-		validateClustersSyncSourceSelector,
 		validateJVMFlags,
 		validateClustersEnvoyResourceNames,
 		validateX509AuthConfig,
@@ -106,7 +105,6 @@ func multiClusterValidators() []func(*MongoDBSearch) v1.ValidationResult {
 		validateClustersClusterIndexRequired,
 		validateMCRequiresExternalSource,
 		validateMCRequiresManagedLB,
-		validateMCMatchTagsNonEmpty,
 		validateMCExternalHostnames,
 	}
 }
@@ -523,24 +521,6 @@ func validateClustersUniqueClusterName(s *MongoDBSearch) v1.ValidationResult {
 	return v1.ValidationSuccess()
 }
 
-// validateClustersSyncSourceSelector enforces the at-most-one matchTags/hosts rule
-// for every entry in spec.clusters.
-func validateClustersSyncSourceSelector(s *MongoDBSearch) v1.ValidationResult {
-	for i, c := range s.Spec.Clusters {
-		sel := c.SyncSourceSelector
-		if sel == nil {
-			continue
-		}
-		if len(sel.MatchTags) > 0 && len(sel.Hosts) > 0 {
-			return v1.ValidationError(
-				"spec.clusters[%d].syncSourceSelector: matchTags and hosts are mutually exclusive",
-				i,
-			)
-		}
-	}
-	return v1.ValidationSuccess()
-}
-
 // validateClustersEnvoyResourceNames enforces DNS-1123 length and label/subdomain
 // rules on the per-cluster Envoy Deployment + ConfigMap names that the
 // Envoy reconciler will create. Without this admission check, an over-long
@@ -709,27 +689,6 @@ func validateMCRequiresManagedLB(s *MongoDBSearch) v1.ValidationResult {
 		if c.LoadBalancer.Unmanaged != nil {
 			return v1.ValidationError(
 				"multi-cluster MongoDBSearch requires a managed load balancer at the moment; spec.clusters[%d].loadBalancer.unmanaged is not supported for multi-cluster",
-				i,
-			)
-		}
-	}
-	return v1.ValidationSuccess()
-}
-
-// validateMCMatchTagsNonEmpty rejects an explicitly-set-but-empty
-// syncSourceSelector.matchTags in spec.clusters[] for multi-cluster specs.
-// An empty map is meaningless: the operator cannot peek at the external
-// replSetConfig to autodetect tags. Nil (omitted) is fine — inherits.
-// validateClustersSyncSourceSelector covers the matchTags-vs-hosts mutual
-// exclusion; this rule covers the non-nil-but-empty case.
-func validateMCMatchTagsNonEmpty(s *MongoDBSearch) v1.ValidationResult {
-	for i, c := range s.Spec.Clusters {
-		if c.SyncSourceSelector == nil {
-			continue
-		}
-		if c.SyncSourceSelector.MatchTags != nil && len(c.SyncSourceSelector.MatchTags) == 0 {
-			return v1.ValidationError(
-				"spec.clusters[%d].syncSourceSelector.matchTags cannot be empty when set; remove the field to inherit, or specify at least one tag — operator cannot autodetect tags from external mongod replSetConfig",
 				i,
 			)
 		}

@@ -6,6 +6,7 @@ import (
 	"encoding/base32"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net"
 	"net/url"
 	"slices"
@@ -242,11 +243,6 @@ func (r *MongoDBSearchReconcileHelper) buildReplicaSetPlan(rsSource SearchSource
 	}
 
 	work := r.buildRSWorkList()
-	mongotConfigFn := mongot.Apply(
-		baseMongotConfig(r.mdbSearch, hostSeeds),
-		wireprotoMongotMod(r.mdbSearch),
-		featureFlagsMongotMod(r.mdbSearch))
-
 	units := make([]reconcileUnit, 0, len(work))
 	for _, w := range work {
 		sizing, err := r.mdbSearch.ResolveSizingForClusterShard(w.ClusterName, "")
@@ -254,6 +250,11 @@ func (r *MongoDBSearchReconcileHelper) buildReplicaSetPlan(rsSource SearchSource
 			return reconcilePlan{}, err
 		}
 		stsName, headlessSvc, proxySvc, configMapName := r.rsResourceNames(w)
+		mongotConfigFn := mongot.Apply(
+			baseMongotConfig(r.mdbSearch, hostSeeds),
+			wireprotoMongotMod(r.mdbSearch),
+			featureFlagsMongotMod(r.mdbSearch),
+			replicationReaderTagSetsMod(w.SyncSourceSelector))
 		units = append(units, reconcileUnit{
 			stsName:            stsName,
 			headlessSvc:        headlessSvc,
@@ -277,10 +278,12 @@ func (r *MongoDBSearchReconcileHelper) buildReplicaSetPlan(rsSource SearchSource
 	}, nil
 }
 
-// rsWorkItem is the (clusterName, clusterIndex) pair the RS plan iterates over.
+// rsWorkItem is the (clusterName, clusterIndex) pair the RS plan iterates over,
+// plus the cluster's syncSourceSelector for per-cluster mongot tag selection.
 type rsWorkItem struct {
-	ClusterName  string
-	ClusterIndex int
+	ClusterName        string
+	ClusterIndex       int
+	SyncSourceSelector *searchv1.SyncSourceSelector
 }
 
 // buildRSWorkList returns one item per spec.clusters[i] with clusterIndex
@@ -291,7 +294,11 @@ func (r *MongoDBSearchReconcileHelper) buildRSWorkList() []rsWorkItem {
 	clusters := r.mdbSearch.Spec.Clusters
 	work := make([]rsWorkItem, 0, len(clusters))
 	for _, c := range clusters {
-		work = append(work, rsWorkItem{ClusterName: c.Name, ClusterIndex: r.state.ClusterMapping[c.Name]})
+		work = append(work, rsWorkItem{
+			ClusterName:        c.Name,
+			ClusterIndex:       r.state.ClusterMapping[c.Name],
+			SyncSourceSelector: c.SyncSourceSelector,
+		})
 	}
 	return work
 }
@@ -299,10 +306,11 @@ func (r *MongoDBSearchReconcileHelper) buildRSWorkList() []rsWorkItem {
 // shardedWorkItem is the (clusterName, clusterIndex, shardName, shardIndex) tuple the sharded plan iterates over.
 // Single-cluster uses ClusterName "" and ClusterIndex 0 so naming matches the pre-MC layout.
 type shardedWorkItem struct {
-	ClusterName  string
-	ClusterIndex int
-	ShardName    string
-	ShardIndex   int
+	ClusterName        string
+	ClusterIndex       int
+	ShardName          string
+	ShardIndex         int
+	SyncSourceSelector *searchv1.SyncSourceSelector
 }
 
 // buildShardedWorkList returns one item per (cluster, shard) combination.
@@ -314,10 +322,11 @@ func (r *MongoDBSearchReconcileHelper) buildShardedWorkList(shardNames []string)
 	for _, cl := range clusterItems {
 		for shardIdx, shardName := range shardNames {
 			work = append(work, shardedWorkItem{
-				ClusterName:  cl.ClusterName,
-				ClusterIndex: cl.ClusterIndex,
-				ShardName:    shardName,
-				ShardIndex:   shardIdx,
+				ClusterName:        cl.ClusterName,
+				ClusterIndex:       cl.ClusterIndex,
+				ShardName:          shardName,
+				ShardIndex:         shardIdx,
+				SyncSourceSelector: cl.SyncSourceSelector,
 			})
 		}
 	}
@@ -374,7 +383,8 @@ func (r *MongoDBSearchReconcileHelper) buildShardedPlan(shardedSource SearchSour
 		mongotConfigFn := mongot.Apply(baseMongotConfig(
 			r.mdbSearch, hostSeeds),
 			routerMongotMod(r.mdbSearch, shardedSource),
-			featureFlagsMongotMod(r.mdbSearch))
+			featureFlagsMongotMod(r.mdbSearch),
+			replicationReaderTagSetsMod(w.SyncSourceSelector))
 		units = append(units, reconcileUnit{
 			stsName:             stsName,
 			headlessSvc:         r.mdbSearch.MongotServiceForClusterShard(w.ClusterIndex, w.ShardName),
@@ -1893,6 +1903,31 @@ func retrySigFromFeatureFlags(ff *searchv1.FeatureFlags) *bool {
 		return nil
 	}
 	return ff.EnableOverloadRetrySignal
+}
+
+// replicationReaderTagSetsMod maps a cluster's syncSourceSelector.matchTagSets to
+// syncSource.replicationReader.tagSets so mongot reads from tag-matched sync-source
+// members. Each map becomes one tag set (AND across keys), key-sorted for a stable
+// config hash. Without matchTagSets it leaves the base config's match-any default
+// (no tagSets) untouched. secondaryPreferred is required: mongot rejects tagSets
+// when readPreference is primary.
+func replicationReaderTagSetsMod(selector *searchv1.SyncSourceSelector) mongot.Modification {
+	return func(config *mongot.Config) {
+		if selector == nil || len(selector.MatchTagSets) == 0 {
+			return
+		}
+		tagSets := make([][]mongot.ConfigTag, 0, len(selector.MatchTagSets))
+		for _, tags := range selector.MatchTagSets {
+			tagSet := make([]mongot.ConfigTag, 0, len(tags))
+			for _, name := range slices.Sorted(maps.Keys(tags)) {
+				tagSet = append(tagSet, mongot.ConfigTag{Name: name, Value: tags[name]})
+			}
+			tagSets = append(tagSets, tagSet)
+		}
+		// baseMongotConfig always sets ReplicationReader (secondaryPreferred) first in the
+		// Apply chain; this mod only populates its tagSets.
+		config.SyncSource.ReplicationReader.TagSets = tagSets
+	}
 }
 
 func GetMongodConfigParameters(search *searchv1.MongoDBSearch, clusterDomain string) map[string]any {
