@@ -99,6 +99,13 @@ spec:
                     Each field, when set, applies to this cluster; when unset, the operator's
                     per-field default applies.
                   properties:
+                    advancedMongotConfigs:
+                      description: |-
+                        AdvancedMongotConfigs is an opaque block of mongot settings rendered verbatim
+                        under the advancedConfigs key of this cluster's mongot config file.
+                        The operator neither reads nor modifies it; operator-generated settings are unaffected.
+                      type: object
+                      x-kubernetes-preserve-unknown-fields: true
                     clusterIndex:
                       description: |-
                         ClusterIndex is the stable integer in per-cluster resource names. Required on every entry
