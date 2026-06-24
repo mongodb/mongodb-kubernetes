@@ -140,9 +140,6 @@ func getOperatorGeneratedSecret(secretNamespacedName types.NamespacedName) types
 	return operatorGeneratedSecret
 }
 
-// VerifyTLSSecretForStatefulSet verifies a `Secret`'s `StringData` is a valid
-// certificate, considering the amount of members for a resource named on
-// `opts`.
 // ReadTLSKeyFilePassword reads the optional tls.keyFilePassword entry from a TLS cert secret.
 // It returns the password to supply to net.tls.certificateKeyFilePassword for a password-encrypted
 // PEM key, or "" when the secret or the key is absent (i.e. the key is not encrypted) — only a real
@@ -170,6 +167,9 @@ func ReadTLSKeyFilePassword(ctx context.Context, secretClient secrets.SecretClie
 	return secretData[TLSKeyFilePasswordSecretKey], nil
 }
 
+// VerifyTLSSecretForStatefulSet verifies a `Secret`'s `StringData` is a valid
+// certificate, considering the amount of members for a resource named on
+// `opts`.
 func VerifyTLSSecretForStatefulSet(secretData map[string][]byte, opts Options) (string, error) {
 	crt, key := secretData["tls.crt"], secretData["tls.key"]
 
