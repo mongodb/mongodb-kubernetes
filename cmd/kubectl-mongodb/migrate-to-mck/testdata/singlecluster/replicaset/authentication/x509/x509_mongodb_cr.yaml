@@ -1,0 +1,49 @@
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  annotations:
+    mongodb.com/migrate-tool-version: latest
+    mongodb.com/migration-dry-run: "true"
+  name: x509-rs
+  namespace: mongodb
+spec:
+  agent:
+    maxLogFileDurationHours: 0
+    mongod:
+      systemLog:
+        destination: file
+        logAppend: false
+        path: /var/log/mongodb/mongod.log
+  credentials: my-credentials
+  externalMembers:
+  - hostname: vm-0.example.com:27017
+    processName: x509-rs-0
+    replicaSetName: x509-rs
+    type: mongod
+  - hostname: vm-1.example.com:27017
+    processName: x509-rs-1
+    replicaSetName: x509-rs
+    type: mongod
+  - hostname: vm-2.example.com:27017
+    processName: x509-rs-2
+    replicaSetName: x509-rs
+    type: mongod
+  featureCompatibilityVersion: "8.0"
+  opsManager:
+    configMapRef:
+      name: my-om-config
+  security:
+    authentication:
+      agents:
+        mode: SCRAM
+      enabled: true
+      ignoreUnknownUsers: true
+      internalCluster: X509
+      modes:
+      - SCRAM
+      - X509
+    certsSecretPrefix: mdb
+    tls:
+      ca: x509-rs-ca
+  type: ReplicaSet
+  version: 8.0.4-ent

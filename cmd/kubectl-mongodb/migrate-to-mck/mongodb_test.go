@@ -32,7 +32,6 @@ func TestBuildMongodbOptions_FlagTranslation(t *testing.T) {
 	assert.Equal(t, "my-rs", opts.ResourceNameOverride)
 }
 
-
 func TestCollectPrometheusCreds_NoPrometheus(t *testing.T) {
 	ac := om.NewAutomationConfig(om.Deployment{
 		"processes":   []any{},

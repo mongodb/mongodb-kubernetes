@@ -113,21 +113,24 @@ func runGenerateMongodb(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	mongodbCR, _, err := GenerateMongoDBCR(ac, opts)
+	objects, err := generateMongodbObjects(ac, opts)
 	if err != nil {
 		return err
 	}
-
-	extra := generateExtraResources(ac, opts)
-	objects := make([]client.Object, 0, 1+len(extra))
-	objects = append(objects, mongodbCR)
-	objects = append(objects, extra...)
-
-	resources, err := marshalMultiDoc(objects)
+	resources, err := renderObjects(objects)
 	if err != nil {
 		return err
 	}
 	return writeOutput(resources, mFlags.outputFile)
+}
+
+func generateMongodbObjects(ac *om.AutomationConfig, opts GenerateOptions) ([]client.Object, error) {
+	mongodbCR, _, err := GenerateMongoDBCR(ac, opts)
+	if err != nil {
+		return nil, err
+	}
+	extra := generateExtraResources(ac, opts)
+	return append([]client.Object{mongodbCR}, extra...), nil
 }
 
 func buildMongodbOptions(ctx context.Context, kubeClient kubernetesClient.Client, ac *om.AutomationConfig, projectConfigs *ProjectConfigs, sourceProcess *om.Process, stdin io.Reader, flags mongodbFlags) (GenerateOptions, error) {
