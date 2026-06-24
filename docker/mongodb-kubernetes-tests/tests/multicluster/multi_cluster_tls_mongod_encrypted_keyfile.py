@@ -2,8 +2,7 @@
 
 Proves the operator supplies net.tls.certificateKeyFilePassword for a MongoDBMulti resource so that
 the mongod processes spread across member clusters can decrypt a password-encrypted PEM key at
-startup. This exercises the multi-cluster RS wiring (mongodbmultireplicaset_controller.go), which is a
-separate code path from the single-cluster ReplicaSet test.
+startup.
 """
 
 from typing import List
