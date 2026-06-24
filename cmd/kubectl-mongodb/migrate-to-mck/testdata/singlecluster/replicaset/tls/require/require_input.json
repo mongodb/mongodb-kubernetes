@@ -1,0 +1,108 @@
+{
+  "auth": {
+    "usersWanted": [
+      {
+        "user": "mms-automation-agent",
+        "db": "admin",
+        "roles": [{"role": "root", "db": "admin"}],
+        "mechanisms": ["SCRAM-SHA-256"],
+        "scramSha256Creds": {"iterationCount": 15000, "salt": "abc", "serverKey": "skey", "storedKey": "stkey"},
+        "authenticationRestrictions": []
+      }
+    ],
+    "usersDeleted": [],
+    "disabled": false,
+    "authoritativeSet": false,
+    "deploymentAuthMechanisms": ["SCRAM-SHA-256"],
+    "autoAuthMechanisms": ["SCRAM-SHA-256"],
+    "autoAuthMechanism": "SCRAM-SHA-256",
+    "autoUser": "mms-automation-agent",
+    "autoAuthRestrictions": []
+  },
+  "options": {
+    "downloadBase": "/var/lib/mongodb-mms-automation"
+  },
+  "processes": [
+    {
+      "args2_6": {
+        "net": {
+          "port": 27017,
+          "tls": {
+            "mode": "requireSSL",
+            "PEMKeyFile": "/mongodb-automation/server.pem"
+          }
+        },
+        "replication": {"replSetName": "tls-rs"},
+        "security": {"clusterAuthMode": "x509"},
+        "storage": {"dbPath": "/data"},
+        "systemLog": {"destination": "file", "path": "/var/log/mongodb/mongod.log"}
+      },
+      "authSchemaVersion": 5,
+      "featureCompatibilityVersion": "7.0",
+      "hostname": "vm-0.example.com",
+      "name": "tls-rs-0",
+      "processType": "mongod",
+      "version": "7.0.12-ent"
+    },
+    {
+      "args2_6": {
+        "net": {
+          "port": 27017,
+          "tls": {
+            "mode": "requireSSL",
+            "PEMKeyFile": "/mongodb-automation/server.pem"
+          }
+        },
+        "replication": {"replSetName": "tls-rs"},
+        "security": {"clusterAuthMode": "x509"},
+        "storage": {"dbPath": "/data"},
+        "systemLog": {"destination": "file", "path": "/var/log/mongodb/mongod.log"}
+      },
+      "authSchemaVersion": 5,
+      "featureCompatibilityVersion": "7.0",
+      "hostname": "vm-1.example.com",
+      "name": "tls-rs-1",
+      "processType": "mongod",
+      "version": "7.0.12-ent"
+    },
+    {
+      "args2_6": {
+        "net": {
+          "port": 27017,
+          "tls": {
+            "mode": "requireSSL",
+            "PEMKeyFile": "/mongodb-automation/server.pem"
+          }
+        },
+        "replication": {"replSetName": "tls-rs"},
+        "security": {"clusterAuthMode": "x509"},
+        "storage": {"dbPath": "/data"},
+        "systemLog": {"destination": "file", "path": "/var/log/mongodb/mongod.log"}
+      },
+      "authSchemaVersion": 5,
+      "featureCompatibilityVersion": "7.0",
+      "hostname": "vm-2.example.com",
+      "name": "tls-rs-2",
+      "processType": "mongod",
+      "version": "7.0.12-ent"
+    }
+  ],
+  "replicaSets": [
+    {
+      "_id": "tls-rs",
+      "members": [
+        {"_id": 0, "host": "tls-rs-0", "priority": 2, "votes": 1, "tags": {}},
+        {"_id": 1, "host": "tls-rs-1", "priority": 1, "votes": 1, "tags": {}},
+        {"_id": 2, "host": "tls-rs-2", "priority": 1, "votes": 1, "tags": {}}
+      ],
+      "protocolVersion": "1"
+    }
+  ],
+  "roles": [],
+  "sharding": [],
+  "tls": {
+    "CAFilePath": "/mongodb-automation/tls/ca/ca-pem",
+    "clientCertificateMode": "OPTIONAL"
+  },
+  "version": 1
+}
