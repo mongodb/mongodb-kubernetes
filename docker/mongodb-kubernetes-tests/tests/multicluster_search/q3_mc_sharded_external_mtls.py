@@ -9,6 +9,7 @@ from typing import List
 
 import kubernetes
 import pymongo.errors
+import yaml
 from kubernetes.client import CoreV1Api
 from kubetester import create_or_update_configmap, create_or_update_secret, read_secret, try_load
 from kubetester.certs import create_tls_certs
@@ -24,6 +25,7 @@ from pytest import fixture, mark
 from tests import test_logger
 from tests.common.multicluster.multicluster_utils import assert_deployment_ready_in_cluster
 from tests.common.search import search_resource_names
+from tests.common.search.connectivity import CLUSTER_LOCATION_TAG_KEY
 from tests.common.search.movies_search_helper import SampleMoviesSearchHelper
 from tests.common.search.search_tester import SearchTester
 from tests.common.search.sharded_search_helper import (
@@ -105,7 +107,15 @@ def mdb(
         namespace=namespace,
     )
 
-    resource["spec"]["shard"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, MEMBERS_PER_CLUSTER)
+    # Tag each shard member nodeLocation=<clusterName> so every cluster's mongot matchTagSets
+    # selects its cluster-local shard members (tagSets constrain reads per shard via the router).
+    shard_member_configs = [
+        [{"tags": {CLUSTER_LOCATION_TAG_KEY: name}} for _ in range(count or 0)]
+        for name, count in zip(member_cluster_names, MEMBERS_PER_CLUSTER)
+    ]
+    resource["spec"]["shard"]["clusterSpecList"] = cluster_spec_list(
+        member_cluster_names, MEMBERS_PER_CLUSTER, member_configs=shard_member_configs
+    )
     resource["spec"]["configSrv"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, CONFIG_SRV_PER_CLUSTER)
     resource["spec"]["mongos"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, MONGOS_PER_CLUSTER)
 
@@ -239,6 +249,7 @@ def mdbs(
                         ),
                     },
                 },
+                "syncSourceSelector": {"matchTagSets": [{CLUSTER_LOCATION_TAG_KEY: mcc.cluster_name}]},
             }
         )
     resource["spec"]["clusters"] = clusters
@@ -469,7 +480,8 @@ def test_per_cluster_mongot_resources_exist(
     member_cluster_clients: List[MultiClusterClient],
 ):
     """Every (cluster, shard) pair must have a mongot StatefulSet, headless Service, and ConfigMap
-    on the owning member cluster's API server.
+    on the owning member cluster's API server, and each shard's mongot config must carry that
+    cluster's matchTagSets as syncSource.replicationReader.tagSets.
     """
     for i, mcc in enumerate(member_cluster_clients):
         for shard_idx in range(SHARD_COUNT):
@@ -482,8 +494,26 @@ def test_per_cluster_mongot_resources_exist(
             mcc.read_namespaced_stateful_set(sts_name, namespace)
             mcc.read_namespaced_service(svc_name, namespace)
             mcc.read_namespaced_service(proxy_svc_name, namespace)
-            mcc.read_namespaced_config_map(cm_name, namespace)
-            logger.info(f"[{mcc.cluster_name}] shard {shard_name}: STS/svc/proxy-svc/cm verified (cluster_index={i})")
+            cm = mcc.read_namespaced_config_map(cm_name, namespace)
+
+            # matchTagSets -> replicationReader.tagSets. Sharded sync source is the router, but the
+            # tag set renders the same way as RS; config-render check is image-independent.
+            config_yaml = cm.data.get("config.yml") or cm.data.get("mongot.yaml")
+            assert config_yaml, f"mongot CM {cm_name} missing config payload; data keys={list(cm.data or {})}"
+            rr = yaml.safe_load(config_yaml).get("syncSource", {}).get("replicationReader")
+            expected_tag_sets = [[{"name": CLUSTER_LOCATION_TAG_KEY, "value": mcc.cluster_name}]]
+            assert rr is not None, f"mongot CM {cm_name} in {mcc.cluster_name}: syncSource.replicationReader absent"
+            assert rr.get("readPreference") != "primary", (
+                f"mongot CM {cm_name} in {mcc.cluster_name}: readPreference is 'primary' "
+                "(tagSets require a non-primary read preference)"
+            )
+            assert rr.get("tagSets") == expected_tag_sets, (
+                f"mongot CM {cm_name} in {mcc.cluster_name}: replicationReader.tagSets "
+                f"{rr.get('tagSets')!r} != expected {expected_tag_sets!r}"
+            )
+            logger.info(
+                f"[{mcc.cluster_name}] shard {shard_name}: STS/svc/proxy-svc/cm + tagSets verified (cluster_index={i})"
+            )
 
 
 @mark.e2e_search_q3_mc_sharded_external_mtls
