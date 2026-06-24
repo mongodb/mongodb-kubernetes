@@ -619,14 +619,27 @@ tasks:
       - func: setup_prepare_openshift_bundles
       - func: prepare_openshift_bundles_for_e2e
 
-  # Dummy placeholder: will call `mckctl release promote` once the tool is wired into CI.
-  # Runs after all staging tests pass on a master merge to confirm the build is promotable.
+  # Marks the tested operator candidate as promotable by applying promoted-{commit}-{version}
+  # and promoted-latest tags. Runs only after all staging tests pass on a master merge.
   - name: mckctl_release_promote
     commands:
+      - func: clone
       - command: shell.exec
+        type: setup
         params:
+          working_dir: src/github.com/mongodb/mongodb-kubernetes
           script: |
-            echo "would run: mckctl release promote --version ${OPERATOR_VERSION}"
+            go build -o bin/mckctl ./cmd/mckctl
+      - func: quay_login
+      - command: shell.exec
+        type: test
+        params:
+          working_dir: src/github.com/mongodb/mongodb-kubernetes
+          script: |
+            bin/mckctl release promote \
+              --image "quay.io/mongodb/staging/mongodb-kubernetes:${OPERATOR_VERSION}" \
+              --commit "${revision}" \
+              --version "${OPERATOR_VERSION}"
 
   # Notify Slack about build failures
   # On patches: stdout only. On mainline: stdout + Slack
