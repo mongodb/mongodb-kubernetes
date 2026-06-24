@@ -23,26 +23,18 @@ func generateReplicaSet(ac *om.AutomationConfig, opts GenerateOptions) (client.O
 	rsName := rs.Name()
 	externalMembers, version, fcv := om.ExtractMemberInfo(rs.Members(), ac.Deployment.ProcessMap())
 
-	resourceName, err := resolveReplicaSetResourceName(rsName, opts.ResourceNameOverride)
-	if err != nil {
-		return nil, "", err
-	}
-
-	return generateReplicaSetSingleCluster(ac, opts, rsName, resourceName, version, fcv, externalMembers)
-}
-
-func resolveReplicaSetResourceName(replicaSetName, override string) (string, error) {
-	resourceName := override
+	resourceName := opts.ResourceNameOverride
 	if resourceName == "" {
-		resourceName = util.NormalizeName(replicaSetName)
+		resourceName = util.NormalizeName(rsName)
 		if resourceName == "" {
-			return "", fmt.Errorf("replica set name %q cannot be normalized to a valid Kubernetes resource name. Use --resource-name-override to provide one", replicaSetName)
+			return nil, "", fmt.Errorf("replica set name %q cannot be normalized to a valid Kubernetes resource name. Use --resource-name-override to provide one", rsName)
 		}
 	}
 	if errs := k8svalidation.IsDNS1123Subdomain(resourceName); len(errs) > 0 {
-		return "", fmt.Errorf("resource name %q is not a valid Kubernetes resource name: %s", resourceName, errs[0])
+		return nil, "", fmt.Errorf("resource name %q is not a valid Kubernetes resource name: %s", resourceName, errs[0])
 	}
-	return resourceName, nil
+
+	return generateReplicaSetSingleCluster(ac, opts, rsName, resourceName, version, fcv, externalMembers)
 }
 
 func generateReplicaSetSingleCluster(ac *om.AutomationConfig, opts GenerateOptions, rsName, resourceName, version, fcv string, externalMembers []mdbv1.ExternalMember) (client.Object, string, error) {
