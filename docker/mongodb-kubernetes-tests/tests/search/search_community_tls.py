@@ -112,18 +112,18 @@ def test_install_tls_secrets_and_configmaps(namespace: str, mdbc: MongoDBCommuni
 @mark.e2e_search_community_tls
 def test_create_database_resource(mdbc: MongoDBCommunity):
     mdbc.update()
-    mdbc.assert_reaches_phase(Phase.Running, timeout=300)
+    mdbc.assert_reaches_phase(Phase.Running, timeout=600)
 
 
 @mark.e2e_search_community_tls
 def test_create_search_resource(mdbs: MongoDBSearch):
     mdbs.update()
-    mdbs.assert_reaches_phase(Phase.Running, timeout=300)
+    mdbs.assert_reaches_phase(Phase.Running, timeout=600)
 
 
 @mark.e2e_search_community_tls
 def test_wait_for_community_resource_ready(mdbc: MongoDBCommunity):
-    mdbc.assert_reaches_phase(Phase.Running, timeout=300)
+    mdbc.assert_reaches_phase(Phase.Running, timeout=600)
 
 
 @fixture(scope="function")

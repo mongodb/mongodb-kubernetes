@@ -4,6 +4,7 @@ package replica_set_operator_upgrade
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"testing"
@@ -11,6 +12,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"k8s.io/apimachinery/pkg/types"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	e2eutil "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e"
@@ -34,9 +38,20 @@ func TestReplicaSetOperatorUpgradeMCOToMCK(t *testing.T) {
 	testCtx := setup.SetupWithTestConfigNoOperator(ctx, t, testConfig, false)
 	defer testCtx.Teardown()
 
-	// Step 1: Install the latest community operator using public MongoDB Helm chart
+	// Step 1: Downgrade PSS enforce→warn so the old MCO (pre-PSS compliance) can start,
+	// then install the latest community operator using the public MongoDB Helm chart.
+	patchBytes, _ := json.Marshal(map[string]interface{}{
+		"metadata": map[string]interface{}{
+			"labels": map[string]interface{}{
+				"pod-security.kubernetes.io/enforce": nil,
+				"pod-security.kubernetes.io/warn":    "restricted",
+			},
+		},
+	})
+	_, err := e2eutil.TestClient.CoreV1Client.Namespaces().Patch(ctx, testConfig.Namespace, types.MergePatchType, patchBytes, metav1.PatchOptions{})
+	require.NoError(t, err)
 
-	err := setup.InstallCommunityOperatorViaHelm(ctx, t, testConfig, testConfig.Namespace)
+	err = setup.InstallCommunityOperatorViaHelm(ctx, t, testConfig, testConfig.Namespace)
 	require.NoError(t, err)
 
 	mdb, user := e2eutil.NewTestMongoDB(testCtx, resourceName, testConfig.Namespace)

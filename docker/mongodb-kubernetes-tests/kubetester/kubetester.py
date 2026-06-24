@@ -809,7 +809,6 @@ class KubernetesTester(object):
     @classmethod
     def wait_for_condition_stateful_set(cls, namespace, name, attribute, expected_value):
         appsv1 = KubernetesTester.clients("appsv1")
-        namespace = KubernetesTester.get_namespace()
         ready_to_go = False
         while not ready_to_go:
             try:

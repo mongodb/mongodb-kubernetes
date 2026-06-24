@@ -22,6 +22,11 @@ spec:
             image: busybox
             command: ["sleep"]
             args: [ "7200" ]
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop:
+                - ALL
         terminationGracePeriodSeconds: 10
         affinity:
           podAntiAffinity:

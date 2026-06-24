@@ -1001,6 +1001,7 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 	// We're also updating the shardCount here - it's the only place we're doing that.
 	return r.updateStatus(ctx, sc, workflowStatus, log,
 		mdbstatus.NewBaseUrlOption(deployment.Link(conn.BaseURL(), conn.GroupID())),
+		mdbstatus.NewProjectIdOption(conn.GroupID()),
 		mdbstatus.ShardedClusterSizeConfigOption{SizeConfig: sizeStatus},
 		mdbstatus.ShardedClusterSizeStatusInClustersOption{SizeConfigInClusters: sizeStatusInClusters},
 		mdbstatus.ShardedClusterMongodsPerShardCountOption{Members: r.sc.Spec.ShardCount},

@@ -4,6 +4,7 @@ metadata:
   name: nginx-conf
 data:
   nginx.conf: |
+    pid /tmp/nginx.pid;
     events {}
     http {
       server {
