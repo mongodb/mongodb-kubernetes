@@ -10,21 +10,20 @@ The `internal_*` snippets exist only to simulate that external cluster for CI pu
 
 ## Overview
 
-This scenario covers the case where the MongoDB source is external to the operator — for example, running on VMs, a separate Kubernetes cluster, or a self-hosted deployment. The operator deploys a **MongoDBSearch** resource with `spec.source.external.shardedCluster`, provisions one mongot StatefulSet per (cluster, shard), and manages a per-shard Envoy proxy on cluster 0.
+This scenario covers the case where the MongoDB source is external to the operator — for example, running on VMs, a separate Kubernetes cluster, or a self-hosted deployment. The operator deploys a **MongoDBSearch** resource with `spec.source.external.shardedCluster`, provisions one mongot StatefulSet per (cluster, shard), and manages a per-cluster Envoy proxy (with a per-shard route) in every member cluster.
 
 ### Traffic Flow
 
+`MongoDBMultiCluster` sources have no per-cluster `additionalMongodConfig`, and shard search routing is set per shard via `shardOverrides[].additionalMongodConfig`. So every shard's mongods — in **both** clusters — get the same `mongotHost`: cluster 0's per-shard Envoy proxy. mongos routers likewise point at cluster 0's cluster-level proxy. Each cluster's Envoy fronts only that cluster's own mongots.
+
 ```
-mongos  ──────────────────────────────→ Envoy (cluster 0, mongos routing)
-shard 0 mongod (cl 0) ─┐
-shard 0 mongod (cl 1) ─┴→ Envoy (cluster 0, shard 0) ─→ mongot shard 0 (cl 0 + cl 1)
-shard 1 mongod (cl 0) ─┐
-shard 1 mongod (cl 1) ─┴→ Envoy (cluster 0, shard 1) ─→ mongot shard 1 (cl 0 + cl 1)
-shard 2 mongod (cl 0) ─┐
-shard 2 mongod (cl 1) ─┴→ Envoy (cluster 0, shard 2) ─→ mongot shard 2 (cl 0 + cl 1)
+mongos (cl 0 + cl 1) ───────────→ Envoy cluster-level (cl 0) ─→ cl 0 mongots (all shards)
+shard 0 mongod (cl 0 + cl 1) ───→ Envoy shard 0 (cl 0) ───────→ mongot shard 0 (cl 0)
+shard 1 mongod (cl 0 + cl 1) ───→ Envoy shard 1 (cl 0) ───────→ mongot shard 1 (cl 0)
+shard 2 mongod (cl 0 + cl 1) ───→ Envoy shard 2 (cl 0) ───────→ mongot shard 2 (cl 0)
 ```
 
-All Envoy proxies live on cluster 0. Shard mongods from cluster 1 route search traffic cross-cluster over the mesh to cluster 0's per-shard Envoy.
+The operator still provisions a per-cluster Envoy and per-(cluster, shard) mongot StatefulSets in cluster 1, but no mongod or mongos `mongotHost` targets them today, so shard mongods in cluster 1 route search traffic cross-cluster over the mesh to cluster 0. This is the same per-cluster limitation as scenario 12 (replica set); the sharded difference is per-shard routing granularity, not per-cluster locality.
 
 ## Quick Start
 

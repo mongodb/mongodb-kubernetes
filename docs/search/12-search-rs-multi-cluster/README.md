@@ -15,17 +15,17 @@ This scenario covers the case where the MongoDB source is external to the operat
 ### Traffic Flow
 
 ```
-mongod (cluster 0)  ─┐
-mongod (cluster 0)  ─┤
-mongod (cluster 1)  ─┤─→ Envoy (cluster 0) ─→ mongot (cluster 0)
-mongod (cluster 1)  ─┘                     ─→ mongot (cluster 1)
+mongod (cl 0)  ─┐
+mongod (cl 0)  ─┤
+mongod (cl 1)  ─┼─→ Envoy (cl 0) ─→ mongot (cl 0)
+mongod (cl 1)  ─┘
 ```
 
 ### MongoDBMultiCluster search routing limitation
 
-`MongoDBMultiCluster` has no per-cluster `additionalMongodConfig` today, so every mongod member across all clusters gets the same `mongotHost` value — set to cluster 0's Envoy proxy Service. Mongot pods are still deployed in every member cluster, but search traffic from cluster 1's mongods crosses the mesh to cluster 0's Envoy rather than being served locally.
+`MongoDBMultiCluster` has no per-cluster `additionalMongodConfig` today, so every mongod member across all clusters gets the same `mongotHost` value — set to cluster 0's Envoy proxy Service. The operator still provisions a managed Envoy and a mongot in every member cluster (each Envoy fronts only its own cluster's mongot), but no member targets cluster 1's Envoy, so cluster 1's mongods route search traffic cross-cluster to cluster 0 rather than being served locally.
 
-This is an expected limitation for this topology. Scenario 13 (sharded multi-cluster) uses per-shard Envoy proxies and does not have this constraint.
+This is an expected limitation for this topology. Scenario 13 (sharded multi-cluster) adds per-shard Envoy proxies but has the same per-cluster limitation — all shard mongods route to cluster 0's proxies regardless of which cluster they run in.
 
 ## Quick Start
 
