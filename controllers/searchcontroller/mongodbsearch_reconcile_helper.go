@@ -43,6 +43,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/mongot"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/tls"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
 )
 
 const (
@@ -984,7 +985,11 @@ func (r *MongoDBSearchReconcileHelper) ensureMongotConfig(ctx context.Context, l
 	mongotConfig := mongot.Config{}
 	mongot.Apply(modifications...)(&mongotConfig)
 
-	configEntries, keysToRemove, err := buildMongotConfigMapEntries(mongotConfig, usePerPodConfig, stsName, replicas)
+	perCluster, err := r.mdbSearch.EffectiveClusterFor(clusterName)
+	if err != nil {
+		return "", err
+	}
+	configEntries, keysToRemove, err := buildMongotConfigMapEntries(mongotConfig, perCluster.AdvancedMongotConfigs.ToMap(), usePerPodConfig, stsName, replicas)
 	if err != nil {
 		return "", err
 	}
@@ -1033,16 +1038,16 @@ func (r *MongoDBSearchReconcileHelper) ensureMongotConfig(ctx context.Context, l
 //	{stsName}-0:         "leader"
 //	{stsName}-1:         "follower"
 //	{stsName}-N:         "follower"
-func buildMongotConfigMapEntries(config mongot.Config, usePerPodConfig bool, stsName string, replicas int) (map[string][]byte, []string, error) {
+func buildMongotConfigMapEntries(config mongot.Config, advancedConfigs map[string]interface{}, usePerPodConfig bool, stsName string, replicas int) (map[string][]byte, []string, error) {
 	if usePerPodConfig {
-		return buildPerPodConfigEntries(config, stsName, replicas)
+		return buildPerPodConfigEntries(config, advancedConfigs, stsName, replicas)
 	}
-	return buildSingleConfigEntry(config, stsName, replicas)
+	return buildSingleConfigEntry(config, advancedConfigs, stsName, replicas)
 }
 
 // buildPerPodConfigEntries creates leader (pod-0) and follower configs with pod-name role keys.
-func buildPerPodConfigEntries(config mongot.Config, stsName string, replicas int) (map[string][]byte, []string, error) {
-	leaderData, err := yaml.Marshal(config)
+func buildPerPodConfigEntries(config mongot.Config, advancedConfigs map[string]interface{}, stsName string, replicas int) (map[string][]byte, []string, error) {
+	leaderData, err := marshalMongotConfig(config, advancedConfigs)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1053,7 +1058,7 @@ func buildPerPodConfigEntries(config mongot.Config, stsName string, replicas int
 		embeddingCopy.IsAutoEmbeddingViewWriter = ptr.To(false)
 		followerConfig.Embedding = &embeddingCopy
 	}
-	followerData, err := yaml.Marshal(followerConfig)
+	followerData, err := marshalMongotConfig(followerConfig, advancedConfigs)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1076,8 +1081,24 @@ func buildPerPodConfigEntries(config mongot.Config, stsName string, replicas int
 	return entries, keysToRemove, nil
 }
 
-func buildSingleConfigEntry(config mongot.Config, stsName string, replicas int) (map[string][]byte, []string, error) {
-	data, err := yaml.Marshal(config)
+// marshalMongotConfig renders the mongot config YAML. The cluster's
+// advancedMongotConfigs is an opaque block placed verbatim under the
+// "advancedConfigs" key; operator-generated sections are never touched.
+func marshalMongotConfig(config mongot.Config, advancedConfigs map[string]interface{}) ([]byte, error) {
+	if len(advancedConfigs) == 0 {
+		return yaml.Marshal(config)
+	}
+
+	merged, err := maputil.StructToMap(config)
+	if err != nil {
+		return nil, err
+	}
+	merged["advancedConfigs"] = advancedConfigs
+	return yaml.Marshal(merged)
+}
+
+func buildSingleConfigEntry(config mongot.Config, advancedConfigs map[string]interface{}, stsName string, replicas int) (map[string][]byte, []string, error) {
+	data, err := marshalMongotConfig(config, advancedConfigs)
 	if err != nil {
 		return nil, nil, err
 	}

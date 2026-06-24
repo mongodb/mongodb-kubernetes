@@ -1,4 +1,5 @@
-from kubetester import create_or_update_secret, try_load
+import yaml
+from kubetester import create_or_update_secret, read_configmap, try_load
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb_community import MongoDBCommunity
 from kubetester.mongodb_search import MongoDBSearch
@@ -6,7 +7,7 @@ from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests import test_logger
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
-from tests.common.search import movies_search_helper
+from tests.common.search import movies_search_helper, search_resource_names
 from tests.common.search.movies_search_helper import SampleMoviesSearchHelper
 from tests.common.search.search_tester import SearchTester
 from tests.conftest import get_default_operator
@@ -37,6 +38,9 @@ def mdbc(namespace: str) -> MongoDBCommunity:
     return resource
 
 
+ADVANCED_MONGOT_CONFIGS = {"indexing": {"lucene": {"fieldLimit": 1500}}}
+
+
 @fixture(scope="function")
 def mdbs(namespace: str) -> MongoDBSearch:
     resource = MongoDBSearch.from_yaml(
@@ -45,6 +49,7 @@ def mdbs(namespace: str) -> MongoDBSearch:
     )
 
     try_load(resource)
+    resource["spec"]["clusters"][0]["advancedMongotConfigs"] = ADVANCED_MONGOT_CONFIGS
     return resource
 
 
@@ -75,6 +80,14 @@ def test_create_database_resource(mdbc: MongoDBCommunity):
 def test_create_search_resource(mdbs: MongoDBSearch):
     mdbs.update()
     mdbs.assert_reaches_phase(Phase.Running, timeout=600)
+
+
+@mark.e2e_search_community_basic
+def test_advanced_mongot_configs_rendered(namespace: str, mdbs: MongoDBSearch):
+    data = read_configmap(namespace, search_resource_names.mongot_configmap_name(mdbs.name))
+    config = yaml.safe_load(data["config.yml"])
+    assert config["advancedConfigs"] == ADVANCED_MONGOT_CONFIGS, "block must be rendered verbatim under its key"
+    assert config["storage"]["dataPath"], "operator-rendered settings must be unaffected"
 
 
 @mark.e2e_search_community_basic
