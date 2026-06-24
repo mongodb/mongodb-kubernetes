@@ -1,4 +1,5 @@
-from kubetester import try_load
+import yaml
+from kubetester import read_configmap, try_load
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_search import MongoDBSearch
@@ -36,6 +37,8 @@ USER_PASSWORD = "mdb-user-pass"
 MDBS_TLS_CERT_PREFIX = "certs"
 CA_CONFIGMAP_NAME = f"{MDB_RESOURCE_NAME}-ca"
 
+ADVANCED_MONGOT_CONFIGS = {"indexing": {"lucene": {"fieldLimit": 1500}}}
+
 
 @fixture(scope="module")
 def sharded_ca_configmap(issuer_ca_filepath: str, namespace: str) -> str:
@@ -66,6 +69,7 @@ def mdbs(namespace: str) -> MongoDBSearch:
     if try_load(resource):
         return resource
     resource["spec"]["source"]["mongodbResourceRef"]["name"] = MDB_RESOURCE_NAME
+    resource["spec"]["clusters"][0]["advancedMongotConfigs"] = ADVANCED_MONGOT_CONFIGS
     return resource
 
 
@@ -133,9 +137,18 @@ def test_create_search_tls_certificate(namespace: str, issuer: str):
 
 
 @mark.e2e_search_sharded_internal_mongodb_single_mongot
-def test_create_search_resource(mdbs: MongoDBSearch):
+def test_create_search_resource(namespace: str, mdbs: MongoDBSearch):
     mdbs.update()
     mdbs.assert_reaches_phase(Phase.Running, timeout=600)
+
+    # advancedMongotConfigs must render verbatim under advancedConfigs in every shard's
+    # config.yml, leaving operator-generated sections untouched.
+    for shard_idx in range(SHARD_COUNT):
+        shard_name = f"{MDB_RESOURCE_NAME}-{shard_idx}"
+        data = read_configmap(namespace, search_resource_names.shard_configmap_name(mdbs.name, shard_name))
+        config = yaml.safe_load(data["config.yml"])
+        assert config["advancedConfigs"] == ADVANCED_MONGOT_CONFIGS, f"{shard_name}: block must render verbatim"
+        assert config["storage"]["dataPath"], f"{shard_name}: operator-rendered settings must be unaffected"
 
 
 @mark.e2e_search_sharded_internal_mongodb_single_mongot
