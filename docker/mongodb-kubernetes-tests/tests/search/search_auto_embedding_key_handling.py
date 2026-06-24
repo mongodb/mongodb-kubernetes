@@ -133,7 +133,8 @@ def test_keys_not_leaked(mdbs: MongoDBSearch, namespace: str):
 
     sts_name = search_resource_names.mongot_statefulset_name(mdbs.name)
     core_v1 = k8s_client.CoreV1Api()
-    for ordinal in range(2):
+    replicas = k8s_client.AppsV1Api().read_namespaced_stateful_set(sts_name, namespace).spec.replicas or 1
+    for ordinal in range(replicas):
         pod_name = f"{sts_name}-{ordinal}"
         logs = KubernetesTester.read_pod_logs(namespace, pod_name, container=MONGOT_CONTAINER)
         assert idx not in logs and qry not in logs, f"embedding key leaked into {pod_name} mongot pod logs"
@@ -142,9 +143,9 @@ def test_keys_not_leaked(mdbs: MongoDBSearch, namespace: str):
         ann = pod.metadata.annotations or {}
         h = ann.get("autoEmbeddingDetailsHash")
         # hash is SHA-256 encoded as base32 no-padding → 52 chars in [A-Z2-7]
-        assert h and re.fullmatch(r"[A-Z2-7]{52}", h), (
-            f"{pod_name} autoEmbeddingDetailsHash must be a base32 SHA-256 hash, got: {h!r}"
-        )
+        assert h and re.fullmatch(
+            r"[A-Z2-7]{52}", h
+        ), f"{pod_name} autoEmbeddingDetailsHash must be a base32 SHA-256 hash, got: {h!r}"
         assert h != idx and h != qry, f"{pod_name} autoEmbeddingDetailsHash must not equal a raw key"
 
 
