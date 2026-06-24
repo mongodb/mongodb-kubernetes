@@ -213,40 +213,6 @@ func TestValidateX509AuthConfig(t *testing.T) {
 	}
 }
 
-func TestValidateClustersSyncSourceSelector(t *testing.T) {
-	tests := []struct {
-		name          string
-		selector      *SyncSourceSelector
-		errorContains string
-	}{
-		{name: "nil selector", selector: nil},
-		{name: "matchTags only", selector: &SyncSourceSelector{MatchTags: map[string]string{"region": "us-east"}}},
-		{name: "hosts only", selector: &SyncSourceSelector{Hosts: []string{"mongo-1:27017"}}},
-		{
-			name:          "both set rejected",
-			selector:      &SyncSourceSelector{MatchTags: map[string]string{"region": "us-east"}, Hosts: []string{"mongo-1:27017"}},
-			errorContains: "mutually exclusive",
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			s := &MongoDBSearch{
-				ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"},
-				Spec: MongoDBSearchSpec{
-					Clusters: []ClusterSpec{{Name: "us-east-k8s", SyncSourceSelector: tt.selector}},
-				},
-			}
-			res := validateClustersSyncSourceSelector(s)
-			if tt.errorContains != "" {
-				assert.Equal(t, v1.ErrorLevel, res.Level)
-				assert.Contains(t, res.Msg, tt.errorContains)
-			} else {
-				assert.Equal(t, v1.SuccessLevel, res.Level)
-			}
-		})
-	}
-}
-
 func TestValidateClustersUniqueClusterName(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -551,70 +517,6 @@ func TestValidateClustersClusterNameNonEmpty(t *testing.T) {
 			// Multi-cluster specs need an external source to pass
 			// validateMCRequiresExternalSource so the clusterName check is the
 			// rule under test, not the source check.
-			if len(tt.clusters) > 1 {
-				s.Spec.Source = &MongoDBSource{
-					ExternalMongoDBSource: &ExternalMongoDBSource{HostAndPorts: []string{"h:27017"}},
-				}
-				for i := range s.Spec.Clusters {
-					s.Spec.Clusters[i].LoadBalancer = managedLBWithHostname("c" + strconv.Itoa(i) + ".lb.example.com:443")
-				}
-			}
-			err := s.ValidateSpec()
-			if tt.errorContains != "" {
-				assert.Error(t, err)
-				assert.Contains(t, err.Error(), tt.errorContains)
-			} else {
-				assert.NoError(t, err)
-			}
-		})
-	}
-}
-
-func TestValidateMCMatchTagsNonEmpty(t *testing.T) {
-	tests := []struct {
-		name          string
-		clusters      []ClusterSpec
-		errorContains string
-	}{
-		{
-			name:     "single-cluster with empty matchTags allowed (legacy)",
-			clusters: []ClusterSpec{{SyncSourceSelector: &SyncSourceSelector{MatchTags: map[string]string{}}}},
-		},
-		{
-			name:     "MC nil syncSourceSelector",
-			clusters: []ClusterSpec{pinnedSpec("us-east-k8s", 0), pinnedSpec("eu-west-k8s", 1)},
-		},
-		{
-			name: "MC nil matchTags inherits",
-			clusters: []ClusterSpec{
-				{Name: "us-east-k8s", ClusterIndex: ptr.To(int32(0)), SyncSourceSelector: &SyncSourceSelector{Hosts: []string{"h:27017"}}},
-				{Name: "eu-west-k8s", ClusterIndex: ptr.To(int32(1)), SyncSourceSelector: &SyncSourceSelector{Hosts: []string{"h:27017"}}},
-			},
-		},
-		{
-			name: "MC populated matchTags",
-			clusters: []ClusterSpec{
-				{Name: "us-east-k8s", ClusterIndex: ptr.To(int32(0)), SyncSourceSelector: &SyncSourceSelector{MatchTags: map[string]string{"region": "us-east"}}},
-				{Name: "eu-west-k8s", ClusterIndex: ptr.To(int32(1)), SyncSourceSelector: &SyncSourceSelector{MatchTags: map[string]string{"region": "eu-west"}}},
-			},
-		},
-		{
-			name: "MC empty matchTags rejected",
-			clusters: []ClusterSpec{
-				{Name: "us-east-k8s", ClusterIndex: ptr.To(int32(0)), SyncSourceSelector: &SyncSourceSelector{MatchTags: map[string]string{"region": "us-east"}}},
-				{Name: "eu-west-k8s", ClusterIndex: ptr.To(int32(1)), SyncSourceSelector: &SyncSourceSelector{MatchTags: map[string]string{}}},
-			},
-			errorContains: "spec.clusters[1].syncSourceSelector.matchTags cannot be empty",
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			s := &MongoDBSearch{
-				ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"},
-				Spec:       MongoDBSearchSpec{Clusters: tt.clusters},
-			}
-			// Multi-cluster specs need an external source + managed LB so the
-			// matchTags check is the rule under test, not the MC source/LB checks.
 			if len(tt.clusters) > 1 {
 				s.Spec.Source = &MongoDBSource{
 					ExternalMongoDBSource: &ExternalMongoDBSource{HostAndPorts: []string{"h:27017"}},

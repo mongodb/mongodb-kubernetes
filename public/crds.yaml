@@ -5236,32 +5236,21 @@ spec:
                       - spec
                       type: object
                     syncSourceSelector:
-                      description: |-
-                        SyncSourceSelector picks which mongods this cluster's mongot fleet syncs from.
-                        At-most-one of MatchTags or Hosts may be set.
+                      description: SyncSourceSelector picks which mongods this cluster's
+                        mongot fleet syncs from.
                       properties:
-                        hosts:
+                        matchTagSets:
                           description: |-
-                            Hosts is an explicit list of host:port sync-source members.
-                            Mutually exclusive with MatchTags.
+                            MatchTagSets selects sync-source mongods by replica-set tags: an ordered list of
+                            tag sets passed to mongot's syncSource.replicationReader (secondaryPreferred).
+                            mongot syncs from the first set with matches; a trailing {} is a match-any fallback.
                           items:
-                            maxLength: 253
-                            type: string
-                          maxItems: 100
+                            additionalProperties:
+                              type: string
+                            type: object
+                          maxItems: 50
                           type: array
-                        matchTags:
-                          additionalProperties:
-                            type: string
-                          description: |-
-                            MatchTags selects which sync-source mongods to read from by their replica-set tags.
-                            The operator passes these to mongot as readPreferenceTags.
-                          maxProperties: 50
-                          type: object
                       type: object
-                      x-kubernetes-validations:
-                      - message: syncSourceSelector.matchTags and syncSourceSelector.hosts
-                          are mutually exclusive
-                        rule: '!(has(self.matchTags) && has(self.hosts))'
                   type: object
                 maxItems: 50
                 minItems: 1
