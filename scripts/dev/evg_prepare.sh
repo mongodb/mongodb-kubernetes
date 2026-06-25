@@ -25,22 +25,28 @@
 #                     `kind` cluster).
 #   --skip-recreate   Don't recreate the kind cluster(s). Use to take over
 #                     an already-prepared host without touching kind.
+#   --distro DISTRO   evergreen distro for the spawn (default: evg spawn's own).
+#   --region REGION   AWS region for the spawn (default: evg spawn's own).
 
 set -Eeou pipefail
 test "${MDB_BASH_DEBUG:-0}" -eq 1 && set -x
 
 usage() {
-  sed -n '3,27p' "$0"
+  sed -n '3,29p' "$0"
 }
 
 multi_cluster=0
 skip_recreate=0
 explicit_name=""
+distro=""
+region=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --multi|--multi-cluster) multi_cluster=1; shift ;;
     --skip-recreate)         skip_recreate=1; shift ;;
     --name)                  explicit_name="$2"; shift 2 ;;
+    --distro)                distro="$2"; shift 2 ;;
+    --region)                region="$2"; shift 2 ;;
     -h|--help)               usage; exit 0 ;;
     *) echo "Unknown argument: $1"; usage; exit 1 ;;
   esac
@@ -60,7 +66,10 @@ echo "==> evg_prepare: worktree=${worktree_root}, host=${evg_host_name}"
 # 1. Spawn (or resume) the host via wt-ctl's native EVG verb. Idempotent on
 #    the Evergreen displayName; resumes any non-terminal host with that name.
 echo "==> Spawning / resuming EVG host displayName='${evg_host_name}'"
-"${worktree_root}/scripts/dev/wt-ctl" --quiet evg spawn --name "${evg_host_name}"
+spawn_args=(--name "${evg_host_name}")
+[[ -n "${distro}" ]] && spawn_args+=(--distro "${distro}")
+[[ -n "${region}" ]] && spawn_args+=(--region "${region}")
+"${worktree_root}/scripts/dev/wt-ctl" --quiet evg spawn "${spawn_args[@]}"
 
 # 2. Pin the host into this worktree's .generated/ so root-context picks it up.
 mkdir -p "${worktree_root}/.generated"
