@@ -30,7 +30,7 @@ from pytest import fixture
 from tests import test_logger
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.search import search_resource_names
-from tests.conftest import get_multi_cluster_operator, read_configmap
+from tests.conftest import get_multi_cluster_operator
 
 logger = test_logger.get_test_logger(__name__)
 
@@ -280,7 +280,7 @@ def build_per_cluster_search_crs(
     clusters_spec = [
         {
             "name": mcc.cluster_name,
-            "clusterIndex": _idx(mcc),
+            "index": _idx(mcc),
             "replicas": mongot_replicas,
             "loadBalancer": {
                 "managed": {
@@ -365,37 +365,6 @@ def assert_cross_cluster_isolation(
                 sharded=bool(shard_names),
                 shard_names=shard_names,
             )
-
-
-def assert_state_configmap_local_mapping(
-    namespace: str,
-    per_cluster_mdbs_search: List[Tuple[MultiClusterClient, MongoDBSearch]],
-    mdbs_resource_name: str,
-) -> None:
-    """Simulated-MC operators narrow spec.clusters[] to their own slice (LocalizeToCluster)
-    before persisting, so each member's `{mdbs}-search-state` ConfigMap holds a LOCAL-only
-    clusterMapping (this cluster's entry, no foreign name).
-    """
-    assert_per_cluster_count(per_cluster_mdbs_search)
-    names = {mcc.cluster_name for mcc, _ in per_cluster_mdbs_search}
-    for mcc, _mdbs in per_cluster_mdbs_search:
-        cm = read_configmap(
-            namespace,
-            search_resource_names.search_state_configmap_name(mdbs_resource_name),
-            api_client=mcc.api_client,
-        )
-        state = json.loads(cm["state"])
-        mapping = state.get("clusterMapping") or {}
-        assert mapping.get(mcc.cluster_name) == _idx(mcc), (
-            f"[{mcc.cluster_name}] state clusterMapping[{mcc.cluster_name!r}]={mapping.get(mcc.cluster_name)!r}, "
-            f"want {_idx(mcc)}"
-        )
-        for other in names - {mcc.cluster_name}:
-            assert other not in mapping, (
-                f"[{mcc.cluster_name}] state clusterMapping leaked foreign cluster {other!r}: {mapping} — "
-                f"simulated-MC operators persist a LOCAL-only mapping"
-            )
-        logger.info(f"[{mcc.cluster_name}] persisted local clusterMapping={mapping}")
 
 
 # ---------------------------------------------------------------------------

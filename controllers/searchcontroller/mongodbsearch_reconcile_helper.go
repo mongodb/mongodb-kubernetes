@@ -88,12 +88,10 @@ type MongoDBSearchReconcileHelper struct {
 	operatorSearchConfig OperatorSearchConfig
 
 	// memberClusterClients holds per-member-cluster Kubernetes clients keyed by
-	// spec.clusters[i].clusterName. Empty in single-cluster installs.
+	// spec.clusters[i].name. Empty in single-cluster installs.
 	memberClusterClients map[string]kubernetesClient.Client
 
-	// state is the per-CR persisted state from the search state ConfigMap:
-	// the clusterName → clusterIndex mapping (per-cluster resource names use
-	// these indexes so spec.clusters[] reorders don't rename resources) and the
+	// state is the per-CR persisted state from the search state ConfigMap: the
 	// routing-ready switch. Refreshed after every successful switch write.
 	state *SearchDeploymentState
 }
@@ -225,7 +223,7 @@ func (r *MongoDBSearchReconcileHelper) buildReconcilePlan(log *zap.SugaredLogger
 }
 
 // buildReplicaSetPlan returns one reconcileUnit per cluster. Single-cluster is a
-// 1-element work list with unindexed names; MC indexes via state.ClusterMapping.
+// 1-element work list at index 0; MC indexes via the spec.clusters[i] pin.
 func (r *MongoDBSearchReconcileHelper) buildReplicaSetPlan(rsSource SearchSourceReplicaSet) (reconcilePlan, error) {
 	hostSeeds, err := rsSource.HostSeeds("")
 	if err != nil {
@@ -286,17 +284,16 @@ type rsWorkItem struct {
 	SyncSourceSelector *searchv1.SyncSourceSelector
 }
 
-// buildRSWorkList returns one item per spec.clusters[i] with clusterIndex
-// resolved from the persisted state.ClusterMapping. A single-cluster spec has
-// one entry with an empty clusterName, which maps to index 0 and routes to the
-// central client.
+// buildRSWorkList returns one item per spec.clusters[i] with clusterIndex from the
+// CRD pin (nil → 0). A single-cluster spec has one entry with an empty clusterName,
+// index 0, which routes to the central client.
 func (r *MongoDBSearchReconcileHelper) buildRSWorkList() []rsWorkItem {
 	clusters := r.mdbSearch.Spec.Clusters
 	work := make([]rsWorkItem, 0, len(clusters))
 	for _, c := range clusters {
 		work = append(work, rsWorkItem{
 			ClusterName:        c.Name,
-			ClusterIndex:       r.state.ClusterMapping[c.Name],
+			ClusterIndex:       c.ResolveIndex(),
 			SyncSourceSelector: c.SyncSourceSelector,
 		})
 	}
@@ -753,9 +750,7 @@ func (r *MongoDBSearchReconcileHelper) markRoutingReadyIfThresholdMet(ctx contex
 }
 
 // markRoutingReady appends the shard to the routing-ready switch in the state
-// ConfigMap. Only the switch slice is refreshed from the write's result — the
-// ClusterMapping snapshot loaded at reconcile start stays authoritative for
-// resource naming within this reconcile.
+// ConfigMap, refreshing only the switch slice from the write's result.
 func (r *MongoDBSearchReconcileHelper) markRoutingReady(ctx context.Context, shardName string) error {
 	state, err := MutateSearchState(ctx, r.client, r.mdbSearch, func(s *SearchDeploymentState) bool {
 		if slices.Contains(s.RoutingReadyMongotGroups, shardName) {
@@ -916,11 +911,6 @@ func (r *MongoDBSearchReconcileHelper) validatePerShardTLSSecrets(ctx context.Co
 	}
 
 	for _, w := range r.buildShardedWorkList(shardNames) {
-		// A -1 sentinel index means the cluster isn't yet in the state mapping.
-		// Computing a secret name from it would point at the wrong file.
-		if w.ClusterName != "" && w.ClusterIndex < 0 {
-			return workflow.Pending("Waiting for cluster %q to be registered in search state", w.ClusterName)
-		}
 		clusterClient, err := r.clientForCluster(w.ClusterName)
 		if err != nil {
 			return workflow.Failed(xerrors.Errorf("no client for cluster %q: %w", w.ClusterName, err))
@@ -1930,37 +1920,53 @@ func replicationReaderTagSetsMod(selector *searchv1.SyncSourceSelector) mongot.M
 	}
 }
 
-func GetMongodConfigParameters(search *searchv1.MongoDBSearch, clusterDomain string) map[string]any {
-	return buildSearchSetParameters(mongotHostAndPort(search, clusterDomain), searchTLSMode(search), !search.IsWireprotoEnabled())
+// ResolveSingleClusterIndex resolves the resource index for the one-entry spec.clusters
+// shape the internal-source AC wiring supports: the pinned ClusterIndex, else 0 — so
+// readers reconstruct the names the per-cluster writers created. Multi-entry specs
+// return 0: their mongotHost is customer-set in the AC, not computed here.
+func ResolveSingleClusterIndex(search *searchv1.MongoDBSearch) int {
+	cs := search.Spec.Clusters
+	if len(cs) == 1 {
+		return cs[0].ResolveIndex()
+	}
+	return 0
+}
+
+// GetMongodConfigParameters returns the mongod search parameters for a ReplicaSet source.
+// clusterIndex must come from ResolveSingleClusterIndex so the endpoint names match the
+// per-cluster resources the search reconciler created.
+func GetMongodConfigParameters(search *searchv1.MongoDBSearch, clusterDomain string, clusterIndex int) map[string]any {
+	return buildSearchSetParameters(mongotHostAndPort(search, clusterDomain, clusterIndex), searchTLSMode(search), !search.IsWireprotoEnabled())
 }
 
 // mongotEndpointForShard resolves the per-shard mongot endpoint that the source
-// MongoDB's shard mongods point at via mongotHost. Single-cluster source only —
-// the cluster index is fixed to 0. For an MC sharded source, callers must set
-// per-cluster mongotHost via spec.shardOverrides on the source MongoDB.
-func mongotEndpointForShard(search *searchv1.MongoDBSearch, shardName string, clusterDomain string) string {
+// MongoDB's shard mongods point at via mongotHost. Single-cluster source only;
+// clusterIndex is that cluster's resolved index. For an MC sharded source,
+// callers must set per-cluster mongotHost via spec.shardOverrides on the source
+// MongoDB.
+func mongotEndpointForShard(search *searchv1.MongoDBSearch, shardName string, clusterDomain string, clusterIndex int) string {
 	if search.IsShardedUnmanagedLB() {
 		return search.GetEndpointForShard(shardName)
 	}
 	if search.IsLBModeManaged() {
-		return proxyServiceHostAndPortForShard(search, 0, shardName, clusterDomain)
+		return proxyServiceHostAndPortForShard(search, clusterIndex, shardName, clusterDomain)
 	}
-	stsName := search.MongotStatefulSetForClusterShard(0, shardName)
-	svcName := search.MongotServiceForClusterShard(0, shardName)
+	stsName := search.MongotStatefulSetForClusterShard(clusterIndex, shardName)
+	svcName := search.MongotServiceForClusterShard(clusterIndex, shardName)
 	port := search.GetEffectiveMongotPort()
 	return fmt.Sprintf("%s-0.%s.%s.svc.%s:%d", stsName.Name, svcName.Name, svcName.Namespace, clusterDomain, port)
 }
 
 // GetMongodConfigParametersForShard returns the mongod configuration parameters for a specific shard
-// in a sharded cluster.
-func GetMongodConfigParametersForShard(search *searchv1.MongoDBSearch, shardName string, clusterDomain string) map[string]any {
-	return buildSearchSetParameters(mongotEndpointForShard(search, shardName, clusterDomain), searchTLSMode(search), !search.IsWireprotoEnabled())
+// in a sharded cluster. clusterIndex must come from ResolveSingleClusterIndex.
+func GetMongodConfigParametersForShard(search *searchv1.MongoDBSearch, shardName string, clusterDomain string, clusterIndex int) map[string]any {
+	return buildSearchSetParameters(mongotEndpointForShard(search, shardName, clusterDomain, clusterIndex), searchTLSMode(search), !search.IsWireprotoEnabled())
 }
 
 // GetMongosConfigParametersForSharded picks the mongos→mongot endpoint by topology. No-LB targets the
 // first shard's per-shard proxy svc FQDN (the only sharded mongot hostname per-shard cert SANs cover);
 // the cluster-level Service would route to the same pod but isn't in SANs.
-// clusterIndex (from the persisted ClusterMapping) is for resource naming only;
+// clusterIndex (the spec.clusters[i] pin) is for resource naming only;
 // clusterName resolves the cluster's LB config (empty = first cluster).
 func GetMongosConfigParametersForSharded(search *searchv1.MongoDBSearch, clusterIndex int, clusterName string, shardNames []string, clusterDomain string) map[string]any {
 	var endpoint string
@@ -1970,7 +1976,7 @@ func GetMongosConfigParametersForSharded(search *searchv1.MongoDBSearch, cluster
 	// regressing pre-MVP.
 	switch {
 	case search.IsShardedUnmanagedLB() && len(shardNames) > 0:
-		endpoint = mongotEndpointForShard(search, shardNames[0], clusterDomain)
+		endpoint = mongotEndpointForShard(search, shardNames[0], clusterDomain, clusterIndex)
 	case !search.IsLBModeManaged() && len(shardNames) > 0:
 		endpoint = proxyServiceHostAndPortForShard(search, clusterIndex, shardNames[0], clusterDomain)
 	default:
@@ -2018,17 +2024,17 @@ func buildSearchSetParameters(mongotEndpoint string, tlsMode automationconfig.TL
 // For unmanaged LB, the user-provided endpoint is returned.
 // For managed LB, the stable proxy service FQDN is returned (selector flips between mongot/envoy).
 // For no LB (single mongot), the first pod's headless FQDN is returned (pod-0.svc).
-func mongotHostAndPort(search *searchv1.MongoDBSearch, clusterDomain string) string {
+func mongotHostAndPort(search *searchv1.MongoDBSearch, clusterDomain string, clusterIndex int) string {
 	if search.IsReplicaSetUnmanagedLB() {
 		return search.GetUnmanagedLBEndpoint()
 	}
 	port := search.GetEffectiveMongotPort()
 	if search.IsLBModeManaged() {
-		proxyName := search.ProxyServiceNamespacedNameForCluster(0)
+		proxyName := search.ProxyServiceNamespacedNameForCluster(clusterIndex)
 		return fmt.Sprintf("%s.%s.svc.%s:%d", proxyName.Name, proxyName.Namespace, clusterDomain, port)
 	}
-	stsName := search.StatefulSetNamespacedNameForCluster(0)
-	svcName := search.SearchServiceNamespacedNameForCluster(0)
+	stsName := search.StatefulSetNamespacedNameForCluster(clusterIndex)
+	svcName := search.SearchServiceNamespacedNameForCluster(clusterIndex)
 	return fmt.Sprintf("%s-0.%s.%s.svc.%s:%d", stsName.Name, svcName.Name, svcName.Namespace, clusterDomain, port)
 }
 
