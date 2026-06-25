@@ -162,6 +162,11 @@ func (r *MongoDBSearchReconcileHelper) clientForCluster(clusterName string) (kub
 	return c, nil
 }
 
+// IsMultiClusterMode reports whether this MongoDBSearch spans member clusters.
+func IsMultiClusterMode(search *searchv1.MongoDBSearch, memberClusterClients map[string]kubernetesClient.Client) bool {
+	return len(memberClusterClients) > 0 && len(search.Spec.Clusters) > 0
+}
+
 // reconcileUnit captures all per-unit (per-shard or single-RS) resource names,
 // labels, and config. Topology-free: every per-shard vs. per-RS difference is
 // encoded by the factory, so downstream code never branches on "am I sharded?".
@@ -860,6 +865,36 @@ func (r *MongoDBSearchReconcileHelper) cleanupStaleShardResources(ctx context.Co
 		}
 	}
 	return nil
+}
+
+// CleanupMemberClusterResources deletes every member-cluster resource this search
+// owns, selected by the search-owner labels. Best-effort: it continues past
+// per-cluster failures and aggregates them.
+func CleanupMemberClusterResources(ctx context.Context, search *searchv1.MongoDBSearch, memberClusterClients map[string]kubernetesClient.Client, log *zap.SugaredLogger) error {
+	// Secrets are excluded — the operator never writes member-cluster Secrets
+	// (customers replicate those). PVCs are excluded — the StatefulSet's whenDeleted
+	// retention policy reclaims them when the StatefulSet goes.
+	cleanupKinds := []client.Object{
+		&corev1.Service{},
+		&appsv1.StatefulSet{},
+		&appsv1.Deployment{},
+		&corev1.ConfigMap{},
+	}
+	deleteOpts := []client.DeleteAllOfOption{
+		client.InNamespace(search.Namespace),
+		client.MatchingLabels(searchOwnerLabels(search, "")),
+	}
+
+	var errs error
+	for clusterName, c := range memberClusterClients {
+		for _, obj := range cleanupKinds {
+			if err := c.DeleteAllOf(ctx, obj, deleteOpts...); err != nil {
+				errs = multierror.Append(errs, xerrors.Errorf("failed to delete %T for search %s in cluster %q: %w", obj, search.Name, clusterName, err))
+			}
+		}
+		log.Infof("Removed search resources for %s in cluster %q", search.NamespacedName(), clusterName)
+	}
+	return errs
 }
 
 // ensureKeyfileModification returns the keyfile StatefulSet modification if wireproto is enabled.

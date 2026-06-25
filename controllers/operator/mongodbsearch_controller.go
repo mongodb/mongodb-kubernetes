@@ -6,6 +6,7 @@ import (
 
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
@@ -197,6 +198,26 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 	return result, nil
 }
 
+// OnDelete fires from the CR delete watch (after the object is already gone from
+// the API server). In multi-cluster mode it sweeps the resources this search owns
+// in every member cluster, since owner-reference GC only reclaims them in the
+// operator's own cluster. Single-cluster installs need nothing here — GC handles
+// it. Best-effort, mirroring the sharded-cluster OnDelete.
+func (r *MongoDBSearchReconciler) OnDelete(ctx context.Context, obj runtime.Object, log *zap.SugaredLogger) error {
+	search, ok := obj.(*searchv1.MongoDBSearch)
+	if !ok {
+		return xerrors.Errorf("expected *searchv1.MongoDBSearch but got %T", obj)
+	}
+
+	var err error
+	if searchcontroller.IsMultiClusterMode(search, r.memberClusterClientsMap) {
+		err = searchcontroller.CleanupMemberClusterResources(ctx, search, r.memberClusterClientsMap, log)
+	}
+
+	r.watch.RemoveDependentWatchedResources(search.NamespacedName())
+	return err
+}
+
 // surfaceMissingSecrets logs one entry per cluster that has gaps. The reconcile
 // loop returns RequeueAfter so the controller waits without exponential backoff
 // while the customer replicates the missing secrets.
@@ -306,7 +327,7 @@ func AddMongoDBSearchController(
 		obj     client.Object
 		handler handler.EventHandler
 	}{
-		{&searchv1.MongoDBSearch{}, &handler.EnqueueRequestForObject{}},
+		{&searchv1.MongoDBSearch{}, &ResourceEventHandler{deleter: r}},
 		{&mdbv1.MongoDB{}, &watch.ResourcesHandler{ResourceType: watch.MongoDB, ResourceWatcher: r.watch}},
 		{&mdbcv1.MongoDBCommunity{}, &watch.ResourcesHandler{ResourceType: "MongoDBCommunity", ResourceWatcher: r.watch}},
 		{&corev1.Secret{}, &watch.ResourcesHandler{ResourceType: watch.Secret, ResourceWatcher: r.watch}},

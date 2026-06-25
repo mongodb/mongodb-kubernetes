@@ -4211,3 +4211,80 @@ func TestReconcileShardedMC_ShardOverrideReplicas(t *testing.T) {
 		"cluster-b": {"sh-0": 5, "sh-1": 3, "sh-2": 3}, // sh-2 back to default after the override moved
 	})
 }
+
+func TestIsMultiClusterMode(t *testing.T) {
+	withClusters := newTestMongoDBSearch("s", "ns")
+	noClusters := newTestMongoDBSearch("s", "ns", func(s *searchv1.MongoDBSearch) { s.Spec.Clusters = nil })
+	// The client value is irrelevant; the predicate only checks map length.
+	members := map[string]kubernetesClient.Client{"cluster-a": nil}
+
+	tests := []struct {
+		name    string
+		search  *searchv1.MongoDBSearch
+		clients map[string]kubernetesClient.Client
+		want    bool
+	}{
+		{"members and clusters", withClusters, members, true},
+		{"members but no clusters", noClusters, members, false},
+		{"clusters but no members", withClusters, nil, false},
+		{"neither", noClusters, nil, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, IsMultiClusterMode(tc.search, tc.clients))
+		})
+	}
+}
+
+func TestCleanupMemberClusterResources(t *testing.T) {
+	ctx := context.Background()
+	search := newTestMongoDBSearch("search-a", "ns")
+	owned := searchOwnerLabels(search, "cluster-a")
+	otherSearch := map[string]string{
+		khandler.MongoDBSearchOwnerNameLabel:      "search-b",
+		khandler.MongoDBSearchOwnerNamespaceLabel: "ns",
+	}
+	meta := func(name string, labels map[string]string) metav1.ObjectMeta {
+		return metav1.ObjectMeta{Name: name, Namespace: "ns", Labels: labels}
+	}
+
+	clusterA := newTestFakeClient(
+		&appsv1.StatefulSet{ObjectMeta: meta("mongot", owned)},
+		&corev1.Service{ObjectMeta: meta("mongot-svc", owned)},
+		&appsv1.Deployment{ObjectMeta: meta("envoy", owned)},
+		&corev1.ConfigMap{ObjectMeta: meta("mongot-config", owned)},
+		&corev1.Secret{ObjectMeta: meta("keyfile", owned)},              // labeled, but Secret kind is not swept
+		&appsv1.StatefulSet{ObjectMeta: meta("other-sts", otherSearch)}, // owned by a different search
+		&appsv1.StatefulSet{ObjectMeta: meta("unlabeled-sts", nil)},     // not search-owned
+	)
+	clusterB := newTestFakeClient(
+		&appsv1.StatefulSet{ObjectMeta: meta("mongot", owned)},
+		&corev1.ConfigMap{ObjectMeta: meta("mongot-config", owned)},
+	)
+	members := map[string]kubernetesClient.Client{"cluster-a": clusterA, "cluster-b": clusterB}
+
+	require.NoError(t, CleanupMemberClusterResources(ctx, search, members, zap.S()))
+
+	assertGone := func(c kubernetesClient.Client, obj client.Object, name string) {
+		t.Helper()
+		err := c.Get(ctx, types.NamespacedName{Name: name, Namespace: "ns"}, obj)
+		assert.True(t, apierrors.IsNotFound(err), "expected %T %q deleted, got err=%v", obj, name, err)
+	}
+	assertPresent := func(c kubernetesClient.Client, obj client.Object, name string) {
+		t.Helper()
+		assert.NoError(t, c.Get(ctx, types.NamespacedName{Name: name, Namespace: "ns"}, obj), "expected %T %q to survive", obj, name)
+	}
+
+	// cluster-a: every search-owned mongot + Envoy resource is reclaimed.
+	assertGone(clusterA, &appsv1.StatefulSet{}, "mongot")
+	assertGone(clusterA, &corev1.Service{}, "mongot-svc")
+	assertGone(clusterA, &appsv1.Deployment{}, "envoy")
+	assertGone(clusterA, &corev1.ConfigMap{}, "mongot-config")
+	// Not over-deleted: Secrets are out of scope, and resources we don't own survive.
+	assertPresent(clusterA, &corev1.Secret{}, "keyfile")
+	assertPresent(clusterA, &appsv1.StatefulSet{}, "other-sts")
+	assertPresent(clusterA, &appsv1.StatefulSet{}, "unlabeled-sts")
+	// cluster-b is swept independently.
+	assertGone(clusterB, &appsv1.StatefulSet{}, "mongot")
+	assertGone(clusterB, &corev1.ConfigMap{}, "mongot-config")
+}
