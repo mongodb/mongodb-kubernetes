@@ -502,7 +502,13 @@ def try_load(resource: CustomObject) -> bool:
     return True
 
 
-def wait_for_webhook(namespace, retries: int = 10, multi_cluster: bool = False, service_name="operator-webhook"):
+def wait_for_webhook(
+    namespace,
+    retries: int = 10,
+    multi_cluster: bool = False,
+    service_name="operator-webhook",
+    validation_endpoint: str = "validate-mongodb-com-v1-mongodb",
+):
     from tests.conftest import get_central_cluster_name, get_cluster_domain, get_test_pod_cluster_name, local_operator
 
     # we don't want to wait for the operator webhook if the operator is running locally and not in a pod
@@ -529,7 +535,6 @@ def wait_for_webhook(namespace, retries: int = 10, multi_cluster: bool = False, 
             )
 
     logger.debug("wait_for_webhook")
-    validation_endpoint = "validate-mongodb-com-v1-mongodb"
     webhook_endpoint = "https://{}.{}.svc.{}/{}".format(
         service_name, namespace, get_cluster_domain(), validation_endpoint
     )

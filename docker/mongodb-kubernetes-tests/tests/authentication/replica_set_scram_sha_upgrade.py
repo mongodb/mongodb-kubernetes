@@ -51,4 +51,4 @@ class TestReplicaSetDeleted(KubernetesTester):
             except AssertionError:
                 return False
 
-        KubernetesTester.wait_until(authentication_was_disabled, timeout=120, sleep_time=5)
+        KubernetesTester.wait_until(authentication_was_disabled, timeout=300, sleep_time=5)

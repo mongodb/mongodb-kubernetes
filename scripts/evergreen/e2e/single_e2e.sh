@@ -62,6 +62,7 @@ deploy_test_app() {
         "--set" "taskName=${task_name}"
         "--set" "mekoTestsRegistry=${MEKO_TESTS_REGISTRY}"
         "--set" "mekoTestsVersion=${meko_tests_version}"
+        "--set" "mekoTestsImagePullPolicy=${MEKO_TESTS_IMAGE_PULL_POLICY:-Always}"
         "--set" "versionId=${VERSION_ID}"
         "--set" "aws.accessKey=${AWS_ACCESS_KEY_ID}"
         "--set" "aws.secretAccessKey=${AWS_SECRET_ACCESS_KEY}"
@@ -169,20 +170,22 @@ deploy_test_app() {
 
 wait_until_pod_is_running_or_failed_or_succeeded() {
     local context=${1}
+    local startup_timeout=${TEST_APP_STARTUP_TIMEOUT:-2m}
     # Do wait while the Pod is not yet running or failed (can be in Pending or ContainerCreating state)
     # Note that the pod may jump to Failed/Completed state quickly - so we need to give up waiting on this as well
     echo "Waiting until the test application gets to Running state..."
 
     is_running_cmd="kubectl --context '${context}' -n ${NAMESPACE} get pod ${TEST_APP_PODNAME} -o jsonpath={.status.phase} | grep -q 'Running'"
 
-    # test app usually starts instantly but sometimes (quite rarely though) may require more than a min to start
-    # in Evergreen so let's wait for 2m
-    timeout --foreground "2m" bash -c "while ! ${is_running_cmd}; do printf .; sleep 1; done;"
+    # test app usually starts quickly; some environments can need longer image pulls.
+    timeout --foreground "${startup_timeout}" bash -c "while ! ${is_running_cmd}; do printf .; sleep 1; done;"
     echo
 
     if ! eval "${is_running_cmd}"; then
-        error "Test application failed to start on time!"
+        error "Test application failed to start on time after ${startup_timeout}!"
         kubectl --context "${context}" -n "${NAMESPACE}"  describe pod "${TEST_APP_PODNAME}"
+        kubectl --context "${context}" -n "${NAMESPACE}" get pod "${TEST_APP_PODNAME}" -o jsonpath='{range .status.containerStatuses[*]}{.name}{": waiting="}{.state.waiting.reason}{"; message="}{.state.waiting.message}{"\n"}{end}' || true
+        kubectl --context "${context}" -n "${NAMESPACE}" get events --field-selector "involvedObject.name=${TEST_APP_PODNAME}" --sort-by='.metadata.creationTimestamp' || true
         fatal "Failed to run test application - exiting"
     fi
 }

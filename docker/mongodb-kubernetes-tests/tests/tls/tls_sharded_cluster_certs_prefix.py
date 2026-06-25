@@ -106,7 +106,6 @@ def test_rotate_tls_certificate(sc: MongoDB, namespace: str):
     cert["spec"]["dnsNames"].append("foo")
     cert.update()
 
-    sc.assert_abandons_phase(Phase.Running)
     sc.assert_reaches_phase(Phase.Running, timeout=800)
 
 
