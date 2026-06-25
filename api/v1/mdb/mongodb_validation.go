@@ -460,15 +460,17 @@ func (m *MongoDB) noShardNameOverridesRemovedForActiveShards(old *MongoDB) v1.Va
 	for _, o := range m.Spec.ShardNameOverrides {
 		newByShardName[o.ShardName] = struct{}{}
 	}
+	activeShardNames := make(map[string]struct{}, m.Spec.ShardCount)
+	for i := 0; i < m.Spec.ShardCount; i++ {
+		activeShardNames[m.ShardName(i)] = struct{}{}
+	}
 	for _, o := range old.Spec.ShardNameOverrides {
 		if _, exists := newByShardName[o.ShardName]; exists {
 			continue
 		}
 		// Entry was removed. It is only allowed if the shard no longer exists.
-		for i := 0; i < m.Spec.ShardCount; i++ {
-			if m.ShardRsName(i) == o.ShardName {
-				return v1.ValidationError("Cannot remove shardNameOverrides entry for active shard %q.", o.ShardName)
-			}
+		if _, active := activeShardNames[o.ShardName]; active {
+			return v1.ValidationError("Cannot remove shardNameOverrides entry for active shard %q.", o.ShardName)
 		}
 	}
 	return v1.ValidationSuccess()

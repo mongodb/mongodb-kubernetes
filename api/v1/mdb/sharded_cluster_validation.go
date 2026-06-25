@@ -236,8 +236,11 @@ func shardNameOverridesValidForm(m MongoDB) v1.ValidationResult {
 		}
 	}
 
-	// Resolved AC names must be unique across shards and must not collide with the config server or
-	// the cluster name. Runs even without overrides since configServerNameOverride alone can collide.
+	// Resolved AC names must be unique across shards and must not collide with the config server.
+	// replicaSetName and shard _id are independent AC fields, so each is checked on its own. The
+	// resolved checks also catch an override value colliding with another shard's fallback name,
+	// which the per entry uniqueness checks above cannot see.
+	// Runs even without overrides since configServerNameOverride alone can collide.
 	rsNameToShardIdx := make(map[string]int, m.Spec.ShardCount)
 	shardIdToShardIdx := make(map[string]int, m.Spec.ShardCount)
 	for i := 0; i < m.Spec.ShardCount; i++ {
@@ -254,9 +257,6 @@ func shardNameOverridesValidForm(m MongoDB) v1.ValidationResult {
 	}
 	if i, ok := rsNameToShardIdx[m.ConfigACRsName()]; ok {
 		return v1.ValidationError("shard %d resolves to the same AC replicaSetName %q as the config server", i, m.ConfigACRsName())
-	}
-	if i, ok := rsNameToShardIdx[m.GetShardedClusterName()]; ok {
-		return v1.ValidationError("shard %d resolves to AC replicaSetName %q which equals the sharded cluster name", i, m.GetShardedClusterName())
 	}
 	return v1.ValidationSuccess()
 }

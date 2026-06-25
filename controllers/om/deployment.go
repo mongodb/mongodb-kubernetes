@@ -343,27 +343,6 @@ func (d Deployment) DisableProcesses(processNames []string) {
 	}
 }
 
-func (d Deployment) MarkRsMembersUnvoted(rsName string, rsMembers []string) error {
-	rs := d.getReplicaSetByName(rsName)
-	if rs == nil {
-		return xerrors.New("Failed to find Replica Set " + rsName)
-	}
-
-	failedMembers := ""
-	for _, m := range rsMembers {
-		rsMember := rs.findMemberByName(m)
-		if rsMember == nil {
-			failedMembers += m
-		} else {
-			rsMember.setVotes(0).setPriority(0)
-		}
-	}
-	if failedMembers != "" {
-		return xerrors.Errorf("failed to find the following members of Replica Set %s: %v", rsName, failedMembers)
-	}
-	return nil
-}
-
 // RemoveProcessByName removes the process from deployment
 // Note, that the backup and monitoring configs are also cleaned up
 func (d Deployment) RemoveProcessByName(name string, log *zap.SugaredLogger) error {
@@ -897,7 +876,9 @@ func (d Deployment) mergeShards(opts DeploymentShardedClusterMergeOptions, log *
 func (d Deployment) handleShardsRemoval(finalizing bool, s ShardedCluster, removedShardRsNames []string, log *zap.SugaredLogger) bool {
 	junkReplicaSets := d.findReplicaSetsRemovedFromShardedCluster(s.Name())
 
-	// Shards removed by this merge are not in the draining list yet, add them when their replica set exists.
+	// findReplicaSetsRemovedFromShardedCluster only returns shards already recorded in the draining list.
+	// Shards removed by this merge are not there yet, so seed them when their replica set still exists,
+	// letting the block below add them to draining on this pass.
 	for _, rsName := range removedShardRsNames {
 		if !stringutil.Contains(junkReplicaSets, rsName) && d.GetReplicaSetByName(rsName) != nil {
 			junkReplicaSets = append(junkReplicaSets, rsName)

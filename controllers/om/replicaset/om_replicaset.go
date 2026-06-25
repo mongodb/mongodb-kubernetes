@@ -3,16 +3,11 @@ package replicaset
 import (
 	"strings"
 
-	"go.uber.org/zap"
-	"golang.org/x/xerrors"
-
 	appsv1 "k8s.io/api/apps/v1"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/process"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/scale"
-	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 )
 
 // BuildFromStatefulSet returns a replica set that can be set in the Automation Config
@@ -78,59 +73,6 @@ func IsLegacyDeployment(existingProcessIds map[string]int, externalMembers []str
 	return !foundNewMember
 }
 
-// PrepareScaleDownFromMap performs additional steps necessary to make sure removed members are not primary (so no
-// election happens and replica set is available) (see
-// https://jira.mongodb.org/browse/HELP-3818?focusedCommentId=1548348 for more details)
-// Note, that we are skipping setting nodes as "disabled" (but the code is commented to be able to revert this if
-// needed)
-func PrepareScaleDownFromMap(omClient om.Connection, rsMembers map[string][]string, processesToWaitForGoalState []string, log *zap.SugaredLogger) error {
-	processes := make([]string, 0)
-	for _, v := range rsMembers {
-		processes = append(processes, v...)
-	}
-
-	// Stage 1. Set Votes and Priority to 0
-	if len(rsMembers) > 0 && len(processes) > 0 {
-		err := omClient.ReadUpdateDeployment(
-			func(d om.Deployment) error {
-				for k, v := range rsMembers {
-					if err := d.MarkRsMembersUnvoted(k, v); err != nil {
-						log.Errorf("Problems scaling down some replica sets (were they changed in Ops Manager directly?): %s", err)
-					}
-				}
-				return nil
-			},
-			log,
-		)
-		if err != nil {
-			return xerrors.Errorf("unable to set votes, priority to 0 in Ops Manager, hosts: %v, err: %w", processes, err)
-		}
-
-		if err := om.WaitForReadyState(omClient, processesToWaitForGoalState, false, log); err != nil {
-			return err
-		}
-
-		log.Debugw("Marked replica set members as non-voting", "replica set with members", rsMembers)
-	}
-
-	log.Infow("Performed some preliminary steps to support scale down", "hosts", processes)
-
-	return nil
-}
-
-func PrepareScaleDownFromMongoDB(omClient om.Connection, rs *mdbv1.MongoDB, log *zap.SugaredLogger) error {
-	_, podNames := dns.GetDNSNames(rs.Name, rs.ServiceName(), rs.Namespace, rs.Spec.GetClusterDomain(), rs.Status.Members, rs.Spec.DbCommonSpec.GetExternalDomain())
-	podNames = podNames[scale.ReplicasThisReconciliation(rs):rs.Status.Members]
-
-	if len(podNames) != 1 {
-		return xerrors.Errorf("dev error: the number of members being scaled down was > 1, scaling more than one member at a time is not possible! %s", podNames)
-	}
-
-	processNames := podNamesToProcessNames(omClient, rs.Name, rs.Namespace, rs.Spec.GetExternalMemberProcessNames(), podNames, log)
-	log.Debugw("Setting votes to 0 for members", "members", processNames)
-	return PrepareScaleDownFromMap(omClient, map[string][]string{rs.Name: processNames}, processNames, log)
-}
-
 // ConvertPodNamesToProcessNames converts bare pod names to k8s/<namespace>/<pod> process names when
 // the existing deployment uses the new naming scheme. For legacy deployments the pod names are
 // returned unchanged.
@@ -143,26 +85,4 @@ func ConvertPodNamesToProcessNames(existingIds map[string]int, externalMembers, 
 		processNames[i] = process.PodNameToProcessName(name, namespace)
 	}
 	return processNames
-}
-
-// podNamesToProcessNames converts bare pod names to k8s/<namespace>/<pod> process names when the
-// existing deployment uses the new naming scheme. For legacy deployments the pod names are returned
-// unchanged. Errors reading the deployment are logged and the pod names are returned as-is so that
-// the scale-down can proceed (the MarkRsMembersUnvoted error is already swallowed downstream).
-func podNamesToProcessNames(omClient om.Connection, rsName, namespace string, externalMembers, podNames []string, log *zap.SugaredLogger) []string {
-	existingDeployment, err := omClient.ReadDeployment()
-	if err != nil {
-		log.Warnw("Could not read deployment to determine process naming scheme for scale-down; using pod names as-is", "error", err)
-		return podNames
-	}
-
-	existingIds := map[string]int{}
-	rs := existingDeployment.GetReplicaSetByName(rsName)
-	if rs != nil {
-		for _, m := range rs.Members() {
-			existingIds[m.Name()] = m.Id()
-		}
-	}
-
-	return ConvertPodNamesToProcessNames(existingIds, externalMembers, podNames, namespace)
 }

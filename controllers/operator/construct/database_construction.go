@@ -289,7 +289,7 @@ func ShardOptions(shardNum int, shardSpec *mdbv1.ShardedClusterComponentSpec, me
 		cfg := shardedOptionCfg{
 			mdb:               mdb,
 			componentSpec:     shardSpec,
-			rsName:            mdb.ShardRsName(shardNum),
+			rsName:            mdb.ShardName(shardNum),
 			memberClusterName: memberClusterName,
 			serviceName:       mdb.ShardServiceName(),
 			stsType:           Shard,

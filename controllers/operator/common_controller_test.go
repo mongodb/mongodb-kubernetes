@@ -1686,7 +1686,7 @@ func newShardedMDBForVotingTest(name string, configServerCount, mongodsPerShard 
 func buildShardedDeploymentForVotingTest(t *testing.T, sc *mdbv1.MongoDB, shardVotingExternal int) om.Deployment {
 	t.Helper()
 	configRsName := sc.ConfigRsName()
-	shardRsName := sc.ShardRsName(0)
+	shardRsName := sc.ShardName(0)
 
 	configExternalProcs := createRSProcessesHelper(configRsName, 3)
 	configRS := om.NewReplicaSetWithProcesses(

@@ -263,8 +263,8 @@ func (r *ShardedClusterReconcileHelper) createShardsMemberClusterLists(shardsMap
 	for shardIdx, shardSpec := range shardsMap {
 		shardGetLastAppliedMembersFunc := func(memberClusterName string) int {
 			shardOverridesInClusters := deploymentState.Status.SizeStatusInClusters.ShardOverridesInClusters
-			if _, ok := shardOverridesInClusters[r.sc.ShardRsName(shardIdx)]; ok {
-				if count, ok := shardOverridesInClusters[r.sc.ShardRsName(shardIdx)][memberClusterName]; ok {
+			if _, ok := shardOverridesInClusters[r.sc.ShardName(shardIdx)]; ok {
+				if count, ok := shardOverridesInClusters[r.sc.ShardName(shardIdx)][memberClusterName]; ok {
 					// If we stored an override for this shard in the status, get the member count from it
 					return count
 				}
@@ -301,10 +301,13 @@ func (r *ShardedClusterReconcileHelper) createShardsMemberClusterLists(shardsMap
 	return shardMemberClustersMap, allShardsMemberClusters
 }
 
+// getShardNameToShardIdxMap returns a lookup from every shard identifier to its index. Each shard is
+// keyed by its K8s name and, when an override is set, also by its AC shard _id and replicaSetName, so a
+// shardOverride can target a shard by any of those identifiers.
 func (r *ShardedClusterReconcileHelper) getShardNameToShardIdxMap() map[string]int {
 	mapping := map[string]int{}
 	for shardIdx := 0; shardIdx < max(r.sc.Spec.ShardCount, r.deploymentState.Status.ShardCount); shardIdx++ {
-		mapping[r.sc.ShardRsName(shardIdx)] = shardIdx
+		mapping[r.sc.ShardName(shardIdx)] = shardIdx
 		if o := r.sc.ShardNameOverrideForShard(shardIdx); o != nil {
 			if o.ShardId != "" {
 				mapping[o.ShardId] = shardIdx
@@ -1180,10 +1183,6 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 		return workflow.Failed(xerrors.Errorf("Could not generate certificates for Prometheus: %w", err))
 	}
 
-	if err = r.prepareScaleDownShardedCluster(conn, log); err != nil {
-		return workflow.Failed(xerrors.Errorf("failed to perform scale down preliminary actions: %w", err))
-	}
-
 	if workflowStatus := validateMongoDBResource(sc, conn); !workflowStatus.IsOK() {
 		return workflowStatus
 	}
@@ -1302,7 +1301,7 @@ func getTLSSecretNames(sc *mdbv1.MongoDB) func() []string {
 			sc.GetSecurity().MemberCertificateSecretName(sc.ConfigRsName()),
 		)
 		for i := 0; i < sc.Spec.ShardCount; i++ {
-			secretNames = append(secretNames, sc.GetSecurity().MemberCertificateSecretName(sc.ShardRsName(i)))
+			secretNames = append(secretNames, sc.GetSecurity().MemberCertificateSecretName(sc.ShardName(i)))
 		}
 		if sc.GetSecurity().ShouldUseX509("") {
 			secretNames = append(secretNames, sc.GetSecurity().AgentClientCertificateSecretName(sc.Name))
@@ -1319,7 +1318,7 @@ func getInternalAuthSecretNames(sc *mdbv1.MongoDB) func() []string {
 			sc.GetSecurity().InternalClusterAuthSecretName(sc.ConfigRsName()),
 		)
 		for i := 0; i < sc.Spec.ShardCount; i++ {
-			secretNames = append(secretNames, sc.GetSecurity().InternalClusterAuthSecretName(sc.ShardRsName(i)))
+			secretNames = append(secretNames, sc.GetSecurity().InternalClusterAuthSecretName(sc.ShardName(i)))
 		}
 		return secretNames
 	}
@@ -1540,7 +1539,7 @@ func (r *ShardedClusterReconcileHelper) createOrUpdateShards(ctx context.Context
 			// shardsNames contains shard name, not statefulset name
 			// in single cluster sts name == shard name
 			// in multi cluster sts name contains cluster index, but shard name does not (it's a replicaset name)
-			shardsNames[shardIdx] = s.ShardRsName(shardIdx)
+			shardsNames[shardIdx] = s.ShardName(shardIdx)
 			shardOpts := r.getShardOptions(ctx, *s, shardIdx, opts, log, memberCluster)
 			shardSts := construct.DatabaseStatefulSet(*s, shardOpts, log)
 
@@ -1663,7 +1662,7 @@ func (r *ShardedClusterReconcileHelper) calculateSizeStatus(s *mdbv1.MongoDB) (*
 	// In all shards, we iterate over all clusters (not only healthy as it would remove the counts from those) and store
 	// counts to deployment state
 	for shardIdx := 0; shardIdx < s.Spec.ShardCount; shardIdx++ {
-		shardName := r.sc.ShardRsName(shardIdx)
+		shardName := r.sc.ShardName(shardIdx)
 		isOverridden := isShardOverridden(shardName, r.sc.Spec.ShardOverrides)
 
 		// if all shards are overridden, we have nothing in shardMongodsCountInClusters, followup ticket: https://jira.mongodb.org/browse/CLOUDP-287426
@@ -1919,7 +1918,7 @@ func (r *ShardedClusterReconcileHelper) getShardHostnames(shardIdx int, memberCl
 		externalDomain = r.sc.Spec.DbCommonSpec.GetExternalDomain()
 	}
 	if !memberCluster.Legacy {
-		return dns.GetMultiClusterProcessHostnamesAndPodNames(r.sc.ShardRsName(shardIdx), r.sc.Namespace, memberCluster.Index, replicas, r.sc.Spec.GetClusterDomain(), externalDomain)
+		return dns.GetMultiClusterProcessHostnamesAndPodNames(r.sc.ShardName(shardIdx), r.sc.Namespace, memberCluster.Index, replicas, r.sc.Spec.GetClusterDomain(), externalDomain)
 	} else {
 		return dns.GetDNSNames(r.GetShardStsName(shardIdx, memberCluster), r.sc.ShardServiceName(), r.sc.Namespace, r.sc.Spec.GetClusterDomain(), replicas, externalDomain)
 	}
@@ -1938,68 +1937,6 @@ func (r *ShardedClusterReconcileHelper) getMongosHostnames(memberCluster multicl
 		externalDomain = r.sc.Spec.GetExternalDomain()
 		return dns.GetDNSNames(r.GetMongosStsName(memberCluster), r.sc.ServiceName(), r.sc.Namespace, r.sc.Spec.GetClusterDomain(), replicas, externalDomain)
 	}
-}
-
-func (r *ShardedClusterReconcileHelper) computeMembersToScaleDown(configSrvMemberClusters []multicluster.MemberCluster, shardsMemberClustersMap map[int][]multicluster.MemberCluster, log *zap.SugaredLogger) map[string][]string {
-	membersToScaleDown := make(map[string][]string)
-	for _, memberCluster := range configSrvMemberClusters {
-		currentReplicas := memberCluster.Replicas
-		desiredReplicas := scale.ReplicasThisReconciliation(r.GetConfigSrvScaler(memberCluster))
-		_, currentPodNames := r.getConfigSrvHostnames(memberCluster, currentReplicas)
-		if desiredReplicas < currentReplicas {
-			log.Debugf("Detected configSrv in cluster %s is scaling down: desiredReplicas=%d, currentReplicas=%d", memberCluster.Name, desiredReplicas, currentReplicas)
-			configRsName := r.sc.ConfigACRsName()
-			if _, ok := membersToScaleDown[configRsName]; !ok {
-				membersToScaleDown[configRsName] = []string{}
-			}
-			podNamesToScaleDown := currentPodNames[desiredReplicas:currentReplicas]
-			membersToScaleDown[configRsName] = append(membersToScaleDown[configRsName], podNamesToScaleDown...)
-		}
-	}
-
-	// Scaledown size of each shard
-	for shardIdx, memberClusters := range shardsMemberClustersMap {
-		for _, memberCluster := range memberClusters {
-			currentReplicas := memberCluster.Replicas
-			desiredReplicas := scale.ReplicasThisReconciliation(r.GetShardScaler(shardIdx, memberCluster))
-			_, currentPodNames := r.getShardHostnames(shardIdx, memberCluster, currentReplicas)
-			if desiredReplicas < currentReplicas {
-				log.Debugf("Detected shard idx=%d in cluster %s is scaling down: desiredReplicas=%d, currentReplicas=%d", shardIdx, memberCluster.Name, desiredReplicas, currentReplicas)
-				shardRsName := r.sc.ShardACRsName(shardIdx)
-				if _, ok := membersToScaleDown[shardRsName]; !ok {
-					membersToScaleDown[shardRsName] = []string{}
-				}
-				podNamesToScaleDown := currentPodNames[desiredReplicas:currentReplicas]
-				membersToScaleDown[shardRsName] = append(membersToScaleDown[shardRsName], podNamesToScaleDown...)
-			}
-		}
-	}
-
-	return membersToScaleDown
-}
-
-// prepareScaleDownShardedCluster collects all replicasets members to scale down, from configservers and shards, across
-// all clusters, and pass them to PrepareScaleDownFromMap, which sets their votes and priorities to 0
-func (r *ShardedClusterReconcileHelper) prepareScaleDownShardedCluster(omClient om.Connection, log *zap.SugaredLogger) error {
-	membersToScaleDown := r.computeMembersToScaleDown(r.configSrvMemberClusters, r.shardsMemberClustersMap, log)
-
-	if len(membersToScaleDown) > 0 {
-		existingDeployment, err := omClient.ReadDeployment()
-		if err != nil {
-			return xerrors.Errorf("failed to read deployment for scale-down preparation: %w", err)
-		}
-		for rsName, podNames := range membersToScaleDown {
-			existingIds := getReplicaSetProcessIdsFromReplicaSets(rsName, existingDeployment)
-			externalNames := r.sc.Spec.GetExternalMemberProcessNamesForRS(rsName)
-			membersToScaleDown[rsName] = replicaset.ConvertPodNamesToProcessNames(existingIds, externalNames, podNames, r.sc.Namespace)
-		}
-
-		healthyProcessesToWaitForReadyState := r.getHealthyProcessNamesToWaitForReadyState(existingDeployment, omClient, log)
-		if err := replicaset.PrepareScaleDownFromMap(omClient, membersToScaleDown, healthyProcessesToWaitForReadyState, log); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 // deploymentOptions contains fields required for creating the OM deployment for the Sharded Cluster.
@@ -2639,8 +2576,8 @@ func (r *ShardedClusterReconcileHelper) getMongosOptions(ctx context.Context, sc
 
 // getShardOptions returns the Options needed to build the StatefulSet for a given shard.
 func (r *ShardedClusterReconcileHelper) getShardOptions(ctx context.Context, sc mdbv1.MongoDB, shardNum int, opts deploymentOptions, log *zap.SugaredLogger, memberCluster multicluster.MemberCluster) func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions {
-	certSecretName := sc.GetSecurity().MemberCertificateSecretName(sc.ShardRsName(shardNum))
-	internalClusterSecretName := sc.GetSecurity().InternalClusterAuthSecretName(sc.ShardRsName(shardNum))
+	certSecretName := sc.GetSecurity().MemberCertificateSecretName(sc.ShardName(shardNum))
+	internalClusterSecretName := sc.GetSecurity().InternalClusterAuthSecretName(sc.ShardName(shardNum))
 
 	var vaultConfig vault.VaultConfiguration
 	var databaseSecretPath string
@@ -2721,7 +2658,7 @@ func (r *ShardedClusterReconcileHelper) updateStatus(ctx context.Context, resour
 
 func (r *ShardedClusterReconcileHelper) GetShardStsName(shardIdx int, memberCluster multicluster.MemberCluster) string {
 	if memberCluster.Legacy {
-		return r.sc.ShardRsName(shardIdx)
+		return r.sc.ShardName(shardIdx)
 	} else {
 		return r.sc.MultiShardRsName(memberCluster.Index, shardIdx)
 	}
@@ -2954,15 +2891,15 @@ func (r *ShardedClusterReconcileHelper) reconcileShardServices(ctx context.Conte
 	for podNum := 0; podNum < scaler.DesiredReplicas(); podNum++ {
 		// Shards need external services only if an externalDomain is configured
 		if shardsExternalAccess != nil && shardsExternalAccess.ExternalDomain != nil {
-			log.Debugf("creating external services for %s in cluster: %s", r.sc.ShardRsName(shardIdx), memberCluster.Name)
+			log.Debugf("creating external services for %s in cluster: %s", r.sc.ShardName(shardIdx), memberCluster.Name)
 			svc, err := r.getPodExternalService(
 				memberCluster,
-				r.sc.ShardRsName(shardIdx),
+				r.sc.ShardName(shardIdx),
 				shardsExternalAccess,
 				podNum,
 				portOrDefault)
 			if err != nil {
-				return xerrors.Errorf("failed to build an external service %s in cluster: %s, err: %w", dns.GetMultiExternalServiceName(r.sc.ShardRsName(shardIdx), memberCluster.Index, podNum), memberCluster.Name, err)
+				return xerrors.Errorf("failed to build an external service %s in cluster: %s, err: %w", dns.GetMultiExternalServiceName(r.sc.ShardName(shardIdx), memberCluster.Index, podNum), memberCluster.Name, err)
 			}
 			if err = mekoService.CreateOrUpdateService(ctx, memberCluster.Client, svc); err != nil && !errors.IsAlreadyExists(err) {
 				return xerrors.Errorf("failed to create external service %s in cluster: %s, err: %w", svc.Name, memberCluster.Name, err)
@@ -2970,8 +2907,8 @@ func (r *ShardedClusterReconcileHelper) reconcileShardServices(ctx context.Conte
 		}
 		// We don't need internal per-pod services in case we have externalAccess configured AND an external domain
 		if shardsExternalAccess == nil || shardsExternalAccess.ExternalDomain == nil {
-			log.Debugf("creating internal services for %s in cluster: %s", r.sc.ShardRsName(shardIdx), memberCluster.Name)
-			svc := r.getPodService(r.sc.ShardRsName(shardIdx), memberCluster, podNum, portOrDefault)
+			log.Debugf("creating internal services for %s in cluster: %s", r.sc.ShardName(shardIdx), memberCluster.Name)
+			svc := r.getPodService(r.sc.ShardName(shardIdx), memberCluster, podNum, portOrDefault)
 			if err := mekoService.CreateOrUpdateService(ctx, memberCluster.Client, svc); err != nil {
 				return xerrors.Errorf("failed to create pod service %s in cluster: %s, err: %w", svc.Name, memberCluster.Name, err)
 			}
@@ -2980,7 +2917,7 @@ func (r *ShardedClusterReconcileHelper) reconcileShardServices(ctx context.Conte
 		}
 	}
 
-	if err := r.createHeadlessServiceForStatefulSet(ctx, r.sc.ShardRsName(shardIdx), portOrDefault, memberCluster); err != nil {
+	if err := r.createHeadlessServiceForStatefulSet(ctx, r.sc.ShardName(shardIdx), portOrDefault, memberCluster); err != nil {
 		return err
 	}
 	return nil

@@ -547,19 +547,48 @@ func validateShardedACIdentity(mdb *mdbv1.MongoDB, deployment om.Deployment) wor
 	return workflow.OK()
 }
 
-// validateVotingLimitRS checks the 7 voting member limit for the replica set returned by validateRSACIdentity.
-func validateVotingLimitRS(mdb *mdbv1.MongoDB, rs om.ReplicaSet) workflow.Status {
-	externalSet := merge.StringsToSet(mdb.Spec.GetExternalMemberProcessNames())
-	acVoting := collectACVotingMembers(rs, externalSet)
-	externalVotingCount, k8sVotingPositions, newlyVotingPositions := computePostReconcileVoting(mdb, rs, externalSet)
-	total := externalVotingCount + len(k8sVotingPositions)
+// validateVotingLimit checks the MaxVotingMembers limit for a single replica set. externalSet
+// identifies the external (non-K8s) members in rs. votingPositions are the desired K8s voting spec
+// positions for this RS, and newlyVotingPositions are the subset this reconcile would turn voting
+// (callers that cannot tell pass all voting positions).
+func validateVotingLimit(rsName string, rs om.ReplicaSet, externalSet map[string]struct{}, votingPositions, newlyVotingPositions []int) workflow.Status {
+	externalVoting := 0
+	for _, m := range rs.Members() {
+		if _, isExternal := externalSet[m.Name()]; isExternal && m.Votes() > 0 {
+			externalVoting++
+		}
+	}
+	total := externalVoting + len(votingPositions)
 	if total <= MaxVotingMembers {
 		return workflow.OK()
 	}
+	acVoting := collectACVotingMembers(rs, externalSet)
 	excess := total - MaxVotingMembers
 	return workflow.Failed(xerrors.Errorf("%s", formatTooManyVotingMembersError(
-		mdb.GetReplicaSetName(), total, acVoting, newlyVotingPositions, excess,
+		rsName, total, acVoting, newlyVotingPositions, excess,
 	)))
+}
+
+// votingPositionsFromConfig returns the spec positions [0..members) that are voting per memberConfig.
+func votingPositionsFromConfig(members int, memberConfig []automationconfig.MemberOptions) []int {
+	positions := make([]int, 0, members)
+	for i := range members {
+		opts := automationconfig.MemberOptions{}
+		if i < len(memberConfig) {
+			opts = memberConfig[i]
+		}
+		if opts.GetVotes() > 0 {
+			positions = append(positions, i)
+		}
+	}
+	return positions
+}
+
+// validateVotingLimitRS checks the 7 voting member limit for the replica set returned by validateRSACIdentity.
+func validateVotingLimitRS(mdb *mdbv1.MongoDB, rs om.ReplicaSet) workflow.Status {
+	externalSet := merge.StringsToSet(mdb.Spec.GetExternalMemberProcessNames())
+	_, votingPositions, newlyVotingPositions := computePostReconcileVoting(mdb, rs, externalSet)
+	return validateVotingLimit(mdb.GetReplicaSetName(), rs, externalSet, votingPositions, newlyVotingPositions)
 }
 
 // validateVotingLimitSharded checks the 7-voting-member limit for each RS component of the
@@ -580,41 +609,16 @@ func validateVotingLimitSharded(sc *mdbv1.MongoDB, deployment om.Deployment) wor
 		if rs == nil {
 			continue
 		}
-		externalSet := merge.StringsToSet(processNames)
 		k8sMembers, memberConfig := shardedRSK8sConfig(sc, rsName)
 		if k8sMembers == 0 {
 			continue
 		}
-
-		externalVoting := 0
-		for _, m := range rs.Members() {
-			if _, isExternal := externalSet[m.Name()]; isExternal && m.Votes() > 0 {
-				externalVoting++
-			}
-		}
-
-		k8sVotingPositions := make([]int, 0, k8sMembers)
-		for i := 0; i < k8sMembers; i++ {
-			opts := automationconfig.MemberOptions{}
-			if i < len(memberConfig) {
-				opts = memberConfig[i]
-			}
-			if opts.GetVotes() > 0 {
-				k8sVotingPositions = append(k8sVotingPositions, i)
-			}
-		}
-
-		total := externalVoting + len(k8sVotingPositions)
-		if total <= MaxVotingMembers {
-			continue
-		}
-
-		acVoting := collectACVotingMembers(rs, externalSet)
-		excess := total - MaxVotingMembers
+		externalSet := merge.StringsToSet(processNames)
+		votingPositions := votingPositionsFromConfig(k8sMembers, memberConfig)
 		// Treat all K8s voting positions as "newly voting" since K8s members may not yet exist in the AC.
-		return workflow.Failed(xerrors.Errorf("%s", formatTooManyVotingMembersError(
-			rsName, total, acVoting, k8sVotingPositions, excess,
-		)))
+		if status := validateVotingLimit(rsName, rs, externalSet, votingPositions, votingPositions); !status.IsOK() {
+			return status
+		}
 	}
 	return workflow.OK()
 }
@@ -632,7 +636,7 @@ func shardedRSK8sConfig(sc *mdbv1.MongoDB, rsName string) (members int, memberCo
 		}
 		members = sc.Spec.MongodsPerShardCount
 		memberConfig = sc.Spec.MemberConfig
-		k8sName := sc.ShardRsName(i)
+		k8sName := sc.ShardName(i)
 		for _, o := range sc.Spec.ShardOverrides {
 			if !stringutil.Contains(o.ShardNames, k8sName) {
 				continue

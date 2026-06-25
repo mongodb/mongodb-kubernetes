@@ -196,7 +196,7 @@ func (m *MongoDB) GetSecretsMountedIntoDBPod() []string {
 	var tls string
 	if m.Spec.ResourceType == ShardedCluster {
 		for i := 0; i < m.Spec.ShardCount; i++ {
-			tls = m.GetSecurity().MemberCertificateSecretName(m.ShardRsName(i))
+			tls = m.GetSecurity().MemberCertificateSecretName(m.ShardName(i))
 			if tls != "" {
 				secrets = append(secrets, tls)
 			}
@@ -1417,23 +1417,18 @@ func (m *MongoDB) ConfigACRsName() string {
 	return m.ConfigRsName()
 }
 
-func (m *MongoDB) ShardRsName(i int) string {
+// ShardName returns the operator-generated Kubernetes StatefulSet name for shard i (e.g. "my-mdb-0").
+// It is the K8s resource name and is never affected by shardNameOverrides. For the Automation Config
+// replica set name use ShardACRsName.
+func (m *MongoDB) ShardName(i int) string {
 	// Unfortunately the pattern used by OM (name_idx) doesn't work as Kubernetes doesn't create the stateful set with an
 	// exception: "a DNS-1123 subdomain must consist of lower case alphanumeric characters, '-' or '.'"
 	return fmt.Sprintf("%s-%d", m.Name, i)
 }
 
-func (m *MongoDB) ShardRsNames() []string {
-	names := make([]string, m.Spec.ShardCount)
-	for i := range m.Spec.ShardCount {
-		names[i] = m.ShardRsName(i)
-	}
-	return names
-}
-
 // ShardNameOverrideForShard returns the override entry matching shard i by K8s StatefulSet name, or nil.
 func (m *MongoDB) ShardNameOverrideForShard(i int) *ShardNameOverride {
-	k8sName := m.ShardRsName(i)
+	k8sName := m.ShardName(i)
 	for j := range m.Spec.ShardNameOverrides {
 		if m.Spec.ShardNameOverrides[j].ShardName == k8sName {
 			return &m.Spec.ShardNameOverrides[j]
@@ -1447,7 +1442,7 @@ func (m *MongoDB) ShardACRsName(i int) string {
 	if o := m.ShardNameOverrideForShard(i); o != nil && o.ReplicaSetName != "" {
 		return o.ReplicaSetName
 	}
-	return m.ShardRsName(i)
+	return m.ShardName(i)
 }
 
 // ShardACRsNames returns the AC replicaSetName of every shard, indexed by shard index.
@@ -1464,7 +1459,7 @@ func (m *MongoDB) ShardACShardId(i int) string {
 	if o := m.ShardNameOverrideForShard(i); o != nil && o.ShardId != "" {
 		return o.ShardId
 	}
-	return m.ShardRsName(i)
+	return m.ShardName(i)
 }
 
 func (m *MongoDB) MultiShardRsName(clusterIdx int, shardIdx int) string {
@@ -1895,7 +1890,7 @@ func (m *MongoDB) CalculateFeatureCompatibilityVersion() string {
 func (m *MongoDB) ShardNames() []string {
 	shardNames := make([]string, m.Spec.ShardCount)
 	for shardIdx := 0; shardIdx < m.Spec.ShardCount; shardIdx++ {
-		shardNames[shardIdx] = m.ShardRsName(shardIdx)
+		shardNames[shardIdx] = m.ShardName(shardIdx)
 	}
 	return shardNames
 }

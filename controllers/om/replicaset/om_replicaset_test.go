@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"go.uber.org/zap"
 	"k8s.io/utils/ptr"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -221,32 +220,4 @@ func TestIsLegacyDeployment_AllLegacyNaming(t *testing.T) {
 		"my-rs-2": 2,
 	}
 	assert.True(t, IsLegacyDeployment(existingIds, nil))
-}
-
-func TestPodNamesToProcessNames_LegacyDeployment(t *testing.T) {
-	rs := om.NewReplicaSet("my-rs", "7.0.0")
-	rs["members"] = []om.ReplicaSetMember{
-		{"_id": 0, "host": "my-rs-0"},
-		{"_id": 1, "host": "my-rs-1"},
-	}
-	deployment := om.NewDeployment()
-	deployment["replicaSets"] = []om.ReplicaSet{rs}
-
-	conn := om.NewMockedOmConnection(deployment)
-	result := podNamesToProcessNames(conn, "my-rs", "my-ns", nil, []string{"my-rs-2"}, zap.NewNop().Sugar())
-	assert.Equal(t, []string{"my-rs-2"}, result)
-}
-
-func TestPodNamesToProcessNames_NewNamingDeployment(t *testing.T) {
-	rs := om.NewReplicaSet("my-rs", "7.0.0")
-	rs["members"] = []om.ReplicaSetMember{
-		{"_id": 0, "host": "k8s/my-ns/my-rs-0"},
-		{"_id": 1, "host": "k8s/my-ns/my-rs-1"},
-	}
-	deployment := om.NewDeployment()
-	deployment["replicaSets"] = []om.ReplicaSet{rs}
-
-	conn := om.NewMockedOmConnection(deployment)
-	result := podNamesToProcessNames(conn, "my-rs", "my-ns", nil, []string{"my-rs-2"}, zap.NewNop().Sugar())
-	assert.Equal(t, []string{"k8s/my-ns/my-rs-2"}, result)
 }
