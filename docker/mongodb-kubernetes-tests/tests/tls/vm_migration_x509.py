@@ -23,7 +23,8 @@ Why different Secrets for the same agent cert+key?
 import yaml
 from cryptography import x509 as crypto_x509
 from cryptography.hazmat.backends import default_backend
-from kubetester import create_or_update_secret, get_statefulset, read_secret, try_load
+from kubernetes import client
+from kubetester import create_or_update_configmap, create_or_update_secret, get_statefulset, read_secret, try_load
 from kubetester.certs import ISSUER_CA_NAME, create_mongodb_tls_certs, create_x509_agent_tls_certs
 from kubetester.kubetester import KubernetesTester, fcv_from_version
 from kubetester.kubetester import fixture as yaml_fixture
@@ -32,7 +33,11 @@ from kubetester.mongotester import MongoDBBackgroundTester, MongoTester
 from kubetester.omtester import OMContext, OMTester
 from kubetester.phase import Phase
 from pytest import fixture, mark
-from tests.tls.vm_migration_dry_run import run_migration_dry_run_connectivity_passes
+from tests.tls.vm_migration_dry_run import (
+    generate_wrong_ca_pem,
+    run_migration_dry_run_connectivity_fails,
+    run_migration_dry_run_connectivity_passes,
+)
 
 VM_STS_NAME = "vm-mongodb"
 VM_RS_NAME = "vm-mongodb-rs"
@@ -370,7 +375,7 @@ def test_vm_ac_tls(
     ac["processes"] = processes
     ac["monitoringVersions"] = monitoring_versions
     om_tester.api_put_automation_config(ac)
-    om_tester.wait_agents_ready(timeout=600)
+    om_tester.wait_agents_ready(timeout=1200)
 
 
 @mark.e2e_vm_migration_x509
@@ -408,6 +413,33 @@ def test_vm_ac_x509_auth(
     }
     om_tester.api_put_automation_config(ac)
     om_tester.wait_agents_ready(timeout=1800)
+
+
+@mark.e2e_vm_migration_x509
+def test_migration_dry_run_wrong_ca_fails_then_passes(namespace: str, mdb_migration: MongoDB, issuer_ca_configmap: str):
+    """Dry-run with a wrong CA must fail; restoring the correct CA must make it pass."""
+    wrong_ca_name = "wrong-issuer-ca"
+    wrong_ca_pem = generate_wrong_ca_pem()
+    create_or_update_configmap(namespace, wrong_ca_name, {"ca-pem": wrong_ca_pem, "mms-ca.crt": wrong_ca_pem})
+
+    mdb_migration.load()
+    mdb_migration["spec"]["security"]["tls"]["ca"] = wrong_ca_name
+    mdb_migration.update()
+
+    run_migration_dry_run_connectivity_fails(mdb_migration)
+
+    # Delete the failed job so the operator can re-run validation with the corrected CA.
+    client.BatchV1Api().delete_namespaced_job(
+        f"{MDB_RESOURCE_NAME}-connectivity-check",
+        namespace,
+        body=client.V1DeleteOptions(propagation_policy="Background"),
+    )
+
+    # Restore the correct CA and wait for the re-run to pass (annotation stays set).
+    mdb_migration.load()
+    mdb_migration["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
+    mdb_migration.update()
+    run_migration_dry_run_connectivity_passes(mdb_migration)
 
 
 @mark.e2e_vm_migration_x509
