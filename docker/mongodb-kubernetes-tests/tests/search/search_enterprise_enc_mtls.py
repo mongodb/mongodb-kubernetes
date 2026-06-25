@@ -13,7 +13,10 @@ from tests.common.search import movies_search_helper, search_resource_names
 from tests.common.search.replicaset_search_helper import verify_rs_mongod_parameters
 from tests.common.search.search_deployment_helper import SearchDeploymentHelper
 from tests.common.search.search_tester import SearchTester
-from tests.common.search.tls_utils import encrypt_tls_key_with_password
+from tests.common.search.tls_utils import (
+    create_keyfile_password_secret,
+    encrypt_tls_key_with_password,
+)
 from tests.conftest import get_default_operator, get_issuer_ca_filepath
 from tests.search.om_deployment import get_ops_manager
 
@@ -35,10 +38,14 @@ MDBS_TLS_SECRET_NAME = search_resource_names.mongot_tls_cert_name(MDB_RESOURCE_N
 
 # Password used to encrypt the gRPC server certificate private key
 GRPC_KEY_PASSWORD = "test-grpc-key-password"
+# Dedicated secret holding the gRPC keyfile password (spec.security.tls.keyFilePasswordSecretRef)
+GRPC_KEY_PASSWORD_SECRET_NAME = f"{MDB_RESOURCE_NAME}-grpc-key-password"
 
 # SCRAM mTLS client cert for mongot -> mongod connection
 SCRAM_CLIENT_CERT_SECRET_NAME = f"{MDB_RESOURCE_NAME}-scram-tls-user"
 SCRAM_KEY_PASSWORD = "test-scram-key-password"
+# Dedicated secret holding the scram keyfile password (spec.source.tls.keyFilePasswordSecretRef)
+SCRAM_KEY_PASSWORD_SECRET_NAME = f"{MDB_RESOURCE_NAME}-scram-key-password"
 
 
 @fixture(scope="function")
@@ -69,9 +76,17 @@ def mdbs(namespace: str) -> MongoDBSearch:
     resource = MongoDBSearch.from_yaml(yaml_fixture("search-minimal.yaml"), namespace=namespace, name=MDB_RESOURCE_NAME)
     if "spec" not in resource:
         resource["spec"] = {}
-    resource["spec"]["security"] = {"tls": {"certificateKeySecretRef": {"name": MDBS_TLS_SECRET_NAME}}}
+    resource["spec"]["security"] = {
+        "tls": {
+            "certificateKeySecretRef": {"name": MDBS_TLS_SECRET_NAME},
+            "keyFilePasswordSecretRef": {"name": GRPC_KEY_PASSWORD_SECRET_NAME},
+        }
+    }
     resource["spec"]["source"] = {"passwordSecretRef": {"name": f"{resource.name}-{MONGOT_USER_NAME}-password"}}
-    resource["spec"]["source"]["tls"] = {"clientCertificateSecretRef": {"name": SCRAM_CLIENT_CERT_SECRET_NAME}}
+    resource["spec"]["source"]["tls"] = {
+        "clientCertificateSecretRef": {"name": SCRAM_CLIENT_CERT_SECRET_NAME},
+        "keyFilePasswordSecretRef": {"name": SCRAM_KEY_PASSWORD_SECRET_NAME},
+    }
     try_load(resource)
     return resource
 
@@ -126,9 +141,10 @@ def test_install_tls_secrets_and_configmaps(namespace: str, mdb: MongoDB, mdbs: 
         secret_name=MDBS_TLS_SECRET_NAME,
     )
 
-    # Encrypt the gRPC server certificate key with a password to verify
-    # that mongot can handle password-protected keys via tls.keyFilePassword
+    # Encrypt the gRPC server certificate key with a password and store the password
+    # in a dedicated secret referenced via keyFilePasswordSecretRef.
     encrypt_tls_key_with_password(namespace, MDBS_TLS_SECRET_NAME, GRPC_KEY_PASSWORD)
+    create_keyfile_password_secret(namespace, GRPC_KEY_PASSWORD_SECRET_NAME, GRPC_KEY_PASSWORD)
 
     # SCRAM client cert for mongot mTLS to mongod
     generate_cert(
@@ -143,6 +159,7 @@ def test_install_tls_secrets_and_configmaps(namespace: str, mdb: MongoDB, mdbs: 
         secret_name=SCRAM_CLIENT_CERT_SECRET_NAME,
     )
     encrypt_tls_key_with_password(namespace, SCRAM_CLIENT_CERT_SECRET_NAME, SCRAM_KEY_PASSWORD)
+    create_keyfile_password_secret(namespace, SCRAM_KEY_PASSWORD_SECRET_NAME, SCRAM_KEY_PASSWORD)
 
 
 @mark.e2e_search_enterprise_enc_mtls

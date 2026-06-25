@@ -689,6 +689,18 @@ func (r *MongoDBSearchReconcileHelper) applyReconcileUnit(
 		return nil, nil, err
 	}
 
+	// Fold the dedicated keyFilePassword secrets' content into the config hash so that changing a
+	// password secret (without a cert/key change) still rolls the mongot pods to re-read it. The
+	// password is mounted directly (not part of the mongot config content), so it would not otherwise
+	// affect mongotConfigHash.
+	keyPasswordHash, err := r.keyFilePasswordContentHash(ctx, unitClient)
+	if err != nil {
+		return nil, nil, err
+	}
+	if keyPasswordHash != "" {
+		configHash = hashBytes([]byte(configHash + keyPasswordHash))
+	}
+
 	configHashModification := statefulset.WithPodSpecTemplate(podtemplatespec.WithAnnotations(
 		map[string]string{
 			"mongotConfigHash": configHash,
@@ -1499,11 +1511,14 @@ func (r *MongoDBSearchReconcileHelper) ensureIngressTlsConfig(ctx context.Contex
 		return nil, nil, err
 	}
 
-	// Check if the user-provided TLS secret contains an optional key password
+	// The gRPC server key may be password-encrypted; the password lives in a dedicated secret
+	// (spec.security.tls.keyFilePasswordSecretRef), key "keyFilePassword".
+	keyPasswordSecret := r.mdbSearch.GrpcKeyFilePasswordSecret()
 	hasKeyPassword := false
-	userProvidedTLSSecret := tlsResource.TLSSecretNamespacedName()
-	_, keyPasswordErr := secret.ReadKey(ctx, kubeClient, GrpcKeyPasswordSecretKey, userProvidedTLSSecret)
-	if keyPasswordErr == nil {
+	if keyPasswordSecret.Name != "" {
+		if _, err := secret.ReadKey(ctx, kubeClient, KeyFilePasswordSecretKey, keyPasswordSecret); err != nil {
+			return nil, nil, xerrors.Errorf("reading gRPC keyFilePassword secret %s: %w", keyPasswordSecret.Name, err)
+		}
 		hasKeyPassword = true
 	}
 
@@ -1529,9 +1544,9 @@ func (r *MongoDBSearchReconcileHelper) ensureIngressTlsConfig(ctx context.Contex
 	var containerMods []container.Modification
 
 	if hasKeyPassword {
-		keyPasswordVolume := statefulset.CreateVolumeFromSecret("grpc-key-password", userProvidedTLSSecret.Name)
+		keyPasswordVolume := statefulset.CreateVolumeFromSecret("grpc-key-password", keyPasswordSecret.Name)
 		keyPasswordVolumeMount := statefulset.CreateVolumeMount("grpc-key-password", GrpcKeyPasswordMountPath,
-			statefulset.WithReadOnly(true), statefulset.WithSubPath(GrpcKeyPasswordSecretKey))
+			statefulset.WithReadOnly(true), statefulset.WithSubPath(KeyFilePasswordSecretKey))
 
 		volumeMounts = append(volumeMounts, keyPasswordVolumeMount)
 		volumes = append(volumes, podtemplatespec.WithVolume(keyPasswordVolume))
@@ -1585,11 +1600,14 @@ func (r *MongoDBSearchReconcileHelper) ensureX509ClientCertConfig(ctx context.Co
 
 	certPath := X509ClientCertOperatorMountPath + certFileName
 
-	// Check if the user secret contains an optional key password
+	// The x509 client key may be password-encrypted; the password lives in a dedicated secret
+	// (spec.source.x509.keyFilePasswordSecretRef), key "keyFilePassword".
+	keyPasswordSecret := r.mdbSearch.X509KeyFilePasswordSecret()
 	hasKeyPassword := false
-	userProvidedClientSecret := r.mdbSearch.X509ClientCertSecret()
-	_, keyPasswordErr := secret.ReadKey(ctx, kubeClient, X509KeyPasswordSecretKey, userProvidedClientSecret)
-	if keyPasswordErr == nil {
+	if keyPasswordSecret.Name != "" {
+		if _, err := secret.ReadKey(ctx, kubeClient, KeyFilePasswordSecretKey, keyPasswordSecret); err != nil {
+			return nil, nil, xerrors.Errorf("reading x509 keyFilePassword secret %s: %w", keyPasswordSecret.Name, err)
+		}
 		hasKeyPassword = true
 	}
 
@@ -1624,13 +1642,13 @@ func (r *MongoDBSearchReconcileHelper) ensureX509ClientCertConfig(ctx context.Co
 	volumes := []podtemplatespec.Modification{podtemplatespec.WithVolume(x509Volume)}
 	var prependCommands []string
 
-	// If the key password is present, reads the key password directly from the user-provided secret (not the operator-managed one). And mount that user secret as a separate volume
-	// (x509-key-password) with subPath: tls.keyFilePassword, so only that one key is exposed at /mongot/x509-key-password. After file permissions workaround we copy it to
-	// /tmp/x509-key-password.
+	// Mount the dedicated keyFilePassword secret as a separate volume (x509-key-password) with
+	// subPath keyFilePassword, so only that one key is exposed at /mongot/x509-key-password. After the
+	// file-permissions workaround we copy it to /tmp/x509-key-password.
 	if hasKeyPassword {
-		keyPasswordVolume := statefulset.CreateVolumeFromSecret("x509-key-password", userProvidedClientSecret.Name)
+		keyPasswordVolume := statefulset.CreateVolumeFromSecret("x509-key-password", keyPasswordSecret.Name)
 		keyPasswordVolumeMount := statefulset.CreateVolumeMount("x509-key-password", X509KeyPasswordMountPath,
-			statefulset.WithReadOnly(true), statefulset.WithSubPath(X509KeyPasswordSecretKey))
+			statefulset.WithReadOnly(true), statefulset.WithSubPath(KeyFilePasswordSecretKey))
 
 		volumeMounts = append(volumeMounts, keyPasswordVolumeMount)
 		volumes = append(volumes, podtemplatespec.WithVolume(keyPasswordVolume))
@@ -1680,6 +1698,7 @@ func (r *MongoDBSearchReconcileHelper) ensureEgressTlsConfig(ctx context.Context
 	// Process optional SCRAM client certificate for mTLS
 	var scramCertPath string
 	hasScramKeyPassword := false
+	scramKeyPasswordSecret := r.mdbSearch.ScramKeyFilePasswordSecret()
 	if r.mdbSearch.HasScramClientCert() {
 		scramCertResource := &scramClientCertResource{MongoDBSearch: r.mdbSearch}
 		certFileName, err := tls.EnsureTLSSecret(ctx, kubeClient, scramCertResource)
@@ -1688,10 +1707,12 @@ func (r *MongoDBSearchReconcileHelper) ensureEgressTlsConfig(ctx context.Context
 		}
 		scramCertPath = ScramClientCertOperatorMountPath + certFileName
 
-		// Check if the user-provided secret contains an optional key password
-		userProvidedSecret := r.mdbSearch.ScramClientCertSecret()
-		_, keyPasswordErr := secret.ReadKey(ctx, kubeClient, ScramKeyPasswordSecretKey, userProvidedSecret)
-		if keyPasswordErr == nil {
+		// The scram client key may be password-encrypted; the password lives in a dedicated secret
+		// (spec.source.tls.keyFilePasswordSecretRef), key "keyFilePassword".
+		if scramKeyPasswordSecret.Name != "" {
+			if _, err := secret.ReadKey(ctx, kubeClient, KeyFilePasswordSecretKey, scramKeyPasswordSecret); err != nil {
+				return nil, nil, xerrors.Errorf("reading scram keyFilePassword secret %s: %w", scramKeyPasswordSecret.Name, err)
+			}
 			hasScramKeyPassword = true
 		}
 	}
@@ -1748,10 +1769,9 @@ func (r *MongoDBSearchReconcileHelper) ensureEgressTlsConfig(ctx context.Context
 		volumes = append(volumes, podtemplatespec.WithVolume(scramCertVolume))
 
 		if hasScramKeyPassword {
-			userProvidedSecret := r.mdbSearch.ScramClientCertSecret()
-			keyPasswordVolume := statefulset.CreateVolumeFromSecret("scram-key-password", userProvidedSecret.Name)
+			keyPasswordVolume := statefulset.CreateVolumeFromSecret("scram-key-password", scramKeyPasswordSecret.Name)
 			keyPasswordVolumeMount := statefulset.CreateVolumeMount("scram-key-password", ScramKeyPasswordMountPath,
-				statefulset.WithReadOnly(true), statefulset.WithSubPath(ScramKeyPasswordSecretKey))
+				statefulset.WithReadOnly(true), statefulset.WithSubPath(KeyFilePasswordSecretKey))
 
 			volumeMounts = append(volumeMounts, keyPasswordVolumeMount)
 			volumes = append(volumes, podtemplatespec.WithVolume(keyPasswordVolume))
@@ -1787,6 +1807,29 @@ func (s *scramClientCertResource) TLSOperatorSecretNamespacedName() types.Namesp
 func hashBytes(bytes []byte) string {
 	hashBytes := sha256.Sum256(bytes)
 	return base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(hashBytes[:])
+}
+
+// keyFilePasswordContentHash returns a hash of every configured keyFilePassword secret's content
+func (r *MongoDBSearchReconcileHelper) keyFilePasswordContentHash(ctx context.Context, kubeClient kubernetesClient.Client) (string, error) {
+	var combined []byte
+	for _, nn := range []types.NamespacedName{
+		r.mdbSearch.GrpcKeyFilePasswordSecret(),
+		r.mdbSearch.X509KeyFilePasswordSecret(),
+		r.mdbSearch.ScramKeyFilePasswordSecret(),
+	} {
+		if nn.Name == "" {
+			continue
+		}
+		pw, err := secret.ReadKey(ctx, kubeClient, KeyFilePasswordSecretKey, nn)
+		if err != nil {
+			return "", xerrors.Errorf("reading keyFilePassword secret %s: %w", nn.Name, err)
+		}
+		combined = append(combined, []byte(nn.Name+":"+pw+";")...)
+	}
+	if len(combined) == 0 {
+		return "", nil
+	}
+	return hashBytes(combined), nil
 }
 
 // baseMongotConfig sets up the common mongot configuration fields shared by all deployment types:
