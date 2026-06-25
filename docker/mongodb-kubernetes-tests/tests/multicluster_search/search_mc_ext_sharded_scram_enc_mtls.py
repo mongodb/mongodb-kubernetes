@@ -214,6 +214,9 @@ def mdbs(
                     "externalHostname": search_resource_names.shard_proxy_svc_hostname_template(
                         MDBS_RESOURCE_NAME, namespace, _idx(mcc)
                     ),
+                    # Shard-agnostic cluster-level endpoint for mongos: the per-cluster proxy-svc FQDN
+                    # (matches the LB cert SAN). Distinct per cluster via the cluster index.
+                    "routerHostname": search_resource_names.mc_proxy_svc_fqdn(MDBS_RESOURCE_NAME, namespace, _idx(mcc)),
                 },
             },
         }

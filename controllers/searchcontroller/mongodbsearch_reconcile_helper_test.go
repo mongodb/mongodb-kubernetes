@@ -1790,7 +1790,7 @@ func TestGetMongosConfigParametersForSharded(t *testing.T) {
 			expectedHost:  "test-search-search-0-proxy-svc.test-ns.svc.cluster.local:27028",
 		},
 		{
-			name: "Managed LB with externalHostname - uses cluster-level external form",
+			name: "Managed LB with routerHostname - uses it verbatim for mongos",
 			search: &searchv1.MongoDBSearch{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-search",
@@ -1806,6 +1806,7 @@ func TestGetMongosConfigParametersForSharded(t *testing.T) {
 						LoadBalancer: &searchv1.LoadBalancerConfig{
 							Managed: &searchv1.ManagedLBConfig{
 								ExternalHostname: "{shardName}.search.example.com:443",
+								RouterHostname:   "search.example.com:443",
 							},
 						},
 					}},
@@ -1813,11 +1814,11 @@ func TestGetMongosConfigParametersForSharded(t *testing.T) {
 			},
 			shardNames:    []string{"test-mdb-0", "test-mdb-1"},
 			clusterDomain: "cluster.local",
-			// Cluster-level form: strip leading "{shardName}." from the template.
+			// mongos uses routerHostname verbatim.
 			expectedHost: "search.example.com:443",
 		},
 		{
-			name: "MC managed LB - cluster-level form uses cluster's own externalHostname for clusterIndex>0",
+			name: "MC managed LB - mongos uses the named cluster's routerHostname for clusterIndex>0",
 			search: &searchv1.MongoDBSearch{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-search",
@@ -1833,11 +1834,13 @@ func TestGetMongosConfigParametersForSharded(t *testing.T) {
 						{Name: "us-east-k8s", LoadBalancer: &searchv1.LoadBalancerConfig{
 							Managed: &searchv1.ManagedLBConfig{
 								ExternalHostname: "{shardName}.us-east-k8s.search.example.com:443",
+								RouterHostname:   "us-east-k8s.search.example.com:443",
 							},
 						}},
 						{Name: "eu-west-k8s", LoadBalancer: &searchv1.LoadBalancerConfig{
 							Managed: &searchv1.ManagedLBConfig{
 								ExternalHostname: "{shardName}.eu-west-k8s.search.example.com:443",
+								RouterHostname:   "eu-west-k8s.search.example.com:443",
 							},
 						}},
 					},
@@ -1847,7 +1850,7 @@ func TestGetMongosConfigParametersForSharded(t *testing.T) {
 			clusterName:   "eu-west-k8s",
 			shardNames:    []string{"test-mdb-0", "test-mdb-1"},
 			clusterDomain: "cluster.local",
-			// Strip "{shardName}." from spec.clusters[1]'s own externalHostname.
+			// mongos uses spec.clusters[1]'s routerHostname verbatim.
 			expectedHost: "eu-west-k8s.search.example.com:443",
 		},
 	}
@@ -1888,7 +1891,7 @@ func TestGetMongosConfigParametersForSharded_PinnedIndexNotSpecPosition(t *testi
 			},
 			Clusters: []searchv1.ClusterSpec{
 				{Name: "cluster-b", LoadBalancer: &searchv1.LoadBalancerConfig{
-					Managed: &searchv1.ManagedLBConfig{ExternalHostname: "{shardName}.b.example.com:443"},
+					Managed: &searchv1.ManagedLBConfig{ExternalHostname: "{shardName}.b.example.com:443", RouterHostname: "b.example.com:443"},
 				}},
 			},
 		},
@@ -1898,7 +1901,7 @@ func TestGetMongosConfigParametersForSharded_PinnedIndexNotSpecPosition(t *testi
 	setParameter, ok := config["setParameter"].(map[string]any)
 	require.True(t, ok, "setParameter should be a map")
 	assert.Equal(t, "b.example.com:443", setParameter["mongotHost"],
-		"mongos must get cluster-b's externalHostname even though its pinned index (1) is not its spec position (0)")
+		"mongos must get cluster-b's routerHostname even though its pinned index (1) is not its spec position (0)")
 }
 
 func TestMongotHostAndPort_ReplicaSet(t *testing.T) {
@@ -3226,11 +3229,13 @@ func TestBuildShardedPlan_PerClusterShardUnitsForMC(t *testing.T) {
 	search.Spec.Clusters = []searchv1.ClusterSpec{
 		{Name: "cluster-a", Index: ptr.To(int32(0)), LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{
 			ExternalHostname: "{shardName}.mdb-search-search-0-proxy-svc.ns.svc.cluster.local",
+			RouterHostname:   "mdb-search-search-0-proxy-svc.ns.svc.cluster.local",
 		}}},
 		// Pin the second cluster to 7 (!= its array position 1) so the per-(cluster,shard)
 		// assertions below fail if the index ever comes from the loop position.
 		{Name: "cluster-b", Index: ptr.To(int32(7)), LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{
 			ExternalHostname: "{shardName}.mdb-search-search-7-proxy-svc.ns.svc.cluster.local",
+			RouterHostname:   "mdb-search-search-7-proxy-svc.ns.svc.cluster.local",
 		}}},
 	}
 
@@ -3289,9 +3294,11 @@ func TestBuildShardedPlan_PerClusterMatchTagSets(t *testing.T) {
 	search.Spec.Clusters = []searchv1.ClusterSpec{
 		{Name: "cluster-a", Index: ptr.To(int32(0)), SyncSourceSelector: &searchv1.SyncSourceSelector{MatchTagSets: []map[string]string{{"region": "us-east"}}}, LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{
 			ExternalHostname: "{shardName}.mdb-search-search-0-proxy-svc.ns.svc.cluster.local",
+			RouterHostname:   "mdb-search-search-0-proxy-svc.ns.svc.cluster.local",
 		}}},
 		{Name: "cluster-b", Index: ptr.To(int32(1)), LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{
 			ExternalHostname: "{shardName}.mdb-search-search-1-proxy-svc.ns.svc.cluster.local",
+			RouterHostname:   "mdb-search-search-1-proxy-svc.ns.svc.cluster.local",
 		}}},
 	}
 
@@ -3339,9 +3346,11 @@ func TestReconcileShardedMC_FanOutUsesPerClusterClient(t *testing.T) {
 	search.Spec.Clusters = []searchv1.ClusterSpec{
 		{Name: "cluster-a", Index: ptr.To(int32(0)), LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{
 			ExternalHostname: "{shardName}.mdb-search-search-0-proxy-svc.ns.svc.cluster.local",
+			RouterHostname:   "mdb-search-search-0-proxy-svc.ns.svc.cluster.local",
 		}}},
 		{Name: "cluster-b", Index: ptr.To(int32(1)), LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{
 			ExternalHostname: "{shardName}.mdb-search-search-1-proxy-svc.ns.svc.cluster.local",
+			RouterHostname:   "mdb-search-search-1-proxy-svc.ns.svc.cluster.local",
 		}}},
 	}
 
@@ -3460,9 +3469,11 @@ func TestReconcileShardedMC_AllUnitsAppliedBeforeReadinessCheck(t *testing.T) {
 	search.Spec.Clusters = []searchv1.ClusterSpec{
 		{Name: "cluster-a", Index: ptr.To(int32(0)), LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{
 			ExternalHostname: "{shardName}.mdb-search-search-0-proxy-svc.ns.svc.cluster.local",
+			RouterHostname:   "mdb-search-search-0-proxy-svc.ns.svc.cluster.local",
 		}}},
 		{Name: "cluster-b", Index: ptr.To(int32(1)), LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{
 			ExternalHostname: "{shardName}.mdb-search-search-1-proxy-svc.ns.svc.cluster.local",
+			RouterHostname:   "mdb-search-search-1-proxy-svc.ns.svc.cluster.local",
 		}}},
 	}
 	search.Spec.Source = &searchv1.MongoDBSource{
@@ -3592,9 +3603,11 @@ func newMCShardedFixture(t *testing.T) *mcShardedFixture {
 	search.Spec.Clusters = []searchv1.ClusterSpec{
 		{Name: "cluster-a", Index: ptr.To(int32(0)), LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{
 			ExternalHostname: "{shardName}.mdb-search-search-0-proxy-svc.ns.svc.cluster.local",
+			RouterHostname:   "mdb-search-search-0-proxy-svc.ns.svc.cluster.local",
 		}}},
 		{Name: "cluster-b", Index: ptr.To(int32(1)), LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{
 			ExternalHostname: "{shardName}.mdb-search-search-1-proxy-svc.ns.svc.cluster.local",
+			RouterHostname:   "mdb-search-search-1-proxy-svc.ns.svc.cluster.local",
 		}}},
 	}
 	search.Spec.Source = &searchv1.MongoDBSource{
@@ -3956,6 +3969,7 @@ func TestReconcileSharded_RoutingSwitchOneWay(t *testing.T) {
 		s.Spec.Clusters[0].LoadBalancer = &searchv1.LoadBalancerConfig{
 			Managed: &searchv1.ManagedLBConfig{
 				ExternalHostname: "{shardName}.mdb-search-search-0-proxy-svc.ns.svc.cluster.local",
+				RouterHostname:   "mdb-search-search-0-proxy-svc.ns.svc.cluster.local",
 			},
 		}
 		s.Spec.Security = searchv1.Security{TLS: &searchv1.TLS{CertsSecretPrefix: "certs"}}
@@ -4034,6 +4048,7 @@ func TestReconcileSharded_SwitchErrorsAggregatedAcrossUnits(t *testing.T) {
 		s.Spec.Clusters[0].LoadBalancer = &searchv1.LoadBalancerConfig{
 			Managed: &searchv1.ManagedLBConfig{
 				ExternalHostname: "{shardName}.mdb-search-search-0-proxy-svc.ns.svc.cluster.local",
+				RouterHostname:   "mdb-search-search-0-proxy-svc.ns.svc.cluster.local",
 			},
 		}
 		s.Spec.Security = searchv1.Security{TLS: &searchv1.TLS{CertsSecretPrefix: "certs"}}
