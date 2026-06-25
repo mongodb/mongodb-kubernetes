@@ -9,8 +9,8 @@ source scripts/funcs/printing
 source scripts/funcs/kubernetes
 
 # Activate venv if it exists (needed for AWS CLI on IBM architectures)
-if [[ -f "${PROJECT_DIR}/venv/bin/activate" ]]; then
-    source "${PROJECT_DIR}/venv/bin/activate"
+if [[ -f "${PROJECT_VENV_PATH}/bin/activate" ]]; then
+    source "${PROJECT_VENV_PATH}/bin/activate"
 fi
 
 CONTAINER_RUNTIME="${CONTAINER_RUNTIME-"docker"}"

@@ -10,8 +10,8 @@ source scripts/dev/set_env_context.sh
 source scripts/funcs/printing
 
 # Activate virtual environment if it exists
-if [ -f "${PROJECT_DIR}/venv/bin/activate" ]; then
-  source "${PROJECT_DIR}/venv/bin/activate"
+if [ -f "${PROJECT_VENV_PATH}/bin/activate" ]; then
+  source "${PROJECT_VENV_PATH}/bin/activate"
 fi
 
 # Ensure pre-commit is installed

@@ -6,11 +6,11 @@ source scripts/dev/set_env_context.sh
 source scripts/funcs/printing
 
 # shellcheck disable=SC2154
-if [ -f "${PROJECT_DIR}/venv/bin/activate" ]; then
-    source "${PROJECT_DIR}/venv/bin/activate"
+if [ -f "${PROJECT_VENV_PATH}/bin/activate" ]; then
+    source "${PROJECT_VENV_PATH}/bin/activate"
 else
-  echo "Cannot find python venv in ${PROJECT_DIR}"
-  ls -al "${PROJECT_DIR}"
+  echo "Cannot find python venv at ${PROJECT_VENV_PATH}"
+  ls -al "$(dirname "${PROJECT_VENV_PATH}")" 2>/dev/null || true
   exit 1
 fi
 

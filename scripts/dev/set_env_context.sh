@@ -17,4 +17,20 @@ fi
 # shellcheck disable=SC1090
 source "${context_file}"
 
+# All local worktrees share Python venvs so that switching between worktrees doesn't
+# require recreating them each time. They live under ~/.operator-dev by default and are
+# keyed by PYTHON_VERSION (e.g. ~/.operator-dev/venv-3.13.7) so worktrees pinning
+# different Python versions don't clobber each other's venv.
+# Override the location by exporting PROJECT_VENV_PATH before sourcing this script.
+# In Evergreen each task has its own isolated workdir, so the venv stays inside PROJECT_DIR.
+if [[ -z "${PROJECT_VENV_PATH:-}" ]]; then
+    if [[ "${RUNNING_IN_EVG:-}" == "true" ]]; then
+        export PROJECT_VENV_PATH="${PROJECT_DIR}/venv"
+    elif [[ -n "${PYTHON_VERSION:-}" ]]; then
+        export PROJECT_VENV_PATH="${HOME}/.operator-dev/venv-${PYTHON_VERSION}"
+    else
+        export PROJECT_VENV_PATH="${HOME}/.operator-dev/venv"
+    fi
+fi
+
 export PATH="${PROJECT_DIR}/bin:${PATH}"

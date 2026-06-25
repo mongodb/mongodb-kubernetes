@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
-# This script recreates local python venv using uv in the ${PROJECT_DIR} directory.
-# For the pip-based alternative, see recreate_python_venv_pip.sh.
+# This script recreates the local python venv using uv at ${PROJECT_VENV_PATH}
+# (shared across worktrees, see set_env_context.sh).
 
 set -Eeou pipefail
 
@@ -56,9 +56,9 @@ ensure_required_python() {
 }
 
 cd "${PROJECT_DIR}"
-if [[ -d "venv" ]]; then
-    echo "Removing existing venv..." >&2
-    rm -rf "venv"
+if [[ -d "${PROJECT_VENV_PATH}" ]]; then
+    echo "Removing existing venv at ${PROJECT_VENV_PATH}..." >&2
+    rm -rf "${PROJECT_VENV_PATH}"
     echo "Existing venv removed" >&2
 else
     echo "No existing venv found" >&2
@@ -68,14 +68,15 @@ install_uv
 
 ensure_required_python
 
-echo "Creating venv with Python ${PYTHON_VERSION} using uv..."
-uv venv venv --python "${PYTHON_VERSION}"
+echo "Creating venv with Python ${PYTHON_VERSION} using uv at ${PROJECT_VENV_PATH}..."
+mkdir -p "$(dirname "${PROJECT_VENV_PATH}")"
+uv venv "${PROJECT_VENV_PATH}" --python "${PYTHON_VERSION}"
 
 # uv's python build statically link OpenSSL and that might get confused by the system-wide OpenSSL config.
 # see https://github.com/astral-sh/python-build-standalone/issues/999
-echo "export OPENSSL_CONF=/dev/null" >> venv/bin/activate
+echo "export OPENSSL_CONF=/dev/null" >> "${PROJECT_VENV_PATH}/bin/activate"
 
-source venv/bin/activate
+source "${PROJECT_VENV_PATH}/bin/activate"
 
 echo "Installing requirements.txt..."
 uv pip install -r requirements.txt
