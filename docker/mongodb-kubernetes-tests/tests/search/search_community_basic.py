@@ -1,6 +1,8 @@
 import yaml
+from kubernetes import client
 from kubetester import create_or_update_secret, read_configmap, try_load
 from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.kubetester import run_periodically
 from kubetester.mongodb_community import MongoDBCommunity
 from kubetester.mongodb_search import MongoDBSearch
 from kubetester.phase import Phase
@@ -116,3 +118,51 @@ def test_search_create_search_index(sample_movies_helper: SampleMoviesSearchHelp
 @mark.e2e_search_community_basic
 def test_search_assert_search_query(sample_movies_helper: SampleMoviesSearchHelper):
     sample_movies_helper.assert_search_query(retry_timeout=60)
+
+
+@mark.e2e_search_community_basic
+def test_zz_delete_search_cr_reclaims_pvc(namespace: str, mdbs: MongoDBSearch):
+    """On MongoDBSearch CR delete (single-cluster), owner-ref GC removes the mongot
+    StatefulSet and the persistentVolumeClaimRetentionPolicy{whenDeleted:Delete}
+    reclaims its data PVC."""
+    apps_v1 = client.AppsV1Api()
+    core_v1 = client.CoreV1Api()
+
+    sts_name = search_resource_names.mongot_statefulset_name(mdbs.name)
+    pvc_prefix = f"data-{sts_name}-"
+
+    # Presence guard: the STS and its data PVC must exist before delete, otherwise
+    # the post-delete absence checks below could pass vacuously.
+    apps_v1.read_namespaced_stateful_set(sts_name, namespace)
+    pvcs_before = [
+        pvc.metadata.name
+        for pvc in core_v1.list_namespaced_persistent_volume_claim(namespace).items
+        if pvc.metadata.name.startswith(pvc_prefix)
+    ]
+    assert pvcs_before, f"expected at least one mongot data PVC with prefix {pvc_prefix!r} before delete"
+    logger.info(f"pre-delete: STS {sts_name} present, data PVCs {pvcs_before}")
+
+    mdbs.delete()
+
+    def _sts_and_pvc_gone() -> tuple[bool, str]:
+        try:
+            apps_v1.read_namespaced_stateful_set(sts_name, namespace)
+            return False, f"StatefulSet {sts_name} still present"
+        except client.exceptions.ApiException as e:
+            if e.status != 404:
+                raise
+        remaining = [
+            pvc.metadata.name
+            for pvc in core_v1.list_namespaced_persistent_volume_claim(namespace).items
+            if pvc.metadata.name.startswith(pvc_prefix)
+        ]
+        if remaining:
+            return False, f"data PVCs not yet reclaimed: {remaining}"
+        return True, f"StatefulSet {sts_name} gone and all {pvc_prefix!r} PVCs reclaimed"
+
+    run_periodically(
+        _sts_and_pvc_gone,
+        timeout=300,
+        sleep_time=5,
+        msg="mongot StatefulSet + data PVC reclaim after MongoDBSearch delete",
+    )
