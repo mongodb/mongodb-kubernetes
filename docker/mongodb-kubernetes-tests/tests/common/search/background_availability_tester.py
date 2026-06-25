@@ -12,7 +12,8 @@ as a context manager and read ``tester.verdict`` after the ``with`` block:
 Two modes:
 
 * ``paging`` (default) — one page per tick from a long-living cursor;
-  reopened on failure or after ``paging_reset_every`` pages.
+  reopened on failure, after ``paging_reset_every`` pages, or after
+  ``paging_reset_after_seconds`` seconds (whichever trips first).
 * ``oneshot`` — one cache-busted ``oneshot_search()`` per tick.
 """
 
@@ -24,7 +25,13 @@ import time
 from typing import Callable, Optional
 
 import pymongo.errors
-from tests.common.search.connectivity import ConnectivityVerdict, QueryResult, SearchConnectivityTool, classify_failure
+from tests.common.search.connectivity import (
+    ConnectivityVerdict,
+    QueryResult,
+    SearchConnectivityTool,
+    aggregate_verdicts,
+    classify_failure,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +45,7 @@ class SearchAvailabilityBackgroundTester(threading.Thread):
         mode: str = "paging",
         paging_batch_size: int = 5,
         paging_reset_every: Optional[int] = None,
+        paging_reset_after_seconds: Optional[float] = None,
         interval_seconds: float = 0.0,
         query_timeout_ms: Optional[int] = 15_000,
     ) -> None:
@@ -54,6 +62,10 @@ class SearchAvailabilityBackgroundTester(threading.Thread):
         self.mode = mode
         self.paging_batch_size = paging_batch_size
         self.paging_reset_every = paging_reset_every
+        # Time-based cursor rollover: close+reopen the paging cursor once it has
+        # been open this long, exercising a fresh $search (which needs a live
+        # mongot) at a steady cadence through a disruption window.
+        self.paging_reset_after_seconds = paging_reset_after_seconds
         # Per-iteration sleep; mutable mid-run to throttle paging (e.g. raise it
         # before a fault so the cursor doesn't drain mongod's buffer faster than
         # the pod terminates).
@@ -64,6 +76,7 @@ class SearchAvailabilityBackgroundTester(threading.Thread):
         self._results_lock = threading.Lock()
         self._cursor = None
         self._cursor_pages_consumed = 0
+        self._cursor_opened_at: Optional[float] = None
         self._cursor_reopens = 0
         self._cursor_ever_opened = False
         self._current_cursor_records = 0
@@ -166,10 +179,21 @@ class SearchAvailabilityBackgroundTester(threading.Thread):
             return self.tool.oneshot_search(cache_buster=True, timeout_ms=self.query_timeout_ms)
         return self._read_one_page()
 
-    def _read_one_page(self) -> QueryResult:
-        if self._cursor is None or (
-            self.paging_reset_every is not None and self._cursor_pages_consumed >= self.paging_reset_every
+    def _should_reset_cursor(self) -> bool:
+        if self._cursor is None:
+            return True
+        if self.paging_reset_every is not None and self._cursor_pages_consumed >= self.paging_reset_every:
+            return True
+        if (
+            self.paging_reset_after_seconds is not None
+            and self._cursor_opened_at is not None
+            and (time.monotonic() - self._cursor_opened_at) >= self.paging_reset_after_seconds
         ):
+            return True
+        return False
+
+    def _read_one_page(self) -> QueryResult:
+        if self._should_reset_cursor():
             reopen_failure = self._reopen_cursor()
             if reopen_failure is not None:
                 return reopen_failure
@@ -202,6 +226,7 @@ class SearchAvailabilityBackgroundTester(threading.Thread):
         try:
             self._cursor = self.tool.paging_cursor_open(batch_size=self.paging_batch_size)
             self._cursor_pages_consumed = 0
+            self._cursor_opened_at = time.monotonic()
             self._current_cursor_records = 0
             if self._cursor_ever_opened:
                 self._cursor_reopens += 1
@@ -229,6 +254,7 @@ class SearchAvailabilityBackgroundTester(threading.Thread):
             pass
         self._cursor = None
         self._cursor_pages_consumed = 0
+        self._cursor_opened_at = None
 
 
 def assert_no_outage(verdict: ConnectivityVerdict, min_operations: int = 5) -> None:
@@ -277,6 +303,69 @@ def assert_outage_detected(
             f"verdict did not surface a {' or '.join(accept)} failure — "
             f"the background tester missed the fault. verdict={verdict.as_dict()}"
         )
+
+
+class PagingAvailabilityFleet:
+    """A fleet of independent paging background testers, each owning its own
+    connection and paging cursor.
+
+    mongod routes every new ``$search`` to a randomly-chosen mongot replica, so a
+    single paging cursor only exercises one replica. Running several concurrent
+    cursors covers all mongot replicas with high probability — size the fleet a
+    few times the replica count. Presents the same context-manager +
+    ``wait_for_operations`` + ``verdict`` surface as a single
+    ``SearchAvailabilityBackgroundTester``, so it drops into the same
+    ``assert_no_outage`` flow.
+    """
+
+    def __init__(
+        self,
+        tool_factory: Callable[[], SearchConnectivityTool],
+        size: int,
+        *,
+        interval_seconds: float = 0.0,
+        paging_batch_size: int = 5,
+        paging_reset_every: Optional[int] = None,
+        paging_reset_after_seconds: Optional[float] = None,
+    ) -> None:
+        if size < 1:
+            raise ValueError(f"size must be >= 1; got {size}")
+        self._testers = [
+            SearchAvailabilityBackgroundTester(
+                tool_factory(),
+                mode="paging",
+                interval_seconds=interval_seconds,
+                paging_batch_size=paging_batch_size,
+                paging_reset_every=paging_reset_every,
+                paging_reset_after_seconds=paging_reset_after_seconds,
+            )
+            for _ in range(size)
+        ]
+
+    def __enter__(self) -> "PagingAvailabilityFleet":
+        for tester in self._testers:
+            tester.start()
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        for tester in self._testers:
+            tester.stop()
+        for tester in self._testers:
+            tester.join(timeout=10)
+            if tester.is_alive():
+                logger.warning("paging fleet tester did not exit within 10s")
+
+    def wait_for_operations(self, count: int, *, timeout: float = 120.0) -> None:
+        """Block until every member records ``count`` more operations than it had
+        when this call started."""
+        since = [tester.operations_count for tester in self._testers]
+        for tester, baseline in zip(self._testers, since):
+            tester.wait_for_operations(count, since=baseline, timeout=timeout)
+
+    @property
+    def verdict(self) -> ConnectivityVerdict:
+        """Fleet-wide verdict — the per-member verdicts summed."""
+        return aggregate_verdicts([tester.verdict for tester in self._testers])
 
 
 class MultiClusterAvailabilityFleet:

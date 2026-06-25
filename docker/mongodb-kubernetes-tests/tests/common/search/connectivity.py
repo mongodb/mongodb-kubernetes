@@ -175,6 +175,35 @@ class ConnectivityVerdict:
         }
 
 
+def aggregate_verdicts(verdicts: list[ConnectivityVerdict]) -> ConnectivityVerdict:
+    """Sum a set of per-probe verdicts into one fleet-wide verdict.
+
+    Counts add; error_breakdown maps merge; first/last error track the earliest
+    non-None first_error and the latest non-None last_error seen across inputs.
+    """
+    agg = ConnectivityVerdict()
+    for v in verdicts:
+        agg.total_operations += v.total_operations
+        agg.succeeded += v.succeeded
+        agg.failed += v.failed
+        agg.cursor_lost += v.cursor_lost
+        agg.transient_network += v.transient_network
+        agg.index_unavailable += v.index_unavailable
+        agg.search_not_enabled += v.search_not_enabled
+        agg.mongot_unreachable += v.mongot_unreachable
+        agg.other_failed += v.other_failed
+        agg.total_returned_records += v.total_returned_records
+        agg.cursor_reopens += v.cursor_reopens
+        agg.current_cursor_records += v.current_cursor_records
+        for klass, count in v.error_breakdown.items():
+            agg.error_breakdown[klass] = agg.error_breakdown.get(klass, 0) + count
+        if agg.first_error is None:
+            agg.first_error = v.first_error
+        if v.last_error is not None:
+            agg.last_error = v.last_error
+    return agg
+
+
 class SearchConnectivityTool:
     """Drives ``$search`` queries against an MCK MongoDBSearch deployment."""
 
