@@ -336,17 +336,17 @@ func (r *MongoDBSearchMetricsForwarderReconciler) buildClusterWorkList(search *s
 	work := make([]clusterWorkItem, 0, len(search.Spec.Clusters))
 	for _, c := range search.Spec.Clusters {
 		var idx int
-		if c.ClusterName == "" {
+		if c.Name == "" {
 			// Single-cluster legacy path: always index 0, no mapping lookup needed.
 			idx = 0
 		} else {
 			var ok bool
-			idx, ok = mapping[c.ClusterName]
+			idx, ok = mapping[c.Name]
 			if !ok {
 				idx = -1 // sentinel: cluster not yet registered in state mapping
 			}
 		}
-		work = append(work, clusterWorkItem{ClusterName: c.ClusterName, ClusterIndex: idx, Client: r.clientForCluster(c.ClusterName)})
+		work = append(work, clusterWorkItem{ClusterName: c.Name, ClusterIndex: idx, Client: r.clientForCluster(c.Name)})
 	}
 	return work
 }

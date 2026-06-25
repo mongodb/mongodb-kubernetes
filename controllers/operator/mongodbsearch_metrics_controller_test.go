@@ -80,7 +80,7 @@ func newTestMongoDBSearch(name, namespace, mdbName string) *searchv1.MongoDBSear
 			Source: &searchv1.MongoDBSource{
 				MongoDBResourceRef: &userv1.MongoDBResourceRef{Name: mdbName},
 			},
-			Clusters: []searchv1.ClusterSpec{{ClusterName: ""}},
+			Clusters: []searchv1.ClusterSpec{{Name: ""}},
 		},
 		Status: searchv1.MongoDBSearchStatus{
 			Version: "1.0.0",
@@ -824,7 +824,7 @@ func TestReconcile_ExplicitProjectConfig(t *testing.T) {
 					},
 				},
 			},
-			Clusters: []searchv1.ClusterSpec{{ClusterName: ""}},
+			Clusters: []searchv1.ClusterSpec{{Name: ""}},
 		},
 		Status: searchv1.MongoDBSearchStatus{
 			Version: "1.0.0",
@@ -884,7 +884,7 @@ func TestReconcile_ExternalSource_NoOpsManagerConfig_Invalid(t *testing.T) {
 					Mode: searchv1.MetricsForwarderModeEnabled,
 				},
 			},
-			Clusters: []searchv1.ClusterSpec{{ClusterName: ""}},
+			Clusters: []searchv1.ClusterSpec{{Name: ""}},
 		},
 		Status: searchv1.MongoDBSearchStatus{
 			Version: "1.0.0",
@@ -1293,7 +1293,7 @@ func newTestMongoDBSearchExternal(name, namespace, projectCMName, agentCredsName
 					},
 				},
 			},
-			Clusters: []searchv1.ClusterSpec{{ClusterName: ""}},
+			Clusters: []searchv1.ClusterSpec{{Name: ""}},
 		},
 		Status: searchv1.MongoDBSearchStatus{Version: "1.0.0"},
 	}
@@ -1569,7 +1569,7 @@ func callReconcileTopologyState(t *testing.T, r *MongoDBSearchMetricsForwarderRe
 // single (clusterName=="") cluster.
 func newTestMongoDBSearchWithReplicas(name, namespace, mdbName string, replicas int32) *searchv1.MongoDBSearch {
 	s := newTestMongoDBSearch(name, namespace, mdbName)
-	s.Spec.Clusters = []searchv1.ClusterSpec{{ClusterName: "", Replicas: &replicas}}
+	s.Spec.Clusters = []searchv1.ClusterSpec{{Name: "", Replicas: &replicas}}
 	return s
 }
 
