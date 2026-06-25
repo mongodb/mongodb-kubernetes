@@ -110,6 +110,10 @@ class CreateInputs:
     skip_prepare_e2e: bool = False
     force: bool = False
     evg_host_name: Optional[str] = None  # default: branch_dir
+    # EVG spawn overrides. None → evg spawn's own defaults
+    # (ubuntu2204-latest-large / eu-west-1).
+    distro: Optional[str] = None
+    region: Optional[str] = None
     # Local-kind mode: spin a kind cluster directly on the laptop instead of
     # provisioning an EVG host. cluster_name defaults to branch_dir.
     local_kind: bool = False
@@ -139,6 +143,8 @@ class CreateInputs:
             "skip_prepare_e2e": self.skip_prepare_e2e,
             "force": self.force,
             "evg_host_name": self.resolved_evg_host_name(),
+            "distro": self.distro,
+            "region": self.region,
             "local_kind": self.local_kind,
             "cluster_name": self.resolved_cluster_name() if self.local_kind else None,
         }
@@ -427,6 +433,10 @@ class CreateOrchestrator:
                 argv.append("--multi")
             if i.skip_recreate:
                 argv.append("--skip-recreate")
+            if i.distro:
+                argv += ["--distro", i.distro]
+            if i.region:
+                argv += ["--region", i.region]
             self.runner.run_streaming(
                 argv,
                 prefix="[evg-host] ",
