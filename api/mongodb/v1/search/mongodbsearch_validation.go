@@ -106,6 +106,7 @@ func multiClusterValidators() []func(*MongoDBSearch) v1.ValidationResult {
 		validateMCRequiresExternalSource,
 		validateMCRequiresManagedLB,
 		validateMCExternalHostnames,
+		validateMCRouterHostnames,
 	}
 }
 
@@ -116,6 +117,7 @@ func managedLBValidators() []func(*MongoDBSearch) v1.ValidationResult {
 	return []func(*MongoDBSearch) v1.ValidationResult{
 		validateManagedLBExternalHostname,
 		validateExternalHostnameDNSLength,
+		validateRouterHostname,
 	}
 }
 
@@ -217,6 +219,28 @@ func validateManagedLBExternalHostname(s *MongoDBSearch) v1.ValidationResult {
 		}
 		if c.LoadBalancer.Managed.ExternalHostname == "" {
 			return v1.ValidationError("spec.clusters[%d].loadBalancer.managed.externalHostname must be specified when using managed load balancer with an external MongoDB source", i)
+		}
+	}
+	return v1.ValidationSuccess()
+}
+
+// validateRouterHostname validates routerHostname for an external sharded MongoDB source with managed
+// LB: it is the shard-agnostic endpoint a mongos uses to reach mongot, so it is required on every
+// cluster's managed LB and must NOT carry a {shardName} placeholder (it is used verbatim). Only
+// applies to sharded external sources (mongos exists only in sharded topologies); ignored otherwise.
+func validateRouterHostname(s *MongoDBSearch) v1.ValidationResult {
+	if !s.IsExternalSourceSharded() {
+		return v1.ValidationSuccess()
+	}
+	for i, c := range s.Spec.Clusters {
+		if c.LoadBalancer == nil || c.LoadBalancer.Managed == nil {
+			continue
+		}
+		if c.LoadBalancer.Managed.RouterHostname == "" {
+			return v1.ValidationError("spec.clusters[%d].loadBalancer.managed.routerHostname must be specified when using managed load balancer with an external sharded MongoDB source", i)
+		}
+		if strings.Contains(c.LoadBalancer.Managed.RouterHostname, ShardNamePlaceholder) {
+			return v1.ValidationError("spec.clusters[%d].loadBalancer.managed.routerHostname must not contain %s; it is the shard-agnostic endpoint for mongos", i, ShardNamePlaceholder)
 		}
 	}
 	return v1.ValidationSuccess()
@@ -613,6 +637,35 @@ func validateMCExternalHostnames(s *MongoDBSearch) v1.ValidationResult {
 				i, ShardNamePlaceholder,
 			)
 		}
+	}
+	return v1.ValidationSuccess()
+}
+
+// validateMCRouterHostnames enforces, for an external sharded source with a managed LB, that every
+// cluster's routerHostname is distinct: each cluster runs its own Envoy LB and its mongos routes to
+// it, so a shared hostname would collide per-cluster SNI / point clusters at the wrong Envoy.
+// routerHostname is only meaningful for sharded sources (ReplicaSet has no mongos), so this is scoped
+// the same way as validateRouterHostname (the per-field required/placeholder rules live there).
+func validateMCRouterHostnames(s *MongoDBSearch) v1.ValidationResult {
+	if !s.IsExternalSourceSharded() {
+		return v1.ValidationSuccess()
+	}
+	seen := make(map[string]int, len(s.Spec.Clusters))
+	for i, c := range s.Spec.Clusters {
+		if c.LoadBalancer == nil || c.LoadBalancer.Managed == nil {
+			continue
+		}
+		host := c.LoadBalancer.Managed.RouterHostname
+		if host == "" {
+			continue
+		}
+		if first, dup := seen[host]; dup {
+			return v1.ValidationError(
+				"spec.clusters[%d].loadBalancer.managed.routerHostname %q is also used by spec.clusters[%d]; every cluster needs a distinct hostname",
+				i, host, first,
+			)
+		}
+		seen[host] = i
 	}
 	return v1.ValidationSuccess()
 }

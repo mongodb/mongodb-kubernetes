@@ -192,7 +192,12 @@ class SearchDeploymentHelper:
                     lb["managed"] = {
                         "externalHostname": search_resource_names.shard_proxy_svc_hostname_template(
                             self.mdbs_resource_name, self.namespace, i
-                        )
+                        ),
+                        # Shard-agnostic cluster-level endpoint for mongos: the per-cluster proxy-svc
+                        # FQDN (matches the LB cert SAN). Required for external sharded + managed LB.
+                        "routerHostname": search_resource_names.mc_proxy_svc_fqdn(
+                            self.mdbs_resource_name, self.namespace, i
+                        ),
                     }
                 if lb_endpoint:
                     lb["unmanaged"] = {"endpoint": lb_endpoint}
