@@ -15,6 +15,10 @@ import (
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/user"
 )
 
+func pinnedSpec(name string, idx int32) ClusterSpec {
+	return ClusterSpec{Name: name, Index: ptr.To(idx)}
+}
+
 func TestValidateShardNames(t *testing.T) {
 	shard := func(name string) ExternalShardConfig {
 		return ExternalShardConfig{ShardName: name, Hosts: []string{"host:27017"}}
@@ -113,6 +117,27 @@ func TestValidateShardNames(t *testing.T) {
 				return s
 			}(),
 			errorContains: "exceeds",
+		},
+		{
+			// Proxy svc at pin 999: 38 + len("-search-999-") + len("sh-0") + len("-proxy-svc")
+			// = 38+12+4+10 = 64 > 63 — the reconciler names resources with the pin,
+			// so admission must validate at the pinned index, not the array position.
+			name: "invalid shard Proxy Service at pinned index 999",
+			search: func() *MongoDBSearch {
+				s := newSearch(strings.Repeat("a", 38), []ExternalShardConfig{shard("sh-0")}, "", false, false)
+				s.Spec.Clusters = []ClusterSpec{{Name: "cluster-a", Index: ptr.To(int32(999))}}
+				return s
+			}(),
+			errorContains: "exceeds",
+		},
+		{
+			// Same name unpinned validates at position 0: 38+10+4+10 = 62 ≤ 63.
+			name: "valid shard Proxy Service for the same name unpinned",
+			search: func() *MongoDBSearch {
+				s := newSearch(strings.Repeat("a", 38), []ExternalShardConfig{shard("sh-0")}, "", false, false)
+				s.Spec.Clusters = []ClusterSpec{{Name: "cluster-a"}}
+				return s
+			}(),
 		},
 	}
 
@@ -553,17 +578,17 @@ func TestValidateClustersClusterIndexRequired(t *testing.T) {
 		{
 			name:          "MC missing clusterIndex at index 0",
 			clusters:      []ClusterSpec{{Name: "us-east-k8s"}, pinnedSpec("eu-west-k8s", 1)},
-			errorContains: "spec.clusters[0].clusterIndex is required when len(spec.clusters) > 1",
+			errorContains: "spec.clusters[0].index is required when len(spec.clusters) > 1",
 		},
 		{
 			name:          "MC missing clusterIndex at index 1",
 			clusters:      []ClusterSpec{pinnedSpec("us-east-k8s", 0), {Name: "eu-west-k8s"}},
-			errorContains: "spec.clusters[1].clusterIndex is required when len(spec.clusters) > 1",
+			errorContains: "spec.clusters[1].index is required when len(spec.clusters) > 1",
 		},
 		{
 			name:          "MC duplicate clusterIndex",
 			clusters:      []ClusterSpec{pinnedSpec("us-east-k8s", 3), pinnedSpec("eu-west-k8s", 3)},
-			errorContains: "clusterIndex 3 is set on more than one spec.clusters[] entry (entries 0 and 1); pinned indices must be distinct",
+			errorContains: "index 3 is set on more than one spec.clusters[] entry (entries 0 and 1); pinned indices must be distinct",
 		},
 	}
 	for _, tt := range tests {
@@ -744,38 +769,45 @@ func TestValidateClustersEnvoyResourceNames(t *testing.T) {
 	tests := []struct {
 		name          string
 		searchName    string
-		clusterNames  []string
+		clusters      []ClusterSpec
 		errorContains string
 	}{
 		{
-			name:         "short names ok",
-			searchName:   "s",
-			clusterNames: []string{"us-east-k8s", "eu-west-k8s"},
+			name:       "short names ok",
+			searchName: "s",
+			clusters:   []ClusterSpec{{Name: "us-east-k8s"}, {Name: "eu-west-k8s"}},
 		},
 		{
-			name:         "nil clusters ok",
-			searchName:   "s",
-			clusterNames: nil,
+			name:       "nil clusters ok",
+			searchName: "s",
 		},
 		{
 			// Deployment name: <name>-search-lb-0-<index>
 			// suffix "-search-lb-0-0" is 14 chars; need len(name) > 49 to exceed 63.
 			name:          "Deployment name >63 chars rejected",
 			searchName:    strings.Repeat("a", 50),
-			clusterNames:  []string{"us-east-k8s"},
+			clusters:      []ClusterSpec{{Name: "us-east-k8s"}},
 			errorContains: "exceeds",
+		},
+		{
+			// suffix "-search-lb-0-999" is 16 chars at pin 999: a 48-char name fits
+			// at array position 0 but exceeds 63 at the pinned index the reconciler
+			// actually uses for the resource name.
+			name:          "pinned index 999 rejected where position 0 would pass",
+			searchName:    strings.Repeat("a", 48),
+			clusters:      []ClusterSpec{{Name: "us-east-k8s", Index: ptr.To(int32(999))}},
+			errorContains: "exceeds",
+		},
+		{
+			name:       "same name unpinned at position 0 passes",
+			searchName: strings.Repeat("a", 48),
+			clusters:   []ClusterSpec{{Name: "us-east-k8s"}},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s := &MongoDBSearch{ObjectMeta: metav1.ObjectMeta{Name: tt.searchName, Namespace: "ns"}}
-			if tt.clusterNames != nil {
-				clusters := make([]ClusterSpec, 0, len(tt.clusterNames))
-				for _, cn := range tt.clusterNames {
-					clusters = append(clusters, ClusterSpec{Name: cn})
-				}
-				s.Spec.Clusters = clusters
-			}
+			s.Spec.Clusters = tt.clusters
 			res := validateClustersEnvoyResourceNames(s)
 			if tt.errorContains != "" {
 				assert.Equal(t, v1.ErrorLevel, res.Level)

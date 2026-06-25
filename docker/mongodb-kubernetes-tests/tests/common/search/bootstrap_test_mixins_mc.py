@@ -120,7 +120,7 @@ class SearchRsMcDeploymentTests(SearchDeploymentTests):
         return [
             {
                 "name": cluster_name,
-                "clusterIndex": i,
+                "index": i,
                 "replicas": self.search_config.mongot_replicas,
                 "resourceRequirements": self.search_config.mongot_resource_requirements(),
             }
@@ -352,7 +352,7 @@ class SearchShardedMcDeploymentTests(SearchShardedDeploymentTests):
         return [
             {
                 "name": name,
-                "clusterIndex": i,
+                "index": i,
                 "replicas": self.search_config.mongot_replicas,
                 "resourceRequirements": self.search_config.mongot_resource_requirements(),
             }

@@ -27,8 +27,10 @@ import (
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
+	searchv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status/pvc"
+	userv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/user"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/backup"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/deployment"
@@ -45,6 +47,7 @@ import (
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
 )
 
 type ReplicaSetBuilder struct {
@@ -1611,4 +1614,33 @@ func TestPublishAutomationConfigFirstRS(t *testing.T) {
 			assert.Equal(t, tc.expectedPublishACFirst, result)
 		})
 	}
+}
+
+// applySearchOverrides must wire mongotHost at the pinned ClusterIndex the search
+// reconciler writes per-cluster resources at — never literal 0 for a pinned
+// single-entry MongoDBSearch.
+func TestApplySearchOverrides_ResolvesPinnedClusterIndex(t *testing.T) {
+	ctx := context.Background()
+
+	newPinnedSearch := func() *searchv1.MongoDBSearch {
+		return &searchv1.MongoDBSearch{
+			ObjectMeta: metav1.ObjectMeta{Name: "rs-search", Namespace: mock.TestNamespace},
+			Spec: searchv1.MongoDBSearchSpec{
+				Clusters: []searchv1.ClusterSpec{{Name: "cluster-a", Index: ptr.To(int32(7))}},
+				Source:   &searchv1.MongoDBSource{MongoDBResourceRef: &userv1.MongoDBResourceRef{Name: "temple"}},
+			},
+		}
+	}
+	applyOverrides := func(t *testing.T, c client.Client) string {
+		rs := DefaultReplicaSetBuilder().SetVersion("8.2.0").Build()
+		reconciler := &ReconcileMongoDbReplicaSet{ReconcileCommonController: NewReconcileCommonController(ctx, c)}
+		helper := &ReplicaSetReconcilerHelper{resource: rs, reconciler: reconciler, log: zap.S()}
+		applied, err := helper.applySearchOverrides(ctx)
+		require.NoError(t, err)
+		require.True(t, applied, "search overrides must be applied")
+		return maputil.ReadMapValueAsString(rs.Spec.AdditionalMongodConfig.ToMap(), "setParameter", "mongotHost")
+	}
+
+	c := mock.NewEmptyFakeClientBuilder().WithObjects(newPinnedSearch()).Build()
+	assert.Contains(t, applyOverrides(t, c), "rs-search-search-7-")
 }
