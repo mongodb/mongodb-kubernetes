@@ -7,6 +7,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
 from kubernetes import client
+from kubernetes.client.rest import ApiException
 from kubetester import create_or_update_configmap
 from kubetester.mongodb import MongoDB
 
@@ -114,6 +115,16 @@ def run_wrong_ca_dry_run_fails_then_passes(
     original_ca_name = mdb["spec"]["security"]["tls"]["ca"]
     mdb["spec"]["security"]["tls"]["ca"] = wrong_ca_name
     mdb.update()
+
+    try:
+        client.BatchV1Api().delete_namespaced_job(
+            connectivity_job_name,
+            namespace,
+            body=client.V1DeleteOptions(propagation_policy="Background"),
+        )
+    except ApiException as e:
+        if e.status != 404:
+            raise
 
     run_migration_dry_run_connectivity_fails(mdb)
 

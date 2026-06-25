@@ -90,6 +90,7 @@ def _configure_ac(namespace: str, om_tester: OMTester, vm_sts: dict, vm_service:
                 "db": "admin",
                 "roles": [
                     {"role": "readWrite", "db": "admin"},
+                    {"role": "readWrite", "db": "migration_data"},
                     {"role": "readWrite", "db": "myapp"},
                     {"role": "read", "db": "reporting"},
                 ],
