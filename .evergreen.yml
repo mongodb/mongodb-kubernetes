@@ -440,9 +440,6 @@ tasks:
       - func: setup_building_host_minikube
         vars:
           skip_minikube_setup: true
-      - func: download_multi_cluster_binary
-        vars:
-          platform: linux/s390x
       - func: quay_staging_login
       - func: pipeline
         vars:
@@ -454,9 +451,6 @@ tasks:
       - func: setup_building_host_minikube
         vars:
           skip_minikube_setup: true
-      - func: download_multi_cluster_binary
-        vars:
-          platform: linux/ppc64le
       - func: quay_staging_login
       - func: pipeline
         vars:
