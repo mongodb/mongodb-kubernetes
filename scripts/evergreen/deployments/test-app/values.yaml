@@ -9,7 +9,6 @@ orgId: ""
 projectId: omProjectId
 mekoTestsRegistry:
 mekoTestsVersion:
-mekoTestsImagePullPolicy: Always
 versionId:
 taskName: ${TASK_NAME}
 

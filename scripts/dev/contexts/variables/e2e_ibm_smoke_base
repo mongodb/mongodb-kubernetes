@@ -9,4 +9,3 @@ export KUBE_ENVIRONMENT_NAME=minikube
 export CLUSTER_TYPE=minikube
 export CONTAINER_RUNTIME=podman
 export TEST_APP_STARTUP_TIMEOUT=8m
-export MEKO_TESTS_IMAGE_PULL_POLICY=IfNotPresent

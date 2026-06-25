@@ -101,11 +101,14 @@ def test_sharded_cluster_has_no_connectivity_without_tls(sc: MongoDB):
 
 @mark.e2e_tls_sharded_cluster_certs_prefix
 def test_rotate_tls_certificate(sc: MongoDB, namespace: str):
+    last_transition = sc.get_status_last_transition_time()
+
     # update the shard cert
     cert = Certificate(name=f"prefix-{MDB_RESOURCE}-0-cert", namespace=namespace).load()
     cert["spec"]["dnsNames"].append("foo")
     cert.update()
 
+    sc.assert_state_transition_happens(last_transition)
     sc.assert_reaches_phase(Phase.Running, timeout=800)
 
 

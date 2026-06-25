@@ -228,7 +228,7 @@ spec:
     {{ else }}
     args: ["-vv", "-m", "{{ .Values.taskName }}"]
     {{ end }}
-    imagePullPolicy: {{ .Values.mekoTestsImagePullPolicy }}
+    imagePullPolicy: Always
     volumeMounts:
       - name: results
         mountPath: /tmp/results

@@ -62,7 +62,6 @@ deploy_test_app() {
         "--set" "taskName=${task_name}"
         "--set" "mekoTestsRegistry=${MEKO_TESTS_REGISTRY}"
         "--set" "mekoTestsVersion=${meko_tests_version}"
-        "--set" "mekoTestsImagePullPolicy=${MEKO_TESTS_IMAGE_PULL_POLICY:-Always}"
         "--set" "versionId=${VERSION_ID}"
         "--set" "aws.accessKey=${AWS_ACCESS_KEY_ID}"
         "--set" "aws.secretAccessKey=${AWS_SECRET_ACCESS_KEY}"
