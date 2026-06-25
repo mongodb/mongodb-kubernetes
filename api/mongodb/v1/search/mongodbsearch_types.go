@@ -36,6 +36,21 @@ const (
 	EnvoyDefaultProxyPort           int32 = 27028
 	MongotDefaultSyncSourceUsername       = "search-sync-source"
 
+	// MongotTerminationGracePeriodSeconds matches mongot's internal 60s gRPC
+	// awaitTermination drain window. Without it the pod default (30s) SIGKILLs
+	// mongot mid-drain, abandoning in-flight $search cursor streams on a rolling
+	// restart. EnvoyTerminationGracePeriodSeconds outlives it by 10s so Envoy
+	// keeps serving those in-flight streams until mongot has drained.
+	MongotTerminationGracePeriodSeconds int64 = 60
+	EnvoyTerminationGracePeriodSeconds  int64 = MongotTerminationGracePeriodSeconds + 10
+
+	// EnvoyPreStopDrainSleepSeconds is how long the preStop hook sleeps after
+	// POSTing a graceful /drain_listeners. The sleep blocks SIGTERM so in-flight
+	// mongod->Envoy->mongot getMore streams complete on the draining Envoy
+	// instead of being severed. Kept below the grace period so SIGKILL never
+	// preempts it.
+	EnvoyPreStopDrainSleepSeconds int64 = EnvoyTerminationGracePeriodSeconds - 10
+
 	ForceWireprotoAnnotation = "mongodb.com/v1.force-search-wireproto"
 
 	// DisableReconciliationAnnotation, when set to "true" on a MongoDBSearch CR,
