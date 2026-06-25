@@ -275,6 +275,11 @@ def per_cluster_mdbs_search(
             },
             "tls": {"ca": {"name": ca_configmap}},
         },
+        # Shard-agnostic cluster-level endpoint for mongos: the per-cluster proxy-svc FQDN
+        # (distinct per cluster via the cluster index).
+        router_hostname_for_cluster=lambda idx: search_resource_names.mc_proxy_svc_fqdn(
+            MDBS_RESOURCE_NAME, namespace, idx
+        ),
     )
 
 
