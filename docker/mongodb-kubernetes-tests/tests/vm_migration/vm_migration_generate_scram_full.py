@@ -1,17 +1,9 @@
 """
-VM migration test using kubectl-mongodb migrate.
+VM migration from a generated MongoDB resource with SCRAM authentication.
 
-Configures a realistic automation config with:
-  - SCRAM-SHA-256 auth with automation agent user + two app users
-  - Custom role (appReadOnly)
-  - logRotate + auditLogRotate per process
-  - args2_6: compression, oplogSizeMB, directoryPerDB, setParameter,
-    auditLog, systemLog.logAppend
-  - Member tags (region / role)
-  - FCV
-
-Pre-creates Kubernetes Secrets for each SCRAM user, then passes them to
-the migrate tool via --users-secrets-file. Runs the full promote-and-prune lifecycle.
+This test configures VM members in Ops Manager, runs kubectl-mongodb migrate-to-mck,
+applies the generated resources, and verifies dry-run validation, data continuity,
+connection strings, process names, and the promote and prune flow.
 """
 
 from kubetester import create_or_update_secret, get_statefulset
@@ -22,16 +14,16 @@ from kubetester.omtester import OMContext, OMTester
 from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
-from tests.tls.vm_migration_dry_run import run_migration_dry_run_connectivity_passes
-from tests.tls.vm_migration_helpers import (
+from tests.vm_migration.vm_migration_dry_run import run_migration_dry_run_connectivity_passes
+from tests.vm_migration.vm_migration_helpers import (
     apply_generated_mongodb_resource,
     apply_user_crs_and_verify_ac,
+    assert_common_generated_cr_shape,
     assert_connection_string_after_full_migration,
     assert_connection_string_contains_current_hosts,
     assert_k8s_process_names,
     assert_max_voting_members_validation,
     assert_migration_data_exists,
-    assert_migration_dry_run_annotation,
     deploy_vm_service,
     deploy_vm_statefulset,
     generated_mongodb_doc,
@@ -289,6 +281,11 @@ def generated_cr_yaml(namespace: str) -> str:
 
 
 @fixture(scope="module")
+def generated_cr(generated_cr_yaml: str) -> dict:
+    return generated_mongodb_doc(generated_cr_yaml)
+
+
+@fixture(scope="module")
 def mdb_migration(namespace: str, generated_cr_yaml: str) -> MongoDB:
     return apply_generated_mongodb_resource(namespace, generated_cr_yaml, customer_sets_disabled_tls_mode=True)
 
@@ -306,9 +303,7 @@ def mdb_health_checker(mdb_migration: MongoDB, scram_opts: list[dict]) -> MongoD
     )
 
 
-# ---------------------------------------------------------------------------
-# Tests
-# ---------------------------------------------------------------------------
+# Test flow
 
 
 @mark.e2e_vm_migration_generate_scram_full
@@ -344,13 +339,12 @@ def test_install_operator(operator: Operator):
     operator.assert_is_running()
 
 
-# --- Generated CR checks (all run immediately after generation, before any lifecycle test) ---
+# Generated CR checks
 
 
 @mark.e2e_vm_migration_generate_scram_full
-def test_migration_dry_run_annotation_present(generated_cr_yaml: str):
-    """Generated MongoDB CR must carry the migration-dry-run annotation."""
-    assert_migration_dry_run_annotation(generated_cr_yaml)
+def test_common_generated_cr_shape(generated_cr_yaml: str, generated_cr: dict):
+    assert_common_generated_cr_shape(generated_cr_yaml, generated_cr)
 
 
 @mark.e2e_vm_migration_generate_scram_full
@@ -382,7 +376,7 @@ def test_vm_deployment_automation_config(om_tester: OMTester, vm_sts):
     assert len(ac_tester.get_replica_set_processes(RS_NAME)) == vm_sts["spec"]["replicas"]
 
 
-# --- Lifecycle tests ---
+# Lifecycle checks
 
 
 @mark.e2e_vm_migration_generate_scram_full
@@ -448,7 +442,7 @@ def test_process_names(om_tester: OMTester, mdb_migration: MongoDB):
 
 @mark.e2e_vm_migration_generate_scram_full
 def test_user_connectivity_after_promote(mdb_migration: MongoDB):
-    """Users can still authenticate after promote-and-prune completes."""
+    """Users can still authenticate after promote and prune completes."""
     mdb_migration.tester(use_ssl=False).assert_scram_sha_authentication(
         username="app-user", password=APP_USER_PASSWORD, auth_mechanism="SCRAM-SHA-256"
     )

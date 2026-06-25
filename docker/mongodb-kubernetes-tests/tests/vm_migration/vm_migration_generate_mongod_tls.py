@@ -1,13 +1,9 @@
 """
-VM migration test with MongoDB-level TLS (requireSSL) on mongod processes,
-combined with agent to Ops Manager TLS validation via a CA bundle.
+VM migration from a generated MongoDB resource with SCRAM authentication and mongod TLS.
 
-Verifies:
-  - The generated CR has spec.security.certsSecretPrefix set (TLS enabled; tls.enabled is deprecated)
-  - No manual net.tls.mode override is needed (the tool handles it)
-  - SCRAM auth and users are generated alongside TLS
-  - VM agents can validate Ops Manager TLS via a CA ConfigMap
-  - Full promote-and-prune lifecycle with TLS-enabled deployment
+This test configures VM members in Ops Manager, runs kubectl-mongodb migrate-to-mck,
+applies the generated resources, and verifies dry-run validation, data continuity,
+connection strings, process names, and the promote and prune flow.
 """
 
 import os
@@ -22,19 +18,19 @@ from kubetester.omtester import OMContext, OMTester
 from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
-from tests.tls.vm_migration_dry_run import (
+from tests.vm_migration.vm_migration_dry_run import (
     run_migration_dry_run_connectivity_passes,
     run_wrong_ca_dry_run_fails_then_passes,
 )
-from tests.tls.vm_migration_helpers import (
+from tests.vm_migration.vm_migration_helpers import (
     apply_generated_mongodb_resource,
     apply_user_crs_and_verify_ac,
+    assert_common_generated_cr_shape,
     assert_connection_string_after_full_migration,
     assert_connection_string_contains_current_hosts,
     assert_k8s_process_names,
     assert_max_voting_members_validation,
     assert_migration_data_exists,
-    assert_migration_dry_run_annotation,
     deploy_vm_service,
     deploy_vm_statefulset,
     generated_mongodb_doc,
@@ -337,9 +333,7 @@ def mdb_health_checker(mdb_migration: MongoDB, ca_path: str, scram_opts: list[di
     )
 
 
-# ---------------------------------------------------------------------------
-# Tests
-# ---------------------------------------------------------------------------
+# Test flow
 
 
 @mark.e2e_vm_migration_generate_mongod_tls
@@ -384,13 +378,12 @@ def test_install_operator(operator: Operator):
     operator.assert_is_running()
 
 
-# --- Generated CR checks (all run immediately after generation, before any lifecycle test) ---
+# Generated CR checks
 
 
 @mark.e2e_vm_migration_generate_mongod_tls
-def test_migration_dry_run_annotation_present(generated_cr_yaml: str):
-    """Generated MongoDB CR must carry the migration-dry-run annotation."""
-    assert_migration_dry_run_annotation(generated_cr_yaml)
+def test_common_generated_cr_shape(generated_cr_yaml: str, generated_cr: dict):
+    assert_common_generated_cr_shape(generated_cr_yaml, generated_cr)
 
 
 @mark.e2e_vm_migration_generate_mongod_tls
@@ -425,16 +418,7 @@ def test_user_cr_emitted(generated_cr_yaml: str):
     assert len(user_docs) == 1, f"Expected 1 user CR, got {len(user_docs)}"
 
 
-@mark.e2e_vm_migration_generate_mongod_tls
-def test_external_members_structure(generated_cr: dict):
-    ext = generated_cr["spec"]["externalMembers"]
-    assert len(ext) == 3
-    for em in ext:
-        for key in ("processName", "hostname", "type", "replicaSetName"):
-            assert key in em, f"Missing key {key!r} in externalMember: {em}"
-
-
-# --- Lifecycle tests ---
+# Lifecycle checks
 
 
 @mark.e2e_vm_migration_generate_mongod_tls
@@ -525,7 +509,7 @@ def test_process_names(om_tester: OMTester, mdb_migration: MongoDB):
 @mark.e2e_vm_migration_generate_mongod_tls
 @skip_if_local()
 def test_user_connectivity_after_promote(mdb_migration: MongoDB, ca_path: str):
-    """Users can still authenticate (with TLS) after promote-and-prune completes."""
+    """Users can still authenticate with TLS after promote and prune completes."""
     mdb_migration.tester(use_ssl=True, ca_path=ca_path).assert_scram_sha_authentication(
         username="app-user", password=APP_USER_PASSWORD, auth_mechanism="SCRAM-SHA-256", ssl=True, tlsCAFile=ca_path
     )
@@ -540,7 +524,7 @@ def test_migration_data_exists_after_promote(mdb_migration: MongoDB, ca_path: st
 @mark.e2e_vm_migration_generate_mongod_tls
 @skip_if_local()
 def test_non_tls_connection_rejected_after_promote(mdb_migration: MongoDB):
-    """TLS remains enforced after promote-and-prune."""
+    """TLS remains enforced after promote and prune."""
     mdb_migration.tester(use_ssl=False).assert_no_connection()
 
 

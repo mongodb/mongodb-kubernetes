@@ -297,6 +297,32 @@ def assert_migration_dry_run_annotation(generated_cr_yaml: str) -> None:
     ), f"Expected annotation {MIGRATION_DRY_RUN_ANNOTATION}=true in generated CR, got: {annotations}"
 
 
+def assert_generated_external_members(generated_cr: dict, expected_count: int = 3) -> None:
+    external_members = generated_cr["spec"]["externalMembers"]
+    assert (
+        len(external_members) == expected_count
+    ), f"Expected {expected_count} external members, got {len(external_members)}"
+    for external_member in external_members:
+        assert isinstance(external_member, dict), f"externalMember should be a dict, got {type(external_member)}"
+        for key in ("processName", "hostname", "type", "replicaSetName"):
+            assert key in external_member, f"Missing key {key!r} in externalMember: {external_member}"
+        assert external_member["type"] == "mongod"
+
+
+def assert_generated_member_config_omitted(generated_cr: dict) -> None:
+    assert (
+        "memberConfig" not in generated_cr["spec"]
+    ), "Generated CR should not contain memberConfig. Customers set it when expanding."
+
+
+def assert_common_generated_cr_shape(
+    generated_cr_yaml: str, generated_cr: dict, expected_external_members: int = 3
+) -> None:
+    assert_migration_dry_run_annotation(generated_cr_yaml)
+    assert_generated_external_members(generated_cr, expected_count=expected_external_members)
+    assert_generated_member_config_omitted(generated_cr)
+
+
 def get_user_docs(generated_cr_yaml: str) -> List[dict]:
     return generated_user_docs(generated_cr_yaml)
 

@@ -51,7 +51,7 @@ def run_migration_dry_run_connectivity_passes(mdb: MongoDB, *, timeout: int = 60
     """Set migration-dry-run annotation, wait for NetworkConnectivityVerification, then clear the annotation.
 
     Removes the dry-run annotation so later tests reconcile normally. Uses backing_obj and JSON merge
-    patch (null) so the key is actually removed—merge patch only drops keys when set to null.
+    patch (null) so the key is actually removed. Merge patch only drops keys when set to null.
     """
     mdb.load()
     if "metadata" not in mdb:

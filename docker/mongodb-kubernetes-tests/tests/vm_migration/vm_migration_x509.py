@@ -1,23 +1,9 @@
 """
-VM migration E2E tests with X509 and TLS.
-MDB and pseudo-VM AC use TLS and X509 client auth (deploymentAuthMechanisms); internal cluster
-auth between mongod processes continues to use keyFile.
+VM migration from a generated MongoDB resource with TLS and X509 agent authentication.
 
-Flow: TLS → X509 client auth (fixtures bring VM agents to goal state), then migrate (MDB resource
-with externalMembers pointing at VM processes, promote K8s members and prune VM members).
-
-The MDB resource is created with X509 + clientCertificateSecretRef and
-spec.security.authentication.agents.autoPEMKeyFilePath set to CUSTOM_AGENT_CERT_PATH, matching
-the VM pod mount. The operator configures OM and K8s pods to use that path explicitly.
-
-Why different Secrets for the same agent cert+key?
-- clientCertificateSecretRef (TLS: tls.crt / tls.key): CRD and operator expect this shape to
-  verify, merge, and publish PEM material to Ops Manager.
-- vm-agent-cert-pem (single combined file): VM pods must exist and reach goal state *before* any
-  MDB exists, so the operator never created *-pem for them. OM also expects autoPEMKeyFilePath to
-  be *one file* (cert+key), not separate tls.crt/tls.key paths. The test therefore synthesizes a
-  minimal Secret + mount the VM StatefulSet can use without reimplementing operator hash-key layout.
-
+This test configures VM members in Ops Manager, runs kubectl-mongodb migrate-to-mck,
+applies the generated resources, and verifies dry-run validation, data continuity,
+connection strings, process names, and the promote and prune flow.
 """
 
 import yaml
@@ -32,18 +18,18 @@ from kubetester.mongotester import MongoDBBackgroundTester, MongoTester, build_m
 from kubetester.omtester import OMContext, OMTester
 from kubetester.phase import Phase
 from pytest import fixture, mark
-from tests.tls.vm_migration_dry_run import (
+from tests.vm_migration.vm_migration_dry_run import (
     run_migration_dry_run_connectivity_passes,
     run_wrong_ca_dry_run_fails_then_passes,
 )
-from tests.tls.vm_migration_helpers import (
+from tests.vm_migration.vm_migration_helpers import (
     apply_generated_mongodb_resource,
+    assert_common_generated_cr_shape,
     assert_connection_string_after_full_migration,
     assert_connection_string_contains_current_hosts,
     assert_k8s_process_names,
     assert_max_voting_members_validation,
     assert_migration_data_exists,
-    assert_migration_dry_run_annotation,
     insert_migration_data,
     promote_and_prune,
     run_generate_cr,
@@ -56,7 +42,7 @@ SERVER_PEM_PATH = "/mongodb-automation/server.pem"
 # Paths match operator constants (pkg/util/constants.go: TLSCaMountPath, AgentCertMountPath).
 CUSTOM_CA_PEM_PATH = "/mongodb-automation/tls/ca/ca-pem"
 
-# Custom cert path used for VM agents — intentionally different from the operator's default
+# Custom cert path used for VM agents, intentionally different from the operator's default
 # AgentCertMountPath to test that the operator preserves an arbitrary existing autoPEMKeyFilePath
 # and creates a matching mount on K8s pods rather than overwriting with its own hash-based path.
 CUSTOM_AGENT_CERT_DIR = "/var/lib/mongodb-mms-automation/certs"
@@ -88,18 +74,9 @@ def vm_agent_certs(issuer: str, namespace: str) -> str:
 def vm_agent_combined_pem(namespace: str, vm_agent_certs: str) -> tuple:
     """Create a combined PEM secret for VM pod cert mount and extract the agent subject DN.
 
-    Why not mount vm_agent_certs (tls.crt / tls.key) directly on VM pods?
-    Ops Manager's tls.autoPEMKeyFilePath points at a single PEM path; the agent reads one file.
-    Split TLS keys do not match that contract without extra init logic in the pod.
-
-    Why not reuse the operator's {vm_agent_certs}-pem Secret on VM pods?
-    That Secret is created when the MDB reconciles; VM agents must already be using X509 while
-    externalMembers still point at VM processes, often before the MDB CR exists or finishes
-    reconciling. This fixture is the bootstrap path for VM-only phases of the test.
-
-    Why a trivial Secret shape (one key = filename)?
-    VM StatefulSet is hand-built YAML; a directory mount of one key → one file avoids copying the
-    operator's hash-keyed layout in test code.
+    Ops Manager reads a single PEM path for tls.autoPEMKeyFilePath. The operator generated
+    PEM secret is not available before the MongoDB resource reconciles, so this fixture creates
+    the VM-side bootstrap secret directly.
 
     Returns (secret_name, subject_dn).
     """
@@ -152,7 +129,7 @@ def vm_sts(
     ]
 
     volumes = sts_body["spec"]["template"]["spec"].get("volumes") or []
-    # Combined cert+key PEM — MongoDB certificateKeyFile requires both in one file.
+    # MongoDB certificateKeyFile requires the cert and key in one file.
     volumes.append(
         {
             "name": "mongodb-certs",
@@ -173,9 +150,7 @@ def vm_sts(
             },
         }
     )
-    # Why vm-agent-cert-pem instead of the TLS secret or *-pem here: see vm_agent_combined_pem.
-    # Why this mountPath: OM tls.autoPEMKeyFilePath and later MDB autoPEMKeyFilePath must name the
-    # same path so VM and K8s agents agree with the automation config during migration.
+    # The VM path must match tls.autoPEMKeyFilePath before and after import.
     agent_secret_name, _ = vm_agent_combined_pem
     volumes.append({"name": "agent-cert", "secret": {"secretName": agent_secret_name}})
     sts_body["spec"]["template"]["spec"]["volumes"] = volumes
@@ -232,6 +207,11 @@ def generated_cr_yaml(namespace: str) -> str:
         certs_secret_prefix="mdb",
         resource_name_override=MDB_RESOURCE_NAME,
     )
+
+
+@fixture(scope="module")
+def generated_cr(generated_cr_yaml: str) -> dict:
+    return generated_mongodb_doc(generated_cr_yaml)
 
 
 @fixture(scope="module")
@@ -349,9 +329,12 @@ def test_deploy_vm(namespace: str, vm_sts, vm_service):
     KubernetesTester.wait_until(sts_is_ready, timeout=300)
 
 
+# Test flow
+
+
 @mark.e2e_vm_migration_x509
 def test_vm_ac_no_auth(om_tester: OMTester, vm_sts: dict, vm_service: dict, namespace: str, custom_mdb_version: str):
-    """Step 1: start VM replica set without auth or TLS so the replica set forms and agents register."""
+    """Start the VM replica set without auth or TLS so agents can register."""
     ac = om_tester.api_get_automation_config()
     if len(ac["processes"]) > 0:
         return
@@ -374,8 +357,9 @@ def test_vm_ac_tls(
     namespace: str,
     custom_mdb_version: str,
 ):
-    """Step 2: enable TLS on running replica set (auth still disabled).
-    OM rejects simultaneous TLS mode + auth changes, so TLS must be a separate step.
+    """Enable TLS on the running replica set while auth is still disabled.
+
+    Ops Manager rejects simultaneous TLS and auth changes, so TLS is configured first.
     """
     ac = om_tester.api_get_automation_config()
     tls_mode = ac.get("processes", [{}])[0].get("args2_6", {}).get("net", {}).get("tls", {}).get("mode")
@@ -404,9 +388,9 @@ def test_vm_ac_x509_auth(
     custom_mdb_version: str,
     vm_agent_combined_pem: tuple[str, str],
 ):
-    """Step 3: enable X509 client auth (processes TLS config unchanged).
-    Agent connects while TLS is on but auth is still disabled, creates the $external user for
-    autoUser, then restarts mongod with auth enabled.
+    """Enable X509 client auth after TLS is already configured.
+
+    The agent creates the $external automation user before mongod restarts with auth enabled.
     Internal cluster auth continues to use keyFile (SCRAM-SHA-256 for __system@local).
     """
     ac = om_tester.api_get_automation_config()
@@ -437,9 +421,23 @@ def test_insert_migration_data(vm_x509_tester: MongoTester, x509_opts: list[dict
     insert_migration_data(vm_x509_tester, opts=x509_opts)
 
 
+# Generated CR checks
+
+
 @mark.e2e_vm_migration_x509
-def test_migration_dry_run_annotation_present(generated_cr_yaml: str):
-    assert_migration_dry_run_annotation(generated_cr_yaml)
+def test_common_generated_cr_shape(generated_cr_yaml: str, generated_cr: dict):
+    assert_common_generated_cr_shape(generated_cr_yaml, generated_cr)
+
+
+@mark.e2e_vm_migration_x509
+def test_x509_agent_auth_in_cr(generated_cr: dict):
+    agents = generated_cr["spec"]["security"]["authentication"]["agents"]
+    assert agents["mode"] == "X509"
+    assert agents["autoPEMKeyFilePath"] == CUSTOM_AGENT_CERT_PATH
+    assert agents["clientCertificateSecretRef"]["name"] == f"mdb-{MDB_RESOURCE_NAME}-agent-certs"
+
+
+# Lifecycle checks
 
 
 @mark.e2e_vm_migration_x509
