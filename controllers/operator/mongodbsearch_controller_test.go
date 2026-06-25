@@ -2,7 +2,6 @@ package operator
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strconv"
 	"testing"
@@ -466,124 +465,7 @@ func TestMongoDBSearchReconcile_MissingSecret_Requeues(t *testing.T) {
 // pinnedCluster builds a spec.clusters[] entry with an explicit clusterIndex
 // (required on every entry of a multi-cluster spec).
 func pinnedCluster(name string, idx int32) searchv1.ClusterSpec {
-	return searchv1.ClusterSpec{Name: name, ClusterIndex: ptr.To(idx)}
-}
-
-// setupStateCMTest's fixture must be MC-valid (external source + managed LB) so
-// ValidateSpec accepts the un-narrowed spec; otherwise the state CM is never written.
-func setupStateCMTest(t *testing.T, clusters ...searchv1.ClusterSpec) (*MongoDBSearchReconciler, client.Client, *searchv1.MongoDBSearch) {
-	t.Helper()
-	search := newMongoDBSearch("mysearch", mock.TestNamespace, "mdb")
-	search.Spec.Source = &searchv1.MongoDBSource{
-		ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{
-			HostAndPorts: []string{"mdb-0.mdb.svc:27017", "mdb-1.mdb.svc:27017"},
-		},
-	}
-	for i := range clusters {
-		clusters[i].LoadBalancer = &searchv1.LoadBalancerConfig{
-			Managed: &searchv1.ManagedLBConfig{ExternalHostname: fmt.Sprintf("mongot-%s.example.com", clusters[i].Name)},
-		}
-	}
-	search.Spec.Clusters = clusters
-	mdbc := newMongoDBCommunity("mdb", mock.TestNamespace)
-	reconciler, c := newSearchReconciler(mdbc, search)
-	return reconciler, c, search
-}
-
-func reconcileAndGetState(t *testing.T, ctx context.Context, r *MongoDBSearchReconciler, c client.Client, name string) (*corev1.ConfigMap, searchcontroller.SearchDeploymentState) {
-	t.Helper()
-	_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: name, Namespace: mock.TestNamespace}})
-	require.NoError(t, err)
-	stateCM := &corev1.ConfigMap{}
-	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: name + "-search-state", Namespace: mock.TestNamespace}, stateCM))
-	var state searchcontroller.SearchDeploymentState
-	require.NoError(t, decodeStateJSON(stateCM, &state))
-	return stateCM, state
-}
-
-// decodeStateJSON parses the "state" key of a state ConfigMap into dst.
-func decodeStateJSON(cm *corev1.ConfigMap, dst interface{}) error {
-	raw, ok := cm.Data["state"]
-	if !ok {
-		return fmt.Errorf("state key missing from ConfigMap %s", cm.Name)
-	}
-	return json.Unmarshal([]byte(raw), dst)
-}
-
-func updateSearchClusters(t *testing.T, ctx context.Context, c client.Client, name string, clusters ...searchv1.ClusterSpec) {
-	t.Helper()
-	latest := &searchv1.MongoDBSearch{}
-	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: name, Namespace: mock.TestNamespace}, latest))
-	// Stamp the per-cluster managed LB every cluster needs to pass MC validation,
-	// matching setupStateCMTest so add/remove updates stay MC-valid.
-	for i := range clusters {
-		clusters[i].LoadBalancer = &searchv1.LoadBalancerConfig{
-			Managed: &searchv1.ManagedLBConfig{ExternalHostname: fmt.Sprintf("mongot-%s.example.com", clusters[i].Name)},
-		}
-	}
-	latest.Spec.Clusters = clusters
-	require.NoError(t, c.Update(ctx, latest))
-}
-
-func TestMongoDBSearchControllerReconcile_StateConfigMap(t *testing.T) {
-	ctx := context.Background()
-
-	t.Run("initial_add_retain", func(t *testing.T) {
-		reconciler, c, search := setupStateCMTest(t, pinnedCluster("us-east", 0), pinnedCluster("us-west", 1))
-
-		// First reconcile — state ConfigMap must be created with the initial mapping + owner ref.
-		stateCM, state := reconcileAndGetState(t, ctx, reconciler, c, search.Name)
-		assert.Equal(t, map[string]int{"us-east": 0, "us-west": 1}, state.ClusterMapping)
-		latestSearch := &searchv1.MongoDBSearch{}
-		require.NoError(t, c.Get(ctx, types.NamespacedName{Name: search.Name, Namespace: search.Namespace}, latestSearch))
-		require.Len(t, stateCM.OwnerReferences, 1)
-		assert.Equal(t, latestSearch.UID, stateCM.OwnerReferences[0].UID)
-
-		// Add eu-central pinned at 2.
-		updateSearchClusters(t, ctx, c, search.Name, pinnedCluster("us-east", 0), pinnedCluster("us-west", 1), pinnedCluster("eu-central", 2))
-		_, state = reconcileAndGetState(t, ctx, reconciler, c, search.Name)
-		assert.Equal(t, map[string]int{"us-east": 0, "us-west": 1, "eu-central": 2}, state.ClusterMapping)
-
-		// Remove us-west — mapping must retain it.
-		updateSearchClusters(t, ctx, c, search.Name, pinnedCluster("us-east", 0), pinnedCluster("eu-central", 2))
-		_, state = reconcileAndGetState(t, ctx, reconciler, c, search.Name)
-		assert.Equal(t, map[string]int{"us-east": 0, "us-west": 1, "eu-central": 2}, state.ClusterMapping, "removed cluster must be retained")
-	})
-
-	t.Run("no_op_on_stable_mapping", func(t *testing.T) {
-		reconciler, c, search := setupStateCMTest(t, pinnedCluster("us-east", 0), pinnedCluster("us-west", 1))
-		stateCM1, _ := reconcileAndGetState(t, ctx, reconciler, c, search.Name)
-		stateCM2, _ := reconcileAndGetState(t, ctx, reconciler, c, search.Name)
-		assert.Equal(t, stateCM1.ResourceVersion, stateCM2.ResourceVersion, "state CM must not be rewritten when mapping is unchanged")
-	})
-
-	t.Run("operator_restart_preserves_mapping", func(t *testing.T) {
-		reconciler, c, search := setupStateCMTest(t, pinnedCluster("us-east", 0), pinnedCluster("us-west", 1))
-		// Pre-seed a state CM as if a previous operator instance had written it.
-		stateJSON, err := json.Marshal(searchcontroller.SearchDeploymentState{
-			ClusterMapping: map[string]int{"us-east": 0, "us-west": 1},
-		})
-		require.NoError(t, err)
-		require.NoError(t, c.Create(ctx, &corev1.ConfigMap{
-			ObjectMeta: metav1.ObjectMeta{Name: "mysearch-search-state", Namespace: mock.TestNamespace},
-			Data:       map[string]string{"state": string(stateJSON)},
-		}))
-		_, state := reconcileAndGetState(t, ctx, reconciler, c, search.Name)
-		assert.Equal(t, map[string]int{"us-east": 0, "us-west": 1}, state.ClusterMapping, "existing mapping must be preserved across operator restart")
-	})
-
-	t.Run("re_add_cluster_reclaims_index", func(t *testing.T) {
-		reconciler, c, search := setupStateCMTest(t, pinnedCluster("us-east", 0), pinnedCluster("us-west", 1), pinnedCluster("eu-central", 2))
-		_, _ = reconcileAndGetState(t, ctx, reconciler, c, search.Name)
-
-		// Remove us-west (index 1), then re-add — it must reclaim index 1.
-		updateSearchClusters(t, ctx, c, search.Name, pinnedCluster("us-east", 0), pinnedCluster("eu-central", 2))
-		_, _ = reconcileAndGetState(t, ctx, reconciler, c, search.Name)
-		updateSearchClusters(t, ctx, c, search.Name, pinnedCluster("us-east", 0), pinnedCluster("eu-central", 2), pinnedCluster("us-west", 1))
-		_, state := reconcileAndGetState(t, ctx, reconciler, c, search.Name)
-		assert.Equal(t, map[string]int{"us-east": 0, "us-west": 1, "eu-central": 2}, state.ClusterMapping,
-			"re-added cluster must reclaim its original index")
-	})
+	return searchv1.ClusterSpec{Name: name, Index: ptr.To(idx)}
 }
 
 func TestMongoDBSearchReconcile_Success_MultiCluster(t *testing.T) {
@@ -602,11 +484,11 @@ func TestMongoDBSearchReconcile_Success_MultiCluster(t *testing.T) {
 	}
 	search.Spec.Clusters = []searchv1.ClusterSpec{
 		{
-			Name: "us-east", ClusterIndex: ptr.To(int32(0)), Replicas: ptr.To(int32(1)),
+			Name: "us-east", Index: ptr.To(int32(0)), Replicas: ptr.To(int32(1)),
 			LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot-us-east.example.com"}},
 		},
 		{
-			Name: "us-west", ClusterIndex: ptr.To(int32(1)), Replicas: ptr.To(int32(1)),
+			Name: "us-west", Index: ptr.To(int32(1)), Replicas: ptr.To(int32(1)),
 			LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot-us-west.example.com"}},
 		},
 	}
@@ -623,14 +505,6 @@ func TestMongoDBSearchReconcile_Success_MultiCluster(t *testing.T) {
 	const maxPasses = 5
 	got := driveSearchReconcileToRunning(ctx, t, reconciler, centralClient, search, maxPasses, eastClient, westClient)
 	require.Equal(t, status.PhaseRunning, got.Status.Phase, "reconciler must reach Running within %d passes", maxPasses)
-
-	// State CM lives on the central client and records the mapping the helper
-	// fanned out over.
-	stateCM := &corev1.ConfigMap{}
-	require.NoError(t, centralClient.Get(ctx, types.NamespacedName{Name: "mdb-search-search-state", Namespace: mock.TestNamespace}, stateCM))
-	var state searchcontroller.SearchDeploymentState
-	require.NoError(t, decodeStateJSON(stateCM, &state))
-	require.Equal(t, map[string]int{"us-east": 0, "us-west": 1}, state.ClusterMapping)
 
 	// Per-cluster resource fan-out: each cluster sees its own index-suffixed
 	// STS / headless Service / proxy Service / mongot ConfigMap on its own client,
@@ -730,16 +604,6 @@ func driveSearchReconcileToRunning(
 	return got
 }
 
-func readSimulatedMCStateMapping(ctx context.Context, t *testing.T, c client.Client, search *searchv1.MongoDBSearch) map[string]int {
-	t.Helper()
-	stateCM := &corev1.ConfigMap{}
-	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: search.Name + "-search-state", Namespace: search.Namespace}, stateCM),
-		"state ConfigMap must exist in simulated-MC mode")
-	var state searchcontroller.SearchDeploymentState
-	require.NoError(t, decodeStateJSON(stateCM, &state))
-	return state.ClusterMapping
-}
-
 // assertSearchOwnerLabels verifies the cross-cluster enqueue labels (owner name/
 // namespace + cluster name) on every operator-created object. Watch routing
 // (EnqueueMemberClusterObjectToSearch) and label-based GC depend on these, so a
@@ -758,11 +622,11 @@ func assertSearchOwnerLabels(t *testing.T, search *searchv1.MongoDBSearch, clust
 func newSimulatedMCMongoDBSearch(name, namespace string) *searchv1.MongoDBSearch {
 	clusters := []searchv1.ClusterSpec{
 		{
-			Name: "cluster-a", ClusterIndex: ptr.To(int32(0)), Replicas: ptr.To(int32(1)),
+			Name: "cluster-a", Index: ptr.To(int32(0)), Replicas: ptr.To(int32(1)),
 			LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot-cluster-a.example.com"}},
 		},
 		{
-			Name: "cluster-b", ClusterIndex: ptr.To(int32(1)), Replicas: ptr.To(int32(1)),
+			Name: "cluster-b", Index: ptr.To(int32(1)), Replicas: ptr.To(int32(1)),
 			LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot-cluster-b.example.com"}},
 		},
 	}
@@ -798,7 +662,7 @@ func TestReconcile_SimulatedMC_ProjectedReconcilesLocalOnly(t *testing.T) {
 			ctx := context.Background()
 			search := newSimulatedMCMongoDBSearch("mdb-search", mock.TestNamespace)
 			if tc.pinClusterB != nil {
-				search.Spec.Clusters[1].ClusterIndex = tc.pinClusterB
+				search.Spec.Clusters[1].Index = tc.pinClusterB
 			}
 
 			reconciler, c := newSearchReconcilerWithMembers(t, nil, nil, tc.opCluster, search)
@@ -830,12 +694,6 @@ func TestReconcile_SimulatedMC_ProjectedReconcilesLocalOnly(t *testing.T) {
 			assert.True(t, apiErrors.IsNotFound(err), "proxy Service at index %d must NOT exist; got err=%v", tc.wrongIdx, err)
 			err = c.Get(ctx, search.SearchServiceNamespacedNameForCluster(tc.wrongIdx), &corev1.Service{})
 			assert.True(t, apiErrors.IsNotFound(err), "headless search Service at index %d must NOT exist; got err=%v", tc.wrongIdx, err)
-
-			// LocalizeToCluster narrows spec.clusters[] to the local entry BEFORE the state-CM
-			// write, so the persisted mapping carries ONLY this operator's cluster at its pin.
-			assert.Equal(t, map[string]int{tc.opCluster: tc.wantIdx},
-				readSimulatedMCStateMapping(ctx, t, c, search),
-				"persisted mapping must contain only the localized cluster at its pinned index")
 
 			require.Equal(t, status.PhaseRunning, got.Status.Phase,
 				"projected reconcile must reach Running; got %q (msg=%q)", got.Status.Phase, got.Status.Message)
@@ -877,27 +735,25 @@ func TestReconcile_SimulatedMC_NoMatchSilentNoOp(t *testing.T) {
 	assert.Equal(t, status.Phase(""), updated.Status.Phase, "no-match reconcile must not touch status")
 }
 
-// Customer pin is authoritative: re-pinning overwrites the mapping and renders at
-// the new index. The old-index resources leak — accepted MVP scope, no cleanup.
-func TestReconcile_SimulatedMC_RePinUpdatesMappingAndNames(t *testing.T) {
+// Customer pin is authoritative: re-pinning renders at the new index. The
+// old-index resources leak — accepted MVP scope, no cleanup.
+func TestReconcile_SimulatedMC_RePinUpdatesNames(t *testing.T) {
 	ctx := context.Background()
 	search := newSimulatedMCMongoDBSearch("mdb-search", mock.TestNamespace)
 
 	reconciler, c := newSearchReconcilerWithMembers(t, nil, nil, "cluster-a", search)
 	driveSearchReconcileToRunning(ctx, t, reconciler, c, search, 5)
-	require.Equal(t, map[string]int{"cluster-a": 0}, readSimulatedMCStateMapping(ctx, t, c, search),
-		"initial reconcile must persist the original pin")
+	require.NoError(t, c.Get(ctx, search.StatefulSetNamespacedNameForCluster(0), &appsv1.StatefulSet{}),
+		"initial reconcile must render at the original pinned index 0")
 
 	// Customer re-pins cluster-a from 0 to 2.
 	got := &searchv1.MongoDBSearch{}
 	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: search.Name, Namespace: search.Namespace}, got))
-	got.Spec.Clusters[0].ClusterIndex = ptr.To(int32(2))
+	got.Spec.Clusters[0].Index = ptr.To(int32(2))
 	require.NoError(t, c.Update(ctx, got))
 
 	driveSearchReconcileToRunning(ctx, t, reconciler, c, search, 5)
 
-	assert.Equal(t, map[string]int{"cluster-a": 2}, readSimulatedMCStateMapping(ctx, t, c, search),
-		"changed pin must overwrite the persisted mapping entry")
 	require.NoError(t, c.Get(ctx, search.StatefulSetNamespacedNameForCluster(2), &appsv1.StatefulSet{}),
 		"STS must exist at the new pinned index 2")
 	require.NoError(t, c.Get(ctx, search.MongotConfigConfigMapNameForCluster(2), &corev1.ConfigMap{}),
@@ -909,11 +765,11 @@ func newSimulatedMCShardedMongoDBSearch(name, namespace string) *searchv1.MongoD
 	// {shardName}. prefix is required for cluster-level form derivation.
 	clusters := []searchv1.ClusterSpec{
 		{
-			Name: "cluster-a", ClusterIndex: ptr.To(int32(0)), Replicas: ptr.To(int32(1)),
+			Name: "cluster-a", Index: ptr.To(int32(0)), Replicas: ptr.To(int32(1)),
 			LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{ExternalHostname: "{shardName}.cluster-a.example.com"}},
 		},
 		{
-			Name: "cluster-b", ClusterIndex: ptr.To(int32(1)), Replicas: ptr.To(int32(1)),
+			Name: "cluster-b", Index: ptr.To(int32(1)), Replicas: ptr.To(int32(1)),
 			LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{ExternalHostname: "{shardName}.cluster-b.example.com"}},
 		},
 	}
@@ -956,7 +812,7 @@ func TestReconcile_SimulatedMC_ShardedSource_ProjectedReconcilesLocalOnly(t *tes
 			ctx := context.Background()
 			search := newSimulatedMCShardedMongoDBSearch("mdb-search", mock.TestNamespace)
 			if tc.pinClusterB != nil {
-				search.Spec.Clusters[1].ClusterIndex = tc.pinClusterB
+				search.Spec.Clusters[1].Index = tc.pinClusterB
 			}
 
 			reconciler, c := newSearchReconcilerWithMembers(t, nil, nil, tc.opCluster, search)
@@ -1003,12 +859,6 @@ func TestReconcile_SimulatedMC_ShardedSource_ProjectedReconcilesLocalOnly(t *tes
 			wrongProxy := &corev1.Service{}
 			err := c.Get(ctx, search.ProxyServiceNamespacedNameForCluster(tc.wrongIdx), wrongProxy)
 			assert.True(t, apiErrors.IsNotFound(err), "cluster-level proxy Service at idx %d must NOT exist; err=%v", tc.wrongIdx, err)
-
-			// Localization narrows to the local entry before the state-CM write, so the
-			// persisted mapping carries only this operator's cluster at its pinned index.
-			assert.Equal(t, map[string]int{tc.opCluster: tc.wantIdx},
-				readSimulatedMCStateMapping(ctx, t, c, search),
-				"persisted mapping must contain only the localized cluster at its pinned index")
 
 			require.Equal(t, status.PhaseRunning, got.Status.Phase,
 				"projected sharded reconcile must reach Running; got %q (msg=%q)", got.Status.Phase, got.Status.Message)
@@ -1074,7 +924,7 @@ func TestReconcile_SimulatedMC_ClusterIndexEnforcement(t *testing.T) {
 			"missing clusterIndex must surface as Failed phase, got %q (msg=%q)", got.Status.Phase, got.Status.Message)
 		// workflow.Invalid capitalizes the first char, so match on the stable substring.
 		assert.Contains(t, got.Status.Message,
-			"one operator per cluster requires clusterIndex on every spec.clusters[] entry (missing on",
+			"one operator per cluster requires index on every spec.clusters[] entry (missing on",
 			"failure must come from ValidateSimulatedMCClusterIndices")
 	})
 
@@ -1082,7 +932,7 @@ func TestReconcile_SimulatedMC_ClusterIndexEnforcement(t *testing.T) {
 		search := newSimulatedMCMongoDBSearch("mdb-search", mock.TestNamespace)
 		// Drop the pin on the second entry: the general ValidateSpec rule fires
 		// before the sim-MC gate.
-		search.Spec.Clusters[1].ClusterIndex = nil
+		search.Spec.Clusters[1].Index = nil
 
 		reconciler, c := newSearchReconcilerWithMembers(t, nil, nil, "cluster-a", search)
 		req := reconcile.Request{NamespacedName: types.NamespacedName{Name: search.Name, Namespace: search.Namespace}}
@@ -1095,7 +945,7 @@ func TestReconcile_SimulatedMC_ClusterIndexEnforcement(t *testing.T) {
 			"partial pin must surface as Failed phase, got %q (msg=%q)", got.Status.Phase, got.Status.Message)
 		// workflow.Invalid capitalizes the first char, so match on the stable substring.
 		assert.Contains(t, got.Status.Message,
-			"clusterIndex is required when len(spec.clusters)",
+			"index is required when len(spec.clusters)",
 			"failure must come from validateClustersClusterIndexRequired")
 	})
 
@@ -1120,45 +970,6 @@ func TestReconcile_SimulatedMC_ClusterIndexEnforcement(t *testing.T) {
 	})
 }
 
-// resolveClusterMapping failure (state WriteState rejected) must surface
-// Phase=Failed with the "failed to update cluster index mapping" message and return
-// before getSourceMongoDBForSearch — no per-cluster resources are created.
-func TestMongoDBSearchReconcile_ResolveClusterMappingFailure_Failed(t *testing.T) {
-	ctx := context.Background()
-
-	search := newMongoDBSearch("mdb-search", mock.TestNamespace, "mdb")
-	search.Spec.Source = &searchv1.MongoDBSource{
-		ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{HostAndPorts: []string{"mdb-0.mdb.svc:27017"}},
-	}
-	search.Spec.Clusters = []searchv1.ClusterSpec{pinnedCluster("us-east", 0), pinnedCluster("us-west", 1)}
-	for i := range search.Spec.Clusters {
-		search.Spec.Clusters[i].LoadBalancer = &searchv1.LoadBalancerConfig{
-			Managed: &searchv1.ManagedLBConfig{ExternalHostname: fmt.Sprintf("mongot-%s.example.com", search.Spec.Clusters[i].Name)},
-		}
-	}
-
-	base := mock.NewEmptyFakeClientBuilder().WithStatusSubresource(&searchv1.MongoDBSearch{}).WithObjects(search).Build()
-	// failingWriteClient rejects the state-CM write that resolveClusterMapping
-	// performs when the mapping changes from empty to the pinned indices.
-	central := failingWriteClient{Client: base}
-	reconciler := newMongoDBSearchReconciler(central, searchcontroller.OperatorSearchConfig{}, map[string]client.Client{}, "")
-
-	req := reconcile.Request{NamespacedName: types.NamespacedName{Name: search.Name, Namespace: search.Namespace}}
-	_, err := reconciler.Reconcile(ctx, req)
-	require.NoError(t, err, "workflow.Failed returns a result, not an error")
-
-	got := &searchv1.MongoDBSearch{}
-	require.NoError(t, base.Get(ctx, req.NamespacedName, got))
-	assert.Equal(t, status.PhaseFailed, got.Status.Phase)
-	// workflow.Failed capitalizes the first char, so match on the stable substring.
-	assert.Contains(t, got.Status.Message, "cluster index mapping")
-
-	// Returned before any per-cluster resource fan-out.
-	sts := &appsv1.StatefulSet{}
-	assert.True(t, apiErrors.IsNotFound(base.Get(ctx, search.StatefulSetNamespacedNameForCluster(0), sts)),
-		"no StatefulSet must be created when cluster-mapping resolution fails")
-}
-
 // Cluster-level proxy Service selector must match the label Envoy Deployment stamps on its Pods.
 func TestMongoDBSearchReconcile_MCSharded_CrossControllerLabelInvariant(t *testing.T) {
 	ctx := context.Background()
@@ -1171,7 +982,7 @@ func TestMongoDBSearchReconcile_MCSharded_CrossControllerLabelInvariant(t *testi
 		Spec: searchv1.MongoDBSearchSpec{
 			Clusters: []searchv1.ClusterSpec{
 				{
-					Name: "cluster-a", ClusterIndex: ptr.To(int32(0)), Replicas: ptr.To(int32(1)),
+					Name: "cluster-a", Index: ptr.To(int32(0)), Replicas: ptr.To(int32(1)),
 					LoadBalancer: &searchv1.LoadBalancerConfig{
 						Managed: &searchv1.ManagedLBConfig{
 							ExternalHostname: "{shardName}.mdb-search-search-0-proxy-svc.example.com",
@@ -1179,7 +990,7 @@ func TestMongoDBSearchReconcile_MCSharded_CrossControllerLabelInvariant(t *testi
 					},
 				},
 				{
-					Name: "cluster-b", ClusterIndex: ptr.To(int32(1)), Replicas: ptr.To(int32(1)),
+					Name: "cluster-b", Index: ptr.To(int32(1)), Replicas: ptr.To(int32(1)),
 					LoadBalancer: &searchv1.LoadBalancerConfig{
 						Managed: &searchv1.ManagedLBConfig{
 							ExternalHostname: "{shardName}.mdb-search-search-1-proxy-svc.example.com",
