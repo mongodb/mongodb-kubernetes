@@ -258,7 +258,7 @@ func TestBuildJobFromStatefulSet_ClientCertRequired_True(t *testing.T) {
 	rs.Namespace = "default"
 	// Simulate a clientCertificateSecretRef being set, which triggers ShouldUseClientCertificates().
 	rs.GetSecurity().Authentication.Agents.ClientCertificateSecretRefWrap.ClientCertificateSecretRef.Name = "agent-cert"
-	job := BuildJobFromStatefulSet(rs, sts, "img", "mongodb://host:27017/?replicaSet=my-rs", nil, "MONGODB-X509", "", "")
+	job := BuildJobFromStatefulSet(rs, sts, "img", "mongodb://host:27017/?replicaSet=my-rs", nil, "MONGODB-X509", "", "", "")
 
 	var clientCertRequired string
 	for _, e := range job.Spec.Template.Spec.Containers[0].Env {
@@ -298,7 +298,7 @@ func TestBuildJobFromStatefulSet_ClientCertRequired_False(t *testing.T) {
 	rs.Name = "my-rs"
 	rs.Namespace = "default"
 	// No ClientCertificateSecretRef set — ShouldUseClientCertificates() returns false.
-	job := BuildJobFromStatefulSet(rs, sts, "img", "mongodb://host:27017/?replicaSet=my-rs", nil, util.AutomationConfigScramSha256Option, "", "")
+	job := BuildJobFromStatefulSet(rs, sts, "img", "mongodb://host:27017/?replicaSet=my-rs", nil, util.AutomationConfigScramSha256Option, "", "", "")
 
 	var clientCertRequired string
 	for _, e := range job.Spec.Template.Spec.Containers[0].Env {
