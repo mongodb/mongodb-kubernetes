@@ -343,6 +343,27 @@ func (d Deployment) DisableProcesses(processNames []string) {
 	}
 }
 
+func (d Deployment) MarkRsMembersUnvoted(rsName string, rsMembers []string) error {
+	rs := d.getReplicaSetByName(rsName)
+	if rs == nil {
+		return xerrors.New("Failed to find Replica Set " + rsName)
+	}
+
+	failedMembers := ""
+	for _, m := range rsMembers {
+		rsMember := rs.findMemberByName(m)
+		if rsMember == nil {
+			failedMembers += m
+		} else {
+			rsMember.setVotes(0).setPriority(0)
+		}
+	}
+	if failedMembers != "" {
+		return xerrors.Errorf("failed to find the following members of Replica Set %s: %v", rsName, failedMembers)
+	}
+	return nil
+}
+
 // RemoveProcessByName removes the process from deployment
 // Note, that the backup and monitoring configs are also cleaned up
 func (d Deployment) RemoveProcessByName(name string, log *zap.SugaredLogger) error {

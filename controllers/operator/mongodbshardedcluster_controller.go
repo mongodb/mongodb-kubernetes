@@ -1183,6 +1183,10 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 		return workflow.Failed(xerrors.Errorf("Could not generate certificates for Prometheus: %w", err))
 	}
 
+	if err = r.prepareScaleDownShardedCluster(conn, log); err != nil {
+		return workflow.Failed(xerrors.Errorf("failed to perform scale down preliminary actions: %w", err))
+	}
+
 	if workflowStatus := validateMongoDBResource(sc, conn); !workflowStatus.IsOK() {
 		return workflowStatus
 	}
@@ -1937,6 +1941,68 @@ func (r *ShardedClusterReconcileHelper) getMongosHostnames(memberCluster multicl
 		externalDomain = r.sc.Spec.GetExternalDomain()
 		return dns.GetDNSNames(r.GetMongosStsName(memberCluster), r.sc.ServiceName(), r.sc.Namespace, r.sc.Spec.GetClusterDomain(), replicas, externalDomain)
 	}
+}
+
+func (r *ShardedClusterReconcileHelper) computeMembersToScaleDown(configSrvMemberClusters []multicluster.MemberCluster, shardsMemberClustersMap map[int][]multicluster.MemberCluster, log *zap.SugaredLogger) map[string][]string {
+	membersToScaleDown := make(map[string][]string)
+	for _, memberCluster := range configSrvMemberClusters {
+		currentReplicas := memberCluster.Replicas
+		desiredReplicas := scale.ReplicasThisReconciliation(r.GetConfigSrvScaler(memberCluster))
+		_, currentPodNames := r.getConfigSrvHostnames(memberCluster, currentReplicas)
+		if desiredReplicas < currentReplicas {
+			log.Debugf("Detected configSrv in cluster %s is scaling down: desiredReplicas=%d, currentReplicas=%d", memberCluster.Name, desiredReplicas, currentReplicas)
+			configRsName := r.sc.ConfigACRsName()
+			if _, ok := membersToScaleDown[configRsName]; !ok {
+				membersToScaleDown[configRsName] = []string{}
+			}
+			podNamesToScaleDown := currentPodNames[desiredReplicas:currentReplicas]
+			membersToScaleDown[configRsName] = append(membersToScaleDown[configRsName], podNamesToScaleDown...)
+		}
+	}
+
+	// Scaledown size of each shard
+	for shardIdx, memberClusters := range shardsMemberClustersMap {
+		for _, memberCluster := range memberClusters {
+			currentReplicas := memberCluster.Replicas
+			desiredReplicas := scale.ReplicasThisReconciliation(r.GetShardScaler(shardIdx, memberCluster))
+			_, currentPodNames := r.getShardHostnames(shardIdx, memberCluster, currentReplicas)
+			if desiredReplicas < currentReplicas {
+				log.Debugf("Detected shard idx=%d in cluster %s is scaling down: desiredReplicas=%d, currentReplicas=%d", shardIdx, memberCluster.Name, desiredReplicas, currentReplicas)
+				shardRsName := r.sc.ShardACRsName(shardIdx)
+				if _, ok := membersToScaleDown[shardRsName]; !ok {
+					membersToScaleDown[shardRsName] = []string{}
+				}
+				podNamesToScaleDown := currentPodNames[desiredReplicas:currentReplicas]
+				membersToScaleDown[shardRsName] = append(membersToScaleDown[shardRsName], podNamesToScaleDown...)
+			}
+		}
+	}
+
+	return membersToScaleDown
+}
+
+// prepareScaleDownShardedCluster collects all replicasets members to scale down, from configservers and shards, across
+// all clusters, and pass them to PrepareScaleDownFromMap, which sets their votes and priorities to 0
+func (r *ShardedClusterReconcileHelper) prepareScaleDownShardedCluster(omClient om.Connection, log *zap.SugaredLogger) error {
+	membersToScaleDown := r.computeMembersToScaleDown(r.configSrvMemberClusters, r.shardsMemberClustersMap, log)
+
+	if len(membersToScaleDown) > 0 {
+		existingDeployment, err := omClient.ReadDeployment()
+		if err != nil {
+			return xerrors.Errorf("failed to read deployment for scale-down preparation: %w", err)
+		}
+		for rsName, podNames := range membersToScaleDown {
+			existingIds := getReplicaSetProcessIdsFromReplicaSets(rsName, existingDeployment)
+			externalNames := r.sc.Spec.GetExternalMemberProcessNamesForRS(rsName)
+			membersToScaleDown[rsName] = replicaset.ConvertPodNamesToProcessNames(existingIds, externalNames, podNames, r.sc.Namespace)
+		}
+
+		healthyProcessesToWaitForReadyState := r.getHealthyProcessNamesToWaitForReadyState(existingDeployment, omClient, log)
+		if err := replicaset.PrepareScaleDownFromMap(omClient, membersToScaleDown, healthyProcessesToWaitForReadyState, log); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // deploymentOptions contains fields required for creating the OM deployment for the Sharded Cluster.

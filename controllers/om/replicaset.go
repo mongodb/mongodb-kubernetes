@@ -293,6 +293,17 @@ func (r ReplicaSet) clearMembers() {
 	r["members"] = make([]ReplicaSetMember, 0)
 }
 
+func (r ReplicaSet) findMemberByName(name string) *ReplicaSetMember {
+	members := r.Members()
+	for _, m := range members {
+		if m.Name() == name {
+			return &m
+		}
+	}
+
+	return nil
+}
+
 // mms uses string for this field to make it optional in json
 func (r ReplicaSet) protocolVersion() string {
 	return r["protocolVersion"].(string)
