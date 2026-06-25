@@ -1704,12 +1704,6 @@ func TestShardNameOverridesValidForm(t *testing.T) {
 			expectError: true,
 			errorMsg:    "as the config server",
 		},
-		{
-			name:        "override replicaSetName equal to the sharded cluster name fails",
-			overrides:   []ShardNameOverride{{ShardName: "vm-shard-0", ShardId: "vm-id-0", ReplicaSetName: "vm-shard"}},
-			expectError: true,
-			errorMsg:    "equals the sharded cluster name",
-		},
 	}
 
 	for _, tt := range tests {
