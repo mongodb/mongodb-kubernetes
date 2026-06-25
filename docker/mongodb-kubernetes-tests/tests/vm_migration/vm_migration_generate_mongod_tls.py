@@ -8,6 +8,7 @@ connection strings, process names, and the promote and prune flow.
 
 import os
 import ssl
+from copy import deepcopy
 
 from kubetester import create_or_update_configmap, create_or_update_secret, get_statefulset, read_secret
 from kubetester.certs import ISSUER_CA_NAME, create_mongodb_tls_certs
@@ -19,6 +20,7 @@ from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.vm_migration.vm_migration_dry_run import (
+    create_wrong_ca_configmap,
     run_migration_dry_run_connectivity_passes,
     run_wrong_ca_dry_run_fails_then_passes,
 )
@@ -55,6 +57,7 @@ APP_USER_PASSWORD = "tlsAppUser123!"
 VM_AGENT_OM_CA_PATH = "/etc/mongodb-mms-ca/ca.pem"
 VM_OM_CA_CONFIGMAP_NAME = "vm-mongodb-om-ca"
 VM_REPLICAS = 5
+WRONG_CA_NAME = "wrong-issuer-ca-mongod-tls"
 
 
 def _get_ca_bundle_content() -> str:
@@ -318,7 +321,10 @@ def mdb_migration(
     operator_server_certs: str,
     migrate_tool_ca_configmap: str,
 ) -> MongoDB:
-    return apply_generated_mongodb_resource(namespace, generated_cr)
+    resource_doc = deepcopy(generated_cr)
+    create_wrong_ca_configmap(namespace, WRONG_CA_NAME)
+    resource_doc["spec"]["security"]["tls"]["ca"] = WRONG_CA_NAME
+    return apply_generated_mongodb_resource(namespace, resource_doc)
 
 
 @fixture(scope="module")
@@ -430,7 +436,7 @@ def test_migration_dry_run_wrong_ca_fails_then_passes(
         namespace,
         mdb_migration,
         f"{RS_NAME}-connectivity-check",
-        "wrong-issuer-ca-mongod-tls",
+        WRONG_CA_NAME,
         correct_ca_name=migrate_tool_ca_configmap,
     )
 

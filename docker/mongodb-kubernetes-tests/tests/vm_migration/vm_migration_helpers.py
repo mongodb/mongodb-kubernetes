@@ -202,14 +202,15 @@ def assert_connection_string_contains_current_hosts(mdb_migration: MongoDB) -> N
 def assert_connection_string_after_full_migration(mdb_migration: MongoDB) -> None:
     assert not mdb_migration["spec"].get("externalMembers"), "expected all external members to be pruned by now"
     conn_str, conn_srv = migration_connection_strings(mdb_migration)
+    replica_set_name = mdb_migration["spec"].get("replicaSetNameOverride", mdb_migration.name)
     assert conn_str.startswith("mongodb://"), "connection string must use mongodb:// scheme"
     for hostname in k8s_hostnames(mdb_migration):
         assert hostname in conn_str, f"k8s hostname {hostname!r} missing from final connection string"
-    assert f"replicaSet={mdb_migration['spec']['replicaSetNameOverride']}" in conn_str
+    assert f"replicaSet={replica_set_name}" in conn_str
 
     assert conn_srv.startswith("mongodb+srv://"), "SRV connection string must use mongodb+srv:// scheme"
     assert f"{mdb_migration.get_service()}.{mdb_migration.namespace}.svc.cluster.local" in conn_srv
-    assert f"replicaSet={mdb_migration['spec']['replicaSetNameOverride']}" in conn_str
+    assert f"replicaSet={replica_set_name}" in conn_srv
 
 
 def insert_migration_data(mongo_tester: MongoTester, opts: list[dict] | None = None) -> None:

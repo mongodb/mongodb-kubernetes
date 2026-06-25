@@ -36,6 +36,11 @@ def generate_wrong_ca_pem() -> str:
     return cert.public_bytes(serialization.Encoding.PEM).decode("utf-8")
 
 
+def create_wrong_ca_configmap(namespace: str, wrong_ca_name: str) -> None:
+    wrong_ca_pem = generate_wrong_ca_pem()
+    create_or_update_configmap(namespace, wrong_ca_name, {"ca-pem": wrong_ca_pem, "mms-ca.crt": wrong_ca_pem})
+
+
 def _migration_connectivity_passed(mdb: MongoDB) -> bool:
     # MongoDB (CustomObject) supports [] but not .get(); status/conditions come from the API.
     try:
@@ -132,21 +137,14 @@ def run_wrong_ca_dry_run_fails_then_passes(
     wrong_ca_name: str,
     correct_ca_name: str | None = None,
 ) -> None:
-    """Verify migration dry-run fails with an invalid CA, then passes after restoring the valid CA."""
-    wrong_ca_pem = generate_wrong_ca_pem()
-    create_or_update_configmap(namespace, wrong_ca_name, {"ca-pem": wrong_ca_pem, "mms-ca.crt": wrong_ca_pem})
-
-    _delete_connectivity_job_if_exists(namespace, connectivity_job_name)
-
+    """Verify migration dry-run fails with an existing invalid CA, then passes after restoring the valid CA."""
     mdb.load()
     original_ca_name = mdb["spec"]["security"]["tls"]["ca"]
     mdb["spec"]["security"]["tls"]["ca"] = wrong_ca_name
     mdb.update()
-
     run_migration_dry_run_connectivity_fails(mdb)
 
     _delete_connectivity_job_if_exists(namespace, connectivity_job_name)
-
     mdb.load()
     mdb["spec"]["security"]["tls"]["ca"] = correct_ca_name or original_ca_name
     mdb.update()
