@@ -49,7 +49,6 @@ func generateReplicaSetSingleCluster(ac *om.AutomationConfig, opts GenerateOptio
 	}, resourceName, nil
 }
 
-
 // buildReplicaSetDbCommonSpec constructs the DbCommonSpec for a replica set deployment,
 // including security, Prometheus, TLS, and connection settings.
 func buildReplicaSetDbCommonSpec(ac *om.AutomationConfig, opts GenerateOptions, version, fcv, resourceName string) (mdbv1.DbCommonSpec, error) {

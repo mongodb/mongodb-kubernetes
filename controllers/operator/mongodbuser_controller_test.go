@@ -837,3 +837,173 @@ func (b *MongoDBUserBuilder) Build() *userv1.MongoDBUser {
 		},
 	}
 }
+
+func TestUserReconciler_ConnectionString_IncludesExternalMembers(t *testing.T) {
+	ctx := context.Background()
+
+	rs := DefaultReplicaSetBuilder().
+		SetName("my-rs").
+		EnableAuth().
+		AgentAuthMode("SCRAM").
+		Build()
+	rs.Spec.ExternalMembers = []mdbv1.ExternalMember{
+		{ProcessName: "vm-0", Hostname: "vm-0.example.com:27017", Type: "mongod"},
+		{ProcessName: "vm-1", Hostname: "vm-1.example.com:27017", Type: "mongod"},
+	}
+
+	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").Build()
+	reconciler, kubeClient, _ := userReconcilerWithAuthMode(ctx, user, util.AutomationConfigScramSha256Option)
+
+	require.NoError(t, kubeClient.Create(ctx, rs))
+	createUserControllerConfigMap(ctx, kubeClient)
+	createPasswordSecret(ctx, kubeClient, user.Spec.PasswordSecretKeyRef, "password")
+
+	_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
+	require.NoError(t, err)
+
+	secret := &corev1.Secret{}
+	err = kubeClient.Get(ctx, kube.ObjectKey(user.Namespace, user.GetConnectionStringSecretName()), secret)
+	require.NoError(t, err)
+
+	connStr := string(secret.Data["connectionString.standard"])
+	assert.Contains(t, connStr, "vm-0.example.com:27017")
+	assert.Contains(t, connStr, "vm-1.example.com:27017")
+	assert.Contains(t, connStr, "my-rs-0.my-rs-svc.")
+}
+
+func TestMdbUserIndexBuilder(t *testing.T) {
+	cases := map[string]struct {
+		user *userv1.MongoDBUser
+		want []string
+	}{
+		"explicit namespace and name": {
+			user: &userv1.MongoDBUser{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "user-ns", Name: "u"},
+				Spec: userv1.MongoDBUserSpec{
+					MongoDBResourceRef: userv1.MongoDBResourceRef{Name: "foo", Namespace: "bar"},
+				},
+			},
+			want: []string{"bar/foo"},
+		},
+		"empty namespace defaults to user's own namespace": {
+			user: &userv1.MongoDBUser{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "user-ns", Name: "u"},
+				Spec: userv1.MongoDBUserSpec{
+					MongoDBResourceRef: userv1.MongoDBResourceRef{Name: "foo"},
+				},
+			},
+			want: []string{"user-ns/foo"},
+		},
+		"empty name returns nil": {
+			user: &userv1.MongoDBUser{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "user-ns", Name: "u"},
+				Spec:       userv1.MongoDBUserSpec{},
+			},
+			want: nil,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := mdbUserIndexBuilder(tc.user)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestEnqueueUsersForMongoDBRef(t *testing.T) {
+	ctx := context.Background()
+
+	userA1 := &userv1.MongoDBUser{
+		ObjectMeta: metav1.ObjectMeta{Name: "u-a-1", Namespace: "ns-1"},
+		Spec: userv1.MongoDBUserSpec{
+			Username:           "alice",
+			MongoDBResourceRef: userv1.MongoDBResourceRef{Name: "mdb-a", Namespace: "ns-1"},
+		},
+	}
+	userA2 := &userv1.MongoDBUser{
+		ObjectMeta: metav1.ObjectMeta{Name: "u-a-2", Namespace: "ns-1"},
+		Spec: userv1.MongoDBUserSpec{
+			Username:           "alex",
+			MongoDBResourceRef: userv1.MongoDBResourceRef{Name: "mdb-a", Namespace: "ns-1"},
+		},
+	}
+	userB := &userv1.MongoDBUser{
+		ObjectMeta: metav1.ObjectMeta{Name: "u-b-1", Namespace: "ns-1"},
+		Spec: userv1.MongoDBUserSpec{
+			Username:           "bob",
+			MongoDBResourceRef: userv1.MongoDBResourceRef{Name: "mdb-b", Namespace: "ns-1"},
+		},
+	}
+
+	c := mock.NewEmptyFakeClientBuilder().
+		WithIndex(&userv1.MongoDBUser{}, MongoDBUserMongoDBResourceRefIndex, mdbUserIndexBuilder).
+		WithObjects(userA1, userA2, userB).
+		Build()
+
+	got := enqueueUsersForMongoDBRef(ctx, c, "ns-1", "mdb-a")
+
+	assert.ElementsMatch(t, []reconcile.Request{
+		{NamespacedName: kube.ObjectKey("ns-1", "u-a-1")},
+		{NamespacedName: kube.ObjectKey("ns-1", "u-a-2")},
+	}, got)
+}
+
+func TestEnqueueUsersForMongoDBRef_NoMatch_ReturnsEmpty(t *testing.T) {
+	ctx := context.Background()
+
+	user := &userv1.MongoDBUser{
+		ObjectMeta: metav1.ObjectMeta{Name: "u-1", Namespace: "ns-1"},
+		Spec: userv1.MongoDBUserSpec{
+			Username:           "alice",
+			MongoDBResourceRef: userv1.MongoDBResourceRef{Name: "mdb-a", Namespace: "ns-1"},
+		},
+	}
+
+	c := mock.NewEmptyFakeClientBuilder().
+		WithIndex(&userv1.MongoDBUser{}, MongoDBUserMongoDBResourceRefIndex, mdbUserIndexBuilder).
+		WithObjects(user).
+		Build()
+
+	got := enqueueUsersForMongoDBRef(ctx, c, "ns-1", "mdb-not-referenced")
+
+	assert.Empty(t, got, "no users reference mdb-not-referenced — must return no requests")
+}
+
+func TestEnqueueUsersForMongoDBRef_CrossNamespace(t *testing.T) {
+	ctx := context.Background()
+
+	// User lives in user-ns but references an MDB in mdb-ns. The index
+	// builder must store the ref's namespace, not the user's.
+	user := &userv1.MongoDBUser{
+		ObjectMeta: metav1.ObjectMeta{Name: "cross-u", Namespace: "user-ns"},
+		Spec: userv1.MongoDBUserSpec{
+			Username:           "alice",
+			MongoDBResourceRef: userv1.MongoDBResourceRef{Name: "mdb-x", Namespace: "mdb-ns"},
+		},
+	}
+	// Decoy user in user-ns referencing a same-named MDB in user-ns.
+	decoy := &userv1.MongoDBUser{
+		ObjectMeta: metav1.ObjectMeta{Name: "decoy-u", Namespace: "user-ns"},
+		Spec: userv1.MongoDBUserSpec{
+			Username:           "bob",
+			MongoDBResourceRef: userv1.MongoDBResourceRef{Name: "mdb-x", Namespace: "user-ns"},
+		},
+	}
+
+	c := mock.NewEmptyFakeClientBuilder().
+		WithIndex(&userv1.MongoDBUser{}, MongoDBUserMongoDBResourceRefIndex, mdbUserIndexBuilder).
+		WithObjects(user, decoy).
+		Build()
+
+	// Enqueue for the MDB in mdb-ns: only the cross-namespace user matches.
+	gotMdbNs := enqueueUsersForMongoDBRef(ctx, c, "mdb-ns", "mdb-x")
+	assert.ElementsMatch(t, []reconcile.Request{
+		{NamespacedName: kube.ObjectKey("user-ns", "cross-u")},
+	}, gotMdbNs)
+
+	// Enqueue for the MDB in user-ns: only the decoy matches.
+	gotUserNs := enqueueUsersForMongoDBRef(ctx, c, "user-ns", "mdb-x")
+	assert.ElementsMatch(t, []reconcile.Request{
+		{NamespacedName: kube.ObjectKey("user-ns", "decoy-u")},
+	}, gotUserNs)
+}

@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -226,6 +227,87 @@ func TestBuildJobFromStatefulSet_AuthMechanism_SCRAMUmbrellaMongoDBCR(t *testing
 	}
 	// SCRAM umbrella + OM autoAuthMechanism MONGODB-CR resolves to mechanism name MONGODB-CR (see authentication.MechanismName).
 	assert.Equal(t, util.AutomationConfigScramSha1Option, authMechanism)
+}
+
+func TestBuildJobFromStatefulSet_ClientCertRequired_True(t *testing.T) {
+	sts := &appsv1.StatefulSet{
+		Spec: appsv1.StatefulSetSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Volumes: []corev1.Volume{{
+						Name: util.ClusterFileName,
+						VolumeSource: corev1.VolumeSource{
+							Secret: &corev1.SecretVolumeSource{SecretName: "my-rs-clusterfile"},
+						},
+					}},
+					Containers: []corev1.Container{{
+						VolumeMounts: []corev1.VolumeMount{{
+							Name:      util.ClusterFileName,
+							MountPath: "/var/run/credentials",
+							ReadOnly:  true,
+						}},
+					}},
+				},
+			},
+		},
+	}
+	rs := mdbv1.NewReplicaSetBuilder().
+		EnableAuth([]mdbv1.AuthMode{util.X509}).
+		Build()
+	rs.Name = "my-rs"
+	rs.Namespace = "default"
+	// Simulate a clientCertificateSecretRef being set, which triggers ShouldUseClientCertificates().
+	rs.GetSecurity().Authentication.Agents.ClientCertificateSecretRefWrap.ClientCertificateSecretRef.Name = "agent-cert"
+	job := BuildJobFromStatefulSet(rs, sts, "img", "mongodb://host:27017/?replicaSet=my-rs", nil, "MONGODB-X509", "", "")
+
+	var clientCertRequired string
+	for _, e := range job.Spec.Template.Spec.Containers[0].Env {
+		if e.Name == "CLIENT_CERT_REQUIRED" {
+			clientCertRequired = e.Value
+			break
+		}
+	}
+	assert.Equal(t, "true", clientCertRequired)
+}
+
+func TestBuildJobFromStatefulSet_ClientCertRequired_False(t *testing.T) {
+	sts := &appsv1.StatefulSet{
+		Spec: appsv1.StatefulSetSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Volumes: []corev1.Volume{{
+						Name: util.ClusterFileName,
+						VolumeSource: corev1.VolumeSource{
+							Secret: &corev1.SecretVolumeSource{SecretName: "my-rs-clusterfile"},
+						},
+					}},
+					Containers: []corev1.Container{{
+						VolumeMounts: []corev1.VolumeMount{{
+							Name:      util.ClusterFileName,
+							MountPath: "/var/run/credentials",
+							ReadOnly:  true,
+						}},
+					}},
+				},
+			},
+		},
+	}
+	rs := mdbv1.NewReplicaSetBuilder().
+		EnableAuth([]mdbv1.AuthMode{util.SCRAMSHA256}).
+		Build()
+	rs.Name = "my-rs"
+	rs.Namespace = "default"
+	// No ClientCertificateSecretRef set — ShouldUseClientCertificates() returns false.
+	job := BuildJobFromStatefulSet(rs, sts, "img", "mongodb://host:27017/?replicaSet=my-rs", nil, util.AutomationConfigScramSha256Option, "", "")
+
+	var clientCertRequired string
+	for _, e := range job.Spec.Template.Spec.Containers[0].Env {
+		if e.Name == "CLIENT_CERT_REQUIRED" {
+			clientCertRequired = e.Value
+			break
+		}
+	}
+	assert.Equal(t, "false", clientCertRequired)
 }
 
 func TestBuildJobFromStatefulSet_SubjectDN(t *testing.T) {

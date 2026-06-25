@@ -175,11 +175,3 @@ kind: ConfigMap
 metadata:
   name: ldap-ca
   namespace: mongodb
----
-apiVersion: v1
-kind: Secret
-metadata:
-  name: prometheus-password
-  namespace: mongodb
-stringData:
-  password: prom-s3cret

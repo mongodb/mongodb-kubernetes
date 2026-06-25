@@ -95,6 +95,9 @@ linters:
       - linters:
           - forbidigo
         path: ^mongodb-community-operator\/cmd\/(readiness|versionhook)\/main\.go$
+      - linters:
+          - forbidigo
+        path: ^cmd\/connectivity-validator\/main\.go$
 formatters:
   enable:
     - gci
