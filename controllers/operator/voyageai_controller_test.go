@@ -520,9 +520,10 @@ func TestBuildEnvVars_WithDataParallel(t *testing.T) {
 
 func TestBuildEnvVars_Metrics_Defaults(t *testing.T) {
 	spec := &vaiv1.VoyageAISpec{
-		Metrics: vaiv1.MetricsConfig{
+		Metrics: &vaiv1.MetricsConfig{
 			Enabled: true,
 			Path:    "/metrics",
+			Port:    9946, // apiserver would apply this default, but the unit tests need to explicitly set it to imitate that behavior
 		},
 	}
 	envs := buildEnvVars(spec, false)
@@ -533,17 +534,15 @@ func TestBuildEnvVars_Metrics_Defaults(t *testing.T) {
 
 	assert.Equal(t, "true", envMap["SERVER__METRICS__ENABLED"])
 	assert.Equal(t, "/metrics", envMap["SERVER__METRICS__PATH"])
-	_, hasPort := envMap["SERVER__METRICS__PORT"]
-	assert.False(t, hasPort, "SERVER__METRICS__PORT should be absent when Port is nil")
+	assert.Equal(t, "9946", envMap["SERVER__METRICS__PORT"])
 }
 
 func TestBuildEnvVars_Metrics_DedicatedPort(t *testing.T) {
-	metricsPort := int32(9090)
 	spec := &vaiv1.VoyageAISpec{
-		Metrics: vaiv1.MetricsConfig{
+		Metrics: &vaiv1.MetricsConfig{
 			Enabled: true,
 			Path:    "/metrics",
-			Port:    &metricsPort,
+			Port:    9090,
 		},
 	}
 	envs := buildEnvVars(spec, false)
@@ -559,7 +558,7 @@ func TestBuildEnvVars_Metrics_DedicatedPort(t *testing.T) {
 
 func TestBuildEnvVars_Metrics_Disabled(t *testing.T) {
 	spec := &vaiv1.VoyageAISpec{
-		Metrics: vaiv1.MetricsConfig{
+		Metrics: &vaiv1.MetricsConfig{
 			Enabled: false,
 			Path:    "/metrics",
 		},
@@ -574,9 +573,6 @@ func TestBuildEnvVars_Metrics_Disabled(t *testing.T) {
 }
 
 func TestBuildEnvVars_Metrics_ZeroValue(t *testing.T) {
-	// Metrics is a value (not a pointer), so the ENABLED/PATH env vars are always
-	// emitted. With a zero-value spec (no CRD defaulting), ENABLED reflects the Go
-	// zero bool (false) and PATH is empty; PORT stays absent because it is nil.
 	spec := &vaiv1.VoyageAISpec{}
 	envs := buildEnvVars(spec, false)
 	envMap := make(map[string]string)
@@ -584,25 +580,22 @@ func TestBuildEnvVars_Metrics_ZeroValue(t *testing.T) {
 		envMap[e.Name] = e.Value
 	}
 
-	enabled, hasEnabled := envMap["SERVER__METRICS__ENABLED"]
-	assert.True(t, hasEnabled, "SERVER__METRICS__ENABLED is always emitted")
-	assert.Equal(t, "false", enabled)
-	path, hasPath := envMap["SERVER__METRICS__PATH"]
-	assert.True(t, hasPath, "SERVER__METRICS__PATH is always emitted")
-	assert.Equal(t, "", path)
+	_, hasEnabled := envMap["SERVER__METRICS__ENABLED"]
+	assert.False(t, hasEnabled, "SERVER__METRICS__ENABLED should be absent when Metrics is nil")
+	_, hasPath := envMap["SERVER__METRICS__PATH"]
+	assert.False(t, hasPath, "SERVER__METRICS__PATH should be absent when Metrics is nil")
 	_, hasPort := envMap["SERVER__METRICS__PORT"]
-	assert.False(t, hasPort, "SERVER__METRICS__PORT should be absent when Port is nil")
+	assert.False(t, hasPort, "SERVER__METRICS__PORT should be absent when Metrics is nil")
 }
 
 func TestVoyageAI_Metrics_DedicatedPort_ContainerAndService(t *testing.T) {
 	ctx := context.Background()
-	metricsPort := int32(9090)
 	vai := newVoyageAI("vai", mock.TestNamespace, vaiv1.VoyageAIModelVoyage4, "1.0.0")
 	vai.Spec.Server.Port = 8080
-	vai.Spec.Metrics = vaiv1.MetricsConfig{
+	vai.Spec.Metrics = &vaiv1.MetricsConfig{
 		Enabled: true,
 		Path:    "/metrics",
-		Port:    &metricsPort,
+		Port:    9090,
 	}
 	reconciler, c := newVoyageAIReconcilerForTest(vai)
 

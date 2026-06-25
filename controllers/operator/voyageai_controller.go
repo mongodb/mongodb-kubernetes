@@ -142,10 +142,11 @@ func (r *VoyageAIReconciler) ensureDeployment(ctx context.Context, vai *vaiv1.Vo
 	containerPorts := []corev1.ContainerPort{
 		{Name: "http", ContainerPort: vai.Spec.Server.Port, Protocol: corev1.ProtocolTCP},
 	}
-	if vai.Spec.Metrics.Port != nil {
+
+	if m := vai.Spec.Metrics; m != nil {
 		containerPorts = append(containerPorts, corev1.ContainerPort{
 			Name:          "metrics",
-			ContainerPort: *vai.Spec.Metrics.Port,
+			ContainerPort: m.Port,
 			Protocol:      corev1.ProtocolTCP,
 		})
 	}
@@ -328,17 +329,13 @@ func buildEnvVars(spec *vaiv1.VoyageAISpec, tlsEnabled bool) []corev1.EnvVar {
 		)
 	}
 
-	// Metrics config. Metrics is a value (not a pointer) with a defaulted empty
-	// object, so it is always present and these env vars are always emitted.
-	{
-		m := spec.Metrics
+	// Metrics config
+	if m := spec.Metrics; m != nil {
 		envs = append(envs,
 			corev1.EnvVar{Name: "SERVER__METRICS__ENABLED", Value: strconv.FormatBool(m.Enabled)},
 			corev1.EnvVar{Name: "SERVER__METRICS__PATH", Value: m.Path},
+			corev1.EnvVar{Name: "SERVER__METRICS__PORT", Value: int32ToString(m.Port)},
 		)
-		if m.Port != nil {
-			envs = append(envs, corev1.EnvVar{Name: "SERVER__METRICS__PORT", Value: int32ToString(*m.Port)})
-		}
 	}
 
 	// DataParallel config
@@ -423,11 +420,11 @@ func (r *VoyageAIReconciler) ensureService(ctx context.Context, vai *vaiv1.Voyag
 			TargetPort: intstr.FromInt32(vai.Spec.Server.Port),
 			Protocol:   corev1.ProtocolTCP,
 		})
-	if vai.Spec.Metrics.Port != nil {
+	if m := vai.Spec.Metrics; m != nil {
 		svcBuilder = svcBuilder.AddPort(&corev1.ServicePort{
 			Name:       "metrics",
-			Port:       *vai.Spec.Metrics.Port,
-			TargetPort: intstr.FromInt32(*vai.Spec.Metrics.Port),
+			Port:       m.Port,
+			TargetPort: intstr.FromInt32(m.Port),
 			Protocol:   corev1.ProtocolTCP,
 		})
 	}
