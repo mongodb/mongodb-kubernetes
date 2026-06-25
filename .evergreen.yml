@@ -1599,7 +1599,7 @@ buildvariants:
 
   - name: e2e_static_om80_kind_ubi
     display_name: e2e_static_om80_kind_ubi
-    tags: [ "pr_patch", "staging", "e2e_test_suite", "static" ]
+    tags: [ "staging", "e2e_test_suite", "static" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om8_dependency
@@ -1620,7 +1620,7 @@ buildvariants:
 
   - name: e2e_static_om80_kind_ubi_large
     display_name: e2e_static_om80_kind_ubi_large
-    tags: [ "pr_patch", "staging", "e2e_test_suite", "static" ]
+    tags: [ "staging", "e2e_test_suite", "static" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om8_dependency
@@ -1804,7 +1804,7 @@ buildvariants:
 
   - name: e2e_static_multi_cluster_om_appdb
     display_name: e2e_static_multi_cluster_om_appdb
-    tags: [ "pr_patch", "staging", "e2e_test_suite", "static" ]
+    tags: [ "staging", "e2e_test_suite", "static" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om7_dependency
