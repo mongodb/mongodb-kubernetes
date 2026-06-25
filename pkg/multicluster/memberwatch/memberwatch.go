@@ -167,7 +167,11 @@ func (m *MemberClusterHealthChecker) WatchMemberClusterHealth(ctx context.Contex
 				}
 			}
 		}
-		time.Sleep(10 * time.Second)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(10 * time.Second):
+		}
 	}
 }
 

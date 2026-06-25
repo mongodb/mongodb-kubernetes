@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -91,8 +92,9 @@ func newTestMDBMulti(name, ns string, annotations map[string]string) *mdbmulti.M
 // TestAnnotationIsAdded verifies that when a cluster reports unhealthy the failed-cluster
 // annotation is written to all MongoDBMultiCluster resources.
 func TestAnnotationIsAdded(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 
 	mrs := newTestMDBMulti("mdbmc", "ns", nil)
 	fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme(t)).WithObjects(mrs).Build()
@@ -117,14 +119,16 @@ func TestAnnotationIsAdded(t *testing.T) {
 		}
 		return isInFailedClusterAnnotation(got.Annotations, "cluster1")
 	}, 5*time.Second, 50*time.Millisecond)
+	})
 }
 
 // TestAnnotationIsRemovedWhenClusterRecovers verifies that once a cluster sustains
 // requiredHealthyStreak consecutive healthy checks, the failed-cluster annotation is
 // removed and a reconcile event is enqueued.
 func TestAnnotationIsRemovedWhenClusterRecovers(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 
 	failedAnnotation := getFailedClusterList([]string{"cluster1"})
 	mrs := newTestMDBMulti("mdbmc", "ns", map[string]string{
@@ -156,13 +160,15 @@ func TestAnnotationIsRemovedWhenClusterRecovers(t *testing.T) {
 	got := &mdbmulti.MongoDBMultiCluster{}
 	require.NoError(t, fakeClient.Get(ctx, types.NamespacedName{Name: "mdbmc", Namespace: "ns"}, got))
 	assert.False(t, isInFailedClusterAnnotation(got.Annotations, "cluster1"))
+	})
 }
 
 // TestNoEventBeforeStreakThreshold verifies that a healthy check below the streak
 // threshold does not enqueue a reconcile event.
 func TestNoEventBeforeStreakThreshold(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 
 	mrs := newTestMDBMulti("mdbmc", "ns", nil)
 	fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme(t)).WithObjects(mrs).Build()
@@ -185,13 +191,15 @@ func TestNoEventBeforeStreakThreshold(t *testing.T) {
 	assert.Eventually(t, func() bool {
 		return checker.HealthyStreakFor("cluster1") == testRequiredHealthyStreak-1
 	}, 5*time.Second, 50*time.Millisecond)
+	})
 }
 
 // TestNoEventWhenStreakAtCapWithoutAnnotation verifies that a cluster whose streak
 // is already at the cap does not fire a reconcile event when no failed annotation exists.
 func TestNoEventWhenStreakAtCapWithoutAnnotation(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 
 	mrs := newTestMDBMulti("mdbmc", "ns", nil)
 	fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme(t)).WithObjects(mrs).Build()
@@ -214,14 +222,16 @@ func TestNoEventWhenStreakAtCapWithoutAnnotation(t *testing.T) {
 	assert.Eventually(t, func() bool {
 		return checker.HealthyStreakFor("cluster1") == testRequiredHealthyStreak
 	}, 5*time.Second, 50*time.Millisecond)
+	})
 }
 
 // TestStreakResetsOnUnhealthyWhenAlmostRecovered verifies that a cluster with a
 // near-complete healthy streak still gets the failed annotation added if it reports
 // unhealthy, proving the streak was reset to zero.
 func TestStreakResetsOnUnhealthyWhenAlmostRecovered(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 
 	mrs := newTestMDBMulti("mdbmc", "ns", nil)
 	fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme(t)).WithObjects(mrs).Build()
@@ -250,13 +260,15 @@ func TestStreakResetsOnUnhealthyWhenAlmostRecovered(t *testing.T) {
 		}
 		return !isInFailedClusterAnnotation(got.Annotations, "cluster1")
 	}, 5*time.Second, 50*time.Millisecond)
+	})
 }
 
 // TestNoEventWhenClusterNotInAnnotationAtThreshold verifies that reaching the streak
 // threshold does not enqueue an event when the cluster is not in the failed annotation.
 func TestNoEventWhenClusterNotInAnnotationAtThreshold(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 
 	mrs := newTestMDBMulti("mdbmc", "ns", nil) // no failed annotation
 	fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme(t)).WithObjects(mrs).Build()
@@ -279,13 +291,15 @@ func TestNoEventWhenClusterNotInAnnotationAtThreshold(t *testing.T) {
 	assert.Eventually(t, func() bool {
 		return checker.HealthyStreakFor("cluster1") == testRequiredHealthyStreak
 	}, 5*time.Second, 50*time.Millisecond)
+	})
 }
 
 // TestMultipleClustersIndependentStreaks verifies that streak state is tracked
 // per-cluster: one cluster going unhealthy does not affect another cluster's streak.
 func TestMultipleClustersIndependentStreaks(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 
 	// Only cluster2 is in the failed annotation; cluster1 will be added during the test.
 	failedAnnotation := getFailedClusterList([]string{"cluster2"})
@@ -326,14 +340,16 @@ func TestMultipleClustersIndependentStreaks(t *testing.T) {
 	got := &mdbmulti.MongoDBMultiCluster{}
 	require.NoError(t, fakeClient.Get(ctx, types.NamespacedName{Name: "mdbmc", Namespace: "ns"}, got))
 	assert.False(t, isInFailedClusterAnnotation(got.Annotations, "cluster2"), "cluster2 annotation should be removed")
+	})
 }
 
 // TestAllMDBMultiResourcesCleared verifies that when a cluster's streak reaches the
 // threshold, the failed annotation is removed from every MongoDBMultiCluster resource
 // and a reconcile event is enqueued for each one.
 func TestAllMDBMultiResourcesCleared(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 
 	failedAnnotation := getFailedClusterList([]string{"cluster1"})
 	mrs1 := newTestMDBMulti("mdbmc-1", "ns", map[string]string{
@@ -372,16 +388,15 @@ func TestAllMDBMultiResourcesCleared(t *testing.T) {
 		assert.False(t, isInFailedClusterAnnotation(got.Annotations, "cluster1"),
 			"annotation should be removed from %s", name)
 	}
+	})
 }
 
 func TestFailedClusterAnnotationStaysWhenPerformFailoverTrue(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 
-	_ = os.Setenv("PERFORM_FAILOVER", "true") // nolint:forbidigo
-	defer func(key string) {
-		_ = os.Unsetenv(key) // nolint:forbidigo
-	}("PERFORM_FAILOVER")
+	t.Setenv("PERFORM_FAILOVER", "true") // nolint:forbidigo
 
 	failedAnnotation := getFailedClusterList([]string{"cluster1"})
 	mrs := newTestMDBMulti("mdbmc", "ns", map[string]string{
@@ -408,4 +423,5 @@ func TestFailedClusterAnnotationStaysWhenPerformFailoverTrue(t *testing.T) {
 	got := &mdbmulti.MongoDBMultiCluster{}
 	require.NoError(t, fakeClient.Get(ctx, types.NamespacedName{Name: "mdbmc", Namespace: "ns"}, got))
 	assert.True(t, isInFailedClusterAnnotation(got.Annotations, "cluster1"))
+	})
 }
