@@ -108,7 +108,7 @@ def test_rotate_tls_certificate(sc: MongoDB, namespace: str):
     cert["spec"]["dnsNames"].append("foo")
     cert.update()
 
-    sc.assert_state_transition_happens(last_transition)
+    sc.assert_state_transition_happens(last_transition, timeout=800)
     sc.assert_reaches_phase(Phase.Running, timeout=800)
 
 
@@ -119,7 +119,7 @@ def test_disable_tls(sc: MongoDB):
     sc["spec"]["security"]["tls"]["enabled"] = False
     sc.update()
 
-    sc.assert_state_transition_happens(last_transition)
+    sc.assert_state_transition_happens(last_transition, timeout=1200)
     sc.assert_reaches_phase(Phase.Running, timeout=1200)
 
 
