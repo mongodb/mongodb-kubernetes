@@ -176,6 +176,7 @@ func TestBuildShardRoutes(t *testing.T) {
 	tests := []struct {
 		name                    string
 		endpoint                string
+		routerHostname          string
 		expectedShardSNIs       []string
 		expectedClusterLevelSNI string
 	}{
@@ -190,14 +191,25 @@ func TestBuildShardRoutes(t *testing.T) {
 			expectedClusterLevelSNI: "mdb-search-search-0-proxy-svc.test-ns.svc.cluster.local",
 		},
 		{
-			name:     "externalHostname template resolves per shard and strips shardName for cluster-level",
-			endpoint: "{shardName}.search.example.com",
+			name:           "externalHostname resolves per shard; routerHostname used verbatim for cluster-level",
+			endpoint:       "{shardName}.search.example.com",
+			routerHostname: "router.search.example.com",
 			expectedShardSNIs: []string{
 				"mdb-sh-0.search.example.com",
 				"mdb-sh-1.search.example.com",
 			},
-			// GetManagedLBEndpointForClusterLevel strips "{shardName}." → "search.example.com"
-			expectedClusterLevelSNI: "search.example.com",
+			// routerHostname is used verbatim (no trimming) for the cluster-level SNI.
+			expectedClusterLevelSNI: "router.search.example.com",
+		},
+		{
+			name:           "routerHostname need not relate to externalHostname (mid-string {shardName} ok)",
+			endpoint:       "search-{shardName}-proxy.example.com",
+			routerHostname: "router.example.com",
+			expectedShardSNIs: []string{
+				"search-mdb-sh-0-proxy.example.com",
+				"search-mdb-sh-1-proxy.example.com",
+			},
+			expectedClusterLevelSNI: "router.example.com",
 		},
 	}
 
@@ -209,10 +221,10 @@ func TestBuildShardRoutes(t *testing.T) {
 					Namespace: "test-ns",
 				},
 			}
-			if tt.endpoint != "" {
+			if tt.endpoint != "" || tt.routerHostname != "" {
 				search.Spec.Clusters = []searchv1.ClusterSpec{{
 					LoadBalancer: &searchv1.LoadBalancerConfig{
-						Managed: &searchv1.ManagedLBConfig{ExternalHostname: tt.endpoint},
+						Managed: &searchv1.ManagedLBConfig{ExternalHostname: tt.endpoint, RouterHostname: tt.routerHostname},
 					},
 				}}
 			}
@@ -684,6 +696,7 @@ func TestBuildShardRoutes_MC_ClusterLevel_ManagedLB(t *testing.T) {
 					LoadBalancer: &searchv1.LoadBalancerConfig{
 						Managed: &searchv1.ManagedLBConfig{
 							ExternalHostname: "{shardName}.cluster-a.search.example.com:443",
+							RouterHostname:   "router.cluster-a.search.example.com:443",
 						},
 					},
 				},
@@ -692,6 +705,7 @@ func TestBuildShardRoutes_MC_ClusterLevel_ManagedLB(t *testing.T) {
 					LoadBalancer: &searchv1.LoadBalancerConfig{
 						Managed: &searchv1.ManagedLBConfig{
 							ExternalHostname: "{shardName}.cluster-b.search.example.com:443",
+							RouterHostname:   "router.cluster-b.search.example.com:443",
 						},
 					},
 				},
@@ -703,14 +717,14 @@ func TestBuildShardRoutes_MC_ClusterLevel_ManagedLB(t *testing.T) {
 
 	require.Len(t, routes, 4)
 
-	// Per-shard SNIs must resolve {shardName} against cluster-b's own hostname.
+	// Per-shard SNIs must resolve {shardName} against cluster-b's own externalHostname.
 	for i, shardName := range shardNames {
 		expected := fmt.Sprintf("%s.cluster-b.search.example.com:443", shardName)
 		assert.Equal(t, expected, routes[i].SNIHostname, "per-shard SNI mismatch for shard %s", shardName)
 	}
 
-	// Cluster-level SNI strips "{shardName}." → "cluster-b.search.example.com:443".
-	assert.Equal(t, "cluster-b.search.example.com:443", routes[3].SNIHostname)
+	// Cluster-level SNI is cluster-b's routerHostname, used verbatim.
+	assert.Equal(t, "router.cluster-b.search.example.com:443", routes[3].SNIHostname)
 	require.Len(t, routes[3].UpstreamHosts, 3)
 }
 
@@ -1645,7 +1659,7 @@ func TestReconcile_RoutingReadyFromState_DrivesFallbackRoutes(t *testing.T) {
 			},
 			Clusters: []searchv1.ClusterSpec{{
 				Name:         "cluster-a",
-				LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot-{shardName}.example.com"}},
+				LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot-{shardName}.example.com", RouterHostname: "mongot-router.example.com"}},
 			}},
 		},
 	}
