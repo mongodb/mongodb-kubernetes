@@ -185,6 +185,7 @@ def _configure_ac(namespace: str, om_tester: OMTester, vm_sts: dict, vm_service:
 
     for i in range(vm_sts["spec"]["replicas"]):
         hostname = f"{sts_name}-{i}.{svc_name}.{namespace}.svc.cluster.local"
+        member_config_index = i if i < len(log_rotate_per_member) else 0
 
         ac["monitoringVersions"].append(
             {
@@ -203,15 +204,16 @@ def _configure_ac(namespace: str, om_tester: OMTester, vm_sts: dict, vm_service:
         )
 
         replication = {"replSetName": rs_name}
-        if oplog_size_per_member[i] is not None:
-            replication["oplogSizeMB"] = oplog_size_per_member[i]
+        oplog_size = oplog_size_per_member[member_config_index]
+        if oplog_size is not None:
+            replication["oplogSizeMB"] = oplog_size
 
         ac["processes"].append(
             {
                 "version": mdb_version,
                 "name": f"{sts_name}-{i}",
                 "hostname": hostname,
-                "logRotate": log_rotate_per_member[i],
+                "logRotate": log_rotate_per_member[member_config_index],
                 "auditLogRotate": {
                     "sizeThresholdMB": 500,
                     "timeThresholdHrs": 48,
@@ -235,7 +237,7 @@ def _configure_ac(namespace: str, om_tester: OMTester, vm_sts: dict, vm_service:
                     "systemLog": {
                         "path": "/data/mongodb.log",
                         "destination": "file",
-                        "logAppend": log_append_per_member[i],
+                        "logAppend": log_append_per_member[member_config_index],
                     },
                     "replication": replication,
                     "setParameter": {
@@ -310,7 +312,7 @@ def mdb_health_checker(mdb_migration: MongoDB, scram_opts: list[dict]) -> MongoD
 def test_deploy_vm(namespace: str, vm_sts, vm_service):
     def sts_is_ready():
         sts = get_statefulset(namespace, vm_sts["metadata"]["name"])
-        return sts.status.ready_replicas == 3
+        return sts.status.ready_replicas == vm_sts["spec"]["replicas"]
 
     KubernetesTester.wait_until(sts_is_ready, timeout=300)
 
@@ -343,8 +345,8 @@ def test_install_operator(operator: Operator):
 
 
 @mark.e2e_vm_migration_generate_scram_full
-def test_common_generated_cr_shape(generated_cr_yaml: str, generated_cr: dict):
-    assert_common_generated_cr_shape(generated_cr_yaml, generated_cr)
+def test_common_generated_cr_shape(generated_cr_yaml: str, generated_cr: dict, vm_sts: dict):
+    assert_common_generated_cr_shape(generated_cr_yaml, generated_cr, vm_sts["spec"]["replicas"])
 
 
 @mark.e2e_vm_migration_generate_scram_full

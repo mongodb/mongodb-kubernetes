@@ -154,7 +154,7 @@ def mdb_health_checker(mdb_migration: MongoDB) -> MongoDBBackgroundTester:
 def test_deploy_vm(namespace: str, vm_sts, vm_service):
     def sts_is_ready():
         sts = get_statefulset(namespace, vm_sts["metadata"]["name"])
-        return sts.status.ready_replicas == 3
+        return sts.status.ready_replicas == vm_sts["spec"]["replicas"]
 
     KubernetesTester.wait_until(sts_is_ready, timeout=300)
 
@@ -186,8 +186,8 @@ def test_insert_migration_data(namespace: str):
 
 
 @mark.e2e_vm_migration_generate_no_auth
-def test_common_generated_cr_shape(generated_cr_yaml: str, generated_cr: dict):
-    assert_common_generated_cr_shape(generated_cr_yaml, generated_cr)
+def test_common_generated_cr_shape(generated_cr_yaml: str, generated_cr: dict, vm_sts: dict):
+    assert_common_generated_cr_shape(generated_cr_yaml, generated_cr, vm_sts["spec"]["replicas"])
 
 
 @mark.e2e_vm_migration_generate_no_auth

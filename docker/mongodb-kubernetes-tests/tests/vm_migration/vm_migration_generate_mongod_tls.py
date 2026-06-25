@@ -54,6 +54,7 @@ TLS_CERT_MOUNT = "/etc/mongodb/certs"
 APP_USER_PASSWORD = "tlsAppUser123!"
 VM_AGENT_OM_CA_PATH = "/etc/mongodb-mms-ca/ca.pem"
 VM_OM_CA_CONFIGMAP_NAME = "vm-mongodb-om-ca"
+VM_REPLICAS = 5
 
 
 def _get_ca_bundle_content() -> str:
@@ -84,7 +85,7 @@ def vm_server_certs(issuer: str, namespace: str):
         namespace,
         VM_STS_NAME,
         VM_CERT_SECRET,
-        replicas=3,
+        replicas=VM_REPLICAS,
         service_name=VM_SVC_NAME,
     )
 
@@ -112,7 +113,7 @@ def operator_server_certs(issuer: str, namespace: str):
         namespace,
         RS_NAME,
         OPERATOR_CERT_SECRET,
-        replicas=3,
+        replicas=VM_REPLICAS,
     )
 
 
@@ -340,7 +341,7 @@ def mdb_health_checker(mdb_migration: MongoDB, ca_path: str, scram_opts: list[di
 def test_deploy_vm(namespace: str, vm_sts, vm_service):
     def sts_is_ready():
         sts = get_statefulset(namespace, vm_sts["metadata"]["name"])
-        return sts.status.ready_replicas == 3
+        return sts.status.ready_replicas == vm_sts["spec"]["replicas"]
 
     KubernetesTester.wait_until(sts_is_ready, timeout=300)
 
@@ -382,8 +383,8 @@ def test_install_operator(operator: Operator):
 
 
 @mark.e2e_vm_migration_generate_mongod_tls
-def test_common_generated_cr_shape(generated_cr_yaml: str, generated_cr: dict):
-    assert_common_generated_cr_shape(generated_cr_yaml, generated_cr)
+def test_common_generated_cr_shape(generated_cr_yaml: str, generated_cr: dict, vm_sts: dict):
+    assert_common_generated_cr_shape(generated_cr_yaml, generated_cr, vm_sts["spec"]["replicas"])
 
 
 @mark.e2e_vm_migration_generate_mongod_tls

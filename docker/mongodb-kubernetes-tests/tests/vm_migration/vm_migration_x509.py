@@ -390,7 +390,7 @@ def test_vm_ac_x509_auth(
 ):
     """Enable X509 client auth after TLS is already configured.
 
-    The agent creates the $external automation user before mongod restarts with auth enabled.
+    The automation user must be present in usersWanted so migrate-to-mck can preserve it.
     Internal cluster auth continues to use keyFile (SCRAM-SHA-256 for __system@local).
     """
     ac = om_tester.api_get_automation_config()
@@ -409,7 +409,17 @@ def test_vm_ac_x509_auth(
         "keyfile": "/var/lib/mongodb-mms-automation/keyfile",
         "keyfileWindows": "%SystemDrive%\\MMSAutomation\\versions\\keyfile",
         "key": "dGVzdC1rZXlmaWxlLWNvbnRlbnQtZm9yLXZtLW1pZ3JhdGlvbi14NTA5",
-        "usersWanted": [],
+        "usersWanted": [
+            {
+                "user": agent_subject_dn,
+                "db": "$external",
+                "roles": [{"role": "root", "db": "admin"}],
+                "mechanisms": [],
+                "scramSha256Creds": None,
+                "scramSha1Creds": None,
+                "authenticationRestrictions": [],
+            }
+        ],
         "usersDeleted": [],
     }
     om_tester.api_put_automation_config(ac)
@@ -425,8 +435,8 @@ def test_insert_migration_data(vm_x509_tester: MongoTester, x509_opts: list[dict
 
 
 @mark.e2e_vm_migration_x509
-def test_common_generated_cr_shape(generated_cr_yaml: str, generated_cr: dict):
-    assert_common_generated_cr_shape(generated_cr_yaml, generated_cr)
+def test_common_generated_cr_shape(generated_cr_yaml: str, generated_cr: dict, vm_sts: dict):
+    assert_common_generated_cr_shape(generated_cr_yaml, generated_cr, vm_sts["spec"]["replicas"])
 
 
 @mark.e2e_vm_migration_x509
