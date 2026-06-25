@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"log"
 
 	"github.com/spf13/cobra"
 
@@ -54,9 +55,15 @@ func newReleasePromoteCmd() *cobra.Command {
 
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print what would happen without copying any images")
 
-	_ = cmd.MarkFlagRequired("image")
-	_ = cmd.MarkFlagRequired("commit")
-	_ = cmd.MarkFlagRequired("version")
+	MustNotErr(cmd.MarkFlagRequired("image"))
+	MustNotErr(cmd.MarkFlagRequired("commit"))
+	MustNotErr(cmd.MarkFlagRequired("version"))
 
 	return cmd
+}
+
+func MustNotErr(err error) {
+	if err != nil {
+		log.Fatalf("fatal error: %v", err)
+	}
 }
