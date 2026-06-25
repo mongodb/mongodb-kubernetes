@@ -240,7 +240,7 @@ def mdbs(
         clusters.append(
             {
                 "name": mcc.cluster_name,
-                "clusterIndex": mcc.cluster_index,
+                "index": mcc.cluster_index,
                 "replicas": MONGOT_REPLICAS_PER_CLUSTER,
                 "loadBalancer": {
                     "managed": {

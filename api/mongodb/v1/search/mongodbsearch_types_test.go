@@ -317,15 +317,15 @@ func TestValidateSimulatedMCClusterIndices(t *testing.T) {
 		{
 			name: "all entries pin clusterIndex is ok",
 			clusters: []ClusterSpec{
-				{Name: "us-east", ClusterIndex: ptr.To(int32(0))},
-				{Name: "eu-west", ClusterIndex: ptr.To(int32(1))},
+				{Name: "us-east", Index: ptr.To(int32(0))},
+				{Name: "eu-west", Index: ptr.To(int32(1))},
 			},
 			wantErr: false,
 		},
 		{
 			name: "one entry missing clusterIndex is invalid",
 			clusters: []ClusterSpec{
-				{Name: "us-east", ClusterIndex: ptr.To(int32(0))},
+				{Name: "us-east", Index: ptr.To(int32(0))},
 				{Name: "eu-west"},
 			},
 			wantErr: true,
@@ -333,8 +333,8 @@ func TestValidateSimulatedMCClusterIndices(t *testing.T) {
 		{
 			name: "duplicate clusterIndex is invalid",
 			clusters: []ClusterSpec{
-				{Name: "us-east", ClusterIndex: ptr.To(int32(0))},
-				{Name: "eu-west", ClusterIndex: ptr.To(int32(0))},
+				{Name: "us-east", Index: ptr.To(int32(0))},
+				{Name: "eu-west", Index: ptr.To(int32(0))},
 			},
 			wantErr: true,
 		},
@@ -382,8 +382,8 @@ func TestMongoDBSearch_LocalizeToCluster(t *testing.T) {
 		// LocalizeToCluster is the simulated-MC narrowing function, so clusterIndex
 		// is mandatory and must be unique on every entry.
 		return []ClusterSpec{
-			{Name: "us-east", ClusterIndex: ptr.To(int32(0))},
-			{Name: "us-west", ClusterIndex: ptr.To(int32(1))},
+			{Name: "us-east", Index: ptr.To(int32(0))},
+			{Name: "us-west", Index: ptr.To(int32(1))},
 		}
 	}
 	tests := []struct {
@@ -437,8 +437,8 @@ func TestMongoDBSearch_LocalizeToCluster(t *testing.T) {
 			s := &MongoDBSearch{Spec: MongoDBSearchSpec{
 				Source: &MongoDBSource{ExternalMongoDBSource: &ExternalMongoDBSource{ShardedCluster: sharded}},
 				Clusters: []ClusterSpec{
-					{Name: "us-east", ClusterIndex: ptr.To(int32(0))},
-					{Name: "us-west", ClusterIndex: ptr.To(int32(1))},
+					{Name: "us-east", Index: ptr.To(int32(0))},
+					{Name: "us-west", Index: ptr.To(int32(1))},
 				},
 			}}
 			s.LocalizeToCluster(tc.localize)

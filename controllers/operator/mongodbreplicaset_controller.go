@@ -920,7 +920,8 @@ func (r *ReplicaSetReconcilerHelper) applySearchOverrides(ctx context.Context) (
 	if rs.Spec.AdditionalMongodConfig == nil {
 		rs.Spec.AdditionalMongodConfig = mdbv1.NewEmptyAdditionalMongodConfig()
 	}
-	searchMongodConfig := searchcontroller.GetMongodConfigParameters(search, rs.Spec.GetClusterDomain())
+	searchClusterIndex := searchcontroller.ResolveSingleClusterIndex(search)
+	searchMongodConfig := searchcontroller.GetMongodConfigParameters(search, rs.Spec.GetClusterDomain(), searchClusterIndex)
 	rs.Spec.AdditionalMongodConfig.AddOption("setParameter", searchMongodConfig["setParameter"])
 
 	return true, nil

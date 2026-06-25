@@ -2,7 +2,6 @@ package operator
 
 import (
 	"context"
-	"maps"
 	"time"
 
 	"go.uber.org/zap"
@@ -171,18 +170,10 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 		r.watch.AddWatchedResourceIfNotAdded(mdbSearch.Spec.AutoEmbedding.EmbeddingModelAPIKeySecret.Name, mdbSearch.Namespace, watch.Secret, mdbSearch.NamespacedName())
 	}
 
-	state, err := searchcontroller.MutateSearchState(ctx, r.kubeClient, mdbSearch, func(s *searchcontroller.SearchDeploymentState) bool {
-		newMapping := searchv1.AssignClusterIndices(s.ClusterMapping, mdbSearch.Spec.Clusters)
-		if maps.Equal(newMapping, s.ClusterMapping) {
-			return false
-		}
-		s.ClusterMapping = newMapping
-		return true
-	})
+	state, err := searchcontroller.ReadSearchState(ctx, r.kubeClient, mdbSearch)
 	if err != nil {
-		return commoncontroller.UpdateStatus(ctx, r.kubeClient, mdbSearch, workflow.Failed(xerrors.Errorf("failed to update cluster index mapping: %w", err)), log)
+		return commoncontroller.UpdateStatus(ctx, r.kubeClient, mdbSearch, workflow.Failed(xerrors.Errorf("failed to read search state: %w", err)), log)
 	}
-	clusterMapping := state.ClusterMapping
 
 	reconcileHelper := searchcontroller.NewMongoDBSearchReconcileHelper(r.kubeClient, mdbSearch, searchSource, r.operatorSearchConfig, r.memberClusterClientsMap, state)
 
@@ -198,7 +189,7 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 		for name, kc := range r.memberClusterClientsMap {
 			memberClients[name] = kc
 		}
-		if gaps := searchcontroller.CheckSecretsPresence(ctx, mdbSearch, r.kubeClient, memberClients, clusterMapping); len(gaps) > 0 {
+		if gaps := searchcontroller.CheckSecretsPresence(ctx, mdbSearch, r.kubeClient, memberClients); len(gaps) > 0 {
 			r.surfaceMissingSecrets(gaps, log)
 			result.RequeueAfter = secretsCheckRequeueAfter
 		}

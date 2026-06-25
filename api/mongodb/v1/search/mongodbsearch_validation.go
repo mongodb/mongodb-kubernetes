@@ -317,17 +317,28 @@ func generateShardResourceNames(s *MongoDBSearch, shardName string, clusterIndex
 	return resources
 }
 
-// maxValidationClusterIndex returns the cluster index used for worst-case DNS-length
-// checks — len(spec.clusters)-1, a heuristic pinned indices can exceed (see TODO).
-//
-// TODO: pinned indices may exceed len-1 (Maximum=999) and removed clusters' mapping
-// entries are retained, so admission underestimates the real max; read the pins and
-// the persisted mapping to tighten.
-func maxValidationClusterIndex(s *MongoDBSearch) int {
-	if len(s.Spec.Clusters) == 0 {
-		return 0
+// validationClusterIndex returns the index admission validates clusters[position]'s
+// resource-name lengths at: the pinned ClusterIndex, else the array position.
+func validationClusterIndex(c ClusterSpec, position int) int {
+	if c.Index != nil {
+		return int(*c.Index)
 	}
-	return len(s.Spec.Clusters) - 1
+	return position
+}
+
+// maxValidationClusterIndex returns the largest index admission can foresee:
+// the largest pinned clusterIndex, else len(spec.clusters)-1 (0 when empty).
+func maxValidationClusterIndex(s *MongoDBSearch) int {
+	maxIdx := len(s.Spec.Clusters) - 1
+	if maxIdx < 0 {
+		maxIdx = 0
+	}
+	for _, c := range s.Spec.Clusters {
+		if c.Index != nil && int(*c.Index) > maxIdx {
+			maxIdx = int(*c.Index)
+		}
+	}
+	return maxIdx
 }
 
 func validateShardNames(s *MongoDBSearch) v1.ValidationResult {
@@ -486,16 +497,16 @@ func validateClustersClusterNameNonEmpty(s *MongoDBSearch) v1.ValidationResult {
 func validateClustersClusterIndexRequired(s *MongoDBSearch) v1.ValidationResult {
 	seen := make(map[int32]int, len(s.Spec.Clusters))
 	for i, c := range s.Spec.Clusters {
-		if c.ClusterIndex == nil {
-			return v1.ValidationError("spec.clusters[%d].clusterIndex is required when len(spec.clusters) > 1", i)
+		if c.Index == nil {
+			return v1.ValidationError("spec.clusters[%d].index is required when len(spec.clusters) > 1", i)
 		}
-		if first, dup := seen[*c.ClusterIndex]; dup {
+		if first, dup := seen[*c.Index]; dup {
 			return v1.ValidationError(
-				"clusterIndex %d is set on more than one spec.clusters[] entry (entries %d and %d); pinned indices must be distinct",
-				*c.ClusterIndex, first, i,
+				"index %d is set on more than one spec.clusters[] entry (entries %d and %d); pinned indices must be distinct",
+				*c.Index, first, i,
 			)
 		}
-		seen[*c.ClusterIndex] = i
+		seen[*c.Index] = i
 	}
 	return v1.ValidationSuccess()
 }
@@ -533,15 +544,16 @@ func validateClustersEnvoyResourceNames(s *MongoDBSearch) v1.ValidationResult {
 		if c.Name == "" {
 			continue
 		}
+		idx := validationClusterIndex(c, i)
 		resources := []shardResourceName{
 			{
 				ResourceType: "Envoy Deployment (per cluster)",
-				Name:         s.LoadBalancerDeploymentNameForCluster(i),
+				Name:         s.LoadBalancerDeploymentNameForCluster(idx),
 				Standard:     dnsLabel,
 			},
 			{
 				ResourceType: "Envoy ConfigMap (per cluster)",
-				Name:         s.LoadBalancerConfigMapNameForCluster(i),
+				Name:         s.LoadBalancerConfigMapNameForCluster(idx),
 				Standard:     dnsSubdomain,
 			},
 		}
