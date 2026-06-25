@@ -641,13 +641,13 @@ func validateMCExternalHostnames(s *MongoDBSearch) v1.ValidationResult {
 	return v1.ValidationSuccess()
 }
 
-// validateMCRouterHostnames enforces, for multi-cluster specs with a managed LB, that every cluster's
-// routerHostname is distinct: each cluster runs its own Envoy LB and its mongos routes to it, so a
-// shared hostname would collide per-cluster SNI / point clusters at the wrong Envoy. Mirrors
-// validateMCExternalHostnames' distinctness check (the per-field required/placeholder rules live in
-// validateRouterHostname).
+// validateMCRouterHostnames enforces, for an external sharded source with a managed LB, that every
+// cluster's routerHostname is distinct: each cluster runs its own Envoy LB and its mongos routes to
+// it, so a shared hostname would collide per-cluster SNI / point clusters at the wrong Envoy.
+// routerHostname is only meaningful for sharded sources (ReplicaSet has no mongos), so this is scoped
+// the same way as validateRouterHostname (the per-field required/placeholder rules live there).
 func validateMCRouterHostnames(s *MongoDBSearch) v1.ValidationResult {
-	if !s.IsLBModeManaged() {
+	if !s.IsExternalSourceSharded() {
 		return v1.ValidationSuccess()
 	}
 	seen := make(map[string]int, len(s.Spec.Clusters))

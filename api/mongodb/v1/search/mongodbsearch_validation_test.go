@@ -410,7 +410,17 @@ func TestValidateMCRouterHostnames(t *testing.T) {
 			}
 			clusters = append(clusters, c)
 		}
-		return &MongoDBSearch{ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"}, Spec: MongoDBSearchSpec{Clusters: clusters}}
+		// routerHostname validation is scoped to external sharded sources.
+		return &MongoDBSearch{
+			ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"},
+			Spec: MongoDBSearchSpec{
+				Clusters: clusters,
+				Source: &MongoDBSource{ExternalMongoDBSource: &ExternalMongoDBSource{ShardedCluster: &ExternalShardedClusterConfig{
+					Router: ExternalRouterConfig{Hosts: []string{"mongos.example.com:27017"}},
+					Shards: []ExternalShardConfig{{ShardName: "shard-0", Hosts: []string{"h:27017"}}},
+				}}},
+			},
+		}
 	}
 
 	tests := []struct {
@@ -434,6 +444,19 @@ func TestValidateMCRouterHostnames(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("non-sharded source ignored even with duplicate routerHostnames", func(t *testing.T) {
+		rs := &MongoDBSearch{
+			ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"},
+			Spec: MongoDBSearchSpec{
+				Clusters: []ClusterSpec{
+					{Name: "cluster-0", LoadBalancer: &LoadBalancerConfig{Managed: &ManagedLBConfig{RouterHostname: "shared.example.com:443"}}},
+					{Name: "cluster-1", LoadBalancer: &LoadBalancerConfig{Managed: &ManagedLBConfig{RouterHostname: "shared.example.com:443"}}},
+				},
+			},
+		}
+		assert.Equal(t, v1.SuccessLevel, validateMCRouterHostnames(rs).Level)
+	})
 }
 
 func TestValidateExternalHostnameDNSLength(t *testing.T) {
