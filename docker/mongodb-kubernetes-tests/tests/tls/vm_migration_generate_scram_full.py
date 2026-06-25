@@ -14,20 +14,29 @@ Pre-creates Kubernetes Secrets for each SCRAM user, then passes them to
 the migrate tool via --users-secrets-file. Runs the full promote-and-prune lifecycle.
 """
 
-import yaml
-from kubetester import create_or_update_secret, get_statefulset, try_load
+from kubetester import create_or_update_secret, get_statefulset
 from kubetester.kubetester import KubernetesTester, ensure_ent_version, fcv_from_version
 from kubetester.mongodb import MongoDB
+from kubetester.mongotester import MongoDBBackgroundTester, with_scram
 from kubetester.omtester import OMContext, OMTester
 from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.tls.vm_migration_dry_run import run_migration_dry_run_connectivity_passes
 from tests.tls.vm_migration_helpers import (
+    apply_generated_mongodb_resource,
     apply_user_crs_and_verify_ac,
+    assert_connection_string_after_full_migration,
+    assert_connection_string_contains_current_hosts,
+    assert_k8s_process_names,
+    assert_max_voting_members_validation,
+    assert_migration_data_exists,
     assert_migration_dry_run_annotation,
     deploy_vm_service,
     deploy_vm_statefulset,
+    generated_mongodb_doc,
+    generated_user_docs,
+    insert_migration_data,
     promote_and_prune,
     rotate_password_and_verify,
     run_generate_cr,
@@ -179,6 +188,7 @@ def _configure_ac(namespace: str, om_tester: OMTester, vm_sts: dict, vm_service:
 
     ac["processes"] = []
     ac["monitoringVersions"] = []
+    ac["backupVersions"] = []
     ac["replicaSets"] = [{"_id": rs_name, "members": [], "protocolVersion": "1"}]
 
     for i in range(vm_sts["spec"]["replicas"]):
@@ -188,6 +198,14 @@ def _configure_ac(namespace: str, om_tester: OMTester, vm_sts: dict, vm_service:
             {
                 "hostname": hostname,
                 "logPath": "/var/log/mongodb-mms-automation/monitoring-agent.log",
+                "logRotate": {"sizeThresholdMB": 1000, "timeThresholdHrs": 24},
+            }
+        )
+
+        ac["backupVersions"].append(
+            {
+                "hostname": hostname,
+                "logPath": "/var/log/mongodb-mms-automation/backup-agent.log",
                 "logRotate": {"sizeThresholdMB": 1000, "timeThresholdHrs": 24},
             }
         )
@@ -272,21 +290,20 @@ def generated_cr_yaml(namespace: str) -> str:
 
 @fixture(scope="module")
 def mdb_migration(namespace: str, generated_cr_yaml: str) -> MongoDB:
-    resource = MongoDB(RS_NAME, namespace)
-    if try_load(resource):
-        return resource
+    return apply_generated_mongodb_resource(namespace, generated_cr_yaml, customer_sets_disabled_tls_mode=True)
 
-    resource.backing_obj = next(yaml.safe_load_all(generated_cr_yaml))
-    resource.backing_obj.setdefault("spec", {}).setdefault("additionalMongodConfig", {}).setdefault(
-        "net", {}
-    ).setdefault("tls", {})["mode"] = "disabled"
-    # The generated CR starts with members=0 and no memberConfig.
-    # Set members to match the VM replica count and add draining memberConfig.
-    num_members = len(resource.backing_obj["spec"].get("externalMembers", []))
-    resource.backing_obj["spec"]["members"] = num_members
-    resource.backing_obj["spec"]["memberConfig"] = [{"votes": 0, "priority": "0"} for _ in range(num_members)]
-    resource.update()
-    return resource
+
+@fixture(scope="module")
+def scram_opts() -> list[dict]:
+    return [with_scram("app-user", APP_USER_PASSWORD, "SCRAM-SHA-256")]
+
+
+@fixture(scope="module")
+def mdb_health_checker(mdb_migration: MongoDB, scram_opts: list[dict]) -> MongoDBBackgroundTester:
+    return MongoDBBackgroundTester(
+        mdb_migration.tester(use_ssl=False),
+        health_function_params={"attempts": 1, "opts": scram_opts},
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -310,11 +327,16 @@ def test_configure_ac(namespace: str, om_tester: OMTester, vm_sts, vm_service, c
 
 
 @mark.e2e_vm_migration_generate_scram_full
-def test_user_connectivity_before_migration(namespace: str):
+def test_user_connectivity_before_migration(namespace: str, scram_opts: list[dict]):
     """Users can authenticate against the VM replica set before migration."""
     vm_replica_set_tester(namespace).assert_scram_sha_authentication(
         username="app-user", password=APP_USER_PASSWORD, auth_mechanism="SCRAM-SHA-256"
     )
+
+
+@mark.e2e_vm_migration_generate_scram_full
+def test_insert_migration_data(namespace: str, scram_opts: list[dict]):
+    insert_migration_data(vm_replica_set_tester(namespace), opts=scram_opts)
 
 
 @mark.e2e_vm_migration_generate_scram_full
@@ -333,8 +355,7 @@ def test_migration_dry_run_annotation_present(generated_cr_yaml: str):
 
 @mark.e2e_vm_migration_generate_scram_full
 def test_user_crs_emitted(generated_cr_yaml: str):
-    docs = list(yaml.safe_load_all(generated_cr_yaml))
-    user_docs = [d for d in docs if d and d.get("kind") == "MongoDBUser"]
+    user_docs = generated_user_docs(generated_cr_yaml)
     usernames = {d["spec"]["username"] for d in user_docs}
     assert usernames == {"app-user", "reporting-user"}, f"Unexpected user CRs: {usernames}"
 
@@ -343,12 +364,22 @@ def test_user_crs_emitted(generated_cr_yaml: str):
 def test_settings_sourced_from_source_process(generated_cr_yaml: str):
     """When per-member config diverges, settings are taken from the source process (member 0).
     Member 2 has logAppend=False and no oplogSizeMB -- neither should affect the generated CR."""
-    cr = next(yaml.safe_load_all(generated_cr_yaml))
+    cr = generated_mongodb_doc(generated_cr_yaml)
     sl = cr["spec"].get("agent", {}).get("mongod", {}).get("systemLog", {})
     assert sl.get("destination") == "file", f"Expected destination=file, got: {sl}"
     assert sl.get("path") == "/data/mongodb.log", f"Expected path=/data/mongodb.log, got: {sl}"
     repl = cr["spec"].get("additionalMongodConfig", {}).get("replication", {})
     assert repl.get("oplogSizeMB") == 2048, f"Expected oplogSizeMB=2048 from source process, got: {repl}"
+
+
+@mark.e2e_vm_migration_generate_scram_full
+def test_vm_deployment_automation_config(om_tester: OMTester, vm_sts):
+    ac_tester = om_tester.get_automation_config_tester()
+
+    assert len(ac_tester.get_all_processes()) == vm_sts["spec"]["replicas"]
+    assert len(ac_tester.get_monitoring_versions()) == vm_sts["spec"]["replicas"]
+    assert len(ac_tester.get_backup_versions()) == vm_sts["spec"]["replicas"]
+    assert len(ac_tester.get_replica_set_processes(RS_NAME)) == vm_sts["spec"]["replicas"]
 
 
 # --- Lifecycle tests ---
@@ -363,6 +394,12 @@ def test_migration_dry_run_connectivity_passes(mdb_migration: MongoDB):
 @mark.e2e_vm_migration_generate_scram_full
 def test_migrate_vm_to_kubernetes(mdb_migration: MongoDB):
     mdb_migration.assert_reaches_phase(Phase.Running, timeout=1200)
+    assert_connection_string_contains_current_hosts(mdb_migration)
+
+
+@mark.e2e_vm_migration_generate_scram_full
+def test_max_voting_members_validation(mdb_migration: MongoDB):
+    assert_max_voting_members_validation(mdb_migration)
 
 
 @mark.e2e_vm_migration_generate_scram_full
@@ -379,8 +416,34 @@ def test_user_connectivity_after_migration(mdb_migration: MongoDB):
 
 
 @mark.e2e_vm_migration_generate_scram_full
+def test_migration_data_exists_after_migration(mdb_migration: MongoDB, scram_opts: list[dict]):
+    assert_migration_data_exists(mdb_migration.tester(use_ssl=False), opts=scram_opts)
+
+
+@mark.e2e_vm_migration_generate_scram_full
+def test_start_background_health_checker(mdb_health_checker: MongoDBBackgroundTester):
+    mdb_health_checker.start()
+
+
+@mark.e2e_vm_migration_generate_scram_full
 def test_promote_and_prune(mdb_migration: MongoDB, vm_sts):
     promote_and_prune(mdb_migration, vm_sts)
+
+
+@mark.e2e_vm_migration_generate_scram_full
+def test_mongodb_reachable_during_promote_and_prune(mdb_health_checker: MongoDBBackgroundTester):
+    mdb_health_checker.assert_healthiness()
+    mdb_health_checker.stop()
+
+
+@mark.e2e_vm_migration_generate_scram_full
+def test_connection_string_after_full_migration(mdb_migration: MongoDB):
+    assert_connection_string_after_full_migration(mdb_migration)
+
+
+@mark.e2e_vm_migration_generate_scram_full
+def test_process_names(om_tester: OMTester, mdb_migration: MongoDB):
+    assert_k8s_process_names(om_tester, mdb_migration)
 
 
 @mark.e2e_vm_migration_generate_scram_full
@@ -389,6 +452,11 @@ def test_user_connectivity_after_promote(mdb_migration: MongoDB):
     mdb_migration.tester(use_ssl=False).assert_scram_sha_authentication(
         username="app-user", password=APP_USER_PASSWORD, auth_mechanism="SCRAM-SHA-256"
     )
+
+
+@mark.e2e_vm_migration_generate_scram_full
+def test_migration_data_exists_after_promote(mdb_migration: MongoDB, scram_opts: list[dict]):
+    assert_migration_data_exists(mdb_migration.tester(use_ssl=False), opts=scram_opts)
 
 
 @mark.e2e_vm_migration_generate_scram_full

@@ -185,7 +185,7 @@ func validateX509(auth *om.Auth) []ValidationResult {
 	var results []ValidationResult
 	results = append(results, ValidationResult{
 		Severity: SeverityWarning,
-		Message:  "MONGODB-X509 agent authentication is configured. Create a kubernetes.io/tls Secret named \"<certsSecretPrefix>-<resourceName>-agent-certs\" with keys \"tls.crt\" and \"tls.key\" before applying the Custom Resource.",
+		Message:  "MONGODB-X509 agent authentication is configured. The generated CR sets spec.security.authentication.agents.clientCertificateSecretRef to \"<certsSecretPrefix>-<resourceName>-agent-certs\". Create a kubernetes.io/tls Secret with that name and keys \"tls.crt\" and \"tls.key\" before applying the Custom Resource. If you use a different Secret name, update clientCertificateSecretRef.name in the generated CR.",
 	})
 	if auth.AutoUser != "" {
 		hasMatchingUser := slices.ContainsFunc(auth.Users, func(u *om.MongoDBUser) bool {
@@ -218,7 +218,7 @@ func validateAgentTLS(agentSSL *om.AgentSSL) []ValidationResult {
 	if agentSSL.CAFilePath != "" {
 		results = append(results, ValidationResult{
 			Severity: SeverityWarning,
-			Message:  "TLS CA is configured. Create a ConfigMap with key \"ca-pem\" containing the CA certificate before applying the Custom Resource. The generated CR sets security.tls.ca to \"<resourceName>-ca\" by default. Change it if your ConfigMap has a different name. Also create a kubernetes.io/tls Secret named \"<certsSecretPrefix>-<resourceName>-cert\" with keys \"tls.crt\" and \"tls.key\".",
+			Message:  "TLS CA is configured. The generated CR sets spec.security.certsSecretPrefix to \"<certsSecretPrefix>\" and spec.security.tls.ca to \"<resourceName>-ca\". Create a ConfigMap named \"<resourceName>-ca\" with key \"ca-pem\" containing the CA certificate, and create a kubernetes.io/tls Secret named \"<certsSecretPrefix>-<resourceName>-cert\" with keys \"tls.crt\" and \"tls.key\" before applying the Custom Resource. If you use different names, update spec.security.tls.ca and the server certificate Secret name accordingly.",
 		})
 	}
 

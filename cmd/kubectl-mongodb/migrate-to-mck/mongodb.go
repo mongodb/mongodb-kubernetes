@@ -57,6 +57,26 @@ PREREQUISITES
       --from-literal=password=<password> \
       -n <namespace>
 
+  If mongod TLS is enabled, create the ConfigMap and Secret referenced by the
+  generated CR:
+
+    kubectl create configmap <resourceName>-ca \
+      --from-file=ca-pem=<ca-file> \
+      -n <namespace>
+
+    kubectl create secret tls <certsSecretPrefix>-<resourceName>-cert \
+      --cert=<server-cert> \
+      --key=<server-key> \
+      -n <namespace>
+
+  If MONGODB-X509 agent authentication is enabled, create the agent certificate
+  Secret referenced by spec.security.authentication.agents.clientCertificateSecretRef:
+
+    kubectl create secret tls <certsSecretPrefix>-<resourceName>-agent-certs \
+      --cert=<agent-cert> \
+      --key=<agent-key> \
+      -n <namespace>
+
 USAGE
 
   When TLS is enabled, the command prompts for spec.security.certsSecretPrefix.

@@ -217,6 +217,34 @@ func TestBuildSecurity_TLSAndAuth(t *testing.T) {
 	assert.Equal(t, []mdbv1.AuthMode{"X509"}, result.Authentication.Modes)
 }
 
+func TestBuildSecurity_X509AgentAuthEmitsClientCertificateSecretRef(t *testing.T) {
+	ac := testAC(
+		&om.Auth{
+			Disabled:                 false,
+			DeploymentAuthMechanisms: []string{"MONGODB-X509"},
+			AutoAuthMechanism:        "MONGODB-X509",
+		},
+		map[string]om.Process{
+			"host-0": {
+				"args2_6": map[string]interface{}{
+					"net": map[string]interface{}{
+						"tls": map[string]interface{}{"mode": "requireTLS"},
+					},
+				},
+			},
+		},
+		[]om.ReplicaSetMember{{"host": "host-0"}},
+	)
+
+	result, err := buildSecurity(ac, "mdb", "my-rs")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.NotNil(t, result.Authentication)
+	ref := result.Authentication.Agents.ClientCertificateSecretRefWrap.ClientCertificateSecretRef
+	assert.Equal(t, "mdb-my-rs-agent-certs", ref.Name)
+	assert.Equal(t, "tls.crt", ref.Key)
+}
+
 // TestBuildSecurity_TLS_EmptyPrefix verifies that buildSecurity does not set TLS when certsSecretPrefix
 // is empty, regardless of the process config. The responsibility for ensuring the prefix is set when TLS
 // is detected lies with ensureTLS (which calls isTLSEnabled before buildSecurity is reached).

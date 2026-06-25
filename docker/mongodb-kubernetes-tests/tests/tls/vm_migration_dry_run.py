@@ -6,6 +6,8 @@ from cryptography import x509 as crypto_x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
+from kubernetes import client
+from kubetester import create_or_update_configmap
 from kubetester.mongodb import MongoDB
 
 # Annotation that triggers migration dry-run (connectivity validation only, no OM/StatefulSet changes).
@@ -95,3 +97,33 @@ def run_migration_dry_run_connectivity_fails(mdb: MongoDB, *, timeout: int = 300
     mdb.update()
 
     mdb.wait_for(_migration_connectivity_failed, timeout=timeout)
+
+
+def run_wrong_ca_dry_run_fails_then_passes(
+    namespace: str,
+    mdb: MongoDB,
+    connectivity_job_name: str,
+    wrong_ca_name: str,
+    correct_ca_name: str | None = None,
+) -> None:
+    """Verify migration dry-run fails with an invalid CA, then passes after restoring the valid CA."""
+    wrong_ca_pem = generate_wrong_ca_pem()
+    create_or_update_configmap(namespace, wrong_ca_name, {"ca-pem": wrong_ca_pem, "mms-ca.crt": wrong_ca_pem})
+
+    mdb.load()
+    original_ca_name = mdb["spec"]["security"]["tls"]["ca"]
+    mdb["spec"]["security"]["tls"]["ca"] = wrong_ca_name
+    mdb.update()
+
+    run_migration_dry_run_connectivity_fails(mdb)
+
+    client.BatchV1Api().delete_namespaced_job(
+        connectivity_job_name,
+        namespace,
+        body=client.V1DeleteOptions(propagation_policy="Background"),
+    )
+
+    mdb.load()
+    mdb["spec"]["security"]["tls"]["ca"] = correct_ca_name or original_ca_name
+    mdb.update()
+    run_migration_dry_run_connectivity_passes(mdb)

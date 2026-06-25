@@ -11,6 +11,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	authn "github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
@@ -30,7 +31,7 @@ func buildSecurity(ac *om.AutomationConfig, certsSecretPrefix, resourceName stri
 	}
 
 	if ac.Auth != nil && ac.Auth.IsEnabled() {
-		authConfig, err := buildAuthenticationConfig(ac)
+		authConfig, err := buildAuthenticationConfig(ac, certsSecretPrefix, resourceName)
 		if err != nil {
 			return nil, err
 		}
@@ -46,7 +47,7 @@ func buildSecurity(ac *om.AutomationConfig, certsSecretPrefix, resourceName stri
 	return security, nil
 }
 
-func buildAuthenticationConfig(ac *om.AutomationConfig) (*mdbv1.Authentication, error) {
+func buildAuthenticationConfig(ac *om.AutomationConfig, certsSecretPrefix, resourceName string) (*mdbv1.Authentication, error) {
 	auth := ac.Auth
 	processMap := ac.Deployment.ProcessMap()
 	members := ac.Deployment.GetReplicaSets()[0].Members()
@@ -93,6 +94,16 @@ func buildAuthenticationConfig(ac *om.AutomationConfig) (*mdbv1.Authentication, 
 
 	if agentMode, ok := authn.MapMechanismToAuthMode(auth.AutoAuthMechanism); ok {
 		authConfig.Agents.Mode = agentMode
+	}
+	if authConfig.Agents.Mode == util.X509 && certsSecretPrefix != "" {
+		authConfig.Agents.ClientCertificateSecretRefWrap = common.ClientCertificateSecretRefWrapper{
+			ClientCertificateSecretRef: corev1.SecretKeySelector{
+				LocalObjectReference: corev1.LocalObjectReference{
+					Name: fmt.Sprintf("%s-%s-%s", certsSecretPrefix, resourceName, util.AgentSecretName),
+				},
+				Key: corev1.TLSCertKey,
+			},
+		}
 	}
 
 	if auth.AutoUser != "" && auth.AutoUser != util.AutomationAgentUserName {
