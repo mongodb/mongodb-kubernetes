@@ -895,6 +895,9 @@ func (d Deployment) mergeShards(opts DeploymentShardedClusterMergeOptions, log *
 // from the sharded cluster and their data was rebalanced to the rest of the shards. Now we can remove the replica sets
 // and their processes and clean the 'draining' array.
 func (d Deployment) handleShardsRemoval(finalizing bool, s ShardedCluster, removedShardRsNames []string, log *zap.SugaredLogger) bool {
+	// Removed shard lifecycle (mergeFrom reports it once, draining carries it between reconciles):
+	//   phase 1 (!finalizing): mergeFrom -> seeding loop -> junkReplicaSets -> addToDraining
+	//   phase 2 (finalizing):  draining  -> findReplicaSetsRemovedFromShardedCluster -> removeReplicaSets
 	junkReplicaSets := d.findReplicaSetsRemovedFromShardedCluster(s.Name())
 
 	// findReplicaSetsRemovedFromShardedCluster only returns shards already recorded in the draining list.
