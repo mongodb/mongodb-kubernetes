@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Callable, Dict, List, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 import kubernetes
 from kubernetes.client.rest import ApiException
@@ -266,6 +266,7 @@ def build_per_cluster_search_crs(
     mongot_replicas: int,
     external_hostname_for_cluster: Callable[[int], str],
     source_external: dict,
+    router_hostname_for_cluster: Optional[Callable[[int], str]] = None,
 ) -> List[Tuple[MultiClusterClient, MongoDBSearch]]:
     """Build the SAME MongoDBSearch CR (spec.clusters lists all clusters) against each
     member's API; each simulated operator projects to its own slice. `source_external`
@@ -274,20 +275,28 @@ def build_per_cluster_search_crs(
     `external_hostname_for_cluster(cluster_index)` returns that cluster's literal managed-LB
     externalHostname; #1238 moved the LB under spec.clusters[] and dropped the per-cluster
     hostname placeholder, so each cluster needs a distinct literal (validation rejects duplicates).
+
+    `router_hostname_for_cluster(cluster_index)`, when provided (external sharded sources only),
+    returns that cluster's shard-agnostic routerHostname (the mongos-facing cluster-level endpoint).
+    Required and validated for external sharded + managed LB; omitted for ReplicaSet sources.
     """
     results: List[Tuple[MultiClusterClient, MongoDBSearch]] = []
+
+    def _managed(idx: int) -> dict:
+        managed = {
+            "replicas": ENVOY_LB_REPLICAS,
+            "externalHostname": external_hostname_for_cluster(idx),
+        }
+        if router_hostname_for_cluster is not None:
+            managed["routerHostname"] = router_hostname_for_cluster(idx)
+        return managed
 
     clusters_spec = [
         {
             "name": mcc.cluster_name,
             "index": _idx(mcc),
             "replicas": mongot_replicas,
-            "loadBalancer": {
-                "managed": {
-                    "replicas": ENVOY_LB_REPLICAS,
-                    "externalHostname": external_hostname_for_cluster(_idx(mcc)),
-                },
-            },
+            "loadBalancer": {"managed": _managed(_idx(mcc))},
         }
         for mcc in member_cluster_clients
     ]

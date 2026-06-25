@@ -1986,12 +1986,12 @@ func GetMongosConfigParametersForSharded(search *searchv1.MongoDBSearch, cluster
 }
 
 // mongotEndpointForClusterLevel resolves the shard-agnostic mongot endpoint for a cluster's mongos.
-// For managed LB with an externalHostname, returns the cluster-level external form (template with
-// leading `{shardName}.` stripped). Otherwise (managed LB without externalHostname, or no LB) returns
-// the cluster-level proxy Service in-cluster FQDN.
+// For managed LB with a routerHostname (required for external sharded sources), returns that value
+// verbatim. Otherwise (managed LB without routerHostname — e.g. operator-managed MongoDB — or no LB)
+// returns the cluster-level proxy Service in-cluster FQDN.
 func mongotEndpointForClusterLevel(search *searchv1.MongoDBSearch, clusterIndex int, clusterName string, clusterDomain string) string {
 	if search.IsLBModeManaged() {
-		if endpoint := search.GetManagedLBEndpointForClusterLevel(clusterName); endpoint != "" {
+		if endpoint := search.GetRouterHostnameForCluster(clusterName); endpoint != "" {
 			return endpoint
 		}
 	}

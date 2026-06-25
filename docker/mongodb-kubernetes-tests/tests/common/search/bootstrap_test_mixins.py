@@ -604,6 +604,9 @@ class SearchShardedDeploymentTests(SearchDeploymentTests):
                     "externalHostname": search_resource_names.shard_proxy_svc_hostname_template(
                         mdbs_name, self.namespace, i
                     ),
+                    # Shard-agnostic cluster-level endpoint for mongos: the per-cluster proxy-svc FQDN
+                    # (matches the LB cert SAN). Required for external sharded + managed LB.
+                    "routerHostname": search_resource_names.mc_proxy_svc_fqdn(mdbs_name, self.namespace, i),
                 },
             }
         resource["spec"]["clusters"] = clusters
