@@ -129,10 +129,7 @@ class MongoDBSearch(MongoDB, CustomObject):
         replicas = self["spec"]["clusters"][cluster_index].get("replicas", 1)
         sts = f"{self.name}-search-{cluster_index}"
         svc = f"{self.name}-search-{cluster_index}-svc"
-        return {
-            f"{sts}-{i}.{svc}.{self.namespace}.svc.cluster.local"
-            for i in range(replicas)
-        }
+        return {f"{sts}-{i}.{svc}.{self.namespace}.svc.cluster.local" for i in range(replicas)}
 
     def shard_mongot_pod_hostnames(self, shard_names: list, cluster_index: int = 0) -> set:
         """Return the set of FQDN hostnames for all mongot pods across every shard.

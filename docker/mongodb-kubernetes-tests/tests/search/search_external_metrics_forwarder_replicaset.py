@@ -242,5 +242,3 @@ def test_disable_metrics_forwarder(mdbs: MongoDBSearch):
             return e.status == 404
 
     run_periodically(check_configmap_deleted, timeout=60, interval=5)
-
-

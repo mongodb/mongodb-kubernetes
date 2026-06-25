@@ -196,4 +196,3 @@ def test_deleteing_search_resource_deletes_hosts(om: MongoDBOpsManager, mdbs: Mo
 
     tester = om.get_om_tester(project_name=MDB_RESOURCE_NAME)
     tester.assert_mongot_hosts_converged(set())
-
