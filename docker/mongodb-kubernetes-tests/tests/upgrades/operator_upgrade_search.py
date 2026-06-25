@@ -119,7 +119,7 @@ def sample_movies_helper(mdb: MongoDB, namespace: str) -> SampleMoviesSearchHelp
 class TestDeployOnOfficialOperator:
 
     def test_install_latest_official_operator(self, namespace: str, official_operator: Operator):
-        official_operator.assert_is_running()
+        official_operator.wait_for_operator_ready()
         log_deployments_info(namespace)
 
     @skip_if_cloud_manager
@@ -179,7 +179,7 @@ class TestOperatorUpgrade:
         operator = get_default_operator(
             namespace, operator_installation_config=operator_installation_config, apply_crds_first=True
         )
-        operator.assert_is_running()
+        operator.wait_for_operator_ready()
         log_deployments_info(namespace)
 
     def test_search_running_after_upgrade(self, mdbs: MongoDBSearch):

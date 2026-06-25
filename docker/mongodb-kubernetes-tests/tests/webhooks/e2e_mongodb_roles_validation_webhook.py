@@ -26,7 +26,7 @@ def mdbr() -> ClusterMongoDBRole:
 
 @pytest.mark.e2e_mongodb_roles_validation_webhook
 def test_wait_for_webhook(namespace: str, default_operator: Operator):
-    default_operator.wait_for_webhook()
+    default_operator.wait_for_operator_webhook_ready()
 
 
 # Basic testing for invalid empty values

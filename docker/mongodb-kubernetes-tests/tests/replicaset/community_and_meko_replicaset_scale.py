@@ -33,7 +33,7 @@ def meko_replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
 
 @mark.e2e_community_and_meko_replicaset_scale
 def test_install_operator(default_operator: Operator):
-    default_operator.assert_is_running()
+    default_operator.wait_for_operator_ready()
 
 
 @mark.e2e_community_and_meko_replicaset_scale

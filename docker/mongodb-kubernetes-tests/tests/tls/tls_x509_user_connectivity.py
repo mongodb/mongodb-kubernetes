@@ -37,7 +37,7 @@ def replica_set(namespace, agent_certs, server_certs, issuer_ca_configmap):
 
 @pytest.mark.e2e_tls_x509_user_connectivity
 def test_install_operator(operator: Operator):
-    operator.assert_is_running()
+    operator.wait_for_operator_ready()
 
 
 @pytest.mark.e2e_tls_x509_user_connectivity

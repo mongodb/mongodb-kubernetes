@@ -48,7 +48,7 @@ def mdb_health_checker(mongod_tester: MongoTester) -> MongoDBBackgroundTester:
 
 @mark.e2e_sharded_cluster_upgrade_downgrade
 def test_install_operator(operator: Operator):
-    operator.assert_is_running()
+    operator.wait_for_operator_ready()
 
 
 @mark.e2e_sharded_cluster_upgrade_downgrade

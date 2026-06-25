@@ -288,7 +288,7 @@ def test_put_admin_credentials_to_vault(namespace: str, vault_namespace: str, va
 
 @mark.e2e_vault_setup_om_backup
 def test_operator_install_with_vault_backend(operator_vault_secret_backend: Operator):
-    operator_vault_secret_backend.assert_is_running()
+    operator_vault_secret_backend.wait_for_operator_ready()
 
 
 @mark.e2e_vault_setup_om_backup

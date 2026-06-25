@@ -70,7 +70,7 @@ def test_deploy_operator(
     run_kube_config_creation_tool(member_cluster_names[:-1], namespace, namespace, member_cluster_names)
     # deploy the operator without the final cluster
     operator = install_multi_cluster_operator_set_members_fn(member_cluster_names[:-1])
-    operator.assert_is_running()
+    operator.wait_for_operator_ready()
 
 
 @pytest.mark.e2e_multi_cluster_recover
@@ -91,8 +91,7 @@ def test_recover_operator_add_cluster(
         namespace=namespace,
         api_client=central_cluster_client,
     )
-    operator._wait_for_operator_ready()
-    operator.assert_is_running()
+    operator.wait_for_operator_ready()
 
 
 @pytest.mark.e2e_multi_cluster_recover
@@ -117,8 +116,7 @@ def test_recover_operator_remove_cluster(
         namespace=namespace,
         api_client=central_cluster_client,
     )
-    operator._wait_for_operator_ready()
-    operator.assert_is_running()
+    operator.wait_for_operator_ready()
 
 
 @pytest.mark.e2e_multi_cluster_recover

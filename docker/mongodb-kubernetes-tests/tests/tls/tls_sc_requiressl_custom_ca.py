@@ -57,7 +57,7 @@ def sc(namespace: str, server_certs: str, issuer_ca_configmap: str) -> MongoDB:
 
 @pytest.mark.e2e_sharded_cluster_tls_require_custom_ca
 def test_install_operator(operator: Operator):
-    operator.assert_is_running()
+    operator.wait_for_operator_ready()
 
 
 @pytest.mark.e2e_sharded_cluster_tls_require_custom_ca

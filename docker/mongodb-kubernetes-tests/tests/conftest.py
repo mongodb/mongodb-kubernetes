@@ -963,7 +963,7 @@ def install_legacy_deployment_state_meko(
         operator_name=LEGACY_OPERATOR_NAME,
         operator_image=LEGACY_OPERATOR_IMAGE_NAME,
     )
-    operator.assert_is_running()
+    operator.wait_for_operator_ready()
     # Dumping deployments in logs ensures we are using the correct operator version
     log_deployments_info(namespace)
 

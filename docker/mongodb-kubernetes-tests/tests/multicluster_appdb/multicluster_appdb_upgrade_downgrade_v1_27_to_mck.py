@@ -244,7 +244,7 @@ class TestOperatorUpgrade:
 
     def test_install_default_operator(self, namespace: str, multi_cluster_operator: Operator):
         logger.info("Installing the operator built from master")
-        multi_cluster_operator.assert_is_running()
+        multi_cluster_operator.wait_for_operator_ready()
         # Dumping deployments in logs ensure we are using the correct operator version
         log_deployments_info(namespace)
 

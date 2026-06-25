@@ -252,7 +252,7 @@ def test_install_operator(namespace: str, operator_installation_config: dict[str
     operator = get_default_operator(
         namespace, operator_installation_config=operator_installation_config, apply_crds_first=True
     )
-    operator.assert_is_running()
+    operator.wait_for_operator_ready()
 
 
 @mark.e2e_search_sharded_openshift_external

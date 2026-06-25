@@ -54,7 +54,7 @@ def mdb_health_checker(mongo_tester: MongoTester) -> MongoDBBackgroundTester:
 class TestShardedClusterMigrationStatic:
 
     def test_install_operator(self, operator: Operator):
-        operator.assert_is_running()
+        operator.wait_for_operator_ready()
 
     def test_create_cluster(self, mdb: MongoDB):
         mdb.update()

@@ -74,7 +74,7 @@ def sc(namespace: str, issuer_ca_configmap: str, custom_mdb_version: str, all_ce
 
 @mark.e2e_tls_sharded_cluster_certs_prefix
 def test_install_operator(operator: Operator):
-    operator.assert_is_running()
+    operator.wait_for_operator_ready()
 
 
 @mark.e2e_tls_sharded_cluster_certs_prefix

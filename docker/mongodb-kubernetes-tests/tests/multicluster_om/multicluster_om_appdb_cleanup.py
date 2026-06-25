@@ -131,7 +131,7 @@ def ops_manager(
 
 @mark.e2e_multi_cluster_appdb_cleanup
 def test_deploy_operator(multi_cluster_operator_with_monitored_appdb: Operator):
-    multi_cluster_operator_with_monitored_appdb.assert_is_running()
+    multi_cluster_operator_with_monitored_appdb.wait_for_operator_ready()
 
 
 @mark.e2e_multi_cluster_appdb_cleanup

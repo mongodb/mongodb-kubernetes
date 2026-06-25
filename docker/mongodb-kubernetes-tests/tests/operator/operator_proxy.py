@@ -66,7 +66,7 @@ def replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
 def test_install_operator_with_proxy(
     operator_with_proxy: Operator,
 ):
-    operator_with_proxy.assert_is_running()
+    operator_with_proxy.wait_for_operator_ready()
 
 
 @mark.e2e_operator_proxy
