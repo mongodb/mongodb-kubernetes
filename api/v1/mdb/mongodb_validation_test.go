@@ -1704,6 +1704,14 @@ func TestShardNameOverridesValidForm(t *testing.T) {
 			expectError: true,
 			errorMsg:    "as the config server",
 		},
+		{
+			// shardCount is 3, so shards are vm-shard-0..2. Keeping an override for vm-shard-3 after a scale
+			// down (without removing it) must fail, which forces the override to be dropped with the shard.
+			name:        "override for a shard beyond shardCount fails",
+			overrides:   []ShardNameOverride{{ShardName: "vm-shard-3"}},
+			expectError: true,
+			errorMsg:    "must be vm-shard-{index} with index < 3",
+		},
 	}
 
 	for _, tt := range tests {
