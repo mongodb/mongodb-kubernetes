@@ -30,6 +30,7 @@ from tests.vm_migration.vm_migration_helpers import (
     assert_k8s_process_names,
     assert_max_voting_members_validation,
     assert_migration_data_exists,
+    generated_mongodb_doc,
     insert_migration_data,
     promote_and_prune,
     run_generate_cr,
