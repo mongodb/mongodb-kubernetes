@@ -1,6 +1,7 @@
 """Shared VM migration dry-run (connectivity-only) flow for plain-TLS and X509 E2E tests."""
 
 import datetime
+import time
 
 from cryptography import x509 as crypto_x509
 from cryptography.hazmat.primitives import hashes, serialization
@@ -100,6 +101,30 @@ def run_migration_dry_run_connectivity_fails(mdb: MongoDB, *, timeout: int = 300
     mdb.wait_for(_migration_connectivity_failed, timeout=timeout)
 
 
+def _delete_connectivity_job_if_exists(namespace: str, job_name: str, timeout: int = 120) -> None:
+    batch_api = client.BatchV1Api()
+    try:
+        batch_api.delete_namespaced_job(
+            job_name,
+            namespace,
+            body=client.V1DeleteOptions(propagation_policy="Background"),
+        )
+    except ApiException as e:
+        if e.status != 404:
+            raise
+
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            batch_api.read_namespaced_job(job_name, namespace)
+        except ApiException as e:
+            if e.status == 404:
+                return
+            raise
+        time.sleep(3)
+    raise AssertionError(f"Timed out waiting for connectivity Job {namespace}/{job_name} to be deleted")
+
+
 def run_wrong_ca_dry_run_fails_then_passes(
     namespace: str,
     mdb: MongoDB,
@@ -111,28 +136,16 @@ def run_wrong_ca_dry_run_fails_then_passes(
     wrong_ca_pem = generate_wrong_ca_pem()
     create_or_update_configmap(namespace, wrong_ca_name, {"ca-pem": wrong_ca_pem, "mms-ca.crt": wrong_ca_pem})
 
+    _delete_connectivity_job_if_exists(namespace, connectivity_job_name)
+
     mdb.load()
     original_ca_name = mdb["spec"]["security"]["tls"]["ca"]
     mdb["spec"]["security"]["tls"]["ca"] = wrong_ca_name
     mdb.update()
 
-    try:
-        client.BatchV1Api().delete_namespaced_job(
-            connectivity_job_name,
-            namespace,
-            body=client.V1DeleteOptions(propagation_policy="Background"),
-        )
-    except ApiException as e:
-        if e.status != 404:
-            raise
-
     run_migration_dry_run_connectivity_fails(mdb)
 
-    client.BatchV1Api().delete_namespaced_job(
-        connectivity_job_name,
-        namespace,
-        body=client.V1DeleteOptions(propagation_policy="Background"),
-    )
+    _delete_connectivity_job_if_exists(namespace, connectivity_job_name)
 
     mdb.load()
     mdb["spec"]["security"]["tls"]["ca"] = correct_ca_name or original_ca_name
