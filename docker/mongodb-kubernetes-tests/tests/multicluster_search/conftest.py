@@ -266,6 +266,7 @@ def build_per_cluster_search_crs(
     mongot_replicas: int,
     external_hostname_for_cluster: Callable[[int], str],
     source_external: dict,
+    cluster_indices: Dict[str, int] | None = None,
 ) -> List[Tuple[MultiClusterClient, MongoDBSearch]]:
     """Build the SAME MongoDBSearch CR (spec.clusters lists all clusters) against each
     member's API; each simulated operator projects to its own slice. `source_external`
@@ -274,18 +275,25 @@ def build_per_cluster_search_crs(
     `external_hostname_for_cluster(cluster_index)` returns that cluster's literal managed-LB
     externalHostname; #1238 moved the LB under spec.clusters[] and dropped the per-cluster
     hostname placeholder, so each cluster needs a distinct literal (validation rejects duplicates).
+
+    `cluster_indices` (clusterName -> index) overrides the default harness-index pin so
+    topology suites can pin permuted/non-positional indices; the pin also drives the
+    per-cluster externalHostname so proxy hostnames track the pinned index. None keeps `_idx(mcc)`.
     """
     results: List[Tuple[MultiClusterClient, MongoDBSearch]] = []
+
+    def pin(mcc: MultiClusterClient) -> int:
+        return _idx(mcc) if cluster_indices is None else cluster_indices[mcc.cluster_name]
 
     clusters_spec = [
         {
             "name": mcc.cluster_name,
-            "index": _idx(mcc),
+            "index": pin(mcc),
             "replicas": mongot_replicas,
             "loadBalancer": {
                 "managed": {
                     "replicas": ENVOY_LB_REPLICAS,
-                    "externalHostname": external_hostname_for_cluster(_idx(mcc)),
+                    "externalHostname": external_hostname_for_cluster(pin(mcc)),
                 },
             },
         }
