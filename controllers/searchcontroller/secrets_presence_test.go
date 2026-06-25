@@ -69,7 +69,7 @@ func TestCheckSecretsPresence_HappyPath(t *testing.T) {
 	west := newClientWithSecrets(t, newSecretObj("search-sync-password", "ns"))
 	members := map[string]client.Client{"east": east, "west": west}
 
-	got := CheckSecretsPresence(context.Background(), search, central, members, map[string]int{"east": 0, "west": 1})
+	got := CheckSecretsPresence(context.Background(), search, central, members)
 
 	assert.Empty(t, got, "all secrets present in all clusters → no SecretCheckResult entries")
 }
@@ -85,7 +85,7 @@ func TestCheckSecretsPresence_MissingSecret(t *testing.T) {
 	west := newClientWithSecrets(t)
 	members := map[string]client.Client{"east": east, "west": west}
 
-	got := CheckSecretsPresence(context.Background(), search, central, members, map[string]int{"east": 0, "west": 1})
+	got := CheckSecretsPresence(context.Background(), search, central, members)
 
 	assert.Len(t, got, 1)
 	assert.Equal(t, "west", got[0].Cluster)
@@ -108,8 +108,19 @@ func mcShardedTLSSearch(t *testing.T, name, ns string, shardNames ...string) *se
 	return s
 }
 
+// pinClusters sets pinned spec.clusters[] entries (clusterName → index) so the
+// MC secret-presence branch resolves each member cluster's index from the CRD pin.
+func pinClusters(s *searchv1.MongoDBSearch, indexByCluster map[string]int32) {
+	clusters := make([]searchv1.ClusterSpec, 0, len(indexByCluster))
+	for name, idx := range indexByCluster {
+		clusters = append(clusters, searchv1.ClusterSpec{Name: name, Index: ptr.To(idx)})
+	}
+	s.Spec.Clusters = clusters
+}
+
 func TestCheckSecretsPresence_MCSharded_PerClusterCertNames(t *testing.T) {
 	search := mcShardedTLSSearch(t, "s", "ns", "shard-0", "shard-1")
+	pinClusters(search, map[string]int32{"east": 0, "west": 1})
 
 	central := newClientWithSecrets(t,
 		newSecretObj("search-sync-password", "ns"),
@@ -126,13 +137,14 @@ func TestCheckSecretsPresence_MCSharded_PerClusterCertNames(t *testing.T) {
 	)
 	members := map[string]client.Client{"east": east, "west": west}
 
-	got := CheckSecretsPresence(context.Background(), search, central, members, map[string]int{"east": 0, "west": 1})
+	got := CheckSecretsPresence(context.Background(), search, central, members)
 
-	assert.Empty(t, got, "per-cluster cert names addressed via clusterMapping → no gaps")
+	assert.Empty(t, got, "per-cluster cert names addressed via the pinned clusterIndex → no gaps")
 }
 
 func TestCheckSecretsPresence_MCSharded_MissingPerClusterCert(t *testing.T) {
 	search := mcShardedTLSSearch(t, "s", "ns", "shard-0")
+	pinClusters(search, map[string]int32{"east": 0, "west": 1})
 
 	central := newClientWithSecrets(t, newSecretObj("search-sync-password", "ns"))
 	east := newClientWithSecrets(t,
@@ -146,7 +158,7 @@ func TestCheckSecretsPresence_MCSharded_MissingPerClusterCert(t *testing.T) {
 	)
 	members := map[string]client.Client{"east": east, "west": west}
 
-	got := CheckSecretsPresence(context.Background(), search, central, members, map[string]int{"east": 0, "west": 1})
+	got := CheckSecretsPresence(context.Background(), search, central, members)
 
 	assert.Len(t, got, 1)
 	assert.Equal(t, "west", got[0].Cluster)
@@ -155,6 +167,7 @@ func TestCheckSecretsPresence_MCSharded_MissingPerClusterCert(t *testing.T) {
 
 func TestCheckSecretsPresence_MCSharded_CentralSkipsPerShardCerts(t *testing.T) {
 	search := mcShardedTLSSearch(t, "s", "ns", "shard-0", "shard-1")
+	pinClusters(search, map[string]int32{"east": 0})
 
 	central := newClientWithSecrets(t, newSecretObj("search-sync-password", "ns"))
 	east := newClientWithSecrets(t,
@@ -164,13 +177,14 @@ func TestCheckSecretsPresence_MCSharded_CentralSkipsPerShardCerts(t *testing.T) 
 	)
 	members := map[string]client.Client{"east": east}
 
-	got := CheckSecretsPresence(context.Background(), search, central, members, map[string]int{"east": 0})
+	got := CheckSecretsPresence(context.Background(), search, central, members)
 
 	assert.Empty(t, got, "central must not be probed for per-shard certs in MC mode")
 }
 
 func TestCheckSecretsPresence_MCSharded_CentralReportsInvariantGap(t *testing.T) {
 	search := mcShardedTLSSearch(t, "s", "ns", "shard-0")
+	pinClusters(search, map[string]int32{"east": 0})
 
 	central := newClientWithSecrets(t)
 	east := newClientWithSecrets(t,
@@ -179,7 +193,7 @@ func TestCheckSecretsPresence_MCSharded_CentralReportsInvariantGap(t *testing.T)
 	)
 	members := map[string]client.Client{"east": east}
 
-	got := CheckSecretsPresence(context.Background(), search, central, members, map[string]int{"east": 0})
+	got := CheckSecretsPresence(context.Background(), search, central, members)
 
 	assert.Len(t, got, 1)
 	assert.Equal(t, "", got[0].Cluster)
@@ -194,30 +208,29 @@ func TestCheckSecretsPresence_SingleClusterSharded_CentralIncludesPerShardCerts(
 		// Missing: s_tlsShardNameAt("lt", "s", "shard-0", 0)
 	)
 
-	got := CheckSecretsPresence(context.Background(), search, central, nil, nil)
+	got := CheckSecretsPresence(context.Background(), search, central, nil)
 
 	assert.Len(t, got, 1)
 	assert.Equal(t, "", got[0].Cluster)
 	assert.Equal(t, []string{s_tlsShardNameAt("lt", "s", "shard-0", 0)}, got[0].Missing)
 }
 
-// Simulated-MC: per-shard cert names must be probed at the MAPPED index, not
+// Simulated-MC: per-shard cert names must be probed at the pinned index, not
 // hard-coded 0 — else absent index-0 names look like phantom gaps and requeue forever.
-func TestCheckSecretsPresence_SimulatedMC_UsesMappedIndex(t *testing.T) {
+func TestCheckSecretsPresence_SimulatedMC_UsesPinnedIndex(t *testing.T) {
 	newPinnedSearch := func() *searchv1.MongoDBSearch {
 		s := mcShardedTLSSearch(t, "s", "ns", "shard-0")
-		s.Spec.Clusters = []searchv1.ClusterSpec{{Name: "cluster-b", ClusterIndex: ptr.To(int32(7))}}
+		s.Spec.Clusters = []searchv1.ClusterSpec{{Name: "cluster-b", Index: ptr.To(int32(7))}}
 		return s
 	}
-	mapping := map[string]int{"cluster-b": 7}
 
 	t.Run("index-7 secrets present means no gaps", func(t *testing.T) {
 		central := newClientWithSecrets(t,
 			newSecretObj("search-sync-password", "ns"),
 			newSecretObj(s_tlsShardNameAt("lt", "s", "shard-0", 7), "ns"),
 		)
-		got := CheckSecretsPresence(context.Background(), newPinnedSearch(), central, nil, mapping)
-		assert.Empty(t, got, "presence must be probed at the mapped index 7 — no phantom index-0 gap")
+		got := CheckSecretsPresence(context.Background(), newPinnedSearch(), central, nil)
+		assert.Empty(t, got, "presence must be probed at the pinned index 7 — no phantom index-0 gap")
 	})
 
 	t.Run("only index-0 secret present reports the index-7 name missing", func(t *testing.T) {
@@ -225,19 +238,10 @@ func TestCheckSecretsPresence_SimulatedMC_UsesMappedIndex(t *testing.T) {
 			newSecretObj("search-sync-password", "ns"),
 			newSecretObj(s_tlsShardNameAt("lt", "s", "shard-0", 0), "ns"),
 		)
-		got := CheckSecretsPresence(context.Background(), newPinnedSearch(), central, nil, mapping)
+		got := CheckSecretsPresence(context.Background(), newPinnedSearch(), central, nil)
 		assert.Len(t, got, 1)
 		assert.Equal(t, []string{s_tlsShardNameAt("lt", "s", "shard-0", 7)}, got[0].Missing,
 			"the gap must be reported under the index-7 name")
-	})
-
-	t.Run("name absent from mapping falls back to the pinned ClusterIndex", func(t *testing.T) {
-		central := newClientWithSecrets(t,
-			newSecretObj("search-sync-password", "ns"),
-			newSecretObj(s_tlsShardNameAt("lt", "s", "shard-0", 7), "ns"),
-		)
-		got := CheckSecretsPresence(context.Background(), newPinnedSearch(), central, nil, map[string]int{"other-cluster": 3})
-		assert.Empty(t, got, "pinned ClusterIndex must be used when the mapping lacks the entry — no phantom index-0 gap")
 	})
 }
 

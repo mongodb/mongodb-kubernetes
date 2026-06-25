@@ -781,7 +781,7 @@ func getMongodConfigSearchModification(search *searchv1.MongoDBSearch, clusterDo
 		return automationconfig.NOOP()
 	}
 
-	searchConfigParameters := searchcontroller.GetMongodConfigParameters(search, clusterDomain)
+	searchConfigParameters := searchcontroller.GetMongodConfigParameters(search, clusterDomain, searchcontroller.ResolveSingleClusterIndex(search))
 	return func(ac *automationconfig.AutomationConfig) {
 		for i := range ac.Processes {
 			err := mergo.Merge(&ac.Processes[i].Args26, objx.New(searchConfigParameters), mergo.WithOverride)

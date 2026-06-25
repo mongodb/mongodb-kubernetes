@@ -104,8 +104,8 @@ type MongoDBSearchSpec struct {
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=50
 	// +kubebuilder:validation:XValidation:rule="size(self) <= 1 || self.all(c1, has(c1.name) && self.exists_one(c2, has(c2.name) && c2.name == c1.name))",message="clusters[].name must be set and unique when more than one cluster is specified"
-	// +kubebuilder:validation:XValidation:rule="self.all(c1, !has(c1.clusterIndex) || self.exists_one(c2, has(c2.clusterIndex) && c2.clusterIndex == c1.clusterIndex))",message="clusters[].clusterIndex must be unique when set"
-	// +kubebuilder:validation:XValidation:rule="size(self) <= 1 || self.all(c, has(c.clusterIndex))",message="clusters[].clusterIndex is required on every entry when more than one cluster is specified"
+	// +kubebuilder:validation:XValidation:rule="self.all(c1, !has(c1.index) || self.exists_one(c2, has(c2.index) && c2.index == c1.index))",message="clusters[].index must be unique when set"
+	// +kubebuilder:validation:XValidation:rule="size(self) <= 1 || self.all(c, has(c.index))",message="clusters[].index is required on every entry when more than one cluster is specified"
 	Clusters []ClusterSpec `json:"clusters"`
 }
 
@@ -144,13 +144,13 @@ type ClusterSpec struct {
 	// +optional
 	// +kubebuilder:validation:MaxLength=253
 	Name string `json:"name,omitempty"`
-	// ClusterIndex is the stable integer in per-cluster resource names. Required on every entry
+	// Index is the stable integer in per-cluster resource names. Required on every entry
 	// of a multi-cluster spec, and even on a single entry when each member cluster runs its own
 	// operator. Changing it renames this cluster's resources, orphaning those at the old index.
 	// +optional
 	// +kubebuilder:validation:Minimum=0
 	// +kubebuilder:validation:Maximum=999
-	ClusterIndex *int32 `json:"clusterIndex,omitempty"`
+	Index *int32 `json:"index,omitempty"`
 	// Replicas is the number of mongot pods for this cluster's StatefulSet.
 	// For ReplicaSet sources this is the total; for sharded sources it is per shard.
 	// When Replicas > 1, a load balancer (spec.clusters[].loadBalancer) is required to
@@ -190,6 +190,15 @@ type ClusterSpec struct {
 	// +kubebuilder:pruning:PreserveUnknownFields
 	// +optional
 	AdvancedMongotConfigs *AdvancedMongotConfigs `json:"advancedMongotConfigs,omitempty"`
+}
+
+// ResolveIndex resolves this cluster's per-cluster resource index: the pinned
+// Index, else 0.
+func (c ClusterSpec) ResolveIndex() int {
+	if c.Index == nil {
+		return 0
+	}
+	return int(*c.Index)
 }
 
 // ShardOverride sizes specific shards within the enclosing cluster differently
@@ -1018,10 +1027,9 @@ func (s *MongoDBSearch) IsLBModeManaged() bool {
 
 // GetManagedLBForCluster returns the named cluster's loadBalancer.managed, or
 // nil when the cluster is unknown or has no managed LB. An empty clusterName
-// means the first cluster (single-cluster installs). Resolution is by name:
-// controllers thread cluster indices from the persisted ClusterMapping, which
-// outlives spec positions, so an index must never be used to look up spec
-// entries (it is for resource naming only).
+// means the first cluster (single-cluster installs). Resolution is by name,
+// never by index: the pin is for resource naming only and spec entries
+// are looked up by name.
 func (s *MongoDBSearch) GetManagedLBForCluster(clusterName string) *ManagedLBConfig {
 	c, err := s.EffectiveClusterFor(clusterName)
 	if err != nil || c.LoadBalancer == nil {
@@ -1163,20 +1171,20 @@ func (s *MongoDBSearch) GetKind() string {
 }
 
 // ValidateSimulatedMCClusterIndices requires a non-empty spec.clusters where every entry pins
-// a distinct ClusterIndex. Called only by operators in simulated-MC mode (operatorClusterName set).
+// a distinct Index. Called only by operators in simulated-MC mode (operatorClusterName set).
 func (s *MongoDBSearch) ValidateSimulatedMCClusterIndices() error {
 	if len(s.Spec.Clusters) == 0 {
 		return fmt.Errorf("running one operator per cluster requires spec.clusters to be set")
 	}
 	seen := make(map[int32]string, len(s.Spec.Clusters))
 	for _, c := range s.Spec.Clusters {
-		if c.ClusterIndex == nil {
-			return fmt.Errorf("running one operator per cluster requires clusterIndex on every spec.clusters[] entry (missing on %q)", c.Name)
+		if c.Index == nil {
+			return fmt.Errorf("running one operator per cluster requires index on every spec.clusters[] entry (missing on %q)", c.Name)
 		}
-		if prev, dup := seen[*c.ClusterIndex]; dup {
-			return fmt.Errorf("clusterIndex %d is set on more than one spec.clusters[] entry (%q and %q); pinned indices must be distinct", *c.ClusterIndex, prev, c.Name)
+		if prev, dup := seen[*c.Index]; dup {
+			return fmt.Errorf("index %d is set on more than one spec.clusters[] entry (%q and %q); pinned indices must be distinct", *c.Index, prev, c.Name)
 		}
-		seen[*c.ClusterIndex] = c.Name
+		seen[*c.Index] = c.Name
 	}
 	return nil
 }
