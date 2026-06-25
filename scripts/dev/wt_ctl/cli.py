@@ -65,6 +65,18 @@ def build_parser() -> argparse.ArgumentParser:
     sc.add_argument("--force", action="store_true")
     sc.add_argument("--evg-host-name", dest="evg_host_name")
     sc.add_argument(
+        "--distro",
+        dest="distro",
+        default=None,
+        help="evergreen distro for the EVG host spawn (default: evg spawn's own default).",
+    )
+    sc.add_argument(
+        "--region",
+        dest="region",
+        default=None,
+        help="AWS region for the EVG host spawn (default: evg spawn's own default).",
+    )
+    sc.add_argument(
         "--local-kind",
         dest="local_kind",
         action="store_true",
@@ -988,6 +1000,8 @@ def cmd_create(runner: Runner, refs: Optional[WorktreeRefs], args: argparse.Name
         skip_prepare_e2e=args.skip_prepare_e2e,
         force=args.force,
         evg_host_name=args.evg_host_name,
+        distro=getattr(args, "distro", None),
+        region=getattr(args, "region", None),
         local_kind=getattr(args, "local_kind", False),
         cluster_name=getattr(args, "cluster_name", None),
     )
