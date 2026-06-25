@@ -35,4 +35,3 @@ func BuildFromMongoDBWithReplicas(mongoDBImage string, forceEnterprise bool, mdb
 	rsWithProcesses.SetHorizons(mdb.Spec.GetHorizonConfig())
 	return rsWithProcesses
 }
-
