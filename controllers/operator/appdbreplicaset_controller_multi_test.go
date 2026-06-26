@@ -97,8 +97,8 @@ func TestAppDB_MultiCluster(t *testing.T) {
 	// secrets and config maps created by the operator shouldn't be created in central cluster
 	centralClusterChecks.checkSecretNotFound(ctx, appdb.AutomationConfigSecretName())
 	centralClusterChecks.checkConfigMapNotFound(ctx, appdb.AutomationConfigConfigMapName())
-	centralClusterChecks.checkSecretNotFound(ctx, appdb.MonitoringAutomationConfigSecretName())
-	centralClusterChecks.checkConfigMapNotFound(ctx, appdb.MonitoringAutomationConfigConfigMapName())
+	centralClusterChecks.checkSecretNotFound(ctx, monitoringAutomationConfigSecretName(appdb))
+	centralClusterChecks.checkConfigMapNotFound(ctx, monitoringAutomationConfigConfigMapName(appdb))
 	centralClusterChecks.checkSecretNotFound(ctx, pemSecretName)
 	centralClusterChecks.checkTLSCAConfigMap(ctx, caConfigMapName)
 	centralClusterChecks.checkConfigMapNotFound(ctx, appdb.ProjectIDConfigMapName())
@@ -107,8 +107,8 @@ func TestAppDB_MultiCluster(t *testing.T) {
 		memberClusterChecks := newClusterChecks(t, clusterSpecItem.ClusterName, clusterIdx, opsManager.Namespace, memberClusterMap[clusterSpecItem.ClusterName])
 		memberClusterChecks.checkAutomationConfigSecret(ctx, appdb.AutomationConfigSecretName())
 		memberClusterChecks.checkAutomationConfigConfigMap(ctx, appdb.AutomationConfigConfigMapName())
-		memberClusterChecks.checkAutomationConfigSecret(ctx, appdb.MonitoringAutomationConfigSecretName())
-		memberClusterChecks.checkAutomationConfigConfigMap(ctx, appdb.MonitoringAutomationConfigConfigMapName())
+		memberClusterChecks.checkSecretNotFound(ctx, monitoringAutomationConfigSecretName(appdb))
+		memberClusterChecks.checkConfigMapNotFound(ctx, monitoringAutomationConfigConfigMapName(appdb))
 		memberClusterChecks.checkTLSCAConfigMap(ctx, caConfigMapName)
 		// TLS secret should not be replicated, only PEM secret
 		memberClusterChecks.checkSecretNotFound(ctx, tlsCertSecretName)

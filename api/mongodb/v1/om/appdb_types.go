@@ -61,9 +61,10 @@ type AppDBSpec struct {
 	// specify configuration like startup flags and automation config settings for the AutomationAgent and MonitoringAgent
 	AutomationAgent mdbv1.AgentConfig `json:"agent,omitempty"`
 
-	// Specify configuration like startup flags just for the MonitoringAgent.
-	// These take precedence over
-	// the flags set in AutomationAgent
+	// Deprecated: this field has no effect. The monitoring agent now runs inside the
+	// automation agent. Configure agent options, including log level and rotation, via
+	// spec.appDB.agent. Remove this field from your configuration.
+	// +optional
 	MonitoringAgent mdbv1.MonitoringAgentConfig `json:"monitoringAgent,omitempty"`
 	ConnectionSpec  `json:",inline"`
 
@@ -407,10 +408,6 @@ func (m *AppDBSpec) AutomationConfigSecretName() string {
 	return m.Name() + "-config"
 }
 
-func (m *AppDBSpec) MonitoringAutomationConfigSecretName() string {
-	return m.Name() + "-monitoring-config"
-}
-
 func (m *AppDBSpec) GetAgentLogFile() string {
 	return automationconfig.DefaultAgentLogFile
 }
@@ -466,10 +463,6 @@ func (m *AppDBSpec) NeedsAutomationConfigVolume() bool {
 
 func (m *AppDBSpec) AutomationConfigConfigMapName() string {
 	return fmt.Sprintf("%s-automation-config-version", m.Name())
-}
-
-func (m *AppDBSpec) MonitoringAutomationConfigConfigMapName() string {
-	return fmt.Sprintf("%s-monitoring-automation-config-version", m.Name())
 }
 
 // GetSecretsMountedIntoPod returns the list of strings mounted into the pod that we need to watch.
