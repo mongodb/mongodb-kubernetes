@@ -15,7 +15,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
-	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
@@ -114,13 +113,10 @@ func runGenerateUsers(cmd *cobra.Command, _ []string) error {
 
 	mongodbResourceName := uFlags.resourceNameOverride
 	if mongodbResourceName == "" {
-		replicaSets := ac.Deployment.GetReplicaSets()
-		if len(replicaSets) == 0 {
-			return fmt.Errorf("no replica sets found in the automation config")
-		}
-		mongodbResourceName = util.NormalizeName(replicaSets[0].Name())
-		if mongodbResourceName == "" {
-			return fmt.Errorf("replica set name %q cannot be normalized to a valid Kubernetes name. Use --resource-name-override to provide one", replicaSets[0].Name())
+		var err error
+		mongodbResourceName, err = resolveMongoDBResourceName(ac, "")
+		if err != nil {
+			return err
 		}
 	}
 
@@ -141,6 +137,29 @@ func runGenerateUsers(cmd *cobra.Command, _ []string) error {
 	return writeOutput(resources, uFlags.outputFile)
 }
 
+func resolveMongoDBResourceName(ac *om.AutomationConfig, override string) (string, error) {
+	if override != "" {
+		return override, nil
+	}
+	if shardedClusters := ac.Deployment.GetShardedClusters(); len(shardedClusters) > 0 {
+		name := util.NormalizeName(shardedClusters[0].Name())
+		if name == "" {
+			return "", fmt.Errorf("sharded cluster name %q cannot be normalized to a valid Kubernetes name. Use --resource-name-override to provide one", shardedClusters[0].Name())
+		}
+		return name, nil
+	}
+	replicaSets := ac.Deployment.GetReplicaSets()
+	if len(replicaSets) == 0 {
+		return "", fmt.Errorf("no replica sets found in the automation config")
+	}
+	name := util.NormalizeName(replicaSets[0].Name())
+	if name == "" {
+		return "", fmt.Errorf("replica set name %q cannot be normalized to a valid Kubernetes name. Use --resource-name-override to provide one", replicaSets[0].Name())
+	}
+	return name, nil
+}
+
+
 func buildUsersOptions(ctx context.Context, kubeClient kubernetesClient.Client, ac *om.AutomationConfig, stdin io.Reader, namespace, usersSecretsFile string) (GenerateOptions, error) {
 	opts := GenerateOptions{Namespace: namespace}
 	scanner := bufio.NewScanner(stdin)
@@ -151,6 +170,11 @@ func buildUsersOptions(ctx context.Context, kubeClient kubernetesClient.Client, 
 }
 
 func userKey(username, database string) string { return username + ":" + database }
+
+func suggestedUserSecretName(user *om.MongoDBUser) string {
+	return userv1.NormalizeName(user.Username) + "-password"
+}
+
 
 func scramUsers(ac *om.AutomationConfig) []*om.MongoDBUser {
 	if ac.Auth == nil {
@@ -190,17 +214,10 @@ func collectUserSecretNamesInteractively(ctx context.Context, kubeClient kuberne
 
 	opts.ExistingUserSecrets = make(map[string]string)
 	for _, user := range users {
-		suggestedName := userv1.NormalizeName(user.Username) + "-password"
-		input, err := promptLine(scanner, fmt.Sprintf("Secret name for user %q (db: %s) [%s]: ", user.Username, user.Database, suggestedName))
+		suggestedName := suggestedUserSecretName(user)
+		secretName, err := promptKubernetesName(scanner, fmt.Sprintf("Secret name for user %q (db: %s) [%s]: ", user.Username, user.Database, suggestedName), suggestedName)
 		if err != nil {
-			return fmt.Errorf("failed to read secret name for user %q: %w", user.Username, err)
-		}
-		secretName := input
-		if secretName == "" {
-			secretName = suggestedName
-		}
-		if errs := k8svalidation.IsDNS1123Subdomain(secretName); len(errs) > 0 {
-			return fmt.Errorf("secret name %q for user %q is not a valid Kubernetes name: %s", secretName, user.Username, errs[0])
+			return fmt.Errorf("failed to read spec.passwordSecretKeyRef.name for user %q: %w", user.Username, err)
 		}
 		if err := validateUserSecret(ctx, kubeClient, user, secretName, ac, opts.Namespace); err != nil {
 			return err
@@ -212,12 +229,11 @@ func collectUserSecretNamesInteractively(ctx context.Context, kubeClient kuberne
 
 func validatePasswordAgainstOM(username, database, password string, ac *om.AutomationConfig) error {
 	_, acUser := ac.Auth.GetUser(username, database)
-	user := &om.MongoDBUser{Username: username, Database: database}
-	changed, err := authentication.IsPasswordChanged(user, password, acUser)
+	matches, err := authentication.PasswordMatchesStoredCreds(username, password, acUser)
 	if err != nil {
 		return fmt.Errorf("failed to validate password for user %q: %w", username, err)
 	}
-	if changed {
+	if !matches {
 		return fmt.Errorf("password for user %q does not match the existing credentials in Ops Manager", username)
 	}
 	return nil
@@ -240,13 +256,9 @@ func collectExistingUserSecrets(ctx context.Context, kubeClient kubernetesClient
 }
 
 func validateUserSecret(ctx context.Context, kubeClient kubernetesClient.Client, user *om.MongoDBUser, secretName string, ac *om.AutomationConfig, namespace string) error {
-	secret, err := kubeClient.GetSecret(ctx, kube.ObjectKey(namespace, secretName))
+	passwordBytes, err := requirePasswordSecret(ctx, kubeClient, namespace, secretName)
 	if err != nil {
-		return fmt.Errorf("secret %q not found in namespace %q (user %q): %w", secretName, namespace, user.Username, err)
-	}
-	passwordBytes, ok := secret.Data[passwordSecretDataKey]
-	if !ok {
-		return fmt.Errorf("secret %q does not contain key \"password\" (required for user %q)", secretName, user.Username)
+		return fmt.Errorf("%w for user %q", err, user.Username)
 	}
 	return validatePasswordAgainstOM(user.Username, user.Database, string(passwordBytes), ac)
 }
@@ -257,7 +269,7 @@ func parseUsersSecretsFile(path string) (map[string]string, error) {
 	}
 	f, err := os.Open(path)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open file: %w", err)
+		return nil, fmt.Errorf("failed to open %q: %w", path, err)
 	}
 	defer func() { _ = f.Close() }()
 

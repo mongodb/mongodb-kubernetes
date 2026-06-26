@@ -25,7 +25,9 @@ def build_sha256_creds(password: str) -> dict:
 
 
 def build_sha1_creds(username: str, password: str) -> dict:
-    password_hash = hashlib.md5(f"{username}:mongo:{password}".encode()).hexdigest()
+    password_hash = hashlib.md5(
+        f"{username}:mongo:{password}".encode()
+    ).hexdigest()  # nosec B324  # codeql[py/weak-cryptographic-algorithm] - MD5 is mandated by the MongoDB SCRAM-SHA-1 protocol spec (RFC 5802), not used for general password hashing
     salt = os.urandom(_SCRAM_SHA1_SALT_SIZE)
     salted_password = hashlib.pbkdf2_hmac("sha1", password_hash.encode("utf-8"), salt, _SCRAM_SHA1_ITERATIONS)
     client_key = hmac.new(salted_password, b"Client Key", hashlib.sha1).digest()
@@ -44,20 +46,38 @@ def seed_user_in_ac(
     username: str,
     db: str,
     roles: list,
-    mechanisms: list,
+    mechanisms: Optional[list],
     sha256_creds: Optional[dict] = None,
     sha1_creds: Optional[dict] = None,
 ) -> None:
-    ac = om_tester.om_request("get", f"/groups/{om_tester.context.project_id}/automationConfig").json()
+    ac = om_tester.api_get_automation_config()
     ac["auth"].setdefault("usersWanted", [])
-    ac["auth"]["usersWanted"] = [u for u in ac["auth"]["usersWanted"] if u.get("user") != username]
-    entry = {"user": username, "db": db, "roles": roles, "mechanisms": mechanisms}
+    ac["auth"]["usersWanted"] = [
+        u for u in ac["auth"]["usersWanted"] if not (u.get("user") == username and u.get("db") == db)
+    ]
+    entry = {"user": username, "db": db, "roles": roles}
+    if mechanisms is not None:
+        entry["mechanisms"] = mechanisms
     if sha256_creds:
         entry["scramSha256Creds"] = sha256_creds
     if sha1_creds:
         entry["scramSha1Creds"] = sha1_creds
     ac["auth"]["usersWanted"].append(entry)
-    om_tester.om_request("put", f"/groups/{om_tester.context.project_id}/automationConfig", json_object=ac)
+    om_tester.api_put_automation_config(ac)
+
+
+def build_scram_user_resource(namespace: str, username: str, password: str, secret_name: str, mdb_resource_name: str):
+    """Creates the password secret and returns a MongoDBUser resource for the given user."""
+    from kubetester import create_or_update_secret, find_fixture, try_load
+    from kubetester.mongodb_user import MongoDBUser
+
+    create_or_update_secret(namespace, secret_name, {"password": password})
+    resource = MongoDBUser.from_yaml(find_fixture("scram-sha-user.yaml"), namespace=namespace, name=username)
+    resource["spec"]["username"] = username
+    resource["spec"]["passwordSecretKeyRef"] = {"name": secret_name, "key": "password"}
+    resource["spec"]["mongodbResourceRef"]["name"] = mdb_resource_name
+    try_load(resource)
+    return resource
 
 
 def get_ac_user(ac_tester, username: str) -> dict:

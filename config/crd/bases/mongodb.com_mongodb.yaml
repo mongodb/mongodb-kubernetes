@@ -398,6 +398,11 @@ spec:
                 type: string
               configServerCount:
                 type: integer
+              configServerNameOverride:
+                description: |-
+                  ConfigServerNameOverride overrides the automation config replicaSetName for the config server.
+                  When omitted, the default ("{resourceName}-config") is used. Immutable once set.
+                type: string
               configSrv:
                 properties:
                   additionalMongodConfig:
@@ -2091,6 +2096,42 @@ spec:
                 x-kubernetes-preserve-unknown-fields: true
               shardCount:
                 type: integer
+              shardNameOverrides:
+                description: |-
+                  ShardNameOverrides maps shard K8s StatefulSet names to their automation config identities.
+                  Entries are matched by ShardName so order is not significant. Entries are immutable once set.
+                items:
+                  description: |-
+                    ShardNameOverride maps a Kubernetes shard StatefulSet name to its automation config identity.
+                    Use this when the AC _id or replicaSetName for a shard differs from the K8s StatefulSet name.
+                    Entries are matched by ShardName so order is not significant. Entries are immutable once set.
+
+                    Two forms are supported:
+                    1. ShardName only (brevity): all three values (_id, replicaSetName, K8s name) are equal.
+                    2. ShardName + ShardId + ReplicaSetName: full form when any AC value differs from the K8s name.
+
+                    ShardId and ReplicaSetName must always be set together or omitted together.
+                  properties:
+                    replicaSetName:
+                      description: |-
+                        ReplicaSetName is the replicaSetName in the automation config for this shard's processes.
+                        Must be set together with ShardId. Omit when AC values match the K8s StatefulSet name.
+                      type: string
+                    shardId:
+                      description: |-
+                        ShardId is the shard _id in the automation config sharding section.
+                        Must be set together with ReplicaSetName. Omit when AC values match the K8s StatefulSet name.
+                      type: string
+                    shardName:
+                      description: |-
+                        ShardName is the operator-generated Kubernetes StatefulSet name for this shard (e.g. "my-mdb-0").
+                        It is always computed as {resourceName}-{index} and cannot be changed.
+                        Use this field to identify which shard the AC override applies to.
+                      type: string
+                  required:
+                  - shardName
+                  type: object
+                type: array
               shardOverrides:
                 description: |-
                   ShardOverrides allow for overriding the configuration of a specific shard.
@@ -2632,6 +2673,11 @@ spec:
                       x-kubernetes-preserve-unknown-fields: true
                   type: object
                 type: array
+              shardedClusterNameOverride:
+                description: |-
+                  ShardedClusterNameOverride overrides the automation config sharded cluster name.
+                  When omitted, the default ("{resourceName}") is used. Immutable once set.
+                type: string
               statefulSet:
                 description: |-
                   StatefulSetConfiguration provides the statefulset override for each of the cluster's statefulset

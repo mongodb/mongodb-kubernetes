@@ -138,12 +138,12 @@ func buildShardedClusterSpec(ac *om.AutomationConfig, opts GenerateOptions, reso
 				},
 				Credentials: opts.CredentialsSecretName,
 			},
-			ExternalMembers:        externalMembers,
 			Security:               security,
 			Prometheus:             prom,
 			AdditionalMongodConfig: additionalConfig,
 			Agent:                  extractAgentConfig(opts.SourceProcess, opts.ProjectConfigs),
 		},
+		ExternalMembers: externalMembers,
 		ShardedClusterSpec: mdbv1.ShardedClusterSpec{
 			// ShardOverrides intentionally empty. shardNameOverrides is written
 			// as the commented out block returned alongside this spec, since the
@@ -188,7 +188,7 @@ func buildShardOverrides(cr *mdbv1.MongoDB, shards []om.Shard) string {
 	var b strings.Builder
 	b.WriteString("  # shardNameOverrides:\n")
 	for i, shard := range shards {
-		shardName := cr.ShardRsName(i)
+		shardName := cr.ShardName(i)
 		if shard.Id() == shard.Rs() {
 			fmt.Fprintf(&b, "  #   - shardName: %q\n", shardName)
 			continue

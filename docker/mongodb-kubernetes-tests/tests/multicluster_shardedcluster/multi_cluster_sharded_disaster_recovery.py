@@ -23,7 +23,7 @@ from tests import test_logger
 from tests.conftest import get_central_cluster_client, get_member_cluster_api_client
 from tests.constants import MULTI_CLUSTER_MEMBER_LIST_CONFIGMAP
 from tests.multicluster.conftest import cluster_spec_list
-from tests.shardedcluster.conftest import enable_multi_cluster_deployment, get_all_sharded_cluster_pod_names
+from tests.shardedcluster.conftest import enable_multi_cluster_deployment, get_all_sharded_cluster_process_names
 
 MEMBER_CLUSTERS = ["kind-e2e-cluster-1", "kind-e2e-cluster-2", "kind-e2e-cluster-3"]
 FAILED_MEMBER_CLUSTER_INDEX = 2
@@ -245,7 +245,7 @@ class TestScaleShardsAndMongosToZeroFirst:
 
     def test_expected_processes_in_ac(self, sc: MongoDB):
         all_process_names = [p["name"] for p in sc.get_automation_config_tester().get_all_processes()]
-        assert set(get_all_sharded_cluster_pod_names(sc)) == set(all_process_names)
+        assert set(get_all_sharded_cluster_process_names(sc)) == set(all_process_names)
 
 
 @mark.e2e_multi_cluster_sharded_disaster_recovery
@@ -267,4 +267,4 @@ class TestMoveFailedToHealthyClusters:
 
     def test_expected_processes_in_ac(self, sc: MongoDB):
         all_process_names = [p["name"] for p in sc.get_automation_config_tester().get_all_processes()]
-        assert set(get_all_sharded_cluster_pod_names(sc)) == set(all_process_names)
+        assert set(get_all_sharded_cluster_process_names(sc)) == set(all_process_names)

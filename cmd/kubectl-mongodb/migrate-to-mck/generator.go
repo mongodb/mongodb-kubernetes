@@ -59,7 +59,6 @@ type GenerateOptions struct {
 	ExistingUserSecrets map[string]string
 
 	// Prometheus credentials
-	PrometheusPassword   string // plaintext password; a Secret is generated when set
 	PrometheusSecretName string // name of a pre-created Secret; no Secret YAML is written when set
 }
 
@@ -82,12 +81,6 @@ func generateExtraResources(ac *om.AutomationConfig, opts GenerateOptions) []cli
 			resources = append(resources, buildLdapCAConfigMap(opts.Namespace, ldap.CaFileContents))
 		}
 	}
-	acProm := ac.Deployment.GetPrometheus()
-	if acProm != nil && acProm.Enabled && acProm.Username != "" {
-		if opts.PrometheusSecretName == "" && opts.PrometheusPassword != "" {
-			resources = append(resources, GeneratePasswordSecret(PrometheusPasswordSecretName, opts.Namespace, opts.PrometheusPassword))
-		}
-	}
 	return resources
 }
 
@@ -105,6 +98,11 @@ func marshalMultiDoc(objects []client.Object) (string, error) {
 		sb.WriteString(y)
 	}
 	return sb.String(), nil
+}
+
+// renderObjects serializes objects to the same multi-document YAML written by the CLI output path.
+func renderObjects(objects []client.Object) (string, error) {
+	return marshalMultiDoc(objects)
 }
 
 // marshalCRToYAML marshals a resource to YAML, stripping status, creationTimestamp, and empty fields.

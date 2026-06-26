@@ -171,6 +171,7 @@ func validateEmbeddedConfigServer(d om.Deployment) []ValidationResult {
 	return results
 }
 
+
 func validateReplicaSetsExist(d om.Deployment) []ValidationResult {
 	if len(d.GetReplicaSets()) == 0 {
 		return []ValidationResult{{

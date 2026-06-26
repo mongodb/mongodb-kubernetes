@@ -225,3 +225,51 @@ func TestNewMultiClusterReplicaSetWithProcesses(t *testing.T) {
 		})
 	}
 }
+
+func TestNewReplicaSetWithProcesses_ShardedClusterPreservesProcessIds(t *testing.T) {
+	t.Run("Existing process IDs are preserved for known processes", func(t *testing.T) {
+		processes := []Process{
+			{"name": "shard-0-0"},
+			{"name": "shard-0-1"},
+			{"name": "shard-0-2"},
+		}
+		existingProcessIds := map[string]int{
+			"shard-0-0": 10,
+			"shard-0-1": 20,
+			"shard-0-2": 30,
+		}
+
+		actual := NewReplicaSetWithProcesses(NewReplicaSet("shard-0", "7.0.0"), processes, []ac.MemberOptions{}, existingProcessIds)
+
+		members := actual.Rs.Members()
+		assert.Len(t, members, 3)
+		assert.Equal(t, 10, members[0].Id())
+		assert.Equal(t, 20, members[1].Id())
+		assert.Equal(t, 30, members[2].Id())
+	})
+
+	t.Run("New process added alongside existing ones gets an ID higher than all existing IDs", func(t *testing.T) {
+		existingProcessIds := map[string]int{
+			"shard-0-0": 10,
+			"shard-0-1": 20,
+			"shard-0-2": 30,
+		}
+		// shard-0-3 is a new process not present in existingProcessIds
+		processes := []Process{
+			{"name": "shard-0-0"},
+			{"name": "shard-0-1"},
+			{"name": "shard-0-2"},
+			{"name": "shard-0-3"},
+		}
+
+		actual := NewReplicaSetWithProcesses(NewReplicaSet("shard-0", "7.0.0"), processes, []ac.MemberOptions{}, existingProcessIds)
+
+		members := actual.Rs.Members()
+		assert.Len(t, members, 4)
+		assert.Equal(t, 10, members[0].Id())
+		assert.Equal(t, 20, members[1].Id())
+		assert.Equal(t, 30, members[2].Id())
+		// The new process must receive an ID strictly greater than the highest existing ID (30).
+		assert.Equal(t, 31, members[3].Id())
+	})
+}

@@ -13,9 +13,10 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
-	driver "go.mongodb.org/mongo-driver/x/mongo/driver"
 	"go.mongodb.org/mongo-driver/x/mongo/driver/topology"
 	"go.uber.org/zap"
+
+	driver "go.mongodb.org/mongo-driver/x/mongo/driver"
 
 	"github.com/mongodb/mongodb-kubernetes/cmd/connectivity-validator/exitcode"
 )
@@ -30,7 +31,8 @@ type Config struct {
 	ConnectionString string
 	// ExternalMembers is the list of host:port pairs to ping directly.
 	ExternalMembers []string
-	// AuthMechanism is "SCRAM-SHA-256", "SCRAM-SHA-1" (keyfile __system@local), "MONGODB-X509", or empty.
+	// AuthMechanism controls auth: "MONGODB-X509" uses X.509 client certificate auth;
+	// "SCRAM-SHA-256" / "SCRAM-SHA-1" use keyfile SCRAM (requires KeyfilePath).
 	AuthMechanism string
 	// KeyfilePath is the path to the keyfile secret mount (SCRAM).
 	KeyfilePath string
@@ -43,6 +45,10 @@ type Config struct {
 	// MongodTLSCAPath is the path to the CA PEM used to verify mongod TLS certificates.
 	// When set, TLS transport is enabled for all connections even when using SCRAM auth.
 	MongodTLSCAPath string
+	// ClientCertRequired indicates that the mongod requires a client certificate
+	// (clientCertificateMode: REQUIRE). When true, a missing cert file is an error rather
+	// than a silent fallback to CA-only TLS.
+	ClientCertRequired bool
 }
 
 func isKeyfileSCRAM(authMechanism string) bool {
@@ -62,10 +68,10 @@ func Validate(ctx context.Context, cfg Config) int {
 		"connectionString", cfg.ConnectionString,
 		"externalMembersCount", len(cfg.ExternalMembers),
 		"externalMembers", cfg.ExternalMembers,
-		"keyfilePath", cfg.KeyfilePath,
 		"certPath", cfg.CertPath,
 		"caPath", cfg.CAPath,
 		"subjectDN", cfg.SubjectDN,
+		"mongodTLSCAPath", cfg.MongodTLSCAPath,
 	)
 
 	clientOpts, err := buildClientOptions(cfg, cfg.ConnectionString)
@@ -105,6 +111,7 @@ func Validate(ctx context.Context, cfg Config) int {
 		log.Debugw("__system@local role verified")
 	}
 
+
 	for i, member := range cfg.ExternalMembers {
 		log.Debugw("Pinging external member", "member", member, "index", i+1, "total", len(cfg.ExternalMembers))
 		if code := pingMemberDirect(ctx, member, cfg); code != exitcode.ExitSuccess {
@@ -143,6 +150,9 @@ func buildClientOptions(cfg Config, uri string) (*options.ClientOptions, error) 
 		})
 	case "MONGODB-X509":
 		log.Debugw("Using MONGODB-X509 auth", "certPath", cfg.CertPath, "caPath", cfg.CAPath, "subjectDN", cfg.SubjectDN)
+		if _, statErr := os.Stat(cfg.CertPath); statErr != nil {
+			return nil, fmt.Errorf("stat X.509 cert: %w", statErr)
+		}
 		tlsCfg, err := buildTLSConfig(cfg.CertPath, cfg.CAPath)
 		if err != nil {
 			return nil, err
@@ -158,9 +168,27 @@ func buildClientOptions(cfg Config, uri string) (*options.ClientOptions, error) 
 	}
 
 	// Apply TLS transport whenever the mongod requires it. Covers SCRAM and the no-auth case.
+	// If the agent cert file is present (TLS client auth is configured), include it so the
+	// validator can connect to mongod instances that require client certificates.
 	if cfg.MongodTLSCAPath != "" {
-		log.Debugw("Configuring TLS transport for mongod connection", "caPath", cfg.MongodTLSCAPath)
-		tlsCfg, err := buildTLSConfigFromCA(cfg.MongodTLSCAPath)
+		var tlsCfg *tls.Config
+		var err error
+		if cfg.CertPath != "" {
+			if _, statErr := os.Stat(cfg.CertPath); statErr == nil {
+				log.Debugw("Configuring TLS transport with client cert", "caPath", cfg.MongodTLSCAPath, "certPath", cfg.CertPath)
+				tlsCfg, err = buildTLSConfig(cfg.CertPath, cfg.MongodTLSCAPath)
+			} else if os.IsNotExist(statErr) && !cfg.ClientCertRequired {
+				log.Debugw("Configuring TLS transport (CA only)", "caPath", cfg.MongodTLSCAPath)
+				tlsCfg, err = buildTLSConfigFromCA(cfg.MongodTLSCAPath)
+			} else if os.IsNotExist(statErr) && cfg.ClientCertRequired {
+				return nil, fmt.Errorf("client certificate required but not found at %q", cfg.CertPath)
+			} else {
+				return nil, fmt.Errorf("stat client cert %q: %w", cfg.CertPath, statErr)
+			}
+		} else {
+			log.Debugw("Configuring TLS transport (CA only)", "caPath", cfg.MongodTLSCAPath)
+			tlsCfg, err = buildTLSConfigFromCA(cfg.MongodTLSCAPath)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -222,8 +250,6 @@ func hasSystemRole(ctx context.Context, client *mongo.Client) bool {
 		log.Warnw("connectionStatus missing or invalid authInfo", "resultKeys", keys(result))
 		return false
 	}
-	// MongoDB does not populate authenticatedUserRoles for internal __system auth —
-	// check authenticatedUsers instead.
 	if users, ok := authInfo["authenticatedUsers"].(bson.A); ok {
 		for _, u := range users {
 			entry, ok := u.(bson.M)
@@ -236,7 +262,6 @@ func hasSystemRole(ctx context.Context, client *mongo.Client) bool {
 			}
 		}
 	}
-	// Fallback: some MongoDB versions do populate authenticatedUserRoles.
 	if roles, ok := authInfo["authenticatedUserRoles"].(bson.A); ok {
 		for _, r := range roles {
 			entry, ok := r.(bson.M)
@@ -253,7 +278,6 @@ func hasSystemRole(ctx context.Context, client *mongo.Client) bool {
 	return false
 }
 
-// keys returns the keys of a bson.M for logging (avoid logging full auth payload).
 func keys(m bson.M) []string {
 	if m == nil {
 		return nil
@@ -356,7 +380,7 @@ func classifyConnectionError(err error) int {
 	}
 	var netErr net.Error
 	if errors.As(err, &netErr) {
-		log.Debugw("Classified as network error", "timeout", netErr.Timeout(), "temporary", netErr.Temporary())
+		log.Debugw("Classified as network error", "timeout", netErr.Timeout())
 		return exitcode.ExitNetworkFailed
 	}
 	log.Debugw("Unclassified error", "error", err, "type", fmt.Sprintf("%T", err))

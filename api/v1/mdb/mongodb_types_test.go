@@ -557,3 +557,191 @@ func TestGetExternalMembers_ReturnsList(t *testing.T) {
 	assert.Len(t, members, 1)
 	assert.Equal(t, "ext-0", members[0].ProcessName)
 }
+
+func TestGetExternalMembersForRS(t *testing.T) {
+	spec := MongoDbSpec{
+		ExternalMembers: []ExternalMember{
+			{ProcessName: "shard0-0", Hostname: "shard0-0.host:27017", Type: "mongod", ReplicaSetName: "shard0"},
+			{ProcessName: "shard0-1", Hostname: "shard0-1.host:27017", Type: "mongod", ReplicaSetName: "shard0"},
+			{ProcessName: "shard1-0", Hostname: "shard1-0.host:27017", Type: "mongod", ReplicaSetName: "shard1"},
+			{ProcessName: "mongos-0", Hostname: "mongos-0.host:27017", Type: "mongos", ReplicaSetName: ""},
+		},
+	}
+
+	members := spec.GetExternalMembersForRS("shard0")
+	assert.Equal(t, 2, len(members))
+	assert.Equal(t, "shard0-0", members[0].ProcessName)
+	assert.Equal(t, "shard0-1", members[1].ProcessName)
+
+	members = spec.GetExternalMembersForRS("shard1")
+	assert.Equal(t, 1, len(members))
+	assert.Equal(t, "shard1-0", members[0].ProcessName)
+
+	members = spec.GetExternalMembersForRS("nonexistent")
+	assert.Empty(t, members)
+}
+
+func TestGetExternalMemberProcessNamesForRS(t *testing.T) {
+	spec := MongoDbSpec{
+		ExternalMembers: []ExternalMember{
+			{ProcessName: "cfg-0", Hostname: "cfg-0.host:27017", Type: "mongod", ReplicaSetName: "config"},
+			{ProcessName: "cfg-1", Hostname: "cfg-1.host:27017", Type: "mongod", ReplicaSetName: "config"},
+			{ProcessName: "shard0-0", Hostname: "shard0-0.host:27017", Type: "mongod", ReplicaSetName: "shard0"},
+			{ProcessName: "mongos-0", Hostname: "mongos-0.host:27017", Type: "mongos", ReplicaSetName: ""},
+		},
+	}
+
+	names := spec.GetExternalMemberProcessNamesForRS("config")
+	assert.Equal(t, []string{"cfg-0", "cfg-1"}, names)
+
+	names = spec.GetExternalMemberProcessNamesForRS("shard0")
+	assert.Equal(t, []string{"shard0-0"}, names)
+
+	names = spec.GetExternalMemberProcessNamesForRS("nonexistent")
+	assert.Empty(t, names)
+}
+
+func TestGetMongosExternalMemberProcessNames(t *testing.T) {
+	spec := MongoDbSpec{
+		ExternalMembers: []ExternalMember{
+			{ProcessName: "mongos-0", Hostname: "mongos-0.host:27017", Type: "mongos"},
+			{ProcessName: "mongos-1", Hostname: "mongos-1.host:27017", Type: "mongos"},
+			{ProcessName: "shard0-0", Hostname: "shard0-0.host:27017", Type: "mongod", ReplicaSetName: "shard0"},
+		},
+	}
+
+	names := spec.GetExternalMemberProcessNamesForMongos()
+	assert.Equal(t, []string{"mongos-0", "mongos-1"}, names)
+
+	specNoMongos := MongoDbSpec{
+		ExternalMembers: []ExternalMember{
+			{ProcessName: "shard0-0", Hostname: "shard0-0.host:27017", Type: "mongod", ReplicaSetName: "shard0"},
+		},
+	}
+	assert.Empty(t, specNoMongos.GetExternalMemberProcessNamesForMongos())
+}
+
+func TestShardACRsName(t *testing.T) {
+	mdb := &MongoDB{}
+	mdb.Name = "mdb-sc"
+
+	t.Run("no overrides returns K8s default", func(t *testing.T) {
+		mdb.Spec.ShardNameOverrides = nil
+		assert.Equal(t, "mdb-sc-0", mdb.ShardACRsName(0))
+		assert.Equal(t, "mdb-sc-1", mdb.ShardACRsName(1))
+	})
+
+	t.Run("returns ReplicaSetName from override", func(t *testing.T) {
+		mdb.Spec.ShardNameOverrides = []ShardNameOverride{
+			{ShardName: "mdb-sc-0", ShardId: "vm-id-A", ReplicaSetName: "vm-rs-A"},
+			{ShardName: "mdb-sc-1", ShardId: "vm-id-B", ReplicaSetName: "vm-rs-B"},
+		}
+		assert.Equal(t, "vm-rs-A", mdb.ShardACRsName(0))
+		assert.Equal(t, "vm-rs-B", mdb.ShardACRsName(1))
+	})
+
+	t.Run("brevity form: ShardName equals _id and rs when ReplicaSetName is not set", func(t *testing.T) {
+		mdb.Spec.ShardNameOverrides = []ShardNameOverride{
+			{ShardName: "mdb-sc-0"},
+			{ShardName: "mdb-sc-1"},
+		}
+		assert.Equal(t, "mdb-sc-0", mdb.ShardACRsName(0))
+		assert.Equal(t, "mdb-sc-1", mdb.ShardACRsName(1))
+	})
+
+	t.Run("no matching entry returns K8s default", func(t *testing.T) {
+		mdb.Spec.ShardNameOverrides = []ShardNameOverride{
+			{ShardName: "mdb-sc-0", ShardId: "vm-id-A", ReplicaSetName: "vm-rs-A"},
+		}
+		assert.Equal(t, "mdb-sc-1", mdb.ShardACRsName(1))
+	})
+}
+
+func TestShardACShardId(t *testing.T) {
+	mdb := &MongoDB{}
+	mdb.Name = "mdb-sc"
+
+	t.Run("no overrides returns K8s default", func(t *testing.T) {
+		mdb.Spec.ShardNameOverrides = nil
+		assert.Equal(t, "mdb-sc-0", mdb.ShardACShardId(0))
+		assert.Equal(t, "mdb-sc-1", mdb.ShardACShardId(1))
+	})
+
+	t.Run("returns ShardId from override", func(t *testing.T) {
+		mdb.Spec.ShardNameOverrides = []ShardNameOverride{
+			{ShardName: "mdb-sc-0", ShardId: "vm-id-A", ReplicaSetName: "vm-rs-A"},
+			{ShardName: "mdb-sc-1", ShardId: "vm-id-B", ReplicaSetName: "vm-rs-B"},
+		}
+		assert.Equal(t, "vm-id-A", mdb.ShardACShardId(0))
+		assert.Equal(t, "vm-id-B", mdb.ShardACShardId(1))
+	})
+
+	t.Run("brevity form: _id equals rs equals ShardName when neither ShardId nor ReplicaSetName is set", func(t *testing.T) {
+		mdb.Spec.ShardNameOverrides = []ShardNameOverride{
+			{ShardName: "mdb-sc-0"},
+			{ShardName: "mdb-sc-1"},
+		}
+		assert.Equal(t, "mdb-sc-0", mdb.ShardACShardId(0))
+		assert.Equal(t, "mdb-sc-1", mdb.ShardACShardId(1))
+	})
+
+	t.Run("no matching entry returns K8s default", func(t *testing.T) {
+		mdb.Spec.ShardNameOverrides = []ShardNameOverride{
+			{ShardName: "mdb-sc-0", ShardId: "vm-id-A", ReplicaSetName: "vm-rs-A"},
+		}
+		assert.Equal(t, "mdb-sc-1", mdb.ShardACShardId(1))
+	})
+}
+
+func TestGetRSHostnamesAndPorts_ReplicaSet_WithExternalDomain(t *testing.T) {
+	externalDomain := "example.com"
+	rs := NewReplicaSetBuilder().SetMembers(2).ExposedExternally(nil, nil, &externalDomain).Build()
+
+	got := rs.GetRSHostnamesAndPorts()
+
+	assert.Equal(t, []string{
+		"test-mdb-0.example.com:27017",
+		"test-mdb-1.example.com:27017",
+	}, got)
+}
+
+func TestGetRSHostnamesAndPorts_ReplicaSet_WithCustomClusterDomain(t *testing.T) {
+	rs := NewReplicaSetBuilder().SetMembers(2).SetClusterDomain("company.domain.net").Build()
+
+	got := rs.GetRSHostnamesAndPorts()
+
+	assert.Equal(t, []string{
+		"test-mdb-0.test-mdb-svc.testNS.svc.company.domain.net:27017",
+		"test-mdb-1.test-mdb-svc.testNS.svc.company.domain.net:27017",
+	}, got)
+}
+
+func TestGetRSHostnamesAndPorts_ReplicaSet_WithCustomPort(t *testing.T) {
+	rs := NewReplicaSetBuilder().SetMembers(2).Build()
+	rs.Spec.AdditionalMongodConfig = &AdditionalMongodConfig{object: map[string]interface{}{"net": map[string]interface{}{"port": float64(30000)}}}
+
+	got := rs.GetRSHostnamesAndPorts()
+
+	assert.Equal(t, []string{
+		"test-mdb-0.test-mdb-svc.testNS.svc.cluster.local:30000",
+		"test-mdb-1.test-mdb-svc.testNS.svc.cluster.local:30000",
+	}, got)
+}
+
+func TestGetExternalMembersHostnames_ShardedCluster_NoExternalMembers(t *testing.T) {
+	sc := NewClusterBuilder().SetName("contractsDb").SetNamespace("ns").Build()
+
+	got := sc.GetExternalMembersHostnames()
+	assert.Empty(t, got)
+}
+
+func TestGetExternalMembersHostnames_ShardedCluster_OnlyMongodMembers_ReturnsEmpty(t *testing.T) {
+	sc := NewClusterBuilder().SetName("contractsDb").SetNamespace("ns").Build()
+	sc.Spec.ExternalMembers = []ExternalMember{
+		{ProcessName: "vm-mongod-0", Hostname: "vm-mongod-0.example.com:27018", Type: "mongod"},
+		{ProcessName: "vm-untyped", Hostname: "vm-untyped.example.com:27017", Type: ""},
+	}
+
+	got := sc.GetExternalMembersHostnames()
+	assert.Empty(t, got, "sharded must drop non-mongos entries (mongod and untyped)")
+}

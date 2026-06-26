@@ -25,7 +25,7 @@ TEST_COLLECTION = "test-collection"
 
 
 def with_tls(use_tls: bool = False, ca_path: Optional[str] = None) -> Dict[str, Any]:
-    # SSL is set to true by default if using mongodb+srv, it needs to be explicitely set to false
+    # SSL is set to true by default if using mongodb+srv, it needs to be explicitly set to false
     # https://docs.mongodb.com/manual/reference/program/mongo/index.html#cmdoption-mongo-host
     options: Dict[str, Any] = {"tls": use_tls}
 

@@ -14,7 +14,6 @@ import (
 
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
-	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	pkgtls "github.com/mongodb/mongodb-kubernetes/pkg/tls"
 )
 
@@ -88,7 +87,7 @@ func init() {
 	MongodbCmd.Flags().StringVar(&mFlags.configMapName, "config-map-name", "", "Name of the ConfigMap containing the OM connection details (baseUrl, orgId, projectName) (required)")
 	MongodbCmd.Flags().StringVar(&mFlags.secretName, "secret-name", "", "Name of the Secret containing the OM API credentials (publicKey, privateKey) (required)")
 	MongodbCmd.Flags().StringVar(&mFlags.namespace, "namespace", defaultNamespace, "Namespace of the ConfigMap and Secret")
-MongodbCmd.Flags().StringVarP(&mFlags.outputFile, "output", "o", "", "Write generated CRs to this file instead of stdout")
+	MongodbCmd.Flags().StringVarP(&mFlags.outputFile, "output", "o", "", "Write generated CRs to this file instead of stdout")
 	MongodbCmd.Flags().StringVar(&mFlags.resourceNameOverride, "resource-name-override", "", "Kubernetes resource name (metadata.name) for the generated CR. When the replica set name is not a valid Kubernetes name it is auto-normalized, but this flag lets you choose a custom name. spec.replicaSetNameOverride is set automatically")
 	MongodbCmd.Flags().StringVar(&mFlags.certsSecretPrefix, "certs-secret-prefix", "", "Value for spec.security.certsSecretPrefix. Required when TLS is enabled and suppresses the interactive prompt")
 	MongodbCmd.Flags().StringVar(&mFlags.prometheusSecretName, "prometheus-secret-name", "", "Name of a pre-created Kubernetes Secret containing the Prometheus password (key: \"password\"). Suppresses the interactive prompt")
@@ -114,22 +113,26 @@ func runGenerateMongodb(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	mongodbCR, _, err := GenerateMongoDBCR(ac, opts)
+	objects, err := generateMongodbObjects(ac, opts)
 	if err != nil {
 		return err
 	}
-
-	extra := generateExtraResources(ac, opts)
-	objects := make([]client.Object, 0, 1+len(extra))
-	objects = append(objects, mongodbCR)
-	objects = append(objects, extra...)
-
 	resources, err := marshalMultiDoc(objects)
 	if err != nil {
 		return err
 	}
 	return writeOutput(resources, mFlags.outputFile)
 }
+
+func generateMongodbObjects(ac *om.AutomationConfig, opts GenerateOptions) ([]client.Object, error) {
+	mongodbCR, _, err := GenerateMongoDBCR(ac, opts)
+	if err != nil {
+		return nil, err
+	}
+	extra := generateExtraResources(ac, opts)
+	return append([]client.Object{mongodbCR}, extra...), nil
+}
+
 
 func buildMongodbOptions(ctx context.Context, kubeClient kubernetesClient.Client, ac *om.AutomationConfig, projectConfigs *ProjectConfigs, sourceProcess *om.Process, stdin io.Reader, flags mongodbFlags) (GenerateOptions, error) {
 	opts := GenerateOptions{
@@ -168,27 +171,13 @@ func ensureTLS(ac *om.AutomationConfig, opts *GenerateOptions, scanner *bufio.Sc
 	prefix := certsSecretPrefix
 	if prefix != "" {
 		if errs := k8svalidation.IsDNS1123Subdomain(prefix); len(errs) > 0 {
-			return fmt.Errorf("--certs-secret-prefix value %q is not a valid Kubernetes resource name: %s", prefix, errs[0])
+			return fmt.Errorf("spec.security.certsSecretPrefix value %q is not a valid Kubernetes resource name: %s", prefix, errs[0])
 		}
-		opts.CertsSecretPrefix = prefix
-		return nil
-	}
-	if prefix == "" {
-		for {
-			p, err := promptLine(scanner, "Enter value for security.certsSecretPrefix (e.g. mdb): ")
-			if err != nil {
-				return fmt.Errorf("failed to read certsSecretPrefix: %w", err)
-			}
-			if p == "" {
-				_, _ = fmt.Fprintln(promptOutput, "certsSecretPrefix cannot be empty, please try again.")
-				continue
-			}
-			if errs := k8svalidation.IsDNS1123Subdomain(p); len(errs) > 0 {
-				_, _ = fmt.Fprintf(promptOutput, "%q is not a valid Kubernetes name: %s. Please try again.\n", p, errs[0])
-				continue
-			}
-			prefix = p
-			break
+	} else {
+		var err error
+		prefix, err = promptKubernetesName(scanner, "Enter value for security.certsSecretPrefix (e.g. mdb): ", "")
+		if err != nil {
+			return fmt.Errorf("failed to read spec.security.certsSecretPrefix: %w", err)
 		}
 	}
 	opts.CertsSecretPrefix = prefix
@@ -200,28 +189,17 @@ func collectPrometheusCreds(ctx context.Context, kubeClient kubernetesClient.Cli
 	if acProm == nil || !acProm.Enabled || acProm.Username == "" {
 		return nil
 	}
-	if prometheusSecretName != "" {
-		secret, err := kubeClient.GetSecret(ctx, kube.ObjectKey(opts.Namespace, prometheusSecretName))
+	secretName := prometheusSecretName
+	if secretName == "" {
+		var err error
+		secretName, err = promptKubernetesName(scanner, fmt.Sprintf("Secret name for Prometheus user %q [%s]: ", acProm.Username, PrometheusPasswordSecretName), PrometheusPasswordSecretName)
 		if err != nil {
-			return fmt.Errorf("--prometheus-secret-name: secret %q not found in namespace %q: %w", prometheusSecretName, opts.Namespace, err)
+			return fmt.Errorf("failed to read spec.prometheus.passwordSecretRef.name: %w", err)
 		}
-		if _, ok := secret.Data[passwordSecretDataKey]; !ok {
-			return fmt.Errorf("--prometheus-secret-name: secret %q does not contain key \"password\"", prometheusSecretName)
-		}
-		opts.PrometheusSecretName = prometheusSecretName
-		return nil
 	}
-	for {
-		password, err := promptLine(scanner, "Enter password for Prometheus user: ")
-		if err != nil {
-			return fmt.Errorf("failed to read Prometheus password: %w", err)
-		}
-		if password == "" {
-			_, _ = fmt.Fprintln(promptOutput, "Prometheus password cannot be empty, please try again.")
-			continue
-		}
-		opts.PrometheusPassword = password
-		return nil
+	if _, err := requirePasswordSecret(ctx, kubeClient, opts.Namespace, secretName); err != nil {
+		return err
 	}
+	opts.PrometheusSecretName = secretName
+	return nil
 }
-

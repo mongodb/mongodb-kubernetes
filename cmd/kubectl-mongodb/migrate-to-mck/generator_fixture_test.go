@@ -7,7 +7,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
@@ -19,13 +18,8 @@ var updateFixtures = flag.Bool("update-fixtures", false, "overwrite fixture file
 func runMongodb(t *testing.T, ac *om.AutomationConfig, opts GenerateOptions) string {
 	t.Helper()
 	opts.Namespace = "mongodb"
-	optsWithData := withDeploymentData(ac, opts)
-	mongodbCR, _, err := GenerateMongoDBCR(ac, optsWithData)
+	objects, err := generateMongodbObjects(ac, withDeploymentData(ac, opts))
 	require.NoError(t, err)
-	extra := generateExtraResources(ac, optsWithData)
-	objects := make([]client.Object, 0, 1+len(extra))
-	objects = append(objects, mongodbCR)
-	objects = append(objects, extra...)
 	result, err := marshalMultiDoc(objects)
 	require.NoError(t, err)
 	return result
@@ -35,25 +29,17 @@ func runMongodb(t *testing.T, ac *om.AutomationConfig, opts GenerateOptions) str
 func runUsers(t *testing.T, ac *om.AutomationConfig, opts GenerateOptions) string {
 	t.Helper()
 	opts.Namespace = "mongodb"
-	_, crName, err := GenerateMongoDBCR(ac, withDeploymentData(ac, opts))
+	crName, err := resolveMongoDBResourceName(ac, opts.ResourceNameOverride)
 	require.NoError(t, err)
 	if opts.ExistingUserSecrets == nil {
 		opts.ExistingUserSecrets = make(map[string]string)
-		if ac.Auth != nil {
-			for _, user := range ac.Auth.Users {
-				if user == nil || user.Database == externalDatabase {
-					continue
-				}
-				if user.Username == ac.Auth.AutoUser {
-					continue
-				}
-				opts.ExistingUserSecrets[userKey(user.Username, user.Database)] = user.Username + "-password"
-			}
+		for _, user := range scramUsers(ac) {
+			opts.ExistingUserSecrets[userKey(user.Username, user.Database)] = suggestedUserSecretName(user)
 		}
 	}
-	userObjects, err := GenerateUserCRs(ac, crName, opts.Namespace, opts)
+	objects, err := GenerateUserCRs(ac, crName, opts.Namespace, opts)
 	require.NoError(t, err)
-	result, err := marshalMultiDoc(userObjects)
+	result, err := marshalMultiDoc(objects)
 	require.NoError(t, err)
 	return result
 }
@@ -89,9 +75,9 @@ func TestFixtureMatch_ReplicaSet(t *testing.T) {
 			fixture:  "singlecluster/replicaset/complex_replicaset/complex_replicaset",
 			hasUsers: true,
 			opts: GenerateOptions{
-				CertsSecretPrefix:  "mdb",
-				PrometheusPassword: "prom-s3cret",
-				ProjectConfigs:     projectCfg,
+				CertsSecretPrefix:    "mdb",
+				PrometheusSecretName: PrometheusPasswordSecretName,
+				ProjectConfigs:       projectCfg,
 			},
 		},
 		{
@@ -164,6 +150,7 @@ func TestFixtureMatch_ShardedCluster(t *testing.T) {
 	}
 	runFixtureCases(t, cases)
 }
+
 
 func runFixtureCases(t *testing.T, cases []fixtureCase) {
 	t.Helper()

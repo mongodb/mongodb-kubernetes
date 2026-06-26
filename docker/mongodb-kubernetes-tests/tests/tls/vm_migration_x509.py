@@ -23,15 +23,21 @@ Why different Secrets for the same agent cert+key?
 import yaml
 from cryptography import x509 as crypto_x509
 from cryptography.hazmat.backends import default_backend
-from kubetester import create_or_update_secret, get_statefulset, read_secret, try_load
+from kubernetes import client
+from kubetester import create_or_update_configmap, create_or_update_secret, get_statefulset, read_secret, try_load
 from kubetester.certs import ISSUER_CA_NAME, create_mongodb_tls_certs, create_x509_agent_tls_certs
 from kubetester.kubetester import KubernetesTester, fcv_from_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
+from kubetester.mongotester import MongoDBBackgroundTester, MongoTester
 from kubetester.omtester import OMContext, OMTester
 from kubetester.phase import Phase
 from pytest import fixture, mark
-from tests.tls.vm_migration_dry_run import run_migration_dry_run_connectivity_passes
+from tests.tls.vm_migration_dry_run import (
+    generate_wrong_ca_pem,
+    run_migration_dry_run_connectivity_fails,
+    run_migration_dry_run_connectivity_passes,
+)
 
 VM_STS_NAME = "vm-mongodb"
 VM_RS_NAME = "vm-mongodb-rs"
@@ -40,7 +46,7 @@ SERVER_PEM_PATH = "/mongodb-automation/server.pem"
 # Paths match operator constants (pkg/util/constants.go: TLSCaMountPath, AgentCertMountPath).
 CUSTOM_CA_PEM_PATH = "/mongodb-automation/tls/ca/ca-pem"
 
-# Custom cert path used for VM agents — intentionally different from the operator's default
+# Custom cert path used for VM agents, intentionally different from the operator's default
 # AgentCertMountPath to test that the operator preserves an arbitrary existing autoPEMKeyFilePath
 # and creates a matching mount on K8s pods rather than overwriting with its own hash-based path.
 CUSTOM_AGENT_CERT_DIR = "/var/lib/mongodb-mms-automation/certs"
@@ -129,6 +135,8 @@ def vm_sts(
     with open(yaml_fixture("vm_statefulset.yaml"), "r") as f:
         sts_body = yaml.safe_load(f.read())
 
+    sts_body["spec"]["replicas"] = 3
+
     sts_body["spec"]["template"]["spec"]["containers"][0]["env"] = [
         {"name": "MMS_GROUP_ID", "value": om_tester.context.project_id},
         {"name": "MMS_BASE_URL", "value": om_tester.context.base_url},
@@ -136,7 +144,7 @@ def vm_sts(
     ]
 
     volumes = sts_body["spec"]["template"]["spec"].get("volumes") or []
-    # Combined cert+key PEM — MongoDB certificateKeyFile requires both in one file.
+    # Combined cert+key PEM, MongoDB certificateKeyFile requires both in one file.
     volumes.append(
         {
             "name": "mongodb-certs",
@@ -238,6 +246,18 @@ def vm_service(namespace: str):
         service_body = yaml.safe_load(f.read())
     KubernetesTester.create_or_update_service(namespace, body=service_body)
     return service_body
+
+
+@fixture(scope="module")
+def mongo_tester(mdb_migration: MongoDB) -> MongoTester:
+    return mdb_migration.tester()
+
+
+@fixture(scope="module")
+def mdb_health_checker(mongo_tester: MongoTester) -> MongoDBBackgroundTester:
+    health_checker = MongoDBBackgroundTester(mongo_tester, allowed_sequential_failures=3)
+    health_checker.start()
+    return health_checker
 
 
 def _build_processes(vm_sts: dict, vm_service: dict, namespace: str, custom_mdb_version: str, tls: bool) -> tuple:
@@ -355,7 +375,7 @@ def test_vm_ac_tls(
     ac["processes"] = processes
     ac["monitoringVersions"] = monitoring_versions
     om_tester.api_put_automation_config(ac)
-    om_tester.wait_agents_ready(timeout=600)
+    om_tester.wait_agents_ready(timeout=1200)
 
 
 @mark.e2e_vm_migration_x509
@@ -392,7 +412,34 @@ def test_vm_ac_x509_auth(
         "usersDeleted": [],
     }
     om_tester.api_put_automation_config(ac)
-    om_tester.wait_agents_ready(timeout=600)
+    om_tester.wait_agents_ready(timeout=1800)
+
+
+@mark.e2e_vm_migration_x509
+def test_migration_dry_run_wrong_ca_fails_then_passes(namespace: str, mdb_migration: MongoDB, issuer_ca_configmap: str):
+    """Dry-run with a wrong CA must fail; restoring the correct CA must make it pass."""
+    wrong_ca_name = "wrong-issuer-ca"
+    wrong_ca_pem = generate_wrong_ca_pem()
+    create_or_update_configmap(namespace, wrong_ca_name, {"ca-pem": wrong_ca_pem, "mms-ca.crt": wrong_ca_pem})
+
+    mdb_migration.load()
+    mdb_migration["spec"]["security"]["tls"]["ca"] = wrong_ca_name
+    mdb_migration.update()
+
+    run_migration_dry_run_connectivity_fails(mdb_migration)
+
+    # Delete the failed job so the operator can re-run validation with the corrected CA.
+    client.BatchV1Api().delete_namespaced_job(
+        f"{MDB_RESOURCE_NAME}-connectivity-check",
+        namespace,
+        body=client.V1DeleteOptions(propagation_policy="Background"),
+    )
+
+    # Restore the correct CA and wait for the re-run to pass (annotation stays set).
+    mdb_migration.load()
+    mdb_migration["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
+    mdb_migration.update()
+    run_migration_dry_run_connectivity_passes(mdb_migration)
 
 
 @mark.e2e_vm_migration_x509
@@ -407,7 +454,7 @@ def test_k8s_mdb_reaches_running(mdb_migration: MongoDB):
 
 
 @mark.e2e_vm_migration_x509
-def test_promote_and_prune(mdb_migration: MongoDB, vm_sts):
+def test_promote_and_prune(mdb_migration: MongoDB, vm_sts, mdb_health_checker: MongoDBBackgroundTester):
     try_load(mdb_migration)
     for i in range(vm_sts["spec"]["replicas"]):
         if i < mdb_migration.get_members():
@@ -419,3 +466,14 @@ def test_promote_and_prune(mdb_migration: MongoDB, vm_sts):
         mdb_migration["spec"]["externalMembers"].pop()
         mdb_migration.update()
         mdb_migration.assert_reaches_phase(Phase.Running)
+
+    mdb_health_checker.assert_healthiness()
+
+
+@mark.e2e_vm_migration_x509
+def test_process_names(om_tester: OMTester, namespace: str, mdb_migration: MongoDB):
+    ac_tester = om_tester.get_automation_config_tester()
+    process_names = [process["name"] for process in ac_tester.get_all_processes()]
+    assert f"k8s/{namespace}/{mdb_migration.name}-0" in process_names
+    assert f"k8s/{namespace}/{mdb_migration.name}-1" in process_names
+    assert f"k8s/{namespace}/{mdb_migration.name}-2" in process_names
