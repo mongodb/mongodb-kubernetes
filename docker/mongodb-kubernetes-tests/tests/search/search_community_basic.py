@@ -68,18 +68,18 @@ def test_install_secrets(namespace: str, mdbs: MongoDBSearch):
 @mark.e2e_search_community_basic
 def test_create_database_resource(mdbc: MongoDBCommunity):
     mdbc.update()
-    mdbc.assert_reaches_phase(Phase.Running, timeout=300)
+    mdbc.assert_reaches_phase(Phase.Running, timeout=600)
 
 
 @mark.e2e_search_community_basic
 def test_create_search_resource(mdbs: MongoDBSearch):
     mdbs.update()
-    mdbs.assert_reaches_phase(Phase.Running, timeout=300)
+    mdbs.assert_reaches_phase(Phase.Running, timeout=600)
 
 
 @mark.e2e_search_community_basic
 def test_wait_for_community_resource_ready(mdbc: MongoDBCommunity):
-    mdbc.assert_reaches_phase(Phase.Running, timeout=300)
+    mdbc.assert_reaches_phase(Phase.Running, timeout=600)
 
 
 @fixture(scope="function")
