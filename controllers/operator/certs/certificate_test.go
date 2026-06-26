@@ -102,46 +102,52 @@ func TestVerifyTLSSecretForStatefulSetHorizonMemberDifference(t *testing.T) {
 func TestReadTLSKeyFilePassword(t *testing.T) {
 	ctx := context.Background()
 	namespace := "test"
-	certSecretName := "test-replica-set-cert"
+	passwordSecretName := "kfp-test-replica-set-keyfile-password"
 
-	t.Run("Returns the password when tls.keyFilePassword is present", func(t *testing.T) {
+	t.Run("Returns the password from the dedicated secret", func(t *testing.T) {
 		fakeClient, _ := mock.NewDefaultFakeClient()
 		secretClient := secrets.SecretClient{VaultClient: nil, KubeClient: fakeClient}
 		s := secret.Builder().
 			SetNamespace(namespace).
-			SetName(certSecretName).
-			SetField(TLSKeyFilePasswordSecretKey, "s3cret").
+			SetName(passwordSecretName).
+			SetField(KeyFilePasswordSecretKey, "s3cret").
 			Build()
 		require.NoError(t, secretClient.PutSecret(ctx, s, ""))
 
-		pw, err := ReadTLSKeyFilePassword(ctx, secretClient, namespace, certSecretName, "")
+		pw, err := ReadTLSKeyFilePassword(ctx, secretClient, namespace, passwordSecretName, "")
 		assert.NoError(t, err)
 		assert.Equal(t, "s3cret", pw)
 	})
 
-	t.Run("Returns empty when the key is absent (unencrypted key)", func(t *testing.T) {
+	t.Run("Returns empty without error when the name is empty (no prefix configured)", func(t *testing.T) {
 		fakeClient, _ := mock.NewDefaultFakeClient()
 		secretClient := secrets.SecretClient{VaultClient: nil, KubeClient: fakeClient}
-		s := secret.Builder().
-			SetNamespace(namespace).
-			SetName(certSecretName).
-			SetField("tls.crt", "cert").
-			SetField("tls.key", "key").
-			Build()
-		require.NoError(t, secretClient.PutSecret(ctx, s, ""))
 
-		pw, err := ReadTLSKeyFilePassword(ctx, secretClient, namespace, certSecretName, "")
+		pw, err := ReadTLSKeyFilePassword(ctx, secretClient, namespace, "", "")
 		assert.NoError(t, err)
 		assert.Empty(t, pw)
 	})
 
-	t.Run("Returns empty without error when the secret does not exist", func(t *testing.T) {
+	t.Run("Hard fails when the referenced secret does not exist", func(t *testing.T) {
 		fakeClient, _ := mock.NewDefaultFakeClient()
 		secretClient := secrets.SecretClient{VaultClient: nil, KubeClient: fakeClient}
 
-		pw, err := ReadTLSKeyFilePassword(ctx, secretClient, namespace, "does-not-exist", "")
-		assert.NoError(t, err)
-		assert.Empty(t, pw)
+		_, err := ReadTLSKeyFilePassword(ctx, secretClient, namespace, "does-not-exist", "")
+		assert.Error(t, err)
+	})
+
+	t.Run("Hard fails when the keyFilePassword entry is missing/empty", func(t *testing.T) {
+		fakeClient, _ := mock.NewDefaultFakeClient()
+		secretClient := secrets.SecretClient{VaultClient: nil, KubeClient: fakeClient}
+		s := secret.Builder().
+			SetNamespace(namespace).
+			SetName(passwordSecretName).
+			SetField("some-other-key", "value").
+			Build()
+		require.NoError(t, secretClient.PutSecret(ctx, s, ""))
+
+		_, err := ReadTLSKeyFilePassword(ctx, secretClient, namespace, passwordSecretName, "")
+		assert.ErrorContains(t, err, KeyFilePasswordSecretKey)
 	})
 }
 

@@ -2140,25 +2140,26 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 		logWarnIgnoredDueToRecovery(log, workflowStatus)
 	}
 
-	// Read the optional per-tier TLS keyFilePassword (decrypts a password-encrypted PEM key).
-	// Each tier (mongos / config server / shard) may use a distinct cert secret + password.
+	// Read the optional per-tier TLS keyFilePassword (decrypts a password-encrypted PEM key) from
+	// the dedicated per-tier keyfile-password secret. Each tier (mongos / config server / shard) may
+	// use a distinct password secret.
 	var databaseSecretPath string
 	if r.commonController.VaultClient != nil {
 		databaseSecretPath = r.commonController.VaultClient.DatabaseSecretPath()
 	}
 	secretClient := r.commonController.SecretClient
 	security := sc.GetSecurity()
-	mongosKeyFilePassword, err := certs.ReadTLSKeyFilePassword(ctx, secretClient, sc.Namespace, security.MemberCertificateSecretName(sc.MongosRsName()), databaseSecretPath)
+	mongosKeyFilePassword, err := certs.ReadTLSKeyFilePassword(ctx, secretClient, sc.Namespace, security.KeyFilePasswordSecretName(sc.MongosRsName()), databaseSecretPath)
 	if err != nil && !isRecovering {
 		return nil, false, workflow.Failed(err)
 	}
-	configSrvKeyFilePassword, err := certs.ReadTLSKeyFilePassword(ctx, secretClient, sc.Namespace, security.MemberCertificateSecretName(sc.ConfigRsName()), databaseSecretPath)
+	configSrvKeyFilePassword, err := certs.ReadTLSKeyFilePassword(ctx, secretClient, sc.Namespace, security.KeyFilePasswordSecretName(sc.ConfigRsName()), databaseSecretPath)
 	if err != nil && !isRecovering {
 		return nil, false, workflow.Failed(err)
 	}
 	shardKeyFilePasswords := make([]string, sc.Spec.ShardCount)
 	for shardIdx := 0; shardIdx < sc.Spec.ShardCount; shardIdx++ {
-		pw, err := certs.ReadTLSKeyFilePassword(ctx, secretClient, sc.Namespace, security.MemberCertificateSecretName(sc.ShardRsName(shardIdx)), databaseSecretPath)
+		pw, err := certs.ReadTLSKeyFilePassword(ctx, secretClient, sc.Namespace, security.KeyFilePasswordSecretName(sc.ShardRsName(shardIdx)), databaseSecretPath)
 		if err != nil && !isRecovering {
 			return nil, false, workflow.Failed(err)
 		}

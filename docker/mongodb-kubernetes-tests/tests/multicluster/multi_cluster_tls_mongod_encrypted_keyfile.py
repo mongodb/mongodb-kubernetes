@@ -22,9 +22,11 @@ from tests.common.search.tls_utils import encrypt_tls_key_with_password
 from tests.multicluster.conftest import cluster_spec_list
 
 CERT_SECRET_PREFIX = "clustercert"
+KEY_FILE_PASSWORD_PREFIX = "kfp"
 MDB_RESOURCE = "multi-cluster-replica-set"
 BUNDLE_SECRET_NAME = f"{CERT_SECRET_PREFIX}-{MDB_RESOURCE}-cert"
 BUNDLE_PEM_SECRET_NAME = f"{CERT_SECRET_PREFIX}-{MDB_RESOURCE}-cert-pem"
+KEY_FILE_PASSWORD_SECRET_NAME = f"{KEY_FILE_PASSWORD_PREFIX}-{MDB_RESOURCE}-keyfile-password"
 KEY_FILE_PASSWORD = "test-tls-key-password"
 
 
@@ -55,11 +57,18 @@ def server_certs(
     # The source-of-truth cert lives in the central cluster as a cert-manager Certificate that keeps
     # reconciling its secret; if we encrypt tls.key while it still owns the secret, cert-manager
     # re-issues and reverts the key to plaintext. Delete the Certificate (the already-issued secret
-    # stays) before encrypting so the encrypted key persists. The operator reads tls.keyFilePassword
-    # from this central source secret and propagates the password into the automation config for every
-    # member cluster's mongod.
+    # stays) before encrypting so the encrypted key persists. The password is written to a SEPARATE
+    # secret in the central cluster (the operator reads it via r.SecretClient and propagates the
+    # password into the automation config for every member cluster's mongod, so it does not need to be
+    # replicated to member clusters).
     Certificate(name=BUNDLE_SECRET_NAME, namespace=namespace, api_client=central_cluster_client).delete()
-    encrypt_tls_key_with_password(namespace, BUNDLE_SECRET_NAME, KEY_FILE_PASSWORD, api_client=central_cluster_client)
+    encrypt_tls_key_with_password(
+        namespace,
+        BUNDLE_SECRET_NAME,
+        KEY_FILE_PASSWORD,
+        password_secret_name=KEY_FILE_PASSWORD_SECRET_NAME,
+        api_client=central_cluster_client,
+    )
     return BUNDLE_SECRET_NAME
 
 
@@ -72,6 +81,7 @@ def mongodb_multi(
     resource = mongodb_multi_unmarshalled
     resource["spec"]["security"] = {
         "certsSecretPrefix": CERT_SECRET_PREFIX,
+        "keyFilePasswordSecretPrefix": KEY_FILE_PASSWORD_PREFIX,
         "tls": {
             "ca": multi_cluster_issuer_ca_configmap,
         },
@@ -92,7 +102,10 @@ def test_tls_key_is_encrypted(server_certs: str, namespace: str, central_cluster
     # cannot be a false pass with an unencrypted key (which would make the password irrelevant).
     secret_data = read_secret(namespace, BUNDLE_SECRET_NAME, api_client=central_cluster_client)
     assert "ENCRYPTED" in secret_data["tls.key"], "tls.key must be a password-encrypted PEM"
-    assert secret_data["tls.keyFilePassword"] == KEY_FILE_PASSWORD
+    # The password must live in the dedicated secret, NOT alongside the encrypted key in the cert secret.
+    assert "tls.keyFilePassword" not in secret_data, "password must not be stored in the cert secret"
+    password_secret = read_secret(namespace, KEY_FILE_PASSWORD_SECRET_NAME, api_client=central_cluster_client)
+    assert password_secret["keyFilePassword"] == KEY_FILE_PASSWORD
 
 
 @mark.e2e_multi_cluster_tls_mongod_encrypted_keyfile

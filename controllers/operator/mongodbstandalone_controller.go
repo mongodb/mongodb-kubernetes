@@ -361,7 +361,7 @@ func (r *ReconcileMongoDbStandalone) updateOmDeployment(ctx context.Context, con
 	if r.VaultClient != nil {
 		databaseSecretPath = r.VaultClient.DatabaseSecretPath()
 	}
-	tlsKeyFilePassword, err := certs.ReadTLSKeyFilePassword(ctx, r.SecretClient, s.Namespace, certs.StandaloneConfig(*s).CertSecretName, databaseSecretPath)
+	tlsKeyFilePassword, err := certs.ReadTLSKeyFilePassword(ctx, r.SecretClient, s.Namespace, s.GetSecurity().KeyFilePasswordSecretName(s.Name), databaseSecretPath)
 	if err != nil && !isRecovering {
 		return workflow.Failed(err)
 	}

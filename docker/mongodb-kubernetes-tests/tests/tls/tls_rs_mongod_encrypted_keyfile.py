@@ -19,6 +19,8 @@ from tests.common.search.tls_utils import encrypt_tls_key_with_password
 MDB_RESOURCE = "test-tls-base-rs-require-ssl"
 CERT_PREFIX = "prefix"
 CERT_SECRET_NAME = f"{CERT_PREFIX}-{MDB_RESOURCE}-cert"
+KEY_FILE_PASSWORD_PREFIX = "kfp"
+KEY_FILE_PASSWORD_SECRET_NAME = f"{KEY_FILE_PASSWORD_PREFIX}-{MDB_RESOURCE}-keyfile-password"
 KEY_FILE_PASSWORD = "test-tls-key-password"
 
 
@@ -34,10 +36,16 @@ def server_certs(issuer: str, namespace: str):
     # The cert is managed by a cert-manager Certificate which keeps reconciling its secret; if we
     # encrypt tls.key while it still owns the secret, cert-manager re-issues and reverts the key back
     # to plaintext. Delete the Certificate (the already-issued secret stays) before encrypting so the
-    # encrypted key persists.
+    # encrypted key persists. (The password itself lives in a separate secret cert-manager does not
+    # own, so it is never clobbered.)
     Certificate(name=CERT_SECRET_NAME, namespace=namespace).delete()
-    # Replace tls.key with a password-encrypted PEM and write tls.keyFilePassword into the same secret.
-    encrypt_tls_key_with_password(namespace, CERT_SECRET_NAME, KEY_FILE_PASSWORD)
+    # Replace tls.key with a password-encrypted PEM, and write the password into a SEPARATE secret.
+    encrypt_tls_key_with_password(
+        namespace,
+        CERT_SECRET_NAME,
+        KEY_FILE_PASSWORD,
+        password_secret_name=KEY_FILE_PASSWORD_SECRET_NAME,
+    )
     return secret_name
 
 
@@ -47,6 +55,8 @@ def mdb(namespace: str, server_certs: str, issuer_ca_configmap: str) -> MongoDB:
     resource["spec"]["security"]["tls"] = {"ca": issuer_ca_configmap}
     # Setting security.certsSecretPrefix implicitly enables TLS
     resource["spec"]["security"]["certsSecretPrefix"] = CERT_PREFIX
+    # The keyfile password is read from <prefix>-<resource>-keyfile-password (key "keyFilePassword").
+    resource["spec"]["security"]["keyFilePasswordSecretPrefix"] = KEY_FILE_PASSWORD_PREFIX
     try_load(resource)
     return resource
 
@@ -62,7 +72,10 @@ def test_tls_key_is_encrypted(server_certs: str, namespace: str):
     # false pass with an unencrypted key (which would make the password irrelevant).
     secret_data = read_secret(namespace, CERT_SECRET_NAME)
     assert "ENCRYPTED" in secret_data["tls.key"], "tls.key must be a password-encrypted PEM"
-    assert secret_data["tls.keyFilePassword"] == KEY_FILE_PASSWORD
+    # The password must live in the dedicated secret, NOT alongside the encrypted key in the cert secret.
+    assert "tls.keyFilePassword" not in secret_data, "password must not be stored in the cert secret"
+    password_secret = read_secret(namespace, KEY_FILE_PASSWORD_SECRET_NAME)
+    assert password_secret["keyFilePassword"] == KEY_FILE_PASSWORD
 
 
 @pytest.mark.e2e_replica_set_tls_mongod_encrypted_keyfile

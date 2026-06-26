@@ -1726,8 +1726,8 @@ func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(ctx contex
 	if r.VaultClient != nil {
 		appdbSecretPath = r.VaultClient.AppDBSecretPath()
 	}
-	appdbCertSecretName := opsManager.Spec.AppDB.GetSecurity().MemberCertificateSecretName(opsManager.Spec.AppDB.Name())
-	tlsKeyFilePassword, err := certs.ReadTLSKeyFilePassword(ctx, r.SecretClient, opsManager.Namespace, appdbCertSecretName, appdbSecretPath)
+	appdbKeyFilePasswordSecretName := opsManager.Spec.AppDB.GetSecurity().KeyFilePasswordSecretName(opsManager.Spec.AppDB.Name())
+	tlsKeyFilePassword, err := certs.ReadTLSKeyFilePassword(ctx, r.SecretClient, opsManager.Namespace, appdbKeyFilePasswordSecretName, appdbSecretPath)
 	if err != nil {
 		return existingPodVars, xerrors.Errorf("error reading AppDB TLS keyFilePassword: %w", err)
 	}

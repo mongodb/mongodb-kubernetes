@@ -743,7 +743,7 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 	if reconciler.VaultClient != nil {
 		databaseSecretPath = reconciler.VaultClient.DatabaseSecretPath()
 	}
-	tlsKeyFilePassword, err := certs.ReadTLSKeyFilePassword(ctx, reconciler.SecretClient, rs.Namespace, certs.ReplicaSetConfig(*rs).CertSecretName, databaseSecretPath)
+	tlsKeyFilePassword, err := certs.ReadTLSKeyFilePassword(ctx, reconciler.SecretClient, rs.Namespace, rs.GetSecurity().KeyFilePasswordSecretName(rs.Name), databaseSecretPath)
 	if err != nil && !isRecovering {
 		return workflow.Failed(err)
 	}

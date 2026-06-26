@@ -423,6 +423,20 @@ func TestMemberCertificateSecretName(t *testing.T) {
 	assert.Equal(t, fmt.Sprintf("top-level-prefix-%s-cert", rs.Name), rs.GetSecurity().MemberCertificateSecretName(rs.Name))
 }
 
+func TestKeyFilePasswordSecretName(t *testing.T) {
+	rs := NewReplicaSetBuilder().SetSecurityTLSEnabled().Build()
+
+	// No prefix configured ⇒ empty name (the key is not password-encrypted).
+	assert.Equal(t, "", rs.GetSecurity().KeyFilePasswordSecretName(rs.Name))
+
+	// When a prefix is set we derive <prefix>-<tier>-keyfile-password.
+	rs.Spec.Security.KeyFilePasswordSecretPrefix = "kfp"
+	assert.Equal(t, fmt.Sprintf("kfp-%s-keyfile-password", rs.Name), rs.GetSecurity().KeyFilePasswordSecretName(rs.Name))
+
+	// Independent from the cert prefix: it follows its own prefix and per-tier defaultName.
+	assert.Equal(t, "kfp-some-shard-keyfile-password", rs.GetSecurity().KeyFilePasswordSecretName("some-shard"))
+}
+
 func TestAgentClientCertificateSecretName(t *testing.T) {
 	rs := NewReplicaSetBuilder().SetSecurityTLSEnabled().EnableAuth([]AuthMode{util.X509}).Build()
 

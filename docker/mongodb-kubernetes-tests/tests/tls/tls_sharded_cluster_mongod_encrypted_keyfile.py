@@ -23,6 +23,7 @@ from tests.shardedcluster.conftest import get_mongos_service_names
 
 MDB_RESOURCE = "sharded-cluster-encrypted-keyfile"
 CERT_PREFIX = "prefix"
+KEY_FILE_PASSWORD_PREFIX = "kfp"
 KEY_FILE_PASSWORD = "test-tls-key-password"
 
 # Per-tier cert secret names produced by create_sharded_cluster_certs with secret_prefix="prefix-".
@@ -32,10 +33,23 @@ CONFIG_CERT_SECRET = f"{CERT_PREFIX}-{MDB_RESOURCE}-config-cert"
 MONGOS_CERT_SECRET = f"{CERT_PREFIX}-{MDB_RESOURCE}-mongos-cert"
 TIER_CERT_SECRETS = [SHARD_CERT_SECRET, CONFIG_CERT_SECRET, MONGOS_CERT_SECRET]
 
+# Per-tier dedicated keyfile-password secret names, derived the same way the operator resolves them
+# via KeyFilePasswordSecretName(<tier RS name>): <kfp-prefix>-<tier RS name>-keyfile-password.
+SHARD_PASSWORD_SECRET = f"{KEY_FILE_PASSWORD_PREFIX}-{MDB_RESOURCE}-0-keyfile-password"
+CONFIG_PASSWORD_SECRET = f"{KEY_FILE_PASSWORD_PREFIX}-{MDB_RESOURCE}-config-keyfile-password"
+MONGOS_PASSWORD_SECRET = f"{KEY_FILE_PASSWORD_PREFIX}-{MDB_RESOURCE}-mongos-keyfile-password"
+# Each tier: (cert secret, dedicated password secret).
+TIER_SECRETS = [
+    (SHARD_CERT_SECRET, SHARD_PASSWORD_SECRET),
+    (CONFIG_CERT_SECRET, CONFIG_PASSWORD_SECRET),
+    (MONGOS_CERT_SECRET, MONGOS_PASSWORD_SECRET),
+]
+
 
 @fixture(scope="module")
 def all_certs(central_cluster_client: kubernetes.client.ApiClient, issuer: str, namespace: str) -> None:
-    """Generates server certs for every tier, then encrypts each tier's private key with a password."""
+    """Generates server certs for every tier, then encrypts each tier's private key with a password
+    stored in that tier's dedicated password secret."""
     create_sharded_cluster_certs(
         namespace,
         MDB_RESOURCE,
@@ -48,10 +62,11 @@ def all_certs(central_cluster_client: kubernetes.client.ApiClient, issuer: str, 
     # Each tier's cert is managed by a cert-manager Certificate that keeps reconciling its secret; if
     # we encrypt tls.key while the Certificate still owns the secret, cert-manager re-issues and
     # reverts the key to plaintext. Delete each Certificate (the already-issued secret stays) before
-    # encrypting so the encrypted key persists.
-    for cert_secret in TIER_CERT_SECRETS:
+    # encrypting so the encrypted key persists. (The passwords live in separate secrets cert-manager
+    # does not own.)
+    for cert_secret, password_secret in TIER_SECRETS:
         Certificate(name=cert_secret, namespace=namespace).delete()
-        encrypt_tls_key_with_password(namespace, cert_secret, KEY_FILE_PASSWORD)
+        encrypt_tls_key_with_password(namespace, cert_secret, KEY_FILE_PASSWORD, password_secret_name=password_secret)
 
 
 @fixture(scope="module")
@@ -68,6 +83,7 @@ def sc(namespace: str, issuer_ca_configmap: str, custom_mdb_version: str, all_ce
             "ca": issuer_ca_configmap,
         },
         "certsSecretPrefix": CERT_PREFIX,
+        "keyFilePasswordSecretPrefix": KEY_FILE_PASSWORD_PREFIX,
     }
 
     resource.set_version(ensure_ent_version(custom_mdb_version))
@@ -86,10 +102,13 @@ def test_install_operator(operator: Operator):
 def test_tls_keys_are_encrypted(all_certs, namespace: str):
     # Negative confidence: every tier's key must be a genuinely encrypted PEM, so a green Running
     # below cannot be a false pass with an unencrypted key on any tier.
-    for cert_secret in TIER_CERT_SECRETS:
+    for cert_secret, password_secret in TIER_SECRETS:
         secret_data = read_secret(namespace, cert_secret)
         assert "ENCRYPTED" in secret_data["tls.key"], f"tls.key in {cert_secret} must be encrypted PEM"
-        assert secret_data["tls.keyFilePassword"] == KEY_FILE_PASSWORD
+        # The password must live in the tier's dedicated secret, NOT in the cert secret.
+        assert "tls.keyFilePassword" not in secret_data, f"password must not be stored in {cert_secret}"
+        password_data = read_secret(namespace, password_secret)
+        assert password_data["keyFilePassword"] == KEY_FILE_PASSWORD
 
 
 @mark.e2e_sharded_cluster_tls_mongod_encrypted_keyfile
