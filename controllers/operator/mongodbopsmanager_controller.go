@@ -49,6 +49,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
+	khandler "github.com/mongodb/mongodb-kubernetes/pkg/handler"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
@@ -987,6 +988,21 @@ func AddOpsManagerController(ctx context.Context, mgr manager.Manager, memberClu
 			zap.S().Errorf("Failed to watch for vault secret changes: %v", err)
 		}
 	}
+	for clusterName, memberCluster := range memberClustersMap {
+		err = c.Watch(source.Kind[client.Object](memberCluster.GetCache(), &appsv1.StatefulSet{}, &khandler.EnqueueRequestForOwnerMultiCluster{}, watch.PredicatesForMultiStatefulSet()))
+		if err != nil {
+			return xerrors.Errorf("failed to set AppDB StatefulSet watch on member cluster %s: %w", clusterName, err)
+		}
+	}
+
+	err = c.Watch(
+		source.Kind[client.Object](mgr.GetCache(), &appsv1.StatefulSet{},
+			handler.EnqueueRequestForOwner(mgr.GetScheme(), mgr.GetRESTMapper(), &omv1.MongoDBOpsManager{}, handler.OnlyControllerOwner()),
+			watch.PredicatesForOpsManagerStatefulSet()))
+	if err != nil {
+		return err
+	}
+
 	zap.S().Infof("Registered controller %s", util.MongoDbOpsManagerController)
 	return nil
 }
