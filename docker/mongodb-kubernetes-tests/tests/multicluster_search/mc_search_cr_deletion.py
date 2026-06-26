@@ -38,7 +38,6 @@ from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.search import mc_search_helper, search_resource_names
 from tests.common.search.mc_search_helper import (
     assert_source_mongot_host_observed,
-    build_mongodb_user,
     create_mc_lb_certificates,
     create_mc_mongot_tls_cert,
     patch_source_mongot_host_via_om,
@@ -237,42 +236,6 @@ def mdbs(
     return _build_search_resource(namespace, central_cluster_client, member_cluster_clients, mdb, ca_configmap)
 
 
-@fixture(scope="module")
-def admin_user(namespace: str, central_cluster_client: kubernetes.client.ApiClient) -> MongoDBUser:
-    return build_mongodb_user(
-        yaml_filename="mongodbuser-mdb-admin.yaml",
-        name=ADMIN_USER_NAME,
-        username=ADMIN_USER_NAME,
-        mdb_resource_name=MDB_RESOURCE_NAME,
-        namespace=namespace,
-        central_cluster_client=central_cluster_client,
-    )
-
-
-@fixture(scope="module")
-def user(namespace: str, central_cluster_client: kubernetes.client.ApiClient) -> MongoDBUser:
-    return build_mongodb_user(
-        yaml_filename="mongodbuser-mdb-user.yaml",
-        name=USER_NAME,
-        username=USER_NAME,
-        mdb_resource_name=MDB_RESOURCE_NAME,
-        namespace=namespace,
-        central_cluster_client=central_cluster_client,
-    )
-
-
-@fixture(scope="module")
-def mongot_user(namespace: str, central_cluster_client: kubernetes.client.ApiClient) -> MongoDBUser:
-    return build_mongodb_user(
-        yaml_filename="mongodbuser-search-sync-source-user.yaml",
-        name=f"{MDBS_RESOURCE_NAME}-{MONGOT_USER_NAME}",
-        username=MONGOT_USER_NAME,
-        mdb_resource_name=MDB_RESOURCE_NAME,
-        namespace=namespace,
-        central_cluster_client=central_cluster_client,
-    )
-
-
 # =============================================================================
 # Phase 1: setup — source RS + MongoDBSearch to Running
 # =============================================================================
@@ -325,14 +288,14 @@ def test_create_user_credentials(
     namespace: str,
     central_cluster_client: kubernetes.client.ApiClient,
     admin_user: MongoDBUser,
-    user: MongoDBUser,
+    mdb_user: MongoDBUser,
     mongot_user: MongoDBUser,
 ):
     _apply_user_password(admin_user, ADMIN_USER_PASSWORD, namespace, central_cluster_client)
     admin_user.assert_reaches_phase(Phase.Updated, timeout=300)
 
-    _apply_user_password(user, USER_PASSWORD, namespace, central_cluster_client)
-    user.assert_reaches_phase(Phase.Updated, timeout=300)
+    _apply_user_password(mdb_user, USER_PASSWORD, namespace, central_cluster_client)
+    mdb_user.assert_reaches_phase(Phase.Updated, timeout=300)
 
     # mongot user needs searchCoordinator role from the MongoDBSearch CR; don't wait here.
     _apply_user_password(mongot_user, MONGOT_USER_PASSWORD, namespace, central_cluster_client)

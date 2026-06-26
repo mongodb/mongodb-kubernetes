@@ -7,13 +7,10 @@ import kubernetes
 import requests
 import yaml
 from kubernetes.client import CoreV1Api
-from kubetester import create_or_update_configmap, create_or_update_secret, decode_secret, read_secret, try_load
+from kubetester import create_or_update_configmap, create_or_update_secret, decode_secret, read_secret
 from kubetester.certs import create_tls_certs
-from kubetester.kubetester import KubernetesTester
-from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.kubetester import run_periodically
+from kubetester.kubetester import KubernetesTester, run_periodically
 from kubetester.mongodb_multi import MongoDBMulti
-from kubetester.mongodb_user import MongoDBUser
 from kubetester.multicluster_client import MultiClusterClient
 from tests import test_logger
 from tests.common.multicluster.multicluster_utils import assert_deployment_ready_in_cluster
@@ -754,34 +751,6 @@ def assert_sharded_mongot_host_observed(
         return all_correct, "\n".join(msgs)
 
     run_periodically(check, timeout=timeout, sleep_time=10, msg="per-shard mongotHost on disk")
-
-
-# ---------------------------------------------------------------------------
-# MongoDBUser construction (central-cluster, external source).
-# ---------------------------------------------------------------------------
-
-
-def build_mongodb_user(
-    *,
-    yaml_filename: str,
-    name: str,
-    username: str,
-    mdb_resource_name: str,
-    namespace: str,
-    central_cluster_client: kubernetes.client.ApiClient,
-) -> MongoDBUser:
-    """Build a MongoDBUser CR on the central cluster for an external MC source.
-
-    The password Secret name is derived as ``{name}-password``; callers create it
-    and call ``.update()``. Skips field-setting when the CR already exists on cluster.
-    """
-    resource = MongoDBUser.from_yaml(yaml_fixture(yaml_filename), namespace=namespace, name=name)
-    if not try_load(resource):
-        resource["spec"]["mongodbResourceRef"]["name"] = mdb_resource_name
-        resource["spec"]["username"] = username
-        resource["spec"]["passwordSecretKeyRef"]["name"] = f"{name}-password"
-    resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    return resource
 
 
 # ---------------------------------------------------------------------------

@@ -869,7 +869,9 @@ func (r *MongoDBSearchReconcileHelper) cleanupStaleShardResources(ctx context.Co
 
 // CleanupMemberClusterResources deletes every member-cluster resource this search
 // owns, selected by the search-owner labels. Best-effort: it continues past
-// per-cluster failures and aggregates them.
+// per-cluster failures and aggregates them. (Not folded into the shared
+// deleteClusterResources: member resources carry the mongodb.com/search-* owner
+// labels, not the resourceOwner labels that helper selects on.)
 func CleanupMemberClusterResources(ctx context.Context, search *searchv1.MongoDBSearch, memberClusterClients map[string]kubernetesClient.Client, log *zap.SugaredLogger) error {
 	// Secrets are excluded — the operator never writes member-cluster Secrets
 	// (customers replicate those). PVCs are excluded — the StatefulSet's whenDeleted
@@ -887,12 +889,16 @@ func CleanupMemberClusterResources(ctx context.Context, search *searchv1.MongoDB
 
 	var errs error
 	for clusterName, c := range memberClusterClients {
+		clusterFailed := false
 		for _, obj := range cleanupKinds {
 			if err := c.DeleteAllOf(ctx, obj, deleteOpts...); err != nil {
+				clusterFailed = true
 				errs = multierror.Append(errs, xerrors.Errorf("failed to delete %T for search %s in cluster %q: %w", obj, search.Name, clusterName, err))
 			}
 		}
-		log.Infof("Removed search resources for %s in cluster %q", search.NamespacedName(), clusterName)
+		if !clusterFailed {
+			log.Infof("Removed search resources for %s in cluster %q", search.NamespacedName(), clusterName)
+		}
 	}
 	return errs
 }
