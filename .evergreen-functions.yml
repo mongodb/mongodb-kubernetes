@@ -331,7 +331,7 @@ functions:
         script: |
           if command -v docker >/dev/null 2>&1; then
             echo "Docker found, pruning docker resources..."
-            docker system prune -a -f
+            docker system prune --all --volumes --force
           else
             echo "Docker not found, skipping docker resource pruning"
           fi
