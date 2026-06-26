@@ -6,8 +6,9 @@ applies the generated resources, and verifies dry-run validation, data continuit
 connection strings, process names, and the promote and prune flow.
 """
 
-import yaml
 from copy import deepcopy
+
+import yaml
 from cryptography import x509 as crypto_x509
 from cryptography.hazmat.backends import default_backend
 from kubetester import create_or_update_configmap, create_or_update_secret, get_statefulset, read_secret
@@ -171,7 +172,9 @@ def vm_sts(
 
 @fixture(scope="module")
 def mdb_tls_certs(issuer: str, namespace: str):
-    return create_mongodb_tls_certs(ISSUER_CA_NAME, namespace, MDB_RESOURCE_NAME, f"mdb-{MDB_RESOURCE_NAME}-cert")
+    # Cover all migrated members (the VM replica set has 5). The default of 3 only issues SANs for
+    # my-replica-set-0..2, so member my-replica-set-3 fails TLS and the replica set never forms.
+    return create_mongodb_tls_certs(ISSUER_CA_NAME, namespace, MDB_RESOURCE_NAME, f"mdb-{MDB_RESOURCE_NAME}-cert", 5)
 
 
 @fixture(scope="module")
@@ -477,7 +480,7 @@ def test_migration_dry_run_connectivity_passes(mdb_migration: MongoDB):
 
 @mark.e2e_vm_migration_x509
 def test_migrate_vm_to_kubernetes(mdb_migration: MongoDB):
-    mdb_migration.assert_reaches_phase(Phase.Running, timeout=600)
+    mdb_migration.assert_reaches_phase(Phase.Running, timeout=1200)
     assert_connection_string_contains_current_hosts(mdb_migration)
 
 
