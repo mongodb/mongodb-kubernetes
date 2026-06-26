@@ -177,7 +177,7 @@ function kind_wait_for_rbac_bootstrap() {
   echo "waiting for RBAC bootstrap"
   local i=0
   while ! kubectl --kubeconfig "${kubeconfig_path}" get clusterrole cluster-admin &>/dev/null; do
-    [[ $i -ge 120 ]] && { echo "ERROR: RBAC bootstrap timed out"; return 1; }
+    [[ ${i} -ge 120 ]] && { echo "ERROR: RBAC bootstrap timed out"; return 1; }
     printf "."; sleep 1; i=$((i + 1))
   done
   echo ""
