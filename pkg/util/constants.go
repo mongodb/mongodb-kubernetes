@@ -227,6 +227,10 @@ const (
 	SearchVersionEnv         = "MDB_SEARCH_VERSION"
 	EnvoyImageEnv            = "MDB_ENVOY_IMAGE"
 	MetricsForwarderImageEnv = "MDB_SEARCH_METRICS_FORWARDER_IMAGE"
+	// SearchEnableMultiClusterEnv lets a single operator reconcile a MongoDBSearch with
+	// more than one spec.clusters entry; defaults to false (block on) when unset, so an
+	// accidentally-set or zero-value bool fails safe to blocking.
+	SearchEnableMultiClusterEnv = "MDB_SEARCH_ENABLE_MULTI_CLUSTER"
 
 	// Different default configuration values
 	DefaultMongodStorageSize           = "16G"
