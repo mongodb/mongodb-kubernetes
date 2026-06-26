@@ -164,10 +164,9 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, sizing searc
 	return statefulset.Apply(stsModifications...)
 }
 
-// withDataPVCRetentionPolicy reclaims the mongot index PVC both when the StatefulSet
-// is deleted (the MongoDBSearch CR is removed) and when it is scaled down. The index
-// is rebuildable, so the storage is freed immediately and a later scale-up reindexes
-// from mongod. (Draining a replica before teardown is a planned follow-up.)
+// withDataPVCRetentionPolicy reclaims the mongot index PVC on StatefulSet delete
+// (CR removed) and on scale-down. The index is rebuildable, so freeing the storage
+// immediately is safe — a later scale-up reindexes from mongod.
 func withDataPVCRetentionPolicy() statefulset.Modification {
 	return func(sts *appsv1.StatefulSet) {
 		sts.Spec.PersistentVolumeClaimRetentionPolicy = &appsv1.StatefulSetPersistentVolumeClaimRetentionPolicy{
