@@ -18,6 +18,7 @@ spec:
         logAppend: false
         path: /var/log/mongodb-mms-automation/mongodb.log
   configServerCount: 2
+  configServerNameOverride: cfg-rs
   credentials: my-credentials
   externalMembers:
   - hostname: cfg-a.example.com:27019
@@ -54,13 +55,12 @@ spec:
     configMapRef:
       name: my-om-config
   shardCount: 2
-  # configServerNameOverride: "cfg-rs"
-  # shardNameOverrides:
-  #   - shardId: "sh0"
-  #     replicasetName: "rs-sh0"
-  #     shardName: "my-cluster-0"
-  #   - shardId: "sh1"
-  #     replicasetName: "rs-sh1"
-  #     shardName: "my-cluster-1"
+  shardNameOverrides:
+  - replicaSetName: rs-sh0
+    shardId: sh0
+    shardName: my-cluster-0
+  - replicaSetName: rs-sh1
+    shardId: sh1
+    shardName: my-cluster-1
   type: ShardedCluster
   version: 7.0.12-ent

@@ -133,7 +133,6 @@ func generateMongodbObjects(ac *om.AutomationConfig, opts GenerateOptions) ([]cl
 	return append([]client.Object{mongodbCR}, extra...), nil
 }
 
-
 func buildMongodbOptions(ctx context.Context, kubeClient kubernetesClient.Client, ac *om.AutomationConfig, projectConfigs *ProjectConfigs, sourceProcess *om.Process, stdin io.Reader, flags mongodbFlags) (GenerateOptions, error) {
 	opts := GenerateOptions{
 		ResourceNameOverride:  flags.resourceNameOverride,

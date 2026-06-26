@@ -57,8 +57,8 @@ spec:
     configMapRef:
       name: my-om-config
   shardCount: 2
-  # shardNameOverrides:
-  #   - shardName: "my-sharded-cluster-0"
-  #   - shardName: "my-sharded-cluster-1"
+  shardNameOverrides:
+  - shardName: my-sharded-cluster-0
+  - shardName: my-sharded-cluster-1
   type: ShardedCluster
   version: 7.0.12-ent

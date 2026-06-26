@@ -166,6 +166,18 @@ func (s ShardedCluster) Shards() []Shard {
 	}
 }
 
+func (s ShardedCluster) shards() []Shard {
+	return s.Shards()
+}
+
+func (s Shard) rs() string {
+	return s.Rs()
+}
+
+func (s Shard) id() string {
+	return s.Id()
+}
+
 func (s ShardedCluster) setConfigServerRsName(name string) {
 	s["configServerReplica"] = name
 }

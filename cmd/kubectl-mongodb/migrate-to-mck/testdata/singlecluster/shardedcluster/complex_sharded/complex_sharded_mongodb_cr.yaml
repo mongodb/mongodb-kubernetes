@@ -18,6 +18,7 @@ spec:
         logAppend: false
         path: /var/log/mongodb-mms-automation/mongodb.log
   configServerCount: 2
+  configServerNameOverride: csrs
   credentials: my-credentials
   externalMembers:
   - hostname: config-a.example.com:27019
@@ -64,13 +65,13 @@ spec:
     tls:
       ca: mycluster-v1-ca
   shardCount: 2
-  # configServerNameOverride: "csrs"
-  # shardNameOverrides:
-  #   - shardId: "shardA"
-  #     replicasetName: "shard0-rs"
-  #     shardName: "mycluster-v1-0"
-  #   - shardId: "shardB"
-  #     replicasetName: "shard1-rs"
-  #     shardName: "mycluster-v1-1"
+  shardNameOverrides:
+  - replicaSetName: shard0-rs
+    shardId: shardA
+    shardName: mycluster-v1-0
+  - replicaSetName: shard1-rs
+    shardId: shardB
+    shardName: mycluster-v1-1
+  shardedClusterNameOverride: MyCluster_v1
   type: ShardedCluster
   version: 7.0.12-ent

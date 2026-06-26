@@ -5,9 +5,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 )
 
@@ -77,8 +75,8 @@ func TestGenerateMongoDBCR_ShardedResourceNameOverride(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Contains(t, yamlOutput, "name: custom-sc")
-	assert.Contains(t, yamlOutput, `shardName: "custom-sc-0"`)
-	assert.Contains(t, yamlOutput, `shardName: "custom-sc-1"`)
+	assert.Contains(t, yamlOutput, "shardName: custom-sc-0")
+	assert.Contains(t, yamlOutput, "shardName: custom-sc-1")
 }
 
 func TestGenerateMongoDBCR_AutoNormalizesRSName(t *testing.T) {
@@ -154,24 +152,6 @@ func TestGenerateMongoDBCR_ShardedTopologyCounts(t *testing.T) {
 	assert.Contains(t, yamlOutput, "mongodsPerShardCount: 2")
 	assert.Contains(t, yamlOutput, "configServerCount: 2")
 	assert.Contains(t, yamlOutput, "mongosCount: 2")
-}
-
-func TestBuildConfigServerNameOverride(t *testing.T) {
-	tests := []struct {
-		name         string
-		resource     string
-		configRsName string
-		want         string
-	}{
-		{name: "non-default rs name produces override", resource: "my-sc", configRsName: "csrs", want: "  # configServerNameOverride: \"csrs\"\n"},
-		{name: "rs already matches operator default is omitted", resource: "my-sc", configRsName: "my-sc-config", want: ""},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cr := &mdbv1.MongoDB{ObjectMeta: metav1.ObjectMeta{Name: tt.resource}}
-			assert.Equal(t, tt.want, buildConfigServerNameOverride(cr, tt.configRsName))
-		})
-	}
 }
 
 func TestGenerateMongoDBCR_ShardedMissingShardReplicaSet(t *testing.T) {
