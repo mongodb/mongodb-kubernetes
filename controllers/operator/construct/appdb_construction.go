@@ -17,7 +17,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct/scalers/interfaces"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
-	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	"github.com/mongodb/mongodb-kubernetes/pkg/handler"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/podtemplatespec"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
@@ -478,7 +478,7 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 		statefulset.WithServiceName(opsManager.Spec.AppDB.HeadlessServiceNameForCluster(scaler.MemberClusterNum())),
 		statefulset.WithReplicas(scale.ReplicasThisReconciliation(scaler)),
 		statefulset.WithUpdateStrategyType(updateStrategyType),
-		statefulset.WithOwnerReference(kube.BaseOwnerReference(&opsManager)),
+		statefulset.WithOwnerReference(opsManager.AppDBOwnerReferenceForMemberCluster()),
 		dataVolumeClaim,
 		logVolumeClaim,
 		singleModeVolumeClaim,
@@ -523,6 +523,7 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 		if clusterSpecItem.StatefulSetConfiguration != nil {
 			sts.Spec = merge.StatefulSetSpecs(sts.Spec, clusterSpecItem.StatefulSetConfiguration.SpecWrapper.Spec)
 		}
+		sts.Annotations = merge.StringToStringMap(sts.Annotations, handler.MultiClusterStatefulSetAnnotations(opsManager.Name))
 	}
 	return sts, nil
 }
