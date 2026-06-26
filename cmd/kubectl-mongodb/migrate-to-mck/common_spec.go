@@ -110,6 +110,14 @@ func buildAuthenticationConfig(ac *om.AutomationConfig, certsSecretPrefix, resou
 		authConfig.Agents.AutomationUserName = auth.AutoUser
 	}
 
+	// LDAP agents authenticate with an external password; reference the Secret generated for it.
+	if authConfig.Agents.Mode == util.LDAP && auth.AutoPwd != "" {
+		authConfig.Agents.AutomationPasswordSecretRef = corev1.SecretKeySelector{
+			LocalObjectReference: corev1.LocalObjectReference{Name: LdapAgentPasswordSecretName},
+			Key:                  passwordSecretDataKey,
+		}
+	}
+
 	if ac.AgentSSL != nil && ac.AgentSSL.AutoPEMKeyFilePath != "" {
 		authConfig.Agents.AutoPEMKeyFilePath = ac.AgentSSL.AutoPEMKeyFilePath
 	}

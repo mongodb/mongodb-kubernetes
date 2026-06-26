@@ -96,10 +96,13 @@ def run_generate_cr(
     user_secrets: dict[str, str] | None = None,
     certs_secret_prefix: str | None = None,
     resource_name_override: str | None = None,
+    prometheus_secret_name: str | None = None,
 ) -> str:
     """Run migrate-to-mck mongodb and migrate-to-mck users and return the combined CR YAML bundle.
 
     certs_secret_prefix is passed as a flag to suppress the migrate-to-mck mongodb TLS prompt.
+    prometheus_secret_name is passed to suppress the Prometheus password-Secret prompt; the Secret
+    must already exist in the namespace (the tool validates it).
     user_secrets maps "username:database" to a pre-created Secret name. Create each
     Secret before calling this function:
       kubectl create secret generic <name> --from-literal=password=<password> -n <namespace>
@@ -109,6 +112,8 @@ def run_generate_cr(
         mongodb_flags += ["--certs-secret-prefix", certs_secret_prefix]
     if resource_name_override is not None:
         mongodb_flags += ["--resource-name-override", resource_name_override]
+    if prometheus_secret_name is not None:
+        mongodb_flags += ["--prometheus-secret-name", prometheus_secret_name]
     mongodb_yaml = _run_generate_cr_subcommand("mongodb", mongodb_flags, stdin_text=None)
 
     users_flags = ["--namespace", namespace]
@@ -346,6 +351,10 @@ def apply_user_crs_and_verify_ac(generated_cr_yaml: str, namespace: str, om_test
         username = doc["spec"]["username"]
         ac_user = ac_users.get(username)
         assert ac_user is not None, f"{username} not found in automation config"
+        # External (X.509/LDAP) users authenticate via $external and carry no SCRAM credentials.
+        if doc["spec"].get("db") == "$external":
+            continue
+        # The operator manages SCRAM users with both credential sets regardless of the deployment's modes.
         assert ac_user.get("scramSha256Creds") is not None, f"{username}: missing scramSha256Creds"
         assert ac_user.get("scramSha1Creds") is not None, f"{username}: missing scramSha1Creds"
 

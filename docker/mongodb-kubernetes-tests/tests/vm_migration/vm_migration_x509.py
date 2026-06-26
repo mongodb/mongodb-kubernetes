@@ -12,7 +12,12 @@ import yaml
 from cryptography import x509 as crypto_x509
 from cryptography.hazmat.backends import default_backend
 from kubetester import create_or_update_configmap, create_or_update_secret, get_statefulset, read_secret
-from kubetester.certs import ISSUER_CA_NAME, create_mongodb_tls_certs, create_x509_agent_tls_certs
+from kubetester.certs import (
+    ISSUER_CA_NAME,
+    create_mongodb_tls_certs,
+    create_x509_agent_tls_certs,
+    create_x509_user_cert,
+)
 from kubetester.kubetester import KubernetesTester, fcv_from_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
@@ -27,6 +32,7 @@ from tests.vm_migration.vm_migration_dry_run import (
 )
 from tests.vm_migration.vm_migration_helpers import (
     apply_generated_mongodb_resource,
+    apply_user_crs_and_verify_ac,
     assert_common_generated_cr_shape,
     assert_connection_string_after_full_migration,
     assert_connection_string_contains_current_hosts,
@@ -34,6 +40,7 @@ from tests.vm_migration.vm_migration_helpers import (
     assert_max_voting_members_validation,
     assert_migration_data_exists,
     generated_mongodb_doc,
+    generated_user_docs,
     insert_migration_data,
     promote_and_prune,
     run_generate_cr,
@@ -52,6 +59,7 @@ CUSTOM_CA_PEM_PATH = "/mongodb-automation/tls/ca/ca-pem"
 CUSTOM_AGENT_CERT_DIR = "/var/lib/mongodb-mms-automation/certs"
 CUSTOM_AGENT_CERT_FILENAME = "agent.pem"
 CUSTOM_AGENT_CERT_PATH = f"{CUSTOM_AGENT_CERT_DIR}/{CUSTOM_AGENT_CERT_FILENAME}"
+
 WRONG_CA_NAME = "wrong-issuer-ca"
 
 
@@ -233,6 +241,23 @@ def x509_client_pem_path(tmp_path_factory, namespace: str, vm_agent_certs: str) 
 
 
 @fixture(scope="module")
+def vm_app_user(issuer: str, namespace: str, tmp_path_factory) -> tuple[str, str]:
+    """X509 client cert for the $external application user that is migrated.
+
+    Returns (combined_pem_path, subject_dn). The subject DN is what mongod derives from the cert, so
+    it doubles as the username seeded into $external and carried through migration. We extract it from
+    the issued cert rather than hardcoding it so the seeded user and the connecting client always agree.
+    """
+    pem_path = str(tmp_path_factory.mktemp("x509-app-user") / "app-user.pem")
+    create_x509_user_cert(issuer, namespace, path=pem_path)
+    cert_pem = read_secret(namespace, "mongodbuser")["tls.crt"]
+    if isinstance(cert_pem, bytes):
+        cert_pem = cert_pem.decode("utf-8")
+    subject_dn = crypto_x509.load_pem_x509_certificate(cert_pem.encode(), default_backend()).subject.rfc4514_string()
+    return pem_path, subject_dn
+
+
+@fixture(scope="module")
 def x509_opts(x509_client_pem_path: str, issuer_ca_filepath: str) -> list[dict]:
     return [with_x509(x509_client_pem_path, issuer_ca_filepath)]
 
@@ -397,6 +422,7 @@ def test_vm_ac_x509_auth(
     namespace: str,
     custom_mdb_version: str,
     vm_agent_combined_pem: tuple[str, str],
+    vm_app_user: tuple[str, str],
 ):
     """Enable X509 client auth after TLS is already configured.
 
@@ -408,6 +434,7 @@ def test_vm_ac_x509_auth(
         return
 
     _, agent_subject_dn = vm_agent_combined_pem
+    _, app_user_subject_dn = vm_app_user
     ac["auth"] = {
         "disabled": False,
         "authoritativeSet": True,
@@ -428,7 +455,16 @@ def test_vm_ac_x509_auth(
                 "scramSha256Creds": None,
                 "scramSha1Creds": None,
                 "authenticationRestrictions": [],
-            }
+            },
+            {
+                "user": app_user_subject_dn,
+                "db": "$external",
+                "roles": [{"role": "readWrite", "db": "admin"}],
+                "mechanisms": [],
+                "scramSha256Creds": None,
+                "scramSha1Creds": None,
+                "authenticationRestrictions": [],
+            },
         ],
         "usersDeleted": [],
     }
@@ -455,6 +491,16 @@ def test_x509_agent_auth_in_cr(generated_cr: dict):
     assert agents["mode"] == "X509"
     assert agents["autoPEMKeyFilePath"] == CUSTOM_AGENT_CERT_PATH
     assert agents["clientCertificateSecretRef"]["name"] == f"mdb-{MDB_RESOURCE_NAME}-agent-certs"
+
+
+@mark.e2e_vm_migration_x509
+def test_user_cr_emitted(generated_cr_yaml: str, vm_app_user: tuple[str, str]):
+    # The $external app user produces a MongoDBUser CR; the agent auto-user is skipped by the tool.
+    _, app_user_subject_dn = vm_app_user
+    user_docs = generated_user_docs(generated_cr_yaml)
+    assert len(user_docs) == 1, f"Expected 1 user CR (app user; agent skipped), got {len(user_docs)}"
+    assert user_docs[0]["spec"]["db"] == "$external"
+    assert user_docs[0]["spec"]["username"] == app_user_subject_dn
 
 
 # Lifecycle checks
@@ -492,6 +538,22 @@ def test_migration_data_exists_after_migration(mdb_migration: MongoDB, issuer_ca
 @mark.e2e_vm_migration_x509
 def test_max_voting_members_validation(mdb_migration: MongoDB):
     assert_max_voting_members_validation(mdb_migration)
+
+
+@mark.e2e_vm_migration_x509
+def test_user_crs_reach_updated(generated_cr_yaml: str, namespace: str, mdb_migration: MongoDB, om_tester: OMTester):
+    apply_user_crs_and_verify_ac(generated_cr_yaml, namespace, om_tester)
+
+
+@mark.e2e_vm_migration_x509
+def test_app_user_x509_connectivity_after_migration(
+    mdb_migration: MongoDB, vm_app_user: tuple[str, str], issuer_ca_filepath: str
+):
+    """The migrated $external user can authenticate via X509 (readWrite on admin)."""
+    app_user_pem, _ = vm_app_user
+    mdb_migration.tester(use_ssl=True, ca_path=issuer_ca_filepath).assert_x509_authentication(
+        cert_file_name=app_user_pem, tlsCAFile=issuer_ca_filepath
+    )
 
 
 @mark.e2e_vm_migration_x509

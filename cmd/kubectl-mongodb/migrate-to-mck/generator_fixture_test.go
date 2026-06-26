@@ -107,8 +107,13 @@ func TestFixtureMatch_ReplicaSet(t *testing.T) {
 			fixture: "singlecluster/replicaset/authentication/disabled/disabled",
 		},
 		{
-			name:     "SCRAM-SHA-256 auth generates user CRs with password secrets",
+			name:     "SCRAM-SHA-256 auth generates user CRs with password secrets and maps custom roles",
 			fixture:  "singlecluster/replicaset/authentication/scram_sha256/scram_sha256",
+			hasUsers: true,
+		},
+		{
+			name:     "SCRAM-SHA-1 auth generates user CRs with password secrets",
+			fixture:  "singlecluster/replicaset/authentication/scram_sha1/scram_sha1",
 			hasUsers: true,
 		},
 		{
@@ -118,9 +123,30 @@ func TestFixtureMatch_ReplicaSet(t *testing.T) {
 			opts:     GenerateOptions{CertsSecretPrefix: "mdb"},
 		},
 		{
-			name:    "X509-only auth with keyFile internal cluster auth",
-			fixture: "singlecluster/replicaset/authentication/x509_only/x509_only",
-			opts:    GenerateOptions{CertsSecretPrefix: "mdb"},
+			name:     "X509-only auth: external agent skipped, app user CR generated, keyFile internal cluster",
+			fixture:  "singlecluster/replicaset/authentication/x509_only/x509_only",
+			hasUsers: true,
+			opts:     GenerateOptions{CertsSecretPrefix: "mdb"},
+		},
+		{
+			name:     "LDAP auth: ldap section + agent password secret generated, external agent skipped, app user CR generated",
+			fixture:  "singlecluster/replicaset/authentication/ldap/ldap",
+			hasUsers: true,
+		},
+		{
+			name:     "OIDC auth: workforce and workload provider configs mapped, SCRAM agent and app user",
+			fixture:  "singlecluster/replicaset/authentication/oidc/oidc",
+			hasUsers: true,
+		},
+		{
+			name:    "Prometheus (HTTP) generates spec.prometheus referencing the password secret with no TLS ref",
+			fixture: "singlecluster/replicaset/prometheus/prometheus",
+			opts:    GenerateOptions{PrometheusSecretName: PrometheusPasswordSecretName},
+		},
+		{
+			name:    "Prometheus (HTTPS) generates spec.prometheus with a TLS secret ref",
+			fixture: "singlecluster/replicaset/prometheus_https/prometheus_https",
+			opts:    GenerateOptions{PrometheusSecretName: PrometheusPasswordSecretName},
 		},
 		{
 			name:    "member tags are preserved in externalMembers",

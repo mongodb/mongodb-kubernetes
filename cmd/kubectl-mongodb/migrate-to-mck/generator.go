@@ -12,6 +12,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
+	authn "github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
@@ -27,6 +28,7 @@ const (
 	PrometheusPasswordSecretName = "prometheus-password"
 	PrometheusTLSSecretName      = "prometheus-tls"
 	LdapBindQuerySecretName      = "ldap-bind-query-password" //nolint:gosec // secret name, not a credential
+	LdapAgentPasswordSecretName  = "ldap-agent-password"      //nolint:gosec // secret name, not a credential
 	LdapCAConfigMapName          = "ldap-ca"
 	LdapCAKey                    = "ca.pem"
 
@@ -81,6 +83,13 @@ func generateExtraResources(ac *om.AutomationConfig, opts GenerateOptions) []cli
 		}
 		if ldap.CaFileContents != "" {
 			resources = append(resources, buildLdapCAConfigMap(opts.Namespace, ldap.CaFileContents))
+		}
+	}
+	// An LDAP agent authenticates with an external password the operator cannot derive, so carry it
+	// over as a Secret referenced by spec.security.authentication.agents.automationPasswordSecretRef.
+	if ac.Auth != nil && ac.Auth.AutoPwd != "" {
+		if mode, ok := authn.MapMechanismToAuthMode(ac.Auth.AutoAuthMechanism); ok && mode == util.LDAP {
+			resources = append(resources, GeneratePasswordSecret(LdapAgentPasswordSecretName, opts.Namespace, ac.Auth.AutoPwd))
 		}
 	}
 	return resources

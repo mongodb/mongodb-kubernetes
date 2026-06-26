@@ -311,22 +311,42 @@ tasks:
     commands:
       - func: "e2e_test"
 
-  - name: e2e_vm_migration_generate_scram_full
+  - name: e2e_vm_migration_scram_sha256
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
 
-  - name: e2e_vm_migration_generate_mongod_tls
+  - name: e2e_vm_migration_scram_sha1
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
 
-  - name: e2e_vm_migration_generate_no_auth
+  - name: e2e_vm_migration_scram_sha256_tls
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_no_auth
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
 
   - name: e2e_vm_migration_x509
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_ldap
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_prometheus
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_oidc
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"

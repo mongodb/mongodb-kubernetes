@@ -6,13 +6,11 @@ metadata:
 spec:
   db: admin
   mongodbResourceRef:
-    name: scram-rs
+    name: oidc-rs
   passwordSecretKeyRef:
     key: password
     name: app-user-password
   roles:
   - db: myapp
-    name: appReadOnly
-  - db: reporting
-    name: read
+    name: readWrite
   username: app-user
