@@ -54,8 +54,12 @@ services:
       - ${HOME}/.evergreen.yml:/home/vscode/.evergreen.yml:cached
       - ${HOME}/.kanopy:/home/vscode/.kanopy:cached
 
-      # Share Claude Code state (auth, plugins, marketplaces, memory) with the host
-      - ${HOME}/.claude:/home/vscode/.claude:cached
+      # DISABLED (for now): sharing ~/.claude with the host let the container's
+      # on-create marketplace registration rewrite known_marketplaces.json with a
+      # /home/vscode/... installLocation, which breaks the marketplace on the host
+      # (cache-miss). See also on-create/15-claude-plugins.sh (disabled) and the
+      # Claude Code install in Dockerfile (disabled).
+      # - ${HOME}/.claude:/home/vscode/.claude:cached
 
       # Share the SSH agent socket for evg-host-proxy to use
       - ssh-auth-sock:/ssh-agent

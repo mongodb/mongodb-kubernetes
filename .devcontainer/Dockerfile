@@ -20,12 +20,16 @@ RUN apt-get update && apt-get install -y \
     tmux \
  && pip3 install --break-system-packages tmuxp
 
-# Install Claude Code for the vscode user.
-# State (auth, plugins, marketplaces, memory) lives under ~/.claude which is
-# bind-mounted from the host in compose.yml, so the binary is the only thing
-# the image needs to provide.
-RUN su -l vscode -c 'curl -fsSL https://claude.ai/install.sh | bash' \
-    || echo "Claude Code install failed; install manually with: curl -fsSL https://claude.ai/install.sh | bash"
+# DISABLED (for now): Claude Code is not installed in the container. The
+# ~/.claude bind mount (compose.yml) and the marketplace registration
+# (on-create/15-claude-plugins.sh) are also disabled, because the container's
+# on-create step rewrote the host's known_marketplaces.json installLocation to a
+# /home/vscode/... path and broke the marketplace on the host. Re-enable all
+# three together once that path-pollution is solved. To use Claude Code in the
+# container in the meantime, install manually after attaching:
+#   curl -fsSL https://claude.ai/install.sh | bash
+# RUN su -l vscode -c 'curl -fsSL https://claude.ai/install.sh | bash' \
+#     || echo "Claude Code install failed; install manually with: curl -fsSL https://claude.ai/install.sh | bash"
 
 # Make zsh the default shell for vscode (matches host workflow for users who
 # prefer zsh; bash users can still `bash -l` explicitly).
