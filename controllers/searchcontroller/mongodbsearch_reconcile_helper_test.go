@@ -2891,11 +2891,56 @@ func TestCleanupStaleShardResources(t *testing.T) {
 		return svc
 	}
 
+	// Per-shard mongot resources carry owner labels (STS, swept by owner label) and the
+	// mongot component label (headless Service + ConfigMap, swept by component label).
+	ownerLabels := searchOwnerLabels(search, "")
+	mongotLabels := func(extra map[string]string) map[string]string {
+		labels := map[string]string{}
+		for k, v := range extra {
+			labels[k] = v
+		}
+		for k, v := range ownerLabels {
+			labels[k] = v
+		}
+		return labels
+	}
+	setOwner := func(obj client.Object, owned bool) {
+		uid := types.UID("other-uid")
+		if owned {
+			uid = search.UID
+		}
+		obj.SetOwnerReferences([]metav1.OwnerReference{{UID: uid}})
+	}
+	mongotSTS := func(shard string, owned bool) *appsv1.StatefulSet {
+		sts := &appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{
+			Name: search.MongotStatefulSetForClusterShard(0, shard).Name, Namespace: "test-ns", Labels: mongotLabels(nil),
+		}}
+		setOwner(sts, owned)
+		return sts
+	}
+	mongotHeadless := func(shard string, owned bool) *corev1.Service {
+		svc := &corev1.Service{ObjectMeta: metav1.ObjectMeta{
+			Name: search.MongotServiceForClusterShard(0, shard).Name, Namespace: "test-ns", Labels: mongotLabels(map[string]string{"component": mongotComponent}),
+		}, Spec: corev1.ServiceSpec{ClusterIP: "10.0.0.2", Ports: []corev1.ServicePort{{Port: 27027}}}}
+		setOwner(svc, owned)
+		return svc
+	}
+	mongotCM := func(shard string, owned bool) *corev1.ConfigMap {
+		cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{
+			Name: search.MongotConfigMapForClusterShard(0, shard).Name, Namespace: "test-ns", Labels: mongotLabels(map[string]string{"component": mongotComponent}),
+		}}
+		setOwner(cm, owned)
+		return cm
+	}
+
 	fakeClient := newTestFakeClient(search,
 		proxySvc("shard-0", true),  // active, owned
 		proxySvc("shard-1", true),  // active, owned
 		proxySvc("shard-2", true),  // stale, owned
 		proxySvc("shard-x", false), // different owner
+		mongotSTS("shard-1", true), mongotSTS("shard-2", true),
+		mongotHeadless("shard-1", true), mongotHeadless("shard-2", true), mongotHeadless("shard-x", false),
+		mongotCM("shard-1", true), mongotCM("shard-2", true), mongotCM("shard-x", false),
 	)
 	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, newTestOperatorSearchConfig(), nil, nil)
 	require.NoError(t, helper.cleanupStaleShardResources(t.Context(), zap.S(), []string{"shard-0", "shard-1"}))
@@ -2908,6 +2953,24 @@ func TestCleanupStaleShardResources(t *testing.T) {
 	assert.Error(t, err, "stale shard deleted")
 	_, err = fakeClient.GetService(t.Context(), search.ProxyServiceNameForClusterShard(0, "shard-x"))
 	assert.NoError(t, err, "different owner untouched")
+
+	// The removed shard's mongot StatefulSet, headless Service, and ConfigMap are reaped
+	// (the STS delete then cascades its PVC via whenDeleted=Delete); active and
+	// different-owner resources survive.
+	gone := func(nn types.NamespacedName, obj client.Object, msg string) {
+		assert.True(t, apierrors.IsNotFound(fakeClient.Get(t.Context(), nn, obj)), msg)
+	}
+	present := func(nn types.NamespacedName, obj client.Object, msg string) {
+		assert.NoError(t, fakeClient.Get(t.Context(), nn, obj), msg)
+	}
+	present(search.MongotStatefulSetForClusterShard(0, "shard-1"), &appsv1.StatefulSet{}, "active shard STS preserved")
+	gone(search.MongotStatefulSetForClusterShard(0, "shard-2"), &appsv1.StatefulSet{}, "stale shard STS deleted")
+	present(search.MongotServiceForClusterShard(0, "shard-1"), &corev1.Service{}, "active shard headless Service preserved")
+	gone(search.MongotServiceForClusterShard(0, "shard-2"), &corev1.Service{}, "stale shard headless Service deleted")
+	present(search.MongotServiceForClusterShard(0, "shard-x"), &corev1.Service{}, "different-owner headless Service untouched")
+	present(search.MongotConfigMapForClusterShard(0, "shard-1"), &corev1.ConfigMap{}, "active shard ConfigMap preserved")
+	gone(search.MongotConfigMapForClusterShard(0, "shard-2"), &corev1.ConfigMap{}, "stale shard ConfigMap deleted")
+	present(search.MongotConfigMapForClusterShard(0, "shard-x"), &corev1.ConfigMap{}, "different-owner ConfigMap untouched")
 }
 
 func TestReconcileReplicaSet_CreatesResources(t *testing.T) {
@@ -3780,12 +3843,41 @@ func TestCleanupStaleShardResources_MCFanOut(t *testing.T) {
 		}
 	}
 
+	// Per-shard mongot resources on a member cluster: STS swept by owner label,
+	// headless Service + ConfigMap by the mongot component label; owned=false drops the
+	// owner labels so they must be left alone.
+	withMemberOwner := func(labels map[string]string, owned bool) map[string]string {
+		if owned {
+			labels[khandler.MongoDBSearchOwnerNameLabel] = search.Name
+			labels[khandler.MongoDBSearchOwnerNamespaceLabel] = search.Namespace
+		}
+		return labels
+	}
+	memberSTS := func(idx int, shard string, owned bool) *appsv1.StatefulSet {
+		return &appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{
+			Name: search.MongotStatefulSetForClusterShard(idx, shard).Name, Namespace: "ns", Labels: withMemberOwner(map[string]string{}, owned),
+		}}
+	}
+	memberMongotSvc := func(idx int, shard string, owned bool) *corev1.Service {
+		return &corev1.Service{ObjectMeta: metav1.ObjectMeta{
+			Name: search.MongotServiceForClusterShard(idx, shard).Name, Namespace: "ns", Labels: withMemberOwner(map[string]string{"component": mongotComponent}, owned),
+		}, Spec: corev1.ServiceSpec{ClusterIP: "10.0.0.3", Ports: []corev1.ServicePort{{Port: 27027}}}}
+	}
+	memberCM := func(idx int, shard string, owned bool) *corev1.ConfigMap {
+		return &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{
+			Name: search.MongotConfigMapForClusterShard(idx, shard).Name, Namespace: "ns", Labels: withMemberOwner(map[string]string{"component": mongotComponent}, owned),
+		}}
+	}
+
 	// cluster-a (idx 0): keep shard-0 + cluster-level; sh-stale should be deleted.
 	clusterA := kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().WithObjects(
 		memberProxySvc("mdb-search-search-0-sh-0-proxy-svc", true),
 		memberProxySvc("mdb-search-search-0-sh-stale-proxy-svc", true),
 		memberProxySvc("mdb-search-search-0-proxy-svc", true),
 		memberProxySvc("foreign-svc", false), // not search-owned
+		memberSTS(0, "sh-0", true), memberSTS(0, "sh-stale", true),
+		memberMongotSvc(0, "sh-0", true), memberMongotSvc(0, "sh-stale", true), memberMongotSvc(0, "sh-foreign", false),
+		memberCM(0, "sh-0", true), memberCM(0, "sh-stale", true),
 	).Build())
 	// cluster-b (idx 1): same pattern, plus an unrelated owned-by-other-CR svc
 	// to guard the label-name check.
@@ -3833,6 +3925,24 @@ func TestCleanupStaleShardResources_MCFanOut(t *testing.T) {
 		err = tc.c.Get(t.Context(), types.NamespacedName{Name: tc.foreign, Namespace: "ns"}, &corev1.Service{})
 		require.NoError(t, err, "%s: foreign Service %q must be untouched", tc.cluster, tc.foreign)
 	}
+
+	// Per-shard mongot resources on cluster-a: STS swept by owner label, headless
+	// Service + ConfigMap by the mongot component label. Active sh-0 survives, stale
+	// sh-stale is reaped, and the component-labelled but unowned sh-foreign is left alone.
+	present := func(name string, obj client.Object, what string) {
+		require.NoError(t, clusterA.Get(t.Context(), types.NamespacedName{Name: name, Namespace: "ns"}, obj), "cluster-a: %s must survive cleanup", what)
+	}
+	gone := func(name string, obj client.Object, what string) {
+		err := clusterA.Get(t.Context(), types.NamespacedName{Name: name, Namespace: "ns"}, obj)
+		require.True(t, apierrors.IsNotFound(err), "cluster-a: %s must be deleted, got err=%v", what, err)
+	}
+	present(search.MongotStatefulSetForClusterShard(0, "sh-0").Name, &appsv1.StatefulSet{}, "active mongot StatefulSet")
+	gone(search.MongotStatefulSetForClusterShard(0, "sh-stale").Name, &appsv1.StatefulSet{}, "stale mongot StatefulSet")
+	present(search.MongotServiceForClusterShard(0, "sh-0").Name, &corev1.Service{}, "active headless Service")
+	gone(search.MongotServiceForClusterShard(0, "sh-stale").Name, &corev1.Service{}, "stale headless Service")
+	present(search.MongotServiceForClusterShard(0, "sh-foreign").Name, &corev1.Service{}, "unowned headless Service")
+	present(search.MongotConfigMapForClusterShard(0, "sh-0").Name, &corev1.ConfigMap{}, "active mongot ConfigMap")
+	gone(search.MongotConfigMapForClusterShard(0, "sh-stale").Name, &corev1.ConfigMap{}, "stale mongot ConfigMap")
 }
 
 // Empty GetShardNames() yields an empty work list. The reconciler must not fail
