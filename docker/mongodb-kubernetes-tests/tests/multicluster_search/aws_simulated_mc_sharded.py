@@ -941,19 +941,28 @@ def test_source_spread_across_data_clusters(
 ):
     """Guard the index model every downstream FQDN depends on: each shard's STS exists with
     the expected member count in BOTH data clusters (source idx 0 = AZ1 / 2 members, idx 1
-    = AZ2 / 1 member)."""
-    for data_context in DATA_CLUSTERS:
-        src_idx = SOURCE_CLUSTER_INDEX[data_context]
-        mcc = _mcc(member_cluster_clients, data_context)
-        expected_members = SHARD_MEMBERS_PER_CLUSTER[src_idx]
-        for shard_idx in range(SHARD_COUNT):
-            # MC sharded STS = {mdb}-{shardIdx}-{srcClusterIdx} (MultiShardRsName).
-            sts_name = f"{MDB_RESOURCE_NAME}-{shard_idx}-{src_idx}"
-            sts = mcc.read_namespaced_stateful_set(sts_name, namespace)
-            assert (sts.status.ready_replicas or 0) >= (expected_members or 0), (
-                f"[{mcc.cluster_name}] {sts_name} ready={sts.status.ready_replicas} expected>={expected_members}"
-            )
-            logger.info(f"[{mcc.cluster_name}] source shard STS {sts_name} ready ({expected_members} member(s))")
+    = AZ2 / 1 member). Polls: test_mongodb_running returns on the MDB resource's OM-agent
+    phase=Running, which can precede the last STS pod's EBS PVC binding."""
+
+    def shards_ready() -> Tuple[bool, str]:
+        all_ready = True
+        msgs: List[str] = []
+        for data_context in DATA_CLUSTERS:
+            src_idx = SOURCE_CLUSTER_INDEX[data_context]
+            mcc = _mcc(member_cluster_clients, data_context)
+            expected_members = SHARD_MEMBERS_PER_CLUSTER[src_idx]
+            for shard_idx in range(SHARD_COUNT):
+                # MC sharded STS = {mdb}-{shardIdx}-{srcClusterIdx} (MultiShardRsName).
+                sts_name = f"{MDB_RESOURCE_NAME}-{shard_idx}-{src_idx}"
+                ready = mcc.read_namespaced_stateful_set(sts_name, namespace).status.ready_replicas or 0
+                if ready >= (expected_members or 0):
+                    msgs.append(f"[{mcc.cluster_name}] {sts_name} ready ({ready}/{expected_members})")
+                else:
+                    all_ready = False
+                    msgs.append(f"[{mcc.cluster_name}] {sts_name} ready={ready} expected>={expected_members}")
+        return all_ready, "\n".join(msgs)
+
+    run_periodically(shards_ready, timeout=600, sleep_time=10, msg="source shard STS readiness across data clusters")
 
 
 @mark.e2e_aws_simulated_mc_sharded
