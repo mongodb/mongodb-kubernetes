@@ -302,13 +302,23 @@ def _router_host_seeds() -> List[str]:
 
 def _external_shard_proxy_template(search_context: str, harness_idx: int) -> str:
     """Managed-LB externalHostname for a search cluster: the per-shard proxy-svc name with
-    the {shardName} placeholder retained (operator resolves per shard), under the search
-    cluster's external-dns wildcard. The operator also derives the cluster-level (mongos)
-    proxy host by stripping the per-shard segment."""
+    the {shardName} placeholder retained (operator resolves it per shard via ReplaceAll),
+    under the search cluster's external-dns wildcard. Host-only (no port): the operator uses
+    it verbatim as the per-shard Envoy SNI server_name, which a TLS ClientHello carries
+    without a port. The shard-agnostic mongos SNI is configured separately via routerHostname
+    (see _external_mongos_proxy_host)."""
     return (
         f"{MDBS_RESOURCE_NAME}-search-{harness_idx}-{{shardName}}-proxy-svc."
         f"{search_proxy_wildcard(search_context)}"
     )
+
+
+def _external_mongos_proxy_host(search_context: str, harness_idx: int) -> str:
+    """Managed-LB routerHostname for a search cluster: the shard-agnostic cluster-level
+    proxy-svc host the mongos reaches, under the external-dns wildcard. Host-only (no port):
+    the operator uses it verbatim as the cluster-level Envoy SNI server_name. Must be in the
+    managed-LB server cert SANs (see test_create_search_tls_certificates)."""
+    return f"{MDBS_RESOURCE_NAME}-search-{harness_idx}-proxy-svc.{search_proxy_wildcard(search_context)}"
 
 
 def _external_shard_envoy_endpoint(search_context: str, harness_idx: int, shard_idx: int) -> str:
@@ -323,11 +333,9 @@ def _external_shard_envoy_endpoint(search_context: str, harness_idx: int, shard_
 
 def _external_mongos_envoy_endpoint(search_context: str, harness_idx: int) -> str:
     """A search cluster's cluster-level managed-Envoy endpoint (external), the mongos
-    mongotHost target."""
-    return (
-        f"{MDBS_RESOURCE_NAME}-search-{harness_idx}-proxy-svc."
-        f"{search_proxy_wildcard(search_context)}:{ENVOY_PROXY_PORT}"
-    )
+    mongotHost target. Host:port — the source mongos automationConfig needs the port; the
+    SNI server_name (routerHostname) is the host-only form."""
+    return f"{_external_mongos_proxy_host(search_context, harness_idx)}:{ENVOY_PROXY_PORT}"
 
 
 def _source_mongos_search_tester(
@@ -784,6 +792,7 @@ def per_cluster_mdbs_search(
                     "managed": {
                         "replicas": ENVOY_LB_REPLICAS,
                         "externalHostname": _external_shard_proxy_template(ctx, idx),
+                        "routerHostname": _external_mongos_proxy_host(ctx, idx),
                     },
                 },
                 "syncSourceSelector": {"matchTagSets": [{CLUSTER_LOCATION_TAG_KEY: AZ_BY_SEARCH_CLUSTER[ctx]}]},
