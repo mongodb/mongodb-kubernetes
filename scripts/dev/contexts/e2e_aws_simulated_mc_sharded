@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+#
+# Context for the real-infra (AWS EKS) multi-cluster sharded search e2e.
+# Targets the four persistent EKS clusters in mongot_multicluster-infra (eu-south-1),
+# NOT the kind fabric. Requires the corp VPN and the merged AWS kubeconfig.
+#
+# Harness index caveat: get_member_cluster_names() SORTS MEMBER_CLUSTERS, so the
+# resulting cluster_index order is alphabetical (mdb-az2=0, om-mdb-az1=1, search-az1=2,
+# search-az2=3), NOT the order below. The test module pins roles by context name.
+
+set -Eeou pipefail
+
+script_name=$(readlink -f "${BASH_SOURCE[0]}")
+script_dir=$(dirname "${script_name}")
+
+source "${script_dir}/root-context"
+# OM 8.0 + AppDB 8.0: sets CUSTOM_OM_VERSION=8.0.x, CUSTOM_APPDB_VERSION=8.0.x-ent,
+# CUSTOM_MDB_VERSION=8.0.x, AGENT_VERSION, and ops_manager_version=${CUSTOM_OM_VERSION}.
+source "${script_dir}/variables/om80"
+source "${script_dir}/variables/mongodb_search_dev"
+
+export KUBE_ENVIRONMENT_NAME=multi
+
+# AWS merged kubeconfig. root-context/site-context unconditionally set KUBECONFIG to the
+# kind `.generated/current.kubeconfig`, so we FORCE the merged AWS kubeconfig here (a plain
+# `${KUBECONFIG:-...}` default would be a no-op). Override with AWS_MC_KUBECONFIG if needed.
+export KUBECONFIG="${AWS_MC_KUBECONFIG:-${HOME}/mdb/mongot_multicluster-infra/tmp/search-onprem.kubeconfig}"
+
+# Four member clusters; central also hosts AZ1 shard data + OM/AppDB.
+export MEMBER_CLUSTERS="om-mdb-az1 mdb-az2 search-az1 search-az2"
+export CENTRAL_CLUSTER="om-mdb-az1"
+export CLUSTER_NAME="om-mdb-az1"
+export test_pod_cluster="search-az1"
+export TEST_POD_CLUSTER="search-az1"
+
+# Per-cluster long-lived SA bearer tokens are extracted into this dir (central_cluster,
+# member_cluster_1..4, and one file per context name) by the AWS prepare step — the
+# harness reads bearer tokens here, it does NOT use the kubeconfig aws-eks-get-token exec.
+# FORCED (site-context unconditionally points this at .multi_cluster_local_test_files).
+# Override with AWS_MC_CONFIG_DIR if needed.
+export MULTI_CLUSTER_CONFIG_DIR="${AWS_MC_CONFIG_DIR:-${HOME}/.mck-aws-mc-config}"
+
+# OM is deployed by the scenario (not cloud-qa); version comes from variables/om80 above
+# (ops_manager_version=${CUSTOM_OM_VERSION}=8.0.x).
+
+export OPERATOR_NAME="mongodb-kubernetes-operator-multi-cluster"
+
+# Deploy operators as PODS in the clusters, not locally via `go run`. private-context
+# defaults LOCAL_OPERATOR=true for laptop dev; this scenario installs the operator via
+# Helm into each cluster, so force it off. Requires built images in the registry — set
+# OVERRIDE_VERSION_ID below to a patch version_id whose init_test_run built all images.
+export LOCAL_OPERATOR=false
+
+# NOTE: operator image pinning is done in private-context (OPERATOR_REGISTRY=.../dev +
+# OPERATOR_VERSION=<patch version_id>), NOT via OVERRIDE_VERSION_ID. Two reasons OVERRIDE_VERSION_ID
+# is the WRONG lever here: (1) the init_test_run patch pushes images to .../dev tagged with the
+# patch version_id, but the local REGISTRY is .../staging (the full working master set incl OM
+# 8.0.24) — OVERRIDE keeps the staging registry so it 404s the version_id tag; (2) OVERRIDE pins
+# ALL of operator/readiness/upgradeHook and cascades init/database to <version_id> on staging,
+# which lacks those tags. So we pin ONLY the operator to dev:<version_id> and keep the rest on
+# staging:latest. (conftest's version_id fixture is unused in this scenario.)
