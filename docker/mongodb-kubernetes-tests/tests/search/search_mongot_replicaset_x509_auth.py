@@ -12,10 +12,7 @@ from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.search import movies_search_helper, search_resource_names
 from tests.common.search.search_deployment_helper import SearchDeploymentHelper
 from tests.common.search.search_tester import SearchTester
-from tests.common.search.tls_utils import (
-    create_keyfile_password_secret,
-    encrypt_tls_key_with_password,
-)
+from tests.common.search.tls_utils import create_keyfile_password_secret, encrypt_tls_key_with_password
 from tests.conftest import get_default_operator, get_issuer_ca_filepath
 from tests.search.om_deployment import get_ops_manager
 
