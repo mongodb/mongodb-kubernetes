@@ -1,13 +1,12 @@
 """Real-infra (AWS EKS) multi-cluster MongoDBSearch e2e with a SHARDED external source.
 
-Forked from simulated_mc_sharded.py to run on the four real EKS clusters in
-mongot_multicluster-infra (see tmp/INFRASTRUCTURE.md, tmp/MULTICLUSTER_PLAN.md,
-tmp/E2E_SCENARIO_PLAN.md). Unlike the simulated variant, this runs with NO Istio mesh
+Runs against the four real EKS clusters in mongot_multicluster-infra with NO Istio mesh
 and NO VPC peering: every cross-cluster hop flows over per-cluster internet-facing NLBs.
 The data plane is fronted by a self-managed L4 SNI-passthrough Envoy (mongodEnvoy), one
 per data cluster, behind a single NLB + external-dns wildcard. The source sharded
-MongoDB is spread across two AZ data clusters (no single-cluster index pin), OM is
-deployed by the scenario, and per-AZ mongot targeting uses member tagSets.
+MongoDB is spread across two AZ data clusters, OM is deployed by the scenario, and per-AZ
+mongot targeting uses member tagSets. This marker is run manually (not wired into Evergreen);
+it requires the corp VPN and the provisioned four-cluster infra.
 
 Cluster roles (pin explicitly; the harness SORTS MEMBER_CLUSTERS, so harness indexes are
 alphabetical: mdb-az2=0, om-mdb-az1=1, search-az1=2, search-az2=3 — NOT declaration
@@ -17,8 +16,7 @@ order). Never derive a role from a harness sort index.
   - search-az1  (ls-mc-search-az1): mongot search, AZ1
   - search-az2  (ls-mc-search-az2): mongot search, AZ2
 
-Index model (this is the crux that differs from the base, which pinned the source to one
-cluster => everything had a "-0-" suffix):
+Index model:
   * The source sharded MongoDB spans the TWO data clusters. Its SOURCE-internal cluster
     index is assigned by the operator in SORTED cluster-name order (NOT clusterSpecList
     declaration order — see mongodbshardedcluster_controller.go: slices.Sort before
@@ -34,16 +32,16 @@ cluster => everything had a "-0-" suffix):
     per-(cluster, shard) mongot resource names ({mdbs}-search-{harnessIdx}-{shard}-...).
     The two index systems never collide (source idx in {0,1}, search idx in {2,3}).
 
-Connectivity seams vs the base (the fork's whole job): every ".svc.cluster.local"
-cross-cluster hop is swapped for an EXTERNAL FQDN served by an SNI front:
+Connectivity seams: every ".svc.cluster.local" cross-cluster hop is served instead by an
+EXTERNAL FQDN behind an SNI front:
   * source mongod/mongos seeds (mongot syncSource) AND the OM AppDB members -> external
     FQDNs under *.mongodb-proxy.<dataClusterId>.mc... (the shared per-cluster mongodb-envoy NLB).
   * the mongotHost flip endpoints (mongos cluster-level + per-shard) -> external FQDNs
     under *.envoy-proxy.<searchClusterId>.mc... (the operator-managed search Envoy LB).
   * mongodEnvoy upstreams stay INTERNAL (the per-pod headless Services).
 
-mongotHost routing stays on the interim OM Automation Config patch until the operator
-gains per-cluster additionalMongodConfig (E2E_SCENARIO_PLAN.md gap #1).
+The source mongotHost is set by patching the OM Automation Config directly, since the
+operator has no per-cluster additionalMongodConfig for an external source.
 """
 
 from __future__ import annotations
@@ -72,7 +70,11 @@ from tests.common.cert.cert_issuer import create_appdb_certs
 from tests.common.mongod_envoy.mongod_envoy import MongodEnvoy, SniRoute
 from tests.common.mongod_envoy.source_routes import build_replicaset_sni_routes, build_source_sni_routes
 from tests.common.mongodb_tools_pod.mongodb_tools_pod import ToolsPod, get_tools_pod
-from tests.common.multicluster.multicluster_utils import assert_workload_ready_in_cluster
+from tests.common.multicluster.multicluster_utils import (
+    assert_workload_ready_in_cluster,
+    create_internet_facing_nlb,
+    wait_for_nlb_hostname,
+)
 from tests.common.search import search_resource_names
 from tests.common.search.connectivity import CLUSTER_LOCATION_TAG_KEY
 from tests.common.search.mc_search_helper import (
@@ -126,11 +128,15 @@ DATA_MDB_AZ2 = "mdb-az2"
 SEARCH_AZ1 = "search-az1"
 SEARCH_AZ2 = "search-az2"
 
+# Infra-assigned clusterId per context, of the form "<prefix>-mc-<context>" (see the
+# mongot_multicluster-infra manifest-mc-*.yaml clusterId fields). The prefix identifies the
+# deployment/infra and names + tags every cloud resource (EKS cluster, DNS child zone, LB
+# security groups), so it MUST match the infra the run targets — parameterized via
+# MDB_MC_CLUSTER_ID_PREFIX (the e2e context exports it; defaults to "ls" for the current infra).
+CLUSTER_ID_PREFIX = os.environ.get("MDB_MC_CLUSTER_ID_PREFIX", "ls")
 CLUSTER_IDS = {
-    CENTRAL_OM_MDB_AZ1: "ls-mc-om-mdb-az1",
-    DATA_MDB_AZ2: "ls-mc-mdb-az2",
-    SEARCH_AZ1: "ls-mc-search-az1",
-    SEARCH_AZ2: "ls-mc-search-az2",
+    ctx: f"{CLUSTER_ID_PREFIX}-mc-{ctx}"
+    for ctx in (CENTRAL_OM_MDB_AZ1, DATA_MDB_AZ2, SEARCH_AZ1, SEARCH_AZ2)
 }
 
 DATA_CLUSTERS = [CENTRAL_OM_MDB_AZ1, DATA_MDB_AZ2]
@@ -149,14 +155,14 @@ SOURCE_CLUSTER_INDEX = {ctx: i for i, ctx in enumerate(SORTED_DATA)}
 # AZ tag applied to source shard members (memberConfig[].tags) and matched by each search
 # cluster's syncSourceSelector so a search cluster's mongot only syncs from its same-AZ
 # shard members. Tag key reuses the shared CLUSTER_LOCATION_TAG_KEY (operator renders it to
-# mongot syncSource.replicationReader.tagSets, the q3 path).
+# mongot syncSource.replicationReader.tagSets).
 AZ_BY_DATA_CLUSTER = {CENTRAL_OM_MDB_AZ1: "az1", DATA_MDB_AZ2: "az2"}
 AZ_BY_SEARCH_CLUSTER = {SEARCH_AZ1: "az1", SEARCH_AZ2: "az2"}
 
 PARENT_ZONE = "mc.mongokubernetes.com"
 
-# Corp-prefix-locked LB security groups provisioned by create_eks_cluster.py (one port each;
-# INFRASTRUCTURE.md). Referenced by the AWS Load Balancer Controller via the
+# Corp-prefix-locked LB security groups provisioned by the infra (create_eks_cluster.py, one
+# port each). Referenced by the AWS Load Balancer Controller via the
 # aws-load-balancer-security-groups annotation so every internet-facing NLB is corp-locked
 # (NEVER 0.0.0.0/0 — fail closed). The infra names each SG per-cluster as
 # `eks-lb-<svc>-sg-<clusterId>` (create_eks_cluster.py: _ensure_sg(..., f"eks-lb-{svc}-sg-{cluster_id}")),
@@ -868,9 +874,9 @@ def test_install_source_tls_certificates(
     central_cluster_client: kubernetes.client.ApiClient,
     mdb: MongoDB,
 ):
-    """Source per-component TLS certs (q3 pattern) issued on central; the central MongoDB
-    controller replicates them to the data members. Certs carry EXTERNAL domains only
-    (added as additional_domains): the operator publishes external process hostnames."""
+    """Source per-component TLS certs issued on central; the central MongoDB controller
+    replicates them to the data members. Certs carry EXTERNAL domains only (added as
+    additional_domains): the operator publishes external process hostnames."""
 
     def _issue(component_resource: str, secret_name: str, distribution: List[int | None], additional_domains: List[str]):
         create_tls_certs(
@@ -1147,64 +1153,26 @@ def test_expose_search_managed_envoy_externally(
     into LoadBalancers; that both mutates operator state and yields N pending NLBs all selecting
     the same pod). The new Service is created by the test and owned by the test.
     """
-    mongot_grpc_port = 27028  # Envoy listener (see LB_SVC_MONGOD)
     ext_svcs: List[Tuple[MultiClusterClient, str]] = []
     for mcc, _mdbs in per_cluster_mdbs_search:
-        idx = _idx(mcc)
-        core = CoreV1Api(api_client=mcc.api_client)
-        envoy_app = search_resource_names.lb_deployment_name(MDBS_RESOURCE_NAME, idx)
-
-        # Fail closed: an internet-facing NLB MUST be corp-SG-locked (never 0.0.0.0/0).
-        sg = lb_sg(LB_SVC_MONGOD, mcc.cluster_name)
+        envoy_app = search_resource_names.lb_deployment_name(MDBS_RESOURCE_NAME, _idx(mcc))
         ext_svc_name = f"{envoy_app}-ext"
-        annotations = {
-            "service.beta.kubernetes.io/aws-load-balancer-type": "external",
-            "service.beta.kubernetes.io/aws-load-balancer-nlb-target-type": "instance",
-            "service.beta.kubernetes.io/aws-load-balancer-scheme": "internet-facing",
-            "service.beta.kubernetes.io/aws-load-balancer-security-groups": sg,
-            # BYO frontend SG ⇒ controller no longer auto-opens the node SG to the NLB; without
-            # this the targets fail health checks (i/o timeout).
-            "service.beta.kubernetes.io/aws-load-balancer-manage-backend-security-group-rules": "true",
-            "external-dns.alpha.kubernetes.io/hostname": f"*.{search_proxy_wildcard(mcc.cluster_name)}",
-        }
-        manifest = {
-            "apiVersion": "v1",
-            "kind": "Service",
-            "metadata": {"name": ext_svc_name, "labels": {"app": envoy_app}, "annotations": annotations},
-            "spec": {
-                "type": "LoadBalancer",
-                "selector": {"app": envoy_app},
-                "ports": [{"name": "mongot-grpc", "port": mongot_grpc_port, "targetPort": mongot_grpc_port}],
-            },
-        }
-        try:
-            core.create_namespaced_service(namespace, manifest)
-            logger.info(
-                f"[{mcc.cluster_name}] created single Envoy LB {ext_svc_name} -> *.{search_proxy_wildcard(mcc.cluster_name)}"
-            )
-        except kubernetes.client.ApiException as exc:
-            if exc.status == 409:
-                core.patch_namespaced_service(ext_svc_name, namespace, manifest)
-                logger.info(f"[{mcc.cluster_name}] updated single Envoy LB {ext_svc_name}")
-            else:
-                raise
+        create_internet_facing_nlb(
+            mcc.api_client,
+            namespace,
+            name=ext_svc_name,
+            selector_app=envoy_app,
+            port=ENVOY_PROXY_PORT,
+            port_name="mongot-grpc",
+            security_groups=[lb_sg(LB_SVC_MONGOD, mcc.cluster_name)],
+            external_dns_hostname=f"*.{search_proxy_wildcard(mcc.cluster_name)}",
+            cluster_id=mcc.cluster_name,
+        )
         ext_svcs.append((mcc, ext_svc_name))
 
-    # Block until each Envoy NLB is provisioned (external hostname/IP assigned) so the
-    # subsequent mongotHost flip + createSearchIndex can actually connect.
+    # Block until each NLB is provisioned so the mongotHost flip + createSearchIndex can connect.
     for mcc, ext_svc_name in ext_svcs:
-        core = CoreV1Api(api_client=mcc.api_client)
-
-        def check(_svc=ext_svc_name, _core=core):
-            svc = _core.read_namespaced_service(_svc, namespace)
-            ingress = (svc.status.load_balancer.ingress or []) if svc.status.load_balancer else []
-            if ingress and (ingress[0].hostname or ingress[0].ip):
-                return True, f"NLB provisioned: {ingress[0].hostname or ingress[0].ip}"
-            return False, "NLB hostname not yet assigned"
-
-        run_periodically(
-            check, timeout=300, sleep_time=10, msg=f"[{mcc.cluster_name}] search Envoy NLB provisioning"
-        )
+        wait_for_nlb_hostname(mcc.api_client, namespace, ext_svc_name, cluster_id=mcc.cluster_name)
 
 
 @mark.e2e_aws_simulated_mc_sharded
@@ -1338,7 +1306,8 @@ def _assert_source_routed_to(
                             )
                         else:
                             msgs.append(f"[{mcc.cluster_name}] {pod_name}: mongotHost={expected} + search TLS params OK")
-                    except Exception as exc:  # noqa: BLE001
+                    except pymongo.errors.PyMongoError as exc:
+                        # Transient while the Automation Config rolls out; poll again.
                         all_ok = False
                         msgs.append(f"[{mcc.cluster_name}] {pod_name}: error reading conf: {exc}")
         return all_ok, "\n".join(msgs)

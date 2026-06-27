@@ -43,6 +43,11 @@ export MULTI_CLUSTER_CONFIG_DIR="${AWS_MC_CONFIG_DIR:-${HOME}/.mck-aws-mc-config
 # OM is deployed by the scenario (not cloud-qa); version comes from variables/om80 above
 # (ops_manager_version=${CUSTOM_OM_VERSION}=8.0.x).
 
+# Infra clusterId prefix: the test derives each cluster's id/DNS-zone/LB-SG name as
+# "<prefix>-mc-<context>" (mongot_multicluster-infra manifest-mc-*.yaml clusterId). Must match
+# the targeted infra's prefix; override when running against a differently-prefixed deployment.
+export MDB_MC_CLUSTER_ID_PREFIX="${MDB_MC_CLUSTER_ID_PREFIX:-ls}"
+
 export OPERATOR_NAME="mongodb-kubernetes-operator-multi-cluster"
 
 # Deploy operators as PODS in the clusters, not locally via `go run`. private-context
