@@ -32,6 +32,7 @@ from kubernetes import client
 from kubetester import create_or_update_configmap
 from kubetester.kubetester import run_periodically
 from tests import test_logger
+from tests.common.multicluster.multicluster_utils import create_internet_facing_nlb, wait_for_nlb_hostname
 
 logger = test_logger.get_test_logger(__name__)
 
@@ -246,63 +247,19 @@ layered_runtime:
             else:
                 raise
 
-    def _service_annotations(self) -> dict:
-        # internet-facing NLB; corp-prefix-locked via the security-group annotation.
-        # Never 0.0.0.0/0 — the SG must come from the corp managed prefix list.
-        annotations = {
-            "service.beta.kubernetes.io/aws-load-balancer-type": "external",
-            "service.beta.kubernetes.io/aws-load-balancer-nlb-target-type": "instance",
-            "service.beta.kubernetes.io/aws-load-balancer-scheme": "internet-facing",
-        }
-        if self.lb_security_groups:
-            annotations["service.beta.kubernetes.io/aws-load-balancer-security-groups"] = ",".join(
-                self.lb_security_groups
-            )
-            # BYO frontend SG ⇒ the AWS LB Controller no longer auto-opens the node SG to
-            # the NLB; without this the targets fail health checks (i/o timeout).
-            annotations[
-                "service.beta.kubernetes.io/aws-load-balancer-manage-backend-security-group-rules"
-            ] = "true"
-        if self.external_dns_hostname:
-            annotations["external-dns.alpha.kubernetes.io/hostname"] = self.external_dns_hostname
-        return annotations
-
-    def _service_manifest(self) -> dict:
-        return {
-            "apiVersion": "v1",
-            "kind": "Service",
-            "metadata": {
-                "name": self.service_name,
-                "labels": {"app": self.name},
-                "annotations": self._service_annotations(),
-            },
-            "spec": {
-                "type": "LoadBalancer",
-                "selector": {"app": self.name},
-                "ports": [
-                    {"name": "mongod-sni", "port": self.listen_port, "targetPort": self.listen_port},
-                ],
-            },
-        }
-
     def create_service(self) -> None:
-        if self.lb_security_groups == []:
-            # Fail closed: an internet-facing NLB with no corp SG would default to open.
-            raise ValueError(
-                f"[{self.cluster_id}] mongodEnvoy refuses to create an internet-facing NLB without "
-                "a corp security group; pass lb_security_groups from the provisioned prefix-locked SGs"
-            )
-        core = client.CoreV1Api(api_client=self.api_client)
-        manifest = self._service_manifest()
-        try:
-            core.create_namespaced_service(self.namespace, manifest)
-            logger.info(f"[{self.cluster_id}] mongodEnvoy Service {self.service_name} (LoadBalancer) created")
-        except kubernetes.client.ApiException as e:
-            if e.status == 409:
-                core.patch_namespaced_service(self.service_name, self.namespace, manifest)
-                logger.info(f"[{self.cluster_id}] mongodEnvoy Service {self.service_name} updated")
-            else:
-                raise
+        create_internet_facing_nlb(
+            self.api_client,
+            self.namespace,
+            name=self.service_name,
+            selector_app=self.name,
+            port=self.listen_port,
+            port_name="mongod-sni",
+            security_groups=self.lb_security_groups,
+            external_dns_hostname=self.external_dns_hostname,
+            cluster_id=self.cluster_id,
+        )
+        logger.info(f"[{self.cluster_id}] mongodEnvoy Service {self.service_name} (LoadBalancer) applied")
 
     # ---- Lifecycle ----------------------------------------------------------------
 
@@ -322,27 +279,11 @@ layered_runtime:
         )
 
     def lb_hostname(self, timeout: int = 300) -> str:
-        """Block until the NLB is provisioned and return its external hostname.
-
-        external-dns publishes ``external_dns_hostname`` as a CNAME to this; callers
-        usually use the stable external-dns name, but this is handy for diagnostics.
-        """
-        core = client.CoreV1Api(api_client=self.api_client)
-
-        result: dict = {}
-
-        def check() -> tuple:
-            svc = core.read_namespaced_service(self.service_name, self.namespace)
-            ingress = (svc.status.load_balancer.ingress or []) if svc.status.load_balancer else []
-            if ingress and (ingress[0].hostname or ingress[0].ip):
-                result["host"] = ingress[0].hostname or ingress[0].ip
-                return True, f"NLB provisioned: {result['host']}"
-            return False, "NLB hostname not yet assigned"
-
-        run_periodically(
-            check, timeout=timeout, sleep_time=10, msg=f"[{self.cluster_id}] mongodEnvoy NLB provisioning"
+        """Block until the NLB is provisioned and return its external hostname (for diagnostics;
+        callers usually use the stable external-dns name that CNAMEs to it)."""
+        return wait_for_nlb_hostname(
+            self.api_client, self.namespace, self.service_name, cluster_id=self.cluster_id, timeout=timeout
         )
-        return result["host"]
 
     def deploy(self) -> None:
         self.create_configmap()
