@@ -1712,12 +1712,10 @@ spec:
                     type: string
                   keyFilePasswordSecretPrefix:
                     description: |-
-                      KeyFilePasswordSecretPrefix is the prefix of the per-tier Secrets holding the password that
-                      decrypts a password-encrypted PEM private key. When set, the operator reads the password
-                      (key "keyFilePassword") from `<prefix>-<tier>-keyfile-password` and supplies it to the
-                      mongod/mongos processes via net.tls.certificateKeyFilePassword. The password is kept in a
-                      dedicated Secret, separate from the certificate Secret, so the encrypted key and its password
-                      are not stored together. Omit when the TLS private keys are not password-encrypted.
+                      KeyFilePasswordSecretPrefix is the prefix of the per-tier (shards, config servers, mongos etc)
+                      Secrets holding the password that decrypts a password-encrypted PEM private key. When set, the
+                      operator reads the password (key "keyFilePassword") from `<prefix>-<tier>-keyfile-password` and supplies it to the
+                      mongod/mongos processes via net.tls.certificateKeyFilePassword.
                     type: string
                   roleRefs:
                     items:
@@ -3734,12 +3732,10 @@ spec:
                     type: string
                   keyFilePasswordSecretPrefix:
                     description: |-
-                      KeyFilePasswordSecretPrefix is the prefix of the per-tier Secrets holding the password that
-                      decrypts a password-encrypted PEM private key. When set, the operator reads the password
-                      (key "keyFilePassword") from `<prefix>-<tier>-keyfile-password` and supplies it to the
-                      mongod/mongos processes via net.tls.certificateKeyFilePassword. The password is kept in a
-                      dedicated Secret, separate from the certificate Secret, so the encrypted key and its password
-                      are not stored together. Omit when the TLS private keys are not password-encrypted.
+                      KeyFilePasswordSecretPrefix is the prefix of the per-tier (shards, config servers, mongos etc)
+                      Secrets holding the password that decrypts a password-encrypted PEM private key. When set, the
+                      operator reads the password (key "keyFilePassword") from `<prefix>-<tier>-keyfile-password` and supplies it to the
+                      mongod/mongos processes via net.tls.certificateKeyFilePassword.
                     type: string
                   roleRefs:
                     items:
@@ -6119,12 +6115,10 @@ spec:
                         type: string
                       keyFilePasswordSecretPrefix:
                         description: |-
-                          KeyFilePasswordSecretPrefix is the prefix of the per-tier Secrets holding the password that
-                          decrypts a password-encrypted PEM private key. When set, the operator reads the password
-                          (key "keyFilePassword") from `<prefix>-<tier>-keyfile-password` and supplies it to the
-                          mongod/mongos processes via net.tls.certificateKeyFilePassword. The password is kept in a
-                          dedicated Secret, separate from the certificate Secret, so the encrypted key and its password
-                          are not stored together. Omit when the TLS private keys are not password-encrypted.
+                          KeyFilePasswordSecretPrefix is the prefix of the per-tier (shards, config servers, mongos etc)
+                          Secrets holding the password that decrypts a password-encrypted PEM private key. When set, the
+                          operator reads the password (key "keyFilePassword") from `<prefix>-<tier>-keyfile-password` and supplies it to the
+                          mongod/mongos processes via net.tls.certificateKeyFilePassword.
                         type: string
                       roleRefs:
                         items:
