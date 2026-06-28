@@ -239,6 +239,7 @@ search:
   # default MongoDB Search version used; can be overridden by setting MongoDBSearch.spec.version field.
   version: 0.64.0
   envoyImage: envoyproxy/envoy:v1.37-latest
+  metricsForwarderImage: otel/opentelemetry-collector-contrib:0.152.0
 
 # VoyageAI settings
 voyageai:

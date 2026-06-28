@@ -449,6 +449,12 @@ func setupMongoDBSearchCRD(
 		return err
 	}
 
+	// Metrics forwarder controller — image is again enforced in controller
+	metricsForwarderImage := env.ReadOrDefault(util.MetricsForwarderImageEnv, "")
+	if err := operator.AddMongoDBSearchMetricsForwarderController(ctx, mgr, metricsForwarderImage, memberClusterObjectsMap, operatorClusterName); err != nil {
+		return err
+	}
+
 	return nil
 }
 

@@ -4669,6 +4669,10 @@ spec:
       jsonPath: .status.loadBalancer.phase
       name: LoadBalancer
       type: string
+    - description: Current state of the Ops Manager metrics forwarder.
+      jsonPath: .status.metricsForwarder.phase
+      name: MetricsForwarder
+      type: string
     - description: The time since the MongoDB resource was created.
       jsonPath: .metadata.creationTimestamp
       name: Age
@@ -5300,17 +5304,186 @@ spec:
                 - WARN
                 - ERROR
                 type: string
-              prometheus:
-                description: Configure prometheus metrics endpoint in mongot. If not
-                  set, the metrics endpoint will be disabled.
+              observability:
+                default: {}
+                description: Observability configures observability features (e.g.
+                  Prometheus endpoint and metrics forwarding to Ops Manager).
                 properties:
-                  port:
-                    default: 9946
-                    description: Port where metrics endpoint will be exposed on. Defaults
-                      to 9946.
-                    maximum: 65535
-                    minimum: 0
-                    type: integer
+                  metricsForwarder:
+                    default: {}
+                    description: |-
+                      MetricsForwarder configures a metrics forwarder Deployment that scrapes
+                      mongot Prometheus metrics and forwards them to Ops Manager.
+                    properties:
+                      deployment:
+                        description: Deployment holds optional overrides merged into
+                          the operator-created metrics forwarder Deployment.
+                        properties:
+                          metadata:
+                            description: DeploymentMetadataWrapper is a wrapper around
+                              Labels and Annotations
+                            properties:
+                              annotations:
+                                additionalProperties:
+                                  type: string
+                                type: object
+                              labels:
+                                additionalProperties:
+                                  type: string
+                                type: object
+                            type: object
+                          spec:
+                            type: object
+                            x-kubernetes-preserve-unknown-fields: true
+                        required:
+                        - spec
+                        type: object
+                      mode:
+                        default: auto
+                        description: |-
+                          Mode controls whether the metrics forwarder Deployment is created.
+                          Auto (default): enabled for internal MongoDB sources, and for external sources when OpsManager is set.
+                          Enabled: always create the metrics forwarder.
+                          Disabled: never create the metrics forwarder.
+                        enum:
+                        - auto
+                        - enabled
+                        - disabled
+                        type: string
+                      opsManager:
+                        description: |-
+                          OpsManager holds the Ops Manager project and credentials configuration for the metrics forwarder.
+                          If not set, the operator derives the connection details from the source MongoDB resource's connection spec.
+                        properties:
+                          agentCredentials:
+                            description: AgentCredentials is a reference to a Secret
+                              containing the Ops Manager Agent API key.
+                            properties:
+                              name:
+                                default: ""
+                                description: |-
+                                  Name of the referent.
+                                  This field is effectively required, but due to backwards compatibility is
+                                  allowed to be empty. Instances of this type with an empty value here are
+                                  almost certainly wrong.
+                                  More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                type: string
+                            type: object
+                            x-kubernetes-map-type: atomic
+                          projectConfigMapRef:
+                            description: ProjectConfigMapRef is a reference to a ConfigMap
+                              containing OM Project configuration.
+                            properties:
+                              name:
+                                default: ""
+                                description: |-
+                                  Name of the referent.
+                                  This field is effectively required, but due to backwards compatibility is
+                                  allowed to be empty. Instances of this type with an empty value here are
+                                  almost certainly wrong.
+                                  More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                type: string
+                            type: object
+                            x-kubernetes-map-type: atomic
+                        required:
+                        - agentCredentials
+                        - projectConfigMapRef
+                        type: object
+                      resourceRequirements:
+                        default:
+                          limits:
+                            cpu: 250m
+                            memory: 256Mi
+                          requests:
+                            cpu: 100m
+                            memory: 128Mi
+                        description: ResourceRequirements for the metrics forwarder
+                          container.
+                        properties:
+                          claims:
+                            description: |-
+                              Claims lists the names of resources, defined in spec.resourceClaims,
+                              that are used by this container.
+
+                              This is an alpha field and requires enabling the
+                              DynamicResourceAllocation feature gate.
+
+                              This field is immutable. It can only be set for containers.
+                            items:
+                              description: ResourceClaim references one entry in PodSpec.ResourceClaims.
+                              properties:
+                                name:
+                                  description: |-
+                                    Name must match the name of one entry in pod.spec.resourceClaims of
+                                    the Pod where this field is used. It makes that resource available
+                                    inside a container.
+                                  type: string
+                                request:
+                                  description: |-
+                                    Request is the name chosen for a request in the referenced claim.
+                                    If empty, everything from the claim is made available, otherwise
+                                    only the result of this request.
+                                  type: string
+                              required:
+                              - name
+                              type: object
+                            type: array
+                            x-kubernetes-list-map-keys:
+                            - name
+                            x-kubernetes-list-type: map
+                          limits:
+                            additionalProperties:
+                              anyOf:
+                              - type: integer
+                              - type: string
+                              pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                              x-kubernetes-int-or-string: true
+                            description: |-
+                              Limits describes the maximum amount of compute resources allowed.
+                              More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                            type: object
+                          requests:
+                            additionalProperties:
+                              anyOf:
+                              - type: integer
+                              - type: string
+                              pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                              x-kubernetes-int-or-string: true
+                            description: |-
+                              Requests describes the minimum amount of compute resources required.
+                              If Requests is omitted for a container, it defaults to Limits if that is explicitly specified,
+                              otherwise to an implementation-defined value. Requests cannot exceed Limits.
+                              More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                            type: object
+                        type: object
+                    type: object
+                  prometheus:
+                    default: {}
+                    description: |-
+                      Prometheus configures the Prometheus metrics endpoint in mongot.
+                      By default the endpoint is enabled on port 9946.
+                    properties:
+                      mode:
+                        allOf:
+                        - enum:
+                          - enabled
+                          - disabled
+                        - enum:
+                          - enabled
+                          - disabled
+                        default: enabled
+                        description: |-
+                          Mode controls whether the Prometheus metrics endpoint in mongot is enabled.
+                          Defaults to enabled.
+                        type: string
+                      port:
+                        default: 9946
+                        description: Port where metrics endpoint will be exposed on.
+                          Defaults to 9946.
+                        maximum: 65535
+                        minimum: 0
+                        type: integer
+                    type: object
                 type: object
               security:
                 description: Security holds the TLS settings for the MongoDB Search
@@ -5546,6 +5719,17 @@ spec:
                 type: object
               message:
                 type: string
+              metricsForwarder:
+                description: MetricsForwarder reports the state of the Ops Manager
+                  metrics forwarder.
+                properties:
+                  message:
+                    type: string
+                  phase:
+                    type: string
+                required:
+                - phase
+                type: object
               observedGeneration:
                 format: int64
                 type: integer

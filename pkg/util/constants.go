@@ -222,10 +222,11 @@ const (
 	RequiredHealthyStreakEnv     = "MDB_MEMBER_CLUSTER_REQUIRED_HEALTHY_STREAK"
 
 	// Search environment variables
-	SearchRepoURLEnv = "MDB_SEARCH_REPO_URL"
-	SearchNameEnv    = "MDB_SEARCH_NAME"
-	SearchVersionEnv = "MDB_SEARCH_VERSION"
-	EnvoyImageEnv    = "MDB_ENVOY_IMAGE"
+	SearchRepoURLEnv         = "MDB_SEARCH_REPO_URL"
+	SearchNameEnv            = "MDB_SEARCH_NAME"
+	SearchVersionEnv         = "MDB_SEARCH_VERSION"
+	EnvoyImageEnv            = "MDB_ENVOY_IMAGE"
+	MetricsForwarderImageEnv = "MDB_SEARCH_METRICS_FORWARDER_IMAGE"
 
 	// VoyageAI environment variables
 	VoyageAIRepoURLEnv = "MDB_VOYAGEAI_REPO_URL"
@@ -344,6 +345,8 @@ const (
 	MdbAppdbAssumeOldFormat = "MDB_APPDB_ASSUME_OLD_FORMAT"
 
 	UserFinalizer = "mongodb.com/v1.userRemovalFinalizer"
+
+	SearchMetricsForwarderFinalizer = "mongodb.com/v1.searchMongotHostsRemovalFinalizer"
 )
 
 type OperatorEnvironment string
