@@ -63,8 +63,8 @@ def create_keyfile_password_secret(
     api_client: Optional[kubernetes.client.ApiClient] = None,
 ):
     """Creates (or updates) the dedicated keyfile-password secret holding the password under the
-    "keyFilePassword" key. This is the secret the operator reads via
-    security.keyFilePasswordSecretPrefix."""
+    fixed "keyFilePassword" key. This is the secret the operator reads via the search CR's
+    spec.*.keyFilePasswordSecretRef (or the mongod security.keyFilePasswordSecretPrefix)."""
     create_or_update_secret(
         namespace,
         password_secret_name,

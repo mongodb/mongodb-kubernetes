@@ -380,9 +380,13 @@ type MongoDBSource struct {
 type X509Auth struct {
 	// ClientCertificateSecret is a reference to a Secret containing the x509 client
 	// certificate and key for authenticating to the MongoDB sync source.
-	// Expected keys: "tls.crt", "tls.key" (required), "tls.keyFilePassword" (optional).
+	// Expected keys: "tls.crt", "tls.key".
 	// +kubebuilder:validation:Required
 	ClientCertificateSecret corev1.LocalObjectReference `json:"clientCertificateSecretRef"`
+	// KeyFilePasswordSecret references a Secret with the password (key: "keyFilePassword") that
+	// decrypts the password-encrypted client private key. Omit when the key is not encrypted.
+	// +optional
+	KeyFilePasswordSecret corev1.LocalObjectReference `json:"keyFilePasswordSecretRef,omitempty"`
 }
 
 // SourceTLS configures TLS transport settings for the sync source connection.
@@ -392,9 +396,13 @@ type X509Auth struct {
 type SourceTLS struct {
 	// ClientCertificateSecret is a reference to a Secret containing a TLS client
 	// certificate and key to present during the TLS handshake with the source MongoDB.
-	// Expected keys: "tls.crt", "tls.key" (required), "tls.keyFilePassword" (optional).
+	// Expected keys: "tls.crt", "tls.key".
 	// +kubebuilder:validation:Required
 	ClientCertificateSecret corev1.LocalObjectReference `json:"clientCertificateSecretRef"`
+	// KeyFilePasswordSecret references a Secret with the password (key: "keyFilePassword") that
+	// decrypts the password-encrypted client private key. Omit when the key is not encrypted.
+	// +optional
+	KeyFilePasswordSecret corev1.LocalObjectReference `json:"keyFilePasswordSecretRef,omitempty"`
 }
 
 type ExternalMongoDBSource struct {
@@ -467,6 +475,10 @@ type TLS struct {
 	// If CertificateKeySecret.Name is also specified, that takes precedence over this field.
 	// +optional
 	CertsSecretPrefix string `json:"certsSecretPrefix,omitempty"`
+	// KeyFilePasswordSecret references a Secret with the password (key: "keyFilePassword") that
+	// decrypts the password-encrypted server private key. Omit when the key is not encrypted.
+	// +optional
+	KeyFilePasswordSecret corev1.LocalObjectReference `json:"keyFilePasswordSecretRef,omitempty"`
 }
 
 // LoadBalancerStatus reports the state of the operator-managed load balancer (Envoy).
@@ -787,6 +799,33 @@ func (s *MongoDBSearch) ScramClientCertSecret() types.NamespacedName {
 		return types.NamespacedName{}
 	}
 	return types.NamespacedName{Name: s.Spec.Source.TLS.ClientCertificateSecret.Name, Namespace: s.Namespace}
+}
+
+// GrpcKeyFilePasswordSecret returns the dedicated secret holding the password that decrypts the
+// gRPC server private key, or an empty name when unset.
+func (s *MongoDBSearch) GrpcKeyFilePasswordSecret() types.NamespacedName {
+	if s.Spec.Security.TLS == nil || s.Spec.Security.TLS.KeyFilePasswordSecret.Name == "" {
+		return types.NamespacedName{}
+	}
+	return types.NamespacedName{Name: s.Spec.Security.TLS.KeyFilePasswordSecret.Name, Namespace: s.Namespace}
+}
+
+// X509KeyFilePasswordSecret returns the dedicated secret holding the password that decrypts the
+// x509 client private key, or an empty name when unset.
+func (s *MongoDBSearch) X509KeyFilePasswordSecret() types.NamespacedName {
+	if !s.IsX509Auth() || s.Spec.Source.X509.KeyFilePasswordSecret.Name == "" {
+		return types.NamespacedName{}
+	}
+	return types.NamespacedName{Name: s.Spec.Source.X509.KeyFilePasswordSecret.Name, Namespace: s.Namespace}
+}
+
+// ScramKeyFilePasswordSecret returns the dedicated secret holding the password that decrypts the
+// scram client private key, or an empty name when unset.
+func (s *MongoDBSearch) ScramKeyFilePasswordSecret() types.NamespacedName {
+	if !s.HasScramClientCert() || s.Spec.Source.TLS.KeyFilePasswordSecret.Name == "" {
+		return types.NamespacedName{}
+	}
+	return types.NamespacedName{Name: s.Spec.Source.TLS.KeyFilePasswordSecret.Name, Namespace: s.Namespace}
 }
 
 // ScramClientCertOperatorManagedSecret returns the namespaced name of the operator-managed secret

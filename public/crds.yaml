@@ -4741,6 +4741,22 @@ spec:
                           When set, the operator will look for a secret named "{prefix}-{resourceName}-search-cert".
                           If CertificateKeySecret.Name is also specified, that takes precedence over this field.
                         type: string
+                      keyFilePasswordSecretRef:
+                        description: |-
+                          KeyFilePasswordSecret references a Secret with the password (key: "keyFilePassword") that
+                          decrypts the password-encrypted server private key. Omit when the key is not encrypted.
+                        properties:
+                          name:
+                            default: ""
+                            description: |-
+                              Name of the referent.
+                              This field is effectively required, but due to backwards compatibility is
+                              allowed to be empty. Instances of this type with an empty value here are
+                              almost certainly wrong.
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                            type: string
+                        type: object
+                        x-kubernetes-map-type: atomic
                     type: object
                 type: object
               source:
@@ -4872,7 +4888,23 @@ spec:
                         description: |-
                           ClientCertificateSecret is a reference to a Secret containing a TLS client
                           certificate and key to present during the TLS handshake with the source MongoDB.
-                          Expected keys: "tls.crt", "tls.key" (required), "tls.keyFilePassword" (optional).
+                          Expected keys: "tls.crt", "tls.key".
+                        properties:
+                          name:
+                            default: ""
+                            description: |-
+                              Name of the referent.
+                              This field is effectively required, but due to backwards compatibility is
+                              allowed to be empty. Instances of this type with an empty value here are
+                              almost certainly wrong.
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                            type: string
+                        type: object
+                        x-kubernetes-map-type: atomic
+                      keyFilePasswordSecretRef:
+                        description: |-
+                          KeyFilePasswordSecret references a Secret with the password (key: "keyFilePassword") that
+                          decrypts the password-encrypted client private key. Omit when the key is not encrypted.
                         properties:
                           name:
                             default: ""
@@ -4902,7 +4934,23 @@ spec:
                         description: |-
                           ClientCertificateSecret is a reference to a Secret containing the x509 client
                           certificate and key for authenticating to the MongoDB sync source.
-                          Expected keys: "tls.crt", "tls.key" (required), "tls.keyFilePassword" (optional).
+                          Expected keys: "tls.crt", "tls.key".
+                        properties:
+                          name:
+                            default: ""
+                            description: |-
+                              Name of the referent.
+                              This field is effectively required, but due to backwards compatibility is
+                              allowed to be empty. Instances of this type with an empty value here are
+                              almost certainly wrong.
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                            type: string
+                        type: object
+                        x-kubernetes-map-type: atomic
+                      keyFilePasswordSecretRef:
+                        description: |-
+                          KeyFilePasswordSecret references a Secret with the password (key: "keyFilePassword") that
+                          decrypts the password-encrypted client private key. Omit when the key is not encrypted.
                         properties:
                           name:
                             default: ""
