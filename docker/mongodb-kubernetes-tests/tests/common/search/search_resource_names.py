@@ -224,3 +224,26 @@ def lb_client_cert_name(search_name: str, certs_secret_prefix: str = "") -> str:
     if certs_secret_prefix:
         return f"{certs_secret_prefix}-{search_name}-search-lb-0-client-cert"
     return f"{search_name}-search-lb-0-client-cert"
+
+
+# ============================================================================
+# Metrics forwarder resources
+# ============================================================================
+
+
+def metrics_forwarder_deployment_name(search_name: str, cluster_index: int = 0) -> str:
+    """Deployment name for the metrics forwarder. Mirrors MetricsForwarderDeploymentNameForCluster().
+
+    cluster_index defaults to 0 for single-cluster callers; pass the cluster
+    position explicitly for multi-cluster tests.
+    """
+    return f"{search_name}-search-metrics-forwarder-{cluster_index}"
+
+
+def metrics_forwarder_configmap_name(search_name: str, cluster_index: int = 0) -> str:
+    """ConfigMap name for the metrics forwarder config. Mirrors MetricsForwarderConfigMapNameForCluster().
+
+    cluster_index defaults to 0 for single-cluster callers; pass the cluster
+    position explicitly for multi-cluster tests.
+    """
+    return f"{search_name}-search-metrics-forwarder-{cluster_index}-config"

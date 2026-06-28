@@ -1142,7 +1142,7 @@ func mongotServicePorts(search *searchv1.MongoDBSearch) []corev1.ServicePort {
 		},
 	}
 
-	if prometheus := search.GetPrometheus(); prometheus != nil {
+	if prometheus := search.Spec.Observability.Prometheus; prometheus.IsEnabled() {
 		ports = append(ports, corev1.ServicePort{
 			Name:       "prometheus",
 			Protocol:   corev1.ProtocolTCP,
@@ -1822,7 +1822,7 @@ func baseMongotConfig(search *searchv1.MongoDBSearch, hostAndPorts []string) mon
 			},
 		}
 
-		if prometheus := search.GetPrometheus(); prometheus != nil {
+		if prometheus := search.Spec.Observability.Prometheus; prometheus.IsEnabled() {
 			config.Metrics = mongot.ConfigMetrics{
 				Enabled: true,
 				Address: fmt.Sprintf("0.0.0.0:%d", prometheus.GetPort()),

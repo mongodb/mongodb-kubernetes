@@ -23,6 +23,8 @@ type SearchPart int
 const (
 	// SearchPartLoadBalancer targets status.loadBalancer.
 	SearchPartLoadBalancer SearchPart = iota
+	// SearchPartMetricsForwarder targets status.metricsForwarder.
+	SearchPartMetricsForwarder
 )
 
 // SearchPartOption tells UpdateStatus/GetStatus/GetStatusPath which

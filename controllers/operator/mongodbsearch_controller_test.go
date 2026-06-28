@@ -53,6 +53,13 @@ func newMongoDBSearch(name, namespace, mdbcName string) *searchv1.MongoDBSearch 
 			Source: &searchv1.MongoDBSource{
 				MongoDBResourceRef: &userv1.MongoDBResourceRef{Name: mdbcName},
 			},
+			// immitate apiserver defaulting for .observability and .observability.prometheus
+			Observability: searchv1.ObservabilityConfig{
+				Prometheus: searchv1.Prometheus{
+					Mode: searchv1.PrometheusModeEnabled,
+					Port: int(searchv1.MongotDefaultPrometheusPort),
+				},
+			},
 		},
 	}
 }
@@ -118,7 +125,7 @@ func buildExpectedMongotConfig(search *searchv1.MongoDBSearch, mdbc *mdbcv1.Mong
 		}
 	}
 
-	return mongot.Config{
+	cfg := mongot.Config{
 		SyncSource: mongot.ConfigSyncSource{
 			ReplicaSet: mongot.ConfigReplicaSet{
 				HostAndPort: hostAndPorts,
@@ -158,6 +165,15 @@ func buildExpectedMongotConfig(search *searchv1.MongoDBSearch, mdbc *mdbcv1.Mong
 			OverloadRetrySignal: ptr.To(true),
 		},
 	}
+
+	if prometheus := search.Spec.Observability.Prometheus; prometheus.IsEnabled() {
+		cfg.Metrics = mongot.ConfigMetrics{
+			Enabled: true,
+			Address: fmt.Sprintf("0.0.0.0:%d", prometheus.GetPort()),
+		}
+	}
+
+	return cfg
 }
 
 func TestMongoDBSearchReconcile_NotFound(t *testing.T) {
@@ -260,7 +276,7 @@ func TestMongoDBSearchReconcile_Success(t *testing.T) {
 			for _, port := range svc.Spec.Ports {
 				servicePortNames = append(servicePortNames, port.Name)
 			}
-			expectedPortNames := []string{"mongot-grpc", "healthcheck"}
+			expectedPortNames := []string{"mongot-grpc", "healthcheck", "prometheus"}
 			if tc.withWireproto {
 				expectedPortNames = append(expectedPortNames, "mongot-wireproto")
 			}
