@@ -36,6 +36,11 @@ const (
 	Database   = "database"
 	OpsManager = "opsmanager"
 	AppDB      = "appdb"
+
+	// KeyFilePasswordSecretKey is the key of a keyfile-password Secret
+	// (security.keyFilePasswordSecretPrefix) holding the password that decrypts a password-encrypted
+	// PEM private key. Same key name used on the mongot side.
+	KeyFilePasswordSecretKey = "keyFilePassword" // #nosec G101 -- secret key name, not a password
 )
 
 // CreateOrUpdatePEMSecretWithPreviousCert creates a PEM secret from the original secretName.
@@ -134,6 +139,38 @@ func getOperatorGeneratedSecret(secretNamespacedName types.NamespacedName) types
 	operatorGeneratedSecret := secretNamespacedName
 	operatorGeneratedSecret.Name = fmt.Sprintf("%s%s", secretNamespacedName.Name, OperatorGeneratedCertSuffix)
 	return operatorGeneratedSecret
+}
+
+// ReadTLSKeyFilePassword reads the keyFilePassword key from a keyfile-password Secret.
+// It returns the password to supply to net.tls.certificateKeyFilePassword for a password-encrypted
+// PEM key. When a name IS given the Secret must exist and contain a non-empty
+// keyFilePassword entry; otherwise an error is returned.
+func ReadTLSKeyFilePassword(ctx context.Context, secretClient secrets.SecretClient, namespace, name, basePath string) (string, error) {
+	if name == "" {
+		return "", nil
+	}
+
+	var secretData map[string]string
+	if vault.IsVaultSecretBackend() {
+		path := fmt.Sprintf("%s/%s/%s", basePath, namespace, name)
+		data, err := secretClient.VaultClient.ReadSecretString(path)
+		if err != nil {
+			return "", xerrors.Errorf("failed to read keyfile-password secret %s/%s: %w", namespace, name, err)
+		}
+		secretData = data
+	} else {
+		s, err := secretClient.KubeClient.GetSecret(ctx, kube.ObjectKey(namespace, name))
+		if err != nil {
+			return "", xerrors.Errorf("failed to read keyfile-password secret %s/%s: %w", namespace, name, err)
+		}
+		secretData = secrets.DataToStringData(s.Data)
+	}
+
+	password := secretData[KeyFilePasswordSecretKey]
+	if password == "" {
+		return "", xerrors.Errorf("keyfile-password secret %s/%s is missing a non-empty %q entry", namespace, name, KeyFilePasswordSecretKey)
+	}
+	return password, nil
 }
 
 // VerifyTLSSecretForStatefulSet verifies a `Secret`'s `StringData` is a valid

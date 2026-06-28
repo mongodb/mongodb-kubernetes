@@ -509,6 +509,16 @@ tasks:
     commands:
       - func: "e2e_test"
 
+  - name: e2e_replica_set_tls_mongod_encrypted_keyfile
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_sharded_cluster_tls_mongod_encrypted_keyfile
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
   - name: e2e_sharded_cluster_tls_certs_top_level_prefix
     tags: [ "patch-run" ]
     commands:
@@ -1040,6 +1050,11 @@ tasks:
       - func: e2e_test
 
   - name: e2e_multi_cluster_enable_tls
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_multi_cluster_tls_mongod_encrypted_keyfile
     tags: [ "patch-run" ]
     commands:
       - func: e2e_test

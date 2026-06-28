@@ -397,10 +397,10 @@ func buildShardRoutes(search *searchv1.MongoDBSearch, shardNames []string, clust
 
 	// Cluster-level route: mongos in this cluster uses this single SNI chain to reach
 	// all local shard mongot pools. SNI is the cluster-level proxy Service FQDN unless
-	// the user supplied a managed-LB externalHostname (with {shardName}. prefix stripped).
+	// the user supplied a managed-LB routerHostname (used verbatim; required for external sharded).
 	clusterLevelSvcName := search.ProxyServiceNamespacedNameForCluster(clusterIndex).Name
 	clusterLevelSNI := fmt.Sprintf("%s.%s.svc.cluster.local", clusterLevelSvcName, namespace)
-	if endpoint := search.GetManagedLBEndpointForClusterLevel(clusterName); endpoint != "" {
+	if endpoint := search.GetRouterHostnameForCluster(clusterName); endpoint != "" {
 		clusterLevelSNI = endpoint
 	}
 

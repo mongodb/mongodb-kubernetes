@@ -264,38 +264,37 @@ func TestGetManagedLBEndpointForClusterShard_NotManaged(t *testing.T) {
 	assert.Equal(t, "", s.GetManagedLBEndpointForClusterShard("", "shard-0"))
 }
 
-func TestGetManagedLBEndpointForClusterLevel(t *testing.T) {
-	mk := func(tmpl string) *MongoDBSearch {
+func TestGetRouterHostnameForCluster(t *testing.T) {
+	mk := func(router string) *MongoDBSearch {
 		return &MongoDBSearch{
 			Spec: MongoDBSearchSpec{
 				Clusters: []ClusterSpec{
-					{Name: "us-east-k8s", LoadBalancer: &LoadBalancerConfig{Managed: &ManagedLBConfig{ExternalHostname: tmpl}}},
+					{Name: "us-east-k8s", LoadBalancer: &LoadBalancerConfig{Managed: &ManagedLBConfig{RouterHostname: router}}},
 				},
 			},
 		}
 	}
+	// routerHostname is used verbatim — no trimming, even if a {shardName} placeholder is present
+	// (validation rejects that separately).
 	tests := []struct {
-		name     string
-		template string
-		want     string
+		name   string
+		router string
+		want   string
 	}{
-		{"strip leading shardName prefix", "{shardName}.us-east.search.example.com", "us-east.search.example.com"},
-		{"no shardName returned as-is", "us-east.search.example.com", "us-east.search.example.com"},
-		// {shardName} as a name component (not a leading prefix) is not derivable to a
-		// single cluster-level hostname; expect "" so the caller falls back to the
-		// cluster-level proxy Service FQDN.
-		{"shardName as name component returns empty", "search-{shardName}-proxy.example.com", ""},
+		{"returned verbatim", "search.example.com:443", "search.example.com:443"},
+		{"placeholder not trimmed (used as-is)", "search-{shardName}-proxy.example.com", "search-{shardName}-proxy.example.com"},
+		{"empty when unset", "", ""},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, mk(tc.template).GetManagedLBEndpointForClusterLevel("us-east-k8s"))
+			assert.Equal(t, tc.want, mk(tc.router).GetRouterHostnameForCluster("us-east-k8s"))
 		})
 	}
 }
 
-func TestGetManagedLBEndpointForClusterLevel_NotManaged(t *testing.T) {
+func TestGetRouterHostnameForCluster_NotManaged(t *testing.T) {
 	s := &MongoDBSearch{Spec: MongoDBSearchSpec{}}
-	assert.Equal(t, "", s.GetManagedLBEndpointForClusterLevel(""))
+	assert.Equal(t, "", s.GetRouterHostnameForCluster(""))
 }
 
 func TestValidateSimulatedMCClusterIndices(t *testing.T) {

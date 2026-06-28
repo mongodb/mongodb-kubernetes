@@ -2140,6 +2140,32 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 		logWarnIgnoredDueToRecovery(log, workflowStatus)
 	}
 
+	// Read the optional per-tier TLS keyFilePassword (decrypts a password-encrypted PEM key) from
+	// the dedicated per-tier keyfile-password secret. Each tier (mongos / config server / shard) may
+	// use a distinct password secret.
+	var databaseSecretPath string
+	if r.commonController.VaultClient != nil {
+		databaseSecretPath = r.commonController.VaultClient.DatabaseSecretPath()
+	}
+	secretClient := r.commonController.SecretClient
+	security := sc.GetSecurity()
+	mongosKeyFilePassword, err := certs.ReadTLSKeyFilePassword(ctx, secretClient, sc.Namespace, security.KeyFilePasswordSecretName(sc.MongosRsName()), databaseSecretPath)
+	if err != nil && !isRecovering {
+		return nil, false, workflow.Failed(err)
+	}
+	configSrvKeyFilePassword, err := certs.ReadTLSKeyFilePassword(ctx, secretClient, sc.Namespace, security.KeyFilePasswordSecretName(sc.ConfigRsName()), databaseSecretPath)
+	if err != nil && !isRecovering {
+		return nil, false, workflow.Failed(err)
+	}
+	shardKeyFilePasswords := make([]string, sc.Spec.ShardCount)
+	for shardIdx := 0; shardIdx < sc.Spec.ShardCount; shardIdx++ {
+		pw, err := certs.ReadTLSKeyFilePassword(ctx, secretClient, sc.Namespace, security.KeyFilePasswordSecretName(sc.ShardRsName(shardIdx)), databaseSecretPath)
+		if err != nil && !isRecovering {
+			return nil, false, workflow.Failed(err)
+		}
+		shardKeyFilePasswords[shardIdx] = pw
+	}
+
 	var finalProcesses []string
 	shardsRemoving := false
 	err = conn.ReadUpdateDeployment(
@@ -2189,6 +2215,8 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 
 			d.ConfigureMonitoringAndBackup(log, sc.Spec.GetSecurity().IsTLSEnabled(), opts.caFilePath)
 			d.ConfigureTLS(sc.Spec.GetSecurity(), opts.caFilePath)
+
+			setupTLSKeyFilePassword(d, sc.Name, mongosKeyFilePassword, configSrvKeyFilePassword, shardKeyFilePasswords)
 
 			setupInternalClusterAuth(d, sc.Name, sc.GetSecurity().GetInternalClusterAuthenticationMode(),
 				configSrvInternalClusterPath, mongosInternalClusterPath, shardInternalClusterPaths)
@@ -2242,6 +2270,18 @@ func setupInternalClusterAuth(d om.Deployment, name string, internalClusterAuthM
 
 	for i, path := range shardsInternalClusterPath {
 		d.ConfigureInternalClusterAuthentication(d.GetShardedClusterShardProcessNames(name, i), internalClusterAuthMode, path)
+	}
+}
+
+// setupTLSKeyFilePassword applies the per-tier (mongos, mongod, config server) TLS keyFilePassword (to decrypt a password-encrypted
+// PEM key) to the config server, mongos, and each shard's processes. An empty password per tier is
+// a no-op, so unencrypted tiers are unaffected.
+func setupTLSKeyFilePassword(d om.Deployment, name string, mongosKeyFilePassword string, configSrvKeyFilePassword string, shardKeyFilePasswords []string) {
+	d.ConfigureTLSKeyFilePassword(d.GetShardedClusterConfigProcessNames(name), configSrvKeyFilePassword)
+	d.ConfigureTLSKeyFilePassword(d.GetShardedClusterMongosProcessNames(name), mongosKeyFilePassword)
+
+	for i, password := range shardKeyFilePasswords {
+		d.ConfigureTLSKeyFilePassword(d.GetShardedClusterShardProcessNames(name, i), password)
 	}
 }
 

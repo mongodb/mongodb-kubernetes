@@ -764,6 +764,13 @@ type Security struct {
 
 	// +optional
 	CertificatesSecretsPrefix string `json:"certsSecretPrefix"`
+
+	// KeyFilePasswordSecretPrefix is the prefix of the per-tier (shards, config servers, mongos etc)
+	// Secrets holding the password that decrypts a password-encrypted PEM private key. When set, the
+	// operator reads the password (key "keyFilePassword") from `<prefix>-<tier>-keyfile-password` and supplies it to the
+	// mongod/mongos processes via net.tls.certificateKeyFilePassword.
+	// +optional
+	KeyFilePasswordSecretPrefix string `json:"keyFilePasswordSecretPrefix,omitempty"`
 }
 
 // MemberCertificateSecretName returns the name of the secret containing the member TLS certs.
@@ -774,6 +781,16 @@ func (s *Security) MemberCertificateSecretName(defaultName string) string {
 
 	// The default behaviour is to use the `defaultname-cert` format
 	return fmt.Sprintf("%s-cert", defaultName)
+}
+
+// KeyFilePasswordSecretName returns the name of the dedicated Secret holding the password that
+// decrypts the given tier's password-encrypted PEM private key, or "" when no
+// KeyFilePasswordSecretPrefix is configured (i.e. the key is not password-encrypted).
+func (s *Security) KeyFilePasswordSecretName(defaultName string) string {
+	if s.KeyFilePasswordSecretPrefix == "" {
+		return ""
+	}
+	return fmt.Sprintf("%s-%s-keyfile-password", s.KeyFilePasswordSecretPrefix, defaultName)
 }
 
 func (d *DbCommonSpec) IsAgentImageOverridden() bool {

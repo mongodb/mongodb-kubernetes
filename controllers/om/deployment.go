@@ -450,6 +450,16 @@ func (d Deployment) ConfigureInternalClusterAuthentication(processNames []string
 	}
 }
 
+// ConfigureTLSKeyFilePassword sets net.tls.certificateKeyFilePassword on the named processes, used
+// to decrypt a password-encrypted PEM private key at startup. An empty password clears the field.
+func (d Deployment) ConfigureTLSKeyFilePassword(processNames []string, password string) {
+	for _, p := range processNames {
+		if process := d.getProcessByName(p); process != nil {
+			process.ConfigureTLSKeyFilePassword(password)
+		}
+	}
+}
+
 // GetInternalClusterFilePath returns the first InternalClusterFilepath for the given list of processes.
 func (d Deployment) GetInternalClusterFilePath(processNames []string) string {
 	for _, p := range processNames {

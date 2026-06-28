@@ -265,6 +265,15 @@ type ManagedLBConfig struct {
 	// Required when MongoDB is externally managed. Ignored for operator-managed MongoDB.
 	// +optional
 	ExternalHostname string `json:"externalHostname,omitempty"`
+	// RouterHostname is the host:port a sharded cluster's mongos (router) uses to reach this cluster's
+	// mongot via the managed Envoy LB, and the SNI hostname Envoy matches for the cluster-level filter
+	// chain. Unlike ExternalHostname it is shard-agnostic and must NOT contain a {shardName}
+	// placeholder. This value is per-cluster: in multi-cluster deployments each cluster has its own
+	// Envoy LB and its mongos routes to it, so every cluster's RouterHostname must be distinct.
+	// Required for an external sharded MongoDB source with managed LB; ignored for ReplicaSet sources
+	// and operator-managed MongoDB. Must be covered by the Envoy LB server certificate SANs.
+	// +optional
+	RouterHostname string `json:"routerHostname,omitempty"`
 	// Replicas is the number of Envoy proxy pods to deploy.
 	// Defaults to 1 if not specified.
 	// +optional
@@ -1098,19 +1107,15 @@ func (s *MongoDBSearch) GetManagedLBEndpointForClusterShard(clusterName, shardNa
 	return strings.ReplaceAll(out, ShardNamePlaceholder, shardName)
 }
 
-// GetManagedLBEndpointForClusterLevel derives the mongos-facing endpoint by stripping
-// the leading "{shardName}." from the named cluster's externalHostname. Returns ""
-// when not derivable; callers fall back to the cluster-level proxy Service FQDN.
-func (s *MongoDBSearch) GetManagedLBEndpointForClusterLevel(clusterName string) string {
-	tmpl := s.GetManagedLBEndpointForCluster(clusterName)
-	if tmpl == "" {
+// GetRouterHostnameForCluster returns the named cluster's shard-agnostic cluster-level (mongos)
+// hostname from loadBalancer.managed.routerHostname. Used verbatim (no {shardName} trimming).
+// Returns "" when the cluster has no managed LB or the field is unset.
+func (s *MongoDBSearch) GetRouterHostnameForCluster(clusterName string) string {
+	cfg := s.GetManagedLBForCluster(clusterName)
+	if cfg == nil {
 		return ""
 	}
-	trimmed := strings.TrimPrefix(tmpl, ShardNamePlaceholder+".")
-	if strings.Contains(trimmed, ShardNamePlaceholder) {
-		return ""
-	}
-	return trimmed
+	return cfg.RouterHostname
 }
 
 // IsLoadBalancerReady returns true if managed LB is not configured,

@@ -467,6 +467,17 @@ func (p Process) ConfigureTLS(mode tls.Mode, pemKeyFileLocation string) {
 	}
 }
 
+// ConfigureTLSKeyFilePassword sets net.tls.certificateKeyFilePassword on the process, used to
+// decrypt a password-encrypted PEM private key at startup. An empty password clears the field.
+func (p Process) ConfigureTLSKeyFilePassword(password string) {
+	tlsConfig := p.EnsureTLSConfig()
+	if password == "" {
+		delete(tlsConfig, "certificateKeyFilePassword")
+		return
+	}
+	tlsConfig["certificateKeyFilePassword"] = password
+}
+
 func CalculateAuthSchemaVersion() int {
 	return 5
 }

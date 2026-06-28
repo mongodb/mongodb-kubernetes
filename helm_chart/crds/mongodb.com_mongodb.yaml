@@ -1602,6 +1602,13 @@ spec:
                     type: object
                   certsSecretPrefix:
                     type: string
+                  keyFilePasswordSecretPrefix:
+                    description: |-
+                      KeyFilePasswordSecretPrefix is the prefix of the per-tier (shards, config servers, mongos etc)
+                      Secrets holding the password that decrypts a password-encrypted PEM private key. When set, the
+                      operator reads the password (key "keyFilePassword") from `<prefix>-<tier>-keyfile-password` and supplies it to the
+                      mongod/mongos processes via net.tls.certificateKeyFilePassword.
+                    type: string
                   roleRefs:
                     items:
                       properties:

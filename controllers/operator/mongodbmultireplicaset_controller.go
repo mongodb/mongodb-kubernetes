@@ -764,9 +764,14 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(ctx context.Conte
 
 	lastMongodbConfig := mrs.GetLastAdditionalMongodConfig()
 
+	tlsKeyFilePassword, err := certs.ReadTLSKeyFilePassword(ctx, r.SecretClient, mrs.Namespace, mrs.Spec.GetSecurity().KeyFilePasswordSecretName(mrs.Name), "")
+	if err != nil && !isRecovering {
+		return err
+	}
+
 	err = conn.ReadUpdateDeployment(
 		func(d om.Deployment) error {
-			return ReconcileReplicaSetAC(ctx, d, mrs.Spec.DbCommonSpec, lastMongodbConfig, mrs.Name, rs, caFilePath, internalClusterCertPath, nil, log)
+			return ReconcileReplicaSetAC(ctx, d, mrs.Spec.DbCommonSpec, lastMongodbConfig, mrs.Name, rs, caFilePath, internalClusterCertPath, tlsKeyFilePassword, nil, log)
 		},
 		log,
 	)

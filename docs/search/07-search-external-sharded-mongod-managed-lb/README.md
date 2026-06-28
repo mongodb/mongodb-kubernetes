@@ -224,6 +224,7 @@ spec:
       loadBalancer:
         managed:
           externalHostname: ${MDB_SEARCH_RESOURCE_NAME}-search-0-{shardName}-proxy-svc.${MDB_NS}.svc.cluster.local
+          routerHostname: ${MDB_SEARCH_RESOURCE_NAME}-search-0-proxy-svc.${MDB_NS}.svc.cluster.local
   source:
     username: search-sync-source
     passwordSecretRef:
