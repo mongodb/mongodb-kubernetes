@@ -88,6 +88,9 @@ func (p Prometheus) IsEnabled() bool {
 }
 
 func (p Prometheus) GetPort() int32 {
+	if p.Port == 0 {
+		return MongotDefaultPrometheusPort
+	}
 	//nolint:gosec
 	return int32(p.Port)
 }
