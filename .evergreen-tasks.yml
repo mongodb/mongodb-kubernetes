@@ -1543,3 +1543,23 @@ tasks:
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
+
+  - name: e2e_search_enterprise_metrics_forwarder_replicaset
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_search_enterprise_metrics_forwarder_sharded
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_search_external_metrics_forwarder_replicaset
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_search_external_metrics_forwarder_sharded
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"

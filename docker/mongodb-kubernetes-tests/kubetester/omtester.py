@@ -339,6 +339,39 @@ class OMTester(object):
         assert response.status_code == requests.status_codes.codes.OK
         return response.json()
 
+    def assert_mongot_hosts_converged(self, expected_hostnames: set, timeout: int = 300) -> None:
+        """Assert Ops Manager has exactly the given set of MONGOT host names, each on the default gRPC port (27028).
+
+        Registering/deregistering MONGOT hosts in Ops Manager is asynchronous: it lags behind
+        the MongoDBSearch resource reporting Running. Poll until the registered MONGOT hosts
+        match expected_hostnames exactly rather than asserting once — a count-only check can pass
+        transiently while membership is still wrong (e.g. a not-yet-deregistered host masking a
+        missing new one during scale-down).
+
+        The default timeout (300 s) exceeds the controller's hostDeletionDeferralWindow
+        (30 s SD refresh + 2 × 60 s scrape intervals = 150 s) by a safe margin.
+        """
+        _MONGOT_GRPC_PORT = 27028
+        hosts: list = []
+
+        def mongot_hosts_converged():
+            nonlocal hosts
+            hosts = [h for h in self.api_get_hosts()["results"] if h.get("typeName") == "MONGOT"]
+            actual_hostnames = {h.get("hostname") for h in hosts}
+            return actual_hostnames == expected_hostnames, f"expected {expected_hostnames}, got {actual_hostnames}"
+
+        run_periodically(
+            mongot_hosts_converged,
+            timeout=timeout,
+            sleep_time=10,
+            msg="Ops Manager MONGOT hosts to converge to the expected set",
+        )
+
+        for host in hosts:
+            assert (
+                host.get("port") == _MONGOT_GRPC_PORT
+            ), f"Expected port {_MONGOT_GRPC_PORT}, got {host.get('port')} for host {host.get('hostname')}"
+
     def assert_hosts_empty(self):
         self.get_automation_config_tester().assert_empty()
         hosts = self.api_get_hosts()
