@@ -594,6 +594,31 @@ type MetricsForwarderStatus struct {
 	Message string       `json:"message,omitempty"`
 }
 
+// ClusterStatus reports one member cluster's search + load balancer state. In
+// single-cluster and simulated-MC deployments the list has exactly one entry.
+// Search and load balancer fail independently, so each phase carries its OWN
+// message (no concatenation into a single lossy string).
+// +k8s:deepcopy-gen=true
+type ClusterStatus struct {
+	// ClusterName is the member cluster name; empty in single-cluster deployments.
+	// +optional
+	ClusterName string `json:"clusterName,omitempty"`
+	// ClusterIndex is the spec.clusters[] pinned index for this cluster.
+	ClusterIndex int `json:"clusterIndex"`
+	// Search is the worst-of phase of this cluster's mongot StatefulSet(s).
+	// +optional
+	Search status.Phase `json:"search,omitempty"`
+	// SearchMessage explains the search phase when it is not Running.
+	// +optional
+	SearchMessage string `json:"searchMessage,omitempty"`
+	// LoadBalancer is this cluster's managed Envoy load balancer phase; empty when no managed LB.
+	// +optional
+	LoadBalancer status.Phase `json:"loadBalancer,omitempty"`
+	// LoadBalancerMessage explains the load balancer phase when it is not Running.
+	// +optional
+	LoadBalancerMessage string `json:"loadBalancerMessage,omitempty"`
+}
+
 type MongoDBSearchStatus struct {
 	status.Common `json:",inline"`
 	Version       string           `json:"version,omitempty"`
@@ -605,6 +630,11 @@ type MongoDBSearchStatus struct {
 	// MetricsForwarder reports the state of the Ops Manager metrics forwarder.
 	// +optional
 	MetricsForwarder *MetricsForwarderStatus `json:"metricsForwarder,omitempty"`
+	// ClusterStatuses reports per-cluster search + load balancer state across the topology.
+	// +optional
+	// +listType=map
+	// +listMapKey=clusterIndex
+	ClusterStatuses []ClusterStatus `json:"clusterStatuses,omitempty"`
 }
 
 // +k8s:deepcopy-gen=true
@@ -684,6 +714,13 @@ func (s *MongoDBSearch) UpdateStatus(phase status.Phase, statusOptions ...status
 	}
 	if option, exists := status.GetOption(statusOptions, MongoDBSearchVersionOption{}); exists {
 		s.Status.Version = option.(MongoDBSearchVersionOption).Version
+	}
+	// The search controller is the sole writer of clusterStatuses: it recomputes the
+	// full list from live reads every reconcile and replaces it wholesale (never a
+	// read-modify-write of the cached status). A nil slice is a legitimate "no
+	// per-cluster info this pass" and clears stale entries.
+	if option, exists := status.GetOption(statusOptions, MongoDBSearchClusterStatusesOption{}); exists {
+		s.Status.ClusterStatuses = option.(MongoDBSearchClusterStatusesOption).Statuses
 	}
 }
 

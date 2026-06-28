@@ -534,11 +534,6 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 	}
 
 	// Apply all units before any readiness check — see TestReconcileShardedMC_AllUnitsAppliedBeforeReadinessCheck.
-	type unitApplyResult struct {
-		unit               reconcileUnit
-		unitClient         kubernetesClient.Client
-		expectedGeneration int64
-	}
 	// reconcileErrs aggregates intermittent per-unit failures (e.g. an unreachable
 	// cluster) so one failing cluster does not block the others, returned once after
 	// all units ran.
@@ -594,18 +589,31 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 		return workflow.Failed(reconcileErrs)
 	}
 
-	// Worst-of readiness check — first non-OK status wins.
-	for _, res := range applied {
-		if statefulSetStatus := statefulset.GetStatefulSetStatus(ctx, r.mdbSearch.Namespace, res.unit.stsName.Name, res.expectedGeneration, res.unitClient); !statefulSetStatus.IsOK() {
-			return statefulSetStatus
-		}
+	// Readiness check: collect every unit's status (not first-loss-wins) so the
+	// per-cluster status surface lists ALL clusters and the top-level phase is the
+	// worst across them. clusterStatuses is recomputed wholesale from live reads
+	// here — never read-modify-written from the cached CR — so a stale informer
+	// cache cannot drop another writer's fields.
+	readiness := r.aggregateReadiness(ctx, applied)
+
+	clusterStatusesOption := searchv1.NewMongoDBSearchClusterStatusesOption(readiness.clusterStatuses)
+	versionOption := searchv1.NewMongoDBSearchVersionOption(imageVersion)
+
+	switch readiness.phase {
+	case status.PhaseFailed:
+		return workflow.Failed(xerrors.New(readiness.message)).
+			WithAdditionalOptions([]status.Option{versionOption, clusterStatusesOption})
+	case status.PhasePending:
+		return workflow.Pending("%s", readiness.message).
+			WithResourcesNotReady(readiness.resourcesNotReady).
+			WithAdditionalOptions(versionOption, clusterStatusesOption)
 	}
 
 	if !r.mdbSearch.IsLoadBalancerReady() {
 		return workflow.Pending("Waiting for managed load balancer to be ready").
-			WithAdditionalOptions(searchv1.NewMongoDBSearchVersionOption(imageVersion))
+			WithAdditionalOptions(versionOption, clusterStatusesOption)
 	}
-	return workflow.OK().WithAdditionalOptions(searchv1.NewMongoDBSearchVersionOption(imageVersion))
+	return workflow.OK().WithAdditionalOptions(versionOption, clusterStatusesOption)
 }
 
 // reconcileUnitMods bundles the topology-agnostic modifications applied to
@@ -740,6 +748,137 @@ func (r *MongoDBSearchReconcileHelper) applyReconcileUnit(
 	}
 
 	return mutatedSts, unitClient, nil
+}
+
+// unitApplyResult pairs an applied reconcile unit with the cluster client used to
+// apply it and the StatefulSet generation expected after the apply.
+type unitApplyResult struct {
+	unit               reconcileUnit
+	unitClient         kubernetesClient.Client
+	expectedGeneration int64
+}
+
+// readinessResult is the outcome of aggregateReadiness: the worst-of top-level
+// phase + message + resourcesNotReady for the CR's common status, plus the full
+// per-cluster status list.
+type readinessResult struct {
+	phase             status.Phase
+	message           string
+	resourcesNotReady []status.ResourceNotReady
+	clusterStatuses   []searchv1.ClusterStatus
+}
+
+// aggregateReadiness reads the live readiness of every applied unit (the mongot
+// StatefulSet, and the managed Envoy Deployment when configured) and folds it into
+// (1) one worst-of top-level phase/message for the CR common status and (2) one
+// ClusterStatus per cluster, with shards rolled up via WorstOfPhase.
+//
+// The list is built from the applied units (already narrowed to this operator's
+// cluster in simulated-MC mode), so simulated mode yields a single-entry list with
+// no special-casing. It is recomputed wholesale from live reads — never merged with
+// the cached CR status — so a lagging informer cache cannot drop fields.
+func (r *MongoDBSearchReconcileHelper) aggregateReadiness(ctx context.Context, applied []unitApplyResult) readinessResult {
+	managedLB := r.mdbSearch.IsLBModeManaged()
+
+	// Per-cluster accumulators, keyed and ordered by clusterIndex.
+	type clusterAcc struct {
+		name        string
+		index       int
+		searchPhase status.Phase
+		searchMsgs  []string
+		lbPhase     status.Phase
+		lbMsg       string
+		lbComputed  bool
+	}
+	accs := make(map[int]*clusterAcc)
+	var order []int
+	accFor := func(unit reconcileUnit) *clusterAcc {
+		if a, ok := accs[unit.clusterIndex]; ok {
+			return a
+		}
+		a := &clusterAcc{name: unit.clusterName, index: unit.clusterIndex}
+		accs[unit.clusterIndex] = a
+		order = append(order, unit.clusterIndex)
+		return a
+	}
+
+	// Top-level worst-of, accumulated across every unit's search + LB status.
+	var topStatus workflow.Status = workflow.OK()
+
+	for _, res := range applied {
+		acc := accFor(res.unit)
+
+		// Search half: the unit's mongot StatefulSet.
+		stsStatus := statefulset.GetStatefulSetStatus(ctx, r.mdbSearch.Namespace, res.unit.stsName.Name, res.expectedGeneration, res.unitClient)
+		acc.searchPhase = searchv1.WorstOfPhase(acc.searchPhase, stsStatus.Phase())
+		if !stsStatus.IsOK() {
+			if msg := MessageFromStatus(stsStatus); msg != "" {
+				acc.searchMsgs = append(acc.searchMsgs, msg)
+			}
+		}
+		topStatus = topStatus.Merge(stsStatus)
+
+		// Load balancer half: the managed Envoy Deployment for this cluster. Computed
+		// once per cluster (LB is per-cluster, not per-shard). This is INFORMATIONAL
+		// only — it populates the per-cluster status surface but does NOT gate the
+		// top-level phase. Top-level LB gating stays on IsLoadBalancerReady() (the
+		// /status/loadBalancer sub-status owned by the envoy controller), so the two
+		// controllers' authority over the top-level phase is unchanged.
+		if managedLB && !acc.lbComputed {
+			acc.lbComputed = true
+			lbStatus := r.envoyDeploymentStatus(ctx, res.unit.clusterIndex, res.unitClient)
+			acc.lbPhase = lbStatus.Phase()
+			if !lbStatus.IsOK() {
+				acc.lbMsg = MessageFromStatus(lbStatus)
+			}
+		}
+	}
+
+	clusterStatuses := make([]searchv1.ClusterStatus, 0, len(order))
+	for _, idx := range order {
+		a := accs[idx]
+		cs := searchv1.ClusterStatus{
+			ClusterName:   a.name,
+			ClusterIndex:  a.index,
+			Search:        a.searchPhase,
+			SearchMessage: strings.Join(a.searchMsgs, "; "),
+		}
+		if managedLB {
+			cs.LoadBalancer = a.lbPhase
+			cs.LoadBalancerMessage = a.lbMsg
+		}
+		clusterStatuses = append(clusterStatuses, cs)
+	}
+
+	result := readinessResult{
+		phase:           topStatus.Phase(),
+		message:         MessageFromStatus(topStatus),
+		clusterStatuses: clusterStatuses,
+	}
+	if opt, ok := status.GetOption(topStatus.StatusOptions(), status.ResourcesNotReadyOption{}); ok {
+		result.resourcesNotReady = opt.(status.ResourcesNotReadyOption).ResourcesNotReady
+	}
+	return result
+}
+
+// envoyDeploymentStatus reports the readiness of one cluster's managed Envoy
+// Deployment by reading the Deployment object directly (the envoy controller is the
+// writer; the search controller is a reader). Absent/unreadable → Pending, since the
+// envoy controller may not have created it yet.
+func (r *MongoDBSearchReconcileHelper) envoyDeploymentStatus(ctx context.Context, clusterIndex int, unitClient kubernetesClient.Client) workflow.Status {
+	name := r.mdbSearch.LoadBalancerDeploymentNameForCluster(clusterIndex)
+	dep := &appsv1.Deployment{}
+	if err := unitClient.Get(ctx, kube.ObjectKey(r.mdbSearch.Namespace, name), dep); err != nil {
+		if apierrors.IsNotFound(err) {
+			return workflow.Pending("Load balancer deployment %s not yet created", name)
+		}
+		return workflow.Failed(xerrors.Errorf("reading load balancer deployment %s: %w", name, err))
+	}
+	desired := ptr.Deref(dep.Spec.Replicas, 1)
+	if dep.Status.ReadyReplicas < desired {
+		return workflow.Pending("Load balancer deployment %s not ready: %d/%d replicas ready", name, dep.Status.ReadyReplicas, desired)
+	}
+	return workflow.OK()
 }
 
 // markRoutingReadyIfThresholdMet flips a shard's routing-ready switch once its

@@ -3904,6 +3904,115 @@ func TestReconcileShardedMC_MultiPass(t *testing.T) {
 	require.Equal(t, svcB+1, svcB3)
 }
 
+// clusterStatusesFromStatus extracts the per-cluster status list carried in a
+// workflow.Status's options (reconcile() returns options rather than mutating the
+// CR; the CR write happens later in Reconcile() via UpdateStatus).
+func clusterStatusesFromStatus(t *testing.T, st workflow.Status) []searchv1.ClusterStatus {
+	t.Helper()
+	opt, ok := status.GetOption(st.StatusOptions(), searchv1.MongoDBSearchClusterStatusesOption{})
+	if !ok {
+		return nil
+	}
+	return opt.(searchv1.MongoDBSearchClusterStatusesOption).Statuses
+}
+
+// clusterStatusByIndex finds the ClusterStatus for a given clusterIndex.
+func clusterStatusByIndex(t *testing.T, statuses []searchv1.ClusterStatus, idx int) searchv1.ClusterStatus {
+	t.Helper()
+	for _, cs := range statuses {
+		if cs.ClusterIndex == idx {
+			return cs
+		}
+	}
+	t.Fatalf("no ClusterStatus with clusterIndex %d in %+v", idx, statuses)
+	return searchv1.ClusterStatus{}
+}
+
+// markEnvoyDeploymentReady creates the managed Envoy Deployment for a cluster in a
+// ready state, simulating what the envoy controller would have written.
+func markEnvoyDeploymentReady(t *testing.T, c kubernetesClient.Client, search *searchv1.MongoDBSearch, clusterIndex int) {
+	t.Helper()
+	dep := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      search.LoadBalancerDeploymentNameForCluster(clusterIndex),
+			Namespace: search.Namespace,
+		},
+		Spec:   appsv1.DeploymentSpec{Replicas: ptr.To(int32(1))},
+		Status: appsv1.DeploymentStatus{ReadyReplicas: 1},
+	}
+	require.NoError(t, c.Create(t.Context(), dep))
+}
+
+// TestReconcileShardedMC_PerClusterStatus verifies the per-cluster status surface:
+// every cluster appears (not just failing ones), shards roll up into a single
+// per-cluster Search phase via worst-of, and the managed-LB phase is read from the
+// Envoy Deployment independently of the top-level phase gating.
+func TestReconcileShardedMC_PerClusterStatus(t *testing.T) {
+	fx := newMCShardedFixture(t)
+	helper := fx.newHelper()
+
+	// Pass 1: STSs just applied, none ready, no Envoy Deployments yet.
+	st := helper.reconcile(t.Context(), zap.S())
+	require.False(t, st.IsOK())
+	statuses := clusterStatusesFromStatus(t, st)
+	require.Len(t, statuses, 2, "both clusters must be listed, not just the first failing one")
+
+	for _, idx := range []int{0, 1} {
+		cs := clusterStatusByIndex(t, statuses, idx)
+		require.Equal(t, status.PhasePending, cs.Search, "cluster %d search should be Pending (STSs not ready)", idx)
+		require.NotEmpty(t, cs.SearchMessage, "cluster %d should carry a search message while not ready", idx)
+		// Envoy Deployment absent → LoadBalancer reported Pending, informational only.
+		require.Equal(t, status.PhasePending, cs.LoadBalancer, "cluster %d LB should be Pending (deployment not created yet)", idx)
+	}
+	require.Equal(t, "cluster-a", clusterStatusByIndex(t, statuses, 0).ClusterName)
+	require.Equal(t, "cluster-b", clusterStatusByIndex(t, statuses, 1).ClusterName)
+
+	// Make all mongot STSs ready and create ready Envoy Deployments in both members.
+	require.NoError(t, mock.MarkAllStatefulSetsAsReady(t.Context(), "ns",
+		fx.central, fx.members["cluster-a"], fx.members["cluster-b"]))
+	markEnvoyDeploymentReady(t, fx.members["cluster-a"], fx.search, 0)
+	markEnvoyDeploymentReady(t, fx.members["cluster-b"], fx.search, 1)
+	fx.search.Status.LoadBalancer = &searchv1.LoadBalancerStatus{Phase: status.PhaseRunning}
+
+	// Pass 2: everything ready → both clusters Running on both halves.
+	st = helper.reconcile(t.Context(), zap.S())
+	require.True(t, st.IsOK(), "expected OK, got: %s", MessageFromStatus(st))
+	statuses = clusterStatusesFromStatus(t, st)
+	require.Len(t, statuses, 2)
+	for _, idx := range []int{0, 1} {
+		cs := clusterStatusByIndex(t, statuses, idx)
+		require.Equal(t, status.PhaseRunning, cs.Search, "cluster %d search should be Running", idx)
+		require.Empty(t, cs.SearchMessage, "cluster %d search message should clear when Running", idx)
+		require.Equal(t, status.PhaseRunning, cs.LoadBalancer, "cluster %d LB should be Running", idx)
+		require.Empty(t, cs.LoadBalancerMessage)
+	}
+}
+
+// TestReconcileShardedMC_PerClusterStatusWorstOfShards verifies that when one shard
+// in a cluster is ready and another is not, the cluster's rolled-up Search phase is
+// the worst of the two (Pending), proving shard roll-up rather than first-loss-wins.
+func TestReconcileShardedMC_PerClusterStatusWorstOfShards(t *testing.T) {
+	fx := newMCShardedFixture(t)
+	helper := fx.newHelper()
+
+	// Apply everything.
+	_ = helper.reconcile(t.Context(), zap.S())
+
+	// Mark ALL of cluster-a ready, but only mark cluster-b's central client ready
+	// (cluster-b's member STSs stay not-ready).
+	require.NoError(t, mock.MarkAllStatefulSetsAsReady(t.Context(), "ns", fx.members["cluster-a"]))
+	markEnvoyDeploymentReady(t, fx.members["cluster-a"], fx.search, 0)
+	markEnvoyDeploymentReady(t, fx.members["cluster-b"], fx.search, 1)
+
+	st := helper.reconcile(t.Context(), zap.S())
+	require.False(t, st.IsOK(), "must be Pending while cluster-b shards are not ready")
+
+	statuses := clusterStatusesFromStatus(t, st)
+	require.Len(t, statuses, 2)
+	require.Equal(t, status.PhaseRunning, clusterStatusByIndex(t, statuses, 0).Search, "cluster-a all shards ready")
+	require.Equal(t, status.PhasePending, clusterStatusByIndex(t, statuses, 1).Search, "cluster-b has not-ready shards → worst-of Pending")
+}
+
 // TestReconcileShardedMC_MissingMemberClusterClient verifies that when a
 // member cluster named in spec.clusters has no entry in memberClusterClients
 // (e.g. an operator that joined the cluster mid-flight but hasn't been
