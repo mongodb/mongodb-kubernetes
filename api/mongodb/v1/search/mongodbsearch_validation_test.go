@@ -890,25 +890,25 @@ func TestValidateClustersEnvoyResourceNames(t *testing.T) {
 			searchName: "s",
 		},
 		{
-			// Deployment name: <name>-search-lb-0-<index>
-			// suffix "-search-lb-0-0" is 14 chars; need len(name) > 49 to exceed 63.
+			// Deployment name: <name>-search-lb-<index>
+			// suffix "-search-lb-0" is 12 chars; need len(name) > 51 to exceed 63.
 			name:          "Deployment name >63 chars rejected",
-			searchName:    strings.Repeat("a", 50),
+			searchName:    strings.Repeat("a", 52),
 			clusters:      []ClusterSpec{{Name: "us-east-k8s"}},
 			errorContains: "exceeds",
 		},
 		{
-			// suffix "-search-lb-0-999" is 16 chars at pin 999: a 48-char name fits
+			// suffix "-search-lb-999" is 14 chars at pin 999: a 50-char name fits
 			// at array position 0 but exceeds 63 at the pinned index the reconciler
 			// actually uses for the resource name.
 			name:          "pinned index 999 rejected where position 0 would pass",
-			searchName:    strings.Repeat("a", 48),
+			searchName:    strings.Repeat("a", 50),
 			clusters:      []ClusterSpec{{Name: "us-east-k8s", Index: ptr.To(int32(999))}},
 			errorContains: "exceeds",
 		},
 		{
 			name:       "same name unpinned at position 0 passes",
-			searchName: strings.Repeat("a", 48),
+			searchName: strings.Repeat("a", 50),
 			clusters:   []ClusterSpec{{Name: "us-east-k8s"}},
 		},
 	}

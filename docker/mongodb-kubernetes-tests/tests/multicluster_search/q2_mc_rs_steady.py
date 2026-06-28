@@ -498,13 +498,13 @@ def _per_cluster_mongot_config_name(mdbs_name: str, cluster_index: int) -> str:
 
 
 def _per_cluster_envoy_deployment_name(mdbs_name: str, cluster_index: int) -> str:
-    """Mirror LoadBalancerDeploymentNameForCluster: `{name}-search-lb-0-{clusterIndex}`."""
-    return f"{mdbs_name}-search-lb-0-{cluster_index}"
+    """Mirror LoadBalancerDeploymentNameForCluster: `{name}-search-lb-{clusterIndex}`."""
+    return f"{mdbs_name}-search-lb-{cluster_index}"
 
 
 def _per_cluster_envoy_configmap_name(mdbs_name: str, cluster_index: int) -> str:
-    """Mirror LoadBalancerConfigMapNameForCluster: `{name}-search-lb-0-{clusterIndex}-config`."""
-    return f"{mdbs_name}-search-lb-0-{cluster_index}-config"
+    """Mirror LoadBalancerConfigMapNameForCluster: `{name}-search-lb-{clusterIndex}-config`."""
+    return f"{mdbs_name}-search-lb-{cluster_index}-config"
 
 
 def _read_mongod_set_parameter(

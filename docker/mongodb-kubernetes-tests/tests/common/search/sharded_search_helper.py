@@ -166,8 +166,8 @@ def create_lb_certificates(
     """Create TLS certificates for the operator-managed load balancer (Envoy proxy).
 
     Secret names must match what the operator expects per LoadBalancerServerCert() and
-    LoadBalancerClientCert(): {prefix}-{name}-search-lb-0-cert and
-    {prefix}-{name}-search-lb-0-client-cert. The secret name does not vary per cluster
+    LoadBalancerClientCert(): {prefix}-{name}-search-lb-cert and
+    {prefix}-{name}-search-lb-client-cert. The secret name does not vary per cluster
     (operator mounts the same cert in every member cluster's Envoy), so the cert must
     carry SANs for *all* clusters' proxy Services. Pass `cluster_indexes=[0, 1, ...]`
     in multi-cluster setups so the SAN list covers every cluster's proxy hostnames.

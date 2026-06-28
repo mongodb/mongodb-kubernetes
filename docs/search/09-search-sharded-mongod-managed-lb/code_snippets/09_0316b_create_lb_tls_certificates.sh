@@ -1,8 +1,8 @@
 echo "Creating TLS certificates for managed load balancer (Envoy)..."
 
 cert_pfx="${MDB_TLS_CERT_SECRET_PREFIX}-${MDB_RESOURCE_NAME}"
-lb_server_cert="${cert_pfx}-search-lb-0-cert"
-lb_client_cert="${cert_pfx}-search-lb-0-client-cert"
+lb_server_cert="${cert_pfx}-search-lb-cert"
+lb_client_cert="${cert_pfx}-search-lb-client-cert"
 
 echo "Creating LB server certificate..."
 kubectl apply --context "${K8S_CTX}" -n "${MDB_NS}" -f - <<EOF

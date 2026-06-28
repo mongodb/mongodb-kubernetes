@@ -190,7 +190,7 @@ def lb_deployment_name(search_name: str, cluster_index: int = 0) -> str:
     cluster_index defaults to 0 for single-cluster callers; pass the cluster
     position explicitly for multi-cluster tests.
     """
-    return f"{search_name}-search-lb-0-{cluster_index}"
+    return f"{search_name}-search-lb-{cluster_index}"
 
 
 def lb_configmap_name(search_name: str, cluster_index: int = 0) -> str:
@@ -199,31 +199,31 @@ def lb_configmap_name(search_name: str, cluster_index: int = 0) -> str:
     cluster_index defaults to 0 for single-cluster callers; pass the cluster
     position explicitly for multi-cluster tests.
     """
-    return f"{search_name}-search-lb-0-{cluster_index}-config"
+    return f"{search_name}-search-lb-{cluster_index}-config"
 
 
 def lb_server_cert_name(search_name: str, certs_secret_prefix: str = "") -> str:
     """Managed LB server TLS certificate secret name. Mirrors LoadBalancerServerCert().
 
     Pattern:
-      - With prefix: {certs_secret_prefix}-{search_name}-search-lb-0-cert
-      - Without prefix: {search_name}-search-lb-0-cert
+      - With prefix: {certs_secret_prefix}-{search_name}-search-lb-cert
+      - Without prefix: {search_name}-search-lb-cert
     """
     if certs_secret_prefix:
-        return f"{certs_secret_prefix}-{search_name}-search-lb-0-cert"
-    return f"{search_name}-search-lb-0-cert"
+        return f"{certs_secret_prefix}-{search_name}-search-lb-cert"
+    return f"{search_name}-search-lb-cert"
 
 
 def lb_client_cert_name(search_name: str, certs_secret_prefix: str = "") -> str:
     """Managed LB client TLS certificate secret name. Mirrors LoadBalancerClientCert().
 
     Pattern:
-      - With prefix: {certs_secret_prefix}-{search_name}-search-lb-0-client-cert
-      - Without prefix: {search_name}-search-lb-0-client-cert
+      - With prefix: {certs_secret_prefix}-{search_name}-search-lb-client-cert
+      - Without prefix: {search_name}-search-lb-client-cert
     """
     if certs_secret_prefix:
-        return f"{certs_secret_prefix}-{search_name}-search-lb-0-client-cert"
-    return f"{search_name}-search-lb-0-client-cert"
+        return f"{certs_secret_prefix}-{search_name}-search-lb-client-cert"
+    return f"{search_name}-search-lb-client-cert"
 
 
 # ============================================================================
