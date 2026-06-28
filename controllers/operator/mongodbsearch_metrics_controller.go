@@ -206,16 +206,10 @@ func (r *MongoDBSearchMetricsForwarderReconciler) Reconcile(ctx context.Context,
 	}
 }
 
-// deleteMetricsForwarderResourcesFromState loads the cluster work list from the persisted search
-// state and deletes all metrics forwarder resources. Falls back to central-only on state read error.
+// deleteMetricsForwarderResourcesFromState builds the cluster work list from spec.clusters and
+// deletes all metrics forwarder resources.
 func (r *MongoDBSearchMetricsForwarderReconciler) deleteMetricsForwarderResourcesFromState(ctx context.Context, search *searchv1.MongoDBSearch, log *zap.SugaredLogger) {
-	state, stErr := searchcontroller.ReadSearchState(ctx, r.kubeClient, search)
-	var workList []clusterWorkItem
-	if stErr != nil {
-		workList = []clusterWorkItem{{ClusterName: "", ClusterIndex: 0, Client: r.kubeClient}}
-	} else {
-		workList = r.buildClusterWorkList(search, state.ClusterMapping)
-	}
+	workList := r.buildClusterWorkList(search)
 	r.deleteMetricsForwarderResources(ctx, search, workList, log)
 }
 
@@ -258,15 +252,7 @@ func (r *MongoDBSearchMetricsForwarderReconciler) reconcileCore(ctx context.Cont
 		}
 	}
 
-	// Load cluster mapping for the work list. Fall back to single-cluster on error.
-	state, stErr := searchcontroller.ReadSearchState(ctx, r.kubeClient, mdbSearch)
-	var workList []clusterWorkItem
-	if stErr != nil {
-		log.Warnf("Failed to load search state for metrics forwarder, falling back to central only: %s", stErr)
-		workList = []clusterWorkItem{{ClusterName: "", ClusterIndex: 0, Client: r.kubeClient}}
-	} else {
-		workList = r.buildClusterWorkList(mdbSearch, state.ClusterMapping)
-	}
+	workList := r.buildClusterWorkList(mdbSearch)
 
 	if !mdbSearch.DeletionTimestamp.IsZero() {
 		log.Info("MongoDBSearch is being deleted")
@@ -326,27 +312,17 @@ func (r *MongoDBSearchMetricsForwarderReconciler) reconcileCore(ctx context.Cont
 	return workflow.OK()
 }
 
-// buildClusterWorkList builds the per-reconcile work list from spec.clusters and the persisted
-// cluster mapping. Single-cluster: one item with ClusterName="" and ClusterIndex=0.
-// spec.clusters is validated non-empty, so the empty-clusters branch is a defensive backstop only.
-func (r *MongoDBSearchMetricsForwarderReconciler) buildClusterWorkList(search *searchv1.MongoDBSearch, mapping map[string]int) []clusterWorkItem {
+// buildClusterWorkList builds the per-reconcile work list from spec.clusters, using the CRD
+// cluster index pin (clusters[].index). Single-cluster: one item with ClusterName="" and
+// ClusterIndex=0. spec.clusters is validated non-empty, so the empty-clusters branch is a
+// defensive backstop only.
+func (r *MongoDBSearchMetricsForwarderReconciler) buildClusterWorkList(search *searchv1.MongoDBSearch) []clusterWorkItem {
 	if len(search.Spec.Clusters) == 0 {
 		return []clusterWorkItem{{ClusterName: "", ClusterIndex: 0, Client: r.kubeClient}}
 	}
 	work := make([]clusterWorkItem, 0, len(search.Spec.Clusters))
 	for _, c := range search.Spec.Clusters {
-		var idx int
-		if c.Name == "" {
-			// Single-cluster legacy path: always index 0, no mapping lookup needed.
-			idx = 0
-		} else {
-			var ok bool
-			idx, ok = mapping[c.Name]
-			if !ok {
-				idx = -1 // sentinel: cluster not yet registered in state mapping
-			}
-		}
-		work = append(work, clusterWorkItem{ClusterName: c.Name, ClusterIndex: idx, Client: r.clientForCluster(c.Name)})
+		work = append(work, clusterWorkItem{ClusterName: c.Name, ClusterIndex: c.ResolveIndex(), Client: r.clientForCluster(c.Name)})
 	}
 	return work
 }
