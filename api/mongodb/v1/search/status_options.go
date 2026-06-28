@@ -16,6 +16,22 @@ func (o MongoDBSearchVersionOption) Value() interface{} {
 	return o.Version
 }
 
+// MongoDBSearchClusterStatusesOption carries the per-cluster status list computed
+// in a reconcile so UpdateStatus can write it onto status.clusterStatuses.
+type MongoDBSearchClusterStatusesOption struct {
+	Statuses []ClusterStatus
+}
+
+var _ status.Option = MongoDBSearchClusterStatusesOption{}
+
+func NewMongoDBSearchClusterStatusesOption(statuses []ClusterStatus) MongoDBSearchClusterStatusesOption {
+	return MongoDBSearchClusterStatusesOption{Statuses: statuses}
+}
+
+func (o MongoDBSearchClusterStatusesOption) Value() interface{} {
+	return o.Statuses
+}
+
 // SearchPart identifies which sub-status of MongoDBSearch to update.
 // Search-scoped to avoid polluting the shared status.Part enum.
 type SearchPart int
