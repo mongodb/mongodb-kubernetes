@@ -36,12 +36,15 @@ Connectivity seams: every ".svc.cluster.local" cross-cluster hop is served inste
 EXTERNAL FQDN behind an SNI front:
   * source mongod/mongos seeds (mongot syncSource) AND the OM AppDB members -> external
     FQDNs under *.mongodb-proxy.<dataClusterId>.mc... (the shared per-cluster mongodb-envoy NLB).
-  * the mongotHost flip endpoints (mongos cluster-level + per-shard) -> external FQDNs
+  * the per-AZ mongotHost endpoints (mongos cluster-level + per-shard) -> external FQDNs
     under *.envoy-proxy.<searchClusterId>.mc... (the operator-managed search Envoy LB).
   * mongodEnvoy upstreams stay INTERNAL (the per-pod headless Services).
 
 The source mongotHost is set by patching the OM Automation Config directly, since the
-operator has no per-cluster additionalMongodConfig for an external source.
+operator has no per-cluster additionalMongodConfig for an external source. Each source
+process points at the mongot co-located in its OWN AZ (no global flip): az1 processes ->
+search-az1, az2 processes -> search-az2, so a single $search fans out across both search
+clusters by each shard's primary placement.
 """
 
 from __future__ import annotations
@@ -158,6 +161,13 @@ SOURCE_CLUSTER_INDEX = {ctx: i for i, ctx in enumerate(SORTED_DATA)}
 # mongot syncSource.replicationReader.tagSets).
 AZ_BY_DATA_CLUSTER = {CENTRAL_OM_MDB_AZ1: "az1", DATA_MDB_AZ2: "az2"}
 AZ_BY_SEARCH_CLUSTER = {SEARCH_AZ1: "az1", SEARCH_AZ2: "az2"}
+
+# Same-AZ search cluster for each data cluster. Each source process queries the mongot
+# co-located in its OWN AZ (no global flip): az1 data -> search-az1, az2 data -> search-az2.
+SEARCH_FOR_DATA_CLUSTER = {
+    data_ctx: next(sc for sc, az in AZ_BY_SEARCH_CLUSTER.items() if az == data_az)
+    for data_ctx, data_az in AZ_BY_DATA_CLUSTER.items()
+}
 
 PARENT_ZONE = "mc.mongokubernetes.com"
 
@@ -349,12 +359,14 @@ def _source_mongos_search_tester(
     namespace: str,
     username: str,
     password: str,
+    data_context: str = CENTRAL_OM_MDB_AZ1,
 ) -> SearchTester:
-    """SearchTester pinned to the AZ1 source mongos via its EXTERNAL FQDN (reachable
-    cross-cluster over the mongodEnvoy NLB — there is no mesh here). TLS + issuer CA on."""
-    src_idx = SOURCE_CLUSTER_INDEX[CENTRAL_OM_MDB_AZ1]
+    """SearchTester pinned to a data cluster's source mongos via its EXTERNAL FQDN (default
+    AZ1; reachable cross-cluster over the mongodEnvoy NLB — there is no mesh here). TLS +
+    issuer CA on."""
+    src_idx = SOURCE_CLUSTER_INDEX[data_context]
     pod = f"{MDB_RESOURCE_NAME}-mongos-{src_idx}-0"
-    host = f"{_source_pod_external_fqdn(pod, CENTRAL_OM_MDB_AZ1)}:27017"
+    host = f"{_source_pod_external_fqdn(pod, data_context)}:27017"
     return per_cluster_search_tester(host, username, password)
 
 
@@ -1237,28 +1249,35 @@ def test_status_per_cluster_local_only(
     assert_status_running_local_only(per_cluster_mdbs_search)
 
 
-# The source is a single sharded deployment; there are NO per-cluster source processes to
-# route locally. Instead we FLIP the source's mongotHost to each search cluster's external
-# Envoy endpoint in turn, proving each cluster's mongot independently indexes the shared
-# source and serves correct rows.
+# Each source process queries the mongot co-located in its OWN AZ (no global flip): a process
+# in data cluster C uses the search cluster in C's AZ. So a single $search fans out across
+# BOTH search clusters — each shard's serving member hits its same-AZ mongot.
 
 
-def _flip_source_mongot_host(mdb: MongoDB, target_search_context: str, target_harness_idx: int) -> None:
-    """Point every source process at the TARGET search cluster's external Envoy via OM AC:
-    mongos -> cluster-level external endpoint, shard mongod -> per-shard external endpoint,
-    config servers untouched. Routing depends only on the target SEARCH cluster, not on the
-    source process's own cluster index."""
-    mongos_endpoint = _external_mongos_envoy_endpoint(target_search_context, target_harness_idx)
+def _search_idx_by_ctx(member_cluster_clients: List[MultiClusterClient]) -> Dict[str, int]:
+    """Harness cluster_index per search context (search-az1=2, search-az2=3), read from the
+    live member-client list rather than hardcoded."""
+    return {sc: _idx(_mcc(member_cluster_clients, sc)) for sc in SEARCH_CLUSTERS}
+
+
+def _wire_source_mongot_host_per_az(mdb: MongoDB, member_cluster_clients: List[MultiClusterClient]) -> None:
+    """Point every source process at the mongot in its OWN AZ via OM AC (NO global flip):
+    mongos -> its same-AZ search cluster's cluster-level endpoint, shard mongod -> that
+    cluster's per-shard endpoint, config servers untouched. The target search cluster is
+    chosen by the source process's own cluster index (AZ), not a single global target."""
+    search_idx = _search_idx_by_ctx(member_cluster_clients)
 
     def resolve_host(process_name: str) -> Optional[str]:
         classified = _classify_sharded_process(process_name, MDB_RESOURCE_NAME, multi_cluster=True)
         if classified is None:
             return None
-        role, _cluster_index, shard_index = classified
+        role, cluster_index, shard_index = classified
+        search_ctx = SEARCH_FOR_DATA_CLUSTER[SORTED_DATA[cluster_index]]
+        idx = search_idx[search_ctx]
         if role == "mongos":
-            return mongos_endpoint
+            return _external_mongos_envoy_endpoint(search_ctx, idx)
         assert shard_index is not None
-        return _external_shard_envoy_endpoint(target_search_context, target_harness_idx, shard_index)
+        return _external_shard_envoy_endpoint(search_ctx, idx, shard_index)
 
     patch_mongot_host_via_ac(mdb, resolve_host)
 
@@ -1274,23 +1293,24 @@ def _search_tls_param_mismatches(params: dict) -> List[str]:
     ]
 
 
-def _assert_source_routed_to(
+def _assert_source_routed_per_az(
     namespace: str,
     member_cluster_clients: List[MultiClusterClient],
-    target_search_context: str,
-    target_harness_idx: int,
 ) -> None:
-    """Positively verify the new mongotHost is APPLIED on every source shard mongod (across
-    BOTH data clusters) before querying, then on the (stateless) mongos via getParameter."""
+    """Verify each source process's mongotHost points at its OWN-AZ search cluster: per-shard
+    endpoint on every shard mongod (both data clusters), cluster-level endpoint on each mongos."""
+    search_idx = _search_idx_by_ctx(member_cluster_clients)
 
     def shards_on_disk() -> tuple:
         all_ok = True
         msgs: List[str] = []
         for data_context in DATA_CLUSTERS:
             src_idx = SOURCE_CLUSTER_INDEX[data_context]
+            search_ctx = SEARCH_FOR_DATA_CLUSTER[data_context]
+            s_idx = search_idx[search_ctx]
             mcc = _mcc(member_cluster_clients, data_context)
             for shard_idx in range(SHARD_COUNT):
-                expected = _external_shard_envoy_endpoint(target_search_context, target_harness_idx, shard_idx)
+                expected = _external_shard_envoy_endpoint(search_ctx, s_idx, shard_idx)
                 for member_idx in range(SHARD_MEMBERS_PER_CLUSTER[src_idx] or 0):
                     pod_name = f"{MDB_RESOURCE_NAME}-{shard_idx}-{src_idx}-{member_idx}"
                     try:
@@ -1313,21 +1333,26 @@ def _assert_source_routed_to(
         return all_ok, "\n".join(msgs)
 
     run_periodically(
-        shards_on_disk, timeout=300, sleep_time=10, msg=f"source shard mongotHost -> {target_search_context}"
+        shards_on_disk, timeout=300, sleep_time=10, msg="source shard mongotHost -> own-AZ search cluster"
     )
 
-    mongos_expected = _external_mongos_envoy_endpoint(target_search_context, target_harness_idx)
-    tester = _source_mongos_search_tester(member_cluster_clients, namespace, ADMIN_USER_NAME, ADMIN_USER_PASSWORD)
     get_params = {"getParameter": 1, "mongotHost": 1, "searchIndexManagementHostAndPort": 1}
     get_params.update({k: 1 for k in SOURCE_SEARCH_SET_PARAMETERS})
-    params = tester.client.admin.command(get_params)
-    got_host = params.get("mongotHost", "")
-    got_mgmt = params.get("searchIndexManagementHostAndPort", "")
-    tls_bad = _search_tls_param_mismatches(params)
-    assert got_host == mongos_expected and got_mgmt == mongos_expected and not tls_bad, (
-        f"mongos mongotHost={got_host!r} searchIndexMgmt={got_mgmt!r} expected {mongos_expected!r}; tls_bad={tls_bad}"
-    )
-    logger.info(f"source routed to {target_search_context}: mongos+shards mongotHost + search TLS params confirmed")
+    for data_context in DATA_CLUSTERS:
+        search_ctx = SEARCH_FOR_DATA_CLUSTER[data_context]
+        mongos_expected = _external_mongos_envoy_endpoint(search_ctx, search_idx[search_ctx])
+        tester = _source_mongos_search_tester(
+            member_cluster_clients, namespace, ADMIN_USER_NAME, ADMIN_USER_PASSWORD, data_context=data_context
+        )
+        params = tester.client.admin.command(get_params)
+        got_host = params.get("mongotHost", "")
+        got_mgmt = params.get("searchIndexManagementHostAndPort", "")
+        tls_bad = _search_tls_param_mismatches(params)
+        assert got_host == mongos_expected and got_mgmt == mongos_expected and not tls_bad, (
+            f"[{data_context}] mongos mongotHost={got_host!r} searchIndexMgmt={got_mgmt!r} "
+            f"expected {mongos_expected!r}; tls_bad={tls_bad}"
+        )
+    logger.info("source routed per-AZ: mongos+shards mongotHost + search TLS params confirmed")
 
 
 @mark.e2e_aws_simulated_mc_sharded
@@ -1383,43 +1408,32 @@ def test_shard_distribution(namespace: str, member_cluster_clients: List[MultiCl
     run_periodically(check, timeout=120, sleep_time=5, msg="per-shard document distribution")
 
 
-def _route_and_query(
-    namespace: str,
-    mdb: MongoDB,
-    member_cluster_clients: List[MultiClusterClient],
-    target_search_context: str,
-    *,
-    create_index: bool,
-) -> None:
-    """Flip the source at the target search cluster's external Envoy, verify it APPLIED,
-    then assert the deterministic $search count via the source mongos. create_index=True
-    (first flip) builds the index; later flips reuse it and just wait READY so a propagation
-    failure surfaces as a timeout, not an empty $search."""
-    search_mccs = _search_mccs(member_cluster_clients)
-    assert_per_cluster_count(search_mccs)
-    target_mcc = _mcc(member_cluster_clients, target_search_context)
-    target_idx = _idx(target_mcc)
-
-    _flip_source_mongot_host(mdb, target_search_context, target_idx)
-    _assert_source_routed_to(namespace, member_cluster_clients, target_search_context, target_idx)
-
-    tester = _source_mongos_search_tester(member_cluster_clients, namespace, USER_NAME, USER_PASSWORD)
-    movies = SampleMoviesSearchHelper(search_tester=tester)
-    if create_index:
-        movies.create_search_index()
-    tester.wait_for_search_indexes_ready(movies.db_name, movies.col_name, timeout=SEARCH_INDEX_READY_TIMEOUT)
-    movies.assert_search_query(retry_timeout=SEARCH_QUERY_RETRY_TIMEOUT)
-    logger.info(f"search cluster {target_search_context}: deterministic $search via source mongos OK")
-
-
 @mark.e2e_aws_simulated_mc_sharded
-def test_route_to_search_az1_and_query(
+def test_wire_source_mongot_host_per_az(
     namespace: str,
     mdb: MongoDB,
     member_cluster_clients: List[MultiClusterClient],
 ):
-    """Flip 1 of 2: route the source at search-az1's mongot and create the index."""
-    _route_and_query(namespace, mdb, member_cluster_clients, SEARCH_AZ1, create_index=True)
+    """Wire each source process at the mongot in its OWN AZ and verify the AC applied it:
+    az1 processes -> search-az1, az2 processes -> search-az2 (no global flip)."""
+    assert_per_cluster_count(_search_mccs(member_cluster_clients))
+    _wire_source_mongot_host_per_az(mdb, member_cluster_clients)
+    _assert_source_routed_per_az(namespace, member_cluster_clients)
+
+
+@mark.e2e_aws_simulated_mc_sharded
+def test_create_search_index_and_query(
+    namespace: str,
+    member_cluster_clients: List[MultiClusterClient],
+):
+    """Create the $search index and assert the deterministic count via the source mongos;
+    per-AZ wiring fans the query out to each shard's co-located search cluster."""
+    tester = _source_mongos_search_tester(member_cluster_clients, namespace, USER_NAME, USER_PASSWORD)
+    movies = SampleMoviesSearchHelper(search_tester=tester)
+    movies.create_search_index()
+    tester.wait_for_search_indexes_ready(movies.db_name, movies.col_name, timeout=SEARCH_INDEX_READY_TIMEOUT)
+    movies.assert_search_query(retry_timeout=SEARCH_QUERY_RETRY_TIMEOUT)
+    logger.info("per-AZ routing: deterministic $search via source mongos OK")
 
 
 @mark.e2e_aws_simulated_mc_sharded
@@ -1448,8 +1462,7 @@ def test_vector_search_query_via_source_mongos(namespace: str, member_cluster_cl
     if EMBEDDING_QUERY_KEY_ENV_VAR not in os.environ:
         pytest.skip(f"missing {EMBEDDING_QUERY_KEY_ENV_VAR} — required to generate the query vector")
 
-    target_idx = _idx(_mcc(member_cluster_clients, SEARCH_AZ1))
-    _assert_source_routed_to(namespace, member_cluster_clients, SEARCH_AZ1, target_idx)
+    _assert_source_routed_per_az(namespace, member_cluster_clients)
 
     limit = 4
     tester = _source_mongos_search_tester(member_cluster_clients, namespace, USER_NAME, USER_PASSWORD)
@@ -1464,17 +1477,6 @@ def test_vector_search_query_via_source_mongos(namespace: str, member_cluster_cl
         query_vector, limit, timeout=SEARCH_QUERY_RETRY_TIMEOUT, msg_prefix="via source mongos: "
     )
     logger.info(f"deterministic $vectorSearch (=={limit}) via source mongos OK")
-
-
-@mark.e2e_aws_simulated_mc_sharded
-def test_route_to_search_az2_and_query(
-    namespace: str,
-    mdb: MongoDB,
-    member_cluster_clients: List[MultiClusterClient],
-):
-    """Flip 2 of 2: re-point at search-az2's mongot, proving it independently indexes +
-    serves the shared source (index created once under flip 1)."""
-    _route_and_query(namespace, mdb, member_cluster_clients, SEARCH_AZ2, create_index=False)
 
 
 @mark.e2e_aws_simulated_mc_sharded
