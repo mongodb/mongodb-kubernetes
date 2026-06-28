@@ -166,26 +166,21 @@ def create_lb_certificates(
     """Create TLS certificates for the operator-managed load balancer (Envoy proxy).
 
     Secret names must match what the operator expects per LoadBalancerServerCert() and
-    LoadBalancerClientCert(): {prefix}-{name}-search-lb-cert and
-    {prefix}-{name}-search-lb-client-cert. The secret name does not vary per cluster
-    (operator mounts the same cert in every member cluster's Envoy), so the cert must
-    carry SANs for *all* clusters' proxy Services. Pass `cluster_indexes=[0, 1, ...]`
-    in multi-cluster setups so the SAN list covers every cluster's proxy hostnames.
+    LoadBalancerClientCert(): {prefix}-{name}-search-lb-{clusterIndex}-cert and
+    {prefix}-{name}-search-lb-{clusterIndex}-client-cert. One server + client cert is
+    created per cluster index, named to match that cluster's Envoy Deployment. Each cert
+    carries SANs for *all* clusters' proxy Services so it stays valid wherever it lands.
+    Pass `cluster_indexes=[0, 1, ...]` in multi-cluster setups.
 
     The server cert SAN list covers both per-shard proxy Services and the cluster-level
-    proxy Service that mongos uses (M3: cluster-level Service is created for all sharded,
-    including single-cluster).
+    proxy Service that mongos uses (the cluster-level Service exists for all sharded
+    deployments, including single-cluster).
     """
     if cluster_indexes is None:
         cluster_indexes = [cluster_index]
 
     logger.info(f"Creating managed LB certificates for cluster_indexes={cluster_indexes}...")
 
-    lb_server_cert_name = search_resource_names.lb_server_cert_name(mdbs_resource_name, tls_cert_prefix)
-    lb_client_cert_name = search_resource_names.lb_client_cert_name(mdbs_resource_name, tls_cert_prefix)
-
-    # Build SANs: per-shard proxy Services + cluster-level proxy Service for mongos,
-    # across every cluster index so the single Envoy cert is valid in any member cluster.
     additional_domains = []
     for ci in cluster_indexes:
         for i in range(shard_count):
@@ -194,31 +189,34 @@ def create_lb_certificates(
             additional_domains.append(f"{proxy_svc}.{namespace}.svc.cluster.local")
         additional_domains.append(search_resource_names.mc_proxy_svc_fqdn(mdbs_resource_name, namespace, ci))
 
-    # Create server certificate
-    create_tls_certs(
-        issuer=issuer,
-        namespace=namespace,
-        resource_name=search_resource_names.lb_deployment_name(mdbs_resource_name),
-        replicas=1,
-        service_name=search_resource_names.lb_deployment_name(mdbs_resource_name),
-        additional_domains=additional_domains,
-        secret_name=lb_server_cert_name,
-        api_client=api_client,
-    )
-    logger.info(f"LB server certificate created: {lb_server_cert_name}")
+    for ci in cluster_indexes:
+        deployment_name = search_resource_names.lb_deployment_name(mdbs_resource_name, ci)
+        lb_server_cert_name = search_resource_names.lb_server_cert_name(mdbs_resource_name, tls_cert_prefix, ci)
+        lb_client_cert_name = search_resource_names.lb_client_cert_name(mdbs_resource_name, tls_cert_prefix, ci)
 
-    # Create client certificate
-    create_tls_certs(
-        issuer=issuer,
-        namespace=namespace,
-        resource_name=f"{search_resource_names.lb_deployment_name(mdbs_resource_name)}-client",
-        replicas=1,
-        service_name=search_resource_names.lb_deployment_name(mdbs_resource_name),
-        additional_domains=[f"*.{namespace}.svc.cluster.local"],
-        secret_name=lb_client_cert_name,
-        api_client=api_client,
-    )
-    logger.info(f"LB client certificate created: {lb_client_cert_name}")
+        create_tls_certs(
+            issuer=issuer,
+            namespace=namespace,
+            resource_name=deployment_name,
+            replicas=1,
+            service_name=deployment_name,
+            additional_domains=additional_domains,
+            secret_name=lb_server_cert_name,
+            api_client=api_client,
+        )
+        logger.info(f"LB server certificate created: {lb_server_cert_name}")
+
+        create_tls_certs(
+            issuer=issuer,
+            namespace=namespace,
+            resource_name=f"{deployment_name}-client",
+            replicas=1,
+            service_name=deployment_name,
+            additional_domains=[f"*.{namespace}.svc.cluster.local"],
+            secret_name=lb_client_cert_name,
+            api_client=api_client,
+        )
+        logger.info(f"LB client certificate created: {lb_client_cert_name}")
 
 
 def create_issuer_ca(issuer_ca_filepath: str, namespace: str, ca_configmap_name: str, api_client=None) -> str:

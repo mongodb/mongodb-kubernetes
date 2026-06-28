@@ -1281,17 +1281,19 @@ func (s *MongoDBSearch) LoadBalancerConfigMapNameForCluster(clusterIndex int) st
 }
 
 // LoadBalancerServerCert returns the namespaced name of the TLS server certificate secret for the
-// managed Envoy LB (ReplicaSet). Naming pattern:
-//   - With prefix: {prefix}-{name}-search-lb-cert
-//   - Without prefix: {name}-search-lb-cert
-func (s *MongoDBSearch) LoadBalancerServerCert() types.NamespacedName {
+// managed Envoy LB of one member cluster. The cluster index matches the Envoy
+// Deployment name so the cert that fronts a cluster's Envoy is unambiguous.
+// Naming pattern:
+//   - With prefix: {prefix}-{name}-search-lb-{clusterIndex}-cert
+//   - Without prefix: {name}-search-lb-{clusterIndex}-cert
+func (s *MongoDBSearch) LoadBalancerServerCert(clusterIndex int) types.NamespacedName {
 	if s.Spec.Security.TLS != nil && s.Spec.Security.TLS.CertsSecretPrefix != "" {
 		return types.NamespacedName{
-			Name:      fmt.Sprintf("%s-%s-search-lb-cert", s.Spec.Security.TLS.CertsSecretPrefix, s.Name),
+			Name:      fmt.Sprintf("%s-%s-search-lb-%d-cert", s.Spec.Security.TLS.CertsSecretPrefix, s.Name, clusterIndex),
 			Namespace: s.Namespace,
 		}
 	}
-	return types.NamespacedName{Name: fmt.Sprintf("%s-search-lb-cert", s.Name), Namespace: s.Namespace}
+	return types.NamespacedName{Name: fmt.Sprintf("%s-search-lb-%d-cert", s.Name, clusterIndex), Namespace: s.Namespace}
 }
 
 // LoadBalancerServerCertForClusterShard returns the namespaced name of the TLS server certificate secret for
@@ -1309,17 +1311,18 @@ func (s *MongoDBSearch) LoadBalancerServerCertForClusterShard(clusterIndex int, 
 }
 
 // LoadBalancerClientCert returns the namespaced name of the TLS client certificate secret used by the
-// managed Envoy LB to authenticate with mongot backends. Naming pattern:
-//   - With prefix: {prefix}-{name}-search-lb-client-cert
-//   - Without prefix: {name}-search-lb-client-cert
-func (s *MongoDBSearch) LoadBalancerClientCert() types.NamespacedName {
+// managed Envoy LB of one member cluster to authenticate with mongot backends.
+// The cluster index matches the Envoy Deployment name. Naming pattern:
+//   - With prefix: {prefix}-{name}-search-lb-{clusterIndex}-client-cert
+//   - Without prefix: {name}-search-lb-{clusterIndex}-client-cert
+func (s *MongoDBSearch) LoadBalancerClientCert(clusterIndex int) types.NamespacedName {
 	if s.Spec.Security.TLS != nil && s.Spec.Security.TLS.CertsSecretPrefix != "" {
 		return types.NamespacedName{
-			Name:      fmt.Sprintf("%s-%s-search-lb-client-cert", s.Spec.Security.TLS.CertsSecretPrefix, s.Name),
+			Name:      fmt.Sprintf("%s-%s-search-lb-%d-client-cert", s.Spec.Security.TLS.CertsSecretPrefix, s.Name, clusterIndex),
 			Namespace: s.Namespace,
 		}
 	}
-	return types.NamespacedName{Name: fmt.Sprintf("%s-search-lb-client-cert", s.Name), Namespace: s.Namespace}
+	return types.NamespacedName{Name: fmt.Sprintf("%s-search-lb-%d-client-cert", s.Name, clusterIndex), Namespace: s.Namespace}
 }
 
 // ObjectKey implements v1.ResourceOwner.

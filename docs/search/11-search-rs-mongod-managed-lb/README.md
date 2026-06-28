@@ -258,8 +258,8 @@ The Envoy proxy terminates one mTLS session (from mongod) and initiates another 
 
 | Certificate | Secret Name Pattern | Purpose |
 |-------------|---------------------|---------|
-| Server cert | `{prefix}-{name}-search-lb-cert` | Presented to mongod during TLS handshake |
-| Client cert | `{prefix}-{name}-search-lb-client-cert` | Used by Envoy when connecting to mongot |
+| Server cert | `{prefix}-{name}-search-lb-0-cert` | Presented to mongod during TLS handshake |
+| Client cert | `{prefix}-{name}-search-lb-0-client-cert` | Used by Envoy when connecting to mongot |
 
 Both must be signed by the same CA that mongod and mongot trust.
 

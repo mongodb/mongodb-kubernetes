@@ -604,13 +604,13 @@ func buildEnvoyPodSpec(search *searchv1.MongoDBSearch, clusterIndex int, tlsCfg 
 			corev1.Volume{
 				Name: "envoy-server-cert",
 				VolumeSource: corev1.VolumeSource{
-					Secret: &corev1.SecretVolumeSource{SecretName: search.LoadBalancerServerCert().Name},
+					Secret: &corev1.SecretVolumeSource{SecretName: search.LoadBalancerServerCert(clusterIndex).Name},
 				},
 			},
 			corev1.Volume{
 				Name: "envoy-client-cert",
 				VolumeSource: corev1.VolumeSource{
-					Secret: &corev1.SecretVolumeSource{SecretName: search.LoadBalancerClientCert().Name},
+					Secret: &corev1.SecretVolumeSource{SecretName: search.LoadBalancerClientCert(clusterIndex).Name},
 				},
 			},
 			caVolume,
