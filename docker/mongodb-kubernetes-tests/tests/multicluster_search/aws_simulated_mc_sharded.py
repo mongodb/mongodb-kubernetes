@@ -1055,14 +1055,14 @@ def test_create_search_tls_certificates(
 
 
 def _create_external_lb_certificates(*, namespace, issuer, search_mccs, api_client) -> None:
-    """Managed-LB (search Envoy) server + client certs. The SERVER cert SANs the EXTERNAL
-    per-shard + cluster-level proxy FQDNs (what the source mongod dials as mongotHost); the
-    CLIENT cert (Envoy -> mongot, internal) keeps the in-cluster wildcard. Single secret
-    name (no cluster index), so one cert covers every search cluster's external FQDNs."""
-    server_domains: List[str] = []
+    """Per-cluster managed-LB (search Envoy) server + client certs. The SERVER cert SANs the
+    EXTERNAL per-shard + cluster-level proxy FQDNs (what the source mongod dials as mongotHost);
+    the CLIENT cert (Envoy -> mongot, internal) keeps the in-cluster wildcard. Secret names
+    carry the cluster index (search-lb-{idx}-cert) to match the operator's per-cluster LB certs."""
     for mcc in search_mccs:
         idx = _idx(mcc)
         ctx = mcc.cluster_name
+        server_domains: List[str] = []
         for shard_idx in range(SHARD_COUNT):
             shard_name = f"{MDB_RESOURCE_NAME}-{shard_idx}"
             server_domains.append(
@@ -1070,29 +1070,29 @@ def _create_external_lb_certificates(*, namespace, issuer, search_mccs, api_clie
             )
         server_domains.append(f"{MDBS_RESOURCE_NAME}-search-{idx}-proxy-svc.{search_proxy_wildcard(ctx)}")
 
-    create_tls_certs(
-        issuer=issuer,
-        namespace=namespace,
-        resource_name=search_resource_names.lb_deployment_name(MDBS_RESOURCE_NAME),
-        replicas=1,
-        service_name=search_resource_names.lb_deployment_name(MDBS_RESOURCE_NAME),
-        additional_domains=server_domains,
-        secret_name=search_resource_names.lb_server_cert_name(MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX),
-        api_client=api_client,
-    )
-    logger.info(f"managed-LB server cert created with EXTERNAL SANs={server_domains}")
+        create_tls_certs(
+            issuer=issuer,
+            namespace=namespace,
+            resource_name=search_resource_names.lb_deployment_name(MDBS_RESOURCE_NAME, idx),
+            replicas=1,
+            service_name=search_resource_names.lb_deployment_name(MDBS_RESOURCE_NAME, idx),
+            additional_domains=server_domains,
+            secret_name=search_resource_names.lb_server_cert_name(MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX, idx),
+            api_client=api_client,
+        )
+        logger.info(f"[{ctx}] managed-LB server cert (idx={idx}) created with EXTERNAL SANs={server_domains}")
 
-    create_tls_certs(
-        issuer=issuer,
-        namespace=namespace,
-        resource_name=f"{search_resource_names.lb_deployment_name(MDBS_RESOURCE_NAME)}-client",
-        replicas=1,
-        service_name=search_resource_names.lb_deployment_name(MDBS_RESOURCE_NAME),
-        additional_domains=[f"*.{namespace}.svc.cluster.local"],
-        secret_name=search_resource_names.lb_client_cert_name(MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX),
-        api_client=api_client,
-    )
-    logger.info("managed-LB client cert created with internal SANs")
+        create_tls_certs(
+            issuer=issuer,
+            namespace=namespace,
+            resource_name=f"{search_resource_names.lb_deployment_name(MDBS_RESOURCE_NAME, idx)}-client",
+            replicas=1,
+            service_name=search_resource_names.lb_deployment_name(MDBS_RESOURCE_NAME, idx),
+            additional_domains=[f"*.{namespace}.svc.cluster.local"],
+            secret_name=search_resource_names.lb_client_cert_name(MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX, idx),
+            api_client=api_client,
+        )
+        logger.info(f"[{ctx}] managed-LB client cert (idx={idx}) created with internal SANs")
 
 
 @mark.e2e_aws_simulated_mc_sharded
@@ -1115,24 +1115,23 @@ def test_replicate_search_secrets_to_members(
         for mcc in targets:
             create_or_update_secret(namespace, secret_name, data, type=secret_type, api_client=mcc.api_client)
 
-    for secret_name in [
-        search_resource_names.lb_server_cert_name(MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX),
-        search_resource_names.lb_client_cert_name(MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX),
-        f"{MDBS_RESOURCE_NAME}-{MONGOT_USER_NAME}-password",
-    ]:
-        _copy(secret_name, search_mccs)
-        logger.info(f"replicated shared Secret {secret_name} to {len(search_mccs)} search cluster(s)")
+    _copy(f"{MDBS_RESOURCE_NAME}-{MONGOT_USER_NAME}-password", search_mccs)
+    logger.info(f"replicated shared mongot password Secret to {len(search_mccs)} search cluster(s)")
 
     for mcc in search_mccs:
+        idx = _idx(mcc)
+        # Per-cluster managed-LB certs (search-lb-{idx}-cert) go only to their own cluster.
+        _copy(search_resource_names.lb_server_cert_name(MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX, idx), [mcc])
+        _copy(search_resource_names.lb_client_cert_name(MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX, idx), [mcc])
         for shard_idx in range(SHARD_COUNT):
             shard_name = f"{MDB_RESOURCE_NAME}-{shard_idx}"
             _copy(
                 search_resource_names.shard_tls_cert_name(
-                    MDBS_RESOURCE_NAME, shard_name, MDBS_TLS_CERT_PREFIX, cluster_index=_idx(mcc)
+                    MDBS_RESOURCE_NAME, shard_name, MDBS_TLS_CERT_PREFIX, cluster_index=idx
                 ),
                 [mcc],
             )
-        logger.info(f"replicated per-shard Secrets to {mcc.cluster_name} (cluster_index={_idx(mcc)})")
+        logger.info(f"replicated per-cluster LB + per-shard Secrets to {mcc.cluster_name} (cluster_index={idx})")
 
 
 @mark.e2e_aws_simulated_mc_sharded
