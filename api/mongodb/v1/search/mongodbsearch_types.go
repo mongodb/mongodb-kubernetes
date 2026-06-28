@@ -56,7 +56,25 @@ func init() {
 	v1.SchemeBuilder.Register(&MongoDBSearch{}, &MongoDBSearchList{})
 }
 
+// PrometheusMode controls whether the Prometheus metrics endpoint in mongot is enabled.
+// +kubebuilder:validation:Enum=enabled;disabled
+type PrometheusMode string
+
+const (
+	// PrometheusModeEnabled enables the Prometheus metrics endpoint in mongot.
+	PrometheusModeEnabled PrometheusMode = "enabled"
+	// PrometheusModeDisabled disables the Prometheus metrics endpoint in mongot.
+	PrometheusModeDisabled PrometheusMode = "disabled"
+)
+
 type Prometheus struct {
+	// Mode controls whether the Prometheus metrics endpoint in mongot is enabled.
+	// Defaults to enabled.
+	// +optional
+	// +kubebuilder:default=enabled
+	// +kubebuilder:validation:Enum=enabled;disabled
+	Mode PrometheusMode `json:"mode,omitempty"`
+
 	// Port where metrics endpoint will be exposed on. Defaults to 9946.
 	// +optional
 	// +kubebuilder:validation:Minimum=0
@@ -65,11 +83,74 @@ type Prometheus struct {
 	Port int `json:"port,omitempty"`
 }
 
-func (p *Prometheus) GetPort() int32 {
+func (p Prometheus) IsEnabled() bool {
+	return p.Mode != PrometheusModeDisabled
+}
+
+func (p Prometheus) GetPort() int32 {
 	//nolint:gosec
 	return int32(p.Port)
 }
 
+// MetricsForwarderMode controls when the metrics forwarder Deployment is created.
+// +kubebuilder:validation:Enum=auto;enabled;disabled
+type MetricsForwarderMode string
+
+const (
+	// MetricsForwarderModeAuto enables the metrics forwarder automatically for internal MongoDB sources,
+	// and for external sources when OpsManager is set.
+	MetricsForwarderModeAuto MetricsForwarderMode = "auto"
+	// MetricsForwarderModeEnabled always enables the metrics forwarder.
+	MetricsForwarderModeEnabled MetricsForwarderMode = "enabled"
+	// MetricsForwarderModeDisabled always disables the metrics forwarder.
+	MetricsForwarderModeDisabled MetricsForwarderMode = "disabled"
+)
+
+// MetricsForwarderOpsManagerConfig holds Ops Manager connection details for the metrics forwarder.
+type MetricsForwarderOpsManagerConfig struct {
+	// AgentCredentials is a reference to a Secret containing the Ops Manager Agent API key.
+	// +kubebuilder:validation:Required
+	AgentCredentials corev1.LocalObjectReference `json:"agentCredentials"`
+	// ProjectConfigMapRef is a reference to a ConfigMap containing OM Project configuration.
+	// +kubebuilder:validation:Required
+	ProjectConfigMapRef corev1.LocalObjectReference `json:"projectConfigMapRef"`
+}
+
+// MetricsForwarderConfig configures the Ops Manager metrics forwarder.
+type MetricsForwarderConfig struct {
+	// Mode controls whether the metrics forwarder Deployment is created.
+	// Auto (default): enabled for internal MongoDB sources, and for external sources when OpsManager is set.
+	// Enabled: always create the metrics forwarder.
+	// Disabled: never create the metrics forwarder.
+	// +optional
+	// +kubebuilder:default=auto
+	Mode MetricsForwarderMode `json:"mode,omitempty"`
+	// ResourceRequirements for the metrics forwarder container.
+	// +optional
+	// +kubebuilder:default={requests: {cpu: "100m", memory: "128Mi"}, limits: {cpu: "250m", memory: "256Mi"}}
+	ResourceRequirements corev1.ResourceRequirements `json:"resourceRequirements,omitempty"`
+	// Deployment holds optional overrides merged into the operator-created metrics forwarder Deployment.
+	// +optional
+	Deployment *v1.DeploymentConfiguration `json:"deployment,omitempty"`
+	// OpsManager holds the Ops Manager project and credentials configuration for the metrics forwarder.
+	// If not set, the operator derives the connection details from the source MongoDB resource's connection spec.
+	// +optional
+	OpsManager *MetricsForwarderOpsManagerConfig `json:"opsManager,omitempty"`
+}
+
+// ObservabilityConfig holds observability-related configuration for MongoDBSearch.
+type ObservabilityConfig struct {
+	// Prometheus configures the Prometheus metrics endpoint in mongot.
+	// By default the endpoint is enabled on port 9946.
+	// +optional
+	// +kubebuilder:default={}
+	Prometheus Prometheus `json:"prometheus,omitempty"`
+	// MetricsForwarder configures a metrics forwarder Deployment that scrapes
+	// mongot Prometheus metrics and forwards them to Ops Manager.
+	// +optional
+	// +kubebuilder:default={}
+	MetricsForwarder MetricsForwarderConfig `json:"metricsForwarder,omitempty"`
+}
 type MongoDBSearchSpec struct {
 	// Version of MongoDB Search (mongot) to run. If unset, the operator picks the most appropriate version.
 	// +optional
@@ -84,9 +165,10 @@ type MongoDBSearchSpec struct {
 	// +kubebuilder:validation:Enum=TRACE;DEBUG;INFO;WARN;ERROR
 	// +optional
 	LogLevel mdb.LogLevel `json:"logLevel,omitempty"`
-	// Configure prometheus metrics endpoint in mongot. If not set, the metrics endpoint will be disabled.
+	// Observability configures observability features (e.g. Prometheus endpoint and metrics forwarding to Ops Manager).
 	// +optional
-	Prometheus *Prometheus `json:"prometheus,omitempty"`
+	// +kubebuilder:default={}
+	Observability ObservabilityConfig `json:"observability,omitempty"`
 	// AutoEmbedding configures MongoDB Search to generate vector embeddings automatically
 	// through an embedding model service. These values populate the `embedding` section of the mongot config.
 	// +optional
@@ -476,6 +558,12 @@ type LoadBalancerStatus struct {
 	Message string       `json:"message,omitempty"`
 }
 
+// MetricsForwarderStatus reports the state of the metrics forwarder.
+type MetricsForwarderStatus struct {
+	Phase   status.Phase `json:"phase"`
+	Message string       `json:"message,omitempty"`
+}
+
 type MongoDBSearchStatus struct {
 	status.Common `json:",inline"`
 	Version       string           `json:"version,omitempty"`
@@ -484,6 +572,9 @@ type MongoDBSearchStatus struct {
 	// Only populated when spec.clusters[].loadBalancer.managed is set.
 	// +optional
 	LoadBalancer *LoadBalancerStatus `json:"loadBalancer,omitempty"`
+	// MetricsForwarder reports the state of the Ops Manager metrics forwarder.
+	// +optional
+	MetricsForwarder *MetricsForwarderStatus `json:"metricsForwarder,omitempty"`
 }
 
 // +k8s:deepcopy-gen=true
@@ -493,6 +584,7 @@ type MongoDBSearchStatus struct {
 // +kubebuilder:printcolumn:name="Phase",type="string",JSONPath=".status.phase",description="Current state of the MongoDB deployment."
 // +kubebuilder:printcolumn:name="Version",type="string",JSONPath=".status.version",description="MongoDB Search version reconciled by the operator."
 // +kubebuilder:printcolumn:name="LoadBalancer",type="string",JSONPath=".status.loadBalancer.phase",description="Current state of the managed load balancer."
+// +kubebuilder:printcolumn:name="MetricsForwarder",type="string",JSONPath=".status.metricsForwarder.phase",description="Current state of the Ops Manager metrics forwarder."
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp",description="The time since the MongoDB resource was created."
 // +kubebuilder:resource:path=mongodbsearch,scope=Namespaced,shortName=mdbs
 type MongoDBSearch struct {
@@ -518,8 +610,11 @@ func (s *MongoDBSearch) GetCommonStatus(options ...status.Option) *status.Common
 
 func (s *MongoDBSearch) GetStatus(options ...status.Option) interface{} {
 	if partOpt, exists := status.GetOption(options, SearchPartOption{}); exists {
-		if partOpt.(SearchPartOption).Part == SearchPartLoadBalancer {
+		switch partOpt.(SearchPartOption).Part {
+		case SearchPartLoadBalancer:
 			return s.Status.LoadBalancer
+		case SearchPartMetricsForwarder:
+			return s.Status.MetricsForwarder
 		}
 	}
 	return s.Status
@@ -527,8 +622,11 @@ func (s *MongoDBSearch) GetStatus(options ...status.Option) interface{} {
 
 func (s *MongoDBSearch) GetStatusPath(options ...status.Option) string {
 	if partOpt, exists := status.GetOption(options, SearchPartOption{}); exists {
-		if partOpt.(SearchPartOption).Part == SearchPartLoadBalancer {
+		switch partOpt.(SearchPartOption).Part {
+		case SearchPartLoadBalancer:
 			return "/status/loadBalancer"
+		case SearchPartMetricsForwarder:
+			return "/status/metricsForwarder"
 		}
 	}
 	return "/status"
@@ -540,8 +638,12 @@ func (s *MongoDBSearch) SetWarnings(warnings []status.Warning, _ ...status.Optio
 
 func (s *MongoDBSearch) UpdateStatus(phase status.Phase, statusOptions ...status.Option) {
 	if partOpt, exists := status.GetOption(statusOptions, SearchPartOption{}); exists {
-		if partOpt.(SearchPartOption).Part == SearchPartLoadBalancer {
+		switch partOpt.(SearchPartOption).Part {
+		case SearchPartLoadBalancer:
 			s.updateLoadBalancerStatus(phase, statusOptions...)
+			return
+		case SearchPartMetricsForwarder:
+			s.updateMetricsForwarderStatus(phase, statusOptions...)
 			return
 		}
 	}
@@ -563,6 +665,17 @@ func (s *MongoDBSearch) updateLoadBalancerStatus(phase status.Phase, statusOptio
 	s.Status.LoadBalancer.Message = ""
 	if option, exists := status.GetOption(statusOptions, status.MessageOption{}); exists {
 		s.Status.LoadBalancer.Message = option.(status.MessageOption).Message
+	}
+}
+
+func (s *MongoDBSearch) updateMetricsForwarderStatus(phase status.Phase, statusOptions ...status.Option) {
+	if s.Status.MetricsForwarder == nil {
+		s.Status.MetricsForwarder = &MetricsForwarderStatus{}
+	}
+	s.Status.MetricsForwarder.Phase = phase
+	s.Status.MetricsForwarder.Message = ""
+	if option, exists := status.GetOption(statusOptions, status.MessageOption{}); exists {
+		s.Status.MetricsForwarder.Message = option.(status.MessageOption).Message
 	}
 }
 
@@ -830,10 +943,6 @@ func (s *MongoDBSearch) GetEffectiveMongotPort() int32 {
 		return s.GetMongotWireprotoPort()
 	}
 	return s.GetMongotGrpcPort()
-}
-
-func (s *MongoDBSearch) GetPrometheus() *Prometheus {
-	return s.Spec.Prometheus
 }
 
 // firstClusterLB returns the first cluster's loadBalancer. Validation enforces
@@ -1206,4 +1315,59 @@ func (s *MongoDBSearch) LocalizeToCluster(name string) bool {
 		}
 	}
 	return false
+}
+
+// IsMetricsForwarderEnabled returns true if the metrics forwarder should be created.
+// Mode Enabled: always returns true.
+// Mode Disabled: always returns false.
+// Mode Auto (default): returns true for internal MongoDB sources,
+// or for external sources when both AgentCredentials and ProjectConfigMapRef are populated.
+func (s *MongoDBSearch) IsMetricsForwarderEnabled() bool {
+	switch s.Spec.Observability.MetricsForwarder.Mode {
+	case MetricsForwarderModeEnabled:
+		return true
+	case MetricsForwarderModeDisabled:
+		return false
+	default: // Auto
+		if !s.IsExternalMongoDBSource() {
+			return true
+		}
+		return s.Spec.Observability.MetricsForwarder.OpsManager != nil
+	}
+}
+
+func (s *MongoDBSearch) MetricsForwarderHasExplicitProjectConfig() bool {
+	return s.Spec.Observability.MetricsForwarder.OpsManager != nil
+}
+
+// MetricsForwarderDeploymentName returns the name of the metrics forwarder Deployment.
+func (s *MongoDBSearch) MetricsForwarderDeploymentName() string {
+	return s.Name + "-search-metrics-forwarder"
+}
+
+// MetricsForwarderConfigMapName returns the name of the metrics forwarder config ConfigMap.
+func (s *MongoDBSearch) MetricsForwarderConfigMapName() string {
+	return s.Name + "-search-metrics-forwarder-config"
+}
+
+// MetricsForwarderDeploymentNameForCluster returns the per-cluster metrics forwarder Deployment name.
+func (s *MongoDBSearch) MetricsForwarderDeploymentNameForCluster(clusterIndex int) string {
+	return fmt.Sprintf("%s-search-metrics-forwarder-%d", s.Name, clusterIndex)
+}
+
+// MetricsForwarderConfigMapNameForCluster returns the per-cluster metrics forwarder config ConfigMap name.
+func (s *MongoDBSearch) MetricsForwarderConfigMapNameForCluster(clusterIndex int) string {
+	return fmt.Sprintf("%s-search-metrics-forwarder-%d-config", s.Name, clusterIndex)
+}
+
+// MetricsForwarderAgentKeySecretNameForCluster returns the per-cluster agent-key Secret name
+// for the forwarder-owned replicated copy.
+func (s *MongoDBSearch) MetricsForwarderAgentKeySecretNameForCluster(clusterIndex int) string {
+	return fmt.Sprintf("%s-search-metrics-forwarder-%d-agent-key", s.Name, clusterIndex)
+}
+
+// MetricsForwarderCACertConfigMapNameForCluster returns the per-cluster OM CA ConfigMap name
+// for the forwarder-owned replicated copy.
+func (s *MongoDBSearch) MetricsForwarderCACertConfigMapNameForCluster(clusterIndex int) string {
+	return fmt.Sprintf("%s-search-metrics-forwarder-%d-ca-cert", s.Name, clusterIndex)
 }

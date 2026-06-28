@@ -193,11 +193,12 @@ def test_wait_for_mongod_parameters(mdb: MongoDB):
 #     assert_search_pod_prometheus_endpoint(mdbs, tools_pod, should_be_accessible=False)
 
 
-@mark.e2e_search_enterprise_enc_mtls
-def test_search_enable_prometheus_on_default_port(mdbs: MongoDBSearch):
-    mdbs["spec"]["prometheus"] = {}
-    mdbs.update()
-    mdbs.assert_reaches_phase(Phase.Running, timeout=300)
+# Prometheus is already enabled by default, these tests might need a rework.
+# @mark.e2e_search_enterprise_tls
+# def test_search_enable_prometheus_on_default_port(mdbs: MongoDBSearch):
+#     mdbs["spec"]["prometheus"] = {}
+#     mdbs.update()
+#     mdbs.assert_reaches_phase(Phase.Running, timeout=300)
 
 
 @mark.e2e_search_enterprise_enc_mtls
@@ -209,7 +210,7 @@ def test_search_verify_prometheus_enabled(namespace: str, mdbs: MongoDBSearch):
 
 @mark.e2e_search_enterprise_enc_mtls
 def test_search_change_prometheus_to_custom_port(mdbs: MongoDBSearch):
-    mdbs["spec"]["prometheus"] = {"port": 10000}
+    mdbs["spec"]["observability"]["prometheus"] = {"port": 10000}
     mdbs.update()
     mdbs.assert_reaches_phase(Phase.Running, timeout=300)
 

@@ -274,6 +274,8 @@ spec:
               value: "{{ .Values.search.repo }}/{{ .Values.search.name }}:{{ $.Values.search.version }}"
             - name: RELATED_IMAGE_MDB_ENVOY_IMAGE
               value: "{{ .Values.search.envoyImage }}"
+            - name: RELATED_IMAGE_MDB_SEARCH_METRICS_FORWARDER_IMAGE
+              value: "{{ .Values.search.metricsForwarderImage }}"
       {{- end }}
     {{- end }}
     {{- if .Values.search }}
@@ -285,6 +287,8 @@ spec:
               value: "{{ .Values.search.version }}"
             - name: MDB_ENVOY_IMAGE
               value: "{{ .Values.search.envoyImage }}"
+            - name: MDB_SEARCH_METRICS_FORWARDER_IMAGE
+              value: "{{ .Values.search.metricsForwarderImage }}"
     {{- end }}
     {{- if .Values.voyageai }}
             - name: MDB_VOYAGEAI_REPO_URL
