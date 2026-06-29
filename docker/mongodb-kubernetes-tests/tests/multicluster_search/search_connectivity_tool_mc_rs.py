@@ -169,10 +169,8 @@ class TestSearchConnectivityToolMC:
                         f"served while {outage_label} mongot was scaled to 0"
                     )
             finally:
-                # Under WhenScaled:Delete the mongot PVC is GC'd asynchronously on
-                # scale-to-0; restoring replicas while the old claim is still
-                # Terminating wedges the StatefulSet controller (pod never recreated,
-                # stuck at current:0), so wait for the claim to be gone first.
+                # Wait out the async PVC GC before restoring replicas (see
+                # wait_for_mongot_pvcs_deleted docstring for the STS-controller race).
                 wait_for_mongot_pvcs_deleted(
                     namespace,
                     sts_name,
@@ -271,10 +269,8 @@ class TestSearchConnectivityToolMC:
                 wait_for_mongot_statefulset_drained(sts_name, namespace, api_client=outage_mcc.api_client, timeout=300)
                 fleet.wait_for_operations_all(40)  # observe through the outage
             finally:
-                # Under WhenScaled:Delete the mongot PVC is GC'd asynchronously on
-                # scale-to-0; restoring replicas while the old claim is still
-                # Terminating wedges the StatefulSet controller (pod never recreated,
-                # stuck at current:0), so wait for the claim to be gone first.
+                # Wait out the async PVC GC before restoring replicas (see
+                # wait_for_mongot_pvcs_deleted docstring for the STS-controller race).
                 wait_for_mongot_pvcs_deleted(
                     namespace,
                     sts_name,
