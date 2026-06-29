@@ -71,6 +71,10 @@ const (
 	appdbCAFilePath              = "/var/lib/mongodb-automation/secrets/ca/ca-pem"
 	appDBACConfigMapVersionField = "version"
 
+	// OM canonical defaults for monitoring log rotation (from BaseAgentConfig.java).
+	defaultMonitoringLogRotateSizeMB  = 1000
+	defaultMonitoringLogRotateTimeHrs = 24
+
 	// Used to note that for this particular case it is not necessary to pass
 	// the hash of the Prometheus certificate. This is to avoid having to
 	// calculate and pass the Prometheus Cert Hash when it is not needed.
@@ -1164,6 +1168,7 @@ func (r *ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(ctx context.Contex
 					podVars.ProjectID,
 					podVars.AgentAPIKey,
 					podVars.SSLRequireValidMMSServerCertificates,
+					opsManager.Spec.AppDB.AutomationAgent.MonitoringAgent.LogRotate,
 				)
 			} else {
 				automationConfig.MonitoringVersions = []automationconfig.MonitoringVersion{}
@@ -1404,7 +1409,20 @@ func setBaseUrlForAgents(ac *automationconfig.AutomationConfig, url string) {
 	}
 }
 
-func configureMonitoring(ac *automationconfig.AutomationConfig, log *zap.SugaredLogger, tls bool, projectID string, agentAPIKey string, requireValidCert bool) {
+func monitoringLogRotate(lr *mdbv1.LogRotateForBackupAndMonitoring) *automationconfig.MonitoringLogRotate {
+	if lr != nil {
+		return &automationconfig.MonitoringLogRotate{
+			SizeThresholdMB:  lr.SizeThresholdMB,
+			TimeThresholdHrs: lr.TimeThresholdHrs,
+		}
+	}
+	return &automationconfig.MonitoringLogRotate{
+		SizeThresholdMB:  defaultMonitoringLogRotateSizeMB,
+		TimeThresholdHrs: defaultMonitoringLogRotateTimeHrs,
+	}
+}
+
+func configureMonitoring(ac *automationconfig.AutomationConfig, log *zap.SugaredLogger, tls bool, projectID string, agentAPIKey string, requireValidCert bool, logRotate *mdbv1.LogRotateForBackupAndMonitoring) {
 	if projectID == "" || agentAPIKey == "" {
 		ac.MonitoringVersions = []automationconfig.MonitoringVersion{}
 		return
@@ -1413,6 +1431,7 @@ func configureMonitoring(ac *automationconfig.AutomationConfig, log *zap.Sugared
 		return
 	}
 
+	lr := monitoringLogRotate(logRotate)
 	monitoringVersions := ac.MonitoringVersions
 	for _, p := range ac.Processes {
 		hostname := p.HostName
@@ -1440,11 +1459,13 @@ func configureMonitoring(ac *automationconfig.AutomationConfig, log *zap.Sugared
 				Hostname:         hostname,
 				Name:             om.MonitoringAgentDefaultVersion,
 				AdditionalParams: params,
+				LogRotate:        lr,
 			}
 			log.Debugw("Added monitoring agent configuration", "host", hostname, "tls", tls)
 			monitoringVersions = append(monitoringVersions, mv)
 		} else {
 			monitoringVersions[foundIdx].AdditionalParams = params
+			monitoringVersions[foundIdx].LogRotate = lr
 		}
 	}
 	ac.MonitoringVersions = monitoringVersions

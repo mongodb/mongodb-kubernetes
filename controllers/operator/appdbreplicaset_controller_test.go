@@ -329,6 +329,9 @@ func TestBuildAppDbAutomationConfig_MonitoringNotEmbeddedInAC(t *testing.T) {
 	// Under Option B the credentials are delivered to the agent as CLI flags, not via additionalParams.
 	assert.NotContains(t, ac.MonitoringVersions[0].AdditionalParams, "mmsGroupId")
 	assert.NotContains(t, ac.MonitoringVersions[0].AdditionalParams, "mmsApiKey")
+	require.NotNil(t, ac.MonitoringVersions[0].LogRotate)
+	assert.Equal(t, 1000, ac.MonitoringVersions[0].LogRotate.SizeThresholdMB)
+	assert.Equal(t, 24, ac.MonitoringVersions[0].LogRotate.TimeThresholdHrs)
 }
 
 func TestBuildAppDbAutomationConfig_NoMonitoringWhenDisabled(t *testing.T) {
@@ -346,6 +349,34 @@ func TestBuildAppDbAutomationConfig_NoMonitoringWhenDisabled(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Empty(t, ac.MonitoringVersions)
+}
+
+func TestBuildAppDbAutomationConfig_MonitoringLogRotateCustom(t *testing.T) {
+	t.Setenv(util.OpsManagerMonitorAppDB, "true")
+	ctx := context.Background()
+	builder := DefaultOpsManagerBuilder()
+	opsManager := builder.Build()
+	opsManager.Spec.AppDB.AutomationAgent.MonitoringAgent.LogRotate = &mdbv1.LogRotateForBackupAndMonitoring{
+		SizeThresholdMB:  500,
+		TimeThresholdHrs: 12,
+	}
+	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(opsManager)
+	reconciler, err := newAppDbReconciler(ctx, kubeClient, opsManager, omConnectionFactory.GetConnectionFunc, zap.S())
+	require.NoError(t, err)
+	_ = createOpsManagerUserPasswordSecret(ctx, kubeClient, opsManager, "my-password")
+
+	podVars := &env.PodEnvVars{
+		ProjectID:   "abc123",
+		AgentAPIKey: "my-api-key",
+	}
+
+	ac, err := reconciler.buildAppDbAutomationConfig(ctx, opsManager, podVars, "", multicluster.LegacyCentralClusterName, zap.S())
+	require.NoError(t, err)
+
+	require.NotEmpty(t, ac.MonitoringVersions)
+	require.NotNil(t, ac.MonitoringVersions[0].LogRotate)
+	assert.Equal(t, 500, ac.MonitoringVersions[0].LogRotate.SizeThresholdMB)
+	assert.Equal(t, 12, ac.MonitoringVersions[0].LogRotate.TimeThresholdHrs)
 }
 
 func TestMonitoringToggledOff_ClearsMonitoringVersions(t *testing.T) {
@@ -1704,7 +1735,7 @@ func TestConfigureMonitoring_NonTLS(t *testing.T) {
 	ac := automationconfig.AutomationConfig{
 		Processes: []automationconfig.Process{{HostName: "host-0"}},
 	}
-	configureMonitoring(&ac, zap.S(), false, "myGroupId", "myApiKey", false)
+	configureMonitoring(&ac, zap.S(), false, "myGroupId", "myApiKey", false, nil)
 
 	require.Len(t, ac.MonitoringVersions, 1)
 	params := ac.MonitoringVersions[0].AdditionalParams
@@ -1712,13 +1743,16 @@ func TestConfigureMonitoring_NonTLS(t *testing.T) {
 	assert.NotContains(t, params, "mmsGroupId")
 	assert.NotContains(t, params, "mmsApiKey")
 	assert.NotContains(t, params, "useSslForAllConnections")
+	require.NotNil(t, ac.MonitoringVersions[0].LogRotate)
+	assert.Equal(t, 1000, ac.MonitoringVersions[0].LogRotate.SizeThresholdMB)
+	assert.Equal(t, 24, ac.MonitoringVersions[0].LogRotate.TimeThresholdHrs)
 }
 
 func TestConfigureMonitoring_TLS(t *testing.T) {
 	ac := automationconfig.AutomationConfig{
 		Processes: []automationconfig.Process{{HostName: "host-0"}},
 	}
-	configureMonitoring(&ac, zap.S(), true, "myGroupId", "myApiKey", true)
+	configureMonitoring(&ac, zap.S(), true, "myGroupId", "myApiKey", true, nil)
 
 	require.Len(t, ac.MonitoringVersions, 1)
 	params := ac.MonitoringVersions[0].AdditionalParams
@@ -1727,13 +1761,16 @@ func TestConfigureMonitoring_TLS(t *testing.T) {
 	assert.Equal(t, "true", params["useSslForAllConnections"])
 	assert.Equal(t, "true", params["sslRequireValidMMSServerCertificates"])
 	assert.Equal(t, appdbCAFilePath, params["sslTrustedServerCertificates"])
+	require.NotNil(t, ac.MonitoringVersions[0].LogRotate)
+	assert.Equal(t, 1000, ac.MonitoringVersions[0].LogRotate.SizeThresholdMB)
+	assert.Equal(t, 24, ac.MonitoringVersions[0].LogRotate.TimeThresholdHrs)
 }
 
 func TestConfigureMonitoring_TLS_RequireValidCertFalse(t *testing.T) {
 	ac := automationconfig.AutomationConfig{
 		Processes: []automationconfig.Process{{HostName: "host-0"}},
 	}
-	configureMonitoring(&ac, zap.S(), true, "myGroupId", "myApiKey", false)
+	configureMonitoring(&ac, zap.S(), true, "myGroupId", "myApiKey", false, nil)
 
 	require.Len(t, ac.MonitoringVersions, 1)
 	params := ac.MonitoringVersions[0].AdditionalParams
@@ -1741,6 +1778,9 @@ func TestConfigureMonitoring_TLS_RequireValidCertFalse(t *testing.T) {
 	assert.NotContains(t, params, "mmsApiKey")
 	assert.Equal(t, "true", params["useSslForAllConnections"])
 	assert.Equal(t, "false", params["sslRequireValidMMSServerCertificates"])
+	require.NotNil(t, ac.MonitoringVersions[0].LogRotate)
+	assert.Equal(t, 1000, ac.MonitoringVersions[0].LogRotate.SizeThresholdMB)
+	assert.Equal(t, 24, ac.MonitoringVersions[0].LogRotate.TimeThresholdHrs)
 }
 
 func TestConfigureMonitoring_ClearsWhenDisabled(t *testing.T) {
@@ -1751,7 +1791,7 @@ func TestConfigureMonitoring_ClearsWhenDisabled(t *testing.T) {
 		},
 	}
 	// called with empty credentials simulates monitoring disabled
-	configureMonitoring(&ac, zap.S(), false, "", "", false)
+	configureMonitoring(&ac, zap.S(), false, "", "", false, nil)
 
 	assert.Empty(t, ac.MonitoringVersions)
 }
