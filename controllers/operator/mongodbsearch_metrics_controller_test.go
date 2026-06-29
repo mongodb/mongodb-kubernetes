@@ -30,6 +30,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
+	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1" //nolint:depguard
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
@@ -617,6 +618,55 @@ func TestReconcile_PrometheusDisabled_MetricsForwarderEnabled_Invalid(t *testing
 	require.NotNil(t, updatedSearch.Status.MetricsForwarder)
 	assert.Equal(t, status.PhaseFailed, updatedSearch.Status.MetricsForwarder.Phase)
 	assert.Contains(t, updatedSearch.Status.MetricsForwarder.Message, "Prometheus")
+}
+
+func TestReconcile_UnsupportedSource_NoFinalizerAndDeletesCleanly(t *testing.T) {
+	// Regression test (ga-base e2e_search_community_basic): the metrics-forwarder finalizer is only
+	// stamped on a supported source. A MongoDBCommunity source is unsupported, so a normal reconcile
+	// must NOT stamp it — that keeps CR-delete garbage collection unblocked without any per-delete
+	// special case. The reconciler also clears a stale finalizer left by an older operator.
+	newUnsupportedSearch := func() *searchv1.MongoDBSearch {
+		s := newTestMongoDBSearch(testSearchName, testNamespace, testMDBName)
+		s.Spec.Observability = searchv1.ObservabilityConfig{
+			Prometheus:       searchv1.Prometheus{Mode: searchv1.PrometheusModeEnabled},
+			MetricsForwarder: searchv1.MetricsForwarderConfig{Mode: searchv1.MetricsForwarderModeAuto},
+		}
+		return s
+	}
+	// A MongoDBCommunity source (with no enterprise MongoDB of the same name) makes the forwarder
+	// unsupported, so reconcileCore takes the !supported branch.
+	newCommunitySource := func() *mdbcv1.MongoDBCommunity {
+		return &mdbcv1.MongoDBCommunity{
+			ObjectMeta: metav1.ObjectMeta{Name: testMDBName, Namespace: testNamespace},
+			Spec:       mdbcv1.MongoDBCommunitySpec{Version: "8.2.0", Members: 3},
+		}
+	}
+
+	t.Run("normal reconcile does not stamp the finalizer", func(t *testing.T) {
+		search := newUnsupportedSearch()
+		r, fakeClient := newMetricsForwarderReconciler(testDefaultImage, newCommunitySource(), search)
+
+		reconcileMetricsForwarder(t, r, testNamespace, testSearchName)
+
+		reconciled := getMongoDBSearch(t, fakeClient, testNamespace, testSearchName)
+		assert.NotContains(t, reconciled.Finalizers, util.SearchMetricsForwarderFinalizer,
+			"expected no metrics-forwarder finalizer on an unsupported community-source search")
+		require.NotNil(t, reconciled.Status.MetricsForwarder)
+		assert.Equal(t, status.PhaseRunning, reconciled.Status.MetricsForwarder.Phase)
+	})
+
+	t.Run("stale finalizer is cleared so the CR deletes cleanly", func(t *testing.T) {
+		// An older operator may have stamped the finalizer; deletion must still complete.
+		search := newUnsupportedSearch()
+		search.Finalizers = []string{util.SearchMetricsForwarderFinalizer}
+		r, fakeClient := newMetricsForwarderReconciler(testDefaultImage, newCommunitySource(), search)
+
+		require.NoError(t, fakeClient.Delete(context.Background(), search))
+		reconcileMetricsForwarder(t, r, testNamespace, testSearchName)
+
+		err := fakeClient.Get(context.Background(), types.NamespacedName{Namespace: testNamespace, Name: testSearchName}, &searchv1.MongoDBSearch{})
+		assert.True(t, apierrors.IsNotFound(err), "expected MongoDBSearch to be deleted after stale finalizer removal, got err=%v", err)
+	})
 }
 
 func TestReconcile_DeletionWhileDisabled_DeregistersHostsAndRemovesFinalizer(t *testing.T) {

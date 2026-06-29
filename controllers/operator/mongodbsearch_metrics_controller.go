@@ -194,9 +194,6 @@ func (r *MongoDBSearchMetricsForwarderReconciler) Reconcile(ctx context.Context,
 		if !mdbSearch.Spec.Observability.Prometheus.IsEnabled() {
 			return r.updateMetricsForwarderStatus(ctx, mdbSearch, workflow.Invalid("metrics forwarder requires Prometheus; set spec.observability.prometheus.mode: enabled to enable it, or set spec.observability.metricsForwarder.mode: disabled to silence this message"), log)
 		}
-		if err := r.ensureFinalizer(ctx, mdbSearch, log); err != nil {
-			return r.updateMetricsForwarderStatus(ctx, mdbSearch, workflow.Failed(fmt.Errorf("failed to add finalizer: %w", err)), log)
-		}
 		return r.updateMetricsForwarderStatus(ctx, mdbSearch, r.reconcileCore(ctx, mdbSearch, log), log)
 	case searchv1.MetricsForwarderModeDisabled:
 		r.deleteMetricsForwarderResourcesFromState(ctx, mdbSearch, log)
@@ -230,6 +227,12 @@ func (r *MongoDBSearchMetricsForwarderReconciler) reconcileCore(ctx context.Cont
 	fwdCtx, groupId, fwdStatus, supported := r.resolveForwarderContext(mdbSearch, searchSource)
 	if !supported {
 		r.deleteMetricsForwarderResourcesFromState(ctx, mdbSearch, log)
+		// An unsupported source (e.g. MongoDBCommunity) never registers Ops Manager hosts, so the
+		// finalizer serves no purpose and must not block deletion. removeFinalizer no-ops when absent;
+		// the call also clears a stale finalizer left by an older operator.
+		if err := r.removeFinalizer(ctx, mdbSearch, log); err != nil {
+			return workflow.Failed(fmt.Errorf("failed to remove finalizer: %w", err))
+		}
 		if mdbSearch.Spec.Observability.MetricsForwarder.Mode == searchv1.MetricsForwarderModeAuto {
 			mdbSearch.Status.MetricsForwarder = nil
 			return workflow.OK()
@@ -260,6 +263,13 @@ func (r *MongoDBSearchMetricsForwarderReconciler) reconcileCore(ctx context.Cont
 			return r.preDeletionCleanup(ctx, mdbSearch, groupId, projectConfig, fwdCtx.agentApiKeySecret.Name, workList, log)
 		}
 		return workflow.OK()
+	}
+
+	// Stamp the finalizer only on a supported source, before reconcileForCluster creates any
+	// forwarder resources or registers Ops Manager hosts (add-before-create). Unsupported sources
+	// never reach here, so their CR delete is never blocked.
+	if err := r.ensureFinalizer(ctx, mdbSearch, log); err != nil {
+		return workflow.Failed(fmt.Errorf("failed to add finalizer: %w", err))
 	}
 
 	r.watch.AddWatchedResourceIfNotAdded(fwdCtx.projectConfigMapRef.Name, mdbSearch.Namespace, watch.ConfigMap, mdbSearch.NamespacedName())
@@ -1172,6 +1182,16 @@ func (r *MongoDBSearchMetricsForwarderReconciler) ensureFinalizer(ctx context.Co
 	return nil
 }
 
+func (r *MongoDBSearchMetricsForwarderReconciler) removeFinalizer(ctx context.Context, search *searchv1.MongoDBSearch, log *zap.SugaredLogger) error {
+	if finalizerRemoved := controllerutil.RemoveFinalizer(search, util.SearchMetricsForwarderFinalizer); finalizerRemoved {
+		log.Info("Removing finalizer from the MongoDBSearch resource")
+		if err := r.kubeClient.Update(ctx, search); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (r *MongoDBSearchMetricsForwarderReconciler) preDeletionCleanup(ctx context.Context, search *searchv1.MongoDBSearch, groupID string, projectConfig mdbv1.ProjectConfig, agentSecretName string, workList []clusterWorkItem, log *zap.SugaredLogger) workflow.Status {
 	log.Info("Performing pre deletion cleanup before deleting MongoDBSearch metrics forwarder")
 
@@ -1229,12 +1249,8 @@ func (r *MongoDBSearchMetricsForwarderReconciler) preDeletionCleanup(ctx context
 
 	r.deleteMetricsForwarderResources(ctx, search, workList, log)
 
-	if finalizerRemoved := controllerutil.RemoveFinalizer(search, util.SearchMetricsForwarderFinalizer); !finalizerRemoved {
-		return workflow.Failed(fmt.Errorf("failed to remove finalizer"))
-	}
-
-	if err := r.kubeClient.Update(ctx, search); err != nil {
-		return workflow.Failed(fmt.Errorf("failed to update resource with removed finalizer: %w", err))
+	if err := r.removeFinalizer(ctx, search, log); err != nil {
+		return workflow.Failed(fmt.Errorf("failed to remove finalizer: %w", err))
 	}
 
 	return workflow.OK()
