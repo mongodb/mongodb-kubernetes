@@ -280,11 +280,9 @@ func (r *MongoDBSearchMetricsForwarderReconciler) reconcileCore(ctx context.Cont
 
 	for _, w := range workList {
 		var st workflow.Status
-		switch {
-		case w.Client == nil:
+		switch w.Client {
+		case nil:
 			st = workflow.Pending("Member cluster %q not registered with the operator", w.ClusterName)
-		case w.ClusterIndex == -1:
-			st = workflow.Pending("Waiting for cluster %q to be registered in search state", w.ClusterName)
 		default:
 			var pending bool
 			pending, st = r.reconcileForCluster(ctx, mdbSearch, shardNames, groupId, projectConfig, fwdCtx.agentApiKeySecret.Name, w, log)
@@ -1196,7 +1194,7 @@ func (r *MongoDBSearchMetricsForwarderReconciler) preDeletionCleanup(ctx context
 	ns := search.Namespace
 	anyDepFound := false
 	for _, w := range workList {
-		if w.ClusterIndex == -1 || w.Client == nil {
+		if w.Client == nil {
 			continue
 		}
 		depName := search.MetricsForwarderDeploymentNameForCluster(w.ClusterIndex)
@@ -1217,7 +1215,7 @@ func (r *MongoDBSearchMetricsForwarderReconciler) preDeletionCleanup(ctx context
 
 	// All Deployments are gone: deregister hosts, clean up remaining resources, and remove finalizer.
 	for _, w := range workList {
-		if w.ClusterIndex == -1 || w.Client == nil {
+		if w.Client == nil {
 			continue
 		}
 		clusterState := topologyState.Clusters[w.ClusterName]
@@ -1241,11 +1239,11 @@ func (r *MongoDBSearchMetricsForwarderReconciler) preDeletionCleanup(ctx context
 }
 
 // deleteMetricsForwarderResources removes per-cluster metrics forwarder resources.
-// ClusterIndex==-1 and Client==nil sentinels are skipped.
+// Clusters not registered with the operator (Client==nil) are skipped.
 func (r *MongoDBSearchMetricsForwarderReconciler) deleteMetricsForwarderResources(ctx context.Context, search *searchv1.MongoDBSearch, workList []clusterWorkItem, log *zap.SugaredLogger) {
 	ns := search.Namespace
 	for _, w := range workList {
-		if w.ClusterIndex == -1 || w.Client == nil {
+		if w.Client == nil {
 			continue
 		}
 		depName := search.MetricsForwarderDeploymentNameForCluster(w.ClusterIndex)
