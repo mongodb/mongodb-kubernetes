@@ -713,19 +713,18 @@ func buildEnvoyPodSpec(search *searchv1.MongoDBSearch, clusterIndex int, tlsCfg 
 				},
 				Lifecycle: &corev1.Lifecycle{
 					PreStop: &corev1.LifecycleHandler{
-						// Envoy's /drain_listeners requires POST and a k8s httpGet preStop
-						// can only GET (rejected: "method=GET rather than POST"), so POST it
-						// over bash's /dev/tcp (the image has bash, no curl). graceful=true
-						// GOAWAYs downstream: new streams move to a healthy Envoy while
-						// in-flight getMores finish. The trailing sleep defers SIGTERM until
-						// the drain completes.
+						// Envoy's /drain_listeners is POST-only and the image ships bash but
+						// no curl, hence the hand-rolled POST over bash's /dev/tcp. graceful=true
+						// GOAWAYs downstream so new streams move to a healthy Envoy while in-flight
+						// getMores finish. The drain is best-effort (subshell + `|| true`); the
+						// trailing sleep always runs and defers SIGTERM until the drain completes.
 						Exec: &corev1.ExecAction{
 							Command: []string{
 								"/usr/bin/bash", "-c",
 								fmt.Sprintf(
-									"exec 3<>/dev/tcp/127.0.0.1/%d; "+
+									"( exec 3<>/dev/tcp/127.0.0.1/%d; "+
 										"printf 'POST /drain_listeners?graceful=true HTTP/1.1\\r\\nHost: localhost\\r\\nContent-Length: 0\\r\\nConnection: close\\r\\n\\r\\n' >&3; "+
-										"cat <&3 >/dev/null || true; sleep %d",
+										"cat <&3 >/dev/null ) || true; sleep %d",
 									EnvoyAdminPort, searchv1.EnvoyPreStopDrainSleepSeconds,
 								),
 							},

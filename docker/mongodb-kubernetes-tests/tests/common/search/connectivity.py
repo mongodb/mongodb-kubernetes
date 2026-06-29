@@ -178,8 +178,8 @@ class ConnectivityVerdict:
 def aggregate_verdicts(verdicts: list[ConnectivityVerdict]) -> ConnectivityVerdict:
     """Sum a set of per-probe verdicts into one fleet-wide verdict.
 
-    Counts add; error_breakdown maps merge; first/last error track the earliest
-    non-None first_error and the latest non-None last_error seen across inputs.
+    Counts add; error_breakdown maps merge; first_error keeps the first non-None
+    first_error in fleet order, last_error the latest non-None last_error seen.
     """
     agg = ConnectivityVerdict()
     for v in verdicts:
