@@ -2722,22 +2722,28 @@ func TestEnsureX509ClientCertConfig_KeyPassword(t *testing.T) {
 	search := newTestMongoDBSearch("test-search", "test-ns", func(s *searchv1.MongoDBSearch) {
 		s.Spec.Source.X509 = &searchv1.X509Auth{
 			ClientCertificateSecret: corev1.LocalObjectReference{Name: "x509-cert"},
+			KeyFilePasswordSecret:   corev1.LocalObjectReference{Name: "x509-key-password-secret"},
 		}
 	})
 
 	dbSource := &mockShardedSource{tlsConfig: &TLSSourceConfig{CAFileName: "ca-pem"}}
 
-	// Secret includes the optional key password
+	// Cert secret holds only cert material; password lives in a dedicated secret.
 	x509Secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: "x509-cert", Namespace: "test-ns"},
 		Data: map[string][]byte{
-			"tls.crt":             []byte("cert-data"),
-			"tls.key":             []byte("key-data"),
-			"tls.keyFilePassword": []byte("my-key-password"),
+			"tls.crt": []byte("cert-data"),
+			"tls.key": []byte("key-data"),
+		},
+	}
+	keyPasswordSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "x509-key-password-secret", Namespace: "test-ns"},
+		Data: map[string][]byte{
+			KeyFilePasswordSecretKey: []byte("my-key-password"),
 		},
 	}
 
-	fakeClient := newTestFakeClient(search, x509Secret)
+	fakeClient := newTestFakeClient(search, x509Secret, keyPasswordSecret)
 	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, dbSource, newTestOperatorSearchConfig(), nil, nil)
 
 	mongotMod, stsMod, err := helper.ensureX509ClientCertConfig(t.Context(), fakeClient)
@@ -2771,7 +2777,7 @@ func TestEnsureX509ClientCertConfig_KeyPassword(t *testing.T) {
 		}
 	}
 	require.NotNil(t, keyPasswordVolume, "x509-key-password volume should exist")
-	assert.Equal(t, "x509-cert", keyPasswordVolume.Secret.SecretName)
+	assert.Equal(t, "x509-key-password-secret", keyPasswordVolume.Secret.SecretName)
 
 	mongotContainer := sts.Spec.Template.Spec.Containers[0]
 	var keyPasswordMount *corev1.VolumeMount
@@ -2782,12 +2788,86 @@ func TestEnsureX509ClientCertConfig_KeyPassword(t *testing.T) {
 	}
 	require.NotNil(t, keyPasswordMount, "x509-key-password volume mount should exist")
 	assert.Equal(t, X509KeyPasswordMountPath, keyPasswordMount.MountPath)
-	assert.Equal(t, X509KeyPasswordSecretKey, keyPasswordMount.SubPath)
+	assert.Equal(t, KeyFilePasswordSecretKey, keyPasswordMount.SubPath)
 
 	// Verify prepend command for file permissions
 	assert.True(t, len(mongotContainer.Args) > 0)
 	argsJoined := strings.Join(mongotContainer.Args, " ")
 	assert.Contains(t, argsJoined, "x509-key-password")
+}
+
+func TestKeyFilePasswordContentHash(t *testing.T) {
+	newHelper := func(t *testing.T, search *searchv1.MongoDBSearch, secrets ...client.Object) (*MongoDBSearchReconcileHelper, kubernetesClient.Client) {
+		t.Helper()
+		objs := append([]client.Object{search}, secrets...)
+		fakeClient := newTestFakeClient(objs...)
+		dbSource := &mockShardedSource{tlsConfig: &TLSSourceConfig{CAFileName: "ca-pem"}}
+		return NewMongoDBSearchReconcileHelper(fakeClient, search, dbSource, newTestOperatorSearchConfig(), nil, nil), fakeClient
+	}
+
+	passwordSecret := func(name, password string) *corev1.Secret {
+		return &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "test-ns"},
+			Data:       map[string][]byte{KeyFilePasswordSecretKey: []byte(password)},
+		}
+	}
+
+	t.Run("empty when no password secret configured", func(t *testing.T) {
+		search := newTestMongoDBSearch("test-search", "test-ns")
+		helper, kubeClient := newHelper(t, search)
+
+		hash, err := helper.keyFilePasswordContentHash(t.Context(), kubeClient)
+		require.NoError(t, err)
+		assert.Empty(t, hash)
+	})
+
+	t.Run("non-empty and stable when configured", func(t *testing.T) {
+		search := newTestMongoDBSearch("test-search", "test-ns", func(s *searchv1.MongoDBSearch) {
+			s.Spec.Source.X509 = &searchv1.X509Auth{
+				ClientCertificateSecret: corev1.LocalObjectReference{Name: "x509-cert"},
+				KeyFilePasswordSecret:   corev1.LocalObjectReference{Name: "x509-key-password-secret"},
+			}
+		})
+		helper, kubeClient := newHelper(t, search, passwordSecret("x509-key-password-secret", "pw-1"))
+
+		hash, err := helper.keyFilePasswordContentHash(t.Context(), kubeClient)
+		require.NoError(t, err)
+		assert.NotEmpty(t, hash)
+
+		again, err := helper.keyFilePasswordContentHash(t.Context(), kubeClient)
+		require.NoError(t, err)
+		assert.Equal(t, hash, again, "hash must be stable for unchanged content")
+	})
+
+	t.Run("changes when password content changes", func(t *testing.T) {
+		mk := func(password string) string {
+			search := newTestMongoDBSearch("test-search", "test-ns", func(s *searchv1.MongoDBSearch) {
+				s.Spec.Source.X509 = &searchv1.X509Auth{
+					ClientCertificateSecret: corev1.LocalObjectReference{Name: "x509-cert"},
+					KeyFilePasswordSecret:   corev1.LocalObjectReference{Name: "x509-key-password-secret"},
+				}
+			})
+			helper, kubeClient := newHelper(t, search, passwordSecret("x509-key-password-secret", password))
+			hash, err := helper.keyFilePasswordContentHash(t.Context(), kubeClient)
+			require.NoError(t, err)
+			return hash
+		}
+
+		assert.NotEqual(t, mk("pw-1"), mk("pw-2"), "different password content must yield a different hash")
+	})
+
+	t.Run("errors when configured secret is missing", func(t *testing.T) {
+		search := newTestMongoDBSearch("test-search", "test-ns", func(s *searchv1.MongoDBSearch) {
+			s.Spec.Source.X509 = &searchv1.X509Auth{
+				ClientCertificateSecret: corev1.LocalObjectReference{Name: "x509-cert"},
+				KeyFilePasswordSecret:   corev1.LocalObjectReference{Name: "missing-secret"},
+			}
+		})
+		helper, kubeClient := newHelper(t, search)
+
+		_, err := helper.keyFilePasswordContentHash(t.Context(), kubeClient)
+		require.Error(t, err)
+	})
 }
 
 // newBaseMongotStatefulSet creates a minimal StatefulSet with a mongot container for testing modifications.
