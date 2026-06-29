@@ -75,8 +75,8 @@ SEARCH_INDEX_READY_TIMEOUT = 300
 # mongot may still be in INITIAL_SYNC briefly after the index reports READY.
 SEARCH_QUERY_RETRY_TIMEOUT = 90
 
-# create_issuer_ca writes BOTH a ConfigMap (MongoDBMulti.spec.security.tls.ca, key
-# ca-pem) and a same-named Secret (MongoDBSearch source.external.tls.ca, key ca.crt).
+# create_issuer_ca writes a ConfigMap (keys ca-pem/ca.crt/mms-ca.crt) consumed as the CA by
+# both MongoDBMulti.spec.security.tls.ca and MongoDBSearch source.external.tls.ca — never a Secret.
 CA_CONFIGMAP_NAME = f"{MDB_RESOURCE_NAME}-ca"
 # Must match the operator's cert-secret convention `{certsSecretPrefix}-{name}-cert`
 # (see certsSecretPrefix below); otherwise the operator can't find the TLS bundle.
