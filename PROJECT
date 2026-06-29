@@ -18,7 +18,7 @@ resources:
   domain: mongodb.com
   group: mongodb
   kind: MongoDB
-  path: github.com/mongodb/mongodb-kubernetes/api/v1
+  path: github.com/mongodb/mongodb-kubernetes/api/mongodb/v1
   version: v1
 - api:
     crdVersion: v1
@@ -27,7 +27,7 @@ resources:
   domain: mongodb.com
   group: mongodb
   kind: MongoDBOpsManager
-  path: github.com/mongodb/mongodb-kubernetes/api/v1
+  path: github.com/mongodb/mongodb-kubernetes/api/mongodb/v1
   version: v1
 - api:
     crdVersion: v1
@@ -36,7 +36,7 @@ resources:
   domain: mongodb.com
   group: mongodb
   kind: MongoDBUser
-  path: github.com/mongodb/mongodb-kubernetes/api/v1
+  path: github.com/mongodb/mongodb-kubernetes/api/mongodb/v1
   version: v1
 - api:
     crdVersion: v1
@@ -45,6 +45,6 @@ resources:
   domain: mongodb.com
   group: mongodb
   kind: ClusterMongoDBRole
-  path: github.com/mongodb/mongodb-kubernetes/api/v1
+  path: github.com/mongodb/mongodb-kubernetes/api/mongodb/v1
   version: v1
 version: "3"

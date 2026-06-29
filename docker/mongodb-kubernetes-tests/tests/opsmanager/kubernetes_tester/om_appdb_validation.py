@@ -2,7 +2,7 @@ from typing import Optional
 
 import pytest
 from kubernetes.client import ApiException
-from kubetester import wait_for_webhook
+from kubetester import wait_for_webhook, wait_until
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.opsmanager import MongoDBOpsManager
@@ -17,7 +17,7 @@ def om_resource(namespace: str) -> MongoDBOpsManager:
 
 @pytest.mark.e2e_om_appdb_validation
 def test_wait_for_webhook(namespace: str):
-    wait_for_webhook(namespace)
+    wait_for_webhook(namespace, validation_endpoint="validate-mongodb-com-v1-mongodbopsmanager")
 
 
 @pytest.mark.e2e_om_appdb_validation
@@ -25,6 +25,18 @@ def test_wrong_appdb_version(namespace: str, custom_version: Optional[str]):
     om = om_resource(namespace)
     om["spec"]["applicationDatabase"]["version"] = "3.6.12"
     om.set_version(custom_version)
+
+    def webhook_enforcing() -> bool:
+        try:
+            om.create(dry_run="All")
+            return False
+        except ApiException as e:
+            if "version of Application Database" in str(e):
+                return True
+            raise
+
+    assert wait_until(webhook_enforcing, timeout=120), "Webhook never enforced appdb version validation within 120s"
+
     with pytest.raises(
         ApiException,
         match=r"the version of Application Database must be .* 4.0",

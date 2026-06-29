@@ -6,7 +6,7 @@ import (
 	"go.uber.org/zap"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
+	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
@@ -58,10 +58,4 @@ func (o *okStatus) Log(_ *zap.SugaredLogger) {
 
 func (o *okStatus) Phase() status.Phase {
 	return status.PhaseRunning
-}
-
-func (o *okStatus) Requeue() Status {
-	o.requeueAfter = 0
-	o.requeue = true
-	return o
 }

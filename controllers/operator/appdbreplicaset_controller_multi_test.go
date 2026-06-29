@@ -20,9 +20,10 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
-	omv1 "github.com/mongodb/mongodb-kubernetes/api/v1/om"
-	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
+	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
+	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
+	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/host"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/create"
@@ -30,16 +31,16 @@ import (
 	enterprisepem "github.com/mongodb/mongodb-kubernetes/controllers/operator/pem"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/annotations"
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/configmap"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/secret"
+	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/configmap"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 )
 
 const opsManagerUserPassword = "MBPYfkAj5ZM0l9uw6C7ggw" //nolint
@@ -990,7 +991,7 @@ func TestAppDBMultiClusterRemoveResources(t *testing.T) {
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(opsManager)
 	clusters = []string{"a", "b", "c"}
 	memberClusterMap := getFakeMultiClusterMapWithClusters(clusters, omConnectionFactory)
-	reconciler, _, _ := defaultTestOmReconciler(ctx, t, nil, "", "", opsManager, memberClusterMap, omConnectionFactory)
+	reconciler, _, _ := defaultTestOmReconciler(ctx, t, nil, "", "", opsManager, memberClusterMap, omConnectionFactory, architectures.NonStatic)
 
 	// create opsmanager reconciler
 	appDBReconciler, _ := newAppDbMultiReconciler(ctx, kubeClient, opsManager, memberClusterMap, zap.S(), omConnectionFactory.GetConnectionFunc)
@@ -1350,7 +1351,7 @@ func TestAppDBMultiClusterServiceCreation_WithExternalName(t *testing.T) {
 					ClusterName: memberClusterName1,
 					ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{
 						ExternalService: mdbv1.ExternalServiceConfiguration{
-							SpecWrapper: &common.ServiceSpecWrapper{
+							SpecWrapper: &v1.ServiceSpecWrapper{
 								Spec: corev1.ServiceSpec{
 									Type: "LoadBalancer",
 									Ports: []corev1.ServicePort{
@@ -1534,7 +1535,7 @@ func TestAppDBMultiClusterServiceCreation_WithExternalName(t *testing.T) {
 					ClusterName: memberClusterName1,
 					ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{
 						ExternalService: mdbv1.ExternalServiceConfiguration{
-							SpecWrapper: &common.ServiceSpecWrapper{
+							SpecWrapper: &v1.ServiceSpecWrapper{
 								Spec: corev1.ServiceSpec{
 									Type: "NodePort",
 									Ports: []corev1.ServicePort{
@@ -1601,7 +1602,7 @@ func TestAppDBMultiClusterServiceCreation_WithExternalName(t *testing.T) {
 								create.PlaceholderClusterName:         "{clusterName}",
 								create.PlaceholderClusterIndex:        "{clusterIndex}",
 							},
-							SpecWrapper: &common.ServiceSpecWrapper{
+							SpecWrapper: &v1.ServiceSpecWrapper{
 								Spec: corev1.ServiceSpec{
 									Type: "LoadBalancer",
 									Ports: []corev1.ServicePort{
@@ -1632,7 +1633,7 @@ func TestAppDBMultiClusterServiceCreation_WithExternalName(t *testing.T) {
 								create.PlaceholderClusterName:         "{clusterName}",
 								create.PlaceholderClusterIndex:        "{clusterIndex}",
 							},
-							SpecWrapper: &common.ServiceSpecWrapper{
+							SpecWrapper: &v1.ServiceSpecWrapper{
 								Spec: corev1.ServiceSpec{
 									Type: "LoadBalancer",
 									Ports: []corev1.ServicePort{

@@ -1,4 +1,4 @@
-from kubetester import find_fixture
+from kubetester import find_fixture, try_load
 from kubetester.certs import create_sharded_cluster_certs, create_x509_agent_tls_certs
 from kubetester.mongodb import MongoDB
 from kubetester.phase import Phase
@@ -39,11 +39,13 @@ def sc(namespace: str, server_certs, agent_certs: str, issuer_ca_configmap: str)
         },
         "authentication": {"enabled": True, "modes": ["X509"]},
     }
-    yield resource.update()
+    try_load(resource)
+    return resource
 
 
 @mark.e2e_sharded_cluster_internal_cluster_transition
 def test_create_resource(sc: MongoDB):
+    sc.update()
     sc.assert_reaches_phase(Phase.Running, timeout=1200)
 
 

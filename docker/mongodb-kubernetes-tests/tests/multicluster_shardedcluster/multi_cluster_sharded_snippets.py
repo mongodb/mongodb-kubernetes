@@ -21,13 +21,13 @@ SNIPPETS_FILES = [
 logger = test_logger.get_test_logger(__name__)
 
 
-def load_resource(namespace: str, file_path: str, resource_name: str = None) -> MongoDB:
+def load_resource(namespace: str, file_path: str, resource_name: str | None = None) -> MongoDB:
     resource = MongoDB.from_yaml(file_path, namespace=namespace, name=resource_name)
     return resource
 
 
 def get_project_directory() -> str:
-    project_dir = os.environ.get("PROJECT_DIR")
+    project_dir = os.environ["PROJECT_DIR"]
     logger.debug(f"PROJECT_DIR: {project_dir}")
     return project_dir
 
@@ -58,7 +58,7 @@ def file_to_resource_name(file_name: str) -> str:
 
 @mark.e2e_multi_cluster_sharded_snippets
 def test_deploy_operator(multi_cluster_operator: Operator):
-    multi_cluster_operator.assert_is_running()
+    multi_cluster_operator.wait_for_operator_ready()
 
 
 @mark.e2e_multi_cluster_sharded_snippets

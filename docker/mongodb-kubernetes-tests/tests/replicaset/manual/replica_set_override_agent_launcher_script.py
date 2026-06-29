@@ -29,15 +29,12 @@ def ops_manager(namespace: str, custom_version: str, custom_appdb_version) -> Mo
     resource.set_version(custom_version)
     resource.set_appdb_version(custom_appdb_version)
 
-    if try_load(resource):
-        return resource
-
-    resource.update()
+    try_load(resource)
     return resource
 
 
 @fixture(scope="function")
-def replica_set(ops_manager: str, namespace: str, custom_mdb_version: str) -> MongoDB:
+def replica_set(ops_manager: MongoDBOpsManager, namespace: str, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(
         find_fixture("replica-set-override-agent-launcher-script.yaml"),
         namespace=namespace,
@@ -76,6 +73,7 @@ echo -n "{agent_launcher_lib}" | base64 -d > /opt/scripts/agent-launcher-lib.sh
 
 
 def test_om_running(ops_manager: MongoDBOpsManager):
+    ops_manager.update()
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
     ops_manager.om_status().assert_reaches_phase(Phase.Running)
 

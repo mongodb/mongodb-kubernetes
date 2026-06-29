@@ -13,6 +13,12 @@ import (
 
 const MongoDBMultiResourceAnnotation = "MongoDBMultiResource"
 
+func MultiClusterStatefulSetAnnotations(crName string) map[string]string {
+	return map[string]string{
+		MongoDBMultiResourceAnnotation: crName,
+	}
+}
+
 var _ handler.EventHandler = &EnqueueRequestForOwnerMultiCluster{}
 
 // EnqueueRequestForOwnerMultiCluster implements the EventHandler interface for multi-cluster callbacks.

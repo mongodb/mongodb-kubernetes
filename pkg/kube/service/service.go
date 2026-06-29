@@ -5,14 +5,47 @@ import (
 	"fmt"
 
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
-
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/service"
 )
 
-func DeleteServiceIfItExists(ctx context.Context, getterDeleter service.GetDeleter, serviceName types.NamespacedName) error {
+type Getter interface {
+	GetService(ctx context.Context, objectKey client.ObjectKey) (corev1.Service, error)
+}
+
+type Updater interface {
+	UpdateService(ctx context.Context, service corev1.Service) error
+}
+
+type Creator interface {
+	CreateService(ctx context.Context, service corev1.Service) error
+}
+
+type Deleter interface {
+	DeleteService(ctx context.Context, objectKey client.ObjectKey) error
+}
+
+type GetDeleter interface {
+	Getter
+	Deleter
+}
+
+type GetUpdateCreator interface {
+	Getter
+	Updater
+	Creator
+}
+
+type GetUpdateCreateDeleter interface {
+	Getter
+	Updater
+	Creator
+	Deleter
+}
+
+func DeleteServiceIfItExists(ctx context.Context, getterDeleter GetDeleter, serviceName types.NamespacedName) error {
 	_, err := getterDeleter.GetService(ctx, serviceName)
 	if err != nil {
 		// If it is not found return
@@ -73,11 +106,12 @@ func Merge(dest corev1.Service, source corev1.Service) corev1.Service {
 	dest.Spec.Type = source.Spec.Type
 	dest.Spec.LoadBalancerIP = source.Spec.LoadBalancerIP
 	dest.Spec.ExternalTrafficPolicy = source.Spec.ExternalTrafficPolicy
+	dest.OwnerReferences = source.OwnerReferences
 	return dest
 }
 
 // CreateOrUpdateService will create or update a service in Kubernetes.
-func CreateOrUpdateService(ctx context.Context, getUpdateCreator service.GetUpdateCreator, desiredService corev1.Service) error {
+func CreateOrUpdateService(ctx context.Context, getUpdateCreator GetUpdateCreator, desiredService corev1.Service) error {
 	namespacedName := types.NamespacedName{Namespace: desiredService.Namespace, Name: desiredService.Name}
 	existingService, err := getUpdateCreator.GetService(ctx, namespacedName)
 

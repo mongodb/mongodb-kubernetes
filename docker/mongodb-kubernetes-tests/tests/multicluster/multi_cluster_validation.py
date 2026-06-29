@@ -9,7 +9,7 @@ from kubetester.operator import Operator
 @pytest.mark.e2e_multi_cluster_validation
 class TestWebhookValidation(KubernetesTester):
     def test_deploy_operator(self, multi_cluster_operator: Operator):
-        multi_cluster_operator.assert_is_running()
+        multi_cluster_operator.wait_for_operator_ready()
 
     def test_unique_cluster_names(self, central_cluster_client: kubernetes.client.ApiClient):
         resource = yaml.safe_load(open(yaml_fixture("mongodb-multi-cluster.yaml")))
@@ -29,7 +29,7 @@ class TestWebhookValidation(KubernetesTester):
         self.create_custom_resource_from_object(
             self.get_namespace(),
             resource,
-            exception_reason="must validate one and only one schema",
+            exception_reason="either spec.cloudManager or spec.opsManager can be set",
             api_client=central_cluster_client,
         )
 

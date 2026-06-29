@@ -1,0 +1,18 @@
+apiVersion: mongodb.com/v1
+kind: MongoDBSearch
+metadata:
+  name: mdb-sh
+spec:
+  replicas: 2
+  logLevel: DEBUG
+  source:
+    mongodbResourceRef:
+      name: mdb-sh
+  security:
+    tls:
+      # Per-shard TLS: each shard gets its own certificate
+      # Secret naming pattern: {prefix}-{shardName}-search-cert
+      # e.g., certs-mdb-sh-0-search-cert, certs-mdb-sh-1-search-cert
+      certsSecretPrefix: certs
+  loadBalancer:
+    managed: {}

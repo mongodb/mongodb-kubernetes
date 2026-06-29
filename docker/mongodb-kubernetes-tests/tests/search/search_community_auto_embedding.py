@@ -7,6 +7,7 @@ from kubetester.mongodb_search import MongoDBSearch
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests import test_logger
+from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.search import movies_search_helper
 from tests.common.search.movies_search_helper import SampleMoviesSearchHelper
 from tests.common.search.search_tester import SearchTester
@@ -38,9 +39,7 @@ def mdbc(namespace: str) -> MongoDBCommunity:
         namespace=namespace,
     )
 
-    if try_load(resource):
-        return resource
-
+    try_load(resource)
     return resource
 
 
@@ -50,17 +49,14 @@ def mdbs(namespace: str) -> MongoDBSearch:
         yaml_fixture("search-minimal.yaml"),
         namespace=namespace,
     )
-
-    if try_load(resource):
-        return resource
-
+    try_load(resource)
     return resource
 
 
 @mark.e2e_search_community_auto_embedding
 def test_install_operator(namespace: str, operator_installation_config: dict[str, str]):
     operator = get_default_operator(namespace, operator_installation_config=operator_installation_config)
-    operator.assert_is_running()
+    operator.wait_for_operator_ready()
 
 
 @mark.e2e_search_community_auto_embedding
@@ -108,9 +104,10 @@ def test_wait_for_community_resource_ready(mdbc: MongoDBCommunity):
 
 
 @fixture(scope="function")
-def sample_movies_helper(mdbc: MongoDBCommunity) -> SampleMoviesSearchHelper:
+def sample_movies_helper(mdbc: MongoDBCommunity, namespace: str) -> SampleMoviesSearchHelper:
     return movies_search_helper.SampleMoviesSearchHelper(
-        SearchTester(get_connection_string(mdbc, USER_NAME, USER_PASSWORD))
+        SearchTester.for_replicaset(mdbc, USER_NAME, USER_PASSWORD),
+        tools_pod=mongodb_tools_pod.get_tools_pod(namespace),
     )
 
 
@@ -127,7 +124,3 @@ def test_search_create_search_index(sample_movies_helper: SampleMoviesSearchHelp
 @mark.e2e_search_community_auto_embedding
 def test_search_assert_search_query(sample_movies_helper: SampleMoviesSearchHelper):
     sample_movies_helper.assert_auto_emb_vector_search_query(retry_timeout=90)
-
-
-def get_connection_string(mdbc: MongoDBCommunity, user_name: str, user_password: str) -> str:
-    return f"mongodb://{user_name}:{user_password}@{mdbc.name}-0.{mdbc.name}-svc.{mdbc.namespace}.svc.cluster.local:27017/?replicaSet={mdbc.name}"

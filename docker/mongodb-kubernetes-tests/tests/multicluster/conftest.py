@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 import ipaddress
 import urllib
+import urllib.parse
 from typing import Dict, Generator, List, Optional
-from urllib import parse
 
 import kubernetes
 from kubeobject import CustomObject
@@ -77,7 +77,7 @@ def multicluster_openldap_tls(
     member_cluster_clients: List[MultiClusterClient],
     multicluster_openldap_cert: str,
     ca_path: str,
-) -> Generator[OpenLDAP, None, None]:
+) -> OpenLDAP:
     member_cluster_one = member_cluster_clients[0]
     helm_args = {
         "tls.enabled": "true",
@@ -157,7 +157,7 @@ def service_entries(
 
 
 @fixture(scope="module")
-def test_patch_central_namespace(namespace: str, central_cluster_client: kubernetes.client.ApiClient) -> str:
+def test_patch_central_namespace(namespace: str, central_cluster_client: kubernetes.client.ApiClient) -> None:
     corev1 = kubernetes.client.CoreV1Api(api_client=central_cluster_client)
     ns = corev1.read_namespace(namespace)
     ns.metadata.labels["istio-injection"] = "enabled"
@@ -216,10 +216,12 @@ def create_service_entries_objects(
                     "protocol": "HTTPS",
                 }
             )
-        if check_valid_ip(host_parse_result.hostname):
-            addresses.add(host_parse_result.hostname)
-        else:
-            hosts.add(host_parse_result.hostname)
+        hostname = host_parse_result.hostname
+        if hostname is not None:
+            if check_valid_ip(hostname):
+                addresses.add(hostname)
+            else:
+                hosts.add(hostname)
 
     allowed_hosts_service_entry["spec"] = {
         # by default the access mode is set to "REGISTRY_ONLY" which means only the hosts specified
@@ -249,28 +251,28 @@ def create_service_entries_objects(
 
 def cluster_spec_list(
     member_cluster_names: List[str],
-    members: List[int],
+    members: List[int | None],
     member_configs: Optional[List[List[Dict]]] = None,
     backup_configs: Optional[List[Dict]] = None,
 ):
 
     if member_configs is None and backup_configs is None:
         result = []
-        for name, members in zip(member_cluster_names, members):
-            if members is not None:
-                result.append({"clusterName": name, "members": members})
+        for name, member_count in zip(member_cluster_names, members):
+            if member_count is not None:
+                result.append({"clusterName": name, "members": member_count})
         return result
     elif member_configs is not None:
         result = []
-        for name, members, memberConfig in zip(member_cluster_names, members, member_configs):
-            if members is not None:
-                result.append({"clusterName": name, "members": members, "memberConfig": memberConfig})
+        for name, member_count, memberConfig in zip(member_cluster_names, members, member_configs):
+            if member_count is not None:
+                result.append({"clusterName": name, "members": member_count, "memberConfig": memberConfig})
         return result
     elif backup_configs is not None:
         result = []
-        for name, members, backupConfig in zip(member_cluster_names, members, backup_configs):
-            if members is not None:
-                result.append({"clusterName": name, "members": members, "backup": backupConfig})
+        for name, member_count, backupConfig in zip(member_cluster_names, members, backup_configs):
+            if member_count is not None:
+                result.append({"clusterName": name, "members": member_count, "backup": backupConfig})
         return result
 
 

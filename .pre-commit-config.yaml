@@ -6,13 +6,21 @@ default_stages: [pre-commit]
 
 # Hooks run serially in definition order. The following local hooks have
 # dependencies and must run in this order:
-#   1. update-release-json: writes release.json
-#   2. update-values-yaml: reads release.json, writes helm values files
-#   3. generate-standalone-yaml: reads helm values files
-#   4. generate-and-update: remaining parallel jobs
+#   1. update-mongodb-operator-version: writes release.json:mongodbOperator
+#   2. update-release-json: propagates mongodbOperator, writes release.json
+#   3. update-values-yaml: reads release.json, writes helm values files
+#   4. generate-standalone-yaml: reads helm values files
+#   5. generate-and-update: remaining parallel jobs
 repos:
   - repo: local
     hooks:
+      - id: update-mongodb-operator-version
+        name: update-mongodb-operator-version
+        entry: scripts/dev/generate_files.sh update_operator_version
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
       - id: update-release-json
         name: update-release-json
         entry: scripts/dev/generate_files.sh update_release
@@ -60,6 +68,15 @@ repos:
         pass_filenames: false
         stages: [pre-commit]
 
+  - repo: local
+    hooks:
+      - id: validate-go-version
+        name: validate-go-version
+        entry: scripts/dev/update_go_version.sh
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:
@@ -97,7 +114,6 @@ repos:
     rev: 24.10.0
     hooks:
       - id: black
-        language_version: python3
 
   - repo: https://github.com/pycqa/isort
     rev: 5.13.2
@@ -109,7 +125,6 @@ repos:
     rev: v0.10.0
     hooks:
       - id: shellcheck
-        args: [-e, SC2154, -e, SC1091, -e, SC1090, -e, SC2148, -o, require-variable-braces, -P, scripts]
         exclude: |
           (?x)^(
             vendor/.*|
@@ -122,8 +137,34 @@ repos:
             ^scripts/funcs/[^/]+$
           )
 
-  - repo: https://github.com/golangci/golangci-lint
-    rev: v1.62.2
+  - repo: local
     hooks:
-      - id: golangci-lint
+      - id: ty
+        name: ty
+        entry: bash -c 'cd docker/mongodb-kubernetes-tests && uvx ty check tests/'
+        language: system
+        pass_filenames: false
+        files: docker/mongodb-kubernetes-tests/tests/.*\.py$
+        stages: [pre-commit]
+
+  - repo: local
+    hooks:
+      - id: govulncheck
+        name: govulncheck
+        entry: env GOTELEMETRY=off go run golang.org/x/vuln/cmd/govulncheck@v1.3.0 ./...
+        language: system
+        pass_filenames: false
+        files: (\.go$|^go\.(mod|sum)$)
+        stages: [pre-commit]
+
+  - repo: https://github.com/golangci/golangci-lint
+    rev: v2.1.0
+    hooks:
+      # golangci-lint-full (not golangci-lint) runs on the entire module rather than only
+      # files changed since HEAD, so linters that need whole-program analysis (e.g. unused,
+      # staticcheck) see the full codebase and pre-existing violations are not silently skipped.
+      - id: golangci-lint-full
         args: [--timeout=10m]
+        language_version: 1.26.4
+      - id: golangci-lint-fmt
+        language_version: 1.26.4

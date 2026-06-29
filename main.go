@@ -27,30 +27,29 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/manager/signals"
 
-	golog "log"
-	localruntime "runtime"
-
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	corev1 "k8s.io/api/core/v1"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	golog "log"
+	localruntime "runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	runtime_cluster "sigs.k8s.io/controller-runtime/pkg/cluster"
 	kubelog "sigs.k8s.io/controller-runtime/pkg/log"
 	metricsServer "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	crWebhook "sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	apiv1 "github.com/mongodb/mongodb-kubernetes/api/v1"
-	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
-	mdbmultiv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdbmulti"
-	omv1 "github.com/mongodb/mongodb-kubernetes/api/v1/om"
+	apiv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
+	mdbmultiv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
+	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
+	vaiv1 "github.com/mongodb/mongodb-kubernetes/api/voyageai/v1/vai"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
-	mcov1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
-	mcoController "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers"
-	mcoConstruct "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/construct"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/envvar"
+	mcov1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"                       //nolint:depguard
+	mcoController "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers"          //nolint:depguard
+	mcoConstruct "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/construct" //nolint:depguard
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/pprof"
@@ -69,6 +68,7 @@ const (
 	mongoDBMultiClusterCRDPlural = "mongodbmulticluster"
 	mongoDBCommunityCRDPlural    = "mongodbcommunity"
 	mongoDBSearchCRDPlural       = "mongodbsearch"
+	voyageAICRDPlural            = "voyageai"
 	clusterMongoDBRoleCRDPlural  = "clustermongodbroles"
 )
 
@@ -91,6 +91,7 @@ func init() {
 	utilruntime.Must(apiv1.AddToScheme(scheme))
 	utilruntime.Must(mcov1.AddToScheme(scheme))
 	utilruntime.Must(corev1.AddToScheme(scheme))
+	utilruntime.Must(vaiv1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 
 	flag.Var(&crds, "watch-resource", "A Watch Resource specifies if the Operator should watch the given resource")
@@ -110,6 +111,13 @@ func (c *crdsToWatch) String() string {
 }
 
 func main() {
+	if err := run(); err != nil {
+		log.Error(err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
 	flag.Parse()
 	// If no CRDs are specified, we set default to non-multicluster CRDs
 	if len(crds) == 0 {
@@ -119,6 +127,7 @@ func main() {
 			mongoDBOpsManagerCRDPlural,
 			mongoDBCommunityCRDPlural,
 			mongoDBSearchCRDPlural,
+			voyageAICRDPlural,
 			clusterMongoDBRoleCRDPlural,
 		}
 	}
@@ -133,14 +142,15 @@ func main() {
 	forceEnterprise := env.ReadBoolOrDefault(architectures.MdbAssumeEnterpriseImage, false)
 	initDatabaseNonStaticImageVersion := env.ReadOrDefault(construct.InitDatabaseVersionEnv, "latest")
 	databaseNonStaticImageVersion := env.ReadOrDefault(construct.DatabaseVersionEnv, "latest")
-	initAppdbVersion := env.ReadOrDefault(construct.InitAppdbVersionEnv, "latest")
 	initOpsManagerImageVersion := env.ReadOrDefault(util.InitOpsManagerVersion, "latest")
+	backupEnableDelay := time.Duration(env.ReadIntOrPanic(util.BackupStartDelaySecondsEnv)) * time.Second
 	// Namespace where the operator is installed
 	currentNamespace := env.ReadOrPanic(util.CurrentNamespace)
 	webhookSVCSelector := env.ReadOrPanic(util.OperatorNameEnv)
 
 	agentDebug := env.ReadBoolOrDefault(util.EnvVarDebug, false)
 	agentDebugImage := env.ReadOrDefault(util.EnvVarDebugImage, "")
+	defaultArchitecture := architectures.DefaultArchitecture(env.ReadOrDefault(architectures.DefaultEnvArchitecture, string(architectures.NonStatic)))
 
 	enableClusterMongoDBRoles := slices.Contains(crds, clusterMongoDBRoleCRDPlural)
 
@@ -200,13 +210,13 @@ func main() {
 
 	mgr, err := ctrl.NewManager(cfg, managerOptions)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	log.Info("Registering Components.")
 
 	// Setup Scheme for all resources
 	if err := apiv1.AddToScheme(scheme); err != nil {
-		log.Fatal(err)
+		return err
 	}
 
 	// memberClusterObjectsMap is a map of clusterName -> clusterObject
@@ -215,7 +225,7 @@ func main() {
 	if slices.Contains(crds, mongoDBMultiClusterCRDPlural) {
 		memberClustersNames, err := getMemberClusters(ctx, cfg, currentNamespace)
 		if err != nil {
-			log.Fatal(err)
+			return err
 		}
 
 		log.Infof("Watching Member clusters: %s", memberClustersNames)
@@ -226,7 +236,7 @@ func main() {
 
 		memberClusterClients, err := multicluster.CreateMemberClusterClients(memberClustersNames, multicluster.GetKubeConfigPath())
 		if err != nil {
-			log.Fatal(err)
+			return err
 		}
 
 		// Add the cluster object to the manager corresponding to each member clusters.
@@ -254,35 +264,40 @@ func main() {
 			log.Infof("Adding cluster %s to cluster map.", k)
 			memberClusterObjectsMap[k] = cluster
 			if err = mgr.Add(cluster); err != nil {
-				log.Fatal(err)
+				return err
 			}
 		}
 	}
 
 	// Setup all Controllers
 	if slices.Contains(crds, mongoDBCRDPlural) {
-		if err := setupMongoDBCRD(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, memberClusterObjectsMap); err != nil {
-			log.Fatal(err)
+		if err := setupMongoDBCRD(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, memberClusterObjectsMap, backupEnableDelay); err != nil {
+			return err
 		}
 	}
 	if slices.Contains(crds, mongoDBOpsManagerCRDPlural) {
-		if err := setupMongoDBOpsManagerCRD(ctx, mgr, memberClusterObjectsMap, imageUrls, initAppdbVersion, initOpsManagerImageVersion); err != nil {
-			log.Fatal(err)
+		if err := setupMongoDBOpsManagerCRD(ctx, mgr, memberClusterObjectsMap, imageUrls, initDatabaseNonStaticImageVersion, initOpsManagerImageVersion, defaultArchitecture); err != nil {
+			return err
 		}
 	}
 	if slices.Contains(crds, mongoDBUserCRDPlural) {
-		if err := setupMongoDBUserCRD(ctx, mgr, memberClusterObjectsMap); err != nil {
-			log.Fatal(err)
+		if err := setupMongoDBUserCRD(ctx, mgr, memberClusterObjectsMap, backupEnableDelay); err != nil {
+			return err
 		}
 	}
 	if slices.Contains(crds, mongoDBMultiClusterCRDPlural) {
-		if err := setupMongoDBMultiClusterCRD(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, memberClusterObjectsMap); err != nil {
-			log.Fatal(err)
+		if err := setupMongoDBMultiClusterCRD(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, memberClusterObjectsMap); err != nil {
+			return err
 		}
 	}
 	if slices.Contains(crds, mongoDBSearchCRDPlural) {
 		if err := setupMongoDBSearchCRD(ctx, mgr); err != nil {
-			log.Fatal(err)
+			return err
+		}
+	}
+	if slices.Contains(crds, voyageAICRDPlural) {
+		if err := setupVoyageAICRD(ctx, mgr); err != nil {
+			return err
 		}
 	}
 
@@ -294,22 +309,23 @@ func main() {
 		if err := setupCommunityController(
 			ctx,
 			mgr,
-			envvar.GetEnvOrDefault(mcoConstruct.MongodbCommunityRepoUrlEnv, "quay.io/mongodb"),
+			env.ReadOrDefault(mcoConstruct.MongodbCommunityRepoUrlEnv, "quay.io/mongodb"),
 			// when running MCO resource -> mongodb-community-server
 			// when running appdb -> mongodb-enterprise-server
 			env.ReadOrPanic(mcoConstruct.MongodbCommunityImageEnv),
-			envvar.GetEnvOrDefault(mcoConstruct.MongoDBCommunityImageTypeEnv, mcoConstruct.DefaultImageType),
+			env.ReadOrDefault(mcoConstruct.MongoDBCommunityImageTypeEnv, mcoConstruct.DefaultImageType),
 			env.ReadOrPanic(util.MongodbCommunityAgentImageEnv),
 			env.ReadOrPanic(mcoConstruct.VersionUpgradeHookImageEnv),
 			env.ReadOrPanic(mcoConstruct.ReadinessProbeImageEnv),
 		); err != nil {
-			log.Fatal(err)
+			return err
 		}
 	}
 
 	if telemetry.IsTelemetryActivated() {
 		log.Info("Running telemetry component!")
-		telemetryRunnable, err := telemetry.NewLeaderRunnable(mgr, memberClusterObjectsMap, currentNamespace, imageUrls[mcoConstruct.MongodbImageEnv], imageUrls[util.NonStaticDatabaseEnterpriseImage], getOperatorEnv())
+		installerMethod := env.ReadOrDefault(telemetry.InstallerEnvVar, "")
+		telemetryRunnable, err := telemetry.NewLeaderRunnable(mgr, memberClusterObjectsMap, currentNamespace, imageUrls[util.MongodbImageEnv], imageUrls[util.NonStaticDatabaseEnterpriseImage], installerMethod, getOperatorEnv(), defaultArchitecture)
 		if err != nil {
 			log.Errorf("Unable to enable telemetry; err: %s", err)
 		}
@@ -332,9 +348,7 @@ func main() {
 
 	log.Info("Starting the Cmd.")
 
-	if err := mgr.Start(ctx); err != nil {
-		log.Fatal(err)
-	}
+	return mgr.Start(ctx)
 }
 
 func startRootSpan(currentNamespace string, spanIDHex string, traceCtx context.Context) (context.Context, trace.Span) {
@@ -364,47 +378,70 @@ func shutdownTracerProvider(signalCtx context.Context, tp *sdktrace.TracerProvid
 	}
 }
 
-func setupMongoDBCRD(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, memberClusterObjectsMap map[string]runtime_cluster.Cluster) error {
-	if err := operator.AddStandaloneController(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage); err != nil {
+func setupMongoDBCRD(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, memberClusterObjectsMap map[string]runtime_cluster.Cluster, backupEnableDelay time.Duration) error {
+	if err := operator.AddStandaloneController(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture); err != nil {
 		return err
 	}
-	if err := operator.AddReplicaSetController(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage); err != nil {
+	if err := operator.AddReplicaSetController(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture); err != nil {
 		return err
 	}
-	if err := operator.AddShardedClusterController(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, memberClusterObjectsMap); err != nil {
+	if err := operator.AddShardedClusterController(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, memberClusterObjectsMap, backupEnableDelay); err != nil {
 		return err
 	}
-	return ctrl.NewWebhookManagedBy(mgr).For(&mdbv1.MongoDB{}).Complete()
+	return ctrl.NewWebhookManagedBy(mgr).For(&mdbv1.MongoDB{}).
+		WithValidator(&mdbv1.MongoDBValidator{}).
+		Complete()
 }
 
-func setupMongoDBOpsManagerCRD(ctx context.Context, mgr manager.Manager, memberClusterObjectsMap map[string]runtime_cluster.Cluster, imageUrls images.ImageUrls, initAppdbVersion, initOpsManagerImageVersion string) error {
-	if err := operator.AddOpsManagerController(ctx, mgr, memberClusterObjectsMap, imageUrls, initAppdbVersion, initOpsManagerImageVersion); err != nil {
+func setupMongoDBOpsManagerCRD(ctx context.Context, mgr manager.Manager, memberClusterObjectsMap map[string]runtime_cluster.Cluster, imageUrls images.ImageUrls, initDatabaseVersion, initOpsManagerImageVersion string, defaultArchitecture architectures.DefaultArchitecture) error {
+	if err := operator.AddOpsManagerController(ctx, mgr, memberClusterObjectsMap, imageUrls, initDatabaseVersion, initOpsManagerImageVersion, defaultArchitecture); err != nil {
 		return err
 	}
-	return ctrl.NewWebhookManagedBy(mgr).For(&omv1.MongoDBOpsManager{}).Complete()
+	return ctrl.NewWebhookManagedBy(mgr).For(&omv1.MongoDBOpsManager{}).
+		WithValidator(&omv1.MongoDBOpsManagerValidator{}).
+		Complete()
 }
 
-func setupMongoDBUserCRD(ctx context.Context, mgr manager.Manager, memberClusterObjectsMap map[string]runtime_cluster.Cluster) error {
-	return operator.AddMongoDBUserController(ctx, mgr, memberClusterObjectsMap)
+func setupMongoDBUserCRD(ctx context.Context, mgr manager.Manager, memberClusterObjectsMap map[string]runtime_cluster.Cluster, backupEnableDelay time.Duration) error {
+	return operator.AddMongoDBUserController(ctx, mgr, memberClusterObjectsMap, backupEnableDelay)
 }
 
-func setupMongoDBMultiClusterCRD(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, memberClusterObjectsMap map[string]runtime_cluster.Cluster) error {
-	if err := operator.AddMultiReplicaSetController(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, memberClusterObjectsMap); err != nil {
+func setupMongoDBMultiClusterCRD(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, memberClusterObjectsMap map[string]runtime_cluster.Cluster) error {
+	requiredHealthyStreak := env.ReadIntOrDefault(util.RequiredHealthyStreakEnv, util.DefaultRequiredHealthyStreak)
+	if err := operator.AddMultiReplicaSetController(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, requiredHealthyStreak, memberClusterObjectsMap); err != nil {
 		return err
 	}
-	return ctrl.NewWebhookManagedBy(mgr).For(&mdbmultiv1.MongoDBMultiCluster{}).Complete()
+	return ctrl.NewWebhookManagedBy(mgr).For(&mdbmultiv1.MongoDBMultiCluster{}).
+		WithValidator(&mdbmultiv1.MongoDBMultiClusterValidator{}).
+		Complete()
+}
+
+func setupVoyageAICRD(ctx context.Context, mgr manager.Manager) error {
+	imageRepository := env.ReadOrDefault(util.VoyageAIRepoURLEnv, "quay.io/mongodb/voyageai")
+	return operator.AddVoyageAIController(ctx, mgr, imageRepository)
 }
 
 func setupMongoDBSearchCRD(ctx context.Context, mgr manager.Manager) error {
-	return operator.AddMongoDBSearchController(ctx, mgr, searchcontroller.OperatorSearchConfig{
-		SearchRepo:    env.ReadOrPanic("MDB_SEARCH_REPO_URL"),
-		SearchName:    env.ReadOrPanic("MDB_SEARCH_NAME"),
-		SearchVersion: env.ReadOrPanic("MDB_SEARCH_VERSION"),
-	})
+	if err := operator.AddMongoDBSearchController(ctx, mgr, searchcontroller.OperatorSearchConfig{
+		SearchRepo:    env.ReadOrPanic(util.SearchRepoURLEnv),
+		SearchName:    env.ReadOrPanic(util.SearchNameEnv),
+		SearchVersion: env.ReadOrPanic(util.SearchVersionEnv),
+	}); err != nil {
+		return err
+	}
+
+	// We cannot use ReadOrPanic here because this variable is only needed when Search is used with a managed load
+	// balancer
+	envoyImage := env.ReadOrDefault(util.EnvoyImageEnv, "")
+	if err := operator.AddMongoDBSearchEnvoyController(ctx, mgr, envoyImage); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func setupCommunityController(
-	ctx context.Context,
+	_ context.Context,
 	mgr manager.Manager,
 	mongodbRepoURL string,
 	mongodbImage string,
@@ -556,8 +593,8 @@ func getOperatorEnv() util.OperatorEnvironment {
 		operatorEnvOnce.Do(func() {
 			golog.Printf("Configured environment %s, not recognized. Must be one of %v", operatorEnv, operatorEnvironments)
 			golog.Printf("Using default environment, %s, instead", util.OperatorEnvironmentDev)
-			operatorEnv = util.OperatorEnvironmentDev
 		})
+		operatorEnv = util.OperatorEnvironmentDev
 	}
 	return operatorEnv
 }
@@ -597,6 +634,7 @@ func initEnvVariables() {
 
 	env.EnsureVar(util.BackupDisableWaitSecondsEnv, util.DefaultBackupDisableWaitSeconds)
 	env.EnsureVar(util.BackupDisableWaitRetriesEnv, util.DefaultBackupDisableWaitRetries)
+	env.EnsureVar(util.BackupStartDelaySecondsEnv, strconv.Itoa(util.DefaultBackupStartDelaySeconds))
 	env.EnsureVar(util.OpsManagerMonitorAppDB, strconv.FormatBool(util.OpsManagerMonitorAppDBDefault))
 }
 

@@ -41,12 +41,12 @@ def mocked_custom_api():
             return stored_body[-1]
         return {"name": name}
 
-    def create_namespaced_custom_object(group, version, namespace, plural, body: dict):
+    def create_namespaced_custom_object(group, version, namespace, plural, body: dict, field_validation=None):
         body.update({"name": body["metadata"]["name"]})
         stored_body.append(body)
         return body
 
-    def patch_namespaced_custom_object(group, version, namespace, plural, name, body: dict):
+    def patch_namespaced_custom_object(group, version, namespace, plural, name, body: dict, field_validation=None):
         stored_body.append(body)
         return body
 

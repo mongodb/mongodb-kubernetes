@@ -3,6 +3,7 @@ from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.mongodb_multi import MongoDBMulti
 from kubetester.mongodb_role import ClusterMongoDBRole, ClusterMongoDBRoleKind
+from kubetester.operator import Operator
 from pytest import fixture, mark
 from tests.multicluster.conftest import cluster_spec_list
 
@@ -121,9 +122,7 @@ def mongodb_role_with_empty_strings() -> ClusterMongoDBRole:
         find_fixture("cluster-mongodb-role-with-empty-strings.yaml"), cluster_scoped=True
     )
 
-    if try_load(resource):
-        return resource
-
+    try_load(resource)
     return resource
 
 
@@ -133,9 +132,7 @@ def mongodb_role_without_empty_strings() -> ClusterMongoDBRole:
         find_fixture("cluster-mongodb-role-without-empty-strings.yaml"), cluster_scoped=True
     )
 
-    if try_load(resource):
-        return resource
-
+    try_load(resource)
     return resource
 
 
@@ -147,9 +144,6 @@ def replica_set(
     first_project: str,
 ) -> MongoDB:
     resource = MongoDB.from_yaml(find_fixture("replica-set-scram.yaml"), namespace=namespace)
-
-    if try_load(resource):
-        return resource
 
     resource["spec"]["members"] = 1
     resource["spec"]["security"]["roleRefs"] = [
@@ -163,7 +157,7 @@ def replica_set(
         },
     ]
     resource["spec"]["opsManager"]["configMapRef"]["name"] = first_project
-
+    try_load(resource)
     return resource
 
 
@@ -175,9 +169,6 @@ def sharded_cluster(
     second_project: str,
 ) -> MongoDB:
     resource = MongoDB.from_yaml(find_fixture("sharded-cluster-scram-sha-1.yaml"), namespace=namespace)
-
-    if try_load(resource):
-        return resource
 
     resource["spec"]["mongodsPerShardCount"] = 1
     resource["spec"]["mongosCount"] = 1
@@ -194,7 +185,7 @@ def sharded_cluster(
         },
     ]
     resource["spec"]["opsManager"]["configMapRef"]["name"] = second_project
-
+    try_load(resource)
     return resource
 
 
@@ -206,9 +197,6 @@ def mc_replica_set(
     third_project: str,
 ) -> MongoDBMulti:
     resource = MongoDBMulti.from_yaml(find_fixture("mongodb-multi.yaml"), namespace=namespace)
-
-    if try_load(resource):
-        return resource
 
     resource["spec"]["security"] = {
         "roleRefs": [
@@ -224,7 +212,7 @@ def mc_replica_set(
     }
     resource["spec"]["opsManager"]["configMapRef"]["name"] = third_project
     resource["spec"]["clusterSpecList"] = cluster_spec_list(["kind-e2e-cluster-1"], [1])
-
+    try_load(resource)
     return resource
 
 
@@ -362,8 +350,8 @@ def test_removing_role_from_resources(replica_set: MongoDB, sharded_cluster: Mon
 
 
 @mark.e2e_mongodb_custom_roles
-def test_install_operator_with_clustermongodbroles_disabled(multi_cluster_operator_no_cluster_mongodb_roles):
-    multi_cluster_operator_no_cluster_mongodb_roles.assert_is_running()
+def test_install_operator_with_clustermongodbroles_disabled(multi_cluster_operator_no_cluster_mongodb_roles: Operator):
+    multi_cluster_operator_no_cluster_mongodb_roles.wait_for_operator_ready()
 
 
 @mark.e2e_mongodb_custom_roles

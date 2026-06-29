@@ -81,19 +81,17 @@ def server_certs(
 
 @pytest.fixture(scope="function")
 def mongodb_multi(mongodb_multi_unmarshalled: MongoDBMulti, server_certs: str) -> MongoDBMulti:
-    if try_load(mongodb_multi_unmarshalled):
-        return mongodb_multi_unmarshalled
-
     # remove the last element, we are only starting with 2 clusters we will scale up the 3rd one later.
     mongodb_multi_unmarshalled["spec"]["clusterSpecList"].pop()
     # remove one member from the first cluster to start with 2 members
     mongodb_multi_unmarshalled["spec"]["clusterSpecList"][0]["members"] = 2
+    try_load(mongodb_multi_unmarshalled)
     return mongodb_multi_unmarshalled
 
 
 @pytest.mark.e2e_multi_cluster_scale_up_cluster
 def test_deploy_operator(multi_cluster_operator: Operator):
-    multi_cluster_operator.assert_is_running()
+    multi_cluster_operator.wait_for_operator_ready()
 
 
 @pytest.mark.e2e_multi_cluster_scale_up_cluster

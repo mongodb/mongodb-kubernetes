@@ -4,7 +4,6 @@ import (
 	"os"
 
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
-	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 )
 
 // nolint:forbidigo
@@ -13,7 +12,6 @@ func InitDefaultEnvVariables() {
 	_ = os.Setenv(util.AutomationAgentImagePullPolicy, "Never")
 	_ = os.Setenv(util.OpsManagerImageUrl, "quay.io/mongodb/mongodb-enterprise-ops-manager")
 	_ = os.Setenv(util.InitOpsManagerImageUrl, "quay.io/mongodb/mongodb-kubernetes-init-ops-manager")
-	_ = os.Setenv(util.InitAppdbImageUrlEnv, "quay.io/mongodb/mongodb-kubernetes-init-appdb")
 	_ = os.Setenv(util.InitDatabaseImageUrlEnv, "quay.io/mongodb/mongodb-kubernetes-init-database")
 	_ = os.Setenv(util.OpsManagerPullPolicy, "Never")
 	_ = os.Setenv(util.OmOperatorEnv, "test")
@@ -23,5 +21,4 @@ func InitDefaultEnvVariables() {
 	_ = os.Setenv(util.BackupDisableWaitRetriesEnv, "3")
 	_ = os.Unsetenv(util.ManagedSecurityContextEnv)
 	_ = os.Unsetenv(util.ImagePullSecrets)
-	_ = os.Unsetenv(architectures.DefaultEnvArchitecture)
 }

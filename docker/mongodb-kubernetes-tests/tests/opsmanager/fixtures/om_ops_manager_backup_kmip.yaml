@@ -11,7 +11,7 @@ spec:
     encryption:
       kmip:
         server:
-          url: "kmip-svc:5696"
+          url: "kmip-svc.kmip.svc.cluster.local:5696"
           ca: "<fill-me>"
     s3OpLogStores:
       - name: s3Store2

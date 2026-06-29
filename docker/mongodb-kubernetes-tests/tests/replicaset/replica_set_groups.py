@@ -16,8 +16,8 @@ class TestReplicaSetOrganizationsPagination(KubernetesTester):
       The test is skipped for cloud manager as we cannot create organizations there ("API_KEY_CANNOT_CREATE_ORG")
     """
 
-    all_orgs_ids = []
-    all_groups_ids = []
+    all_orgs_ids: list[str] = []
+    all_groups_ids: list[str] = []
     org_id = None
     group_name = None
 

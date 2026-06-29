@@ -237,9 +237,6 @@ def ops_manager(
         namespace, OM_NAME, central_cluster_client, custom_appdb_version, s3_bucket_blockstore, s3_bucket_oplog
     )
 
-    if try_load(resource):
-        return resource
-
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
     resource["spec"]["version"] = custom_version
     resource["spec"]["topology"] = "MultiCluster"
@@ -375,6 +372,7 @@ def ops_manager(
         },
     ]
 
+    try_load(resource)
     return resource
 
 
@@ -405,9 +403,9 @@ def mongodb_multi_collection(mongodb_multi: MongoDBMulti, ca_path: str):
         ca_path=ca_path,
     )
 
-    collection = pymongo.MongoClient(tester.cnx_string, **tester.default_opts)["testdb"]
+    db: pymongo.database.Database = pymongo.MongoClient(tester.cnx_string, **tester.default_opts)["testdb"]
 
-    return collection["testcollection"]
+    return db["testcollection"]
 
 
 @fixture(scope="function")
@@ -520,8 +518,10 @@ def mongodb_multi(
 
 def create_project_config_map(om: MongoDBOpsManager, mdb_name, project_name, client, custom_ca):
     name = f"{mdb_name}-config"
-    data = {
-        "baseUrl": om.om_status().get_url(),
+    base_url = om.om_status().get_url()
+    assert base_url is not None, "OpsManager URL must not be None"
+    data: dict[str, str] = {
+        "baseUrl": base_url,
         "projectName": project_name,
         "sslMMSCAConfigMap": custom_ca,
         "orgId": "",
@@ -532,7 +532,7 @@ def create_project_config_map(om: MongoDBOpsManager, mdb_name, project_name, cli
 
 @mark.e2e_multi_cluster_om_appdb_no_mesh
 def test_deploy_operator(multi_cluster_operator_with_monitored_appdb: Operator):
-    multi_cluster_operator_with_monitored_appdb.assert_is_running()
+    multi_cluster_operator_with_monitored_appdb.wait_for_operator_ready()
 
 
 @mark.e2e_multi_cluster_om_appdb_no_mesh
@@ -610,6 +610,7 @@ def test_telemetry_configmap(namespace: str):
 
     try:
         payload_string = config.get("lastSendPayloadDeployments")
+        assert payload_string is not None
         payload = json.loads(payload_string)
         # Perform a rudimentary check
         assert isinstance(payload, list), "payload should be a list"

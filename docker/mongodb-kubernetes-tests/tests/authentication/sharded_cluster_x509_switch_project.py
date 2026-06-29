@@ -19,11 +19,9 @@ def sharded_cluster(namespace: str, server_certs: str, agent_certs: str, issuer_
         namespace=namespace,
     )
 
-    if try_load(resource):
-        return resource
-
     resource["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
-    return resource.update()
+    try_load(resource)
+    return resource
 
 
 @pytest.fixture(scope="function")

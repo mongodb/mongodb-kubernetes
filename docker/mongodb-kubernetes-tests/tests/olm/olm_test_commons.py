@@ -2,7 +2,7 @@ import json
 import os
 import re
 import tempfile
-from typing import Dict, List
+from typing import Any, Dict, List
 
 import kubetester
 import requests
@@ -59,7 +59,7 @@ def get_catalog_source_resource(namespace: str, image: str) -> CustomObject:
     return resource
 
 
-def get_subscription_custom_object(name: str, namespace: str, spec: dict[str, str]) -> CustomObject:
+def get_subscription_custom_object(name: str, namespace: str, spec: dict[str, Any]) -> CustomObject:
     resource = CustomObject(
         name,
         namespace,
@@ -114,7 +114,7 @@ def get_pod_condition_env_var(pod):
 
 
 def get_release_json_path() -> str:
-    # when running in pod, release.json will be available in /release.json (it's copied there in Dockerfile)
+    # when running in pod, release.json will be available in current working dir (it's copied there in Dockerfile)
     if os.path.exists("release.json"):
         return "release.json"
     else:
@@ -129,7 +129,7 @@ def get_release_json_path() -> str:
             )
 
 
-def get_release_json() -> dict[str, any]:
+def get_release_json() -> dict[str, Any]:
     with open(get_release_json_path()) as f:
         return json.load(f)
 
@@ -163,11 +163,6 @@ def get_latest_released_operator_version(package_name: str) -> str:
 
     # GitHub is returning sorted directories, so the last one is the latest released operator
     return versioned_directories[-1]
-
-
-def increment_patch_version(version: str):
-    major, minor, patch = version.split(".")
-    return ".".join([major, minor, str(int(patch) + 1)])
 
 
 def wait_for_operator_ready(namespace: str, name: str, expected_operator_version: str):

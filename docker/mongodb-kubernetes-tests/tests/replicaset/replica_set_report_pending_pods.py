@@ -1,4 +1,4 @@
-from kubetester import delete_pod, delete_pvc
+from kubetester import delete_pod, delete_pvc, try_load
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
 from kubetester.phase import Phase
@@ -10,11 +10,13 @@ def replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(yaml_fixture("replica-set.yaml"), namespace=namespace)
     resource.set_version(custom_mdb_version)
     resource["spec"]["persistent"] = True
-    return resource.create()
+    try_load(resource)
+    return resource
 
 
 @mark.e2e_replica_set_report_pending_pods
 def test_replica_set_reaches_running_phase(replica_set: MongoDB):
+    replica_set.update()
     replica_set.assert_reaches_phase(Phase.Running, timeout=600)
 
 

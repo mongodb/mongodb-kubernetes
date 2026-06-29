@@ -3,8 +3,6 @@ package architectures
 import (
 	"strings"
 
-	"k8s.io/utils/env"
-
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
@@ -39,16 +37,13 @@ const (
 	// false: do not append the -ent suffix and assume community
 	// default: false
 	MdbAssumeEnterpriseImage = "MDB_ASSUME_ENTERPRISE_IMAGE"
-	// MdbAgentImageRepo contains the repository containing the agent image for the database
-	MdbAgentImageRepo        = "MDB_AGENT_IMAGE_REPOSITORY"
-	MdbAgentImageRepoDefault = "quay.io/mongodb/mongodb-agent"
 )
 
 // IsRunningStaticArchitecture checks whether the operator is running in static or non-static mode.
 // This is either decided via an annotation per resource or per operator level.
 // The resource annotation takes precedence.
 // A nil map is equivalent to an empty map except that no elements may be added.
-func IsRunningStaticArchitecture(annotations map[string]string) bool {
+func IsRunningStaticArchitecture(annotations map[string]string, defaultArchitecture DefaultArchitecture) bool {
 	if annotations != nil {
 		if architecture, ok := annotations[ArchitectureAnnotation]; ok {
 			if architecture == string(Static) {
@@ -60,12 +55,11 @@ func IsRunningStaticArchitecture(annotations map[string]string) bool {
 		}
 	}
 
-	operatorEnv := env.GetString(DefaultEnvArchitecture, string(NonStatic))
-	return operatorEnv == string(Static)
+	return defaultArchitecture == Static
 }
 
-func GetArchitecture(annotations map[string]string) DefaultArchitecture {
-	if IsRunningStaticArchitecture(annotations) {
+func GetArchitecture(annotations map[string]string, defaultArchitecture DefaultArchitecture) DefaultArchitecture {
+	if IsRunningStaticArchitecture(annotations, defaultArchitecture) {
 		return Static
 	}
 	return NonStatic
@@ -79,7 +73,7 @@ func GetMongoVersionForAutomationConfig(mongoDBImage, version string, forceEnter
 		return version
 	}
 	// the image repo should be	either mongodb / mongodb-enterprise-server or mongodb / mongodb-community-server
-	if strings.Contains(mongoDBImage, util.OfficialEnterpriseServerImageUrl) || forceEnterprise {
+	if strings.Contains(mongoDBImage, util.OfficialEnterpriseServerImageName) || forceEnterprise {
 		if !strings.HasSuffix(version, "-ent") {
 			version = version + "-ent"
 		}

@@ -10,12 +10,13 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/container"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/podtemplatespec"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/probes"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/resourcerequirements"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/envvar"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/podtemplatespec"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/probes"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/resourcerequirements"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 )
 
 func newTestReplicaSet() mdbv1.MongoDBCommunity {
@@ -34,7 +35,7 @@ func newTestReplicaSet() mdbv1.MongoDBCommunity {
 
 func TestMultipleCalls_DoNotCauseSideEffects(t *testing.T) {
 	mdb := newTestReplicaSet()
-	stsFunc := BuildMongoDBReplicaSetStatefulSetModificationFunction(&mdb, &mdb, "fake-mongodbImage", "fake-agentImage", "fake-versionUpgradeHookImage", "fake-readinessProbeImage", true, "")
+	stsFunc := BuildMongoDBReplicaSetStatefulSetModificationFunction(&mdb, &mdb, "fake-mongodbImage", "fake-agentImage", "fake-versionUpgradeHookImage", "fake-readinessProbeImage")
 	sts := &appsv1.StatefulSet{}
 
 	t.Run("1st Call", func(t *testing.T) {
@@ -55,7 +56,7 @@ func TestManagedSecurityContext(t *testing.T) {
 	t.Setenv(podtemplatespec.ManagedSecurityContextEnv, "true")
 
 	mdb := newTestReplicaSet()
-	stsFunc := BuildMongoDBReplicaSetStatefulSetModificationFunction(&mdb, &mdb, "fake-mongodbImage", "fake-agentImage", "fake-versionUpgradeHookImage", "fake-readinessProbeImage", true, "")
+	stsFunc := BuildMongoDBReplicaSetStatefulSetModificationFunction(&mdb, &mdb, "fake-mongodbImage", "fake-agentImage", "fake-versionUpgradeHookImage", "fake-readinessProbeImage")
 
 	sts := &appsv1.StatefulSet{}
 	stsFunc(sts)
@@ -65,7 +66,7 @@ func TestManagedSecurityContext(t *testing.T) {
 
 func TestMongod_Container(t *testing.T) {
 	const mongodbImageMock = "fake-mongodbImage"
-	c := container.New(mongodbContainer(mongodbImageMock, []corev1.VolumeMount{}, mdbv1.NewMongodConfiguration(), false))
+	c := container.New(mongodbContainer(mongodbImageMock, []corev1.VolumeMount{}, v1.NewMongodConfiguration(), false))
 
 	t.Run("Has correct Env vars", func(t *testing.T) {
 		assert.Len(t, c.Env, 1)
@@ -83,14 +84,14 @@ func TestMongod_Container(t *testing.T) {
 }
 
 func TestMongoDBAgentCommand(t *testing.T) {
-	cmd := AutomationAgentCommand(false, false, mdbv1.LogLevelInfo, "testfile", 24)
+	cmd := AutomationAgentCommand(false, v1.LogLevelInfo, "testfile", 24)
 	baseCmd := MongodbUserCommand + BaseAgentCommand() + " -cluster=" + clusterFilePath + automationAgentOptions
 	assert.Len(t, cmd, 3)
 	assert.Equal(t, cmd[0], "/bin/bash")
 	assert.Equal(t, cmd[1], "-c")
 	assert.Equal(t, cmd[2], baseCmd+" -logFile testfile -logLevel INFO -maxLogFileDurationHrs 24")
 
-	cmd = AutomationAgentCommand(false, false, mdbv1.LogLevelInfo, "/dev/stdout", 24)
+	cmd = AutomationAgentCommand(false, v1.LogLevelInfo, "/dev/stdout", 24)
 	assert.Len(t, cmd, 3)
 	assert.Equal(t, cmd[0], "/bin/bash")
 	assert.Equal(t, cmd[1], "-c")
@@ -107,7 +108,7 @@ func assertStatefulSetIsBuiltCorrectly(t *testing.T, mdb mdbv1.MongoDBCommunity,
 	assert.Len(t, sts.Spec.Template.Spec.Containers[0].Env, 4)
 	assert.Len(t, sts.Spec.Template.Spec.Containers[1].Env, 1)
 
-	managedSecurityContext := envvar.ReadBool(podtemplatespec.ManagedSecurityContextEnv) // nolint:forbidigo
+	managedSecurityContext := env.ReadBoolOrDefault(podtemplatespec.ManagedSecurityContextEnv, false) // nolint:forbidigo
 	if !managedSecurityContext {
 		assert.NotNil(t, sts.Spec.Template.Spec.SecurityContext)
 		assert.Equal(t, podtemplatespec.DefaultPodSecurityContext(), *sts.Spec.Template.Spec.SecurityContext)

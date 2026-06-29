@@ -9,12 +9,13 @@ import (
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/types"
 
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
+	"github.com/mongodb/mongodb-kubernetes/pkg/agent"
+	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 )
 
 func TestReplicaSetPortManagerCalculateExpectedPorts(t *testing.T) {
 	type input struct {
-		currentPodStates []PodState
+		currentPodStates []agent.PodState
 		expectedPort     int
 		currentAC        automationconfig.AutomationConfig
 	}
@@ -67,7 +68,7 @@ func TestReplicaSetPortManagerCalculateExpectedPorts(t *testing.T) {
 	testCases := map[string]testCase{
 		"No ports are changed if there is existing config and pods are not ready": {
 			in: input{
-				currentPodStates: []PodState{
+				currentPodStates: []agent.PodState{
 					{PodName: podName(0), Found: false, ReachedGoalState: false},
 					{PodName: podName(1), Found: false, ReachedGoalState: false},
 					{PodName: podName(2), Found: false, ReachedGoalState: false},
@@ -83,7 +84,7 @@ func TestReplicaSetPortManagerCalculateExpectedPorts(t *testing.T) {
 		},
 		"No ports are changed when not all pods reached goal state": {
 			in: input{
-				currentPodStates: []PodState{
+				currentPodStates: []agent.PodState{
 					{PodName: podName(0), Found: true, ReachedGoalState: true},
 					{PodName: podName(1), Found: true, ReachedGoalState: false},
 					{PodName: podName(2), Found: true, ReachedGoalState: true},
@@ -99,7 +100,7 @@ func TestReplicaSetPortManagerCalculateExpectedPorts(t *testing.T) {
 		},
 		"All ports set to expected when there are no processes in config yet": {
 			in: input{
-				currentPodStates: []PodState{
+				currentPodStates: []agent.PodState{
 					{PodName: podName(0), Found: true, ReachedGoalState: false},
 					{PodName: podName(1), Found: true, ReachedGoalState: false},
 					{PodName: podName(2), Found: true, ReachedGoalState: false},
@@ -115,7 +116,7 @@ func TestReplicaSetPortManagerCalculateExpectedPorts(t *testing.T) {
 		},
 		"Only one port changed when all pods are ready": {
 			in: input{
-				currentPodStates: []PodState{
+				currentPodStates: []agent.PodState{
 					{PodName: podName(0), Found: true, ReachedGoalState: true},
 					{PodName: podName(1), Found: true, ReachedGoalState: true},
 					{PodName: podName(2), Found: true, ReachedGoalState: true},
@@ -131,7 +132,7 @@ func TestReplicaSetPortManagerCalculateExpectedPorts(t *testing.T) {
 		},
 		"No port changes required when all ports changed but not all pods reached goal state": {
 			in: input{
-				currentPodStates: []PodState{
+				currentPodStates: []agent.PodState{
 					{PodName: podName(0), Found: true, ReachedGoalState: true},
 					{PodName: podName(1), Found: true, ReachedGoalState: true},
 					{PodName: podName(2), Found: true, ReachedGoalState: false},
@@ -147,7 +148,7 @@ func TestReplicaSetPortManagerCalculateExpectedPorts(t *testing.T) {
 		},
 		"No port changes required when all ports changed but only arbiter is not in a goal state": {
 			in: input{
-				currentPodStates: []PodState{
+				currentPodStates: []agent.PodState{
 					{PodName: podName(0), Found: true, ReachedGoalState: true},
 					{PodName: podName(1), Found: true, ReachedGoalState: true},
 					{PodName: podName(2), Found: true, ReachedGoalState: true},
@@ -165,7 +166,7 @@ func TestReplicaSetPortManagerCalculateExpectedPorts(t *testing.T) {
 		},
 		"No port changes when scaling down and there are more processes in config than current pod states": {
 			in: input{
-				currentPodStates: []PodState{
+				currentPodStates: []agent.PodState{
 					{PodName: podName(0), Found: true, ReachedGoalState: true},
 					{PodName: podName(1), Found: true, ReachedGoalState: true},
 					{PodName: podName(2), Found: true, ReachedGoalState: true},
@@ -181,7 +182,7 @@ func TestReplicaSetPortManagerCalculateExpectedPorts(t *testing.T) {
 		},
 		"No port changes when scaling up and there are less processes in config than current pod states": {
 			in: input{
-				currentPodStates: []PodState{
+				currentPodStates: []agent.PodState{
 					{PodName: podName(0), Found: true, ReachedGoalState: true},
 					{PodName: podName(1), Found: true, ReachedGoalState: true},
 					{PodName: podName(2), Found: true, ReachedGoalState: true},

@@ -29,9 +29,6 @@ def ops_manager(
         yaml_fixture("multicluster_appdb_om.yaml"), namespace=namespace
     )
 
-    if try_load(resource):
-        return resource
-
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
     resource["spec"]["version"] = custom_version
 
@@ -50,6 +47,7 @@ def ops_manager(
         },
     }
 
+    try_load(resource)
     return resource
 
 
@@ -167,7 +165,7 @@ def test_delete_om_and_appdb_statefulset_in_failed_cluster(
         if e.status != 404:
             raise e
 
-    def statefulset_is_deleted(namespace: str, name: str, api_client=Optional[kubernetes.client.ApiClient]):
+    def statefulset_is_deleted(namespace: str, name: str, api_client: Optional[kubernetes.client.ApiClient] = None):
         try:
             get_statefulset(namespace, name, api_client=api_client)
             return False

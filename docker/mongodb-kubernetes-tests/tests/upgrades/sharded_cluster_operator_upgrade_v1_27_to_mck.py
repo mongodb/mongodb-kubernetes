@@ -3,7 +3,7 @@ from typing import Dict, Optional
 import pytest
 from kubeobject import CustomObject
 from kubernetes import client
-from kubetester import create_or_update_configmap, read_configmap
+from kubetester import create_or_update_configmap, read_configmap, try_load
 from kubetester.certs import create_sharded_cluster_certs
 from kubetester.kubetester import ensure_nested_objects
 from kubetester.kubetester import fixture as yaml_fixture
@@ -86,7 +86,8 @@ def sharded_cluster(
     resource["spec"]["persistent"] = True
     resource.configure_custom_tls(issuer_ca_configmap, CERT_PREFIX)
 
-    return resource.update()
+    try_load(resource)
+    return resource
 
 
 @pytest.mark.e2e_sharded_cluster_operator_upgrade_v1_27_to_mck
@@ -100,6 +101,7 @@ class TestShardedClusterDeployment:
         install_legacy_deployment_state_meko(namespace, managed_security_context, operator_installation_config)
 
     def test_create_sharded_cluster(self, sharded_cluster: MongoDB):
+        sharded_cluster.update()
         sharded_cluster.assert_reaches_phase(phase=Phase.Running, timeout=350)
 
     def test_scale_up_sharded_cluster(self, sharded_cluster: MongoDB):
@@ -122,7 +124,7 @@ class TestOperatorUpgrade:
         operator = get_default_operator(
             namespace, operator_installation_config=operator_installation_config, apply_crds_first=True
         )
-        operator.assert_is_running()
+        operator.wait_for_operator_ready()
         logger.info("Installing the operator built from master")
         # Dumping deployments in logs ensures we are using the correct operator version
         log_deployments_info(namespace)

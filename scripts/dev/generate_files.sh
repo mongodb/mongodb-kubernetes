@@ -17,7 +17,7 @@ mkdir -p "$(go env GOPATH)/bin"
 
 update_mco_tests() {
   echo "Regenerating MCO evergreen tests configuration"
-  python scripts/evergreen/e2e/mco/create_mco_tests.py >.evergreen-mco.yml
+  scripts/dev/run_python.sh scripts/evergreen/e2e/mco/create_mco_tests.py > .evergreen-mco.yml
 }
 
 # Generates a yaml file to install the operator from the helm sources.
@@ -38,19 +38,19 @@ generate_standalone_yaml() {
   )
 
   # generate normal public example
-  helm template --namespace mongodb -f helm_chart/values.yaml helm_chart --output-dir "${charttmpdir}" "$@"
+  helm template --namespace mongodb -f helm_chart/values.yaml helm_chart --output-dir "${charttmpdir}" --set operator.installationMethod=yaml "$@"
   cat "${FILES[@]}" >public/mongodb-kubernetes.yaml
   cat "helm_chart/crds/"* >public/crds.yaml
 
   # generate openshift public example
   rm -rf "${charttmpdir:?}"/*
-  helm template --namespace mongodb -f helm_chart/values.yaml helm_chart --output-dir "${charttmpdir}" --values helm_chart/values-openshift.yaml "$@"
+  helm template --namespace mongodb -f helm_chart/values.yaml helm_chart --output-dir "${charttmpdir}" --values helm_chart/values-openshift.yaml --set operator.installationMethod=yaml "$@"
   cat "${FILES[@]}" >public/mongodb-kubernetes-openshift.yaml
 
   # generate openshift files for kustomize used for generating OLM bundle
   rm -rf "${charttmpdir:?}"/*
   helm template --namespace mongodb -f helm_chart/values.yaml helm_chart --output-dir "${charttmpdir}" --values helm_chart/values-openshift.yaml \
-    --set operator.webhook.registerConfiguration=false --set operator.webhook.installClusterRole=false "$@"
+    --set operator.webhook.registerConfiguration=false --set operator.webhook.installClusterRole=false --set operator.installationMethod=yaml "$@"
 
   # update kustomize files for OLM bundle with files generated for openshift
   cp "${charttmpdir}/mongodb-kubernetes/templates/operator.yaml" config/manager/manager.yaml
@@ -62,7 +62,7 @@ generate_standalone_yaml() {
 
   # generate multi-cluster public example
   rm -rf "${charttmpdir:?}"/*
-  helm template --namespace mongodb -f helm_chart/values.yaml helm_chart --output-dir "${charttmpdir}" --values helm_chart/values-multi-cluster.yaml "$@"
+  helm template --namespace mongodb -f helm_chart/values.yaml helm_chart --output-dir "${charttmpdir}" --values helm_chart/values-multi-cluster.yaml --set operator.installationMethod=yaml "$@"
   cat "${FILES[@]}" >public/mongodb-kubernetes-multi-cluster.yaml
 }
 
@@ -73,13 +73,19 @@ generate_manifests() {
 update_values_yaml_files() {
   # ensure that all helm values files are up to date.
   # shellcheck disable=SC2154
-  python scripts/evergreen/release/update_helm_values_files.py
+  scripts/dev/run_python.sh scripts/evergreen/release/update_helm_values_files.py
+}
+
+update_mongodb_operator_version() {
+  # ensure that release.json:mongodbOperator matches calculate_next_version output.
+  # MUST run before update_release_json, which propagates this field to dependents.
+  scripts/dev/run_python.sh scripts/release/update_mongodb_operator_version.py
 }
 
 update_release_json() {
   # ensure that release.json is up 2 date
   # shellcheck disable=SC2154
-  python scripts/evergreen/release/update_release.py
+  scripts/dev/run_python.sh scripts/evergreen/release/update_release.py
 }
 
 regenerate_public_rbac_multi_cluster() {
@@ -155,7 +161,8 @@ generate_all() {
 
   # NOTE: The following are now separate pre-commit hooks that run serially
   # BEFORE this hook to avoid race conditions with release.json:
-  #   - update_release_json (writes release.json)
+  #   - update_mongodb_operator_version (writes release.json:mongodbOperator)
+  #   - update_release_json (propagates mongodbOperator and writes release.json)
   #   - update_values_yaml_files (reads release.json)
   #   - generate_standalone_yaml (reads values files)
 
@@ -187,6 +194,8 @@ elif [[ "${cmd}" == "generate_manifests" ]]; then
   generate_manifests
 elif [[ "${cmd}" == "update_values" ]]; then
   update_values_yaml_files
+elif [[ "${cmd}" == "update_operator_version" ]]; then
+  update_mongodb_operator_version
 elif [[ "${cmd}" == "update_release" ]]; then
   update_release_json
 elif [[ "${cmd}" == "update_licenses" ]]; then

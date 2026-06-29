@@ -17,6 +17,7 @@ metadata:
   name: ${namespace}
   labels:
     evg: task
+    pod-security.kubernetes.io/enforce: "restricted"
   annotations:
     evg/version: "https://evergreen.mongodb.com/version/${version_id:-'not-specified'}"
     evg/task-name: ${TASK_NAME:-'not-specified'}
@@ -31,6 +32,26 @@ EOF
         cat "${tmp_file}"
         kubectl create -f "${tmp_file}"
     fi
+}
+
+# Wait for a namespace to be fully deleted.
+# Returns 0 if namespace is deleted, 1 if still exists after timeout.
+wait_for_namespace_deletion() {
+    local namespace="${1}"
+    local max_attempts="${2:-24}"
+    local sleep_interval="${3:-5}"
+
+    local attempt=0
+    while kubectl get namespace "${namespace}" &>/dev/null && [[ ${attempt} -lt ${max_attempts} ]]; do
+        echo "Waiting for namespace ${namespace} to be deleted... (${attempt}/${max_attempts})"
+        sleep "${sleep_interval}"
+        attempt=$((attempt + 1))
+    done
+
+    if kubectl get namespace "${namespace}" &>/dev/null; then
+        return 1
+    fi
+    return 0
 }
 
 delete_operator() {
@@ -118,12 +139,27 @@ create_image_registries_secret() {
       echo "Using Docker config: ${config_file}"
     fi
 
+    if kubectl --context "${context}" get secret "${secret_name}" -n "${namespace}" &>/dev/null; then
+      echo "${context}: Secret ${namespace}/${secret_name} already exists, skipping"
+      return
+    fi
+
     # shellcheck disable=SC2154
     if kubectl --context "${context}" get namespace "${namespace}"; then
-      kubectl --context "${context}" -n "${namespace}" delete secret "${secret_name}" --ignore-not-found
-      echo "${context}: Creating ${namespace}/${secret_name} pull secret"
-      kubectl --context "${context}" -n "${namespace}" create secret generic "${secret_name}" \
-        --from-file=.dockerconfigjson="${config_file}" --type=kubernetes.io/dockerconfigjson
+      echo "${context}: Applying ${namespace}/${secret_name} pull secret"
+      # Use kubectl apply for idempotency (faster than delete+create on repeated runs)
+      local config_base64
+      config_base64=$(base64 < "${config_file}" | tr -d '\n')
+      kubectl --context "${context}" apply -f - <<EOF
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ${secret_name}
+  namespace: ${namespace}
+type: kubernetes.io/dockerconfigjson
+data:
+  .dockerconfigjson: ${config_base64}
+EOF
     else
       echo "Skipping creating pull secret in ${context}/${namespace}. The namespace doesn't exist yet."
     fi
@@ -209,10 +245,11 @@ reset_namespace() {
   # a while to delete it.
   should_wait="false"
   # shellcheck disable=SC2153
-  if [[ ${KUBE_ENVIRONMENT_NAME} == "openshift" ]]; then
+  # Note: KUBE_ENVIRONMENT_NAME is set to "openshift_4" in context files, so we use glob pattern
+  if [[ ${KUBE_ENVIRONMENT_NAME} == *openshift* ]]; then
     should_wait="true"
     echo "Removing the test namespace ${namespace}, should_wait=${should_wait}"
-    kubectl --context "${context}" delete "namespace/${namespace}" --wait="${should_wait}" || true
+    kubectl --context "${context}" delete "namespace/${namespace}" --wait="${should_wait}" --timeout=120s || true
   fi
 
   echo "Removing CSRs"
@@ -243,6 +280,7 @@ docker_run_local_registry() {
   reg_port="$2"
   running="$(docker inspect -f '{{.State.Running}}' "${reg_name}" 2>/dev/null || true)"
   if [ "${running}" != 'true' ]; then
+    docker rm -f "${reg_name}" 2>/dev/null || true
     docker run -d --restart=always -p "127.0.0.1:${reg_port}:5000" --name "${reg_name}" registry:2
   fi
 }

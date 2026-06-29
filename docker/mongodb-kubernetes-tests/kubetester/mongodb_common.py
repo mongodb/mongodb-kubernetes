@@ -10,6 +10,8 @@ TRACER = trace.get_tracer("evergreen-agent")
 
 
 class MongoDBCommon:
+    backing_obj: dict
+
     @TRACER.start_as_current_span("wait_for")
     def wait_for(self, fn, timeout=None, should_raise=True, persist_for=1):
         """
@@ -46,6 +48,14 @@ class MongoDBCommon:
 
             timeout -= wait
             time.sleep(wait)
+
+        # ponytail: one last check -- condition may have become true during the final sleep
+        try:
+            self.reload()
+        except Exception:
+            pass
+        if fn(self):
+            return True
 
         if should_raise:
             raise Exception("Timeout ({}) reached while waiting for {}".format(initial_timeout, self))

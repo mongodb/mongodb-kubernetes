@@ -19,14 +19,14 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
-	"github.com/mongodb/mongodb-kubernetes/api/v1/mdbmulti"
-	omv1 "github.com/mongodb/mongodb-kubernetes/api/v1/om"
-	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
-	userv1 "github.com/mongodb/mongodb-kubernetes/api/v1/user"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
+	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
+	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
+	searchv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/search"
+	userv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/user"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
-	mcov1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
-	mockClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
+	mcov1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1" //nolint:depguard
+	mockClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 )
@@ -1127,7 +1127,7 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 			ctx := context.Background()
 
 			beforeCallTimestamp := time.Now()
-			events := collectDeploymentsSnapshot(ctx, mgr, testOperatorUUID, testDatabaseStaticImage, testDatabaseNonStaticImage)
+			events := collectDeploymentsSnapshot(ctx, mgr, testOperatorUUID, testDatabaseStaticImage, testDatabaseNonStaticImage, architectures.NonStatic)
 			afterCallTimestamp := time.Now()
 
 			require.Len(t, events, len(test.expectedEventsWithProperties), "expected and collected events count don't match")
@@ -1278,7 +1278,7 @@ func TestAddSearchEvents(t *testing.T) {
 	testCases := []struct {
 		name        string
 		searchItems []searchv1.MongoDBSearch
-		events      []DeploymentUsageSnapshotProperties
+		events      []SearchDeploymentUsageSnapshotProperties
 		sources     map[reflect.Type][]client.Object
 	}{
 		{
@@ -1286,13 +1286,15 @@ func TestAddSearchEvents(t *testing.T) {
 			searchItems: []searchv1.MongoDBSearch{
 				{ObjectMeta: metav1.ObjectMeta{UID: types.UID("search-external"), Name: "search-external", Namespace: "default"}, Spec: searchv1.MongoDBSearchSpec{Source: &searchv1.MongoDBSource{ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{}}}},
 			},
-			events: []DeploymentUsageSnapshotProperties{{
-				DeploymentUID:            "search-external",
-				OperatorID:               operatorUUID,
-				Architecture:             "external",
-				IsMultiCluster:           false,
-				Type:                     "Search",
-				IsRunningEnterpriseImage: false,
+			events: []SearchDeploymentUsageSnapshotProperties{{
+				DeploymentUsageSnapshotProperties: DeploymentUsageSnapshotProperties{
+					DeploymentUID:            "search-external",
+					OperatorID:               operatorUUID,
+					Architecture:             "external",
+					IsMultiCluster:           false,
+					Type:                     "Search",
+					IsRunningEnterpriseImage: false,
+				},
 			}},
 		},
 		{
@@ -1301,9 +1303,27 @@ func TestAddSearchEvents(t *testing.T) {
 				{ObjectMeta: metav1.ObjectMeta{UID: types.UID("search-static"), Name: "search-static", Namespace: "default"}, Spec: searchv1.MongoDBSearchSpec{Source: &searchv1.MongoDBSource{MongoDBResourceRef: &userv1.MongoDBResourceRef{Name: "mdb-static"}}}},
 				{ObjectMeta: metav1.ObjectMeta{UID: types.UID("search-nonstatic"), Name: "search-nonstatic", Namespace: "default"}, Spec: searchv1.MongoDBSearchSpec{Source: &searchv1.MongoDBSource{MongoDBResourceRef: &userv1.MongoDBResourceRef{Name: "mdb-nonstatic"}}}},
 			},
-			events: []DeploymentUsageSnapshotProperties{
-				{DeploymentUID: "search-static", OperatorID: operatorUUID, Architecture: string(architectures.Static), IsMultiCluster: false, Type: "Search", IsRunningEnterpriseImage: true},
-				{DeploymentUID: "search-nonstatic", OperatorID: operatorUUID, Architecture: string(architectures.NonStatic), IsMultiCluster: false, Type: "Search", IsRunningEnterpriseImage: true},
+			events: []SearchDeploymentUsageSnapshotProperties{
+				{
+					DeploymentUsageSnapshotProperties: DeploymentUsageSnapshotProperties{
+						DeploymentUID:            "search-static",
+						OperatorID:               operatorUUID,
+						Architecture:             string(architectures.Static),
+						IsMultiCluster:           false,
+						Type:                     "Search",
+						IsRunningEnterpriseImage: true,
+					},
+				},
+				{
+					DeploymentUsageSnapshotProperties: DeploymentUsageSnapshotProperties{
+						DeploymentUID:            "search-nonstatic",
+						OperatorID:               operatorUUID,
+						Architecture:             string(architectures.NonStatic),
+						IsMultiCluster:           false,
+						Type:                     "Search",
+						IsRunningEnterpriseImage: true,
+					},
+				},
 			},
 			sources: map[reflect.Type][]client.Object{
 				reflect.TypeOf(&mdbv1.MongoDB{}): {mdbStatic, mdbNonStatic},
@@ -1314,9 +1334,63 @@ func TestAddSearchEvents(t *testing.T) {
 			searchItems: []searchv1.MongoDBSearch{
 				{ObjectMeta: metav1.ObjectMeta{UID: types.UID("search-community"), Name: "search-community", Namespace: "default"}, Spec: searchv1.MongoDBSearchSpec{Source: &searchv1.MongoDBSource{MongoDBResourceRef: &userv1.MongoDBResourceRef{Name: "community-db"}}}},
 			},
-			events: []DeploymentUsageSnapshotProperties{{DeploymentUID: "search-community", OperatorID: operatorUUID, Architecture: "static", IsMultiCluster: false, Type: "Search", IsRunningEnterpriseImage: false}},
+			events: []SearchDeploymentUsageSnapshotProperties{{
+				DeploymentUsageSnapshotProperties: DeploymentUsageSnapshotProperties{
+					DeploymentUID:            "search-community",
+					OperatorID:               operatorUUID,
+					Architecture:             "static",
+					IsMultiCluster:           false,
+					Type:                     "Search",
+					IsRunningEnterpriseImage: false,
+				},
+			}},
 			sources: map[reflect.Type][]client.Object{
 				reflect.TypeOf(&mcov1.MongoDBCommunity{}): {community},
+			},
+		},
+		{
+			name: "Auto embedding",
+			searchItems: []searchv1.MongoDBSearch{
+				{
+					ObjectMeta: metav1.ObjectMeta{UID: types.UID("search-auto-embedding-enabled"), Name: "search-auto-embedding-enabled", Namespace: "default"},
+					Spec: searchv1.MongoDBSearchSpec{
+						Source:        &searchv1.MongoDBSource{MongoDBResourceRef: &userv1.MongoDBResourceRef{Name: "mdb-static"}},
+						AutoEmbedding: &searchv1.EmbeddingConfig{},
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{UID: types.UID("search-auto-embedding-disabled"), Name: "search-auto-embedding-disabled", Namespace: "default"},
+					Spec: searchv1.MongoDBSearchSpec{
+						Source: &searchv1.MongoDBSource{MongoDBResourceRef: &userv1.MongoDBResourceRef{Name: "mdb-nonstatic"}},
+					},
+				},
+			},
+			events: []SearchDeploymentUsageSnapshotProperties{
+				{
+					DeploymentUsageSnapshotProperties: DeploymentUsageSnapshotProperties{
+						DeploymentUID:            "search-auto-embedding-enabled",
+						OperatorID:               operatorUUID,
+						Architecture:             string(architectures.Static),
+						IsMultiCluster:           false,
+						Type:                     "Search",
+						IsRunningEnterpriseImage: true,
+					},
+					IsAutoEmbeddingEnabled: true,
+				},
+				{
+					DeploymentUsageSnapshotProperties: DeploymentUsageSnapshotProperties{
+						DeploymentUID:            "search-auto-embedding-disabled",
+						OperatorID:               operatorUUID,
+						Architecture:             string(architectures.NonStatic),
+						IsMultiCluster:           false,
+						Type:                     "Search",
+						IsRunningEnterpriseImage: true,
+					},
+					IsAutoEmbeddingEnabled: false,
+				},
+			},
+			sources: map[reflect.Type][]client.Object{
+				reflect.TypeOf(&mdbv1.MongoDB{}): {mdbStatic, mdbNonStatic},
 			},
 		},
 		{
@@ -1324,12 +1398,12 @@ func TestAddSearchEvents(t *testing.T) {
 			searchItems: []searchv1.MongoDBSearch{
 				{ObjectMeta: metav1.ObjectMeta{UID: types.UID("search-missing"), Name: "search-missing", Namespace: "default"}, Spec: searchv1.MongoDBSearchSpec{Source: &searchv1.MongoDBSource{MongoDBResourceRef: &userv1.MongoDBResourceRef{Name: "does-not-exist"}}}},
 			},
-			events: []DeploymentUsageSnapshotProperties{},
+			events: []SearchDeploymentUsageSnapshotProperties{},
 		},
 		{
 			name:        "No search resources",
 			searchItems: []searchv1.MongoDBSearch{},
-			events:      []DeploymentUsageSnapshotProperties{},
+			events:      []SearchDeploymentUsageSnapshotProperties{},
 		},
 	}
 
@@ -1357,7 +1431,7 @@ func TestAddSearchEvents(t *testing.T) {
 				},
 			}
 
-			events := addSearchEvents(context.Background(), mc, operatorUUID, now)
+			events := addSearchEvents(context.Background(), mc, operatorUUID, architectures.NonStatic, now)
 			expectedEvents := make([]Event, len(tc.events))
 			for i, event := range tc.events {
 				expectedEvents[i] = *createEvent(event, now, Deployments)
@@ -1373,7 +1447,27 @@ func TestCollectOperatorSnapshot(t *testing.T) {
 		memberClusterMap map[string]ConfigClient
 		expectedProps    OperatorUsageSnapshotProperties
 	}{
-		"single cluster": {
+		"single cluster (yaml install)": {
+			memberClusterMap: map[string]ConfigClient{},
+			expectedProps: OperatorUsageSnapshotProperties{
+				OperatorID:           testOperatorUUID,
+				OperatorType:         MEKO,
+				OperatorArchitecture: runtime.GOARCH,
+				OperatorOS:           runtime.GOOS,
+				OperatorInstaller:    "yaml",
+			},
+		},
+		"single cluster (helm install)": {
+			memberClusterMap: map[string]ConfigClient{},
+			expectedProps: OperatorUsageSnapshotProperties{
+				OperatorID:           testOperatorUUID,
+				OperatorType:         MEKO,
+				OperatorArchitecture: runtime.GOARCH,
+				OperatorOS:           runtime.GOOS,
+				OperatorInstaller:    "helm",
+			},
+		},
+		"single cluster (no installer)": {
 			memberClusterMap: map[string]ConfigClient{},
 			expectedProps: OperatorUsageSnapshotProperties{
 				OperatorID:           testOperatorUUID,
@@ -1382,7 +1476,7 @@ func TestCollectOperatorSnapshot(t *testing.T) {
 				OperatorOS:           runtime.GOOS,
 			},
 		},
-		"multi cluster": {
+		"multi cluster (olm install)": {
 			memberClusterMap: map[string]ConfigClient{
 				"cluster1": &mockConfigClient{clusterUUID: "cluster-uuid-1"},
 				"cluster2": &mockConfigClient{clusterUUID: "cluster-uuid-2"},
@@ -1392,6 +1486,7 @@ func TestCollectOperatorSnapshot(t *testing.T) {
 				OperatorType:         MEKO,
 				OperatorArchitecture: runtime.GOARCH,
 				OperatorOS:           runtime.GOOS,
+				OperatorInstaller:    "olm",
 			},
 		},
 	}
@@ -1412,7 +1507,7 @@ func TestCollectOperatorSnapshot(t *testing.T) {
 
 			ctx := context.Background()
 
-			events := collectOperatorSnapshot(ctx, test.memberClusterMap, mgr, testOperatorUUID, "", "")
+			events := collectOperatorSnapshot(ctx, test.memberClusterMap, mgr, testOperatorUUID, test.expectedProps.OperatorInstaller)
 
 			require.Len(t, events, 1, "expected exactly one operator event")
 			event := events[0]
@@ -1424,6 +1519,7 @@ func TestCollectOperatorSnapshot(t *testing.T) {
 			assert.Equal(t, runtime.GOOS, event.Properties["operatorOS"])
 			assert.Equal(t, testOperatorUUID, event.Properties["operatorID"])
 			assert.Equal(t, string(MEKO), event.Properties["operatorType"])
+			assert.Equal(t, test.expectedProps.OperatorInstaller, event.Properties["operatorInstaller"])
 
 			assert.Contains(t, event.Properties, "kubernetesClusterID")
 			assert.Contains(t, event.Properties, "kubernetesClusterIDs")

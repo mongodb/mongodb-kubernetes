@@ -24,19 +24,19 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8sClient "sigs.k8s.io/controller-runtime/pkg/client"
 
+	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/construct"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/authentication/x509"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/annotations"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/container"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/probes"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/resourcerequirements"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/secret"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/constants"
+	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/probes"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/resourcerequirements"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
 )
 
 const (
@@ -244,8 +244,8 @@ func TestGuessEnterprise(t *testing.T) {
 			setArgs: func(t *testing.T) {},
 			mdb: mdbv1.MongoDBCommunity{
 				Spec: mdbv1.MongoDBCommunitySpec{
-					StatefulSetConfiguration: common.StatefulSetConfiguration{
-						SpecWrapper: common.StatefulSetSpecWrapper{
+					StatefulSetConfiguration: v1.StatefulSetConfiguration{
+						SpecWrapper: v1.StatefulSetSpecWrapper{
 							Spec: appsv1.StatefulSetSpec{
 								Template: corev1.PodTemplateSpec{
 									Spec: corev1.PodSpec{
@@ -269,8 +269,8 @@ func TestGuessEnterprise(t *testing.T) {
 			setArgs: func(t *testing.T) {},
 			mdb: mdbv1.MongoDBCommunity{
 				Spec: mdbv1.MongoDBCommunitySpec{
-					StatefulSetConfiguration: common.StatefulSetConfiguration{
-						SpecWrapper: common.StatefulSetSpecWrapper{
+					StatefulSetConfiguration: v1.StatefulSetConfiguration{
+						SpecWrapper: v1.StatefulSetSpecWrapper{
 							Spec: appsv1.StatefulSetSpec{
 								Template: corev1.PodTemplateSpec{
 									Spec: corev1.PodSpec{
@@ -467,7 +467,7 @@ func TestService_changesMongodPortOnRunningClusterWithArbiters(t *testing.T) {
 	ctx := context.Background()
 	mdb := newScramReplicaSet(mdbv1.MongoDBUser{
 		Name: "testuser",
-		PasswordSecretRef: mdbv1.SecretKeyReference{
+		PasswordSecretRef: v1.SecretKeyReference{
 			Name: "password-secret-name",
 		},
 		ScramCredentialsSecretName: "scram-credentials",
@@ -509,7 +509,7 @@ func TestService_changesMongodPortOnRunningClusterWithArbiters(t *testing.T) {
 		assertStatefulsetReady(ctx, t, mgr, namespacedName, 3)
 		assertStatefulsetReady(ctx, t, mgr, arbiterNamespacedName, 1)
 
-		mdb.Spec.AdditionalMongodConfig = mdbv1.NewMongodConfiguration()
+		mdb.Spec.AdditionalMongodConfig = v1.NewMongodConfiguration()
 		mdb.Spec.AdditionalMongodConfig.SetDBPort(newPort)
 
 		err = mgr.GetClient().Update(ctx, &mdb)
@@ -696,7 +696,7 @@ func TestService_connectionStringSecretAnnotationsAreApplied(t *testing.T) {
 
 	mdb := newScramReplicaSet(mdbv1.MongoDBUser{
 		Name: "testuser",
-		PasswordSecretRef: mdbv1.SecretKeyReference{
+		PasswordSecretRef: v1.SecretKeyReference{
 			Name: "password-secret-name",
 		},
 		ScramCredentialsSecretName:        "scram-credentials",
@@ -727,9 +727,9 @@ func assertConnectionStringSecretAnnotations(ctx context.Context, t *testing.T, 
 func TestService_configuresPrometheusCustomPorts(t *testing.T) {
 	ctx := context.Background()
 	mdb := newTestReplicaSet()
-	mdb.Spec.Prometheus = &mdbv1.Prometheus{
+	mdb.Spec.Prometheus = &v1.Prometheus{
 		Username: "username",
-		PasswordSecretRef: mdbv1.SecretKeyReference{
+		PasswordSecretRef: v1.SecretKeyReference{
 			Name: "secret",
 		},
 		Port: 4321,
@@ -769,9 +769,9 @@ func TestService_configuresPrometheusCustomPorts(t *testing.T) {
 func TestService_configuresPrometheus(t *testing.T) {
 	ctx := context.Background()
 	mdb := newTestReplicaSet()
-	mdb.Spec.Prometheus = &mdbv1.Prometheus{
+	mdb.Spec.Prometheus = &v1.Prometheus{
 		Username: "username",
-		PasswordSecretRef: mdbv1.SecretKeyReference{
+		PasswordSecretRef: v1.SecretKeyReference{
 			Name: "secret",
 		},
 	}

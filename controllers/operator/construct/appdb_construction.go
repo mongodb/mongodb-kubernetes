@@ -7,35 +7,36 @@ import (
 	"strconv"
 
 	"go.uber.org/zap"
+	"k8s.io/utils/ptr"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 
-	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
-	"github.com/mongodb/mongodb-kubernetes/api/v1/om"
+	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
+	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct/scalers/interfaces"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/construct"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/container"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/podtemplatespec"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/merge"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/scale"
-	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
+	"github.com/mongodb/mongodb-kubernetes/pkg/handler"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/podtemplatespec"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/tls"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/scale"
 	"github.com/mongodb/mongodb-kubernetes/pkg/vault"
 )
 
 const (
-	appDBServiceAccount    = "mongodb-kubernetes-appdb"
-	InitAppDbContainerName = "mongodb-kubernetes-init-appdb"
+	appDBServiceAccount        = "mongodb-kubernetes-appdb"
+	InitAppDbContainerName     = "mongodb-kubernetes-init-appdb"
+	mongoDBAssumeEnterpriseEnv = "MDB_ASSUME_ENTERPRISE"
 	// AppDB environment variable names
-	InitAppdbVersionEnv          = "INIT_APPDB_VERSION"
 	podNamespaceEnv              = "POD_NAMESPACE"
 	automationConfigMapEnv       = "AUTOMATION_CONFIG_MAP"
 	headlessAgentEnv             = "HEADLESS_AGENT"
@@ -108,25 +109,25 @@ func appDbLabels(opsManager *om.MongoDBOpsManager, memberClusterNum int) statefu
 }
 
 // appDbPodSpec return the podtemplatespec modification required for the AppDB statefulset.
-func appDbPodSpec(initContainerImage string, om om.MongoDBOpsManager) podtemplatespec.Modification {
+func appDbPodSpec(initContainerImage string, om om.MongoDBOpsManager, defaultArchitecture architectures.DefaultArchitecture) podtemplatespec.Modification {
 	// The following sets almost the exact same values for the containers
 	// But with the addition of a default memory request for the mongod one
 	appdbPodSpec := NewDefaultPodSpecWrapper(*om.Spec.AppDB.PodSpec)
 	mongoPodSpec := *appdbPodSpec
 	mongoPodSpec.Default.MemoryRequests = util.DefaultMemoryAppDB
 	mongoPodTemplateFunc := podtemplatespec.WithContainer(
-		construct.MongodbName,
+		util.MongodbContainerName,
 		container.WithResourceRequirements(buildRequirementsFromPodSpec(mongoPodSpec)),
 	)
 	automationPodTemplateFunc := podtemplatespec.WithContainer(
-		construct.AgentName,
+		util.AgentContainerName,
 		container.WithResourceRequirements(buildRequirementsFromPodSpec(*appdbPodSpec)),
 	)
 	scriptsVolumeMount := statefulset.CreateVolumeMount("agent-scripts", "/opt/scripts", statefulset.WithReadOnly(false))
 	hooksVolumeMount := statefulset.CreateVolumeMount("hooks", "/hooks", statefulset.WithReadOnly(false))
 
 	initUpdateFunc := podtemplatespec.NOOP()
-	if !architectures.IsRunningStaticArchitecture(om.Annotations) {
+	if !architectures.IsRunningStaticArchitecture(om.Annotations, defaultArchitecture) {
 		// appdb will have a single init container,
 		// all the necessary binaries will be copied into the various
 		// volumes of different containers.
@@ -143,7 +144,7 @@ func appDbPodSpec(initContainerImage string, om om.MongoDBOpsManager) podtemplat
 	)
 }
 
-// buildAppDBInitContainer builds the container specification for mongodb-enterprise-init-appdb image.
+// buildAppDBInitContainer builds the container specification for mongodb-kubernetes-init-database image (used for AppDB).
 func buildAppDBInitContainer(initContainerImageURL string, volumeMounts []corev1.VolumeMount) container.Modification {
 	_, configureContainerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
 
@@ -248,11 +249,11 @@ func tlsVolumes(appDb om.AppDBSpec, podVars *env.PodEnvVars, log *zap.SugaredLog
 	return podtemplatespec.Apply(
 		volumesFunc,
 		podtemplatespec.WithContainer(
-			construct.AgentName,
+			util.AgentContainerName,
 			container.WithVolumeMounts(volumeMounts),
 		),
 		podtemplatespec.WithContainer(
-			construct.MongodbName,
+			util.MongodbContainerName,
 			container.WithVolumeMounts(volumeMounts),
 		),
 	)
@@ -304,7 +305,7 @@ func customPersistenceConfig(om *om.MongoDBOpsManager) statefulset.Modification 
 	// Two main branches - as the user can either define a single volume for data, logs and journal
 	// or three different volumes
 	if !om.Spec.AppDB.HasSeparateDataAndLogsVolumes() {
-		var config *common.PersistenceConfig
+		var config *v1.PersistenceConfig
 		if om.Spec.AppDB.PodSpec.Persistence != nil && om.Spec.AppDB.PodSpec.Persistence.SingleConfig != nil {
 			config = om.Spec.AppDB.PodSpec.Persistence.SingleConfig
 		}
@@ -320,10 +321,10 @@ func customPersistenceConfig(om *om.MongoDBOpsManager) statefulset.Modification 
 			statefulset.WithVolumeClaim(om.Spec.AppDB.DataVolumeName(), pvcModification),
 			statefulset.WithPodSpecTemplate(
 				podtemplatespec.Apply(
-					podtemplatespec.WithContainer(construct.AgentName,
+					podtemplatespec.WithContainer(util.AgentContainerName,
 						container.WithVolumeMounts(volumeMounts),
 					),
-					podtemplatespec.WithContainer(construct.MongodbName,
+					podtemplatespec.WithContainer(util.MongodbContainerName,
 						container.WithVolumeMounts(volumeMounts),
 					),
 				),
@@ -345,10 +346,10 @@ func customPersistenceConfig(om *om.MongoDBOpsManager) statefulset.Modification 
 			statefulset.WithVolumeClaim(om.Spec.AppDB.LogsVolumeName(), logsModification),
 			statefulset.WithPodSpecTemplate(
 				podtemplatespec.Apply(
-					podtemplatespec.WithContainer(construct.AgentName,
+					podtemplatespec.WithContainer(util.AgentContainerName,
 						container.WithVolumeMounts([]corev1.VolumeMount{journalVolumeMounts}),
 					),
-					podtemplatespec.WithContainer(construct.MongodbName,
+					podtemplatespec.WithContainer(util.MongodbContainerName,
 						container.WithVolumeMounts([]corev1.VolumeMount{journalVolumeMounts}),
 					),
 				),
@@ -373,7 +374,7 @@ func ShouldMountSSLMMSCAConfigMap(podVars *env.PodEnvVars) bool {
 }
 
 // AppDbStatefulSet fully constructs the AppDb StatefulSet that is ready to be sent to the Kubernetes API server.
-func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, opts AppDBStatefulSetOptions, scaler interfaces.MultiClusterReplicaSetScaler, updateStrategyType appsv1.StatefulSetUpdateStrategyType, log *zap.SugaredLogger) (appsv1.StatefulSet, error) {
+func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, opts AppDBStatefulSetOptions, scaler interfaces.MultiClusterReplicaSetScaler, updateStrategyType appsv1.StatefulSetUpdateStrategyType, defaultArchitecture architectures.DefaultArchitecture, log *zap.SugaredLogger) (appsv1.StatefulSet, error) {
 	appDb := &opsManager.Spec.AppDB
 
 	// If we can enable monitoring, let's fill in container modification function
@@ -386,7 +387,7 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 	externalDomain := appDb.GetExternalDomainForMemberCluster(scaler.MemberClusterName())
 
 	if ShouldEnableMonitoring(podVars) {
-		monitoringModification = addMonitoringContainer(*appDb, *podVars, opts, externalDomain, architectures.IsRunningStaticArchitecture(opsManager.Annotations), log)
+		monitoringModification = addMonitoringContainer(*appDb, *podVars, opts, externalDomain, architectures.IsRunningStaticArchitecture(opsManager.Annotations, defaultArchitecture), log)
 	} else {
 		// Otherwise, let's remove for now every podTemplateSpec related to monitoring
 		// We will apply them when enabling monitoring
@@ -396,7 +397,7 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 	}
 
 	// We copy the Automation Agent command from community and add the agent startup parameters
-	automationAgentCommand := construct.AutomationAgentCommand(architectures.IsRunningStaticArchitecture(opsManager.Annotations), true, opsManager.Spec.AppDB.GetAgentLogLevel(), opsManager.Spec.AppDB.GetAgentLogFile(), opsManager.Spec.AppDB.GetAgentMaxLogFileDurationHours())
+	automationAgentCommand := AutomationAgentCommand(architectures.IsRunningStaticArchitecture(opsManager.Annotations, defaultArchitecture), true, opsManager.Spec.AppDB.GetAgentLogLevel(), opsManager.Spec.AppDB.GetAgentLogFile(), opsManager.Spec.AppDB.GetAgentMaxLogFileDurationHours())
 	idx := len(automationAgentCommand) - 1
 	automationAgentCommand[idx] += appDb.AutomationAgent.StartupParameters.ToCommandLineArgs()
 
@@ -409,51 +410,132 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 		MountPath: "/var/lib/automation/config/acVersion",
 	}
 
-	// Here we ask to create init containers which also creates required volumes.
-	// Note that we provide empty images for init containers. They are not important
-	// at this stage because later we will define our own init containers for non-static architecture.
-	mod := construct.BuildMongoDBReplicaSetStatefulSetModificationFunction(&opsManager.Spec.AppDB, scaler, opts.MongodbImage, opts.AgentImage, "", "", !architectures.IsRunningStaticArchitecture(opsManager.Annotations), opts.InitAppDBImage)
+	healthStatusVolume := statefulset.CreateVolumeFromEmptyDir("healthstatus")
+	agentHealthStatusVolumeMount := statefulset.CreateVolumeMount(healthStatusVolume.Name, "/var/log/mongodb-mms-automation/healthstatus")
+	mongodHealthStatusVolumeMount := statefulset.CreateVolumeMount(healthStatusVolume.Name, "/healthstatus")
+
+	tmpVolume := statefulset.CreateVolumeFromEmptyDir("tmp")
+	tmpVolumeMount := statefulset.CreateVolumeMount(tmpVolume.Name, "/tmp", statefulset.WithReadOnly(false))
+
+	keyFileNsName := appDb.GetAgentKeyfileSecretNamespacedName()
+	keyFileVolume := statefulset.CreateVolumeFromEmptyDir(keyFileNsName.Name)
+	keyFileVolumeMount := statefulset.CreateVolumeMount(keyFileVolume.Name, "/var/lib/mongodb-mms-automation/authentication", statefulset.WithReadOnly(false))
+
+	mongodbAgentVolumeMounts := []corev1.VolumeMount{agentHealthStatusVolumeMount, keyFileVolumeMount, tmpVolumeMount}
+
+	automationConfigVolumeFunc := podtemplatespec.NOOP()
+	if appDb.NeedsAutomationConfigVolume() {
+		automationConfigVolume := statefulset.CreateVolumeFromSecret("automation-config", appDb.AutomationConfigSecretName())
+		automationConfigVolumeFunc = podtemplatespec.WithVolume(automationConfigVolume)
+		automationConfigVolumeMount := statefulset.CreateVolumeMount(automationConfigVolume.Name, "/var/lib/automation/config", statefulset.WithReadOnly(true))
+		mongodbAgentVolumeMounts = append(mongodbAgentVolumeMounts, automationConfigVolumeMount)
+	}
+	mongodVolumeMounts := []corev1.VolumeMount{mongodHealthStatusVolumeMount, keyFileVolumeMount, tmpVolumeMount}
+
+	hooksVolume := statefulset.CreateVolumeFromEmptyDir("hooks")
+	hooksVolumeMount := statefulset.CreateVolumeMount(hooksVolume.Name, "/hooks", statefulset.WithReadOnly(false))
+	scriptsVolume := statefulset.CreateVolumeFromEmptyDir("agent-scripts")
+	scriptsVolumeMount := statefulset.CreateVolumeMount(scriptsVolume.Name, "/opt/scripts", statefulset.WithReadOnly(false))
+
+	hooksVolumeMod := podtemplatespec.WithVolume(hooksVolume)
+	scriptsVolumeMod := podtemplatespec.WithVolume(scriptsVolume)
+	withStaticContainerModification := podtemplatespec.NOOP()
+	shareProcessNs := statefulset.NOOP()
+
+	withInitContainers := !architectures.IsRunningStaticArchitecture(opsManager.Annotations, defaultArchitecture)
+	upgradeInitContainer := podtemplatespec.NOOP()
+	readinessInitContainer := podtemplatespec.NOOP()
+
+	if withInitContainers {
+		mongodVolumeMounts = append(mongodVolumeMounts, hooksVolumeMount)
+		mongodbAgentVolumeMounts = append(mongodbAgentVolumeMounts, scriptsVolumeMount)
+		upgradeInitContainer = podtemplatespec.WithInitContainer(appdbVersionUpgradeHookName, appdbVersionUpgradeHookInit([]corev1.VolumeMount{hooksVolumeMount}, ""))
+		readinessInitContainer = podtemplatespec.WithInitContainer(AppDBReadinessProbeContainerName, appdbReadinessProbeInit([]corev1.VolumeMount{scriptsVolumeMount}, ""))
+	} else {
+		staticMounts := []corev1.VolumeMount{hooksVolumeMount, scriptsVolumeMount, tmpVolumeMount}
+		withStaticContainerModification = podtemplatespec.WithContainer(util.AgentContainerUtilitiesName, appdbMongodbAgentUtilitiesContainer(staticMounts, opts.InitAppDBImage))
+		mongodbAgentVolumeMounts = append(mongodbAgentVolumeMounts, staticMounts...)
+		shareProcessNs = func(sts *appsv1.StatefulSet) {
+			sts.Spec.Template.Spec.ShareProcessNamespace = ptr.To(true)
+		}
+	}
+
+	dataVolumeClaim := statefulset.NOOP()
+	logVolumeClaim := statefulset.NOOP()
+	singleModeVolumeClaim := statefulset.NOOP()
+	if appDb.HasSeparateDataAndLogsVolumes() {
+		logVolumeMount := statefulset.CreateVolumeMount(appDb.LogsVolumeName(), automationconfig.DefaultAgentLogPath)
+		dataVolumeMount := statefulset.CreateVolumeMount(appDb.DataVolumeName(), appDb.GetMongodConfiguration().GetDBDataDir())
+		dataVolumeClaim = statefulset.WithVolumeClaim(appDb.DataVolumeName(), appdbDataPvc(appDb.DataVolumeName()))
+		logVolumeClaim = statefulset.WithVolumeClaim(appDb.LogsVolumeName(), appdbLogsPvc(appDb.LogsVolumeName()))
+		mongodbAgentVolumeMounts = append(mongodbAgentVolumeMounts, dataVolumeMount, logVolumeMount)
+		mongodVolumeMounts = append(mongodVolumeMounts, dataVolumeMount, logVolumeMount)
+	} else {
+		mounts := []corev1.VolumeMount{
+			statefulset.CreateVolumeMount(appDb.DataVolumeName(), appDb.GetMongodConfiguration().GetDBDataDir(), statefulset.WithSubPath("data")),
+			statefulset.CreateVolumeMount(appDb.DataVolumeName(), automationconfig.DefaultAgentLogPath, statefulset.WithSubPath("logs")),
+		}
+		mongodbAgentVolumeMounts = append(mongodbAgentVolumeMounts, mounts...)
+		mongodVolumeMounts = append(mongodVolumeMounts, mounts...)
+		singleModeVolumeClaim = statefulset.WithVolumeClaim(appDb.DataVolumeName(), appdbDataPvc(appDb.DataVolumeName()))
+	}
+
+	mongodbAgentVolumeMounts = append(mongodbAgentVolumeMounts, acVersionMount)
+	podSecurityContext, _ := podtemplatespec.WithDefaultSecurityContextsModifications()
 
 	sts := statefulset.New(
-		mod,
-		// create appdb statefulset from the community code
 		statefulset.WithName(opsManager.Spec.AppDB.NameForCluster(scaler.MemberClusterNum())),
+		statefulset.WithNamespace(opsManager.Spec.AppDB.GetNamespace()),
 		statefulset.WithServiceName(opsManager.Spec.AppDB.HeadlessServiceNameForCluster(scaler.MemberClusterNum())),
-
-		// If run in certified openshift bundle in disconnected environment with digest pinning we need to update
-		// mongod image as it is constructed from 2 env variables and version from spec, and it will not be replaced to sha256 digest properly.
-		// The official image provides both CMD and ENTRYPOINT. We're reusing the former and need to replace
-		// the latter with an empty string.
-		containerImageModification(construct.MongodbName, opts.MongodbImage, []string{""}),
-		// we don't need to update here the automation agent image for digest pinning, because it is defined in AGENT_IMAGE env var as full url with version
-		// if we run in certified bundle with digest pinning it will be properly updated to digest
-		customPersistenceConfig(&opsManager),
-		statefulset.WithUpdateStrategyType(updateStrategyType),
-		statefulset.WithOwnerReference(kube.BaseOwnerReference(&opsManager)),
 		statefulset.WithReplicas(scale.ReplicasThisReconciliation(scaler)),
+		statefulset.WithUpdateStrategyType(updateStrategyType),
+		statefulset.WithOwnerReference(opsManager.AppDBOwnerReferenceForMemberCluster()),
+		dataVolumeClaim,
+		logVolumeClaim,
+		singleModeVolumeClaim,
+		shareProcessNs,
 		statefulset.WithPodSpecTemplate(
 			podtemplatespec.Apply(
+				podSecurityContext,
 				podtemplatespec.WithServiceAccount(appDBServiceAccount),
+				podtemplatespec.WithVolume(healthStatusVolume),
+				automationConfigVolumeFunc,
+				hooksVolumeMod,
+				scriptsVolumeMod,
+				podtemplatespec.WithVolume(tmpVolume),
+				podtemplatespec.WithVolume(keyFileVolume),
 				podtemplatespec.WithVolume(acVersionConfigMapVolume),
-				podtemplatespec.WithContainer(construct.AgentName,
-					container.Apply(
-						container.WithCommand(automationAgentCommand),
-						container.WithEnvs(appdbContainerEnv(*appDb)...),
-						container.WithVolumeMounts([]corev1.VolumeMount{acVersionMount}),
-					),
+				podtemplatespec.WithContainer(util.AgentContainerName, appdbMongodbAgentContainer(appDb.AutomationConfigSecretName(), mongodbAgentVolumeMounts, opts.AgentImage, automationAgentCommand)),
+				podtemplatespec.WithContainer(util.MongodbContainerName, appdbMongodbContainer(opts.MongodbImage, mongodVolumeMounts, appDb.GetMongodConfiguration(), !withInitContainers)),
+				withStaticContainerModification,
+				upgradeInitContainer,
+				readinessInitContainer,
+				podtemplatespec.WithContainer(util.AgentContainerName,
+					container.WithEnvs(appdbContainerEnv(*appDb)...),
 				),
 				vaultModification(*appDb, podVars, opts),
-				appDbPodSpec(opts.InitAppDBImage, opsManager),
+				appDbPodSpec(opts.InitAppDBImage, opsManager, defaultArchitecture),
 				monitoringModification,
 				tlsVolumes(*appDb, podVars, log),
 			),
 		),
+		customPersistenceConfig(&opsManager),
 		appDbLabels(&opsManager, scaler.MemberClusterNum()),
 	)
 
 	// We merge the podspec specified in the CR
 	if podSpec != nil {
 		sts.Spec = merge.StatefulSetSpecs(sts.Spec, appsv1.StatefulSetSpec{Template: *podSpec})
+	}
+
+	// Apply per-cluster clusterSpecList[i].statefulSet override (KUBE-47).
+	// Anti-pattern: should be resolved in the controller and passed via StatefulSetSpecOverride (cf. OpsManager, Sharded).
+	if appDb.IsMultiCluster() {
+		clusterSpecItem := appDb.GetMemberClusterSpecByName(scaler.MemberClusterName())
+		if clusterSpecItem.StatefulSetConfiguration != nil {
+			sts.Spec = merge.StatefulSetSpecs(sts.Spec, clusterSpecItem.StatefulSetConfiguration.SpecWrapper.Spec)
+		}
+		sts.Annotations = merge.StringToStringMap(sts.Annotations, handler.MultiClusterStatefulSetAnnotations(opsManager.Name))
 	}
 	return sts, nil
 }
@@ -462,24 +544,11 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 // By default, it should be true, but
 // for safety mechanisms we implement a backdoor to deactivate the enterprise AC feature.
 func IsEnterprise() bool {
-	overrideAssumption, err := strconv.ParseBool(os.Getenv(construct.MongoDBAssumeEnterpriseEnv)) // nolint:forbidigo
+	overrideAssumption, err := strconv.ParseBool(os.Getenv(mongoDBAssumeEnterpriseEnv)) // nolint:forbidigo
 	if err == nil {
 		return overrideAssumption
 	}
 	return true
-}
-
-func containerImageModification(containerName string, image string, args []string) statefulset.Modification {
-	return func(sts *appsv1.StatefulSet) {
-		for i, c := range sts.Spec.Template.Spec.Containers {
-			if c.Name == containerName {
-				c.Image = image
-				c.Args = args
-				sts.Spec.Template.Spec.Containers[i] = c
-				break
-			}
-		}
-	}
 }
 
 // getVolumeMountIndexByName returns the volume mount with the given name from the inut slice.
@@ -519,7 +588,7 @@ func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, opts App
 	}
 	// Construct the command by concatenating:
 	// 1. The base command - from community
-	command := construct.GetMongodbUserCommandWithAPIKeyExport(isStatic)
+	command := GetMongodbUserCommandWithAPIKeyExport(isStatic)
 	command += "agent/mongodb-agent"
 	command += " -healthCheckFilePath=" + monitoringAgentHealthStatusFilePathValue
 	command += " -serveStatusPort=5001"
@@ -577,7 +646,7 @@ func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, opts App
 		// This is a function that reads the automation agent containers, copies it and modifies it.
 		// We do this since the two containers are very similar with just a few differences
 		func(podTemplateSpec *corev1.PodTemplateSpec) {
-			monitoringContainer := podtemplatespec.FindContainerByName(construct.AgentName, podTemplateSpec).DeepCopy()
+			monitoringContainer := podtemplatespec.FindContainerByName(util.AgentContainerName, podTemplateSpec).DeepCopy()
 			monitoringContainer.Name = monitoringAgentContainerName
 
 			// we ensure that the monitoring agent image is compatible with the input of Ops Manager we're using.

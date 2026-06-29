@@ -5,11 +5,10 @@ and where to fetch and calculate parameters."""
 import datetime
 import json
 import os
-import shutil
 from concurrent.futures import ProcessPoolExecutor
 from copy import copy
 from queue import Queue
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 import requests
 from opentelemetry import trace
@@ -104,23 +103,6 @@ def build_meko_tests_image(build_configuration: ImageBuildConfiguration):
     Builds image used to run tests.
     """
 
-    # helm directory needs to be copied over to the tests docker context.
-    helm_src = "helm_chart"
-    helm_dest = "docker/mongodb-kubernetes-tests/helm_chart"
-    requirements_dest = "docker/mongodb-kubernetes-tests/requirements.txt"
-    public_src = "public"
-    public_dest = "docker/mongodb-kubernetes-tests/public"
-
-    # Remove existing directories/files if they exist
-    shutil.rmtree(helm_dest, ignore_errors=True)
-    shutil.rmtree(public_dest, ignore_errors=True)
-
-    # Copy directories and files (recursive copy)
-    shutil.copytree(helm_src, helm_dest)
-    shutil.copytree(public_src, public_dest)
-    shutil.copyfile("release.json", "docker/mongodb-kubernetes-tests/release.json")
-    shutil.copyfile("requirements.txt", requirements_dest)
-
     python_version = os.getenv("PYTHON_VERSION")
     if not python_version:
         raise Exception("PYTHON_VERSION environment variable is not set or empty - it should be set in root-context")
@@ -130,7 +112,6 @@ def build_meko_tests_image(build_configuration: ImageBuildConfiguration):
     build_image(
         build_configuration=build_configuration,
         build_args=build_args,
-        build_path="docker/mongodb-kubernetes-tests",
     )
 
 
@@ -248,31 +229,6 @@ def build_om_image(build_configuration: ImageBuildConfiguration):
     )
 
 
-def build_init_appdb_image(build_configuration: ImageBuildConfiguration):
-    release = load_release_file()
-    base_url = "https://fastdl.mongodb.org/tools/db"
-
-    tools_version = extract_tools_version_from_release(release)
-
-    platform_build_args = generate_tools_build_args(
-        platforms=build_configuration.platforms, tools_version=tools_version
-    )
-    if not platform_build_args:
-        logger.warning(f"Skipping build for init-appdb - tools version {tools_version} not found in repository")
-        return
-
-    args = {
-        "version": build_configuration.version,
-        "mongodb_tools_url": base_url,  # Base URL for platform-specific downloads
-        **platform_build_args,  # Add the platform-specific build args
-    }
-
-    build_image(
-        build_configuration=build_configuration,
-        build_args=args,
-    )
-
-
 def build_init_database_image(build_configuration: ImageBuildConfiguration):
     release = load_release_file()
     base_url = "https://fastdl.mongodb.org/tools/db"
@@ -282,9 +238,6 @@ def build_init_database_image(build_configuration: ImageBuildConfiguration):
     platform_build_args = generate_tools_build_args(
         platforms=build_configuration.platforms, tools_version=tools_version
     )
-    if not platform_build_args:
-        logger.warning(f"Skipping build for init-database - tools version {tools_version} not found in repository")
-        return
 
     args = {
         "version": build_configuration.version,
@@ -354,7 +307,6 @@ def build_agent(build_configuration: ImageBuildConfiguration):
             _build_agent(
                 agent_tools_version,
                 build_configuration,
-                build_configuration.platforms,
                 executor,
                 tasks_queue,
             )
@@ -365,33 +317,29 @@ def build_agent(build_configuration: ImageBuildConfiguration):
 def _build_agent(
     agent_tools_version: Tuple[str, str],
     build_configuration: ImageBuildConfiguration,
-    available_platforms: List[str],
     executor: ProcessPoolExecutor,
     tasks_queue: Queue,
 ):
     agent_version = agent_tools_version[0]
     tools_version = agent_tools_version[1]
 
-    tasks_queue.put(
-        executor.submit(build_agent_pipeline, build_configuration, agent_version, tools_version, available_platforms)
-    )
+    tasks_queue.put(executor.submit(build_agent_pipeline, build_configuration, agent_version, tools_version))
 
 
 def build_agent_pipeline(
     build_configuration: ImageBuildConfiguration,
     agent_version: str,
     tools_version: str,
-    available_platforms: List[str],
 ):
     build_configuration_copy = copy(build_configuration)
     build_configuration_copy.version = agent_version
-    build_configuration_copy.platforms = available_platforms  # Use only available platforms
+
     print(
         f"======== Building agent pipeline for version {agent_version}, build configuration version: {build_configuration.version}"
     )
 
     platform_build_args = generate_agent_build_args(
-        platforms=available_platforms, agent_version=agent_version, tools_version=tools_version
+        platforms=build_configuration_copy.platforms, agent_version=agent_version, tools_version=tools_version
     )
 
     agent_base_url = (

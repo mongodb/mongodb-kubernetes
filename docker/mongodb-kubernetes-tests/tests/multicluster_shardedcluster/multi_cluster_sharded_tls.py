@@ -89,9 +89,6 @@ def sharded_cluster(
         namespace=namespace,
     )
     mdb.api = kubernetes.client.CustomObjectsApi(get_central_cluster_client())
-    if try_load(mdb):
-        return mdb
-
     mdb["spec"]["security"] = {
         "authentication": {
             "enabled": True,
@@ -118,12 +115,13 @@ def sharded_cluster(
 
     mdb.set_architecture_annotation()
 
+    try_load(mdb)
     return mdb
 
 
 @mark.e2e_multi_cluster_sharded_tls
 def test_deploy_operator(multi_cluster_operator: Operator):
-    multi_cluster_operator.assert_is_running()
+    multi_cluster_operator.wait_for_operator_ready()
 
 
 @mark.e2e_multi_cluster_sharded_tls

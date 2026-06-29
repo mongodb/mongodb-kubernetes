@@ -30,7 +30,7 @@ initial_index_state=$(git diff --name-only --cached --diff-filter=AM)
 
 # Run pre-commit on all files
 # --show-diff-on-failure shows what changes hooks would make
-pre-commit run --all-files --show-diff-on-failure --verbose
+pre-commit run --all-files --show-diff-on-failure
 echo "Pre-commit hook has completed."
 
 # Stage any changes made by the pre-commit hook

@@ -5,13 +5,17 @@ from base64 import b64decode
 from typing import Any, Callable, Dict, List, Optional
 
 import kubernetes.client
+import requests
 from kubeobject import CustomObject
 from kubernetes import client, utils
 from kubetester.kubetester import run_periodically
+from tests import test_logger
 
 # Re-exports
 from .kubetester import fixture as find_fixture
 from .security_context import assert_pod_container_security_context, assert_pod_security_context
+
+logger = test_logger.get_test_logger(__name__)
 
 
 def create_secret(
@@ -75,7 +79,7 @@ def delete_service_account(namespace: str, name: str) -> str:
 
 def get_service(
     namespace: str, name: str, api_client: Optional[kubernetes.client.ApiClient] = None
-) -> client.V1ServiceSpec:
+) -> Optional[client.V1Service]:
     """Gets a service with `name` in `namespace.
     :return None if the service does not exist
     """
@@ -148,6 +152,13 @@ def create_or_update_service(
     service: Optional[client.V1Service] = None,
 ) -> str:
     print("Logging inside create_or_update_service")
+    if service_name is None and service is not None:
+        if isinstance(service, dict):
+            service_name = service.get("metadata", {}).get("name")
+        elif hasattr(service, "metadata") and service.metadata is not None:
+            service_name = service.metadata.name
+    if service_name is None:
+        raise ValueError("service_name must not be None")
     try:
         create_service(namespace, service_name, cluster_ip=cluster_ip, ports=ports, selector=selector, service=service)
     except kubernetes.client.ApiException as e:
@@ -247,8 +258,8 @@ def delete_pod(namespace: str, name: str, api_client: Optional[kubernetes.client
 
 def create_or_update_namespace(
     namespace: str,
-    labels: dict = None,
-    annotations: dict = None,
+    labels: Optional[dict] = None,
+    annotations: Optional[dict] = None,
     api_client: Optional[kubernetes.client.ApiClient] = None,
 ):
     namespace_resource = client.V1Namespace(
@@ -268,6 +279,27 @@ def create_or_update_namespace(
 def delete_namespace(name: str):
     c = client.CoreV1Api()
     c.delete_namespace(name, body=c.V1DeleteOptions())
+
+
+def label_namespace(name: str, labels: dict):
+    body = {"metadata": {"labels": labels}}
+    client.CoreV1Api().patch_namespace(name, body)
+
+
+def downgrade_pss_to_warn(namespace: str) -> None:
+    """Downgrade a namespace from PSS enforce to warn mode.
+
+    Used for test namespaces that contain third-party or legacy components that
+    predate PSS-restricted compliance (e.g. old operator releases, nginx images
+    that run as root). PSS violations are still surfaced as warnings.
+    """
+    label_namespace(
+        namespace,
+        {
+            "pod-security.kubernetes.io/enforce": None,
+            "pod-security.kubernetes.io/warn": "restricted",
+        },
+    )
 
 
 def get_deployments(namespace: str):
@@ -297,6 +329,30 @@ def get_statefulset(
     return client.AppsV1Api(api_client=api_client).read_namespaced_stateful_set(name, namespace)
 
 
+def scale_statefulset(
+    namespace: str,
+    name: str,
+    replicas: int,
+    api_client: Optional[client.ApiClient] = None,
+) -> None:
+    client.AppsV1Api(api_client=api_client).patch_namespaced_stateful_set(
+        name, namespace, {"spec": {"replicas": replicas}}
+    )
+
+
+def wait_for_statefulset_replicas(
+    namespace: str,
+    name: str,
+    replicas: int,
+    api_client: Optional[client.ApiClient] = None,
+    timeout: int = 120,
+):
+    def statefulset_has_replicas() -> bool:
+        return get_statefulset(namespace, name, api_client=api_client).spec.replicas == replicas
+
+    wait_until(statefulset_has_replicas, timeout=timeout)
+
+
 def statefulset_is_deleted(namespace: str, name: str, api_client: Optional[client.ApiClient]):
     try:
         get_statefulset(namespace, name, api_client=api_client)
@@ -306,6 +362,43 @@ def statefulset_is_deleted(namespace: str, name: str, api_client: Optional[clien
             return True
         else:
             raise e
+
+
+def wait_for_statefulset_recreated(
+    namespace: str,
+    name: str,
+    old_uid: str,
+    api_client: Optional[client.ApiClient] = None,
+    timeout: int = 120,
+):
+    def statefulset_is_recreated() -> bool:
+        try:
+            return get_statefulset(namespace, name, api_client=api_client).metadata.uid != old_uid
+        except client.ApiException as e:
+            if e.status == 404:
+                return False
+            raise e
+
+    wait_until(statefulset_is_recreated, timeout=timeout)
+
+
+def wait_for_statefulset_ready(
+    namespace: str,
+    name: str,
+    api_client: Optional[client.ApiClient] = None,
+    timeout: int = 600,
+):
+    def statefulset_is_ready() -> bool:
+        sts = get_statefulset(namespace, name, api_client=api_client)
+        wanted = sts.spec.replicas
+        return (
+            sts.status.observed_generation == sts.metadata.generation
+            and (sts.status.updated_replicas or 0) == wanted
+            and (sts.status.ready_replicas or 0) == wanted
+            and (sts.status.replicas or 0) == wanted
+        )
+
+    wait_until(statefulset_is_ready, timeout=timeout)
 
 
 def delete_cluster_role(name: str, api_client: Optional[client.ApiClient] = None):
@@ -368,7 +461,7 @@ def get_pod_when_ready(
     """
     cnt = 0
 
-    while True and cnt < default_retry:
+    while default_retry is not None and cnt < default_retry:
         print(f"get_pod_when_ready: namespace={namespace}, label_selector={label_selector}")
 
         if cnt > 0:
@@ -429,7 +522,7 @@ def is_pod_ready(
     return None
 
 
-def get_default_storage_class() -> str:
+def get_default_storage_class() -> Optional[str]:
     default_class_annotations = (
         "storageclass.kubernetes.io/is-default-class",  # storage.k8s.io/v1
         "storageclass.beta.kubernetes.io/is-default-class",  # storage.k8s.io/v1beta1
@@ -440,6 +533,7 @@ def get_default_storage_class() -> str:
             sc.metadata.annotations.get(a) == "true" for a in default_class_annotations
         ):
             return sc.metadata.name
+    return None
 
 
 def decode_secret(data: Dict[str, str]) -> Dict[str, str]:
@@ -469,21 +563,63 @@ def try_load(resource: CustomObject) -> bool:
     return True
 
 
-def wait_for_webhook(namespace, retries=5, delay=5, service_name="operator-webhook"):
-    webhook_api = client.AdmissionregistrationV1Api()
-    core_api = client.CoreV1Api()
+def wait_for_webhook(
+    namespace,
+    retries: int = 10,
+    multi_cluster: bool = False,
+    service_name="operator-webhook",
+    validation_endpoint: str = "validate-mongodb-com-v1-mongodb",
+):
+    from tests.conftest import get_central_cluster_name, get_cluster_domain, get_test_pod_cluster_name, local_operator
 
-    for attempt in range(retries):
+    # we don't want to wait for the operator webhook if the operator is running locally and not in a pod
+    if local_operator():
+        return
+
+    # in multi-cluster mode the operator and the test pod are in different clusters(test pod won't be able to talk to webhook),
+    # so we skip this extra check for multi-cluster
+    if multi_cluster and get_central_cluster_name() != get_test_pod_cluster_name():
+        logger.info(
+            f"Skipping waiting for the webhook as we cannot call the webhook endpoint from a test_pod_cluster ({get_test_pod_cluster_name()}) "
+            f"to central cluster ({get_central_cluster_name()}); sleeping for 10s instead"
+        )
+        # We need to sleep here otherwise the function returns too early and we create a race condition in tests
+        time.sleep(10)
+        return
+
+    webhook_services = client.CoreV1Api().list_namespaced_service(namespace)
+    logger.debug("Listing webhook services...")
+    for svc in webhook_services.items:
+        if "webhook" in svc.metadata.name:
+            logger.debug(
+                f"Service: {svc.metadata.name}, ClusterIP: {svc.spec.cluster_ip}, Ports: {svc.spec.ports}, Selector: {svc.spec.selector}"
+            )
+
+    logger.debug("wait_for_webhook")
+    webhook_endpoint = "https://{}.{}.svc.{}/{}".format(
+        service_name, namespace, get_cluster_domain(), validation_endpoint
+    )
+    headers = {"Content-Type": "application/json"}
+    logger.debug(f"Webhook_endpoint: {webhook_endpoint}")
+    retry_count = retries + 1
+    while retry_count > 0:
+        retry_count -= 1
+        logger.debug("Waiting for operator/webhook to be functional")
         try:
-            core_api.read_namespaced_service(service_name, namespace)
+            response = requests.post(webhook_endpoint, headers=headers, verify=False, timeout=2)
+        except Exception as e:
+            logger.warning(e)
+            time.sleep(2)
+            continue
 
-            # make sure the validating_webhook is installed.
-            webhook_api.read_validating_webhook_configuration("mdbpolicy.mongodb.com")
-            print("Webhook is ready.")
-            return True
-        except kubernetes.client.ApiException as e:
-            print(f"Attempt {attempt + 1} failed, webhook not ready. Sleeping: {delay}, error: {e}")
-            time.sleep(delay)
+        try:
+            # Let's assume that if we get a json response, then the webhook
+            # is already in place.
+            response.json()
+        except Exception:
+            logger.warning("Didn't get a json response from webhook")
+        else:
+            return
+        time.sleep(2)
 
-    print("Webhook did not become ready in time.")
-    return False
+    raise Exception("Operator webhook didn't start after {} retries".format(retries))

@@ -45,7 +45,7 @@ def is_cloud_qa() -> bool:
 
 @mark.e2e_multi_cluster_sharded_disaster_recovery
 def test_install_operator(multi_cluster_operator: Operator):
-    multi_cluster_operator.assert_is_running()
+    multi_cluster_operator.wait_for_operator_ready()
 
 
 @fixture(scope="function")
@@ -63,9 +63,6 @@ def ops_manager(
         yaml_fixture("om_ops_manager_backup_tls.yaml"), namespace=namespace
     )
 
-    if try_load(resource):
-        return resource
-
     resource.set_version(custom_version)
     resource.set_appdb_version(custom_appdb_version)
     resource.allow_mdb_rc_versions()
@@ -80,6 +77,7 @@ def ops_manager(
         resource["spec"]["applicationDatabase"]["clusterSpecList"] = cluster_spec_list(["kind-e2e-cluster-1"], [3])
         resource.api = kubernetes.client.CustomObjectsApi(api_client=get_central_cluster_client())
 
+    try_load(resource)
     return resource
 
 
@@ -105,9 +103,6 @@ def sc(namespace: str, custom_mdb_version: str, ops_manager: MongoDBOpsManager) 
         yaml_fixture("sharded-cluster-scale-shards.yaml"), namespace=namespace, name=RESOURCE_NAME
     )
 
-    if try_load(resource):
-        return resource
-
     # this allows us to reuse this test in both variants: with OMs and with Cloud QA
     # if this is not executed, the resource uses default values for project and credentials (my-project/my-credentials)
     # which are created up by the preparation scripts.
@@ -124,7 +119,8 @@ def sc(namespace: str, custom_mdb_version: str, ops_manager: MongoDBOpsManager) 
         configsrv_members_array=[2, 1, 2],
     )
 
-    return resource.update()
+    try_load(resource)
+    return resource
 
 
 @fixture(scope="module")
@@ -136,13 +132,9 @@ def config_version_store():
 
 
 @mark.e2e_multi_cluster_sharded_disaster_recovery
-def test_install_operator(multi_cluster_operator: Operator):
-    multi_cluster_operator.assert_is_running()
-
-
-@mark.e2e_multi_cluster_sharded_disaster_recovery
 class TestDeployShardedClusterWithFailedCluster:
     def test_create_sharded_cluster(self, sc: MongoDB, config_version_store):
+        sc.update()
         sc.assert_reaches_phase(Phase.Running, timeout=1200)
         config_version_store.version = sc.get_automation_config_tester().automation_config["version"]
         logger.debug(f"Automation Config Version after initial deployment: {config_version_store.version}")
@@ -172,14 +164,14 @@ class TestDeployShardedClusterWithFailedCluster:
 
         # sleeping to ensure the operator will suicide after config map is changed
         # TODO: as part of https://jira.mongodb.org/browse/CLOUDP-288588, and when we re-activate this test, ensure
-        #  this sleep is really nededed or if the subsquent call to multi_cluster_operator.assert_is_running() is enough
+        #  this sleep is really nededed or if the subsquent call to multi_cluster_operator.wait_for_operator_ready() is enough
         time.sleep(30)
 
     @skip_if_local
     # Modifying the configmap triggers an (intentional) panic, the pod should restart.
     # Operator process restart has to be done manually when running locally.
     def test_operator_has_restarted(self, multi_cluster_operator: Operator):
-        multi_cluster_operator.assert_is_running()
+        multi_cluster_operator.wait_for_operator_ready()
 
     def test_delete_all_statefulsets_in_failed_cluster(
         self, sc: MongoDB, central_cluster_client: kubernetes.client.ApiClient
@@ -209,7 +201,7 @@ class TestDeployShardedClusterWithFailedCluster:
                 if e.status != 404:
                     raise e
 
-        def statefulset_is_deleted(namespace: str, name: str, api_client=Optional[kubernetes.client.ApiClient]):
+        def statefulset_is_deleted(namespace: str, name: str, api_client: Optional[kubernetes.client.ApiClient] = None):
             try:
                 get_statefulset(namespace, name, api_client=api_client)
                 return False

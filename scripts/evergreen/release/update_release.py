@@ -96,7 +96,6 @@ def update_operator_related_versions(release: dict, version: str):
     keys_to_update_with_current_version = [
         "initDatabaseVersion",
         "initOpsManagerVersion",
-        "initAppDbVersion",
         "databaseImageVersion",
     ]
 
@@ -107,7 +106,6 @@ def update_operator_related_versions(release: dict, version: str):
         "mongodb-kubernetes",
         "init-ops-manager",
         "init-database",
-        "init-appdb",
         "database",
     ]
 

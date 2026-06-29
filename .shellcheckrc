@@ -1,0 +1,8 @@
+# Disable specific checks
+disable=SC2154,SC2153,SC1091,SC1090,SC2148
+
+# Enable optional checks
+enable=require-variable-braces
+
+# Add scripts directory to source path
+source-path=scripts

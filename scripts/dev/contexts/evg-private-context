@@ -37,7 +37,7 @@ export NAMESPACE
 export CLUSTER_TYPE="kind"
 # Empty sting means that we're not using it.
 export EVG_HOST_NAME=""
-export GOROOT="/opt/golang/go1.24"
+export GOROOT="/opt/golang/go1.25"
 
 if [[ ! ${PATH} =~ .*${workdir:-.}/bin.* ]]; then
   export PATH=${workdir:-.}/bin:${PATH}
@@ -62,8 +62,6 @@ export e2e_cloud_qa_apikey_owner="${e2e_cloud_qa_apikey_owner_ubi_cloudqa}"
 export e2e_cloud_qa_user_owner="${e2e_cloud_qa_user_owner_ubi_cloudqa}"
 
 export e2e_cloud_qa_baseurl="https://cloud-qa.mongodb.com"
-
-export kubernetes_kind_version=1.22.0
 
 # Note: this name is correct
 export task_id="${EVR_TASK_ID}"

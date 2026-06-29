@@ -13,15 +13,16 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	omv1 "github.com/mongodb/mongodb-kubernetes/api/v1/om"
+	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/container"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/podtemplatespec"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/merge"
+	"github.com/mongodb/mongodb-kubernetes/pkg/handler"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/podtemplatespec"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
 	"github.com/mongodb/mongodb-kubernetes/pkg/vault"
 )
 
@@ -46,6 +47,9 @@ func Test_buildOpsManagerAndBackupInitContainer(t *testing.T) {
 		SecurityContext: &corev1.SecurityContext{
 			ReadOnlyRootFilesystem:   ptr.To(true),
 			AllowPrivilegeEscalation: ptr.To(false),
+			Capabilities: &corev1.Capabilities{
+				Drop: []corev1.Capability{"ALL"},
+			},
 		},
 	}
 	assert.Equal(t, expectedContainer, containerObj)
@@ -101,6 +105,45 @@ func createOpsManagerStatefulset(ctx context.Context, om *omv1.MongoDBOpsManager
 
 	omSts, err := OpsManagerStatefulSet(ctx, secretsClient, om, multicluster.GetLegacyCentralMemberCluster(om.Spec.Replicas, 0, client, secretsClient), zap.S(), additionalOpts...)
 	return omSts, err
+}
+
+// TestOpsManagerStatefulSet_MultiClusterIdentity verifies that in multi-cluster mode the
+// OpsManager StatefulSet carries no ownerReference and does carry MongoDBMultiResourceAnnotation.
+// The CR lives only in the central cluster; a cross-cluster ownerReference causes the Kubernetes
+// garbage collector to delete the StatefulSet in each member cluster as an orphan. The annotation
+// lets member-cluster watches map the StatefulSet back to its parent MongoDBOpsManager CR.
+// In single-cluster mode the ownerReference must be present so GC can clean up after deletion.
+func TestOpsManagerStatefulSet_MultiClusterIdentity(t *testing.T) {
+	ctx := context.Background()
+	clusterSpecList := []omv1.ClusterSpecOMItem{
+		{ClusterName: "cluster-a", Members: 1},
+		{ClusterName: "cluster-b", Members: 1},
+	}
+
+	t.Run("multi-cluster mode: no ownerReferences on StatefulSet", func(t *testing.T) {
+		om := omv1.NewOpsManagerBuilderDefault().
+			SetOpsManagerTopology(omv1.ClusterTopologyMultiCluster).
+			SetOpsManagerClusterSpecList(clusterSpecList).
+			Build()
+
+		sts, err := createOpsManagerStatefulset(ctx, om)
+		assert.NoError(t, err)
+		assert.Empty(t, sts.OwnerReferences,
+			"OpsManager StatefulSet in a remote member cluster must not carry an ownerReference pointing to the central-cluster CR")
+		assert.Equal(t, om.Name, sts.Annotations[handler.MongoDBMultiResourceAnnotation],
+			"OpsManager StatefulSet must carry MongoDBMultiResourceAnnotation so watch predicates can map it back to its parent CR")
+	})
+
+	t.Run("single-cluster mode: ownerReference set on StatefulSet", func(t *testing.T) {
+		om := omv1.NewOpsManagerBuilderDefault().Build()
+
+		sts, err := createOpsManagerStatefulset(ctx, om)
+		assert.NoError(t, err)
+		assert.Len(t, sts.OwnerReferences, 1,
+			"OpsManager StatefulSet in single-cluster mode must carry an ownerReference so Kubernetes GC can clean it up")
+		assert.Empty(t, sts.Annotations[handler.MongoDBMultiResourceAnnotation],
+			"OpsManager StatefulSet in single-cluster mode must not carry MongoDBMultiResourceAnnotation")
+	})
 }
 
 func TestBuildJvmParamsEnvVars_FromDefaultPodSpec(t *testing.T) {

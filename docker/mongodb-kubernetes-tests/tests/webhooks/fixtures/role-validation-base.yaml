@@ -13,18 +13,5 @@ spec:
   credentials: my-credentials
 
   security:
-    role: ""
-    db: ""
-    privileges:
-      actions:
-      resource:
-        db:
-        collection:
-        cluster:
-    authenticationRestrictions:
-      clientSource:
-      serverAddress:
-    roles:
-      name:
-      db:
+    roles: []
 

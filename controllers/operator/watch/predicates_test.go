@@ -4,13 +4,31 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 
-	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
-	omv1 "github.com/mongodb/mongodb-kubernetes/api/v1/om"
-	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
-	"github.com/mongodb/mongodb-kubernetes/api/v1/user"
+	appsv1 "k8s.io/api/apps/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
+	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
+	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
+	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/user"
+	"github.com/mongodb/mongodb-kubernetes/pkg/handler"
 )
+
+func statefulSet(annotations map[string]string, replicas, readyReplicas int32) *appsv1.StatefulSet {
+	return &appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{Annotations: annotations, Generation: 1},
+		Spec:       appsv1.StatefulSetSpec{Replicas: ptr.To(replicas)},
+		Status: appsv1.StatefulSetStatus{
+			ObservedGeneration: 1,
+			Replicas:           replicas,
+			UpdatedReplicas:    readyReplicas,
+			ReadyReplicas:      readyReplicas,
+		},
+	}
+}
 
 func TestPredicatesForUser(t *testing.T) {
 	t.Run("No reconciliation for MongoDBUser if statuses are not equal", func(t *testing.T) {
@@ -87,5 +105,167 @@ func TestPredicatesForMongoDB(t *testing.T) {
 		assert.False(t, PredicatesForMongoDB(mdbv1.ShardedCluster).Update(
 			event.UpdateEvent{ObjectOld: oldMdb, ObjectNew: newMdb}),
 		)
+	})
+}
+
+// TestPredicatesForStatefulSet covers the single-cluster replica set StatefulSet watch. It only
+// fires when the StatefulSet is annotated as a Replicaset and the status changed.
+func TestPredicatesForStatefulSet(t *testing.T) {
+	rsAnnotations := map[string]string{"type": "Replicaset"}
+	t.Run("Fires when status changed and not all replicas ready", func(t *testing.T) {
+		oldSts := statefulSet(rsAnnotations, 3, 3)
+		newSts := statefulSet(rsAnnotations, 3, 2)
+		assert.True(t, PredicatesForStatefulSet().Update(event.UpdateEvent{ObjectOld: oldSts, ObjectNew: newSts}))
+	})
+	t.Run("Does not fire when status unchanged", func(t *testing.T) {
+		oldSts := statefulSet(rsAnnotations, 3, 2)
+		newSts := statefulSet(rsAnnotations, 3, 2)
+		assert.False(t, PredicatesForStatefulSet().Update(event.UpdateEvent{ObjectOld: oldSts, ObjectNew: newSts}))
+	})
+	t.Run("Fires when StatefulSet transitions back to ready", func(t *testing.T) {
+		oldSts := statefulSet(rsAnnotations, 3, 2)
+		newSts := statefulSet(rsAnnotations, 3, 3)
+		assert.True(t, PredicatesForStatefulSet().Update(event.UpdateEvent{ObjectOld: oldSts, ObjectNew: newSts}))
+	})
+	t.Run("Does not fire for ready-to-ready status noise", func(t *testing.T) {
+		oldSts := statefulSet(rsAnnotations, 3, 3)
+		newSts := statefulSet(rsAnnotations, 3, 3)
+		newSts.Status.AvailableReplicas = 3
+		assert.False(t, PredicatesForStatefulSet().Update(event.UpdateEvent{ObjectOld: oldSts, ObjectNew: newSts}))
+	})
+	t.Run("Fires when StatefulSet current replicas settle", func(t *testing.T) {
+		oldSts := statefulSet(rsAnnotations, 3, 3)
+		oldSts.Status.Replicas = 4
+		newSts := statefulSet(rsAnnotations, 3, 3)
+		assert.True(t, PredicatesForStatefulSet().Update(event.UpdateEvent{ObjectOld: oldSts, ObjectNew: newSts}))
+	})
+	t.Run("Does not fire for a different type annotation", func(t *testing.T) {
+		oldSts := statefulSet(map[string]string{"type": "ShardedCluster"}, 3, 3)
+		newSts := statefulSet(map[string]string{"type": "ShardedCluster"}, 3, 2)
+		assert.False(t, PredicatesForStatefulSet().Update(event.UpdateEvent{ObjectOld: oldSts, ObjectNew: newSts}))
+	})
+	t.Run("Non-update events are not handled", func(t *testing.T) {
+		sts := statefulSet(rsAnnotations, 3, 2)
+		assert.False(t, PredicatesForStatefulSet().Create(event.CreateEvent{Object: sts}))
+		assert.False(t, PredicatesForStatefulSet().Delete(event.DeleteEvent{Object: sts}))
+		assert.False(t, PredicatesForStatefulSet().Generic(event.GenericEvent{Object: sts}))
+	})
+}
+
+// TestPredicatesForShardedStatefulSet covers the single-cluster sharded StatefulSet watch. It only
+// fires when the StatefulSet is annotated as a ShardedCluster and the status changed.
+func TestPredicatesForShardedStatefulSet(t *testing.T) {
+	shardedAnnotations := map[string]string{"type": "ShardedCluster"}
+	t.Run("Fires when status changed and not all replicas ready", func(t *testing.T) {
+		oldSts := statefulSet(shardedAnnotations, 3, 3)
+		newSts := statefulSet(shardedAnnotations, 3, 2)
+		assert.True(t, PredicatesForShardedStatefulSet().Update(event.UpdateEvent{ObjectOld: oldSts, ObjectNew: newSts}))
+	})
+	t.Run("Does not fire when status unchanged", func(t *testing.T) {
+		oldSts := statefulSet(shardedAnnotations, 3, 2)
+		newSts := statefulSet(shardedAnnotations, 3, 2)
+		assert.False(t, PredicatesForShardedStatefulSet().Update(event.UpdateEvent{ObjectOld: oldSts, ObjectNew: newSts}))
+	})
+	t.Run("Fires when StatefulSet transitions back to ready", func(t *testing.T) {
+		oldSts := statefulSet(shardedAnnotations, 3, 2)
+		newSts := statefulSet(shardedAnnotations, 3, 3)
+		assert.True(t, PredicatesForShardedStatefulSet().Update(event.UpdateEvent{ObjectOld: oldSts, ObjectNew: newSts}))
+	})
+	t.Run("Does not fire for ready-to-ready status noise", func(t *testing.T) {
+		oldSts := statefulSet(shardedAnnotations, 3, 3)
+		newSts := statefulSet(shardedAnnotations, 3, 3)
+		newSts.Status.AvailableReplicas = 3
+		assert.False(t, PredicatesForShardedStatefulSet().Update(event.UpdateEvent{ObjectOld: oldSts, ObjectNew: newSts}))
+	})
+	t.Run("Fires when StatefulSet current replicas settle", func(t *testing.T) {
+		oldSts := statefulSet(shardedAnnotations, 3, 3)
+		oldSts.Status.Replicas = 4
+		newSts := statefulSet(shardedAnnotations, 3, 3)
+		assert.True(t, PredicatesForShardedStatefulSet().Update(event.UpdateEvent{ObjectOld: oldSts, ObjectNew: newSts}))
+	})
+	t.Run("Does not fire for a different type annotation", func(t *testing.T) {
+		oldSts := statefulSet(map[string]string{"type": "Replicaset"}, 3, 3)
+		newSts := statefulSet(map[string]string{"type": "Replicaset"}, 3, 2)
+		assert.False(t, PredicatesForShardedStatefulSet().Update(event.UpdateEvent{ObjectOld: oldSts, ObjectNew: newSts}))
+	})
+	t.Run("Non-update events are not handled", func(t *testing.T) {
+		sts := statefulSet(shardedAnnotations, 3, 2)
+		assert.False(t, PredicatesForShardedStatefulSet().Create(event.CreateEvent{Object: sts}))
+		assert.False(t, PredicatesForShardedStatefulSet().Delete(event.DeleteEvent{Object: sts}))
+		assert.False(t, PredicatesForShardedStatefulSet().Generic(event.GenericEvent{Object: sts}))
+	})
+}
+
+// TestPredicatesForOpsManagerStatefulSet covers the single-cluster Ops Manager / AppDB StatefulSet
+// watch. Ownership is resolved by the owner handler, so the predicate does not gate on a "type"
+// annotation. It fires when the status changed.
+func TestPredicatesForOpsManagerStatefulSet(t *testing.T) {
+	t.Run("Fires when status changed and not all replicas ready", func(t *testing.T) {
+		oldSts := statefulSet(nil, 3, 3)
+		newSts := statefulSet(nil, 3, 2)
+		assert.True(t, PredicatesForOpsManagerStatefulSet().Update(event.UpdateEvent{ObjectOld: oldSts, ObjectNew: newSts}))
+	})
+	t.Run("Does not fire when status unchanged", func(t *testing.T) {
+		oldSts := statefulSet(nil, 3, 2)
+		newSts := statefulSet(nil, 3, 2)
+		assert.False(t, PredicatesForOpsManagerStatefulSet().Update(event.UpdateEvent{ObjectOld: oldSts, ObjectNew: newSts}))
+	})
+	t.Run("Fires when StatefulSet transitions back to ready", func(t *testing.T) {
+		oldSts := statefulSet(nil, 3, 2)
+		newSts := statefulSet(nil, 3, 3)
+		assert.True(t, PredicatesForOpsManagerStatefulSet().Update(event.UpdateEvent{ObjectOld: oldSts, ObjectNew: newSts}))
+	})
+	t.Run("Does not fire for ready-to-ready status noise", func(t *testing.T) {
+		oldSts := statefulSet(nil, 3, 3)
+		newSts := statefulSet(nil, 3, 3)
+		newSts.Status.AvailableReplicas = 3
+		assert.False(t, PredicatesForOpsManagerStatefulSet().Update(event.UpdateEvent{ObjectOld: oldSts, ObjectNew: newSts}))
+	})
+	t.Run("Fires when StatefulSet current replicas settle", func(t *testing.T) {
+		oldSts := statefulSet(nil, 3, 3)
+		oldSts.Status.Replicas = 4
+		newSts := statefulSet(nil, 3, 3)
+		assert.True(t, PredicatesForOpsManagerStatefulSet().Update(event.UpdateEvent{ObjectOld: oldSts, ObjectNew: newSts}))
+	})
+	t.Run("Non-update events are not handled", func(t *testing.T) {
+		sts := statefulSet(nil, 3, 2)
+		assert.False(t, PredicatesForOpsManagerStatefulSet().Create(event.CreateEvent{Object: sts}))
+		assert.False(t, PredicatesForOpsManagerStatefulSet().Delete(event.DeleteEvent{Object: sts}))
+		assert.False(t, PredicatesForOpsManagerStatefulSet().Generic(event.GenericEvent{Object: sts}))
+	})
+}
+
+// TestPredicatesForMultiStatefulSet covers the multi-cluster member StatefulSet watch used by the
+// Ops Manager / AppDB and sharded reconcilers. It fires on any status change of a StatefulSet that
+// carries the MongoDBMultiResource annotation, and handles delete events for those StatefulSets.
+func TestPredicatesForMultiStatefulSet(t *testing.T) {
+	multiAnnotations := map[string]string{handler.MongoDBMultiResourceAnnotation: "my-resource"}
+	t.Run("Update fires when annotated and status changed", func(t *testing.T) {
+		oldSts := statefulSet(multiAnnotations, 3, 3)
+		newSts := statefulSet(multiAnnotations, 3, 2)
+		assert.True(t, PredicatesForMultiStatefulSet().Update(event.UpdateEvent{ObjectOld: oldSts, ObjectNew: newSts}))
+	})
+	t.Run("Update does not fire when status unchanged", func(t *testing.T) {
+		oldSts := statefulSet(multiAnnotations, 3, 2)
+		newSts := statefulSet(multiAnnotations, 3, 2)
+		assert.False(t, PredicatesForMultiStatefulSet().Update(event.UpdateEvent{ObjectOld: oldSts, ObjectNew: newSts}))
+	})
+	t.Run("Update does not fire without the multi annotation", func(t *testing.T) {
+		oldSts := statefulSet(nil, 3, 3)
+		newSts := statefulSet(nil, 3, 2)
+		assert.False(t, PredicatesForMultiStatefulSet().Update(event.UpdateEvent{ObjectOld: oldSts, ObjectNew: newSts}))
+	})
+	t.Run("Delete fires for an annotated StatefulSet", func(t *testing.T) {
+		sts := statefulSet(multiAnnotations, 3, 3)
+		assert.True(t, PredicatesForMultiStatefulSet().Delete(event.DeleteEvent{Object: sts}))
+	})
+	t.Run("Delete does not fire without the multi annotation", func(t *testing.T) {
+		sts := statefulSet(nil, 3, 3)
+		assert.False(t, PredicatesForMultiStatefulSet().Delete(event.DeleteEvent{Object: sts}))
+	})
+	t.Run("Create and generic events are not handled", func(t *testing.T) {
+		sts := statefulSet(multiAnnotations, 3, 3)
+		assert.False(t, PredicatesForMultiStatefulSet().Create(event.CreateEvent{Object: sts}))
+		assert.False(t, PredicatesForMultiStatefulSet().Generic(event.GenericEvent{Object: sts}))
 	})
 }

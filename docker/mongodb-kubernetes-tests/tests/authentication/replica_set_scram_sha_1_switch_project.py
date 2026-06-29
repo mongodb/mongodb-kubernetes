@@ -18,10 +18,8 @@ def replica_set(namespace: str) -> MongoDB:
         load_fixture("replica-set-explicit-scram-sha-1.yaml"), name=MDB_RESOURCE_NAME, namespace=namespace
     )
 
-    if try_load(resource):
-        return resource
-
-    return resource.update()
+    try_load(resource)
+    return resource
 
 
 @pytest.fixture(scope="function")

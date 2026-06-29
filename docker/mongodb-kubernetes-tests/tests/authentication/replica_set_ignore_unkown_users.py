@@ -1,4 +1,4 @@
-from kubetester import find_fixture
+from kubetester import find_fixture, try_load
 from kubetester.mongodb import MongoDB
 from kubetester.phase import Phase
 from pytest import fixture, mark
@@ -12,11 +12,13 @@ def replica_set(
 
     resource["spec"]["security"]["authentication"]["ignoreUnknownUsers"] = True
 
-    return resource.create()
+    try_load(resource)
+    return resource
 
 
 @mark.e2e_replica_set_ignore_unknown_users
 def test_replica_set(replica_set: MongoDB):
+    replica_set.update()
     replica_set.assert_reaches_phase(Phase.Running, timeout=400)
 
 

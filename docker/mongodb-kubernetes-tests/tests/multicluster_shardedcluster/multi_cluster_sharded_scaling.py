@@ -24,11 +24,8 @@ def sc(namespace: str, custom_mdb_version: str) -> MongoDB:
         name="sh-scaling",
     )
 
-    if try_load(resource):
-        return resource
-
     resource.set_architecture_annotation()
-
+    try_load(resource)
     return resource
 
 
@@ -36,7 +33,7 @@ def sc(namespace: str, custom_mdb_version: str) -> MongoDB:
 class TestShardedClusterScalingInitial:
 
     def test_deploy_operator(self, multi_cluster_operator: Operator):
-        multi_cluster_operator.assert_is_running()
+        multi_cluster_operator.wait_for_operator_ready()
 
     def test_create(self, sc: MongoDB, custom_mdb_version: str, issuer_ca_configmap: str):
         sc["spec"]["shard"]["clusterSpecList"] = cluster_spec_list(get_member_cluster_names(), [1, 1, 1])

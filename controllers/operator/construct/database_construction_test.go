@@ -13,10 +13,10 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 
-	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
@@ -45,6 +45,9 @@ func Test_buildDatabaseInitContainer(t *testing.T) {
 		SecurityContext: &corev1.SecurityContext{
 			ReadOnlyRootFilesystem:   ptr.To(true),
 			AllowPrivilegeEscalation: ptr.To(false),
+			Capabilities: &corev1.Capabilities{
+				Drop: []corev1.Capability{"ALL"},
+			},
 		},
 	}
 	assert.Equal(t, expectedContainer, container)
@@ -109,7 +112,6 @@ func TestStatefulsetCreationPanicsIfEnvVariablesAreNotSet(t *testing.T) {
 }
 
 func TestStatefulsetCreationPanicsIfEnvVariablesAreNotSetStatic(t *testing.T) {
-	t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.Static))
 	t.Run("Empty Image Pull Policy", func(t *testing.T) {
 		t.Setenv(util.AutomationAgentImagePullPolicy, "")
 		sc := mdbv1.NewClusterBuilder().Build()
@@ -118,13 +120,13 @@ func TestStatefulsetCreationPanicsIfEnvVariablesAreNotSetStatic(t *testing.T) {
 		configServerSpec := createConfigSrvSpec(sc)
 		mongosSpec := createMongosSpec(sc)
 		assert.Panics(t, func() {
-			DatabaseStatefulSet(*sc, ShardOptions(0, shardSpec, memberCluster.Name), zap.S())
+			DatabaseStatefulSet(*sc, ShardOptions(0, shardSpec, memberCluster.Name, WithDefaultArchitecture(architectures.Static)), zap.S())
 		})
 		assert.Panics(t, func() {
-			DatabaseStatefulSet(*sc, ConfigServerOptions(configServerSpec, memberCluster.Name), zap.S())
+			DatabaseStatefulSet(*sc, ConfigServerOptions(configServerSpec, memberCluster.Name, WithDefaultArchitecture(architectures.Static)), zap.S())
 		})
 		assert.Panics(t, func() {
-			DatabaseStatefulSet(*sc, MongosOptions(mongosSpec, memberCluster.Name), zap.S())
+			DatabaseStatefulSet(*sc, MongosOptions(mongosSpec, memberCluster.Name, WithDefaultArchitecture(architectures.Static)), zap.S())
 		})
 	})
 }
@@ -369,10 +371,8 @@ func TestDatabaseStatefulSet_StaticContainersEnvVars(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv(architectures.DefaultEnvArchitecture, tt.defaultArchitecture)
-
 			mdb := mdbv1.NewReplicaSetBuilder().SetAnnotations(tt.annotations).Build()
-			sts := DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions()), zap.S())
+			sts := DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions(), WithDefaultArchitecture(architectures.DefaultArchitecture(tt.defaultArchitecture))), zap.S())
 
 			agentContainerIdx := slices.IndexFunc(sts.Spec.Template.Spec.Containers, func(container corev1.Container) bool {
 				return container.Name == util.AgentContainerName
