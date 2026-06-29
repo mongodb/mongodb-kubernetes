@@ -30,6 +30,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
+	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1" //nolint:depguard
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
@@ -593,6 +594,31 @@ func TestReconcile_DisabledMode_DeletesResources(t *testing.T) {
 	updatedSearch := getMongoDBSearch(t, fakeClient, testNamespace, testSearchName)
 	require.NotNil(t, updatedSearch.Status.MetricsForwarder)
 	assert.Equal(t, status.PhaseDisabled, updatedSearch.Status.MetricsForwarder.Phase)
+}
+
+// newTestMongoDBCommunity creates a minimal MongoDBCommunity source resource.
+func newTestMongoDBCommunity(name, namespace string) *mdbcv1.MongoDBCommunity {
+	return &mdbcv1.MongoDBCommunity{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+		Spec:       mdbcv1.MongoDBCommunitySpec{Version: "8.2.0", Members: 3},
+	}
+}
+
+func TestReconcile_CommunitySource_AddsNoFinalizer(t *testing.T) {
+	// A MongoDBCommunity source does not run the forwarder, so the reconcile must add no finalizer —
+	// one would leak and permanently block deletion of the MongoDBSearch.
+	mdbc := newTestMongoDBCommunity(testMDBName, testNamespace)
+	search := newTestMongoDBSearch(testSearchName, testNamespace, testMDBName)
+
+	r, fakeClient := newMetricsForwarderReconciler(testDefaultImage, mdbc, search)
+	reconcileMetricsForwarder(t, r, testNamespace, testSearchName)
+
+	updated := getMongoDBSearch(t, fakeClient, testNamespace, testSearchName)
+	assert.NotContains(t, updated.Finalizers, util.SearchMetricsForwarderFinalizer)
+
+	dep := &appsv1.Deployment{}
+	err := fakeClient.Get(context.Background(), types.NamespacedName{Namespace: testNamespace, Name: search.MetricsForwarderDeploymentNameForCluster(0)}, dep)
+	assert.True(t, apierrors.IsNotFound(err), "no deployment should be created for a community source")
 }
 
 func TestReconcile_PrometheusDisabled_MetricsForwarderEnabled_Invalid(t *testing.T) {
