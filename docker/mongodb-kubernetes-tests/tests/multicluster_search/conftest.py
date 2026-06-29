@@ -229,7 +229,7 @@ def install_simulated_operators_per_member(
     base_helm_args = dict(multi_cluster_operator_installation_config)
     for mcc in member_cluster_clients:
         operator = _install_simulated_operator(namespace, base_helm_args, mcc)
-        operator.assert_is_running()
+        operator.wait_for_operator_ready()
 
 
 def create_search_users(

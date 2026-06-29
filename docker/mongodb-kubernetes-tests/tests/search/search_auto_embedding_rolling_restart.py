@@ -151,7 +151,7 @@ def sample_movies_helper(mdbc: MongoDBCommunity, issuer_ca_filepath: str, namesp
 @mark.e2e_search_auto_embedding_rolling_restart
 def test_install_operator(namespace: str, operator_installation_config: dict[str, str]):
     operator = get_default_operator(namespace, operator_installation_config=operator_installation_config)
-    operator.assert_is_running()
+    operator.wait_for_operator_ready()
 
 
 @mark.e2e_search_auto_embedding_rolling_restart

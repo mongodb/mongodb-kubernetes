@@ -80,6 +80,14 @@ rules:
       - opsmanagers/status
       - mongodbmulticluster/status
       - mongodbsearch/status
+  - apiGroups:
+      - ai.mongodb.com
+    verbs:
+      - '*'
+    resources:
+      - voyageai
+      - voyageai/finalizers
+      - voyageai/status
 ---
 # Source: mongodb-kubernetes/templates/operator-roles-base.yaml
 kind: RoleBinding
@@ -344,6 +352,7 @@ spec:
             - -watch-resource=mongodbusers
             - -watch-resource=mongodbcommunity
             - -watch-resource=mongodbsearch
+            - -watch-resource=voyageai
             - -watch-resource=clustermongodbroles
           command:
             - /usr/local/bin/mongodb-kubernetes-operator
@@ -449,6 +458,8 @@ spec:
               value: "envoyproxy/envoy:v1.37-latest"
             - name: MDB_SEARCH_METRICS_FORWARDER_IMAGE
               value: "otel/opentelemetry-collector-contrib:0.152.0"
+            - name: MDB_VOYAGEAI_REPO_URL
+              value: "quay.io/mongodb/voyageai"
       volumes:
         - name: webhook-server-dir
           emptyDir: {}
