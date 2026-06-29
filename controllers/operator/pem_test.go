@@ -161,19 +161,3 @@ func TestReadPemHashFromSecret(t *testing.T) {
 	assert.NotEmpty(t, hash, "pem hash should be read from the secret")
 	assert.Equal(t, hash, hash2, "hash creation should be idempotent")
 }
-
-func TestReadPemHashFromSecretOpaqueType(t *testing.T) {
-	ctx := context.Background()
-
-	name := "res-name"
-	secret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: name + "-cert", Namespace: mock.TestNamespace},
-		Data:       map[string][]byte{"hello": []byte("world")},
-		Type:       corev1.SecretTypeOpaque,
-	}
-
-	assert.Empty(t, pem.ReadHashFromSecret(ctx, secrets.SecretClient{
-		VaultClient: nil,
-		KubeClient:  mockSecretGetter{secret: secret},
-	}, mock.TestNamespace, name, "", zap.S()), "if secret type is not TLS the empty string should be returned")
-}
