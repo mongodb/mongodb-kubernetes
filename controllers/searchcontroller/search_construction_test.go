@@ -242,6 +242,11 @@ func TestCreateSearchStatefulSetFunc_DefaultAntiAffinity(t *testing.T) {
 	stsMod := CreateSearchStatefulSetFunc(search, resolvedSizing(t, search, "", ""), "test-search-db", "default", "test-search-svc", "cm", labels, "mongot:latest", false)
 	sts := statefulset.New(stsMod)
 
+	// Reclaim the index PVC immediately on both CR delete and scale-down.
+	require.NotNil(t, sts.Spec.PersistentVolumeClaimRetentionPolicy)
+	assert.Equal(t, appsv1.DeletePersistentVolumeClaimRetentionPolicyType, sts.Spec.PersistentVolumeClaimRetentionPolicy.WhenDeleted)
+	assert.Equal(t, appsv1.DeletePersistentVolumeClaimRetentionPolicyType, sts.Spec.PersistentVolumeClaimRetentionPolicy.WhenScaled)
+
 	affinity := sts.Spec.Template.Spec.Affinity
 	require.NotNil(t, affinity)
 	require.NotNil(t, affinity.PodAntiAffinity)

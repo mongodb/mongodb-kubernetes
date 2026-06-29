@@ -811,10 +811,12 @@ def wait_for_mongot_statefulset_drained(
 ) -> None:
     """Wait until the mongot StatefulSet has 0 ready replicas or is deleted.
 
-    The reconciler deletes the STS entirely when ``spec.clusters[].replicas`` drops to 0,
-    so a 404 from the API is the terminal state. ``api_client`` must target the
-    cluster that hosts the STS — for multi-cluster the mongot StatefulSets live
-    on the member clusters, not the operator/default cluster.
+    On ``spec.clusters[].replicas`` -> 0 the operator keeps the StatefulSet but
+    scales it to 0, so ``ready == desired == 0`` is the normal terminal state; a
+    404 is also accepted for callers that remove the STS outright (e.g. CR
+    delete). ``api_client`` must target the cluster that hosts the STS — for
+    multi-cluster the mongot StatefulSets live on the member clusters, not the
+    operator/default cluster.
     """
     apps_v1 = client.AppsV1Api(api_client=api_client)
 
@@ -834,6 +836,43 @@ def wait_for_mongot_statefulset_drained(
         timeout=timeout,
         sleep_time=sleep_time,
         msg=f"mongot StatefulSet {sts_name} to drain",
+    )
+
+
+def wait_for_mongot_pvcs_deleted(
+    namespace: str,
+    sts_name: str,
+    *,
+    api_client: Optional[client.ApiClient] = None,
+    timeout: int = 300,
+    sleep_time: int = 5,
+) -> None:
+    """Wait until the PVCs backing a mongot StatefulSet are fully deleted.
+
+    Under ``WhenScaled: Delete`` the STS controller GCs the per-ordinal claim on
+    scale-to-0, but the delete is asynchronous. Scaling back up while the old
+    claim is still ``Terminating`` trips a StatefulSet-controller race: the
+    controller skips pod creation for the deleting claim and is not re-enqueued
+    once it is gone, leaving the pod stuck at ``current: 0``. Block on the claim
+    being gone before restoring replicas. PVCs from a volumeClaimTemplate are
+    named ``<template>-<sts>-<ordinal>``, so we match on the ``-<sts>-`` infix.
+    ``api_client`` must target the cluster hosting the STS.
+    """
+    core = client.CoreV1Api(api_client=api_client)
+
+    def deleted() -> tuple[bool, str]:
+        remaining = [
+            pvc.metadata.name
+            for pvc in core.list_namespaced_persistent_volume_claim(namespace).items
+            if f"-{sts_name}-" in f"-{pvc.metadata.name}"
+        ]
+        return not remaining, ("all deleted" if not remaining else f"remaining={remaining}")
+
+    run_periodically(
+        deleted,
+        timeout=timeout,
+        sleep_time=sleep_time,
+        msg=f"mongot PVCs for STS {sts_name} to be deleted",
     )
 
 
