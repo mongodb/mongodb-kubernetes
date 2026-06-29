@@ -811,10 +811,12 @@ def wait_for_mongot_statefulset_drained(
 ) -> None:
     """Wait until the mongot StatefulSet has 0 ready replicas or is deleted.
 
-    The reconciler deletes the STS entirely when ``spec.clusters[].replicas`` drops to 0,
-    so a 404 from the API is the terminal state. ``api_client`` must target the
-    cluster that hosts the STS — for multi-cluster the mongot StatefulSets live
-    on the member clusters, not the operator/default cluster.
+    On ``spec.clusters[].replicas`` -> 0 the operator keeps the StatefulSet but
+    scales it to 0, so ``ready == desired == 0`` is the normal terminal state; a
+    404 is also accepted for callers that remove the STS outright (e.g. CR
+    delete). ``api_client`` must target the cluster that hosts the STS — for
+    multi-cluster the mongot StatefulSets live on the member clusters, not the
+    operator/default cluster.
     """
     apps_v1 = client.AppsV1Api(api_client=api_client)
 
