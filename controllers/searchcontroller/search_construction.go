@@ -154,6 +154,7 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, sizing searc
 				podtemplatespec.WithPodLabels(labels),
 				podtemplatespec.WithVolumes(volumes),
 				podtemplatespec.WithServiceAccount(util.MongoDBServiceAccount),
+				podtemplatespec.WithTerminationGracePeriodSeconds(int(searchv1.MongotTerminationGracePeriodSeconds)),
 				// Default: spread this StatefulSet's mongot pods across hosts (preferred, not
 				// required). A clusters[].statefulSet affinity override replaces this term.
 				podtemplatespec.WithAffinity(labels[appLabelKey], appLabelKey, 100),

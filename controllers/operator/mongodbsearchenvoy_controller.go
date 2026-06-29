@@ -11,6 +11,7 @@ import (
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -633,6 +634,10 @@ func buildEnvoyPodSpec(search *searchv1.MongoDBSearch, clusterIndex int, tlsCfg 
 
 	return corev1.PodSpec{
 		SecurityContext: podSecurityContext,
+		// Outlive mongot's grace by 10s so in-flight mongod→Envoy→mongot cursor
+		// streams (drained gracefully by the preStop hook) finish before SIGKILL
+		// during a rolling restart.
+		TerminationGracePeriodSeconds: ptr.To(searchv1.EnvoyTerminationGracePeriodSeconds),
 		Affinity: &corev1.Affinity{
 			PodAntiAffinity: &corev1.PodAntiAffinity{
 				PreferredDuringSchedulingIgnoredDuringExecution: []corev1.WeightedPodAffinityTerm{
@@ -672,6 +677,12 @@ func buildEnvoyPodSpec(search *searchv1.MongoDBSearch, clusterIndex int, tlsCfg 
 					"-c", "/etc/envoy/bootstrap.json",
 					"--log-level", "info",
 					"--log-format", `{"time":"%Y-%m-%dT%H:%M:%S.%e%z","level":"%l","logger":"%n","thread":%t,"loc":"%g:%#","message":"%j"}`,
+					// Pairs with the preStop drain: an immediate strategy over a 30s
+					// window (< the preStop sleep) GOAWAYs every downstream connection
+					// promptly, so mongod migrates new $search streams to a healthy Envoy
+					// before SIGTERM. Envoy's 600s default would outlast the drain window.
+					"--drain-time-s", "30",
+					"--drain-strategy", "immediate",
 				},
 				Ports: []corev1.ContainerPort{
 					{Name: "mongot-grpc", ContainerPort: searchv1.EnvoyDefaultProxyPort},
@@ -702,9 +713,21 @@ func buildEnvoyPodSpec(search *searchv1.MongoDBSearch, clusterIndex int, tlsCfg 
 				},
 				Lifecycle: &corev1.Lifecycle{
 					PreStop: &corev1.LifecycleHandler{
-						HTTPGet: &corev1.HTTPGetAction{
-							Path: "/drain_listeners",
-							Port: intstr.FromInt32(EnvoyAdminPort),
+						// Envoy's /drain_listeners is POST-only and the image ships bash but
+						// no curl, hence the hand-rolled POST over bash's /dev/tcp. graceful=true
+						// GOAWAYs downstream so new streams move to a healthy Envoy while in-flight
+						// getMores finish. The drain is best-effort (subshell + `|| true`); the
+						// trailing sleep always runs and defers SIGTERM until the drain completes.
+						Exec: &corev1.ExecAction{
+							Command: []string{
+								"/usr/bin/bash", "-c",
+								fmt.Sprintf(
+									"( exec 3<>/dev/tcp/127.0.0.1/%d; "+
+										"printf 'POST /drain_listeners?graceful=true HTTP/1.1\\r\\nHost: localhost\\r\\nContent-Length: 0\\r\\nConnection: close\\r\\n\\r\\n' >&3; "+
+										"cat <&3 >/dev/null ) || true; sleep %d",
+									EnvoyAdminPort, searchv1.EnvoyPreStopDrainSleepSeconds,
+								),
+							},
 						},
 					},
 				},

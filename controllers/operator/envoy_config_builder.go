@@ -82,7 +82,7 @@ func buildBootstrapJSON() (string, error) {
 			AllowPaths: []*matcherv3.StringMatcher{
 				{MatchPattern: &matcherv3.StringMatcher_Exact{Exact: "/ready"}},
 				{MatchPattern: &matcherv3.StringMatcher_Prefix{Prefix: "/stats"}},
-				{MatchPattern: &matcherv3.StringMatcher_Exact{Exact: "/drain_listeners"}},
+				{MatchPattern: &matcherv3.StringMatcher_Prefix{Prefix: "/drain_listeners"}},
 				{MatchPattern: &matcherv3.StringMatcher_Prefix{Prefix: "/logging"}},
 			},
 		},

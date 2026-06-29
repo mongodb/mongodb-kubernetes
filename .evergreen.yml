@@ -875,6 +875,7 @@ task_groups:
       - e2e_search_replicaset_external_mongodb_proxy_service
       - e2e_search_connectivity_tool
       - e2e_search_connectivity_tool_sharded
+      - e2e_search_connectivity_rolling_restarts
       - e2e_search_sharded_routed_from_another_shard
       - e2e_search_sharded_onboarding_no_outage
       - e2e_search_cds_hot_reload
@@ -884,6 +885,7 @@ task_groups:
 
   # Same as e2e_mdb_kind_search_task_group but for om80 variants.
   # Uses setup_and_teardown_task (not cloudqa) since ops_manager_version is not 'cloud_qa'.
+  # Metrics-forwarder tests require Ops Manager, so they run only on the om variant.
   - name: e2e_om80_kind_search_task_group
     max_hosts: -1
     <<: *setup_group
@@ -915,6 +917,7 @@ task_groups:
 
   # Same as e2e_mdb_kind_search_large_task_group but for om80 variants.
   # Uses setup_and_teardown_task (not cloudqa) since ops_manager_version is not 'cloud_qa'.
+  # Metrics-forwarder tests require Ops Manager, so they run only on the om variant.
   - name: e2e_om80_kind_search_large_task_group
     max_hosts: -1
     <<: *setup_group
@@ -923,9 +926,17 @@ task_groups:
       - e2e_search_sharded_internal_mongodb_multi_mongot_unmanaged_lb
       - e2e_search_sharded_internal_mongodb_multi_mongot_managed_lb
       - e2e_search_sharded_scale_shards_managed_lb
+      - e2e_search_sharded_enterprise_external_mongod_managed_lb
       - e2e_search_replicaset_internal_mongodb_multi_mongot_managed_lb
       - e2e_search_replicaset_external_mongodb_multi_mongot_managed_lb
       - e2e_search_replicaset_external_mongodb_proxy_service
+      - e2e_search_connectivity_tool
+      - e2e_search_connectivity_tool_sharded
+      - e2e_search_connectivity_rolling_restarts
+      - e2e_search_sharded_routed_from_another_shard
+      - e2e_search_sharded_onboarding_no_outage
+      - e2e_search_cds_hot_reload
+      - e2e_search_envoy_retry_policy
       - e2e_search_auto_embedding_rolling_restart
       - e2e_search_enterprise_metrics_forwarder_sharded
       - e2e_search_external_metrics_forwarder_sharded
