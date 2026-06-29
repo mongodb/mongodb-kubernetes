@@ -306,33 +306,36 @@ def test_create_user_credentials(
 
 @mark.e2e_search_ext_mc_rs_x509_enc_mtls
 def test_deploy_lb_certificates(namespace: str, multi_cluster_issuer: str, helper: MCSearchDeploymentHelper):
-    """Managed LB server + client certs."""
-    lb_server_cert_name = search_resource_names.lb_server_cert_name(MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX)
-    lb_client_cert_name = search_resource_names.lb_client_cert_name(MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX)
-
+    """Managed LB server + client certs, one per cluster."""
     server_domains = [
         f"{MDBS_RESOURCE_NAME}-search-{helper.cluster_index(name)}-proxy-svc.{namespace}.svc.cluster.local"
         for name in helper.member_cluster_names()
     ]
 
-    create_tls_certs(
-        issuer=multi_cluster_issuer,
-        namespace=namespace,
-        resource_name=search_resource_names.lb_deployment_name(MDBS_RESOURCE_NAME),
-        replicas=ENVOY_LB_REPLICAS,
-        service_name=server_domains[0].split(".")[0],
-        additional_domains=server_domains,
-        secret_name=lb_server_cert_name,
-    )
-    create_tls_certs(
-        issuer=multi_cluster_issuer,
-        namespace=namespace,
-        resource_name=f"{search_resource_names.lb_deployment_name(MDBS_RESOURCE_NAME)}-client",
-        replicas=1,
-        service_name=server_domains[0].split(".")[0],
-        additional_domains=[f"*.{namespace}.svc.cluster.local"],
-        secret_name=lb_client_cert_name,
-    )
+    for name in helper.member_cluster_names():
+        ci = helper.cluster_index(name)
+        deployment_name = search_resource_names.lb_deployment_name(MDBS_RESOURCE_NAME, ci)
+        lb_server_cert_name = search_resource_names.lb_server_cert_name(MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX, ci)
+        lb_client_cert_name = search_resource_names.lb_client_cert_name(MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX, ci)
+
+        create_tls_certs(
+            issuer=multi_cluster_issuer,
+            namespace=namespace,
+            resource_name=deployment_name,
+            replicas=ENVOY_LB_REPLICAS,
+            service_name=deployment_name,
+            additional_domains=server_domains,
+            secret_name=lb_server_cert_name,
+        )
+        create_tls_certs(
+            issuer=multi_cluster_issuer,
+            namespace=namespace,
+            resource_name=f"{deployment_name}-client",
+            replicas=1,
+            service_name=deployment_name,
+            additional_domains=[f"*.{namespace}.svc.cluster.local"],
+            secret_name=lb_client_cert_name,
+        )
 
 
 @mark.e2e_search_ext_mc_rs_x509_enc_mtls
@@ -394,27 +397,34 @@ def test_replicate_secrets_to_members(
     """Replicate TLS Secrets, CA, and x509 client cert to every member cluster."""
     central_core = CoreV1Api(api_client=central_cluster_client)
 
-    secrets_to_replicate = [
+    def _copy(secret_name: str, targets: List[MultiClusterClient]) -> None:
+        source = central_core.read_namespaced_secret(name=secret_name, namespace=namespace)
+        data = read_secret(namespace, secret_name, api_client=central_cluster_client)
+        for mcc in targets:
+            create_or_update_secret(
+                namespace, secret_name, data, type=source.type or "Opaque", api_client=mcc.api_client
+            )
+
+    # Shared Secrets — same copy to every member cluster.
+    for secret_name in [
         search_resource_names.mongot_tls_cert_name(MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX),
-        search_resource_names.lb_server_cert_name(MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX),
-        search_resource_names.lb_client_cert_name(MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX),
         CA_CONFIGMAP_NAME,
         X509_CLIENT_CERT_SECRET_NAME,
         GRPC_KEY_PASSWORD_SECRET_NAME,
         X509_KEY_PASSWORD_SECRET_NAME,
-    ]
-
-    for secret_name in secrets_to_replicate:
-        source = central_core.read_namespaced_secret(name=secret_name, namespace=namespace)
-        for mcc in member_cluster_clients:
-            create_or_update_secret(
-                namespace,
-                secret_name,
-                read_secret(namespace, secret_name, api_client=central_cluster_client),
-                type=source.type or "Opaque",
-                api_client=mcc.api_client,
-            )
+    ]:
+        _copy(secret_name, member_cluster_clients)
         logger.info(f"replicated Secret {secret_name}")
+
+    # Per-cluster LB certs — each member only needs the cert matching its own Envoy.
+    for mcc in member_cluster_clients:
+        ci = _idx(mcc)
+        for secret_name in (
+            search_resource_names.lb_server_cert_name(MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX, ci),
+            search_resource_names.lb_client_cert_name(MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX, ci),
+        ):
+            _copy(secret_name, [mcc])
+            logger.info(f"replicated per-cluster Secret {secret_name} into cluster {mcc.cluster_name}")
 
     source_cm = central_core.read_namespaced_config_map(name=CA_CONFIGMAP_NAME, namespace=namespace)
     for mcc in member_cluster_clients:
