@@ -19,7 +19,7 @@ spec:
         - ${MDB_EXTERNAL_HOST_2}
       tls:
         ca:
-          name: ${MDB_TLS_CA_SECRET_NAME}
+          name: ${MDB_TLS_CA_CONFIGMAP}
   security:
     tls:
       certsSecretPrefix: ${MDB_TLS_CERT_SECRET_PREFIX}

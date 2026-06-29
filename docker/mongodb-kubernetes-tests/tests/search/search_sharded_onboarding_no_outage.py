@@ -81,6 +81,13 @@ class DelayedMongotSearchDeploymentTests(SearchShardedDeploymentTests):
                                 "name": "startup-delay",
                                 "image": "busybox",
                                 "command": ["sh", "-c", f"sleep {MONGOT_STARTUP_DELAY_SECONDS}"],
+                                # Required by PodSecurity "restricted" enforced on the test namespace.
+                                "securityContext": {
+                                    "allowPrivilegeEscalation": False,
+                                    "runAsNonRoot": True,
+                                    "capabilities": {"drop": ["ALL"]},
+                                    "seccompProfile": {"type": "RuntimeDefault"},
+                                },
                             }
                         ]
                     }
