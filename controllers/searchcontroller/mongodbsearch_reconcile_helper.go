@@ -49,9 +49,9 @@ import (
 
 const (
 	// minSupportedSearchVersion is the minimum MongoDBSearch (mongot) version supported by this
-	// operator. MCK GA only supports the search GA (1.70.0) release and later, which guarantees a single
+	// operator. MCK GA only supports the search GA (1.70.1) release and later, which guarantees a single
 	// mongot config format and feature set (e.g. auto embeddings) to reason about.
-	minSupportedSearchVersion        = "1.70.0"
+	minSupportedSearchVersion        = "1.70.1"
 	unsupportedSearchVersionErrorFmt = "MongoDBSearch version '%s' is not supported. " +
 		"This operator requires MongoDBSearch version '%s' or newer. " +
 		"The operator will ignore this resource: it will not reconcile or reconfigure the workload. " +
