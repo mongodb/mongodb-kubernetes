@@ -9,6 +9,7 @@ import (
 	"github.com/ghodss/yaml"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
@@ -26,6 +27,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/user"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1" //nolint:depguard
 	khandler "github.com/mongodb/mongodb-kubernetes/pkg/handler"
@@ -1123,4 +1125,77 @@ func markAllDeploymentsAvailable(ctx context.Context, namespace string, clients 
 		}
 	}
 	return nil
+}
+
+func searchOwnedMeta(search *searchv1.MongoDBSearch, name string) metav1.ObjectMeta {
+	return metav1.ObjectMeta{
+		Name:      name,
+		Namespace: search.Namespace,
+		Labels: map[string]string{
+			khandler.MongoDBSearchOwnerNameLabel:      search.Name,
+			khandler.MongoDBSearchOwnerNamespaceLabel: search.Namespace,
+		},
+	}
+}
+
+// watchDependentsFor counts how many watched-resource entries name owner as a dependent.
+func watchDependentsFor(w *watch.ResourceWatcher, owner types.NamespacedName) int {
+	count := 0
+	for _, deps := range w.GetWatchedResources() {
+		for _, d := range deps {
+			if d == owner {
+				count++
+			}
+		}
+	}
+	return count
+}
+
+func TestMongoDBSearchOnDelete_MultiCluster_SweepsMembersAndDropsWatches(t *testing.T) {
+	ctx := context.Background()
+	search := newMongoDBSearch("search", mock.TestNamespace, "mdbc")
+
+	memberSTS := &appsv1.StatefulSet{ObjectMeta: searchOwnedMeta(search, "mongot")}
+	memberClient := mock.NewEmptyFakeClientBuilder().WithObjects(memberSTS).Build()
+	members := map[string]client.Client{"cluster-a": memberClient}
+
+	reconciler := newMongoDBSearchReconciler(mock.NewEmptyFakeClientBuilder().Build(), searchcontroller.OperatorSearchConfig{}, members, "")
+
+	// One watch dependent for this search, one for a different owner that must survive.
+	other := types.NamespacedName{Name: "other", Namespace: mock.TestNamespace}
+	reconciler.watch.AddWatchedResourceIfNotAdded("src-cm", search.Namespace, watch.ConfigMap, search.NamespacedName())
+	reconciler.watch.AddWatchedResourceIfNotAdded("other-cm", mock.TestNamespace, watch.ConfigMap, other)
+
+	require.NoError(t, reconciler.OnDelete(ctx, search, zap.S()))
+
+	err := memberClient.Get(ctx, types.NamespacedName{Name: "mongot", Namespace: search.Namespace}, &appsv1.StatefulSet{})
+	assert.True(t, apiErrors.IsNotFound(err), "member StatefulSet should be swept, got err=%v", err)
+
+	assert.Zero(t, watchDependentsFor(reconciler.watch, search.NamespacedName()), "deleted search's watch entries should be dropped")
+	assert.NotZero(t, watchDependentsFor(reconciler.watch, other), "another owner's watch entries must survive")
+}
+
+func TestMongoDBSearchOnDelete_NoSpecClusters_SkipsSweep(t *testing.T) {
+	ctx := context.Background()
+	search := newMongoDBSearch("search", mock.TestNamespace, "mdbc")
+	search.Spec.Clusters = nil // member clients present, but not multi-cluster → owner-ref GC, no sweep
+
+	memberSTS := &appsv1.StatefulSet{ObjectMeta: searchOwnedMeta(search, "mongot")}
+	memberClient := mock.NewEmptyFakeClientBuilder().WithObjects(memberSTS).Build()
+	members := map[string]client.Client{"cluster-a": memberClient}
+
+	reconciler := newMongoDBSearchReconciler(mock.NewEmptyFakeClientBuilder().Build(), searchcontroller.OperatorSearchConfig{}, members, "")
+	reconciler.watch.AddWatchedResourceIfNotAdded("src-cm", search.Namespace, watch.ConfigMap, search.NamespacedName())
+
+	require.NoError(t, reconciler.OnDelete(ctx, search, zap.S()))
+
+	assert.NoError(t, memberClient.Get(ctx, types.NamespacedName{Name: "mongot", Namespace: search.Namespace}, &appsv1.StatefulSet{}),
+		"single-cluster semantics: member resources must be left to owner-ref GC, not swept")
+	assert.Zero(t, watchDependentsFor(reconciler.watch, search.NamespacedName()), "watch deregistration happens regardless of mode")
+}
+
+func TestMongoDBSearchOnDelete_WrongType_ReturnsError(t *testing.T) {
+	reconciler, _ := newSearchReconciler(nil)
+	err := reconciler.OnDelete(context.Background(), &corev1.ConfigMap{}, zap.S())
+	assert.Error(t, err)
 }

@@ -751,3 +751,250 @@ def assert_sharded_mongot_host_observed(
         return all_correct, "\n".join(msgs)
 
     run_periodically(check, timeout=timeout, sleep_time=10, msg="per-shard mongotHost on disk")
+
+
+# ---------------------------------------------------------------------------
+# Per-cluster full-resource-set presence / absence.
+# ---------------------------------------------------------------------------
+
+
+def data_pvc_prefix(mdbs_resource_name: str, cluster_index: int) -> str:
+    """PVC names are ``data-<mongot-sts>-<ordinal>``; the mongot data claim is ``data``."""
+    return f"data-{search_resource_names.mongot_statefulset_name_for_cluster(mdbs_resource_name, cluster_index)}-"
+
+
+def data_pvcs_for_cluster(mcc: MultiClusterClient, mdbs_resource_name: str, cluster_index: int, namespace: str) -> List:
+    """All mongot data PVCs for a cluster index, sorted by name (one per ordinal)."""
+    pvc_prefix = data_pvc_prefix(mdbs_resource_name, cluster_index)
+    pvcs = mcc.core_v1_api().list_namespaced_persistent_volume_claim(namespace)
+    return sorted((p for p in pvcs.items if p.metadata.name.startswith(pvc_prefix)), key=lambda p: p.metadata.name)
+
+
+def assert_cluster_search_resources_present(
+    *,
+    mcc: MultiClusterClient,
+    mdbs_resource_name: str,
+    cluster_index: int,
+    namespace: str,
+) -> None:
+    """The named cluster carries a complete, owner-labelled mongot + Envoy set."""
+    sts_name = search_resource_names.mongot_statefulset_name_for_cluster(mdbs_resource_name, cluster_index)
+    svc_name = search_resource_names.mongot_service_name_for_cluster(mdbs_resource_name, cluster_index)
+    proxy_svc_name = search_resource_names.mc_proxy_svc_name(mdbs_resource_name, cluster_index)
+    cm_name = search_resource_names.mongot_configmap_name_for_cluster(mdbs_resource_name, cluster_index)
+    envoy_deploy_name = search_resource_names.lb_deployment_name(mdbs_resource_name, cluster_index)
+    envoy_cm_name = search_resource_names.lb_configmap_name(mdbs_resource_name, cluster_index)
+
+    sts = mcc.read_namespaced_stateful_set(sts_name, namespace)
+    headless = mcc.read_namespaced_service(svc_name, namespace)
+    proxy = mcc.read_namespaced_service(proxy_svc_name, namespace)
+    cm = mcc.read_namespaced_config_map(cm_name, namespace)
+    _assert_search_owner_labels(sts.metadata.labels or {}, mcc.cluster_name, f"STS {sts_name}", mdbs_resource_name)
+    _assert_search_owner_labels(
+        headless.metadata.labels or {}, mcc.cluster_name, f"headless Service {svc_name}", mdbs_resource_name
+    )
+    _assert_search_owner_labels(
+        proxy.metadata.labels or {}, mcc.cluster_name, f"proxy Service {proxy_svc_name}", mdbs_resource_name
+    )
+    _assert_search_owner_labels(cm.metadata.labels or {}, mcc.cluster_name, f"mongot CM {cm_name}", mdbs_resource_name)
+
+    apps = mcc.apps_v1_api()
+    assert_deployment_ready_in_cluster(apps, name=envoy_deploy_name, namespace=namespace)
+    envoy_deploy = apps.read_namespaced_deployment(name=envoy_deploy_name, namespace=namespace)
+    envoy_cm = mcc.read_namespaced_config_map(envoy_cm_name, namespace)
+    _assert_search_owner_labels(
+        envoy_deploy.metadata.labels or {},
+        mcc.cluster_name,
+        f"Envoy Deployment {envoy_deploy_name}",
+        mdbs_resource_name,
+    )
+    _assert_search_owner_labels(
+        envoy_cm.metadata.labels or {}, mcc.cluster_name, f"Envoy CM {envoy_cm_name}", mdbs_resource_name
+    )
+
+    logger.info(
+        f"cluster {mcc.cluster_name} (idx={cluster_index}) has full search resource set: "
+        f"{sts_name}, {svc_name}, {proxy_svc_name}, {cm_name}, {envoy_deploy_name}, {envoy_cm_name}"
+    )
+
+
+def wait_for_cluster_search_resources_present(
+    *,
+    mcc: MultiClusterClient,
+    mdbs_resource_name: str,
+    cluster_index: int,
+    namespace: str,
+    timeout: int = 600,
+) -> None:
+    """Poll until the named cluster's mongot + Envoy resources have materialized."""
+
+    def check():
+        try:
+            assert_cluster_search_resources_present(
+                mcc=mcc, mdbs_resource_name=mdbs_resource_name, cluster_index=cluster_index, namespace=namespace
+            )
+            return True, f"cluster {mcc.cluster_name} (idx={cluster_index}) resources present"
+        except (kubernetes.client.ApiException, AssertionError) as exc:
+            return False, f"cluster {mcc.cluster_name} (idx={cluster_index}) not ready yet: {exc}"
+
+    run_periodically(check, timeout=timeout, sleep_time=10, msg=f"cluster {mcc.cluster_name} search resources present")
+
+
+def wait_for_cluster_search_resources_absent(
+    *,
+    mcc: MultiClusterClient,
+    mdbs_resource_name: str,
+    cluster_index: int,
+    namespace: str,
+    timeout: int = 600,
+) -> None:
+    """Poll until EVERY search-owned resource for the named cluster is gone.
+
+    Covers mongot StatefulSet, headless + proxy Services, mongot ConfigMap, the
+    backing PVCs (reaped by the StatefulSet's whenDeleted: Delete policy), and the
+    Envoy Deployment + ConfigMap. Each kind is checked independently so a partial
+    sweep surfaces the specific resource that leaked.
+    """
+    apps = mcc.apps_v1_api()
+    core = mcc.core_v1_api()
+
+    sts_name = search_resource_names.mongot_statefulset_name_for_cluster(mdbs_resource_name, cluster_index)
+    svc_name = search_resource_names.mongot_service_name_for_cluster(mdbs_resource_name, cluster_index)
+    proxy_svc_name = search_resource_names.mc_proxy_svc_name(mdbs_resource_name, cluster_index)
+    cm_name = search_resource_names.mongot_configmap_name_for_cluster(mdbs_resource_name, cluster_index)
+    envoy_deploy_name = search_resource_names.lb_deployment_name(mdbs_resource_name, cluster_index)
+    envoy_cm_name = search_resource_names.lb_configmap_name(mdbs_resource_name, cluster_index)
+    pvc_prefix = data_pvc_prefix(mdbs_resource_name, cluster_index)
+
+    def _read_gone(read_fn, name: str, kind: str):
+        try:
+            read_fn(name, namespace)
+            return False, f"{kind} {name} still exists in {mcc.cluster_name}"
+        except kubernetes.client.ApiException as e:
+            if e.status == 404:
+                return True, f"{kind} {name} deleted in {mcc.cluster_name}"
+            raise
+
+    def pvcs_gone():
+        pvcs = core.list_namespaced_persistent_volume_claim(namespace)
+        leftover = [p.metadata.name for p in pvcs.items if p.metadata.name.startswith(pvc_prefix)]
+        if leftover:
+            return False, f"PVC(s) for {mcc.cluster_name} still exist: {leftover}"
+        return True, f"no PVCs with prefix {pvc_prefix!r} remain in {mcc.cluster_name}"
+
+    checks = [
+        (lambda: _read_gone(apps.read_namespaced_stateful_set, sts_name, "StatefulSet"), f"StatefulSet {sts_name}"),
+        (
+            lambda: _read_gone(core.read_namespaced_service, svc_name, "headless Service"),
+            f"headless Service {svc_name}",
+        ),
+        (
+            lambda: _read_gone(core.read_namespaced_service, proxy_svc_name, "proxy Service"),
+            f"proxy Service {proxy_svc_name}",
+        ),
+        (lambda: _read_gone(core.read_namespaced_config_map, cm_name, "mongot ConfigMap"), f"mongot CM {cm_name}"),
+        (
+            lambda: _read_gone(apps.read_namespaced_deployment, envoy_deploy_name, "Envoy Deployment"),
+            f"Envoy Deployment {envoy_deploy_name}",
+        ),
+        (
+            lambda: _read_gone(core.read_namespaced_config_map, envoy_cm_name, "Envoy ConfigMap"),
+            f"Envoy CM {envoy_cm_name}",
+        ),
+        (pvcs_gone, f"PVCs {pvc_prefix}*"),
+    ]
+    for check, label in checks:
+        run_periodically(check, timeout=timeout, sleep_time=10, msg=f"{label} deletion in {mcc.cluster_name}")
+        logger.info(f"{label} confirmed deleted in {mcc.cluster_name} (idx={cluster_index})")
+
+
+# ---------------------------------------------------------------------------
+# Single-stable-target source mongotHost patch + observation (external source).
+# ---------------------------------------------------------------------------
+
+
+def patch_source_mongot_host_via_om(
+    *,
+    mdb: MongoDBMulti,
+    mongot_host: str,
+) -> None:
+    """PUT the OM automation config pointing EVERY source mongod at a SINGLE mongotHost.
+
+    Unlike patch_per_cluster_mongot_host_via_om (per-cluster locality), this aims all
+    source processes at one stable proxy-svc FQDN. Use it when the search-cluster
+    topology changes underneath a fixed source RS: a per-cluster mapping would leave a
+    source mongod pointing at a proxy Service that gets swept when its search cluster is
+    removed. Targeting a search cluster that is never removed keeps routing valid across
+    add/drop/re-add with no re-patching.
+    """
+    om_tester = mdb.get_om_tester()
+    ac_path = f"/groups/{om_tester.context.project_id}/automationConfig"
+    ac = om_tester.om_request("get", ac_path).json()
+
+    process_prefix = f"{mdb.name}-"
+    patched_processes: List[str] = []
+    for process in ac.get("processes", []):
+        process_name = process.get("name", "")
+        if not process_name.startswith(process_prefix):
+            continue
+        set_parameter = process.setdefault("args2_6", {}).setdefault("setParameter", {})
+        set_parameter["mongotHost"] = mongot_host
+        set_parameter["searchIndexManagementHostAndPort"] = mongot_host
+        patched_processes.append(process_name)
+
+    assert patched_processes, (
+        f"no AC processes matched prefix {process_prefix!r}; "
+        f"AC contained {[p.get('name') for p in ac.get('processes', [])]}"
+    )
+    logger.info(f"patched {len(patched_processes)} processes -> mongotHost={mongot_host}: {patched_processes}")
+
+    ac["version"] = ac.get("version", 0) + 1
+    om_tester.om_request("put", ac_path, json_object=ac)
+    logger.info(f"PUT automation config v{ac['version']} with shared mongotHost {mongot_host}")
+
+    # setParameter changes require a process restart — block until applied.
+    om_tester.wait_agents_ready(timeout=900)
+
+
+def assert_source_mongot_host_observed(
+    *,
+    mdb: MongoDBMulti,
+    member_cluster_clients: List[MultiClusterClient],
+    expected_mongot_host: str,
+    timeout: int = 300,
+) -> None:
+    """Poll each source cluster's first mongod and confirm setParameter.mongotHost /
+    searchIndexManagementHostAndPort equal the single shared host on disk.
+
+    Reads /data/automation-mongod.conf so we verify the AC patch landed AND the agent
+    applied it. ``member_cluster_clients`` here are the SOURCE RS clusters.
+    """
+
+    def check() -> tuple:
+        all_correct = True
+        msgs: List[str] = []
+        for cluster_idx, mcc in enumerate(member_cluster_clients):
+            pod_name = f"{mdb.name}-{cluster_idx}-0"  # first member of each source cluster
+            try:
+                params = read_mongod_set_parameter(pod_name, mdb.namespace, mcc.api_client)
+                got_host = params.get("mongotHost", "")
+                got_idx_mgmt = params.get("searchIndexManagementHostAndPort", "")
+                if got_host != expected_mongot_host:
+                    all_correct = False
+                    msgs.append(
+                        f"[{mcc.cluster_name}] {pod_name}: mongotHost={got_host!r} expected={expected_mongot_host!r}"
+                    )
+                elif got_idx_mgmt != expected_mongot_host:
+                    all_correct = False
+                    msgs.append(
+                        f"[{mcc.cluster_name}] {pod_name}: searchIndexManagementHostAndPort="
+                        f"{got_idx_mgmt!r} expected={expected_mongot_host!r}"
+                    )
+                else:
+                    msgs.append(f"[{mcc.cluster_name}] {pod_name}: mongotHost={expected_mongot_host} OK")
+            except Exception as exc:
+                all_correct = False
+                msgs.append(f"[{mcc.cluster_name}] {pod_name}: error reading conf: {exc}")
+        return all_correct, "\n".join(msgs)
+
+    run_periodically(check, timeout=timeout, sleep_time=10, msg="shared source mongotHost on disk")

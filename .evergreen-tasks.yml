@@ -1460,6 +1460,11 @@ tasks:
     commands:
       - func: "e2e_test"
 
+  - name: e2e_mc_search_cr_deletion
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
   - name: e2e_search_simulated_mc_rs
     tags: [ "patch-run" ]
     commands:
