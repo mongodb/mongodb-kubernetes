@@ -1111,6 +1111,47 @@ spec:
             type: object
           status:
             properties:
+              clusterStatuses:
+                description: ClusterStatuses reports per-cluster search + load balancer
+                  state across the topology.
+                items:
+                  description: |-
+                    ClusterStatus reports one member cluster's search + load balancer state. In
+                    single-cluster and simulated-MC deployments the list has exactly one entry.
+                    Search and load balancer fail independently, so each phase carries its OWN
+                    message (no concatenation into a single lossy string).
+                  properties:
+                    clusterIndex:
+                      description: ClusterIndex is the spec.clusters[] pinned index
+                        for this cluster.
+                      type: integer
+                    clusterName:
+                      description: ClusterName is the member cluster name; empty in
+                        single-cluster deployments.
+                      type: string
+                    loadBalancer:
+                      description: LoadBalancer is this cluster's managed Envoy load
+                        balancer phase; empty when no managed LB.
+                      type: string
+                    loadBalancerMessage:
+                      description: LoadBalancerMessage explains the load balancer
+                        phase when it is not Running.
+                      type: string
+                    search:
+                      description: Search is the worst-of phase of this cluster's
+                        mongot StatefulSet(s).
+                      type: string
+                    searchMessage:
+                      description: SearchMessage explains the search phase when it
+                        is not Running.
+                      type: string
+                  required:
+                  - clusterIndex
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - clusterIndex
+                x-kubernetes-list-type: map
               lastTransition:
                 type: string
               loadBalancer:
