@@ -58,6 +58,9 @@ class SearchAvailabilityBackgroundTester(threading.Thread):
         self.last_exception: Optional[str] = None
         self.max_consecutive_failure = 0
         self._stop_event = threading.Event()
+        # Set = paused: the run loop idles without issuing operations, holding the
+        # paging cursor open mid-stream so mongod doesn't prefetch the remainder.
+        self._pause_event = threading.Event()
         self.tool = tool
         self.mode = mode
         self.paging_batch_size = paging_batch_size
@@ -94,6 +97,10 @@ class SearchAvailabilityBackgroundTester(threading.Thread):
     def run(self) -> None:
         consecutive_failure = 0
         while not self._stop_event.is_set():
+            # Paused: idle without touching the cursor, staying responsive to stop().
+            if self._pause_event.is_set():
+                self._stop_event.wait(0.1)
+                continue
             self.number_of_runs += 1
             result = self._run_one_iteration()
             with self._results_lock:
@@ -113,6 +120,15 @@ class SearchAvailabilityBackgroundTester(threading.Thread):
 
     def stop(self) -> None:
         self._stop_event.set()
+
+    def pause(self) -> None:
+        """Idle without touching the cursor — holds a warm cursor mid-stream across
+        a slow fault so mongod doesn't prefetch the rest and mask the upstream loss."""
+        self._pause_event.set()
+
+    def resume(self) -> None:
+        """Resume issuing operations after pause()."""
+        self._pause_event.clear()
 
     @property
     def verdict(self) -> ConnectivityVerdict:

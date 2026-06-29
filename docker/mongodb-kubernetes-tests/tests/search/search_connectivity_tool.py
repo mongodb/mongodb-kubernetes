@@ -482,20 +482,23 @@ class TestSearchConnectivityBackgroundTester:
             with TestSearchConnectivityBackgroundTester.new_paging_background_tester_pinned_to_one_mongot(
                 namespace, MDB.user_name, MDB.user_password, interval_seconds=1.0
             ) as paging_tester:
-                # Page slowly (1/s) through the fault so the cursor keeps
-                # round-tripping to mongot instead of letting mongod prefetch
-                # the whole stream before the pod terminates.
+                # Warm one page, then pause. Scaling mongot to zero takes 60s+; if the
+                # background thread kept paging through that window mongod would prefetch
+                # the whole result and serve it locally, masking the upstream loss.
                 oneshot_tester.wait_for_operations(5)
-                paging_tester.wait_for_operations(5)
+                paging_tester.wait_for_operations(1)
+                paging_tester.pause()
 
                 mdbs = _load_mdbs(namespace)
                 logger.info(f"scaling MongoDBSearch {mdbs.name} clusters[0].replicas -> 0")
                 mdbs["spec"]["clusters"][0]["replicas"] = 0
                 mdbs.update()
                 wait_for_mongot_statefulset_drained(MONGOT_STS, namespace)
-                # mongot is gone — drop the throttle so the next getMore hits a
-                # dead upstream and the fault surfaces immediately.
+
+                # mongot is gone. Resume: a few pages may still serve from the buffer,
+                # but the next getMore needing fresh data hits the dead upstream and faults.
                 paging_tester.interval_seconds = 0.0
+                paging_tester.resume()
                 oneshot_tester.wait_for_operations(5, stop_on_fault=True)
                 paging_tester.wait_for_operations(DRAIN_MIN_PAGES, stop_on_fault=True)
 
