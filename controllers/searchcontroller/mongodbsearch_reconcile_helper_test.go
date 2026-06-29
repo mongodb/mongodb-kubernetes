@@ -501,7 +501,7 @@ func TestBuildProxyService_ManagedLB_Ready_PerCluster(t *testing.T) {
 
 	expected := search.LoadBalancerDeploymentNameForCluster(0)
 	assert.Equal(t, map[string]string{"app": expected}, svc.Spec.Selector)
-	assert.Equal(t, "test-search-lb-0-0", expected,
+	assert.Equal(t, "test-search-lb-0", expected,
 		"naming convention must match the per-cluster Envoy Deployment name")
 }
 
@@ -520,7 +520,7 @@ func TestBuildProxyService_ManagedLB_Ready_SingleCluster(t *testing.T) {
 
 	svc := buildProxyService(search, unit)
 
-	assert.Equal(t, map[string]string{"app": "test-search-lb-0-0"}, svc.Spec.Selector)
+	assert.Equal(t, map[string]string{"app": "test-search-lb-0"}, svc.Spec.Selector)
 }
 
 func assertServiceBasicProperties(t *testing.T, svc corev1.Service, mdbSearch *searchv1.MongoDBSearch) {

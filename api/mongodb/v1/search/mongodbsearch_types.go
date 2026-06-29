@@ -1256,12 +1256,12 @@ func (s *MongoDBSearch) IsLoadBalancerReady() bool {
 
 // LoadBalancerDeploymentName returns the name of the managed Envoy Deployment for this resource.
 func (s *MongoDBSearch) LoadBalancerDeploymentName() string {
-	return s.Name + "-search-lb-0"
+	return s.Name + "-search-lb"
 }
 
 // LoadBalancerConfigMapName returns the name of the managed Envoy ConfigMap for this resource.
 func (s *MongoDBSearch) LoadBalancerConfigMapName() string {
-	return s.Name + "-search-lb-0-config"
+	return s.Name + "-search-lb-config"
 }
 
 // LoadBalancerDeploymentNameForCluster returns the name of the managed Envoy
@@ -1277,21 +1277,23 @@ func (s *MongoDBSearch) LoadBalancerDeploymentNameForCluster(clusterIndex int) s
 // LoadBalancerConfigMapNameForCluster returns the name of the managed Envoy
 // ConfigMap for one member cluster. See LoadBalancerDeploymentNameForCluster.
 func (s *MongoDBSearch) LoadBalancerConfigMapNameForCluster(clusterIndex int) string {
-	return fmt.Sprintf("%s-search-lb-0-%d-config", s.Name, clusterIndex)
+	return fmt.Sprintf("%s-%d-config", s.LoadBalancerDeploymentName(), clusterIndex)
 }
 
 // LoadBalancerServerCert returns the namespaced name of the TLS server certificate secret for the
-// managed Envoy LB (ReplicaSet). Naming pattern:
-//   - With prefix: {prefix}-{name}-search-lb-0-cert
-//   - Without prefix: {name}-search-lb-0-cert
-func (s *MongoDBSearch) LoadBalancerServerCert() types.NamespacedName {
+// managed Envoy LB of one member cluster. The cluster index matches the Envoy
+// Deployment name so the cert that fronts a cluster's Envoy is unambiguous.
+// Naming pattern:
+//   - With prefix: {prefix}-{name}-search-lb-{clusterIndex}-cert
+//   - Without prefix: {name}-search-lb-{clusterIndex}-cert
+func (s *MongoDBSearch) LoadBalancerServerCert(clusterIndex int) types.NamespacedName {
 	if s.Spec.Security.TLS != nil && s.Spec.Security.TLS.CertsSecretPrefix != "" {
 		return types.NamespacedName{
-			Name:      fmt.Sprintf("%s-%s-search-lb-0-cert", s.Spec.Security.TLS.CertsSecretPrefix, s.Name),
+			Name:      fmt.Sprintf("%s-%s-search-lb-%d-cert", s.Spec.Security.TLS.CertsSecretPrefix, s.Name, clusterIndex),
 			Namespace: s.Namespace,
 		}
 	}
-	return types.NamespacedName{Name: fmt.Sprintf("%s-search-lb-0-cert", s.Name), Namespace: s.Namespace}
+	return types.NamespacedName{Name: fmt.Sprintf("%s-search-lb-%d-cert", s.Name, clusterIndex), Namespace: s.Namespace}
 }
 
 // LoadBalancerServerCertForClusterShard returns the namespaced name of the TLS server certificate secret for
@@ -1309,17 +1311,18 @@ func (s *MongoDBSearch) LoadBalancerServerCertForClusterShard(clusterIndex int, 
 }
 
 // LoadBalancerClientCert returns the namespaced name of the TLS client certificate secret used by the
-// managed Envoy LB to authenticate with mongot backends. Naming pattern:
-//   - With prefix: {prefix}-{name}-search-lb-0-client-cert
-//   - Without prefix: {name}-search-lb-0-client-cert
-func (s *MongoDBSearch) LoadBalancerClientCert() types.NamespacedName {
+// managed Envoy LB of one member cluster to authenticate with mongot backends.
+// The cluster index matches the Envoy Deployment name. Naming pattern:
+//   - With prefix: {prefix}-{name}-search-lb-{clusterIndex}-client-cert
+//   - Without prefix: {name}-search-lb-{clusterIndex}-client-cert
+func (s *MongoDBSearch) LoadBalancerClientCert(clusterIndex int) types.NamespacedName {
 	if s.Spec.Security.TLS != nil && s.Spec.Security.TLS.CertsSecretPrefix != "" {
 		return types.NamespacedName{
-			Name:      fmt.Sprintf("%s-%s-search-lb-0-client-cert", s.Spec.Security.TLS.CertsSecretPrefix, s.Name),
+			Name:      fmt.Sprintf("%s-%s-search-lb-%d-client-cert", s.Spec.Security.TLS.CertsSecretPrefix, s.Name, clusterIndex),
 			Namespace: s.Namespace,
 		}
 	}
-	return types.NamespacedName{Name: fmt.Sprintf("%s-search-lb-0-client-cert", s.Name), Namespace: s.Namespace}
+	return types.NamespacedName{Name: fmt.Sprintf("%s-search-lb-%d-client-cert", s.Name, clusterIndex), Namespace: s.Namespace}
 }
 
 // ObjectKey implements v1.ResourceOwner.

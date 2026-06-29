@@ -903,12 +903,12 @@ func TestLoadBalancerNamesForCluster_IndexBased(t *testing.T) {
 	search := &searchv1.MongoDBSearch{ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"}}
 
 	// Index 0 (single-cluster path).
-	assert.Equal(t, "mdb-search-search-lb-0-0", search.LoadBalancerDeploymentNameForCluster(0))
-	assert.Equal(t, "mdb-search-search-lb-0-0-config", search.LoadBalancerConfigMapNameForCluster(0))
+	assert.Equal(t, "mdb-search-search-lb-0", search.LoadBalancerDeploymentNameForCluster(0))
+	assert.Equal(t, "mdb-search-search-lb-0-config", search.LoadBalancerConfigMapNameForCluster(0))
 
 	// Index 2 (higher MC index).
-	assert.Equal(t, "mdb-search-search-lb-0-2", search.LoadBalancerDeploymentNameForCluster(2))
-	assert.Equal(t, "mdb-search-search-lb-0-2-config", search.LoadBalancerConfigMapNameForCluster(2))
+	assert.Equal(t, "mdb-search-search-lb-2", search.LoadBalancerDeploymentNameForCluster(2))
+	assert.Equal(t, "mdb-search-search-lb-2-config", search.LoadBalancerConfigMapNameForCluster(2))
 
 	// Different indices produce different names.
 	assert.NotEqual(t, search.LoadBalancerDeploymentNameForCluster(0), search.LoadBalancerDeploymentNameForCluster(1))
@@ -1824,7 +1824,7 @@ func TestEnqueueMemberClusterObjectToSearch(t *testing.T) {
 	// Object with both labels → reconcile request returned.
 	cm := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "mdb-search-search-lb-0-a-config",
+			Name:      "mdb-search-search-lb-a-config",
 			Namespace: "ns",
 			Labels: map[string]string{
 				khandler.MongoDBSearchOwnerNameLabel:      "mdb-search",

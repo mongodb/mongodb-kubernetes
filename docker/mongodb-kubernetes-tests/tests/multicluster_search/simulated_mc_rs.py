@@ -233,35 +233,38 @@ def test_deploy_lb_certificates(
     member_cluster_clients: List[MultiClusterClient],
 ):
     member_cluster_clients = member_cluster_clients[:2]
-    lb_server_cert_name = search_resource_names.lb_server_cert_name(MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX)
-    lb_client_cert_name = search_resource_names.lb_client_cert_name(MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX)
-
     server_domains = [
         search_resource_names.mc_proxy_svc_fqdn(MDBS_RESOURCE_NAME, namespace, _idx(mcc))
         for mcc in member_cluster_clients
     ]
 
-    create_tls_certs(
-        issuer=multi_cluster_issuer,
-        namespace=namespace,
-        resource_name=search_resource_names.lb_deployment_name(MDBS_RESOURCE_NAME, 0),
-        replicas=ENVOY_LB_REPLICAS,
-        service_name=server_domains[0].split(".")[0],
-        additional_domains=server_domains,
-        secret_name=lb_server_cert_name,
-    )
-    logger.info(f"LB server certificate created with SANs={server_domains}: {lb_server_cert_name}")
+    for mcc in member_cluster_clients:
+        ci = _idx(mcc)
+        deployment_name = search_resource_names.lb_deployment_name(MDBS_RESOURCE_NAME, ci)
+        lb_server_cert_name = search_resource_names.lb_server_cert_name(MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX, ci)
+        lb_client_cert_name = search_resource_names.lb_client_cert_name(MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX, ci)
 
-    create_tls_certs(
-        issuer=multi_cluster_issuer,
-        namespace=namespace,
-        resource_name=f"{search_resource_names.lb_deployment_name(MDBS_RESOURCE_NAME, 0)}-client",
-        replicas=1,
-        service_name=server_domains[0].split(".")[0],
-        additional_domains=[f"*.{namespace}.svc.cluster.local"],
-        secret_name=lb_client_cert_name,
-    )
-    logger.info(f"LB client certificate created: {lb_client_cert_name}")
+        create_tls_certs(
+            issuer=multi_cluster_issuer,
+            namespace=namespace,
+            resource_name=deployment_name,
+            replicas=ENVOY_LB_REPLICAS,
+            service_name=deployment_name,
+            additional_domains=server_domains,
+            secret_name=lb_server_cert_name,
+        )
+        logger.info(f"LB server certificate created with SANs={server_domains}: {lb_server_cert_name}")
+
+        create_tls_certs(
+            issuer=multi_cluster_issuer,
+            namespace=namespace,
+            resource_name=f"{deployment_name}-client",
+            replicas=1,
+            service_name=deployment_name,
+            additional_domains=[f"*.{namespace}.svc.cluster.local"],
+            secret_name=lb_client_cert_name,
+        )
+        logger.info(f"LB client certificate created: {lb_client_cert_name}")
 
 
 @mark.e2e_search_simulated_mc_rs

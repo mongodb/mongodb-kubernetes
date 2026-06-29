@@ -198,7 +198,7 @@ class TestSearchConnectivityToolMC:
             outage_idx = helper.cluster_index(outage_mcc.cluster_name)
             outage_label = f"{outage_mcc.cluster_name}/idx={outage_idx}"
             outage_core_v1 = outage_mcc.core_v1_api()
-            envoy_label_value = f"{MDBS_NAME}-search-lb-0-{outage_idx}"
+            envoy_label_value = f"{MDBS_NAME}-search-lb-{outage_idx}"
             logger.info(f"=== {outage_label}: starting envoy-restart scenario ===")
 
             tool = _direct_user_connectivity_tool(namespace, outage_idx)
