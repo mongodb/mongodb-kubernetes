@@ -461,6 +461,8 @@ spec:
               value: "envoyproxy/envoy:v1.37-latest"
             - name: MDB_SEARCH_METRICS_FORWARDER_IMAGE
               value: "otel/opentelemetry-collector-contrib:0.152.0"
+            - name: MDB_VOYAGEAI_REPO_URL
+              value: "quay.io/mongodb/voyageai"
       volumes:
         - name: webhook-server-dir
           emptyDir: {}

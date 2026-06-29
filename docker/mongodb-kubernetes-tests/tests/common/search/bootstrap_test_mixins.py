@@ -168,7 +168,7 @@ class InstallOperatorTests:
                 member_cluster_clients=get_member_cluster_clients(),
                 member_cluster_names=get_member_cluster_names(),
             )
-        operator.assert_is_running()
+        operator.wait_for_operator_ready()
 
 
 class MongoDBSourceDeploymentTests:
