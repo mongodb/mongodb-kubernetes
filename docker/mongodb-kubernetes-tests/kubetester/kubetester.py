@@ -93,7 +93,11 @@ def get_default_architecture() -> str:
 
 
 def create_operator_config(namespace: str, spec: dict, api_client=None) -> bool:
-    """Creates the OperatorConfig CR. Returns True if it was created, False if it already existed."""
+    """Creates or patches the OperatorConfig CR.
+
+    Returns True if a restart is expected (CR was freshly created, or patched with a changed spec).
+    Returns False if the CR already existed with the same spec (generation unchanged, no restart).
+    """
     resource = CustomObject(
         "operator-config",
         namespace,
@@ -104,17 +108,22 @@ def create_operator_config(namespace: str, spec: dict, api_client=None) -> bool:
         api_client=api_client,
     )
     resource["spec"] = spec
-    # CustomObject always initialises with status:{}, but OperatorConfig has no status
-    # subresource and create() uses field_validation="Strict", so remove it first.
-    resource.backing_obj.pop("status", None)
     try:
         resource.create()
+        return True
     except ApiException as e:
         if e.status != 409:
             raise
-        # The CR already exists, so the operator already loaded this config and will not restart.
-        return False
-    return True
+
+    # CR already exists — patch it with the desired spec. The Watcher only triggers a restart when
+    # the generation changes, which only happens when the spec actually differs. Comparing generations
+    # before and after lets us tell the caller whether a restart is coming.
+    resource.load()
+    old_generation = resource.backing_obj.get("metadata", {}).get("generation", 0)
+    resource["spec"] = spec
+    resource.patch()
+    new_generation = resource.backing_obj.get("metadata", {}).get("generation", 0)
+    return new_generation > old_generation
 
 
 def build_operator_config_spec_from_test_env() -> dict:
