@@ -280,8 +280,8 @@ func (r *MongoDBSearchMetricsForwarderReconciler) reconcileCore(ctx context.Cont
 
 	for _, w := range workList {
 		var st workflow.Status
-		switch {
-		case w.Client == nil:
+		switch w.Client {
+		case nil:
 			st = workflow.Pending("Member cluster %q not registered with the operator", w.ClusterName)
 		default:
 			var pending bool
