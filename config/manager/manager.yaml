@@ -32,6 +32,7 @@ spec:
             - -watch-resource=mongodbusers
             - -watch-resource=mongodbcommunity
             - -watch-resource=mongodbsearch
+            - -watch-resource=voyageai
             - -watch-resource=clustermongodbroles
           command:
             - /usr/local/bin/mongodb-kubernetes-operator
@@ -375,6 +376,8 @@ spec:
               value: "0.64.0"
             - name: MDB_ENVOY_IMAGE
               value: "envoyproxy/envoy:v1.37-latest"
+            - name: MDB_VOYAGEAI_REPO_URL
+              value: "quay.io/mongodb/voyageai"
       volumes:
         - name: webhook-server-dir
           emptyDir: {}

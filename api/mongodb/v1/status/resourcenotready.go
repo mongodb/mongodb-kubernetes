@@ -5,6 +5,7 @@ type ResourceKind string
 
 const (
 	StatefulsetKind ResourceKind = "StatefulSet"
+	DeploymentKind  ResourceKind = "Deployment"
 )
 
 // ResourceNotReady describes the dependent resource which is not ready yet
