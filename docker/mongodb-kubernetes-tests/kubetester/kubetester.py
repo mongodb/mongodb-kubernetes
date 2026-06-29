@@ -176,7 +176,7 @@ def wait_for_operator_pod_restart(
     restart is a matter of watching the container restart count increase. This is generic and works for
     any operator pod regardless of how it was installed.
 
-    A previous_restart_count of None means the pod was not present beforehand (e.g. running locally), in
+    A previous_restart_count of None means the operator is running locally (no pod in the cluster), in
     which case there is nothing to wait for.
     """
     if previous_restart_count is None:
@@ -218,6 +218,9 @@ def apply_operator_config_from_test_env(
 
     Returns True if the CR was created (and therefore a restart was awaited), False otherwise.
     """
+    # the import is done here to prevent circular dependency
+    from tests.conftest import local_operator
+
     spec = build_operator_config_spec_from_test_env()
     if not spec:
         return False
@@ -227,6 +230,15 @@ def apply_operator_config_from_test_env(
         # The CR already existed, so the operator already loaded this config and will not restart.
         return False
 
+    if local_operator():
+        # No operator pod in the cluster — the operator process reads OperatorConfig directly from the
+        # API server, so no restart to wait for.
+        return True
+
+    assert previous_restart_count is not None, (
+        f"Operator pod '{name}' in namespace '{namespace}' was not found before OperatorConfig was applied. "
+        "Ensure the operator is running before calling apply_operator_config_from_test_env."
+    )
     wait_for_operator_pod_restart(namespace, name, previous_restart_count, api_client=api_client)
     if wait_for_ready is not None:
         wait_for_ready()
