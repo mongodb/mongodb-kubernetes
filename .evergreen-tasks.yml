@@ -1345,11 +1345,6 @@ tasks:
     commands:
       - func: "e2e_test"
 
-  - name: e2e_search_auto_embedding_version_gate
-    tags: ["patch-run"]
-    commands:
-      - func: "e2e_test"
-
   - name: e2e_search_auto_embedding_bad_secret
     tags: ["patch-run"]
     commands:
