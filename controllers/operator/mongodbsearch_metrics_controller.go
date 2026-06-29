@@ -194,9 +194,6 @@ func (r *MongoDBSearchMetricsForwarderReconciler) Reconcile(ctx context.Context,
 		if !mdbSearch.Spec.Observability.Prometheus.IsEnabled() {
 			return r.updateMetricsForwarderStatus(ctx, mdbSearch, workflow.Invalid("metrics forwarder requires Prometheus; set spec.observability.prometheus.mode: enabled to enable it, or set spec.observability.metricsForwarder.mode: disabled to silence this message"), log)
 		}
-		if err := r.ensureFinalizer(ctx, mdbSearch, log); err != nil {
-			return r.updateMetricsForwarderStatus(ctx, mdbSearch, workflow.Failed(fmt.Errorf("failed to add finalizer: %w", err)), log)
-		}
 		return r.updateMetricsForwarderStatus(ctx, mdbSearch, r.reconcileCore(ctx, mdbSearch, log), log)
 	case searchv1.MetricsForwarderModeDisabled:
 		r.deleteMetricsForwarderResourcesFromState(ctx, mdbSearch, log)
@@ -267,6 +264,10 @@ func (r *MongoDBSearchMetricsForwarderReconciler) reconcileCore(ctx context.Cont
 	if supported, st := r.checkOMVersionForMetricsEndpoint(mdbSearch, projectConfig, log); !supported {
 		r.deleteMetricsForwarderResourcesFromState(ctx, mdbSearch, log)
 		return st
+	}
+
+	if err := r.ensureFinalizer(ctx, mdbSearch, log); err != nil {
+		return workflow.Failed(fmt.Errorf("failed to add finalizer: %w", err))
 	}
 
 	var shardNames []string
