@@ -1,0 +1,12 @@
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: om-primary-db  # must match {OM_NAME}-db to reuse existing AppDB PVCs
+spec:
+  members: 3
+  type: ReplicaSet
+  persistent: true
+  opsManager:
+    configMapRef:
+      name: placeholder  # overwritten by MongoDB.configure() in the test
+  credentials: placeholder  # overwritten by MongoDB.configure() in the test

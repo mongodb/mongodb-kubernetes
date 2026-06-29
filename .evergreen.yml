@@ -1212,6 +1212,7 @@ task_groups:
       - e2e_om_ops_manager_backup_restore
       - e2e_om_ops_manager_queryable_backup
       - e2e_om_ops_manager_backup
+      - e2e_om_external_appdb
     <<: *teardown_group
 
   # TODO (CLOUDP-346008): Remove this task group once the issue with queryable backup task is resolved in OM8
