@@ -278,25 +278,20 @@ def primary_appdb_collection(primary_ops_manager: MongoDBOpsManager):
 
 @mark.e2e_om_appdb_meta_om_mode_switch
 class TestPITRAfterDisaster:
-    """Investigates whether PITR is possible after total AppDB data loss (all PVCs deleted).
+    """Verifies that PITR after total AppDB data loss (all PVCs deleted) restores pre-disaster data.
 
     Flow:
-      1. Insert a witness document.
+      1. Insert a witness document (after an initial snapshot has been taken).
       2. Wait 5 minutes so the oplog entries are flushed to S3.
       3. Record the PIT (timestamp after the insert).
-      4. Delete all AppDB PVCs and pods — simulate disaster.
-      5. Wait for AppDB to come back up (StatefulSet recreates pods with empty PVCs).
-      6. Attempt PITR to the pre-disaster PIT.
+      4. Delete all AppDB PVCs and StatefulSet — simulate disaster.
+      5. Wait for AppDB to come back up (operator recreates pods with empty PVCs).
+      6. Initiate PITR to the pre-disaster PIT.
+      7. Wait for AppDB to recover after restore and verify the witness document is present.
 
-    Expected outcome with current OM: RESTORE_INITIATION_FAILED —
-    "Invalid restore point: Are you sure your backups were running at the time you selected?"
-
-    Root cause: the fresh empty AppDB triggers a resync in Meta OM which clears lastOplogPush,
-    making the pre-disaster oplog slices (still physically present in S3) unreachable via the
-    restore API.  See architecture/appdb-pitr-after-data-loss.md for a detailed explanation.
-
-    This test is left failing intentionally to get Ops Manager developers' input on whether
-    this is by design or a limitation that could be addressed.
+    The PIT is recorded after the first snapshot, so OM accepts the restore request.
+    PITR replays the oplog from the snapshot up to the recorded PIT, which must include
+    the insert of APPDB_PITR_DISASTER_DATA.
     """
 
     def test_insert_pre_disaster_data(self, primary_appdb_collection):
@@ -330,25 +325,41 @@ class TestPITRAfterDisaster:
         primary_ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=1900)
 
     def test_pitr_to_pre_disaster_time(self, meta_om_appdb_tester: OMTester):
-        """Attempt PITR to the pre-disaster moment.
+        """Initiate PITR to the pre-disaster moment.
 
-        This is expected to fail: PVC deletion triggers a resync which resets lastOplogPush
-        in Meta OM.  The pre-disaster S3 oplog slices exist but are no longer reachable.
-        The error is: 409 RESTORE_INITIATION_FAILED — "Are you sure your backups were running
-        at the time you selected?"
-
-        Question for OM developers: is this limitation intentional, and is there a supported
-        path to PITR after total replica set data loss?
-        """
+        The PIT was recorded after the first snapshot, so OM accepts the restore request.
+        OM restores from the snapshot and replays the oplog up to the recorded PIT."""
         assert _pitr_disaster_pit_millis > 0, "_pitr_disaster_pit_millis not set"
         meta_om_appdb_tester.create_restore_job_pit(_pitr_disaster_pit_millis)
 
     def test_primary_om_reaches_running_after_pitr_attempt(self, meta_om_appdb_tester: OMTester, primary_ops_manager: MongoDBOpsManager):
-        """If PITR was somehow accepted, wait for Primary OM to recover.
-        If PITR was rejected (expected), AppDB is still up and this passes quickly."""
+        """Wait for Primary OM and AppDB to recover after PITR restore.
+        PITR is accepted by OM (PIT is after the snapshot), so AppDB goes down for restore —
+        wait for it to leave Running first, then come back up."""
         meta_om_appdb_tester.wait_until_backup_running(timeout=3600)
+        primary_ops_manager.appdb_status().assert_abandons_phase(Phase.Running, timeout=600)
         primary_ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=3600)
         primary_ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=3600)
+
+    def test_pre_disaster_data_restored_by_pitr(self, primary_appdb_collection):
+        """Verify that APPDB_PITR_DISASTER_DATA is present after PITR.
+        The PIT was recorded after the insert, so PITR must have replayed the oplog entry
+        that wrote this document."""
+        start = time.time()
+        timeout = 3600
+        last_error = None
+        while time.time() - start < timeout:
+            try:
+                records = list(primary_appdb_collection.find({"_id": APPDB_PITR_DISASTER_DATA["_id"]}))
+                if records == [APPDB_PITR_DISASTER_DATA]:
+                    return
+                last_error = f"data not yet present: {records}"
+            except Exception as e:
+                last_error = e
+            time.sleep(5)
+        raise AssertionError(
+            f"Pre-disaster data not restored within {timeout}s after PITR. Last error: {last_error}"
+        )
 
 
 # @mark.e2e_om_appdb_meta_om_mode_switch
