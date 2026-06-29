@@ -9,6 +9,7 @@ resources:
 - bases/mongodb.com_mongodbsearch.yaml
 - bases/mongodbcommunity.mongodb.com_mongodbcommunity.yaml
 - bases/mongodb.com_clustermongodbroles.yaml
+- bases/ai.mongodb.com_voyageai.yaml
 # +kubebuilder:scaffold:crdkustomizeresource
 
 # the following config is for teaching kustomize how to do kustomization for CRDs.

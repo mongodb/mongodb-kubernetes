@@ -43,6 +43,7 @@ import (
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	mdbmultiv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
+	vaiv1 "github.com/mongodb/mongodb-kubernetes/api/voyageai/v1/vai"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
@@ -67,6 +68,7 @@ const (
 	mongoDBMultiClusterCRDPlural = "mongodbmulticluster"
 	mongoDBCommunityCRDPlural    = "mongodbcommunity"
 	mongoDBSearchCRDPlural       = "mongodbsearch"
+	voyageAICRDPlural            = "voyageai"
 	clusterMongoDBRoleCRDPlural  = "clustermongodbroles"
 )
 
@@ -89,6 +91,7 @@ func init() {
 	utilruntime.Must(apiv1.AddToScheme(scheme))
 	utilruntime.Must(mcov1.AddToScheme(scheme))
 	utilruntime.Must(corev1.AddToScheme(scheme))
+	utilruntime.Must(vaiv1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 
 	flag.Var(&crds, "watch-resource", "A Watch Resource specifies if the Operator should watch the given resource")
@@ -124,6 +127,7 @@ func run() error {
 			mongoDBOpsManagerCRDPlural,
 			mongoDBCommunityCRDPlural,
 			mongoDBSearchCRDPlural,
+			voyageAICRDPlural,
 			clusterMongoDBRoleCRDPlural,
 		}
 	}
@@ -291,6 +295,11 @@ func run() error {
 			return err
 		}
 	}
+	if slices.Contains(crds, voyageAICRDPlural) {
+		if err := setupVoyageAICRD(ctx, mgr); err != nil {
+			return err
+		}
+	}
 
 	for _, r := range crds {
 		log.Infof("Registered CRD: %s", r)
@@ -405,6 +414,11 @@ func setupMongoDBMultiClusterCRD(ctx context.Context, mgr manager.Manager, image
 	return ctrl.NewWebhookManagedBy(mgr).For(&mdbmultiv1.MongoDBMultiCluster{}).
 		WithValidator(&mdbmultiv1.MongoDBMultiClusterValidator{}).
 		Complete()
+}
+
+func setupVoyageAICRD(ctx context.Context, mgr manager.Manager) error {
+	imageRepository := env.ReadOrDefault(util.VoyageAIRepoURLEnv, "quay.io/mongodb/voyageai")
+	return operator.AddVoyageAIController(ctx, mgr, imageRepository)
 }
 
 func setupMongoDBSearchCRD(ctx context.Context, mgr manager.Manager) error {
