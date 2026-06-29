@@ -68,7 +68,7 @@ const (
 	mongoDBMultiClusterCRDPlural = "mongodbmulticluster"
 	mongoDBCommunityCRDPlural    = "mongodbcommunity"
 	mongoDBSearchCRDPlural       = "mongodbsearch"
-	voyageAICRDPlural            = "voyageai"
+	voyageAICRDPlural            = "voyageais"
 	clusterMongoDBRoleCRDPlural  = "clustermongodbroles"
 )
 

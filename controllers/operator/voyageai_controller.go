@@ -74,7 +74,7 @@ func newVoyageAIReconciler(client client.Client, imageRepository string) *Voyage
 	}
 }
 
-// +kubebuilder:rbac:groups=ai.mongodb.com,resources={voyageai,voyageai/status,voyageai/finalizers},verbs=*,namespace=placeholder
+// +kubebuilder:rbac:groups=ai.mongodb.com,resources={voyageais,voyageais/status,voyageais/finalizers},verbs=*,namespace=placeholder
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete,namespace=placeholder
 // +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update;patch;delete,namespace=placeholder
 func (r *VoyageAIReconciler) Reconcile(ctx context.Context, request reconcile.Request) (reconcile.Result, error) {
