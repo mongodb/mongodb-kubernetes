@@ -3082,6 +3082,11 @@ func TestReconcileReplicaSet_CreatesResources(t *testing.T) {
 	assert.Equal(t, "test-search-search-0-svc", sts.Labels["app"])
 	assert.Empty(t, sts.Labels["shard"])
 
+	// Owner-ref back to the MongoDBSearch CR drives PVC reclaim via GC on CR delete.
+	assert.True(t, slices.ContainsFunc(sts.OwnerReferences, func(ref metav1.OwnerReference) bool {
+		return ref.Kind == "MongoDBSearch" && ref.Name == search.Name
+	}))
+
 	// Verify ConfigMap
 	cmNsName := search.MongotConfigConfigMapNameForCluster(0)
 	cm, err := fakeClient.GetConfigMap(t.Context(), cmNsName)
