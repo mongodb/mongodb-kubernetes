@@ -258,7 +258,7 @@ func TestMongoDBSearchReconcile_Success(t *testing.T) {
 			operatorConfig := searchcontroller.OperatorSearchConfig{
 				SearchRepo:    "testrepo",
 				SearchName:    "mongot",
-				SearchVersion: "1.48.0",
+				SearchVersion: "1.70.1",
 			}
 			reconciler, c := newSearchReconcilerWithOperatorConfig(mdbc, operatorConfig, search)
 
@@ -363,7 +363,9 @@ func TestMongoDBSearchReconcile_InvalidVersion(t *testing.T) {
 func TestMongoDBSearchReconcile_MultipleSearchResources(t *testing.T) {
 	ctx := context.Background()
 	search1 := newMongoDBSearch("search1", mock.TestNamespace, "mdb")
+	search1.Spec.Version = "1.70.1"
 	search2 := newMongoDBSearch("search2", mock.TestNamespace, "mdb")
+	search2.Spec.Version = "1.70.1"
 	mdbc := newMongoDBCommunity("mdb", mock.TestNamespace)
 	reconciler, c := newSearchReconciler(mdbc, search1, search2)
 
@@ -450,7 +452,7 @@ func reconcileAndLoad(
 
 func TestMongoDBSearchReconcile_InvalidSearchImageVersion(t *testing.T) {
 	ctx := context.Background()
-	expectedMsg := "MongoDBSearch version 1.47.0 is not supported because of breaking changes. The operator will ignore this resource: it will not reconcile or reconfigure the workload. Existing deployments will continue to run, but cannot be managed by the operator. To regain operator management, you must delete and recreate the MongoDBSearch resource."
+	expectedMsg := "MongoDBSearch version '1.47.0' is not supported. This operator requires MongoDBSearch version '1.70.1' or newer. The operator will ignore this resource: it will not reconcile or reconfigure the workload. Existing deployments will continue to run, but cannot be managed by the operator. To regain operator management, set a supported version and recreate the MongoDBSearch resource."
 
 	tests := []struct {
 		name              string
@@ -576,6 +578,7 @@ func TestMongoDBSearchReconcile_Success_MultiCluster(t *testing.T) {
 	search := &searchv1.MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: mock.TestNamespace},
 		Spec: searchv1.MongoDBSearchSpec{
+			Version: "1.70.1",
 			Source: &searchv1.MongoDBSource{
 				ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{
 					HostAndPorts: []string{"mdb-0.mdb.svc:27017", "mdb-1.mdb.svc:27017"},
@@ -734,6 +737,7 @@ func newSimulatedMCMongoDBSearch(name, namespace string) *searchv1.MongoDBSearch
 	return &searchv1.MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
 		Spec: searchv1.MongoDBSearchSpec{
+			Version: "1.70.1",
 			Source: &searchv1.MongoDBSource{
 				ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{
 					HostAndPorts: []string{"mdb-0.mdb.svc:27017", "mdb-1.mdb.svc:27017"},
@@ -880,6 +884,7 @@ func newSimulatedMCShardedMongoDBSearch(name, namespace string) *searchv1.MongoD
 	return &searchv1.MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
 		Spec: searchv1.MongoDBSearchSpec{
+			Version: "1.70.1",
 			Source: &searchv1.MongoDBSource{
 				ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{
 					ShardedCluster: &searchv1.ExternalShardedClusterConfig{
@@ -1088,6 +1093,7 @@ func TestMongoDBSearchReconcile_MCSharded_CrossControllerLabelInvariant(t *testi
 			Namespace: mock.TestNamespace,
 		},
 		Spec: searchv1.MongoDBSearchSpec{
+			Version: "1.70.1",
 			Clusters: []searchv1.ClusterSpec{
 				{
 					Name: "cluster-a", Index: ptr.To(int32(0)), Replicas: ptr.To(int32(1)),
