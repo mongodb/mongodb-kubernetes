@@ -170,6 +170,18 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 		r.watch.AddWatchedResourceIfNotAdded(mdbSearch.Spec.AutoEmbedding.EmbeddingModelAPIKeySecret.Name, mdbSearch.Namespace, watch.Secret, mdbSearch.NamespacedName())
 	}
 
+	// Watch the dedicated keyFilePassword secrets so correcting a wrong password (without a cert/key
+	// change) triggers a reconcile.
+	for _, nn := range []types.NamespacedName{
+		mdbSearch.GrpcKeyFilePasswordSecret(),
+		mdbSearch.X509KeyFilePasswordSecret(),
+		mdbSearch.ScramKeyFilePasswordSecret(),
+	} {
+		if nn.Name != "" {
+			r.watch.AddWatchedResourceIfNotAdded(nn.Name, nn.Namespace, watch.Secret, mdbSearch.NamespacedName())
+		}
+	}
+
 	state, err := searchcontroller.ReadSearchState(ctx, r.kubeClient, mdbSearch)
 	if err != nil {
 		return commoncontroller.UpdateStatus(ctx, r.kubeClient, mdbSearch, workflow.Failed(xerrors.Errorf("failed to read search state: %w", err)), log)

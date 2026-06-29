@@ -33,7 +33,7 @@ from tests.common.search.movies_search_helper import SampleMoviesSearchHelper
 from tests.common.search.search_deployment_helper import MCSearchDeploymentHelper
 from tests.common.search.search_tester import SearchTester
 from tests.common.search.sharded_search_helper import create_issuer_ca
-from tests.common.search.tls_utils import encrypt_tls_key_with_password
+from tests.common.search.tls_utils import create_keyfile_password_secret, encrypt_tls_key_with_password
 from tests.conftest import get_issuer_ca_filepath
 from tests.multicluster.conftest import cluster_spec_list
 
@@ -60,9 +60,13 @@ SOURCE_BUNDLE_SECRET = f"{SOURCE_CERT_PREFIX}-{MDB_RESOURCE_NAME}-cert"
 
 # Encrypted key passwords
 GRPC_KEY_PASSWORD = "test-grpc-key-password"
+# Dedicated secret holding the gRPC keyfile password (spec.security.tls.keyFilePasswordSecretRef)
+GRPC_KEY_PASSWORD_SECRET_NAME = f"{MDBS_RESOURCE_NAME}-grpc-key-password"
 X509_CLIENT_CERT_SECRET_NAME = f"{MDBS_RESOURCE_NAME}-x509-sync-client-cert"
 X509_CLIENT_CERT_CN = "mongot-sync-source"
 X509_AUTH_KEY_PASSWORD = "test-x509-key-password"
+# Dedicated secret holding the x509 keyfile password (spec.source.x509.keyFilePasswordSecretRef)
+X509_KEY_PASSWORD_SECRET_NAME = f"{MDBS_RESOURCE_NAME}-x509-key-password"
 
 SEARCH_INDEX_READY_TIMEOUT = 300
 SEARCH_QUERY_RETRY_TIMEOUT = 60
@@ -154,10 +158,18 @@ def mdbs(
             "hostAndPorts": seeds,
             "tls": {"ca": {"name": ca_configmap}},
         },
-        "x509": {"clientCertificateSecretRef": {"name": X509_CLIENT_CERT_SECRET_NAME}},
+        "x509": {
+            "clientCertificateSecretRef": {"name": X509_CLIENT_CERT_SECRET_NAME},
+            "keyFilePasswordSecretRef": {"name": X509_KEY_PASSWORD_SECRET_NAME},
+        },
     }
 
-    resource["spec"]["security"] = {"tls": {"certsSecretPrefix": MDBS_TLS_CERT_PREFIX}}
+    resource["spec"]["security"] = {
+        "tls": {
+            "certsSecretPrefix": MDBS_TLS_CERT_PREFIX,
+            "keyFilePasswordSecretRef": {"name": GRPC_KEY_PASSWORD_SECRET_NAME},
+        }
+    }
 
     resource["spec"]["clusters"] = [
         {
@@ -341,6 +353,7 @@ def test_create_search_tls_certificate(namespace: str, multi_cluster_issuer: str
         additional_domains=additional_domains,
     )
     encrypt_tls_key_with_password(namespace, secret_name, GRPC_KEY_PASSWORD)
+    create_keyfile_password_secret(namespace, GRPC_KEY_PASSWORD_SECRET_NAME, GRPC_KEY_PASSWORD)
     logger.info(f"gRPC server cert {secret_name} encrypted with password")
 
 
@@ -368,6 +381,7 @@ def test_create_x509_client_certificate(namespace: str, multi_cluster_issuer: st
         secret_name=X509_CLIENT_CERT_SECRET_NAME,
     )
     encrypt_tls_key_with_password(namespace, X509_CLIENT_CERT_SECRET_NAME, X509_AUTH_KEY_PASSWORD)
+    create_keyfile_password_secret(namespace, X509_KEY_PASSWORD_SECRET_NAME, X509_AUTH_KEY_PASSWORD)
     logger.info(f"X509 client cert {X509_CLIENT_CERT_SECRET_NAME} created and encrypted")
 
 
@@ -386,6 +400,8 @@ def test_replicate_secrets_to_members(
         search_resource_names.lb_client_cert_name(MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX),
         CA_CONFIGMAP_NAME,
         X509_CLIENT_CERT_SECRET_NAME,
+        GRPC_KEY_PASSWORD_SECRET_NAME,
+        X509_KEY_PASSWORD_SECRET_NAME,
     ]
 
     for secret_name in secrets_to_replicate:
