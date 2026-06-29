@@ -285,7 +285,7 @@ def per_cluster_mdbs_search(
 
 @mark.e2e_search_simulated_mc_sharded
 def test_install_central_mc_operator(central_mc_operator: Operator):
-    central_mc_operator.assert_is_running()
+    central_mc_operator.wait_for_operator_ready()
 
 
 @mark.e2e_search_simulated_mc_sharded

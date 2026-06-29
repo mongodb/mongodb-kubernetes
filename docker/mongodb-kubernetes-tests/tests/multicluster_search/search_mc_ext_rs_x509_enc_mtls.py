@@ -234,7 +234,7 @@ def x509_mongot_user(namespace: str, central_cluster_client: kubernetes.client.A
 
 @mark.e2e_search_ext_mc_rs_x509_enc_mtls
 def test_install_operator(multi_cluster_operator: Operator):
-    multi_cluster_operator.assert_is_running()
+    multi_cluster_operator.wait_for_operator_ready()
 
 
 @mark.e2e_search_ext_mc_rs_x509_enc_mtls

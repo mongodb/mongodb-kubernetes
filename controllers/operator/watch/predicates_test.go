@@ -4,30 +4,17 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/user"
-	appsv1 "k8s.io/api/apps/v1"
+	"github.com/mongodb/mongodb-kubernetes/pkg/handler"
 )
-
-func statefulSet(annotations map[string]string, replicas, readyReplicas int32) *appsv1.StatefulSet {
-	return &appsv1.StatefulSet{
-		ObjectMeta: metav1.ObjectMeta{Annotations: annotations, Generation: 1},
-		Spec:       appsv1.StatefulSetSpec{Replicas: ptr.To(replicas)},
-		Status: appsv1.StatefulSetStatus{
-			ObservedGeneration: 1,
-			Replicas:           replicas,
-			UpdatedReplicas:    readyReplicas,
-			ReadyReplicas:      readyReplicas,
-		},
-	}
-}
 
 func TestPredicatesForUser(t *testing.T) {
 	t.Run("No reconciliation for MongoDBUser if statuses are not equal", func(t *testing.T) {
