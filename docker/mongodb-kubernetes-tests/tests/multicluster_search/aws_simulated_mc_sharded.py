@@ -244,6 +244,11 @@ MONGOS_PER_CLUSTER: List[int | None] = [MONGOS_BY_CONTEXT[c] for c in SORTED_DAT
 
 MONGOT_REPLICAS_PER_CLUSTER = 1
 
+# mongot data on node-local NVMe (r5d.xlarge instance store) via the infra's local-volume
+# provisioner StorageClass, not EBS gp2. Local PVs are whole-disk (~139Gi); the request fits within.
+MONGOT_STORAGE_CLASS = "local-nvme"
+MONGOT_STORAGE_SIZE = "100Gi"
+
 CA_CONFIGMAP_NAME = f"{MDB_RESOURCE_NAME}-ca"
 
 SEARCH_INDEX_READY_TIMEOUT = 300
@@ -806,6 +811,7 @@ def per_cluster_mdbs_search(
                 "name": ctx,
                 "index": idx,
                 "replicas": MONGOT_REPLICAS_PER_CLUSTER,
+                "persistence": {"single": {"storage": MONGOT_STORAGE_SIZE, "storageClass": MONGOT_STORAGE_CLASS}},
                 "loadBalancer": {
                     "managed": {
                         "replicas": ENVOY_LB_REPLICAS,
