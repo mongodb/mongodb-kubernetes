@@ -41,6 +41,8 @@ def _load_env_from_local_file_for_development():
 
 _load_env_from_local_file_for_development()
 
+logging.getLogger("kubernetes.client.rest").setLevel(logging.WARNING)
+
 import kubernetes
 import kubernetes.client.rest
 import requests

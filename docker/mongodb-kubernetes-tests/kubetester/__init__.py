@@ -329,6 +329,30 @@ def get_statefulset(
     return client.AppsV1Api(api_client=api_client).read_namespaced_stateful_set(name, namespace)
 
 
+def scale_statefulset(
+    namespace: str,
+    name: str,
+    replicas: int,
+    api_client: Optional[client.ApiClient] = None,
+) -> None:
+    client.AppsV1Api(api_client=api_client).patch_namespaced_stateful_set(
+        name, namespace, {"spec": {"replicas": replicas}}
+    )
+
+
+def wait_for_statefulset_replicas(
+    namespace: str,
+    name: str,
+    replicas: int,
+    api_client: Optional[client.ApiClient] = None,
+    timeout: int = 120,
+):
+    def statefulset_has_replicas() -> bool:
+        return get_statefulset(namespace, name, api_client=api_client).spec.replicas == replicas
+
+    wait_until(statefulset_has_replicas, timeout=timeout)
+
+
 def statefulset_is_deleted(namespace: str, name: str, api_client: Optional[client.ApiClient]):
     try:
         get_statefulset(namespace, name, api_client=api_client)
@@ -338,6 +362,43 @@ def statefulset_is_deleted(namespace: str, name: str, api_client: Optional[clien
             return True
         else:
             raise e
+
+
+def wait_for_statefulset_recreated(
+    namespace: str,
+    name: str,
+    old_uid: str,
+    api_client: Optional[client.ApiClient] = None,
+    timeout: int = 120,
+):
+    def statefulset_is_recreated() -> bool:
+        try:
+            return get_statefulset(namespace, name, api_client=api_client).metadata.uid != old_uid
+        except client.ApiException as e:
+            if e.status == 404:
+                return False
+            raise e
+
+    wait_until(statefulset_is_recreated, timeout=timeout)
+
+
+def wait_for_statefulset_ready(
+    namespace: str,
+    name: str,
+    api_client: Optional[client.ApiClient] = None,
+    timeout: int = 600,
+):
+    def statefulset_is_ready() -> bool:
+        sts = get_statefulset(namespace, name, api_client=api_client)
+        wanted = sts.spec.replicas
+        return (
+            sts.status.observed_generation == sts.metadata.generation
+            and (sts.status.updated_replicas or 0) == wanted
+            and (sts.status.ready_replicas or 0) == wanted
+            and (sts.status.replicas or 0) == wanted
+        )
+
+    wait_until(statefulset_is_ready, timeout=timeout)
 
 
 def delete_cluster_role(name: str, api_client: Optional[client.ApiClient] = None):
@@ -502,7 +563,13 @@ def try_load(resource: CustomObject) -> bool:
     return True
 
 
-def wait_for_webhook(namespace, retries: int = 10, multi_cluster: bool = False, service_name="operator-webhook"):
+def wait_for_webhook(
+    namespace,
+    retries: int = 10,
+    multi_cluster: bool = False,
+    service_name="operator-webhook",
+    validation_endpoint: str = "validate-mongodb-com-v1-mongodb",
+):
     from tests.conftest import get_central_cluster_name, get_cluster_domain, get_test_pod_cluster_name, local_operator
 
     # we don't want to wait for the operator webhook if the operator is running locally and not in a pod
@@ -529,7 +596,6 @@ def wait_for_webhook(namespace, retries: int = 10, multi_cluster: bool = False, 
             )
 
     logger.debug("wait_for_webhook")
-    validation_endpoint = "validate-mongodb-com-v1-mongodb"
     webhook_endpoint = "https://{}.{}.svc.{}/{}".format(
         service_name, namespace, get_cluster_domain(), validation_endpoint
     )

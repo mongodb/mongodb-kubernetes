@@ -344,6 +344,27 @@ func (om *MongoDBOpsManager) GetKind() string {
 	return "MongoDBOpsManager"
 }
 
+// OwnerReferenceForMemberCluster returns the owner reference to this MongoDBOpsManager, or
+// nil in multi-cluster mode. Only call this when writing a resource to a member cluster, since
+// a cross-cluster ownerReference would cause the GC to orphan the resource immediately.
+// For resources written to the central cluster, use kube.BaseOwnerReference directly.
+func (om *MongoDBOpsManager) OwnerReferenceForMemberCluster() []metav1.OwnerReference {
+	if om.Spec.IsMultiCluster() {
+		return nil
+	}
+	return kube.BaseOwnerReference(om)
+}
+
+// AppDBOwnerReferenceForMemberCluster returns the owner reference to this MongoDBOpsManager
+// for AppDB-owned resources, or nil when the AppDB is deployed in multi-cluster mode.
+// Only call this when writing a resource to a member cluster.
+func (om *MongoDBOpsManager) AppDBOwnerReferenceForMemberCluster() []metav1.OwnerReference {
+	if om.Spec.AppDB.IsMultiCluster() {
+		return nil
+	}
+	return kube.BaseOwnerReference(om)
+}
+
 // MongoDBOpsManagerServiceDefinition struct that defines the mechanism by which this Ops Manager resource
 // is exposed, via a Service, to the outside of the Kubernetes Cluster.
 type MongoDBOpsManagerServiceDefinition struct {

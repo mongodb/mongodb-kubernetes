@@ -173,6 +173,16 @@ function kind_wait_for_nodes_are_ready() {
   kubectl --kubeconfig "${kubeconfig_path}" wait nodes --all --for=condition=ready --timeout=600s >/dev/null
 }
 
+function kind_wait_for_rbac_bootstrap() {
+  echo "waiting for RBAC bootstrap"
+  local i=0
+  while ! kubectl --kubeconfig "${kubeconfig_path}" get clusterrole cluster-admin &>/dev/null; do
+    [[ ${i} -ge 120 ]] && { echo "ERROR: RBAC bootstrap timed out"; return 1; }
+    printf "."; sleep 1; i=$((i + 1))
+  done
+  echo ""
+}
+
 function kind_install_metallb() {
   echo "installing metallb"
   kubectl get --kubeconfig "${kubeconfig_path}" nodes -owide
@@ -236,6 +246,7 @@ fi
 
 kind_configure_local_registry
 kind_wait_for_nodes_are_ready
+kind_wait_for_rbac_bootstrap
 kind_install_metallb
 kind_install_metrics_server
 
