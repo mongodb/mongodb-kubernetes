@@ -78,11 +78,20 @@ type BackupVersion struct {
 	BaseUrl string `json:"baseUrl"`
 }
 
+// MonitoringLogRotate is the log rotation config for the monitoring module in monitoringVersions.
+// sizeThresholdMB and timeThresholdHrs map to -maxLogFileSizeBytes and -maxLogFileDurationHrs
+// CLI flags passed to the monitoring module binary by the automation agent.
+type MonitoringLogRotate struct {
+	SizeThresholdMB  int `json:"sizeThresholdMB"`
+	TimeThresholdHrs int `json:"timeThresholdHrs"`
+}
+
 type MonitoringVersion struct {
-	Hostname         string            `json:"hostname"`
-	Name             string            `json:"name"`
-	BaseUrl          string            `json:"baseUrl"`
-	AdditionalParams map[string]string `json:"additionalParams,omitempty"`
+	LogRotate        *MonitoringLogRotate `json:"logRotate,omitempty"`
+	Hostname         string               `json:"hostname"`
+	Name             string               `json:"name"`
+	BaseUrl          string               `json:"baseUrl"`
+	AdditionalParams map[string]string    `json:"additionalParams,omitempty"`
 }
 
 // CrdLogRotate is the crd definition of LogRotate including fields in strings while the agent supports them as float64
