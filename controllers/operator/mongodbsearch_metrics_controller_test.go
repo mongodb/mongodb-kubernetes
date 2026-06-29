@@ -13,6 +13,7 @@ import (
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -894,6 +895,57 @@ func TestReconcile_ExplicitProjectConfig(t *testing.T) {
 	updatedSearch := getMongoDBSearch(t, fakeClient, testNamespace, testSearchName)
 	require.NotNil(t, updatedSearch.Status.MetricsForwarder)
 	assert.Equal(t, status.PhaseRunning, updatedSearch.Status.MetricsForwarder.Phase)
+}
+
+// TestReconcile_ShardedSource_ConfigMapUsesClusterIndex verifies that for a sharded source on a
+// non-zero-index cluster, the rendered OTel config's shard-name extraction regex uses that cluster's
+// index. A hardcoded index would match nothing on member clusters with index != 0, silently failing
+// to attribute per-shard metrics in Ops Manager.
+func TestReconcile_ShardedSource_ConfigMapUsesClusterIndex(t *testing.T) {
+	const clusterIndex = 2
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: testSearchName, Namespace: testNamespace},
+		Spec: searchv1.MongoDBSearchSpec{
+			Source: &searchv1.MongoDBSource{
+				ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{
+					ShardedCluster: &searchv1.ExternalShardedClusterConfig{
+						Router: searchv1.ExternalRouterConfig{Hosts: []string{"mongos.example.com:27017"}},
+						Shards: []searchv1.ExternalShardConfig{
+							{ShardName: "shard0", Hosts: []string{"shard0.example.com:27017"}},
+						},
+					},
+				},
+			},
+			Observability: searchv1.ObservabilityConfig{
+				MetricsForwarder: searchv1.MetricsForwarderConfig{
+					Mode: searchv1.MetricsForwarderModeEnabled,
+					OpsManager: &searchv1.MetricsForwarderOpsManagerConfig{
+						AgentCredentials:    corev1.LocalObjectReference{Name: "my-agent-secret"},
+						ProjectConfigMapRef: corev1.LocalObjectReference{Name: testProjectCMName},
+					},
+				},
+			},
+			Clusters: []searchv1.ClusterSpec{{Name: "", Index: ptr.To(int32(clusterIndex))}},
+		},
+		Status: searchv1.MongoDBSearchStatus{Version: "1.0.0"},
+	}
+	projectCM := newTestProjectConfigMap(testProjectCMName, testNamespace, testOMBaseURL)
+	agentSecret := newTestAgentKeySecret("my-agent-secret", testNamespace)
+
+	r, fakeClient := newMetricsForwarderReconciler(testDefaultImage, search, projectCM, agentSecret)
+	reconcileMetricsForwarder(t, r, testNamespace, testSearchName)
+
+	cm := &corev1.ConfigMap{}
+	err := fakeClient.Get(context.Background(), types.NamespacedName{
+		Namespace: testNamespace,
+		Name:      search.MetricsForwarderConfigMapNameForCluster(clusterIndex),
+	}, cm)
+	require.NoError(t, err)
+
+	assert.Contains(t, cm.Data["config.yaml"], fmt.Sprintf("%s-search-%d-(.+)-svc", testSearchName, clusterIndex),
+		"shard.name regex must extract using the cluster index")
+	assert.NotContains(t, cm.Data["config.yaml"], fmt.Sprintf("%s-search-0-(.+)-svc", testSearchName),
+		"shard.name regex must not hardcode index 0 for a non-zero-index cluster")
 }
 
 func TestReconcile_ExternalSource_NoOpsManagerConfig_Invalid(t *testing.T) {
