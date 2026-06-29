@@ -8,6 +8,7 @@ from typing import Dict, List, Optional, Tuple
 
 import yaml
 from kubernetes import client
+from kubernetes.client.rest import ApiException
 from tests import test_logger
 from tests.constants import (
     DEFAULT_HELM_CHART_PATH_ENV_VAR_NAME,
@@ -276,7 +277,17 @@ def apply_operator_config_crd(api_client=None):
     api = client.ApiextensionsV1Api(api_client=api_client)
 
     logger.info(f"Applying OperatorConfig CRD from file: {OPERATOR_CONFIG_CRD_FILE}")
-    api.create_custom_resource_definition(body=crd_body)
+    try:
+        api.create_custom_resource_definition(body=crd_body)
+    except ApiException as e:
+        if e.status != 409:
+            raise
+        # CRD already exists — replace it so any schema changes in the file are applied.
+        # resourceVersion is required for a replace; copy it from the live object.
+        existing = api.read_custom_resource_definition(OPERATOR_CONFIG_CRD_NAME)
+        crd_body["metadata"]["resourceVersion"] = existing.metadata.resource_version
+        api.replace_custom_resource_definition(OPERATOR_CONFIG_CRD_NAME, crd_body)
+        logger.info("OperatorConfig CRD already existed; replaced with current version")
 
     logger.info("Waiting for the OperatorConfig CRD to be established")
     timeout_seconds = 60

@@ -895,7 +895,7 @@ def _install_multi_cluster_operator(
     if create_operator_config:
         operator.apply_operator_config_and_wait(multi_cluster=True)
     else:
-        operator.assert_is_running()
+        operator.wait_for_operator_ready()
 
     # If we're running locally, then immediately after installing the deployment, we scale it to zero.
     # This way operator in POD is not interfering with locally running one.

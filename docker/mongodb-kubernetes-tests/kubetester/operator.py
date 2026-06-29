@@ -159,8 +159,8 @@ class Operator(object):
         from kubetester.kubetester import apply_operator_config_from_test_env
 
         def wait_for_ready():
-            self._wait_for_operator_ready()
-            self._wait_operator_webhook_is_ready(multi_cluster=multi_cluster)
+            self.wait_for_operator_ready()
+            self.wait_for_operator_webhook_ready(multi_cluster=multi_cluster)
 
         apply_operator_config_from_test_env(
             self.namespace, api_client=self.api_client, name=self.name, wait_for_ready=wait_for_ready
