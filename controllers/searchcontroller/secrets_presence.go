@@ -100,6 +100,16 @@ func expectedClusterInvariantSecretNames(search *searchv1.MongoDBSearch) []strin
 	if search.HasScramClientCert() {
 		names = append(names, search.ScramClientCertSecret().Name)
 	}
+	// Dedicated keyFilePassword secrets (customer-replicated per cluster, cluster-invariant).
+	for _, nn := range []types.NamespacedName{
+		search.GrpcKeyFilePasswordSecret(),
+		search.X509KeyFilePasswordSecret(),
+		search.ScramKeyFilePasswordSecret(),
+	} {
+		if nn.Name != "" {
+			names = append(names, nn.Name)
+		}
+	}
 	slices.Sort(names)
 	return slices.Compact(names)
 }
