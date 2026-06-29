@@ -38,9 +38,9 @@ logger = test_logger.get_test_logger(__name__)
 # Shared simulated-MC constants
 # ---------------------------------------------------------------------------
 
-ENVOY_LB_REPLICAS = 1
+ENVOY_LB_REPLICAS = 2
 ENVOY_PROXY_PORT = 27028
-SIMULATED_OPERATOR_NAME = "mongodb-kubernetes-operator-simulated"
+SIMULATED_OPERATOR_NAME = "mongodb-kubernetes"
 
 ADMIN_USER_NAME = "mdb-admin-user"
 ADMIN_USER_PASSWORD = "mdb-admin-user-pass"
