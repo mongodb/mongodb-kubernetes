@@ -62,6 +62,11 @@ type Client struct {
 
 	// Enable debugging information on this client
 	debug bool
+
+	// AfterSuccessfulPUT, if set, is called after every successful PUT response.
+	// path is the API path (e.g. /api/public/v1.0/groups/…/automationConfig).
+	// body is the JSON that was sent. Used for AC snapshot debugging (MDB_AC_SNAPSHOT=true).
+	AfterSuccessfulPUT func(path string, body []byte)
 }
 
 // NewHTTPClient is a functional options constructor, based on this blog post:
@@ -176,7 +181,13 @@ func (client *Client) Request(method, hostname, path string, v interface{}) ([]b
 		}
 	}
 
-	return client.sendRequest(method, url, path, req)
+	respBody, headers, err := client.sendRequest(method, url, path, req)
+	if err == nil && method == http.MethodPut && client.AfterSuccessfulPUT != nil {
+		if data, serErr := json.Marshal(v); serErr == nil {
+			client.AfterSuccessfulPUT(path, data)
+		}
+	}
+	return respBody, headers, err
 }
 
 // RequestWithAgentAuth executes an HTTP request using Basic authorization with the agent API key

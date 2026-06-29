@@ -209,6 +209,9 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	if err != nil {
 		return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("failed to prepare Ops Manager connection: %w", err)))
 	}
+	if util.ShouldSnapshotAC() {
+		attachACSnapshotHook(ctx, reconciler.client, conn, rs.Namespace, rs.Name, log)
+	}
 
 	if status := ensureSupportedOpsManagerVersion(conn); status.Phase() != mdbstatus.PhaseRunning {
 		return r.updateStatus(ctx, status)
