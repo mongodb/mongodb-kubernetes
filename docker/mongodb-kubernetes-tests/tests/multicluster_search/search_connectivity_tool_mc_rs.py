@@ -24,6 +24,7 @@ from tests.common.search.connectivity import (
     assert_disruption_observed,
     hard_kill_pods_by_label,
     paging_baseline_and_fault,
+    wait_for_mongot_pvcs_deleted,
     wait_for_mongot_statefulset_drained,
     wait_for_pods_by_label_replaced,
 )
@@ -168,10 +169,22 @@ class TestSearchConnectivityToolMC:
                         f"served while {outage_label} mongot was scaled to 0"
                     )
             finally:
+                # Under WhenScaled:Delete the mongot PVC is GC'd asynchronously on
+                # scale-to-0; restoring replicas while the old claim is still
+                # Terminating wedges the StatefulSet controller (pod never recreated,
+                # stuck at current:0), so wait for the claim to be gone first.
+                wait_for_mongot_pvcs_deleted(
+                    namespace,
+                    sts_name,
+                    api_client=outage_mcc.api_client,
+                    timeout=300,
+                )
                 mdbs.load()
                 mdbs["spec"]["clusters"] = [dict(c) for c in original_clusters]
                 mdbs.update()
-                mdbs.assert_reaches_phase(Phase.Running, timeout=600)
+                # The fresh per-cluster replica must reindex from mongod before it
+                # reports Ready, so allow a generous window.
+                mdbs.assert_reaches_phase(Phase.Running, timeout=1200)
                 logger.info(f"{outage_label}: restored per-cluster replicas, MDBS back to Running")
 
     def test_paging_through_per_cluster_envoy_restart(
@@ -258,10 +271,22 @@ class TestSearchConnectivityToolMC:
                 wait_for_mongot_statefulset_drained(sts_name, namespace, api_client=outage_mcc.api_client, timeout=300)
                 fleet.wait_for_operations_all(40)  # observe through the outage
             finally:
+                # Under WhenScaled:Delete the mongot PVC is GC'd asynchronously on
+                # scale-to-0; restoring replicas while the old claim is still
+                # Terminating wedges the StatefulSet controller (pod never recreated,
+                # stuck at current:0), so wait for the claim to be gone first.
+                wait_for_mongot_pvcs_deleted(
+                    namespace,
+                    sts_name,
+                    api_client=outage_mcc.api_client,
+                    timeout=300,
+                )
                 mdbs.load()
                 mdbs["spec"]["clusters"] = [dict(c) for c in original_clusters]
                 mdbs.update()
-                mdbs.assert_reaches_phase(Phase.Running, timeout=600)
+                # The fresh per-cluster replica must reindex from mongod before it
+                # reports Ready, so allow a generous window.
+                mdbs.assert_reaches_phase(Phase.Running, timeout=1200)
                 logger.info(f"restored cluster {outage_idx} mongot replicas, MDBS back to Running")
 
         fleet.assert_single_cluster_outage(outage_idx)
