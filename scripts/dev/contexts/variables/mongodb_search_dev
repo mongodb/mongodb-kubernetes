@@ -6,3 +6,7 @@ set -Eeou pipefail
 export MDB_SEARCH_VERSION="72ae26a806"
 export MDB_SEARCH_NAME="staging/mongodb-search"
 export MDB_SEARCH_REPO_URL="268558157000.dkr.ecr.us-east-1.amazonaws.com"
+
+# Keep multi-cluster search reconciliation enabled for the existing search e2e suite;
+# the block-on variant overrides this back to the default.
+export MDB_SEARCH_ENABLE_MULTI_CLUSTER="true"

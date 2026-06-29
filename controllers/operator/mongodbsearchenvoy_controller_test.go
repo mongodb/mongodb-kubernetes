@@ -1095,6 +1095,7 @@ func TestBuildClusterWorkList_UnpinnedEntry_IndexZero(t *testing.T) {
 }
 
 func TestReconcileForCluster_UnknownClusterPending(t *testing.T) {
+	enableSearchMCReconcile(t)
 	ctx := context.Background()
 	scheme := envoyTestScheme(t)
 	search := &searchv1.MongoDBSearch{
@@ -1215,6 +1216,7 @@ func TestEnsureDeployment_Replicas(t *testing.T) {
 // (succeeds), the other isn't (Pending). The top-level Phase must be the
 // worst-of across both clusters (Pending here).
 func TestReconcile_WorstOfPhase_Aggregated(t *testing.T) {
+	enableSearchMCReconcile(t)
 	ctx := context.Background()
 	scheme := envoyTestScheme(t)
 	memberA := fake.NewClientBuilder().WithScheme(scheme).Build()
@@ -1323,6 +1325,7 @@ func TestReconcile_AllClustersFailed_TopLevelPhaseIsFailed(t *testing.T) {
 // <name>-search-state ConfigMap present, a fully-registered MC spec still renders
 // its Envoy resources at the pinned indices.
 func TestReconcile_NoStateCM_RendersFromPins(t *testing.T) {
+	enableSearchMCReconcile(t)
 	ctx := context.Background()
 	scheme := envoyTestScheme(t)
 	memberA := fake.NewClientBuilder().WithScheme(scheme).Build()
@@ -1373,6 +1376,7 @@ func TestReconcile_NoStateCM_RendersFromPins(t *testing.T) {
 // TestReconcile_UsesPinnedIndices asserts that Envoy resources are named with
 // the spec.clusters[].clusterIndex pins, not the cluster names.
 func TestReconcile_UsesPinnedIndices(t *testing.T) {
+	enableSearchMCReconcile(t)
 	ctx := context.Background()
 	scheme := envoyTestScheme(t)
 	memberA := fake.NewClientBuilder().WithScheme(scheme).Build()
@@ -1453,6 +1457,7 @@ func TestReconcile_UsesPinnedIndices(t *testing.T) {
 // cluster from spec.clusters does not shift the indices of remaining clusters.
 // "b" at index 1 must still be index 1 after "a" is removed.
 func TestReconcile_StableIndexAcrossClusterRemovals(t *testing.T) {
+	enableSearchMCReconcile(t)
 	ctx := context.Background()
 	scheme := envoyTestScheme(t)
 	memberB := fake.NewClientBuilder().WithScheme(scheme).Build()
@@ -1640,6 +1645,7 @@ func TestEnvoyConfigHash_WhitespaceInvariant(t *testing.T) {
 // switched-on shards route to their own mongot cluster; switched-off shards route
 // to mongot_cluster_level_cluster with the routed_from_another_shard header.
 func TestReconcile_RoutingReadyFromState_DrivesFallbackRoutes(t *testing.T) {
+	enableSearchMCReconcile(t)
 	ctx := context.Background()
 	scheme := envoyTestScheme(t)
 
@@ -1854,6 +1860,7 @@ func TestEnqueueMemberClusterObjectToSearch(t *testing.T) {
 }
 
 func TestEnvoyReconcile_LBCleanup_DeletesAtPinnedIndex(t *testing.T) {
+	enableSearchMCReconcile(t)
 	ctx := context.Background()
 	scheme := envoyTestScheme(t)
 
@@ -1908,6 +1915,7 @@ func TestEnvoyReconcile_MultiCluster_FailedFirstThenOK_AggregatesFailed(t *testi
 }
 
 func TestEnvoyReconcile_SimulatedMC_Match_RendersAtPinnedIndex(t *testing.T) {
+	enableSearchMCReconcile(t)
 	ctx := context.Background()
 	scheme := envoyTestScheme(t)
 
@@ -1947,6 +1955,7 @@ func TestEnvoyReconcile_SimulatedMC_Match_RendersAtPinnedIndex(t *testing.T) {
 }
 
 func TestEnvoyReconcile_SimulatedMC_MissingClusterIndex_Invalid(t *testing.T) {
+	enableSearchMCReconcile(t)
 	ctx := context.Background()
 	scheme := envoyTestScheme(t)
 
@@ -1972,6 +1981,7 @@ func TestEnvoyReconcile_SimulatedMC_MissingClusterIndex_Invalid(t *testing.T) {
 }
 
 func TestEnvoyReconcile_SimulatedMC_NoMatchSilentNoOp(t *testing.T) {
+	enableSearchMCReconcile(t)
 	ctx := context.Background()
 	scheme := envoyTestScheme(t)
 
@@ -2003,6 +2013,7 @@ func TestEnvoyReconcile_SimulatedMC_NoMatchSilentNoOp(t *testing.T) {
 }
 
 func TestEnvoyReconcile_UnregisteredCluster_PendingAndNoCentralWrites(t *testing.T) {
+	enableSearchMCReconcile(t)
 	ctx := context.Background()
 	scheme := envoyTestScheme(t)
 
@@ -2136,6 +2147,7 @@ func TestBuildRoutesForCluster_LBResolvedByName_NotSpecPosition(t *testing.T) {
 // configured replica count, landing at its pinned index (1) regardless of its
 // spec position (0).
 func TestReconcile_LBConfigSurvivesClusterRemoval(t *testing.T) {
+	enableSearchMCReconcile(t)
 	ctx := context.Background()
 	scheme := envoyTestScheme(t)
 	memberB := fake.NewClientBuilder().WithScheme(scheme).Build()
