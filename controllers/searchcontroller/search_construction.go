@@ -41,9 +41,13 @@ const (
 	SearchReadinessProbePath     = "/ready"
 	tlsCACertName                = "ca.crt"
 
+	// KeyFilePasswordSecretKey is the fixed key inside a dedicated keyFilePassword secret
+	// (spec.*.keyFilePasswordSecretRef) holding the password that decrypts a password-encrypted
+	// PEM private key.
+	KeyFilePasswordSecretKey = "keyFilePassword" // #nosec G101 -- secret key name, not a password
+
 	X509KeyPasswordMountPath        = "/mongot/x509-key-password"           // #nosec G101 -- path, not a password
 	TempX509KeyPasswordPath         = tempVolumePath + "/x509-key-password" // #nosec G101 -- path, not a password
-	X509KeyPasswordSecretKey        = "tls.keyFilePassword"                 // #nosec G101 -- secret key name, not a password
 	X509ClientCertOperatorMountPath = "/var/lib/tls/x509-client/"
 
 	ServerNamePlaceholder = "__SERVER_NAME__"
@@ -55,12 +59,10 @@ const (
 
 	GrpcKeyPasswordMountPath = "/mongot/grpc-key-password"           // #nosec G101 -- path, not a password
 	TempGrpcKeyPasswordPath  = tempVolumePath + "/grpc-key-password" // #nosec G101 -- path, not a password
-	GrpcKeyPasswordSecretKey = "tls.keyFilePassword"                 // #nosec G101 -- secret key name, not a password
 
 	ScramClientCertOperatorMountPath = "/var/lib/tls/scram-client/"
 	ScramKeyPasswordMountPath        = "/mongot/scram-key-password"           // #nosec G101 -- path, not a password
 	TempScramKeyPasswordPath         = tempVolumePath + "/scram-key-password" // #nosec G101 -- path, not a password
-	ScramKeyPasswordSecretKey        = "tls.keyFilePassword"                  // #nosec G101 -- secret key name, not a password
 )
 
 // SearchSourceDBResource is an object wrapping a MongoDBCommunity object

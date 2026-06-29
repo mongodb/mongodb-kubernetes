@@ -32,7 +32,7 @@ from tests.common.search.sharded_search_helper import (
     create_lb_certificates,
     create_per_shard_search_tls_certs,
 )
-from tests.common.search.tls_utils import encrypt_tls_key_with_password
+from tests.common.search.tls_utils import create_keyfile_password_secret, encrypt_tls_key_with_password
 from tests.conftest import get_issuer_ca_filepath
 from tests.multicluster.conftest import cluster_spec_list
 
@@ -64,8 +64,12 @@ SOURCE_CERT_PREFIX = "clustercert"
 
 # Encrypted key passwords
 GRPC_KEY_PASSWORD = "test-grpc-key-password"
+# Dedicated secret holding the gRPC keyfile password (spec.security.tls.keyFilePasswordSecretRef)
+GRPC_KEY_PASSWORD_SECRET_NAME = f"{MDBS_RESOURCE_NAME}-grpc-key-password"
 SCRAM_CLIENT_CERT_SECRET_NAME = f"{MDBS_RESOURCE_NAME}-scram-tls-user"
 SCRAM_KEY_PASSWORD = "test-scram-key-password"
+# Dedicated secret holding the scram keyfile password (spec.source.tls.keyFilePasswordSecretRef)
+SCRAM_KEY_PASSWORD_SECRET_NAME = f"{MDBS_RESOURCE_NAME}-scram-key-password"
 
 SEARCH_INDEX_READY_TIMEOUT = 300
 SEARCH_QUERY_RETRY_TIMEOUT = 60
@@ -199,10 +203,18 @@ def mdbs(
             "shardedCluster": {"router": {"hosts": router_hosts}, "shards": shards},
             "tls": {"ca": {"name": ca_configmap}},
         },
-        "tls": {"clientCertificateSecretRef": {"name": SCRAM_CLIENT_CERT_SECRET_NAME}},
+        "tls": {
+            "clientCertificateSecretRef": {"name": SCRAM_CLIENT_CERT_SECRET_NAME},
+            "keyFilePasswordSecretRef": {"name": SCRAM_KEY_PASSWORD_SECRET_NAME},
+        },
     }
 
-    resource["spec"]["security"] = {"tls": {"certsSecretPrefix": MDBS_TLS_CERT_PREFIX}}
+    resource["spec"]["security"] = {
+        "tls": {
+            "certsSecretPrefix": MDBS_TLS_CERT_PREFIX,
+            "keyFilePasswordSecretRef": {"name": GRPC_KEY_PASSWORD_SECRET_NAME},
+        }
+    }
 
     resource["spec"]["clusters"] = [
         {
@@ -360,6 +372,9 @@ def test_create_search_certs(
             encrypt_tls_key_with_password(namespace, secret_name, GRPC_KEY_PASSWORD)
         logger.info(f"Per-shard gRPC certs encrypted for cluster_index={i}")
 
+    # One gRPC keyfile password secret shared by every per-shard cert.
+    create_keyfile_password_secret(namespace, GRPC_KEY_PASSWORD_SECRET_NAME, GRPC_KEY_PASSWORD)
+
     create_lb_certificates(
         namespace=namespace,
         issuer=multi_cluster_issuer,
@@ -384,6 +399,7 @@ def test_create_scram_client_certificate(namespace: str, multi_cluster_issuer: s
         secret_name=SCRAM_CLIENT_CERT_SECRET_NAME,
     )
     encrypt_tls_key_with_password(namespace, SCRAM_CLIENT_CERT_SECRET_NAME, SCRAM_KEY_PASSWORD)
+    create_keyfile_password_secret(namespace, SCRAM_KEY_PASSWORD_SECRET_NAME, SCRAM_KEY_PASSWORD)
     logger.info(f"SCRAM client cert {SCRAM_CLIENT_CERT_SECRET_NAME} created and encrypted")
 
 
@@ -402,6 +418,8 @@ def test_replicate_secrets_to_members(
         search_resource_names.lb_client_cert_name(MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX),
         f"{MDBS_RESOURCE_NAME}-{MONGOT_USER_NAME}-password",
         SCRAM_CLIENT_CERT_SECRET_NAME,
+        GRPC_KEY_PASSWORD_SECRET_NAME,
+        SCRAM_KEY_PASSWORD_SECRET_NAME,
     ]:
         secret_type = central_core.read_namespaced_secret(name=secret_name, namespace=namespace).type or "Opaque"
         data = read_secret(namespace, secret_name, api_client=central_cluster_client)
