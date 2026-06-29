@@ -147,6 +147,7 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, sizing searc
 		statefulset.WithReplicas(sizing.ReplicasOrDefault()),
 		statefulset.WithUpdateStrategyType(appsv1.RollingUpdateStatefulSetStrategyType),
 		dataVolumeClaim,
+		withDataPVCRetentionPolicy(),
 		statefulset.WithPodSpecTemplate(
 			podtemplatespec.Apply(
 				podSecurityContext,
@@ -163,6 +164,18 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, sizing searc
 	}
 
 	return statefulset.Apply(stsModifications...)
+}
+
+// withDataPVCRetentionPolicy reclaims the mongot index PVC on StatefulSet delete
+// (CR removed) and on scale-down. The index is rebuildable, so freeing the storage
+// immediately is safe — a later scale-up reindexes from mongod.
+func withDataPVCRetentionPolicy() statefulset.Modification {
+	return func(sts *appsv1.StatefulSet) {
+		sts.Spec.PersistentVolumeClaimRetentionPolicy = &appsv1.StatefulSetPersistentVolumeClaimRetentionPolicy{
+			WhenDeleted: appsv1.DeletePersistentVolumeClaimRetentionPolicyType,
+			WhenScaled:  appsv1.DeletePersistentVolumeClaimRetentionPolicyType,
+		}
+	}
 }
 
 // StatefulSetOverrideModification applies the resolved clusters[].statefulSet, with any
