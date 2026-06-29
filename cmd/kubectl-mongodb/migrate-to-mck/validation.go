@@ -6,7 +6,7 @@ import (
 	"slices"
 
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
-	"github.com/mongodb/mongodb-kubernetes/controllers/operator/ldap"
+	authn "github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
 	pkgtls "github.com/mongodb/mongodb-kubernetes/pkg/tls"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
@@ -52,7 +52,8 @@ func ValidateMigration(ac *om.AutomationConfig, processMap map[string]om.Process
 	results = append(results, validateX509(ac.Auth)...)
 	results = append(results, validateAgentTLS(ac.AgentSSL)...)
 	results = append(results, validateAgentConfig(projectConfigs)...)
-	results = append(results, validateLDAP(ac.Ldap)...)
+	results = append(results, validateLDAP(ac)...)
+	results = append(results, validatePrometheus(ac.Deployment)...)
 	results = append(results, validateProjectOptions(ac.Deployment)...)
 	results = append(results, validateMemberPreservedFields(ac.Deployment)...)
 	for _, r := range results {
@@ -256,8 +257,9 @@ func validateAgentConfig(configs *ProjectConfigs) []ValidationResult {
 	return results
 }
 
-// validateLDAP checks bindMethod is "simple" and warns when a CA certificate is present.
-func validateLDAP(l *ldap.Ldap) []ValidationResult {
+// validateLDAP checks bindMethod is "simple" and warns when passwords or CA are present.
+func validateLDAP(ac *om.AutomationConfig) []ValidationResult {
+	l := ac.Ldap
 	if l == nil {
 		return nil
 	}
@@ -270,11 +272,25 @@ func validateLDAP(l *ldap.Ldap) []ValidationResult {
 			Message:  fmt.Sprintf("LDAP bindMethod %q is not supported by the operator. Only \"simple\" is supported", l.BindMethod),
 		})
 	}
+	if l.BindQueryPassword != "" {
+		results = append(results, ValidationResult{
+			Severity: SeverityWarning,
+			Message:  fmt.Sprintf("LDAP bind query password is present in the automation config. The tool will create Secret %q with key %q containing the password automatically.", LdapBindQuerySecretName, passwordSecretDataKey),
+		})
+	}
 	if l.CaFileContents != "" {
 		results = append(results, ValidationResult{
 			Severity: SeverityWarning,
 			Message:  "LDAP CA certificate is present. The tool will create ConfigMap \"ldap-ca\" with key \"ca.pem\" automatically.",
 		})
+	}
+	if ac.Auth != nil && ac.Auth.AutoPwd != "" {
+		if mode, ok := authn.MapMechanismToAuthMode(ac.Auth.AutoAuthMechanism); ok && mode == util.LDAP {
+			results = append(results, ValidationResult{
+				Severity: SeverityWarning,
+				Message:  fmt.Sprintf("LDAP agent password (auth.autoPwd) is present. The tool will create Secret %q with key %q containing the password automatically.", LdapAgentPasswordSecretName, passwordSecretDataKey),
+			})
+		}
 	}
 
 	return results
@@ -370,6 +386,18 @@ func validateProcessesAreValid(d om.Deployment) []ValidationResult {
 }
 
 // validateAuthSchemaVersion checks each mongod process has the expected authSchemaVersion.
+// validatePrometheus warns when Prometheus is enabled, since a pre-created Secret is required.
+func validatePrometheus(d om.Deployment) []ValidationResult {
+	prom := d.GetPrometheus()
+	if prom == nil || !prom.Enabled {
+		return nil
+	}
+	return []ValidationResult{{
+		Severity: SeverityWarning,
+		Message:  fmt.Sprintf("Prometheus is enabled for user %q. Create a Kubernetes Secret with key %q containing the password, then pass --prometheus-secret-name to reference it.", prom.Username, passwordSecretDataKey),
+	}}
+}
+
 func validateAuthSchemaVersion(d om.Deployment) []ValidationResult {
 	var results []ValidationResult
 	for _, proc := range d.GetProcesses() {

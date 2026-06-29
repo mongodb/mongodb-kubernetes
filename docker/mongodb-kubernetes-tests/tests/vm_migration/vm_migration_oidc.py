@@ -9,9 +9,11 @@ into the generated CR and that an OIDC identity can still authenticate after the
 Requires the Cognito test environment (the cognito_* expansions). The test skips when they are absent.
 """
 
+import json
+
 import kubetester.oidc as oidc
 from kubetester import create_or_update_secret, get_statefulset
-from kubetester.kubetester import KubernetesTester, ensure_ent_version, fcv_from_version
+from kubetester.kubetester import KubernetesTester, fcv_from_version
 from kubetester.mongodb import MongoDB
 from kubetester.mongotester import with_scram
 from kubetester.omtester import OMContext, OMTester
@@ -46,6 +48,7 @@ APP_USER = "app-user"
 APP_USER_PASSWORD = "appUserOidc!"
 SCRAM_MECHANISM = "SCRAM-SHA-256"
 OIDC_MECHANISM = "MONGODB-OIDC"
+MDB_VERSION = "8.0.4-ent"
 # configurationName / authNamePrefix; the OIDC username is "<prefix>/<subject>".
 OIDC_CONFIG_NAME = "OIDC-test-user"
 
@@ -89,13 +92,12 @@ def _configure_ac(
     om_tester: OMTester,
     vm_sts: dict,
     vm_service: dict,
-    mdb_version: str,
     cognito: dict,
     oidc_username: str,
 ):
     """SCRAM agent plus an OIDC (workload M2M) provider. The application user authenticates with SCRAM,
     the OIDC identity authenticates via the external identity provider."""
-    mdb_version = ensure_ent_version(mdb_version)
+    mdb_version = MDB_VERSION
     ac = om_tester.api_get_automation_config()
     if len(ac["processes"]) > 0:
         return
@@ -117,7 +119,10 @@ def _configure_ac(
             {
                 "user": APP_USER,
                 "db": "admin",
-                "roles": [{"role": "readWrite", "db": "migration_data"}],
+                "roles": [
+                    {"role": "readWrite", "db": "admin"},
+                    {"role": "readWrite", "db": "migration_data"},
+                ],
                 "mechanisms": [SCRAM_MECHANISM],
                 "scramSha256Creds": build_sha256_creds(APP_USER_PASSWORD),
                 "authenticationRestrictions": [],
@@ -185,7 +190,18 @@ def _configure_ac(
                     "storage": {"dbPath": "/data/"},
                     "systemLog": {"path": "/data/mongodb.log", "destination": "file"},
                     "replication": {"replSetName": rs_name},
-                    "setParameter": {"authenticationMechanisms": f"{SCRAM_MECHANISM},{OIDC_MECHANISM}"},
+                    "setParameter": {
+                        "authenticationMechanisms": f"{SCRAM_MECHANISM},{OIDC_MECHANISM}",
+                        "oidcIdentityProviders": json.dumps([
+                            {
+                                "issuer": cognito["issuer_uri"],
+                                "audience": cognito["client_id"],
+                                "authNamePrefix": OIDC_CONFIG_NAME,
+                                "principalName": "sub",
+                                "supportsHumanFlows": False,
+                            }
+                        ]),
+                    },
                 },
             }
         )
@@ -243,11 +259,10 @@ def test_configure_ac(
     om_tester: OMTester,
     vm_sts,
     vm_service,
-    custom_mdb_version,
     cognito: dict,
     oidc_username: str,
 ):
-    _configure_ac(namespace, om_tester, vm_sts, vm_service, custom_mdb_version, cognito, oidc_username)
+    _configure_ac(namespace, om_tester, vm_sts, vm_service, cognito, oidc_username)
     om_tester.wait_agents_ready(timeout=600)
 
 
@@ -256,6 +271,11 @@ def test_user_connectivity_before_migration(namespace: str):
     vm_replica_set_tester(namespace).assert_scram_sha_authentication(
         username=APP_USER, password=APP_USER_PASSWORD, auth_mechanism=SCRAM_MECHANISM
     )
+
+
+@mark.e2e_vm_migration_oidc
+def test_oidc_authentication_before_migration(namespace: str):
+    vm_replica_set_tester(namespace, use_ssl=False).assert_oidc_authentication()
 
 
 @mark.e2e_vm_migration_oidc

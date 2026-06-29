@@ -263,9 +263,6 @@ def _configure_ac_with_tls(namespace: str, om_tester: OMTester, vm_sts: dict, vm
                         "destination": "file",
                     },
                     "replication": {"replSetName": rs_name},
-                    "setParameter": {
-                        "authenticationMechanisms": "SCRAM-SHA-256",
-                    },
                 },
             }
         )

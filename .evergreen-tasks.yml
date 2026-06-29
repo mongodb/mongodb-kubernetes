@@ -351,6 +351,16 @@ tasks:
     commands:
       - func: "e2e_test"
 
+  - name: e2e_vm_migration_oidc_group
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_oidc_workforce
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
   - name: e2e_replica_set_statefulset_status
     tags: [ "patch-run" ]
     commands:

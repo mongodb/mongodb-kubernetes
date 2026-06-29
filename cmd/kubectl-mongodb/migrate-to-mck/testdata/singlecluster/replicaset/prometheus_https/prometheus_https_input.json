@@ -9,6 +9,8 @@
     "enabled": true,
     "username": "prom-user",
     "password": "prom-password",
+    "passwordHash": "DFXjJAbWhzLDXOTkn39QhcPsMTdAtLTR8Ptp/TENzHo=",
+    "passwordSalt": "AQIDBAUGBwg=",
     "scheme": "https",
     "listenAddress": "0.0.0.0:9216",
     "metricsPath": "/metrics"

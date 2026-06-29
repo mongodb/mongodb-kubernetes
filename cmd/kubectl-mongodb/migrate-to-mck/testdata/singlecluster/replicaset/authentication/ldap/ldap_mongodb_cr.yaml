@@ -7,9 +7,6 @@ metadata:
   name: ldap-rs
   namespace: mongodb
 spec:
-  additionalMongodConfig:
-    setParameter:
-      authenticationMechanisms: SCRAM-SHA-256,PLAIN
   agent:
     maxLogFileDurationHours: 0
     mongod:
@@ -56,6 +53,7 @@ spec:
         userCacheInvalidationInterval: 0
         validateLDAPServerConfig: true
       modes:
+      - SCRAM
       - LDAP
   type: ReplicaSet
   version: 8.0.4-ent

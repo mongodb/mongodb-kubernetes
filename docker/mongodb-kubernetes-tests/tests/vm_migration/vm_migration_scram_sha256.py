@@ -252,9 +252,6 @@ def _configure_ac(namespace: str, om_tester: OMTester, vm_sts: dict, vm_service:
                         "logAppend": log_append_per_member[member_config_index],
                     },
                     "replication": replication,
-                    "setParameter": {
-                        "authenticationMechanisms": "SCRAM-SHA-256",
-                    },
                     "auditLog": {
                         "destination": "file",
                         "format": "JSON",
@@ -375,7 +372,10 @@ def test_custom_roles_in_generated_cr(generated_cr: dict):
     names = {f"{r['role']}@{r['db']}" for r in roles}
     assert names == {"appReadOnly@myapp", "metricsReader@admin"}, f"Unexpected roles in generated CR: {roles}"
     app_role = next(r for r in roles if r["role"] == "appReadOnly")
-    assert set(app_role["privileges"][0]["actions"]) == {"find", "listCollections"}, f"Unexpected privileges: {app_role}"
+    assert set(app_role["privileges"][0]["actions"]) == {
+        "find",
+        "listCollections",
+    }, f"Unexpected privileges: {app_role}"
 
 
 @mark.e2e_vm_migration_scram_sha256

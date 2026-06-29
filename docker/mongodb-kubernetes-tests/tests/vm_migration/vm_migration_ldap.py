@@ -134,7 +134,7 @@ def _configure_ac(
         "autoAuthMechanism": "PLAIN",
         "autoAuthMechanisms": ["PLAIN"],
         "autoAuthRestrictions": [],
-        "deploymentAuthMechanisms": ["PLAIN"],
+        "deploymentAuthMechanisms": ["SCRAM-SHA-256", "PLAIN"],
         "autoUser": agent_dn,
         "autoPwd": LDAP_PASSWORD,
         "key": "bXlrZXlmaWxlY29udGVudHM=",
@@ -187,7 +187,6 @@ def _configure_ac(
                     "storage": {"dbPath": "/data/"},
                     "systemLog": {"path": "/data/mongodb.log", "destination": "file"},
                     "replication": {"replSetName": rs_name},
-                    "setParameter": {"authenticationMechanisms": "SCRAM-SHA-256,PLAIN"},
                 },
             }
         )
@@ -313,7 +312,7 @@ def test_ldap_auth_in_cr(generated_cr: dict):
     auth = generated_cr["spec"]["security"]["authentication"]
     assert "LDAP" in auth["modes"], f"Expected LDAP in auth modes, got: {auth['modes']}"
     ldap_section = auth["ldap"]
-    assert ldap_section["bindQuerySecretRef"]["name"] == LDAP_BIND_QUERY_SECRET
+    assert ldap_section["bindQueryPasswordSecretRef"]["name"] == LDAP_BIND_QUERY_SECRET
     assert ldap_section["servers"]
 
 

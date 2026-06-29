@@ -48,11 +48,13 @@ func runUsers(t *testing.T, ac *om.AutomationConfig, opts GenerateOptions) strin
 // fixture is the shared path stem for input + outputs, e.g. "singlecluster/replicaset/foo/foo".
 // The runner derives "<fixture>_input.json", "<fixture>_mongodb_cr.yaml", and "<fixture>_users.yaml" (when hasUsers).
 // opts is layered on top of defaultGenerateOptions, so cases only need to set fields that differ.
+// When wantErr is non-empty, the test expects generateMongodbObjects to return an error containing that string.
 type fixtureCase struct {
 	name     string
 	fixture  string
 	hasUsers bool
 	opts     GenerateOptions
+	wantErr  string
 }
 
 // withDefaultBoilerplate fills in the credentials secret name and OM config-map name unless the case set them.
@@ -141,12 +143,18 @@ func TestFixtureMatch_ReplicaSet(t *testing.T) {
 		{
 			name:    "Prometheus (HTTP) generates spec.prometheus referencing the password secret with no TLS ref",
 			fixture: "singlecluster/replicaset/prometheus/prometheus",
-			opts:    GenerateOptions{PrometheusSecretName: PrometheusPasswordSecretName},
+			opts:    GenerateOptions{PrometheusSecretName: PrometheusPasswordSecretName, PrometheusPassword: "prom-password"},
 		},
 		{
 			name:    "Prometheus (HTTPS) generates spec.prometheus with a TLS secret ref",
 			fixture: "singlecluster/replicaset/prometheus_https/prometheus_https",
-			opts:    GenerateOptions{PrometheusSecretName: PrometheusPasswordSecretName},
+			opts:    GenerateOptions{PrometheusSecretName: PrometheusPasswordSecretName, PrometheusPassword: "prom-password"},
+		},
+		{
+			name:    "Prometheus password mismatch is rejected",
+			fixture: "singlecluster/replicaset/prometheus/prometheus",
+			opts:    GenerateOptions{PrometheusSecretName: PrometheusPasswordSecretName, PrometheusPassword: "wrong-password"},
+			wantErr: "does not match the password",
 		},
 		{
 			name:    "member tags are preserved in externalMembers",
@@ -162,6 +170,13 @@ func runFixtureCases(t *testing.T, cases []fixtureCase) {
 		t.Run(tt.name, func(t *testing.T) {
 			opts := withDefaultBoilerplate(tt.opts)
 			ac := loadTestAutomationConfig(t, tt.fixture+"_input.json")
+
+			if tt.wantErr != "" {
+				_, err := generateMongodbObjects(ac, opts)
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErr)
+				return
+			}
 
 			mongodbOutput := runMongodb(t, ac, opts)
 			checkOrUpdateFixture(t, "testdata/"+tt.fixture+"_mongodb_cr.yaml", mongodbOutput)

@@ -62,6 +62,10 @@ type GenerateOptions struct {
 
 	// Prometheus credentials
 	PrometheusSecretName string // name of a pre-created Secret; no Secret YAML is written when set
+
+	// PrometheusPassword holds the plaintext password read from the Secret for validation against the
+	// automation config's passwordHash/passwordSalt. Empty when collected from the CLI path.
+	PrometheusPassword string
 }
 
 // GenerateMongoDBCR generates a MongoDB CR for the given topology.

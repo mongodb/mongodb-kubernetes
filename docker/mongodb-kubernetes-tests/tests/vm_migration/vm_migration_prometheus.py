@@ -6,6 +6,10 @@ database itself), runs kubectl-mongodb migrate-to-mck, applies the generated res
 that spec.prometheus is carried over and the operator-managed pods serve authenticated metrics.
 """
 
+import base64
+import hashlib
+import os
+
 from kubetester import create_or_update_secret, get_statefulset
 from kubetester.http import get_retriable_session
 from kubetester.kubetester import KubernetesTester, ensure_ent_version, fcv_from_version, skip_if_local
@@ -39,6 +43,17 @@ PROM_PORT = 9216
 # The migrate tool wires spec.prometheus.passwordSecretRef to this fixed Secret name.
 PROMETHEUS_PASSWORD_SECRET = "prometheus-password"
 
+_PBKDF2_ITERATIONS = 256
+_PBKDF2_KEY_LENGTH = 32
+_PROM_SALT_SIZE = 8
+
+
+def _build_prometheus_hash(password: str, salt: bytes | None = None) -> tuple[str, str]:
+    if salt is None:
+        salt = os.urandom(_PROM_SALT_SIZE)
+    dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, _PBKDF2_ITERATIONS, dklen=_PBKDF2_KEY_LENGTH)
+    return base64.b64encode(dk).decode("utf-8"), base64.b64encode(salt).decode("utf-8")
+
 
 @fixture(scope="module")
 def om_tester(namespace: str) -> OMTester:
@@ -71,10 +86,12 @@ def _configure_ac(namespace: str, om_tester: OMTester, vm_sts: dict, vm_service:
     rs_name = f"{sts_name}-rs"
 
     ac["auth"] = {"disabled": True, "authoritativeSet": False}
+    prom_hash, prom_salt = _build_prometheus_hash(PROM_PASSWORD)
     ac["prometheus"] = {
         "enabled": True,
         "username": PROM_USER,
-        "password": PROM_PASSWORD,
+        "passwordHash": prom_hash,
+        "passwordSalt": prom_salt,
         "scheme": "http",
         "listenAddress": f"0.0.0.0:{PROM_PORT}",
         "metricsPath": "/metrics",

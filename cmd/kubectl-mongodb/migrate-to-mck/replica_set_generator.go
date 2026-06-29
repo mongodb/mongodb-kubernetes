@@ -10,6 +10,7 @@ import (
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
+	"github.com/mongodb/mongodb-kubernetes/pkg/passwordhash"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
@@ -69,6 +70,21 @@ func buildReplicaSetDbCommonSpec(ac *om.AutomationConfig, opts GenerateOptions, 
 	}
 	if prom != nil && opts.PrometheusSecretName != "" {
 		prom.PasswordSecretRef.Name = opts.PrometheusSecretName
+	}
+	if prom != nil {
+		acProm := ac.Deployment.GetPrometheus()
+		if acProm != nil && acProm.PasswordSalt != "" {
+			if opts.PrometheusPassword == "" {
+				return mdbv1.DbCommonSpec{}, fmt.Errorf("Prometheus is enabled with a password hash in the Ops Manager automation config but no password was provided. Create a Kubernetes Secret with the password and pass --prometheus-secret-name")
+			}
+			match, pErr := passwordhash.PasswordMatchesHash(opts.PrometheusPassword, acProm.PasswordHash, acProm.PasswordSalt)
+			if pErr != nil {
+				return mdbv1.DbCommonSpec{}, fmt.Errorf("failed to verify Prometheus password against automation config: %w", pErr)
+			}
+			if !match {
+				return mdbv1.DbCommonSpec{}, fmt.Errorf("Prometheus password in Secret %q does not match the password in the Ops Manager automation config", opts.PrometheusSecretName)
+			}
+		}
 	}
 
 	var additionalConfig *mdbv1.AdditionalMongodConfig

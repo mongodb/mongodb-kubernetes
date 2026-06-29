@@ -63,7 +63,10 @@
         "replication": {"replSetName": "oidc-rs"},
         "storage": {"dbPath": "/data"},
         "systemLog": {"destination": "file", "path": "/var/log/mongodb/mongod.log"},
-        "setParameter": {"authenticationMechanisms": "SCRAM-SHA-256,MONGODB-OIDC"}
+        "setParameter": {
+          "authenticationMechanisms": "SCRAM-SHA-256,MONGODB-OIDC",
+          "oidcIdentityProviders": "[{\"issuer\":\"https://dev-123456.okta.com/oauth2/default\",\"audience\":\"api://mongodb-cluster\",\"authNamePrefix\":\"okta\",\"authorizationClaim\":\"groups\",\"useAuthorizationClaim\":true,\"supportsHumanFlows\":true},{\"issuer\":\"https://login.microsoftonline.com/tenant-id/v2.0\",\"audience\":\"api://mongodb-workload\",\"authNamePrefix\":\"azure-svc\",\"principalName\":\"sub\",\"supportsHumanFlows\":false}]"
+        }
       },
       "authSchemaVersion": 5,
       "featureCompatibilityVersion": "8.0",
@@ -78,7 +81,10 @@
         "replication": {"replSetName": "oidc-rs"},
         "storage": {"dbPath": "/data"},
         "systemLog": {"destination": "file", "path": "/var/log/mongodb/mongod.log"},
-        "setParameter": {"authenticationMechanisms": "SCRAM-SHA-256,MONGODB-OIDC"}
+        "setParameter": {
+          "authenticationMechanisms": "SCRAM-SHA-256,MONGODB-OIDC",
+          "oidcIdentityProviders": "[{\"issuer\":\"https://dev-123456.okta.com/oauth2/default\",\"audience\":\"api://mongodb-cluster\",\"authNamePrefix\":\"okta\",\"authorizationClaim\":\"groups\",\"useAuthorizationClaim\":true,\"supportsHumanFlows\":true},{\"issuer\":\"https://login.microsoftonline.com/tenant-id/v2.0\",\"audience\":\"api://mongodb-workload\",\"authNamePrefix\":\"azure-svc\",\"principalName\":\"sub\",\"supportsHumanFlows\":false}]"
+        }
       },
       "authSchemaVersion": 5,
       "featureCompatibilityVersion": "8.0",
@@ -93,7 +99,10 @@
         "replication": {"replSetName": "oidc-rs"},
         "storage": {"dbPath": "/data"},
         "systemLog": {"destination": "file", "path": "/var/log/mongodb/mongod.log"},
-        "setParameter": {"authenticationMechanisms": "SCRAM-SHA-256,MONGODB-OIDC"}
+        "setParameter": {
+          "authenticationMechanisms": "SCRAM-SHA-256,MONGODB-OIDC",
+          "oidcIdentityProviders": "[{\"issuer\":\"https://dev-123456.okta.com/oauth2/default\",\"audience\":\"api://mongodb-cluster\",\"authNamePrefix\":\"okta\",\"authorizationClaim\":\"groups\",\"useAuthorizationClaim\":true,\"supportsHumanFlows\":true},{\"issuer\":\"https://login.microsoftonline.com/tenant-id/v2.0\",\"audience\":\"api://mongodb-workload\",\"authNamePrefix\":\"azure-svc\",\"principalName\":\"sub\",\"supportsHumanFlows\":false}]"
+        }
       },
       "authSchemaVersion": 5,
       "featureCompatibilityVersion": "8.0",

@@ -876,6 +876,8 @@ task_groups:
       - e2e_vm_migration_ldap
       - e2e_vm_migration_prometheus
       - e2e_vm_migration_oidc
+      - e2e_vm_migration_oidc_group
+      - e2e_vm_migration_oidc_workforce
       - e2e_vm_migration_scram_sha256
       - e2e_vm_migration_scram_sha1
       - e2e_vm_migration_scram_sha256_tls
