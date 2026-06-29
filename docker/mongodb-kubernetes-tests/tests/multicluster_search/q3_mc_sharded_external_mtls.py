@@ -448,29 +448,30 @@ def test_replicate_secrets_to_members(
     """
     central_core = CoreV1Api(api_client=central_cluster_client)
 
-    # Cluster-agnostic Secrets — same copy to every member cluster.
-    for secret_name in [
-        search_resource_names.lb_server_cert_name(MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX),
-        search_resource_names.lb_client_cert_name(MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX),
-        f"{MDBS_RESOURCE_NAME}-{MONGOT_USER_NAME}-password",
-    ]:
+    def _copy(secret_name: str, mcc: MultiClusterClient) -> None:
         secret_type = central_core.read_namespaced_secret(name=secret_name, namespace=namespace).type or "Opaque"
         data = read_secret(namespace, secret_name, api_client=central_cluster_client)
-        for mcc in member_cluster_clients:
-            create_or_update_secret(namespace, secret_name, data, type=secret_type, api_client=mcc.api_client)
-        logger.info(f"Replicated shared Secret {secret_name} to {len(member_cluster_clients)} member(s)")
+        create_or_update_secret(namespace, secret_name, data, type=secret_type, api_client=mcc.api_client)
 
-    # Per-(cluster, shard) mongot certs — each cluster only needs its own per-shard certs.
+    # Mongot password — same copy to every member cluster.
+    password_secret = f"{MDBS_RESOURCE_NAME}-{MONGOT_USER_NAME}-password"
+    for mcc in member_cluster_clients:
+        _copy(password_secret, mcc)
+    logger.info(f"Replicated mongot password to {len(member_cluster_clients)} member(s)")
+
+    # Per-cluster Secrets — LB certs + per-shard mongot certs go to their owning cluster.
     for i, mcc in enumerate(member_cluster_clients):
+        _copy(search_resource_names.lb_server_cert_name(MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX, i), mcc)
+        _copy(search_resource_names.lb_client_cert_name(MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX, i), mcc)
         for shard_idx in range(SHARD_COUNT):
             shard_name = f"{MDB_RESOURCE_NAME}-{shard_idx}"
-            secret_name = search_resource_names.shard_tls_cert_name(
-                MDBS_RESOURCE_NAME, shard_name, MDBS_TLS_CERT_PREFIX, cluster_index=i
+            _copy(
+                search_resource_names.shard_tls_cert_name(
+                    MDBS_RESOURCE_NAME, shard_name, MDBS_TLS_CERT_PREFIX, cluster_index=i
+                ),
+                mcc,
             )
-            secret_type = central_core.read_namespaced_secret(name=secret_name, namespace=namespace).type or "Opaque"
-            data = read_secret(namespace, secret_name, api_client=central_cluster_client)
-            create_or_update_secret(namespace, secret_name, data, type=secret_type, api_client=mcc.api_client)
-        logger.info(f"Replicated per-shard Secrets to {mcc.cluster_name} (cluster_index={i})")
+        logger.info(f"Replicated per-cluster Secrets to {mcc.cluster_name} (cluster_index={i})")
 
 
 @mark.e2e_search_q3_mc_sharded_external_mtls

@@ -69,36 +69,40 @@ def create_mc_lb_certificates(
     helper: MCSearchDeploymentHelper,
     envoy_lb_replicas: int,
 ) -> None:
-    """LB server + client certs with SANs covering every cluster's proxy-svc FQDN."""
-    lb_server_cert_name = search_resource_names.lb_server_cert_name(mdbs_resource_name, tls_cert_prefix)
-    lb_client_cert_name = search_resource_names.lb_client_cert_name(mdbs_resource_name, tls_cert_prefix)
-
+    """Per-cluster LB server + client certs, each named to match that cluster's Envoy
+    Deployment and carrying SANs for every cluster's proxy-svc FQDN."""
     server_domains = [
         f"{mdbs_resource_name}-search-{helper.cluster_index(name)}-proxy-svc.{namespace}.svc.cluster.local"
         for name in helper.member_cluster_names()
     ]
 
-    create_tls_certs(
-        issuer=issuer,
-        namespace=namespace,
-        resource_name=search_resource_names.lb_deployment_name(mdbs_resource_name),
-        replicas=envoy_lb_replicas,
-        service_name=server_domains[0].split(".")[0],
-        additional_domains=server_domains,
-        secret_name=lb_server_cert_name,
-    )
-    logger.info(f"LB server certificate created with SANs={server_domains}: {lb_server_cert_name}")
+    for name in helper.member_cluster_names():
+        ci = helper.cluster_index(name)
+        deployment_name = search_resource_names.lb_deployment_name(mdbs_resource_name, ci)
+        lb_server_cert_name = search_resource_names.lb_server_cert_name(mdbs_resource_name, tls_cert_prefix, ci)
+        lb_client_cert_name = search_resource_names.lb_client_cert_name(mdbs_resource_name, tls_cert_prefix, ci)
 
-    create_tls_certs(
-        issuer=issuer,
-        namespace=namespace,
-        resource_name=f"{search_resource_names.lb_deployment_name(mdbs_resource_name)}-client",
-        replicas=1,
-        service_name=server_domains[0].split(".")[0],
-        additional_domains=[f"*.{namespace}.svc.cluster.local"],
-        secret_name=lb_client_cert_name,
-    )
-    logger.info(f"LB client certificate created: {lb_client_cert_name}")
+        create_tls_certs(
+            issuer=issuer,
+            namespace=namespace,
+            resource_name=deployment_name,
+            replicas=envoy_lb_replicas,
+            service_name=deployment_name,
+            additional_domains=server_domains,
+            secret_name=lb_server_cert_name,
+        )
+        logger.info(f"LB server certificate created with SANs={server_domains}: {lb_server_cert_name}")
+
+        create_tls_certs(
+            issuer=issuer,
+            namespace=namespace,
+            resource_name=f"{deployment_name}-client",
+            replicas=1,
+            service_name=deployment_name,
+            additional_domains=[f"*.{namespace}.svc.cluster.local"],
+            secret_name=lb_client_cert_name,
+        )
+        logger.info(f"LB client certificate created: {lb_client_cert_name}")
 
 
 def create_mc_mongot_tls_cert(
@@ -148,28 +152,35 @@ def replicate_search_secrets_to_members(
     """
     central_core = CoreV1Api(api_client=central_cluster_client)
 
-    secrets_to_replicate = [
+    def _copy(secret_name: str, targets: List[MultiClusterClient]) -> None:
+        source = central_core.read_namespaced_secret(name=secret_name, namespace=namespace)
+        data = decode_secret(source.data)
+        for mcc in targets:
+            create_or_update_secret(
+                namespace, secret_name, data, type=source.type or "Opaque", api_client=mcc.api_client
+            )
+
+    # Shared Secrets — same copy to every member cluster.
+    shared_secrets = [
         search_resource_names.mongot_tls_cert_name(mdbs_resource_name, mdbs_tls_cert_prefix),
-        search_resource_names.lb_server_cert_name(mdbs_resource_name, mdbs_tls_cert_prefix),
-        search_resource_names.lb_client_cert_name(mdbs_resource_name, mdbs_tls_cert_prefix),
         f"{mdbs_resource_name}-{mongot_user_name}-password",
         # The CA is stored as both a ConfigMap and a Secret; replicate the Secret half here
         # (the operator mounts it as a Secret volume on per-cluster mongot pods).
         ca_configmap_name,
     ]
-
-    for secret_name in secrets_to_replicate:
-        source = central_core.read_namespaced_secret(name=secret_name, namespace=namespace)
-        data = decode_secret(source.data)
-        for mcc in member_cluster_clients:
-            create_or_update_secret(
-                namespace,
-                secret_name,
-                data,
-                type=source.type or "Opaque",
-                api_client=mcc.api_client,
-            )
+    for secret_name in shared_secrets:
+        _copy(secret_name, member_cluster_clients)
         logger.info(f"replicated Secret {secret_name} to {len(member_cluster_clients)} member cluster(s)")
+
+    # Per-cluster LB certs — each member only needs the cert matching its own Envoy.
+    for mcc in member_cluster_clients:
+        ci = _resolve_cluster_index(None, mcc)
+        for secret_name in (
+            search_resource_names.lb_server_cert_name(mdbs_resource_name, mdbs_tls_cert_prefix, ci),
+            search_resource_names.lb_client_cert_name(mdbs_resource_name, mdbs_tls_cert_prefix, ci),
+        ):
+            _copy(secret_name, [mcc])
+            logger.info(f"replicated per-cluster Secret {secret_name} into cluster {mcc.cluster_name}")
 
     # CA ConfigMap — mongot verifies the source RS TLS cert against this CA.
     source_cm = central_core.read_namespaced_config_map(name=ca_configmap_name, namespace=namespace)
@@ -193,9 +204,9 @@ def replicate_sharded_search_secrets_to_members(
     """Copy centrally-issued Search Secrets to each member cluster (sharded MC).
 
     The MongoDBSearch controller does not auto-replicate Secrets (customer's job in
-    production). Shared Secrets (LB server/client cert, mongot password) go to every
-    member; per-(cluster, shard) mongot certs go only to their owning cluster. The CA
-    is already on every member (Layer-1 ``ensure_ca_configmap``).
+    production). The mongot password goes to every member; per-cluster LB certs and
+    per-(cluster, shard) mongot certs go only to their owning cluster. The CA is already
+    on every member (Layer-1 ``ensure_ca_configmap``).
     """
     central_core = CoreV1Api(api_client=central_cluster_client)
 
@@ -206,16 +217,13 @@ def replicate_sharded_search_secrets_to_members(
             create_or_update_secret(namespace, secret_name, data, type=secret_type, api_client=mcc.api_client)
 
     # Cluster-agnostic Secrets — same copy to every member cluster.
-    for secret_name in [
-        search_resource_names.lb_server_cert_name(mdbs_resource_name, mdbs_tls_cert_prefix),
-        search_resource_names.lb_client_cert_name(mdbs_resource_name, mdbs_tls_cert_prefix),
-        f"{mdbs_resource_name}-{mongot_user_name}-password",
-    ]:
-        _copy(secret_name, member_cluster_clients)
-        logger.info(f"replicated shared Secret {secret_name} to {len(member_cluster_clients)} member(s)")
+    _copy(f"{mdbs_resource_name}-{mongot_user_name}-password", member_cluster_clients)
+    logger.info(f"replicated mongot password to {len(member_cluster_clients)} member(s)")
 
-    # Per-(cluster, shard) mongot certs — each cluster only needs its own per-shard certs.
+    # Per-cluster Secrets — LB certs + per-shard mongot certs go only to their owning cluster.
     for i, mcc in enumerate(member_cluster_clients):
+        _copy(search_resource_names.lb_server_cert_name(mdbs_resource_name, mdbs_tls_cert_prefix, i), [mcc])
+        _copy(search_resource_names.lb_client_cert_name(mdbs_resource_name, mdbs_tls_cert_prefix, i), [mcc])
         for shard_idx in range(shard_count):
             shard_name = f"{mdb_resource_name}-{shard_idx}"
             _copy(
@@ -224,7 +232,7 @@ def replicate_sharded_search_secrets_to_members(
                 ),
                 [mcc],
             )
-        logger.info(f"replicated per-shard Secrets to {mcc.cluster_name} (cluster_index={i})")
+        logger.info(f"replicated per-cluster Secrets to {mcc.cluster_name} (cluster_index={i})")
 
 
 # ---------------------------------------------------------------------------
