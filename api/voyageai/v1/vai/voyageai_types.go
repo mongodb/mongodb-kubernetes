@@ -35,7 +35,7 @@ const (
 // +kubebuilder:printcolumn:name="Version",type="string",JSONPath=".status.version",description="VoyageAI version reconciled by the operator."
 // +kubebuilder:printcolumn:name="Model",type="string",JSONPath=".spec.model",description="VoyageAI model."
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp",description="The time since the VoyageAI resource was created."
-// +kubebuilder:resource:path=voyageai,scope=Namespaced,shortName=vai
+// +kubebuilder:resource:path=voyageais,scope=Namespaced,shortName=vai
 type VoyageAI struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

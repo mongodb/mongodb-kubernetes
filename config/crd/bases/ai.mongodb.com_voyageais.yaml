@@ -4,13 +4,13 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.18.0
-  name: voyageai.ai.mongodb.com
+  name: voyageais.ai.mongodb.com
 spec:
   group: ai.mongodb.com
   names:
     kind: VoyageAI
     listKind: VoyageAIList
-    plural: voyageai
+    plural: voyageais
     shortNames:
     - vai
     singular: voyageai

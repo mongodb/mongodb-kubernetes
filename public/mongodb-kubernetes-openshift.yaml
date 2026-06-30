@@ -85,9 +85,9 @@ rules:
     verbs:
       - '*'
     resources:
-      - voyageai
-      - voyageai/finalizers
-      - voyageai/status
+      - voyageais
+      - voyageais/finalizers
+      - voyageais/status
 ---
 # Source: mongodb-kubernetes/templates/operator-roles-base.yaml
 kind: RoleBinding
@@ -347,7 +347,7 @@ spec:
             - -watch-resource=mongodbusers
             - -watch-resource=mongodbcommunity
             - -watch-resource=mongodbsearch
-            - -watch-resource=voyageai
+            - -watch-resource=voyageais
             - -watch-resource=clustermongodbroles
           command:
             - /usr/local/bin/mongodb-kubernetes-operator

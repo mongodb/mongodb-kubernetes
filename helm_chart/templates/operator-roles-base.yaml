@@ -97,9 +97,9 @@ rules:
     verbs:
       - '*'
     resources:
-      - voyageai
-      - voyageai/finalizers
-      - voyageai/status
+      - voyageais
+      - voyageais/finalizers
+      - voyageais/status
 {{- if eq $roleScope "ClusterRole" }}
   - apiGroups:
       - ''
