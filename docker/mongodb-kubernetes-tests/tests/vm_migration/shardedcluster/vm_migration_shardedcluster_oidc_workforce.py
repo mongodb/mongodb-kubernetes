@@ -10,6 +10,8 @@ and authorizationType=GroupMembership.
 Requires the Cognito test environment (the cognito_* expansions). The test skips when they are absent.
 """
 
+import json
+
 import kubetester.oidc as oidc
 from kubetester import create_or_update_secret, get_statefulset, try_load
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
@@ -195,7 +197,21 @@ def _configure_ac(
             "roles": [{"role": "readWriteAnyDatabase", "db": "admin"}],
         }
     ]
-
+    oidc_providers = json.dumps([
+        {
+            "issuer": cognito["issuer_uri"],
+            "audience": cognito["client_id"],
+            "authNamePrefix": OIDC_CONFIG_NAME,
+            "authorizationClaim": "cognito:groups",
+            "useAuthorizationClaim": True,
+            "supportsHumanFlows": True,
+        }
+    ])
+    for process in ac["processes"]:
+        process["args2_6"]["setParameter"] = {
+            "authenticationMechanisms": f"{SCRAM_MECHANISM},{OIDC_MECHANISM}",
+            "oidcIdentityProviders": oidc_providers,
+        }
     om_tester.api_put_automation_config(ac)
 
 

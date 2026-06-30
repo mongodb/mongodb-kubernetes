@@ -555,7 +555,7 @@ def assert_common_generated_sharded_cr_shape(
             assert "replicaSetName" in m, f"externalMember of type mongod missing 'replicaSetName': {m}"
 
     annotations = generated_cr.get("metadata", {}).get("annotations", {})
-    assert "mongodb.com/v1.migrationDryRun" in annotations, "dry-run annotation missing from generated CR"
+    assert MIGRATION_DRY_RUN_ANNOTATION in annotations, "dry-run annotation missing from generated CR"
 
 
 def assert_k8s_sharded_process_names(om_tester: OMTester, mdb_migration: MongoDB) -> None:

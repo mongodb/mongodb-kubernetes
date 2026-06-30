@@ -4,9 +4,8 @@ VM migration E2E tests with X509 and TLS for sharded clusters.
 The VM sharded cluster (config server + shard + mongos) runs with TLS and X509 client auth;
 internal cluster auth between mongod processes continues to use keyFile.
 
-Flow: bring VM agents to goal state with TLS then X509, then migrate (MDB sharded resource
-with externalMembers pointing at VM processes, run connectivity dry-run, promote K8s members
-and prune VM members).
+Flow: bring VM agents to goal state with TLS then X509, run kubectl-mongodb migrate-to-mck
+to generate the MongoDB CR, apply the generated resource (dry-run, migration, promote/prune).
 
 Cert layout:
 - vm-sharded-mongod-cert: covers all 6 mongod pods (config-server 0-2, shard 0-2)
@@ -15,16 +14,12 @@ Cert layout:
   mounted at MONGOS_SERVER_PEM_PATH on the mongos StatefulSet
 - agent cert: shared across all VM pods (combined PEM at CUSTOM_AGENT_CERT_PATH)
 - CA from ca-key-pair Secret, mounted at CUSTOM_CA_PEM_PATH on all pods
-
-Why the same server-PEM path on different STSes?
-Each StatefulSet mounts its own cert Secret at the same container path. The AC
-certificateKeyFile entry points to that path; mongos and mongod never share a pod.
+- K8s-side certs created with secret_prefix="mdb-" to match certsSecretPrefix used by migrate-to-mck
 """
 
-import yaml
 from cryptography import x509 as crypto_x509
 from cryptography.hazmat.backends import default_backend
-from kubetester import create_or_update_secret, get_statefulset, read_secret, try_load
+from kubetester import create_or_update_configmap, create_or_update_secret, get_statefulset, read_secret, try_load
 from kubetester.certs import (
     ISSUER_CA_NAME,
     create_mongodb_tls_certs,
@@ -38,7 +33,19 @@ from kubetester.mongotester import MongoDBBackgroundTester, MongoTester
 from kubetester.omtester import OMContext, OMTester
 from kubetester.phase import Phase
 from pytest import fixture, mark
-from tests.vm_migration.vm_migration_helpers import build_sharded_cluster_ac
+from tests.vm_migration.vm_migration_dry_run import run_migration_dry_run_connectivity_passes
+from tests.vm_migration.vm_migration_helpers import (
+    apply_generated_sharded_cluster_resource,
+    assert_common_generated_sharded_cr_shape,
+    assert_k8s_sharded_process_names,
+    build_sharded_cluster_ac,
+    deploy_vm_sharded_mongod_statefulset,
+    deploy_vm_sharded_mongos_service,
+    deploy_vm_sharded_mongos_statefulset,
+    deploy_vm_sharded_service,
+    generated_mongodb_doc,
+    run_generate_cr,
+)
 
 MONGOD_STS_NAME = "vm-sharded-mongod"
 MONGOS_STS_NAME = "vm-sharded-mongos"
@@ -51,8 +58,10 @@ SHARD_COUNT = 3
 MONGOS_COUNT = 2
 
 MONGODB_VERSION = "7.0.14"
+CERT_SECRET_PREFIX = "mdb"
+VM_CONFIG_RS_NAME = "sharded-migration-config"
+VM_SHARD_RS_NAME = "vm-shard-0"
 
-# Cert paths inside the container, must match the AC certificateKeyFile values.
 MONGOD_SERVER_PEM_PATH = "/mongodb-automation/server.pem"
 MONGOS_SERVER_PEM_PATH = "/mongodb-automation/server.pem"
 CUSTOM_CA_PEM_PATH = "/mongodb-automation/tls/ca/ca-pem"
@@ -73,7 +82,6 @@ def om_tester(namespace: str, operator) -> OMTester:
 
 @fixture(scope="module")
 def vm_mongod_server_certs(issuer: str, namespace: str) -> str:
-    """TLS certs for all VM mongod pods (config server 0-2 and shard 0-2)."""
     return create_mongodb_tls_certs(
         ISSUER_CA_NAME,
         namespace,
@@ -87,7 +95,6 @@ def vm_mongod_server_certs(issuer: str, namespace: str) -> str:
 
 @fixture(scope="module")
 def vm_mongos_server_certs(issuer: str, namespace: str) -> str:
-    """TLS certs for all VM mongos pods."""
     return create_mongodb_tls_certs(
         ISSUER_CA_NAME,
         namespace,
@@ -153,109 +160,12 @@ def vm_mongos_server_combined_pem(namespace: str, vm_mongos_server_certs: str) -
     return secret_name
 
 
-def _add_tls_volumes_and_mounts(sts_body: dict, server_pem_secret: str, agent_pem_secret: str) -> None:
-    """Add server cert, CA, and agent cert volumes and mounts to the STS template."""
-    volumes = sts_body["spec"]["template"]["spec"].get("volumes") or []
-    volumes.append(
-        {
-            "name": "mongodb-certs",
-            "secret": {
-                "secretName": server_pem_secret,
-                "items": [{"key": "server.pem", "path": "server.pem"}],
-            },
-        }
-    )
-    volumes.append(
-        {
-            "name": "ca-cert",
-            "secret": {
-                "secretName": "ca-key-pair",
-                "items": [{"key": "tls.crt", "path": "ca-pem"}],
-            },
-        }
-    )
-    volumes.append({"name": "agent-cert", "secret": {"secretName": agent_pem_secret}})
-    sts_body["spec"]["template"]["spec"]["volumes"] = volumes
-
-    mounts = sts_body["spec"]["template"]["spec"]["containers"][0].get("volumeMounts") or []
-    mounts.append({"name": "mongodb-certs", "mountPath": "/mongodb-automation", "readOnly": True})
-    mounts.append({"name": "ca-cert", "mountPath": "/mongodb-automation/tls/ca", "readOnly": True})
-    mounts.append({"name": "agent-cert", "mountPath": CUSTOM_AGENT_CERT_DIR, "readOnly": True})
-    sts_body["spec"]["template"]["spec"]["containers"][0]["volumeMounts"] = mounts
-
-
-@fixture(scope="module")
-def vm_sharded_mongod_sts(
-    namespace: str,
-    om_tester: OMTester,
-    vm_mongod_server_combined_pem: str,
-    vm_agent_combined_pem: tuple,
-):
-    with open(yaml_fixture("vm_sharded_statefulset.yaml"), "r") as f:
-        sts_body = yaml.safe_load(f.read())
-
-    sts_body["spec"]["template"]["spec"]["containers"][0]["env"] = [
-        {"name": "MMS_GROUP_ID", "value": om_tester.context.project_id},
-        {"name": "MMS_BASE_URL", "value": om_tester.context.base_url},
-        {"name": "MMS_API_KEY", "value": om_tester.context.agent_api_key},
-    ]
-
-    agent_secret_name, _ = vm_agent_combined_pem
-    _add_tls_volumes_and_mounts(sts_body, vm_mongod_server_combined_pem, agent_secret_name)
-
-    KubernetesTester.create_or_update_statefulset(namespace, body=sts_body)
-    return sts_body
-
-
-@fixture(scope="module")
-def vm_sharded_mongos_sts(
-    namespace: str,
-    om_tester: OMTester,
-    vm_mongos_server_combined_pem: str,
-    vm_agent_combined_pem: tuple,
-):
-    with open(yaml_fixture("vm_sharded_mongos_statefulset.yaml"), "r") as f:
-        sts_body = yaml.safe_load(f.read())
-
-    sts_body["spec"]["template"]["spec"]["containers"][0]["env"] = [
-        {"name": "MMS_GROUP_ID", "value": om_tester.context.project_id},
-        {"name": "MMS_BASE_URL", "value": om_tester.context.base_url},
-        {"name": "MMS_API_KEY", "value": om_tester.context.agent_api_key},
-    ]
-
-    agent_secret_name, _ = vm_agent_combined_pem
-    _add_tls_volumes_and_mounts(sts_body, vm_mongos_server_combined_pem, agent_secret_name)
-
-    KubernetesTester.create_or_update_statefulset(namespace, body=sts_body)
-    return sts_body
-
-
-@fixture(scope="module")
-def vm_sharded_service(namespace: str):
-    with open(yaml_fixture("vm_sharded_service.yaml"), "r") as f:
-        service_body = yaml.safe_load(f.read())
-    service_body["spec"]["clusterIP"] = "None"
-    KubernetesTester.create_or_update_service(namespace, body=service_body)
-    return service_body
-
-
-@fixture(scope="module")
-def vm_sharded_mongos_service(namespace: str):
-    with open(yaml_fixture("vm_sharded_mongos_service.yaml"), "r") as f:
-        service_body = yaml.safe_load(f.read())
-    service_body["spec"]["clusterIP"] = "None"
-    KubernetesTester.create_or_update_service(namespace, body=service_body)
-    return service_body
-
-
 @fixture(scope="module")
 def mdb_sharded_x509_certs(issuer: str, namespace: str) -> None:
-    """TLS server certs for the K8s MongoDB sharded cluster resource.
+    """K8s-side TLS cert secrets for the MongoDB sharded resource.
 
-    Creates three component-specific secrets:
-    - {MDB_RESOURCE_NAME}-0-cert      (shard replica set)
-    - {MDB_RESOURCE_NAME}-config-cert (config server replica set)
-    - {MDB_RESOURCE_NAME}-mongos-cert (mongos)
+    secret_prefix="mdb-" ensures the generated names match what migrate-to-mck
+    produces when called with --certs-secret-prefix mdb.
     """
     create_sharded_cluster_certs(
         namespace=namespace,
@@ -265,89 +175,142 @@ def mdb_sharded_x509_certs(issuer: str, namespace: str) -> None:
         config_servers=CONFIG_SERVER_COUNT,
         mongos=MONGOS_COUNT,
         x509_certs=True,
+        secret_prefix=f"{CERT_SECRET_PREFIX}-",
     )
 
 
 @fixture(scope="module")
-def mdb_sharded_migration(
+def vm_sharded_mongod_sts(
     namespace: str,
-    issuer_ca_configmap: str,
+    om_tester: OMTester,
+    vm_mongod_server_combined_pem: str,
+    vm_agent_combined_pem: tuple,
+):
+    agent_secret_name, _ = vm_agent_combined_pem
+    return deploy_vm_sharded_mongod_statefulset(
+        namespace,
+        om_tester,
+        extra_volumes=[
+            {
+                "name": "mongodb-certs",
+                "secret": {
+                    "secretName": vm_mongod_server_combined_pem,
+                    "items": [{"key": "server.pem", "path": "server.pem"}],
+                },
+            },
+            {
+                "name": "ca-cert",
+                "secret": {
+                    "secretName": "ca-key-pair",
+                    "items": [{"key": "tls.crt", "path": "ca-pem"}],
+                },
+            },
+            {"name": "agent-cert", "secret": {"secretName": agent_secret_name}},
+        ],
+        extra_volume_mounts=[
+            {"name": "mongodb-certs", "mountPath": "/mongodb-automation", "readOnly": True},
+            {"name": "ca-cert", "mountPath": "/mongodb-automation/tls/ca", "readOnly": True},
+            {"name": "agent-cert", "mountPath": CUSTOM_AGENT_CERT_DIR, "readOnly": True},
+        ],
+    )
+
+
+@fixture(scope="module")
+def vm_sharded_mongos_sts(
+    namespace: str,
+    om_tester: OMTester,
+    vm_mongos_server_combined_pem: str,
+    vm_agent_combined_pem: tuple,
+):
+    agent_secret_name, _ = vm_agent_combined_pem
+    return deploy_vm_sharded_mongos_statefulset(
+        namespace,
+        om_tester,
+        extra_volumes=[
+            {
+                "name": "mongodb-certs",
+                "secret": {
+                    "secretName": vm_mongos_server_combined_pem,
+                    "items": [{"key": "server.pem", "path": "server.pem"}],
+                },
+            },
+            {
+                "name": "ca-cert",
+                "secret": {
+                    "secretName": "ca-key-pair",
+                    "items": [{"key": "tls.crt", "path": "ca-pem"}],
+                },
+            },
+            {"name": "agent-cert", "secret": {"secretName": agent_secret_name}},
+        ],
+        extra_volume_mounts=[
+            {"name": "mongodb-certs", "mountPath": "/mongodb-automation", "readOnly": True},
+            {"name": "ca-cert", "mountPath": "/mongodb-automation/tls/ca", "readOnly": True},
+            {"name": "agent-cert", "mountPath": CUSTOM_AGENT_CERT_DIR, "readOnly": True},
+        ],
+    )
+
+
+@fixture(scope="module")
+def vm_sharded_service(namespace: str):
+    return deploy_vm_sharded_service(namespace)
+
+
+@fixture(scope="module")
+def vm_sharded_mongos_service(namespace: str):
+    return deploy_vm_sharded_mongos_service(namespace)
+
+
+@fixture(scope="module")
+def generated_cr_yaml(namespace: str) -> str:
+    return run_generate_cr(
+        namespace,
+        certs_secret_prefix=CERT_SECRET_PREFIX,
+        resource_name_override=MDB_RESOURCE_NAME,
+    )
+
+
+@fixture(scope="module")
+def generated_cr(generated_cr_yaml: str) -> dict:
+    return generated_mongodb_doc(generated_cr_yaml)
+
+
+@fixture(scope="module")
+def migrate_tool_ca_configmap(namespace: str, issuer_ca_filepath: str, generated_cr: dict) -> str:
+    ca_name = generated_cr["spec"]["security"]["tls"]["ca"]
+    create_or_update_configmap(namespace, ca_name, {"ca-pem": open(issuer_ca_filepath).read()})
+    return ca_name
+
+
+@fixture(scope="module")
+def mdb_migration(
+    namespace: str,
+    generated_cr_yaml: str,
     mdb_sharded_x509_certs,
-    vm_sharded_mongod_sts,
-    vm_sharded_mongos_sts,
-    vm_sharded_service,
-    vm_sharded_mongos_service,
+    migrate_tool_ca_configmap: str,
     vm_agent_certs: str,
 ) -> MongoDB:
-    resource = MongoDB.from_yaml(
-        yaml_fixture("vm-migration-sharded.yaml"),
-        namespace=namespace,
-        with_mdb_version_from_env=False,
+    def create_agent_cert_secret(resource_doc: dict) -> None:
+        agent_cert_ref = resource_doc["spec"]["security"]["authentication"]["agents"]["clientCertificateSecretRef"]
+        agent_cert = read_secret(namespace, vm_agent_certs)
+        create_or_update_secret(
+            namespace,
+            agent_cert_ref["name"],
+            {"tls.crt": agent_cert["tls.crt"], "tls.key": agent_cert["tls.key"]},
+            type="kubernetes.io/tls",
+        )
+
+    return apply_generated_sharded_cluster_resource(
+        namespace,
+        generated_cr_yaml,
+        config_rs_name=VM_CONFIG_RS_NAME,
+        prepare_external_resources=create_agent_cert_secret,
     )
-
-    if try_load(resource):
-        return resource
-
-    resource.set_version(MONGODB_VERSION)
-
-    config_rs_name = f"{resource.name}-config"
-    vm_shard_rs_name = "vm-shard-0"
-
-    resource["spec"]["shardNameOverrides"] = [
-        {"shardName": f"{resource.name}-0", "shardId": vm_shard_rs_name, "replicaSetName": vm_shard_rs_name}
-    ]
-
-    resource["spec"]["security"] = {
-        "tls": {"enabled": True, "ca": issuer_ca_configmap},
-        "authentication": {
-            "enabled": True,
-            "modes": ["X509"],
-            "agents": {
-                "mode": "X509",
-                "clientCertificateSecretRef": {"name": vm_agent_certs},
-                "autoPEMKeyFilePath": CUSTOM_AGENT_CERT_PATH,
-            },
-        },
-    }
-
-    resource["spec"]["externalMembers"] = []
-    for i in range(CONFIG_SERVER_COUNT):
-        resource["spec"]["externalMembers"].append(
-            {
-                "processName": f"{MONGOD_STS_NAME}-{i}",
-                "hostname": f"{MONGOD_STS_NAME}-{i}.{MONGOD_SVC_NAME}.{namespace}.svc.cluster.local:27017",
-                "type": "mongod",
-                "replicaSetName": config_rs_name,
-            }
-        )
-    for i in range(CONFIG_SERVER_COUNT, CONFIG_SERVER_COUNT + SHARD_COUNT):
-        resource["spec"]["externalMembers"].append(
-            {
-                "processName": f"{MONGOD_STS_NAME}-{i}",
-                "hostname": f"{MONGOD_STS_NAME}-{i}.{MONGOD_SVC_NAME}.{namespace}.svc.cluster.local:27017",
-                "type": "mongod",
-                "replicaSetName": vm_shard_rs_name,
-            }
-        )
-    for i in range(MONGOS_COUNT):
-        resource["spec"]["externalMembers"].append(
-            {
-                "processName": f"{MONGOS_STS_NAME}-{i}",
-                "hostname": f"{MONGOS_STS_NAME}-{i}.{MONGOS_SVC_NAME}.{namespace}.svc.cluster.local:27017",
-                "type": "mongos",
-                "replicaSetName": "",
-            }
-        )
-
-    resource["spec"]["memberConfig"] = [{"votes": 0, "priority": "0"} for _ in range(CONFIG_SERVER_COUNT)]
-
-    resource.create()
-    return resource
 
 
 @fixture(scope="module")
-def mongo_tester(mdb_sharded_migration: MongoDB) -> MongoTester:
-    return mdb_sharded_migration.tester()
+def mongo_tester(mdb_migration: MongoDB) -> MongoTester:
+    return mdb_migration.tester()
 
 
 @fixture(scope="module")
@@ -389,8 +352,6 @@ def test_vm_sharded_ac_no_auth(
     """Put the initial AC with no auth so agents are able to reach goal state."""
     if len(om_tester.api_get_automation_config().get("processes", [])) > 0:
         return
-    config_rs_name = "sharded-migration-config"
-    vm_shard_rs_name = "vm-shard-0"
     ac = build_sharded_cluster_ac(
         om_tester,
         mongod_sts_name=MONGOD_STS_NAME,
@@ -399,8 +360,8 @@ def test_vm_sharded_ac_no_auth(
         mongos_service_name=MONGOS_SVC_NAME,
         namespace=namespace,
         mongodb_version=MONGODB_VERSION,
-        config_rs_name=config_rs_name,
-        shard_rs_name=vm_shard_rs_name,
+        config_rs_name=VM_CONFIG_RS_NAME,
+        shard_rs_name=VM_SHARD_RS_NAME,
         config_server_count=CONFIG_SERVER_COUNT,
         shard_count=SHARD_COUNT,
         mongos_count=MONGOS_COUNT,
@@ -412,8 +373,6 @@ def test_vm_sharded_ac_no_auth(
 @mark.e2e_vm_migration_shardedcluster_x509
 def test_vm_sharded_ac_tls(namespace: str, om_tester: OMTester, vm_sharded_mongod_sts, vm_sharded_mongos_sts):
     """Enable TLS on all VM sharded cluster processes."""
-    config_rs_name = "sharded-migration-config"
-    vm_shard_rs_name = "vm-shard-0"
     ac = build_sharded_cluster_ac(
         om_tester,
         mongod_sts_name=MONGOD_STS_NAME,
@@ -422,8 +381,8 @@ def test_vm_sharded_ac_tls(namespace: str, om_tester: OMTester, vm_sharded_mongo
         mongos_service_name=MONGOS_SVC_NAME,
         namespace=namespace,
         mongodb_version=MONGODB_VERSION,
-        config_rs_name=config_rs_name,
-        shard_rs_name=vm_shard_rs_name,
+        config_rs_name=VM_CONFIG_RS_NAME,
+        shard_rs_name=VM_SHARD_RS_NAME,
         config_server_count=CONFIG_SERVER_COUNT,
         shard_count=SHARD_COUNT,
         mongos_count=MONGOS_COUNT,
@@ -440,8 +399,6 @@ def test_vm_sharded_ac_tls(namespace: str, om_tester: OMTester, vm_sharded_mongo
 @mark.e2e_vm_migration_shardedcluster_x509
 def test_vm_sharded_ac_x509(namespace: str, om_tester: OMTester, vm_agent_combined_pem: tuple):
     """Switch the VM sharded cluster AC to X509 client auth."""
-    config_rs_name = "sharded-migration-config"
-    vm_shard_rs_name = "vm-shard-0"
     _, agent_subject_dn = vm_agent_combined_pem
     ac = build_sharded_cluster_ac(
         om_tester,
@@ -451,8 +408,8 @@ def test_vm_sharded_ac_x509(namespace: str, om_tester: OMTester, vm_agent_combin
         mongos_service_name=MONGOS_SVC_NAME,
         namespace=namespace,
         mongodb_version=MONGODB_VERSION,
-        config_rs_name=config_rs_name,
-        shard_rs_name=vm_shard_rs_name,
+        config_rs_name=VM_CONFIG_RS_NAME,
+        shard_rs_name=VM_SHARD_RS_NAME,
         config_server_count=CONFIG_SERVER_COUNT,
         shard_count=SHARD_COUNT,
         mongos_count=MONGOS_COUNT,
@@ -488,80 +445,101 @@ def test_install_operator(default_operator):
 
 
 @mark.e2e_vm_migration_shardedcluster_x509
-def test_mdb_sharded_reaches_running(mdb_sharded_migration: MongoDB, om_tester: OMTester):
-    mdb_sharded_migration.assert_reaches_phase(Phase.Running, timeout=1800)
-
-    ac_tester = om_tester.get_automation_config_tester()
-    config_rs_name = f"{mdb_sharded_migration.name}-config"
-    vm_shard_rs_name = "vm-shard-0"
-    ac_tester.assert_sharded_cluster_processes(config_rs_name, [vm_shard_rs_name], MONGOS_COUNT * 2)
+def test_common_generated_cr_shape(generated_cr: dict):
+    assert_common_generated_sharded_cr_shape(
+        generated_cr,
+        expected_config_count=CONFIG_SERVER_COUNT,
+        expected_shard_count=SHARD_COUNT,
+        expected_mongos_count=MONGOS_COUNT,
+    )
 
 
 @mark.e2e_vm_migration_shardedcluster_x509
-def test_promote_and_prune_config_server(mdb_sharded_migration: MongoDB, om_tester: OMTester):
-    try_load(mdb_sharded_migration)
-    config_rs_name = f"{mdb_sharded_migration.name}-config"
+def test_x509_agent_auth_in_cr(generated_cr: dict):
+    agents = generated_cr["spec"]["security"]["authentication"]["agents"]
+    assert agents["mode"] == "X509"
+    assert agents["autoPEMKeyFilePath"] == CUSTOM_AGENT_CERT_PATH
+    assert agents["clientCertificateSecretRef"]["name"] == f"{CERT_SECRET_PREFIX}-{MDB_RESOURCE_NAME}-agent-certs"
+
+
+@mark.e2e_vm_migration_shardedcluster_x509
+def test_migration_dry_run_connectivity_passes(mdb_migration: MongoDB):
+    run_migration_dry_run_connectivity_passes(mdb_migration)
+
+
+@mark.e2e_vm_migration_shardedcluster_x509
+def test_migrate_vm_to_kubernetes(mdb_migration: MongoDB):
+    mdb_migration.assert_reaches_phase(Phase.Running, timeout=1800)
+
+
+@mark.e2e_vm_migration_shardedcluster_x509
+def test_start_background_health_checker(mdb_health_checker: MongoDBBackgroundTester):
+    mdb_health_checker.start()
+
+
+@mark.e2e_vm_migration_shardedcluster_x509
+def test_promote_and_prune_config_server(mdb_migration: MongoDB, om_tester: OMTester):
+    try_load(mdb_migration)
+    config_rs_name = f"{mdb_migration.name}-config"
     for i in range(CONFIG_SERVER_COUNT):
-        mdb_sharded_migration["spec"]["memberConfig"][i]["priority"] = "1"
-        mdb_sharded_migration["spec"]["memberConfig"][i]["votes"] = 1
-        mdb_sharded_migration.update()
-        mdb_sharded_migration.assert_reaches_phase(Phase.Running)
+        mdb_migration["spec"]["memberConfig"][i]["priority"] = "1"
+        mdb_migration["spec"]["memberConfig"][i]["votes"] = 1
+        mdb_migration.update()
+        mdb_migration.assert_reaches_phase(Phase.Running)
 
         config_external = [
-            m for m in mdb_sharded_migration["spec"]["externalMembers"] if m["replicaSetName"] == config_rs_name
+            m for m in mdb_migration["spec"]["externalMembers"] if m["replicaSetName"] == config_rs_name
         ]
         if config_external:
-            mdb_sharded_migration["spec"]["externalMembers"].remove(config_external[-1])
-            mdb_sharded_migration.update()
-            mdb_sharded_migration.assert_reaches_phase(Phase.Running)
+            mdb_migration["spec"]["externalMembers"].remove(config_external[-1])
+            mdb_migration.update()
+            mdb_migration.assert_reaches_phase(Phase.Running)
 
-        om_tester.assert_cluster_available(mdb_sharded_migration.name)
+        om_tester.assert_cluster_available(mdb_migration.name)
 
 
 @mark.e2e_vm_migration_shardedcluster_x509
-def test_promote_and_prune_shard(mdb_sharded_migration: MongoDB, om_tester: OMTester):
-    try_load(mdb_sharded_migration)
-    vm_shard_rs_name = "vm-shard-0"
-
+def test_promote_and_prune_shard(mdb_migration: MongoDB, om_tester: OMTester):
+    try_load(mdb_migration)
     shard_external = [
-        m for m in mdb_sharded_migration["spec"]["externalMembers"] if m["replicaSetName"] == vm_shard_rs_name
+        m for m in mdb_migration["spec"]["externalMembers"] if m["replicaSetName"] == VM_SHARD_RS_NAME
     ]
     for _ in range(len(shard_external)):
         current = [
-            m for m in mdb_sharded_migration["spec"]["externalMembers"] if m["replicaSetName"] == vm_shard_rs_name
+            m for m in mdb_migration["spec"]["externalMembers"] if m["replicaSetName"] == VM_SHARD_RS_NAME
         ]
         if not current:
             break
-        mdb_sharded_migration["spec"]["externalMembers"].remove(current[-1])
-        mdb_sharded_migration.update()
-        mdb_sharded_migration.assert_reaches_phase(Phase.Running)
-        om_tester.assert_cluster_available(mdb_sharded_migration.name)
+        mdb_migration["spec"]["externalMembers"].remove(current[-1])
+        mdb_migration.update()
+        mdb_migration.assert_reaches_phase(Phase.Running)
+        om_tester.assert_cluster_available(mdb_migration.name)
 
 
 @mark.e2e_vm_migration_shardedcluster_x509
-def test_prune_mongos(mdb_sharded_migration: MongoDB, mdb_health_checker: MongoDBBackgroundTester):
-    try_load(mdb_sharded_migration)
+def test_prune_mongos(mdb_migration: MongoDB, mdb_health_checker: MongoDBBackgroundTester):
+    try_load(mdb_migration)
 
-    mongos_external = [m for m in mdb_sharded_migration["spec"]["externalMembers"] if m["type"] == "mongos"]
+    mongos_external = [m for m in mdb_migration["spec"]["externalMembers"] if m["type"] == "mongos"]
     for m in mongos_external:
-        mdb_sharded_migration["spec"]["externalMembers"].remove(m)
-    mdb_sharded_migration.update()
-    mdb_sharded_migration.assert_reaches_phase(Phase.Running)
+        mdb_migration["spec"]["externalMembers"].remove(m)
+    mdb_migration.update()
+    mdb_migration.assert_reaches_phase(Phase.Running)
 
     mdb_health_checker.assert_healthiness()
 
 
 @mark.e2e_vm_migration_shardedcluster_x509
-def test_process_names(namespace: str, om_tester: OMTester, mdb_sharded_migration: MongoDB):
-    ac_tester = om_tester.get_automation_config_tester()
-    process_names = [process["name"] for process in ac_tester.get_all_processes()]
-    name = mdb_sharded_migration.name
+def test_mongodb_reachable_during_promote_and_prune(mdb_health_checker: MongoDBBackgroundTester):
+    mdb_health_checker.assert_healthiness()
+    mdb_health_checker.stop()
 
-    for i in range(mdb_sharded_migration["spec"]["configServerCount"]):
-        assert f"k8s/{namespace}/{name}-config-{i}" in process_names
 
-    for i in range(mdb_sharded_migration["spec"]["mongodsPerShardCount"]):
-        assert f"k8s/{namespace}/{name}-0-{i}" in process_names
+@mark.e2e_vm_migration_shardedcluster_x509
+def test_process_names(namespace: str, om_tester: OMTester, mdb_migration: MongoDB):
+    assert_k8s_sharded_process_names(om_tester, mdb_migration)
 
-    for i in range(mdb_sharded_migration["spec"]["mongosCount"]):
-        assert f"k8s/{namespace}/{name}-mongos-{i}" in process_names
+
+@mark.e2e_vm_migration_shardedcluster_x509
+def test_migration_data_exists_after_promote(mdb_migration: MongoDB):
+    mdb_migration.tester().assert_connectivity()

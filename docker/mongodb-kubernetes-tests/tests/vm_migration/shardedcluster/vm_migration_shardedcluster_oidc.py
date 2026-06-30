@@ -6,6 +6,8 @@ two StatefulSets (mongod and mongos), config server promote/prune, and
 mongos-tester for connectivity checks.
 """
 
+import json
+
 import kubetester.oidc as oidc
 from kubetester import create_or_update_secret, get_statefulset, try_load
 from kubetester.kubetester import KubernetesTester, ensure_ent_version, skip_if_local
@@ -181,6 +183,20 @@ def _configure_ac(
             "useAuthorizationClaim": False,
         }
     ]
+    oidc_providers = json.dumps([
+        {
+            "issuer": cognito["issuer_uri"],
+            "audience": cognito["client_id"],
+            "authNamePrefix": OIDC_CONFIG_NAME,
+            "principalName": "sub",
+            "supportsHumanFlows": False,
+        }
+    ])
+    for process in ac["processes"]:
+        process["args2_6"]["setParameter"] = {
+            "authenticationMechanisms": f"{SCRAM_MECHANISM},{OIDC_MECHANISM}",
+            "oidcIdentityProviders": oidc_providers,
+        }
     om_tester.api_put_automation_config(ac)
 
 

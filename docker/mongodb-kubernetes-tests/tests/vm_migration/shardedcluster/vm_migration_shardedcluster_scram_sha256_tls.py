@@ -8,13 +8,13 @@ promote/prune, and mongos-tester for connectivity checks.
 
 import os
 import ssl
-from copy import deepcopy
 
 from kubetester import create_or_update_configmap, create_or_update_secret, get_statefulset, read_secret, try_load
 from kubetester.certs import ISSUER_CA_NAME, create_mongodb_tls_certs
 from kubetester.kubetester import KubernetesTester, ensure_ent_version, skip_if_local
 from kubetester.mongodb import MongoDB
 from kubetester.mongotester import MongoDBBackgroundTester, with_scram
+from kubetester.scram import build_sha256_creds
 from kubetester.omtester import OMContext, OMTester
 from kubetester.operator import Operator
 from kubetester.phase import Phase
@@ -212,12 +212,7 @@ def _configure_ac(namespace: str, om_tester: OMTester, mdb_version: str) -> None
                 "db": "admin",
                 "roles": [{"role": "root", "db": "admin"}],
                 "mechanisms": ["SCRAM-SHA-256"],
-                "scramSha256Creds": {
-                    "iterationCount": 15000,
-                    "salt": "VvGtJFS/4euDEKqliOPW6idGBu4SMey5HgtRoQ==",
-                    "serverKey": "xsHGbx5OJnYtZS19a4EboChhlD3mhDt7qOJss+FrShY=",
-                    "storedKey": "1z/5Z7A5mlHt5lu/ZXUig5bwrBfOn3tzqTzn93Bf/Oo=",
-                },
+                "scramSha256Creds": build_sha256_creds("mms-automation-agent-password"),
                 "authenticationRestrictions": [],
             },
             {
@@ -225,12 +220,7 @@ def _configure_ac(namespace: str, om_tester: OMTester, mdb_version: str) -> None
                 "db": "admin",
                 "roles": [{"role": "readWriteAnyDatabase", "db": "admin"}],
                 "mechanisms": ["SCRAM-SHA-256"],
-                "scramSha256Creds": {
-                    "iterationCount": 15000,
-                    "salt": "Qll4OI2xpysKmK1jv03JhlYQn+P7SUKbF3kdxA==",
-                    "serverKey": "V4PfLQcW/aOwfXeCvgWYfvv9cS04HTB9nUPJy9JzNqM=",
-                    "storedKey": "i8dJpjHY0uyFh89TcjT7JS27N6FTY98TiRV/J+jRBDo=",
-                },
+                "scramSha256Creds": build_sha256_creds(APP_USER_PASSWORD),
                 "authenticationRestrictions": [],
             },
         ],
@@ -277,17 +267,20 @@ def migrate_tool_ca_configmap(namespace: str, issuer_ca_filepath: str, generated
 @fixture(scope="module")
 def mdb_migration(
     namespace: str,
-    generated_cr: dict,
+    generated_cr_yaml: str,
     operator_server_certs: str,
     migrate_tool_ca_configmap: str,
 ) -> MongoDB:
-    resource_doc = deepcopy(generated_cr)
     create_wrong_ca_configmap(namespace, WRONG_CA_NAME)
-    resource_doc["spec"]["security"]["tls"]["ca"] = WRONG_CA_NAME
+
+    def swap_to_wrong_ca(resource_doc: dict) -> None:
+        resource_doc["spec"]["security"]["tls"]["ca"] = WRONG_CA_NAME
+
     return apply_generated_sharded_cluster_resource(
         namespace,
-        resource_doc,
+        generated_cr_yaml,
         config_rs_name=VM_CONFIG_RS_NAME,
+        prepare_external_resources=swap_to_wrong_ca,
     )
 
 

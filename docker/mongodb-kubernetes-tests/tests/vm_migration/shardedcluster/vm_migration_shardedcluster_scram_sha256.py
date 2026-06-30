@@ -10,6 +10,7 @@ from kubetester import create_or_update_secret, get_statefulset, try_load
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.mongodb import MongoDB
 from kubetester.mongotester import MongoDBBackgroundTester, with_scram
+from kubetester.scram import build_sha256_creds
 from kubetester.omtester import OMContext, OMTester
 from kubetester.operator import Operator
 from kubetester.phase import Phase
@@ -104,12 +105,7 @@ def _configure_ac_scram_sha256(namespace: str, om_tester: OMTester, mdb_version:
                 "db": "admin",
                 "roles": [{"role": "root", "db": "admin"}],
                 "mechanisms": ["SCRAM-SHA-256"],
-                "scramSha256Creds": {
-                    "iterationCount": 15000,
-                    "salt": "VvGtJFS/4euDEKqliOPW6idGBu4SMey5HgtRoQ==",
-                    "serverKey": "xsHGbx5OJnYtZS19a4EboChhlD3mhDt7qOJss+FrShY=",
-                    "storedKey": "1z/5Z7A5mlHt5lu/ZXUig5bwrBfOn3tzqTzn93Bf/Oo=",
-                },
+                "scramSha256Creds": build_sha256_creds("mms-automation-agent-password"),
                 "authenticationRestrictions": [],
             },
             {
@@ -122,12 +118,7 @@ def _configure_ac_scram_sha256(namespace: str, om_tester: OMTester, mdb_version:
                     {"role": "read", "db": "reporting"},
                 ],
                 "mechanisms": ["SCRAM-SHA-256"],
-                "scramSha256Creds": {
-                    "iterationCount": 15000,
-                    "salt": "wksiNA03uUywS7DhdN062N8rpp2wgN535t9V+A==",
-                    "serverKey": "QWoYhFkf0f5fo3zM11wFVXw6eEDtWToNg3aCurCmIww=",
-                    "storedKey": "kQXatG95rq6ZysZFr00M8hK0kN13VuxX1pV3xxUpYSE=",
-                },
+                "scramSha256Creds": build_sha256_creds(APP_USER_PASSWORD),
                 "authenticationRestrictions": [],
             },
             {
@@ -135,12 +126,7 @@ def _configure_ac_scram_sha256(namespace: str, om_tester: OMTester, mdb_version:
                 "db": "admin",
                 "roles": [{"role": "read", "db": "reporting"}],
                 "mechanisms": ["SCRAM-SHA-256"],
-                "scramSha256Creds": {
-                    "iterationCount": 15000,
-                    "salt": "Usm13I846IhrVWvzO1BCXn17qe2tWMHP+GXtKg==",
-                    "serverKey": "0mGWp+V4qze1mWdoQLhss0OvL5smZ1VfineTeRYw4qE=",
-                    "storedKey": "fLNS6LPqK12byCGG6wFexh5eNpniyAWouhKhaqODt7g=",
-                },
+                "scramSha256Creds": build_sha256_creds(REPORTING_USER_PASSWORD),
                 "authenticationRestrictions": [],
             },
         ],
