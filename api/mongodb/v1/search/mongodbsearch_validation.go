@@ -106,7 +106,6 @@ func multiClusterValidators() []func(*MongoDBSearch) v1.ValidationResult {
 		validateMCRequiresExternalSource,
 		validateMCRequiresManagedLB,
 		validateMCExternalHostnames,
-		validateMCRouterHostnames,
 	}
 }
 
@@ -602,11 +601,11 @@ func ValidateShardNameRFC1123(shardName string) error {
 	return nil
 }
 
-// validateMCExternalHostnames enforces, for multi-cluster specs with a managed LB:
-//   - every cluster's externalHostname must be distinct, so per-cluster SNI
-//     hostnames don't collide;
-//   - when the source is external sharded, each hostname must contain {shardName}
-//     so the per-shard form is derivable.
+// validateMCExternalHostnames enforces, for multi-cluster specs with a managed LB and an
+// external sharded source, that each cluster's externalHostname contains {shardName} so the
+// per-shard SNI form is derivable. Hostnames may be shared across clusters: a cross-AZ
+// failover proxy fronts multiple clusters' Envoys behind one SNI, so a given shard uses the
+// same hostname in every cluster.
 //
 // The dispatch scopes this to multi-cluster (len > 1); the LB-mode check stays
 // inline because this group is not LB-mode-scoped (it also runs for unmanaged MC,
@@ -615,7 +614,6 @@ func validateMCExternalHostnames(s *MongoDBSearch) v1.ValidationResult {
 	if !s.IsLBModeManaged() {
 		return v1.ValidationSuccess()
 	}
-	seen := make(map[string]int, len(s.Spec.Clusters))
 	for i, c := range s.Spec.Clusters {
 		if c.LoadBalancer == nil || c.LoadBalancer.Managed == nil {
 			continue
@@ -624,48 +622,12 @@ func validateMCExternalHostnames(s *MongoDBSearch) v1.ValidationResult {
 		if tmpl == "" {
 			continue
 		}
-		if first, dup := seen[tmpl]; dup {
-			return v1.ValidationError(
-				"spec.clusters[%d].loadBalancer.managed.externalHostname %q is also used by spec.clusters[%d]; every cluster needs a distinct hostname",
-				i, tmpl, first,
-			)
-		}
-		seen[tmpl] = i
 		if s.IsExternalSourceSharded() && !strings.Contains(tmpl, ShardNamePlaceholder) {
 			return v1.ValidationError(
 				"spec.clusters[%d].loadBalancer.managed.externalHostname must contain %s for multi-cluster sharded deployments",
 				i, ShardNamePlaceholder,
 			)
 		}
-	}
-	return v1.ValidationSuccess()
-}
-
-// validateMCRouterHostnames enforces, for an external sharded source with a managed LB, that every
-// cluster's routerHostname is distinct: each cluster runs its own Envoy LB and its mongos routes to
-// it, so a shared hostname would collide per-cluster SNI / point clusters at the wrong Envoy.
-// routerHostname is only meaningful for sharded sources (ReplicaSet has no mongos), so this is scoped
-// the same way as validateRouterHostname (the per-field required/placeholder rules live there).
-func validateMCRouterHostnames(s *MongoDBSearch) v1.ValidationResult {
-	if !s.IsExternalSourceSharded() {
-		return v1.ValidationSuccess()
-	}
-	seen := make(map[string]int, len(s.Spec.Clusters))
-	for i, c := range s.Spec.Clusters {
-		if c.LoadBalancer == nil || c.LoadBalancer.Managed == nil {
-			continue
-		}
-		host := c.LoadBalancer.Managed.RouterHostname
-		if host == "" {
-			continue
-		}
-		if first, dup := seen[host]; dup {
-			return v1.ValidationError(
-				"spec.clusters[%d].loadBalancer.managed.routerHostname %q is also used by spec.clusters[%d]; every cluster needs a distinct hostname",
-				i, host, first,
-			)
-		}
-		seen[host] = i
 	}
 	return v1.ValidationSuccess()
 }

@@ -315,9 +315,8 @@ func TestValidateMCExternalHostnames(t *testing.T) {
 			hostnames: []string{"us-east.lb.example.com:443", "eu-west.lb.example.com:443"},
 		},
 		{
-			name:          "MC RS with duplicate hostnames rejected",
-			hostnames:     []string{"static.lb.example.com:443", "static.lb.example.com:443"},
-			errorContains: "distinct hostname",
+			name:      "MC RS with shared hostname across clusters allowed",
+			hostnames: []string{"static.lb.example.com:443", "static.lb.example.com:443"},
 		},
 		{
 			name:      "MC sharded with shardName in each hostname",
@@ -333,6 +332,11 @@ func TestValidateMCExternalHostnames(t *testing.T) {
 		{
 			name:      "MC sharded shardName as name component is allowed",
 			hostnames: []string{"search-us-east-{shardName}-proxy.lb.example.com:443", "search-eu-west-{shardName}-proxy.lb.example.com:443"},
+			sharded:   true,
+		},
+		{
+			name:      "MC sharded shared hostname across clusters allowed (cross-AZ failover)",
+			hostnames: []string{"search-{shardName}-proxy.failover.example.com:443", "search-{shardName}-proxy.failover.example.com:443"},
 			sharded:   true,
 		},
 		{
@@ -398,65 +402,6 @@ func TestValidateRouterHostname(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestValidateMCRouterHostnames(t *testing.T) {
-	mkSearch := func(routerHostnames []string) *MongoDBSearch {
-		clusters := make([]ClusterSpec, 0, len(routerHostnames))
-		for i, rh := range routerHostnames {
-			c := ClusterSpec{Name: "cluster-" + strconv.Itoa(i)}
-			if rh != "" {
-				c.LoadBalancer = &LoadBalancerConfig{Managed: &ManagedLBConfig{ExternalHostname: "{shardName}.c" + strconv.Itoa(i) + ".example.com", RouterHostname: rh}}
-			}
-			clusters = append(clusters, c)
-		}
-		// routerHostname validation is scoped to external sharded sources.
-		return &MongoDBSearch{
-			ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"},
-			Spec: MongoDBSearchSpec{
-				Clusters: clusters,
-				Source: &MongoDBSource{ExternalMongoDBSource: &ExternalMongoDBSource{ShardedCluster: &ExternalShardedClusterConfig{
-					Router: ExternalRouterConfig{Hosts: []string{"mongos.example.com:27017"}},
-					Shards: []ExternalShardConfig{{ShardName: "shard-0", Hosts: []string{"h:27017"}}},
-				}}},
-			},
-		}
-	}
-
-	tests := []struct {
-		name            string
-		routerHostnames []string
-		errorContains   string
-	}{
-		{name: "distinct routerHostnames", routerHostnames: []string{"us-east.example.com:443", "eu-west.example.com:443"}},
-		{name: "duplicate routerHostnames rejected", routerHostnames: []string{"shared.example.com:443", "shared.example.com:443"}, errorContains: "distinct hostname"},
-		{name: "no managed LB returns success", routerHostnames: []string{"", ""}},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			res := validateMCRouterHostnames(mkSearch(tt.routerHostnames))
-			if tt.errorContains != "" {
-				assert.Equal(t, v1.ErrorLevel, res.Level, "expected error, got %+v", res)
-				assert.Contains(t, res.Msg, tt.errorContains)
-			} else {
-				assert.Equal(t, v1.SuccessLevel, res.Level, "expected success, got %+v", res)
-			}
-		})
-	}
-
-	t.Run("non-sharded source ignored even with duplicate routerHostnames", func(t *testing.T) {
-		rs := &MongoDBSearch{
-			ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"},
-			Spec: MongoDBSearchSpec{
-				Clusters: []ClusterSpec{
-					{Name: "cluster-0", LoadBalancer: &LoadBalancerConfig{Managed: &ManagedLBConfig{RouterHostname: "shared.example.com:443"}}},
-					{Name: "cluster-1", LoadBalancer: &LoadBalancerConfig{Managed: &ManagedLBConfig{RouterHostname: "shared.example.com:443"}}},
-				},
-			},
-		}
-		assert.Equal(t, v1.SuccessLevel, validateMCRouterHostnames(rs).Level)
-	})
 }
 
 func TestValidateExternalHostnameDNSLength(t *testing.T) {
