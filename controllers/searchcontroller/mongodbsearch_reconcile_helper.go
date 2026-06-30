@@ -800,27 +800,14 @@ func (r *MongoDBSearchReconcileHelper) pruneRoutingReady(ctx context.Context, li
 	return nil
 }
 
-// isOwnedBy returns true if the object has an owner reference pointing to the given owner.
-// Unlike metav1.IsControlledBy, this does not require the controller: true field,
-// which is not set by controllerutil.SetOwnerReference.
-func isOwnedBy(obj client.Object, owner client.Object) bool {
-	for _, ref := range obj.GetOwnerReferences() {
-		if ref.UID == owner.GetUID() {
-			return true
-		}
-	}
-	return false
-}
-
 // cleanupStaleShardResources reaps the per-shard mongot resources of shards that no
 // longer exist (shard scale-down): proxy Service, headless Service, ConfigMap, and the
 // mongot StatefulSet — whose whenDeleted=Delete policy then cascades its PVC. For every
 // live shard it rebuilds the expected resource names; anything we own carrying the
 // matching scope label but not in those sets belongs to a removed shard and is deleted.
 //
-// Owner refs don't cross clusters, so we iterate the central client plus every member
-// client and guard ownership by UID on central, by search-owner label on members.
-// Best-effort: per-kind/per-cluster failures are aggregated and retried next reconcile.
+// It fans out over the central client and every member client; per-kind/per-cluster
+// failures are best-effort — aggregated and retried next reconcile.
 func (r *MongoDBSearchReconcileHelper) cleanupStaleShardResources(ctx context.Context, log *zap.SugaredLogger, currentShardNames []string) error {
 	if r.mdbSearch.IsShardedUnmanagedLB() {
 		return nil
@@ -891,7 +878,7 @@ func (r *MongoDBSearchReconcileHelper) sweepStaleShardResources(ctx context.Cont
 	var errs error
 	for _, item := range items {
 		obj, ok := item.(client.Object)
-		if !ok || expected[obj.GetName()] || !r.ownsForSweep(obj, clusterName) {
+		if !ok || expected[obj.GetName()] || !r.ownsForSweep(obj) {
 			continue
 		}
 		log.Infof("Deleting stale %s %s on cluster %q", kind, obj.GetName(), clusterName)
@@ -902,13 +889,10 @@ func (r *MongoDBSearchReconcileHelper) sweepStaleShardResources(ctx context.Cont
 	return errs
 }
 
-// ownsForSweep reports whether obj belongs to this search: by owner-reference UID on
-// the central cluster (clusterName ""), by search-owner label on member clusters
-// (cross-cluster owner refs don't exist).
-func (r *MongoDBSearchReconcileHelper) ownsForSweep(obj client.Object, clusterName string) bool {
-	if clusterName == "" {
-		return isOwnedBy(obj, r.mdbSearch)
-	}
+// ownsForSweep reports whether obj belongs to this search by its owner-name +
+// owner-namespace labels. Owner refs don't cross clusters, so labels are the
+// uniform ownership signal on central and member clusters alike.
+func (r *MongoDBSearchReconcileHelper) ownsForSweep(obj client.Object) bool {
 	labels := obj.GetLabels()
 	return labels[khandler.MongoDBSearchOwnerNameLabel] == r.mdbSearch.Name &&
 		labels[khandler.MongoDBSearchOwnerNamespaceLabel] == r.mdbSearch.Namespace
@@ -1219,12 +1203,8 @@ const (
 	shardLabelKey         = "shard"
 	componentLabelKey     = "component"
 	proxyServiceComponent = "search-proxy"
-	// mongotComponent is the component-label value stamped on the per-shard mongot
-	// headless Service and ConfigMap, letting the stale-shard sweep find and reap them
-	// on shard scale-down without touching Envoy or state resources. The mongot
-	// StatefulSet is not component-labelled — it is swept by owner label instead, being
-	// the only StatefulSet the search owns (a coarser scope that also catches STSs
-	// created before this label existed).
+	// mongotComponent is the component-label value on the per-shard mongot headless
+	// Service and ConfigMap (the StatefulSet is swept by owner label instead).
 	mongotComponent = "mongot"
 
 	nameLabelKey       = "app.kubernetes.io/name"
