@@ -464,7 +464,7 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 			return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("error reading external AppDB connection string secret %s: %w", secretRef.Name, err)), log, opsManagerExtraStatusParams)
 		}
 
-		key := "connectionString.standard"
+		key := util.AppDbConnectionStringKey
 		if secretRef.Key != "" {
 			key = secretRef.Key
 		}

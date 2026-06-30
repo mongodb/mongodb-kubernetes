@@ -10,7 +10,7 @@ from tests import test_logger
 logger = test_logger.get_test_logger(__name__)
 
 EXT_APPDB_SECRET_NAME = "primary-om-db-ext-connection-string"
-EXT_APPDB_SECRET_KEY = "connectionString.standard"
+EXT_APPDB_SECRET_KEY = "connectionString"
 
 
 @fixture(scope="module")
