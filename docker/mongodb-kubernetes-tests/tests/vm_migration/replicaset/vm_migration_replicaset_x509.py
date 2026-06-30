@@ -294,18 +294,6 @@ def vm_service(namespace: str):
     return service_body
 
 
-@fixture(scope="module")
-def mongo_tester(mdb_migration: MongoDB) -> MongoTester:
-    return mdb_migration.tester()
-
-
-@fixture(scope="module")
-def mdb_health_checker(mongo_tester: MongoTester) -> MongoDBBackgroundTester:
-    health_checker = MongoDBBackgroundTester(mongo_tester, allowed_sequential_failures=3)
-    health_checker.start()
-    return health_checker
-
-
 def _build_processes(vm_sts: dict, vm_service: dict, namespace: str, custom_mdb_version: str, tls: bool) -> tuple:
     """Build processes, monitoringVersions, and replicaSet members for the AC.
 

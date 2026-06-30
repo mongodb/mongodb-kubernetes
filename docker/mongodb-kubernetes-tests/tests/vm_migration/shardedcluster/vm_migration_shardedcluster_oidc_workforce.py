@@ -10,8 +10,6 @@ and authorizationType=GroupMembership.
 Requires the Cognito test environment (the cognito_* expansions). The test skips when they are absent.
 """
 
-import json
-
 import kubetester.oidc as oidc
 from kubetester import create_or_update_secret, get_statefulset, try_load
 from kubetester.kubetester import KubernetesTester, ensure_ent_version

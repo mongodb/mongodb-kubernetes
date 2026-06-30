@@ -6,8 +6,6 @@ two StatefulSets (mongod and mongos), config server promote/prune, and
 mongos-tester for connectivity checks.
 """
 
-import json
-
 import kubetester.oidc as oidc
 from kubetester import create_or_update_secret, get_statefulset, try_load
 from kubetester.kubetester import KubernetesTester, ensure_ent_version, skip_if_local

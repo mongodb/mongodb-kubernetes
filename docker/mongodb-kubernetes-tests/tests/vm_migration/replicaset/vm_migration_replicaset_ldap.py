@@ -10,8 +10,6 @@ The LDAP agent user is the auth autoUser and is skipped by migrate-to-mck (like 
 the LDAP application user is emitted as a MongoDBUser CR with db: $external and no password Secret.
 """
 
-from typing import List
-
 from kubetester import create_or_update_secret, get_statefulset
 from kubetester.kubetester import KubernetesTester, ensure_ent_version, fcv_from_version
 from kubetester.ldap import LDAPUser, OpenLDAP, add_user_to_group, create_user, ensure_group, ensure_organizational_unit

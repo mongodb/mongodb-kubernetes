@@ -424,7 +424,6 @@ func TestCheckTLS_NoTLSSection_Warning(t *testing.T) {
 	d := om.Deployment{
 		"processes": []interface{}{
 			map[string]interface{}{
-
 				"name": "rs-0", "processType": string(om.ProcessTypeMongod), "version": "7.0.0", "authSchemaVersion": 5,
 				"args2_6": map[string]interface{}{"net": map[string]interface{}{"port": 27017}},
 			},
@@ -441,7 +440,6 @@ func TestCheckTLS_ModeDisabled_Warning(t *testing.T) {
 	d := om.Deployment{
 		"processes": []interface{}{
 			map[string]interface{}{
-
 				"name": "rs-0", "processType": string(om.ProcessTypeMongod), "version": "7.0.0", "authSchemaVersion": 5,
 				"args2_6": map[string]interface{}{
 					"net": map[string]interface{}{
@@ -461,7 +459,6 @@ func TestCheckTLS_TLSEnabled_NoWarning(t *testing.T) {
 	d := om.Deployment{
 		"processes": []interface{}{
 			map[string]interface{}{
-
 				"name": "rs-0", "processType": string(om.ProcessTypeMongod), "version": "7.0.0", "authSchemaVersion": 5,
 				"args2_6": map[string]interface{}{
 					"net": map[string]interface{}{
@@ -569,7 +566,6 @@ func TestValidation_AgentConfigDrift_Warning(t *testing.T) {
 		"options": map[string]interface{}{"downloadBase": "/var/lib/mongodb-mms-automation"},
 		"processes": []interface{}{
 			map[string]interface{}{
-
 				"name": "rs-0", "processType": string(om.ProcessTypeMongod), "version": "7.0.0", "authSchemaVersion": 5,
 				"logRotate": map[string]interface{}{"sizeThresholdMB": 500, "timeThresholdHrs": 12},
 				"args2_6": map[string]interface{}{

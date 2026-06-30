@@ -303,8 +303,6 @@ def promote_and_prune(mdb_migration, vm_sts):
         assert_connection_string_contains_current_hosts(mdb_migration)
 
 
-
-
 def vm_replica_set_tester(namespace: str, use_ssl: bool = False, ca_path: Optional[str] = None) -> MongoTester:
     """Return a MongoTester pointed at the VM StatefulSet replica set (vm-mongodb service)."""
     cnx_string = build_mongodb_connection_uri(

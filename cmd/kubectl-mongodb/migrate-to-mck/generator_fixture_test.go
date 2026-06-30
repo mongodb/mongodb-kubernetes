@@ -194,12 +194,17 @@ func TestFixtureMatch_ShardedCluster(t *testing.T) {
 		{
 			name:    "sharded cluster — Prometheus (HTTP): spec.prometheus referencing the password secret",
 			fixture: "singlecluster/shardedcluster/authentication/prometheus/prometheus",
-			opts:    GenerateOptions{PrometheusSecretName: PrometheusPasswordSecretName},
+			opts:    GenerateOptions{PrometheusSecretName: PrometheusPasswordSecretName, PrometheusPassword: "prom-password"},
+		},
+		{
+			name:    "sharded cluster — Prometheus password mismatch is rejected",
+			fixture: "singlecluster/shardedcluster/authentication/prometheus/prometheus",
+			opts:    GenerateOptions{PrometheusSecretName: PrometheusPasswordSecretName, PrometheusPassword: "wrong-password"},
+			wantErr: "does not match the password",
 		},
 	}
 	runFixtureCases(t, cases)
 }
-
 
 func runFixtureCases(t *testing.T, cases []fixtureCase) {
 	t.Helper()
