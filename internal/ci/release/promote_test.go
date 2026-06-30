@@ -19,23 +19,8 @@ func TestPromote(t *testing.T) {
 	host := strings.TrimPrefix(srv.URL, "http://")
 	const repo = "myorg/myimage"
 
-	// push a source "nightly" image
-	img, err := random.Image(1024, 1)
-	if err != nil {
-		t.Fatalf("random image: %v", err)
-	}
-	srcDigest, err := img.Digest()
-	if err != nil {
-		t.Fatalf("image digest: %v", err)
-	}
 	srcRef := fmt.Sprintf("%s/%s:nightly-abc1234", host, repo)
-	ref, err := name.ParseReference(srcRef, name.Insecure)
-	if err != nil {
-		t.Fatalf("parse ref: %v", err)
-	}
-	if err := remote.Write(ref, img); err != nil {
-		t.Fatalf("push source: %v", err)
-	}
+	srcDigest := pushImage(t, srcRef, name.Insecure)
 
 	tests := []struct {
 		name    string
@@ -44,36 +29,38 @@ func TestPromote(t *testing.T) {
 	}{
 		{
 			name:   "happy path",
-			inputs: PromoteInputs{Image: srcRef, Commit: "abc1234", Version: "1.9.0"},
+			inputs: PromoteInputs{Image: srcRef, Commit: "abc1234", Version: "1.9.0", Repo: repo},
 		},
 		{
 			name:    "image required",
-			inputs:  PromoteInputs{Commit: "abc1234", Version: "1.9.0"},
+			inputs:  PromoteInputs{Commit: "abc1234", Version: "1.9.0", Repo: repo},
 			wantErr: "image",
 		},
 		{
 			name:    "commit required",
-			inputs:  PromoteInputs{Image: srcRef, Version: "1.9.0"},
+			inputs:  PromoteInputs{Image: srcRef, Version: "1.9.0", Repo: repo},
 			wantErr: "commit",
 		},
 		{
 			name:    "version required",
-			inputs:  PromoteInputs{Image: srcRef, Commit: "abc1234"},
+			inputs:  PromoteInputs{Image: srcRef, Commit: "abc1234", Repo: repo},
 			wantErr: "version",
+		},
+		{
+			name:    "repo required",
+			inputs:  PromoteInputs{Image: srcRef, Commit: "abc1234", Version: "1.9.0"},
+			wantErr: "repo",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			promoter := NewOCIPromoter(srv.URL, repo)
-			tags, err := Promote(tt.inputs, promoter)
+			client := NewRegistryClient(srv.URL)
+			tags, err := client.Promote(tt.inputs)
 
 			if tt.wantErr != "" {
-				if err == nil {
-					t.Fatalf("expected error containing %q, got nil", tt.wantErr)
-				}
-				if !strings.Contains(err.Error(), tt.wantErr) {
-					t.Errorf("expected error containing %q, got %q", tt.wantErr, err.Error())
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Errorf("expected error containing %q, got %v", tt.wantErr, err)
 				}
 				return
 			}
@@ -81,7 +68,6 @@ func TestPromote(t *testing.T) {
 				t.Fatalf("unexpected error: %v", err)
 			}
 
-			// both promoted tags must point to the same digest as the source
 			for _, tag := range tags {
 				ref, err := name.NewTag(fmt.Sprintf("%s/%s:%s", host, repo, tag), name.Insecure)
 				if err != nil {
@@ -93,10 +79,31 @@ func TestPromote(t *testing.T) {
 					t.Errorf("tag %s not found after promote: %v", tag, err)
 					continue
 				}
-				if desc.Digest.String() != srcDigest.String() {
+				if desc.Digest.String() != srcDigest {
 					t.Errorf("tag %s: digest got %q, want %q", tag, desc.Digest, srcDigest)
 				}
 			}
 		})
 	}
+}
+
+// pushImage pushes a random image to the given reference and returns its digest string.
+func pushImage(t *testing.T, ref string, opts ...name.Option) string {
+	t.Helper()
+	img, err := random.Image(1024, 1)
+	if err != nil {
+		t.Fatalf("random image: %v", err)
+	}
+	d, err := img.Digest()
+	if err != nil {
+		t.Fatalf("image digest: %v", err)
+	}
+	r, err := name.ParseReference(ref, opts...)
+	if err != nil {
+		t.Fatalf("parse ref %s: %v", ref, err)
+	}
+	if err := remote.Write(r, img); err != nil {
+		t.Fatalf("push %s: %v", ref, err)
+	}
+	return d.String()
 }
