@@ -71,7 +71,7 @@ const (
 	appdbCAFilePath              = "/var/lib/mongodb-automation/secrets/ca/ca-pem"
 	appDBACConfigMapVersionField = "version"
 
-	// OM canonical defaults for monitoring log rotation (from BaseAgentConfig.java).
+	// OM canonical defaults; monitoring module's own default is 0 (no rotation).
 	defaultMonitoringLogRotateSizeMB  = 1000
 	defaultMonitoringLogRotateTimeHrs = 24
 
@@ -1409,7 +1409,7 @@ func setBaseUrlForAgents(ac *automationconfig.AutomationConfig, url string) {
 	}
 }
 
-func monitoringLogRotate(lr *mdbv1.LogRotateForBackupAndMonitoring) *automationconfig.MonitoringLogRotate {
+func toMonitoringLogRotate(lr *mdbv1.LogRotateForBackupAndMonitoring) *automationconfig.MonitoringLogRotate {
 	if lr != nil {
 		return &automationconfig.MonitoringLogRotate{
 			SizeThresholdMB:  lr.SizeThresholdMB,
@@ -1431,7 +1431,7 @@ func configureMonitoring(ac *automationconfig.AutomationConfig, log *zap.Sugared
 		return
 	}
 
-	lr := monitoringLogRotate(logRotate)
+	lr := toMonitoringLogRotate(logRotate)
 	monitoringVersions := ac.MonitoringVersions
 	for _, p := range ac.Processes {
 		hostname := p.HostName
