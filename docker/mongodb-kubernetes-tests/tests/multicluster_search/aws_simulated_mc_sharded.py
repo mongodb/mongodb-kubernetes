@@ -379,23 +379,28 @@ def _external_mongos_envoy_endpoint(search_context: str, harness_idx: int) -> st
     return f"{_external_mongos_proxy_host(search_context, harness_idx)}:{ENVOY_PROXY_PORT}"
 
 
+def _failover_shard_proxy_host(shard_name: str) -> str:
+    """Shard-unique, cluster-AGNOSTIC per-shard proxy host (no port) under the failover wildcard:
+    the SAME hostname in BOTH AZs (no cluster idx / clusterId), so the SNI a connection carries
+    matches whichever AZ the failover Envoy round-robins onto. shard_name is the operator's
+    literal {shardName} placeholder (managed-LB externalHostname) or a concrete shard name
+    (mongotHost target / cert SAN)."""
+    return f"{MDBS_RESOURCE_NAME}-search-{shard_name}-proxy-svc.{search_failover_wildcard(SEARCH_FAILOVER_HOST_CLUSTER)}"
+
+
+def _failover_router_host() -> str:
+    """Cluster-AGNOSTIC cluster-level (mongos) proxy host (no port) under the failover wildcard."""
+    return f"{MDBS_RESOURCE_NAME}-search-proxy-svc.{search_failover_wildcard(SEARCH_FAILOVER_HOST_CLUSTER)}"
+
+
 def _failover_shard_proxy_endpoint(shard_idx: int) -> str:
-    """Shard-unique, cluster-AGNOSTIC per-shard mongot endpoint under the failover wildcard:
-    the SAME hostname in both AZs (no cluster idx / clusterId), so the SNI a connection carries
-    matches whichever AZ the failover Envoy round-robins onto. host:port form."""
-    shard_name = f"{MDB_RESOURCE_NAME}-{shard_idx}"
-    return (
-        f"{MDBS_RESOURCE_NAME}-search-{shard_name}-proxy-svc."
-        f"{search_failover_wildcard(SEARCH_FAILOVER_HOST_CLUSTER)}:{ENVOY_PROXY_PORT}"
-    )
+    """Cluster-agnostic per-shard mongot endpoint (host:port) — the mongod mongotHost target."""
+    return f"{_failover_shard_proxy_host(f'{MDB_RESOURCE_NAME}-{shard_idx}')}:{ENVOY_PROXY_PORT}"
 
 
 def _failover_mongos_proxy_endpoint() -> str:
-    """Cluster-AGNOSTIC cluster-level mongot endpoint under the failover wildcard (mongos)."""
-    return (
-        f"{MDBS_RESOURCE_NAME}-search-proxy-svc."
-        f"{search_failover_wildcard(SEARCH_FAILOVER_HOST_CLUSTER)}:{ENVOY_PROXY_PORT}"
-    )
+    """Cluster-agnostic cluster-level mongot endpoint (host:port) — the mongos mongotHost target."""
+    return f"{_failover_router_host()}:{ENVOY_PROXY_PORT}"
 
 
 def _source_mongos_search_tester(
@@ -845,6 +850,16 @@ def per_cluster_mdbs_search(
     for mcc in search_mccs:
         idx = _idx(mcc)
         ctx = mcc.cluster_name
+        # The managed Envoy's SNI server_name (filter-chain match + server-cert validation) follows
+        # SOURCE_MONGOT_HOST_MODE: az-local per-cluster names, or the cluster-agnostic failover names
+        # (identical in both AZs, so the failover Envoy can round-robin either way). The server cert
+        # SANs cover BOTH, so flipping the mode needs no cert reissue.
+        if SOURCE_MONGOT_HOST_MODE == "failover":
+            external_hostname = _failover_shard_proxy_host("{shardName}")
+            router_hostname = _failover_router_host()
+        else:
+            external_hostname = _external_shard_proxy_template(ctx, idx)
+            router_hostname = _external_mongos_proxy_host(ctx, idx)
         clusters_spec.append(
             {
                 "name": ctx,
@@ -854,8 +869,8 @@ def per_cluster_mdbs_search(
                 "loadBalancer": {
                     "managed": {
                         "replicas": ENVOY_LB_REPLICAS,
-                        "externalHostname": _external_shard_proxy_template(ctx, idx),
-                        "routerHostname": _external_mongos_proxy_host(ctx, idx),
+                        "externalHostname": external_hostname,
+                        "routerHostname": router_hostname,
                     },
                 },
                 "syncSourceSelector": {"matchTagSets": [{CLUSTER_LOCATION_TAG_KEY: AZ_BY_SEARCH_CLUSTER[ctx]}]},
@@ -1110,10 +1125,14 @@ def _create_external_lb_certificates(*, namespace, issuer, search_mccs, api_clie
         server_domains: List[str] = []
         for shard_idx in range(SHARD_COUNT):
             shard_name = f"{MDB_RESOURCE_NAME}-{shard_idx}"
+            # az-local: per-cluster SNI (per_az_direct mode).
             server_domains.append(
                 f"{MDBS_RESOURCE_NAME}-search-{idx}-{shard_name}-proxy-svc.{search_proxy_wildcard(ctx)}"
             )
+            # failover: cluster-agnostic SNI, identical in both AZs (failover mode).
+            server_domains.append(_failover_shard_proxy_host(shard_name))
         server_domains.append(f"{MDBS_RESOURCE_NAME}-search-{idx}-proxy-svc.{search_proxy_wildcard(ctx)}")
+        server_domains.append(_failover_router_host())
 
         create_tls_certs(
             issuer=issuer,
