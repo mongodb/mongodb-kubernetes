@@ -92,6 +92,7 @@ rules:
   - watch
   - delete
   - deletecollection
+
 ---
 # Central Cluster, namespace-scoped resources
 apiVersion: rbac.authorization.k8s.io/v1
@@ -110,6 +111,7 @@ subjects:
 - kind: ServiceAccount
   name: mongodb-kubernetes-operator-multicluster
   namespace: central-namespace
+
 ---
 # Central Cluster, namespace-scoped resources
 apiVersion: v1
@@ -120,5 +122,5 @@ metadata:
     multi-cluster: "true"
   name: mongodb-kubernetes-operator-multicluster
   namespace: central-namespace
----
 
+---
