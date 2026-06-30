@@ -4,10 +4,11 @@ echo "  Configuring ${MDB_MONGOT_REPLICAS_PER_CLUSTER} mongot replica(s) per mem
 # - source.external.hostAndPorts is the seed list of every source mongod
 #   member's per-pod Service FQDN (reachable cross-cluster over the mesh). The
 #   host list matches MDB_MEMBERS_PER_CLUSTER=2 across the two member clusters.
-# - loadBalancer.managed makes the operator deploy a per-cluster Envoy that
-#   fronts the mongot pods. externalHostname uses the {clusterIndex}
-#   placeholder, which the operator substitutes per cluster. Managed LB is
-#   mandatory when clusters > 1.
+# - clusters[].loadBalancer.managed makes the operator deploy a per-cluster Envoy
+#   that fronts the mongot pods. Each cluster sets its own externalHostname (the
+#   per-cluster proxy Service FQDN, with the cluster index resolved literally:
+#   search-0-... for the first cluster, search-1-... for the second). Managed LB
+#   is mandatory when clusters > 1.
 # - clusters[] places mongot replicas in each member cluster.
 kubectl apply --context "${K8S_CTX_0}" -n "${MDB_NS}" -f - <<EOF
 apiVersion: mongodb.com/v1
@@ -32,14 +33,33 @@ spec:
   security:
     tls:
       certsSecretPrefix: ${MDB_TLS_CERT_SECRET_PREFIX}
-  loadBalancer:
-    managed:
-      externalHostname: "${MDB_SEARCH_RESOURCE_NAME}-search-{clusterIndex}-proxy-svc.${MDB_NS}.svc.cluster.local"
   clusters:
-    - clusterName: ${K8S_CTX_0}
+    - name: ${K8S_CTX_0}
+      index: 0
       replicas: ${MDB_MONGOT_REPLICAS_PER_CLUSTER}
-    - clusterName: ${K8S_CTX_1}
+      loadBalancer:
+        managed:
+          externalHostname: "${MDB_SEARCH_RESOURCE_NAME}-search-0-proxy-svc.${MDB_NS}.svc.cluster.local"
+      resourceRequirements:
+        limits:
+          cpu: "1"
+          memory: 2Gi
+        requests:
+          cpu: 500m
+          memory: 2Gi
+    - name: ${K8S_CTX_1}
+      index: 1
       replicas: ${MDB_MONGOT_REPLICAS_PER_CLUSTER}
+      loadBalancer:
+        managed:
+          externalHostname: "${MDB_SEARCH_RESOURCE_NAME}-search-1-proxy-svc.${MDB_NS}.svc.cluster.local"
+      resourceRequirements:
+        limits:
+          cpu: "1"
+          memory: 2Gi
+        requests:
+          cpu: 500m
+          memory: 2Gi
 EOF
 
 echo "[ok] MongoDBSearch resource '${MDB_SEARCH_RESOURCE_NAME}' created"
