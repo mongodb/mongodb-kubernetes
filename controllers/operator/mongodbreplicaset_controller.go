@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/hashicorp/go-multierror"
 	"go.uber.org/zap"
@@ -60,7 +59,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
-	pkgMigration "github.com/mongodb/mongodb-kubernetes/pkg/migration"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
@@ -889,7 +887,6 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 // failure, the resource phase is Failed, it is requeued after 5 minutes. Earlier failures
 // in this function (e.g. building StatefulSet options, agent certificate, or RunConnectivityJob
 // returning Err) use workflow.Failed and requeue after 10s (failedStatus default).
-// TODO: extract to common controllers
 func (r *ReplicaSetReconcilerHelper) runConnectivityValidationDryRun(ctx context.Context, conn om.Connection, projectConfig mdbv1.ProjectConfig, externalMemberProcessNames []mdbv1.ExternalMember, rs *mdbv1.MongoDB, deploymentOpts deploymentOptionsRS, operatorImage string, log *zap.SugaredLogger) (reconcile.Result, error) {
 	rsConfig, err := r.buildStatefulSetOptions(ctx, conn, projectConfig, deploymentOpts)
 	if err != nil {
@@ -909,81 +906,10 @@ func (r *ReplicaSetReconcilerHelper) runConnectivityValidationDryRun(ctx context
 	for _, name := range externalMemberProcessNames {
 		hostnamePorts = append(hostnamePorts, name.Hostname)
 	}
-	connectionString := fmt.Sprintf("mongodb://%s/?replicaSet=%s", strings.Join(hostnamePorts, ","), replicaSetName) // TODO: in later iterations of the project we should use the connection string from the secret, which also pertains user access
+	connectionString := fmt.Sprintf("mongodb://%s/?replicaSet=%s", strings.Join(hostnamePorts, ","), replicaSetName)
 
-	subjectDN := ""
-	if sec := rs.GetSecurity(); sec != nil && sec.GetAgentMechanism(deploymentOpts.currentAgentAuthMode) == util.X509 {
-		agentCertSecretName := sec.AgentClientCertificateSecretName(rs.Name)
-		// The connectivity Job mounts the operator generated agent PEM secret (the StatefulSet volume
-		// references AgentClientCertificateSecretName + the operator generated suffix). The full reconcile
-		// creates it in ensureX509SecretAndCheckTLSType, which this dry-run path skips, so create it here.
-		// Without it the Job pod stays Pending and the connectivity check never completes.
-		err := certs.VerifyAndEnsureClientCertificatesForAgentsAndTLSType(ctx, r.reconciler.SecretClient, r.reconciler.SecretClient, kube.ObjectKey(rs.Namespace, agentCertSecretName), log)
-		if err != nil {
-			return r.updateStatus(ctx,
-				workflow.Failed(xerrors.Errorf("connectivity dry-run: ensuring agent certificate secret: %w", err)),
-				mdbstatus.NewMigrationConditionOption(mdbstatus.MigrationCondition(
-					mdbstatus.MigrationPhaseConnectivityCheckFailed, "AgentCertSecretFailed", err.Error(),
-				)),
-			)
-		}
-		sel := corev1.SecretKeySelector{
-			LocalObjectReference: corev1.LocalObjectReference{Name: agentCertSecretName},
-			Key:                  corev1.TLSCertKey,
-		}
-		userOpts, err := r.reconciler.readAgentSubjectsFromSecret(ctx, rs.Namespace, sel, log)
-		if err != nil {
-			return r.updateStatus(ctx,
-				workflow.Failed(xerrors.Errorf("connectivity dry-run: automation agent certificate subject: %w", err)),
-				mdbstatus.NewMigrationConditionOption(mdbstatus.MigrationCondition(
-					mdbstatus.MigrationPhaseConnectivityCheckFailed, "AgentCertSubject", err.Error(),
-				)),
-			)
-		}
-		subjectDN = userOpts.AutomationSubject
-	}
-
-	job := pkgMigration.BuildJobFromStatefulSet(rs, &sts, operatorImage, connectionString, hostnamePorts, deploymentOpts.currentAgentAuthMode, deploymentOpts.agentCertHash, subjectDN)
-
-	result := opMigration.RunConnectivityJob(ctx, r.reconciler.client, job)
-	if result.Err != nil {
-		return r.updateStatus(ctx,
-			workflow.Failed(fmt.Errorf("connectivity dry run: %w", result.Err)),
-			mdbstatus.NewMigrationConditionOption(mdbstatus.MigrationCondition(
-				result.Phase, result.Reason, result.Message,
-			)),
-		)
-	}
-
-	log.Infow("[DRY-RUN CONNECTIVITY] Job status", "phase", result.Phase, "reason", result.Reason, "message", result.Message)
-
-	switch result.Phase {
-	case mdbstatus.MigrationPhaseConnectivityCheckRunning:
-		return r.updateStatus(ctx,
-			workflow.ConnectivityValidation("Connectivity validation in progress. Remove annotation %s to run full reconciliation", opMigration.AnnotationDryRun).WithRetry(30),
-			mdbstatus.NewMigrationConditionOption(mdbstatus.MigrationCondition(
-				mdbstatus.MigrationPhaseConnectivityCheckRunning, "Running", "Connectivity validation Job is in progress",
-			)),
-		)
-	case mdbstatus.MigrationPhaseConnectivityCheckPassed:
-		return r.updateStatus(ctx,
-			workflow.ConnectivityValidation("Connectivity validation passed. Remove annotation %s to continue with migration", opMigration.AnnotationDryRun),
-			mdbstatus.NewMigrationConditionOption(mdbstatus.MigrationCondition(
-				mdbstatus.MigrationPhaseConnectivityCheckPassed, result.Reason, result.Message,
-			)),
-		)
-	default:
-		if updateResult, updateErr := r.updateStatus(ctx,
-			workflow.Failed(fmt.Errorf("%s: %s", result.Reason, result.Message)),
-			mdbstatus.NewMigrationConditionOption(mdbstatus.MigrationCondition(
-				mdbstatus.MigrationPhaseConnectivityCheckFailed, result.Reason, result.Message,
-			)),
-		); updateErr != nil {
-			return updateResult, updateErr
-		}
-		// Requeue after 5 minutes to retry once connectivity issues may be resolved.
-		return reconcile.Result{RequeueAfter: 5 * time.Minute}, nil
-	}
+	dryRunStatus := r.reconciler.runConnectivityJob(ctx, rs, &sts, connectionString, hostnamePorts, deploymentOpts.currentAgentAuthMode, deploymentOpts.agentCertHash, operatorImage, log)
+	return r.updateStatus(ctx, dryRunStatus, dryRunStatus.StatusOptions()...)
 }
 
 

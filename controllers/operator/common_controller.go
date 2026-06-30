@@ -39,6 +39,8 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
+	opMigration "github.com/mongodb/mongodb-kubernetes/controllers/operator/migration"
+	pkgMigration "github.com/mongodb/mongodb-kubernetes/pkg/migration"
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
@@ -1475,4 +1477,68 @@ func ReconcileLogRotateSetting(conn om.Connection, agentConfig mdbv1.AgentConfig
 		return workflow.Failed(err), err
 	}
 	return workflow.OK(), nil
+}
+
+// runConnectivityJob builds, launches (or polls) a connectivity-validator Kubernetes Job from a
+// pre-built StatefulSet spec and returns the workflow.Status for the result.
+// No StatefulSets or Ops Manager config are modified.
+func (r *ReconcileCommonController) runConnectivityJob(
+	ctx context.Context,
+	mdb *mdbv1.MongoDB,
+	sts *appsv1.StatefulSet,
+	connectionString string,
+	allHostnames []string,
+	agentAuthMode string,
+	agentCertHash string,
+	operatorImage string,
+	log *zap.SugaredLogger,
+) workflow.Status {
+	subjectDN := ""
+	if sec := mdb.GetSecurity(); sec != nil && sec.GetAgentMechanism(agentAuthMode) == util.X509 {
+		agentCertSecretName := sec.AgentClientCertificateSecretName(mdb.Name)
+		sel := corev1.SecretKeySelector{
+			LocalObjectReference: corev1.LocalObjectReference{Name: agentCertSecretName},
+			Key:                  corev1.TLSCertKey,
+		}
+		userOpts, err := r.readAgentSubjectsFromSecret(ctx, mdb.Namespace, sel, log)
+		if err != nil {
+			return workflow.Failed(xerrors.Errorf("connectivity dry-run: automation agent certificate subject: %w", err)).
+				WithAdditionalOptions(status.NewMigrationConditionOption(status.MigrationCondition(
+					status.MigrationPhaseConnectivityCheckFailed, "AgentCertSubject", err.Error(),
+				)))
+		}
+		subjectDN = userOpts.AutomationSubject
+	}
+
+	job := pkgMigration.BuildJobFromStatefulSet(mdb, sts, operatorImage, connectionString, allHostnames, agentAuthMode, agentCertHash, subjectDN)
+
+	result := opMigration.RunConnectivityJob(ctx, r.client, job)
+	if result.Err != nil {
+		return workflow.Failed(fmt.Errorf("connectivity dry run: %w", result.Err)).
+			WithAdditionalOptions(status.NewMigrationConditionOption(status.MigrationCondition(
+				result.Phase, result.Reason, result.Message,
+			)))
+	}
+
+	log.Infow("[DRY-RUN CONNECTIVITY] Job status", "phase", result.Phase, "reason", result.Reason, "message", result.Message)
+
+	switch result.Phase {
+	case status.MigrationPhaseConnectivityCheckRunning:
+		return workflow.ConnectivityValidation("Connectivity validation in progress. Remove annotation %s to run full reconciliation", opMigration.AnnotationDryRun).
+			WithRetry(30).
+			WithAdditionalOptions(status.NewMigrationConditionOption(status.MigrationCondition(
+				status.MigrationPhaseConnectivityCheckRunning, "Running", "Connectivity validation Job is in progress",
+			)))
+	case status.MigrationPhaseConnectivityCheckPassed:
+		return workflow.ConnectivityValidation("Connectivity validation passed. Remove annotation %s to continue with migration", opMigration.AnnotationDryRun).
+			WithAdditionalOptions(status.NewMigrationConditionOption(status.MigrationCondition(
+				status.MigrationPhaseConnectivityCheckPassed, result.Reason, result.Message,
+			)))
+	default:
+		return workflow.Failed(fmt.Errorf("%s: %s", result.Reason, result.Message)).
+			WithRetry(300).
+			WithAdditionalOptions(status.NewMigrationConditionOption(status.MigrationCondition(
+				status.MigrationPhaseConnectivityCheckFailed, result.Reason, result.Message,
+			)))
+	}
 }

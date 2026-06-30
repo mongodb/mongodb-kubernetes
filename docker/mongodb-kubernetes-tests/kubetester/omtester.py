@@ -15,7 +15,7 @@ import pytest
 import requests
 import semver
 from kubetester.automation_config_tester import AutomationConfigTester
-from kubetester.kubetester import KubernetesTester, build_agent_auth, build_auth, run_periodically
+from kubetester.kubetester import KubernetesTester, build_agent_auth, build_auth, fcv_from_version, run_periodically
 from kubetester.mongotester import BackgroundHealthChecker
 from kubetester.om_queryable_backups import OMQueryableBackup
 from opentelemetry import trace
@@ -271,6 +271,23 @@ class OMTester(object):
     def assert_cluster_available(self, name: str):
         availability = self.get_cluster_availability(name)
         assert availability == "available", f"Cluster {name} is not available, current availability: {availability}"
+
+    def get_cluster_availability(self, name: str) -> Optional[str]:
+        clusters = self.api_read_clusters()
+        for cluster in clusters:
+            if cluster["name"] == name:
+                return cluster["availability"]
+        return None
+
+    def assert_cluster_available(self, name: str, timeout: int = 120):
+        deadline = time.time() + timeout
+        availability = None
+        while time.time() < deadline:
+            availability = self.get_cluster_availability(name)
+            if availability == "available":
+                return
+            time.sleep(5)
+        assert False, f"Cluster {name} is not available after {timeout}s, last availability: {availability}"
 
     def assert_healthiness(self):
         self.do_assert_healthiness(self.context.base_url)
