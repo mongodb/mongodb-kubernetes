@@ -196,7 +196,7 @@ func (m *MongoDB) GetSecretsMountedIntoDBPod() []string {
 	var tls string
 	if m.Spec.ResourceType == ShardedCluster {
 		for i := 0; i < m.Spec.ShardCount; i++ {
-			tls = m.GetSecurity().MemberCertificateSecretName(m.ShardRsName(i))
+			tls = m.GetSecurity().MemberCertificateSecretName(m.ShardName(i))
 			if tls != "" {
 				secrets = append(secrets, tls)
 			}
@@ -524,11 +524,50 @@ func (d *MongoDbSpec) GetExternalMembers() []ExternalMember {
 }
 
 func (d *MongoDbSpec) GetExternalMemberProcessNames() []string {
-	var processNames []string
+	return externalMemberProcessNames(d.ExternalMembers)
+}
+
+// GetExternalMembersForRS filters to mongod members matching the given replicaSetName.
+func (d *MongoDbSpec) GetExternalMembersForRS(rsName string) []ExternalMember {
+	var members []ExternalMember
 	for _, m := range d.ExternalMembers {
-		processNames = append(processNames, m.ProcessName)
+		if m.Type == "mongod" && m.ReplicaSetName == rsName {
+			members = append(members, m)
+		}
 	}
-	return processNames
+	return members
+}
+
+// GetExternalMemberProcessNamesForRS returns process names for mongod external members in the given replica set.
+func (d *MongoDbSpec) GetExternalMemberProcessNamesForRS(rsName string) []string {
+	return externalMemberProcessNames(d.GetExternalMembersForRS(rsName))
+}
+
+// GetExternalMemberProcessNamesForConfigRS returns process names for external mongod members of the config server.
+// Uses the AC replica set name, which may differ from the K8s default when an override is set.
+func (m *MongoDB) GetExternalMemberProcessNamesForConfigRS() []string {
+	return m.Spec.GetExternalMemberProcessNamesForRS(m.ConfigACRsName())
+}
+
+// GetExternalMemberProcessNamesForMongos returns process names for external mongos members.
+// Mongos processes carry no replica set name, so filtering is by type rather than by RS name.
+func (d *MongoDbSpec) GetExternalMemberProcessNamesForMongos() []string {
+	var mongos []ExternalMember
+	for _, m := range d.ExternalMembers {
+		if m.Type == "mongos" {
+			mongos = append(mongos, m)
+		}
+	}
+	return externalMemberProcessNames(mongos)
+}
+
+// externalMemberProcessNames extracts the ProcessName field from each member.
+func externalMemberProcessNames(members []ExternalMember) []string {
+	var names []string
+	for _, m := range members {
+		names = append(names, m.ProcessName)
+	}
+	return names
 }
 
 type SnapshotSchedule struct {
@@ -1360,22 +1399,67 @@ func (m *MongoDB) MongosRsName() string {
 	return m.Name + "-mongos"
 }
 
+func (m *MongoDB) GetShardedClusterName() string {
+	if m.Spec.ShardedClusterNameOverride != "" {
+		return m.Spec.ShardedClusterNameOverride
+	}
+	return m.Name
+}
+
 func (m *MongoDB) ConfigRsName() string {
 	return m.Name + "-config"
 }
 
-func (m *MongoDB) ShardRsName(i int) string {
+func (m *MongoDB) ConfigACRsName() string {
+	if m.Spec.ConfigServerNameOverride != "" {
+		return m.Spec.ConfigServerNameOverride
+	}
+	return m.ConfigRsName()
+}
+
+// ShardName returns the operator-generated Kubernetes StatefulSet name for shard i (e.g. "my-mdb-0").
+// It is the K8s resource name and is never affected by shardNameOverrides. For the Automation Config
+// replica set name use ShardACRsName.
+func (m *MongoDB) ShardName(i int) string {
 	// Unfortunately the pattern used by OM (name_idx) doesn't work as Kubernetes doesn't create the stateful set with an
 	// exception: "a DNS-1123 subdomain must consist of lower case alphanumeric characters, '-' or '.'"
 	return fmt.Sprintf("%s-%d", m.Name, i)
 }
 
-func (m *MongoDB) ShardRsNames() []string {
+// ShardNameOverrideForShard returns the override entry matching shard i by K8s StatefulSet name, or nil.
+func (m *MongoDB) ShardNameOverrideForShard(i int) *ShardNameOverride {
+	k8sName := m.ShardName(i)
+	for j := range m.Spec.ShardNameOverrides {
+		if m.Spec.ShardNameOverrides[j].ShardName == k8sName {
+			return &m.Spec.ShardNameOverrides[j]
+		}
+	}
+	return nil
+}
+
+// ShardACRsName returns the AC replicaSetName for shard i. Falls back to the K8s default for brevity-form or missing entries.
+func (m *MongoDB) ShardACRsName(i int) string {
+	if o := m.ShardNameOverrideForShard(i); o != nil && o.ReplicaSetName != "" {
+		return o.ReplicaSetName
+	}
+	return m.ShardName(i)
+}
+
+// ShardACRsNames returns the AC replicaSetName of every shard, indexed by shard index.
+func (m *MongoDB) ShardACRsNames() []string {
 	names := make([]string, m.Spec.ShardCount)
-	for i := range m.Spec.ShardCount {
-		names[i] = m.ShardRsName(i)
+	for i := range names {
+		names[i] = m.ShardACRsName(i)
 	}
 	return names
+}
+
+// ShardACShardId returns the AC shard _id for shard i. Falls back to the K8s default for brevity-form or missing entries.
+func (m *MongoDB) ShardACShardId(i int) string {
+	if o := m.ShardNameOverrideForShard(i); o != nil && o.ShardId != "" {
+		return o.ShardId
+	}
+	return m.ShardName(i)
 }
 
 func (m *MongoDB) MultiShardRsName(clusterIdx int, shardIdx int) string {
@@ -1864,7 +1948,7 @@ func (m *MongoDB) CalculateFeatureCompatibilityVersion() string {
 func (m *MongoDB) ShardNames() []string {
 	shardNames := make([]string, m.Spec.ShardCount)
 	for shardIdx := 0; shardIdx < m.Spec.ShardCount; shardIdx++ {
-		shardNames[shardIdx] = m.ShardRsName(shardIdx)
+		shardNames[shardIdx] = m.ShardName(shardIdx)
 	}
 	return shardNames
 }

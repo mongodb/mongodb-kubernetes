@@ -135,6 +135,8 @@ def vm_sts(
     with open(yaml_fixture("vm_statefulset.yaml"), "r") as f:
         sts_body = yaml.safe_load(f.read())
 
+    sts_body["spec"]["replicas"] = 3
+
     sts_body["spec"]["template"]["spec"]["containers"][0]["env"] = [
         {"name": "MMS_GROUP_ID", "value": om_tester.context.project_id},
         {"name": "MMS_BASE_URL", "value": om_tester.context.base_url},
@@ -290,6 +292,18 @@ def vm_service(namespace: str):
         service_body = yaml.safe_load(f.read())
     KubernetesTester.create_or_update_service(namespace, body=service_body)
     return service_body
+
+
+@fixture(scope="module")
+def mongo_tester(mdb_migration: MongoDB) -> MongoTester:
+    return mdb_migration.tester()
+
+
+@fixture(scope="module")
+def mdb_health_checker(mongo_tester: MongoTester) -> MongoDBBackgroundTester:
+    health_checker = MongoDBBackgroundTester(mongo_tester, allowed_sequential_failures=3)
+    health_checker.start()
+    return health_checker
 
 
 def _build_processes(vm_sts: dict, vm_service: dict, namespace: str, custom_mdb_version: str, tls: bool) -> tuple:
@@ -469,7 +483,7 @@ def test_vm_ac_x509_auth(
         "usersDeleted": [],
     }
     om_tester.api_put_automation_config(ac)
-    om_tester.wait_agents_ready(timeout=600)
+    om_tester.wait_agents_ready(timeout=1800)
 
 
 @mark.e2e_vm_migration_x509

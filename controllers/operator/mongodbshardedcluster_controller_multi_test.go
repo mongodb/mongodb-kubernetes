@@ -987,8 +987,8 @@ func (r *MultiClusterShardedClusterConfigList) GenerateAllHosts(sc *mdbv1.MongoD
 
 		for shardIdx := 0; shardIdx < len(clusterSpec.ShardsMembersArray); shardIdx++ {
 			for podIdx := 0; podIdx < clusterSpec.ShardsMembersArray[shardIdx]; podIdx++ {
-				allHosts = append(allHosts, getMultiClusterFQDN(sc.ShardRsName(shardIdx), sc.Namespace, clusterIdx, podIdx, "cluster.local", ""))
-				allPodNames = append(allPodNames, getPodName(sc.ShardRsName(shardIdx), clusterIdx, podIdx))
+				allHosts = append(allHosts, getMultiClusterFQDN(sc.ShardName(shardIdx), sc.Namespace, clusterIdx, podIdx, "cluster.local", ""))
+				allPodNames = append(allPodNames, getPodName(sc.ShardName(shardIdx), clusterIdx, podIdx))
 			}
 		}
 	}
@@ -1329,7 +1329,7 @@ func generateAllHosts(sc *mdbv1.MongoDB, mongosDistribution map[string]int, clus
 	allPodNames = append(allPodNames, podNames...)
 
 	for shardIdx := 0; shardIdx < sc.Spec.ShardCount; shardIdx++ {
-		podNames, hosts = generateHostsWithDistribution(sc.ShardRsName(shardIdx), sc.Namespace, shardDistribution[shardIdx], clusterMapping, clusterDomain.ShardsExternalDomain, externalClusterDomain.ShardsExternalDomain)
+		podNames, hosts = generateHostsWithDistribution(sc.ShardName(shardIdx), sc.Namespace, shardDistribution[shardIdx], clusterMapping, clusterDomain.ShardsExternalDomain, externalClusterDomain.ShardsExternalDomain)
 		allHosts = append(allHosts, hosts...)
 		allPodNames = append(allPodNames, podNames...)
 	}
