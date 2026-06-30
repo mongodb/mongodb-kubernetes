@@ -4,7 +4,8 @@ import kubernetes
 from kubernetes import client
 from kubetester import try_load
 from kubetester.certs import create_mongodb_tls_certs
-from kubetester.helm import helm_uninstall
+from kubetester.helm import apply_operator_config_crd, helm_uninstall
+from kubetester.kubetester import build_operator_config_spec_from_test_env, create_operator_config
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_multi import MongoDBMulti
@@ -121,6 +122,13 @@ def test_upgrade_operator(
     member_cluster_names: List[str],
 ):
     logger.info("Installing the operator via repo helm chart")
+    # The OperatorConfig CRD is only shipped by MCK, not by the legacy operator we are upgrading from.
+    # Apply it and wait for it to be established, then create the OperatorConfig CR before the operator
+    # is upgraded to MCK, so that the desired default architecture is configured from the start.
+    apply_operator_config_crd(api_client=central_cluster_client)
+    spec = build_operator_config_spec_from_test_env()
+    if spec:
+        create_operator_config(namespace, spec, api_client=central_cluster_client)
     if is_multi_cluster():
         operator = get_multi_cluster_operator(
             namespace,
