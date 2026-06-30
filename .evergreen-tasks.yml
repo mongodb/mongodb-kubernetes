@@ -311,52 +311,52 @@ tasks:
     commands:
       - func: "e2e_test"
 
-  - name: e2e_vm_migration_scram_sha256
+  - name: e2e_vm_migration_replicaset_scram_sha256
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
 
-  - name: e2e_vm_migration_scram_sha1
+  - name: e2e_vm_migration_replicaset_scram_sha1
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
 
-  - name: e2e_vm_migration_scram_sha256_tls
+  - name: e2e_vm_migration_replicaset_scram_sha256_tls
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
 
-  - name: e2e_vm_migration_no_auth
+  - name: e2e_vm_migration_replicaset_no_auth
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
 
-  - name: e2e_vm_migration_x509
+  - name: e2e_vm_migration_replicaset_x509
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
 
-  - name: e2e_vm_migration_ldap
+  - name: e2e_vm_migration_replicaset_ldap
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
 
-  - name: e2e_vm_migration_prometheus
+  - name: e2e_vm_migration_replicaset_prometheus
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
 
-  - name: e2e_vm_migration_oidc
+  - name: e2e_vm_migration_replicaset_oidc
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
 
-  - name: e2e_vm_migration_oidc_group
+  - name: e2e_vm_migration_replicaset_oidc_group
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
 
-  - name: e2e_vm_migration_oidc_workforce
+  - name: e2e_vm_migration_replicaset_oidc_workforce
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"

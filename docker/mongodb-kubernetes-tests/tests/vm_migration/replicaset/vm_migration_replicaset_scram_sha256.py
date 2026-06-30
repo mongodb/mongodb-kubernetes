@@ -317,7 +317,7 @@ def mdb_health_checker(mdb_migration: MongoDB, scram_opts: list[dict]) -> MongoD
 # Test flow
 
 
-@mark.e2e_vm_migration_scram_sha256
+@mark.e2e_vm_migration_replicaset_scram_sha256
 def test_deploy_vm(namespace: str, vm_sts, vm_service):
     def sts_is_ready():
         sts = get_statefulset(namespace, vm_sts["metadata"]["name"])
@@ -326,13 +326,13 @@ def test_deploy_vm(namespace: str, vm_sts, vm_service):
     KubernetesTester.wait_until(sts_is_ready, timeout=300)
 
 
-@mark.e2e_vm_migration_scram_sha256
+@mark.e2e_vm_migration_replicaset_scram_sha256
 def test_configure_ac(namespace: str, om_tester: OMTester, vm_sts, vm_service, custom_mdb_version):
     _configure_ac(namespace, om_tester, vm_sts, vm_service, custom_mdb_version)
     om_tester.wait_agents_ready(timeout=600)
 
 
-@mark.e2e_vm_migration_scram_sha256
+@mark.e2e_vm_migration_replicaset_scram_sha256
 def test_user_connectivity_before_migration(namespace: str, scram_opts: list[dict]):
     """Users can authenticate against the VM replica set before migration."""
     vm_replica_set_tester(namespace).assert_scram_sha_authentication(
@@ -340,12 +340,12 @@ def test_user_connectivity_before_migration(namespace: str, scram_opts: list[dic
     )
 
 
-@mark.e2e_vm_migration_scram_sha256
+@mark.e2e_vm_migration_replicaset_scram_sha256
 def test_insert_migration_data(namespace: str, scram_opts: list[dict]):
     insert_migration_data(vm_replica_set_tester(namespace), opts=scram_opts)
 
 
-@mark.e2e_vm_migration_scram_sha256
+@mark.e2e_vm_migration_replicaset_scram_sha256
 def test_install_operator(operator: Operator):
     operator.assert_is_running()
 
@@ -353,19 +353,19 @@ def test_install_operator(operator: Operator):
 # Generated CR checks
 
 
-@mark.e2e_vm_migration_scram_sha256
+@mark.e2e_vm_migration_replicaset_scram_sha256
 def test_common_generated_cr_shape(generated_cr_yaml: str, generated_cr: dict, vm_sts: dict):
     assert_common_generated_cr_shape(generated_cr_yaml, generated_cr, vm_sts["spec"]["replicas"])
 
 
-@mark.e2e_vm_migration_scram_sha256
+@mark.e2e_vm_migration_replicaset_scram_sha256
 def test_user_crs_emitted(generated_cr_yaml: str):
     user_docs = generated_user_docs(generated_cr_yaml)
     usernames = {d["spec"]["username"] for d in user_docs}
     assert usernames == {"app-user", "reporting-user"}, f"Unexpected user CRs: {usernames}"
 
 
-@mark.e2e_vm_migration_scram_sha256
+@mark.e2e_vm_migration_replicaset_scram_sha256
 def test_custom_roles_in_generated_cr(generated_cr: dict):
     """The deployment's custom roles are carried into spec.security.roles."""
     roles = generated_cr["spec"]["security"].get("roles", [])
@@ -378,7 +378,7 @@ def test_custom_roles_in_generated_cr(generated_cr: dict):
     }, f"Unexpected privileges: {app_role}"
 
 
-@mark.e2e_vm_migration_scram_sha256
+@mark.e2e_vm_migration_replicaset_scram_sha256
 def test_settings_sourced_from_source_process(generated_cr_yaml: str):
     """When per-member config diverges, settings are taken from the source process (member 0).
     Member 2 has logAppend=False and no oplogSizeMB -- neither should affect the generated CR."""
@@ -390,7 +390,7 @@ def test_settings_sourced_from_source_process(generated_cr_yaml: str):
     assert repl.get("oplogSizeMB") == 2048, f"Expected oplogSizeMB=2048 from source process, got: {repl}"
 
 
-@mark.e2e_vm_migration_scram_sha256
+@mark.e2e_vm_migration_replicaset_scram_sha256
 def test_vm_deployment_automation_config(om_tester: OMTester, vm_sts):
     ac_tester = om_tester.get_automation_config_tester()
 
@@ -403,24 +403,24 @@ def test_vm_deployment_automation_config(om_tester: OMTester, vm_sts):
 # Lifecycle checks
 
 
-@mark.e2e_vm_migration_scram_sha256
+@mark.e2e_vm_migration_replicaset_scram_sha256
 def test_migration_dry_run_connectivity_passes(mdb_migration: MongoDB):
     """Operator validates connectivity to all externalMembers, then the annotation is removed."""
     run_migration_dry_run_connectivity_passes(mdb_migration)
 
 
-@mark.e2e_vm_migration_scram_sha256
+@mark.e2e_vm_migration_replicaset_scram_sha256
 def test_migrate_vm_to_kubernetes(mdb_migration: MongoDB):
     mdb_migration.assert_reaches_phase(Phase.Running, timeout=1200)
     assert_connection_string_contains_current_hosts(mdb_migration)
 
 
-@mark.e2e_vm_migration_scram_sha256
+@mark.e2e_vm_migration_replicaset_scram_sha256
 def test_max_voting_members_validation(mdb_migration: MongoDB):
     assert_max_voting_members_validation(mdb_migration)
 
 
-@mark.e2e_vm_migration_scram_sha256
+@mark.e2e_vm_migration_replicaset_scram_sha256
 def test_custom_roles_preserved_in_automation_config(om_tester: OMTester):
     """The custom roles remain in the operator-managed automation config after migration."""
     ac = om_tester.api_get_automation_config()
@@ -428,12 +428,12 @@ def test_custom_roles_preserved_in_automation_config(om_tester: OMTester):
     assert names >= {"appReadOnly@myapp", "metricsReader@admin"}, f"Custom roles missing after migration: {names}"
 
 
-@mark.e2e_vm_migration_scram_sha256
+@mark.e2e_vm_migration_replicaset_scram_sha256
 def test_user_crs_reach_updated(generated_cr_yaml: str, namespace: str, mdb_migration: MongoDB, om_tester: OMTester):
     apply_user_crs_and_verify_ac(generated_cr_yaml, namespace, om_tester)
 
 
-@mark.e2e_vm_migration_scram_sha256
+@mark.e2e_vm_migration_replicaset_scram_sha256
 def test_user_connectivity_after_migration(mdb_migration: MongoDB):
     """Users can still authenticate after the operator takes over the replica set."""
     mdb_migration.tester(use_ssl=False).assert_scram_sha_authentication(
@@ -441,38 +441,38 @@ def test_user_connectivity_after_migration(mdb_migration: MongoDB):
     )
 
 
-@mark.e2e_vm_migration_scram_sha256
+@mark.e2e_vm_migration_replicaset_scram_sha256
 def test_migration_data_exists_after_migration(mdb_migration: MongoDB, scram_opts: list[dict]):
     assert_migration_data_exists(mdb_migration.tester(use_ssl=False), opts=scram_opts)
 
 
-@mark.e2e_vm_migration_scram_sha256
+@mark.e2e_vm_migration_replicaset_scram_sha256
 def test_start_background_health_checker(mdb_health_checker: MongoDBBackgroundTester):
     mdb_health_checker.start()
 
 
-@mark.e2e_vm_migration_scram_sha256
+@mark.e2e_vm_migration_replicaset_scram_sha256
 def test_promote_and_prune(mdb_migration: MongoDB, vm_sts):
     promote_and_prune(mdb_migration, vm_sts)
 
 
-@mark.e2e_vm_migration_scram_sha256
+@mark.e2e_vm_migration_replicaset_scram_sha256
 def test_mongodb_reachable_during_promote_and_prune(mdb_health_checker: MongoDBBackgroundTester):
     mdb_health_checker.assert_healthiness()
     mdb_health_checker.stop()
 
 
-@mark.e2e_vm_migration_scram_sha256
+@mark.e2e_vm_migration_replicaset_scram_sha256
 def test_connection_string_after_full_migration(mdb_migration: MongoDB):
     assert_connection_string_after_full_migration(mdb_migration)
 
 
-@mark.e2e_vm_migration_scram_sha256
+@mark.e2e_vm_migration_replicaset_scram_sha256
 def test_process_names(om_tester: OMTester, mdb_migration: MongoDB):
     assert_k8s_process_names(om_tester, mdb_migration)
 
 
-@mark.e2e_vm_migration_scram_sha256
+@mark.e2e_vm_migration_replicaset_scram_sha256
 def test_user_connectivity_after_promote(mdb_migration: MongoDB):
     """Users can still authenticate after promote and prune completes."""
     mdb_migration.tester(use_ssl=False).assert_scram_sha_authentication(
@@ -480,11 +480,11 @@ def test_user_connectivity_after_promote(mdb_migration: MongoDB):
     )
 
 
-@mark.e2e_vm_migration_scram_sha256
+@mark.e2e_vm_migration_replicaset_scram_sha256
 def test_migration_data_exists_after_promote(mdb_migration: MongoDB, scram_opts: list[dict]):
     assert_migration_data_exists(mdb_migration.tester(use_ssl=False), opts=scram_opts)
 
 
-@mark.e2e_vm_migration_scram_sha256
+@mark.e2e_vm_migration_replicaset_scram_sha256
 def test_password_rotation_keeps_migrated_flag(generated_cr_yaml: str, namespace: str, om_tester: OMTester):
     rotate_password_and_verify(generated_cr_yaml, namespace, om_tester, target_username="app-user")

@@ -181,7 +181,7 @@ def _assert_metrics_served(mdb_migration: MongoDB, namespace: str):
 # Test flow
 
 
-@mark.e2e_vm_migration_prometheus
+@mark.e2e_vm_migration_replicaset_prometheus
 def test_deploy_vm(namespace: str, vm_sts, vm_service):
     def sts_is_ready():
         sts = get_statefulset(namespace, vm_sts["metadata"]["name"])
@@ -190,18 +190,18 @@ def test_deploy_vm(namespace: str, vm_sts, vm_service):
     KubernetesTester.wait_until(sts_is_ready, timeout=300)
 
 
-@mark.e2e_vm_migration_prometheus
+@mark.e2e_vm_migration_replicaset_prometheus
 def test_configure_ac(namespace: str, om_tester: OMTester, vm_sts, vm_service, custom_mdb_version):
     _configure_ac(namespace, om_tester, vm_sts, vm_service, custom_mdb_version)
     om_tester.wait_agents_ready(timeout=600)
 
 
-@mark.e2e_vm_migration_prometheus
+@mark.e2e_vm_migration_replicaset_prometheus
 def test_install_operator(operator: Operator):
     operator.assert_is_running()
 
 
-@mark.e2e_vm_migration_prometheus
+@mark.e2e_vm_migration_replicaset_prometheus
 def test_insert_migration_data(namespace: str):
     insert_migration_data(vm_replica_set_tester(namespace))
 
@@ -209,12 +209,12 @@ def test_insert_migration_data(namespace: str):
 # Generated CR checks
 
 
-@mark.e2e_vm_migration_prometheus
+@mark.e2e_vm_migration_replicaset_prometheus
 def test_common_generated_cr_shape(generated_cr_yaml: str, generated_cr: dict, vm_sts: dict):
     assert_common_generated_cr_shape(generated_cr_yaml, generated_cr, vm_sts["spec"]["replicas"])
 
 
-@mark.e2e_vm_migration_prometheus
+@mark.e2e_vm_migration_replicaset_prometheus
 def test_prometheus_in_cr(generated_cr: dict):
     prom = generated_cr["spec"]["prometheus"]
     assert prom["username"] == PROM_USER
@@ -225,54 +225,54 @@ def test_prometheus_in_cr(generated_cr: dict):
 # Lifecycle checks
 
 
-@mark.e2e_vm_migration_prometheus
+@mark.e2e_vm_migration_replicaset_prometheus
 def test_migration_dry_run_connectivity_passes(mdb_migration: MongoDB):
     run_migration_dry_run_connectivity_passes(mdb_migration)
 
 
-@mark.e2e_vm_migration_prometheus
+@mark.e2e_vm_migration_replicaset_prometheus
 def test_migrate_vm_to_kubernetes(mdb_migration: MongoDB):
     mdb_migration.assert_reaches_phase(Phase.Running, timeout=1200)
     assert_connection_string_contains_current_hosts(mdb_migration)
 
 
-@mark.e2e_vm_migration_prometheus
+@mark.e2e_vm_migration_replicaset_prometheus
 def test_max_voting_members_validation(mdb_migration: MongoDB):
     assert_max_voting_members_validation(mdb_migration)
 
 
-@mark.e2e_vm_migration_prometheus
+@mark.e2e_vm_migration_replicaset_prometheus
 @skip_if_local()
 def test_prometheus_endpoint_after_migration(mdb_migration: MongoDB, namespace: str):
     _assert_metrics_served(mdb_migration, namespace)
 
 
-@mark.e2e_vm_migration_prometheus
+@mark.e2e_vm_migration_replicaset_prometheus
 def test_migration_data_exists_after_migration(mdb_migration: MongoDB):
     assert_migration_data_exists(mdb_migration.tester(use_ssl=False))
 
 
-@mark.e2e_vm_migration_prometheus
+@mark.e2e_vm_migration_replicaset_prometheus
 def test_promote_and_prune(mdb_migration: MongoDB, vm_sts):
     promote_and_prune(mdb_migration, vm_sts)
 
 
-@mark.e2e_vm_migration_prometheus
+@mark.e2e_vm_migration_replicaset_prometheus
 def test_connection_string_after_full_migration(mdb_migration: MongoDB):
     assert_connection_string_after_full_migration(mdb_migration)
 
 
-@mark.e2e_vm_migration_prometheus
+@mark.e2e_vm_migration_replicaset_prometheus
 def test_process_names(om_tester: OMTester, mdb_migration: MongoDB):
     assert_k8s_process_names(om_tester, mdb_migration)
 
 
-@mark.e2e_vm_migration_prometheus
+@mark.e2e_vm_migration_replicaset_prometheus
 @skip_if_local()
 def test_prometheus_endpoint_after_promote(mdb_migration: MongoDB, namespace: str):
     _assert_metrics_served(mdb_migration, namespace)
 
 
-@mark.e2e_vm_migration_prometheus
+@mark.e2e_vm_migration_replicaset_prometheus
 def test_migration_data_exists_after_promote(mdb_migration: MongoDB):
     assert_migration_data_exists(mdb_migration.tester(use_ssl=False))

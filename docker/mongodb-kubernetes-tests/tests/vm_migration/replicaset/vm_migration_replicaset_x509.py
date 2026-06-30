@@ -369,7 +369,7 @@ def _build_processes(vm_sts: dict, vm_service: dict, namespace: str, custom_mdb_
     return processes, monitoring_versions, members
 
 
-@mark.e2e_vm_migration_x509
+@mark.e2e_vm_migration_replicaset_x509
 def test_deploy_vm(namespace: str, vm_sts, vm_service):
     def sts_is_ready():
         sts = get_statefulset(namespace, vm_sts["metadata"]["name"])
@@ -381,7 +381,7 @@ def test_deploy_vm(namespace: str, vm_sts, vm_service):
 # Test flow
 
 
-@mark.e2e_vm_migration_x509
+@mark.e2e_vm_migration_replicaset_x509
 def test_vm_ac_no_auth(om_tester: OMTester, vm_sts: dict, vm_service: dict, namespace: str, custom_mdb_version: str):
     """Start the VM replica set without auth or TLS so agents can register."""
     ac = om_tester.api_get_automation_config()
@@ -398,7 +398,7 @@ def test_vm_ac_no_auth(om_tester: OMTester, vm_sts: dict, vm_service: dict, name
     om_tester.wait_agents_ready(timeout=600)
 
 
-@mark.e2e_vm_migration_x509
+@mark.e2e_vm_migration_replicaset_x509
 def test_vm_ac_tls(
     om_tester: OMTester,
     vm_sts: dict,
@@ -428,7 +428,7 @@ def test_vm_ac_tls(
     om_tester.wait_agents_ready(timeout=1200)
 
 
-@mark.e2e_vm_migration_x509
+@mark.e2e_vm_migration_replicaset_x509
 def test_vm_ac_x509_auth(
     om_tester: OMTester,
     vm_sts: dict,
@@ -486,7 +486,7 @@ def test_vm_ac_x509_auth(
     om_tester.wait_agents_ready(timeout=1800)
 
 
-@mark.e2e_vm_migration_x509
+@mark.e2e_vm_migration_replicaset_x509
 def test_insert_migration_data(vm_x509_tester: MongoTester, x509_opts: list[dict]):
     insert_migration_data(vm_x509_tester, opts=x509_opts)
 
@@ -494,12 +494,12 @@ def test_insert_migration_data(vm_x509_tester: MongoTester, x509_opts: list[dict
 # Generated CR checks
 
 
-@mark.e2e_vm_migration_x509
+@mark.e2e_vm_migration_replicaset_x509
 def test_common_generated_cr_shape(generated_cr_yaml: str, generated_cr: dict, vm_sts: dict):
     assert_common_generated_cr_shape(generated_cr_yaml, generated_cr, vm_sts["spec"]["replicas"])
 
 
-@mark.e2e_vm_migration_x509
+@mark.e2e_vm_migration_replicaset_x509
 def test_x509_agent_auth_in_cr(generated_cr: dict):
     agents = generated_cr["spec"]["security"]["authentication"]["agents"]
     assert agents["mode"] == "X509"
@@ -507,7 +507,7 @@ def test_x509_agent_auth_in_cr(generated_cr: dict):
     assert agents["clientCertificateSecretRef"]["name"] == f"mdb-{MDB_RESOURCE_NAME}-agent-certs"
 
 
-@mark.e2e_vm_migration_x509
+@mark.e2e_vm_migration_replicaset_x509
 def test_user_cr_emitted(generated_cr_yaml: str, vm_app_user: tuple[str, str]):
     # The $external app user produces a MongoDBUser CR; the agent auto-user is skipped by the tool.
     _, app_user_subject_dn = vm_app_user
@@ -520,7 +520,7 @@ def test_user_cr_emitted(generated_cr_yaml: str, vm_app_user: tuple[str, str]):
 # Lifecycle checks
 
 
-@mark.e2e_vm_migration_x509
+@mark.e2e_vm_migration_replicaset_x509
 def test_migration_dry_run_wrong_ca_fails_then_passes(namespace: str, mdb_migration: MongoDB, generated_cr: dict):
     """Dry-run with a wrong CA must fail; restoring the correct CA must make it pass."""
     run_wrong_ca_dry_run_fails_then_passes(
@@ -532,34 +532,34 @@ def test_migration_dry_run_wrong_ca_fails_then_passes(namespace: str, mdb_migrat
     )
 
 
-@mark.e2e_vm_migration_x509
+@mark.e2e_vm_migration_replicaset_x509
 def test_migration_dry_run_connectivity_passes(mdb_migration: MongoDB):
     """Run migration dry-run: operator only validates connectivity to externalMembers, then we clear the annotation."""
     run_migration_dry_run_connectivity_passes(mdb_migration)
 
 
-@mark.e2e_vm_migration_x509
+@mark.e2e_vm_migration_replicaset_x509
 def test_migrate_vm_to_kubernetes(mdb_migration: MongoDB):
     mdb_migration.assert_reaches_phase(Phase.Running, timeout=1200)
     assert_connection_string_contains_current_hosts(mdb_migration)
 
 
-@mark.e2e_vm_migration_x509
+@mark.e2e_vm_migration_replicaset_x509
 def test_migration_data_exists_after_migration(mdb_migration: MongoDB, issuer_ca_filepath: str, x509_opts: list[dict]):
     assert_migration_data_exists(mdb_migration.tester(use_ssl=True, ca_path=issuer_ca_filepath), opts=x509_opts)
 
 
-@mark.e2e_vm_migration_x509
+@mark.e2e_vm_migration_replicaset_x509
 def test_max_voting_members_validation(mdb_migration: MongoDB):
     assert_max_voting_members_validation(mdb_migration)
 
 
-@mark.e2e_vm_migration_x509
+@mark.e2e_vm_migration_replicaset_x509
 def test_user_crs_reach_updated(generated_cr_yaml: str, namespace: str, mdb_migration: MongoDB, om_tester: OMTester):
     apply_user_crs_and_verify_ac(generated_cr_yaml, namespace, om_tester)
 
 
-@mark.e2e_vm_migration_x509
+@mark.e2e_vm_migration_replicaset_x509
 def test_app_user_x509_connectivity_after_migration(
     mdb_migration: MongoDB, vm_app_user: tuple[str, str], issuer_ca_filepath: str
 ):
@@ -570,32 +570,32 @@ def test_app_user_x509_connectivity_after_migration(
     )
 
 
-@mark.e2e_vm_migration_x509
+@mark.e2e_vm_migration_replicaset_x509
 def test_start_background_health_checker(mdb_health_checker: MongoDBBackgroundTester):
     mdb_health_checker.start()
 
 
-@mark.e2e_vm_migration_x509
+@mark.e2e_vm_migration_replicaset_x509
 def test_promote_and_prune(mdb_migration: MongoDB, vm_sts):
     promote_and_prune(mdb_migration, vm_sts)
 
 
-@mark.e2e_vm_migration_x509
+@mark.e2e_vm_migration_replicaset_x509
 def test_mongodb_reachable_during_promote_and_prune(mdb_health_checker: MongoDBBackgroundTester):
     mdb_health_checker.assert_healthiness()
     mdb_health_checker.stop()
 
 
-@mark.e2e_vm_migration_x509
+@mark.e2e_vm_migration_replicaset_x509
 def test_connection_string_after_full_migration(mdb_migration: MongoDB):
     assert_connection_string_after_full_migration(mdb_migration)
 
 
-@mark.e2e_vm_migration_x509
+@mark.e2e_vm_migration_replicaset_x509
 def test_process_names(om_tester: OMTester, mdb_migration: MongoDB):
     assert_k8s_process_names(om_tester, mdb_migration)
 
 
-@mark.e2e_vm_migration_x509
+@mark.e2e_vm_migration_replicaset_x509
 def test_migration_data_exists_after_promote(mdb_migration: MongoDB, issuer_ca_filepath: str, x509_opts: list[dict]):
     assert_migration_data_exists(mdb_migration.tester(use_ssl=True, ca_path=issuer_ca_filepath), opts=x509_opts)

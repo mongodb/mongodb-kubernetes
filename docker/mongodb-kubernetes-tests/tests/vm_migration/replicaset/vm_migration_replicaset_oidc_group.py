@@ -1,10 +1,11 @@
 """
-VM migration from a generated MongoDB resource with OIDC (workload M2M) authentication.
+VM migration from a generated MongoDB resource with OIDC workload GroupMembership authentication.
 
-The VM automation config enables MONGODB-OIDC alongside SCRAM (SCRAM for the agent and the application
-user, OIDC for a workforce/workload identity). The OIDC provider is AWS Cognito, configured the same way
-as the standalone OIDC e2e tests. This verifies that the migrate tool carries the OIDC provider configs
-into the generated CR and that an OIDC identity can still authenticate after the operator takes over.
+The VM automation config enables MONGODB-OIDC alongside SCRAM. OIDC uses workload identity with
+group-based authorization (useAuthorizationClaim=true, supportsHumanFlows=false). The Cognito group
+"test" is mapped to the $external user OIDC-test-group/test. This verifies that the migrate tool
+carries the OIDC provider config into the generated CR with authorizationMethod=WorkloadIdentityFederation
+and authorizationType=GroupMembership.
 
 Requires the Cognito test environment (the cognito_* expansions). The test skips when they are absent.
 """
@@ -41,16 +42,15 @@ from tests.vm_migration.vm_migration_helpers import (
     vm_replica_set_tester,
 )
 
-RS_NAME = "vm-mongodb-rs"
 AGENT_USER = "mms-automation-agent"
-AGENT_PASSWORD = "agent-oidc-password"
+AGENT_PASSWORD = "agent-oidc-group-password"
 APP_USER = "app-user"
-APP_USER_PASSWORD = "appUserOidc!"
+APP_USER_PASSWORD = "appUserOidcGroup!"
 SCRAM_MECHANISM = "SCRAM-SHA-256"
 OIDC_MECHANISM = "MONGODB-OIDC"
 MDB_VERSION = "8.0.4-ent"
-# configurationName / authNamePrefix; the OIDC username is "<prefix>/<subject>".
-OIDC_CONFIG_NAME = "OIDC-test-user"
+OIDC_CONFIG_NAME = "OIDC-test-group"
+COGNITO_GROUP = "test"
 
 
 @fixture(scope="module")
@@ -61,11 +61,6 @@ def cognito() -> dict:
     if not client_id or not issuer_uri or not user_id:
         skip("Cognito OIDC test environment is not configured (cognito_* expansions missing)")
     return {"client_id": client_id, "issuer_uri": issuer_uri, "user_id": user_id}
-
-
-@fixture(scope="module")
-def oidc_username(cognito: dict) -> str:
-    return f"{OIDC_CONFIG_NAME}/{cognito['user_id']}"
 
 
 @fixture(scope="module")
@@ -93,10 +88,13 @@ def _configure_ac(
     vm_sts: dict,
     vm_service: dict,
     cognito: dict,
-    oidc_username: str,
 ):
-    """SCRAM agent plus an OIDC (workload M2M) provider. The application user authenticates with SCRAM,
-    the OIDC identity authenticates via the external identity provider."""
+    """SCRAM agent plus a workload OIDC provider using group-based authorization.
+
+    GroupMembership OIDC uses a role in admin named <prefix>/<group> rather than a
+    user in $external. MongoDB resolves the cognito:groups claim from the JWT, then
+    grants the matching admin role to the connection.
+    """
     mdb_version = MDB_VERSION
     ac = om_tester.api_get_automation_config()
     if len(ac["processes"]) > 0:
@@ -127,13 +125,6 @@ def _configure_ac(
                 "scramSha256Creds": build_sha256_creds(APP_USER_PASSWORD),
                 "authenticationRestrictions": [],
             },
-            {
-                "user": oidc_username,
-                "db": "$external",
-                "roles": [{"role": "readWriteAnyDatabase", "db": "admin"}],
-                "mechanisms": [],
-                "authenticationRestrictions": [],
-            },
         ],
         "usersDeleted": [],
         "disabled": False,
@@ -157,9 +148,18 @@ def _configure_ac(
             "clientId": cognito["client_id"],
             "requestedScopes": [],
             "userClaim": "sub",
-            "groupsClaim": None,
+            "groupsClaim": "cognito:groups",
             "supportsHumanFlows": False,
-            "useAuthorizationClaim": False,
+            "useAuthorizationClaim": True,
+        }
+    ]
+
+    ac["roles"] = [
+        {
+            "role": f"{OIDC_CONFIG_NAME}/{COGNITO_GROUP}",
+            "db": "admin",
+            "privileges": [],
+            "roles": [{"role": "readWriteAnyDatabase", "db": "admin"}],
         }
     ]
 
@@ -197,7 +197,8 @@ def _configure_ac(
                                 "issuer": cognito["issuer_uri"],
                                 "audience": cognito["client_id"],
                                 "authNamePrefix": OIDC_CONFIG_NAME,
-                                "principalName": "sub",
+                                "authorizationClaim": "cognito:groups",
+                                "useAuthorizationClaim": True,
                                 "supportsHumanFlows": False,
                             }
                         ]),
@@ -244,7 +245,7 @@ def scram_opts() -> list[dict]:
 # Test flow
 
 
-@mark.e2e_vm_migration_oidc
+@mark.e2e_vm_migration_replicaset_oidc_group
 def test_deploy_vm(namespace: str, vm_sts, vm_service):
     def sts_is_ready():
         sts = get_statefulset(namespace, vm_sts["metadata"]["name"])
@@ -253,37 +254,36 @@ def test_deploy_vm(namespace: str, vm_sts, vm_service):
     KubernetesTester.wait_until(sts_is_ready, timeout=300)
 
 
-@mark.e2e_vm_migration_oidc
+@mark.e2e_vm_migration_replicaset_oidc_group
 def test_configure_ac(
     namespace: str,
     om_tester: OMTester,
     vm_sts,
     vm_service,
     cognito: dict,
-    oidc_username: str,
 ):
-    _configure_ac(namespace, om_tester, vm_sts, vm_service, cognito, oidc_username)
+    _configure_ac(namespace, om_tester, vm_sts, vm_service, cognito)
     om_tester.wait_agents_ready(timeout=600)
 
 
-@mark.e2e_vm_migration_oidc
+@mark.e2e_vm_migration_replicaset_oidc_group
 def test_user_connectivity_before_migration(namespace: str):
     vm_replica_set_tester(namespace).assert_scram_sha_authentication(
         username=APP_USER, password=APP_USER_PASSWORD, auth_mechanism=SCRAM_MECHANISM
     )
 
 
-@mark.e2e_vm_migration_oidc
+@mark.e2e_vm_migration_replicaset_oidc_group
 def test_oidc_authentication_before_migration(namespace: str):
     vm_replica_set_tester(namespace, use_ssl=False).assert_oidc_authentication()
 
 
-@mark.e2e_vm_migration_oidc
+@mark.e2e_vm_migration_replicaset_oidc_group
 def test_insert_migration_data(namespace: str, scram_opts: list[dict]):
     insert_migration_data(vm_replica_set_tester(namespace), opts=scram_opts)
 
 
-@mark.e2e_vm_migration_oidc
+@mark.e2e_vm_migration_replicaset_oidc_group
 def test_install_operator(operator: Operator):
     operator.assert_is_running()
 
@@ -291,12 +291,12 @@ def test_install_operator(operator: Operator):
 # Generated CR checks
 
 
-@mark.e2e_vm_migration_oidc
+@mark.e2e_vm_migration_replicaset_oidc_group
 def test_common_generated_cr_shape(generated_cr_yaml: str, generated_cr: dict, vm_sts: dict):
     assert_common_generated_cr_shape(generated_cr_yaml, generated_cr, vm_sts["spec"]["replicas"])
 
 
-@mark.e2e_vm_migration_oidc
+@mark.e2e_vm_migration_replicaset_oidc_group
 def test_oidc_provider_in_cr(generated_cr: dict):
     auth = generated_cr["spec"]["security"]["authentication"]
     assert "OIDC" in auth["modes"]
@@ -305,72 +305,72 @@ def test_oidc_provider_in_cr(generated_cr: dict):
     assert names == {OIDC_CONFIG_NAME}, f"Unexpected OIDC provider configs: {configs}"
     provider = configs[0]
     assert provider["authorizationMethod"] == "WorkloadIdentityFederation"
-    assert provider["authorizationType"] == "UserID"
+    assert provider["authorizationType"] == "GroupMembership"
 
 
-@mark.e2e_vm_migration_oidc
-def test_user_crs_emitted(generated_cr_yaml: str, oidc_username: str):
+@mark.e2e_vm_migration_replicaset_oidc_group
+def test_user_crs_emitted(generated_cr_yaml: str):
     user_docs = generated_user_docs(generated_cr_yaml)
     usernames = {d["spec"]["username"] for d in user_docs}
-    assert usernames == {APP_USER, oidc_username}, f"Unexpected user CRs: {usernames}"
+    assert usernames == {APP_USER}, f"Unexpected user CRs: {usernames}"
 
 
 # Lifecycle checks
 
 
-@mark.e2e_vm_migration_oidc
+@mark.e2e_vm_migration_replicaset_oidc_group
 def test_migration_dry_run_connectivity_passes(mdb_migration: MongoDB):
     run_migration_dry_run_connectivity_passes(mdb_migration)
 
 
-@mark.e2e_vm_migration_oidc
+@mark.e2e_vm_migration_replicaset_oidc_group
 def test_migrate_vm_to_kubernetes(mdb_migration: MongoDB):
     mdb_migration.assert_reaches_phase(Phase.Running, timeout=1200)
     assert_connection_string_contains_current_hosts(mdb_migration)
 
 
-@mark.e2e_vm_migration_oidc
+@mark.e2e_vm_migration_replicaset_oidc_group
 def test_max_voting_members_validation(mdb_migration: MongoDB):
     assert_max_voting_members_validation(mdb_migration)
 
 
-@mark.e2e_vm_migration_oidc
+@mark.e2e_vm_migration_replicaset_oidc_group
 def test_user_crs_reach_updated(generated_cr_yaml: str, namespace: str, mdb_migration: MongoDB, om_tester: OMTester):
     apply_user_crs_and_verify_ac(generated_cr_yaml, namespace, om_tester)
 
 
-@mark.e2e_vm_migration_oidc
+@mark.e2e_vm_migration_replicaset_oidc_group
 def test_scram_user_connectivity_after_migration(mdb_migration: MongoDB):
     mdb_migration.tester(use_ssl=False).assert_scram_sha_authentication(
         username=APP_USER, password=APP_USER_PASSWORD, auth_mechanism=SCRAM_MECHANISM
     )
 
 
-@mark.e2e_vm_migration_oidc
+@mark.e2e_vm_migration_replicaset_oidc_group
 def test_oidc_authentication_after_migration(mdb_migration: MongoDB):
     mdb_migration.tester(use_ssl=False).assert_oidc_authentication()
 
 
-@mark.e2e_vm_migration_oidc
+@mark.e2e_vm_migration_replicaset_oidc_group
 def test_migration_data_exists_after_migration(mdb_migration: MongoDB, scram_opts: list[dict]):
     assert_migration_data_exists(mdb_migration.tester(use_ssl=False), opts=scram_opts)
 
 
-@mark.e2e_vm_migration_oidc
+@mark.e2e_vm_migration_replicaset_oidc_group
 def test_promote_and_prune(mdb_migration: MongoDB, vm_sts):
     promote_and_prune(mdb_migration, vm_sts)
 
 
-@mark.e2e_vm_migration_oidc
+@mark.e2e_vm_migration_replicaset_oidc_group
 def test_connection_string_after_full_migration(mdb_migration: MongoDB):
     assert_connection_string_after_full_migration(mdb_migration)
 
 
-@mark.e2e_vm_migration_oidc
+@mark.e2e_vm_migration_replicaset_oidc_group
 def test_process_names(om_tester: OMTester, mdb_migration: MongoDB):
     assert_k8s_process_names(om_tester, mdb_migration)
 
 
-@mark.e2e_vm_migration_oidc
+@mark.e2e_vm_migration_replicaset_oidc_group
 def test_oidc_authentication_after_promote(mdb_migration: MongoDB):
     mdb_migration.tester(use_ssl=False).assert_oidc_authentication()
