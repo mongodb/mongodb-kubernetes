@@ -113,3 +113,34 @@ class TestPostSwitchVerification:
 
     def test_primary_mdb_connectivity(self, primary_mdb: MongoDB):
         primary_mdb.assert_connectivity()
+
+
+@pytest.mark.e2e_om_external_appdb
+class TestAppDBTakeover:
+    def test_primary_om_external_appdb_created(self, primary_om_external_appdb: MongoDB):
+        """
+        Submit the MongoDB resource named 'primary-om-db' against Meta OM.
+        The MongoDB controller reconciles the existing AppDB StatefulSet in-place;
+        PVCs are re-mounted to the new pods without being deleted or recreated.
+        """
+        primary_om_external_appdb.update()
+        primary_om_external_appdb.assert_reaches_phase(Phase.Running, timeout=900)
+
+    def test_primary_om_external_appdb_connectivity(self, primary_om_external_appdb: MongoDB):
+        primary_om_external_appdb.assert_connectivity()
+
+
+@pytest.mark.e2e_om_external_appdb
+class TestFinalVerification:
+    def test_primary_om_still_healthy(self, primary_om: MongoDBOpsManager):
+        """Primary OM must still be reachable after the MongoDB controller took over the StatefulSet."""
+        primary_om.get_om_tester().assert_healthiness()
+
+    def test_primary_mdb_still_running(self, primary_mdb: MongoDB):
+        primary_mdb.reload()
+        primary_mdb.assert_reaches_phase(Phase.Running, timeout=300)
+        primary_mdb.assert_connectivity()
+
+    def test_primary_om_external_appdb_still_running(self, primary_om_external_appdb: MongoDB):
+        primary_om_external_appdb.reload()
+        primary_om_external_appdb.assert_reaches_phase(Phase.Running, timeout=300)
