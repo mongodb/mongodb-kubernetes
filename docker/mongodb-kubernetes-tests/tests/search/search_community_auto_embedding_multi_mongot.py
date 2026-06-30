@@ -114,12 +114,16 @@ def mdbs(namespace: str, mdbc: MongoDBCommunity) -> MongoDBSearch:
         return resource
 
     resource["spec"]["source"] = {"passwordSecretRef": {"name": MONGOT_USER_PASSWORD_SECRET_NAME}}
-    resource["spec"]["replicas"] = 2
-    resource["spec"]["loadBalancer"] = {
-        "unmanaged": {
-            "endpoint": f"{ENVOY_PROXY_SVC_NAME}.{namespace}.svc.cluster.local:{ENVOY_PROXY_PORT}",
+    resource["spec"]["clusters"] = [
+        {
+            "replicas": 2,
+            "loadBalancer": {
+                "unmanaged": {
+                    "endpoint": f"{ENVOY_PROXY_SVC_NAME}.{namespace}.svc.cluster.local:{ENVOY_PROXY_PORT}",
+                }
+            },
         }
-    }
+    ]
     resource["spec"]["security"] = {"tls": {"certificateKeySecretRef": {"name": MDBS_TLS_SECRET_NAME}}}
     resource["spec"]["autoEmbedding"] = {
         "embeddingModelAPIKeySecret": {"name": VOYAGE_API_KEY_SECRET_NAME},

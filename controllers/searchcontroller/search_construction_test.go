@@ -7,13 +7,25 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/utils/ptr"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
+
+func resolvedSizing(t *testing.T, s *searchv1.MongoDBSearch, clusterName, shardName string) searchv1.ClusterSpec {
+	t.Helper()
+	sizing, err := s.ResolveSizingForClusterShard(clusterName, shardName)
+	require.NoError(t, err)
+	return sizing
+}
 
 func TestCreateSearchStatefulSetFunc_JVMFlags(t *testing.T) {
 	testCases := []struct {
@@ -98,18 +110,19 @@ func TestCreateSearchStatefulSetFunc_JVMFlags(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			search := newTestMongoDBSearch("test-search", "default", func(s *searchv1.MongoDBSearch) {
-				s.Spec.JVMFlags = tc.userProvidedJVMFlags
+				cluster := searchv1.ClusterSpec{JVMFlags: tc.userProvidedJVMFlags}
 				if tc.userProvidedMemory != "" {
-					s.Spec.ResourceRequirements = &corev1.ResourceRequirements{
+					cluster.ResourceRequirements = &corev1.ResourceRequirements{
 						Requests: corev1.ResourceList{
 							corev1.ResourceMemory: resource.MustParse(tc.userProvidedMemory),
 							corev1.ResourceCPU:    resource.MustParse("2"),
 						},
 					}
 				}
+				s.Spec.Clusters = []searchv1.ClusterSpec{cluster}
 			})
 
-			stsModification := CreateSearchStatefulSetFunc(search, "", "", "", "", nil, "mongot:latest", false)
+			stsModification := CreateSearchStatefulSetFunc(search, resolvedSizing(t, search, "", ""), "", "", "", "", nil, "mongot:latest", false)
 			sts := statefulset.New(stsModification)
 
 			// Find the mongot container
@@ -203,6 +216,114 @@ func TestCreateSearchResourceRequirements(t *testing.T) {
 				"expected memory %s, got %s", tc.expectedMemory.String(), result.Requests.Memory().String())
 		})
 	}
+
+	t.Run("input requirements are not mutated", func(t *testing.T) {
+		// userRequirements may point into the live CR spec (cluster or
+		// shardOverride entry); defaulting must not write through it.
+		user := &corev1.ResourceRequirements{
+			Requests: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("8Gi")},
+		}
+		result := createSearchResourceRequirements(user)
+		assert.True(t, result.Requests.Cpu().Equal(defaultCPU))
+		_, hasCPU := user.Requests[corev1.ResourceCPU]
+		assert.False(t, hasCPU, "default CPU written into the caller's requirements")
+
+		nilRequests := &corev1.ResourceRequirements{}
+		result = createSearchResourceRequirements(nilRequests)
+		assert.True(t, result.Requests.Cpu().Equal(defaultCPU))
+		assert.Nil(t, nilRequests.Requests, "defaults map assigned into the caller's requirements")
+	})
+}
+
+func TestCreateSearchStatefulSetFunc_DefaultAntiAffinity(t *testing.T) {
+	search := newTestMongoDBSearch("test-search", "default")
+	labels := map[string]string{appLabelKey: "test-search-svc"}
+
+	stsMod := CreateSearchStatefulSetFunc(search, resolvedSizing(t, search, "", ""), "test-search-db", "default", "test-search-svc", "cm", labels, "mongot:latest", false)
+	sts := statefulset.New(stsMod)
+
+	// Reclaim the index PVC immediately on both CR delete and scale-down.
+	require.NotNil(t, sts.Spec.PersistentVolumeClaimRetentionPolicy)
+	assert.Equal(t, appsv1.DeletePersistentVolumeClaimRetentionPolicyType, sts.Spec.PersistentVolumeClaimRetentionPolicy.WhenDeleted)
+	assert.Equal(t, appsv1.DeletePersistentVolumeClaimRetentionPolicyType, sts.Spec.PersistentVolumeClaimRetentionPolicy.WhenScaled)
+
+	affinity := sts.Spec.Template.Spec.Affinity
+	require.NotNil(t, affinity)
+	require.NotNil(t, affinity.PodAntiAffinity)
+
+	// The affinity should be preferred, not required
+	assert.Empty(t, affinity.PodAntiAffinity.RequiredDuringSchedulingIgnoredDuringExecution)
+	terms := affinity.PodAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution
+	require.Len(t, terms, 1)
+	assert.Equal(t, int32(100), terms[0].Weight)
+	assert.Equal(t, util.DefaultAntiAffinityTopologyKey, terms[0].PodAffinityTerm.TopologyKey)
+	require.NotNil(t, terms[0].PodAffinityTerm.LabelSelector)
+	// Selects this StatefulSet's own pods, so the term spreads them across hosts.
+	assert.Equal(t, map[string]string{appLabelKey: "test-search-svc"}, terms[0].PodAffinityTerm.LabelSelector.MatchLabels)
+}
+
+func TestCreateSearchStatefulSetFunc_StatefulSetOverrideReplacesAntiAffinity(t *testing.T) {
+	customAntiAffinity := &corev1.PodAntiAffinity{
+		RequiredDuringSchedulingIgnoredDuringExecution: []corev1.PodAffinityTerm{{
+			TopologyKey:   "topology.kubernetes.io/zone",
+			LabelSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"custom": "selector"}},
+		}},
+	}
+	search := newTestMongoDBSearch("test-search", "default", func(s *searchv1.MongoDBSearch) {
+		s.Spec.Clusters = []searchv1.ClusterSpec{{
+			Name: "cluster-1",
+			StatefulSetConfiguration: &v1.StatefulSetConfiguration{
+				SpecWrapper: v1.StatefulSetSpecWrapper{
+					Spec: appsv1.StatefulSetSpec{
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Affinity: &corev1.Affinity{PodAntiAffinity: customAntiAffinity},
+							},
+						},
+					},
+				},
+			},
+		}}
+	})
+	labels := map[string]string{appLabelKey: "test-search-svc"}
+
+	sizing := resolvedSizing(t, search, "cluster-1", "")
+	stsMod := CreateSearchStatefulSetFunc(search, sizing, "test-search-db", "default", "test-search-svc", "cm", labels, "mongot:latest", false)
+	overrideMod := StatefulSetOverrideModification(sizing.StatefulSetConfiguration)
+	// The override is applied last in the reconcile pipeline, after all other modifications.
+	sts := statefulset.New(stsMod, overrideMod)
+
+	pa := sts.Spec.Template.Spec.Affinity.PodAntiAffinity
+	require.NotNil(t, pa)
+	// The override's PodAntiAffinity replaces the default term wholesale.
+	assert.Empty(t, pa.PreferredDuringSchedulingIgnoredDuringExecution)
+	require.Len(t, pa.RequiredDuringSchedulingIgnoredDuringExecution, 1)
+	assert.Equal(t, "topology.kubernetes.io/zone", pa.RequiredDuringSchedulingIgnoredDuringExecution[0].TopologyKey)
+	assert.Equal(t, map[string]string{"custom": "selector"}, pa.RequiredDuringSchedulingIgnoredDuringExecution[0].LabelSelector.MatchLabels)
+}
+
+func TestCreateSearchStatefulSetFunc_ShardOverrideReplicas(t *testing.T) {
+	search := newTestMongoDBSearch("test-search", "default", func(s *searchv1.MongoDBSearch) {
+		s.Spec.Clusters = []searchv1.ClusterSpec{{
+			Replicas: ptr.To(int32(1)),
+			ShardOverrides: []searchv1.ShardOverride{
+				{ShardNames: []string{"shard-1"}, Replicas: ptr.To(int32(3))},
+			},
+		}}
+	})
+	labels := map[string]string{appLabelKey: "test-search-svc"}
+
+	// The overridden shard's StatefulSet uses the override replica count.
+	stsMod := CreateSearchStatefulSetFunc(search, resolvedSizing(t, search, "", "shard-1"), "test-search-db", "default", "test-search-svc", "cm", labels, "mongot:latest", false)
+	sts := statefulset.New(stsMod)
+	require.NotNil(t, sts.Spec.Replicas)
+	assert.Equal(t, int32(3), *sts.Spec.Replicas)
+
+	// A shard without an override keeps the cluster default.
+	stsMod = CreateSearchStatefulSetFunc(search, resolvedSizing(t, search, "", "shard-0"), "test-search-db", "default", "test-search-svc", "cm", labels, "mongot:latest", false)
+	sts = statefulset.New(stsMod)
+	require.NotNil(t, sts.Spec.Replicas)
+	assert.Equal(t, int32(1), *sts.Spec.Replicas)
 }
 
 type containerInfo struct {

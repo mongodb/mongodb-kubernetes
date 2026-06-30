@@ -3,7 +3,6 @@ kind: MongoDBSearch
 metadata:
   name: mdb-sh
 spec:
-  replicas: 2
   logLevel: DEBUG
   source:
     mongodbResourceRef:
@@ -14,8 +13,10 @@ spec:
       # Secret naming pattern: {prefix}-{shardName}-search-cert
       # e.g., certs-mdb-sh-0-search-cert, certs-mdb-sh-1-search-cert
       certsSecretPrefix: certs
-  loadBalancer:
-    unmanaged:
-      # Endpoint template with {shardName} placeholder
-      # NAMESPACE placeholder is replaced with actual namespace by the test fixture
-      endpoint: "mdb-sh-search-0-{shardName}-proxy-svc.NAMESPACE.svc.cluster.local:27029"
+  clusters:
+    - replicas: 2
+      loadBalancer:
+        unmanaged:
+          # Endpoint template with {shardName} placeholder, prefixed with the MongoDBSearch name
+          # NAMESPACE placeholder is replaced with actual namespace by the test fixture
+          endpoint: "mdb-sh-search-search-0-{shardName}-proxy-svc.NAMESPACE.svc.cluster.local:27029"

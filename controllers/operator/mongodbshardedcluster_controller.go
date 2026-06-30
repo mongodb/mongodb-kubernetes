@@ -1020,11 +1020,11 @@ func (r *ShardedClusterReconcileHelper) logAllScalers(log *zap.SugaredLogger) {
 // 1. Per-shard mongod search parameters (when unmanaged or managed LB is configured)
 // 2. Mongos search parameters (always, when a MongoDBSearch resource exists)
 //
-// For sharded clusters with unmanaged LB (spec.loadBalancer.unmanaged):
-//   - spec.loadBalancer.unmanaged.endpoint contains a template with {shardName} placeholder
+// For sharded clusters with unmanaged LB (spec.clusters[].loadBalancer.unmanaged):
+//   - the unmanaged endpoint contains a template with {shardName} placeholder
 //   - Each shard resolves its endpoint by substituting {shardName} with the actual shard name
 //
-// For sharded clusters with managed LB (spec.loadBalancer.managed):
+// For sharded clusters with managed LB (spec.clusters[].loadBalancer.managed):
 //   - Each shard's mongod points to the operator-managed envoy proxy service
 //
 // For mongos (always configured when MongoDBSearch exists):
@@ -1049,6 +1049,8 @@ func (r *ShardedClusterReconcileHelper) applySearchParametersForShards(ctx conte
 
 	shardNames := sc.ShardNames()
 
+	searchClusterIndex := searchcontroller.ResolveSingleClusterIndex(search)
+
 	// Validate unmanaged LB endpoint configuration (only when unmanaged LB)
 	if search.IsShardedUnmanagedLB() {
 		shardedSource := searchcontroller.NewShardedInternalSearchSource(sc, search)
@@ -1067,7 +1069,7 @@ func (r *ShardedClusterReconcileHelper) applySearchParametersForShards(ctx conte
 			shardConfig.AdditionalMongodConfig = mdbv1.NewEmptyAdditionalMongodConfig()
 		}
 
-		searchMongodConfig := searchcontroller.GetMongodConfigParametersForShard(search, shardName, sc.Spec.GetClusterDomain())
+		searchMongodConfig := searchcontroller.GetMongodConfigParametersForShard(search, shardName, sc.Spec.GetClusterDomain(), searchClusterIndex)
 		shardConfig.AdditionalMongodConfig.AddOption("setParameter", searchMongodConfig["setParameter"])
 
 		log.Debugf("Applied search config for shard %s: mongotHost=%v", shardName, searchMongodConfig["setParameter"])
@@ -1079,7 +1081,9 @@ func (r *ShardedClusterReconcileHelper) applySearchParametersForShards(ctx conte
 		r.desiredMongosConfiguration.AdditionalMongodConfig = mdbv1.NewEmptyAdditionalMongodConfig()
 	}
 
-	searchMongosConfig := searchcontroller.GetMongosConfigParametersForSharded(search, shardNames, sc.Spec.GetClusterDomain())
+	// clusterName="": operator-managed sharded source is single-cluster only at MVP.
+	// Q1-MC sharded would need per-cluster mongos config (gated on ShardOverrides API redesign).
+	searchMongosConfig := searchcontroller.GetMongosConfigParametersForSharded(search, searchClusterIndex, "", shardNames, sc.Spec.GetClusterDomain())
 	r.desiredMongosConfiguration.AdditionalMongodConfig.AddOption("setParameter", searchMongosConfig["setParameter"])
 
 	log.Infof("Applied search config for mongos: mongotHost=%v", searchMongosConfig["setParameter"])

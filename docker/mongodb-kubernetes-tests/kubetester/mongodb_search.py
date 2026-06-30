@@ -76,9 +76,9 @@ class MongoDBSearch(MongoDB, CustomObject):
             return None
 
     def is_lb_mode_managed(self) -> bool:
-        """Returns True if spec.loadBalancer.managed is set."""
+        """Returns True if any cluster entry has spec.clusters[].loadBalancer.managed set."""
         try:
-            return "managed" in self["spec"]["loadBalancer"]
+            return any("managed" in (c.get("loadBalancer") or {}) for c in self["spec"]["clusters"])
         except KeyError:
             return False
 
@@ -99,3 +99,64 @@ class MongoDBSearch(MongoDB, CustomObject):
         else:
             assert lb is None, f"status.loadBalancer should be absent for non-managed LB, got: {lb}"
             logger.info(f"MongoDBSearch {self.name}: loadBalancer status correctly absent")
+
+    def get_metrics_forwarder_status(self) -> Optional[dict]:
+        """Returns the status.metricsForwarder substatus dict, or None if absent."""
+        try:
+            return self["status"]["metricsForwarder"]
+        except KeyError:
+            return None
+
+    def get_metrics_forwarder_status_phase(self) -> Optional[Phase]:
+        """Returns the metricsForwarder substatus phase, or None if absent."""
+        mf = self.get_metrics_forwarder_status()
+        if mf is None:
+            return None
+        try:
+            return Phase[mf["phase"]]
+        except KeyError:
+            return None
+
+    def mongot_pod_hostnames(self, cluster_index: int = 0) -> set:
+        """Return the set of FQDN hostnames for all mongot pods in a replica-set deployment.
+
+        Mirrors the Go naming:
+          StatefulSetNamespacedNameForCluster(cluster_index) / SearchServiceNamespacedNameForCluster(cluster_index)
+
+        Each pod is addressed as:
+          {name}-search-{cluster_index}-{i}.{name}-search-{cluster_index}-svc.{namespace}.svc.cluster.local
+        """
+        replicas = self["spec"]["clusters"][cluster_index].get("replicas", 1)
+        sts = f"{self.name}-search-{cluster_index}"
+        svc = f"{self.name}-search-{cluster_index}-svc"
+        return {f"{sts}-{i}.{svc}.{self.namespace}.svc.cluster.local" for i in range(replicas)}
+
+    def shard_mongot_pod_hostnames(self, shard_names: list, cluster_index: int = 0) -> set:
+        """Return the set of FQDN hostnames for all mongot pods across every shard.
+
+        Mirrors the Go naming:
+          MongotStatefulSetForClusterShard(cluster_index, shard_name) / MongotServiceForClusterShard(cluster_index, shard_name)
+
+        Each pod is addressed as:
+          {name}-search-{cluster_index}-{shard_name}-{i}.{name}-search-{cluster_index}-{shard_name}-svc.{namespace}.svc.cluster.local
+
+        Per-shard replica counts from spec.clusters[cluster_index].shardOverrides[].replicas take
+        precedence over the cluster-level replicas for the named shards (mirrors Go's findShardOverride).
+        """
+        cluster = self["spec"]["clusters"][cluster_index]
+        cluster_replicas = cluster.get("replicas", 1)
+        shard_overrides = cluster.get("shardOverrides", [])
+
+        def replicas_for_shard(shard_name: str) -> int:
+            for override in shard_overrides:
+                if shard_name in override.get("shardNames", []) and override.get("replicas") is not None:
+                    return override["replicas"]
+            return cluster_replicas
+
+        hostnames = set()
+        for shard_name in shard_names:
+            sts = f"{self.name}-search-{cluster_index}-{shard_name}"
+            svc = f"{self.name}-search-{cluster_index}-{shard_name}-svc"
+            for i in range(replicas_for_shard(shard_name)):
+                hostnames.add(f"{sts}-{i}.{svc}.{self.namespace}.svc.cluster.local")
+        return hostnames

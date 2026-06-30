@@ -63,7 +63,8 @@ ENVOY_PROXY_PORT = 27028
 
 # Resource names
 MDB_RESOURCE_NAME = "mdb-sh-scale"
-MDBS_RESOURCE_NAME = MDB_RESOURCE_NAME
+# Distinct from MDB_RESOURCE_NAME so the search and sharded controllers don't share the <name>-state ConfigMap.
+MDBS_RESOURCE_NAME = "mdb-sh-scale-search"
 MONGODS_PER_SHARD = 1
 MONGOS_COUNT = 1
 CONFIG_SERVER_COUNT = 1
@@ -173,7 +174,7 @@ def user(helper: SearchDeploymentHelper) -> MongoDBUser:
 
 @fixture(scope="function")
 def mongot_user(helper: SearchDeploymentHelper, mdbs: MongoDBSearch) -> MongoDBUser:
-    return helper.mongot_user_resource(mdbs, MONGOT_USER_NAME)
+    return helper.mongot_user_resource(mdbs.name, MONGOT_USER_NAME)
 
 
 # ===========================================================================
@@ -248,7 +249,7 @@ def test_create_search_resource(mdbs: MongoDBSearch):
 
 @MARKER
 def test_verify_envoy_deployment(namespace: str):
-    envoy_deployment_name = search_resource_names.lb_deployment_name(MDB_RESOURCE_NAME)
+    envoy_deployment_name = search_resource_names.lb_deployment_name(MDBS_RESOURCE_NAME)
 
     def check_envoy_deployment():
         try:

@@ -38,11 +38,19 @@ get_operator_helm_values() {
     "search.repo=${MDB_SEARCH_REPO_URL}"
     "search.name=${MDB_SEARCH_NAME}"
     "search.version=${MDB_SEARCH_VERSION}"
+    "search.envoyImage=${MDB_ENVOY_IMAGE}"
+    "search.metricsForwarderImage=${MDB_SEARCH_METRICS_FORWARDER_IMAGE}"
     "community.registry.agent=${MDB_AGENT_REGISTRY}"
   )
 
   if [[ "${MDB_OPERATOR_TELEMETRY_INSTALL_CLUSTER_ROLE_INSTALLATION:-}" != "" ]]; then
     config+=("operator.telemetry.installClusterRole=${MDB_OPERATOR_TELEMETRY_INSTALL_CLUSTER_ROLE_INSTALLATION}")
+  fi
+
+  # Only set search.enableMultiCluster when explicitly defined; undefined leaves the
+  # operator default (block on) and omits the env var from the deployment.
+  if [[ "${MDB_SEARCH_ENABLE_MULTI_CLUSTER:-}" != "" ]]; then
+    config+=("search.enableMultiCluster=${MDB_SEARCH_ENABLE_MULTI_CLUSTER}")
   fi
 
   # Add OpenTelemetry values if any of the environment variables are set
