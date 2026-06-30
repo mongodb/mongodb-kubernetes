@@ -13,6 +13,7 @@ import (
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
+	authn "github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
@@ -28,6 +29,7 @@ const (
 	PrometheusPasswordSecretName = "prometheus-password"
 	PrometheusTLSSecretName      = "prometheus-tls"
 	LdapBindQuerySecretName      = "ldap-bind-query-password" //nolint:gosec // secret name, not a credential
+	LdapAgentPasswordSecretName  = "ldap-agent-password"      //nolint:gosec // secret name, not a credential
 	LdapCAConfigMapName          = "ldap-ca"
 	LdapCAKey                    = "ca.pem"
 
@@ -61,6 +63,10 @@ type GenerateOptions struct {
 
 	// Prometheus credentials
 	PrometheusSecretName string // name of a pre-created Secret; no Secret YAML is written when set
+
+	// PrometheusPassword holds the plaintext password read from the Secret for validation against the
+	// automation config's passwordHash/passwordSalt. Empty when collected from the CLI path.
+	PrometheusPassword string
 }
 
 // resolveK8sResourceName resolves the K8s resource name from the AC name or an explicit override.
@@ -143,11 +149,18 @@ func generateExtraResources(ac *om.AutomationConfig, opts GenerateOptions) []cli
 			resources = append(resources, buildLdapCAConfigMap(opts.Namespace, ldap.CaFileContents))
 		}
 	}
+	// An LDAP agent authenticates with an external password the operator cannot derive, so carry it
+	// over as a Secret referenced by spec.security.authentication.agents.automationPasswordSecretRef.
+	if ac.Auth != nil && ac.Auth.AutoPwd != "" {
+		if mode, ok := authn.MapMechanismToAuthMode(ac.Auth.AutoAuthMechanism); ok && mode == util.LDAP {
+			resources = append(resources, GeneratePasswordSecret(LdapAgentPasswordSecretName, opts.Namespace, ac.Auth.AutoPwd))
+		}
+	}
 	return resources
 }
 
-// marshalMultiDoc serializes each object to YAML, joined by YAML document separator markers.
-func marshalMultiDoc(objects []client.Object) (string, error) {
+// renderObjects serializes objects to the same multi-document YAML written by the CLI output path.
+func renderObjects(objects []client.Object) (string, error) {
 	var sb strings.Builder
 	for i, obj := range objects {
 		if i > 0 {

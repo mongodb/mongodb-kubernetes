@@ -31,7 +31,9 @@ func GenerateUserCRs(ac *om.AutomationConfig, mongodbResourceName, namespace str
 			return nil, fmt.Errorf("user at index %d has an empty username", i)
 		}
 
-		if user.Username == ac.Auth.AutoUser && user.Database == util.DefaultUserDatabase {
+		// Skip the automation agent user. It lives in admin for SCRAM and in $external for X.509, and
+		// the operator manages it through the agents configuration rather than a MongoDBUser CR.
+		if user.Username == ac.Auth.AutoUser && (user.Database == util.DefaultUserDatabase || user.Database == externalDatabase) {
 			continue
 		}
 

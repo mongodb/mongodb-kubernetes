@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-
 	k8svalidation "k8s.io/apimachinery/pkg/util/validation"
 
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
@@ -118,7 +117,6 @@ func promptKubernetesName(scanner *bufio.Scanner, prompt, suggested string) (str
 		return p, nil
 	}
 }
-
 
 func promptLine(scanner *bufio.Scanner, prompt string) (string, error) {
 	_, _ = fmt.Fprint(promptOutput, prompt)

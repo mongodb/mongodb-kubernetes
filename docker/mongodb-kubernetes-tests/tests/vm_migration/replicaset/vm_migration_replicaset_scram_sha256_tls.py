@@ -1,33 +1,43 @@
 """
-VM migration test with MongoDB-level TLS (requireSSL) on mongod processes,
-combined with agent to Ops Manager TLS validation via a CA bundle.
+VM migration from a generated MongoDB resource with SCRAM authentication and mongod TLS.
 
-Verifies:
-  - The generated CR has spec.security.certsSecretPrefix set (TLS enabled; tls.enabled is deprecated)
-  - No manual net.tls.mode override is needed (the tool handles it)
-  - SCRAM auth and users are generated alongside TLS
-  - VM agents can validate Ops Manager TLS via a CA ConfigMap
-  - Full promote-and-prune lifecycle with TLS-enabled deployment
+This test configures VM members in Ops Manager, runs kubectl-mongodb migrate-to-mck,
+applies the generated resources, and verifies dry-run validation, data continuity,
+connection strings, process names, and the promote and prune flow.
 """
 
 import os
 import ssl
+from copy import deepcopy
 
-import yaml
-from kubetester import create_or_update_configmap, create_or_update_secret, get_statefulset, read_secret, try_load
+from kubetester import create_or_update_configmap, create_or_update_secret, get_statefulset, read_secret
 from kubetester.certs import ISSUER_CA_NAME, create_mongodb_tls_certs
 from kubetester.kubetester import KubernetesTester, ensure_ent_version, fcv_from_version, skip_if_local
 from kubetester.mongodb import MongoDB
+from kubetester.mongotester import MongoDBBackgroundTester, with_scram
 from kubetester.omtester import OMContext, OMTester
 from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
-from tests.tls.vm_migration_dry_run import run_migration_dry_run_connectivity_passes
-from tests.tls.vm_migration_helpers import (
+from tests.vm_migration.vm_migration_dry_run import (
+    create_wrong_ca_configmap,
+    run_migration_dry_run_connectivity_passes,
+    run_wrong_ca_dry_run_fails_then_passes,
+)
+from tests.vm_migration.vm_migration_helpers import (
+    apply_generated_mongodb_resource,
     apply_user_crs_and_verify_ac,
-    assert_migration_dry_run_annotation,
+    assert_common_generated_cr_shape,
+    assert_connection_string_after_full_migration,
+    assert_connection_string_contains_current_hosts,
+    assert_k8s_process_names,
+    assert_max_voting_members_validation,
+    assert_migration_data_exists,
     deploy_vm_service,
     deploy_vm_statefulset,
+    generated_mongodb_doc,
+    generated_user_docs,
+    insert_migration_data,
     promote_and_prune,
     rotate_password_and_verify,
     run_generate_cr,
@@ -46,6 +56,8 @@ TLS_CERT_MOUNT = "/etc/mongodb/certs"
 APP_USER_PASSWORD = "tlsAppUser123!"
 VM_AGENT_OM_CA_PATH = "/etc/mongodb-mms-ca/ca.pem"
 VM_OM_CA_CONFIGMAP_NAME = "vm-mongodb-om-ca"
+VM_REPLICAS = 5
+WRONG_CA_NAME = "wrong-issuer-ca-mongod-tls"
 
 
 def _get_ca_bundle_content() -> str:
@@ -76,7 +88,7 @@ def vm_server_certs(issuer: str, namespace: str):
         namespace,
         VM_STS_NAME,
         VM_CERT_SECRET,
-        replicas=3,
+        replicas=VM_REPLICAS,
         service_name=VM_SVC_NAME,
     )
 
@@ -104,7 +116,7 @@ def operator_server_certs(issuer: str, namespace: str):
         namespace,
         RS_NAME,
         OPERATOR_CERT_SECRET,
-        replicas=3,
+        replicas=VM_REPLICAS,
     )
 
 
@@ -251,9 +263,6 @@ def _configure_ac_with_tls(namespace: str, om_tester: OMTester, vm_sts: dict, vm
                         "destination": "file",
                     },
                     "replication": {"replSetName": rs_name},
-                    "setParameter": {
-                        "authenticationMechanisms": "SCRAM-SHA-256",
-                    },
                 },
             }
         )
@@ -285,7 +294,7 @@ def generated_cr_yaml(namespace: str) -> str:
 
 @fixture(scope="module")
 def generated_cr(generated_cr_yaml: str) -> dict:
-    return next(yaml.safe_load_all(generated_cr_yaml))
+    return generated_mongodb_doc(generated_cr_yaml)
 
 
 @fixture(scope="module")
@@ -309,73 +318,79 @@ def mdb_migration(
     operator_server_certs: str,
     migrate_tool_ca_configmap: str,
 ) -> MongoDB:
-    resource = MongoDB(RS_NAME, namespace)
-    if try_load(resource):
-        return resource
-
-    resource.backing_obj = generated_cr
-    # The generated CR already has security.tls.ca set to the migrate_tool_ca_configmap name.
-    # No override needed, the link between the generated CR and the ConfigMap is explicit.
-    # The generated CR starts with members=0 and no memberConfig.
-    # Set members to match the VM replica count and add draining memberConfig.
-    num_members = len(generated_cr["spec"].get("externalMembers", []))
-    resource.backing_obj["spec"]["members"] = num_members
-    resource.backing_obj["spec"]["memberConfig"] = [{"votes": 0, "priority": "0"} for _ in range(num_members)]
-    resource.update()
-    return resource
+    resource_doc = deepcopy(generated_cr)
+    create_wrong_ca_configmap(namespace, WRONG_CA_NAME)
+    resource_doc["spec"]["security"]["tls"]["ca"] = WRONG_CA_NAME
+    return apply_generated_mongodb_resource(namespace, resource_doc)
 
 
-# ---------------------------------------------------------------------------
-# Tests
-# ---------------------------------------------------------------------------
+@fixture(scope="module")
+def scram_opts() -> list[dict]:
+    return [with_scram("app-user", APP_USER_PASSWORD, "SCRAM-SHA-256")]
 
 
-@mark.e2e_vm_migration_generate_mongod_tls
+@fixture(scope="module")
+def mdb_health_checker(mdb_migration: MongoDB, ca_path: str, scram_opts: list[dict]) -> MongoDBBackgroundTester:
+    return MongoDBBackgroundTester(
+        mdb_migration.tester(use_ssl=True, ca_path=ca_path),
+        health_function_params={"attempts": 1, "opts": scram_opts},
+    )
+
+
+# Test flow
+
+
+@mark.e2e_vm_migration_replicaset_scram_sha256_tls
 def test_deploy_vm(namespace: str, vm_sts, vm_service):
     def sts_is_ready():
         sts = get_statefulset(namespace, vm_sts["metadata"]["name"])
-        return sts.status.ready_replicas == 3
+        return sts.status.ready_replicas == vm_sts["spec"]["replicas"]
 
     KubernetesTester.wait_until(sts_is_ready, timeout=300)
 
 
-@mark.e2e_vm_migration_generate_mongod_tls
+@mark.e2e_vm_migration_replicaset_scram_sha256_tls
 def test_configure_ac(namespace: str, om_tester: OMTester, vm_sts, vm_service, custom_mdb_version):
     _configure_ac_with_tls(namespace, om_tester, vm_sts, vm_service, custom_mdb_version)
     om_tester.wait_agents_ready(timeout=600)
 
 
-@mark.e2e_vm_migration_generate_mongod_tls
+@mark.e2e_vm_migration_replicaset_scram_sha256_tls
 @skip_if_local()
-def test_user_connectivity_before_migration(namespace: str, ca_path: str):
+def test_user_connectivity_before_migration(namespace: str, ca_path: str, scram_opts: list[dict]):
     """Users can authenticate against the VM replica set (with TLS) before migration."""
     vm_replica_set_tester(namespace, use_ssl=True, ca_path=ca_path).assert_scram_sha_authentication(
         username="app-user", password=APP_USER_PASSWORD, auth_mechanism="SCRAM-SHA-256", ssl=True, tlsCAFile=ca_path
     )
 
 
-@mark.e2e_vm_migration_generate_mongod_tls
+@mark.e2e_vm_migration_replicaset_scram_sha256_tls
+@skip_if_local()
+def test_insert_migration_data(namespace: str, ca_path: str, scram_opts: list[dict]):
+    insert_migration_data(vm_replica_set_tester(namespace, use_ssl=True, ca_path=ca_path), opts=scram_opts)
+
+
+@mark.e2e_vm_migration_replicaset_scram_sha256_tls
 @skip_if_local()
 def test_non_tls_connection_rejected_before_migration(namespace: str):
     """TLS is enforced on the VM replica set -- plain connections must be rejected."""
     vm_replica_set_tester(namespace, use_ssl=False).assert_no_connection()
 
 
-@mark.e2e_vm_migration_generate_mongod_tls
+@mark.e2e_vm_migration_replicaset_scram_sha256_tls
 def test_install_operator(operator: Operator):
     operator.assert_is_running()
 
 
-# --- Generated CR checks (all run immediately after generation, before any lifecycle test) ---
+# Generated CR checks
 
 
-@mark.e2e_vm_migration_generate_mongod_tls
-def test_migration_dry_run_annotation_present(generated_cr_yaml: str):
-    """Generated MongoDB CR must carry the migration-dry-run annotation."""
-    assert_migration_dry_run_annotation(generated_cr_yaml)
+@mark.e2e_vm_migration_replicaset_scram_sha256_tls
+def test_common_generated_cr_shape(generated_cr_yaml: str, generated_cr: dict, vm_sts: dict):
+    assert_common_generated_cr_shape(generated_cr_yaml, generated_cr, vm_sts["spec"]["replicas"])
 
 
-@mark.e2e_vm_migration_generate_mongod_tls
+@mark.e2e_vm_migration_replicaset_scram_sha256_tls
 def test_tls_enabled_in_cr(generated_cr: dict):
     """The generated CR must have TLS enabled via spec.security.certsSecretPrefix (tls.enabled is deprecated)."""
     security = generated_cr.get("spec", {}).get("security", {})
@@ -383,7 +398,7 @@ def test_tls_enabled_in_cr(generated_cr: dict):
     assert prefix, f"Expected certsSecretPrefix to be set for TLS, got security: {security}"
 
 
-@mark.e2e_vm_migration_generate_mongod_tls
+@mark.e2e_vm_migration_replicaset_scram_sha256_tls
 def test_no_disabled_tls_mode_in_additional_config(generated_cr: dict):
     """additionalMongodConfig must NOT contain net.tls.mode: disabled."""
     amc = generated_cr["spec"].get("additionalMongodConfig", {})
@@ -393,7 +408,7 @@ def test_no_disabled_tls_mode_in_additional_config(generated_cr: dict):
     ), f"TLS is requireSSL -- additionalMongodConfig should not have mode=disabled, got: {amc}"
 
 
-@mark.e2e_vm_migration_generate_mongod_tls
+@mark.e2e_vm_migration_replicaset_scram_sha256_tls
 def test_security_auth_present(generated_cr: dict):
     """SCRAM auth must be present alongside TLS."""
     auth = generated_cr["spec"]["security"].get("authentication", {})
@@ -401,42 +416,51 @@ def test_security_auth_present(generated_cr: dict):
     assert "SCRAM" in auth.get("modes", [])
 
 
-@mark.e2e_vm_migration_generate_mongod_tls
+@mark.e2e_vm_migration_replicaset_scram_sha256_tls
 def test_user_cr_emitted(generated_cr_yaml: str):
-    docs = list(yaml.safe_load_all(generated_cr_yaml))
-    user_docs = [d for d in docs if d and d.get("kind") == "MongoDBUser"]
+    user_docs = generated_user_docs(generated_cr_yaml)
     assert len(user_docs) == 1, f"Expected 1 user CR, got {len(user_docs)}"
 
 
-@mark.e2e_vm_migration_generate_mongod_tls
-def test_external_members_structure(generated_cr: dict):
-    ext = generated_cr["spec"]["externalMembers"]
-    assert len(ext) == 3
-    for em in ext:
-        for key in ("processName", "hostname", "type", "replicaSetName"):
-            assert key in em, f"Missing key {key!r} in externalMember: {em}"
+# Lifecycle checks
 
 
-# --- Lifecycle tests ---
+@mark.e2e_vm_migration_replicaset_scram_sha256_tls
+def test_migration_dry_run_wrong_ca_fails_then_passes(
+    namespace: str, mdb_migration: MongoDB, migrate_tool_ca_configmap: str
+):
+    run_wrong_ca_dry_run_fails_then_passes(
+        namespace,
+        mdb_migration,
+        f"{RS_NAME}-connectivity-check",
+        WRONG_CA_NAME,
+        correct_ca_name=migrate_tool_ca_configmap,
+    )
 
 
-@mark.e2e_vm_migration_generate_mongod_tls
+@mark.e2e_vm_migration_replicaset_scram_sha256_tls
 def test_migration_dry_run_connectivity_passes(mdb_migration: MongoDB):
     """Operator validates connectivity to all externalMembers, then the annotation is removed."""
     run_migration_dry_run_connectivity_passes(mdb_migration)
 
 
-@mark.e2e_vm_migration_generate_mongod_tls
+@mark.e2e_vm_migration_replicaset_scram_sha256_tls
 def test_migrate_vm_to_kubernetes(mdb_migration: MongoDB):
     mdb_migration.assert_reaches_phase(Phase.Running, timeout=1200)
+    assert_connection_string_contains_current_hosts(mdb_migration)
 
 
-@mark.e2e_vm_migration_generate_mongod_tls
+@mark.e2e_vm_migration_replicaset_scram_sha256_tls
+def test_max_voting_members_validation(mdb_migration: MongoDB):
+    assert_max_voting_members_validation(mdb_migration)
+
+
+@mark.e2e_vm_migration_replicaset_scram_sha256_tls
 def test_user_crs_reach_updated(generated_cr_yaml: str, namespace: str, mdb_migration: MongoDB, om_tester: OMTester):
     apply_user_crs_and_verify_ac(generated_cr_yaml, namespace, om_tester)
 
 
-@mark.e2e_vm_migration_generate_mongod_tls
+@mark.e2e_vm_migration_replicaset_scram_sha256_tls
 @skip_if_local()
 def test_user_connectivity_after_migration(mdb_migration: MongoDB, ca_path: str):
     """Users can still authenticate (with TLS) after the operator takes over the replica set."""
@@ -445,34 +469,69 @@ def test_user_connectivity_after_migration(mdb_migration: MongoDB, ca_path: str)
     )
 
 
-@mark.e2e_vm_migration_generate_mongod_tls
+@mark.e2e_vm_migration_replicaset_scram_sha256_tls
+@skip_if_local()
+def test_migration_data_exists_after_migration(mdb_migration: MongoDB, ca_path: str, scram_opts: list[dict]):
+    assert_migration_data_exists(mdb_migration.tester(use_ssl=True, ca_path=ca_path), opts=scram_opts)
+
+
+@mark.e2e_vm_migration_replicaset_scram_sha256_tls
+@skip_if_local()
+def test_start_background_health_checker(mdb_health_checker: MongoDBBackgroundTester):
+    mdb_health_checker.start()
+
+
+@mark.e2e_vm_migration_replicaset_scram_sha256_tls
 @skip_if_local()
 def test_non_tls_connection_rejected_after_migration(mdb_migration: MongoDB):
     """TLS remains enforced after migration -- plain connections must still be rejected."""
     mdb_migration.tester(use_ssl=False).assert_no_connection()
 
 
-@mark.e2e_vm_migration_generate_mongod_tls
+@mark.e2e_vm_migration_replicaset_scram_sha256_tls
 def test_promote_and_prune(mdb_migration: MongoDB, vm_sts):
     promote_and_prune(mdb_migration, vm_sts)
 
 
-@mark.e2e_vm_migration_generate_mongod_tls
+@mark.e2e_vm_migration_replicaset_scram_sha256_tls
+@skip_if_local()
+def test_mongodb_reachable_during_promote_and_prune(mdb_health_checker: MongoDBBackgroundTester):
+    mdb_health_checker.assert_healthiness()
+    mdb_health_checker.stop()
+
+
+@mark.e2e_vm_migration_replicaset_scram_sha256_tls
+def test_connection_string_after_full_migration(mdb_migration: MongoDB):
+    assert_connection_string_after_full_migration(mdb_migration)
+
+
+@mark.e2e_vm_migration_replicaset_scram_sha256_tls
+def test_process_names(om_tester: OMTester, mdb_migration: MongoDB):
+    assert_k8s_process_names(om_tester, mdb_migration)
+
+
+@mark.e2e_vm_migration_replicaset_scram_sha256_tls
 @skip_if_local()
 def test_user_connectivity_after_promote(mdb_migration: MongoDB, ca_path: str):
-    """Users can still authenticate (with TLS) after promote-and-prune completes."""
+    """Users can still authenticate with TLS after promote and prune completes."""
     mdb_migration.tester(use_ssl=True, ca_path=ca_path).assert_scram_sha_authentication(
         username="app-user", password=APP_USER_PASSWORD, auth_mechanism="SCRAM-SHA-256", ssl=True, tlsCAFile=ca_path
     )
 
 
-@mark.e2e_vm_migration_generate_mongod_tls
+@mark.e2e_vm_migration_replicaset_scram_sha256_tls
+@skip_if_local()
+def test_migration_data_exists_after_promote(mdb_migration: MongoDB, ca_path: str, scram_opts: list[dict]):
+    assert_migration_data_exists(mdb_migration.tester(use_ssl=True, ca_path=ca_path), opts=scram_opts)
+
+
+@mark.e2e_vm_migration_replicaset_scram_sha256_tls
 @skip_if_local()
 def test_non_tls_connection_rejected_after_promote(mdb_migration: MongoDB):
-    """TLS remains enforced after promote-and-prune."""
+    """TLS remains enforced after promote and prune."""
     mdb_migration.tester(use_ssl=False).assert_no_connection()
 
 
-@mark.e2e_vm_migration_generate_mongod_tls
+@mark.e2e_vm_migration_replicaset_scram_sha256_tls
 def test_password_rotation_keeps_migrated_flag(generated_cr_yaml: str, namespace: str, om_tester: OMTester):
     rotate_password_and_verify(generated_cr_yaml, namespace, om_tester)

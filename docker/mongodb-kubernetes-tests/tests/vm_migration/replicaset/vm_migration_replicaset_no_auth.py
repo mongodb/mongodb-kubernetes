@@ -1,29 +1,33 @@
 """
-VM migration test using kubectl-mongodb migrate WITHOUT authentication.
+VM migration from a generated MongoDB resource with authentication disabled.
 
-Covers the auth-disabled code path in the migration tool, which none of the
-other generate-based tests exercise.  Verifies:
-  - The generated CR has NO spec.security section
-  - No MongoDBUser CRs are emitted
-  - externalMembers are properly structured (object form)
-  - generated CR contains no memberConfig (added by the test fixture for migration)
-  - additionalMongodConfig carries the expected fields
-  - Full promote-and-prune lifecycle reaches Phase.Running
+This test configures VM members in Ops Manager, runs kubectl-mongodb migrate-to-mck,
+applies the generated resources, and verifies dry-run validation, data continuity,
+connection strings, process names, and the promote and prune flow.
 """
 
-import yaml
-from kubetester import get_statefulset, try_load
+from kubetester import get_statefulset
 from kubetester.kubetester import KubernetesTester, ensure_ent_version, fcv_from_version, skip_if_local
 from kubetester.mongodb import MongoDB
+from kubetester.mongotester import MongoDBBackgroundTester
 from kubetester.omtester import OMContext, OMTester
 from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
-from tests.tls.vm_migration_dry_run import run_migration_dry_run_connectivity_passes
-from tests.tls.vm_migration_helpers import (
-    assert_migration_dry_run_annotation,
+from tests.vm_migration.vm_migration_dry_run import run_migration_dry_run_connectivity_passes
+from tests.vm_migration.vm_migration_helpers import (
+    apply_generated_mongodb_resource,
+    assert_common_generated_cr_shape,
+    assert_connection_string_after_full_migration,
+    assert_connection_string_contains_current_hosts,
+    assert_k8s_process_names,
+    assert_max_voting_members_validation,
+    assert_migration_data_exists,
     deploy_vm_service,
     deploy_vm_statefulset,
+    generated_mongodb_doc,
+    generated_user_docs,
+    insert_migration_data,
     promote_and_prune,
     run_generate_cr,
     vm_replica_set_tester,
@@ -130,71 +134,63 @@ def generated_cr_yaml(namespace: str) -> str:
 
 @fixture(scope="module")
 def generated_cr(generated_cr_yaml: str) -> dict:
-    """Parsed first YAML document from the generate output."""
-    return next(yaml.safe_load_all(generated_cr_yaml))
+    return generated_mongodb_doc(generated_cr_yaml)
 
 
 @fixture(scope="module")
 def mdb_migration(namespace: str, generated_cr: dict) -> MongoDB:
-    resource = MongoDB(RS_NAME, namespace)
-    if try_load(resource):
-        return resource
-
-    resource.backing_obj = generated_cr
-    resource.backing_obj.setdefault("spec", {}).setdefault("additionalMongodConfig", {}).setdefault(
-        "net", {}
-    ).setdefault("tls", {})["mode"] = "disabled"
-    # The generated CR starts with members=0 and no memberConfig.
-    # Set members to match the VM replica count and add draining memberConfig.
-    num_members = len(generated_cr["spec"].get("externalMembers", []))
-    resource.backing_obj["spec"]["members"] = num_members
-    resource.backing_obj["spec"]["memberConfig"] = [{"votes": 0, "priority": "0"} for _ in range(num_members)]
-    resource.update()
-    return resource
+    return apply_generated_mongodb_resource(namespace, generated_cr, customer_sets_disabled_tls_mode=True)
 
 
-# ---------------------------------------------------------------------------
-# Tests
-# ---------------------------------------------------------------------------
+@fixture(scope="module")
+def mdb_health_checker(mdb_migration: MongoDB) -> MongoDBBackgroundTester:
+    return MongoDBBackgroundTester(mdb_migration.tester(use_ssl=False))
 
 
-@mark.e2e_vm_migration_generate_no_auth
+# Test flow
+
+
+@mark.e2e_vm_migration_replicaset_no_auth
 def test_deploy_vm(namespace: str, vm_sts, vm_service):
     def sts_is_ready():
         sts = get_statefulset(namespace, vm_sts["metadata"]["name"])
-        return sts.status.ready_replicas == 3
+        return sts.status.ready_replicas == vm_sts["spec"]["replicas"]
 
     KubernetesTester.wait_until(sts_is_ready, timeout=300)
 
 
-@mark.e2e_vm_migration_generate_no_auth
+@mark.e2e_vm_migration_replicaset_no_auth
 def test_configure_ac(namespace: str, om_tester: OMTester, vm_sts, vm_service, custom_mdb_version):
     _configure_ac_no_auth(namespace, om_tester, vm_sts, vm_service, custom_mdb_version)
     om_tester.wait_agents_ready(timeout=600)
 
 
-@mark.e2e_vm_migration_generate_no_auth
+@mark.e2e_vm_migration_replicaset_no_auth
 @skip_if_local()
 def test_connectivity_before_migration(namespace: str):
     """Replica set is reachable without authentication before migration."""
     vm_replica_set_tester(namespace).assert_connectivity()
 
 
-@mark.e2e_vm_migration_generate_no_auth
+@mark.e2e_vm_migration_replicaset_no_auth
 def test_install_operator(operator: Operator):
     operator.assert_is_running()
 
 
-# --- Generated CR checks (all run immediately after generation, before any lifecycle test) ---
+@mark.e2e_vm_migration_replicaset_no_auth
+def test_insert_migration_data(namespace: str):
+    insert_migration_data(vm_replica_set_tester(namespace))
 
 
-@mark.e2e_vm_migration_generate_no_auth
-def test_migration_dry_run_annotation_present(generated_cr_yaml: str):
-    """Generated MongoDB CR must carry the migration-dry-run annotation."""
-    assert_migration_dry_run_annotation(generated_cr_yaml)
+# Generated CR checks
 
 
-@mark.e2e_vm_migration_generate_no_auth
+@mark.e2e_vm_migration_replicaset_no_auth
+def test_common_generated_cr_shape(generated_cr_yaml: str, generated_cr: dict, vm_sts: dict):
+    assert_common_generated_cr_shape(generated_cr_yaml, generated_cr, vm_sts["spec"]["replicas"])
+
+
+@mark.e2e_vm_migration_replicaset_no_auth
 def test_no_security_in_cr(generated_cr: dict):
     """Auth is disabled -- the generated CR must not contain a security section."""
     spec = generated_cr.get("spec", {})
@@ -203,35 +199,14 @@ def test_no_security_in_cr(generated_cr: dict):
     ), f"Expected no security section for auth-disabled deployment, got: {spec.get('security')}"
 
 
-@mark.e2e_vm_migration_generate_no_auth
+@mark.e2e_vm_migration_replicaset_no_auth
 def test_no_user_crs_emitted(generated_cr_yaml: str):
     """Without auth, migrate must not emit any MongoDBUser documents."""
-    docs = list(yaml.safe_load_all(generated_cr_yaml))
-    user_docs = [d for d in docs if d and d.get("kind") == "MongoDBUser"]
+    user_docs = generated_user_docs(generated_cr_yaml)
     assert len(user_docs) == 0, f"Expected 0 user CRs, got {len(user_docs)}"
 
 
-@mark.e2e_vm_migration_generate_no_auth
-def test_external_members_structure(generated_cr: dict):
-    """Each externalMember must be an object with processName, hostname, type, replicaSetName."""
-    ext = generated_cr["spec"]["externalMembers"]
-    assert len(ext) == 3, f"Expected 3 external members, got {len(ext)}"
-    for em in ext:
-        assert isinstance(em, dict), f"externalMember should be a dict, got {type(em)}"
-        for key in ("processName", "hostname", "type", "replicaSetName"):
-            assert key in em, f"Missing key {key!r} in externalMember: {em}"
-        assert em["type"] == "mongod"
-
-
-@mark.e2e_vm_migration_generate_no_auth
-def test_members_not_set(generated_cr: dict):
-    """Generated CR omits members (operator default applies). Customers set it when expanding."""
-    assert (
-        "memberConfig" not in generated_cr["spec"]
-    ), "Generated CR should not contain memberConfig. Customers set it when expanding."
-
-
-@mark.e2e_vm_migration_generate_no_auth
+@mark.e2e_vm_migration_replicaset_no_auth
 def test_additional_mongod_config(generated_cr: dict):
     """additionalMongodConfig must reflect the net.compression.compressors and storage settings."""
     amc = generated_cr["spec"].get("additionalMongodConfig", {})
@@ -241,13 +216,13 @@ def test_additional_mongod_config(generated_cr: dict):
     assert amc.get("storage", {}).get("directoryPerDB") is True, f"Expected directoryPerDB=true, got: {amc}"
 
 
-@mark.e2e_vm_migration_generate_no_auth
+@mark.e2e_vm_migration_replicaset_no_auth
 def test_version_set(generated_cr: dict, custom_mdb_version: str):
     """spec.version must match the MongoDB version used in the AC."""
     assert generated_cr["spec"]["version"] == ensure_ent_version(custom_mdb_version)
 
 
-@mark.e2e_vm_migration_generate_no_auth
+@mark.e2e_vm_migration_replicaset_no_auth
 def test_agent_config(generated_cr: dict):
     """Agent config must include logRotate and systemLog from the (uniform) process config."""
     agent = generated_cr["spec"].get("agent", {}).get("mongod", {})
@@ -260,34 +235,73 @@ def test_agent_config(generated_cr: dict):
     assert sl.get("path") == "/data/mongodb.log", f"Expected systemLog.path, got: {sl}"
 
 
-# --- Lifecycle tests ---
+# Lifecycle checks
 
 
-@mark.e2e_vm_migration_generate_no_auth
+@mark.e2e_vm_migration_replicaset_no_auth
 def test_migration_dry_run_connectivity_passes(mdb_migration: MongoDB):
     """Operator validates connectivity to all externalMembers, then the annotation is removed."""
     run_migration_dry_run_connectivity_passes(mdb_migration)
 
 
-@mark.e2e_vm_migration_generate_no_auth
+@mark.e2e_vm_migration_replicaset_no_auth
 def test_migrate_vm_to_kubernetes(mdb_migration: MongoDB):
     mdb_migration.assert_reaches_phase(Phase.Running, timeout=1200)
+    assert_connection_string_contains_current_hosts(mdb_migration)
 
 
-@mark.e2e_vm_migration_generate_no_auth
+@mark.e2e_vm_migration_replicaset_no_auth
+def test_max_voting_members_validation(mdb_migration: MongoDB):
+    assert_max_voting_members_validation(mdb_migration)
+
+
+@mark.e2e_vm_migration_replicaset_no_auth
 @skip_if_local()
 def test_connectivity_after_migration(mdb_migration: MongoDB):
     """Replica set remains reachable without authentication after migration."""
     mdb_migration.tester(use_ssl=False).assert_connectivity()
 
 
-@mark.e2e_vm_migration_generate_no_auth
+@mark.e2e_vm_migration_replicaset_no_auth
+def test_migration_data_exists_after_migration(mdb_migration: MongoDB):
+    assert_migration_data_exists(mdb_migration.tester(use_ssl=False))
+
+
+@mark.e2e_vm_migration_replicaset_no_auth
+@skip_if_local()
+def test_start_background_health_checker(mdb_health_checker: MongoDBBackgroundTester):
+    mdb_health_checker.start()
+
+
+@mark.e2e_vm_migration_replicaset_no_auth
 def test_promote_and_prune(mdb_migration: MongoDB, vm_sts):
     promote_and_prune(mdb_migration, vm_sts)
 
 
-@mark.e2e_vm_migration_generate_no_auth
+@mark.e2e_vm_migration_replicaset_no_auth
+def test_connection_string_after_full_migration(mdb_migration: MongoDB):
+    assert_connection_string_after_full_migration(mdb_migration)
+
+
+@mark.e2e_vm_migration_replicaset_no_auth
+def test_process_names(om_tester: OMTester, mdb_migration: MongoDB):
+    assert_k8s_process_names(om_tester, mdb_migration)
+
+
+@mark.e2e_vm_migration_replicaset_no_auth
+@skip_if_local()
+def test_mongodb_reachable_during_promote_and_prune(mdb_health_checker: MongoDBBackgroundTester):
+    mdb_health_checker.assert_healthiness()
+    mdb_health_checker.stop()
+
+
+@mark.e2e_vm_migration_replicaset_no_auth
 @skip_if_local()
 def test_connectivity_after_promote(mdb_migration: MongoDB):
-    """Replica set remains reachable without authentication after promote-and-prune."""
+    """Replica set remains reachable without authentication after promote and prune."""
     mdb_migration.tester(use_ssl=False).assert_connectivity()
+
+
+@mark.e2e_vm_migration_replicaset_no_auth
+def test_migration_data_exists_after_promote(mdb_migration: MongoDB):
+    assert_migration_data_exists(mdb_migration.tester(use_ssl=False))

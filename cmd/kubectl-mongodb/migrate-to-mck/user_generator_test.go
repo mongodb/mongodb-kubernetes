@@ -31,6 +31,28 @@ func TestGenerateUserCRs_EmptyMechanisms(t *testing.T) {
 	assert.NotEmpty(t, users)
 }
 
+// TestGenerateUserCRs_SkipsExternalAgentUser verifies the X.509 agent auto-user (db: $external) is
+// skipped, while a real $external application user still produces a CR with no password secret.
+func TestGenerateUserCRs_SkipsExternalAgentUser(t *testing.T) {
+	ac := om.NewAutomationConfig(om.Deployment{
+		"processes":   []any{},
+		"replicaSets": []any{},
+	})
+	ac.Auth.AutoUser = "CN=mms-automation-agent,O=cluster.local-agent"
+	ac.Auth.Users = []*om.MongoDBUser{
+		{Username: "CN=mms-automation-agent,O=cluster.local-agent", Database: "$external", Roles: []*om.Role{{Role: "root", Database: "admin"}}},
+		{Username: "CN=vm-app-user,O=MongoDB", Database: "$external", Roles: []*om.Role{{Role: "readWrite", Database: "myapp"}}},
+	}
+
+	users, err := GenerateUserCRs(ac, "x509-rs", "mongodb", GenerateOptions{})
+	require.NoError(t, err)
+	require.Len(t, users, 1)
+	user := users[0].(*userv1.MongoDBUser)
+	assert.Equal(t, "CN=vm-app-user,O=MongoDB", user.Spec.Username)
+	assert.Equal(t, "$external", user.Spec.Database)
+	assert.Empty(t, user.Spec.PasswordSecretKeyRef.Name)
+}
+
 func TestGenerateUserCRs_DuplicateNormalizedNames(t *testing.T) {
 	ac := om.NewAutomationConfig(om.Deployment{
 		"processes":   []any{},

@@ -130,7 +130,7 @@ func runGenerateUsers(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	resources, err := marshalMultiDoc(userObjects)
+	resources, err := renderObjects(userObjects)
 	if err != nil {
 		return err
 	}
@@ -159,7 +159,6 @@ func resolveMongoDBResourceName(ac *om.AutomationConfig, override string) (strin
 	return name, nil
 }
 
-
 func buildUsersOptions(ctx context.Context, kubeClient kubernetesClient.Client, ac *om.AutomationConfig, stdin io.Reader, namespace, usersSecretsFile string) (GenerateOptions, error) {
 	opts := GenerateOptions{Namespace: namespace}
 	scanner := bufio.NewScanner(stdin)
@@ -174,7 +173,6 @@ func userKey(username, database string) string { return username + ":" + databas
 func suggestedUserSecretName(user *om.MongoDBUser) string {
 	return userv1.NormalizeName(user.Username) + "-password"
 }
-
 
 func scramUsers(ac *om.AutomationConfig) []*om.MongoDBUser {
 	if ac.Auth == nil {

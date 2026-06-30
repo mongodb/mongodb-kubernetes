@@ -1,0 +1,75 @@
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  annotations:
+    mongodb.com/migrate-tool-version: latest
+    mongodb.com/migration-dry-run: "true"
+  name: ldap-rs
+  namespace: mongodb
+spec:
+  agent:
+    maxLogFileDurationHours: 0
+    mongod:
+      systemLog:
+        destination: file
+        logAppend: false
+        path: /var/log/mongodb/mongod.log
+  credentials: my-credentials
+  externalMembers:
+  - hostname: vm-0.example.com:27017
+    processName: ldap-rs-0
+    replicaSetName: ldap-rs
+    type: mongod
+  - hostname: vm-1.example.com:27017
+    processName: ldap-rs-1
+    replicaSetName: ldap-rs
+    type: mongod
+  - hostname: vm-2.example.com:27017
+    processName: ldap-rs-2
+    replicaSetName: ldap-rs
+    type: mongod
+  featureCompatibilityVersion: "8.0"
+  opsManager:
+    configMapRef:
+      name: my-om-config
+  security:
+    authentication:
+      agents:
+        automationPasswordSecretRef:
+          key: password
+          name: ldap-agent-password
+        automationUserName: uid=mms-automation-agent,ou=groups,dc=example,dc=org
+        mode: LDAP
+      enabled: true
+      ignoreUnknownUsers: true
+      ldap:
+        bindQueryPasswordSecretRef:
+          name: ldap-bind-query-password
+        bindQueryUser: cn=admin,dc=example,dc=org
+        servers:
+        - openldap.mongodb.svc.cluster.local:389
+        timeoutMS: 0
+        transportSecurity: none
+        userCacheInvalidationInterval: 0
+        validateLDAPServerConfig: true
+      modes:
+      - SCRAM
+      - LDAP
+  type: ReplicaSet
+  version: 8.0.4-ent
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ldap-bind-query-password
+  namespace: mongodb
+stringData:
+  password: ldap-admin-password
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ldap-agent-password
+  namespace: mongodb
+stringData:
+  password: agent-ldap-password

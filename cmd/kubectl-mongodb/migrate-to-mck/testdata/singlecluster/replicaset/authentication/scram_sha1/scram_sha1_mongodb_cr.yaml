@@ -4,7 +4,7 @@ metadata:
   annotations:
     mongodb.com/migrate-tool-version: latest
     mongodb.com/migration-dry-run: "true"
-  name: scram-rs
+  name: scram-sha1-rs
   namespace: mongodb
 spec:
   agent:
@@ -17,16 +17,16 @@ spec:
   credentials: my-credentials
   externalMembers:
   - hostname: vm-0.example.com:27017
-    processName: scram-rs-0
-    replicaSetName: scram-rs
+    processName: scram-sha1-rs-0
+    replicaSetName: scram-sha1-rs
     type: mongod
   - hostname: vm-1.example.com:27017
-    processName: scram-rs-1
-    replicaSetName: scram-rs
+    processName: scram-sha1-rs-1
+    replicaSetName: scram-sha1-rs
     type: mongod
   - hostname: vm-2.example.com:27017
-    processName: scram-rs-2
-    replicaSetName: scram-rs
+    processName: scram-sha1-rs-2
+    replicaSetName: scram-sha1-rs
     type: mongod
   featureCompatibilityVersion: "8.0"
   opsManager:
@@ -35,30 +35,11 @@ spec:
   security:
     authentication:
       agents:
-        mode: SCRAM
+        mode: MONGODB-CR
       enabled: true
       ignoreUnknownUsers: true
       modes:
-      - SCRAM
-    roles:
-    - db: myapp
-      privileges:
-      - actions:
-        - find
-        - listCollections
-        resource:
-          db: myapp
-      role: appReadOnly
-      roles:
-      - db: myapp
-        role: read
-    - db: admin
-      privileges:
-      - actions:
-        - serverStatus
-        - replSetGetStatus
-        resource:
-          cluster: true
-      role: metricsReader
+      - SCRAM-SHA-1
+      - MONGODB-CR
   type: ReplicaSet
   version: 8.0.4-ent

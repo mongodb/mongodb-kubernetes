@@ -666,14 +666,14 @@ func TestGetShardNameToShardIdxMap(t *testing.T) {
 			expectedMapping:  map[string]int{"slaney-0": 0, "slaney-1": 1},
 		},
 		{
-			name:             "ShardName is mapped as alias alongside the K8s name",
+			name:             "overrides do not affect the map keys, only K8s names are present",
 			shardCount:       2,
 			statusShardCount: 2,
 			overrides: []mdbv1.ShardNameOverride{
 				{ShardName: "slaney-0", ShardId: "vm-shard-0", ReplicaSetName: "vm-shard-0"},
 				{ShardName: "slaney-1", ShardId: "vm-shard-1", ReplicaSetName: "vm-shard-1"},
 			},
-			expectedMapping: map[string]int{"slaney-0": 0, "vm-shard-0": 0, "slaney-1": 1, "vm-shard-1": 1},
+			expectedMapping: map[string]int{"slaney-0": 0, "slaney-1": 1},
 		},
 	}
 
@@ -696,7 +696,7 @@ func TestGetShardNameToShardIdxMap(t *testing.T) {
 				},
 			}
 
-			assert.Equal(t, tt.expectedMapping, helper.getShardNameToShardIdxMap())
+			assert.Equal(t, tt.expectedMapping, helper.shardK8sNameToIndex())
 		})
 	}
 }

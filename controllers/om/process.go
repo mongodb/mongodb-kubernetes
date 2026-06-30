@@ -47,7 +47,7 @@ var infrastructureFieldPaths = [][]string{
 	{"storage", "dbPath"},
 	{"replication", "replSetName"},
 	{"security", "clusterAuthMode"},
-	{"sharding", "clusterRole"},
+	{"setParameter", "oidcIdentityProviders"},
 }
 
 // infrastructureTLSCertKeys lists TLS/SSL certificate-related keys under
@@ -381,7 +381,7 @@ func (p Process) AdditionalMongodConfig() *mdbv1.AdditionalMongodConfig {
 	}
 
 	// drop sections that became empty after stripping operator fields
-	for _, path := range [][]string{{"net", "tls"}, {"net", "ssl"}, {"net"}, {"storage"}, {"replication"}, {"security"}, {"sharding"}} {
+	for _, path := range [][]string{{"net", "tls"}, {"net", "ssl"}, {"net"}, {"storage"}, {"replication"}, {"security"}, {"setParameter"}} {
 		if sub := maputil.ReadMapValueAsMap(m, path...); len(sub) == 0 && sub != nil {
 			maputil.DeleteMapValue(m, path...)
 		}

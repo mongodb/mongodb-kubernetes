@@ -914,6 +914,19 @@ func (r *ReplicaSetReconcilerHelper) runConnectivityValidationDryRun(ctx context
 	subjectDN := ""
 	if sec := rs.GetSecurity(); sec != nil && sec.GetAgentMechanism(deploymentOpts.currentAgentAuthMode) == util.X509 {
 		agentCertSecretName := sec.AgentClientCertificateSecretName(rs.Name)
+		// The connectivity Job mounts the operator generated agent PEM secret (the StatefulSet volume
+		// references AgentClientCertificateSecretName + the operator generated suffix). The full reconcile
+		// creates it in ensureX509SecretAndCheckTLSType, which this dry-run path skips, so create it here.
+		// Without it the Job pod stays Pending and the connectivity check never completes.
+		err := certs.VerifyAndEnsureClientCertificatesForAgentsAndTLSType(ctx, r.reconciler.SecretClient, r.reconciler.SecretClient, kube.ObjectKey(rs.Namespace, agentCertSecretName), log)
+		if err != nil {
+			return r.updateStatus(ctx,
+				workflow.Failed(xerrors.Errorf("connectivity dry-run: ensuring agent certificate secret: %w", err)),
+				mdbstatus.NewMigrationConditionOption(mdbstatus.MigrationCondition(
+					mdbstatus.MigrationPhaseConnectivityCheckFailed, "AgentCertSecretFailed", err.Error(),
+				)),
+			)
+		}
 		sel := corev1.SecretKeySelector{
 			LocalObjectReference: corev1.LocalObjectReference{Name: agentCertSecretName},
 			Key:                  corev1.TLSCertKey,
@@ -930,17 +943,7 @@ func (r *ReplicaSetReconcilerHelper) runConnectivityValidationDryRun(ctx context
 		subjectDN = userOpts.AutomationSubject
 	}
 
-	keyfileSecretName, err := r.ensureConnectivityKeyfileSecret(ctx, conn, rs, deploymentOpts.currentAgentAuthMode, log)
-	if err != nil {
-		return r.updateStatus(ctx,
-			workflow.Failed(xerrors.Errorf("connectivity dry-run: preparing keyfile secret: %w", err)),
-			mdbstatus.NewMigrationConditionOption(mdbstatus.MigrationCondition(
-				mdbstatus.MigrationPhaseConnectivityCheckFailed, "KeyfileSecretFailed", err.Error(),
-			)),
-		)
-	}
-
-	job := pkgMigration.BuildJobFromStatefulSet(rs, &sts, operatorImage, connectionString, hostnamePorts, deploymentOpts.currentAgentAuthMode, deploymentOpts.agentCertHash, subjectDN, keyfileSecretName)
+	job := pkgMigration.BuildJobFromStatefulSet(rs, &sts, operatorImage, connectionString, hostnamePorts, deploymentOpts.currentAgentAuthMode, deploymentOpts.agentCertHash, subjectDN)
 
 	result := opMigration.RunConnectivityJob(ctx, r.reconciler.client, job)
 	if result.Err != nil {
@@ -983,39 +986,6 @@ func (r *ReplicaSetReconcilerHelper) runConnectivityValidationDryRun(ctx context
 	}
 }
 
-// ensureConnectivityKeyfileSecret reads the keyfile content from the Ops Manager automation
-// config and stores it in a Kubernetes Secret so the connectivity-validator Job can authenticate
-// as __system@local during the migration dry-run. Returns the secret name, or an empty string
-// when SCRAM is not in use (no secret needed).
-func (r *ReplicaSetReconcilerHelper) ensureConnectivityKeyfileSecret(ctx context.Context, conn om.Connection, rs *mdbv1.MongoDB, currentAgentAuthMode string, log *zap.SugaredLogger) (string, error) {
-	sec := rs.GetSecurity()
-	mechanism := sec.GetAgentMechanism(currentAgentAuthMode)
-	if mechanism == "" || mechanism == util.X509 {
-		return "", nil
-	}
-
-	ac, err := conn.ReadAutomationConfig()
-	if err != nil {
-		return "", xerrors.Errorf("reading automation config for keyfile: %w", err)
-	}
-	keyfileContents := ac.Auth.Key
-	if keyfileContents == "" || keyfileContents == util.InvalidKeyFileContents {
-		log.Debugw("Automation config keyfile is absent or placeholder; skipping keyfile secret")
-		return "", nil
-	}
-
-	secretName := rs.Name + "-connectivity-keyfile"
-	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: secretName, Namespace: rs.Namespace}}
-	_, err = controllerutil.CreateOrUpdate(ctx, r.reconciler.client, secret, func() error {
-		secret.StringData = map[string]string{"keyfile": keyfileContents}
-		return controllerutil.SetOwnerReference(rs, secret, r.reconciler.client.Scheme())
-	})
-	if err != nil {
-		return "", xerrors.Errorf("creating keyfile secret %s: %w", secretName, err)
-	}
-	log.Debugw("Keyfile secret ready for connectivity validator", "secret", secretName)
-	return secretName, nil
-}
 
 func (r *ReplicaSetReconcilerHelper) OnDelete(ctx context.Context, obj runtime.Object, log *zap.SugaredLogger) error {
 	rs := obj.(*mdbv1.MongoDB)

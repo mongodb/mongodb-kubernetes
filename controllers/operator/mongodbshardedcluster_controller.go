@@ -301,23 +301,12 @@ func (r *ShardedClusterReconcileHelper) createShardsMemberClusterLists(shardsMap
 	return shardMemberClustersMap, allShardsMemberClusters
 }
 
-// getShardNameToShardIdxMap returns a lookup from every shard identifier to its index. Each shard is
-// keyed by its K8s name and, when an override is set, also by its AC shard _id and replicaSetName, so a
-// shardOverride can target a shard by any of those identifiers.
-func (r *ShardedClusterReconcileHelper) getShardNameToShardIdxMap() map[string]int {
+// shardK8sNameToIndex returns a map from K8s shard StatefulSet name to shard index.
+func (r *ShardedClusterReconcileHelper) shardK8sNameToIndex() map[string]int {
 	mapping := map[string]int{}
 	for shardIdx := 0; shardIdx < max(r.sc.Spec.ShardCount, r.deploymentState.Status.ShardCount); shardIdx++ {
 		mapping[r.sc.ShardName(shardIdx)] = shardIdx
-		if o := r.sc.ShardNameOverrideForShard(shardIdx); o != nil {
-			if o.ShardId != "" {
-				mapping[o.ShardId] = shardIdx
-			}
-			if o.ReplicaSetName != "" {
-				mapping[o.ReplicaSetName] = shardIdx
-			}
-		}
 	}
-
 	return mapping
 }
 
@@ -348,7 +337,7 @@ func (r *ShardedClusterReconcileHelper) prepareDesiredShardsConfiguration() map[
 	for _, shardOverride := range expandShardOverrides(spec.ShardOverrides) {
 		// guaranteed to have one shard name in expandedShardOverrides
 		shardName := shardOverride.ShardNames[0]
-		shardIndex := r.getShardNameToShardIdxMap()[shardName]
+		shardIndex := r.shardK8sNameToIndex()[shardName]
 		// here we copy the whole element and overwrite at the end of every iteration
 		defaultShardConfiguration := shardComponentSpecs[shardIndex].DeepCopy()
 		topLevelPersistenceOverride, topLevelPodSpecOverride := getShardTopLevelOverrides(spec, shardIndex)

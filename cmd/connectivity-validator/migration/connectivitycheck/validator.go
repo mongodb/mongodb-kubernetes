@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"strings"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -49,15 +48,6 @@ type Config struct {
 	// (clientCertificateMode: REQUIRE). When true, a missing cert file is an error rather
 	// than a silent fallback to CA-only TLS.
 	ClientCertRequired bool
-}
-
-func isKeyfileSCRAM(authMechanism string) bool {
-	switch authMechanism {
-	case "SCRAM-SHA-256", "SCRAM-SHA-1":
-		return true
-	default:
-		return false
-	}
 }
 
 // Validate runs the full connectivity check and returns an exit code.
@@ -103,15 +93,6 @@ func Validate(ctx context.Context, cfg Config) int {
 	}
 	log.Debugw("MongoDB ping succeeded")
 
-	if isKeyfileSCRAM(cfg.AuthMechanism) {
-		if !hasSystemRole(ctx, client) {
-			log.Warnw("__system@local role not found", "exitCode", exitcode.ExitAuthFailed, "exitCodeName", exitcode.Name(exitcode.ExitAuthFailed))
-			return exitcode.ExitAuthFailed
-		}
-		log.Debugw("__system@local role verified")
-	}
-
-
 	for i, member := range cfg.ExternalMembers {
 		log.Debugw("Pinging external member", "member", member, "index", i+1, "total", len(cfg.ExternalMembers))
 		if code := pingMemberDirect(ctx, member, cfg); code != exitcode.ExitSuccess {
@@ -130,24 +111,6 @@ func buildClientOptions(cfg Config, uri string) (*options.ClientOptions, error) 
 	opts := options.Client().ApplyURI(uri)
 
 	switch cfg.AuthMechanism {
-	case "SCRAM-SHA-256", "SCRAM-SHA-1":
-		log.Debugw("Using keyfile SCRAM auth", "authMechanism", cfg.AuthMechanism, "keyfilePath", cfg.KeyfilePath)
-		keyfile, err := os.ReadFile(cfg.KeyfilePath)
-		if err != nil {
-			log.Warnw("Keyfile unavailable", "keyfilePath", cfg.KeyfilePath, "error", err)
-			return nil, fmt.Errorf("reading keyfile: %w", err)
-		}
-		password := strings.TrimSpace(string(keyfile))
-		if len(password) == 0 {
-			log.Warnw("Keyfile is empty", "keyfilePath", cfg.KeyfilePath)
-			return nil, fmt.Errorf("keyfile at %s is empty", cfg.KeyfilePath)
-		}
-		opts.SetAuth(options.Credential{
-			AuthMechanism: cfg.AuthMechanism,
-			AuthSource:    "local",
-			Username:      "__system",
-			Password:      password,
-		})
 	case "MONGODB-X509":
 		log.Debugw("Using MONGODB-X509 auth", "certPath", cfg.CertPath, "caPath", cfg.CAPath, "subjectDN", cfg.SubjectDN)
 		if _, statErr := os.Stat(cfg.CertPath); statErr != nil {
