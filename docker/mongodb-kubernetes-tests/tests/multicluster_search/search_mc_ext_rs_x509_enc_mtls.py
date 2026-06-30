@@ -408,7 +408,6 @@ def test_replicate_secrets_to_members(
     # Shared Secrets — same copy to every member cluster.
     for secret_name in [
         search_resource_names.mongot_tls_cert_name(MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX),
-        CA_CONFIGMAP_NAME,
         X509_CLIENT_CERT_SECRET_NAME,
         GRPC_KEY_PASSWORD_SECRET_NAME,
         X509_KEY_PASSWORD_SECRET_NAME,
