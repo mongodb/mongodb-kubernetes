@@ -696,7 +696,7 @@ func TestGetShardNameToShardIdxMap(t *testing.T) {
 				},
 			}
 
-			assert.Equal(t, tt.expectedMapping, helper.getShardNameToShardIdxMap())
+			assert.Equal(t, tt.expectedMapping, helper.shardK8sNameToIndex())
 		})
 	}
 }
