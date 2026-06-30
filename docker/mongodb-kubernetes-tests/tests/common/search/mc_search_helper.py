@@ -164,9 +164,6 @@ def replicate_search_secrets_to_members(
     shared_secrets = [
         search_resource_names.mongot_tls_cert_name(mdbs_resource_name, mdbs_tls_cert_prefix),
         f"{mdbs_resource_name}-{mongot_user_name}-password",
-        # The CA is stored as both a ConfigMap and a Secret; replicate the Secret half here
-        # (the operator mounts it as a Secret volume on per-cluster mongot pods).
-        ca_configmap_name,
     ]
     for secret_name in shared_secrets:
         _copy(secret_name, member_cluster_clients)

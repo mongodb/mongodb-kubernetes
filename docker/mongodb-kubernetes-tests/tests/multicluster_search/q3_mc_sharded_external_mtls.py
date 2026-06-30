@@ -89,7 +89,7 @@ def ca_configmap(
     name = create_issuer_ca(issuer_ca_filepath, namespace, CA_CONFIGMAP_NAME)
     for mcc in member_cluster_clients:
         create_issuer_ca(issuer_ca_filepath, namespace, CA_CONFIGMAP_NAME, api_client=mcc.api_client)
-        logger.info(f"CA ConfigMap/Secret {CA_CONFIGMAP_NAME} created in cluster {mcc.cluster_name}")
+        logger.info(f"CA ConfigMap {CA_CONFIGMAP_NAME} created in cluster {mcc.cluster_name}")
     return name
 
 
