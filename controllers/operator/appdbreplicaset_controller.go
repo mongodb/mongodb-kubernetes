@@ -75,6 +75,8 @@ const (
 	defaultMonitoringLogRotateSizeMB  = 1000
 	defaultMonitoringLogRotateTimeHrs = 24
 
+	monitoringAgentLogFile = "/var/log/mongodb-mms-automation/monitoring-agent.log"
+
 	// Used to note that for this particular case it is not necessary to pass
 	// the hash of the Prometheus certificate. This is to avoid having to
 	// calculate and pass the Prometheus Cert Hash when it is not needed.
@@ -1460,12 +1462,14 @@ func configureMonitoring(ac *automationconfig.AutomationConfig, log *zap.Sugared
 				Name:             om.MonitoringAgentDefaultVersion,
 				AdditionalParams: params,
 				LogRotate:        lr,
+				LogPath:          monitoringAgentLogFile,
 			}
 			log.Debugw("Added monitoring agent configuration", "host", hostname, "tls", tls)
 			monitoringVersions = append(monitoringVersions, mv)
 		} else {
 			monitoringVersions[foundIdx].AdditionalParams = params
 			monitoringVersions[foundIdx].LogRotate = lr
+			monitoringVersions[foundIdx].LogPath = monitoringAgentLogFile
 		}
 	}
 	ac.MonitoringVersions = monitoringVersions

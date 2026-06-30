@@ -86,6 +86,7 @@ type MonitoringLogRotate struct {
 
 type MonitoringVersion struct {
 	LogRotate        *MonitoringLogRotate `json:"logRotate,omitempty"`
+	LogPath          string               `json:"logPath,omitempty"`
 	Hostname         string               `json:"hostname"`
 	Name             string               `json:"name"`
 	BaseUrl          string               `json:"baseUrl"`

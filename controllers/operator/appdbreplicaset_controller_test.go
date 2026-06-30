@@ -332,6 +332,7 @@ func TestBuildAppDbAutomationConfig_MonitoringNotEmbeddedInAC(t *testing.T) {
 	require.NotNil(t, ac.MonitoringVersions[0].LogRotate)
 	assert.Equal(t, 1000, ac.MonitoringVersions[0].LogRotate.SizeThresholdMB)
 	assert.Equal(t, 24, ac.MonitoringVersions[0].LogRotate.TimeThresholdHrs)
+	assert.Equal(t, monitoringAgentLogFile, ac.MonitoringVersions[0].LogPath)
 }
 
 func TestBuildAppDbAutomationConfig_NoMonitoringWhenDisabled(t *testing.T) {
@@ -377,6 +378,7 @@ func TestBuildAppDbAutomationConfig_MonitoringLogRotateCustom(t *testing.T) {
 	require.NotNil(t, ac.MonitoringVersions[0].LogRotate)
 	assert.Equal(t, 500, ac.MonitoringVersions[0].LogRotate.SizeThresholdMB)
 	assert.Equal(t, 12, ac.MonitoringVersions[0].LogRotate.TimeThresholdHrs)
+	assert.Equal(t, monitoringAgentLogFile, ac.MonitoringVersions[0].LogPath)
 }
 
 func TestMonitoringToggledOff_ClearsMonitoringVersions(t *testing.T) {
@@ -1751,6 +1753,7 @@ func TestConfigureMonitoring_NonTLS(t *testing.T) {
 	assert.NotContains(t, params, "mmsApiKey")
 	assert.NotContains(t, params, "useSslForAllConnections")
 	assertDefaultLogRotate(t, ac.MonitoringVersions[0].LogRotate)
+	assert.Equal(t, monitoringAgentLogFile, ac.MonitoringVersions[0].LogPath)
 }
 
 func TestConfigureMonitoring_TLS(t *testing.T) {
@@ -1767,6 +1770,7 @@ func TestConfigureMonitoring_TLS(t *testing.T) {
 	assert.Equal(t, "true", params["sslRequireValidMMSServerCertificates"])
 	assert.Equal(t, appdbCAFilePath, params["sslTrustedServerCertificates"])
 	assertDefaultLogRotate(t, ac.MonitoringVersions[0].LogRotate)
+	assert.Equal(t, monitoringAgentLogFile, ac.MonitoringVersions[0].LogPath)
 }
 
 func TestConfigureMonitoring_TLS_RequireValidCertFalse(t *testing.T) {
@@ -1781,9 +1785,8 @@ func TestConfigureMonitoring_TLS_RequireValidCertFalse(t *testing.T) {
 	assert.NotContains(t, params, "mmsApiKey")
 	assert.Equal(t, "true", params["useSslForAllConnections"])
 	assert.Equal(t, "false", params["sslRequireValidMMSServerCertificates"])
-	require.NotNil(t, ac.MonitoringVersions[0].LogRotate)
-	assert.Equal(t, 1000, ac.MonitoringVersions[0].LogRotate.SizeThresholdMB)
-	assert.Equal(t, 24, ac.MonitoringVersions[0].LogRotate.TimeThresholdHrs)
+	assertDefaultLogRotate(t, ac.MonitoringVersions[0].LogRotate)
+	assert.Equal(t, monitoringAgentLogFile, ac.MonitoringVersions[0].LogPath)
 }
 
 func TestConfigureMonitoring_ClearsWhenDisabled(t *testing.T) {
