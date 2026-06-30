@@ -723,7 +723,7 @@ func assertSearchOwnerLabels(t *testing.T, search *searchv1.MongoDBSearch, clust
 	}
 }
 
-func newSimulatedMCMongoDBSearch(name, namespace string) *searchv1.MongoDBSearch {
+func newOperatorPerClusterMongoDBSearch(name, namespace string) *searchv1.MongoDBSearch {
 	clusters := []searchv1.ClusterSpec{
 		{
 			Name: "cluster-a", Index: ptr.To(int32(0)), Replicas: ptr.To(int32(1)),
@@ -748,9 +748,9 @@ func newSimulatedMCMongoDBSearch(name, namespace string) *searchv1.MongoDBSearch
 	}
 }
 
-// simulatedMCProjectionCases drives the RS and sharded projected-reconcile tests;
+// operatorPerClusterProjectionCases drives the RS and sharded projected-reconcile tests;
 // the non-zero pin guards that naming follows the pinned index, not array position.
-var simulatedMCProjectionCases = []struct {
+var operatorPerClusterProjectionCases = []struct {
 	name        string
 	opCluster   string
 	pinClusterB *int32 // override spec.clusters[1].clusterIndex when non-nil
@@ -761,12 +761,12 @@ var simulatedMCProjectionCases = []struct {
 	{name: "cluster_b_pinned_to_index_7", opCluster: "cluster-b", pinClusterB: ptr.To(int32(7)), wantIdx: 7, wrongIdx: 0},
 }
 
-func TestReconcile_SimulatedMC_ProjectedReconcilesLocalOnly(t *testing.T) {
+func TestReconcile_OperatorPerCluster_ProjectedReconcilesLocalOnly(t *testing.T) {
 	enableSearchMCReconcile(t)
-	for _, tc := range simulatedMCProjectionCases {
+	for _, tc := range operatorPerClusterProjectionCases {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
-			search := newSimulatedMCMongoDBSearch("mdb-search", mock.TestNamespace)
+			search := newOperatorPerClusterMongoDBSearch("mdb-search", mock.TestNamespace)
 			if tc.pinClusterB != nil {
 				search.Spec.Clusters[1].Index = tc.pinClusterB
 			}
@@ -807,10 +807,10 @@ func TestReconcile_SimulatedMC_ProjectedReconcilesLocalOnly(t *testing.T) {
 	}
 }
 
-func TestReconcile_SimulatedMC_NoMatchSilentNoOp(t *testing.T) {
+func TestReconcile_OperatorPerCluster_NoMatchSilentNoOp(t *testing.T) {
 	enableSearchMCReconcile(t)
 	ctx := context.Background()
-	search := newSimulatedMCMongoDBSearch("mdb-search", mock.TestNamespace)
+	search := newOperatorPerClusterMongoDBSearch("mdb-search", mock.TestNamespace)
 
 	// operatorClusterName="cluster-c" — NOT in spec.clusters[].
 	reconciler, c := newSearchReconcilerWithMembers(t, nil, nil, "cluster-c", search)
@@ -844,10 +844,10 @@ func TestReconcile_SimulatedMC_NoMatchSilentNoOp(t *testing.T) {
 
 // Customer pin is authoritative: re-pinning renders at the new index. The
 // old-index resources leak — accepted MVP scope, no cleanup.
-func TestReconcile_SimulatedMC_RePinUpdatesNames(t *testing.T) {
+func TestReconcile_OperatorPerCluster_RePinUpdatesNames(t *testing.T) {
 	enableSearchMCReconcile(t)
 	ctx := context.Background()
-	search := newSimulatedMCMongoDBSearch("mdb-search", mock.TestNamespace)
+	search := newOperatorPerClusterMongoDBSearch("mdb-search", mock.TestNamespace)
 
 	reconciler, c := newSearchReconcilerWithMembers(t, nil, nil, "cluster-a", search)
 	driveSearchReconcileToRunning(ctx, t, reconciler, c, search, 5)
@@ -868,7 +868,7 @@ func TestReconcile_SimulatedMC_RePinUpdatesNames(t *testing.T) {
 		"mongot ConfigMap must exist at the new pinned index 2")
 }
 
-func newSimulatedMCShardedMongoDBSearch(name, namespace string) *searchv1.MongoDBSearch {
+func newOperatorPerClusterShardedMongoDBSearch(name, namespace string) *searchv1.MongoDBSearch {
 	// Each cluster gets its own externalHostname (distinct per cluster, {shardName} per-shard) and a
 	// distinct shard-agnostic routerHostname (required for external sharded + managed LB).
 	clusters := []searchv1.ClusterSpec{
@@ -902,7 +902,7 @@ func newSimulatedMCShardedMongoDBSearch(name, namespace string) *searchv1.MongoD
 	}
 }
 
-func simulatedMCShardedTLSSecrets(search *searchv1.MongoDBSearch, clusterIndex int) []client.Object {
+func operatorPerClusterShardedTLSSecrets(search *searchv1.MongoDBSearch, clusterIndex int) []client.Object {
 	shards := []string{"sh-0", "sh-1"}
 	out := make([]client.Object, 0, len(shards))
 	for _, shard := range shards {
@@ -915,18 +915,18 @@ func simulatedMCShardedTLSSecrets(search *searchv1.MongoDBSearch, clusterIndex i
 	return out
 }
 
-func TestReconcile_SimulatedMC_ShardedSource_ProjectedReconcilesLocalOnly(t *testing.T) {
+func TestReconcile_OperatorPerCluster_ShardedSource_ProjectedReconcilesLocalOnly(t *testing.T) {
 	enableSearchMCReconcile(t)
-	for _, tc := range simulatedMCProjectionCases {
+	for _, tc := range operatorPerClusterProjectionCases {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
-			search := newSimulatedMCShardedMongoDBSearch("mdb-search", mock.TestNamespace)
+			search := newOperatorPerClusterShardedMongoDBSearch("mdb-search", mock.TestNamespace)
 			if tc.pinClusterB != nil {
 				search.Spec.Clusters[1].Index = tc.pinClusterB
 			}
 
 			reconciler, c := newSearchReconcilerWithMembers(t, nil, nil, tc.opCluster, search)
-			for _, obj := range simulatedMCShardedTLSSecrets(search, tc.wantIdx) {
+			for _, obj := range operatorPerClusterShardedTLSSecrets(search, tc.wantIdx) {
 				require.NoError(t, c.Create(ctx, obj))
 			}
 
@@ -976,10 +976,10 @@ func TestReconcile_SimulatedMC_ShardedSource_ProjectedReconcilesLocalOnly(t *tes
 	}
 }
 
-func TestReconcile_SimulatedMC_ShardedSource_NoMatchSilentNoOp(t *testing.T) {
+func TestReconcile_OperatorPerCluster_ShardedSource_NoMatchSilentNoOp(t *testing.T) {
 	enableSearchMCReconcile(t)
 	ctx := context.Background()
-	search := newSimulatedMCShardedMongoDBSearch("mdb-search", mock.TestNamespace)
+	search := newOperatorPerClusterShardedMongoDBSearch("mdb-search", mock.TestNamespace)
 
 	// operatorClusterName="cluster-c" — NOT in spec.clusters[].
 	reconciler, c := newSearchReconcilerWithMembers(t, nil, nil, "cluster-c", search)
@@ -1013,12 +1013,12 @@ func TestReconcile_SimulatedMC_ShardedSource_NoMatchSilentNoOp(t *testing.T) {
 }
 
 // ClusterIndex enforcement runs before LocalizeToCluster, so bad shapes surface as Failed.
-func TestReconcile_SimulatedMC_ClusterIndexEnforcement(t *testing.T) {
+func TestReconcile_OperatorPerCluster_ClusterIndexEnforcement(t *testing.T) {
 	enableSearchMCReconcile(t)
 	ctx := context.Background()
 
 	t.Run("missing clusterIndex on a single entry is Invalid", func(t *testing.T) {
-		search := newSimulatedMCMongoDBSearch("mdb-search", mock.TestNamespace)
+		search := newOperatorPerClusterMongoDBSearch("mdb-search", mock.TestNamespace)
 		// Single-entry unpinned passes ValidateSpec (MC validators skip at len==1), so the
 		// failure is attributable to the sim-MC gate requiring the pin even on one entry.
 		search.Spec.Clusters = []searchv1.ClusterSpec{
@@ -1037,11 +1037,11 @@ func TestReconcile_SimulatedMC_ClusterIndexEnforcement(t *testing.T) {
 		// workflow.Invalid capitalizes the first char, so match on the stable substring.
 		assert.Contains(t, got.Status.Message,
 			"one operator per cluster requires index on every spec.clusters[] entry (missing on",
-			"failure must come from ValidateSimulatedMCClusterIndices")
+			"failure must come from ValidateOperatorPerClusterIndices")
 	})
 
 	t.Run("partial pin on a multi-entry spec is Invalid", func(t *testing.T) {
-		search := newSimulatedMCMongoDBSearch("mdb-search", mock.TestNamespace)
+		search := newOperatorPerClusterMongoDBSearch("mdb-search", mock.TestNamespace)
 		// Drop the pin on the second entry: the general ValidateSpec rule fires
 		// before the sim-MC gate.
 		search.Spec.Clusters[1].Index = nil
@@ -1062,7 +1062,7 @@ func TestReconcile_SimulatedMC_ClusterIndexEnforcement(t *testing.T) {
 	})
 
 	t.Run("empty clusters is Invalid", func(t *testing.T) {
-		search := newSimulatedMCMongoDBSearch("mdb-search", mock.TestNamespace)
+		search := newOperatorPerClusterMongoDBSearch("mdb-search", mock.TestNamespace)
 		// Empty clusters means there is no per-cluster loadBalancer either, so the
 		// failure is attributable to the clusters check, not the LB validators.
 		search.Spec.Clusters = []searchv1.ClusterSpec{}

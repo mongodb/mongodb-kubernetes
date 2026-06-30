@@ -1696,7 +1696,7 @@ func TestReconcile_RoutingReadyFromState_DrivesFallbackRoutes(t *testing.T) {
 		"pending shard's fallback route must inject the routed_from_another_shard header")
 }
 
-// --- simulated-MC envoy tests carried over from search/ga-base (ported to clusterWorkItem + routingReadyMongotGroups signatures) ---
+// --- operator-per-cluster with uniified CR envoy tests carried over from search/ga-base (ported to clusterWorkItem + routingReadyMongotGroups signatures) ---
 func newMCEnvoySearch(name, namespace, uid string, clusters ...searchv1.ClusterSpec) *searchv1.MongoDBSearch {
 	// Give each cluster its own literal managed-LB hostname (the {clusterName}
 	// placeholder was removed; per-cluster hostnames must be distinct).
@@ -1718,7 +1718,7 @@ func newMCEnvoySearch(name, namespace, uid string, clusters ...searchv1.ClusterS
 	}
 }
 
-func newSimulatedMCEnvoySearch(name, namespace string, clusterBIndex int32) *searchv1.MongoDBSearch {
+func newOperatorPerClusterEnvoySearch(name, namespace string, clusterBIndex int32) *searchv1.MongoDBSearch {
 	clusterA := pinnedCluster("cluster-a", 0)
 	clusterA.LoadBalancer = &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot-cluster-a.example.com"}}
 	clusterB := pinnedCluster("cluster-b", clusterBIndex)
@@ -1734,8 +1734,8 @@ func newSimulatedMCEnvoySearch(name, namespace string, clusterBIndex int32) *sea
 	}
 }
 
-func TestBuildClusterWorkList_SimulatedMC_UsesProjectedIndex(t *testing.T) {
-	// Simulated-MC: members map empty; LocalizeToCluster already narrowed
+func TestBuildClusterWorkList_OperatorPerCluster_UsesProjectedIndex(t *testing.T) {
+	// Operator-per-cluster with unified CR: members map empty; LocalizeToCluster already narrowed
 	// spec.Clusters to one entry whose projected clusterIndex must be honoured.
 	central := fake.NewClientBuilder().Build()
 	// operatorClusterName is "" — this test exercises buildClusterWorkList directly, not Reconcile.
@@ -1750,8 +1750,8 @@ func TestBuildClusterWorkList_SimulatedMC_UsesProjectedIndex(t *testing.T) {
 	wl := r.buildClusterWorkList(search)
 	require.Len(t, wl, 1)
 	assert.Equal(t, "kind-e2e-cluster-2", wl[0].ClusterName)
-	assert.Equal(t, 1, wl[0].ClusterIndex, "simulated-MC must honour the projected clusterIndex, not 0")
-	assert.Equal(t, r.kubeClient, wl[0].Client, "simulated-MC: client must fall back to kubeClient")
+	assert.Equal(t, 1, wl[0].ClusterIndex, "operator-per-cluster with unified CR must honour the projected clusterIndex, not 0")
+	assert.Equal(t, r.kubeClient, wl[0].Client, "operator-per-cluster with unified CR: client must fall back to kubeClient")
 }
 
 func TestBuildReplicaSetRouteForCluster_ResolvedIndexNotArrayPos(t *testing.T) {
@@ -1774,7 +1774,7 @@ func TestBuildReplicaSetRouteForCluster_ResolvedIndexNotArrayPos(t *testing.T) {
 	assert.Equal(t, "mdb-search-search-7-svc.test-ns.svc.cluster.local", route.UpstreamHosts[0])
 }
 
-func TestBuildRoutesForCluster_SimulatedMC_Sharded_PerShardSNIUsesProjectedIndex(t *testing.T) {
+func TestBuildRoutesForCluster_OperatorPerCluster_Sharded_PerShardSNIUsesProjectedIndex(t *testing.T) {
 	search := &searchv1.MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"},
 		Spec: searchv1.MongoDBSearchSpec{
@@ -1914,14 +1914,14 @@ func TestEnvoyReconcile_MultiCluster_FailedFirstThenOK_AggregatesFailed(t *testi
 		"a Failed + b OK must aggregate to top-level Failed regardless of cluster order")
 }
 
-func TestEnvoyReconcile_SimulatedMC_Match_RendersAtPinnedIndex(t *testing.T) {
+func TestEnvoyReconcile_OperatorPerCluster_Match_RendersAtPinnedIndex(t *testing.T) {
 	enableSearchMCReconcile(t)
 	ctx := context.Background()
 	scheme := envoyTestScheme(t)
 
-	search := newSimulatedMCEnvoySearch("mdb-search", "ns", 7)
+	search := newOperatorPerClusterEnvoySearch("mdb-search", "ns", 7)
 	central := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&searchv1.MongoDBSearch{}).WithObjects(search).Build()
-	// members map empty: simulated-MC falls back to kubeClient (= central).
+	// members map empty: operator-per-cluster with unified CR falls back to kubeClient (= central).
 	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", nil, "cluster-b")
 
 	_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "mdb-search", Namespace: "ns"}})
@@ -1954,13 +1954,13 @@ func TestEnvoyReconcile_SimulatedMC_Match_RendersAtPinnedIndex(t *testing.T) {
 		"no Envoy ConfigMap may render at array-position index 0")
 }
 
-func TestEnvoyReconcile_SimulatedMC_MissingClusterIndex_Invalid(t *testing.T) {
+func TestEnvoyReconcile_OperatorPerCluster_MissingClusterIndex_Invalid(t *testing.T) {
 	enableSearchMCReconcile(t)
 	ctx := context.Background()
 	scheme := envoyTestScheme(t)
 
 	// Single entry, no pin — built via the generic MC helper because
-	// newSimulatedMCEnvoySearch can only produce pinned entries.
+	// newOperatorPerClusterEnvoySearch can only produce pinned entries.
 	search := newMCEnvoySearch("mdb-search", "ns", "", searchv1.ClusterSpec{Name: "cluster-a"})
 	central := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&searchv1.MongoDBSearch{}).WithObjects(search).Build()
 
@@ -1977,16 +1977,16 @@ func TestEnvoyReconcile_SimulatedMC_MissingClusterIndex_Invalid(t *testing.T) {
 	// workflow.Invalid capitalizes the first char, so match on the stable substring.
 	assert.Contains(t, patched.Status.LoadBalancer.Message,
 		"one operator per cluster requires index on every spec.clusters[] entry (missing on",
-		"message must come from ValidateSimulatedMCClusterIndices")
+		"message must come from ValidateOperatorPerClusterIndices")
 }
 
-func TestEnvoyReconcile_SimulatedMC_NoMatchSilentNoOp(t *testing.T) {
+func TestEnvoyReconcile_OperatorPerCluster_NoMatchSilentNoOp(t *testing.T) {
 	enableSearchMCReconcile(t)
 	ctx := context.Background()
 	scheme := envoyTestScheme(t)
 
 	// Both entries pinned so the no-op is attributable to LocalizeToCluster, not validation.
-	search := newSimulatedMCEnvoySearch("mdb-search", "ns", 1)
+	search := newOperatorPerClusterEnvoySearch("mdb-search", "ns", 1)
 	central := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&searchv1.MongoDBSearch{}).WithObjects(search).Build()
 
 	// operatorClusterName="cluster-c" — NOT in spec.clusters[].
@@ -2053,7 +2053,7 @@ func TestEnvoyReconcile_ValidationFailure_NoLBConfigured_NoLBStatusWrite(t *test
 
 	// Removing the LB from the fully-pinned 2-cluster fixture makes ValidateSpec fail
 	// (multi-cluster requires spec.clusters[].loadBalancer.managed) on a CR with no LB surface.
-	search := newSimulatedMCEnvoySearch("mdb-search", "ns", 1)
+	search := newOperatorPerClusterEnvoySearch("mdb-search", "ns", 1)
 	for i := range search.Spec.Clusters {
 		search.Spec.Clusters[i].LoadBalancer = nil
 	}
@@ -2070,10 +2070,10 @@ func TestEnvoyReconcile_ValidationFailure_NoLBConfigured_NoLBStatusWrite(t *test
 		"validation failure on a CR without spec.loadBalancer must not create a loadBalancer sub-status")
 }
 
-func TestReconcileForCluster_SimulatedMC_ShardedSource_RendersToProvidedClient(t *testing.T) {
+func TestReconcileForCluster_OperatorPerCluster_ShardedSource_RendersToProvidedClient(t *testing.T) {
 	scheme := envoyTestScheme(t)
 	central := fake.NewClientBuilder().WithScheme(scheme).Build()
-	// members map is nil (simulated-MC: one operator per member cluster).
+	// members map is nil (operator-per-cluster with unified CR: one operator per member cluster).
 	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", nil, "")
 
 	search := &searchv1.MongoDBSearch{
@@ -2088,9 +2088,9 @@ func TestReconcileForCluster_SimulatedMC_ShardedSource_RendersToProvidedClient(t
 	source := &mockShardedSourceForEnvoy{shardNames: []string{"sh-0", "sh-1"}}
 
 	// Drive reconcileForCluster directly with the projected cluster name and
-	// r.kubeClient — the simulated-MC path that buildClusterWorkList wires.
+	// r.kubeClient — the operator-per-cluster with unified CR path that buildClusterWorkList wires.
 	st := r.reconcileForCluster(context.Background(), search, source, false, nil, clusterWorkItem{ClusterName: "kind-e2e-cluster-1", ClusterIndex: 0, Client: r.kubeClient}, nil, zap.S())
-	require.True(t, st.IsOK(), "simulated-MC sharded reconcile should succeed, got %s: %s",
+	require.True(t, st.IsOK(), "operator-per-cluster with unified CR sharded reconcile should succeed, got %s: %s",
 		st.Phase(), searchcontroller.MessageFromStatus(st))
 
 	// Envoy Deployment + ConfigMap landed in kubeClient at index 0.

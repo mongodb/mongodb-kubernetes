@@ -43,7 +43,7 @@ func CheckSecretsPresence(
 	}
 
 	if len(members) == 0 {
-		// Single-cluster or simulated-MC. In simulated-MC the narrowed 1-entry
+		// Single-cluster or operator-per-cluster with unified CR. In operator-per-cluster with unified CR the narrowed 1-entry
 		// spec.clusters may be pinned to a non-zero index; index-keyed names
 		// (per-shard TLS certs) must be probed at that index, not 0.
 		appendIfMissing("", central, expectedSecretNamesForCluster(search, ResolveSingleClusterIndex(search)))

@@ -1344,9 +1344,9 @@ func (s *MongoDBSearch) GetKind() string {
 	return "MongoDBSearch"
 }
 
-// ValidateSimulatedMCClusterIndices requires a non-empty spec.clusters where every entry pins
-// a distinct Index. Called only by operators in simulated-MC mode (operatorClusterName set).
-func (s *MongoDBSearch) ValidateSimulatedMCClusterIndices() error {
+// ValidateOperatorPerClusterIndices requires a non-empty spec.clusters where every entry pins
+// a distinct Index. Called only by operators in operator-per-cluster with unified CR mode (operatorClusterName set).
+func (s *MongoDBSearch) ValidateOperatorPerClusterIndices() error {
 	if len(s.Spec.Clusters) == 0 {
 		return fmt.Errorf("running one operator per cluster requires spec.clusters to be set")
 	}

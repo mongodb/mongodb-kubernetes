@@ -73,7 +73,7 @@ func newPrepareSearch(operatorClusterName string) prepareSearchFunc {
 		if skip, r, e := validateSpec(search, log, writeStatus); skip {
 			return skip, r, e
 		}
-		if vErr := search.ValidateSimulatedMCClusterIndices(); vErr != nil {
+		if vErr := search.ValidateOperatorPerClusterIndices(); vErr != nil {
 			r, e := writeStatus(workflow.Invalid("%s", vErr.Error()))
 			return true, r, e
 		}
