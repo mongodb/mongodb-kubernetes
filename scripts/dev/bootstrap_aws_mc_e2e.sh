@@ -23,8 +23,23 @@ set -Eeou pipefail
 test "${MDB_BASH_DEBUG:-0}" -eq 1 && set -x
 
 cd "$(git rev-parse --show-toplevel)"
+# Preload the generated env (REGISTRY + base vars), then source the AWS context fresh so its
+# overrides (operator/search image pins, NAMESPACE, CENTRAL_CLUSTER, ...) win.
+set -a
+# shellcheck disable=SC1090,SC1091
+source .generated/context.env
+set +a
 # shellcheck disable=SC1091
-source scripts/dev/devenv
+source scripts/dev/contexts/e2e_aws_simulated_mc_sharded
+# Apply the devc network-prefix to the namespace inline: the prefix tooling lives in the
+# devcontainer layer (not carried by this AWS-only branch), and private-context resets
+# NAMESPACE to the un-prefixed base. WATCH_NAMESPACE must match or the operator cache-syncs
+# the wrong namespace and times out.
+if [[ -n "${MCK_DEVC_NET_PREFIX:-}" ]]; then
+  export NAMESPACE="${NAMESPACE}-${MCK_DEVC_NET_PREFIX}"
+  export WATCH_NAMESPACE="${NAMESPACE}"
+fi
+# shellcheck disable=SC1091
 source scripts/funcs/printing
 source scripts/funcs/operator_deployment
 

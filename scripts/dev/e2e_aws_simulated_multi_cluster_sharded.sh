@@ -19,12 +19,23 @@ test "${MDB_BASH_DEBUG:-0}" -eq 1 && set -x
 
 cd "$(git rev-parse --show-toplevel 2>/dev/null || echo /workspace)"
 
-# Load the AWS multi-cluster context (KUBECONFIG, MEMBER_CLUSTERS, CENTRAL_CLUSTER, etc.).
+# Preload the generated env (REGISTRY + base vars) so the AWS context — which references
+# ${REGISTRY} under `set -u` — resolves, then source the AWS context fresh so its overrides
+# (operator/search image pins, KUBECONFIG, MEMBER_CLUSTERS, CENTRAL_CLUSTER, ...) win.
+set -a
+# shellcheck disable=SC1090,SC1091
+source .generated/context.env
+set +a
 # shellcheck disable=SC1091
 source scripts/dev/contexts/e2e_aws_simulated_mc_sharded
-
-# shellcheck disable=SC1091
-. scripts/dev/devenv
+# Apply the devc network-prefix to the namespace inline: the prefix tooling lives in the
+# devcontainer layer (not carried by this AWS-only branch), and private-context resets
+# NAMESPACE to the un-prefixed base. WATCH_NAMESPACE must match or the operator cache-syncs
+# the wrong namespace and times out.
+if [[ -n "${MCK_DEVC_NET_PREFIX:-}" ]]; then
+  export NAMESPACE="${NAMESPACE}-${MCK_DEVC_NET_PREFIX}"
+  export WATCH_NAMESPACE="${NAMESPACE}"
+fi
 
 if [[ ! -d venv ]]; then
   echo "ERROR: venv not found at $(pwd)/venv. Run scripts/dev/recreate_python_venv.sh first." >&2
@@ -47,6 +58,12 @@ fi
 mkdir -p logs
 log_path="logs/test-e2e_aws_simulated_mc_sharded-$(date +%Y%m%d-%H%M%S).log"
 ln -sf "${log_path#logs/}" logs/test.log
+
+# The helm-based operator install renders the chart from the test-dir-relative `helm_chart`
+# (LOCAL_HELM_CHART_DIR). It's gitignored and normally staged by prepare_local_e2e_run.sh;
+# refresh it here so this runner is self-contained.
+rm -rf docker/mongodb-kubernetes-tests/helm_chart
+cp -rf helm_chart docker/mongodb-kubernetes-tests/helm_chart
 
 cd docker/mongodb-kubernetes-tests
 pytest_args=(-v -s -m e2e_aws_simulated_mc_sharded)
