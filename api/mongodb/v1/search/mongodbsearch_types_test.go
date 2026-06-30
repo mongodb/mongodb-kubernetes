@@ -297,7 +297,7 @@ func TestGetRouterHostnameForCluster_NotManaged(t *testing.T) {
 	assert.Equal(t, "", s.GetRouterHostnameForCluster(""))
 }
 
-func TestValidateSimulatedMCClusterIndices(t *testing.T) {
+func TestValidateOperatorPerClusterIndices(t *testing.T) {
 	tests := []struct {
 		name     string
 		clusters []ClusterSpec
@@ -341,7 +341,7 @@ func TestValidateSimulatedMCClusterIndices(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			s := &MongoDBSearch{Spec: MongoDBSearchSpec{Clusters: tc.clusters}}
-			err := s.ValidateSimulatedMCClusterIndices()
+			err := s.ValidateOperatorPerClusterIndices()
 			if tc.wantErr {
 				assert.Error(t, err)
 			} else {
@@ -378,7 +378,7 @@ func TestMongotConfigConfigMapNameForCluster(t *testing.T) {
 
 func TestMongoDBSearch_LocalizeToCluster(t *testing.T) {
 	twoClusters := func() []ClusterSpec {
-		// LocalizeToCluster is the simulated-MC narrowing function, so clusterIndex
+		// LocalizeToCluster is the operator-per-cluster with unified CR narrowing function, so clusterIndex
 		// is mandatory and must be unique on every entry.
 		return []ClusterSpec{
 			{Name: "us-east", Index: ptr.To(int32(0))},

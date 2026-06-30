@@ -215,9 +215,9 @@ func TestCheckSecretsPresence_SingleClusterSharded_CentralIncludesPerShardCerts(
 	assert.Equal(t, []string{s_tlsShardNameAt("lt", "s", "shard-0", 0)}, got[0].Missing)
 }
 
-// Simulated-MC: per-shard cert names must be probed at the pinned index, not
+// Operator-per-cluster with unified CR: per-shard cert names must be probed at the pinned index, not
 // hard-coded 0 — else absent index-0 names look like phantom gaps and requeue forever.
-func TestCheckSecretsPresence_SimulatedMC_UsesPinnedIndex(t *testing.T) {
+func TestCheckSecretsPresence_OperatorPerCluster_UsesPinnedIndex(t *testing.T) {
 	newPinnedSearch := func() *searchv1.MongoDBSearch {
 		s := mcShardedTLSSearch(t, "s", "ns", "shard-0")
 		s.Spec.Clusters = []searchv1.ClusterSpec{{Name: "cluster-b", Index: ptr.To(int32(7))}}
