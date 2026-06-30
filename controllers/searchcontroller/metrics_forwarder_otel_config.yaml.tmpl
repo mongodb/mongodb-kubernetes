@@ -291,7 +291,7 @@ processors:
         - set(attributes["mongodb.opsmanager.host.id"], SHA1(attributes["mongodb.opsmanager.host.id"]))
         {{ if gt (len .ShardNames) 0 }}
         - set(attributes["mongodb.opsmanager.shard.name"], attributes["server.address"])
-        - replace_pattern(attributes["mongodb.opsmanager.shard.name"], "^.+\\.{{ .MongotName }}-search-0-(.+)-svc\\..+$", "$$1")
+        - replace_pattern(attributes["mongodb.opsmanager.shard.name"], "^.+\\.{{ .MongotName }}-search-{{ .ClusterIndex }}-(.+)-svc\\..+$", "$$1")
         {{ end }}
   batch:
     send_batch_size: ${env:BATCH_SIZE}
