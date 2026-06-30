@@ -17,6 +17,7 @@ import (
 	"github.com/hashicorp/go-multierror"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -799,38 +800,36 @@ func (r *MongoDBSearchReconcileHelper) pruneRoutingReady(ctx context.Context, li
 	return nil
 }
 
-// isOwnedBy returns true if the object has an owner reference pointing to the given owner.
-// Unlike metav1.IsControlledBy, this does not require the controller: true field,
-// which is not set by controllerutil.SetOwnerReference.
-func isOwnedBy(obj client.Object, owner client.Object) bool {
-	for _, ref := range obj.GetOwnerReferences() {
-		if ref.UID == owner.GetUID() {
-			return true
-		}
-	}
-	return false
-}
-
-// cleanupStaleShardResources deletes per-shard proxy Services for shards that no
-// longer exist. In MC the proxy Services live on the member clusters, so we
-// iterate the central client plus every member-cluster client and only touch
-// Services we own (by UID on central, by search-owner label on members —
-// cross-cluster owner refs don't exist).
+// cleanupStaleShardResources reaps the per-shard mongot resources of shards that no
+// longer exist (shard scale-down): proxy Service, headless Service, ConfigMap, and the
+// mongot StatefulSet — whose whenDeleted=Delete policy then cascades its PVC. For every
+// live shard it rebuilds the expected resource names; anything we own carrying the
+// matching scope label but not in those sets belongs to a removed shard and is deleted.
 //
-// STSs / ConfigMaps / headless Services for stale shards are not handled here:
-// in MC their owners live cross-cluster and aren't GC'd by Kubernetes.
+// It fans out over the central client and every member client; per-kind/per-cluster
+// failures are best-effort — aggregated and retried next reconcile.
 func (r *MongoDBSearchReconcileHelper) cleanupStaleShardResources(ctx context.Context, log *zap.SugaredLogger, currentShardNames []string) error {
 	if r.mdbSearch.IsShardedUnmanagedLB() {
 		return nil
 	}
 
-	expectedNames := make(map[string]bool)
+	// Per-kind expected-name sets. They are kept separate (rather than merged) because
+	// shard names can be customer-provided: a stale shard named e.g. "x-svc" would yield
+	// a StatefulSet name that collides with a live shard "x"'s headless Service name, and
+	// a shared set would then wrongly preserve the stale StatefulSet.
+	expectedProxy := map[string]bool{}
+	expectedHeadless := map[string]bool{}
+	expectedSTS := map[string]bool{}
+	expectedConfig := map[string]bool{}
 	seenClusters := map[int]bool{}
 	for _, w := range r.buildShardedWorkList(currentShardNames) {
-		expectedNames[r.mdbSearch.ProxyServiceNameForClusterShard(w.ClusterIndex, w.ShardName).Name] = true
+		expectedProxy[r.mdbSearch.ProxyServiceNameForClusterShard(w.ClusterIndex, w.ShardName).Name] = true
+		expectedHeadless[r.mdbSearch.MongotServiceForClusterShard(w.ClusterIndex, w.ShardName).Name] = true
+		expectedSTS[r.mdbSearch.MongotStatefulSetForClusterShard(w.ClusterIndex, w.ShardName).Name] = true
+		expectedConfig[r.mdbSearch.MongotConfigMapForClusterShard(w.ClusterIndex, w.ShardName).Name] = true
 		if !seenClusters[w.ClusterIndex] {
 			seenClusters[w.ClusterIndex] = true
-			expectedNames[r.mdbSearch.ProxyServiceNamespacedNameForCluster(w.ClusterIndex).Name] = true
+			expectedProxy[r.mdbSearch.ProxyServiceNamespacedNameForCluster(w.ClusterIndex).Name] = true
 		}
 	}
 
@@ -839,40 +838,64 @@ func (r *MongoDBSearchReconcileHelper) cleanupStaleShardResources(ctx context.Co
 		clients[name] = c
 	}
 
-	for clusterName, c := range clients {
-		serviceList := &corev1.ServiceList{}
-		if err := c.List(ctx, serviceList,
-			client.InNamespace(r.mdbSearch.Namespace),
-			client.MatchingLabels{"component": proxyServiceComponent},
-		); err != nil {
-			return xerrors.Errorf("failed to list proxy services on cluster %q: %w", clusterName, err)
-		}
+	// The mongot StatefulSet is the only StatefulSet we own, so it's scoped by owner
+	// label; proxy and headless Services share a kind but carry distinct component
+	// labels; the mongot ConfigMap carries the mongot component label.
+	sweeps := []struct {
+		newList  func() client.ObjectList
+		selector client.MatchingLabels
+		expected map[string]bool
+		kind     string
+	}{
+		{func() client.ObjectList { return &appsv1.StatefulSetList{} }, client.MatchingLabels(searchOwnerLabels(r.mdbSearch, "")), expectedSTS, "StatefulSet"},
+		{func() client.ObjectList { return &corev1.ServiceList{} }, client.MatchingLabels{componentLabelKey: proxyServiceComponent}, expectedProxy, "proxy Service"},
+		{func() client.ObjectList { return &corev1.ServiceList{} }, client.MatchingLabels{componentLabelKey: mongotComponent}, expectedHeadless, "headless Service"},
+		{func() client.ObjectList { return &corev1.ConfigMapList{} }, client.MatchingLabels{componentLabelKey: mongotComponent}, expectedConfig, "ConfigMap"},
+	}
 
-		for i := range serviceList.Items {
-			svc := &serviceList.Items[i]
-			if expectedNames[svc.Name] {
-				continue
-			}
-			// Owner refs don't cross clusters, so for member-cluster Services the
-			// owner check is by search-owner label instead of UID. Same intent:
-			// only touch Services we created.
-			if clusterName == "" {
-				if !isOwnedBy(svc, r.mdbSearch) {
-					continue
-				}
-			} else {
-				if svc.Labels[khandler.MongoDBSearchOwnerNameLabel] != r.mdbSearch.Name ||
-					svc.Labels[khandler.MongoDBSearchOwnerNamespaceLabel] != r.mdbSearch.Namespace {
-					continue
-				}
-			}
-			log.Infof("Deleting stale proxy Service %s on cluster %q", svc.Name, clusterName)
-			if err := c.Delete(ctx, svc); err != nil && !apierrors.IsNotFound(err) {
-				return xerrors.Errorf("failed to delete stale proxy Service %s on cluster %q: %w", svc.Name, clusterName, err)
+	var errs error
+	for clusterName, c := range clients {
+		for _, s := range sweeps {
+			if err := r.sweepStaleShardResources(ctx, log, c, clusterName, s.newList(), s.selector, s.expected, s.kind); err != nil {
+				errs = multierror.Append(errs, err)
 			}
 		}
 	}
-	return nil
+	return errs
+}
+
+// sweepStaleShardResources lists one resource kind on a cluster (scoped by selector)
+// and deletes every object this search owns whose name isn't in expected.
+func (r *MongoDBSearchReconcileHelper) sweepStaleShardResources(ctx context.Context, log *zap.SugaredLogger, c kubernetesClient.Client, clusterName string, list client.ObjectList, selector client.MatchingLabels, expected map[string]bool, kind string) error {
+	if err := c.List(ctx, list, client.InNamespace(r.mdbSearch.Namespace), selector); err != nil {
+		return xerrors.Errorf("failed to list %ss on cluster %q: %w", kind, clusterName, err)
+	}
+	items, err := meta.ExtractList(list)
+	if err != nil {
+		return xerrors.Errorf("failed to extract %s list on cluster %q: %w", kind, clusterName, err)
+	}
+
+	var errs error
+	for _, item := range items {
+		obj, ok := item.(client.Object)
+		if !ok || expected[obj.GetName()] || !r.ownsForSweep(obj) {
+			continue
+		}
+		log.Infof("Deleting stale %s %s on cluster %q", kind, obj.GetName(), clusterName)
+		if err := c.Delete(ctx, obj); err != nil && !apierrors.IsNotFound(err) {
+			errs = multierror.Append(errs, xerrors.Errorf("failed to delete stale %s %s on cluster %q: %w", kind, obj.GetName(), clusterName, err))
+		}
+	}
+	return errs
+}
+
+// ownsForSweep reports whether obj belongs to this search by its owner-name +
+// owner-namespace labels. Owner refs don't cross clusters, so labels are the
+// uniform ownership signal on central and member clusters alike.
+func (r *MongoDBSearchReconcileHelper) ownsForSweep(obj client.Object) bool {
+	labels := obj.GetLabels()
+	return labels[khandler.MongoDBSearchOwnerNameLabel] == r.mdbSearch.Name &&
+		labels[khandler.MongoDBSearchOwnerNamespaceLabel] == r.mdbSearch.Namespace
 }
 
 // ensureKeyfileModification returns the keyfile StatefulSet modification if wireproto is enabled.
@@ -1022,6 +1045,7 @@ func (r *MongoDBSearchReconcileHelper) ensureMongotConfig(ctx context.Context, l
 		if cm.Labels == nil {
 			cm.Labels = map[string]string{}
 		}
+		cm.Labels[componentLabelKey] = mongotComponent
 		for k, v := range searchOwnerLabels(r.mdbSearch, clusterName) {
 			cm.Labels[k] = v
 		}
@@ -1177,7 +1201,11 @@ func mongotServicePorts(search *searchv1.MongoDBSearch) []corev1.ServicePort {
 const (
 	appLabelKey           = "app"
 	shardLabelKey         = "shard"
+	componentLabelKey     = "component"
 	proxyServiceComponent = "search-proxy"
+	// mongotComponent is the component-label value on the per-shard mongot headless
+	// Service and ConfigMap (the StatefulSet is swept by owner label instead).
+	mongotComponent = "mongot"
 
 	nameLabelKey       = "app.kubernetes.io/name"
 	managedByLabelKey  = "app.kubernetes.io/managed-by"
@@ -1188,7 +1216,10 @@ const (
 // buildHeadlessService builds a headless Service for a reconcile unit. All topology-specific
 // behavior comes from the unit's explicit fields — no branching on "is this a shard?".
 func buildHeadlessService(search *searchv1.MongoDBSearch, unit reconcileUnit) corev1.Service {
-	svcLabels := map[string]string{appLabelKey: unit.headlessSvc.Name}
+	svcLabels := map[string]string{
+		appLabelKey:       unit.headlessSvc.Name,
+		componentLabelKey: mongotComponent,
+	}
 	for k, v := range unit.additionalSvcLabels {
 		svcLabels[k] = v
 	}
@@ -1230,8 +1261,8 @@ func buildProxyService(search *searchv1.MongoDBSearch, unit reconcileUnit) corev
 	}
 
 	labels := map[string]string{
-		appLabelKey: unit.proxySvc.Name,
-		"component": proxyServiceComponent,
+		appLabelKey:       unit.proxySvc.Name,
+		componentLabelKey: proxyServiceComponent,
 	}
 	for k, v := range unit.additionalSvcLabels {
 		labels[k] = v
@@ -1276,8 +1307,8 @@ func buildClusterLevelProxyService(search *searchv1.MongoDBSearch, res clusterLe
 	}
 
 	labels := map[string]string{
-		appLabelKey: res.svcName.Name,
-		"component": proxyServiceComponent,
+		appLabelKey:       res.svcName.Name,
+		componentLabelKey: proxyServiceComponent,
 	}
 	for k, v := range searchOwnerLabels(search, res.clusterName) {
 		labels[k] = v

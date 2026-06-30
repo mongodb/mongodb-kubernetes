@@ -134,7 +134,7 @@ def _mongot_data_pvc_names(namespace: str, sts_name: str) -> list[str]:
 
 
 @mark.e2e_search_community_basic
-def test_zy_scale_mongot_offline_reclaims_pvc(namespace: str, mdbs: MongoDBSearch):
+def test_scale_mongot_offline_reclaims_pvc(namespace: str, mdbs: MongoDBSearch):
     """whenScaled:Delete - scaling mongot to 0 keeps the CR and StatefulSet object
     but reclaims the orphaned ordinal's data PVC; restoring to 1 reindexes from
     mongod onto a fresh volume."""
@@ -161,7 +161,7 @@ def test_zy_scale_mongot_offline_reclaims_pvc(namespace: str, mdbs: MongoDBSearc
 
 
 @mark.e2e_search_community_basic
-def test_zz_delete_search_cr_reclaims_pvc(namespace: str, mdbs: MongoDBSearch):
+def test_delete_search_cr_reclaims_pvc(namespace: str, mdbs: MongoDBSearch):
     """On MongoDBSearch CR delete (single-cluster), owner-ref GC removes the mongot
     StatefulSet and the persistentVolumeClaimRetentionPolicy{whenDeleted:Delete}
     reclaims its data PVC."""
