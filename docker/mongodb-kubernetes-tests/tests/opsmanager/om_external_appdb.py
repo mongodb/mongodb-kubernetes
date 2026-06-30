@@ -81,3 +81,35 @@ class TestPreSwitchCanary:
 
     def test_primary_mdb_connectivity(self, primary_mdb: MongoDB):
         primary_mdb.assert_connectivity()
+
+
+@pytest.mark.e2e_om_external_appdb
+class TestSwitchToExternalAppDB:
+    def test_create_external_appdb_secret(self, primary_om: MongoDBOpsManager, namespace: str):
+        """Copy the internal AppDB connection string into a dedicated secret with the standard key."""
+        connection_string = primary_om.read_appdb_connection_url()
+        create_or_update_secret(
+            namespace=namespace,
+            name=EXT_APPDB_SECRET_NAME,
+            data={EXT_APPDB_SECRET_KEY: connection_string},
+        )
+
+    def test_switch_primary_om_to_external_appdb(self, primary_om: MongoDBOpsManager):
+        """Patch Primary OM to use externalApplicationDatabaseRef; AppDB reconciliation is then skipped."""
+        primary_om.load()
+        primary_om.set_external_appdb_ref(EXT_APPDB_SECRET_NAME, EXT_APPDB_SECRET_KEY)
+        primary_om.update()
+        primary_om.om_status().assert_reaches_phase(Phase.Running, timeout=600)
+
+    def test_primary_mdb_still_running_after_switch(self, primary_mdb: MongoDB):
+        primary_mdb.reload()
+        primary_mdb.assert_reaches_phase(Phase.Running, timeout=300)
+
+
+@pytest.mark.e2e_om_external_appdb
+class TestPostSwitchVerification:
+    def test_primary_om_healthy(self, primary_om: MongoDBOpsManager):
+        primary_om.get_om_tester().assert_healthiness()
+
+    def test_primary_mdb_connectivity(self, primary_mdb: MongoDB):
+        primary_mdb.assert_connectivity()
