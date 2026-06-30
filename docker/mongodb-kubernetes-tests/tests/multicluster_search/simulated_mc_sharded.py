@@ -162,14 +162,14 @@ def ca_configmap(
     namespace: str,
     member_cluster_clients: List[MultiClusterClient],
 ) -> str:
-    """Issuer CA written to central + ALL members: the source cluster (cluster-3) needs
-    the ConfigMap half to verify its own TLS material, and the search clusters need the
-    Secret half so their mongots verify the source's TLS during sync.
+    """Issuer CA ConfigMap written to central + ALL members: the source cluster (cluster-3)
+    verifies its own TLS material against it, and the search clusters' mongots verify the
+    source's TLS during sync. The operator consumes the CA as a ConfigMap, never a Secret.
     """
     name = create_issuer_ca(issuer_ca_filepath, namespace, CA_CONFIGMAP_NAME)
     for mcc in member_cluster_clients:
         create_issuer_ca(issuer_ca_filepath, namespace, CA_CONFIGMAP_NAME, api_client=mcc.api_client)
-        logger.info(f"CA ConfigMap/Secret {CA_CONFIGMAP_NAME} created in cluster {mcc.cluster_name}")
+        logger.info(f"CA ConfigMap {CA_CONFIGMAP_NAME} created in cluster {mcc.cluster_name}")
     return name
 
 

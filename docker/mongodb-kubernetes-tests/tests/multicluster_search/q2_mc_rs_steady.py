@@ -470,9 +470,6 @@ def test_replicate_secrets_to_members(
     shared_secrets = [
         search_resource_names.mongot_tls_cert_name(MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX),
         f"{MDBS_RESOURCE_NAME}-{MONGOT_USER_NAME}-password",
-        # The CA is stored as both a ConfigMap and a Secret; replicate the Secret half here
-        # (the operator mounts it as a Secret volume on per-cluster mongot pods).
-        CA_CONFIGMAP_NAME,
     ]
     for secret_name in shared_secrets:
         _copy(secret_name, member_cluster_clients)
