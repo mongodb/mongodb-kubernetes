@@ -8,9 +8,8 @@ from typing import List, Optional
 
 import yaml
 from kubetester import create_or_update_secret, try_load
-from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import KubernetesTester, fcv_from_version
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.kubetester import fcv_from_version
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_user import MongoDBUser
 from kubetester.mongotester import MongoTester, build_mongodb_connection_uri
@@ -510,8 +509,7 @@ def apply_generated_sharded_cluster_resource(
         )["mode"] = "disabled"
 
     config_members = [
-        m for m in resource_doc["spec"].get("externalMembers", [])
-        if m.get("replicaSetName") == config_rs_name
+        m for m in resource_doc["spec"].get("externalMembers", []) if m.get("replicaSetName") == config_rs_name
     ]
     if config_members:
         resource_doc["spec"]["memberConfig"] = [{"votes": 0, "priority": "0"} for _ in config_members]
@@ -544,9 +542,9 @@ def assert_common_generated_sharded_cr_shape(
 
     external_members = spec["externalMembers"]
     expected_total = expected_config_count + expected_shard_count + expected_mongos_count
-    assert len(external_members) == expected_total, (
-        f"Expected {expected_total} externalMembers, got {len(external_members)}"
-    )
+    assert (
+        len(external_members) == expected_total
+    ), f"Expected {expected_total} externalMembers, got {len(external_members)}"
     for m in external_members:
         for key in ("processName", "hostname", "type"):
             assert key in m, f"externalMember missing key '{key}': {m}"

@@ -7,13 +7,6 @@ metadata:
   name: oidc-cluster
   namespace: mongodb
 spec:
-  additionalMongodConfig:
-    net:
-      port: 27018
-    setParameter:
-      authenticationMechanisms: SCRAM-SHA-256,MONGODB-OIDC
-    sharding:
-      clusterRole: shardsvr
   agent:
     maxLogFileDurationHours: 0
     mongod:
@@ -23,6 +16,16 @@ spec:
         path: /var/log/mongodb/mongod.log
   configServerCount: 2
   configServerNameOverride: oidc-csrs
+  configSrv:
+    additionalMongodConfig:
+      net:
+        port: 27019
+      setParameter:
+        authenticationMechanisms: SCRAM-SHA-256,MONGODB-OIDC
+      sharding:
+        clusterRole: configsvr
+    agent:
+      maxLogFileDurationHours: 0
   credentials: my-credentials
   externalMembers:
   - hostname: config-0.example.com:27019
@@ -78,6 +81,16 @@ spec:
         configurationName: azure-svc
         issuerURI: https://login.microsoftonline.com/tenant-id/v2.0
         userClaim: sub
+  shard:
+    additionalMongodConfig:
+      net:
+        port: 27018
+      setParameter:
+        authenticationMechanisms: SCRAM-SHA-256,MONGODB-OIDC
+      sharding:
+        clusterRole: shardsvr
+    agent:
+      maxLogFileDurationHours: 0
   shardCount: 1
   shardNameOverrides:
   - replicaSetName: oidc-shard-rs

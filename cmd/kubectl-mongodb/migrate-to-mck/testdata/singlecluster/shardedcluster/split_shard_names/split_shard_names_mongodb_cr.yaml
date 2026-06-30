@@ -7,11 +7,6 @@ metadata:
   name: my-cluster
   namespace: mongodb
 spec:
-  additionalMongodConfig:
-    net:
-      port: 27018
-    sharding:
-      clusterRole: shardsvr
   agent:
     maxLogFileDurationHours: 0
     mongod:
@@ -21,6 +16,14 @@ spec:
         path: /var/log/mongodb-mms-automation/mongodb.log
   configServerCount: 2
   configServerNameOverride: cfg-rs
+  configSrv:
+    additionalMongodConfig:
+      net:
+        port: 27019
+      sharding:
+        clusterRole: configsvr
+    agent:
+      maxLogFileDurationHours: 0
   credentials: my-credentials
   externalMembers:
   - hostname: cfg-a.example.com:27019
@@ -56,6 +59,14 @@ spec:
   opsManager:
     configMapRef:
       name: my-om-config
+  shard:
+    additionalMongodConfig:
+      net:
+        port: 27018
+      sharding:
+        clusterRole: shardsvr
+    agent:
+      maxLogFileDurationHours: 0
   shardCount: 2
   shardNameOverrides:
   - replicaSetName: rs-sh0

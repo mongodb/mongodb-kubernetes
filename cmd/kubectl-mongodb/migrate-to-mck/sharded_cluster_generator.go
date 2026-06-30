@@ -58,6 +58,9 @@ func generateShardedCluster(ac *om.AutomationConfig, opts GenerateOptions) (clie
 	}
 
 	overrides := buildShardedClusterOverrides(k8sResourceName, acClusterName, configRS, acShards)
+	overrides.ConfigSrvSpec = buildShardedComponentSpec(ac.AgentSSL, processMap, configRS.Members())
+	overrides.ShardSpec = buildShardedComponentSpec(ac.AgentSSL, processMap, shardRSes[0].Members())
+	overrides.MongosSpec = buildMongosComponentSpec(ac.AgentSSL, mongosProcs)
 	spec.ShardedClusterSpec = overrides
 
 	cr := &mdbv1.MongoDB{
@@ -84,6 +87,7 @@ func buildShardedClusterSpec(ac *om.AutomationConfig, opts GenerateOptions, k8sR
 	if err != nil {
 		return mdbv1.MongoDbSpec{}, err
 	}
+	common.AdditionalMongodConfig = nil // ShardedCluster rejects the top-level field; each component carries its own below
 
 	return mdbv1.MongoDbSpec{
 		DbCommonSpec:    common,
@@ -127,6 +131,34 @@ func buildShardedClusterOverrides(k8sResourceName, acClusterName string, configR
 		ShardedClusterNameOverride: clusterNameOverride,
 		ShardNameOverrides:         shardNameOverrides,
 	}
+}
+
+// buildShardedComponentSpec extracts additionalMongodConfig for a replica set component using its first member.
+func buildShardedComponentSpec(agentSSL *om.AgentSSL, processMap map[string]om.Process, members []om.ReplicaSetMember) *mdbv1.ShardedClusterComponentSpec {
+	if len(members) == 0 {
+		return nil
+	}
+	proc, ok := processMap[members[0].Name()]
+	if !ok {
+		return nil
+	}
+	cfg := applyClientCertificateMode(agentSSL, proc.AdditionalMongodConfig())
+	if cfg == nil {
+		return nil
+	}
+	return &mdbv1.ShardedClusterComponentSpec{AdditionalMongodConfig: cfg}
+}
+
+// buildMongosComponentSpec extracts additionalMongodConfig for the mongos component using the first active process.
+func buildMongosComponentSpec(agentSSL *om.AgentSSL, mongosProcs []om.Process) *mdbv1.ShardedClusterComponentSpec {
+	if len(mongosProcs) == 0 {
+		return nil
+	}
+	cfg := applyClientCertificateMode(agentSSL, mongosProcs[0].AdditionalMongodConfig())
+	if cfg == nil {
+		return nil
+	}
+	return &mdbv1.ShardedClusterComponentSpec{AdditionalMongodConfig: cfg}
 }
 
 // buildShardedExternalMembers assembles the externalMembers list: config server, then shards, then mongos.

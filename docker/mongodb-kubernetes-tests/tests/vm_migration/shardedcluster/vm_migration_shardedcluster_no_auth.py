@@ -193,7 +193,9 @@ def test_common_generated_cr_shape(generated_cr: dict):
 def test_no_security_in_cr(generated_cr: dict):
     """Auth is disabled — the generated CR must not contain a security section."""
     spec = generated_cr.get("spec", {})
-    assert "security" not in spec, f"Expected no security section for auth-disabled deployment, got: {spec.get('security')}"
+    assert (
+        "security" not in spec
+    ), f"Expected no security section for auth-disabled deployment, got: {spec.get('security')}"
 
 
 @mark.e2e_vm_migration_shardedcluster_no_auth
@@ -280,8 +282,7 @@ def test_promote_and_prune_config_server(mdb_migration: MongoDB, om_tester: OMTe
         mdb_migration.assert_reaches_phase(Phase.Running)
 
         config_external = [
-            m for m in mdb_migration["spec"]["externalMembers"]
-            if m["replicaSetName"] == VM_CONFIG_RS_NAME
+            m for m in mdb_migration["spec"]["externalMembers"] if m["replicaSetName"] == VM_CONFIG_RS_NAME
         ]
         if config_external:
             mdb_migration["spec"]["externalMembers"].remove(config_external[-1])
@@ -294,15 +295,9 @@ def test_promote_and_prune_config_server(mdb_migration: MongoDB, om_tester: OMTe
 @mark.e2e_vm_migration_shardedcluster_no_auth
 def test_promote_and_prune_shard(mdb_migration: MongoDB, om_tester: OMTester):
     try_load(mdb_migration)
-    shard_external = [
-        m for m in mdb_migration["spec"]["externalMembers"]
-        if m["replicaSetName"] == VM_SHARD_RS_NAME
-    ]
+    shard_external = [m for m in mdb_migration["spec"]["externalMembers"] if m["replicaSetName"] == VM_SHARD_RS_NAME]
     for _ in range(len(shard_external)):
-        current = [
-            m for m in mdb_migration["spec"]["externalMembers"]
-            if m["replicaSetName"] == VM_SHARD_RS_NAME
-        ]
+        current = [m for m in mdb_migration["spec"]["externalMembers"] if m["replicaSetName"] == VM_SHARD_RS_NAME]
         if not current:
             break
         mdb_migration["spec"]["externalMembers"].remove(current[-1])

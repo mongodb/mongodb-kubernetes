@@ -198,16 +198,18 @@ def _configure_ac(
             "roles": [{"role": "readWriteAnyDatabase", "db": "admin"}],
         }
     ]
-    oidc_providers = json.dumps([
-        {
-            "issuer": cognito["issuer_uri"],
-            "audience": cognito["client_id"],
-            "authNamePrefix": OIDC_CONFIG_NAME,
-            "authorizationClaim": "cognito:groups",
-            "useAuthorizationClaim": True,
-            "supportsHumanFlows": False,
-        }
-    ])
+    oidc_providers = json.dumps(
+        [
+            {
+                "issuer": cognito["issuer_uri"],
+                "audience": cognito["client_id"],
+                "authNamePrefix": OIDC_CONFIG_NAME,
+                "authorizationClaim": "cognito:groups",
+                "useAuthorizationClaim": True,
+                "supportsHumanFlows": False,
+            }
+        ]
+    )
     for process in ac["processes"]:
         process["args2_6"]["setParameter"] = {
             "authenticationMechanisms": f"{SCRAM_MECHANISM},{OIDC_MECHANISM}",
@@ -219,7 +221,9 @@ def _configure_ac(
 @fixture(scope="module")
 def generated_cr_yaml(namespace: str) -> str:
     create_or_update_secret(namespace, "app-user-secret", {"password": APP_USER_PASSWORD})
-    return run_generate_cr(namespace, resource_name_override=MDB_RESOURCE_NAME, user_secrets={f"{APP_USER}:admin": "app-user-secret"})
+    return run_generate_cr(
+        namespace, resource_name_override=MDB_RESOURCE_NAME, user_secrets={f"{APP_USER}:admin": "app-user-secret"}
+    )
 
 
 @fixture(scope="module")
@@ -277,7 +281,16 @@ def test_configure_ac(
     cognito: dict,
 ):
     mdb_version = ensure_ent_version(custom_mdb_version)
-    _configure_ac(namespace, om_tester, vm_sharded_mongod_sts, vm_sharded_mongos_sts, vm_sharded_service, vm_sharded_mongos_service, mdb_version, cognito)
+    _configure_ac(
+        namespace,
+        om_tester,
+        vm_sharded_mongod_sts,
+        vm_sharded_mongos_sts,
+        vm_sharded_service,
+        vm_sharded_mongos_service,
+        mdb_version,
+        cognito,
+    )
     om_tester.wait_agents_ready(timeout=600)
 
 
@@ -380,8 +393,7 @@ def test_promote_and_prune_config_server(mdb_migration: MongoDB, om_tester: OMTe
         mdb_migration.assert_reaches_phase(Phase.Running)
 
         config_external = [
-            m for m in mdb_migration["spec"]["externalMembers"]
-            if m["replicaSetName"] == VM_CONFIG_RS_NAME
+            m for m in mdb_migration["spec"]["externalMembers"] if m["replicaSetName"] == VM_CONFIG_RS_NAME
         ]
         if config_external:
             mdb_migration["spec"]["externalMembers"].remove(config_external[-1])
@@ -394,15 +406,9 @@ def test_promote_and_prune_config_server(mdb_migration: MongoDB, om_tester: OMTe
 @mark.e2e_vm_migration_shardedcluster_oidc_group
 def test_promote_and_prune_shard(mdb_migration: MongoDB, om_tester: OMTester):
     try_load(mdb_migration)
-    shard_external = [
-        m for m in mdb_migration["spec"]["externalMembers"]
-        if m["replicaSetName"] == VM_SHARD_RS_NAME
-    ]
+    shard_external = [m for m in mdb_migration["spec"]["externalMembers"] if m["replicaSetName"] == VM_SHARD_RS_NAME]
     for _ in range(len(shard_external)):
-        current = [
-            m for m in mdb_migration["spec"]["externalMembers"]
-            if m["replicaSetName"] == VM_SHARD_RS_NAME
-        ]
+        current = [m for m in mdb_migration["spec"]["externalMembers"] if m["replicaSetName"] == VM_SHARD_RS_NAME]
         if not current:
             break
         mdb_migration["spec"]["externalMembers"].remove(current[-1])

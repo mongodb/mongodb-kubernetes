@@ -14,10 +14,10 @@ from kubetester.certs import ISSUER_CA_NAME, create_mongodb_tls_certs
 from kubetester.kubetester import KubernetesTester, ensure_ent_version, skip_if_local
 from kubetester.mongodb import MongoDB
 from kubetester.mongotester import MongoDBBackgroundTester, with_scram
-from kubetester.scram import build_sha256_creds
 from kubetester.omtester import OMContext, OMTester
 from kubetester.operator import Operator
 from kubetester.phase import Phase
+from kubetester.scram import build_sha256_creds
 from pytest import fixture, mark
 from tests.vm_migration.vm_migration_dry_run import (
     create_wrong_ca_configmap,
@@ -90,16 +90,24 @@ def om_tester(namespace: str) -> OMTester:
 @fixture(scope="module")
 def vm_mongod_server_certs(issuer: str, namespace: str):
     return create_mongodb_tls_certs(
-        ISSUER_CA_NAME, namespace, MONGOD_STS_NAME, MONGOD_CERT_SECRET,
-        replicas=CONFIG_SERVER_COUNT + SHARD_COUNT, service_name=MONGOD_SVC_NAME,
+        ISSUER_CA_NAME,
+        namespace,
+        MONGOD_STS_NAME,
+        MONGOD_CERT_SECRET,
+        replicas=CONFIG_SERVER_COUNT + SHARD_COUNT,
+        service_name=MONGOD_SVC_NAME,
     )
 
 
 @fixture(scope="module")
 def vm_mongos_server_certs(issuer: str, namespace: str):
     return create_mongodb_tls_certs(
-        ISSUER_CA_NAME, namespace, MONGOS_STS_NAME, MONGOS_CERT_SECRET,
-        replicas=MONGOS_COUNT, service_name=MONGOS_SVC_NAME,
+        ISSUER_CA_NAME,
+        namespace,
+        MONGOS_STS_NAME,
+        MONGOS_CERT_SECRET,
+        replicas=MONGOS_COUNT,
+        service_name=MONGOS_SVC_NAME,
     )
 
 
@@ -107,7 +115,8 @@ def vm_mongos_server_certs(issuer: str, namespace: str):
 def vm_mongod_tls_pem_secret(namespace: str, vm_mongod_server_certs: str):
     data = read_secret(namespace, vm_mongod_server_certs)
     create_or_update_secret(
-        namespace, MONGOD_TLS_PEM_SECRET,
+        namespace,
+        MONGOD_TLS_PEM_SECRET,
         {"server.pem": data["tls.crt"] + data["tls.key"], "ca.pem": data["ca.crt"]},
     )
     return MONGOD_TLS_PEM_SECRET
@@ -117,7 +126,8 @@ def vm_mongod_tls_pem_secret(namespace: str, vm_mongod_server_certs: str):
 def vm_mongos_tls_pem_secret(namespace: str, vm_mongos_server_certs: str):
     data = read_secret(namespace, vm_mongos_server_certs)
     create_or_update_secret(
-        namespace, MONGOS_TLS_PEM_SECRET,
+        namespace,
+        MONGOS_TLS_PEM_SECRET,
         {"server.pem": data["tls.crt"] + data["tls.key"], "ca.pem": data["ca.crt"]},
     )
     return MONGOS_TLS_PEM_SECRET
@@ -126,7 +136,10 @@ def vm_mongos_tls_pem_secret(namespace: str, vm_mongos_server_certs: str):
 @fixture(scope="module")
 def operator_server_certs(issuer: str, namespace: str):
     return create_mongodb_tls_certs(
-        ISSUER_CA_NAME, namespace, MDB_RESOURCE_NAME, OPERATOR_CERT_SECRET,
+        ISSUER_CA_NAME,
+        namespace,
+        MDB_RESOURCE_NAME,
+        OPERATOR_CERT_SECRET,
         replicas=CONFIG_SERVER_COUNT + SHARD_COUNT,
     )
 
@@ -147,8 +160,18 @@ def vm_sharded_mongod_sts(namespace: str, om_tester: OMTester, vm_mongod_tls_pem
             {"name": "om-ca", "configMap": {"name": vm_om_ca_configmap}},
         ],
         extra_volume_mounts=[
-            {"name": "mongod-certs", "mountPath": "/mongodb-automation/server.pem", "subPath": "server.pem", "readOnly": True},
-            {"name": "mongod-certs", "mountPath": "/mongodb-automation/tls/ca/ca-pem", "subPath": "ca.pem", "readOnly": True},
+            {
+                "name": "mongod-certs",
+                "mountPath": "/mongodb-automation/server.pem",
+                "subPath": "server.pem",
+                "readOnly": True,
+            },
+            {
+                "name": "mongod-certs",
+                "mountPath": "/mongodb-automation/tls/ca/ca-pem",
+                "subPath": "ca.pem",
+                "readOnly": True,
+            },
             {"name": "om-ca", "mountPath": "/etc/mongodb-mms-ca", "readOnly": True},
         ],
     )
@@ -164,8 +187,18 @@ def vm_sharded_mongos_sts(namespace: str, om_tester: OMTester, vm_mongos_tls_pem
             {"name": "om-ca", "configMap": {"name": vm_om_ca_configmap}},
         ],
         extra_volume_mounts=[
-            {"name": "mongos-certs", "mountPath": "/mongodb-automation/server.pem", "subPath": "server.pem", "readOnly": True},
-            {"name": "mongos-certs", "mountPath": "/mongodb-automation/tls/ca/ca-pem", "subPath": "ca.pem", "readOnly": True},
+            {
+                "name": "mongos-certs",
+                "mountPath": "/mongodb-automation/server.pem",
+                "subPath": "server.pem",
+                "readOnly": True,
+            },
+            {
+                "name": "mongos-certs",
+                "mountPath": "/mongodb-automation/tls/ca/ca-pem",
+                "subPath": "ca.pem",
+                "readOnly": True,
+            },
             {"name": "om-ca", "mountPath": "/etc/mongodb-mms-ca", "readOnly": True},
         ],
     )
@@ -335,8 +368,11 @@ def test_configure_ac(
 @skip_if_local()
 def test_user_connectivity_before_migration(namespace: str, ca_path: str, scram_opts: list[dict]):
     vm_mongos_tester(MONGOS_STS_NAME, MONGOS_SVC_NAME, namespace).assert_scram_sha_authentication(
-        username="app-user", password=APP_USER_PASSWORD, auth_mechanism="SCRAM-SHA-256",
-        ssl=True, tlsCAFile=ca_path,
+        username="app-user",
+        password=APP_USER_PASSWORD,
+        auth_mechanism="SCRAM-SHA-256",
+        ssl=True,
+        tlsCAFile=ca_path,
     )
 
 
@@ -403,7 +439,9 @@ def test_user_cr_emitted(generated_cr_yaml: str):
 
 @mark.e2e_vm_migration_shardedcluster_scram_sha256_tls
 def test_migration_dry_run_wrong_ca_fails_then_passes(
-    namespace: str, mdb_migration: MongoDB, migrate_tool_ca_configmap: str,
+    namespace: str,
+    mdb_migration: MongoDB,
+    migrate_tool_ca_configmap: str,
 ):
     run_wrong_ca_dry_run_fails_then_passes(
         namespace,
@@ -433,8 +471,11 @@ def test_user_crs_reach_updated(generated_cr_yaml: str, namespace: str, mdb_migr
 @skip_if_local()
 def test_user_connectivity_after_migration(mdb_migration: MongoDB, ca_path: str):
     mdb_migration.tester(use_ssl=True, ca_path=ca_path).assert_scram_sha_authentication(
-        username="app-user", password=APP_USER_PASSWORD, auth_mechanism="SCRAM-SHA-256",
-        ssl=True, tlsCAFile=ca_path,
+        username="app-user",
+        password=APP_USER_PASSWORD,
+        auth_mechanism="SCRAM-SHA-256",
+        ssl=True,
+        tlsCAFile=ca_path,
     )
 
 
@@ -467,8 +508,7 @@ def test_promote_and_prune_config_server(mdb_migration: MongoDB, om_tester: OMTe
         mdb_migration.assert_reaches_phase(Phase.Running)
 
         config_external = [
-            m for m in mdb_migration["spec"]["externalMembers"]
-            if m["replicaSetName"] == VM_CONFIG_RS_NAME
+            m for m in mdb_migration["spec"]["externalMembers"] if m["replicaSetName"] == VM_CONFIG_RS_NAME
         ]
         if config_external:
             mdb_migration["spec"]["externalMembers"].remove(config_external[-1])
@@ -481,15 +521,9 @@ def test_promote_and_prune_config_server(mdb_migration: MongoDB, om_tester: OMTe
 @mark.e2e_vm_migration_shardedcluster_scram_sha256_tls
 def test_promote_and_prune_shard(mdb_migration: MongoDB, om_tester: OMTester):
     try_load(mdb_migration)
-    shard_external = [
-        m for m in mdb_migration["spec"]["externalMembers"]
-        if m["replicaSetName"] == VM_SHARD_RS_NAME
-    ]
+    shard_external = [m for m in mdb_migration["spec"]["externalMembers"] if m["replicaSetName"] == VM_SHARD_RS_NAME]
     for _ in range(len(shard_external)):
-        current = [
-            m for m in mdb_migration["spec"]["externalMembers"]
-            if m["replicaSetName"] == VM_SHARD_RS_NAME
-        ]
+        current = [m for m in mdb_migration["spec"]["externalMembers"] if m["replicaSetName"] == VM_SHARD_RS_NAME]
         if not current:
             break
         mdb_migration["spec"]["externalMembers"].remove(current[-1])
@@ -529,8 +563,11 @@ def test_process_names(om_tester: OMTester, mdb_migration: MongoDB):
 @skip_if_local()
 def test_user_connectivity_after_promote(mdb_migration: MongoDB, ca_path: str):
     mdb_migration.tester(use_ssl=True, ca_path=ca_path).assert_scram_sha_authentication(
-        username="app-user", password=APP_USER_PASSWORD, auth_mechanism="SCRAM-SHA-256",
-        ssl=True, tlsCAFile=ca_path,
+        username="app-user",
+        password=APP_USER_PASSWORD,
+        auth_mechanism="SCRAM-SHA-256",
+        ssl=True,
+        tlsCAFile=ca_path,
     )
 
 
