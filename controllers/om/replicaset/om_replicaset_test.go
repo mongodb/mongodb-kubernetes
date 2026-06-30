@@ -194,7 +194,7 @@ func TestIsLegacyDeployment_EmptyExistingIds(t *testing.T) {
 }
 
 func TestIsLegacyDeployment_HasExternalMembers(t *testing.T) {
-	// External members must also appear in existingIds — they are real entries
+	// External members must also appear in existingIds, they are real entries
 	// in the AC's processes map. Here "external-0" is both the external member
 	// process name and a key in existingIds.
 	existingIds := map[string]int{

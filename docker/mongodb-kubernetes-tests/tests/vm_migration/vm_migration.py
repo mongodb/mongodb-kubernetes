@@ -299,7 +299,6 @@ def test_promote_and_prune(mdb_migration: MongoDB, vm_sts, om_tester: OMTester):
             mdb_migration["spec"]["memberConfig"][i]["priority"] = "1"
             mdb_migration["spec"]["memberConfig"][i]["votes"] = 1
             mdb_migration.update()
-
             mdb_migration.assert_reaches_phase(Phase.Running)
 
         # After promote: all k8s pods and all remaining VM members must be present.
