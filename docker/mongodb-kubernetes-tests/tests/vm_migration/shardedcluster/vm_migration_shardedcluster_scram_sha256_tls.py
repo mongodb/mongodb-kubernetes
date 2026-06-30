@@ -10,7 +10,7 @@ import os
 import ssl
 
 from kubetester import create_or_update_configmap, create_or_update_secret, get_statefulset, read_secret, try_load
-from kubetester.certs import ISSUER_CA_NAME, create_mongodb_tls_certs
+from kubetester.certs import ISSUER_CA_NAME, create_sharded_cluster_certs
 from kubetester.kubetester import KubernetesTester, ensure_ent_version, skip_if_local
 from kubetester.mongodb import MongoDB
 from kubetester.mongotester import MongoDBBackgroundTester, with_scram
@@ -135,12 +135,14 @@ def vm_mongos_tls_pem_secret(namespace: str, vm_mongos_server_certs: str):
 
 @fixture(scope="module")
 def operator_server_certs(issuer: str, namespace: str):
-    return create_mongodb_tls_certs(
-        ISSUER_CA_NAME,
+    return create_sharded_cluster_certs(
         namespace,
         MDB_RESOURCE_NAME,
-        OPERATOR_CERT_SECRET,
-        replicas=CONFIG_SERVER_COUNT + SHARD_COUNT,
+        shards=1,
+        mongod_per_shard=SHARD_COUNT,
+        config_servers=CONFIG_SERVER_COUNT,
+        mongos=MONGOS_COUNT,
+        secret_prefix=f"{CERT_SECRET_PREFIX}-",
     )
 
 
