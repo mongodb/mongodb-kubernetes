@@ -23,6 +23,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/annotations"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/scale"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/fcv"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
@@ -163,6 +164,10 @@ func (m *MongoDB) GetResourceType() ResourceType {
 	return m.Spec.ResourceType
 }
 
+func (m *MongoDB) IsReplicaSet() bool {
+	return m.GetResourceType() == ReplicaSet
+}
+
 func (m *MongoDB) IsShardedCluster() bool {
 	return m.GetResourceType() == ShardedCluster
 }
@@ -191,7 +196,7 @@ func (m *MongoDB) GetSecretsMountedIntoDBPod() []string {
 	var tls string
 	if m.Spec.ResourceType == ShardedCluster {
 		for i := 0; i < m.Spec.ShardCount; i++ {
-			tls = m.GetSecurity().MemberCertificateSecretName(m.ShardRsName(i))
+			tls = m.GetSecurity().MemberCertificateSecretName(m.ShardName(i))
 			if tls != "" {
 				secrets = append(secrets, tls)
 			}
@@ -522,8 +527,7 @@ func (d *MongoDbSpec) GetExternalMemberProcessNames() []string {
 	return externalMemberProcessNames(d.ExternalMembers)
 }
 
-// GetExternalMembersForRS returns external members whose ReplicaSetName matches rsName and whose Type is "mongod".
-// Use this to obtain the external members that belong to a specific config server or shard replica set.
+// GetExternalMembersForRS filters to mongod members matching the given replicaSetName.
 func (d *MongoDbSpec) GetExternalMembersForRS(rsName string) []ExternalMember {
 	var members []ExternalMember
 	for _, m := range d.ExternalMembers {
@@ -534,17 +538,19 @@ func (d *MongoDbSpec) GetExternalMembersForRS(rsName string) []ExternalMember {
 	return members
 }
 
-// GetExternalMemberProcessNamesForRS returns the process names of external members belonging to the given replica set.
+// GetExternalMemberProcessNamesForRS returns process names for mongod external members in the given replica set.
 func (d *MongoDbSpec) GetExternalMemberProcessNamesForRS(rsName string) []string {
 	return externalMemberProcessNames(d.GetExternalMembersForRS(rsName))
 }
 
-// GetExternalMemberProcessNamesForConfigRS returns the process names of external members belonging to the config server replica set.
+// GetExternalMemberProcessNamesForConfigRS returns process names for external mongod members of the config server.
+// Uses the AC replica set name, which may differ from the K8s default when an override is set.
 func (m *MongoDB) GetExternalMemberProcessNamesForConfigRS() []string {
-	return m.Spec.GetExternalMemberProcessNamesForRS(m.ConfigRsName())
+	return m.Spec.GetExternalMemberProcessNamesForRS(m.ConfigACRsName())
 }
 
-// GetExternalMemberProcessNamesForMongos returns the process names of external members whose Type is "mongos".
+// GetExternalMemberProcessNamesForMongos returns process names for external mongos members.
+// Mongos processes carry no replica set name, so filtering is by type rather than by RS name.
 func (d *MongoDbSpec) GetExternalMemberProcessNamesForMongos() []string {
 	var mongos []ExternalMember
 	for _, m := range d.ExternalMembers {
@@ -906,6 +912,47 @@ func (d *DbCommonSpec) GetAdditionalMongodConfig() *AdditionalMongodConfig {
 	}
 
 	return d.AdditionalMongodConfig
+}
+
+// GetExternalMembersHostnames returns the hostname list (host:port) the
+// caller should embed in this MongoDB resource's connection string:
+func (m *MongoDB) GetExternalMembersHostnames() []string {
+	var hostnames []string
+
+	// External members, filtered by Type.
+	var allowed func(em ExternalMember) bool
+	switch m.Spec.ResourceType {
+	case ReplicaSet:
+		allowed = func(em ExternalMember) bool { return em.Type == "" || em.Type == "mongod" }
+	case ShardedCluster:
+		allowed = func(em ExternalMember) bool { return em.Type == "mongos" }
+	}
+	if allowed != nil {
+		for _, em := range m.Spec.ExternalMembers {
+			if allowed(em) {
+				hostnames = append(hostnames, em.Hostname)
+			}
+		}
+	}
+
+	return hostnames
+}
+
+// GetRSHostnamesAndPorts returns all hostnames and ports for each member of the replicaset, not including external members
+// This function is only used for replica sets.
+// It can't be used for sharded clusters due to dependencies on the cluster mapping. Use the reconciler helper object in that case.
+func (m *MongoDB) GetRSHostnamesAndPorts() []string {
+	if !m.IsReplicaSet() {
+		return nil
+	}
+	hostnames, _ := dns.GetDNSNames(m.Name, m.ServiceName(), m.Namespace, m.Spec.GetClusterDomain(), scale.ReplicasThisReconciliation(m), m.Spec.DbCommonSpec.GetExternalDomain())
+	portOrDefault := m.Spec.GetAdditionalMongodConfig().GetPortOrDefault()
+
+	hostnamePorts := make([]string, len(hostnames))
+	for idx, hostname := range hostnames {
+		hostnamePorts[idx] = fmt.Sprintf("%s:%d", hostname, portOrDefault)
+	}
+	return hostnamePorts
 }
 
 func (s *Security) IsTLSEnabled() bool {
@@ -1352,42 +1399,67 @@ func (m *MongoDB) MongosRsName() string {
 	return m.Name + "-mongos"
 }
 
+func (m *MongoDB) GetShardedClusterName() string {
+	if m.Spec.ShardedClusterNameOverride != "" {
+		return m.Spec.ShardedClusterNameOverride
+	}
+	return m.Name
+}
+
 func (m *MongoDB) ConfigRsName() string {
 	return m.Name + "-config"
 }
 
-func (m *MongoDB) ShardRsName(i int) string {
+func (m *MongoDB) ConfigACRsName() string {
+	if m.Spec.ConfigServerNameOverride != "" {
+		return m.Spec.ConfigServerNameOverride
+	}
+	return m.ConfigRsName()
+}
+
+// ShardName returns the operator-generated Kubernetes StatefulSet name for shard i (e.g. "my-mdb-0").
+// It is the K8s resource name and is never affected by shardNameOverrides. For the Automation Config
+// replica set name use ShardACRsName.
+func (m *MongoDB) ShardName(i int) string {
 	// Unfortunately the pattern used by OM (name_idx) doesn't work as Kubernetes doesn't create the stateful set with an
 	// exception: "a DNS-1123 subdomain must consist of lower case alphanumeric characters, '-' or '.'"
 	return fmt.Sprintf("%s-%d", m.Name, i)
 }
 
-// ShardACRsName returns the automation config replicaSetName for the shard at index i.
-// When only ShardName is set (brevity form), all three values (_id, rs, shardName) are equal.
-// Returns the K8s default for shards without an override entry.
-func (m *MongoDB) ShardACRsName(i int) string {
-	if i < len(m.Spec.ShardNameOverrides) {
-		o := m.Spec.ShardNameOverrides[i]
-		if o.ReplicaSetName != "" {
-			return o.ReplicaSetName
+// ShardNameOverrideForShard returns the override entry matching shard i by K8s StatefulSet name, or nil.
+func (m *MongoDB) ShardNameOverrideForShard(i int) *ShardNameOverride {
+	k8sName := m.ShardName(i)
+	for j := range m.Spec.ShardNameOverrides {
+		if m.Spec.ShardNameOverrides[j].ShardName == k8sName {
+			return &m.Spec.ShardNameOverrides[j]
 		}
-		return o.ShardName
 	}
-	return m.ShardRsName(i)
+	return nil
 }
 
-// ShardACShardId returns the automation config shard _id for the shard at index i.
-// When ShardId is not set, _id equals the replicaSetName.
-// Returns the K8s default for shards without an override entry.
-func (m *MongoDB) ShardACShardId(i int) string {
-	if i < len(m.Spec.ShardNameOverrides) {
-		o := m.Spec.ShardNameOverrides[i]
-		if o.ShardId != "" {
-			return o.ShardId
-		}
-		return m.ShardACRsName(i)
+// ShardACRsName returns the AC replicaSetName for shard i. Falls back to the K8s default for brevity-form or missing entries.
+func (m *MongoDB) ShardACRsName(i int) string {
+	if o := m.ShardNameOverrideForShard(i); o != nil && o.ReplicaSetName != "" {
+		return o.ReplicaSetName
 	}
-	return m.ShardRsName(i)
+	return m.ShardName(i)
+}
+
+// ShardACRsNames returns the AC replicaSetName of every shard, indexed by shard index.
+func (m *MongoDB) ShardACRsNames() []string {
+	names := make([]string, m.Spec.ShardCount)
+	for i := range names {
+		names[i] = m.ShardACRsName(i)
+	}
+	return names
+}
+
+// ShardACShardId returns the AC shard _id for shard i. Falls back to the K8s default for brevity-form or missing entries.
+func (m *MongoDB) ShardACShardId(i int) string {
+	if o := m.ShardNameOverrideForShard(i); o != nil && o.ShardId != "" {
+		return o.ShardId
+	}
+	return m.ShardName(i)
 }
 
 func (m *MongoDB) MultiShardRsName(clusterIdx int, shardIdx int) string {
@@ -1563,38 +1635,96 @@ func (m *MongoDB) ObjectKey() client.ObjectKey {
 	return kube.ObjectKey(m.Namespace, m.Name)
 }
 
+// ldapFieldMapping holds both directions of a single field conversion so they stay co-located.
+type ldapFieldMapping struct {
+	toAC func(*Ldap, *ldap.Ldap)
+	toCR func(*ldap.Ldap, *Ldap)
+}
+
+// ldapField creates a bidirectional mapping for fields that copy directly between CR and AC.
+func ldapField[T any](getCR func(*Ldap) *T, getAC func(*ldap.Ldap) *T) ldapFieldMapping {
+	return ldapFieldMapping{
+		toAC: func(c *Ldap, a *ldap.Ldap) { *getAC(a) = *getCR(c) },
+		toCR: func(a *ldap.Ldap, c *Ldap) { *getCR(c) = *getAC(a) },
+	}
+}
+
+// ldapCustomField creates a bidirectional mapping for fields that require custom conversion logic.
+func ldapCustomField(toAC func(*Ldap, *ldap.Ldap), toCR func(*ldap.Ldap, *Ldap)) ldapFieldMapping {
+	return ldapFieldMapping{toAC: toAC, toCR: toCR}
+}
+
+var ldapFieldMappings = []ldapFieldMapping{
+	// Simple fields: same type, direct copy.
+	ldapField(func(c *Ldap) *string { return &c.BindQueryUser }, func(a *ldap.Ldap) *string { return &a.BindQueryUser }),
+	ldapField(func(c *Ldap) *string { return &c.AuthzQueryTemplate }, func(a *ldap.Ldap) *string { return &a.AuthzQueryTemplate }),
+	ldapField(func(c *Ldap) *string { return &c.UserToDNMapping }, func(a *ldap.Ldap) *string { return &a.UserToDnMapping }),
+	ldapField(func(c *Ldap) *int { return &c.TimeoutMS }, func(a *ldap.Ldap) *int { return &a.TimeoutMS }),
+	ldapField(func(c *Ldap) *int { return &c.UserCacheInvalidationInterval }, func(a *ldap.Ldap) *int { return &a.UserCacheInvalidationInterval }),
+
+	// Fields requiring custom conversion logic.
+	ldapCustomField(
+		func(c *Ldap, a *ldap.Ldap) {
+			a.ValidateLDAPServerConfig = true
+			if c.ValidateLDAPServerConfig != nil {
+				a.ValidateLDAPServerConfig = *c.ValidateLDAPServerConfig
+			}
+		},
+		func(a *ldap.Ldap, c *Ldap) { c.ValidateLDAPServerConfig = &a.ValidateLDAPServerConfig },
+	),
+	ldapCustomField(
+		func(c *Ldap, a *ldap.Ldap) { a.Servers = strings.Join(c.Servers, ",") },
+		func(a *ldap.Ldap, c *Ldap) {
+			if a.Servers == "" {
+				return
+			}
+			parts := strings.Split(a.Servers, ",")
+			for i := range parts {
+				parts[i] = strings.TrimSpace(parts[i])
+			}
+			c.Servers = parts
+		},
+	),
+	ldapCustomField(
+		func(c *Ldap, a *ldap.Ldap) { a.TransportSecurity = string(GetTransportSecurity(c)) },
+		func(a *ldap.Ldap, c *Ldap) {
+			if a.TransportSecurity != "" {
+				ts := TransportSecurity(a.TransportSecurity)
+				c.TransportSecurity = &ts
+			}
+		},
+	),
+}
+
+// GetLDAP converts the CR LDAP spec to the AC representation. See ConvertACLdapToCR for the reverse.
 func (m *MongoDB) GetLDAP(password, caContents string) *ldap.Ldap {
 	if !m.IsLDAPEnabled() {
 		return nil
 	}
-
 	mdbLdap := m.Spec.Security.Authentication.Ldap
-	transportSecurity := GetTransportSecurity(mdbLdap)
-
-	validateServerConfig := true
-	if mdbLdap.ValidateLDAPServerConfig != nil {
-		validateServerConfig = *mdbLdap.ValidateLDAPServerConfig
-	}
-
-	return &ldap.Ldap{
-		BindQueryUser:            mdbLdap.BindQueryUser,
-		BindQueryPassword:        password,
-		Servers:                  strings.Join(mdbLdap.Servers, ","),
-		TransportSecurity:        string(transportSecurity),
-		CaFileContents:           caContents,
-		ValidateLDAPServerConfig: validateServerConfig,
-
-		// Related to LDAP Authorization
-		AuthzQueryTemplate: mdbLdap.AuthzQueryTemplate,
-		UserToDnMapping:    mdbLdap.UserToDNMapping,
-
-		// TODO: Enable LDAP SASL bind method
-		BindMethod:         "simple",
+	ac := &ldap.Ldap{
+		BindQueryPassword:  password,
+		CaFileContents:     caContents,
+		BindMethod:         "simple", // TODO: Enable LDAP SASL bind method
 		BindSaslMechanisms: "",
-
-		TimeoutMS:                     mdbLdap.TimeoutMS,
-		UserCacheInvalidationInterval: mdbLdap.UserCacheInvalidationInterval,
 	}
+	for _, f := range ldapFieldMappings {
+		f.toAC(mdbLdap, ac)
+	}
+	return ac
+}
+
+// ConvertACLdapToCR converts an AC LDAP config to the CR representation. See GetLDAP for the reverse.
+// BindQuerySecretRef and CAConfigMapRef must be set by the caller — they reference K8s resources not present in the AC.
+func ConvertACLdapToCR(l *ldap.Ldap) *Ldap {
+	if l == nil {
+		return nil
+	}
+	cr := &Ldap{}
+	for _, f := range ldapFieldMappings {
+		f.toCR(l, cr)
+	}
+	return cr
 }
 
 // ExternalAccessConfiguration holds the custom Service override that will be merged into the operator created one.
@@ -1815,6 +1945,14 @@ func (m *MongoDB) CalculateFeatureCompatibilityVersion() string {
 	return fcv.CalculateFeatureCompatibilityVersion(m.Spec.Version, m.Status.FeatureCompatibilityVersion, m.Spec.FeatureCompatibilityVersion)
 }
 
+func (m *MongoDB) ShardNames() []string {
+	shardNames := make([]string, m.Spec.ShardCount)
+	for shardIdx := 0; shardIdx < m.Spec.ShardCount; shardIdx++ {
+		shardNames[shardIdx] = m.ShardName(shardIdx)
+	}
+	return shardNames
+}
+
 func (m *MongoDbSpec) IsInChangeVersion(lastSpec *MongoDbSpec) bool {
 	if lastSpec != nil && (lastSpec.Version != m.Version) {
 		return true
@@ -1896,6 +2034,8 @@ func (m *MongoDBConnectionStringBuilder) BuildConnectionString(username, passwor
 	name := m.Name
 	if m.Spec.ResourceType == ShardedCluster {
 		name = m.MongosRsName()
+	} else if m.Spec.ResourceType == ReplicaSet {
+		name = m.GetReplicaSetName()
 	}
 
 	builder := connectionstring.Builder().

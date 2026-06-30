@@ -1,7 +1,8 @@
-from typing import Dict, Optional
+from typing import Dict, Iterator, Optional
 
 import jsonpatch
 import kubernetes.client
+import kubernetes.client.rest
 from kubernetes import client
 from kubetester import try_load, wait_until
 from kubetester.awss3client import AwsS3Client
@@ -31,7 +32,7 @@ Note, that it doesn't check for mongodb backup as it's done in 'e2e_om_ops_manag
 
 
 @fixture(scope="module")
-def s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> str:
+def s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> Iterator[str]:
     create_aws_secret(aws_s3_client, S3_SECRET_NAME, namespace)
     yield from create_s3_bucket(aws_s3_client, bucket_prefix="test-s3-bucket-")
 

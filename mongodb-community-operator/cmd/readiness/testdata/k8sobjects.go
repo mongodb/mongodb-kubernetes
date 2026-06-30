@@ -20,6 +20,7 @@ func TestSecret(namespace, name string, version int) *corev1.Secret {
 	secret.ObjectMeta = metav1.ObjectMeta{Namespace: namespace, Name: name}
 	return secret
 }
+
 func TestPod(namespace, name string) *corev1.Pod {
 	return &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{

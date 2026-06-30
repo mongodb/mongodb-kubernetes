@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
@@ -1056,7 +1057,7 @@ func TestAtMostOneMigrationChangeAtATime_WiredIntoWebhook(t *testing.T) {
 	prio1 := "1"
 	oldRs.Spec.MemberConfig = []automationconfig.MemberOptions{{Votes: &votes1, Priority: &prio1}}
 
-	// Simultaneously add a k8s member AND change member config — two types at once
+	// Simultaneously add a k8s member AND change member config, two types at once
 	newRs := NewReplicaSetBuilder().AddDummyOpsManagerConfig().SetMembers(2).Build()
 	newRs.Spec.ExternalMembers = externalMembers
 	newRs.Spec.MemberConfig = []automationconfig.MemberOptions{
@@ -1159,7 +1160,7 @@ func TestNoExternalMembersAdditionOrChanges(t *testing.T) {
 			errorMsg:    "Cannot add external members to an existing MongoDB resource",
 		},
 		{
-			name: "one unchanged, one changed — rejected for changed member",
+			name:    "one unchanged, one changed — rejected for changed member",
 			oldSpec: MongoDbSpec{ExternalMembers: []ExternalMember{memberA, memberB}},
 			newSpec: MongoDbSpec{ExternalMembers: []ExternalMember{
 				memberA,
@@ -1239,7 +1240,7 @@ func TestNoExternalMembersAdditionOrChanges_ShardedCluster(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name: "new mongod entry added — rejected",
+			name:    "new mongod entry added — rejected",
 			oldSpec: MongoDbSpec{ExternalMembers: baseExternalMembers},
 			newSpec: MongoDbSpec{ExternalMembers: append(baseExternalMembers,
 				ExternalMember{ProcessName: "shard0-2", Hostname: "vm-shard0-2.example.com:27017", Type: "mongod", ReplicaSetName: "myrs-0"},
@@ -1248,7 +1249,7 @@ func TestNoExternalMembersAdditionOrChanges_ShardedCluster(t *testing.T) {
 			errorMsg:    "Cannot add external members to an existing MongoDB resource",
 		},
 		{
-			name: "new mongos entry added — rejected",
+			name:    "new mongos entry added — rejected",
 			oldSpec: MongoDbSpec{ExternalMembers: baseExternalMembers},
 			newSpec: MongoDbSpec{ExternalMembers: append(baseExternalMembers,
 				ExternalMember{ProcessName: "mongos-2", Hostname: "vm-mongos-2.example.com:27017", Type: "mongos"},
@@ -1257,7 +1258,7 @@ func TestNoExternalMembersAdditionOrChanges_ShardedCluster(t *testing.T) {
 			errorMsg:    "Cannot add external members to an existing MongoDB resource",
 		},
 		{
-			name: "hostname of existing mongod entry changed — rejected",
+			name:    "hostname of existing mongod entry changed — rejected",
 			oldSpec: MongoDbSpec{ExternalMembers: baseExternalMembers},
 			newSpec: MongoDbSpec{ExternalMembers: []ExternalMember{
 				{ProcessName: "shard0-0", Hostname: "new-host.example.com:27017", Type: "mongod", ReplicaSetName: "myrs-0"},
@@ -1269,7 +1270,7 @@ func TestNoExternalMembersAdditionOrChanges_ShardedCluster(t *testing.T) {
 			errorMsg:    "Cannot make changes to existing external members",
 		},
 		{
-			name: "replicaSetName of existing mongod entry changed — rejected",
+			name:    "replicaSetName of existing mongod entry changed — rejected",
 			oldSpec: MongoDbSpec{ExternalMembers: baseExternalMembers},
 			newSpec: MongoDbSpec{ExternalMembers: []ExternalMember{
 				{ProcessName: "shard0-0", Hostname: "vm-shard0-0.example.com:27017", Type: "mongod", ReplicaSetName: "different-rs"},
@@ -1281,7 +1282,7 @@ func TestNoExternalMembersAdditionOrChanges_ShardedCluster(t *testing.T) {
 			errorMsg:    "Cannot make changes to existing external members",
 		},
 		{
-			name: "type of existing entry changed from mongos to mongod — rejected",
+			name:    "type of existing entry changed from mongos to mongod — rejected",
 			oldSpec: MongoDbSpec{ExternalMembers: baseExternalMembers},
 			newSpec: MongoDbSpec{ExternalMembers: []ExternalMember{
 				mongodShard0A,
@@ -1309,15 +1310,7 @@ func TestNoExternalMembersAdditionOrChanges_ShardedCluster(t *testing.T) {
 
 func TestAtMostOneMigrationChangeAtATime_ShardedCluster_ExternalMembersOnly(t *testing.T) {
 	// For a sharded cluster migration, ExternalMembers contains mongod and mongos entries across shards.
-	// The Members field is not used for sharded clusters; shard scaling uses MongodsPerShardCount and ShardCount.
-	// Because atMostOneMigrationChangeAtATime inspects newObj.Members - oldObj.Members for the k8s-member
-	// delta, and Members is always 0 for sharded clusters, that delta is always 0. As a result the validator
-	// does not detect sharded-specific scaling changes (MongodsPerShardCount or ShardCount) as a concurrent
-	// change alongside external-member removal. This is documented below as a known gap.
-	//
-	// TODO: extend atMostOneMigrationChangeAtATime to detect MongodsPerShardCount and ShardCount changes
-	// for sharded cluster migration so that simultaneous shard-scaling and external-member removal is also
-	// rejected.
+	// Members is always 0 for sharded clusters; scaling is detected via MongodsPerShardCount and ShardCount.
 	shardedExternalMembers := []ExternalMember{
 		{ProcessName: "shard0-0", Hostname: "vm-shard0-0.example.com:27017", Type: "mongod", ReplicaSetName: "myrs-0"},
 		{ProcessName: "shard0-1", Hostname: "vm-shard0-1.example.com:27017", Type: "mongod", ReplicaSetName: "myrs-0"},
@@ -1381,10 +1374,7 @@ func TestAtMostOneMigrationChangeAtATime_ShardedCluster_ExternalMembersOnly(t *t
 			errorMsg:    "external members may not be added once migration has started",
 		},
 		{
-			// For sharded clusters the Members field is always 0, so membersDelta is always 0.
-			// The validator therefore does not see MongodsPerShardCount changes as a conflicting
-			// change alongside external-member removal. This case documents the current behaviour.
-			name: "removing external member while also changing MongodsPerShardCount — currently allowed (known gap)",
+			name: "removing external member while also increasing MongodsPerShardCount — rejected",
 			oldSpec: MongoDbSpec{
 				ExternalMembers:                 shardedExternalMembers,
 				MongodbShardedClusterSizeConfig: status.MongodbShardedClusterSizeConfig{ShardCount: 2, MongodsPerShardCount: 3},
@@ -1393,11 +1383,11 @@ func TestAtMostOneMigrationChangeAtATime_ShardedCluster_ExternalMembersOnly(t *t
 				ExternalMembers:                 shardedExternalMembers[1:],
 				MongodbShardedClusterSizeConfig: status.MongodbShardedClusterSizeConfig{ShardCount: 2, MongodsPerShardCount: 4},
 			},
-			expectError: false,
+			expectError: true,
+			errorMsg:    "only one migration change type is allowed per update",
 		},
 		{
-			// Same gap as above: ShardCount change is invisible to the validator for sharded clusters.
-			name: "removing external member while also changing ShardCount — currently allowed (known gap)",
+			name: "removing external member while also increasing ShardCount — rejected",
 			oldSpec: MongoDbSpec{
 				ExternalMembers:                 shardedExternalMembers,
 				MongodbShardedClusterSizeConfig: status.MongodbShardedClusterSizeConfig{ShardCount: 2, MongodsPerShardCount: 3},
@@ -1406,12 +1396,70 @@ func TestAtMostOneMigrationChangeAtATime_ShardedCluster_ExternalMembersOnly(t *t
 				ExternalMembers:                 shardedExternalMembers[1:],
 				MongodbShardedClusterSizeConfig: status.MongodbShardedClusterSizeConfig{ShardCount: 3, MongodsPerShardCount: 3},
 			},
+			expectError: true,
+			errorMsg:    "only one migration change type is allowed per update",
+		},
+		{
+			name: "decreasing MongodsPerShardCount during migration — rejected",
+			oldSpec: MongoDbSpec{
+				ExternalMembers:                 shardedExternalMembers,
+				MongodbShardedClusterSizeConfig: status.MongodbShardedClusterSizeConfig{ShardCount: 2, MongodsPerShardCount: 3},
+			},
+			newSpec: MongoDbSpec{
+				ExternalMembers:                 shardedExternalMembers,
+				MongodbShardedClusterSizeConfig: status.MongodbShardedClusterSizeConfig{ShardCount: 2, MongodsPerShardCount: 2},
+			},
+			expectError: true,
+			errorMsg:    "Kubernetes members may not be removed during migration",
+		},
+		{
+			name: "decreasing ShardCount during migration — rejected",
+			oldSpec: MongoDbSpec{
+				ExternalMembers:                 shardedExternalMembers,
+				MongodbShardedClusterSizeConfig: status.MongodbShardedClusterSizeConfig{ShardCount: 2, MongodsPerShardCount: 3},
+			},
+			newSpec: MongoDbSpec{
+				ExternalMembers:                 shardedExternalMembers,
+				MongodbShardedClusterSizeConfig: status.MongodbShardedClusterSizeConfig{ShardCount: 1, MongodsPerShardCount: 3},
+			},
+			expectError: true,
+			errorMsg:    "Kubernetes members may not be removed during migration",
+		},
+		{
+			name: "updating memberConfig (promoting K8s config server member) alone — allowed",
+			oldSpec: MongoDbSpec{
+				ExternalMembers:                 shardedExternalMembers,
+				MongodbShardedClusterSizeConfig: status.MongodbShardedClusterSizeConfig{ShardCount: 1, MongodsPerShardCount: 3, ConfigServerCount: 3},
+				MemberConfig:                    []automationconfig.MemberOptions{{Votes: ptr.To(0), Priority: ptr.To("0")}},
+			},
+			newSpec: MongoDbSpec{
+				ExternalMembers:                 shardedExternalMembers,
+				MongodbShardedClusterSizeConfig: status.MongodbShardedClusterSizeConfig{ShardCount: 1, MongodsPerShardCount: 3, ConfigServerCount: 3},
+				MemberConfig:                    []automationconfig.MemberOptions{{Votes: ptr.To(1), Priority: ptr.To("1")}},
+			},
 			expectError: false,
+		},
+		{
+			name: "updating memberConfig while also removing an external member — rejected",
+			oldSpec: MongoDbSpec{
+				ExternalMembers:                 shardedExternalMembers,
+				MongodbShardedClusterSizeConfig: status.MongodbShardedClusterSizeConfig{ShardCount: 1, MongodsPerShardCount: 3, ConfigServerCount: 3},
+				MemberConfig:                    []automationconfig.MemberOptions{{Votes: ptr.To(0), Priority: ptr.To("0")}},
+			},
+			newSpec: MongoDbSpec{
+				ExternalMembers:                 shardedExternalMembers[1:],
+				MongodbShardedClusterSizeConfig: status.MongodbShardedClusterSizeConfig{ShardCount: 1, MongodsPerShardCount: 3, ConfigServerCount: 3},
+				MemberConfig:                    []automationconfig.MemberOptions{{Votes: ptr.To(1), Priority: ptr.To("1")}},
+			},
+			expectError: true,
+			errorMsg:    "only one migration change type is allowed per update",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			tt.oldSpec.ResourceType = ShardedCluster
+			tt.newSpec.ResourceType = ShardedCluster
 			result := atMostOneMigrationChangeAtATime(tt.newSpec, tt.oldSpec)
 			if tt.expectError {
 				assert.Equal(t, v1.ErrorLevel, result.Level)
@@ -1423,7 +1471,7 @@ func TestAtMostOneMigrationChangeAtATime_ShardedCluster_ExternalMembersOnly(t *t
 	}
 }
 
-func TestNoShardNameOverridesChanges(t *testing.T) {
+func TestNoShardNameOverridesAddedOrModified(t *testing.T) {
 	initial := []ShardNameOverride{
 		{ShardName: "vm-shard-A", ShardId: "vm-id-A", ReplicaSetName: "vm-rs-A"},
 		{ShardName: "vm-shard-B"},
@@ -1437,10 +1485,8 @@ func TestNoShardNameOverridesChanges(t *testing.T) {
 		errorMsg     string
 	}{
 		{
-			name:         "no overrides in either version passes",
-			oldOverrides: nil,
-			newOverrides: nil,
-			expectError:  false,
+			name:        "no overrides in either version passes",
+			expectError: false,
 		},
 		{
 			name:         "adding overrides to an existing resource that had none fails",
@@ -1463,21 +1509,14 @@ func TestNoShardNameOverridesChanges(t *testing.T) {
 			errorMsg:     "Cannot add",
 		},
 		{
-			name:         "removing an entry from existing overrides fails",
-			oldOverrides: initial,
-			newOverrides: initial[:1],
-			expectError:  true,
-			errorMsg:     "Cannot remove",
-		},
-		{
-			name: "modifying ReplicaSetName in an existing entry fails",
+			name:         "modifying ReplicaSetName in an existing entry fails",
 			oldOverrides: initial,
 			newOverrides: []ShardNameOverride{
 				{ShardName: "vm-shard-A", ShardId: "vm-id-A", ReplicaSetName: "changed-rs"},
 				{ShardName: "vm-shard-B"},
 			},
 			expectError: true,
-			errorMsg:    "index 0",
+			errorMsg:    "\"vm-shard-A\" was changed",
 		},
 	}
 
@@ -1485,7 +1524,72 @@ func TestNoShardNameOverridesChanges(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			oldSpec := MongoDbSpec{ShardedClusterSpec: ShardedClusterSpec{ShardNameOverrides: tt.oldOverrides}}
 			newSpec := MongoDbSpec{ShardedClusterSpec: ShardedClusterSpec{ShardNameOverrides: tt.newOverrides}}
-			result := noShardNameOverridesChanges(newSpec, oldSpec)
+			result := noShardNameOverridesAddedOrModified(newSpec, oldSpec)
+			if tt.expectError {
+				assert.Equal(t, v1.ErrorLevel, result.Level)
+				assert.Contains(t, result.Msg, tt.errorMsg)
+			} else {
+				assert.Equal(t, v1.ValidationSuccess(), result)
+			}
+		})
+	}
+}
+
+func TestNoShardNameOverridesRemovedForActiveShards(t *testing.T) {
+	resourceName := "my-mdb"
+	initial := []ShardNameOverride{
+		{ShardName: "my-mdb-0", ShardId: "vm-id-0", ReplicaSetName: "vm-rs-0"},
+		{ShardName: "my-mdb-1"},
+	}
+
+	buildMDB := func(shardCount int, overrides []ShardNameOverride) *MongoDB {
+		return &MongoDB{
+			ObjectMeta: metav1.ObjectMeta{Name: resourceName},
+			Spec: MongoDbSpec{
+				MongodbShardedClusterSizeConfig: status.MongodbShardedClusterSizeConfig{ShardCount: shardCount},
+				ShardedClusterSpec:              ShardedClusterSpec{ShardNameOverrides: overrides},
+			},
+		}
+	}
+
+	tests := []struct {
+		name        string
+		newMDB      *MongoDB
+		oldMDB      *MongoDB
+		expectError bool
+		errorMsg    string
+	}{
+		{
+			name:        "removing an entry for an active shard fails",
+			newMDB:      buildMDB(2, initial[:1]),
+			oldMDB:      buildMDB(2, initial),
+			expectError: true,
+			errorMsg:    "my-mdb-1",
+		},
+		{
+			name:        "removing the wrong entry when scaling down fails",
+			newMDB:      buildMDB(1, initial[1:]),
+			oldMDB:      buildMDB(2, initial),
+			expectError: true,
+			errorMsg:    "my-mdb-0",
+		},
+		{
+			name:        "removing the scaled-away entry when scaling down passes",
+			newMDB:      buildMDB(1, initial[:1]),
+			oldMDB:      buildMDB(2, initial),
+			expectError: false,
+		},
+		{
+			name:        "no removal passes",
+			newMDB:      buildMDB(2, initial),
+			oldMDB:      buildMDB(2, initial),
+			expectError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tt.newMDB.noShardNameOverridesRemovedForActiveShards(tt.oldMDB)
 			if tt.expectError {
 				assert.Equal(t, v1.ErrorLevel, result.Level)
 				assert.Contains(t, result.Msg, tt.errorMsg)
@@ -1498,6 +1602,7 @@ func TestNoShardNameOverridesChanges(t *testing.T) {
 
 func TestShardNameOverridesValidForm(t *testing.T) {
 	mdb := NewDefaultShardedClusterBuilder().Build()
+	mdb.Name = "vm-shard"
 
 	tests := []struct {
 		name        string
@@ -1545,7 +1650,25 @@ func TestShardNameOverridesValidForm(t *testing.T) {
 				{ShardName: "vm-shard-0"},
 			},
 			expectError: true,
-			errorMsg:    "is a duplicate",
+			errorMsg:    "shardName \"vm-shard-0\" is a duplicate",
+		},
+		{
+			name: "duplicate shardId fails",
+			overrides: []ShardNameOverride{
+				{ShardName: "vm-shard-0", ShardId: "vm-id-0", ReplicaSetName: "vm-rs-0"},
+				{ShardName: "vm-shard-1", ShardId: "vm-id-0", ReplicaSetName: "vm-rs-1"},
+			},
+			expectError: true,
+			errorMsg:    "shardId \"vm-id-0\" is a duplicate",
+		},
+		{
+			name: "duplicate replicaSetName fails",
+			overrides: []ShardNameOverride{
+				{ShardName: "vm-shard-0", ShardId: "vm-id-0", ReplicaSetName: "vm-rs-0"},
+				{ShardName: "vm-shard-1", ShardId: "vm-id-1", ReplicaSetName: "vm-rs-0"},
+			},
+			expectError: true,
+			errorMsg:    "replicaSetName \"vm-rs-0\" is a duplicate",
 		},
 		{
 			name: "unique shardNames pass",
@@ -1554,6 +1677,40 @@ func TestShardNameOverridesValidForm(t *testing.T) {
 				{ShardName: "vm-shard-1"},
 			},
 			expectError: false,
+		},
+		{
+			name: "unique full-form entries pass",
+			overrides: []ShardNameOverride{
+				{ShardName: "vm-shard-0", ShardId: "vm-id-0", ReplicaSetName: "vm-rs-0"},
+				{ShardName: "vm-shard-1", ShardId: "vm-id-1", ReplicaSetName: "vm-rs-1"},
+			},
+			expectError: false,
+		},
+		{
+			name:        "override replicaSetName colliding with default name of another shard fails",
+			overrides:   []ShardNameOverride{{ShardName: "vm-shard-0", ShardId: "vm-shard-1", ReplicaSetName: "vm-shard-1"}},
+			expectError: true,
+			errorMsg:    "both resolve to AC replicaSetName \"vm-shard-1\"",
+		},
+		{
+			name:        "override shardId colliding with default id of another shard fails",
+			overrides:   []ShardNameOverride{{ShardName: "vm-shard-0", ShardId: "vm-shard-1", ReplicaSetName: "vm-rs-0"}},
+			expectError: true,
+			errorMsg:    "both resolve to AC shard _id \"vm-shard-1\"",
+		},
+		{
+			name:        "override replicaSetName colliding with the config server name fails",
+			overrides:   []ShardNameOverride{{ShardName: "vm-shard-0", ShardId: "vm-id-0", ReplicaSetName: "vm-shard-config"}},
+			expectError: true,
+			errorMsg:    "as the config server",
+		},
+		{
+			// shardCount is 3, so shards are vm-shard-0..2. Keeping an override for vm-shard-3 after a scale
+			// down (without removing it) must fail, which forces the override to be dropped with the shard.
+			name:        "override for a shard beyond shardCount fails",
+			overrides:   []ShardNameOverride{{ShardName: "vm-shard-3"}},
+			expectError: true,
+			errorMsg:    "must be vm-shard-{index} with index < 3",
 		},
 	}
 
@@ -1569,4 +1726,206 @@ func TestShardNameOverridesValidForm(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestNameOverrideValidators_AddChangeRemove verifies that configServerNameOverride and
+// shardedClusterNameOverride may neither be added to an existing resource nor changed or removed once set.
+func TestNameOverrideValidators_AddChangeRemove(t *testing.T) {
+	tests := []struct {
+		name      string
+		validator func(newObj, oldObj MongoDbSpec) v1.ValidationResult
+		oldSpec   MongoDbSpec
+		newSpec   MongoDbSpec
+		errorMsg  string
+	}{
+		{
+			name:      "configServerNameOverride unchanged passes",
+			validator: noConfigServerNameOverrideChanges,
+			oldSpec:   MongoDbSpec{ShardedClusterSpec: ShardedClusterSpec{ConfigServerNameOverride: "vm-config"}},
+			newSpec:   MongoDbSpec{ShardedClusterSpec: ShardedClusterSpec{ConfigServerNameOverride: "vm-config"}},
+		},
+		{
+			name:      "adding configServerNameOverride fails",
+			validator: noConfigServerNameOverrideChanges,
+			oldSpec:   MongoDbSpec{},
+			newSpec:   MongoDbSpec{ShardedClusterSpec: ShardedClusterSpec{ConfigServerNameOverride: "vm-config"}},
+			errorMsg:  "Cannot add configServerNameOverride to an existing MongoDB resource.",
+		},
+		{
+			name:      "changing configServerNameOverride fails",
+			validator: noConfigServerNameOverrideChanges,
+			oldSpec:   MongoDbSpec{ShardedClusterSpec: ShardedClusterSpec{ConfigServerNameOverride: "vm-config"}},
+			newSpec:   MongoDbSpec{ShardedClusterSpec: ShardedClusterSpec{ConfigServerNameOverride: "other"}},
+			errorMsg:  "Cannot change configServerNameOverride once set.",
+		},
+		{
+			name:      "removing configServerNameOverride fails",
+			validator: noConfigServerNameOverrideChanges,
+			oldSpec:   MongoDbSpec{ShardedClusterSpec: ShardedClusterSpec{ConfigServerNameOverride: "vm-config"}},
+			newSpec:   MongoDbSpec{},
+			errorMsg:  "Cannot change configServerNameOverride once set.",
+		},
+		{
+			name:      "adding shardedClusterNameOverride fails",
+			validator: noShardedClusterNameOverrideChanges,
+			oldSpec:   MongoDbSpec{},
+			newSpec:   MongoDbSpec{ShardedClusterSpec: ShardedClusterSpec{ShardedClusterNameOverride: "vm-cluster"}},
+			errorMsg:  "Cannot add shardedClusterNameOverride to an existing MongoDB resource.",
+		},
+		{
+			name:      "changing shardedClusterNameOverride fails",
+			validator: noShardedClusterNameOverrideChanges,
+			oldSpec:   MongoDbSpec{ShardedClusterSpec: ShardedClusterSpec{ShardedClusterNameOverride: "vm-cluster"}},
+			newSpec:   MongoDbSpec{ShardedClusterSpec: ShardedClusterSpec{ShardedClusterNameOverride: "other"}},
+			errorMsg:  "Cannot change shardedClusterNameOverride once set.",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tt.validator(tt.newSpec, tt.oldSpec)
+			if tt.errorMsg != "" {
+				assert.Equal(t, v1.ErrorLevel, result.Level)
+				assert.Contains(t, result.Msg, tt.errorMsg)
+			} else {
+				assert.Equal(t, v1.ValidationSuccess(), result)
+			}
+		})
+	}
+}
+
+// TestAtMostOneMigrationChangeAtATime_ShardedCluster_ConfigSrvAndMongosCounts verifies that config
+// server and mongos count changes participate in the one change at a time rule during migration.
+func TestAtMostOneMigrationChangeAtATime_ShardedCluster_ConfigSrvAndMongosCounts(t *testing.T) {
+	externalMembers := []ExternalMember{
+		{ProcessName: "cfg-0", Hostname: "vm-cfg-0.example.com:27017", Type: "mongod", ReplicaSetName: "myrs-config"},
+		{ProcessName: "mongos-0", Hostname: "vm-mongos-0.example.com:27017", Type: "mongos"},
+	}
+	baseSize := status.MongodbShardedClusterSizeConfig{ShardCount: 1, MongodsPerShardCount: 3, ConfigServerCount: 3, MongosCount: 2}
+
+	tests := []struct {
+		name        string
+		oldSize     status.MongodbShardedClusterSizeConfig
+		newSize     status.MongodbShardedClusterSizeConfig
+		newExternal []ExternalMember
+		expectError bool
+		errorMsg    string
+	}{
+		{
+			name:        "increasing configServerCount alone is allowed",
+			oldSize:     baseSize,
+			newSize:     status.MongodbShardedClusterSizeConfig{ShardCount: 1, MongodsPerShardCount: 3, ConfigServerCount: 4, MongosCount: 2},
+			newExternal: externalMembers,
+		},
+		{
+			name:        "increasing configServerCount while removing an external member is rejected",
+			oldSize:     baseSize,
+			newSize:     status.MongodbShardedClusterSizeConfig{ShardCount: 1, MongodsPerShardCount: 3, ConfigServerCount: 4, MongosCount: 2},
+			newExternal: externalMembers[1:],
+			expectError: true,
+			errorMsg:    "only one migration change type is allowed per update",
+		},
+		{
+			name:        "decreasing configServerCount during migration is rejected",
+			oldSize:     baseSize,
+			newSize:     status.MongodbShardedClusterSizeConfig{ShardCount: 1, MongodsPerShardCount: 3, ConfigServerCount: 2, MongosCount: 2},
+			newExternal: externalMembers,
+			expectError: true,
+			errorMsg:    "Kubernetes members may not be removed during migration",
+		},
+		{
+			name:        "increasing mongosCount while removing an external member is rejected",
+			oldSize:     baseSize,
+			newSize:     status.MongodbShardedClusterSizeConfig{ShardCount: 1, MongodsPerShardCount: 3, ConfigServerCount: 3, MongosCount: 3},
+			newExternal: externalMembers[:1],
+			expectError: true,
+			errorMsg:    "only one migration change type is allowed per update",
+		},
+		{
+			name:        "decreasing mongosCount during migration is rejected",
+			oldSize:     baseSize,
+			newSize:     status.MongodbShardedClusterSizeConfig{ShardCount: 1, MongodsPerShardCount: 3, ConfigServerCount: 3, MongosCount: 1},
+			newExternal: externalMembers,
+			expectError: true,
+			errorMsg:    "Kubernetes members may not be removed during migration",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			oldSpec := MongoDbSpec{DbCommonSpec: DbCommonSpec{ResourceType: ShardedCluster}, ExternalMembers: externalMembers, MongodbShardedClusterSizeConfig: tt.oldSize}
+			newSpec := MongoDbSpec{DbCommonSpec: DbCommonSpec{ResourceType: ShardedCluster}, ExternalMembers: tt.newExternal, MongodbShardedClusterSizeConfig: tt.newSize}
+			result := atMostOneMigrationChangeAtATime(newSpec, oldSpec)
+			if tt.expectError {
+				assert.Equal(t, v1.ErrorLevel, result.Level)
+				assert.Contains(t, result.Msg, tt.errorMsg)
+			} else {
+				assert.Equal(t, v1.ValidationSuccess(), result)
+			}
+		})
+	}
+}
+
+// TestShardNameOverridesValidForm_ConfigServerOverrideCollision verifies the resolved name collision
+// check also runs when only configServerNameOverride is set, without any shardNameOverrides.
+func TestShardNameOverridesValidForm_ConfigServerOverrideCollision(t *testing.T) {
+	mdb := NewDefaultShardedClusterBuilder().Build()
+	mdb.Name = "vm-shard"
+	mdb.Spec.ConfigServerNameOverride = "vm-shard-0"
+	result := shardNameOverridesValidForm(*mdb)
+	assert.Equal(t, v1.ErrorLevel, result.Level)
+	assert.Contains(t, result.Msg, "as the config server")
+}
+
+// TestNoReplicaSetNameOverrideChanges verifies replicaSetNameOverride is immutable like the sharded overrides.
+func TestNoReplicaSetNameOverrideChanges(t *testing.T) {
+	set := MongoDbSpec{ReplicaSetNameOverride: "vm-rs"}
+	empty := MongoDbSpec{}
+
+	assert.Equal(t, v1.ValidationSuccess(), noReplicaSetNameOverrideChanges(set, set))
+
+	result := noReplicaSetNameOverrideChanges(set, empty)
+	assert.Equal(t, v1.ErrorLevel, result.Level)
+	assert.Contains(t, result.Msg, "Cannot add replicaSetNameOverride to an existing MongoDB resource.")
+
+	result = noReplicaSetNameOverrideChanges(MongoDbSpec{ReplicaSetNameOverride: "other"}, set)
+	assert.Equal(t, v1.ErrorLevel, result.Level)
+	assert.Contains(t, result.Msg, "Cannot change replicaSetNameOverride once set.")
+
+	result = noReplicaSetNameOverrideChanges(empty, set)
+	assert.Equal(t, v1.ErrorLevel, result.Level)
+	assert.Contains(t, result.Msg, "Cannot change replicaSetNameOverride once set.")
+}
+
+// TestAtMostOneMigrationChangeAtATime_ShardMemberConfigCounted verifies memberConfig entries beyond
+// configServerCount are counted as changes since they apply to shard members.
+func TestAtMostOneMigrationChangeAtATime_ShardMemberConfigCounted(t *testing.T) {
+	votes0 := 0
+	votes1 := 1
+	prio := "0"
+	baseConfig := make([]automationconfig.MemberOptions, 5)
+	for i := range baseConfig {
+		baseConfig[i] = automationconfig.MemberOptions{Votes: &votes0, Priority: &prio}
+	}
+	changedConfig := make([]automationconfig.MemberOptions, 5)
+	copy(changedConfig, baseConfig)
+	changedConfig[4] = automationconfig.MemberOptions{Votes: &votes1, Priority: &prio}
+
+	externalMembers := []ExternalMember{
+		{ProcessName: "shard0-0", Hostname: "vm0.example.com:27017", Type: "mongod", ReplicaSetName: "myrs-0"},
+		{ProcessName: "shard0-1", Hostname: "vm1.example.com:27017", Type: "mongod", ReplicaSetName: "myrs-0"},
+	}
+	size := status.MongodbShardedClusterSizeConfig{ShardCount: 1, MongodsPerShardCount: 5, ConfigServerCount: 3}
+
+	oldSpec := MongoDbSpec{DbCommonSpec: DbCommonSpec{ResourceType: ShardedCluster}, ExternalMembers: externalMembers, MongodbShardedClusterSizeConfig: size, MemberConfig: baseConfig}
+
+	// Flipping votes for shard member index 4 (beyond configServerCount) alone is one change.
+	newSpec := MongoDbSpec{DbCommonSpec: DbCommonSpec{ResourceType: ShardedCluster}, ExternalMembers: externalMembers, MongodbShardedClusterSizeConfig: size, MemberConfig: changedConfig}
+	assert.Equal(t, v1.ValidationSuccess(), atMostOneMigrationChangeAtATime(newSpec, oldSpec))
+
+	// Combining it with an external member removal is two changes and is rejected.
+	newSpec.ExternalMembers = externalMembers[1:]
+	result := atMostOneMigrationChangeAtATime(newSpec, oldSpec)
+	assert.Equal(t, v1.ErrorLevel, result.Level)
+	assert.Contains(t, result.Msg, "only one migration change type is allowed per update")
 }

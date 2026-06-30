@@ -86,7 +86,7 @@ def install_operator(
     central_cluster_name: str,
     multi_cluster_operator_installation_config: Dict[str, str],
     central_cluster_client: client.ApiClient,
-    member_cluster_clients: List[kubernetes.client.ApiClient],
+    member_cluster_clients: List[MultiClusterClient],
     cluster_clients: Dict[str, kubernetes.client.ApiClient],
     member_cluster_names: List[str],
     mdba_ns: str,
@@ -182,7 +182,7 @@ def test_deploy_operator(multi_cluster_operator_clustermode: Operator):
 
 
 @mark.e2e_multi_cluster_specific_namespaces
-def test_deploy_operator(install_operator: Operator):
+def test_deploy_operator_specific_namespaces(install_operator: Operator):
     install_operator.assert_is_running()
 
 

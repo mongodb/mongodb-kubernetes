@@ -7,11 +7,13 @@ import (
 
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
+	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
@@ -40,14 +42,50 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 )
 
+// MongoDBUserMongoDBResourceRefIndex is a field-indexer key registered on
+// MongoDBUser. It maps each user to "<namespace>/<name>" of its referenced
+// MongoDB or MongoDBMultiCluster, so MDB-CR change events can enqueue all
+// users that reference the changed resource.
+const MongoDBUserMongoDBResourceRefIndex = "mongodbuser-for-mongodbresourceref-index"
+
+func mdbUserIndexBuilder(rawObj client.Object) []string {
+	user := rawObj.(*userv1.MongoDBUser)
+	if user.Spec.MongoDBResourceRef.Name == "" {
+		return nil
+	}
+	ns := user.Spec.MongoDBResourceRef.Namespace
+	if ns == "" {
+		ns = user.Namespace
+	}
+	return []string{ns + "/" + user.Spec.MongoDBResourceRef.Name}
+}
+
+// enqueueUsersForMongoDBRef returns reconcile requests for every
+// MongoDBUser whose MongoDBResourceRef points to ns/name.
+func enqueueUsersForMongoDBRef(ctx context.Context, c client.Client, ns, name string) []reconcile.Request {
+	userList := &userv1.MongoDBUserList{}
+	if err := c.List(ctx, userList, &client.ListOptions{
+		FieldSelector: fields.OneTermEqualSelector(MongoDBUserMongoDBResourceRefIndex, ns+"/"+name),
+	}); err != nil {
+		zap.S().Errorf("Error listing MongoDBUser resources for MongoDB source '%s/%s': %w", ns, name, err)
+		return nil
+	}
+	reqs := make([]reconcile.Request, 0, len(userList.Items))
+	for _, u := range userList.Items {
+		reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: u.Namespace, Name: u.Name}})
+	}
+	return reqs
+}
+
 type MongoDBUserReconciler struct {
 	*ReconcileCommonController
 	omConnectionFactory           om.ConnectionFactory
 	memberClusterClientsMap       map[string]kubernetesClient.Client
 	memberClusterSecretClientsMap map[string]secrets.SecretClient
+	backupEnableDelay             time.Duration
 }
 
-func newMongoDBUserReconciler(ctx context.Context, kubeClient client.Client, omFunc om.ConnectionFactory, memberClustersMap map[string]client.Client) *MongoDBUserReconciler {
+func newMongoDBUserReconciler(ctx context.Context, kubeClient client.Client, omFunc om.ConnectionFactory, memberClustersMap map[string]client.Client, backupEnableDelay time.Duration) *MongoDBUserReconciler {
 	clientsMap := make(map[string]kubernetesClient.Client)
 	secretClientsMap := make(map[string]secrets.SecretClient)
 
@@ -63,6 +101,7 @@ func newMongoDBUserReconciler(ctx context.Context, kubeClient client.Client, omF
 		omConnectionFactory:           omFunc,
 		memberClusterClientsMap:       clientsMap,
 		memberClusterSecretClientsMap: secretClientsMap,
+		backupEnableDelay:             backupEnableDelay,
 	}
 }
 
@@ -113,16 +152,20 @@ func (r *MongoDBUserReconciler) getMongoDBConnectionBuilder(ctx context.Context,
 	// Try single cluster, sharded single/multi-cluster resource
 	mdb := &mdbv1.MongoDB{}
 	if err := r.client.Get(ctx, name, mdb); err == nil {
-		hostnames := make([]string, 0)
+		var hostnames []string
 		if mdb.IsShardedCluster() {
 			hostnames, err = r.getShardedClusterHostnames(ctx, mdb)
 			if err != nil {
 				return nil, xerrors.Errorf("failed to get hostnames for sharded cluster: %w", err)
 			}
+		} else if mdb.IsReplicaSet() {
+			hostnames = mdb.GetRSHostnamesAndPorts()
 		}
 
-		builder := mdbv1.NewMongoDBConnectionStringBuilder(*mdb, hostnames)
+		extHostnames := mdb.GetExternalMembersHostnames()
+		hostnames = append(hostnames, extHostnames...)
 
+		builder := mdbv1.NewMongoDBConnectionStringBuilder(*mdb, hostnames)
 		return builder, nil
 	}
 
@@ -135,7 +178,7 @@ func (r *MongoDBUserReconciler) getMongoDBConnectionBuilder(ctx context.Context,
 func (r *MongoDBUserReconciler) getShardedClusterHostnames(ctx context.Context, mdb *mdbv1.MongoDB) ([]string, error) {
 	l := zap.S().With("MongoDBUser", mdb.Name)
 	clusterClientMap := r.getK8sClientMap()
-	rh, err := NewReadOnlyClusterReconcilerHelper(ctx, r.ReconcileCommonController, mdb, clusterClientMap, l)
+	rh, err := NewReadOnlyClusterReconcilerHelper(ctx, r.ReconcileCommonController, mdb, clusterClientMap, l, r.backupEnableDelay)
 	if err != nil {
 		return nil, err
 	}
@@ -278,8 +321,8 @@ func (r *MongoDBUserReconciler) updateConnectionStringSecret(ctx context.Context
 		return xerrors.Errorf("connection string secret %s already exists and is not managed by the operator", secretName)
 	}
 
-	mongoAuthUserURI := connectionBuilder.BuildConnectionString(user.Spec.Username, password, connectionstring.SchemeMongoDB, map[string]string{})
-	mongoAuthUserSRVURI := connectionBuilder.BuildConnectionString(user.Spec.Username, password, connectionstring.SchemeMongoDBSRV, map[string]string{})
+	mongoAuthUserURI := connectionBuilder.BuildConnectionString(user.Spec.Username, password, connectionstring.SchemeMongoDB, map[string]string{"authSource": user.Spec.Database})
+	mongoAuthUserSRVURI := connectionBuilder.BuildConnectionString(user.Spec.Username, password, connectionstring.SchemeMongoDBSRV, map[string]string{"authSource": user.Spec.Database})
 
 	connectionStringSecret := secret.Builder().
 		SetName(secretName).
@@ -300,8 +343,13 @@ func (r *MongoDBUserReconciler) updateConnectionStringSecret(ctx context.Context
 	return secret.CreateOrUpdate(ctx, r.SecretClient, connectionStringSecret)
 }
 
-func AddMongoDBUserController(ctx context.Context, mgr manager.Manager, memberClustersMap map[string]cluster.Cluster) error {
-	reconciler := newMongoDBUserReconciler(ctx, mgr.GetClient(), om.NewOpsManagerConnection, multicluster.ClustersMapToClientMap(memberClustersMap))
+func AddMongoDBUserController(ctx context.Context, mgr manager.Manager, memberClustersMap map[string]cluster.Cluster, backupEnableDelay time.Duration) error {
+	reconciler := newMongoDBUserReconciler(ctx, mgr.GetClient(), om.NewOpsManagerConnection, multicluster.ClustersMapToClientMap(memberClustersMap), backupEnableDelay)
+
+	if err := mgr.GetFieldIndexer().IndexField(ctx, &userv1.MongoDBUser{}, MongoDBUserMongoDBResourceRefIndex, mdbUserIndexBuilder); err != nil {
+		return err
+	}
+
 	c, err := controller.New(util.MongoDbUserController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)}) // nolint:forbidigo
 	if err != nil {
 		return err
@@ -326,14 +374,33 @@ func AddMongoDBUserController(ctx context.Context, mgr manager.Manager, memberCl
 		return err
 	}
 
+	// MongoDB CR changes (members scale, externalMembers edits) → re-render
+	// the connection string secret of every user that references it.
+	err = c.Watch(source.Kind(mgr.GetCache(), &mdbv1.MongoDB{},
+		handler.TypedEnqueueRequestsFromMapFunc(func(ctx context.Context, mdb *mdbv1.MongoDB) []reconcile.Request {
+			return enqueueUsersForMongoDBRef(ctx, mgr.GetClient(), mdb.Namespace, mdb.Name)
+		})))
+	if err != nil {
+		return err
+	}
+
+	// MongoDBMultiCluster CR changes (member scale across clusters) → same.
+	err = c.Watch(source.Kind(mgr.GetCache(), &mdbmulti.MongoDBMultiCluster{},
+		handler.TypedEnqueueRequestsFromMapFunc(func(ctx context.Context, mdbm *mdbmulti.MongoDBMultiCluster) []reconcile.Request {
+			return enqueueUsersForMongoDBRef(ctx, mgr.GetClient(), mdbm.Namespace, mdbm.Name)
+		})))
+	if err != nil {
+		return err
+	}
+
 	zap.S().Infof("Registered controller %s", util.MongoDbUserController)
 	return nil
 }
 
-// toOmUser converts a MongoDBUser specification and optional password into an
-// automation config MongoDB user. If the user has no password then a blank
-// password should be provided.
-func toOmUser(spec userv1.MongoDBUserSpec, password string, ac *om.AutomationConfig) (om.MongoDBUser, error) {
+// toOmUser converts a MongoDBUser spec into an AC user. Pass an empty password for
+// external-auth users. needsFollowUp is true when the imported-user path was taken
+// and the caller must requeue for OM to finalise creds from initPwd.
+func toOmUser(spec userv1.MongoDBUserSpec, password string, ac *om.AutomationConfig) (om.MongoDBUser, bool, error) {
 	user := om.MongoDBUser{
 		Database:                   spec.Database,
 		Username:                   spec.Username,
@@ -342,17 +409,19 @@ func toOmUser(spec userv1.MongoDBUserSpec, password string, ac *om.AutomationCon
 		Mechanisms:                 []string{},
 	}
 
-	// only specify password if we're dealing with non-x509 users
+	needsFollowUp := false
 	if spec.Database != authentication.ExternalDB {
-		if err := authentication.ConfigureScramCredentials(&user, password, ac); err != nil {
-			return om.MongoDBUser{}, xerrors.Errorf("error generating SCRAM credentials: %w", err)
+		followUp, err := authentication.ConfigureScramCredentials(&user, password, ac)
+		if err != nil {
+			return om.MongoDBUser{}, false, xerrors.Errorf("error generating SCRAM credentials: %w", err)
 		}
+		needsFollowUp = followUp
 	}
 
 	for _, r := range spec.Roles {
 		user.AddRole(&om.Role{Role: r.RoleName, Database: r.Database})
 	}
-	return user, nil
+	return user, needsFollowUp, nil
 }
 
 func (r *MongoDBUserReconciler) handleScramShaUser(ctx context.Context, user *userv1.MongoDBUser, conn om.Connection, log *zap.SugaredLogger) (res reconcile.Result, e error) {
@@ -368,6 +437,7 @@ func (r *MongoDBUserReconciler) handleScramShaUser(ctx context.Context, user *us
 	}
 
 	shouldRetry := false
+	needsFollowUp := false
 	err := conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
 		if ac.Auth.Disabled ||
 			(!stringutil.ContainsAny(ac.Auth.DeploymentAuthMechanisms, util.AutomationConfigScramSha256Option, util.AutomationConfigScramSha1Option)) {
@@ -385,10 +455,11 @@ func (r *MongoDBUserReconciler) handleScramShaUser(ctx context.Context, user *us
 			auth.RemoveUser(user.Status.Username, user.Status.Database)
 		}
 
-		desiredUser, err := toOmUser(user.Spec, password, ac)
+		desiredUser, followUp, err := toOmUser(user.Spec, password, ac)
 		if err != nil {
 			return err
 		}
+		needsFollowUp = followUp
 
 		auth.EnsureUser(desiredUser)
 		return nil
@@ -398,6 +469,13 @@ func (r *MongoDBUserReconciler) handleScramShaUser(ctx context.Context, user *us
 			return r.updateStatus(ctx, user, workflow.Pending("%s", err.Error()).WithRetry(10), log)
 		}
 		return r.updateStatus(ctx, user, workflow.Failed(xerrors.Errorf("error updating user %w", err)), log)
+	}
+
+	// initPwd was written; requeue so the next reconcile picks up the creds
+	// OM derives from it. Stays Pending until OM processes initPwd.
+	if needsFollowUp {
+		log.Info("initPwd synced for imported user, requeuing to finalize mechanisms and credentials")
+		return r.updateStatus(ctx, user, workflow.Pending("finalizing mechanisms after initPwd sync").WithRetry(10), log)
 	}
 
 	// Before we update the MongoDBUser's status to Updated,
@@ -428,9 +506,9 @@ func (r *MongoDBUserReconciler) handleExternalAuthUser(ctx context.Context, user
 			return xerrors.Errorf("no external authentication mechanisms (LDAP or x509) have been configured")
 		}
 
-		desiredUser, err := toOmUser(user.Spec, "", ac)
+		desiredUser, _, err := toOmUser(user.Spec, "", ac)
 		if err != nil {
-			return xerrors.Errorf("errorr updating user %w", err)
+			return xerrors.Errorf("error updating user %w", err)
 		}
 
 		auth := ac.Auth

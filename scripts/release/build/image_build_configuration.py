@@ -16,7 +16,7 @@ class ImageBuildConfiguration:
     registries: List[str]
     dockerfile_path: str
     builder: ImageBuilder
-    platforms: Optional[List[str]] = None
+    platforms: List[str] = None
     sign: bool = False
     skip_if_exists: bool = False
 

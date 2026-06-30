@@ -1,3 +1,5 @@
+from typing import Iterator
+
 import kubernetes
 import pytest
 from kubeobject import CustomObject
@@ -116,7 +118,7 @@ def ops_manager(namespace: str) -> MongoDBOpsManager:
 
 
 @fixture(scope="module")
-def s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> str:
+def s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> Iterator[str]:
     create_aws_secret(aws_s3_client, "my-s3-secret", namespace)
     yield from create_s3_bucket(aws_s3_client, "test-bucket-s3")
 

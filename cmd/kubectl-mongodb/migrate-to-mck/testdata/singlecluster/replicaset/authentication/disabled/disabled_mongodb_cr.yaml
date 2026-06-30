@@ -1,0 +1,36 @@
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  annotations:
+    mongodb.com/migrate-tool-version: latest
+    mongodb.com/migration-dry-run: "true"
+  name: minimal-rs
+  namespace: mongodb
+spec:
+  agent:
+    maxLogFileDurationHours: 0
+    mongod:
+      systemLog:
+        destination: file
+        logAppend: false
+        path: /var/log/mongodb/mongod.log
+  credentials: my-credentials
+  externalMembers:
+  - hostname: vm-0.example.com:27017
+    processName: minimal-rs-0
+    replicaSetName: minimal-rs
+    type: mongod
+  - hostname: vm-1.example.com:27017
+    processName: minimal-rs-1
+    replicaSetName: minimal-rs
+    type: mongod
+  - hostname: vm-2.example.com:27017
+    processName: minimal-rs-2
+    replicaSetName: minimal-rs
+    type: mongod
+  featureCompatibilityVersion: "8.0"
+  opsManager:
+    configMapRef:
+      name: my-om-config
+  type: ReplicaSet
+  version: 8.0.4-ent

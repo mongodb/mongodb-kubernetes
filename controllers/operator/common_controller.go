@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"time"
 
 	"github.com/blang/semver"
 	"github.com/hashicorp/go-multierror"
@@ -450,6 +451,9 @@ const MaxVotingMembers = 7
 //     exceed MongoDB's 7-voting-members limit. When external members are involved the operator no
 //     longer fully owns the AC, so we surface this misconfiguration as a reconcile failure with a
 //     detailed listing of every voting member and which ones should be made non-voting.
+//
+// The checks run on a snapshot read here while the merge reads the AC again later. An out of band
+// edit between the two reads is accepted risk, the merge layer deliberately has no duplicate guard.
 func validateACForMigration(conn om.Connection, mdb *mdbv1.MongoDB) workflow.Status {
 	if len(mdb.Spec.GetExternalMembers()) == 0 {
 		return workflow.OK()
@@ -459,7 +463,7 @@ func validateACForMigration(conn om.Connection, mdb *mdbv1.MongoDB) workflow.Sta
 		return workflow.Failed(err)
 	}
 
-	// Check net.tls.mode is not null — applies to all resource types.
+	// Check net.tls.mode is not null. Applies to all resource types.
 	if processes := deployment.GetProcesses(); len(processes) > 0 {
 		// Checking first process is enough since OM does not accept different values for net.tls.mode between processes
 		tls := processes[0].TLSConfig()
@@ -473,30 +477,118 @@ func validateACForMigration(conn om.Connection, mdb *mdbv1.MongoDB) workflow.Sta
 	// handles the limit by auto-zeroing votes on excess members during merge.
 	switch mdb.Spec.GetResourceType() {
 	case mdbv1.ReplicaSet:
-		return validateVotingLimitRS(mdb, deployment)
+		rs, status := validateRSACIdentity(mdb, deployment)
+		if !status.IsOK() {
+			return status
+		}
+		return validateVotingLimitRS(mdb, rs)
 	case mdbv1.ShardedCluster:
+		if status := validateShardedACIdentity(mdb, deployment); !status.IsOK() {
+			return status
+		}
 		return validateVotingLimitSharded(mdb, deployment)
 	}
 	return workflow.OK()
 }
 
-func validateVotingLimitRS(mdb *mdbv1.MongoDB, deployment om.Deployment) workflow.Status {
-	rs := deployment.GetReplicaSetByName(mdb.GetReplicaSetName())
+// validateRSACIdentity verifies the AC contains a replica set under the resolved name and returns it,
+// so that a mistyped replicaSetNameOverride fails instead of the merge creating a parallel replica set.
+func validateRSACIdentity(mdb *mdbv1.MongoDB, deployment om.Deployment) (om.ReplicaSet, workflow.Status) {
+	rsName := mdb.GetReplicaSetName()
+	rs := deployment.GetReplicaSetByName(rsName)
 	if rs == nil {
-		// Drift / excess-process checks should already have caught a missing RS; be defensive.
-		return workflow.OK()
+		return nil, workflow.Failed(xerrors.Errorf("The Automation Config does not contain a replica set named %s. Recreate the resource with spec.replicaSetNameOverride set to the name of the existing replica set", rsName))
 	}
-	externalSet := merge.StringsToSet(mdb.Spec.GetExternalMemberProcessNames())
-	acVoting := collectACVotingMembers(rs, externalSet)
-	externalVotingCount, k8sVotingPositions, newlyVotingPositions := computePostReconcileVoting(mdb, rs, externalSet)
-	total := externalVotingCount + len(k8sVotingPositions)
+	return rs, workflow.OK()
+}
+
+// validateShardedACIdentity verifies the AC names the resource resolves to match the existing sharded
+// cluster, so that a missing or mistyped override fails before the merge can corrupt the AC.
+func validateShardedACIdentity(mdb *mdbv1.MongoDB, deployment om.Deployment) workflow.Status {
+	clusterName := mdb.GetShardedClusterName()
+	acCluster, found := deployment.GetShardedClusterByName(clusterName)
+	if !found {
+		return workflow.Failed(xerrors.Errorf("The Automation Config does not contain a sharded cluster named %s. Recreate the resource with spec.shardedClusterNameOverride set to the name of the existing sharded cluster", clusterName))
+	}
+	if acConfigRsName := acCluster.ConfigServerRsName(); acConfigRsName != mdb.ConfigACRsName() {
+		return workflow.Failed(xerrors.Errorf("The sharded cluster %s in the Automation Config has config server replica set %s but the resource resolves to %s. Recreate the resource with spec.configServerNameOverride set to the name of the existing config server replica set", clusterName, acConfigRsName, mdb.ConfigACRsName()))
+	}
+
+	acShardIdByRs := acCluster.ShardRsToIdMap()
+
+	// Every override entry with a replicaSetName must reference an existing shard with the matching _id.
+	for _, o := range mdb.Spec.ShardNameOverrides {
+		if o.ReplicaSetName == "" {
+			continue
+		}
+		acShardId, ok := acShardIdByRs[o.ReplicaSetName]
+		if !ok {
+			return workflow.Failed(xerrors.Errorf("The sharded cluster %s in the Automation Config has no shard with replica set name %s referenced by spec.shardNameOverrides", clusterName, o.ReplicaSetName))
+		}
+		if acShardId != o.ShardId {
+			return workflow.Failed(xerrors.Errorf("The shard with replica set name %s has _id %s in the Automation Config but spec.shardNameOverrides specifies shardId %s", o.ReplicaSetName, acShardId, o.ShardId))
+		}
+	}
+
+	// Every shard of the AC cluster must be covered by the resource, with a matching _id.
+	resolvedShardIdByRs := make(map[string]string, mdb.Spec.ShardCount)
+	for i := 0; i < mdb.Spec.ShardCount; i++ {
+		resolvedShardIdByRs[mdb.ShardACRsName(i)] = mdb.ShardACShardId(i)
+	}
+	for rsName, acShardId := range acShardIdByRs {
+		resolvedId, ok := resolvedShardIdByRs[rsName]
+		if !ok {
+			return workflow.Failed(xerrors.Errorf("The sharded cluster %s in the Automation Config has a shard with replica set name %s that the resource does not cover. Recreate the resource with a matching spec.shardCount and a spec.shardNameOverrides entry for every shard whose name differs from the Kubernetes default", clusterName, rsName))
+		}
+		if resolvedId != acShardId {
+			return workflow.Failed(xerrors.Errorf("The shard with replica set name %s has _id %s in the Automation Config but the resource resolves to _id %s. Recreate the resource with a spec.shardNameOverrides entry specifying the matching shardId", rsName, acShardId, resolvedId))
+		}
+	}
+	return workflow.OK()
+}
+
+// validateVotingLimit checks the MaxVotingMembers limit for a single replica set. externalSet
+// identifies the external (non-K8s) members in rs. votingPositions are the desired K8s voting spec
+// positions for this RS, and newlyVotingPositions are the subset this reconcile would turn voting
+// (callers that cannot tell pass all voting positions).
+func validateVotingLimit(rsName string, rs om.ReplicaSet, externalSet map[string]struct{}, votingPositions, newlyVotingPositions []int) workflow.Status {
+	externalVoting := 0
+	for _, m := range rs.Members() {
+		if _, isExternal := externalSet[m.Name()]; isExternal && m.Votes() > 0 {
+			externalVoting++
+		}
+	}
+	total := externalVoting + len(votingPositions)
 	if total <= MaxVotingMembers {
 		return workflow.OK()
 	}
+	acVoting := collectACVotingMembers(rs, externalSet)
 	excess := total - MaxVotingMembers
 	return workflow.Failed(xerrors.Errorf("%s", formatTooManyVotingMembersError(
-		mdb.GetReplicaSetName(), total, acVoting, newlyVotingPositions, excess,
+		rsName, total, acVoting, newlyVotingPositions, excess,
 	)))
+}
+
+// votingPositionsFromConfig returns the spec positions [0..members) that are voting per memberConfig.
+func votingPositionsFromConfig(members int, memberConfig []automationconfig.MemberOptions) []int {
+	positions := make([]int, 0, members)
+	for i := range members {
+		opts := automationconfig.MemberOptions{}
+		if i < len(memberConfig) {
+			opts = memberConfig[i]
+		}
+		if opts.GetVotes() > 0 {
+			positions = append(positions, i)
+		}
+	}
+	return positions
+}
+
+// validateVotingLimitRS checks the 7 voting member limit for the replica set returned by validateRSACIdentity.
+func validateVotingLimitRS(mdb *mdbv1.MongoDB, rs om.ReplicaSet) workflow.Status {
+	externalSet := merge.StringsToSet(mdb.Spec.GetExternalMemberProcessNames())
+	_, votingPositions, newlyVotingPositions := computePostReconcileVoting(mdb, rs, externalSet)
+	return validateVotingLimit(mdb.GetReplicaSetName(), rs, externalSet, votingPositions, newlyVotingPositions)
 }
 
 // validateVotingLimitSharded checks the 7-voting-member limit for each RS component of the
@@ -517,55 +609,46 @@ func validateVotingLimitSharded(sc *mdbv1.MongoDB, deployment om.Deployment) wor
 		if rs == nil {
 			continue
 		}
-		externalSet := merge.StringsToSet(processNames)
 		k8sMembers, memberConfig := shardedRSK8sConfig(sc, rsName)
 		if k8sMembers == 0 {
 			continue
 		}
-
-		externalVoting := 0
-		for _, m := range rs.Members() {
-			if _, isExternal := externalSet[m.Name()]; isExternal && m.Votes() > 0 {
-				externalVoting++
-			}
-		}
-
-		k8sVotingPositions := make([]int, 0, k8sMembers)
-		for i := 0; i < k8sMembers; i++ {
-			opts := automationconfig.MemberOptions{}
-			if i < len(memberConfig) {
-				opts = memberConfig[i]
-			}
-			if opts.GetVotes() > 0 {
-				k8sVotingPositions = append(k8sVotingPositions, i)
-			}
-		}
-
-		total := externalVoting + len(k8sVotingPositions)
-		if total <= MaxVotingMembers {
-			continue
-		}
-
-		acVoting := collectACVotingMembers(rs, externalSet)
-		excess := total - MaxVotingMembers
+		externalSet := merge.StringsToSet(processNames)
+		votingPositions := votingPositionsFromConfig(k8sMembers, memberConfig)
 		// Treat all K8s voting positions as "newly voting" since K8s members may not yet exist in the AC.
-		return workflow.Failed(xerrors.Errorf("%s", formatTooManyVotingMembersError(
-			rsName, total, acVoting, k8sVotingPositions, excess,
-		)))
+		if status := validateVotingLimit(rsName, rs, externalSet, votingPositions, votingPositions); !status.IsOK() {
+			return status
+		}
 	}
 	return workflow.OK()
 }
 
 // shardedRSK8sConfig returns the K8s member count and per-member voting options for the RS
 // component identified by rsName (the AC replicaSetName). Returns (0, nil) for unknown RS names.
+// It mirrors the reconcile side resolution, pinned by TestShardedRSK8sConfigMatchesDesiredConfiguration.
 func shardedRSK8sConfig(sc *mdbv1.MongoDB, rsName string) (members int, memberConfig []automationconfig.MemberOptions) {
-	if rsName == sc.ConfigRsName() {
+	if rsName == sc.ConfigACRsName() {
 		return sc.Spec.ConfigServerCount, sc.Spec.MemberConfig
 	}
 	for i := 0; i < sc.Spec.ShardCount; i++ {
-		if sc.ShardACRsName(i) == rsName {
-			return sc.Spec.MongodsPerShardCount, nil
+		if sc.ShardACRsName(i) != rsName {
+			continue
 		}
+		members = sc.Spec.MongodsPerShardCount
+		memberConfig = sc.Spec.MemberConfig
+		k8sName := sc.ShardName(i)
+		for _, o := range sc.Spec.ShardOverrides {
+			if !stringutil.Contains(o.ShardNames, k8sName) {
+				continue
+			}
+			if o.Members != nil {
+				members = *o.Members
+			}
+			if o.MemberConfig != nil {
+				memberConfig = o.MemberConfig
+			}
+		}
+		return members, memberConfig
 	}
 	return 0, nil
 }
@@ -597,8 +680,8 @@ func collectACVotingMembers(rs om.ReplicaSet, externalSet map[string]struct{}) [
 //   - externalVotingCount: external members currently voting in the AC (preserved during reconcile).
 //   - k8sVotingPositions: all spec positions [0..Members) that would be voting after this reconcile.
 //   - newlyVotingPositions: subset of k8sVotingPositions where the AC's corresponding K8s member
-//     is non-voting or absent (scale-up). These are the positions THIS reconcile would make voting
-//     — and therefore the actionable subset for the user to revert.
+//     is non-voting or absent (scale-up). These are the positions THIS reconcile would make voting,
+//     and therefore the actionable subset for the user to revert.
 //
 // "Corresponding K8s member" is found by position among AC members that are NOT in the external
 // set, in AC order. Position N in spec maps to the N-th non-external member of the AC.
@@ -657,7 +740,7 @@ func formatTooManyVotingMembersError(rsName string, total int, acVoting []voting
 	}
 	if len(newlyLines) == 0 {
 		// We should never get here
-		newlyLines = []string{"  (none — AC already exceeds the limit; check Ops Manager for voting members the operator does not manage)"}
+		newlyLines = []string{"  (none. The AC already exceeds the limit. Check Ops Manager for voting members the operator does not manage)"}
 	}
 
 	return fmt.Sprintf(
@@ -693,8 +776,8 @@ func (r *ReconcileCommonController) validateInternalClusterCertsAndCheckTLSType(
 }
 
 // ensureBackupConfigurationAndUpdateStatus configures backup in Ops Manager based on the MongoDB resources spec
-func (r *ReconcileCommonController) ensureBackupConfigurationAndUpdateStatus(ctx context.Context, conn om.Connection, mdb backup.ConfigReaderUpdater, secretsReader secrets.SecretClient, log *zap.SugaredLogger) workflow.Status {
-	statusOpt, opts := backup.EnsureBackupConfigurationInOpsManager(ctx, mdb, secretsReader, conn.GroupID(), conn, conn, conn, log)
+func (r *ReconcileCommonController) ensureBackupConfigurationAndUpdateStatus(ctx context.Context, conn om.Connection, mdb backup.ConfigReaderUpdater, secretsReader secrets.SecretClient, log *zap.SugaredLogger, backupEnableDelay time.Duration) workflow.Status {
+	statusOpt, opts := backup.EnsureBackupConfigurationInOpsManager(ctx, mdb, secretsReader, conn.GroupID(), conn, conn, conn, log, backupEnableDelay)
 	if len(opts) > 0 {
 		if _, err := r.updateStatus(ctx, mdb, statusOpt, log, opts...); err != nil {
 			return workflow.Failed(err)
@@ -1366,7 +1449,6 @@ func ReconcileReplicaSetAC(ctx context.Context, d om.Deployment, spec mdbv1.DbCo
 		return xerrors.Errorf("cannot disable x509 internal cluster authentication")
 	}
 
-	// TODO: we're already checking this in the main reconcile loop. Should it be removed?
 	excessProcesses := d.GetNumberOfExcessProcesses(resourceName, externalProcessNames)
 	if excessProcesses > 0 {
 		return xerrors.Errorf("cannot have more than 1 MongoDB Cluster per project (see https://docs.mongodb.com/kubernetes/current/tutorial/migrate-to-single-resource )")

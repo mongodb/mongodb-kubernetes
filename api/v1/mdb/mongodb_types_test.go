@@ -240,6 +240,27 @@ func TestMongoDB_ConnectionURL_Secure(t *testing.T) {
 		"connectTimeoutMS=20000&replicaSet=test-mdb&serverSelectionTimeoutMS=20000",
 		cnx)
 
+	// Explicit SCRAM-SHA-1 mode -> credentials embedded, authMechanism set by builder, authSource is caller's responsibility
+	rs = NewReplicaSetBuilder().SetMembers(2).EnableAuth([]AuthMode{util.SCRAMSHA1, util.MONGODBCR}).EnableAgentAuth(util.MONGODBCR).Build()
+	cnx = rs.BuildConnectionString("the_user", "the_passwd", connectionstring.SchemeMongoDB, nil)
+	assert.Equal(t, "mongodb://the_user:the_passwd@test-mdb-0.test-mdb-svc.testNS.svc.cluster.local:27017,"+
+		"test-mdb-1.test-mdb-svc.testNS.svc.cluster.local:27017/?authMechanism=SCRAM-SHA-1&"+
+		"connectTimeoutMS=20000&replicaSet=test-mdb&serverSelectionTimeoutMS=20000",
+		cnx)
+
+	// Explicit SCRAM-SHA-1 mode with SRV scheme
+	cnx = rs.BuildConnectionString("the_user", "the_passwd", connectionstring.SchemeMongoDBSRV, nil)
+	assert.Equal(t, "mongodb+srv://the_user:the_passwd@test-mdb-svc.testNS.svc.cluster.local/?authMechanism=SCRAM-SHA-1&"+
+		"connectTimeoutMS=20000&replicaSet=test-mdb&serverSelectionTimeoutMS=20000",
+		cnx)
+
+	// Caller-supplied authSource (as updateConnectionStringSecret always does) is added alongside authMechanism
+	cnx = rs.BuildConnectionString("the_user", "the_passwd", connectionstring.SchemeMongoDB, map[string]string{"authSource": "testdb"})
+	assert.Equal(t, "mongodb://the_user:the_passwd@test-mdb-0.test-mdb-svc.testNS.svc.cluster.local:27017,"+
+		"test-mdb-1.test-mdb-svc.testNS.svc.cluster.local:27017/?authMechanism=SCRAM-SHA-1&authSource=testdb&"+
+		"connectTimeoutMS=20000&replicaSet=test-mdb&serverSelectionTimeoutMS=20000",
+		cnx)
+
 	// Special symbols in user/password must be encoded
 	rs = NewReplicaSetBuilder().SetMembers(2).EnableAuth([]AuthMode{util.SCRAM}).Build()
 	cnx = rs.BuildConnectionString("user/@", "pwd#!@", connectionstring.SchemeMongoDB, nil)
@@ -291,6 +312,30 @@ func TestMongoDBConnectionURLExternalDomainWithAuth(t *testing.T) {
 	cnx := rs.BuildConnectionString("the_user", "", connectionstring.SchemeMongoDB, nil)
 	assert.Equal(t, "mongodb://test-mdb-0.example.com:27017,"+
 		"test-mdb-1.example.com:27017/?authMechanism=SCRAM-SHA-256&authSource=admin&"+
+		"connectTimeoutMS=20000&replicaSet=test-mdb&serverSelectionTimeoutMS=20000",
+		cnx)
+}
+
+func TestMongoDBConnectionURLExternalDomainWithSCRAMSHA1Auth(t *testing.T) {
+	externalDomain := "example.com"
+
+	rs := NewReplicaSetBuilder().
+		SetMembers(2).
+		EnableAuth([]AuthMode{util.SCRAMSHA1, util.MONGODBCR}).
+		ExposedExternally(nil, nil, &externalDomain).
+		Build()
+
+	// Builder sets authMechanism only; authSource is the caller's responsibility
+	cnx := rs.BuildConnectionString("the_user", "the_passwd", connectionstring.SchemeMongoDB, nil)
+	assert.Equal(t, "mongodb://the_user:the_passwd@test-mdb-0.example.com:27017,"+
+		"test-mdb-1.example.com:27017/?authMechanism=SCRAM-SHA-1&"+
+		"connectTimeoutMS=20000&replicaSet=test-mdb&serverSelectionTimeoutMS=20000",
+		cnx)
+
+	// Caller-supplied authSource (as updateConnectionStringSecret does) is added alongside authMechanism
+	cnx = rs.BuildConnectionString("the_user", "the_passwd", connectionstring.SchemeMongoDB, map[string]string{"authSource": "testdb"})
+	assert.Equal(t, "mongodb://the_user:the_passwd@test-mdb-0.example.com:27017,"+
+		"test-mdb-1.example.com:27017/?authMechanism=SCRAM-SHA-1&authSource=testdb&"+
 		"connectTimeoutMS=20000&replicaSet=test-mdb&serverSelectionTimeoutMS=20000",
 		cnx)
 }
@@ -588,8 +633,8 @@ func TestShardACRsName(t *testing.T) {
 
 	t.Run("returns ReplicaSetName from override", func(t *testing.T) {
 		mdb.Spec.ShardNameOverrides = []ShardNameOverride{
-			{ShardName: "vm-shard-A", ShardId: "vm-id-A", ReplicaSetName: "vm-rs-A"},
-			{ShardName: "vm-shard-B", ShardId: "vm-id-B", ReplicaSetName: "vm-rs-B"},
+			{ShardName: "mdb-sc-0", ShardId: "vm-id-A", ReplicaSetName: "vm-rs-A"},
+			{ShardName: "mdb-sc-1", ShardId: "vm-id-B", ReplicaSetName: "vm-rs-B"},
 		}
 		assert.Equal(t, "vm-rs-A", mdb.ShardACRsName(0))
 		assert.Equal(t, "vm-rs-B", mdb.ShardACRsName(1))
@@ -597,16 +642,16 @@ func TestShardACRsName(t *testing.T) {
 
 	t.Run("brevity form: ShardName equals _id and rs when ReplicaSetName is not set", func(t *testing.T) {
 		mdb.Spec.ShardNameOverrides = []ShardNameOverride{
-			{ShardName: "vm-shard-A"},
-			{ShardName: "vm-shard-B"},
+			{ShardName: "mdb-sc-0"},
+			{ShardName: "mdb-sc-1"},
 		}
-		assert.Equal(t, "vm-shard-A", mdb.ShardACRsName(0))
-		assert.Equal(t, "vm-shard-B", mdb.ShardACRsName(1))
+		assert.Equal(t, "mdb-sc-0", mdb.ShardACRsName(0))
+		assert.Equal(t, "mdb-sc-1", mdb.ShardACRsName(1))
 	})
 
-	t.Run("index beyond override slice returns K8s default", func(t *testing.T) {
+	t.Run("no matching entry returns K8s default", func(t *testing.T) {
 		mdb.Spec.ShardNameOverrides = []ShardNameOverride{
-			{ShardName: "vm-shard-A", ShardId: "vm-id-A", ReplicaSetName: "vm-rs-A"},
+			{ShardName: "mdb-sc-0", ShardId: "vm-id-A", ReplicaSetName: "vm-rs-A"},
 		}
 		assert.Equal(t, "mdb-sc-1", mdb.ShardACRsName(1))
 	})
@@ -624,8 +669,8 @@ func TestShardACShardId(t *testing.T) {
 
 	t.Run("returns ShardId from override", func(t *testing.T) {
 		mdb.Spec.ShardNameOverrides = []ShardNameOverride{
-			{ShardName: "vm-shard-A", ShardId: "vm-id-A", ReplicaSetName: "vm-rs-A"},
-			{ShardName: "vm-shard-B", ShardId: "vm-id-B", ReplicaSetName: "vm-rs-B"},
+			{ShardName: "mdb-sc-0", ShardId: "vm-id-A", ReplicaSetName: "vm-rs-A"},
+			{ShardName: "mdb-sc-1", ShardId: "vm-id-B", ReplicaSetName: "vm-rs-B"},
 		}
 		assert.Equal(t, "vm-id-A", mdb.ShardACShardId(0))
 		assert.Equal(t, "vm-id-B", mdb.ShardACShardId(1))
@@ -633,17 +678,70 @@ func TestShardACShardId(t *testing.T) {
 
 	t.Run("brevity form: _id equals rs equals ShardName when neither ShardId nor ReplicaSetName is set", func(t *testing.T) {
 		mdb.Spec.ShardNameOverrides = []ShardNameOverride{
-			{ShardName: "vm-shard-A"},
-			{ShardName: "vm-shard-B"},
+			{ShardName: "mdb-sc-0"},
+			{ShardName: "mdb-sc-1"},
 		}
-		assert.Equal(t, "vm-shard-A", mdb.ShardACShardId(0))
-		assert.Equal(t, "vm-shard-B", mdb.ShardACShardId(1))
+		assert.Equal(t, "mdb-sc-0", mdb.ShardACShardId(0))
+		assert.Equal(t, "mdb-sc-1", mdb.ShardACShardId(1))
 	})
 
-	t.Run("index beyond override slice returns K8s default", func(t *testing.T) {
+	t.Run("no matching entry returns K8s default", func(t *testing.T) {
 		mdb.Spec.ShardNameOverrides = []ShardNameOverride{
-			{ShardName: "vm-shard-A", ShardId: "vm-id-A", ReplicaSetName: "vm-rs-A"},
+			{ShardName: "mdb-sc-0", ShardId: "vm-id-A", ReplicaSetName: "vm-rs-A"},
 		}
 		assert.Equal(t, "mdb-sc-1", mdb.ShardACShardId(1))
 	})
+}
+
+func TestGetRSHostnamesAndPorts_ReplicaSet_WithExternalDomain(t *testing.T) {
+	externalDomain := "example.com"
+	rs := NewReplicaSetBuilder().SetMembers(2).ExposedExternally(nil, nil, &externalDomain).Build()
+
+	got := rs.GetRSHostnamesAndPorts()
+
+	assert.Equal(t, []string{
+		"test-mdb-0.example.com:27017",
+		"test-mdb-1.example.com:27017",
+	}, got)
+}
+
+func TestGetRSHostnamesAndPorts_ReplicaSet_WithCustomClusterDomain(t *testing.T) {
+	rs := NewReplicaSetBuilder().SetMembers(2).SetClusterDomain("company.domain.net").Build()
+
+	got := rs.GetRSHostnamesAndPorts()
+
+	assert.Equal(t, []string{
+		"test-mdb-0.test-mdb-svc.testNS.svc.company.domain.net:27017",
+		"test-mdb-1.test-mdb-svc.testNS.svc.company.domain.net:27017",
+	}, got)
+}
+
+func TestGetRSHostnamesAndPorts_ReplicaSet_WithCustomPort(t *testing.T) {
+	rs := NewReplicaSetBuilder().SetMembers(2).Build()
+	rs.Spec.AdditionalMongodConfig = &AdditionalMongodConfig{object: map[string]interface{}{"net": map[string]interface{}{"port": float64(30000)}}}
+
+	got := rs.GetRSHostnamesAndPorts()
+
+	assert.Equal(t, []string{
+		"test-mdb-0.test-mdb-svc.testNS.svc.cluster.local:30000",
+		"test-mdb-1.test-mdb-svc.testNS.svc.cluster.local:30000",
+	}, got)
+}
+
+func TestGetExternalMembersHostnames_ShardedCluster_NoExternalMembers(t *testing.T) {
+	sc := NewClusterBuilder().SetName("contractsDb").SetNamespace("ns").Build()
+
+	got := sc.GetExternalMembersHostnames()
+	assert.Empty(t, got)
+}
+
+func TestGetExternalMembersHostnames_ShardedCluster_OnlyMongodMembers_ReturnsEmpty(t *testing.T) {
+	sc := NewClusterBuilder().SetName("contractsDb").SetNamespace("ns").Build()
+	sc.Spec.ExternalMembers = []ExternalMember{
+		{ProcessName: "vm-mongod-0", Hostname: "vm-mongod-0.example.com:27018", Type: "mongod"},
+		{ProcessName: "vm-untyped", Hostname: "vm-untyped.example.com:27017", Type: ""},
+	}
+
+	got := sc.GetExternalMembersHostnames()
+	assert.Empty(t, got, "sharded must drop non-mongos entries (mongod and untyped)")
 }

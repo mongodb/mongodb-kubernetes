@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Iterator, Optional
 
 import pymongo
 from kubetester import create_or_update_secret, read_secret, try_load
@@ -31,13 +31,13 @@ def kmip(issuer, issuer_ca_configmap, namespace: str) -> KMIPDeployment:
 
 
 @fixture(scope="module")
-def s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> str:
+def s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> Iterator[str]:
     create_aws_secret(aws_s3_client, S3_SECRET_NAME, namespace)
     yield from create_s3_bucket(aws_s3_client, bucket_prefix="test-s3-bucket")
 
 
 @fixture(scope="module")
-def oplog_s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> str:
+def oplog_s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> Iterator[str]:
     create_aws_secret(aws_s3_client, OPLOG_SECRET_NAME, namespace)
     yield from create_s3_bucket(aws_s3_client, bucket_prefix="test-s3-bucket-oplog")
 

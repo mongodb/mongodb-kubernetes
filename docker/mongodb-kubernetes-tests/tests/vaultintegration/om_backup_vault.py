@@ -1,4 +1,4 @@
-from typing import Dict, Optional
+from typing import Dict, Iterator, Optional
 
 import pytest
 from kubernetes import client
@@ -70,7 +70,7 @@ def new_om_s3_store(
 
 
 @fixture(scope="module")
-def s3_bucket(aws_s3_client: AwsS3Client, namespace: str, vault_namespace: str, vault_name: str) -> str:
+def s3_bucket(aws_s3_client: AwsS3Client, namespace: str, vault_namespace: str, vault_name: str) -> Iterator[str]:
     create_aws_secret(aws_s3_client, S3_SECRET_NAME, vault_namespace, vault_name, namespace)
     yield from create_s3_bucket(aws_s3_client, bucket_prefix="test-s3-bucket-")
 
@@ -240,8 +240,8 @@ def test_enable_kubernetes_auth(vault_name: str, vault_namespace: str):
 
     response = run_command_in_vault(vault_namespace, vault_name, cmd, expected_message=[])
 
-    response = response.split("\n")
-    for line in response:
+    response_lines = response.split("\n")
+    for line in response_lines:
         l = line.strip()
         if str.startswith(l, "KUBERNETES_PORT_443_TCP_ADDR"):
             cluster_ip = l.split("=")[1]

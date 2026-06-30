@@ -17,7 +17,7 @@ operator:
   operator_image_name: mongodb-kubernetes
 
   # Version of mongodb-kubernetes-operator
-  version: 1.7.0
+  version: 1.8.0
 
   # The Custom Resources that will be watched by the Operator. Needs to be changed if only some of the CRDs are installed
   watchedResources:
@@ -131,11 +131,11 @@ operator:
 ## Database
 database:
   name: mongodb-kubernetes-database
-  version: 1.7.0
+  version: 1.8.0
 
 initDatabase:
   name: mongodb-kubernetes-init-database
-  version: 1.7.0
+  version: 1.8.0
 
 ## Ops Manager
 opsManager:
@@ -143,7 +143,7 @@ opsManager:
 
 initOpsManager:
   name: mongodb-kubernetes-init-ops-manager
-  version: 1.7.0
+  version: 1.8.0
 
 agent:
   name: mongodb-agent
@@ -155,7 +155,7 @@ versionUpgradeHook:
   version: 1.0.10
 readinessProbe:
   name: mongodb-kubernetes-readinessprobe
-  version: 1.0.23
+  version: 1.0.24
 # This is only used by the MongoDBCommunity resource reconciler - END
 
 # This is used by AppDB and by static containers to determine the image that the operator uses for databases.
@@ -223,4 +223,5 @@ search:
   repo: quay.io/mongodb
   name: mongodb-search
   # default MongoDB Search version used; can be overridden by setting MongoDBSearch.spec.version field.
-  version: 0.60.1
+  version: 0.64.0
+  envoyImage: envoyproxy/envoy:v1.37-latest

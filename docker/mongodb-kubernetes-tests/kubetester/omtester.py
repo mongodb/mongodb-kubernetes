@@ -6,7 +6,7 @@ import re
 import tempfile
 import time
 import urllib.parse
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Dict, List, Optional
 
@@ -26,6 +26,8 @@ from tests.common.ops_manager.cloud_manager import is_cloud_qa
 skip_if_cloud_manager = pytest.mark.skipif(is_cloud_qa(), reason="Do not run in Cloud Manager")
 
 logger = test_logger.get_test_logger(__name__)
+
+from kubetester.scram import build_sha1_creds, build_sha256_creds
 
 
 class BackupStatus(str, Enum):
@@ -205,7 +207,7 @@ class OMTester(object):
                 snapshot_timestamp = latest_snapshot["created"]["date"]
                 print(f"Current Backup Snapshots: {snapshots}")
                 self.set_latest_backup_completion_time(
-                    time_to_millis(datetime.fromisoformat(snapshot_timestamp.replace("Z", "")))
+                    time_to_millis(datetime.fromisoformat(snapshot_timestamp.replace("Z", "+00:00")))
                 )
                 return
             time.sleep(3)
@@ -257,6 +259,18 @@ class OMTester(object):
         for cluster in clusters:
             if cluster["typeName"] == "SHARDED_REPLICA_SET":
                 return cluster["id"]
+        raise AssertionError("No SHARDED_REPLICA_SET cluster found")
+
+    def get_cluster_availability(self, name: str) -> Optional[str]:
+        clusters = self.api_read_clusters()
+        for cluster in clusters:
+            if cluster["name"] == name:
+                return cluster["availability"]
+        return None
+
+    def assert_cluster_available(self, name: str):
+        availability = self.get_cluster_availability(name)
+        assert availability == "available", f"Cluster {name} is not available, current availability: {availability}"
 
     def get_cluster_availability(self, name: str) -> Optional[str]:
         clusters = self.api_read_clusters()
@@ -391,11 +405,11 @@ class OMTester(object):
     def assert_om_version(self, expected_version: str):
         assert self.api_get_om_version() == expected_version
 
-    def check_healthiness(self) -> tuple[str, str]:
+    def check_healthiness(self) -> tuple[int, str]:
         return OMTester.request_health(self.context.base_url)
 
     @staticmethod
-    def request_health(base_url: str) -> tuple[str, str]:
+    def request_health(base_url: str) -> tuple[int, str]:
         endpoint = base_url + "/monitor/health"
         response = requests.request("get", endpoint, verify=False)
         return response.status_code, response.text
@@ -634,7 +648,7 @@ class OMTester(object):
             "results"
         ]
 
-    def api_get_clusters(self) -> List:
+    def api_get_clusters(self) -> Dict:
         return self.om_request("get", f"/groups/{self.context.project_id}/clusters/").json()
 
     def api_create_restore_job_pit(self, cluster_id: str, pit_milliseconds: int):
@@ -720,7 +734,7 @@ class OMTester(object):
         clientPem.write(connParams.client_pem)
         clientPem.flush()
 
-        dbClient = pymongo.MongoClient(
+        dbClient: pymongo.database.Database = pymongo.MongoClient(
             host=connParams.host,
             tls=True,
             tlsCAFile=caPem.name,
@@ -759,6 +773,42 @@ class OMTester(object):
 
     def api_put_automation_config(self, config: dict):
         self.om_request("put", f"/groups/{self.context.project_id}/automationConfig", json_object=config)
+
+    def add_user(
+        self,
+        username: str,
+        database: str,
+        password: str,
+        mechanisms: List[str],
+        roles: List[Dict[str, str]],
+    ) -> None:
+        """Injects a user directly into OM's automation config with the given mechanisms.
+
+        This simulates an OM-originated user (i.e. one that exists in the AC before a
+        MongoDBUser CR is created), which is needed to test mechanism-preservation logic.
+        """
+        config = self.api_get_automation_config()
+
+        user_entry: Dict = {
+            "user": username,
+            "db": database,
+            "mechanisms": mechanisms,
+            "roles": roles,
+        }
+
+        if "SCRAM-SHA-256" in mechanisms:
+            user_entry["scramSha256Creds"] = build_sha256_creds(password)
+        if "MONGODB-CR" in mechanisms or "SCRAM-SHA-1" in mechanisms:
+            user_entry["scramSha1Creds"] = build_sha1_creds(username, password)
+
+        # Replace any existing entry for this user/db pair.
+        config["auth"]["usersWanted"] = [
+            u for u in config["auth"]["usersWanted"] if not (u["user"] == username and u["db"] == database)
+        ]
+        config["auth"]["usersWanted"].append(user_entry)
+
+        self.api_put_automation_config(config)
+        self.wait_agents_ready()
 
     def wait_agents_ready(self, timeout: Optional[int] = 600):
         """Waits until all the agents reached the goal automation config version."""
@@ -932,6 +982,6 @@ def should_include_tag(version: Optional[Dict[str, str]]) -> bool:
 
 def time_to_millis(date_time) -> int:
     """https://stackoverflow.com/a/11111177/614239"""
-    epoch = datetime.utcfromtimestamp(0)
+    epoch = datetime.fromtimestamp(0, tz=timezone.utc)
     pit_millis = (date_time - epoch).total_seconds() * 1000
     return pit_millis
