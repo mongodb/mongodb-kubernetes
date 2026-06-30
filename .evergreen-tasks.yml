@@ -1427,12 +1427,52 @@ tasks:
     commands:
       - func: "e2e_test"
 
-  - name: e2e_vm_migration_sharded
+  - name: e2e_vm_migration_shardedcluster_no_auth
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
 
-  - name: e2e_vm_migration_sharded_x509
+  - name: e2e_vm_migration_shardedcluster_x509
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_shardedcluster_scram_sha256
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_shardedcluster_scram_sha1
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_shardedcluster_scram_sha256_tls
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_shardedcluster_ldap
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_shardedcluster_oidc
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_shardedcluster_oidc_group
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_shardedcluster_oidc_workforce
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_shardedcluster_prometheus
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"

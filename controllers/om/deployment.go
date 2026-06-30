@@ -786,27 +786,6 @@ func (d Deployment) GetShardedClusterShardProcessNamesByRs(name string, rsName s
 	return nil
 }
 
-// GetShardedClusterByName returns the sharded cluster with the given name and whether it exists.
-func (d Deployment) GetShardedClusterByName(name string) (ShardedCluster, bool) {
-	if sc := d.getShardedClusterByName(name); sc != nil {
-		return *sc, true
-	}
-	return nil, false
-}
-
-// GetShardedClusterShardProcessNamesByRs returns the process names of the shard of cluster "name" whose
-// replica set name is rsName. The shards array is sorted by _id, so positional access is unreliable.
-func (d Deployment) GetShardedClusterShardProcessNamesByRs(name string, rsName string) []string {
-	if sc := d.getShardedClusterByName(name); sc != nil {
-		for _, shard := range sc.shards() {
-			if shard.rs() == rsName {
-				return d.getReplicaSetProcessNames(rsName)
-			}
-		}
-	}
-	return nil
-}
-
 // getShardedClusterShardsProcessNames returns the process names  fo sharded cluster named "name".
 func (d Deployment) getShardedClusterShardsProcessNames(name string) []string {
 	processNames := make([]string, 0)

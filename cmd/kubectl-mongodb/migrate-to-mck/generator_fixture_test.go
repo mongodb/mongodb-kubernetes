@@ -181,6 +181,21 @@ func TestFixtureMatch_ShardedCluster(t *testing.T) {
 			name:    "sharded cluster — split shard names",
 			fixture: "singlecluster/shardedcluster/split_shard_names/split_shard_names",
 		},
+		{
+			name:     "sharded cluster — LDAP: ldap section + agent password secret generated, external agent skipped, app user CR generated",
+			fixture:  "singlecluster/shardedcluster/authentication/ldap/ldap",
+			hasUsers: true,
+		},
+		{
+			name:     "sharded cluster — OIDC: provider configs preserved, SCRAM users emitted",
+			fixture:  "singlecluster/shardedcluster/authentication/oidc/oidc",
+			hasUsers: true,
+		},
+		{
+			name:    "sharded cluster — Prometheus (HTTP): spec.prometheus referencing the password secret",
+			fixture: "singlecluster/shardedcluster/authentication/prometheus/prometheus",
+			opts:    GenerateOptions{PrometheusSecretName: PrometheusPasswordSecretName},
+		},
 	}
 	runFixtureCases(t, cases)
 }

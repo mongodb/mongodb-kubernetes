@@ -38,7 +38,7 @@ from kubetester.mongotester import MongoDBBackgroundTester, MongoTester
 from kubetester.omtester import OMContext, OMTester
 from kubetester.phase import Phase
 from pytest import fixture, mark
-from tests.tls.vm_migration_sharded_ac import build_sharded_cluster_ac
+from tests.vm_migration.vm_migration_helpers import build_sharded_cluster_ac
 
 MONGOD_STS_NAME = "vm-sharded-mongod"
 MONGOS_STS_NAME = "vm-sharded-mongos"
@@ -357,7 +357,7 @@ def mdb_health_checker(mongo_tester: MongoTester) -> MongoDBBackgroundTester:
     return health_checker
 
 
-@mark.e2e_vm_migration_sharded_x509
+@mark.e2e_vm_migration_shardedcluster_x509
 def test_deploy_vm_sharded(
     namespace: str,
     vm_sharded_mongod_sts,
@@ -377,7 +377,7 @@ def test_deploy_vm_sharded(
     KubernetesTester.wait_until(mongos_ready, timeout=300)
 
 
-@mark.e2e_vm_migration_sharded_x509
+@mark.e2e_vm_migration_shardedcluster_x509
 def test_vm_sharded_ac_no_auth(
     namespace: str,
     om_tester: OMTester,
@@ -409,7 +409,7 @@ def test_vm_sharded_ac_no_auth(
     om_tester.wait_agents_ready(timeout=1800)
 
 
-@mark.e2e_vm_migration_sharded_x509
+@mark.e2e_vm_migration_shardedcluster_x509
 def test_vm_sharded_ac_tls(namespace: str, om_tester: OMTester, vm_sharded_mongod_sts, vm_sharded_mongos_sts):
     """Enable TLS on all VM sharded cluster processes."""
     config_rs_name = "sharded-migration-config"
@@ -437,7 +437,7 @@ def test_vm_sharded_ac_tls(namespace: str, om_tester: OMTester, vm_sharded_mongo
     om_tester.wait_agents_ready(timeout=1800)
 
 
-@mark.e2e_vm_migration_sharded_x509
+@mark.e2e_vm_migration_shardedcluster_x509
 def test_vm_sharded_ac_x509(namespace: str, om_tester: OMTester, vm_agent_combined_pem: tuple):
     """Switch the VM sharded cluster AC to X509 client auth."""
     config_rs_name = "sharded-migration-config"
@@ -467,7 +467,7 @@ def test_vm_sharded_ac_x509(namespace: str, om_tester: OMTester, vm_agent_combin
     om_tester.wait_agents_ready(timeout=600)
 
 
-@mark.e2e_vm_migration_sharded_x509
+@mark.e2e_vm_migration_shardedcluster_x509
 def test_vm_sharded_deployment_is_ready(om_tester: OMTester):
     ac_tester = om_tester.get_automation_config_tester()
     vm_total = CONFIG_SERVER_COUNT + SHARD_COUNT + MONGOS_COUNT
@@ -482,12 +482,12 @@ def test_vm_sharded_deployment_is_ready(om_tester: OMTester):
     assert len(ac_tester.get_sharding_entries()) == 1
 
 
-@mark.e2e_vm_migration_sharded_x509
+@mark.e2e_vm_migration_shardedcluster_x509
 def test_install_operator(default_operator):
     default_operator.assert_is_running()
 
 
-@mark.e2e_vm_migration_sharded_x509
+@mark.e2e_vm_migration_shardedcluster_x509
 def test_mdb_sharded_reaches_running(mdb_sharded_migration: MongoDB, om_tester: OMTester):
     mdb_sharded_migration.assert_reaches_phase(Phase.Running, timeout=1800)
 
@@ -497,7 +497,7 @@ def test_mdb_sharded_reaches_running(mdb_sharded_migration: MongoDB, om_tester: 
     ac_tester.assert_sharded_cluster_processes(config_rs_name, [vm_shard_rs_name], MONGOS_COUNT * 2)
 
 
-@mark.e2e_vm_migration_sharded_x509
+@mark.e2e_vm_migration_shardedcluster_x509
 def test_promote_and_prune_config_server(mdb_sharded_migration: MongoDB, om_tester: OMTester):
     try_load(mdb_sharded_migration)
     config_rs_name = f"{mdb_sharded_migration.name}-config"
@@ -518,7 +518,7 @@ def test_promote_and_prune_config_server(mdb_sharded_migration: MongoDB, om_test
         om_tester.assert_cluster_available(mdb_sharded_migration.name)
 
 
-@mark.e2e_vm_migration_sharded_x509
+@mark.e2e_vm_migration_shardedcluster_x509
 def test_promote_and_prune_shard(mdb_sharded_migration: MongoDB, om_tester: OMTester):
     try_load(mdb_sharded_migration)
     vm_shard_rs_name = "vm-shard-0"
@@ -538,7 +538,7 @@ def test_promote_and_prune_shard(mdb_sharded_migration: MongoDB, om_tester: OMTe
         om_tester.assert_cluster_available(mdb_sharded_migration.name)
 
 
-@mark.e2e_vm_migration_sharded_x509
+@mark.e2e_vm_migration_shardedcluster_x509
 def test_prune_mongos(mdb_sharded_migration: MongoDB, mdb_health_checker: MongoDBBackgroundTester):
     try_load(mdb_sharded_migration)
 
@@ -551,7 +551,7 @@ def test_prune_mongos(mdb_sharded_migration: MongoDB, mdb_health_checker: MongoD
     mdb_health_checker.assert_healthiness()
 
 
-@mark.e2e_vm_migration_sharded_x509
+@mark.e2e_vm_migration_shardedcluster_x509
 def test_process_names(namespace: str, om_tester: OMTester, mdb_sharded_migration: MongoDB):
     ac_tester = om_tester.get_automation_config_tester()
     process_names = [process["name"] for process in ac_tester.get_all_processes()]

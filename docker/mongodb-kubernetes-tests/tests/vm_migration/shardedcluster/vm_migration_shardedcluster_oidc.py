@@ -1,19 +1,16 @@
 """
-VM migration from a generated MongoDB resource with OIDC (workload M2M) authentication.
+VM migration for a sharded cluster with OIDC (workload M2M) authentication.
 
-The VM automation config enables MONGODB-OIDC alongside SCRAM (SCRAM for the agent and the application
-user, OIDC for a workforce/workload identity). The OIDC provider is AWS Cognito, configured the same way
-as the standalone OIDC e2e tests. This verifies that the migrate tool carries the OIDC provider configs
-into the generated CR and that an OIDC identity can still authenticate after the operator takes over.
-
-Requires the Cognito test environment (the cognito_* expansions). The test skips when they are absent.
+Mirrors vm_migration_replicaset_oidc.py adapted for sharded cluster:
+two StatefulSets (mongod and mongos), config server promote/prune, and
+mongos-tester for connectivity checks.
 """
 
 import json
 
 import kubetester.oidc as oidc
-from kubetester import create_or_update_secret, get_statefulset
-from kubetester.kubetester import KubernetesTester, fcv_from_version
+from kubetester import create_or_update_secret, get_statefulset, try_load
+from kubetester.kubetester import KubernetesTester, ensure_ent_version, skip_if_local
 from kubetester.mongodb import MongoDB
 from kubetester.mongotester import MongoDBBackgroundTester, with_scram
 from kubetester.omtester import OMContext, OMTester
@@ -23,33 +20,42 @@ from kubetester.scram import build_sha256_creds
 from pytest import fixture, mark, skip
 from tests.vm_migration.vm_migration_dry_run import run_migration_dry_run_connectivity_passes
 from tests.vm_migration.vm_migration_helpers import (
-    apply_generated_mongodb_resource,
+    apply_generated_sharded_cluster_resource,
     apply_user_crs_and_verify_ac,
-    assert_common_generated_cr_shape,
-    assert_connection_string_after_full_migration,
-    assert_connection_string_contains_current_hosts,
-    assert_k8s_process_names,
-    assert_max_voting_members_validation,
+    assert_common_generated_sharded_cr_shape,
+    assert_connection_string_after_full_sharded_migration,
+    assert_k8s_sharded_process_names,
     assert_migration_data_exists,
-    deploy_vm_service,
-    deploy_vm_statefulset,
+    build_sharded_cluster_ac,
+    deploy_vm_sharded_mongod_statefulset,
+    deploy_vm_sharded_mongos_service,
+    deploy_vm_sharded_mongos_statefulset,
+    deploy_vm_sharded_service,
     generated_mongodb_doc,
     generated_user_docs,
     insert_migration_data,
-    promote_and_prune,
     run_generate_cr,
-    vm_replica_set_tester,
+    vm_mongos_tester,
 )
 
-RS_NAME = "vm-mongodb-rs"
+MONGOD_STS_NAME = "vm-sharded-mongod"
+MONGOS_STS_NAME = "vm-sharded-mongos"
+MONGOD_SVC_NAME = "vm-sharded-mongod"
+MONGOS_SVC_NAME = "vm-sharded-mongos"
+CONFIG_SERVER_COUNT = 3
+SHARD_COUNT = 3
+MONGOS_COUNT = 2
+MDB_RESOURCE_NAME = "sharded-migration"
+VM_CONFIG_RS_NAME = "vm-config"
+VM_SHARD_RS_NAME = "vm-shard-0"
+VM_MONGOS_NAME = "vm-mongos"
+
 AGENT_USER = "mms-automation-agent"
 AGENT_PASSWORD = "agent-oidc-password"
 APP_USER = "app-user"
 APP_USER_PASSWORD = "appUserOidc!"
 SCRAM_MECHANISM = "SCRAM-SHA-256"
 OIDC_MECHANISM = "MONGODB-OIDC"
-MDB_VERSION = "8.0.4-ent"
-# configurationName / authNamePrefix; the OIDC username is "<prefix>/<subject>".
 OIDC_CONFIG_NAME = "OIDC-test-user"
 
 
@@ -78,34 +84,50 @@ def om_tester(namespace: str) -> OMTester:
 
 
 @fixture(scope="module")
-def vm_sts(namespace: str, om_tester: OMTester):
-    return deploy_vm_statefulset(namespace, om_tester)
+def vm_sharded_mongod_sts(namespace: str, om_tester: OMTester):
+    return deploy_vm_sharded_mongod_statefulset(namespace, om_tester)
 
 
 @fixture(scope="module")
-def vm_service(namespace: str):
-    return deploy_vm_service(namespace)
+def vm_sharded_mongos_sts(namespace: str, om_tester: OMTester):
+    return deploy_vm_sharded_mongos_statefulset(namespace, om_tester)
+
+
+@fixture(scope="module")
+def vm_sharded_service(namespace: str):
+    return deploy_vm_sharded_service(namespace)
+
+
+@fixture(scope="module")
+def vm_sharded_mongos_service(namespace: str):
+    return deploy_vm_sharded_mongos_service(namespace)
 
 
 def _configure_ac(
     namespace: str,
     om_tester: OMTester,
-    vm_sts: dict,
-    vm_service: dict,
+    mdb_version: str,
     cognito: dict,
     oidc_username: str,
-):
-    """SCRAM agent plus an OIDC (workload M2M) provider. The application user authenticates with SCRAM,
-    the OIDC identity authenticates via the external identity provider."""
-    mdb_version = MDB_VERSION
-    ac = om_tester.api_get_automation_config()
-    if len(ac["processes"]) > 0:
+) -> None:
+    ac_existing = om_tester.api_get_automation_config()
+    if len(ac_existing.get("processes", [])) > 0:
         return
-
-    sts_name = vm_sts["metadata"]["name"]
-    svc_name = vm_service["metadata"]["name"]
-    rs_name = f"{sts_name}-rs"
-
+    ac = build_sharded_cluster_ac(
+        om_tester,
+        mongod_sts_name=MONGOD_STS_NAME,
+        mongos_sts_name=MONGOS_STS_NAME,
+        service_name=MONGOD_SVC_NAME,
+        mongos_service_name=MONGOS_SVC_NAME,
+        namespace=namespace,
+        mongodb_version=mdb_version,
+        config_rs_name=VM_CONFIG_RS_NAME,
+        shard_rs_name=VM_SHARD_RS_NAME,
+        config_server_count=CONFIG_SERVER_COUNT,
+        shard_count=SHARD_COUNT,
+        mongos_count=MONGOS_COUNT,
+        cluster_name=VM_MONGOS_NAME,
+    )
     ac["auth"] = {
         "usersWanted": [
             {
@@ -148,7 +170,6 @@ def _configure_ac(
         "keyfile": "/var/lib/mongodb-mms-automation/keyfile",
         "keyfileWindows": "%SystemDrive%\\MMSAutomation\\versions\\keyfile",
     }
-
     ac["oidcProviderConfigs"] = [
         {
             "authNamePrefix": OIDC_CONFIG_NAME,
@@ -162,70 +183,17 @@ def _configure_ac(
             "useAuthorizationClaim": False,
         }
     ]
-
-    ac["processes"] = []
-    ac["monitoringVersions"] = []
-    ac["replicaSets"] = [{"_id": rs_name, "members": [], "protocolVersion": "1"}]
-
-    for i in range(vm_sts["spec"]["replicas"]):
-        hostname = f"{sts_name}-{i}.{svc_name}.{namespace}.svc.cluster.local"
-        ac["monitoringVersions"].append(
-            {
-                "hostname": hostname,
-                "logPath": "/var/log/mongodb-mms-automation/monitoring-agent.log",
-                "logRotate": {"sizeThresholdMB": 1000, "timeThresholdHrs": 24},
-            }
-        )
-        ac["processes"].append(
-            {
-                "version": mdb_version,
-                "name": f"{sts_name}-{i}",
-                "hostname": hostname,
-                "logRotate": {"sizeThresholdMB": 1000, "timeThresholdHrs": 24},
-                "authSchemaVersion": 5,
-                "featureCompatibilityVersion": fcv_from_version(mdb_version),
-                "processType": "mongod",
-                "args2_6": {
-                    "net": {"port": 27017, "tls": {"mode": "disabled"}},
-                    "storage": {"dbPath": "/data/"},
-                    "systemLog": {"path": "/data/mongodb.log", "destination": "file"},
-                    "replication": {"replSetName": rs_name},
-                    "setParameter": {
-                        "authenticationMechanisms": f"{SCRAM_MECHANISM},{OIDC_MECHANISM}",
-                        "oidcIdentityProviders": json.dumps(
-                            [
-                                {
-                                    "issuer": cognito["issuer_uri"],
-                                    "audience": cognito["client_id"],
-                                    "authNamePrefix": OIDC_CONFIG_NAME,
-                                    "principalName": "sub",
-                                    "supportsHumanFlows": False,
-                                }
-                            ]
-                        ),
-                    },
-                },
-            }
-        )
-        ac["replicaSets"][0]["members"].append(
-            {
-                "_id": i + 100,
-                "host": f"{sts_name}-{i}",
-                "priority": 1,
-                "votes": 1,
-                "secondaryDelaySecs": 0,
-                "hidden": False,
-                "arbiterOnly": False,
-            }
-        )
-
     om_tester.api_put_automation_config(ac)
 
 
 @fixture(scope="module")
 def generated_cr_yaml(namespace: str) -> str:
     create_or_update_secret(namespace, "app-user-secret", {"password": APP_USER_PASSWORD})
-    return run_generate_cr(namespace, user_secrets={f"{APP_USER}:admin": "app-user-secret"})
+    return run_generate_cr(
+        namespace,
+        resource_name_override=MDB_RESOURCE_NAME,
+        user_secrets={f"{APP_USER}:admin": "app-user-secret"},
+    )
 
 
 @fixture(scope="module")
@@ -235,7 +203,12 @@ def generated_cr(generated_cr_yaml: str) -> dict:
 
 @fixture(scope="module")
 def mdb_migration(namespace: str, generated_cr_yaml: str) -> MongoDB:
-    return apply_generated_mongodb_resource(namespace, generated_cr_yaml, customer_sets_disabled_tls_mode=True)
+    return apply_generated_sharded_cluster_resource(
+        namespace,
+        generated_cr_yaml,
+        config_rs_name=VM_CONFIG_RS_NAME,
+        customer_sets_disabled_tls_mode=True,
+    )
 
 
 @fixture(scope="module")
@@ -251,62 +224,75 @@ def mdb_health_checker(mdb_migration: MongoDB, scram_opts: list[dict]) -> MongoD
     )
 
 
-# Test flow
+@mark.e2e_vm_migration_shardedcluster_oidc
+def test_deploy_vm_sharded(
+    namespace: str,
+    vm_sharded_mongod_sts,
+    vm_sharded_mongos_sts,
+    vm_sharded_service,
+    vm_sharded_mongos_service,
+):
+    def mongod_sts_is_ready():
+        sts = get_statefulset(namespace, vm_sharded_mongod_sts["metadata"]["name"])
+        return sts.status.ready_replicas == vm_sharded_mongod_sts["spec"]["replicas"]
+
+    def mongos_sts_is_ready():
+        sts = get_statefulset(namespace, vm_sharded_mongos_sts["metadata"]["name"])
+        return sts.status.ready_replicas == vm_sharded_mongos_sts["spec"]["replicas"]
+
+    KubernetesTester.wait_until(mongod_sts_is_ready, timeout=300)
+    KubernetesTester.wait_until(mongos_sts_is_ready, timeout=300)
 
 
-@mark.e2e_vm_migration_replicaset_oidc
-def test_deploy_vm(namespace: str, vm_sts, vm_service):
-    def sts_is_ready():
-        sts = get_statefulset(namespace, vm_sts["metadata"]["name"])
-        return sts.status.ready_replicas == vm_sts["spec"]["replicas"]
-
-    KubernetesTester.wait_until(sts_is_ready, timeout=300)
-
-
-@mark.e2e_vm_migration_replicaset_oidc
+@mark.e2e_vm_migration_shardedcluster_oidc
 def test_configure_ac(
     namespace: str,
     om_tester: OMTester,
-    vm_sts,
-    vm_service,
+    vm_sharded_mongod_sts,
+    vm_sharded_mongos_sts,
+    vm_sharded_service,
+    vm_sharded_mongos_service,
+    custom_mdb_version: str,
     cognito: dict,
     oidc_username: str,
 ):
-    _configure_ac(namespace, om_tester, vm_sts, vm_service, cognito, oidc_username)
+    _configure_ac(namespace, om_tester, ensure_ent_version(custom_mdb_version), cognito, oidc_username)
     om_tester.wait_agents_ready(timeout=600)
 
 
-@mark.e2e_vm_migration_replicaset_oidc
+@mark.e2e_vm_migration_shardedcluster_oidc
 def test_user_connectivity_before_migration(namespace: str):
-    vm_replica_set_tester(namespace).assert_scram_sha_authentication(
+    vm_mongos_tester(MONGOS_STS_NAME, MONGOS_SVC_NAME, namespace).assert_scram_sha_authentication(
         username=APP_USER, password=APP_USER_PASSWORD, auth_mechanism=SCRAM_MECHANISM
     )
 
 
-@mark.e2e_vm_migration_replicaset_oidc
+@mark.e2e_vm_migration_shardedcluster_oidc
 def test_oidc_authentication_before_migration(namespace: str):
-    vm_replica_set_tester(namespace, use_ssl=False).assert_oidc_authentication()
+    vm_mongos_tester(MONGOS_STS_NAME, MONGOS_SVC_NAME, namespace).assert_oidc_authentication()
 
 
-@mark.e2e_vm_migration_replicaset_oidc
+@mark.e2e_vm_migration_shardedcluster_oidc
 def test_insert_migration_data(namespace: str, scram_opts: list[dict]):
-    insert_migration_data(vm_replica_set_tester(namespace), opts=scram_opts)
+    insert_migration_data(vm_mongos_tester(MONGOS_STS_NAME, MONGOS_SVC_NAME, namespace), opts=scram_opts)
 
 
-@mark.e2e_vm_migration_replicaset_oidc
+@mark.e2e_vm_migration_shardedcluster_oidc
 def test_install_operator(operator: Operator):
     operator.assert_is_running()
 
 
-# Generated CR checks
+@mark.e2e_vm_migration_shardedcluster_oidc
+def test_common_generated_cr_shape(generated_cr: dict):
+    assert_common_generated_sharded_cr_shape(
+        generated_cr,
+        expected_config_count=CONFIG_SERVER_COUNT,
+        expected_shard_count=SHARD_COUNT,
+        expected_mongos_count=MONGOS_COUNT,
+    )
 
 
-@mark.e2e_vm_migration_replicaset_oidc
-def test_common_generated_cr_shape(generated_cr_yaml: str, generated_cr: dict, vm_sts: dict):
-    assert_common_generated_cr_shape(generated_cr_yaml, generated_cr, vm_sts["spec"]["replicas"])
-
-
-@mark.e2e_vm_migration_replicaset_oidc
+@mark.e2e_vm_migration_shardedcluster_oidc
 def test_oidc_provider_in_cr(generated_cr: dict):
     auth = generated_cr["spec"]["security"]["authentication"]
     assert "OIDC" in auth["modes"]
@@ -318,85 +304,124 @@ def test_oidc_provider_in_cr(generated_cr: dict):
     assert provider["authorizationType"] == "UserID"
 
 
-@mark.e2e_vm_migration_replicaset_oidc
+@mark.e2e_vm_migration_shardedcluster_oidc
 def test_user_crs_emitted(generated_cr_yaml: str, oidc_username: str):
     user_docs = generated_user_docs(generated_cr_yaml)
     usernames = {d["spec"]["username"] for d in user_docs}
     assert usernames == {APP_USER, oidc_username}, f"Unexpected user CRs: {usernames}"
 
 
-# Lifecycle checks
-
-
-@mark.e2e_vm_migration_replicaset_oidc
+@mark.e2e_vm_migration_shardedcluster_oidc
 def test_migration_dry_run_connectivity_passes(mdb_migration: MongoDB):
     run_migration_dry_run_connectivity_passes(mdb_migration)
 
 
-@mark.e2e_vm_migration_replicaset_oidc
+@mark.e2e_vm_migration_shardedcluster_oidc
 def test_migrate_vm_to_kubernetes(mdb_migration: MongoDB):
-    mdb_migration.assert_reaches_phase(Phase.Running, timeout=1200)
-    assert_connection_string_contains_current_hosts(mdb_migration)
+    mdb_migration.assert_reaches_phase(Phase.Running, timeout=1800)
 
 
-@mark.e2e_vm_migration_replicaset_oidc
-def test_max_voting_members_validation(mdb_migration: MongoDB):
-    assert_max_voting_members_validation(mdb_migration)
-
-
-@mark.e2e_vm_migration_replicaset_oidc
+@mark.e2e_vm_migration_shardedcluster_oidc
 def test_user_crs_reach_updated(generated_cr_yaml: str, namespace: str, mdb_migration: MongoDB, om_tester: OMTester):
     apply_user_crs_and_verify_ac(generated_cr_yaml, namespace, om_tester)
 
 
-@mark.e2e_vm_migration_replicaset_oidc
+@mark.e2e_vm_migration_shardedcluster_oidc
 def test_scram_user_connectivity_after_migration(mdb_migration: MongoDB):
     mdb_migration.tester(use_ssl=False).assert_scram_sha_authentication(
         username=APP_USER, password=APP_USER_PASSWORD, auth_mechanism=SCRAM_MECHANISM
     )
 
 
-@mark.e2e_vm_migration_replicaset_oidc
+@mark.e2e_vm_migration_shardedcluster_oidc
 def test_oidc_authentication_after_migration(mdb_migration: MongoDB):
     mdb_migration.tester(use_ssl=False).assert_oidc_authentication()
 
 
-@mark.e2e_vm_migration_replicaset_oidc
+@mark.e2e_vm_migration_shardedcluster_oidc
 def test_migration_data_exists_after_migration(mdb_migration: MongoDB, scram_opts: list[dict]):
     assert_migration_data_exists(mdb_migration.tester(use_ssl=False), opts=scram_opts)
 
 
-@mark.e2e_vm_migration_replicaset_oidc
+@mark.e2e_vm_migration_shardedcluster_oidc
+@skip_if_local()
 def test_start_background_health_checker(mdb_health_checker: MongoDBBackgroundTester):
     mdb_health_checker.start()
 
 
-@mark.e2e_vm_migration_replicaset_oidc
-def test_promote_and_prune(mdb_migration: MongoDB, vm_sts):
-    promote_and_prune(mdb_migration, vm_sts)
+@mark.e2e_vm_migration_shardedcluster_oidc
+def test_promote_and_prune_config_server(mdb_migration: MongoDB, om_tester: OMTester):
+    try_load(mdb_migration)
+    for i in range(CONFIG_SERVER_COUNT):
+        mdb_migration["spec"]["memberConfig"][i]["priority"] = "1"
+        mdb_migration["spec"]["memberConfig"][i]["votes"] = 1
+        mdb_migration.update()
+        mdb_migration.assert_reaches_phase(Phase.Running)
+
+        config_external = [
+            m for m in mdb_migration["spec"]["externalMembers"]
+            if m["replicaSetName"] == VM_CONFIG_RS_NAME
+        ]
+        if config_external:
+            mdb_migration["spec"]["externalMembers"].remove(config_external[-1])
+            mdb_migration.update()
+            mdb_migration.assert_reaches_phase(Phase.Running)
+
+        om_tester.assert_cluster_available(VM_MONGOS_NAME)
 
 
-@mark.e2e_vm_migration_replicaset_oidc
+@mark.e2e_vm_migration_shardedcluster_oidc
+def test_promote_and_prune_shard(mdb_migration: MongoDB, om_tester: OMTester):
+    try_load(mdb_migration)
+    shard_external = [
+        m for m in mdb_migration["spec"]["externalMembers"]
+        if m["replicaSetName"] == VM_SHARD_RS_NAME
+    ]
+    for _ in range(len(shard_external)):
+        current = [
+            m for m in mdb_migration["spec"]["externalMembers"]
+            if m["replicaSetName"] == VM_SHARD_RS_NAME
+        ]
+        if not current:
+            break
+        mdb_migration["spec"]["externalMembers"].remove(current[-1])
+        mdb_migration.update()
+        mdb_migration.assert_reaches_phase(Phase.Running)
+        om_tester.assert_cluster_available(VM_MONGOS_NAME)
+
+
+@mark.e2e_vm_migration_shardedcluster_oidc
+def test_prune_mongos(mdb_migration: MongoDB):
+    try_load(mdb_migration)
+    mongos_external = [m for m in mdb_migration["spec"]["externalMembers"] if m["type"] == "mongos"]
+    for m in mongos_external:
+        mdb_migration["spec"]["externalMembers"].remove(m)
+    mdb_migration.update()
+    mdb_migration.assert_reaches_phase(Phase.Running)
+
+
+@mark.e2e_vm_migration_shardedcluster_oidc
+@skip_if_local()
 def test_mongodb_reachable_during_promote_and_prune(mdb_health_checker: MongoDBBackgroundTester):
     mdb_health_checker.assert_healthiness()
     mdb_health_checker.stop()
 
 
-@mark.e2e_vm_migration_replicaset_oidc
+@mark.e2e_vm_migration_shardedcluster_oidc
 def test_connection_string_after_full_migration(mdb_migration: MongoDB):
-    assert_connection_string_after_full_migration(mdb_migration)
+    assert_connection_string_after_full_sharded_migration(mdb_migration)
 
 
-@mark.e2e_vm_migration_replicaset_oidc
+@mark.e2e_vm_migration_shardedcluster_oidc
 def test_process_names(om_tester: OMTester, mdb_migration: MongoDB):
-    assert_k8s_process_names(om_tester, mdb_migration)
+    assert_k8s_sharded_process_names(om_tester, mdb_migration)
 
 
-@mark.e2e_vm_migration_replicaset_oidc
+@mark.e2e_vm_migration_shardedcluster_oidc
 def test_oidc_authentication_after_promote(mdb_migration: MongoDB):
     mdb_migration.tester(use_ssl=False).assert_oidc_authentication()
 
 
-@mark.e2e_vm_migration_replicaset_oidc
+@mark.e2e_vm_migration_shardedcluster_oidc
 def test_migration_data_exists_after_promote(mdb_migration: MongoDB, scram_opts: list[dict]):
     assert_migration_data_exists(mdb_migration.tester(use_ssl=False), opts=scram_opts)
