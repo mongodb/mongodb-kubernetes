@@ -6,10 +6,6 @@ operator:
   # Execution environment for the operator, dev or prod. Use dev for more verbose logging
   env: prod
 
-  # Default architecture for the operator.
-  # Values are "static" and "non-static:
-  mdbDefaultArchitecture: non-static
-
   # Default MongoDB image type for static architecture resources and for AppDB in both architectures.
   # Values are "ubi8", "ubi9", and "ubi9-slim". When empty, static uses "ubi9" and non-static AppDB uses "ubi8".
   mdbDefaultImageType: ''

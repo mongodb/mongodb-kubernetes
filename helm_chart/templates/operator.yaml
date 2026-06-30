@@ -84,8 +84,6 @@ spec:
           env:
             - name: OPERATOR_ENV
               value: {{ .Values.operator.env }}
-            - name: MDB_DEFAULT_ARCHITECTURE
-              value: {{ .Values.operator.mdbDefaultArchitecture }}
             {{- if .Values.operator.mdbDefaultImageType }}
             - name: MDB_DEFAULT_IMAGE_TYPE
               value: {{ .Values.operator.mdbDefaultImageType }}
