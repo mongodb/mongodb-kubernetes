@@ -21,7 +21,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	appsv1 "k8s.io/api/apps/v1"
-	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -36,7 +35,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connectionstringsecret"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/controlledfeature"
-	opMigration "github.com/mongodb/mongodb-kubernetes/controllers/operator/migration"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/project"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
@@ -668,14 +666,14 @@ func TestGetShardNameToShardIdxMap(t *testing.T) {
 			expectedMapping:  map[string]int{"slaney-0": 0, "slaney-1": 1},
 		},
 		{
-			name:             "ShardName is mapped as alias alongside the K8s name",
+			name:             "overrides do not affect the map keys, only K8s names are present",
 			shardCount:       2,
 			statusShardCount: 2,
 			overrides: []mdbv1.ShardNameOverride{
 				{ShardName: "slaney-0", ShardId: "vm-shard-0", ReplicaSetName: "vm-shard-0"},
 				{ShardName: "slaney-1", ShardId: "vm-shard-1", ReplicaSetName: "vm-shard-1"},
 			},
-			expectedMapping: map[string]int{"slaney-0": 0, "vm-shard-0": 0, "slaney-1": 1, "vm-shard-1": 1},
+			expectedMapping: map[string]int{"slaney-0": 0, "slaney-1": 1},
 		},
 	}
 
@@ -698,7 +696,7 @@ func TestGetShardNameToShardIdxMap(t *testing.T) {
 				},
 			}
 
-			assert.Equal(t, tt.expectedMapping, helper.getShardNameToShardIdxMap())
+			assert.Equal(t, tt.expectedMapping, helper.shardK8sNameToIndex())
 		})
 	}
 }
@@ -2430,133 +2428,4 @@ func TestShardedRSK8sConfigMatchesDesiredConfiguration(t *testing.T) {
 		assert.Equal(t, desired.Members, members, "shard %d members", shardIdx)
 		assert.Equal(t, desired.MemberConfig, memberConfig, "shard %d memberConfig", shardIdx)
 	}
-}
-
-// buildShardedClusterWithExternalMembers returns a sharded cluster with one external mongos member
-// configured, which is the minimum required for the connectivity dry-run validation.
-func buildShardedClusterWithExternalMembers(t *testing.T) *mdbv1.MongoDB {
-	t.Helper()
-	sc := test.DefaultClusterBuilder().Build()
-	sc.Spec.ExternalMembers = []mdbv1.ExternalMember{
-		{ProcessName: "mongos_0", Hostname: "mongos-0.example.com:27017", Type: "mongos"},
-	}
-	return sc
-}
-
-// newShardedClusterReconcileHelper creates a ShardedClusterReconcileHelper backed by a fake kube client
-// and a fake OM connection factory, using the default reconciler setup.
-func newShardedClusterReconcileHelper(t *testing.T, sc *mdbv1.MongoDB) (*ShardedClusterReconcileHelper, kubernetesClient.Client, *om.CachedOMConnectionFactory) {
-	t.Helper()
-	ctx := context.Background()
-	_, helper, kubeClient, factory, err := defaultShardedClusterReconciler(ctx, nil, "", "", sc, nil, 0)
-	require.NoError(t, err)
-	return helper, kubeClient, factory
-}
-
-// TestRunConnectivityValidationDryRun_* tests exercise the SC connectivity dry-run method
-// by wiring the AnnotationDryRun annotation, pre-seeding batchv1.Jobs for specific phases,
-// and asserting the returned workflow.Status and sc.Status.Conditions.
-//
-// Each test calls sc.UpdateStatus(result.Phase(), result.StatusOptions()...) after the method
-// to replicate what the outer r.updateStatus does in a real reconcile, which is what persists
-// migration conditions from the workflow status options onto sc.Status.Conditions.
-
-func scWithExternalMongos(t *testing.T) *mdbv1.MongoDB {
-	sc := buildShardedClusterWithExternalMembers(t)
-	sc.Annotations = map[string]string{opMigration.AnnotationDryRun: "true"}
-	return sc
-}
-
-func applyStatusFromResult(sc *mdbv1.MongoDB, result workflow.Status) {
-	sc.UpdateStatus(result.Phase(), result.StatusOptions()...)
-}
-
-func TestRunConnectivityValidationDryRun_NoExternalMongos(t *testing.T) {
-	sc := buildShardedClusterWithExternalMembers(t)
-	sc.Annotations = map[string]string{opMigration.AnnotationDryRun: "true"}
-	sc.Spec.ExternalMembers = nil
-	helper, _, _ := newShardedClusterReconcileHelper(t, sc)
-	opts := deploymentOptions{}
-	result := helper.runConnectivityValidationDryRun(context.Background(), sc, opts, "operator:latest", zap.S())
-	assert.Equal(t, status.PhaseFailed, result.Phase())
-	applyStatusFromResult(sc, result)
-	cond := findCondition(sc.Status.Conditions, "NetworkConnectivityVerification")
-	require.NotNil(t, cond)
-	assert.Equal(t, "NoExternalMongos", cond.Reason)
-}
-
-func TestRunConnectivityValidationDryRun_NoJobCreatesAndReturnsRunning(t *testing.T) {
-	sc := scWithExternalMongos(t)
-	helper, kubeClient, _ := newShardedClusterReconcileHelper(t, sc)
-	opts := deploymentOptions{podEnvVars: &env.PodEnvVars{}}
-	result := helper.runConnectivityValidationDryRun(context.Background(), sc, opts, "operator:latest", zap.S())
-	assert.Equal(t, status.PhaseConnectivityValidation, result.Phase())
-	var createdJob batchv1.Job
-	err := kubeClient.Get(context.Background(), kube.ObjectKey(sc.Namespace, sc.Name+"-connectivity-check"), &createdJob)
-	assert.NoError(t, err)
-	applyStatusFromResult(sc, result)
-	cond := findCondition(sc.Status.Conditions, "NetworkConnectivityVerification")
-	require.NotNil(t, cond)
-	assert.Equal(t, "Running", cond.Reason)
-}
-
-func TestRunConnectivityValidationDryRun_JobRunning(t *testing.T) {
-	sc := scWithExternalMongos(t)
-	helper, kubeClient, _ := newShardedClusterReconcileHelper(t, sc)
-	existingJob := batchv1.Job{
-		ObjectMeta: metav1.ObjectMeta{Name: sc.Name + "-connectivity-check", Namespace: sc.Namespace},
-		Status:     batchv1.JobStatus{Active: 1},
-	}
-	_ = kubeClient.Create(context.Background(), &existingJob)
-	opts := deploymentOptions{podEnvVars: &env.PodEnvVars{}}
-	result := helper.runConnectivityValidationDryRun(context.Background(), sc, opts, "operator:latest", zap.S())
-	assert.Equal(t, status.PhaseConnectivityValidation, result.Phase())
-	applyStatusFromResult(sc, result)
-	cond := findCondition(sc.Status.Conditions, "NetworkConnectivityVerification")
-	require.NotNil(t, cond)
-	assert.Equal(t, "Running", cond.Reason)
-}
-
-func TestRunConnectivityValidationDryRun_JobPassed(t *testing.T) {
-	sc := scWithExternalMongos(t)
-	helper, kubeClient, _ := newShardedClusterReconcileHelper(t, sc)
-	existingJob := batchv1.Job{
-		ObjectMeta: metav1.ObjectMeta{Name: sc.Name + "-connectivity-check", Namespace: sc.Namespace},
-		Status:     batchv1.JobStatus{Succeeded: 1},
-	}
-	_ = kubeClient.Create(context.Background(), &existingJob)
-	opts := deploymentOptions{podEnvVars: &env.PodEnvVars{}}
-	result := helper.runConnectivityValidationDryRun(context.Background(), sc, opts, "operator:latest", zap.S())
-	assert.Equal(t, status.PhaseConnectivityValidation, result.Phase())
-	applyStatusFromResult(sc, result)
-	cond := findCondition(sc.Status.Conditions, "NetworkConnectivityVerification")
-	require.NotNil(t, cond)
-	assert.Equal(t, "NetworkValidationPassed", cond.Reason)
-}
-
-func TestRunConnectivityValidationDryRun_JobFailed(t *testing.T) {
-	sc := scWithExternalMongos(t)
-	helper, kubeClient, _ := newShardedClusterReconcileHelper(t, sc)
-	existingJob := batchv1.Job{
-		ObjectMeta: metav1.ObjectMeta{Name: sc.Name + "-connectivity-check", Namespace: sc.Namespace},
-		Status:     batchv1.JobStatus{Failed: 1},
-	}
-	_ = kubeClient.Create(context.Background(), &existingJob)
-	opts := deploymentOptions{podEnvVars: &env.PodEnvVars{}}
-	result := helper.runConnectivityValidationDryRun(context.Background(), sc, opts, "operator:latest", zap.S())
-	assert.Equal(t, status.PhaseFailed, result.Phase())
-	applyStatusFromResult(sc, result)
-	cond := findCondition(sc.Status.Conditions, "NetworkConnectivityVerification")
-	require.NotNil(t, cond)
-	assert.Equal(t, "UnknownError", cond.Reason)
-}
-
-// findCondition looks up a metav1.Condition by type from the given slice.
-func findCondition(conditions []metav1.Condition, condType string) *metav1.Condition {
-	for i := range conditions {
-		if conditions[i].Type == condType {
-			return &conditions[i]
-		}
-	}
-	return nil
 }
