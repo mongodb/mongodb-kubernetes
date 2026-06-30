@@ -58,3 +58,26 @@ def primary_om_external_appdb(meta_om: MongoDBOpsManager, primary_om: MongoDBOps
     resource.set_version(primary_om["spec"]["applicationDatabase"]["version"])
     try_load(resource)
     return resource
+
+
+@pytest.mark.e2e_om_external_appdb
+class TestSetup:
+    def test_meta_om_created(self, meta_om: MongoDBOpsManager):
+        meta_om.update()
+        meta_om.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
+        meta_om.om_status().assert_reaches_phase(Phase.Running, timeout=600)
+
+    def test_primary_om_created(self, primary_om: MongoDBOpsManager):
+        primary_om.update()
+        primary_om.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
+        primary_om.om_status().assert_reaches_phase(Phase.Running, timeout=600)
+
+
+@pytest.mark.e2e_om_external_appdb
+class TestPreSwitchCanary:
+    def test_primary_mdb_created(self, primary_mdb: MongoDB):
+        primary_mdb.update()
+        primary_mdb.assert_reaches_phase(Phase.Running, timeout=600)
+
+    def test_primary_mdb_connectivity(self, primary_mdb: MongoDB):
+        primary_mdb.assert_connectivity()
