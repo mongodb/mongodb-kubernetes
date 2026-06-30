@@ -1731,6 +1731,13 @@ func createRunningAppDB(ctx context.Context, t *testing.T, startingMembers int, 
 	return reconciler
 }
 
+func assertDefaultLogRotate(t *testing.T, lr *automationconfig.MonitoringLogRotate) {
+	t.Helper()
+	require.NotNil(t, lr)
+	assert.Equal(t, 1000, lr.SizeThresholdMB)
+	assert.Equal(t, 24, lr.TimeThresholdHrs)
+}
+
 func TestConfigureMonitoring_NonTLS(t *testing.T) {
 	ac := automationconfig.AutomationConfig{
 		Processes: []automationconfig.Process{{HostName: "host-0"}},
@@ -1743,9 +1750,7 @@ func TestConfigureMonitoring_NonTLS(t *testing.T) {
 	assert.NotContains(t, params, "mmsGroupId")
 	assert.NotContains(t, params, "mmsApiKey")
 	assert.NotContains(t, params, "useSslForAllConnections")
-	require.NotNil(t, ac.MonitoringVersions[0].LogRotate)
-	assert.Equal(t, 1000, ac.MonitoringVersions[0].LogRotate.SizeThresholdMB)
-	assert.Equal(t, 24, ac.MonitoringVersions[0].LogRotate.TimeThresholdHrs)
+	assertDefaultLogRotate(t, ac.MonitoringVersions[0].LogRotate)
 }
 
 func TestConfigureMonitoring_TLS(t *testing.T) {
@@ -1761,9 +1766,7 @@ func TestConfigureMonitoring_TLS(t *testing.T) {
 	assert.Equal(t, "true", params["useSslForAllConnections"])
 	assert.Equal(t, "true", params["sslRequireValidMMSServerCertificates"])
 	assert.Equal(t, appdbCAFilePath, params["sslTrustedServerCertificates"])
-	require.NotNil(t, ac.MonitoringVersions[0].LogRotate)
-	assert.Equal(t, 1000, ac.MonitoringVersions[0].LogRotate.SizeThresholdMB)
-	assert.Equal(t, 24, ac.MonitoringVersions[0].LogRotate.TimeThresholdHrs)
+	assertDefaultLogRotate(t, ac.MonitoringVersions[0].LogRotate)
 }
 
 func TestConfigureMonitoring_TLS_RequireValidCertFalse(t *testing.T) {
