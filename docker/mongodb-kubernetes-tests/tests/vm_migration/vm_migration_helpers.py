@@ -571,7 +571,9 @@ def assert_k8s_sharded_process_names(om_tester: OMTester, mdb_migration: MongoDB
         assert f"k8s/{ns}/{name}-mongos-{i}" in process_names
 
 
-def vm_mongos_tester(mongos_sts_name: str, mongos_svc_name: str, namespace: str, ca_path: str | None = None) -> MongoTester:
+def vm_mongos_tester(
+    mongos_sts_name: str, mongos_svc_name: str, namespace: str, ca_path: str | None = None
+) -> MongoTester:
     """Return a MongoTester pointed at the first VM mongos pod."""
     uri = build_mongodb_connection_uri(
         mdb_resource=mongos_sts_name,

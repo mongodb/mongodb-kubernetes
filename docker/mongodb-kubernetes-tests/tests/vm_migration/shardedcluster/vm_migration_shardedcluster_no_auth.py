@@ -213,7 +213,9 @@ def test_additional_mongod_config(generated_cr: dict):
         assert (
             amc.get("net", {}).get("compression", {}).get("compressors") == "snappy,zstd"
         ), f"Expected compressors 'snappy,zstd' in {component}, got: {amc}"
-        assert amc.get("storage", {}).get("directoryPerDB") is True, f"Expected directoryPerDB=true in {component}, got: {amc}"
+        assert (
+            amc.get("storage", {}).get("directoryPerDB") is True
+        ), f"Expected directoryPerDB=true in {component}, got: {amc}"
 
 
 @mark.e2e_vm_migration_shardedcluster_no_auth
