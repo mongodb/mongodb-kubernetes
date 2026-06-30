@@ -311,7 +311,7 @@ exporters:
       queue_size: ${env:SENDING_QUEUE_SIZE}
     tls:
       {{ if .HasOMCaCert }}
-      ca_file: /mongodb-automation/om-ca-cert/ca.crt
+      ca_file: /mongodb-automation/certs/mms-ca.crt
       {{ end }}
       insecure_skip_verify: {{ .RequireValidMMSServerCertificates | not }}
 service:

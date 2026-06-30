@@ -303,11 +303,11 @@ func TestBuildMetricsForwarderPodSpec_Volumes(t *testing.T) {
 		podSpec := buildMetricsForwarderPodSpec(search, "agent-key-secret", "my-ca-cm", 0, testDefaultImage, resources, false)
 
 		assert.Len(t, podSpec.Volumes, 3)
-		assert.Equal(t, "mms-ca-cert", podSpec.Volumes[2].Name)
+		assert.Equal(t, metricsForwarderCACertVolumeName, podSpec.Volumes[2].Name)
 		assert.Equal(t, "my-ca-cm", podSpec.Volumes[2].ConfigMap.Name)
 
 		assert.Len(t, podSpec.Containers[0].VolumeMounts, 3)
-		assert.Equal(t, "mms-ca-cert", podSpec.Containers[0].VolumeMounts[2].Name)
+		assert.Equal(t, metricsForwarderCACertVolumeName, podSpec.Containers[0].VolumeMounts[2].Name)
 		assert.Equal(t, metricsForwarderCACertMountPath, podSpec.Containers[0].VolumeMounts[2].MountPath)
 	})
 }
@@ -1061,7 +1061,7 @@ func TestReconcile_WithCACert(t *testing.T) {
 	}
 	caCM := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{Name: "my-ca-configmap", Namespace: testNamespace},
-		Data:       map[string]string{"mms-ca.crt": "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----"},
+		Data:       map[string]string{util.CaCertMMS: "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----"},
 	}
 
 	r, fakeClient := newMetricsForwarderReconciler(testDefaultImage, mdb, search, projectCM, caCM, newTestAgentKeySecret(testGroupID+"-group-secret", testNamespace))
@@ -1077,12 +1077,31 @@ func TestReconcile_WithCACert(t *testing.T) {
 
 	foundCAVolume := false
 	for _, vol := range dep.Spec.Template.Spec.Volumes {
-		if vol.Name == "mms-ca-cert" {
+		if vol.Name == metricsForwarderCACertVolumeName {
 			assert.Equal(t, search.MetricsForwarderCACertConfigMapNameForCluster(0), vol.ConfigMap.Name)
 			foundCAVolume = true
 		}
 	}
 	assert.True(t, foundCAVolume, "expected mms-ca-cert volume to be present")
+
+	var caCertMountPath string
+	for _, vm := range dep.Spec.Template.Spec.Containers[0].VolumeMounts {
+		if vm.Name == metricsForwarderCACertVolumeName {
+			caCertMountPath = vm.MountPath
+			break
+		}
+	}
+	require.NotEmpty(t, caCertMountPath, "expected mms-ca-cert volume mount to be present")
+
+	// Verify the collector ConfigMap has ca_file pointing to the mounted volume path.
+	cm := &corev1.ConfigMap{}
+	err = fakeClient.Get(context.Background(), types.NamespacedName{
+		Namespace: testNamespace,
+		Name:      search.MetricsForwarderConfigMapNameForCluster(0),
+	}, cm)
+	require.NoError(t, err)
+	assert.Contains(t, cm.Data["config.yaml"], "ca_file: "+caCertMountPath+"/"+util.CaCertMMS,
+		"expected exporters.otlp_http.tls.ca_file to point to the mounted CA cert volume")
 }
 
 func TestResolveFromEnterpriseSource(t *testing.T) {

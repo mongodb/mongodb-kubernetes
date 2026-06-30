@@ -59,6 +59,7 @@ import (
 const (
 	metricsForwarderConfigPath           = "/etc/otelcol"
 	metricsForwarderConfigFileName       = "config.yaml"
+	metricsForwarderCACertVolumeName     = "mms-ca-cert"
 	metricsForwarderCACertMountPath      = "/mongodb-automation/certs"
 	metricsForwarderConfigHashAnnotation = "mongodb.com/metrics-forwarder-config-hash"
 	metricsForwarderLabelName            = "search-metrics-forwarder"
@@ -1048,7 +1049,7 @@ func buildMetricsForwarderPodSpec(search *searchv1.MongoDBSearch, agentKeySecret
 	// Mount CA cert if configured
 	if caConfigMapName != "" {
 		volumes = append(volumes, corev1.Volume{
-			Name: "mms-ca-cert",
+			Name: metricsForwarderCACertVolumeName,
 			VolumeSource: corev1.VolumeSource{
 				ConfigMap: &corev1.ConfigMapVolumeSource{
 					LocalObjectReference: corev1.LocalObjectReference{Name: caConfigMapName},
@@ -1056,7 +1057,7 @@ func buildMetricsForwarderPodSpec(search *searchv1.MongoDBSearch, agentKeySecret
 			},
 		})
 		volumeMounts = append(volumeMounts, corev1.VolumeMount{
-			Name: "mms-ca-cert", MountPath: metricsForwarderCACertMountPath, ReadOnly: true,
+			Name: metricsForwarderCACertVolumeName, MountPath: metricsForwarderCACertMountPath, ReadOnly: true,
 		})
 	}
 
