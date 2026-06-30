@@ -79,8 +79,6 @@ type BackupVersion struct {
 }
 
 // MonitoringLogRotate is the log rotation config for the monitoring module in monitoringVersions.
-// sizeThresholdMB and timeThresholdHrs map to -maxLogFileSizeBytes and -maxLogFileDurationHrs
-// CLI flags passed to the monitoring module binary by the automation agent.
 type MonitoringLogRotate struct {
 	SizeThresholdMB  int `json:"sizeThresholdMB"`
 	TimeThresholdHrs int `json:"timeThresholdHrs"`
