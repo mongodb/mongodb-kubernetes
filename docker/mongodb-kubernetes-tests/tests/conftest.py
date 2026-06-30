@@ -185,7 +185,9 @@ def operator_clusterwide(
 def get_operator_clusterwide(namespace, operator_installation_config):
     helm_args = operator_installation_config.copy()
     helm_args["operator.watchNamespace"] = "*"
-    return Operator(namespace=namespace, helm_args=helm_args).install()
+    operator = Operator(namespace=namespace, helm_args=helm_args).install()
+    operator.apply_operator_config_and_wait()
+    return operator
 
 
 @fixture(scope="module")
@@ -195,7 +197,9 @@ def operator_vault_secret_backend(
 ) -> Operator:
     helm_args = monitored_appdb_operator_installation_config.copy()
     helm_args["operator.vaultSecretBackend.enabled"] = "true"
-    return Operator(namespace=namespace, helm_args=helm_args).install()
+    operator = Operator(namespace=namespace, helm_args=helm_args).install()
+    operator.apply_operator_config_and_wait()
+    return operator
 
 
 @fixture(scope="module")
@@ -206,7 +210,9 @@ def operator_vault_secret_backend_tls(
     helm_args = monitored_appdb_operator_installation_config.copy()
     helm_args["operator.vaultSecretBackend.enabled"] = "true"
     helm_args["operator.vaultSecretBackend.tlsSecretRef"] = "vault-tls"
-    return Operator(namespace=namespace, helm_args=helm_args).install()
+    operator = Operator(namespace=namespace, helm_args=helm_args).install()
+    operator.apply_operator_config_and_wait()
+    return operator
 
 
 @fixture(scope="module")
@@ -525,6 +531,8 @@ def get_default_operator(
         helm_args=operator_installation_config,
     ).upgrade(apply_crds_first=apply_crds_first)
 
+    operator.apply_operator_config_and_wait()
+
     return operator
 
 
@@ -534,10 +542,12 @@ def operator_with_monitored_appdb(
     monitored_appdb_operator_installation_config: dict[str, str],
 ) -> Operator:
     """Installs/upgrades a default Operator used by any test that needs the AppDB monitoring enabled."""
-    return Operator(
+    operator = Operator(
         namespace=namespace,
         helm_args=monitored_appdb_operator_installation_config,
     ).upgrade()
+    operator.apply_operator_config_and_wait()
+    return operator
 
 
 def get_central_cluster_name():
@@ -854,6 +864,7 @@ def _install_multi_cluster_operator(
     helm_chart_path: Optional[str] = None,
     custom_operator_version: Optional[str] = None,
     apply_crds_first: bool = False,
+    create_operator_config: bool = True,
 ) -> Operator:
     multi_cluster_operator_installation_config.update(helm_opts)
 
@@ -881,6 +892,14 @@ def _install_multi_cluster_operator(
         helm_chart_path=helm_chart_path,
         operator_version=custom_operator_version,
     ).upgrade(multi_cluster=True, custom_operator_version=custom_operator_version, apply_crds_first=apply_crds_first)
+
+    # Legacy operators (e.g. MEKO, used as the starting point of upgrade tests) do not ship the
+    # OperatorConfig CRD, so creating the CR would fail. Such installs pass create_operator_config=False
+    # and the upgrade test creates the CR explicitly once the CRD has been applied.
+    if create_operator_config:
+        operator.apply_operator_config_and_wait(multi_cluster=True)
+    else:
+        operator.wait_for_operator_ready()
 
     # If we're running locally, then immediately after installing the deployment, we scale it to zero.
     # This way operator in POD is not interfering with locally running one.
@@ -939,6 +958,8 @@ def official_meko_operator(
         helm_chart_path=LEGACY_OPERATOR_CHART,
         operator_name=LEGACY_OPERATOR_NAME,
         operator_image=LEGACY_OPERATOR_IMAGE_NAME,
+        # The legacy operator does not ship the OperatorConfig CRD, so the CR cannot be created here.
+        create_operator_config=False,
     )
 
 
@@ -968,6 +989,8 @@ def install_legacy_deployment_state_meko(
         helm_chart_path=LEGACY_OPERATOR_CHART,  # We are testing the upgrade from legacy state management, introduced in MEKO
         operator_name=LEGACY_OPERATOR_NAME,
         operator_image=LEGACY_OPERATOR_IMAGE_NAME,
+        # The legacy operator does not ship the OperatorConfig CRD, so the CR cannot be created here.
+        create_operator_config=False,
     )
     operator.wait_for_operator_ready()
     # Dumping deployments in logs ensures we are using the correct operator version
@@ -986,6 +1009,7 @@ def install_official_operator(
     helm_chart_path: Optional[str] = MCK_HELM_CHART,
     operator_name: Optional[str] = OPERATOR_NAME,
     operator_image: Optional[str] = OFFICIAL_OPERATOR_IMAGE_NAME,
+    create_operator_config: bool = True,
 ) -> Operator:
     """
     Installs the Operator from the official Helm Chart.
@@ -1001,7 +1025,6 @@ def install_official_operator(
     helm_args = {
         "registry.imagePullSecrets": operator_installation_config["registry.imagePullSecrets"],
         "managedSecurityContext": managed_security_context,
-        "operator.mdbDefaultArchitecture": operator_installation_config["operator.mdbDefaultArchitecture"],
     }
 
     # For upgrade tests in patch builds, we need to use ECR registries for workload images
@@ -1089,6 +1112,7 @@ def install_official_operator(
             helm_chart_path=helm_chart_path,
             custom_operator_version=custom_operator_version,
             operator_name=operator_name,
+            create_operator_config=create_operator_config,
         )
     else:
         # When testing the UBI image type we need to assume a few things

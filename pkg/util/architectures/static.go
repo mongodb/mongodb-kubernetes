@@ -28,7 +28,6 @@ func HasSupportedImageTypeSuffix(imageVersion string) (suffixFound bool, suffix 
 
 const (
 	ArchitectureAnnotation                     = "mongodb.com/v1.architecture"
-	DefaultEnvArchitecture                     = "MDB_DEFAULT_ARCHITECTURE"
 	Static                 DefaultArchitecture = "static"
 	NonStatic              DefaultArchitecture = "non-static"
 	// MdbAssumeEnterpriseImage allows the customer to override the version image detection used by the operator to
