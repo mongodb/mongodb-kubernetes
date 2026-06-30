@@ -71,7 +71,11 @@ spec:
       maxLogFileDurationHours: 0
   shardCount: 2
   shardNameOverrides:
-  - shardName: my-sharded-cluster-0
-  - shardName: my-sharded-cluster-1
+  - replicaSetName: shard0
+    shardId: shard0
+    shardName: my-sharded-cluster-0
+  - replicaSetName: shard1
+    shardId: shard1
+    shardName: my-sharded-cluster-1
   type: ShardedCluster
   version: 7.0.12-ent

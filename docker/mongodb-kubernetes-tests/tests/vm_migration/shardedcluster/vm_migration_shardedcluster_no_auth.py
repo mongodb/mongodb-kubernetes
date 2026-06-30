@@ -207,12 +207,13 @@ def test_no_user_crs_emitted(generated_cr_yaml: str):
 
 @mark.e2e_vm_migration_shardedcluster_no_auth
 def test_additional_mongod_config(generated_cr: dict):
-    """additionalMongodConfig must reflect the net.compression.compressors and storage settings."""
-    amc = generated_cr["spec"].get("additionalMongodConfig", {})
-    assert (
-        amc.get("net", {}).get("compression", {}).get("compressors") == "snappy,zstd"
-    ), f"Expected compressors 'snappy,zstd', got: {amc}"
-    assert amc.get("storage", {}).get("directoryPerDB") is True, f"Expected directoryPerDB=true, got: {amc}"
+    """additionalMongodConfig must reflect the net.compression.compressors and storage settings in each component."""
+    for component in ("configSrv", "shard"):
+        amc = generated_cr["spec"].get(component, {}).get("additionalMongodConfig", {})
+        assert (
+            amc.get("net", {}).get("compression", {}).get("compressors") == "snappy,zstd"
+        ), f"Expected compressors 'snappy,zstd' in {component}, got: {amc}"
+        assert amc.get("storage", {}).get("directoryPerDB") is True, f"Expected directoryPerDB=true in {component}, got: {amc}"
 
 
 @mark.e2e_vm_migration_shardedcluster_no_auth

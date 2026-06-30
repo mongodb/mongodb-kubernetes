@@ -116,10 +116,9 @@ func buildShardedClusterOverrides(k8sResourceName, acClusterName string, configR
 
 	shardNameOverrides := make([]mdbv1.ShardNameOverride, 0, len(acShards))
 	for i, s := range acShards {
-		sno := mdbv1.ShardNameOverride{
-			ShardName: fmt.Sprintf("%s-%d", k8sResourceName, i),
-		}
-		if s.Id() != s.Rs() {
+		k8sName := fmt.Sprintf("%s-%d", k8sResourceName, i)
+		sno := mdbv1.ShardNameOverride{ShardName: k8sName}
+		if s.Id() != k8sName || s.Rs() != k8sName {
 			sno.ShardId = s.Id()
 			sno.ReplicaSetName = s.Rs()
 		}

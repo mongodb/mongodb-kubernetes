@@ -380,7 +380,7 @@ def test_user_connectivity_before_migration(namespace: str, ca_path: str, scram_
 @skip_if_local()
 def test_insert_migration_data(namespace: str, ca_path: str, scram_opts: list[dict]):
     insert_migration_data(
-        vm_mongos_tester(MONGOS_STS_NAME, MONGOS_SVC_NAME, namespace),
+        vm_mongos_tester(MONGOS_STS_NAME, MONGOS_SVC_NAME, namespace, ca_path=ca_path),
         opts=scram_opts,
     )
 
@@ -416,12 +416,13 @@ def test_tls_enabled_in_cr(generated_cr: dict):
 
 @mark.e2e_vm_migration_shardedcluster_scram_sha256_tls
 def test_no_disabled_tls_mode_in_additional_config(generated_cr: dict):
-    """additionalMongodConfig must NOT contain net.tls.mode: disabled."""
-    amc = generated_cr["spec"].get("additionalMongodConfig", {})
-    tls_mode = amc.get("net", {}).get("tls", {}).get("mode")
-    assert (
-        tls_mode != "disabled"
-    ), f"TLS is requireSSL -- additionalMongodConfig should not have mode=disabled, got: {amc}"
+    """additionalMongodConfig must NOT contain net.tls.mode: disabled in any component."""
+    for component in ("configSrv", "shard", "mongos"):
+        amc = generated_cr["spec"].get(component, {}).get("additionalMongodConfig", {})
+        tls_mode = amc.get("net", {}).get("tls", {}).get("mode")
+        assert (
+            tls_mode != "disabled"
+        ), f"TLS is requireSSL -- {component}.additionalMongodConfig should not have mode=disabled, got: {amc}"
 
 
 @mark.e2e_vm_migration_shardedcluster_scram_sha256_tls

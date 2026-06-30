@@ -504,9 +504,10 @@ def apply_generated_sharded_cluster_resource(
         return resource
 
     if customer_sets_disabled_tls_mode:
-        resource_doc.setdefault("spec", {}).setdefault("additionalMongodConfig", {}).setdefault("net", {}).setdefault(
-            "tls", {}
-        )["mode"] = "disabled"
+        for component in ("configSrv", "shard", "mongos"):
+            resource_doc["spec"].setdefault(component, {}).setdefault("additionalMongodConfig", {}).setdefault(
+                "net", {}
+            ).setdefault("tls", {})["mode"] = "disabled"
 
     config_members = [
         m for m in resource_doc["spec"].get("externalMembers", []) if m.get("replicaSetName") == config_rs_name
@@ -570,7 +571,7 @@ def assert_k8s_sharded_process_names(om_tester: OMTester, mdb_migration: MongoDB
         assert f"k8s/{ns}/{name}-mongos-{i}" in process_names
 
 
-def vm_mongos_tester(mongos_sts_name: str, mongos_svc_name: str, namespace: str) -> MongoTester:
+def vm_mongos_tester(mongos_sts_name: str, mongos_svc_name: str, namespace: str, ca_path: str | None = None) -> MongoTester:
     """Return a MongoTester pointed at the first VM mongos pod."""
     uri = build_mongodb_connection_uri(
         mdb_resource=mongos_sts_name,
@@ -579,7 +580,7 @@ def vm_mongos_tester(mongos_sts_name: str, mongos_svc_name: str, namespace: str)
         port="27017",
         servicename=mongos_svc_name,
     )
-    return MongoTester(uri, use_ssl=False)
+    return MongoTester(uri, use_ssl=ca_path is not None, ca_path=ca_path)
 
 
 def build_sharded_cluster_ac(
