@@ -19,6 +19,10 @@ import (
 // Watcher watches the single OperatorConfig instance scoped by the manager cache (see
 // ByObject in main.go) and initiates a graceful shutdown when the CR is created, its spec
 // changes, or it is deleted, so the operator can restart and reload its configuration.
+//
+// Restart is used instead of hot reload because some settings (e.g. watchedResources) alter which
+// controllers and informers are active, requiring re-initialisation of the manager. Ensuring that no
+// reconciler caches a config value locally would also be difficult to enforce and test.
 type Watcher struct {
 	cache        cache.Cache
 	cancel       context.CancelFunc
