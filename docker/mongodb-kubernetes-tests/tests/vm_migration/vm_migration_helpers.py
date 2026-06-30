@@ -773,7 +773,17 @@ def build_sharded_cluster_ac(
             "keyfile": "/var/lib/mongodb-mms-automation/keyfile",
             "keyfileWindows": "%SystemDrive%\\MMSAutomation\\versions\\keyfile",
             "key": "dGVzdC1rZXlmaWxlLWNvbnRlbnQtZm9yLXZtLW1pZ3JhdGlvbi14NTA5",
-            "usersWanted": [],
+            "usersWanted": [
+                {
+                    "user": x509_agent_subject_dn,
+                    "db": "$external",
+                    "roles": [{"role": "root", "db": "admin"}],
+                    "mechanisms": [],
+                    "scramSha256Creds": None,
+                    "scramSha1Creds": None,
+                    "authenticationRestrictions": [],
+                }
+            ],
             "usersDeleted": [],
         }
 

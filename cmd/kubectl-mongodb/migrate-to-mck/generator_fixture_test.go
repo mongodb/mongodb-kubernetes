@@ -202,6 +202,32 @@ func TestFixtureMatch_ShardedCluster(t *testing.T) {
 			opts:    GenerateOptions{PrometheusSecretName: PrometheusPasswordSecretName, PrometheusPassword: "wrong-password"},
 			wantErr: "does not match the password",
 		},
+		{
+			name:    "sharded cluster — auth disabled produces no security block",
+			fixture: "singlecluster/shardedcluster/authentication/disabled/disabled",
+		},
+		{
+			name:     "sharded cluster — SCRAM-SHA-256 auth generates user CRs with password secrets",
+			fixture:  "singlecluster/shardedcluster/authentication/scram_sha256/scram_sha256",
+			hasUsers: true,
+		},
+		{
+			name:     "sharded cluster — SCRAM-SHA-1 auth generates user CRs with password secrets",
+			fixture:  "singlecluster/shardedcluster/authentication/scram_sha1/scram_sha1",
+			hasUsers: true,
+		},
+		{
+			name:     "sharded cluster — SCRAM and X509 auth generates both MongoDB CR and user CRs",
+			fixture:  "singlecluster/shardedcluster/authentication/x509/x509",
+			hasUsers: true,
+			opts:     GenerateOptions{CertsSecretPrefix: "mdb"},
+		},
+		{
+			name:     "sharded cluster — X509-only auth: external agent skipped, app user CR generated, keyFile internal cluster",
+			fixture:  "singlecluster/shardedcluster/authentication/x509_only/x509_only",
+			hasUsers: true,
+			opts:     GenerateOptions{CertsSecretPrefix: "mdb"},
+		},
 	}
 	runFixtureCases(t, cases)
 }
