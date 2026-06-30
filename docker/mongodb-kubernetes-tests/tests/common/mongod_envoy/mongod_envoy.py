@@ -25,7 +25,7 @@ per-shard mongod multiplex onto a single listener port — SNI alone disambiguat
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 import kubernetes
 from kubernetes import client
@@ -41,14 +41,23 @@ logger = test_logger.get_test_logger(__name__)
 class SniRoute:
     """One SNI-passthrough route.
 
-    ``server_name`` is the external FQDN the client puts in the TLS SNI (the pod's
-    ``externalDomain`` hostname). ``upstream_host``/``upstream_port`` is the in-cluster
-    address Envoy forwards the encrypted stream to (the pod's internal Service).
+    ``server_name`` is the external FQDN the client puts in the TLS SNI. The upstream Envoy
+    forwards the encrypted stream to is either a single ``upstream_host``/``upstream_port``,
+    or ``upstreams`` (round-robin endpoints, e.g. cross-cluster failover).
     """
 
     server_name: str
-    upstream_host: str
+    upstream_host: Optional[str] = None
     upstream_port: int = 27017
+    upstreams: Optional[Tuple[Tuple[str, int], ...]] = None
+
+    def __post_init__(self) -> None:
+        if not self.upstreams and not self.upstream_host:
+            raise ValueError("SniRoute requires upstream_host or upstreams")
+
+    @property
+    def endpoints(self) -> List[Tuple[str, int]]:
+        return list(self.upstreams) if self.upstreams else [(self.upstream_host, self.upstream_port)]
 
     @property
     def _ident(self) -> str:
@@ -116,6 +125,15 @@ class MongodEnvoy:
         cluster_name = f"upstream_{route._ident}"
         # No transport_socket: passthrough. Envoy forwards the raw TLS bytes; the
         # MongoDB handshake completes between the real client and the real mongod/mongos.
+        lb_endpoints = "".join(
+            f"""
+            - endpoint:
+                address:
+                  socket_address:
+                    address: {host}
+                    port_value: {port}"""
+            for host, port in route.endpoints
+        )
         return f"""
       - name: {cluster_name}
         type: STRICT_DNS
@@ -123,12 +141,7 @@ class MongodEnvoy:
         load_assignment:
           cluster_name: {cluster_name}
           endpoints:
-          - lb_endpoints:
-            - endpoint:
-                address:
-                  socket_address:
-                    address: {route.upstream_host}
-                    port_value: {route.upstream_port}
+          - lb_endpoints:{lb_endpoints}
         upstream_connection_options:
           tcp_keepalive:
             keepalive_time: 10

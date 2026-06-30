@@ -49,6 +49,7 @@ clusters by each shard's primary placement.
 
 from __future__ import annotations
 
+import functools
 import os
 from typing import Dict, List, Optional, Tuple
 
@@ -145,6 +146,10 @@ CLUSTER_IDS = {
 DATA_CLUSTERS = [CENTRAL_OM_MDB_AZ1, DATA_MDB_AZ2]
 SEARCH_CLUSTERS = [SEARCH_AZ1, SEARCH_AZ2]
 
+# Cluster hosting the cross-AZ search failover Envoy. A data cluster (not a search cluster), so
+# it survives either search cluster going down; its zone publishes *.envoy-proxy-failover.<zone>.
+SEARCH_FAILOVER_HOST_CLUSTER = CENTRAL_OM_MDB_AZ1
+
 # CRITICAL: the operator assigns the SOURCE-internal cluster index by SORTED cluster name
 # (controllers/operator/mongodbshardedcluster_controller.go: slices.Sort(allReferencedClusterNames)
 # before AssignIndexesForMemberClusterNames), NOT by clusterSpecList declaration order. So for
@@ -210,6 +215,12 @@ def search_proxy_wildcard(context_name: str) -> str:
     return f"envoy-proxy.{cluster_zone(context_name)}"
 
 
+def search_failover_wildcard(context_name: str) -> str:
+    """external-dns wildcard parent for the cross-AZ search failover Envoy NLB (its host
+    cluster's zone). Cluster-agnostic shard-unique proxy hostnames live under this wildcard."""
+    return f"envoy-proxy-failover.{cluster_zone(context_name)}"
+
+
 # ---------------------------------------------------------------------------
 # Resource + topology constants
 # ---------------------------------------------------------------------------
@@ -262,6 +273,15 @@ SOURCE_SEARCH_SET_PARAMETERS = {
     "searchTLSMode": "requireTLS",
     "useGrpcForSearch": True,
 }
+
+# How the source processes' mongotHost is wired in the OM AutomationConfig (see
+# _wire_source_mongot_host). Switchable between:
+#   "per_az_direct" — each process -> its OWN-AZ search cluster's managed-Envoy endpoint.
+#   "failover"      — every process -> a shard-unique, cluster-AGNOSTIC hostname under the
+#                     failover Envoy wildcard, round-robined across both AZs. Functional only
+#                     once both search clusters present the same cluster-agnostic SNI server
+#                     names + cert SANs (the failover follow-up).
+SOURCE_MONGOT_HOST_MODE = "per_az_direct"
 
 
 # ---------------------------------------------------------------------------
@@ -357,6 +377,25 @@ def _external_mongos_envoy_endpoint(search_context: str, harness_idx: int) -> st
     mongotHost target. Host:port — the source mongos automationConfig needs the port; the
     SNI server_name (routerHostname) is the host-only form."""
     return f"{_external_mongos_proxy_host(search_context, harness_idx)}:{ENVOY_PROXY_PORT}"
+
+
+def _failover_shard_proxy_endpoint(shard_idx: int) -> str:
+    """Shard-unique, cluster-AGNOSTIC per-shard mongot endpoint under the failover wildcard:
+    the SAME hostname in both AZs (no cluster idx / clusterId), so the SNI a connection carries
+    matches whichever AZ the failover Envoy round-robins onto. host:port form."""
+    shard_name = f"{MDB_RESOURCE_NAME}-{shard_idx}"
+    return (
+        f"{MDBS_RESOURCE_NAME}-search-{shard_name}-proxy-svc."
+        f"{search_failover_wildcard(SEARCH_FAILOVER_HOST_CLUSTER)}:{ENVOY_PROXY_PORT}"
+    )
+
+
+def _failover_mongos_proxy_endpoint() -> str:
+    """Cluster-AGNOSTIC cluster-level mongot endpoint under the failover wildcard (mongos)."""
+    return (
+        f"{MDBS_RESOURCE_NAME}-search-proxy-svc."
+        f"{search_failover_wildcard(SEARCH_FAILOVER_HOST_CLUSTER)}:{ENVOY_PROXY_PORT}"
+    )
 
 
 def _source_mongos_search_tester(
@@ -1192,6 +1231,46 @@ def test_expose_search_managed_envoy_externally(
         wait_for_nlb_hostname(mcc.api_client, namespace, ext_svc_name, cluster_id=mcc.cluster_name)
 
 
+@fixture(scope="module")
+def search_failover_envoy(
+    namespace: str,
+    member_cluster_clients: List[MultiClusterClient],
+) -> MongodEnvoy:
+    """One L4 SNI-passthrough Envoy in the central data cluster that round-robins across BOTH
+    search clusters' exposed managed-Envoy NLBs (az1 + az2), fronted by its own internet-facing
+    NLB at *.envoy-proxy-failover.<centralZone>. Single round-robin upstream, no health checks.
+
+    Functional failover requires the search clusters to present shard-unique, cluster-agnostic
+    SNI server names (same per-shard hostname in both AZs) so the preserved SNI matches whichever
+    AZ a connection lands on — see _mongot_host_for_process modes."""
+    host_ctx = SEARCH_FAILOVER_HOST_CLUSTER
+    upstreams = tuple(
+        (_external_mongos_proxy_host(mcc.cluster_name, _idx(mcc)), ENVOY_PROXY_PORT)
+        for mcc in _search_mccs(member_cluster_clients)
+    )
+    failover_wildcard = search_failover_wildcard(host_ctx)
+    return MongodEnvoy(
+        namespace=namespace,
+        cluster_id=CLUSTER_IDS[host_ctx],
+        routes=[SniRoute(server_name=f"*.{failover_wildcard}", upstreams=upstreams)],
+        listen_port=ENVOY_PROXY_PORT,
+        name="search-failover-envoy",
+        configmap_name="search-failover-envoy-config",
+        service_name="search-failover-envoy-svc",
+        external_dns_hostname=f"*.{failover_wildcard}",
+        lb_security_groups=[lb_sg(LB_SVC_MONGOD, host_ctx)],
+        api_client=_mcc(member_cluster_clients, host_ctx).api_client,
+    )
+
+
+@mark.e2e_aws_simulated_mc_sharded
+def test_deploy_search_failover_envoy(search_failover_envoy: MongodEnvoy):
+    """Deploy the cross-AZ search failover Envoy + its NLB (round-robin over both search
+    clusters' managed-Envoy NLBs, TLS passthrough, no health checks for now)."""
+    search_failover_envoy.deploy()
+    search_failover_envoy.lb_hostname()
+
+
 @mark.e2e_aws_simulated_mc_sharded
 def test_per_cluster_sharded_resources_exist(
     namespace: str,
@@ -1265,25 +1344,42 @@ def _search_idx_by_ctx(member_cluster_clients: List[MultiClusterClient]) -> Dict
     return {sc: _idx(_mcc(member_cluster_clients, sc)) for sc in SEARCH_CLUSTERS}
 
 
-def _wire_source_mongot_host_per_az(mdb: MongoDB, member_cluster_clients: List[MultiClusterClient]) -> None:
-    """Point every source process at the mongot in its OWN AZ via OM AC (NO global flip):
-    mongos -> its same-AZ search cluster's cluster-level endpoint, shard mongod -> that
-    cluster's per-shard endpoint, config servers untouched. The target search cluster is
-    chosen by the source process's own cluster index (AZ), not a single global target."""
+def _resolve_mongot_host_per_az_direct(process_name: str, search_idx: Dict[str, int]) -> Optional[str]:
+    """per_az_direct mode: each process -> the managed-Envoy endpoint of the search cluster in
+    its OWN AZ (chosen by the process's source cluster index), config servers untouched."""
+    classified = _classify_sharded_process(process_name, MDB_RESOURCE_NAME, multi_cluster=True)
+    if classified is None:
+        return None
+    role, cluster_index, shard_index = classified
+    search_ctx = SEARCH_FOR_DATA_CLUSTER[SORTED_DATA[cluster_index]]
+    idx = search_idx[search_ctx]
+    if role == "mongos":
+        return _external_mongos_envoy_endpoint(search_ctx, idx)
+    assert shard_index is not None
+    return _external_shard_envoy_endpoint(search_ctx, idx, shard_index)
+
+
+def _resolve_mongot_host_failover(process_name: str) -> Optional[str]:
+    """failover mode: every process -> a shard-unique, cluster-AGNOSTIC hostname under the
+    failover Envoy wildcard (same per-shard host in both AZs), config servers untouched."""
+    classified = _classify_sharded_process(process_name, MDB_RESOURCE_NAME, multi_cluster=True)
+    if classified is None:
+        return None
+    role, _cluster_index, shard_index = classified
+    if role == "mongos":
+        return _failover_mongos_proxy_endpoint()
+    assert shard_index is not None
+    return _failover_shard_proxy_endpoint(shard_index)
+
+
+def _wire_source_mongot_host(mdb: MongoDB, member_cluster_clients: List[MultiClusterClient]) -> None:
+    """Wire every source process's mongotHost via OM AC, per SOURCE_MONGOT_HOST_MODE. The
+    host-resolution mode is a swappable function so we can flip per_az_direct <-> failover."""
     search_idx = _search_idx_by_ctx(member_cluster_clients)
-
-    def resolve_host(process_name: str) -> Optional[str]:
-        classified = _classify_sharded_process(process_name, MDB_RESOURCE_NAME, multi_cluster=True)
-        if classified is None:
-            return None
-        role, cluster_index, shard_index = classified
-        search_ctx = SEARCH_FOR_DATA_CLUSTER[SORTED_DATA[cluster_index]]
-        idx = search_idx[search_ctx]
-        if role == "mongos":
-            return _external_mongos_envoy_endpoint(search_ctx, idx)
-        assert shard_index is not None
-        return _external_shard_envoy_endpoint(search_ctx, idx, shard_index)
-
+    if SOURCE_MONGOT_HOST_MODE == "failover":
+        resolve_host = _resolve_mongot_host_failover
+    else:
+        resolve_host = functools.partial(_resolve_mongot_host_per_az_direct, search_idx=search_idx)
     patch_mongot_host_via_ac(mdb, resolve_host)
 
 
@@ -1422,7 +1518,7 @@ def test_wire_source_mongot_host_per_az(
     """Wire each source process at the mongot in its OWN AZ and verify the AC applied it:
     az1 processes -> search-az1, az2 processes -> search-az2 (no global flip)."""
     assert_per_cluster_count(_search_mccs(member_cluster_clients))
-    _wire_source_mongot_host_per_az(mdb, member_cluster_clients)
+    _wire_source_mongot_host(mdb, member_cluster_clients)
     _assert_source_routed_per_az(namespace, member_cluster_clients)
 
 
