@@ -379,6 +379,11 @@ tasks:
     commands:
       - func: "e2e_test"
 
+  - name: e2e_sharded_cluster_scale_shards_name_overrides
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
   - name: e2e_sharded_cluster_shard_overrides
     tags: [ "patch-run" ]
     commands:
@@ -1575,6 +1580,16 @@ tasks:
       - func: "e2e_test"
 
   - name: e2e_vm_migration_tls_scram
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_sharded
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_sharded_x509
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
