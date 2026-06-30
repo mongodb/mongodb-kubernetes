@@ -37,8 +37,6 @@ spec:
       certsSecretPrefix: appdb
       tls:
         ca: issuer-ca
-        secretRef:
-          prefix: appdb
   statefulSet:
     spec:
       template:

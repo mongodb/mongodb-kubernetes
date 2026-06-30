@@ -82,9 +82,6 @@ def ops_manager(
         namespace, OM_NAME, central_cluster_client, custom_appdb_version, s3_bucket_blockstore, s3_bucket_oplog
     )
 
-    if try_load(resource):
-        return resource
-
     resource.set_version(custom_version)
 
     resource["spec"]["topology"] = "MultiCluster"
@@ -128,6 +125,7 @@ def ops_manager(
         },
     }
 
+    try_load(resource)
     return resource
 
 

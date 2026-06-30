@@ -1,4 +1,5 @@
 import pytest
+from kubetester import try_load
 from kubetester.certs import ISSUER_CA_NAME, Certificate, create_mongodb_tls_certs
 from kubetester.kubetester import fixture as load_fixture
 from kubetester.kubetester import skip_if_local
@@ -22,10 +23,10 @@ def server_certs(issuer: str, namespace: str):
 
 @pytest.fixture(scope="module")
 def mdb(namespace: str, server_certs: str, issuer_ca_configmap: str) -> MongoDB:
-    res = MongoDB.from_yaml(load_fixture("test-tls-base-rs-require-ssl.yaml"), namespace=namespace)
-
-    res["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
-    return res.create()
+    resource = MongoDB.from_yaml(load_fixture("test-tls-base-rs-require-ssl.yaml"), namespace=namespace)
+    resource["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
+    try_load(resource)
+    return resource
 
 
 @pytest.mark.e2e_replica_set_tls_require
@@ -35,12 +36,13 @@ def test_install_operator(operator: Operator):
 
 @pytest.mark.e2e_replica_set_tls_require
 def test_replica_set_running(mdb: MongoDB):
+    mdb.update()
     mdb.assert_reaches_phase(Phase.Running, timeout=400)
 
 
 @pytest.mark.e2e_replica_set_tls_require
 @skip_if_local()
-def test_mdb_is_reachable_with_no_ssl(mdb: MongoDB):
+def test_mdb_is_not_reachable_without_ssl(mdb: MongoDB):
     mdb.tester(use_ssl=False).assert_no_connection()
 
 
@@ -60,7 +62,7 @@ def test_scale_up_replica_set(mdb: MongoDB):
 
 @pytest.mark.e2e_replica_set_tls_require
 @skip_if_local()
-def test_mdb_scaled_up_is_not_reachable_with_no_ssl(mdb: MongoDB):
+def test_mdb_scaled_up_is_not_reachable_without_ssl(mdb: MongoDB):
     mdb.tester(use_ssl=False).assert_no_connection()
 
 
@@ -80,7 +82,7 @@ def test_scale_down_replica_set(mdb: MongoDB):
 
 @pytest.mark.e2e_replica_set_tls_require
 @skip_if_local()
-def test_mdb_scaled_down_is_reachable_with_no_ssl(mdb: MongoDB):
+def test_mdb_scaled_down_is_not_reachable_without_ssl(mdb: MongoDB):
     mdb.tester(use_ssl=False).assert_no_connection()
 
 
@@ -103,7 +105,7 @@ def test_change_certificate_and_wait_for_running(mdb: MongoDB, namespace: str):
 
 @pytest.mark.e2e_replica_set_tls_require
 @skip_if_local()
-def test_mdb_renewed_is_reachable_with_no_ssl(mdb: MongoDB):
+def test_mdb_renewed_is_not_reachable_without_ssl(mdb: MongoDB):
     mdb.tester(use_ssl=False).assert_no_connection()
 
 

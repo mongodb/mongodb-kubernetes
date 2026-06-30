@@ -1,5 +1,6 @@
 from typing import Dict
 
+import pytest
 from kubetester import (
     create_or_update_secret,
     create_secret,

@@ -65,7 +65,6 @@ func LoadImageUrlsFromEnv() ImageUrls {
 		util.InitOpsManagerImageUrl:           "",
 		util.OpsManagerImageUrl:               "",
 		util.InitDatabaseImageUrlEnv:          "",
-		util.InitAppdbImageUrlEnv:             "",
 		util.NonStaticDatabaseEnterpriseImage: "",
 		construct.AgentImageEnv:               "",
 		architectures.MdbAgentImageRepo:       architectures.MdbAgentImageRepoDefault,

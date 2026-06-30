@@ -41,3 +41,50 @@ evergreen patch -p mongodb-kubernetes -a staging -d "Test staging build" -f -y -
 ```shell
 evergreen patch -p mongodb-kubernetes -a release -d "Test release build" -f -y -u --path .evergreen.yml --param BUILD_SCENARIO=release --param OPERATOR_VERSION=1.3.0-rc
 ```
+
+### Release-style preflight only (no image push, no Pyxis submit)
+
+Runs the same **`preflight_release_operator_images_task_group`** as a real tag release, but **does not** run **`release_images`** (nothing is built/pushed) and sets **`preflight_submit: false`** (check only).
+
+You must pass versions for tags that **already exist on Quay** (typically match **`release.json`** on your branch: **`mongodbOperator`**, readiness hook versions, etc.).
+
+```shell
+evergreen patch -p mongodb-kubernetes -a preflight_release_test \
+  -d "Test release preflight only" -f -y -u --path .evergreen.yml \
+  --param BUILD_SCENARIO=release \
+  --param OPERATOR_VERSION=1.8.0
+```
+
+Adjust probe/hook params to match **`release.json`** if your project does not set them by default on patches. **`mongodb-enterprise-server`** preflight still enumerates Quay tags (same as release).
+
+## Manual Variant Aliases
+
+Some CI variants are excluded from automatic PR runs to save compute time. These variants only run automatically on master commits but can be triggered manually when needed.
+
+### Available Aliases
+
+| Alias | Description | Runs on PRs | Variants Included |
+|-------|-------------|-------------|-------------------|
+| `static` | Static container variants | Yes | `e2e_static_mdb_kind_ubi_cloudqa`, `e2e_static_multi_cluster_*`, etc. |
+| `om7` | Ops Manager 7.0 variants | **No** | `e2e_om70_kind_ubi`, `e2e_static_om70_kind_ubi`, `build_om70_images` |
+| `race` | Race detector variant | **No** | `e2e_operator_race_ubi_with_telemetry` |
+
+### Usage
+
+Run these aliases when your PR changes might affect the excluded variants:
+
+```shell
+# Run OM7 variants (static and non-static)
+evergreen patch --alias om7
+
+# Run race detector variant
+evergreen patch --alias race
+
+# Run all static container variants (convenience alias, already runs on PRs)
+evergreen patch --alias static
+```
+
+### When to Use
+
+- **om7**: Changes affecting Ops Manager 7.0 compatibility
+- **race**: Changes to concurrent code, goroutines, or shared state

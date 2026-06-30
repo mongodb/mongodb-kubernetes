@@ -22,9 +22,9 @@ def agent_certs(issuer: str, namespace: str) -> str:
 
 @fixture(scope="module")
 def server_certs(issuer: str, namespace: str):
-    shard_distribution = None
-    mongos_distribution = None
-    config_srv_distribution = None
+    shard_distribution: list[int | None] | None = None
+    mongos_distribution: list[int | None] | None = None
+    config_srv_distribution: list[int | None] | None = None
     if is_multi_cluster():
         shard_distribution = [1, 1, 1]
         mongos_distribution = [1, 1, 1]
@@ -52,9 +52,6 @@ def sc(namespace: str, server_certs: str, agent_certs: str, issuer_ca_configmap:
         namespace=namespace,
     )
 
-    if try_load(resource):
-        return resource
-
     resource["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
     resource.set_architecture_annotation()
 
@@ -66,7 +63,8 @@ def sc(namespace: str, server_certs: str, agent_certs: str, issuer_ca_configmap:
             configsrv_members_array=[1, 1, 1],
         )
 
-    return resource.update()
+    try_load(resource)
+    return resource
 
 
 @pytest.mark.e2e_tls_x509_configure_all_options_sc
@@ -78,6 +76,7 @@ def test_install_operator(operator: Operator):
 class TestShardedClusterEnableAllOptions:
 
     def test_gets_to_running_state(self, sc: MongoDB):
+        sc.update()
         sc.assert_reaches_phase(Phase.Running, timeout=1200)
 
     def test_ops_manager_state_correctly_updated(self):

@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -102,8 +102,9 @@ func TestOpsManagerInKubernetes_InternalConnectivityOverride(t *testing.T) {
 	sts, err := construct.OpsManagerStatefulSet(ctx, secretsClient, testOm, memberCluster, zap.S())
 	assert.NoError(t, err)
 
-	err = OpsManagerInKubernetes(ctx, memberCluster, testOm, sts, zap.S())
+	mutatedSts, err := OpsManagerInKubernetes(ctx, memberCluster, testOm, sts, zap.S())
 	assert.NoError(t, err)
+	assert.NotNil(t, mutatedSts)
 
 	svc, err := fakeClient.GetService(ctx, kube.ObjectKey(testOm.Namespace, testOm.SvcName()))
 	assert.NoError(t, err, "Internal service exists")
@@ -141,8 +142,9 @@ func TestOpsManagerInKubernetes_DefaultInternalServiceForMultiCluster(t *testing
 	sts, err := construct.OpsManagerStatefulSet(ctx, secretsClient, testOm, memberCluster, zap.S())
 	assert.NoError(t, err)
 
-	err = OpsManagerInKubernetes(ctx, memberCluster, testOm, sts, zap.S())
+	mutatedSts, err := OpsManagerInKubernetes(ctx, memberCluster, testOm, sts, zap.S())
 	assert.NoError(t, err)
+	assert.NotNil(t, mutatedSts)
 
 	svc, err := fakeClient.GetService(ctx, kube.ObjectKey(testOm.Namespace, testOm.SvcName()))
 	assert.NoError(t, err, "Internal service exists")
@@ -228,7 +230,7 @@ func TestOpsManagerInKubernetes_ClusterSpecificExternalConnectivity(t *testing.T
 							util.OperatorLabelName: util.OperatorLabelValue,
 						},
 						Type:                     corev1.ServiceTypeNodePort,
-						PublishNotReadyAddresses: true,
+						PublishNotReadyAddresses: false,
 					},
 				},
 				memberClusterName3: {
@@ -270,7 +272,7 @@ func TestOpsManagerInKubernetes_ClusterSpecificExternalConnectivity(t *testing.T
 						},
 						Type:                     corev1.ServiceTypeLoadBalancer,
 						LoadBalancerIP:           "10.10.10.1",
-						PublishNotReadyAddresses: true,
+						PublishNotReadyAddresses: false,
 					},
 				},
 			},
@@ -347,7 +349,7 @@ func TestOpsManagerInKubernetes_ClusterSpecificExternalConnectivity(t *testing.T
 							util.OperatorLabelName: util.OperatorLabelValue,
 						},
 						Type:                     corev1.ServiceTypeNodePort,
-						PublishNotReadyAddresses: true,
+						PublishNotReadyAddresses: false,
 					},
 				},
 				memberClusterName2: {
@@ -392,7 +394,7 @@ func TestOpsManagerInKubernetes_ClusterSpecificExternalConnectivity(t *testing.T
 						},
 						Type:                     corev1.ServiceTypeLoadBalancer,
 						LoadBalancerIP:           "20.20.20.2",
-						PublishNotReadyAddresses: true,
+						PublishNotReadyAddresses: false,
 					},
 				},
 				memberClusterName3: {
@@ -434,7 +436,7 @@ func TestOpsManagerInKubernetes_ClusterSpecificExternalConnectivity(t *testing.T
 						},
 						Type:                     corev1.ServiceTypeLoadBalancer,
 						LoadBalancerIP:           "10.10.10.1",
-						PublishNotReadyAddresses: true,
+						PublishNotReadyAddresses: false,
 					},
 				},
 			},
@@ -481,8 +483,9 @@ func TestOpsManagerInKubernetes_ClusterSpecificExternalConnectivity(t *testing.T
 				sts, err := construct.OpsManagerStatefulSet(ctx, memberCluster.SecretClient, testOm, memberCluster, zap.S())
 				assert.NoError(t, err)
 
-				err = OpsManagerInKubernetes(ctx, memberCluster, testOm, sts, zap.S())
+				mutatedSts, err := OpsManagerInKubernetes(ctx, memberCluster, testOm, sts, zap.S())
 				assert.NoError(t, err)
+				assert.NotNil(t, mutatedSts)
 
 				expectedService, ok := tc.expectedServices[memberCluster.Name]
 				svc, err := memberCluster.Client.GetService(ctx, kube.ObjectKey(testOm.Namespace, testOm.ExternalSvcName()))
@@ -516,8 +519,9 @@ func TestBackupServiceCreated_NoExternalConnectivity(t *testing.T) {
 	sts, err := construct.OpsManagerStatefulSet(ctx, secretsClient, testOm, memberCluster, zap.S())
 	assert.NoError(t, err)
 
-	err = OpsManagerInKubernetes(ctx, memberCluster, testOm, sts, zap.S())
+	mutatedSts, err := OpsManagerInKubernetes(ctx, memberCluster, testOm, sts, zap.S())
 	assert.NoError(t, err)
+	assert.NotNil(t, mutatedSts)
 
 	_, err = fakeClient.GetService(ctx, kube.ObjectKey(testOm.Namespace, testOm.SvcName()+"-ext"))
 	assert.Error(t, err, "No external service should have been created")
@@ -560,8 +564,9 @@ func TestBackupServiceCreated_ExternalConnectivity(t *testing.T) {
 	sts, err := construct.OpsManagerStatefulSet(ctx, secretsClient, testOm, memberCluster, zap.S())
 	assert.NoError(t, err)
 
-	err = OpsManagerInKubernetes(ctx, memberCluster, testOm, sts, zap.S())
+	mutatedSts, err := OpsManagerInKubernetes(ctx, memberCluster, testOm, sts, zap.S())
 	assert.NoError(t, err)
+	assert.NotNil(t, mutatedSts)
 
 	externalService, err := fakeClient.GetService(ctx, kube.ObjectKey(testOm.Namespace, testOm.SvcName()+"-ext"))
 	assert.NoError(t, err, "An External service should have been created")
@@ -842,7 +847,7 @@ func testDatabaseInKubernetesExternalServices(ctx context.Context, t *testing.T,
 	mdb.Spec.ExternalAccessConfiguration = &externalAccessConfiguration
 
 	sts := construct.DatabaseStatefulSet(*mdb, construct.ReplicaSetOptions(construct.GetPodEnvOptions()), log)
-	err := DatabaseInKubernetes(ctx, fakeClient, *mdb, sts, construct.ReplicaSetOptions(), log)
+	_, err := DatabaseInKubernetes(ctx, fakeClient, *mdb, sts, construct.ReplicaSetOptions(), log)
 	assert.NoError(t, err)
 
 	// we only test a subset of fields from service spec, which are the most relevant for external services
@@ -865,7 +870,7 @@ func testDatabaseInKubernetesExternalServices(ctx context.Context, t *testing.T,
 
 	// disable external access -> remove external services
 	mdb.Spec.ExternalAccessConfiguration = nil
-	err = DatabaseInKubernetes(ctx, fakeClient, *mdb, sts, construct.ReplicaSetOptions(), log)
+	_, err = DatabaseInKubernetes(ctx, fakeClient, *mdb, sts, construct.ReplicaSetOptions(), log)
 	assert.NoError(t, err)
 
 	for _, expectedService := range expectedServices {
@@ -935,15 +940,17 @@ func createMongosSpec(sc *mdbv1.MongoDB) *mdbv1.ShardedClusterComponentSpec {
 func createShardSts(ctx context.Context, t *testing.T, mdb *mdbv1.MongoDB, log *zap.SugaredLogger, kubeClient kubernetesClient.Client) {
 	shardSpec, memberCluster := createShardSpecAndDefaultCluster(kubeClient, mdb)
 	sts := construct.DatabaseStatefulSet(*mdb, construct.ShardOptions(1, shardSpec, memberCluster.Name, construct.GetPodEnvOptions()), log)
-	err := DatabaseInKubernetes(ctx, kubeClient, *mdb, sts, construct.ShardOptions(1, shardSpec, memberCluster.Name), log)
+	mutatedSts, err := DatabaseInKubernetes(ctx, kubeClient, *mdb, sts, construct.ShardOptions(1, shardSpec, memberCluster.Name), log)
 	assert.NoError(t, err)
+	assert.NotNil(t, mutatedSts)
 }
 
 func createMongosSts(ctx context.Context, t *testing.T, mdb *mdbv1.MongoDB, log *zap.SugaredLogger, kubeClient kubernetesClient.Client) {
 	mongosSpec := createMongosSpec(mdb)
 	sts := construct.DatabaseStatefulSet(*mdb, construct.MongosOptions(mongosSpec, multicluster.LegacyCentralClusterName, construct.GetPodEnvOptions()), log)
-	err := DatabaseInKubernetes(ctx, kubeClient, *mdb, sts, construct.MongosOptions(mongosSpec, multicluster.LegacyCentralClusterName), log)
+	mutatedSts, err := DatabaseInKubernetes(ctx, kubeClient, *mdb, sts, construct.MongosOptions(mongosSpec, multicluster.LegacyCentralClusterName), log)
 	assert.NoError(t, err)
+	assert.NotNil(t, mutatedSts)
 }
 
 func TestResizePVCsStorage(t *testing.T) {
@@ -1397,7 +1404,7 @@ func TestGetMatchingPVCTemplateFromSTS(t *testing.T) {
 
 func TestCheckStatefulsetIsDeleted(t *testing.T) {
 	ctx := context.TODO()
-	sleepDuration := 10 * time.Millisecond
+	sleepDuration := 100 * time.Millisecond
 	log := zap.NewNop().Sugar()
 
 	namespace := "default"
@@ -1411,52 +1418,49 @@ func TestCheckStatefulsetIsDeleted(t *testing.T) {
 	}
 
 	t.Run("StatefulSet is deleted", func(t *testing.T) {
-		fakeClient, _ := mock.NewDefaultFakeClient()
-		err := fakeClient.CreateStatefulSet(ctx, *desiredSts)
-		assert.NoError(t, err)
+		synctest.Test(t, func(t *testing.T) {
+			fakeClient, _ := mock.NewDefaultFakeClient()
+			err := fakeClient.CreateStatefulSet(ctx, *desiredSts)
+			assert.NoError(t, err)
 
-		// Simulate the deletion by deleting the StatefulSet
-		err = fakeClient.DeleteStatefulSet(ctx, kube.ObjectKey(desiredSts.Namespace, desiredSts.Name))
-		assert.NoError(t, err)
+			// Delete before calling the function
+			err = fakeClient.DeleteStatefulSet(ctx, kube.ObjectKey(desiredSts.Namespace, desiredSts.Name))
+			assert.NoError(t, err)
 
-		// Check if the StatefulSet is detected as deleted
-		result := checkStatefulsetIsDeleted(ctx, fakeClient, desiredSts, sleepDuration, log)
+			result := checkStatefulsetIsDeleted(ctx, fakeClient, desiredSts, sleepDuration, log)
 
-		assert.True(t, result, "StatefulSet should be detected as deleted")
+			assert.True(t, result, "StatefulSet should be detected as deleted")
+		})
 	})
 
 	t.Run("StatefulSet is not deleted", func(t *testing.T) {
-		fakeClient, _ := mock.NewDefaultFakeClient()
-		err := fakeClient.CreateStatefulSet(ctx, *desiredSts)
-		assert.NoError(t, err)
+		synctest.Test(t, func(t *testing.T) {
+			fakeClient, _ := mock.NewDefaultFakeClient()
+			err := fakeClient.CreateStatefulSet(ctx, *desiredSts)
+			assert.NoError(t, err)
 
-		// Do not delete the StatefulSet, to simulate it still existing
-		// Check if the StatefulSet is detected as not deleted
-		result := checkStatefulsetIsDeleted(ctx, fakeClient, desiredSts, sleepDuration, log)
+			// Don't delete - should return false after exhausting retries
+			result := checkStatefulsetIsDeleted(ctx, fakeClient, desiredSts, sleepDuration, log)
 
-		assert.False(t, result, "StatefulSet should not be detected as deleted")
+			assert.False(t, result, "StatefulSet should not be detected as deleted")
+		})
 	})
 
 	t.Run("StatefulSet is deleted after some retries", func(t *testing.T) {
-		fakeClient, _ := mock.NewDefaultFakeClient()
-		err := fakeClient.CreateStatefulSet(ctx, *desiredSts)
-		assert.NoError(t, err)
-
-		var wg sync.WaitGroup
-		wg.Add(1)
-		// Use a goroutine to delete the StatefulSet after a delay, making it race-safe
-		go func() {
-			defer wg.Done()
-			time.Sleep(20 * time.Millisecond) // Wait for a bit longer than the first sleep
-			err = fakeClient.DeleteStatefulSet(ctx, kube.ObjectKey(desiredSts.Namespace, desiredSts.Name))
+		synctest.Test(t, func(t *testing.T) {
+			fakeClient, _ := mock.NewDefaultFakeClient()
+			err := fakeClient.CreateStatefulSet(ctx, *desiredSts)
 			assert.NoError(t, err)
-		}()
 
-		// Check if the StatefulSet is detected as deleted after retries
-		result := checkStatefulsetIsDeleted(ctx, fakeClient, desiredSts, sleepDuration, log)
+			// Delete after 150ms - will be found on second retry (after 200ms of sleeps)
+			go func() {
+				time.Sleep(150 * time.Millisecond)
+				_ = fakeClient.DeleteStatefulSet(ctx, kube.ObjectKey(desiredSts.Namespace, desiredSts.Name))
+			}()
 
-		wg.Wait()
+			result := checkStatefulsetIsDeleted(ctx, fakeClient, desiredSts, sleepDuration, log)
 
-		assert.True(t, result, "StatefulSet should be detected as deleted after retries")
+			assert.True(t, result, "StatefulSet should be detected as deleted")
+		})
 	})
 }

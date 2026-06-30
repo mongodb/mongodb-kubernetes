@@ -132,7 +132,7 @@ class SHA1ConnectivityTests:
             auth_mechanism="SCRAM-SHA-1",
         )
 
-    def test_authentication_is_disabled_once_resource_is_deleted(namespace: str, mdb: MongoDB):
+    def test_authentication_is_disabled_once_resource_is_deleted(self, namespace: str, mdb: MongoDB):
         mdb.delete()
 
         def resource_is_deleted() -> bool:

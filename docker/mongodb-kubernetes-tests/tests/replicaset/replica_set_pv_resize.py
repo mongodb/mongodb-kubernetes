@@ -83,7 +83,7 @@ def test_replica_set_resize_finished(replica_set: MongoDB, namespace: str):
 
 
 @mark.e2e_replica_set_pv_resize
-def test_mdb_is_not_reachable_with_no_ssl(replica_set: MongoDB):
+def test_mdb_is_not_reachable_without_ssl(replica_set: MongoDB):
     replica_set.tester(use_ssl=False).assert_no_connection()
 
 

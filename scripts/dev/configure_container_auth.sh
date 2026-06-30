@@ -103,11 +103,24 @@ registry_login() {
   fi
 }
 
+clear_undefined_credentials() { # this enables the SSO auth path
+  # If the keys are 'undefined' or empty, get them out of the way
+  if [[ "${AWS_ACCESS_KEY_ID}" == "undefined" || -z "${AWS_ACCESS_KEY_ID}" ]]; then
+    unset AWS_ACCESS_KEY_ID
+  fi
+
+  if [[ "${AWS_SECRET_ACCESS_KEY}" == "undefined" || -z "${AWS_SECRET_ACCESS_KEY}" ]]; then
+    unset AWS_SECRET_ACCESS_KEY
+  fi
+}
+
 setup_validate_container_runtime
 
 if [[ ! -f "${CONFIG_PATH}" ]]; then
   write_file '{}' "${CONFIG_PATH}"
 fi
+
+clear_undefined_credentials
 
 if [[ -f "${CONFIG_PATH}" ]]; then
   if [[ "${RUNNING_IN_EVG:-"false"}" != "true" ]]; then
@@ -141,7 +154,6 @@ if [[ -f "${CONFIG_PATH}" ]]; then
   fi
 fi
 
-
 echo "$(aws --version)}"
 
 aws ecr get-login-password --region "us-east-1" | registry_login "AWS" "268558157000.dkr.ecr.us-east-1.amazonaws.com"
@@ -157,16 +169,5 @@ if [[ "${CONTAINER_RUNTIME}" == "docker" ]] && exec_cmd grep -q "credsStore" "${
 fi
 
 aws ecr get-login-password --region "eu-west-1" | registry_login "AWS" "268558157000.dkr.ecr.eu-west-1.amazonaws.com"
-
-if [[ -n "${PRERELEASE_PULLSECRET_DOCKERCONFIGJSON:-}" ]]; then
-  # log in to quay.io for the mongodb/mongodb-search-community private repo
-  # TODO remove once we switch to the official repo in Public Preview
-  quay_io_auth_file=$(mktemp)
-  config_tmp=$(mktemp)
-  echo "${PRERELEASE_PULLSECRET_DOCKERCONFIGJSON}" | base64 -d > "${quay_io_auth_file}"
-  exec_cmd jq -s '.[0] * .[1]' "${quay_io_auth_file}" "${CONFIG_PATH}" > "${config_tmp}"
-  exec_cmd mv "${config_tmp}" "${CONFIG_PATH}"
-  rm "${quay_io_auth_file}"
-fi
 
 create_image_registries_secret

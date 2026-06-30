@@ -16,16 +16,14 @@ def sc(namespace: str, custom_mdb_version: str) -> MongoDB:
         namespace=namespace,
     )
 
-    if try_load(resource):
-        return resource
-
     resource.set_version(ensure_ent_version(custom_mdb_version))
     resource.set_architecture_annotation()
 
     if is_multi_cluster():
         enable_multi_cluster_deployment(resource)
 
-    return resource.update()
+    try_load(resource)
+    return resource
 
 
 @mark.e2e_sharded_cluster_secret
@@ -44,6 +42,7 @@ class TestShardedClusterListensSecret:
     """
 
     def test_create_sharded_cluster(self, sc: MongoDB):
+        sc.update()
         sc.assert_reaches_phase(Phase.Running, timeout=1000)
 
     def test_patch_config_map(self, sc: MongoDB):

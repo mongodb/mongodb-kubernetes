@@ -508,7 +508,7 @@ func TestUserReconciler_SavesConnectionStringForMultiShardedCluster(t *testing.T
 	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
 	memberClusterMap := getFakeMultiClusterMapWithConfiguredInterceptor(memberClusters.ClusterNames, omConnectionFactory, true, true)
 
-	reconciler := newMongoDBUserReconciler(ctx, kubeClient, omConnectionFactory.GetConnectionFunc, memberClusterMap)
+	reconciler := newMongoDBUserReconciler(ctx, kubeClient, omConnectionFactory.GetConnectionFunc, memberClusterMap, testBackupEnableDelay)
 
 	_ = kubeClient.Create(ctx, cluster)
 
@@ -643,13 +643,13 @@ func createMongoDBForUserWithAuth(ctx context.Context, client client.Client, use
 func defaultUserReconciler(ctx context.Context, user *userv1.MongoDBUser) (*MongoDBUserReconciler, client.Client, *om.CachedOMConnectionFactory) {
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(user)
 	memberClusterMap := getFakeMultiClusterMap(omConnectionFactory)
-	return newMongoDBUserReconciler(ctx, kubeClient, omConnectionFactory.GetConnectionFunc, memberClusterMap), kubeClient, omConnectionFactory
+	return newMongoDBUserReconciler(ctx, kubeClient, omConnectionFactory.GetConnectionFunc, memberClusterMap, testBackupEnableDelay), kubeClient, omConnectionFactory
 }
 
 func userReconcilerWithAuthMode(ctx context.Context, user *userv1.MongoDBUser, authMode string) (*MongoDBUserReconciler, client.Client, *om.CachedOMConnectionFactory) {
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(user)
 	memberClusterMap := getFakeMultiClusterMap(omConnectionFactory)
-	reconciler := newMongoDBUserReconciler(ctx, kubeClient, omConnectionFactory.GetConnectionFunc, memberClusterMap)
+	reconciler := newMongoDBUserReconciler(ctx, kubeClient, omConnectionFactory.GetConnectionFunc, memberClusterMap, testBackupEnableDelay)
 	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
 		_ = connection.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
 			ac.Auth.DeploymentAuthMechanisms = append(ac.Auth.DeploymentAuthMechanisms, authMode)

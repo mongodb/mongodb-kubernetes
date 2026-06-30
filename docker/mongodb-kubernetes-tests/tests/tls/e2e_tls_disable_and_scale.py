@@ -1,4 +1,5 @@
 import pytest
+from kubetester import try_load
 from kubetester.certs import ISSUER_CA_NAME, create_mongodb_tls_certs
 from kubetester.kubetester import fixture as load_fixture
 from kubetester.mongodb import MongoDB
@@ -14,14 +15,15 @@ def server_certs(issuer: str, namespace: str):
 
 @pytest.fixture(scope="module")
 def replica_set(namespace: str, server_certs: str, issuer_ca_configmap: str) -> MongoDB:
-    res = MongoDB.from_yaml(load_fixture("test-tls-base-rs.yaml"), namespace=namespace)
-    res["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
+    resource = MongoDB.from_yaml(load_fixture("test-tls-base-rs.yaml"), namespace=namespace)
+    resource["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
 
     # Set this ReplicaSet to allowSSL mode
     # this is the only mode that can go to "disabled" state.
-    res["spec"]["additionalMongodConfig"] = {"net": {"ssl": {"mode": "allowSSL"}}}
+    resource["spec"]["additionalMongodConfig"] = {"net": {"ssl": {"mode": "allowSSL"}}}
 
-    return res.create()
+    try_load(resource)
+    return resource
 
 
 @pytest.mark.e2e_disable_tls_and_scale
@@ -31,6 +33,7 @@ def test_install_operator(operator: Operator):
 
 @pytest.mark.e2e_disable_tls_and_scale
 def test_rs_is_running(replica_set: MongoDB):
+    replica_set.update()
     replica_set.assert_reaches_phase(Phase.Running, timeout=400)
 
 

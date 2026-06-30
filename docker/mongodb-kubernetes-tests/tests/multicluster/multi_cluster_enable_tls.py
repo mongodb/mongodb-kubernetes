@@ -1,7 +1,7 @@
 from typing import List
 
 import kubernetes
-from kubetester import read_secret
+from kubetester import read_secret, try_load
 from kubetester.certs_mongodb_multi import create_multi_cluster_mongodb_tls_certs
 from kubetester.kubetester import ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
@@ -54,7 +54,8 @@ def mongodb_multi(
 
     resource = mongodb_multi_unmarshalled
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    return resource.create()
+    try_load(resource)
+    return resource
 
 
 @mark.e2e_multi_cluster_enable_tls
@@ -64,6 +65,7 @@ def test_deploy_operator(multi_cluster_operator: Operator):
 
 @mark.e2e_multi_cluster_enable_tls
 def test_create_mongodb_multi(mongodb_multi: MongoDBMulti, namespace: str):
+    mongodb_multi.update()
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1200)
 
 

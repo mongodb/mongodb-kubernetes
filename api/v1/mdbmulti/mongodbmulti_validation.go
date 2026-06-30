@@ -1,9 +1,9 @@
 package mdbmulti
 
 import (
+	"context"
 	"errors"
 
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	runtime "k8s.io/apimachinery/pkg/runtime"
@@ -13,19 +13,21 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 )
 
-var _ webhook.Validator = &MongoDBMultiCluster{}
+type MongoDBMultiClusterValidator struct{}
 
-func (m *MongoDBMultiCluster) ValidateCreate() (admission.Warnings, error) {
-	return nil, m.ProcessValidationsOnReconcile(nil)
+func (m MongoDBMultiClusterValidator) ValidateCreate(_ context.Context, obj runtime.Object) (warnings admission.Warnings, err error) {
+	return nil, obj.(*MongoDBMultiCluster).ProcessValidationsOnReconcile(nil)
 }
 
-func (m *MongoDBMultiCluster) ValidateUpdate(old runtime.Object) (admission.Warnings, error) {
-	return nil, m.ProcessValidationsOnReconcile(old.(*MongoDBMultiCluster))
+func (m MongoDBMultiClusterValidator) ValidateUpdate(_ context.Context, oldObj, newObj runtime.Object) (warnings admission.Warnings, err error) {
+	return nil, newObj.(*MongoDBMultiCluster).ProcessValidationsOnReconcile(oldObj.(*MongoDBMultiCluster))
 }
 
-func (m *MongoDBMultiCluster) ValidateDelete() (admission.Warnings, error) {
+func (m MongoDBMultiClusterValidator) ValidateDelete(_ context.Context, obj runtime.Object) (warnings admission.Warnings, err error) {
 	return nil, nil
 }
+
+var _ admission.CustomValidator = &MongoDBMultiClusterValidator{}
 
 func (m *MongoDBMultiCluster) ProcessValidationsOnReconcile(old *MongoDBMultiCluster) error {
 	for _, res := range m.RunValidations(old) {

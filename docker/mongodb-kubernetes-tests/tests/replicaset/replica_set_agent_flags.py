@@ -1,6 +1,6 @@
 from typing import Optional
 
-from kubetester import create_or_update_configmap, find_fixture, random_k8s_name, read_configmap
+from kubetester import create_or_update_configmap, find_fixture, random_k8s_name, read_configmap, try_load
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.mongodb import MongoDB
 from kubetester.phase import Phase
@@ -53,7 +53,7 @@ def replica_set(namespace: str, first_project: str, custom_mdb_version: str) -> 
     resource.set_architecture_annotation()
     resource["spec"]["opsManager"]["configMapRef"]["name"] = first_project
 
-    resource.update()
+    try_load(resource)
     return resource
 
 
@@ -63,17 +63,19 @@ def second_replica_set(namespace: str, second_project: str, custom_mdb_version: 
     resource.set_version(ensure_ent_version(custom_mdb_version))
     resource["spec"]["opsManager"]["configMapRef"]["name"] = second_project
 
-    resource.update()
+    try_load(resource)
     return resource
 
 
 @mark.e2e_replica_set_agent_flags_and_readinessProbe
 def test_replica_set(replica_set: MongoDB):
+    replica_set.update()
     replica_set.assert_reaches_phase(Phase.Running, timeout=400)
 
 
 @mark.e2e_replica_set_agent_flags_and_readinessProbe
 def test_second_replica_set(second_replica_set: MongoDB):
+    second_replica_set.update()
     second_replica_set.assert_reaches_phase(Phase.Running, timeout=400)
 
 

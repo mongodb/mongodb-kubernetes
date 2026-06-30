@@ -24,11 +24,8 @@ def sc(namespace: str, custom_mdb_version: str) -> MongoDB:
         name="sh-scaling",
     )
 
-    if try_load(resource):
-        return resource
-
     resource.set_architecture_annotation()
-
+    try_load(resource)
     return resource
 
 

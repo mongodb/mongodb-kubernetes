@@ -1,6 +1,7 @@
 import jsonpatch
 import pytest
 from kubernetes import client
+from kubetester import try_load
 from kubetester.certs import ISSUER_CA_NAME, create_mongodb_tls_certs
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as load_fixture
@@ -29,9 +30,10 @@ def server_certs(issuer: str, namespace: str):
 
 @pytest.fixture(scope="module")
 def mdb(namespace: str, server_certs: str, issuer_ca_configmap: str) -> MongoDB:
-    res = MongoDB.from_yaml(load_fixture("test-tls-additional-domains.yaml"), namespace=namespace)
-    res["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
-    return res.create()
+    resource = MongoDB.from_yaml(load_fixture("test-tls-additional-domains.yaml"), namespace=namespace)
+    resource["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
+    try_load(resource)
+    return resource
 
 
 @pytest.mark.e2e_tls_rs_additional_certs
@@ -42,6 +44,7 @@ def test_install_operator(operator: Operator):
 @pytest.mark.e2e_tls_rs_additional_certs
 class TestReplicaSetWithAdditionalCertDomains(KubernetesTester):
     def test_replica_set_is_running(self, mdb: MongoDB):
+        mdb.update()
         mdb.assert_reaches_phase(Phase.Running, timeout=400)
 
     @skip_if_local

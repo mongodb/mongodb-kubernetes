@@ -59,9 +59,3 @@ func (o *okStatus) Log(_ *zap.SugaredLogger) {
 func (o *okStatus) Phase() status.Phase {
 	return status.PhaseRunning
 }
-
-func (o *okStatus) Requeue() Status {
-	o.requeueAfter = 0
-	o.requeue = true
-	return o
-}

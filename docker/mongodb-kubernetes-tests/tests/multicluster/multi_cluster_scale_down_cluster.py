@@ -2,6 +2,7 @@ from typing import List
 
 import kubernetes
 import pytest
+from kubetester import try_load
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.certs_mongodb_multi import create_multi_cluster_mongodb_tls_certs
 from kubetester.kubetester import fixture as yaml_fixture
@@ -57,7 +58,8 @@ def server_certs(
 
 @pytest.fixture(scope="module")
 def mongodb_multi(mongodb_multi_unmarshalled: MongoDBMulti, server_certs: str) -> MongoDBMulti:
-    return mongodb_multi_unmarshalled.create()
+    try_load(mongodb_multi_unmarshalled)
+    return mongodb_multi_unmarshalled
 
 
 @pytest.mark.e2e_multi_cluster_scale_down_cluster
@@ -67,6 +69,7 @@ def test_deploy_operator(multi_cluster_operator: Operator):
 
 @pytest.mark.e2e_multi_cluster_scale_down_cluster
 def test_create_mongodb_multi(mongodb_multi: MongoDBMulti):
+    mongodb_multi.update()
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1200)
 
 

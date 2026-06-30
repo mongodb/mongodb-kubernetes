@@ -54,6 +54,7 @@ rules:
   - apps
   resources:
   - statefulsets
+  - deployments
   verbs:
   - get
   - list

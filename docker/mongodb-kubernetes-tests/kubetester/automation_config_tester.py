@@ -104,6 +104,7 @@ class AutomationConfigTester:
         assert len(self.automation_config["oidcProviderConfigs"]) == expected_size
 
     def assert_oidc_configuration(self, oidc_config: Optional[Dict] = None):
+        assert oidc_config is not None, "oidc_config must not be None"
         actual_configs = self.automation_config["oidcProviderConfigs"]
         assert len(actual_configs) == len(
             oidc_config

@@ -22,9 +22,6 @@ def sharded_cluster(namespace: str, custom_mdb_version: str) -> MongoDB:
         find_fixture("sharded-cluster-multi-cluster.yaml"), namespace=namespace, name=MDB_RESOURCE_NAME
     )
 
-    if try_load(resource):
-        return resource
-
     resource.set_version(ensure_ent_version(custom_mdb_version))
 
     enable_multi_cluster_deployment(resource=resource)
@@ -32,6 +29,7 @@ def sharded_cluster(namespace: str, custom_mdb_version: str) -> MongoDB:
 
     resource.set_architecture_annotation()
 
+    try_load(resource)
     return resource
 
 
@@ -86,8 +84,8 @@ def test_services_were_created(sharded_cluster: MongoDB, namespace: str):
         logger.debug(f"Services: {services}")
 
     # Assert that each expected service exists in its corresponding cluster and no extra services exist
-    for cluster, expected_services in expected_services.items():
+    for cluster, cluster_expected_services in expected_services.items():
         api_client = get_member_cluster_api_client(cluster)  # Retrieve the API client for the cluster
         svc_list = client.CoreV1Api(api_client=api_client).list_namespaced_service(namespace)
         actual_services = map(lambda x: x.metadata.name, svc_list.items)
-        assert sorted(expected_services) == sorted(actual_services)
+        assert sorted(cluster_expected_services) == sorted(actual_services)

@@ -1,6 +1,7 @@
 import time
 
 import pytest
+from kubetester import try_load
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import get_pods, skip_if_local
@@ -14,7 +15,8 @@ RESOURCE_NAME = "my-replica-set-double"
 def replica_set(namespace: str) -> MongoDB:
     resource = MongoDB.from_yaml(yaml_fixture("replica-set-double.yaml"), RESOURCE_NAME, namespace)
     resource.set_architecture_annotation()
-    return resource.update()
+    try_load(resource)
+    return resource
 
 
 @pytest.fixture(scope="class")
@@ -37,6 +39,7 @@ class TestReplicaSetNoAgentDeadlock(KubernetesTester):
     """
 
     def test_mdb_created(self, replica_set: MongoDB, config_version):
+        replica_set.update()
         replica_set.assert_reaches_phase(Phase.Running)
         config_version.version = self.get_automation_config()["version"]
 

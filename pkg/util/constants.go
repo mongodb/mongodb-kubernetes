@@ -185,7 +185,6 @@ const (
 	OpsManagerImageUrl               = "OPS_MANAGER_IMAGE_REPOSITORY"
 	InitOpsManagerImageUrl           = "INIT_OPS_MANAGER_IMAGE_REPOSITORY"
 	InitOpsManagerVersion            = "INIT_OPS_MANAGER_VERSION"
-	InitAppdbImageUrlEnv             = "INIT_APPDB_IMAGE_REPOSITORY"
 	InitDatabaseImageUrlEnv          = "INIT_DATABASE_IMAGE_REPOSITORY"
 	OpsManagerPullPolicy             = "OPS_MANAGER_IMAGE_PULL_POLICY"
 	NonStaticDatabaseEnterpriseImage = "MONGODB_ENTERPRISE_DATABASE_IMAGE"
@@ -195,6 +194,7 @@ const (
 	MemberListConfigMapName          = OperatorName + "-member-list"
 	BackupDisableWaitSecondsEnv      = "BACKUP_WAIT_SEC"
 	BackupDisableWaitRetriesEnv      = "BACKUP_WAIT_RETRIES"
+	BackupStartDelaySecondsEnv       = "MDB_BACKUP_START_DELAY_SECONDS"
 	ManagedSecurityContextEnv        = "MANAGED_SECURITY_CONTEXT"
 	CurrentNamespace                 = "NAMESPACE"
 	OperatorNameEnv                  = "OPERATOR_NAME"
@@ -204,8 +204,15 @@ const (
 
 	MdbWebhookRegisterConfigurationEnv = "MDB_WEBHOOK_REGISTER_CONFIGURATION"
 	MdbWebhookPortEnv                  = "MDB_WEBHOOK_PORT"
+	MdbWebhookNameEnv                  = "MDB_WEBHOOK_NAME"
 
 	MaxConcurrentReconcilesEnv = "MDB_MAX_CONCURRENT_RECONCILES"
+
+	// Search environment variables
+	SearchRepoURLEnv = "MDB_SEARCH_REPO_URL"
+	SearchNameEnv    = "MDB_SEARCH_NAME"
+	SearchVersionEnv = "MDB_SEARCH_VERSION"
+	EnvoyImageEnv    = "MDB_ENVOY_IMAGE"
 
 	// Different default configuration values
 	DefaultMongodStorageSize           = "16G"
@@ -221,6 +228,7 @@ const (
 	OpsManagerDefaultPortHTTPS         = 8443
 	DefaultBackupDisableWaitSeconds    = "3"
 	DefaultBackupDisableWaitRetries    = "30" // 30 * 3 = 90 seconds, should be ok for backup job to terminate
+	DefaultBackupStartDelaySeconds     = 60   // 60 seconds delay to avoid race condition between OM topology discovery and backup enablement
 	DefaultPodTerminationPeriodSeconds = 600  // 10 min. Keep this in sync with 'cleanup()' function in agent-launcher-lib.sh
 	DefaultK8sCacheRefreshTimeSeconds  = 2
 	OpsManagerMonitorAppDBDefault      = true
@@ -241,6 +249,9 @@ const (
 	DefaultAppDbPasswordKey            = "password"
 	AppDbConnectionStringKey           = "connectionString"
 	AppDbProjectIdKey                  = "projectId"
+	// Immutable backups were introduced in 8.0.19
+	// This variable is used for validating the OM version when an s3 store with object lock is configured
+	MinimumVersionImmutableBackup = "8.0.19"
 
 	// Below is a list of non-persistent PV and PVCs for OpsManager
 	OpsManagerPvcNameData       = "data"

@@ -13,9 +13,9 @@ MDB_RESOURCE_NAME = "test-x509-sc"
 
 @pytest.fixture(scope="module")
 def server_certs(issuer: str, namespace: str):
-    shard_distribution = None
-    mongos_distribution = None
-    config_srv_distribution = None
+    shard_distribution: list[int | None] | None = None
+    mongos_distribution: list[int | None] | None = None
+    config_srv_distribution: list[int | None] | None = None
     if is_multi_cluster():
         shard_distribution = [1, 1, 1]
         mongos_distribution = [1, 1, None]
@@ -43,9 +43,6 @@ def agent_certs(issuer: str, namespace: str) -> str:
 def sharded_cluster(namespace: str, server_certs: str, agent_certs: str, issuer_ca_configmap: str) -> MongoDB:
     resource = MongoDB.from_yaml(load_fixture("test-x509-sc.yaml"), namespace=namespace)
 
-    if try_load(resource):
-        return resource
-
     resource["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
     resource.set_architecture_annotation()
 
@@ -57,7 +54,8 @@ def sharded_cluster(namespace: str, server_certs: str, agent_certs: str, issuer_
             configsrv_members_array=[1, 1, 1],
         )
 
-    return resource.update()
+    try_load(resource)
+    return resource
 
 
 @pytest.mark.e2e_tls_x509_sc
@@ -68,4 +66,5 @@ def test_install_operator(operator: Operator):
 @pytest.mark.e2e_tls_x509_sc
 class TestClusterWithTLSCreation:
     def test_sharded_cluster_running(self, sharded_cluster: MongoDB):
+        sharded_cluster.update()
         sharded_cluster.assert_reaches_phase(Phase.Running, timeout=1200)

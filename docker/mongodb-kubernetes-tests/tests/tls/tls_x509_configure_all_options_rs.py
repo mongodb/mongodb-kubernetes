@@ -1,4 +1,5 @@
 import pytest
+from kubetester import try_load
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.certs import (
     ISSUER_CA_NAME,
@@ -30,7 +31,8 @@ def agent_certs(issuer: str, namespace: str) -> str:
 def mdb(namespace: str, server_certs: str, agent_certs: str, issuer_ca_configmap: str) -> MongoDB:
     res = MongoDB.from_yaml(load_fixture("test-x509-all-options-rs.yaml"), namespace=namespace)
     res["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
-    return res.update()
+    try_load(res)
+    return res
 
 
 @pytest.mark.e2e_tls_x509_configure_all_options_rs
@@ -41,6 +43,7 @@ def test_install_operator(operator: Operator):
 @pytest.mark.e2e_tls_x509_configure_all_options_rs
 class TestReplicaSetEnableAllOptions(KubernetesTester):
     def test_gets_to_running_state(self, mdb: MongoDB):
+        mdb.update()
         mdb.assert_reaches_phase(Phase.Running, timeout=600)
 
     def test_ops_manager_state_correctly_updated(self):

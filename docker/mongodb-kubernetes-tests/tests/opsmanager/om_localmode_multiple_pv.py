@@ -1,6 +1,6 @@
 from typing import Optional
 
-from kubetester import get_default_storage_class
+from kubetester import get_default_storage_class, try_load
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
@@ -23,7 +23,7 @@ def ops_manager(namespace: str, custom_version: Optional[str], custom_appdb_vers
     if is_multi_cluster():
         enable_multi_cluster_deployment(resource)
 
-    resource.update()
+    try_load(resource)
     return resource
 
 
@@ -36,13 +36,14 @@ def replica_set(ops_manager: MongoDBOpsManager, namespace: str, custom_mdb_versi
     resource.set_version(custom_mdb_version)
     resource["spec"]["members"] = 2
 
-    resource.update()
+    try_load(resource)
     return resource
 
 
 @mark.e2e_om_localmode_multiple_pv
 class TestOpsManagerCreation:
     def test_ops_manager_ready(self, ops_manager: MongoDBOpsManager):
+        ops_manager.update()
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=1000)
         ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=1000)
 
@@ -92,6 +93,7 @@ class TestOpsManagerCreation:
     def test_replica_set_reaches_failed_phase(self, replica_set: MongoDB):
         # CLOUDP-61573 - we don't get the validation error on automation config submission if the OM has no
         # distros for local mode - so just wait until the agents don't reach goal state
+        replica_set.update()
         replica_set.assert_reaches_phase(Phase.Failed, timeout=300)
 
     def test_add_mongodb_distros(self, ops_manager: MongoDBOpsManager, custom_mdb_version: str):

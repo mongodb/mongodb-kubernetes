@@ -72,6 +72,22 @@ func (u DeploymentUsageSnapshotProperties) ConvertToFlatMap() (map[string]any, e
 	return properties, nil
 }
 
+type SearchDeploymentUsageSnapshotProperties struct {
+	DeploymentUsageSnapshotProperties `json:",inline"`
+	IsAutoEmbeddingEnabled            bool `json:"isAutoEmbeddingEnabled"`
+}
+
+func (u SearchDeploymentUsageSnapshotProperties) ConvertToFlatMap() (map[string]any, error) {
+	baseProperties, err := u.DeploymentUsageSnapshotProperties.ConvertToFlatMap()
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse properties: %w", err)
+	}
+
+	baseProperties["isAutoEmbeddingEnabled"] = u.IsAutoEmbeddingEnabled
+
+	return baseProperties, nil
+}
+
 type Event struct {
 	Timestamp  time.Time      `json:"timestamp"`
 	Source     EventType      `json:"source"`

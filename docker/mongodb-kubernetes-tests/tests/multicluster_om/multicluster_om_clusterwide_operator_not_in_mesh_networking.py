@@ -146,16 +146,13 @@ class MultiClusterOMClusterWideTestHelper:
             self.s3_bucket_oplog,
         )
 
-        if try_load(resource):
-            return resource
-
         resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
         resource["spec"]["version"] = get_custom_om_version()
         resource["spec"]["topology"] = "MultiCluster"
         ## Force creating headless services for internal connectivity
         resource["spec"]["internalConnectivity"] = {
             "type": "ClusterIP",
-            "ClusterIP": "None",
+            "clusterIP": "None",
         }
         resource["spec"]["clusterSpecList"] = cluster_spec_list(
             [MEMBER_CLUSTER_2], [1], backup_configs=[{"members": 1}]
@@ -182,6 +179,7 @@ class MultiClusterOMClusterWideTestHelper:
             },
         }
 
+        try_load(resource)
         return resource
 
 

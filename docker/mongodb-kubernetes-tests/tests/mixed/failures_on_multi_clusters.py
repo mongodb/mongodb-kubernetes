@@ -1,3 +1,4 @@
+from kubetester import try_load
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
@@ -9,8 +10,8 @@ from pytest import fixture, mark
 def replica_set(namespace, custom_mdb_version: str):
     resource = MongoDB.from_yaml(yaml_fixture("replica-set.yaml"), namespace=namespace)
     resource.set_version(custom_mdb_version)
-    yield resource.create()
-
+    try_load(resource)
+    yield resource
     resource.delete()
 
 
@@ -18,8 +19,8 @@ def replica_set(namespace, custom_mdb_version: str):
 def replica_set_single(namespace, custom_mdb_version: str):
     resource = MongoDB.from_yaml(yaml_fixture("replica-set-single.yaml"), namespace=namespace)
     resource.set_version(custom_mdb_version)
-    yield resource.create()
-
+    try_load(resource)
+    yield resource
     resource.delete()
 
 
@@ -27,8 +28,8 @@ def replica_set_single(namespace, custom_mdb_version: str):
 def sharded_cluster(namespace, custom_mdb_version: str):
     resource = MongoDB.from_yaml(yaml_fixture("sharded-cluster.yaml"), namespace=namespace)
     resource.set_version(custom_mdb_version)
-    yield resource.create()
-
+    try_load(resource)
+    yield resource
     resource.delete()
 
 
@@ -36,14 +37,15 @@ def sharded_cluster(namespace, custom_mdb_version: str):
 def sharded_cluster_single(namespace, custom_mdb_version: str):
     resource = MongoDB.from_yaml(yaml_fixture("sharded-cluster-single.yaml"), namespace=namespace)
     resource.set_version(custom_mdb_version)
-    yield resource.create()
-
+    try_load(resource)
+    yield resource
     resource.delete()
 
 
 @mark.e2e_multiple_cluster_failures
 class TestNoTwoReplicaSetsCanBeCreatedOnTheSameProject:
     def test_replica_set_get_to_running_state(self, replica_set: MongoDB):
+        replica_set.update()
         replica_set.assert_reaches_phase(Phase.Running)
 
         assert "warnings" not in replica_set["status"]
@@ -56,6 +58,7 @@ class TestNoTwoReplicaSetsCanBeCreatedOnTheSameProject:
         assert "warnings" not in replica_set["status"]
 
     def test_second_mdb_resource_fails(self, replica_set_single: MongoDB):
+        replica_set_single.update()
         replica_set_single.assert_reaches_phase(Phase.Pending)
 
         assert (
@@ -81,11 +84,13 @@ class TestNoTwoReplicaSetsCanBeCreatedOnTheSameProject:
 class TestNoTwoClustersCanBeCreatedOnTheSameProject:
     def test_sharded_cluster_reaches_running_phase(self, sharded_cluster: MongoDB):
         # Unfortunately, Sharded cluster takes a long time to even start.
+        sharded_cluster.update()
         sharded_cluster.assert_reaches_phase(Phase.Running, timeout=600)
 
         assert "warnings" not in sharded_cluster["status"]
 
     def test_second_mdb_sharded_cluster_fails(self, sharded_cluster_single: MongoDB):
+        sharded_cluster_single.update()
         sharded_cluster_single.assert_reaches_phase(Phase.Pending)
 
         assert "warnings" not in sharded_cluster_single["status"]
@@ -106,9 +111,11 @@ class TestNoTwoClustersCanBeCreatedOnTheSameProject:
 @mark.e2e_multiple_cluster_failures
 class TestNoTwoDifferentTypeOfResourceCanBeCreatedOnTheSameProject:
     def test_multiple_test_different_type_fails(self, replica_set_single: MongoDB):
+        replica_set_single.update()
         replica_set_single.assert_reaches_phase(Phase.Running)
 
     def test_adding_sharded_cluster_fails(self, sharded_cluster_single: MongoDB):
+        sharded_cluster_single.update()
         sharded_cluster_single.assert_reaches_phase(Phase.Pending)
 
         status = sharded_cluster_single["status"]

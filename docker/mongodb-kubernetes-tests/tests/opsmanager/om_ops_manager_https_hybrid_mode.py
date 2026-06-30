@@ -1,6 +1,7 @@
 import time
 from typing import Optional
 
+from kubetester import try_load
 from kubetester.certs import create_mongodb_tls_certs, create_ops_manager_tls_certs
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as _fixture
@@ -60,7 +61,7 @@ def ops_manager(
     if is_multi_cluster():
         enable_multi_cluster_deployment(om)
 
-    om.update()
+    try_load(om)
     return om
 
 
@@ -78,11 +79,13 @@ def replicaset0(
     )
     resource.set_version(custom_mdb_version)
     resource.configure_custom_tls(issuer_ca_configmap, certs_secret_prefix)
-    return resource.create()
+    try_load(resource)
+    return resource
 
 
 @mark.e2e_om_ops_manager_https_enabled_hybrid
 def test_appdb_running_over_tls(ops_manager: MongoDBOpsManager, ca_path: str):
+    ops_manager.update()
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
     ops_manager.get_appdb_tester(ssl=True, ca_path=ca_path).assert_connectivity()
 
@@ -107,5 +110,6 @@ def test_config_map_has_ca_set_correctly(ops_manager: MongoDBOpsManager, issuer_
 
 @mark.e2e_om_ops_manager_https_enabled_hybrid
 def test_mongodb_replicaset_over_https_ops_manager(replicaset0: MongoDB, ca_path: str):
+    replicaset0.update()
     replicaset0.assert_reaches_phase(Phase.Running, timeout=400, ignore_errors=True)
     replicaset0.assert_connectivity(ca_path=ca_path)

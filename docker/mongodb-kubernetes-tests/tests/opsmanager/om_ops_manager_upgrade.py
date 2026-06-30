@@ -1,5 +1,5 @@
 from time import sleep
-from typing import Optional
+from typing import Iterator, Optional
 
 import pytest
 import semver
@@ -28,7 +28,7 @@ logger = test_logger.get_test_logger(__name__)
 
 
 @fixture(scope="module")
-def s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> str:
+def s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> Iterator[str]:
     create_aws_secret(aws_s3_client, S3_SECRET_NAME, namespace)
     yield from create_s3_bucket(aws_s3_client, bucket_prefix="test-s3-bucket-")
 
@@ -43,9 +43,6 @@ def ops_manager(
     resource: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_ops_manager_upgrade.yaml"), namespace=namespace
     )
-
-    if try_load(resource):
-        return resource
 
     resource.allow_mdb_rc_versions()
     resource.set_version(custom_om_prev_version)
@@ -119,7 +116,9 @@ class TestOpsManagerCreation:
         om_tester.assert_test_service()
         try:
             om_tester.assert_support_page_enabled()
-            pytest.xfail("mms.helpAndSupportPage.enabled is expected to be false")
+            pytest.xfail(
+                "mms.helpAndSupportPage.enabled is expected to be false"  # ty: ignore[too-many-positional-arguments]
+            )
         except AssertionError:
             pass
 
@@ -240,7 +239,7 @@ class TestOpsManagerConfigurationChange:
         om_tester.assert_support_page_enabled()
         try:
             om_tester.assert_test_service()
-            pytest.xfail("mms.testUtil.enabled is expected to be false")
+            pytest.xfail("mms.testUtil.enabled is expected to be false")  # ty: ignore[too-many-positional-arguments]
         except AssertionError:
             pass
 
@@ -370,7 +369,7 @@ class TestMongoDbsVersionUpgrade:
 class TestAppDBScramShaUpdated:
     def test_appdb_reconcile(self, ops_manager: MongoDBOpsManager):
         ops_manager.load()
-        ops_manager["spec"]["applicationDatabase"]["logLevel"] = "DEBUG"
+        ops_manager["spec"]["applicationDatabase"]["agent"] = {"logLevel": "DEBUG"}
         ops_manager.update()
 
         ops_manager.appdb_status().assert_reaches_phase(Phase.Running)

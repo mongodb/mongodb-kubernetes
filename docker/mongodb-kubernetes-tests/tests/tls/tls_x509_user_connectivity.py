@@ -1,6 +1,7 @@
 import tempfile
 
 import pytest
+from kubetester import try_load
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.certs import create_agent_tls_certs, create_mongodb_tls_certs, create_x509_user_cert
 from kubetester.kubetester import KubernetesTester
@@ -27,10 +28,10 @@ def server_certs(issuer: str, namespace: str) -> str:
 @pytest.fixture(scope="module")
 def replica_set(namespace, agent_certs, server_certs, issuer_ca_configmap):
     _ = server_certs
-    res = MongoDB.from_yaml(_fixture("test-x509-rs.yaml"), namespace=namespace)
-    res["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
-
-    return res.create()
+    resource = MongoDB.from_yaml(_fixture("test-x509-rs.yaml"), namespace=namespace)
+    resource["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
+    try_load(resource)
+    return resource
 
 
 @pytest.mark.e2e_tls_x509_user_connectivity
@@ -43,7 +44,7 @@ class TestReplicaSetWithTLSCreation(KubernetesTester):
     def test_users_wanted_is_correct(self, replica_set, namespace):
         """At this stage we should have 2 members in the usersWanted list,
         monitoring-agent and backup-agent."""
-
+        replica_set.update()
         replica_set.assert_reaches_phase(Phase.Running, timeout=600)
 
         automation_config = KubernetesTester.get_automation_config()

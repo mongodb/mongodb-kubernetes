@@ -1,3 +1,4 @@
+from kubetester import try_load
 from kubetester.certs import create_mongodb_tls_certs
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
@@ -51,7 +52,8 @@ def replica_set(
         "modes": ["SCRAM"],
     }
 
-    return resource.create()
+    try_load(resource)
+    return resource
 
 
 @fixture(scope="module")
@@ -75,7 +77,8 @@ def replica_set_user(replica_set: MongoDB) -> MongoDBUser:
         },
     )
 
-    yield resource.create()
+    try_load(resource)
+    return resource
 
 
 @mark.e2e_operator_upgrade_replica_set
@@ -85,11 +88,13 @@ def test_install_latest_official_operator(official_operator: Operator):
 
 @mark.e2e_operator_upgrade_replica_set
 def test_install_replicaset(replica_set: MongoDB):
+    replica_set.update()
     replica_set.assert_reaches_phase(phase=Phase.Running)
 
 
 @mark.e2e_operator_upgrade_replica_set
 def test_replicaset_user_created(replica_set_user: MongoDBUser):
+    replica_set_user.update()
     replica_set_user.assert_reaches_phase(Phase.Updated)
 
 

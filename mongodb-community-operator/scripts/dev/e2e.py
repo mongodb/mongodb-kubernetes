@@ -122,9 +122,10 @@ def create_test_pod(args: argparse.Namespace, namespace: str) -> None:
                         },
                     ],
                     "command": [
-                        "sh",
+                        "bash",
                         "-c",
-                        f"go test -tags=community_e2e -v -timeout=45m -failfast ./mongodb-community-operator/test/e2e/{args.test} | tee -a /tmp/results/result.suite",
+                        # Use pipefail to return go test's exit code instead of tee's
+                        f"set -o pipefail; go test -tags=community_e2e -v -timeout=45m -failfast ./mongodb-community-operator/test/e2e/{args.test} 2>&1 | tee -a /tmp/results/result.suite",
                     ],
                     "volumeMounts": [{"name": "results", "mountPath": "/tmp/results"}],
                 },
@@ -250,10 +251,11 @@ def main() -> int:
     prepare_and_run_test(args, namespace)
 
     corev1 = client.CoreV1Api()
+    # Wait for the e2e-test container to terminate (any exit code)
     if not k8s_conditions.wait(
         lambda: corev1.read_namespaced_pod(TEST_POD_NAME, namespace),
         lambda pod: any(
-            container.state.terminated and container.state.terminated.exit_code == 0
+            container.state.terminated is not None
             for container in pod.status.container_statuses
             if container.name == "e2e-test"
         ),
@@ -261,9 +263,20 @@ def main() -> int:
         timeout=60,
         exceptions_to_ignore=ApiException,
     ):
+        print("Timed out waiting for e2e-test container to terminate")
         return 1
+
+    # Get the actual exit code from the container
+    pod = corev1.read_namespaced_pod(TEST_POD_NAME, namespace)
+    exit_code = 1  # Default to failure if we can't find the container
+    for container in pod.status.container_statuses:
+        if container.name == "e2e-test" and container.state.terminated:
+            exit_code = container.state.terminated.exit_code
+            print(f"e2e-test container exited with code: {exit_code}")
+            break
+
     _delete_test_environment(namespace)
-    return 0
+    return exit_code
 
 
 if __name__ == "__main__":
