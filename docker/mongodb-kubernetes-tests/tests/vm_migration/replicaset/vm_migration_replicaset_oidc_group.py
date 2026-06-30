@@ -192,16 +192,18 @@ def _configure_ac(
                     "replication": {"replSetName": rs_name},
                     "setParameter": {
                         "authenticationMechanisms": f"{SCRAM_MECHANISM},{OIDC_MECHANISM}",
-                        "oidcIdentityProviders": json.dumps([
-                            {
-                                "issuer": cognito["issuer_uri"],
-                                "audience": cognito["client_id"],
-                                "authNamePrefix": OIDC_CONFIG_NAME,
-                                "authorizationClaim": "cognito:groups",
-                                "useAuthorizationClaim": True,
-                                "supportsHumanFlows": False,
-                            }
-                        ]),
+                        "oidcIdentityProviders": json.dumps(
+                            [
+                                {
+                                    "issuer": cognito["issuer_uri"],
+                                    "audience": cognito["client_id"],
+                                    "authNamePrefix": OIDC_CONFIG_NAME,
+                                    "authorizationClaim": "cognito:groups",
+                                    "useAuthorizationClaim": True,
+                                    "supportsHumanFlows": False,
+                                }
+                            ]
+                        ),
                     },
                 },
             }
