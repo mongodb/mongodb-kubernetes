@@ -3,8 +3,12 @@ import os
 import re
 import subprocess
 import tempfile
+import time
 from typing import Dict, List, Optional, Tuple
 
+import yaml
+from kubernetes import client
+from kubernetes.client.rest import ApiException
 from tests import test_logger
 from tests.constants import (
     DEFAULT_HELM_CHART_PATH_ENV_VAR_NAME,
@@ -254,6 +258,51 @@ def apply_crds_from_chart(crds_dir: str):
         logger.info(f"Applying CRD from file: {crd_file}")
         args = ["kubectl", "apply", "-f", crd_file]
         process_run_and_check(" ".join(args), check=True, capture_output=True, shell=True)
+
+
+# Path to the OperatorConfig CRD inside the local Helm chart copied into the tests image.
+OPERATOR_CONFIG_CRD_FILE = os.path.join(LOCAL_CRDS_DIR, "operator.mongodb.com_operatorconfigs.yaml")
+OPERATOR_CONFIG_CRD_NAME = "operatorconfigs.operator.mongodb.com"
+
+
+def apply_operator_config_crd(api_client=None):
+    """Applies the OperatorConfig CRD and waits for it to be established.
+
+    Used by upgrade tests to ensure the CRD exists before the OperatorConfig CR is created and the
+    operator is upgraded to a version that reads it (legacy operators do not ship this CRD).
+    """
+    with open(OPERATOR_CONFIG_CRD_FILE) as f:
+        crd_body = yaml.safe_load(f)
+
+    api = client.ApiextensionsV1Api(api_client=api_client)
+
+    logger.info(f"Applying OperatorConfig CRD from file: {OPERATOR_CONFIG_CRD_FILE}")
+    try:
+        api.create_custom_resource_definition(body=crd_body)
+    except ApiException as e:
+        if e.status != 409:
+            raise
+        # CRD already exists — replace it so any schema changes in the file are applied.
+        # resourceVersion is required for a replace; copy it from the live object.
+        existing = api.read_custom_resource_definition(OPERATOR_CONFIG_CRD_NAME)
+        crd_body["metadata"]["resourceVersion"] = existing.metadata.resource_version
+        api.replace_custom_resource_definition(OPERATOR_CONFIG_CRD_NAME, crd_body)
+        logger.info("OperatorConfig CRD already existed; replaced with current version")
+
+    logger.info("Waiting for the OperatorConfig CRD to be established")
+    timeout_seconds = 60
+    poll_interval_seconds = 2
+    deadline = time.monotonic() + timeout_seconds
+    while True:
+        crd = api.read_custom_resource_definition(OPERATOR_CONFIG_CRD_NAME)
+        conditions = (crd.status.conditions or []) if crd.status else []
+        if any(c.type == "Established" and c.status == "True" for c in conditions):
+            return
+        if time.monotonic() >= deadline:
+            raise AssertionError(
+                f"OperatorConfig CRD {OPERATOR_CONFIG_CRD_NAME} was not established within {timeout_seconds}s"
+            )
+        time.sleep(poll_interval_seconds)
 
 
 def helm_uninstall(name):
