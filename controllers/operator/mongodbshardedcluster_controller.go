@@ -72,7 +72,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	mekoService "github.com/mongodb/mongodb-kubernetes/pkg/kube/service"
-	pkgMigration "github.com/mongodb/mongodb-kubernetes/pkg/migration"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
@@ -936,6 +935,41 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 
 	r.automationAgentVersion = automationAgentVersion
 
+	// Connectivity dry-run: handle before any reconciliation that modifies state.
+	if sc.Annotations[opMigration.AnnotationDryRun] == "true" {
+		if result := controlledfeature.ClearFeatureControls(conn, conn.OpsManagerVersion(), log); !result.IsOK() {
+			result.Log(log)
+			log.Warnf("Failed to clear feature control from group: %s", conn.GroupID())
+		}
+		operatorImage := r.imageUrls[util.OperatorImageEnv]
+		if operatorImage == "" {
+			return r.updateStatus(ctx, sc, workflow.Failed(fmt.Errorf("cannot run connectivity dry-run: operator image unknown (set %s or deploy operator from Helm chart)", util.OperatorImageEnv)).
+				WithAdditionalOptions(mdbstatus.NewMigrationConditionOption(mdbstatus.MigrationCondition(
+					mdbstatus.MigrationPhaseConnectivityCheckFailed, "OperatorImageUnknown",
+					"Set MDB_OPERATOR_IMAGE or deploy with the Helm chart so the operator image is available for the validation Job.",
+				))), log)
+		}
+		currentAgentAuthMode, err := conn.GetAgentAuthMode()
+		if err != nil {
+			return r.updateStatus(ctx, sc, workflow.Failed(err), log)
+		}
+		var databaseSecretPath string
+		if r.commonController.VaultClient != nil {
+			databaseSecretPath = r.commonController.VaultClient.DatabaseSecretPath()
+		}
+		agentCertSecretName := sc.GetSecurity().AgentClientCertificateSecretName(sc.Name)
+		agentCertHash, defaultAgentCertPath := r.commonController.agentCertHashAndPath(ctx, log, sc.Namespace, agentCertSecretName, databaseSecretPath)
+		agentCertPath := EffectiveAgentCertPEMPath(defaultAgentCertPath, sc.Spec.GetSecurity())
+		opts := deploymentOptions{
+			podEnvVars:           newPodVars(conn, projectConfig, sc.Spec.LogLevel),
+			currentAgentAuthMode: currentAgentAuthMode,
+			caFilePath:           util.CAFilePathInContainer,
+			agentCertPath:        agentCertPath,
+			agentCertHash:        agentCertHash,
+		}
+		return r.updateStatus(ctx, sc, r.runConnectivityValidationDryRun(ctx, sc, opts, operatorImage, log), log)
+	}
+
 	workflowStatus := r.doShardedClusterProcessing(ctx, sc, conn, projectConfig, log)
 	if !workflowStatus.IsOK() || workflowStatus.Phase() == mdbstatus.PhaseUnsupported || workflowStatus.Phase() == mdbstatus.PhaseConnectivityValidation {
 		return r.updateStatus(ctx, sc, workflowStatus, log)
@@ -1235,31 +1269,10 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 	}
 	allConfigs := r.getAllConfigs(ctx, *sc, opts, log)
 
-	isDryRun := sc.Annotations[opMigration.AnnotationDryRun] == "true"
-
-	// 5a. Connectivity dry-run: launch a validation Job without touching OM or StatefulSets.
-	if isDryRun {
-		// let's not block OM UI in case the customer needs to fix something to get their
-		// dry-run to pass.
-		if result := controlledfeature.ClearFeatureControls(conn, conn.OpsManagerVersion(), log); !result.IsOK() {
-			result.Log(log)
-			log.Warnf("Failed to clear feature control from group: %s", conn.GroupID())
-		}
-		operatorImage := r.imageUrls[util.OperatorImageEnv]
-		if operatorImage == "" {
-			return workflow.Failed(fmt.Errorf("cannot run connectivity dry-run: operator image unknown (set %s or deploy operator from Helm chart)", util.OperatorImageEnv)).
-				WithAdditionalOptions(mdbstatus.NewMigrationConditionOption(mdbstatus.MigrationCondition(
-					mdbstatus.MigrationPhaseConnectivityCheckFailed, "OperatorImageUnknown",
-					"Set MDB_OPERATOR_IMAGE or deploy with the Helm chart so the operator image is available for the validation Job.",
-				)))
-		}
-		return r.runConnectivityValidationDryRun(ctx, sc, opts, operatorImage, log)
-	}
-
 	// Recovery prevents some deadlocks that can occur during reconciliation, e.g. the setting of an incorrect automation
 	// configuration and a subsequent attempt to overwrite it later, the operator would be stuck in Pending phase.
 	// See CLOUDP-189433 and CLOUDP-229222 for more details.
-	if !isDryRun && recovery.ShouldTriggerRecovery(r.deploymentState.Status.Phase != mdbstatus.PhaseRunning, r.deploymentState.Status.LastTransition) {
+	if recovery.ShouldTriggerRecovery(r.deploymentState.Status.Phase != mdbstatus.PhaseRunning, r.deploymentState.Status.LastTransition) {
 		log.Warnf("Triggering Automatic Recovery. The MongoDB resource %s/%s is in %s state since %s", sc.Namespace, sc.Name, r.deploymentState.Status.Phase, r.deploymentState.Status.LastTransition)
 		automationConfigStatus := r.updateOmDeploymentShardedCluster(ctx, conn, sc, opts, true, log).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
 		deploymentStatus := r.createKubernetesResources(ctx, sc, opts, log)
@@ -2773,54 +2786,8 @@ func (r *ShardedClusterReconcileHelper) runConnectivityValidationDryRun(ctx cont
 		allHostnames = append(allHostnames, m.Hostname)
 	}
 
-	subjectDN := ""
-	if sec := sc.GetSecurity(); sec != nil && sec.GetAgentMechanism(opts.currentAgentAuthMode) == util.X509 {
-		agentCertSecretName := sec.AgentClientCertificateSecretName(sc.Name)
-		sel := corev1.SecretKeySelector{
-			LocalObjectReference: corev1.LocalObjectReference{Name: agentCertSecretName},
-			Key:                  corev1.TLSCertKey,
-		}
-		userOpts, err := r.commonController.readAgentSubjectsFromSecret(ctx, sc.Namespace, sel, log)
-		if err != nil {
-			return workflow.Failed(xerrors.Errorf("connectivity dry-run: automation agent certificate subject: %w", err)).
-				WithAdditionalOptions(mdbstatus.NewMigrationConditionOption(mdbstatus.MigrationCondition(
-					mdbstatus.MigrationPhaseConnectivityCheckFailed, "AgentCertSubject", err.Error(),
-				)))
-		}
-		subjectDN = userOpts.AutomationSubject
-	}
-
-	job := pkgMigration.BuildJobFromStatefulSet(sc, &sts, operatorImage, connectionString, allHostnames, opts.currentAgentAuthMode, opts.agentCertHash, subjectDN)
-
-	result := opMigration.RunConnectivityJob(ctx, r.commonController.client, job)
-	if result.Err != nil {
-		return workflow.Failed(fmt.Errorf("connectivity dry run: %w", result.Err)).
-			WithAdditionalOptions(mdbstatus.NewMigrationConditionOption(mdbstatus.MigrationCondition(
-				result.Phase, result.Reason, result.Message,
-			)))
-	}
-
-	log.Infow("[DRY-RUN CONNECTIVITY] Job status", "phase", result.Phase, "reason", result.Reason, "message", result.Message)
-
-	switch result.Phase {
-	case mdbstatus.MigrationPhaseConnectivityCheckRunning:
-		return workflow.ConnectivityValidation("Connectivity validation in progress. Remove annotation %s to run full reconciliation", opMigration.AnnotationDryRun).
-			WithRetry(30).
-			WithAdditionalOptions(mdbstatus.NewMigrationConditionOption(mdbstatus.MigrationCondition(
-				mdbstatus.MigrationPhaseConnectivityCheckRunning, "Running", "Connectivity validation Job is in progress",
-			)))
-	case mdbstatus.MigrationPhaseConnectivityCheckPassed:
-		return workflow.ConnectivityValidation("Connectivity validation passed. Remove annotation %s to continue with migration", opMigration.AnnotationDryRun).
-			WithAdditionalOptions(mdbstatus.NewMigrationConditionOption(mdbstatus.MigrationCondition(
-				mdbstatus.MigrationPhaseConnectivityCheckPassed, result.Reason, result.Message,
-			)))
-	default:
-		return workflow.Failed(fmt.Errorf("%s: %s", result.Reason, result.Message)).
-			WithRetry(300).
-			WithAdditionalOptions(mdbstatus.NewMigrationConditionOption(mdbstatus.MigrationCondition(
-				mdbstatus.MigrationPhaseConnectivityCheckFailed, result.Reason, result.Message,
-			)))
-	}
+	dryRunStatus := r.commonController.runConnectivityJob(ctx, sc, &sts, connectionString, allHostnames, opts.currentAgentAuthMode, opts.agentCertHash, operatorImage, log)
+	return dryRunStatus
 }
 
 func (r *ShardedClusterReconcileHelper) updateStatus(ctx context.Context, resource *mdbv1.MongoDB, status workflow.Status, log *zap.SugaredLogger, statusOptions ...mdbstatus.Option) (reconcile.Result, error) {
