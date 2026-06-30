@@ -231,7 +231,19 @@ class TestMongoDBCRTakesControl:
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
 
     def test_primary_om_healthiness(self, ops_manager: MongoDBOpsManager):
-        ops_manager.get_om_tester().assert_healthiness()
+        """After AppDB rolling restart OM may take time to re-establish its DB connection.
+        Retry until the health endpoint returns 200 or the timeout expires."""
+        start = time.time()
+        timeout = 300
+        last_error: Optional[AssertionError] = None
+        while time.time() - start < timeout:
+            try:
+                ops_manager.get_om_tester().assert_healthiness()
+                return
+            except AssertionError as e:
+                last_error = e
+                time.sleep(10)
+        raise last_error
 
 
 @mark.e2e_om_external_appdb

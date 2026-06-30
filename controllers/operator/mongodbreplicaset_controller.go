@@ -419,6 +419,11 @@ func publishAutomationConfigFirstRS(ctx context.Context, getter kubernetesClient
 	}
 
 	databaseContainer := container.GetByName(util.DatabaseContainerName, currentSts.Spec.Template.Spec.Containers)
+	if databaseContainer == nil {
+		// The existing STS was not created by the MongoDB controller (e.g. taken over from AppDB).
+		// No pre-publish needed.
+		return false
+	}
 	volumeMounts := databaseContainer.VolumeMounts
 
 	if !mdb.Spec.Security.IsTLSEnabled() && wasTLSSecretMounted(ctx, getter, currentSts, mdb, log) {

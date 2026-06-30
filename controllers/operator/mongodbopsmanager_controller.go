@@ -26,6 +26,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 
@@ -449,6 +450,36 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 
 	var appDBConnectionString string
 	if opsManager.Spec.ExternalApplicationDatabaseRef != nil {
+		appDBStsName := opsManager.Spec.AppDB.Name()
+		existingSts, stsErr := r.client.GetStatefulSet(ctx, kube.ObjectKey(opsManager.Namespace, appDBStsName))
+		if stsErr != nil && !apiErrors.IsNotFound(stsErr) {
+			return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("error getting AppDB StatefulSet %s: %w", appDBStsName, stsErr)), log, opsManagerExtraStatusParams)
+		}
+		if stsErr == nil {
+			omUID := opsManager.UID
+			hasOwnerRef := false
+			for _, ref := range existingSts.GetOwnerReferences() {
+				if ref.UID == omUID {
+					hasOwnerRef = true
+					break
+				}
+			}
+			if hasOwnerRef {
+				if _, stsErr = statefulset.GetAndUpdate(ctx, r.client, kube.ObjectKey(opsManager.Namespace, appDBStsName), func(sts *appsv1.StatefulSet) {
+					refs := sts.GetOwnerReferences()
+					filtered := refs[:0]
+					for _, ref := range refs {
+						if ref.UID != omUID {
+							filtered = append(filtered, ref)
+						}
+					}
+					sts.SetOwnerReferences(filtered)
+				}); stsErr != nil {
+					return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("error removing ownerRef from AppDB StatefulSet %s: %w", appDBStsName, stsErr)), log, opsManagerExtraStatusParams)
+				}
+			}
+		}
+
 		secretRef := opsManager.Spec.ExternalApplicationDatabaseRef.ConnectionStringSecretRef
 		var opsManagerSecretPath string
 		if r.VaultClient != nil {

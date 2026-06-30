@@ -655,9 +655,6 @@ func (om *MongoDBOpsManager) ExternalSvcName() string {
 }
 
 func (om *MongoDBOpsManager) AppDBMongoConnectionStringSecretName() string {
-	if om.Spec.ExternalApplicationDatabaseRef != nil {
-		return om.Spec.ExternalApplicationDatabaseRef.ConnectionStringSecretRef.Name
-	}
 	return om.Spec.AppDB.Name() + "-connection-string"
 }
 
