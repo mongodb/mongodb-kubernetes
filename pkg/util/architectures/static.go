@@ -34,7 +34,6 @@ func HasSupportedImageTypeSuffix(imageVersion string) (suffixFound bool, suffix 
 const (
 	ArchitectureAnnotation                           = "mongodb.com/v1.architecture"
 	ContainerImageTypeAnnotation                     = "mongodb.com/v1.containerImageType"
-	DefaultEnvArchitecture                           = "MDB_DEFAULT_ARCHITECTURE"
 	DefaultEnvImageType                              = "MDB_DEFAULT_IMAGE_TYPE"
 	Static                       DefaultArchitecture = "static"
 	NonStatic                    DefaultArchitecture = "non-static"

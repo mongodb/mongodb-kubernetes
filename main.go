@@ -158,7 +158,6 @@ func run() error {
 
 	agentDebug := env.ReadBoolOrDefault(util.EnvVarDebug, false)
 	agentDebugImage := env.ReadOrDefault(util.EnvVarDebugImage, "")
-	defaultArchitecture := architectures.DefaultArchitecture(env.ReadOrDefault(architectures.DefaultEnvArchitecture, string(architectures.NonStatic)))
 	defaultImageType, imageTypeWarning := architectures.ValidateDefaultImageType(env.ReadOrDefault(architectures.DefaultEnvImageType, ""))
 	if imageTypeWarning != "" {
 		log.Warn(imageTypeWarning)
@@ -250,6 +249,10 @@ func run() error {
 	operatorCfg, err := operatorconfig.Load(ctx, mgr.GetAPIReader(), currentNamespace, operatorConfigName)
 	if err != nil {
 		return fmt.Errorf("loading OperatorConfig: %w", err)
+	}
+	defaultArchitecture := architectures.NonStatic
+	if operatorCfg.Spec.DefaultArchitecture == operatorv1.ArchitectureStatic {
+		defaultArchitecture = architectures.Static
 	}
 
 	log.Info("Registering Components.")

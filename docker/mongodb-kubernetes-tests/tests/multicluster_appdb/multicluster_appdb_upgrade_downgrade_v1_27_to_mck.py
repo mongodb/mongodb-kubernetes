@@ -3,6 +3,8 @@ from typing import Dict, List, Optional
 
 import kubernetes.client
 from kubetester import read_configmap
+from kubetester.helm import apply_operator_config_crd
+from kubetester.kubetester import build_operator_config_spec_from_test_env, create_operator_config
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.operator import Operator
 from kubetester.opsmanager import MongoDBOpsManager
@@ -241,6 +243,15 @@ class TestOperatorUpgrade:
         # Scale down the existing operator deployment to 0. This is needed as we are initially installing MEKO
         # and replacing it with MCK
         downscale_operator_deployment(deployment_name=LEGACY_MULTI_CLUSTER_OPERATOR_NAME, namespace=namespace)
+
+    def test_apply_operator_config(self, namespace: str, central_cluster_client: kubernetes.client.ApiClient):
+        # The OperatorConfig CRD is only shipped by MCK, not by the legacy operator we are upgrading from.
+        # Apply it and wait for it to be established before creating the OperatorConfig CR, so that the
+        # desired default architecture is configured before the operator is upgraded to MCK.
+        apply_operator_config_crd(api_client=central_cluster_client)
+        spec = build_operator_config_spec_from_test_env()
+        if spec:
+            create_operator_config(namespace, spec, api_client=central_cluster_client)
 
     def test_install_default_operator(self, namespace: str, multi_cluster_operator: Operator):
         logger.info("Installing the operator built from master")
