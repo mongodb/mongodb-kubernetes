@@ -5,7 +5,7 @@ metadata:
   name: mdb-mc-sim
 spec:
   type: ReplicaSet
-  version: 8.2.0-ent
+  version: 8.3.4-ent
   duplicateServiceObjects: false
   credentials: my-credentials
   opsManager:
