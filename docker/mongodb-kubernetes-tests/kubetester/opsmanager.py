@@ -843,6 +843,15 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
     def set_appdb_version(self, version: str):
         self["spec"]["applicationDatabase"]["version"] = version
 
+    def set_external_appdb_ref(self, secret_name: str, secret_key: str = "connectionString.standard") -> None:
+        """Configures externalApplicationDatabaseRef so the OM reads its AppDB connection string from a secret."""
+        self["spec"]["externalApplicationDatabaseRef"] = {
+            "connectionStringSecretRef": {
+                "name": secret_name,
+                "key": secret_key,
+            }
+        }
+
     def __repr__(self):
         # FIX: this should be __unicode__
         return "MongoDBOpsManager| status: {}".format(self.get_status())
