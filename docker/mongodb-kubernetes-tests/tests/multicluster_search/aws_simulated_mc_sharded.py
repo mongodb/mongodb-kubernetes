@@ -281,7 +281,7 @@ SOURCE_SEARCH_SET_PARAMETERS = {
 #                     failover Envoy wildcard, round-robined across both AZs. Functional only
 #                     once both search clusters present the same cluster-agnostic SNI server
 #                     names + cert SANs (the failover follow-up).
-SOURCE_MONGOT_HOST_MODE = "per_az_direct"
+SOURCE_MONGOT_HOST_MODE = "failover"
 
 
 # ---------------------------------------------------------------------------
@@ -891,7 +891,10 @@ def per_cluster_mdbs_search(
         }
         mdbs["spec"]["security"] = {"tls": {"certsSecretPrefix": MDBS_TLS_CERT_PREFIX}}
         mdbs.api = kubernetes.client.CustomObjectsApi(mcc.api_client)
-        try_load(mdbs)
+        # try_load would mark the object bound and make create_or_update patch the SERVER's
+        # existing spec on the first try, dropping our changes. Leave it unbound so the rebuilt
+        # spec (failover-mode externalHostname/persistence/etc.) is actually applied.
+        # try_load(mdbs)
         results.append((mcc, mdbs))
     return results
 
@@ -913,7 +916,7 @@ def tools_pod(namespace: str, member_cluster_clients: List[MultiClusterClient]) 
 
 @mark.e2e_aws_simulated_mc_sharded
 def test_install_central_mc_operator(central_mc_operator: Operator):
-    central_mc_operator.assert_is_running()
+    central_mc_operator.wait_for_operator_ready()
 
 
 @mark.e2e_aws_simulated_mc_sharded
@@ -1077,7 +1080,7 @@ def test_install_simulated_operators_on_search_clusters(
     base_helm_args = dict(multi_cluster_operator_installation_config)
     for mcc in _search_mccs(member_cluster_clients):
         operator = _install_simulated_operator(namespace, base_helm_args, mcc)
-        operator.assert_is_running()
+        operator.wait_for_operator_ready()
 
 
 @mark.e2e_aws_simulated_mc_sharded
@@ -1430,7 +1433,11 @@ def _assert_source_routed_per_az(
             s_idx = search_idx[search_ctx]
             mcc = _mcc(member_cluster_clients, data_context)
             for shard_idx in range(SHARD_COUNT):
-                expected = _external_shard_envoy_endpoint(search_ctx, s_idx, shard_idx)
+                expected = (
+                    _failover_shard_proxy_endpoint(shard_idx)
+                    if SOURCE_MONGOT_HOST_MODE == "failover"
+                    else _external_shard_envoy_endpoint(search_ctx, s_idx, shard_idx)
+                )
                 for member_idx in range(SHARD_MEMBERS_PER_CLUSTER[src_idx] or 0):
                     pod_name = f"{MDB_RESOURCE_NAME}-{shard_idx}-{src_idx}-{member_idx}"
                     try:
@@ -1460,7 +1467,11 @@ def _assert_source_routed_per_az(
     get_params.update({k: 1 for k in SOURCE_SEARCH_SET_PARAMETERS})
     for data_context in DATA_CLUSTERS:
         search_ctx = SEARCH_FOR_DATA_CLUSTER[data_context]
-        mongos_expected = _external_mongos_envoy_endpoint(search_ctx, search_idx[search_ctx])
+        mongos_expected = (
+            _failover_mongos_proxy_endpoint()
+            if SOURCE_MONGOT_HOST_MODE == "failover"
+            else _external_mongos_envoy_endpoint(search_ctx, search_idx[search_ctx])
+        )
         tester = _source_mongos_search_tester(
             member_cluster_clients, namespace, ADMIN_USER_NAME, ADMIN_USER_PASSWORD, data_context=data_context
         )
