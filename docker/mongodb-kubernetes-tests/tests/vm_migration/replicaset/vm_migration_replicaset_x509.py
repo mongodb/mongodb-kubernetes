@@ -294,8 +294,6 @@ def vm_service(namespace: str):
     return service_body
 
 
-
-
 def _build_processes(vm_sts: dict, vm_service: dict, namespace: str, custom_mdb_version: str, tls: bool) -> tuple:
     """Build processes, monitoringVersions, and replicaSet members for the AC.
 
