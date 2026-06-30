@@ -6,9 +6,9 @@ from kubeobject import CustomObject
 from kubetester import create_or_update_secret, get_default_storage_class, try_load
 from kubetester.awss3client import AwsS3Client
 from kubetester.certs import create_sharded_cluster_certs
-from kubetester.kubetester import ensure_ent_version
+from kubetester.kubetester import apply_operator_config_from_test_env, ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.kubetester import get_default_architecture, run_periodically
+from kubetester.kubetester import run_periodically
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_user import MongoDBUser
 from kubetester.opsmanager import MongoDBOpsManager
@@ -56,11 +56,9 @@ def catalog_source(namespace: str, version_id: str):
 
 @fixture
 def subscription(namespace: str, catalog_source: CustomObject, operator_installation_config: dict[str, str]):
-    static_value = get_default_architecture()
     base_env_vars = [
         {"name": "MANAGED_SECURITY_CONTEXT", "value": "false"},
         {"name": "OPERATOR_ENV", "value": "dev"},
-        {"name": "MDB_DEFAULT_ARCHITECTURE", "value": static_value},
         {"name": "MDB_OPERATOR_TELEMETRY_SEND_ENABLED", "value": "false"},
     ]
     # Add registry env vars for patch builds (ECR registries for unreleased images)
@@ -376,6 +374,14 @@ def test_operator_upgrade_to_fast(
     run_periodically(update_subscription, timeout=100, msg="Subscription to be updated")
 
     wait_for_operator_ready(namespace, OPERATOR_NAME, f"mongodb-kubernetes.v{current_operator_version}")
+
+    apply_operator_config_from_test_env(
+        namespace,
+        name=OPERATOR_NAME,
+        wait_for_ready=lambda: wait_for_operator_ready(
+            namespace, OPERATOR_NAME, f"mongodb-kubernetes.v{current_operator_version}"
+        ),
+    )
 
 
 @pytest.mark.e2e_olm_operator_upgrade_with_resources
