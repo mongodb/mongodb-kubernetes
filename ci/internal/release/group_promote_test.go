@@ -29,6 +29,14 @@ func (f *fakeRegistry) CopyWithTags(srcRef, dstRepo string, tags []string) error
 	return nil
 }
 
+func (f *fakeRegistry) ListTags(repo string) ([]string, error) {
+	return nil, errors.New("fakeRegistry.ListTags not implemented")
+}
+
+func (f *fakeRegistry) GetDigest(ref string) (string, error) {
+	return "", errors.New("fakeRegistry.GetDigest not implemented")
+}
+
 func TestPromoteGroup(t *testing.T) {
 	fake := &fakeRegistry{}
 	connect := func(url string) Registry { return fake }

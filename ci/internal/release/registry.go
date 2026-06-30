@@ -14,6 +14,10 @@ import (
 type Registry interface {
 	// CopyWithTags copies srcRef to dstRepo under each of the given tags.
 	CopyWithTags(srcRef string, dstRepo string, tags []string) error
+	// ListTags returns all tags for the given image repository reference.
+	ListTags(repo string) ([]string, error)
+	// GetDigest resolves the digest of the given image reference.
+	GetDigest(ref string) (string, error)
 }
 
 // RegistryConnector builds a Registry for a registry base URL. The CLI passes
@@ -57,9 +61,41 @@ func (t *cRegistry) CopyWithTags(srcRef string, dstRepo string, tags []string) e
 	return nil
 }
 
+func (t *cRegistry) ListTags(repo string) ([]string, error) {
+	// repo always arrives as a full reference (host/path); it may live on a
+	// different host than the registry's own (e.g. listing an ECR staging repo
+	// via a registry connected for the quay.io production host), so it must be
+	// parsed as-is rather than reassembled under t.host.
+	repoPath := strings.TrimPrefix(repo, "https://")
+	repoPath = strings.TrimPrefix(repoPath, "http://")
+
+	r, err := name.NewRepository(repoPath, t.nameOpts()...)
+	if err != nil {
+		return nil, fmt.Errorf("parse repo %s: %w", repo, err)
+	}
+	tags, err := remote.List(r, remote.WithAuthFromKeychain(authn.DefaultKeychain))
+	if err != nil {
+		return nil, fmt.Errorf("list tags %s: %w", r, err)
+	}
+	return tags, nil
+}
+
 func (t *cRegistry) nameOpts() []name.Option {
 	if t.insecure {
 		return []name.Option{name.Insecure}
 	}
 	return nil
 }
+
+func (t *cRegistry) GetDigest(ref string) (string, error) {
+	r, err := name.ParseReference(ref, t.nameOpts()...)
+	if err != nil {
+		return "", fmt.Errorf("parse ref %s: %w", ref, err)
+	}
+	desc, err := remote.Get(r, remote.WithAuthFromKeychain(authn.DefaultKeychain))
+	if err != nil {
+		return "", fmt.Errorf("get %s: %w", ref, err)
+	}
+	return desc.Digest.String(), nil
+}
+

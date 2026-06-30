@@ -3,12 +3,12 @@ package release
 import (
 	"fmt"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/registry"
-	"github.com/google/go-containerregistry/pkg/v1/random"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 )
 
@@ -86,23 +86,40 @@ func TestPromote(t *testing.T) {
 	}
 }
 
-// pushImage pushes a random image to the given reference and returns its digest string.
-func pushImage(t *testing.T, ref string, opts ...name.Option) string {
-	t.Helper()
-	img, err := random.Image(1024, 1)
+func TestPromoteDryRun(t *testing.T) {
+	srv := httptest.NewServer(registry.New())
+	defer srv.Close()
+
+	host := strings.TrimPrefix(srv.URL, "http://")
+	const repo = "myorg/myimage"
+
+	srcRef := fmt.Sprintf("%s/%s:nightly-abc1234", host, repo)
+	pushImage(t, srcRef, name.Insecure)
+
+	tags, err := Promote(PromoteInputs{
+		Image:   srcRef,
+		Commit:  "abc1234",
+		Version: "9.9.9",
+		Repo:    repo,
+		DryRun:  true,
+	}, DefaultRegistryConnector(srv.URL))
 	if err != nil {
-		t.Fatalf("random image: %v", err)
+		t.Fatalf("unexpected error: %v", err)
 	}
-	d, err := img.Digest()
-	if err != nil {
-		t.Fatalf("image digest: %v", err)
+
+	want := []string{PromotedTagFor("abc1234", "9.9.9"), promotedLatestTag()}
+	if !slices.Equal(tags, want) {
+		t.Errorf("tags: got %v, want %v", tags, want)
 	}
-	r, err := name.ParseReference(ref, opts...)
-	if err != nil {
-		t.Fatalf("parse ref %s: %v", ref, err)
+
+	// Dry-run must not write anything to the registry.
+	for _, tag := range tags {
+		ref, err := name.NewTag(fmt.Sprintf("%s/%s:%s", host, repo, tag), name.Insecure)
+		if err != nil {
+			t.Fatalf("parse tag %s: %v", tag, err)
+		}
+		if _, err := remote.Get(ref); err == nil {
+			t.Errorf("tag %s should not exist after dry-run", tag)
+		}
 	}
-	if err := remote.Write(r, img); err != nil {
-		t.Fatalf("push %s: %v", ref, err)
-	}
-	return d.String()
 }

@@ -11,5 +11,6 @@ func newReleaseCmd() *cobra.Command {
 		},
 	}
 	cmd.AddCommand(newReleasePromoteCmd())
+	cmd.AddCommand(newReleasePublishCmd())
 	return cmd
 }
