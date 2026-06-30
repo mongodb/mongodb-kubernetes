@@ -548,9 +548,11 @@ def assert_common_generated_sharded_cr_shape(
         f"Expected {expected_total} externalMembers, got {len(external_members)}"
     )
     for m in external_members:
-        for key in ("processName", "hostname", "type", "replicaSetName"):
+        for key in ("processName", "hostname", "type"):
             assert key in m, f"externalMember missing key '{key}': {m}"
         assert m["type"] in ("mongod", "mongos"), f"Unexpected type in externalMember: {m['type']}"
+        if m["type"] == "mongod":
+            assert "replicaSetName" in m, f"externalMember of type mongod missing 'replicaSetName': {m}"
 
     annotations = generated_cr.get("metadata", {}).get("annotations", {})
     assert "mongodb.com/v1.migrationDryRun" in annotations, "dry-run annotation missing from generated CR"
