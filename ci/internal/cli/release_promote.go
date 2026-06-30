@@ -6,7 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/mongodb/mongodb-kubernetes/internal/ci/release"
+	"github.com/mongodb/mongodb-kubernetes/ci/internal/release"
 )
 
 func newReleasePromoteCmd() *cobra.Command {
@@ -52,7 +52,6 @@ func newReleasePromoteCmd() *cobra.Command {
 	cmd.Flags().StringVar(&version, "version", "", "version to encode in the promoted tag (required)")
 	cmd.Flags().StringVar(&registryURL, "registry", "https://quay.io", "target OCI registry base URL")
 	cmd.Flags().StringVar(&repo, "repo", "mongodb/mongodb-kubernetes-operator", "target image repository")
-
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print what would happen without copying any images")
 
 	MustNotErr(cmd.MarkFlagRequired("image"))

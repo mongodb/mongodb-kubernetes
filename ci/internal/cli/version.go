@@ -10,15 +10,15 @@ import (
 func newVersionCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "version",
-		Short: "Print mckctl build information",
+		Short: "Print mckci build information",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			info, ok := debug.ReadBuildInfo()
 			if !ok {
-				_, err := fmt.Fprintln(cmd.OutOrStdout(), "mckctl: build info unavailable")
+				_, err := fmt.Fprintln(cmd.OutOrStdout(), "mckci: build info unavailable")
 				return err
 			}
 			rev, modified := vcsInfo(info)
-			_, err := fmt.Fprintf(cmd.OutOrStdout(), "mckctl\n  go:       %s\n  module:   %s\n  revision: %s\n  modified: %t\n",
+			_, err := fmt.Fprintf(cmd.OutOrStdout(), "mckci\n  go:       %s\n  module:   %s\n  revision: %s\n  modified: %t\n",
 				info.GoVersion, info.Main.Path, rev, modified)
 			return err
 		},
