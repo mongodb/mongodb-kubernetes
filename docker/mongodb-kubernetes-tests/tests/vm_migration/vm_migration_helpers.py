@@ -579,7 +579,7 @@ def vm_mongos_tester(mongos_sts_name: str, mongos_svc_name: str, namespace: str)
         port="27017",
         servicename=mongos_svc_name,
     )
-    return MongoTester(uri)
+    return MongoTester(uri, use_ssl=False)
 
 
 def build_sharded_cluster_ac(
