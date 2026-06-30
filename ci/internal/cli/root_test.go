@@ -34,8 +34,8 @@ func TestNewRoot_NoArgsPrintsHelp(t *testing.T) {
 	if err := root.Execute(); err != nil {
 		t.Fatalf("executing root with no args returned error: %v", err)
 	}
-	if !strings.Contains(out.String(), "mckctl") {
-		t.Errorf("expected help output to mention mckctl, got: %q", out.String())
+	if !strings.Contains(out.String(), "mckci") {
+		t.Errorf("expected help output to mention mckci, got: %q", out.String())
 	}
 }
 
@@ -49,7 +49,7 @@ func TestVersionCmd_PrintsBuildInfo(t *testing.T) {
 	if err := root.Execute(); err != nil {
 		t.Fatalf("version subcommand returned error: %v", err)
 	}
-	if !strings.Contains(out.String(), "mckctl") {
-		t.Errorf("expected version output to mention mckctl, got: %q", out.String())
+	if !strings.Contains(out.String(), "mckci") {
+		t.Errorf("expected version output to mention mckci, got: %q", out.String())
 	}
 }
