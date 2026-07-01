@@ -107,6 +107,26 @@ def primary_om_external_appdb_user(
     return resource
 
 
+@fixture(scope="module")
+def appdb_s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> Iterator[str]:
+    create_aws_secret(aws_s3_client, APPDB_S3_SECRET_NAME, namespace)
+    yield from create_s3_bucket(aws_s3_client, "test-bucket-appdb-s3")
+
+
+@fixture(scope="module")
+def appdb_oplog_s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> Iterator[str]:
+    create_aws_secret(aws_s3_client, APPDB_OPLOG_SECRET_NAME, namespace)
+    yield from create_s3_bucket(aws_s3_client, "test-bucket-appdb-oplog")
+
+
+@fixture(scope="module")
+def primary_om_external_appdb_collection(primary_om_external_appdb: MongoDB):
+    collection = pymongo.MongoClient(
+        primary_om_external_appdb.tester().cnx_string, **primary_om_external_appdb.tester().default_opts
+    )["testdb"]
+    return collection["testcollection"].with_options(read_preference=ReadPreference.PRIMARY_PREFERRED)
+
+
 @pytest.mark.e2e_om_external_appdb
 class TestSetup:
     def test_meta_om_created(self, meta_om: MongoDBOpsManager):
