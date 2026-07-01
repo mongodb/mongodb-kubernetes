@@ -22,6 +22,7 @@ from tests import test_logger
 OPERATOR_CRDS = (
     "mongodb.mongodb.com",
     "mongodbusers.mongodb.com",
+    "operatorconfigs.operator.mongodb.com",
     "opsmanagers.mongodb.com",
 )
 
@@ -144,6 +145,26 @@ class Operator(object):
 
     def read_deployment(self) -> V1Deployment:
         return client.AppsV1Api(api_client=self.api_client).read_namespaced_deployment(self.name, self.namespace)
+
+    def apply_operator_config_and_wait(self, multi_cluster: bool = False):
+        """Creates the OperatorConfig CR from test env vars (if any non-default settings exist) and waits
+        for the operator to restart, reload its configuration and become ready again.
+
+        This is a thin Helm-specific wrapper around the installation-method-agnostic
+        apply_operator_config_from_test_env helper: it supplies the Helm post-restart readiness check
+        (deployment ready plus the validating webhook), since creating the CR triggers a graceful restart
+        during which the webhook is briefly unavailable.
+        """
+        # the import is done here to prevent circular dependency
+        from kubetester.kubetester import apply_operator_config_from_test_env
+
+        def wait_for_ready():
+            self.wait_for_operator_ready()
+            self.wait_for_operator_webhook_ready(multi_cluster=multi_cluster)
+
+        apply_operator_config_from_test_env(
+            self.namespace, api_client=self.api_client, name=self.name, wait_for_ready=wait_for_ready
+        )
 
     def wait_for_operator_ready(self, retries: int = 60):
         """waits until the Operator deployment is ready."""

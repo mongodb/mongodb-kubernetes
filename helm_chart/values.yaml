@@ -6,10 +6,6 @@ operator:
   # Execution environment for the operator, dev or prod. Use dev for more verbose logging
   env: prod
 
-  # Default architecture for the operator.
-  # Values are "static" and "non-static:
-  mdbDefaultArchitecture: non-static
-
   # Name that will be assigned to most internal Kubernetes objects like Deployment, ServiceAccount, Role etc.
   name: mongodb-kubernetes-operator
 
@@ -17,7 +13,7 @@ operator:
   operator_image_name: mongodb-kubernetes
 
   # Version of mongodb-kubernetes-operator
-  version: 1.9.0
+  version: 2.0.0
 
   # The Custom Resources that will be watched by the Operator. Needs to be changed if only some of the CRDs are installed
   watchedResources:
@@ -146,11 +142,11 @@ operator:
 ## Database
 database:
   name: mongodb-kubernetes-database
-  version: 1.9.0
+  version: 2.0.0
 
 initDatabase:
   name: mongodb-kubernetes-init-database
-  version: 1.9.0
+  version: 2.0.0
 
 ## Ops Manager
 opsManager:
@@ -158,7 +154,7 @@ opsManager:
 
 initOpsManager:
   name: mongodb-kubernetes-init-ops-manager
-  version: 1.9.0
+  version: 2.0.0
 
 agent:
   name: mongodb-agent
@@ -216,22 +212,6 @@ community:
     version: 108.0.2.8729-1
   registry:
     agent: quay.io/mongodb
-  resource:
-    name: mongodb-replica-set
-    version: 4.4.0
-    members: 3
-    tls:
-      # when tls.enabled == true and tls.useCertManager == true then Cert Manager's Issuer and Certificate resources will be created
-      enabled: false
-      # Installs Cert-Manager in this cluster.
-      useX509: false
-      sampleX509User: false
-      useCertManager: true
-      certificateKeySecretRef: tls-certificate
-      caCertificateSecretRef: tls-ca-key-pair
-      certManager:
-        certDuration: 8760h  # 365 days
-        renewCertBefore: 720h  # 30 days
 
 # MongoDBSearch settings
 search:

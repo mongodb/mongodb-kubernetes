@@ -83,8 +83,6 @@ spec:
           env:
             - name: OPERATOR_ENV
               value: {{ .Values.operator.env }}
-            - name: MDB_DEFAULT_ARCHITECTURE
-              value: {{ .Values.operator.mdbDefaultArchitecture }}
             - name: NAMESPACE
               valueFrom:
                 fieldRef:
@@ -216,10 +214,6 @@ spec:
     {{- if .Values.operator.webhook.name }}
             - name: MDB_WEBHOOK_NAME
               value: {{ .Values.operator.webhook.name | quote }}
-    {{- end }}
-    {{- if .Values.operator.maxConcurrentReconciles }}
-            - name: MDB_MAX_CONCURRENT_RECONCILES
-              value: "{{ .Values.operator.maxConcurrentReconciles }}"
     {{- end }}
             - name: POD_NAME
               valueFrom:

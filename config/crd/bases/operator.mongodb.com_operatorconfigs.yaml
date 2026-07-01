@@ -1,0 +1,282 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.18.0
+  name: operatorconfigs.operator.mongodb.com
+spec:
+  group: operator.mongodb.com
+  names:
+    kind: OperatorConfig
+    listKind: OperatorConfigList
+    plural: operatorconfigs
+    shortNames:
+    - opconfig
+    singular: operatorconfig
+  scope: Namespaced
+  versions:
+  - name: v1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          OperatorConfig configures the behaviour of the MCK operator instance deployed in the same namespace.
+          One instance per operator deployment is expected.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: OperatorConfigSpec defines the desired state of OperatorConfig.
+            properties:
+              automaticRecovery:
+                description: |-
+                  AutomaticRecovery controls automatic recovery of resources with broken
+                  automation configuration.
+                properties:
+                  delay:
+                    default: 1200
+                    description: Delay is the back-off in seconds before the operator
+                      attempts automatic recovery.
+                    minimum: 0
+                    type: integer
+                  mode:
+                    default: Enabled
+                    description: Mode controls whether automatic recovery of resources
+                      with broken automation config is active.
+                    enum:
+                    - Enabled
+                    - Disabled
+                    type: string
+                type: object
+              community:
+                description: Community contains configuration specific to community
+                  operator resources.
+                properties:
+                  readinessProbe:
+                    description: ReadinessProbe configures the community operator's
+                      readiness probe binary.
+                    properties:
+                      log:
+                        description: Log configures log rotation for the community
+                          readiness probe binary.
+                        properties:
+                          fileBackups:
+                            default: 5
+                            description: FileBackups is the number of rotated log
+                              files to retain.
+                            minimum: 0
+                            type: integer
+                          fileCompression:
+                            default: Disabled
+                            description: FileCompression controls whether retained
+                              log files are gzip-compressed.
+                            enum:
+                            - Enabled
+                            - Disabled
+                            type: string
+                          fileMaxAge:
+                            default: 0
+                            description: |-
+                              FileMaxAge is the maximum age in days for rotated log files before deletion.
+                              0 means retain indefinitely.
+                            minimum: 0
+                            type: integer
+                          fileMaxSize:
+                            default: 100
+                            description: FileMaxSize is the maximum size in megabytes
+                              of a single log file before rotation.
+                            minimum: 1
+                            type: integer
+                          fileOutput:
+                            default: Enabled
+                            description: |-
+                              FileOutput controls whether readiness probe logs are written to the file
+                              in addition to stdout.
+                            enum:
+                            - Enabled
+                            - Disabled
+                            type: string
+                          filePath:
+                            default: /var/log/mongodb-mms-automation/readiness.log
+                            description: FilePath is the file path for readiness probe
+                              log output.
+                            type: string
+                        type: object
+                    type: object
+                type: object
+              defaultArchitecture:
+                default: NonStatic
+                description: |-
+                  DefaultArchitecture sets the default container architecture for all managed workloads.
+                  Can be overridden per-resource.
+                enum:
+                - NonStatic
+                - Static
+                type: string
+              maxConcurrentReconciles:
+                default: 1
+                description: MaxConcurrentReconciles is the maximum number of concurrent
+                  reconciliations per controller.
+                minimum: 1
+                type: integer
+              multiCluster:
+                description: MultiCluster contains multi-cluster configuration.
+                properties:
+                  memberClusterClientTimeout:
+                    default: 10
+                    description: |-
+                      MemberClusterClientTimeout is the timeout in seconds for connecting to a member
+                      cluster's Kubernetes API server.
+                    minimum: 1
+                    type: integer
+                  memberClusterRequiredHealthyStreak:
+                    default: 5
+                    description: |-
+                      MemberClusterRequiredHealthyStreak is the number of consecutive successful health
+                      checks required before a previously failed member cluster is considered recovered
+                      and its failed-cluster annotation is removed. Only relevant when automatic failover
+                      is disabled.
+                    minimum: 1
+                    type: integer
+                type: object
+              proxy:
+                description: Proxy contains proxy environment variable propagation
+                  settings.
+                properties:
+                  envPropagationPolicy:
+                    default: NoPropagation
+                    description: |-
+                      EnvPropagationPolicy controls whether HTTP_PROXY, HTTPS_PROXY, and NO_PROXY
+                      are propagated from the operator container to managed workload containers.
+                    enum:
+                    - Propagate
+                    - NoPropagation
+                    type: string
+                type: object
+              telemetry:
+                description: |-
+                  Telemetry configures collection and sending of operator telemetry.
+                  Absence of this block implies telemetry is enabled.
+                properties:
+                  collection:
+                    description: Collection controls how telemetry data is collected.
+                    properties:
+                      clusters:
+                        description: Clusters controls collection of cluster-level
+                          telemetry.
+                        properties:
+                          mode:
+                            default: Enabled
+                            description: |-
+                              Mode controls collection of cluster-level telemetry.
+                              Note: The cluster UUID is unique but random and MongoDB has no way to map it to a customer.
+                            enum:
+                            - Enabled
+                            - Disabled
+                            type: string
+                        type: object
+                      deployments:
+                        description: Deployments controls collection of deployment-level
+                          telemetry.
+                        properties:
+                          mode:
+                            default: Enabled
+                            description: Mode controls collection of deployment-level
+                              telemetry.
+                            enum:
+                            - Enabled
+                            - Disabled
+                            type: string
+                        type: object
+                      frequency:
+                        default: 1h
+                        description: |-
+                          Frequency controls how often telemetry data is collected and written to the telemetry ConfigMap.
+                          Duration using h (hours) and m (minutes) units, e.g. "30m", "1h", "2h30m". Must be at least 1m; defaults to 1h when omitted.
+                        type: string
+                        x-kubernetes-validations:
+                        - message: frequency must be at least 1m
+                          rule: duration(self) >= duration('1m')
+                      operators:
+                        description: Operators controls collection of operator-level
+                          telemetry.
+                        properties:
+                          mode:
+                            default: Enabled
+                            description: Mode controls collection of operator-level
+                              telemetry.
+                            enum:
+                            - Enabled
+                            - Disabled
+                            type: string
+                        type: object
+                    type: object
+                  mode:
+                    default: Enabled
+                    description: |-
+                      Mode is the master switch for telemetry. Set to Disabled to disable all
+                      telemetry collection and sending.
+                    enum:
+                    - Enabled
+                    - Disabled
+                    type: string
+                  send:
+                    description: Send controls how collected telemetry is sent to
+                      MongoDB.
+                    properties:
+                      frequency:
+                        default: 168h
+                        description: |-
+                          Frequency controls how often collected telemetry is pushed to MongoDB.
+                          Duration using h (hours) units, e.g. "24h", "168h". Must be at least 1h; defaults to 168h when omitted.
+                        type: string
+                        x-kubernetes-validations:
+                        - message: frequency must be at least 1h
+                          rule: duration(self) >= duration('1h')
+                      mode:
+                        default: Enabled
+                        description: Mode controls sending of collected telemetry
+                          to MongoDB for analysis.
+                        enum:
+                        - Enabled
+                        - Disabled
+                        type: string
+                    type: object
+                type: object
+              watchedResources:
+                description: |-
+                  WatchedResources controls which CRDs the operator actively reconciles.
+                  Defaults to all known MCK CRDs when omitted.
+                items:
+                  description: WatchedResource identifies a CRD that the operator
+                    will actively reconcile.
+                  enum:
+                  - mongodb
+                  - opsmanagers
+                  - mongodbusers
+                  - mongodbcommunity
+                  - mongodbsearch
+                  - mongodbmulticluster
+                  - clustermongodbroles
+                  type: string
+                type: array
+                x-kubernetes-list-type: set
+            type: object
+        type: object
+    served: true
+    storage: true
