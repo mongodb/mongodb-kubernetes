@@ -86,10 +86,7 @@ class TestShardedClusterCreationAndProjectSwitch(KubernetesTester):
     #     )
 
     def test_switch_project(self, testhelper: SwitchProjectHelper):
-        # Sharded clusters have more components (config server, shards, mongos) that each need
-        # to independently re-register their agents with the new Ops Manager project, which can
-        # take noticeably longer than the default timeout.
-        testhelper.test_switch_project(timeout=1200)
+        testhelper.test_switch_project()
 
     def test_sharded_cluster_connectivity_after_switch(self, testhelper: SwitchProjectHelper):
         testhelper.test_sharded_cluster_connectivity(1)
