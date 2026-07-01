@@ -36,6 +36,7 @@ from pytest import fixture, mark
 from tests.vm_migration.vm_migration_dry_run import run_migration_dry_run_connectivity_passes
 from tests.vm_migration.vm_migration_helpers import (
     CONFIG_SERVER_COUNT,
+    MIN_K8S_MEMBERS,
     MONGOS_COUNT,
     SHARD_COUNT,
     apply_generated_sharded_cluster_resource,
@@ -191,7 +192,7 @@ def mdb_sharded_x509_certs(issuer: str, namespace: str) -> None:
         resource_name=MDB_RESOURCE_NAME,
         shards=1,
         mongod_per_shard=SHARD_COUNT,
-        config_servers=CONFIG_SERVER_COUNT,
+        config_servers=MIN_K8S_MEMBERS,
         mongos=MONGOS_COUNT,
         x509_certs=True,
         secret_prefix=f"{CERT_SECRET_PREFIX}-",
@@ -310,11 +311,13 @@ def mdb_migration(
     vm_agent_certs: str,
 ) -> MongoDB:
     def create_agent_cert_secret(resource_doc: dict) -> None:
-        agent_cert_ref = resource_doc["spec"]["security"]["authentication"]["agents"]["clientCertificateSecretRef"]
+        certs_prefix = resource_doc["spec"]["security"]["certsSecretPrefix"]
+        resource_name = resource_doc["metadata"]["name"]
+        agent_cert_secret_name = f"{certs_prefix}-{resource_name}-agent-certs"
         agent_cert = read_secret(namespace, vm_agent_certs)
         create_or_update_secret(
             namespace,
-            agent_cert_ref["name"],
+            agent_cert_secret_name,
             {"tls.crt": agent_cert["tls.crt"], "tls.key": agent_cert["tls.key"]},
             type="kubernetes.io/tls",
         )

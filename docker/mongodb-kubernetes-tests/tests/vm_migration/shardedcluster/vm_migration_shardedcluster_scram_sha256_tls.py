@@ -26,6 +26,7 @@ from tests.vm_migration.vm_migration_dry_run import (
 )
 from tests.vm_migration.vm_migration_helpers import (
     CONFIG_SERVER_COUNT,
+    MIN_K8S_MEMBERS,
     MONGOS_COUNT,
     SHARD_COUNT,
     apply_generated_sharded_cluster_resource,
@@ -141,7 +142,7 @@ def operator_server_certs(issuer: str, namespace: str):
         MDB_RESOURCE_NAME,
         shards=1,
         mongod_per_shard=SHARD_COUNT,
-        config_servers=CONFIG_SERVER_COUNT,
+        config_servers=MIN_K8S_MEMBERS,
         mongos=MONGOS_COUNT,
         secret_prefix=f"{CERT_SECRET_PREFIX}-",
     )

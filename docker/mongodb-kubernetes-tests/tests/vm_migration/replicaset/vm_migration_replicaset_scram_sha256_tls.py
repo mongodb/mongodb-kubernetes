@@ -25,6 +25,8 @@ from tests.vm_migration.vm_migration_dry_run import (
     run_wrong_ca_dry_run_fails_then_passes,
 )
 from tests.vm_migration.vm_migration_helpers import (
+    MIN_K8S_MEMBERS,
+    MIN_VM_MEMBERS,
     apply_generated_mongodb_resource,
     apply_user_crs_and_verify_ac,
     assert_common_generated_cr_shape,
@@ -56,7 +58,6 @@ TLS_CERT_MOUNT = "/etc/mongodb/certs"
 APP_USER_PASSWORD = "tlsAppUser123!"
 VM_AGENT_OM_CA_PATH = "/etc/mongodb-mms-ca/ca.pem"
 VM_OM_CA_CONFIGMAP_NAME = "vm-mongodb-om-ca"
-VM_REPLICAS = 5
 WRONG_CA_NAME = "wrong-issuer-ca-mongod-tls"
 
 
@@ -88,7 +89,7 @@ def vm_server_certs(issuer: str, namespace: str):
         namespace,
         VM_STS_NAME,
         VM_CERT_SECRET,
-        replicas=VM_REPLICAS,
+        replicas=MIN_VM_MEMBERS,
         service_name=VM_SVC_NAME,
     )
 
@@ -116,7 +117,7 @@ def operator_server_certs(issuer: str, namespace: str):
         namespace,
         RS_NAME,
         OPERATOR_CERT_SECRET,
-        replicas=VM_REPLICAS,
+        replicas=MIN_K8S_MEMBERS,
     )
 
 

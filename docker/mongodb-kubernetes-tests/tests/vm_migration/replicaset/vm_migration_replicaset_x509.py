@@ -31,6 +31,7 @@ from tests.vm_migration.vm_migration_dry_run import (
     run_wrong_ca_dry_run_fails_then_passes,
 )
 from tests.vm_migration.vm_migration_helpers import (
+    MIN_K8S_MEMBERS,
     MIN_VM_MEMBERS,
     apply_generated_mongodb_resource,
     apply_user_crs_and_verify_ac,
@@ -76,7 +77,7 @@ def om_tester(namespace: str, operator) -> OMTester:
 @fixture(scope="module")
 def vm_server_certs(issuer: str, namespace: str):
     """TLS certs for VM mongod processes (hostnames vm-mongodb-0, vm-mongodb-1, vm-mongodb-2)."""
-    return create_mongodb_tls_certs(ISSUER_CA_NAME, namespace, VM_STS_NAME, f"{VM_STS_NAME}-cert", 5, None, VM_STS_NAME)
+    return create_mongodb_tls_certs(ISSUER_CA_NAME, namespace, VM_STS_NAME, f"{VM_STS_NAME}-cert", MIN_VM_MEMBERS, None, VM_STS_NAME)
 
 
 @fixture(scope="module")
@@ -181,9 +182,7 @@ def vm_sts(
 
 @fixture(scope="module")
 def mdb_tls_certs(issuer: str, namespace: str):
-    # Cover all migrated members (the VM replica set has 5). The default of 3 only issues SANs for
-    # my-replica-set-0..2, so member my-replica-set-3 fails TLS and the replica set never forms.
-    return create_mongodb_tls_certs(ISSUER_CA_NAME, namespace, MDB_RESOURCE_NAME, f"mdb-{MDB_RESOURCE_NAME}-cert", 5)
+    return create_mongodb_tls_certs(ISSUER_CA_NAME, namespace, MDB_RESOURCE_NAME, f"mdb-{MDB_RESOURCE_NAME}-cert", MIN_K8S_MEMBERS)
 
 
 @fixture(scope="module")
@@ -203,11 +202,13 @@ def mdb_migration(
     def create_referenced_x509_resources(resource_doc: dict) -> None:
         create_or_update_configmap(namespace, correct_ca_name, {"ca-pem": open(issuer_ca_filepath).read()})
 
-        agent_cert_ref = resource_doc["spec"]["security"]["authentication"]["agents"]["clientCertificateSecretRef"]
+        certs_prefix = resource_doc["spec"]["security"]["certsSecretPrefix"]
+        resource_name = resource_doc["metadata"]["name"]
+        agent_cert_secret_name = f"{certs_prefix}-{resource_name}-agent-certs"
         agent_cert = read_secret(namespace, vm_agent_certs)
         create_or_update_secret(
             namespace,
-            agent_cert_ref["name"],
+            agent_cert_secret_name,
             {"tls.crt": agent_cert["tls.crt"], "tls.key": agent_cert["tls.key"]},
             type="kubernetes.io/tls",
         )
