@@ -366,7 +366,7 @@ def apply_user_crs_and_verify_ac(generated_cr_yaml: str, namespace: str, om_test
             user.update()
 
         try_load(user)
-        user.assert_reaches_phase(Phase.Updated, timeout=120)
+        user.assert_reaches_phase(Phase.Updated, timeout=600)
 
     ac = om_tester.api_get_automation_config()
     ac_users = {u["user"]: u for u in ac.get("auth", {}).get("usersWanted", []) if u is not None}

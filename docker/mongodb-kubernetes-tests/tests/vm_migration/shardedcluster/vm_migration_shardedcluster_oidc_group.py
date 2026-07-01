@@ -14,7 +14,7 @@ import json
 
 import kubetester.oidc as oidc
 from kubetester import create_or_update_secret, get_statefulset, try_load
-from kubetester.kubetester import KubernetesTester, ensure_ent_version
+from kubetester.kubetester import KubernetesTester
 from kubetester.mongodb import MongoDB
 from kubetester.mongotester import with_scram
 from kubetester.omtester import OMContext, OMTester
@@ -277,10 +277,8 @@ def test_configure_ac(
     vm_sharded_mongos_sts,
     vm_sharded_service,
     vm_sharded_mongos_service,
-    custom_mdb_version: str,
     cognito: dict,
 ):
-    mdb_version = ensure_ent_version(custom_mdb_version)
     _configure_ac(
         namespace,
         om_tester,
@@ -288,7 +286,7 @@ def test_configure_ac(
         vm_sharded_mongos_sts,
         vm_sharded_service,
         vm_sharded_mongos_service,
-        mdb_version,
+        MDB_VERSION,
         cognito,
     )
     om_tester.wait_agents_ready(timeout=600)
@@ -303,7 +301,7 @@ def test_user_connectivity_before_migration(namespace: str):
 
 @mark.e2e_vm_migration_shardedcluster_oidc_group
 def test_oidc_authentication_before_migration(namespace: str):
-    vm_mongos_tester(MONGOS_STS_NAME, MONGOS_SVC_NAME, namespace, use_ssl=False).assert_oidc_authentication()
+    vm_mongos_tester(MONGOS_STS_NAME, MONGOS_SVC_NAME, namespace).assert_oidc_authentication()
 
 
 @mark.e2e_vm_migration_shardedcluster_oidc_group
@@ -393,7 +391,7 @@ def test_promote_and_prune_config_server(mdb_migration: MongoDB, om_tester: OMTe
         mdb_migration.assert_reaches_phase(Phase.Running)
 
         config_external = [
-            m for m in mdb_migration["spec"]["externalMembers"] if m["replicaSetName"] == VM_CONFIG_RS_NAME
+            m for m in mdb_migration["spec"]["externalMembers"] if m.get("replicaSetName") == VM_CONFIG_RS_NAME
         ]
         if config_external:
             mdb_migration["spec"]["externalMembers"].remove(config_external[-1])
@@ -406,9 +404,11 @@ def test_promote_and_prune_config_server(mdb_migration: MongoDB, om_tester: OMTe
 @mark.e2e_vm_migration_shardedcluster_oidc_group
 def test_promote_and_prune_shard(mdb_migration: MongoDB, om_tester: OMTester):
     try_load(mdb_migration)
-    shard_external = [m for m in mdb_migration["spec"]["externalMembers"] if m["replicaSetName"] == VM_SHARD_RS_NAME]
+    shard_external = [
+        m for m in mdb_migration["spec"]["externalMembers"] if m.get("replicaSetName") == VM_SHARD_RS_NAME
+    ]
     for _ in range(len(shard_external)):
-        current = [m for m in mdb_migration["spec"]["externalMembers"] if m["replicaSetName"] == VM_SHARD_RS_NAME]
+        current = [m for m in mdb_migration["spec"]["externalMembers"] if m.get("replicaSetName") == VM_SHARD_RS_NAME]
         if not current:
             break
         mdb_migration["spec"]["externalMembers"].remove(current[-1])
