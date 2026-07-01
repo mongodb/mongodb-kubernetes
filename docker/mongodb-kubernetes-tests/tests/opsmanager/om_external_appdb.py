@@ -291,10 +291,10 @@ class TestBackupSnapshotAndPitRestore:
 
     def test_data_survived_restore(self, primary_om_external_appdb_collection):
         """PIT restore targets a point AFTER the post-snapshot insert, so both documents
-        must be present — proving the oplog store's data was correctly replayed."""
-        records = list(primary_om_external_appdb_collection.find())
-        assert BACKUP_TEST_DATA in records, "Pre-snapshot document missing after PIT restore"
-        assert POST_SNAPSHOT_DATA in records, "Post-snapshot (oplog-only) document lost during PIT restore"
+        must be present — proving the oplog store's data was correctly replayed, with no
+        extra/duplicate documents left behind by the restore."""
+        records = sorted(primary_om_external_appdb_collection.find(), key=lambda doc: doc["_id"])
+        assert records == [BACKUP_TEST_DATA, POST_SNAPSHOT_DATA]
 
 
 def time_to_millis(date_time) -> int:
