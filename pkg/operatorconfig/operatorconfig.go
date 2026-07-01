@@ -3,6 +3,7 @@ package operatorconfig
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -34,6 +35,9 @@ func withDefaults(cfg operatorv1.OperatorConfig) operatorv1.OperatorConfig {
 	}
 	if cfg.Spec.MaxConcurrentReconciles == 0 {
 		cfg.Spec.MaxConcurrentReconciles = 1
+	}
+	if len(cfg.Spec.WatchedResources) == 0 {
+		cfg.Spec.WatchedResources = slices.Clone(operatorv1.AllWatchedResources)
 	}
 	return cfg
 }

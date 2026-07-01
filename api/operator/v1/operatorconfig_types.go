@@ -28,6 +28,19 @@ const (
 	WatchedResourceVoyageAI            WatchedResource = "voyageais"
 )
 
+// AllWatchedResources lists every CRD the operator can reconcile. It is the default value
+// for OperatorConfig.spec.watchedResources when the field is omitted.
+var AllWatchedResources = []WatchedResource{
+	WatchedResourceMongoDB,
+	WatchedResourceOpsManagers,
+	WatchedResourceMongoDBUsers,
+	WatchedResourceMongoDBCommunity,
+	WatchedResourceMongoDBSearch,
+	WatchedResourceMongoDBMultiCluster,
+	WatchedResourceClusterMongoDBRoles,
+	WatchedResourceVoyageAI,
+}
+
 // Architecture defines the container architecture used by operator-managed workloads.
 // +kubebuilder:validation:Enum=NonStatic;Static
 type Architecture string

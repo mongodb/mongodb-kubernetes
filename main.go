@@ -30,6 +30,7 @@ import (
 
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	golog "log"
@@ -84,9 +85,6 @@ var (
 	operatorEnvironments = []string{util.OperatorEnvironmentDev.String(), util.OperatorEnvironmentLocal.String(), util.OperatorEnvironmentProd.String()}
 
 	scheme = runtime.NewScheme()
-
-	// Default CRDs to watch (if not specified on the command line)
-	crds crdsToWatch
 )
 
 func init() {
@@ -97,21 +95,6 @@ func init() {
 	utilruntime.Must(corev1.AddToScheme(scheme))
 	utilruntime.Must(vaiv1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
-
-	flag.Var(&crds, "watch-resource", "A Watch Resource specifies if the Operator should watch the given resource")
-}
-
-// crdsToWatch is a custom Value implementation which can be
-// used to receive command line arguments
-type crdsToWatch []string
-
-func (c *crdsToWatch) Set(value string) error {
-	*c = append(*c, strings.ToLower(value))
-	return nil
-}
-
-func (c *crdsToWatch) String() string {
-	return strings.Join(*c, ",")
 }
 
 func main() {
@@ -123,18 +106,6 @@ func main() {
 
 func run() error {
 	flag.Parse()
-	// If no CRDs are specified, we set default to non-multicluster CRDs
-	if len(crds) == 0 {
-		crds = crdsToWatch{
-			mongoDBCRDPlural,
-			mongoDBUserCRDPlural,
-			mongoDBOpsManagerCRDPlural,
-			mongoDBCommunityCRDPlural,
-			mongoDBSearchCRDPlural,
-			voyageAICRDPlural,
-			clusterMongoDBRoleCRDPlural,
-		}
-	}
 
 	ctx := signals.SetupSignalHandler()
 	ctx, cancel := context.WithCancel(ctx)
@@ -156,7 +127,6 @@ func run() error {
 
 	agentDebug := env.ReadBoolOrDefault(util.EnvVarDebug, false)
 	agentDebugImage := env.ReadOrDefault(util.EnvVarDebugImage, "")
-	enableClusterMongoDBRoles := slices.Contains(crds, clusterMongoDBRoleCRDPlural)
 
 	// Get trace and span IDs from environment variables
 	traceIDHex := os.Getenv("OTEL_TRACE_ID")
@@ -240,6 +210,13 @@ func run() error {
 		defaultArchitecture = architectures.Static
 	}
 
+	// The CRDs the operator reconciles are configured via OperatorConfig.spec.watchedResources
+	watchedResources := make([]string, len(operatorCfg.Spec.WatchedResources))
+	for i, r := range operatorCfg.Spec.WatchedResources {
+		watchedResources[i] = string(r)
+	}
+	enableClusterMongoDBRoles := slices.Contains(watchedResources, clusterMongoDBRoleCRDPlural)
+
 	log.Info("Registering Components.")
 
 	if err := mgr.Add(operatorconfig.NewWatcher(mgr.GetCache(), cancel)); err != nil {
@@ -254,7 +231,7 @@ func run() error {
 	// memberClusterObjectsMap is a map of clusterName -> clusterObject
 	memberClusterObjectsMap := make(map[string]runtime_cluster.Cluster)
 
-	if slices.Contains(crds, mongoDBMultiClusterCRDPlural) {
+	if slices.Contains(watchedResources, mongoDBMultiClusterCRDPlural) {
 		memberClustersNames, err := getMemberClusters(ctx, cfg, currentNamespace)
 		if err != nil {
 			return err
@@ -305,27 +282,27 @@ func run() error {
 	}
 
 	// Setup all Controllers
-	if slices.Contains(crds, mongoDBCRDPlural) {
+	if slices.Contains(watchedResources, mongoDBCRDPlural) {
 		if err := setupMongoDBCRD(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, memberClusterObjectsMap, backupEnableDelay, operatorCfg.Spec.MaxConcurrentReconciles); err != nil {
 			return err
 		}
 	}
-	if slices.Contains(crds, mongoDBOpsManagerCRDPlural) {
+	if slices.Contains(watchedResources, mongoDBOpsManagerCRDPlural) {
 		if err := setupMongoDBOpsManagerCRD(ctx, mgr, memberClusterObjectsMap, imageUrls, initDatabaseNonStaticImageVersion, initOpsManagerImageVersion, defaultArchitecture, operatorCfg.Spec.MaxConcurrentReconciles); err != nil {
 			return err
 		}
 	}
-	if slices.Contains(crds, mongoDBUserCRDPlural) {
+	if slices.Contains(watchedResources, mongoDBUserCRDPlural) {
 		if err := setupMongoDBUserCRD(ctx, mgr, memberClusterObjectsMap, backupEnableDelay, operatorCfg.Spec.MaxConcurrentReconciles); err != nil {
 			return err
 		}
 	}
-	if slices.Contains(crds, mongoDBMultiClusterCRDPlural) {
+	if slices.Contains(watchedResources, mongoDBMultiClusterCRDPlural) {
 		if err := setupMongoDBMultiClusterCRD(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, memberClusterObjectsMap, operatorCfg.Spec.MaxConcurrentReconciles); err != nil {
 			return err
 		}
 	}
-	if slices.Contains(crds, mongoDBSearchCRDPlural) {
+	if slices.Contains(watchedResources, mongoDBSearchCRDPlural) {
 		operatorClusterName := env.ReadOrDefault(util.OperatorClusterNameEnv, "")
 		if operatorClusterName != "" {
 			log.Infof("Per-cluster operator mode enabled for MongoDBSearch: operator cluster identity = %q", operatorClusterName)
@@ -334,17 +311,17 @@ func run() error {
 			return err
 		}
 	}
-	if slices.Contains(crds, voyageAICRDPlural) {
+	if slices.Contains(watchedResources, voyageAICRDPlural) {
 		if err := setupVoyageAICRD(ctx, mgr, operatorCfg.Spec.MaxConcurrentReconciles); err != nil {
 			return err
 		}
 	}
 
-	for _, r := range crds {
+	for _, r := range watchedResources {
 		log.Infof("Registered CRD: %s", r)
 	}
 
-	if slices.Contains(crds, mongoDBCommunityCRDPlural) {
+	if slices.Contains(watchedResources, mongoDBCommunityCRDPlural) {
 		if err := setupCommunityController(
 			ctx,
 			mgr,
@@ -521,6 +498,12 @@ func getMemberClusters(ctx context.Context, cfg *rest.Config, currentNamespace s
 
 	m := corev1.ConfigMap{}
 	err = c.Get(ctx, types.NamespacedName{Name: util.MemberListConfigMapName, Namespace: currentNamespace}, &m)
+	if apierrors.IsNotFound(err) {
+		// No multi-cluster configuration present: run as single-cluster with no member clusters.
+		// The member-list ConfigMap is absent on single-cluster installs (e.g. when
+		// mongodbmulticluster is watched by default). Callers handle an empty member list.
+		return nil, nil
+	}
 	if err != nil {
 		return nil, err
 	}
