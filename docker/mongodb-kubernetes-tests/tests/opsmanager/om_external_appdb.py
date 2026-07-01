@@ -266,3 +266,38 @@ class TestEnableBackupOnAppDB:
         primary_om_external_appdb.configure_backup(mode="enabled")
         primary_om_external_appdb.update()
         primary_om_external_appdb.assert_reaches_phase(Phase.Running, timeout=300)
+
+
+@pytest.mark.e2e_om_external_appdb
+class TestBackupSnapshotAndPitRestore:
+    def test_add_pre_snapshot_data(self, primary_om_external_appdb_collection):
+        primary_om_external_appdb_collection.insert_one(BACKUP_TEST_DATA)
+
+    def test_wait_for_snapshot(self, meta_om: MongoDBOpsManager):
+        meta_om.get_om_tester(project_name="appdb-project").wait_until_backup_snapshots_are_ready(expected_count=1)
+
+    def test_add_post_snapshot_data(self, primary_om_external_appdb_collection):
+        """This document exists only in the oplog, never in the base snapshot."""
+        primary_om_external_appdb_collection.insert_one(POST_SNAPSHOT_DATA)
+        time.sleep(30)  # give the PIT window buffer before picking a restore point
+
+    def test_pit_restore(self, meta_om: MongoDBOpsManager):
+        pit_millis = time_to_millis(datetime.datetime.now(tz=datetime.timezone.utc) - datetime.timedelta(seconds=15))
+        meta_om.get_om_tester(project_name="appdb-project").create_restore_job_pit(pit_millis)
+
+    def test_primary_om_external_appdb_ready_after_restore(self, primary_om_external_appdb: MongoDB):
+        time.sleep(5)  # agent needs a moment to act on the restore job
+        primary_om_external_appdb.assert_reaches_phase(Phase.Running, timeout=300)
+
+    def test_data_survived_restore(self, primary_om_external_appdb_collection):
+        """PIT restore targets a point AFTER the post-snapshot insert, so both documents
+        must be present — proving the oplog store's data was correctly replayed."""
+        records = list(primary_om_external_appdb_collection.find())
+        assert BACKUP_TEST_DATA in records, "Pre-snapshot document missing after PIT restore"
+        assert POST_SNAPSHOT_DATA in records, "Post-snapshot (oplog-only) document lost during PIT restore"
+
+
+def time_to_millis(date_time) -> int:
+    """https://stackoverflow.com/a/11111177/614239"""
+    epoch = datetime.datetime.fromtimestamp(0, tz=datetime.timezone.utc)
+    return (date_time - epoch).total_seconds() * 1000
