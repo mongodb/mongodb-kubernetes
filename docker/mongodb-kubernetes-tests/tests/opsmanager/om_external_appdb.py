@@ -231,3 +231,38 @@ class TestFinalVerification:
         tester = MongoTester(primary_om.read_appdb_connection_url(), use_ssl=False)
         doc = tester.client[SENTINEL_DB][SENTINEL_COL].find_one({"_id": SENTINEL_DOC_ID})
         assert doc is not None, f"Sentinel document '{SENTINEL_DOC_ID}' lost during STS migration"
+
+
+@pytest.mark.e2e_om_external_appdb
+class TestEnableBackupOnAppDB:
+    def test_enable_backup_on_meta_om(
+        self, meta_om: MongoDBOpsManager, appdb_s3_bucket: str, appdb_oplog_s3_bucket: str
+    ):
+        meta_om.load()
+        meta_om["spec"]["backup"]["enabled"] = True
+        meta_om["spec"]["backup"]["s3Stores"] = [
+            {
+                "name": "appdb-s3-store",
+                "s3SecretRef": {"name": APPDB_S3_SECRET_NAME},
+                "pathStyleAccessEnabled": True,
+                "s3BucketEndpoint": "s3.us-east-1.amazonaws.com",
+                "s3BucketName": appdb_s3_bucket,
+            }
+        ]
+        meta_om["spec"]["backup"]["s3OpLogStores"] = [
+            {
+                "name": "appdb-s3-oplog-store",
+                "s3SecretRef": {"name": APPDB_OPLOG_SECRET_NAME},
+                "pathStyleAccessEnabled": True,
+                "s3BucketEndpoint": "s3.us-east-1.amazonaws.com",
+                "s3BucketName": appdb_oplog_s3_bucket,
+            }
+        ]
+        meta_om.update()
+        meta_om.backup_status().assert_reaches_phase(Phase.Running, timeout=600)
+
+    def test_enable_backup_on_primary_om_db(self, primary_om_external_appdb: MongoDB):
+        primary_om_external_appdb.load()
+        primary_om_external_appdb.configure_backup(mode="enabled")
+        primary_om_external_appdb.update()
+        primary_om_external_appdb.assert_reaches_phase(Phase.Running, timeout=300)
