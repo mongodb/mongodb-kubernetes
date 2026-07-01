@@ -30,6 +30,8 @@ SENTINEL_DOC_ID = "pre-migration-marker"
 APPDB_S3_SECRET_NAME = "primary-om-db-s3-secret"
 APPDB_OPLOG_SECRET_NAME = APPDB_S3_SECRET_NAME + "-oplog"
 
+MONGODB_OPS_MANAGER_USERNAME = "mongodb-ops-manager"
+
 BACKUP_TEST_DATA = {"_id": "pre-snapshot", "data": "before snapshot"}
 POST_SNAPSHOT_DATA = {"_id": "post-snapshot", "data": "after snapshot, oplog-only"}
 
@@ -87,17 +89,21 @@ def primary_om_external_appdb(meta_om: MongoDBOpsManager, primary_om: MongoDBOps
 
 
 @fixture(scope="module")
+def appdb_admin_password(primary_om: MongoDBOpsManager) -> str:
+    connection_string = primary_om.read_appdb_connection_url()
+    return unquote(urlparse(connection_string).password)
+
+
+@fixture(scope="module")
 def primary_om_external_appdb_user(
-    primary_om: MongoDBOpsManager,
     primary_om_external_appdb: MongoDB,
+    appdb_admin_password: str,
     namespace: str,
 ) -> MongoDBUser:
-    connection_string = primary_om.read_appdb_connection_url()
-    password = unquote(urlparse(connection_string).password)
     create_or_update_secret(
         namespace=namespace,
         name="primary-om-db-om-user-password",
-        data={"password": password},
+        data={"password": appdb_admin_password},
     )
     resource = MongoDBUser.from_yaml(
         yaml_fixture("om_external_appdb_ops_manager_user.yaml"), namespace=namespace
@@ -120,12 +126,15 @@ def appdb_oplog_s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> Iterato
 
 
 @fixture(scope="module")
-def primary_om_external_appdb_collection(primary_om_external_appdb: MongoDB):
+def primary_om_external_appdb_collection(primary_om_external_appdb: MongoDB, appdb_admin_password: str):
     # module-scoped (not per-function like the backup_restore.py reference): this suite's
     # test classes run strictly in order against a single AppDB, no primary/secondary swap risk.
-    collection = pymongo.MongoClient(
-        primary_om_external_appdb.tester().cnx_string, **primary_om_external_appdb.tester().default_opts
-    )["testdb"]
+    # SCRAM is enabled on this resource (see its fixture), so authenticate as the same
+    # mongodb-ops-manager user OM itself uses rather than the credential-less tester().
+    mongo_uri = primary_om_external_appdb.mongo_uri(
+        user_name=MONGODB_OPS_MANAGER_USERNAME, password=appdb_admin_password
+    )
+    collection = pymongo.MongoClient(mongo_uri, serverSelectionTimeoutMS=120000)["testdb"]
     return collection["testcollection"].with_options(read_preference=ReadPreference.PRIMARY_PREFERRED)
 
 
