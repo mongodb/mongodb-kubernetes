@@ -3,8 +3,10 @@ package watch
 import (
 	"reflect"
 
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	appsv1 "k8s.io/api/apps/v1"
 
@@ -197,6 +199,30 @@ func statefulSetIsReady(sts *appsv1.StatefulSet) bool {
 		sts.Status.ReadyReplicas == wanted &&
 		sts.Status.Replicas == wanted &&
 		sts.Status.ObservedGeneration == sts.Generation
+}
+
+// PredicatesForMultiClusterSearchResource filters watch events for resources
+// the MongoDBSearch controller places in member clusters. Owner references do
+// not cross cluster boundaries, so identification is by the search-owner
+// labels (handler.MongoDBSearchOwnerNameLabel +
+// handler.MongoDBSearchOwnerNamespaceLabel) rather than ownerRef.
+//
+// Create and Delete pass through only when both labels are present. Update
+// passes if either side carries them, so label add/remove transitions also
+// reconcile. Generic drops everything (informer-resync noise).
+//
+// Aligned with handler.EnqueueMemberClusterObjectToSearch — both readers
+// share the same label scheme.
+func PredicatesForMultiClusterSearchResource() predicate.Funcs {
+	hasOwnerLabels := func(obj client.Object) bool {
+		return handler.MapMemberClusterObjectToSearch(obj) != (reconcile.Request{})
+	}
+	return predicate.Funcs{
+		CreateFunc:  func(e event.CreateEvent) bool { return hasOwnerLabels(e.Object) },
+		DeleteFunc:  func(e event.DeleteEvent) bool { return hasOwnerLabels(e.Object) },
+		UpdateFunc:  func(e event.UpdateEvent) bool { return hasOwnerLabels(e.ObjectOld) || hasOwnerLabels(e.ObjectNew) },
+		GenericFunc: func(e event.GenericEvent) bool { return false },
+	}
 }
 
 // PredicatesForMultiStatefulSet is the predicate functions for the custom Statefulset Event

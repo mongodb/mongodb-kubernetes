@@ -1,0 +1,11 @@
+---
+apiVersion: mongodb.com/v1
+kind: MongoDBSearch
+metadata:
+  name: mdb-mc-sim-search
+spec:
+  logLevel: DEBUG
+  clusters: []
+  source:
+    external:
+      hostAndPorts: []

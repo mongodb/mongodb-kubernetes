@@ -5,7 +5,7 @@ source scripts/dev/set_env_context.sh
 source scripts/funcs/install
 
 # Detect the current architecture
-ARCH=$(detect_architecture)
+ARCH=$(detect_architecture standard)
 echo "Detected architecture: ${ARCH}"
 
 bindir="${PROJECT_DIR}/bin"

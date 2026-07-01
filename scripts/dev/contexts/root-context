@@ -135,8 +135,10 @@ export MDB_SEARCH_VERSION
 # Temporary image to point to master-built mongot
 export MDB_SEARCH_NAME="staging/mongodb-search"
 export MDB_SEARCH_REPO_URL="268558157000.dkr.ecr.us-east-1.amazonaws.com"
-export MDB_SEARCH_VERSION="f85ffd3e5a"
+# Pinned to a bazel build from mongot master (not a rapid-release).
+export MDB_SEARCH_VERSION="72ae26a806"
 export MDB_ENVOY_IMAGE="envoyproxy/envoy:v1.37-latest"
+export MDB_SEARCH_METRICS_FORWARDER_IMAGE="otel/opentelemetry-collector-contrib:0.152.0"
 
 # VoyageAI: base registry path for model images. The model and version come from
 # the VoyageAI CR; full image = ${MDB_VOYAGEAI_REPO_URL}/<model>:<version>.

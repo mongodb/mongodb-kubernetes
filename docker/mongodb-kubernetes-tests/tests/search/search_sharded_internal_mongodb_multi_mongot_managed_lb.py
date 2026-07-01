@@ -14,6 +14,8 @@ This test verifies the sharded Search + managed LB PoC implementation:
 - Executes search queries through mongos and verifies results from all shards
 """
 
+import os
+
 from kubernetes import client
 from kubetester import try_load
 from kubetester.kubetester import fixture as yaml_fixture
@@ -27,7 +29,7 @@ from pytest import fixture, mark
 from tests import test_logger
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.search import search_resource_names
-from tests.common.search.movies_search_helper import EmbeddedMoviesSearchHelper
+from tests.common.search.movies_search_helper import EMBEDDING_QUERY_KEY_ENV_VAR, EmbeddedMoviesSearchHelper
 from tests.common.search.search_deployment_helper import SearchDeploymentHelper
 from tests.common.search.sharded_search_helper import *
 from tests.conftest import get_default_operator
@@ -52,7 +54,9 @@ ENVOY_ADMIN_PORT = 9901
 
 # Resource names
 MDB_RESOURCE_NAME = "mdb-sh-managed-lb"
-MDBS_RESOURCE_NAME = MDB_RESOURCE_NAME
+# Distinct from MDB_RESOURCE_NAME so the search and sharded controllers don't share the <name>-state ConfigMap.
+# Shortened (no "-lb"): derived per-shard proxy Service names would otherwise hit the 63-char DNS label limit.
+MDBS_RESOURCE_NAME = "mdb-sh-managed-search"
 SHARD_COUNT = 2
 MONGODS_PER_SHARD = 1
 MONGOS_COUNT = 1
@@ -113,7 +117,7 @@ def user(helper: SearchDeploymentHelper) -> MongoDBUser:
 
 @fixture(scope="function")
 def mongot_user(helper: SearchDeploymentHelper, mdbs: MongoDBSearch) -> MongoDBUser:
-    return helper.mongot_user_resource(mdbs, MONGOT_USER_NAME)
+    return helper.mongot_user_resource(mdbs.name, MONGOT_USER_NAME)
 
 
 @mark.e2e_search_sharded_internal_mongodb_multi_mongot_managed_lb
@@ -194,7 +198,7 @@ def test_create_search_resource(mdbs: MongoDBSearch):
 
 @mark.e2e_search_sharded_internal_mongodb_multi_mongot_managed_lb
 def test_verify_envoy_deployment(namespace: str):
-    envoy_deployment_name = search_resource_names.lb_deployment_name(MDB_RESOURCE_NAME)
+    envoy_deployment_name = search_resource_names.lb_deployment_name(MDBS_RESOURCE_NAME)
 
     # Verify Envoy Deployment is running (with polling)
     def check_envoy_deployment():
@@ -299,6 +303,7 @@ def test_verify_search_results_from_all_shards(mdb: MongoDB):
 
 
 @mark.e2e_search_sharded_internal_mongodb_multi_mongot_managed_lb
+@mark.skipif(not os.getenv(EMBEDDING_QUERY_KEY_ENV_VAR), reason=f"{EMBEDDING_QUERY_KEY_ENV_VAR} not set")
 def test_vector_search_before_and_after_sharding(mdb: MongoDB):
     search_tester = get_search_tester(mdb, USER_NAME, USER_PASSWORD, use_ssl=True)
     admin_search_tester = get_search_tester(mdb, ADMIN_USER_NAME, ADMIN_USER_PASSWORD, use_ssl=True)

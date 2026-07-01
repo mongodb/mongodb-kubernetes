@@ -398,7 +398,7 @@ func getCentralRules() []rbacv1.PolicyRule {
 		},
 		{
 			Verbs:     []string{"*"},
-			Resources: []string{"voyageai", "voyageai/finalizers", "voyageai/status"},
+			Resources: []string{"voyageais", "voyageais/finalizers", "voyageais/status"},
 			APIGroups: []string{"ai.mongodb.com"},
 		},
 	}

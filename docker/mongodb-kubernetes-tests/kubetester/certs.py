@@ -189,6 +189,7 @@ def create_tls_certs(
     common_name: Optional[str] = None,
     process_hostnames: Optional[List[str]] = None,
     clusterwide: bool = False,
+    api_client: Optional[kubernetes.client.ApiClient] = None,
 ) -> str:
     """
     :param process_hostnames: set for TLS certificate to contain only given domains
@@ -231,6 +232,7 @@ def create_tls_certs(
         vault_subpath=vault_subpath,
         common_name=common_name,
         clusterwide=clusterwide,
+        api_client=api_client,
     )
     return cert_secret_name
 

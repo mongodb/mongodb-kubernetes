@@ -53,9 +53,9 @@ rules:
 - apiGroups:
   - ai.mongodb.com
   resources:
-  - voyageai
-  - voyageai/finalizers
-  - voyageai/status
+  - voyageais
+  - voyageais/finalizers
+  - voyageais/status
   verbs:
   - '*'
 - apiGroups:
