@@ -255,9 +255,12 @@ class TestBackupSetup:
         primary_appdb_collection.delete_many({"_id": PRE_BACKUP_DATA["_id"]})
         primary_appdb_collection.insert_one(PRE_BACKUP_DATA.copy())
 
-    def test_enable_appdb_backup(self, external_appdb_tester: OMTester):
-        """Wait for om-primary-db to register in Meta OM's backup system, then enable backup."""
-        external_appdb_tester.api_enable_backup(timeout=300)
+    def test_enable_appdb_backup(self, external_mongodb: MongoDB):
+        """Enable backup on the MongoDB CR so the operator configures the backup agent in Meta OM."""
+        external_mongodb.load()
+        external_mongodb.configure_backup(mode="enabled")
+        external_mongodb.update()
+        external_mongodb.assert_reaches_phase(Phase.Running, timeout=600)
 
     def test_wait_backup_running(self, external_appdb_tester: OMTester):
         external_appdb_tester.wait_until_backup_running(timeout=300)
