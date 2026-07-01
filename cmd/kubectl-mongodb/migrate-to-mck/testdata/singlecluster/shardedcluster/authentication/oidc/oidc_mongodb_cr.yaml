@@ -20,8 +20,6 @@ spec:
     additionalMongodConfig:
       net:
         port: 27019
-      setParameter:
-        authenticationMechanisms: SCRAM-SHA-256,MONGODB-OIDC
       sharding:
         clusterRole: configsvr
     agent:
@@ -85,8 +83,6 @@ spec:
     additionalMongodConfig:
       net:
         port: 27018
-      setParameter:
-        authenticationMechanisms: SCRAM-SHA-256,MONGODB-OIDC
       sharding:
         clusterRole: shardsvr
     agent:

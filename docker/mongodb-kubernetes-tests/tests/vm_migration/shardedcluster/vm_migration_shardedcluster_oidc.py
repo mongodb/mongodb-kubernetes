@@ -20,11 +20,15 @@ from kubetester.scram import build_sha256_creds
 from pytest import fixture, mark, skip
 from tests.vm_migration.vm_migration_dry_run import run_migration_dry_run_connectivity_passes
 from tests.vm_migration.vm_migration_helpers import (
+    CONFIG_SERVER_COUNT,
+    MONGOS_COUNT,
+    SHARD_COUNT,
     apply_generated_sharded_cluster_resource,
     apply_user_crs_and_verify_ac,
     assert_common_generated_sharded_cr_shape,
     assert_connection_string_after_full_sharded_migration,
     assert_k8s_sharded_process_names,
+    assert_max_voting_members_validation,
     assert_migration_data_exists,
     build_sharded_cluster_ac,
     deploy_vm_sharded_mongod_statefulset,
@@ -42,9 +46,6 @@ MONGOD_STS_NAME = "vm-sharded-mongod"
 MONGOS_STS_NAME = "vm-sharded-mongos"
 MONGOD_SVC_NAME = "vm-sharded-mongod"
 MONGOS_SVC_NAME = "vm-sharded-mongos"
-CONFIG_SERVER_COUNT = 3
-SHARD_COUNT = 3
-MONGOS_COUNT = 2
 MDB_RESOURCE_NAME = "sharded-migration"
 VM_CONFIG_RS_NAME = "vm-config"
 VM_SHARD_RS_NAME = "vm-shard-0"
@@ -335,6 +336,11 @@ def test_migration_dry_run_connectivity_passes(mdb_migration: MongoDB):
 @mark.e2e_vm_migration_shardedcluster_oidc
 def test_migrate_vm_to_kubernetes(mdb_migration: MongoDB):
     mdb_migration.assert_reaches_phase(Phase.Running, timeout=1800)
+
+
+@mark.e2e_vm_migration_shardedcluster_oidc
+def test_max_voting_members_validation(mdb_migration: MongoDB):
+    assert_max_voting_members_validation(mdb_migration)
 
 
 @mark.e2e_vm_migration_shardedcluster_oidc

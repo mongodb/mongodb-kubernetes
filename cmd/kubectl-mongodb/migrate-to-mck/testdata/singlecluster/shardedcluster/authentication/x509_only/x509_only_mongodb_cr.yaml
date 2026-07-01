@@ -65,9 +65,6 @@ spec:
       agents:
         autoPEMKeyFilePath: /mongodb-agent/agent.pem
         automationUserName: CN=mms-automation-agent,OU=ENG,O=MongoDB,L=NY,ST=NY,C=US
-        clientCertificateSecretRef:
-          key: tls.crt
-          name: mdb-sc-x509only-cluster-agent-certs
         mode: X509
       enabled: true
       modes:

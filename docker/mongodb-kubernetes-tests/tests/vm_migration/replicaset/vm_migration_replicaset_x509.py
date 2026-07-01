@@ -31,6 +31,7 @@ from tests.vm_migration.vm_migration_dry_run import (
     run_wrong_ca_dry_run_fails_then_passes,
 )
 from tests.vm_migration.vm_migration_helpers import (
+    MIN_VM_MEMBERS,
     apply_generated_mongodb_resource,
     apply_user_crs_and_verify_ac,
     assert_common_generated_cr_shape,
@@ -134,8 +135,6 @@ def vm_sts(
     """Deploy VM StatefulSet with cert volumes (server combined PEM + CA + agent PEM)."""
     with open(yaml_fixture("vm_statefulset.yaml"), "r") as f:
         sts_body = yaml.safe_load(f.read())
-
-    sts_body["spec"]["replicas"] = 3
 
     sts_body["spec"]["template"]["spec"]["containers"][0]["env"] = [
         {"name": "MMS_GROUP_ID", "value": om_tester.context.project_id},
@@ -269,7 +268,7 @@ def vm_x509_tester(namespace: str, x509_client_pem_path: str, issuer_ca_filepath
     connection_string = build_mongodb_connection_uri(
         mdb_resource=VM_STS_NAME,
         namespace=namespace,
-        members=3,
+        members=MIN_VM_MEMBERS,
         port="27017",
         servicename=VM_STS_NAME,
     )

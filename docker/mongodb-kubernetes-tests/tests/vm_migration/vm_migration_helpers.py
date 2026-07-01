@@ -29,6 +29,10 @@ MIGRATION_DATA_ID = "vm-migration"
 # minimum k8s StatefulSet members deployed alongside VM external members.
 # must exceed 7 when added to the external member count so the voting-limit validation always runs.
 MIN_K8S_MEMBERS = 5
+MIN_VM_MEMBERS = 3  # must match vm_statefulset.yaml replicas
+CONFIG_SERVER_COUNT = 3
+SHARD_COUNT = 3
+MONGOS_COUNT = 2
 
 
 def _deploy_vm_statefulset_from_fixture(
@@ -271,7 +275,7 @@ def assert_k8s_process_names(om_tester: OMTester, mdb_migration: MongoDB) -> Non
 
 
 def assert_max_voting_members_validation(mdb_migration: MongoDB) -> None:
-    k8s_members = mdb_migration.get_members()
+    k8s_members = len(mdb_migration["spec"]["memberConfig"])
 
     for i in range(k8s_members):
         mdb_migration["spec"]["memberConfig"][i]["priority"] = "1"
@@ -310,7 +314,7 @@ def vm_replica_set_tester(namespace: str, use_ssl: bool = False, ca_path: Option
     cnx_string = build_mongodb_connection_uri(
         mdb_resource="vm-mongodb",
         namespace=namespace,
-        members=3,
+        members=MIN_VM_MEMBERS,
         port="27017",
         servicename="vm-mongodb",
     )
@@ -516,7 +520,8 @@ def apply_generated_sharded_cluster_resource(
         m for m in resource_doc["spec"].get("externalMembers", []) if m.get("replicaSetName") == config_rs_name
     ]
     if config_members:
-        resource_doc["spec"]["memberConfig"] = [{"votes": 0, "priority": "0"} for _ in config_members]
+        resource_doc["spec"]["configServerCount"] = MIN_K8S_MEMBERS
+        resource_doc["spec"]["memberConfig"] = [{"votes": 0, "priority": "0"} for _ in range(MIN_K8S_MEMBERS)]
 
     if prepare_external_resources is not None:
         prepare_external_resources(resource_doc)
