@@ -38,7 +38,7 @@ class SwitchProjectHelper:
         if self.authentication_mechanism == "MONGODB-X509":
             tester.assert_authoritative_set(True)
 
-    def test_switch_project(self):
+    def test_switch_project(self, timeout=600):
         password_check_required = self.authentication_mechanism in ["MONGODB-CR", "SCRAM-SHA-256"]
         if password_check_required:
             original_tester = self.resource.get_automation_config_tester()
@@ -56,7 +56,7 @@ class SwitchProjectHelper:
         )
         self.resource["spec"]["opsManager"]["configMapRef"]["name"] = new_project_configmap
         self.resource.update()
-        self.resource.assert_reaches_phase(Phase.Running, timeout=600)
+        self.resource.assert_reaches_phase(Phase.Running, timeout=timeout)
         if password_check_required:
             switched_tester = self.resource.get_automation_config_tester()
             switched_automation_agent_password = switched_tester.get_automation_agent_password()
