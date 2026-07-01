@@ -301,6 +301,7 @@ func AddMongoDBSearchController(
 	operatorClusterName string,
 	maxConcurrentReconciles int,
 	memberClusterClientTimeout int,
+	requiredHealthyStreak int,
 ) error {
 	if err := mgr.GetFieldIndexer().IndexField(ctx, &searchv1.MongoDBSearch{}, searchv1.MongoDBSearchIndexFieldName, mdbcSearchIndexBuilder); err != nil {
 		return err
@@ -349,7 +350,7 @@ func AddMongoDBSearchController(
 		healthChecker := memberwatch.MemberClusterHealthChecker{
 			Cache:                 make(map[string]memberwatch.ClusterHealthChecker),
 			HealthyStreak:         make(map[string]int),
-			RequiredHealthyStreak: env.ReadIntOrDefault(util.RequiredHealthyStreakEnv, util.DefaultRequiredHealthyStreak), // nolint:forbidigo
+			RequiredHealthyStreak: requiredHealthyStreak,
 			ClientTimeout:         time.Duration(memberClusterClientTimeout) * time.Second,
 		}
 		go healthChecker.WatchMemberClusterHealth(ctx, zap.S(), eventChannel, r.kubeClient, memberClusterObjectsMap)
