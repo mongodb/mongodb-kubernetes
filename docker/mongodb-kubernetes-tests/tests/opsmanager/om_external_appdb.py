@@ -1,16 +1,37 @@
+import datetime
+import time
+from typing import Iterator
+from urllib.parse import unquote, urlparse
+
+import pymongo
 import pytest
 from kubetester import create_or_update_secret, try_load
+from kubetester.awss3client import AwsS3Client
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
+from kubetester.mongodb_user import MongoDBUser
+from kubetester.mongotester import MongoTester
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
+from pymongo import ReadPreference
 from pytest import fixture
 from tests import test_logger
+from tests.opsmanager.om_ops_manager_backup import create_aws_secret, create_s3_bucket
 
 logger = test_logger.get_test_logger(__name__)
 
 EXT_APPDB_SECRET_NAME = "primary-om-db-ext-connection-string"
 EXT_APPDB_SECRET_KEY = "connectionString"
+
+SENTINEL_DB = "sentinel"
+SENTINEL_COL = "docs"
+SENTINEL_DOC_ID = "pre-migration-marker"
+
+APPDB_S3_SECRET_NAME = "primary-om-db-s3-secret"
+APPDB_OPLOG_SECRET_NAME = APPDB_S3_SECRET_NAME + "-oplog"
+
+BACKUP_TEST_DATA = {"_id": "pre-snapshot", "data": "before snapshot"}
+POST_SNAPSHOT_DATA = {"_id": "post-snapshot", "data": "after snapshot, oplog-only"}
 
 
 @fixture(scope="module")
