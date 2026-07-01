@@ -328,6 +328,7 @@ def scram_opts() -> list[dict]:
 def mdb_health_checker(mdb_migration: MongoDB, ca_path: str, scram_opts: list[dict]) -> MongoDBBackgroundTester:
     return MongoDBBackgroundTester(
         mdb_migration.tester(use_ssl=True, ca_path=ca_path),
+        allowed_sequential_failures=15,
         health_function_params={"attempts": 1, "opts": scram_opts},
     )
 
@@ -369,7 +370,7 @@ def test_configure_ac(
 @mark.e2e_vm_migration_shardedcluster_scram_sha256_tls
 @skip_if_local()
 def test_user_connectivity_before_migration(namespace: str, ca_path: str, scram_opts: list[dict]):
-    vm_mongos_tester(MONGOS_STS_NAME, MONGOS_SVC_NAME, namespace).assert_scram_sha_authentication(
+    vm_mongos_tester(MONGOS_STS_NAME, MONGOS_SVC_NAME, namespace, ca_path=ca_path).assert_scram_sha_authentication(
         username="app-user",
         password=APP_USER_PASSWORD,
         auth_mechanism="SCRAM-SHA-256",

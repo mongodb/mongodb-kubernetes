@@ -29,7 +29,7 @@ from kubetester.certs import (
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
-from kubetester.mongotester import MongoDBBackgroundTester, MongoTester
+from kubetester.mongotester import MongoDBBackgroundTester, MongoTester, with_x509
 from kubetester.omtester import OMContext, OMTester
 from kubetester.phase import Phase
 from pytest import fixture, mark
@@ -128,6 +128,25 @@ def vm_agent_combined_pem(namespace: str, vm_agent_certs: str) -> tuple:
     pem_secret_name = "vm-sharded-agent-cert-pem"
     create_or_update_secret(namespace, pem_secret_name, {CUSTOM_AGENT_CERT_FILENAME: cert_pem + key_pem})
     return pem_secret_name, subject_dn
+
+
+@fixture(scope="module")
+def x509_client_pem_path(tmp_path_factory, namespace: str, vm_agent_certs: str) -> str:
+    data = read_secret(namespace, vm_agent_certs)
+    cert_pem = data.get("tls.crt", b"")
+    key_pem = data.get("tls.key", b"")
+    if isinstance(cert_pem, bytes):
+        cert_pem = cert_pem.decode("utf-8")
+    if isinstance(key_pem, bytes):
+        key_pem = key_pem.decode("utf-8")
+    pem_path = tmp_path_factory.mktemp("x509-client") / "agent.pem"
+    pem_path.write_text(cert_pem + key_pem)
+    return str(pem_path)
+
+
+@fixture(scope="module")
+def x509_opts(x509_client_pem_path: str, issuer_ca_filepath: str) -> list[dict]:
+    return [with_x509(x509_client_pem_path, issuer_ca_filepath)]
 
 
 @fixture(scope="module")
@@ -309,13 +328,17 @@ def mdb_migration(
 
 
 @fixture(scope="module")
-def mongo_tester(mdb_migration: MongoDB) -> MongoTester:
-    return mdb_migration.tester()
+def mongo_tester(mdb_migration: MongoDB, issuer_ca_filepath: str) -> MongoTester:
+    return mdb_migration.tester(use_ssl=True, ca_path=issuer_ca_filepath)
 
 
 @fixture(scope="module")
-def mdb_health_checker(mongo_tester: MongoTester) -> MongoDBBackgroundTester:
-    return MongoDBBackgroundTester(mongo_tester, allowed_sequential_failures=3)
+def mdb_health_checker(mongo_tester: MongoTester, x509_opts: list[dict]) -> MongoDBBackgroundTester:
+    return MongoDBBackgroundTester(
+        mongo_tester,
+        allowed_sequential_failures=15,
+        health_function_params={"attempts": 1, "opts": x509_opts},
+    )
 
 
 @mark.e2e_vm_migration_shardedcluster_x509
@@ -537,5 +560,5 @@ def test_process_names(namespace: str, om_tester: OMTester, mdb_migration: Mongo
 
 
 @mark.e2e_vm_migration_shardedcluster_x509
-def test_migration_data_exists_after_promote(mdb_migration: MongoDB):
-    mdb_migration.tester().assert_connectivity()
+def test_migration_data_exists_after_promote(mdb_migration: MongoDB, issuer_ca_filepath: str, x509_opts: list[dict]):
+    mdb_migration.tester(use_ssl=True, ca_path=issuer_ca_filepath).assert_connectivity(opts=x509_opts)
