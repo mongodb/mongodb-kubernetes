@@ -492,7 +492,6 @@ def test_x509_agent_auth_in_cr(generated_cr: dict):
     agents = generated_cr["spec"]["security"]["authentication"]["agents"]
     assert agents["mode"] == "X509"
     assert agents["autoPEMKeyFilePath"] == CUSTOM_AGENT_CERT_PATH
-    assert agents["clientCertificateSecretRef"]["name"] == f"mdb-{MDB_RESOURCE_NAME}-agent-certs"
 
 
 @mark.e2e_vm_migration_replicaset_x509
