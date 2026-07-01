@@ -1,0 +1,25 @@
+apiVersion: mongodb.com/v1
+kind: MongoDBUser
+metadata:
+  name: primary-om-db-om-user
+spec:
+  username: "mongodb-ops-manager"
+  db: "admin"
+  passwordSecretKeyRef:
+    name: primary-om-db-om-user-password
+    key: password
+  mongodbResourceRef:
+    name: primary-om-db
+  roles:
+    - db: admin
+      name: readWriteAnyDatabase
+    - db: admin
+      name: dbAdminAnyDatabase
+    - db: admin
+      name: clusterMonitor
+    - db: admin
+      name: backup
+    - db: admin
+      name: restore
+    - db: admin
+      name: hostManager

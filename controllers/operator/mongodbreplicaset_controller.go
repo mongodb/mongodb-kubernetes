@@ -424,6 +424,12 @@ func publishAutomationConfigFirstRS(ctx context.Context, getter kubernetesClient
 	}
 
 	databaseContainer := container.GetByName(util.DatabaseContainerName, currentSts.Spec.Template.Spec.Containers)
+	//TODO: we shouldn't need that IF. Probably we should just ignore this check if it is appDB migration (based on some annotation)
+	if databaseContainer == nil {
+		// StatefulSet exists but wasn't previously managed by this controller (e.g. AppDB takeover).
+		// None of the "was X previously configured" checks apply — treat it as new.
+		return false
+	}
 	volumeMounts := databaseContainer.VolumeMounts
 
 	if !mdb.Spec.Security.IsTLSEnabled() && wasTLSSecretMounted(ctx, getter, currentSts, mdb, log) {

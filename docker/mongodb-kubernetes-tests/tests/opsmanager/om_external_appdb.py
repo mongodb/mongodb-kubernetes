@@ -279,16 +279,16 @@ class TestEnableBackupOnAppDB:
 
 @pytest.mark.e2e_om_external_appdb
 class TestBackupSnapshotAndPitRestore:
-    # def test_add_pre_snapshot_data(self, primary_om_external_appdb_collection):
-    #     primary_om_external_appdb_collection.insert_one(BACKUP_TEST_DATA)
-    #
-    # def test_wait_for_snapshot(self, meta_om: MongoDBOpsManager):
-    #     meta_om.get_om_tester(project_name="appdb-project").wait_until_backup_snapshots_are_ready(expected_count=1)
-    #
-    # def test_add_post_snapshot_data(self, primary_om_external_appdb_collection):
-    #     """This document exists only in the oplog, never in the base snapshot."""
-    #     primary_om_external_appdb_collection.insert_one(POST_SNAPSHOT_DATA)
-    #     time.sleep(30)  # give the PIT window buffer before picking a restore point
+    def test_add_pre_snapshot_data(self, primary_om_external_appdb_collection):
+        primary_om_external_appdb_collection.insert_one(BACKUP_TEST_DATA)
+
+    def test_wait_for_snapshot(self, meta_om: MongoDBOpsManager):
+        meta_om.get_om_tester(project_name="appdb-project").wait_until_backup_snapshots_are_ready(expected_count=1)
+
+    def test_add_post_snapshot_data(self, primary_om_external_appdb_collection):
+        """This document exists only in the oplog, never in the base snapshot."""
+        primary_om_external_appdb_collection.insert_one(POST_SNAPSHOT_DATA)
+        time.sleep(30)  # give the PIT window buffer before picking a restore point
 
     def test_pit_restore(self, meta_om: MongoDBOpsManager):
         pit_millis = time_to_millis(datetime.datetime.now(tz=datetime.timezone.utc) - datetime.timedelta(seconds=15))
