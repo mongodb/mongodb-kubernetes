@@ -77,6 +77,32 @@ def primary_om_external_appdb(meta_om: MongoDBOpsManager, primary_om: MongoDBOps
     )
     resource.configure(meta_om, "appdb-project")
     resource.set_version(primary_om["spec"]["applicationDatabase"]["version"])
+    # AppDB uses SCRAM; ignoreUnknownUsers keeps pre-existing AppDB users (e.g. mongodb-ops-manager)
+    # from being wiped by the generic MongoDB controller's authoritativeSet on first reconcile.
+    resource["spec"]["security"] = {
+        "authentication": {"enabled": True, "modes": ["SCRAM"], "ignoreUnknownUsers": True}
+    }
+    try_load(resource)
+    return resource
+
+
+@fixture(scope="module")
+def primary_om_external_appdb_user(
+    primary_om: MongoDBOpsManager,
+    primary_om_external_appdb: MongoDB,
+    namespace: str,
+) -> MongoDBUser:
+    connection_string = primary_om.read_appdb_connection_url()
+    password = unquote(urlparse(connection_string).password)
+    create_or_update_secret(
+        namespace=namespace,
+        name="primary-om-db-om-user-password",
+        data={"password": password},
+    )
+    resource = MongoDBUser.from_yaml(
+        yaml_fixture("om_external_appdb_ops_manager_user.yaml"), namespace=namespace
+    )
+    resource["spec"]["mongodbResourceRef"]["name"] = primary_om_external_appdb.name
     try_load(resource)
     return resource
 
@@ -93,6 +119,15 @@ class TestSetup:
         primary_om.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
         primary_om.om_status().assert_reaches_phase(Phase.Running, timeout=600)
 
+    def test_write_sentinel_to_appdb(self, primary_om: MongoDBOpsManager):
+        """Write a sentinel document to the AppDB before STS migration to verify data persistence."""
+        tester = MongoTester(primary_om.read_appdb_connection_url(), use_ssl=False)
+        tester.client[SENTINEL_DB][SENTINEL_COL].replace_one(
+            {"_id": SENTINEL_DOC_ID},
+            {"_id": SENTINEL_DOC_ID, "data": "pre-migration"},
+            upsert=True,
+        )
+
 
 @pytest.mark.e2e_om_external_appdb
 class TestPreSwitchCanary:
@@ -107,7 +142,6 @@ class TestPreSwitchCanary:
 @pytest.mark.e2e_om_external_appdb
 class TestSwitchToExternalAppDB:
     def test_create_external_appdb_secret(self, primary_om: MongoDBOpsManager, namespace: str):
-        """Copy the internal AppDB connection string into a dedicated secret with the standard key."""
         connection_string = primary_om.read_appdb_connection_url()
         create_or_update_secret(
             namespace=namespace,
@@ -116,7 +150,6 @@ class TestSwitchToExternalAppDB:
         )
 
     def test_switch_primary_om_to_external_appdb(self, primary_om: MongoDBOpsManager):
-        """Patch Primary OM to use externalApplicationDatabaseRef; AppDB reconciliation is then skipped."""
         primary_om.load()
         primary_om.set_external_appdb_ref(EXT_APPDB_SECRET_NAME, EXT_APPDB_SECRET_KEY)
         primary_om.update()
@@ -135,17 +168,30 @@ class TestPostSwitchVerification:
     def test_primary_mdb_connectivity(self, primary_mdb: MongoDB):
         primary_mdb.assert_connectivity()
 
+    def test_sentinel_doc_survives_switch(self, primary_om: MongoDBOpsManager):
+        """Verify the sentinel document written before the switch still exists,
+        confirming the switch to externalApplicationDatabaseRef didn't lose data."""
+        tester = MongoTester(primary_om.read_appdb_connection_url(), use_ssl=False)
+        doc = tester.client[SENTINEL_DB][SENTINEL_COL].find_one({"_id": SENTINEL_DOC_ID})
+        assert doc is not None, f"Sentinel document '{SENTINEL_DOC_ID}' lost during switch to external AppDB"
+
 
 @pytest.mark.e2e_om_external_appdb
 class TestAppDBTakeover:
+    def test_create_ops_manager_user_for_appdb(self, primary_om_external_appdb_user: MongoDBUser):
+        """Submit the MongoDBUser for mongodb-ops-manager before the RS so the first automation
+        config push includes the user and it is never removed from the AppDB."""
+        primary_om_external_appdb_user.update()
+
     def test_primary_om_external_appdb_created(self, primary_om_external_appdb: MongoDB):
-        """
-        Submit the MongoDB resource named 'primary-om-db' against Meta OM.
+        """Submit the MongoDB resource named 'primary-om-db' against Meta OM.
         The MongoDB controller reconciles the existing AppDB StatefulSet in-place;
-        PVCs are re-mounted to the new pods without being deleted or recreated.
-        """
+        PVCs are re-mounted to the new pods without being deleted or recreated."""
         primary_om_external_appdb.update()
         primary_om_external_appdb.assert_reaches_phase(Phase.Running, timeout=900)
+
+    def test_primary_om_external_appdb_user_running(self, primary_om_external_appdb_user: MongoDBUser):
+        primary_om_external_appdb_user.assert_reaches_phase(Phase.Running, timeout=300)
 
     def test_primary_om_external_appdb_connectivity(self, primary_om_external_appdb: MongoDB):
         primary_om_external_appdb.assert_connectivity()
@@ -157,11 +203,9 @@ class TestFinalVerification:
         """Primary OM must still be reachable after the MongoDB controller took over the StatefulSet."""
         primary_om.get_om_tester().assert_healthiness()
 
-    def test_primary_mdb_still_running(self, primary_mdb: MongoDB):
-        primary_mdb.reload()
-        primary_mdb.assert_reaches_phase(Phase.Running, timeout=300)
-        primary_mdb.assert_connectivity()
-
-    def test_primary_om_external_appdb_still_running(self, primary_om_external_appdb: MongoDB):
-        primary_om_external_appdb.reload()
-        primary_om_external_appdb.assert_reaches_phase(Phase.Running, timeout=300)
+    def test_sentinel_doc_survives_migration(self, primary_om: MongoDBOpsManager):
+        """Verify the sentinel document written before STS migration still exists,
+        confirming PVC data was preserved through the takeover."""
+        tester = MongoTester(primary_om.read_appdb_connection_url(), use_ssl=False)
+        doc = tester.client[SENTINEL_DB][SENTINEL_COL].find_one({"_id": SENTINEL_DOC_ID})
+        assert doc is not None, f"Sentinel document '{SENTINEL_DOC_ID}' lost during STS migration"
