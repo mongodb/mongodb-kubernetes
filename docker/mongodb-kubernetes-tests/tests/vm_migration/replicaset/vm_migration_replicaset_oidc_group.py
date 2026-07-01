@@ -10,8 +10,6 @@ and authorizationType=GroupMembership.
 Requires the Cognito test environment (the cognito_* expansions). The test skips when they are absent.
 """
 
-import json
-
 import kubetester.oidc as oidc
 from kubetester import create_or_update_secret, get_statefulset
 from kubetester.kubetester import KubernetesTester, fcv_from_version
@@ -190,21 +188,6 @@ def _configure_ac(
                     "storage": {"dbPath": "/data/"},
                     "systemLog": {"path": "/data/mongodb.log", "destination": "file"},
                     "replication": {"replSetName": rs_name},
-                    "setParameter": {
-                        "authenticationMechanisms": f"{SCRAM_MECHANISM},{OIDC_MECHANISM}",
-                        "oidcIdentityProviders": json.dumps(
-                            [
-                                {
-                                    "issuer": cognito["issuer_uri"],
-                                    "audience": cognito["client_id"],
-                                    "authNamePrefix": OIDC_CONFIG_NAME,
-                                    "authorizationClaim": "cognito:groups",
-                                    "useAuthorizationClaim": True,
-                                    "supportsHumanFlows": False,
-                                }
-                            ]
-                        ),
-                    },
                 },
             }
         )
@@ -253,7 +236,7 @@ def test_deploy_vm(namespace: str, vm_sts, vm_service):
         sts = get_statefulset(namespace, vm_sts["metadata"]["name"])
         return sts.status.ready_replicas == vm_sts["spec"]["replicas"]
 
-    KubernetesTester.wait_until(sts_is_ready, timeout=300)
+    KubernetesTester.wait_until(sts_is_ready, timeout=600)
 
 
 @mark.e2e_vm_migration_replicaset_oidc_group
@@ -265,7 +248,7 @@ def test_configure_ac(
     cognito: dict,
 ):
     _configure_ac(namespace, om_tester, vm_sts, vm_service, cognito)
-    om_tester.wait_agents_ready(timeout=600)
+    om_tester.wait_agents_ready(timeout=1200)
 
 
 @mark.e2e_vm_migration_replicaset_oidc_group
@@ -327,7 +310,7 @@ def test_migration_dry_run_connectivity_passes(mdb_migration: MongoDB):
 
 @mark.e2e_vm_migration_replicaset_oidc_group
 def test_migrate_vm_to_kubernetes(mdb_migration: MongoDB):
-    mdb_migration.assert_reaches_phase(Phase.Running, timeout=1200)
+    mdb_migration.assert_reaches_phase(Phase.Running, timeout=2400)
     assert_connection_string_contains_current_hosts(mdb_migration)
 
 

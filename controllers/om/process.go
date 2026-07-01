@@ -47,7 +47,6 @@ var infrastructureFieldPaths = [][]string{
 	{"storage", "dbPath"},
 	{"replication", "replSetName"},
 	{"security", "clusterAuthMode"},
-	{"setParameter", "oidcIdentityProviders"},
 }
 
 // infrastructureTLSCertKeys lists TLS/SSL certificate-related keys under

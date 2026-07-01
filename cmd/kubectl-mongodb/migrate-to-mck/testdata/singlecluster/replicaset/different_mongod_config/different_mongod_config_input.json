@@ -45,9 +45,6 @@
           "destination": "file",
           "path": "/var/log/mongodb/mongod0.log"
         },
-        "setParameter": {
-          "authenticationMechanisms": "SCRAM-SHA-256"
-        },
         "auditLog": {
           "destination": "file",
           "format": "JSON",
@@ -94,9 +91,6 @@
         "systemLog": {
           "destination": "file",
           "path": "/var/log/mongodb/mongod1.log"
-        },
-        "setParameter": {
-          "authenticationMechanisms": "SCRAM-SHA-256"
         },
         "auditLog": {
           "destination": "file",
@@ -145,9 +139,6 @@
           "destination": "file",
           "path": "/var/log/mongodb/mongod2.log"
         },
-        "setParameter": {
-          "authenticationMechanisms": "SCRAM-SHA-256"
-        },
         "auditLog": {
           "destination": "file",
           "format": "JSON",
@@ -170,9 +161,27 @@
     {
       "_id": "hetero-rs",
       "members": [
-        {"_id": 0, "host": "hetero-rs-0", "priority": 2, "votes": 1, "tags": {}},
-        {"_id": 1, "host": "hetero-rs-1", "priority": 1, "votes": 1, "tags": {}},
-        {"_id": 2, "host": "hetero-rs-2", "priority": 1, "votes": 1, "tags": {}}
+        {
+          "_id": 0,
+          "host": "hetero-rs-0",
+          "priority": 2,
+          "votes": 1,
+          "tags": {}
+        },
+        {
+          "_id": 1,
+          "host": "hetero-rs-1",
+          "priority": 1,
+          "votes": 1,
+          "tags": {}
+        },
+        {
+          "_id": 2,
+          "host": "hetero-rs-2",
+          "priority": 1,
+          "votes": 1,
+          "tags": {}
+        }
       ],
       "protocolVersion": "1"
     }

@@ -7,9 +7,6 @@ metadata:
   name: oidc-rs
   namespace: mongodb
 spec:
-  additionalMongodConfig:
-    setParameter:
-      authenticationMechanisms: SCRAM-SHA-256,MONGODB-OIDC
   agent:
     maxLogFileDurationHours: 0
     mongod:

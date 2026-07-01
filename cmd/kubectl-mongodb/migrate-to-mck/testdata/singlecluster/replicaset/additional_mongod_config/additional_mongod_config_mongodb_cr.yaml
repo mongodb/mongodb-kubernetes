@@ -23,7 +23,6 @@ spec:
     replication:
       oplogSizeMB: 2048
     setParameter:
-      authenticationMechanisms: SCRAM-SHA-256
       connPoolMaxConnsPerHost: 800
     storage:
       directoryPerDB: true

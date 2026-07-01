@@ -217,7 +217,7 @@ func TestBuildSecurity_TLSAndAuth(t *testing.T) {
 	assert.Equal(t, []mdbv1.AuthMode{"X509"}, result.Authentication.Modes)
 }
 
-func TestBuildSecurity_X509AgentAuthEmitsClientCertificateSecretRef(t *testing.T) {
+func TestBuildSecurity_X509AgentAuthDoesNotSetClientCertificateSecretRef(t *testing.T) {
 	ac := testAC(
 		&om.Auth{
 			Disabled:                 false,
@@ -240,9 +240,15 @@ func TestBuildSecurity_X509AgentAuthEmitsClientCertificateSecretRef(t *testing.T
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.NotNil(t, result.Authentication)
-	ref := result.Authentication.Agents.ClientCertificateSecretRefWrap.ClientCertificateSecretRef
-	assert.Equal(t, "mdb-my-rs-agent-certs", ref.Name)
-	assert.Equal(t, "tls.crt", ref.Key)
+	// the operator derives the agent cert secret name from certsSecretPrefix automatically;
+	// the migration tool does not need to set clientCertificateSecretRef explicitly.
+	assert.Empty(t, result.Authentication.Agents.ClientCertificateSecretRefWrap.ClientCertificateSecretRef.Name)
+
+	// the validation step must warn customers about the secret they need to create
+	warnings := validateX509(ac.Auth)
+	require.NotEmpty(t, warnings)
+	assert.Equal(t, SeverityWarning, warnings[0].Severity)
+	assert.Contains(t, warnings[0].Message, "<certsSecretPrefix>-<resourceName>-agent-certs")
 }
 
 // TestBuildSecurity_TLS_EmptyPrefix verifies that buildSecurity does not set TLS when certsSecretPrefix
