@@ -160,7 +160,7 @@ The managed Envoy proxy needs a **server certificate** (for incoming mongod conn
 
 #### Step 8: Create MongoDBSearch Resource
 
-Applies the MongoDBSearch CR with `loadBalancer.managed: {}` pointing to your external replica set:
+Applies the MongoDBSearch CR with `clusters[].loadBalancer.managed: {}` pointing to your external replica set:
 
 ```yaml
 apiVersion: mongodb.com/v1
@@ -168,7 +168,11 @@ kind: MongoDBSearch
 metadata:
   name: ${MDB_SEARCH_RESOURCE_NAME}
 spec:
-  replicas: ${MDB_MONGOT_REPLICAS}
+  clusters:
+    - replicas: ${MDB_MONGOT_REPLICAS}
+      loadBalancer:
+        managed:
+          externalHostname: ${MDB_SEARCH_RESOURCE_NAME}-search-0-proxy-svc.${MDB_NS}.svc.cluster.local
   source:
     username: search-sync-source
     passwordSecretRef:
@@ -185,8 +189,6 @@ spec:
   security:
     tls:
       certsSecretPrefix: ${MDB_TLS_CERT_SECRET_PREFIX}
-  loadBalancer:
-    managed: {}
 ```
 
 ```bash

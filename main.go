@@ -244,6 +244,9 @@ func run() error {
 			var cluster runtime_cluster.Cluster
 
 			cluster, err := runtime_cluster.New(v, func(options *runtime_cluster.Options) {
+				// Use the operator scheme so cross-cluster owner references
+				// can resolve our CRD types (default scheme lacks them).
+				options.Scheme = scheme
 				if len(namespacesToWatch) > 1 || namespacesToWatch[0] != "" {
 					defaultNamespaces := make(map[string]cache.Config)
 					for _, namespace := range namespacesToWatch {
@@ -291,7 +294,11 @@ func run() error {
 		}
 	}
 	if slices.Contains(crds, mongoDBSearchCRDPlural) {
-		if err := setupMongoDBSearchCRD(ctx, mgr); err != nil {
+		operatorClusterName := env.ReadOrDefault(util.OperatorClusterNameEnv, "")
+		if operatorClusterName != "" {
+			log.Infof("Per-cluster operator mode enabled for MongoDBSearch: operator cluster identity = %q", operatorClusterName)
+		}
+		if err := setupMongoDBSearchCRD(ctx, mgr, memberClusterObjectsMap, operatorClusterName); err != nil {
 			return err
 		}
 	}
@@ -421,19 +428,30 @@ func setupVoyageAICRD(ctx context.Context, mgr manager.Manager) error {
 	return operator.AddVoyageAIController(ctx, mgr, imageRepository)
 }
 
-func setupMongoDBSearchCRD(ctx context.Context, mgr manager.Manager) error {
+func setupMongoDBSearchCRD(
+	ctx context.Context,
+	mgr manager.Manager,
+	memberClusterObjectsMap map[string]runtime_cluster.Cluster,
+	operatorClusterName string,
+) error {
 	if err := operator.AddMongoDBSearchController(ctx, mgr, searchcontroller.OperatorSearchConfig{
 		SearchRepo:    env.ReadOrPanic(util.SearchRepoURLEnv),
 		SearchName:    env.ReadOrPanic(util.SearchNameEnv),
 		SearchVersion: env.ReadOrPanic(util.SearchVersionEnv),
-	}); err != nil {
+	}, memberClusterObjectsMap, operatorClusterName); err != nil {
 		return err
 	}
 
 	// We cannot use ReadOrPanic here because this variable is only needed when Search is used with a managed load
 	// balancer
 	envoyImage := env.ReadOrDefault(util.EnvoyImageEnv, "")
-	if err := operator.AddMongoDBSearchEnvoyController(ctx, mgr, envoyImage); err != nil {
+	if err := operator.AddMongoDBSearchEnvoyController(ctx, mgr, envoyImage, memberClusterObjectsMap, operatorClusterName); err != nil {
+		return err
+	}
+
+	// Metrics forwarder controller — image is again enforced in controller
+	metricsForwarderImage := env.ReadOrDefault(util.MetricsForwarderImageEnv, "")
+	if err := operator.AddMongoDBSearchMetricsForwarderController(ctx, mgr, metricsForwarderImage, memberClusterObjectsMap, operatorClusterName); err != nil {
 		return err
 	}
 
