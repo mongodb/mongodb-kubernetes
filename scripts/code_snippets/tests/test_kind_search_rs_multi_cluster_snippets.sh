@@ -45,3 +45,20 @@ export K8S_CTX="${K8S_CTX_0}"
 export MDB_CONNECTION_STRING="${MDB_USER_CONNECTION_STRING}"
 
 ${test_dir}/test.sh
+
+# Phase 3: per-cluster query verification — prove each member cluster serves
+# $search/$vectorSearch. Reuse scenario 03's execute snippets, re-pointed at each
+# cluster's own node via directConnection (the cluster-0 tools pod reaches them
+# over the mesh). Reuse the per-cluster host vars that env_variables_e2e_private.sh
+# exports (same values Phase 2 connects to). K8S_CTX stays K8S_CTX_0 (tools pod +
+# CA live there).
+# Invoke via 'bash -e' rather than the run/run_for_output framework: its skip-log
+# is keyed on snippet name, so a second run() of the same snippet would no-op.
+for ci in 0 1; do
+  host_var="MDB_RS_HOST_${ci}_0"
+  member="${!host_var}"
+  export MDB_CONNECTION_STRING="mongodb://mdb-user:${MDB_USER_PASSWORD}@${member}/?directConnection=true&readPreference=secondaryPreferred&tls=true&tlsCAFile=/tls/ca.crt&authSource=admin&authMechanism=SCRAM-SHA-256"
+  echo "Phase 3: verifying search from cluster ${ci} (${member})"
+  bash -e ./docs/search/03-search-query-usage/code_snippets/03_0450_execute_search_query.sh
+  bash -e ./docs/search/03-search-query-usage/code_snippets/03_0455_execute_vector_search_query.sh
+done

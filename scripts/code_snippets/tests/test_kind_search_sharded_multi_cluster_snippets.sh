@@ -43,3 +43,20 @@ test -f "${test_dir}/env_variables_${CODE_SNIPPETS_FLAVOR}.sh" && source "${test
 export K8S_CTX="${K8S_CTX_0}"
 
 ${test_dir}/test.sh
+
+# Phase 3: per-cluster query verification — prove each member cluster's mongos
+# serves $search/$vectorSearch. Reuse scenario 08's execute snippets, re-pointed
+# at each cluster's own mongos via directConnection (the cluster-0 tools pod
+# reaches them over the mesh). Reuse the per-cluster mongos host vars that
+# env_variables_e2e_private.sh exports (same values Phase 2 connects to). K8S_CTX
+# stays K8S_CTX_0 (tools pod + CA live there).
+# Invoke via 'bash -e' rather than the run/run_for_output framework: its skip-log
+# is keyed on snippet name, so a second run() of the same snippet would no-op.
+for ci in 0 1; do
+  mongos_var="MDB_MONGOS_HOST_${ci}"
+  mongos="${!mongos_var}"
+  export MDB_USER_CONNECTION_STRING="mongodb://mdb-user:${MDB_USER_PASSWORD}@${mongos}/?directConnection=true&tls=true&tlsCAFile=/tls/ca.crt&authSource=admin&authMechanism=SCRAM-SHA-256"
+  echo "Phase 3: verifying search from cluster ${ci} mongos (${mongos})"
+  bash -e ./docs/search/08-search-sharded-query-usage/code_snippets/08_0450_execute_search_query.sh
+  bash -e ./docs/search/08-search-sharded-query-usage/code_snippets/08_0455_execute_vector_search_query.sh
+done

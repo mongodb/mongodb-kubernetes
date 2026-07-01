@@ -5,7 +5,7 @@ user_conn="${MDB_USER_CONNECTION_STRING:-${MDB_CONNECTION_STRING}}"
 
 mdb_script=$(cat <<'MONGOSH'
 use sample_mflix;
-db.movies.aggregate([
+const results = db.movies.aggregate([
   {
     $search: {
       "compound": {
@@ -39,7 +39,10 @@ db.movies.aggregate([
       "released": 1
     }
   }
-]);
+]).toArray();
+printjson(results);
+print("Result count: " + results.length);
+if (results.length === 0) { print("ASSERTION FAILED: search query returned no documents"); quit(1); }
 MONGOSH
 )
 

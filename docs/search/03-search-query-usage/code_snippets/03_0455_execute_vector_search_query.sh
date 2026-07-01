@@ -1,6 +1,6 @@
 mdb_script=$(cat <<'EOF'
 use sample_mflix;
-db.embedded_movies.aggregate([
+const results = db.embedded_movies.aggregate([
   {
     "$vectorSearch": {
       "index": "vector_index",
@@ -19,7 +19,10 @@ db.embedded_movies.aggregate([
       "score": { $meta: "vectorSearchScore" }
     }
   }
-]);
+]).toArray();
+printjson(results);
+print("Result count: " + results.length);
+if (results.length === 0) { print("ASSERTION FAILED: vector search query returned no documents"); quit(1); }
 EOF
 )
 
