@@ -20,8 +20,14 @@ for dst in "${dst_clusters[@]}"; do
       replicate_secret "${MDB_TLS_CERT_SECRET_PREFIX}-${MDB_SEARCH_RESOURCE_NAME}-search-${ci}-${shard_name}-cert" "${dst}"
     done
   done
-  replicate_secret "${MDB_TLS_CERT_SECRET_PREFIX}-${MDB_SEARCH_RESOURCE_NAME}-search-lb-0-cert" "${dst}"
-  replicate_secret "${MDB_TLS_CERT_SECRET_PREFIX}-${MDB_SEARCH_RESOURCE_NAME}-search-lb-0-client-cert" "${dst}"
+  # The LB server/client certs are per cluster index: each member cluster's
+  # Envoy mounts search-lb-<ci>-cert / -client-cert, so replicate both indices
+  # (0 and 1) to it. The index matching the member (1 for K8S_CTX_1) is the
+  # load-bearing pair; the others are inert (the operator mounts by name).
+  for ci in 0 1; do
+    replicate_secret "${MDB_TLS_CERT_SECRET_PREFIX}-${MDB_SEARCH_RESOURCE_NAME}-search-lb-${ci}-cert" "${dst}"
+    replicate_secret "${MDB_TLS_CERT_SECRET_PREFIX}-${MDB_SEARCH_RESOURCE_NAME}-search-lb-${ci}-client-cert" "${dst}"
+  done
   replicate_secret "${MDB_RESOURCE_NAME}-search-sync-source-password" "${dst}"
 done
 

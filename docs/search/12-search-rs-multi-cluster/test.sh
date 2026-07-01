@@ -41,7 +41,6 @@ run 12_0300_internal_create_ops_manager_resources.sh
 run_for_output 12_0301_install_cert_manager.sh
 run 12_0302_configure_tls_prerequisites.sh
 run 12_0302a_internal_configure_tls_prerequisites_mongod.sh
-run 12_0302b_configure_tls_prerequisites_mongot.sh
 run 12_0304_internal_generate_tls_certificates.sh
 
 # ============================================================================

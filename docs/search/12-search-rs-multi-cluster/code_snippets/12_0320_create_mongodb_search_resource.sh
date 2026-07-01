@@ -10,6 +10,8 @@ echo "  Configuring ${MDB_MONGOT_REPLICAS_PER_CLUSTER} mongot replica(s) per mem
 #   search-0-... for the first cluster, search-1-... for the second). Managed LB
 #   is mandatory when clusters > 1.
 # - clusters[] places mongot replicas in each member cluster.
+# - resourceRequirements pins each cluster's mongot CPU/memory so the pods fit
+#   the kind test nodes (the operator's default 2 CPU / 4Gi would exhaust a node).
 kubectl apply --context "${K8S_CTX_0}" -n "${MDB_NS}" -f - <<EOF
 apiVersion: mongodb.com/v1
 kind: MongoDBSearch
@@ -29,7 +31,10 @@ spec:
         - "${MDB_RS_HOST_1_1}"
       tls:
         ca:
-          name: ${MDB_TLS_CA_SECRET_NAME}
+          # The operator mounts this CA as a ConfigMap (key ca.crt) in the mongot
+          # pod's namespace on every member cluster. Point at the CA ConfigMap
+          # (created on both members by 12_0302a), not the cert-manager CA Secret.
+          name: ${MDB_TLS_CA_CONFIGMAP}
   security:
     tls:
       certsSecretPrefix: ${MDB_TLS_CERT_SECRET_PREFIX}

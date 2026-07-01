@@ -1,13 +1,16 @@
 echo "Creating TLS certificates for managed load balancer (Envoy)..."
 
-# Secret names carry no cluster index (the operator mounts the same cert in
-# every cluster's Envoy), so the wildcard SAN must be valid in any member
-# cluster. Issued on the central cluster, replicated by 13_0317.
-lb_server_cert="${MDB_TLS_CERT_SECRET_PREFIX}-${MDB_SEARCH_RESOURCE_NAME}-search-lb-0-cert"
-lb_client_cert="${MDB_TLS_CERT_SECRET_PREFIX}-${MDB_SEARCH_RESOURCE_NAME}-search-lb-0-client-cert"
+# Secret names carry the cluster index: the operator mounts a distinct
+# server/client cert per member cluster's Envoy (search-lb-<ci>-cert /
+# search-lb-<ci>-client-cert). Issue one pair per cluster index on the central
+# cluster (where the CA ClusterIssuer lives); 13_0317 replicates each member's
+# pair to it. The wildcard SAN is valid in any member cluster.
+for ci in 0 1; do
+  lb_server_cert="${MDB_TLS_CERT_SECRET_PREFIX}-${MDB_SEARCH_RESOURCE_NAME}-search-lb-${ci}-cert"
+  lb_client_cert="${MDB_TLS_CERT_SECRET_PREFIX}-${MDB_SEARCH_RESOURCE_NAME}-search-lb-${ci}-client-cert"
 
-echo "Creating LB server certificate..."
-kubectl apply --context "${K8S_CTX_0}" -n "${MDB_NS}" -f - <<EOF
+  echo "Creating LB server certificate for cluster ${ci}..."
+  kubectl apply --context "${K8S_CTX_0}" -n "${MDB_NS}" -f - <<EOF
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
@@ -27,10 +30,10 @@ spec:
     name: ${MDB_TLS_CA_ISSUER}
     kind: ClusterIssuer
 EOF
-echo "  [ok] LB server certificate requested: ${lb_server_cert}"
+  echo "  [ok] LB server certificate requested: ${lb_server_cert}"
 
-echo "Creating LB client certificate..."
-kubectl apply --context "${K8S_CTX_0}" -n "${MDB_NS}" -f - <<EOF
+  echo "Creating LB client certificate for cluster ${ci}..."
+  kubectl apply --context "${K8S_CTX_0}" -n "${MDB_NS}" -f - <<EOF
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
@@ -50,16 +53,21 @@ spec:
     name: ${MDB_TLS_CA_ISSUER}
     kind: ClusterIssuer
 EOF
-echo "  [ok] LB client certificate requested: ${lb_client_cert}"
+  echo "  [ok] LB client certificate requested: ${lb_client_cert}"
+done
 
 echo "Waiting for LB certificates to be ready..."
-kubectl wait --for=condition=Ready certificate/"${lb_server_cert}" \
-  -n "${MDB_NS}" \
-  --context "${K8S_CTX_0}" \
-  --timeout=60s
-kubectl wait --for=condition=Ready certificate/"${lb_client_cert}" \
-  -n "${MDB_NS}" \
-  --context "${K8S_CTX_0}" \
-  --timeout=60s
+for ci in 0 1; do
+  lb_server_cert="${MDB_TLS_CERT_SECRET_PREFIX}-${MDB_SEARCH_RESOURCE_NAME}-search-lb-${ci}-cert"
+  lb_client_cert="${MDB_TLS_CERT_SECRET_PREFIX}-${MDB_SEARCH_RESOURCE_NAME}-search-lb-${ci}-client-cert"
+  kubectl wait --for=condition=Ready certificate/"${lb_server_cert}" \
+    -n "${MDB_NS}" \
+    --context "${K8S_CTX_0}" \
+    --timeout=60s
+  kubectl wait --for=condition=Ready certificate/"${lb_client_cert}" \
+    -n "${MDB_NS}" \
+    --context "${K8S_CTX_0}" \
+    --timeout=60s
+done
 
 echo "[ok] All managed load balancer (Envoy) TLS certificates created"
