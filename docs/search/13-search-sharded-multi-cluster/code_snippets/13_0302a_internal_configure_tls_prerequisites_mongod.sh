@@ -1,0 +1,21 @@
+echo "Configuring CA certificate (ConfigMap) for mongod..."
+
+mkdir -p certs
+
+kubectl get secret "${MDB_TLS_CA_SECRET_NAME}" \
+  -n "${CERT_MANAGER_NAMESPACE}" \
+  --context "${K8S_CTX_0}" \
+  -o jsonpath='{.data.tls\.crt}' | base64 -d > certs/ca-pem
+
+# The CA ConfigMap must exist in every member cluster so that all mongod
+# members (and the tools pod) can verify the replica set's TLS certificate.
+for ctx in "${K8S_CTX_0}" "${K8S_CTX_1}"; do
+  kubectl create configmap "${MDB_TLS_CA_CONFIGMAP}" \
+    --from-file=ca-pem=certs/ca-pem \
+    --from-file=ca.crt=certs/ca-pem \
+    -n "${MDB_NS}" \
+    --context "${ctx}" \
+    --dry-run=client -o yaml | kubectl apply --context "${ctx}" -f -
+done
+
+echo "[ok] CA ConfigMap configured for mongod in every member cluster"

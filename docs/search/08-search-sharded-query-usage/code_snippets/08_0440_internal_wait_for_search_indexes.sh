@@ -54,4 +54,5 @@ done
 if [[ "${indexes_ready}" != "true" ]]; then
   echo "ERROR: Search indexes not ready" \
     "after $((max_attempts * sleep_time)) seconds" >&2
+  exit 1
 fi
