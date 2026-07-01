@@ -121,6 +121,8 @@ def appdb_oplog_s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> Iterato
 
 @fixture(scope="module")
 def primary_om_external_appdb_collection(primary_om_external_appdb: MongoDB):
+    # module-scoped (not per-function like the backup_restore.py reference): this suite's
+    # test classes run strictly in order against a single AppDB, no primary/secondary swap risk.
     collection = pymongo.MongoClient(
         primary_om_external_appdb.tester().cnx_string, **primary_om_external_appdb.tester().default_opts
     )["testdb"]
