@@ -83,6 +83,7 @@ func TestEnsureTagAddedDuplicates(t *testing.T) {
 	assert.Equal(t, expected, mockOm.FindGroup(om.TestGroupName).Tags)
 }
 
+
 // TestPrepareOmConnection_FindExistingGroup finds existing group when org ID is specified, no new Project or Organization
 // is created
 func TestPrepareOmConnection_FindExistingGroup(t *testing.T) {
