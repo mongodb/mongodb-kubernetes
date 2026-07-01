@@ -88,3 +88,23 @@ evergreen patch --alias static
 
 - **om7**: Changes affecting Ops Manager 7.0 compatibility
 - **race**: Changes to concurrent code, goroutines, or shared state
+
+## Quarantined Tests
+
+E2e tests blocked on a known issue outside our control (e.g. an upstream regression) are
+skipped by default via pytest `skipif`, with a reason pointing at the tracking ticket.
+
+List them: `grep -B1 'tags:.*"quarantined"' .evergreen-tasks.yml` (or filter by tag
+`quarantined` in the Evergreen UI). Each test also documents its skip reason and force-run
+instructions inline next to its `skipif` marker.
+
+They stay schedulable — pass `RUN_QUARANTINED_TESTS=true` to actually run one:
+
+```shell
+# Locally
+RUN_QUARANTINED_TESTS=true pytest -m e2e_sharded_cluster_scram_sha_256_switch_project ...
+
+# Evergreen CLI
+evergreen patch -p mongodb-kubernetes -t e2e_sharded_cluster_scram_sha_256_switch_project \
+  --param RUN_QUARANTINED_TESTS=true -f -y -u --path .evergreen.yml
+```

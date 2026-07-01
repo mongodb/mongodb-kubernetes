@@ -702,13 +702,19 @@ tasks:
     commands:
       - func: "e2e_test"
 
+  # Quarantined: blocked on HELP-96015 (upstream Automation Agent 13.53 regression stalling
+  # mongos recovery after a project switch). Test is skipped by default; see
+  # sharded_cluster_scram_sha_256_switch_project.py for how to force-run it.
   - name: e2e_sharded_cluster_scram_sha_256_switch_project
-    tags: [ "patch-run" ]
+    tags: [ "patch-run", "quarantined" ]
     commands:
       - func: "e2e_test"
 
+  # Quarantined: blocked on HELP-96015 (upstream Automation Agent 13.53 regression stalling
+  # mongos recovery after a project switch). Test is skipped by default; see
+  # sharded_cluster_scram_sha_1_switch_project.py for how to force-run it.
   - name: e2e_sharded_cluster_scram_sha_1_switch_project
-    tags: [ "patch-run" ]
+    tags: [ "patch-run", "quarantined" ]
     commands:
       - func: "e2e_test"
 
