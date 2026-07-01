@@ -118,6 +118,7 @@ skip_if_static_containers = pytest.mark.skipif(
 
 skip_if_local = pytest.mark.skipif(running_locally(), reason="Only run in Kubernetes cluster")
 skip_if_multi_cluster = pytest.mark.skipif(is_multi_cluster(), reason="Only run in Kubernetes single cluster")
+skip_if_single_cluster = pytest.mark.skipif(not is_multi_cluster(), reason="Only run in Kubernetes multi cluster")
 # time to sleep between retries
 SLEEP_TIME = 2
 # no timeout (loop forever)

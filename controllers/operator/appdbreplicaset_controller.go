@@ -1779,7 +1779,7 @@ func (r *ReconcileAppDbReplicaSet) ensureProjectIDConfigMapForCluster(ctx contex
 	cm := configmap.Builder().
 		SetName(opsManager.Spec.AppDB.ProjectIDConfigMapName()).
 		SetLabels(opsManager.GetOwnerLabels()).
-		SetOwnerReferences(r.ownerReferences).
+		SetOwnerReferences(opsManager.AppDBOwnerReferenceForMemberCluster()).
 		SetNamespace(opsManager.Namespace).
 		SetDataField(util.AppDbProjectIdKey, projectID).
 		Build()
@@ -1836,11 +1836,9 @@ func (r *ReconcileAppDbReplicaSet) readExistingPodVars(ctx context.Context, om *
 }
 
 func (r *ReconcileAppDbReplicaSet) publishACVersionAsConfigMap(ctx context.Context, cmName string, opsManager *omv1.MongoDBOpsManager, version int, memberCluster multicluster.MemberCluster) workflow.Status {
-	labels := opsManager.GetOwnerLabels()
-
 	acVersionConfigMap := configmap.Builder().
-		SetLabels(labels).
-		SetOwnerReferences(r.ownerReferences).
+		SetLabels(opsManager.GetOwnerLabels()).
+		SetOwnerReferences(opsManager.AppDBOwnerReferenceForMemberCluster()).
 		SetNamespace(opsManager.Namespace).
 		SetName(cmName).
 		SetDataField(appDBACConfigMapVersionField, fmt.Sprintf("%d", version)).

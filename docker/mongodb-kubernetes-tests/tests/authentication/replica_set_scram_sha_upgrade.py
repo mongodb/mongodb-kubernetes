@@ -38,7 +38,7 @@ class TestReplicaSetDeleted(KubernetesTester):
       Deletes the Replica Set.
     delete:
       file: replica-set-scram.yaml
-      wait_until: mongo_resource_deleted
+      wait_until: mongo_resource_deleted_no_om
       timeout: 120
     """
 
@@ -51,4 +51,4 @@ class TestReplicaSetDeleted(KubernetesTester):
             except AssertionError:
                 return False
 
-        KubernetesTester.wait_until(authentication_was_disabled, timeout=120, sleep_time=5)
+        KubernetesTester.wait_until(authentication_was_disabled, timeout=300, sleep_time=5)

@@ -96,16 +96,19 @@ class CustomObject:
         self._register_updated()
         return self
 
-    def create(self) -> CustomObject:
+    def create(self, dry_run: str = None) -> CustomObject:
         """Creates this object in Kubernetes."""
+        kwargs = {"field_validation": "Strict"}
+        if dry_run:
+            kwargs["dry_run"] = dry_run
         obj = self.api.create_namespaced_custom_object(
-            self.group, self.version, self.namespace, self.plural, self.backing_obj, field_validation="Strict"
+            self.group, self.version, self.namespace, self.plural, self.backing_obj, **kwargs
         )
 
-        self.backing_obj = obj
-        self.bound = True
-
-        self._register_updated()
+        if not dry_run:
+            self.backing_obj = obj
+            self.bound = True
+            self._register_updated()
         return self
 
     def update(self) -> CustomObject:

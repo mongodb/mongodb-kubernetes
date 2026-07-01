@@ -245,9 +245,10 @@ func shardedOptions(cfg shardedOptionCfg, additionalOpts ...func(options *Databa
 	opts := DatabaseStatefulSetOptions{
 		Name:                    cfg.rsName,
 		ServiceName:             cfg.serviceName,
+		Annotations:             map[string]string{"type": "ShardedCluster"},
 		PodSpec:                 NewDefaultPodSpecWrapper(podSpec),
 		ServicePort:             cfg.componentSpec.GetAdditionalMongodConfig().GetPortOrDefault(),
-		OwnerReference:          kube.BaseOwnerReference(&cfg.mdb),
+		OwnerReference:          cfg.mdb.OwnerReferenceForMemberCluster(),
 		AgentConfig:             cfg.componentSpec.GetAgentConfig(),
 		StatefulSetSpecOverride: statefulSetSpecOverride,
 		Labels:                  cfg.mdb.Labels,

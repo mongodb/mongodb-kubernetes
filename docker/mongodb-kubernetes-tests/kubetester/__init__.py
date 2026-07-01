@@ -329,6 +329,30 @@ def get_statefulset(
     return client.AppsV1Api(api_client=api_client).read_namespaced_stateful_set(name, namespace)
 
 
+def scale_statefulset(
+    namespace: str,
+    name: str,
+    replicas: int,
+    api_client: Optional[client.ApiClient] = None,
+) -> None:
+    client.AppsV1Api(api_client=api_client).patch_namespaced_stateful_set(
+        name, namespace, {"spec": {"replicas": replicas}}
+    )
+
+
+def wait_for_statefulset_replicas(
+    namespace: str,
+    name: str,
+    replicas: int,
+    api_client: Optional[client.ApiClient] = None,
+    timeout: int = 120,
+):
+    def statefulset_has_replicas() -> bool:
+        return get_statefulset(namespace, name, api_client=api_client).spec.replicas == replicas
+
+    wait_until(statefulset_has_replicas, timeout=timeout)
+
+
 def statefulset_is_deleted(namespace: str, name: str, api_client: Optional[client.ApiClient]):
     try:
         get_statefulset(namespace, name, api_client=api_client)
@@ -338,6 +362,43 @@ def statefulset_is_deleted(namespace: str, name: str, api_client: Optional[clien
             return True
         else:
             raise e
+
+
+def wait_for_statefulset_recreated(
+    namespace: str,
+    name: str,
+    old_uid: str,
+    api_client: Optional[client.ApiClient] = None,
+    timeout: int = 120,
+):
+    def statefulset_is_recreated() -> bool:
+        try:
+            return get_statefulset(namespace, name, api_client=api_client).metadata.uid != old_uid
+        except client.ApiException as e:
+            if e.status == 404:
+                return False
+            raise e
+
+    wait_until(statefulset_is_recreated, timeout=timeout)
+
+
+def wait_for_statefulset_ready(
+    namespace: str,
+    name: str,
+    api_client: Optional[client.ApiClient] = None,
+    timeout: int = 600,
+):
+    def statefulset_is_ready() -> bool:
+        sts = get_statefulset(namespace, name, api_client=api_client)
+        wanted = sts.spec.replicas
+        return (
+            sts.status.observed_generation == sts.metadata.generation
+            and (sts.status.updated_replicas or 0) == wanted
+            and (sts.status.ready_replicas or 0) == wanted
+            and (sts.status.replicas or 0) == wanted
+        )
+
+    wait_until(statefulset_is_ready, timeout=timeout)
 
 
 def delete_cluster_role(name: str, api_client: Optional[client.ApiClient] = None):
@@ -430,6 +491,119 @@ def get_pod_when_ready(
     print(f"bailed on getting pod ready after 10 retries")
 
 
+def list_matching_pods(
+    namespace: str,
+    *,
+    label_selector: Optional[str] = None,
+    name_prefix: Optional[str] = None,
+    api_client: Optional[kubernetes.client.ApiClient] = None,
+) -> List[client.V1Pod]:
+    """List pods in ``namespace`` filtered by label selector and/or name prefix.
+
+    At least one of ``label_selector`` / ``name_prefix`` must be set.
+    """
+    if not label_selector and not name_prefix:
+        raise ValueError("must provide label_selector or name_prefix")
+    kwargs: Dict[str, Any] = {}
+    if label_selector:
+        kwargs["label_selector"] = label_selector
+    pods = client.CoreV1Api(api_client=api_client).list_namespaced_pod(namespace, **kwargs).items
+    if name_prefix:
+        pods = [p for p in pods if p.metadata.name.startswith(name_prefix)]
+    return pods
+
+
+def pod_is_ready(pod: client.V1Pod) -> bool:
+    conds = pod.status.conditions or []
+    return any(c.type == "Ready" and c.status == "True" for c in conds)
+
+
+def wait_for_pods_ready(
+    namespace: str,
+    *,
+    label_selector: Optional[str] = None,
+    name_prefix: Optional[str] = None,
+    expected_count: Optional[int] = None,
+    api_client: Optional[kubernetes.client.ApiClient] = None,
+    timeout: int = 300,
+    sleep_time: int = 3,
+) -> List[client.V1Pod]:
+    """Block until at least ``expected_count`` matching pods report Ready=True.
+
+    When ``expected_count`` is ``None``, every matching pod must be Ready and
+    there must be at least one. Returns the Ready pod list on success.
+    """
+
+    def check() -> tuple:
+        pods = list_matching_pods(
+            namespace,
+            label_selector=label_selector,
+            name_prefix=name_prefix,
+            api_client=api_client,
+        )
+        if not pods:
+            return False, "no pods"
+        ready = [p for p in pods if pod_is_ready(p)]
+        want = expected_count if expected_count is not None else len(pods)
+        return len(ready) >= want, f"ready={len(ready)}/{len(pods)} want={want}"
+
+    selector = label_selector or f"name~{name_prefix}*"
+    run_periodically(
+        check,
+        timeout=timeout,
+        sleep_time=sleep_time,
+        msg=f"pods Ready=True selector={selector}",
+    )
+    return [
+        p
+        for p in list_matching_pods(
+            namespace,
+            label_selector=label_selector,
+            name_prefix=name_prefix,
+            api_client=api_client,
+        )
+        if pod_is_ready(p)
+    ]
+
+
+def wait_for_no_pods_ready(
+    namespace: str,
+    *,
+    label_selector: Optional[str] = None,
+    name_prefix: Optional[str] = None,
+    expected_not_ready: Optional[int] = None,
+    api_client: Optional[kubernetes.client.ApiClient] = None,
+    timeout: int = 180,
+    sleep_time: int = 3,
+) -> None:
+    """Block until no matching pod has Ready=True (or no pods match at all).
+
+    When ``expected_not_ready`` is given, at least that many matching pods
+    must report Ready=False (the rest may be Ready or absent).
+    """
+
+    def check() -> tuple:
+        pods = list_matching_pods(
+            namespace,
+            label_selector=label_selector,
+            name_prefix=name_prefix,
+            api_client=api_client,
+        )
+        if not pods:
+            return True, "no pods"
+        not_ready = sum(1 for p in pods if not pod_is_ready(p))
+        want = expected_not_ready if expected_not_ready is not None else len(pods)
+        return not_ready >= want, f"not_ready={not_ready}/{len(pods)} want={want}"
+
+    selector = label_selector or f"name~{name_prefix}*"
+    run_periodically(
+        check,
+        timeout=timeout,
+        sleep_time=sleep_time,
+        msg=f"pods Ready=False selector={selector}",
+    )
+
+
 def is_pod_ready(
     namespace: str,
     label_selector: str,
@@ -502,7 +676,13 @@ def try_load(resource: CustomObject) -> bool:
     return True
 
 
-def wait_for_webhook(namespace, retries: int = 10, multi_cluster: bool = False, service_name="operator-webhook"):
+def wait_for_webhook(
+    namespace,
+    retries: int = 10,
+    multi_cluster: bool = False,
+    service_name="operator-webhook",
+    validation_endpoint: str = "validate-mongodb-com-v1-mongodb",
+):
     from tests.conftest import get_central_cluster_name, get_cluster_domain, get_test_pod_cluster_name, local_operator
 
     # we don't want to wait for the operator webhook if the operator is running locally and not in a pod
@@ -529,7 +709,6 @@ def wait_for_webhook(namespace, retries: int = 10, multi_cluster: bool = False, 
             )
 
     logger.debug("wait_for_webhook")
-    validation_endpoint = "validate-mongodb-com-v1-mongodb"
     webhook_endpoint = "https://{}.{}.svc.{}/{}".format(
         service_name, namespace, get_cluster_domain(), validation_endpoint
     )

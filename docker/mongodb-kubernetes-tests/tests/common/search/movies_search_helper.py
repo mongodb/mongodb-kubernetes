@@ -301,3 +301,30 @@ class EmbeddedMoviesSearchHelper:
                 ]
             )
         )
+
+    def assert_vector_search_count_eventually(
+        self,
+        query_vector: list,
+        limit: int,
+        *,
+        timeout: int,
+        msg_prefix: str = "",
+    ) -> None:
+        """Retry $vectorSearch until it returns exactly `limit` docs (mongot may still be in
+        INITIAL_SYNC briefly after the index reports READY).
+        """
+
+        def execute_vector_search() -> tuple:
+            try:
+                results = self.vector_search(query_vector=query_vector, limit=limit)
+                count = len(results)
+                return count == limit, f"{msg_prefix}$vectorSearch returned {count} results (want {limit})"
+            except pymongo.errors.PyMongoError as exc:
+                return False, f"{msg_prefix}$vectorSearch error: {exc}"
+
+        kubetester.run_periodically(
+            execute_vector_search,
+            timeout=timeout,
+            sleep_time=5,
+            msg=f"{msg_prefix}$vectorSearch to return exactly {limit} docs",
+        )

@@ -56,6 +56,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
+	khandler "github.com/mongodb/mongodb-kubernetes/pkg/handler"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
@@ -992,8 +993,9 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 		return r.updateStatus(ctx, sc, workflow.Failed(err), log)
 	}
 
-	// Save last achieved spec in state
-	r.deploymentState.LastAchievedSpec = &sc.Spec
+	// Deep copy: updateStatus refreshes sc from the API, so a concurrent spec patch would corrupt the pointer.
+	specCopy := sc.Spec.DeepCopy()
+	r.deploymentState.LastAchievedSpec = specCopy
 	log.Infof("Finished reconciliation for Sharded Cluster! %s", completionMessage(conn.BaseURL(), conn.GroupID()))
 	// It's the second place in the reconcile logic we're updating sizes of all the components
 	// We're also updating the shardCount here - it's the only place we're doing that.
@@ -1018,11 +1020,11 @@ func (r *ShardedClusterReconcileHelper) logAllScalers(log *zap.SugaredLogger) {
 // 1. Per-shard mongod search parameters (when unmanaged or managed LB is configured)
 // 2. Mongos search parameters (always, when a MongoDBSearch resource exists)
 //
-// For sharded clusters with unmanaged LB (spec.loadBalancer.unmanaged):
-//   - spec.loadBalancer.unmanaged.endpoint contains a template with {shardName} placeholder
+// For sharded clusters with unmanaged LB (spec.clusters[].loadBalancer.unmanaged):
+//   - the unmanaged endpoint contains a template with {shardName} placeholder
 //   - Each shard resolves its endpoint by substituting {shardName} with the actual shard name
 //
-// For sharded clusters with managed LB (spec.loadBalancer.managed):
+// For sharded clusters with managed LB (spec.clusters[].loadBalancer.managed):
 //   - Each shard's mongod points to the operator-managed envoy proxy service
 //
 // For mongos (always configured when MongoDBSearch exists):
@@ -1047,6 +1049,8 @@ func (r *ShardedClusterReconcileHelper) applySearchParametersForShards(ctx conte
 
 	shardNames := sc.ShardNames()
 
+	searchClusterIndex := searchcontroller.ResolveSingleClusterIndex(search)
+
 	// Validate unmanaged LB endpoint configuration (only when unmanaged LB)
 	if search.IsShardedUnmanagedLB() {
 		shardedSource := searchcontroller.NewShardedInternalSearchSource(sc, search)
@@ -1065,7 +1069,7 @@ func (r *ShardedClusterReconcileHelper) applySearchParametersForShards(ctx conte
 			shardConfig.AdditionalMongodConfig = mdbv1.NewEmptyAdditionalMongodConfig()
 		}
 
-		searchMongodConfig := searchcontroller.GetMongodConfigParametersForShard(search, shardName, sc.Spec.GetClusterDomain())
+		searchMongodConfig := searchcontroller.GetMongodConfigParametersForShard(search, shardName, sc.Spec.GetClusterDomain(), searchClusterIndex)
 		shardConfig.AdditionalMongodConfig.AddOption("setParameter", searchMongodConfig["setParameter"])
 
 		log.Debugf("Applied search config for shard %s: mongotHost=%v", shardName, searchMongodConfig["setParameter"])
@@ -1077,7 +1081,9 @@ func (r *ShardedClusterReconcileHelper) applySearchParametersForShards(ctx conte
 		r.desiredMongosConfiguration.AdditionalMongodConfig = mdbv1.NewEmptyAdditionalMongodConfig()
 	}
 
-	searchMongosConfig := searchcontroller.GetMongosConfigParametersForSharded(search, shardNames, sc.Spec.GetClusterDomain())
+	// clusterName="": operator-managed sharded source is single-cluster only at MVP.
+	// Q1-MC sharded would need per-cluster mongos config (gated on ShardOverrides API redesign).
+	searchMongosConfig := searchcontroller.GetMongosConfigParametersForSharded(search, searchClusterIndex, "", shardNames, sc.Spec.GetClusterDomain())
 	r.desiredMongosConfiguration.AdditionalMongodConfig.AddOption("setParameter", searchMongosConfig["setParameter"])
 
 	log.Infof("Applied search config for mongos: mongotHost=%v", searchMongosConfig["setParameter"])
@@ -1868,6 +1874,21 @@ func AddShardedClusterController(ctx context.Context, mgr manager.Manager, image
 		return err
 	}
 
+	for clusterName, memberCluster := range memberClustersMap {
+		err = c.Watch(source.Kind[client.Object](memberCluster.GetCache(), &appsv1.StatefulSet{}, &khandler.EnqueueRequestForOwnerMultiCluster{}, watch.PredicatesForMultiStatefulSet()))
+		if err != nil {
+			return xerrors.Errorf("failed to set StatefulSet watch on member cluster %s: %w", clusterName, err)
+		}
+	}
+
+	err = c.Watch(
+		source.Kind[client.Object](mgr.GetCache(), &appsv1.StatefulSet{},
+			handler.EnqueueRequestForOwner(mgr.GetScheme(), mgr.GetRESTMapper(), &mdbv1.MongoDB{}, handler.OnlyControllerOwner()),
+			watch.PredicatesForShardedStatefulSet()))
+	if err != nil {
+		return err
+	}
+
 	zap.S().Infof("Registered controller %s", util.MongoDbShardedClusterController)
 
 	return nil
@@ -2461,7 +2482,7 @@ func (r *ShardedClusterReconcileHelper) getConfigServerOptions(ctx context.Conte
 		databaseSecretPath = r.commonController.VaultClient.DatabaseSecretPath()
 	}
 
-	return construct.ConfigServerOptions(r.desiredConfigServerConfiguration, memberCluster.Name,
+	opts2 := []func(*construct.DatabaseStatefulSetOptions){
 		Replicas(scale.ReplicasThisReconciliation(r.GetConfigSrvScaler(memberCluster))),
 		StatefulSetNameOverride(r.GetConfigSrvStsName(memberCluster)),
 		ServiceName(r.GetConfigSrvServiceName(memberCluster)),
@@ -2482,7 +2503,11 @@ func (r *ShardedClusterReconcileHelper) getConfigServerOptions(ctx context.Conte
 		WithAgentDebug(r.agentDebug),
 		WithAgentDebugImage(r.agentDebugImage),
 		WithDefaultArchitecture(r.defaultArchitecture),
-	)
+	}
+	if sc.Spec.IsMultiCluster() {
+		opts2 = append(opts2, WithStsAnnotations(khandler.MultiClusterStatefulSetAnnotations(sc.Name)))
+	}
+	return construct.ConfigServerOptions(r.desiredConfigServerConfiguration, memberCluster.Name, opts2...)
 }
 
 // getMongosOptions returns the Options needed to build the StatefulSet for the mongos.
@@ -2495,7 +2520,7 @@ func (r *ShardedClusterReconcileHelper) getMongosOptions(ctx context.Context, sc
 		vaultConfig = r.commonController.VaultClient.VaultConfig
 	}
 
-	return construct.MongosOptions(r.desiredMongosConfiguration, memberCluster.Name,
+	opts2 := []func(*construct.DatabaseStatefulSetOptions){
 		Replicas(scale.ReplicasThisReconciliation(r.GetMongosScaler(memberCluster))),
 		StatefulSetNameOverride(r.GetMongosStsName(memberCluster)),
 		PodEnvVars(opts.podEnvVars),
@@ -2514,7 +2539,11 @@ func (r *ShardedClusterReconcileHelper) getMongosOptions(ctx context.Context, sc
 		WithAgentDebug(r.agentDebug),
 		WithAgentDebugImage(r.agentDebugImage),
 		WithDefaultArchitecture(r.defaultArchitecture),
-	)
+	}
+	if sc.Spec.IsMultiCluster() {
+		opts2 = append(opts2, WithStsAnnotations(khandler.MultiClusterStatefulSetAnnotations(sc.Name)))
+	}
+	return construct.MongosOptions(r.desiredMongosConfiguration, memberCluster.Name, opts2...)
 }
 
 // getShardOptions returns the Options needed to build the StatefulSet for a given shard.
@@ -2529,7 +2558,7 @@ func (r *ShardedClusterReconcileHelper) getShardOptions(ctx context.Context, sc 
 		databaseSecretPath = r.commonController.VaultClient.DatabaseSecretPath()
 	}
 
-	return construct.ShardOptions(shardNum, r.desiredShardsConfiguration[shardNum], memberCluster.Name,
+	opts2 := []func(*construct.DatabaseStatefulSetOptions){
 		Replicas(scale.ReplicasThisReconciliation(r.GetShardScaler(shardNum, memberCluster))),
 		StatefulSetNameOverride(r.GetShardStsName(shardNum, memberCluster)),
 		PodEnvVars(opts.podEnvVars),
@@ -2548,7 +2577,11 @@ func (r *ShardedClusterReconcileHelper) getShardOptions(ctx context.Context, sc 
 		WithAgentDebug(r.agentDebug),
 		WithAgentDebugImage(r.agentDebugImage),
 		WithDefaultArchitecture(r.defaultArchitecture),
-	)
+	}
+	if sc.Spec.IsMultiCluster() {
+		opts2 = append(opts2, WithStsAnnotations(khandler.MultiClusterStatefulSetAnnotations(sc.Name)))
+	}
+	return construct.ShardOptions(shardNum, r.desiredShardsConfiguration[shardNum], memberCluster.Name, opts2...)
 }
 
 func (r *ShardedClusterReconcileHelper) migrateToNewDeploymentState(sc *mdbv1.MongoDB) error {
@@ -2915,6 +2948,8 @@ func (r *ShardedClusterReconcileHelper) createHeadlessServiceForStatefulSet(ctx 
 	headlessServiceName := dns.GetMultiHeadlessServiceName(stsName, memberCluster.Index)
 	nameSpacedName := kube.ObjectKey(r.sc.Namespace, headlessServiceName)
 	headlessService := create.BuildService(nameSpacedName, r.sc, ptr.To(headlessServiceName), nil, port, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
+	headlessService.OwnerReferences = r.sc.OwnerReferenceForMemberCluster()
+
 	if err := service.CreateOrUpdateService(ctx, memberCluster.Client, headlessService); err != nil && !errors.IsAlreadyExists(err) {
 		return xerrors.Errorf("failed to create pod service %s in cluster: %s, err: %w", headlessService.Name, memberCluster.Name, err)
 	}

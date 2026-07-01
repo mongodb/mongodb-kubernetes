@@ -49,6 +49,14 @@ class MongoDBCommon:
             timeout -= wait
             time.sleep(wait)
 
+        # ponytail: one last check -- condition may have become true during the final sleep
+        try:
+            self.reload()
+        except Exception:
+            pass
+        if fn(self):
+            return True
+
         if should_raise:
             raise Exception("Timeout ({}) reached while waiting for {}".format(initial_timeout, self))
 

@@ -15,7 +15,7 @@ from tests.constants import OPERATOR_NAME
 from tests.shardedcluster.conftest import enable_multi_cluster_deployment
 
 
-@fixture(scope="function")
+@fixture(scope="module")
 def sc(namespace: str, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(
         yaml_fixture("sharded-cluster-mongod-options.yaml"),

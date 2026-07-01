@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -91,321 +92,336 @@ func newTestMDBMulti(name, ns string, annotations map[string]string) *mdbmulti.M
 // TestAnnotationIsAdded verifies that when a cluster reports unhealthy the failed-cluster
 // annotation is written to all MongoDBMultiCluster resources.
 func TestAnnotationIsAdded(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 
-	mrs := newTestMDBMulti("mdbmc", "ns", nil)
-	fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme(t)).WithObjects(mrs).Build()
-	central := kubernetesClient.NewClient(fakeClient)
-	watchChannel := make(chan event.GenericEvent, 10)
+		mrs := newTestMDBMulti("mdbmc", "ns", nil)
+		fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme(t)).WithObjects(mrs).Build()
+		central := kubernetesClient.NewClient(fakeClient)
+		watchChannel := make(chan event.GenericEvent, 10)
 
-	mock := NewMockedMemberHealthCheck("server1").(*MockedMemberHealthCheck)
-	mock.Healthy = false
+		mock := NewMockedMemberHealthCheck("server1").(*MockedMemberHealthCheck)
+		mock.Healthy = false
 
-	checker := &MemberClusterHealthChecker{
-		Cache:                 map[string]ClusterHealthChecker{"cluster1": mock},
-		HealthyStreak:         map[string]int{"cluster1": 0},
-		RequiredHealthyStreak: testRequiredHealthyStreak,
-	}
-
-	go checker.WatchMemberClusterHealth(ctx, zap.S(), watchChannel, central, nil)
-
-	require.Eventually(t, func() bool {
-		got := &mdbmulti.MongoDBMultiCluster{}
-		if err := fakeClient.Get(ctx, types.NamespacedName{Name: "mdbmc", Namespace: "ns"}, got); err != nil {
-			return false
+		checker := &MemberClusterHealthChecker{
+			Cache:                 map[string]ClusterHealthChecker{"cluster1": mock},
+			HealthyStreak:         map[string]int{"cluster1": 0},
+			RequiredHealthyStreak: testRequiredHealthyStreak,
 		}
-		return isInFailedClusterAnnotation(got.Annotations, "cluster1")
-	}, 5*time.Second, 50*time.Millisecond)
+
+		go checker.WatchMemberClusterHealth(ctx, zap.S(), watchChannel, central, nil)
+
+		require.Eventually(t, func() bool {
+			got := &mdbmulti.MongoDBMultiCluster{}
+			if err := fakeClient.Get(ctx, types.NamespacedName{Name: "mdbmc", Namespace: "ns"}, got); err != nil {
+				return false
+			}
+			return isInFailedClusterAnnotation(got.Annotations, "cluster1")
+		}, 5*time.Second, 50*time.Millisecond)
+	})
 }
 
 // TestAnnotationIsRemovedWhenClusterRecovers verifies that once a cluster sustains
 // requiredHealthyStreak consecutive healthy checks, the failed-cluster annotation is
 // removed and a reconcile event is enqueued.
 func TestAnnotationIsRemovedWhenClusterRecovers(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 
-	failedAnnotation := getFailedClusterList([]string{"cluster1"})
-	mrs := newTestMDBMulti("mdbmc", "ns", map[string]string{
-		failedcluster.FailedClusterAnnotation: failedAnnotation,
+		failedAnnotation := getFailedClusterList([]string{"cluster1"})
+		mrs := newTestMDBMulti("mdbmc", "ns", map[string]string{
+			failedcluster.FailedClusterAnnotation: failedAnnotation,
+		})
+		fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme(t)).WithObjects(mrs).Build()
+		central := kubernetesClient.NewClient(fakeClient)
+		watchChannel := make(chan event.GenericEvent, 10)
+
+		// Healthy: true is the default from NewMockedMemberHealthCheck.
+		// Pre-seed the streak one below the threshold so a single iteration tips it over.
+		checker := &MemberClusterHealthChecker{
+			Cache:                 map[string]ClusterHealthChecker{"cluster1": NewMockedMemberHealthCheck("server1")},
+			HealthyStreak:         map[string]int{"cluster1": testRequiredHealthyStreak - 1},
+			RequiredHealthyStreak: testRequiredHealthyStreak,
+		}
+
+		go checker.WatchMemberClusterHealth(ctx, zap.S(), watchChannel, central, nil)
+
+		select {
+		case evt := <-watchChannel:
+			assert.Equal(t, "mdbmc", evt.Object.GetName())
+		case <-time.After(5 * time.Second):
+			t.Fatal("timed out waiting for reconcile event after cluster recovery")
+		}
+
+		assert.Equal(t, testRequiredHealthyStreak, checker.HealthyStreakFor("cluster1"))
+
+		got := &mdbmulti.MongoDBMultiCluster{}
+		require.NoError(t, fakeClient.Get(ctx, types.NamespacedName{Name: "mdbmc", Namespace: "ns"}, got))
+		assert.False(t, isInFailedClusterAnnotation(got.Annotations, "cluster1"))
 	})
-	fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme(t)).WithObjects(mrs).Build()
-	central := kubernetesClient.NewClient(fakeClient)
-	watchChannel := make(chan event.GenericEvent, 10)
-
-	// Healthy: true is the default from NewMockedMemberHealthCheck.
-	// Pre-seed the streak one below the threshold so a single iteration tips it over.
-	checker := &MemberClusterHealthChecker{
-		Cache:                 map[string]ClusterHealthChecker{"cluster1": NewMockedMemberHealthCheck("server1")},
-		HealthyStreak:         map[string]int{"cluster1": testRequiredHealthyStreak - 1},
-		RequiredHealthyStreak: testRequiredHealthyStreak,
-	}
-
-	go checker.WatchMemberClusterHealth(ctx, zap.S(), watchChannel, central, nil)
-
-	select {
-	case evt := <-watchChannel:
-		assert.Equal(t, "mdbmc", evt.Object.GetName())
-	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for reconcile event after cluster recovery")
-	}
-
-	assert.Equal(t, testRequiredHealthyStreak, checker.HealthyStreakFor("cluster1"))
-
-	got := &mdbmulti.MongoDBMultiCluster{}
-	require.NoError(t, fakeClient.Get(ctx, types.NamespacedName{Name: "mdbmc", Namespace: "ns"}, got))
-	assert.False(t, isInFailedClusterAnnotation(got.Annotations, "cluster1"))
 }
 
 // TestNoEventBeforeStreakThreshold verifies that a healthy check below the streak
 // threshold does not enqueue a reconcile event.
 func TestNoEventBeforeStreakThreshold(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 
-	mrs := newTestMDBMulti("mdbmc", "ns", nil)
-	fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme(t)).WithObjects(mrs).Build()
-	central := kubernetesClient.NewClient(fakeClient)
-	watchChannel := make(chan event.GenericEvent, 10)
+		mrs := newTestMDBMulti("mdbmc", "ns", nil)
+		fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme(t)).WithObjects(mrs).Build()
+		central := kubernetesClient.NewClient(fakeClient)
+		watchChannel := make(chan event.GenericEvent, 10)
 
-	checker := &MemberClusterHealthChecker{
-		Cache:                 map[string]ClusterHealthChecker{"cluster1": NewMockedMemberHealthCheck("server1")},
-		HealthyStreak:         map[string]int{"cluster1": testRequiredHealthyStreak - 2}, // streak = 3
-		RequiredHealthyStreak: testRequiredHealthyStreak,
-	}
+		checker := &MemberClusterHealthChecker{
+			Cache:                 map[string]ClusterHealthChecker{"cluster1": NewMockedMemberHealthCheck("server1")},
+			HealthyStreak:         map[string]int{"cluster1": testRequiredHealthyStreak - 2}, // streak = 3
+			RequiredHealthyStreak: testRequiredHealthyStreak,
+		}
 
-	go checker.WatchMemberClusterHealth(ctx, zap.S(), watchChannel, central, nil)
+		go checker.WatchMemberClusterHealth(ctx, zap.S(), watchChannel, central, nil)
 
-	assert.Never(t, func() bool {
-		return len(watchChannel) > 0
-	}, 500*time.Millisecond, 50*time.Millisecond)
+		assert.Never(t, func() bool {
+			return len(watchChannel) > 0
+		}, 500*time.Millisecond, 50*time.Millisecond)
 
-	// Confirm the health check ran and incremented the streak without crossing the threshold.
-	assert.Eventually(t, func() bool {
-		return checker.HealthyStreakFor("cluster1") == testRequiredHealthyStreak-1
-	}, 5*time.Second, 50*time.Millisecond)
+		// Confirm the health check ran and incremented the streak without crossing the threshold.
+		assert.Eventually(t, func() bool {
+			return checker.HealthyStreakFor("cluster1") == testRequiredHealthyStreak-1
+		}, 5*time.Second, 50*time.Millisecond)
+	})
 }
 
 // TestNoEventWhenStreakAtCapWithoutAnnotation verifies that a cluster whose streak
 // is already at the cap does not fire a reconcile event when no failed annotation exists.
 func TestNoEventWhenStreakAtCapWithoutAnnotation(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 
-	mrs := newTestMDBMulti("mdbmc", "ns", nil)
-	fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme(t)).WithObjects(mrs).Build()
-	central := kubernetesClient.NewClient(fakeClient)
-	watchChannel := make(chan event.GenericEvent, 10)
+		mrs := newTestMDBMulti("mdbmc", "ns", nil)
+		fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme(t)).WithObjects(mrs).Build()
+		central := kubernetesClient.NewClient(fakeClient)
+		watchChannel := make(chan event.GenericEvent, 10)
 
-	checker := &MemberClusterHealthChecker{
-		Cache:                 map[string]ClusterHealthChecker{"cluster1": NewMockedMemberHealthCheck("server1")},
-		HealthyStreak:         map[string]int{"cluster1": testRequiredHealthyStreak},
-		RequiredHealthyStreak: testRequiredHealthyStreak,
-	}
+		checker := &MemberClusterHealthChecker{
+			Cache:                 map[string]ClusterHealthChecker{"cluster1": NewMockedMemberHealthCheck("server1")},
+			HealthyStreak:         map[string]int{"cluster1": testRequiredHealthyStreak},
+			RequiredHealthyStreak: testRequiredHealthyStreak,
+		}
 
-	go checker.WatchMemberClusterHealth(ctx, zap.S(), watchChannel, central, nil)
+		go checker.WatchMemberClusterHealth(ctx, zap.S(), watchChannel, central, nil)
 
-	assert.Never(t, func() bool {
-		return len(watchChannel) > 0
-	}, 500*time.Millisecond, 50*time.Millisecond)
+		assert.Never(t, func() bool {
+			return len(watchChannel) > 0
+		}, 500*time.Millisecond, 50*time.Millisecond)
 
-	// Confirm the streak stayed capped and didn't wrap or overflow.
-	assert.Eventually(t, func() bool {
-		return checker.HealthyStreakFor("cluster1") == testRequiredHealthyStreak
-	}, 5*time.Second, 50*time.Millisecond)
+		// Confirm the streak stayed capped and didn't wrap or overflow.
+		assert.Eventually(t, func() bool {
+			return checker.HealthyStreakFor("cluster1") == testRequiredHealthyStreak
+		}, 5*time.Second, 50*time.Millisecond)
+	})
 }
 
 // TestStreakResetsOnUnhealthyWhenAlmostRecovered verifies that a cluster with a
 // near-complete healthy streak still gets the failed annotation added if it reports
 // unhealthy, proving the streak was reset to zero.
 func TestStreakResetsOnUnhealthyWhenAlmostRecovered(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 
-	mrs := newTestMDBMulti("mdbmc", "ns", nil)
-	fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme(t)).WithObjects(mrs).Build()
-	central := kubernetesClient.NewClient(fakeClient)
-	watchChannel := make(chan event.GenericEvent, 10)
+		mrs := newTestMDBMulti("mdbmc", "ns", nil)
+		fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme(t)).WithObjects(mrs).Build()
+		central := kubernetesClient.NewClient(fakeClient)
+		watchChannel := make(chan event.GenericEvent, 10)
 
-	mock := NewMockedMemberHealthCheck("server1").(*MockedMemberHealthCheck)
-	mock.Healthy = false
+		mock := NewMockedMemberHealthCheck("server1").(*MockedMemberHealthCheck)
+		mock.Healthy = false
 
-	checker := &MemberClusterHealthChecker{
-		Cache:                 map[string]ClusterHealthChecker{"cluster1": mock},
-		HealthyStreak:         map[string]int{"cluster1": testRequiredHealthyStreak - 1}, // streak = 4
-		RequiredHealthyStreak: testRequiredHealthyStreak,
-	}
-
-	go checker.WatchMemberClusterHealth(ctx, zap.S(), watchChannel, central, nil)
-
-	require.Eventually(t, func() bool {
-		return checker.HealthyStreakFor("cluster1") == 0
-	}, 5*time.Second, 50*time.Millisecond)
-
-	assert.Never(t, func() bool {
-		got := &mdbmulti.MongoDBMultiCluster{}
-		if err := fakeClient.Get(ctx, types.NamespacedName{Name: "mdbmc", Namespace: "ns"}, got); err != nil {
-			return true
+		checker := &MemberClusterHealthChecker{
+			Cache:                 map[string]ClusterHealthChecker{"cluster1": mock},
+			HealthyStreak:         map[string]int{"cluster1": testRequiredHealthyStreak - 1}, // streak = 4
+			RequiredHealthyStreak: testRequiredHealthyStreak,
 		}
-		return !isInFailedClusterAnnotation(got.Annotations, "cluster1")
-	}, 5*time.Second, 50*time.Millisecond)
+
+		go checker.WatchMemberClusterHealth(ctx, zap.S(), watchChannel, central, nil)
+
+		require.Eventually(t, func() bool {
+			return checker.HealthyStreakFor("cluster1") == 0
+		}, 5*time.Second, 50*time.Millisecond)
+
+		assert.Never(t, func() bool {
+			got := &mdbmulti.MongoDBMultiCluster{}
+			if err := fakeClient.Get(ctx, types.NamespacedName{Name: "mdbmc", Namespace: "ns"}, got); err != nil {
+				return true
+			}
+			return !isInFailedClusterAnnotation(got.Annotations, "cluster1")
+		}, 5*time.Second, 50*time.Millisecond)
+	})
 }
 
 // TestNoEventWhenClusterNotInAnnotationAtThreshold verifies that reaching the streak
 // threshold does not enqueue an event when the cluster is not in the failed annotation.
 func TestNoEventWhenClusterNotInAnnotationAtThreshold(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 
-	mrs := newTestMDBMulti("mdbmc", "ns", nil) // no failed annotation
-	fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme(t)).WithObjects(mrs).Build()
-	central := kubernetesClient.NewClient(fakeClient)
-	watchChannel := make(chan event.GenericEvent, 10)
+		mrs := newTestMDBMulti("mdbmc", "ns", nil) // no failed annotation
+		fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme(t)).WithObjects(mrs).Build()
+		central := kubernetesClient.NewClient(fakeClient)
+		watchChannel := make(chan event.GenericEvent, 10)
 
-	checker := &MemberClusterHealthChecker{
-		Cache:                 map[string]ClusterHealthChecker{"cluster1": NewMockedMemberHealthCheck("server1")},
-		HealthyStreak:         map[string]int{"cluster1": testRequiredHealthyStreak - 1}, // streak = 4
-		RequiredHealthyStreak: testRequiredHealthyStreak,
-	}
+		checker := &MemberClusterHealthChecker{
+			Cache:                 map[string]ClusterHealthChecker{"cluster1": NewMockedMemberHealthCheck("server1")},
+			HealthyStreak:         map[string]int{"cluster1": testRequiredHealthyStreak - 1}, // streak = 4
+			RequiredHealthyStreak: testRequiredHealthyStreak,
+		}
 
-	go checker.WatchMemberClusterHealth(ctx, zap.S(), watchChannel, central, nil)
+		go checker.WatchMemberClusterHealth(ctx, zap.S(), watchChannel, central, nil)
 
-	assert.Never(t, func() bool {
-		return len(watchChannel) > 0
-	}, 500*time.Millisecond, 50*time.Millisecond)
+		assert.Never(t, func() bool {
+			return len(watchChannel) > 0
+		}, 500*time.Millisecond, 50*time.Millisecond)
 
-	// Confirm the streak reached the threshold even though no event was fired (no annotation present).
-	assert.Eventually(t, func() bool {
-		return checker.HealthyStreakFor("cluster1") == testRequiredHealthyStreak
-	}, 5*time.Second, 50*time.Millisecond)
+		// Confirm the streak reached the threshold even though no event was fired (no annotation present).
+		assert.Eventually(t, func() bool {
+			return checker.HealthyStreakFor("cluster1") == testRequiredHealthyStreak
+		}, 5*time.Second, 50*time.Millisecond)
+	})
 }
 
 // TestMultipleClustersIndependentStreaks verifies that streak state is tracked
 // per-cluster: one cluster going unhealthy does not affect another cluster's streak.
 func TestMultipleClustersIndependentStreaks(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 
-	// Only cluster2 is in the failed annotation; cluster1 will be added during the test.
-	failedAnnotation := getFailedClusterList([]string{"cluster2"})
-	mrs := newTestMDBMulti("mdbmc", "ns", map[string]string{
-		failedcluster.FailedClusterAnnotation: failedAnnotation,
+		// Only cluster2 is in the failed annotation; cluster1 will be added during the test.
+		failedAnnotation := getFailedClusterList([]string{"cluster2"})
+		mrs := newTestMDBMulti("mdbmc", "ns", map[string]string{
+			failedcluster.FailedClusterAnnotation: failedAnnotation,
+		})
+		fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme(t)).WithObjects(mrs).Build()
+		central := kubernetesClient.NewClient(fakeClient)
+		watchChannel := make(chan event.GenericEvent, 10)
+
+		mock1 := NewMockedMemberHealthCheck("server1").(*MockedMemberHealthCheck)
+		mock1.Healthy = false
+
+		checker := &MemberClusterHealthChecker{
+			Cache: map[string]ClusterHealthChecker{
+				"cluster1": mock1,
+				"cluster2": NewMockedMemberHealthCheck("server2"),
+			},
+			HealthyStreak: map[string]int{
+				"cluster1": 0,
+				"cluster2": testRequiredHealthyStreak - 1, // streak = 4, tips to 5 this iteration
+			},
+			RequiredHealthyStreak: testRequiredHealthyStreak,
+		}
+
+		go checker.WatchMemberClusterHealth(ctx, zap.S(), watchChannel, central, nil)
+
+		select {
+		case evt := <-watchChannel:
+			assert.Equal(t, "mdbmc", evt.Object.GetName())
+		case <-time.After(5 * time.Second):
+			t.Fatal("timed out waiting for cluster2 recovery event")
+		}
+
+		// cluster2's annotation was removed — its streak reached the threshold independently of cluster1.
+		assert.Equal(t, testRequiredHealthyStreak, checker.HealthyStreakFor("cluster2"))
+
+		got := &mdbmulti.MongoDBMultiCluster{}
+		require.NoError(t, fakeClient.Get(ctx, types.NamespacedName{Name: "mdbmc", Namespace: "ns"}, got))
+		assert.False(t, isInFailedClusterAnnotation(got.Annotations, "cluster2"), "cluster2 annotation should be removed")
 	})
-	fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme(t)).WithObjects(mrs).Build()
-	central := kubernetesClient.NewClient(fakeClient)
-	watchChannel := make(chan event.GenericEvent, 10)
-
-	mock1 := NewMockedMemberHealthCheck("server1").(*MockedMemberHealthCheck)
-	mock1.Healthy = false
-
-	checker := &MemberClusterHealthChecker{
-		Cache: map[string]ClusterHealthChecker{
-			"cluster1": mock1,
-			"cluster2": NewMockedMemberHealthCheck("server2"),
-		},
-		HealthyStreak: map[string]int{
-			"cluster1": 0,
-			"cluster2": testRequiredHealthyStreak - 1, // streak = 4, tips to 5 this iteration
-		},
-		RequiredHealthyStreak: testRequiredHealthyStreak,
-	}
-
-	go checker.WatchMemberClusterHealth(ctx, zap.S(), watchChannel, central, nil)
-
-	select {
-	case evt := <-watchChannel:
-		assert.Equal(t, "mdbmc", evt.Object.GetName())
-	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for cluster2 recovery event")
-	}
-
-	// cluster2's annotation was removed — its streak reached the threshold independently of cluster1.
-	assert.Equal(t, testRequiredHealthyStreak, checker.HealthyStreakFor("cluster2"))
-
-	got := &mdbmulti.MongoDBMultiCluster{}
-	require.NoError(t, fakeClient.Get(ctx, types.NamespacedName{Name: "mdbmc", Namespace: "ns"}, got))
-	assert.False(t, isInFailedClusterAnnotation(got.Annotations, "cluster2"), "cluster2 annotation should be removed")
 }
 
 // TestAllMDBMultiResourcesCleared verifies that when a cluster's streak reaches the
 // threshold, the failed annotation is removed from every MongoDBMultiCluster resource
 // and a reconcile event is enqueued for each one.
 func TestAllMDBMultiResourcesCleared(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 
-	failedAnnotation := getFailedClusterList([]string{"cluster1"})
-	mrs1 := newTestMDBMulti("mdbmc-1", "ns", map[string]string{
-		failedcluster.FailedClusterAnnotation: failedAnnotation,
-	})
-	mrs2 := newTestMDBMulti("mdbmc-2", "ns", map[string]string{
-		failedcluster.FailedClusterAnnotation: failedAnnotation,
-	})
+		failedAnnotation := getFailedClusterList([]string{"cluster1"})
+		mrs1 := newTestMDBMulti("mdbmc-1", "ns", map[string]string{
+			failedcluster.FailedClusterAnnotation: failedAnnotation,
+		})
+		mrs2 := newTestMDBMulti("mdbmc-2", "ns", map[string]string{
+			failedcluster.FailedClusterAnnotation: failedAnnotation,
+		})
 
-	fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme(t)).WithObjects(mrs1, mrs2).Build()
-	central := kubernetesClient.NewClient(fakeClient)
-	watchChannel := make(chan event.GenericEvent, 10)
+		fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme(t)).WithObjects(mrs1, mrs2).Build()
+		central := kubernetesClient.NewClient(fakeClient)
+		watchChannel := make(chan event.GenericEvent, 10)
 
-	checker := &MemberClusterHealthChecker{
-		Cache:                 map[string]ClusterHealthChecker{"cluster1": NewMockedMemberHealthCheck("server1")},
-		HealthyStreak:         map[string]int{"cluster1": testRequiredHealthyStreak - 1},
-		RequiredHealthyStreak: testRequiredHealthyStreak,
-	}
-
-	go checker.WatchMemberClusterHealth(ctx, zap.S(), watchChannel, central, nil)
-
-	var evtNames []string
-	for i := 0; i < 2; i++ {
-		select {
-		case evt := <-watchChannel:
-			evtNames = append(evtNames, evt.Object.GetName())
-		case <-time.After(5 * time.Second):
-			t.Fatalf("timed out waiting for event %d/2", i+1)
+		checker := &MemberClusterHealthChecker{
+			Cache:                 map[string]ClusterHealthChecker{"cluster1": NewMockedMemberHealthCheck("server1")},
+			HealthyStreak:         map[string]int{"cluster1": testRequiredHealthyStreak - 1},
+			RequiredHealthyStreak: testRequiredHealthyStreak,
 		}
-	}
-	assert.ElementsMatch(t, []string{"mdbmc-1", "mdbmc-2"}, evtNames)
 
-	for _, name := range []string{"mdbmc-1", "mdbmc-2"} {
-		got := &mdbmulti.MongoDBMultiCluster{}
-		require.NoError(t, fakeClient.Get(ctx, types.NamespacedName{Name: name, Namespace: "ns"}, got))
-		assert.False(t, isInFailedClusterAnnotation(got.Annotations, "cluster1"),
-			"annotation should be removed from %s", name)
-	}
+		go checker.WatchMemberClusterHealth(ctx, zap.S(), watchChannel, central, nil)
+
+		var evtNames []string
+		for i := 0; i < 2; i++ {
+			select {
+			case evt := <-watchChannel:
+				evtNames = append(evtNames, evt.Object.GetName())
+			case <-time.After(5 * time.Second):
+				t.Fatalf("timed out waiting for event %d/2", i+1)
+			}
+		}
+		assert.ElementsMatch(t, []string{"mdbmc-1", "mdbmc-2"}, evtNames)
+
+		for _, name := range []string{"mdbmc-1", "mdbmc-2"} {
+			got := &mdbmulti.MongoDBMultiCluster{}
+			require.NoError(t, fakeClient.Get(ctx, types.NamespacedName{Name: name, Namespace: "ns"}, got))
+			assert.False(t, isInFailedClusterAnnotation(got.Annotations, "cluster1"),
+				"annotation should be removed from %s", name)
+		}
+	})
 }
 
 func TestFailedClusterAnnotationStaysWhenPerformFailoverTrue(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 
-	_ = os.Setenv("PERFORM_FAILOVER", "true") // nolint:forbidigo
-	defer func(key string) {
-		_ = os.Unsetenv(key) // nolint:forbidigo
-	}("PERFORM_FAILOVER")
+		t.Setenv("PERFORM_FAILOVER", "true") // nolint:forbidigo
 
-	failedAnnotation := getFailedClusterList([]string{"cluster1"})
-	mrs := newTestMDBMulti("mdbmc", "ns", map[string]string{
-		failedcluster.FailedClusterAnnotation: failedAnnotation,
+		failedAnnotation := getFailedClusterList([]string{"cluster1"})
+		mrs := newTestMDBMulti("mdbmc", "ns", map[string]string{
+			failedcluster.FailedClusterAnnotation: failedAnnotation,
+		})
+		fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme(t)).WithObjects(mrs).Build()
+		central := kubernetesClient.NewClient(fakeClient)
+		watchChannel := make(chan event.GenericEvent, 10)
+
+		// Healthy: true is the default from NewMockedMemberHealthCheck.
+		checker := &MemberClusterHealthChecker{
+			Cache:                 map[string]ClusterHealthChecker{"cluster1": NewMockedMemberHealthCheck("server1")},
+			HealthyStreak:         map[string]int{"cluster1": 0},
+			RequiredHealthyStreak: testRequiredHealthyStreak,
+		}
+
+		go checker.WatchMemberClusterHealth(ctx, zap.S(), watchChannel, central, nil)
+
+		assert.Never(t, func() bool {
+			return len(watchChannel) > 0
+		}, 500*time.Millisecond, 50*time.Millisecond)
+		assert.Never(t, func() bool { return checker.HealthyStreakFor("cluster1") > 0 }, 500*time.Millisecond, 50*time.Millisecond)
+
+		got := &mdbmulti.MongoDBMultiCluster{}
+		require.NoError(t, fakeClient.Get(ctx, types.NamespacedName{Name: "mdbmc", Namespace: "ns"}, got))
+		assert.True(t, isInFailedClusterAnnotation(got.Annotations, "cluster1"))
 	})
-	fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme(t)).WithObjects(mrs).Build()
-	central := kubernetesClient.NewClient(fakeClient)
-	watchChannel := make(chan event.GenericEvent, 10)
-
-	// Healthy: true is the default from NewMockedMemberHealthCheck.
-	checker := &MemberClusterHealthChecker{
-		Cache:                 map[string]ClusterHealthChecker{"cluster1": NewMockedMemberHealthCheck("server1")},
-		HealthyStreak:         map[string]int{"cluster1": 0},
-		RequiredHealthyStreak: testRequiredHealthyStreak,
-	}
-
-	go checker.WatchMemberClusterHealth(ctx, zap.S(), watchChannel, central, nil)
-
-	assert.Never(t, func() bool {
-		return len(watchChannel) > 0
-	}, 500*time.Millisecond, 50*time.Millisecond)
-	assert.Never(t, func() bool { return checker.HealthyStreakFor("cluster1") > 0 }, 500*time.Millisecond, 50*time.Millisecond)
-
-	got := &mdbmulti.MongoDBMultiCluster{}
-	require.NoError(t, fakeClient.Get(ctx, types.NamespacedName{Name: "mdbmc", Namespace: "ns"}, got))
-	assert.True(t, isInFailedClusterAnnotation(got.Annotations, "cluster1"))
 }

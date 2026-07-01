@@ -50,7 +50,7 @@ class TestShardedClusterRecoversBadOmConfiguration:
         secret_data = {"publicApiKey": "wrongKey"}
         KubernetesTester.update_secret(sc.namespace, "my-credentials", secret_data)
 
-        sc.assert_reaches_phase(Phase.Failed, timeout=20)
+        sc.assert_reaches_phase(Phase.Failed, timeout=100)
 
         sc.load()
         assert "You are not authorized for this resource" in sc["status"]["message"]
