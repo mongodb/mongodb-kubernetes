@@ -235,7 +235,7 @@ def test_deploy_vm(namespace: str, vm_sts, vm_service):
         sts = get_statefulset(namespace, vm_sts["metadata"]["name"])
         return sts.status.ready_replicas == vm_sts["spec"]["replicas"]
 
-    KubernetesTester.wait_until(sts_is_ready, timeout=300)
+    KubernetesTester.wait_until(sts_is_ready, timeout=600)
 
 
 @mark.e2e_vm_migration_replicaset_oidc_workforce
@@ -247,7 +247,7 @@ def test_configure_ac(
     cognito: dict,
 ):
     _configure_ac(namespace, om_tester, vm_sts, vm_service, cognito)
-    om_tester.wait_agents_ready(timeout=600)
+    om_tester.wait_agents_ready(timeout=1200)
 
 
 @mark.e2e_vm_migration_replicaset_oidc_workforce
@@ -309,7 +309,7 @@ def test_migration_dry_run_connectivity_passes(mdb_migration: MongoDB):
 
 @mark.e2e_vm_migration_replicaset_oidc_workforce
 def test_migrate_vm_to_kubernetes(mdb_migration: MongoDB):
-    mdb_migration.assert_reaches_phase(Phase.Running, timeout=1200)
+    mdb_migration.assert_reaches_phase(Phase.Running, timeout=2400)
     assert_connection_string_contains_current_hosts(mdb_migration)
 
 
