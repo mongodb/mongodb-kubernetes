@@ -1609,8 +1609,6 @@ def coredns_config(tld: str, mappings: str, additional_rules: Optional[str] = No
 """
 
 
-
-
 @hookimpl(tryfirst=True)
 def pytest_sessionfinish(session, exitstatus):
     project_id = os.environ.get("OM_PROJECT_ID", "")

@@ -26,6 +26,9 @@ _GENERATE_CR_ENV = {**os.environ, "KUBECONFIG": os.environ.get("KUBECONFIG", KUB
 MIGRATION_DATA_DB = "migration_data"
 MIGRATION_DATA_COLLECTION = "sentinel"
 MIGRATION_DATA_ID = "vm-migration"
+# minimum k8s StatefulSet members deployed alongside VM external members.
+# must exceed 7 when added to the external member count so the voting-limit validation always runs.
+MIN_K8S_MEMBERS = 5
 
 
 def deploy_vm_statefulset(
@@ -169,7 +172,8 @@ def apply_generated_mongodb_resource(
             "tls", {}
         )["mode"] = "disabled"
 
-    num_members = len(resource_doc["spec"].get("externalMembers", []))
+    external_count = len(resource_doc["spec"].get("externalMembers", []))
+    num_members = max(external_count, MIN_K8S_MEMBERS)
     resource_doc["spec"]["members"] = num_members
     resource_doc["spec"]["memberConfig"] = [{"votes": 0, "priority": "0"} for _ in range(num_members)]
 
@@ -244,10 +248,9 @@ def assert_k8s_process_names(om_tester: OMTester, mdb_migration: MongoDB) -> Non
 
 
 def assert_max_voting_members_validation(mdb_migration: MongoDB) -> None:
-    if len(mdb_migration["spec"].get("externalMembers", [])) + mdb_migration.get_members() <= 7:
-        return
+    k8s_members = mdb_migration.get_members()
 
-    for i in range(mdb_migration.get_members()):
+    for i in range(k8s_members):
         mdb_migration["spec"]["memberConfig"][i]["priority"] = "1"
         mdb_migration["spec"]["memberConfig"][i]["votes"] = 1
 
@@ -255,7 +258,7 @@ def assert_max_voting_members_validation(mdb_migration: MongoDB) -> None:
     mdb_migration.assert_reaches_phase(Phase.Failed, timeout=300)
     assert "voting members" in mdb_migration.get_status_message()
 
-    for i in range(mdb_migration.get_members()):
+    for i in range(k8s_members):
         mdb_migration["spec"]["memberConfig"][i]["priority"] = "0"
         mdb_migration["spec"]["memberConfig"][i]["votes"] = 0
 
