@@ -370,8 +370,6 @@ spec:
               cpu: 500m
               memory: 200Mi
           env:
-            - name: OPERATOR_ENV
-              value: prod
             - name: NAMESPACE
               valueFrom:
                 fieldRef:
