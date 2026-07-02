@@ -201,6 +201,7 @@ def apply_operator_config_from_test_env(
     api_client=None,
     name: str = "mongodb-kubernetes-operator",
     wait_for_ready: Optional[Callable[[], None]] = None,
+    extra_spec: Optional[dict] = None,
 ) -> bool:
     """Creates the OperatorConfig CR from test env vars (if any non-default settings exist) and waits for
     the operator to restart and reload its configuration.
@@ -222,6 +223,8 @@ def apply_operator_config_from_test_env(
     from tests.conftest import local_operator
 
     spec = build_operator_config_spec_from_test_env()
+    if extra_spec:
+        spec.update(extra_spec)
     if not spec:
         return False
 
