@@ -34,12 +34,12 @@ from kubetester.mongotester import MongoDBBackgroundTester, MongoTester, with_x5
 from kubetester.omtester import OMContext, OMTester
 from kubetester.phase import Phase
 from pytest import fixture, mark
-from tests.vm_migration.vm_migration_dry_run import run_migration_dry_run_connectivity_passes
 from tests.vm_migration.vm_migration_common_helper import (
     assert_max_voting_members_validation,
     generated_mongodb_doc,
     run_generate_cr,
 )
+from tests.vm_migration.vm_migration_dry_run import run_migration_dry_run_connectivity_passes
 from tests.vm_migration.vm_migration_sharded_helper import (
     MIN_K8S_CONFIGSRV,
     MIN_K8S_MONGOS,

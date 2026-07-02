@@ -33,7 +33,6 @@ func main() {
 		ConnectionString:   os.Getenv("CONNECTION_STRING"),
 		ExternalMembers:    members,
 		AuthMechanism:      os.Getenv("AUTH_MECHANISM"),
-		KeyfilePath:        os.Getenv("KEYFILE_PATH"),
 		CertPath:           os.Getenv("CERT_PATH"),
 		CAPath:             os.Getenv("CA_PATH"),
 		SubjectDN:          os.Getenv("SUBJECT_DN"),

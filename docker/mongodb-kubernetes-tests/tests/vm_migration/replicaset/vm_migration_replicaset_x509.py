@@ -25,11 +25,6 @@ from kubetester.mongotester import MongoDBBackgroundTester, MongoTester, build_m
 from kubetester.omtester import OMContext, OMTester
 from kubetester.phase import Phase
 from pytest import fixture, mark
-from tests.vm_migration.vm_migration_dry_run import (
-    create_wrong_ca_configmap,
-    run_migration_dry_run_connectivity_passes,
-    run_wrong_ca_dry_run_fails_then_passes,
-)
 from tests.vm_migration.vm_migration_common_helper import (
     apply_user_crs_and_verify_ac,
     assert_max_voting_members_validation,
@@ -38,6 +33,11 @@ from tests.vm_migration.vm_migration_common_helper import (
     generated_user_docs,
     insert_migration_data,
     run_generate_cr,
+)
+from tests.vm_migration.vm_migration_dry_run import (
+    create_wrong_ca_configmap,
+    run_migration_dry_run_connectivity_passes,
+    run_wrong_ca_dry_run_fails_then_passes,
 )
 from tests.vm_migration.vm_migration_replicaset_helper import (
     MIN_K8S_MONGOD,

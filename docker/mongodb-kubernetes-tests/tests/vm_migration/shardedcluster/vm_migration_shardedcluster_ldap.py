@@ -16,7 +16,6 @@ from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.authentication.conftest import LDAP_PASSWORD, openldap_install
-from tests.vm_migration.vm_migration_dry_run import run_migration_dry_run_connectivity_passes
 from tests.vm_migration.vm_migration_common_helper import (
     apply_user_crs_and_verify_ac,
     assert_max_voting_members_validation,
@@ -26,6 +25,7 @@ from tests.vm_migration.vm_migration_common_helper import (
     insert_migration_data,
     run_generate_cr,
 )
+from tests.vm_migration.vm_migration_dry_run import run_migration_dry_run_connectivity_passes
 from tests.vm_migration.vm_migration_sharded_helper import (
     MIN_VM_CONFIGSRV,
     MIN_VM_MONGOS,

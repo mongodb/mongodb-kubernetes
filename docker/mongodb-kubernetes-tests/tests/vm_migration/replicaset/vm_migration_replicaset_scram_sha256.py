@@ -14,7 +14,6 @@ from kubetester.omtester import OMContext, OMTester
 from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
-from tests.vm_migration.vm_migration_dry_run import run_migration_dry_run_connectivity_passes
 from tests.vm_migration.vm_migration_common_helper import (
     apply_user_crs_and_verify_ac,
     assert_max_voting_members_validation,
@@ -25,6 +24,7 @@ from tests.vm_migration.vm_migration_common_helper import (
     rotate_password_and_verify,
     run_generate_cr,
 )
+from tests.vm_migration.vm_migration_dry_run import run_migration_dry_run_connectivity_passes
 from tests.vm_migration.vm_migration_replicaset_helper import (
     apply_generated_mongodb_resource,
     assert_common_generated_cr_shape,
