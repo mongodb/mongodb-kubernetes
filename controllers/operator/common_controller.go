@@ -141,7 +141,7 @@ func (r *ReconcileCommonController) getRoles(ctx context.Context, db mdbv1.DbCom
 	var roles []mdbv1.MongoDBRole
 	if len(roleRefs) > 0 {
 		if !enableClusterMongoDBRoles {
-			return nil, xerrors.Errorf("RoleRefs are not supported when ClusterMongoDBRoles are disabled. Please enable ClusterMongoDBRoles in the operator configuration. This can be done by setting the operator.enableClusterMongoDBRoles to true in the helm values file, which will automatically installed the necessary RBAC. Alternatively, it can be enabled by adding -watch-resource=clustermongodbroles flag to the operator deployment, and manually creating the necessary RBAC.")
+			return nil, xerrors.Errorf("RoleRefs are not supported when ClusterMongoDBRoles are disabled. To enable them, include `clustermongodbroles` in `.spec.watchedResources` of the OperatorConfig CR (it is included by default) and ensure the necessary RBAC exists. Setting operator.enableClusterMongoDBRoles to true in the helm values file creates that RBAC automatically; otherwise create the ClusterRole and ClusterRoleBinding manually.")
 		}
 		var err error
 		roles, err = r.getRoleRefs(ctx, roleRefs, mongodbResourceNsName, db.Version)
