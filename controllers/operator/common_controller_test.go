@@ -756,16 +756,6 @@ func TestAgentCertHashAndPath(t *testing.T) {
 			},
 			Type: corev1.SecretTypeTLS,
 		},
-		&corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "opaque-secret",
-				Namespace: mock.TestNamespace,
-			},
-			StringData: map[string]string{
-				corev1.TLSCertKey: "fake-contents",
-			},
-			Type: corev1.SecretTypeOpaque,
-		},
 	)
 	controller := NewReconcileCommonController(ctx, kubeClient)
 
@@ -780,12 +770,6 @@ func TestAgentCertHashAndPath(t *testing.T) {
 			secretName:   "tls-secret",
 			expectedHash: "IQJW7I2VWNTYUEKGVULPP2DET2KPWT6CD7TX5AYQYBQPMHFK76FA",
 			expectedPath: "/mongodb-automation/agent-certs/IQJW7I2VWNTYUEKGVULPP2DET2KPWT6CD7TX5AYQYBQPMHFK76FA",
-		},
-		{
-			name:         "Opaque secret",
-			secretName:   "opaque-secret",
-			expectedHash: "",
-			expectedPath: "",
 		},
 		{
 			name:         "Secret doesn't exist",

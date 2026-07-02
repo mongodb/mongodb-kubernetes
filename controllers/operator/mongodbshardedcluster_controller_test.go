@@ -527,7 +527,6 @@ func TestAddDeleteShardedCluster(t *testing.T) {
 func getEmptyDeploymentOptions() deploymentOptions {
 	return deploymentOptions{
 		podEnvVars:         &env.PodEnvVars{},
-		certTLSType:        map[string]bool{},
 		prometheusCertHash: "",
 	}
 }
@@ -1795,7 +1794,7 @@ func createDeploymentFromShardedCluster(t *testing.T, updatable v1.CustomResourc
 		Finalizing:      false,
 	})
 	assert.NoError(t, err)
-	d.ConfigureMonitoringAndBackup(zap.S(), sh.Spec.GetSecurity().IsTLSEnabled(), util.CAFilePathInContainer)
+	d.ConfigureMonitoringAndBackup(zap.S(), sh.Spec.GetSecurity().IsTLSEnabled(), fmt.Sprintf("%s/ca-pem", util.TLSCaMountPath))
 	return d
 }
 

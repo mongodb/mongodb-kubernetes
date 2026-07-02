@@ -1,6 +1,8 @@
 package deployment
 
 import (
+	"fmt"
+
 	"go.uber.org/zap"
 
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
@@ -38,7 +40,7 @@ func CreateFromReplicaSet(mongoDBImage string, forceEnterprise bool, rs *mdb.Mon
 		lastConfig.ToMap(),
 		zap.S(),
 	)
-	d.ConfigureMonitoringAndBackup(zap.S(), rs.Spec.GetSecurity().IsTLSEnabled(), util.CAFilePathInContainer)
-	d.ConfigureTLS(rs.Spec.GetSecurity(), util.CAFilePathInContainer)
+	d.ConfigureMonitoringAndBackup(zap.S(), rs.Spec.GetSecurity().IsTLSEnabled(), fmt.Sprintf("%s/ca-pem", util.TLSCaMountPath))
+	d.ConfigureTLS(rs.Spec.GetSecurity(), fmt.Sprintf("%s/ca-pem", util.TLSCaMountPath))
 	return d
 }

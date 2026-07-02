@@ -97,7 +97,7 @@ func NewDeployment() Deployment {
 	ans["auth"] = make(map[string]interface{})
 	ans["tls"] = map[string]interface{}{
 		"clientCertificateMode": util.OptionalClientCertficates,
-		"CAFilePath":            util.CAFilePathInContainer,
+		"CAFilePath":            fmt.Sprintf("%s/ca-pem", util.TLSCaMountPath),
 	}
 	return ans
 }

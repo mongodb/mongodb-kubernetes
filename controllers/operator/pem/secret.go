@@ -6,8 +6,6 @@ import (
 
 	"go.uber.org/zap"
 
-	corev1 "k8s.io/api/core/v1"
-
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/vault"
@@ -29,11 +27,6 @@ func ReadHashFromSecret(ctx context.Context, secretClient secrets.SecretClient, 
 		s, err := secretClient.KubeClient.GetSecret(ctx, kube.ObjectKey(namespace, name))
 		if err != nil {
 			log.Debugf("tls secret %s doesn't exist yet, unable to compute hash of pem", name)
-			return ""
-		}
-
-		if s.Type != corev1.SecretTypeTLS {
-			log.Debugf("tls secret %s is not of type corev1.SecretTypeTLS; we will not use hash as key name", name)
 			return ""
 		}
 
