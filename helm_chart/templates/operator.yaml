@@ -72,8 +72,6 @@ spec:
             {{- toYaml .Values.operator.securityContext | nindent 12 }}
           {{- end }}
           env:
-            - name: OPERATOR_ENV
-              value: {{ .Values.operator.env }}
             - name: NAMESPACE
               valueFrom:
                 fieldRef:
