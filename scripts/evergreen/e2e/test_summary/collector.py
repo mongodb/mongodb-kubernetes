@@ -380,7 +380,6 @@ class TestSummaryGenerator:
           - {prefix}{pod}-pod-describe.txt          (kubectl describe)
           - {prefix}{pod}-agent-verbose.log          (automation agent verbose log)
           - {prefix}{pod}-agent.log                  (automation agent log)
-          - {prefix}{pod}-agent-stderr.log           (agent stderr)
           - {prefix}{pod}-monitoring-agent-verbose.log
           - {prefix}{pod}-monitoring-agent.log
           - {prefix}{pod}-monitoring-agent-stdout.log
@@ -423,7 +422,6 @@ class TestSummaryGenerator:
                 for a in (
                     "agent-verbose",
                     "agent.",
-                    "agent-stderr",
                     "monitoring-agent",
                 )
             ):
@@ -852,7 +850,6 @@ class TestSummaryGenerator:
 
         known_suffixes = [
             "-agent-verbose",
-            "-agent-stderr",
             "-agent",
             "-monitoring-agent-verbose",
             "-monitoring-agent-stdout",

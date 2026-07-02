@@ -202,7 +202,7 @@ spec:
                 - voyage-4-lite
                 - rerank-2.5
                 - rerank-2.5-lite
-                - voyage-context-3
+                - voyage-context-4
                 - voyage-code-3
                 type: string
               nodeAffinity:

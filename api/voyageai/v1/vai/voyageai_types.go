@@ -14,7 +14,7 @@ func init() {
 }
 
 // VoyageAIModel defines the supported VoyageAI model types.
-// +kubebuilder:validation:Enum=voyage-4-large;voyage-4;voyage-4-lite;rerank-2.5;rerank-2.5-lite;voyage-context-3;voyage-code-3
+// +kubebuilder:validation:Enum=voyage-4-large;voyage-4;voyage-4-lite;rerank-2.5;rerank-2.5-lite;voyage-context-4;voyage-code-3
 type VoyageAIModel string
 
 const (
@@ -23,7 +23,7 @@ const (
 	VoyageAIModelVoyage4Lite    VoyageAIModel = "voyage-4-lite"
 	VoyageAIModelRerank25       VoyageAIModel = "rerank-2.5"
 	VoyageAIModelRerank25Lite   VoyageAIModel = "rerank-2.5-lite"
-	VoyageAIModelVoyageContext3 VoyageAIModel = "voyage-context-3"
+	VoyageAIModelVoyageContext4 VoyageAIModel = "voyage-context-4"
 	VoyageAIModelVoyageCode3    VoyageAIModel = "voyage-code-3"
 )
 
