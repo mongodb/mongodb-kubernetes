@@ -18,7 +18,11 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 )
 
-func PrepareOpsManagerConnection(ctx context.Context, client secrets.SecretClient, projectConfig mdbv1.ProjectConfig, credentials mdbv1.Credentials, connectionFunc om.ConnectionFactory, namespace string, log *zap.SugaredLogger) (om.Connection, string, error) {
+// PrepareOpsManagerConnection sets up a connection to Ops Manager for the given project and credentials.
+// tagNamespace controls whether the calling controller's namespace is added as a tag on the OM project.
+// Pass false for controllers where multiple namespaces share one project (e.g. MongoDBUser), because
+// Ops Manager enforces a hard limit of 10 tags per project and each namespace would otherwise consume one slot.
+func PrepareOpsManagerConnection(ctx context.Context, client secrets.SecretClient, projectConfig mdbv1.ProjectConfig, credentials mdbv1.Credentials, connectionFunc om.ConnectionFactory, namespace string, tagNamespace bool, log *zap.SugaredLogger) (om.Connection, string, error) {
 	omProject, conn, err := project.ReadOrCreateProject(projectConfig, credentials, connectionFunc, log)
 	if err != nil {
 		return nil, "", xerrors.Errorf("error reading or creating project in Ops Manager: %w", err)
@@ -29,9 +33,12 @@ func PrepareOpsManagerConnection(ctx context.Context, client secrets.SecretClien
 		log.Infof("Using Ops Manager version %s", omVersion)
 	}
 
-	// adds the namespace as a tag to the Ops Manager project
-	if err = EnsureTagAdded(conn, omProject, namespace, log); err != nil {
-		return nil, "", err
+	// tagNamespace is false for controllers where many namespaces share one project (e.g. MongoDBUser)
+	// to avoid hitting the OM hard limit of 10 tags per project.
+	if tagNamespace {
+		if err = EnsureTagAdded(conn, omProject, namespace, log); err != nil {
+			return nil, "", err
+		}
 	}
 
 	// adds the externally_managed tag if feature controls is not available.
@@ -56,10 +63,8 @@ func PrepareOpsManagerConnection(ctx context.Context, client secrets.SecretClien
 func EnsureTagAdded(conn om.Connection, project *om.Project, tag string, log *zap.SugaredLogger) error {
 	// must truncate the tag to at most 32 characters and capitalise as
 	// these are Ops Manager requirements
-
 	sanitisedTag := strings.ToUpper(fmt.Sprintf("%.32s", tag))
-	alreadyHasTag := stringutil.Contains(project.Tags, sanitisedTag)
-	if alreadyHasTag {
+	if stringutil.Contains(project.Tags, sanitisedTag) {
 		return nil
 	}
 

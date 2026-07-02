@@ -39,7 +39,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/backup"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/deployment"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/host"
-	"github.com/mongodb/mongodb-kubernetes/controllers/om/replicaset"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connection"
@@ -896,7 +895,7 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 		return r.updateStatus(ctx, sc, workflow.Failed(err), log)
 	}
 
-	conn, agentAPIKey, err := connection.PrepareOpsManagerConnection(ctx, r.commonController.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, sc.Namespace, log)
+	conn, agentAPIKey, err := connection.PrepareOpsManagerConnection(ctx, r.commonController.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, sc.Namespace, true, log)
 	if err != nil {
 		return r.updateStatus(ctx, sc, workflow.Failed(err), log)
 	}
@@ -1168,10 +1167,6 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 		podEnvVars:           podEnvVars,
 		currentAgentAuthMode: currentAgentAuthMode,
 		certTLSType:          certSecretTypesForSTS,
-	}
-
-	if err = r.prepareScaleDownShardedCluster(conn, log); err != nil {
-		return workflow.Failed(xerrors.Errorf("failed to perform scale down preliminary actions: %w", err))
 	}
 
 	if workflowStatus := validateMongoDBResource(sc, conn); !workflowStatus.IsOK() {
@@ -1731,7 +1726,7 @@ func (r *ShardedClusterReconcileHelper) cleanOpsManagerState(ctx context.Context
 		return err
 	}
 
-	conn, _, err := connection.PrepareOpsManagerConnection(ctx, r.commonController.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, sc.Namespace, log)
+	conn, _, err := connection.PrepareOpsManagerConnection(ctx, r.commonController.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, sc.Namespace, true, log)
 	if err != nil {
 		return err
 	}
@@ -1931,58 +1926,6 @@ func (r *ShardedClusterReconcileHelper) getMongosHostnames(memberCluster multicl
 		externalDomain = r.sc.Spec.GetExternalDomain()
 		return dns.GetDNSNames(r.GetMongosStsName(memberCluster), r.sc.ServiceName(), r.sc.Namespace, r.sc.Spec.GetClusterDomain(), replicas, externalDomain)
 	}
-}
-
-func (r *ShardedClusterReconcileHelper) computeMembersToScaleDown(configSrvMemberClusters []multicluster.MemberCluster, shardsMemberClustersMap map[int][]multicluster.MemberCluster, log *zap.SugaredLogger) map[string][]string {
-	membersToScaleDown := make(map[string][]string)
-	for _, memberCluster := range configSrvMemberClusters {
-		currentReplicas := memberCluster.Replicas
-		desiredReplicas := scale.ReplicasThisReconciliation(r.GetConfigSrvScaler(memberCluster))
-		_, currentPodNames := r.getConfigSrvHostnames(memberCluster, currentReplicas)
-		if desiredReplicas < currentReplicas {
-			log.Debugf("Detected configSrv in cluster %s is scaling down: desiredReplicas=%d, currentReplicas=%d", memberCluster.Name, desiredReplicas, currentReplicas)
-			configRsName := r.sc.ConfigRsName()
-			if _, ok := membersToScaleDown[configRsName]; !ok {
-				membersToScaleDown[configRsName] = []string{}
-			}
-			podNamesToScaleDown := currentPodNames[desiredReplicas:currentReplicas]
-			membersToScaleDown[configRsName] = append(membersToScaleDown[configRsName], podNamesToScaleDown...)
-		}
-	}
-
-	// Scaledown size of each shard
-	for shardIdx, memberClusters := range shardsMemberClustersMap {
-		for _, memberCluster := range memberClusters {
-			currentReplicas := memberCluster.Replicas
-			desiredReplicas := scale.ReplicasThisReconciliation(r.GetShardScaler(shardIdx, memberCluster))
-			_, currentPodNames := r.getShardHostnames(shardIdx, memberCluster, currentReplicas)
-			if desiredReplicas < currentReplicas {
-				log.Debugf("Detected shard idx=%d in cluster %s is scaling down: desiredReplicas=%d, currentReplicas=%d", shardIdx, memberCluster.Name, desiredReplicas, currentReplicas)
-				shardRsName := r.sc.ShardRsName(shardIdx)
-				if _, ok := membersToScaleDown[shardRsName]; !ok {
-					membersToScaleDown[shardRsName] = []string{}
-				}
-				podNamesToScaleDown := currentPodNames[desiredReplicas:currentReplicas]
-				membersToScaleDown[shardRsName] = append(membersToScaleDown[shardRsName], podNamesToScaleDown...)
-			}
-		}
-	}
-
-	return membersToScaleDown
-}
-
-// prepareScaleDownShardedCluster collects all replicasets members to scale down, from configservers and shards, across
-// all clusters, and pass them to PrepareScaleDownFromMap, which sets their votes and priorities to 0
-func (r *ShardedClusterReconcileHelper) prepareScaleDownShardedCluster(omClient om.Connection, log *zap.SugaredLogger) error {
-	membersToScaleDown := r.computeMembersToScaleDown(r.configSrvMemberClusters, r.shardsMemberClustersMap, log)
-
-	if len(membersToScaleDown) > 0 {
-		healthyProcessesToWaitForReadyState := r.getHealthyProcessNamesToWaitForReadyState(omClient, log)
-		if err := replicaset.PrepareScaleDownFromMap(omClient, membersToScaleDown, healthyProcessesToWaitForReadyState, log); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 // deploymentOptions contains fields required for creating the OM deployment for the Sharded Cluster.
