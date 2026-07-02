@@ -104,7 +104,6 @@ def _install_simulated_operator(
     # ownership-metadata check fails if we re-render them.
     helm_args["operator.createResourcesServiceAccountsAndRoles"] = "false"
     helm_args["operator.clusterIdentity.clusterName"] = mcc.cluster_name
-    helm_args["operator.watchedResources"] = "{mongodbsearch}"
 
     # upgrade(multi_cluster=True) = `helm upgrade --install`, and skips the
     # webhook wait because the test pod's cluster != central cluster, so it can't
@@ -115,6 +114,9 @@ def _install_simulated_operator(
         helm_args=helm_args,
         api_client=mcc.api_client,
     ).upgrade(multi_cluster=True)
+    # Restrict this operator to mongodbsearch only via OperatorConfig (the watch set is no longer a
+    # Helm value). This triggers a graceful restart so the operator reloads and watches search only.
+    operator.apply_operator_config_and_wait(multi_cluster=True, watched_resources=["mongodbsearch"])
     logger.info(
         f"installed simulated-MC operator in {mcc.cluster_name} "
         f"(identity={mcc.cluster_name}, name={SIMULATED_OPERATOR_NAME}, watches=mongodbsearch only)"
