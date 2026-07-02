@@ -1,6 +1,25 @@
 {
   "auth": {
-    "usersWanted": [],
+    "usersWanted": [
+      {
+        "user": "CN=mms-automation-agent,OU=ENG,O=MongoDB,L=NY,ST=NY,C=US",
+        "db": "$external",
+        "roles": [{"role": "root", "db": "admin"}],
+        "mechanisms": [],
+        "scramSha256Creds": null,
+        "scramSha1Creds": null,
+        "authenticationRestrictions": []
+      },
+      {
+        "user": "CN=x509-client,O=MongoDB",
+        "db": "$external",
+        "roles": [{"role": "readWrite", "db": "secure-db"}],
+        "mechanisms": [],
+        "scramSha256Creds": null,
+        "scramSha1Creds": null,
+        "authenticationRestrictions": []
+      }
+    ],
     "usersDeleted": [],
     "disabled": false,
     "authoritativeSet": true,

@@ -22,8 +22,6 @@ spec:
       slowOpThresholdMs: 200
     replication:
       oplogSizeMB: 2048
-    setParameter:
-      authenticationMechanisms: SCRAM-SHA-256
     storage:
       directoryPerDB: true
       engine: inMemory

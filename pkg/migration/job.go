@@ -39,8 +39,6 @@ type JobConfig struct {
 	ConnectionString string
 	ExternalMembers  []string
 	AuthMechanism    string
-	// KeyfileSecretRef is the Secret name containing the keyfile (SCRAM) or cert (X509).
-	KeyfileSecretRef string
 }
 
 // nonPVCVolumes returns pod-template volumes that are not backed by a PersistentVolumeClaim,
@@ -107,6 +105,7 @@ func volumesAndMountsFromStatefulSet(sts *appsv1.StatefulSet) ([]corev1.Volume, 
 // subjectDN is the automation agent X.509 subject (RFC 4514) for MONGODB-X509; empty for SCRAM.
 func BuildJobFromStatefulSet(rs *mdbv1.MongoDB, sts *appsv1.StatefulSet, operatorImage, connectionString string, externalMembers []string, currentAgentAuthMode, agentCertHash, subjectDN string) *batchv1.Job {
 	volumes, volumeMounts := volumesAndMountsFromStatefulSet(sts)
+
 	security := rs.GetSecurity()
 	automationAuthEnabled := security != nil && security.Authentication != nil && security.Authentication.Enabled
 	currentAgentMechanism := security.GetAgentMechanism(currentAgentAuthMode)

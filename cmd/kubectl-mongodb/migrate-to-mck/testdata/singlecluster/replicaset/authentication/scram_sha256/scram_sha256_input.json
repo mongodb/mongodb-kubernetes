@@ -13,7 +13,7 @@
         "user": "app-user",
         "db": "admin",
         "roles": [
-          {"role": "readWrite", "db": "myapp"},
+          {"role": "appReadOnly", "db": "myapp"},
           {"role": "read", "db": "reporting"}
         ],
         "mechanisms": ["SCRAM-SHA-256"],
@@ -88,7 +88,32 @@
       "protocolVersion": "1"
     }
   ],
-  "roles": [],
+  "roles": [
+    {
+      "role": "appReadOnly",
+      "db": "myapp",
+      "privileges": [
+        {
+          "actions": ["find", "listCollections"],
+          "resource": {"db": "myapp", "collection": ""}
+        }
+      ],
+      "roles": [
+        {"role": "read", "db": "myapp"}
+      ]
+    },
+    {
+      "role": "metricsReader",
+      "db": "admin",
+      "privileges": [
+        {
+          "actions": ["serverStatus", "replSetGetStatus"],
+          "resource": {"cluster": true}
+        }
+      ],
+      "roles": []
+    }
+  ],
   "sharding": [],
   "version": 1
 }

@@ -5,7 +5,7 @@ metadata:
   name: vm-mongodb
 spec:
   serviceName: vm-mongodb
-  replicas: 5
+  replicas: 3
   selector:
     matchLabels:
       app: vm-mongodb

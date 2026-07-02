@@ -30,7 +30,7 @@ func buildSecurity(ac *om.AutomationConfig, certsSecretPrefix, resourceName stri
 	}
 
 	if ac.Auth != nil && ac.Auth.IsEnabled() {
-		authConfig, err := buildAuthenticationConfig(ac)
+		authConfig, err := buildAuthenticationConfig(ac, certsSecretPrefix, resourceName)
 		if err != nil {
 			return nil, err
 		}
@@ -46,7 +46,7 @@ func buildSecurity(ac *om.AutomationConfig, certsSecretPrefix, resourceName stri
 	return security, nil
 }
 
-func buildAuthenticationConfig(ac *om.AutomationConfig) (*mdbv1.Authentication, error) {
+func buildAuthenticationConfig(ac *om.AutomationConfig, certsSecretPrefix, resourceName string) (*mdbv1.Authentication, error) {
 	auth := ac.Auth
 	processMap := ac.Deployment.ProcessMap()
 	members := ac.Deployment.GetReplicaSets()[0].Members()
@@ -94,13 +94,30 @@ func buildAuthenticationConfig(ac *om.AutomationConfig) (*mdbv1.Authentication, 
 	if agentMode, ok := authn.MapMechanismToAuthMode(auth.AutoAuthMechanism); ok {
 		authConfig.Agents.Mode = agentMode
 	}
-
 	if auth.AutoUser != "" && auth.AutoUser != util.AutomationAgentUserName {
 		authConfig.Agents.AutomationUserName = auth.AutoUser
 	}
 
+	// LDAP agents authenticate with an external password; reference the Secret generated for it.
+	if authConfig.Agents.Mode == util.LDAP && auth.AutoPwd != "" {
+		authConfig.Agents.AutomationPasswordSecretRef = corev1.SecretKeySelector{
+			LocalObjectReference: corev1.LocalObjectReference{Name: LdapAgentPasswordSecretName},
+			Key:                  passwordSecretDataKey,
+		}
+	}
+
 	if ac.AgentSSL != nil && ac.AgentSSL.AutoPEMKeyFilePath != "" {
 		authConfig.Agents.AutoPEMKeyFilePath = ac.AgentSSL.AutoPEMKeyFilePath
+		if certsSecretPrefix != "" {
+			authConfig.Agents.ClientCertificateSecretRefWrap = mdbcv1.ClientCertificateSecretRefWrapper{
+				ClientCertificateSecretRef: corev1.SecretKeySelector{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: fmt.Sprintf("%s-%s-%s", certsSecretPrefix, resourceName, util.AgentSecretName),
+					},
+					Key: corev1.TLSCertKey,
+				},
+			}
+		}
 	}
 
 	return authConfig, nil
