@@ -1,0 +1,96 @@
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  annotations:
+    mongodb.com/migrate-tool-version: latest
+    mongodb.com/migration-dry-run: "true"
+  name: oidc-cluster
+  namespace: mongodb
+spec:
+  agent:
+    maxLogFileDurationHours: 0
+    mongod:
+      systemLog:
+        destination: file
+        logAppend: false
+        path: /var/log/mongodb/mongod.log
+  configServerCount: 2
+  configServerNameOverride: oidc-csrs
+  configSrv:
+    additionalMongodConfig:
+      net:
+        port: 27019
+      sharding:
+        clusterRole: configsvr
+    agent:
+      maxLogFileDurationHours: 0
+  credentials: my-credentials
+  externalMembers:
+  - hostname: config-0.example.com:27019
+    processName: oidc-csrs-0
+    replicaSetName: oidc-csrs
+    type: mongod
+  - hostname: config-1.example.com:27019
+    processName: oidc-csrs-1
+    replicaSetName: oidc-csrs
+    type: mongod
+  - hostname: shard-0.example.com:27018
+    processName: oidc-shard-rs-0
+    replicaSetName: oidc-shard-rs
+    type: mongod
+  - hostname: shard-1.example.com:27018
+    processName: oidc-shard-rs-1
+    replicaSetName: oidc-shard-rs
+    type: mongod
+  - hostname: mongos-0.example.com:27017
+    processName: oidc-mongos-0
+    type: mongos
+  featureCompatibilityVersion: "8.0"
+  mongodsPerShardCount: 2
+  mongosCount: 1
+  opsManager:
+    configMapRef:
+      name: my-om-config
+  security:
+    authentication:
+      agents:
+        mode: SCRAM
+      enabled: true
+      ignoreUnknownUsers: true
+      modes:
+      - SCRAM
+      - OIDC
+      oidcProviderConfigs:
+      - audience: api://mongodb-cluster
+        authorizationMethod: WorkforceIdentityFederation
+        authorizationType: GroupMembership
+        clientId: 0oa1abc2def3ghi4j567
+        configurationName: okta
+        groupsClaim: groups
+        issuerURI: https://dev-123456.okta.com/oauth2/default
+        requestedScopes:
+        - openid
+        - profile
+        - groups
+        userClaim: sub
+      - audience: api://mongodb-workload
+        authorizationMethod: WorkloadIdentityFederation
+        authorizationType: UserID
+        configurationName: azure-svc
+        issuerURI: https://login.microsoftonline.com/tenant-id/v2.0
+        userClaim: sub
+  shard:
+    additionalMongodConfig:
+      net:
+        port: 27018
+      sharding:
+        clusterRole: shardsvr
+    agent:
+      maxLogFileDurationHours: 0
+  shardCount: 1
+  shardNameOverrides:
+  - replicaSetName: oidc-shard-rs
+    shardId: oidc-shard
+    shardName: oidc-cluster-0
+  type: ShardedCluster
+  version: 8.0.4-ent

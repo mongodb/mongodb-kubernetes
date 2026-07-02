@@ -389,8 +389,8 @@ func TestMergeShardedCluster_ScaleUpShardMergeFirstProcess(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Emulating changes to current shards by OM
-	for _, s := range d.getShardedClusters()[0].shards() {
-		shardRs := d.getReplicaSetByName(s.rs())
+	for _, s := range d.getShardedClusters()[0].Shards() {
+		shardRs := d.getReplicaSetByName(s.Rs())
 		for _, m := range shardRs.Members() {
 			process := d.getProcessByName(m.Name())
 			process.Args()["security"] = map[string]interface{}{"clusterAuthMode": "sendX509"}

@@ -27,6 +27,16 @@ const (
 	ProcessTypeMongod MongoType = "mongod"
 )
 
+// Cluster role values that may appear under args2_6.sharding.clusterRole.
+const (
+	// ClusterRoleConfigSrv defines a constant for the config server cluster role.
+	ClusterRoleConfigSrv = "configsvr"
+
+	// ClusterRoleShardSrv defines a constant for the shard server cluster role.
+	ClusterRoleShardSrv = "shardsvr"
+)
+
+
 // infrastructureFieldPaths lists args2_6 field paths that are set into the
 // mongod spec by the operator or deployment infrastructure, not by the
 // arguments present on the mongod config level. AdditionalMongodConfig
@@ -642,6 +652,12 @@ func (p Process) ReplicaSetName() string {
 	return maputil.ReadMapValueAsString(p.Args(), "replication", "replSetName")
 }
 
+// ClusterRole returns the sharding role declared for this process (configsvr, shardsvr, or empty).
+func (p Process) ClusterRole() string {
+	return maputil.ReadMapValueAsString(p.Args(), "sharding", "clusterRole")
+}
+
+
 func (p Process) security() map[string]interface{} {
 	args := p.Args()
 	if _, ok := args["security"]; ok {
@@ -660,7 +676,7 @@ func (p Process) ClusterAuthMode() string {
 // These methods are ONLY FOR CONFIG SERVER REPLICA SET members!
 // external packages are not supposed to call this method directly as it should be called during sharded cluster merge
 func (p Process) setClusterRoleConfigSrv() Process {
-	util.ReadOrCreateMap(p.Args(), "sharding")["clusterRole"] = "configsvr"
+	util.ReadOrCreateMap(p.Args(), "sharding")["clusterRole"] = ClusterRoleConfigSrv
 	return p
 }
 

@@ -757,10 +757,10 @@ func (d Deployment) getReplicaSetProcessNames(name string) []string {
 // GetShardedClusterShardProcessNames returns the process names for sharded cluster named "name" of index "shardNum".
 func (d Deployment) GetShardedClusterShardProcessNames(name string, shardNum int) []string {
 	if sc := d.getShardedClusterByName(name); sc != nil {
-		if shardNum < 0 || shardNum >= len(sc.shards()) {
+		if shardNum < 0 || shardNum >= len(sc.Shards()) {
 			return nil
 		}
-		return d.getReplicaSetProcessNames(sc.shards()[shardNum].rs())
+		return d.getReplicaSetProcessNames(sc.Shards()[shardNum].Rs())
 	}
 	return nil
 }
@@ -790,7 +790,7 @@ func (d Deployment) GetShardedClusterShardProcessNamesByRs(name string, rsName s
 func (d Deployment) getShardedClusterShardsProcessNames(name string) []string {
 	processNames := make([]string, 0)
 	if sc := d.getShardedClusterByName(name); sc != nil {
-		for i := range sc.shards() {
+		for i := range sc.Shards() {
 			processNames = append(processNames, d.GetShardedClusterShardProcessNames(name, i)...)
 		}
 	}

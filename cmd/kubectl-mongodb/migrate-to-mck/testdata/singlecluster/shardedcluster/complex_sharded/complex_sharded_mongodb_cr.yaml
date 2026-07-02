@@ -1,0 +1,90 @@
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  annotations:
+    mongodb.com/migrate-tool-version: latest
+    mongodb.com/migration-dry-run: "true"
+  name: mycluster-v1
+  namespace: mongodb
+spec:
+  agent:
+    maxLogFileDurationHours: 0
+    mongod:
+      systemLog:
+        destination: file
+        logAppend: false
+        path: /var/log/mongodb-mms-automation/mongodb.log
+  configServerCount: 2
+  configServerNameOverride: csrs
+  configSrv:
+    additionalMongodConfig:
+      net:
+        port: 27019
+      sharding:
+        clusterRole: configsvr
+    agent:
+      maxLogFileDurationHours: 0
+  credentials: my-credentials
+  externalMembers:
+  - hostname: config-a.example.com:27019
+    processName: csrs-0
+    replicaSetName: csrs
+    type: mongod
+  - hostname: config-b.example.com:27019
+    processName: csrs-1
+    replicaSetName: csrs
+    type: mongod
+  - hostname: shard0-a.example.com:27018
+    processName: shard0-0
+    replicaSetName: shard0-rs
+    type: mongod
+  - hostname: shard0-b.example.com:27018
+    processName: shard0-1
+    replicaSetName: shard0-rs
+    type: mongod
+  - hostname: shard1-a.example.com:27018
+    processName: shard1-0
+    replicaSetName: shard1-rs
+    type: mongod
+  - hostname: shard1-b.example.com:27018
+    processName: shard1-1
+    replicaSetName: shard1-rs
+    type: mongod
+  - hostname: mongos-0.example.com:27017
+    processName: mongos-0
+    type: mongos
+  featureCompatibilityVersion: "7.0"
+  mongodsPerShardCount: 2
+  mongosCount: 1
+  opsManager:
+    configMapRef:
+      name: my-om-config
+  security:
+    authentication:
+      agents:
+        mode: SCRAM
+      enabled: true
+      modes:
+      - SCRAM
+    certsSecretPrefix: mdb
+    tls:
+      ca: mycluster-v1-ca
+  shard:
+    additionalMongodConfig:
+      net:
+        port: 27018
+      sharding:
+        clusterRole: shardsvr
+    agent:
+      maxLogFileDurationHours: 0
+  shardCount: 2
+  shardNameOverrides:
+  - replicaSetName: shard0-rs
+    shardId: shardA
+    shardName: mycluster-v1-0
+  - replicaSetName: shard1-rs
+    shardId: shardB
+    shardName: mycluster-v1-1
+  shardedClusterNameOverride: MyCluster_v1
+  type: ShardedCluster
+  version: 7.0.12-ent

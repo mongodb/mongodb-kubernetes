@@ -19,28 +19,32 @@ from kubetester.omtester import OMContext, OMTester
 from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
+from tests.vm_migration.vm_migration_common_helper import (
+    apply_user_crs_and_verify_ac,
+    assert_max_voting_members_validation,
+    assert_migration_data_exists,
+    generated_mongodb_doc,
+    generated_user_docs,
+    insert_migration_data,
+    rotate_password_and_verify,
+    run_generate_cr,
+)
 from tests.vm_migration.vm_migration_dry_run import (
     create_wrong_ca_configmap,
     run_migration_dry_run_connectivity_passes,
     run_wrong_ca_dry_run_fails_then_passes,
 )
-from tests.vm_migration.vm_migration_helpers import (
+from tests.vm_migration.vm_migration_replicaset_helper import (
+    MIN_K8S_MONGOD,
+    MIN_VM_MONGOD,
     apply_generated_mongodb_resource,
-    apply_user_crs_and_verify_ac,
     assert_common_generated_cr_shape,
     assert_connection_string_after_full_migration,
     assert_connection_string_contains_current_hosts,
     assert_k8s_process_names,
-    assert_max_voting_members_validation,
-    assert_migration_data_exists,
     deploy_vm_service,
     deploy_vm_statefulset,
-    generated_mongodb_doc,
-    generated_user_docs,
-    insert_migration_data,
     promote_and_prune,
-    rotate_password_and_verify,
-    run_generate_cr,
     vm_replica_set_tester,
 )
 
@@ -56,7 +60,6 @@ TLS_CERT_MOUNT = "/etc/mongodb/certs"
 APP_USER_PASSWORD = "tlsAppUser123!"
 VM_AGENT_OM_CA_PATH = "/etc/mongodb-mms-ca/ca.pem"
 VM_OM_CA_CONFIGMAP_NAME = "vm-mongodb-om-ca"
-VM_REPLICAS = 5
 WRONG_CA_NAME = "wrong-issuer-ca-mongod-tls"
 
 
@@ -88,7 +91,7 @@ def vm_server_certs(issuer: str, namespace: str):
         namespace,
         VM_STS_NAME,
         VM_CERT_SECRET,
-        replicas=VM_REPLICAS,
+        replicas=MIN_VM_MONGOD,
         service_name=VM_SVC_NAME,
     )
 
@@ -116,7 +119,7 @@ def operator_server_certs(issuer: str, namespace: str):
         namespace,
         RS_NAME,
         OPERATOR_CERT_SECRET,
-        replicas=VM_REPLICAS,
+        replicas=MIN_K8S_MONGOD,
     )
 
 
