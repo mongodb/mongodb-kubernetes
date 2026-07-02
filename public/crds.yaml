@@ -10099,6 +10099,7 @@ spec:
                   - mongodbsearch
                   - mongodbmulticluster
                   - clustermongodbroles
+                  - voyageais
                   type: string
                 type: array
                 x-kubernetes-list-type: set

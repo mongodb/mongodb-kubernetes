@@ -14,7 +14,7 @@ const (
 )
 
 // WatchedResource identifies a CRD that the operator will actively reconcile.
-// +kubebuilder:validation:Enum=mongodb;opsmanagers;mongodbusers;mongodbcommunity;mongodbsearch;mongodbmulticluster;clustermongodbroles
+// +kubebuilder:validation:Enum=mongodb;opsmanagers;mongodbusers;mongodbcommunity;mongodbsearch;mongodbmulticluster;clustermongodbroles;voyageais
 type WatchedResource string
 
 const (
@@ -25,7 +25,21 @@ const (
 	WatchedResourceMongoDBSearch       WatchedResource = "mongodbsearch"
 	WatchedResourceMongoDBMultiCluster WatchedResource = "mongodbmulticluster"
 	WatchedResourceClusterMongoDBRoles WatchedResource = "clustermongodbroles"
+	WatchedResourceVoyageAI            WatchedResource = "voyageais"
 )
+
+// AllWatchedResources lists every CRD the operator can reconcile. It is the default value
+// for OperatorConfig.spec.watchedResources when the field is omitted.
+var AllWatchedResources = []WatchedResource{
+	WatchedResourceMongoDB,
+	WatchedResourceOpsManagers,
+	WatchedResourceMongoDBUsers,
+	WatchedResourceMongoDBCommunity,
+	WatchedResourceMongoDBSearch,
+	WatchedResourceMongoDBMultiCluster,
+	WatchedResourceClusterMongoDBRoles,
+	WatchedResourceVoyageAI,
+}
 
 // Architecture defines the container architecture used by operator-managed workloads.
 // +kubebuilder:validation:Enum=NonStatic;Static
