@@ -3,7 +3,6 @@ package construct
 import (
 	"fmt"
 	"os"
-	"path"
 	"strconv"
 
 	"go.uber.org/zap"
@@ -13,7 +12,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
-	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
@@ -42,28 +40,17 @@ const (
 	headlessAgentEnv             = "HEADLESS_AGENT"
 	clusterDomainEnv             = "CLUSTER_DOMAIN"
 	monitoringAgentContainerName = "mongodb-agent-monitoring"
-	// Since the Monitoring Agent is created based on Agent's Pod spec (we modfy it using addMonitoringContainer),
-	// We can not reuse "tmp" here - this name is already taken and could lead to a clash. It's better to
-	// come up with a unique name here.
-	tmpSubpathName = "mongodb-agent-monitoring-tmp"
-
-	monitoringAgentHealthStatusFilePathValue = "/var/log/mongodb-mms-automation/healthstatus/monitoring-agent-health-status.json"
 )
 
 type AppDBStatefulSetOptions struct {
 	VaultConfig vault.VaultConfiguration
 	CertHash    string
 
-	InitAppDBImage             string
-	MongodbImage               string
-	AgentImage                 string
-	LegacyMonitoringAgentImage string
+	InitAppDBImage string
+	MongodbImage   string
+	AgentImage     string
 
 	PrometheusTLSCertHash string
-}
-
-func getMonitoringAgentLogOptions(spec om.AppDBSpec) string {
-	return fmt.Sprintf(" -logFile=/var/log/mongodb-mms-automation/monitoring-agent.log -maxLogFileDurationHrs=%d -logLevel=%s", spec.GetAgentMaxLogFileDurationHours(), spec.GetAgentLogLevel())
 }
 
 // getContainerIndexByName returns the index of a container with the given name in a slice of containers.
@@ -235,7 +222,8 @@ func CAConfigMapName(appDb om.AppDBSpec, log *zap.SugaredLogger) string {
 func tlsVolumes(appDb om.AppDBSpec, podVars *env.PodEnvVars, log *zap.SugaredLogger) podtemplatespec.Modification {
 	volumesToAdd, volumeMounts := getTLSVolumesAndVolumeMounts(appDb, podVars, log)
 
-	// Add agent API key volume mount if not using vault and monitoring is enabled
+	// In non-Vault mode the agent-api-key secret is mounted directly so the single agent can read it
+	// for the -mmsApiKey monitoring flag. In Vault mode the key is injected via annotations instead.
 	if !vault.IsVaultSecretBackend() && ShouldEnableMonitoring(podVars) {
 		volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(AgentAPIKeyVolumeName, AgentAPIKeySecretPath))
 	}
@@ -263,7 +251,7 @@ func vaultModification(appDB om.AppDBSpec, podVars *env.PodEnvVars, opts AppDBSt
 	modification := podtemplatespec.NOOP()
 	if vault.IsVaultSecretBackend() {
 		appDBSecretsToInject := vault.AppDBSecretsToInject{Config: opts.VaultConfig}
-		if podVars != nil && podVars.ProjectID != "" {
+		if ShouldEnableMonitoring(podVars) {
 			appDBSecretsToInject.AgentApiKey = agents.ApiKeySecretName(podVars.ProjectID)
 		}
 		if appDB.GetSecurity().IsTLSEnabled() {
@@ -288,7 +276,6 @@ func vaultModification(appDB om.AppDBSpec, podVars *env.PodEnvVars, opts AppDBSt
 
 	} else {
 		if ShouldEnableMonitoring(podVars) {
-			// AGENT-API-KEY volume
 			modification = podtemplatespec.Apply(
 				modification,
 				podtemplatespec.WithVolume(statefulset.CreateVolumeFromSecret(AgentAPIKeyVolumeName, agents.ApiKeySecretName(podVars.ProjectID))),
@@ -358,7 +345,7 @@ func customPersistenceConfig(om *om.MongoDBOpsManager) statefulset.Modification 
 	}
 }
 
-// ShouldEnableMonitoring returns true if we need to add monitoring container (along with volume mounts) in the current reconcile loop.
+// ShouldEnableMonitoring returns true if monitoring should be configured in the automation config's monitoringVersions.
 func ShouldEnableMonitoring(podVars *env.PodEnvVars) bool {
 	return GlobalMonitoringSettingEnabled() && podVars != nil && podVars.ProjectID != ""
 }
@@ -368,7 +355,7 @@ func GlobalMonitoringSettingEnabled() bool {
 	return env.ReadBoolOrDefault(util.OpsManagerMonitorAppDB, util.OpsManagerMonitorAppDBDefault) // nolint:forbidigo
 }
 
-// ShouldMountSSLMMSCAConfigMap returns true if we need to mount MMSCA to monitoring container in the current reconcile loop.
+// ShouldMountSSLMMSCAConfigMap returns true if we need to mount the OM CA configmap to the automation agent for OM TLS connectivity.
 func ShouldMountSSLMMSCAConfigMap(podVars *env.PodEnvVars) bool {
 	return ShouldEnableMonitoring(podVars) && podVars.SSLMMSCAConfigMap != ""
 }
@@ -377,8 +364,6 @@ func ShouldMountSSLMMSCAConfigMap(podVars *env.PodEnvVars) bool {
 func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, opts AppDBStatefulSetOptions, scaler interfaces.MultiClusterReplicaSetScaler, updateStrategyType appsv1.StatefulSetUpdateStrategyType, defaultArchitecture architectures.DefaultArchitecture, log *zap.SugaredLogger) (appsv1.StatefulSet, error) {
 	appDb := &opsManager.Spec.AppDB
 
-	// If we can enable monitoring, let's fill in container modification function
-	monitoringModification := podtemplatespec.NOOP()
 	var podSpec *corev1.PodTemplateSpec
 	if appDb.PodSpec != nil && appDb.PodSpec.PodTemplateWrapper.PodTemplate != nil {
 		podSpec = appDb.PodSpec.PodTemplateWrapper.PodTemplate.DeepCopy()
@@ -386,20 +371,24 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 
 	externalDomain := appDb.GetExternalDomainForMemberCluster(scaler.MemberClusterName())
 
-	if ShouldEnableMonitoring(podVars) {
-		monitoringModification = addMonitoringContainer(*appDb, *podVars, opts, externalDomain, architectures.IsRunningStaticArchitecture(opsManager.Annotations, defaultArchitecture), log)
-	} else {
-		// Otherwise, let's remove for now every podTemplateSpec related to monitoring
-		// We will apply them when enabling monitoring
-		if podSpec != nil {
-			podSpec.Spec.Containers = removeContainerByName(podSpec.Spec.Containers, monitoringAgentContainerName)
+	if podSpec != nil {
+		originalLen := len(podSpec.Spec.Containers)
+		podSpec.Spec.Containers = removeContainerByName(podSpec.Spec.Containers, monitoringAgentContainerName)
+		if len(podSpec.Spec.Containers) < originalLen {
+			log.Warnf("Removed deprecated container %q from user-supplied podTemplateSpec; monitoring is now handled by the single automation agent", monitoringAgentContainerName)
 		}
 	}
 
 	// We copy the Automation Agent command from community and add the agent startup parameters
-	automationAgentCommand := AutomationAgentCommand(architectures.IsRunningStaticArchitecture(opsManager.Annotations, defaultArchitecture), true, opsManager.Spec.AppDB.GetAgentLogLevel(), opsManager.Spec.AppDB.GetAgentLogFile(), opsManager.Spec.AppDB.GetAgentMaxLogFileDurationHours())
+	automationAgentCommand := AutomationAgentCommand(architectures.IsRunningStaticArchitecture(opsManager.Annotations, defaultArchitecture), ShouldEnableMonitoring(podVars), opsManager.Spec.AppDB.GetAgentLogLevel(), opsManager.Spec.AppDB.GetAgentLogFile(), opsManager.Spec.AppDB.GetAgentMaxLogFileDurationHours())
 	idx := len(automationAgentCommand) - 1
 	automationAgentCommand[idx] += appDb.AutomationAgent.StartupParameters.ToCommandLineArgs()
+
+	// Deliver the AppDB monitoring credentials to the single agent as CLI flags (sourced from the
+	// mounted agent-api-key secret via ${AGENT_API_KEY}) instead of embedding them in the automation config.
+	if ShouldEnableMonitoring(podVars) {
+		automationAgentCommand[idx] += " -mmsGroupId=" + podVars.ProjectID + " -mmsApiKey=${AGENT_API_KEY}"
+	}
 
 	automationAgentCommand[idx] += overrideLocalHostFlag(appDb, externalDomain)
 
@@ -515,7 +504,6 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 				),
 				vaultModification(*appDb, podVars, opts),
 				appDbPodSpec(opts.InitAppDBImage, opsManager, defaultArchitecture),
-				monitoringModification,
 				tlsVolumes(*appDb, podVars, log),
 			),
 		),
@@ -549,157 +537,6 @@ func IsEnterprise() bool {
 		return overrideAssumption
 	}
 	return true
-}
-
-// getVolumeMountIndexByName returns the volume mount with the given name from the inut slice.
-// It returns -1 if this doesn't exist
-func getVolumeMountIndexByName(mounts []corev1.VolumeMount, name string) int {
-	for i, mount := range mounts {
-		if mount.Name == name {
-			return i
-		}
-	}
-	return -1
-}
-
-// addMonitoringContainer returns a podtemplatespec modification that adds the monitoring container to the AppDB Statefulset.
-// Note that this replicates some code from the functions that do this for the base AppDB Statefulset. After many iterations
-// this was deemed to be an acceptable compromise to make code clearer and more maintainable.
-func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, opts AppDBStatefulSetOptions, externalDomain *string, isStatic bool, log *zap.SugaredLogger) podtemplatespec.Modification {
-	var monitoringAcVolume corev1.Volume
-	var monitoringACFunc podtemplatespec.Modification
-
-	monitoringConfigMapVolume := statefulset.CreateVolumeFromConfigMap("monitoring-automation-config-goal-version", appDB.MonitoringAutomationConfigConfigMapName())
-	monitoringConfigMapVolumeFunc := podtemplatespec.WithVolume(monitoringConfigMapVolume)
-
-	if vault.IsVaultSecretBackend() {
-		secretsToInject := vault.AppDBSecretsToInject{Config: opts.VaultConfig}
-		secretsToInject.AutomationConfigSecretName = appDB.MonitoringAutomationConfigSecretName()
-		secretsToInject.AutomationConfigPath = util.AppDBMonitoringAutomationConfigKey
-		secretsToInject.AgentType = "monitoring-agent"
-		monitoringACFunc = podtemplatespec.WithAnnotations(secretsToInject.AppDBAnnotations(appDB.Namespace))
-	} else {
-		// Create a volume to store the monitoring automation config.
-		// This is different from the AC for the automation agent, since:
-		// - It contains entries for "MonitoringVersions"
-		// - It has empty entries for ReplicaSets and Processes
-		monitoringAcVolume = statefulset.CreateVolumeFromSecret("monitoring-automation-config", appDB.MonitoringAutomationConfigSecretName())
-		monitoringACFunc = podtemplatespec.WithVolume(monitoringAcVolume)
-	}
-	// Construct the command by concatenating:
-	// 1. The base command - from community
-	command := GetMongodbUserCommandWithAPIKeyExport(isStatic)
-	command += "agent/mongodb-agent"
-	command += " -healthCheckFilePath=" + monitoringAgentHealthStatusFilePathValue
-	command += " -serveStatusPort=5001"
-	command += getMonitoringAgentLogOptions(appDB)
-
-	// 2. Add the cluster config file path
-	// If we are using k8s secrets, this is the same as community (and the same as the other agent container)
-	// But this is not possible in vault so we need two separate paths
-	if vault.IsVaultSecretBackend() {
-		command += " -cluster=/var/lib/automation/config/" + util.AppDBMonitoringAutomationConfigKey
-	} else {
-		command += " -cluster=/var/lib/automation/config/" + util.AppDBAutomationConfigKey
-	}
-
-	// 2. Startup parameters for the agent to enable monitoring
-	startupParams := mdbv1.StartupParameters{
-		"mmsApiKey":  "${AGENT_API_KEY}",
-		"mmsGroupId": podVars.ProjectID,
-	}
-
-	// 3. Startup parameters for the agent to enable TLS
-	if podVars.SSLMMSCAConfigMap != "" {
-		trustedCACertLocation := path.Join(caCertMountPath, util.CaCertMMS)
-		startupParams["sslTrustedMMSServerCertificate"] = trustedCACertLocation
-	}
-
-	if podVars.SSLRequireValidMMSServerCertificates {
-		startupParams["sslRequireValidMMSServerCertificates"] = "true"
-	}
-
-	// 4. Custom startup parameters provided in the CR
-	// By default appDB.AutomationAgent.StartupParameters apply to both agents
-	// if appDB.MonitoringAgent.StartupParameters is specified, it overrides the former
-	monitoringStartupParams := appDB.AutomationAgent.StartupParameters
-	if appDB.MonitoringAgent.StartupParameters != nil {
-		monitoringStartupParams = appDB.MonitoringAgent.StartupParameters
-	}
-
-	for k, v := range monitoringStartupParams {
-		startupParams[k] = v
-	}
-
-	command += startupParams.ToCommandLineArgs()
-
-	command += overrideLocalHostFlag(&appDB, externalDomain)
-
-	monitoringCommand := []string{"/bin/bash", "-c", command}
-
-	// Add additional TLS volumes if needed
-	_, monitoringMounts := getTLSVolumesAndVolumeMounts(appDB, &podVars, log)
-
-	return podtemplatespec.Apply(
-		monitoringACFunc,
-		monitoringConfigMapVolumeFunc,
-		// This is a function that reads the automation agent containers, copies it and modifies it.
-		// We do this since the two containers are very similar with just a few differences
-		func(podTemplateSpec *corev1.PodTemplateSpec) {
-			monitoringContainer := podtemplatespec.FindContainerByName(util.AgentContainerName, podTemplateSpec).DeepCopy()
-			monitoringContainer.Name = monitoringAgentContainerName
-
-			// we ensure that the monitoring agent image is compatible with the input of Ops Manager we're using.
-			// once we make static containers the default, we can remove this code.
-			if opts.LegacyMonitoringAgentImage != "" {
-				monitoringContainer.Image = opts.LegacyMonitoringAgentImage
-			}
-
-			// Replace the automation config volume
-			volumeMounts := monitoringContainer.VolumeMounts
-			if !vault.IsVaultSecretBackend() {
-				// Replace the automation config volume
-				acMountIndex := getVolumeMountIndexByName(volumeMounts, "automation-config")
-				if acMountIndex != -1 {
-					volumeMounts[acMountIndex].Name = monitoringAcVolume.Name
-				}
-			}
-
-			configMapIndex := getVolumeMountIndexByName(volumeMounts, "automation-config-goal-input")
-			if configMapIndex != -1 {
-				volumeMounts[configMapIndex].Name = monitoringConfigMapVolume.Name
-			}
-
-			tmpVolumeMountIndex := getVolumeMountIndexByName(volumeMounts, util.PvcNameTmp)
-			if tmpVolumeMountIndex != -1 {
-				volumeMounts[tmpVolumeMountIndex].SubPath = tmpSubpathName
-			}
-
-			// Set up custom persistence options - see customPersistenceConfig() for an explanation
-			if appDB.HasSeparateDataAndLogsVolumes() {
-				journalVolumeMounts := statefulset.CreateVolumeMount(util.PvcNameJournal, util.PvcMountPathJournal)
-				volumeMounts = append(volumeMounts, journalVolumeMounts)
-			} else {
-				logsVolumeMount := statefulset.CreateVolumeMount(appDB.DataVolumeName(), util.PvcMountPathLogs, statefulset.WithSubPath(appDB.LogsVolumeName()))
-				journalVolumeMount := statefulset.CreateVolumeMount(appDB.DataVolumeName(), util.PvcMountPathJournal, statefulset.WithSubPath(util.PvcNameJournal))
-				volumeMounts = append(volumeMounts, journalVolumeMount, logsVolumeMount)
-			}
-
-			if !vault.IsVaultSecretBackend() {
-				// AGENT_API_KEY volume
-				volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(AgentAPIKeyVolumeName, AgentAPIKeySecretPath))
-			}
-			container.Apply(
-				container.WithVolumeMounts(volumeMounts),
-				container.WithCommand(monitoringCommand),
-				container.WithResourceRequirements(buildRequirementsFromPodSpec(*NewDefaultPodSpecWrapper(*appDB.PodSpec))),
-				container.WithVolumeMounts(monitoringMounts),
-				container.WithEnvs(appdbContainerEnv(appDB)...),
-				container.WithEnvs(readinessEnvironmentVariablesToEnvVars(appDB.AutomationAgent.ReadinessProbe.EnvironmentVariables)...),
-			)(monitoringContainer)
-			podTemplateSpec.Spec.Containers = append(podTemplateSpec.Spec.Containers, *monitoringContainer)
-		},
-	)
 }
 
 // appdbContainerEnv returns the set of env var needed by the AppDB.
