@@ -245,7 +245,7 @@ run_tests() {
     echo
 
     # We need to make sure to access this file after the test has finished
-    kubectl --context "${test_pod_context}" -n "${NAMESPACE}" -c keepalive cp "${TEST_APP_PODNAME}":/tmp/results/myreport.xml logs/myreport.xml
+    kubectl --context "${test_pod_context}" -n "${NAMESPACE}" -c keepalive cp "${TEST_APP_PODNAME}":/tmp/results/myreport.xml logs/myreport.xml || true
     if ! kubectl --context "${test_pod_context}" -n "${NAMESPACE}" -c keepalive cp "${TEST_APP_PODNAME}":/tmp/results/pytest-debug.log logs/pytest-debug.log; then
         echo "WARN: kubectl cp pytest-debug.log failed (exit=$?); attempting fallback via kubectl logs"
         kubectl --context "${test_pod_context}" -n "${NAMESPACE}" logs "${TEST_APP_PODNAME}" -c keepalive > logs/pytest-debug.log 2>&1 \

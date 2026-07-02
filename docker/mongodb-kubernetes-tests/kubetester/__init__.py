@@ -425,12 +425,14 @@ def get_pod_when_running(
     namespace: str,
     label_selector: str,
     api_client: Optional[kubernetes.client.ApiClient] = None,
+    timeout: int = 600,
 ) -> client.V1Pod:
     """
     Returns a Pod that matches label_selector. It will block until the Pod is in
-    Running state.
+    Running state or timeout is reached.
     """
-    while True:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
         time.sleep(3)
 
         try:
@@ -447,6 +449,10 @@ def get_pod_when_running(
             # The Pod might not exist in Kubernetes yet so skip any 404
             if e.status != 404:
                 raise
+
+    raise Exception(
+        f"Timeout ({timeout}s) waiting for pod with label_selector '{label_selector}' in namespace '{namespace}' to be Running"
+    )
 
 
 def get_pod_when_ready(
