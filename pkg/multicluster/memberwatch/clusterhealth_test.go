@@ -112,13 +112,13 @@ func TestAnnotationIsAdded(t *testing.T) {
 
 		go checker.WatchMemberClusterHealth(ctx, zap.S(), watchChannel, central, nil)
 
-		require.Eventually(t, func() bool {
-			got := &mdbmulti.MongoDBMultiCluster{}
-			if err := fakeClient.Get(ctx, types.NamespacedName{Name: "mdbmc", Namespace: "ns"}, got); err != nil {
-				return false
-			}
-			return isInFailedClusterAnnotation(got.Annotations, "cluster1")
-		}, 5*time.Second, 50*time.Millisecond)
+		// Let the watcher run its health-check iteration to completion and block on the
+		// next 10s tick, so the annotation write from this iteration has already happened.
+		synctest.Wait()
+
+		got := &mdbmulti.MongoDBMultiCluster{}
+		require.NoError(t, fakeClient.Get(ctx, types.NamespacedName{Name: "mdbmc", Namespace: "ns"}, got))
+		assert.True(t, isInFailedClusterAnnotation(got.Annotations, "cluster1"))
 	})
 }
 
@@ -183,14 +183,13 @@ func TestNoEventBeforeStreakThreshold(t *testing.T) {
 
 		go checker.WatchMemberClusterHealth(ctx, zap.S(), watchChannel, central, nil)
 
-		assert.Never(t, func() bool {
-			return len(watchChannel) > 0
-		}, 500*time.Millisecond, 50*time.Millisecond)
+		// Let the watcher run its health-check iteration to completion and block on the
+		// next 10s tick, so this iteration's streak update has already happened.
+		synctest.Wait()
 
-		// Confirm the health check ran and incremented the streak without crossing the threshold.
-		assert.Eventually(t, func() bool {
-			return checker.HealthyStreakFor("cluster1") == testRequiredHealthyStreak-1
-		}, 5*time.Second, 50*time.Millisecond)
+		// The health check ran and incremented the streak without crossing the threshold.
+		assert.Equal(t, testRequiredHealthyStreak-1, checker.HealthyStreakFor("cluster1"))
+		assert.Empty(t, watchChannel)
 	})
 }
 
@@ -214,14 +213,13 @@ func TestNoEventWhenStreakAtCapWithoutAnnotation(t *testing.T) {
 
 		go checker.WatchMemberClusterHealth(ctx, zap.S(), watchChannel, central, nil)
 
-		assert.Never(t, func() bool {
-			return len(watchChannel) > 0
-		}, 500*time.Millisecond, 50*time.Millisecond)
+		// Let the watcher run its health-check iteration to completion and block on the
+		// next 10s tick, so this iteration's streak update has already happened.
+		synctest.Wait()
 
-		// Confirm the streak stayed capped and didn't wrap or overflow.
-		assert.Eventually(t, func() bool {
-			return checker.HealthyStreakFor("cluster1") == testRequiredHealthyStreak
-		}, 5*time.Second, 50*time.Millisecond)
+		// The streak stayed capped and didn't wrap or overflow.
+		assert.Equal(t, testRequiredHealthyStreak, checker.HealthyStreakFor("cluster1"))
+		assert.Empty(t, watchChannel)
 	})
 }
 
@@ -286,14 +284,13 @@ func TestNoEventWhenClusterNotInAnnotationAtThreshold(t *testing.T) {
 
 		go checker.WatchMemberClusterHealth(ctx, zap.S(), watchChannel, central, nil)
 
-		assert.Never(t, func() bool {
-			return len(watchChannel) > 0
-		}, 500*time.Millisecond, 50*time.Millisecond)
+		// Let the watcher run its health-check iteration to completion and block on the
+		// next 10s tick, so this iteration's streak update has already happened.
+		synctest.Wait()
 
-		// Confirm the streak reached the threshold even though no event was fired (no annotation present).
-		assert.Eventually(t, func() bool {
-			return checker.HealthyStreakFor("cluster1") == testRequiredHealthyStreak
-		}, 5*time.Second, 50*time.Millisecond)
+		// The streak reached the threshold even though no event was fired (no annotation present).
+		assert.Equal(t, testRequiredHealthyStreak, checker.HealthyStreakFor("cluster1"))
+		assert.Empty(t, watchChannel)
 	})
 }
 
@@ -418,10 +415,12 @@ func TestFailedClusterAnnotationStaysWhenPerformFailoverTrue(t *testing.T) {
 
 		go checker.WatchMemberClusterHealth(ctx, zap.S(), watchChannel, central, nil)
 
-		assert.Never(t, func() bool {
-			return len(watchChannel) > 0
-		}, 500*time.Millisecond, 50*time.Millisecond)
-		assert.Never(t, func() bool { return checker.HealthyStreakFor("cluster1") > 0 }, 500*time.Millisecond, 50*time.Millisecond)
+		// Let the watcher run its health-check iteration to completion and block on the
+		// next 10s tick, so this iteration's (lack of) streak update has already happened.
+		synctest.Wait()
+
+		assert.Empty(t, watchChannel)
+		assert.Equal(t, 0, checker.HealthyStreakFor("cluster1"))
 
 		got := &mdbmulti.MongoDBMultiCluster{}
 		require.NoError(t, fakeClient.Get(ctx, types.NamespacedName{Name: "mdbmc", Namespace: "ns"}, got))
