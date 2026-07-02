@@ -51,6 +51,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct/scalers/interfaces"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/controlledfeature"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/create"
+	opMigration "github.com/mongodb/mongodb-kubernetes/controllers/operator/migration"
 	enterprisepem "github.com/mongodb/mongodb-kubernetes/controllers/operator/pem"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/project"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/recovery"
@@ -923,8 +924,43 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 
 	r.automationAgentVersion = automationAgentVersion
 
+	// Connectivity dry-run: handle before any reconciliation that modifies state.
+	if sc.Annotations[opMigration.AnnotationDryRun] == "true" {
+		if result := controlledfeature.ClearFeatureControls(conn, conn.OpsManagerVersion(), log); !result.IsOK() {
+			result.Log(log)
+			log.Warnf("Failed to clear feature control from group: %s", conn.GroupID())
+		}
+		operatorImage := r.imageUrls[util.OperatorImageEnv]
+		if operatorImage == "" {
+			return r.updateStatus(ctx, sc, workflow.Failed(fmt.Errorf("cannot run connectivity dry-run: operator image unknown (set %s or deploy operator from Helm chart)", util.OperatorImageEnv)).
+				WithAdditionalOptions(mdbstatus.NewMigrationConditionOption(mdbstatus.MigrationCondition(
+					mdbstatus.MigrationPhaseConnectivityCheckFailed, "OperatorImageUnknown",
+					"Set MDB_OPERATOR_IMAGE or deploy with the Helm chart so the operator image is available for the validation Job.",
+				))), log)
+		}
+		currentAgentAuthMode, err := conn.GetAgentAuthMode()
+		if err != nil {
+			return r.updateStatus(ctx, sc, workflow.Failed(err), log)
+		}
+		var databaseSecretPath string
+		if r.commonController.VaultClient != nil {
+			databaseSecretPath = r.commonController.VaultClient.DatabaseSecretPath()
+		}
+		agentCertSecretName := sc.GetSecurity().AgentClientCertificateSecretName(sc.Name)
+		agentCertHash, defaultAgentCertPath := r.commonController.agentCertHashAndPath(ctx, log, sc.Namespace, agentCertSecretName, databaseSecretPath)
+		agentCertPath := EffectiveAgentCertPEMPath(defaultAgentCertPath, sc.Spec.GetSecurity())
+		opts := deploymentOptions{
+			podEnvVars:           newPodVars(conn, projectConfig, sc.Spec.LogLevel),
+			currentAgentAuthMode: currentAgentAuthMode,
+			caFilePath:           util.CAFilePathInContainer,
+			agentCertPath:        agentCertPath,
+			agentCertHash:        agentCertHash,
+		}
+		return r.updateStatus(ctx, sc, r.runConnectivityValidationDryRun(ctx, sc, opts, operatorImage, log), log)
+	}
+
 	workflowStatus := r.doShardedClusterProcessing(ctx, sc, conn, projectConfig, log)
-	if !workflowStatus.IsOK() || workflowStatus.Phase() == mdbstatus.PhaseUnsupported {
+	if !workflowStatus.IsOK() || workflowStatus.Phase() == mdbstatus.PhaseUnsupported || workflowStatus.Phase() == mdbstatus.PhaseConnectivityValidation {
 		return r.updateStatus(ctx, sc, workflowStatus, log)
 	}
 
@@ -2695,6 +2731,52 @@ func (r *ShardedClusterReconcileHelper) migrateToNewDeploymentState(sc *mdbv1.Mo
 	}
 
 	return nil
+}
+
+// runConnectivityValidationDryRun launches (or polls) a connectivity-validator Kubernetes Job
+// that checks whether all external MongoDB members in the current Ops Manager deployment are
+// reachable from within the cluster. No StatefulSets or Ops Manager config are modified.
+// The Job is built from the mongos StatefulSet spec so it uses the same credentials volumes and
+// mounts as the mongos STS. Sharded cluster clients connect through mongos, so the connection
+// string targets external mongos members and the validator pings each external member directly.
+//
+// The MongoDB resource phase stays PhaseConnectivityValidation for both in-progress and passed
+// outcomes; the migration condition carries ConnectivityCheckRunning or ConnectivityCheckPassed.
+func (r *ShardedClusterReconcileHelper) runConnectivityValidationDryRun(ctx context.Context, sc *mdbv1.MongoDB, opts deploymentOptions, operatorImage string, log *zap.SugaredLogger) workflow.Status {
+	healthyClusters := getHealthyMemberClusters(r.mongosMemberClusters)
+	if len(healthyClusters) == 0 {
+		return workflow.Failed(fmt.Errorf("connectivity dry-run: no healthy mongos member cluster available")).
+			WithAdditionalOptions(mdbstatus.NewMigrationConditionOption(mdbstatus.MigrationCondition(
+				mdbstatus.MigrationPhaseConnectivityCheckFailed, "NoHealthyMemberCluster",
+				"No healthy mongos member cluster is available to build the validation Job.",
+			)))
+	}
+
+	mongosHostnames := make([]string, 0)
+	for _, m := range sc.Spec.GetExternalMembers() {
+		if m.Type == "mongos" {
+			mongosHostnames = append(mongosHostnames, m.Hostname)
+		}
+	}
+	if len(mongosHostnames) == 0 {
+		return workflow.Failed(fmt.Errorf("connectivity dry-run: no external mongos members configured")).
+			WithAdditionalOptions(mdbstatus.NewMigrationConditionOption(mdbstatus.MigrationCondition(
+				mdbstatus.MigrationPhaseConnectivityCheckFailed, "NoExternalMongos",
+				"No external mongos members are configured. Add mongos external members to spec.externalMembers before running the connectivity dry-run.",
+			)))
+	}
+
+	mongosOptsFunc := r.getMongosOptions(ctx, *sc, opts, log, healthyClusters[0])
+	sts := construct.DatabaseStatefulSet(*sc, mongosOptsFunc, log)
+	connectionString := fmt.Sprintf("mongodb://%s/", strings.Join(mongosHostnames, ","))
+
+	allHostnames := make([]string, 0, len(sc.Spec.GetExternalMembers()))
+	for _, m := range sc.Spec.GetExternalMembers() {
+		allHostnames = append(allHostnames, m.Hostname)
+	}
+
+	dryRunStatus := r.commonController.runConnectivityJob(ctx, sc, &sts, connectionString, allHostnames, opts.currentAgentAuthMode, opts.agentCertHash, operatorImage, log)
+	return dryRunStatus
 }
 
 func (r *ShardedClusterReconcileHelper) updateStatus(ctx context.Context, resource *mdbv1.MongoDB, status workflow.Status, log *zap.SugaredLogger, statusOptions ...mdbstatus.Option) (reconcile.Result, error) {
