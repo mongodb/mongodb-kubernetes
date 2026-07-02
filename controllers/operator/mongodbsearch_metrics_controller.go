@@ -67,7 +67,7 @@ const (
 	// metricsForwarderMinOpsManagerVersion is the minimum self-hosted Ops Manager version that
 	// supports the metrics forwarding ingest endpoint. Versions below this do not expose the
 	// endpoint, so the forwarder cannot function correctly against them.
-	metricsForwarderMinOpsManagerVersion = "8.0.24"
+	metricsForwarderMinOpsManagerVersion = "8.0.25"
 
 	// how long to wait before re-checking whether removed mongot
 	// pods have terminated so their Ops Manager hosts can be safely deregistered.
@@ -561,7 +561,7 @@ func (r omHTTPAgentRequester) GetOMVersion(projectConfig mdbv1.ProjectConfig) (v
 }
 
 // checkOMVersionForMetricsEndpoint verifies that the Ops Manager instance reachable via projectConfig
-// supports the metrics forwarding ingest endpoint (requires >= 8.0.24). It returns (false, status)
+// supports the metrics forwarding ingest endpoint (requires >= 8.0.25). It returns (false, status)
 // when the forwarder must not proceed, and (true, workflow.OK()) when it may.
 //
 // The connection is "explicit" when the user directly populated .spec.observability.metricsForwarder.opsManager
@@ -572,7 +572,7 @@ func (r omHTTPAgentRequester) GetOMVersion(projectConfig mdbv1.ProjectConfig) (v
 //   - OM unreachable (fetch error):          Pending — retries on the next reconcile.
 //   - Unknown version or unparseable semver: Implicit → Unsupported; Explicit → Failed.
 //   - Cloud Manager connection:              Implicit → Unsupported; Explicit → Failed.
-//   - Self-hosted OM version < 8.0.24:      Implicit → Unsupported; Explicit → Failed.
+//   - Self-hosted OM version < 8.0.25:      Implicit → Unsupported; Explicit → Failed.
 func (r *MongoDBSearchMetricsForwarderReconciler) checkOMVersionForMetricsEndpoint(mdbSearch *searchv1.MongoDBSearch, projectConfig mdbv1.ProjectConfig, log *zap.SugaredLogger) (bool, workflow.Status) {
 	explicit := mdbSearch.MetricsForwarderHasExplicitProjectConfig()
 

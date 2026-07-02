@@ -145,7 +145,7 @@ func (s stubOMAgentRequester) GetOMVersion(projectConfig mdbv1.ProjectConfig) (v
 
 // newStubOMAgentRequester returns a requester that resolves the group API to the given groupID and
 // treats every host deletion as a no-op success. The OM version defaults to the minimum supported
-// version (8.0.24) so existing tests are unaffected.
+// version (8.0.25) so existing tests are unaffected.
 func newStubOMAgentRequester(groupID string) stubOMAgentRequester {
 	return stubOMAgentRequester{
 		fn: func(_ mdbv1.ProjectConfig, method, path, _ string, _ any) ([]byte, error) {
@@ -1413,7 +1413,7 @@ func TestMetricsForwarder_OMVersionTooOld_ImplicitConnection(t *testing.T) {
 	updatedSearch := getMongoDBSearch(t, fakeClient, testNamespace, testSearchName)
 	require.NotNil(t, updatedSearch.Status.MetricsForwarder)
 	assert.Equal(t, status.PhaseUnsupported, updatedSearch.Status.MetricsForwarder.Phase)
-	assert.Contains(t, updatedSearch.Status.MetricsForwarder.Message, "8.0.24")
+	assert.Contains(t, updatedSearch.Status.MetricsForwarder.Message, metricsForwarderMinOpsManagerVersion)
 
 	// No Deployment must exist.
 	dep := &appsv1.Deployment{}
@@ -1438,7 +1438,7 @@ func TestMetricsForwarder_OMVersionTooOld_ExplicitConnection(t *testing.T) {
 	updatedSearch := getMongoDBSearch(t, fakeClient, testNamespace, testSearchName)
 	require.NotNil(t, updatedSearch.Status.MetricsForwarder)
 	assert.Equal(t, status.PhaseFailed, updatedSearch.Status.MetricsForwarder.Phase)
-	assert.Contains(t, updatedSearch.Status.MetricsForwarder.Message, "8.0.24")
+	assert.Contains(t, updatedSearch.Status.MetricsForwarder.Message, metricsForwarderMinOpsManagerVersion)
 
 	dep := &appsv1.Deployment{}
 	err := fakeClient.Get(context.Background(), types.NamespacedName{Namespace: testNamespace, Name: search.MetricsForwarderDeploymentNameForCluster(0)}, dep)
@@ -1461,7 +1461,7 @@ func TestMetricsForwarder_ExternalSource_OMVersionTooOld(t *testing.T) {
 	updatedSearch := getMongoDBSearch(t, fakeClient, testNamespace, testSearchName)
 	require.NotNil(t, updatedSearch.Status.MetricsForwarder)
 	assert.Equal(t, status.PhaseFailed, updatedSearch.Status.MetricsForwarder.Phase)
-	assert.Contains(t, updatedSearch.Status.MetricsForwarder.Message, "8.0.24")
+	assert.Contains(t, updatedSearch.Status.MetricsForwarder.Message, metricsForwarderMinOpsManagerVersion)
 }
 
 // TestMetricsForwarder_CloudManager_ImplicitConnection: implicit connection pointing at Cloud Manager.
@@ -1519,8 +1519,8 @@ func TestMetricsForwarder_OMVersionSupported(t *testing.T) {
 	agentKeySecret := newTestAgentKeySecret(testGroupID+"-group-secret", testNamespace)
 
 	r, fakeClient := newMetricsForwarderReconciler(testDefaultImage, mdb, search, projectCM, agentKeySecret)
-	// Default stub already returns 8.0.24; being explicit here for clarity.
-	r.omRequester = newStubOMAgentRequesterWithVersion(testGroupID, versionutil.OpsManagerVersion{VersionString: "8.0.24"})
+	// Default stub already returns 8.0.25; being explicit here for clarity.
+	r.omRequester = newStubOMAgentRequesterWithVersion(testGroupID, versionutil.OpsManagerVersion{VersionString: metricsForwarderMinOpsManagerVersion})
 
 	reconcileMetricsForwarder(t, r, testNamespace, testSearchName)
 
