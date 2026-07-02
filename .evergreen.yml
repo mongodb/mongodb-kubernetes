@@ -342,6 +342,7 @@ tasks:
         params:
           expansion_name: GH_TOKEN
       - func: setup_chart_testing_cli
+      - func: setup_prek
       - command: subprocess.exec
         type: setup
         params:

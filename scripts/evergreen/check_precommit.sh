@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# CI script to run pre-commit checks in Evergreen.
+# CI script to run prek checks in Evergreen.
 # This script is called by the Evergreen CI pipeline.
 #
 
@@ -14,10 +14,10 @@ if [ -f "${PROJECT_DIR}/venv/bin/activate" ]; then
   source "${PROJECT_DIR}/venv/bin/activate"
 fi
 
-# Ensure pre-commit is installed
-if ! command -v pre-commit &>/dev/null; then
-  echo "pre-commit not found, installing..."
-  pip install pre-commit
+# Ensure prek is installed
+if ! command -v prek &>/dev/null; then
+  echo "prek not found, please run scripts/evergreen/setup_prek.sh first" >&2
+  exit 1
 fi
 
 title "Running pre-commit checks"
@@ -28,9 +28,9 @@ export EVERGREEN_MODE=true
 # Store the current state of the index and working directory
 initial_index_state=$(git diff --name-only --cached --diff-filter=AM)
 
-# Run pre-commit on all files
+# Run prek on all files
 # --show-diff-on-failure shows what changes hooks would make
-pre-commit run --all-files --show-diff-on-failure
+prek run --all-files --show-diff-on-failure
 echo "Pre-commit hook has completed."
 
 # Stage any changes made by the pre-commit hook

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Git pre-commit hook that delegates to the pre-commit framework.
+# Git pre-commit hook that delegates to the prek framework.
 # This file is kept for backwards compatibility with existing dev setups.
 #
 # To set up: git config core.hooksPath .githooks
@@ -10,9 +10,5 @@ set -Eeou pipefail
 
 source scripts/dev/set_env_context.sh
 
-if [ -f "${PROJECT_DIR}/venv/bin/activate" ]; then
-  source "${PROJECT_DIR}/venv/bin/activate"
-fi
-
-# Run pre-commit framework
-exec pre-commit run --all-files
+# Run prek framework
+exec prek -a
