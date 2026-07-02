@@ -48,11 +48,13 @@ func runUsers(t *testing.T, ac *om.AutomationConfig, opts GenerateOptions) strin
 // fixture is the shared path stem for input + outputs, e.g. "singlecluster/replicaset/foo/foo".
 // The runner derives "<fixture>_input.json", "<fixture>_mongodb_cr.yaml", and "<fixture>_users.yaml" (when hasUsers).
 // opts is layered on top of defaultGenerateOptions, so cases only need to set fields that differ.
+// When wantErr is non-empty, the test expects generateMongodbObjects to return an error containing that string.
 type fixtureCase struct {
 	name     string
 	fixture  string
 	hasUsers bool
 	opts     GenerateOptions
+	wantErr  string
 }
 
 // withDefaultBoilerplate fills in the credentials secret name and OM config-map name unless the case set them.
@@ -107,8 +109,13 @@ func TestFixtureMatch_ReplicaSet(t *testing.T) {
 			fixture: "singlecluster/replicaset/authentication/disabled/disabled",
 		},
 		{
-			name:     "SCRAM-SHA-256 auth generates user CRs with password secrets",
+			name:     "SCRAM-SHA-256 auth generates user CRs with password secrets and maps custom roles",
 			fixture:  "singlecluster/replicaset/authentication/scram_sha256/scram_sha256",
+			hasUsers: true,
+		},
+		{
+			name:     "SCRAM-SHA-1 auth generates user CRs with password secrets",
+			fixture:  "singlecluster/replicaset/authentication/scram_sha1/scram_sha1",
 			hasUsers: true,
 		},
 		{
@@ -118,9 +125,36 @@ func TestFixtureMatch_ReplicaSet(t *testing.T) {
 			opts:     GenerateOptions{CertsSecretPrefix: "mdb"},
 		},
 		{
-			name:    "X509-only auth with keyFile internal cluster auth",
-			fixture: "singlecluster/replicaset/authentication/x509_only/x509_only",
-			opts:    GenerateOptions{CertsSecretPrefix: "mdb"},
+			name:     "X509-only auth: external agent skipped, app user CR generated, keyFile internal cluster",
+			fixture:  "singlecluster/replicaset/authentication/x509_only/x509_only",
+			hasUsers: true,
+			opts:     GenerateOptions{CertsSecretPrefix: "mdb"},
+		},
+		{
+			name:     "LDAP auth: ldap section + agent password secret generated, external agent skipped, app user CR generated",
+			fixture:  "singlecluster/replicaset/authentication/ldap/ldap",
+			hasUsers: true,
+		},
+		{
+			name:     "OIDC auth: workforce and workload provider configs mapped, SCRAM agent and app user",
+			fixture:  "singlecluster/replicaset/authentication/oidc/oidc",
+			hasUsers: true,
+		},
+		{
+			name:    "Prometheus (HTTP) generates spec.prometheus referencing the password secret with no TLS ref",
+			fixture: "singlecluster/replicaset/prometheus/prometheus",
+			opts:    GenerateOptions{PrometheusSecretName: PrometheusPasswordSecretName, PrometheusPassword: "prom-password"},
+		},
+		{
+			name:    "Prometheus (HTTPS) generates spec.prometheus with a TLS secret ref",
+			fixture: "singlecluster/replicaset/prometheus_https/prometheus_https",
+			opts:    GenerateOptions{PrometheusSecretName: PrometheusPasswordSecretName, PrometheusPassword: "prom-password"},
+		},
+		{
+			name:    "Prometheus password mismatch is rejected",
+			fixture: "singlecluster/replicaset/prometheus/prometheus",
+			opts:    GenerateOptions{PrometheusSecretName: PrometheusPasswordSecretName, PrometheusPassword: "wrong-password"},
+			wantErr: "does not match the password",
 		},
 		{
 			name:    "member tags are preserved in externalMembers",
@@ -136,6 +170,13 @@ func runFixtureCases(t *testing.T, cases []fixtureCase) {
 		t.Run(tt.name, func(t *testing.T) {
 			opts := withDefaultBoilerplate(tt.opts)
 			ac := loadTestAutomationConfig(t, tt.fixture+"_input.json")
+
+			if tt.wantErr != "" {
+				_, err := generateMongodbObjects(ac, opts)
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErr)
+				return
+			}
 
 			mongodbOutput := runMongodb(t, ac, opts)
 			checkOrUpdateFixture(t, "testdata/"+tt.fixture+"_mongodb_cr.yaml", mongodbOutput)

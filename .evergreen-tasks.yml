@@ -311,6 +311,56 @@ tasks:
     commands:
       - func: "e2e_test"
 
+  - name: e2e_vm_migration_replicaset_scram_sha256
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_replicaset_scram_sha1
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_replicaset_scram_sha256_tls
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_replicaset_no_auth
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_replicaset_x509
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_replicaset_ldap
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_replicaset_prometheus
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_replicaset_oidc
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_replicaset_oidc_group
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_replicaset_oidc_workforce
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
   - name: e2e_replica_set_statefulset_status
     tags: [ "patch-run" ]
     commands:
@@ -1377,17 +1427,7 @@ tasks:
     commands:
       - func: "e2e_test"
 
-  - name: e2e_vm_migration
-    tags: [ "patch-run" ]
-    commands:
-      - func: "e2e_test"
-
   - name: e2e_vm_migration_sharded
-    tags: [ "patch-run" ]
-    commands:
-      - func: "e2e_test"
-
-  - name: e2e_vm_migration_x509
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
@@ -1396,6 +1436,7 @@ tasks:
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
+
 
   - name: e2e_search_sharded_internal_mongodb_multi_mongot_unmanaged_lb
     tags: [ "patch-run" ]
@@ -1467,11 +1508,6 @@ tasks:
       - func: "e2e_test"
 
   - name: e2e_search_sharded_openshift_external
-    tags: [ "patch-run" ]
-    commands:
-      - func: "e2e_test"
-
-  - name: e2e_vm_migration_tls_scram
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"

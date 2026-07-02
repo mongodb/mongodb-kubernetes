@@ -10,9 +10,21 @@
       {
         "user": "mms-automation-agent",
         "db": "admin",
-        "roles": [{"role": "root", "db": "admin"}],
-        "mechanisms": ["SCRAM-SHA-256"],
-        "scramSha256Creds": {"iterationCount": 15000, "salt": "abc", "serverKey": "skey", "storedKey": "stkey"},
+        "roles": [
+          {
+            "role": "root",
+            "db": "admin"
+          }
+        ],
+        "mechanisms": [
+          "SCRAM-SHA-256"
+        ],
+        "scramSha256Creds": {
+          "iterationCount": 15000,
+          "salt": "abc",
+          "serverKey": "skey",
+          "storedKey": "stkey"
+        },
         "scramSha1Creds": null,
         "authenticationRestrictions": []
       },
@@ -20,11 +32,24 @@
         "user": "app-user",
         "db": "admin",
         "roles": [
-          {"role": "readWrite", "db": "myapp"},
-          {"role": "read", "db": "reporting"}
+          {
+            "role": "readWrite",
+            "db": "myapp"
+          },
+          {
+            "role": "read",
+            "db": "reporting"
+          }
         ],
-        "mechanisms": ["SCRAM-SHA-256"],
-        "scramSha256Creds": {"iterationCount": 15000, "salt": "def", "serverKey": "skey2", "storedKey": "stkey2"},
+        "mechanisms": [
+          "SCRAM-SHA-256"
+        ],
+        "scramSha256Creds": {
+          "iterationCount": 15000,
+          "salt": "def",
+          "serverKey": "skey2",
+          "storedKey": "stkey2"
+        },
         "scramSha1Creds": null,
         "authenticationRestrictions": []
       },
@@ -32,7 +57,10 @@
         "user": "CN=x509-client,O=MongoDB",
         "db": "$external",
         "roles": [
-          {"role": "readWrite", "db": "secure-db"}
+          {
+            "role": "readWrite",
+            "db": "secure-db"
+          }
         ],
         "mechanisms": [],
         "scramSha256Creds": null,
@@ -43,7 +71,10 @@
         "user": "ldap-reader",
         "db": "$external",
         "roles": [
-          {"role": "read", "db": "reporting"}
+          {
+            "role": "read",
+            "db": "reporting"
+          }
         ],
         "mechanisms": [],
         "scramSha256Creds": null,
@@ -54,8 +85,15 @@
     "usersDeleted": [],
     "disabled": false,
     "authoritativeSet": false,
-    "deploymentAuthMechanisms": ["SCRAM-SHA-256", "MONGODB-X509", "PLAIN", "MONGODB-OIDC"],
-    "autoAuthMechanisms": ["SCRAM-SHA-256"],
+    "deploymentAuthMechanisms": [
+      "SCRAM-SHA-256",
+      "MONGODB-X509",
+      "PLAIN",
+      "MONGODB-OIDC"
+    ],
+    "autoAuthMechanisms": [
+      "SCRAM-SHA-256"
+    ],
     "autoAuthMechanism": "SCRAM-SHA-256",
     "autoUser": "mms-automation-agent",
     "autoAuthRestrictions": []
@@ -120,17 +158,26 @@
     {
       "hostname": "vm-mongo-0.prod.example.com",
       "name": "13.48.0.10348-1",
-      "logRotate": {"sizeThresholdMB": 500, "timeThresholdHrs": 12}
+      "logRotate": {
+        "sizeThresholdMB": 500,
+        "timeThresholdHrs": 12
+      }
     },
     {
       "hostname": "vm-mongo-1.prod.example.com",
       "name": "13.48.0.10348-1",
-      "logRotate": {"sizeThresholdMB": 500, "timeThresholdHrs": 12}
+      "logRotate": {
+        "sizeThresholdMB": 500,
+        "timeThresholdHrs": 12
+      }
     },
     {
       "hostname": "vm-mongo-2.prod.example.com",
       "name": "13.48.0.10348-1",
-      "logRotate": {"sizeThresholdMB": 500, "timeThresholdHrs": 12}
+      "logRotate": {
+        "sizeThresholdMB": 500,
+        "timeThresholdHrs": 12
+      }
     }
   ],
   "oidcProviderConfigs": [
@@ -139,7 +186,11 @@
       "audience": "api://mongodb-cluster",
       "issuerUri": "https://dev-123456.okta.com/oauth2/default",
       "clientId": "0oa1abc2def3ghi4j567",
-      "requestedScopes": ["openid", "profile", "groups"],
+      "requestedScopes": [
+        "openid",
+        "profile",
+        "groups"
+      ],
       "userClaim": "sub",
       "groupsClaim": "groups",
       "supportsHumanFlows": true,
@@ -211,9 +262,6 @@
           "destination": "file",
           "path": "/var/log/mongodb/mongod.log",
           "logAppend": true
-        },
-        "setParameter": {
-          "authenticationMechanisms": "SCRAM-SHA-256,PLAIN"
         },
         "auditLog": {
           "destination": "file",
@@ -289,9 +337,6 @@
           "path": "/var/log/mongodb/mongod.log",
           "logAppend": true
         },
-        "setParameter": {
-          "authenticationMechanisms": "SCRAM-SHA-256,PLAIN"
-        },
         "auditLog": {
           "destination": "file",
           "format": "JSON",
@@ -366,9 +411,6 @@
           "path": "/var/log/mongodb/mongod.log",
           "logAppend": true
         },
-        "setParameter": {
-          "authenticationMechanisms": "SCRAM-SHA-256,PLAIN"
-        },
         "auditLog": {
           "destination": "file",
           "format": "JSON",
@@ -416,7 +458,10 @@
           "priority": 2,
           "secondaryDelaySecs": 0,
           "votes": 1,
-          "tags": {"region": "us-east-1", "use": "analytics"}
+          "tags": {
+            "region": "us-east-1",
+            "use": "analytics"
+          }
         },
         {
           "_id": 1,
@@ -427,7 +472,9 @@
           "priority": 1,
           "secondaryDelaySecs": 0,
           "votes": 1,
-          "tags": {"region": "us-west-2"}
+          "tags": {
+            "region": "us-west-2"
+          }
         },
         {
           "_id": 2,
@@ -450,12 +497,21 @@
       "db": "myapp",
       "privileges": [
         {
-          "actions": ["find", "listCollections"],
-          "resource": {"db": "myapp", "collection": ""}
+          "actions": [
+            "find",
+            "listCollections"
+          ],
+          "resource": {
+            "db": "myapp",
+            "collection": ""
+          }
         }
       ],
       "roles": [
-        {"role": "read", "db": "myapp"}
+        {
+          "role": "read",
+          "db": "myapp"
+        }
       ]
     }
   ],

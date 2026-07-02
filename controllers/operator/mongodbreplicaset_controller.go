@@ -914,6 +914,19 @@ func (r *ReplicaSetReconcilerHelper) runConnectivityValidationDryRun(ctx context
 	subjectDN := ""
 	if sec := rs.GetSecurity(); sec != nil && sec.GetAgentMechanism(deploymentOpts.currentAgentAuthMode) == util.X509 {
 		agentCertSecretName := sec.AgentClientCertificateSecretName(rs.Name)
+		// The connectivity Job mounts the operator generated agent PEM secret (the StatefulSet volume
+		// references AgentClientCertificateSecretName + the operator generated suffix). The full reconcile
+		// creates it in ensureX509SecretAndCheckTLSType, which this dry-run path skips, so create it here.
+		// Without it the Job pod stays Pending and the connectivity check never completes.
+		err := certs.VerifyAndEnsureClientCertificatesForAgentsAndTLSType(ctx, r.reconciler.SecretClient, r.reconciler.SecretClient, kube.ObjectKey(rs.Namespace, agentCertSecretName), log)
+		if err != nil {
+			return r.updateStatus(ctx,
+				workflow.Failed(xerrors.Errorf("connectivity dry-run: ensuring agent certificate secret: %w", err)),
+				mdbstatus.NewMigrationConditionOption(mdbstatus.MigrationCondition(
+					mdbstatus.MigrationPhaseConnectivityCheckFailed, "AgentCertSecretFailed", err.Error(),
+				)),
+			)
+		}
 		sel := corev1.SecretKeySelector{
 			LocalObjectReference: corev1.LocalObjectReference{Name: agentCertSecretName},
 			Key:                  corev1.TLSCertKey,
@@ -972,6 +985,7 @@ func (r *ReplicaSetReconcilerHelper) runConnectivityValidationDryRun(ctx context
 		return reconcile.Result{RequeueAfter: 5 * time.Minute}, nil
 	}
 }
+
 
 func (r *ReplicaSetReconcilerHelper) OnDelete(ctx context.Context, obj runtime.Object, log *zap.SugaredLogger) error {
 	rs := obj.(*mdbv1.MongoDB)

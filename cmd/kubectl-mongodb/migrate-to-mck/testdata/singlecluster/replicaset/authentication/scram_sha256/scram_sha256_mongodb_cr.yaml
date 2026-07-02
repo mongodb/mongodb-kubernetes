@@ -40,5 +40,25 @@ spec:
       ignoreUnknownUsers: true
       modes:
       - SCRAM
+    roles:
+    - db: myapp
+      privileges:
+      - actions:
+        - find
+        - listCollections
+        resource:
+          db: myapp
+      role: appReadOnly
+      roles:
+      - db: myapp
+        role: read
+    - db: admin
+      privileges:
+      - actions:
+        - serverStatus
+        - replSetGetStatus
+        resource:
+          cluster: true
+      role: metricsReader
   type: ReplicaSet
   version: 8.0.4-ent

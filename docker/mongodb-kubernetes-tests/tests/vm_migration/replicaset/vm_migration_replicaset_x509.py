@@ -1,42 +1,49 @@
 """
-VM migration E2E tests with X509 and TLS.
-MDB and pseudo-VM AC use TLS and X509 client auth (deploymentAuthMechanisms); internal cluster
-auth between mongod processes continues to use keyFile.
+VM migration from a generated MongoDB resource with TLS and X509 agent authentication.
 
-Flow: TLS → X509 client auth (fixtures bring VM agents to goal state), then migrate (MDB resource
-with externalMembers pointing at VM processes, promote K8s members and prune VM members).
-
-The MDB resource is created with X509 + clientCertificateSecretRef and
-spec.security.authentication.agents.autoPEMKeyFilePath set to CUSTOM_AGENT_CERT_PATH, matching
-the VM pod mount. The operator configures OM and K8s pods to use that path explicitly.
-
-Why different Secrets for the same agent cert+key?
-- clientCertificateSecretRef (TLS: tls.crt / tls.key): CRD and operator expect this shape to
-  verify, merge, and publish PEM material to Ops Manager.
-- vm-agent-cert-pem (single combined file): VM pods must exist and reach goal state *before* any
-  MDB exists, so the operator never created *-pem for them. OM also expects autoPEMKeyFilePath to
-  be *one file* (cert+key), not separate tls.crt/tls.key paths. The test therefore synthesizes a
-  minimal Secret + mount the VM StatefulSet can use without reimplementing operator hash-key layout.
-
+This test configures VM members in Ops Manager, runs kubectl-mongodb migrate-to-mck,
+applies the generated resources, and verifies dry-run validation, data continuity,
+connection strings, process names, and the promote and prune flow.
 """
+
+from copy import deepcopy
 
 import yaml
 from cryptography import x509 as crypto_x509
 from cryptography.hazmat.backends import default_backend
-from kubernetes import client
-from kubetester import create_or_update_configmap, create_or_update_secret, get_statefulset, read_secret, try_load
-from kubetester.certs import ISSUER_CA_NAME, create_mongodb_tls_certs, create_x509_agent_tls_certs
+from kubetester import create_or_update_configmap, create_or_update_secret, get_statefulset, read_secret
+from kubetester.certs import (
+    ISSUER_CA_NAME,
+    create_mongodb_tls_certs,
+    create_x509_agent_tls_certs,
+    create_x509_user_cert,
+)
 from kubetester.kubetester import KubernetesTester, fcv_from_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
-from kubetester.mongotester import MongoDBBackgroundTester, MongoTester
+from kubetester.mongotester import MongoDBBackgroundTester, MongoTester, build_mongodb_connection_uri, with_x509
 from kubetester.omtester import OMContext, OMTester
 from kubetester.phase import Phase
 from pytest import fixture, mark
-from tests.tls.vm_migration_dry_run import (
-    generate_wrong_ca_pem,
-    run_migration_dry_run_connectivity_fails,
+from tests.vm_migration.vm_migration_dry_run import (
+    create_wrong_ca_configmap,
     run_migration_dry_run_connectivity_passes,
+    run_wrong_ca_dry_run_fails_then_passes,
+)
+from tests.vm_migration.vm_migration_helpers import (
+    apply_generated_mongodb_resource,
+    apply_user_crs_and_verify_ac,
+    assert_common_generated_cr_shape,
+    assert_connection_string_after_full_migration,
+    assert_connection_string_contains_current_hosts,
+    assert_k8s_process_names,
+    assert_max_voting_members_validation,
+    assert_migration_data_exists,
+    generated_mongodb_doc,
+    generated_user_docs,
+    insert_migration_data,
+    promote_and_prune,
+    run_generate_cr,
 )
 
 VM_STS_NAME = "vm-mongodb"
@@ -52,6 +59,8 @@ CUSTOM_CA_PEM_PATH = "/mongodb-automation/tls/ca/ca-pem"
 CUSTOM_AGENT_CERT_DIR = "/var/lib/mongodb-mms-automation/certs"
 CUSTOM_AGENT_CERT_FILENAME = "agent.pem"
 CUSTOM_AGENT_CERT_PATH = f"{CUSTOM_AGENT_CERT_DIR}/{CUSTOM_AGENT_CERT_FILENAME}"
+
+WRONG_CA_NAME = "wrong-issuer-ca"
 
 
 @fixture(scope="module")
@@ -78,18 +87,9 @@ def vm_agent_certs(issuer: str, namespace: str) -> str:
 def vm_agent_combined_pem(namespace: str, vm_agent_certs: str) -> tuple:
     """Create a combined PEM secret for VM pod cert mount and extract the agent subject DN.
 
-    Why not mount vm_agent_certs (tls.crt / tls.key) directly on VM pods?
-    Ops Manager's tls.autoPEMKeyFilePath points at a single PEM path; the agent reads one file.
-    Split TLS keys do not match that contract without extra init logic in the pod.
-
-    Why not reuse the operator's {vm_agent_certs}-pem Secret on VM pods?
-    That Secret is created when the MDB reconciles; VM agents must already be using X509 while
-    externalMembers still point at VM processes, often before the MDB CR exists or finishes
-    reconciling. This fixture is the bootstrap path for VM-only phases of the test.
-
-    Why a trivial Secret shape (one key = filename)?
-    VM StatefulSet is hand-built YAML; a directory mount of one key → one file avoids copying the
-    operator's hash-keyed layout in test code.
+    Ops Manager reads a single PEM path for tls.autoPEMKeyFilePath. The operator generated
+    PEM secret is not available before the MongoDB resource reconciles, so this fixture creates
+    the VM-side bootstrap secret directly.
 
     Returns (secret_name, subject_dn).
     """
@@ -144,7 +144,7 @@ def vm_sts(
     ]
 
     volumes = sts_body["spec"]["template"]["spec"].get("volumes") or []
-    # Combined cert+key PEM, MongoDB certificateKeyFile requires both in one file.
+    # MongoDB certificateKeyFile requires the cert and key in one file.
     volumes.append(
         {
             "name": "mongodb-certs",
@@ -165,9 +165,7 @@ def vm_sts(
             },
         }
     )
-    # Why vm-agent-cert-pem instead of the TLS secret or *-pem here: see vm_agent_combined_pem.
-    # Why this mountPath: OM tls.autoPEMKeyFilePath and later MDB autoPEMKeyFilePath must name the
-    # same path so VM and K8s agents agree with the automation config during migration.
+    # The VM path must match tls.autoPEMKeyFilePath before and after import.
     agent_secret_name, _ = vm_agent_combined_pem
     volumes.append({"name": "agent-cert", "secret": {"secretName": agent_secret_name}})
     sts_body["spec"]["template"]["spec"]["volumes"] = volumes
@@ -184,60 +182,108 @@ def vm_sts(
 
 @fixture(scope="module")
 def mdb_tls_certs(issuer: str, namespace: str):
-    return create_mongodb_tls_certs(ISSUER_CA_NAME, namespace, MDB_RESOURCE_NAME, f"{MDB_RESOURCE_NAME}-cert")
+    # Cover all migrated members (the VM replica set has 5). The default of 3 only issues SANs for
+    # my-replica-set-0..2, so member my-replica-set-3 fails TLS and the replica set never forms.
+    return create_mongodb_tls_certs(ISSUER_CA_NAME, namespace, MDB_RESOURCE_NAME, f"mdb-{MDB_RESOURCE_NAME}-cert", 5)
 
 
 @fixture(scope="module")
 def mdb_migration(
     namespace: str,
-    custom_mdb_version: str,
-    issuer_ca_configmap: str,
+    issuer_ca_filepath: str,
+    generated_cr_yaml: str,
     mdb_tls_certs: str,
-    vm_sts,
-    vm_service,
     vm_agent_certs: str,
 ) -> MongoDB:
-    """MDB with TLS + X509, externalMembers, and agents.autoPEMKeyFilePath = CUSTOM_AGENT_CERT_PATH.
+    """MDB generated by migrate-to-mck, with test-created TLS resources wired in."""
+    resource_doc = deepcopy(generated_mongodb_doc(generated_cr_yaml))
+    correct_ca_name = resource_doc["spec"]["security"]["tls"]["ca"]
+    create_wrong_ca_configmap(namespace, WRONG_CA_NAME)
+    resource_doc["spec"]["security"]["tls"]["ca"] = WRONG_CA_NAME
 
-    Non-empty externalMembers triggers the operator to pin non-static agent downloads (MDB_AGENT_VERSION).
-    """
-    resource = MongoDB.from_yaml(yaml_fixture("replica-set.yaml"), namespace=namespace)
+    def create_referenced_x509_resources(resource_doc: dict) -> None:
+        create_or_update_configmap(namespace, correct_ca_name, {"ca-pem": open(issuer_ca_filepath).read()})
 
-    if try_load(resource):
-        return resource
-
-    resource.set_version(custom_mdb_version)
-    resource["spec"]["replicaSetNameOverride"] = VM_RS_NAME
-    resource["spec"]["security"] = {
-        "tls": {"enabled": True, "ca": issuer_ca_configmap},
-        "authentication": {
-            "enabled": True,
-            "modes": ["X509"],
-            "agents": {
-                "mode": "X509",
-                # Why: CRD requires a kubernetes.io/tls source; operator validates and derives *-pem.
-                "clientCertificateSecretRef": {"name": vm_agent_certs},
-                # Why: tells OM/agents where the combined PEM lives on every pod; must equal VM mount so
-                # externalMembers (VM) and in-cluster members use one automation config.
-                "autoPEMKeyFilePath": CUSTOM_AGENT_CERT_PATH,
-            },
-        },
-    }
-    resource["spec"]["externalMembers"] = []
-    for i in range(vm_sts["spec"]["replicas"]):
-        resource["spec"]["externalMembers"].append(
-            {
-                "processName": f"{VM_STS_NAME}-{i}",
-                "hostname": f"{VM_STS_NAME}-{i}.{vm_service['metadata']['name']}.{namespace}.svc.cluster.local:27017",
-                "type": "mongod",
-                "replicaSetName": VM_RS_NAME,
-            }
+        agent_cert_ref = resource_doc["spec"]["security"]["authentication"]["agents"]["clientCertificateSecretRef"]
+        agent_cert = read_secret(namespace, vm_agent_certs)
+        create_or_update_secret(
+            namespace,
+            agent_cert_ref["name"],
+            {"tls.crt": agent_cert["tls.crt"], "tls.key": agent_cert["tls.key"]},
+            type="kubernetes.io/tls",
         )
-    resource["spec"]["memberConfig"] = []
-    for i in range(resource.get_members()):
-        resource["spec"]["memberConfig"].append({"votes": 0, "priority": "0"})
-    resource.update()
-    return resource
+
+    return apply_generated_mongodb_resource(
+        namespace,
+        resource_doc,
+        prepare_external_resources=create_referenced_x509_resources,
+    )
+
+
+@fixture(scope="module")
+def generated_cr_yaml(namespace: str) -> str:
+    return run_generate_cr(
+        namespace,
+        certs_secret_prefix="mdb",
+        resource_name_override=MDB_RESOURCE_NAME,
+    )
+
+
+@fixture(scope="module")
+def generated_cr(generated_cr_yaml: str) -> dict:
+    return generated_mongodb_doc(generated_cr_yaml)
+
+
+@fixture(scope="module")
+def x509_client_pem_path(tmp_path_factory, namespace: str, vm_agent_certs: str) -> str:
+    data = read_secret(namespace, vm_agent_certs)
+    pem_path = tmp_path_factory.mktemp("x509-client") / "agent.pem"
+    pem_path.write_text(data["tls.crt"] + data["tls.key"])
+    return str(pem_path)
+
+
+@fixture(scope="module")
+def vm_app_user(issuer: str, namespace: str, tmp_path_factory) -> tuple[str, str]:
+    """X509 client cert for the $external application user that is migrated.
+
+    Returns (combined_pem_path, subject_dn). The subject DN is what mongod derives from the cert, so
+    it doubles as the username seeded into $external and carried through migration. We extract it from
+    the issued cert rather than hardcoding it so the seeded user and the connecting client always agree.
+    """
+    pem_path = str(tmp_path_factory.mktemp("x509-app-user") / "app-user.pem")
+    create_x509_user_cert(issuer, namespace, path=pem_path)
+    cert_pem = read_secret(namespace, "mongodbuser")["tls.crt"]
+    if isinstance(cert_pem, bytes):
+        cert_pem = cert_pem.decode("utf-8")
+    subject_dn = crypto_x509.load_pem_x509_certificate(cert_pem.encode(), default_backend()).subject.rfc4514_string()
+    return pem_path, subject_dn
+
+
+@fixture(scope="module")
+def x509_opts(x509_client_pem_path: str, issuer_ca_filepath: str) -> list[dict]:
+    return [with_x509(x509_client_pem_path, issuer_ca_filepath)]
+
+
+@fixture(scope="module")
+def vm_x509_tester(namespace: str, x509_client_pem_path: str, issuer_ca_filepath: str) -> MongoTester:
+    connection_string = build_mongodb_connection_uri(
+        mdb_resource=VM_STS_NAME,
+        namespace=namespace,
+        members=3,
+        port="27017",
+        servicename=VM_STS_NAME,
+    )
+    return MongoTester(connection_string, use_ssl=True, ca_path=issuer_ca_filepath)
+
+
+@fixture(scope="module")
+def mdb_health_checker(
+    mdb_migration: MongoDB, issuer_ca_filepath: str, x509_opts: list[dict]
+) -> MongoDBBackgroundTester:
+    return MongoDBBackgroundTester(
+        mdb_migration.tester(use_ssl=True, ca_path=issuer_ca_filepath),
+        health_function_params={"attempts": 1, "opts": x509_opts},
+    )
 
 
 @fixture(scope="module")
@@ -246,18 +292,6 @@ def vm_service(namespace: str):
         service_body = yaml.safe_load(f.read())
     KubernetesTester.create_or_update_service(namespace, body=service_body)
     return service_body
-
-
-@fixture(scope="module")
-def mongo_tester(mdb_migration: MongoDB) -> MongoTester:
-    return mdb_migration.tester()
-
-
-@fixture(scope="module")
-def mdb_health_checker(mongo_tester: MongoTester) -> MongoDBBackgroundTester:
-    health_checker = MongoDBBackgroundTester(mongo_tester, allowed_sequential_failures=3)
-    health_checker.start()
-    return health_checker
 
 
 def _build_processes(vm_sts: dict, vm_service: dict, namespace: str, custom_mdb_version: str, tls: bool) -> tuple:
@@ -323,8 +357,8 @@ def _build_processes(vm_sts: dict, vm_service: dict, namespace: str, custom_mdb_
     return processes, monitoring_versions, members
 
 
-@mark.e2e_vm_migration_x509
-def test_vm_mdb_reaches_running(namespace: str, vm_sts, vm_service):
+@mark.e2e_vm_migration_replicaset_x509
+def test_deploy_vm(namespace: str, vm_sts, vm_service):
     def sts_is_ready():
         sts = get_statefulset(namespace, vm_sts["metadata"]["name"])
         return sts.status.ready_replicas == vm_sts["spec"]["replicas"]
@@ -332,9 +366,12 @@ def test_vm_mdb_reaches_running(namespace: str, vm_sts, vm_service):
     KubernetesTester.wait_until(sts_is_ready, timeout=300)
 
 
-@mark.e2e_vm_migration_x509
+# Test flow
+
+
+@mark.e2e_vm_migration_replicaset_x509
 def test_vm_ac_no_auth(om_tester: OMTester, vm_sts: dict, vm_service: dict, namespace: str, custom_mdb_version: str):
-    """Step 1: start VM replica set without auth or TLS so the replica set forms and agents register."""
+    """Start the VM replica set without auth or TLS so agents can register."""
     ac = om_tester.api_get_automation_config()
     if len(ac["processes"]) > 0:
         return
@@ -349,7 +386,7 @@ def test_vm_ac_no_auth(om_tester: OMTester, vm_sts: dict, vm_service: dict, name
     om_tester.wait_agents_ready(timeout=600)
 
 
-@mark.e2e_vm_migration_x509
+@mark.e2e_vm_migration_replicaset_x509
 def test_vm_ac_tls(
     om_tester: OMTester,
     vm_sts: dict,
@@ -357,8 +394,9 @@ def test_vm_ac_tls(
     namespace: str,
     custom_mdb_version: str,
 ):
-    """Step 2: enable TLS on running replica set (auth still disabled).
-    OM rejects simultaneous TLS mode + auth changes, so TLS must be a separate step.
+    """Enable TLS on the running replica set while auth is still disabled.
+
+    Ops Manager rejects simultaneous TLS and auth changes, so TLS is configured first.
     """
     ac = om_tester.api_get_automation_config()
     tls_mode = ac.get("processes", [{}])[0].get("args2_6", {}).get("net", {}).get("tls", {}).get("mode")
@@ -378,7 +416,7 @@ def test_vm_ac_tls(
     om_tester.wait_agents_ready(timeout=1200)
 
 
-@mark.e2e_vm_migration_x509
+@mark.e2e_vm_migration_replicaset_x509
 def test_vm_ac_x509_auth(
     om_tester: OMTester,
     vm_sts: dict,
@@ -386,10 +424,11 @@ def test_vm_ac_x509_auth(
     namespace: str,
     custom_mdb_version: str,
     vm_agent_combined_pem: tuple[str, str],
+    vm_app_user: tuple[str, str],
 ):
-    """Step 3: enable X509 client auth (processes TLS config unchanged).
-    Agent connects while TLS is on but auth is still disabled, creates the $external user for
-    autoUser, then restarts mongod with auth enabled.
+    """Enable X509 client auth after TLS is already configured.
+
+    The automation user must be present in usersWanted so migrate-to-mck can preserve it.
     Internal cluster auth continues to use keyFile (SCRAM-SHA-256 for __system@local).
     """
     ac = om_tester.api_get_automation_config()
@@ -397,6 +436,7 @@ def test_vm_ac_x509_auth(
         return
 
     _, agent_subject_dn = vm_agent_combined_pem
+    _, app_user_subject_dn = vm_app_user
     ac["auth"] = {
         "disabled": False,
         "authoritativeSet": True,
@@ -408,72 +448,142 @@ def test_vm_ac_x509_auth(
         "keyfile": "/var/lib/mongodb-mms-automation/keyfile",
         "keyfileWindows": "%SystemDrive%\\MMSAutomation\\versions\\keyfile",
         "key": "dGVzdC1rZXlmaWxlLWNvbnRlbnQtZm9yLXZtLW1pZ3JhdGlvbi14NTA5",
-        "usersWanted": [],
+        "usersWanted": [
+            {
+                "user": agent_subject_dn,
+                "db": "$external",
+                "roles": [{"role": "root", "db": "admin"}],
+                "mechanisms": [],
+                "scramSha256Creds": None,
+                "scramSha1Creds": None,
+                "authenticationRestrictions": [],
+            },
+            {
+                "user": app_user_subject_dn,
+                "db": "$external",
+                "roles": [{"role": "readWrite", "db": "admin"}],
+                "mechanisms": [],
+                "scramSha256Creds": None,
+                "scramSha1Creds": None,
+                "authenticationRestrictions": [],
+            },
+        ],
         "usersDeleted": [],
     }
     om_tester.api_put_automation_config(ac)
     om_tester.wait_agents_ready(timeout=1800)
 
 
-@mark.e2e_vm_migration_x509
-def test_migration_dry_run_wrong_ca_fails_then_passes(namespace: str, mdb_migration: MongoDB, issuer_ca_configmap: str):
+@mark.e2e_vm_migration_replicaset_x509
+def test_insert_migration_data(vm_x509_tester: MongoTester, x509_opts: list[dict]):
+    insert_migration_data(vm_x509_tester, opts=x509_opts)
+
+
+# Generated CR checks
+
+
+@mark.e2e_vm_migration_replicaset_x509
+def test_common_generated_cr_shape(generated_cr_yaml: str, generated_cr: dict, vm_sts: dict):
+    assert_common_generated_cr_shape(generated_cr_yaml, generated_cr, vm_sts["spec"]["replicas"])
+
+
+@mark.e2e_vm_migration_replicaset_x509
+def test_x509_agent_auth_in_cr(generated_cr: dict):
+    agents = generated_cr["spec"]["security"]["authentication"]["agents"]
+    assert agents["mode"] == "X509"
+    assert agents["autoPEMKeyFilePath"] == CUSTOM_AGENT_CERT_PATH
+    assert agents["clientCertificateSecretRef"]["name"] == f"mdb-{MDB_RESOURCE_NAME}-agent-certs"
+
+
+@mark.e2e_vm_migration_replicaset_x509
+def test_user_cr_emitted(generated_cr_yaml: str, vm_app_user: tuple[str, str]):
+    # The $external app user produces a MongoDBUser CR; the agent auto-user is skipped by the tool.
+    _, app_user_subject_dn = vm_app_user
+    user_docs = generated_user_docs(generated_cr_yaml)
+    assert len(user_docs) == 1, f"Expected 1 user CR (app user; agent skipped), got {len(user_docs)}"
+    assert user_docs[0]["spec"]["db"] == "$external"
+    assert user_docs[0]["spec"]["username"] == app_user_subject_dn
+
+
+# Lifecycle checks
+
+
+@mark.e2e_vm_migration_replicaset_x509
+def test_migration_dry_run_wrong_ca_fails_then_passes(namespace: str, mdb_migration: MongoDB, generated_cr: dict):
     """Dry-run with a wrong CA must fail; restoring the correct CA must make it pass."""
-    wrong_ca_name = "wrong-issuer-ca"
-    wrong_ca_pem = generate_wrong_ca_pem()
-    create_or_update_configmap(namespace, wrong_ca_name, {"ca-pem": wrong_ca_pem, "mms-ca.crt": wrong_ca_pem})
-
-    mdb_migration.load()
-    mdb_migration["spec"]["security"]["tls"]["ca"] = wrong_ca_name
-    mdb_migration.update()
-
-    run_migration_dry_run_connectivity_fails(mdb_migration)
-
-    # Delete the failed job so the operator can re-run validation with the corrected CA.
-    client.BatchV1Api().delete_namespaced_job(
-        f"{MDB_RESOURCE_NAME}-connectivity-check",
+    run_wrong_ca_dry_run_fails_then_passes(
         namespace,
-        body=client.V1DeleteOptions(propagation_policy="Background"),
+        mdb_migration,
+        f"{MDB_RESOURCE_NAME}-connectivity-check",
+        WRONG_CA_NAME,
+        correct_ca_name=generated_cr["spec"]["security"]["tls"]["ca"],
     )
 
-    # Restore the correct CA and wait for the re-run to pass (annotation stays set).
-    mdb_migration.load()
-    mdb_migration["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
-    mdb_migration.update()
-    run_migration_dry_run_connectivity_passes(mdb_migration)
 
-
-@mark.e2e_vm_migration_x509
+@mark.e2e_vm_migration_replicaset_x509
 def test_migration_dry_run_connectivity_passes(mdb_migration: MongoDB):
     """Run migration dry-run: operator only validates connectivity to externalMembers, then we clear the annotation."""
     run_migration_dry_run_connectivity_passes(mdb_migration)
 
 
-@mark.e2e_vm_migration_x509
-def test_k8s_mdb_reaches_running(mdb_migration: MongoDB):
-    mdb_migration.assert_reaches_phase(Phase.Running, timeout=600)
+@mark.e2e_vm_migration_replicaset_x509
+def test_migrate_vm_to_kubernetes(mdb_migration: MongoDB):
+    mdb_migration.assert_reaches_phase(Phase.Running, timeout=1200)
+    assert_connection_string_contains_current_hosts(mdb_migration)
 
 
-@mark.e2e_vm_migration_x509
-def test_promote_and_prune(mdb_migration: MongoDB, vm_sts, mdb_health_checker: MongoDBBackgroundTester):
-    try_load(mdb_migration)
-    for i in range(vm_sts["spec"]["replicas"]):
-        if i < mdb_migration.get_members():
-            mdb_migration["spec"]["memberConfig"][i]["priority"] = "1"
-            mdb_migration["spec"]["memberConfig"][i]["votes"] = 1
-            mdb_migration.update()
-            mdb_migration.assert_reaches_phase(Phase.Running)
+@mark.e2e_vm_migration_replicaset_x509
+def test_migration_data_exists_after_migration(mdb_migration: MongoDB, issuer_ca_filepath: str, x509_opts: list[dict]):
+    assert_migration_data_exists(mdb_migration.tester(use_ssl=True, ca_path=issuer_ca_filepath), opts=x509_opts)
 
-        mdb_migration["spec"]["externalMembers"].pop()
-        mdb_migration.update()
-        mdb_migration.assert_reaches_phase(Phase.Running)
 
+@mark.e2e_vm_migration_replicaset_x509
+def test_max_voting_members_validation(mdb_migration: MongoDB):
+    assert_max_voting_members_validation(mdb_migration)
+
+
+@mark.e2e_vm_migration_replicaset_x509
+def test_user_crs_reach_updated(generated_cr_yaml: str, namespace: str, mdb_migration: MongoDB, om_tester: OMTester):
+    apply_user_crs_and_verify_ac(generated_cr_yaml, namespace, om_tester)
+
+
+@mark.e2e_vm_migration_replicaset_x509
+def test_app_user_x509_connectivity_after_migration(
+    mdb_migration: MongoDB, vm_app_user: tuple[str, str], issuer_ca_filepath: str
+):
+    """The migrated $external user can authenticate via X509 (readWrite on admin)."""
+    app_user_pem, _ = vm_app_user
+    mdb_migration.tester(use_ssl=True, ca_path=issuer_ca_filepath).assert_x509_authentication(
+        cert_file_name=app_user_pem, tlsCAFile=issuer_ca_filepath
+    )
+
+
+@mark.e2e_vm_migration_replicaset_x509
+def test_start_background_health_checker(mdb_health_checker: MongoDBBackgroundTester):
+    mdb_health_checker.start()
+
+
+@mark.e2e_vm_migration_replicaset_x509
+def test_promote_and_prune(mdb_migration: MongoDB, vm_sts):
+    promote_and_prune(mdb_migration, vm_sts)
+
+
+@mark.e2e_vm_migration_replicaset_x509
+def test_mongodb_reachable_during_promote_and_prune(mdb_health_checker: MongoDBBackgroundTester):
     mdb_health_checker.assert_healthiness()
+    mdb_health_checker.stop()
 
 
-@mark.e2e_vm_migration_x509
-def test_process_names(om_tester: OMTester, namespace: str, mdb_migration: MongoDB):
-    ac_tester = om_tester.get_automation_config_tester()
-    process_names = [process["name"] for process in ac_tester.get_all_processes()]
-    assert f"k8s/{namespace}/{mdb_migration.name}-0" in process_names
-    assert f"k8s/{namespace}/{mdb_migration.name}-1" in process_names
-    assert f"k8s/{namespace}/{mdb_migration.name}-2" in process_names
+@mark.e2e_vm_migration_replicaset_x509
+def test_connection_string_after_full_migration(mdb_migration: MongoDB):
+    assert_connection_string_after_full_migration(mdb_migration)
+
+
+@mark.e2e_vm_migration_replicaset_x509
+def test_process_names(om_tester: OMTester, mdb_migration: MongoDB):
+    assert_k8s_process_names(om_tester, mdb_migration)
+
+
+@mark.e2e_vm_migration_replicaset_x509
+def test_migration_data_exists_after_promote(mdb_migration: MongoDB, issuer_ca_filepath: str, x509_opts: list[dict]):
+    assert_migration_data_exists(mdb_migration.tester(use_ssl=True, ca_path=issuer_ca_filepath), opts=x509_opts)

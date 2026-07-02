@@ -5,9 +5,48 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	corev1 "k8s.io/api/core/v1"
 
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/ldap"
 )
+
+func secretsByName(objs []client.Object) map[string]string {
+	out := map[string]string{}
+	for _, o := range objs {
+		if s, ok := o.(*corev1.Secret); ok {
+			out[s.Name] = s.StringData[passwordSecretDataKey]
+		}
+	}
+	return out
+}
+
+// TestGenerateExtraResources_LDAPAgentPassword verifies that an LDAP agent's external password is
+// carried over as a generated Secret alongside the bind-query password.
+func TestGenerateExtraResources_LDAPAgentPassword(t *testing.T) {
+	ac := om.NewAutomationConfig(om.Deployment{"processes": []any{}, "replicaSets": []any{}})
+	ac.Ldap = &ldap.Ldap{Servers: "openldap:389", BindQueryUser: "cn=admin,dc=example,dc=org", BindQueryPassword: "bindpw"}
+	ac.Auth.AutoAuthMechanism = "PLAIN"
+	ac.Auth.AutoPwd = "agent-ldap-pw"
+
+	got := secretsByName(generateExtraResources(ac, GenerateOptions{Namespace: "mongodb"}))
+	assert.Equal(t, "bindpw", got[LdapBindQuerySecretName])
+	assert.Equal(t, "agent-ldap-pw", got[LdapAgentPasswordSecretName])
+}
+
+// TestGenerateExtraResources_ScramAgentNoLDAPPassword verifies a SCRAM agent does not get an LDAP
+// agent-password Secret (only LDAP agents authenticate with an external password).
+func TestGenerateExtraResources_ScramAgentNoLDAPPassword(t *testing.T) {
+	ac := om.NewAutomationConfig(om.Deployment{"processes": []any{}, "replicaSets": []any{}})
+	ac.Auth.AutoAuthMechanism = "SCRAM-SHA-256"
+	ac.Auth.AutoPwd = "scram-agent-pw"
+
+	got := secretsByName(generateExtraResources(ac, GenerateOptions{Namespace: "mongodb"}))
+	_, exists := got[LdapAgentPasswordSecretName]
+	assert.False(t, exists, "SCRAM agent should not produce an LDAP agent-password secret")
+}
 
 // withDeploymentData mirrors what runGenerate does before calling generateAll.
 func withDeploymentData(ac *om.AutomationConfig, opts GenerateOptions) GenerateOptions {
@@ -58,7 +97,6 @@ func TestGenerateMongoDBCR_CustomResourceName(t *testing.T) {
 	assert.Contains(t, yamlOutput, "name: custom-name")
 	assert.Contains(t, yamlOutput, "replicaSetNameOverride: my-rs")
 }
-
 
 func TestGenerateMongoDBCR_AutoNormalizesRSName(t *testing.T) {
 	ac := om.NewAutomationConfig(om.Deployment{

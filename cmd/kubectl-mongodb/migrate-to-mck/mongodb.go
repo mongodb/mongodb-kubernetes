@@ -14,6 +14,7 @@ import (
 
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/pkg/passwordhash"
 	pkgtls "github.com/mongodb/mongodb-kubernetes/pkg/tls"
 )
 
@@ -55,6 +56,26 @@ PREREQUISITES
 
     kubectl create secret generic <secret-name> \
       --from-literal=password=<password> \
+      -n <namespace>
+
+  If mongod TLS is enabled, create the ConfigMap and Secret referenced by the
+  generated CR:
+
+    kubectl create configmap <resourceName>-ca \
+      --from-file=ca-pem=<ca-file> \
+      -n <namespace>
+
+    kubectl create secret tls <certsSecretPrefix>-<resourceName>-cert \
+      --cert=<server-cert> \
+      --key=<server-key> \
+      -n <namespace>
+
+  If MONGODB-X509 agent authentication is enabled, create the agent certificate
+  Secret referenced by spec.security.authentication.agents.clientCertificateSecretRef:
+
+    kubectl create secret tls <certsSecretPrefix>-<resourceName>-agent-certs \
+      --cert=<agent-cert> \
+      --key=<agent-key> \
       -n <namespace>
 
 USAGE
@@ -196,9 +217,21 @@ func collectPrometheusCreds(ctx context.Context, kubeClient kubernetesClient.Cli
 			return fmt.Errorf("failed to read spec.prometheus.passwordSecretRef.name: %w", err)
 		}
 	}
-	if _, err := requirePasswordSecret(ctx, kubeClient, opts.Namespace, secretName); err != nil {
+	passwordBytes, err := requirePasswordSecret(ctx, kubeClient, opts.Namespace, secretName)
+	if err != nil {
 		return err
 	}
 	opts.PrometheusSecretName = secretName
+	opts.PrometheusPassword = string(passwordBytes)
+
+	if acProm.PasswordSalt != "" {
+		match, err := passwordhash.PasswordMatchesHash(opts.PrometheusPassword, acProm.PasswordHash, acProm.PasswordSalt)
+		if err != nil {
+			return fmt.Errorf("failed to verify Prometheus password against automation config: %w", err)
+		}
+		if !match {
+			return fmt.Errorf("password in Secret %q for Prometheus user %q does not match the password in the Ops Manager automation config", secretName, acProm.Username)
+		}
+	}
 	return nil
 }
