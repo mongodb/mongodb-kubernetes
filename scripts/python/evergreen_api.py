@@ -4,6 +4,8 @@ import requests
 from evergreen.api import EvergreenApi, EvgAuth
 
 EVERGREEN_API = "https://evergreen.mongodb.com/api"
+if not os.environ.get("EVR_TASK_ID"):
+    EVERGREEN_API = "https://evergreen.corp.mongodb.com/api"
 
 
 def get_evergreen_auth_headers() -> dict:
@@ -22,16 +24,17 @@ def get_evergreen_auth_headers() -> dict:
 
 def get_evergreen_api() -> EvergreenApi:
     """
-    Returns an EvergreenApi client instance using EVERGREEN_USER and EVERGREEN_API_KEY environment variables.
-    Raises RuntimeError if either variable is missing.
+    Returns an EvergreenApi client instance.
+    Prefers EVERGREEN_USER / EVERGREEN_API_KEY env vars (for CI),
+    falls back to ~/.evergreen.yml config (which supports OIDC for local dev).
     """
     evg_user = os.environ.get("EVERGREEN_USER", "")
     api_key = os.environ.get("EVERGREEN_API_KEY", "")
-    if evg_user == "" or api_key == "":
-        raise RuntimeError("EVERGREEN_USER and EVERGREEN_API_KEY must be set")
+    if evg_user and api_key:
+        auth = EvgAuth(evg_user, api_key)
+        return EvergreenApi.get_api(auth)
 
-    auth = EvgAuth(evg_user, api_key)
-    return EvergreenApi.get_api(auth)
+    return EvergreenApi.get_api(use_config_file=True)
 
 
 def get_task_details(task_id: str) -> dict:

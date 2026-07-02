@@ -24,14 +24,20 @@ docker_create_kind_network
 docker_run_local_registry "kind-registry" "5000"
 
 # To future maintainers: whenever modifying this bit, make sure you also update coredns.yaml
+cluster_pids=()
 (scripts/dev/setup_kind_cluster.sh -n "e2e-operator" -p "10.244.0.0/16" -s "10.96.0.0/16" -l "172.18.255.200-172.18.255.210" -c "${CLUSTER_DOMAIN}" 2>&1 | prepend "e2e-operator") &
+cluster_pids+=($!)
 (scripts/dev/setup_kind_cluster.sh -n "e2e-cluster-1" -p "10.245.0.0/16" -s "10.97.0.0/16" -l "172.18.255.210-172.18.255.220" -c "${CLUSTER_DOMAIN}" 2>&1 | prepend "e2e-cluster-1") &
+cluster_pids+=($!)
 (scripts/dev/setup_kind_cluster.sh -n "e2e-cluster-2" -p "10.246.0.0/16" -s "10.98.0.0/16" -l "172.18.255.220-172.18.255.230" -c "${CLUSTER_DOMAIN}" 2>&1 | prepend "e2e-cluster-2") &
+cluster_pids+=($!)
 (scripts/dev/setup_kind_cluster.sh -n "e2e-cluster-3" -p "10.247.0.0/16" -s "10.99.0.0/16" -l "172.18.255.230-172.18.255.240" -c "${CLUSTER_DOMAIN}" 2>&1 | prepend "e2e-cluster-3") &
+cluster_pids+=($!)
 (scripts/dev/setup_kind_cluster.sh -n "kind" -l "172.18.255.200-172.18.255.250" -c "${CLUSTER_DOMAIN}" 2>&1 | prepend "kind") &
+cluster_pids+=($!)
 
 echo "Waiting for all kind clusters to be created"
-wait
+for pid in "${cluster_pids[@]}"; do wait "${pid}" || { echo "Cluster creation PID ${pid} failed" >&2; exit 1; }; done
 
 # we do exports sequentially as setup_kind_cluster.sh is run in parallel and we hit kube config locks
 kind export kubeconfig --name "e2e-operator"
@@ -45,20 +51,29 @@ scripts/dev/interconnect_kind_clusters.sh -v e2e-cluster-1 e2e-cluster-2 e2e-clu
 
 export VERSION=${VERSION:-1.16.1}
 
-source multi_cluster/tools/download_istio.sh 2>&1 | prepend "download_istio" || true
+source multi_cluster/tools/download_istio.sh 2>&1 | prepend "download_istio"
 
+istio_pids=()
 VERSION=1.16.1 CTX_CLUSTER1=kind-e2e-cluster-1 CTX_CLUSTER2=kind-e2e-cluster-2 CTX_CLUSTER3=kind-e2e-cluster-3 multi_cluster/tools/install_istio.sh 2>&1 | prepend "install_istio" &
+istio_pids+=($!)
 VERSION=1.16.1 CTX_CLUSTER=kind-e2e-operator multi_cluster/tools/install_istio_central.sh 2>&1 | prepend "install_istio_central" &
+istio_pids+=($!)
 
-wait
+for pid in "${istio_pids[@]}"; do wait "${pid}" || { echo "Istio install PID ${pid} failed" >&2; exit 1; }; done
 
 source scripts/dev/install_csi_driver.sh
 csi_driver_download 2>&1 | prepend "csi_driver_download"
 
+csi_pids=()
 csi_driver_deploy kind-e2e-operator 2>&1 | prepend "install_csi_driver.sh kind-e2e-operator" &
+csi_pids+=($!)
 csi_driver_deploy kind-e2e-cluster-1 2>&1 | prepend "install_csi_driver.sh kind-e2e-cluster-1" &
+csi_pids+=($!)
 csi_driver_deploy kind-e2e-cluster-2 2>&1 | prepend "install_csi_driver.sh kind-e2e-cluster-2" &
+csi_pids+=($!)
 csi_driver_deploy kind-e2e-cluster-3 2>&1 | prepend "install_csi_driver.sh kind-e2e-cluster-3" &
+csi_pids+=($!)
 csi_driver_deploy kind-kind 2>&1 | prepend "install_csi_driver.sh kind-kind" &
+csi_pids+=($!)
 
-wait
+for pid in "${csi_pids[@]}"; do wait "${pid}" || { echo "CSI deploy PID ${pid} failed" >&2; exit 1; }; done
