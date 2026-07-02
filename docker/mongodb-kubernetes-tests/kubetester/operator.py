@@ -147,7 +147,10 @@ class Operator(object):
         return client.AppsV1Api(api_client=self.api_client).read_namespaced_deployment(self.name, self.namespace)
 
     def apply_operator_config_and_wait(
-        self, multi_cluster: bool = False, watched_resources: Optional[List[str]] = None
+        self,
+        multi_cluster: bool = False,
+        watched_resources: Optional[List[str]] = None,
+        extra_spec: Optional[dict] = None,
     ):
         """Creates the OperatorConfig CR from test env vars (if any non-default settings exist) and waits
         for the operator to restart, reload its configuration and become ready again.
@@ -156,6 +159,9 @@ class Operator(object):
         apply_operator_config_from_test_env helper: it supplies the Helm post-restart readiness check
         (deployment ready plus the validating webhook), since creating the CR triggers a graceful restart
         during which the webhook is briefly unavailable.
+
+        Callers can pass extra_spec to configure OperatorConfig settings explicitly on the CR (e.g. a
+        shorter automaticRecovery delay). It is merged on top of the spec built from the test environment.
         """
         # the import is done here to prevent circular dependency
         from kubetester.kubetester import apply_operator_config_from_test_env
@@ -164,13 +170,15 @@ class Operator(object):
             self.wait_for_operator_ready()
             self.wait_for_operator_webhook_ready(multi_cluster=multi_cluster)
 
-        extra_spec = {"watchedResources": watched_resources} if watched_resources is not None else None
+        combined_spec: dict = dict(extra_spec) if extra_spec else {}
+        if watched_resources is not None:
+            combined_spec["watchedResources"] = watched_resources
         apply_operator_config_from_test_env(
             self.namespace,
             api_client=self.api_client,
             name=self.name,
             wait_for_ready=wait_for_ready,
-            extra_spec=extra_spec,
+            extra_spec=combined_spec or None,
         )
 
     def wait_for_operator_ready(self, retries: int = 60):
