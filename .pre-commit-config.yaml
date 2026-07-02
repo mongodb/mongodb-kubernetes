@@ -149,6 +149,16 @@ repos:
         files: (\.go$|^go\.(mod|sum)$)
         stages: [pre-commit]
 
+  - repo: local
+    hooks:
+      - id: go-vet-integration
+        name: go vet (integration build tag)
+        entry: go vet -tags=integration ./cmd/connectivity-validator/...
+        language: system
+        pass_filenames: false
+        files: cmd/connectivity-validator/.*\.go$
+        stages: [pre-commit]
+
   - repo: https://github.com/golangci/golangci-lint
     rev: v2.0.2
     hooks:

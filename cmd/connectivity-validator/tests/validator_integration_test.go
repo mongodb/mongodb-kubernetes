@@ -115,42 +115,20 @@ func writePEMFile(t *testing.T, path string, certDER, keyDER []byte) {
 	require.NoError(t, os.WriteFile(path, buf.Bytes(), 0644))
 }
 
-// tempKeyfile writes content to a temp file and returns its path.
-func tempKeyfile(t *testing.T, content string) string {
-	t.Helper()
-	f, err := os.CreateTemp(t.TempDir(), "keyfile")
-	require.NoError(t, err)
-	_, err = f.WriteString(content)
-	require.NoError(t, err)
-	require.NoError(t, f.Close())
-	return f.Name()
-}
-
 // TestValidate_SingleMongod uses MongoDB 8 only. Keyfile __system uses SCRAM-SHA-256 credentials;
 // integration tests therefore exercise SCRAM-SHA-256 only (SCRAM-SHA-1 cannot succeed for this user on 8.x).
 func TestValidate_SingleMongod(t *testing.T) {
 	ctx := context.Background()
 	addr := startMongodWithKeyfile(ctx, t)
 	connStr := fmt.Sprintf("mongodb://%s/?directConnection=true&serverSelectionTimeoutMS=5000", addr)
-	keyOK := tempKeyfile(t, keyfileBody)
 
 	t.Run("Success", func(t *testing.T) {
 		cfg := connectivitycheck.Config{
 			ConnectionString: connStr,
 			ExternalMembers:  []string{addr},
 			AuthMechanism:    "SCRAM-SHA-256",
-			KeyfilePath:      keyOK,
 		}
 		assert.Equal(t, exitcode.ExitSuccess, connectivitycheck.Validate(ctx, cfg))
-	})
-
-	t.Run("WrongKeyfile", func(t *testing.T) {
-		cfg := connectivitycheck.Config{
-			ConnectionString: connStr,
-			AuthMechanism:    "SCRAM-SHA-256",
-			KeyfilePath:      tempKeyfile(t, "wrongkey"),
-		}
-		assert.Equal(t, exitcode.ExitAuthFailed, connectivitycheck.Validate(ctx, cfg))
 	})
 
 	t.Run("OneUnreachable", func(t *testing.T) {
@@ -158,7 +136,6 @@ func TestValidate_SingleMongod(t *testing.T) {
 			ConnectionString: connStr,
 			ExternalMembers:  []string{addr, "localhost:27999"},
 			AuthMechanism:    "SCRAM-SHA-256",
-			KeyfilePath:      keyOK,
 		}
 		assert.Equal(t, exitcode.ExitNetworkFailed, connectivitycheck.Validate(ctx, cfg))
 	})
@@ -168,13 +145,12 @@ func TestValidate_SingleMongod(t *testing.T) {
 			ConnectionString: connStr,
 			ExternalMembers:  []string{"nonexistent.invalid:27017"},
 			AuthMechanism:    "SCRAM-SHA-256",
-			KeyfilePath:      keyOK,
 		}
 		assert.Equal(t, exitcode.ExitNetworkFailed, connectivitycheck.Validate(ctx, cfg))
 	})
 }
 
-// TestValidate_TLS tests SCRAM-SHA-256 keyfile auth over TLS on MongoDB 8.
+// TestValidate_TLS tests SCRAM-SHA-256 auth over TLS on MongoDB 8.
 func TestValidate_TLS(t *testing.T) {
 	ctx := context.Background()
 	addr, caPath := startMongodWithTLS(ctx, t)
@@ -187,18 +163,9 @@ func TestValidate_TLS(t *testing.T) {
 		cfg := connectivitycheck.Config{
 			ConnectionString: tlsConn,
 			AuthMechanism:    "SCRAM-SHA-256",
-			KeyfilePath:      tempKeyfile(t, keyfileBody),
+			MongodTLSCAPath:  caPath,
 		}
 		assert.Equal(t, exitcode.ExitSuccess, connectivitycheck.Validate(ctx, cfg))
-	})
-
-	t.Run("WrongKeyfile", func(t *testing.T) {
-		cfg := connectivitycheck.Config{
-			ConnectionString: tlsConn,
-			AuthMechanism:    "SCRAM-SHA-256",
-			KeyfilePath:      tempKeyfile(t, "wrongkey"),
-		}
-		assert.Equal(t, exitcode.ExitAuthFailed, connectivitycheck.Validate(ctx, cfg))
 	})
 }
 
@@ -348,7 +315,6 @@ func TestValidate_TwoMembers_BothReachable(t *testing.T) {
 		ConnectionString: connStr,
 		ExternalMembers:  members,
 		AuthMechanism:    "SCRAM-SHA-256",
-		KeyfilePath:      tempKeyfile(t, keyfileBody),
 	}
 	assert.Equal(t, exitcode.ExitSuccess, connectivitycheck.Validate(ctx, cfg))
 }
