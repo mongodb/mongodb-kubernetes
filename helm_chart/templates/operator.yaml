@@ -45,23 +45,14 @@ spec:
         - name: {{ .Values.operator.name }}
           image: "{{ .Values.registry.operator }}/{{ .Values.operator.operator_image_name }}:{{ .Values.operator.version }}{{ .Values.operator.build }}"
           imagePullPolicy: {{ .Values.registry.pullPolicy }}
-          {{- if .Values.operator.watchedResources }}
+          {{- with .Values.operator.additionalArguments }}
           args:
-            {{- range .Values.operator.watchedResources }}
-            - -watch-resource={{ . }}
-            {{- end }}
-            {{- if .Values.multiCluster.clusters }}
-            - -watch-resource=mongodbmulticluster
-            {{- end }}
-            {{- if .Values.operator.enableClusterMongoDBRoles }}
-            - -watch-resource=clustermongodbroles
-            {{- end }}
-            {{- range .Values.operator.additionalArguments }}
+            {{- range . }}
             - {{ . }}
             {{- end }}
+          {{- end }}
           command:
             - /usr/local/bin/mongodb-kubernetes-operator
-          {{- end }}
           volumeMounts:
             - mountPath: /tmp/k8s-webhook-server/serving-certs
               name: webhook-server-dir
