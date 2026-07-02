@@ -261,7 +261,6 @@ class OMTester(object):
                 return cluster["id"]
         raise AssertionError("No SHARDED_REPLICA_SET cluster found")
 
-
     def get_cluster_availability(self, name: str) -> Optional[str]:
         clusters = self.api_read_clusters()
         for cluster in clusters:
