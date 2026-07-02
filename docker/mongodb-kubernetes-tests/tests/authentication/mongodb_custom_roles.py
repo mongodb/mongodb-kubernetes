@@ -358,7 +358,7 @@ def test_install_operator_with_clustermongodbroles_disabled(multi_cluster_operat
 def test_replicaset_is_failed(replica_set: MongoDB):
     replica_set.assert_reaches_phase(
         Phase.Failed,
-        msg_regexp="RoleRefs are not supported when ClusterMongoDBRoles are disabled. Please enable ClusterMongoDBRoles in the operator configuration.",
+        msg_regexp="RoleRefs are not supported when ClusterMongoDBRoles are disabled",
     )
 
 
