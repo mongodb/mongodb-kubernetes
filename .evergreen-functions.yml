@@ -716,9 +716,6 @@ functions:
           - revision_order_id
           - AI_MONGODB_EMBEDDING_INDEXING_KEY
           - AI_MONGODB_EMBEDDING_QUERY_KEY
-          # Lets a manually scheduled patch force-run a quarantined test, e.g.
-          # `evergreen patch ... --param RUN_QUARANTINED_TESTS=true`.
-          - RUN_QUARANTINED_TESTS
         add_to_path:
           - ${workdir}/bin
         binary: scripts/evergreen/e2e/e2e.sh

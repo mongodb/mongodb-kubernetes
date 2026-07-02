@@ -92,19 +92,15 @@ evergreen patch --alias static
 ## Quarantined Tests
 
 E2e tests blocked on a known issue outside our control (e.g. an upstream regression) are
-skipped by default via pytest `skipif`, with a reason pointing at the tracking ticket.
+tagged `quarantined` and set `patchable: false` in `.evergreen-tasks.yml`. This means they
+never run in PR or manual patches, but **do** run automatically on every master merge commit,
+so a known failure still correctly marks that commit as not releasable — quarantining never
+silently hides a failure from the release gate.
 
-List them: `grep -B1 'tags:.*"quarantined"' .evergreen-tasks.yml` (or filter by tag
-`quarantined` in the Evergreen UI). Each test also documents its skip reason and force-run
-instructions inline next to its `skipif` marker.
+List quarantined tests: `grep -B1 'tags:.*"quarantined"' .evergreen-tasks.yml` (or filter by
+tag `quarantined` in the Evergreen UI). Each test file has a comment linking the tracking
+ticket.
 
-They stay schedulable — pass `RUN_QUARANTINED_TESTS=true` to actually run one:
-
-```shell
-# Locally
-RUN_QUARANTINED_TESTS=true pytest -m e2e_sharded_cluster_scram_sha_256_switch_project ...
-
-# Evergreen CLI
-evergreen patch -p mongodb-kubernetes -t e2e_sharded_cluster_scram_sha_256_switch_project \
-  --param RUN_QUARANTINED_TESTS=true -f -y -u --path .evergreen.yml
-```
+Because of `patchable: false`, these tasks cannot be force-run in a patch — the only way to
+check whether the upstream issue is fixed is to look at the task's result on master, or
+temporarily flip `patchable: true` in a throwaway branch.

@@ -1,5 +1,3 @@
-import os
-
 import pytest
 from kubetester import create_or_update_secret, try_load
 from kubetester.kubetester import KubernetesTester
@@ -14,21 +12,9 @@ MDB_RESOURCE_NAME = "sharded-cluster-scram-sha-1-switch-project"
 
 # Quarantined: blocked on an upstream Cloud Manager Automation Agent 13.53 regression that
 # stalls mongos recovery after a sharded cluster project switch. See HELP-96015.
-#
-# To force-run these tests anyway (e.g. to check whether the upstream fix has landed):
-#   - Locally: RUN_QUARANTINED_TESTS=true pytest -m e2e_sharded_cluster_scram_sha_1_switch_project ...
-#   - Evergreen CLI: evergreen patch -p mongodb-kubernetes \
-#       -t e2e_sharded_cluster_scram_sha_1_switch_project --param RUN_QUARANTINED_TESTS=true
-#   - Evergreen UI: schedule the task, then set expansion RUN_QUARANTINED_TESTS=true
-#     under "Configure Task" before running it.
-QUARANTINE_REASON = (
-    "Quarantined: blocked on upstream Cloud Manager Automation Agent 13.53 regression that "
-    "stalls mongos recovery after a project switch. See https://jira.mongodb.org/browse/HELP-96015."
-)
-skip_quarantined = pytest.mark.skipif(
-    os.environ.get("RUN_QUARANTINED_TESTS", "false").lower() != "true",
-    reason=QUARANTINE_REASON,
-)
+# The Evergreen task for this file is patchable:false, so it only runs on master merge commits
+# (never in PR/manual patches) and its result still gates master's releasability.
+# See EVERGREEN.md#quarantined-tests.
 
 
 @pytest.fixture(scope="function")
@@ -105,15 +91,12 @@ class TestShardedClusterCreationAndProjectSwitch(KubernetesTester):
     #         user_name=user_name, expected_roles=expected_roles, expected_users=1
     #     )
 
-    @skip_quarantined
     def test_switch_project(self, testhelper: SwitchProjectHelper):
         testhelper.test_switch_project()
 
-    @skip_quarantined
     def test_sharded_cluster_connectivity_after_switch(self, testhelper: SwitchProjectHelper):
         testhelper.test_sharded_cluster_connectivity(1)
 
-    @skip_quarantined
     def test_ops_manager_state_correctly_updated_after_switch(self, testhelper: SwitchProjectHelper):
         testhelper.test_ops_manager_state_with_expected_authentication(expected_users=0)
 
