@@ -11,6 +11,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	authn "github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
@@ -108,6 +109,16 @@ func buildAuthenticationConfig(ac *om.AutomationConfig, certsSecretPrefix, resou
 
 	if ac.AgentSSL != nil && ac.AgentSSL.AutoPEMKeyFilePath != "" {
 		authConfig.Agents.AutoPEMKeyFilePath = ac.AgentSSL.AutoPEMKeyFilePath
+		if certsSecretPrefix != "" {
+			authConfig.Agents.ClientCertificateSecretRefWrap = common.ClientCertificateSecretRefWrapper{
+				ClientCertificateSecretRef: corev1.SecretKeySelector{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: fmt.Sprintf("%s-%s-%s", certsSecretPrefix, resourceName, util.AgentSecretName),
+					},
+					Key: corev1.TLSCertKey,
+				},
+			}
+		}
 	}
 
 	return authConfig, nil

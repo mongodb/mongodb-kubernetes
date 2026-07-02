@@ -519,6 +519,7 @@ func TestValidation_X509AutoUser_NotInUsersWanted_Error(t *testing.T) {
 	ac.Auth.AutoUser = "CN=mms-automation-agent,OU=test,O=cluster.local"
 	ac.Auth.AutoAuthMechanism = "MONGODB-X509"
 	ac.Auth.Users = nil
+	ac.AgentSSL = &om.AgentSSL{AutoPEMKeyFilePath: "/mongodb-agent/agent.pem"}
 
 	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
 	hasError := false
@@ -537,6 +538,7 @@ func TestValidation_X509AutoUser_InUsersWanted_NoError(t *testing.T) {
 	ac.Auth.Users = []*om.MongoDBUser{
 		{Username: "CN=mms-automation-agent,OU=test,O=cluster.local", Database: "$external"},
 	}
+	ac.AgentSSL = &om.AgentSSL{AutoPEMKeyFilePath: "/mongodb-agent/agent.pem"}
 
 	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
 	for _, r := range results {
@@ -547,10 +549,10 @@ func TestValidation_X509AutoUser_InUsersWanted_NoError(t *testing.T) {
 }
 
 func TestValidateX509_WarnsAboutGeneratedClientCertificateSecretRef(t *testing.T) {
-	results := validateX509(&om.Auth{
-		Disabled:          false,
-		AutoAuthMechanism: "MONGODB-X509",
-	})
+	results := validateX509(
+		&om.Auth{Disabled: false, AutoAuthMechanism: "MONGODB-X509"},
+		&om.AgentSSL{AutoPEMKeyFilePath: "/mongodb-agent/agent.pem"},
+	)
 
 	require.NotEmpty(t, results)
 	assert.Equal(t, SeverityWarning, results[0].Severity)
@@ -559,6 +561,17 @@ func TestValidateX509_WarnsAboutGeneratedClientCertificateSecretRef(t *testing.T
 	assert.Contains(t, results[0].Message, "tls.crt")
 	assert.Contains(t, results[0].Message, "tls.key")
 	assert.Contains(t, results[0].Message, "clientCertificateSecretRef.name")
+}
+
+func TestValidateX509_ErrorWhenAutoPEMKeyFilePathMissing(t *testing.T) {
+	results := validateX509(
+		&om.Auth{Disabled: false, AutoAuthMechanism: "MONGODB-X509"},
+		nil,
+	)
+
+	require.NotEmpty(t, results)
+	assert.Equal(t, SeverityError, results[0].Severity)
+	assert.Contains(t, results[0].Message, "tls.autoPEMKeyFilePath")
 }
 
 func TestValidation_AgentConfigDrift_Warning(t *testing.T) {
