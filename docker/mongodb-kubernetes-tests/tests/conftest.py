@@ -688,8 +688,6 @@ def get_multi_cluster_operator(
         # override the serviceAccountName for the operator deployment
         "operator.createOperatorServiceAccount": "false",
     }
-    if watched_resources is not None:
-        helm_opts["operator.watchedResources"] = "{" + ",".join(watched_resources) + "}"
     return _install_multi_cluster_operator(
         namespace,
         multi_cluster_operator_installation_config,
@@ -698,6 +696,7 @@ def get_multi_cluster_operator(
         helm_opts,
         central_cluster_name,
         apply_crds_first=apply_crds_first,
+        watched_resources=watched_resources,
     )
 
 
@@ -781,10 +780,20 @@ def multi_cluster_operator_no_cluster_mongodb_roles(
             "operator.name": MULTI_CLUSTER_OPERATOR_NAME,
             # override the serviceAccountName for the operator deployment
             "operator.createOperatorServiceAccount": "false",
+            # Skip creating the ClusterMongoDBRole RBAC.
             "operator.enableClusterMongoDBRoles": "false",
         },
         central_cluster_name,
         apply_crds_first=apply_crds_first,
+        watched_resources=[
+            "mongodb",
+            "opsmanagers",
+            "mongodbusers",
+            "mongodbcommunity",
+            "mongodbsearch",
+            "mongodbmulticluster",
+            "voyageais",
+        ],
     )
 
 
@@ -865,6 +874,7 @@ def _install_multi_cluster_operator(
     custom_operator_version: Optional[str] = None,
     apply_crds_first: bool = False,
     create_operator_config: bool = True,
+    watched_resources: Optional[List[str]] = None,
 ) -> Operator:
     multi_cluster_operator_installation_config.update(helm_opts)
 
@@ -897,7 +907,7 @@ def _install_multi_cluster_operator(
     # OperatorConfig CRD, so creating the CR would fail. Such installs pass create_operator_config=False
     # and the upgrade test creates the CR explicitly once the CRD has been applied.
     if create_operator_config:
-        operator.apply_operator_config_and_wait(multi_cluster=True)
+        operator.apply_operator_config_and_wait(multi_cluster=True, watched_resources=watched_resources)
     else:
         operator.wait_for_operator_ready()
 
