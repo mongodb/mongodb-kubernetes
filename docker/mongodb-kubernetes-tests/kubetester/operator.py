@@ -146,7 +146,9 @@ class Operator(object):
     def read_deployment(self) -> V1Deployment:
         return client.AppsV1Api(api_client=self.api_client).read_namespaced_deployment(self.name, self.namespace)
 
-    def apply_operator_config_and_wait(self, multi_cluster: bool = False):
+    def apply_operator_config_and_wait(
+        self, multi_cluster: bool = False, watched_resources: Optional[List[str]] = None
+    ):
         """Creates the OperatorConfig CR from test env vars (if any non-default settings exist) and waits
         for the operator to restart, reload its configuration and become ready again.
 
@@ -162,8 +164,13 @@ class Operator(object):
             self.wait_for_operator_ready()
             self.wait_for_operator_webhook_ready(multi_cluster=multi_cluster)
 
+        extra_spec = {"watchedResources": watched_resources} if watched_resources is not None else None
         apply_operator_config_from_test_env(
-            self.namespace, api_client=self.api_client, name=self.name, wait_for_ready=wait_for_ready
+            self.namespace,
+            api_client=self.api_client,
+            name=self.name,
+            wait_for_ready=wait_for_ready,
+            extra_spec=extra_spec,
         )
 
     def wait_for_operator_ready(self, retries: int = 60):
