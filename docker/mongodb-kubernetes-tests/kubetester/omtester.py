@@ -261,33 +261,6 @@ class OMTester(object):
                 return cluster["id"]
         raise AssertionError("No SHARDED_REPLICA_SET cluster found")
 
-    def get_cluster_availability(self, name: str) -> Optional[str]:
-        clusters = self.api_read_clusters()
-        for cluster in clusters:
-            if cluster["name"] == name:
-                return cluster["availability"]
-        return None
-
-    def assert_cluster_available(self, name: str):
-        availability = self.get_cluster_availability(name)
-        assert availability == "available", f"Cluster {name} is not available, current availability: {availability}"
-
-    def get_cluster_availability(self, name: str) -> Optional[str]:
-        clusters = self.api_read_clusters()
-        for cluster in clusters:
-            if cluster["name"] == name:
-                return cluster["availability"]
-        return None
-
-    def assert_cluster_available(self, name: str, timeout: int = 120):
-        deadline = time.time() + timeout
-        availability = None
-        while time.time() < deadline:
-            availability = self.get_cluster_availability(name)
-            if availability == "available":
-                return
-            time.sleep(5)
-        assert False, f"Cluster {name} is not available after {timeout}s, last availability: {availability}"
 
     def assert_healthiness(self):
         self.do_assert_healthiness(self.context.base_url)
