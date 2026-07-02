@@ -1,6 +1,7 @@
 package migratetomck
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -13,6 +14,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/oidc"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
 	pkgtls "github.com/mongodb/mongodb-kubernetes/pkg/tls"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
 )
 
@@ -180,7 +182,7 @@ func TestBuildSecurity_AuthDisabled(t *testing.T) {
 
 func TestBuildSecurity_AuthEnabled(t *testing.T) {
 	ac := testAC(
-		&om.Auth{Disabled: false, DeploymentAuthMechanisms: []string{"SCRAM-SHA-256"}},
+		&om.Auth{Disabled: false, DeploymentAuthMechanisms: []string{util.AutomationConfigScramSha256Option}},
 		map[string]om.Process{"host-0": {}},
 		[]om.ReplicaSetMember{{"host": "host-0"}},
 	)
@@ -194,7 +196,7 @@ func TestBuildSecurity_AuthEnabled(t *testing.T) {
 
 func TestBuildSecurity_TLSAndAuth(t *testing.T) {
 	ac := testAC(
-		&om.Auth{Disabled: false, DeploymentAuthMechanisms: []string{"MONGODB-X509"}},
+		&om.Auth{Disabled: false, DeploymentAuthMechanisms: []string{util.AutomationConfigX509Option}},
 		map[string]om.Process{
 			"host-0": {
 				"args2_6": map[string]interface{}{
@@ -217,12 +219,12 @@ func TestBuildSecurity_TLSAndAuth(t *testing.T) {
 	assert.Equal(t, []mdbv1.AuthMode{"X509"}, result.Authentication.Modes)
 }
 
-func TestBuildSecurity_X509AgentAuthDoesNotSetClientCertificateSecretRef(t *testing.T) {
+func TestBuildSecurity_X509AgentAuthSetsClientCertificateSecretRef(t *testing.T) {
 	ac := testAC(
 		&om.Auth{
 			Disabled:                 false,
-			DeploymentAuthMechanisms: []string{"MONGODB-X509"},
-			AutoAuthMechanism:        "MONGODB-X509",
+			DeploymentAuthMechanisms: []string{util.AutomationConfigX509Option},
+			AutoAuthMechanism:        util.AutomationConfigX509Option,
 		},
 		map[string]om.Process{
 			"host-0": {
@@ -236,16 +238,19 @@ func TestBuildSecurity_X509AgentAuthDoesNotSetClientCertificateSecretRef(t *test
 		[]om.ReplicaSetMember{{"host": "host-0"}},
 	)
 
+	ac.AgentSSL = &om.AgentSSL{AutoPEMKeyFilePath: "/mongodb-agent/agent.pem"}
+
 	result, err := buildSecurity(ac, "mdb", "my-rs")
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.NotNil(t, result.Authentication)
-	// the operator derives the agent cert secret name from certsSecretPrefix automatically;
-	// the migration tool does not need to set clientCertificateSecretRef explicitly.
-	assert.Empty(t, result.Authentication.Agents.ClientCertificateSecretRefWrap.ClientCertificateSecretRef.Name)
+	assert.Equal(t,
+		fmt.Sprintf("%s-%s-%s", "mdb", "my-rs", util.AgentSecretName),
+		result.Authentication.Agents.ClientCertificateSecretRefWrap.ClientCertificateSecretRef.Name,
+	)
+	assert.Equal(t, "/mongodb-agent/agent.pem", result.Authentication.Agents.AutoPEMKeyFilePath)
 
-	// the validation step must warn customers about the secret they need to create
-	warnings := validateX509(ac.Auth)
+	warnings := validateX509(ac.Auth, ac.AgentSSL)
 	require.NotEmpty(t, warnings)
 	assert.Equal(t, SeverityWarning, warnings[0].Severity)
 	assert.Contains(t, warnings[0].Message, "<certsSecretPrefix>-<resourceName>-agent-certs")
@@ -271,7 +276,7 @@ func TestBuildSecurity_TLS_EmptyPrefix(t *testing.T) {
 
 func TestBuildSecurity_InternalClusterAuth(t *testing.T) {
 	ac := testAC(
-		&om.Auth{Disabled: false, DeploymentAuthMechanisms: []string{"SCRAM-SHA-256"}},
+		&om.Auth{Disabled: false, DeploymentAuthMechanisms: []string{util.AutomationConfigScramSha256Option}},
 		map[string]om.Process{
 			"host-0": {
 				"args2_6": map[string]interface{}{
@@ -287,7 +292,7 @@ func TestBuildSecurity_InternalClusterAuth(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.NotNil(t, result.Authentication)
-	assert.Equal(t, "X509", result.Authentication.InternalCluster)
+	assert.Equal(t, util.X509, result.Authentication.InternalCluster)
 }
 
 func TestExtractAdditionalMongodConfig_NonDefaultPort(t *testing.T) {

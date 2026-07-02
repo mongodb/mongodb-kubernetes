@@ -49,7 +49,7 @@ func ValidateMigration(ac *om.AutomationConfig, processMap map[string]om.Process
 
 	results = append(results, validateAuth(ac.Auth)...)
 	results = append(results, validateScram(ac.Auth)...)
-	results = append(results, validateX509(ac.Auth)...)
+	results = append(results, validateX509(ac.Auth, ac.AgentSSL)...)
 	results = append(results, validateAgentTLS(ac.AgentSSL)...)
 	results = append(results, validateAgentConfig(projectConfigs)...)
 	results = append(results, validateLDAP(ac)...)
@@ -175,8 +175,8 @@ func validateScram(auth *om.Auth) []ValidationResult {
 	return nil
 }
 
-// validateX509 warns when MONGODB-X509 agent auth is configured.
-func validateX509(auth *om.Auth) []ValidationResult {
+// validateX509 warns when MONGODB-X509 agent auth is configured and errors when autoPEMKeyFilePath is missing.
+func validateX509(auth *om.Auth, agentSSL *om.AgentSSL) []ValidationResult {
 	if auth == nil || auth.Disabled {
 		return nil
 	}
@@ -184,6 +184,12 @@ func validateX509(auth *om.Auth) []ValidationResult {
 		return nil
 	}
 	var results []ValidationResult
+	if agentSSL == nil || agentSSL.AutoPEMKeyFilePath == "" {
+		results = append(results, ValidationResult{
+			Severity: SeverityError,
+			Message:  "MONGODB-X509 agent authentication requires tls.autoPEMKeyFilePath to be set in the automation config.",
+		})
+	}
 	results = append(results, ValidationResult{
 		Severity: SeverityWarning,
 		Message:  "MONGODB-X509 agent authentication is configured. The generated CR sets spec.security.authentication.agents.clientCertificateSecretRef to \"<certsSecretPrefix>-<resourceName>-agent-certs\". Create a kubernetes.io/tls Secret with that name and keys \"tls.crt\" and \"tls.key\" before applying the Custom Resource. If you use a different Secret name, update clientCertificateSecretRef.name in the generated CR.",
