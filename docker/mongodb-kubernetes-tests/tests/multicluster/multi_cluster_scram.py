@@ -2,7 +2,7 @@ from typing import List
 
 import kubernetes
 import pytest
-from kubetester import create_or_update_secret, read_secret
+from kubetester import create_or_update_secret, read_secret, wait_until
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
@@ -12,7 +12,10 @@ from kubetester.mongotester import with_scram
 from kubetester.multicluster_client import MultiClusterClient
 from kubetester.operator import Operator
 from kubetester.phase import Phase
+from tests import test_logger
 from tests.multicluster.conftest import cluster_spec_list
+
+logger = test_logger.get_test_logger(__name__)
 
 MDB_RESOURCE = "multi-replica-set-scram"
 USER_NAME = "my-user-1"
@@ -154,6 +157,35 @@ def test_connection_string_secret_was_created(
 
 
 @pytest.mark.e2e_multi_cluster_scram
+def test_connection_string_secret_has_controller_ref_on_central_cluster(
+    namespace: str,
+    mongodb_multi: MongoDBMulti,
+    mongodb_user: MongoDBUser,
+    central_cluster_client: kubernetes.client.ApiClient,
+):
+    """The central cluster connection string Secret must carry a controller owner
+    reference pointing to the MongoDBUser CR so that Kubernetes GC removes it when the
+    MongoDBUser is deleted. Member cluster secrets intentionally omit owner references
+    to prevent cross-cluster GC."""
+    secret_name = f"{mongodb_multi.name}-{USER_RESOURCE}-{USER_DATABASE}"
+    v1 = kubernetes.client.CoreV1Api(central_cluster_client)
+    secret = v1.read_namespaced_secret(name=secret_name, namespace=namespace)
+
+    owner_refs = secret.metadata.owner_references or []
+    controller_ref = next((ref for ref in owner_refs if ref.controller), None)
+
+    assert (
+        controller_ref is not None
+    ), f"Connection string secret '{secret_name}' on the central cluster has no controller owner reference."
+    assert (
+        controller_ref.name == mongodb_user.name
+    ), f"Expected controller owner '{mongodb_user.name}', got '{controller_ref.name}'."
+    assert (
+        controller_ref.kind == "MongoDBUser"
+    ), f"Expected controller owner kind 'MongoDBUser', got '{controller_ref.kind}'."
+
+
+@pytest.mark.e2e_multi_cluster_scram
 def test_om_configured_correctly():
     expected_roles = {
         ("admin", "clusterAdmin"),
@@ -214,3 +246,57 @@ def test_replica_set_connectivity_from_connection_string_standard_srv(
             with_scram(USER_NAME, NEW_USER_PASSWORD),
         ],
     )
+
+
+@pytest.mark.e2e_multi_cluster_scram
+def test_connection_string_secret_deleted_on_user_deletion(
+    namespace: str,
+    mongodb_multi: MongoDBMulti,
+    mongodb_user: MongoDBUser,
+    central_cluster_client: kubernetes.client.ApiClient,
+    member_cluster_clients: List[MultiClusterClient],
+):
+    """Delete the MongoDBUser CR and verify that the connection string Secret is removed
+    from every member cluster and from the central cluster. Member cluster secrets carry no
+    ownerReferences (to avoid cross-cluster GC) so the operator deletes them explicitly
+    through its finalizer. The central cluster Secret carries a controller owner reference
+    and is removed by Kubernetes GC once the MongoDBUser CR is deleted."""
+    mongodb_user.delete()
+
+    def wait_for_user_deleted() -> bool:
+        try:
+            mongodb_user.load()
+            return False
+        except kubernetes.client.ApiException as e:
+            if e.status == 404:
+                return True
+            logger.error(e)
+            return False
+
+    wait_until(wait_for_user_deleted, timeout=120)
+
+    secret_name = f"{mongodb_multi.name}-{USER_RESOURCE}-{USER_DATABASE}"
+    for mc_client in member_cluster_clients:
+        try:
+            read_secret(namespace, secret_name, api_client=mc_client.api_client)
+            raise AssertionError(
+                f"Connection string secret '{secret_name}' still exists in cluster "
+                f"'{mc_client.cluster_name}' after MongoDBUser deletion."
+            )
+        except kubernetes.client.ApiException as e:
+            assert e.status == 404, (
+                f"Unexpected error reading secret '{secret_name}' from cluster " f"'{mc_client.cluster_name}': {e}"
+            )
+
+    # The central cluster Secret is owned by the MongoDBUser CR via a controller owner
+    # reference and is removed by Kubernetes GC once the MongoDBUser is deleted.
+    v1 = kubernetes.client.CoreV1Api(central_cluster_client)
+
+    def central_secret_deleted() -> bool:
+        try:
+            v1.read_namespaced_secret(name=secret_name, namespace=namespace)
+            return False
+        except kubernetes.client.ApiException as e:
+            return e.status == 404
+
+    wait_until(central_secret_deleted, timeout=30)

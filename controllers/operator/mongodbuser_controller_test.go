@@ -646,6 +646,53 @@ func TestFinalizerIsRemoved_WhenUserIsDeleted(t *testing.T) {
 	assert.True(t, apiErrors.IsNotFound(err), "the user should not exist")
 }
 
+func TestConnectionStringSecret_HasControllerRef_AfterReconciliation(t *testing.T) {
+	ctx := context.Background()
+	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").Build()
+	reconciler, client, _ := userReconcilerWithAuthMode(ctx, user, util.AutomationConfigScramSha256Option)
+
+	_ = client.Create(ctx, DefaultReplicaSetBuilder().EnableSCRAM().AgentAuthMode("SCRAM").SetName("my-rs").Build())
+	createUserControllerConfigMap(ctx, client)
+	createPasswordSecret(ctx, client, user.Spec.PasswordSecretKeyRef, "password")
+
+	_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
+	require.NoError(t, err)
+
+	connectionStringSecret := &corev1.Secret{}
+	err = client.Get(ctx, kube.ObjectKey(user.Namespace, user.GetConnectionStringSecretName()), connectionStringSecret)
+	require.NoError(t, err)
+
+	ownerRef := metav1.GetControllerOf(connectionStringSecret)
+	require.NotNil(t, ownerRef, "connection string secret should have a controller owner reference pointing to the MongoDBUser")
+	assert.Equal(t, user.Name, ownerRef.Name)
+	assert.Equal(t, "MongoDBUser", ownerRef.Kind)
+}
+
+func TestConnectionStringSecret_NotExplicitlyDeleted_OnUserDeletion(t *testing.T) {
+	ctx := context.Background()
+	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").Build()
+	reconciler, client, _ := userReconcilerWithAuthMode(ctx, user, util.AutomationConfigScramSha256Option)
+
+	_ = client.Create(ctx, DefaultReplicaSetBuilder().EnableAuth().AgentAuthMode("SCRAM").SetName("my-rs").Build())
+	createUserControllerConfigMap(ctx, client)
+	createPasswordSecret(ctx, client, user.Spec.PasswordSecretKeyRef, "password")
+
+	_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
+	require.NoError(t, err)
+
+	_ = client.Delete(ctx, user)
+
+	_, err = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
+	require.NoError(t, err)
+
+	// The central cluster connection string secret must still exist after preDeletionCleanup.
+	// It carries a controller owner reference to the MongoDBUser and is removed by Kubernetes GC
+	// once the MongoDBUser is deleted. The controller must not delete it explicitly.
+	connectionStringSecret := &corev1.Secret{}
+	err = client.Get(ctx, kube.ObjectKey(user.Namespace, user.GetConnectionStringSecretName()), connectionStringSecret)
+	assert.NoError(t, err, "central cluster connection string secret should not be explicitly deleted in preDeletionCleanup")
+}
+
 // BuildAuthenticationEnabledReplicaSet returns a AutomationConfig after creating a Replica Set with a set of
 // different Authentication values. It should be used to test different combination of authentication modes enabled
 // and agent authentication modes.
