@@ -25,9 +25,8 @@ import (
 
 const (
 	// kubeconfig path holding the credentials for different member clusters
-	DefaultKubeConfigPath   = "/etc/config/kubeconfig/kubeconfig"
-	KubeConfigPathEnv       = "KUBE_CONFIG_PATH"
-	ClusterClientTimeoutEnv = "CLUSTER_CLIENT_TIMEOUT"
+	DefaultKubeConfigPath = "/etc/config/kubeconfig/kubeconfig"
+	KubeConfigPathEnv     = "KUBE_CONFIG_PATH"
 )
 
 type KubeConfig struct {
@@ -61,7 +60,7 @@ func (k KubeConfig) LoadKubeConfigFile() (KubeConfigFile, error) {
 }
 
 // CreateMemberClusterClients creates a client(map of cluster-name to client) to talk to the API-Server corresponding to each member clusters.
-func CreateMemberClusterClients(clusterNames []string, kubeConfigPath string) (map[string]*restclient.Config, error) {
+func CreateMemberClusterClients(clusterNames []string, kubeConfigPath string, clientTimeoutSeconds int) (map[string]*restclient.Config, error) {
 	clusterClientsMap := map[string]*restclient.Config{}
 
 	for _, c := range clusterNames {
@@ -72,7 +71,7 @@ func CreateMemberClusterClients(clusterNames []string, kubeConfigPath string) (m
 		if clientset == nil {
 			return nil, xerrors.Errorf("failed to get clientset for cluster: %s", c)
 		}
-		clientset.Timeout = time.Duration(env.ReadIntOrDefault(ClusterClientTimeoutEnv, 10)) * time.Second // nolint:forbidigo
+		clientset.Timeout = time.Duration(clientTimeoutSeconds) * time.Second
 		clusterClientsMap[c] = clientset
 	}
 	return clusterClientsMap, nil
