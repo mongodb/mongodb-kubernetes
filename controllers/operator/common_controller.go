@@ -1496,6 +1496,9 @@ func (r *ReconcileCommonController) runConnectivityJob(
 	subjectDN := ""
 	if sec := mdb.GetSecurity(); sec != nil && sec.GetAgentMechanism(agentAuthMode) == util.X509 {
 		agentCertSecretName := sec.AgentClientCertificateSecretName(mdb.Name)
+		// The connectivity Job mounts the operator-generated agent PEM secret. The full reconcile
+		// creates it in ensureX509SecretAndCheckTLSType, which the dry-run path skips, so create
+		// it here. Without it the Job pod stays Pending and the connectivity check never completes.
 		if err := certs.VerifyAndEnsureClientCertificatesForAgentsAndTLSType(ctx, r.SecretClient, r.SecretClient, kube.ObjectKey(mdb.Namespace, agentCertSecretName), log); err != nil {
 			return workflow.Failed(xerrors.Errorf("connectivity dry-run: ensure agent certificate: %w", err)).
 				WithAdditionalOptions(status.NewMigrationConditionOption(status.MigrationCondition(
