@@ -48,7 +48,7 @@ def test_update_coredns(cluster_clients: dict[str, kubernetes.client.ApiClient],
 
 @mark.e2e_multi_cluster_sharded_simplest_no_mesh
 def test_deploy_operator(multi_cluster_operator: Operator):
-    multi_cluster_operator.assert_is_running()
+    multi_cluster_operator.wait_for_operator_ready()
 
 
 @mark.e2e_multi_cluster_sharded_simplest_no_mesh

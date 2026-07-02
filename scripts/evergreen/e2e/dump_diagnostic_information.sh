@@ -188,9 +188,6 @@ dump_pod_logs() {
 
     done
 
-    if kubectl --context="${context}" exec "${pod}" -n "${namespace}" -- ls /var/log/mongodb-mms-automation/automation-agent-stderr.log &>/dev/null; then
-        kubectl --context="${context}" cp "${namespace}/${pod}:/var/log/mongodb-mms-automation/automation-agent-stderr.log" "logs/${prefix}${pod}-agent-stderr.log" &> /dev/null
-    fi
 }
 
 # dump_pod_readiness_state dumps readiness and agent-health-status files.

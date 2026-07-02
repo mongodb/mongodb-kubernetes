@@ -1,10 +1,4 @@
-from cryptography.hazmat.primitives.serialization import (
-    BestAvailableEncryption,
-    Encoding,
-    PrivateFormat,
-    load_pem_private_key,
-)
-from kubetester import create_or_update_secret, read_secret, try_load, update_secret
+from kubetester import create_or_update_secret, try_load
 from kubetester.certs import create_agent_tls_certs, create_tls_certs, create_x509_mongodb_tls_certs, generate_cert
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
@@ -18,6 +12,7 @@ from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.search import movies_search_helper, search_resource_names
 from tests.common.search.search_deployment_helper import SearchDeploymentHelper
 from tests.common.search.search_tester import SearchTester
+from tests.common.search.tls_utils import create_keyfile_password_secret, encrypt_tls_key_with_password
 from tests.conftest import get_default_operator, get_issuer_ca_filepath
 from tests.search.om_deployment import get_ops_manager
 
@@ -42,32 +37,8 @@ X509_CLIENT_CERT_CN = "mongot-sync-source"
 
 # Password used to encrypt the x509 client cert private key
 X509_AUTH_KEY_PASSWORD = "test-x509-key-password"
-
-
-def encrypt_x509_key_with_password(namespace: str, secret_name: str, password: str):
-    """Encrypts the private key in a TLS secret with a password.
-
-    Reads the cert-manager-generated secret, encrypts tls.key with the given
-    password, and updates the secret with the encrypted key and a
-    tls.keyFilePassword entry containing the password."""
-    secret_data = read_secret(namespace, secret_name)
-
-    private_key = load_pem_private_key(secret_data["tls.key"].encode(), password=None)
-    encrypted_key_pem = private_key.private_bytes(
-        encoding=Encoding.PEM,
-        format=PrivateFormat.TraditionalOpenSSL,
-        encryption_algorithm=BestAvailableEncryption(password.encode()),
-    )
-
-    update_secret(
-        namespace,
-        secret_name,
-        data={
-            "tls.key": encrypted_key_pem.decode(),
-            "tls.keyFilePassword": password,
-        },
-    )
-    logger.info(f"Encrypted private key in secret {secret_name} with password")
+# Dedicated secret holding the x509 keyfile password (spec.source.x509.keyFilePasswordSecretRef)
+X509_KEY_PASSWORD_SECRET_NAME = f"{MDB_RESOURCE_NAME}-x509-key-password"
 
 
 def get_x509_subject_dn(namespace: str) -> str:
@@ -119,6 +90,7 @@ def mdbs(namespace: str) -> MongoDBSearch:
     resource["spec"]["source"] = {
         "x509": {
             "clientCertificateSecretRef": {"name": X509_CLIENT_CERT_SECRET_NAME},
+            "keyFilePasswordSecretRef": {"name": X509_KEY_PASSWORD_SECRET_NAME},
         },
     }
 
@@ -158,7 +130,7 @@ def x509_mongot_user(namespace: str, helper: SearchDeploymentHelper) -> MongoDBU
 @mark.e2e_search_mongot_replicaset_x509_auth
 def test_install_operator(namespace: str, operator_installation_config: dict[str, str]):
     operator = get_default_operator(namespace, operator_installation_config=operator_installation_config)
-    operator.assert_is_running()
+    operator.wait_for_operator_ready()
 
 
 @mark.e2e_search_mongot_replicaset_x509_auth
@@ -221,9 +193,10 @@ def test_install_tls_secrets_and_configmaps(namespace: str, mdb: MongoDB, mdbs: 
         secret_name=X509_CLIENT_CERT_SECRET_NAME,
     )
 
-    # Encrypt the x509 client cert private key with a password to test
-    # that mongot can handle password-protected keys via tls.keyFilePassword
-    encrypt_x509_key_with_password(namespace, X509_CLIENT_CERT_SECRET_NAME, X509_AUTH_KEY_PASSWORD)
+    # Encrypt the x509 client cert private key and store the password in a dedicated
+    # secret referenced via keyFilePasswordSecretRef.
+    encrypt_tls_key_with_password(namespace, X509_CLIENT_CERT_SECRET_NAME, X509_AUTH_KEY_PASSWORD)
+    create_keyfile_password_secret(namespace, X509_KEY_PASSWORD_SECRET_NAME, X509_AUTH_KEY_PASSWORD)
 
 
 @mark.e2e_search_mongot_replicaset_x509_auth

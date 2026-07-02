@@ -216,7 +216,7 @@ def user(helper: SearchDeploymentHelper) -> MongoDBUser:
 
 @fixture(scope="function")
 def mongot_user(helper: SearchDeploymentHelper, mdbs: MongoDBSearch) -> MongoDBUser:
-    return helper.mongot_user_resource(mdbs, MONGOT_USER_NAME)
+    return helper.mongot_user_resource(mdbs.name, MONGOT_USER_NAME)
 
 
 # ---------------------------------------------------------------------------
@@ -227,7 +227,7 @@ def mongot_user(helper: SearchDeploymentHelper, mdbs: MongoDBSearch) -> MongoDBU
 @mark.e2e_search_replicaset_external_mongodb_proxy_service
 def test_install_operator(namespace: str, operator_installation_config: dict[str, str]):
     operator = get_default_operator(namespace, operator_installation_config=operator_installation_config)
-    operator.assert_is_running()
+    operator.wait_for_operator_ready()
 
 
 @mark.e2e_search_replicaset_external_mongodb_proxy_service
@@ -386,9 +386,8 @@ def test_search_query_phase1(mdb: MongoDB):
 def test_scale_up_to_managed_lb(mdbs: MongoDBSearch, namespace: str):
     """Scale to 2 replicas and enable managed LB. mongotHost does NOT change."""
     mdbs.load()
-    mdbs["spec"]["replicas"] = 2
     external_hostname = f"{proxy_service_name(MDBS_RESOURCE_NAME)}.{namespace}.svc.cluster.local"
-    mdbs["spec"]["loadBalancer"] = {"managed": {"externalHostname": external_hostname}}
+    mdbs["spec"]["clusters"] = [{"replicas": 2, "loadBalancer": {"managed": {"externalHostname": external_hostname}}}]
     mdbs.update()
     mdbs.assert_reaches_phase(Phase.Running, timeout=600)
 
@@ -434,10 +433,8 @@ def test_search_query_phase2(mdb: MongoDB):
 def test_scale_down_remove_lb(mdbs: MongoDBSearch):
     """Scale back to 1 replica and remove LB. mongotHost still does NOT change."""
     mdbs.load()
-    mdbs["spec"]["replicas"] = 1
-    # Remove the loadBalancer section entirely
-    if "loadBalancer" in mdbs["spec"]:
-        mdbs["spec"]["loadBalancer"] = None
+    # Replacing clusters[] without loadBalancer removes the LB entirely
+    mdbs["spec"]["clusters"] = [{"replicas": 1}]
     mdbs.update()
     mdbs.assert_reaches_phase(Phase.Running, timeout=600)
 

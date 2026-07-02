@@ -52,15 +52,16 @@ ENVOY_ADMIN_PORT = 9901
 
 # Resource names
 MDB_RESOURCE_NAME = "mdb-sh"
-MDBS_RESOURCE_NAME = MDB_RESOURCE_NAME
+# Distinct from MDB_RESOURCE_NAME so the search and sharded controllers don't share the <name>-state ConfigMap.
+MDBS_RESOURCE_NAME = "mdb-sh-search"
 SHARD_COUNT = 2
 MONGODS_PER_SHARD = 1
 MONGOS_COUNT = 1
 CONFIG_SERVER_COUNT = 1
 
 # TLS configuration
-# Per-shard TLS naming: search_resource_names.shard_tls_cert_name(MDB_RESOURCE_NAME, shardName, prefix)
-# e.g., certs-mdb-sh-search-0-mdb-sh-0-cert
+# Per-shard TLS naming: search_resource_names.shard_tls_cert_name(MDBS_RESOURCE_NAME, shardName, prefix)
+# e.g., certs-mdb-sh-search-search-0-mdb-sh-0-cert
 MDBS_TLS_CERT_PREFIX = "certs"
 CA_CONFIGMAP_NAME = "mdb-sh-ca"
 
@@ -103,21 +104,15 @@ def mdbs(namespace: str) -> MongoDBSearch:
     resource = MongoDBSearch.from_yaml(
         yaml_fixture("search-sharded-external-lb.yaml"),
         namespace=namespace,
-        name=MDB_RESOURCE_NAME,
+        name=MDBS_RESOURCE_NAME,
     )
 
     if try_load(resource):
         return resource
 
-    spec = resource["spec"]
-    if (
-        "loadBalancer" in spec
-        and "unmanaged" in spec["loadBalancer"]
-        and "endpoint" in spec["loadBalancer"]["unmanaged"]
-    ):
-        spec["loadBalancer"]["unmanaged"]["endpoint"] = spec["loadBalancer"]["unmanaged"]["endpoint"].replace(
-            "NAMESPACE", namespace
-        )
+    lb = resource["spec"]["clusters"][0].get("loadBalancer") or {}
+    if "unmanaged" in lb and "endpoint" in lb["unmanaged"]:
+        lb["unmanaged"]["endpoint"] = lb["unmanaged"]["endpoint"].replace("NAMESPACE", namespace)
 
     return resource
 
@@ -134,14 +129,14 @@ def user(helper: SearchDeploymentHelper) -> MongoDBUser:
 
 @fixture(scope="function")
 def mongot_user(helper: SearchDeploymentHelper, mdbs: MongoDBSearch) -> MongoDBUser:
-    return helper.mongot_user_resource(mdbs, MONGOT_USER_NAME)
+    return helper.mongot_user_resource(mdbs.name, MONGOT_USER_NAME)
 
 
 @mark.e2e_search_sharded_internal_mongodb_multi_mongot_unmanaged_lb
 def test_install_operator(namespace: str, operator_installation_config: dict[str, str]):
     """Test that the operator is installed and running."""
     operator = get_default_operator(namespace, operator_installation_config=operator_installation_config)
-    operator.assert_is_running()
+    operator.wait_for_operator_ready()
 
 
 @mark.e2e_search_sharded_internal_mongodb_multi_mongot_unmanaged_lb

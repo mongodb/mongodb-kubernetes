@@ -26,6 +26,7 @@ import (
 	rolev1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/role"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/user"
+	vaiv1 "github.com/mongodb/mongodb-kubernetes/api/voyageai/v1/vai"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1" //nolint:depguard
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
@@ -95,22 +96,17 @@ func NewEmptyFakeClientBuilder() *fake.ClientBuilder {
 		return nil
 	}
 
-	err = searchv1.AddToScheme(s)
-	if err != nil {
-		return nil
-	}
-
 	err = mdbcv1.AddToScheme(s)
 	if err != nil {
 		return nil
 	}
 
-	err = rolev1.AddToScheme(s)
+	err = vaiv1.AddToScheme(s)
 	if err != nil {
 		return nil
 	}
 
-	builder.WithStatusSubresource(&mdbv1.MongoDB{}, &mdbmulti.MongoDBMultiCluster{}, &omv1.MongoDBOpsManager{}, &user.MongoDBUser{}, &searchv1.MongoDBSearch{}, &mdbcv1.MongoDBCommunity{}, &rolev1.ClusterMongoDBRole{})
+	builder.WithStatusSubresource(&mdbv1.MongoDB{}, &mdbmulti.MongoDBMultiCluster{}, &omv1.MongoDBOpsManager{}, &user.MongoDBUser{}, &searchv1.MongoDBSearch{}, &mdbcv1.MongoDBCommunity{}, &rolev1.ClusterMongoDBRole{}, &vaiv1.VoyageAI{})
 
 	ot := testing.NewObjectTracker(s, scheme.Codecs.UniversalDecoder())
 	return builder.WithScheme(s).WithObjectTracker(ot).WithIndex(&searchv1.MongoDBSearch{}, searchv1.MongoDBSearchIndexFieldName, func(obj client.Object) []string {

@@ -1,0 +1,14 @@
+---
+apiVersion: mongodb.com/v1
+kind: MongoDBMultiCluster
+metadata:
+  name: mdb-mc-rs-ext-lb
+spec:
+  type: ReplicaSet
+  version: 8.3.4-ent
+  duplicateServiceObjects: false
+  credentials: my-credentials
+  opsManager:
+    configMapRef:
+      name: my-project
+  clusterSpecList: []

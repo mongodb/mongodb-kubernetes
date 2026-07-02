@@ -1830,6 +1830,8 @@ spec:
                     type: integer
                   phase:
                     type: string
+                  projectId:
+                    type: string
                   pvc:
                     items:
                       properties:

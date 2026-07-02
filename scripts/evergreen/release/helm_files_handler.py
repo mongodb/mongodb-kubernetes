@@ -66,30 +66,3 @@ def get_value_in_yaml_file(yaml_file_path: str, key: str):
         doc = yaml.load(fd)
 
     return get_value_in_doc(doc, key)
-
-
-def update_standalone_installer(yaml_file_path: str, version: str):
-    """
-    Updates a bundle of manifests with the correct image version for
-    the operator deployment.
-    """
-    yaml = ruamel.yaml.YAML()
-
-    yaml.explicit_start = True  # Ensure explicit `---` in the output
-    yaml.indent(mapping=2, sequence=4, offset=2)  # Align with tab width produced by Helm
-    yaml.preserve_quotes = True  # Preserve original quotes in the YAML file
-    yaml.width = 4096  # Set a very large line width to prevent inconsistent line wrapping
-
-    with open(yaml_file_path, "r") as fd:
-        data = list(yaml.load_all(fd))  # Convert the generator to a list
-
-    for doc in data:
-        # We're only interested in the Deployments of the operator, where
-        # we change the image version to the one provided in the release.
-        if doc["kind"] == "Deployment":
-            full_image = doc["spec"]["template"]["spec"]["containers"][0]["image"]
-            image = full_image.rsplit(":", 1)[0]
-            doc["spec"]["template"]["spec"]["containers"][0]["image"] = image + ":" + version
-
-    with open(yaml_file_path, "w") as fd:
-        yaml.dump_all(data, fd)

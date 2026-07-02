@@ -708,6 +708,7 @@ func StatefulSetContainerConditionIsTrue(ctx context.Context, mdb *mdbv1.MongoDB
 		existingContainer := container.GetByName(containerName, sts.Spec.Template.Spec.Containers)
 		if existingContainer == nil {
 			t.Fatalf(`No container found with name "%s" in StatefulSet pod template`, containerName)
+			return
 		}
 
 		if !condition(*existingContainer) {

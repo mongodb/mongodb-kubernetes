@@ -3,8 +3,6 @@ package architectures
 import (
 	"strings"
 
-	"k8s.io/utils/env"
-
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
@@ -45,7 +43,7 @@ const (
 // This is either decided via an annotation per resource or per operator level.
 // The resource annotation takes precedence.
 // A nil map is equivalent to an empty map except that no elements may be added.
-func IsRunningStaticArchitecture(annotations map[string]string) bool {
+func IsRunningStaticArchitecture(annotations map[string]string, defaultArchitecture DefaultArchitecture) bool {
 	if annotations != nil {
 		if architecture, ok := annotations[ArchitectureAnnotation]; ok {
 			if architecture == string(Static) {
@@ -57,12 +55,11 @@ func IsRunningStaticArchitecture(annotations map[string]string) bool {
 		}
 	}
 
-	operatorEnv := env.GetString(DefaultEnvArchitecture, string(NonStatic))
-	return operatorEnv == string(Static)
+	return defaultArchitecture == Static
 }
 
-func GetArchitecture(annotations map[string]string) DefaultArchitecture {
-	if IsRunningStaticArchitecture(annotations) {
+func GetArchitecture(annotations map[string]string, defaultArchitecture DefaultArchitecture) DefaultArchitecture {
+	if IsRunningStaticArchitecture(annotations, defaultArchitecture) {
 		return Static
 	}
 	return NonStatic

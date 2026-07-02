@@ -59,7 +59,7 @@ def test_install_operator_ops_manager_and_mongodb_only(
 ):
     """Note, that currently it's not possible to install OpsManager only as it requires MongoDB resources
     (it watches them internally)"""
-    operator_only_ops_manager_and_mongodb.assert_is_running()
+    operator_only_ops_manager_and_mongodb.wait_for_operator_ready()
 
 
 @pytest.mark.e2e_operator_partial_crd
@@ -78,7 +78,7 @@ def test_remove_operator_and_crds(operator_only_ops_manager_and_mongodb: Operato
 
 @pytest.mark.e2e_operator_partial_crd
 def test_install_operator_mongodb_only(operator_only_mongodb: Operator):
-    operator_only_mongodb.assert_is_running()
+    operator_only_mongodb.wait_for_operator_ready()
 
 
 @pytest.mark.e2e_operator_partial_crd

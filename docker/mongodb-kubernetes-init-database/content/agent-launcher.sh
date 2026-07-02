@@ -25,7 +25,6 @@ source /opt/scripts/agent-launcher-lib.sh
 
 # all the following MDB_LOG_FILE_* env var should be defined in container's env vars
 tail -F -n0 "${MDB_LOG_FILE_AUTOMATION_AGENT_VERBOSE}" 2> /dev/null | json_log 'automation-agent-verbose' &
-tail -F -n0 "${MDB_LOG_FILE_AUTOMATION_AGENT_STDERR}" 2> /dev/null | json_log 'automation-agent-stderr' &
 tail -F -n0 "${MDB_LOG_FILE_AUTOMATION_AGENT}" 2> /dev/null | json_log 'automation-agent' &
 tail -F -n0 "${MDB_LOG_FILE_MONITORING_AGENT}" 2> /dev/null | json_log 'monitoring-agent' &
 tail -F -n0 "${MDB_LOG_FILE_BACKUP_AGENT}" 2> /dev/null | json_log 'backup-agent' &
@@ -227,7 +226,7 @@ else
 fi
 
 # Note, that we do logging in subshell - this allows us to save the correct PID to variable (not the logging one)
-"${AGENT_BINARY_PATH}" "${agentOpts[@]}" "${splittedAgentFlags[@]}" 2>> "${MDB_LOG_FILE_AUTOMATION_AGENT_STDERR}" >> >(json_log "automation-agent-stdout") &
+"${AGENT_BINARY_PATH}" "${agentOpts[@]}" "${splittedAgentFlags[@]}" 2> >(json_log "automation-agent-stderr") >> >(json_log "automation-agent-stdout") &
 
 export agentPid=$!
 script_log "Launched automation agent, pid=${agentPid}"

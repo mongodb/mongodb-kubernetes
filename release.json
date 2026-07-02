@@ -1,11 +1,11 @@
 {
   "mongodbToolsBundle": {
-    "ubi": "mongodb-database-tools-rhel88-x86_64-100.15.0.tgz"
+    "ubi": "mongodb-database-tools-rhel88-x86_64-100.17.0.tgz"
   },
-  "mongodbOperator": "1.8.2",
-  "initDatabaseVersion": "1.8.2",
-  "initOpsManagerVersion": "1.8.2",
-  "databaseImageVersion": "1.8.2",
+  "mongodbOperator": "1.9.1",
+  "initDatabaseVersion": "1.9.1",
+  "initOpsManagerVersion": "1.9.1",
+  "databaseImageVersion": "1.9.1",
   "agentVersion": "108.0.12.8846-1",
   "readinessProbeVersion": "1.0.24",
   "versionUpgradeHookVersion": "1.0.10",
@@ -13,7 +13,7 @@
     "minimumSupportedVersion": "4.6"
   },
   "search": {
-    "version": "0.64.0"
+    "version": "1.70.1"
   },
   "latestOpsManagerAgentMapping": [
     {
@@ -30,8 +30,8 @@
     },
     {
       "8": {
-        "opsManagerVersion": "8.0.23",
-        "agentVersion": "108.0.23.8997-1"
+        "opsManagerVersion": "8.0.24",
+        "agentVersion": "108.0.24.9016-1"
       }
     }
   ],
@@ -73,7 +73,8 @@
         "8.0.20",
         "8.0.21",
         "8.0.22",
-        "8.0.23"
+        "8.0.23",
+        "8.0.24"
       ],
       "variants": [
         "ubi"
@@ -94,7 +95,9 @@
         "1.7.0",
         "1.8.0",
         "1.8.1",
-        "1.8.2"
+        "1.8.2",
+        "1.9.0",
+        "1.9.1"
       ],
       "variants": [
         "ubi"
@@ -263,6 +266,10 @@
           "8.0.23": {
             "agent_version": "108.0.23.8997-1",
             "tools_version": "100.15.0"
+          },
+          "8.0.24": {
+            "agent_version": "108.0.24.9016-1",
+            "tools_version": "100.17.0"
           }
         }
       },
@@ -285,7 +292,9 @@
         "1.7.0",
         "1.8.0",
         "1.8.1",
-        "1.8.2"
+        "1.8.2",
+        "1.9.0",
+        "1.9.1"
       ],
       "variants": [
         "ubi"
@@ -306,7 +315,9 @@
         "1.7.0",
         "1.8.0",
         "1.8.1",
-        "1.8.2"
+        "1.8.2",
+        "1.9.0",
+        "1.9.1"
       ],
       "variants": [
         "ubi"
@@ -327,7 +338,9 @@
         "1.7.0",
         "1.8.0",
         "1.8.1",
-        "1.8.2"
+        "1.8.2",
+        "1.9.0",
+        "1.9.1"
       ],
       "variants": [
         "ubi"

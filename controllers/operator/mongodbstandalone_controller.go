@@ -51,9 +51,9 @@ import (
 
 // AddStandaloneController creates a new MongoDbStandalone Controller and adds it to the Manager. The Manager will set fields on the Controller
 // and Start it when the Manager is Started.
-func AddStandaloneController(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string) error {
+func AddStandaloneController(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture) error {
 	// Create a new controller
-	reconciler := newStandaloneReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, om.NewOpsManagerConnection)
+	reconciler := newStandaloneReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, om.NewOpsManagerConnection)
 	c, err := controller.New(util.MongoDbStandaloneController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)}) // nolint:forbidigo
 	if err != nil {
 		return err
@@ -113,7 +113,7 @@ func AddStandaloneController(ctx context.Context, mgr manager.Manager, imageUrls
 	return nil
 }
 
-func newStandaloneReconciler(ctx context.Context, kubeClient client.Client, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise bool, enableClusterMongoDBRoles bool, agentDebug bool, agentDebugImage string, omFunc om.ConnectionFactory) *ReconcileMongoDbStandalone {
+func newStandaloneReconciler(ctx context.Context, kubeClient client.Client, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise bool, enableClusterMongoDBRoles bool, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, omFunc om.ConnectionFactory) *ReconcileMongoDbStandalone {
 	return &ReconcileMongoDbStandalone{
 		ReconcileCommonController: NewReconcileCommonController(ctx, kubeClient),
 		omConnectionFactory:       omFunc,
@@ -124,8 +124,9 @@ func newStandaloneReconciler(ctx context.Context, kubeClient client.Client, imag
 		initDatabaseNonStaticImageVersion: initDatabaseNonStaticImageVersion,
 		databaseNonStaticImageVersion:     databaseNonStaticImageVersion,
 
-		agentDebug:      agentDebug,
-		agentDebugImage: agentDebugImage,
+		agentDebug:          agentDebug,
+		agentDebugImage:     agentDebugImage,
+		defaultArchitecture: defaultArchitecture,
 	}
 }
 
@@ -140,8 +141,9 @@ type ReconcileMongoDbStandalone struct {
 	initDatabaseNonStaticImageVersion string
 	databaseNonStaticImageVersion     string
 
-	agentDebug      bool
-	agentDebugImage string
+	agentDebug          bool
+	agentDebugImage     string
+	defaultArchitecture architectures.DefaultArchitecture
 }
 
 func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reconcile.Request) (res reconcile.Result, e error) {
@@ -155,7 +157,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 		return reconcileResult, err
 	}
 
-	if !architectures.IsRunningStaticArchitecture(s.Annotations) {
+	if !architectures.IsRunningStaticArchitecture(s.Annotations, r.defaultArchitecture) {
 		agents.UpgradeAllIfNeeded(ctx, agents.ClientSecret{Client: r.client, SecretClient: r.SecretClient}, r.omConnectionFactory, GetWatchedNamespace(), false)
 	}
 
@@ -172,7 +174,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 		return r.updateStatus(ctx, s, workflow.Failed(err), log)
 	}
 
-	conn, _, err := connection.PrepareOpsManagerConnection(ctx, r.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, s.Namespace, log)
+	conn, _, err := connection.PrepareOpsManagerConnection(ctx, r.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, s.Namespace, true, log)
 	if err != nil {
 		return r.updateStatus(ctx, s, workflow.Failed(xerrors.Errorf("Failed to prepare Ops Manager connection: %w", err)), log)
 	}
@@ -241,7 +243,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 	}
 
 	var automationAgentVersion string
-	if architectures.IsRunningStaticArchitecture(s.Annotations) {
+	if architectures.IsRunningStaticArchitecture(s.Annotations, r.defaultArchitecture) {
 		// In case the Agent *is* overridden, its version will be merged into the StatefulSet. The merging process
 		// happens after creating the StatefulSet definition.
 		if !s.IsAgentImageOverridden() {
@@ -263,9 +265,10 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 		WithInitDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, util.InitDatabaseImageUrlEnv, r.initDatabaseNonStaticImageVersion)),
 		WithDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, util.NonStaticDatabaseEnterpriseImage, r.databaseNonStaticImageVersion)),
 		WithAgentImage(images.ContainerImage(r.imageUrls, util.AgentImageUrlEnv, automationAgentVersion)),
-		WithMongodbImage(images.GetOfficialImage(r.imageUrls, s.Spec.Version, s.GetAnnotations())),
+		WithMongodbImage(images.GetOfficialImage(r.imageUrls, s.Spec.Version, s.GetAnnotations(), r.defaultArchitecture)),
 		WithAgentDebug(r.agentDebug),
 		WithAgentDebugImage(r.agentDebugImage),
+		WithDefaultArchitecture(r.defaultArchitecture),
 	)
 
 	sts := construct.DatabaseStatefulSet(*s, standaloneOpts, log)
@@ -283,7 +286,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 	agentCertSecretName := s.GetSecurity().AgentClientCertificateSecretName(s.Name)
 	_, agentCertPath := r.agentCertHashAndPath(ctx, log, s.Namespace, agentCertSecretName, databaseSecretPath)
 
-	status := workflow.RunInGivenOrder(publishAutomationConfigFirst(ctx, r.client, *s, lastSpec, standaloneOpts, log),
+	status := workflow.RunInGivenOrder(publishAutomationConfigFirst(ctx, r.client, *s, lastSpec, standaloneOpts, r.defaultArchitecture, log),
 		func() workflow.Status {
 			return r.updateOmDeployment(ctx, conn, s, sts, false, agentCertPath, log).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
 		},
@@ -338,7 +341,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 	}
 
 	log.Infof("Finished reconciliation for MongoDbStandalone! %s", completionMessage(conn.BaseURL(), conn.GroupID()))
-	return r.updateStatus(ctx, s, status, log, mdbstatus.NewBaseUrlOption(deployment.Link(conn.BaseURL(), conn.GroupID())))
+	return r.updateStatus(ctx, s, status, log, mdbstatus.NewBaseUrlOption(deployment.Link(conn.BaseURL(), conn.GroupID())), mdbstatus.NewProjectIdOption(conn.GroupID()))
 }
 
 func (r *ReconcileMongoDbStandalone) updateOmDeployment(ctx context.Context, conn om.Connection, s *mdbv1.MongoDB, set appsv1.StatefulSet, isRecovering bool, agentCertPath string, log *zap.SugaredLogger) workflow.Status {
@@ -352,7 +355,7 @@ func (r *ReconcileMongoDbStandalone) updateOmDeployment(ctx context.Context, con
 		return status
 	}
 
-	standaloneOmObject := createProcess(r.imageUrls[util.MongodbImageEnv], r.forceEnterprise, set, util.DatabaseContainerName, s)
+	standaloneOmObject := createProcess(r.imageUrls[util.MongodbImageEnv], r.forceEnterprise, set, util.DatabaseContainerName, s, r.defaultArchitecture)
 	err := conn.ReadUpdateDeployment(
 		func(d om.Deployment) error {
 			excessProcesses := d.GetNumberOfExcessProcesses(s.Name)
@@ -399,7 +402,7 @@ func (r *ReconcileMongoDbStandalone) OnDelete(ctx context.Context, obj runtime.O
 		return err
 	}
 
-	conn, _, err := connection.PrepareOpsManagerConnection(ctx, r.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, s.Namespace, log)
+	conn, _, err := connection.PrepareOpsManagerConnection(ctx, r.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, s.Namespace, true, log)
 	if err != nil {
 		return err
 	}
@@ -456,8 +459,8 @@ func (r *ReconcileMongoDbStandalone) OnDelete(ctx context.Context, obj runtime.O
 	return errs
 }
 
-func createProcess(mongoDBImage string, forceEnterprise bool, set appsv1.StatefulSet, containerName string, s *mdbv1.MongoDB) om.Process {
+func createProcess(mongoDBImage string, forceEnterprise bool, set appsv1.StatefulSet, containerName string, s *mdbv1.MongoDB, defaultArchitecture architectures.DefaultArchitecture) om.Process {
 	hostnames, _ := dns.GetDnsForStatefulSet(set, s.Spec.GetClusterDomain(), nil)
-	process := om.NewMongodProcess(s.Name, hostnames[0], mongoDBImage, forceEnterprise, s.Spec.GetAdditionalMongodConfig(), s.GetSpec(), "", s.Annotations, s.CalculateFeatureCompatibilityVersion())
+	process := om.NewMongodProcess(s.Name, hostnames[0], mongoDBImage, forceEnterprise, s.Spec.GetAdditionalMongodConfig(), s.GetSpec(), "", s.Annotations, s.CalculateFeatureCompatibilityVersion(), defaultArchitecture)
 	return process
 }

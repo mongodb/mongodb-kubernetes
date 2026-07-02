@@ -1127,7 +1127,7 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 			ctx := context.Background()
 
 			beforeCallTimestamp := time.Now()
-			events := collectDeploymentsSnapshot(ctx, mgr, testOperatorUUID, testDatabaseStaticImage, testDatabaseNonStaticImage)
+			events := collectDeploymentsSnapshot(ctx, mgr, testOperatorUUID, testDatabaseStaticImage, testDatabaseNonStaticImage, architectures.NonStatic)
 			afterCallTimestamp := time.Now()
 
 			require.Len(t, events, len(test.expectedEventsWithProperties), "expected and collected events count don't match")
@@ -1431,7 +1431,7 @@ func TestAddSearchEvents(t *testing.T) {
 				},
 			}
 
-			events := addSearchEvents(context.Background(), mc, operatorUUID, now)
+			events := addSearchEvents(context.Background(), mc, operatorUUID, architectures.NonStatic, now)
 			expectedEvents := make([]Event, len(tc.events))
 			for i, event := range tc.events {
 				expectedEvents[i] = *createEvent(event, now, Deployments)
