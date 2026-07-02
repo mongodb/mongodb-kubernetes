@@ -1,4 +1,3 @@
-{{ if .Values.operator.createOperatorServiceAccount }}
 {{- $watchNamespace := include "mongodb-kubernetes-operator.namespace" . | list }}
 {{- if .Values.operator.watchNamespace }}
 {{- $watchNamespace = regexSplit "," .Values.operator.watchNamespace -1 }}
@@ -142,6 +141,4 @@ subjects:
   - kind: ServiceAccount
     name: {{ $.Values.operator.name }}
     namespace: {{ include "mongodb-kubernetes-operator.namespace" $ }}
-{{- end }}
-
 {{- end }}
