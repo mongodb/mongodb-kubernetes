@@ -24,25 +24,27 @@ from tests.vm_migration.vm_migration_dry_run import (
     run_migration_dry_run_connectivity_passes,
     run_wrong_ca_dry_run_fails_then_passes,
 )
-from tests.vm_migration.vm_migration_helpers import (
-    MIN_K8S_MEMBERS,
-    MIN_VM_MEMBERS,
-    apply_generated_mongodb_resource,
+from tests.vm_migration.vm_migration_common_helper import (
     apply_user_crs_and_verify_ac,
+    assert_max_voting_members_validation,
+    assert_migration_data_exists,
+    generated_mongodb_doc,
+    generated_user_docs,
+    insert_migration_data,
+    rotate_password_and_verify,
+    run_generate_cr,
+)
+from tests.vm_migration.vm_migration_replicaset_helper import (
+    MIN_K8S_MONGOD,
+    MIN_VM_MONGOD,
+    apply_generated_mongodb_resource,
     assert_common_generated_cr_shape,
     assert_connection_string_after_full_migration,
     assert_connection_string_contains_current_hosts,
     assert_k8s_process_names,
-    assert_max_voting_members_validation,
-    assert_migration_data_exists,
     deploy_vm_service,
     deploy_vm_statefulset,
-    generated_mongodb_doc,
-    generated_user_docs,
-    insert_migration_data,
     promote_and_prune,
-    rotate_password_and_verify,
-    run_generate_cr,
     vm_replica_set_tester,
 )
 
@@ -89,7 +91,7 @@ def vm_server_certs(issuer: str, namespace: str):
         namespace,
         VM_STS_NAME,
         VM_CERT_SECRET,
-        replicas=MIN_VM_MEMBERS,
+        replicas=MIN_VM_MONGOD,
         service_name=VM_SVC_NAME,
     )
 
@@ -117,7 +119,7 @@ def operator_server_certs(issuer: str, namespace: str):
         namespace,
         RS_NAME,
         OPERATOR_CERT_SECRET,
-        replicas=MIN_K8S_MEMBERS,
+        replicas=MIN_K8S_MONGOD,
     )
 
 

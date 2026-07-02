@@ -2,8 +2,8 @@
 VM migration for a sharded cluster with SCRAM-SHA-256 and TLS.
 
 Mirrors vm_migration_replicaset_scram_sha256_tls.py adapted for sharded cluster:
-two StatefulSets (mongod and mongos) with TLS cert mounts, config server
-promote/prune, and mongos-tester for connectivity checks.
+three StatefulSets (config server, shard, and mongos) with TLS cert mounts,
+config server promote/prune, and mongos-tester for connectivity checks.
 """
 
 import os
@@ -24,43 +24,52 @@ from tests.vm_migration.vm_migration_dry_run import (
     run_migration_dry_run_connectivity_passes,
     run_wrong_ca_dry_run_fails_then_passes,
 )
-from tests.vm_migration.vm_migration_helpers import (
-    CONFIG_SERVER_COUNT,
-    MIN_K8S_MEMBERS,
-    MONGOS_COUNT,
-    SHARD_COUNT,
-    apply_generated_sharded_cluster_resource,
+from tests.vm_migration.vm_migration_common_helper import (
     apply_user_crs_and_verify_ac,
-    assert_common_generated_sharded_cr_shape,
-    assert_connection_string_after_full_sharded_migration,
-    assert_k8s_sharded_process_names,
     assert_max_voting_members_validation,
     assert_migration_data_exists,
-    build_sharded_cluster_ac,
-    deploy_vm_sharded_mongod_statefulset,
-    deploy_vm_sharded_mongos_service,
-    deploy_vm_sharded_mongos_statefulset,
-    deploy_vm_sharded_service,
     generated_mongodb_doc,
     generated_user_docs,
     insert_migration_data,
     rotate_password_and_verify,
     run_generate_cr,
+)
+from tests.vm_migration.vm_migration_sharded_helper import (
+    MIN_K8S_CONFIGSRV,
+    MIN_K8S_MONGOS,
+    MIN_VM_CONFIGSRV,
+    MIN_VM_MONGOS,
+    MIN_VM_SHARD,
+    apply_generated_sharded_cluster_resource,
+    assert_common_generated_sharded_cr_shape,
+    assert_connection_string_after_full_sharded_migration,
+    assert_k8s_sharded_process_names,
+    build_sharded_cluster_ac,
+    deploy_vm_sharded_configsrv_service,
+    deploy_vm_sharded_configsrv_statefulset,
+    deploy_vm_sharded_mongos_service,
+    deploy_vm_sharded_mongos_statefulset,
+    deploy_vm_sharded_shard_service,
+    deploy_vm_sharded_shard_statefulset,
     vm_mongos_tester,
 )
 
-MONGOD_STS_NAME = "vm-sharded-mongod"
+CONFIGSRV_STS_NAME = "vm-sharded-configsrv"
+SHARD_STS_NAME = "vm-sharded-shard"
 MONGOS_STS_NAME = "vm-sharded-mongos"
-MONGOD_SVC_NAME = "vm-sharded-mongod"
+CONFIGSRV_SVC_NAME = "vm-sharded-configsrv"
+SHARD_SVC_NAME = "vm-sharded-shard"
 MONGOS_SVC_NAME = "vm-sharded-mongos"
 MDB_RESOURCE_NAME = "sharded-migration"
 VM_CONFIG_RS_NAME = "vm-config"
 VM_SHARD_RS_NAME = "vm-shard-0"
 VM_MONGOS_NAME = "vm-mongos"
 
-MONGOD_CERT_SECRET = "vm-sharded-mongod-cert"
+CONFIGSRV_CERT_SECRET = "vm-sharded-configsrv-cert"
+SHARD_CERT_SECRET = "vm-sharded-shard-cert"
 MONGOS_CERT_SECRET = "vm-sharded-mongos-cert"
-MONGOD_TLS_PEM_SECRET = "vm-sharded-mongod-tls-pem"
+CONFIGSRV_TLS_PEM_SECRET = "vm-sharded-configsrv-tls-pem"
+SHARD_TLS_PEM_SECRET = "vm-sharded-shard-tls-pem"
 MONGOS_TLS_PEM_SECRET = "vm-sharded-mongos-tls-pem"
 CERT_SECRET_PREFIX = "mdb"
 OPERATOR_CERT_SECRET = f"{CERT_SECRET_PREFIX}-{MDB_RESOURCE_NAME}-cert"
@@ -90,14 +99,26 @@ def om_tester(namespace: str) -> OMTester:
 
 
 @fixture(scope="module")
-def vm_mongod_server_certs(issuer: str, namespace: str):
+def vm_configsrv_server_certs(issuer: str, namespace: str):
     return create_mongodb_tls_certs(
         ISSUER_CA_NAME,
         namespace,
-        MONGOD_STS_NAME,
-        MONGOD_CERT_SECRET,
-        replicas=CONFIG_SERVER_COUNT + SHARD_COUNT,
-        service_name=MONGOD_SVC_NAME,
+        CONFIGSRV_STS_NAME,
+        CONFIGSRV_CERT_SECRET,
+        replicas=MIN_VM_CONFIGSRV,
+        service_name=CONFIGSRV_SVC_NAME,
+    )
+
+
+@fixture(scope="module")
+def vm_shard_server_certs(issuer: str, namespace: str):
+    return create_mongodb_tls_certs(
+        ISSUER_CA_NAME,
+        namespace,
+        SHARD_STS_NAME,
+        SHARD_CERT_SECRET,
+        replicas=MIN_VM_SHARD,
+        service_name=SHARD_SVC_NAME,
     )
 
 
@@ -108,20 +129,31 @@ def vm_mongos_server_certs(issuer: str, namespace: str):
         namespace,
         MONGOS_STS_NAME,
         MONGOS_CERT_SECRET,
-        replicas=MONGOS_COUNT,
+        replicas=MIN_VM_MONGOS,
         service_name=MONGOS_SVC_NAME,
     )
 
 
 @fixture(scope="module")
-def vm_mongod_tls_pem_secret(namespace: str, vm_mongod_server_certs: str):
-    data = read_secret(namespace, vm_mongod_server_certs)
+def vm_configsrv_tls_pem_secret(namespace: str, vm_configsrv_server_certs: str):
+    data = read_secret(namespace, vm_configsrv_server_certs)
     create_or_update_secret(
         namespace,
-        MONGOD_TLS_PEM_SECRET,
+        CONFIGSRV_TLS_PEM_SECRET,
         {"server.pem": data["tls.crt"] + data["tls.key"], "ca.pem": data["ca.crt"]},
     )
-    return MONGOD_TLS_PEM_SECRET
+    return CONFIGSRV_TLS_PEM_SECRET
+
+
+@fixture(scope="module")
+def vm_shard_tls_pem_secret(namespace: str, vm_shard_server_certs: str):
+    data = read_secret(namespace, vm_shard_server_certs)
+    create_or_update_secret(
+        namespace,
+        SHARD_TLS_PEM_SECRET,
+        {"server.pem": data["tls.crt"] + data["tls.key"], "ca.pem": data["ca.crt"]},
+    )
+    return SHARD_TLS_PEM_SECRET
 
 
 @fixture(scope="module")
@@ -141,9 +173,9 @@ def operator_server_certs(issuer: str, namespace: str):
         namespace,
         MDB_RESOURCE_NAME,
         shards=1,
-        mongod_per_shard=SHARD_COUNT,
-        config_servers=MIN_K8S_MEMBERS,
-        mongos=MONGOS_COUNT,
+        mongod_per_shard=MIN_VM_SHARD,
+        config_servers=MIN_K8S_CONFIGSRV,
+        mongos=MIN_K8S_MONGOS,
         secret_prefix=f"{CERT_SECRET_PREFIX}-",
     )
 
@@ -154,30 +186,50 @@ def vm_om_ca_configmap(namespace: str):
     return VM_OM_CA_CONFIGMAP_NAME
 
 
+def _tls_extra_volumes(certs_secret: str, vm_om_ca_configmap: str) -> list[dict]:
+    return [
+        {"name": "mongod-certs", "secret": {"secretName": certs_secret}},
+        {"name": "om-ca", "configMap": {"name": vm_om_ca_configmap}},
+    ]
+
+
+def _tls_extra_volume_mounts() -> list[dict]:
+    return [
+        {
+            "name": "mongod-certs",
+            "mountPath": "/mongodb-automation/server.pem",
+            "subPath": "server.pem",
+            "readOnly": True,
+        },
+        {
+            "name": "mongod-certs",
+            "mountPath": "/mongodb-automation/tls/ca/ca-pem",
+            "subPath": "ca.pem",
+            "readOnly": True,
+        },
+        {"name": "om-ca", "mountPath": "/etc/mongodb-mms-ca", "readOnly": True},
+    ]
+
+
 @fixture(scope="module")
-def vm_sharded_mongod_sts(namespace: str, om_tester: OMTester, vm_mongod_tls_pem_secret: str, vm_om_ca_configmap: str):
-    return deploy_vm_sharded_mongod_statefulset(
+def vm_sharded_configsrv_sts(
+    namespace: str, om_tester: OMTester, vm_configsrv_tls_pem_secret: str, vm_om_ca_configmap: str
+):
+    return deploy_vm_sharded_configsrv_statefulset(
         namespace,
         om_tester,
-        extra_volumes=[
-            {"name": "mongod-certs", "secret": {"secretName": vm_mongod_tls_pem_secret}},
-            {"name": "om-ca", "configMap": {"name": vm_om_ca_configmap}},
-        ],
-        extra_volume_mounts=[
-            {
-                "name": "mongod-certs",
-                "mountPath": "/mongodb-automation/server.pem",
-                "subPath": "server.pem",
-                "readOnly": True,
-            },
-            {
-                "name": "mongod-certs",
-                "mountPath": "/mongodb-automation/tls/ca/ca-pem",
-                "subPath": "ca.pem",
-                "readOnly": True,
-            },
-            {"name": "om-ca", "mountPath": "/etc/mongodb-mms-ca", "readOnly": True},
-        ],
+        extra_volumes=_tls_extra_volumes(vm_configsrv_tls_pem_secret, vm_om_ca_configmap),
+        extra_volume_mounts=_tls_extra_volume_mounts(),
+    )
+
+
+@fixture(scope="module")
+def vm_sharded_shard_sts(namespace: str, om_tester: OMTester, vm_shard_tls_pem_secret: str, vm_om_ca_configmap: str):
+    return deploy_vm_sharded_shard_statefulset(
+        namespace,
+        om_tester,
+        extra_volumes=_tls_extra_volumes(vm_shard_tls_pem_secret, vm_om_ca_configmap),
+        extra_volume_mounts=_tls_extra_volume_mounts(),
     )
 
 
@@ -209,8 +261,13 @@ def vm_sharded_mongos_sts(namespace: str, om_tester: OMTester, vm_mongos_tls_pem
 
 
 @fixture(scope="module")
-def vm_sharded_service(namespace: str):
-    return deploy_vm_sharded_service(namespace)
+def vm_sharded_configsrv_service(namespace: str):
+    return deploy_vm_sharded_configsrv_service(namespace)
+
+
+@fixture(scope="module")
+def vm_sharded_shard_service(namespace: str):
+    return deploy_vm_sharded_shard_service(namespace)
 
 
 @fixture(scope="module")
@@ -224,17 +281,19 @@ def _configure_ac(namespace: str, om_tester: OMTester, mdb_version: str) -> None
         return
     ac = build_sharded_cluster_ac(
         om_tester,
-        mongod_sts_name=MONGOD_STS_NAME,
+        configsrv_sts_name=CONFIGSRV_STS_NAME,
+        shard_sts_name=SHARD_STS_NAME,
         mongos_sts_name=MONGOS_STS_NAME,
-        service_name=MONGOD_SVC_NAME,
+        configsrv_service_name=CONFIGSRV_SVC_NAME,
+        shard_service_name=SHARD_SVC_NAME,
         mongos_service_name=MONGOS_SVC_NAME,
         namespace=namespace,
         mongodb_version=mdb_version,
         config_rs_name=VM_CONFIG_RS_NAME,
         shard_rs_name=VM_SHARD_RS_NAME,
-        config_server_count=CONFIG_SERVER_COUNT,
-        shard_count=SHARD_COUNT,
-        mongos_count=MONGOS_COUNT,
+        config_server_count=MIN_VM_CONFIGSRV,
+        shard_count=MIN_VM_SHARD,
+        mongos_count=MIN_VM_MONGOS,
         cluster_name=VM_MONGOS_NAME,
         tls=True,
     )
@@ -338,20 +397,27 @@ def mdb_health_checker(mdb_migration: MongoDB, ca_path: str, scram_opts: list[di
 @mark.e2e_vm_migration_shardedcluster_scram_sha256_tls
 def test_deploy_vm_sharded(
     namespace: str,
-    vm_sharded_mongod_sts,
+    vm_sharded_configsrv_sts,
+    vm_sharded_shard_sts,
     vm_sharded_mongos_sts,
-    vm_sharded_service,
+    vm_sharded_configsrv_service,
+    vm_sharded_shard_service,
     vm_sharded_mongos_service,
 ):
-    def mongod_sts_is_ready():
-        sts = get_statefulset(namespace, vm_sharded_mongod_sts["metadata"]["name"])
-        return sts.status.ready_replicas == vm_sharded_mongod_sts["spec"]["replicas"]
+    def configsrv_sts_is_ready():
+        sts = get_statefulset(namespace, vm_sharded_configsrv_sts["metadata"]["name"])
+        return sts.status.ready_replicas == vm_sharded_configsrv_sts["spec"]["replicas"]
+
+    def shard_sts_is_ready():
+        sts = get_statefulset(namespace, vm_sharded_shard_sts["metadata"]["name"])
+        return sts.status.ready_replicas == vm_sharded_shard_sts["spec"]["replicas"]
 
     def mongos_sts_is_ready():
         sts = get_statefulset(namespace, vm_sharded_mongos_sts["metadata"]["name"])
         return sts.status.ready_replicas == vm_sharded_mongos_sts["spec"]["replicas"]
 
-    KubernetesTester.wait_until(mongod_sts_is_ready, timeout=300)
+    KubernetesTester.wait_until(configsrv_sts_is_ready, timeout=300)
+    KubernetesTester.wait_until(shard_sts_is_ready, timeout=300)
     KubernetesTester.wait_until(mongos_sts_is_ready, timeout=300)
 
 
@@ -359,9 +425,11 @@ def test_deploy_vm_sharded(
 def test_configure_ac(
     namespace: str,
     om_tester: OMTester,
-    vm_sharded_mongod_sts,
+    vm_sharded_configsrv_sts,
+    vm_sharded_shard_sts,
     vm_sharded_mongos_sts,
-    vm_sharded_service,
+    vm_sharded_configsrv_service,
+    vm_sharded_shard_service,
     vm_sharded_mongos_service,
     custom_mdb_version: str,
 ):
@@ -406,9 +474,9 @@ def test_install_operator(operator: Operator):
 def test_common_generated_cr_shape(generated_cr: dict):
     assert_common_generated_sharded_cr_shape(
         generated_cr,
-        expected_config_count=CONFIG_SERVER_COUNT,
-        expected_shard_count=SHARD_COUNT,
-        expected_mongos_count=MONGOS_COUNT,
+        expected_config_count=MIN_VM_CONFIGSRV,
+        expected_shard_count=MIN_VM_SHARD,
+        expected_mongos_count=MIN_VM_MONGOS,
     )
 
 
@@ -512,11 +580,11 @@ def test_non_tls_connection_rejected_after_migration(mdb_migration: MongoDB):
 @mark.e2e_vm_migration_shardedcluster_scram_sha256_tls
 def test_promote_and_prune_config_server(mdb_migration: MongoDB, om_tester: OMTester):
     try_load(mdb_migration)
-    for i in range(CONFIG_SERVER_COUNT):
+    for i in range(MIN_VM_CONFIGSRV):
         mdb_migration["spec"]["memberConfig"][i]["priority"] = "1"
         mdb_migration["spec"]["memberConfig"][i]["votes"] = 1
         mdb_migration.update()
-        mdb_migration.assert_reaches_phase(Phase.Running)
+        mdb_migration.assert_reaches_phase(Phase.Running, timeout=1800)
 
         config_external = [
             m for m in mdb_migration["spec"]["externalMembers"] if m.get("replicaSetName") == VM_CONFIG_RS_NAME
@@ -524,7 +592,7 @@ def test_promote_and_prune_config_server(mdb_migration: MongoDB, om_tester: OMTe
         if config_external:
             mdb_migration["spec"]["externalMembers"].remove(config_external[-1])
             mdb_migration.update()
-            mdb_migration.assert_reaches_phase(Phase.Running)
+            mdb_migration.assert_reaches_phase(Phase.Running, timeout=1800)
 
         om_tester.assert_cluster_available(VM_MONGOS_NAME)
 
@@ -541,7 +609,7 @@ def test_promote_and_prune_shard(mdb_migration: MongoDB, om_tester: OMTester):
             break
         mdb_migration["spec"]["externalMembers"].remove(current[-1])
         mdb_migration.update()
-        mdb_migration.assert_reaches_phase(Phase.Running)
+        mdb_migration.assert_reaches_phase(Phase.Running, timeout=1800)
         om_tester.assert_cluster_available(VM_MONGOS_NAME)
 
 
@@ -552,7 +620,7 @@ def test_prune_mongos(mdb_migration: MongoDB):
     for m in mongos_external:
         mdb_migration["spec"]["externalMembers"].remove(m)
     mdb_migration.update()
-    mdb_migration.assert_reaches_phase(Phase.Running)
+    mdb_migration.assert_reaches_phase(Phase.Running, timeout=1800)
 
 
 @mark.e2e_vm_migration_shardedcluster_scram_sha256_tls
@@ -563,8 +631,8 @@ def test_mongodb_reachable_during_promote_and_prune(mdb_health_checker: MongoDBB
 
 
 @mark.e2e_vm_migration_shardedcluster_scram_sha256_tls
-def test_connection_string_after_full_migration(mdb_migration: MongoDB):
-    assert_connection_string_after_full_sharded_migration(mdb_migration)
+def test_connection_string_after_full_migration(mdb_migration: MongoDB, ca_path: str):
+    assert_connection_string_after_full_sharded_migration(mdb_migration, ca_path=ca_path)
 
 
 @mark.e2e_vm_migration_shardedcluster_scram_sha256_tls

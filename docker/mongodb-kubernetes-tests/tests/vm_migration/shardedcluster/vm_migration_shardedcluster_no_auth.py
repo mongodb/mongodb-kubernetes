@@ -22,31 +22,37 @@ from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.vm_migration.vm_migration_dry_run import run_migration_dry_run_connectivity_passes
-from tests.vm_migration.vm_migration_helpers import (
-    CONFIG_SERVER_COUNT,
-    MONGOS_COUNT,
-    SHARD_COUNT,
-    apply_generated_sharded_cluster_resource,
-    assert_common_generated_sharded_cr_shape,
-    assert_connection_string_after_full_sharded_migration,
-    assert_k8s_sharded_process_names,
+from tests.vm_migration.vm_migration_common_helper import (
     assert_max_voting_members_validation,
     assert_migration_data_exists,
-    build_sharded_cluster_ac,
-    deploy_vm_sharded_mongod_statefulset,
-    deploy_vm_sharded_mongos_service,
-    deploy_vm_sharded_mongos_statefulset,
-    deploy_vm_sharded_service,
     generated_mongodb_doc,
     generated_user_docs,
     insert_migration_data,
     run_generate_cr,
+)
+from tests.vm_migration.vm_migration_sharded_helper import (
+    MIN_VM_CONFIGSRV,
+    MIN_VM_MONGOS,
+    MIN_VM_SHARD,
+    apply_generated_sharded_cluster_resource,
+    assert_common_generated_sharded_cr_shape,
+    assert_connection_string_after_full_sharded_migration,
+    assert_k8s_sharded_process_names,
+    build_sharded_cluster_ac,
+    deploy_vm_sharded_configsrv_service,
+    deploy_vm_sharded_configsrv_statefulset,
+    deploy_vm_sharded_mongos_service,
+    deploy_vm_sharded_mongos_statefulset,
+    deploy_vm_sharded_shard_service,
+    deploy_vm_sharded_shard_statefulset,
     vm_mongos_tester,
 )
 
-MONGOD_STS_NAME = "vm-sharded-mongod"
+CONFIGSRV_STS_NAME = "vm-sharded-configsrv"
+SHARD_STS_NAME = "vm-sharded-shard"
 MONGOS_STS_NAME = "vm-sharded-mongos"
-MONGOD_SVC_NAME = "vm-sharded-mongod"
+CONFIGSRV_SVC_NAME = "vm-sharded-configsrv"
+SHARD_SVC_NAME = "vm-sharded-shard"
 MONGOS_SVC_NAME = "vm-sharded-mongos"
 MDB_RESOURCE_NAME = "sharded-migration"
 VM_CONFIG_RS_NAME = "vm-config"
@@ -64,8 +70,13 @@ def om_tester(namespace: str) -> OMTester:
 
 
 @fixture(scope="module")
-def vm_sharded_mongod_sts(namespace: str, om_tester: OMTester):
-    return deploy_vm_sharded_mongod_statefulset(namespace, om_tester)
+def vm_sharded_configsrv_sts(namespace: str, om_tester: OMTester):
+    return deploy_vm_sharded_configsrv_statefulset(namespace, om_tester)
+
+
+@fixture(scope="module")
+def vm_sharded_shard_sts(namespace: str, om_tester: OMTester):
+    return deploy_vm_sharded_shard_statefulset(namespace, om_tester)
 
 
 @fixture(scope="module")
@@ -74,8 +85,13 @@ def vm_sharded_mongos_sts(namespace: str, om_tester: OMTester):
 
 
 @fixture(scope="module")
-def vm_sharded_service(namespace: str):
-    return deploy_vm_sharded_service(namespace)
+def vm_sharded_configsrv_service(namespace: str):
+    return deploy_vm_sharded_configsrv_service(namespace)
+
+
+@fixture(scope="module")
+def vm_sharded_shard_service(namespace: str):
+    return deploy_vm_sharded_shard_service(namespace)
 
 
 @fixture(scope="module")
@@ -110,20 +126,27 @@ def mdb_health_checker(mdb_migration: MongoDB) -> MongoDBBackgroundTester:
 @mark.e2e_vm_migration_shardedcluster_no_auth
 def test_deploy_vm_sharded(
     namespace: str,
-    vm_sharded_mongod_sts,
+    vm_sharded_configsrv_sts,
+    vm_sharded_shard_sts,
     vm_sharded_mongos_sts,
-    vm_sharded_service,
+    vm_sharded_configsrv_service,
+    vm_sharded_shard_service,
     vm_sharded_mongos_service,
 ):
-    def mongod_sts_is_ready():
-        sts = get_statefulset(namespace, vm_sharded_mongod_sts["metadata"]["name"])
-        return sts.status.ready_replicas == vm_sharded_mongod_sts["spec"]["replicas"]
+    def configsrv_sts_is_ready():
+        sts = get_statefulset(namespace, vm_sharded_configsrv_sts["metadata"]["name"])
+        return sts.status.ready_replicas == vm_sharded_configsrv_sts["spec"]["replicas"]
+
+    def shard_sts_is_ready():
+        sts = get_statefulset(namespace, vm_sharded_shard_sts["metadata"]["name"])
+        return sts.status.ready_replicas == vm_sharded_shard_sts["spec"]["replicas"]
 
     def mongos_sts_is_ready():
         sts = get_statefulset(namespace, vm_sharded_mongos_sts["metadata"]["name"])
         return sts.status.ready_replicas == vm_sharded_mongos_sts["spec"]["replicas"]
 
-    KubernetesTester.wait_until(mongod_sts_is_ready, timeout=300)
+    KubernetesTester.wait_until(configsrv_sts_is_ready, timeout=300)
+    KubernetesTester.wait_until(shard_sts_is_ready, timeout=300)
     KubernetesTester.wait_until(mongos_sts_is_ready, timeout=300)
 
 
@@ -131,9 +154,11 @@ def test_deploy_vm_sharded(
 def test_configure_ac(
     namespace: str,
     om_tester: OMTester,
-    vm_sharded_mongod_sts,
+    vm_sharded_configsrv_sts,
+    vm_sharded_shard_sts,
     vm_sharded_mongos_sts,
-    vm_sharded_service,
+    vm_sharded_configsrv_service,
+    vm_sharded_shard_service,
     vm_sharded_mongos_service,
     custom_mdb_version: str,
 ):
@@ -144,17 +169,19 @@ def test_configure_ac(
 
     ac = build_sharded_cluster_ac(
         om_tester,
-        mongod_sts_name=MONGOD_STS_NAME,
+        configsrv_sts_name=CONFIGSRV_STS_NAME,
+        shard_sts_name=SHARD_STS_NAME,
         mongos_sts_name=MONGOS_STS_NAME,
-        service_name=MONGOD_SVC_NAME,
+        configsrv_service_name=CONFIGSRV_SVC_NAME,
+        shard_service_name=SHARD_SVC_NAME,
         mongos_service_name=MONGOS_SVC_NAME,
         namespace=namespace,
         mongodb_version=mdb_version,
         config_rs_name=VM_CONFIG_RS_NAME,
         shard_rs_name=VM_SHARD_RS_NAME,
-        config_server_count=CONFIG_SERVER_COUNT,
-        shard_count=SHARD_COUNT,
-        mongos_count=MONGOS_COUNT,
+        config_server_count=MIN_VM_CONFIGSRV,
+        shard_count=MIN_VM_SHARD,
+        mongos_count=MIN_VM_MONGOS,
         cluster_name=VM_MONGOS_NAME,
         compressors="snappy,zstd",
         directory_per_db=True,
@@ -184,9 +211,9 @@ def test_insert_migration_data(namespace: str):
 def test_common_generated_cr_shape(generated_cr: dict):
     assert_common_generated_sharded_cr_shape(
         generated_cr,
-        expected_config_count=CONFIG_SERVER_COUNT,
-        expected_shard_count=SHARD_COUNT,
-        expected_mongos_count=MONGOS_COUNT,
+        expected_config_count=MIN_VM_CONFIGSRV,
+        expected_shard_count=MIN_VM_SHARD,
+        expected_mongos_count=MIN_VM_MONGOS,
     )
 
 
@@ -241,7 +268,7 @@ def test_agent_config(generated_cr: dict):
 @mark.e2e_vm_migration_shardedcluster_no_auth
 def test_vm_deployment_automation_config(om_tester: OMTester):
     ac_tester = om_tester.get_automation_config_tester()
-    vm_total = CONFIG_SERVER_COUNT + SHARD_COUNT + MONGOS_COUNT
+    vm_total = MIN_VM_CONFIGSRV + MIN_VM_SHARD + MIN_VM_MONGOS
     assert len(ac_tester.get_all_processes()) == vm_total
     assert len(ac_tester.get_monitoring_versions()) == vm_total
     assert len(ac_tester.get_backup_versions()) == vm_total
@@ -284,7 +311,7 @@ def test_start_background_health_checker(mdb_health_checker: MongoDBBackgroundTe
 @mark.e2e_vm_migration_shardedcluster_no_auth
 def test_promote_and_prune_config_server(mdb_migration: MongoDB, om_tester: OMTester):
     try_load(mdb_migration)
-    for i in range(CONFIG_SERVER_COUNT):
+    for i in range(MIN_VM_CONFIGSRV):
         mdb_migration["spec"]["memberConfig"][i]["priority"] = "1"
         mdb_migration["spec"]["memberConfig"][i]["votes"] = 1
         mdb_migration.update()

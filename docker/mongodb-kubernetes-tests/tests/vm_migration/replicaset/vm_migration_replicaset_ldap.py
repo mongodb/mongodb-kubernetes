@@ -21,22 +21,24 @@ from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.authentication.conftest import LDAP_PASSWORD, openldap_install
 from tests.vm_migration.vm_migration_dry_run import run_migration_dry_run_connectivity_passes
-from tests.vm_migration.vm_migration_helpers import (
-    apply_generated_mongodb_resource,
+from tests.vm_migration.vm_migration_common_helper import (
     apply_user_crs_and_verify_ac,
+    assert_max_voting_members_validation,
+    assert_migration_data_exists,
+    generated_mongodb_doc,
+    generated_user_docs,
+    insert_migration_data,
+    run_generate_cr,
+)
+from tests.vm_migration.vm_migration_replicaset_helper import (
+    apply_generated_mongodb_resource,
     assert_common_generated_cr_shape,
     assert_connection_string_after_full_migration,
     assert_connection_string_contains_current_hosts,
     assert_k8s_process_names,
-    assert_max_voting_members_validation,
-    assert_migration_data_exists,
     deploy_vm_service,
     deploy_vm_statefulset,
-    generated_mongodb_doc,
-    generated_user_docs,
-    insert_migration_data,
     promote_and_prune,
-    run_generate_cr,
     vm_replica_set_tester,
 )
 

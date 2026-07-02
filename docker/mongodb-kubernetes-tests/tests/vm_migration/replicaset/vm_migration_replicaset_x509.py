@@ -30,22 +30,25 @@ from tests.vm_migration.vm_migration_dry_run import (
     run_migration_dry_run_connectivity_passes,
     run_wrong_ca_dry_run_fails_then_passes,
 )
-from tests.vm_migration.vm_migration_helpers import (
-    MIN_K8S_MEMBERS,
-    MIN_VM_MEMBERS,
-    apply_generated_mongodb_resource,
+from tests.vm_migration.vm_migration_common_helper import (
     apply_user_crs_and_verify_ac,
-    assert_common_generated_cr_shape,
-    assert_connection_string_after_full_migration,
-    assert_connection_string_contains_current_hosts,
-    assert_k8s_process_names,
     assert_max_voting_members_validation,
     assert_migration_data_exists,
     generated_mongodb_doc,
     generated_user_docs,
     insert_migration_data,
-    promote_and_prune,
     run_generate_cr,
+)
+from tests.vm_migration.vm_migration_replicaset_helper import (
+    MIN_K8S_MONGOD,
+    MIN_VM_MONGOD,
+    apply_generated_mongodb_resource,
+    assert_common_generated_cr_shape,
+    assert_connection_string_after_full_migration,
+    assert_connection_string_contains_current_hosts,
+    assert_k8s_process_names,
+    deploy_vm_statefulset,
+    promote_and_prune,
 )
 
 VM_STS_NAME = "vm-mongodb"
@@ -77,7 +80,9 @@ def om_tester(namespace: str, operator) -> OMTester:
 @fixture(scope="module")
 def vm_server_certs(issuer: str, namespace: str):
     """TLS certs for VM mongod processes (hostnames vm-mongodb-0, vm-mongodb-1, vm-mongodb-2)."""
-    return create_mongodb_tls_certs(ISSUER_CA_NAME, namespace, VM_STS_NAME, f"{VM_STS_NAME}-cert", MIN_VM_MEMBERS, None, VM_STS_NAME)
+    return create_mongodb_tls_certs(
+        ISSUER_CA_NAME, namespace, VM_STS_NAME, f"{VM_STS_NAME}-cert", MIN_VM_MONGOD, None, VM_STS_NAME
+    )
 
 
 @fixture(scope="module")
@@ -134,55 +139,44 @@ def vm_sts(
     vm_server_combined_pem: str,
 ):
     """Deploy VM StatefulSet with cert volumes (server combined PEM + CA + agent PEM)."""
-    with open(yaml_fixture("vm_statefulset.yaml"), "r") as f:
-        sts_body = yaml.safe_load(f.read())
-
-    sts_body["spec"]["template"]["spec"]["containers"][0]["env"] = [
-        {"name": "MMS_GROUP_ID", "value": om_tester.context.project_id},
-        {"name": "MMS_BASE_URL", "value": om_tester.context.base_url},
-        {"name": "MMS_API_KEY", "value": om_tester.context.agent_api_key},
-    ]
-
-    volumes = sts_body["spec"]["template"]["spec"].get("volumes") or []
-    # MongoDB certificateKeyFile requires the cert and key in one file.
-    volumes.append(
-        {
-            "name": "mongodb-certs",
-            "secret": {
-                "secretName": vm_server_combined_pem,
-                "items": [{"key": "server.pem", "path": "server.pem"}],
-            },
-        }
-    )
-    # CA cert mounted at the same path the operator sets in tls.CAFilePath
-    # (/mongodb-automation/tls/ca/ca-pem) so VM agents remain functional after operator reconcile.
-    volumes.append(
-        {
-            "name": "ca-cert",
-            "secret": {
-                "secretName": "ca-key-pair",
-                "items": [{"key": "tls.crt", "path": "ca-pem"}],
-            },
-        }
-    )
-    # The VM path must match tls.autoPEMKeyFilePath before and after import.
     agent_secret_name, _ = vm_agent_combined_pem
-    volumes.append({"name": "agent-cert", "secret": {"secretName": agent_secret_name}})
-    sts_body["spec"]["template"]["spec"]["volumes"] = volumes
-
-    mounts = sts_body["spec"]["template"]["spec"]["containers"][0].get("volumeMounts") or []
-    mounts.append({"name": "mongodb-certs", "mountPath": "/mongodb-automation", "readOnly": True})
-    mounts.append({"name": "ca-cert", "mountPath": "/mongodb-automation/tls/ca", "readOnly": True})
-    mounts.append({"name": "agent-cert", "mountPath": CUSTOM_AGENT_CERT_DIR, "readOnly": True})
-    sts_body["spec"]["template"]["spec"]["containers"][0]["volumeMounts"] = mounts
-
-    KubernetesTester.create_or_update_statefulset(namespace, body=sts_body)
-    return sts_body
+    return deploy_vm_statefulset(
+        namespace,
+        om_tester,
+        extra_volumes=[
+            # MongoDB certificateKeyFile requires the cert and key in one file.
+            {
+                "name": "mongodb-certs",
+                "secret": {
+                    "secretName": vm_server_combined_pem,
+                    "items": [{"key": "server.pem", "path": "server.pem"}],
+                },
+            },
+            # CA cert mounted at the same path the operator sets in tls.CAFilePath
+            # (/mongodb-automation/tls/ca/ca-pem) so VM agents remain functional after operator reconcile.
+            {
+                "name": "ca-cert",
+                "secret": {
+                    "secretName": "ca-key-pair",
+                    "items": [{"key": "tls.crt", "path": "ca-pem"}],
+                },
+            },
+            # The VM path must match tls.autoPEMKeyFilePath before and after import.
+            {"name": "agent-cert", "secret": {"secretName": agent_secret_name}},
+        ],
+        extra_volume_mounts=[
+            {"name": "mongodb-certs", "mountPath": "/mongodb-automation", "readOnly": True},
+            {"name": "ca-cert", "mountPath": "/mongodb-automation/tls/ca", "readOnly": True},
+            {"name": "agent-cert", "mountPath": CUSTOM_AGENT_CERT_DIR, "readOnly": True},
+        ],
+    )
 
 
 @fixture(scope="module")
 def mdb_tls_certs(issuer: str, namespace: str):
-    return create_mongodb_tls_certs(ISSUER_CA_NAME, namespace, MDB_RESOURCE_NAME, f"mdb-{MDB_RESOURCE_NAME}-cert", MIN_K8S_MEMBERS)
+    return create_mongodb_tls_certs(
+        ISSUER_CA_NAME, namespace, MDB_RESOURCE_NAME, f"mdb-{MDB_RESOURCE_NAME}-cert", MIN_K8S_MONGOD
+    )
 
 
 @fixture(scope="module")
@@ -269,7 +263,7 @@ def vm_x509_tester(namespace: str, x509_client_pem_path: str, issuer_ca_filepath
     connection_string = build_mongodb_connection_uri(
         mdb_resource=VM_STS_NAME,
         namespace=namespace,
-        members=MIN_VM_MEMBERS,
+        members=MIN_VM_MONGOD,
         port="27017",
         servicename=VM_STS_NAME,
     )

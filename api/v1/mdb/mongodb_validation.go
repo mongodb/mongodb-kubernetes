@@ -526,7 +526,8 @@ func validateAgentAutoPEMKeyFilePath(d DbCommonSpec) v1.ValidationResult {
 	if p == "" {
 		return v1.ValidationSuccess()
 	}
-	if !d.GetSecurity().ShouldUseClientCertificates() {
+	sec := d.GetSecurity()
+	if !sec.ShouldUseClientCertificates() && strings.TrimSpace(sec.CertificatesSecretsPrefix) == "" {
 		return v1.ValidationError("security.authentication.agents.autoPEMKeyFilePath requires clientCertificateSecretRef to be set")
 	}
 	if !util.IsPOSIXAbsolutePath(p) {
