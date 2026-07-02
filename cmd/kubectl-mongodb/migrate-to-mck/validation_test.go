@@ -90,7 +90,6 @@ func TestValidation_NonDefaultKeyFile(t *testing.T) {
 	assert.True(t, hasError, "expected error when keyFile differs from default")
 }
 
-
 func TestValidation_NonDefaultCAFilePath(t *testing.T) {
 	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/complex_replicaset/complex_replicaset_input.json")
 	ac.AgentSSL.CAFilePath = "/etc/ssl/ca.pem"
@@ -275,6 +274,19 @@ func TestValidation_NilLdap_NoWarning(t *testing.T) {
 	}
 }
 
+func TestValidateAgentTLS_WarnsAboutGeneratedServerTLSResources(t *testing.T) {
+	results := validateAgentTLS(&om.AgentSSL{CAFilePath: defaultCAFilePath})
+
+	require.Len(t, results, 1)
+	assert.Equal(t, SeverityWarning, results[0].Severity)
+	assert.Contains(t, results[0].Message, "spec.security.certsSecretPrefix")
+	assert.Contains(t, results[0].Message, "spec.security.tls.ca")
+	assert.Contains(t, results[0].Message, "<resourceName>-ca")
+	assert.Contains(t, results[0].Message, "ca-pem")
+	assert.Contains(t, results[0].Message, "<certsSecretPrefix>-<resourceName>-cert")
+	assert.Contains(t, results[0].Message, "tls.crt")
+	assert.Contains(t, results[0].Message, "tls.key")
+}
 
 func TestValidation_RequireTLS_NoWarning(t *testing.T) {
 	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/complex_replicaset/complex_replicaset_input.json")
@@ -395,6 +407,7 @@ func TestValidation_X509AutoUser_NotInUsersWanted_Error(t *testing.T) {
 	ac.Auth.AutoUser = "CN=mms-automation-agent,OU=test,O=cluster.local"
 	ac.Auth.AutoAuthMechanism = "MONGODB-X509"
 	ac.Auth.Users = nil
+	ac.AgentSSL = &om.AgentSSL{AutoPEMKeyFilePath: "/mongodb-agent/agent.pem"}
 
 	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
 	hasError := false
@@ -413,6 +426,7 @@ func TestValidation_X509AutoUser_InUsersWanted_NoError(t *testing.T) {
 	ac.Auth.Users = []*om.MongoDBUser{
 		{Username: "CN=mms-automation-agent,OU=test,O=cluster.local", Database: "$external"},
 	}
+	ac.AgentSSL = &om.AgentSSL{AutoPEMKeyFilePath: "/mongodb-agent/agent.pem"}
 
 	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
 	for _, r := range results {
@@ -420,6 +434,32 @@ func TestValidation_X509AutoUser_InUsersWanted_NoError(t *testing.T) {
 			t.Errorf("X509 autoUser with matching usersWanted entry should not produce an error: %s", r.Message)
 		}
 	}
+}
+
+func TestValidateX509_WarnsAboutGeneratedClientCertificateSecretRef(t *testing.T) {
+	results := validateX509(
+		&om.Auth{Disabled: false, AutoAuthMechanism: "MONGODB-X509"},
+		&om.AgentSSL{AutoPEMKeyFilePath: "/mongodb-agent/agent.pem"},
+	)
+
+	require.NotEmpty(t, results)
+	assert.Equal(t, SeverityWarning, results[0].Severity)
+	assert.Contains(t, results[0].Message, "spec.security.authentication.agents.clientCertificateSecretRef")
+	assert.Contains(t, results[0].Message, "<certsSecretPrefix>-<resourceName>-agent-certs")
+	assert.Contains(t, results[0].Message, "tls.crt")
+	assert.Contains(t, results[0].Message, "tls.key")
+	assert.Contains(t, results[0].Message, "clientCertificateSecretRef.name")
+}
+
+func TestValidateX509_ErrorWhenAutoPEMKeyFilePathMissing(t *testing.T) {
+	results := validateX509(
+		&om.Auth{Disabled: false, AutoAuthMechanism: "MONGODB-X509"},
+		nil,
+	)
+
+	require.NotEmpty(t, results)
+	assert.Equal(t, SeverityError, results[0].Severity)
+	assert.Contains(t, results[0].Message, "tls.autoPEMKeyFilePath")
 }
 
 func TestValidation_AgentConfigDrift_Warning(t *testing.T) {

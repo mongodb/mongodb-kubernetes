@@ -873,10 +873,17 @@ task_groups:
       - e2e_search_enterprise_tls
       - e2e_search_enterprise_x509_cluster_auth
       # VM Migration
-      - e2e_vm_migration
+      - e2e_vm_migration_replicaset_x509
+      - e2e_vm_migration_replicaset_ldap
+      - e2e_vm_migration_replicaset_prometheus
+      - e2e_vm_migration_replicaset_oidc
+      - e2e_vm_migration_replicaset_oidc_group
+      - e2e_vm_migration_replicaset_oidc_workforce
+      - e2e_vm_migration_replicaset_scram_sha256
+      - e2e_vm_migration_replicaset_scram_sha1
+      - e2e_vm_migration_replicaset_scram_sha256_tls
+      - e2e_vm_migration_replicaset_no_auth
       - e2e_vm_migration_sharded
-      - e2e_vm_migration_x509
-      - e2e_vm_migration_tls_scram
       - e2e_vm_migration_sharded_x509
       - e2e_search_sharded_external_mongodb_single_mongot
       - e2e_search_sharded_external_mongodb_multi_mongot_unmanaged_lb

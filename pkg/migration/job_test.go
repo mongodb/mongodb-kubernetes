@@ -398,3 +398,55 @@ func TestBuildJobFromStatefulSet_SubjectDN(t *testing.T) {
 	}
 	assert.Equal(t, wantDN, subjectDN)
 }
+
+func TestBuildJobFromStatefulSet_MongodTLSCAPath_SetWhenTLSEnabled(t *testing.T) {
+	sts := &appsv1.StatefulSet{
+		Spec: appsv1.StatefulSetSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Volumes:    []corev1.Volume{},
+					Containers: []corev1.Container{{}},
+				},
+			},
+		},
+	}
+	rs := mdbv1.NewReplicaSetBuilder().
+		EnableAuth([]mdbv1.AuthMode{util.SCRAMSHA256}).
+		SetSecurityTLSEnabled().
+		Build()
+	rs.Name = "my-rs"
+	rs.Namespace = "default"
+	job := BuildJobFromStatefulSet(rs, sts, "img", "mongodb://host:27017/?replicaSet=my-rs", nil, util.AutomationConfigScramSha256Option, "", "")
+
+	envMap := make(map[string]string)
+	for _, e := range job.Spec.Template.Spec.Containers[0].Env {
+		envMap[e.Name] = e.Value
+	}
+	assert.NotEmpty(t, envMap["MONGOD_TLS_CA_PATH"], "MONGOD_TLS_CA_PATH must be set when mongod TLS is enabled")
+	assert.Equal(t, util.TLSCaMountPath+"/ca-pem", envMap["MONGOD_TLS_CA_PATH"])
+}
+
+func TestBuildJobFromStatefulSet_MongodTLSCAPath_EmptyWhenTLSDisabled(t *testing.T) {
+	sts := &appsv1.StatefulSet{
+		Spec: appsv1.StatefulSetSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Volumes:    []corev1.Volume{},
+					Containers: []corev1.Container{{}},
+				},
+			},
+		},
+	}
+	rs := mdbv1.NewReplicaSetBuilder().
+		EnableAuth([]mdbv1.AuthMode{util.SCRAMSHA256}).
+		Build()
+	rs.Name = "my-rs"
+	rs.Namespace = "default"
+	job := BuildJobFromStatefulSet(rs, sts, "img", "mongodb://host:27017/?replicaSet=my-rs", nil, util.AutomationConfigScramSha256Option, "", "")
+
+	for _, e := range job.Spec.Template.Spec.Containers[0].Env {
+		if e.Name == "MONGOD_TLS_CA_PATH" {
+			assert.Empty(t, e.Value, "MONGOD_TLS_CA_PATH must be empty when TLS is disabled")
+		}
+	}
+}
