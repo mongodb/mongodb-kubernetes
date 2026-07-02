@@ -83,6 +83,34 @@ func TestEnsureTagAddedDuplicates(t *testing.T) {
 	assert.Equal(t, expected, mockOm.FindGroup(om.TestGroupName).Tags)
 }
 
+func TestPrepareOpsManagerConnection_TagNamespace(t *testing.T) {
+	callPrepare := func(tagNamespace bool) *om.MockedOmConnection {
+		ctx := context.Background()
+		kubeClient, omConnectionFactory := mock.NewDefaultFakeClient()
+		controller := NewReconcileCommonController(ctx, kubeClient)
+		projectConfig, err := project.ReadProjectConfig(ctx, controller.client, kube.ObjectKey(mock.TestNamespace, mock.TestProjectConfigMapName), "mdb-name")
+		require.NoError(t, err)
+		credsConfig, err := project.ReadCredentials(ctx, controller.SecretClient, kube.ObjectKey(mock.TestNamespace, mock.TestCredentialsSecretName), &zap.SugaredLogger{})
+		require.NoError(t, err)
+		conn, _, err := connection.PrepareOpsManagerConnection(ctx, controller.SecretClient, projectConfig, credsConfig, omConnectionFactory.GetConnectionFunc, mock.TestNamespace, tagNamespace, zap.S())
+		require.NoError(t, err)
+		return conn.(*om.MockedOmConnection)
+	}
+
+	t.Run("namespace tag is added when tagNamespace is true", func(t *testing.T) {
+		mockOm := callPrepare(true)
+		tags := mockOm.FindGroup(om.TestGroupName).Tags
+		assert.Contains(t, tags, strings.ToUpper(mock.TestNamespace))
+	})
+
+	t.Run("namespace tag is not added and UpdateProject is not called when tagNamespace is false", func(t *testing.T) {
+		mockOm := callPrepare(false)
+		tags := mockOm.FindGroup(om.TestGroupName).Tags
+		assert.NotContains(t, tags, strings.ToUpper(mock.TestNamespace))
+		mockOm.CheckOperationsDidntHappen(t, reflect.ValueOf(mockOm.UpdateProject))
+	})
+}
+
 // TestPrepareOmConnection_FindExistingGroup finds existing group when org ID is specified, no new Project or Organization
 // is created
 func TestPrepareOmConnection_FindExistingGroup(t *testing.T) {

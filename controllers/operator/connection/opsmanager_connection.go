@@ -18,6 +18,10 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 )
 
+// PrepareOpsManagerConnection sets up a connection to Ops Manager for the given project and credentials.
+// tagNamespace controls whether the calling controller's namespace is added as a tag on the OM project.
+// Pass false for controllers where multiple namespaces share one project (e.g. MongoDBUser), because
+// Ops Manager enforces a hard limit of 10 tags per project and each namespace would otherwise consume one slot.
 func PrepareOpsManagerConnection(ctx context.Context, client secrets.SecretClient, projectConfig mdbv1.ProjectConfig, credentials mdbv1.Credentials, connectionFunc om.ConnectionFactory, namespace string, tagNamespace bool, log *zap.SugaredLogger) (om.Connection, string, error) {
 	omProject, conn, err := project.ReadOrCreateProject(projectConfig, credentials, connectionFunc, log)
 	if err != nil {
