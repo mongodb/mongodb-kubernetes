@@ -249,17 +249,20 @@ func TestStreakResetsOnUnhealthyWhenAlmostRecovered(t *testing.T) {
 
 		go checker.WatchMemberClusterHealth(ctx, zap.S(), watchChannel, central, nil)
 
-		require.Eventually(t, func() bool {
-			return checker.HealthyStreakFor("cluster1") == 0
-		}, 5*time.Second, 50*time.Millisecond)
+		// Let the watcher run its health-check iteration to completion and block on the
+		// next 10s tick. At that durable blocking point both the streak reset and the
+		// annotation write from this iteration have already happened, so we can assert on
+		// them directly instead of polling with Eventually/Never (whose own timers and
+		// goroutines interact nondeterministically with the synctest fake clock).
+		synctest.Wait()
 
-		assert.Never(t, func() bool {
-			got := &mdbmulti.MongoDBMultiCluster{}
-			if err := fakeClient.Get(ctx, types.NamespacedName{Name: "mdbmc", Namespace: "ns"}, got); err != nil {
-				return true
-			}
-			return !isInFailedClusterAnnotation(got.Annotations, "cluster1")
-		}, 5*time.Second, 50*time.Millisecond)
+		// The unhealthy report reset the near-complete streak back to zero...
+		assert.Equal(t, 0, checker.HealthyStreakFor("cluster1"))
+
+		// ...and the cluster was recorded in the failed-cluster annotation.
+		got := &mdbmulti.MongoDBMultiCluster{}
+		require.NoError(t, fakeClient.Get(ctx, types.NamespacedName{Name: "mdbmc", Namespace: "ns"}, got))
+		assert.True(t, isInFailedClusterAnnotation(got.Annotations, "cluster1"))
 	})
 }
 
