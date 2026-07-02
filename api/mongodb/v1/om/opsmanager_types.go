@@ -139,6 +139,12 @@ type MongoDBOpsManagerSpec struct {
 	// +optional
 	MongoDBOpsManagerExternalConnectivity *MongoDBOpsManagerServiceDefinition `json:"externalConnectivity,omitempty"`
 
+	// ExternalApplicationDatabaseRef references an external Application Database that is unmanaged by the Operator.
+	// If this field is set, the Operator will not create an AppDB StatefulSet and will instead configure Ops Manager
+	// to use the provided external database.
+	// +optional
+	ExternalApplicationDatabaseRef *ExternalApplicationDatabaseRef `json:"externalApplicationDatabaseRef,omitempty"`
+
 	// Configure HTTPS.
 	// +optional
 	Security *MongoDBOpsManagerSecurity `json:"security,omitempty"`
@@ -390,6 +396,14 @@ type MongoDBOpsManagerServiceDefinition struct {
 
 	// Annotations is a list of annotations to be directly passed to the Service object.
 	Annotations map[string]string `json:"annotations,omitempty"`
+}
+
+type ExternalApplicationDatabaseRef struct {
+	// ConnectionStringSecretRef is a reference to a Secret that contains the connection string
+	// for the external Application Database.
+	// The Secret must contain a key (default "connectionString.standard") with the standard MongoDB connection string.
+	// +kubebuilder:validation:Required
+	ConnectionStringSecretRef userv1.SecretKeyRef `json:"connectionStringSecretRef"`
 }
 
 // MongoDBOpsManagerBackup backup structure for Ops Manager resources
@@ -666,6 +680,9 @@ func (om *MongoDBOpsManager) ExternalSvcName() string {
 }
 
 func (om *MongoDBOpsManager) AppDBMongoConnectionStringSecretName() string {
+	if om.Spec.ExternalApplicationDatabaseRef != nil {
+		return om.Spec.ExternalApplicationDatabaseRef.ConnectionStringSecretRef.Name
+	}
 	return om.Spec.AppDB.Name() + "-connection-string"
 }
 
