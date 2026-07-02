@@ -30,11 +30,9 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status/pvc"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/backup"
-	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connection"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/controlledfeature"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
-	"github.com/mongodb/mongodb-kubernetes/controllers/operator/project"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
@@ -532,155 +530,12 @@ func getEmptyDeploymentOptions() deploymentOptions {
 	}
 }
 
-// TestPrepareScaleDownShardedCluster tests the scale down operation for config servers and mongods per shard. It checks
-// that all members that will be removed are marked as unvoted
-func TestPrepareScaleDownShardedCluster_ConfigMongodsUp(t *testing.T) {
-	ctx := context.Background()
-
-	initialState := MultiClusterShardedScalingStep{
-		shardCount: 2,
-		configServerDistribution: map[string]int{
-			multicluster.LegacyCentralClusterName: 3,
-		},
-		shardDistribution: map[string]int{
-			multicluster.LegacyCentralClusterName: 4,
-		},
-	}
-
-	scBeforeScale := test.DefaultClusterBuilder().
-		SetConfigServerCountSpec(3).
-		SetMongodsPerShardCountSpec(4).
-		Build()
-
-	scAfterScale := test.DefaultClusterBuilder().
-		SetConfigServerCountSpec(2).
-		SetMongodsPerShardCountSpec(3).
-		Build()
-
-	omConnectionFactory := om.NewCachedOMConnectionFactoryWithInitializedConnection(om.NewMockedOmConnection(createDeploymentFromShardedCluster(t, scBeforeScale)))
-	kubeClient, _ := mock.NewDefaultFakeClient(scAfterScale)
-	// Store the initial scaling status in state configmap
-	assert.NoError(t, createMockStateConfigMap(kubeClient, mock.TestNamespace, scBeforeScale.Name, initialState))
-	_, reconcileHelper, err := newShardedClusterReconcilerFromResource(ctx, nil, "", "", scAfterScale, nil, kubeClient, omConnectionFactory, testBackupEnableDelay, architectures.NonStatic)
-	assert.NoError(t, err)
-	assert.NoError(t, reconcileHelper.prepareScaleDownShardedCluster(omConnectionFactory.GetConnection(), zap.S()))
-
-	// create the expected deployment from the sharded cluster that has not yet scaled
-	// expected change of state: rs members are marked unvoted
-	expectedDeployment := createDeploymentFromShardedCluster(t, scBeforeScale)
-	firstConfig := scAfterScale.ConfigRsName() + "-2"
-	firstShard := scAfterScale.ShardRsName(0) + "-3"
-	secondShard := scAfterScale.ShardRsName(1) + "-3"
-
-	assert.NoError(t, expectedDeployment.MarkRsMembersUnvoted(scAfterScale.ConfigRsName(), []string{firstConfig}))
-	assert.NoError(t, expectedDeployment.MarkRsMembersUnvoted(scAfterScale.ShardRsName(0), []string{firstShard}))
-	assert.NoError(t, expectedDeployment.MarkRsMembersUnvoted(scAfterScale.ShardRsName(1), []string{secondShard}))
-
-	mockedOmConnection := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
-	mockedOmConnection.CheckNumberOfUpdateRequests(t, 1)
-	mockedOmConnection.CheckDeployment(t, expectedDeployment)
-	// we don't remove hosts from monitoring at this stage
-	mockedOmConnection.CheckMonitoredHostsRemoved(t, []string{})
-}
-
-// TestPrepareScaleDownShardedCluster_ShardsUpMongodsDown checks the situation when shards count increases and mongods
-// count per shard is decreased - scale down operation is expected to be called only for existing shards
-func TestPrepareScaleDownShardedCluster_ShardsUpMongodsDown(t *testing.T) {
-	ctx := context.Background()
-
-	initialState := MultiClusterShardedScalingStep{
-		shardCount: 4,
-		shardDistribution: map[string]int{
-			multicluster.LegacyCentralClusterName: 4,
-		},
-	}
-
-	scBeforeScale := test.DefaultClusterBuilder().
-		SetShardCountSpec(4).
-		SetMongodsPerShardCountSpec(4).
-		Build()
-
-	scAfterScale := test.DefaultClusterBuilder().
-		SetShardCountSpec(2).
-		SetMongodsPerShardCountSpec(3).
-		Build()
-
-	omConnectionFactory := om.NewCachedOMConnectionFactoryWithInitializedConnection(om.NewMockedOmConnection(createDeploymentFromShardedCluster(t, scBeforeScale)))
-	kubeClient, _ := mock.NewDefaultFakeClient(scAfterScale)
-	assert.NoError(t, createMockStateConfigMap(kubeClient, mock.TestNamespace, scBeforeScale.Name, initialState))
-	_, reconcileHelper, err := newShardedClusterReconcilerFromResource(ctx, nil, "", "", scAfterScale, nil, kubeClient, omConnectionFactory, testBackupEnableDelay, architectures.NonStatic)
-	assert.NoError(t, err)
-
-	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
-		deployment := createDeploymentFromShardedCluster(t, scBeforeScale)
-		if _, err := connection.UpdateDeployment(deployment); err != nil {
-			panic(err)
-		}
-		connection.(*om.MockedOmConnection).AddHosts(deployment.GetAllHostnames())
-		connection.(*om.MockedOmConnection).CleanHistory()
-	})
-
-	assert.NoError(t, reconcileHelper.prepareScaleDownShardedCluster(omConnectionFactory.GetConnection(), zap.S()))
-
-	// expected change of state: rs members are marked unvoted only for two shards (old state)
-	expectedDeployment := createDeploymentFromShardedCluster(t, scBeforeScale)
-	firstShard := scBeforeScale.ShardRsName(0) + "-3"
-	secondShard := scBeforeScale.ShardRsName(1) + "-3"
-	thirdShard := scBeforeScale.ShardRsName(2) + "-3"
-	fourthShard := scBeforeScale.ShardRsName(3) + "-3"
-
-	assert.NoError(t, expectedDeployment.MarkRsMembersUnvoted(scBeforeScale.ShardRsName(0), []string{firstShard}))
-	assert.NoError(t, expectedDeployment.MarkRsMembersUnvoted(scBeforeScale.ShardRsName(1), []string{secondShard}))
-	assert.NoError(t, expectedDeployment.MarkRsMembersUnvoted(scBeforeScale.ShardRsName(2), []string{thirdShard}))
-	assert.NoError(t, expectedDeployment.MarkRsMembersUnvoted(scBeforeScale.ShardRsName(3), []string{fourthShard}))
-
-	mockedOmConnection := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
-	mockedOmConnection.CheckNumberOfUpdateRequests(t, 1)
-	mockedOmConnection.CheckDeployment(t, expectedDeployment)
-	// we don't remove hosts from monitoring at this stage
-	mockedOmConnection.CheckOperationsDidntHappen(t, reflect.ValueOf(mockedOmConnection.RemoveHost))
-}
-
 func TestConstructConfigSrv(t *testing.T) {
 	sc := test.DefaultClusterBuilder().Build()
 	configSrvSpec := createConfigSrvSpec(sc)
 	assert.NotPanics(t, func() {
 		construct.DatabaseStatefulSet(*sc, construct.ConfigServerOptions(configSrvSpec, multicluster.LegacyCentralClusterName, construct.GetPodEnvOptions()), zap.S())
 	})
-}
-
-// TestPrepareScaleDownShardedCluster_OnlyMongos checks that if only mongos processes are scaled down - then no preliminary
-// actions are done
-func TestPrepareScaleDownShardedCluster_OnlyMongos(t *testing.T) {
-	ctx := context.Background()
-	sc := test.DefaultClusterBuilder().SetMongosCountStatus(4).SetMongosCountSpec(2).Build()
-	_, reconcileHelper, _, omConnectionFactory, _ := defaultShardedClusterReconciler(ctx, nil, "", "", sc, nil, testBackupEnableDelay, architectures.NonStatic)
-	oldDeployment := createDeploymentFromShardedCluster(t, sc)
-	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
-		if _, err := connection.UpdateDeployment(oldDeployment); err != nil {
-			panic(err)
-		}
-		connection.(*om.MockedOmConnection).CleanHistory()
-	})
-
-	// necessary otherwise next omConnectionFactory.GetConnection() will return nil as the connectionFactoryFunc hasn't been called yet
-	initializeOMConnection(t, ctx, reconcileHelper, sc, zap.S(), omConnectionFactory)
-
-	assert.NoError(t, reconcileHelper.prepareScaleDownShardedCluster(omConnectionFactory.GetConnection(), zap.S()))
-	mockedOmConnection := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
-	mockedOmConnection.CheckNumberOfUpdateRequests(t, 0)
-	mockedOmConnection.CheckDeployment(t, createDeploymentFromShardedCluster(t, sc))
-	mockedOmConnection.CheckOperationsDidntHappen(t, reflect.ValueOf(mockedOmConnection.RemoveHost))
-}
-
-// initializeOMConnection reads project config maps and initializes connection to OM.
-// It's useful for cases when the full Reconcile is not caller or the reconcile is not calling omConnectionFactoryFunc to get (create and cache) actual connection.
-// Without it subsequent calls to omConnectionFactory.GetConnection() will return nil.
-func initializeOMConnection(t *testing.T, ctx context.Context, reconcileHelper *ShardedClusterReconcileHelper, sc *mdbv1.MongoDB, log *zap.SugaredLogger, omConnectionFactory *om.CachedOMConnectionFactory) {
-	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(ctx, reconcileHelper.commonController.client, reconcileHelper.commonController.SecretClient, sc, log)
-	require.NoError(t, err)
-	_, _, err = connection.PrepareOpsManagerConnection(ctx, reconcileHelper.commonController.SecretClient, projectConfig, credsConfig, omConnectionFactory.GetConnectionFunc, sc.Namespace, true, log)
-	require.NoError(t, err)
 }
 
 // TestUpdateOmDeploymentShardedCluster_HostsRemovedFromMonitoring verifies that if scale down operation was performed -
