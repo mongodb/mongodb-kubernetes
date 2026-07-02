@@ -230,28 +230,25 @@ func TestLogConfigurationToEnvVars(t *testing.T) {
 	})
 
 	envVars := logConfigurationToEnvVars(parameters, additionalMongodConfig)
-	assert.Len(t, envVars, 7)
+	assert.Len(t, envVars, 6)
 
 	logFileAutomationAgentEnvVar := corev1.EnvVar{Name: LogFileAutomationAgentEnv, Value: path.Join(util.PvcMountPathLogs, "log.file")}
 	logFileAutomationAgentVerboseEnvVar := corev1.EnvVar{Name: LogFileAutomationAgentVerboseEnv, Value: path.Join(util.PvcMountPathLogs, "log-verbose.file")}
-	logFileAutomationAgentStderrEnvVar := corev1.EnvVar{Name: LogFileAutomationAgentStderrEnv, Value: path.Join(util.PvcMountPathLogs, "log-stderr.file")}
 	logFileAutomationAgentDefaultEnvVar := corev1.EnvVar{Name: LogFileAutomationAgentEnv, Value: path.Join(util.PvcMountPathLogs, "automation-agent.log")}
 	logFileAutomationAgentVerboseDefaultEnvVar := corev1.EnvVar{Name: LogFileAutomationAgentVerboseEnv, Value: path.Join(util.PvcMountPathLogs, "automation-agent-verbose.log")}
-	logFileAutomationAgentStderrDefaultEnvVar := corev1.EnvVar{Name: LogFileAutomationAgentStderrEnv, Value: path.Join(util.PvcMountPathLogs, "automation-agent-stderr.log")}
 	logFileMongoDBAuditEnvVar := corev1.EnvVar{Name: LogFileMongoDBAuditEnv, Value: path.Join(util.PvcMountPathLogs, "audit.log")}
 	logFileMongoDBAuditDefaultEnvVar := corev1.EnvVar{Name: LogFileMongoDBAuditEnv, Value: path.Join(util.PvcMountPathLogs, "mongodb-audit.log")}
 	logFileMongoDBEnvVar := corev1.EnvVar{Name: LogFileMongoDBEnv, Value: path.Join(util.PvcMountPathLogs, "mongodb.log")}
 	logFileAgentMonitoringEnvVar := corev1.EnvVar{Name: LogFileAgentMonitoringEnv, Value: path.Join(util.PvcMountPathLogs, "monitoring-agent.log")}
 	logFileAgentBackupEnvVar := corev1.EnvVar{Name: LogFileAgentBackupEnv, Value: path.Join(util.PvcMountPathLogs, "backup-agent.log")}
 
-	numberOfLogFilesInEnvVars := 7
+	numberOfLogFilesInEnvVars := 6
 
 	t.Run("automation log is changed and audit log is changed", func(t *testing.T) {
 		envVars := logConfigurationToEnvVars(parameters, additionalMongodConfig)
 		assert.Len(t, envVars, numberOfLogFilesInEnvVars)
 		assert.Contains(t, envVars, logFileAutomationAgentEnvVar)
 		assert.Contains(t, envVars, logFileAutomationAgentVerboseEnvVar)
-		assert.Contains(t, envVars, logFileAutomationAgentStderrEnvVar)
 		assert.Contains(t, envVars, logFileMongoDBAuditEnvVar)
 		assert.Contains(t, envVars, logFileMongoDBEnvVar)
 		assert.Contains(t, envVars, logFileAgentMonitoringEnvVar)
@@ -263,7 +260,6 @@ func TestLogConfigurationToEnvVars(t *testing.T) {
 		assert.Len(t, envVars, numberOfLogFilesInEnvVars)
 		assert.Contains(t, envVars, logFileAutomationAgentEnvVar)
 		assert.Contains(t, envVars, logFileAutomationAgentVerboseEnvVar)
-		assert.Contains(t, envVars, logFileAutomationAgentStderrEnvVar)
 		assert.Contains(t, envVars, logFileMongoDBAuditEnvVar)
 		assert.Contains(t, envVars, logFileMongoDBEnvVar)
 		assert.Contains(t, envVars, logFileAgentMonitoringEnvVar)
@@ -275,7 +271,6 @@ func TestLogConfigurationToEnvVars(t *testing.T) {
 		assert.Len(t, envVars, numberOfLogFilesInEnvVars)
 		assert.Contains(t, envVars, logFileAutomationAgentDefaultEnvVar)
 		assert.Contains(t, envVars, logFileAutomationAgentVerboseDefaultEnvVar)
-		assert.Contains(t, envVars, logFileAutomationAgentStderrDefaultEnvVar)
 		assert.Contains(t, envVars, logFileMongoDBAuditEnvVar)
 		assert.Contains(t, envVars, logFileMongoDBEnvVar)
 		assert.Contains(t, envVars, logFileAgentMonitoringEnvVar)
@@ -287,7 +282,6 @@ func TestLogConfigurationToEnvVars(t *testing.T) {
 		assert.Len(t, envVars, numberOfLogFilesInEnvVars)
 		assert.Contains(t, envVars, logFileAutomationAgentDefaultEnvVar)
 		assert.Contains(t, envVars, logFileAutomationAgentVerboseDefaultEnvVar)
-		assert.Contains(t, envVars, logFileAutomationAgentStderrDefaultEnvVar)
 		assert.Contains(t, envVars, logFileMongoDBAuditDefaultEnvVar)
 		assert.Contains(t, envVars, logFileMongoDBEnvVar)
 		assert.Contains(t, envVars, logFileAgentMonitoringEnvVar)
@@ -300,34 +294,29 @@ func TestGetAutomationLogEnvVars(t *testing.T) {
 		envVars := getAutomationLogEnvVars(map[string]string{"logFile": "path/to/log.file"})
 		assert.Contains(t, envVars, corev1.EnvVar{Name: LogFileAutomationAgentEnv, Value: "path/to/log.file"})
 		assert.Contains(t, envVars, corev1.EnvVar{Name: LogFileAutomationAgentVerboseEnv, Value: "path/to/log-verbose.file"})
-		assert.Contains(t, envVars, corev1.EnvVar{Name: LogFileAutomationAgentStderrEnv, Value: "path/to/log-stderr.file"})
 	})
 
 	t.Run("automation log file without extension", func(t *testing.T) {
 		envVars := getAutomationLogEnvVars(map[string]string{"logFile": "path/to/logfile"})
 		assert.Contains(t, envVars, corev1.EnvVar{Name: LogFileAutomationAgentEnv, Value: "path/to/logfile"})
 		assert.Contains(t, envVars, corev1.EnvVar{Name: LogFileAutomationAgentVerboseEnv, Value: "path/to/logfile-verbose"})
-		assert.Contains(t, envVars, corev1.EnvVar{Name: LogFileAutomationAgentStderrEnv, Value: "path/to/logfile-stderr"})
 	})
 	t.Run("invalid automation log file is not crashing", func(t *testing.T) {
 		envVars := getAutomationLogEnvVars(map[string]string{"logFile": "path/to/"})
 		assert.Contains(t, envVars, corev1.EnvVar{Name: LogFileAutomationAgentEnv, Value: "path/to/"})
 		assert.Contains(t, envVars, corev1.EnvVar{Name: LogFileAutomationAgentVerboseEnv, Value: "path/to/-verbose"})
-		assert.Contains(t, envVars, corev1.EnvVar{Name: LogFileAutomationAgentStderrEnv, Value: "path/to/-stderr"})
 	})
 
 	t.Run("empty automation log file is falling back to default names", func(t *testing.T) {
 		envVars := getAutomationLogEnvVars(map[string]string{"logFile": ""})
 		assert.Contains(t, envVars, corev1.EnvVar{Name: LogFileAutomationAgentEnv, Value: path.Join(util.PvcMountPathLogs, "automation-agent.log")})
 		assert.Contains(t, envVars, corev1.EnvVar{Name: LogFileAutomationAgentVerboseEnv, Value: path.Join(util.PvcMountPathLogs, "automation-agent-verbose.log")})
-		assert.Contains(t, envVars, corev1.EnvVar{Name: LogFileAutomationAgentStderrEnv, Value: path.Join(util.PvcMountPathLogs, "automation-agent-stderr.log")})
 	})
 
 	t.Run("not set logFile cause falling back to default names", func(t *testing.T) {
 		envVars := getAutomationLogEnvVars(map[string]string{})
 		assert.Contains(t, envVars, corev1.EnvVar{Name: LogFileAutomationAgentEnv, Value: path.Join(util.PvcMountPathLogs, "automation-agent.log")})
 		assert.Contains(t, envVars, corev1.EnvVar{Name: LogFileAutomationAgentVerboseEnv, Value: path.Join(util.PvcMountPathLogs, "automation-agent-verbose.log")})
-		assert.Contains(t, envVars, corev1.EnvVar{Name: LogFileAutomationAgentStderrEnv, Value: path.Join(util.PvcMountPathLogs, "automation-agent-stderr.log")})
 	})
 }
 
