@@ -2,7 +2,6 @@
   <configuration default="false" name="Operator multi-cluster" type="GoApplicationRunConfiguration" factoryName="Go Application">
     <module name="mongodb-kubernetes" />
     <working_directory value="$PROJECT_DIR$" />
-    <parameters value="-watch-resource=mongodb -watch-resource=opsmanagers -watch-resource=mongodbusers -watch-resource=mongodbcommunity -watch-resource=mongodbsearch -watch-resource=clustermongodbroles -watch-resource=mongodbmulticluster" />
     <kind value="FILE" />
     <package value="github.com/mongodb/mongodb-kubernetes" />
     <directory value="$PROJECT_DIR$" />

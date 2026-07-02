@@ -4,6 +4,8 @@ from typing import Dict
 import pytest
 from kubernetes import client
 from kubetester.create_or_replace_from_yaml import create_or_replace_from_yaml
+from kubetester.helm import apply_operator_config_crd
+from kubetester.kubetester import create_operator_config
 from kubetester.operator import Operator, delete_operator_crds, list_operator_crds
 from pytest import fixture
 
@@ -13,9 +15,9 @@ def ops_manager_and_mongodb_crds():
     """Installs OM and MDB CRDs only (we need to do this manually as Helm 3 doesn't support templating for CRDs"""
     create_or_replace_from_yaml(client.api_client.ApiClient(), "helm_chart/crds/mongodb.com_mongodb.yaml")
     create_or_replace_from_yaml(client.api_client.ApiClient(), "helm_chart/crds/mongodb.com_opsmanagers.yaml")
-    create_or_replace_from_yaml(
-        client.api_client.ApiClient(), "helm_chart/crds/operator.mongodb.com_operatorconfigs.yaml"
-    )
+    # apply_operator_config_crd waits for the CRD to be Established before we create the CR below;
+    # create_or_replace_from_yaml does not, which races the API server after a prior CRD deletion.
+    apply_operator_config_crd(api_client=client.api_client.ApiClient())
 
 
 @fixture(scope="module")
@@ -24,12 +26,14 @@ def operator_only_ops_manager_and_mongodb(
     namespace: str,
     operator_installation_config: Dict[str, str],
 ) -> Operator:
-    helm_args = operator_installation_config.copy()
-    helm_args["operator.watchedResources"] = "{opsmanagers,mongodb}"
+    # Restrict which CRDs the operator reconciles via OperatorConfig. The CR must exist before the
+    # operator starts: with no CR it defaults to watching all CRDs and would crash on the ones that
+    # aren't installed in this test.
+    create_operator_config(namespace, {"watchedResources": ["opsmanagers", "mongodb"]})
 
     return Operator(
         namespace=namespace,
-        helm_args=helm_args,
+        helm_args=operator_installation_config,
         helm_options=["--skip-crds"],
     ).install()
 
@@ -38,9 +42,9 @@ def operator_only_ops_manager_and_mongodb(
 def mongodb_crds():
     """Installs OM and MDB CRDs only (we need to do this manually as Helm 3 doesn't support templating for CRDs"""
     create_or_replace_from_yaml(client.api_client.ApiClient(), "helm_chart/crds/mongodb.com_mongodb.yaml")
-    create_or_replace_from_yaml(
-        client.api_client.ApiClient(), "helm_chart/crds/operator.mongodb.com_operatorconfigs.yaml"
-    )
+    # Waits for the CRD to be Established before we create the CR below. This fixture runs after
+    # test_remove_operator_and_crds deletes the CRD, so the API server must re-register the endpoint.
+    apply_operator_config_crd(api_client=client.api_client.ApiClient())
 
 
 @fixture(scope="module")
@@ -49,12 +53,13 @@ def operator_only_mongodb(
     namespace: str,
     operator_installation_config: Dict[str, str],
 ) -> Operator:
-    helm_args = operator_installation_config.copy()
-    helm_args["operator.watchedResources"] = "{mongodb}"
+    # See operator_only_ops_manager_and_mongodb: the OperatorConfig CR must exist before the operator
+    # starts so it only reconciles the installed CRDs.
+    create_operator_config(namespace, {"watchedResources": ["mongodb"]})
 
     return Operator(
         namespace=namespace,
-        helm_args=helm_args,
+        helm_args=operator_installation_config,
         helm_options=["--skip-crds"],
     ).install()
 

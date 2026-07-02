@@ -15,15 +15,6 @@ operator:
   # Version of mongodb-kubernetes-operator
   version: 2.0.0
 
-  # The Custom Resources that will be watched by the Operator. Needs to be changed if only some of the CRDs are installed
-  watchedResources:
-  - mongodb
-  - opsmanagers
-  - mongodbusers
-  - mongodbcommunity
-  - mongodbsearch
-  - voyageais
-
   # Scopes MongoDBSearch reconciliation only. When clusterName is set, this operator
   # reconciles only MongoDBSearch resources whose spec.clusters[i].name matches this
   # value -- the operator-per-cluster model, where each cluster runs its own operator
@@ -79,8 +70,8 @@ operator:
   createResourcesServiceAccountsAndRoles: true
 
   # If true, the helm chart will create the ClusterRole and ClusterRoleBinding for the operator to be able to access the ClusterMongoDBRole resources.
-  # It will also set the --watch-resource flag, to enable the operator to watch the ClusterMongoDBRole resources for changes.
-  # Set to false to not create the ClusterRole and ClusterRoleBinding and to disable the operator watching the ClusterMongoDBRole resources.
+  # Whether the operator actually reconciles ClusterMongoDBRole resources is controlled separately via `.spec.watchedResources` in the OperatorConfig CR (which includes `clustermongodbroles` by default).
+  # Set to false to not create the ClusterRole and ClusterRoleBinding.
   enableClusterMongoDBRoles: true
 
   # Set to false to not create the RBAC for enabling access to the PVC for resizing for the operator
