@@ -96,7 +96,7 @@ type AutomaticRecoveryConfig struct {
 
 	// Delay is the back-off in seconds before the operator attempts automatic recovery.
 	// +optional
-	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:default=1200
 	Delay int `json:"delay,omitempty"`
 }
