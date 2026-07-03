@@ -564,6 +564,7 @@ tasks:
     commands:
       - func: clone
       - func: switch_context
+      - func: python_venv
       - func: generate_perf_tests_tasks
         vars:
           variant: e2e_operator_perf_one_thread
@@ -573,6 +574,7 @@ tasks:
     commands:
       - func: clone
       - func: switch_context
+      - func: python_venv
       - func: generate_perf_tests_tasks
         vars:
           variant: e2e_operator_perf
@@ -582,6 +584,7 @@ tasks:
     commands:
       - func: clone
       - func: switch_context
+      - func: python_venv
       - func: generate_perf_tests_tasks
         vars:
           variant: e2e_operator_perf_thirty
@@ -1975,7 +1978,7 @@ buildvariants:
     tags: [ "manual_patch", "e2e_perf_test_suite" ]
     allowed_requesters: [ "patch" ]
     run_on:
-      - ubuntu1804-xlarge
+      - ubuntu2404-xlarge
     <<: *base_om7_dependency
     tasks:
       - name: generate_perf_tasks_10_thread
@@ -1985,7 +1988,7 @@ buildvariants:
     tags: [ "manual_patch", "e2e_perf_test_suite" ]
     allowed_requesters: [ "patch" ]
     run_on:
-      - ubuntu1804-xlarge
+      - ubuntu2404-xlarge
     <<: *base_om7_dependency
     tasks:
       - name: generate_perf_tasks_one_thread
@@ -1995,7 +1998,7 @@ buildvariants:
     tags: [ "manual_patch", "e2e_perf_test_suite" ]
     allowed_requesters: [ "patch" ]
     run_on:
-      - ubuntu1804-xlarge
+      - ubuntu2404-xlarge
     <<: *base_om7_dependency
     tasks:
       - name: generate_perf_tasks_30_thread

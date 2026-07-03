@@ -50,7 +50,7 @@ group = TaskGroup(
         FunctionCall("teardown_kubernetes_environment"),
         FunctionCall("teardown_cloud_qa"),
     ],
-    teardown_group=[FunctionCall("prune_docker_resources"), FunctionCall("run_retry_script")],
+    teardown_group=[FunctionCall("prune_docker_resources")],
 )
 
 build_variant = BuildVariant(variant).display_task(variant)
