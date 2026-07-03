@@ -29,10 +29,11 @@ type Config struct {
 	ConnectionString string
 	// ExternalMembers is the list of host:port pairs to ping directly.
 	ExternalMembers []string
-	// AuthMechanism controls auth: "MONGODB-X509" uses X.509 client certificate auth;
-	// "SCRAM-SHA-256" / "SCRAM-SHA-1" use keyfile SCRAM (requires KeyfilePath).
+	// AuthMechanism is "MONGODB-X509" to use X.509 client certificate auth. SCRAM values
+	// ("SCRAM-SHA-256", "SCRAM-SHA-1") may be passed by the job builder but are intentionally
+	// ignored. Those deployments are checked for reachability only.
 	AuthMechanism string
-	// KeyfilePath is the path to the keyfile secret mount (SCRAM).
+	// CertPath is the path to the combined cert+key PEM (X509).
 	CertPath string
 	// CAPath is the path to the CA PEM (X509).
 	CAPath string
