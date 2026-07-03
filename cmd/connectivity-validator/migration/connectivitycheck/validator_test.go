@@ -56,3 +56,18 @@ func TestBuildClientOptions_ClientCertOptional_MissingCert(t *testing.T) {
 	_, err = buildClientOptions(cfg, "mongodb://localhost:27017/")
 	assert.ErrorContains(t, err, "parsing mongod CA certificate")
 }
+
+// TestBuildClientOptions_NoAuthWithMongodTLS ensures TLS is attempted even when no auth
+// mechanism is set, and that an invalid CA file surfaces as a parse error.
+func TestBuildClientOptions_NoAuthWithMongodTLS_SetsTLS(t *testing.T) {
+	caFile := filepath.Join(t.TempDir(), "ca.pem")
+	err := os.WriteFile(caFile, []byte("not-a-pem"), 0o600)
+	assert.NoError(t, err)
+
+	cfg := Config{
+		AuthMechanism:   "",
+		MongodTLSCAPath: caFile,
+	}
+	_, err = buildClientOptions(cfg, "mongodb://localhost:27017/")
+	assert.ErrorContains(t, err, "parsing mongod CA certificate")
+}
