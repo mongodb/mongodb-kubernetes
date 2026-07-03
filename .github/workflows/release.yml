@@ -20,7 +20,7 @@ jobs:
       contents: write
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: '0'
       - name: Setup host
@@ -50,17 +50,18 @@ jobs:
       contents: write
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: '0'
       - name: Create git tag
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email 'github-actions[bot]@users.noreply.github.com'
-          git tag -a $VERSION -m "Release of MCK $VERSION"
+          git tag -a $VERSION -m "Release of MCK $VERSION" $COMMIT_SHA
           git push origin $VERSION
         env:
           VERSION: ${{ github.event.inputs.version }}
+          COMMIT_SHA: ${{ github.event.inputs.commit_sha }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   publish_release:
@@ -72,7 +73,7 @@ jobs:
       contents: write
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: '0'
       - name: Publish Release Notes
