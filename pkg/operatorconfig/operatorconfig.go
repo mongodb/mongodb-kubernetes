@@ -49,5 +49,8 @@ func withDefaults(cfg operatorv1.OperatorConfig) operatorv1.OperatorConfig {
 	if cfg.Spec.MultiCluster.MemberClusterClientTimeout == 0 {
 		cfg.Spec.MultiCluster.MemberClusterClientTimeout = 10
 	}
+	if cfg.Spec.MultiCluster.MemberClusterRequiredHealthyStreak == 0 {
+		cfg.Spec.MultiCluster.MemberClusterRequiredHealthyStreak = 5
+	}
 	return cfg
 }
