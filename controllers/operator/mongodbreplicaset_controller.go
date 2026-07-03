@@ -205,7 +205,7 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 		return r.updateStatus(ctx, workflow.Failed(err))
 	}
 
-	conn, _, err := connection.PrepareOpsManagerConnection(ctx, reconciler.SecretClient, projectConfig, credsConfig, reconciler.omConnectionFactory, rs.Namespace, log)
+	conn, _, err := connection.PrepareOpsManagerConnection(ctx, reconciler.SecretClient, projectConfig, credsConfig, reconciler.omConnectionFactory, rs.Namespace, true, log)
 	if err != nil {
 		return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("failed to prepare Ops Manager connection: %w", err)))
 	}
@@ -261,12 +261,6 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 		return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("failed to get agent auth mode: %w", err)))
 	}
 
-	// Check if we need to prepare for scale-down
-	if scale.ReplicasThisReconciliation(rs) < r.deploymentState.LastReconcileMemberCount {
-		if err := replicaset.PrepareScaleDownFromMongoDB(conn, rs, log); err != nil {
-			return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("failed to prepare Replica Set for scaling down using Ops Manager: %w", err)))
-		}
-	}
 	deploymentOpts := deploymentOptionsRS{
 		prometheusCertHash:   prometheusCertHash,
 		agentCertPath:        agentCertPath,
@@ -823,7 +817,7 @@ func (r *ReplicaSetReconcilerHelper) cleanOpsManagerState(ctx context.Context, r
 	}
 
 	log.Infow("Removing replica set from Ops Manager", "config", rs.Spec)
-	conn, _, err := connection.PrepareOpsManagerConnection(ctx, r.reconciler.SecretClient, projectConfig, credsConfig, r.reconciler.omConnectionFactory, rs.Namespace, log)
+	conn, _, err := connection.PrepareOpsManagerConnection(ctx, r.reconciler.SecretClient, projectConfig, credsConfig, r.reconciler.omConnectionFactory, rs.Namespace, true, log)
 	if err != nil {
 		return err
 	}

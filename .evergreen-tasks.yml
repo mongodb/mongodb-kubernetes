@@ -702,13 +702,25 @@ tasks:
     commands:
       - func: "e2e_test"
 
+  # Quarantined: blocked on HELP-96015 (upstream Automation Agent 13.53 regression stalling
+  # mongos recovery after a project switch). github_pr_aliases selects task: ".*" for every
+  # pr_patch variant, so tags alone can't exclude this from PR runs — patchable:false is the
+  # mechanism that actually keeps it out of PR/manual patches while still letting it run (and
+  # gate releasability) on master merge commits. See EVERGREEN.md#quarantined-tests.
   - name: e2e_sharded_cluster_scram_sha_256_switch_project
-    tags: [ "patch-run" ]
+    tags: [ "quarantined" ]
+    patchable: false
     commands:
       - func: "e2e_test"
 
+  # Quarantined: blocked on HELP-96015 (upstream Automation Agent 13.53 regression stalling
+  # mongos recovery after a project switch). github_pr_aliases selects task: ".*" for every
+  # pr_patch variant, so tags alone can't exclude this from PR runs — patchable:false is the
+  # mechanism that actually keeps it out of PR/manual patches while still letting it run (and
+  # gate releasability) on master merge commits. See EVERGREEN.md#quarantined-tests.
   - name: e2e_sharded_cluster_scram_sha_1_switch_project
-    tags: [ "patch-run" ]
+    tags: [ "quarantined" ]
+    patchable: false
     commands:
       - func: "e2e_test"
 
