@@ -39,5 +39,15 @@ func withDefaults(cfg operatorv1.OperatorConfig) operatorv1.OperatorConfig {
 	if len(cfg.Spec.WatchedResources) == 0 {
 		cfg.Spec.WatchedResources = slices.Clone(operatorv1.AllWatchedResources)
 	}
+	// MultiCluster is a pointer, so an omitted block leaves the API server's
+	// nested defaults (e.g. memberClusterClientTimeout=10) unapplied. Ensure the
+	// block exists and the timeout is defaulted so member-cluster clients never
+	// end up with a zero (i.e. no) timeout.
+	if cfg.Spec.MultiCluster == nil {
+		cfg.Spec.MultiCluster = &operatorv1.MultiClusterConfig{}
+	}
+	if cfg.Spec.MultiCluster.MemberClusterClientTimeout == 0 {
+		cfg.Spec.MultiCluster.MemberClusterClientTimeout = 10
+	}
 	return cfg
 }

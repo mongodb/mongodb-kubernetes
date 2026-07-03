@@ -291,6 +291,7 @@ func AddMongoDBSearchController(
 	memberClusterObjectsMap map[string]cluster.Cluster,
 	operatorClusterName string,
 	maxConcurrentReconciles int,
+	memberClusterClientTimeout int,
 ) error {
 	if err := mgr.GetFieldIndexer().IndexField(ctx, &searchv1.MongoDBSearch{}, searchv1.MongoDBSearchIndexFieldName, mdbcSearchIndexBuilder); err != nil {
 		return err
