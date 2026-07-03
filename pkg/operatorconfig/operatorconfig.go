@@ -52,5 +52,17 @@ func withDefaults(cfg operatorv1.OperatorConfig) operatorv1.OperatorConfig {
 	if cfg.Spec.MultiCluster.MemberClusterRequiredHealthyStreak == 0 {
 		cfg.Spec.MultiCluster.MemberClusterRequiredHealthyStreak = 5
 	}
+	// AutomaticRecovery is a pointer, so an omitted block leaves the API server's nested defaults
+	// (mode=Enabled, delay=1200) unapplied. Ensure the block exists and default its fields. Delay's
+	// minimum is 1, so a zero value can only mean "unset" and is safe to sentinel-default.
+	if cfg.Spec.AutomaticRecovery == nil {
+		cfg.Spec.AutomaticRecovery = &operatorv1.AutomaticRecoveryConfig{}
+	}
+	if cfg.Spec.AutomaticRecovery.Mode == "" {
+		cfg.Spec.AutomaticRecovery.Mode = operatorv1.FeatureModeEnabled
+	}
+	if cfg.Spec.AutomaticRecovery.Delay == 0 {
+		cfg.Spec.AutomaticRecovery.Delay = 1200
+	}
 	return cfg
 }
