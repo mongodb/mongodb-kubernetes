@@ -1,5 +1,4 @@
 {{ if .Values.operator.createOperatorServiceAccount }}
-{{ if .Values.operator.enablePVCResize }}
 
 {{- $watchNamespace := include "mongodb-kubernetes-operator.namespace" . | list }}
 {{- if .Values.operator.watchNamespace }}
@@ -59,5 +58,4 @@ subjects:
     namespace: {{ include "mongodb-kubernetes-operator.namespace" $ }}
 {{- end }}
 
-{{- end}}{{/* if .Values.operator.enablePVCResize */}}
 {{- end}}{{/* if .Values.operator.createOperatorServiceAccount */}}
