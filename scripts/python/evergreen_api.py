@@ -3,6 +3,8 @@ import os
 import requests
 from evergreen.api import EvergreenApi, EvgAuth
 
+# CI has EVR_TASK_ID set → use evergreen.mongodb.com (env-var auth).
+# Local dev lacks EVR_TASK_ID → use evergreen.corp.mongodb.com (OIDC auth via ~/.evergreen.yml).
 EVERGREEN_API = "https://evergreen.mongodb.com/api"
 if not os.environ.get("EVR_TASK_ID"):
     EVERGREEN_API = "https://evergreen.corp.mongodb.com/api"

@@ -40,9 +40,10 @@ def _honeycomb_headers() -> dict[str, str]:
 
 
 def _honeycomb_query(query_spec: dict, dataset: str = DATASET) -> dict:
+    headers = _honeycomb_headers()
     response = requests.post(
         f"{HONEYCOMB_API_BASE}/queries/{dataset}",
-        headers=_honeycomb_headers(),
+        headers=headers,
         json=query_spec,
         timeout=30,
     )
@@ -51,7 +52,7 @@ def _honeycomb_query(query_spec: dict, dataset: str = DATASET) -> dict:
 
     response = requests.post(
         f"{HONEYCOMB_API_BASE}/query_results/{dataset}",
-        headers=_honeycomb_headers(),
+        headers=headers,
         json={"query_id": query_id, "disable_series": True},
         timeout=30,
     )
@@ -61,7 +62,7 @@ def _honeycomb_query(query_spec: dict, dataset: str = DATASET) -> dict:
     for attempt in range(10):
         response = requests.get(
             f"{HONEYCOMB_API_BASE}/query_results/{dataset}/{result_id}",
-            headers=_honeycomb_headers(),
+            headers=headers,
             timeout=30,
         )
         response.raise_for_status()
@@ -88,7 +89,7 @@ def get_flaky_tasks() -> list[FlakyTask]:
     Self-contained: fetches its own Honeycomb auth. Raises RuntimeError if
     HONEYCOMB_API_KEY is not set.
     """
-    print("Querying flaky tasks from evergreen-agent...")
+    print("Querying flaky tasks from evergreen-agent...", file=sys.stderr)
 
     query_spec = {
         "time_range": TIME_RANGE_SECONDS,
@@ -131,7 +132,7 @@ def get_flaky_tasks() -> list[FlakyTask]:
             )
 
     flaky_tasks.sort(key=lambda t: (t.flakiness_percent, t.total_runs), reverse=True)
-    print(f"  Found {len(flaky_tasks)} flaky task/variant combinations")
+    print(f"  Found {len(flaky_tasks)} flaky task/variant combinations", file=sys.stderr)
     return flaky_tasks
 
 

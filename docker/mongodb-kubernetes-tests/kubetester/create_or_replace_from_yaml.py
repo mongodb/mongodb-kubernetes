@@ -78,7 +78,7 @@ def patch_from_yaml_single_item(k8s_client, yml_object, namespace="default", **k
                     time.sleep(1)
                     continue
                 raise
-        raise Exception(f"Failed to replace CRD {name} after 30s: {last_error}")
+        raise Exception(f"Failed to replace CRD {name} after 300s: {last_error}")
 
     method = "patch"
     namespaced = hasattr(k8s_api, "{}_namespaced_{}".format("create", kind))
