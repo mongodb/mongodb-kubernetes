@@ -8811,7 +8811,7 @@ spec:
                     default: 1200
                     description: Delay is the back-off in seconds before the operator
                       attempts automatic recovery.
-                    minimum: 0
+                    minimum: 1
                     type: integer
                   mode:
                     default: Enabled

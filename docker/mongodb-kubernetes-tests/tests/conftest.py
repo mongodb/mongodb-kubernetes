@@ -216,16 +216,15 @@ def operator_vault_secret_backend_tls(
 
 
 @fixture(scope="module")
-def operator_installation_config_quick_recovery(operator_installation_config: dict[str, str]) -> dict[str, str]:
+def operator_config_extra_spec() -> dict:
+    """Extra OperatorConfig spec merged into the CR when the operator config is applied during operator
+    installation. Defaults to no extra configuration.
+
+    Tests override this fixture to set OperatorConfig fields explicitly on the CR. For example, the
+    automatic-recovery tests (CLOUDP-189433 / CLOUDP-229222) shorten the recovery back-off via
+    {"automaticRecovery": {"delay": <seconds>}} so recovery triggers within the test window.
     """
-    This functions appends automatic recovery settings for CLOUDP-189433. In order to make the test runnable in
-    reasonable time, we override the Recovery back off to 120 seconds. This gives enough time for the initial
-    automation config to be published and statefulsets to be created before forcing the recovery.
-    """
-    operator_installation_config["customEnvVars"] = (
-        operator_installation_config["customEnvVars"] + "\&MDB_AUTOMATIC_RECOVERY_BACKOFF_TIME_S=120"
-    )
-    return operator_installation_config
+    return {}
 
 
 @fixture(scope="module")
@@ -507,6 +506,7 @@ def default_operator(
     central_cluster_client: client.ApiClient,
     member_cluster_clients: List[MultiClusterClient],
     member_cluster_names: List[str],
+    operator_config_extra_spec: dict,
 ) -> Operator:
     if is_multi_cluster():
         return get_multi_cluster_operator(
@@ -516,12 +516,18 @@ def default_operator(
             central_cluster_client,
             member_cluster_clients,
             member_cluster_names,
+            operator_config_extra_spec=operator_config_extra_spec,
         )
-    return get_default_operator(namespace, operator_installation_config)
+    return get_default_operator(
+        namespace, operator_installation_config, operator_config_extra_spec=operator_config_extra_spec
+    )
 
 
 def get_default_operator(
-    namespace: str, operator_installation_config: dict[str, str], apply_crds_first: bool = False
+    namespace: str,
+    operator_installation_config: dict[str, str],
+    apply_crds_first: bool = False,
+    operator_config_extra_spec: Optional[dict] = None,
 ) -> Operator:
     """Installs/upgrades a default Operator used by any test not interested in some custom Operator setting.
     TODO we use the helm template | kubectl apply -f process so far as Helm install/upgrade needs more refactoring in
@@ -531,7 +537,7 @@ def get_default_operator(
         helm_args=operator_installation_config,
     ).upgrade(apply_crds_first=apply_crds_first)
 
-    operator.apply_operator_config_and_wait()
+    operator.apply_operator_config_and_wait(extra_spec=operator_config_extra_spec)
 
     return operator
 
@@ -657,6 +663,7 @@ def multi_cluster_operator(
     central_cluster_client: client.ApiClient,
     member_cluster_clients: List[MultiClusterClient],
     member_cluster_names: List[str],
+    operator_config_extra_spec: dict,
 ) -> Operator:
     return get_multi_cluster_operator(
         namespace,
@@ -665,6 +672,7 @@ def multi_cluster_operator(
         central_cluster_client,
         member_cluster_clients,
         member_cluster_names,
+        operator_config_extra_spec=operator_config_extra_spec,
     )
 
 
@@ -676,7 +684,7 @@ def get_multi_cluster_operator(
     member_cluster_clients: List[MultiClusterClient],
     member_cluster_names: List[str],
     apply_crds_first: bool = False,
-    watched_resources: Optional[List[str]] = None,
+    operator_config_extra_spec: Optional[dict] = None,
 ) -> Operator:
     os.environ["HELM_KUBECONTEXT"] = central_cluster_name
 
@@ -696,7 +704,7 @@ def get_multi_cluster_operator(
         helm_opts,
         central_cluster_name,
         apply_crds_first=apply_crds_first,
-        watched_resources=watched_resources,
+        operator_config_extra_spec=operator_config_extra_spec,
     )
 
 
@@ -785,15 +793,17 @@ def multi_cluster_operator_no_cluster_mongodb_roles(
         },
         central_cluster_name,
         apply_crds_first=apply_crds_first,
-        watched_resources=[
-            "mongodb",
-            "opsmanagers",
-            "mongodbusers",
-            "mongodbcommunity",
-            "mongodbsearch",
-            "mongodbmulticluster",
-            "voyageais",
-        ],
+        operator_config_extra_spec={
+            "watchedResources": [
+                "mongodb",
+                "opsmanagers",
+                "mongodbusers",
+                "mongodbcommunity",
+                "mongodbsearch",
+                "mongodbmulticluster",
+                "voyageais",
+            ]
+        },
     )
 
 
@@ -874,7 +884,7 @@ def _install_multi_cluster_operator(
     custom_operator_version: Optional[str] = None,
     apply_crds_first: bool = False,
     create_operator_config: bool = True,
-    watched_resources: Optional[List[str]] = None,
+    operator_config_extra_spec: Optional[dict] = None,
 ) -> Operator:
     multi_cluster_operator_installation_config.update(helm_opts)
 
@@ -907,7 +917,7 @@ def _install_multi_cluster_operator(
     # OperatorConfig CRD, so creating the CR would fail. Such installs pass create_operator_config=False
     # and the upgrade test creates the CR explicitly once the CRD has been applied.
     if create_operator_config:
-        operator.apply_operator_config_and_wait(multi_cluster=True, watched_resources=watched_resources)
+        operator.apply_operator_config_and_wait(multi_cluster=True, extra_spec=operator_config_extra_spec)
     else:
         operator.wait_for_operator_ready()
 
