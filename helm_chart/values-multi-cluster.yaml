@@ -12,4 +12,3 @@ multiCluster:
     ]
   kubeConfigSecretName: mongodb-enterprise-operator-multi-cluster-kubeconfig
   performFailOver: true
-  memberClusterRequiredHealthyStreak: 5
