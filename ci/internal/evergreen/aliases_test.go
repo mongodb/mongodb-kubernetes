@@ -2,14 +2,14 @@ package evergreen_test
 
 import (
 	"os"
-	"regexp"
+	"strings"
 	"testing"
 
 	"gopkg.in/yaml.v3"
 )
 
-func TestE2EFilePattern(t *testing.T) {
-	re := loadE2EFilePattern(t)
+func TestE2EVariantPaths(t *testing.T) {
+	patterns := loadE2EVariantPaths(t)
 
 	tests := []struct {
 		desc        string
@@ -53,7 +53,7 @@ func TestE2EFilePattern(t *testing.T) {
 			shouldMatch: true,
 		},
 		{
-			desc:        "docker package",
+			desc:        "docker package Go",
 			files:       []string{"docker/agent/main.go"},
 			shouldMatch: true,
 		},
@@ -114,25 +114,25 @@ func TestE2EFilePattern(t *testing.T) {
 		t.Run(tc.desc, func(t *testing.T) {
 			matched := false
 			for _, f := range tc.files {
-				if re.MatchString(f) {
+				if matchesPaths(patterns, f) {
 					matched = true
 					break
 				}
 			}
 			if matched != tc.shouldMatch {
 				if tc.shouldMatch {
-					t.Errorf("expected at least one of %v to match %s, but none did", tc.files, re)
+					t.Errorf("expected at least one of %v to be matched by paths %v, but none were", tc.files, patterns)
 				} else {
-					t.Errorf("expected none of %v to match %s, but at least one did", tc.files, re)
+					t.Errorf("expected none of %v to be matched by paths %v, but at least one was", tc.files, patterns)
 				}
 			}
 		})
 	}
 }
 
-// loadE2EFilePattern reads the file_pattern from the pr_patch_e2e entry in
-// github_pr_aliases so the test stays in sync with the real config.
-func loadE2EFilePattern(t *testing.T) *regexp.Regexp {
+// loadE2EVariantPaths reads the paths patterns from the first pr_patch_e2e
+// build variant in .evergreen.yml, so the test stays in sync with the real config.
+func loadE2EVariantPaths(t *testing.T) []string {
 	t.Helper()
 	data, err := os.ReadFile("../../../.evergreen.yml")
 	if err != nil {
@@ -140,25 +140,53 @@ func loadE2EFilePattern(t *testing.T) *regexp.Regexp {
 	}
 
 	var doc struct {
-		GithubPRAliases []struct {
-			VariantTags []string `yaml:"variant_tags"`
-			FilePattern string   `yaml:"file_pattern"`
-		} `yaml:"github_pr_aliases"`
+		BuildVariants []struct {
+			Tags  []string `yaml:"tags"`
+			Paths []string `yaml:"paths"`
+		} `yaml:"buildvariants"`
 	}
 	if err := yaml.Unmarshal(data, &doc); err != nil {
 		t.Fatalf("parse .evergreen.yml: %v", err)
 	}
 
-	for _, entry := range doc.GithubPRAliases {
-		for _, tag := range entry.VariantTags {
+	for _, v := range doc.BuildVariants {
+		for _, tag := range v.Tags {
 			if tag == "pr_patch_e2e" {
-				if entry.FilePattern == "" {
-					t.Fatal("pr_patch_e2e alias has no file_pattern")
+				if len(v.Paths) == 0 {
+					t.Fatal("pr_patch_e2e variant has no paths defined")
 				}
-				return regexp.MustCompile(entry.FilePattern)
+				return v.Paths
 			}
 		}
 	}
-	t.Fatal("no pr_patch_e2e entry found in github_pr_aliases")
+	t.Fatal("no pr_patch_e2e variant found in buildvariants")
 	return nil
+}
+
+// matchesPaths evaluates gitignore-style path patterns against a file.
+// Supports "**/*.ext" (match any file with extension) and "!prefix/**" (exclude).
+func matchesPaths(patterns []string, file string) bool {
+	matched := false
+	for _, p := range patterns {
+		negate := strings.HasPrefix(p, "!")
+		pattern := strings.TrimPrefix(p, "!")
+
+		var hits bool
+		switch {
+		case strings.HasPrefix(pattern, "**/"):
+			// "**/*.go" — file must end with the suffix after "**/"
+			suffix := pattern[3:]                    // e.g. "*.go"
+			suffix = strings.TrimPrefix(suffix, "*") // e.g. ".go"
+			hits = strings.HasSuffix(file, suffix)
+		case strings.HasSuffix(pattern, "/**"):
+			// "ci/**" — file must be under the prefix directory
+			prefix := strings.TrimSuffix(pattern, "/**")
+			hits = strings.HasPrefix(file, prefix+"/")
+		}
+
+		if hits {
+			matched = !negate
+		}
+	}
+	return matched
 }

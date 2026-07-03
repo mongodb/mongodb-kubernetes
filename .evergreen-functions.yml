@@ -55,6 +55,12 @@ variables:
       - AI_MONGODB_EMBEDDING_QUERY_KEY
       - rh_pyxis
 
+  - &production_code_paths
+    paths:
+      - "**/*.go"
+      - "**/*.py"
+      - "!ci/**"
+
 functions:
 
   ### Setup Functions ###
