@@ -94,7 +94,6 @@ def _install_simulated_operator(
         "operator.watchNamespace",
         "multiCluster.clusters",
         "multiCluster.kubeConfigSecretName",
-        "multiCluster.clusterClientTimeout",
         "multiCluster.performFailover",
     ):
         helm_args.pop(k, None)
