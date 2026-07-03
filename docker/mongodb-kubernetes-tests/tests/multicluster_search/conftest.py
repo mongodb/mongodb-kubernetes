@@ -115,7 +115,7 @@ def _install_simulated_operator(
     ).upgrade(multi_cluster=True)
     # Restrict this operator to mongodbsearch only via OperatorConfig (the watch set is no longer a
     # Helm value). This triggers a graceful restart so the operator reloads and watches search only.
-    operator.apply_operator_config_and_wait(multi_cluster=True, watched_resources=["mongodbsearch"])
+    operator.apply_operator_config_and_wait(multi_cluster=True, extra_spec={"watchedResources": ["mongodbsearch"]})
     logger.info(
         f"installed simulated-MC operator in {mcc.cluster_name} "
         f"(identity={mcc.cluster_name}, name={SIMULATED_OPERATOR_NAME}, watches=mongodbsearch only)"
@@ -152,7 +152,7 @@ def install_central_mc_operator(
         central_client,
         member_clients,
         member_names,
-        watched_resources=watched,
+        operator_config_extra_spec={"watchedResources": watched},
     )
 
 

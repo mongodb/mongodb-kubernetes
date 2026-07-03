@@ -33,7 +33,7 @@ sequenceDiagram
 
     opt
         note left of Operator: AutomaticRecovery
-        Operator->>Operator: check the time spent in not Running phase<br/>(r.deploymentState.Status.Phase != mdbstatus.PhaseRunning)<br/>do nothing if the time since status.LastTransitionTime less than than <br/>MDB_AUTOMATIC_RECOVERY_BACKOFF_TIME_S (default=20 mins)<br/>
+        Operator->>Operator: check the time spent in not Running phase<br/>(r.deploymentState.Status.Phase != mdbstatus.PhaseRunning)<br/>do nothing if the time since status.LastTransitionTime less than than <br/>OperatorConfig .spec.automaticRecovery.delay (default=20 mins)<br/>
         Note right of Operator: run updateOmDeploymentShardedCluster<br/>(publish AC first)
         Note right of Operator: run createKubernetesResources<br/>(publish sts first)
     end
