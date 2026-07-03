@@ -70,6 +70,8 @@ updates:
     schedule:
       interval: weekly
       day: monday
+    cooldown:
+      default-days: 7
     groups:
       github-actions-deps:
         applies-to: "version-updates"
