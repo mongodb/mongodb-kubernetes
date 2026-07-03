@@ -378,8 +378,6 @@ spec:
               value: "1h"
             - name: MDB_OPERATOR_TELEMETRY_SEND_FREQUENCY
               value: "168h"
-            - name: MDB_MEMBER_CLUSTER_REQUIRED_HEALTHY_STREAK
-              value: "5"
             - name: IMAGE_PULL_POLICY
               value: Always
             # Database
