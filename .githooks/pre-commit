@@ -10,5 +10,9 @@ set -Eeou pipefail
 
 source scripts/dev/set_env_context.sh
 
-# Run prek framework
+# we need venv, since we use ty.
+if [ -f "${PROJECT_DIR}/venv/bin/activate" ]; then
+  source "${PROJECT_DIR}/venv/bin/activate"
+fi
+
 exec prek -a
