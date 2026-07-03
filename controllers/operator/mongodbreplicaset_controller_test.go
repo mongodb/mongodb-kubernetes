@@ -27,8 +27,10 @@ import (
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
+	searchv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status/pvc"
+	userv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/user"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/backup"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/deployment"
@@ -45,6 +47,7 @@ import (
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
 )
 
 type ReplicaSetBuilder struct {
@@ -876,6 +879,55 @@ func TestHandlePVCResize(t *testing.T) {
 	})
 }
 
+// TestReplicaSetReconciler_PVCStatusClearedAfterSuccessfulResize verifies that after a full PVC
+// resize cycle the reconciler clears the stale PVC status entry from the CRD status.
+// This complements TestHandlePVCResize (which only unit-tests HandlePVCResize) by going through
+// the full Reconcile path and asserting the final updateStatus call clears the field.
+func TestReplicaSetReconciler_PVCStatusClearedAfterSuccessfulResize(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx := context.Background()
+		podSpec := newDefaultPodSpec()
+		podSpec.Persistence = &v1.Persistence{SingleConfig: &v1.PersistenceConfig{Storage: "1Gi"}}
+		rs := DefaultReplicaSetBuilder().
+			SetPersistent(util.BooleanRef(true)).
+			SetPodSpec(&podSpec).
+			Build()
+
+		reconciler, kubeClient, _ := defaultReplicaSetReconciler(ctx, nil, "", "", rs, architectures.NonStatic)
+		checkReconcileSuccessful(ctx, t, reconciler, rs, kubeClient)
+
+		// Read the STS the reconciler created and manufacture the matching PVCs
+		// (in a real cluster the StatefulSet controller would do this automatically).
+		sts, err := kubeClient.GetStatefulSet(ctx, kube.ObjectKey(rs.Namespace, rs.Name))
+		require.NoError(t, err)
+		pvcs := createPVCs(t, sts, kubeClient)
+
+		// Trigger a resize by increasing the storage in the spec.
+		rs.Spec.PodSpec.Persistence = &v1.Persistence{SingleConfig: &v1.PersistenceConfig{Storage: "2Gi"}}
+		err = kubeClient.Update(ctx, rs)
+		require.NoError(t, err)
+
+		// Reconcile 1: resize detected; PVCs are patched but Capacity not yet updated.
+		_, err = reconciler.Reconcile(ctx, requestFromObject(rs))
+		require.NoError(t, err)
+		require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(rs.Namespace, rs.Name), rs))
+		require.Equal(t, pvc.PhasePVCResize, rs.Status.PVCs[0].Phase)
+
+		// Simulate Kubernetes completing the PVC resize.
+		for i := range pvcs {
+			setPVCWithUpdatedResource(ctx, t, kubeClient, &pvcs[i])
+		}
+
+		// Reconcile 2: PVCs done; STS orphaned and recreated; reconcile completes successfully.
+		// The final updateStatus must clear the stale PVC status entry.
+		_, err = reconciler.Reconcile(ctx, requestFromObject(rs))
+		require.NoError(t, err)
+		require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(rs.Namespace, rs.Name), rs))
+
+		assert.Nil(t, rs.Status.PVCs, "PVC status must be cleared after a successful resize")
+	})
+}
+
 // ===== Test for state and vault annotations handling in replicaset controller =====
 
 // TestReplicaSetAnnotations_WrittenOnSuccess verifies that lastAchievedSpec annotation is written after successful
@@ -1562,4 +1614,33 @@ func TestPublishAutomationConfigFirstRS(t *testing.T) {
 			assert.Equal(t, tc.expectedPublishACFirst, result)
 		})
 	}
+}
+
+// applySearchOverrides must wire mongotHost at the pinned ClusterIndex the search
+// reconciler writes per-cluster resources at — never literal 0 for a pinned
+// single-entry MongoDBSearch.
+func TestApplySearchOverrides_ResolvesPinnedClusterIndex(t *testing.T) {
+	ctx := context.Background()
+
+	newPinnedSearch := func() *searchv1.MongoDBSearch {
+		return &searchv1.MongoDBSearch{
+			ObjectMeta: metav1.ObjectMeta{Name: "rs-search", Namespace: mock.TestNamespace},
+			Spec: searchv1.MongoDBSearchSpec{
+				Clusters: []searchv1.ClusterSpec{{Name: "cluster-a", Index: ptr.To(int32(7))}},
+				Source:   &searchv1.MongoDBSource{MongoDBResourceRef: &userv1.MongoDBResourceRef{Name: "temple"}},
+			},
+		}
+	}
+	applyOverrides := func(t *testing.T, c client.Client) string {
+		rs := DefaultReplicaSetBuilder().SetVersion("8.2.0").Build()
+		reconciler := &ReconcileMongoDbReplicaSet{ReconcileCommonController: NewReconcileCommonController(ctx, c)}
+		helper := &ReplicaSetReconcilerHelper{resource: rs, reconciler: reconciler, log: zap.S()}
+		applied, err := helper.applySearchOverrides(ctx)
+		require.NoError(t, err)
+		require.True(t, applied, "search overrides must be applied")
+		return maputil.ReadMapValueAsString(rs.Spec.AdditionalMongodConfig.ToMap(), "setParameter", "mongotHost")
+	}
+
+	c := mock.NewEmptyFakeClientBuilder().WithObjects(newPinnedSearch()).Build()
+	assert.Contains(t, applyOverrides(t, c), "rs-search-search-7-")
 }

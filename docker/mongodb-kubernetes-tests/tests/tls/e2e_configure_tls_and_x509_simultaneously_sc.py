@@ -62,7 +62,7 @@ def agent_certs(issuer: str, namespace: str) -> str:
 
 @pytest.mark.e2e_configure_tls_and_x509_simultaneously_sc
 def test_install_operator(operator: Operator):
-    operator.assert_is_running()
+    operator.wait_for_operator_ready()
 
 
 @pytest.mark.e2e_configure_tls_and_x509_simultaneously_sc

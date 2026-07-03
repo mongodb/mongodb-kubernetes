@@ -241,7 +241,7 @@ def test_remove_cert_and_key_from_secret(namespace: str):
 def test_operator_install_with_vault_backend(
     operator_vault_secret_backend_tls: Operator,
 ):
-    operator_vault_secret_backend_tls.assert_is_running()
+    operator_vault_secret_backend_tls.wait_for_operator_ready()
 
 
 @mark.e2e_vault_setup_tls

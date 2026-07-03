@@ -39,7 +39,7 @@ def replica_set(issuer_ca_configmap: str, namespace: str, certs_secret_prefix) -
 
 @mark.e2e_replica_set_tls_override
 def test_install_operator(operator: Operator):
-    operator.assert_is_running()
+    operator.wait_for_operator_ready()
 
 
 @mark.e2e_replica_set_tls_override

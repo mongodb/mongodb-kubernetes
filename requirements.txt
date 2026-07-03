@@ -16,7 +16,7 @@ pytest-asyncio==1.4.0
 pycognito==2024.5.1
 PyYAML==6.0.3
 urllib3==2.7.0
-cryptography==48.0.0
+cryptography==48.0.1
 python-dateutil==2.9.0.post0
 python-ldap==3.4.7
 GitPython==3.1.50

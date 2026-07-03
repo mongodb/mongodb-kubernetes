@@ -102,6 +102,10 @@ repos:
       #       config/crd/bases/.*
       #     )
       - id: check-added-large-files
+        exclude: |
+          (?x)^(
+            docker/mongodb-kubernetes-tests/tests/common/search/testdata/fixtures/.*\.log$
+          )
       - id: check-merge-conflict
       - id: check-json
         exclude: |
@@ -151,7 +155,7 @@ repos:
     hooks:
       - id: govulncheck
         name: govulncheck
-        entry: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+        entry: env GOTELEMETRY=off go run golang.org/x/vuln/cmd/govulncheck@v1.3.0 ./...
         language: system
         pass_filenames: false
         files: (\.go$|^go\.(mod|sum)$)

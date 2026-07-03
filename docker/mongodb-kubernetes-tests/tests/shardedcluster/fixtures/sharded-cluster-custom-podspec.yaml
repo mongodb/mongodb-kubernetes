@@ -43,6 +43,11 @@ spec:
             image: busybox
             command: ["sleep"]
             args: [ "7200" ]
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop:
+                - ALL
             resources:
               limits:
                 cpu: "1"
@@ -63,6 +68,11 @@ spec:
               image: busybox
               command: ["sleep"]
               args: [ "7200" ]
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                  - ALL
               resources:
                 limits:
                   cpu: "1"

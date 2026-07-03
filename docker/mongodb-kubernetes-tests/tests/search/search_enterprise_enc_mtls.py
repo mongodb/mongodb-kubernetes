@@ -1,5 +1,5 @@
 from kubetester import get_service, try_load
-from kubetester.certs import create_mongodb_tls_certs, create_tls_certs
+from kubetester.certs import create_mongodb_tls_certs, create_tls_certs, generate_cert
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_search import MongoDBSearch
@@ -13,6 +13,7 @@ from tests.common.search import movies_search_helper, search_resource_names
 from tests.common.search.replicaset_search_helper import verify_rs_mongod_parameters
 from tests.common.search.search_deployment_helper import SearchDeploymentHelper
 from tests.common.search.search_tester import SearchTester
+from tests.common.search.tls_utils import create_keyfile_password_secret, encrypt_tls_key_with_password
 from tests.conftest import get_default_operator, get_issuer_ca_filepath
 from tests.search.om_deployment import get_ops_manager
 
@@ -31,6 +32,17 @@ USER_PASSWORD = f"{USER_NAME}-password"
 
 # MongoDBSearch TLS configuration -- convention: {name}-search-cert
 MDBS_TLS_SECRET_NAME = search_resource_names.mongot_tls_cert_name(MDB_RESOURCE_NAME)
+
+# Password used to encrypt the gRPC server certificate private key
+GRPC_KEY_PASSWORD = "test-grpc-key-password"
+# Dedicated secret holding the gRPC keyfile password (spec.security.tls.keyFilePasswordSecretRef)
+GRPC_KEY_PASSWORD_SECRET_NAME = f"{MDB_RESOURCE_NAME}-grpc-key-password"
+
+# SCRAM mTLS client cert for mongot -> mongod connection
+SCRAM_CLIENT_CERT_SECRET_NAME = f"{MDB_RESOURCE_NAME}-scram-tls-user"
+SCRAM_KEY_PASSWORD = "test-scram-key-password"
+# Dedicated secret holding the scram keyfile password (spec.source.tls.keyFilePasswordSecretRef)
+SCRAM_KEY_PASSWORD_SECRET_NAME = f"{MDB_RESOURCE_NAME}-scram-key-password"
 
 
 @fixture(scope="function")
@@ -61,8 +73,17 @@ def mdbs(namespace: str) -> MongoDBSearch:
     resource = MongoDBSearch.from_yaml(yaml_fixture("search-minimal.yaml"), namespace=namespace, name=MDB_RESOURCE_NAME)
     if "spec" not in resource:
         resource["spec"] = {}
-    resource["spec"]["security"] = {"tls": {"certificateKeySecretRef": {"name": MDBS_TLS_SECRET_NAME}}}
+    resource["spec"]["security"] = {
+        "tls": {
+            "certificateKeySecretRef": {"name": MDBS_TLS_SECRET_NAME},
+            "keyFilePasswordSecretRef": {"name": GRPC_KEY_PASSWORD_SECRET_NAME},
+        }
+    }
     resource["spec"]["source"] = {"passwordSecretRef": {"name": f"{resource.name}-{MONGOT_USER_NAME}-password"}}
+    resource["spec"]["source"]["tls"] = {
+        "clientCertificateSecretRef": {"name": SCRAM_CLIENT_CERT_SECRET_NAME},
+        "keyFilePasswordSecretRef": {"name": SCRAM_KEY_PASSWORD_SECRET_NAME},
+    }
     try_load(resource)
     return resource
 
@@ -79,16 +100,16 @@ def user(helper: SearchDeploymentHelper) -> MongoDBUser:
 
 @fixture(scope="function")
 def mongot_user(helper: SearchDeploymentHelper, mdbs: MongoDBSearch) -> MongoDBUser:
-    return helper.mongot_user_resource(mdbs, MONGOT_USER_NAME)
+    return helper.mongot_user_resource(mdbs.name, MONGOT_USER_NAME)
 
 
-@mark.e2e_search_enterprise_tls
+@mark.e2e_search_enterprise_enc_mtls
 def test_install_operator(namespace: str, operator_installation_config: dict[str, str]):
     operator = get_default_operator(namespace, operator_installation_config=operator_installation_config)
-    operator.assert_is_running()
+    operator.wait_for_operator_ready()
 
 
-@mark.e2e_search_enterprise_tls
+@mark.e2e_search_enterprise_enc_mtls
 @skip_if_cloud_manager
 def test_create_ops_manager(namespace: str):
     ops_manager = get_ops_manager(namespace)
@@ -98,7 +119,7 @@ def test_create_ops_manager(namespace: str):
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
 
 
-@mark.e2e_search_enterprise_tls
+@mark.e2e_search_enterprise_enc_mtls
 def test_install_tls_secrets_and_configmaps(namespace: str, mdb: MongoDB, mdbs: MongoDBSearch, issuer: str):
     create_mongodb_tls_certs(issuer, namespace, mdb.name, f"certs-{mdb.name}-cert", mdb.get_members())
 
@@ -117,14 +138,34 @@ def test_install_tls_secrets_and_configmaps(namespace: str, mdb: MongoDB, mdbs: 
         secret_name=MDBS_TLS_SECRET_NAME,
     )
 
+    # Encrypt the gRPC server certificate key with a password and store the password
+    # in a dedicated secret referenced via keyFilePasswordSecretRef.
+    encrypt_tls_key_with_password(namespace, MDBS_TLS_SECRET_NAME, GRPC_KEY_PASSWORD)
+    create_keyfile_password_secret(namespace, GRPC_KEY_PASSWORD_SECRET_NAME, GRPC_KEY_PASSWORD)
 
-@mark.e2e_search_enterprise_tls
+    # SCRAM client cert for mongot mTLS to mongod
+    generate_cert(
+        namespace=namespace,
+        pod="",
+        dns="",
+        issuer=issuer,
+        spec={
+            "usages": ["digital signature", "key encipherment", "client auth"],
+            "dnsNames": ["scram-client"],
+        },
+        secret_name=SCRAM_CLIENT_CERT_SECRET_NAME,
+    )
+    encrypt_tls_key_with_password(namespace, SCRAM_CLIENT_CERT_SECRET_NAME, SCRAM_KEY_PASSWORD)
+    create_keyfile_password_secret(namespace, SCRAM_KEY_PASSWORD_SECRET_NAME, SCRAM_KEY_PASSWORD)
+
+
+@mark.e2e_search_enterprise_enc_mtls
 def test_create_database_resource(mdb: MongoDB):
     mdb.update()
     mdb.assert_reaches_phase(Phase.Running, timeout=300)
 
 
-@mark.e2e_search_enterprise_tls
+@mark.e2e_search_enterprise_enc_mtls
 def test_create_users(
     helper: SearchDeploymentHelper, admin_user: MongoDBUser, user: MongoDBUser, mongot_user: MongoDBUser, mdb: MongoDB
 ):
@@ -138,7 +179,7 @@ def test_create_users(
     )
 
 
-@mark.e2e_search_enterprise_tls
+@mark.e2e_search_enterprise_enc_mtls
 def test_create_search_resource(mdbs: MongoDBSearch):
     mdbs.update()
     mdbs.assert_reaches_phase(Phase.Running, timeout=300)
@@ -147,47 +188,48 @@ def test_create_search_resource(mdbs: MongoDBSearch):
 # After picking up MongoDBSearch CR, MongoDB reconciler will add mongod parameters to each process.
 # Due to how MongoDB reconciler works (blocking on waiting for agents and not changing the status to pending)
 # the phase won't be updated to Pending and we need to wait by checking agents' status directly in OM.
-@mark.e2e_search_enterprise_tls
+@mark.e2e_search_enterprise_enc_mtls
 def test_wait_for_agents_ready(mdb: MongoDB):
     mdb.get_om_tester().wait_agents_ready()
     mdb.assert_reaches_phase(Phase.Running, timeout=300)
 
 
-@mark.e2e_search_enterprise_tls
+@mark.e2e_search_enterprise_enc_mtls
 def test_wait_for_mongod_parameters(mdb: MongoDB):
     expected_host = search_resource_names.mongot_pod_fqdn(mdb.name, mdb.namespace, 27028)
     verify_rs_mongod_parameters(mdb.namespace, mdb.name, mdb.get_members(), expected_host)
 
 
-@mark.e2e_search_enterprise_tls
+@mark.e2e_search_enterprise_enc_mtls
 # def test_search_verify_prometheus_disabled_initially(namespace: str, mdbs: MongoDBSearch):
 #     tools_pod = mongodb_tools_pod.get_tools_pod(namespace)
 #     assert_search_service_prometheus_port(mdbs, should_exist=False)
 #     assert_search_pod_prometheus_endpoint(mdbs, tools_pod, should_be_accessible=False)
 
 
-@mark.e2e_search_enterprise_tls
-def test_search_enable_prometheus_on_default_port(mdbs: MongoDBSearch):
-    mdbs["spec"]["prometheus"] = {}
-    mdbs.update()
-    mdbs.assert_reaches_phase(Phase.Running, timeout=300)
+# Prometheus is already enabled by default, these tests might need a rework.
+# @mark.e2e_search_enterprise_tls
+# def test_search_enable_prometheus_on_default_port(mdbs: MongoDBSearch):
+#     mdbs["spec"]["prometheus"] = {}
+#     mdbs.update()
+#     mdbs.assert_reaches_phase(Phase.Running, timeout=300)
 
 
-@mark.e2e_search_enterprise_tls
+@mark.e2e_search_enterprise_enc_mtls
 def test_search_verify_prometheus_enabled(namespace: str, mdbs: MongoDBSearch):
     tools_pod = mongodb_tools_pod.get_tools_pod(namespace)
     assert_search_service_prometheus_port(mdbs, should_exist=True, expected_port=9946)
     assert_search_pod_prometheus_endpoint(mdbs, tools_pod, should_be_accessible=True, port=9946)
 
 
-@mark.e2e_search_enterprise_tls
+@mark.e2e_search_enterprise_enc_mtls
 def test_search_change_prometheus_to_custom_port(mdbs: MongoDBSearch):
-    mdbs["spec"]["prometheus"] = {"port": 10000}
+    mdbs["spec"]["observability"]["prometheus"] = {"port": 10000}
     mdbs.update()
     mdbs.assert_reaches_phase(Phase.Running, timeout=300)
 
 
-@mark.e2e_search_enterprise_tls
+@mark.e2e_search_enterprise_enc_mtls
 def test_search_verify_prometheus_enabled_on_custom_port(namespace: str, mdbs: MongoDBSearch):
     tools_pod = mongodb_tools_pod.get_tools_pod(namespace)
     assert_search_service_prometheus_port(mdbs, should_exist=True, expected_port=10000)
@@ -204,23 +246,23 @@ def sample_movies_helper(mdb: MongoDB, namespace: str) -> movies_search_helper.S
     )
 
 
-@mark.e2e_search_enterprise_tls
+@mark.e2e_search_enterprise_enc_mtls
 def test_search_restore_sample_database(sample_movies_helper: movies_search_helper.SampleMoviesSearchHelper):
     sample_movies_helper.restore_sample_database()
 
 
-@mark.e2e_search_enterprise_tls
+@mark.e2e_search_enterprise_enc_mtls
 def test_search_create_search_index(sample_movies_helper: movies_search_helper.SampleMoviesSearchHelper):
     sample_movies_helper.create_search_index()
 
 
-@mark.e2e_search_enterprise_tls
+@mark.e2e_search_enterprise_enc_mtls
 def test_search_assert_search_query(sample_movies_helper: movies_search_helper.SampleMoviesSearchHelper):
     sample_movies_helper.assert_search_query(retry_timeout=60)
 
 
 def assert_search_service_prometheus_port(mdbs: MongoDBSearch, should_exist: bool, expected_port: int = 9946):
-    service_name = f"{mdbs.name}-search-svc"
+    service_name = search_resource_names.mongot_service_name(mdbs.name)
     service = get_service(mdbs.namespace, service_name)
     assert service is not None
 
@@ -236,7 +278,7 @@ def assert_search_service_prometheus_port(mdbs: MongoDBSearch, should_exist: boo
 def assert_search_pod_prometheus_endpoint(
     mdbs: MongoDBSearch, tools_pod: mongodb_tools_pod.ToolsPod, should_be_accessible: bool, port: int = 9946
 ):
-    service_fqdn = f"{mdbs.name}-search-svc.{mdbs.namespace}.svc.cluster.local"
+    service_fqdn = f"{search_resource_names.mongot_service_name(mdbs.name)}.{mdbs.namespace}.svc.cluster.local"
     url = f"http://{service_fqdn}:{port}/metrics"
 
     if should_be_accessible:
