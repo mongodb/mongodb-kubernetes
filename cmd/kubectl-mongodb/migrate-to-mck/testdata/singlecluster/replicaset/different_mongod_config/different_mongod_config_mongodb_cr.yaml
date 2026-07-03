@@ -32,7 +32,6 @@ spec:
           cacheSizeGB: 2
           journalCompressor: zlib
   agent:
-    maxLogFileDurationHours: 0
     mongod:
       systemLog:
         destination: file

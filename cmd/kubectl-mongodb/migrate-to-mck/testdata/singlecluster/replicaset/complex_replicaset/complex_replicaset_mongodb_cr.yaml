@@ -39,7 +39,6 @@ spec:
       logRotate:
         sizeThresholdMB: 1000
         timeThresholdHrs: 24
-    maxLogFileDurationHours: 0
     mongod:
       auditlogRotate:
         includeAuditLogsWithMongoDBLogs: true

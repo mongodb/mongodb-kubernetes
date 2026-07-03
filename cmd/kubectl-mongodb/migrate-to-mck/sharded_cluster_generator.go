@@ -52,7 +52,7 @@ func generateShardedCluster(ac *om.AutomationConfig, opts GenerateOptions) (clie
 
 	externalMembers := buildShardedExternalMembers(configRS, shardRSes, mongosProcs, processMap)
 
-	spec, err := buildShardedClusterSpec(ac, opts, k8sResourceName, version, fcv, configRS, shardRSes, mongosProcs, acShards, externalMembers)
+	spec, err := buildShardedClusterSpec(ac, opts, k8sResourceName, version, fcv, acShards, externalMembers)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to build MongoDB spec: %w", err)
 	}
@@ -82,7 +82,7 @@ func activeMongosProcesses(procs []om.Process) []om.Process {
 	return mongos
 }
 
-func buildShardedClusterSpec(ac *om.AutomationConfig, opts GenerateOptions, k8sResourceName, version, fcv string, configRS om.ReplicaSet, shardRSes []om.ReplicaSet, mongosProcs []om.Process, acShards []om.Shard, externalMembers []mdbv1.ExternalMember) (mdbv1.MongoDbSpec, error) {
+func buildShardedClusterSpec(ac *om.AutomationConfig, opts GenerateOptions, k8sResourceName, version, fcv string, acShards []om.Shard, externalMembers []mdbv1.ExternalMember) (mdbv1.MongoDbSpec, error) {
 	common, err := buildDbCommonSpec(ac, opts, version, fcv, mdbv1.ShardedCluster, k8sResourceName)
 	if err != nil {
 		return mdbv1.MongoDbSpec{}, err
@@ -93,10 +93,14 @@ func buildShardedClusterSpec(ac *om.AutomationConfig, opts GenerateOptions, k8sR
 		DbCommonSpec:    common,
 		ExternalMembers: externalMembers,
 		MongodbShardedClusterSizeConfig: status.MongodbShardedClusterSizeConfig{
+			// ShardCount is topology and stays as the number of shards in the cluster.
+			// The per-node counts start at 0 so that only Kubernetes members are counted here,
+			// mirroring the replica set Members field. The existing VM nodes stay in ExternalMembers
+			// and Kubernetes members scale up from 0.
 			ShardCount:           len(acShards),
-			MongodsPerShardCount: len(shardRSes[0].Members()),
-			ConfigServerCount:    len(configRS.Members()),
-			MongosCount:          len(mongosProcs),
+			MongodsPerShardCount: 0,
+			ConfigServerCount:    0,
+			MongosCount:          0,
 		},
 	}, nil
 }

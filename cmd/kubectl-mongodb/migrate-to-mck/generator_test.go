@@ -167,10 +167,13 @@ func TestGenerateMongoDBCR_ShardedTopologyCounts(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Contains(t, yamlOutput, "type: ShardedCluster")
+	// shardCount reflects the full topology, VM shards included, since it drives the shard index.
 	assert.Contains(t, yamlOutput, "shardCount: 2")
-	assert.Contains(t, yamlOutput, "mongodsPerShardCount: 2")
-	assert.Contains(t, yamlOutput, "configServerCount: 2")
-	assert.Contains(t, yamlOutput, "mongosCount: 2")
+	// The per-node counts start at 0 so only Kubernetes members are counted, like the replica set
+	// Members field. Existing VM nodes stay in externalMembers, so the zero counts are omitted.
+	assert.NotContains(t, yamlOutput, "mongodsPerShardCount:")
+	assert.NotContains(t, yamlOutput, "configServerCount:")
+	assert.NotContains(t, yamlOutput, "mongosCount:")
 }
 
 func TestGenerateMongoDBCR_ShardedMissingShardReplicaSet(t *testing.T) {

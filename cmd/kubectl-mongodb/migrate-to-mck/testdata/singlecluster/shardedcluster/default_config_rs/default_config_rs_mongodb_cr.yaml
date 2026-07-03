@@ -8,21 +8,17 @@ metadata:
   namespace: mongodb
 spec:
   agent:
-    maxLogFileDurationHours: 0
     mongod:
       systemLog:
         destination: file
         logAppend: false
         path: /var/log/mongodb-mms-automation/mongodb.log
-  configServerCount: 2
   configSrv:
     additionalMongodConfig:
       net:
         port: 27019
       sharding:
         clusterRole: configsvr
-    agent:
-      maxLogFileDurationHours: 0
   credentials: my-credentials
   externalMembers:
   - hostname: config-a.example.com:27019
@@ -56,8 +52,6 @@ spec:
     processName: mongos-1
     type: mongos
   featureCompatibilityVersion: "7.0"
-  mongodsPerShardCount: 2
-  mongosCount: 2
   opsManager:
     configMapRef:
       name: my-om-config
@@ -67,8 +61,6 @@ spec:
         port: 27018
       sharding:
         clusterRole: shardsvr
-    agent:
-      maxLogFileDurationHours: 0
   shardCount: 2
   shardNameOverrides:
   - replicaSetName: shard0

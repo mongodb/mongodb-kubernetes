@@ -8,13 +8,11 @@ metadata:
   namespace: mongodb
 spec:
   agent:
-    maxLogFileDurationHours: 0
     mongod:
       systemLog:
         destination: file
         logAppend: false
         path: /var/log/mongodb/mongod.log
-  configServerCount: 2
   configServerNameOverride: sc-scram-sha1-csrs
   configSrv:
     additionalMongodConfig:
@@ -22,8 +20,6 @@ spec:
         port: 27019
       sharding:
         clusterRole: configsvr
-    agent:
-      maxLogFileDurationHours: 0
   credentials: my-credentials
   externalMembers:
   - hostname: config-0.example.com:27019
@@ -46,8 +42,6 @@ spec:
     processName: sc-scram-sha1-mongos-0
     type: mongos
   featureCompatibilityVersion: "8.0"
-  mongodsPerShardCount: 2
-  mongosCount: 1
   opsManager:
     configMapRef:
       name: my-om-config
@@ -66,8 +60,6 @@ spec:
         port: 27018
       sharding:
         clusterRole: shardsvr
-    agent:
-      maxLogFileDurationHours: 0
   shardCount: 1
   shardNameOverrides:
   - replicaSetName: sc-scram-sha1-shard-rs

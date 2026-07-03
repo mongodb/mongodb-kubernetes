@@ -22,6 +22,7 @@ from tests.vm_migration.vm_migration_common_helper import (
 )
 
 MIN_K8S_CONFIGSRV = 5
+MIN_K8S_SHARD = 3
 MIN_K8S_MONGOS = 2
 MIN_VM_CONFIGSRV = 3
 MIN_VM_SHARD = 3
@@ -133,6 +134,12 @@ def apply_generated_sharded_cluster_resource(
                 "net", {}
             ).setdefault("tls", {})["mode"] = "disabled"
 
+    # The generated CR carries all Kubernetes node counts at 0, mirroring the replica set Members
+    # field, so the customer sets the target Kubernetes counts here. The VM nodes stay in
+    # externalMembers and the Kubernetes members scale up from 0.
+    resource_doc["spec"]["mongodsPerShardCount"] = MIN_K8S_SHARD
+    resource_doc["spec"]["mongosCount"] = MIN_K8S_MONGOS
+
     config_members = [
         m for m in resource_doc["spec"].get("externalMembers", []) if m.get("replicaSetName") == config_rs_name
     ]
@@ -192,11 +199,14 @@ def assert_k8s_sharded_process_names(om_tester: OMTester, mdb_migration: MongoDB
     process_names = [p["name"] for p in ac_tester.get_all_processes()]
     name = mdb_migration.name
     ns = mdb_migration.namespace
-    for i in range(mdb_migration["spec"].get("configServerCount", 3)):
+    for i in range(mdb_migration["spec"].get("configServerCount", MIN_K8S_CONFIGSRV)):
         assert f"k8s/{ns}/{name}-config-{i}" in process_names
-    for i in range(mdb_migration["spec"].get("mongodsPerShardCount", 3)):
-        assert f"k8s/{ns}/{name}-0-{i}" in process_names
-    for i in range(mdb_migration["spec"].get("mongosCount", 2)):
+    shard_count = mdb_migration["spec"]["shardCount"]
+    mongods_per_shard = mdb_migration["spec"].get("mongodsPerShardCount", MIN_K8S_SHARD)
+    for shard in range(shard_count):
+        for i in range(mongods_per_shard):
+            assert f"k8s/{ns}/{name}-{shard}-{i}" in process_names
+    for i in range(mdb_migration["spec"].get("mongosCount", MIN_K8S_MONGOS)):
         assert f"k8s/{ns}/{name}-mongos-{i}" in process_names
 
 
@@ -226,9 +236,9 @@ def build_sharded_cluster_ac(
     mongodb_version: str,
     config_rs_name: str,
     shard_rs_name: str,
-    config_server_count: int = 3,
-    shard_count: int = 3,
-    mongos_count: int = 2,
+    config_server_count: int = MIN_VM_CONFIGSRV,
+    shard_count: int = MIN_VM_SHARD,
+    mongos_count: int = MIN_VM_MONGOS,
     cluster_name: Optional[str] = None,
     tls: bool = False,
     mongod_cert_path: str = "/mongodb-automation/server.pem",

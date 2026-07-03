@@ -8,13 +8,11 @@ metadata:
   namespace: mongodb
 spec:
   agent:
-    maxLogFileDurationHours: 0
     mongod:
       systemLog:
         destination: file
         logAppend: false
         path: /var/log/mongodb/mongod.log
-  configServerCount: 2
   configServerNameOverride: sc-x509only-csrs
   configSrv:
     additionalMongodConfig:
@@ -24,8 +22,6 @@ spec:
           allowConnectionsWithoutCertificates: false
       sharding:
         clusterRole: configsvr
-    agent:
-      maxLogFileDurationHours: 0
   credentials: my-credentials
   externalMembers:
   - hostname: config-0.example.com:27019
@@ -48,15 +44,11 @@ spec:
     processName: sc-x509only-mongos-0
     type: mongos
   featureCompatibilityVersion: "8.0"
-  mongodsPerShardCount: 2
   mongos:
     additionalMongodConfig:
       net:
         tls:
           allowConnectionsWithoutCertificates: false
-    agent:
-      maxLogFileDurationHours: 0
-  mongosCount: 1
   opsManager:
     configMapRef:
       name: my-om-config
@@ -83,8 +75,6 @@ spec:
           allowConnectionsWithoutCertificates: false
       sharding:
         clusterRole: shardsvr
-    agent:
-      maxLogFileDurationHours: 0
   shardCount: 1
   shardNameOverrides:
   - replicaSetName: sc-x509only-shard-rs
