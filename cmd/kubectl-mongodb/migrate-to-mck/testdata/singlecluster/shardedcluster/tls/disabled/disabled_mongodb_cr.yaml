@@ -4,7 +4,7 @@ metadata:
   annotations:
     mongodb.com/migrate-tool-version: latest
     mongodb.com/migration-dry-run: "true"
-  name: prom-cluster
+  name: notls-cluster
   namespace: mongodb
 spec:
   agent:
@@ -13,7 +13,7 @@ spec:
         destination: file
         logAppend: false
         path: /var/log/mongodb/mongod.log
-  configServerNameOverride: prom-csrs
+  configServerNameOverride: notls-csrs
   configSrv:
     additionalMongodConfig:
       net:
@@ -21,42 +21,44 @@ spec:
   credentials: my-credentials
   externalMembers:
   - hostname: config-0.example.com:27019
-    processName: prom-csrs-0
-    replicaSetName: prom-csrs
+    processName: notls-csrs-0
+    replicaSetName: notls-csrs
     type: mongod
   - hostname: config-1.example.com:27019
-    processName: prom-csrs-1
-    replicaSetName: prom-csrs
+    processName: notls-csrs-1
+    replicaSetName: notls-csrs
     type: mongod
   - hostname: shard-0.example.com:27018
-    processName: prom-shard-rs-0
-    replicaSetName: prom-shard-rs
+    processName: notls-shard-rs-0
+    replicaSetName: notls-shard-rs
     type: mongod
   - hostname: shard-1.example.com:27018
-    processName: prom-shard-rs-1
-    replicaSetName: prom-shard-rs
+    processName: notls-shard-rs-1
+    replicaSetName: notls-shard-rs
     type: mongod
   - hostname: mongos-0.example.com:27017
-    processName: prom-mongos-0
+    processName: notls-mongos-0
     type: mongos
   featureCompatibilityVersion: "8.0"
   opsManager:
     configMapRef:
       name: my-om-config
-  prometheus:
-    passwordSecretRef:
-      key: password
-      name: prometheus-password
-    port: 9216
-    username: prom-user
+  security:
+    authentication:
+      agents:
+        mode: SCRAM
+      enabled: true
+      ignoreUnknownUsers: true
+      modes:
+      - SCRAM
   shard:
     additionalMongodConfig:
       net:
         port: 27018
   shardCount: 1
   shardNameOverrides:
-  - replicaSetName: prom-shard-rs
-    shardId: prom-shard
-    shardName: prom-cluster-0
+  - replicaSetName: notls-shard-rs
+    shardId: notls-shard
+    shardName: notls-cluster-0
   type: ShardedCluster
   version: 8.0.4-ent

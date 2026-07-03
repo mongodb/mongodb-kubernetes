@@ -17,8 +17,6 @@ spec:
     additionalMongodConfig:
       net:
         port: 27019
-      sharding:
-        clusterRole: configsvr
   credentials: my-credentials
   externalMembers:
   - hostname: config-a.example.com:27019
@@ -59,8 +57,6 @@ spec:
     additionalMongodConfig:
       net:
         port: 27018
-      sharding:
-        clusterRole: shardsvr
   shardCount: 2
   shardNameOverrides:
   - replicaSetName: shard0

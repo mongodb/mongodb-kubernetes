@@ -398,7 +398,7 @@ func TestGetNumberOfExcessProcesses_ACNameDiffersFromK8sName(t *testing.T) {
 		Finalizing:      false,
 	})
 	assert.NoError(t, err)
-	assert.Len(t, d.getShardedClusterByName("ac-mongos").shards(), 1)
+	assert.Len(t, d.getShardedClusterByName("ac-mongos").Shards(), 1)
 	// The junk RS is still present in the deployment.
 	assert.Len(t, d.GetReplicaSets(), 3)
 

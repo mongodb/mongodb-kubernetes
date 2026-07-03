@@ -171,19 +171,25 @@ func buildShardedExternalMembers(
 	mongosProcs []om.Process,
 	processMap map[string]om.Process,
 ) []mdbv1.ExternalMember {
-	var members []mdbv1.ExternalMember
-
-	configMembers, _, _ := om.ExtractMemberInfo(configRS.Members(), processMap)
-	members = append(members, configMembers...)
-
+	var procs []om.Process
+	procs = append(procs, rsProcesses(configRS, processMap)...)
 	for _, rs := range shardRSes {
-		shardMembers, _, _ := om.ExtractMemberInfo(rs.Members(), processMap)
-		members = append(members, shardMembers...)
+		procs = append(procs, rsProcesses(rs, processMap)...)
 	}
+	procs = append(procs, mongosProcs...)
 
-	members = append(members, om.ExtractExternalMembers(mongosProcs)...)
+	return om.ExtractExternalMembers(procs)
+}
 
-	return members
+// rsProcesses returns the processes backing a replica set's members, in member order.
+func rsProcesses(rs om.ReplicaSet, processMap map[string]om.Process) []om.Process {
+	procs := make([]om.Process, 0, len(rs.Members()))
+	for _, m := range rs.Members() {
+		if proc, ok := processMap[m.Name()]; ok {
+			procs = append(procs, proc)
+		}
+	}
+	return procs
 }
 
 // buildReplicaSetMap indexes replica sets by name for O(1) lookup.

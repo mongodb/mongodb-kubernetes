@@ -178,10 +178,6 @@ func TestFixtureMatch_ShardedCluster(t *testing.T) {
 			fixture: "singlecluster/shardedcluster/default_config_rs/default_config_rs",
 		},
 		{
-			name:    "sharded cluster — split shard names",
-			fixture: "singlecluster/shardedcluster/split_shard_names/split_shard_names",
-		},
-		{
 			name:     "sharded cluster — LDAP: ldap section + agent password secret generated, external agent skipped, app user CR generated",
 			fixture:  "singlecluster/shardedcluster/authentication/ldap/ldap",
 			hasUsers: true,
@@ -197,10 +193,34 @@ func TestFixtureMatch_ShardedCluster(t *testing.T) {
 			opts:    GenerateOptions{PrometheusSecretName: PrometheusPasswordSecretName, PrometheusPassword: "prom-password"},
 		},
 		{
+			name:    "sharded cluster — Prometheus (HTTP) generates spec.prometheus referencing the password secret with no TLS ref",
+			fixture: "singlecluster/shardedcluster/prometheus/prometheus",
+			opts:    GenerateOptions{PrometheusSecretName: PrometheusPasswordSecretName, PrometheusPassword: "prom-password"},
+		},
+		{
+			name:    "sharded cluster — Prometheus (HTTPS) generates spec.prometheus with a TLS secret ref",
+			fixture: "singlecluster/shardedcluster/prometheus_https/prometheus_https",
+			opts:    GenerateOptions{PrometheusSecretName: PrometheusPasswordSecretName, PrometheusPassword: "prom-password"},
+		},
+		{
 			name:    "sharded cluster — Prometheus password mismatch is rejected",
 			fixture: "singlecluster/shardedcluster/authentication/prometheus/prometheus",
 			opts:    GenerateOptions{PrometheusSecretName: PrometheusPasswordSecretName, PrometheusPassword: "wrong-password"},
 			wantErr: "does not match the password",
+		},
+		{
+			name:    "sharded cluster — TLS requireSSL with clientCertificateMode OPTIONAL does not set allowConnectionsWithoutCertificates",
+			fixture: "singlecluster/shardedcluster/tls/require/require",
+			opts:    GenerateOptions{CertsSecretPrefix: "mdb"},
+		},
+		{
+			name:    "sharded cluster — TLS allowTLS with clientCertificateMode REQUIRE sets allowConnectionsWithoutCertificates to false",
+			fixture: "singlecluster/shardedcluster/tls/allow/allow",
+			opts:    GenerateOptions{CertsSecretPrefix: "mdb"},
+		},
+		{
+			name:    "sharded cluster — TLS disabled produces no TLS section in the CR",
+			fixture: "singlecluster/shardedcluster/tls/disabled/disabled",
 		},
 		{
 			name:    "sharded cluster — auth disabled produces no security block",

@@ -329,7 +329,7 @@ def test_promote_and_prune_config_server(mdb_migration: MongoDB, om_tester: OMTe
 
 
 @mark.e2e_vm_migration_shardedcluster_no_auth
-def test_promote_and_prune_shard(mdb_migration: MongoDB, om_tester: OMTester):
+def test_prune_shard(mdb_migration: MongoDB, om_tester: OMTester):
     try_load(mdb_migration)
     shard_external = [
         m for m in mdb_migration["spec"]["externalMembers"] if m.get("replicaSetName") == VM_SHARD_RS_NAME

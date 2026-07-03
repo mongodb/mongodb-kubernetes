@@ -137,7 +137,7 @@ def assert_k8s_process_names(om_tester: OMTester, mdb_migration: MongoDB) -> Non
 
 
 def promote_and_prune(mdb_migration, vm_sts):
-    """Promote each VM member and prune it from externalMembers one at a time."""
+    """Promote each Kubernetes member to a voting member and prune one VM member from externalMembers at a time."""
     try_load(mdb_migration)
     for i in range(vm_sts["spec"]["replicas"]):
         mdb_migration["spec"]["memberConfig"][i]["priority"] = "1"

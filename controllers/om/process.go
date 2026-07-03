@@ -47,6 +47,9 @@ var infrastructureFieldPaths = [][]string{
 	{"storage", "dbPath"},
 	{"replication", "replSetName"},
 	{"security", "clusterAuthMode"},
+	// clusterRole is inferred by the operator from the sharded cluster topology, so it must not
+	// be surfaced as user-supplied additionalMongodConfig.
+	{"sharding", "clusterRole"},
 }
 
 // infrastructureTLSCertKeys lists TLS/SSL certificate-related keys under
@@ -380,7 +383,7 @@ func (p Process) AdditionalMongodConfig() *mdbv1.AdditionalMongodConfig {
 	}
 
 	// drop sections that became empty after stripping operator fields
-	for _, path := range [][]string{{"net", "tls"}, {"net", "ssl"}, {"net"}, {"storage"}, {"replication"}, {"security"}, {"setParameter"}} {
+	for _, path := range [][]string{{"net", "tls"}, {"net", "ssl"}, {"net"}, {"storage"}, {"replication"}, {"security"}, {"setParameter"}, {"sharding"}} {
 		if sub := maputil.ReadMapValueAsMap(m, path...); len(sub) == 0 && sub != nil {
 			maputil.DeleteMapValue(m, path...)
 		}

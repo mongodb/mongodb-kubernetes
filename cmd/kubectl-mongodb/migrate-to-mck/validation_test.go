@@ -32,21 +32,38 @@ func TestValidation_OneDeploymentPerProject_SingleRS(t *testing.T) {
 }
 
 func TestValidation_OneDeploymentPerProject_MultipleRS(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "validation/multi_replicaset.json")
+	ac := om.NewAutomationConfig(om.Deployment{
+		"processes": []interface{}{},
+		"replicaSets": []interface{}{
+			map[string]interface{}{"_id": "rs-alpha", "members": []interface{}{}},
+			map[string]interface{}{"_id": "rs-beta", "members": []interface{}{}},
+		},
+		"sharding": []interface{}{},
+	})
 
-	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
-	hasMultipleDeploymentsError := false
-	for _, r := range results {
-		if r.Severity == SeverityError && strings.Contains(r.Message, "deployments") {
-			hasMultipleDeploymentsError = true
-			assert.Contains(t, r.Message, "before migrating")
-		}
-	}
-	assert.True(t, hasMultipleDeploymentsError, "expected error when project has multiple replica sets")
+	results := validateOneDeploymentPerProject(ac.Deployment)
+	require.Len(t, results, 1)
+	assert.Equal(t, SeverityError, results[0].Severity)
+	assert.Contains(t, results[0].Message, "before migrating")
 }
 
 func TestValidation_OneDeploymentPerProject_SingleSharded(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "validation/sharded_cluster.json")
+	ac := om.NewAutomationConfig(om.Deployment{
+		"processes": []interface{}{},
+		"replicaSets": []interface{}{
+			map[string]interface{}{"_id": "shard-rs", "members": []interface{}{}},
+			map[string]interface{}{"_id": "config-rs", "members": []interface{}{}},
+		},
+		"sharding": []interface{}{
+			map[string]interface{}{
+				"name":                "my-sharded-cluster",
+				"configServerReplica": "config-rs",
+				"shards": []interface{}{
+					map[string]interface{}{"_id": "shard0", "rs": "shard-rs"},
+				},
+			},
+		},
+	})
 
 	results := validateOneDeploymentPerProject(ac.Deployment)
 	assert.Empty(t, results, "single sharded cluster should not trigger one-deployment-per-project error")
@@ -126,7 +143,22 @@ func TestValidation_EmbeddedConfigServer(t *testing.T) {
 }
 
 func TestValidation_DedicatedConfigServer_NoError(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "validation/sharded_cluster.json")
+	ac := om.NewAutomationConfig(om.Deployment{
+		"processes": []interface{}{},
+		"replicaSets": []interface{}{
+			map[string]interface{}{"_id": "shard-rs", "members": []interface{}{}},
+			map[string]interface{}{"_id": "config-rs", "members": []interface{}{}},
+		},
+		"sharding": []interface{}{
+			map[string]interface{}{
+				"name":                "my-sharded-cluster",
+				"configServerReplica": "config-rs",
+				"shards": []interface{}{
+					map[string]interface{}{"_id": "shard0", "rs": "shard-rs"},
+				},
+			},
+		},
+	})
 
 	results := validateEmbeddedConfigServer(ac.Deployment)
 	assert.Empty(t, results, "dedicated config server should not trigger embedded-config-server error")

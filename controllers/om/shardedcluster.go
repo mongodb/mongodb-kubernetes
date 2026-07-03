@@ -126,7 +126,7 @@ func (s ShardedCluster) mergeFrom(operatorCluster ShardedCluster) []string {
 	removedMembers := make([]string, 0)
 	for k, shard := range omMap {
 		if _, ok := operatorMap[k]; !ok {
-			removedMembers = append(removedMembers, shard.rs())
+			removedMembers = append(removedMembers, shard.Rs())
 		}
 	}
 
@@ -164,18 +164,6 @@ func (s ShardedCluster) Shards() []Shard {
 	default:
 		panic("Unexpected type of shards variable")
 	}
-}
-
-func (s ShardedCluster) shards() []Shard {
-	return s.Shards()
-}
-
-func (s Shard) rs() string {
-	return s.Rs()
-}
-
-func (s Shard) id() string {
-	return s.Id()
 }
 
 func (s ShardedCluster) setConfigServerRsName(name string) {
@@ -238,8 +226,8 @@ func (s ShardedCluster) removeDraining() {
 // ShardRsToIdMap returns a map of shard replica set name to shard _id for all shards of the cluster.
 func (s ShardedCluster) ShardRsToIdMap() map[string]string {
 	rsToId := make(map[string]string)
-	for _, shard := range s.shards() {
-		rsToId[shard.rs()] = shard.id()
+	for _, shard := range s.Shards() {
+		rsToId[shard.Rs()] = shard.Id()
 	}
 	return rsToId
 }

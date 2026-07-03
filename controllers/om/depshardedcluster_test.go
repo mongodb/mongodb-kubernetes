@@ -161,8 +161,8 @@ func TestMergeShardedCluster_ShardedClusterModified(t *testing.T) {
 
 	// These OM changes must be overriden
 	(*d.getShardedClusterByName("cluster")).setConfigServerRsName("fake")
-	(*d.getShardedClusterByName("cluster")).setShards(d.getShardedClusterByName("cluster").shards()[0:2])
-	(*d.getShardedClusterByName("cluster")).setShards(append(d.getShardedClusterByName("cluster").shards(), newShard("fakeShard", "fakeShard")))
+	(*d.getShardedClusterByName("cluster")).setShards(d.getShardedClusterByName("cluster").Shards()[0:2])
+	(*d.getShardedClusterByName("cluster")).setShards(append(d.getShardedClusterByName("cluster").Shards(), newShard("fakeShard", "fakeShard")))
 
 	mergeReplicaSet(d, "fakeShard", createReplicaSetProcesses("fakeShard"))
 
@@ -658,7 +658,7 @@ func TestMergeShardedCluster_ScaleDownOverriddenShardRsName(t *testing.T) {
 	shardsRemoving, err := d.MergeShardedCluster(mergeOpts)
 	require.NoError(t, err)
 	assert.False(t, shardsRemoving)
-	require.Len(t, d.getShardedClusterByName("sc").shards(), 2)
+	require.Len(t, d.getShardedClusterByName("sc").Shards(), 2)
 
 	// Scale down removing the shard whose rs name does not match the "sc" prefix.
 	mergeOpts.Shards = shards[0:1]
@@ -735,7 +735,7 @@ func TestGetShardedClusterShardProcessNamesByRs(t *testing.T) {
 	// A second merge sorts the shards array by _id: [alpha (foo-1), zebra (foo-0)].
 	_, err = d.MergeShardedCluster(mergeOpts)
 	require.NoError(t, err)
-	require.Equal(t, "foo-1", d.getShardedClusterByName("foo").shards()[0].rs())
+	require.Equal(t, "foo-1", d.getShardedClusterByName("foo").Shards()[0].Rs())
 
 	// Positional access would return foo-1 processes for index 0. Lookup by rs name is unaffected.
 	processNames := d.GetShardedClusterShardProcessNamesByRs("foo", "foo-0")

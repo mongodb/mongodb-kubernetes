@@ -9,6 +9,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/ldap"
 )
@@ -176,6 +177,43 @@ func TestGenerateMongoDBCR_ShardedTopologyCounts(t *testing.T) {
 	assert.NotContains(t, yamlOutput, "mongosCount:")
 }
 
+func TestBuildShardedClusterOverrides_SplitShardNames(t *testing.T) {
+	// The shard _id differs from its replica set name, so each shard must carry both a
+	// shardId and a replicaSetName override. The config server and cluster names also
+	// differ from the K8s defaults, so their overrides are set too.
+	configRS := om.NewReplicaSet("cfg-rs", "7.0.12-ent")
+	acShards := []om.Shard{
+		{"_id": "sh0", "rs": "rs-sh0"},
+		{"_id": "sh1", "rs": "rs-sh1"},
+	}
+
+	overrides := buildShardedClusterOverrides("my-cluster", "my-cluster", configRS, acShards)
+
+	assert.Equal(t, "cfg-rs", overrides.ConfigServerNameOverride)
+	assert.Empty(t, overrides.ShardedClusterNameOverride, "cluster name matches the resource name, no override expected")
+	require.Len(t, overrides.ShardNameOverrides, 2)
+	assert.Equal(t, mdbv1.ShardNameOverride{ShardName: "my-cluster-0", ShardId: "sh0", ReplicaSetName: "rs-sh0"}, overrides.ShardNameOverrides[0])
+	assert.Equal(t, mdbv1.ShardNameOverride{ShardName: "my-cluster-1", ShardId: "sh1", ReplicaSetName: "rs-sh1"}, overrides.ShardNameOverrides[1])
+}
+
+func TestBuildShardedClusterOverrides_DefaultNames(t *testing.T) {
+	// When all AC names already match the K8s defaults, no overrides are produced beyond the
+	// shard name entries, which carry only the derived shardName.
+	configRS := om.NewReplicaSet("my-cluster-config", "7.0.12-ent")
+	acShards := []om.Shard{
+		{"_id": "my-cluster-0", "rs": "my-cluster-0"},
+		{"_id": "my-cluster-1", "rs": "my-cluster-1"},
+	}
+
+	overrides := buildShardedClusterOverrides("my-cluster", "my-cluster", configRS, acShards)
+
+	assert.Empty(t, overrides.ConfigServerNameOverride)
+	assert.Empty(t, overrides.ShardedClusterNameOverride)
+	require.Len(t, overrides.ShardNameOverrides, 2)
+	assert.Equal(t, mdbv1.ShardNameOverride{ShardName: "my-cluster-0"}, overrides.ShardNameOverrides[0])
+	assert.Equal(t, mdbv1.ShardNameOverride{ShardName: "my-cluster-1"}, overrides.ShardNameOverrides[1])
+}
+
 func TestGenerateMongoDBCR_ShardedMissingShardReplicaSet(t *testing.T) {
 	ac := loadTestAutomationConfig(t, "singlecluster/shardedcluster/default_config_rs/default_config_rs_input.json")
 
@@ -196,4 +234,5 @@ func TestGenerateMongoDBCR_ShardedMissingShardReplicaSet(t *testing.T) {
 	_, _, err := GenerateMongoDBCR(ac, opts)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "shard0")
+	assert.Contains(t, err.Error(), "not found")
 }
