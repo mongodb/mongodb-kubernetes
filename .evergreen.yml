@@ -14,6 +14,12 @@ include:
   - filename: .evergreen-release.yml
 
 variables:
+  - &production_code_paths
+    paths:
+      - "**/*.go"
+      - "**/*.py"
+      - "!ci/**"
+
   - &ops_manager_60_latest 6.0.27 # The order/index is important, since these are anchors. Please do not change
 
   - &ops_manager_70_latest 7.0.23 # The order/index is important, since these are anchors. Please do not change
