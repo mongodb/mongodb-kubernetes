@@ -139,10 +139,6 @@ spec:
             - name: MDB_OPERATOR_TELEMETRY_SEND_BASEURL
               value: "{{ $telemetry.send.baseUrl }}"
     {{- end }}
-    {{- if .Values.multiCluster.memberClusterRequiredHealthyStreak }}
-            - name: MDB_MEMBER_CLUSTER_REQUIRED_HEALTHY_STREAK
-              value: "{{ .Values.multiCluster.memberClusterRequiredHealthyStreak }}"
-    {{- end }}
     {{- $mongodbEnterpriseDatabaseImageEnv := "MONGODB_ENTERPRISE_DATABASE_IMAGE" -}}
     {{- $initDatabaseImageRepositoryEnv := "INIT_DATABASE_IMAGE_REPOSITORY" -}}
     {{- $opsManagerImageRepositoryEnv := "OPS_MANAGER_IMAGE_REPOSITORY" -}}
