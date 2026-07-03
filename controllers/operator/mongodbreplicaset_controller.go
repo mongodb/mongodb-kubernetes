@@ -90,6 +90,9 @@ type ReconcileMongoDbReplicaSet struct {
 	agentDebug          bool
 	agentDebugImage     string
 	defaultArchitecture architectures.DefaultArchitecture
+
+	automaticRecoveryEnabled        bool
+	automaticRecoveryBackoffSeconds int
 }
 
 type replicaSetDeploymentState struct {
@@ -334,7 +337,7 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	// See CLOUDP-189433 and CLOUDP-229222 for more details.
 	// Recovery is skipped when a migration dry-run is active.
 	isDryRun := rs.IsMigrationDryRun()
-	if !isDryRun && recovery.ShouldTriggerRecovery(rs.Status.Phase != mdbstatus.PhaseRunning, rs.Status.LastTransition) {
+	if !isDryRun && recovery.ShouldTriggerRecovery(reconciler.automaticRecoveryEnabled, reconciler.automaticRecoveryBackoffSeconds, rs.Status.Phase != mdbstatus.PhaseRunning, rs.Status.LastTransition) {
 		log.Warnf("Triggering Automatic Recovery. The MongoDB resource %s/%s is in %s state since %s", rs.Namespace, rs.Name, rs.Status.Phase, rs.Status.LastTransition)
 		automationConfigStatus := r.updateOmDeploymentRs(ctx, conn, r.deploymentState.LastReconcileMemberCount, tlsCertPath, internalClusterCertPath, deploymentOpts, shouldMirrorKeyfileForMongot, true).OnErrorPrepend("failed to create/update (Ops Manager reconciliation phase):")
 		reconcileStatus := r.reconcileMemberResources(ctx, conn, projectConfig, deploymentOpts, r.deploymentState.LastConfiguredRoles)
@@ -420,7 +423,7 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	return r.updateStatus(ctx, workflow.OK(), mdbstatus.NewBaseUrlOption(deployment.Link(conn.BaseURL(), conn.GroupID())), mdbstatus.NewProjectIdOption(conn.GroupID()), mdbstatus.MembersOption(rs), mdbstatus.NewPVCsStatusOptionEmptyStatus())
 }
 
-func newReplicaSetReconciler(ctx context.Context, kubeClient client.Client, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, omFunc om.ConnectionFactory) *ReconcileMongoDbReplicaSet {
+func newReplicaSetReconciler(ctx context.Context, kubeClient client.Client, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, automaticRecoveryEnabled bool, automaticRecoveryBackoffSeconds int, omFunc om.ConnectionFactory) *ReconcileMongoDbReplicaSet {
 	return &ReconcileMongoDbReplicaSet{
 		ReconcileCommonController: NewReconcileCommonController(ctx, kubeClient),
 		omConnectionFactory:       omFunc,
@@ -434,6 +437,9 @@ func newReplicaSetReconciler(ctx context.Context, kubeClient client.Client, imag
 		agentDebug:          agentDebug,
 		agentDebugImage:     agentDebugImage,
 		defaultArchitecture: defaultArchitecture,
+
+		automaticRecoveryEnabled:        automaticRecoveryEnabled,
+		automaticRecoveryBackoffSeconds: automaticRecoveryBackoffSeconds,
 	}
 }
 
@@ -653,9 +659,9 @@ func (r *ReplicaSetReconcilerHelper) buildStatefulSetOptions(ctx context.Context
 
 // AddReplicaSetController creates a new MongoDbReplicaset Controller and adds it to the Manager. The Manager will set fields on the Controller
 // and Start it when the Manager is Started.
-func AddReplicaSetController(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, maxConcurrentReconciles int) error {
+func AddReplicaSetController(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, automaticRecoveryEnabled bool, automaticRecoveryBackoffSeconds int, maxConcurrentReconciles int) error {
 	// Create a new controller
-	reconciler := newReplicaSetReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, om.NewOpsManagerConnection)
+	reconciler := newReplicaSetReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, automaticRecoveryEnabled, automaticRecoveryBackoffSeconds, om.NewOpsManagerConnection)
 	c, err := controller.New(util.MongoDbReplicaSetController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: maxConcurrentReconciles})
 	if err != nil {
 		return err

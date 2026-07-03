@@ -15,7 +15,6 @@ from kubetester.multicluster_client import MultiClusterClient
 from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
-from tests.conftest import get_multi_cluster_operator_installation_config
 from tests.multicluster.conftest import cluster_spec_list
 
 CERT_SECRET_PREFIX = "clustercert"
@@ -27,10 +26,10 @@ LDAP_NAME = "openldap"
 
 
 @fixture(scope="module")
-def multi_cluster_operator_installation_config(namespace) -> Dict[str, str]:
-    config = get_multi_cluster_operator_installation_config(namespace=namespace)
-    config["customEnvVars"] = config["customEnvVars"] + "\&MDB_AUTOMATIC_RECOVERY_BACKOFF_TIME_S=360"
-    return config
+def operator_config_extra_spec() -> dict:
+    """Shortens the automatic recovery back-off (CLOUDP-229222) so recovery triggers within the test
+    window. The back-off lives in the OperatorConfig CR (.spec.automaticRecovery.delay)."""
+    return {"automaticRecovery": {"delay": 360}}
 
 
 @fixture(scope="module")
