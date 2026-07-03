@@ -90,9 +90,12 @@ type ReconcileMongoDbShardedCluster struct {
 	agentDebugImage     string
 	backupEnableDelay   time.Duration
 	defaultArchitecture architectures.DefaultArchitecture
+
+	automaticRecoveryEnabled        bool
+	automaticRecoveryBackoffSeconds int
 }
 
-func newShardedClusterReconciler(ctx context.Context, kubeClient client.Client, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, memberClusterMap map[string]client.Client, omFunc om.ConnectionFactory, backupEnableDelay time.Duration) *ReconcileMongoDbShardedCluster {
+func newShardedClusterReconciler(ctx context.Context, kubeClient client.Client, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, automaticRecoveryEnabled bool, automaticRecoveryBackoffSeconds int, memberClusterMap map[string]client.Client, omFunc om.ConnectionFactory, backupEnableDelay time.Duration) *ReconcileMongoDbShardedCluster {
 	return &ReconcileMongoDbShardedCluster{
 		ReconcileCommonController: NewReconcileCommonController(ctx, kubeClient),
 		omConnectionFactory:       omFunc,
@@ -108,6 +111,9 @@ func newShardedClusterReconciler(ctx context.Context, kubeClient client.Client, 
 		agentDebugImage:     agentDebugImage,
 		backupEnableDelay:   backupEnableDelay,
 		defaultArchitecture: defaultArchitecture,
+
+		automaticRecoveryEnabled:        automaticRecoveryEnabled,
+		automaticRecoveryBackoffSeconds: automaticRecoveryBackoffSeconds,
 	}
 }
 
@@ -606,6 +612,9 @@ type ShardedClusterReconcileHelper struct {
 	backupEnableDelay   time.Duration
 	defaultArchitecture architectures.DefaultArchitecture
 
+	automaticRecoveryEnabled        bool
+	automaticRecoveryBackoffSeconds int
+
 	// sc is the resource being reconciled
 	sc *mdbv1.MongoDB
 
@@ -641,7 +650,7 @@ func NewReadOnlyClusterReconcilerHelper(
 	backupEnableDelay time.Duration,
 ) (*ShardedClusterReconcileHelper, error) {
 	return newShardedClusterReconcilerHelper(ctx, reconciler, nil, "", "", false, false, false, "",
-		architectures.NonStatic, sc, globalMemberClustersMap, nil, log, true, backupEnableDelay)
+		architectures.NonStatic, false, 0, sc, globalMemberClustersMap, nil, log, true, backupEnableDelay)
 }
 
 func NewShardedClusterReconcilerHelper(
@@ -655,6 +664,8 @@ func NewShardedClusterReconcilerHelper(
 	agentDebug bool,
 	agentDebugImage string,
 	defaultArchitecture architectures.DefaultArchitecture,
+	automaticRecoveryEnabled bool,
+	automaticRecoveryBackoffSeconds int,
 	sc *mdbv1.MongoDB,
 	globalMemberClustersMap map[string]client.Client,
 	omConnectionFactory om.ConnectionFactory,
@@ -662,7 +673,7 @@ func NewShardedClusterReconcilerHelper(
 	backupEnableDelay time.Duration,
 ) (*ShardedClusterReconcileHelper, error) {
 	return newShardedClusterReconcilerHelper(ctx, reconciler, imageUrls, initDatabaseNonStaticImageVersion,
-		databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, sc, globalMemberClustersMap, omConnectionFactory, log, false, backupEnableDelay)
+		databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, automaticRecoveryEnabled, automaticRecoveryBackoffSeconds, sc, globalMemberClustersMap, omConnectionFactory, log, false, backupEnableDelay)
 }
 
 func newShardedClusterReconcilerHelper(
@@ -676,6 +687,8 @@ func newShardedClusterReconcilerHelper(
 	agentDebug bool,
 	agentDebugImage string,
 	defaultArchitecture architectures.DefaultArchitecture,
+	automaticRecoveryEnabled bool,
+	automaticRecoveryBackoffSeconds int,
 	sc *mdbv1.MongoDB,
 	globalMemberClustersMap map[string]client.Client,
 	omConnectionFactory om.ConnectionFactory,
@@ -704,6 +717,9 @@ func newShardedClusterReconcilerHelper(
 		agentDebugImage:     agentDebugImage,
 		backupEnableDelay:   backupEnableDelay,
 		defaultArchitecture: defaultArchitecture,
+
+		automaticRecoveryEnabled:        automaticRecoveryEnabled,
+		automaticRecoveryBackoffSeconds: automaticRecoveryBackoffSeconds,
 
 		readOnly: readOnly,
 	}
@@ -834,7 +850,7 @@ func (r *ReconcileMongoDbShardedCluster) Reconcile(ctx context.Context, request 
 		return reconcileResult, err
 	}
 
-	reconcilerHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, r.imageUrls, r.initDatabaseNonStaticImageVersion, r.databaseNonStaticImageVersion, r.forceEnterprise, r.enableClusterMongoDBRoles, r.agentDebug, r.agentDebugImage, r.defaultArchitecture, sc, r.memberClustersMap, r.omConnectionFactory, log, r.backupEnableDelay)
+	reconcilerHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, r.imageUrls, r.initDatabaseNonStaticImageVersion, r.databaseNonStaticImageVersion, r.forceEnterprise, r.enableClusterMongoDBRoles, r.agentDebug, r.agentDebugImage, r.defaultArchitecture, r.automaticRecoveryEnabled, r.automaticRecoveryBackoffSeconds, sc, r.memberClustersMap, r.omConnectionFactory, log, r.backupEnableDelay)
 	if err != nil {
 		return r.updateStatus(ctx, sc, workflow.Failed(xerrors.Errorf("Failed to initialize sharded cluster reconciler: %w", err)), log)
 	}
@@ -843,7 +859,7 @@ func (r *ReconcileMongoDbShardedCluster) Reconcile(ctx context.Context, request 
 
 // OnDelete tries to complete a Deletion reconciliation event
 func (r *ReconcileMongoDbShardedCluster) OnDelete(ctx context.Context, obj runtime.Object, log *zap.SugaredLogger) error {
-	reconcilerHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, r.imageUrls, r.initDatabaseNonStaticImageVersion, r.databaseNonStaticImageVersion, r.forceEnterprise, r.enableClusterMongoDBRoles, r.agentDebug, r.agentDebugImage, r.defaultArchitecture, obj.(*mdbv1.MongoDB), r.memberClustersMap, r.omConnectionFactory, log, r.backupEnableDelay)
+	reconcilerHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, r.imageUrls, r.initDatabaseNonStaticImageVersion, r.databaseNonStaticImageVersion, r.forceEnterprise, r.enableClusterMongoDBRoles, r.agentDebug, r.agentDebugImage, r.defaultArchitecture, r.automaticRecoveryEnabled, r.automaticRecoveryBackoffSeconds, obj.(*mdbv1.MongoDB), r.memberClustersMap, r.omConnectionFactory, log, r.backupEnableDelay)
 	if err != nil {
 		return err
 	}
@@ -1217,7 +1233,7 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 	// Recovery prevents some deadlocks that can occur during reconciliation, e.g. the setting of an incorrect automation
 	// configuration and a subsequent attempt to overwrite it later, the operator would be stuck in Pending phase.
 	// See CLOUDP-189433 and CLOUDP-229222 for more details.
-	if recovery.ShouldTriggerRecovery(r.deploymentState.Status.Phase != mdbstatus.PhaseRunning, r.deploymentState.Status.LastTransition) {
+	if recovery.ShouldTriggerRecovery(r.automaticRecoveryEnabled, r.automaticRecoveryBackoffSeconds, r.deploymentState.Status.Phase != mdbstatus.PhaseRunning, r.deploymentState.Status.LastTransition) {
 		log.Warnf("Triggering Automatic Recovery. The MongoDB resource %s/%s is in %s state since %s", sc.Namespace, sc.Name, r.deploymentState.Status.Phase, r.deploymentState.Status.LastTransition)
 		automationConfigStatus := r.updateOmDeploymentShardedCluster(ctx, conn, sc, opts, true, log).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
 		deploymentStatus := r.createKubernetesResources(ctx, sc, opts, log)
@@ -1793,9 +1809,9 @@ func logDiffOfProcessNames(acProcesses []string, healthyProcesses []string, log 
 	}
 }
 
-func AddShardedClusterController(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, memberClustersMap map[string]cluster.Cluster, backupEnableDelay time.Duration, maxConcurrentReconciles int) error {
+func AddShardedClusterController(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, automaticRecoveryEnabled bool, automaticRecoveryBackoffSeconds int, memberClustersMap map[string]cluster.Cluster, backupEnableDelay time.Duration, maxConcurrentReconciles int) error {
 	// Create a new controller
-	reconciler := newShardedClusterReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, multicluster.ClustersMapToClientMap(memberClustersMap), om.NewOpsManagerConnection, backupEnableDelay)
+	reconciler := newShardedClusterReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, automaticRecoveryEnabled, automaticRecoveryBackoffSeconds, multicluster.ClustersMapToClientMap(memberClustersMap), om.NewOpsManagerConnection, backupEnableDelay)
 	options := controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: maxConcurrentReconciles}
 	c, err := controller.New(util.MongoDbShardedClusterController, mgr, options)
 	if err != nil {
