@@ -9,6 +9,7 @@ import (
 	"path"
 	"reflect"
 	"sort"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"go.uber.org/zap"
@@ -1412,7 +1413,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileOMCAConfigMap(ctx context.Con
 
 // AddMultiReplicaSetController creates a new MongoDbMultiReplicaset Controller and adds it to the Manager. The Manager will set fields on the Controller
 // and Start it when the Manager is Started.
-func AddMultiReplicaSetController(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, defaultImageType architectures.ImageType, requiredHealthyStreak int, memberClustersMap map[string]cluster.Cluster, maxConcurrentReconciles int) error {
+func AddMultiReplicaSetController(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, defaultImageType architectures.ImageType, requiredHealthyStreak int, memberClusterClientTimeout int, memberClustersMap map[string]cluster.Cluster, maxConcurrentReconciles int) error {
 	// Create a new controller
 	reconciler := newMultiClusterReplicaSetReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, defaultImageType, om.NewOpsManagerConnection, multicluster.ClustersMapToClientMap(memberClustersMap))
 	c, err := controller.New(util.MongoDbMultiClusterController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: maxConcurrentReconciles})
@@ -1474,6 +1475,7 @@ func AddMultiReplicaSetController(ctx context.Context, mgr manager.Manager, imag
 		Cache:                 make(map[string]memberwatch.ClusterHealthChecker),
 		HealthyStreak:         make(map[string]int),
 		RequiredHealthyStreak: requiredHealthyStreak,
+		ClientTimeout:         time.Duration(memberClusterClientTimeout) * time.Second,
 	}
 	go memberClusterHealthChecker.WatchMemberClusterHealth(ctx, zap.S(), eventChannel, reconciler.client, memberClustersMap)
 

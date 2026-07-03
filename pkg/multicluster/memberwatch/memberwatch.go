@@ -27,7 +27,10 @@ type MemberClusterHealthChecker struct {
 	Cache                 map[string]ClusterHealthChecker
 	HealthyStreak         map[string]int
 	RequiredHealthyStreak int
-	mu                    sync.RWMutex
+	// ClientTimeout is the timeout for the per-cluster health-check HTTP client.
+	// When zero, DefaultClientTimeout is used.
+	ClientTimeout time.Duration
+	mu            sync.RWMutex
 }
 
 func (m *MemberClusterHealthChecker) HealthyStreakFor(cluster string) int {
@@ -87,6 +90,11 @@ func (m *MemberClusterHealthChecker) populateCache(clustersMap map[string]cluste
 		return
 	}
 
+	timeout := m.ClientTimeout
+	if timeout <= 0 {
+		timeout = DefaultClientTimeout
+	}
+
 	for n := range kubeConfig.Contexts {
 		kubeContext := kubeConfig.Contexts[n]
 		clusterName := kubeContext.Context.Cluster
@@ -95,7 +103,7 @@ func (m *MemberClusterHealthChecker) populateCache(clustersMap map[string]cluste
 			log.Errorf("Skipping cluster %s: %v", clusterName, err)
 			continue
 		}
-		m.Cache[clusterName] = NewMemberHealthCheck(credentials.Server, credentials.CertificateAuthority, credentials.Token, log)
+		m.Cache[clusterName] = NewMemberHealthCheck(credentials.Server, credentials.CertificateAuthority, credentials.Token, log, WithTimeout(timeout))
 		m.HealthyStreak[clusterName] = 0
 	}
 }
