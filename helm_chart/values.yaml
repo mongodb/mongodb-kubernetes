@@ -188,7 +188,6 @@ multiCluster:
   clusters: []
   kubeConfigSecretName: mongodb-enterprise-operator-multi-cluster-kubeconfig
   performFailOver: true
-  memberClusterRequiredHealthyStreak: 5
 
 # Resources only for the MongoDBCommunity resource reconciler
 community:
