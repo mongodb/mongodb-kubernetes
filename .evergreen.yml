@@ -235,8 +235,8 @@ patch_aliases:
   - alias: "staging"
     variant_tags: [ "staging" ]
     task: ".*"
-  - alias: "pr_patch"
-    variant_tags: [ "pr_patch" ]
+  - alias: "pr_patch_static"
+    variant_tags: [ "pr_patch_static" ]
     task: ".*"
   - alias: "static"
     description: "Run all static container variants"
@@ -253,8 +253,11 @@ patch_aliases:
 
 # Triggered whenever the GitHub PR is created
 github_pr_aliases:
-  - variant_tags: [ "pr_patch" ]
+  - variant_tags: [ "pr_patch_static" ]
     task: ".*"
+  - variant_tags: [ "pr_patch_e2e" ]
+    task: ".*"
+    file_pattern: '^(api|cmd|controllers|docker|internal|mongodb-community-operator|pkg|scripts)/.*\.(go|py)$|^[^/]+\.(go|py)$'
 
 # Allows to see evergreen checks in GitHub commits
 # https://github.com/mongodb/mongodb-kubernetes/commits/master/
@@ -1443,7 +1446,7 @@ buildvariants:
 
   - name: check_ocp_version_drift
     display_name: check_ocp_version_drift
-    tags: [ "pr_patch", "staging" ]
+    tags: [ "pr_patch_static", "staging" ]
     run_on:
       - ubuntu2404-small
     tasks:
@@ -1453,7 +1456,7 @@ buildvariants:
 
   - name: unit_tests
     display_name: "unit_tests"
-    tags: [ "pr_patch", "staging", "unit_tests" ]
+    tags: [ "pr_patch_static", "staging", "unit_tests" ]
     run_on:
       - ubuntu2204-small #TODO: Uses older ubuntu2204, because for some reason on ubuntu2404 the helm binary is not found
     tasks:
@@ -1471,7 +1474,7 @@ buildvariants:
   # MongoDBCommunity build variant
   - name: e2e_mdb_community
     display_name: e2e_mdb_community
-    tags: [ "pr_patch", "staging", "e2e_test_suite" ]
+    tags: [ "pr_patch_e2e", "staging", "e2e_test_suite" ]
     run_on:
       - ubuntu2404-large
     <<: *community_dependency
@@ -1481,7 +1484,7 @@ buildvariants:
   ## MongoDB build variants
   - name: e2e_mdb_kind_ubi_cloudqa
     display_name: e2e_mdb_kind_ubi_cloudqa
-    tags: [ "pr_patch", "staging", "e2e_test_suite", "cloudqa", "cloudqa_non_static" ]
+    tags: [ "pr_patch_e2e", "staging", "e2e_test_suite", "cloudqa", "cloudqa_non_static" ]
     run_on:
       - ubuntu2404-medium
     <<: *base_no_om_image_dependency
@@ -1490,7 +1493,7 @@ buildvariants:
 
   - name: e2e_custom_domain_mdb_kind_ubi_cloudqa
     display_name: e2e_custom_domain_mdb_kind_ubi_cloudqa
-    tags: [ "pr_patch", "staging", "e2e_test_suite", "cloudqa", "cloudqa_non_static" ]
+    tags: [ "pr_patch_e2e", "staging", "e2e_test_suite", "cloudqa", "cloudqa_non_static" ]
     run_on:
       - ubuntu2404-large
     <<: *base_no_om_image_dependency
@@ -1499,7 +1502,7 @@ buildvariants:
 
   - name: e2e_static_mdb_kind_ubi_cloudqa
     display_name: e2e_static_mdb_kind_ubi_cloudqa
-    tags: [ "pr_patch", "staging", "e2e_test_suite", "cloudqa", "static" ]
+    tags: [ "pr_patch_e2e", "staging", "e2e_test_suite", "cloudqa", "static" ]
     run_on:
       - ubuntu2404-medium
     <<: *base_no_om_image_dependency
@@ -1528,7 +1531,7 @@ buildvariants:
 
   - name: e2e_mdb_kind_ubi_cloudqa_large
     display_name: e2e_mdb_kind_ubi_cloudqa_large
-    tags: [ "pr_patch", "staging", "e2e_test_suite", "cloudqa", "cloudqa_non_static" ]
+    tags: [ "pr_patch_e2e", "staging", "e2e_test_suite", "cloudqa", "cloudqa_non_static" ]
     run_on:
       - ubuntu2404-large
     <<: *base_no_om_image_dependency
@@ -1551,7 +1554,7 @@ buildvariants:
   # Asserts MC-shaped MongoDBSearch is rejected and that single-cluster search still works.
   - name: e2e_mdb_kind_ubi_cloudqa_search_block
     display_name: e2e_mdb_kind_ubi_cloudqa_search_block
-    tags: [ "pr_patch", "staging", "e2e_test_suite", "cloudqa", "cloudqa_non_static" ]
+    tags: [ "pr_patch_e2e", "staging", "e2e_test_suite", "cloudqa", "cloudqa_non_static" ]
     run_on:
       - ubuntu2404-large
     <<: *base_no_om_image_dependency
@@ -1653,7 +1656,7 @@ buildvariants:
 
   - name: e2e_om80_kind_ubi
     display_name: e2e_om80_kind_ubi
-    tags: [ "pr_patch", "staging", "e2e_test_suite" ]
+    tags: [ "pr_patch_e2e", "staging", "e2e_test_suite" ]
     run_on:
       - ubuntu2204-medium-high-memory
     <<: *base_om8_dependency
@@ -1678,7 +1681,7 @@ buildvariants:
 
   - name: e2e_om80_kind_ubi_large
     display_name: e2e_om80_kind_ubi_large
-    tags: [ "pr_patch", "staging", "e2e_test_suite" ]
+    tags: [ "pr_patch_e2e", "staging", "e2e_test_suite" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om8_dependency
@@ -1827,7 +1830,7 @@ buildvariants:
 
   - name: e2e_multi_cluster_kind
     display_name: e2e_multi_cluster_kind
-    tags: [ "pr_patch", "staging", "e2e_test_suite", "cloudqa", "cloudqa_non_static" ]
+    tags: [ "pr_patch_e2e", "staging", "e2e_test_suite", "cloudqa", "cloudqa_non_static" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om7_dependency
@@ -1845,7 +1848,7 @@ buildvariants:
 
   - name: e2e_multi_cluster_2_clusters
     display_name: e2e_multi_cluster_2_clusters
-    tags: [ "pr_patch", "staging", "e2e_test_suite", "cloudqa", "cloudqa_non_static" ]
+    tags: [ "pr_patch_e2e", "staging", "e2e_test_suite", "cloudqa", "cloudqa_non_static" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om7_dependency
@@ -1863,7 +1866,7 @@ buildvariants:
 
   - name: e2e_multi_cluster_om_appdb
     display_name: e2e_multi_cluster_om_appdb
-    tags: [ "pr_patch", "staging", "e2e_test_suite" ]
+    tags: [ "pr_patch_e2e", "staging", "e2e_test_suite" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om7_dependency
@@ -1881,7 +1884,7 @@ buildvariants:
 
   - name: e2e_multi_cluster_om_operator_not_in_mesh
     display_name: e2e_multi_cluster_om_operator_not_in_mesh
-    tags: [ "pr_patch", "staging", "e2e_test_suite" ]
+    tags: [ "pr_patch_e2e", "staging", "e2e_test_suite" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om7_dependency
@@ -1892,7 +1895,7 @@ buildvariants:
 
   - name: e2e_operator_kind_ubi_cloudqa
     display_name: e2e_operator_kind_ubi_cloudqa
-    tags: [ "pr_patch", "staging", "e2e_test_suite", "cloudqa", "cloudqa_non_static" ]
+    tags: [ "pr_patch_e2e", "staging", "e2e_test_suite", "cloudqa", "cloudqa_non_static" ]
     run_on:
       - ubuntu2404-large
     <<: *base_no_om_image_dependency
@@ -1910,7 +1913,7 @@ buildvariants:
 
   - name: e2e_operator_no_webhook_roles_cloudqa
     display_name: e2e_operator_no_webhook_roles_cloudqa
-    tags: [ "pr_patch", "staging", "e2e_test_suite", "cloudqa", "cloudqa_non_static" ]
+    tags: [ "pr_patch_e2e", "staging", "e2e_test_suite", "cloudqa", "cloudqa_non_static" ]
     run_on:
       - ubuntu2404-large
     <<: *base_no_om_image_dependency
@@ -1919,7 +1922,7 @@ buildvariants:
 
   - name: e2e_kind_olm_ubi
     display_name: e2e_kind_olm_ubi
-    tags: [ "pr_patch", "staging", "e2e_test_suite" ]
+    tags: [ "pr_patch_e2e", "staging", "e2e_test_suite" ]
     run_on:
       - ubuntu2404-large
     depends_on:
@@ -1960,7 +1963,7 @@ buildvariants:
     # This variants runs the tests from MCO with the MEKO operator binary
   - name: e2e_mco_tests
     display_name: "e2e_mco_tests"
-    tags: [ "pr_patch", "staging", "e2e_mco_test_suite" ]
+    tags: [ "pr_patch_e2e", "staging", "e2e_mco_test_suite" ]
     <<: *community_dependency
     run_on:
       - ubuntu2404-large
@@ -2002,7 +2005,7 @@ buildvariants:
   - name: init_test_run
     display_name: init_test_run
     max_hosts: -1
-    tags: [ "pr_patch", "staging" ]
+    tags: [ "pr_patch_static", "staging" ]
     run_on:
       - ubuntu2404-small
     tasks:
@@ -2064,7 +2067,7 @@ buildvariants:
     priority: 70
     display_name: run_pre_commit
     allowed_requesters: [ "patch", "github_pr" ]
-    tags: [ "pr_patch", "auto_bump" ]
+    tags: [ "pr_patch_static", "auto_bump" ]
     run_on:
       - ubuntu2404-small
     tasks:
@@ -2083,7 +2086,7 @@ buildvariants:
         variant: init_test_run
       - name: build_init_om_images_ubi
         variant: init_test_run
-    tags: [ "pr_patch", "staging" ]
+    tags: [ "pr_patch_static", "staging" ]
     run_on:
       - ubuntu2404-small
     tasks:
@@ -2139,7 +2142,7 @@ buildvariants:
 
   - name: build_om80_images
     display_name: build_om80_images
-    tags: [ "pr_patch", "staging" ]
+    tags: [ "pr_patch_static", "staging" ]
     run_on:
       - ubuntu2404-small
     tasks:
