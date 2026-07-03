@@ -139,10 +139,6 @@ spec:
             - name: MDB_OPERATOR_TELEMETRY_SEND_BASEURL
               value: "{{ $telemetry.send.baseUrl }}"
     {{- end }}
-    {{- if .Values.multiCluster.clusterClientTimeout }}
-            - name: CLUSTER_CLIENT_TIMEOUT
-              value: "{{ .Values.multiCluster.clusterClientTimeout }}"
-    {{- end }}
     {{- if .Values.multiCluster.memberClusterRequiredHealthyStreak }}
             - name: MDB_MEMBER_CLUSTER_REQUIRED_HEALTHY_STREAK
               value: "{{ .Values.multiCluster.memberClusterRequiredHealthyStreak }}"
