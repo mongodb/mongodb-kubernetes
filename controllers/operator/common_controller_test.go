@@ -83,6 +83,34 @@ func TestEnsureTagAddedDuplicates(t *testing.T) {
 	assert.Equal(t, expected, mockOm.FindGroup(om.TestGroupName).Tags)
 }
 
+func TestPrepareOpsManagerConnection_TagNamespace(t *testing.T) {
+	callPrepare := func(tagNamespace bool) *om.MockedOmConnection {
+		ctx := context.Background()
+		kubeClient, omConnectionFactory := mock.NewDefaultFakeClient()
+		controller := NewReconcileCommonController(ctx, kubeClient)
+		projectConfig, err := project.ReadProjectConfig(ctx, controller.client, kube.ObjectKey(mock.TestNamespace, mock.TestProjectConfigMapName), "mdb-name")
+		require.NoError(t, err)
+		credsConfig, err := project.ReadCredentials(ctx, controller.SecretClient, kube.ObjectKey(mock.TestNamespace, mock.TestCredentialsSecretName), &zap.SugaredLogger{})
+		require.NoError(t, err)
+		conn, _, err := connection.PrepareOpsManagerConnection(ctx, controller.SecretClient, projectConfig, credsConfig, omConnectionFactory.GetConnectionFunc, mock.TestNamespace, tagNamespace, zap.S())
+		require.NoError(t, err)
+		return conn.(*om.MockedOmConnection)
+	}
+
+	t.Run("namespace tag is added when tagNamespace is true", func(t *testing.T) {
+		mockOm := callPrepare(true)
+		tags := mockOm.FindGroup(om.TestGroupName).Tags
+		assert.Contains(t, tags, strings.ToUpper(mock.TestNamespace))
+	})
+
+	t.Run("namespace tag is not added and UpdateProject is not called when tagNamespace is false", func(t *testing.T) {
+		mockOm := callPrepare(false)
+		tags := mockOm.FindGroup(om.TestGroupName).Tags
+		assert.NotContains(t, tags, strings.ToUpper(mock.TestNamespace))
+		mockOm.CheckOperationsDidntHappen(t, reflect.ValueOf(mockOm.UpdateProject))
+	})
+}
+
 // TestPrepareOmConnection_FindExistingGroup finds existing group when org ID is specified, no new Project or Organization
 // is created
 func TestPrepareOmConnection_FindExistingGroup(t *testing.T) {
@@ -830,7 +858,7 @@ func prepareConnection(ctx context.Context, controller *ReconcileCommonControlle
 	credsConfig, err := project.ReadCredentials(ctx, controller.SecretClient, kube.ObjectKey(mock.TestNamespace, mock.TestCredentialsSecretName), &zap.SugaredLogger{})
 	assert.NoError(t, err)
 
-	conn, _, e := connection.PrepareOpsManagerConnection(ctx, controller.SecretClient, projectConfig, credsConfig, omConnectionFunc, mock.TestNamespace, zap.S())
+	conn, _, e := connection.PrepareOpsManagerConnection(ctx, controller.SecretClient, projectConfig, credsConfig, omConnectionFunc, mock.TestNamespace, true, zap.S())
 	mockOm := conn.(*om.MockedOmConnection)
 	assert.NoError(t, e)
 	return mockOm, newPodVars(conn, projectConfig, mdbv1.Warn)
@@ -870,6 +898,7 @@ func checkReconcileSuccessful(ctx context.Context, t *testing.T, reconciler reco
 	// fields common to all resource types
 	assert.Equal(t, object.Spec.Version, object.Status.Version)
 	assert.Equal(t, expectedLink, object.Status.Link)
+	assert.Equal(t, om.TestGroupID, object.Status.ProjectId)
 	assert.NotNil(t, object.Status.LastTransition)
 	assert.NotEqual(t, object.Status.LastTransition, "")
 
@@ -965,7 +994,7 @@ func getWatch(namespace string, resourceName string, t watch.Type) watch.Object 
 
 type testReconciliationResources struct {
 	Resource          *mdbv1.MongoDB
-	ReconcilerFactory func(rs *mdbv1.MongoDB) (reconcile.Reconciler, kubernetesClient.Client)
+	ReconcilerFactory func(rs *mdbv1.MongoDB, arch architectures.DefaultArchitecture) (reconcile.Reconciler, kubernetesClient.Client)
 }
 
 // agentVersionMappingTest is a helper function to verify that the version mapping mechanism works correctly in controllers
@@ -974,29 +1003,25 @@ func agentVersionMappingTest(ctx context.Context, t *testing.T, defaultResource 
 	nonExistingPath := "/foo/bar/foo"
 
 	t.Run("Static architecture, version retrieving fails, image is overriden, reconciliation should succeed", func(t *testing.T) {
-		t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.Static))
 		t.Setenv(agentVersionManagement.MappingFilePathEnv, nonExistingPath)
-		overridenReconciler, overridenClient := overridenResource.ReconcilerFactory(overridenResource.Resource)
+		overridenReconciler, overridenClient := overridenResource.ReconcilerFactory(overridenResource.Resource, architectures.Static)
 		checkReconcileSuccessful(ctx, t, overridenReconciler, overridenResource.Resource, overridenClient)
 	})
 
 	t.Run("Static architecture, version retrieving fails, image is not overriden, reconciliation should fail", func(t *testing.T) {
-		t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.Static))
 		t.Setenv(agentVersionManagement.MappingFilePathEnv, nonExistingPath)
-		defaultReconciler, defaultClient := defaultResource.ReconcilerFactory(defaultResource.Resource)
+		defaultReconciler, defaultClient := defaultResource.ReconcilerFactory(defaultResource.Resource, architectures.Static)
 		checkReconcileFailed(ctx, t, defaultReconciler, defaultResource.Resource, true, "", defaultClient)
 	})
 
 	t.Run("Static architecture, version retrieving succeeds, image is not overriden, reconciliation should succeed", func(t *testing.T) {
-		t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.Static))
-		defaultReconciler, defaultClient := defaultResource.ReconcilerFactory(defaultResource.Resource)
+		defaultReconciler, defaultClient := defaultResource.ReconcilerFactory(defaultResource.Resource, architectures.Static)
 		checkReconcileSuccessful(ctx, t, defaultReconciler, defaultResource.Resource, defaultClient)
 	})
 
 	t.Run("Non-Static architecture, version retrieving fails, image is not overriden, reconciliation should succeed", func(t *testing.T) {
-		t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.NonStatic))
 		t.Setenv(agentVersionManagement.MappingFilePathEnv, nonExistingPath)
-		defaultReconciler, defaultClient := defaultResource.ReconcilerFactory(defaultResource.Resource)
+		defaultReconciler, defaultClient := defaultResource.ReconcilerFactory(defaultResource.Resource, architectures.NonStatic)
 		checkReconcileSuccessful(ctx, t, defaultReconciler, defaultResource.Resource, defaultClient)
 	})
 }

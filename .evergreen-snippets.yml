@@ -186,11 +186,11 @@ buildvariants:
     tasks:
       - name: kind_code_snippets_task_group
 
-    #TODO: this task was disabled from automatic runs due to GKE resource issues https://jira.mongodb.org/browse/CLOUDP-345083
+    #TODO: re-enabled for staging (master merge) to gate promote; was disabled due to GKE resource issues https://jira.mongodb.org/browse/CLOUDP-345083
   - name: private_gke_code_snippets
     display_name: private_gke_code_snippets
-    tags: [ "manual_patch", "e2e_test_suite" ]
-    allowed_requesters: [ "patch" ]
+    tags: [ "manual_patch", "staging", "e2e_test_suite" ]
+    allowed_requesters: [ "patch", "commit" ]
     run_on:
       - ubuntu2404-small
     <<: *base_om8_dependency

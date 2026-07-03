@@ -252,7 +252,9 @@ def _build_om_from_source(
     """Build Ops Manager from local source using Bazel."""
     import subprocess
 
-    if not (os.path.isfile(os.path.join(om_path, "WORKSPACE")) or os.path.isfile(os.path.join(om_path, "MODULE.bazel"))):
+    if not (
+        os.path.isfile(os.path.join(om_path, "WORKSPACE")) or os.path.isfile(os.path.join(om_path, "MODULE.bazel"))
+    ):
         raise ValueError(f"Invalid ops-manager path: {om_path} (no WORKSPACE or MODULE.bazel file)")
 
     logger.info(f"Building Ops Manager from source: {om_path}")
@@ -507,21 +509,31 @@ def _build_agent_from_source(
 
     # Get source commit for labeling
     try:
-        result = subprocess.run(["git", "-C", agent_path, "rev-parse", "HEAD"], capture_output=True, text=True, check=True)
+        result = subprocess.run(
+            ["git", "-C", agent_path, "rev-parse", "HEAD"], capture_output=True, text=True, check=True
+        )
         source_commit = result.stdout.strip()
     except subprocess.CalledProcessError:
         source_commit = "unknown"
 
     # Build with docker directly to support --secret flag
     cmd = [
-        "docker", "build",
-        "--platform", platform,
-        "--build-arg", f"CACHE_BUST={int(datetime.datetime.now().timestamp())}",
-        "--secret", "id=github_token,env=GITHUB_TOKEN",
-        "--label", f"com.mongodb.source.commit={source_commit}",
-        "--label", f"com.mongodb.source.path={agent_path}",
-        "--label", f"com.mongodb.build.timestamp={datetime.datetime.now().isoformat()}",
-        "-f", "scripts/dev/agent/Dockerfile",
+        "docker",
+        "build",
+        "--platform",
+        platform,
+        "--build-arg",
+        f"CACHE_BUST={int(datetime.datetime.now().timestamp())}",
+        "--secret",
+        "id=github_token,env=GITHUB_TOKEN",
+        "--label",
+        f"com.mongodb.source.commit={source_commit}",
+        "--label",
+        f"com.mongodb.source.path={agent_path}",
+        "--label",
+        f"com.mongodb.build.timestamp={datetime.datetime.now().isoformat()}",
+        "-f",
+        "scripts/dev/agent/Dockerfile",
     ]
     for tag in tags:
         cmd.extend(["-t", tag])

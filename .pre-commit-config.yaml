@@ -102,6 +102,10 @@ repos:
       #       config/crd/bases/.*
       #     )
       - id: check-added-large-files
+        exclude: |
+          (?x)^(
+            docker/mongodb-kubernetes-tests/tests/common/search/testdata/fixtures/.*\.log$
+          )
       - id: check-merge-conflict
       - id: check-json
         exclude: |
@@ -170,7 +174,7 @@ repos:
     hooks:
       - id: govulncheck
         name: govulncheck
-        entry: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+        entry: env GOTELEMETRY=off go run golang.org/x/vuln/cmd/govulncheck@v1.3.0 ./...
         language: system
         pass_filenames: false
         files: (\.go$|^go\.(mod|sum)$)
@@ -179,8 +183,11 @@ repos:
   - repo: https://github.com/golangci/golangci-lint
     rev: v2.1.0
     hooks:
-      - id: golangci-lint
+      # golangci-lint-full (not golangci-lint) runs on the entire module rather than only
+      # files changed since HEAD, so linters that need whole-program analysis (e.g. unused,
+      # staticcheck) see the full codebase and pre-existing violations are not silently skipped.
+      - id: golangci-lint-full
         args: [--timeout=10m]
-        language_version: 1.26.3
+        language_version: 1.26.4
       - id: golangci-lint-fmt
-        language_version: 1.26.3
+        language_version: 1.26.4

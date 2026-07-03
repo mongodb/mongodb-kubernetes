@@ -21,6 +21,7 @@ import (
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
+	mdbstatus "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/user"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
@@ -203,7 +204,7 @@ func (r *MongoDBUserReconciler) Reconcile(ctx context.Context, request reconcile
 		return r.updateStatus(ctx, user, workflow.Failed(err), log)
 	}
 
-	conn, _, err := connection.PrepareOpsManagerConnection(ctx, r.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, user.Namespace, log)
+	conn, _, err := connection.PrepareOpsManagerConnection(ctx, r.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, user.Namespace, false, log)
 	if err != nil {
 		return r.updateStatus(ctx, user, workflow.Failed(xerrors.Errorf("Failed to prepare Ops Manager connection: %w", err)), log)
 	}
@@ -244,7 +245,7 @@ func (r *MongoDBUserReconciler) delete(ctx context.Context, obj interface{}, log
 		return err
 	}
 
-	_, _, err = connection.PrepareOpsManagerConnection(ctx, r.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, user.Namespace, log)
+	_, _, err = connection.PrepareOpsManagerConnection(ctx, r.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, user.Namespace, false, log)
 	if err != nil {
 		log.Errorf("Failed to prepare Ops Manager connection: %s", err)
 		return err
@@ -419,7 +420,7 @@ func (r *MongoDBUserReconciler) handleScramShaUser(ctx context.Context, user *us
 	}
 
 	log.Infof("Finished reconciliation for MongoDBUser!")
-	return r.updateStatus(ctx, user, workflow.OK(), log)
+	return r.updateStatus(ctx, user, workflow.OK(), log, mdbstatus.NewProjectIdOption(conn.GroupID()))
 }
 
 func (r *MongoDBUserReconciler) handleExternalAuthUser(ctx context.Context, user *userv1.MongoDBUser, conn om.Connection, log *zap.SugaredLogger) (reconcile.Result, error) {
@@ -469,7 +470,7 @@ func (r *MongoDBUserReconciler) handleExternalAuthUser(ctx context.Context, user
 	}
 
 	log.Infow("Finished reconciliation for MongoDBUser!")
-	return r.updateStatus(ctx, user, workflow.OK(), log)
+	return r.updateStatus(ctx, user, workflow.OK(), log, mdbstatus.NewProjectIdOption(conn.GroupID()))
 }
 
 func waitForReadyState(conn om.Connection, log *zap.SugaredLogger) error {

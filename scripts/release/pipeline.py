@@ -142,10 +142,7 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
     agent_tools_version = getattr(args, "agent_tools_version", None)
 
     # Check if this is a source build (relaxed version requirements)
-    is_source_build = (
-        getattr(args, "agent_path", None) is not None
-        or getattr(args, "om_path", None) is not None
-    )
+    is_source_build = getattr(args, "agent_path", None) is not None or getattr(args, "om_path", None) is not None
 
     # Validate version requirements
     if image == "agent":

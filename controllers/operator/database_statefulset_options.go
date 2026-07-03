@@ -4,6 +4,7 @@ import (
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 	"github.com/mongodb/mongodb-kubernetes/pkg/vault"
 )
@@ -144,5 +145,17 @@ func WithAgentDebug(debug bool) func(options *construct.DatabaseStatefulSetOptio
 func WithAgentDebugImage(debugImage string) func(options *construct.DatabaseStatefulSetOptions) {
 	return func(options *construct.DatabaseStatefulSetOptions) {
 		options.AgentDebugImage = debugImage
+	}
+}
+
+func WithDefaultArchitecture(defaultArchitecture architectures.DefaultArchitecture) func(options *construct.DatabaseStatefulSetOptions) {
+	return func(options *construct.DatabaseStatefulSetOptions) {
+		options.DefaultArchitecture = defaultArchitecture
+	}
+}
+
+func WithStsAnnotations(annotations map[string]string) func(options *construct.DatabaseStatefulSetOptions) {
+	return func(options *construct.DatabaseStatefulSetOptions) {
+		options.Annotations = annotations
 	}
 }

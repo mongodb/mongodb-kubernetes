@@ -24,6 +24,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/configmap"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 )
 
 func omStsName(name string, clusterIdx int) string {
@@ -252,7 +253,7 @@ func TestOpsManagerMultiCluster(t *testing.T) {
 	opsManager.Spec.Security.CertificatesSecretsPrefix = "om-prefix"
 	appDB := opsManager.Spec.AppDB
 
-	reconciler, omClient, _ := defaultTestOmReconciler(ctx, t, nil, "", "", opsManager, memberClusterMap, omConnectionFactory)
+	reconciler, omClient, _ := defaultTestOmReconciler(ctx, t, nil, "", "", opsManager, memberClusterMap, omConnectionFactory, architectures.NonStatic)
 
 	// prepare TLS certificates and CA in central cluster
 
@@ -352,7 +353,7 @@ func TestOpsManagerMultiClusterUnreachableNoPanic(t *testing.T) {
 	opsManager.Spec.Security.CertificatesSecretsPrefix = "om-prefix"
 	appDB := opsManager.Spec.AppDB
 
-	reconciler, omClient, _ := defaultTestOmReconciler(ctx, t, nil, "", "", opsManager, memberClusterMap, omConnectionFactory)
+	reconciler, omClient, _ := defaultTestOmReconciler(ctx, t, nil, "", "", opsManager, memberClusterMap, omConnectionFactory, architectures.NonStatic)
 
 	// prepare TLS certificates and CA in central cluster
 

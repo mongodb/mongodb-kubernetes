@@ -19,7 +19,15 @@ class ImageBuilder(object):
     def check_if_image_exists(self, image_tag: str) -> bool:
         pass
 
-    def build_image(self, tags: list[str], dockerfile: str, path: str, args: Dict[str, str], platforms: list[str], labels: Dict[str, str] = None):
+    def build_image(
+        self,
+        tags: list[str],
+        dockerfile: str,
+        path: str,
+        args: Dict[str, str],
+        platforms: list[str],
+        labels: Dict[str, str] = None,
+    ):
         pass
 
     # check_if_image_exists could easily be used to get the digest of manfiest list but
@@ -169,7 +177,15 @@ class DockerImageBuilder(ImageBuilder):
         cache_from_refs, cache_to_refs = build_cache_configuration(base_registry)
         return cache_from_refs, cache_to_refs
 
-    def build_image(self, tags: list[str], dockerfile: str, path: str, args: Dict[str, str], platforms: list[str], labels: Dict[str, str] = None):
+    def build_image(
+        self,
+        tags: list[str],
+        dockerfile: str,
+        path: str,
+        args: Dict[str, str],
+        platforms: list[str],
+        labels: Dict[str, str] = None,
+    ):
         """
         Build a Docker image using python_on_whales and Docker Buildx for multi-architecture support.
 
@@ -244,7 +260,15 @@ class PodmanImageBuilder(ImageBuilder):
             "PodmanImageBuilder does not support getting digest for manifest list, use docker image builder instead."
         )
 
-    def build_image(self, tags: list[str], dockerfile: str, path: str, args: Dict[str, str], platforms: list[str], labels: Dict[str, str] = None):
+    def build_image(
+        self,
+        tags: list[str],
+        dockerfile: str,
+        path: str,
+        args: Dict[str, str],
+        platforms: list[str],
+        labels: Dict[str, str] = None,
+    ):
         if len(platforms) > 1:
             raise Exception("PodmanImageBuilder currently supports only single platform builds.")
 

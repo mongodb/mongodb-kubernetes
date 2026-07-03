@@ -111,12 +111,16 @@ def mdb(namespace: str, ca_configmap: str, issuer_ca_configmap: str, helper: Sea
 @fixture(scope="function")
 def mdbs(namespace: str, mdb: MongoDB, helper: SearchDeploymentHelper) -> MongoDBSearch:
     resource = helper.mdbs_for_ext_rs_source(mongot_user_name=MONGOT_USER_NAME, members=RS_MEMBERS)
-    resource["spec"]["replicas"] = 2
-    resource["spec"]["loadBalancer"] = {
-        "unmanaged": {
-            "endpoint": f"{ENVOY_PROXY_SVC_NAME}.{namespace}.svc.cluster.local:{ENVOY_PROXY_PORT}",
+    resource["spec"]["clusters"] = [
+        {
+            "replicas": 2,
+            "loadBalancer": {
+                "unmanaged": {
+                    "endpoint": f"{ENVOY_PROXY_SVC_NAME}.{namespace}.svc.cluster.local:{ENVOY_PROXY_PORT}",
+                }
+            },
         }
-    }
+    ]
     resource["spec"]["security"] = {"tls": {"certificateKeySecretRef": {"name": MDBS_TLS_SECRET_NAME}}}
     return resource
 
@@ -133,14 +137,14 @@ def user(helper: SearchDeploymentHelper) -> MongoDBUser:
 
 @fixture(scope="function")
 def mongot_user(helper: SearchDeploymentHelper, mdbs: MongoDBSearch) -> MongoDBUser:
-    return helper.mongot_user_resource(mdbs, MONGOT_USER_NAME)
+    return helper.mongot_user_resource(mdbs.name, MONGOT_USER_NAME)
 
 
 @mark.e2e_search_replicaset_external_mongodb_multi_mongot_unmanaged_lb
 def test_install_operator(namespace: str, operator_installation_config: dict[str, str]):
     """Test that the operator is installed and running."""
     operator = get_default_operator(namespace, operator_installation_config=operator_installation_config)
-    operator.assert_is_running()
+    operator.wait_for_operator_ready()
 
 
 @mark.e2e_search_replicaset_external_mongodb_multi_mongot_unmanaged_lb

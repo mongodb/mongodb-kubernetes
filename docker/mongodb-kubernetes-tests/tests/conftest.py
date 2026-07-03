@@ -8,7 +8,7 @@ from http import HTTPStatus
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterator, List, Optional
 
-from dotenv import load_dotenv  # ty: ignore[unresolved-import]
+from dotenv import load_dotenv
 
 if os.environ.get("PYTEST_OTEL_ENABLED", "true") == "false":
     # otel_plugin.py requires pytest-opentelemetry which is disabled via PYTEST_OTEL_ENABLED=false on s390x.
@@ -40,6 +40,8 @@ def _load_env_from_local_file_for_development():
 
 
 _load_env_from_local_file_for_development()
+
+logging.getLogger("kubernetes.client.rest").setLevel(logging.WARNING)
 
 import kubernetes
 import kubernetes.client.rest
@@ -665,22 +667,26 @@ def get_multi_cluster_operator(
     member_cluster_clients: List[MultiClusterClient],
     member_cluster_names: List[str],
     apply_crds_first: bool = False,
+    watched_resources: Optional[List[str]] = None,
 ) -> Operator:
     os.environ["HELM_KUBECONTEXT"] = central_cluster_name
 
     # when running with the local operator, this is executed by scripts/dev/prepare_local_e2e_run.sh
     if not local_operator():
         run_kube_config_creation_tool(member_cluster_names, namespace, namespace, member_cluster_names)
+    helm_opts = {
+        "operator.name": MULTI_CLUSTER_OPERATOR_NAME,
+        # override the serviceAccountName for the operator deployment
+        "operator.createOperatorServiceAccount": "false",
+    }
+    if watched_resources is not None:
+        helm_opts["operator.watchedResources"] = "{" + ",".join(watched_resources) + "}"
     return _install_multi_cluster_operator(
         namespace,
         multi_cluster_operator_installation_config,
         central_cluster_client,
         member_cluster_clients,
-        {
-            "operator.name": MULTI_CLUSTER_OPERATOR_NAME,
-            # override the serviceAccountName for the operator deployment
-            "operator.createOperatorServiceAccount": "false",
-        },
+        helm_opts,
         central_cluster_name,
         apply_crds_first=apply_crds_first,
     )
@@ -964,7 +970,7 @@ def install_legacy_deployment_state_meko(
         operator_name=LEGACY_OPERATOR_NAME,
         operator_image=LEGACY_OPERATOR_IMAGE_NAME,
     )
-    operator.assert_is_running()
+    operator.wait_for_operator_ready()
     # Dumping deployments in logs ensures we are using the correct operator version
     log_deployments_info(namespace)
 

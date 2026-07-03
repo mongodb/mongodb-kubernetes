@@ -58,6 +58,40 @@ func TestMergeMaps(t *testing.T) {
 		src["nestedMap"].(map[string]interface{})["newkey"] = 80
 		assert.Empty(t, ReadMapValueAsInterface(dst, "nestedMap", "newkey"))
 	})
+	t.Run("Nil src value deletes key from dst", func(t *testing.T) {
+		dst := map[string]interface{}{
+			"systemLog": map[string]interface{}{
+				"verbosity": 4,
+				"logAppend": true,
+			},
+		}
+		src := map[string]interface{}{
+			"systemLog": map[string]interface{}{
+				"verbosity": nil,
+				"logAppend": true,
+			},
+		}
+		MergeMaps(dst, src)
+		_, hasVerbosity := dst["systemLog"].(map[string]interface{})["verbosity"]
+		assert.False(t, hasVerbosity, "nil src value must remove the key from dst")
+		assert.Equal(t, true, dst["systemLog"].(map[string]interface{})["logAppend"])
+	})
+	t.Run("Nil src value is no-op when key already absent from dst", func(t *testing.T) {
+		dst := map[string]interface{}{
+			"systemLog": map[string]interface{}{
+				"logAppend": true,
+			},
+		}
+		src := map[string]interface{}{
+			"systemLog": map[string]interface{}{
+				"verbosity": nil,
+				"logAppend": true,
+			},
+		}
+		MergeMaps(dst, src)
+		_, hasVerbosity := dst["systemLog"].(map[string]interface{})["verbosity"]
+		assert.False(t, hasVerbosity, "nil src value must leave key absent when it was not in dst")
+	})
 	t.Run("Fails if destination is not map", func(t *testing.T) {
 		dst := map[string]interface{}{"nestedMap": "foo"}
 		src := mapForTest()

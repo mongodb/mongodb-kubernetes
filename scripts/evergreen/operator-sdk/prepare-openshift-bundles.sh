@@ -24,8 +24,12 @@ bundle_dockerfile="bundle/${VERSION}/bundle.Dockerfile"
 bundle_csv_file="bundle/${VERSION}/manifests/mongodb-kubernetes.clusterserviceversion.yaml"
 
 echo "Aligning metadata.annotations.containerImage version with deployment's image in ${bundle_csv_file}"
-operator_deployment_image=$(yq '.spec.install.spec.deployments[0].spec.template.spec.containers[0].image' < "${bundle_csv_file}")
+operator_deployment_image=$(yq '.spec.install.spec.deployments[] | select(.name == "mongodb-kubernetes-operator") | .spec.template.spec.containers[0].image' < "${bundle_csv_file}")
 yq e ".metadata.annotations.containerImage = \"${operator_deployment_image}\"" -i "${bundle_csv_file}"
+
+echo "Setting installation-method annotation to 'olm' in deployment pod template in ${bundle_csv_file}"
+yq e '(.spec.install.spec.deployments[] | select(.name == "mongodb-kubernetes-operator") | .spec.template.metadata.annotations."mongodb.com/installation-method") = "olm"' \
+  -i "${bundle_csv_file}"
 
 echo "Edited CSV: ${bundle_csv_file}"
 cat "${bundle_csv_file}"
@@ -42,10 +46,10 @@ echo "Running digest pinning for certified bundle"
 # This can fail during the release because the latest image is not available yet and will be available the next day/next daily rebuild.
 # We decided to skip digest pinning during the as it is a post-processing step and it should be fine to skip it when testing OLM during the release.
 if [[ "${DIGEST_PINNING_ENABLED:-"true"}" == "true" ]]; then
-  operator_image=$(yq ".spec.install.spec.deployments[0].spec.template.spec.containers[0].image" < ./bundle/"${VERSION}"/manifests/mongodb-kubernetes.clusterserviceversion.yaml)
+  operator_image=$(yq '.spec.install.spec.deployments[] | select(.name == "mongodb-kubernetes-operator") | .spec.template.spec.containers[0].image' < ./bundle/"${VERSION}"/manifests/mongodb-kubernetes.clusterserviceversion.yaml)
   operator_annotation_image=$(yq ".metadata.annotations.containerImage" < ./bundle/"${VERSION}"/manifests/mongodb-kubernetes.clusterserviceversion.yaml)
   if [[ "${operator_image}" != "${operator_annotation_image}" ]]; then
-    echo "Inconsistent operator images in CSV (.spec.install.spec.deployments[0].spec.template.spec.containers[0].image=${operator_image}, .metadata.annotations.containerImage=${operator_annotation_image})"
+    echo "Inconsistent operator images in CSV (.spec.install.spec.deployments[mongodb-kubernetes-operator].spec.template.spec.containers[0].image=${operator_image}, .metadata.annotations.containerImage=${operator_annotation_image})"
     cat ./bundle/"${VERSION}"/manifests/mongodb-kubernetes.clusterserviceversion.yaml
     exit 1
   fi

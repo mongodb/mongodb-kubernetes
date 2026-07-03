@@ -38,19 +38,19 @@ generate_standalone_yaml() {
   )
 
   # generate normal public example
-  helm template --namespace mongodb -f helm_chart/values.yaml helm_chart --output-dir "${charttmpdir}" "$@"
+  helm template --namespace mongodb -f helm_chart/values.yaml helm_chart --output-dir "${charttmpdir}" --set operator.installationMethod=yaml "$@"
   cat "${FILES[@]}" >public/mongodb-kubernetes.yaml
   cat "helm_chart/crds/"* >public/crds.yaml
 
   # generate openshift public example
   rm -rf "${charttmpdir:?}"/*
-  helm template --namespace mongodb -f helm_chart/values.yaml helm_chart --output-dir "${charttmpdir}" --values helm_chart/values-openshift.yaml "$@"
+  helm template --namespace mongodb -f helm_chart/values.yaml helm_chart --output-dir "${charttmpdir}" --values helm_chart/values-openshift.yaml --set operator.installationMethod=yaml "$@"
   cat "${FILES[@]}" >public/mongodb-kubernetes-openshift.yaml
 
   # generate openshift files for kustomize used for generating OLM bundle
   rm -rf "${charttmpdir:?}"/*
   helm template --namespace mongodb -f helm_chart/values.yaml helm_chart --output-dir "${charttmpdir}" --values helm_chart/values-openshift.yaml \
-    --set operator.webhook.registerConfiguration=false --set operator.webhook.installClusterRole=false "$@"
+    --set operator.webhook.registerConfiguration=false --set operator.webhook.installClusterRole=false --set operator.installationMethod=yaml "$@"
 
   # update kustomize files for OLM bundle with files generated for openshift
   cp "${charttmpdir}/mongodb-kubernetes/templates/operator.yaml" config/manager/manager.yaml
@@ -62,7 +62,7 @@ generate_standalone_yaml() {
 
   # generate multi-cluster public example
   rm -rf "${charttmpdir:?}"/*
-  helm template --namespace mongodb -f helm_chart/values.yaml helm_chart --output-dir "${charttmpdir}" --values helm_chart/values-multi-cluster.yaml "$@"
+  helm template --namespace mongodb -f helm_chart/values.yaml helm_chart --output-dir "${charttmpdir}" --values helm_chart/values-multi-cluster.yaml --set operator.installationMethod=yaml "$@"
   cat "${FILES[@]}" >public/mongodb-kubernetes-multi-cluster.yaml
 }
 

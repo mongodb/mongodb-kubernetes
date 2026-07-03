@@ -66,14 +66,12 @@ def mdbs(namespace: str, mdbc: MongoDBCommunity) -> MongoDBSearch:
         f"{mdbc.name}-{i}.{mdbc.name}-svc.{namespace}.svc.cluster.local:27017" for i in range(mdbc["spec"]["members"])
     ]
 
-    resource["spec"] = {
-        "source": {
-            "external": {
-                "hostAndPorts": seeds,
-            },
-            "passwordSecretRef": {"name": f"{MDBC_RESOURCE_NAME}-{MONGOT_USER_NAME}-password", "key": "password"},
-            "username": MONGOT_USER_NAME,
-        }
+    resource["spec"]["source"] = {
+        "external": {
+            "hostAndPorts": seeds,
+        },
+        "passwordSecretRef": {"name": f"{MDBC_RESOURCE_NAME}-{MONGOT_USER_NAME}-password", "key": "password"},
+        "username": MONGOT_USER_NAME,
     }
 
     return resource
@@ -82,7 +80,7 @@ def mdbs(namespace: str, mdbc: MongoDBCommunity) -> MongoDBSearch:
 @mark.e2e_search_community_external_mongod_basic
 def test_install_operator(namespace: str, operator_installation_config: dict[str, str]):
     operator = get_default_operator(namespace, operator_installation_config=operator_installation_config)
-    operator.assert_is_running()
+    operator.wait_for_operator_ready()
 
 
 @mark.e2e_search_community_external_mongod_basic

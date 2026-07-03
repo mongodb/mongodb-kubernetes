@@ -62,7 +62,6 @@ const (
 
 	LogFileAutomationAgentEnv        = "MDB_LOG_FILE_AUTOMATION_AGENT"
 	LogFileAutomationAgentVerboseEnv = "MDB_LOG_FILE_AUTOMATION_AGENT_VERBOSE"
-	LogFileAutomationAgentStderrEnv  = "MDB_LOG_FILE_AUTOMATION_AGENT_STDERR"
 	LogFileMongoDBAuditEnv           = "MDB_LOG_FILE_MONGODB_AUDIT"
 	LogFileMongoDBEnv                = "MDB_LOG_FILE_MONGODB"
 	LogFileAgentMonitoringEnv        = "MDB_LOG_FILE_MONITORING_AGENT"
@@ -122,8 +121,15 @@ type DatabaseStatefulSetOptions struct {
 	StatefulSetNameOverride       string // this needs to be overriden of the
 	HostNameOverrideConfigmapName string
 
-	AgentDebug      bool
-	AgentDebugImage string
+	AgentDebug          bool
+	AgentDebugImage     string
+	DefaultArchitecture architectures.DefaultArchitecture
+}
+
+func WithDefaultArchitecture(defaultArchitecture architectures.DefaultArchitecture) func(options *DatabaseStatefulSetOptions) {
+	return func(options *DatabaseStatefulSetOptions) {
+		options.DefaultArchitecture = defaultArchitecture
+	}
 }
 
 func (d DatabaseStatefulSetOptions) IsMongos() bool {
@@ -238,9 +244,10 @@ func shardedOptions(cfg shardedOptionCfg, additionalOpts ...func(options *Databa
 	opts := DatabaseStatefulSetOptions{
 		Name:                    cfg.rsName,
 		ServiceName:             cfg.serviceName,
+		Annotations:             map[string]string{"type": "ShardedCluster"},
 		PodSpec:                 NewDefaultPodSpecWrapper(podSpec),
 		ServicePort:             cfg.componentSpec.GetAdditionalMongodConfig().GetPortOrDefault(),
-		OwnerReference:          kube.BaseOwnerReference(&cfg.mdb),
+		OwnerReference:          cfg.mdb.OwnerReferenceForMemberCluster(),
 		AgentConfig:             cfg.componentSpec.GetAgentConfig(),
 		StatefulSetSpecOverride: statefulSetSpecOverride,
 		Labels:                  cfg.mdb.Labels,
@@ -485,7 +492,7 @@ func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource
 
 	var databaseImage string
 	var staticMods []podtemplatespec.Modification
-	if architectures.IsRunningStaticArchitecture(mdb.GetAnnotations()) {
+	if architectures.IsRunningStaticArchitecture(mdb.GetAnnotations(), opts.DefaultArchitecture) {
 		shareProcessNs = func(sts *appsv1.StatefulSet) {
 			sts.Spec.Template.Spec.ShareProcessNamespace = ptr.To(true)
 		}
@@ -692,7 +699,7 @@ func getVolumesAndVolumeMounts(mdb databaseStatefulSetSource, databaseOpts Datab
 // buildMongoDBPodTemplateSpec constructs the podTemplateSpec for the MongoDB resource
 func buildMongoDBPodTemplateSpec(opts DatabaseStatefulSetOptions, mdb databaseStatefulSetSource) podtemplatespec.Modification {
 	var modifications podtemplatespec.Modification
-	if architectures.IsRunningStaticArchitecture(mdb.GetAnnotations()) {
+	if architectures.IsRunningStaticArchitecture(mdb.GetAnnotations(), opts.DefaultArchitecture) {
 		modifications = buildStaticArchitecturePodTemplateSpec(opts, mdb)
 	} else {
 		modifications = buildNonStaticArchitecturePodTemplateSpec(opts, mdb)
@@ -721,7 +728,7 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 		container.WithLivenessProbe(DatabaseLivenessProbe()),
 		container.WithEnvs(startupParametersToAgentFlag(opts.AgentConfig.StartupParameters)),
 		container.WithEnvs(logConfigurationToEnvVars(opts.AgentConfig.StartupParameters, opts.AdditionalMongodConfig)...),
-		container.WithEnvs(staticContainersEnvVars(mdb)...),
+		container.WithEnvs(staticContainersEnvVars(mdb, opts.DefaultArchitecture)...),
 		container.WithEnvs(readinessEnvironmentVariablesToEnvVars(opts.AgentConfig.ReadinessProbe.EnvironmentVariables)...),
 		container.WithCommand([]string{"/usr/local/bin/agent-launcher-shim.sh"}),
 		container.WithVolumeMounts(volumeMounts),
@@ -793,7 +800,7 @@ func buildNonStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, 
 		container.WithLivenessProbe(DatabaseLivenessProbe()),
 		container.WithEnvs(startupParametersToAgentFlag(opts.AgentConfig.StartupParameters)),
 		container.WithEnvs(logConfigurationToEnvVars(opts.AgentConfig.StartupParameters, opts.AdditionalMongodConfig)...),
-		container.WithEnvs(staticContainersEnvVars(mdb)...),
+		container.WithEnvs(staticContainersEnvVars(mdb, opts.DefaultArchitecture)...),
 		container.WithEnvs(readinessEnvironmentVariablesToEnvVars(opts.AgentConfig.ReadinessProbe.EnvironmentVariables)...),
 	)}
 
@@ -921,9 +928,9 @@ func logConfigurationToEnvVars(parameters mdbv1.StartupParameters, additionalMon
 	return envVars
 }
 
-func staticContainersEnvVars(mdb databaseStatefulSetSource) []corev1.EnvVar {
+func staticContainersEnvVars(mdb databaseStatefulSetSource, defaultArchitecture architectures.DefaultArchitecture) []corev1.EnvVar {
 	var envVars []corev1.EnvVar
-	if architectures.IsRunningStaticArchitecture(mdb.GetAnnotations()) {
+	if architectures.IsRunningStaticArchitecture(mdb.GetAnnotations(), defaultArchitecture) {
 		envVars = append(envVars, corev1.EnvVar{Name: "MDB_STATIC_CONTAINERS_ARCHITECTURE", Value: "true"})
 	}
 	return envVars
@@ -955,10 +962,8 @@ func getAutomationLogEnvVars(parameters mdbv1.StartupParameters) []corev1.EnvVar
 	logFileWithoutExt := logFileName[0 : len(logFileName)-len(logFileExt)]
 
 	verboseLogFile := fmt.Sprintf("%s%s-verbose%s", logFileDir, logFileWithoutExt, logFileExt)
-	stderrLogFile := fmt.Sprintf("%s%s-stderr%s", logFileDir, logFileWithoutExt, logFileExt)
 	return []corev1.EnvVar{
 		{Name: LogFileAutomationAgentVerboseEnv, Value: verboseLogFile},
-		{Name: LogFileAutomationAgentStderrEnv, Value: stderrLogFile},
 		{Name: LogFileAutomationAgentEnv, Value: automationLogFile},
 	}
 }
@@ -1110,5 +1115,6 @@ func GetNonPersistentAgentVolumeMounts(volumes []corev1.Volume, volumeMounts []c
 	volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.PvMms, util.PvcMmsHomeMountPath, statefulset.WithSubPath(util.PvcMmsHome)))
 
 	volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.PvMms, util.PvcMountPathTmp, statefulset.WithSubPath(util.PvcNameTmp)))
+
 	return volumes, volumeMounts
 }

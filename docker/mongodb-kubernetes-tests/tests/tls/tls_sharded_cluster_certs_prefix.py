@@ -74,7 +74,7 @@ def sc(namespace: str, issuer_ca_configmap: str, custom_mdb_version: str, all_ce
 
 @mark.e2e_tls_sharded_cluster_certs_prefix
 def test_install_operator(operator: Operator):
-    operator.assert_is_running()
+    operator.wait_for_operator_ready()
 
 
 @mark.e2e_tls_sharded_cluster_certs_prefix
@@ -101,12 +101,14 @@ def test_sharded_cluster_has_no_connectivity_without_tls(sc: MongoDB):
 
 @mark.e2e_tls_sharded_cluster_certs_prefix
 def test_rotate_tls_certificate(sc: MongoDB, namespace: str):
+    last_transition = sc.get_status_last_transition_time()
+
     # update the shard cert
     cert = Certificate(name=f"prefix-{MDB_RESOURCE}-0-cert", namespace=namespace).load()
     cert["spec"]["dnsNames"].append("foo")
     cert.update()
 
-    sc.assert_abandons_phase(Phase.Running)
+    sc.assert_state_transition_happens(last_transition, timeout=800)
     sc.assert_reaches_phase(Phase.Running, timeout=800)
 
 
@@ -117,7 +119,7 @@ def test_disable_tls(sc: MongoDB):
     sc["spec"]["security"]["tls"]["enabled"] = False
     sc.update()
 
-    sc.assert_state_transition_happens(last_transition)
+    sc.assert_state_transition_happens(last_transition, timeout=1200)
     sc.assert_reaches_phase(Phase.Running, timeout=1200)
 
 

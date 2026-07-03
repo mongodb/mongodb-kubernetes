@@ -38,7 +38,7 @@ set_auto_recreate() {
 }
 
 # Detect architecture from the environment
-ARCH=$(detect_architecture)
+ARCH=$(detect_architecture standard)
 echo "Detected architecture: ${ARCH}"
 
 download_kind() {

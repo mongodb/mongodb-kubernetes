@@ -30,8 +30,6 @@ import pytest
 from botocore.config import Config as BotoConfig
 from kubernetes import client as k8s_client
 from kubernetes.stream import stream
-from pytest import fixture, mark
-
 from kubetester import create_or_update_secret, try_load
 from kubetester.create_or_replace_from_yaml import create_or_replace_from_yaml
 from kubetester.kubetester import KubernetesTester
@@ -41,6 +39,7 @@ from kubetester.mongodb_user import MongoDBUser
 from kubetester.mongotester import with_scram
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
+from pytest import fixture, mark
 
 # ── resource names ──────────────────────────────────────────────────────────
 ACTIVE_RS_NAME = "monarch-active-rs"
@@ -196,11 +195,16 @@ def _wait_for_deployment_ready(namespace: str, name: str, timeout: int = 120):
                 for previous in (True, False):
                     try:
                         log = core.read_namespaced_pod_log(
-                            pod.metadata.name, namespace,
-                            container=cs.name, tail_lines=30, previous=previous,
+                            pod.metadata.name,
+                            namespace,
+                            container=cs.name,
+                            tail_lines=30,
+                            previous=previous,
                         )
                         if log.strip():
-                            diag.append(f"  --- {cs.name} {'previous' if previous else 'current'} log (last 30 lines) ---")
+                            diag.append(
+                                f"  --- {cs.name} {'previous' if previous else 'current'} log (last 30 lines) ---"
+                            )
                             for line in log.splitlines():
                                 diag.append(f"    {line}")
                             break
@@ -211,8 +215,7 @@ def _wait_for_deployment_ready(namespace: str, name: str, timeout: int = 120):
         diag.append(f"  (diagnostic-tail failed: {e})")
 
     raise TimeoutError(
-        f"Deployment {name} not fully ready after {timeout}s (ready={ready}/{desired})\n"
-        + "\n".join(diag)
+        f"Deployment {name} not fully ready after {timeout}s (ready={ready}/{desired})\n" + "\n".join(diag)
     )
 
 
@@ -259,9 +262,7 @@ def _wait_for_s3_data(namespace: str, timeout: int = 300, expected_shard_ids: tu
         if not pending:
             return
         time.sleep(5)
-    raise TimeoutError(
-        f"No S3 objects after {timeout}s for shard(s) {sorted(pending)} — shipper may not be running"
-    )
+    raise TimeoutError(f"No S3 objects after {timeout}s for shard(s) {sorted(pending)} — shipper may not be running")
 
 
 def _dr_state_key(cluster_name: str) -> str:
@@ -289,9 +290,7 @@ def _write_dr_state(namespace: str, cluster_name: str, state: str, previous_stat
     )
 
 
-def _wait_for_snapshot_complete_marker(
-    namespace: str, timeout: int = 600, expected_shard_ids: tuple = (SHARD_ID,)
-):
+def _wait_for_snapshot_complete_marker(namespace: str, timeout: int = 600, expected_shard_ids: tuple = (SHARD_ID,)):
     """Poll S3 for at least one `backups/checkpoint_<ts>_v1/complete` marker
     under each expected shard's prefix.
 
@@ -444,9 +443,7 @@ def _dump_failure_summary(namespace: str, test_name: str):
             for i in range(3):
                 pod_name = f"{rs_name}-{i}"
                 try:
-                    log = core.read_namespaced_pod_log(
-                        pod_name, namespace, container="mongodb-agent", tail_lines=2000
-                    )
+                    log = core.read_namespaced_pod_log(pod_name, namespace, container="mongodb-agent", tail_lines=2000)
                 except Exception:
                     continue
                 last_failure = None
@@ -458,9 +455,7 @@ def _dump_failure_summary(namespace: str, test_name: str):
 
         # 3. Operator-managed Monarch ConfigMaps
         f.write("\n\n=== Monarch ConfigMaps ===\n")
-        cms = core.list_namespaced_config_map(
-            namespace, label_selector="monarch-component"
-        )
+        cms = core.list_namespaced_config_map(namespace, label_selector="monarch-component")
         for cm in cms.items:
             f.write(f"\n--- {cm.metadata.name} ---\n")
             for k, v in (cm.data or {}).items():
@@ -483,9 +478,7 @@ def _dump_failure_summary(namespace: str, test_name: str):
         f.write("\n\n=== MongoDB CR status conditions ===\n")
         for rs_name in (ACTIVE_RS_NAME, STANDBY_RS_NAME):
             try:
-                cr = custom.get_namespaced_custom_object(
-                    "mongodb.com", "v1", namespace, "mongodb", rs_name
-                )
+                cr = custom.get_namespaced_custom_object("mongodb.com", "v1", namespace, "mongodb", rs_name)
             except Exception as e:
                 f.write(f"{rs_name}: (read failed: {e})\n")
                 continue
@@ -522,6 +515,7 @@ def _assert_monarch_config_keys(namespace: str, rs_name: str, role: str, require
     secret = core.read_namespaced_secret(secret_name, namespace)
     # Secret data is base64-encoded by Kubernetes
     import base64
+
     config_bytes = (secret.data or {}).get("config.yaml", b"")
     config = base64.b64decode(config_bytes).decode("utf-8") if config_bytes else ""
     present = [
@@ -605,18 +599,14 @@ def _dump_monarch_health(namespace: str, test_name: str):
                     continue
 
                 # Find a ready pod and exec curl against the health endpoint.
-                pods = core.list_namespaced_pod(
-                    namespace, label_selector=f"app=monarch-{role},mongodb={rs_name}"
-                )
+                pods = core.list_namespaced_pod(namespace, label_selector=f"app=monarch-{role},mongodb={rs_name}")
                 f.write(f"pods: {[p.metadata.name for p in pods.items]}\n")
                 for pod in pods.items:
                     f.write(f"\n--- {pod.metadata.name} status ---\n")
                     f.write(f"phase: {pod.status.phase}\n")
                     if pod.status.container_statuses:
                         for cs in pod.status.container_statuses:
-                            state = "running" if cs.state.running else (
-                                "waiting" if cs.state.waiting else "terminated"
-                            )
+                            state = "running" if cs.state.running else ("waiting" if cs.state.waiting else "terminated")
                             reason = ""
                             if cs.state.waiting and cs.state.waiting.reason:
                                 reason = f" ({cs.state.waiting.reason}: {cs.state.waiting.message})"
@@ -626,15 +616,18 @@ def _dump_monarch_health(namespace: str, test_name: str):
                     # Hit the in-cluster health endpoint by exec'ing curl in the
                     # Monarch pod itself (it has the binary as part of the image).
                     svc_dns = f"{rs_name}-monarch-{role}-svc.{namespace}.svc.cluster.local"
-                    for endpoint in (f"http://{svc_dns}:8080/api/v1/status",
-                                     f"http://{svc_dns}:1122/api/v1/status"):
+                    for endpoint in (f"http://{svc_dns}:8080/api/v1/status", f"http://{svc_dns}:1122/api/v1/status"):
                         f.write(f"\n--- curl {endpoint} ---\n")
                         try:
                             resp = stream(
                                 core.connect_get_namespaced_pod_exec,
-                                pod.metadata.name, namespace,
+                                pod.metadata.name,
+                                namespace,
                                 command=["curl", "-sS", "--max-time", "5", endpoint],
-                                stderr=True, stdin=False, stdout=True, tty=False,
+                                stderr=True,
+                                stdin=False,
+                                stdout=True,
+                                tty=False,
                                 _preload_content=True,
                             )
                             f.write(resp or "(empty response)\n")
@@ -900,7 +893,7 @@ class TestMonarchInjector(KubernetesTester):
         """
         standby_rs.update()
         standby_rs.assert_reaches_phase(Phase.Running, timeout=600)
-        _wait_for_monarch_condition(standby_rs) # <-- TODO: a recent changeset broke this
+        _wait_for_monarch_condition(standby_rs)  # <-- TODO: a recent changeset broke this
         _wait_for_deployment_ready(namespace, f"{STANDBY_RS_NAME}-monarch-injector", timeout=300)
 
     def test_standby_fcbis_marker_present(self, standby_rs: MongoDB, namespace: str):
@@ -927,10 +920,14 @@ class TestMonarchInjector(KubernetesTester):
                     # Static architecture runs mongod inside mongodb-agent container
                     resp = stream(
                         core.connect_get_namespaced_pod_exec,
-                        pod_name, namespace,
+                        pod_name,
+                        namespace,
                         container="mongodb-agent",
                         command=["sh", "-c", f"test -f {marker_path} && echo present || echo missing"],
-                        stderr=True, stdin=False, stdout=True, tty=False,
+                        stderr=True,
+                        stdin=False,
+                        stdout=True,
+                        tty=False,
                         _preload_content=True,
                     )
                     if (resp or "").strip() == "present":
@@ -939,8 +936,7 @@ class TestMonarchInjector(KubernetesTester):
                     last_err = repr(e)
             time.sleep(10)
         raise AssertionError(
-            f"FCBIS marker {marker_path} not present on any standby member after 600s. "
-            f"Last exec error: {last_err}"
+            f"FCBIS marker {marker_path} not present on any standby member after 600s. " f"Last exec error: {last_err}"
         )
 
     def test_injector_config_has_required_keys(self, standby_rs: MongoDB, namespace: str):
@@ -975,7 +971,9 @@ class TestMonarchInjector(KubernetesTester):
         # validation even when there are no shards to ship.
         assert "shipperConfig" not in mc[0]
 
-    def test_standby_has_no_primary_all_secondary(self, standby_rs: MongoDB, standby_test_user: MongoDBUser, namespace: str):
+    def test_standby_has_no_primary_all_secondary(
+        self, standby_rs: MongoDB, standby_test_user: MongoDBUser, namespace: str
+    ):
         """Monarch standby invariant: no member is electable, so no PRIMARY is
         ever elected and every mongod member must report SECONDARY with health=1.
 
@@ -1022,13 +1020,12 @@ class TestMonarchInjector(KubernetesTester):
                 # mongod wire protocol — that's expected, not a topology bug.
                 mongod_members = [m for m in status.get("members", []) if ":27017" in m.get("name", "")]
                 if mongod_members and all(
-                    m.get("stateStr") == "SECONDARY" and m.get("health") == 1
-                    for m in mongod_members
+                    m.get("stateStr") == "SECONDARY" and m.get("health") == 1 for m in mongod_members
                 ):
                     # Also assert no member ever advertised as PRIMARY.
-                    assert not any(m.get("stateStr") == "PRIMARY" for m in status.get("members", [])), (
-                        f"Standby has a PRIMARY (forbidden by Monarch design): {status['members']}"
-                    )
+                    assert not any(
+                        m.get("stateStr") == "PRIMARY" for m in status.get("members", [])
+                    ), f"Standby has a PRIMARY (forbidden by Monarch design): {status['members']}"
                     return
             except pymongo.errors.PyMongoError as e:
                 last_error = repr(e)
@@ -1116,8 +1113,7 @@ def _wait_for_s3_state(namespace: str, cluster_name: str, expected_state: str, t
             pass
         time.sleep(5)
     raise TimeoutError(
-        f"S3 DR state for {cluster_name} did not reach {expected_state} after {timeout}s "
-        f"(last seen: {last_seen})"
+        f"S3 DR state for {cluster_name} did not reach {expected_state} after {timeout}s " f"(last seen: {last_seen})"
     )
 
 
@@ -1139,6 +1135,7 @@ def _verify_post_promotion_state(self, standby_rs: MongoDB):
             if cond.get("type") == "ShipperReady" and cond.get("status") == "True":
                 return True
         return False
+
     standby_rs.wait_for(has_shipper_ready, timeout=600, should_raise=True)
 
     # Injector deleted — both Deployment AND any lingering Pods. K8s analogue of
@@ -1174,6 +1171,7 @@ def _verify_post_promotion_state(self, standby_rs: MongoDB):
             return resource["status"].get("monarch", {}).get("observedS3State", "") == "Active"
         except (KeyError, TypeError):
             return False
+
     standby_rs.wait_for(has_observed_active, timeout=120, should_raise=True)
 
 
@@ -1202,8 +1200,7 @@ class TestMonarchPromotionViaCR(KubernetesTester):
         # asserts the auto-seed actually happened rather than trusting the docstring.
         pre_state = _read_dr_state_full(namespace, STANDBY_RS_NAME)
         assert pre_state.get("state") == "Standby", (
-            f"DR state must be Standby before CR-driven promotion (auto-seed regression?): "
-            f"{pre_state}"
+            f"DR state must be Standby before CR-driven promotion (auto-seed regression?): " f"{pre_state}"
         )
         TestMonarchPromotionViaCR._pre_trigger_dr_state = pre_state
         standby_rs.load()
@@ -1243,8 +1240,9 @@ class TestMonarchPromotionViaCR(KubernetesTester):
         conditions = resource["status"].get("conditions", []) if "status" in resource else []
         for cond in conditions:
             if cond.get("type") == "SpecOutOfSync":
-                assert cond.get("status") != "True", \
-                    f"SpecOutOfSync should not be True after CR-driven promotion: {cond}"
+                assert (
+                    cond.get("status") != "True"
+                ), f"SpecOutOfSync should not be True after CR-driven promotion: {cond}"
 
 
 @mark.e2e_replica_set_monarch

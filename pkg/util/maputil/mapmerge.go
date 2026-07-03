@@ -31,6 +31,8 @@ func MergeMaps(dst, src map[string]interface{}) {
 				dstMap := dst[key].(map[string]interface{})
 				MergeMaps(dstMap, t)
 			}
+		case nil:
+			delete(dst, key)
 		default:
 			{
 				dst[key] = castValue(dst[key], t)

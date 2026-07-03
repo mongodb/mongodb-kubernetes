@@ -99,6 +99,8 @@ func traverse(currentValue interface{}, currentPath []string) []string {
 			}
 			return allPaths
 		}
+	case nil:
+		return []string{}
 	default:
 		{
 			// We found the "terminal" node in the map - need to dump the current path

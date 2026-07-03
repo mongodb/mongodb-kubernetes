@@ -53,9 +53,9 @@ func updateConfFile(confFile string) error {
 	}
 
 	newMmsJvmParams := fmt.Sprintf(propOverwriteFmt, confFilePropertyName, confFilePropertyName, jvmParams)
-	fmt.Printf("Appending %s to %s\n", newMmsJvmParams, confFile)
+	fmt.Printf("Writing %s to %s\n", newMmsJvmParams, confFile)
 
-	return appendLinesToFile(confFile, getJvmParamDocString()+newMmsJvmParams+lineBreak)
+	return writeJvmParamsToFile(confFile, getJvmParamDocString()+newMmsJvmParams+lineBreak)
 }
 
 // getHostnameFQDN returns the FQDN name for this Pod, which is the Pod's hostname
@@ -152,18 +152,46 @@ func writeLinesToFile(name string, lines []string) error {
 	return nil
 }
 
-func appendLinesToFile(name string, lines string) error {
-	f, err := os.OpenFile(name, os.O_APPEND|os.O_WRONLY, 0o644)
+// writeJvmParamsToFile strips any previously written operator JVM blocks from
+// the conf file, then writes the cleaned content back together with the new
+// block. This ensures the file stays idempotent across multiple pod cycles.
+func writeJvmParamsToFile(name string, block string) error {
+	existing, err := os.ReadFile(name)
 	if err != nil {
-		return xerrors.Errorf("error opening file %s: %w", name, err)
+		return xerrors.Errorf("error reading file %s: %w", name, err)
 	}
 
-	if _, err = f.WriteString(lines); err != nil {
+	cleaned := removeOperatorJvmBlocks(string(existing))
+
+	err = os.WriteFile(name, []byte(cleaned+block), 0o644) // nolint:gosec
+	if err != nil {
 		return xerrors.Errorf("error writing to file %s: %w", name, err)
 	}
+	return nil
+}
 
-	err = f.Close()
-	return err
+// removeOperatorJvmBlocks removes every JVM parameter block that a previous
+// operator run wrote into the conf file. Each block begins with the banner
+// produced by getJvmParamDocString and is followed by a single parameter line.
+// Removing all existing copies before writing a fresh one keeps the file from
+// growing unboundedly across pod restarts.
+func removeOperatorJvmBlocks(content string) string {
+	docString := getJvmParamDocString()
+	for {
+		before, after, found := strings.Cut(content, docString)
+		if !found {
+			break
+		}
+		// Drop the single param line that follows the banner.
+		_, tail, _ := strings.Cut(after, lineBreak)
+		content = before + tail
+	}
+	return content
+}
+
+func getJvmParamDocString() string {
+	commentMarker := strings.Repeat("#", 55)
+	return fmt.Sprintf("%s\n## This is the custom JVM configuration set by the Operator\n%s\n\n", commentMarker, commentMarker)
 }
 
 func getOmPropertiesFromEnvVars() map[string]string {
@@ -204,11 +232,6 @@ func updateMmsProperties(lines []string, newProperties map[string]string) []stri
 		}
 	}
 	return lines
-}
-
-func getJvmParamDocString() string {
-	commentMarker := strings.Repeat("#", 55)
-	return fmt.Sprintf("%s\n## This is the custom JVM configuration set by the Operator\n%s\n\n", commentMarker, commentMarker)
 }
 
 func main() {

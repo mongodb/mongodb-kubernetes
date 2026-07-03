@@ -34,10 +34,10 @@ func New(dryRun bool, workDir string) *Runner {
 // Exec runs a command for its side effects, honoring DryRun.
 func (r *Runner) Exec(ctx context.Context, name string, args ...string) error {
 	if r.DryRun {
-		fmt.Fprintf(r.LogOut, "[dry-run] would run: %s\n", format(name, args))
+		_, _ = fmt.Fprintf(r.LogOut, "[dry-run] would run: %s\n", format(name, args))
 		return nil
 	}
-	fmt.Fprintf(r.LogOut, "→ %s\n", format(name, args))
+	_, _ = fmt.Fprintf(r.LogOut, "→ %s\n", format(name, args))
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = r.WorkDir
 	cmd.Stdout = r.Stdout
