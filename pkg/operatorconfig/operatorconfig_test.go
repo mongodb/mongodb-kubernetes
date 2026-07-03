@@ -35,6 +35,48 @@ func TestLoad_AbsentCR(t *testing.T) {
 	assert.Equal(t, operatorv1.ArchitectureNonStatic, cfg.Spec.DefaultArchitecture)
 	assert.Equal(t, 1, cfg.Spec.MaxConcurrentReconciles)
 	assert.Equal(t, operatorv1.AllWatchedResources, cfg.Spec.WatchedResources)
+	// MultiCluster is a pointer; withDefaults must materialise it and default the timeout
+	require.NotNil(t, cfg.Spec.MultiCluster)
+	assert.Equal(t, 10, cfg.Spec.MultiCluster.MemberClusterClientTimeout)
+}
+
+func TestLoad_MemberClusterClientTimeout(t *testing.T) {
+	t.Run("omitted multiCluster block defaults to 10", func(t *testing.T) {
+		cr := &operatorv1.OperatorConfig{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      util.DefaultOperatorConfigName,
+				Namespace: testNamespace,
+			},
+		}
+		c := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(cr).Build()
+
+		cfg, err := Load(context.Background(), c, testNamespace, util.DefaultOperatorConfigName)
+
+		require.NoError(t, err)
+		require.NotNil(t, cfg.Spec.MultiCluster)
+		assert.Equal(t, 10, cfg.Spec.MultiCluster.MemberClusterClientTimeout)
+	})
+
+	t.Run("explicit value is preserved", func(t *testing.T) {
+		cr := &operatorv1.OperatorConfig{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      util.DefaultOperatorConfigName,
+				Namespace: testNamespace,
+			},
+			Spec: operatorv1.OperatorConfigSpec{
+				MultiCluster: &operatorv1.MultiClusterConfig{
+					MemberClusterClientTimeout: 42,
+				},
+			},
+		}
+		c := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(cr).Build()
+
+		cfg, err := Load(context.Background(), c, testNamespace, util.DefaultOperatorConfigName)
+
+		require.NoError(t, err)
+		require.NotNil(t, cfg.Spec.MultiCluster)
+		assert.Equal(t, 42, cfg.Spec.MultiCluster.MemberClusterClientTimeout)
+	})
 }
 
 func TestLoad_PresentCR(t *testing.T) {
