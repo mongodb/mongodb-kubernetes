@@ -64,3 +64,18 @@ updates:
       - dependencies
       - python
       - skip-changelog
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      github-actions-deps:
+        applies-to: "version-updates"
+        patterns:
+          - "*"
+    labels:
+      - dependencies
+      - github_actions
+      - skip-changelog
