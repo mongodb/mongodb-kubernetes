@@ -215,6 +215,8 @@ func run() error {
 	// operatorconfig.Load guarantees MultiCluster is non-nil and defaulted.
 	memberClusterClientTimeout := operatorCfg.Spec.MultiCluster.MemberClusterClientTimeout
 
+	requiredHealthyStreak := operatorCfg.Spec.MultiCluster.MemberClusterRequiredHealthyStreak
+
 	// The CRDs the operator reconciles are configured via OperatorConfig.spec.watchedResources
 	watchedResources := make([]string, len(operatorCfg.Spec.WatchedResources))
 	for i, r := range operatorCfg.Spec.WatchedResources {
@@ -303,7 +305,7 @@ func run() error {
 		}
 	}
 	if slices.Contains(watchedResources, mongoDBMultiClusterCRDPlural) {
-		if err := setupMongoDBMultiClusterCRD(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, memberClusterClientTimeout, memberClusterObjectsMap, operatorCfg.Spec.MaxConcurrentReconciles); err != nil {
+		if err := setupMongoDBMultiClusterCRD(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, requiredHealthyStreak, memberClusterClientTimeout, memberClusterObjectsMap, operatorCfg.Spec.MaxConcurrentReconciles); err != nil {
 			return err
 		}
 	}
@@ -312,7 +314,7 @@ func run() error {
 		if operatorClusterName != "" {
 			log.Infof("Per-cluster operator mode enabled for MongoDBSearch: operator cluster identity = %q", operatorClusterName)
 		}
-		if err := setupMongoDBSearchCRD(ctx, mgr, memberClusterObjectsMap, operatorClusterName, operatorCfg.Spec.MaxConcurrentReconciles, memberClusterClientTimeout); err != nil {
+		if err := setupMongoDBSearchCRD(ctx, mgr, memberClusterObjectsMap, operatorClusterName, operatorCfg.Spec.MaxConcurrentReconciles, memberClusterClientTimeout, requiredHealthyStreak); err != nil {
 			return err
 		}
 	}
@@ -427,8 +429,7 @@ func setupMongoDBUserCRD(ctx context.Context, mgr manager.Manager, memberCluster
 	return operator.AddMongoDBUserController(ctx, mgr, memberClusterObjectsMap, backupEnableDelay, maxConcurrentReconciles)
 }
 
-func setupMongoDBMultiClusterCRD(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, memberClusterClientTimeout int, memberClusterObjectsMap map[string]runtime_cluster.Cluster, maxConcurrentReconciles int) error {
-	requiredHealthyStreak := env.ReadIntOrDefault(util.RequiredHealthyStreakEnv, util.DefaultRequiredHealthyStreak)
+func setupMongoDBMultiClusterCRD(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, requiredHealthyStreak int, memberClusterClientTimeout int, memberClusterObjectsMap map[string]runtime_cluster.Cluster, maxConcurrentReconciles int) error {
 	if err := operator.AddMultiReplicaSetController(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, requiredHealthyStreak, memberClusterClientTimeout, memberClusterObjectsMap, maxConcurrentReconciles); err != nil {
 		return err
 	}
@@ -449,12 +450,13 @@ func setupMongoDBSearchCRD(
 	operatorClusterName string,
 	maxConcurrentReconciles int,
 	memberClusterClientTimeout int,
+	requiredHealthyStreak int,
 ) error {
 	if err := operator.AddMongoDBSearchController(ctx, mgr, searchcontroller.OperatorSearchConfig{
 		SearchRepo:    env.ReadOrPanic(util.SearchRepoURLEnv),
 		SearchName:    env.ReadOrPanic(util.SearchNameEnv),
 		SearchVersion: env.ReadOrPanic(util.SearchVersionEnv),
-	}, memberClusterObjectsMap, operatorClusterName, maxConcurrentReconciles, memberClusterClientTimeout); err != nil {
+	}, memberClusterObjectsMap, operatorClusterName, maxConcurrentReconciles, memberClusterClientTimeout, requiredHealthyStreak); err != nil {
 		return err
 	}
 
