@@ -9,11 +9,6 @@ set -Eeou pipefail
 source scripts/dev/set_env_context.sh
 source scripts/funcs/printing
 
-# Activate virtual environment if it exists
-if [ -f "${PROJECT_DIR}/venv/bin/activate" ]; then
-  source "${PROJECT_DIR}/venv/bin/activate"
-fi
-
 # Ensure prek is installed
 if ! command -v prek &>/dev/null; then
   echo "prek not found, please run scripts/evergreen/setup_prek.sh first" >&2
