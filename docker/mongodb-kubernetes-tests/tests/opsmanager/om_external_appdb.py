@@ -303,11 +303,11 @@ class TestPITR:
         external_appdb_tester.create_restore_job_pit(_pitr_pit_millis)
 
     def test_primary_om_recovers_after_pitr(self, external_appdb_tester: OMTester, ops_manager: MongoDBOpsManager):
-        """om-primary-db goes down during PITR restore; Primary OM loses its AppDB connection
-        and enters an error state. Wait for restore to complete and Primary OM to recover."""
+        """Wait for PITR restore to complete (backup returns to STARTED) and verify Primary OM
+        is still operational. With externalApplicationDatabaseRef the operator does not set OM
+        status to non-Running during the restore, so we skip assert_abandons_phase."""
         external_appdb_tester.wait_until_backup_running(timeout=3600)
-        ops_manager.om_status().assert_abandons_phase(Phase.Running, timeout=600)
-        ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=3600)
+        ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=600)
 
     def test_witness_data_restored(self, primary_appdb_collection):
         """Verify the witness document is present after PITR.
