@@ -25,7 +25,7 @@ def build_kubectl_plugin(local_dir: str, platforms: list[str], version: str):
             "-o",
             output_path,
             f"-ldflags=-X github.com/mongodb/mongodb-kubernetes/pkg/util.OperatorVersion={version}",
-            "./cmd/kubectl-mongodb"
+            "./cmd/kubectl-mongodb",
         ]
 
         env = os.environ.copy()
