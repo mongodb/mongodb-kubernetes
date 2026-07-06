@@ -37,6 +37,7 @@ group = TaskGroup(
     setup_group=[
         FunctionCall("clone"),
         FunctionCall("download_kube_tools"),
+        FunctionCall("switch_context"),
         FunctionCall("setup_building_host"),
     ],
     setup_task=[
