@@ -11,6 +11,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/ldap"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
 func loadTestAutomationConfig(t *testing.T, filename string) *om.AutomationConfig {
@@ -22,8 +23,48 @@ func loadTestAutomationConfig(t *testing.T, filename string) *om.AutomationConfi
 	return ac
 }
 
+// baseValidReplicaSetAC returns a minimal single-replica-set automation config that passes
+// ValidateMigration with no errors. Tests mutate one field to exercise a single validator,
+// so the mutation is the only thing that can trip the validation.
+func baseValidReplicaSetAC() *om.AutomationConfig {
+	ac := om.NewAutomationConfig(om.Deployment{
+		"options": map[string]interface{}{"downloadBase": util.PvcMmsMountPath},
+		"processes": []interface{}{
+			map[string]interface{}{
+				"name": "my-rs-0", "processType": string(om.ProcessTypeMongod),
+				"version": "7.0.12-ent", "authSchemaVersion": 5,
+				"args2_6": map[string]interface{}{
+					"net":         map[string]interface{}{"port": 27017, "tls": map[string]interface{}{"mode": "requireSSL"}},
+					"storage":     map[string]interface{}{"dbPath": "/data/db"},
+					"replication": map[string]interface{}{"replSetName": "my-rs"},
+				},
+			},
+		},
+		"replicaSets": []interface{}{
+			map[string]interface{}{
+				"_id": "my-rs", "protocolVersion": "1",
+				"members": []interface{}{
+					map[string]interface{}{"_id": 0, "host": "my-rs-0", "votes": 1, "priority": 1, "buildIndexes": true, "tags": map[string]string{}},
+				},
+			},
+		},
+		"sharding": []interface{}{},
+	})
+	ac.Auth = &om.Auth{
+		Disabled:          false,
+		AutoUser:          util.AutomationAgentName,
+		AutoAuthMechanism: "SCRAM-SHA-256",
+		KeyFile:           util.AutomationAgentKeyFilePathInContainer,
+		KeyFileWindows:    util.AutomationAgentWindowsKeyFilePath,
+		Users: []*om.MongoDBUser{
+			{Username: util.AutomationAgentName, Database: util.DefaultUserDatabase},
+		},
+	}
+	return ac
+}
+
 func TestValidation_OneDeploymentPerProject_SingleRS(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/complex_replicaset/complex_replicaset_input.json")
+	ac := baseValidReplicaSetAC()
 
 	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
 	for _, r := range results {
@@ -220,7 +261,7 @@ func TestValidation_NoReplicaSets(t *testing.T) {
 }
 
 func TestValidation_NonDefaultKeyFile(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/complex_replicaset/complex_replicaset_input.json")
+	ac := baseValidReplicaSetAC()
 	ac.Auth.KeyFile = "/custom/path/keyfile"
 
 	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
@@ -235,7 +276,7 @@ func TestValidation_NonDefaultKeyFile(t *testing.T) {
 }
 
 func TestValidation_NonDefaultCAFilePath(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/complex_replicaset/complex_replicaset_input.json")
+	ac := baseValidReplicaSetAC()
 	ac.AgentSSL.CAFilePath = "/etc/ssl/ca.pem"
 
 	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
@@ -250,7 +291,7 @@ func TestValidation_NonDefaultCAFilePath(t *testing.T) {
 }
 
 func TestValidation_NonDefaultDownloadBase(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/complex_replicaset/complex_replicaset_input.json")
+	ac := baseValidReplicaSetAC()
 	options := ac.Deployment["options"].(map[string]interface{})
 	options["downloadBase"] = "/opt/mongodb/automation"
 	ac.Deployment["options"] = options
@@ -267,7 +308,7 @@ func TestValidation_NonDefaultDownloadBase(t *testing.T) {
 }
 
 func TestValidation_NonDefaultKeyFileWindows(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/complex_replicaset/complex_replicaset_input.json")
+	ac := baseValidReplicaSetAC()
 	ac.Auth.KeyFileWindows = "C:\\custom\\keyfile"
 
 	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
@@ -281,7 +322,7 @@ func TestValidation_NonDefaultKeyFileWindows(t *testing.T) {
 }
 
 func TestValidation_NonDefaultAuthSchemaVersion(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/complex_replicaset/complex_replicaset_input.json")
+	ac := baseValidReplicaSetAC()
 	processes := ac.Deployment.GetProcesses()
 	processes[0]["authSchemaVersion"] = 3
 
@@ -297,7 +338,7 @@ func TestValidation_NonDefaultAuthSchemaVersion(t *testing.T) {
 }
 
 func TestValidation_NonDefaultMonitoringAgentLogPath(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/complex_replicaset/complex_replicaset_input.json")
+	ac := baseValidReplicaSetAC()
 	monitoringConfig := &om.MonitoringAgentConfig{
 		BackingMap: map[string]interface{}{"logPath": "/var/log/mongodb/monitoring.log"},
 	}
@@ -314,7 +355,7 @@ func TestValidation_NonDefaultMonitoringAgentLogPath(t *testing.T) {
 }
 
 func TestValidation_NonDefaultBackupAgentLogPath(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/complex_replicaset/complex_replicaset_input.json")
+	ac := baseValidReplicaSetAC()
 	backupConfig := &om.BackupAgentConfig{
 		BackingMap: map[string]interface{}{"logPath": "/var/log/mongodb/backup.log"},
 	}
@@ -331,7 +372,7 @@ func TestValidation_NonDefaultBackupAgentLogPath(t *testing.T) {
 }
 
 func TestValidation_ValidConfig_NoErrors(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/complex_replicaset/complex_replicaset_input.json")
+	ac := baseValidReplicaSetAC()
 
 	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
 	for _, r := range results {
@@ -340,7 +381,7 @@ func TestValidation_ValidConfig_NoErrors(t *testing.T) {
 }
 
 func TestValidation_LdapBindMethodSASL(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/complex_replicaset/complex_replicaset_input.json")
+	ac := baseValidReplicaSetAC()
 	ac.Ldap = &ldap.Ldap{
 		Servers:    "ldap.example.com:636",
 		BindMethod: "sasl",
@@ -359,7 +400,7 @@ func TestValidation_LdapBindMethodSASL(t *testing.T) {
 }
 
 func TestValidation_LdapBindMethodSimple_NoWarning(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/complex_replicaset/complex_replicaset_input.json")
+	ac := baseValidReplicaSetAC()
 	ac.Ldap = &ldap.Ldap{
 		Servers:    "ldap.example.com:636",
 		BindMethod: "simple",
@@ -374,7 +415,7 @@ func TestValidation_LdapBindMethodSimple_NoWarning(t *testing.T) {
 }
 
 func TestValidation_LdapCaFileContents(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/complex_replicaset/complex_replicaset_input.json")
+	ac := baseValidReplicaSetAC()
 	ac.Ldap = &ldap.Ldap{
 		Servers:        "ldap.example.com:636",
 		CaFileContents: "-----BEGIN CERTIFICATE-----\nMIIC...\n-----END CERTIFICATE-----",
@@ -393,7 +434,7 @@ func TestValidation_LdapCaFileContents(t *testing.T) {
 }
 
 func TestValidation_LdapNoCaFileContents_NoWarning(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/complex_replicaset/complex_replicaset_input.json")
+	ac := baseValidReplicaSetAC()
 	ac.Ldap = &ldap.Ldap{
 		Servers: "ldap.example.com:636",
 	}
@@ -407,7 +448,7 @@ func TestValidation_LdapNoCaFileContents_NoWarning(t *testing.T) {
 }
 
 func TestValidation_NilLdap_NoWarning(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/complex_replicaset/complex_replicaset_input.json")
+	ac := baseValidReplicaSetAC()
 	ac.Ldap = nil
 
 	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
@@ -433,7 +474,7 @@ func TestValidateAgentTLS_WarnsAboutGeneratedServerTLSResources(t *testing.T) {
 }
 
 func TestValidation_RequireTLS_NoWarning(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/complex_replicaset/complex_replicaset_input.json")
+	ac := baseValidReplicaSetAC()
 
 	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
 	for _, r := range results {
@@ -508,7 +549,7 @@ func TestCheckTLS_TLSEnabled_NoWarning(t *testing.T) {
 }
 
 func TestValidation_EmptyAutoUser(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/complex_replicaset/complex_replicaset_input.json")
+	ac := baseValidReplicaSetAC()
 	ac.Auth.AutoUser = ""
 
 	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
@@ -522,7 +563,7 @@ func TestValidation_EmptyAutoUser(t *testing.T) {
 }
 
 func TestValidation_AutoUserNotInUsersWanted(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/complex_replicaset/complex_replicaset_input.json")
+	ac := baseValidReplicaSetAC()
 	ac.Auth.AutoUser = "nonexistent-agent"
 
 	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
@@ -536,7 +577,7 @@ func TestValidation_AutoUserNotInUsersWanted(t *testing.T) {
 }
 
 func TestValidation_AutoUserMatchesUsersWanted_NoError(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/complex_replicaset/complex_replicaset_input.json")
+	ac := baseValidReplicaSetAC()
 
 	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
 	for _, r := range results {
@@ -547,7 +588,7 @@ func TestValidation_AutoUserMatchesUsersWanted_NoError(t *testing.T) {
 }
 
 func TestValidation_X509AutoUser_NotInUsersWanted_Error(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/complex_replicaset/complex_replicaset_input.json")
+	ac := baseValidReplicaSetAC()
 	ac.Auth.AutoUser = "CN=mms-automation-agent,OU=test,O=cluster.local"
 	ac.Auth.AutoAuthMechanism = "MONGODB-X509"
 	ac.Auth.Users = nil
@@ -564,7 +605,7 @@ func TestValidation_X509AutoUser_NotInUsersWanted_Error(t *testing.T) {
 }
 
 func TestValidation_X509AutoUser_InUsersWanted_NoError(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/complex_replicaset/complex_replicaset_input.json")
+	ac := baseValidReplicaSetAC()
 	ac.Auth.AutoUser = "CN=mms-automation-agent,OU=test,O=cluster.local"
 	ac.Auth.AutoAuthMechanism = "MONGODB-X509"
 	ac.Auth.Users = []*om.MongoDBUser{

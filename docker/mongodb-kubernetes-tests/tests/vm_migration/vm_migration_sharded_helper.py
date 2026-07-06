@@ -21,11 +21,15 @@ from tests.vm_migration.vm_migration_common_helper import (
     generated_mongodb_doc,
 )
 
-MIN_K8S_CONFIGSRV = 5
-MIN_K8S_SHARD = 3
+# The counts are sized so the voting limit test can trip the config server and a shard
+# independently through the shared spec.memberConfig: the config server uses all of its
+# entries while a shard only uses the first MIN_K8S_SHARD, leaving two config server only
+# entries. See assert_max_voting_members_validation for the arithmetic.
+MIN_K8S_CONFIGSRV = 6
+MIN_K8S_SHARD = 4
 MIN_K8S_MONGOS = 2
 MIN_VM_CONFIGSRV = 3
-MIN_VM_SHARD = 3
+MIN_VM_SHARD = 4
 MIN_VM_MONGOS = 2
 
 
