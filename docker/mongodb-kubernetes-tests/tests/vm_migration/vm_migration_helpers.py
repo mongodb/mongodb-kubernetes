@@ -294,7 +294,13 @@ def vm_replica_set_tester(namespace: str, use_ssl: bool = False, ca_path: Option
     return MongoTester(cnx_string, use_ssl, ca_path)
 
 
+MIGRATION_IMPORT_TOOL_VERSION_ANNOTATION = "mongodb.com/migrate-tool-version"
 MIGRATION_DRY_RUN_ANNOTATION = "mongodb.com/migration-dry-run"
+
+
+def assert_migration_tool_version_annotation(generated_cr: dict, version: str) -> None:
+    assert MIGRATION_IMPORT_TOOL_VERSION_ANNOTATION in generated_cr["metadata"]["annotations"]
+    assert generated_cr["metadata"]["annotations"][MIGRATION_IMPORT_TOOL_VERSION_ANNOTATION] == version
 
 
 def assert_migration_dry_run_annotation(generated_cr_yaml: str) -> None:
@@ -325,9 +331,10 @@ def assert_generated_member_config_omitted(generated_cr: dict) -> None:
 
 
 def assert_common_generated_cr_shape(
-    generated_cr_yaml: str, generated_cr: dict, expected_external_members: int = 3
+    generated_cr_yaml: str, generated_cr: dict, version: str, expected_external_members: int = 3
 ) -> None:
     assert_migration_dry_run_annotation(generated_cr_yaml)
+    assert_migration_tool_version_annotation(generated_cr, version)
     assert_generated_external_members(generated_cr, expected_count=expected_external_members)
     assert_generated_member_config_omitted(generated_cr)
 

@@ -35,8 +35,8 @@ from tests.conftest import (
     get_operator_installation_config,
     is_multi_cluster,
 )
-from tests.tls.vm_migration_dry_run import run_migration_dry_run_connectivity_passes
 from tests.tls.vm_migration_sharded_ac import build_sharded_cluster_ac
+from tests.vm_migration.vm_migration_dry_run import run_migration_dry_run_connectivity_passes
 
 MONGOD_STS_NAME = "vm-sharded-mongod"
 MONGOS_STS_NAME = "vm-sharded-mongos"
