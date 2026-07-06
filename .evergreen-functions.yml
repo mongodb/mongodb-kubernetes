@@ -284,6 +284,16 @@ functions:
         - ${workdir}/bin
       command: scripts/dev/setup_chart_testing_cli.sh
 
+  setup_prek: &setup_prek
+    command: subprocess.exec
+    type: setup
+    retry_on_failure: true
+    params:
+      working_dir: src/github.com/mongodb/mongodb-kubernetes
+      add_to_path:
+        - ${workdir}/bin
+      binary: scripts/evergreen/setup_prek.sh
+
   lint_repo:
     - command: subprocess.exec
       type: setup
@@ -293,6 +303,7 @@ functions:
           - ${workdir}/bin
         command: scripts/evergreen/setup_yq.sh
     - *setup_chart_testing_cli
+    - *setup_prek
     - command: subprocess.exec
       type: test
       params:
