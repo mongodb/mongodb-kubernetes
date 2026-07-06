@@ -2,28 +2,47 @@ package telemetry
 
 import "time"
 
-// Helm Chart Settings
+// BaseUrl is an internal, undocumented env var used only to point telemetry at a mock
+// endpoint in tests. Production uses the Atlas SDK default (https://cloud.mongodb.com/).
+// All other telemetry settings are configured via the OperatorConfig CR.
 const (
-	Enabled             = "MDB_OPERATOR_TELEMETRY_ENABLED"
-	BaseUrl             = "MDB_OPERATOR_TELEMETRY_SEND_BASEURL"
-	KubeTimeout         = "MDB_OPERATOR_TELEMETRY_KUBE_TIMEOUT"
-	CollectionFrequency = "MDB_OPERATOR_TELEMETRY_COLLECTION_FREQUENCY"
-	SendEnabled         = "MDB_OPERATOR_TELEMETRY_SEND_ENABLED"
-	SendFrequency       = "MDB_OPERATOR_TELEMETRY_SEND_FREQUENCY"
+	BaseUrl = "MDB_OPERATOR_TELEMETRY_SEND_BASEURL"
 )
 
-// Default Settings
+// Default Settings. These are only used as defensive fallbacks in the runtime; the
+// authoritative defaults are applied when loading the OperatorConfig CR.
 const (
-	DefaultCollectionFrequency    = 1 * time.Hour
-	DefaultCollectionFrequencyStr = "1h"
-	DefaultSendFrequencyStr       = "168h"
-	DefaultSendFrequency          = time.Hour * 168
+	DefaultCollectionFrequency = 1 * time.Hour
+	DefaultSendFrequency       = time.Hour * 168
+	DefaultKubeTimeout         = 5 * time.Minute
 )
 
 const (
 	OperatorConfigMapTelemetryConfigMapName = "mongodb-enterprise-operator-telemetry"
 )
 
-func IsTelemetryActivated() bool {
-	return ReadBoolWithTrueAsDefault(Enabled)
+// Config is the resolved telemetry configuration sourced from the OperatorConfig CR
+// (OperatorConfig.spec.telemetry). It is passed into the telemetry runnable at startup.
+type Config struct {
+	CollectionFrequency time.Duration
+	KubeTimeout         time.Duration
+	CollectClusters     bool
+	CollectDeployments  bool
+	CollectOperators    bool
+	SendEnabled         bool
+	SendFrequency       time.Duration
+}
+
+// collectionEnabled reports whether collection of the given event type is enabled.
+func (c Config) collectionEnabled(eventType EventType) bool {
+	switch eventType {
+	case Clusters:
+		return c.CollectClusters
+	case Deployments:
+		return c.CollectDeployments
+	case Operators:
+		return c.CollectOperators
+	default:
+		return false
+	}
 }

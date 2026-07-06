@@ -136,6 +136,13 @@ type TelemetryCollectionConfig struct {
 	// +kubebuilder:validation:XValidation:rule="duration(self) >= duration('1m')",message="frequency must be at least 1m"
 	Frequency *metav1.Duration `json:"frequency,omitempty"`
 
+	// KubeTimeout is the timeout for Kubernetes API calls made while collecting telemetry.
+	// Duration using h (hours), m (minutes) and s (seconds) units, e.g. "30s", "5m". Must be at least 1s; defaults to 5m when omitted.
+	// +optional
+	// +kubebuilder:default="5m"
+	// +kubebuilder:validation:XValidation:rule="duration(self) >= duration('1s')",message="kubeTimeout must be at least 1s"
+	KubeTimeout *metav1.Duration `json:"kubeTimeout,omitempty"`
+
 	// Clusters controls collection of cluster-level telemetry.
 	// +optional
 	Clusters *TelemetryCollectionClustersConfig `json:"clusters,omitempty"`
