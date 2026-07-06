@@ -35,12 +35,11 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
+	opMigration "github.com/mongodb/mongodb-kubernetes/controllers/operator/migration"
 	enterprisepem "github.com/mongodb/mongodb-kubernetes/controllers/operator/pem"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
-	opMigration "github.com/mongodb/mongodb-kubernetes/controllers/operator/migration"
-	pkgMigration "github.com/mongodb/mongodb-kubernetes/pkg/migration"
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
@@ -52,6 +51,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/commoncontroller"
+	pkgMigration "github.com/mongodb/mongodb-kubernetes/pkg/migration"
 	"github.com/mongodb/mongodb-kubernetes/pkg/passwordhash"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
@@ -1533,13 +1533,13 @@ func (r *ReconcileCommonController) runConnectivityJob(
 
 	switch result.Phase {
 	case status.MigrationPhaseConnectivityCheckRunning:
-		return workflow.ConnectivityValidation("Connectivity validation in progress. Remove annotation %s to run full reconciliation", opMigration.AnnotationDryRun).
+		return workflow.ConnectivityValidation("Connectivity validation in progress. Remove annotation %s to run full reconciliation", util.MigrationDryRunAnnotation).
 			WithRetry(30).
 			WithAdditionalOptions(status.NewMigrationConditionOption(status.MigrationCondition(
 				status.MigrationPhaseConnectivityCheckRunning, "Running", "Connectivity validation Job is in progress",
 			)))
 	case status.MigrationPhaseConnectivityCheckPassed:
-		return workflow.ConnectivityValidation("Connectivity validation passed. Remove annotation %s to continue with migration", opMigration.AnnotationDryRun).
+		return workflow.ConnectivityValidation("Connectivity validation passed. Remove annotation %s to continue with migration", util.MigrationDryRunAnnotation).
 			WithAdditionalOptions(status.NewMigrationConditionOption(status.MigrationCondition(
 				status.MigrationPhaseConnectivityCheckPassed, result.Reason, result.Message,
 			)))

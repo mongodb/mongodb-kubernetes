@@ -51,7 +51,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct/scalers/interfaces"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/controlledfeature"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/create"
-	opMigration "github.com/mongodb/mongodb-kubernetes/controllers/operator/migration"
 	enterprisepem "github.com/mongodb/mongodb-kubernetes/controllers/operator/pem"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/project"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/recovery"
@@ -925,7 +924,7 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 	r.automationAgentVersion = automationAgentVersion
 
 	// Connectivity dry-run: handle before any reconciliation that modifies state.
-	if sc.Annotations[opMigration.AnnotationDryRun] == "true" {
+	if sc.Annotations[util.MigrationDryRunAnnotation] == "true" {
 		if result := controlledfeature.ClearFeatureControls(conn, conn.OpsManagerVersion(), log); !result.IsOK() {
 			result.Log(log)
 			log.Warnf("Failed to clear feature control from group: %s", conn.GroupID())

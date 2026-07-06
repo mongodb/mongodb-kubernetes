@@ -302,6 +302,13 @@ const (
 	LastAchievedRsMemberIds = "mongodb.com/v1.lastAchievedRsMemberIds"
 	LastConfiguredRoles     = "mongodb.com/v1.lastConfiguredRoles"
 
+	// Migration annotation keys. MigrationDryRunAnnotation triggers migration dry-run mode: when set to "true"
+	// on a MongoDB CR, the operator launches a connectivity validation Job instead of performing the
+	// normal reconciliation that would write to Ops Manager or modify StatefulSets.
+	// MigrateToolVersionAnnotation records the version of the import tool that generated the resource.
+	MigrationDryRunAnnotation    = "mongodb.com/migration-dry-run"
+	MigrateToolVersionAnnotation = "mongodb.com/migrate-tool-version"
+
 	// SecretVolumeName is the name of the volume resource.
 	SecretVolumeName = "secret-certs"
 

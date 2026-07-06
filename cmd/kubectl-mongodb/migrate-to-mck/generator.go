@@ -32,9 +32,6 @@ const (
 	LdapCAConfigMapName          = "ldap-ca"
 	LdapCAKey                    = "ca.pem"
 
-	migrateToolVersionAnnotation = "mongodb.com/migrate-tool-version"
-	MigrationDryRunAnnotation    = "mongodb.com/migration-dry-run"
-
 	externalDatabase = "$external" // MongoDB virtual database for X.509 and LDAP users.
 
 	// passwordSecretDataKey is the Secret data key used for all generated and referenced password Secrets.
@@ -172,8 +169,8 @@ func buildCRObjectMeta(name, namespace string) metav1.ObjectMeta {
 		Name:      name,
 		Namespace: namespace,
 		Annotations: map[string]string{
-			migrateToolVersionAnnotation: operatorVersion(),
-			MigrationDryRunAnnotation:    "true",
+			util.MigrateToolVersionAnnotation: operatorVersion(),
+			util.MigrationDryRunAnnotation:    "true",
 		},
 	}
 }
