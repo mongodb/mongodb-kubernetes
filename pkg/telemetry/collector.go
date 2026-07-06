@@ -220,7 +220,7 @@ func collectDeploymentsSnapshot(ctx context.Context, operatorClusterMgr manager.
 	events = append(events, addMultiEvents(ctx, operatorClusterClient, operatorUUID, mongodbImage, databaseNonStaticImage, defaultArchitecture, now)...)
 	// No need to pass databaseNonStaticImage because it is for sure not enterprise image
 	events = append(events, addOmEvents(ctx, operatorClusterClient, operatorUUID, mongodbImage, defaultArchitecture, now)...)
-	events = append(events, addCommunityEvents(ctx, operatorClusterClient, operatorUUID, mongodbImage, now)...)
+	events = append(events, addCommunityEvents(ctx, operatorClusterClient, operatorUUID, now)...)
 	events = append(events, addSearchEvents(ctx, operatorClusterClient, operatorUUID, defaultArchitecture, now)...)
 	return events
 }
@@ -352,7 +352,7 @@ func createEvent(properties FlatProperties, now time.Time, eventType EventType) 
 	}
 }
 
-func addCommunityEvents(ctx context.Context, operatorClusterClient kubeclient.Client, operatorUUID, mongodbImage string, now time.Time) []Event {
+func addCommunityEvents(ctx context.Context, operatorClusterClient kubeclient.Client, operatorUUID string, now time.Time) []Event {
 	var events []Event
 	communityList := &mcov1.MongoDBCommunityList{}
 
@@ -366,7 +366,7 @@ func addCommunityEvents(ctx context.Context, operatorClusterClient kubeclient.Cl
 				Architecture:             "static", // Community operator is always static
 				IsMultiCluster:           false,    // Community operator doesn't support multi-cluster
 				Type:                     "Community",
-				IsRunningEnterpriseImage: images.IsEnterpriseImage(mongodbImage),
+				IsRunningEnterpriseImage: isCommunityRunningEnterpriseImage(item),
 			}
 			if event := createEvent(properties, now, Deployments); event != nil {
 				events = append(events, *event)
@@ -374,6 +374,18 @@ func addCommunityEvents(ctx context.Context, operatorClusterClient kubeclient.Cl
 		}
 	}
 	return events
+}
+
+// isCommunityRunningEnterpriseImage checks if a MongoDBCommunity CR is configured to run an
+// enterprise MongoDB image. Community CRs default to the community server image; enterprise
+// is only used when the user explicitly overrides the mongod container image in the CR spec.
+func isCommunityRunningEnterpriseImage(mdb mcov1.MongoDBCommunity) bool {
+	for _, c := range mdb.Spec.StatefulSetConfiguration.SpecWrapper.Spec.Template.Spec.Containers {
+		if c.Name == "mongod" && len(c.Image) > 0 {
+			return images.IsEnterpriseImage(c.Image)
+		}
+	}
+	return false
 }
 
 func resolveSearchSource(ctx context.Context, operatorClusterClient kubeclient.Client, source *userv1.MongoDBResourceRef, defaultArchitecture architectures.DefaultArchitecture) (architecture string, isEnterprise bool, ok bool) {
