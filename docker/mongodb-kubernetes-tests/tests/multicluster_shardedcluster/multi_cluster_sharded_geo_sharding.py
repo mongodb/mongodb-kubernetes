@@ -38,7 +38,7 @@ class TestShardedClusterGeoSharding:
     desired clusters."""
 
     def test_deploy_operator(self, multi_cluster_operator: Operator):
-        multi_cluster_operator.assert_is_running()
+        multi_cluster_operator.wait_for_operator_ready()
 
     def test_create_primary_for_each_shard_in_different_cluster(
         self, sc: MongoDB, custom_mdb_version: str, issuer_ca_configmap: str

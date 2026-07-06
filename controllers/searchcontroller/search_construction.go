@@ -41,10 +41,28 @@ const (
 	SearchReadinessProbePath     = "/ready"
 	tlsCACertName                = "ca.crt"
 
+	// KeyFilePasswordSecretKey is the fixed key inside a dedicated keyFilePassword secret
+	// (spec.*.keyFilePasswordSecretRef) holding the password that decrypts a password-encrypted
+	// PEM private key.
+	KeyFilePasswordSecretKey = "keyFilePassword" // #nosec G101 -- secret key name, not a password
+
 	X509KeyPasswordMountPath        = "/mongot/x509-key-password"           // #nosec G101 -- path, not a password
 	TempX509KeyPasswordPath         = tempVolumePath + "/x509-key-password" // #nosec G101 -- path, not a password
-	X509KeyPasswordSecretKey        = "tls.keyFilePassword"                 // #nosec G101 -- secret key name, not a password
 	X509ClientCertOperatorMountPath = "/var/lib/tls/x509-client/"
+
+	ServerNamePlaceholder = "__SERVER_NAME__"
+
+	// TempMongotConfigPath is the writable copy of the mongot config used at runtime.
+	// The original is mounted read-only from a ConfigMap; we copy it to /tmp so that
+	// sed can replace the server-name placeholder with the actual pod hostname.
+	TempMongotConfigPath = tempVolumePath + "/" + MongotConfigFilename
+
+	GrpcKeyPasswordMountPath = "/mongot/grpc-key-password"           // #nosec G101 -- path, not a password
+	TempGrpcKeyPasswordPath  = tempVolumePath + "/grpc-key-password" // #nosec G101 -- path, not a password
+
+	ScramClientCertOperatorMountPath = "/var/lib/tls/scram-client/"
+	ScramKeyPasswordMountPath        = "/mongot/scram-key-password"           // #nosec G101 -- path, not a password
+	TempScramKeyPasswordPath         = tempVolumePath + "/scram-key-password" // #nosec G101 -- path, not a password
 )
 
 // SearchSourceDBResource is an object wrapping a MongoDBCommunity object
@@ -76,7 +94,11 @@ type TLSSourceConfig struct {
 
 // CreateSearchStatefulSetFunc returns a statefulset.Modification that configures a mongot StatefulSet.
 // It works for both non-sharded and per-shard deployments.
-func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, stsName, namespace, svcName, configMapName string, labels map[string]string, searchImage string, usePerPodConfig bool) statefulset.Modification {
+//
+// sizing is the resolved per-(cluster, shard) ClusterSpec — see
+// MongoDBSearch.ResolveSizingForClusterShard — read for Replicas / Persistence /
+// ResourceRequirements / JVMFlags / StatefulSetConfiguration.
+func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, sizing searchv1.ClusterSpec, stsName, namespace, svcName, configMapName string, labels map[string]string, searchImage string, usePerPodConfig bool) statefulset.Modification {
 	tmpVolume := statefulset.CreateVolumeFromEmptyDir("tmp")
 	tmpVolumeMount := statefulset.CreateVolumeMount(tmpVolume.Name, tempVolumePath, statefulset.WithReadOnly(false))
 
@@ -95,8 +117,8 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, stsName, nam
 	}
 
 	var persistenceConfig *v1.PersistenceConfig
-	if mdbSearch.Spec.Persistence != nil && mdbSearch.Spec.Persistence.SingleConfig != nil {
-		persistenceConfig = mdbSearch.Spec.Persistence.SingleConfig
+	if sizing.Persistence != nil && sizing.Persistence.SingleConfig != nil {
+		persistenceConfig = sizing.Persistence.SingleConfig
 	}
 
 	defaultPersistenceConfig := v1.PersistenceConfig{Storage: util.DefaultMongodStorageSize}
@@ -122,29 +144,60 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, stsName, nam
 		statefulset.WithLabels(labels),
 		statefulset.WithOwnerReference(mdbSearch.GetOwnerReferences()),
 		statefulset.WithMatchLabels(labels),
-		statefulset.WithReplicas(mdbSearch.GetReplicas()),
+		statefulset.WithReplicas(sizing.ReplicasOrDefault()),
 		statefulset.WithUpdateStrategyType(appsv1.RollingUpdateStatefulSetStrategyType),
 		dataVolumeClaim,
+		withDataPVCRetentionPolicy(),
 		statefulset.WithPodSpecTemplate(
 			podtemplatespec.Apply(
 				podSecurityContext,
 				podtemplatespec.WithPodLabels(labels),
 				podtemplatespec.WithVolumes(volumes),
 				podtemplatespec.WithServiceAccount(util.MongoDBServiceAccount),
-				podtemplatespec.WithContainer(MongotContainerName, mongodbSearchContainer(mdbSearch, volumeMounts, searchImage, usePerPodConfig)),
+				podtemplatespec.WithTerminationGracePeriodSeconds(int(searchv1.MongotTerminationGracePeriodSeconds)),
+				// Default: spread this StatefulSet's mongot pods across hosts (preferred, not
+				// required). A clusters[].statefulSet affinity override replaces this term.
+				podtemplatespec.WithAffinity(labels[appLabelKey], appLabelKey, 100),
+				podtemplatespec.WithTopologyKey(util.DefaultAntiAffinityTopologyKey, 0),
+				podtemplatespec.WithContainer(MongotContainerName, mongodbSearchContainer(mdbSearch, sizing, volumeMounts, searchImage, usePerPodConfig)),
 			),
 		),
 	}
 
-	if mdbSearch.Spec.StatefulSetConfiguration != nil {
-		stsModifications = append(stsModifications, statefulset.WithCustomSpecs(mdbSearch.Spec.StatefulSetConfiguration.SpecWrapper.Spec))
-		stsModifications = append(stsModifications, statefulset.WithObjectMetadata(
-			mdbSearch.Spec.StatefulSetConfiguration.MetadataWrapper.Labels,
-			mdbSearch.Spec.StatefulSetConfiguration.MetadataWrapper.Annotations,
-		))
-	}
-
 	return statefulset.Apply(stsModifications...)
+}
+
+// withDataPVCRetentionPolicy reclaims the mongot index PVC on StatefulSet delete
+// (CR removed) and on scale-down. The index is rebuildable, so freeing the storage
+// immediately is safe — a later scale-up reindexes from mongod.
+func withDataPVCRetentionPolicy() statefulset.Modification {
+	return func(sts *appsv1.StatefulSet) {
+		sts.Spec.PersistentVolumeClaimRetentionPolicy = &appsv1.StatefulSetPersistentVolumeClaimRetentionPolicy{
+			WhenDeleted: appsv1.DeletePersistentVolumeClaimRetentionPolicyType,
+			WhenScaled:  appsv1.DeletePersistentVolumeClaimRetentionPolicyType,
+		}
+	}
+}
+
+// StatefulSetOverrideModification applies the resolved clusters[].statefulSet, with any
+// shardOverrides[].statefulSet already deep-merged in (see ResolveSizingForClusterShard).
+// It must run LAST in the modification chain, over the fully built StatefulSet: the override
+// merge sorts volumes by name, so merging mid-pipeline (before the password/TLS
+// volume modifications append) yields a different volume order on the create and
+// update paths — the first reconcile after STS creation then sees a spurious
+// template diff and rolls every mongot pod. Applying last also makes the user
+// override win over operator-set fields, as the CRD field documents.
+func StatefulSetOverrideModification(stsConfig *v1.StatefulSetConfiguration) statefulset.Modification {
+	if stsConfig == nil {
+		return statefulset.NOOP()
+	}
+	return statefulset.Apply(
+		statefulset.WithCustomSpecs(stsConfig.SpecWrapper.Spec),
+		statefulset.WithObjectMetadata(
+			stsConfig.MetadataWrapper.Labels,
+			stsConfig.MetadataWrapper.Annotations,
+		),
+	)
 }
 
 // PasswordAuthModification returns a statefulset.Modification that mounts the password secret
@@ -184,11 +237,13 @@ func CreateKeyfileModificationFunc(keyfileSecretName string) statefulset.Modific
 	)
 }
 
-func jvmFlags(mdbSearch *searchv1.MongoDBSearch, resourceRequirements corev1.ResourceRequirements) string {
+// jvmFlags builds the --jvm-flags argument from the per-cluster user-provided
+// JVMFlags slice plus a default heap-size pair derived from memory requests.
+func jvmFlags(userJVMFlags []string, resourceRequirements corev1.ResourceRequirements) string {
 	flags := []string{}
 
 	var heapConfigured bool
-	for _, jvmFlag := range mdbSearch.Spec.JVMFlags {
+	for _, jvmFlag := range userJVMFlags {
 		if strings.HasPrefix(jvmFlag, "-Xms") || strings.HasPrefix(jvmFlag, "-Xmx") {
 			heapConfigured = true
 			break
@@ -207,20 +262,26 @@ func jvmFlags(mdbSearch *searchv1.MongoDBSearch, resourceRequirements corev1.Res
 		flags = append(flags, fmt.Sprintf("-Xms%dm", halfMB))
 	}
 
-	flagsValue := strings.Join(append(flags, mdbSearch.Spec.JVMFlags...), " ")
+	allFlags := append(flags, userJVMFlags...)
+	flagsValue := strings.Join(allFlags, " ")
 	return fmt.Sprintf(`--jvm-flags "%s"`, flagsValue)
 }
 
-func mongodbSearchContainer(mdbSearch *searchv1.MongoDBSearch, volumeMounts []corev1.VolumeMount, searchImage string, usePerPodConfig bool) container.Modification {
+func mongodbSearchContainer(mdbSearch *searchv1.MongoDBSearch, perCluster searchv1.ClusterSpec, volumeMounts []corev1.VolumeMount, searchImage string, usePerPodConfig bool) container.Modification {
 	_, containerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
-	resourceRequirements := createSearchResourceRequirements(mdbSearch.Spec.ResourceRequirements)
-	jvmFlags := jvmFlags(mdbSearch, resourceRequirements)
+	resourceRequirements := createSearchResourceRequirements(perCluster.ResourceRequirements)
+
+	jvmFlags := jvmFlags(perCluster.JVMFlags, resourceRequirements)
 
 	var mongotStartCommand string
 	if usePerPodConfig {
 		mongotStartCommand = mongotPerPodConfigStartCommand(jvmFlags)
 	} else {
-		mongotStartCommand = fmt.Sprintf("/mongot-community/mongot --config %s %s", MongotConfigPath, jvmFlags)
+		// Copy config from read-only ConfigMap mount to writable /tmp, replace the
+		// server-name placeholder with the actual pod hostname, then start mongot.
+		mongotStartCommand = fmt.Sprintf(`cp %s %s
+sed -i "s/%s/$HOSTNAME/" %s
+/mongot-community/mongot --config %s %s`, MongotConfigPath, TempMongotConfigPath, ServerNamePlaceholder, TempMongotConfigPath, TempMongotConfigPath, jvmFlags)
 	}
 
 	return container.Apply(
@@ -242,9 +303,13 @@ func mongodbSearchContainer(mdbSearch *searchv1.MongoDBSearch, volumeMounts []co
 
 // mongotPerPodConfigStartCommand returns the shell script that reads the pod's role from ConfigMap.
 func mongotPerPodConfigStartCommand(jvmFlags string) string {
+	// Copy the role-specific config from the read-only ConfigMap mount to writable /tmp,
+	// replace the server-name placeholder with the actual pod hostname, then start mongot.
 	return fmt.Sprintf(`ROLE=$(cat "%s/$HOSTNAME")
-/mongot-community/mongot --config %s/config-${ROLE}.yml %s`,
-		MongotPerPodConfigDirPath, MongotPerPodConfigDirPath, jvmFlags)
+cp "%s/config-${ROLE}.yml" %s
+sed -i "s/%s/$HOSTNAME/" %s
+/mongot-community/mongot --config %s %s`,
+		MongotPerPodConfigDirPath, MongotPerPodConfigDirPath, TempMongotConfigPath, ServerNamePlaceholder, TempMongotConfigPath, TempMongotConfigPath, jvmFlags)
 }
 
 func mongotLivenessProbe(search *searchv1.MongoDBSearch) func(*corev1.Probe) {
@@ -288,6 +353,10 @@ func createSearchResourceRequirements(userRequirements *corev1.ResourceRequireme
 	if userRequirements == nil {
 		return defaults
 	}
+
+	// Default into a copy: userRequirements may point into the live CR spec
+	// (cluster or shardOverride entry), which must never be mutated.
+	userRequirements = userRequirements.DeepCopy()
 
 	if userRequirements.Requests == nil {
 		userRequirements.Requests = defaults.Requests

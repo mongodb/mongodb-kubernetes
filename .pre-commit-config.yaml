@@ -1,17 +1,27 @@
 # Pre-commit configuration for mongodb-kubernetes
-# See https://pre-commit.com for more information
-# See https://pre-commit.com/hooks.html for more hooks
+#
+# Uses prek (https://github.com/j178/prek) with priority-based scheduling:
+# - Hooks with lower priority run first, serially by ascending priority.
+# - Hooks with the same priority run concurrently.
+# - Hooks without an explicit priority get an implicit order-based value (sequential);
+#   all hooks here set priority explicitly.
+#
+# Dependency chain:
+#   P1 (concurrent): operator-version, manifests, mco-tests, RBAC, licenses, kubebuilder
+#     - P1 hooks are mutually file-independent; only update-release-json at P2 consumes
+#       release.json (written by update-mongodb-operator-version here). Do not add a P1
+#       hook that reads release.json without moving it to P2+.
+#     - generate-manifests (manifests) writes helm_chart/crds/ which generate-standalone-yaml
+#       (P4) reads, so manifests must precede standalone. P1 before P4 satisfies this.
+#   P2: update-release-json — reads/writes release.json
+#   P3: update-values-yaml — reads release.json, writes helm_chart/values.yaml
+#   P4: generate-standalone-yaml — reads helm_chart/values.yaml (P3) + helm_chart/crds/ (P1)
+#   P6: Lint/validate group — all linters and validators run concurrently
 
 default_stages: [pre-commit]
 
-# Hooks run serially in definition order. The following local hooks have
-# dependencies and must run in this order:
-#   1. update-mongodb-operator-version: writes release.json:mongodbOperator
-#   2. update-release-json: propagates mongodbOperator, writes release.json
-#   3. update-values-yaml: reads release.json, writes helm values files
-#   4. generate-standalone-yaml: reads helm values files
-#   5. generate-and-update: remaining parallel jobs
 repos:
+  # ── P1: concurrent generation (mutually file-independent) ──────────────────
   - repo: local
     hooks:
       - id: update-mongodb-operator-version
@@ -20,36 +30,82 @@ repos:
         language: system
         pass_filenames: false
         stages: [pre-commit]
+        priority: 1
 
+      - id: generate-manifests
+        name: generate-manifests
+        entry: scripts/dev/generate_files.sh generate_manifests
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+        priority: 1
+
+      - id: update-mco-tests
+        name: update-mco-tests
+        entry: scripts/dev/generate_files.sh update_mco_tests
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+        priority: 1
+
+      - id: regenerate-public-rbac-multi-cluster
+        name: regenerate-public-rbac-multi-cluster
+        entry: scripts/dev/generate_files.sh regenerate_public_rbac_multi_cluster
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+        priority: 1
+
+      - id: update-licenses
+        name: update-licenses
+        entry: scripts/dev/generate_files.sh update_licenses
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+        priority: 1
+
+      - id: check-kubebuilder-annotations
+        name: check-kubebuilder-annotations
+        entry: scripts/dev/generate_files.sh check_kubebuilder_annotations
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+        priority: 1
+
+  # ── P2: serial — propagates mongodbOperator, writes release.json ───────────
+  - repo: local
+    hooks:
       - id: update-release-json
         name: update-release-json
         entry: scripts/dev/generate_files.sh update_release
         language: system
         pass_filenames: false
         stages: [pre-commit]
+        priority: 2
 
+  # ── P3: serial — reads release.json, writes helm_chart/values.yaml ────────
+  - repo: local
+    hooks:
       - id: update-values-yaml
         name: update-values-yaml
         entry: scripts/dev/generate_files.sh update_values
         language: system
         pass_filenames: false
         stages: [pre-commit]
+        priority: 3
 
+  # ── P4: serial — reads values.yaml (P3) + helm_chart/crds/ (P1) ────────────
+  - repo: local
+    hooks:
       - id: generate-standalone-yaml
         name: generate-standalone-yaml
         entry: scripts/dev/generate_files.sh generate_standalone_yaml
         language: system
         pass_filenames: false
         stages: [pre-commit]
+        priority: 4
 
-      # Remaining generation jobs run in parallel
-      - id: generate-and-update
-        name: generate-and-update (parallel)
-        entry: scripts/dev/generate_files.sh generate_all
-        language: system
-        pass_filenames: false
-        stages: [pre-commit]
-
+  # ── P6: linters & validators (all concurrent) ─────────────────────────────
   - repo: local
     hooks:
       - id: validate-snippets
@@ -58,24 +114,41 @@ repos:
         language: system
         pass_filenames: false
         stages: [pre-commit]
+        priority: 6
 
-  - repo: local
-    hooks:
       - id: validate-helm-charts
         name: validate-helm-charts
         entry: scripts/dev/lint_helm_chart.sh
         language: system
         pass_filenames: false
         stages: [pre-commit]
+        priority: 6
 
-  - repo: local
-    hooks:
       - id: validate-go-version
         name: validate-go-version
         entry: scripts/dev/update_go_version.sh
         language: system
         pass_filenames: false
         stages: [pre-commit]
+        priority: 6
+
+      - id: ty
+        name: ty
+        entry: bash -c 'cd docker/mongodb-kubernetes-tests && uvx ty check tests/'
+        language: system
+        pass_filenames: false
+        files: docker/mongodb-kubernetes-tests/tests/.*\.py$
+        stages: [pre-commit]
+        priority: 6
+
+      - id: govulncheck
+        name: govulncheck
+        entry: env GOTELEMETRY=off go run golang.org/x/vuln/cmd/govulncheck@v1.3.0 ./...
+        language: system
+        pass_filenames: false
+        files: (\.go$|^go\.(mod|sum)$)
+        stages: [pre-commit]
+        priority: 6
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
@@ -102,24 +175,33 @@ repos:
       #       config/crd/bases/.*
       #     )
       - id: check-added-large-files
+        exclude: |
+          (?x)^(
+            docker/mongodb-kubernetes-tests/tests/common/search/testdata/fixtures/.*\.log$
+          )
+        priority: 6
       - id: check-merge-conflict
+        priority: 6
       - id: check-json
         exclude: |
           (?x)^(
             vendor/.*|
             testdata/.*
           )
+        priority: 6
 
   - repo: https://github.com/psf/black
     rev: 24.10.0
     hooks:
       - id: black
+        priority: 6
 
   - repo: https://github.com/pycqa/isort
     rev: 5.13.2
     hooks:
       - id: isort
         args: ["--profile", "black"]
+        priority: 6
 
   - repo: https://github.com/koalaman/shellcheck-precommit
     rev: v0.10.0
@@ -136,26 +218,7 @@ repos:
             ^scripts/dev/contexts/[^/]+$|
             ^scripts/funcs/[^/]+$
           )
-
-  - repo: local
-    hooks:
-      - id: ty
-        name: ty
-        entry: bash -c 'cd docker/mongodb-kubernetes-tests && uvx ty check tests/'
-        language: system
-        pass_filenames: false
-        files: docker/mongodb-kubernetes-tests/tests/.*\.py$
-        stages: [pre-commit]
-
-  - repo: local
-    hooks:
-      - id: govulncheck
-        name: govulncheck
-        entry: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
-        language: system
-        pass_filenames: false
-        files: (\.go$|^go\.(mod|sum)$)
-        stages: [pre-commit]
+        priority: 6
 
   - repo: https://github.com/golangci/golangci-lint
     rev: v2.1.0
@@ -166,5 +229,7 @@ repos:
       - id: golangci-lint-full
         args: [--timeout=10m]
         language_version: 1.26.4
+        priority: 6
       - id: golangci-lint-fmt
         language_version: 1.26.4
+        priority: 6

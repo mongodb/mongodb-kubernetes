@@ -17,7 +17,7 @@ operator:
   operator_image_name: mongodb-kubernetes
 
   # Version of mongodb-kubernetes-operator
-  version: 1.8.2
+  version: 1.9.2
 
   # The Custom Resources that will be watched by the Operator. Needs to be changed if only some of the CRDs are installed
   watchedResources:
@@ -26,6 +26,15 @@ operator:
   - mongodbusers
   - mongodbcommunity
   - mongodbsearch
+  - voyageais
+
+  # Scopes MongoDBSearch reconciliation only. When clusterName is set, this operator
+  # reconciles only MongoDBSearch resources whose spec.clusters[i].name matches this
+  # value -- the operator-per-cluster model, where each cluster runs its own operator
+  # against a single unified CRD. Leave empty for the single-operator (hub-and-spoke)
+  # multi-cluster pattern.
+  clusterIdentity:
+    clusterName: ''
 
   nodeSelector: {}
 
@@ -137,11 +146,11 @@ operator:
 ## Database
 database:
   name: mongodb-kubernetes-database
-  version: 1.8.2
+  version: 1.9.2
 
 initDatabase:
   name: mongodb-kubernetes-init-database
-  version: 1.8.2
+  version: 1.9.2
 
 ## Ops Manager
 opsManager:
@@ -149,7 +158,7 @@ opsManager:
 
 initOpsManager:
   name: mongodb-kubernetes-init-ops-manager
-  version: 1.8.2
+  version: 1.9.2
 
 agent:
   name: mongodb-agent
@@ -204,7 +213,7 @@ community:
     imageType: ubi8
   agent:
     name: mongodb-agent
-    version: 108.0.2.8729-1
+    version: 108.0.24.9016-1
   registry:
     agent: quay.io/mongodb
   resource:
@@ -230,5 +239,14 @@ search:
   repo: quay.io/mongodb
   name: mongodb-search
   # default MongoDB Search version used; can be overridden by setting MongoDBSearch.spec.version field.
-  version: 0.64.0
+  version: 1.70.1
   envoyImage: envoyproxy/envoy:v1.37-latest
+  metricsForwarderImage: otel/opentelemetry-collector-contrib:0.152.0
+
+# VoyageAI settings
+voyageai:
+  # Base registry path for VoyageAI model images. The full image is constructed as
+  # {voyageai.repo}/{VoyageAI.spec.model}:{VoyageAI.spec.version}. This repository is
+  # credential-protected; provide a pull secret to the operator via IMAGE_PULL_SECRETS.
+  # Override it to mirror the images into a private or airgapped registry.
+  repo: quay.io/mongodb/voyageai

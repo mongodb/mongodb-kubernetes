@@ -408,6 +408,12 @@ func TestMongoDBCommunity_MongoAuthUserURI(t *testing.T) {
 		assert.Equal(t, mdb.MongoAuthUserURI(testuser, "password"), params.connectionString)
 	}
 
+	// space must be encoded as %20; + must be encoded as %2B (pymongo uses unquote_plus on userinfo)
+	mdb = newReplicaSet(2, "my-rs", "my-namespace")
+	spaceUser := authtypes.User{Username: "rob", Database: "admin"}
+	assert.Equal(t, mdb.MongoAuthUserURI(spaceUser, "pass word"), "mongodb://rob:pass%20word@my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017/admin?replicaSet=my-rs&ssl=false")
+	assert.Equal(t, mdb.MongoAuthUserURI(spaceUser, "pass+word"), "mongodb://rob:pass%2Bword@my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017/admin?replicaSet=my-rs&ssl=false")
+
 	testuser = authtypes.User{
 		Username: "testuser",
 		Database: "$external",
@@ -468,6 +474,12 @@ func TestMongoDBCommunity_MongoAuthUserSRVURI(t *testing.T) {
 		testuser.ConnectionStringOptions = params.userConnectionStringConfig
 		assert.Equal(t, mdb.MongoAuthUserSRVURI(testuser, "password"), params.connectionString)
 	}
+
+	// space must be encoded as %20; + must be encoded as %2B (pymongo uses unquote_plus on userinfo)
+	mdb = newReplicaSet(2, "my-rs", "my-namespace")
+	spaceUser := authtypes.User{Username: "rob", Database: "admin"}
+	assert.Equal(t, mdb.MongoAuthUserSRVURI(spaceUser, "pass word"), "mongodb+srv://rob:pass%20word@my-rs-svc.my-namespace.svc.cluster.local/admin?replicaSet=my-rs&ssl=false")
+	assert.Equal(t, mdb.MongoAuthUserSRVURI(spaceUser, "pass+word"), "mongodb+srv://rob:pass%2Bword@my-rs-svc.my-namespace.svc.cluster.local/admin?replicaSet=my-rs&ssl=false")
 
 	testuser = authtypes.User{
 		Username: "testuser",

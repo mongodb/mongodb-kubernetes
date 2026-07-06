@@ -29,7 +29,7 @@ class TestStandaloneRecoversBadOmConfiguration(KubernetesTester):
         config_map = V1ConfigMap(data={"baseUrl": "http://foo.bar"})
         self.clients("corev1").patch_namespaced_config_map("my-project", self.get_namespace(), config_map)
 
-        mdb.assert_reaches_phase(Phase.Failed, timeout=20)
+        mdb.assert_reaches_phase(Phase.Failed, timeout=100)
 
         mdb.load()
         assert "Failed to prepare Ops Manager connection" in mdb["status"]["message"]

@@ -11,12 +11,16 @@ from typing import Dict, Optional
 from kubernetes import client
 from kubetester import (
     create_or_update_configmap,
+    create_or_update_namespace,
     create_or_update_secret,
     create_or_update_service,
     create_statefulset,
     read_configmap,
     read_secret,
 )
+
+KMIP_NAMESPACE = "kmip"
+
 from kubetester.certs import create_tls_certs
 from kubetester.kubetester import KubernetesTester
 
@@ -26,8 +30,9 @@ class KMIPDeployment(object):
     A KMIP Server deployment class. Deploys PyKMIP in the cluster.
     """
 
-    def __init__(self, namespace, issuer, root_cert_secret, ca_configmap: str):
-        self.namespace = namespace
+    def __init__(self, namespace, issuer, root_cert_secret, ca_configmap: str, kmip_namespace: str = KMIP_NAMESPACE):
+        self.namespace = namespace  # test namespace — issuer + ca_configmap live here
+        self.kmip_namespace = kmip_namespace  # dedicated namespace for KMIP pod (PSS warn)
         self.issuer = issuer
         self.root_cert_secret = root_cert_secret
         self.ca_configmap = ca_configmap
@@ -40,7 +45,13 @@ class KMIPDeployment(object):
         """
         Deploys a PyKMIP Server and returns the name of the deployed StatefulSet.
         """
+        create_or_update_namespace(
+            self.kmip_namespace,
+            labels={"pod-security.kubernetes.io/warn": "restricted"},
+        )
+
         service_name = f"{self.statefulset_name}-svc"
+        service_fqdn = f"{service_name}.{self.kmip_namespace}.svc.cluster.local"
 
         cert_secret_name = self._create_tls_certs_kmip(
             self.issuer,
@@ -49,20 +60,21 @@ class KMIPDeployment(object):
             "kmip-certs",
             1,
             service_name,
+            service_fqdn=service_fqdn,
         )
 
         create_or_update_service(
-            self.namespace,
+            self.kmip_namespace,
             service_name,
             cluster_ip=None,
             ports=[client.V1ServicePort(name="kmip", port=5696)],
             selector=self.labels,
         )
 
-        self._create_kmip_config_map(self.namespace, "kmip-config", self._default_configuration())
+        self._create_kmip_config_map(self.kmip_namespace, "kmip-config", self._default_configuration())
 
         create_statefulset(
-            self.namespace,
+            self.kmip_namespace,
             self.statefulset_name,
             service_name,
             self.labels,
@@ -126,8 +138,10 @@ class KMIPDeployment(object):
         replicas: int = 3,
         service_name: Optional[str] = None,
         spec: Optional[Dict] = None,
+        service_fqdn: Optional[str] = None,
     ) -> str:
         ca = read_configmap(namespace, self.ca_configmap)
+        additional_domains = [d for d in [service_name, service_fqdn] if d]
         cert_secret_name = create_tls_certs(
             issuer,
             namespace,
@@ -135,11 +149,11 @@ class KMIPDeployment(object):
             replicas=replicas,
             service_name=service_name,
             spec=spec,
-            additional_domains=[service_name] if service_name else None,
+            additional_domains=additional_domains if additional_domains else None,
         )
         secret = read_secret(namespace, cert_secret_name)
         create_or_update_secret(
-            namespace,
+            self.kmip_namespace,
             bundle_secret_name,
             {
                 "server.key": secret["tls.key"],
@@ -194,7 +208,7 @@ class KMIPDeploymentStatus:
         :return: raises an error if the server is not running within the timeout.
         """
         KubernetesTester.wait_for_condition_stateful_set(
-            self.deployment.namespace,
+            self.deployment.kmip_namespace,
             self.deployment.statefulset_name,
             "status.current_replicas",
             1,

@@ -7,7 +7,7 @@ from kubetester.operator import Operator
 
 @pytest.mark.e2e_tls_rs_external_access_tls_transition_without_approval
 def test_install_operator(operator: Operator):
-    operator.assert_is_running()
+    operator.wait_for_operator_ready()
 
 
 @pytest.mark.e2e_tls_rs_external_access_tls_transition_without_approval

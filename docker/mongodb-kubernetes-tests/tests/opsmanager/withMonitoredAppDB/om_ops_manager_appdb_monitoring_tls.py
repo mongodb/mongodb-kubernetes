@@ -27,7 +27,6 @@ def appdb_certs(namespace: str, issuer: str):
 
 
 @fixture(scope="module")
-@mark.usefixtures("appdb_certs", "ops_manager_certs", "issuer_ca_configmap")
 def ops_manager(
     namespace: str,
     issuer_ca_configmap: str,

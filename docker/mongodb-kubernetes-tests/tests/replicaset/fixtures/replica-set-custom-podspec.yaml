@@ -29,6 +29,10 @@ spec:
             volumeMounts:
               - mountPath: /somewhere
                 name: test-volume
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop: ["ALL"]
           - name: mongodb-enterprise-database
             resources:
               limits:
@@ -38,6 +42,10 @@ spec:
             volumeMounts:
               - mountPath: /somewhere
                 name: test-volume
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop: [ "ALL" ]
         hostAliases:
           - ip: "1.2.3.4"
             hostnames: ["hostname"]

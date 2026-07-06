@@ -169,20 +169,22 @@ deploy_test_app() {
 
 wait_until_pod_is_running_or_failed_or_succeeded() {
     local context=${1}
+    local startup_timeout=${TEST_APP_STARTUP_TIMEOUT:-2m}
     # Do wait while the Pod is not yet running or failed (can be in Pending or ContainerCreating state)
     # Note that the pod may jump to Failed/Completed state quickly - so we need to give up waiting on this as well
     echo "Waiting until the test application gets to Running state..."
 
     is_running_cmd="kubectl --context '${context}' -n ${NAMESPACE} get pod ${TEST_APP_PODNAME} -o jsonpath={.status.phase} | grep -q 'Running'"
 
-    # test app usually starts instantly but sometimes (quite rarely though) may require more than a min to start
-    # in Evergreen so let's wait for 2m
-    timeout --foreground "2m" bash -c "while ! ${is_running_cmd}; do printf .; sleep 1; done;"
+    # test app usually starts quickly; some environments can need longer image pulls.
+    timeout --foreground "${startup_timeout}" bash -c "while ! ${is_running_cmd}; do printf .; sleep 1; done;"
     echo
 
     if ! eval "${is_running_cmd}"; then
-        error "Test application failed to start on time!"
+        error "Test application failed to start on time after ${startup_timeout}!"
         kubectl --context "${context}" -n "${NAMESPACE}"  describe pod "${TEST_APP_PODNAME}"
+        kubectl --context "${context}" -n "${NAMESPACE}" get pod "${TEST_APP_PODNAME}" -o jsonpath='{range .status.containerStatuses[*]}{.name}{": waiting="}{.state.waiting.reason}{"; message="}{.state.waiting.message}{"\n"}{end}' || true
+        kubectl --context "${context}" -n "${NAMESPACE}" get events --field-selector "involvedObject.name=${TEST_APP_PODNAME}" --sort-by='.metadata.creationTimestamp' || true
         fatal "Failed to run test application - exiting"
     fi
 }
@@ -244,7 +246,14 @@ run_tests() {
 
     # We need to make sure to access this file after the test has finished
     kubectl --context "${test_pod_context}" -n "${NAMESPACE}" -c keepalive cp "${TEST_APP_PODNAME}":/tmp/results/myreport.xml logs/myreport.xml
-    kubectl --context "${test_pod_context}" -n "${NAMESPACE}" -c keepalive cp "${TEST_APP_PODNAME}":/tmp/results/pytest-debug.log logs/pytest-debug.log 2>/dev/null || true
+    if ! kubectl --context "${test_pod_context}" -n "${NAMESPACE}" -c keepalive cp "${TEST_APP_PODNAME}":/tmp/results/pytest-debug.log logs/pytest-debug.log; then
+        echo "WARN: kubectl cp pytest-debug.log failed (exit=$?); attempting fallback via kubectl logs"
+        kubectl --context "${test_pod_context}" -n "${NAMESPACE}" logs "${TEST_APP_PODNAME}" -c keepalive > logs/pytest-debug.log 2>&1 \
+            || echo "WARN: kubectl logs keepalive fallback also failed (exit=$?)"
+    fi
+    if [[ ! -s logs/pytest-debug.log ]]; then
+        echo "WARN: logs/pytest-debug.log is missing or empty — pytest debug output will not be archived"
+    fi
     kubectl --context "${test_pod_context}" -n "${NAMESPACE}" -c keepalive cp "${TEST_APP_PODNAME}":/tmp/diagnostics logs
 
     status="$(kubectl --context "${test_pod_context}" get pod "${TEST_APP_PODNAME}" -n "${NAMESPACE}" -o jsonpath="{ .status }" | jq -r '.containerStatuses[] | select(.name == "mongodb-enterprise-operator-tests")'.state.terminated.reason)"
