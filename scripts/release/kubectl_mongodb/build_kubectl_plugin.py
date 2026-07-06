@@ -9,7 +9,7 @@ from scripts.release.build.build_scenario import SUPPORTED_SCENARIOS, BuildScena
 from scripts.release.kubectl_mongodb.utils import create_s3_client, kubectl_plugin_name, parse_platform, s3_path
 
 
-def build_kubectl_plugin(local_dir: str, platforms: list[str]):
+def build_kubectl_plugin(local_dir: str, platforms: list[str], version: str):
     logger.info(f"Building kubectl-mongodb plugin for platforms: {platforms}")
 
     for platform in platforms:
@@ -24,7 +24,8 @@ def build_kubectl_plugin(local_dir: str, platforms: list[str]):
             "build",
             "-o",
             output_path,
-            "./cmd/kubectl-mongodb",
+            f"-ldflags=-X github.com/mongodb/mongodb-kubernetes/pkg/util.OperatorVersion={version}",
+            "./cmd/kubectl-mongodb"
         ]
 
         env = os.environ.copy()
@@ -122,7 +123,7 @@ Options: {", ".join(SUPPORTED_SCENARIOS)}. For '{BuildScenario.DEVELOPMENT}' the
     version = args.version
     local_dir = "bin"
 
-    build_kubectl_plugin(local_dir, platforms)
+    build_kubectl_plugin(local_dir, platforms, version)
 
     upload_artifacts_to_s3(local_dir, platforms, build_info.s3_store, version)
 
