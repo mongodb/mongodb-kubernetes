@@ -46,6 +46,7 @@ PRE_BACKUP_DATA = {"_id": "pre_backup_witness", "status": "before_backup"}
 # Inserted after the first snapshot; used as the PITR witness.
 PITR_WITNESS_DATA = {"_id": "pitr_witness", "status": "written_before_pitr"}
 _pitr_pit_millis: int = 0
+_pitr_restore_job_id: str = ""
 
 
 @fixture(scope="module")
@@ -299,14 +300,20 @@ class TestPITR:
     def test_pitr_to_witness_time(self, external_appdb_tester: OMTester):
         """Initiate PITR to the moment the witness document was inserted.
         The PIT is after the first snapshot, so OM accepts the restore request."""
+        global _pitr_restore_job_id
         assert _pitr_pit_millis > 0, "_pitr_pit_millis not set — check test_insert_witness_data ran"
-        external_appdb_tester.create_restore_job_pit(_pitr_pit_millis)
+        _pitr_restore_job_id = external_appdb_tester.create_restore_job_pit_and_return_id(_pitr_pit_millis)
 
-    def test_primary_om_recovers_after_pitr(self, external_appdb_tester: OMTester, ops_manager: MongoDBOpsManager):
-        """Wait for PITR restore to complete (backup returns to STARTED) and verify Primary OM
-        is still operational. With externalApplicationDatabaseRef the operator does not set OM
-        status to non-Running during the restore, so we skip assert_abandons_phase."""
-        external_appdb_tester.wait_until_backup_running(timeout=3600)
+    def test_primary_om_recovers_after_pitr(
+        self, external_mongodb: MongoDB, external_appdb_tester: OMTester, ops_manager: MongoDBOpsManager
+    ):
+        """Wait for the PITR restore job to finish and the AppDB RS to come back up.
+        PIT restore jobs report FINISHED almost immediately (restore is async via the agent),
+        so we also wait for the MongoDB CR to reach Running and verify backup and OM health."""
+        assert _pitr_restore_job_id, "_pitr_restore_job_id not set — check test_pitr_to_witness_time ran"
+        external_appdb_tester.wait_until_restore_job_is_ready(_pitr_restore_job_id, timeout=1200)
+        external_mongodb.assert_reaches_phase(Phase.Running, timeout=3600)
+        external_appdb_tester.wait_until_backup_running(timeout=600)
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=600)
 
     def test_witness_data_restored(self, primary_appdb_collection):

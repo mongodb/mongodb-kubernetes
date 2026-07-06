@@ -163,6 +163,37 @@ class OMTester(object):
             time.sleep(1)
         raise Exception("Failed to create a restore job!")
 
+    def create_restore_job_pit_and_return_id(
+        self, pit_milliseconds: int, retry: int = 120, timeout_seconds: int = 600
+    ) -> str:
+        """Like create_restore_job_pit but returns the job ID so callers can track completion."""
+        cluster_id = self.get_backup_cluster_id()
+        start_time = time.time()
+        attempt = 0
+        while retry > 0:
+            try:
+                response = self.api_create_restore_job_pit(cluster_id, pit_milliseconds)
+                return response.json()["results"][0]["id"]
+            except Exception as e:
+                elapsed = time.time() - start_time
+                if elapsed >= timeout_seconds:
+                    raise Exception(
+                        f"Failed to create PIT restore job after {timeout_seconds}s (last error: {e})"
+                    ) from e
+                error_str = str(e)
+                if " 409 " not in error_str and "Invalid restore point:" not in error_str:
+                    raise e
+                attempt += 1
+                logger.info(
+                    "PIT restore returned 409 or invalid restore point (attempt %d, %.0fs elapsed), retrying: %s",
+                    attempt,
+                    elapsed,
+                    error_str[:200],
+                )
+            retry -= 1
+            time.sleep(1)
+        raise Exception("Failed to create a restore job!")
+
     def wait_until_backup_snapshots_are_ready(
         self,
         expected_count: int,
