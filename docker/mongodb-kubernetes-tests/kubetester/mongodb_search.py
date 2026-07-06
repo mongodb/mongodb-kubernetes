@@ -100,6 +100,148 @@ class MongoDBSearch(MongoDB, CustomObject):
             assert lb is None, f"status.loadBalancer should be absent for non-managed LB, got: {lb}"
             logger.info(f"MongoDBSearch {self.name}: loadBalancer status correctly absent")
 
+    def get_cluster_statuses(self) -> list[dict]:
+        """Returns the status.clusterStatuses list, or [] if absent.
+
+        The search controller is the sole writer and recomputes the whole list
+        every reconcile (one entry per spec.clusters[], keyed by clusterIndex).
+        """
+        try:
+            return list(self["status"]["clusterStatuses"] or [])
+        except KeyError:
+            return []
+
+    def get_cluster_status(self, cluster_index: int) -> Optional[dict]:
+        """Returns the per-cluster status entry with the given clusterIndex, or None."""
+        for cs in self.get_cluster_statuses():
+            if cs.get("clusterIndex") == cluster_index:
+                return cs
+        return None
+
+    def _spec_cluster_indexes(self) -> list[int]:
+        """The pinned spec.clusters[].index values, defaulting to positional index."""
+        clusters = self["spec"].get("clusters", []) or []
+        return [c.get("index", i) for i, c in enumerate(clusters)]
+
+    def assert_cluster_statuses(self, expected_count: Optional[int] = None, expect_managed_lb: Optional[bool] = None):
+        """Assert status.clusterStatuses is well-formed for a healthy (Running) deployment.
+
+        - One entry per spec.clusters[], no more, no less (expected_count overrides).
+        - clusterIndex values exactly match the spec pins and are unique.
+        - Every entry's search phase is Running with an empty searchMessage.
+        - loadBalancer phase is Running (empty message) iff managed LB, else absent/empty
+          (expect_managed_lb overrides is_lb_mode_managed()).
+        """
+        self.load()
+        statuses = self.get_cluster_statuses()
+        spec_indexes = self._spec_cluster_indexes()
+
+        want_count = expected_count if expected_count is not None else len(spec_indexes)
+        assert (
+            len(statuses) == want_count
+        ), f"expected {want_count} clusterStatuses entries, got {len(statuses)}: {statuses}"
+
+        got_indexes = [cs.get("clusterIndex") for cs in statuses]
+        assert len(set(got_indexes)) == len(got_indexes), f"duplicate clusterIndex in clusterStatuses: {got_indexes}"
+        if expected_count is None:
+            assert sorted(got_indexes) == sorted(
+                spec_indexes
+            ), f"clusterStatuses indexes {sorted(got_indexes)} != spec.clusters indexes {sorted(spec_indexes)}"
+
+        managed_lb = expect_managed_lb if expect_managed_lb is not None else self.is_lb_mode_managed()
+
+        for cs in statuses:
+            ci = cs.get("clusterIndex")
+            assert (
+                cs.get("search") == "Running"
+            ), f"cluster {ci}: search phase is {cs.get('search')!r}, expected Running"
+            assert not cs.get(
+                "searchMessage"
+            ), f"cluster {ci}: searchMessage should be empty when Running, got {cs.get('searchMessage')!r}"
+            if managed_lb:
+                assert (
+                    cs.get("loadBalancer") == "Running"
+                ), f"cluster {ci}: loadBalancer phase is {cs.get('loadBalancer')!r}, expected Running"
+                assert not cs.get("loadBalancerMessage"), (
+                    f"cluster {ci}: loadBalancerMessage should be empty when Running, "
+                    f"got {cs.get('loadBalancerMessage')!r}"
+                )
+            else:
+                assert not cs.get(
+                    "loadBalancer"
+                ), f"cluster {ci}: loadBalancer should be absent for non-managed LB, got {cs.get('loadBalancer')!r}"
+
+        logger.info(f"MongoDBSearch {self.name}: clusterStatuses OK ({len(statuses)} entries, managed_lb={managed_lb})")
+
+    def wait_for_cluster_search_phase(
+        self,
+        cluster_index: int,
+        expected_phase: Phase,
+        expect_message: bool,
+        timeout: int = 300,
+    ):
+        """Poll until the given cluster's per-cluster SEARCH phase reaches expected_phase.
+
+        When expect_message is True, also require a non-empty searchMessage (the phase is
+        not Running so it must explain why); when False, require an empty searchMessage.
+        Raises on timeout with the last-seen entry for diagnostics.
+        """
+        self._wait_for_cluster_phase("search", "searchMessage", cluster_index, expected_phase, expect_message, timeout)
+
+    def wait_for_cluster_lb_phase(
+        self,
+        cluster_index: int,
+        expected_phase: Phase,
+        expect_message: bool,
+        timeout: int = 300,
+    ):
+        """Poll until the given cluster's per-cluster LOAD BALANCER phase reaches expected_phase.
+
+        Same message semantics as wait_for_cluster_search_phase, on loadBalancerMessage.
+        """
+        self._wait_for_cluster_phase(
+            "loadBalancer", "loadBalancerMessage", cluster_index, expected_phase, expect_message, timeout
+        )
+
+    def _wait_for_cluster_phase(
+        self,
+        phase_key: str,
+        message_key: str,
+        cluster_index: int,
+        expected_phase: Phase,
+        expect_message: bool,
+        timeout: int,
+    ):
+        from kubetester.kubetester import run_periodically
+
+        def check() -> tuple:
+            self.load()
+            cs = self.get_cluster_status(cluster_index)
+            if cs is None:
+                return (
+                    False,
+                    f"no clusterStatuses entry for clusterIndex {cluster_index}: {self.get_cluster_statuses()}",
+                )
+            phase = cs.get(phase_key)
+            msg = cs.get(message_key) or ""
+            if phase != expected_phase.name:
+                return (
+                    False,
+                    f"cluster {cluster_index}: {phase_key}={phase!r}, want {expected_phase.name!r} (msg={msg!r})",
+                )
+            if expect_message and not msg:
+                return False, f"cluster {cluster_index}: {phase_key}={phase!r} but {message_key} is empty"
+            if not expect_message and msg:
+                return False, f"cluster {cluster_index}: {phase_key}={phase!r} but {message_key} not cleared: {msg!r}"
+            return True, f"cluster {cluster_index}: {phase_key}={phase} (msg={msg!r}) as expected"
+
+        run_periodically(
+            check,
+            timeout=timeout,
+            sleep_time=10,
+            msg=f"cluster {cluster_index} {phase_key} -> {expected_phase.name}",
+        )
+
     def get_metrics_forwarder_status(self) -> Optional[dict]:
         """Returns the status.metricsForwarder substatus dict, or None if absent."""
         try:
