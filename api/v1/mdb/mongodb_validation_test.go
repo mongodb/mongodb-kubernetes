@@ -1929,3 +1929,55 @@ func TestAtMostOneMigrationChangeAtATime_ShardMemberConfigCounted(t *testing.T) 
 	assert.Equal(t, v1.ErrorLevel, result.Level)
 	assert.Contains(t, result.Msg, "only one migration change type is allowed per update")
 }
+
+func TestGeneratedResourceUsedCorrectImportToolVersion(t *testing.T) {
+	// The validator compares the migrate-tool-version annotation against the operator's build version,
+	// so pin util.OperatorVersion for the duration of the test and restore it afterwards.
+	const operatorVersion = "1.42.0"
+	original := util.OperatorVersion
+	util.OperatorVersion = operatorVersion
+	t.Cleanup(func() { util.OperatorVersion = original })
+
+	tests := []struct {
+		name        string
+		annotations map[string]string
+		expectError bool
+	}{
+		{
+			name:        "no annotation is a no-op",
+			annotations: nil,
+			expectError: false,
+		},
+		{
+			name:        "matching version passes",
+			annotations: map[string]string{util.MigrateToolVersionAnnotation: operatorVersion},
+			expectError: false,
+		},
+		{
+			name:        "latest is always accepted",
+			annotations: map[string]string{util.MigrateToolVersionAnnotation: "latest"},
+			expectError: false,
+		},
+		{
+			name:        "mismatching version is rejected",
+			annotations: map[string]string{util.MigrateToolVersionAnnotation: "1.41.0"},
+			expectError: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			rs := NewReplicaSetBuilder().Build()
+			rs.Annotations = tc.annotations
+
+			result := generatedResourceUsedCorrectImportToolVersion(rs)
+
+			if tc.expectError {
+				assert.Equal(t, v1.ErrorLevel, result.Level)
+				assert.Contains(t, result.Msg, "Make sure the version of the import tool matches the operator")
+			} else {
+				assert.Equal(t, v1.SuccessLevel, result.Level)
+			}
+		})
+	}
+}

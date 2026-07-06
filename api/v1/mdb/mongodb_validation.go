@@ -353,6 +353,15 @@ func replicasetMemberIsSpecified(ms MongoDbSpec) v1.ValidationResult {
 	return v1.ValidationSuccess()
 }
 
+func generatedResourceUsedCorrectImportToolVersion(m *MongoDB) v1.ValidationResult {
+	if version, ok := m.Annotations[util.MigrateToolVersionAnnotation]; ok {
+		if version != "latest" && version != util.OperatorVersion {
+			return v1.ValidationError("The resource was generated with import tool version %s. Operator is on version %s. Make sure the version of the import tool matches the operator.", version, util.OperatorVersion)
+		}
+	}
+	return v1.ValidationSuccess()
+}
+
 func agentModeIsSetIfMoreThanADeploymentAuthModeIsSet(d DbCommonSpec) v1.ValidationResult {
 	if d.Security == nil || d.Security.Authentication == nil {
 		return v1.ValidationSuccess()
@@ -665,6 +674,10 @@ func atMostOneMigrationChangeAtATime(newObj, oldObj MongoDbSpec) v1.ValidationRe
 func (m *MongoDB) RunValidations(old *MongoDB) []v1.ValidationResult {
 	// The below validators apply to all MongoDB resource (but not MongoDBMulti), regardless of the value of the
 	// Topology field
+	metaValidators := []func(m *MongoDB) v1.ValidationResult{
+		generatedResourceUsedCorrectImportToolVersion,
+	}
+
 	mongoDBValidators := []func(m MongoDbSpec) v1.ValidationResult{
 		horizonsMustEqualMembers,
 		horizonDomainNamesMustBeValid,
@@ -685,6 +698,13 @@ func (m *MongoDB) RunValidations(old *MongoDB) []v1.ValidationResult {
 	}
 
 	var validationResults []v1.ValidationResult
+
+	for _, validator := range metaValidators {
+		res := validator(m)
+		if res.Level > 0 {
+			validationResults = append(validationResults, res)
+		}
+	}
 
 	for _, validator := range mongoDBValidators {
 		res := validator(m.Spec)
