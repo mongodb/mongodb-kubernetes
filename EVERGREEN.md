@@ -59,15 +59,20 @@ Adjust probe/hook params to match **`release.json`** if your project does not se
 
 ## E2E Test Path Filtering on PRs
 
-E2e build variants are automatically skipped on PRs that only touch non-production files (CI tooling, docs, YAML config, shell scripts, etc.). The filter triggers e2e runs when any changed file matches `**/*.go` or `**/*.py` and is not under `ci/`. The patterns are defined in the `production_code_paths` anchor in `.evergreen.yml`.
+Evergreen uses two levels of file-based filtering on PRs:
 
-If your PR touches files outside those patterns but still needs e2e coverage, you can trigger e2e manually like this:
+- **Project-level `ignore:`** (top of `.evergreen.yml`): files that never trigger any build (e.g. `*.md`, `.github/**`, `changelog/**`). Add entries here for files that are purely non-functional.
+- **Variant-level `paths:`** (`production_code_paths` anchor in `.evergreen.yml`): controls which variants run. E2e variants use a denylist (`**` minus `ci/**` and the release config) so they skip CI-only changes but run for everything else.
+
+If your PR only touches ignored files, Evergreen sends a synthetic green status with no builds. If it touches non-ignored files that don't match the e2e `paths:`, static/lint variants still run but e2e is skipped.
+
+To trigger e2e manually on a PR:
 
 ```shell
 evergreen patch -p mongodb-kubernetes -a pr_patch_e2e -d "Manual e2e run" -f -y -u
 ```
 
-To permanently add a new file type, extend the `paths:` list in the `production_code_paths` anchor in `.evergreen.yml`.
+To add a new file type that should never trigger any build, add it to `ignore:` in `.evergreen.yml`. To make it skip e2e but still run lint/static, add a negation to `production_code_paths` instead.
 
 ## Manual Variant Aliases
 

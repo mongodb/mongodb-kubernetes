@@ -3,6 +3,14 @@
 # Ensure path filtering only applies to PR patches, not merge queue or mainline.
 disable_merge_queue_path_filtering: true
 
+# Never schedule any build for commits/PRs that only touch these files.
+ignore:
+  - "**/*.md"
+  - ".gitignore"
+  - "**/OWNERS"
+  - ".github/**"
+  - "changelog/**"
+
 # 2h timeout for all the tasks
 exec_timeout_secs: 7200
 
@@ -14,16 +22,13 @@ include:
   - filename: .evergreen-release.yml
 
 variables:
-  # NOTE: This is a denylist to prevent "vertigo" about missing untracked scripts.
+  # NOTE: This is a denylist to prevent missing changes that shoudl trigger e2e.
   # If you add a new non-production folder/file type, add it to this ignore list
   # to save CI costs and increase PR reliability by skipping unnecesary E2E runs.
   - &production_code_paths
     paths:
       - "**"
-      - "!ci/**"
-      - "!**/*.md"
-      - "!.gitignore"
-      - "!**/OWNERS"
+      - "!ci/**" # CI tooling that is fully unit-tests covered and should not affect prod
       - "!.evergreen-release.yml" # Prevent the release config itself from triggering E2E on PR
 
   - &ops_manager_60_latest 6.0.27 # The order/index is important, since these are anchors. Please do not change
