@@ -64,5 +64,14 @@ func withDefaults(cfg operatorv1.OperatorConfig) operatorv1.OperatorConfig {
 	if cfg.Spec.AutomaticRecovery.Delay == 0 {
 		cfg.Spec.AutomaticRecovery.Delay = 1200
 	}
+	// Proxy is a pointer, so an omitted block leaves the API server's nested default
+	// (envPropagationPolicy=NoPropagation) unapplied. Ensure the block exists and default the
+	// policy so proxy env vars are never propagated unless the user opts in.
+	if cfg.Spec.Proxy == nil {
+		cfg.Spec.Proxy = &operatorv1.ProxyConfig{}
+	}
+	if cfg.Spec.Proxy.EnvPropagationPolicy == "" {
+		cfg.Spec.Proxy.EnvPropagationPolicy = operatorv1.ProxyEnvPropagationPolicyNoPropagation
+	}
 	return cfg
 }

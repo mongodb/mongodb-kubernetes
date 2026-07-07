@@ -43,6 +43,48 @@ func TestLoad_AbsentCR(t *testing.T) {
 	require.NotNil(t, cfg.Spec.AutomaticRecovery)
 	assert.Equal(t, operatorv1.FeatureModeEnabled, cfg.Spec.AutomaticRecovery.Mode)
 	assert.Equal(t, 1200, cfg.Spec.AutomaticRecovery.Delay)
+	// Proxy is a pointer; withDefaults must materialise it and default the policy
+	require.NotNil(t, cfg.Spec.Proxy)
+	assert.Equal(t, operatorv1.ProxyEnvPropagationPolicyNoPropagation, cfg.Spec.Proxy.EnvPropagationPolicy)
+}
+
+func TestLoad_Proxy(t *testing.T) {
+	t.Run("omitted proxy block defaults to NoPropagation", func(t *testing.T) {
+		cr := &operatorv1.OperatorConfig{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      util.DefaultOperatorConfigName,
+				Namespace: testNamespace,
+			},
+		}
+		c := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(cr).Build()
+
+		cfg, err := Load(context.Background(), c, testNamespace, util.DefaultOperatorConfigName)
+
+		require.NoError(t, err)
+		require.NotNil(t, cfg.Spec.Proxy)
+		assert.Equal(t, operatorv1.ProxyEnvPropagationPolicyNoPropagation, cfg.Spec.Proxy.EnvPropagationPolicy)
+	})
+
+	t.Run("explicit Propagate is preserved", func(t *testing.T) {
+		cr := &operatorv1.OperatorConfig{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      util.DefaultOperatorConfigName,
+				Namespace: testNamespace,
+			},
+			Spec: operatorv1.OperatorConfigSpec{
+				Proxy: &operatorv1.ProxyConfig{
+					EnvPropagationPolicy: operatorv1.ProxyEnvPropagationPolicyPropagate,
+				},
+			},
+		}
+		c := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(cr).Build()
+
+		cfg, err := Load(context.Background(), c, testNamespace, util.DefaultOperatorConfigName)
+
+		require.NoError(t, err)
+		require.NotNil(t, cfg.Spec.Proxy)
+		assert.Equal(t, operatorv1.ProxyEnvPropagationPolicyPropagate, cfg.Spec.Proxy.EnvPropagationPolicy)
+	})
 }
 
 func TestLoad_AutomaticRecovery(t *testing.T) {
