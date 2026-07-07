@@ -577,8 +577,8 @@ func (in *MongoDBSearchStatus) DeepCopyInto(out *MongoDBSearchStatus) {
 		*out = new(MetricsForwarderStatus)
 		**out = **in
 	}
-	if in.ClusterStatuses != nil {
-		in, out := &in.ClusterStatuses, &out.ClusterStatuses
+	if in.Clusters != nil {
+		in, out := &in.Clusters, &out.Clusters
 		*out = make([]ClusterStatus, len(*in))
 		copy(*out, *in)
 	}

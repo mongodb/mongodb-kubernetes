@@ -1111,9 +1111,9 @@ spec:
             type: object
           status:
             properties:
-              clusterStatuses:
-                description: ClusterStatuses reports per-cluster search + load balancer
-                  state across the topology.
+              clusters:
+                description: Clusters reports per-cluster search + load balancer state
+                  across the topology.
                 items:
                   description: |-
                     ClusterStatus reports one member cluster's search + load balancer state. In
@@ -1121,14 +1121,10 @@ spec:
                     Search and load balancer fail independently, so each phase carries its OWN
                     message (no concatenation into a single lossy string).
                   properties:
-                    clusterIndex:
-                      description: ClusterIndex is the spec.clusters[] pinned index
-                        for this cluster.
+                    index:
+                      description: Index is the spec.clusters[] pinned index for this
+                        cluster.
                       type: integer
-                    clusterName:
-                      description: ClusterName is the member cluster name; empty in
-                        single-cluster deployments.
-                      type: string
                     loadBalancer:
                       description: LoadBalancer is this cluster's managed Envoy load
                         balancer phase; empty when no managed LB.
@@ -1136,6 +1132,10 @@ spec:
                     loadBalancerMessage:
                       description: LoadBalancerMessage explains the load balancer
                         phase when it is not Running.
+                      type: string
+                    name:
+                      description: Name is the member cluster name; empty in single-cluster
+                        deployments.
                       type: string
                     search:
                       description: Search is the worst-of phase of this cluster's
@@ -1146,11 +1146,11 @@ spec:
                         is not Running.
                       type: string
                   required:
-                  - clusterIndex
+                  - index
                   type: object
                 type: array
                 x-kubernetes-list-map-keys:
-                - clusterIndex
+                - index
                 x-kubernetes-list-type: map
               lastTransition:
                 type: string

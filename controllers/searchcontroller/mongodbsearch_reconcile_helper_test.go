@@ -3920,7 +3920,7 @@ func clusterStatusesFromStatus(t *testing.T, st workflow.Status) []searchv1.Clus
 func clusterStatusByIndex(t *testing.T, statuses []searchv1.ClusterStatus, idx int) searchv1.ClusterStatus {
 	t.Helper()
 	for _, cs := range statuses {
-		if cs.ClusterIndex == idx {
+		if cs.Index == idx {
 			return cs
 		}
 	}
@@ -3964,8 +3964,8 @@ func TestReconcileShardedMC_PerClusterStatus(t *testing.T) {
 		// Envoy Deployment absent → LoadBalancer reported Pending, informational only.
 		require.Equal(t, status.PhasePending, cs.LoadBalancer, "cluster %d LB should be Pending (deployment not created yet)", idx)
 	}
-	require.Equal(t, "cluster-a", clusterStatusByIndex(t, statuses, 0).ClusterName)
-	require.Equal(t, "cluster-b", clusterStatusByIndex(t, statuses, 1).ClusterName)
+	require.Equal(t, "cluster-a", clusterStatusByIndex(t, statuses, 0).Name)
+	require.Equal(t, "cluster-b", clusterStatusByIndex(t, statuses, 1).Name)
 
 	// Make all mongot STSs ready and create ready Envoy Deployments in both members.
 	require.NoError(t, mock.MarkAllStatefulSetsAsReady(t.Context(), "ns",

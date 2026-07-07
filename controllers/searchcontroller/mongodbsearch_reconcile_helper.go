@@ -838,8 +838,8 @@ func (r *MongoDBSearchReconcileHelper) aggregateReadiness(ctx context.Context, a
 	for _, idx := range order {
 		a := accs[idx]
 		cs := searchv1.ClusterStatus{
-			ClusterName:   a.name,
-			ClusterIndex:  a.index,
+			Name:          a.name,
+			Index:         a.index,
 			Search:        a.searchPhase,
 			SearchMessage: strings.Join(a.searchMsgs, "; "),
 		}

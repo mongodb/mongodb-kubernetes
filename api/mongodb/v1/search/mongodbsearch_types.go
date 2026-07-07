@@ -600,11 +600,11 @@ type MetricsForwarderStatus struct {
 // message (no concatenation into a single lossy string).
 // +k8s:deepcopy-gen=true
 type ClusterStatus struct {
-	// ClusterName is the member cluster name; empty in single-cluster deployments.
+	// Name is the member cluster name; empty in single-cluster deployments.
 	// +optional
-	ClusterName string `json:"clusterName,omitempty"`
-	// ClusterIndex is the spec.clusters[] pinned index for this cluster.
-	ClusterIndex int `json:"clusterIndex"`
+	Name string `json:"name,omitempty"`
+	// Index is the spec.clusters[] pinned index for this cluster.
+	Index int `json:"index"`
 	// Search is the worst-of phase of this cluster's mongot StatefulSet(s).
 	// +optional
 	Search status.Phase `json:"search,omitempty"`
@@ -630,11 +630,11 @@ type MongoDBSearchStatus struct {
 	// MetricsForwarder reports the state of the Ops Manager metrics forwarder.
 	// +optional
 	MetricsForwarder *MetricsForwarderStatus `json:"metricsForwarder,omitempty"`
-	// ClusterStatuses reports per-cluster search + load balancer state across the topology.
+	// Clusters reports per-cluster search + load balancer state across the topology.
 	// +optional
 	// +listType=map
-	// +listMapKey=clusterIndex
-	ClusterStatuses []ClusterStatus `json:"clusterStatuses,omitempty"`
+	// +listMapKey=index
+	Clusters []ClusterStatus `json:"clusters,omitempty"`
 }
 
 // +k8s:deepcopy-gen=true
@@ -715,12 +715,12 @@ func (s *MongoDBSearch) UpdateStatus(phase status.Phase, statusOptions ...status
 	if option, exists := status.GetOption(statusOptions, MongoDBSearchVersionOption{}); exists {
 		s.Status.Version = option.(MongoDBSearchVersionOption).Version
 	}
-	// The search controller is the sole writer of clusterStatuses: it recomputes the
+	// The search controller is the sole writer of status.clusters: it recomputes the
 	// full list from live reads every reconcile and replaces it wholesale (never a
 	// read-modify-write of the cached status). A nil slice is a legitimate "no
 	// per-cluster info this pass" and clears stale entries.
 	if option, exists := status.GetOption(statusOptions, MongoDBSearchClusterStatusesOption{}); exists {
-		s.Status.ClusterStatuses = option.(MongoDBSearchClusterStatusesOption).Statuses
+		s.Status.Clusters = option.(MongoDBSearchClusterStatusesOption).Statuses
 	}
 }
 
