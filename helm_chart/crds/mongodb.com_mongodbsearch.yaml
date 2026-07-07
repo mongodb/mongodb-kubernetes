@@ -1114,26 +1114,25 @@ spec:
               STSs and LoadBalancer (status.LoadBalancer) is running.
             properties:
               clusters:
-                description: Clusters reports per-cluster search + load balancer +
-                  metrics forwarder state across the topology.
+                description: |-
+                  Clusters reports per-cluster search + load balancer + metrics forwarder state across the topology. In
+                  single-cluster and operator per cluster deployments the list has exactly one entry.
                 items:
-                  description: |-
-                    ClusterStatus reports one member cluster's search + load balancer state. In
-                    single-cluster and simulated-MC deployments the list has exactly one entry.
-                    Search and load balancer fail independently, so each phase carries its OWN
-                    message (no concatenation into a single lossy string).
+                  description: ClusterStatus reports one member cluster's search +
+                    LB + metrics forwarder state.
                   properties:
                     index:
-                      description: Index is the spec.clusters[] pinned index for this
-                        cluster.
+                      description: |-
+                        Index is the spec.clusters[] pinned index so the status entries map back to their spec
+                        entry independently of list order.
                       type: integer
                     loadBalancer:
                       description: LoadBalancer is this cluster's managed Envoy load
                         balancer phase; empty when no managed LB.
                       type: string
                     loadBalancerMessage:
-                      description: LoadBalancerMessage explains the load balancer
-                        phase when it is not Running.
+                      description: LoadBalancerMessage contains reason when LoadBalancer
+                        is not Running.
                       type: string
                     metricsForwarder:
                       description: |-
@@ -1141,8 +1140,8 @@ spec:
                         empty when the metrics forwarder is not enabled.
                       type: string
                     metricsForwarderMessage:
-                      description: MetricsForwarderMessage explains the metrics-forwarder
-                        phase when it is not Running.
+                      description: MetricsForwarderMessage contians the reason when
+                        metrics-forwarder is not Running.
                       type: string
                     name:
                       description: Name is the member cluster name; empty in single-cluster
@@ -1153,8 +1152,8 @@ spec:
                         mongot StatefulSet(s).
                       type: string
                     searchMessage:
-                      description: SearchMessage explains the search phase when it
-                        is not Running.
+                      description: SearchMessage contains the reason when Search is
+                        not Running.
                       type: string
                   required:
                   - index

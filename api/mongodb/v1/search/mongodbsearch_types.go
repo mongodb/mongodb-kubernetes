@@ -594,32 +594,32 @@ type MetricsForwarderStatus struct {
 	Message string       `json:"message,omitempty"`
 }
 
-// ClusterStatus reports one member cluster's search + LB + metrics forwarder state. In
-// single-cluster and operator per cluster deployments the list has exactly one entry.
+// ClusterStatus reports one member cluster's search + LB + metrics forwarder state.
 // +k8s:deepcopy-gen=true
 type ClusterStatus struct {
 	// Name is the member cluster name; empty in single-cluster deployments.
 	// +optional
 	Name string `json:"name,omitempty"`
-	// Index is the spec.clusters[] pinned index for this cluster.
+	// Index is the spec.clusters[] pinned index so the status entries map back to their spec
+	// entry independently of list order.
 	Index int `json:"index"`
 	// Search is the worst-of phase of this cluster's mongot StatefulSet(s).
 	// +optional
 	Search status.Phase `json:"search,omitempty"`
-	// SearchMessage explains the search phase when it is not Running.
+	// SearchMessage contains the reason when Search is not Running.
 	// +optional
 	SearchMessage string `json:"searchMessage,omitempty"`
 	// LoadBalancer is this cluster's managed Envoy load balancer phase; empty when no managed LB.
 	// +optional
 	LoadBalancer status.Phase `json:"loadBalancer,omitempty"`
-	// LoadBalancerMessage explains the load balancer phase when it is not Running.
+	// LoadBalancerMessage contains reason when LoadBalancer is not Running.
 	// +optional
 	LoadBalancerMessage string `json:"loadBalancerMessage,omitempty"`
 	// MetricsForwarder is this cluster's Ops Manager metrics-forwarder Deployment phase;
 	// empty when the metrics forwarder is not enabled.
 	// +optional
 	MetricsForwarder status.Phase `json:"metricsForwarder,omitempty"`
-	// MetricsForwarderMessage explains the metrics-forwarder phase when it is not Running.
+	// MetricsForwarderMessage contians the reason when metrics-forwarder is not Running.
 	// +optional
 	MetricsForwarderMessage string `json:"metricsForwarderMessage,omitempty"`
 }
@@ -636,7 +636,8 @@ type MongoDBSearchStatus struct {
 	// MetricsForwarder reports the state of the Ops Manager metrics forwarder.
 	// +optional
 	MetricsForwarder *MetricsForwarderStatus `json:"metricsForwarder,omitempty"`
-	// Clusters reports per-cluster search + load balancer + metrics forwarder state across the topology.
+	// Clusters reports per-cluster search + load balancer + metrics forwarder state across the topology. In
+	// single-cluster and operator per cluster deployments the list has exactly one entry.
 	// +optional
 	// +listType=map
 	// +listMapKey=index
@@ -721,10 +722,10 @@ func (s *MongoDBSearch) UpdateStatus(phase status.Phase, statusOptions ...status
 	if option, exists := status.GetOption(statusOptions, MongoDBSearchVersionOption{}); exists {
 		s.Status.Version = option.(MongoDBSearchVersionOption).Version
 	}
-	// The search controller is the sole writer of status.clusters: it recomputes the
-	// full list from live reads every reconcile and replaces it wholesale (never a
-	// read-modify-write of the cached status). A nil slice is a legitimate "no
-	// per-cluster info this pass" and clears stale entries.
+	// The search controller is the sole writer of status.clusters. Every reconcile it
+	// rebuilds the whole list by reading the current StatefulSet/Deployment objects and
+	// replaces status.clusters wholesale — it never read-modify-writes the previously
+	// persisted status. A nil slice is valid and clears stale entries.
 	if option, exists := status.GetOption(statusOptions, MongoDBSearchClusterStatusesOption{}); exists {
 		s.Status.Clusters = option.(MongoDBSearchClusterStatusesOption).Statuses
 	}
