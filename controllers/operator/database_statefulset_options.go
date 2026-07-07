@@ -154,6 +154,12 @@ func WithDefaultArchitecture(defaultArchitecture architectures.DefaultArchitectu
 	}
 }
 
+func WithProxyEnvPropagation(propagateProxyEnv bool) func(options *construct.DatabaseStatefulSetOptions) {
+	return func(options *construct.DatabaseStatefulSetOptions) {
+		options.PropagateProxyEnv = propagateProxyEnv
+	}
+}
+
 func WithStsAnnotations(annotations map[string]string) func(options *construct.DatabaseStatefulSetOptions) {
 	return func(options *construct.DatabaseStatefulSetOptions) {
 		options.Annotations = annotations
