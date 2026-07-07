@@ -59,7 +59,6 @@ func GetMongodbUserCommand(withStatic bool, withAgentAPIKeyExport bool) string {
 		apiKeyExport = "AGENT_API_KEY=\"$(cat /mongodb-automation/agent-api-key/agentApiKey)\"\n"
 	}
 
-	//nolint:gosec //The credentials path is hardcoded in the container.
 	return fmt.Sprintf(`%scurrent_uid=$(id -u)
 %sdeclare -r current_uid
 if ! grep -q "${current_uid}" /etc/passwd ; then
