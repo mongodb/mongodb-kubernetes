@@ -57,6 +57,23 @@ evergreen patch -p mongodb-kubernetes -a preflight_release_test \
 
 Adjust probe/hook params to match **`release.json`** if your project does not set them by default on patches. **`mongodb-enterprise-server`** preflight still enumerates Quay tags (same as release).
 
+## E2E Test Path Filtering on PRs
+
+Evergreen uses two levels of file-based filtering on PRs:
+
+- **Project-level `ignore:`** (top of `.evergreen.yml`): files that never trigger any build (e.g. `*.md`, `.github/**`, `changelog/**`). Add entries here for files that are purely non-functional.
+- **Variant-level `paths:`** (`production_code_paths` anchor in `.evergreen.yml`): controls which variants run. E2e variants use a denylist (`**` minus `ci/**` and the release config) so they skip CI-only changes but run for everything else.
+
+If your PR only touches ignored files, Evergreen sends a synthetic green status with no builds. If it touches non-ignored files that don't match the e2e `paths:`, static/lint variants still run but e2e is skipped.
+
+To trigger e2e manually on a PR:
+
+```shell
+evergreen patch -p mongodb-kubernetes -a pr_patch_e2e -d "Manual e2e run" -f -y -u
+```
+
+To add a new file type that should never trigger any build, add it to `ignore:` in `.evergreen.yml`. To make it skip e2e but still run lint/static, add a negation to `production_code_paths` instead.
+
 ## Manual Variant Aliases
 
 Some CI variants are excluded from automatic PR runs to save compute time. These variants only run automatically on master commits but can be triggered manually when needed.
