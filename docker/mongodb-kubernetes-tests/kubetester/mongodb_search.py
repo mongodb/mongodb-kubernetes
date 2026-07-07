@@ -101,20 +101,20 @@ class MongoDBSearch(MongoDB, CustomObject):
             logger.info(f"MongoDBSearch {self.name}: loadBalancer status correctly absent")
 
     def get_cluster_statuses(self) -> list[dict]:
-        """Returns the status.clusterStatuses list, or [] if absent.
+        """Returns the status.clusters list, or [] if absent.
 
         The search controller is the sole writer and recomputes the whole list
-        every reconcile (one entry per spec.clusters[], keyed by clusterIndex).
+        every reconcile (one entry per spec.clusters[], keyed by index).
         """
         try:
-            return list(self["status"]["clusterStatuses"] or [])
+            return list(self["status"]["clusters"] or [])
         except KeyError:
             return []
 
     def get_cluster_status(self, cluster_index: int) -> Optional[dict]:
-        """Returns the per-cluster status entry with the given clusterIndex, or None."""
+        """Returns the per-cluster status entry with the given index, or None."""
         for cs in self.get_cluster_statuses():
-            if cs.get("clusterIndex") == cluster_index:
+            if cs.get("index") == cluster_index:
                 return cs
         return None
 
@@ -123,35 +123,40 @@ class MongoDBSearch(MongoDB, CustomObject):
         clusters = self["spec"].get("clusters", []) or []
         return [c.get("index", i) for i, c in enumerate(clusters)]
 
-    def assert_cluster_statuses(self, expected_count: Optional[int] = None, expect_managed_lb: Optional[bool] = None):
-        """Assert status.clusterStatuses is well-formed for a healthy (Running) deployment.
+    def assert_cluster_statuses(
+        self,
+        expected_count: Optional[int] = None,
+        expect_managed_lb: Optional[bool] = None,
+        expect_metrics_forwarder: bool = False,
+    ):
+        """Assert status.clusters is well-formed for a healthy (Running) deployment.
 
         - One entry per spec.clusters[], no more, no less (expected_count overrides).
-        - clusterIndex values exactly match the spec pins and are unique.
+        - index values exactly match the spec pins and are unique.
         - Every entry's search phase is Running with an empty searchMessage.
         - loadBalancer phase is Running (empty message) iff managed LB, else absent/empty
           (expect_managed_lb overrides is_lb_mode_managed()).
+        - metricsForwarder phase is Running (empty message) iff expect_metrics_forwarder,
+          else absent/empty.
         """
         self.load()
         statuses = self.get_cluster_statuses()
         spec_indexes = self._spec_cluster_indexes()
 
         want_count = expected_count if expected_count is not None else len(spec_indexes)
-        assert (
-            len(statuses) == want_count
-        ), f"expected {want_count} clusterStatuses entries, got {len(statuses)}: {statuses}"
+        assert len(statuses) == want_count, f"expected {want_count} clusters entries, got {len(statuses)}: {statuses}"
 
-        got_indexes = [cs.get("clusterIndex") for cs in statuses]
-        assert len(set(got_indexes)) == len(got_indexes), f"duplicate clusterIndex in clusterStatuses: {got_indexes}"
+        got_indexes = [cs.get("index") for cs in statuses]
+        assert len(set(got_indexes)) == len(got_indexes), f"duplicate index in status.clusters: {got_indexes}"
         if expected_count is None:
             assert sorted(got_indexes) == sorted(
                 spec_indexes
-            ), f"clusterStatuses indexes {sorted(got_indexes)} != spec.clusters indexes {sorted(spec_indexes)}"
+            ), f"status.clusters indexes {sorted(got_indexes)} != spec.clusters indexes {sorted(spec_indexes)}"
 
         managed_lb = expect_managed_lb if expect_managed_lb is not None else self.is_lb_mode_managed()
 
         for cs in statuses:
-            ci = cs.get("clusterIndex")
+            ci = cs.get("index")
             assert (
                 cs.get("search") == "Running"
             ), f"cluster {ci}: search phase is {cs.get('search')!r}, expected Running"
@@ -171,7 +176,24 @@ class MongoDBSearch(MongoDB, CustomObject):
                     "loadBalancer"
                 ), f"cluster {ci}: loadBalancer should be absent for non-managed LB, got {cs.get('loadBalancer')!r}"
 
-        logger.info(f"MongoDBSearch {self.name}: clusterStatuses OK ({len(statuses)} entries, managed_lb={managed_lb})")
+            if expect_metrics_forwarder:
+                assert (
+                    cs.get("metricsForwarder") == "Running"
+                ), f"cluster {ci}: metricsForwarder phase is {cs.get('metricsForwarder')!r}, expected Running"
+                assert not cs.get("metricsForwarderMessage"), (
+                    f"cluster {ci}: metricsForwarderMessage should be empty when Running, "
+                    f"got {cs.get('metricsForwarderMessage')!r}"
+                )
+            else:
+                assert not cs.get("metricsForwarder"), (
+                    f"cluster {ci}: metricsForwarder should be absent when forwarder disabled, "
+                    f"got {cs.get('metricsForwarder')!r}"
+                )
+
+        logger.info(
+            f"MongoDBSearch {self.name}: status.clusters OK ({len(statuses)} entries, "
+            f"managed_lb={managed_lb}, metrics_forwarder={expect_metrics_forwarder})"
+        )
 
     def wait_for_cluster_search_phase(
         self,
@@ -203,6 +225,21 @@ class MongoDBSearch(MongoDB, CustomObject):
             "loadBalancer", "loadBalancerMessage", cluster_index, expected_phase, expect_message, timeout
         )
 
+    def wait_for_cluster_metrics_forwarder_phase(
+        self,
+        cluster_index: int,
+        expected_phase: Phase,
+        expect_message: bool,
+        timeout: int = 300,
+    ):
+        """Poll until the given cluster's per-cluster METRICS FORWARDER phase reaches expected_phase.
+
+        Same message semantics as wait_for_cluster_search_phase, on metricsForwarderMessage.
+        """
+        self._wait_for_cluster_phase(
+            "metricsForwarder", "metricsForwarderMessage", cluster_index, expected_phase, expect_message, timeout
+        )
+
     def _wait_for_cluster_phase(
         self,
         phase_key: str,
@@ -220,7 +257,7 @@ class MongoDBSearch(MongoDB, CustomObject):
             if cs is None:
                 return (
                     False,
-                    f"no clusterStatuses entry for clusterIndex {cluster_index}: {self.get_cluster_statuses()}",
+                    f"no status.clusters entry for index {cluster_index}: {self.get_cluster_statuses()}",
                 )
             phase = cs.get(phase_key)
             msg = cs.get(message_key) or ""

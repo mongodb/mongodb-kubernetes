@@ -769,8 +769,8 @@ def test_verify_lb_status(mdbs: MongoDBSearch):
 
 @mark.e2e_search_q2_mc_rs_steady
 def test_verify_per_cluster_status(mdbs: MongoDBSearch):
-    """Real multi-cluster: status.clusterStatuses has ONE entry per member cluster, each
-    with search and loadBalancer sub-phases Running, and clusterIndex values matching the
+    """Real multi-cluster: status.clusters has ONE entry per member cluster, each
+    with search and loadBalancer sub-phases Running, and index values matching the
     spec.clusters[] pins."""
     mdbs.assert_cluster_statuses(expected_count=len(MEMBERS_PER_CLUSTER), expect_managed_lb=True)
 
@@ -932,7 +932,6 @@ SEARCH_INDEX_READY_TIMEOUT = 300
 SEARCH_QUERY_RETRY_TIMEOUT = 60
 
 
-@pytest.mark.skip(reason="LOCAL-DATAPLANE-SKIP: direct pymongo to in-cluster mongod DNS unreachable from host")
 @mark.e2e_search_q2_mc_rs_steady
 def test_restore_sample_database(mdb: MongoDBMulti, tools_pod):
     """mongorestore the sample_mflix.archive into the source RS."""
@@ -944,7 +943,6 @@ def test_restore_sample_database(mdb: MongoDBMulti, tools_pod):
     )
 
 
-@pytest.mark.skip(reason="LOCAL-DATAPLANE-SKIP: direct pymongo to in-cluster mongod DNS unreachable from host")
 @mark.e2e_search_q2_mc_rs_steady
 def test_create_search_index(
     mdb: MongoDBMulti,
@@ -962,7 +960,6 @@ def test_create_search_index(
     tester.wait_for_search_indexes_ready(movies.db_name, movies.col_name, timeout=SEARCH_INDEX_READY_TIMEOUT)
 
 
-@pytest.mark.skip(reason="LOCAL-DATAPLANE-SKIP: direct pymongo to in-cluster mongod DNS unreachable from host")
 @mark.e2e_search_q2_mc_rs_steady
 def test_execute_text_search_query(
     mdb: MongoDBMulti,
@@ -996,7 +993,6 @@ def test_execute_text_search_query(
     )
 
 
-@pytest.mark.skip(reason="LOCAL-DATAPLANE-SKIP: direct pymongo to in-cluster mongod DNS unreachable from host")
 @mark.e2e_search_q2_mc_rs_steady
 def test_create_vector_search_index(
     mdb: MongoDBMulti,
@@ -1017,7 +1013,6 @@ def test_create_vector_search_index(
     embedded.wait_for_vector_search_index(timeout=SEARCH_INDEX_READY_TIMEOUT)
 
 
-@pytest.mark.skip(reason="LOCAL-DATAPLANE-SKIP: direct pymongo to in-cluster mongod DNS unreachable from host")
 @mark.e2e_search_q2_mc_rs_steady
 def test_execute_vector_search_query(
     mdb: MongoDBMulti,
@@ -1055,7 +1050,6 @@ def test_execute_vector_search_query(
     )
 
 
-@pytest.mark.skip(reason="LOCAL-DATAPLANE-SKIP: direct pymongo to in-cluster mongod DNS unreachable from host")
 @mark.e2e_search_q2_mc_rs_steady
 def test_per_cluster_search_query(
     mdb: MongoDBMulti,
@@ -1091,7 +1085,6 @@ def test_per_cluster_search_query(
         )
 
 
-@pytest.mark.skip(reason="LOCAL-DATAPLANE-SKIP: direct pymongo to in-cluster mongod DNS unreachable from host")
 @mark.e2e_search_q2_mc_rs_steady
 def test_per_cluster_vector_search_query(
     mdb: MongoDBMulti,
@@ -1132,6 +1125,7 @@ def test_per_cluster_vector_search_query(
             msg=f"cluster {cluster_index}: $vectorSearch query to succeed",
         )
 
+
 # Larger than any node in the e2e kind clusters — guarantees Unschedulable.
 UNSCHEDULABLE_MEMORY = "10000Gi"
 STATUS_DEGRADE_TIMEOUT = 300
@@ -1143,7 +1137,7 @@ ENVOY_FAULT_POS = 1
 
 
 def _cluster_index_at(mdbs: MongoDBSearch, list_pos: int) -> int:
-    """The clusterIndex pin of the spec.clusters[] entry at the given list position."""
+    """The index pin of the spec.clusters[] entry at the given list position."""
     mdbs.load()
     clusters = mdbs["spec"]["clusters"]
     return clusters[list_pos].get("index", list_pos)
