@@ -1,0 +1,10 @@
+# Backporting branches information
+branches:
+  - name: master
+    description: Master branch for latest version
+    version: 1.x
+  - name: old-master
+    description: Test backporting branch
+    version: 0.x
+    internal-only: true
+
