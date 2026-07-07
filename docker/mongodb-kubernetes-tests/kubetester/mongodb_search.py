@@ -204,9 +204,7 @@ class MongoDBSearch(MongoDB, CustomObject):
     ):
         """Poll until the given cluster's per-cluster SEARCH phase reaches expected_phase.
 
-        When expect_message is True, also require a non-empty searchMessage (the phase is
-        not Running so it must explain why); when False, require an empty searchMessage.
-        Raises on timeout with the last-seen entry for diagnostics.
+        When expect_message is True, also require a non-empty searchMessage when False, require an empty searchMessage.
         """
         self._wait_for_cluster_phase("search", "searchMessage", cluster_index, expected_phase, expect_message, timeout)
 
@@ -218,8 +216,6 @@ class MongoDBSearch(MongoDB, CustomObject):
         timeout: int = 300,
     ):
         """Poll until the given cluster's per-cluster LOAD BALANCER phase reaches expected_phase.
-
-        Same message semantics as wait_for_cluster_search_phase, on loadBalancerMessage.
         """
         self._wait_for_cluster_phase(
             "loadBalancer", "loadBalancerMessage", cluster_index, expected_phase, expect_message, timeout
@@ -233,8 +229,6 @@ class MongoDBSearch(MongoDB, CustomObject):
         timeout: int = 300,
     ):
         """Poll until the given cluster's per-cluster METRICS FORWARDER phase reaches expected_phase.
-
-        Same message semantics as wait_for_cluster_search_phase, on metricsForwarderMessage.
         """
         self._wait_for_cluster_phase(
             "metricsForwarder", "metricsForwarderMessage", cluster_index, expected_phase, expect_message, timeout

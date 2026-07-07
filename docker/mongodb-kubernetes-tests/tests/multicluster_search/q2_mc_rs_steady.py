@@ -1177,11 +1177,8 @@ def _set_envoy_memory_request(mdbs: MongoDBSearch, list_pos: int, memory: str | 
     """Set (memory != None) or clear the managed Envoy resourceRequirements.requests.memory
     for spec.clusters[list_pos].
 
-    The Envoy Deployment defaults to RollingUpdate; with maxUnavailable rounding to 0 the
-    old Ready pods would keep readyReplicas == desired and MASK an unschedulable surge pod,
-    so envoyDeploymentStatus never reports Pending. We pin strategy.type=Recreate via the
-    deployment override alongside the bad request: Recreate tears the old pod(s) down first,
-    driving readyReplicas to 0 so the fault reliably surfaces. Reverting clears both."""
+    We need this to set unreasonable memeory request to simulate the faulty envoy deployment to test the search status.
+    """
     mdbs.load()
     managed = mdbs["spec"]["clusters"][list_pos]["loadBalancer"]["managed"]
     if memory is None:
