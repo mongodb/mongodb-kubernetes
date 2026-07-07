@@ -594,10 +594,8 @@ type MetricsForwarderStatus struct {
 	Message string       `json:"message,omitempty"`
 }
 
-// ClusterStatus reports one member cluster's search + load balancer state. In
-// single-cluster and simulated-MC deployments the list has exactly one entry.
-// Search and load balancer fail independently, so each phase carries its OWN
-// message (no concatenation into a single lossy string).
+// ClusterStatus reports one member cluster's search + LB + metrics forwarder state. In
+// single-cluster and operator per cluster deployments the list has exactly one entry.
 // +k8s:deepcopy-gen=true
 type ClusterStatus struct {
 	// Name is the member cluster name; empty in single-cluster deployments.
