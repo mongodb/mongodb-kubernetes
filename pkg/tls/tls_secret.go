@@ -34,7 +34,7 @@ type TLSConfigurableResource interface {
 //
 // An OwnerReference is set only when writing into the central cluster
 // (clusterName == ""): Kubernetes GC does not span clusters.
-func EnsureTLSSecret(ctx context.Context, getUpdateCreator secret.GetUpdateCreator, resource TLSConfigurableResource, clusterName string) (string, error) {
+func EnsureTLSSecret(ctx context.Context, getUpdateCreator secret.GetUpdateCreator, resource TLSConfigurableResource, clusterName string, labels map[string]string) (string, error) {
 	certKey, err := getPemOrConcatenatedCrtAndKey(ctx, getUpdateCreator, resource.TLSSecretNamespacedName())
 	if err != nil {
 		return "", err
@@ -45,7 +45,8 @@ func EnsureTLSSecret(ctx context.Context, getUpdateCreator secret.GetUpdateCreat
 	secretBuilder := secret.Builder().
 		SetName(resource.TLSOperatorSecretNamespacedName().Name).
 		SetNamespace(resource.TLSOperatorSecretNamespacedName().Namespace).
-		SetField(fileName, certKey)
+		SetField(fileName, certKey).
+		SetLabels(labels)
 	if clusterName == "" {
 		secretBuilder = secretBuilder.SetOwnerReferences(resource.GetOwnerReferences())
 	}

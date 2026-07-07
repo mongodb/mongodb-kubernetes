@@ -3035,6 +3035,11 @@ func TestCleanupStaleShardResources(t *testing.T) {
 			Name: search.MongotConfigMapForClusterShard(0, shard).Name, Namespace: "test-ns", Labels: withOwner(map[string]string{"component": mongotComponent}, owned),
 		}}
 	}
+	mongotTLSSecret := func(shard string, owned bool) *corev1.Secret {
+		return &corev1.Secret{ObjectMeta: metav1.ObjectMeta{
+			Name: search.TLSOperatorSecretForClusterShard(0, shard).Name, Namespace: "test-ns", Labels: withOwner(map[string]string{"component": mongotComponent}, owned),
+		}}
+	}
 
 	fakeClient := newTestFakeClient(search,
 		proxySvc("shard-0", true),  // active, owned
@@ -3044,6 +3049,7 @@ func TestCleanupStaleShardResources(t *testing.T) {
 		mongotSTS("shard-1", true), mongotSTS("shard-2", true),
 		mongotHeadless("shard-1", true), mongotHeadless("shard-2", true), mongotHeadless("shard-x", false),
 		mongotCM("shard-1", true), mongotCM("shard-2", true), mongotCM("shard-x", false),
+		mongotTLSSecret("shard-1", true), mongotTLSSecret("shard-2", true), mongotTLSSecret("shard-x", false),
 		// Name collision: live shard "x"'s headless Svc name == stale "x-svc"'s STS name.
 		// Separate per-kind expected sets keep them apart; a merged set would leak the stale STS.
 		mongotHeadless("x", true), mongotSTS("x-svc", true),
@@ -3074,6 +3080,9 @@ func TestCleanupStaleShardResources(t *testing.T) {
 	present(search.MongotConfigMapForClusterShard(0, "shard-1"), &corev1.ConfigMap{}, "active shard ConfigMap preserved")
 	gone(search.MongotConfigMapForClusterShard(0, "shard-2"), &corev1.ConfigMap{}, "stale shard ConfigMap deleted")
 	present(search.MongotConfigMapForClusterShard(0, "shard-x"), &corev1.ConfigMap{}, "different-owner ConfigMap untouched")
+	present(search.TLSOperatorSecretForClusterShard(0, "shard-1"), &corev1.Secret{}, "active shard TLS Secret preserved")
+	gone(search.TLSOperatorSecretForClusterShard(0, "shard-2"), &corev1.Secret{}, "stale shard TLS Secret deleted")
+	present(search.TLSOperatorSecretForClusterShard(0, "shard-x"), &corev1.Secret{}, "different-owner TLS Secret untouched")
 
 	present(search.MongotServiceForClusterShard(0, "x"), &corev1.Service{}, "live shard x headless Service preserved despite name-collision with stale x-svc STS")
 	gone(search.MongotStatefulSetForClusterShard(0, "x-svc"), &appsv1.StatefulSet{}, "stale x-svc STS reaped despite name-collision with live x headless Service")
@@ -4015,6 +4024,11 @@ func TestCleanupStaleShardResources_MCFanOut(t *testing.T) {
 			Name: search.MongotConfigMapForClusterShard(idx, shard).Name, Namespace: "ns", Labels: withMemberOwner(map[string]string{"component": mongotComponent}, owned),
 		}}
 	}
+	memberTLSSecret := func(idx int, shard string, owned bool) *corev1.Secret {
+		return &corev1.Secret{ObjectMeta: metav1.ObjectMeta{
+			Name: search.TLSOperatorSecretForClusterShard(idx, shard).Name, Namespace: "ns", Labels: withMemberOwner(map[string]string{"component": mongotComponent}, owned),
+		}}
+	}
 
 	// cluster-a (idx 0): keep shard-0 + cluster-level; sh-stale should be deleted.
 	clusterA := kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().WithObjects(
@@ -4025,6 +4039,7 @@ func TestCleanupStaleShardResources_MCFanOut(t *testing.T) {
 		memberSTS(0, "sh-0", true), memberSTS(0, "sh-stale", true),
 		memberMongotSvc(0, "sh-0", true), memberMongotSvc(0, "sh-stale", true), memberMongotSvc(0, "sh-foreign", false),
 		memberCM(0, "sh-0", true), memberCM(0, "sh-stale", true),
+		memberTLSSecret(0, "sh-0", true), memberTLSSecret(0, "sh-stale", true),
 	).Build())
 	// cluster-b (idx 1): same pattern, plus an unrelated owned-by-other-CR svc
 	// to guard the label-name check.
@@ -4087,6 +4102,8 @@ func TestCleanupStaleShardResources_MCFanOut(t *testing.T) {
 	present(search.MongotServiceForClusterShard(0, "sh-foreign").Name, &corev1.Service{}, "unowned headless Service")
 	present(search.MongotConfigMapForClusterShard(0, "sh-0").Name, &corev1.ConfigMap{}, "active mongot ConfigMap")
 	gone(search.MongotConfigMapForClusterShard(0, "sh-stale").Name, &corev1.ConfigMap{}, "stale mongot ConfigMap")
+	present(search.TLSOperatorSecretForClusterShard(0, "sh-0").Name, &corev1.Secret{}, "active mongot TLS Secret")
+	gone(search.TLSOperatorSecretForClusterShard(0, "sh-stale").Name, &corev1.Secret{}, "stale mongot TLS Secret")
 }
 
 // Empty GetShardNames() yields an empty work list. The reconciler must not fail

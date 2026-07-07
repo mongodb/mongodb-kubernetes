@@ -802,10 +802,11 @@ func (r *MongoDBSearchReconcileHelper) pruneRoutingReady(ctx context.Context, li
 }
 
 // cleanupStaleShardResources reaps the per-shard mongot resources of shards that no
-// longer exist (shard scale-down): proxy Service, headless Service, ConfigMap, and the
-// mongot StatefulSet — whose whenDeleted=Delete policy then cascades its PVC. For every
-// live shard it rebuilds the expected resource names; anything we own carrying the
-// matching scope label but not in those sets belongs to a removed shard and is deleted.
+// longer exist (shard scale-down): proxy Service, headless Service, ConfigMap, ingress
+// TLS Secret, and the mongot StatefulSet — whose whenDeleted=Delete policy then cascades
+// its PVC. For every live shard it rebuilds the expected resource names; anything we own
+// carrying the matching scope label but not in those sets belongs to a removed shard and
+// is deleted.
 //
 // It fans out over the central client and every member client; per-kind/per-cluster
 // failures are best-effort — aggregated and retried next reconcile.
@@ -822,12 +823,14 @@ func (r *MongoDBSearchReconcileHelper) cleanupStaleShardResources(ctx context.Co
 	expectedHeadless := map[string]bool{}
 	expectedSTS := map[string]bool{}
 	expectedConfig := map[string]bool{}
+	expectedTLSSecret := map[string]bool{}
 	seenClusters := map[int]bool{}
 	for _, w := range r.buildShardedWorkList(currentShardNames) {
 		expectedProxy[r.mdbSearch.ProxyServiceNameForClusterShard(w.ClusterIndex, w.ShardName).Name] = true
 		expectedHeadless[r.mdbSearch.MongotServiceForClusterShard(w.ClusterIndex, w.ShardName).Name] = true
 		expectedSTS[r.mdbSearch.MongotStatefulSetForClusterShard(w.ClusterIndex, w.ShardName).Name] = true
 		expectedConfig[r.mdbSearch.MongotConfigMapForClusterShard(w.ClusterIndex, w.ShardName).Name] = true
+		expectedTLSSecret[r.mdbSearch.TLSOperatorSecretForClusterShard(w.ClusterIndex, w.ShardName).Name] = true
 		if !seenClusters[w.ClusterIndex] {
 			seenClusters[w.ClusterIndex] = true
 			expectedProxy[r.mdbSearch.ProxyServiceNamespacedNameForCluster(w.ClusterIndex).Name] = true
@@ -841,7 +844,8 @@ func (r *MongoDBSearchReconcileHelper) cleanupStaleShardResources(ctx context.Co
 
 	// The mongot StatefulSet is the only StatefulSet we own, so it's scoped by owner
 	// label; proxy and headless Services share a kind but carry distinct component
-	// labels; the mongot ConfigMap carries the mongot component label.
+	// labels; the mongot ConfigMap and per-shard ingress TLS Secret carry the mongot
+	// component label (the only Secret kind stamped with it).
 	sweeps := []struct {
 		newList  func() client.ObjectList
 		selector client.MatchingLabels
@@ -852,6 +856,7 @@ func (r *MongoDBSearchReconcileHelper) cleanupStaleShardResources(ctx context.Co
 		{func() client.ObjectList { return &corev1.ServiceList{} }, client.MatchingLabels{componentLabelKey: proxyServiceComponent}, expectedProxy, "proxy Service"},
 		{func() client.ObjectList { return &corev1.ServiceList{} }, client.MatchingLabels{componentLabelKey: mongotComponent}, expectedHeadless, "headless Service"},
 		{func() client.ObjectList { return &corev1.ConfigMapList{} }, client.MatchingLabels{componentLabelKey: mongotComponent}, expectedConfig, "ConfigMap"},
+		{func() client.ObjectList { return &corev1.SecretList{} }, client.MatchingLabels{componentLabelKey: mongotComponent}, expectedTLSSecret, "TLS Secret"},
 	}
 
 	var errs error
@@ -1539,7 +1544,11 @@ func (r *MongoDBSearchReconcileHelper) ensureIngressTlsConfig(ctx context.Contex
 		return mongot.NOOP(), statefulset.NOOP(), nil
 	}
 
-	certFileName, err := tls.EnsureTLSSecret(ctx, kubeClient, tlsResource, clusterName)
+	ingressTlsSecretLabels := map[string]string{componentLabelKey: mongotComponent}
+	for k, v := range searchOwnerLabels(r.mdbSearch, clusterName) {
+		ingressTlsSecretLabels[k] = v
+	}
+	certFileName, err := tls.EnsureTLSSecret(ctx, kubeClient, tlsResource, clusterName, ingressTlsSecretLabels)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1626,7 +1635,7 @@ func (r *MongoDBSearchReconcileHelper) ensureX509ClientCertConfig(ctx context.Co
 	}
 
 	x509Resource := &x509AuthResource{MongoDBSearch: r.mdbSearch}
-	certFileName, err := tls.EnsureTLSSecret(ctx, kubeClient, x509Resource, clusterName)
+	certFileName, err := tls.EnsureTLSSecret(ctx, kubeClient, x509Resource, clusterName, nil)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1734,7 +1743,7 @@ func (r *MongoDBSearchReconcileHelper) ensureEgressTlsConfig(ctx context.Context
 	scramKeyPasswordSecret := r.mdbSearch.ScramKeyFilePasswordSecret()
 	if r.mdbSearch.HasScramClientCert() {
 		scramCertResource := &scramClientCertResource{MongoDBSearch: r.mdbSearch}
-		certFileName, err := tls.EnsureTLSSecret(ctx, kubeClient, scramCertResource, clusterName)
+		certFileName, err := tls.EnsureTLSSecret(ctx, kubeClient, scramCertResource, clusterName, nil)
 		if err != nil {
 			return nil, nil, err
 		}
