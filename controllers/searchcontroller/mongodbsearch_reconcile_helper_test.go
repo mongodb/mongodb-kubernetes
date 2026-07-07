@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -4428,4 +4429,78 @@ func TestReconcileShardedMC_ShardOverrideReplicas(t *testing.T) {
 		"cluster-a": {"sh-0": 1, "sh-1": 1, "sh-2": 1}, // back to the cluster default
 		"cluster-b": {"sh-0": 5, "sh-1": 3, "sh-2": 3}, // sh-2 back to default after the override moved
 	})
+}
+
+// newMCReplicaSetHelper builds an RS MC helper with spec.clusters cluster-a and
+// cluster-b and the given member clients. External RS source, no TLS, so there
+// is no sharded preflight and reconcile goes straight to the unit loop.
+func newMCReplicaSetHelper(members map[string]kubernetesClient.Client, central kubernetesClient.Client) *MongoDBSearchReconcileHelper {
+	mdb := newTestMongoDBSearch("mdb-search", "ns")
+	mdb.Spec.Clusters = []searchv1.ClusterSpec{
+		{Name: "cluster-a", Index: ptr.To(int32(0)), Replicas: ptr.To(int32(1)), LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{
+			ExternalHostname: "mdb-search-search-0-proxy-svc.ns.svc.cluster.local",
+		}}},
+		{Name: "cluster-b", Index: ptr.To(int32(1)), Replicas: ptr.To(int32(1)), LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{
+			ExternalHostname: "mdb-search-search-1-proxy-svc.ns.svc.cluster.local",
+		}}},
+	}
+	mdb.Spec.Source = &searchv1.MongoDBSource{
+		ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{
+			HostAndPorts: []string{"a.example:27017"},
+		},
+	}
+	source := &fakeExternalSource{hosts: mdb.Spec.Source.ExternalMongoDBSource.HostAndPorts}
+	return &MongoDBSearchReconcileHelper{
+		mdbSearch:            mdb,
+		db:                   source,
+		client:               central,
+		memberClusterClients: members,
+		state:                NewSearchDeploymentState(),
+		operatorSearchConfig: newTestOperatorSearchConfig(),
+	}
+}
+
+// A cluster referenced in spec.clusters but missing from the operator's member
+// clients is skipped: the other clusters still reconcile and the reconcile does
+// not fail because of the missing client.
+func TestReconcileRSMC_MissingClientSkipsUnit(t *testing.T) {
+	central := kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().Build())
+	clusterA := kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().Build())
+	helper := newMCReplicaSetHelper(map[string]kubernetesClient.Client{"cluster-a": clusterA}, central)
+
+	st := helper.reconcile(t.Context(), zap.S())
+	assert.NotContains(t, MessageFromStatus(st), "no Kubernetes client registered",
+		"missing client must be skipped, not returned as an error")
+
+	// cluster-a's unit was applied.
+	require.NoError(t, clusterA.Get(t.Context(),
+		types.NamespacedName{Name: "mdb-search-search-0", Namespace: "ns"}, &appsv1.StatefulSet{}))
+
+	// cluster-b's unit was neither applied elsewhere nor leaked to central.
+	err := central.Get(t.Context(),
+		types.NamespacedName{Name: "mdb-search-search-1", Namespace: "ns"}, &appsv1.StatefulSet{})
+	assert.True(t, apierrors.IsNotFound(err), "cluster-b STS must NOT be created on the central client")
+}
+
+// A failing member cluster must not block the units on the other clusters: the
+// error is aggregated and returned once, after all units ran.
+func TestReconcileRSMC_FailingClusterDoesNotBlockOthers(t *testing.T) {
+	injectedErr := xerrors.New("injected cluster-a apply failure")
+	baseA := mock.NewEmptyFakeClientBuilder().Build()
+	clusterA := kubernetesClient.NewClient(interceptor.NewClient(baseA, interceptor.Funcs{
+		Create: func(ctx context.Context, cl client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+			return injectedErr
+		},
+	}))
+	clusterB := kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().Build())
+	central := kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().Build())
+	helper := newMCReplicaSetHelper(map[string]kubernetesClient.Client{"cluster-a": clusterA, "cluster-b": clusterB}, central)
+
+	st := helper.reconcile(t.Context(), zap.S())
+	require.False(t, st.IsOK())
+	assert.Contains(t, MessageFromStatus(st), "injected cluster-a apply failure")
+
+	// cluster-b's unit was still applied despite cluster-a failing first.
+	require.NoError(t, clusterB.Get(t.Context(),
+		types.NamespacedName{Name: "mdb-search-search-1", Namespace: "ns"}, &appsv1.StatefulSet{}))
 }

@@ -541,6 +541,7 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 	}
 	// reconcileErrs aggregates per-unit failures so that one failing member
 	// cluster does not block the others. Returned once, after all units ran.
+	// Surfacing skips and per-cluster failures in status is KUBE-159.
 	var reconcileErrs error
 	applied := make([]unitApplyResult, 0, len(plan.units))
 	for _, unit := range plan.units {
