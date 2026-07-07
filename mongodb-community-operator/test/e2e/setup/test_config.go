@@ -50,7 +50,7 @@ func LoadTestConfigFromEnv() TestConfig {
 		MongoDBRepoUrl:          env.ReadOrDefault(util.MongodbRepoUrlEnv, "quay.io/mongodb"),                                                                                 // nolint:forbidigo
 		VersionUpgradeHookImage: env.ReadOrDefault(construct.VersionUpgradeHookImageEnv, "quay.io/mongodb/mongodb-kubernetes-operator-version-upgrade-post-start-hook:1.0.2"), // nolint:forbidigo
 		// TODO: MCK better way to decide default agent image.
-		AgentImage:          env.ReadOrDefault("MDB_COMMUNITY_AGENT_IMAGE", "quay.io/mongodb/mongodb-agent:108.0.24.9016-1"),                // nolint:forbidigo
+		AgentImage:          env.ReadOrDefault("MDB_COMMUNITY_AGENT_IMAGE", "quay.io/mongodb/mongodb-agent:108.0.25.9029-1"),                // nolint:forbidigo
 		ClusterWide:         env.ReadBoolOrDefault(clusterWideEnvName, false),                                                               // nolint:forbidigo
 		PerformCleanup:      env.ReadBoolOrDefault(performCleanupEnvName, false),                                                            // nolint:forbidigo
 		ReadinessProbeImage: env.ReadOrDefault(construct.ReadinessProbeImageEnv, "quay.io/mongodb/mongodb-kubernetes-readinessprobe:1.0.3"), // nolint:forbidigo
