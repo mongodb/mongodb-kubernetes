@@ -5750,10 +5750,12 @@ spec:
             - clusters
             type: object
           status:
+            description: Top level Phase field is considered `Running` only when Search
+              STSs and LoadBalancer (status.LoadBalancer) is running.
             properties:
               clusters:
-                description: Clusters reports per-cluster search + load balancer state
-                  across the topology.
+                description: Clusters reports per-cluster search + load balancer +
+                  metrics forwarder state across the topology.
                 items:
                   description: |-
                     ClusterStatus reports one member cluster's search + load balancer state. In
@@ -5771,6 +5773,15 @@ spec:
                       type: string
                     loadBalancerMessage:
                       description: LoadBalancerMessage explains the load balancer
+                        phase when it is not Running.
+                      type: string
+                    metricsForwarder:
+                      description: |-
+                        MetricsForwarder is this cluster's Ops Manager metrics-forwarder Deployment phase;
+                        empty when the metrics forwarder is not enabled.
+                      type: string
+                    metricsForwarderMessage:
+                      description: MetricsForwarderMessage explains the metrics-forwarder
                         phase when it is not Running.
                       type: string
                     name:

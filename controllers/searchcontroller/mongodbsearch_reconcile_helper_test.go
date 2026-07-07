@@ -3943,6 +3943,22 @@ func markEnvoyDeploymentReady(t *testing.T, c kubernetesClient.Client, search *s
 	require.NoError(t, c.Create(t.Context(), dep))
 }
 
+// markMetricsForwarderDeploymentReady creates the metrics-forwarder Deployment for a
+// cluster in a ready state, simulating what the metrics-forwarder controller would
+// have written.
+func markMetricsForwarderDeploymentReady(t *testing.T, c kubernetesClient.Client, search *searchv1.MongoDBSearch, clusterIndex int) {
+	t.Helper()
+	dep := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      search.MetricsForwarderDeploymentNameForCluster(clusterIndex),
+			Namespace: search.Namespace,
+		},
+		Spec:   appsv1.DeploymentSpec{Replicas: ptr.To(int32(1))},
+		Status: appsv1.DeploymentStatus{ReadyReplicas: 1},
+	}
+	require.NoError(t, c.Create(t.Context(), dep))
+}
+
 // TestReconcileShardedMC_PerClusterStatus verifies the per-cluster status surface:
 // every cluster appears (not just failing ones), shards roll up into a single
 // per-cluster Search phase via worst-of, and the managed-LB phase is read from the
@@ -3985,6 +4001,80 @@ func TestReconcileShardedMC_PerClusterStatus(t *testing.T) {
 		require.Empty(t, cs.SearchMessage, "cluster %d search message should clear when Running", idx)
 		require.Equal(t, status.PhaseRunning, cs.LoadBalancer, "cluster %d LB should be Running", idx)
 		require.Empty(t, cs.LoadBalancerMessage)
+	}
+}
+
+// TestReconcileShardedMC_PerClusterMetricsForwarderStatus verifies that
+// when the forwarder is enabled, each cluster reports its own metricsForwarder phase
+// (read from that cluster's forwarder Deployment), it transitions Pending->Running independently.
+func TestReconcileShardedMC_PerClusterMetricsForwarderStatus(t *testing.T) {
+	fx := newMCShardedFixture(t)
+	// Force the metrics forwarder on (fixture uses an external source, so Auto would
+	// leave it disabled without an OpsManager block).
+	fx.search.Spec.Observability.MetricsForwarder.Mode = searchv1.MetricsForwarderModeEnabled
+	helper := fx.newHelper()
+
+	// Pass 1: mongot STSs + Envoy ready, but no metrics-forwarder Deployments yet.
+	_ = helper.reconcile(t.Context(), zap.S())
+	require.NoError(t, mock.MarkAllStatefulSetsAsReady(t.Context(), "ns",
+		fx.central, fx.members["cluster-a"], fx.members["cluster-b"]))
+	markEnvoyDeploymentReady(t, fx.members["cluster-a"], fx.search, 0)
+	markEnvoyDeploymentReady(t, fx.members["cluster-b"], fx.search, 1)
+	fx.search.Status.LoadBalancer = &searchv1.LoadBalancerStatus{Phase: status.PhaseRunning}
+
+	st := helper.reconcile(t.Context(), zap.S())
+	// Metrics forwarder is informational: even though its Deployments are absent
+	// (Pending), the top-level phase must be OK (search + LB ready).
+	require.True(t, st.IsOK(), "metrics forwarder must not gate top-level phase; got: %s", MessageFromStatus(st))
+	statuses := clusterStatusesFromStatus(t, st)
+	require.Len(t, statuses, 2)
+	for _, idx := range []int{0, 1} {
+		cs := clusterStatusByIndex(t, statuses, idx)
+		require.Equal(t, status.PhaseRunning, cs.Search, "cluster %d search Running", idx)
+		require.Equal(t, status.PhasePending, cs.MetricsForwarder,
+			"cluster %d metricsForwarder Pending (deployment not created yet)", idx)
+		require.NotEmpty(t, cs.MetricsForwarderMessage, "cluster %d should carry a metrics-forwarder message while not ready", idx)
+	}
+
+	// Create ready metrics-forwarder Deployments in both members.
+	markMetricsForwarderDeploymentReady(t, fx.members["cluster-a"], fx.search, 0)
+	markMetricsForwarderDeploymentReady(t, fx.members["cluster-b"], fx.search, 1)
+
+	// Pass 2: every per-cluster half Running.
+	st = helper.reconcile(t.Context(), zap.S())
+	require.True(t, st.IsOK(), "expected OK, got: %s", MessageFromStatus(st))
+	statuses = clusterStatusesFromStatus(t, st)
+	require.Len(t, statuses, 2)
+	for _, idx := range []int{0, 1} {
+		cs := clusterStatusByIndex(t, statuses, idx)
+		require.Equal(t, status.PhaseRunning, cs.MetricsForwarder, "cluster %d metricsForwarder Running", idx)
+		require.Empty(t, cs.MetricsForwarderMessage, "cluster %d metrics-forwarder message clears when Running", idx)
+	}
+}
+
+// TestReconcileShardedMC_PerClusterMetricsForwarderDisabled verifies that when the
+// metrics forwarder is disabled, the per-cluster metricsForwarder phase is left empty
+// (omitted), mirroring how loadBalancer is empty when no managed LB is configured.
+func TestReconcileShardedMC_PerClusterMetricsForwarderDisabled(t *testing.T) {
+	fx := newMCShardedFixture(t)
+	fx.search.Spec.Observability.MetricsForwarder.Mode = searchv1.MetricsForwarderModeDisabled
+	helper := fx.newHelper()
+
+	_ = helper.reconcile(t.Context(), zap.S())
+	require.NoError(t, mock.MarkAllStatefulSetsAsReady(t.Context(), "ns",
+		fx.central, fx.members["cluster-a"], fx.members["cluster-b"]))
+	markEnvoyDeploymentReady(t, fx.members["cluster-a"], fx.search, 0)
+	markEnvoyDeploymentReady(t, fx.members["cluster-b"], fx.search, 1)
+	fx.search.Status.LoadBalancer = &searchv1.LoadBalancerStatus{Phase: status.PhaseRunning}
+
+	st := helper.reconcile(t.Context(), zap.S())
+	require.True(t, st.IsOK(), "expected OK, got: %s", MessageFromStatus(st))
+	statuses := clusterStatusesFromStatus(t, st)
+	require.Len(t, statuses, 2)
+	for _, idx := range []int{0, 1} {
+		cs := clusterStatusByIndex(t, statuses, idx)
+		require.Empty(t, cs.MetricsForwarder, "cluster %d metricsForwarder must be empty when disabled", idx)
+		require.Empty(t, cs.MetricsForwarderMessage, "cluster %d metrics-forwarder message must be empty when disabled", idx)
 	}
 }
 

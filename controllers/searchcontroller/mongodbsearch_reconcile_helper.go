@@ -768,17 +768,16 @@ type readinessResult struct {
 	clusterStatuses   []searchv1.ClusterStatus
 }
 
-// aggregateReadiness reads the live readiness of every applied unit (the mongot
-// StatefulSet, and the managed Envoy Deployment when configured) and folds it into
-// (1) one worst-of top-level phase/message for the CR common status and (2) one
-// ClusterStatus per cluster, with shards rolled up via WorstOfPhase.
-//
-// The list is built from the applied units (already narrowed to this operator's
-// cluster in simulated-MC mode), so simulated mode yields a single-entry list with
-// no special-casing. It is recomputed wholesale from live reads — never merged with
-// the cached CR status — so a lagging informer cache cannot drop fields.
+// aggregateReadiness folds every applied unit's live readiness (mongot STS, and
+// the managed Envoy + metrics-forwarder Deployments when configured) into one worst-of
+// top-level phase and one ClusterStatus per cluster (shards rolled up via WorstOfPhase);
+// built from the applied units, so simulated-MC narrowing yields a single-entry list.
+// The search controller is the sole writer of status.clusters — it mirrors the sibling
+// controllers' Deployment phases here (rather than letting them write the shared array)
+// and recomputes the list wholesale from live reads, avoiding lost-update races.
 func (r *MongoDBSearchReconcileHelper) aggregateReadiness(ctx context.Context, applied []unitApplyResult) readinessResult {
 	managedLB := r.mdbSearch.IsLBModeManaged()
+	metricsForwarderEnabled := r.mdbSearch.IsMetricsForwarderEnabled()
 
 	// Per-cluster accumulators, keyed and ordered by clusterIndex.
 	type clusterAcc struct {
@@ -789,6 +788,9 @@ func (r *MongoDBSearchReconcileHelper) aggregateReadiness(ctx context.Context, a
 		lbPhase     status.Phase
 		lbMsg       string
 		lbComputed  bool
+		mfPhase     status.Phase
+		mfMsg       string
+		mfComputed  bool
 	}
 	accs := make(map[int]*clusterAcc)
 	var order []int
@@ -808,7 +810,7 @@ func (r *MongoDBSearchReconcileHelper) aggregateReadiness(ctx context.Context, a
 	for _, res := range applied {
 		acc := accFor(res.unit)
 
-		// Search half: the unit's mongot StatefulSet.
+		// mongot StatefulSet readiness — this is what gates the top-level phase (via topStatus).
 		stsStatus := statefulset.GetStatefulSetStatus(ctx, r.mdbSearch.Namespace, res.unit.stsName.Name, res.expectedGeneration, res.unitClient)
 		acc.searchPhase = searchv1.WorstOfPhase(acc.searchPhase, stsStatus.Phase())
 		if !stsStatus.IsOK() {
@@ -818,18 +820,25 @@ func (r *MongoDBSearchReconcileHelper) aggregateReadiness(ctx context.Context, a
 		}
 		topStatus = topStatus.Merge(stsStatus)
 
-		// Load balancer half: the managed Envoy Deployment for this cluster. Computed
-		// once per cluster (LB is per-cluster, not per-shard). This is INFORMATIONAL
-		// only — it populates the per-cluster status surface but does NOT gate the
-		// top-level phase. Top-level LB gating stays on IsLoadBalancerReady() (the
-		// /status/loadBalancer sub-status owned by the envoy controller), so the two
-		// controllers' authority over the top-level phase is unchanged.
+		// Per-cluster managed Envoy readiness, computed once per cluster. Informational
+		// for status.clusters only — top-level phase gating stays on IsLoadBalancerReady().
 		if managedLB && !acc.lbComputed {
 			acc.lbComputed = true
 			lbStatus := r.envoyDeploymentStatus(ctx, res.unit.clusterIndex, res.unitClient)
 			acc.lbPhase = lbStatus.Phase()
 			if !lbStatus.IsOK() {
 				acc.lbMsg = MessageFromStatus(lbStatus)
+			}
+		}
+
+		// Per-cluster metrics-forwarder readiness, computed once per cluster. Informational
+		// for status.clusters only — never gates the top-level phase.
+		if metricsForwarderEnabled && !acc.mfComputed {
+			acc.mfComputed = true
+			mfStatus := r.metricsForwarderDeploymentStatus(ctx, res.unit.clusterIndex, res.unitClient)
+			acc.mfPhase = mfStatus.Phase()
+			if !mfStatus.IsOK() {
+				acc.mfMsg = MessageFromStatus(mfStatus)
 			}
 		}
 	}
@@ -846,6 +855,10 @@ func (r *MongoDBSearchReconcileHelper) aggregateReadiness(ctx context.Context, a
 		if managedLB {
 			cs.LoadBalancer = a.lbPhase
 			cs.LoadBalancerMessage = a.lbMsg
+		}
+		if metricsForwarderEnabled {
+			cs.MetricsForwarder = a.mfPhase
+			cs.MetricsForwarderMessage = a.mfMsg
 		}
 		clusterStatuses = append(clusterStatuses, cs)
 	}
@@ -877,6 +890,24 @@ func (r *MongoDBSearchReconcileHelper) envoyDeploymentStatus(ctx context.Context
 	desired := ptr.Deref(dep.Spec.Replicas, 1)
 	if dep.Status.ReadyReplicas < desired {
 		return workflow.Pending("Load balancer deployment %s not ready: %d/%d replicas ready", name, dep.Status.ReadyReplicas, desired)
+	}
+	return workflow.OK()
+}
+
+// metricsForwarderDeploymentStatus reports the readiness of one cluster's Ops Manager
+// metrics-forwarder Deployment.
+func (r *MongoDBSearchReconcileHelper) metricsForwarderDeploymentStatus(ctx context.Context, clusterIndex int, unitClient kubernetesClient.Client) workflow.Status {
+	name := r.mdbSearch.MetricsForwarderDeploymentNameForCluster(clusterIndex)
+	dep := &appsv1.Deployment{}
+	if err := unitClient.Get(ctx, kube.ObjectKey(r.mdbSearch.Namespace, name), dep); err != nil {
+		if apierrors.IsNotFound(err) {
+			return workflow.Pending("Metrics forwarder deployment %s not yet created", name)
+		}
+		return workflow.Failed(xerrors.Errorf("reading metrics forwarder deployment %s: %w", name, err))
+	}
+	desired := ptr.Deref(dep.Spec.Replicas, 1)
+	if dep.Status.ReadyReplicas < desired {
+		return workflow.Pending("Metrics forwarder deployment %s not ready: %d/%d replicas ready", name, dep.Status.ReadyReplicas, desired)
 	}
 	return workflow.OK()
 }

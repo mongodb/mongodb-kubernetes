@@ -617,8 +617,16 @@ type ClusterStatus struct {
 	// LoadBalancerMessage explains the load balancer phase when it is not Running.
 	// +optional
 	LoadBalancerMessage string `json:"loadBalancerMessage,omitempty"`
+	// MetricsForwarder is this cluster's Ops Manager metrics-forwarder Deployment phase;
+	// empty when the metrics forwarder is not enabled.
+	// +optional
+	MetricsForwarder status.Phase `json:"metricsForwarder,omitempty"`
+	// MetricsForwarderMessage explains the metrics-forwarder phase when it is not Running.
+	// +optional
+	MetricsForwarderMessage string `json:"metricsForwarderMessage,omitempty"`
 }
 
+// Top level Phase field is considered `Running` only when Search STSs and LoadBalancer (status.LoadBalancer) is running.
 type MongoDBSearchStatus struct {
 	status.Common `json:",inline"`
 	Version       string           `json:"version,omitempty"`
@@ -630,7 +638,7 @@ type MongoDBSearchStatus struct {
 	// MetricsForwarder reports the state of the Ops Manager metrics forwarder.
 	// +optional
 	MetricsForwarder *MetricsForwarderStatus `json:"metricsForwarder,omitempty"`
-	// Clusters reports per-cluster search + load balancer state across the topology.
+	// Clusters reports per-cluster search + load balancer + metrics forwarder state across the topology.
 	// +optional
 	// +listType=map
 	// +listMapKey=index
