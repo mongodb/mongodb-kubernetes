@@ -16,6 +16,9 @@ export TEST_POD_CLUSTER=kind-e2e-cluster-1
 export test_pod_cluster=kind-e2e-cluster-1
 export ops_manager_version="cloud_qa"
 export BUILD_WITH_RACE_DETECTION=true
+# Telemetry send is enabled for this variant (translated into OperatorConfig.spec.telemetry.send.mode
+# by the test harness); the operator ships to the cloud-dev endpoint via the retained baseUrl env var.
+# Send/collection frequency are not configured in tests: the first collection and send happen at
+# operator startup, so the telemetry ConfigMap is populated regardless of frequency.
 export MDB_OPERATOR_TELEMETRY_SEND_ENABLED=true
 export MDB_OPERATOR_TELEMETRY_SEND_BASEURL="https://cloud-dev.mongodb.com/"
-export MDB_OPERATOR_TELEMETRY_SEND_FREQUENCY="10m"

@@ -41,6 +41,12 @@ otel_resource_attributes:
 pytestOtelEnabled: true
 mdbDefaultArchitecture: "non-static"
 
+# Telemetry signals read by build_operator_config_spec_from_test_env() to configure the
+# OperatorConfig CR for the operator under test. Send is disabled by default so e2e operators
+# do not ship telemetry to cloud; the telemetry variant sets sendEnabled=true.
+mdbOperatorTelemetrySendEnabled: "false"
+mdbOperatorTelemetryEnabled: "true"
+
 # set to "true" to set OM_DEBUG_HTTP=true for the operator
 omDebugHttp:
 

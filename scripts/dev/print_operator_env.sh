@@ -25,8 +25,6 @@ MONGODB_IMAGE=\"mongodb-enterprise-server\"
 MONGODB_AGENT_VERSION=\"${MONGODB_AGENT_VERSION:-}\"
 MONGODB_REPO_URL=\"${MONGODB_REPO_URL:-}\"
 IMAGE_PULL_SECRETS=\"image-registries-secret\"
-MDB_OPERATOR_TELEMETRY_COLLECTION_FREQUENCY=\"${MDB_OPERATOR_TELEMETRY_COLLECTION_FREQUENCY:-1m}\"
-MDB_OPERATOR_TELEMETRY_SEND_ENABLED=\"${MDB_OPERATOR_TELEMETRY_SEND_ENABLED:-false}\"
 MDB_COMMUNITY_IMAGE=\"${MDB_COMMUNITY_IMAGE}\"
 MDB_COMMUNITY_REPO_URL=\"${MDB_COMMUNITY_REPO_URL}\"
 MDB_COMMUNITY_AGENT_IMAGE=\"${MDB_COMMUNITY_AGENT_IMAGE}\"
@@ -52,10 +50,10 @@ OPERATOR_NAME=\"${OPERATOR_NAME}\"
     echo "KUBECONFIG=${KUBECONFIG}"
   fi
 
-  if [[ "${MDB_OPERATOR_TELEMETRY_SEND_FREQUENCY:-""}" != "" ]]; then
-    echo "MDB_OPERATOR_TELEMETRY_SEND_FREQUENCY=${MDB_OPERATOR_TELEMETRY_SEND_FREQUENCY}"
-  fi
-
+  # Telemetry enable/send/frequency are configured via the OperatorConfig CR, not env vars. Only the
+  # internal SEND_BASEURL knob (used to point telemetry at a mock/cloud-dev endpoint) is still an
+  # env var read by the operator. Note: when running the operator locally without an OperatorConfig
+  # CR in the target cluster, telemetry defaults to enabled (opt-out model).
   if [[ "${MDB_OPERATOR_TELEMETRY_SEND_BASEURL:-""}" != "" ]]; then
     echo "MDB_OPERATOR_TELEMETRY_SEND_BASEURL=${MDB_OPERATOR_TELEMETRY_SEND_BASEURL}"
   fi

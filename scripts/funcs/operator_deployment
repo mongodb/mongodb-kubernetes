@@ -30,10 +30,9 @@ get_operator_helm_values() {
     "versionUpgradeHook.version=${VERSION_UPGRADE_HOOK_VERSION}"
     "mongodb.name=mongodb-enterprise-server"
     "operator.mdbDefaultArchitecture=${MDB_DEFAULT_ARCHITECTURE:-non-static}"
-    # only send the telemetry to the backend on a specific variant, thus default to false
-    "operator.telemetry.send.enabled=${MDB_OPERATOR_TELEMETRY_SEND_ENABLED:-false}"
-    # lets collect and save in the configmap as frequently as we can
-    "operator.telemetry.collection.frequency=${MDB_OPERATOR_TELEMETRY_COLLECTION_FREQUENCY:-1m}"
+    # Telemetry send/collection are configured via the OperatorConfig CR (see
+    # build_operator_config_spec_from_test_env); they are no longer Helm values. The retained
+    # operator.telemetry.send.baseUrl knob is set further below.
     "search.repo=${MDB_SEARCH_REPO_URL}"
     "search.name=${MDB_SEARCH_NAME}"
     "search.version=${MDB_SEARCH_VERSION}"
@@ -67,13 +66,6 @@ get_operator_helm_values() {
     if [[ -n "${otel_collector_endpoint:-}" ]]; then
       config+=("operator.opentelemetry.tracing.collectorEndpoint=${otel_collector_endpoint}")
     fi
-  fi
-
-  if [[ "${MDB_OPERATOR_TELEMETRY_ENABLED:-true}" == "false" ]]; then
-    config+=("operator.telemetry.enabled=false")
-    config+=("operator.telemetry.collection.clusters.enabled=false")
-    config+=("operator.telemetry.collection.deployments.enabled=false")
-    config+=("operator.telemetry.collection.operators.enabled=false")
   fi
 
   # shellcheck disable=SC2154
