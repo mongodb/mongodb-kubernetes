@@ -11,6 +11,19 @@ import (
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/user"
 )
 
+// newExternalShardedSource returns a minimal external sharded MongoDB source so
+// endpoint-template validation takes the sharded ({shardName} required) branch.
+func newExternalShardedSource() *searchv1.MongoDBSource {
+	return &searchv1.MongoDBSource{
+		ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{
+			ShardedCluster: &searchv1.ExternalShardedClusterConfig{
+				Router: searchv1.ExternalRouterConfig{Hosts: []string{"mongos.example.com:27017"}},
+				Shards: []searchv1.ExternalShardConfig{{ShardName: "shard-0", Hosts: []string{"h:27017"}}},
+			},
+		},
+	}
+}
+
 func TestValidateLBConfig(t *testing.T) {
 	testCases := []struct {
 		name          string
@@ -26,7 +39,7 @@ func TestValidateLBConfig(t *testing.T) {
 		{
 			name: "Valid: managed LB",
 			modify: func(s *searchv1.MongoDBSearch) {
-				s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
+				s.Spec.Clusters[0].LoadBalancer = &searchv1.LoadBalancerConfig{
 					Managed: &searchv1.ManagedLBConfig{},
 				}
 			},
@@ -35,7 +48,7 @@ func TestValidateLBConfig(t *testing.T) {
 		{
 			name: "Valid: unmanaged LB with endpoint",
 			modify: func(s *searchv1.MongoDBSearch) {
-				s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
+				s.Spec.Clusters[0].LoadBalancer = &searchv1.LoadBalancerConfig{
 					Unmanaged: &searchv1.UnmanagedLBConfig{Endpoint: "lb.example.com:27028"},
 				}
 			},
@@ -44,7 +57,7 @@ func TestValidateLBConfig(t *testing.T) {
 		{
 			name: "Invalid: both managed and unmanaged",
 			modify: func(s *searchv1.MongoDBSearch) {
-				s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
+				s.Spec.Clusters[0].LoadBalancer = &searchv1.LoadBalancerConfig{
 					Managed:   &searchv1.ManagedLBConfig{},
 					Unmanaged: &searchv1.UnmanagedLBConfig{Endpoint: "lb.example.com:27028"},
 				}
@@ -55,7 +68,7 @@ func TestValidateLBConfig(t *testing.T) {
 		{
 			name: "Invalid: neither managed nor unmanaged",
 			modify: func(s *searchv1.MongoDBSearch) {
-				s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{}
+				s.Spec.Clusters[0].LoadBalancer = &searchv1.LoadBalancerConfig{}
 			},
 			expectError:   true,
 			errorContains: "exactly one",
@@ -63,7 +76,7 @@ func TestValidateLBConfig(t *testing.T) {
 		{
 			name: "Invalid: unmanaged without endpoint",
 			modify: func(s *searchv1.MongoDBSearch) {
-				s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
+				s.Spec.Clusters[0].LoadBalancer = &searchv1.LoadBalancerConfig{
 					Unmanaged: &searchv1.UnmanagedLBConfig{},
 				}
 			},
@@ -78,7 +91,7 @@ func TestValidateLBConfig(t *testing.T) {
 						HostAndPorts: []string{"host:27017"},
 					},
 				}
-				s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
+				s.Spec.Clusters[0].LoadBalancer = &searchv1.LoadBalancerConfig{
 					Managed: &searchv1.ManagedLBConfig{},
 				}
 			},
@@ -93,30 +106,43 @@ func TestValidateLBConfig(t *testing.T) {
 						HostAndPorts: []string{"host:27017"},
 					},
 				}
-				s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
+				s.Spec.Clusters[0].LoadBalancer = &searchv1.LoadBalancerConfig{
 					Managed: &searchv1.ManagedLBConfig{ExternalHostname: "lb.example.com"},
 				}
 			},
 			expectError: false,
 		},
 		{
-			name: "Valid: unmanaged LB with shardName template",
+			name: "Valid: unmanaged LB with shardName template and sharded source",
 			modify: func(s *searchv1.MongoDBSearch) {
-				s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
+				s.Spec.Source = newExternalShardedSource()
+				s.Spec.Clusters[0].LoadBalancer = &searchv1.LoadBalancerConfig{
 					Unmanaged: &searchv1.UnmanagedLBConfig{Endpoint: "lb-{shardName}.example.com:27028"},
 				}
 			},
 			expectError: false,
 		},
 		{
-			name: "Invalid: unmanaged endpoint is only template placeholder",
+			name: "Invalid: sharded unmanaged endpoint is only template placeholder",
 			modify: func(s *searchv1.MongoDBSearch) {
-				s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
+				s.Spec.Source = newExternalShardedSource()
+				s.Spec.Clusters[0].LoadBalancer = &searchv1.LoadBalancerConfig{
 					Unmanaged: &searchv1.UnmanagedLBConfig{Endpoint: "{shardName}"},
 				}
 			},
 			expectError:   true,
 			errorContains: "must contain more than just",
+		},
+		{
+			name: "Invalid: sharded unmanaged endpoint without shardName template",
+			modify: func(s *searchv1.MongoDBSearch) {
+				s.Spec.Source = newExternalShardedSource()
+				s.Spec.Clusters[0].LoadBalancer = &searchv1.LoadBalancerConfig{
+					Unmanaged: &searchv1.UnmanagedLBConfig{Endpoint: "lb.example.com:27028"},
+				}
+			},
+			expectError:   true,
+			errorContains: "at least one",
 		},
 		{
 			name: "Invalid: RS external source with shardName template",
@@ -126,7 +152,7 @@ func TestValidateLBConfig(t *testing.T) {
 						HostAndPorts: []string{"host:27017"},
 					},
 				}
-				s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
+				s.Spec.Clusters[0].LoadBalancer = &searchv1.LoadBalancerConfig{
 					Unmanaged: &searchv1.UnmanagedLBConfig{Endpoint: "lb-{shardName}.example.com:27028"},
 				}
 			},
@@ -284,7 +310,7 @@ func TestValidateJVMFlags(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			search := newTestMongoDBSearch("test-search", "default", func(s *searchv1.MongoDBSearch) {
-				s.Spec.JVMFlags = tc.jvmFlags
+				s.Spec.Clusters = []searchv1.ClusterSpec{{JVMFlags: tc.jvmFlags}}
 			})
 
 			err := search.ValidateSpec()
@@ -298,4 +324,15 @@ func TestValidateJVMFlags(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("Invalid: shard override jvm flag", func(t *testing.T) {
+		search := newTestMongoDBSearch("test-search", "default", func(s *searchv1.MongoDBSearch) {
+			s.Spec.Clusters = []searchv1.ClusterSpec{{
+				ShardOverrides: []searchv1.ShardOverride{{ShardNames: []string{"sh-0"}, JVMFlags: []string{"-invalid"}}},
+			}}
+		})
+
+		err := search.ValidateSpec()
+		assert.ErrorContains(t, err, "shardOverrides[0].jvmFlags[0] must start with -X")
+	})
 }

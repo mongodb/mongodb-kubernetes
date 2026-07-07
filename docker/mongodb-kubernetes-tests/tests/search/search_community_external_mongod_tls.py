@@ -1,4 +1,4 @@
-from kubetester import create_or_update_secret, try_load
+from kubetester import create_or_update_configmap, create_or_update_secret, try_load
 from kubetester.certs import create_tls_certs
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb_community import MongoDBCommunity
@@ -26,7 +26,6 @@ USER_PASSWORD = "mdb-user-pass"
 MDBC_RESOURCE_NAME = "mdbc-rs"
 MDBS_RESOURCE_NAME = "mdbs"
 TLS_SECRET_NAME = "tls-secret"
-TLS_CA_SECRET_NAME = "tls-ca-secret"
 # MongoDBSearch TLS configuration — convention: {name}-search-cert
 MDBS_TLS_SECRET_NAME = search_resource_names.mongot_tls_cert_name(MDBS_RESOURCE_NAME)
 
@@ -115,8 +114,8 @@ def test_install_tls_secrets_and_configmaps(
 
     ca = open(issuer_ca_filepath).read()
 
-    ca_secret_name = f"{mdbc.name}-ca"
-    create_or_update_secret(namespace=namespace, name=ca_secret_name, data={"ca.crt": ca})
+    ca_configmap_name = f"{mdbc.name}-ca"
+    create_or_update_configmap(namespace=namespace, name=ca_configmap_name, data={"ca-pem": ca, "ca.crt": ca})
 
 
 @mark.e2e_search_community_external_mongod_tls

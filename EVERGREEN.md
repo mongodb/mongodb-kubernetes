@@ -88,3 +88,19 @@ evergreen patch --alias static
 
 - **om7**: Changes affecting Ops Manager 7.0 compatibility
 - **race**: Changes to concurrent code, goroutines, or shared state
+
+## Quarantined Tests
+
+E2e tests blocked on a known issue outside our control (e.g. an upstream regression) are
+tagged `quarantined` and set `patchable: false` in `.evergreen-tasks.yml`. This means they
+never run in PR or manual patches, but **do** run automatically on every master merge commit,
+so a known failure still correctly marks that commit as not releasable — quarantining never
+silently hides a failure from the release gate.
+
+List quarantined tests: `grep -B1 'tags:.*"quarantined"' .evergreen-tasks.yml` (or filter by
+tag `quarantined` in the Evergreen UI). Each test file has a comment linking the tracking
+ticket.
+
+Because of `patchable: false`, these tasks cannot be force-run in a patch — the only way to
+check whether the upstream issue is fixed is to look at the task's result on master, or
+temporarily flip `patchable: true` in a throwaway branch.

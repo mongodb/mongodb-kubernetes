@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/hashicorp/go-retryablehttp"
@@ -47,15 +48,28 @@ func NewMemberHealthCheck(server string, ca []byte, token string, log *zap.Sugar
 	certpool := x509.NewCertPool()
 	certpool.AppendCertsFromPEM(ca)
 
+	// MULTI_CLUSTER_HEALTHCHECK_PROXY (when set) routes the member-cluster
+	// /readyz checks through an explicit HTTP CONNECT proxy. We can't use
+	// http.ProxyFromEnvironment here because Go hardcodes a 127.0.0.1 /
+	// localhost bypass that overrides NO_PROXY — and member-cluster API
+	// server URLs in the local-dev kubeconfig are exactly 127.0.0.1:<port>
+	// on the EVG host's loopback, reachable only via the SSH tunnel.
+	transport := &http.Transport{
+		TLSClientConfig: &tls.Config{
+			RootCAs:    certpool,
+			MinVersion: tls.VersionTLS12,
+		},
+	}
+	if proxyEnv := env.ReadOrDefault("MULTI_CLUSTER_HEALTHCHECK_PROXY", ""); proxyEnv != "" { // nolint:forbidigo
+		if proxyURL, perr := url.Parse(proxyEnv); perr == nil && proxyURL.Host != "" {
+			transport.Proxy = http.ProxyURL(proxyURL)
+		}
+	}
+
 	client := &retryablehttp.Client{
 		HTTPClient: &http.Client{
-			Transport: &http.Transport{
-				TLSClientConfig: &tls.Config{
-					RootCAs:    certpool,
-					MinVersion: tls.VersionTLS12,
-				},
-			},
-			Timeout: time.Duration(env.ReadIntOrDefault(multicluster.ClusterClientTimeoutEnv, 10)) * time.Second, // nolint:forbidigo
+			Transport: transport,
+			Timeout:   time.Duration(env.ReadIntOrDefault(multicluster.ClusterClientTimeoutEnv, 10)) * time.Second, // nolint:forbidigo
 		},
 		RetryWaitMin: DefaultRetryWaitMin,
 		RetryWaitMax: DefaultRetryWaitMax,

@@ -231,6 +231,10 @@ spec:
                   fieldPath: metadata.annotations['mongodb.com/installation-method']
             - name: OPERATOR_NAME
               value: {{ .Values.operator.name }}
+    {{- if .Values.operator.clusterIdentity.clusterName }}
+            - name: OPERATOR_CLUSTER_NAME
+              value: {{ .Values.operator.clusterIdentity.clusterName | quote }}
+    {{- end }}
             # Community Env Vars Start
             - name: MDB_COMMUNITY_AGENT_IMAGE
               value: "{{ .Values.community.registry.agent }}/{{ .Values.community.agent.name }}:{{ .Values.community.agent.version }}"
@@ -270,6 +274,8 @@ spec:
               value: "{{ .Values.search.repo }}/{{ .Values.search.name }}:{{ $.Values.search.version }}"
             - name: RELATED_IMAGE_MDB_ENVOY_IMAGE
               value: "{{ .Values.search.envoyImage }}"
+            - name: RELATED_IMAGE_MDB_SEARCH_METRICS_FORWARDER_IMAGE
+              value: "{{ .Values.search.metricsForwarderImage }}"
       {{- end }}
     {{- end }}
     {{- if .Values.search }}
@@ -281,6 +287,16 @@ spec:
               value: "{{ .Values.search.version }}"
             - name: MDB_ENVOY_IMAGE
               value: "{{ .Values.search.envoyImage }}"
+            - name: MDB_SEARCH_METRICS_FORWARDER_IMAGE
+              value: "{{ .Values.search.metricsForwarderImage }}"
+      {{- if and (hasKey .Values.search "enableMultiCluster") (ne (printf "%v" .Values.search.enableMultiCluster) "false") }}
+            - name: MDB_SEARCH_ENABLE_MULTI_CLUSTER
+              value: "{{ .Values.search.enableMultiCluster }}"
+      {{- end }}
+    {{- end }}
+    {{- if .Values.voyageai }}
+            - name: MDB_VOYAGEAI_REPO_URL
+              value: "{{ .Values.voyageai.repo }}"
     {{- end }}
     {{- if .Values.customEnvVars }}
       {{- range split "&" .Values.customEnvVars }}

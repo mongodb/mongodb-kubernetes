@@ -1,3 +1,4 @@
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -47,7 +48,7 @@ spec:
         - name: OPERATOR_NAME
           value: mongodb-kubernetes-operator
         - name: AGENT_IMAGE
-          value: quay.io/mongodb/mongodb-agent:108.0.2.8729-1
+          value: quay.io/mongodb/mongodb-agent:108.0.25.9029-1
         - name: READINESS_PROBE_IMAGE
           value: quay.io/mongodb/mongodb-kubernetes-readinessprobe:1.0.22
         - name: VERSION_UPGRADE_HOOK_IMAGE

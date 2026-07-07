@@ -1,0 +1,11 @@
+---
+apiVersion: mongodb.com/v1
+kind: MongoDBSearch
+metadata:
+  name: mdb-mc-rs-ext-lb-search
+spec:
+  logLevel: DEBUG
+  # clusters is always populated by the test harness before apply
+  # (one entry per member cluster, each with its own loadBalancer)
+  clusters:
+    - {}

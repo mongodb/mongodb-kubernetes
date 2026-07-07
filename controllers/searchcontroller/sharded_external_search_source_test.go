@@ -371,7 +371,7 @@ func TestShardedExternalSearchSource_TLSConfig(t *testing.T) {
 		assert.NotNil(t, tlsConfig)
 		assert.Equal(t, "ca.crt", tlsConfig.CAFileName)
 		assert.Equal(t, "ca", tlsConfig.CAVolume.Name)
-		assert.Equal(t, "top-level-ca-secret", tlsConfig.CAVolume.Secret.SecretName)
+		assert.Equal(t, "top-level-ca-secret", tlsConfig.CAVolume.ConfigMap.Name)
 		assert.NotNil(t, tlsConfig.ResourcesToWatch)
 	})
 
@@ -390,6 +390,6 @@ func TestShardedExternalSearchSource_TLSConfig(t *testing.T) {
 		tlsConfig := src.TLSConfig()
 
 		assert.NotNil(t, tlsConfig)
-		assert.Equal(t, "ca-secret", tlsConfig.CAVolume.Secret.SecretName)
+		assert.Equal(t, "ca-secret", tlsConfig.CAVolume.ConfigMap.Name)
 	})
 }

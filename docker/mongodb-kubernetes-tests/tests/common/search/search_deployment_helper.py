@@ -1,7 +1,10 @@
-from typing import Callable, Optional
+from typing import Callable, Mapping, Optional
 
+import kubernetes
+from kubernetes.client import CoreV1Api
 from kubetester import create_or_update_secret, try_load
 from kubetester.certs import create_mongodb_tls_certs, create_sharded_cluster_certs
+from kubetester.kubetester import ensure_nested_objects
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_search import MongoDBSearch
@@ -12,6 +15,32 @@ from tests.common.search import search_resource_names
 from tests.search.om_deployment import get_ops_manager
 
 logger = test_logger.get_test_logger(__name__)
+
+_ISSUER_BY_NAMESPACE: dict[str, str] = {}
+
+
+def ensure_search_issuer(namespace: str) -> str:
+    """Install cert-manager (idempotent) and create the namespace ``ca-issuer``.
+
+    Explicit replacement for the ``issuer`` / ``multi_cluster_issuer`` fixtures —
+    both just create the same per-namespace CA Issuer (named ``ca-issuer``) once
+    cert-manager is up. Memoized per namespace so repeated hook calls don't re-run
+    the helm install + readiness wait. Returns the Issuer name.
+    """
+    if namespace not in _ISSUER_BY_NAMESPACE:
+        from tests.conftest import (
+            create_issuer,
+            get_central_cluster_client,
+            get_central_cluster_name,
+            install_cert_manager,
+            wait_for_cert_manager_ready,
+        )
+
+        central_client = get_central_cluster_client()
+        install_cert_manager(cluster_client=central_client, cluster_name=get_central_cluster_name())
+        wait_for_cert_manager_ready(cluster_client=central_client)
+        _ISSUER_BY_NAMESPACE[namespace] = create_issuer(namespace=namespace, api_client=central_client)
+    return _ISSUER_BY_NAMESPACE[namespace]
 
 
 class SearchDeploymentHelper:
@@ -27,6 +56,7 @@ class SearchDeploymentHelper:
         config_server_count: int = 1,
         tls_cert_prefix: str = "certs",
         ca_configmap_name: Optional[str] = None,
+        api_client: Optional[kubernetes.client.ApiClient] = None,
     ):
         self.namespace = namespace
         self.mdb_resource_name = mdb_resource_name
@@ -37,6 +67,9 @@ class SearchDeploymentHelper:
         self.config_server_count = config_server_count
         self.tls_cert_prefix = tls_cert_prefix
         self.ca_configmap_name = ca_configmap_name or f"{mdb_resource_name}-ca"
+        # Cluster the MongoDBUser CRs + their password secrets land in. SC leaves
+        # this None (operator-cluster default); MC passes the central-cluster client.
+        self.api_client = api_client
 
     # create_sharded_mdb returns the MongoDB sharded deployment resource, after setting the mongotHost
     # and shardOverrides based on the the function `mongot_host_fn`. For unmanaged loadbalancers it should return the proxy svc's endpoint.
@@ -104,6 +137,7 @@ class SearchDeploymentHelper:
         lb_endpoint: Optional[str] = None,
         lb_mode: Optional[str] = None,
         replicas: Optional[int] = None,
+        shard_overrides: Optional[list] = None,
     ) -> MongoDBSearch:
         resource = MongoDBSearch.from_yaml(
             yaml_fixture("search-sharded-external-mongod.yaml"),
@@ -143,25 +177,46 @@ class SearchDeploymentHelper:
             },
         }
 
-        if lb_mode or lb_endpoint:
-            lb = {}
-            if lb_mode == "Managed":
-                external_hostname = (
-                    f"{self.mdbs_resource_name}-search-0-{{shardName}}-proxy-svc" f".{self.namespace}.svc.cluster.local"
-                )
-                lb["managed"] = {"externalHostname": external_hostname}
-            if lb_endpoint:
-                if "unmanaged" not in lb:
-                    lb["unmanaged"] = {}
-                lb["unmanaged"]["endpoint"] = lb_endpoint
-            elif lb_mode == "Unmanaged":
-                lb["unmanaged"] = {}
-            resource["spec"]["loadBalancer"] = lb
-
         if replicas is not None:
-            resource["spec"]["replicas"] = replicas
+            resource["spec"]["clusters"] = [{"replicas": replicas}]
+
+        if shard_overrides is not None:
+            clusters = resource["spec"].get("clusters") or [{}]
+            clusters[0]["shardOverrides"] = shard_overrides
+            resource["spec"]["clusters"] = clusters
+
+        if lb_mode or lb_endpoint:
+            clusters = resource["spec"].get("clusters") or [{}]
+            for i, cluster in enumerate(clusters):
+                lb = {}
+                if lb_mode == "Managed":
+                    lb["managed"] = {
+                        "externalHostname": search_resource_names.shard_proxy_svc_hostname_template(
+                            self.mdbs_resource_name, self.namespace, i
+                        ),
+                        # Shard-agnostic cluster-level endpoint for mongos: the per-cluster proxy-svc
+                        # FQDN (matches the LB cert SAN). Required for external sharded + managed LB.
+                        "routerHostname": search_resource_names.mc_proxy_svc_fqdn(
+                            self.mdbs_resource_name, self.namespace, i
+                        ),
+                    }
+                if lb_endpoint:
+                    lb["unmanaged"] = {"endpoint": lb_endpoint}
+                elif lb_mode == "Unmanaged":
+                    lb["unmanaged"] = {}
+                cluster["loadBalancer"] = lb
+            resource["spec"]["clusters"] = clusters
 
         return resource
+
+    def _wire_user_api(self, resource: MongoDBUser) -> None:
+        """Point the user resource at this helper's cluster when one was set.
+
+        SC leaves ``api_client`` None (operator-cluster default); MC constructs
+        the helper with the central-cluster client so the MongoDBUser lands there.
+        """
+        if self.api_client is not None:
+            resource.api = kubernetes.client.CustomObjectsApi(self.api_client)
 
     def admin_user_resource(self, admin_user_name: str) -> MongoDBUser:
         resource = MongoDBUser.from_yaml(
@@ -169,11 +224,11 @@ class SearchDeploymentHelper:
             namespace=self.namespace,
             name=admin_user_name,
         )
-        if try_load(resource):
-            return resource
-        resource["spec"]["mongodbResourceRef"]["name"] = self.mdb_resource_name
-        resource["spec"]["username"] = resource.name
-        resource["spec"]["passwordSecretKeyRef"]["name"] = f"{resource.name}-password"
+        if not try_load(resource):
+            resource["spec"]["mongodbResourceRef"]["name"] = self.mdb_resource_name
+            resource["spec"]["username"] = resource.name
+            resource["spec"]["passwordSecretKeyRef"]["name"] = f"{resource.name}-password"
+        self._wire_user_api(resource)
         return resource
 
     def user_resource(self, user_name: str) -> MongoDBUser:
@@ -182,25 +237,58 @@ class SearchDeploymentHelper:
             namespace=self.namespace,
             name=user_name,
         )
-        if try_load(resource):
-            return resource
-        resource["spec"]["mongodbResourceRef"]["name"] = self.mdb_resource_name
-        resource["spec"]["username"] = resource.name
-        resource["spec"]["passwordSecretKeyRef"]["name"] = f"{resource.name}-password"
+        if not try_load(resource):
+            resource["spec"]["mongodbResourceRef"]["name"] = self.mdb_resource_name
+            resource["spec"]["username"] = resource.name
+            resource["spec"]["passwordSecretKeyRef"]["name"] = f"{resource.name}-password"
+        self._wire_user_api(resource)
         return resource
 
-    def mongot_user_resource(self, mdbs: MongoDBSearch, mongot_user_name: str) -> MongoDBUser:
+    def mongot_user_resource(self, mdbs_name: str, mongot_user_name: str) -> MongoDBUser:
         resource = MongoDBUser.from_yaml(
             yaml_fixture("mongodbuser-search-sync-source-user.yaml"),
             namespace=self.namespace,
-            name=f"{mdbs.name}-{mongot_user_name}",
+            name=f"{mdbs_name}-{mongot_user_name}",
         )
-        if try_load(resource):
-            return resource
-        resource["spec"]["mongodbResourceRef"]["name"] = self.mdb_resource_name
-        resource["spec"]["username"] = mongot_user_name
-        resource["spec"]["passwordSecretKeyRef"]["name"] = f"{resource.name}-password"
+        if not try_load(resource):
+            resource["spec"]["mongodbResourceRef"]["name"] = self.mdb_resource_name
+            resource["spec"]["username"] = mongot_user_name
+            resource["spec"]["passwordSecretKeyRef"]["name"] = f"{resource.name}-password"
+        self._wire_user_api(resource)
         return resource
+
+    def configure_metrics_forwarder_opsmanager(self, mdbs: MongoDBSearch, mdb: MongoDB) -> None:
+        """Point the metrics forwarder at the source MongoDB's Ops Manager project.
+
+        External sources don't expose a mongodbResourceRef, so the forwarder can't auto-resolve the
+        Ops Manager project the way it does for internal sources. It must instead be given the project
+        ConfigMap and the agent-credentials Secret that the operator created for the source MongoDB.
+        The agent-credentials Secret is named "{projectId}-group-secret" (see agents.ApiKeySecretName).
+
+        Must be called after the source MongoDB has reached Running so that status.projectId is set.
+        """
+        mdb.load()
+        project_id = mdb["status"]["projectId"]
+        project_config_map_name = mdb["spec"]["opsManager"]["configMapRef"]["name"]
+        ensure_nested_objects(mdbs, ["spec", "observability", "metricsForwarder"])
+        mdbs["spec"]["observability"]["metricsForwarder"]["opsManager"] = {
+            "projectConfigMapRef": {"name": project_config_map_name},
+            "agentCredentials": {"name": f"{project_id}-group-secret"},
+        }
+
+    def apply_user_password(self, user_resource: MongoDBUser, password: str) -> None:
+        """Create/update the user's password secret and re-apply the CR.
+
+        The secret lands in this helper's cluster (``self.api_client``). Does not
+        wait for any phase — callers assert phases.
+        """
+        create_or_update_secret(
+            self.namespace,
+            name=user_resource["spec"]["passwordSecretKeyRef"]["name"],
+            data={"password": password},
+            api_client=self.api_client,
+        )
+        user_resource.update()
 
     def deploy_users(
         self,
@@ -211,28 +299,13 @@ class SearchDeploymentHelper:
         mongot_user: MongoDBUser,
         mongot_password: str,
     ):
-        create_or_update_secret(
-            self.namespace,
-            name=admin_user["spec"]["passwordSecretKeyRef"]["name"],
-            data={"password": admin_password},
-        )
-        admin_user.update()
+        self.apply_user_password(admin_user, admin_password)
         admin_user.assert_reaches_phase(Phase.Updated, timeout=300)
 
-        create_or_update_secret(
-            self.namespace,
-            name=user["spec"]["passwordSecretKeyRef"]["name"],
-            data={"password": user_password},
-        )
-        user.update()
+        self.apply_user_password(user, user_password)
         user.assert_reaches_phase(Phase.Updated, timeout=300)
 
-        create_or_update_secret(
-            self.namespace,
-            name=mongot_user["spec"]["passwordSecretKeyRef"]["name"],
-            data={"password": mongot_password},
-        )
-        mongot_user.update()
+        self.apply_user_password(mongot_user, mongot_password)
         # Don't wait for mongot user — needs searchCoordinator role from Search CR
 
     def create_replicaset_mdb(
@@ -273,12 +346,12 @@ class SearchDeploymentHelper:
 
         return resource
 
-    def install_sharded_tls_certificates(self, secret_prefix: str = "mdb-sh-"):
+    def install_sharded_tls_certificates(self, secret_prefix: str = "mdb-sh-", shard_count: Optional[int] = None):
         mongos_service_dns = f"{self.mdb_resource_name}-svc.{self.namespace}.svc.cluster.local"
         create_sharded_cluster_certs(
             namespace=self.namespace,
             resource_name=self.mdb_resource_name,
-            shards=self.shard_count,
+            shards=shard_count if shard_count is not None else self.shard_count,
             mongod_per_shard=self.mongods_per_shard,
             config_servers=self.config_server_count,
             mongos=self.mongos_count,
@@ -338,8 +411,13 @@ class SearchDeploymentHelper:
         members: int = 3,
         lb_mode: Optional[str] = None,
         replicas: Optional[int] = None,
+        clusters: Optional[list] = None,
     ) -> MongoDBSearch:
-        """Create MongoDBSearch with an external RS source."""
+        """Create MongoDBSearch with an external RS source.
+
+        ``clusters`` (mutually exclusive with ``replicas``) writes spec.clusters;
+        a single entry with no name models a single-cluster RS at index 0.
+        """
         resource = MongoDBSearch.from_yaml(
             yaml_fixture("search-minimal.yaml"),
             namespace=self.namespace,
@@ -370,16 +448,60 @@ class SearchDeploymentHelper:
             "tls": {"certsSecretPrefix": self.tls_cert_prefix},
         }
 
-        if lb_mode:
-            if lb_mode == "Managed":
-                external_hostname = (
-                    f"{self.mdbs_resource_name}-search-0-proxy-svc" f".{self.namespace}.svc.cluster.local"
-                )
-                resource["spec"]["loadBalancer"] = {"managed": {"externalHostname": external_hostname}}
-            elif lb_mode == "Unmanaged":
-                resource["spec"]["loadBalancer"] = {"unmanaged": {}}
+        if clusters is not None:
+            resource["spec"]["clusters"] = clusters
+        elif replicas is not None:
+            resource["spec"]["clusters"] = [{"replicas": replicas}]
 
-        if replicas is not None:
-            resource["spec"]["replicas"] = replicas
+        if lb_mode:
+            clusters_spec = resource["spec"].get("clusters") or [{}]
+            for i, cluster in enumerate(clusters_spec):
+                if lb_mode == "Managed":
+                    cluster["loadBalancer"] = {
+                        "managed": {
+                            "externalHostname": search_resource_names.mc_proxy_svc_fqdn(
+                                self.mdbs_resource_name, self.namespace, i
+                            )
+                        }
+                    }
+                elif lb_mode == "Unmanaged":
+                    cluster["loadBalancer"] = {"unmanaged": {}}
+            resource["spec"]["clusters"] = clusters_spec
 
         return resource
+
+
+class MCSearchDeploymentHelper:
+    """Per-cluster index and proxy-svc FQDN lookups for MC search e2e tests.
+
+    Cluster ordering follows dict-insertion order of `member_cluster_clients`,
+    which mirrors the explicit clusterIndex pins the e2e builders set on
+    spec.clusters[] (0..N-1 in the same client order).
+    """
+
+    def __init__(
+        self,
+        namespace: str,
+        mdbs_resource_name: str,
+        member_cluster_clients: Mapping[str, CoreV1Api],
+    ) -> None:
+        self.namespace = namespace
+        self.mdbs_resource_name = mdbs_resource_name
+        self._member_cluster_clients = dict(member_cluster_clients)
+        self._cluster_indices = {name: idx for idx, name in enumerate(self._member_cluster_clients)}
+
+    def member_cluster_names(self) -> list[str]:
+        return list(self._member_cluster_clients.keys())
+
+    def cluster_index(self, cluster_name: str) -> int:
+        if cluster_name not in self._cluster_indices:
+            raise KeyError(f"unknown member cluster: {cluster_name!r}")
+        return self._cluster_indices[cluster_name]
+
+    def member_clients(self) -> Mapping[str, CoreV1Api]:
+        return self._member_cluster_clients
+
+    def proxy_svc_fqdn(self, cluster_name: str) -> str:
+        return search_resource_names.mc_proxy_svc_fqdn(
+            self.mdbs_resource_name, self.namespace, self.cluster_index(cluster_name)
+        )
