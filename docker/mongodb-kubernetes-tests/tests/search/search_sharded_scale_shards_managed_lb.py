@@ -103,13 +103,18 @@ def verify_shard_resources_exist(namespace: str, mdbs_name: str, shard_name: str
     assert proxy_svc is not None, f"Proxy Service {proxy_svc_name} not found"
     logger.info(f"Proxy Service {proxy_svc_name} exists")
 
-    # Assert the ConfigMap and PVC(s) exist too, so the matching absence checks in
-    # verify_shard_resources_deleted can't pass vacuously if a future rename drifts
-    # the expected names.
+    # Assert the ConfigMap, operator TLS Secret, and PVC(s) exist too, so the matching
+    # absence checks in verify_shard_resources_deleted can't pass vacuously if a future
+    # rename drifts the expected names.
     cm_name = search_resource_names.shard_configmap_name(mdbs_name, shard_name)
     cm = core_v1.read_namespaced_config_map(cm_name, namespace)
     assert cm is not None, f"mongot ConfigMap {cm_name} not found"
     logger.info(f"mongot ConfigMap {cm_name} exists")
+
+    tls_secret_name = f"{mdbs_name}-search-0-{shard_name}-certificate-key"
+    tls_secret = core_v1.read_namespaced_secret(tls_secret_name, namespace)
+    assert tls_secret is not None, f"operator TLS Secret {tls_secret_name} not found"
+    logger.info(f"operator TLS Secret {tls_secret_name} exists")
 
     pvc_prefix = f"data-{sts_name}-"
     pvcs = core_v1.list_namespaced_persistent_volume_claim(namespace)
@@ -139,7 +144,7 @@ def verify_shard_resources_deleted(namespace: str, mdbs_name: str, shard_name: s
     """Assert FULL teardown of a removed shard's mongot resources.
 
     The stale-resource sweep deletes the per-shard mongot StatefulSet, headless
-    Service, proxy Service, and mongot ConfigMap; the StatefulSet's
+    Service, proxy Service, mongot ConfigMap, and operator TLS Secret; the StatefulSet's
     ``persistentVolumeClaimRetentionPolicy.whenDeleted: Delete`` then reaps the
     backing PVC(s). Each kind is polled independently so a partial sweep surfaces
     the specific resource that leaked. We poll until 404 (or empty list for PVCs)
@@ -152,6 +157,9 @@ def verify_shard_resources_deleted(namespace: str, mdbs_name: str, shard_name: s
     sts_name = search_resource_names.shard_statefulset_name(mdbs_name, shard_name)
     svc_name = search_resource_names.shard_service_name(mdbs_name, shard_name)
     cm_name = search_resource_names.shard_configmap_name(mdbs_name, shard_name)
+    # Operator-managed cert+key Secret: TLSOperatorSecretForClusterShard
+    # (mongodbsearch_types.go) -> "<name>-search-<clusterIndex>-<shardName>-certificate-key".
+    tls_secret_name = f"{mdbs_name}-search-0-{shard_name}-certificate-key"
     # PVCs are named "<volumeClaimName>-<sts-name>-<ordinal>"; the mongot data
     # volume claim is "data" (search_construction.go), so the prefix is "data-<sts>-".
     pvc_prefix = f"data-{sts_name}-"
@@ -183,6 +191,15 @@ def verify_shard_resources_deleted(namespace: str, mdbs_name: str, shard_name: s
                 return True, f"mongot ConfigMap {cm_name} deleted"
             raise
 
+    def tls_secret_gone():
+        try:
+            core_v1.read_namespaced_secret(tls_secret_name, namespace)
+            return False, f"operator TLS Secret {tls_secret_name} still exists"
+        except kubernetes.client.ApiException as e:
+            if e.status == 404:
+                return True, f"operator TLS Secret {tls_secret_name} deleted"
+            raise
+
     def pvcs_gone():
         pvcs = core_v1.list_namespaced_persistent_volume_claim(namespace)
         leftover = [p.metadata.name for p in pvcs.items if p.metadata.name.startswith(pvc_prefix)]
@@ -191,11 +208,12 @@ def verify_shard_resources_deleted(namespace: str, mdbs_name: str, shard_name: s
         return True, f"no PVCs with prefix {pvc_prefix!r} remain"
 
     # Proxy Service is covered by verify_shard_proxy_service_deleted; here we
-    # add the StatefulSet, headless Service, ConfigMap, and PVCs.
+    # add the StatefulSet, headless Service, ConfigMap, TLS Secret, and PVCs.
     for check, label in (
         (sts_gone, f"StatefulSet {sts_name}"),
         (headless_svc_gone, f"headless Service {svc_name}"),
         (configmap_gone, f"mongot ConfigMap {cm_name}"),
+        (tls_secret_gone, f"operator TLS Secret {tls_secret_name}"),
         (pvcs_gone, f"PVCs {pvc_prefix}*"),
     ):
         run_periodically(check, timeout=300, sleep_time=10, msg=f"{label} deletion")
