@@ -11,6 +11,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/ldap"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
 func loadTestAutomationConfig(t *testing.T, filename string) *om.AutomationConfig {
@@ -22,8 +23,48 @@ func loadTestAutomationConfig(t *testing.T, filename string) *om.AutomationConfi
 	return ac
 }
 
+// baseValidReplicaSetAC returns a minimal single-replica-set automation config that passes
+// ValidateMigration with no errors. Tests mutate one field to exercise a single validator,
+// so the mutation is the only thing that can trip the validation.
+func baseValidReplicaSetAC() *om.AutomationConfig {
+	ac := om.NewAutomationConfig(om.Deployment{
+		"options": map[string]interface{}{"downloadBase": util.PvcMmsMountPath},
+		"processes": []interface{}{
+			map[string]interface{}{
+				"name": "my-rs-0", "processType": string(om.ProcessTypeMongod),
+				"version": "7.0.12-ent", "authSchemaVersion": 5,
+				"args2_6": map[string]interface{}{
+					"net":         map[string]interface{}{"port": 27017, "tls": map[string]interface{}{"mode": "requireSSL"}},
+					"storage":     map[string]interface{}{"dbPath": "/data/db"},
+					"replication": map[string]interface{}{"replSetName": "my-rs"},
+				},
+			},
+		},
+		"replicaSets": []interface{}{
+			map[string]interface{}{
+				"_id": "my-rs", "protocolVersion": "1",
+				"members": []interface{}{
+					map[string]interface{}{"_id": 0, "host": "my-rs-0", "votes": 1, "priority": 1, "buildIndexes": true, "tags": map[string]string{}},
+				},
+			},
+		},
+		"sharding": []interface{}{},
+	})
+	ac.Auth = &om.Auth{
+		Disabled:          false,
+		AutoUser:          util.AutomationAgentName,
+		AutoAuthMechanism: "SCRAM-SHA-256",
+		KeyFile:           util.AutomationAgentKeyFilePathInContainer,
+		KeyFileWindows:    util.AutomationAgentWindowsKeyFilePath,
+		Users: []*om.MongoDBUser{
+			{Username: util.AutomationAgentName, Database: util.DefaultUserDatabase},
+		},
+	}
+	return ac
+}
+
 func TestValidation_OneDeploymentPerProject_SingleRS(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/complex_replicaset/complex_replicaset_input.json")
+	ac := baseValidReplicaSetAC()
 
 	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
 	for _, r := range results {
@@ -32,30 +73,174 @@ func TestValidation_OneDeploymentPerProject_SingleRS(t *testing.T) {
 }
 
 func TestValidation_OneDeploymentPerProject_MultipleRS(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "validation/multi_replicaset.json")
+	ac := om.NewAutomationConfig(om.Deployment{
+		"processes": []interface{}{},
+		"replicaSets": []interface{}{
+			map[string]interface{}{"_id": "rs-alpha", "members": []interface{}{}},
+			map[string]interface{}{"_id": "rs-beta", "members": []interface{}{}},
+		},
+		"sharding": []interface{}{},
+	})
 
-	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
-	hasMultipleDeploymentsError := false
-	for _, r := range results {
-		if r.Severity == SeverityError && strings.Contains(r.Message, "deployments") {
-			hasMultipleDeploymentsError = true
-			assert.Contains(t, r.Message, "before migrating")
-		}
-	}
-	assert.True(t, hasMultipleDeploymentsError, "expected error when project has multiple replica sets")
+	results := validateOneDeploymentPerProject(ac.Deployment)
+	require.Len(t, results, 1)
+	assert.Equal(t, SeverityError, results[0].Severity)
+	assert.Contains(t, results[0].Message, "before migrating")
 }
 
 func TestValidation_OneDeploymentPerProject_SingleSharded(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "validation/sharded_cluster.json")
+	ac := om.NewAutomationConfig(om.Deployment{
+		"processes": []interface{}{},
+		"replicaSets": []interface{}{
+			map[string]interface{}{"_id": "shard-rs", "members": []interface{}{}},
+			map[string]interface{}{"_id": "config-rs", "members": []interface{}{}},
+		},
+		"sharding": []interface{}{
+			map[string]interface{}{
+				"name":                "my-sharded-cluster",
+				"configServerReplica": "config-rs",
+				"shards": []interface{}{
+					map[string]interface{}{"_id": "shard0", "rs": "shard-rs"},
+				},
+			},
+		},
+	})
 
-	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
-	hasError := false
-	for _, r := range results {
-		if r.Severity == SeverityError && strings.Contains(r.Message, "not yet supported") {
-			hasError = true
-		}
-	}
-	assert.True(t, hasError, "expected error for sharded cluster config")
+	results := validateOneDeploymentPerProject(ac.Deployment)
+	assert.Empty(t, results, "single sharded cluster should not trigger one-deployment-per-project error")
+}
+
+func TestValidation_OneDeploymentPerProject_ShardedWithExtraReplicaSet(t *testing.T) {
+	ac := om.NewAutomationConfig(om.Deployment{
+		"processes": []interface{}{},
+		"replicaSets": []interface{}{
+			map[string]interface{}{"_id": "shard-rs", "members": []interface{}{}},
+			map[string]interface{}{"_id": "config-rs", "members": []interface{}{}},
+			map[string]interface{}{"_id": "stray-rs", "members": []interface{}{}},
+		},
+		"sharding": []interface{}{
+			map[string]interface{}{
+				"name":                "my-sharded-cluster",
+				"configServerReplica": "config-rs",
+				"shards": []interface{}{
+					map[string]interface{}{"_id": "shard0", "rs": "shard-rs"},
+				},
+			},
+		},
+	})
+
+	results := validateOneDeploymentPerProject(ac.Deployment)
+	require.Len(t, results, 1)
+	assert.Equal(t, SeverityError, results[0].Severity)
+	assert.Contains(t, results[0].Message, "stray-rs")
+}
+
+func TestValidation_OneDeploymentPerProject_MultipleSharded(t *testing.T) {
+	ac := om.NewAutomationConfig(om.Deployment{
+		"processes":   []interface{}{},
+		"replicaSets": []interface{}{},
+		"sharding": []interface{}{
+			map[string]interface{}{
+				"name":                "sc-a",
+				"configServerReplica": "config-a",
+				"shards":              []interface{}{},
+			},
+			map[string]interface{}{
+				"name":                "sc-b",
+				"configServerReplica": "config-b",
+				"shards":              []interface{}{},
+			},
+		},
+	})
+
+	results := validateOneDeploymentPerProject(ac.Deployment)
+	require.Len(t, results, 1)
+	assert.Equal(t, SeverityError, results[0].Severity)
+	assert.Contains(t, results[0].Message, "2 sharded clusters")
+}
+
+func TestValidation_EmbeddedConfigServer(t *testing.T) {
+	ac := om.NewAutomationConfig(om.Deployment{
+		"processes":   []interface{}{},
+		"replicaSets": []interface{}{},
+		"sharding": []interface{}{
+			map[string]interface{}{
+				"name":                "my-sharded-cluster",
+				"configServerReplica": "shard-rs",
+				"shards": []interface{}{
+					map[string]interface{}{"_id": "shard0", "rs": "shard-rs"},
+					map[string]interface{}{"_id": "shard1", "rs": "shard-rs-1"},
+				},
+			},
+		},
+	})
+
+	results := validateEmbeddedConfigServer(ac.Deployment)
+	require.Len(t, results, 1)
+	assert.Equal(t, SeverityError, results[0].Severity)
+	assert.Contains(t, results[0].Message, "embedded config server")
+	assert.Contains(t, results[0].Message, "shard0")
+	assert.Contains(t, results[0].Message, "shard-rs")
+}
+
+func TestValidation_DedicatedConfigServer_NoError(t *testing.T) {
+	ac := om.NewAutomationConfig(om.Deployment{
+		"processes": []interface{}{},
+		"replicaSets": []interface{}{
+			map[string]interface{}{"_id": "shard-rs", "members": []interface{}{}},
+			map[string]interface{}{"_id": "config-rs", "members": []interface{}{}},
+		},
+		"sharding": []interface{}{
+			map[string]interface{}{
+				"name":                "my-sharded-cluster",
+				"configServerReplica": "config-rs",
+				"shards": []interface{}{
+					map[string]interface{}{"_id": "shard0", "rs": "shard-rs"},
+				},
+			},
+		},
+	})
+
+	results := validateEmbeddedConfigServer(ac.Deployment)
+	assert.Empty(t, results, "dedicated config server should not trigger embedded-config-server error")
+}
+
+func TestValidation_EmbeddedConfigServer_ViaProcessClusterRole(t *testing.T) {
+	// Malformed AC where the sharding section claims a dedicated config server
+	// (configServerReplica = csrs) but a shard process declares
+	// sharding.clusterRole = configsvr. The cross-check must still flag this.
+	ac := om.NewAutomationConfig(om.Deployment{
+		"processes": []interface{}{
+			map[string]interface{}{
+				"name":     "shard0-0",
+				"hostname": "shard0-0.example.com",
+				"args2_6": map[string]interface{}{
+					"replication": map[string]interface{}{"replSetName": "shard-rs"},
+					"sharding":    map[string]interface{}{"clusterRole": "configsvr"},
+				},
+			},
+		},
+		"replicaSets": []interface{}{
+			map[string]interface{}{"_id": "shard-rs", "members": []interface{}{}},
+			map[string]interface{}{"_id": "csrs", "members": []interface{}{}},
+		},
+		"sharding": []interface{}{
+			map[string]interface{}{
+				"name":                "my-sharded-cluster",
+				"configServerReplica": "csrs",
+				"shards": []interface{}{
+					map[string]interface{}{"_id": "shard0", "rs": "shard-rs"},
+				},
+			},
+		},
+	})
+
+	results := validateEmbeddedConfigServer(ac.Deployment)
+	require.Len(t, results, 1)
+	assert.Equal(t, SeverityError, results[0].Severity)
+	assert.Contains(t, results[0].Message, "shard0")
+	assert.Contains(t, results[0].Message, "shard-rs")
+	assert.Contains(t, results[0].Message, "clusterRole = configsvr")
 }
 
 func TestValidation_NoReplicaSets(t *testing.T) {
@@ -76,7 +261,7 @@ func TestValidation_NoReplicaSets(t *testing.T) {
 }
 
 func TestValidation_NonDefaultKeyFile(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/complex_replicaset/complex_replicaset_input.json")
+	ac := baseValidReplicaSetAC()
 	ac.Auth.KeyFile = "/custom/path/keyfile"
 
 	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
@@ -91,7 +276,7 @@ func TestValidation_NonDefaultKeyFile(t *testing.T) {
 }
 
 func TestValidation_NonDefaultCAFilePath(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/complex_replicaset/complex_replicaset_input.json")
+	ac := baseValidReplicaSetAC()
 	ac.AgentSSL.CAFilePath = "/etc/ssl/ca.pem"
 
 	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
@@ -106,7 +291,7 @@ func TestValidation_NonDefaultCAFilePath(t *testing.T) {
 }
 
 func TestValidation_NonDefaultDownloadBase(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/complex_replicaset/complex_replicaset_input.json")
+	ac := baseValidReplicaSetAC()
 	options := ac.Deployment["options"].(map[string]interface{})
 	options["downloadBase"] = "/opt/mongodb/automation"
 	ac.Deployment["options"] = options
@@ -123,7 +308,7 @@ func TestValidation_NonDefaultDownloadBase(t *testing.T) {
 }
 
 func TestValidation_NonDefaultKeyFileWindows(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/complex_replicaset/complex_replicaset_input.json")
+	ac := baseValidReplicaSetAC()
 	ac.Auth.KeyFileWindows = "C:\\custom\\keyfile"
 
 	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
@@ -137,7 +322,7 @@ func TestValidation_NonDefaultKeyFileWindows(t *testing.T) {
 }
 
 func TestValidation_NonDefaultAuthSchemaVersion(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/complex_replicaset/complex_replicaset_input.json")
+	ac := baseValidReplicaSetAC()
 	processes := ac.Deployment.GetProcesses()
 	processes[0]["authSchemaVersion"] = 3
 
@@ -153,7 +338,7 @@ func TestValidation_NonDefaultAuthSchemaVersion(t *testing.T) {
 }
 
 func TestValidation_NonDefaultMonitoringAgentLogPath(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/complex_replicaset/complex_replicaset_input.json")
+	ac := baseValidReplicaSetAC()
 	monitoringConfig := &om.MonitoringAgentConfig{
 		BackingMap: map[string]interface{}{"logPath": "/var/log/mongodb/monitoring.log"},
 	}
@@ -170,7 +355,7 @@ func TestValidation_NonDefaultMonitoringAgentLogPath(t *testing.T) {
 }
 
 func TestValidation_NonDefaultBackupAgentLogPath(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/complex_replicaset/complex_replicaset_input.json")
+	ac := baseValidReplicaSetAC()
 	backupConfig := &om.BackupAgentConfig{
 		BackingMap: map[string]interface{}{"logPath": "/var/log/mongodb/backup.log"},
 	}
@@ -187,7 +372,7 @@ func TestValidation_NonDefaultBackupAgentLogPath(t *testing.T) {
 }
 
 func TestValidation_ValidConfig_NoErrors(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/complex_replicaset/complex_replicaset_input.json")
+	ac := baseValidReplicaSetAC()
 
 	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
 	for _, r := range results {
@@ -196,7 +381,7 @@ func TestValidation_ValidConfig_NoErrors(t *testing.T) {
 }
 
 func TestValidation_LdapBindMethodSASL(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/complex_replicaset/complex_replicaset_input.json")
+	ac := baseValidReplicaSetAC()
 	ac.Ldap = &ldap.Ldap{
 		Servers:    "ldap.example.com:636",
 		BindMethod: "sasl",
@@ -215,7 +400,7 @@ func TestValidation_LdapBindMethodSASL(t *testing.T) {
 }
 
 func TestValidation_LdapBindMethodSimple_NoWarning(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/complex_replicaset/complex_replicaset_input.json")
+	ac := baseValidReplicaSetAC()
 	ac.Ldap = &ldap.Ldap{
 		Servers:    "ldap.example.com:636",
 		BindMethod: "simple",
@@ -230,7 +415,7 @@ func TestValidation_LdapBindMethodSimple_NoWarning(t *testing.T) {
 }
 
 func TestValidation_LdapCaFileContents(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/complex_replicaset/complex_replicaset_input.json")
+	ac := baseValidReplicaSetAC()
 	ac.Ldap = &ldap.Ldap{
 		Servers:        "ldap.example.com:636",
 		CaFileContents: "-----BEGIN CERTIFICATE-----\nMIIC...\n-----END CERTIFICATE-----",
@@ -249,7 +434,7 @@ func TestValidation_LdapCaFileContents(t *testing.T) {
 }
 
 func TestValidation_LdapNoCaFileContents_NoWarning(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/complex_replicaset/complex_replicaset_input.json")
+	ac := baseValidReplicaSetAC()
 	ac.Ldap = &ldap.Ldap{
 		Servers: "ldap.example.com:636",
 	}
@@ -263,7 +448,7 @@ func TestValidation_LdapNoCaFileContents_NoWarning(t *testing.T) {
 }
 
 func TestValidation_NilLdap_NoWarning(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/complex_replicaset/complex_replicaset_input.json")
+	ac := baseValidReplicaSetAC()
 	ac.Ldap = nil
 
 	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
@@ -289,7 +474,7 @@ func TestValidateAgentTLS_WarnsAboutGeneratedServerTLSResources(t *testing.T) {
 }
 
 func TestValidation_RequireTLS_NoWarning(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/complex_replicaset/complex_replicaset_input.json")
+	ac := baseValidReplicaSetAC()
 
 	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
 	for _, r := range results {
@@ -312,7 +497,7 @@ func TestCheckTLS_NoTLSSection_Warning(t *testing.T) {
 	d := om.Deployment{
 		"processes": []interface{}{
 			map[string]interface{}{
-				"name": "rs-0", "processType": "mongod", "version": "7.0.0", "authSchemaVersion": 5,
+				"name": "rs-0", "processType": string(om.ProcessTypeMongod), "version": "7.0.0", "authSchemaVersion": 5,
 				"args2_6": map[string]interface{}{"net": map[string]interface{}{"port": 27017}},
 			},
 		},
@@ -328,7 +513,7 @@ func TestCheckTLS_ModeDisabled_Warning(t *testing.T) {
 	d := om.Deployment{
 		"processes": []interface{}{
 			map[string]interface{}{
-				"name": "rs-0", "processType": "mongod", "version": "7.0.0", "authSchemaVersion": 5,
+				"name": "rs-0", "processType": string(om.ProcessTypeMongod), "version": "7.0.0", "authSchemaVersion": 5,
 				"args2_6": map[string]interface{}{
 					"net": map[string]interface{}{
 						"port": 27017,
@@ -347,7 +532,7 @@ func TestCheckTLS_TLSEnabled_NoWarning(t *testing.T) {
 	d := om.Deployment{
 		"processes": []interface{}{
 			map[string]interface{}{
-				"name": "rs-0", "processType": "mongod", "version": "7.0.0", "authSchemaVersion": 5,
+				"name": "rs-0", "processType": string(om.ProcessTypeMongod), "version": "7.0.0", "authSchemaVersion": 5,
 				"args2_6": map[string]interface{}{
 					"net": map[string]interface{}{
 						"port": 27017,
@@ -364,7 +549,7 @@ func TestCheckTLS_TLSEnabled_NoWarning(t *testing.T) {
 }
 
 func TestValidation_EmptyAutoUser(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/complex_replicaset/complex_replicaset_input.json")
+	ac := baseValidReplicaSetAC()
 	ac.Auth.AutoUser = ""
 
 	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
@@ -378,7 +563,7 @@ func TestValidation_EmptyAutoUser(t *testing.T) {
 }
 
 func TestValidation_AutoUserNotInUsersWanted(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/complex_replicaset/complex_replicaset_input.json")
+	ac := baseValidReplicaSetAC()
 	ac.Auth.AutoUser = "nonexistent-agent"
 
 	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
@@ -392,7 +577,7 @@ func TestValidation_AutoUserNotInUsersWanted(t *testing.T) {
 }
 
 func TestValidation_AutoUserMatchesUsersWanted_NoError(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/complex_replicaset/complex_replicaset_input.json")
+	ac := baseValidReplicaSetAC()
 
 	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
 	for _, r := range results {
@@ -403,7 +588,7 @@ func TestValidation_AutoUserMatchesUsersWanted_NoError(t *testing.T) {
 }
 
 func TestValidation_X509AutoUser_NotInUsersWanted_Error(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/complex_replicaset/complex_replicaset_input.json")
+	ac := baseValidReplicaSetAC()
 	ac.Auth.AutoUser = "CN=mms-automation-agent,OU=test,O=cluster.local"
 	ac.Auth.AutoAuthMechanism = "MONGODB-X509"
 	ac.Auth.Users = nil
@@ -420,7 +605,7 @@ func TestValidation_X509AutoUser_NotInUsersWanted_Error(t *testing.T) {
 }
 
 func TestValidation_X509AutoUser_InUsersWanted_NoError(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/complex_replicaset/complex_replicaset_input.json")
+	ac := baseValidReplicaSetAC()
 	ac.Auth.AutoUser = "CN=mms-automation-agent,OU=test,O=cluster.local"
 	ac.Auth.AutoAuthMechanism = "MONGODB-X509"
 	ac.Auth.Users = []*om.MongoDBUser{
@@ -467,7 +652,7 @@ func TestValidation_AgentConfigDrift_Warning(t *testing.T) {
 		"options": map[string]interface{}{"downloadBase": "/var/lib/mongodb-mms-automation"},
 		"processes": []interface{}{
 			map[string]interface{}{
-				"name": "rs-0", "processType": "mongod", "version": "7.0.0", "authSchemaVersion": 5,
+				"name": "rs-0", "processType": string(om.ProcessTypeMongod), "version": "7.0.0", "authSchemaVersion": 5,
 				"logRotate": map[string]interface{}{"sizeThresholdMB": 500, "timeThresholdHrs": 12},
 				"args2_6": map[string]interface{}{
 					"net": map[string]interface{}{"port": 27017}, "storage": map[string]interface{}{"dbPath": "/data"},

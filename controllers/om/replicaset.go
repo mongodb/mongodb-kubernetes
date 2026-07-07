@@ -376,6 +376,24 @@ func findDifference(leftMap map[string]ReplicaSetMember, rightMap map[string]Rep
 	return ans
 }
 
+// ExtractExternalMembers builds CR-shaped externalMembers from the given processes, skipping disabled ones.
+// mongos processes naturally produce an empty ReplicaSetName since their AC args do not declare replication.replSetName.
+func ExtractExternalMembers(processes []Process) []mdbv1.ExternalMember {
+	var out []mdbv1.ExternalMember
+	for _, proc := range processes {
+		if proc.IsDisabled() {
+			continue
+		}
+		out = append(out, mdbv1.ExternalMember{
+			ProcessName:    proc.Name(),
+			Hostname:       fmt.Sprintf("%s:%s", proc.HostName(), proc.Port()),
+			Type:           string(proc.ProcessType()),
+			ReplicaSetName: proc.ReplicaSetName(),
+		})
+	}
+	return out
+}
+
 // ExtractMemberInfo reads version, FCV, and per-member metadata from the
 // given replica set members and process map. Each member becomes an
 // mdbv1.ExternalMember suitable for the CR's spec.externalMembers.

@@ -1,0 +1,69 @@
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  annotations:
+    mongodb.com/migrate-tool-version: latest
+    mongodb.com/migration-dry-run: "true"
+  name: sc-x509-cluster
+  namespace: mongodb
+spec:
+  agent:
+    mongod:
+      systemLog:
+        destination: file
+        logAppend: false
+        path: /var/log/mongodb/mongod.log
+  configServerNameOverride: sc-x509-csrs
+  configSrv:
+    additionalMongodConfig:
+      net:
+        port: 27019
+  credentials: my-credentials
+  externalMembers:
+  - hostname: config-0.example.com:27019
+    processName: sc-x509-csrs-0
+    replicaSetName: sc-x509-csrs
+    type: mongod
+  - hostname: config-1.example.com:27019
+    processName: sc-x509-csrs-1
+    replicaSetName: sc-x509-csrs
+    type: mongod
+  - hostname: shard-0.example.com:27018
+    processName: sc-x509-shard-rs-0
+    replicaSetName: sc-x509-shard-rs
+    type: mongod
+  - hostname: shard-1.example.com:27018
+    processName: sc-x509-shard-rs-1
+    replicaSetName: sc-x509-shard-rs
+    type: mongod
+  - hostname: mongos-0.example.com:27017
+    processName: sc-x509-mongos-0
+    type: mongos
+  featureCompatibilityVersion: "8.0"
+  opsManager:
+    configMapRef:
+      name: my-om-config
+  security:
+    authentication:
+      agents:
+        mode: SCRAM
+      enabled: true
+      ignoreUnknownUsers: true
+      internalCluster: X509
+      modes:
+      - SCRAM
+      - X509
+    certsSecretPrefix: mdb
+    tls:
+      ca: sc-x509-cluster-ca
+  shard:
+    additionalMongodConfig:
+      net:
+        port: 27018
+  shardCount: 1
+  shardNameOverrides:
+  - replicaSetName: sc-x509-shard-rs
+    shardId: sc-x509-shard
+    shardName: sc-x509-cluster-0
+  type: ShardedCluster
+  version: 8.0.4-ent

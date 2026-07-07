@@ -5,10 +5,10 @@ import (
 	"fmt"
 
 	"go.uber.org/zap"
-	k8sClient "sigs.k8s.io/controller-runtime/pkg/client"
-	ctrl "sigs.k8s.io/controller-runtime"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	ctrl "sigs.k8s.io/controller-runtime"
+	k8sClient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
