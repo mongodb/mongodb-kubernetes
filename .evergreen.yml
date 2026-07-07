@@ -564,6 +564,7 @@ tasks:
     commands:
       - func: clone
       - func: switch_context
+      - func: python_venv
       - func: generate_perf_tests_tasks
         vars:
           variant: e2e_operator_perf_one_thread
@@ -573,6 +574,7 @@ tasks:
     commands:
       - func: clone
       - func: switch_context
+      - func: python_venv
       - func: generate_perf_tests_tasks
         vars:
           variant: e2e_operator_perf
@@ -582,6 +584,7 @@ tasks:
     commands:
       - func: clone
       - func: switch_context
+      - func: python_venv
       - func: generate_perf_tests_tasks
         vars:
           variant: e2e_operator_perf_thirty
@@ -617,14 +620,14 @@ tasks:
       - func: setup_prepare_openshift_bundles
       - func: prepare_openshift_bundles_for_e2e
 
-  # Dummy placeholder: will call `mckctl release promote` once the tool is wired into CI.
+  # Dummy placeholder: will call `mckci release promote` once the tool is wired into CI.
   # Runs after all staging tests pass on a master merge to confirm the build is promotable.
-  - name: mckctl_release_promote
+  - name: mckci_release_promote
     commands:
       - command: shell.exec
         params:
           script: |
-            echo "would run: mckctl release promote --version ${OPERATOR_VERSION}"
+            echo "would run: mckci release promote --version ${OPERATOR_VERSION}"
 
   # Notify Slack about build failures
   # On patches: stdout only. On mainline: stdout + Slack
@@ -1975,7 +1978,7 @@ buildvariants:
     tags: [ "manual_patch", "e2e_perf_test_suite" ]
     allowed_requesters: [ "patch" ]
     run_on:
-      - ubuntu1804-xlarge
+      - ubuntu2404-xlarge
     <<: *base_om7_dependency
     tasks:
       - name: generate_perf_tasks_10_thread
@@ -1985,7 +1988,7 @@ buildvariants:
     tags: [ "manual_patch", "e2e_perf_test_suite" ]
     allowed_requesters: [ "patch" ]
     run_on:
-      - ubuntu1804-xlarge
+      - ubuntu2404-xlarge
     <<: *base_om7_dependency
     tasks:
       - name: generate_perf_tasks_one_thread
@@ -1995,7 +1998,7 @@ buildvariants:
     tags: [ "manual_patch", "e2e_perf_test_suite" ]
     allowed_requesters: [ "patch" ]
     run_on:
-      - ubuntu1804-xlarge
+      - ubuntu2404-xlarge
     <<: *base_om7_dependency
     tasks:
       - name: generate_perf_tasks_30_thread
@@ -2234,8 +2237,8 @@ buildvariants:
   # Notification task - runs after all staging tasks complete to report build status.
   # Runs after all staging tests (including GKE snippets) succeed on master merge.
   # Only on commit builds — see DEVPROD-27436 note on notify_master_build_status below.
-  - name: mckctl_release_promote
-    display_name: mckctl_release_promote
+  - name: mckci_release_promote
+    display_name: mckci_release_promote
     allowed_requesters: [ "commit" ]
     depends_on:
       - name: "*"
@@ -2244,7 +2247,7 @@ buildvariants:
     run_on:
       - ubuntu2404-small
     tasks:
-      - name: mckctl_release_promote
+      - name: mckci_release_promote
 
   # Only runs on commit builds (not patches) because of Evergreen bug DEVPROD-27436:
   # depends_on with patch_optional:true generates phantom dependencies for tasks that

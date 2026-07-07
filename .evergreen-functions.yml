@@ -732,6 +732,11 @@ functions:
         binary: scripts/evergreen/e2e/e2e.sh
 
   e2e_test_perf:
+    # Perf tasks provision and roll many deployments; the 300-deployment task exceeds the
+    # global 2h exec_timeout_secs. Raise the limit for perf tasks only.
+    - command: timeout.update
+      params:
+        exec_timeout_secs: 14400
     - command: subprocess.exec
       type: test
       retry_on_failure: true
