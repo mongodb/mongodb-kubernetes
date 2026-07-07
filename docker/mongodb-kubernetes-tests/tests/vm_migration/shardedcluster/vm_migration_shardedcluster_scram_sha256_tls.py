@@ -478,7 +478,7 @@ def test_common_generated_cr_shape(generated_cr: dict, version_id: str):
         expected_config_count=MIN_VM_CONFIGSRV,
         expected_shard_count=MIN_VM_SHARD,
         expected_mongos_count=MIN_VM_MONGOS,
-        version_id=version_id
+        version_id=version_id,
     )
 
 

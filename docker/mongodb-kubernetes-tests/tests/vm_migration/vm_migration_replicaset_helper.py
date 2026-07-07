@@ -18,7 +18,8 @@ from kubetester.phase import Phase
 from tests.vm_migration.vm_migration_common_helper import (
     _deploy_vm_statefulset_from_fixture,
     assert_migration_dry_run_annotation,
-    generated_mongodb_doc, assert_migration_tool_version_annotation,
+    assert_migration_tool_version_annotation,
+    generated_mongodb_doc,
 )
 
 # minimum K8s StatefulSet members deployed alongside VM external members.

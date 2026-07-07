@@ -219,6 +219,7 @@ def _assert_trips(mdb_migration: MongoDB, expected_rs_name: str) -> None:
     mdb_migration.update()
     mdb_migration.assert_reaches_phase(Phase.Failed, timeout=300)
     message = mdb_migration.get_status_message()
+    assert message is not None
     assert "voting members" in message
     assert expected_rs_name in message, f"expected {expected_rs_name} to trip the voting limit, got: {message}"
 

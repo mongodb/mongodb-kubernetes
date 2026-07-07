@@ -19,7 +19,8 @@ from kubetester.phase import Phase
 from tests.vm_migration.vm_migration_common_helper import (
     MIGRATION_DRY_RUN_ANNOTATION,
     _deploy_vm_statefulset_from_fixture,
-    generated_mongodb_doc, assert_migration_tool_version_annotation,
+    assert_migration_tool_version_annotation,
+    generated_mongodb_doc,
 )
 
 # The voting limit test trips the config server and a shard independently: the config server
